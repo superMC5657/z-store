@@ -16,6 +16,8 @@ export interface AppSummary {
   is_installed?: boolean;
   has_update?: boolean;
   installed_version?: string;
+  forge?: string;
+  forge_host?: string;
 }
 
 export interface ReleaseAsset {
@@ -47,6 +49,8 @@ export interface AppDetail {
   releases: ReleaseAsset[];
   category: string;
   category_name: string;
+  forge?: string;
+  forge_host?: string;
 }
 
 export interface InstalledApp {
@@ -199,4 +203,22 @@ export interface StarredSyncResult {
   catalog_matches: AppSummary[];
   other_repos: DeveloperRepoItem[];
 }
+
+export interface HostTokenEntry {
+  host: string;
+  token: string;
+  rate_limit_remaining?: number;
+  rate_limit_limit?: number;
+  rate_limit_reset?: number;
+  updated_at: number;
+}
+
+export interface HostRateLimitStatus {
+  host: string;
+  is_connected: boolean;
+  rate_limit_remaining?: number;
+  rate_limit_limit?: number;
+  message?: string;
+}
+
 

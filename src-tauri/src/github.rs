@@ -316,6 +316,8 @@ impl CatalogService {
                             is_installed: None,
                             has_update: None,
                             installed_version: None,
+                            forge: Some("github".to_string()),
+                            forge_host: Some("github.com".to_string()),
                         })
                         .collect();
                     return Ok(summaries);
@@ -326,7 +328,7 @@ impl CatalogService {
         Ok(Vec::new())
     }
 
-    async fn fetch_online_repo(
+    pub async fn fetch_online_repo(
         &self,
         owner: &str,
         repo: &str,
@@ -379,6 +381,8 @@ impl CatalogService {
             is_installed: None,
             has_update: None,
             installed_version: None,
+            forge: Some("github".to_string()),
+            forge_host: Some("github.com".to_string()),
         })
     }
 
@@ -552,6 +556,8 @@ impl CatalogService {
             category_name: catalog_item
                 .map(|i| i.category_name.clone())
                 .unwrap_or_else(|| "系统实用".to_string()),
+            forge: Some("github".to_string()),
+            forge_host: Some("github.com".to_string()),
         };
 
         Ok((detail, new_cache))
@@ -882,6 +888,8 @@ impl CatalogItem {
             is_installed: None,
             has_update: None,
             installed_version: None,
+            forge: Some("github".to_string()),
+            forge_host: Some("github.com".to_string()),
         }
     }
 }

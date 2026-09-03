@@ -1,7 +1,7 @@
 use crate::installer::InstallerEngine;
 use crate::models::{
-    AppDetail, AppSummary, DeveloperProfile, InstalledApp, MirrorNodeStatus, StarredSyncResult,
-    UpdateItem, UpdateRule,
+    AppDetail, AppSummary, DeveloperProfile, HostRateLimitStatus, HostTokenEntry, InstalledApp,
+    MirrorNodeStatus, StarredSyncResult, UpdateItem, UpdateRule,
 };
 use crate::AppState;
 use std::collections::HashMap;
@@ -12,6 +12,66 @@ pub async fn search_apps(
     state: State<'_, AppState>,
     query: String,
 ) -> Result<Vec<AppSummary>, String> {
+    // 1. 优先检查是否为多源 (Codeberg, Gitea, 自建源) 仓库 URL 或 short syntax
+    if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&query) {
+        if coord.forge != crate::forge::ForgeType::GitHub {
+            let host_token = if let Ok(db) = state.db.lock() {
+                db.get_host_token(&coord.host).ok().flatten()
+            } else {
+                None
+            };
+            if let Ok(repo_info) =
+                crate::forge::ForgeRegistry::fetch_repo(&coord, host_token.as_deref()).await
+            {
+                let release_res =
+                    crate::forge::ForgeRegistry::fetch_latest_release(&coord, host_token.as_deref())
+                        .await;
+                let latest_ver = release_res
+                    .map(|r| r.tag_name)
+                    .unwrap_or_else(|_| "latest".to_string());
+                return Ok(vec![AppSummary {
+                    id: coord.to_app_id(),
+                    name: repo_info.name,
+                    owner: coord.owner,
+                    repo: coord.repo,
+                    icon: coord.forge.icon().to_string(),
+                    icon_bg: "linear-gradient(135deg, #475569, #334155)".to_string(),
+                    description: repo_info
+                        .description
+                        .unwrap_or_else(|| "跨平台开源项目".to_string()),
+                    stars: repo_info.stars,
+                    forks: repo_info.forks,
+                    license: "OpenSource".to_string(),
+                    latest_version: latest_ver,
+                    category: "external".to_string(),
+                    category_name: "跨平台开源".to_string(),
+                    is_verified: false,
+                    is_installed: None,
+                    has_update: None,
+                    installed_version: None,
+                    forge: Some(coord.forge.as_str().to_string()),
+                    forge_host: Some(coord.host),
+                }]);
+            }
+        } else if query.starts_with("http://")
+            || query.starts_with("https://")
+            || query.starts_with("gh:")
+            || query.starts_with("github:")
+        {
+            let token = {
+                let t = state.github_token.lock().map_err(|e| e.to_string())?;
+                t.clone()
+            };
+            if let Ok(item) = state
+                .catalog
+                .fetch_online_repo(&coord.owner, &coord.repo, token.as_deref())
+                .await
+            {
+                return Ok(vec![item]);
+            }
+        }
+    }
+
     let token = {
         let t = state.github_token.lock().map_err(|e| e.to_string())?;
         t.clone()
@@ -46,6 +106,48 @@ pub async fn search_apps(
 
 #[tauri::command]
 pub async fn get_app_details(state: State<'_, AppState>, id: String) -> Result<AppDetail, String> {
+    // 多源 (Codeberg, Gitea 等) 穿透解析
+    if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&id) {
+        if coord.forge != crate::forge::ForgeType::GitHub {
+            let host_token = if let Ok(db) = state.db.lock() {
+                db.get_host_token(&coord.host).ok().flatten()
+            } else {
+                None
+            };
+            let repo_info =
+                crate::forge::ForgeRegistry::fetch_repo(&coord, host_token.as_deref()).await?;
+            let release_info =
+                crate::forge::ForgeRegistry::fetch_latest_release(&coord, host_token.as_deref())
+                    .await?;
+            return Ok(AppDetail {
+                id: coord.to_app_id(),
+                name: repo_info.name.clone(),
+                owner: coord.owner,
+                repo: coord.repo,
+                icon: coord.forge.icon().to_string(),
+                icon_bg: "linear-gradient(135deg, #475569, #334155)".to_string(),
+                description: repo_info.description.clone().unwrap_or_default(),
+                stars: repo_info.stars,
+                forks: repo_info.forks,
+                license: "OpenSource".to_string(),
+                latest_version: release_info.tag_name,
+                changelog: release_info.body.unwrap_or_default(),
+                is_verified: false,
+                signature_fingerprint: None,
+                readme_markdown: format!(
+                    "# {}\n\n{}",
+                    repo_info.name,
+                    repo_info.description.unwrap_or_default()
+                ),
+                releases: release_info.assets,
+                category: "external".to_string(),
+                category_name: "跨平台开源".to_string(),
+                forge: Some(coord.forge.as_str().to_string()),
+                forge_host: Some(coord.host),
+            });
+        }
+    }
+
     let (release_endpoint, cached_etag, cached_payload, token) = {
         let token = state
             .github_token
@@ -766,6 +868,168 @@ pub fn get_recently_viewed_apps(state: State<'_, AppState>) -> Result<Vec<AppSum
 pub fn clear_view_history(state: State<'_, AppState>) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.clear_view_history().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_host_tokens(state: State<'_, AppState>) -> Result<Vec<HostTokenEntry>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.get_host_tokens().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_host_token(
+    state: State<'_, AppState>,
+    host: String,
+    token: String,
+) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.set_host_token(&host, &token).map_err(|e| e.to_string())?;
+    if host.eq_ignore_ascii_case("github.com") {
+        let mut t = state.github_token.lock().map_err(|e| e.to_string())?;
+        *t = Some(token);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn remove_host_token(state: State<'_, AppState>, host: String) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.remove_host_token(&host).map_err(|e| e.to_string())?;
+    if host.eq_ignore_ascii_case("github.com") {
+        let mut t = state.github_token.lock().map_err(|e| e.to_string())?;
+        *t = None;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn test_host_connection(
+    state: State<'_, AppState>,
+    host: String,
+    token: Option<String>,
+) -> Result<HostRateLimitStatus, String> {
+    let clean_host = host.trim().to_lowercase();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(6))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        reqwest::header::USER_AGENT,
+        reqwest::header::HeaderValue::from_static("ZStore-Client/0.1.0"),
+    );
+
+    if clean_host.contains("github.com") {
+        if let Some(ref tok) = token {
+            if !tok.trim().is_empty() {
+                if let Ok(v) =
+                    reqwest::header::HeaderValue::from_str(&format!("Bearer {}", tok.trim()))
+                {
+                    headers.insert(reqwest::header::AUTHORIZATION, v);
+                }
+            }
+        }
+        let url = "https://api.github.com/rate_limit";
+        match client.get(url).headers(headers).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                #[derive(serde::Deserialize)]
+                struct GhRate {
+                    rate: GhRateDetail,
+                }
+                #[derive(serde::Deserialize)]
+                struct GhRateDetail {
+                    limit: u32,
+                    remaining: u32,
+                    reset: i64,
+                }
+                let rate_data: Option<GhRate> = resp.json().await.ok();
+                let remaining = rate_data.as_ref().map(|r| r.rate.remaining);
+                let limit = rate_data.as_ref().map(|r| r.rate.limit);
+                let reset = rate_data.as_ref().map(|r| r.rate.reset);
+
+                if let Ok(db) = state.db.lock() {
+                    let _ = db.update_host_rate_limit(&clean_host, remaining, limit, reset);
+                }
+
+                Ok(HostRateLimitStatus {
+                    host: clean_host,
+                    is_connected: true,
+                    rate_limit_remaining: remaining,
+                    rate_limit_limit: limit,
+                    message: Some("连接 GitHub API 成功".to_string()),
+                })
+            }
+            Ok(resp) => Ok(HostRateLimitStatus {
+                host: clean_host,
+                is_connected: false,
+                rate_limit_remaining: None,
+                rate_limit_limit: None,
+                message: Some(format!("HTTP 状态码: {}", resp.status())),
+            }),
+            Err(e) => Ok(HostRateLimitStatus {
+                host: clean_host,
+                is_connected: false,
+                rate_limit_remaining: None,
+                rate_limit_limit: None,
+                message: Some(format!("网络请求失败: {}", e)),
+            }),
+        }
+    } else {
+        // Gitea / Codeberg / 自建实例
+        if let Some(ref tok) = token {
+            if !tok.trim().is_empty() {
+                if let Ok(v) =
+                    reqwest::header::HeaderValue::from_str(&format!("token {}", tok.trim()))
+                {
+                    headers.insert(reqwest::header::AUTHORIZATION, v);
+                }
+            }
+        }
+        let url = format!("https://{}/api/v1/version", clean_host);
+        match client.get(&url).headers(headers).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                let remaining = resp
+                    .headers()
+                    .get("x-ratelimit-remaining")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|v| v.parse::<u32>().ok())
+                    .or(Some(5000));
+                let limit = resp
+                    .headers()
+                    .get("x-ratelimit-limit")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|v| v.parse::<u32>().ok())
+                    .or(Some(5000));
+
+                if let Ok(db) = state.db.lock() {
+                    let _ = db.update_host_rate_limit(&clean_host, remaining, limit, None);
+                }
+
+                Ok(HostRateLimitStatus {
+                    host: clean_host,
+                    is_connected: true,
+                    rate_limit_remaining: remaining,
+                    rate_limit_limit: limit,
+                    message: Some("连接 Gitea/Codeberg API 成功".to_string()),
+                })
+            }
+            Ok(resp) => Ok(HostRateLimitStatus {
+                host: clean_host,
+                is_connected: false,
+                rate_limit_remaining: None,
+                rate_limit_limit: None,
+                message: Some(format!("HTTP 状态码: {}", resp.status())),
+            }),
+            Err(e) => Ok(HostRateLimitStatus {
+                host: clean_host,
+                is_connected: false,
+                rate_limit_remaining: None,
+                rate_limit_limit: None,
+                message: Some(format!("连接超时或失败: {}", e)),
+            }),
+        }
+    }
 }
 
 #[cfg(test)]

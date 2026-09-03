@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { AppSettings, MirrorNodeStatus, UpdateRule } from '../types';
+import React, { useState, useEffect } from 'react';
+import { AppSettings, HostRateLimitStatus, HostTokenEntry, MirrorNodeStatus, UpdateRule } from '../types';
+import { api } from '../services/api';
 
 interface SettingsViewProps {
   mirrors: MirrorNodeStatus[];
@@ -42,14 +43,102 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onToggleRuleFrozen,
   onToggleRuleHidden,
 }) => {
-  const [tokenInput, setTokenInput] = useState(settings.github_token || '');
-  const [showToken, setShowToken] = useState(false);
   const [isTestingPing, setIsTestingPing] = useState(false);
   const [portableDir, setPortableDir] = useState(settings.portable_dir);
   const [downloadDir, setDownloadDir] = useState(settings.download_dir);
   const [copiedField, setCopiedField] = useState<'portable' | 'download' | null>(null);
   const [isResetConfirming, setIsResetConfirming] = useState(false);
   const [rulesTab, setRulesTab] = useState<'all' | 'skipped' | 'frozen' | 'hidden'>('all');
+
+  // Feature A: Multi-Forge Ecosystem State
+  const [hostTokens, setHostTokens] = useState<HostTokenEntry[]>([]);
+  const [tokenInputs, setTokenInputs] = useState<Record<string, string>>({});
+  const [showTokens, setShowTokens] = useState<Record<string, boolean>>({});
+  const [hostStatus, setHostStatus] = useState<Record<string, HostRateLimitStatus>>({});
+  const [isTestingHost, setIsTestingHost] = useState<Record<string, boolean>>({});
+  const [showAddHostForm, setShowAddHostForm] = useState(false);
+  const [newHostDomain, setNewHostDomain] = useState('');
+  const [newHostToken, setNewHostToken] = useState('');
+  const [hostFeedback, setHostFeedback] = useState<string | null>(null);
+
+  const loadHostTokens = async () => {
+    try {
+      const tokens = await api.getHostTokens();
+      setHostTokens(tokens);
+      const inputs: Record<string, string> = {};
+      tokens.forEach((t) => {
+        inputs[t.host] = t.token;
+      });
+      if (!inputs['github.com'] && settings.github_token) {
+        inputs['github.com'] = settings.github_token;
+      }
+      setTokenInputs((prev) => ({ ...inputs, ...prev }));
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    loadHostTokens();
+  }, [settings.github_token]);
+
+  const handleSaveHostToken = async (host: string) => {
+    const val = tokenInputs[host] || '';
+    try {
+      await api.setHostToken(host, val);
+      if (host.toLowerCase() === 'github.com') {
+        await onSaveToken(val);
+      }
+      setHostFeedback(`✅ 已保存 ${host} 的访问令牌`);
+      setTimeout(() => setHostFeedback(null), 3000);
+      loadHostTokens();
+    } catch (e) {
+      setHostFeedback(`❌ 保存失败: ${String(e)}`);
+    }
+  };
+
+  const handleTestHost = async (host: string) => {
+    const val = tokenInputs[host] || '';
+    setIsTestingHost((prev) => ({ ...prev, [host]: true }));
+    try {
+      const status = await api.testHostConnection(host, val);
+      setHostStatus((prev) => ({ ...prev, [host]: status }));
+    } catch (e) {
+      setHostStatus((prev) => ({
+        ...prev,
+        [host]: { host, is_connected: false, message: String(e) },
+      }));
+    } finally {
+      setIsTestingHost((prev) => ({ ...prev, [host]: false }));
+    }
+  };
+
+  const handleAddCustomHost = async () => {
+    const domain = newHostDomain.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+    if (!domain) return;
+    try {
+      await api.setHostToken(domain, newHostToken.trim());
+      setNewHostDomain('');
+      setNewHostToken('');
+      setShowAddHostForm(false);
+      setHostFeedback(`🎉 成功添加自建 Git 实例: ${domain}`);
+      setTimeout(() => setHostFeedback(null), 3000);
+      loadHostTokens();
+    } catch (e) {
+      setHostFeedback(`❌ 添加失败: ${String(e)}`);
+    }
+  };
+
+  const handleRemoveHost = async (host: string) => {
+    try {
+      await api.removeHostToken(host);
+      setHostFeedback(`🗑️ 已移除 ${host}`);
+      setTimeout(() => setHostFeedback(null), 3000);
+      loadHostTokens();
+    } catch (e) {
+      setHostFeedback(`❌ 移除失败: ${String(e)}`);
+    }
+  };
 
   const handlePing = async () => {
     setIsTestingPing(true);
@@ -347,50 +436,203 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         ))}
 
-        {/* 3.3 GitHub PAT */}
-        <div className="settings-row">
-          <div className="settings-row-info">
-            <span style={{ fontWeight: 600 }}>GitHub Personal Access Token (可选)</span>
-            <span className="settings-row-desc">
-              未配置时公共 IP 限制 60 次/小时，配置个人只读 Token 可提升至 5000 次/小时
-            </span>
-          </div>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <div style={{ position: 'relative' }}>
-              <input
-                type={showToken ? 'text' : 'password'}
-                placeholder="ghp_xxxxxxxxxxxx"
-                value={tokenInput}
-                onChange={(e) => setTokenInput(e.target.value)}
-                className="settings-input"
-                style={{ width: '220px', paddingRight: '32px' }}
-              />
-              <button
-                type="button"
-                onClick={() => setShowToken(!showToken)}
-                style={{
-                  position: 'absolute',
-                  right: '6px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: 'var(--text-tertiary)',
-                  fontSize: '12px',
-                }}
-                title={showToken ? '隐藏凭据' : '显示凭据'}
-              >
-                {showToken ? '🙈' : '👁️'}
-              </button>
+        {/* 3.3 Multi-Forge Ecosystem & PATs */}
+        <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '14px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="settings-row-info">
+              <span style={{ fontWeight: 600 }}>🌐 多代码托管平台与 API 令牌管理 (Multi-Forge)</span>
+              <span className="settings-row-desc">
+                原生直连 GitHub、Codeberg 及自建 Gitea/Forgejo 实例，独立管理个人访问令牌（PAT）以解除 API 速率限制
+              </span>
             </div>
             <button
-              className="btn-fluent btn-primary"
-              style={{ fontSize: '12px', padding: '6px 14px' }}
-              onClick={() => onSaveToken(tokenInput)}
+              type="button"
+              className="btn-fluent btn-secondary"
+              style={{ fontSize: '12px', padding: '5px 12px', borderRadius: '6px' }}
+              onClick={() => setShowAddHostForm(!showAddHostForm)}
             >
-              保存凭据
+              {showAddHostForm ? '✕ 取消' : '＋ 添加自建 Git 实例'}
             </button>
+          </div>
+
+          {hostFeedback && (
+            <div
+              style={{
+                padding: '8px 12px',
+                borderRadius: '6px',
+                background: 'rgba(56, 189, 248, 0.1)',
+                border: '1px solid rgba(56, 189, 248, 0.3)',
+                fontSize: '12px',
+                color: 'var(--brand-primary)',
+              }}
+            >
+              {hostFeedback}
+            </div>
+          )}
+
+          {/* Add custom host form */}
+          {showAddHostForm && (
+            <div
+              style={{
+                display: 'flex',
+                gap: '10px',
+                alignItems: 'center',
+                padding: '12px',
+                borderRadius: '8px',
+                background: 'var(--card-bg-subtle, rgba(255,255,255,0.04))',
+                border: '1px dashed var(--border-color)',
+                flexWrap: 'wrap',
+              }}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '1 1 200px' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>主机域名 (例如 git.disroot.org / gitea.lan)</span>
+                <input
+                  type="text"
+                  placeholder="git.example.com"
+                  className="settings-input"
+                  value={newHostDomain}
+                  onChange={(e) => setNewHostDomain(e.target.value)}
+                  style={{ width: '100%' }}
+                />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '1 1 240px' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>访问令牌 Access Token (可选，私有库必填)</span>
+                <input
+                  type="password"
+                  placeholder="token / pat_xxxxxxxx"
+                  className="settings-input"
+                  value={newHostToken}
+                  onChange={(e) => setNewHostToken(e.target.value)}
+                  style={{ width: '100%' }}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '8px', alignSelf: 'flex-end', paddingTop: '18px' }}>
+                <button
+                  type="button"
+                  className="btn-fluent btn-primary"
+                  style={{ fontSize: '12px', padding: '6px 14px' }}
+                  onClick={handleAddCustomHost}
+                  disabled={!newHostDomain.trim()}
+                >
+                  确认添加
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Host list */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {['github.com', 'codeberg.org', ...hostTokens.map((t) => t.host).filter((h) => h !== 'github.com' && h !== 'codeberg.org')].map((host) => {
+              const isBuiltin = host === 'github.com' || host === 'codeberg.org';
+              const icon = host === 'github.com' ? '🐙' : host === 'codeberg.org' ? '🏔️' : '🍵';
+              const label = host === 'github.com' ? 'GitHub (默认源)' : host === 'codeberg.org' ? 'Codeberg (自由开源)' : `自建实例 (${host})`;
+              const tokenVal = tokenInputs[host] !== undefined ? tokenInputs[host] : (hostTokens.find((t) => t.host === host)?.token || '');
+              const isShowing = !!showTokens[host];
+              const status = hostStatus[host];
+              const isTesting = !!isTestingHost[host];
+
+              return (
+                <div
+                  key={host}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px',
+                    padding: '12px 14px',
+                    borderRadius: '8px',
+                    background: 'var(--card-bg-subtle, rgba(255,255,255,0.02))',
+                    border: '1px solid var(--border-color)',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '16px' }}>{icon}</span>
+                      <span style={{ fontWeight: 600, fontSize: '13px' }}>{label}</span>
+                      <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{host}</span>
+                    </div>
+                    {status && (
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          padding: '2px 8px',
+                          borderRadius: '10px',
+                          background: status.is_connected ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                          color: status.is_connected ? '#10b981' : '#ef4444',
+                          border: `1px solid ${status.is_connected ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                        }}
+                      >
+                        {status.is_connected ? '🟢' : '🔴'} {status.message || (status.is_connected ? `配额剩余: ${status.rate_limit_remaining ?? '充裕'}` : '连接失败')}
+                      </span>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div style={{ position: 'relative', flex: '1 1 240px' }}>
+                      <input
+                        type={isShowing ? 'text' : 'password'}
+                        placeholder={host === 'github.com' ? 'ghp_xxxxxxxxxxxx (只读权限)' : 'Token / Personal Access Token'}
+                        value={tokenVal}
+                        onChange={(e) => setTokenInputs({ ...tokenInputs, [host]: e.target.value })}
+                        className="settings-input"
+                        style={{ width: '100%', paddingRight: '32px' }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowTokens({ ...showTokens, [host]: !isShowing })}
+                        style={{
+                          position: 'absolute',
+                          right: '6px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          color: 'var(--text-tertiary)',
+                          fontSize: '12px',
+                        }}
+                        title={isShowing ? '隐藏凭据' : '显示凭据'}
+                      >
+                        {isShowing ? '🙈' : '👁️'}
+                      </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="btn-fluent btn-primary"
+                      style={{ fontSize: '12px', padding: '5px 12px' }}
+                      onClick={() => handleSaveHostToken(host)}
+                    >
+                      保存
+                    </button>
+
+                    <button
+                      type="button"
+                      className="btn-fluent btn-secondary"
+                      style={{ fontSize: '12px', padding: '5px 12px' }}
+                      disabled={isTesting}
+                      onClick={() => handleTestHost(host)}
+                    >
+                      {isTesting ? '正在探测...' : '测试连通性'}
+                    </button>
+
+                    {!isBuiltin && (
+                      <button
+                        type="button"
+                        className="btn-fluent btn-secondary"
+                        style={{ fontSize: '12px', padding: '5px 10px', color: '#ef4444' }}
+                        onClick={() => handleRemoveHost(host)}
+                        title="删除该自建实例"
+                      >
+                        🗑️
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>

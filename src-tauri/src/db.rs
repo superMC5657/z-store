@@ -1,4 +1,4 @@
-use crate::models::{InstalledApp, UpdateRule};
+use crate::models::{HostTokenEntry, InstalledApp, UpdateRule};
 use rusqlite::{params, Connection, Result};
 use std::collections::HashMap;
 use std::path::Path;
@@ -72,6 +72,15 @@ impl Database {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 app_id TEXT UNIQUE NOT NULL,
                 viewed_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS host_tokens (
+                host TEXT PRIMARY KEY,
+                token TEXT NOT NULL,
+                rate_limit_remaining INTEGER,
+                rate_limit_limit INTEGER,
+                rate_limit_reset INTEGER,
+                updated_at INTEGER NOT NULL
             );
             "#,
         )?;
@@ -465,6 +474,86 @@ impl Database {
         self.conn.execute("DELETE FROM view_history", [])?;
         Ok(())
     }
+
+    pub fn get_host_tokens(&self) -> Result<Vec<HostTokenEntry>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT host, token, rate_limit_remaining, rate_limit_limit, rate_limit_reset, updated_at FROM host_tokens ORDER BY host ASC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(HostTokenEntry {
+                host: row.get(0)?,
+                token: row.get(1)?,
+                rate_limit_remaining: row.get(2)?,
+                rate_limit_limit: row.get(3)?,
+                rate_limit_reset: row.get(4)?,
+                updated_at: row.get(5)?,
+            })
+        })?;
+
+        let mut res = Vec::new();
+        for r in rows {
+            res.push(r?);
+        }
+        Ok(res)
+    }
+
+    pub fn get_host_token(&self, host: &str) -> Result<Option<String>> {
+        let mut stmt = self.conn.prepare("SELECT token FROM host_tokens WHERE host = ?1")?;
+        let mut rows = stmt.query_map(params![host.to_lowercase()], |row| row.get(0))?;
+        if let Some(row) = rows.next() {
+            Ok(Some(row?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn set_host_token(&self, host: &str, token: &str) -> Result<()> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        self.conn.execute(
+            r#"
+            INSERT INTO host_tokens (host, token, rate_limit_remaining, rate_limit_limit, rate_limit_reset, updated_at)
+            VALUES (?1, ?2, NULL, NULL, NULL, ?3)
+            ON CONFLICT(host) DO UPDATE SET
+                token = excluded.token,
+                updated_at = excluded.updated_at;
+            "#,
+            params![host.to_lowercase(), token.trim(), now],
+        )?;
+        Ok(())
+    }
+
+    pub fn remove_host_token(&self, host: &str) -> Result<bool> {
+        let rows = self.conn.execute(
+            "DELETE FROM host_tokens WHERE host = ?1",
+            params![host.to_lowercase()],
+        )?;
+        Ok(rows > 0)
+    }
+
+    pub fn update_host_rate_limit(
+        &self,
+        host: &str,
+        remaining: Option<u32>,
+        limit: Option<u32>,
+        reset: Option<i64>,
+    ) -> Result<()> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        self.conn.execute(
+            r#"
+            UPDATE host_tokens
+            SET rate_limit_remaining = ?1, rate_limit_limit = ?2, rate_limit_reset = ?3, updated_at = ?4
+            WHERE host = ?5;
+            "#,
+            params![remaining, limit, reset, now, host.to_lowercase()],
+        )?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -609,5 +698,35 @@ mod tests {
 
         db.clear_view_history().unwrap();
         assert!(db.get_recently_viewed_app_ids().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_host_tokens_crud() {
+        let db = Database::open_in_memory().unwrap();
+
+        // 1. Initially empty
+        let tokens = db.get_host_tokens().unwrap();
+        assert!(tokens.is_empty());
+
+        // 2. Set token
+        db.set_host_token("codeberg.org", "cb_token_123").unwrap();
+        db.set_host_token("github.com", "gh_token_456").unwrap();
+
+        let tokens = db.get_host_tokens().unwrap();
+        assert_eq!(tokens.len(), 2);
+        assert_eq!(db.get_host_token("codeberg.org").unwrap().as_deref(), Some("cb_token_123"));
+        assert_eq!(db.get_host_token("github.com").unwrap().as_deref(), Some("gh_token_456"));
+
+        // 3. Update rate limit
+        db.update_host_rate_limit("codeberg.org", Some(2990), Some(3000), Some(1700000000)).unwrap();
+        let tokens_after = db.get_host_tokens().unwrap();
+        let cb = tokens_after.iter().find(|t| t.host == "codeberg.org").unwrap();
+        assert_eq!(cb.rate_limit_remaining, Some(2990));
+
+        // 4. Remove token
+        let removed = db.remove_host_token("codeberg.org").unwrap();
+        assert!(removed);
+        assert!(db.get_host_token("codeberg.org").unwrap().is_none());
+        assert_eq!(db.get_host_tokens().unwrap().len(), 1);
     }
 }

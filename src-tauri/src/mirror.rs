@@ -67,6 +67,16 @@ impl MirrorManager {
             return raw_url.to_string();
         }
 
+        // 仅针对 GitHub 官方域名及其 CDN 启用 GitHub 镜像代理；
+        // Codeberg、Gitea、GitLab 及自建实例保持官方直连，避免被 GitHub 代理返回 400/404 错误
+        let is_github_url = raw_url.contains("github.com")
+            || raw_url.contains("githubusercontent.com")
+            || raw_url.contains("github-releases");
+
+        if !is_github_url {
+            return raw_url.to_string();
+        }
+
         if let Some(active_node) = self.nodes.iter().find(|n| n.id == self.active_id) {
             let base = active_node.base_url.trim_end_matches('/');
             if raw_url.starts_with(base) {
@@ -133,6 +143,11 @@ mod tests {
         mm.set_active_mirror("direct");
         let direct = mm.rewrite_download_url(raw);
         assert_eq!(direct, raw);
+
+        // Codeberg / Gitea 非 GitHub 域名直连验证
+        let cb_url = "https://codeberg.org/attachments/a1b2c3d4-installer.exe";
+        mm.set_active_mirror("ghproxy");
+        assert_eq!(mm.rewrite_download_url(cb_url), cb_url);
     }
 
     #[test]

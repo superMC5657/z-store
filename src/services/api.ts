@@ -12,6 +12,8 @@ import {
   UpdateItem,
   UpdateRule,
   DeveloperProfile,
+  HostTokenEntry,
+  HostRateLimitStatus,
 } from '../types';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -709,7 +711,72 @@ export const api = {
     }
     mockViewHistory = [];
   },
+
+  async getHostTokens(): Promise<HostTokenEntry[]> {
+    if (isTauri) {
+      return tauriInvoke<HostTokenEntry[]>('get_host_tokens');
+    }
+    return mockHostTokens;
+  },
+
+  async setHostToken(host: string, token: string): Promise<void> {
+    if (isTauri) {
+      return tauriInvoke<void>('set_host_token', { host, token });
+    }
+    const idx = mockHostTokens.findIndex((t) => t.host.toLowerCase() === host.toLowerCase());
+    const entry: HostTokenEntry = {
+      host: host.toLowerCase(),
+      token,
+      rate_limit_remaining: 4980,
+      rate_limit_limit: 5000,
+      rate_limit_reset: Math.floor(Date.now() / 1000) + 3600,
+      updated_at: Math.floor(Date.now() / 1000),
+    };
+    if (idx >= 0) {
+      mockHostTokens[idx] = entry;
+    } else {
+      mockHostTokens.push(entry);
+    }
+  },
+
+  async removeHostToken(host: string): Promise<void> {
+    if (isTauri) {
+      return tauriInvoke<void>('remove_host_token', { host });
+    }
+    mockHostTokens = mockHostTokens.filter((t) => t.host.toLowerCase() !== host.toLowerCase());
+  },
+
+  async testHostConnection(host: string, token?: string): Promise<HostRateLimitStatus> {
+    if (isTauri) {
+      return tauriInvoke<HostRateLimitStatus>('test_host_connection', { host, token });
+    }
+    return {
+      host,
+      is_connected: true,
+      rate_limit_remaining: token ? 4995 : 58,
+      rate_limit_limit: token ? 5000 : 60,
+      message: token ? 'API 令牌认证有效，配额充裕' : '免鉴权连接成功（配额受限）',
+    };
+  },
 };
 
 let mockSearchHistory: string[] = ['RustDesk', 'LocalSend', 'OBS Studio', 'VLC'];
 let mockViewHistory: string[] = ['rustdesk', 'localsend', 'obs-studio'];
+let mockHostTokens: HostTokenEntry[] = [
+  {
+    host: 'github.com',
+    token: 'ghp_mocktoken123456789',
+    rate_limit_remaining: 4985,
+    rate_limit_limit: 5000,
+    rate_limit_reset: Math.floor(Date.now() / 1000) + 3600,
+    updated_at: Math.floor(Date.now() / 1000),
+  },
+  {
+    host: 'codeberg.org',
+    token: '',
+    rate_limit_remaining: 3000,
+    rate_limit_limit: 3000,
+    rate_limit_reset: undefined,
+    updated_at: Math.floor(Date.now() / 1000),
+  },
+];

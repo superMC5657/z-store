@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod db;
+pub mod forge;
 pub mod github;
 pub mod installer;
 pub mod mirror;
@@ -90,7 +91,11 @@ pub fn run() {
             commands::remove_search_query,
             commands::record_app_view,
             commands::get_recently_viewed_apps,
-            commands::clear_view_history
+            commands::clear_view_history,
+            commands::get_host_tokens,
+            commands::set_host_token,
+            commands::remove_host_token,
+            commands::test_host_connection
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

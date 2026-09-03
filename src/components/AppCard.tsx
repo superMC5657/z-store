@@ -89,6 +89,20 @@ export const AppCard: React.FC<AppCardProps> = ({
             <span>{formatStars(app.stars)}</span>
           </span>
           <span className="app-tag app-tag-license">{app.license}</span>
+          {app.forge && app.forge !== 'github' && (
+            <span
+              className="app-tag"
+              style={{
+                background: 'rgba(56, 189, 248, 0.12)',
+                color: '#38bdf8',
+                border: '1px solid rgba(56, 189, 248, 0.25)',
+                fontWeight: 600,
+              }}
+              title={`代码源: ${app.forge_host || app.forge}`}
+            >
+              {app.forge === 'codeberg' ? '🏔️ Codeberg' : app.forge === 'gitea' ? '🍵 Gitea' : app.forge === 'gitlab' ? '🦊 GitLab' : `🌐 ${app.forge}`}
+            </span>
+          )}
         </div>
 
         <button

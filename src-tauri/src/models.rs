@@ -22,6 +22,10 @@ pub struct AppSummary {
     pub has_update: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub installed_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forge: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forge_host: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,6 +59,10 @@ pub struct AppDetail {
     pub releases: Vec<ReleaseAsset>,
     pub category: String,
     pub category_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forge: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forge_host: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -144,4 +152,24 @@ pub struct StarredSyncResult {
     pub catalog_matches: Vec<AppSummary>,
     pub other_repos: Vec<DeveloperRepoItem>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostTokenEntry {
+    pub host: String,
+    pub token: String,
+    pub rate_limit_remaining: Option<u32>,
+    pub rate_limit_limit: Option<u32>,
+    pub rate_limit_reset: Option<i64>,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostRateLimitStatus {
+    pub host: String,
+    pub is_connected: bool,
+    pub rate_limit_remaining: Option<u32>,
+    pub rate_limit_limit: Option<u32>,
+    pub message: Option<String>,
+}
+
 

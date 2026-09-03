@@ -153,7 +153,15 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                 <span>{app.owner}</span>
               )}
               <span>/</span>
-              <span style={{ fontWeight: 600 }}>{app.repo}</span>
+              <a
+                href={app.forge_host ? `https://${app.forge_host}/${app.owner}/${app.repo}` : `https://github.com/${app.owner}/${app.repo}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ fontWeight: 600, color: 'inherit', textDecoration: 'none' }}
+                title="在浏览器中查看开源仓库"
+              >
+                {app.repo} ↗
+              </a>
               <span>·</span>
               <span>最新发布 {app.latest_version}</span>
             </div>
@@ -161,6 +169,19 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               <span className="modal-tag">★ {(app.stars / 1000).toFixed(1)}k</span>
               <span className="modal-tag">{app.license}</span>
               <span className="modal-tag">{app.category_name}</span>
+              {app.forge && app.forge !== 'github' && (
+                <span
+                  className="modal-tag"
+                  style={{
+                    background: 'rgba(56, 189, 248, 0.15)',
+                    color: '#38bdf8',
+                    border: '1px solid rgba(56, 189, 248, 0.3)',
+                    fontWeight: 600,
+                  }}
+                >
+                  {app.forge === 'codeberg' ? '🏔️ Codeberg 源' : app.forge === 'gitea' ? '🍵 Gitea 源' : `🌐 ${app.forge_host || app.forge}`}
+                </span>
+              )}
               {primaryAsset && (
                 <span className="modal-tag">大小 {formatBytes(primaryAsset.size_bytes)}</span>
               )}
