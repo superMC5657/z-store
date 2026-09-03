@@ -22,6 +22,8 @@ pub struct CatalogItem {
     pub stars: u64,
     pub forks: u64,
     pub is_verified: bool,
+    #[serde(default)]
+    pub publisher_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -521,7 +523,7 @@ impl CatalogService {
             latest_version: release_resp.tag_name,
             changelog: release_resp.body.unwrap_or_default(),
             is_verified: catalog_item.map(|i| i.is_verified).unwrap_or(false),
-            signature_fingerprint: Some("E8:7A:B4:9C:3D:12:FA:45".to_string()),
+            signature_fingerprint: catalog_item.and_then(|i| i.publisher_fingerprint.clone()),
             readme_markdown,
             releases,
             category: catalog_item

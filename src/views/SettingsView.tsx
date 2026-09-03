@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AppSettings, MirrorNodeStatus } from '../types';
+import { AppSettings, MirrorNodeStatus, UpdateRule } from '../types';
 
 interface SettingsViewProps {
   mirrors: MirrorNodeStatus[];
@@ -15,6 +15,11 @@ interface SettingsViewProps {
   onUpdateSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
   onResetSettings: () => Promise<void>;
   installedCount: number;
+  updateRules: UpdateRule[];
+  onRemoveRule: (appId: string) => Promise<void>;
+  onClearRuleSkip: (appId: string) => Promise<void>;
+  onToggleRuleFrozen: (appId: string, isFrozen: boolean) => Promise<void>;
+  onToggleRuleHidden: (appId: string, isHidden: boolean) => Promise<void>;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -31,6 +36,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onUpdateSetting,
   onResetSettings,
   installedCount,
+  updateRules,
+  onRemoveRule,
+  onClearRuleSkip,
+  onToggleRuleFrozen,
+  onToggleRuleHidden,
 }) => {
   const [tokenInput, setTokenInput] = useState(settings.github_token || '');
   const [showToken, setShowToken] = useState(false);
@@ -39,6 +49,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [downloadDir, setDownloadDir] = useState(settings.download_dir);
   const [copiedField, setCopiedField] = useState<'portable' | 'download' | null>(null);
   const [isResetConfirming, setIsResetConfirming] = useState(false);
+  const [rulesTab, setRulesTab] = useState<'all' | 'skipped' | 'frozen' | 'hidden'>('all');
 
   const handlePing = async () => {
     setIsTestingPing(true);
@@ -453,11 +464,185 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
-      {/* Group 5: Data, Diagnostics & Factory Reset */}
+      {/* Group 5: Update Policies & Rules Management (Feature C) */}
+      <div className="settings-group">
+        <div className="settings-group-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>🛡️ 版本策略与软件屏蔽规则管理 ({updateRules.length})</span>
+        </div>
+
+        {/* Tab Filters */}
+        <div style={{ padding: '0 20px 12px 20px', display: 'flex', gap: '8px' }}>
+          {[
+            { id: 'all', label: `全部规则 (${updateRules.length})` },
+            { id: 'skipped', label: `⏭️ 已跳过版本 (${updateRules.filter((r) => Boolean(r.skipped_version)).length})` },
+            { id: 'frozen', label: `🔒 已锁定版本 (${updateRules.filter((r) => r.is_frozen).length})` },
+            { id: 'hidden', label: `👁️ 已隐藏应用 (${updateRules.filter((r) => r.is_hidden).length})` },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              className={`segmented-item ${rulesTab === tab.id ? 'active' : ''}`}
+              style={{ padding: '4px 12px', fontSize: '12px' }}
+              onClick={() => setRulesTab(tab.id as any)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Rules List or Empty State */}
+        {(() => {
+          const filteredRules = updateRules.filter((r) => {
+            if (rulesTab === 'skipped') return Boolean(r.skipped_version);
+            if (rulesTab === 'frozen') return r.is_frozen;
+            if (rulesTab === 'hidden') return r.is_hidden;
+            return true;
+          });
+
+          if (filteredRules.length === 0) {
+            return (
+              <div style={{ padding: '24px 20px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+                <div style={{ fontSize: '28px', marginBottom: '8px' }}>📋</div>
+                {updateRules.length === 0
+                  ? '当前未配置任何版本跳过、锁定或隐藏规则。您可以在「更新中心」的应用卡片更多菜单（···）中配置特定规则。'
+                  : '当前分类下暂无规则记录。'}
+              </div>
+            );
+          }
+
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '0 20px 16px 20px' }}>
+              {filteredRules.map((rule) => {
+                const dateStr = rule.updated_at
+                  ? new Date(rule.updated_at * 1000 > 1000000000000 ? rule.updated_at : rule.updated_at * 1000).toLocaleDateString('zh-CN', {
+                      year: 'numeric',
+                      month: '2-digit',
+                      day: '2-digit',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })
+                  : '近期设置';
+
+                return (
+                  <div
+                    key={rule.app_id}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '12px 16px',
+                      borderRadius: 'var(--radius-md, 8px)',
+                      background: 'var(--bg-acrylic-thin, rgba(255, 255, 255, 0.04))',
+                      border: '1px solid var(--border-acrylic, rgba(255, 255, 255, 0.08))',
+                    }}
+                  >
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                        <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>
+                          {rule.app_id}
+                        </span>
+                        {rule.skipped_version && (
+                          <span
+                            style={{
+                              fontSize: '11px',
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              background: 'rgba(56, 189, 248, 0.16)',
+                              color: '#38bdf8',
+                              fontWeight: 600,
+                            }}
+                          >
+                            ⏭️ 跳过 {rule.skipped_version}
+                          </span>
+                        )}
+                        {rule.is_frozen && (
+                          <span
+                            style={{
+                              fontSize: '11px',
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              background: 'rgba(234, 179, 8, 0.16)',
+                              color: '#eab308',
+                              fontWeight: 600,
+                            }}
+                          >
+                            🔒 永久锁定
+                          </span>
+                        )}
+                        {rule.is_hidden && (
+                          <span
+                            style={{
+                              fontSize: '11px',
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              background: 'rgba(239, 68, 68, 0.16)',
+                              color: '#f87171',
+                              fontWeight: 600,
+                            }}
+                          >
+                            👁️ 已隐藏
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: '11.5px', color: 'var(--text-tertiary)' }}>
+                        配置时间: {dateStr}
+                        {rule.skipped_version && ' · 下个更高版本将恢复提示'}
+                        {rule.is_frozen && ' · 忽略后续所有更新'}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      {rule.skipped_version && (
+                        <button
+                          className="btn-fluent btn-secondary"
+                          style={{ fontSize: '12px', padding: '4px 10px' }}
+                          onClick={() => onClearRuleSkip(rule.app_id)}
+                          title="恢复该版本的更新提示"
+                        >
+                          恢复此版本
+                        </button>
+                      )}
+                      {rule.is_frozen && (
+                        <button
+                          className="btn-fluent btn-secondary"
+                          style={{ fontSize: '12px', padding: '4px 10px' }}
+                          onClick={() => onToggleRuleFrozen(rule.app_id, false)}
+                          title="解除当前版本锁定"
+                        >
+                          解除锁定
+                        </button>
+                      )}
+                      {rule.is_hidden && (
+                        <button
+                          className="btn-fluent btn-secondary"
+                          style={{ fontSize: '12px', padding: '4px 10px' }}
+                          onClick={() => onToggleRuleHidden(rule.app_id, false)}
+                          title="取消隐藏并恢复在列表中展示"
+                        >
+                          取消隐藏
+                        </button>
+                      )}
+                      <button
+                        className="btn-fluent btn-secondary"
+                        style={{ fontSize: '12px', padding: '4px 10px', color: '#ef4444' }}
+                        onClick={() => onRemoveRule(rule.app_id)}
+                        title="清空此应用的所有规则"
+                      >
+                        清空规则
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
+      </div>
+
+      {/* Group 6: Data, Diagnostics & Factory Reset */}
       <div className="settings-group">
         <div className="settings-group-title">📊 软件资产、系统诊断与恢复</div>
 
-        {/* 5.1 Export Assets */}
+        {/* 6.1 Export Assets */}
         <div className="settings-row">
           <div className="settings-row-info">
             <span style={{ fontWeight: 600 }}>软件资产清单双格式导出</span>

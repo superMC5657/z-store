@@ -15,7 +15,8 @@
     "license": "AGPL-3.0",
     "stars": 76800,
     "forks": 10200,
-    "is_verified": true
+    "is_verified": true,
+    "publisher_fingerprint": "E8:7A:B4:9C:3D:12:FA:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD"
   },
   {
     "id": "localsend",

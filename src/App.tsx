@@ -11,7 +11,7 @@ import { InstalledView } from './views/InstalledView';
 import { UpdatesView } from './views/UpdatesView';
 import { SettingsView } from './views/SettingsView';
 import { FavoritesView } from './views/FavoritesView';
-import { AppDetail, AppSettings, AppSummary, InstalledApp, MirrorNodeStatus, ToastMessage, UpdateItem, ViewType } from './types';
+import { AppDetail, AppSettings, AppSummary, InstalledApp, MirrorNodeStatus, ToastMessage, UpdateItem, UpdateRule, ViewType } from './types';
 import { api, DEFAULT_SETTINGS } from './services/api';
 
 export const App: React.FC = () => {
@@ -28,6 +28,7 @@ export const App: React.FC = () => {
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [updateRules, setUpdateRules] = useState<UpdateRule[]>([]);
 
   // Toast Helper
   const showToast = (text: string, type: ToastMessage['type'] = 'info') => {
@@ -75,6 +76,7 @@ export const App: React.FC = () => {
     api.checkForUpdates().then(setUpdates);
     api.getMirrorStatus().then(setMirrors);
     api.getFavorites().then((favs) => setFavoriteIds(new Set(favs)));
+    api.getUpdateRules().then(setUpdateRules);
 
     // Load persisted settings
     api.getSettings().then((persisted) => {
@@ -291,6 +293,79 @@ export const App: React.FC = () => {
     showToast(`已跳过并忽略 ${id} 本次版本更新`, 'info');
   };
 
+  // Skip Version (Feature C)
+  const handleSkipVersion = async (id: string, version: string) => {
+    await api.setAppSkipVersion(id, version);
+    setUpdates((prev) => prev.filter((u) => u.app_id !== id));
+    const rules = await api.getUpdateRules();
+    setUpdateRules(rules);
+    showToast(`已跳过 ${id} 的 ${version} 版本，下个新版本发布时将重新通知`, 'info');
+  };
+
+  // Freeze Version (Feature C)
+  const handleFreezeVersion = async (id: string) => {
+    await api.setAppFrozen(id, true);
+    setUpdates((prev) => prev.filter((u) => u.app_id !== id));
+    const rules = await api.getUpdateRules();
+    setUpdateRules(rules);
+    showToast(`已永久锁定 ${id} 当前版本，不再接收该应用更新`, 'info');
+  };
+
+  // Hide App (Feature C)
+  const handleHideApp = async (id: string) => {
+    await api.setAppHidden(id, true);
+    setUpdates((prev) => prev.filter((u) => u.app_id !== id));
+    const rules = await api.getUpdateRules();
+    setUpdateRules(rules);
+    const catalogApps = await api.searchApps(searchQuery);
+    setApps(catalogApps);
+    showToast(`已隐藏 ${id}，将不再在探索和更新中心显示`, 'info');
+  };
+
+  // Remove Rule (Feature C)
+  const handleRemoveRule = async (appId: string) => {
+    await api.removeUpdateRule(appId);
+    const rules = await api.getUpdateRules();
+    setUpdateRules(rules);
+    const freshUpdates = await api.checkForUpdates();
+    setUpdates(freshUpdates);
+    const catalogApps = await api.searchApps(searchQuery);
+    setApps(catalogApps);
+    showToast(`已清空 ${appId} 的全部版本与屏蔽规则`, 'success');
+  };
+
+  // Clear Rule Skip Version
+  const handleClearRuleSkip = async (appId: string) => {
+    await api.setAppSkipVersion(appId, null);
+    const rules = await api.getUpdateRules();
+    setUpdateRules(rules);
+    const freshUpdates = await api.checkForUpdates();
+    setUpdates(freshUpdates);
+    showToast(`已恢复 ${appId} 的版本更新提醒`, 'success');
+  };
+
+  // Toggle Rule Frozen
+  const handleToggleRuleFrozen = async (appId: string, isFrozen: boolean) => {
+    await api.setAppFrozen(appId, isFrozen);
+    const rules = await api.getUpdateRules();
+    setUpdateRules(rules);
+    const freshUpdates = await api.checkForUpdates();
+    setUpdates(freshUpdates);
+    showToast(isFrozen ? `已锁定 ${appId} 版本` : `已解除 ${appId} 版本锁定`, 'info');
+  };
+
+  // Toggle Rule Hidden
+  const handleToggleRuleHidden = async (appId: string, isHidden: boolean) => {
+    await api.setAppHidden(appId, isHidden);
+    const rules = await api.getUpdateRules();
+    setUpdateRules(rules);
+    const freshUpdates = await api.checkForUpdates();
+    setUpdates(freshUpdates);
+    const catalogApps = await api.searchApps(searchQuery);
+    setApps(catalogApps);
+    showToast(isHidden ? `已隐藏 ${appId}` : `已取消隐藏 ${appId}`, 'info');
+  };
+
   // Batch Update
   const handleBatchUpdateAll = async () => {
     showToast('正在批量升级所有就绪应用...', 'info');
@@ -467,6 +542,9 @@ export const App: React.FC = () => {
               onApplyUpdate={handleApplyUpdate}
               onBatchUpdateAll={handleBatchUpdateAll}
               onIgnoreUpdate={handleIgnoreUpdate}
+              onSkipVersion={handleSkipVersion}
+              onFreezeVersion={handleFreezeVersion}
+              onHideApp={handleHideApp}
             />
           )}
 
@@ -497,6 +575,11 @@ export const App: React.FC = () => {
               onUpdateSetting={handleUpdateSetting}
               onResetSettings={handleResetSettings}
               installedCount={installedApps.length}
+              updateRules={updateRules}
+              onRemoveRule={handleRemoveRule}
+              onClearRuleSkip={handleClearRuleSkip}
+              onToggleRuleFrozen={handleToggleRuleFrozen}
+              onToggleRuleHidden={handleToggleRuleHidden}
             />
           )}
         </main>

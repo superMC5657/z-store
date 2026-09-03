@@ -5,6 +5,7 @@ pub mod installer;
 pub mod mirror;
 pub mod models;
 pub mod scanner;
+pub mod verifier;
 
 use db::Database;
 use github::CatalogService;
@@ -74,7 +75,13 @@ pub fn run() {
             commands::get_catalog_count,
             commands::scan_and_match_local_apps,
             commands::import_matched_apps,
-            commands::launch_app
+            commands::launch_app,
+            commands::get_update_rules,
+            commands::set_app_skip_version,
+            commands::set_app_frozen,
+            commands::set_app_hidden,
+            commands::remove_update_rule,
+            commands::verify_file_signature
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -229,10 +229,8 @@ impl AppScanner {
                 }
 
                 // 2. 发布者 / 组织匹配
-                if !s_pub.is_empty() {
-                    if s_pub.contains(&c_owner) || c_owner.contains(&s_pub) {
-                        score += 0.25;
-                    }
+                if !s_pub.is_empty() && (s_pub.contains(&c_owner) || c_owner.contains(&s_pub)) {
+                    score += 0.25;
                 }
 
                 // 3. 安装路径或图标主程序匹配
@@ -343,9 +341,9 @@ impl AppScanner {
             return None;
         }
 
-        let unquoted = if trimmed.starts_with('"') {
-            if let Some(second_quote) = trimmed[1..].find('"') {
-                &trimmed[1..=second_quote]
+        let unquoted = if let Some(stripped) = trimmed.strip_prefix('"') {
+            if let Some(second_quote) = stripped.find('"') {
+                &stripped[..second_quote]
             } else {
                 trimmed.trim_matches('"')
             }
@@ -361,7 +359,7 @@ impl AppScanner {
         };
 
         let path = std::path::PathBuf::from(unquoted.trim());
-        if path.extension().map_or(false, |ext| {
+        if path.extension().is_some_and(|ext| {
             ext.eq_ignore_ascii_case("exe") || ext.eq_ignore_ascii_case("lnk")
         }) {
             Some(path)
@@ -391,13 +389,13 @@ impl AppScanner {
             if loc_path.is_file()
                 && loc_path
                     .extension()
-                    .map_or(false, |e| e.eq_ignore_ascii_case("exe"))
+                    .is_some_and(|e| e.eq_ignore_ascii_case("exe"))
             {
                 return Some(loc_path.to_string_lossy().to_string());
             }
 
             if loc_path.is_dir() {
-                let clean_repo = repo_name.to_lowercase().replace('.', "").replace('-', "");
+                let clean_repo = repo_name.to_lowercase().replace(['.', '-'], "");
                 let target_names = [
                     format!("{}.exe", repo_name.to_lowercase()),
                     format!("{}.exe", repo_name),
@@ -443,7 +441,7 @@ impl AppScanner {
                         let p = entry.path();
                         if p.is_file()
                             && p.extension()
-                                .map_or(false, |e| e.eq_ignore_ascii_case("exe"))
+                                .is_some_and(|e| e.eq_ignore_ascii_case("exe"))
                         {
                             let fname = p
                                 .file_name()
@@ -489,7 +487,7 @@ impl AppScanner {
                         for entry in entries.flatten() {
                             let p = entry.path();
                             if p.extension()
-                                .map_or(false, |e| e.eq_ignore_ascii_case("lnk"))
+                                .is_some_and(|e| e.eq_ignore_ascii_case("lnk"))
                             {
                                 let name = p
                                     .file_name()
@@ -540,6 +538,7 @@ mod tests {
                 stars: 45000,
                 forks: 7000,
                 is_verified: true,
+                publisher_fingerprint: None,
             },
             CatalogItem {
                 id: "obsproject/obs-studio".to_string(),
@@ -558,6 +557,7 @@ mod tests {
                 stars: 62000,
                 forks: 11000,
                 is_verified: true,
+                publisher_fingerprint: None,
             },
         ]
     }

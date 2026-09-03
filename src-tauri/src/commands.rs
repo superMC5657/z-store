@@ -1,5 +1,5 @@
 use crate::installer::InstallerEngine;
-use crate::models::{AppDetail, AppSummary, InstalledApp, MirrorNodeStatus, UpdateItem};
+use crate::models::{AppDetail, AppSummary, InstalledApp, MirrorNodeStatus, UpdateItem, UpdateRule};
 use crate::AppState;
 use std::collections::HashMap;
 use tauri::{AppHandle, State};
@@ -13,10 +13,32 @@ pub async fn search_apps(
         let t = state.github_token.lock().map_err(|e| e.to_string())?;
         t.clone()
     };
-    state
+    let hidden_ids: std::collections::HashSet<String> = {
+        if let Ok(db) = state.db.lock() {
+            db.get_all_rules()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|r| r.is_hidden)
+                .map(|r| r.app_id.to_lowercase())
+                .collect()
+        } else {
+            std::collections::HashSet::new()
+        }
+    };
+
+    let results = state
         .catalog
         .search_github_online(&query, token.as_deref())
-        .await
+        .await?;
+
+    if hidden_ids.is_empty() {
+        Ok(results)
+    } else {
+        Ok(results
+            .into_iter()
+            .filter(|a| !hidden_ids.contains(&a.id.to_lowercase()))
+            .collect())
+    }
 }
 
 #[tauri::command]
@@ -90,6 +112,26 @@ pub async fn install_app(
         asset.sha256.as_deref(),
     )
     .await?;
+
+    // 3.5. 增强防御：Windows Authenticode 签名与发布者证书指纹校验 (Feature C)
+    #[cfg(target_os = "windows")]
+    {
+        let is_windows_binary = asset.name.to_lowercase().ends_with(".exe")
+            || asset.name.to_lowercase().ends_with(".msi");
+        if is_windows_binary {
+            if let Ok(sig_info) = crate::verifier::AuthenticodeVerifier::extract_signature(&dest_path) {
+                if let Some(ref expected_fp) = detail.signature_fingerprint {
+                    if !expected_fp.trim().is_empty() {
+                        if let Err(mismatch_err) = crate::verifier::AuthenticodeVerifier::verify_fingerprint(&sig_info, expected_fp) {
+                            // 证书指纹不符（疑似供应链投毒或替换），销毁临时文件并强行阻断
+                            let _ = std::fs::remove_file(&dest_path);
+                            return Err(mismatch_err);
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     // 4. 调用原生安装器或解压便携版
     let (kind, _, _) = InstallerEngine::classify_asset(&asset.name);
@@ -189,7 +231,7 @@ pub fn is_version_newer(current: &str, latest: &str) -> bool {
     let parse_nums = |s: &str| -> Vec<u64> {
         let clean = s.trim_start_matches('v').trim();
         clean
-            .split(|c: char| c == '.' || c == '-' || c == '_')
+            .split(['.', '-', '_'])
             .filter_map(|part| {
                 part.chars()
                     .take_while(|c| c.is_ascii_digit())
@@ -221,14 +263,50 @@ pub fn is_version_newer(current: &str, latest: &str) -> bool {
     false
 }
 
+/// 判定是否应当提示此更新，综合考量版本策略表（跳过指定版本、锁定、隐藏）
+pub fn should_include_update(
+    current_version: &str,
+    latest_version: &str,
+    rule: Option<&UpdateRule>,
+) -> bool {
+    if let Some(r) = rule {
+        if r.is_frozen || r.is_hidden {
+            return false;
+        }
+        if let Some(ref skipped) = r.skipped_version {
+            let clean_skipped = skipped.trim_start_matches('v').trim();
+            let clean_latest = latest_version.trim_start_matches('v').trim();
+            if clean_skipped == clean_latest {
+                return false;
+            }
+        }
+    }
+    is_version_newer(current_version, latest_version)
+}
+
 #[tauri::command]
 pub async fn check_for_updates(state: State<'_, AppState>) -> Result<Vec<UpdateItem>, String> {
     let installed = get_installed_apps(state.clone())?;
+    let rules_map: HashMap<String, UpdateRule> = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        db.get_all_rules()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|r| (r.app_id.to_lowercase(), r))
+            .collect()
+    };
     let mut updates = Vec::new();
 
     for app in installed {
+        let rule_opt = rules_map.get(&app.app_id.to_lowercase());
+        if let Some(rule) = rule_opt {
+            if rule.is_frozen || rule.is_hidden {
+                continue;
+            }
+        }
+
         if let Ok(detail) = get_app_details(state.clone(), app.app_id.clone()).await {
-            if is_version_newer(&app.version, &detail.latest_version) {
+            if should_include_update(&app.version, &detail.latest_version, rule_opt) {
                 updates.push(UpdateItem {
                     app_id: app.app_id,
                     app_name: app.app_name,
@@ -241,6 +319,60 @@ pub async fn check_for_updates(state: State<'_, AppState>) -> Result<Vec<UpdateI
     }
 
     Ok(updates)
+}
+
+#[tauri::command]
+pub fn get_update_rules(state: State<'_, AppState>) -> Result<Vec<UpdateRule>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.get_all_rules().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_app_skip_version(
+    state: State<'_, AppState>,
+    app_id: String,
+    version: Option<String>,
+) -> Result<bool, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.set_skip_version(&app_id, version.as_deref())
+        .map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn set_app_frozen(
+    state: State<'_, AppState>,
+    app_id: String,
+    is_frozen: bool,
+) -> Result<bool, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.set_frozen_status(&app_id, is_frozen)
+        .map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn set_app_hidden(
+    state: State<'_, AppState>,
+    app_id: String,
+    is_hidden: bool,
+) -> Result<bool, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.set_hidden_status(&app_id, is_hidden)
+        .map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn remove_update_rule(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.remove_rule(&app_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn verify_file_signature(file_path: String) -> Result<crate::verifier::SignatureInfo, String> {
+    let p = std::path::Path::new(&file_path);
+    crate::verifier::AuthenticodeVerifier::extract_signature(p)
 }
 
 #[tauri::command]
@@ -570,4 +702,47 @@ mod tests {
         assert!(!is_version_newer("3.0.22", "3.0.21"));
         assert!(!is_version_newer("1.4.0", "1.3.1"));
     }
+
+    #[test]
+    fn test_should_include_update() {
+        // 1. 无规则，有新版本 -> 应当包含
+        assert!(should_include_update("v1.0.0", "v1.1.0", None));
+        // 2. 无规则，相同版本 -> 不应当包含
+        assert!(!should_include_update("v1.1.0", "v1.1.0", None));
+
+        // 3. 规则锁定 (is_frozen == true) -> 即使有新版本也忽略
+        let frozen_rule = UpdateRule {
+            app_id: "test".to_string(),
+            skipped_version: None,
+            is_frozen: true,
+            is_hidden: false,
+            updated_at: 1000,
+        };
+        assert!(!should_include_update("v1.0.0", "v2.0.0", Some(&frozen_rule)));
+
+        // 4. 规则隐藏 (is_hidden == true) -> 即使有新版本也忽略
+        let hidden_rule = UpdateRule {
+            app_id: "test".to_string(),
+            skipped_version: None,
+            is_frozen: false,
+            is_hidden: true,
+            updated_at: 1000,
+        };
+        assert!(!should_include_update("v1.0.0", "v2.0.0", Some(&hidden_rule)));
+
+        // 5. 规则跳过当前最新版本 -> 忽略此最新版本
+        let skip_rule = UpdateRule {
+            app_id: "test".to_string(),
+            skipped_version: Some("v2.0.0".to_string()),
+            is_frozen: false,
+            is_hidden: false,
+            updated_at: 1000,
+        };
+        assert!(!should_include_update("v1.0.0", "v2.0.0", Some(&skip_rule)));
+        assert!(!should_include_update("v1.0.0", "2.0.0", Some(&skip_rule))); // v 前缀容错
+
+        // 6. 规则跳过了 v2.0.0，但推出了更新的 v2.1.0 -> 应当恢复提示！
+        assert!(should_include_update("v1.0.0", "v2.1.0", Some(&skip_rule)));
+    }
 }
+

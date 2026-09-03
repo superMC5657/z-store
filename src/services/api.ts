@@ -7,7 +7,9 @@ import {
   ImportAppRequest,
   InstalledApp,
   MirrorNodeStatus,
+  SignatureInfo,
   UpdateItem,
+  UpdateRule,
 } from '../types';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -157,6 +159,8 @@ let mockMirrors: MirrorNodeStatus[] = [
   { id: 'direct', name: 'GitHub 官方直连线路 (海外/科学上网)', base_url: 'https://github.com', latency_ms: 220, is_active: false },
 ];
 
+let mockRules: UpdateRule[] = [];
+
 let mockSettings: Record<string, string> = {
   theme: 'dark',
   active_mirror: 'ghproxy',
@@ -275,6 +279,13 @@ export const api = {
     for (const app of mockInstalled) {
       const detail = MOCK_APPS[app.app_id];
       if (detail && detail.latest_version !== app.version) {
+        const rule = mockRules.find((r) => r.app_id.toLowerCase() === app.app_id.toLowerCase());
+        if (rule) {
+          if (rule.is_frozen || rule.is_hidden) continue;
+          if (rule.skipped_version && rule.skipped_version.replace(/^v/, '') === detail.latest_version.replace(/^v/, '')) {
+            continue;
+          }
+        }
         updates.push({
           app_id: app.app_id,
           app_name: app.app_name,
@@ -468,5 +479,95 @@ export const api = {
       return unlisten;
     }
     return () => {};
+  },
+
+  async getUpdateRules(): Promise<UpdateRule[]> {
+    if (isTauri) {
+      return tauriInvoke<UpdateRule[]>('get_update_rules');
+    }
+    return [...mockRules];
+  },
+
+  async setAppSkipVersion(appId: string, version: string | null): Promise<boolean> {
+    if (isTauri) {
+      return tauriInvoke<boolean>('set_app_skip_version', { appId, version });
+    }
+    const idx = mockRules.findIndex((r) => r.app_id === appId);
+    if (idx >= 0) {
+      mockRules[idx].skipped_version = version;
+      mockRules[idx].updated_at = Date.now();
+    } else {
+      mockRules.push({
+        app_id: appId,
+        skipped_version: version,
+        is_frozen: false,
+        is_hidden: false,
+        updated_at: Date.now(),
+      });
+    }
+    return true;
+  },
+
+  async setAppFrozen(appId: string, isFrozen: boolean): Promise<boolean> {
+    if (isTauri) {
+      return tauriInvoke<boolean>('set_app_frozen', { appId, isFrozen });
+    }
+    const idx = mockRules.findIndex((r) => r.app_id === appId);
+    if (idx >= 0) {
+      mockRules[idx].is_frozen = isFrozen;
+      mockRules[idx].updated_at = Date.now();
+    } else {
+      mockRules.push({
+        app_id: appId,
+        is_frozen: isFrozen,
+        is_hidden: false,
+        updated_at: Date.now(),
+      });
+    }
+    return true;
+  },
+
+  async setAppHidden(appId: string, isHidden: boolean): Promise<boolean> {
+    if (isTauri) {
+      return tauriInvoke<boolean>('set_app_hidden', { appId, isHidden });
+    }
+    const idx = mockRules.findIndex((r) => r.app_id === appId);
+    if (idx >= 0) {
+      mockRules[idx].is_hidden = isHidden;
+      mockRules[idx].updated_at = Date.now();
+    } else {
+      mockRules.push({
+        app_id: appId,
+        is_frozen: false,
+        is_hidden: isHidden,
+        updated_at: Date.now(),
+      });
+    }
+    return true;
+  },
+
+  async removeUpdateRule(appId: string): Promise<boolean> {
+    if (isTauri) {
+      return tauriInvoke<boolean>('remove_update_rule', { appId });
+    }
+    mockRules = mockRules.filter((r) => r.app_id !== appId);
+    return true;
+  },
+
+  async verifyFileSignature(filePath: string): Promise<SignatureInfo> {
+    if (isTauri) {
+      return tauriInvoke<SignatureInfo>('verify_file_signature', { filePath });
+    }
+    return {
+      is_signed: true,
+      is_valid: true,
+      status: 'Valid',
+      status_message: 'Mock signature verified',
+      subject: 'CN=Open Source Publisher',
+      issuer: 'CN=DigiCert Trusted Root G4',
+      serial_number: '1234567890ABCDEF',
+      thumbprint_sha1: '3B77DB29AC72AA6B5880ECB2ED5EC1EC6601D847',
+      thumbprint_sha256: 'E8:7A:B4:9C:3D:12:FA:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD',
+    };
   },
 };

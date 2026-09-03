@@ -143,3 +143,24 @@ export interface ImportAppRequest {
   install_path?: string;
   uninstall_command?: string;
 }
+
+export interface UpdateRule {
+  app_id: string;
+  skipped_version?: string | null;
+  is_frozen: boolean;
+  is_hidden: boolean;
+  updated_at: number;
+}
+
+export interface SignatureInfo {
+  is_signed: boolean;
+  is_valid: boolean;
+  status: string;
+  status_message?: string;
+  subject?: string;
+  issuer?: string;
+  serial_number?: string;
+  thumbprint_sha1?: string;
+  thumbprint_sha256?: string;
+  error_message?: string;
+}

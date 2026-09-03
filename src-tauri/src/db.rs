@@ -1,4 +1,4 @@
-use crate::models::InstalledApp;
+use crate::models::{InstalledApp, UpdateRule};
 use rusqlite::{params, Connection, Result};
 use std::collections::HashMap;
 use std::path::Path;
@@ -52,6 +52,14 @@ impl Database {
             CREATE TABLE IF NOT EXISTS user_favorites (
                 app_id TEXT PRIMARY KEY,
                 favorited_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS update_rules (
+                app_id TEXT PRIMARY KEY,
+                skipped_version TEXT,
+                is_frozen INTEGER NOT NULL DEFAULT 0,
+                is_hidden INTEGER NOT NULL DEFAULT 0,
+                updated_at INTEGER NOT NULL
             );
             "#,
         )?;
@@ -244,6 +252,113 @@ impl Database {
             Ok(true)
         }
     }
+
+    pub fn get_rule(&self, app_id: &str) -> Result<Option<UpdateRule>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT app_id, skipped_version, is_frozen, is_hidden, updated_at FROM update_rules WHERE app_id = ?1",
+        )?;
+        let mut rows = stmt.query(params![app_id])?;
+        if let Some(row) = rows.next()? {
+            let is_frozen_int: i64 = row.get(2)?;
+            let is_hidden_int: i64 = row.get(3)?;
+            Ok(Some(UpdateRule {
+                app_id: row.get(0)?,
+                skipped_version: row.get(1)?,
+                is_frozen: is_frozen_int != 0,
+                is_hidden: is_hidden_int != 0,
+                updated_at: row.get(4)?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn get_all_rules(&self) -> Result<Vec<UpdateRule>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT app_id, skipped_version, is_frozen, is_hidden, updated_at FROM update_rules ORDER BY updated_at DESC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            let is_frozen_int: i64 = row.get(2)?;
+            let is_hidden_int: i64 = row.get(3)?;
+            Ok(UpdateRule {
+                app_id: row.get(0)?,
+                skipped_version: row.get(1)?,
+                is_frozen: is_frozen_int != 0,
+                is_hidden: is_hidden_int != 0,
+                updated_at: row.get(4)?,
+            })
+        })?;
+
+        let mut rules = Vec::new();
+        for r in rows {
+            rules.push(r?);
+        }
+        Ok(rules)
+    }
+
+    pub fn set_skip_version(&self, app_id: &str, version: Option<&str>) -> Result<()> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        self.conn.execute(
+            r#"
+            INSERT INTO update_rules (app_id, skipped_version, is_frozen, is_hidden, updated_at)
+            VALUES (?1, ?2, 0, 0, ?3)
+            ON CONFLICT(app_id) DO UPDATE SET
+                skipped_version = excluded.skipped_version,
+                updated_at = excluded.updated_at;
+            "#,
+            params![app_id, version, now],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_frozen_status(&self, app_id: &str, is_frozen: bool) -> Result<()> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        let val = if is_frozen { 1 } else { 0 };
+        self.conn.execute(
+            r#"
+            INSERT INTO update_rules (app_id, skipped_version, is_frozen, is_hidden, updated_at)
+            VALUES (?1, NULL, ?2, 0, ?3)
+            ON CONFLICT(app_id) DO UPDATE SET
+                is_frozen = excluded.is_frozen,
+                updated_at = excluded.updated_at;
+            "#,
+            params![app_id, val, now],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_hidden_status(&self, app_id: &str, is_hidden: bool) -> Result<()> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        let val = if is_hidden { 1 } else { 0 };
+        self.conn.execute(
+            r#"
+            INSERT INTO update_rules (app_id, skipped_version, is_frozen, is_hidden, updated_at)
+            VALUES (?1, NULL, 0, ?2, ?3)
+            ON CONFLICT(app_id) DO UPDATE SET
+                is_hidden = excluded.is_hidden,
+                updated_at = excluded.updated_at;
+            "#,
+            params![app_id, val, now],
+        )?;
+        Ok(())
+    }
+
+    pub fn remove_rule(&self, app_id: &str) -> Result<bool> {
+        let rows = self.conn.execute(
+            "DELETE FROM update_rules WHERE app_id = ?1",
+            params![app_id],
+        )?;
+        Ok(rows > 0)
+    }
 }
 
 #[cfg(test)]
@@ -306,5 +421,51 @@ mod tests {
         let fav_removed = db.toggle_favorite("rustdesk").unwrap();
         assert!(!fav_removed);
         assert_eq!(db.get_favorites().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_update_rules_crud() {
+        let db = Database::open_in_memory().unwrap();
+
+        // 1. Initial state: no rules
+        assert!(db.get_rule("rustdesk").unwrap().is_none());
+        assert_eq!(db.get_all_rules().unwrap().len(), 0);
+
+        // 2. Set skip version
+        db.set_skip_version("rustdesk", Some("v1.3.0")).unwrap();
+        let rule = db.get_rule("rustdesk").unwrap().expect("rule exists");
+        assert_eq!(rule.app_id, "rustdesk");
+        assert_eq!(rule.skipped_version.as_deref(), Some("v1.3.0"));
+        assert!(!rule.is_frozen);
+        assert!(!rule.is_hidden);
+
+        // 3. Freeze version
+        db.set_frozen_status("rustdesk", true).unwrap();
+        let rule = db.get_rule("rustdesk").unwrap().unwrap();
+        assert!(rule.is_frozen);
+        assert_eq!(rule.skipped_version.as_deref(), Some("v1.3.0"));
+
+        // 4. Hide status
+        db.set_hidden_status("rustdesk", true).unwrap();
+        let rule = db.get_rule("rustdesk").unwrap().unwrap();
+        assert!(rule.is_hidden);
+
+        // 5. Add second app rule
+        db.set_skip_version("localsend", Some("v1.14.1")).unwrap();
+        let all = db.get_all_rules().unwrap();
+        assert_eq!(all.len(), 2);
+
+        // 6. Unfreeze and unhide
+        db.set_frozen_status("rustdesk", false).unwrap();
+        db.set_hidden_status("rustdesk", false).unwrap();
+        let rule = db.get_rule("rustdesk").unwrap().unwrap();
+        assert!(!rule.is_frozen);
+        assert!(!rule.is_hidden);
+
+        // 7. Remove rule
+        let removed = db.remove_rule("rustdesk").unwrap();
+        assert!(removed);
+        assert!(db.get_rule("rustdesk").unwrap().is_none());
+        assert_eq!(db.get_all_rules().unwrap().len(), 1);
     }
 }

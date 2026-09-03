@@ -97,3 +97,12 @@ pub struct DownloadProgressPayload {
     pub state: String,
     pub message: Option<String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UpdateRule {
+    pub app_id: String,
+    pub skipped_version: Option<String>,
+    pub is_frozen: bool,
+    pub is_hidden: bool,
+    pub updated_at: i64,
+}
