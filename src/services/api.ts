@@ -8,8 +8,10 @@ import {
   InstalledApp,
   MirrorNodeStatus,
   SignatureInfo,
+  StarredSyncResult,
   UpdateItem,
   UpdateRule,
+  DeveloperProfile,
 } from '../types';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -570,4 +572,144 @@ export const api = {
       thumbprint_sha256: 'E8:7A:B4:9C:3D:12:FA:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD',
     };
   },
+
+  async getDeveloperProfile(developer: string): Promise<DeveloperProfile> {
+    if (isTauri) {
+      return tauriInvoke<DeveloperProfile>('get_developer_profile', { developer });
+    }
+    await new Promise((r) => setTimeout(r, 250));
+    const devLower = developer.toLowerCase();
+    const matchedApps = Object.values(MOCK_APPS).filter((a) => a.owner.toLowerCase() === devLower);
+    return {
+      login: developer,
+      name: developer === 'localsend' ? 'LocalSend Team' : developer === 'obsproject' ? 'OBS Project' : developer,
+      avatar_url: `https://avatars.githubusercontent.com/${developer}`,
+      html_url: `https://github.com/${developer}`,
+      bio: `致力于打造优质、安全且自由的开源生产力软件工具 · GitHub 开源组织`,
+      company: `@${developer}`,
+      blog: `https://${developer}.org`,
+      location: 'Global / Open Source',
+      public_repos: Math.max(matchedApps.length, 6),
+      followers: 3200,
+      following: 12,
+      repos: matchedApps.map((a) => ({
+        id: a.id,
+        name: a.name,
+        full_name: `${a.owner}/${a.repo}`,
+        description: a.description,
+        html_url: `https://github.com/${a.owner}/${a.repo}`,
+        stars: a.stars,
+        forks: a.forks,
+        language: 'Rust / TypeScript / C++',
+        has_releases: true,
+        in_catalog: true,
+        latest_release_tag: a.latest_version,
+      })),
+    };
+  },
+
+  async syncGithubStarred(username?: string): Promise<StarredSyncResult> {
+    if (isTauri) {
+      return tauriInvoke<StarredSyncResult>('sync_github_starred', { username });
+    }
+    await new Promise((r) => setTimeout(r, 400));
+    const all = Object.values(MOCK_APPS).map((d) => ({
+      id: d.id,
+      name: d.name,
+      owner: d.owner,
+      repo: d.repo,
+      icon: d.icon,
+      icon_bg: d.icon_bg,
+      description: d.description,
+      stars: d.stars,
+      forks: d.forks,
+      license: d.license,
+      latest_version: d.latest_version,
+      category: d.category,
+      category_name: d.category_name,
+      is_verified: d.is_verified,
+    }));
+    return {
+      total_starred: all.length,
+      catalog_matches: all,
+      other_repos: [],
+    };
+  },
+
+  async recordSearchQuery(query: string): Promise<void> {
+    if (isTauri) {
+      return tauriInvoke<void>('record_search_query', { query });
+    }
+    const q = query.trim();
+    if (!q) return;
+    mockSearchHistory = [q, ...mockSearchHistory.filter((x) => x !== q)].slice(0, 20);
+  },
+
+  async getSearchHistory(): Promise<string[]> {
+    if (isTauri) {
+      return tauriInvoke<string[]>('get_search_history');
+    }
+    return [...mockSearchHistory];
+  },
+
+  async clearSearchHistory(): Promise<void> {
+    if (isTauri) {
+      return tauriInvoke<void>('clear_search_history');
+    }
+    mockSearchHistory = [];
+  },
+
+  async removeSearchQuery(query: string): Promise<void> {
+    if (isTauri) {
+      return tauriInvoke<void>('remove_search_query', { query });
+    }
+    mockSearchHistory = mockSearchHistory.filter((x) => x !== query);
+  },
+
+  async recordAppView(appId: string): Promise<void> {
+    if (isTauri) {
+      return tauriInvoke<void>('record_app_view', { appId });
+    }
+    const id = appId.trim();
+    if (!id) return;
+    mockViewHistory = [id, ...mockViewHistory.filter((x) => x !== id)].slice(0, 30);
+  },
+
+  async getRecentlyViewedApps(): Promise<AppSummary[]> {
+    if (isTauri) {
+      return tauriInvoke<AppSummary[]>('get_recently_viewed_apps');
+    }
+    return mockViewHistory
+      .map((id) => {
+        const d = MOCK_APPS[id];
+        if (!d) return null;
+        return {
+          id: d.id,
+          name: d.name,
+          owner: d.owner,
+          repo: d.repo,
+          icon: d.icon,
+          icon_bg: d.icon_bg,
+          description: d.description,
+          stars: d.stars,
+          forks: d.forks,
+          license: d.license,
+          latest_version: d.latest_version,
+          category: d.category,
+          category_name: d.category_name,
+          is_verified: d.is_verified,
+        };
+      })
+      .filter((a): a is AppSummary => a !== null);
+  },
+
+  async clearViewHistory(): Promise<void> {
+    if (isTauri) {
+      return tauriInvoke<void>('clear_view_history');
+    }
+    mockViewHistory = [];
+  },
 };
+
+let mockSearchHistory: string[] = ['RustDesk', 'LocalSend', 'OBS Studio', 'VLC'];
+let mockViewHistory: string[] = ['rustdesk', 'localsend', 'obs-studio'];

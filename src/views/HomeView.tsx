@@ -6,20 +6,24 @@ interface HomeViewProps {
   apps: AppSummary[];
   installedIds: Set<string>;
   favoriteIds: Set<string>;
+  recentlyViewedApps?: AppSummary[];
   onOpenDetail: (id: string) => void;
   onQuickInstall: (id: string) => void;
   onToggleFavorite: (id: string) => void;
   onNavigateTrends: () => void;
+  onClearRecentViews?: () => void;
 }
 
 export const HomeView: React.FC<HomeViewProps> = ({
   apps,
   installedIds,
   favoriteIds,
+  recentlyViewedApps = [],
   onOpenDetail,
   onQuickInstall,
   onToggleFavorite,
   onNavigateTrends,
+  onClearRecentViews,
 }) => {
   if (apps.length === 0) {
     return (
@@ -148,6 +152,38 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <span>Verified</span>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recently Viewed Apps (Feature D) */}
+      {recentlyViewedApps && recentlyViewedApps.length > 0 && (
+        <div style={{ marginBottom: '28px' }}>
+          <div className="section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h3 className="section-title">🕒 最近浏览</h3>
+            {onClearRecentViews && (
+              <button
+                type="button"
+                className="btn-fluent btn-secondary"
+                style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px' }}
+                onClick={onClearRecentViews}
+              >
+                清空记录
+              </button>
+            )}
+          </div>
+          <div className="app-grid">
+            {recentlyViewedApps.slice(0, 4).map((app) => (
+              <AppCard
+                key={app.id}
+                app={app}
+                isInstalled={installedIds.has(app.id)}
+                isFavorite={favoriteIds.has(app.id)}
+                onOpenDetail={onOpenDetail}
+                onQuickInstall={onQuickInstall}
+                onToggleFavorite={onToggleFavorite}
+              />
+            ))}
           </div>
         </div>
       )}

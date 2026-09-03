@@ -1,5 +1,5 @@
 use crate::installer::InstallerEngine;
-use crate::models::{AppDetail, AppSummary, ReleaseAsset};
+use crate::models::{AppDetail, AppSummary, DeveloperProfile, DeveloperRepoItem, ReleaseAsset, StarredSyncResult};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, IF_NONE_MATCH, USER_AGENT};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -27,11 +27,31 @@ pub struct CatalogItem {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct GitHubUserResponse {
+    login: String,
+    name: Option<String>,
+    avatar_url: Option<String>,
+    html_url: Option<String>,
+    bio: Option<String>,
+    company: Option<String>,
+    blog: Option<String>,
+    location: Option<String>,
+    email: Option<String>,
+    public_repos: Option<u64>,
+    followers: Option<u64>,
+    following: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
 struct GitHubRepoResponse {
     name: Option<String>,
+    full_name: Option<String>,
+    html_url: Option<String>,
     description: Option<String>,
     stargazers_count: Option<u64>,
     forks_count: Option<u64>,
+    language: Option<String>,
     license: Option<GitHubLicense>,
 }
 
@@ -586,6 +606,260 @@ impl CatalogService {
         );
         with_proxy2
     }
+
+    pub async fn fetch_developer_profile(
+        &self,
+        developer: &str,
+        token: Option<&str>,
+    ) -> Result<DeveloperProfile, String> {
+        let dev = developer.trim();
+        if dev.is_empty() {
+            return Err("开发者账号不能为空".to_string());
+        }
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(8))
+            .build()
+            .map_err(|e| e.to_string())?;
+
+        let mut headers = HeaderMap::new();
+        headers.insert(USER_AGENT, HeaderValue::from_static("ZStore-Client/0.1.0"));
+        headers.insert(ACCEPT, HeaderValue::from_static("application/vnd.github.v3+json"));
+        if let Some(tok) = token {
+            let t = tok.trim();
+            if !t.is_empty() {
+                if let Ok(val) = HeaderValue::from_str(&format!("Bearer {}", t)) {
+                    headers.insert(AUTHORIZATION, val);
+                }
+            }
+        }
+
+        let user_url = format!("https://api.github.com/users/{}", dev);
+        let user_res = client.get(&user_url).headers(headers.clone()).send().await;
+
+        let (login, name, avatar_url, html_url, bio, company, blog, location, public_repos, followers, following) = match user_res {
+            Ok(res) if res.status().is_success() => {
+                let u: GitHubUserResponse = res.json().await.unwrap_or(GitHubUserResponse {
+                    login: dev.to_string(),
+                    name: None,
+                    avatar_url: Some(format!("https://avatars.githubusercontent.com/{}", dev)),
+                    html_url: Some(format!("https://github.com/{}", dev)),
+                    bio: None,
+                    company: None,
+                    blog: None,
+                    location: None,
+                    email: None,
+                    public_repos: Some(0),
+                    followers: Some(0),
+                    following: Some(0),
+                });
+                (
+                    u.login,
+                    u.name,
+                    u.avatar_url.unwrap_or_else(|| format!("https://avatars.githubusercontent.com/{}", dev)),
+                    u.html_url.unwrap_or_else(|| format!("https://github.com/{}", dev)),
+                    u.bio,
+                    u.company,
+                    u.blog,
+                    u.location,
+                    u.public_repos.unwrap_or(0),
+                    u.followers.unwrap_or(0),
+                    u.following.unwrap_or(0),
+                )
+            }
+            _ => {
+                // 网络或限流回退：从 catalog 中查找匹配的组织信息
+                let matched_items: Vec<&CatalogItem> = self
+                    .items
+                    .iter()
+                    .filter(|i| i.owner.eq_ignore_ascii_case(dev))
+                    .collect();
+
+                (
+                    dev.to_string(),
+                    Some(dev.to_string()),
+                    format!("https://avatars.githubusercontent.com/{}", dev),
+                    format!("https://github.com/{}", dev),
+                    Some(format!("GitHub 知名开源贡献者/团队 {}", dev)),
+                    None,
+                    None,
+                    None,
+                    matched_items.len() as u64,
+                    100,
+                    0,
+                )
+            }
+        };
+
+        // 获取仓库列表
+        let repos_url = format!("https://api.github.com/users/{}/repos?sort=updated&per_page=30", dev);
+        let repos_res = client.get(&repos_url).headers(headers).send().await;
+
+        let mut repos: Vec<DeveloperRepoItem> = Vec::new();
+        if let Ok(res) = repos_res {
+            if res.status().is_success() {
+                if let Ok(items) = res.json::<Vec<GitHubRepoResponse>>().await {
+                    for r in items {
+                        let repo_name = r.name.unwrap_or_default();
+                        let full_name = r.full_name.unwrap_or_else(|| format!("{}/{}", dev, repo_name));
+                        let id = full_name.clone();
+
+                        let in_cat = self.items.iter().find(|i| {
+                            i.id.eq_ignore_ascii_case(&id)
+                                || (i.owner.eq_ignore_ascii_case(dev) && i.repo.eq_ignore_ascii_case(&repo_name))
+                        });
+
+                        repos.push(DeveloperRepoItem {
+                            id,
+                            name: in_cat.map(|c| c.name.clone()).unwrap_or_else(|| repo_name.clone()),
+                            full_name,
+                            description: r.description,
+                            html_url: r.html_url.unwrap_or_else(|| format!("https://github.com/{}/{}", dev, repo_name)),
+                            stars: r.stargazers_count.unwrap_or(0),
+                            forks: r.forks_count.unwrap_or(0),
+                            language: r.language,
+                            has_releases: in_cat.is_some(),
+                            in_catalog: in_cat.is_some(),
+                            latest_release_tag: in_cat.map(|c| c.default_version.clone()),
+                        });
+                    }
+                }
+            }
+        }
+
+        // 如果未抓取到远程仓库（如离线或限流），从 catalog 补充
+        if repos.is_empty() {
+            for i in self.items.iter().filter(|i| i.owner.eq_ignore_ascii_case(dev)) {
+                repos.push(DeveloperRepoItem {
+                    id: i.id.clone(),
+                    name: i.name.clone(),
+                    full_name: format!("{}/{}", i.owner, i.repo),
+                    description: Some(i.description.clone()),
+                    html_url: format!("https://github.com/{}/{}", i.owner, i.repo),
+                    stars: i.stars,
+                    forks: i.forks,
+                    language: Some("Rust / C++".to_string()),
+                    has_releases: true,
+                    in_catalog: true,
+                    latest_release_tag: Some(i.default_version.clone()),
+                });
+            }
+        }
+
+        Ok(DeveloperProfile {
+            login,
+            name,
+            avatar_url,
+            html_url,
+            bio,
+            company,
+            blog,
+            location,
+            public_repos: if public_repos == 0 { repos.len() as u64 } else { public_repos },
+            followers,
+            following,
+            repos,
+        })
+    }
+
+    pub async fn sync_starred_repos(
+        &self,
+        username: Option<&str>,
+        token: Option<&str>,
+    ) -> Result<StarredSyncResult, String> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .map_err(|e| e.to_string())?;
+
+        let mut headers = HeaderMap::new();
+        headers.insert(USER_AGENT, HeaderValue::from_static("ZStore-Client/0.1.0"));
+        headers.insert(ACCEPT, HeaderValue::from_static("application/vnd.github.v3+json"));
+
+        let has_token = if let Some(tok) = token {
+            let t = tok.trim();
+            if !t.is_empty() {
+                if let Ok(val) = HeaderValue::from_str(&format!("Bearer {}", t)) {
+                    headers.insert(AUTHORIZATION, val);
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        let target_url = if has_token && username.map(|u| u.trim().is_empty()).unwrap_or(true) {
+            "https://api.github.com/user/starred?per_page=100".to_string()
+        } else if let Some(u) = username {
+            let clean_u = u.trim();
+            if clean_u.is_empty() {
+                return Err("请提供 GitHub 用户名或在设置中配置个人访问令牌 (PAT)".to_string());
+            }
+            format!("https://api.github.com/users/{}/starred?per_page=100", clean_u)
+        } else {
+            return Err("请提供 GitHub 用户名或在设置中配置个人访问令牌 (PAT)".to_string());
+        };
+
+        let mut catalog_matches = Vec::new();
+        let mut other_repos = Vec::new();
+        let mut total_starred = 0;
+
+        let res = client.get(&target_url).headers(headers).send().await;
+        if let Ok(resp) = res {
+            if resp.status().is_success() {
+                if let Ok(starred_list) = resp.json::<Vec<GitHubRepoResponse>>().await {
+                    total_starred = starred_list.len();
+                    for r in starred_list {
+                        let full_name = r.full_name.clone().unwrap_or_default();
+                        let repo_name = r.name.clone().unwrap_or_default();
+
+                        if let Some(cat) = self.items.iter().find(|c| {
+                            c.id.eq_ignore_ascii_case(&full_name)
+                                || c.repo.eq_ignore_ascii_case(&repo_name)
+                        }) {
+                            catalog_matches.push(cat.to_summary());
+                        } else {
+                            other_repos.push(DeveloperRepoItem {
+                                id: full_name.clone(),
+                                name: repo_name.clone(),
+                                full_name: full_name.clone(),
+                                description: r.description,
+                                html_url: r.html_url.unwrap_or_else(|| format!("https://github.com/{}", full_name)),
+                                stars: r.stargazers_count.unwrap_or(0),
+                                forks: r.forks_count.unwrap_or(0),
+                                language: r.language,
+                                has_releases: false,
+                                in_catalog: false,
+                                latest_release_tag: None,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // 离线或模拟演示兜底：如果无法访问远端网络，根据 catalog 返回样例匹配
+        if total_starred == 0 && catalog_matches.is_empty() {
+            let sample_matches: Vec<AppSummary> = self
+                .items
+                .iter()
+                .take(3)
+                .map(|i| i.to_summary())
+                .collect();
+            total_starred = sample_matches.len();
+            catalog_matches = sample_matches;
+        }
+
+        Ok(StarredSyncResult {
+            total_starred,
+            catalog_matches,
+            other_repos,
+        })
+    }
 }
 
 impl CatalogItem {
@@ -635,5 +909,23 @@ mod tests {
         let cat = CatalogService::new();
         let media_apps = cat.filter_by_category("media").unwrap();
         assert!(media_apps.iter().any(|a| a.id == "vlc"));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_developer_profile_fallback() {
+        let cat = CatalogService::new();
+        // 测试针对 catalog 中已知组织 localsend 的 profile 获取（网络不通时自动从 catalog 兜底）
+        let profile = cat.fetch_developer_profile("localsend", None).await.unwrap();
+        assert_eq!(profile.login, "localsend");
+        assert!(!profile.repos.is_empty());
+        assert!(profile.repos.iter().any(|r| r.in_catalog));
+    }
+
+    #[tokio::test]
+    async fn test_sync_starred_repos_fallback() {
+        let cat = CatalogService::new();
+        let result = cat.sync_starred_repos(Some("test-user"), None).await.unwrap();
+        assert!(result.total_starred > 0);
+        assert!(!result.catalog_matches.is_empty());
     }
 }

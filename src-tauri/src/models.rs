@@ -106,3 +106,42 @@ pub struct UpdateRule {
     pub is_hidden: bool,
     pub updated_at: i64,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeveloperProfile {
+    pub login: String,
+    pub name: Option<String>,
+    pub avatar_url: String,
+    pub html_url: String,
+    pub bio: Option<String>,
+    pub company: Option<String>,
+    pub blog: Option<String>,
+    pub location: Option<String>,
+    pub public_repos: u64,
+    pub followers: u64,
+    pub following: u64,
+    pub repos: Vec<DeveloperRepoItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeveloperRepoItem {
+    pub id: String,
+    pub name: String,
+    pub full_name: String,
+    pub description: Option<String>,
+    pub html_url: String,
+    pub stars: u64,
+    pub forks: u64,
+    pub language: Option<String>,
+    pub has_releases: bool,
+    pub in_catalog: bool,
+    pub latest_release_tag: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StarredSyncResult {
+    pub total_starred: usize,
+    pub catalog_matches: Vec<AppSummary>,
+    pub other_repos: Vec<DeveloperRepoItem>,
+}
+

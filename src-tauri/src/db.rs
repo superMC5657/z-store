@@ -61,6 +61,18 @@ impl Database {
                 is_hidden INTEGER NOT NULL DEFAULT 0,
                 updated_at INTEGER NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS search_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                query TEXT UNIQUE NOT NULL,
+                searched_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS view_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                app_id TEXT UNIQUE NOT NULL,
+                viewed_at INTEGER NOT NULL
+            );
             "#,
         )?;
         Ok(())
@@ -359,6 +371,100 @@ impl Database {
         )?;
         Ok(rows > 0)
     }
+
+    pub fn record_search_query(&self, query: &str) -> Result<()> {
+        let q = query.trim();
+        if q.is_empty() {
+            return Ok(());
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        self.conn.execute(
+            r#"
+            INSERT INTO search_history (query, searched_at)
+            VALUES (?1, ?2)
+            ON CONFLICT(query) DO UPDATE SET
+                searched_at = excluded.searched_at;
+            "#,
+            params![q, now],
+        )?;
+        // 限制最多保留 20 条
+        self.conn.execute(
+            "DELETE FROM search_history WHERE id NOT IN (SELECT id FROM search_history ORDER BY searched_at DESC LIMIT 20)",
+            [],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_search_history(&self) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT query FROM search_history ORDER BY searched_at DESC LIMIT 20",
+        )?;
+        let rows = stmt.query_map([], |row| row.get(0))?;
+        let mut res = Vec::new();
+        for r in rows {
+            res.push(r?);
+        }
+        Ok(res)
+    }
+
+    pub fn clear_search_history(&self) -> Result<()> {
+        self.conn.execute("DELETE FROM search_history", [])?;
+        Ok(())
+    }
+
+    pub fn remove_search_query(&self, query: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM search_history WHERE query = ?1",
+            params![query.trim()],
+        )?;
+        Ok(())
+    }
+
+    pub fn record_app_view(&self, app_id: &str) -> Result<()> {
+        let id = app_id.trim();
+        if id.is_empty() {
+            return Ok(());
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        self.conn.execute(
+            r#"
+            INSERT INTO view_history (app_id, viewed_at)
+            VALUES (?1, ?2)
+            ON CONFLICT(app_id) DO UPDATE SET
+                viewed_at = excluded.viewed_at;
+            "#,
+            params![id, now],
+        )?;
+        // 限制最多保留 30 条
+        self.conn.execute(
+            "DELETE FROM view_history WHERE id NOT IN (SELECT id FROM view_history ORDER BY viewed_at DESC LIMIT 30)",
+            [],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_recently_viewed_app_ids(&self) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT app_id FROM view_history ORDER BY viewed_at DESC LIMIT 30",
+        )?;
+        let rows = stmt.query_map([], |row| row.get(0))?;
+        let mut res = Vec::new();
+        for r in rows {
+            res.push(r?);
+        }
+        Ok(res)
+    }
+
+    pub fn clear_view_history(&self) -> Result<()> {
+        self.conn.execute("DELETE FROM view_history", [])?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -467,5 +573,41 @@ mod tests {
         assert!(removed);
         assert!(db.get_rule("rustdesk").unwrap().is_none());
         assert_eq!(db.get_all_rules().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_search_and_view_history_crud() {
+        let db = Database::open_in_memory().unwrap();
+
+        // 1. Search history
+        db.record_search_query("rustdesk").unwrap();
+        db.record_search_query("localsend").unwrap();
+        db.record_search_query("rustdesk").unwrap(); // upsert (should move to top)
+
+        let queries = db.get_search_history().unwrap();
+        assert_eq!(queries.len(), 2);
+        assert_eq!(queries[0], "rustdesk");
+        assert_eq!(queries[1], "localsend");
+
+        db.remove_search_query("localsend").unwrap();
+        let queries_after = db.get_search_history().unwrap();
+        assert_eq!(queries_after.len(), 1);
+        assert_eq!(queries_after[0], "rustdesk");
+
+        db.clear_search_history().unwrap();
+        assert!(db.get_search_history().unwrap().is_empty());
+
+        // 2. View history
+        db.record_app_view("rustdesk").unwrap();
+        db.record_app_view("vlc").unwrap();
+        db.record_app_view("rustdesk").unwrap(); // upsert to top
+
+        let app_ids = db.get_recently_viewed_app_ids().unwrap();
+        assert_eq!(app_ids.len(), 2);
+        assert_eq!(app_ids[0], "rustdesk");
+        assert_eq!(app_ids[1], "vlc");
+
+        db.clear_view_history().unwrap();
+        assert!(db.get_recently_viewed_app_ids().unwrap().is_empty());
     }
 }

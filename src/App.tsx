@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { TitleBar } from './components/TitleBar';
 import { Sidebar } from './components/Sidebar';
 import { AppDetailModal } from './components/AppDetailModal';
+import { DeveloperProfileModal } from './components/DeveloperProfileModal';
 import { AppImportModal } from './components/AppImportModal';
 import { ToastContainer } from './components/Toast';
 import { HomeView } from './views/HomeView';
@@ -24,11 +25,13 @@ export const App: React.FC = () => {
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [mirrors, setMirrors] = useState<MirrorNodeStatus[]>([]);
   const [selectedApp, setSelectedApp] = useState<AppDetail | null>(null);
+  const [selectedDeveloper, setSelectedDeveloper] = useState<string | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [updateRules, setUpdateRules] = useState<UpdateRule[]>([]);
+  const [recentlyViewedApps, setRecentlyViewedApps] = useState<AppSummary[]>([]);
 
   // Toast Helper
   const showToast = (text: string, type: ToastMessage['type'] = 'info') => {
@@ -77,6 +80,7 @@ export const App: React.FC = () => {
     api.getMirrorStatus().then(setMirrors);
     api.getFavorites().then((favs) => setFavoriteIds(new Set(favs)));
     api.getUpdateRules().then(setUpdateRules);
+    api.getRecentlyViewedApps().then(setRecentlyViewedApps).catch(() => {});
 
     // Load persisted settings
     api.getSettings().then((persisted) => {
@@ -212,11 +216,31 @@ export const App: React.FC = () => {
     }
   };
 
+  const loadRecentViews = async () => {
+    try {
+      const recents = await api.getRecentlyViewedApps();
+      setRecentlyViewedApps(recents);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleClearRecentViews = async () => {
+    try {
+      await api.clearViewHistory();
+      setRecentlyViewedApps([]);
+      showToast('已清空最近浏览足迹', 'info');
+    } catch {
+      // ignore
+    }
+  };
+
   // Open App Detail Modal
   const handleOpenDetail = async (id: string) => {
     try {
       const detail = await api.getAppDetails(id);
       setSelectedApp(detail);
+      api.recordAppView(id).then(loadRecentViews).catch(() => {});
     } catch {
       showToast(`获取应用详情失败: ${id}`, 'error');
     }
@@ -488,10 +512,12 @@ export const App: React.FC = () => {
               apps={apps}
               installedIds={installedIds}
               favoriteIds={favoriteIds}
+              recentlyViewedApps={recentlyViewedApps}
               onOpenDetail={handleOpenDetail}
               onQuickInstall={handleQuickInstall}
               onToggleFavorite={handleToggleFavorite}
               onNavigateTrends={() => setCurrentView('trends')}
+              onClearRecentViews={handleClearRecentViews}
             />
           )}
 
@@ -595,8 +621,18 @@ export const App: React.FC = () => {
           onInstall={handleInstallApp}
           onLaunch={handleLaunchApp}
           onToggleFavorite={handleToggleFavorite}
+          onOpenDeveloperProfile={(owner) => setSelectedDeveloper(owner)}
         />
       )}
+
+      {/* Developer Profile Modal (Feature D) */}
+      <DeveloperProfileModal
+        developer={selectedDeveloper || ''}
+        isOpen={Boolean(selectedDeveloper)}
+        onClose={() => setSelectedDeveloper(null)}
+        onOpenAppDetail={(id) => handleOpenDetail(id)}
+        onInstallApp={handleInstallApp}
+      />
 
       {/* System Apps Import Modal (FR-5.3) */}
       <AppImportModal

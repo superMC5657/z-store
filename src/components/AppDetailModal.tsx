@@ -11,6 +11,7 @@ interface AppDetailModalProps {
   onInstall: (id: string) => Promise<void>;
   onLaunch: (id: string) => void;
   onToggleFavorite?: (id: string) => void;
+  onOpenDeveloperProfile?: (developer: string) => void;
 }
 
 export const AppDetailModal: React.FC<AppDetailModalProps> = ({
@@ -21,6 +22,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   onInstall,
   onLaunch,
   onToggleFavorite,
+  onOpenDeveloperProfile,
 }) => {
   const [showAllAssets, setShowAllAssets] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgressPayload | null>(null);
@@ -125,8 +127,35 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                 </span>
               )}
             </div>
-            <div className="modal-app-repo">
-              {app.owner}/{app.repo} · 最新发布 {app.latest_version}
+            <div className="modal-app-repo" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+              {onOpenDeveloperProfile ? (
+                <button
+                  type="button"
+                  onClick={() => onOpenDeveloperProfile(app.owner)}
+                  className="btn-fluent btn-secondary"
+                  style={{
+                    padding: '2px 8px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '12px',
+                    color: 'var(--brand-primary)',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    lineHeight: '1.4',
+                  }}
+                  title={`查看 ${app.owner} 开发者全景与开源项目`}
+                >
+                  👤 {app.owner}
+                </button>
+              ) : (
+                <span>{app.owner}</span>
+              )}
+              <span>/</span>
+              <span style={{ fontWeight: 600 }}>{app.repo}</span>
+              <span>·</span>
+              <span>最新发布 {app.latest_version}</span>
             </div>
             <div className="modal-tags">
               <span className="modal-tag">★ {(app.stars / 1000).toFixed(1)}k</span>

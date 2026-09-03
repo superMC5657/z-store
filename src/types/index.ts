@@ -164,3 +164,39 @@ export interface SignatureInfo {
   thumbprint_sha256?: string;
   error_message?: string;
 }
+
+export interface DeveloperProfile {
+  login: string;
+  name?: string | null;
+  avatar_url: string;
+  html_url: string;
+  bio?: string | null;
+  company?: string | null;
+  blog?: string | null;
+  location?: string | null;
+  public_repos: number;
+  followers: number;
+  following: number;
+  repos: DeveloperRepoItem[];
+}
+
+export interface DeveloperRepoItem {
+  id: string;
+  name: string;
+  full_name: string;
+  description?: string | null;
+  html_url: string;
+  stars: number;
+  forks: number;
+  language?: string | null;
+  has_releases: boolean;
+  in_catalog: boolean;
+  latest_release_tag?: string | null;
+}
+
+export interface StarredSyncResult {
+  total_starred: number;
+  catalog_matches: AppSummary[];
+  other_repos: DeveloperRepoItem[];
+}
+

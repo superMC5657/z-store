@@ -1,5 +1,8 @@
 use crate::installer::InstallerEngine;
-use crate::models::{AppDetail, AppSummary, InstalledApp, MirrorNodeStatus, UpdateItem, UpdateRule};
+use crate::models::{
+    AppDetail, AppSummary, DeveloperProfile, InstalledApp, MirrorNodeStatus, StarredSyncResult,
+    UpdateItem, UpdateRule,
+};
 use crate::AppState;
 use std::collections::HashMap;
 use tauri::{AppHandle, State};
@@ -680,6 +683,89 @@ pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, St
         "未能定位到该软件的可执行程序。\n记录路径: {}\n建议检查软件是否已被重命名或迁移，或重新纳管。",
         if target_path.is_empty() { "无" } else { &target_path }
     ))
+}
+
+#[tauri::command]
+pub async fn get_developer_profile(
+    state: State<'_, AppState>,
+    developer: String,
+) -> Result<DeveloperProfile, String> {
+    let token = state
+        .github_token
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone();
+    state
+        .catalog
+        .fetch_developer_profile(&developer, token.as_deref())
+        .await
+}
+
+#[tauri::command]
+pub async fn sync_github_starred(
+    state: State<'_, AppState>,
+    username: Option<String>,
+) -> Result<StarredSyncResult, String> {
+    let token = state
+        .github_token
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone();
+    state
+        .catalog
+        .sync_starred_repos(username.as_deref(), token.as_deref())
+        .await
+}
+
+#[tauri::command]
+pub fn record_search_query(state: State<'_, AppState>, query: String) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.record_search_query(&query).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_search_history(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.get_search_history().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn clear_search_history(state: State<'_, AppState>) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.clear_search_history().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn remove_search_query(state: State<'_, AppState>, query: String) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.remove_search_query(&query).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn record_app_view(state: State<'_, AppState>, app_id: String) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.record_app_view(&app_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_recently_viewed_apps(state: State<'_, AppState>) -> Result<Vec<AppSummary>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let ids = db.get_recently_viewed_app_ids().map_err(|e| e.to_string())?;
+    let catalog_items = state.catalog.get_catalog_items();
+    let mut result = Vec::new();
+
+    for id in ids {
+        if let Some(item) = catalog_items.iter().find(|i| i.id.eq_ignore_ascii_case(&id)) {
+            result.push(item.to_summary());
+        }
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+pub fn clear_view_history(state: State<'_, AppState>) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.clear_view_history().map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

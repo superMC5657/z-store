@@ -81,7 +81,16 @@ pub fn run() {
             commands::set_app_frozen,
             commands::set_app_hidden,
             commands::remove_update_rule,
-            commands::verify_file_signature
+            commands::verify_file_signature,
+            commands::get_developer_profile,
+            commands::sync_github_starred,
+            commands::record_search_query,
+            commands::get_search_history,
+            commands::clear_search_history,
+            commands::remove_search_query,
+            commands::record_app_view,
+            commands::get_recently_viewed_apps,
+            commands::clear_view_history
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

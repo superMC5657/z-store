@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { BrandLogo } from './BrandLogo';
+import { api } from '../services/api';
 
 interface TitleBarProps {
   searchQuery: string;
@@ -20,8 +21,35 @@ export const TitleBar: React.FC<TitleBarProps> = ({
 }) => {
   const [localQuery, setLocalQuery] = useState(searchQuery);
   const [isMaximized, setIsMaximized] = useState(false);
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchBoxRef = useRef<HTMLDivElement>(null);
+
+  const loadSearchHistory = async () => {
+    try {
+      const history = await api.getSearchHistory();
+      setSearchHistory(history);
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    loadSearchHistory();
+  }, []);
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (searchBoxRef.current && !searchBoxRef.current.contains(e.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     setLocalQuery(searchQuery);
@@ -43,23 +71,6 @@ export const TitleBar: React.FC<TitleBarProps> = ({
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, []);
 
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    import('@tauri-apps/api/window')
-      .then(async ({ getCurrentWindow }) => {
-        const win = getCurrentWindow();
-        setIsMaximized(await win.isMaximized());
-        unlisten = await win.onResized(async () => {
-          setIsMaximized(await win.isMaximized());
-        });
-      })
-      .catch(() => {});
-
-    return () => {
-      if (unlisten) unlisten();
-    };
-  }, []);
-
   const handleInputChange = (val: string) => {
     setLocalQuery(val);
     if (debounceTimerRef.current) {
@@ -68,7 +79,37 @@ export const TitleBar: React.FC<TitleBarProps> = ({
     // 150ms 防抖响应（FR-1.1）
     debounceTimerRef.current = setTimeout(() => {
       onSearchChange(val);
-    }, 150);
+      if (val.trim()) {
+        api.recordSearchQuery(val.trim()).then(loadSearchHistory).catch(() => {});
+      }
+    }, 250);
+  };
+
+  const handleSelectHistory = (query: string) => {
+    setLocalQuery(query);
+    onSearchChange(query);
+    setIsDropdownOpen(false);
+    api.recordSearchQuery(query).then(loadSearchHistory).catch(() => {});
+  };
+
+  const handleClearHistory = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await api.clearSearchHistory();
+      setSearchHistory([]);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleRemoveHistoryItem = async (e: React.MouseEvent, item: string) => {
+    e.stopPropagation();
+    try {
+      await api.removeSearchQuery(item);
+      setSearchHistory((prev) => prev.filter((x) => x !== item));
+    } catch {
+      // ignore
+    }
   };
 
   const handleMinimize = async () => {
@@ -139,7 +180,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
       </div>
 
       <div className="titlebar-center">
-        <div className="search-box">
+        <div className="search-box" ref={searchBoxRef} style={{ position: 'relative' }}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <circle cx="11" cy="11" r="8" />
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
@@ -149,6 +190,10 @@ export const TitleBar: React.FC<TitleBarProps> = ({
             type="text"
             value={localQuery}
             onChange={(e) => handleInputChange(e.target.value)}
+            onFocus={() => {
+              loadSearchHistory();
+              setIsDropdownOpen(true);
+            }}
             placeholder="搜索开源应用、别名、GitHub 仓库 (例如: vlc, 远程桌面, rustdesk)..."
           />
           <kbd
@@ -161,6 +206,92 @@ export const TitleBar: React.FC<TitleBarProps> = ({
           >
             Ctrl K
           </kbd>
+
+          {/* Search History Dropdown Popover */}
+          {isDropdownOpen && searchHistory.length > 0 && !localQuery && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 'calc(100% + 6px)',
+                left: 0,
+                right: 0,
+                background: 'var(--bg-acrylic, rgba(30, 30, 30, 0.95))',
+                backdropFilter: 'blur(20px)',
+                WebkitBackdropFilter: 'blur(20px)',
+                borderRadius: '8px',
+                border: '1px solid var(--border-acrylic, rgba(255, 255, 255, 0.12))',
+                boxShadow: '0 8px 24px rgba(0, 0, 0, 0.35)',
+                padding: '10px 14px',
+                zIndex: 1000,
+                textAlign: 'left',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: '8px',
+                  fontSize: '11.5px',
+                  color: 'var(--text-tertiary)',
+                }}
+              >
+                <span>🕒 搜索历史</span>
+                <button
+                  type="button"
+                  onClick={handleClearHistory}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--text-tertiary)',
+                    cursor: 'pointer',
+                    fontSize: '11px',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                  }}
+                  title="清空所有搜索历史"
+                >
+                  清空全部
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                {searchHistory.map((item) => (
+                  <div
+                    key={item}
+                    onClick={() => handleSelectHistory(item)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '4px 10px',
+                      borderRadius: '12px',
+                      background: 'var(--bg-acrylic-thin, rgba(255, 255, 255, 0.06))',
+                      border: '1px solid var(--border-acrylic, rgba(255, 255, 255, 0.08))',
+                      fontSize: '12px',
+                      color: 'var(--text-primary)',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    <span>{item}</span>
+                    <span
+                      onClick={(e) => handleRemoveHistoryItem(e, item)}
+                      style={{
+                        color: 'var(--text-tertiary)',
+                        fontSize: '11px',
+                        cursor: 'pointer',
+                        padding: '0 2px',
+                      }}
+                      title="删除此条记录"
+                    >
+                      ×
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
