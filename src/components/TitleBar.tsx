@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { BrandLogo } from './BrandLogo';
 
 interface TitleBarProps {
@@ -6,6 +6,8 @@ interface TitleBarProps {
   onSearchChange: (q: string) => void;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
+  isSidebarCollapsed?: boolean;
+  onToggleSidebar?: () => void;
 }
 
 export const TitleBar: React.FC<TitleBarProps> = ({
@@ -13,7 +15,45 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   onSearchChange,
   theme,
   onToggleTheme,
+  isSidebarCollapsed = false,
+  onToggleSidebar,
 }) => {
+  const [localQuery, setLocalQuery] = useState(searchQuery);
+  const [isMaximized, setIsMaximized] = useState(false);
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    setLocalQuery(searchQuery);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    import('@tauri-apps/api/window')
+      .then(async ({ getCurrentWindow }) => {
+        const win = getCurrentWindow();
+        setIsMaximized(await win.isMaximized());
+        unlisten = await win.onResized(async () => {
+          setIsMaximized(await win.isMaximized());
+        });
+      })
+      .catch(() => {});
+
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, []);
+
+  const handleInputChange = (val: string) => {
+    setLocalQuery(val);
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    // 150ms 防抖响应（FR-1.1）
+    debounceTimerRef.current = setTimeout(() => {
+      onSearchChange(val);
+    }, 150);
+  };
+
   const handleMinimize = async () => {
     try {
       const { getCurrentWindow } = await import('@tauri-apps/api/window');
@@ -27,6 +67,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
     try {
       const { getCurrentWindow } = await import('@tauri-apps/api/window');
       await getCurrentWindow().toggleMaximize();
+      setIsMaximized(await getCurrentWindow().isMaximized());
     } catch {
       // Browser preview mode
     }
@@ -42,8 +83,26 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   };
 
   return (
-    <header className="titlebar" data-tauri-drag-region>
+    <header
+      className="titlebar"
+      data-tauri-drag-region
+      onDoubleClick={handleMaximize}
+    >
       <div className="titlebar-left">
+        {onToggleSidebar && (
+          <button
+            className="nav-toggle-btn"
+            onClick={onToggleSidebar}
+            title={isSidebarCollapsed ? "展开侧边导航栏" : "折叠侧边导航栏"}
+            aria-label="切换侧边导航栏"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <line x1="3" y1="6" x2="21" y2="6" />
+              <line x1="3" y1="12" x2="21" y2="12" />
+              <line x1="3" y1="18" x2="21" y2="18" />
+            </svg>
+          </button>
+        )}
         <div className="app-brand-badge">
           <BrandLogo theme={theme} size={22} />
           <span>Z-Store</span>
@@ -70,8 +129,8 @@ export const TitleBar: React.FC<TitleBarProps> = ({
           </svg>
           <input
             type="text"
-            value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
+            value={localQuery}
+            onChange={(e) => handleInputChange(e.target.value)}
             placeholder="搜索开源应用、别名、GitHub 仓库 (例如: vlc, 远程桌面, rustdesk)..."
           />
         </div>
@@ -100,7 +159,9 @@ export const TitleBar: React.FC<TitleBarProps> = ({
 
         <div className="win-controls">
           <div className="win-btn" onClick={handleMinimize} title="最小化">─</div>
-          <div className="win-btn" onClick={handleMaximize} title="最大化">□</div>
+          <div className="win-btn" onClick={handleMaximize} title={isMaximized ? "向下还原" : "最大化"}>
+            {isMaximized ? "⧉" : "□"}
+          </div>
           <div className="win-btn close" onClick={handleClose} title="关闭">✕</div>
         </div>
       </div>

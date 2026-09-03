@@ -1,0 +1,177 @@
+import React, { useMemo, useState } from 'react';
+import { AppSummary } from '../types';
+
+interface TrendsViewProps {
+  apps: AppSummary[];
+  favoriteIds?: Set<string>;
+  onOpenDetail: (id: string) => void;
+  onQuickInstall: (id: string) => void;
+  onToggleFavorite?: (id: string) => void;
+}
+
+type TimeRange = 'day' | 'week' | 'month' | 'all';
+
+export const TrendsView: React.FC<TrendsViewProps> = ({
+  apps,
+  favoriteIds,
+  onOpenDetail,
+  onQuickInstall,
+  onToggleFavorite,
+}) => {
+  const [timeRange, setTimeRange] = useState<TimeRange>('week');
+
+  const sortedApps = useMemo(() => {
+    const list = [...apps];
+    switch (timeRange) {
+      case 'day':
+        // 日飙升：基于 Star 与活跃加权
+        return list.sort((a, b) => (b.forks * 3 + b.stars % 500) - (a.forks * 3 + a.stars % 500));
+      case 'week':
+        // 周飙升：基于活跃增长加权
+        return list.sort((a, b) => (b.stars * 0.7 + b.forks * 4) - (a.stars * 0.7 + a.forks * 4));
+      case 'month':
+        // 月榜：按综合综合活跃度
+        return list.sort((a, b) => (b.stars + b.forks * 2) - (a.stars + a.forks * 2));
+      case 'all':
+      default:
+        // 历史总榜：纯 Star 排序
+        return list.sort((a, b) => b.stars - a.stars);
+    }
+  }, [apps, timeRange]);
+
+  const getRankBadgeColor = (index: number) => {
+    if (index === 0) return '#eab308'; // 冠军金
+    if (index === 1) return '#94a3b8'; // 亚军银
+    if (index === 2) return '#d97706'; // 季军铜
+    return 'var(--text-tertiary)';
+  };
+
+  return (
+    <div className="trends-view">
+      <div className="section-header">
+        <h3 className="section-title">🚀 GitHub 开源应用飙升热榜</h3>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          {(['day', 'week', 'month', 'all'] as TimeRange[]).map((tab) => {
+            const labels: Record<TimeRange, string> = {
+              day: '今日飙升',
+              week: '本周热榜',
+              month: '本月焦点',
+              all: '历史总榜',
+            };
+            return (
+              <button
+                key={tab}
+                className={`btn-fluent ${timeRange === tab ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ padding: '5px 14px', fontSize: '12px', fontWeight: timeRange === tab ? 600 : 400 }}
+                onClick={() => setTimeRange(tab)}
+              >
+                {labels[tab]}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        {sortedApps.map((app, index) => (
+          <div
+            key={app.id}
+            className="app-card"
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              padding: '14px 20px',
+              cursor: 'pointer',
+            }}
+            onClick={() => onOpenDetail(app.id)}
+          >
+            <div
+              style={{
+                fontSize: '18px',
+                fontWeight: 800,
+                width: '36px',
+                color: getRankBadgeColor(index),
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              #{index + 1}
+            </div>
+
+            <div
+              className="app-icon"
+              style={{
+                background: app.icon_bg,
+                width: '42px',
+                height: '42px',
+                fontSize: '18px',
+                marginRight: '14px',
+              }}
+            >
+              {app.icon}
+            </div>
+
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontWeight: 600, fontSize: '15px' }}>{app.name}</span>
+                {app.is_verified && (
+                  <span className="verified-badge" title="官方所有权认证">
+                    ✓
+                  </span>
+                )}
+                <span className="app-tag" style={{ fontSize: '11px', padding: '1px 6px' }}>
+                  {app.category_name}
+                </span>
+              </div>
+              <div
+                style={{
+                  fontSize: '12px',
+                  color: 'var(--text-tertiary)',
+                  marginTop: '3px',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {app.owner} · {app.description}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginLeft: '12px' }}>
+              <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 500 }}>
+                ★ {(app.stars / 1000).toFixed(1)}k
+              </span>
+              {onToggleFavorite && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleFavorite(app.id);
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: '16px',
+                    color: favoriteIds?.has(app.id) ? '#eab308' : 'var(--text-tertiary)',
+                  }}
+                  title={favoriteIds?.has(app.id) ? '取消收藏' : '添加至我的收藏'}
+                >
+                  {favoriteIds?.has(app.id) ? '★' : '☆'}
+                </button>
+              )}
+              <button
+                className="btn-install"
+                style={{ padding: '6px 14px' }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onQuickInstall(app.id);
+                }}
+              >
+                获取
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};

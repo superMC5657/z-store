@@ -1,0 +1,204 @@
+import React, { useState } from 'react';
+import { InstalledApp } from '../types';
+
+interface InstalledViewProps {
+  installedApps: InstalledApp[];
+  onLaunch: (id: string) => void;
+  onUninstall: (id: string) => void;
+  onScanSystemApps?: () => void;
+}
+
+export const InstalledView: React.FC<InstalledViewProps> = ({
+  installedApps,
+  onLaunch,
+  onUninstall,
+  onScanSystemApps,
+}) => {
+  const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
+
+  const formatDate = (ts: number) => {
+    return new Date(ts).toLocaleDateString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+  };
+
+  const getMethodBadge = (method: string) => {
+    switch (method) {
+      case 'msi':
+        return { label: 'MSI 官方安装', color: 'var(--brand-primary)' };
+      case 'setup_exe':
+        return { label: 'EXE 安装向导', color: '#0284c7' };
+      case 'portable_zip':
+        return { label: '便携绿色版', color: '#10b981' };
+      default:
+        return { label: '系统管理', color: 'var(--text-tertiary)' };
+    }
+  };
+
+  return (
+    <div className="installed-view">
+      <div className="section-header">
+        <h3 className="section-title">📦 已安装的开源软件 ({installedApps.length})</h3>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          {onScanSystemApps && (
+            <button
+              className="btn-fluent btn-secondary"
+              style={{ padding: '4px 12px', fontSize: '12px' }}
+              onClick={onScanSystemApps}
+              title="扫描系统存量开源软件并纳管"
+            >
+              🔍 扫描系统开源软件
+            </button>
+          )}
+          <button
+            className={`btn-fluent ${viewMode === 'card' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ padding: '4px 12px', fontSize: '12px' }}
+            onClick={() => setViewMode('card')}
+          >
+            卡片视图
+          </button>
+          <button
+            className={`btn-fluent ${viewMode === 'list' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ padding: '4px 12px', fontSize: '12px' }}
+            onClick={() => setViewMode('list')}
+          >
+            紧凑列表
+          </button>
+        </div>
+      </div>
+
+      {installedApps.length === 0 ? (
+        <div className="empty-state-card">
+          <div style={{ fontSize: '48px', marginBottom: '12px' }}>📂</div>
+          <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>尚未通过 Z-Store 安装任何开源软件</h4>
+          <p style={{ color: 'var(--text-tertiary)', fontSize: '13px', margin: 0 }}>
+            前往「精选发现」或「分类浏览」探索优质开源应用，享受一键安装与自动更新服务。
+          </p>
+        </div>
+      ) : viewMode === 'card' ? (
+        <div className="app-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
+          {installedApps.map((app) => {
+            const badge = getMethodBadge(app.install_method);
+            return (
+              <div key={app.app_id} className="app-card" style={{ padding: '18px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <h4 style={{ margin: '0 0 4px 0', fontSize: '15px' }}>{app.app_name}</h4>
+                    <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                      版本 {app.version} · 安装于 {formatDate(app.installed_at)}
+                    </span>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: '10px',
+                      padding: '2px 8px',
+                      borderRadius: '10px',
+                      background: 'var(--bg-acrylic-thin)',
+                      border: '1px solid var(--border-acrylic)',
+                      color: badge.color,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {badge.label}
+                  </span>
+                </div>
+
+                <div
+                  style={{
+                    fontSize: '11px',
+                    color: 'var(--text-tertiary)',
+                    fontFamily: 'monospace',
+                    margin: '12px 0',
+                    background: 'var(--bg-acrylic-thin)',
+                    padding: '6px 10px',
+                    borderRadius: '4px',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                  title={app.install_path}
+                >
+                  {app.install_path}
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                  <button
+                    className="btn-fluent btn-secondary"
+                    style={{ padding: '5px 12px', fontSize: '12px', color: '#ef4444' }}
+                    onClick={() => {
+                      if (window.confirm(`确定要卸载并移除 ${app.app_name} 吗？`)) {
+                        onUninstall(app.app_id);
+                      }
+                    }}
+                  >
+                    卸载
+                  </button>
+                  <button
+                    className="btn-fluent btn-primary"
+                    style={{ padding: '5px 16px', fontSize: '12px' }}
+                    onClick={() => onLaunch(app.app_id)}
+                  >
+                    启动
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="settings-group" style={{ marginBottom: 0 }}>
+          {installedApps.map((app) => {
+            const badge = getMethodBadge(app.install_method);
+            return (
+              <div key={app.app_id} className="settings-row" style={{ padding: '12px 20px' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontWeight: 600 }}>{app.app_name}</span>
+                    <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{app.version}</span>
+                    <span
+                      style={{
+                        fontSize: '10px',
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        background: 'var(--brand-subtle)',
+                        color: badge.color,
+                      }}
+                    >
+                      {badge.label}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>
+                    路径: {app.install_path} · 安装于 {formatDate(app.installed_at)}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <button
+                    className="btn-fluent btn-secondary"
+                    style={{ fontSize: '12px', padding: '4px 10px', color: '#ef4444' }}
+                    onClick={() => {
+                      if (window.confirm(`确定要卸载并移除 ${app.app_name} 吗？`)) {
+                        onUninstall(app.app_id);
+                      }
+                    }}
+                  >
+                    卸载
+                  </button>
+                  <button
+                    className="btn-fluent btn-primary"
+                    style={{ fontSize: '12px', padding: '4px 14px' }}
+                    onClick={() => onLaunch(app.app_id)}
+                  >
+                    启动
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
