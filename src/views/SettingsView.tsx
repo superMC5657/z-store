@@ -92,6 +92,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       setHostFeedback(`✅ 已保存 ${host} 的访问令牌`);
       setTimeout(() => setHostFeedback(null), 3000);
       loadHostTokens();
+      window.dispatchEvent(new CustomEvent('zstore:quota-updated'));
     } catch (e) {
       setHostFeedback(`❌ 保存失败: ${String(e)}`);
     }
@@ -103,6 +104,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     try {
       const status = await api.testHostConnection(host, val);
       setHostStatus((prev) => ({ ...prev, [host]: status }));
+      window.dispatchEvent(new CustomEvent('zstore:quota-updated'));
     } catch (e) {
       setHostStatus((prev) => ({
         ...prev,

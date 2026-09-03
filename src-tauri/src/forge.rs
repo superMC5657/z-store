@@ -381,8 +381,10 @@ impl ForgeProvider for GitHubProvider {
                     crate::installer::AssetKind::SetupExe => "setup_exe",
                     crate::installer::AssetKind::PortableZip => "portable_zip",
                     crate::installer::AssetKind::Deb => "deb",
+                    crate::installer::AssetKind::Rpm => "rpm",
                     crate::installer::AssetKind::AppImage => "appimage",
                     crate::installer::AssetKind::Dmg => "dmg",
+                    crate::installer::AssetKind::Pkg => "pkg",
                     crate::installer::AssetKind::Apk => "apk",
                     crate::installer::AssetKind::Other => "other",
                 };
@@ -548,8 +550,10 @@ impl ForgeProvider for GiteaProvider {
                     crate::installer::AssetKind::SetupExe => "setup_exe",
                     crate::installer::AssetKind::PortableZip => "portable_zip",
                     crate::installer::AssetKind::Deb => "deb",
+                    crate::installer::AssetKind::Rpm => "rpm",
                     crate::installer::AssetKind::AppImage => "appimage",
                     crate::installer::AssetKind::Dmg => "dmg",
+                    crate::installer::AssetKind::Pkg => "pkg",
                     crate::installer::AssetKind::Apk => "apk",
                     crate::installer::AssetKind::Other => "other",
                 };

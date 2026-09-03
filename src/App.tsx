@@ -81,6 +81,7 @@ export const App: React.FC = () => {
     api.getFavorites().then((favs) => setFavoriteIds(new Set(favs)));
     api.getUpdateRules().then(setUpdateRules);
     api.getRecentlyViewedApps().then(setRecentlyViewedApps).catch(() => {});
+    api.registerDeepLinkScheme().catch(() => {});
 
     // Load persisted settings
     api.getSettings().then((persisted) => {
@@ -250,6 +251,43 @@ export const App: React.FC = () => {
   const handleQuickInstall = async (id: string) => {
     handleOpenDetail(id);
   };
+
+  // Deep Link Dispatcher (Feature E)
+  const handleDispatchDeepLink = async (rawUrl: string) => {
+    try {
+      const action = await api.handleDeepLink(rawUrl);
+      if (action.action === 'app_detail' || action.action === 'install_app') {
+        handleOpenDetail(action.payload.app_id);
+      } else if (action.action === 'search') {
+        handleSearchChange(action.payload.query);
+      } else if (action.action === 'developer_profile') {
+        setSelectedDeveloper(action.payload.owner);
+      } else if (action.action === 'open_view') {
+        const validViews: ViewType[] = ['home', 'trends', 'categories', 'installed', 'updates', 'favorites', 'settings'];
+        if (validViews.includes(action.payload.view as ViewType)) {
+          setCurrentView(action.payload.view as ViewType);
+        }
+      }
+      showToast(`已响应协议链接: ${rawUrl}`, 'info');
+    } catch (e) {
+      showToast(String(e), 'error');
+    }
+  };
+
+  useEffect(() => {
+    (window as any).dispatchZStoreDeepLink = handleDispatchDeepLink;
+
+    // 检查 CLI 参数是否带有唤起协议 (如外部双击链接拉起新进程)
+    api.getCliDeepLink().then((cliLink) => {
+      if (cliLink) {
+        handleDispatchDeepLink(cliLink);
+      }
+    }).catch(() => {});
+
+    return () => {
+      delete (window as any).dispatchZStoreDeepLink;
+    };
+  }, []);
 
   // Toggle Favorite
   const handleToggleFavorite = async (id: string) => {
@@ -490,6 +528,7 @@ export const App: React.FC = () => {
         onToggleTheme={handleToggleTheme}
         isSidebarCollapsed={isSidebarCollapsed}
         onToggleSidebar={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+        onNavigateSettings={() => setCurrentView('settings')}
       />
 
       {/* App Body */}

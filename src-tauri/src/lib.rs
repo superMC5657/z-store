@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod db;
+pub mod deeplink;
 pub mod forge;
 pub mod github;
 pub mod installer;
@@ -95,7 +96,10 @@ pub fn run() {
             commands::get_host_tokens,
             commands::set_host_token,
             commands::remove_host_token,
-            commands::test_host_connection
+            commands::test_host_connection,
+            commands::register_deep_link_scheme,
+            commands::handle_deep_link,
+            commands::get_cli_deep_link
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

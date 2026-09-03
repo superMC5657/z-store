@@ -1,7 +1,7 @@
 use crate::installer::InstallerEngine;
 use crate::models::{
-    AppDetail, AppSummary, DeveloperProfile, HostRateLimitStatus, HostTokenEntry, InstalledApp,
-    MirrorNodeStatus, StarredSyncResult, UpdateItem, UpdateRule,
+    AppDetail, AppSummary, DeepLinkAction, DeveloperProfile, HostRateLimitStatus, HostTokenEntry,
+    InstalledApp, MirrorNodeStatus, StarredSyncResult, UpdateItem, UpdateRule,
 };
 use crate::AppState;
 use std::collections::HashMap;
@@ -1030,6 +1030,28 @@ pub async fn test_host_connection(
             }),
         }
     }
+}
+
+#[tauri::command]
+pub fn register_deep_link_scheme() -> Result<bool, String> {
+    crate::deeplink::register_windows_protocol()
+}
+
+#[tauri::command]
+pub fn handle_deep_link(url: String) -> Result<DeepLinkAction, String> {
+    crate::deeplink::DeepLinkParser::parse(&url)
+        .ok_or_else(|| format!("无法识别的 Z-Store 深度链接: {}", url))
+}
+
+#[tauri::command]
+pub fn get_cli_deep_link() -> Option<String> {
+    for arg in std::env::args().skip(1) {
+        let lower = arg.to_lowercase();
+        if lower.starts_with("zstore://") {
+            return Some(arg);
+        }
+    }
+    None
 }
 
 #[cfg(test)]

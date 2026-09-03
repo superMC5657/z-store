@@ -14,6 +14,7 @@ import {
   DeveloperProfile,
   HostTokenEntry,
   HostRateLimitStatus,
+  DeepLinkAction,
 } from '../types';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -757,6 +758,42 @@ export const api = {
       rate_limit_limit: token ? 5000 : 60,
       message: token ? 'API 令牌认证有效，配额充裕' : '免鉴权连接成功（配额受限）',
     };
+  },
+
+  async registerDeepLinkScheme(): Promise<boolean> {
+    if (isTauri) {
+      return tauriInvoke<boolean>('register_deep_link_scheme');
+    }
+    return true;
+  },
+
+  async handleDeepLink(url: string): Promise<DeepLinkAction> {
+    if (isTauri) {
+      return tauriInvoke<DeepLinkAction>('handle_deep_link', { url });
+    }
+    // Mock parser
+    const clean = url.replace(/^zstore:\/\//, '').replace(/^\//, '');
+    if (clean.startsWith('app/')) {
+      return { action: 'app_detail', payload: { app_id: clean.slice(4) } };
+    }
+    if (clean.startsWith('install/')) {
+      return { action: 'install_app', payload: { app_id: clean.slice(8) } };
+    }
+    if (clean.startsWith('search')) {
+      const q = new URLSearchParams(clean.split('?')[1] || '').get('q') || '';
+      return { action: 'search', payload: { query: q } };
+    }
+    if (clean.startsWith('developer/')) {
+      return { action: 'developer_profile', payload: { owner: clean.slice(10) } };
+    }
+    return { action: 'app_detail', payload: { app_id: clean } };
+  },
+
+  async getCliDeepLink(): Promise<string | null> {
+    if (isTauri) {
+      return tauriInvoke<string | null>('get_cli_deep_link');
+    }
+    return null;
   },
 };
 

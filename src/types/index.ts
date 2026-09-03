@@ -221,4 +221,12 @@ export interface HostRateLimitStatus {
   message?: string;
 }
 
+export type DeepLinkAction =
+  | { action: 'app_detail'; payload: { app_id: string } }
+  | { action: 'install_app'; payload: { app_id: string } }
+  | { action: 'search'; payload: { query: string } }
+  | { action: 'developer_profile'; payload: { owner: string } }
+  | { action: 'open_view'; payload: { view: string } };
+
+
 

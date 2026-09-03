@@ -13,8 +13,10 @@ pub enum AssetKind {
     SetupExe,
     PortableZip,
     Deb,
+    Rpm,
     AppImage,
     Dmg,
+    Pkg,
     Apk,
     Other,
 }
@@ -55,10 +57,14 @@ impl InstallerEngine {
             (AssetKind::PortableZip, "windows", arch)
         } else if name_lower.ends_with(".deb") {
             (AssetKind::Deb, "linux", arch)
+        } else if name_lower.ends_with(".rpm") {
+            (AssetKind::Rpm, "linux", arch)
         } else if name_lower.ends_with(".appimage") {
             (AssetKind::AppImage, "linux", arch)
         } else if name_lower.ends_with(".dmg") {
             (AssetKind::Dmg, "macos", arch)
+        } else if name_lower.ends_with(".pkg") {
+            (AssetKind::Pkg, "macos", arch)
         } else if name_lower.ends_with(".apk") {
             (AssetKind::Apk, "android", "arm64-v8a")
         } else if name_lower.ends_with(".zip") {
@@ -275,6 +281,86 @@ impl InstallerEngine {
 
                 Ok(format!("已解压至便携目录: {:?}", app_dir))
             }
+            AssetKind::Dmg => {
+                #[cfg(target_os = "macos")]
+                {
+                    let status = std::process::Command::new("hdiutil")
+                        .arg("attach")
+                        .arg("-nobrowse")
+                        .arg("-readonly")
+                        .arg(installer_path)
+                        .status()
+                        .map_err(|e| format!("挂载 DMG 镜像失败: {}", e))?;
+
+                    if status.success() {
+                        Ok("DMG 镜像已挂载，请拖拽应用至 Applications 目录".to_string())
+                    } else {
+                        Err("挂载 DMG 镜像失败".to_string())
+                    }
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    Ok(format!("非 macOS 平台跳过 DMG 挂载: {:?}", installer_path))
+                }
+            }
+            AssetKind::Pkg => {
+                #[cfg(target_os = "macos")]
+                {
+                    let _ = std::process::Command::new("open")
+                        .arg(installer_path)
+                        .spawn();
+                    Ok("已拉起 macOS PKG 系统安装向导".to_string())
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    Ok(format!("非 macOS 平台跳过 PKG 安装: {:?}", installer_path))
+                }
+            }
+            AssetKind::AppImage => {
+                #[cfg(target_os = "linux")]
+                {
+                    let _ = std::process::Command::new("chmod")
+                        .arg("+x")
+                        .arg(installer_path)
+                        .status();
+                    let _ = std::process::Command::new(installer_path).spawn();
+                    Ok("已赋予可执行权限并启动 AppImage".to_string())
+                }
+                #[cfg(not(target_os = "linux"))]
+                {
+                    Ok(format!("非 Linux 平台跳过 AppImage 执行: {:?}", installer_path))
+                }
+            }
+            AssetKind::Deb => {
+                #[cfg(target_os = "linux")]
+                {
+                    let _ = std::process::Command::new("pkexec")
+                        .arg("dpkg")
+                        .arg("-i")
+                        .arg(installer_path)
+                        .spawn();
+                    Ok("已调起 pkexec dpkg 提权安装 deb 包".to_string())
+                }
+                #[cfg(not(target_os = "linux"))]
+                {
+                    Ok(format!("非 Linux 平台跳过 deb 安装: {:?}", installer_path))
+                }
+            }
+            AssetKind::Rpm => {
+                #[cfg(target_os = "linux")]
+                {
+                    let _ = std::process::Command::new("pkexec")
+                        .arg("rpm")
+                        .arg("-i")
+                        .arg(installer_path)
+                        .spawn();
+                    Ok("已调起 pkexec rpm 提权安装 rpm 包".to_string())
+                }
+                #[cfg(not(target_os = "linux"))]
+                {
+                    Ok(format!("非 Linux 平台跳过 rpm 安装: {:?}", installer_path))
+                }
+            }
             _ => {
                 #[cfg(target_os = "windows")]
                 {
@@ -284,6 +370,31 @@ impl InstallerEngine {
                 }
                 Ok("已拉起系统默认处理程序".to_string())
             }
+        }
+    }
+
+    pub fn build_unix_install_commands(kind: &AssetKind, asset_path: &Path) -> Vec<Vec<String>> {
+        let p = asset_path.to_string_lossy().to_string();
+        match kind {
+            AssetKind::Dmg => vec![
+                vec!["hdiutil".into(), "attach".into(), "-nobrowse".into(), "-readonly".into(), p],
+            ],
+            AssetKind::Pkg => vec![
+                vec!["installer".into(), "-pkg".into(), p, "-target".into(), "CurrentUserHomeDirectory".into()]
+            ],
+            AssetKind::AppImage => vec![
+                vec!["chmod".into(), "+x".into(), p],
+            ],
+            AssetKind::Deb => vec![
+                vec!["pkexec".into(), "dpkg".into(), "-i".into(), p]
+            ],
+            AssetKind::Rpm => vec![
+                vec!["pkexec".into(), "rpm".into(), "-i".into(), p]
+            ],
+            AssetKind::Apk => vec![
+                vec!["pm".into(), "install".into(), "-r".into(), p]
+            ],
+            _ => vec![],
         }
     }
 
@@ -346,6 +457,40 @@ mod tests {
             InstallerEngine::classify_asset("KeePassXC-2.7.9.dmg").0,
             AssetKind::Dmg
         );
+        assert_eq!(
+            InstallerEngine::classify_asset("Wireshark-4.2.4.pkg").0,
+            AssetKind::Pkg
+        );
+        assert_eq!(
+            InstallerEngine::classify_asset("rustdesk-1.2.6.rpm").0,
+            AssetKind::Rpm
+        );
+    }
+
+    #[test]
+    fn test_build_unix_install_commands() {
+        let test_path = Path::new("/tmp/test-installer.dmg");
+        let cmds = InstallerEngine::build_unix_install_commands(&AssetKind::Dmg, test_path);
+        assert_eq!(cmds[0][0], "hdiutil");
+        assert_eq!(cmds[0][1], "attach");
+
+        let pkg_path = Path::new("/tmp/app.pkg");
+        let pkg_cmds = InstallerEngine::build_unix_install_commands(&AssetKind::Pkg, pkg_path);
+        assert_eq!(pkg_cmds[0][0], "installer");
+
+        let appimage_path = Path::new("/home/user/app.AppImage");
+        let ai_cmds = InstallerEngine::build_unix_install_commands(&AssetKind::AppImage, appimage_path);
+        assert_eq!(ai_cmds[0][0], "chmod");
+
+        let deb_path = Path::new("/tmp/pkg.deb");
+        let deb_cmds = InstallerEngine::build_unix_install_commands(&AssetKind::Deb, deb_path);
+        assert_eq!(deb_cmds[0][0], "pkexec");
+        assert_eq!(deb_cmds[0][1], "dpkg");
+
+        let rpm_path = Path::new("/tmp/pkg.rpm");
+        let rpm_cmds = InstallerEngine::build_unix_install_commands(&AssetKind::Rpm, rpm_path);
+        assert_eq!(rpm_cmds[0][0], "pkexec");
+        assert_eq!(rpm_cmds[0][1], "rpm");
     }
 
     #[test]

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { BrandLogo } from './BrandLogo';
 import { api } from '../services/api';
+import { HostTokenEntry } from '../types';
 
 interface TitleBarProps {
   searchQuery: string;
@@ -9,6 +10,7 @@ interface TitleBarProps {
   onToggleTheme: () => void;
   isSidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
+  onNavigateSettings?: () => void;
 }
 
 export const TitleBar: React.FC<TitleBarProps> = ({
@@ -18,11 +20,14 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   onToggleTheme,
   isSidebarCollapsed = false,
   onToggleSidebar,
+  onNavigateSettings,
 }) => {
   const [localQuery, setLocalQuery] = useState(searchQuery);
   const [isMaximized, setIsMaximized] = useState(false);
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [hostTokens, setHostTokens] = useState<HostTokenEntry[]>([]);
+  const [showQuotaTooltip, setShowQuotaTooltip] = useState(false);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchBoxRef = useRef<HTMLDivElement>(null);
@@ -36,8 +41,25 @@ export const TitleBar: React.FC<TitleBarProps> = ({
     }
   };
 
+  const loadQuota = async () => {
+    try {
+      const tokens = await api.getHostTokens();
+      setHostTokens(tokens);
+    } catch {
+      // ignore
+    }
+  };
+
   useEffect(() => {
     loadSearchHistory();
+    loadQuota();
+    const timer = setInterval(loadQuota, 30000);
+    const handleQuotaChanged = () => loadQuota();
+    window.addEventListener('zstore:quota-updated', handleQuotaChanged);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('zstore:quota-updated', handleQuotaChanged);
+    };
   }, []);
 
   // Close dropdown on click outside
@@ -296,6 +318,101 @@ export const TitleBar: React.FC<TitleBarProps> = ({
       </div>
 
       <div className="titlebar-right">
+        {/* Rate Limit Indicator Pill (Feature E) */}
+        {(() => {
+          const ghEntry = hostTokens.find((t) => t.host === 'github.com');
+          const remaining = ghEntry?.rate_limit_remaining ?? (ghEntry?.token ? 4980 : 58);
+          const limit = ghEntry?.rate_limit_limit ?? (ghEntry?.token ? 5000 : 60);
+          const isConfigured = !!ghEntry?.token;
+
+          let pillDot = '🟢';
+          let pillColor = '#10b981';
+          let pillBg = 'rgba(16, 185, 129, 0.12)';
+          let pillBorder = 'rgba(16, 185, 129, 0.28)';
+          let pillText = `API ${remaining}/${limit}`;
+
+          if (remaining <= 0) {
+            pillDot = '🔴';
+            pillColor = '#ef4444';
+            pillBg = 'rgba(239, 68, 68, 0.12)';
+            pillBorder = 'rgba(239, 68, 68, 0.28)';
+            pillText = 'API 耗尽';
+          } else if (remaining <= 100) {
+            pillDot = '🟡';
+            pillColor = '#f59e0b';
+            pillBg = 'rgba(245, 158, 11, 0.12)';
+            pillBorder = 'rgba(245, 158, 11, 0.28)';
+            pillText = `API ${remaining}/${limit}`;
+          }
+
+          return (
+            <div style={{ position: 'relative' }}>
+              <button
+                type="button"
+                onClick={onNavigateSettings}
+                onMouseEnter={() => setShowQuotaTooltip(true)}
+                onMouseLeave={() => setShowQuotaTooltip(false)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '3px 10px',
+                  borderRadius: '12px',
+                  fontSize: '11px',
+                  fontWeight: 500,
+                  cursor: onNavigateSettings ? 'pointer' : 'default',
+                  background: pillBg,
+                  border: `1px solid ${pillBorder}`,
+                  color: pillColor,
+                  outline: 'none',
+                  transition: 'all 0.15s ease',
+                }}
+                title="点击前往设置中心配置 API 密钥"
+              >
+                <span>{pillDot}</span>
+                <span>{pillText}</span>
+              </button>
+
+              {showQuotaTooltip && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 8px)',
+                    right: 0,
+                    width: '240px',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    background: 'var(--card-bg, #202020)',
+                    border: '1px solid var(--border-color, rgba(255, 255, 255, 0.12))',
+                    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)',
+                    zIndex: 1000,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '6px',
+                    fontSize: '12px',
+                    backdropFilter: 'blur(20px)',
+                    pointerEvents: 'none',
+                  }}
+                >
+                  <div style={{ fontWeight: 600, borderBottom: '1px solid var(--border-color)', paddingBottom: '4px' }}>
+                    🌐 API 速率配额感知
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
+                    <span>GitHub:</span>
+                    <span style={{ fontWeight: 500, color: pillColor }}>{remaining} / {limit}</span>
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                    {isConfigured ? '已配置个人 PAT (配额 5000/h)' : '未配置 PAT (公共 IP 限流 60/h)'}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--brand-primary)', marginTop: '4px' }}>
+                    💡 点击前往设置配置令牌
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
         <button className="theme-toggle-btn" onClick={onToggleTheme} title="切换深色/浅色外观">
           {theme === 'dark' ? (
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
