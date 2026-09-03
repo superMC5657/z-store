@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <style>
+    .z-theme-light { display: block; }
+    .z-theme-dark { display: none; }
+    @media (prefers-color-scheme: dark) {
+      .z-theme-light { display: none; }
+      .z-theme-dark { display: block; }
+    }
+  </style>
+  <defs>
+    <!-- Light Mode Gradient & Glow Filters -->
+    <linearGradient id="z_light_bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="50%" stop-color="#f8fafc" />
+      <stop offset="100%" stop-color="#f0f9ff" />
+    </linearGradient>
+    <linearGradient id="z_light_r1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="60%" stop-color="#0284c7" />
+      <stop offset="100%" stop-color="#2563eb" />
+    </linearGradient>
+    <linearGradient id="z_light_r2" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#60a5fa" />
+      <stop offset="50%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#0284c7" />
+    </linearGradient>
+    <filter id="z_light_shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="16" flood-color="#0284c7" flood-opacity="0.18" />
+    </filter>
+    <filter id="z_light_glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="12" flood-color="#0284c7" flood-opacity="0.2" />
+    </filter>
+
+    <!-- Dark Mode Gradient & Rim Light Filters -->
+    <linearGradient id="z_dark_r1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="50%" stop-color="#0ea5e9" />
+      <stop offset="100%" stop-color="#2563eb" />
+    </linearGradient>
+    <linearGradient id="z_dark_r2" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#60a5fa" />
+      <stop offset="50%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#0284c7" />
+    </linearGradient>
+    <linearGradient id="z_dark_rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="rgba(255,255,255,0.45)" />
+      <stop offset="50%" stop-color="rgba(56,189,248,0.25)" />
+      <stop offset="100%" stop-color="rgba(255,255,255,0.08)" />
+    </linearGradient>
+    <filter id="z_dark_glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#0284c7" flood-opacity="0.38" />
+    </filter>
+  </defs>
+
+  <!-- Light Mode Representation (D-轻1: 冰川浅蓝) -->
+  <g class="z-theme-light">
+    <!-- Clean Snow-White Squircle Base -->
+    <rect x="36" y="36" width="440" height="440" rx="105" ry="105" fill="url(#z_light_bg)" filter="url(#z_light_shadow)" />
+    <rect x="36" y="36" width="440" height="440" rx="105" ry="105" fill="none" stroke="rgba(255,255,255,0.95)" stroke-width="3" />
+    <rect x="38" y="38" width="436" height="436" rx="103" ry="103" fill="none" stroke="rgba(2,132,199,0.14)" stroke-width="1.5" />
+    
+    <!-- Light Mode Infinity Ribbon -->
+    <g filter="url(#z_light_glow)">
+      <path d="M 152 168 C 152 116 220 116 264 116 L 316 116 C 368 116 368 176 320 226 L 196 348 C 148 396 200 396 248 396 L 360 396" 
+            fill="none" stroke="url(#z_light_r1)" stroke-width="44" stroke-linecap="round" stroke-linejoin="round" />
+      <path d="M 330 156 L 224 278 C 182 326 228 376 266 376 L 358 376" 
+            fill="none" stroke="url(#z_light_r2)" stroke-width="36" stroke-linecap="round" stroke-linejoin="round" opacity="0.92" />
+      <circle cx="344" cy="116" r="16" fill="#38bdf8" />
+      <circle cx="344" cy="116" r="8" fill="#ffffff" />
+    </g>
+  </g>
+
+  <!-- Dark Mode Representation (D-轻4: 晶透亚克力) -->
+  <g class="z-theme-dark">
+    <!-- Frosted Acrylic Translucent Rim Plate -->
+    <rect x="36" y="36" width="440" height="440" rx="105" ry="105" fill="rgba(255,255,255,0.08)" />
+    <rect x="36" y="36" width="440" height="440" rx="105" ry="105" fill="none" stroke="url(#z_dark_rim)" stroke-width="2.5" />
+
+    <!-- Dark Mode Luminous Floating Ribbon -->
+    <g filter="url(#z_dark_glow)">
+      <path d="M 152 168 C 152 116 220 116 264 116 L 316 116 C 368 116 368 176 320 226 L 196 348 C 148 396 200 396 248 396 L 360 396" 
+            fill="none" stroke="url(#z_dark_r1)" stroke-width="44" stroke-linecap="round" stroke-linejoin="round" />
+      <path d="M 330 156 L 224 278 C 182 326 228 376 266 376 L 358 376" 
+            fill="none" stroke="url(#z_dark_r2)" stroke-width="36" stroke-linecap="round" stroke-linejoin="round" opacity="0.92" />
+      <circle cx="344" cy="116" r="16" fill="#38bdf8" />
+      <circle cx="344" cy="116" r="8" fill="#ffffff" />
+    </g>
+  </g>
+</svg>
