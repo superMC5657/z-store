@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { marked } from 'marked';
 import { UpdateItem } from '../types';
 
 interface UpdatesViewProps {
@@ -37,7 +38,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
   };
 
   return (
-    <div className="updates-view">
+    <div className="updates-view view-entrance">
       <div className="section-header">
         <h3 className="section-title">🔄 可更新项管理 ({updates.length})</h3>
         {updates.length > 0 && (
@@ -113,17 +114,18 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                   <div
                     style={{
                       marginTop: '16px',
-                      padding: '14px',
+                      padding: '16px 20px',
                       background: 'var(--bg-acrylic-thin)',
-                      borderRadius: '8px',
+                      borderRadius: 'var(--radius-md)',
                       border: '1px solid var(--border-acrylic)',
-                      fontSize: '12px',
-                      lineHeight: '1.6',
-                      color: 'var(--text-secondary)',
-                      whiteSpace: 'pre-wrap',
                     }}
                   >
-                    {item.changelog}
+                    <div
+                      className="readme-markdown-body"
+                      dangerouslySetInnerHTML={{
+                        __html: marked.parse(item.changelog, { async: false }) as string,
+                      }}
+                    />
                   </div>
                 )}
               </div>

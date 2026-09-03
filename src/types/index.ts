@@ -93,3 +93,19 @@ export interface ToastMessage {
   text: string;
   type?: 'info' | 'success' | 'warning' | 'error';
 }
+
+export interface AppSettings {
+  theme: 'light' | 'dark' | 'system';
+  ui_scale: '90' | '100' | '110' | '125';
+  font_size: 'small' | 'standard' | 'medium' | 'large';
+  always_on_top: boolean;
+  portable_dir: string;
+  download_dir: string;
+  auto_clean_cache: boolean;
+  active_mirror: string;
+  max_concurrent_downloads: number;
+  github_token: string;
+  close_to_tray: boolean;
+  launch_on_startup: boolean;
+  update_frequency: 'startup' | 'daily' | 'manual';
+}

@@ -44,7 +44,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const remainingApps = apps.slice(4);
 
   return (
-    <div className="home-view">
+    <div className="home-view view-entrance">
       {/* Hero Acrylic Banner (PRD 5.1 & Section 3) */}
       {heroApp && (
         <div
@@ -57,7 +57,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
             <div className="hero-tag">
               <span>🌟 本周编辑精选推荐</span>
               <span>·</span>
-              <span style={{ color: 'var(--brand-primary)', fontWeight: 600 }}>官方所有权已认证 ✓</span>
+              <span style={{ color: 'var(--brand-primary)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" fill="var(--brand-primary)" />
+                  <path d="m9 12 2 2 4-4" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                官方所有权已认证
+              </span>
             </div>
 
             <h2 className="hero-title">
@@ -69,26 +75,23 @@ export const HomeView: React.FC<HomeViewProps> = ({
             </p>
 
             {/* Meta Tags */}
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
-              <span className="app-tag" style={{ background: 'var(--bg-acrylic-thin)', fontWeight: 600 }}>
-                ★ {(heroApp.stars / 1000).toFixed(1)}k Stars
+            <div className="hero-tags">
+              <span className="app-tag app-tag-star">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="#eab308" stroke="#eab308" strokeWidth="1">
+                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                </svg>
+                <span>{(heroApp.stars / 1000).toFixed(1)}k Stars</span>
               </span>
-              <span className="app-tag" style={{ background: 'var(--bg-acrylic-thin)' }}>
-                {heroApp.license} 协议
-              </span>
-              <span className="app-tag" style={{ background: 'var(--bg-acrylic-thin)' }}>
-                {heroApp.category_name}
-              </span>
-              <span className="app-tag" style={{ background: 'var(--bg-acrylic-thin)' }}>
-                自建中继 · 端到端加密
-              </span>
+              <span className="app-tag app-tag-license">{heroApp.license} 协议</span>
+              <span className="app-tag">{heroApp.category_name}</span>
+              <span className="app-tag">自建中继 · 端到端加密</span>
             </div>
 
             {/* Actions */}
             <div className="hero-actions">
               <button
                 className={`btn-fluent ${installedIds.has(heroApp.id) ? 'btn-secondary' : 'btn-primary'}`}
-                style={{ padding: '10px 24px', fontSize: '14px', fontWeight: 600 }}
+                style={{ padding: '9px 22px', fontSize: '13.5px', fontWeight: 600 }}
                 onClick={(e) => {
                   e.stopPropagation();
                   onQuickInstall(heroApp.id);
@@ -98,7 +101,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               </button>
               <button
                 className="btn-fluent btn-secondary"
-                style={{ padding: '10px 20px', fontSize: '14px' }}
+                style={{ padding: '9px 18px', fontSize: '13.5px' }}
                 onClick={(e) => {
                   e.stopPropagation();
                   onNavigateTrends();
@@ -116,8 +119,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
             >
               {heroApp.id === 'rustdesk' ? (
                 <svg
-                  width="56"
-                  height="56"
+                  width="46"
+                  height="46"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="#ffffff"
@@ -138,7 +141,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 </span>
               )}
               <div className="hero-icon-badge">
-                <span>✓</span> Verified
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" fill="var(--brand-primary)" />
+                  <path d="m9 12 2 2 4-4" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                <span>Verified</span>
               </div>
             </div>
           </div>

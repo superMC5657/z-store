@@ -1,6 +1,22 @@
-import { AppDetail, AppSummary, DownloadProgressPayload, InstalledApp, MirrorNodeStatus, UpdateItem } from '../types';
+import { AppDetail, AppSettings, AppSummary, DownloadProgressPayload, InstalledApp, MirrorNodeStatus, UpdateItem } from '../types';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+
+export const DEFAULT_SETTINGS: AppSettings = {
+  theme: 'dark',
+  ui_scale: '100',
+  font_size: 'standard',
+  always_on_top: false,
+  portable_dir: '%LOCALAPPDATA%\\Programs\\z-store-apps',
+  download_dir: '%TEMP%\\zstore_downloads',
+  auto_clean_cache: true,
+  active_mirror: 'ghproxy',
+  max_concurrent_downloads: 3,
+  github_token: '',
+  close_to_tray: true,
+  launch_on_startup: false,
+  update_frequency: 'startup',
+};
 
 async function tauriInvoke<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
   if (isTauri) {
@@ -300,6 +316,16 @@ export const api = {
       return tauriInvoke<boolean>('save_setting', { key, value });
     }
     mockSettings[key] = value;
+    return true;
+  },
+
+  async resetSettings(): Promise<boolean> {
+    for (const [key, val] of Object.entries(DEFAULT_SETTINGS)) {
+      await this.saveSetting(key, String(val));
+    }
+    mockSettings = Object.fromEntries(
+      Object.entries(DEFAULT_SETTINGS).map(([k, v]) => [k, String(v)])
+    );
     return true;
   },
 

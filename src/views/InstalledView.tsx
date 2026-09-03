@@ -15,6 +15,8 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
   onScanSystemApps,
 }) => {
   const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
+  const [confirmingUninstallId, setConfirmingUninstallId] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const formatDate = (ts: number) => {
     return new Date(ts).toLocaleDateString('zh-CN', {
@@ -22,6 +24,26 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
       month: '2-digit',
       day: '2-digit',
     });
+  };
+
+  const handleTriggerUninstall = (id: string) => {
+    if (confirmingUninstallId === id) {
+      onUninstall(id);
+      setConfirmingUninstallId(null);
+    } else {
+      setConfirmingUninstallId(id);
+      setTimeout(() => {
+        setConfirmingUninstallId((prev) => (prev === id ? null : prev));
+      }, 4000);
+    }
+  };
+
+  const handleCopyPath = (id: string, path: string) => {
+    navigator.clipboard.writeText(path);
+    setCopiedId(id);
+    setTimeout(() => {
+      setCopiedId((prev) => (prev === id ? null : prev));
+    }, 2000);
   };
 
   const getMethodBadge = (method: string) => {
@@ -38,7 +60,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
   };
 
   return (
-    <div className="installed-view">
+    <div className="installed-view view-entrance">
       <div className="section-header">
         <h3 className="section-title">📦 已安装的开源软件 ({installedApps.length})</h3>
         <div style={{ display: 'flex', gap: '8px' }}>
@@ -105,36 +127,68 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                   </span>
                 </div>
 
-                <div
-                  style={{
-                    fontSize: '11px',
-                    color: 'var(--text-tertiary)',
-                    fontFamily: 'monospace',
-                    margin: '12px 0',
-                    background: 'var(--bg-acrylic-thin)',
-                    padding: '6px 10px',
-                    borderRadius: '4px',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                  title={app.install_path}
-                >
-                  {app.install_path}
-                </div>
-
-                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', margin: '10px 0' }}>
+                  <div
+                    style={{
+                      flex: 1,
+                      fontSize: '11px',
+                      color: 'var(--text-tertiary)',
+                      fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace',
+                      background: 'var(--bg-acrylic-thin)',
+                      padding: '5px 8px',
+                      borderRadius: '4px',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      border: '1px solid var(--border-acrylic)',
+                    }}
+                    title={app.install_path}
+                  >
+                    {app.install_path}
+                  </div>
                   <button
                     className="btn-fluent btn-secondary"
-                    style={{ padding: '5px 12px', fontSize: '12px', color: '#ef4444' }}
-                    onClick={() => {
-                      if (window.confirm(`确定要卸载并移除 ${app.app_name} 吗？`)) {
-                        onUninstall(app.app_id);
-                      }
-                    }}
+                    style={{ padding: '4px 8px', fontSize: '11px', flexShrink: 0 }}
+                    onClick={() => handleCopyPath(app.app_id, app.install_path)}
+                    title="复制完整路径"
                   >
-                    卸载
+                    {copiedId === app.app_id ? '✓ 已复制' : '复制路径'}
                   </button>
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                  {confirmingUninstallId === app.app_id ? (
+                    <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                      <button
+                        className="btn-fluent"
+                        style={{
+                          padding: '5px 12px',
+                          fontSize: '12px',
+                          background: '#ef4444',
+                          color: '#fff',
+                          fontWeight: 600,
+                        }}
+                        onClick={() => handleTriggerUninstall(app.app_id)}
+                      >
+                        确认卸载？
+                      </button>
+                      <button
+                        className="btn-fluent btn-secondary"
+                        style={{ padding: '5px 8px', fontSize: '12px' }}
+                        onClick={() => setConfirmingUninstallId(null)}
+                      >
+                        取消
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      className="btn-fluent btn-secondary"
+                      style={{ padding: '5px 12px', fontSize: '12px', color: '#ef4444' }}
+                      onClick={() => handleTriggerUninstall(app.app_id)}
+                    >
+                      卸载
+                    </button>
+                  )}
                   <button
                     className="btn-fluent btn-primary"
                     style={{ padding: '5px 16px', fontSize: '12px' }}
@@ -169,23 +223,57 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                       {badge.label}
                     </span>
                   </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>
-                    路径: {app.install_path} · 安装于 {formatDate(app.installed_at)}
+                  <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '3px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>路径: {app.install_path} · 安装于 {formatDate(app.installed_at)}</span>
+                    <button
+                      onClick={() => handleCopyPath(app.app_id, app.install_path)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--brand-primary)',
+                        cursor: 'pointer',
+                        fontSize: '11px',
+                        padding: '0 4px',
+                      }}
+                    >
+                      {copiedId === app.app_id ? '✓ 已复制' : '复制'}
+                    </button>
                   </div>
                 </div>
 
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  <button
-                    className="btn-fluent btn-secondary"
-                    style={{ fontSize: '12px', padding: '4px 10px', color: '#ef4444' }}
-                    onClick={() => {
-                      if (window.confirm(`确定要卸载并移除 ${app.app_name} 吗？`)) {
-                        onUninstall(app.app_id);
-                      }
-                    }}
-                  >
-                    卸载
-                  </button>
+                  {confirmingUninstallId === app.app_id ? (
+                    <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                      <button
+                        className="btn-fluent"
+                        style={{
+                          padding: '4px 10px',
+                          fontSize: '12px',
+                          background: '#ef4444',
+                          color: '#fff',
+                          fontWeight: 600,
+                        }}
+                        onClick={() => handleTriggerUninstall(app.app_id)}
+                      >
+                        确认卸载？
+                      </button>
+                      <button
+                        className="btn-fluent btn-secondary"
+                        style={{ padding: '4px 8px', fontSize: '12px' }}
+                        onClick={() => setConfirmingUninstallId(null)}
+                      >
+                        取消
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      className="btn-fluent btn-secondary"
+                      style={{ fontSize: '12px', padding: '4px 10px', color: '#ef4444' }}
+                      onClick={() => handleTriggerUninstall(app.app_id)}
+                    >
+                      卸载
+                    </button>
+                  )}
                   <button
                     className="btn-fluent btn-primary"
                     style={{ fontSize: '12px', padding: '4px 14px' }}

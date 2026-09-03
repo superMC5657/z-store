@@ -10,8 +10,8 @@ import { InstalledView } from './views/InstalledView';
 import { UpdatesView } from './views/UpdatesView';
 import { SettingsView } from './views/SettingsView';
 import { FavoritesView } from './views/FavoritesView';
-import { AppDetail, AppSummary, InstalledApp, MirrorNodeStatus, ToastMessage, UpdateItem, ViewType } from './types';
-import { api } from './services/api';
+import { AppDetail, AppSettings, AppSummary, InstalledApp, MirrorNodeStatus, ToastMessage, UpdateItem, ViewType } from './types';
+import { api, DEFAULT_SETTINGS } from './services/api';
 
 export const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewType>('home');
@@ -24,6 +24,7 @@ export const App: React.FC = () => {
   const [mirrors, setMirrors] = useState<MirrorNodeStatus[]>([]);
   const [selectedApp, setSelectedApp] = useState<AppDetail | null>(null);
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
+  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   // Toast Helper
@@ -33,6 +34,29 @@ export const App: React.FC = () => {
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 3500);
+  };
+
+  const FONT_SCALE_MAP: Record<string, string> = {
+    small: '0.85',
+    standard: '1',
+    medium: '1.18',
+    large: '1.35',
+  };
+
+  const applyFontSize = (sizeKey: string) => {
+    document.documentElement.setAttribute('data-font-size', sizeKey);
+    const scale = FONT_SCALE_MAP[sizeKey] || '1';
+    document.documentElement.style.setProperty('--font-scale', scale);
+  };
+
+  const applyUiZoom = (scaleStr: string) => {
+    const factor = Number(scaleStr) / 100;
+    document.documentElement.style.zoom = `${factor}`;
+    document.documentElement.style.setProperty('--app-zoom', `${factor}`);
+
+    import('@tauri-apps/api/webview')
+      .then(({ getCurrentWebview }) => getCurrentWebview().setZoom(factor))
+      .catch(() => {});
   };
 
   // Initial load
@@ -50,14 +74,44 @@ export const App: React.FC = () => {
     api.getMirrorStatus().then(setMirrors);
     api.getFavorites().then((favs) => setFavoriteIds(new Set(favs)));
 
-    // Persisted settings
-    api.getSettings().then((settings) => {
-      if (settings.theme === 'dark' || settings.theme === 'light') {
-        setTheme(settings.theme);
-        document.documentElement.setAttribute('data-theme', settings.theme);
+    // Load persisted settings
+    api.getSettings().then((persisted) => {
+      const merged: AppSettings = { ...DEFAULT_SETTINGS };
+      for (const [k, v] of Object.entries(persisted)) {
+        if (k in merged) {
+          if (typeof (DEFAULT_SETTINGS as any)[k] === 'boolean') {
+            (merged as any)[k] = v === 'true';
+          } else if (typeof (DEFAULT_SETTINGS as any)[k] === 'number') {
+            (merged as any)[k] = Number(v) || (DEFAULT_SETTINGS as any)[k];
+          } else {
+            (merged as any)[k] = v;
+          }
+        }
       }
-      if (settings.active_mirror) {
-        api.switchMirror(settings.active_mirror);
+      setSettings(merged);
+
+      // Apply theme
+      const currentTheme = merged.theme === 'light' ? 'light' : 'dark';
+      setTheme(currentTheme);
+      document.documentElement.setAttribute('data-theme', currentTheme);
+
+      // Apply font size
+      applyFontSize(merged.font_size);
+
+      // Apply UI zoom
+      applyUiZoom(merged.ui_scale);
+
+      // Apply Always on top
+      if (merged.always_on_top) {
+        import('@tauri-apps/api/window')
+          .then(({ getCurrentWindow }) => {
+            getCurrentWindow().setAlwaysOnTop(true).catch(() => {});
+          })
+          .catch(() => {});
+      }
+
+      if (merged.active_mirror) {
+        api.switchMirror(merged.active_mirror);
       }
     });
   }, []);
@@ -67,15 +121,81 @@ export const App: React.FC = () => {
     const next = theme === 'light' ? 'dark' : 'light';
     setTheme(next);
     document.documentElement.setAttribute('data-theme', next);
-    api.saveSetting('theme', next);
+    handleUpdateSetting('theme', next);
     showToast(`已切换至${next === 'dark' ? '暗黑' : '明亮'}主题模式`, 'info');
   };
 
   const handleSetTheme = (t: 'light' | 'dark') => {
     setTheme(t);
     document.documentElement.setAttribute('data-theme', t);
-    api.saveSetting('theme', t);
+    handleUpdateSetting('theme', t);
     showToast(`已应用外观模式: ${t === 'dark' ? '暗黑模式' : '明亮模式'}`, 'info');
+  };
+
+  // Generic Setting Updater
+  const handleUpdateSetting = async <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
+    setSettings((prev) => ({ ...prev, [key]: value }));
+    await api.saveSetting(key, String(value));
+
+    if (key === 'theme') {
+      const t = value as 'light' | 'dark';
+      setTheme(t);
+      document.documentElement.setAttribute('data-theme', t);
+    } else if (key === 'font_size') {
+      applyFontSize(String(value));
+      const labels: Record<string, string> = {
+        small: '紧凑 12px',
+        standard: '标准 13.5px',
+        medium: '舒适 15px',
+        large: '特大 16.5px',
+      };
+      showToast(`全局字体已设为: ${labels[String(value)] || value}`, 'info');
+    } else if (key === 'ui_scale') {
+      applyUiZoom(String(value));
+      showToast(`界面缩放已设为: ${value}%`, 'info');
+    } else if (key === 'always_on_top') {
+      try {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        await getCurrentWindow().setAlwaysOnTop(Boolean(value));
+        showToast(value ? '已开启窗口置顶' : '已取消窗口置顶', 'info');
+      } catch {
+        showToast(value ? '已开启窗口置顶' : '已取消窗口置顶', 'info');
+      }
+    }
+  };
+
+  // Reset all settings to factory default
+  const handleResetSettings = async () => {
+    await api.resetSettings();
+    setSettings(DEFAULT_SETTINGS);
+    setTheme('dark');
+    document.documentElement.setAttribute('data-theme', 'dark');
+    applyFontSize('standard');
+    applyUiZoom('100');
+    showToast('已成功恢复所有出厂默认设置！', 'success');
+  };
+
+  // Export JSON Backup
+  const handleExportAppsJson = () => {
+    if (installedApps.length === 0) {
+      showToast('当前尚未安装任何应用，无需导出', 'warning');
+      return;
+    }
+    const data = {
+      app: 'Z-Store',
+      exported_at: new Date().toISOString(),
+      installed_count: installedApps.length,
+      apps: installedApps,
+    };
+    const jsonStr = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `zstore-installed-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('已导出软件资产 JSON 备份文件！', 'success');
   };
 
   // Search
@@ -113,7 +233,7 @@ export const App: React.FC = () => {
         showToast('已从收藏夹中移除', 'info');
       } else {
         next.add(id);
-        showToast('⭐️ 已成功添加至我的收藏夹！', 'success');
+        showToast('已成功添加至我的收藏夹！', 'success');
       }
       return next;
     });
@@ -124,30 +244,30 @@ export const App: React.FC = () => {
     try {
       const installed = await api.installApp(id);
       setInstalledApps((prev) => [...prev.filter((a) => a.app_id !== id), installed]);
-      showToast(`✅ ${installed.app_name} 安装成功并通过 SHA-256 官方防篡改校验！`, 'success');
+      showToast(`${installed.app_name} 安装成功并通过 SHA-256 官方防篡改校验！`, 'success');
     } catch (err) {
-      showToast(`❌ 安装失败: ${String(err)}`, 'error');
+      showToast(`安装失败: ${String(err)}`, 'error');
     }
   };
 
   // Launch App
   const handleLaunchApp = (id: string) => {
     const app = installedApps.find((a) => a.app_id === id);
-    showToast(`🚀 已成功调起 ${app ? app.app_name : id}`, 'info');
+    showToast(`已成功调起 ${app ? app.app_name : id}`, 'info');
   };
 
   // Uninstall App
   const handleUninstallApp = async (id: string) => {
     await api.uninstallApp(id);
     setInstalledApps((prev) => prev.filter((a) => a.app_id !== id));
-    showToast(`🗑️ 已调用官方卸载器注销并移除 ${id}`, 'info');
+    showToast(`已调用官方卸载器注销并移除 ${id}`, 'info');
   };
 
   // Apply Single Update
   const handleApplyUpdate = async (id: string) => {
     await api.installApp(id);
     setUpdates((prev) => prev.filter((u) => u.app_id !== id));
-    showToast(`✨ ${id} 已无缝平滑升级至最新版本！`, 'success');
+    showToast(`${id} 已无缝平滑升级至最新版本！`, 'success');
   };
 
   // Ignore Single Update (FR-4.4)
@@ -158,12 +278,12 @@ export const App: React.FC = () => {
 
   // Batch Update
   const handleBatchUpdateAll = async () => {
-    showToast('🚀 正在批量升级所有就绪应用...', 'info');
+    showToast('正在批量升级所有就绪应用...', 'info');
     for (const u of updates) {
       await api.installApp(u.app_id);
     }
     setUpdates([]);
-    showToast('✅ 全部应用升级成功！', 'success');
+    showToast('全部应用升级成功！', 'success');
   };
 
   // Scan System Installed Open-Source Apps (FR-5.3)
@@ -189,7 +309,7 @@ export const App: React.FC = () => {
     setMirrors((prev) =>
       prev.map((m, idx) => ({ ...m, is_active: idx === nextIndex }))
     );
-    showToast(`🔄 自动切换加速节点: ${nextMirror.name} (${nextMirror.latency_ms}ms)`, 'info');
+    showToast(`已切换至加速节点: ${nextMirror.name} (${nextMirror.latency_ms}ms)`, 'info');
   };
 
   const handleSelectMirror = async (mirrorId: string) => {
@@ -202,12 +322,12 @@ export const App: React.FC = () => {
   };
 
   const handlePingMirrors = async () => {
-    showToast('⚡ 正在对所有镜像节点进行真实并发测速...', 'info');
+    showToast('正在对所有镜像节点进行并发测速...', 'info');
     try {
       const updated = await api.pingMirrors();
       setMirrors(updated);
       const fastest = updated[0];
-      showToast(`✅ 测速完成！最快响应: ${fastest.name} (${fastest.latency_ms}ms)`, 'success');
+      showToast(`测速完成！最快响应: ${fastest.name} (${fastest.latency_ms}ms)`, 'success');
     } catch {
       showToast('测速失败，请检查网络连接', 'error');
     }
@@ -231,7 +351,7 @@ export const App: React.FC = () => {
     ];
     const text = lines.join('\n');
     navigator.clipboard.writeText(text).then(() => {
-      showToast('📋 已复制软件清单 Markdown 到剪贴板！', 'success');
+      showToast('已复制软件清单 Markdown 到剪贴板！', 'success');
     });
   };
 
@@ -343,18 +463,24 @@ export const App: React.FC = () => {
               onSetTheme={handleSetTheme}
               onClearCache={() => {
                 api.clearCache();
-                showToast('🧹 本地安装包临时文件与 ETag 索引已清理完毕', 'success');
+                showToast('本地安装包临时文件与 ETag 索引已清理完毕', 'success');
               }}
               onSaveToken={async (token) => {
                 await api.setGithubToken(token);
+                handleUpdateSetting('github_token', token);
                 showToast(
                   token
-                    ? '🔑 GitHub Token 保存成功，API 限额已提升至 5000 次/小时'
+                    ? 'GitHub Token 保存成功，API 限额已提升至 5000 次/小时'
                     : 'Token 已清除',
                   'success'
                 );
               }}
               onExportApps={handleExportApps}
+              onExportAppsJson={handleExportAppsJson}
+              settings={settings}
+              onUpdateSetting={handleUpdateSetting}
+              onResetSettings={handleResetSettings}
+              installedCount={installedApps.length}
             />
           )}
         </main>

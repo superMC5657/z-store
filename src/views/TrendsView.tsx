@@ -47,7 +47,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   };
 
   return (
-    <div className="trends-view">
+    <div className="trends-view view-entrance">
       <div className="section-header">
         <h3 className="section-title">🚀 GitHub 开源应用飙升热榜</h3>
         <div style={{ display: 'flex', gap: '8px' }}>
@@ -114,11 +114,14 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span style={{ fontWeight: 600, fontSize: '15px' }}>{app.name}</span>
                 {app.is_verified && (
-                  <span className="verified-badge" title="官方所有权认证">
-                    ✓
+                  <span className="verified-badge" title="GitHub 官方所有权认证">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" fill="var(--brand-primary)" />
+                      <path d="m9 12 2 2 4-4" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
                   </span>
                 )}
-                <span className="app-tag" style={{ fontSize: '11px', padding: '1px 6px' }}>
+                <span className="app-tag" style={{ fontSize: '11px' }}>
                   {app.category_name}
                 </span>
               </div>

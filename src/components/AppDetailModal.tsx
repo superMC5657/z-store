@@ -89,7 +89,9 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                 style={{ color: isFavorite ? '#eab308' : 'var(--text-secondary)' }}
                 title={isFavorite ? '已收藏（点击取消）' : '加入收藏夹'}
               >
-                {isFavorite ? '★' : '☆'}
+                <svg width="15" height="15" viewBox="0 0 24 24" fill={isFavorite ? '#eab308' : 'none'} stroke={isFavorite ? '#eab308' : 'currentColor'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                </svg>
               </button>
             )}
             <button
@@ -97,7 +99,10 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               onClick={onClose}
               aria-label="关闭详情弹窗"
             >
-              ✕
+              <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4">
+                <line x1="1" y1="1" x2="9" y2="9" />
+                <line x1="9" y1="1" x2="1" y2="9" />
+              </svg>
             </button>
           </div>
 
@@ -113,7 +118,10 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               <span>{app.name}</span>
               {app.is_verified && (
                 <span className="verified-badge" title="官方所有权已通过验证">
-                  ✓
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" fill="var(--brand-primary)" />
+                    <path d="m9 12 2 2 4-4" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
                 </span>
               )}
             </div>

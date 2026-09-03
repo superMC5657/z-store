@@ -22,7 +22,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   const favoriteApps = apps.filter((a) => favoriteIds.has(a.id));
 
   return (
-    <div className="favorites-view">
+    <div className="favorites-view view-entrance">
       <div className="section-header">
         <h3 className="section-title">⭐️ 我的收藏夹 ({favoriteApps.length})</h3>
       </div>
@@ -38,34 +38,15 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
       ) : (
         <div className="app-grid">
           {favoriteApps.map((app) => (
-            <div key={app.id} style={{ position: 'relative' }}>
-              <AppCard
-                app={app}
-                isInstalled={installedIds.has(app.id)}
-                onOpenDetail={onOpenDetail}
-                onQuickInstall={onQuickInstall}
-              />
-              <button
-                className="btn-fav"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggleFavorite(app.id);
-                }}
-                style={{
-                  position: 'absolute',
-                  top: '12px',
-                  right: '12px',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontSize: '16px',
-                  zIndex: 2,
-                }}
-                title="取消收藏"
-              >
-                ⭐
-              </button>
-            </div>
+            <AppCard
+              key={app.id}
+              app={app}
+              isInstalled={installedIds.has(app.id)}
+              isFavorite={true}
+              onOpenDetail={onOpenDetail}
+              onQuickInstall={onQuickInstall}
+              onToggleFavorite={onToggleFavorite}
+            />
           ))}
         </div>
       )}

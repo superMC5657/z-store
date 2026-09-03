@@ -21,10 +21,27 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   const [localQuery, setLocalQuery] = useState(searchQuery);
   const [isMaximized, setIsMaximized] = useState(false);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setLocalQuery(searchQuery);
   }, [searchQuery]);
+
+  // 全局快捷键：Ctrl+K 聚焦搜索，Escape 取消聚焦
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      } else if (e.key === 'Escape' && document.activeElement === searchInputRef.current) {
+        searchInputRef.current?.blur();
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, []);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -128,11 +145,22 @@ export const TitleBar: React.FC<TitleBarProps> = ({
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
           <input
+            ref={searchInputRef}
             type="text"
             value={localQuery}
             onChange={(e) => handleInputChange(e.target.value)}
             placeholder="搜索开源应用、别名、GitHub 仓库 (例如: vlc, 远程桌面, rustdesk)..."
           />
+          <kbd
+            className="search-kbd"
+            onClick={() => {
+              searchInputRef.current?.focus();
+              searchInputRef.current?.select();
+            }}
+            title="快捷键: Ctrl + K 激活搜索"
+          >
+            Ctrl K
+          </kbd>
         </div>
       </div>
 
@@ -158,11 +186,29 @@ export const TitleBar: React.FC<TitleBarProps> = ({
         </button>
 
         <div className="win-controls">
-          <div className="win-btn" onClick={handleMinimize} title="最小化">─</div>
-          <div className="win-btn" onClick={handleMaximize} title={isMaximized ? "向下还原" : "最大化"}>
-            {isMaximized ? "⧉" : "□"}
+          <div className="win-btn" onClick={handleMinimize} title="最小化" aria-label="最小化">
+            <svg width="10" height="1" viewBox="0 0 10 1" fill="currentColor">
+              <rect width="10" height="1" />
+            </svg>
           </div>
-          <div className="win-btn close" onClick={handleClose} title="关闭">✕</div>
+          <div className="win-btn" onClick={handleMaximize} title={isMaximized ? "向下还原" : "最大化"} aria-label={isMaximized ? "向下还原" : "最大化"}>
+            {isMaximized ? (
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1">
+                <path d="M2.5 2.5V0.5H9.5V7.5H7.5" />
+                <rect x="0.5" y="2.5" width="7" height="7" />
+              </svg>
+            ) : (
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1">
+                <rect x="0.5" y="0.5" width="9" height="9" />
+              </svg>
+            )}
+          </div>
+          <div className="win-btn close" onClick={handleClose} title="关闭" aria-label="关闭">
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2">
+              <line x1="1" y1="1" x2="9" y2="9" />
+              <line x1="9" y1="1" x2="1" y2="9" />
+            </svg>
+          </div>
         </div>
       </div>
     </header>
