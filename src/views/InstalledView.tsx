@@ -54,6 +54,8 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
         return { label: 'EXE 安装向导', color: '#0284c7' };
       case 'portable_zip':
         return { label: '便携绿色版', color: '#10b981' };
+      case 'system_import':
+        return { label: '系统纳管', color: '#8b5cf6' };
       default:
         return { label: '系统管理', color: 'var(--text-tertiary)' };
     }
@@ -170,7 +172,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                         }}
                         onClick={() => handleTriggerUninstall(app.app_id)}
                       >
-                        确认卸载？
+                        {app.install_method === 'system_import' ? '确认取消纳管？' : '确认卸载？'}
                       </button>
                       <button
                         className="btn-fluent btn-secondary"
@@ -185,8 +187,9 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                       className="btn-fluent btn-secondary"
                       style={{ padding: '5px 12px', fontSize: '12px', color: '#ef4444' }}
                       onClick={() => handleTriggerUninstall(app.app_id)}
+                      title={app.install_method === 'system_import' ? '从 Z-Store 中移除监控，不会删除本机应用程序文件' : '调起官方卸载程序'}
                     >
-                      卸载
+                      {app.install_method === 'system_import' ? '取消纳管' : '卸载'}
                     </button>
                   )}
                   <button
@@ -255,7 +258,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                         }}
                         onClick={() => handleTriggerUninstall(app.app_id)}
                       >
-                        确认卸载？
+                        {app.install_method === 'system_import' ? '确认取消纳管？' : '确认卸载？'}
                       </button>
                       <button
                         className="btn-fluent btn-secondary"
@@ -270,8 +273,9 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                       className="btn-fluent btn-secondary"
                       style={{ fontSize: '12px', padding: '4px 10px', color: '#ef4444' }}
                       onClick={() => handleTriggerUninstall(app.app_id)}
+                      title={app.install_method === 'system_import' ? '从 Z-Store 中移除监控，不会删除本机应用程序文件' : '调起官方卸载程序'}
                     >
-                      卸载
+                      {app.install_method === 'system_import' ? '取消纳管' : '卸载'}
                     </button>
                   )}
                   <button

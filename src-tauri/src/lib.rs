@@ -4,6 +4,7 @@ pub mod github;
 pub mod installer;
 pub mod mirror;
 pub mod models;
+pub mod scanner;
 
 use db::Database;
 use github::CatalogService;
@@ -30,7 +31,11 @@ pub fn run() {
         .or_else(|_| Database::open_in_memory())
         .expect("failed to init database");
 
-    let saved_token = db.get_setting("github_token").ok().flatten().filter(|s| !s.is_empty());
+    let saved_token = db
+        .get_setting("github_token")
+        .ok()
+        .flatten()
+        .filter(|s| !s.is_empty());
     let saved_mirror = db.get_setting("active_mirror").ok().flatten();
 
     let catalog = CatalogService::new();
@@ -66,7 +71,10 @@ pub fn run() {
             commands::clear_cache,
             commands::ping_mirrors,
             commands::get_app_readme,
-            commands::get_catalog_count
+            commands::get_catalog_count,
+            commands::scan_and_match_local_apps,
+            commands::import_matched_apps,
+            commands::launch_app
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

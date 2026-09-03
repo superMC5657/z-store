@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { TitleBar } from './components/TitleBar';
 import { Sidebar } from './components/Sidebar';
 import { AppDetailModal } from './components/AppDetailModal';
+import { AppImportModal } from './components/AppImportModal';
 import { ToastContainer } from './components/Toast';
 import { HomeView } from './views/HomeView';
 import { TrendsView } from './views/TrendsView';
@@ -23,6 +24,7 @@ export const App: React.FC = () => {
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [mirrors, setMirrors] = useState<MirrorNodeStatus[]>([]);
   const [selectedApp, setSelectedApp] = useState<AppDetail | null>(null);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -251,16 +253,29 @@ export const App: React.FC = () => {
   };
 
   // Launch App
-  const handleLaunchApp = (id: string) => {
+  const handleLaunchApp = async (id: string) => {
     const app = installedApps.find((a) => a.app_id === id);
-    showToast(`已成功调起 ${app ? app.app_name : id}`, 'info');
+    const appName = app ? app.app_name : id;
+    try {
+      await api.launchApp(id);
+      showToast(`🚀 已成功启动 ${appName}！`, 'success');
+    } catch (err) {
+      showToast(`启动失败: ${String(err)}`, 'error');
+    }
   };
 
-  // Uninstall App
+  // Uninstall or Unmanage App
   const handleUninstallApp = async (id: string) => {
+    const app = installedApps.find((a) => a.app_id === id);
+    const isImported = app?.install_method === 'system_import';
+    const appName = app?.app_name || id;
     await api.uninstallApp(id);
     setInstalledApps((prev) => prev.filter((a) => a.app_id !== id));
-    showToast(`已调用官方卸载器注销并移除 ${id}`, 'info');
+    if (isImported) {
+      showToast(`已成功取消对 ${appName} 的版本监控（本机软件保持完好）`, 'info');
+    } else {
+      showToast(`已调用官方卸载器注销并移除 ${appName}`, 'info');
+    }
   };
 
   // Apply Single Update
@@ -288,16 +303,17 @@ export const App: React.FC = () => {
 
   // Scan System Installed Open-Source Apps (FR-5.3)
   const handleScanSystemApps = () => {
-    showToast('🔍 正在扫描系统注册表与开源应用特征...', 'info');
-    setTimeout(() => {
-      // 模拟探测命中系统存量软件
-      const detected = apps.find((a) => a.id === 'vlc' || a.id === '7-zip');
-      if (detected && !installedIds.has(detected.id)) {
-        showToast(`💡 成功探测到系统已安装 ${detected.name}，可随时在此纳管更新！`, 'success');
-      } else {
-        showToast('✅ 扫描完毕，系统开源软件均已在 Z-Store 纳管中。', 'success');
-      }
-    }, 900);
+    setIsImportModalOpen(true);
+  };
+
+  const handleImportSuccess = async (count: number) => {
+    showToast(`🎉 成功纳管 ${count} 款开源应用！正在检查最新版本...`, 'success');
+    const [loadedInstalled, loadedUpdates] = await Promise.all([
+      api.getInstalledApps(),
+      api.checkForUpdates(),
+    ]);
+    setInstalledApps(loadedInstalled);
+    setUpdates(loadedUpdates);
   };
 
   // Mirror Cycling
@@ -498,6 +514,13 @@ export const App: React.FC = () => {
           onToggleFavorite={handleToggleFavorite}
         />
       )}
+
+      {/* System Apps Import Modal (FR-5.3) */}
+      <AppImportModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        onImportSuccess={handleImportSuccess}
+      />
 
       {/* Toast Notifications */}
       <ToastContainer toasts={toasts} />

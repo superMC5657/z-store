@@ -1,4 +1,14 @@
-import { AppDetail, AppSettings, AppSummary, DownloadProgressPayload, InstalledApp, MirrorNodeStatus, UpdateItem } from '../types';
+import {
+  AppDetail,
+  AppMatchResult,
+  AppSettings,
+  AppSummary,
+  DownloadProgressPayload,
+  ImportAppRequest,
+  InstalledApp,
+  MirrorNodeStatus,
+  UpdateItem,
+} from '../types';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -249,6 +259,14 @@ export const api = {
     return true;
   },
 
+  async launchApp(appId: string): Promise<boolean> {
+    if (isTauri) {
+      return tauriInvoke<boolean>('launch_app', { appId });
+    }
+    await new Promise((r) => setTimeout(r, 200));
+    return true;
+  },
+
   async checkForUpdates(): Promise<UpdateItem[]> {
     if (isTauri) {
       return tauriInvoke<UpdateItem[]>('check_for_updates');
@@ -379,6 +397,66 @@ export const api = {
       return tauriInvoke<number>('get_catalog_count');
     }
     return Object.keys(MOCK_APPS).length;
+  },
+
+  async scanAndMatchLocalApps(): Promise<AppMatchResult[]> {
+    if (isTauri) {
+      return tauriInvoke<AppMatchResult[]>('scan_and_match_local_apps');
+    }
+    await new Promise((r) => setTimeout(r, 600));
+    return [
+      {
+        scanned: {
+          display_name: 'VLC media player 3.0.21',
+          display_version: '3.0.21',
+          publisher: 'VideoLAN',
+          install_location: 'C:\\Program Files\\VideoLAN\\VLC',
+          display_icon: 'C:\\Program Files\\VideoLAN\\VLC\\vlc.exe',
+          uninstall_string: 'C:\\Program Files\\VideoLAN\\VLC\\uninstall.exe',
+        },
+        catalog_id: 'videolan/vlc',
+        name: 'VLC Media Player',
+        chinese_name: 'VLC 播放器',
+        owner: 'videolan',
+        repo: 'vlc',
+        icon: 'vlc.svg',
+        icon_bg: '#ff8800',
+        description: '开源全能媒体播放器',
+        local_version: '3.0.21',
+        catalog_version: 'v3.0.21',
+        confidence: 0.95,
+        confidence_tier: 'high',
+      },
+      {
+        scanned: {
+          display_name: 'OBS Studio',
+          display_version: '30.2.0',
+          publisher: 'OBS Project',
+          install_location: 'C:\\Program Files\\obs-studio',
+          display_icon: 'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe',
+        },
+        catalog_id: 'obsproject/obs-studio',
+        name: 'OBS Studio',
+        chinese_name: 'OBS 直播录屏',
+        owner: 'obsproject',
+        repo: 'obs-studio',
+        icon: 'obs.svg',
+        icon_bg: '#302e31',
+        description: '开源直播与录屏工具',
+        local_version: '30.2.0',
+        catalog_version: 'v31.0.1',
+        confidence: 0.92,
+        confidence_tier: 'high',
+      },
+    ];
+  },
+
+  async importMatchedApps(apps: ImportAppRequest[]): Promise<number> {
+    if (isTauri) {
+      return tauriInvoke<number>('import_matched_apps', { apps });
+    }
+    await new Promise((r) => setTimeout(r, 400));
+    return apps.length;
   },
 
   async onDownloadProgress(callback: (payload: DownloadProgressPayload) => void): Promise<() => void> {

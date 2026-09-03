@@ -93,6 +93,10 @@ impl CatalogService {
         self.items.len()
     }
 
+    pub fn get_catalog_items(&self) -> &[CatalogItem] {
+        &self.items
+    }
+
     pub fn get_all_summaries(&self) -> Vec<AppSummary> {
         self.items.iter().map(|item| item.to_summary()).collect()
     }
@@ -160,7 +164,10 @@ impl CatalogService {
         let matched: Vec<AppSummary> = self
             .items
             .iter()
-            .filter(|item| item.category.to_lowercase() == cat_clean || item.category_name.to_lowercase() == cat_clean)
+            .filter(|item| {
+                item.category.to_lowercase() == cat_clean
+                    || item.category_name.to_lowercase() == cat_clean
+            })
             .map(|item| item.to_summary())
             .collect();
 
@@ -173,7 +180,10 @@ impl CatalogService {
         }
     }
 
-    pub fn get_endpoints(&self, id: &str) -> Result<(String, String, String, String, String, String), String> {
+    pub fn get_endpoints(
+        &self,
+        id: &str,
+    ) -> Result<(String, String, String, String, String, String), String> {
         if let Some(item) = self.items.iter().find(|i| i.id == id) {
             Ok((
                 item.owner.clone(),
@@ -205,7 +215,11 @@ impl CatalogService {
         }
     }
 
-    pub async fn search_github_online(&self, query: &str, token: Option<&str>) -> Result<Vec<AppSummary>, String> {
+    pub async fn search_github_online(
+        &self,
+        query: &str,
+        token: Option<&str>,
+    ) -> Result<Vec<AppSummary>, String> {
         let local_results = self.search_apps(query);
         if !local_results.is_empty() {
             return Ok(local_results);
@@ -236,7 +250,10 @@ impl CatalogService {
 
         let mut headers = HeaderMap::new();
         headers.insert(USER_AGENT, HeaderValue::from_static("ZStore-Client/0.1.0"));
-        headers.insert(ACCEPT, HeaderValue::from_static("application/vnd.github.v3+json"));
+        headers.insert(
+            ACCEPT,
+            HeaderValue::from_static("application/vnd.github.v3+json"),
+        );
         if let Some(tok) = token {
             if !tok.trim().is_empty() {
                 if let Ok(val) = HeaderValue::from_str(&format!("token {}", tok.trim())) {
@@ -264,7 +281,9 @@ impl CatalogService {
                             repo: it.full_name.split('/').nth(1).unwrap_or("").to_string(),
                             icon: "📦".to_string(),
                             icon_bg: "linear-gradient(135deg, #0ea5e9, #2563eb)".to_string(),
-                            description: it.description.unwrap_or_else(|| "开源软件项目".to_string()),
+                            description: it
+                                .description
+                                .unwrap_or_else(|| "开源软件项目".to_string()),
                             stars: it.stargazers_count,
                             forks: it.forks_count,
                             license: "OpenSource".to_string(),
@@ -285,7 +304,12 @@ impl CatalogService {
         Ok(Vec::new())
     }
 
-    async fn fetch_online_repo(&self, owner: &str, repo: &str, token: Option<&str>) -> Result<AppSummary, String> {
+    async fn fetch_online_repo(
+        &self,
+        owner: &str,
+        repo: &str,
+        token: Option<&str>,
+    ) -> Result<AppSummary, String> {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(8))
             .build()
@@ -322,7 +346,10 @@ impl CatalogService {
             description: repo_data.description.unwrap_or_default(),
             stars: repo_data.stargazers_count.unwrap_or(0),
             forks: repo_data.forks_count.unwrap_or(0),
-            license: repo_data.license.and_then(|l| l.spdx_id).unwrap_or_else(|| "FLOSS".to_string()),
+            license: repo_data
+                .license
+                .and_then(|l| l.spdx_id)
+                .unwrap_or_else(|| "FLOSS".to_string()),
             latest_version: "latest".to_string(),
             category: "system".to_string(),
             category_name: "系统实用".to_string(),
@@ -350,7 +377,10 @@ impl CatalogService {
 
         let mut headers = HeaderMap::new();
         headers.insert(USER_AGENT, HeaderValue::from_static("ZStore-Client/0.1.0"));
-        headers.insert(ACCEPT, HeaderValue::from_static("application/vnd.github.v3+json"));
+        headers.insert(
+            ACCEPT,
+            HeaderValue::from_static("application/vnd.github.v3+json"),
+        );
 
         if let Some(tok) = token {
             if !tok.trim().is_empty() {
@@ -366,8 +396,15 @@ impl CatalogService {
             }
         }
 
-        let release_url = format!("https://api.github.com/repos/{}/{}/releases/latest", owner, repo);
-        let resp = client.get(&release_url).headers(headers.clone()).send().await;
+        let release_url = format!(
+            "https://api.github.com/repos/{}/{}/releases/latest",
+            owner, repo
+        );
+        let resp = client
+            .get(&release_url)
+            .headers(headers.clone())
+            .send()
+            .await;
 
         let (release_resp, new_cache) = match resp {
             Ok(res) if res.status() == reqwest::StatusCode::NOT_MODIFIED => {
@@ -401,11 +438,15 @@ impl CatalogService {
                         .map_err(|e| format!("解析离线缓存失败: {}", e))?;
                     (parsed, None)
                 } else {
-                    let fallback_ver = catalog_item.map(|i| i.default_version.clone()).unwrap_or_else(|| "v1.0.0".to_string());
+                    let fallback_ver = catalog_item
+                        .map(|i| i.default_version.clone())
+                        .unwrap_or_else(|| "v1.0.0".to_string());
                     (
                         GitHubReleaseResponse {
                             tag_name: fallback_ver,
-                            body: Some("离线模式，暂无法直连获取 GitHub Release 变更日志。".to_string()),
+                            body: Some(
+                                "离线模式，暂无法直连获取 GitHub Release 变更日志。".to_string(),
+                            ),
                             assets: Vec::new(),
                         },
                         None,
@@ -454,7 +495,10 @@ impl CatalogService {
         // 获取 README Markdown 并实施图片代理拦截（FR-2.3）
         let readme_url = format!("https://api.github.com/repos/{}/{}/readme", owner, repo);
         let mut readme_headers = headers.clone();
-        readme_headers.insert(ACCEPT, HeaderValue::from_static("application/vnd.github.v3.raw"));
+        readme_headers.insert(
+            ACCEPT,
+            HeaderValue::from_static("application/vnd.github.v3.raw"),
+        );
         let raw_readme = match client.get(&readme_url).headers(readme_headers).send().await {
             Ok(res) if res.status().is_success() => res.text().await.unwrap_or_default(),
             _ => format!("# {}\n\n{}", name, desc),
@@ -471,15 +515,21 @@ impl CatalogService {
             description: desc,
             stars: catalog_item.map(|i| i.stars).unwrap_or(1200),
             forks: catalog_item.map(|i| i.forks).unwrap_or(240),
-            license: catalog_item.map(|i| i.license.clone()).unwrap_or_else(|| "GPL-3.0".to_string()),
+            license: catalog_item
+                .map(|i| i.license.clone())
+                .unwrap_or_else(|| "GPL-3.0".to_string()),
             latest_version: release_resp.tag_name,
             changelog: release_resp.body.unwrap_or_default(),
             is_verified: catalog_item.map(|i| i.is_verified).unwrap_or(false),
             signature_fingerprint: Some("E8:7A:B4:9C:3D:12:FA:45".to_string()),
             readme_markdown,
             releases,
-            category: catalog_item.map(|i| i.category.clone()).unwrap_or_else(|| "system".to_string()),
-            category_name: catalog_item.map(|i| i.category_name.clone()).unwrap_or_else(|| "系统实用".to_string()),
+            category: catalog_item
+                .map(|i| i.category.clone())
+                .unwrap_or_else(|| "system".to_string()),
+            category_name: catalog_item
+                .map(|i| i.category_name.clone())
+                .unwrap_or_else(|| "系统实用".to_string()),
         };
 
         Ok((detail, new_cache))
@@ -497,7 +547,12 @@ impl CatalogService {
         });
 
         if let Some(asset) = checksum_asset {
-            if let Ok(res) = client.get(&asset.browser_download_url).headers(headers.clone()).send().await {
+            if let Ok(res) = client
+                .get(&asset.browser_download_url)
+                .headers(headers.clone())
+                .send()
+                .await
+            {
                 if let Ok(text) = res.text().await {
                     for line in text.lines() {
                         let parts: Vec<&str> = line.split_whitespace().collect();
@@ -522,7 +577,10 @@ impl CatalogService {
         );
         let with_proxy2 = with_proxy.replace(
             &format!("https://github.com/{}/{}/raw/", owner, repo),
-            &format!("https://gh-proxy.com/https://raw.githubusercontent.com/{}/{}/", owner, repo),
+            &format!(
+                "https://gh-proxy.com/https://raw.githubusercontent.com/{}/{}/",
+                owner, repo
+            ),
         );
         with_proxy2
     }

@@ -27,7 +27,11 @@ impl InstallerEngine {
 
         let arch = if name_lower.contains("arm64") || name_lower.contains("aarch64") {
             "aarch64"
-        } else if name_lower.contains("x86_64") || name_lower.contains("x64") || name_lower.contains("amd64") || name_lower.contains("win64") {
+        } else if name_lower.contains("x86_64")
+            || name_lower.contains("x64")
+            || name_lower.contains("amd64")
+            || name_lower.contains("win64")
+        {
             "x86_64"
         } else {
             "universal"
@@ -43,7 +47,9 @@ impl InstallerEngine {
             || name_lower.ends_with(".exe")
         {
             (AssetKind::SetupExe, "windows", arch)
-        } else if (name_lower.contains("portable") || name_lower.contains("win") || name_lower.contains("windows"))
+        } else if (name_lower.contains("portable")
+            || name_lower.contains("win")
+            || name_lower.contains("windows"))
             && (name_lower.ends_with(".zip") || name_lower.ends_with(".7z"))
         {
             (AssetKind::PortableZip, "windows", arch)
@@ -97,8 +103,7 @@ impl InstallerEngine {
         let _ = std::fs::create_dir_all(&temp_dir);
         let temp_path = temp_dir.join(format!("{}_{}", task_id, asset_name));
 
-        let mut file = File::create(&temp_path)
-            .map_err(|e| format!("创建临时文件失败: {}", e))?;
+        let mut file = File::create(&temp_path).map_err(|e| format!("创建临时文件失败: {}", e))?;
 
         let mut stream = resp.bytes_stream();
         let mut downloaded: u64 = 0;
@@ -151,7 +156,10 @@ impl InstallerEngine {
                         total_bytes: downloaded,
                         speed_bytes_per_sec: 0,
                         state: "tampered".to_string(),
-                        message: Some(format!("哈希不符！期望: {}, 实际: {}", exp_clean, actual_hash)),
+                        message: Some(format!(
+                            "哈希不符！期望: {}, 实际: {}",
+                            exp_clean, actual_hash
+                        )),
                     },
                 );
                 return Err(format!(
@@ -210,9 +218,7 @@ impl InstallerEngine {
             AssetKind::SetupExe => {
                 #[cfg(target_os = "windows")]
                 {
-                    let child = std::process::Command::new(installer_path)
-                        .arg("/S")
-                        .spawn();
+                    let child = std::process::Command::new(installer_path).arg("/S").spawn();
 
                     match child {
                         Ok(_) => Ok("已调起静默安装".to_string()),
@@ -232,7 +238,8 @@ impl InstallerEngine {
                 let _ = std::fs::create_dir_all(&app_dir);
 
                 let file = File::open(installer_path).map_err(|e| e.to_string())?;
-                let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("打开 ZIP 归档失败: {}", e))?;
+                let mut archive =
+                    zip::ZipArchive::new(file).map_err(|e| format!("打开 ZIP 归档失败: {}", e))?;
 
                 let mut main_exe: Option<PathBuf> = None;
                 for i in 0..archive.len() {
@@ -315,12 +322,30 @@ mod tests {
 
     #[test]
     fn test_classify_asset() {
-        assert_eq!(InstallerEngine::classify_asset("vlc-3.0.21-win64.msi").0, AssetKind::Msi);
-        assert_eq!(InstallerEngine::classify_asset("RustDesk-1.2.6-Setup.exe").0, AssetKind::SetupExe);
-        assert_eq!(InstallerEngine::classify_asset("app-portable.zip").0, AssetKind::PortableZip);
-        assert_eq!(InstallerEngine::classify_asset("obs-studio_30.1.2_amd64.deb").0, AssetKind::Deb);
-        assert_eq!(InstallerEngine::classify_asset("LocalSend-1.15.2.AppImage").0, AssetKind::AppImage);
-        assert_eq!(InstallerEngine::classify_asset("KeePassXC-2.7.9.dmg").0, AssetKind::Dmg);
+        assert_eq!(
+            InstallerEngine::classify_asset("vlc-3.0.21-win64.msi").0,
+            AssetKind::Msi
+        );
+        assert_eq!(
+            InstallerEngine::classify_asset("RustDesk-1.2.6-Setup.exe").0,
+            AssetKind::SetupExe
+        );
+        assert_eq!(
+            InstallerEngine::classify_asset("app-portable.zip").0,
+            AssetKind::PortableZip
+        );
+        assert_eq!(
+            InstallerEngine::classify_asset("obs-studio_30.1.2_amd64.deb").0,
+            AssetKind::Deb
+        );
+        assert_eq!(
+            InstallerEngine::classify_asset("LocalSend-1.15.2.AppImage").0,
+            AssetKind::AppImage
+        );
+        assert_eq!(
+            InstallerEngine::classify_asset("KeePassXC-2.7.9.dmg").0,
+            AssetKind::Dmg
+        );
     }
 
     #[test]

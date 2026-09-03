@@ -5,20 +5,33 @@ use std::collections::HashMap;
 use tauri::{AppHandle, State};
 
 #[tauri::command]
-pub async fn search_apps(state: State<'_, AppState>, query: String) -> Result<Vec<AppSummary>, String> {
+pub async fn search_apps(
+    state: State<'_, AppState>,
+    query: String,
+) -> Result<Vec<AppSummary>, String> {
     let token = {
         let t = state.github_token.lock().map_err(|e| e.to_string())?;
         t.clone()
     };
-    state.catalog.search_github_online(&query, token.as_deref()).await
+    state
+        .catalog
+        .search_github_online(&query, token.as_deref())
+        .await
 }
 
 #[tauri::command]
 pub async fn get_app_details(state: State<'_, AppState>, id: String) -> Result<AppDetail, String> {
     let (release_endpoint, cached_etag, cached_payload, token) = {
-        let token = state.github_token.lock().map_err(|e| e.to_string())?.clone();
+        let token = state
+            .github_token
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clone();
         let (owner, repo, _, _, _, _) = state.catalog.get_endpoints(&id)?;
-        let ep = format!("https://api.github.com/repos/{}/{}/releases/latest", owner, repo);
+        let ep = format!(
+            "https://api.github.com/repos/{}/{}/releases/latest",
+            owner, repo
+        );
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let etag = db.get_etag(&ep).ok().flatten();
         let payload = db.get_cached_payload(&ep).ok().flatten();
@@ -82,6 +95,34 @@ pub async fn install_app(
     let (kind, _, _) = InstallerEngine::classify_asset(&asset.name);
     let install_note = InstallerEngine::execute_installation(&dest_path, &kind, &detail.id)?;
 
+    // 智能解析真实安装路径，避免存入临时安装包路径
+    let real_install_path = match kind {
+        crate::installer::AssetKind::PortableZip => {
+            let app_dir = crate::installer::dirs_or_fallback(&detail.id);
+            crate::scanner::AppScanner::resolve_executable_path(
+                Some(&app_dir.to_string_lossy()),
+                None,
+                &detail.repo,
+            )
+            .unwrap_or_else(|| app_dir.to_string_lossy().to_string())
+        }
+        _ => crate::scanner::AppScanner::resolve_executable_path(None, None, &detail.repo)
+            .or_else(|| {
+                #[cfg(target_os = "windows")]
+                {
+                    let desktop = std::env::var("USERPROFILE")
+                        .map(|p| std::path::PathBuf::from(p).join("Desktop"))
+                        .unwrap_or_else(|_| std::path::PathBuf::from(r"C:\Users\Public\Desktop"));
+                    let lnk = desktop.join(format!("{}.lnk", detail.name));
+                    if lnk.is_file() {
+                        return Some(lnk.to_string_lossy().to_string());
+                    }
+                }
+                None
+            })
+            .unwrap_or_default(),
+    };
+
     // 5. 写入本地 SQLite 持久化
     let installed_app = InstalledApp {
         app_id: detail.id.clone(),
@@ -92,7 +133,7 @@ pub async fn install_app(
             .unwrap_or_default()
             .as_secs() as i64,
         install_method: asset.kind.clone(),
-        install_path: dest_path.to_string_lossy().to_string(),
+        install_path: real_install_path,
         asset_name: asset.name.clone(),
         asset_sha256: actual_sha256,
         uninstall_command: Some(install_note),
@@ -143,6 +184,43 @@ pub fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result<bool,
     }
 }
 
+/// 严格比较两个版本号，仅当 latest 严格高于 current 时返回 true（避免 4 段式 MSI 误报及降级风险）
+pub fn is_version_newer(current: &str, latest: &str) -> bool {
+    let parse_nums = |s: &str| -> Vec<u64> {
+        let clean = s.trim_start_matches('v').trim();
+        clean
+            .split(|c: char| c == '.' || c == '-' || c == '_')
+            .filter_map(|part| {
+                part.chars()
+                    .take_while(|c| c.is_ascii_digit())
+                    .collect::<String>()
+                    .parse::<u64>()
+                    .ok()
+            })
+            .collect()
+    };
+
+    let cur_nums = parse_nums(current);
+    let lat_nums = parse_nums(latest);
+
+    if cur_nums.is_empty() || lat_nums.is_empty() {
+        return current.trim_start_matches('v') != latest.trim_start_matches('v');
+    }
+
+    let max_len = cur_nums.len().max(lat_nums.len());
+    for i in 0..max_len {
+        let c = cur_nums.get(i).copied().unwrap_or(0);
+        let l = lat_nums.get(i).copied().unwrap_or(0);
+        if l > c {
+            return true;
+        } else if l < c {
+            return false;
+        }
+    }
+
+    false
+}
+
 #[tauri::command]
 pub async fn check_for_updates(state: State<'_, AppState>) -> Result<Vec<UpdateItem>, String> {
     let installed = get_installed_apps(state.clone())?;
@@ -150,10 +228,7 @@ pub async fn check_for_updates(state: State<'_, AppState>) -> Result<Vec<UpdateI
 
     for app in installed {
         if let Ok(detail) = get_app_details(state.clone(), app.app_id.clone()).await {
-            let clean_current = app.version.trim_start_matches('v');
-            let clean_latest = detail.latest_version.trim_start_matches('v');
-
-            if clean_current != clean_latest && !clean_latest.is_empty() {
+            if is_version_newer(&app.version, &detail.latest_version) {
                 updates.push(UpdateItem {
                     app_id: app.app_id,
                     app_name: app.app_name,
@@ -207,7 +282,11 @@ pub async fn ping_mirrors(state: State<'_, AppState>) -> Result<Vec<MirrorNodeSt
 
 #[tauri::command]
 pub fn set_github_token(state: State<'_, AppState>, token: String) -> Result<bool, String> {
-    let tok_opt = if token.trim().is_empty() { None } else { Some(token.trim().to_string()) };
+    let tok_opt = if token.trim().is_empty() {
+        None
+    } else {
+        Some(token.trim().to_string())
+    };
     {
         let mut t = state.github_token.lock().map_err(|e| e.to_string())?;
         *t = tok_opt.clone();
@@ -224,7 +303,11 @@ pub fn get_settings(state: State<'_, AppState>) -> Result<HashMap<String, String
 }
 
 #[tauri::command]
-pub fn save_setting(state: State<'_, AppState>, key: String, value: String) -> Result<bool, String> {
+pub fn save_setting(
+    state: State<'_, AppState>,
+    key: String,
+    value: String,
+) -> Result<bool, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.set_setting(&key, &value).map_err(|e| e.to_string())?;
     Ok(true)
@@ -258,4 +341,233 @@ pub fn get_catalog_count(state: State<'_, AppState>) -> Result<usize, String> {
 pub async fn get_app_readme(state: State<'_, AppState>, id: String) -> Result<String, String> {
     let detail = get_app_details(state, id).await?;
     Ok(detail.readme_markdown)
+}
+
+#[tauri::command]
+pub fn scan_and_match_local_apps(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::scanner::AppMatchResult>, String> {
+    let scanned = crate::scanner::AppScanner::scan_system_apps();
+    let catalog_items = state.catalog.get_catalog_items();
+
+    let installed_ids: std::collections::HashSet<String> = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        db.get_installed_apps()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|a| a.app_id.to_lowercase())
+            .collect()
+    };
+
+    let matches = crate::scanner::AppScanner::match_apps(&scanned, catalog_items);
+    let unmanaged_matches = matches
+        .into_iter()
+        .filter(|m| !installed_ids.contains(&m.catalog_id.to_lowercase()))
+        .collect();
+
+    Ok(unmanaged_matches)
+}
+
+#[tauri::command]
+pub fn import_matched_apps(
+    state: State<'_, AppState>,
+    apps: Vec<crate::scanner::ImportAppRequest>,
+) -> Result<usize, String> {
+    let mut imported_count = 0;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+
+    for req in apps {
+        let installed = InstalledApp {
+            app_id: req.app_id,
+            app_name: req.app_name,
+            version: req.version,
+            installed_at: now,
+            install_method: "system_import".to_string(),
+            install_path: req.install_path.unwrap_or_default(),
+            asset_name: "system_detected".to_string(),
+            asset_sha256: "system_verified".to_string(),
+            uninstall_command: req.uninstall_command,
+        };
+
+        if db.save_installed_app(&installed).is_ok() {
+            imported_count += 1;
+        }
+    }
+
+    Ok(imported_count)
+}
+
+#[tauri::command]
+pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
+    let installed_app = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        db.get_installed_apps()
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .find(|a| a.app_id.eq_ignore_ascii_case(&app_id))
+            .ok_or_else(|| format!("未找到已安装或纳管的应用: {}", app_id))?
+    };
+
+    let target_path = installed_app
+        .install_path
+        .trim()
+        .trim_matches('"')
+        .to_string();
+    let path_obj = std::path::Path::new(&target_path);
+
+    // 检查是否为临时下载目录中的安装包（避免误重新调起安装向导）
+    let is_temp_installer = target_path.to_lowercase().contains("zstore_downloads")
+        || target_path.to_lowercase().contains(r"\temp\")
+        || target_path.to_lowercase().ends_with("-setup.exe")
+        || target_path.to_lowercase().ends_with("_setup.exe")
+        || target_path.to_lowercase().ends_with("-installer.exe");
+
+    // 1. 如果路径本身是存在的可执行文件或快捷方式，且并非临时下载安装包
+    if !is_temp_installer && path_obj.is_file() {
+        let ext = path_obj
+            .extension()
+            .map_or("", |e| e.to_str().unwrap_or(""));
+        if ext.eq_ignore_ascii_case("lnk") {
+            #[cfg(target_os = "windows")]
+            {
+                std::process::Command::new("explorer.exe")
+                    .arg(&target_path)
+                    .spawn()
+                    .map_err(|e| format!("调起快捷方式失败: {}", e))?;
+                return Ok(true);
+            }
+        } else if ext.eq_ignore_ascii_case("exe") {
+            let parent = path_obj
+                .parent()
+                .unwrap_or_else(|| std::path::Path::new("."));
+            std::process::Command::new(path_obj)
+                .current_dir(parent)
+                .spawn()
+                .map_err(|e| format!("启动应用程序失败: {}", e))?;
+            return Ok(true);
+        }
+    }
+
+    // 2. 检查安装路径是否为目录，调用智能嗅探器寻找真正的 exe
+    let candidate_exe = crate::scanner::AppScanner::resolve_executable_path(
+        if target_path.is_empty() {
+            None
+        } else {
+            Some(&target_path)
+        },
+        None,
+        &installed_app.app_name,
+    )
+    .or_else(|| {
+        crate::scanner::AppScanner::resolve_executable_path(
+            if target_path.is_empty() {
+                None
+            } else {
+                Some(&target_path)
+            },
+            None,
+            &app_id,
+        )
+    });
+
+    if let Some(exe_str) = candidate_exe {
+        let exe_path = std::path::Path::new(&exe_str);
+        if exe_path.is_file() {
+            let parent = exe_path
+                .parent()
+                .unwrap_or_else(|| std::path::Path::new("."));
+            std::process::Command::new(exe_path)
+                .current_dir(parent)
+                .spawn()
+                .map_err(|e| format!("启动应用程序失败: {}", e))?;
+
+            // 自动将探测到的真实物理路径写回数据库，加速下次启动
+            if target_path != exe_str {
+                if let Ok(db) = state.db.lock() {
+                    let mut updated = installed_app.clone();
+                    updated.install_path = exe_str;
+                    let _ = db.save_installed_app(&updated);
+                }
+            }
+
+            return Ok(true);
+        }
+    }
+
+    // 3. 检查便携应用目录 ~/AppData/Local/Programs/z-store-apps/<app_id>/
+    let portable_dir = crate::installer::dirs_or_fallback(&installed_app.app_id);
+    if portable_dir.is_dir() {
+        if let Some(exe_str) = crate::scanner::AppScanner::resolve_executable_path(
+            Some(&portable_dir.to_string_lossy()),
+            None,
+            &installed_app.app_name,
+        ) {
+            let exe_path = std::path::Path::new(&exe_str);
+            if exe_path.is_file() {
+                let parent = exe_path
+                    .parent()
+                    .unwrap_or_else(|| std::path::Path::new("."));
+                std::process::Command::new(exe_path)
+                    .current_dir(parent)
+                    .spawn()
+                    .map_err(|e| format!("启动便携版失败: {}", e))?;
+                return Ok(true);
+            }
+        }
+    }
+
+    // 4. 在 Windows 桌面查找同名快捷方式
+    #[cfg(target_os = "windows")]
+    {
+        let desktop = std::env::var("USERPROFILE")
+            .map(|p| std::path::PathBuf::from(p).join("Desktop"))
+            .unwrap_or_else(|_| std::path::PathBuf::from(r"C:\Users\Public\Desktop"));
+
+        let candidate_lnks = [
+            desktop.join(format!("{}.lnk", installed_app.app_name)),
+            desktop.join(format!("{}.lnk", app_id)),
+        ];
+
+        for lnk in candidate_lnks {
+            if lnk.is_file() {
+                std::process::Command::new("explorer.exe")
+                    .arg(lnk.to_string_lossy().to_string())
+                    .spawn()
+                    .map_err(|e| format!("通过快捷方式启动失败: {}", e))?;
+                return Ok(true);
+            }
+        }
+    }
+
+    Err(format!(
+        "未能定位到该软件的可执行程序。\n记录路径: {}\n建议检查软件是否已被重命名或迁移，或重新纳管。",
+        if target_path.is_empty() { "无" } else { &target_path }
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_version_newer() {
+        // 4 段式 MSI 与 3 段式 GitHub Release 相同版本时不误报
+        assert!(!is_version_newer("3.0.21.0", "v3.0.21"));
+        assert!(!is_version_newer("3.0.21", "3.0.21.0"));
+        assert!(!is_version_newer("v1.2.3", "1.2.3"));
+
+        // 真实新版本应当触发
+        assert!(is_version_newer("3.0.20", "3.0.21"));
+        assert!(is_version_newer("v1.0.0", "v1.1.0"));
+        assert!(is_version_newer("1.9.9", "2.0.0"));
+
+        // 降级（如 nightly 或用户更高版本）不应当触发
+        assert!(!is_version_newer("3.0.22", "3.0.21"));
+        assert!(!is_version_newer("1.4.0", "1.3.1"));
+    }
 }

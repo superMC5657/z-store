@@ -90,7 +90,10 @@ impl MirrorManager {
             let test_url = if node.id == "direct" {
                 "https://api.github.com".to_string()
             } else {
-                format!("{}/https://raw.githubusercontent.com", node.base_url.trim_end_matches('/'))
+                format!(
+                    "{}/https://raw.githubusercontent.com",
+                    node.base_url.trim_end_matches('/')
+                )
             };
 
             let resp = client.head(&test_url).send().await;

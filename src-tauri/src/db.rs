@@ -123,7 +123,9 @@ impl Database {
     }
 
     pub fn get_etag(&self, endpoint_url: &str) -> Result<Option<String>> {
-        let mut stmt = self.conn.prepare("SELECT etag FROM api_etag_cache WHERE endpoint_url = ?1")?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT etag FROM api_etag_cache WHERE endpoint_url = ?1")?;
         let mut rows = stmt.query(params![endpoint_url])?;
         if let Some(row) = rows.next()? {
             Ok(Some(row.get(0)?))
@@ -133,7 +135,9 @@ impl Database {
     }
 
     pub fn get_cached_payload(&self, endpoint_url: &str) -> Result<Option<String>> {
-        let mut stmt = self.conn.prepare("SELECT payload_json FROM api_etag_cache WHERE endpoint_url = ?1")?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT payload_json FROM api_etag_cache WHERE endpoint_url = ?1")?;
         let mut rows = stmt.query(params![endpoint_url])?;
         if let Some(row) = rows.next()? {
             Ok(Some(row.get(0)?))
@@ -142,7 +146,13 @@ impl Database {
         }
     }
 
-    pub fn save_etag(&self, endpoint_url: &str, etag: &str, payload_json: &str, timestamp: i64) -> Result<()> {
+    pub fn save_etag(
+        &self,
+        endpoint_url: &str,
+        etag: &str,
+        payload_json: &str,
+        timestamp: i64,
+    ) -> Result<()> {
         self.conn.execute(
             r#"
             INSERT INTO api_etag_cache (endpoint_url, etag, payload_json, last_checked_at)
@@ -158,7 +168,9 @@ impl Database {
     }
 
     pub fn get_setting(&self, key: &str) -> Result<Option<String>> {
-        let mut stmt = self.conn.prepare("SELECT value FROM user_settings WHERE key = ?1")?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT value FROM user_settings WHERE key = ?1")?;
         let mut rows = stmt.query(params![key])?;
         if let Some(row) = rows.next()? {
             Ok(Some(row.get(0)?))
@@ -196,7 +208,9 @@ impl Database {
     }
 
     pub fn get_favorites(&self) -> Result<Vec<String>> {
-        let mut stmt = self.conn.prepare("SELECT app_id FROM user_favorites ORDER BY favorited_at DESC")?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT app_id FROM user_favorites ORDER BY favorited_at DESC")?;
         let rows = stmt.query_map([], |row| row.get(0))?;
         let mut favs = Vec::new();
         for r in rows {
@@ -213,7 +227,10 @@ impl Database {
         )?;
 
         if exists {
-            self.conn.execute("DELETE FROM user_favorites WHERE app_id = ?1", params![app_id])?;
+            self.conn.execute(
+                "DELETE FROM user_favorites WHERE app_id = ?1",
+                params![app_id],
+            )?;
             Ok(false)
         } else {
             let now = std::time::SystemTime::now()
@@ -263,7 +280,8 @@ mod tests {
     fn test_etag_cache() {
         let db = Database::open_in_memory().unwrap();
         let ep = "https://api.github.com/repos/rustdesk/rustdesk/releases/latest";
-        db.save_etag(ep, "W/\"123456\"", "{\"tag_name\":\"v1.2.6\"}", 1700000000).unwrap();
+        db.save_etag(ep, "W/\"123456\"", "{\"tag_name\":\"v1.2.6\"}", 1700000000)
+            .unwrap();
 
         let etag = db.get_etag(ep).unwrap();
         assert_eq!(etag, Some("W/\"123456\"".to_string()));

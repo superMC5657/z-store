@@ -109,3 +109,37 @@ export interface AppSettings {
   launch_on_startup: boolean;
   update_frequency: 'startup' | 'daily' | 'manual';
 }
+
+export interface ScannedRawApp {
+  display_name: string;
+  display_version: string;
+  publisher?: string;
+  install_location?: string;
+  display_icon?: string;
+  uninstall_string?: string;
+}
+
+export interface AppMatchResult {
+  scanned: ScannedRawApp;
+  catalog_id: string;
+  name: string;
+  chinese_name?: string;
+  owner: string;
+  repo: string;
+  icon: string;
+  icon_bg: string;
+  description: string;
+  local_version: string;
+  catalog_version: string;
+  confidence: number;
+  confidence_tier: 'high' | 'medium' | 'low';
+  resolved_executable_path?: string;
+}
+
+export interface ImportAppRequest {
+  app_id: string;
+  app_name: string;
+  version: string;
+  install_path?: string;
+  uninstall_command?: string;
+}
