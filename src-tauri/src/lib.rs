@@ -99,7 +99,8 @@ pub fn run() {
             commands::test_host_connection,
             commands::register_deep_link_scheme,
             commands::handle_deep_link,
-            commands::get_cli_deep_link
+            commands::get_cli_deep_link,
+            commands::search_forge_repos
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

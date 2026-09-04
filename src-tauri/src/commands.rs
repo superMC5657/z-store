@@ -154,10 +154,10 @@ pub async fn get_app_details(state: State<'_, AppState>, id: String) -> Result<A
             .lock()
             .map_err(|e| e.to_string())?
             .clone();
-        let (owner, repo, _, _, _, _) = state.catalog.get_endpoints(&id)?;
+        let coords = state.catalog.get_repo_coordinates(&id)?;
         let ep = format!(
             "https://api.github.com/repos/{}/{}/releases/latest",
-            owner, repo
+            coords.owner, coords.repo
         );
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let etag = db.get_etag(&ep).ok().flatten();
@@ -224,14 +224,18 @@ pub async fn install_app(
         let is_windows_binary = asset.name.to_lowercase().ends_with(".exe")
             || asset.name.to_lowercase().ends_with(".msi");
         if is_windows_binary {
-            if let Ok(sig_info) = crate::verifier::AuthenticodeVerifier::extract_signature(&dest_path) {
-                if let Some(ref expected_fp) = detail.signature_fingerprint {
-                    if !expected_fp.trim().is_empty() {
-                        if let Err(mismatch_err) = crate::verifier::AuthenticodeVerifier::verify_fingerprint(&sig_info, expected_fp) {
-                            // 证书指纹不符（疑似供应链投毒或替换），销毁临时文件并强行阻断
+            if let Some(ref expected_fp) = detail.signature_fingerprint {
+                let trimmed = expected_fp.trim();
+                if !trimmed.is_empty() {
+                    let sig_info = crate::verifier::AuthenticodeVerifier::extract_signature(&dest_path)
+                        .map_err(|e| {
                             let _ = std::fs::remove_file(&dest_path);
-                            return Err(mismatch_err);
-                        }
+                            format!("安全拦截：无法提取安装包 Authenticode 数字签名信息（{}），已中止安装", e)
+                        })?;
+                    if let Err(mismatch_err) = crate::verifier::AuthenticodeVerifier::verify_fingerprint(&sig_info, trimmed) {
+                        // 证书指纹不符或无效签名（疑似供应链投毒或替换），销毁临时文件并强行阻断
+                        let _ = std::fs::remove_file(&dest_path);
+                        return Err(mismatch_err);
                     }
                 }
             }
@@ -1052,6 +1056,29 @@ pub fn get_cli_deep_link() -> Option<String> {
         }
     }
     None
+}
+
+#[tauri::command]
+pub async fn search_forge_repos(
+    state: State<'_, AppState>,
+    forge: String,
+    host: Option<String>,
+    query: String,
+) -> Result<Vec<crate::forge::ForgeRepoInfo>, String> {
+    let forge_type = match forge.to_lowercase().as_str() {
+        "codeberg" => crate::forge::ForgeType::Codeberg,
+        "gitea" | "forgejo" => crate::forge::ForgeType::Gitea,
+        "gitlab" => crate::forge::ForgeType::GitLab,
+        _ => crate::forge::ForgeType::GitHub,
+    };
+    let target_host = host.as_deref().unwrap_or_else(|| forge_type.default_host());
+    let token = if let Ok(db) = state.db.lock() {
+        db.get_host_token(target_host).ok().flatten()
+    } else {
+        None
+    };
+
+    crate::forge::ForgeRegistry::search_repos(forge_type, Some(target_host), &query, token.as_deref()).await
 }
 
 #[cfg(test)]

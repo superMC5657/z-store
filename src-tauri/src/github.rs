@@ -94,6 +94,16 @@ struct GitHubSearchOwner {
     login: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppRepoCoordinates {
+    pub owner: String,
+    pub repo: String,
+    pub name: String,
+    pub description: String,
+    pub icon: String,
+    pub icon_bg: String,
+}
+
 pub struct CatalogService {
     items: Vec<CatalogItem>,
 }
@@ -202,39 +212,51 @@ impl CatalogService {
         }
     }
 
-    pub fn get_endpoints(
-        &self,
-        id: &str,
-    ) -> Result<(String, String, String, String, String, String), String> {
+    pub fn get_repo_coordinates(&self, id: &str) -> Result<AppRepoCoordinates, String> {
         if let Some(item) = self.items.iter().find(|i| i.id == id) {
-            Ok((
-                item.owner.clone(),
-                item.repo.clone(),
-                item.name.clone(),
-                item.description.clone(),
-                item.icon.clone(),
-                item.icon_bg.clone(),
-            ))
+            Ok(AppRepoCoordinates {
+                owner: item.owner.clone(),
+                repo: item.repo.clone(),
+                name: item.name.clone(),
+                description: item.description.clone(),
+                icon: item.icon.clone(),
+                icon_bg: item.icon_bg.clone(),
+            })
         } else if id.contains('/') {
             let parts: Vec<&str> = id.split('/').collect();
             if parts.len() == 2 {
                 let owner = parts[0].trim().to_string();
                 let repo = parts[1].trim().to_string();
                 let name = repo.clone();
-                Ok((
+                Ok(AppRepoCoordinates {
                     owner,
                     repo,
                     name,
-                    "GitHub 社区开源项目".to_string(),
-                    "📦".to_string(),
-                    "linear-gradient(135deg, #475569, #334155)".to_string(),
-                ))
+                    description: "GitHub 社区开源项目".to_string(),
+                    icon: "📦".to_string(),
+                    icon_bg: "linear-gradient(135deg, #475569, #334155)".to_string(),
+                })
             } else {
                 Err(format!("未识别的仓库坐标: {}", id))
             }
         } else {
             Err(format!("收录库中不存在该应用: {}", id))
         }
+    }
+
+    pub fn get_endpoints(
+        &self,
+        id: &str,
+    ) -> Result<(String, String, String, String, String, String), String> {
+        let coords = self.get_repo_coordinates(id)?;
+        Ok((
+            coords.owner,
+            coords.repo,
+            coords.name,
+            coords.description,
+            coords.icon,
+            coords.icon_bg,
+        ))
     }
 
     pub async fn search_github_online(

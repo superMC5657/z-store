@@ -57,6 +57,14 @@ impl AuthenticodeVerifier {
             return Err("目标安装文件未包含任何 Authenticode 数字签名，无法进行发布者证书指纹比对".to_string());
         }
 
+        if !actual_sig.is_valid {
+            let msg = actual_sig.status_message.as_deref().unwrap_or(&actual_sig.status);
+            return Err(format!(
+                "安全拦截：目标安装文件 Authenticode 数字签名无效或已遭篡改（状态: {}）。已阻止后续安装以保障系统安全。",
+                msg
+            ));
+        }
+
         // 1. 比对 SHA-256 指纹
         if let Some(ref sha256) = actual_sig.thumbprint_sha256 {
             let norm_actual = Self::normalize_fingerprint(sha256);

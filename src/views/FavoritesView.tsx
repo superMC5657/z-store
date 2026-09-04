@@ -41,6 +41,8 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
     }
   };
 
+  const [isBatchInstalling, setIsBatchInstalling] = useState(false);
+
   const handleAddAllToFavorites = () => {
     if (!syncResult) return;
     for (const app of syncResult.catalog_matches) {
@@ -48,6 +50,17 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
         onToggleFavorite(app.id);
       }
     }
+  };
+
+  const handleBatchInstallAll = async () => {
+    if (!syncResult) return;
+    const toInstall = syncResult.catalog_matches.filter((app) => !installedIds.has(app.id));
+    if (toInstall.length === 0) return;
+    setIsBatchInstalling(true);
+    for (const app of toInstall) {
+      await onQuickInstall(app.id);
+    }
+    setIsBatchInstalling(false);
   };
 
   return (
@@ -174,13 +187,23 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 </span>
 
                 {syncResult.catalog_matches.length > 0 && (
-                  <button
-                    className="btn-fluent btn-secondary"
-                    style={{ fontSize: '12px', padding: '4px 12px' }}
-                    onClick={handleAddAllToFavorites}
-                  >
-                    📥 全部纳入收藏
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      className="btn-fluent btn-primary"
+                      style={{ fontSize: '12px', padding: '4px 12px' }}
+                      disabled={isBatchInstalling || syncResult.catalog_matches.every((a) => installedIds.has(a.id))}
+                      onClick={handleBatchInstallAll}
+                    >
+                      {isBatchInstalling ? '⏳ 批量安装中...' : '⚡ 一键批量装机'}
+                    </button>
+                    <button
+                      className="btn-fluent btn-secondary"
+                      style={{ fontSize: '12px', padding: '4px 12px' }}
+                      onClick={handleAddAllToFavorites}
+                    >
+                      📥 全部纳入收藏
+                    </button>
+                  </div>
                 )}
               </div>
 

@@ -795,6 +795,13 @@ export const api = {
     }
     return null;
   },
+
+  async searchForgeRepos(forge: string, query: string, host?: string): Promise<any[]> {
+    if (isTauri) {
+      return tauriInvoke<any[]>('search_forge_repos', { forge, host, query });
+    }
+    return [];
+  },
 };
 
 let mockSearchHistory: string[] = ['RustDesk', 'LocalSend', 'OBS Studio', 'VLC'];

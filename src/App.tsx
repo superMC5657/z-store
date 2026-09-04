@@ -249,15 +249,18 @@ export const App: React.FC = () => {
 
   // Quick Install
   const handleQuickInstall = async (id: string) => {
-    handleOpenDetail(id);
+    handleInstallApp(id);
   };
 
   // Deep Link Dispatcher (Feature E)
   const handleDispatchDeepLink = async (rawUrl: string) => {
     try {
       const action = await api.handleDeepLink(rawUrl);
-      if (action.action === 'app_detail' || action.action === 'install_app') {
+      if (action.action === 'app_detail') {
         handleOpenDetail(action.payload.app_id);
+      } else if (action.action === 'install_app') {
+        handleOpenDetail(action.payload.app_id);
+        handleInstallApp(action.payload.app_id);
       } else if (action.action === 'search') {
         handleSearchChange(action.payload.query);
       } else if (action.action === 'developer_profile') {

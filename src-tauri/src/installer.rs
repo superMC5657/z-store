@@ -150,30 +150,46 @@ impl InstallerEngine {
         let actual_hash = hex::encode(hasher.finalize());
 
         // 零信任哈希比对防篡改核心拦截
-        if let Some(expected) = expected_sha256 {
+        let (verified_state, verified_msg) = if let Some(expected) = expected_sha256 {
             let exp_clean = expected.trim().to_lowercase();
-            if !exp_clean.is_empty() && actual_hash.to_lowercase() != exp_clean {
-                let _ = std::fs::remove_file(&temp_path);
-                let _ = app_handle.emit(
-                    "zstore://download-progress",
-                    DownloadProgressPayload {
-                        task_id: task_id.to_string(),
-                        downloaded_bytes: downloaded,
-                        total_bytes: downloaded,
-                        speed_bytes_per_sec: 0,
-                        state: "tampered".to_string(),
-                        message: Some(format!(
-                            "哈希不符！期望: {}, 实际: {}",
-                            exp_clean, actual_hash
-                        )),
-                    },
-                );
-                return Err(format!(
-                    "安全拦截：SHA-256 完整性校验不符！官方校验值: {}，实际下载文件: {}。已阻止潜在篡改软件的安装执行。",
-                    exp_clean, actual_hash
-                ));
+            if !exp_clean.is_empty() {
+                if actual_hash.to_lowercase() != exp_clean {
+                    let _ = std::fs::remove_file(&temp_path);
+                    let _ = app_handle.emit(
+                        "zstore://download-progress",
+                        DownloadProgressPayload {
+                            task_id: task_id.to_string(),
+                            downloaded_bytes: downloaded,
+                            total_bytes: downloaded,
+                            speed_bytes_per_sec: 0,
+                            state: "tampered".to_string(),
+                            message: Some(format!(
+                                "哈希不符！期望: {}, 实际: {}",
+                                exp_clean, actual_hash
+                            )),
+                        },
+                    );
+                    return Err(format!(
+                        "安全拦截：SHA-256 完整性校验不符！官方校验值: {}，实际下载文件: {}。已阻止潜在篡改软件的安装执行。",
+                        exp_clean, actual_hash
+                    ));
+                }
+                (
+                    "verified".to_string(),
+                    format!("已通过官方 SHA-256 完整性校验: {}", actual_hash),
+                )
+            } else {
+                (
+                    "completed_unverified".to_string(),
+                    format!("上游未提供官方校验清单，已记录本地计算 SHA-256: {}", actual_hash),
+                )
             }
-        }
+        } else {
+            (
+                "completed_unverified".to_string(),
+                format!("上游未提供官方校验清单，已记录本地计算 SHA-256: {}", actual_hash),
+            )
+        };
 
         let _ = app_handle.emit(
             "zstore://download-progress",
@@ -182,8 +198,8 @@ impl InstallerEngine {
                 downloaded_bytes: downloaded,
                 total_bytes: downloaded,
                 speed_bytes_per_sec: 0,
-                state: "verified".to_string(),
-                message: Some(format!("已通过官方 SHA-256 完整性校验: {}", actual_hash)),
+                state: verified_state,
+                message: Some(verified_msg),
             },
         );
 
@@ -284,23 +300,11 @@ impl InstallerEngine {
             AssetKind::Dmg => {
                 #[cfg(target_os = "macos")]
                 {
-                    let status = std::process::Command::new("hdiutil")
-                        .arg("attach")
-                        .arg("-nobrowse")
-                        .arg("-readonly")
-                        .arg(installer_path)
-                        .status()
-                        .map_err(|e| format!("挂载 DMG 镜像失败: {}", e))?;
-
-                    if status.success() {
-                        Ok("DMG 镜像已挂载，请拖拽应用至 Applications 目录".to_string())
-                    } else {
-                        Err("挂载 DMG 镜像失败".to_string())
-                    }
+                    Self::install_macos_dmg(installer_path)
                 }
                 #[cfg(not(target_os = "macos"))]
                 {
-                    Ok(format!("非 macOS 平台跳过 DMG 挂载: {:?}", installer_path))
+                    Ok(format!("非 macOS 平台跳过 DMG 挂载与解构安装: {:?}", installer_path))
                 }
             }
             AssetKind::Pkg => {
@@ -373,17 +377,108 @@ impl InstallerEngine {
         }
     }
 
+    #[cfg(target_os = "macos")]
+    fn install_macos_dmg(installer_path: &Path) -> Result<String, String> {
+        // 1. 命令行 hdiutil attach -nobrowse -readonly 挂载镜像
+        let attach_output = std::process::Command::new("hdiutil")
+            .arg("attach")
+            .arg("-nobrowse")
+            .arg("-readonly")
+            .arg(installer_path)
+            .output()
+            .map_err(|e| format!("挂载 DMG 镜像失败: {}", e))?;
+
+        if !attach_output.status.success() {
+            let err = String::from_utf8_lossy(&attach_output.stderr);
+            return Err(format!("挂载 DMG 镜像失败: {}", err));
+        }
+
+        // 2. 探测挂载卷路径 (/Volumes/...)
+        let stdout_str = String::from_utf8_lossy(&attach_output.stdout);
+        let mount_point = stdout_str
+            .lines()
+            .filter_map(|line| {
+                let parts: Vec<&str> = line.split('\t').collect();
+                parts.last().map(|p| p.trim())
+            })
+            .find(|p| p.starts_with("/Volumes/"))
+            .map(PathBuf::from);
+
+        let volume_path = match mount_point {
+            Some(p) => p,
+            None => {
+                return Err("无法从 hdiutil 输出中探测到挂载卷路径".to_string());
+            }
+        };
+
+        // 3. 探测挂载卷内的 .app 目录
+        let app_in_volume = std::fs::read_dir(&volume_path)
+            .ok()
+            .and_then(|entries| {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() && path.extension().and_then(|e| e.to_str()) == Some("app") {
+                        return Some(path);
+                    }
+                }
+                None
+            });
+
+        let target_app = match app_in_volume {
+            Some(p) => p,
+            None => {
+                let _ = std::process::Command::new("hdiutil")
+                    .arg("detach")
+                    .arg(&volume_path)
+                    .arg("-force")
+                    .status();
+                return Err("DMG 挂载卷内未发现有效 .app 应用程序包".to_string());
+            }
+        };
+
+        let app_name = target_app
+            .file_name()
+            .ok_or_else(|| "无法获取 .app 目录名称".to_string())?;
+
+        // 4. 拷贝至 /Applications 或用户 ~/Applications 目录
+        let sys_apps = PathBuf::from("/Applications");
+        let dest_app = sys_apps.join(app_name);
+
+        let cp_status = std::process::Command::new("cp")
+            .arg("-R")
+            .arg(&target_app)
+            .arg(&dest_app)
+            .status()
+            .map_err(|e| format!("拷贝应用至 /Applications 失败: {}", e))?;
+
+        // 5. 卸载 DMG 释放挂载点
+        let _ = std::process::Command::new("hdiutil")
+            .arg("detach")
+            .arg(&volume_path)
+            .arg("-force")
+            .status();
+
+        if cp_status.success() {
+            Ok(format!("已成功解包并安装至 /Applications/{}", app_name.to_string_lossy()))
+        } else {
+            Err(format!("拷贝应用至 /Applications/{} 失败", app_name.to_string_lossy()))
+        }
+    }
+
     pub fn build_unix_install_commands(kind: &AssetKind, asset_path: &Path) -> Vec<Vec<String>> {
         let p = asset_path.to_string_lossy().to_string();
         match kind {
             AssetKind::Dmg => vec![
                 vec!["hdiutil".into(), "attach".into(), "-nobrowse".into(), "-readonly".into(), p],
+                vec!["cp".into(), "-R".into(), "/Volumes/<App>/<App>.app".into(), "/Applications/".into()],
+                vec!["hdiutil".into(), "detach".into(), "/Volumes/<App>".into(), "-force".into()],
             ],
             AssetKind::Pkg => vec![
                 vec!["installer".into(), "-pkg".into(), p, "-target".into(), "CurrentUserHomeDirectory".into()]
             ],
             AssetKind::AppImage => vec![
-                vec!["chmod".into(), "+x".into(), p],
+                vec!["chmod".into(), "+x".into(), p.clone()],
+                vec![p],
             ],
             AssetKind::Deb => vec![
                 vec!["pkexec".into(), "dpkg".into(), "-i".into(), p]

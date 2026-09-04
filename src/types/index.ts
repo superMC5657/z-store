@@ -47,6 +47,7 @@ export interface AppDetail {
   signature_fingerprint?: string;
   readme_markdown: string;
   releases: ReleaseAsset[];
+  assets?: ReleaseAsset[];
   category: string;
   category_name: string;
   forge?: string;

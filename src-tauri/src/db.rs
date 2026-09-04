@@ -317,60 +317,40 @@ impl Database {
         Ok(rules)
     }
 
-    pub fn set_skip_version(&self, app_id: &str, version: Option<&str>) -> Result<()> {
+    fn upsert_update_rule_field<T: rusqlite::ToSql>(
+        &self,
+        app_id: &str,
+        field_name: &str,
+        value: T,
+    ) -> Result<()> {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs() as i64;
-        self.conn.execute(
+        let sql = format!(
             r#"
-            INSERT INTO update_rules (app_id, skipped_version, is_frozen, is_hidden, updated_at)
-            VALUES (?1, ?2, 0, 0, ?3)
+            INSERT INTO update_rules (app_id, {field}, updated_at)
+            VALUES (?1, ?2, ?3)
             ON CONFLICT(app_id) DO UPDATE SET
-                skipped_version = excluded.skipped_version,
+                {field} = excluded.{field},
                 updated_at = excluded.updated_at;
             "#,
-            params![app_id, version, now],
-        )?;
+            field = field_name
+        );
+        self.conn.execute(&sql, params![app_id, value, now])?;
         Ok(())
+    }
+
+    pub fn set_skip_version(&self, app_id: &str, version: Option<&str>) -> Result<()> {
+        self.upsert_update_rule_field(app_id, "skipped_version", version)
     }
 
     pub fn set_frozen_status(&self, app_id: &str, is_frozen: bool) -> Result<()> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
-        let val = if is_frozen { 1 } else { 0 };
-        self.conn.execute(
-            r#"
-            INSERT INTO update_rules (app_id, skipped_version, is_frozen, is_hidden, updated_at)
-            VALUES (?1, NULL, ?2, 0, ?3)
-            ON CONFLICT(app_id) DO UPDATE SET
-                is_frozen = excluded.is_frozen,
-                updated_at = excluded.updated_at;
-            "#,
-            params![app_id, val, now],
-        )?;
-        Ok(())
+        self.upsert_update_rule_field(app_id, "is_frozen", if is_frozen { 1 } else { 0 })
     }
 
     pub fn set_hidden_status(&self, app_id: &str, is_hidden: bool) -> Result<()> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
-        let val = if is_hidden { 1 } else { 0 };
-        self.conn.execute(
-            r#"
-            INSERT INTO update_rules (app_id, skipped_version, is_frozen, is_hidden, updated_at)
-            VALUES (?1, NULL, 0, ?2, ?3)
-            ON CONFLICT(app_id) DO UPDATE SET
-                is_hidden = excluded.is_hidden,
-                updated_at = excluded.updated_at;
-            "#,
-            params![app_id, val, now],
-        )?;
-        Ok(())
+        self.upsert_update_rule_field(app_id, "is_hidden", if is_hidden { 1 } else { 0 })
     }
 
     pub fn remove_rule(&self, app_id: &str) -> Result<bool> {

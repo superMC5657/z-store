@@ -56,6 +56,7 @@ pub struct AppDetail {
     pub is_verified: bool,
     pub signature_fingerprint: Option<String>,
     pub readme_markdown: String,
+    #[serde(alias = "assets")]
     pub releases: Vec<ReleaseAsset>,
     pub category: String,
     pub category_name: String,
