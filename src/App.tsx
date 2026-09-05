@@ -4,6 +4,7 @@ import { Sidebar } from './components/Sidebar';
 import { AppDetailModal } from './components/AppDetailModal';
 import { DeveloperProfileModal } from './components/DeveloperProfileModal';
 import { AppImportModal } from './components/AppImportModal';
+import { RulesManagerModal } from './components/RulesManagerModal';
 import { ToastContainer } from './components/Toast';
 import { HomeView } from './views/HomeView';
 import { TrendsView } from './views/TrendsView';
@@ -29,6 +30,7 @@ export const App: React.FC = () => {
   const activeDetailIdRef = useRef<string | null>(null);
   const [selectedDeveloper, setSelectedDeveloper] = useState<string | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -74,10 +76,15 @@ export const App: React.FC = () => {
   }, []);
 
   const FONT_SCALE_MAP: Record<string, string> = {
-    small: '0.85',
+    '12': '0.86',
+    '14': '1',
+    '16': '1.14',
+    '18': '1.28',
+    '20': '1.43',
+    small: '0.86',
     standard: '1',
-    medium: '1.18',
-    large: '1.35',
+    medium: '1.14',
+    large: '1.28',
   };
 
   const applyFontSize = (sizeKey: string) => {
@@ -107,17 +114,10 @@ export const App: React.FC = () => {
     // Initial data fetch
     api.searchApps('').then((loadedApps) => {
       setApps(loadedApps);
-      // 预解码热门应用图标，避免切页瀑布流依次跳出
-      const iconUrls = loadedApps.slice(0, 30).map((a) => a.icon).filter(Boolean);
-      preloadIcons(iconUrls);
-
-      // 延时 1.2 秒在后台静默预热 Top 15 应用详情存入 SQLite，避开首屏渲染竞争
-      setTimeout(() => {
-        api.warmupTopApps(15).catch(() => {});
-      }, 1200);
+      // 预解码热门应用图标，若本地配置目录已缓存则秒读，未缓存则后台下载并缓存
+      preloadIcons(loadedApps.slice(0, 30).map((a) => ({ id: a.id, icon: a.icon })));
     });
     api.getInstalledApps().then(setInstalledApps);
-    api.checkForUpdates().then(setUpdates);
     api.getMirrorStatus().then(setMirrors);
     api.getFavorites().then((favs) => setFavoriteIds(new Set(favs)));
     api.getUpdateRules().then(setUpdateRules);
@@ -141,7 +141,15 @@ export const App: React.FC = () => {
       setSettings(merged);
 
       // Apply theme
-      const currentTheme = merged.theme === 'light' ? 'light' : 'dark';
+      let currentTheme: 'light' | 'dark' = 'dark';
+      if (merged.theme === 'light') {
+        currentTheme = 'light';
+      } else if (merged.theme === 'dark') {
+        currentTheme = 'dark';
+      } else {
+        const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        currentTheme = isDark ? 'dark' : 'light';
+      }
       setTheme(currentTheme);
       document.documentElement.setAttribute('data-theme', currentTheme);
 
@@ -163,24 +171,21 @@ export const App: React.FC = () => {
       if (merged.active_mirror) {
         api.switchMirror(merged.active_mirror);
       }
-    });
 
-    // 后台静默检测并同步远程开源清单仓库变动
-    api.syncCatalog(false).then((res) => {
-      if (res.updated) {
-        api.searchApps('').then((updatedApps) => {
-          setApps(updatedApps);
-          const iconUrls = updatedApps.slice(0, 30).map((a) => a.icon).filter(Boolean);
-          preloadIcons(iconUrls);
-        });
+      if (merged.update_frequency === 'startup') {
+        api.checkForUpdates(false).then(setUpdates).catch(() => {});
       }
-    }).catch(() => {});
+    });
 
     const handleCatalogSynced = () => {
       api.searchApps('').then((updatedApps) => {
         setApps(updatedApps);
-        const iconUrls = updatedApps.slice(0, 30).map((a) => a.icon).filter(Boolean);
-        preloadIcons(iconUrls);
+        preloadIcons(
+          updatedApps
+            .slice(0, 30)
+            .filter((a) => a.icon)
+            .map((a) => ({ id: a.id, icon: a.icon }))
+        );
       });
     };
     window.addEventListener('zstore:catalog-synced', handleCatalogSynced);
@@ -189,6 +194,28 @@ export const App: React.FC = () => {
       window.removeEventListener('zstore:catalog-synced', handleCatalogSynced);
     };
   }, []);
+
+  // 跟随系统主题动态监听
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = (e: MediaQueryListEvent) => {
+      if (settings.theme === 'system') {
+        const nextTheme = e.matches ? 'dark' : 'light';
+        setTheme(nextTheme);
+        document.documentElement.setAttribute('data-theme', nextTheme);
+      }
+    };
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, [settings.theme]);
+
+  // 仅在用户主动进入“更新中心”标签页时才执行轻量检查，彻底避免在后台静默消耗用户配额
+  useEffect(() => {
+    if (currentView === 'updates' && updates.length === 0) {
+      api.checkForUpdates(false).then(setUpdates).catch(() => {});
+    }
+  }, [currentView]);
 
   // Theme Toggler
   const handleToggleTheme = () => {
@@ -199,11 +226,21 @@ export const App: React.FC = () => {
     showToast(`已切换至${next === 'dark' ? '暗黑' : '明亮'}主题模式`, 'info');
   };
 
-  const handleSetTheme = (t: 'light' | 'dark') => {
-    setTheme(t);
-    document.documentElement.setAttribute('data-theme', t);
+  const handleSetTheme = (t: 'light' | 'dark' | 'system') => {
+    let effective: 'light' | 'dark' = 'dark';
+    if (t === 'light') {
+      effective = 'light';
+    } else if (t === 'dark') {
+      effective = 'dark';
+    } else {
+      const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      effective = isDark ? 'dark' : 'light';
+    }
+    setTheme(effective);
+    document.documentElement.setAttribute('data-theme', effective);
     handleUpdateSetting('theme', t);
-    showToast(`已应用外观模式: ${t === 'dark' ? '暗黑模式' : '明亮模式'}`, 'info');
+    const label = t === 'system' ? '跟随系统' : t === 'dark' ? '暗黑模式' : '明亮模式';
+    showToast(`已应用外观模式: ${label}`, 'info');
   };
 
   // Generic Setting Updater
@@ -212,18 +249,32 @@ export const App: React.FC = () => {
     await api.saveSetting(key, String(value));
 
     if (key === 'theme') {
-      const t = value as 'light' | 'dark';
-      setTheme(t);
-      document.documentElement.setAttribute('data-theme', t);
+      const t = value as 'light' | 'dark' | 'system';
+      let effective: 'light' | 'dark' = 'dark';
+      if (t === 'light') {
+        effective = 'light';
+      } else if (t === 'dark') {
+        effective = 'dark';
+      } else {
+        const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        effective = isDark ? 'dark' : 'light';
+      }
+      setTheme(effective);
+      document.documentElement.setAttribute('data-theme', effective);
     } else if (key === 'font_size') {
       applyFontSize(String(value));
       const labels: Record<string, string> = {
+        '12': '紧凑 12px',
+        '14': '标准 14px',
+        '16': '舒适 16px',
+        '18': '较大 18px',
+        '20': '特大 20px',
         small: '紧凑 12px',
-        standard: '标准 13.5px',
-        medium: '舒适 15px',
-        large: '特大 16.5px',
+        standard: '标准 14px',
+        medium: '舒适 16px',
+        large: '较大 18px',
       };
-      showToast(`全局字体已设为: ${labels[String(value)] || value}`, 'info');
+      showToast(`全局字体已设为: ${labels[String(value)] || `${value}px`}`, 'info');
     } else if (key === 'ui_scale') {
       applyUiZoom(String(value));
       showToast(`界面缩放已设为: ${value}%`, 'info');
@@ -244,7 +295,7 @@ export const App: React.FC = () => {
     setSettings(DEFAULT_SETTINGS);
     setTheme('dark');
     document.documentElement.setAttribute('data-theme', 'dark');
-    applyFontSize('standard');
+    applyFontSize('14');
     applyUiZoom('100');
     showToast('已成功恢复所有出厂默认设置！', 'success');
   };
@@ -506,9 +557,14 @@ export const App: React.FC = () => {
 
   // Apply Single Update
   const handleApplyUpdate = async (id: string) => {
-    await api.installApp(id);
-    setUpdates((prev) => prev.filter((u) => u.app_id !== id));
-    showToast(`${id} 已无缝平滑升级至最新版本！`, 'success');
+    try {
+      const updatedApp = await api.installApp(id);
+      setInstalledApps((prev) => [...prev.filter((a) => a.app_id !== id), updatedApp]);
+      setUpdates((prev) => prev.filter((u) => u.app_id !== id));
+      showToast(`${updatedApp.app_name || id} 已无缝平滑升级至最新版本！`, 'success');
+    } catch (err) {
+      showToast(`升级失败: ${String(err)}`, 'error');
+    }
   };
 
   // Ignore Single Update (FR-4.4)
@@ -593,11 +649,43 @@ export const App: React.FC = () => {
   // Batch Update
   const handleBatchUpdateAll = async () => {
     showToast('正在批量升级所有就绪应用...', 'info');
+    let successCount = 0;
+    let failCount = 0;
+    const remainingUpdates: UpdateItem[] = [];
+
     for (const u of updates) {
-      await api.installApp(u.app_id);
+      try {
+        const updatedApp = await api.installApp(u.app_id);
+        setInstalledApps((prev) => [...prev.filter((a) => a.app_id !== u.app_id), updatedApp]);
+        successCount++;
+      } catch {
+        failCount++;
+        remainingUpdates.push(u);
+      }
     }
-    setUpdates([]);
-    showToast('全部应用升级成功！', 'success');
+
+    setUpdates(remainingUpdates);
+    if (failCount === 0) {
+      showToast(`全部 ${successCount} 款应用已成功升级至最新版本！`, 'success');
+    } else {
+      showToast(`批量升级完成：${successCount} 款成功，${failCount} 款失败`, 'warning');
+    }
+  };
+
+  // Trigger Manual Update Check
+  const handleCheckUpdates = async () => {
+    showToast('正在向各开源托管仓库检查最新发布...', 'info');
+    try {
+      const freshUpdates = await api.checkForUpdates(true);
+      setUpdates(freshUpdates);
+      if (freshUpdates.length === 0) {
+        showToast('太棒了！所有应用均已是最新版本', 'success');
+      } else {
+        showToast(`发现 ${freshUpdates.length} 个应用有新版本可用！`, 'info');
+      }
+    } catch (e) {
+      showToast(`检查更新失败: ${String(e)}`, 'error');
+    }
   };
 
   // Scan System Installed Open-Source Apps (FR-5.3)
@@ -770,6 +858,8 @@ export const App: React.FC = () => {
               onLaunch={handleLaunchApp}
               onUninstall={handleUninstallApp}
               onScanSystemApps={handleScanSystemApps}
+              onExportApps={handleExportApps}
+              onExportAppsJson={handleExportAppsJson}
             />
           )}
 
@@ -778,10 +868,13 @@ export const App: React.FC = () => {
               updates={updates}
               onApplyUpdate={handleApplyUpdate}
               onBatchUpdateAll={handleBatchUpdateAll}
+              onCheckUpdates={handleCheckUpdates}
               onIgnoreUpdate={handleIgnoreUpdate}
               onSkipVersion={handleSkipVersion}
               onFreezeVersion={handleFreezeVersion}
               onHideApp={handleHideApp}
+              updateRulesCount={updateRules.length}
+              onOpenRules={() => setIsRulesModalOpen(true)}
             />
           )}
 
@@ -790,7 +883,7 @@ export const App: React.FC = () => {
               mirrors={mirrors}
               onSelectMirror={handleSelectMirror}
               onPingMirrors={handlePingMirrors}
-              theme={theme}
+              theme={settings.theme}
               onSetTheme={handleSetTheme}
               onClearCache={() => {
                 appDetailMemoryCache.current.clear();
@@ -813,11 +906,8 @@ export const App: React.FC = () => {
               onUpdateSetting={handleUpdateSetting}
               onResetSettings={handleResetSettings}
               installedCount={installedApps.length}
-              updateRules={updateRules}
-              onRemoveRule={handleRemoveRule}
-              onClearRuleSkip={handleClearRuleSkip}
-              onToggleRuleFrozen={handleToggleRuleFrozen}
-              onToggleRuleHidden={handleToggleRuleHidden}
+              updateRulesCount={updateRules.length}
+              onOpenRules={() => setIsRulesModalOpen(true)}
             />
           )}
         </main>
@@ -856,6 +946,17 @@ export const App: React.FC = () => {
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
         onImportSuccess={handleImportSuccess}
+      />
+
+      {/* Update Rules Manager Modal */}
+      <RulesManagerModal
+        isOpen={isRulesModalOpen}
+        onClose={() => setIsRulesModalOpen(false)}
+        updateRules={updateRules}
+        onRemoveRule={handleRemoveRule}
+        onClearRuleSkip={handleClearRuleSkip}
+        onToggleRuleFrozen={handleToggleRuleFrozen}
+        onToggleRuleHidden={handleToggleRuleHidden}
       />
 
       {/* Toast Notifications */}

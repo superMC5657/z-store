@@ -16,6 +16,8 @@ import {
   HostRateLimitStatus,
   DeepLinkAction,
   SyncCatalogResult,
+  ForgeRepoInfo,
+  QuotaUpdatePayload,
 } from '../types';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -23,7 +25,7 @@ const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'dark',
   ui_scale: '100',
-  font_size: 'standard',
+  font_size: '14',
   always_on_top: false,
   portable_dir: '%LOCALAPPDATA%\\Programs\\z-store-apps',
   download_dir: '%TEMP%\\zstore_downloads',
@@ -279,9 +281,9 @@ export const api = {
     return true;
   },
 
-  async checkForUpdates(): Promise<UpdateItem[]> {
+  async checkForUpdates(forceRefresh = false): Promise<UpdateItem[]> {
     if (isTauri) {
-      return tauriInvoke<UpdateItem[]>('check_for_updates');
+      return tauriInvoke<UpdateItem[]>('check_for_updates', { forceRefresh });
     }
     const updates: UpdateItem[] = [];
     for (const app of mockInstalled) {
@@ -757,6 +759,29 @@ export const api = {
     mockHostTokens = mockHostTokens.filter((t) => t.host.toLowerCase() !== host.toLowerCase());
   },
 
+  async onQuotaUpdated(callback: (payload: QuotaUpdatePayload) => void): Promise<() => void> {
+    if (isTauri) {
+      const { listen } = await import('@tauri-apps/api/event');
+      return listen<QuotaUpdatePayload>('zstore://quota-updated', (e) => {
+        callback(e.payload);
+      });
+    }
+    return () => {};
+  },
+
+  async refreshHostRateLimit(host?: string): Promise<HostTokenEntry> {
+    if (isTauri) {
+      return tauriInvoke<HostTokenEntry>('refresh_host_rate_limit', { host });
+    }
+    return {
+      host: host || 'github.com',
+      token: '',
+      rate_limit_remaining: 60,
+      rate_limit_limit: 60,
+      updated_at: Math.floor(Date.now() / 1000),
+    };
+  },
+
   async testHostConnection(host: string, token?: string): Promise<HostRateLimitStatus> {
     if (isTauri) {
       return tauriInvoke<HostRateLimitStatus>('test_host_connection', { host, token });
@@ -764,7 +789,7 @@ export const api = {
     return {
       host,
       is_connected: true,
-      rate_limit_remaining: token ? 4995 : 58,
+      rate_limit_remaining: token ? 4995 : 60,
       rate_limit_limit: token ? 5000 : 60,
       message: token ? 'API 令牌认证有效，配额充裕' : '免鉴权连接成功（配额受限）',
     };
@@ -806,9 +831,9 @@ export const api = {
     return null;
   },
 
-  async searchForgeRepos(forge: string, query: string, host?: string): Promise<any[]> {
+  async searchForgeRepos(forge: string, query: string, host?: string): Promise<ForgeRepoInfo[]> {
     if (isTauri) {
-      return tauriInvoke<any[]>('search_forge_repos', { forge, host, query });
+      return tauriInvoke<ForgeRepoInfo[]>('search_forge_repos', { forge, host, query });
     }
     return [];
   },
@@ -822,6 +847,20 @@ export const api = {
       count: 32,
       message: '浏览器预览模式：当前使用内置离线种子 (32 个应用)',
     };
+  },
+
+  async selectFolder(defaultPath?: string): Promise<string | null> {
+    if (isTauri) {
+      return tauriInvoke<string | null>('select_folder', { defaultPath });
+    }
+    return 'D:\\ZStoreApps';
+  },
+
+  async getOrFetchIcon(appId: string | undefined, remoteUrl: string): Promise<string> {
+    if (isTauri) {
+      return tauriInvoke<string>('get_or_fetch_icon', { appId, remoteUrl });
+    }
+    return remoteUrl;
   },
 };
 

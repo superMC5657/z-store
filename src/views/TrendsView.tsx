@@ -101,6 +101,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
             <AppIcon
               icon={app.icon}
               name={app.name}
+              appId={app.id}
               iconBg={app.icon_bg}
               className="app-icon"
               style={{

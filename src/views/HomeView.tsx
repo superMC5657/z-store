@@ -118,6 +118,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               <AppIcon
                 icon={heroApp.icon}
                 name={heroApp.name}
+                appId={heroApp.id}
                 iconBg={heroApp.icon_bg}
                 style={{ width: '100%', height: '100%', borderRadius: 'inherit' }}
               />

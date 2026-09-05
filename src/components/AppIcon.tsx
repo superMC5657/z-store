@@ -1,57 +1,73 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { api } from '../services/api';
 
 interface AppIconProps {
   icon: string;
   name: string;
+  appId?: string;
   iconBg?: string;
   className?: string;
   style?: React.CSSProperties;
   size?: number | string;
 }
 
-// 模块级全局常驻已成功加载图标 URL 集合，保证任何页面切换都不会重新闪烁
-const globalLoadedIcons = new Set<string>();
+// 模块级内存缓存，避免页面切页重新计算与读取
+const iconDataCache = new Map<string, string>();
+const iconPendingPromises = new Map<string, Promise<string>>();
 
-export function preloadIcons(icons: string[]) {
+export function preloadIcons(items: (string | { id?: string; icon: string })[]) {
   if (typeof window === 'undefined') return;
-  icons.forEach((icon) => {
-    if (!icon || globalLoadedIcons.has(icon)) return;
+  items.forEach((item) => {
+    const icon = typeof item === 'string' ? item : item.icon;
+    const id = typeof item === 'string' ? undefined : item.id;
+    if (!icon || iconDataCache.has(icon) || icon.startsWith('data:')) return;
     const isUrl =
       icon.startsWith('http://') ||
       icon.startsWith('https://') ||
-      icon.startsWith('/') ||
       icon.includes('.png') ||
       icon.includes('.svg');
     if (!isUrl) return;
 
-    const img = new Image();
-    img.decoding = 'async';
-    img.onload = () => {
-      globalLoadedIcons.add(icon);
-    };
-    img.src = icon;
+    if (!iconPendingPromises.has(icon)) {
+      const p = api
+        .getOrFetchIcon(id, icon)
+        .then((dataUri) => {
+          iconDataCache.set(icon, dataUri);
+          iconPendingPromises.delete(icon);
+          return dataUri;
+        })
+        .catch((err) => {
+          iconPendingPromises.delete(icon);
+          throw err;
+        });
+      iconPendingPromises.set(icon, p);
+    }
   });
 }
 
 export const AppIcon: React.FC<AppIconProps> = ({
   icon,
   name,
+  appId,
   iconBg = 'linear-gradient(135deg, #0284c7, #0369a1)',
   className = '',
   style = {},
   size,
 }) => {
-  const [retryWithProxy, setRetryWithProxy] = useState(false);
+  const isDataUri = Boolean(icon && icon.startsWith('data:'));
+  const [displaySrc, setDisplaySrc] = useState<string>(() => {
+    if (!icon) return '';
+    if (isDataUri) return icon;
+    return iconDataCache.get(icon) || icon;
+  });
   const [hasError, setHasError] = useState(false);
-  const [isLoaded, setIsLoaded] = useState(() => globalLoadedIcons.has(icon));
 
-  // 判断是否为图片 URL 或资源路径
+  // 判断是否为网络图片 URL
   const isUrl = Boolean(
     icon &&
       (icon.startsWith('http://') ||
         icon.startsWith('https://') ||
-        icon.startsWith('/') ||
-        icon.startsWith('data:image/') ||
+        icon.startsWith('data:') ||
         icon.includes('.png') ||
         icon.includes('.svg') ||
         icon.includes('.jpg') ||
@@ -59,22 +75,46 @@ export const AppIcon: React.FC<AppIconProps> = ({
         icon.includes('.ico'))
   );
 
-  // 尝试的图片地址（若直连失败，自动尝试加速镜像重试）
-  let currentSrc = icon;
-  if (retryWithProxy && isUrl) {
-    if (!currentSrc.startsWith('https://gh-proxy.com/')) {
-      currentSrc = `https://gh-proxy.com/${icon}`;
+  useEffect(() => {
+    if (!icon || !isUrl || isDataUri) {
+      setDisplaySrc(icon);
+      return;
     }
-  }
+    if (iconDataCache.has(icon)) {
+      setDisplaySrc(iconDataCache.get(icon)!);
+      return;
+    }
+
+    let isMounted = true;
+    let promise = iconPendingPromises.get(icon);
+    if (!promise) {
+      promise = api.getOrFetchIcon(appId, icon);
+      iconPendingPromises.set(icon, promise);
+    }
+
+    promise
+      .then((dataUri) => {
+        iconDataCache.set(icon, dataUri);
+        iconPendingPromises.delete(icon);
+        if (isMounted) {
+          setDisplaySrc(dataUri);
+        }
+      })
+      .catch(() => {
+        iconPendingPromises.delete(icon);
+        if (isMounted) {
+          setDisplaySrc(icon);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [icon, appId, isUrl, isDataUri]);
 
   const handleError = () => {
-    // 第一次失败尝试镜像代理
-    if (!retryWithProxy && (icon.includes('github.com') || icon.includes('githubusercontent.com'))) {
-      setRetryWithProxy(true);
-    } else {
-      // 镜像也失败，平滑降级为首字母徽章
-      setHasError(true);
-    }
+    // 若图片加载失败（网络不可达或链接失效），平滑降级为首字母徽章
+    setHasError(true);
   };
 
   // 生成首字母缩写徽章（如 RustDesk -> RD，LocalSend -> LS）
@@ -85,7 +125,6 @@ export const AppIcon: React.FC<AppIconProps> = ({
     if (words.length >= 2) {
       return (words[0][0] + words[1][0]).toUpperCase();
     }
-    // 驼峰拆分（如 RustDesk -> R D）
     const camelParts = clean.match(/[A-Z][a-z0-9]*/g);
     if (camelParts && camelParts.length >= 2) {
       return (camelParts[0][0] + camelParts[1][0]).toUpperCase();
@@ -96,7 +135,6 @@ export const AppIcon: React.FC<AppIconProps> = ({
   const isImageActive = isUrl && !hasError;
 
   const containerStyle: React.CSSProperties = {
-    // 当为真实图片图标时，移除 PRD 占位渐变背景 (iconBg)，防止其在底层泄漏重叠；仅在 Emoji/首字母降级时启用 iconBg
     background: isImageActive ? (style?.background ?? 'transparent') : iconBg,
     display: 'flex',
     alignItems: 'center',
@@ -111,17 +149,12 @@ export const AppIcon: React.FC<AppIconProps> = ({
     <div className={`app-icon-container ${className}`} style={containerStyle}>
       {isUrl && !hasError ? (
         <img
-          key={currentSrc}
-          src={currentSrc}
+          key={displaySrc}
+          src={displaySrc}
           alt={name}
           className="app-icon-image"
           decoding="async"
           loading="eager"
-          onLoad={() => {
-            globalLoadedIcons.add(icon);
-            globalLoadedIcons.add(currentSrc);
-            setIsLoaded(true);
-          }}
           onError={handleError}
           style={{
             width: '100%',
@@ -129,8 +162,7 @@ export const AppIcon: React.FC<AppIconProps> = ({
             objectFit: 'cover',
             borderRadius: 'inherit',
             display: 'block',
-            opacity: isLoaded || globalLoadedIcons.has(icon) || globalLoadedIcons.has(currentSrc) ? 1 : 0.85,
-            transition: 'opacity 0.15s ease',
+            opacity: 1,
           }}
         />
       ) : isUrl && hasError ? (

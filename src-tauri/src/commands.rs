@@ -151,44 +151,11 @@ pub fn get_category_apps(
 
 #[tauri::command]
 pub async fn warmup_top_apps(
-    state: State<'_, AppState>,
-    limit: Option<usize>,
+    _state: State<'_, AppState>,
+    _limit: Option<usize>,
 ) -> Result<usize, String> {
-    let max_count = limit.unwrap_or(15);
-    let mut summaries = state.catalog.get_all_summaries();
-    summaries.sort_by_key(|b| std::cmp::Reverse(b.stars));
-    let candidates: Vec<String> = summaries.into_iter().take(max_count).map(|a| a.id).collect();
-
-    // 过滤出本地 SQLite 尚未缓存的应用
-    let missing_ids: Vec<String> = {
-        if let Ok(db) = state.db.lock() {
-            candidates
-                .into_iter()
-                .filter(|id| {
-                    let repo_key = resolve_repo_key(id, &state.catalog);
-                    db.get_cached_app_detail(id, Some(1800)).ok().flatten().is_none()
-                        && db.get_cached_app_detail(&repo_key, Some(1800)).ok().flatten().is_none()
-                })
-                .collect()
-        } else {
-            Vec::new()
-        }
-    };
-
-    if missing_ids.is_empty() {
-        return Ok(0);
-    }
-
-    let mut warmed_count = 0;
-    for id in missing_ids {
-        // 轻量串行预热，每次请求间隔 60ms，完全不占用主线程与用户操作
-        tokio::time::sleep(std::time::Duration::from_millis(60)).await;
-        if get_app_details(state.clone(), id, None).await.is_ok() {
-            warmed_count += 1;
-        }
-    }
-
-    Ok(warmed_count)
+    // 完全移除后台静默预热逻辑，保障用户 API 限额不被后台请求消耗
+    Ok(0)
 }
 
 #[tauri::command]
@@ -461,18 +428,125 @@ pub fn get_installed_apps(state: State<'_, AppState>) -> Result<Vec<InstalledApp
     db.get_installed_apps().map_err(|e| e.to_string())
 }
 
+/// 根据当前系统平台（Windows / macOS / Linux）与 CPU 架构（x86_64 / aarch64）智能择取最优安装包资产
+pub fn select_best_asset(
+    assets: &[crate::models::ReleaseAsset],
+) -> Option<&crate::models::ReleaseAsset> {
+    #[cfg(target_os = "windows")]
+    let target_os = "windows";
+    #[cfg(target_os = "macos")]
+    let target_os = "macos";
+    #[cfg(target_os = "linux")]
+    let target_os = "linux";
+    #[cfg(target_os = "android")]
+    let target_os = "android";
+    #[cfg(not(any(
+        target_os = "windows",
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "android"
+    )))]
+    let target_os = "all";
+
+    #[cfg(target_arch = "x86_64")]
+    let target_arch = "x86_64";
+    #[cfg(target_arch = "aarch64")]
+    let target_arch = "aarch64";
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    let target_arch = "universal";
+
+    let os_matches: Vec<&crate::models::ReleaseAsset> = assets
+        .iter()
+        .filter(|a| a.os == target_os || a.os == "all")
+        .collect();
+
+    let candidates = if os_matches.is_empty() {
+        assets.iter().collect::<Vec<&crate::models::ReleaseAsset>>()
+    } else {
+        os_matches
+    };
+
+    candidates.into_iter().max_by_key(|a| {
+        let mut score: i32 = 0;
+        if a.os == target_os {
+            score += 100;
+        }
+        if a.arch == target_arch {
+            score += 50;
+        } else if a.arch == "universal" {
+            score += 30;
+        }
+
+        #[cfg(target_os = "windows")]
+        match a.kind.as_str() {
+            "msi" => score += 20,
+            "setup_exe" => score += 15,
+            "portable_zip" => score += 10,
+            _ => {}
+        }
+
+        #[cfg(target_os = "macos")]
+        match a.kind.as_str() {
+            "dmg" => score += 20,
+            "pkg" => score += 15,
+            "portable_zip" => score += 10,
+            _ => {}
+        }
+
+        #[cfg(target_os = "linux")]
+        match a.kind.as_str() {
+            "appimage" => score += 20,
+            "deb" => score += 15,
+            "rpm" => score += 12,
+            "portable_zip" => score += 10,
+            _ => {}
+        }
+
+        score
+    })
+}
+
 #[tauri::command]
 pub async fn install_app(
     app_handle: AppHandle,
     state: State<'_, AppState>,
     app_id: String,
 ) -> Result<InstalledApp, String> {
-    // 1. 获取应用详情与匹配资产
+    // 读取用户配置（自定义下载路径、绿色便携根路径、安装后是否自动清理缓存）
+    let (custom_download_dir, custom_portable_dir, auto_clean_cache) = {
+        if let Ok(db) = state.db.lock() {
+            let dl = db.get_setting("download_dir").ok().flatten().and_then(|s| {
+                let t = s.trim();
+                if !t.is_empty() {
+                    Some(crate::installer::expand_env_path(t))
+                } else {
+                    None
+                }
+            });
+            let port = db.get_setting("portable_dir").ok().flatten().and_then(|s| {
+                let t = s.trim().to_string();
+                if !t.is_empty() {
+                    Some(t)
+                } else {
+                    None
+                }
+            });
+            let auto_clean = db
+                .get_setting("auto_clean_cache")
+                .ok()
+                .flatten()
+                .map(|v| v == "true" || v == "1")
+                .unwrap_or(true);
+            (dl, port, auto_clean)
+        } else {
+            (None, None, true)
+        }
+    };
+
+    // 1. 获取应用详情与根据当前系统架构择取最优匹配资产
     let detail = get_app_details(state.clone(), app_id.clone(), None).await?;
 
-    let asset = detail
-        .releases
-        .first()
+    let asset = select_best_asset(&detail.releases)
         .ok_or_else(|| "该 Release 未提供匹配当前操作系统的安装包资产".to_string())?;
 
     // 2. 获取加速下载重写地址
@@ -488,6 +562,7 @@ pub async fn install_app(
         &rewritten_url,
         &asset.name,
         asset.sha256.as_deref(),
+        custom_download_dir.as_deref(),
     )
     .await?;
 
@@ -517,12 +592,20 @@ pub async fn install_app(
 
     // 4. 调用原生安装器或解压便携版
     let (kind, _, _) = InstallerEngine::classify_asset(&asset.name);
-    let install_note = InstallerEngine::execute_installation(&dest_path, &kind, &detail.id)?;
+    let install_note = InstallerEngine::execute_installation(
+        &dest_path,
+        &kind,
+        &detail.id,
+        custom_portable_dir.as_deref(),
+    )?;
 
     // 智能解析真实安装路径，避免存入临时安装包路径
     let real_install_path = match kind {
         crate::installer::AssetKind::PortableZip => {
-            let app_dir = crate::installer::dirs_or_fallback(&detail.id);
+            let app_dir = crate::installer::dirs_or_fallback_with_base(
+                &detail.id,
+                custom_portable_dir.as_deref(),
+            );
             crate::scanner::AppScanner::resolve_executable_path(
                 Some(&app_dir.to_string_lossy()),
                 None,
@@ -567,6 +650,11 @@ pub async fn install_app(
         let db = state.db.lock().map_err(|e| e.to_string())?;
         db.save_installed_app(&installed_app)
             .map_err(|e| e.to_string())?;
+    }
+
+    // 若开启自动清理安装缓存，清理下载的安装包临时文件
+    if auto_clean_cache && dest_path.is_file() {
+        let _ = std::fs::remove_file(&dest_path);
     }
 
     Ok(installed_app)
@@ -667,7 +755,10 @@ pub fn should_include_update(
 }
 
 #[tauri::command]
-pub async fn check_for_updates(state: State<'_, AppState>) -> Result<Vec<UpdateItem>, String> {
+pub async fn check_for_updates(
+    state: State<'_, AppState>,
+    force_refresh: Option<bool>,
+) -> Result<Vec<UpdateItem>, String> {
     let installed = get_installed_apps(state.clone())?;
     let rules_map: HashMap<String, UpdateRule> = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
@@ -687,7 +778,7 @@ pub async fn check_for_updates(state: State<'_, AppState>) -> Result<Vec<UpdateI
             }
         }
 
-        if let Ok(detail) = get_app_details(state.clone(), app.app_id.clone(), None).await {
+        if let Ok(detail) = get_app_details(state.clone(), app.app_id.clone(), force_refresh).await {
             if should_include_update(&app.version, &detail.latest_version, rule_opt) {
                 updates.push(UpdateItem {
                     app_id: app.app_id,
@@ -816,6 +907,33 @@ pub fn get_settings(state: State<'_, AppState>) -> Result<HashMap<String, String
     db.get_all_settings().map_err(|e| e.to_string())
 }
 
+#[cfg(target_os = "windows")]
+pub fn sync_launch_on_startup(enabled: bool) {
+    use winreg::enums::{HKEY_CURRENT_USER, KEY_ALL_ACCESS};
+    use winreg::RegKey;
+
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let run_path = std::path::Path::new("Software")
+        .join("Microsoft")
+        .join("Windows")
+        .join("CurrentVersion")
+        .join("Run");
+
+    if let Ok((key, _)) = hkcu.create_subkey_with_flags(&run_path, KEY_ALL_ACCESS) {
+        if enabled {
+            if let Ok(exe_path) = std::env::current_exe() {
+                let cmd = format!("\"{}\"", exe_path.to_string_lossy());
+                let _ = key.set_value("ZStore", &cmd);
+            }
+        } else {
+            let _ = key.delete_value("ZStore");
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn sync_launch_on_startup(_enabled: bool) {}
+
 #[tauri::command]
 pub fn save_setting(
     state: State<'_, AppState>,
@@ -824,7 +942,199 @@ pub fn save_setting(
 ) -> Result<bool, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.set_setting(&key, &value).map_err(|e| e.to_string())?;
+
+    if key == "launch_on_startup" {
+        let enabled = value == "true" || value == "1";
+        sync_launch_on_startup(enabled);
+    }
+
     Ok(true)
+}
+
+#[tauri::command]
+pub async fn select_folder(default_path: Option<String>) -> Result<Option<String>, String> {
+    tokio::task::spawn_blocking(move || {
+        let mut dialog = rfd::FileDialog::new().set_title("选择安装集中目录（绿色便携软件存放路径）");
+        if let Some(ref path_str) = default_path {
+            let expanded = crate::installer::expand_env_path(path_str);
+            if expanded.exists() {
+                dialog = dialog.set_directory(&expanded);
+            }
+        }
+        let folder = dialog.pick_folder();
+        folder.map(|p| p.to_string_lossy().to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+const BASE64_ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+pub fn base64_encode(data: &[u8]) -> String {
+    let mut result = String::with_capacity((data.len() + 2) / 3 * 4);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0];
+        let b1 = if chunk.len() > 1 { chunk[1] } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] } else { 0 };
+
+        result.push(BASE64_ALPHABET[(b0 >> 2) as usize] as char);
+        result.push(BASE64_ALPHABET[(((b0 & 0x03) << 4) | (b1 >> 4)) as usize] as char);
+        if chunk.len() > 1 {
+            result.push(BASE64_ALPHABET[(((b1 & 0x0f) << 2) | (b2 >> 6)) as usize] as char);
+        } else {
+            result.push('=');
+        }
+        if chunk.len() > 2 {
+            result.push(BASE64_ALPHABET[(b2 & 0x3f) as usize] as char);
+        } else {
+            result.push('=');
+        }
+    }
+    result
+}
+
+fn detect_image_mime(bytes: &[u8]) -> &'static str {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        "image/png"
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        "image/gif"
+    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        "image/jpeg"
+    } else if bytes.starts_with(b"RIFF") && bytes.len() > 12 && &bytes[8..12] == b"WEBP" {
+        "image/webp"
+    } else if bytes.starts_with(b"<?xml") || bytes.starts_with(b"<svg") {
+        "image/svg+xml"
+    } else if bytes.starts_with(&[0x00, 0x00, 0x01, 0x00]) {
+        "image/x-icon"
+    } else {
+        "image/png"
+    }
+}
+
+pub fn get_icon_cache_path(app_id: Option<&str>, remote_url: &str) -> std::path::PathBuf {
+    use sha2::Digest;
+    let icons_dir = crate::get_app_data_dir().join("icons");
+    let filename = if let Some(id) = app_id {
+        let safe_id: String = id
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+            .collect();
+        if !safe_id.is_empty() {
+            format!("{}.png", safe_id)
+        } else {
+            let mut hasher = sha2::Sha256::new();
+            hasher.update(remote_url.as_bytes());
+            let hash = hex::encode(hasher.finalize());
+            format!("{}.png", &hash[..16])
+        }
+    } else {
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(remote_url.as_bytes());
+        let hash = hex::encode(hasher.finalize());
+        format!("{}.png", &hash[..16])
+    };
+    icons_dir.join(filename)
+}
+
+#[tauri::command]
+pub async fn get_or_fetch_icon(
+    state: State<'_, AppState>,
+    app_id: Option<String>,
+    remote_url: String,
+) -> Result<String, String> {
+    let url_trimmed = remote_url.trim();
+    if url_trimmed.is_empty() {
+        return Err("图标链接不能为空".to_string());
+    }
+
+    if url_trimmed.starts_with("data:") {
+        return Ok(url_trimmed.to_string());
+    }
+
+    let icons_dir = crate::get_app_data_dir().join("icons");
+    if !icons_dir.exists() {
+        let _ = std::fs::create_dir_all(&icons_dir);
+    }
+
+    let cache_file = get_icon_cache_path(app_id.as_deref(), url_trimmed);
+
+    // 1. 严格优先查找本地内部缓存！缓存有直接读取，绝不发出任何网络请求！
+    if cache_file.is_file() {
+        if let Ok(meta) = std::fs::metadata(&cache_file) {
+            if meta.len() > 0 {
+                if let Ok(bytes) = std::fs::read(&cache_file) {
+                    let mime = detect_image_mime(&bytes);
+                    let b64 = base64_encode(&bytes);
+                    return Ok(format!("data:{};base64,{}", mime, b64));
+                }
+            }
+        }
+    }
+
+    // 2. 本地缓存找不到，才去外部链接拉取
+    // 注意：GitHub 官方头像链接 (github.com/*.png 与 avatars.githubusercontent.com)
+    // 属于用户头像与全球 CDN 资源，GH-Proxy 等镜像节点会对其直接拦截并返回 403 Forbidden。
+    // 因此对于头像类链接直接直连全球 CDN；对于其他资源优先尝试镜像，若失败自动降级直连。
+    let is_avatar_url = url_trimmed.contains("github.com/") && url_trimmed.ends_with(".png")
+        || url_trimmed.contains("avatars.githubusercontent.com")
+        || url_trimmed.contains("identicons.github.com");
+
+    let mut candidate_urls = Vec::new();
+    if !is_avatar_url {
+        if let Ok(mirror) = state.mirror.lock() {
+            let rewritten = mirror.rewrite_download_url(url_trimmed);
+            if rewritten != url_trimmed {
+                candidate_urls.push(rewritten);
+            }
+        }
+    }
+    candidate_urls.push(url_trimmed.to_string());
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+
+    let mut fetched_bytes = None;
+    let mut last_err = String::new();
+
+    for url in candidate_urls {
+        match client
+            .get(&url)
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                if resp.status().is_success() {
+                    if let Ok(bytes) = resp.bytes().await {
+                        if !bytes.is_empty() {
+                            fetched_bytes = Some(bytes);
+                            break;
+                        }
+                    }
+                } else {
+                    last_err = format!("HTTP 状态码: {}", resp.status());
+                }
+            }
+            Err(e) => {
+                last_err = format!("请求失败: {}", e);
+            }
+        }
+    }
+
+    let bytes = fetched_bytes.ok_or_else(|| {
+        format!("拉取远程图标失败 ({}): {}", url_trimmed, last_err)
+    })?;
+
+    // 3. 缓存在用户的配置目录里 (icons/)
+    let _ = std::fs::write(&cache_file, &bytes);
+
+    let mime = detect_image_mime(&bytes);
+    let b64 = base64_encode(&bytes);
+    Ok(format!("data:{};base64,{}", mime, b64))
 }
 
 #[tauri::command]
@@ -841,8 +1151,50 @@ pub fn toggle_favorite(state: State<'_, AppState>, app_id: String) -> Result<boo
 
 #[tauri::command]
 pub fn clear_cache(state: State<'_, AppState>) -> Result<bool, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.clear_cache().map_err(|e| e.to_string())?;
+    let download_dir = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        db.clear_cache().map_err(|e| e.to_string())?;
+        db.get_setting("download_dir").ok().flatten().and_then(|s| {
+            let t = s.trim();
+            if !t.is_empty() {
+                Some(crate::installer::expand_env_path(t))
+            } else {
+                None
+            }
+        })
+    };
+
+    let target_dirs = vec![
+        download_dir.unwrap_or_else(|| std::env::temp_dir().join("zstore_downloads")),
+        std::env::temp_dir().join("zstore_downloads"),
+    ];
+
+    for dir in target_dirs {
+        if dir.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(&dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_file() {
+                        let _ = std::fs::remove_file(path);
+                    }
+                }
+            }
+        }
+    }
+
+    // 清理用户配置目录中的图标缓存
+    let icons_dir = crate::get_app_data_dir().join("icons");
+    if icons_dir.is_dir() {
+        if let Ok(entries) = std::fs::read_dir(&icons_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    let _ = std::fs::remove_file(path);
+                }
+            }
+        }
+    }
+
     Ok(true)
 }
 
@@ -941,29 +1293,53 @@ pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, St
         || target_path.to_lowercase().ends_with("_setup.exe")
         || target_path.to_lowercase().ends_with("-installer.exe");
 
-    // 1. 如果路径本身是存在的可执行文件或快捷方式，且并非临时下载安装包
-    if !is_temp_installer && path_obj.is_file() {
-        let ext = path_obj
-            .extension()
-            .map_or("", |e| e.to_str().unwrap_or(""));
-        if ext.eq_ignore_ascii_case("lnk") {
-            #[cfg(target_os = "windows")]
-            {
-                std::process::Command::new("explorer.exe")
-                    .arg(&target_path)
-                    .spawn()
-                    .map_err(|e| format!("调起快捷方式失败: {}", e))?;
-                return Ok(true);
-            }
-        } else if ext.eq_ignore_ascii_case("exe") {
-            let parent = path_obj
-                .parent()
-                .unwrap_or_else(|| std::path::Path::new("."));
-            std::process::Command::new(path_obj)
-                .current_dir(parent)
+    // 1. 如果路径本身是存在的可执行文件或快捷方式/应用包，且并非临时下载安装包
+    if !is_temp_installer {
+        #[cfg(target_os = "macos")]
+        if path_obj.exists() && ((path_obj.is_dir() && target_path.ends_with(".app")) || path_obj.is_file()) {
+            std::process::Command::new("open")
+                .arg(&target_path)
                 .spawn()
-                .map_err(|e| format!("启动应用程序失败: {}", e))?;
+                .map_err(|e| format!("启动 macOS 应用程序失败: {}", e))?;
             return Ok(true);
+        }
+
+        if path_obj.is_file() {
+            let ext = path_obj
+                .extension()
+                .map_or("", |e| e.to_str().unwrap_or(""));
+            if ext.eq_ignore_ascii_case("lnk") {
+                #[cfg(target_os = "windows")]
+                {
+                    std::process::Command::new("explorer.exe")
+                        .arg(&target_path)
+                        .spawn()
+                        .map_err(|e| format!("调起快捷方式失败: {}", e))?;
+                    return Ok(true);
+                }
+            } else if ext.eq_ignore_ascii_case("exe") {
+                let parent = path_obj
+                    .parent()
+                    .unwrap_or_else(|| std::path::Path::new("."));
+                std::process::Command::new(path_obj)
+                    .current_dir(parent)
+                    .spawn()
+                    .map_err(|e| format!("启动应用程序失败: {}", e))?;
+                return Ok(true);
+            } else {
+                #[cfg(target_os = "linux")]
+                {
+                    let _ = std::process::Command::new("chmod").arg("+x").arg(path_obj).status();
+                    let parent = path_obj
+                        .parent()
+                        .unwrap_or_else(|| std::path::Path::new("."));
+                    std::process::Command::new(path_obj)
+                        .current_dir(parent)
+                        .spawn()
+                        .map_err(|e| format!("启动 Linux 应用程序失败: {}", e))?;
+                    return Ok(true);
+                }
+            }
         }
     }
 
@@ -1154,29 +1530,85 @@ pub fn get_host_tokens(state: State<'_, AppState>) -> Result<Vec<HostTokenEntry>
 }
 
 #[tauri::command]
-pub fn set_host_token(
+pub async fn set_host_token(
     state: State<'_, AppState>,
     host: String,
     token: String,
 ) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.set_host_token(&host, &token).map_err(|e| e.to_string())?;
+    {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        db.set_host_token(&host, &token).map_err(|e| e.to_string())?;
+    }
     if host.eq_ignore_ascii_case("github.com") {
-        let mut t = state.github_token.lock().map_err(|e| e.to_string())?;
-        *t = Some(token);
+        let clean_tok = token.trim().to_string();
+        {
+            let mut t = state.github_token.lock().map_err(|e| e.to_string())?;
+            *t = if clean_tok.is_empty() {
+                None
+            } else {
+                Some(clean_tok.clone())
+            };
+        }
+        let tok_opt = if clean_tok.is_empty() {
+            None
+        } else {
+            Some(clean_tok.as_str())
+        };
+        crate::probe_github_rate_limit(tok_opt).await;
     }
     Ok(())
 }
 
 #[tauri::command]
-pub fn remove_host_token(state: State<'_, AppState>, host: String) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.remove_host_token(&host).map_err(|e| e.to_string())?;
+pub async fn remove_host_token(state: State<'_, AppState>, host: String) -> Result<(), String> {
+    {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        db.remove_host_token(&host).map_err(|e| e.to_string())?;
+    }
     if host.eq_ignore_ascii_case("github.com") {
-        let mut t = state.github_token.lock().map_err(|e| e.to_string())?;
-        *t = None;
+        {
+            let mut t = state.github_token.lock().map_err(|e| e.to_string())?;
+            *t = None;
+        }
+        crate::probe_github_rate_limit(None).await;
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn refresh_host_rate_limit(
+    state: State<'_, AppState>,
+    host: Option<String>,
+) -> Result<HostTokenEntry, String> {
+    let clean_host = host
+        .unwrap_or_else(|| "github.com".to_string())
+        .trim()
+        .to_lowercase();
+    let token = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        db.get_host_token(&clean_host).ok().flatten()
+    };
+    if clean_host.contains("github.com") {
+        crate::probe_github_rate_limit(token.as_deref()).await;
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let tokens = db.get_host_tokens().map_err(|e| e.to_string())?;
+    if let Some(entry) = tokens.into_iter().find(|t| t.host.eq_ignore_ascii_case(&clean_host)) {
+        Ok(entry)
+    } else {
+        Ok(HostTokenEntry {
+            host: clean_host,
+            token: token.unwrap_or_default(),
+            rate_limit_remaining: None,
+            rate_limit_limit: None,
+            rate_limit_reset: None,
+            updated_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64,
+        })
+    }
 }
 
 #[tauri::command]
@@ -1191,6 +1623,18 @@ pub async fn test_host_connection(
         .build()
         .map_err(|e| e.to_string())?;
 
+    let effective_token = if let Some(ref tok) = token {
+        if !tok.trim().is_empty() {
+            Some(tok.trim().to_string())
+        } else {
+            None
+        }
+    } else if let Ok(db) = state.db.lock() {
+        db.get_host_token(&clean_host).ok().flatten()
+    } else {
+        None
+    };
+
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(
         reqwest::header::USER_AGENT,
@@ -1198,18 +1642,17 @@ pub async fn test_host_connection(
     );
 
     if clean_host.contains("github.com") {
-        if let Some(ref tok) = token {
-            if !tok.trim().is_empty() {
-                if let Ok(v) =
-                    reqwest::header::HeaderValue::from_str(&format!("Bearer {}", tok.trim()))
-                {
-                    headers.insert(reqwest::header::AUTHORIZATION, v);
-                }
+        if let Some(ref tok) = effective_token {
+            if let Ok(v) =
+                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", tok))
+            {
+                headers.insert(reqwest::header::AUTHORIZATION, v);
             }
         }
         let url = "https://api.github.com/rate_limit";
         match client.get(url).headers(headers).send().await {
             Ok(resp) if resp.status().is_success() => {
+                crate::notify_rate_limit(&clean_host, resp.headers());
                 #[derive(serde::Deserialize)]
                 struct GhRate {
                     rate: GhRateDetail,
@@ -1218,16 +1661,10 @@ pub async fn test_host_connection(
                 struct GhRateDetail {
                     limit: u32,
                     remaining: u32,
-                    reset: i64,
                 }
                 let rate_data: Option<GhRate> = resp.json().await.ok();
                 let remaining = rate_data.as_ref().map(|r| r.rate.remaining);
                 let limit = rate_data.as_ref().map(|r| r.rate.limit);
-                let reset = rate_data.as_ref().map(|r| r.rate.reset);
-
-                if let Ok(db) = state.db.lock() {
-                    let _ = db.update_host_rate_limit(&clean_host, remaining, limit, reset);
-                }
 
                 Ok(HostRateLimitStatus {
                     host: clean_host,
@@ -1254,18 +1691,17 @@ pub async fn test_host_connection(
         }
     } else {
         // Gitea / Codeberg / 自建实例
-        if let Some(ref tok) = token {
-            if !tok.trim().is_empty() {
-                if let Ok(v) =
-                    reqwest::header::HeaderValue::from_str(&format!("token {}", tok.trim()))
-                {
-                    headers.insert(reqwest::header::AUTHORIZATION, v);
-                }
+        if let Some(ref tok) = effective_token {
+            if let Ok(v) =
+                reqwest::header::HeaderValue::from_str(&format!("token {}", tok))
+            {
+                headers.insert(reqwest::header::AUTHORIZATION, v);
             }
         }
         let url = format!("https://{}/api/v1/version", clean_host);
         match client.get(&url).headers(headers).send().await {
             Ok(resp) if resp.status().is_success() => {
+                crate::notify_rate_limit(&clean_host, resp.headers());
                 let remaining = resp
                     .headers()
                     .get("x-ratelimit-remaining")
@@ -1278,10 +1714,6 @@ pub async fn test_host_connection(
                     .and_then(|v| v.to_str().ok())
                     .and_then(|v| v.parse::<u32>().ok())
                     .or(Some(5000));
-
-                if let Ok(db) = state.db.lock() {
-                    let _ = db.update_host_rate_limit(&clean_host, remaining, limit, None);
-                }
 
                 Ok(HostRateLimitStatus {
                     host: clean_host,
@@ -1436,6 +1868,66 @@ mod tests {
         // 4. Codeberg
         let k4 = resolve_repo_key("codeberg:user/repo", &catalog);
         assert_eq!(k4, "codeberg.org/user/repo");
+    }
+
+    #[test]
+    fn test_select_best_asset() {
+        let assets = vec![
+            crate::models::ReleaseAsset {
+                name: "app-macos.dmg".to_string(),
+                download_url: "http://example.com/dmg".to_string(),
+                size_bytes: 1000,
+                sha256: None,
+                os: "macos".to_string(),
+                arch: "universal".to_string(),
+                kind: "dmg".to_string(),
+            },
+            crate::models::ReleaseAsset {
+                name: "app-setup.exe".to_string(),
+                download_url: "http://example.com/exe".to_string(),
+                size_bytes: 1000,
+                sha256: None,
+                os: "windows".to_string(),
+                arch: "x86_64".to_string(),
+                kind: "setup_exe".to_string(),
+            },
+            crate::models::ReleaseAsset {
+                name: "app-linux.AppImage".to_string(),
+                download_url: "http://example.com/appimage".to_string(),
+                size_bytes: 1000,
+                sha256: None,
+                os: "linux".to_string(),
+                arch: "x86_64".to_string(),
+                kind: "appimage".to_string(),
+            },
+        ];
+
+        let selected = select_best_asset(&assets).unwrap();
+        #[cfg(target_os = "windows")]
+        assert_eq!(selected.os, "windows");
+        #[cfg(target_os = "macos")]
+        assert_eq!(selected.os, "macos");
+        #[cfg(target_os = "linux")]
+        assert_eq!(selected.os, "linux");
+    }
+
+    #[test]
+    fn test_base64_encode_and_icon_cache_path() {
+        assert_eq!(base64_encode(b""), "");
+        assert_eq!(base64_encode(b"f"), "Zg==");
+        assert_eq!(base64_encode(b"fo"), "Zm8=");
+        assert_eq!(base64_encode(b"foo"), "Zm9v");
+
+        assert_eq!(detect_image_mime(b"\x89PNG\r\n\x1a\n123"), "image/png");
+        assert_eq!(detect_image_mime(b"GIF89a..."), "image/gif");
+        assert_eq!(detect_image_mime(&[0xff, 0xd8, 0xff, 0x00]), "image/jpeg");
+        assert_eq!(detect_image_mime(b"<svg xmlns=..."), "image/svg+xml");
+
+        let p1 = get_icon_cache_path(Some("rustdesk"), "https://github.com/rustdesk.png");
+        assert!(p1.to_string_lossy().ends_with("rustdesk.png"));
+
+        let p2 = get_icon_cache_path(None, "https://github.com/someone/app.png");
+        assert!(p2.to_string_lossy().ends_with(".png"));
     }
 }
 
