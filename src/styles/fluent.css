@@ -106,20 +106,28 @@
   }
 }
 
+[data-font-size="12"],
 [data-font-size="small"] {
-  --font-scale: 0.88;
+  --font-scale: 0.86;
 }
 
+[data-font-size="14"],
 [data-font-size="standard"] {
   --font-scale: 1;
 }
 
+[data-font-size="16"],
 [data-font-size="medium"] {
   --font-scale: 1.14;
 }
 
+[data-font-size="18"],
 [data-font-size="large"] {
   --font-scale: 1.28;
+}
+
+[data-font-size="20"] {
+  --font-scale: 1.43;
 }
 
 [data-theme="dark"] {
@@ -1872,6 +1880,12 @@ body {
   gap: 3px;
   flex: 1 1 240px;
   min-width: 0;
+}
+
+.settings-row[style*="column"] > .settings-row-info,
+.settings-row-col > .settings-row-info {
+  flex: 0 0 auto;
+  min-height: 0;
 }
 
 .settings-row-desc {

@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { AppSettings, HostRateLimitStatus, HostTokenEntry, MirrorNodeStatus, UpdateRule } from '../types';
-import { api } from '../services/api';
+import { AppSettings, HostRateLimitStatus, HostTokenEntry, MirrorNodeStatus } from '../types';
+import { api, DEFAULT_SETTINGS } from '../services/api';
 
 interface SettingsViewProps {
   mirrors: MirrorNodeStatus[];
   onSelectMirror: (id: string) => void;
   onPingMirrors: () => void;
-  theme: 'light' | 'dark';
-  onSetTheme: (theme: 'light' | 'dark') => void;
+  theme: 'light' | 'dark' | 'system';
+  onSetTheme: (theme: 'light' | 'dark' | 'system') => void;
   onClearCache: () => void;
   onSaveToken: (token: string) => Promise<void>;
   onExportApps: () => void;
@@ -16,18 +16,15 @@ interface SettingsViewProps {
   onUpdateSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
   onResetSettings: () => Promise<void>;
   installedCount: number;
-  updateRules: UpdateRule[];
-  onRemoveRule: (appId: string) => Promise<void>;
-  onClearRuleSkip: (appId: string) => Promise<void>;
-  onToggleRuleFrozen: (appId: string, isFrozen: boolean) => Promise<void>;
-  onToggleRuleHidden: (appId: string, isHidden: boolean) => Promise<void>;
+  updateRulesCount: number;
+  onOpenRules: () => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
   mirrors,
   onSelectMirror,
   onPingMirrors,
-  theme,
+  theme: _theme,
   onSetTheme,
   onClearCache,
   onSaveToken,
@@ -37,18 +34,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onUpdateSetting,
   onResetSettings,
   installedCount,
-  updateRules,
-  onRemoveRule,
-  onClearRuleSkip,
-  onToggleRuleFrozen,
-  onToggleRuleHidden,
+  updateRulesCount,
+  onOpenRules,
 }) => {
   const [isTestingPing, setIsTestingPing] = useState(false);
   const [portableDir, setPortableDir] = useState(settings.portable_dir);
-  const [downloadDir, setDownloadDir] = useState(settings.download_dir);
-  const [copiedField, setCopiedField] = useState<'portable' | 'download' | null>(null);
+  const [catalogSourceUrl, setCatalogSourceUrl] = useState(
+    settings.catalog_source_url || 'https://raw.gitmirror.com/supermc/z-store/main/src-tauri/src/catalog.json'
+  );
+  const [catalogUrlSaved, setCatalogUrlSaved] = useState(false);
+  const [showAdvancedSource, setShowAdvancedSource] = useState(false);
+  const [copiedPortable, setCopiedPortable] = useState(false);
+  const [isBrowsingFolder, setIsBrowsingFolder] = useState(false);
   const [isResetConfirming, setIsResetConfirming] = useState(false);
-  const [rulesTab, setRulesTab] = useState<'all' | 'skipped' | 'frozen' | 'hidden'>('all');
 
   // Feature A: Multi-Forge Ecosystem State
   const [hostTokens, setHostTokens] = useState<HostTokenEntry[]>([]);
@@ -97,7 +95,34 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   useEffect(() => {
     loadHostTokens();
+    let isMounted = true;
+    let unlistenFn: (() => void) | null = null;
+    api.onQuotaUpdated(() => {
+      if (isMounted) {
+        loadHostTokens();
+      }
+    }).then((unlisten) => {
+      if (isMounted) {
+        unlistenFn = unlisten;
+      } else {
+        unlisten();
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      if (unlistenFn) {
+        unlistenFn();
+      }
+    };
   }, [settings.github_token]);
+
+  useEffect(() => {
+    setPortableDir(settings.portable_dir);
+    if (settings.catalog_source_url) {
+      setCatalogSourceUrl(settings.catalog_source_url);
+    }
+  }, [settings.portable_dir, settings.catalog_source_url]);
 
   const handleSaveHostToken = async (host: string) => {
     const val = tokenInputs[host] || '';
@@ -168,10 +193,31 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   };
 
-  const handleCopy = (text: string, field: 'portable' | 'download') => {
+  const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
-    setCopiedField(field);
-    setTimeout(() => setCopiedField(null), 2000);
+    setCopiedPortable(true);
+    setTimeout(() => setCopiedPortable(false), 2000);
+  };
+
+  const handleBrowseFolder = async () => {
+    setIsBrowsingFolder(true);
+    try {
+      const selected = await api.selectFolder(portableDir);
+      if (selected) {
+        setPortableDir(selected);
+        onUpdateSetting('portable_dir', selected);
+      }
+    } catch (err) {
+      console.error('Failed to select folder:', err);
+    } finally {
+      setIsBrowsingFolder(false);
+    }
+  };
+
+  const handleResetPortableDir = () => {
+    const defaultDir = DEFAULT_SETTINGS.portable_dir;
+    setPortableDir(defaultDir);
+    onUpdateSetting('portable_dir', defaultDir);
   };
 
   return (
@@ -188,20 +234,26 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <div className="settings-row">
           <div className="settings-row-info">
             <span style={{ fontWeight: 600 }}>色彩主题模式</span>
-            <span className="settings-row-desc">选择 Fluent Design 2.0 视觉明暗基调</span>
+            <span className="settings-row-desc">选择 Fluent Design 2.0 视觉明暗基调，支持跟随系统明暗设置</span>
           </div>
           <div className="segmented-group">
             <button
-              className={`segmented-item ${theme === 'light' ? 'active' : ''}`}
+              className={`segmented-item ${settings.theme === 'light' ? 'active' : ''}`}
               onClick={() => onSetTheme('light')}
             >
               ☀️ 明亮模式
             </button>
             <button
-              className={`segmented-item ${theme === 'dark' ? 'active' : ''}`}
+              className={`segmented-item ${settings.theme === 'dark' ? 'active' : ''}`}
               onClick={() => onSetTheme('dark')}
             >
               🌙 暗黑模式
+            </button>
+            <button
+              className={`segmented-item ${settings.theme === 'system' ? 'active' : ''}`}
+              onClick={() => onSetTheme('system')}
+            >
+              💻 跟随系统
             </button>
           </div>
         </div>
@@ -226,21 +278,29 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
 
         {/* 1.3 Font Size */}
+        {/* 1.3 Font Size (User specified: 12, 14, 16, 18, 20 with step of 2) */}
         <div className="settings-row">
           <div className="settings-row-info">
-            <span style={{ fontWeight: 600 }}>全局字体字阶大小</span>
-            <span className="settings-row-desc">调整排版文字大小，即刻响应全界面字阶变化</span>
+            <span style={{ fontWeight: 600 }}>全局排版字号大小 (Font Size)</span>
+            <span className="settings-row-desc">以 2px 为步长微调全界面排版文字大小，兼顾信息密集与阅读舒适</span>
           </div>
           <div className="segmented-group">
             {[
-              { id: 'small', label: '紧凑 12px' },
-              { id: 'standard', label: '标准 13.5px' },
-              { id: 'medium', label: '舒适 15px' },
-              { id: 'large', label: '特大 16.5px' },
+              { id: '12', label: '12px' },
+              { id: '14', label: '14px (默认)' },
+              { id: '16', label: '16px' },
+              { id: '18', label: '18px' },
+              { id: '20', label: '20px' },
             ].map((f) => (
               <button
                 key={f.id}
-                className={`segmented-item ${settings.font_size === f.id ? 'active' : ''}`}
+                className={`segmented-item ${
+                  settings.font_size === f.id ||
+                  (f.id === '14' && settings.font_size === 'standard') ||
+                  (f.id === '12' && settings.font_size === 'small')
+                    ? 'active'
+                    : ''
+                }`}
                 onClick={() => onUpdateSetting('font_size', f.id as any)}
               >
                 {f.label}
@@ -273,87 +333,67 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       <div className="settings-group">
         <div className="settings-group-title">📂 目录管理与存储生命周期</div>
 
-        {/* 2.1 Portable Apps Root Directory */}
-        <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-            <div className="settings-row-info">
-              <span style={{ fontWeight: 600 }}>便携绿色版开源软件集中目录</span>
-              <span className="settings-row-desc">
-                解压式绿色软件的根存放路径（支持自定义于大容量或外置移动磁盘）
-              </span>
-            </div>
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', alignSelf: 'center' }}>快捷预设:</span>
-              {[
-                { label: '系统默认', path: '%LOCALAPPDATA%\\Programs\\z-store-apps' },
-                { label: 'D 盘目录', path: 'D:\\ZStoreApps' },
-                { label: 'E 盘工具', path: 'E:\\PortableTools' },
-              ].map((preset) => (
-                <button
-                  key={preset.label}
-                  className="btn-fluent btn-secondary"
-                  style={{ fontSize: '11px', padding: '2px 8px' }}
-                  onClick={() => {
-                    setPortableDir(preset.path);
-                    onUpdateSetting('portable_dir', preset.path);
-                  }}
-                >
-                  {preset.label}
-                </button>
-              ))}
-            </div>
+        {/* 2.1 Portable App Directory */}
+        <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-start', gap: '12px' }}>
+          <div className="settings-row-info" style={{ flex: 'none' }}>
+            <span style={{ fontWeight: 600 }}>安装集中目录</span>
+            <span className="settings-row-desc">
+              解压式绿色软件及免安装开源工具的集中安装与存放路径。可直接在此编辑自定义路径，也可点击浏览电脑上的文件夹指定。
+            </span>
           </div>
 
-          <div className="settings-input-group" style={{ maxWidth: '100%' }}>
+          <div className="settings-input-group" style={{ maxWidth: '100%', width: '100%' }}>
             <input
               type="text"
               className="settings-input"
+              style={{ flex: 1 }}
+              placeholder="请输入或选择电脑上的文件夹路径（支持环境变量如 %LOCALAPPDATA%）..."
               value={portableDir}
               onChange={(e) => setPortableDir(e.target.value)}
               onBlur={() => onUpdateSetting('portable_dir', portableDir)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  onUpdateSetting('portable_dir', portableDir);
+                }
+              }}
             />
+            <button
+              className="btn-fluent btn-primary"
+              style={{ fontSize: '12px', padding: '6px 14px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: '6px' }}
+              onClick={handleBrowseFolder}
+              disabled={isBrowsingFolder}
+              title="浏览电脑文件夹并指定为安装集中目录"
+            >
+              <span>📁</span>
+              <span>{isBrowsingFolder ? '选择中...' : '浏览文件夹'}</span>
+            </button>
+            <button
+              className="btn-fluent btn-secondary"
+              style={{ fontSize: '12px', padding: '6px 14px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: '5px' }}
+              onClick={handleResetPortableDir}
+              disabled={portableDir === DEFAULT_SETTINGS.portable_dir}
+              title={`恢复为系统默认目录 (${DEFAULT_SETTINGS.portable_dir})`}
+            >
+              <span>↩️</span>
+              <span>恢复默认</span>
+            </button>
             <button
               className="btn-fluent btn-secondary"
               style={{ fontSize: '12px', padding: '6px 14px', flexShrink: 0 }}
-              onClick={() => handleCopy(portableDir, 'portable')}
+              onClick={() => handleCopy(portableDir)}
+              title="复制当前路径到剪贴板"
             >
-              {copiedField === 'portable' ? '✓ 已复制' : '复制路径'}
+              {copiedPortable ? '✓ 已复制' : '复制路径'}
             </button>
           </div>
         </div>
 
-        {/* 2.2 Download Cache Directory */}
-        <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px' }}>
-          <div className="settings-row-info">
-            <span style={{ fontWeight: 600 }}>流式下载临时缓存目录</span>
-            <span className="settings-row-desc">
-              安装包分片下载与 SHA-256 完整性强校验时所使用的临时暂存区
-            </span>
-          </div>
-          <div className="settings-input-group" style={{ maxWidth: '100%' }}>
-            <input
-              type="text"
-              className="settings-input"
-              value={downloadDir}
-              onChange={(e) => setDownloadDir(e.target.value)}
-              onBlur={() => onUpdateSetting('download_dir', downloadDir)}
-            />
-            <button
-              className="btn-fluent btn-secondary"
-              style={{ fontSize: '12px', padding: '6px 14px', flexShrink: 0 }}
-              onClick={() => handleCopy(downloadDir, 'download')}
-            >
-              {copiedField === 'download' ? '✓ 已复制' : '复制路径'}
-            </button>
-          </div>
-        </div>
-
-        {/* 2.3 Auto-clean installer cache */}
+        {/* 2.2 Auto-clean installer cache */}
         <div className="settings-row">
           <div className="settings-row-info">
-            <span style={{ fontWeight: 600 }}>安装成功后自动销毁安装包</span>
+            <span style={{ fontWeight: 600 }}>安装成功后自动销毁临时安装包</span>
             <span className="settings-row-desc">
-              当 MSI/EXE/ZIP 安装或解压完成后，自动清理下载缓存以节省系统固态盘空间
+              当 MSI/EXE/ZIP 安装或解压完成后，自动清理临时下载缓存以节省系统磁盘空间
             </span>
           </div>
           <label className="fluent-toggle-wrapper">
@@ -369,102 +409,117 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </label>
         </div>
 
-        {/* 2.4 App Detail Cache TTL (用户可配置的保鲜期) */}
-        <div className="settings-row" style={{ alignItems: 'flex-start', paddingTop: '14px', paddingBottom: '14px' }}>
-          <div className="settings-row-info" style={{ maxWidth: '460px' }}>
-            <span style={{ fontWeight: 600 }}>应用详情缓存保鲜期 (TTL)</span>
-            <span className="settings-row-desc">
-              在保鲜期内重复打开详情弹窗直接读取本地缓存（0ms秒开）；超过该时间后将自动携带 ETag 向远端检查更新，未发布新版本不消耗 API 配额。
-            </span>
-          </div>
-          <div className="segmented-group" style={{ flexWrap: 'wrap', gap: '4px', maxWidth: '340px' }}>
-            {[
-              { val: 0, label: '0分钟 (实时校验)' },
-              { val: 10, label: '10 分钟' },
-              { val: 30, label: '30 分钟 (推荐)' },
-              { val: 60, label: '1 小时' },
-              { val: 360, label: '6 小时' },
-              { val: 1440, label: '24 小时' },
-            ].map((t) => (
-              <button
-                key={t.val}
-                className={`segmented-item ${(settings.detail_cache_ttl_minutes ?? 30) === t.val ? 'active' : ''}`}
-                onClick={() => onUpdateSetting('detail_cache_ttl_minutes', t.val)}
-                style={{ fontSize: '11px', padding: '4px 10px' }}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* 2.5 Catalog Manifest Sync */}
-        <div className="settings-row" style={{ alignItems: 'center' }}>
-          <div className="settings-row-info">
-            <span style={{ fontWeight: 600 }}>开源收录清单动态同步</span>
-            <span className="settings-row-desc">
-              收录应用由社区开源清单仓库维护，可随时拉取最新收录清单以获取新上架软件
-            </span>
-            {syncFeedback && (
-              <span style={{ fontSize: '12px', color: syncFeedback.includes('失败') ? '#ef4444' : '#10b981', marginTop: '4px' }}>
-                {syncFeedback}
+        {/* 2.3 Catalog Manifest Sync (With advanced source fold) */}
+        <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+            <div className="settings-row-info">
+              <span style={{ fontWeight: 600 }}>开源收录清单动态同步</span>
+              <span className="settings-row-desc">
+                收录应用由社区开源清单仓库维护，随时检查并拉取最新上架开源软件清单
               </span>
-            )}
+            </div>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button
+                type="button"
+                className="btn-fluent btn-secondary"
+                style={{ fontSize: '12px', padding: '6px 12px' }}
+                onClick={() => setShowAdvancedSource(!showAdvancedSource)}
+              >
+                {showAdvancedSource ? '收起配置 ▲' : '高级源配置 ▼'}
+              </button>
+              <button
+                type="button"
+                className="btn-fluent btn-primary"
+                onClick={handleSyncCatalog}
+                disabled={isSyncingCatalog}
+                style={{ fontSize: '12px', padding: '6px 14px' }}
+              >
+                {isSyncingCatalog ? '🔄 正在同步...' : '🔄 立即同步收录库'}
+              </button>
+            </div>
           </div>
-          <button
-            className="btn-fluent btn-secondary"
-            onClick={handleSyncCatalog}
-            disabled={isSyncingCatalog}
-            style={{ fontSize: '12px', padding: '6px 14px' }}
-          >
-            {isSyncingCatalog ? '🔄 正在同步...' : '🔄 立即同步收录库'}
-          </button>
+
+          {/* Advanced source URL collapsible section */}
+          {showAdvancedSource && (
+            <div
+              style={{
+                display: 'flex',
+                gap: '8px',
+                alignItems: 'center',
+                padding: '10px 12px',
+                borderRadius: '8px',
+                background: 'var(--card-bg-subtle, rgba(255,255,255,0.03))',
+                border: '1px dashed var(--border-color)',
+              }}
+            >
+              <input
+                type="text"
+                className="settings-input"
+                value={catalogSourceUrl}
+                onChange={(e) => {
+                  setCatalogSourceUrl(e.target.value);
+                  setCatalogUrlSaved(false);
+                }}
+                placeholder="https://.../catalog.json"
+                style={{ flex: 1, fontSize: '12px', fontFamily: 'monospace' }}
+              />
+              <button
+                type="button"
+                className="btn-fluent btn-primary"
+                style={{ fontSize: '12px', padding: '5px 12px' }}
+                onClick={() => {
+                  onUpdateSetting('catalog_source_url', catalogSourceUrl.trim());
+                  setCatalogUrlSaved(true);
+                  setTimeout(() => setCatalogUrlSaved(false), 2500);
+                }}
+              >
+                {catalogUrlSaved ? '✓ 已保存' : '保存源'}
+              </button>
+              <button
+                type="button"
+                className="btn-fluent btn-secondary"
+                style={{ fontSize: '12px', padding: '5px 12px' }}
+                onClick={() => {
+                  const defUrl = 'https://raw.gitmirror.com/supermc/z-store/main/src-tauri/src/catalog.json';
+                  setCatalogSourceUrl(defUrl);
+                  onUpdateSetting('catalog_source_url', defUrl);
+                  setCatalogUrlSaved(true);
+                  setTimeout(() => setCatalogUrlSaved(false), 2500);
+                }}
+              >
+                恢复官方默认
+              </button>
+            </div>
+          )}
+
+          {syncFeedback && (
+            <span style={{ fontSize: '12px', color: syncFeedback.includes('失败') ? '#ef4444' : '#10b981' }}>
+              {syncFeedback}
+            </span>
+          )}
         </div>
 
-        {/* 2.6 Clear Cache */}
+        {/* 2.4 Clear Cache */}
         <div className="settings-row">
           <div className="settings-row-info">
-            <span style={{ fontWeight: 600 }}>深度清理临时缓存与 ETag 索引</span>
-            <span className="settings-row-desc">清空下载目录残留文件及 GitHub Release 304 缓存</span>
+            <span style={{ fontWeight: 600 }}>深度清理临时缓存与残留</span>
+            <span className="settings-row-desc">清空下载暂存目录残留安装包、应用详情元数据及 GitHub Release ETag 索引</span>
           </div>
           <button
             className="btn-fluent btn-secondary"
             onClick={onClearCache}
             style={{ fontSize: '12px', padding: '6px 14px', color: '#ef4444' }}
           >
-            🧹 一键清理
+            🧹 一键深度清理
           </button>
         </div>
       </div>
 
-      {/* Group 3: Network & Concurrency */}
+      {/* Group 3: Network & Multi-Forge Ecosystem */}
       <div className="settings-group">
-        <div className="settings-group-title">🌐 中国大陆网络加速与并发限制</div>
+        <div className="settings-group-title">🌐 中国大陆网络加速与代码托管平台</div>
 
-        {/* 3.1 Max Concurrent Downloads */}
-        <div className="settings-row">
-          <div className="settings-row-info">
-            <span style={{ fontWeight: 600 }}>最大并发下载任务数</span>
-            <span className="settings-row-desc">限制同时流式下载的任务上限，避免挤占局域网带宽</span>
-          </div>
-          <div className="segmented-group">
-            {[
-              { val: 1, label: '1 (单任务稳健)' },
-              { val: 3, label: '3 (标准推荐)' },
-              { val: 5, label: '5 (千兆并发)' },
-            ].map((c) => (
-              <button
-                key={c.val}
-                className={`segmented-item ${settings.max_concurrent_downloads === c.val ? 'active' : ''}`}
-                onClick={() => onUpdateSetting('max_concurrent_downloads', c.val)}
-              >
-                {c.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* 3.2 Mirror Speed Ping */}
+        {/* 3.1 Mirror Speed Ping */}
         <div className="settings-row">
           <div className="settings-row-info">
             <span style={{ fontWeight: 600 }}>并发测速与线路优选</span>
@@ -777,178 +832,41 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
-      {/* Group 5: Update Policies & Rules Management (Feature C) */}
+      {/* Group 5: Update Policies & Rules Center */}
       <div className="settings-group">
-        <div className="settings-group-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>🛡️ 版本策略与软件屏蔽规则管理 ({updateRules.length})</span>
+        <div className="settings-group-title">🛡️ 版本策略与软件屏蔽规则</div>
+        <div className="settings-row" style={{ alignItems: 'center' }}>
+          <div className="settings-row-info">
+            <span style={{ fontWeight: 600 }}>更新忽略、版本锁定与全局隐藏规则看板</span>
+            <span className="settings-row-desc">
+              {updateRulesCount > 0
+                ? `当前已生效 ${updateRulesCount} 条规则。支持随时解除版本锁定、恢复忽略的版本更新提醒或取消隐藏。`
+                : '当前未配置任何版本屏蔽规则。在「更新中心」应用卡片右侧菜单可快速配置版本跳过或锁定。'}
+            </span>
+          </div>
+          <button
+            type="button"
+            className="btn-fluent btn-secondary"
+            onClick={onOpenRules}
+            style={{ fontSize: '12px', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            <span>📋 打开规则管理看板</span>
+            {updateRulesCount > 0 && (
+              <span
+                style={{
+                  fontSize: '11px',
+                  padding: '1px 7px',
+                  borderRadius: '10px',
+                  background: 'var(--brand-primary)',
+                  color: '#000',
+                  fontWeight: 600,
+                }}
+              >
+                {updateRulesCount}
+              </span>
+            )}
+          </button>
         </div>
-
-        {/* Tab Filters */}
-        <div style={{ padding: '0 20px 12px 20px', display: 'flex', gap: '8px' }}>
-          {[
-            { id: 'all', label: `全部规则 (${updateRules.length})` },
-            { id: 'skipped', label: `⏭️ 已跳过版本 (${updateRules.filter((r) => Boolean(r.skipped_version)).length})` },
-            { id: 'frozen', label: `🔒 已锁定版本 (${updateRules.filter((r) => r.is_frozen).length})` },
-            { id: 'hidden', label: `👁️ 已隐藏应用 (${updateRules.filter((r) => r.is_hidden).length})` },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              className={`segmented-item ${rulesTab === tab.id ? 'active' : ''}`}
-              style={{ padding: '4px 12px', fontSize: '12px' }}
-              onClick={() => setRulesTab(tab.id as any)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Rules List or Empty State */}
-        {(() => {
-          const filteredRules = updateRules.filter((r) => {
-            if (rulesTab === 'skipped') return Boolean(r.skipped_version);
-            if (rulesTab === 'frozen') return r.is_frozen;
-            if (rulesTab === 'hidden') return r.is_hidden;
-            return true;
-          });
-
-          if (filteredRules.length === 0) {
-            return (
-              <div style={{ padding: '24px 20px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '13px' }}>
-                <div style={{ fontSize: '28px', marginBottom: '8px' }}>📋</div>
-                {updateRules.length === 0
-                  ? '当前未配置任何版本跳过、锁定或隐藏规则。您可以在「更新中心」的应用卡片更多菜单（···）中配置特定规则。'
-                  : '当前分类下暂无规则记录。'}
-              </div>
-            );
-          }
-
-          return (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '0 20px 16px 20px' }}>
-              {filteredRules.map((rule) => {
-                const dateStr = rule.updated_at
-                  ? new Date(rule.updated_at * 1000 > 1000000000000 ? rule.updated_at : rule.updated_at * 1000).toLocaleDateString('zh-CN', {
-                      year: 'numeric',
-                      month: '2-digit',
-                      day: '2-digit',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })
-                  : '近期设置';
-
-                return (
-                  <div
-                    key={rule.app_id}
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      padding: '12px 16px',
-                      borderRadius: 'var(--radius-md, 8px)',
-                      background: 'var(--bg-acrylic-thin, rgba(255, 255, 255, 0.04))',
-                      border: '1px solid var(--border-acrylic, rgba(255, 255, 255, 0.08))',
-                    }}
-                  >
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                        <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>
-                          {rule.app_id}
-                        </span>
-                        {rule.skipped_version && (
-                          <span
-                            style={{
-                              fontSize: '11px',
-                              padding: '2px 8px',
-                              borderRadius: '4px',
-                              background: 'rgba(56, 189, 248, 0.16)',
-                              color: '#38bdf8',
-                              fontWeight: 600,
-                            }}
-                          >
-                            ⏭️ 跳过 {rule.skipped_version}
-                          </span>
-                        )}
-                        {rule.is_frozen && (
-                          <span
-                            style={{
-                              fontSize: '11px',
-                              padding: '2px 8px',
-                              borderRadius: '4px',
-                              background: 'rgba(234, 179, 8, 0.16)',
-                              color: '#eab308',
-                              fontWeight: 600,
-                            }}
-                          >
-                            🔒 永久锁定
-                          </span>
-                        )}
-                        {rule.is_hidden && (
-                          <span
-                            style={{
-                              fontSize: '11px',
-                              padding: '2px 8px',
-                              borderRadius: '4px',
-                              background: 'rgba(239, 68, 68, 0.16)',
-                              color: '#f87171',
-                              fontWeight: 600,
-                            }}
-                          >
-                            👁️ 已隐藏
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ fontSize: '11.5px', color: 'var(--text-tertiary)' }}>
-                        配置时间: {dateStr}
-                        {rule.skipped_version && ' · 下个更高版本将恢复提示'}
-                        {rule.is_frozen && ' · 忽略后续所有更新'}
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      {rule.skipped_version && (
-                        <button
-                          className="btn-fluent btn-secondary"
-                          style={{ fontSize: '12px', padding: '4px 10px' }}
-                          onClick={() => onClearRuleSkip(rule.app_id)}
-                          title="恢复该版本的更新提示"
-                        >
-                          恢复此版本
-                        </button>
-                      )}
-                      {rule.is_frozen && (
-                        <button
-                          className="btn-fluent btn-secondary"
-                          style={{ fontSize: '12px', padding: '4px 10px' }}
-                          onClick={() => onToggleRuleFrozen(rule.app_id, false)}
-                          title="解除当前版本锁定"
-                        >
-                          解除锁定
-                        </button>
-                      )}
-                      {rule.is_hidden && (
-                        <button
-                          className="btn-fluent btn-secondary"
-                          style={{ fontSize: '12px', padding: '4px 10px' }}
-                          onClick={() => onToggleRuleHidden(rule.app_id, false)}
-                          title="取消隐藏并恢复在列表中展示"
-                        >
-                          取消隐藏
-                        </button>
-                      )}
-                      <button
-                        className="btn-fluent btn-secondary"
-                        style={{ fontSize: '12px', padding: '4px 10px', color: '#ef4444' }}
-                        onClick={() => onRemoveRule(rule.app_id)}
-                        title="清空此应用的所有规则"
-                      >
-                        清空规则
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          );
-        })()}
       </div>
 
       {/* Group 6: Data, Diagnostics & Factory Reset */}
