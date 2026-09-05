@@ -60,6 +60,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [newHostDomain, setNewHostDomain] = useState('');
   const [newHostToken, setNewHostToken] = useState('');
   const [hostFeedback, setHostFeedback] = useState<string | null>(null);
+  const [isSyncingCatalog, setIsSyncingCatalog] = useState(false);
+  const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
+
+  const handleSyncCatalog = async () => {
+    setIsSyncingCatalog(true);
+    setSyncFeedback(null);
+    try {
+      const res = await api.syncCatalog(true);
+      setSyncFeedback(res.message);
+      setTimeout(() => setSyncFeedback(null), 5000);
+      window.dispatchEvent(new CustomEvent('zstore:catalog-synced'));
+    } catch (e) {
+      setSyncFeedback(`同步失败: ${String(e)}`);
+    } finally {
+      setIsSyncingCatalog(false);
+    }
+  };
 
   const loadHostTokens = async () => {
     try {
@@ -352,7 +369,59 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </label>
         </div>
 
-        {/* 2.4 Clear Cache */}
+        {/* 2.4 App Detail Cache TTL (用户可配置的保鲜期) */}
+        <div className="settings-row" style={{ alignItems: 'flex-start', paddingTop: '14px', paddingBottom: '14px' }}>
+          <div className="settings-row-info" style={{ maxWidth: '460px' }}>
+            <span style={{ fontWeight: 600 }}>应用详情缓存保鲜期 (TTL)</span>
+            <span className="settings-row-desc">
+              在保鲜期内重复打开详情弹窗直接读取本地缓存（0ms秒开）；超过该时间后将自动携带 ETag 向远端检查更新，未发布新版本不消耗 API 配额。
+            </span>
+          </div>
+          <div className="segmented-group" style={{ flexWrap: 'wrap', gap: '4px', maxWidth: '340px' }}>
+            {[
+              { val: 0, label: '0分钟 (实时校验)' },
+              { val: 10, label: '10 分钟' },
+              { val: 30, label: '30 分钟 (推荐)' },
+              { val: 60, label: '1 小时' },
+              { val: 360, label: '6 小时' },
+              { val: 1440, label: '24 小时' },
+            ].map((t) => (
+              <button
+                key={t.val}
+                className={`segmented-item ${(settings.detail_cache_ttl_minutes ?? 30) === t.val ? 'active' : ''}`}
+                onClick={() => onUpdateSetting('detail_cache_ttl_minutes', t.val)}
+                style={{ fontSize: '11px', padding: '4px 10px' }}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 2.5 Catalog Manifest Sync */}
+        <div className="settings-row" style={{ alignItems: 'center' }}>
+          <div className="settings-row-info">
+            <span style={{ fontWeight: 600 }}>开源收录清单动态同步</span>
+            <span className="settings-row-desc">
+              收录应用由社区开源清单仓库维护，可随时拉取最新收录清单以获取新上架软件
+            </span>
+            {syncFeedback && (
+              <span style={{ fontSize: '12px', color: syncFeedback.includes('失败') ? '#ef4444' : '#10b981', marginTop: '4px' }}>
+                {syncFeedback}
+              </span>
+            )}
+          </div>
+          <button
+            className="btn-fluent btn-secondary"
+            onClick={handleSyncCatalog}
+            disabled={isSyncingCatalog}
+            style={{ fontSize: '12px', padding: '6px 14px' }}
+          >
+            {isSyncingCatalog ? '🔄 正在同步...' : '🔄 立即同步收录库'}
+          </button>
+        </div>
+
+        {/* 2.6 Clear Cache */}
         <div className="settings-row">
           <div className="settings-row-info">
             <span style={{ fontWeight: 600 }}>深度清理临时缓存与 ETag 索引</span>

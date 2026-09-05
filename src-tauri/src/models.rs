@@ -64,6 +64,17 @@ pub struct AppDetail {
     pub forge: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub forge_host: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cached_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_stale_fallback: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncCatalogResult {
+    pub updated: bool,
+    pub count: usize,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

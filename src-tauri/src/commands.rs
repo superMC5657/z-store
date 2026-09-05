@@ -166,8 +166,8 @@ pub async fn warmup_top_apps(
                 .into_iter()
                 .filter(|id| {
                     let repo_key = resolve_repo_key(id, &state.catalog);
-                    db.get_cached_app_detail(id).ok().flatten().is_none()
-                        && db.get_cached_app_detail(&repo_key).ok().flatten().is_none()
+                    db.get_cached_app_detail(id, Some(1800)).ok().flatten().is_none()
+                        && db.get_cached_app_detail(&repo_key, Some(1800)).ok().flatten().is_none()
                 })
                 .collect()
         } else {
@@ -201,14 +201,29 @@ pub async fn get_app_details(
     let repo_key = resolve_repo_key(&clean_id, &state.catalog);
     let is_force = force_refresh.unwrap_or(false);
 
-    // 1. 若非主动强制刷新，优先从 SQLite 缓存中读取，实现 0ms 秒开并保证只拉取一次
+    // 获取客户端设置的应用详情缓存保鲜期 (TTL，单位分钟，默认 30 分钟)
+    let ttl_seconds = {
+        if let Ok(db) = state.db.lock() {
+            let mins = db
+                .get_setting("detail_cache_ttl_minutes")
+                .ok()
+                .flatten()
+                .and_then(|v| v.parse::<i64>().ok())
+                .unwrap_or(30);
+            mins * 60
+        } else {
+            1800
+        }
+    };
+
+    // 1. 若非主动强制刷新，按 TTL 从 SQLite 缓存中读取，未过期则 0ms 秒开
     if !is_force {
         if let Ok(db) = state.db.lock() {
-            if let Ok(Some(mut cached_detail)) = db.get_cached_app_detail(&clean_id) {
+            if let Ok(Some(mut cached_detail)) = db.get_cached_app_detail(&clean_id, Some(ttl_seconds)) {
                 cached_detail.id = clean_id;
                 return Ok(cached_detail);
             }
-            if let Ok(Some(mut cached_detail)) = db.get_cached_app_detail(&repo_key) {
+            if let Ok(Some(mut cached_detail)) = db.get_cached_app_detail(&repo_key, Some(ttl_seconds)) {
                 cached_detail.id = clean_id;
                 return Ok(cached_detail);
             }
@@ -228,6 +243,10 @@ pub async fn get_app_details(
                 crate::forge::ForgeRegistry::fetch_repo(&coord, host_token.as_deref()),
                 crate::forge::ForgeRegistry::fetch_latest_release(&coord, host_token.as_deref())
             )?;
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64;
             let detail = AppDetail {
                 id: clean_id.clone(),
                 name: repo_info.name.clone(),
@@ -253,9 +272,18 @@ pub async fn get_app_details(
                 category_name: "跨平台开源".to_string(),
                 forge: Some(coord.forge.as_str().to_string()),
                 forge_host: Some(coord.host),
+                cached_at: Some(now),
+                is_stale_fallback: None,
             };
 
-            // 存入 SQLite 本地持久化缓存
+            // 存入 SQLite 本地持久化缓存，并动态更新内存中的收录库统计
+            state.catalog.update_catalog_item_stats(
+                &clean_id,
+                Some(repo_info.stars),
+                Some(repo_info.forks),
+                Some(&detail.latest_version),
+            );
+
             if let Ok(db) = state.db.lock() {
                 let _ = db.save_cached_app_detail(&clean_id, &repo_key, &detail);
             }
@@ -282,26 +310,149 @@ pub async fn get_app_details(
         (ep, etag, payload, token)
     };
 
-    let (detail, to_cache) = state
+    let fetch_result = state
         .catalog
         .fetch_app_detail(&clean_id, cached_etag, cached_payload, token.as_deref())
-        .await?;
+        .await;
 
-    if let Some((etag, payload)) = to_cache {
+    match fetch_result {
+        Ok((mut detail, to_cache)) => {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64;
+            detail.cached_at = Some(now);
+
+            if let Some((etag, payload)) = to_cache {
+                // 远端返回 200 OK，更新 ETag 缓存表
+                if let Ok(db) = state.db.lock() {
+                    let _ = db.save_etag(&release_endpoint, &etag, &payload, now);
+                }
+            } else {
+                // 远端返回 304 Not Modified（to_cache 为 None）
+                // 仅刷新 cached_at 时间戳，零配额消耗延长保鲜期
+                if let Ok(db) = state.db.lock() {
+                    let _ = db.touch_cached_app_detail(&clean_id, now);
+                    let _ = db.touch_cached_app_detail(&repo_key, now);
+                }
+            }
+
+            // 存入 SQLite 本地持久化缓存
+            if let Ok(db) = state.db.lock() {
+                let _ = db.save_cached_app_detail(&clean_id, &repo_key, &detail);
+            }
+
+            Ok(detail)
+        }
+        Err(err) => {
+            // 网络或限额异常时，优雅降级返回已存储的历史缓存
+            if let Ok(db) = state.db.lock() {
+                if let Ok(Some(mut fallback_detail)) = db.get_cached_app_detail_fallback(&clean_id) {
+                    fallback_detail.id = clean_id;
+                    fallback_detail.is_stale_fallback = Some(true);
+                    return Ok(fallback_detail);
+                }
+                if let Ok(Some(mut fallback_detail)) = db.get_cached_app_detail_fallback(&repo_key) {
+                    fallback_detail.id = clean_id;
+                    fallback_detail.is_stale_fallback = Some(true);
+                    return Ok(fallback_detail);
+                }
+            }
+            Err(err)
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn sync_catalog(
+    state: State<'_, AppState>,
+    force: Option<bool>,
+) -> Result<crate::models::SyncCatalogResult, String> {
+    let (url, cached_etag) = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
-        let _ = db.save_etag(&release_endpoint, &etag, &payload, now);
-    }
+        let url = db
+            .get_setting("catalog_source_url")
+            .ok()
+            .flatten()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| {
+                "https://raw.gitmirror.com/supermc/z-store/main/src-tauri/src/catalog.json"
+                    .to_string()
+            });
+        let is_force = force.unwrap_or(false);
+        let etag = if is_force {
+            None
+        } else {
+            db.get_etag(&url).ok().flatten()
+        };
+        (url, etag)
+    };
 
-    // 存入 SQLite 本地持久化缓存
-    if let Ok(db) = state.db.lock() {
-        let _ = db.save_cached_app_detail(&clean_id, &repo_key, &detail);
-    }
+    let res = state
+        .catalog
+        .sync_remote_catalog(&url, cached_etag.as_deref())
+        .await;
 
-    Ok(detail)
+    let (new_items, new_etag) = match res {
+        Ok(val) => val,
+        Err(err) => {
+            // 如果请求远程失败且为默认或远程链接，检测本地开发目录是否存在 catalog.json 作为无缝备选
+            let mut local_fallback = None;
+            let local_candidates = [
+                "catalog.json",
+                "../catalog.json",
+                "src-tauri/src/catalog.json",
+            ];
+            for candidate in &local_candidates {
+                if std::path::Path::new(candidate).exists() {
+                    if let Ok((Some(items), _)) = state.catalog.sync_remote_catalog(candidate, None).await {
+                        local_fallback = Some((items, *candidate));
+                        break;
+                    }
+                }
+            }
+
+            if let Some((items, candidate)) = local_fallback {
+                let count = items.len();
+                return Ok(crate::models::SyncCatalogResult {
+                    updated: true,
+                    count,
+                    message: format!(
+                        "远程源未就绪，已自动从本地 {} 载入 {} 款应用（本地开发模式）",
+                        candidate, count
+                    ),
+                });
+            } else {
+                return Err(err);
+            }
+        }
+    };
+
+    if let Some(items) = new_items {
+        let count = items.len();
+        if let Some(etag) = new_etag {
+            if let Ok(db) = state.db.lock() {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs() as i64;
+                let json_str = serde_json::to_string(&items).unwrap_or_default();
+                let _ = db.save_etag(&url, &etag, &json_str, now);
+            }
+        }
+        Ok(crate::models::SyncCatalogResult {
+            updated: true,
+            count,
+            message: format!("成功同步收录清单，当前共 {} 个精选应用", count),
+        })
+    } else {
+        let count = state.catalog.get_catalog_count();
+        Ok(crate::models::SyncCatalogResult {
+            updated: false,
+            count,
+            message: format!("收录清单已是最新，共 {} 个应用", count),
+        })
+    }
 }
 
 #[tauri::command]
@@ -722,7 +873,7 @@ pub fn scan_and_match_local_apps(
             .collect()
     };
 
-    let matches = crate::scanner::AppScanner::match_apps(&scanned, catalog_items);
+    let matches = crate::scanner::AppScanner::match_apps(&scanned, &catalog_items);
     let unmanaged_matches = matches
         .into_iter()
         .filter(|m| !installed_ids.contains(&m.catalog_id.to_lowercase()))

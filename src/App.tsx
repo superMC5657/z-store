@@ -164,6 +164,30 @@ export const App: React.FC = () => {
         api.switchMirror(merged.active_mirror);
       }
     });
+
+    // 后台静默检测并同步远程开源清单仓库变动
+    api.syncCatalog(false).then((res) => {
+      if (res.updated) {
+        api.searchApps('').then((updatedApps) => {
+          setApps(updatedApps);
+          const iconUrls = updatedApps.slice(0, 30).map((a) => a.icon).filter(Boolean);
+          preloadIcons(iconUrls);
+        });
+      }
+    }).catch(() => {});
+
+    const handleCatalogSynced = () => {
+      api.searchApps('').then((updatedApps) => {
+        setApps(updatedApps);
+        const iconUrls = updatedApps.slice(0, 30).map((a) => a.icon).filter(Boolean);
+        preloadIcons(iconUrls);
+      });
+    };
+    window.addEventListener('zstore:catalog-synced', handleCatalogSynced);
+
+    return () => {
+      window.removeEventListener('zstore:catalog-synced', handleCatalogSynced);
+    };
   }, []);
 
   // Theme Toggler

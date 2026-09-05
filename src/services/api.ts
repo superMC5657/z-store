@@ -15,6 +15,7 @@ import {
   HostTokenEntry,
   HostRateLimitStatus,
   DeepLinkAction,
+  SyncCatalogResult,
 } from '../types';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -33,6 +34,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   close_to_tray: true,
   launch_on_startup: false,
   update_frequency: 'startup',
+  detail_cache_ttl_minutes: 30,
+  catalog_source_url: 'https://raw.gitmirror.com/supermc/z-store/main/src-tauri/src/catalog.json',
 };
 
 async function tauriInvoke<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
@@ -808,6 +811,17 @@ export const api = {
       return tauriInvoke<any[]>('search_forge_repos', { forge, host, query });
     }
     return [];
+  },
+
+  async syncCatalog(force?: boolean): Promise<SyncCatalogResult> {
+    if (isTauri) {
+      return tauriInvoke<SyncCatalogResult>('sync_catalog', { force });
+    }
+    return {
+      updated: false,
+      count: 32,
+      message: '浏览器预览模式：当前使用内置离线种子 (32 个应用)',
+    };
   },
 };
 

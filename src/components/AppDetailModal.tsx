@@ -221,6 +221,29 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               {primaryAsset && (
                 <span className="modal-tag">大小 {formatBytes(primaryAsset.size_bytes)}</span>
               )}
+              {app.is_stale_fallback && (
+                <span
+                  className="modal-tag"
+                  style={{
+                    background: 'rgba(245, 158, 11, 0.15)',
+                    color: '#f59e0b',
+                    border: '1px solid rgba(245, 158, 11, 0.3)',
+                    fontWeight: 600,
+                  }}
+                  title="网络不可用或请求受限，当前正在呈现本地历史数据"
+                >
+                  ⚠️ 离线缓存
+                </span>
+              )}
+              {app.cached_at && !app.is_stale_fallback && (
+                <span
+                  className="modal-tag"
+                  style={{ fontSize: '11px', opacity: 0.8 }}
+                  title={`最后缓存时间：${new Date(app.cached_at * 1000).toLocaleTimeString()}`}
+                >
+                  🕒 已缓存
+                </span>
+              )}
             </div>
           </div>
         </div>

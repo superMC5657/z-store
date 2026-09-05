@@ -52,6 +52,8 @@ export interface AppDetail {
   category_name: string;
   forge?: string;
   forge_host?: string;
+  cached_at?: number;
+  is_stale_fallback?: boolean;
   isLoading?: boolean;
   loadError?: string;
 }
@@ -115,6 +117,14 @@ export interface AppSettings {
   close_to_tray: boolean;
   launch_on_startup: boolean;
   update_frequency: 'startup' | 'daily' | 'manual';
+  detail_cache_ttl_minutes: number;
+  catalog_source_url: string;
+}
+
+export interface SyncCatalogResult {
+  updated: boolean;
+  count: number;
+  message: string;
 }
 
 export interface ScannedRawApp {

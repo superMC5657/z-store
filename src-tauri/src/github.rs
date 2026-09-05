@@ -3,6 +3,7 @@ use crate::models::{AppDetail, AppSummary, DeveloperProfile, DeveloperRepoItem, 
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, IF_NONE_MATCH, USER_AGENT};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::RwLock;
 use regex::Regex;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,7 +107,7 @@ pub struct AppRepoCoordinates {
 }
 
 pub struct CatalogService {
-    items: Vec<CatalogItem>,
+    items: RwLock<Vec<CatalogItem>>,
     client: reqwest::Client,
 }
 
@@ -118,27 +119,158 @@ impl Default for CatalogService {
 
 impl CatalogService {
     pub fn new() -> Self {
-        let json_data = include_str!("catalog.json");
-        let items: Vec<CatalogItem> = serde_json::from_str(json_data).unwrap_or_default();
+        let mut items: Option<Vec<CatalogItem>> = None;
+        let candidate_paths = [
+            "catalog.json",
+            "../catalog.json",
+            "src-tauri/src/catalog.json",
+            "src/catalog.json",
+        ];
+        for p in &candidate_paths {
+            if let Ok(text) = std::fs::read_to_string(p) {
+                if let Ok(parsed) = serde_json::from_str::<Vec<CatalogItem>>(&text) {
+                    if !parsed.is_empty() {
+                        items = Some(parsed);
+                        break;
+                    }
+                }
+            }
+        }
+
+        let items = items.unwrap_or_else(|| {
+            let json_data = include_str!("catalog.json");
+            serde_json::from_str(json_data).unwrap_or_default()
+        });
+
         let client = reqwest::Client::builder()
             .pool_max_idle_per_host(10)
             .tcp_keepalive(std::time::Duration::from_secs(60))
             .timeout(std::time::Duration::from_secs(12))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
-        Self { items, client }
+        Self {
+            items: RwLock::new(items),
+            client,
+        }
     }
 
     pub fn get_catalog_count(&self) -> usize {
-        self.items.len()
+        self.items.read().map(|i| i.len()).unwrap_or(0)
     }
 
-    pub fn get_catalog_items(&self) -> &[CatalogItem] {
-        &self.items
+    pub fn get_catalog_items(&self) -> Vec<CatalogItem> {
+        self.items.read().map(|i| i.clone()).unwrap_or_default()
+    }
+
+    pub fn update_items(&self, new_items: Vec<CatalogItem>) {
+        if let Ok(mut lock) = self.items.write() {
+            *lock = new_items;
+        }
+    }
+
+    /// 动态回写并保鲜单个应用的实时统计数据（Stars、Forks、最新版本等）
+    pub fn update_catalog_item_stats(
+        &self,
+        id: &str,
+        stars: Option<u64>,
+        forks: Option<u64>,
+        version: Option<&str>,
+    ) {
+        if let Ok(mut items) = self.items.write() {
+            if let Some(item) = items
+                .iter_mut()
+                .find(|i| i.id.eq_ignore_ascii_case(id) || format!("{}/{}", i.owner, i.repo).eq_ignore_ascii_case(id))
+            {
+                if let Some(s) = stars {
+                    item.stars = s;
+                }
+                if let Some(f) = forks {
+                    item.forks = f;
+                }
+                if let Some(v) = version {
+                    if !v.trim().is_empty() {
+                        item.default_version = v.to_string();
+                    }
+                }
+            }
+        }
+    }
+
+    pub async fn sync_remote_catalog(
+        &self,
+        url: &str,
+        cached_etag: Option<&str>,
+    ) -> Result<(Option<Vec<CatalogItem>>, Option<String>), String> {
+        let is_local = url.starts_with("file://")
+            || (!url.starts_with("http://") && !url.starts_with("https://"));
+
+        if is_local {
+            let clean_path = if let Some(stripped) = url.strip_prefix("file://") {
+                let trimmed = stripped.trim_start_matches('/');
+                if trimmed.len() >= 2 && trimmed.chars().nth(1) == Some(':') {
+                    trimmed.to_string()
+                } else {
+                    stripped.to_string()
+                }
+            } else {
+                url.to_string()
+            };
+
+            let path = std::path::Path::new(&clean_path);
+            if !path.exists() {
+                return Err(format!("本地收录清单文件不存在: {}", clean_path));
+            }
+
+            let metadata = std::fs::metadata(path)
+                .map_err(|e| format!("读取本地收录清单文件元数据失败 ({}): {}", clean_path, e))?;
+            let mtime = metadata
+                .modified()
+                .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs())
+                .unwrap_or(0);
+            let local_etag = format!("W/\"local-{}\"", mtime);
+
+            if let Some(etag) = cached_etag {
+                if etag == local_etag {
+                    return Ok((None, None));
+                }
+            }
+
+            let text = std::fs::read_to_string(path)
+                .map_err(|e| format!("读取本地清单内容失败 ({}): {}", clean_path, e))?;
+            let items: Vec<CatalogItem> = serde_json::from_str(&text)
+                .map_err(|e| format!("解析本地收录清单 JSON 失败: {}", e))?;
+            self.update_items(items.clone());
+            return Ok((Some(items), Some(local_etag)));
+        }
+
+        // 远程 HTTP/HTTPS 请求
+        let mut req = self.client.get(url).header(USER_AGENT, "ZStore-Client/0.1.0");
+        if let Some(etag) = cached_etag {
+            req = req.header(IF_NONE_MATCH, etag);
+        }
+        let resp = req.send().await.map_err(|e| format!("请求收录清单失败: {}", e))?;
+        if resp.status() == reqwest::StatusCode::NOT_MODIFIED {
+            // 清单未变动
+            return Ok((None, None));
+        }
+        if !resp.status().is_success() {
+            return Err(format!("同步收录清单失败，HTTP 状态码: {}", resp.status()));
+        }
+        let new_etag = resp
+            .headers()
+            .get("etag")
+            .and_then(|h| h.to_str().ok())
+            .map(|s| s.to_string());
+        let text = resp.text().await.map_err(|e| format!("读取清单内容失败: {}", e))?;
+        let items: Vec<CatalogItem> = serde_json::from_str(&text)
+            .map_err(|e| format!("解析收录清单 JSON 失败: {}", e))?;
+        self.update_items(items.clone());
+        Ok((Some(items), new_etag))
     }
 
     pub fn get_all_summaries(&self) -> Vec<AppSummary> {
-        self.items.iter().map(|item| item.to_summary()).collect()
+        let items = self.items.read().unwrap_or_else(|e| e.into_inner());
+        items.iter().map(|item| item.to_summary()).collect()
     }
 
     pub fn search_apps(&self, query: &str) -> Vec<AppSummary> {
@@ -155,8 +287,9 @@ impl CatalogService {
         }
 
         let mut matches: Vec<(i32, AppSummary)> = Vec::new();
+        let items = self.items.read().unwrap_or_else(|e| e.into_inner());
 
-        for item in &self.items {
+        for item in items.iter() {
             let mut score = 0;
 
             let name_lower = item.name.to_lowercase();
@@ -201,8 +334,8 @@ impl CatalogService {
 
     pub fn filter_by_category(&self, category: &str) -> Option<Vec<AppSummary>> {
         let cat_clean = category.trim().to_lowercase();
-        let matched: Vec<AppSummary> = self
-            .items
+        let items = self.items.read().unwrap_or_else(|e| e.into_inner());
+        let matched: Vec<AppSummary> = items
             .iter()
             .filter(|item| {
                 item.category.to_lowercase() == cat_clean
@@ -221,7 +354,8 @@ impl CatalogService {
     }
 
     pub fn get_repo_coordinates(&self, id: &str) -> Result<AppRepoCoordinates, String> {
-        if let Some(item) = self.items.iter().find(|i| i.id == id) {
+        let items = self.items.read().unwrap_or_else(|e| e.into_inner());
+        if let Some(item) = items.iter().find(|i| i.id == id) {
             Ok(AppRepoCoordinates {
                 owner: item.owner.clone(),
                 repo: item.repo.clone(),
@@ -428,7 +562,11 @@ impl CatalogService {
         token: Option<&str>,
     ) -> Result<(AppDetail, Option<(String, String)>), String> {
         let (owner, repo, name, desc, icon, icon_bg) = self.get_endpoints(id)?;
-        let catalog_item = self.items.iter().find(|i| i.id == id);
+        let catalog_item = self
+            .items
+            .read()
+            .ok()
+            .and_then(|items| items.iter().find(|i| i.id == id).cloned());
 
         let client = &self.client;
 
@@ -496,6 +634,7 @@ impl CatalogService {
                     (parsed, None)
                 } else {
                     let fallback_ver = catalog_item
+                        .as_ref()
                         .map(|i| i.default_version.clone())
                         .unwrap_or_else(|| "v1.0.0".to_string());
                     (
@@ -512,7 +651,7 @@ impl CatalogService {
             }
         };
 
-        // 异步并发执行：提取校验和字典 与 获取 README Markdown (tokio::join!)
+        // 异步并发执行：提取校验和字典、获取 README Markdown、以及拉取实时仓库状态 (Stars/Forks/License)
         let checksum_task = Self::extract_checksums_map(&release_resp.assets, client, &headers);
 
         let readme_url = format!("https://api.github.com/repos/{}/{}/readme", owner, repo);
@@ -531,7 +670,44 @@ impl CatalogService {
             }
         };
 
-        let (checksums, raw_readme) = tokio::join!(checksum_task, readme_task);
+        let repo_url = format!("https://api.github.com/repos/{}/{}", owner, repo);
+        let repo_headers = headers.clone();
+        let repo_task = async {
+            let req = client.get(&repo_url).headers(repo_headers).send();
+            match tokio::time::timeout(std::time::Duration::from_secs(4), req).await {
+                Ok(Ok(res)) if res.status().is_success() => res.json::<GitHubRepoResponse>().await.ok(),
+                _ => None,
+            }
+        };
+
+        let (checksums, raw_readme, repo_info) = tokio::join!(checksum_task, readme_task, repo_task);
+
+        let latest_stars = repo_info
+            .as_ref()
+            .and_then(|r| r.stargazers_count)
+            .or_else(|| catalog_item.as_ref().map(|i| i.stars))
+            .unwrap_or(0);
+
+        let latest_forks = repo_info
+            .as_ref()
+            .and_then(|r| r.forks_count)
+            .or_else(|| catalog_item.as_ref().map(|i| i.forks))
+            .unwrap_or(0);
+
+        let latest_license = repo_info
+            .as_ref()
+            .and_then(|r| r.license.as_ref())
+            .and_then(|l| l.spdx_id.clone())
+            .or_else(|| catalog_item.as_ref().map(|i| i.license.clone()))
+            .unwrap_or_else(|| "FLOSS".to_string());
+
+        // 动态回写更新内存中的 CatalogItem 统计数据，使得列表页卡片上的 Stars/Forks/Version 也同步刷新
+        self.update_catalog_item_stats(
+            id,
+            Some(latest_stars),
+            Some(latest_forks),
+            Some(&release_resp.tag_name),
+        );
 
         // 提取 README 首部 Logo，并从 README 原始内容中清洗删除该旧图标，避免详情页头部与文档内容区发生重叠/重复
         let (extracted_logo, cleaned_readme) =
@@ -594,25 +770,32 @@ impl CatalogService {
             icon: final_icon,
             icon_bg,
             description: desc,
-            stars: catalog_item.map(|i| i.stars).unwrap_or(1200),
-            forks: catalog_item.map(|i| i.forks).unwrap_or(240),
-            license: catalog_item
-                .map(|i| i.license.clone())
-                .unwrap_or_else(|| "GPL-3.0".to_string()),
+            stars: latest_stars,
+            forks: latest_forks,
+            license: latest_license,
             latest_version: release_resp.tag_name,
             changelog: release_resp.body.unwrap_or_default(),
-            is_verified: catalog_item.map(|i| i.is_verified).unwrap_or(false),
-            signature_fingerprint: catalog_item.and_then(|i| i.publisher_fingerprint.clone()),
+            is_verified: catalog_item.as_ref().map(|i| i.is_verified).unwrap_or(false),
+            signature_fingerprint: catalog_item.as_ref().and_then(|i| i.publisher_fingerprint.clone()),
             readme_markdown,
             releases,
             category: catalog_item
+                .as_ref()
                 .map(|i| i.category.clone())
                 .unwrap_or_else(|| "system".to_string()),
             category_name: catalog_item
+                .as_ref()
                 .map(|i| i.category_name.clone())
                 .unwrap_or_else(|| "系统实用".to_string()),
             forge: Some("github".to_string()),
             forge_host: Some("github.com".to_string()),
+            cached_at: Some(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs() as i64,
+            ),
+            is_stale_fallback: None,
         };
 
         Ok((detail, new_cache))
@@ -906,12 +1089,11 @@ impl CatalogService {
                 )
             }
             _ => {
-                // 网络或限流回退：从 catalog 中查找匹配的组织信息
-                let matched_items: Vec<&CatalogItem> = self
-                    .items
+                let fallback_lock = self.items.read().unwrap_or_else(|e| e.into_inner());
+                let matched_count = fallback_lock
                     .iter()
                     .filter(|i| i.owner.eq_ignore_ascii_case(dev))
-                    .collect();
+                    .count();
 
                 (
                     dev.to_string(),
@@ -922,7 +1104,7 @@ impl CatalogService {
                     None,
                     None,
                     None,
-                    matched_items.len() as u64,
+                    matched_count as u64,
                     100,
                     0,
                 )
@@ -934,6 +1116,7 @@ impl CatalogService {
         let repos_res = client.get(&repos_url).headers(headers).send().await;
 
         let mut repos: Vec<DeveloperRepoItem> = Vec::new();
+        let catalog_list = self.get_catalog_items();
         if let Ok(res) = repos_res {
             if res.status().is_success() {
                 if let Ok(items) = res.json::<Vec<GitHubRepoResponse>>().await {
@@ -942,7 +1125,7 @@ impl CatalogService {
                         let full_name = r.full_name.unwrap_or_else(|| format!("{}/{}", dev, repo_name));
                         let id = full_name.clone();
 
-                        let in_cat = self.items.iter().find(|i| {
+                        let in_cat = catalog_list.iter().find(|i| {
                             i.id.eq_ignore_ascii_case(&id)
                                 || (i.owner.eq_ignore_ascii_case(dev) && i.repo.eq_ignore_ascii_case(&repo_name))
                         });
@@ -967,7 +1150,7 @@ impl CatalogService {
 
         // 如果未抓取到远程仓库（如离线或限流），从 catalog 补充
         if repos.is_empty() {
-            for i in self.items.iter().filter(|i| i.owner.eq_ignore_ascii_case(dev)) {
+            for i in catalog_list.iter().filter(|i| i.owner.eq_ignore_ascii_case(dev)) {
                 repos.push(DeveloperRepoItem {
                     id: i.id.clone(),
                     name: i.name.clone(),
@@ -1046,6 +1229,7 @@ impl CatalogService {
         let mut other_repos = Vec::new();
         let mut total_starred = 0;
 
+        let catalog_list = self.get_catalog_items();
         let res = client.get(&target_url).headers(headers).send().await;
         if let Ok(resp) = res {
             if resp.status().is_success() {
@@ -1055,7 +1239,7 @@ impl CatalogService {
                         let full_name = r.full_name.clone().unwrap_or_default();
                         let repo_name = r.name.clone().unwrap_or_default();
 
-                        if let Some(cat) = self.items.iter().find(|c| {
+                        if let Some(cat) = catalog_list.iter().find(|c| {
                             c.id.eq_ignore_ascii_case(&full_name)
                                 || c.repo.eq_ignore_ascii_case(&repo_name)
                         }) {
@@ -1082,8 +1266,7 @@ impl CatalogService {
 
         // 离线或模拟演示兜底：如果无法访问远端网络，根据 catalog 返回样例匹配
         if total_starred == 0 && catalog_matches.is_empty() {
-            let sample_matches: Vec<AppSummary> = self
-                .items
+            let sample_matches: Vec<AppSummary> = catalog_list
                 .iter()
                 .take(3)
                 .map(|i| i.to_summary())
@@ -1215,5 +1398,28 @@ mod tests {
         // 验证旧图标已被彻底剥离，不再残留在 README 内容中
         assert!(!stripped.contains("assets/logo.png"));
         assert!(stripped.contains("# RustDesk"));
+    }
+
+    #[tokio::test]
+    async fn test_sync_remote_catalog_local_file() {
+        let cat = CatalogService::new();
+        let target = if std::path::Path::new("catalog.json").exists() {
+            "catalog.json"
+        } else if std::path::Path::new("../catalog.json").exists() {
+            "../catalog.json"
+        } else {
+            "src/catalog.json"
+        };
+        let (items, etag) = cat.sync_remote_catalog(target, None).await.unwrap();
+        assert!(items.is_some());
+        let list = items.unwrap();
+        assert!(list.len() >= 20);
+        assert!(etag.is_some());
+        assert!(etag.unwrap().contains("local-"));
+
+        // Test with same etag returns None (unmodified)
+        let etag_val = format!("W/\"local-{}\"", std::fs::metadata(target).unwrap().modified().unwrap().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs());
+        let (no_items, _) = cat.sync_remote_catalog(target, Some(&etag_val)).await.unwrap();
+        assert!(no_items.is_none());
     }
 }

@@ -244,23 +244,59 @@ impl Database {
         Ok(map)
     }
 
-    pub fn get_cached_app_detail(&self, id_or_repo: &str) -> Result<Option<AppDetail>> {
+    pub fn get_cached_app_detail(
+        &self,
+        id_or_repo: &str,
+        ttl_seconds: Option<i64>,
+    ) -> Result<Option<AppDetail>> {
         let clean = id_or_repo.trim().to_lowercase();
         if clean.is_empty() {
             return Ok(None);
         }
 
         let mut stmt = self.conn.prepare(
-            "SELECT detail_json FROM app_details_cache WHERE LOWER(app_id) = ?1 OR LOWER(repo_key) = ?1 LIMIT 1",
+            "SELECT detail_json, cached_at FROM app_details_cache WHERE LOWER(app_id) = ?1 OR LOWER(repo_key) = ?1 LIMIT 1",
         )?;
         let mut rows = stmt.query(params![clean])?;
         if let Some(row) = rows.next()? {
             let json_str: String = row.get(0)?;
-            if let Ok(detail) = serde_json::from_str::<AppDetail>(&json_str) {
+            let cached_at: i64 = row.get(1)?;
+            if let Some(ttl) = ttl_seconds {
+                if ttl > 0 {
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs() as i64;
+                    if now.saturating_sub(cached_at) >= ttl {
+                        // 缓存已过期，返回 None 以促使远端触发 ETag 条件校验
+                        return Ok(None);
+                    }
+                } else if ttl == 0 {
+                    // ttl == 0 代表每次打开均需要向远端校验
+                    return Ok(None);
+                }
+            }
+            if let Ok(mut detail) = serde_json::from_str::<AppDetail>(&json_str) {
+                detail.cached_at = Some(cached_at);
                 return Ok(Some(detail));
             }
         }
         Ok(None)
+    }
+
+    /// 即使缓存过期，也返回已存储的详情副本（用于离线弱网或 GitHub API 故障时的降级呈现）
+    pub fn get_cached_app_detail_fallback(&self, id_or_repo: &str) -> Result<Option<AppDetail>> {
+        self.get_cached_app_detail(id_or_repo, None)
+    }
+
+    /// 当远端返回 304 Not Modified 时，快速刷新 cached_at 时间戳，零开销延长保鲜期
+    pub fn touch_cached_app_detail(&self, id_or_repo: &str, new_cached_at: i64) -> Result<()> {
+        let clean = id_or_repo.trim().to_lowercase();
+        self.conn.execute(
+            "UPDATE app_details_cache SET cached_at = ?1 WHERE LOWER(app_id) = ?2 OR LOWER(repo_key) = ?2",
+            params![new_cached_at, clean],
+        )?;
+        Ok(())
     }
 
     pub fn save_cached_app_detail(
@@ -834,10 +870,11 @@ mod tests {
     #[test]
     fn test_app_details_cache_crud() {
         let db = Database::open_in_memory().unwrap();
+        db.clear_app_details_cache().unwrap();
 
         // 1. Initial: empty
-        assert!(db.get_cached_app_detail("rustdesk").unwrap().is_none());
-        assert!(db.get_cached_app_detail("github.com/rustdesk/rustdesk").unwrap().is_none());
+        assert!(db.get_cached_app_detail("rustdesk", None).unwrap().is_none());
+        assert!(db.get_cached_app_detail("github.com/rustdesk/rustdesk", None).unwrap().is_none());
 
         // 2. Save detail
         let detail = AppDetail {
@@ -861,34 +898,53 @@ mod tests {
             category_name: "系统实用".to_string(),
             forge: Some("github".to_string()),
             forge_host: Some("github.com".to_string()),
+            cached_at: None,
+            is_stale_fallback: None,
         };
 
         db.save_cached_app_detail("rustdesk", "github.com/rustdesk/rustdesk", &detail).unwrap();
 
-        // 3. Hit via app_id
-        let cached_by_id = db.get_cached_app_detail("rustdesk").unwrap().expect("hit by id");
+        // 3. Hit via app_id with TTL
+        let cached_by_id = db.get_cached_app_detail("rustdesk", Some(1800)).unwrap().expect("hit by id");
         assert_eq!(cached_by_id.name, "RustDesk");
         assert_eq!(cached_by_id.latest_version, "v1.3.1");
+        assert!(cached_by_id.cached_at.is_some());
 
         // 4. Hit via repo_key
-        let cached_by_repo = db.get_cached_app_detail("github.com/rustdesk/rustdesk").unwrap().expect("hit by repo_key");
+        let cached_by_repo = db.get_cached_app_detail("github.com/rustdesk/rustdesk", Some(1800)).unwrap().expect("hit by repo_key");
         assert_eq!(cached_by_repo.id, "rustdesk");
 
         // 5. Hit with different casing
-        let cached_casing = db.get_cached_app_detail("RustDesk").unwrap().expect("hit with uppercase");
+        let cached_casing = db.get_cached_app_detail("RustDesk", Some(1800)).unwrap().expect("hit with uppercase");
         assert_eq!(cached_casing.name, "RustDesk");
-        let cached_repo_casing = db.get_cached_app_detail("GitHub.com/RustDesk/RustDesk").unwrap().expect("hit with uppercase repo");
+        let cached_repo_casing = db.get_cached_app_detail("GitHub.com/RustDesk/RustDesk", Some(1800)).unwrap().expect("hit with uppercase repo");
         assert_eq!(cached_repo_casing.name, "RustDesk");
 
-        // 6. Update
+        // 6. Test TTL expiration
+        // Using ttl = 0 means expired / must revalidate
+        assert!(db.get_cached_app_detail("rustdesk", Some(0)).unwrap().is_none());
+        // Even if expired, fallback retrieves the cached copy
+        let fallback = db.get_cached_app_detail_fallback("rustdesk").unwrap().expect("fallback hit");
+        assert_eq!(fallback.name, "RustDesk");
+
+        // 7. Test touch_cached_app_detail
+        let fresh_now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64 + 100;
+        db.touch_cached_app_detail("rustdesk", fresh_now).unwrap();
+        let touched = db.get_cached_app_detail("rustdesk", Some(1800)).unwrap().expect("touched hit");
+        assert_eq!(touched.cached_at, Some(fresh_now));
+
+        // 8. Update
         let mut updated_detail = detail.clone();
         updated_detail.latest_version = "v1.3.2".to_string();
         db.save_cached_app_detail("rustdesk", "github.com/rustdesk/rustdesk", &updated_detail).unwrap();
-        let cached_updated = db.get_cached_app_detail("rustdesk").unwrap().unwrap();
+        let cached_updated = db.get_cached_app_detail("rustdesk", Some(1800)).unwrap().unwrap();
         assert_eq!(cached_updated.latest_version, "v1.3.2");
 
-        // 7. Clear cache
+        // 9. Clear cache
         db.clear_app_details_cache().unwrap();
-        assert!(db.get_cached_app_detail("rustdesk").unwrap().is_none());
+        assert!(db.get_cached_app_detail("rustdesk", None).unwrap().is_none());
     }
 }

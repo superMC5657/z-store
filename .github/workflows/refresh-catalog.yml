@@ -1,0 +1,42 @@
+name: Refresh Catalog Baseline
+
+on:
+  schedule:
+    # 每周日 00:00 UTC 自动执行收录库保鲜任务
+    - cron: '0 0 * * 0'
+  workflow_dispatch: # 支持在 GitHub Actions 页面手动点击运行
+
+concurrency:
+  group: refresh-catalog
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  refresh-catalog:
+    name: Fetch Latest Stars & Releases
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run Catalog Refresher
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/refresh-catalog.mjs
+
+      - name: Commit & Push changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add catalog.json src-tauri/src/catalog.json
+          if git diff --staged --quiet; then
+            echo "No changes in catalog.json"
+          else
+            git commit -m "chore(catalog): automated refresh of stars, forks, and releases [skip ci]"
+            git push
+          fi
