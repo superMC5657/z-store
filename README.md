@@ -120,8 +120,9 @@ pnpm tauri build
 
 ---
 
-## 📄 架构决策记录 (ADR)
+## 📄 架构决策与产品战略文档
 
+- [商业化战略、生态变现与低频破局白皮书](docs/商业化战略与低频破局思考.md)
 - [ADR-0001: 统一代码与文档协作决策协议](docs/adr/0001-decision-protocol-and-execution-boundaries.md)
 - [ADR-0004: Windows Authenticode 签名核验引擎](docs/adr/0004-windows-authenticode-signature-verification.md)
 - [ADR-0005: 晶透双模系统级图标标识体系](docs/adr/0005-adaptive-icon-system.md)
