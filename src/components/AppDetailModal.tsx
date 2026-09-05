@@ -3,6 +3,7 @@ import { marked } from 'marked';
 import { AppDetail, DownloadProgressPayload, ReleaseAsset } from '../types';
 import { api } from '../services/api';
 import { AppIcon } from './AppIcon';
+import { sanitizeHtml } from '../utils/sanitize';
 
 interface AppDetailModalProps {
   app: AppDetail;
@@ -50,22 +51,41 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   // 监听实时下载进度事件
   useEffect(() => {
     let cleanup: (() => void) | undefined;
+    let isMounted = true;
     api.onDownloadProgress((payload) => {
+      if (!isMounted) return;
       setDownloadProgress(payload);
       if (payload.state === 'completed' || payload.state === 'error' || payload.state === 'tampered') {
-        setTimeout(() => setDownloadProgress(null), 3500);
+        setTimeout(() => {
+          if (isMounted) setDownloadProgress(null);
+        }, 3500);
       }
     }).then((fn) => {
-      cleanup = fn;
+      if (!isMounted) {
+        fn();
+      } else {
+        cleanup = fn;
+      }
     });
 
     return () => {
+      isMounted = false;
       if (cleanup) cleanup();
     };
   }, []);
 
+  const currentOs = useMemo(() => {
+    if (typeof navigator === 'undefined') return 'windows';
+    const ua = navigator.userAgent.toLowerCase();
+    if (ua.includes('mac') || ua.includes('darwin')) return 'macos';
+    if (ua.includes('linux')) return 'linux';
+    return 'windows';
+  }, []);
+
   const primaryAsset: ReleaseAsset | undefined =
-    app.releases.find((r) => r.os === 'windows') || app.releases[0];
+    app.releases.find((r) => r.os === currentOs) ||
+    app.releases.find((r) => r.os === 'windows') ||
+    app.releases[0];
 
   const handleAction = async () => {
     if (isInstalled) {
@@ -89,10 +109,11 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
     return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
   };
 
-  // 避免高频下载进度事件重绘时重复同步解析庞大的 Markdown 文档阻塞渲染主线程
+  // 避免高频下载进度事件重绘时重复同步解析庞大的 Markdown 文档阻塞渲染主线程，并执行严格 AST 级 XSS 净化
   const readmeHtml = useMemo(() => {
     if (!app.readme_markdown) return '';
-    return marked.parse(app.readme_markdown, { async: false }) as string;
+    const rawParsed = marked.parse(app.readme_markdown, { async: false }) as string;
+    return sanitizeHtml(rawParsed);
   }, [app.readme_markdown]);
 
   return (
@@ -147,6 +168,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
           <AppIcon
             icon={app.icon}
             name={app.name}
+            appId={app.id}
             iconBg={app.icon_bg}
             className="modal-app-icon"
           />

@@ -1,28 +1,36 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { marked } from 'marked';
 import { UpdateItem } from '../types';
+import { sanitizeHtml } from '../utils/sanitize';
 
 interface UpdatesViewProps {
   updates: UpdateItem[];
   onApplyUpdate: (id: string) => Promise<void>;
   onBatchUpdateAll: () => Promise<void>;
+  onCheckUpdates?: () => Promise<void>;
   onIgnoreUpdate?: (id: string) => void;
   onSkipVersion?: (id: string, version: string) => Promise<void>;
   onFreezeVersion?: (id: string) => Promise<void>;
   onHideApp?: (id: string) => Promise<void>;
+  updateRulesCount?: number;
+  onOpenRules?: () => void;
 }
 
 export const UpdatesView: React.FC<UpdatesViewProps> = ({
   updates,
   onApplyUpdate,
   onBatchUpdateAll,
+  onCheckUpdates,
   onIgnoreUpdate,
   onSkipVersion,
   onFreezeVersion,
   onHideApp,
+  updateRulesCount,
+  onOpenRules,
 }) => {
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [isUpdatingAll, setIsUpdatingAll] = useState(false);
+  const [isChecking, setIsChecking] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [fadingIds, setFadingIds] = useState<Set<string>>(new Set());
@@ -80,19 +88,49 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
         <div>
           <h3 className="section-title" style={{ margin: 0 }}>🔄 可更新项管理 ({updates.length})</h3>
           <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: 'var(--text-tertiary)' }}>
-            支持跳过破坏性版本或永久锁定，已忽略应用可在「设置 ➔ 版本策略」中恢复
+            支持跳过破坏性版本或永久锁定，可点击「🛡️ 规则看板」随时管理或恢复
           </p>
         </div>
-        {updates.length > 0 && (
-          <button
-            className="btn-fluent btn-primary"
-            onClick={handleUpdateAll}
-            disabled={isUpdatingAll}
-            style={{ fontWeight: 600, fontSize: '13px' }}
-          >
-            {isUpdatingAll ? '正在批量更新中...' : `一键全部升级 (${updates.length} 个就绪)`}
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {onOpenRules && (
+            <button
+              className="btn-fluent btn-secondary"
+              onClick={onOpenRules}
+              style={{ fontSize: '13px', padding: '6px 14px' }}
+              title="查看与管理跳过、锁定或隐藏的更新规则"
+            >
+              🛡️ 规则看板 {typeof updateRulesCount === 'number' && updateRulesCount > 0 ? `(${updateRulesCount})` : ''}
+            </button>
+          )}
+          {onCheckUpdates && (
+            <button
+              className="btn-fluent btn-secondary"
+              onClick={async () => {
+                setIsChecking(true);
+                try {
+                  await onCheckUpdates();
+                } finally {
+                  setIsChecking(false);
+                }
+              }}
+              disabled={isChecking || isUpdatingAll}
+              style={{ fontSize: '13px', padding: '6px 14px' }}
+              title="向各开源托管仓库实时检查最新版本"
+            >
+              {isChecking ? '正在检查...' : '🔍 检查更新'}
+            </button>
+          )}
+          {updates.length > 0 && (
+            <button
+              className="btn-fluent btn-primary"
+              onClick={handleUpdateAll}
+              disabled={isUpdatingAll || isChecking}
+              style={{ fontWeight: 600, fontSize: '13px' }}
+            >
+              {isUpdatingAll ? '正在批量更新中...' : `一键全部升级 (${updates.length} 个就绪)`}
+            </button>
+          )}
+        </div>
       </div>
 
       {updates.length === 0 ? (
@@ -333,7 +371,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                     <div
                       className="readme-markdown-body"
                       dangerouslySetInnerHTML={{
-                        __html: marked.parse(item.changelog, { async: false }) as string,
+                        __html: sanitizeHtml(marked.parse(item.changelog, { async: false }) as string),
                       }}
                     />
                   </div>
