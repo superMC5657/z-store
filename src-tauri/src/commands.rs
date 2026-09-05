@@ -1011,27 +1011,80 @@ fn detect_image_mime(bytes: &[u8]) -> &'static str {
     }
 }
 
-pub fn get_icon_cache_path(app_id: Option<&str>, remote_url: &str) -> std::path::PathBuf {
+pub fn get_icon_cache_path(
+    owner: Option<&str>,
+    repo: Option<&str>,
+    app_id: Option<&str>,
+    remote_url: &str,
+) -> std::path::PathBuf {
     use sha2::Digest;
     let icons_dir = crate::get_app_data_dir().join("icons");
-    let filename = if let Some(id) = app_id {
-        let safe_id: String = id
-            .chars()
-            .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
-            .collect();
-        if !safe_id.is_empty() {
-            format!("{}.png", safe_id)
-        } else {
-            let mut hasher = sha2::Sha256::new();
-            hasher.update(remote_url.as_bytes());
-            let hash = hex::encode(hasher.finalize());
-            format!("{}.png", &hash[..16])
+
+    // 方案一：优先使用 GitHub 唯一命名空间 {owner}_{repo}.png
+    let filename = match (owner, repo) {
+        (Some(o), Some(r)) => {
+            let safe_o: String = o
+                .chars()
+                .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+                .collect();
+            let safe_r: String = r
+                .chars()
+                .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+                .collect();
+            if !safe_o.is_empty() && !safe_r.is_empty() {
+                format!("{}_{}.png", safe_o, safe_r)
+            } else if let Some(id) = app_id {
+                let safe_id: String = id
+                    .chars()
+                    .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+                    .collect();
+                format!("{}.png", safe_id)
+            } else {
+                let mut hasher = sha2::Sha256::new();
+                hasher.update(remote_url.as_bytes());
+                let hash = hex::encode(hasher.finalize());
+                format!("{}.png", &hash[..16])
+            }
         }
-    } else {
-        let mut hasher = sha2::Sha256::new();
-        hasher.update(remote_url.as_bytes());
-        let hash = hex::encode(hasher.finalize());
-        format!("{}.png", &hash[..16])
+        _ => {
+            if let Some(id) = app_id {
+                let clean_id = id.trim();
+                // 支持类似 "owner/repo" 或 "owner_repo" 格式的 app_id
+                if clean_id.contains('/') {
+                    let parts: Vec<&str> = clean_id.split('/').collect();
+                    if parts.len() == 2 {
+                        let safe_o: String = parts[0]
+                            .chars()
+                            .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+                            .collect();
+                        let safe_r: String = parts[1]
+                            .chars()
+                            .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+                            .collect();
+                        if !safe_o.is_empty() && !safe_r.is_empty() {
+                            return icons_dir.join(format!("{}_{}.png", safe_o, safe_r));
+                        }
+                    }
+                }
+                let safe_id: String = clean_id
+                    .chars()
+                    .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+                    .collect();
+                if !safe_id.is_empty() {
+                    format!("{}.png", safe_id)
+                } else {
+                    let mut hasher = sha2::Sha256::new();
+                    hasher.update(remote_url.as_bytes());
+                    let hash = hex::encode(hasher.finalize());
+                    format!("{}.png", &hash[..16])
+                }
+            } else {
+                let mut hasher = sha2::Sha256::new();
+                hasher.update(remote_url.as_bytes());
+                let hash = hex::encode(hasher.finalize());
+                format!("{}.png", &hash[..16])
+            }
+        }
     };
     icons_dir.join(filename)
 }
@@ -1039,6 +1092,8 @@ pub fn get_icon_cache_path(app_id: Option<&str>, remote_url: &str) -> std::path:
 #[tauri::command]
 pub async fn get_or_fetch_icon(
     state: State<'_, AppState>,
+    owner: Option<String>,
+    repo: Option<String>,
     app_id: Option<String>,
     remote_url: String,
 ) -> Result<String, String> {
@@ -1056,7 +1111,34 @@ pub async fn get_or_fetch_icon(
         let _ = std::fs::create_dir_all(&icons_dir);
     }
 
-    let cache_file = get_icon_cache_path(app_id.as_deref(), url_trimmed);
+    // 优先使用传入的 (owner, repo)；若未显式传入，在应用目录清单中尝试根据 app_id 查找
+    let (resolved_owner, resolved_repo) = match (owner.as_deref(), repo.as_deref()) {
+        (Some(o), Some(r)) if !o.trim().is_empty() && !r.trim().is_empty() => {
+            (Some(o.trim().to_string()), Some(r.trim().to_string()))
+        }
+        _ => {
+            if let Some(id) = app_id.as_deref() {
+                let items = state.catalog.get_catalog_items();
+                if let Some(item) = items
+                    .iter()
+                    .find(|i| i.id.eq_ignore_ascii_case(id) || format!("{}/{}", i.owner, i.repo).eq_ignore_ascii_case(id))
+                {
+                    (Some(item.owner.clone()), Some(item.repo.clone()))
+                } else {
+                    (owner, repo)
+                }
+            } else {
+                (owner, repo)
+            }
+        }
+    };
+
+    let cache_file = get_icon_cache_path(
+        resolved_owner.as_deref(),
+        resolved_repo.as_deref(),
+        app_id.as_deref(),
+        url_trimmed,
+    );
 
     // 1. 严格优先查找本地内部缓存！缓存有直接读取，绝不发出任何网络请求！
     if cache_file.is_file() {
@@ -1182,18 +1264,8 @@ pub fn clear_cache(state: State<'_, AppState>) -> Result<bool, String> {
         }
     }
 
-    // 清理用户配置目录中的图标缓存
-    let icons_dir = crate::get_app_data_dir().join("icons");
-    if icons_dir.is_dir() {
-        if let Ok(entries) = std::fs::read_dir(&icons_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_file() {
-                    let _ = std::fs::remove_file(path);
-                }
-            }
-        }
-    }
+    // 注意：图标缓存 (icons/) 作为本地持久化资产受保护，不随普通缓存清理而被删除。
+    // 保证用户在离线或弱网时图标永远秒开，绝不因清理缓存导致重复发起网络拉取。
 
     Ok(true)
 }
@@ -1923,11 +1995,33 @@ mod tests {
         assert_eq!(detect_image_mime(&[0xff, 0xd8, 0xff, 0x00]), "image/jpeg");
         assert_eq!(detect_image_mime(b"<svg xmlns=..."), "image/svg+xml");
 
-        let p1 = get_icon_cache_path(Some("rustdesk"), "https://github.com/rustdesk.png");
-        assert!(p1.to_string_lossy().ends_with("rustdesk.png"));
+        // 验证方案一：优先格式化为 {owner}_{repo}.png
+        let p1 = get_icon_cache_path(
+            Some("rustdesk"),
+            Some("rustdesk"),
+            Some("rustdesk"),
+            "https://github.com/rustdesk.png",
+        );
+        assert!(p1.to_string_lossy().ends_with("rustdesk_rustdesk.png"));
 
-        let p2 = get_icon_cache_path(None, "https://github.com/someone/app.png");
-        assert!(p2.to_string_lossy().ends_with(".png"));
+        let p2 = get_icon_cache_path(
+            Some("microsoft"),
+            Some("terminal"),
+            None,
+            "https://github.com/microsoft.png",
+        );
+        assert!(p2.to_string_lossy().ends_with("microsoft_terminal.png"));
+
+        let p3 = get_icon_cache_path(
+            None,
+            None,
+            Some("alacritty/alacritty"),
+            "https://github.com/alacritty.png",
+        );
+        assert!(p3.to_string_lossy().ends_with("alacritty_alacritty.png"));
+
+        let p4 = get_icon_cache_path(None, None, Some("localsend"), "https://github.com/localsend.png");
+        assert!(p4.to_string_lossy().ends_with("localsend.png"));
     }
 }
 

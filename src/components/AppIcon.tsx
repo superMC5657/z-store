@@ -5,6 +5,8 @@ interface AppIconProps {
   icon: string;
   name: string;
   appId?: string;
+  owner?: string;
+  repo?: string;
   iconBg?: string;
   className?: string;
   style?: React.CSSProperties;
@@ -15,11 +17,15 @@ interface AppIconProps {
 const iconDataCache = new Map<string, string>();
 const iconPendingPromises = new Map<string, Promise<string>>();
 
-export function preloadIcons(items: (string | { id?: string; icon: string })[]) {
+export function preloadIcons(
+  items: (string | { id?: string; owner?: string; repo?: string; icon: string })[]
+) {
   if (typeof window === 'undefined') return;
   items.forEach((item) => {
     const icon = typeof item === 'string' ? item : item.icon;
     const id = typeof item === 'string' ? undefined : item.id;
+    const owner = typeof item === 'string' ? undefined : item.owner;
+    const repo = typeof item === 'string' ? undefined : item.repo;
     if (!icon || iconDataCache.has(icon) || icon.startsWith('data:')) return;
     const isUrl =
       icon.startsWith('http://') ||
@@ -30,7 +36,7 @@ export function preloadIcons(items: (string | { id?: string; icon: string })[]) 
 
     if (!iconPendingPromises.has(icon)) {
       const p = api
-        .getOrFetchIcon(id, icon)
+        .getOrFetchIcon(owner, repo, id, icon)
         .then((dataUri) => {
           iconDataCache.set(icon, dataUri);
           iconPendingPromises.delete(icon);
@@ -49,6 +55,8 @@ export const AppIcon: React.FC<AppIconProps> = ({
   icon,
   name,
   appId,
+  owner,
+  repo,
   iconBg = 'linear-gradient(135deg, #0284c7, #0369a1)',
   className = '',
   style = {},
@@ -88,7 +96,7 @@ export const AppIcon: React.FC<AppIconProps> = ({
     let isMounted = true;
     let promise = iconPendingPromises.get(icon);
     if (!promise) {
-      promise = api.getOrFetchIcon(appId, icon);
+      promise = api.getOrFetchIcon(owner, repo, appId, icon);
       iconPendingPromises.set(icon, promise);
     }
 

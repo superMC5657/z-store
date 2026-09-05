@@ -856,9 +856,14 @@ export const api = {
     return 'D:\\ZStoreApps';
   },
 
-  async getOrFetchIcon(appId: string | undefined, remoteUrl: string): Promise<string> {
+  async getOrFetchIcon(
+    owner: string | undefined,
+    repo: string | undefined,
+    appId: string | undefined,
+    remoteUrl: string
+  ): Promise<string> {
     if (isTauri) {
-      return tauriInvoke<string>('get_or_fetch_icon', { appId, remoteUrl });
+      return tauriInvoke<string>('get_or_fetch_icon', { owner, repo, appId, remoteUrl });
     }
     return remoteUrl;
   },

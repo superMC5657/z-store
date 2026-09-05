@@ -43,6 +43,8 @@ export const AppCard: React.FC<AppCardProps> = ({
           icon={app.icon}
           name={app.name}
           appId={app.id}
+          owner={app.owner}
+          repo={app.repo}
           iconBg={app.icon_bg}
           className="app-icon"
         />

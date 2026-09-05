@@ -169,6 +169,8 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
             icon={app.icon}
             name={app.name}
             appId={app.id}
+            owner={app.owner}
+            repo={app.repo}
             iconBg={app.icon_bg}
             className="modal-app-icon"
           />

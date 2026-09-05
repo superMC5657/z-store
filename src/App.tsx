@@ -115,7 +115,11 @@ export const App: React.FC = () => {
     api.searchApps('').then((loadedApps) => {
       setApps(loadedApps);
       // 预解码热门应用图标，若本地配置目录已缓存则秒读，未缓存则后台下载并缓存
-      preloadIcons(loadedApps.slice(0, 30).map((a) => ({ id: a.id, icon: a.icon })));
+      preloadIcons(
+        loadedApps
+          .slice(0, 30)
+          .map((a) => ({ id: a.id, owner: a.owner, repo: a.repo, icon: a.icon }))
+      );
     });
     api.getInstalledApps().then(setInstalledApps);
     api.getMirrorStatus().then(setMirrors);
@@ -184,7 +188,7 @@ export const App: React.FC = () => {
           updatedApps
             .slice(0, 30)
             .filter((a) => a.icon)
-            .map((a) => ({ id: a.id, icon: a.icon }))
+            .map((a) => ({ id: a.id, owner: a.owner, repo: a.repo, icon: a.icon }))
         );
       });
     };
