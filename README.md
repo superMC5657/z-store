@@ -24,10 +24,10 @@
 - **D3 零信任完整性防篡改 (Zero-Trust Anti-Tampering)**:
   - 默认利用中国大陆高可用加速镜像代理大文件下载；
   - 下载后**强制流式计算 SHA-256 哈希**并与官方清单比对，哈希不符立即强行阻断并销毁临时文件；
-  - Windows 端结合 Authenticode 数字证书指纹提取与有效性强核验，防御供应链投毒（详见 [ADR-0004](docs/adr/0004-windows-authenticode-signature-verification.md)）。
+  - Windows 端结合 Authenticode 数字证书指纹提取与有效性强核验，防御供应链投毒（详见 [ADR-0004](docs/adr/0004-streaming-installer-and-checksum-verification.md)）。
 - **D4 深度融合 Fluent Design 2.0 (Native Design System)**:
   - 全面遵循微软 Windows 11 Fluent 2.0 规范，提供亚克力毛玻璃 (Acrylic)、折射高光描边、平滑微动效与系统级深浅色自适应（`light-dark()`、`in oklch`）；
-  - 配套 [ADR-0005](docs/adr/0005-adaptive-icon-system.md) 晶透双模标识体系。
+  - 配套 [ADR-0005](docs/adr/0005-cross-platform-multi-mode-icon-specifications.md) 晶透双模标识体系。
 
 ---
 
@@ -39,7 +39,7 @@
 - **TTL 智能缓存**：支持用户自定义应用详情缓存生命周期（实时/30分钟/1小时/6小时/24小时），搭配 ETag 304 零配额刷新。
 
 ### 2. 🦊 多代码托管平台支持 (Multi-Forge Support)
-- 抽象统一的 `ForgeProvider` 核心，原生支持 **GitHub**、**Codeberg**、**Forgejo** 与自建 **Gitea** 实例（[ADR-0006](docs/adr/0006-multi-forge-provider-architecture.md)）。
+- 抽象统一的 `ForgeProvider` 核心，原生支持 **GitHub**、**Codeberg**、**Forgejo** 与自建 **Gitea** 实例（[ADR-0006](docs/adr/0006-multi-forge-ecosystem-support.md)）。
 - 跨托管平台统一仓库标识（`gh:owner/repo`、`cb:owner/repo`、`gitea:host:owner/repo`），支持独立 PAT 安全管理与速率感知。
 
 ### 3. 🔍 存量已安装应用外部导入 (External App Import)
@@ -77,9 +77,9 @@
 | 阶段 / 功能模块 | 规划定位 | 当前状态 | 核心成果与支撑规范 |
 |---|---|---|---|
 | **M0: 核心基座与 MVP** | 基础架构与 Windows 端闭环 | **100% 已交付** | 纯客户端直连、Fluent 2 亚克力界面、国内镜像加速管道 |
-| **Feature A: 多代码托管平台** | Codeberg / Forgejo / Gitea | **100% 已交付** | `ForgeProvider` 抽象、多主机 Token 隔离 ([ADR-0006](docs/adr/0006-multi-forge-provider-architecture.md)) |
+| **Feature A: 多代码托管平台** | Codeberg / Forgejo / Gitea | **100% 已交付** | `ForgeProvider` 抽象、多主机 Token 隔离 ([ADR-0006](docs/adr/0006-multi-forge-ecosystem-support.md)) |
 | **Feature B: 存量应用纳管** | 扫描已装软件并接管更新 | **100% 已交付** | Windows 注册表扫描器、启发式倒排打分匹配引擎 |
-| **Feature C: 版本控制与验签** | 跳过/锁定版本与证书核验 | **100% 已交付** | SQLite 版本规则表、Windows Authenticode 签名核验 ([ADR-0004](docs/adr/0004-windows-authenticode-signature-verification.md)) |
+| **Feature C: 版本控制与验签** | 跳过/锁定版本与证书核验 | **100% 已交付** | SQLite 版本规则表、Windows Authenticode 签名核验 ([ADR-0004](docs/adr/0004-streaming-installer-and-checksum-verification.md)) |
 | **Feature D: 开发者生态** | 开发者全景与 Star 仓库同步 | **100% 已交付** | 开发者主页、GitHub Star 导入、搜索/浏览历史持久化 |
 | **Feature E: 协议唤起与多端** | `zstore://` 路由与多端管道 | **100% 已交付** | URL Scheme 深度链接、API 配额药丸胶囊、类 Unix 安装管道 |
 | **ADR-0007: 开放清单与缓存** | 开放清单同步 + 可配 TTL | **100% 已交付** | 远程 Manifest 仓库动态拉取、0~1440m TTL、ETag 304 零配额续期 |
@@ -120,14 +120,20 @@ pnpm tauri build
 
 ---
 
-## 📄 架构决策与产品战略文档
+## 📄 架构决策记录 (ADR) 与核心文档
 
+- [ADR-0001: 采用 Tauri 2 与 React 19 + Fluent 2.0 架构](docs/adr/0001-tauri2-and-react-fluent-architecture.md)
+- [ADR-0002: 客户端直连 GitHub API 与加速镜像下载管道](docs/adr/0002-direct-github-api-and-mirror-pipeline.md)
+- [ADR-0003: 嵌入式 SQLite 持久化与 ETag 条件请求缓存](docs/adr/0003-sqlite-persistence-and-etag-caching.md)
+- [ADR-0004: 流式安装引擎与零信任 SHA-256 / Authenticode 验签防篡改](docs/adr/0004-streaming-installer-and-checksum-verification.md)
+- [ADR-0005: 跨平台多模式应用图标自适应架构规范](docs/adr/0005-cross-platform-multi-mode-icon-specifications.md)
+- [ADR-0006: 多源代码托管平台 (Multi-Forge) 生态支持与统一抽象层](docs/adr/0006-multi-forge-ecosystem-support.md)
+- [ADR-0007: 开源清单仓库动态同步与客户端按需 API 详情拉取（含可配置 TTL 缓存）](docs/adr/0007-open-manifest-catalog-and-configurable-ttl-cache.md)
+- [全局决策与执行边界规范 (Decision Protocol)](.agents/rules/decision-protocol.md)
 - [商业化战略、生态变现与低频破局白皮书](docs/商业化战略与低频破局思考.md)
-- [ADR-0001: 统一代码与文档协作决策协议](docs/adr/0001-decision-protocol-and-execution-boundaries.md)
-- [ADR-0004: Windows Authenticode 签名核验引擎](docs/adr/0004-windows-authenticode-signature-verification.md)
-- [ADR-0005: 晶透双模系统级图标标识体系](docs/adr/0005-adaptive-icon-system.md)
-- [ADR-0006: 多代码托管平台抽象架构 (ForgeProvider)](docs/adr/0006-multi-forge-provider-architecture.md)
-- [ADR-0007: 开放收录清单同步与可配置 TTL 缓存](docs/adr/0007-open-manifest-catalog-and-configurable-ttl-cache.md)
+- [竞品功能深度剖析与下一代演进 Roadmap](docs/竞品分析与下一代Roadmap.md)
+- [跨平台多模式图标规范与开发指引](docs/跨平台图标规范与开发指南.md)
+- [Android 端 Shizuku 免 Root 静默安装预研](docs/android-shizuku-research.md)
 
 ---
 
