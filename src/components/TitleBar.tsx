@@ -56,9 +56,53 @@ export const TitleBar: React.FC<TitleBarProps> = ({
     const timer = setInterval(loadQuota, 30000);
     const handleQuotaChanged = () => loadQuota();
     window.addEventListener('zstore:quota-updated', handleQuotaChanged);
+
+    let isMounted = true;
+    let unlistenFn: (() => void) | null = null;
+    api.onQuotaUpdated((payload) => {
+      if (!isMounted) return;
+      setHostTokens((prev) => {
+        const cleanHost = payload.host.toLowerCase();
+        const idx = prev.findIndex((t) => t.host.toLowerCase() === cleanHost);
+        if (idx >= 0) {
+          const copy = [...prev];
+          copy[idx] = {
+            ...copy[idx],
+            rate_limit_remaining: payload.rate_limit_remaining,
+            rate_limit_limit: payload.rate_limit_limit,
+            rate_limit_reset: payload.rate_limit_reset,
+            updated_at: Math.floor(Date.now() / 1000),
+          };
+          return copy;
+        } else {
+          return [
+            ...prev,
+            {
+              host: payload.host,
+              token: '',
+              rate_limit_remaining: payload.rate_limit_remaining,
+              rate_limit_limit: payload.rate_limit_limit,
+              rate_limit_reset: payload.rate_limit_reset,
+              updated_at: Math.floor(Date.now() / 1000),
+            },
+          ];
+        }
+      });
+    }).then((unlisten) => {
+      if (isMounted) {
+        unlistenFn = unlisten;
+      } else {
+        unlisten();
+      }
+    });
+
     return () => {
+      isMounted = false;
       clearInterval(timer);
       window.removeEventListener('zstore:quota-updated', handleQuotaChanged);
+      if (unlistenFn) {
+        unlistenFn();
+      }
     };
   }, []);
 
@@ -320,8 +364,10 @@ export const TitleBar: React.FC<TitleBarProps> = ({
       <div className="titlebar-right">
         {/* Rate Limit Indicator Pill (Feature E) */}
         {(() => {
-          const ghEntry = hostTokens.find((t) => t.host === 'github.com');
-          const remaining = ghEntry?.rate_limit_remaining ?? (ghEntry?.token ? 4980 : 58);
+          const ghEntry = hostTokens.find((t) => t.host.toLowerCase() === 'github.com');
+          const hasRemaining =
+            ghEntry?.rate_limit_remaining !== undefined && ghEntry?.rate_limit_remaining !== null;
+          const remaining = ghEntry?.rate_limit_remaining ?? 0;
           const limit = ghEntry?.rate_limit_limit ?? (ghEntry?.token ? 5000 : 60);
           const isConfigured = !!ghEntry?.token;
 
@@ -329,21 +375,33 @@ export const TitleBar: React.FC<TitleBarProps> = ({
           let pillColor = '#10b981';
           let pillBg = 'rgba(16, 185, 129, 0.12)';
           let pillBorder = 'rgba(16, 185, 129, 0.28)';
-          let pillText = `API ${remaining}/${limit}`;
+          let pillText = hasRemaining ? `API ${remaining}/${limit}` : 'API 探测中...';
 
-          if (remaining <= 0) {
+          if (!hasRemaining) {
+            pillDot = '⚪';
+            pillColor = 'var(--text-tertiary)';
+            pillBg = 'rgba(255, 255, 255, 0.05)';
+            pillBorder = 'var(--border-subtle)';
+          } else if (remaining <= 0) {
             pillDot = '🔴';
             pillColor = '#ef4444';
             pillBg = 'rgba(239, 68, 68, 0.12)';
             pillBorder = 'rgba(239, 68, 68, 0.28)';
             pillText = 'API 耗尽';
-          } else if (remaining <= 100) {
+          } else if (limit <= 100 ? remaining <= 10 : remaining <= 100) {
             pillDot = '🟡';
             pillColor = '#f59e0b';
             pillBg = 'rgba(245, 158, 11, 0.12)';
             pillBorder = 'rgba(245, 158, 11, 0.28)';
             pillText = `API ${remaining}/${limit}`;
           }
+
+          const resetTimeStr = ghEntry?.rate_limit_reset
+            ? new Date(ghEntry.rate_limit_reset * 1000).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              })
+            : null;
 
           return (
             <div style={{ position: 'relative' }}>
@@ -400,8 +458,16 @@ export const TitleBar: React.FC<TitleBarProps> = ({
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
                     <span>GitHub:</span>
-                    <span style={{ fontWeight: 500, color: pillColor }}>{remaining} / {limit}</span>
+                    <span style={{ fontWeight: 500, color: pillColor }}>
+                      {hasRemaining ? `${remaining} / ${limit}` : '探测中...'}
+                    </span>
                   </div>
+                  {resetTimeStr && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-tertiary)', fontSize: '11px' }}>
+                      <span>配额重置时间:</span>
+                      <span>{resetTimeStr}</span>
+                    </div>
+                  )}
                   <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
                     {isConfigured ? '已配置个人 PAT (配额 5000/h)' : '未配置 PAT (公共 IP 限流 60/h)'}
                   </div>

@@ -6,6 +6,8 @@ interface InstalledViewProps {
   onLaunch: (id: string) => void;
   onUninstall: (id: string) => void;
   onScanSystemApps?: () => void;
+  onExportApps?: () => void;
+  onExportAppsJson?: () => void;
 }
 
 export const InstalledView: React.FC<InstalledViewProps> = ({
@@ -13,13 +15,16 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
   onLaunch,
   onUninstall,
   onScanSystemApps,
+  onExportApps,
+  onExportAppsJson,
 }) => {
   const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
   const [confirmingUninstallId, setConfirmingUninstallId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const formatDate = (ts: number) => {
-    return new Date(ts).toLocaleDateString('zh-CN', {
+    const normalizedTs = ts < 10000000000 ? ts * 1000 : ts;
+    return new Date(normalizedTs).toLocaleDateString('zh-CN', {
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
@@ -65,7 +70,29 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
     <div className="installed-view view-entrance">
       <div className="section-header">
         <h3 className="section-title">📦 已安装的开源软件 ({installedApps.length})</h3>
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {onExportApps && (
+            <button
+              className="btn-fluent btn-secondary"
+              style={{ padding: '4px 10px', fontSize: '12px' }}
+              onClick={onExportApps}
+              disabled={installedApps.length === 0}
+              title="复制软件清单 Markdown 到剪贴板"
+            >
+              📋 导出 Markdown
+            </button>
+          )}
+          {onExportAppsJson && (
+            <button
+              className="btn-fluent btn-secondary"
+              style={{ padding: '4px 10px', fontSize: '12px' }}
+              onClick={onExportAppsJson}
+              disabled={installedApps.length === 0}
+              title="导出软件资产 JSON 备份文件"
+            >
+              💾 备份 JSON
+            </button>
+          )}
           {onScanSystemApps && (
             <button
               className="btn-fluent btn-secondary"

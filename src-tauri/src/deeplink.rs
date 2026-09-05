@@ -20,11 +20,7 @@ impl DeepLinkParser {
         }
 
         // 必须以 zstore:// 开头 (大小写不敏感)
-        let without_proto = if let Some(rest) = s.strip_prefix("zstore://") {
-            rest
-        } else if let Some(rest) = s.strip_prefix("ZSTORE://") {
-            rest
-        } else if s.to_lowercase().starts_with("zstore://") {
+        let without_proto = if s.len() >= 9 && s[..9].eq_ignore_ascii_case("zstore://") {
             &s[9..]
         } else {
             return None;

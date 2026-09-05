@@ -3,8 +3,20 @@ use crate::models::{AppDetail, AppSummary, DeveloperProfile, DeveloperRepoItem, 
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, IF_NONE_MATCH, USER_AGENT};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::RwLock;
+use std::sync::{LazyLock, RwLock};
 use regex::Regex;
+
+static MD_IMG_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"!\[(.*?)\]\((\s*<)?([^\s\)>]+)(>)?(\s+.*?)?\)").expect("invalid MD_IMG_RE regex")
+});
+
+static HTML_IMG_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?i)<img\s+([^>]*?)src=["']([^"']+)["']([^>]*?)>"#).expect("invalid HTML_IMG_RE regex")
+});
+
+static LOGO_HTML_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?i)<img\s+[^>]*?src=["']([^"']+)["'][^>]*>"#).expect("invalid LOGO_HTML_RE regex")
+});
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CatalogItem {
@@ -455,6 +467,7 @@ impl CatalogService {
 
         let resp = client.get(&url).headers(headers).send().await;
         if let Ok(res) = resp {
+            crate::notify_rate_limit("github.com", res.headers());
             if res.status().is_success() {
                 if let Ok(data) = res.json::<GitHubSearchResponse>().await {
                     let summaries: Vec<AppSummary> = data
@@ -522,6 +535,8 @@ impl CatalogService {
             .send()
             .await
             .map_err(|e| e.to_string())?;
+
+        crate::notify_rate_limit("github.com", resp.headers());
 
         if !resp.status().is_success() {
             return Err(format!("未找到该 GitHub 仓库: {}/{}", owner, repo));
@@ -601,6 +616,10 @@ impl CatalogService {
             .send()
             .await;
 
+        if let Ok(ref res) = resp {
+            crate::notify_rate_limit("github.com", res.headers());
+        }
+
         let (release_resp, new_cache) = match resp {
             Ok(res) if res.status() == reqwest::StatusCode::NOT_MODIFIED => {
                 // 304 Not Modified: 零配额消耗，直接使用 SQLite 本地缓存
@@ -665,7 +684,14 @@ impl CatalogService {
         let readme_task = async {
             let req = client.get(&readme_url).headers(readme_headers).send();
             match tokio::time::timeout(std::time::Duration::from_secs(4), req).await {
-                Ok(Ok(res)) if res.status().is_success() => res.text().await.unwrap_or(default_readme_clone),
+                Ok(Ok(res)) => {
+                    crate::notify_rate_limit("github.com", res.headers());
+                    if res.status().is_success() {
+                        res.text().await.unwrap_or(default_readme_clone)
+                    } else {
+                        default_readme_clone
+                    }
+                }
                 _ => default_readme_clone,
             }
         };
@@ -675,7 +701,14 @@ impl CatalogService {
         let repo_task = async {
             let req = client.get(&repo_url).headers(repo_headers).send();
             match tokio::time::timeout(std::time::Duration::from_secs(4), req).await {
-                Ok(Ok(res)) if res.status().is_success() => res.json::<GitHubRepoResponse>().await.ok(),
+                Ok(Ok(res)) => {
+                    crate::notify_rate_limit("github.com", res.headers());
+                    if res.status().is_success() {
+                        res.json::<GitHubRepoResponse>().await.ok()
+                    } else {
+                        None
+                    }
+                }
                 _ => None,
             }
         };
@@ -836,6 +869,15 @@ impl CatalogService {
     }
 
     pub fn clean_image_url(url: &str, owner: &str, repo: &str) -> String {
+        Self::clean_image_url_with_mirror(url, owner, repo, "https://gh-proxy.com/")
+    }
+
+    pub fn clean_image_url_with_mirror(
+        url: &str,
+        owner: &str,
+        repo: &str,
+        mirror_prefix: &str,
+    ) -> String {
         let trimmed = url.trim().trim_matches(|c| c == '<' || c == '>');
         if trimmed.is_empty()
             || trimmed.starts_with('#')
@@ -846,7 +888,16 @@ impl CatalogService {
             return trimmed.to_string();
         }
 
+        let prefix = if mirror_prefix.is_empty() || mirror_prefix.ends_with('/') {
+            mirror_prefix.to_string()
+        } else {
+            format!("{}/", mirror_prefix)
+        };
+
         // 1. 如果已带镜像前缀，不重复添加
+        if !prefix.is_empty() && trimmed.starts_with(&prefix) {
+            return trimmed.to_string();
+        }
         if trimmed.starts_with("https://gh-proxy.com/") {
             return trimmed.to_string();
         }
@@ -856,8 +907,8 @@ impl CatalogService {
         let blob_prefix = format!("https://github.com/{}/{}/blob/", owner, repo);
         if let Some(rest) = trimmed.strip_prefix(&blob_prefix) {
             return format!(
-                "https://gh-proxy.com/https://raw.githubusercontent.com/{}/{}/{}",
-                owner, repo, rest
+                "{}https://raw.githubusercontent.com/{}/{}/{}",
+                prefix, owner, repo, rest
             );
         }
 
@@ -866,8 +917,8 @@ impl CatalogService {
         let raw_prefix = format!("https://github.com/{}/{}/raw/", owner, repo);
         if let Some(rest) = trimmed.strip_prefix(&raw_prefix) {
             return format!(
-                "https://gh-proxy.com/https://raw.githubusercontent.com/{}/{}/{}",
-                owner, repo, rest
+                "{}https://raw.githubusercontent.com/{}/{}/{}",
+                prefix, owner, repo, rest
             );
         }
 
@@ -877,7 +928,7 @@ impl CatalogService {
             || trimmed.starts_with("https://camo.githubusercontent.com/")
             || trimmed.starts_with("https://github.com/user-attachments/assets/")
         {
-            return format!("https://gh-proxy.com/{}", trimmed);
+            return format!("{}{}", prefix, trimmed);
         }
 
         // 5. 其他带协议的绝对链接（例如外部 CDN, shields.io, 外部网站图床等）
@@ -888,15 +939,14 @@ impl CatalogService {
         // 6. 相对路径（如 ./assets/logo.png, docs/preview.jpg, /images/banner.svg）
         let clean_path = trimmed.trim_start_matches("./").trim_start_matches('/');
         format!(
-            "https://gh-proxy.com/https://raw.githubusercontent.com/{}/{}/HEAD/{}",
-            owner, repo, clean_path
+            "{}https://raw.githubusercontent.com/{}/{}/HEAD/{}",
+            prefix, owner, repo, clean_path
         )
     }
 
     pub fn rewrite_readme_images(raw_markdown: &str, owner: &str, repo: &str) -> String {
         // 1. 重写 Markdown 语法图片: ![alt](url) 或 ![alt](url "title")
-        let md_img_re = Regex::new(r"!\[(.*?)\]\((\s*<)?([^\s\)>]+)(>)?(\s+.*?)?\)").unwrap();
-        let md_replaced = md_img_re.replace_all(raw_markdown, |caps: &regex::Captures| {
+        let md_replaced = MD_IMG_RE.replace_all(raw_markdown, |caps: &regex::Captures| {
             let alt = &caps[1];
             let url = &caps[3];
             let title = caps.get(5).map(|m| m.as_str()).unwrap_or("");
@@ -909,8 +959,7 @@ impl CatalogService {
         });
 
         // 2. 重写 HTML <img> 标签语法: <img ... src="url" ...>
-        let html_img_re = Regex::new(r#"(?i)<img\s+([^>]*?)src=["']([^"']+)["']([^>]*?)>"#).unwrap();
-        let html_replaced = html_img_re.replace_all(&md_replaced, |caps: &regex::Captures| {
+        let html_replaced = HTML_IMG_RE.replace_all(&md_replaced, |caps: &regex::Captures| {
             let before = &caps[1];
             let url = &caps[2];
             let after = &caps[3];
@@ -931,93 +980,89 @@ impl CatalogService {
         let head_text = lines[..head_count].join("\n");
 
         // 1. 优先在 HTML <img> 中寻找带有 logo/icon/brand/splash 的首部图片
-        if let Ok(html_re) = Regex::new(r#"(?i)<img\s+[^>]*?src=["']([^"']+)["'][^>]*>"#) {
-            for caps in html_re.captures_iter(&head_text) {
-                let full_tag = caps.get(0).unwrap().as_str();
-                let src = &caps[1];
-                let lower = src.to_lowercase();
-                if lower.contains("badge")
-                    || lower.contains("shields.io")
-                    || lower.contains("workflow")
-                    || lower.contains("license")
-                {
-                    continue;
+        for caps in LOGO_HTML_RE.captures_iter(&head_text) {
+            let full_tag = caps.get(0).unwrap().as_str();
+            let src = &caps[1];
+            let lower = src.to_lowercase();
+            if lower.contains("badge")
+                || lower.contains("shields.io")
+                || lower.contains("workflow")
+                || lower.contains("license")
+            {
+                continue;
+            }
+            if lower.contains("logo")
+                || lower.contains("icon")
+                || lower.contains("app")
+                || lower.contains("brand")
+                || lower.contains("splash")
+                || lower.ends_with(".png")
+                || lower.ends_with(".svg")
+            {
+                let cleaned_url = Self::clean_image_url(src, owner, repo);
+                let mut stripped = raw_markdown.to_string();
+
+                // 尝试剥离包含该 img 的整段居中标签 <p align="center">...</p> 或 <div align="center">...</div>
+                let p_pattern = format!(
+                    r#"(?is)<p\s+align=["']center["']>\s*{}\s*(?:<br\s*/?>)?\s*</p>"#,
+                    regex::escape(full_tag)
+                );
+                if let Ok(p_re) = Regex::new(&p_pattern) {
+                    if p_re.is_match(&stripped) {
+                        stripped = p_re.replace(&stripped, "").to_string();
+                        return (Some(cleaned_url), stripped);
+                    }
                 }
-                if lower.contains("logo")
-                    || lower.contains("icon")
-                    || lower.contains("app")
-                    || lower.contains("brand")
-                    || lower.contains("splash")
-                    || lower.ends_with(".png")
-                    || lower.ends_with(".svg")
-                {
-                    let cleaned_url = Self::clean_image_url(src, owner, repo);
-                    let mut stripped = raw_markdown.to_string();
-
-                    // 尝试剥离包含该 img 的整段居中标签 <p align="center">...</p> 或 <div align="center">...</div>
-                    let p_pattern = format!(
-                        r#"(?is)<p\s+align=["']center["']>\s*{}\s*(?:<br\s*/?>)?\s*</p>"#,
-                        regex::escape(full_tag)
-                    );
-                    if let Ok(p_re) = Regex::new(&p_pattern) {
-                        if p_re.is_match(&stripped) {
-                            stripped = p_re.replace(&stripped, "").to_string();
-                            return (Some(cleaned_url), stripped);
-                        }
+                let div_pattern = format!(
+                    r#"(?is)<div\s+align=["']center["']>\s*{}\s*(?:<br\s*/?>)?\s*</div>"#,
+                    regex::escape(full_tag)
+                );
+                if let Ok(div_re) = Regex::new(&div_pattern) {
+                    if div_re.is_match(&stripped) {
+                        stripped = div_re.replace(&stripped, "").to_string();
+                        return (Some(cleaned_url), stripped);
                     }
-                    let div_pattern = format!(
-                        r#"(?is)<div\s+align=["']center["']>\s*{}\s*(?:<br\s*/?>)?\s*</div>"#,
-                        regex::escape(full_tag)
-                    );
-                    if let Ok(div_re) = Regex::new(&div_pattern) {
-                        if div_re.is_match(&stripped) {
-                            stripped = div_re.replace(&stripped, "").to_string();
-                            return (Some(cleaned_url), stripped);
-                        }
-                    }
-
-                    // 否则直接剔除该 img 标签及紧随的换行符
-                    let tag_pattern = format!(r#"(?i){}\s*(?:<br\s*/?>)?"#, regex::escape(full_tag));
-                    if let Ok(tag_re) = Regex::new(&tag_pattern) {
-                        stripped = tag_re.replace(&stripped, "").to_string();
-                    }
-
-                    return (Some(cleaned_url), stripped);
                 }
+
+                // 否则直接剔除该 img 标签及紧随的换行符
+                let tag_pattern = format!(r#"(?i){}\s*(?:<br\s*/?>)?"#, regex::escape(full_tag));
+                if let Ok(tag_re) = Regex::new(&tag_pattern) {
+                    stripped = tag_re.replace(&stripped, "").to_string();
+                }
+
+                return (Some(cleaned_url), stripped);
             }
         }
 
         // 2. 其次在 Markdown ![alt](url) 中寻找
-        if let Ok(md_re) = Regex::new(r"!\[(.*?)\]\((\s*<)?([^\s\)>]+)(>)?(\s+.*?)?\)") {
-            for caps in md_re.captures_iter(&head_text) {
-                let full_md = caps.get(0).unwrap().as_str();
-                let alt = caps[1].to_lowercase();
-                let src = &caps[3];
-                let lower_src = src.to_lowercase();
-                if lower_src.contains("badge")
-                    || lower_src.contains("shields.io")
-                    || lower_src.contains("workflow")
-                    || lower_src.contains("license")
-                {
-                    continue;
+        for caps in MD_IMG_RE.captures_iter(&head_text) {
+            let full_md = caps.get(0).unwrap().as_str();
+            let alt = caps[1].to_lowercase();
+            let src = &caps[3];
+            let lower_src = src.to_lowercase();
+            if lower_src.contains("badge")
+                || lower_src.contains("shields.io")
+                || lower_src.contains("workflow")
+                || lower_src.contains("license")
+            {
+                continue;
+            }
+            if alt.contains("logo")
+                || alt.contains("icon")
+                || alt.contains("app")
+                || alt.contains("brand")
+                || lower_src.contains("logo")
+                || lower_src.contains("icon")
+                || lower_src.ends_with(".png")
+                || lower_src.ends_with(".svg")
+            {
+                let cleaned_url = Self::clean_image_url(src, owner, repo);
+                let mut stripped = raw_markdown.to_string();
+                let md_pattern = format!(r#"{}\s*"#, regex::escape(full_md));
+                if let Ok(m_re) = Regex::new(&md_pattern) {
+                    stripped = m_re.replace(&stripped, "").to_string();
                 }
-                if alt.contains("logo")
-                    || alt.contains("icon")
-                    || alt.contains("app")
-                    || alt.contains("brand")
-                    || lower_src.contains("logo")
-                    || lower_src.contains("icon")
-                    || lower_src.ends_with(".png")
-                    || lower_src.ends_with(".svg")
-                {
-                    let cleaned_url = Self::clean_image_url(src, owner, repo);
-                    let mut stripped = raw_markdown.to_string();
-                    let md_pattern = format!(r#"{}\s*"#, regex::escape(full_md));
-                    if let Ok(m_re) = Regex::new(&md_pattern) {
-                        stripped = m_re.replace(&stripped, "").to_string();
-                    }
-                    return (Some(cleaned_url), stripped);
-                }
+                return (Some(cleaned_url), stripped);
             }
         }
 
@@ -1057,6 +1102,9 @@ impl CatalogService {
 
         let user_url = format!("https://api.github.com/users/{}", dev);
         let user_res = client.get(&user_url).headers(headers.clone()).send().await;
+        if let Ok(ref res) = user_res {
+            crate::notify_rate_limit("github.com", res.headers());
+        }
 
         let (login, name, avatar_url, html_url, bio, company, blog, location, public_repos, followers, following) = match user_res {
             Ok(res) if res.status().is_success() => {
@@ -1114,6 +1162,9 @@ impl CatalogService {
         // 获取仓库列表
         let repos_url = format!("https://api.github.com/users/{}/repos?sort=updated&per_page=30", dev);
         let repos_res = client.get(&repos_url).headers(headers).send().await;
+        if let Ok(ref res) = repos_res {
+            crate::notify_rate_limit("github.com", res.headers());
+        }
 
         let mut repos: Vec<DeveloperRepoItem> = Vec::new();
         let catalog_list = self.get_catalog_items();
@@ -1232,6 +1283,7 @@ impl CatalogService {
         let catalog_list = self.get_catalog_items();
         let res = client.get(&target_url).headers(headers).send().await;
         if let Ok(resp) = res {
+            crate::notify_rate_limit("github.com", resp.headers());
             if resp.status().is_success() {
                 if let Ok(starred_list) = resp.json::<Vec<GitHubRepoResponse>>().await {
                     total_starred = starred_list.len();
@@ -1264,8 +1316,8 @@ impl CatalogService {
             }
         }
 
-        // 离线或模拟演示兜底：如果无法访问远端网络，根据 catalog 返回样例匹配
-        if total_starred == 0 && catalog_matches.is_empty() {
+        // 离线或模拟演示兜底：如果远端无星标返回或请求失败，根据 catalog 返回样例匹配
+        if total_starred == 0 && catalog_matches.is_empty() && other_repos.is_empty() {
             let sample_matches: Vec<AppSummary> = catalog_list
                 .iter()
                 .take(3)

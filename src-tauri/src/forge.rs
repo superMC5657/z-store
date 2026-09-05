@@ -301,6 +301,7 @@ impl ForgeProvider for GitHubProvider {
 
         let url = format!("https://api.github.com/repos/{}/{}", owner, repo);
         let resp = client.get(&url).headers(headers).send().await.map_err(|e| e.to_string())?;
+        crate::notify_rate_limit("github.com", resp.headers());
 
         if !resp.status().is_success() {
             return Err(format!("GitHub API 响应失败: {}", resp.status()));
@@ -359,6 +360,7 @@ impl ForgeProvider for GitHubProvider {
 
         let url = format!("https://api.github.com/repos/{}/{}/releases/latest", owner, repo);
         let resp = client.get(&url).headers(headers).send().await.map_err(|e| e.to_string())?;
+        crate::notify_rate_limit("github.com", resp.headers());
 
         if !resp.status().is_success() {
             return Err(format!("获取 GitHub Release 失败: HTTP {}", resp.status()));
@@ -445,6 +447,7 @@ impl ForgeProvider for GitHubProvider {
         let encoded_q = urlencoding::encode(query);
         let url = format!("https://api.github.com/search/repositories?q={}&per_page=10", encoded_q);
         let resp = client.get(&url).headers(headers).send().await.map_err(|e| e.to_string())?;
+        crate::notify_rate_limit("github.com", resp.headers());
 
         if !resp.status().is_success() {
             return Err(format!("GitHub 搜索失败: HTTP {}", resp.status()));

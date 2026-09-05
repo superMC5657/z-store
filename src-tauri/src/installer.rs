@@ -67,8 +67,30 @@ impl InstallerEngine {
             (AssetKind::Pkg, "macos", arch)
         } else if name_lower.ends_with(".apk") {
             (AssetKind::Apk, "android", "arm64-v8a")
-        } else if name_lower.ends_with(".zip") {
-            (AssetKind::PortableZip, "windows", arch)
+        } else if name_lower.ends_with(".zip") || name_lower.ends_with(".7z") {
+            let zip_os = if name_lower.contains("darwin")
+                || name_lower.contains("macos")
+                || name_lower.contains("osx")
+                || name_lower.contains("mac")
+            {
+                "macos"
+            } else if name_lower.contains("linux") {
+                "linux"
+            } else {
+                "windows"
+            };
+            (AssetKind::PortableZip, zip_os, arch)
+        } else if name_lower.ends_with(".tar.gz") || name_lower.ends_with(".tar.xz") {
+            let tar_os = if name_lower.contains("darwin")
+                || name_lower.contains("macos")
+                || name_lower.contains("osx")
+                || name_lower.contains("mac")
+            {
+                "macos"
+            } else {
+                "linux"
+            };
+            (AssetKind::Other, tar_os, arch)
         } else {
             (AssetKind::Other, "all", "universal")
         }
@@ -88,6 +110,7 @@ impl InstallerEngine {
         download_url: &str,
         asset_name: &str,
         expected_sha256: Option<&str>,
+        custom_download_dir: Option<&Path>,
     ) -> Result<(PathBuf, String), String> {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(300))
@@ -98,16 +121,29 @@ impl InstallerEngine {
             .get(download_url)
             .send()
             .await
-            .map_err(|e| format!("请求下载地址失败: {}", e))?;
+            .map_err(|e| format!("无法连接下载服务器: {}", e))?;
 
         if !resp.status().is_success() {
-            return Err(format!("下载服务返回错误状态: {}", resp.status()));
+            return Err(format!("下载请求失败，HTTP 状态码: {}", resp.status()));
         }
 
         let total_bytes = resp.content_length().unwrap_or(0);
-        let temp_dir = std::env::temp_dir().join("zstore_downloads");
+        let temp_dir = if let Some(custom) = custom_download_dir {
+            custom.to_path_buf()
+        } else {
+            std::env::temp_dir().join("zstore_downloads")
+        };
         let _ = std::fs::create_dir_all(&temp_dir);
-        let temp_path = temp_dir.join(format!("{}_{}", task_id, asset_name));
+
+        let safe_asset_name = Path::new(asset_name)
+            .file_name()
+            .and_then(|f| f.to_str())
+            .unwrap_or("package.bin");
+        let safe_task_id: String = task_id
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+            .collect();
+        let temp_path = temp_dir.join(format!("{}_{}", safe_task_id, safe_asset_name));
 
         let mut file = File::create(&temp_path).map_err(|e| format!("创建临时文件失败: {}", e))?;
 
@@ -119,9 +155,17 @@ impl InstallerEngine {
         let mut last_bytes: u64 = 0;
 
         while let Some(chunk_result) = stream.next().await {
-            let chunk = chunk_result.map_err(|e| format!("下载中断: {}", e))?;
-            file.write_all(&chunk)
-                .map_err(|e| format!("写入磁盘失败: {}", e))?;
+            let chunk = match chunk_result {
+                Ok(c) => c,
+                Err(e) => {
+                    let _ = std::fs::remove_file(&temp_path);
+                    return Err(format!("下载中断: {}", e));
+                }
+            };
+            if let Err(e) = file.write_all(&chunk) {
+                let _ = std::fs::remove_file(&temp_path);
+                return Err(format!("写入磁盘失败: {}", e));
+            }
             hasher.update(&chunk);
 
             downloaded += chunk.len() as u64;
@@ -210,6 +254,7 @@ impl InstallerEngine {
         installer_path: &Path,
         kind: &AssetKind,
         app_id: &str,
+        custom_portable_dir: Option<&str>,
     ) -> Result<String, String> {
         match kind {
             AssetKind::Msi => {
@@ -256,7 +301,7 @@ impl InstallerEngine {
                 }
             }
             AssetKind::PortableZip => {
-                let app_dir = dirs_or_fallback(app_id);
+                let app_dir = dirs_or_fallback_with_base(app_id, custom_portable_dir);
                 let _ = std::fs::create_dir_all(&app_dir);
 
                 let file = File::open(installer_path).map_err(|e| e.to_string())?;
@@ -444,6 +489,10 @@ impl InstallerEngine {
         let sys_apps = PathBuf::from("/Applications");
         let dest_app = sys_apps.join(app_name);
 
+        if dest_app.exists() {
+            let _ = std::fs::remove_dir_all(&dest_app);
+        }
+
         let cp_status = std::process::Command::new("cp")
             .arg("-R")
             .arg(&target_app)
@@ -495,10 +544,18 @@ impl InstallerEngine {
 
     #[cfg(target_os = "windows")]
     pub fn create_desktop_shortcut(app_name: &str, exe_path: &Path) {
+        // 清洗快捷方式文件名，过滤 Windows 非法文件名字符: \ / : * ? " < > |
+        let clean_name: String = app_name
+            .chars()
+            .filter(|c| !['\\', '/', ':', '*', '?', '"', '<', '>', '|'].contains(c))
+            .collect();
+        let safe_name = clean_name.trim();
+        let final_name = if safe_name.is_empty() { "App" } else { safe_name };
+
         let working_dir = exe_path.parent().unwrap_or(exe_path);
         let script = format!(
             "$s=(New-Object -COM WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Desktop') + '\\{}.lnk');$s.TargetPath='{}';$s.WorkingDirectory='{}';$s.Save()",
-            app_name,
+            final_name.replace('\'', "''"),
             exe_path.to_string_lossy().replace('\'', "''"),
             working_dir.to_string_lossy().replace('\'', "''")
         );
@@ -510,14 +567,92 @@ impl InstallerEngine {
     }
 }
 
-pub fn dirs_or_fallback(app_id: &str) -> PathBuf {
-    if let Ok(app_data) = std::env::var("LOCALAPPDATA") {
-        PathBuf::from(app_data)
-            .join("Programs")
-            .join("z-store-apps")
-            .join(app_id)
+pub fn expand_env_path(path_str: &str) -> PathBuf {
+    let mut expanded = path_str.to_string();
+    #[cfg(target_os = "windows")]
+    {
+        if expanded.contains('%') {
+            if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+                expanded = expanded.replace("%LOCALAPPDATA%", &local_app_data);
+            }
+            if let Ok(user_profile) = std::env::var("USERPROFILE") {
+                expanded = expanded.replace("%USERPROFILE%", &user_profile);
+            }
+            if let Ok(temp) = std::env::var("TEMP") {
+                expanded = expanded.replace("%TEMP%", &temp);
+            }
+        }
+    }
+    PathBuf::from(expanded)
+}
+
+pub fn dirs_or_fallback_with_base(app_id: &str, custom_base: Option<&str>) -> PathBuf {
+    let safe_id: String = app_id
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_' || *c == '.')
+        .collect();
+    let clean_id = if safe_id.is_empty() || safe_id.starts_with('.') {
+        "app".to_string()
     } else {
-        std::env::temp_dir().join("z-store-apps").join(app_id)
+        safe_id
+    };
+
+    if let Some(base) = custom_base {
+        let trimmed = base.trim();
+        if !trimmed.is_empty() {
+            let expanded_base = expand_env_path(trimmed);
+            return expanded_base.join(clean_id);
+        }
+    }
+
+    dirs_or_fallback(app_id)
+}
+
+pub fn dirs_or_fallback(app_id: &str) -> PathBuf {
+    // 消毒 app_id，防御路径逃逸
+    let safe_id: String = app_id
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_' || *c == '.')
+        .collect();
+    let clean_id = if safe_id.is_empty() || safe_id.starts_with('.') {
+        "app".to_string()
+    } else {
+        safe_id
+    };
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(app_data) = std::env::var("LOCALAPPDATA") {
+            return PathBuf::from(app_data)
+                .join("Programs")
+                .join("z-store-apps")
+                .join(clean_id);
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            return PathBuf::from(home)
+                .join("Applications")
+                .join("z-store-apps")
+                .join(clean_id);
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            return PathBuf::from(home)
+                .join(".local")
+                .join("bin")
+                .join("z-store-apps")
+                .join(clean_id);
+        }
+    }
+
+    if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+        PathBuf::from(home).join(".z-store-apps").join(clean_id)
+    } else {
+        std::env::temp_dir().join("z-store-apps").join(clean_id)
     }
 }
 
@@ -596,5 +731,17 @@ mod tests {
 
         let hash = InstallerEngine::compute_sha256(tmp.path()).unwrap();
         assert_eq!(hash.len(), 64);
+    }
+
+    #[test]
+    fn test_expand_env_path_and_portable_dir() {
+        let expanded = expand_env_path("C:\\Custom\\Path");
+        assert_eq!(expanded, PathBuf::from("C:\\Custom\\Path"));
+
+        let base = dirs_or_fallback_with_base("test-app", Some("D:\\PortableApps"));
+        assert_eq!(base, PathBuf::from("D:\\PortableApps").join("test-app"));
+
+        let base_default = dirs_or_fallback_with_base("test-app", None);
+        assert!(base_default.to_string_lossy().contains("test-app"));
     }
 }

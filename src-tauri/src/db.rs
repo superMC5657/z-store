@@ -10,6 +10,11 @@ pub struct Database {
 impl Database {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         let conn = Connection::open(path)?;
+        let _ = conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA synchronous = NORMAL;
+             PRAGMA busy_timeout = 5000;",
+        );
         let db = Self { conn };
         db.init_schema()?;
         let _ = db.seed_initial_cache();
@@ -638,7 +643,12 @@ impl Database {
         let mut stmt = self.conn.prepare("SELECT token FROM host_tokens WHERE host = ?1")?;
         let mut rows = stmt.query_map(params![host.to_lowercase()], |row| row.get(0))?;
         if let Some(row) = rows.next() {
-            Ok(Some(row?))
+            let t: String = row?;
+            if t.trim().is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(t))
+            }
         } else {
             Ok(None)
         }
@@ -683,11 +693,15 @@ impl Database {
             .as_secs() as i64;
         self.conn.execute(
             r#"
-            UPDATE host_tokens
-            SET rate_limit_remaining = ?1, rate_limit_limit = ?2, rate_limit_reset = ?3, updated_at = ?4
-            WHERE host = ?5;
+            INSERT INTO host_tokens (host, token, rate_limit_remaining, rate_limit_limit, rate_limit_reset, updated_at)
+            VALUES (?1, '', ?2, ?3, ?4, ?5)
+            ON CONFLICT(host) DO UPDATE SET
+                rate_limit_remaining = excluded.rate_limit_remaining,
+                rate_limit_limit = excluded.rate_limit_limit,
+                rate_limit_reset = excluded.rate_limit_reset,
+                updated_at = excluded.updated_at;
             "#,
-            params![remaining, limit, reset, now, host.to_lowercase()],
+            params![host.to_lowercase(), remaining, limit, reset, now],
         )?;
         Ok(())
     }
@@ -865,6 +879,15 @@ mod tests {
         assert!(removed);
         assert!(db.get_host_token("codeberg.org").unwrap().is_none());
         assert_eq!(db.get_host_tokens().unwrap().len(), 1);
+
+        // 5. Update rate limit without prior token (Anonymous/Public host entry)
+        db.update_host_rate_limit("gitea.com", Some(55), Some(60), Some(1700000100)).unwrap();
+        let tokens_new = db.get_host_tokens().unwrap();
+        assert_eq!(tokens_new.len(), 2);
+        let gitea = tokens_new.iter().find(|t| t.host == "gitea.com").unwrap();
+        assert_eq!(gitea.rate_limit_remaining, Some(55));
+        assert_eq!(gitea.rate_limit_limit, Some(60));
+        assert!(db.get_host_token("gitea.com").unwrap().is_none());
     }
 
     #[test]

@@ -184,6 +184,14 @@ pub struct HostRateLimitStatus {
     pub message: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostQuotaEvent {
+    pub host: String,
+    pub rate_limit_remaining: Option<u32>,
+    pub rate_limit_limit: Option<u32>,
+    pub rate_limit_reset: Option<i64>,
+}
+
 pub use crate::deeplink::DeepLinkAction;
 
 

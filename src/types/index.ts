@@ -106,7 +106,7 @@ export interface ToastMessage {
 export interface AppSettings {
   theme: 'light' | 'dark' | 'system';
   ui_scale: '90' | '100' | '110' | '125';
-  font_size: 'small' | 'standard' | 'medium' | 'large';
+  font_size: '12' | '14' | '16' | '18' | '20' | 'small' | 'standard' | 'medium' | 'large';
   always_on_top: boolean;
   portable_dir: string;
   download_dir: string;
@@ -234,6 +234,13 @@ export interface HostRateLimitStatus {
   message?: string;
 }
 
+export interface QuotaUpdatePayload {
+  host: string;
+  rate_limit_remaining?: number;
+  rate_limit_limit?: number;
+  rate_limit_reset?: number;
+}
+
 export type DeepLinkAction =
   | { action: 'app_detail'; payload: { app_id: string } }
   | { action: 'install_app'; payload: { app_id: string } }
@@ -241,5 +248,21 @@ export type DeepLinkAction =
   | { action: 'developer_profile'; payload: { owner: string } }
   | { action: 'open_view'; payload: { view: string } };
 
+export type ForgeType = 'github' | 'codeberg' | 'gitea' | 'gitlab';
 
+export interface UniversalRepoCoord {
+  forge: ForgeType;
+  host: string;
+  owner: string;
+  repo: string;
+}
 
+export interface ForgeRepoInfo {
+  coord: UniversalRepoCoord;
+  name: string;
+  description?: string | null;
+  stars: number;
+  forks: number;
+  language?: string | null;
+  default_branch: string;
+}
