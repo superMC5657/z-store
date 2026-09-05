@@ -9,6 +9,30 @@ interface AppIconProps {
   size?: number | string;
 }
 
+// 模块级全局常驻已成功加载图标 URL 集合，保证任何页面切换都不会重新闪烁
+const globalLoadedIcons = new Set<string>();
+
+export function preloadIcons(icons: string[]) {
+  if (typeof window === 'undefined') return;
+  icons.forEach((icon) => {
+    if (!icon || globalLoadedIcons.has(icon)) return;
+    const isUrl =
+      icon.startsWith('http://') ||
+      icon.startsWith('https://') ||
+      icon.startsWith('/') ||
+      icon.includes('.png') ||
+      icon.includes('.svg');
+    if (!isUrl) return;
+
+    const img = new Image();
+    img.decoding = 'async';
+    img.onload = () => {
+      globalLoadedIcons.add(icon);
+    };
+    img.src = icon;
+  });
+}
+
 export const AppIcon: React.FC<AppIconProps> = ({
   icon,
   name,
@@ -19,6 +43,7 @@ export const AppIcon: React.FC<AppIconProps> = ({
 }) => {
   const [retryWithProxy, setRetryWithProxy] = useState(false);
   const [hasError, setHasError] = useState(false);
+  const [isLoaded, setIsLoaded] = useState(() => globalLoadedIcons.has(icon));
 
   // 判断是否为图片 URL 或资源路径
   const isUrl = Boolean(
@@ -90,14 +115,22 @@ export const AppIcon: React.FC<AppIconProps> = ({
           src={currentSrc}
           alt={name}
           className="app-icon-image"
+          decoding="async"
+          loading="eager"
+          onLoad={() => {
+            globalLoadedIcons.add(icon);
+            globalLoadedIcons.add(currentSrc);
+            setIsLoaded(true);
+          }}
           onError={handleError}
-          loading="lazy"
           style={{
             width: '100%',
             height: '100%',
             objectFit: 'cover',
             borderRadius: 'inherit',
             display: 'block',
+            opacity: isLoaded || globalLoadedIcons.has(icon) || globalLoadedIcons.has(currentSrc) ? 1 : 0.85,
+            transition: 'opacity 0.15s ease',
           }}
         />
       ) : isUrl && hasError ? (

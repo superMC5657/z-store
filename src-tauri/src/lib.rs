@@ -59,6 +59,8 @@ pub fn run() {
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             commands::search_apps,
+            commands::get_category_apps,
+            commands::warmup_top_apps,
             commands::get_app_details,
             commands::get_installed_apps,
             commands::install_app,

@@ -207,9 +207,9 @@ export const api = {
     );
   },
 
-  async getAppDetails(id: string): Promise<AppDetail> {
+  async getAppDetails(id: string, forceRefresh = false): Promise<AppDetail> {
     if (isTauri) {
-      return tauriInvoke<AppDetail>('get_app_details', { id });
+      return tauriInvoke<AppDetail>('get_app_details', { id, forceRefresh });
     }
     if (MOCK_APPS[id]) return MOCK_APPS[id];
     return {
@@ -413,6 +413,13 @@ export const api = {
       return tauriInvoke<number>('get_catalog_count');
     }
     return Object.keys(MOCK_APPS).length;
+  },
+
+  async warmupTopApps(limit = 15): Promise<number> {
+    if (isTauri) {
+      return tauriInvoke<number>('warmup_top_apps', { limit });
+    }
+    return 0;
   },
 
   async scanAndMatchLocalApps(): Promise<AppMatchResult[]> {

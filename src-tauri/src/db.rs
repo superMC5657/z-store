@@ -1,4 +1,4 @@
-use crate::models::{HostTokenEntry, InstalledApp, UpdateRule};
+use crate::models::{AppDetail, HostTokenEntry, InstalledApp, UpdateRule};
 use rusqlite::{params, Connection, Result};
 use std::collections::HashMap;
 use std::path::Path;
@@ -12,6 +12,7 @@ impl Database {
         let conn = Connection::open(path)?;
         let db = Self { conn };
         db.init_schema()?;
+        let _ = db.seed_initial_cache();
         Ok(db)
     }
 
@@ -19,6 +20,7 @@ impl Database {
         let conn = Connection::open_in_memory()?;
         let db = Self { conn };
         db.init_schema()?;
+        let _ = db.seed_initial_cache();
         Ok(db)
     }
 
@@ -43,6 +45,17 @@ impl Database {
                 payload_json TEXT NOT NULL,
                 last_checked_at INTEGER NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS app_details_cache (
+                app_id TEXT PRIMARY KEY,
+                repo_key TEXT NOT NULL,
+                name TEXT NOT NULL,
+                latest_version TEXT NOT NULL,
+                detail_json TEXT NOT NULL,
+                cached_at INTEGER NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_app_details_cache_repo_key ON app_details_cache(repo_key);
 
             CREATE TABLE IF NOT EXISTS user_settings (
                 key TEXT PRIMARY KEY,
@@ -231,8 +244,116 @@ impl Database {
         Ok(map)
     }
 
+    pub fn get_cached_app_detail(&self, id_or_repo: &str) -> Result<Option<AppDetail>> {
+        let clean = id_or_repo.trim().to_lowercase();
+        if clean.is_empty() {
+            return Ok(None);
+        }
+
+        let mut stmt = self.conn.prepare(
+            "SELECT detail_json FROM app_details_cache WHERE LOWER(app_id) = ?1 OR LOWER(repo_key) = ?1 LIMIT 1",
+        )?;
+        let mut rows = stmt.query(params![clean])?;
+        if let Some(row) = rows.next()? {
+            let json_str: String = row.get(0)?;
+            if let Ok(detail) = serde_json::from_str::<AppDetail>(&json_str) {
+                return Ok(Some(detail));
+            }
+        }
+        Ok(None)
+    }
+
+    pub fn save_cached_app_detail(
+        &self,
+        app_id: &str,
+        repo_key: &str,
+        detail: &AppDetail,
+    ) -> Result<()> {
+        let clean_id = app_id.trim().to_lowercase();
+        let clean_repo = repo_key.trim().to_lowercase();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        let json_str = serde_json::to_string(detail)
+            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+
+        self.conn.execute(
+            r#"
+            INSERT INTO app_details_cache (app_id, repo_key, name, latest_version, detail_json, cached_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            ON CONFLICT(app_id) DO UPDATE SET
+                repo_key = excluded.repo_key,
+                name = excluded.name,
+                latest_version = excluded.latest_version,
+                detail_json = excluded.detail_json,
+                cached_at = excluded.cached_at;
+            "#,
+            params![
+                clean_id,
+                clean_repo,
+                detail.name,
+                detail.latest_version,
+                json_str,
+                now,
+            ],
+        )?;
+
+        // 如果传入的 clean_repo 不为空且不等于 clean_id，且形如 owner/repo 或 host/owner/repo，
+        // 同时以 clean_repo 为主键写入一条记录，确保后续按仓库坐标检索时同样能够直接命中
+        if !clean_repo.is_empty() && clean_repo != clean_id {
+            let _ = self.conn.execute(
+                r#"
+                INSERT INTO app_details_cache (app_id, repo_key, name, latest_version, detail_json, cached_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                ON CONFLICT(app_id) DO UPDATE SET
+                    repo_key = excluded.repo_key,
+                    name = excluded.name,
+                    latest_version = excluded.latest_version,
+                    detail_json = excluded.detail_json,
+                    cached_at = excluded.cached_at;
+                "#,
+                params![
+                    clean_repo,
+                    clean_repo,
+                    detail.name,
+                    detail.latest_version,
+                    json_str,
+                    now,
+                ],
+            );
+        }
+
+        Ok(())
+    }
+
+    pub fn clear_app_details_cache(&self) -> Result<()> {
+        self.conn.execute("DELETE FROM app_details_cache", [])?;
+        Ok(())
+    }
+
+    pub fn seed_initial_cache(&self) -> Result<()> {
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM app_details_cache", [], |r| r.get(0))
+            .unwrap_or(0);
+
+        if count == 0 {
+            let seeds_str = include_str!("catalog_seeds.json");
+            if let Ok(seeds) = serde_json::from_str::<Vec<AppDetail>>(seeds_str) {
+                for detail in seeds {
+                    let repo_key =
+                        format!("github.com/{}/{}", detail.owner, detail.repo).to_lowercase();
+                    let _ = self.save_cached_app_detail(&detail.id, &repo_key, &detail);
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn clear_cache(&self) -> Result<()> {
         self.conn.execute("DELETE FROM api_etag_cache", [])?;
+        let _ = self.conn.execute("DELETE FROM app_details_cache", []);
         Ok(())
     }
 
@@ -708,5 +829,66 @@ mod tests {
         assert!(removed);
         assert!(db.get_host_token("codeberg.org").unwrap().is_none());
         assert_eq!(db.get_host_tokens().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_app_details_cache_crud() {
+        let db = Database::open_in_memory().unwrap();
+
+        // 1. Initial: empty
+        assert!(db.get_cached_app_detail("rustdesk").unwrap().is_none());
+        assert!(db.get_cached_app_detail("github.com/rustdesk/rustdesk").unwrap().is_none());
+
+        // 2. Save detail
+        let detail = AppDetail {
+            id: "rustdesk".to_string(),
+            name: "RustDesk".to_string(),
+            owner: "rustdesk".to_string(),
+            repo: "rustdesk".to_string(),
+            icon: "https://github.com/rustdesk.png".to_string(),
+            icon_bg: "linear-gradient(135deg, #f97316, #ea580c)".to_string(),
+            description: "远程桌面软件".to_string(),
+            stars: 70000,
+            forks: 9000,
+            license: "AGPL-3.0".to_string(),
+            latest_version: "v1.3.1".to_string(),
+            changelog: "修复已知问题".to_string(),
+            is_verified: true,
+            signature_fingerprint: None,
+            readme_markdown: "# RustDesk".to_string(),
+            releases: vec![],
+            category: "system".to_string(),
+            category_name: "系统实用".to_string(),
+            forge: Some("github".to_string()),
+            forge_host: Some("github.com".to_string()),
+        };
+
+        db.save_cached_app_detail("rustdesk", "github.com/rustdesk/rustdesk", &detail).unwrap();
+
+        // 3. Hit via app_id
+        let cached_by_id = db.get_cached_app_detail("rustdesk").unwrap().expect("hit by id");
+        assert_eq!(cached_by_id.name, "RustDesk");
+        assert_eq!(cached_by_id.latest_version, "v1.3.1");
+
+        // 4. Hit via repo_key
+        let cached_by_repo = db.get_cached_app_detail("github.com/rustdesk/rustdesk").unwrap().expect("hit by repo_key");
+        assert_eq!(cached_by_repo.id, "rustdesk");
+
+        // 5. Hit with different casing
+        let cached_casing = db.get_cached_app_detail("RustDesk").unwrap().expect("hit with uppercase");
+        assert_eq!(cached_casing.name, "RustDesk");
+        let cached_repo_casing = db.get_cached_app_detail("GitHub.com/RustDesk/RustDesk").unwrap().expect("hit with uppercase repo");
+        assert_eq!(cached_repo_casing.name, "RustDesk");
+
+        // 6. Update
+        let mut updated_detail = detail.clone();
+        updated_detail.latest_version = "v1.3.2".to_string();
+        db.save_cached_app_detail("rustdesk", "github.com/rustdesk/rustdesk", &updated_detail).unwrap();
+        let cached_updated = db.get_cached_app_detail("rustdesk").unwrap().unwrap();
+        assert_eq!(cached_updated.latest_version, "v1.3.2");
+
+        // 7. Clear cache
+        db.clear_app_details_cache().unwrap();
+        assert!(db.get_cached_app_detail("rustdesk").unwrap().is_none());
     }
 }

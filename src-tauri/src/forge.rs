@@ -72,6 +72,10 @@ impl UniversalRepoCoord {
     pub fn web_url(&self) -> String {
         format!("https://{}/{}/{}", self.host, self.owner, self.repo)
     }
+
+    pub fn to_repo_key(&self) -> String {
+        format!("{}/{}/{}", self.host, self.owner, self.repo).to_lowercase()
+    }
 }
 
 pub struct RepositoryUrlParser;

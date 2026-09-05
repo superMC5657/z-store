@@ -2054,11 +2054,23 @@ body {
 }
 
 /* Markdown README Typography */
+@keyframes fluentFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .readme-markdown-body {
   font-size: 13px;
   line-height: 1.65;
   color: var(--text-primary);
   word-break: break-word;
+  animation: fluentFadeIn 0.22s ease forwards;
 }
 
 .readme-markdown-body h1,

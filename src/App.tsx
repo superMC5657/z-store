@@ -14,6 +14,7 @@ import { SettingsView } from './views/SettingsView';
 import { FavoritesView } from './views/FavoritesView';
 import { AppDetail, AppSettings, AppSummary, InstalledApp, MirrorNodeStatus, ToastMessage, UpdateItem, UpdateRule, ViewType } from './types';
 import { api, DEFAULT_SETTINGS } from './services/api';
+import { preloadIcons } from './components/AppIcon';
 
 export const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewType>('home');
@@ -33,6 +34,7 @@ export const App: React.FC = () => {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [updateRules, setUpdateRules] = useState<UpdateRule[]>([]);
   const [recentlyViewedApps, setRecentlyViewedApps] = useState<AppSummary[]>([]);
+  const appDetailMemoryCache = useRef<Map<string, AppDetail>>(new Map());
 
   // Toast Helper - 严格保证右下角通知最多只有一个（新通知直接顶替并重置 3.5s 计时）
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -103,7 +105,17 @@ export const App: React.FC = () => {
     document.documentElement.setAttribute('data-theme', initialTheme);
 
     // Initial data fetch
-    api.searchApps('').then(setApps);
+    api.searchApps('').then((loadedApps) => {
+      setApps(loadedApps);
+      // 预解码热门应用图标，避免切页瀑布流依次跳出
+      const iconUrls = loadedApps.slice(0, 30).map((a) => a.icon).filter(Boolean);
+      preloadIcons(iconUrls);
+
+      // 延时 1.2 秒在后台静默预热 Top 15 应用详情存入 SQLite，避开首屏渲染竞争
+      setTimeout(() => {
+        api.warmupTopApps(15).catch(() => {});
+      }, 1200);
+    });
     api.getInstalledApps().then(setInstalledApps);
     api.checkForUpdates().then(setUpdates);
     api.getMirrorStatus().then(setMirrors);
@@ -265,17 +277,29 @@ export const App: React.FC = () => {
     }
   };
 
-  // Open App Detail Modal (即时乐观打开与后台异步并发填充)
-  const handleOpenDetail = async (id: string) => {
+  // Open App Detail Modal (优先内存/数据库 0ms 瞬间秒开，且一个仓库生命周期内只拉取一次)
+  const handleOpenDetail = async (id: string, forceRefresh = false) => {
     const idClean = id.trim().toLowerCase();
     activeDetailIdRef.current = id;
 
-    // 优先从现有本地列表寻找应用元数据，实现 0ms 闪电弹出响应
+    // 1. 若非主动强制刷新，优先检查前端内存级快照缓存，实现绝对零延迟 0ms 打开，无任何骨架屏闪烁
+    if (!forceRefresh) {
+      const cached = appDetailMemoryCache.current.get(idClean);
+      if (cached) {
+        setSelectedApp({ ...cached, isLoading: false, loadError: undefined });
+        api.recordAppView(id).then(loadRecentViews).catch(() => {});
+        return;
+      }
+    }
+
+    // 2. 内存未命中或主动刷新：先展示现有基础卡片信息
     const existing =
       apps.find((a) => a.id.toLowerCase() === idClean) ||
       recentlyViewedApps.find((a) => a.id.toLowerCase() === idClean);
 
-    const initialDetail: AppDetail = existing
+    const initialDetail: AppDetail = selectedApp && selectedApp.id.toLowerCase() === idClean && forceRefresh
+      ? { ...selectedApp, isLoading: true }
+      : existing
       ? {
           id: existing.id,
           name: existing.name,
@@ -324,13 +348,27 @@ export const App: React.FC = () => {
     api.recordAppView(id).then(loadRecentViews).catch(() => {});
 
     try {
-      const fullDetail = await api.getAppDetails(id);
+      const fullDetail = await api.getAppDetails(id, forceRefresh);
+      // 写入前端内存缓存，支持 id 及 owner/repo 索引
+      appDetailMemoryCache.current.set(idClean, fullDetail);
+      if (fullDetail.id.toLowerCase() !== idClean) {
+        appDetailMemoryCache.current.set(fullDetail.id.toLowerCase(), fullDetail);
+      }
+      if (fullDetail.owner && fullDetail.repo) {
+        const repoLower = `${fullDetail.owner}/${fullDetail.repo}`.toLowerCase();
+        appDetailMemoryCache.current.set(repoLower, fullDetail);
+        appDetailMemoryCache.current.set(`github.com/${repoLower}`, fullDetail);
+      }
+
       // 竞态校验：仅当当前关注的应用与返回的应用一致时更新
       if (activeDetailIdRef.current === id) {
         setSelectedApp({
           ...fullDetail,
           isLoading: false,
         });
+        if (forceRefresh) {
+          showToast(`${fullDetail.name} 元数据与最新 Release 信息已刷新！`, 'success');
+        }
       }
     } catch (e) {
       if (activeDetailIdRef.current === id) {
@@ -731,8 +769,9 @@ export const App: React.FC = () => {
               theme={theme}
               onSetTheme={handleSetTheme}
               onClearCache={() => {
+                appDetailMemoryCache.current.clear();
                 api.clearCache();
-                showToast('本地安装包临时文件与 ETag 索引已清理完毕', 'success');
+                showToast('本地安装包临时文件、应用详情缓存与 ETag 索引已清理完毕', 'success');
               }}
               onSaveToken={async (token) => {
                 await api.setGithubToken(token);
@@ -775,6 +814,7 @@ export const App: React.FC = () => {
           onToggleFavorite={handleToggleFavorite}
           onOpenDeveloperProfile={(owner) => setSelectedDeveloper(owner)}
           onRetry={(retryId) => handleOpenDetail(retryId)}
+          onRefresh={(refreshId) => handleOpenDetail(refreshId, true)}
         />
       )}
 

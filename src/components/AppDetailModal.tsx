@@ -14,6 +14,7 @@ interface AppDetailModalProps {
   onToggleFavorite?: (id: string) => void;
   onOpenDeveloperProfile?: (developer: string) => void;
   onRetry?: (id: string) => void;
+  onRefresh?: (id: string) => void;
 }
 
 export const AppDetailModal: React.FC<AppDetailModalProps> = ({
@@ -26,10 +27,25 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   onToggleFavorite,
   onOpenDeveloperProfile,
   onRetry,
+  onRefresh,
 }) => {
   const [showAllAssets, setShowAllAssets] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgressPayload | null>(null);
   const [isInstalling, setIsInstalling] = useState(false);
+
+  // 智能防抖防闪烁：若数据在 120ms 内极速返回（如命中 SQLite 缓存），不突兀显示大面积骨架屏跳变
+  const [showSkeleton, setShowSkeleton] = useState(false);
+
+  useEffect(() => {
+    if (app.isLoading) {
+      const timer = setTimeout(() => {
+        setShowSkeleton(true);
+      }, 120);
+      return () => clearTimeout(timer);
+    } else {
+      setShowSkeleton(false);
+    }
+  }, [app.isLoading]);
 
   // 监听实时下载进度事件
   useEffect(() => {
@@ -90,6 +106,19 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
         {/* Header Hero */}
         <div className="modal-header">
           <div style={{ position: 'absolute', top: '16px', right: '16px', display: 'flex', gap: '8px', zIndex: 10 }}>
+            {onRefresh && (
+              <button
+                className="modal-close-btn"
+                onClick={() => onRefresh(app.id)}
+                aria-label="刷新应用信息与最新发布"
+                title="向远程同步刷新最新 Releases 与元数据"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+                </svg>
+              </button>
+            )}
             {onToggleFavorite && (
               <button
                 className="modal-close-btn"
@@ -209,7 +238,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   : '建议安装版本 (Windows 自适应匹配)'}
               </div>
               <div className="install-asset-name">
-                {app.isLoading && (!app.releases || app.releases.length === 0) ? (
+                {app.isLoading && (!app.releases || app.releases.length === 0) && showSkeleton ? (
                   <div className="skeleton-box" style={{ width: '240px', height: '18px', margin: '4px 0' }} />
                 ) : primaryAsset ? (
                   primaryAsset.name
@@ -353,17 +382,23 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                 )}
               </div>
             ) : app.isLoading && !readmeHtml ? (
-              <div style={{ padding: '28px 24px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                <div className="skeleton-box" style={{ width: '38%', height: '24px' }} />
-                <div className="skeleton-box" style={{ width: '95%', height: '14px' }} />
-                <div className="skeleton-box" style={{ width: '82%', height: '14px' }} />
-                <div className="skeleton-box" style={{ width: '88%', height: '14px' }} />
-                <div className="skeleton-box" style={{ width: '60%', height: '14px' }} />
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '14px', color: 'var(--text-tertiary)', fontSize: '13px' }}>
-                  <span className="spinner-icon" />
-                  <span>正在通过加速通道异步获取软件完整文档与变更日志...</span>
+              showSkeleton ? (
+                <div style={{ padding: '28px 24px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div className="skeleton-box" style={{ width: '38%', height: '24px' }} />
+                  <div className="skeleton-box" style={{ width: '95%', height: '14px' }} />
+                  <div className="skeleton-box" style={{ width: '82%', height: '14px' }} />
+                  <div className="skeleton-box" style={{ width: '88%', height: '14px' }} />
+                  <div className="skeleton-box" style={{ width: '60%', height: '14px' }} />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '14px', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+                    <span className="spinner-icon" />
+                    <span>正在通过加速通道异步获取软件完整文档与变更日志...</span>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div style={{ padding: '28px 24px', color: 'var(--text-tertiary)', fontSize: '13px', lineHeight: '1.6' }}>
+                  {app.description}
+                </div>
+              )
             ) : (
               <div
                 className="readme-markdown-body"

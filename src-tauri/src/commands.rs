@@ -104,10 +104,120 @@ pub async fn search_apps(
     }
 }
 
+pub fn resolve_repo_key(id: &str, catalog: &crate::github::CatalogService) -> String {
+    let clean = id.trim().to_lowercase();
+    if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&clean) {
+        return coord.to_repo_key();
+    }
+    if let Ok(coords) = catalog.get_repo_coordinates(&clean) {
+        return format!("github.com/{}/{}", coords.owner, coords.repo).to_lowercase();
+    }
+    if clean.contains('/') {
+        return format!("github.com/{}", clean);
+    }
+    clean
+}
+
 #[tauri::command]
-pub async fn get_app_details(state: State<'_, AppState>, id: String) -> Result<AppDetail, String> {
-    // 多源 (Codeberg, Gitea 等) 穿透解析
-    if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&id) {
+pub fn get_category_apps(
+    state: State<'_, AppState>,
+    category: String,
+) -> Result<Vec<AppSummary>, String> {
+    let cat_clean = category.trim().to_lowercase();
+    let hidden_ids: std::collections::HashSet<String> = {
+        if let Ok(db) = state.db.lock() {
+            db.get_all_rules()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|r| r.is_hidden)
+                .map(|r| r.app_id.to_lowercase())
+                .collect()
+        } else {
+            std::collections::HashSet::new()
+        }
+    };
+
+    let all = state.catalog.get_all_summaries();
+    let filtered: Vec<AppSummary> = all
+        .into_iter()
+        .filter(|a| {
+            (a.category.to_lowercase() == cat_clean || a.category_name.to_lowercase() == cat_clean)
+                && !hidden_ids.contains(&a.id.to_lowercase())
+        })
+        .collect();
+
+    Ok(filtered)
+}
+
+#[tauri::command]
+pub async fn warmup_top_apps(
+    state: State<'_, AppState>,
+    limit: Option<usize>,
+) -> Result<usize, String> {
+    let max_count = limit.unwrap_or(15);
+    let mut summaries = state.catalog.get_all_summaries();
+    summaries.sort_by_key(|b| std::cmp::Reverse(b.stars));
+    let candidates: Vec<String> = summaries.into_iter().take(max_count).map(|a| a.id).collect();
+
+    // 过滤出本地 SQLite 尚未缓存的应用
+    let missing_ids: Vec<String> = {
+        if let Ok(db) = state.db.lock() {
+            candidates
+                .into_iter()
+                .filter(|id| {
+                    let repo_key = resolve_repo_key(id, &state.catalog);
+                    db.get_cached_app_detail(id).ok().flatten().is_none()
+                        && db.get_cached_app_detail(&repo_key).ok().flatten().is_none()
+                })
+                .collect()
+        } else {
+            Vec::new()
+        }
+    };
+
+    if missing_ids.is_empty() {
+        return Ok(0);
+    }
+
+    let mut warmed_count = 0;
+    for id in missing_ids {
+        // 轻量串行预热，每次请求间隔 60ms，完全不占用主线程与用户操作
+        tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+        if get_app_details(state.clone(), id, None).await.is_ok() {
+            warmed_count += 1;
+        }
+    }
+
+    Ok(warmed_count)
+}
+
+#[tauri::command]
+pub async fn get_app_details(
+    state: State<'_, AppState>,
+    id: String,
+    force_refresh: Option<bool>,
+) -> Result<AppDetail, String> {
+    let clean_id = id.trim().to_string();
+    let repo_key = resolve_repo_key(&clean_id, &state.catalog);
+    let is_force = force_refresh.unwrap_or(false);
+
+    // 1. 若非主动强制刷新，优先从 SQLite 缓存中读取，实现 0ms 秒开并保证只拉取一次
+    if !is_force {
+        if let Ok(db) = state.db.lock() {
+            if let Ok(Some(mut cached_detail)) = db.get_cached_app_detail(&clean_id) {
+                cached_detail.id = clean_id;
+                return Ok(cached_detail);
+            }
+            if let Ok(Some(mut cached_detail)) = db.get_cached_app_detail(&repo_key) {
+                cached_detail.id = clean_id;
+                return Ok(cached_detail);
+            }
+        }
+    }
+
+    // 2. 本地无缓存或用户主动要求强制刷新，执行远程拉取
+    // 2.1 多源 (Codeberg, Gitea 等) 穿透解析
+    if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&clean_id) {
         if coord.forge != crate::forge::ForgeType::GitHub {
             let host_token = if let Ok(db) = state.db.lock() {
                 db.get_host_token(&coord.host).ok().flatten()
@@ -118,8 +228,8 @@ pub async fn get_app_details(state: State<'_, AppState>, id: String) -> Result<A
                 crate::forge::ForgeRegistry::fetch_repo(&coord, host_token.as_deref()),
                 crate::forge::ForgeRegistry::fetch_latest_release(&coord, host_token.as_deref())
             )?;
-            return Ok(AppDetail {
-                id: coord.to_app_id(),
+            let detail = AppDetail {
+                id: clean_id.clone(),
                 name: repo_info.name.clone(),
                 owner: coord.owner,
                 repo: coord.repo,
@@ -143,17 +253,25 @@ pub async fn get_app_details(state: State<'_, AppState>, id: String) -> Result<A
                 category_name: "跨平台开源".to_string(),
                 forge: Some(coord.forge.as_str().to_string()),
                 forge_host: Some(coord.host),
-            });
+            };
+
+            // 存入 SQLite 本地持久化缓存
+            if let Ok(db) = state.db.lock() {
+                let _ = db.save_cached_app_detail(&clean_id, &repo_key, &detail);
+            }
+
+            return Ok(detail);
         }
     }
 
+    // 2.2 GitHub 仓库拉取
     let (release_endpoint, cached_etag, cached_payload, token) = {
         let token = state
             .github_token
             .lock()
             .map_err(|e| e.to_string())?
             .clone();
-        let coords = state.catalog.get_repo_coordinates(&id)?;
+        let coords = state.catalog.get_repo_coordinates(&clean_id)?;
         let ep = format!(
             "https://api.github.com/repos/{}/{}/releases/latest",
             coords.owner, coords.repo
@@ -166,7 +284,7 @@ pub async fn get_app_details(state: State<'_, AppState>, id: String) -> Result<A
 
     let (detail, to_cache) = state
         .catalog
-        .fetch_app_detail(&id, cached_etag, cached_payload, token.as_deref())
+        .fetch_app_detail(&clean_id, cached_etag, cached_payload, token.as_deref())
         .await?;
 
     if let Some((etag, payload)) = to_cache {
@@ -176,6 +294,11 @@ pub async fn get_app_details(state: State<'_, AppState>, id: String) -> Result<A
             .unwrap_or_default()
             .as_secs() as i64;
         let _ = db.save_etag(&release_endpoint, &etag, &payload, now);
+    }
+
+    // 存入 SQLite 本地持久化缓存
+    if let Ok(db) = state.db.lock() {
+        let _ = db.save_cached_app_detail(&clean_id, &repo_key, &detail);
     }
 
     Ok(detail)
@@ -194,7 +317,7 @@ pub async fn install_app(
     app_id: String,
 ) -> Result<InstalledApp, String> {
     // 1. 获取应用详情与匹配资产
-    let detail = get_app_details(state.clone(), app_id.clone()).await?;
+    let detail = get_app_details(state.clone(), app_id.clone(), None).await?;
 
     let asset = detail
         .releases
@@ -413,7 +536,7 @@ pub async fn check_for_updates(state: State<'_, AppState>) -> Result<Vec<UpdateI
             }
         }
 
-        if let Ok(detail) = get_app_details(state.clone(), app.app_id.clone()).await {
+        if let Ok(detail) = get_app_details(state.clone(), app.app_id.clone(), None).await {
             if should_include_update(&app.version, &detail.latest_version, rule_opt) {
                 updates.push(UpdateItem {
                     app_id: app.app_id,
@@ -579,7 +702,7 @@ pub fn get_catalog_count(state: State<'_, AppState>) -> Result<usize, String> {
 
 #[tauri::command]
 pub async fn get_app_readme(state: State<'_, AppState>, id: String) -> Result<String, String> {
-    let detail = get_app_details(state, id).await?;
+    let detail = get_app_details(state, id, None).await?;
     Ok(detail.readme_markdown)
 }
 
@@ -1141,6 +1264,27 @@ mod tests {
 
         // 6. 规则跳过了 v2.0.0，但推出了更新的 v2.1.0 -> 应当恢复提示！
         assert!(should_include_update("v1.0.0", "v2.1.0", Some(&skip_rule)));
+    }
+
+    #[test]
+    fn test_resolve_repo_key() {
+        let catalog = crate::github::CatalogService::new();
+
+        // 1. Catalog short id
+        let k1 = resolve_repo_key("rustdesk", &catalog);
+        assert_eq!(k1, "github.com/rustdesk/rustdesk");
+
+        // 2. Full repo owner/repo
+        let k2 = resolve_repo_key("rustdesk/rustdesk", &catalog);
+        assert_eq!(k2, "github.com/rustdesk/rustdesk");
+
+        // 3. Full GitHub URL
+        let k3 = resolve_repo_key("https://github.com/rustdesk/rustdesk", &catalog);
+        assert_eq!(k3, "github.com/rustdesk/rustdesk");
+
+        // 4. Codeberg
+        let k4 = resolve_repo_key("codeberg:user/repo", &catalog);
+        assert_eq!(k4, "codeberg.org/user/repo");
     }
 }
 
