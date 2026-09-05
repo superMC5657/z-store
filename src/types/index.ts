@@ -52,6 +52,8 @@ export interface AppDetail {
   category_name: string;
   forge?: string;
   forge_host?: string;
+  isLoading?: boolean;
+  loadError?: string;
 }
 
 export interface InstalledApp {

@@ -3,10 +3,15 @@ import { ToastMessage } from '../types';
 
 interface ToastContainerProps {
   toasts: ToastMessage[];
+  onDismiss?: (id: string) => void;
 }
 
-export const ToastContainer: React.FC<ToastContainerProps> = ({ toasts }) => {
+export const ToastContainer: React.FC<ToastContainerProps> = ({ toasts, onDismiss }) => {
   if (toasts.length === 0) return null;
+
+  // 严格限制：右下角通知最多只有一个，仅取最新一条展示
+  const currentToast = toasts[toasts.length - 1];
+  if (!currentToast) return null;
 
   const renderIcon = (type: ToastMessage['type']) => {
     switch (type) {
@@ -101,12 +106,24 @@ export const ToastContainer: React.FC<ToastContainerProps> = ({ toasts }) => {
 
   return (
     <div className="toast-container" role="status" aria-live="polite">
-      {toasts.map((toast) => (
-        <div key={toast.id} className="toast">
-          {renderIcon(toast.type)}
-          <span style={{ flex: 1, lineHeight: '1.45', fontWeight: 500 }}>{toast.text}</span>
-        </div>
-      ))}
+      <div key={currentToast.id} className="toast">
+        {renderIcon(currentToast.type)}
+        <span style={{ flex: 1, lineHeight: '1.45', fontWeight: 500 }}>{currentToast.text}</span>
+        {onDismiss && (
+          <button
+            type="button"
+            className="toast-close-btn"
+            onClick={() => onDismiss(currentToast.id)}
+            title="关闭通知"
+            aria-label="关闭通知"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        )}
+      </div>
     </div>
   );
 };

@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { AppSummary } from '../types';
+import { AppIcon } from '../components/AppIcon';
 
 interface TrendsViewProps {
   apps: AppSummary[];
@@ -97,18 +98,18 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
               #{index + 1}
             </div>
 
-            <div
+            <AppIcon
+              icon={app.icon}
+              name={app.name}
+              iconBg={app.icon_bg}
               className="app-icon"
               style={{
-                background: app.icon_bg,
                 width: '42px',
                 height: '42px',
                 fontSize: '18px',
                 marginRight: '14px',
               }}
-            >
-              {app.icon}
-            </div>
+            />
 
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

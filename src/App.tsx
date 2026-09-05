@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { TitleBar } from './components/TitleBar';
 import { Sidebar } from './components/Sidebar';
 import { AppDetailModal } from './components/AppDetailModal';
@@ -25,6 +25,7 @@ export const App: React.FC = () => {
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [mirrors, setMirrors] = useState<MirrorNodeStatus[]>([]);
   const [selectedApp, setSelectedApp] = useState<AppDetail | null>(null);
+  const activeDetailIdRef = useRef<string | null>(null);
   const [selectedDeveloper, setSelectedDeveloper] = useState<string | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
@@ -33,14 +34,42 @@ export const App: React.FC = () => {
   const [updateRules, setUpdateRules] = useState<UpdateRule[]>([]);
   const [recentlyViewedApps, setRecentlyViewedApps] = useState<AppSummary[]>([]);
 
-  // Toast Helper
+  // Toast Helper - 严格保证右下角通知最多只有一个（新通知直接顶替并重置 3.5s 计时）
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const showToast = (text: string, type: ToastMessage['type'] = 'info') => {
     const id = `${Date.now()}-${Math.random()}`;
-    setToasts((prev) => [...prev, { id, text, type }]);
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
+    // 最多只有一个通知
+    setToasts([{ id, text, type }]);
+
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+    }
+    toastTimerRef.current = setTimeout(() => {
+      setToasts([]);
+      toastTimerRef.current = null;
     }, 3500);
   };
+
+  const dismissToast = (id?: string) => {
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = null;
+    }
+    if (id) {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    } else {
+      setToasts([]);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+      }
+    };
+  }, []);
 
   const FONT_SCALE_MAP: Record<string, string> = {
     small: '0.85',
@@ -236,13 +265,81 @@ export const App: React.FC = () => {
     }
   };
 
-  // Open App Detail Modal
+  // Open App Detail Modal (即时乐观打开与后台异步并发填充)
   const handleOpenDetail = async (id: string) => {
+    const idClean = id.trim().toLowerCase();
+    activeDetailIdRef.current = id;
+
+    // 优先从现有本地列表寻找应用元数据，实现 0ms 闪电弹出响应
+    const existing =
+      apps.find((a) => a.id.toLowerCase() === idClean) ||
+      recentlyViewedApps.find((a) => a.id.toLowerCase() === idClean);
+
+    const initialDetail: AppDetail = existing
+      ? {
+          id: existing.id,
+          name: existing.name,
+          owner: existing.owner,
+          repo: existing.repo,
+          icon: existing.icon,
+          icon_bg: existing.icon_bg,
+          description: existing.description,
+          stars: existing.stars,
+          forks: existing.forks,
+          license: existing.license,
+          latest_version: existing.latest_version,
+          changelog: '',
+          is_verified: existing.is_verified,
+          readme_markdown: '',
+          releases: [],
+          category: existing.category,
+          category_name: existing.category_name,
+          forge: existing.forge,
+          forge_host: existing.forge_host,
+          isLoading: true,
+        }
+      : {
+          id,
+          name: id,
+          owner: '加载中...',
+          repo: id,
+          icon: '📦',
+          icon_bg: 'linear-gradient(135deg, #475569, #334155)',
+          description: '正在获取应用元数据...',
+          stars: 0,
+          forks: 0,
+          license: '...',
+          latest_version: '...',
+          changelog: '',
+          is_verified: false,
+          readme_markdown: '',
+          releases: [],
+          category: 'system',
+          category_name: '应用',
+          isLoading: true,
+        };
+
+    // 0ms 同步打开弹窗，主界面无任何阻塞感
+    setSelectedApp(initialDetail);
+    api.recordAppView(id).then(loadRecentViews).catch(() => {});
+
     try {
-      const detail = await api.getAppDetails(id);
-      setSelectedApp(detail);
-      api.recordAppView(id).then(loadRecentViews).catch(() => {});
-    } catch {
+      const fullDetail = await api.getAppDetails(id);
+      // 竞态校验：仅当当前关注的应用与返回的应用一致时更新
+      if (activeDetailIdRef.current === id) {
+        setSelectedApp({
+          ...fullDetail,
+          isLoading: false,
+        });
+      }
+    } catch (e) {
+      if (activeDetailIdRef.current === id) {
+        setSelectedApp((prev) =>
+          prev && prev.id === id
+            ? { ...prev, isLoading: false, loadError: String(e) }
+            : null
+        );
+      }
       showToast(`获取应用详情失败: ${id}`, 'error');
     }
   };
@@ -523,6 +620,16 @@ export const App: React.FC = () => {
 
   return (
     <div className="app-window">
+      {/* Dynamic Ambient Aurora Background Blobs for Glass Refraction */}
+      <div className="aurora-ambient-glow" aria-hidden="true">
+        <div className="aurora-blob aurora-blob-1" />
+        <div className="aurora-blob aurora-blob-2" />
+        <div className="aurora-blob aurora-blob-3" />
+      </div>
+
+      {/* Authentic Acrylic Frosted Noise Texture Layer (亚克力微晶磨砂层) */}
+      <div className="acrylic-noise-overlay" aria-hidden="true" />
+
       {/* TitleBar */}
       <TitleBar
         searchQuery={searchQuery}
@@ -659,11 +766,15 @@ export const App: React.FC = () => {
           app={selectedApp}
           isInstalled={installedIds.has(selectedApp.id)}
           isFavorite={favoriteIds.has(selectedApp.id)}
-          onClose={() => setSelectedApp(null)}
+          onClose={() => {
+            activeDetailIdRef.current = null;
+            setSelectedApp(null);
+          }}
           onInstall={handleInstallApp}
           onLaunch={handleLaunchApp}
           onToggleFavorite={handleToggleFavorite}
           onOpenDeveloperProfile={(owner) => setSelectedDeveloper(owner)}
+          onRetry={(retryId) => handleOpenDetail(retryId)}
         />
       )}
 
@@ -684,7 +795,7 @@ export const App: React.FC = () => {
       />
 
       {/* Toast Notifications */}
-      <ToastContainer toasts={toasts} />
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 };

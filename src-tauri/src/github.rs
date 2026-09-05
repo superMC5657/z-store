@@ -3,6 +3,7 @@ use crate::models::{AppDetail, AppSummary, DeveloperProfile, DeveloperRepoItem, 
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, IF_NONE_MATCH, USER_AGENT};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use regex::Regex;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CatalogItem {
@@ -106,6 +107,7 @@ pub struct AppRepoCoordinates {
 
 pub struct CatalogService {
     items: Vec<CatalogItem>,
+    client: reqwest::Client,
 }
 
 impl Default for CatalogService {
@@ -118,7 +120,13 @@ impl CatalogService {
     pub fn new() -> Self {
         let json_data = include_str!("catalog.json");
         let items: Vec<CatalogItem> = serde_json::from_str(json_data).unwrap_or_default();
-        Self { items }
+        let client = reqwest::Client::builder()
+            .pool_max_idle_per_host(10)
+            .tcp_keepalive(std::time::Duration::from_secs(60))
+            .timeout(std::time::Duration::from_secs(12))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+        Self { items, client }
     }
 
     pub fn get_catalog_count(&self) -> usize {
@@ -318,12 +326,15 @@ impl CatalogService {
                     let summaries: Vec<AppSummary> = data
                         .items
                         .into_iter()
-                        .map(|it| AppSummary {
-                            id: it.full_name.clone(),
-                            name: it.name,
-                            owner: it.owner.login,
-                            repo: it.full_name.split('/').nth(1).unwrap_or("").to_string(),
-                            icon: "📦".to_string(),
+                        .map(|it| {
+                            let owner = it.owner.login;
+                            let icon = format!("https://github.com/{}.png", owner);
+                            AppSummary {
+                                id: it.full_name.clone(),
+                                name: it.name,
+                                owner,
+                                repo: it.full_name.split('/').nth(1).unwrap_or("").to_string(),
+                                icon,
                             icon_bg: "linear-gradient(135deg, #0ea5e9, #2563eb)".to_string(),
                             description: it
                                 .description
@@ -340,7 +351,8 @@ impl CatalogService {
                             installed_version: None,
                             forge: Some("github".to_string()),
                             forge_host: Some("github.com".to_string()),
-                        })
+                        }
+                    })
                         .collect();
                     return Ok(summaries);
                 }
@@ -387,7 +399,7 @@ impl CatalogService {
             name: repo_data.name.unwrap_or_else(|| repo.to_string()),
             owner: owner.to_string(),
             repo: repo.to_string(),
-            icon: "📦".to_string(),
+            icon: format!("https://github.com/{}.png", owner),
             icon_bg: "linear-gradient(135deg, #0284c7, #0369a1)".to_string(),
             description: repo_data.description.unwrap_or_default(),
             stars: repo_data.stargazers_count.unwrap_or(0),
@@ -418,10 +430,7 @@ impl CatalogService {
         let (owner, repo, name, desc, icon, icon_bg) = self.get_endpoints(id)?;
         let catalog_item = self.items.iter().find(|i| i.id == id);
 
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(12))
-            .build()
-            .map_err(|e| e.to_string())?;
+        let client = &self.client;
 
         let mut headers = HeaderMap::new();
         headers.insert(USER_AGENT, HeaderValue::from_static("ZStore-Client/0.1.0"));
@@ -503,8 +512,31 @@ impl CatalogService {
             }
         };
 
-        // 提取校验和字典（若 Release 中存在 sha256sums / checksums.txt）
-        let checksums = Self::extract_checksums_map(&release_resp.assets, &client, &headers).await;
+        // 异步并发执行：提取校验和字典 与 获取 README Markdown (tokio::join!)
+        let checksum_task = Self::extract_checksums_map(&release_resp.assets, client, &headers);
+
+        let readme_url = format!("https://api.github.com/repos/{}/{}/readme", owner, repo);
+        let mut readme_headers = headers.clone();
+        readme_headers.insert(
+            ACCEPT,
+            HeaderValue::from_static("application/vnd.github.v3.raw"),
+        );
+        let default_readme = format!("# {}\n\n{}", name, desc);
+        let default_readme_clone = default_readme.clone();
+        let readme_task = async {
+            let req = client.get(&readme_url).headers(readme_headers).send();
+            match tokio::time::timeout(std::time::Duration::from_secs(4), req).await {
+                Ok(Ok(res)) if res.status().is_success() => res.text().await.unwrap_or(default_readme_clone),
+                _ => default_readme_clone,
+            }
+        };
+
+        let (checksums, raw_readme) = tokio::join!(checksum_task, readme_task);
+
+        // 提取 README 首部 Logo，并从 README 原始内容中清洗删除该旧图标，避免详情页头部与文档内容区发生重叠/重复
+        let (extracted_logo, cleaned_readme) =
+            Self::extract_and_strip_logo_from_readme(&raw_readme, &owner, &repo);
+        let readme_markdown = Self::rewrite_readme_images(&cleaned_readme, &owner, &repo);
 
         let mut releases = Vec::new();
         for asset in release_resp.assets {
@@ -542,25 +574,24 @@ impl CatalogService {
             a_is_win.cmp(&b_is_win)
         });
 
-        // 获取 README Markdown 并实施图片代理拦截（FR-2.3）
-        let readme_url = format!("https://api.github.com/repos/{}/{}/readme", owner, repo);
-        let mut readme_headers = headers.clone();
-        readme_headers.insert(
-            ACCEPT,
-            HeaderValue::from_static("application/vnd.github.v3.raw"),
-        );
-        let raw_readme = match client.get(&readme_url).headers(readme_headers).send().await {
-            Ok(res) if res.status().is_success() => res.text().await.unwrap_or_default(),
-            _ => format!("# {}\n\n{}", name, desc),
+        // 图标层级决策：
+        // 1. 若当前应用已具备已知独立官方图标（如收录库指定或 https:// 开头头像），优先保持该正方形应用图标，避免被 README 宽幅 Banner 误覆盖；
+        // 2. 若当前未收录，则优先采用从 README 中提取并已清洗出的 Logo；
+        // 3. 兜底采用 GitHub 官方组织头像 https://github.com/{owner}.png
+        let final_icon = if icon.starts_with("http://") || icon.starts_with("https://") {
+            icon
+        } else if let Some(logo) = extracted_logo {
+            logo
+        } else {
+            format!("https://github.com/{}.png", owner)
         };
-        let readme_markdown = Self::rewrite_readme_images(&raw_readme, &owner, &repo);
 
         let detail = AppDetail {
             id: id.to_string(),
             name,
             owner,
             repo,
-            icon,
+            icon: final_icon,
             icon_bg,
             description: desc,
             stars: catalog_item.map(|i| i.stars).unwrap_or(1200),
@@ -599,12 +630,11 @@ impl CatalogService {
         });
 
         if let Some(asset) = checksum_asset {
-            if let Ok(res) = client
+            let req = client
                 .get(&asset.browser_download_url)
                 .headers(headers.clone())
-                .send()
-                .await
-            {
+                .send();
+            if let Ok(Ok(res)) = tokio::time::timeout(std::time::Duration::from_secs(4), req).await {
                 if let Ok(text) = res.text().await {
                     for line in text.lines() {
                         let parts: Vec<&str> = line.split_whitespace().collect();
@@ -622,19 +652,197 @@ impl CatalogService {
         map
     }
 
+    pub fn clean_image_url(url: &str, owner: &str, repo: &str) -> String {
+        let trimmed = url.trim().trim_matches(|c| c == '<' || c == '>');
+        if trimmed.is_empty()
+            || trimmed.starts_with('#')
+            || trimmed.starts_with("mailto:")
+            || trimmed.starts_with("data:")
+            || trimmed.starts_with("javascript:")
+        {
+            return trimmed.to_string();
+        }
+
+        // 1. 如果已带镜像前缀，不重复添加
+        if trimmed.starts_with("https://gh-proxy.com/") {
+            return trimmed.to_string();
+        }
+
+        // 2. GitHub Blob 页面链接转 Raw 直链：
+        // https://github.com/{owner}/{repo}/blob/{branch}/{path}
+        let blob_prefix = format!("https://github.com/{}/{}/blob/", owner, repo);
+        if let Some(rest) = trimmed.strip_prefix(&blob_prefix) {
+            return format!(
+                "https://gh-proxy.com/https://raw.githubusercontent.com/{}/{}/{}",
+                owner, repo, rest
+            );
+        }
+
+        // 3. GitHub Raw 页面链接：
+        // https://github.com/{owner}/{repo}/raw/{branch}/{path}
+        let raw_prefix = format!("https://github.com/{}/{}/raw/", owner, repo);
+        if let Some(rest) = trimmed.strip_prefix(&raw_prefix) {
+            return format!(
+                "https://gh-proxy.com/https://raw.githubusercontent.com/{}/{}/{}",
+                owner, repo, rest
+            );
+        }
+
+        // 4. GitHub 官方 CDN 与素材直链：
+        if trimmed.starts_with("https://raw.githubusercontent.com/")
+            || trimmed.starts_with("https://user-images.githubusercontent.com/")
+            || trimmed.starts_with("https://camo.githubusercontent.com/")
+            || trimmed.starts_with("https://github.com/user-attachments/assets/")
+        {
+            return format!("https://gh-proxy.com/{}", trimmed);
+        }
+
+        // 5. 其他带协议的绝对链接（例如外部 CDN, shields.io, 外部网站图床等）
+        if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+            return trimmed.to_string();
+        }
+
+        // 6. 相对路径（如 ./assets/logo.png, docs/preview.jpg, /images/banner.svg）
+        let clean_path = trimmed.trim_start_matches("./").trim_start_matches('/');
+        format!(
+            "https://gh-proxy.com/https://raw.githubusercontent.com/{}/{}/HEAD/{}",
+            owner, repo, clean_path
+        )
+    }
+
     pub fn rewrite_readme_images(raw_markdown: &str, owner: &str, repo: &str) -> String {
-        let with_proxy = raw_markdown.replace(
-            "https://raw.githubusercontent.com/",
-            "https://gh-proxy.com/https://raw.githubusercontent.com/",
-        );
-        let with_proxy2 = with_proxy.replace(
-            &format!("https://github.com/{}/{}/raw/", owner, repo),
-            &format!(
-                "https://gh-proxy.com/https://raw.githubusercontent.com/{}/{}/",
-                owner, repo
-            ),
-        );
-        with_proxy2
+        // 1. 重写 Markdown 语法图片: ![alt](url) 或 ![alt](url "title")
+        let md_img_re = Regex::new(r"!\[(.*?)\]\((\s*<)?([^\s\)>]+)(>)?(\s+.*?)?\)").unwrap();
+        let md_replaced = md_img_re.replace_all(raw_markdown, |caps: &regex::Captures| {
+            let alt = &caps[1];
+            let url = &caps[3];
+            let title = caps.get(5).map(|m| m.as_str()).unwrap_or("");
+            let rewritten_url = Self::clean_image_url(url, owner, repo);
+            if title.is_empty() {
+                format!("![{}]({})", alt, rewritten_url)
+            } else {
+                format!("![{}]({}{})", alt, rewritten_url, title)
+            }
+        });
+
+        // 2. 重写 HTML <img> 标签语法: <img ... src="url" ...>
+        let html_img_re = Regex::new(r#"(?i)<img\s+([^>]*?)src=["']([^"']+)["']([^>]*?)>"#).unwrap();
+        let html_replaced = html_img_re.replace_all(&md_replaced, |caps: &regex::Captures| {
+            let before = &caps[1];
+            let url = &caps[2];
+            let after = &caps[3];
+            let rewritten_url = Self::clean_image_url(url, owner, repo);
+            format!(r#"<img {}src="{}"{}>"#, before, rewritten_url, after)
+        });
+
+        html_replaced.into_owned()
+    }
+
+    pub fn extract_and_strip_logo_from_readme(
+        raw_markdown: &str,
+        owner: &str,
+        repo: &str,
+    ) -> (Option<String>, String) {
+        let lines: Vec<&str> = raw_markdown.lines().collect();
+        let head_count = lines.len().min(40);
+        let head_text = lines[..head_count].join("\n");
+
+        // 1. 优先在 HTML <img> 中寻找带有 logo/icon/brand/splash 的首部图片
+        if let Ok(html_re) = Regex::new(r#"(?i)<img\s+[^>]*?src=["']([^"']+)["'][^>]*>"#) {
+            for caps in html_re.captures_iter(&head_text) {
+                let full_tag = caps.get(0).unwrap().as_str();
+                let src = &caps[1];
+                let lower = src.to_lowercase();
+                if lower.contains("badge")
+                    || lower.contains("shields.io")
+                    || lower.contains("workflow")
+                    || lower.contains("license")
+                {
+                    continue;
+                }
+                if lower.contains("logo")
+                    || lower.contains("icon")
+                    || lower.contains("app")
+                    || lower.contains("brand")
+                    || lower.contains("splash")
+                    || lower.ends_with(".png")
+                    || lower.ends_with(".svg")
+                {
+                    let cleaned_url = Self::clean_image_url(src, owner, repo);
+                    let mut stripped = raw_markdown.to_string();
+
+                    // 尝试剥离包含该 img 的整段居中标签 <p align="center">...</p> 或 <div align="center">...</div>
+                    let p_pattern = format!(
+                        r#"(?is)<p\s+align=["']center["']>\s*{}\s*(?:<br\s*/?>)?\s*</p>"#,
+                        regex::escape(full_tag)
+                    );
+                    if let Ok(p_re) = Regex::new(&p_pattern) {
+                        if p_re.is_match(&stripped) {
+                            stripped = p_re.replace(&stripped, "").to_string();
+                            return (Some(cleaned_url), stripped);
+                        }
+                    }
+                    let div_pattern = format!(
+                        r#"(?is)<div\s+align=["']center["']>\s*{}\s*(?:<br\s*/?>)?\s*</div>"#,
+                        regex::escape(full_tag)
+                    );
+                    if let Ok(div_re) = Regex::new(&div_pattern) {
+                        if div_re.is_match(&stripped) {
+                            stripped = div_re.replace(&stripped, "").to_string();
+                            return (Some(cleaned_url), stripped);
+                        }
+                    }
+
+                    // 否则直接剔除该 img 标签及紧随的换行符
+                    let tag_pattern = format!(r#"(?i){}\s*(?:<br\s*/?>)?"#, regex::escape(full_tag));
+                    if let Ok(tag_re) = Regex::new(&tag_pattern) {
+                        stripped = tag_re.replace(&stripped, "").to_string();
+                    }
+
+                    return (Some(cleaned_url), stripped);
+                }
+            }
+        }
+
+        // 2. 其次在 Markdown ![alt](url) 中寻找
+        if let Ok(md_re) = Regex::new(r"!\[(.*?)\]\((\s*<)?([^\s\)>]+)(>)?(\s+.*?)?\)") {
+            for caps in md_re.captures_iter(&head_text) {
+                let full_md = caps.get(0).unwrap().as_str();
+                let alt = caps[1].to_lowercase();
+                let src = &caps[3];
+                let lower_src = src.to_lowercase();
+                if lower_src.contains("badge")
+                    || lower_src.contains("shields.io")
+                    || lower_src.contains("workflow")
+                    || lower_src.contains("license")
+                {
+                    continue;
+                }
+                if alt.contains("logo")
+                    || alt.contains("icon")
+                    || alt.contains("app")
+                    || alt.contains("brand")
+                    || lower_src.contains("logo")
+                    || lower_src.contains("icon")
+                    || lower_src.ends_with(".png")
+                    || lower_src.ends_with(".svg")
+                {
+                    let cleaned_url = Self::clean_image_url(src, owner, repo);
+                    let mut stripped = raw_markdown.to_string();
+                    let md_pattern = format!(r#"{}\s*"#, regex::escape(full_md));
+                    if let Ok(m_re) = Regex::new(&md_pattern) {
+                        stripped = m_re.replace(&stripped, "").to_string();
+                    }
+                    return (Some(cleaned_url), stripped);
+                }
+            }
+        }
+
+        (None, raw_markdown.to_string())
+    }
+
+    pub fn extract_logo_from_readme(raw_markdown: &str, owner: &str, repo: &str) -> Option<String> {
+        Self::extract_and_strip_logo_from_readme(raw_markdown, owner, repo).0
     }
 
     pub async fn fetch_developer_profile(
@@ -894,12 +1102,18 @@ impl CatalogService {
 
 impl CatalogItem {
     pub fn to_summary(&self) -> AppSummary {
+        let effective_icon = if self.icon.starts_with("http://") || self.icon.starts_with("https://") {
+            self.icon.clone()
+        } else {
+            format!("https://github.com/{}.png", self.owner)
+        };
+
         AppSummary {
             id: self.id.clone(),
             name: self.name.clone(),
             owner: self.owner.clone(),
             repo: self.repo.clone(),
-            icon: self.icon.clone(),
+            icon: effective_icon,
             icon_bg: self.icon_bg.clone(),
             description: self.description.clone(),
             stars: self.stars,
@@ -959,5 +1173,47 @@ mod tests {
         let result = cat.sync_starred_repos(Some("test-user"), None).await.unwrap();
         assert!(result.total_starred > 0);
         assert!(!result.catalog_matches.is_empty());
+    }
+
+    #[test]
+    fn test_rewrite_readme_images() {
+        let sample = r#"
+# Demo Project
+![Logo](./assets/logo.png)
+<p align="center">
+  <img src="docs/screenshot.svg" width="200" alt="demo" />
+</p>
+[Web Link](https://example.com/blob/main/test.png)
+![GitHub Blob](https://github.com/rustdesk/rustdesk/blob/master/res/demo.png)
+![External Shield](https://img.shields.io/badge/license-MIT-blue)
+"#;
+        let rewritten = CatalogService::rewrite_readme_images(sample, "rustdesk", "rustdesk");
+
+        // 验证相对路径转为 raw + gh-proxy
+        assert!(rewritten.contains("https://gh-proxy.com/https://raw.githubusercontent.com/rustdesk/rustdesk/HEAD/assets/logo.png"));
+        assert!(rewritten.contains("https://gh-proxy.com/https://raw.githubusercontent.com/rustdesk/rustdesk/HEAD/docs/screenshot.svg"));
+
+        // 验证 GitHub Blob 网页链接转为 raw 直链并代理
+        assert!(rewritten.contains("https://gh-proxy.com/https://raw.githubusercontent.com/rustdesk/rustdesk/master/res/demo.png"));
+
+        // 验证外部 shields.io 保持原样
+        assert!(rewritten.contains("https://img.shields.io/badge/license-MIT-blue"));
+    }
+
+    #[test]
+    fn test_extract_logo_from_readme() {
+        let sample = r#"
+<p align="center">
+  <img src="./assets/logo.png" width="100" alt="RustDesk Logo" />
+</p>
+# RustDesk
+"#;
+        let (logo, stripped) =
+            CatalogService::extract_and_strip_logo_from_readme(sample, "rustdesk", "rustdesk");
+        assert!(logo.is_some());
+        assert!(logo.unwrap().contains("assets/logo.png"));
+        // 验证旧图标已被彻底剥离，不再残留在 README 内容中
+        assert!(!stripped.contains("assets/logo.png"));
+        assert!(stripped.contains("# RustDesk"));
     }
 }

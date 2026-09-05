@@ -1,5 +1,6 @@
 import React from 'react';
 import { AppSummary } from '../types';
+import { AppIcon } from './AppIcon';
 
 interface AppCardProps {
   app: AppSummary;
@@ -38,12 +39,12 @@ export const AppCard: React.FC<AppCardProps> = ({
       }}
     >
       <div className="app-card-header">
-        <div
+        <AppIcon
+          icon={app.icon}
+          name={app.name}
+          iconBg={app.icon_bg}
           className="app-icon"
-          style={{ background: app.icon_bg }}
-        >
-          {app.icon}
-        </div>
+        />
         <div className="app-meta">
           <div className="app-title">
             <span className="app-name">{app.name}</span>

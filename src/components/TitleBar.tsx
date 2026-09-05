@@ -237,13 +237,13 @@ export const TitleBar: React.FC<TitleBarProps> = ({
                 top: 'calc(100% + 6px)',
                 left: 0,
                 right: 0,
-                background: 'var(--bg-acrylic, rgba(30, 30, 30, 0.95))',
-                backdropFilter: 'blur(20px)',
-                WebkitBackdropFilter: 'blur(20px)',
-                borderRadius: '8px',
-                border: '1px solid var(--border-acrylic, rgba(255, 255, 255, 0.12))',
-                boxShadow: '0 8px 24px rgba(0, 0, 0, 0.35)',
-                padding: '10px 14px',
+                background: 'var(--bg-surface-flyout)',
+                backdropFilter: 'blur(28px) saturate(180%)',
+                WebkitBackdropFilter: 'blur(28px) saturate(180%)',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-highlight)',
+                boxShadow: 'var(--shadow-modal), 0 0 20px rgba(0, 0, 0, 0.25)',
+                padding: '12px 14px',
                 zIndex: 1000,
                 textAlign: 'left',
               }}
@@ -381,20 +381,21 @@ export const TitleBar: React.FC<TitleBarProps> = ({
                     right: 0,
                     width: '240px',
                     padding: '12px',
-                    borderRadius: '8px',
-                    background: 'var(--card-bg, #202020)',
-                    border: '1px solid var(--border-color, rgba(255, 255, 255, 0.12))',
-                    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)',
+                    borderRadius: 'var(--radius-md)',
+                    background: 'var(--bg-surface-flyout)',
+                    border: '1px solid var(--border-highlight)',
+                    boxShadow: 'var(--shadow-modal), 0 0 24px rgba(0, 0, 0, 0.3)',
                     zIndex: 1000,
                     display: 'flex',
                     flexDirection: 'column',
                     gap: '6px',
                     fontSize: '12px',
-                    backdropFilter: 'blur(20px)',
+                    backdropFilter: 'blur(28px) saturate(180%)',
+                    WebkitBackdropFilter: 'blur(28px) saturate(180%)',
                     pointerEvents: 'none',
                   }}
                 >
-                  <div style={{ fontWeight: 600, borderBottom: '1px solid var(--border-color)', paddingBottom: '4px' }}>
+                  <div style={{ fontWeight: 600, borderBottom: '1px solid var(--border-acrylic)', paddingBottom: '4px' }}>
                     🌐 API 速率配额感知
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>

@@ -114,11 +114,10 @@ pub async fn get_app_details(state: State<'_, AppState>, id: String) -> Result<A
             } else {
                 None
             };
-            let repo_info =
-                crate::forge::ForgeRegistry::fetch_repo(&coord, host_token.as_deref()).await?;
-            let release_info =
+            let (repo_info, release_info) = tokio::try_join!(
+                crate::forge::ForgeRegistry::fetch_repo(&coord, host_token.as_deref()),
                 crate::forge::ForgeRegistry::fetch_latest_release(&coord, host_token.as_deref())
-                    .await?;
+            )?;
             return Ok(AppDetail {
                 id: coord.to_app_id(),
                 name: repo_info.name.clone(),

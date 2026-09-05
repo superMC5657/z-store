@@ -1,5 +1,6 @@
 import React from 'react';
 import { AppCard } from '../components/AppCard';
+import { AppIcon } from '../components/AppIcon';
 import { AppSummary } from '../types';
 
 interface HomeViewProps {
@@ -44,8 +45,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
   }
 
   const heroApp = apps.find((a) => a.id === 'rustdesk') || apps[0];
-  const featuredApps = apps.slice(0, 4);
-  const remainingApps = apps.slice(4);
+  // 排除已在官方置顶推荐（Hero Banner）中展示的应用，避免在下方精选列表中重复推荐
+  const nonHeroApps = heroApp ? apps.filter((a) => a.id !== heroApp.id) : apps;
+  const featuredApps = nonHeroApps.slice(0, 4);
+  const remainingApps = nonHeroApps.slice(4);
 
   return (
     <div className="home-view view-entrance">
@@ -61,13 +64,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             <div className="hero-tag">
               <span>🌟 本周编辑精选推荐</span>
               <span>·</span>
-              <span style={{ color: 'var(--brand-primary)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
-                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" fill="var(--brand-primary)" />
-                  <path d="m9 12 2 2 4-4" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                官方所有权已认证
-              </span>
+              <span>跨平台开源精选</span>
             </div>
 
             <h2 className="hero-title">
@@ -117,40 +114,20 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </div>
 
           <div className="hero-visual">
-            <div
-              className="hero-icon-card"
-              style={{ background: heroApp.icon_bg }}
-            >
-              {heroApp.id === 'rustdesk' ? (
-                <svg
-                  width="46"
-                  height="46"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="#ffffff"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  style={{ filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.28))' }}
-                >
-                  <rect width="20" height="14" x="2" y="3" rx="2" />
-                  <line x1="8" x2="16" y1="21" y2="21" />
-                  <line x1="12" x2="12" y1="17" y2="21" />
-                  <line x1="6" x2="10" y1="8" y2="8" />
-                  <line x1="6" x2="14" y1="11" y2="11" />
-                </svg>
-              ) : (
-                <span style={{ filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.25))' }}>
-                  {heroApp.icon}
-                </span>
-              )}
-              <div className="hero-icon-badge">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
-                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" fill="var(--brand-primary)" />
-                  <path d="m9 12 2 2 4-4" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                <span>Verified</span>
-              </div>
+            <div className="hero-icon-card">
+              <AppIcon
+                icon={heroApp.icon}
+                name={heroApp.name}
+                iconBg={heroApp.icon_bg}
+                style={{ width: '100%', height: '100%', borderRadius: 'inherit' }}
+              />
+            </div>
+            <div className="hero-verified-badge" title="该开源项目已通过官方仓库认证">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                <polyline points="9 12 11 14 15 10" />
+              </svg>
+              <span>官方认证 · Verified</span>
             </div>
           </div>
         </div>
@@ -189,22 +166,26 @@ export const HomeView: React.FC<HomeViewProps> = ({
       )}
 
       {/* Featured Grid */}
-      <div className="section-header">
-        <h3 className="section-title">✨ 经典精选开源软件</h3>
-      </div>
-      <div className="app-grid">
-        {featuredApps.map((app) => (
-          <AppCard
-            key={app.id}
-            app={app}
-            isInstalled={installedIds.has(app.id)}
-            isFavorite={favoriteIds.has(app.id)}
-            onOpenDetail={onOpenDetail}
-            onQuickInstall={onQuickInstall}
-            onToggleFavorite={onToggleFavorite}
-          />
-        ))}
-      </div>
+      {featuredApps.length > 0 && (
+        <>
+          <div className="section-header">
+            <h3 className="section-title">✨ 经典精选开源软件</h3>
+          </div>
+          <div className="app-grid">
+            {featuredApps.map((app) => (
+              <AppCard
+                key={app.id}
+                app={app}
+                isInstalled={installedIds.has(app.id)}
+                isFavorite={favoriteIds.has(app.id)}
+                onOpenDetail={onOpenDetail}
+                onQuickInstall={onQuickInstall}
+                onToggleFavorite={onToggleFavorite}
+              />
+            ))}
+          </div>
+        </>
+      )}
 
       {/* Discover All Grid */}
       {remainingApps.length > 0 && (

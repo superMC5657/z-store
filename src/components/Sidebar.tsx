@@ -129,7 +129,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       aria-label="主要导航"
     >
       {/* Group 1: 发现与探索 */}
-      {!isCollapsed && <div className="nav-group-title">发现与探索</div>}
+      <div className="nav-group-title">发现与探索</div>
       {navItems.slice(0, 3).map((item) => {
         const isSelected = currentView === item.id;
         return (
@@ -140,7 +140,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             title={isCollapsed ? item.label : undefined}
             aria-label={item.label}
           >
-            {item.icon}
+            <span className="nav-icon">
+              {item.icon}
+            </span>
             <span className="nav-label">{item.label}</span>
           </button>
         );
@@ -149,7 +151,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="sidebar-divider" />
 
       {/* Group 2: 应用资产 */}
-      {!isCollapsed && <div className="nav-group-title">应用资产</div>}
+      <div className="nav-group-title">应用资产</div>
       {navItems.slice(3, 6).map((item) => {
         const isSelected = currentView === item.id;
         return (
@@ -160,7 +162,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
             title={isCollapsed ? item.label : undefined}
             aria-label={item.label}
           >
-            {item.icon}
+            <span className="nav-icon">
+              {item.icon}
+              {typeof item.badge === 'boolean' && item.badge && (
+                <span className="nav-icon-badge-dot" />
+              )}
+            </span>
             <span className="nav-label">{item.label}</span>
 
             {typeof item.badge === 'number' && item.badge > 0 && (
@@ -176,7 +183,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="sidebar-divider" />
 
       {/* Group 3: 偏好与系统 */}
-      {!isCollapsed && <div className="nav-group-title">偏好与系统</div>}
+      <div className="nav-group-title">偏好与系统</div>
       {navItems.slice(6).map((item) => {
         const isSelected = currentView === item.id;
         return (
@@ -187,7 +194,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             title={isCollapsed ? item.label : undefined}
             aria-label={item.label}
           >
-            {item.icon}
+            <span className="nav-icon">
+              {item.icon}
+            </span>
             <span className="nav-label">{item.label}</span>
           </button>
         );
