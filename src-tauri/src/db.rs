@@ -392,12 +392,6 @@ impl Database {
         Ok(())
     }
 
-    pub fn clear_cache(&self) -> Result<()> {
-        self.conn.execute("DELETE FROM api_etag_cache", [])?;
-        let _ = self.conn.execute("DELETE FROM app_details_cache", []);
-        Ok(())
-    }
-
     pub fn get_favorites(&self) -> Result<Vec<String>> {
         let mut stmt = self
             .conn
@@ -750,8 +744,10 @@ mod tests {
         let payload = db.get_cached_payload(ep).unwrap();
         assert!(payload.is_some());
 
-        db.clear_cache().unwrap();
-        assert_eq!(db.get_etag(ep).unwrap(), None);
+        // 测试更新 ETag
+        db.save_etag(ep, "W/\"654321\"", "{\"tag_name\":\"v1.2.7\"}", 1700000100)
+            .unwrap();
+        assert_eq!(db.get_etag(ep).unwrap(), Some("W/\"654321\"".to_string()));
     }
 
     #[test]
@@ -890,6 +886,7 @@ mod tests {
         assert!(db.get_host_token("gitea.com").unwrap().is_none());
     }
 
+
     #[test]
     fn test_app_details_cache_crud() {
         let db = Database::open_in_memory().unwrap();
@@ -923,6 +920,7 @@ mod tests {
             forge_host: Some("github.com".to_string()),
             cached_at: None,
             is_stale_fallback: None,
+            homepage: None,
         };
 
         db.save_cached_app_detail("rustdesk", "github.com/rustdesk/rustdesk", &detail).unwrap();
