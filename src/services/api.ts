@@ -7,6 +7,7 @@ import {
   ImportAppRequest,
   InstalledApp,
   MirrorNodeStatus,
+  ProxyTestResult,
   SignatureInfo,
   StarredSyncResult,
   UpdateItem,
@@ -26,10 +27,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'dark',
   ui_scale: '100',
   font_size: '14',
-  always_on_top: false,
   portable_dir: '%LOCALAPPDATA%\\Programs\\z-store-apps',
   download_dir: '%TEMP%\\zstore_downloads',
-  auto_clean_cache: true,
   active_mirror: 'ghproxy',
   max_concurrent_downloads: 3,
   github_token: '',
@@ -37,7 +36,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   launch_on_startup: false,
   update_frequency: 'startup',
   detail_cache_ttl_minutes: 30,
-  catalog_source_url: 'https://raw.gitmirror.com/supermc/z-store/main/src-tauri/src/catalog.json',
+  catalog_source_url: 'https://gh-proxy.com/https://raw.githubusercontent.com/supermc/z-store/main/src-tauri/src/catalog.json',
 };
 
 async function tauriInvoke<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
@@ -64,10 +63,11 @@ const MOCK_APPS: Record<string, AppDetail> = {
     latest_version: 'v1.3.1',
     changelog: '优化网络握手，提升中继转发性能，优化多屏高 DPI 鼠标映射与剪贴板同步。',
     is_verified: true,
-    signature_fingerprint: 'E8:7A:B4:9C:12:34:56:78',
+    signature_fingerprint: '57:B6:08:5F:D9:58:23:77:13:C2:13:79:2F:94:AE:CE:62:B1:5C:51:94:C8:A1:A2:B6:A4:9A:B9:C2:CB:32:8A',
     readme_markdown: '# RustDesk\n\n开源远程桌面解决方案，替代 TeamViewer 与 AnyDesk。支持自主部署 Rendezvous / Relay 协调服务器。',
     category: 'system',
     category_name: '系统实用',
+    homepage: 'https://rustdesk.com',
     releases: [
       {
         name: 'rustdesk-1.3.1-x86_64.msi',
@@ -107,6 +107,7 @@ const MOCK_APPS: Record<string, AppDetail> = {
     readme_markdown: '# LocalSend\n\n开源隔空投送 (AirDrop) 替代工具，支持 Windows, macOS, Linux, Android 与 iOS。',
     category: 'network',
     category_name: '网络工具',
+    homepage: 'https://localsend.org',
     releases: [
       {
         name: 'LocalSend-1.14.0-windows-x86-64.msi',
@@ -164,9 +165,10 @@ let mockInstalled: InstalledApp[] = [
 ];
 
 let mockMirrors: MirrorNodeStatus[] = [
-  { id: 'ghproxy', name: 'GH-Proxy 加速线路 (华东/华南优质)', base_url: 'https://gh-proxy.com', latency_ms: 38, is_active: true },
-  { id: 'gitmirror', name: 'GitMirror 备用线路 (华北/西北推荐)', base_url: 'https://hub.gitmirror.com', latency_ms: 68, is_active: false },
-  { id: 'direct', name: 'GitHub 官方直连线路 (海外/科学上网)', base_url: 'https://github.com', latency_ms: 220, is_active: false },
+  { id: 'ghproxy', name: 'GH-Proxy 加速线路 (主流推荐)', base_url: 'https://gh-proxy.com', latency_ms: 68, is_active: true },
+  { id: 'ghproxynet', name: 'GHProxy.net 备用线路 (华东/华北)', base_url: 'https://ghproxy.net', latency_ms: 88, is_active: false },
+  { id: 'ghfast', name: 'GHFast 高速线路 (电信/联通优选)', base_url: 'https://ghfast.top', latency_ms: 95, is_active: false },
+  { id: 'direct', name: 'GitHub 官方直连 (海外/科学上网)', base_url: 'https://github.com', latency_ms: 240, is_active: false },
 ];
 
 let mockRules: UpdateRule[] = [];
@@ -214,7 +216,19 @@ export const api = {
 
   async getAppDetails(id: string, forceRefresh = false): Promise<AppDetail> {
     if (isTauri) {
-      return tauriInvoke<AppDetail>('get_app_details', { id, forceRefresh });
+      const res = await tauriInvoke<AppDetail>('get_app_details', {
+        id,
+        forceRefresh,
+        force_refresh: forceRefresh,
+      });
+      if (res) {
+        res.releases = Array.isArray(res.releases)
+          ? res.releases
+          : Array.isArray(res.assets)
+          ? res.assets
+          : [];
+      }
+      return res;
     }
     if (MOCK_APPS[id]) return MOCK_APPS[id];
     return {
@@ -238,6 +252,10 @@ export const api = {
     };
   },
 
+  async forceRefreshApp(id: string): Promise<AppDetail> {
+    return this.getAppDetails(id, true);
+  },
+
   async getInstalledApps(): Promise<InstalledApp[]> {
     if (isTauri) {
       return tauriInvoke<InstalledApp[]>('get_installed_apps');
@@ -245,9 +263,13 @@ export const api = {
     return [...mockInstalled];
   },
 
-  async installApp(appId: string): Promise<InstalledApp> {
+  async installApp(appId: string, assetName?: string, customInstallDir?: string): Promise<InstalledApp> {
     if (isTauri) {
-      return tauriInvoke<InstalledApp>('install_app', { appId });
+      return tauriInvoke<InstalledApp>('install_app', {
+        appId,
+        assetName: assetName || null,
+        customInstallDir: customInstallDir || null,
+      });
     }
     const detail = await api.getAppDetails(appId);
     const newApp: InstalledApp = {
@@ -268,6 +290,14 @@ export const api = {
   async uninstallApp(appId: string): Promise<boolean> {
     if (isTauri) {
       return tauriInvoke<boolean>('uninstall_app', { appId });
+    }
+    mockInstalled = mockInstalled.filter((a) => a.app_id !== appId);
+    return true;
+  },
+
+  async unmanageApp(appId: string): Promise<boolean> {
+    if (isTauri) {
+      return tauriInvoke<boolean>('unmanage_app', { appId });
     }
     mockInstalled = mockInstalled.filter((a) => a.app_id !== appId);
     return true;
@@ -335,6 +365,17 @@ export const api = {
     return [...mockMirrors];
   },
 
+  async testProxy(proxyUrl?: string): Promise<ProxyTestResult> {
+    if (isTauri) {
+      return tauriInvoke<ProxyTestResult>('test_proxy', { proxyUrl: proxyUrl || null });
+    }
+    return {
+      success: true,
+      latency_ms: proxyUrl ? 320 : 180,
+      message: '320 ms (连接正常)',
+    };
+  },
+
   async setGithubToken(token: string): Promise<boolean> {
     if (isTauri) {
       return tauriInvoke<boolean>('set_github_token', { token });
@@ -378,13 +419,6 @@ export const api = {
   async toggleFavorite(appId: string): Promise<boolean> {
     if (isTauri) {
       return tauriInvoke<boolean>('toggle_favorite', { appId });
-    }
-    return true;
-  },
-
-  async clearCache(): Promise<boolean> {
-    if (isTauri) {
-      return tauriInvoke<boolean>('clear_cache');
     }
     return true;
   },
@@ -487,6 +521,20 @@ export const api = {
     return apps.length;
   },
 
+  async getDetectedInstalledAppIds(forceRefresh = false): Promise<string[]> {
+    if (isTauri) {
+      return tauriInvoke<string[]>('get_detected_installed_app_ids', { forceRefresh });
+    }
+    return ['oh-my-posh'];
+  },
+
+  async importSingleApp(appId: string): Promise<boolean> {
+    if (isTauri) {
+      return tauriInvoke<boolean>('import_single_app', { appId });
+    }
+    return true;
+  },
+
   async onDownloadProgress(callback: (payload: DownloadProgressPayload) => void): Promise<() => void> {
     if (isTauri) {
       const { listen } = await import('@tauri-apps/api/event');
@@ -584,7 +632,7 @@ export const api = {
       issuer: 'CN=DigiCert Trusted Root G4',
       serial_number: '1234567890ABCDEF',
       thumbprint_sha1: '3B77DB29AC72AA6B5880ECB2ED5EC1EC6601D847',
-      thumbprint_sha256: 'E8:7A:B4:9C:3D:12:FA:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD',
+      thumbprint_sha256: '57:B6:08:5F:D9:58:23:77:13:C2:13:79:2F:94:AE:CE:62:B1:5C:51:94:C8:A1:A2:B6:A4:9A:B9:C2:CB:32:8A',
     };
   },
 
@@ -628,7 +676,8 @@ export const api = {
       return tauriInvoke<StarredSyncResult>('sync_github_starred', { username });
     }
     await new Promise((r) => setTimeout(r, 400));
-    const all = Object.values(MOCK_APPS).map((d) => ({
+    const cleanUser = username?.trim().toLowerCase();
+    const matches = cleanUser === 'demo' ? Object.values(MOCK_APPS).slice(0, 2).map((d) => ({
       id: d.id,
       name: d.name,
       owner: d.owner,
@@ -643,10 +692,10 @@ export const api = {
       category: d.category,
       category_name: d.category_name,
       is_verified: d.is_verified,
-    }));
+    })) : [];
     return {
-      total_starred: all.length,
-      catalog_matches: all,
+      total_starred: matches.length,
+      catalog_matches: matches,
       other_repos: [],
     };
   },
@@ -866,6 +915,21 @@ export const api = {
       return tauriInvoke<string>('get_or_fetch_icon', { owner, repo, appId, remoteUrl });
     }
     return remoteUrl;
+  },
+
+  async openUrl(url: string): Promise<void> {
+    if (!url) return;
+    const trimmed = url.trim();
+    if (!/^https?:\/\//i.test(trimmed)) return;
+    if (isTauri) {
+      try {
+        await tauriInvoke('open_url', { url: trimmed });
+        return;
+      } catch (err) {
+        console.warn('Failed to invoke open_url via Tauri, falling back to window.open:', err);
+      }
+    }
+    window.open(trimmed, '_blank', 'noopener,noreferrer');
   },
 };
 

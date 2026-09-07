@@ -123,8 +123,37 @@ pub fn get_app_data_dir() -> std::path::PathBuf {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn init_windows_system_proxy() {
+    if std::env::var("http_proxy").is_err() && std::env::var("HTTP_PROXY").is_err() {
+        use winreg::enums::HKEY_CURRENT_USER;
+        use winreg::RegKey;
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        if let Ok(settings) = hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings") {
+            let proxy_enable: u32 = settings.get_value("ProxyEnable").unwrap_or(0);
+            if proxy_enable == 1 {
+                if let Ok(proxy_server) = settings.get_value::<String, _>("ProxyServer") {
+                    let trimmed = proxy_server.trim();
+                    if !trimmed.is_empty() {
+                        let full = if trimmed.starts_with("http://") || trimmed.starts_with("https://") || trimmed.starts_with("socks5://") {
+                            trimmed.to_string()
+                        } else {
+                            format!("http://{}", trimmed)
+                        };
+                        std::env::set_var("http_proxy", &full);
+                        std::env::set_var("https_proxy", &full);
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "windows")]
+    init_windows_system_proxy();
+
     let db_dir = get_app_data_dir();
     let _ = std::fs::create_dir_all(&db_dir);
     let db_path = db_dir.join("z_store.db");
@@ -189,6 +218,7 @@ pub fn run() {
             commands::get_installed_apps,
             commands::install_app,
             commands::uninstall_app,
+            commands::unmanage_app,
             commands::check_for_updates,
             commands::get_mirror_status,
             commands::switch_mirror,
@@ -197,12 +227,14 @@ pub fn run() {
             commands::save_setting,
             commands::get_favorites,
             commands::toggle_favorite,
-            commands::clear_cache,
             commands::ping_mirrors,
+            commands::test_proxy,
             commands::get_app_readme,
             commands::get_catalog_count,
             commands::scan_and_match_local_apps,
             commands::import_matched_apps,
+            commands::get_detected_installed_app_ids,
+            commands::import_single_app,
             commands::launch_app,
             commands::get_update_rules,
             commands::set_app_skip_version,
@@ -230,7 +262,8 @@ pub fn run() {
             commands::search_forge_repos,
             commands::sync_catalog,
             commands::select_folder,
-            commands::get_or_fetch_icon
+            commands::get_or_fetch_icon,
+            commands::open_url
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
