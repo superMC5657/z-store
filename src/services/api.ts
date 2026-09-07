@@ -398,6 +398,26 @@ export const api = {
     };
   },
 
+  // 出站代理（登录与 API 直连共用）：保存即时生效，无需重启；空串 = 清空回退
+  async setForwardProxy(url: string): Promise<boolean> {
+    if (isTauri) {
+      return tauriInvoke<boolean>('set_forward_proxy', { url });
+    }
+    mockSettings['http_proxy_url'] = url;
+    return true;
+  },
+
+  async testForwardProxy(proxyUrl: string): Promise<ProxyTestResult> {
+    if (isTauri) {
+      return tauriInvoke<ProxyTestResult>('test_forward_proxy', { proxyUrl });
+    }
+    return {
+      success: true,
+      latency_ms: 210,
+      message: '210 ms（经直连连接正常）',
+    };
+  },
+
   async setGithubToken(token: string): Promise<boolean> {
     if (isTauri) {
       return tauriInvoke<boolean>('set_github_token', { token });
@@ -991,10 +1011,14 @@ export const api = {
       const raw = await tauriInvoke<{ status: string; message?: string }>('oauth_device_poll', {
         device_code: deviceCode,
       });
-      // 后端状态机为 pending/authorized/error；前端收敛为 pending/complete/error
-      //（expired/denied 由后端以 error + message 表达，调用方展示 message 即可）。
+      // 后端状态机为 pending/authorized/expired/denied/error；前端收敛为
+      // pending/complete/expired/denied/error（expired/denied 由后端明确表达，调用方分别展示）。
       const status =
-        raw.status === 'authorized' ? 'complete' : raw.status === 'error' ? 'error' : 'pending';
+        raw.status === 'authorized'
+          ? 'complete'
+          : raw.status === 'expired' || raw.status === 'denied' || raw.status === 'error'
+            ? raw.status
+            : 'pending';
       return { status, message: raw.message } as OAuthPollResult;
     }
     throw new Error('浏览器预览模式不支持 GitHub OAuth 登录');
