@@ -59,6 +59,9 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   // FR-7: GitHub 标星态（仅登录可见；后端未就绪时一律按未标星降级）
   const [isStarred, setIsStarred] = useState(false);
   const [isStarring, setIsStarring] = useState(false);
+  // FR-8.3: 所有权校验码提交态（MVP：README / z-store.toml 子串命中即通过）
+  const [verifyCode, setVerifyCode] = useState('');
+  const [isVerifying, setIsVerifying] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -96,6 +99,27 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
     }
   };
 
+  // FR-8.3: 提交所有权校验码 → 通过后刷新详情点亮勋章
+  const handleVerifyOwnership = async () => {
+    const code = verifyCode.trim();
+    if (!code || isVerifying) return;
+    setIsVerifying(true);
+    try {
+      const ok = await api.verifyOwnership(app.id, code);
+      if (ok) {
+        notifyToast(`所有权验证通过，${app.name} 已颁发认证勋章 🛡️`, 'success');
+        setVerifyCode('');
+        if (onRefresh) await onRefresh(app.id);
+      } else {
+        notifyToast('校验码未命中：请确认已将其写入仓库 README 或 z-store.toml', 'error');
+      }
+    } catch (e) {
+      notifyToast(`验证失败: ${String(e)}`, 'error');
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
   // FR-7.3: 问题反馈 → 预填标题与正文直达仓库 Issues 新建页（复用 openUrl 外链通道）
   const handleOpenIssueFeedback = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -114,6 +138,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
     setDownloadProgress(null);
     setConfirmingUninstall(false);
     setConfirmingUnmanage(false);
+    setVerifyCode('');
   }, [app.id]);
 
   const effectiveRefreshing = Boolean(isRefreshing || app.isRefreshing);
@@ -624,6 +649,36 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   ))}
                 </div>
               )}
+            </div>
+          )}
+          {/* FR-8.3: 所有权认证（未验证时展示校验码入口；验证后由勋章代替） */}
+          {!app.is_verified && (
+            <div className="settings-group" style={{ marginBottom: '12px' }}>
+              <div className="settings-group-title">
+                <span>🛡️ 所有权认证</span>
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', lineHeight: '1.6' }}>
+                仓库拥有者请将校验码写入 README 或根目录 z-store.toml，提交后颁发 Fluent 蓝色所有权勋章。
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input
+                  value={verifyCode}
+                  onChange={(e) => setVerifyCode(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleVerifyOwnership();
+                  }}
+                  placeholder="输入校验码"
+                  aria-label="所有权校验码"
+                  style={{ flex: 1, minWidth: 0 }}
+                />
+                <button
+                  className="btn-primary"
+                  disabled={!verifyCode.trim() || isVerifying}
+                  onClick={handleVerifyOwnership}
+                >
+                  {isVerifying ? '验证中…' : '提交验证'}
+                </button>
+              </div>
             </div>
           )}
           {/* Action Card */}

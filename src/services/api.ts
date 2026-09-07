@@ -1053,8 +1053,20 @@ export const api = {
     return mockStarred.includes(appId);
   },
 
+  // ---- FR-8.3 所有权认证（MVP 校验码）----
+  // IPC: verify_ownership{app_id, code} -> bool；命中 README/z-store.toml 中的校验码即通过，
+  // 后端落库 verified_apps，后续详情自动带 is_verified 勋章。
+  async verifyOwnership(appId: string, code: string): Promise<boolean> {
+    const trimmed = code.trim();
+    if (!trimmed) return false;
+    if (isTauri) {
+      return tauriInvoke<boolean>('verify_ownership', { app_id: appId, code: trimmed });
+    }
+    return false;
+  },
+
   // ---- FR-6.3-manual 用户数据手动导入 ----
-  // IPC: import_user_data(json) -> counts；Rust 侧并发实现中，调用方必须 try/catch。
+  // IPC: import_user_data(json) -> counts；调用方必须 try/catch。
   async importUserData(json: string): Promise<ImportUserDataCounts> {
     if (isTauri) {
       return tauriInvoke<ImportUserDataCounts>('import_user_data', { json });
