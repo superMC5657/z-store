@@ -31,6 +31,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   const handleSyncStarred = async () => {
     setIsSyncing(true);
     setSyncError(null);
+    setSyncResult(null);
     try {
       const res = await api.syncGithubStarred(githubUser.trim() || undefined);
       setSyncResult(res);
@@ -178,12 +179,14 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                   marginBottom: '16px',
                   padding: '10px 16px',
                   borderRadius: '6px',
-                  background: 'rgba(56, 189, 248, 0.08)',
-                  border: '1px solid rgba(56, 189, 248, 0.2)',
+                  background: 'var(--brand-subtle)',
+                  border: '1px solid var(--border-nav-active)',
                 }}
               >
-                <span style={{ fontSize: '13px', color: '#38bdf8', fontWeight: 500 }}>
-                  ✓ 共发现 {syncResult.total_starred} 个 Starred 仓库，其中 {syncResult.catalog_matches.length} 个已收录于 Z-Store
+                <span style={{ fontSize: '13px', color: 'var(--brand-primary)', fontWeight: 500 }}>
+                  {syncResult.total_starred === 0
+                    ? '该 GitHub 账号当前星标 (Starred) 仓库数量为 0'
+                    : `✓ 共扫描到 ${syncResult.total_starred} 个 Starred 仓库，其中 ${syncResult.catalog_matches.length} 个已收录于 Z-Store`}
                 </span>
 
                 {syncResult.catalog_matches.length > 0 && (
@@ -224,7 +227,9 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
               ) : (
                 <div className="empty-state-card" style={{ marginTop: '20px' }}>
                   <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-tertiary)' }}>
-                    您 Star 的开源项目中暂未匹配到已收录应用，您可在主页搜索栏直接输入 <code>owner/repo</code> 实时检索并一键安装。
+                    {syncResult.total_starred === 0
+                      ? '该账号在 GitHub 上尚未星标（Star）任何公开仓库。'
+                      : `您 Star 的 ${syncResult.total_starred} 个开源项目中暂未匹配到 Z-Store 已收录的应用。您可在主页搜索栏直接输入 owner/repo 实时检索并一键安装。`}
                   </p>
                 </div>
               )}

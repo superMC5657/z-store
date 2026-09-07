@@ -5,7 +5,6 @@ import { AppDetailModal } from './components/AppDetailModal';
 import { DeveloperProfileModal } from './components/DeveloperProfileModal';
 import { AppImportModal } from './components/AppImportModal';
 import { RulesManagerModal } from './components/RulesManagerModal';
-import { ToastContainer } from './components/Toast';
 import { HomeView } from './views/HomeView';
 import { TrendsView } from './views/TrendsView';
 import { CategoriesView } from './views/CategoriesView';
@@ -33,47 +32,15 @@ export const App: React.FC = () => {
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
-  const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [updateRules, setUpdateRules] = useState<UpdateRule[]>([]);
   const [recentlyViewedApps, setRecentlyViewedApps] = useState<AppSummary[]>([]);
+  const [detectedAppIds, setDetectedAppIds] = useState<Set<string>>(new Set());
   const appDetailMemoryCache = useRef<Map<string, AppDetail>>(new Map());
 
-  // Toast Helper - 严格保证右下角通知最多只有一个（新通知直接顶替并重置 3.5s 计时）
-  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const showToast = (text: string, type: ToastMessage['type'] = 'info') => {
-    const id = `${Date.now()}-${Math.random()}`;
-    // 最多只有一个通知
-    setToasts([{ id, text, type }]);
-
-    if (toastTimerRef.current) {
-      clearTimeout(toastTimerRef.current);
-    }
-    toastTimerRef.current = setTimeout(() => {
-      setToasts([]);
-      toastTimerRef.current = null;
-    }, 3500);
+  // Toast notifications completely disabled per user request in favor of inline animations
+  const showToast = (_text: string, _type: ToastMessage['type'] = 'info') => {
+    // Intentionally no-op to eliminate floating toasts
   };
-
-  const dismissToast = (id?: string) => {
-    if (toastTimerRef.current) {
-      clearTimeout(toastTimerRef.current);
-      toastTimerRef.current = null;
-    }
-    if (id) {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    } else {
-      setToasts([]);
-    }
-  };
-
-  useEffect(() => {
-    return () => {
-      if (toastTimerRef.current) {
-        clearTimeout(toastTimerRef.current);
-      }
-    };
-  }, []);
 
   const FONT_SCALE_MAP: Record<string, string> = {
     '12': '0.86',
@@ -122,6 +89,7 @@ export const App: React.FC = () => {
       );
     });
     api.getInstalledApps().then(setInstalledApps);
+    api.getDetectedInstalledAppIds().then((ids) => setDetectedAppIds(new Set(ids))).catch(() => {});
     api.getMirrorStatus().then(setMirrors);
     api.getFavorites().then((favs) => setFavoriteIds(new Set(favs)));
     api.getUpdateRules().then(setUpdateRules);
@@ -162,15 +130,6 @@ export const App: React.FC = () => {
 
       // Apply UI zoom
       applyUiZoom(merged.ui_scale);
-
-      // Apply Always on top
-      if (merged.always_on_top) {
-        import('@tauri-apps/api/window')
-          .then(({ getCurrentWindow }) => {
-            getCurrentWindow().setAlwaysOnTop(true).catch(() => {});
-          })
-          .catch(() => {});
-      }
 
       if (merged.active_mirror) {
         api.switchMirror(merged.active_mirror);
@@ -227,7 +186,6 @@ export const App: React.FC = () => {
     setTheme(next);
     document.documentElement.setAttribute('data-theme', next);
     handleUpdateSetting('theme', next);
-    showToast(`已切换至${next === 'dark' ? '暗黑' : '明亮'}主题模式`, 'info');
   };
 
   const handleSetTheme = (t: 'light' | 'dark' | 'system') => {
@@ -243,8 +201,6 @@ export const App: React.FC = () => {
     setTheme(effective);
     document.documentElement.setAttribute('data-theme', effective);
     handleUpdateSetting('theme', t);
-    const label = t === 'system' ? '跟随系统' : t === 'dark' ? '暗黑模式' : '明亮模式';
-    showToast(`已应用外观模式: ${label}`, 'info');
   };
 
   // Generic Setting Updater
@@ -267,29 +223,8 @@ export const App: React.FC = () => {
       document.documentElement.setAttribute('data-theme', effective);
     } else if (key === 'font_size') {
       applyFontSize(String(value));
-      const labels: Record<string, string> = {
-        '12': '紧凑 12px',
-        '14': '标准 14px',
-        '16': '舒适 16px',
-        '18': '较大 18px',
-        '20': '特大 20px',
-        small: '紧凑 12px',
-        standard: '标准 14px',
-        medium: '舒适 16px',
-        large: '较大 18px',
-      };
-      showToast(`全局字体已设为: ${labels[String(value)] || `${value}px`}`, 'info');
     } else if (key === 'ui_scale') {
       applyUiZoom(String(value));
-      showToast(`界面缩放已设为: ${value}%`, 'info');
-    } else if (key === 'always_on_top') {
-      try {
-        const { getCurrentWindow } = await import('@tauri-apps/api/window');
-        await getCurrentWindow().setAlwaysOnTop(Boolean(value));
-        showToast(value ? '已开启窗口置顶' : '已取消窗口置顶', 'info');
-      } catch {
-        showToast(value ? '已开启窗口置顶' : '已取消窗口置顶', 'info');
-      }
     }
   };
 
@@ -301,7 +236,6 @@ export const App: React.FC = () => {
     document.documentElement.setAttribute('data-theme', 'dark');
     applyFontSize('14');
     applyUiZoom('100');
-    showToast('已成功恢复所有出厂默认设置！', 'success');
   };
 
   // Export JSON Backup
@@ -324,7 +258,6 @@ export const App: React.FC = () => {
     a.download = `zstore-installed-backup-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    showToast('已导出软件资产 JSON 备份文件！', 'success');
   };
 
   // Search
@@ -365,19 +298,27 @@ export const App: React.FC = () => {
     if (!forceRefresh) {
       const cached = appDetailMemoryCache.current.get(idClean);
       if (cached) {
-        setSelectedApp({ ...cached, isLoading: false, loadError: undefined });
+        setSelectedApp({ ...cached, isLoading: false, isRefreshing: false, loadError: undefined });
         api.recordAppView(id).then(loadRecentViews).catch(() => {});
         return;
       }
+    } else {
+      // 强制刷新：清理内存快照中的旧引用，确保直接穿透
+      appDetailMemoryCache.current.delete(idClean);
+      if (selectedApp && selectedApp.owner && selectedApp.repo) {
+        const repoLower = `${selectedApp.owner}/${selectedApp.repo}`.toLowerCase();
+        appDetailMemoryCache.current.delete(repoLower);
+        appDetailMemoryCache.current.delete(`github.com/${repoLower}`);
+      }
     }
 
-    // 2. 内存未命中或主动刷新：先展示现有基础卡片信息
+    // 2. 内存未命中或主动刷新：若弹窗已打开则保持现有视图无感刷新，否则展示基础卡片信息
     const existing =
       apps.find((a) => a.id.toLowerCase() === idClean) ||
       recentlyViewedApps.find((a) => a.id.toLowerCase() === idClean);
 
     const initialDetail: AppDetail = selectedApp && selectedApp.id.toLowerCase() === idClean && forceRefresh
-      ? { ...selectedApp, isLoading: true }
+      ? { ...selectedApp, isLoading: false, isRefreshing: true, loadError: undefined }
       : existing
       ? {
           id: existing.id,
@@ -400,6 +341,7 @@ export const App: React.FC = () => {
           forge: existing.forge,
           forge_host: existing.forge_host,
           isLoading: true,
+          isRefreshing: forceRefresh,
         }
       : {
           id,
@@ -420,9 +362,10 @@ export const App: React.FC = () => {
           category: 'system',
           category_name: '应用',
           isLoading: true,
+          isRefreshing: forceRefresh,
         };
 
-    // 0ms 同步打开弹窗，主界面无任何阻塞感
+    // 0ms 同步打开弹窗或切换刷新态，主界面无任何阻塞感
     setSelectedApp(initialDetail);
     api.recordAppView(id).then(loadRecentViews).catch(() => {});
 
@@ -444,20 +387,45 @@ export const App: React.FC = () => {
         setSelectedApp({
           ...fullDetail,
           isLoading: false,
+          isRefreshing: false,
         });
-        if (forceRefresh) {
-          showToast(`${fullDetail.name} 元数据与最新 Release 信息已刷新！`, 'success');
-        }
       }
+
+      // 同步主视图卡片列表中应用的信息（Stars、Forks、版本等）
+      setApps((prev) =>
+        prev.map((app) =>
+          app.id.toLowerCase() === idClean ||
+          (fullDetail.id && app.id.toLowerCase() === fullDetail.id.toLowerCase())
+            ? {
+                ...app,
+                stars: fullDetail.stars,
+                forks: fullDetail.forks,
+                latest_version: fullDetail.latest_version,
+              }
+            : app
+        )
+      );
+      setRecentlyViewedApps((prev) =>
+        prev.map((app) =>
+          app.id.toLowerCase() === idClean ||
+          (fullDetail.id && app.id.toLowerCase() === fullDetail.id.toLowerCase())
+            ? {
+                ...app,
+                stars: fullDetail.stars,
+                forks: fullDetail.forks,
+                latest_version: fullDetail.latest_version,
+              }
+            : app
+        )
+      );
     } catch (e) {
       if (activeDetailIdRef.current === id) {
         setSelectedApp((prev) =>
-          prev && prev.id === id
-            ? { ...prev, isLoading: false, loadError: String(e) }
+          prev
+            ? { ...prev, isLoading: false, isRefreshing: false, loadError: String(e) }
             : null
         );
       }
-      showToast(`获取应用详情失败: ${id}`, 'error');
     }
   };
 
@@ -523,13 +491,14 @@ export const App: React.FC = () => {
   };
 
   // Install App
-  const handleInstallApp = async (id: string) => {
+  const handleInstallApp = async (id: string, assetName?: string, customInstallDir?: string): Promise<void> => {
     try {
-      const installed = await api.installApp(id);
+      const installed = await api.installApp(id, assetName, customInstallDir);
       setInstalledApps((prev) => [...prev.filter((a) => a.app_id !== id), installed]);
       showToast(`${installed.app_name} 安装成功并通过 SHA-256 官方防篡改校验！`, 'success');
     } catch (err) {
       showToast(`安装失败: ${String(err)}`, 'error');
+      throw err;
     }
   };
 
@@ -545,18 +514,40 @@ export const App: React.FC = () => {
     }
   };
 
-  // Uninstall or Unmanage App
+  // Unmanage App (remove from Z-Store list, keep local files intact)
+  const handleUnmanageApp = async (id: string) => {
+    const app = installedApps.find((a) => a.app_id === id);
+    const appName = app?.app_name || id;
+    await api.unmanageApp(id);
+    setInstalledApps((prev) => prev.filter((a) => a.app_id !== id));
+    showToast(`已成功取消对 ${appName} 的纳管（本机软件与数据保持完好）`, 'info');
+  };
+
+  // Manage App (import detected app into Z-Store management)
+  const handleManageApp = async (id: string) => {
+    try {
+      await api.importSingleApp(id);
+      const updatedList = await api.getInstalledApps();
+      setInstalledApps(updatedList);
+      setDetectedAppIds((prev) => new Set([...prev, id]));
+      showToast(`已成功将应用纳入 Z-Store 统一管理`, 'success');
+    } catch (err) {
+      console.error('Failed to import app into management:', err);
+    }
+  };
+
+  // Uninstall App (trigger official uninstaller / clean files and remove from list)
   const handleUninstallApp = async (id: string) => {
     const app = installedApps.find((a) => a.app_id === id);
-    const isImported = app?.install_method === 'system_import';
     const appName = app?.app_name || id;
     await api.uninstallApp(id);
     setInstalledApps((prev) => prev.filter((a) => a.app_id !== id));
-    if (isImported) {
-      showToast(`已成功取消对 ${appName} 的版本监控（本机软件保持完好）`, 'info');
-    } else {
-      showToast(`已调用官方卸载器注销并移除 ${appName}`, 'info');
-    }
+    setDetectedAppIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    showToast(`已调用卸载程序并从列表中移除 ${appName}`, 'info');
   };
 
   // Apply Single Update
@@ -709,32 +700,32 @@ export const App: React.FC = () => {
 
   // Mirror Cycling
   const handleCycleMirror = async () => {
-    const currentIndex = mirrors.findIndex((m) => m.is_active);
-    const nextIndex = (currentIndex + 1) % mirrors.length;
-    const nextMirror = mirrors[nextIndex];
-    await api.switchMirror(nextMirror.id);
-    setMirrors((prev) =>
-      prev.map((m, idx) => ({ ...m, is_active: idx === nextIndex }))
-    );
-    showToast(`已切换至加速节点: ${nextMirror.name} (${nextMirror.latency_ms}ms)`, 'info');
+    const updated = await api.getMirrorStatus();
+    const active = updated.find((m) => m.is_active);
+    const hasCustom = updated.some((m) => m.id === 'custom' && m.base_url);
+    if (active?.id === 'direct' && hasCustom) {
+      await handleSelectMirror('custom');
+    } else {
+      await handleSelectMirror('direct');
+    }
   };
 
   const handleSelectMirror = async (mirrorId: string) => {
     await api.switchMirror(mirrorId);
-    setMirrors((prev) =>
-      prev.map((m) => ({ ...m, is_active: m.id === mirrorId }))
-    );
-    const node = mirrors.find((m) => m.id === mirrorId);
-    showToast(`已切换至: ${node?.name || mirrorId}`, 'info');
+    const updated = await api.getMirrorStatus();
+    setMirrors(updated);
   };
 
   const handlePingMirrors = async () => {
-    showToast('正在对所有镜像节点进行并发测速...', 'info');
     try {
-      const updated = await api.pingMirrors();
-      setMirrors(updated);
-      const fastest = updated[0];
-      showToast(`测速完成！最快响应: ${fastest.name} (${fastest.latency_ms}ms)`, 'success');
+      const active = mirrors.find((m) => m.is_active);
+      const testUrl = active?.id === 'custom' ? active.base_url : undefined;
+      const res = await api.testProxy(testUrl);
+      if (res.success) {
+        showToast(`测速成功: ${res.message}`, 'success');
+      } else {
+        showToast(`测速失败: ${res.message}`, 'error');
+      }
     } catch {
       showToast('测速失败，请检查网络连接', 'error');
     }
@@ -742,7 +733,6 @@ export const App: React.FC = () => {
 
   const handleExportApps = () => {
     if (installedApps.length === 0) {
-      showToast('当前尚未安装任何应用，无需导出', 'warning');
       return;
     }
     const lines = [
@@ -757,20 +747,28 @@ export const App: React.FC = () => {
       ),
     ];
     const text = lines.join('\n');
-    navigator.clipboard.writeText(text).then(() => {
-      showToast('已复制软件清单 Markdown 到剪贴板！', 'success');
-    });
+    navigator.clipboard.writeText(text);
   };
 
-  const installedIds = useMemo(
+  const installedIds = useMemo(() => {
+    const set = new Set(installedApps.map((a) => a.app_id));
+    for (const id of detectedAppIds) {
+      set.add(id);
+    }
+    return set;
+  }, [installedApps, detectedAppIds]);
+
+  const managedIds = useMemo(
     () => new Set(installedApps.map((a) => a.app_id)),
     [installedApps]
   );
 
   const activeMirror = mirrors.find((m) => m.is_active);
   const activeMirrorName = activeMirror
-    ? `${activeMirror.name.split(' ')[0]} (${activeMirror.latency_ms}ms)`
-    : '优选中继 (38ms)';
+    ? activeMirror.id === 'direct'
+      ? '官方直连'
+      : activeMirror.name
+    : '官方直连';
 
   return (
     <div className="app-window">
@@ -828,6 +826,7 @@ export const App: React.FC = () => {
             <TrendsView
               apps={apps}
               favoriteIds={favoriteIds}
+              installedIds={installedIds}
               onOpenDetail={handleOpenDetail}
               onQuickInstall={handleQuickInstall}
               onToggleFavorite={handleToggleFavorite}
@@ -861,9 +860,14 @@ export const App: React.FC = () => {
               installedApps={installedApps}
               onLaunch={handleLaunchApp}
               onUninstall={handleUninstallApp}
+              onUnmanage={handleUnmanageApp}
               onScanSystemApps={handleScanSystemApps}
               onExportApps={handleExportApps}
               onExportAppsJson={handleExportAppsJson}
+              updateRules={updateRules}
+              onToggleRuleFrozen={handleToggleRuleFrozen}
+              onToggleRuleHidden={handleToggleRuleHidden}
+              onOpenRules={() => setIsRulesModalOpen(true)}
             />
           )}
 
@@ -889,11 +893,6 @@ export const App: React.FC = () => {
               onPingMirrors={handlePingMirrors}
               theme={settings.theme}
               onSetTheme={handleSetTheme}
-              onClearCache={() => {
-                appDetailMemoryCache.current.clear();
-                api.clearCache();
-                showToast('本地安装包临时文件、应用详情缓存与 ETag 索引已清理完毕', 'success');
-              }}
               onSaveToken={async (token) => {
                 await api.setGithubToken(token);
                 handleUpdateSetting('github_token', token);
@@ -922,6 +921,7 @@ export const App: React.FC = () => {
         <AppDetailModal
           app={selectedApp}
           isInstalled={installedIds.has(selectedApp.id)}
+          isManaged={managedIds.has(selectedApp.id)}
           isFavorite={favoriteIds.has(selectedApp.id)}
           onClose={() => {
             activeDetailIdRef.current = null;
@@ -929,6 +929,9 @@ export const App: React.FC = () => {
           }}
           onInstall={handleInstallApp}
           onLaunch={handleLaunchApp}
+          onUninstall={handleUninstallApp}
+          onUnmanage={handleUnmanageApp}
+          onManageApp={handleManageApp}
           onToggleFavorite={handleToggleFavorite}
           onOpenDeveloperProfile={(owner) => setSelectedDeveloper(owner)}
           onRetry={(retryId) => handleOpenDetail(retryId)}
@@ -943,6 +946,7 @@ export const App: React.FC = () => {
         onClose={() => setSelectedDeveloper(null)}
         onOpenAppDetail={(id) => handleOpenDetail(id)}
         onInstallApp={handleInstallApp}
+        installedIds={installedIds}
       />
 
       {/* System Apps Import Modal (FR-5.3) */}
@@ -957,14 +961,13 @@ export const App: React.FC = () => {
         isOpen={isRulesModalOpen}
         onClose={() => setIsRulesModalOpen(false)}
         updateRules={updateRules}
+        installedApps={installedApps}
         onRemoveRule={handleRemoveRule}
         onClearRuleSkip={handleClearRuleSkip}
         onToggleRuleFrozen={handleToggleRuleFrozen}
         onToggleRuleHidden={handleToggleRuleHidden}
+        onSkipVersion={handleSkipVersion}
       />
-
-      {/* Toast Notifications */}
-      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 };

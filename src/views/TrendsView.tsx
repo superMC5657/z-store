@@ -5,6 +5,7 @@ import { AppIcon } from '../components/AppIcon';
 interface TrendsViewProps {
   apps: AppSummary[];
   favoriteIds?: Set<string>;
+  installedIds?: Set<string>;
   onOpenDetail: (id: string) => void;
   onQuickInstall: (id: string) => void;
   onToggleFavorite?: (id: string) => void;
@@ -15,6 +16,7 @@ type TimeRange = 'day' | 'week' | 'month' | 'all';
 export const TrendsView: React.FC<TrendsViewProps> = ({
   apps,
   favoriteIds,
+  installedIds,
   onOpenDetail,
   onQuickInstall,
   onToggleFavorite,
@@ -165,16 +167,41 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                   {favoriteIds?.has(app.id) ? '★' : '☆'}
                 </button>
               )}
-              <button
-                className="btn-install"
-                style={{ padding: '6px 14px' }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onQuickInstall(app.id);
-                }}
-              >
-                获取
-              </button>
+              {installedIds?.has(app.id) ? (
+                <button
+                  className="btn-install btn-installed"
+                  style={{ padding: '6px 14px' }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenDetail(app.id);
+                  }}
+                  title="已安装 · 点击查看详情与管理操作"
+                  aria-label={`${app.name} 已安装，点击查看详情`}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '4px' }}>
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  <span>已安装</span>
+                </button>
+              ) : (
+                <button
+                  className="btn-install"
+                  style={{ padding: '6px 14px' }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onQuickInstall(app.id);
+                  }}
+                  title={`获取 ${app.name}`}
+                  aria-label={`获取 ${app.name}`}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '4px' }}>
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
+                  <span>获取</span>
+                </button>
+              )}
             </div>
           </div>
         ))}

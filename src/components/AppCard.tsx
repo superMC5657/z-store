@@ -97,9 +97,9 @@ export const AppCard: React.FC<AppCardProps> = ({
             <span
               className="app-tag"
               style={{
-                background: 'rgba(56, 189, 248, 0.12)',
-                color: '#38bdf8',
-                border: '1px solid rgba(56, 189, 248, 0.25)',
+                background: 'var(--brand-subtle)',
+                color: 'var(--brand-primary)',
+                border: '1px solid var(--border-nav-active)',
                 fontWeight: 600,
               }}
               title={`代码源: ${app.forge_host || app.forge}`}
@@ -113,9 +113,14 @@ export const AppCard: React.FC<AppCardProps> = ({
           className={`btn-install ${isInstalled ? 'btn-installed' : ''}`}
           onClick={(e) => {
             e.stopPropagation();
-            onQuickInstall(app.id);
+            if (isInstalled) {
+              onOpenDetail(app.id);
+            } else {
+              onQuickInstall(app.id);
+            }
           }}
-          aria-label={isInstalled ? `${app.name} 已安装` : `获取 ${app.name}`}
+          title={isInstalled ? '已安装 · 点击查看详情与管理操作' : `获取 ${app.name}`}
+          aria-label={isInstalled ? `${app.name} 已安装，点击管理` : `获取 ${app.name}`}
         >
           {isInstalled ? (
             <>

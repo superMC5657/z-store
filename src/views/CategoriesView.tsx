@@ -12,7 +12,7 @@ interface CategoriesViewProps {
 }
 
 const CATEGORY_DEFINITIONS = [
-  { id: 'dev', icon: '💻', name: '开发工具', desc: 'IDE, 编辑器, 调试台, 版本控制', color: '#0284c7' },
+  { id: 'dev', icon: '💻', name: '开发工具', desc: 'IDE, 编辑器, 调试台, 版本控制', color: '#5865f2' },
   { id: 'media', icon: '🎵', name: '影音视听', desc: '全能播放器, 录屏推流, 视频压制', color: '#ec4899' },
   { id: 'office', icon: '📑', name: '效率办公', desc: '双链笔记, Markdown, 知识图谱', color: '#8b5cf6' },
   { id: 'security', icon: '🛡️', name: '安全隐私', desc: '密码管理器, 网络抓包, 隐私保护', color: '#10b981' },

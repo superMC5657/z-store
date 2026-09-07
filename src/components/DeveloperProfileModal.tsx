@@ -8,6 +8,7 @@ interface DeveloperProfileModalProps {
   onClose: () => void;
   onOpenAppDetail: (appId: string) => void;
   onInstallApp: (appId: string) => Promise<void>;
+  installedIds?: Set<string>;
 }
 
 export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
@@ -16,6 +17,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
   onClose,
   onOpenAppDetail,
   onInstallApp,
+  installedIds,
 }) => {
   const [profile, setProfile] = useState<DeveloperProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -225,8 +227,8 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                               fontSize: '11px',
                               padding: '2px 6px',
                               borderRadius: '4px',
-                              background: 'rgba(56, 189, 248, 0.16)',
-                              color: '#38bdf8',
+                              background: 'var(--brand-subtle)',
+                              color: 'var(--brand-primary)',
                               fontWeight: 600,
                             }}
                           >
@@ -266,14 +268,34 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                           >
                             查看详情
                           </button>
-                          <button
-                            className="btn-fluent btn-primary"
-                            style={{ fontSize: '12px', padding: '6px 14px', fontWeight: 600 }}
-                            disabled={isInstalling}
-                            onClick={() => handleInstall(repo.id)}
-                          >
-                            {isInstalling ? '安装中...' : '一键安装'}
-                          </button>
+                          {installedIds?.has(repo.id) ? (
+                            <button
+                              className="btn-fluent btn-secondary"
+                              style={{
+                                fontSize: '12px',
+                                padding: '6px 14px',
+                                fontWeight: 600,
+                                color: 'var(--brand-primary)',
+                                borderColor: 'var(--border-nav-active)',
+                              }}
+                              onClick={() => {
+                                onClose();
+                                onOpenAppDetail(repo.id);
+                              }}
+                              title="已就绪 · 点击查看与管理"
+                            >
+                              ✓ 已安装
+                            </button>
+                          ) : (
+                            <button
+                              className="btn-fluent btn-primary"
+                              style={{ fontSize: '12px', padding: '6px 14px', fontWeight: 600 }}
+                              disabled={isInstalling}
+                              onClick={() => handleInstall(repo.id)}
+                            >
+                              {isInstalling ? '安装中...' : '一键安装'}
+                            </button>
+                          )}
                         </>
                       ) : (
                         <a
