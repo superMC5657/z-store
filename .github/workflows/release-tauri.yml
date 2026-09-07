@@ -99,6 +99,8 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # 覆盖内置 GitHub OAuth Client ID（未配置则回退代码内置默认；公开标识，非密钥）
+          ZSTORE_GITHUB_OAUTH_CLIENT_ID: ${{ secrets.ZSTORE_GITHUB_OAUTH_CLIENT_ID }}
 
       # Windows runner 默认 pwsh,这里强制 bash(collect 步骤为 bash 语法)
       # 注意:不用项目根 dist/(那是 Vite web 产物目录,会污染 release 资产),用独立 artifacts/

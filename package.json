@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "typecheck": "tsc --noEmit",
     "bump:version": "node scripts/bump-version.mjs --name ZStore",
     "refresh:catalog": "node scripts/refresh-catalog.mjs"
