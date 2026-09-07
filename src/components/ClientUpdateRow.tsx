@@ -1,9 +1,4 @@
-// FR-4.4: 客户端自更新 UI（SettingsView 内嵌行）
-// 后端已就绪：tauri-plugin-updater + pubkey + 镜像/官方双端点（tauri.conf.json）。
-// 前端经 @tauri-apps/plugin-updater JS API 调用 check / downloadAndInstall 进度 / 安装，
-// 重启经 plugin:process 尝试，缺失时降级为手动重启提示（不新增依赖）。
-// 状态机：idle → checking → available(version+notes) → downloading(progress) → ready → 重启。
-// 所有错误以内联文本 + 应用内 Toast 呈现，绝不阻塞。
+// 客户端自更新行（FR-4.4）：check → 下载 → 重启，错误内联呈现不阻塞。
 import React, { useState } from 'react';
 import type { DownloadEvent, Update } from '@tauri-apps/plugin-updater';
 import { notifyToast } from '../utils/notify';
@@ -137,9 +132,9 @@ export const ClientUpdateRow: React.FC = () => {
   const renderStatus = () => {
     switch (phase.kind) {
       case 'idle':
-        return <span className="settings-row-desc">检查 Z-Store 客户端自身是否有新版本（经签名校验通道下发）</span>;
+        return <span className="settings-row-desc">检查客户端新版本</span>;
       case 'checking':
-        return <span className="settings-row-desc">正在连接更新通道检查新版本...</span>;
+        return <span className="settings-row-desc">正在检查...</span>;
       case 'latest':
         return <span style={{ fontSize: '12px', color: '#10b981' }}>✅ 当前客户端已是最新版本</span>;
       case 'available':
@@ -152,7 +147,7 @@ export const ClientUpdateRow: React.FC = () => {
       case 'downloading':
         return (
           <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-            ⏳ 正在下载安装包{phase.percent !== null ? `（${phase.percent}%）` : ''}，请保持网络畅通...
+            ⏳ 正在下载安装包{phase.percent !== null ? `（${phase.percent}%）` : ''}
           </span>
         );
       case 'ready':

@@ -1,8 +1,4 @@
-// FR-6.3-manual: 用户数据手动导出 / 导入（纯文件同步，不含自动同步与系统通知）
-// 导出：经现有 getters 组装 {version:1, favorites, watched:[app_ids], settings:{...}}，
-//      下载为 z-store-backup-YYYYMMDD.json。
-// 导入：文件选择器读取 → import_user_data(json) → Toast 计数（含 installed_skipped 说明），
-//      成功后派发 `zstore:data-imported` 由 App 根组件刷新收藏 / 关注 / 设置。
+// 用户数据手动备份行（FR-6.3）：导出 JSON / 导入合并，成功派发 zstore:data-imported。
 import React, { useRef, useState } from 'react';
 import { api } from '../services/api';
 import { notifyToast } from '../utils/notify';
@@ -72,7 +68,7 @@ export const DataBackupRow: React.FC = () => {
       const msg =
         `导入完成：收藏 +${counts.favorites_added} · 关注 +${counts.watched_added}` +
         ` · 设置${counts.settings_applied ? '已应用' : '未变更'}` +
-        `（已安装应用 ${counts.installed_skipped} 个不受影响，仅跳过）`;
+        `（已安装 ${counts.installed_skipped} 个不受影响）`;
       showFeedback(`✅ ${msg}`, false);
       notifyToast(msg, 'success');
       window.dispatchEvent(new CustomEvent('zstore:data-imported'));
@@ -89,7 +85,7 @@ export const DataBackupRow: React.FC = () => {
   return (
     <div className="settings-row">
       <div className="settings-row-info">
-        <span style={{ fontWeight: 600 }}>用户数据手动备份（收藏 / 关注 / 设置）</span>
+        <span style={{ fontWeight: 600 }}>用户数据备份（收藏 / 关注 / 设置）</span>
         {feedback ? (
           <span style={{ fontSize: '12px', color: isError ? '#ef4444' : '#10b981' }}>{feedback}</span>
         ) : (
