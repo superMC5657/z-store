@@ -225,6 +225,8 @@ pub struct ForgeRepoInfo {
     pub forks: u64,
     pub language: Option<String>,
     pub default_branch: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub homepage: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -315,6 +317,7 @@ impl ForgeProvider for GitHubProvider {
             forks_count: Option<u64>,
             language: Option<String>,
             default_branch: Option<String>,
+            homepage: Option<String>,
         }
 
         let payload: GitHubRepoPayload = resp.json().await.map_err(|e| e.to_string())?;
@@ -332,6 +335,7 @@ impl ForgeProvider for GitHubProvider {
             forks: payload.forks_count.unwrap_or(0),
             language: payload.language,
             default_branch: payload.default_branch.unwrap_or_else(|| "main".to_string()),
+            homepage: payload.homepage.filter(|h| !h.trim().is_empty()),
         })
     }
 
@@ -492,6 +496,7 @@ impl ForgeProvider for GitHubProvider {
                 forks: item.forks_count.unwrap_or(0),
                 language: item.language,
                 default_branch: item.default_branch.unwrap_or_else(|| "main".to_string()),
+                homepage: None,
             })
             .collect();
 
@@ -560,6 +565,7 @@ impl ForgeProvider for GiteaProvider {
             forks_count: Option<u64>,
             primary_language: Option<String>,
             default_branch: Option<String>,
+            website: Option<String>,
         }
 
         let payload: GiteaRepoPayload = resp.json().await.map_err(|e| e.to_string())?;
@@ -577,6 +583,7 @@ impl ForgeProvider for GiteaProvider {
             forks: payload.forks_count.unwrap_or(0),
             language: payload.primary_language,
             default_branch: payload.default_branch.unwrap_or_else(|| "main".to_string()),
+            homepage: payload.website.filter(|w| !w.trim().is_empty()),
         })
     }
 
@@ -735,6 +742,7 @@ impl ForgeProvider for GiteaProvider {
                 forks: item.forks_count.unwrap_or(0),
                 language: None,
                 default_branch: item.default_branch.unwrap_or_else(|| "main".to_string()),
+                homepage: None,
             })
             .collect();
 
@@ -808,6 +816,7 @@ impl ForgeProvider for GitLabProvider {
             forks: payload.forks_count.unwrap_or(0),
             language: None,
             default_branch: payload.default_branch.unwrap_or_else(|| "main".to_string()),
+            homepage: None,
         })
     }
 
@@ -983,6 +992,7 @@ impl ForgeProvider for GitLabProvider {
                 forks: item.forks_count.unwrap_or(0),
                 language: None,
                 default_branch: item.default_branch.unwrap_or_else(|| "main".to_string()),
+                homepage: None,
             })
             .collect();
 

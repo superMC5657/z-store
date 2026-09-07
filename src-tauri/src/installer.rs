@@ -35,6 +35,13 @@ impl InstallerEngine {
             || name_lower.contains("win64")
         {
             "x86_64"
+        } else if name_lower.contains("x86")
+            || name_lower.contains("i686")
+            || name_lower.contains("i386")
+            || name_lower.contains("win32")
+            || name_lower.contains("ia32")
+        {
+            "x86"
         } else {
             "universal"
         };
@@ -113,19 +120,49 @@ impl InstallerEngine {
         custom_download_dir: Option<&Path>,
     ) -> Result<(PathBuf, String), String> {
         let client = reqwest::Client::builder()
+            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Z-Store/0.1.0")
+            .connect_timeout(std::time::Duration::from_secs(15))
+            .tcp_keepalive(std::time::Duration::from_secs(15))
             .timeout(std::time::Duration::from_secs(300))
             .build()
             .map_err(|e| e.to_string())?;
 
-        let resp = client
-            .get(download_url)
-            .send()
-            .await
-            .map_err(|e| format!("无法连接下载服务器: {}", e))?;
-
-        if !resp.status().is_success() {
-            return Err(format!("下载请求失败，HTTP 状态码: {}", resp.status()));
-        }
+        let resp_result = client.get(download_url).send().await;
+        let resp = match resp_result {
+            Ok(r) => {
+                if !r.status().is_success() {
+                    let err_msg = format!("下载请求失败，HTTP 状态码: {}", r.status());
+                    let _ = app_handle.emit(
+                        "zstore://download-progress",
+                        DownloadProgressPayload {
+                            task_id: task_id.to_string(),
+                            downloaded_bytes: 0,
+                            total_bytes: 0,
+                            speed_bytes_per_sec: 0,
+                            state: "error".to_string(),
+                            message: Some(err_msg.clone()),
+                        },
+                    );
+                    return Err(err_msg);
+                }
+                r
+            }
+            Err(e) => {
+                let err_msg = format!("无法连接下载服务器: {}", e);
+                let _ = app_handle.emit(
+                    "zstore://download-progress",
+                    DownloadProgressPayload {
+                        task_id: task_id.to_string(),
+                        downloaded_bytes: 0,
+                        total_bytes: 0,
+                        speed_bytes_per_sec: 0,
+                        state: "error".to_string(),
+                        message: Some(err_msg.clone()),
+                    },
+                );
+                return Err(err_msg);
+            }
+        };
 
         let total_bytes = resp.content_length().unwrap_or(0);
         let temp_dir = if let Some(custom) = custom_download_dir {
@@ -145,7 +182,24 @@ impl InstallerEngine {
             .collect();
         let temp_path = temp_dir.join(format!("{}_{}", safe_task_id, safe_asset_name));
 
-        let mut file = File::create(&temp_path).map_err(|e| format!("创建临时文件失败: {}", e))?;
+        let mut file = match File::create(&temp_path) {
+            Ok(f) => f,
+            Err(e) => {
+                let err_msg = format!("创建临时文件失败: {}", e);
+                let _ = app_handle.emit(
+                    "zstore://download-progress",
+                    DownloadProgressPayload {
+                        task_id: task_id.to_string(),
+                        downloaded_bytes: 0,
+                        total_bytes: 0,
+                        speed_bytes_per_sec: 0,
+                        state: "error".to_string(),
+                        message: Some(err_msg.clone()),
+                    },
+                );
+                return Err(err_msg);
+            }
+        };
 
         let mut stream = resp.bytes_stream();
         let mut downloaded: u64 = 0;
@@ -154,23 +208,73 @@ impl InstallerEngine {
         let mut last_emit = Instant::now();
         let mut last_bytes: u64 = 0;
 
-        while let Some(chunk_result) = stream.next().await {
-            let chunk = match chunk_result {
-                Ok(c) => c,
-                Err(e) => {
+        let chunk_timeout = std::time::Duration::from_secs(30);
+        loop {
+            let chunk_opt = match tokio::time::timeout(chunk_timeout, stream.next()).await {
+                Ok(Some(chunk_result)) => match chunk_result {
+                    Ok(c) => Some(c),
+                    Err(e) => {
+                        let _ = std::fs::remove_file(&temp_path);
+                        let err_msg = format!("下载数据流中断: {}", e);
+                        let _ = app_handle.emit(
+                            "zstore://download-progress",
+                            DownloadProgressPayload {
+                                task_id: task_id.to_string(),
+                                downloaded_bytes: downloaded,
+                                total_bytes,
+                                speed_bytes_per_sec: 0,
+                                state: "error".to_string(),
+                                message: Some(err_msg.clone()),
+                            },
+                        );
+                        return Err(err_msg);
+                    }
+                },
+                Ok(None) => None,
+                Err(_) => {
                     let _ = std::fs::remove_file(&temp_path);
-                    return Err(format!("下载中断: {}", e));
+                    let err_msg = "下载超时：超过 30 秒未接收到数据块，已中断连接".to_string();
+                    let _ = app_handle.emit(
+                        "zstore://download-progress",
+                        DownloadProgressPayload {
+                            task_id: task_id.to_string(),
+                            downloaded_bytes: downloaded,
+                            total_bytes,
+                            speed_bytes_per_sec: 0,
+                            state: "error".to_string(),
+                            message: Some(err_msg.clone()),
+                        },
+                    );
+                    return Err(err_msg);
                 }
             };
+
+            let chunk = match chunk_opt {
+                Some(c) => c,
+                None => break,
+            };
+
             if let Err(e) = file.write_all(&chunk) {
                 let _ = std::fs::remove_file(&temp_path);
-                return Err(format!("写入磁盘失败: {}", e));
+                let err_msg = format!("写入磁盘失败: {}", e);
+                let _ = app_handle.emit(
+                    "zstore://download-progress",
+                    DownloadProgressPayload {
+                        task_id: task_id.to_string(),
+                        downloaded_bytes: downloaded,
+                        total_bytes,
+                        speed_bytes_per_sec: 0,
+                        state: "error".to_string(),
+                        message: Some(err_msg.clone()),
+                    },
+                );
+                return Err(err_msg);
             }
             hasher.update(&chunk);
 
             downloaded += chunk.len() as u64;
 
-            if last_emit.elapsed().as_millis() >= 200 || downloaded == total_bytes {
+            if last_emit.elapsed().as_millis() >= 200 || (total_bytes > 0 && downloaded == total_bytes) {
                 let elapsed_secs = last_emit.elapsed().as_secs_f64().max(0.001);
                 let speed = ((downloaded - last_bytes) as f64 / elapsed_secs) as u64;
 
@@ -260,22 +364,38 @@ impl InstallerEngine {
             AssetKind::Msi => {
                 #[cfg(target_os = "windows")]
                 {
-                    let status = std::process::Command::new("msiexec.exe")
+                    // 调起 MSI 安装向导或半静默安装
+                    let mut child = std::process::Command::new("msiexec.exe")
                         .arg("/i")
                         .arg(installer_path)
-                        .arg("/qn")
-                        .status()
-                        .map_err(|e| format!("启动 MSI 安装器失败: {}", e))?;
+                        .arg("/passive")
+                        .arg("/norestart")
+                        .spawn()
+                        .or_else(|_| {
+                            std::process::Command::new("msiexec.exe")
+                                .arg("/i")
+                                .arg(installer_path)
+                                .spawn()
+                        })
+                        .map_err(|e| format!("调起 MSI 安装器失败: {}", e))?;
 
-                    if status.success() {
-                        Ok("MSI 静默安装已完成".to_string())
-                    } else {
-                        let _ = std::process::Command::new("msiexec.exe")
-                            .arg("/i")
-                            .arg(installer_path)
-                            .spawn();
-                        Ok("已调起安装向导".to_string())
+                    // 等待 MSI 安装进程完成，确保安装完成后再解析路径与清理临时安装包
+                    let status = child.wait().map_err(|e| format!("MSI 安装进程异常: {}", e))?;
+
+                    // 稍作休眠以确保系统写盘与注册表完全刷新
+                    std::thread::sleep(std::time::Duration::from_millis(800));
+
+                    // 安全清理临时安装包
+                    let _ = std::fs::remove_file(installer_path);
+
+                    if !status.success() {
+                        let code = status.code().unwrap_or(-1);
+                        if code == 1602 {
+                            return Err("用户取消了 MSI 安装向导".to_string());
+                        }
                     }
+
+                    Ok("MSI 安装已完成".to_string())
                 }
                 #[cfg(not(target_os = "windows"))]
                 {
@@ -285,15 +405,18 @@ impl InstallerEngine {
             AssetKind::SetupExe => {
                 #[cfg(target_os = "windows")]
                 {
-                    let child = std::process::Command::new(installer_path).arg("/S").spawn();
+                    let mut child = std::process::Command::new(installer_path)
+                        .spawn()
+                        .map_err(|e| format!("调起安装程序失败: {}", e))?;
 
-                    match child {
-                        Ok(_) => Ok("已调起静默安装".to_string()),
-                        Err(_) => {
-                            let _ = std::process::Command::new(installer_path).spawn();
-                            Ok("已调起安装向导".to_string())
-                        }
-                    }
+                    let p = installer_path.to_path_buf();
+                    std::thread::spawn(move || {
+                        let _ = child.wait();
+                        std::thread::sleep(std::time::Duration::from_millis(1000));
+                        let _ = std::fs::remove_file(&p);
+                    });
+
+                    Ok("已调起安装程序".to_string())
                 }
                 #[cfg(not(target_os = "windows"))]
                 {
