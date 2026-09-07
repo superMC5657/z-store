@@ -230,18 +230,6 @@ export const TitleBar: React.FC<TitleBarProps> = ({
         <div className="app-brand-badge">
           <BrandLogo theme={theme} size={22} />
           <span>Z-Store</span>
-          <span
-            style={{
-              fontSize: '10px',
-              padding: '2px 6px',
-              borderRadius: '4px',
-              background: 'var(--brand-subtle)',
-              color: 'var(--brand-primary)',
-              marginLeft: '4px',
-            }}
-          >
-            Fluent 2.0
-          </span>
         </div>
       </div>
 

@@ -37,22 +37,22 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
         >
           <defs>
             <linearGradient id="bl_dark_r1" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#38bdf8" />
-              <stop offset="50%" stopColor="#0ea5e9" />
-              <stop offset="100%" stopColor="#2563eb" />
+              <stop offset="0%" stopColor="#5865f2" />
+              <stop offset="50%" stopColor="#4752c4" />
+              <stop offset="100%" stopColor="#3c45a5" />
             </linearGradient>
             <linearGradient id="bl_dark_r2" x1="100%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor="#60a5fa" />
-              <stop offset="50%" stopColor="#38bdf8" />
-              <stop offset="100%" stopColor="#0284c7" />
+              <stop offset="0%" stopColor="#7983f5" />
+              <stop offset="50%" stopColor="#5865f2" />
+              <stop offset="100%" stopColor="#4752c4" />
             </linearGradient>
             <linearGradient id="bl_dark_rim" x1="0%" y1="0%" x2="100%" y2="100%">
               <stop offset="0%" stopColor="rgba(255,255,255,0.45)" />
-              <stop offset="50%" stopColor="rgba(56,189,248,0.25)" />
+              <stop offset="50%" stopColor="rgba(88,101,242,0.3)" />
               <stop offset="100%" stopColor="rgba(255,255,255,0.08)" />
             </linearGradient>
             <filter id="bl_dark_glow" x="-20%" y="-20%" width="140%" height="140%">
-              <feDropShadow dx="0" dy="6" stdDeviation="12" floodColor="#0284c7" floodOpacity="0.4" />
+              <feDropShadow dx="0" dy="6" stdDeviation="12" floodColor="#5865f2" floodOpacity="0.45" />
             </filter>
           </defs>
           <rect x="36" y="36" width="440" height="440" rx="105" ry="105" fill="rgba(255,255,255,0.08)" />
@@ -75,7 +75,7 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
               strokeLinejoin="round"
               opacity="0.92"
             />
-            <circle cx="344" cy="116" r="16" fill="#38bdf8" />
+            <circle cx="344" cy="116" r="16" fill="#5865f2" />
             <circle cx="344" cy="116" r="8" fill="#ffffff" />
           </g>
         </svg>
