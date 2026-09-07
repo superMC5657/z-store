@@ -12,6 +12,21 @@ pub const DETAIL_CACHE_TTL_DEFAULT_MINUTES: i64 = 30;
 /// ADR-0007：TTL 有效挡位（分钟）：0=每次实时校验，10/30/60/360/1440。
 pub const DETAIL_CACHE_TTL_VALID_MINUTES: [i64; 6] = [0, 10, 30, 60, 360, 1440];
 
+/// FR-6.2：关注通知频率默认值（每天至多通知一次）。
+pub const WATCH_NOTIFY_FREQUENCY_DEFAULT: &str = "daily";
+/// FR-6.2：关注通知频率有效值：`startup`（每次启动检查即通知）/`daily`。
+pub const WATCH_NOTIFY_FREQUENCY_VALID: [&str; 2] = ["startup", "daily"];
+
+/// 将任意输入归一化到关注通知频率有效值；非法值回退默认 `daily`。
+pub fn normalize_watch_notify_frequency(value: &str) -> String {
+    let clean = value.trim().to_lowercase();
+    if WATCH_NOTIFY_FREQUENCY_VALID.contains(&clean.as_str()) {
+        clean
+    } else {
+        WATCH_NOTIFY_FREQUENCY_DEFAULT.to_string()
+    }
+}
+
 /// 将任意输入归一化到 TTL 有效挡位；非法值回退默认 30。
 /// 调用方应在持久化前用此函数清洗，保证库中只存有效挡位。
 pub fn normalize_detail_cache_ttl(minutes: i64) -> i64 {
@@ -118,8 +133,37 @@ impl Database {
 
             -- ADR-0007 默认挡位：应用详情缓存保鲜期 30 分钟（仅缺失时填充，不覆盖用户已存值）
             INSERT OR IGNORE INTO user_settings (key, value) VALUES ('detail_cache_ttl_minutes', '30');
+
+            -- FR-6.2 关注订阅表：daily 频率下 last_notified_at 保证每应用每天至多通知一次
+            CREATE TABLE IF NOT EXISTS watched_apps (
+                app_id TEXT PRIMARY KEY,
+                added_at INTEGER NOT NULL,
+                last_notified_version TEXT,
+                last_notified_at INTEGER
+            );
+
+            -- FR-8.3 所有权认证通过记录（verify_ownership 成功后持久化，与收录库标记合并生效）
+            CREATE TABLE IF NOT EXISTS verified_apps (
+                app_id TEXT PRIMARY KEY,
+                verified_at INTEGER NOT NULL
+            );
+
+            -- FR-8.1 z-store.toml 原文缓存（与应用详情缓存共用 TTL 挡位 gears）
+            CREATE TABLE IF NOT EXISTS store_meta_cache (
+                app_id TEXT PRIMARY KEY,
+                raw_toml TEXT NOT NULL,
+                cached_at INTEGER NOT NULL
+            );
+
+            -- FR-6.2 默认通知频率：daily（仅缺失时填充）
+            INSERT OR IGNORE INTO user_settings (key, value) VALUES ('watch_notify_frequency', 'daily');
             "#,
         )?;
+        // 存量库升级兜底：已存在 watched_apps 旧表时补齐通知时间列
+        let _ = self.conn.execute(
+            "ALTER TABLE watched_apps ADD COLUMN last_notified_at INTEGER",
+            [],
+        );
         Ok(())
     }
 
@@ -254,6 +298,28 @@ impl Database {
             params![key, value],
         )?;
         Ok(())
+    }
+
+    pub fn remove_setting(&self, key: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM user_settings WHERE key = ?1", params![key])?;
+        Ok(())
+    }
+
+    /// 收藏（合并式）：已存在返回 false，否则插入返回 true。
+    pub fn add_favorite(&self, app_id: &str) -> Result<bool> {
+        let id = app_id.trim();
+        if id.is_empty() {
+            return Ok(false);
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        let rows = self.conn.execute(
+            "INSERT OR IGNORE INTO user_favorites (app_id, favorited_at) VALUES (?1, ?2)",
+            params![id, now],
+        )?;
+        Ok(rows > 0)
     }
 
     pub fn get_all_settings(&self) -> Result<HashMap<String, String>> {
@@ -710,8 +776,7 @@ impl Database {
         remaining: Option<u32>,
         limit: Option<u32>,
         reset: Option<i64>,
-    ) -> Result<()> {
-        let now = std::time::SystemTime::now()
+    ) -> Result<()> {        let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs() as i64;
@@ -726,6 +791,158 @@ impl Database {
                 updated_at = excluded.updated_at;
             "#,
             params![host.to_lowercase(), remaining, limit, reset, now],
+        )?;
+        Ok(())
+    }
+
+    // ---------- FR-6.2 关注订阅 ----------
+
+    /// 读取关注通知频率（`startup`|`daily`），非法/缺失回退 `daily`。
+    pub fn get_watch_notify_frequency(&self) -> String {
+        self.get_setting("watch_notify_frequency")
+            .ok()
+            .flatten()
+            .map(|v| normalize_watch_notify_frequency(&v))
+            .unwrap_or_else(|| WATCH_NOTIFY_FREQUENCY_DEFAULT.to_string())
+    }
+
+    pub fn watch_app(&self, app_id: &str) -> Result<bool> {
+        let id = app_id.trim();
+        if id.is_empty() {
+            return Ok(false);
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        let rows = self.conn.execute(
+            "INSERT OR IGNORE INTO watched_apps (app_id, added_at, last_notified_version, last_notified_at) VALUES (?1, ?2, NULL, NULL)",
+            params![id, now],
+        )?;
+        Ok(rows > 0)
+    }
+
+    pub fn unwatch_app(&self, app_id: &str) -> Result<bool> {
+        let rows = self
+            .conn
+            .execute("DELETE FROM watched_apps WHERE app_id = ?1", params![app_id.trim()])?;
+        Ok(rows > 0)
+    }
+
+    pub fn get_watched_apps(&self) -> Result<Vec<crate::models::WatchedApp>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT app_id, added_at, last_notified_version FROM watched_apps ORDER BY added_at DESC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(crate::models::WatchedApp {
+                app_id: row.get(0)?,
+                added_at: row.get(1)?,
+                last_notified_version: row.get(2)?,
+            })
+        })?;
+        let mut res = Vec::new();
+        for r in rows {
+            res.push(r?);
+        }
+        Ok(res)
+    }
+
+    pub fn get_watch_last_notified_at(&self, app_id: &str) -> Result<Option<i64>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT last_notified_at FROM watched_apps WHERE app_id = ?1")?;
+        let mut rows = stmt.query(params![app_id.trim()])?;
+        if let Some(row) = rows.next()? {
+            Ok(row.get(0)?)
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn set_watch_notified(&self, app_id: &str, version: &str, at: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE watched_apps SET last_notified_version = ?1, last_notified_at = ?2 WHERE app_id = ?3",
+            params![version, at, app_id.trim()],
+        )?;
+        Ok(())
+    }
+
+    /// 首次建立基线（静默，不触发通知）：仅当从未记录过版本时写入当前版本。
+    pub fn init_watch_baseline(&self, app_id: &str, version: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE watched_apps SET last_notified_version = ?1 WHERE app_id = ?2 AND last_notified_version IS NULL",
+            params![version, app_id.trim()],
+        )?;
+        Ok(())
+    }
+
+    // ---------- FR-8.3 所有权认证 ----------
+
+    pub fn is_verified_app(&self, app_id: &str) -> Result<bool> {
+        let exists: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM verified_apps WHERE app_id = ?1)",
+            params![app_id.trim()],
+            |row| row.get(0),
+        )?;
+        Ok(exists)
+    }
+
+    pub fn mark_verified_app(&self, app_id: &str) -> Result<()> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        self.conn.execute(
+            "INSERT OR IGNORE INTO verified_apps (app_id, verified_at) VALUES (?1, ?2)",
+            params![app_id.trim(), now],
+        )?;
+        Ok(())
+    }
+
+    // ---------- FR-8.1 z-store.toml 缓存（共用详情 TTL gears） ----------
+
+    pub fn get_cached_store_meta_raw(
+        &self,
+        app_id: &str,
+        ttl_seconds: Option<i64>,
+    ) -> Result<Option<String>> {
+        let clean = app_id.trim().to_lowercase();
+        if clean.is_empty() {
+            return Ok(None);
+        }
+        let mut stmt = self
+            .conn
+            .prepare("SELECT raw_toml, cached_at FROM store_meta_cache WHERE app_id = ?1")?;
+        let mut rows = stmt.query(params![clean])?;
+        if let Some(row) = rows.next()? {
+            let raw: String = row.get(0)?;
+            let cached_at: i64 = row.get(1)?;
+            if let Some(ttl) = ttl_seconds {
+                if ttl <= 0 {
+                    return Ok(None);
+                }
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs() as i64;
+                if now.saturating_sub(cached_at) >= ttl {
+                    return Ok(None);
+                }
+            }
+            return Ok(Some(raw));
+        }
+        Ok(None)
+    }
+
+    pub fn save_cached_store_meta_raw(&self, app_id: &str, raw_toml: &str) -> Result<()> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        self.conn.execute(
+            "INSERT INTO store_meta_cache (app_id, raw_toml, cached_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(app_id) DO UPDATE SET raw_toml = excluded.raw_toml, cached_at = excluded.cached_at",
+            params![app_id.trim().to_lowercase(), raw_toml, now],
         )?;
         Ok(())
     }
@@ -951,6 +1168,7 @@ mod tests {
             cached_at: None,
             is_stale_fallback: None,
             homepage: None,
+            store_meta: None,
         };
 
         db.save_cached_app_detail("rustdesk", "github.com/rustdesk/rustdesk", &detail).unwrap();
@@ -997,5 +1215,85 @@ mod tests {
         // 9. Clear cache
         db.clear_app_details_cache().unwrap();
         assert!(db.get_cached_app_detail("rustdesk", None).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_watch_notify_frequency_normalize() {
+        assert_eq!(normalize_watch_notify_frequency("daily"), "daily");
+        assert_eq!(normalize_watch_notify_frequency("startup"), "startup");
+        assert_eq!(normalize_watch_notify_frequency("  DAILY  "), "daily");
+        assert_eq!(normalize_watch_notify_frequency("hourly"), "daily");
+        assert_eq!(normalize_watch_notify_frequency(""), "daily");
+
+        let db = Database::open_in_memory().unwrap();
+        assert_eq!(db.get_watch_notify_frequency(), "daily");
+        db.set_setting("watch_notify_frequency", "startup").unwrap();
+        assert_eq!(db.get_watch_notify_frequency(), "startup");
+        db.set_setting("watch_notify_frequency", "bogus").unwrap();
+        assert_eq!(db.get_watch_notify_frequency(), "daily");
+    }
+
+    #[test]
+    fn test_watched_apps_crud() {
+        let db = Database::open_in_memory().unwrap();
+        assert!(db.get_watched_apps().unwrap().is_empty());
+
+        assert!(db.watch_app("rustdesk/rustdesk").unwrap());
+        // 重复关注幂等：返回 false，不产生重复行
+        assert!(!db.watch_app("rustdesk/rustdesk").unwrap());
+        assert!(!db.watch_app("   ").unwrap());
+
+        let watched = db.get_watched_apps().unwrap();
+        assert_eq!(watched.len(), 1);
+        assert_eq!(watched[0].app_id, "rustdesk/rustdesk");
+        assert!(watched[0].last_notified_version.is_none());
+
+        // 基线初始化仅在 NULL 时写入
+        db.init_watch_baseline("rustdesk/rustdesk", "v1.0.0").unwrap();
+        assert_eq!(
+            db.get_watched_apps().unwrap()[0]
+                .last_notified_version
+                .as_deref(),
+            Some("v1.0.0")
+        );
+        db.init_watch_baseline("rustdesk/rustdesk", "v9.9.9").unwrap();
+        assert_eq!(
+            db.get_watched_apps().unwrap()[0]
+                .last_notified_version
+                .as_deref(),
+            Some("v1.0.0")
+        );
+
+        // 通知更新
+        db.set_watch_notified("rustdesk/rustdesk", "v1.1.0", 1700000000)
+            .unwrap();
+        let w = db.get_watched_apps().unwrap()[0].clone();
+        assert_eq!(w.last_notified_version.as_deref(), Some("v1.1.0"));
+        assert_eq!(db.get_watch_last_notified_at("rustdesk/rustdesk").unwrap(), Some(1700000000));
+
+        assert!(db.unwatch_app("rustdesk/rustdesk").unwrap());
+        assert!(!db.unwatch_app("rustdesk/rustdesk").unwrap());
+        assert!(db.get_watched_apps().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_verified_apps_and_store_meta_cache() {
+        let db = Database::open_in_memory().unwrap();
+        assert!(!db.is_verified_app("rustdesk").unwrap());
+        db.mark_verified_app("rustdesk").unwrap();
+        assert!(db.is_verified_app("rustdesk").unwrap());
+
+        // store_meta 缓存：TTL 命中 / ttl=0 强制失效 / 无 TTL 常命中
+        assert!(db.get_cached_store_meta_raw("rustdesk", Some(1800)).unwrap().is_none());
+        db.save_cached_store_meta_raw("rustdesk", "[app]\ndisplay-name = \"X\"\n")
+            .unwrap();
+        let raw = db
+            .get_cached_store_meta_raw("RustDesk", Some(1800))
+            .unwrap()
+            .expect("大小写不敏感命中");
+        assert!(raw.contains("display-name"));
+        assert!(db.get_cached_store_meta_raw("rustdesk", Some(0)).unwrap().is_none());
+        let fallback = db.get_cached_store_meta_raw("rustdesk", None).unwrap().unwrap();
+        assert!(fallback.contains("display-name"));
     }
 }

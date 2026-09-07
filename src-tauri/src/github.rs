@@ -943,6 +943,7 @@ impl CatalogService {
             ),
             is_stale_fallback: None,
             homepage: latest_homepage,
+            store_meta: None,
         };
 
         Ok((detail, new_cache))

@@ -5,9 +5,14 @@ import {
   AppSummary,
   DownloadProgressPayload,
   ImportAppRequest,
+  ImportUserDataCounts,
   InstalledApp,
   MirrorNodeStatus,
+  OAuthDeviceStartResult,
+  OAuthPollResult,
+  OAuthUser,
   ProxyTestResult,
+  QuotaUpdatePayload,
   SignatureInfo,
   StarredSyncResult,
   UpdateItem,
@@ -18,7 +23,7 @@ import {
   DeepLinkAction,
   SyncCatalogResult,
   ForgeRepoInfo,
-  QuotaUpdatePayload,
+  WatchUpdatedPayload,
 } from '../types';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -37,6 +42,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   update_frequency: 'startup',
   detail_cache_ttl_minutes: 30,
   catalog_source_url: 'https://gh-proxy.com/https://raw.githubusercontent.com/supermc/z-store/main/src-tauri/src/catalog.json',
+  watch_notify_frequency: 'daily',
 };
 
 async function tauriInvoke<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
@@ -177,7 +183,23 @@ let mockSettings: Record<string, string> = {
   theme: 'dark',
   active_mirror: 'ghproxy',
   github_token: '',
+  watch_notify_frequency: 'daily',
 };
+
+let mockWatched: string[] = [];
+let mockOAuthUser: OAuthUser | null = null;
+let mockStarred: string[] = [];
+
+// 后端 Rust 命令统一 snake_case 传参；appId 形如 "gh:owner/repo" / "owner/repo"，
+// Star 类 IPC（后端签名 star_app{owner,repo}）调用前需拆成 owner + repo。
+function splitOwnerRepo(appId: string): { owner: string; repo: string } {
+  const noHost = appId.includes(':') ? appId.slice(appId.indexOf(':') + 1) : appId;
+  const slash = noHost.indexOf('/');
+  const owner = slash >= 0 ? noHost.slice(0, slash) : '';
+  const repo = slash >= 0 ? noHost.slice(slash + 1) : '';
+  if (!owner || !repo || repo.includes('/')) throw new Error(`无法解析仓库坐标: ${appId}`);
+  return { owner, repo };
+}
 
 export const api = {
   async searchApps(query: string): Promise<AppSummary[]> {
@@ -917,8 +939,140 @@ export const api = {
     return remoteUrl;
   },
 
-  async openUrl(url: string): Promise<void> {
-    if (!url) return;
+  // ---- FR-6.2 关注（Watch）/ 订阅更新 ----
+  // IPCs: watch_app{app_id} / unwatch_app{app_id} / get_watched_apps{} + 事件 zstore://watch-updated
+  async getWatchedApps(): Promise<string[]> {
+    if (isTauri) {
+      const rows = await tauriInvoke<Array<{ app_id: string }>>('get_watched_apps');
+      return rows.map((r) => r.app_id);
+    }
+    return [...mockWatched];
+  },
+
+  async watchApp(appId: string): Promise<boolean> {
+    if (isTauri) {
+      return tauriInvoke<boolean>('watch_app', { app_id: appId });
+    }
+    if (!mockWatched.includes(appId)) mockWatched.push(appId);
+    return true;
+  },
+
+  async unwatchApp(appId: string): Promise<boolean> {
+    if (isTauri) {
+      return tauriInvoke<boolean>('unwatch_app', { app_id: appId });
+    }
+    mockWatched = mockWatched.filter((id) => id !== appId);
+    return true;
+  },
+
+  async onWatchUpdated(callback: (payload: WatchUpdatedPayload) => void): Promise<() => void> {
+    if (isTauri) {
+      const { listen } = await import('@tauri-apps/api/event');
+      const unlisten = await listen<WatchUpdatedPayload>('zstore://watch-updated', (e) => {
+        callback(e.payload);
+      });
+      return unlisten;
+    }
+    return () => {};
+  },
+
+  // ---- FR-7 OAuth Device Flow + Star ----
+  // IPCs: oauth_device_start / oauth_device_poll / get_oauth_user / oauth_logout /
+  //       star_app / unstar_app / is_starred —— Rust 侧并发实现中，调用方必须 try/catch。
+  async oauthDeviceStart(): Promise<OAuthDeviceStartResult> {
+    if (isTauri) {
+      return tauriInvoke<OAuthDeviceStartResult>('oauth_device_start');
+    }
+    throw new Error('浏览器预览模式不支持 GitHub OAuth 登录');
+  },
+
+  async oauthDevicePoll(deviceCode: string): Promise<OAuthPollResult> {
+    if (isTauri) {
+      const raw = await tauriInvoke<{ status: string; message?: string }>('oauth_device_poll', {
+        device_code: deviceCode,
+      });
+      // 后端状态机为 pending/authorized/error；前端收敛为 pending/complete/error
+      //（expired/denied 由后端以 error + message 表达，调用方展示 message 即可）。
+      const status =
+        raw.status === 'authorized' ? 'complete' : raw.status === 'error' ? 'error' : 'pending';
+      return { status, message: raw.message } as OAuthPollResult;
+    }
+    throw new Error('浏览器预览模式不支持 GitHub OAuth 登录');
+  },
+
+  async getOAuthUser(): Promise<OAuthUser | null> {
+    if (isTauri) {
+      try {
+        return await tauriInvoke<OAuthUser | null>('get_oauth_user');
+      } catch {
+        return null;
+      }
+    }
+    return mockOAuthUser;
+  },
+
+  async oauthLogout(): Promise<boolean> {
+    if (isTauri) {
+      try {
+        return await tauriInvoke<boolean>('oauth_logout');
+      } catch {
+        return false;
+      }
+    }
+    mockOAuthUser = null;
+    return true;
+  },
+
+  async starApp(appId: string): Promise<boolean> {
+    if (isTauri) {
+      const { owner, repo } = splitOwnerRepo(appId);
+      return tauriInvoke<boolean>('star_app', { owner, repo });
+    }
+    if (!mockStarred.includes(appId)) mockStarred.push(appId);
+    return true;
+  },
+
+  async unstarApp(appId: string): Promise<boolean> {
+    if (isTauri) {
+      const { owner, repo } = splitOwnerRepo(appId);
+      return tauriInvoke<boolean>('unstar_app', { owner, repo });
+    }
+    mockStarred = mockStarred.filter((id) => id !== appId);
+    return true;
+  },
+
+  async isStarred(appId: string): Promise<boolean> {
+    if (isTauri) {
+      try {
+        const { owner, repo } = splitOwnerRepo(appId);
+        return await tauriInvoke<boolean>('is_starred', { owner, repo });
+      } catch {
+        return false;
+      }
+    }
+    return mockStarred.includes(appId);
+  },
+
+  // ---- FR-6.3-manual 用户数据手动导入 ----
+  // IPC: import_user_data(json) -> counts；Rust 侧并发实现中，调用方必须 try/catch。
+  async importUserData(json: string): Promise<ImportUserDataCounts> {
+    if (isTauri) {
+      return tauriInvoke<ImportUserDataCounts>('import_user_data', { json });
+    }
+    // 浏览器预览：本地模拟合并收藏与关注
+    const parsed = JSON.parse(json) as { favorites?: string[]; watched?: string[] };
+    const favAdded = (parsed.favorites || []).length;
+    let watchAdded = 0;
+    for (const id of parsed.watched || []) {
+      if (!mockWatched.includes(id)) {
+        mockWatched.push(id);
+        watchAdded++;
+      }
+    }
+    return { favorites_added: favAdded, watched_added: watchAdded, settings_applied: true, installed_skipped: 0 };
+  },
+
+  async openUrl(url: string): Promise<void> {    if (!url) return;
     const trimmed = url.trim();
     if (!/^https?:\/\//i.test(trimmed)) return;
     if (isTauri) {

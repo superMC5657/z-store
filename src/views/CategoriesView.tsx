@@ -6,9 +6,11 @@ interface CategoriesViewProps {
   apps: AppSummary[];
   installedIds: Set<string>;
   favoriteIds: Set<string>;
+  watchedIds?: Set<string>;
   onOpenDetail: (id: string) => void;
   onQuickInstall: (id: string) => void;
   onToggleFavorite: (id: string) => void;
+  onToggleWatch?: (id: string) => void;
 }
 
 const CATEGORY_DEFINITIONS = [
@@ -28,9 +30,11 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   apps,
   installedIds,
   favoriteIds,
+  watchedIds,
   onOpenDetail,
   onQuickInstall,
   onToggleFavorite,
+  onToggleWatch,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
@@ -117,9 +121,11 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                 app={app}
                 isInstalled={installedIds.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}
+                isWatched={watchedIds?.has(app.id)}
                 onOpenDetail={onOpenDetail}
                 onQuickInstall={onQuickInstall}
                 onToggleFavorite={onToggleFavorite}
+                onToggleWatch={onToggleWatch}
               />
             ))
           ) : (

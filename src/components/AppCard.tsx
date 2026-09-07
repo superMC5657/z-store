@@ -6,18 +6,22 @@ interface AppCardProps {
   app: AppSummary;
   isInstalled: boolean;
   isFavorite?: boolean;
+  isWatched?: boolean;
   onOpenDetail: (id: string) => void;
   onQuickInstall: (id: string) => void;
   onToggleFavorite?: (id: string) => void;
+  onToggleWatch?: (id: string) => void;
 }
 
 export const AppCard: React.FC<AppCardProps> = ({
   app,
   isInstalled,
   isFavorite = false,
+  isWatched = false,
   onOpenDetail,
   onQuickInstall,
   onToggleFavorite,
+  onToggleWatch,
 }) => {
   const formatStars = (count: number) => {
     if (count >= 1000) {
@@ -52,7 +56,7 @@ export const AppCard: React.FC<AppCardProps> = ({
           <div className="app-title">
             <span className="app-name">{app.name}</span>
             {app.is_verified && (
-              <span className="verified-badge" title="GitHub 官方认证所有权">
+              <span className="verified-badge" title="仓库校验码已验证 · 收录库认证">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
                   <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" fill="var(--brand-primary)" />
                   <path d="m9 12 2 2 4-4" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -65,6 +69,23 @@ export const AppCard: React.FC<AppCardProps> = ({
           </div>
         </div>
 
+        {onToggleWatch && (
+          <button
+            className={`btn-fav-card ${isWatched ? 'active' : ''}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleWatch(app.id);
+            }}
+            title={isWatched ? '已关注（点击取消关注）' : '关注该应用的新版本动态'}
+            aria-label={isWatched ? '取消关注' : '关注'}
+            style={isWatched ? { color: 'var(--brand-primary)' } : undefined}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill={isWatched ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          </button>
+        )}
         {onToggleFavorite && (
           <button
             className={`btn-fav-card ${isFavorite ? 'active' : ''}`}

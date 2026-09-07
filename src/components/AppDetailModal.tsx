@@ -1,15 +1,18 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { marked } from 'marked';
-import { AppDetail, DownloadProgressPayload, ReleaseAsset } from '../types';
+import { AppDetail, DownloadProgressPayload, OAuthUser, ReleaseAsset } from '../types';
 import { api } from '../services/api';
 import { AppIcon } from './AppIcon';
 import { sanitizeHtml } from '../utils/sanitize';
+import { notifyToast } from '../utils/notify';
 
 interface AppDetailModalProps {
   app: AppDetail;
   isInstalled: boolean;
   isManaged?: boolean;
   isFavorite?: boolean;
+  isWatched?: boolean;
+  oauthUser?: OAuthUser | null;
   onClose: () => void;
   onInstall: (id: string, assetName?: string, customInstallDir?: string) => Promise<any>;
   onLaunch: (id: string) => void;
@@ -17,6 +20,7 @@ interface AppDetailModalProps {
   onUnmanage?: (id: string) => Promise<void> | void;
   onManageApp?: (id: string) => Promise<void> | void;
   onToggleFavorite?: (id: string) => void;
+  onToggleWatch?: (id: string) => void;
   onOpenDeveloperProfile?: (developer: string) => void;
   onRetry?: (id: string) => void;
   onRefresh?: (id: string) => void;
@@ -27,6 +31,8 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   isInstalled,
   isManaged = true,
   isFavorite = false,
+  isWatched = false,
+  oauthUser = null,
   onClose,
   onInstall,
   onLaunch,
@@ -34,6 +40,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   onUnmanage,
   onManageApp,
   onToggleFavorite,
+  onToggleWatch,
   onOpenDeveloperProfile,
   onRetry,
   onRefresh,
@@ -49,6 +56,57 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   const [refreshErrorNotice, setRefreshErrorNotice] = useState<string | null>(null);
   const [confirmingUninstall, setConfirmingUninstall] = useState(false);
   const [confirmingUnmanage, setConfirmingUnmanage] = useState(false);
+  // FR-7: GitHub 标星态（仅登录可见；后端未就绪时一律按未标星降级）
+  const [isStarred, setIsStarred] = useState(false);
+  const [isStarring, setIsStarring] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!oauthUser) {
+      setIsStarred(false);
+      return;
+    }
+    api.isStarred(app.id).then((v) => {
+      if (!cancelled) setIsStarred(v);
+    }).catch(() => {
+      if (!cancelled) setIsStarred(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [app.id, oauthUser]);
+
+  const handleToggleStar = async () => {
+    if (!oauthUser || isStarring) return;
+    setIsStarring(true);
+    try {
+      if (isStarred) {
+        await api.unstarApp(app.id);
+        setIsStarred(false);
+        notifyToast(`已取消对 ${app.name} 的标星`, 'info');
+      } else {
+        await api.starApp(app.id);
+        setIsStarred(true);
+        notifyToast(`已在 GitHub 上标星 ${app.name} ★`, 'success');
+      }
+    } catch (e) {
+      notifyToast(`标星操作失败: ${String(e)}`, 'error');
+    } finally {
+      setIsStarring(false);
+    }
+  };
+
+  // FR-7.3: 问题反馈 → 预填标题与正文直达仓库 Issues 新建页（复用 openUrl 外链通道）
+  const handleOpenIssueFeedback = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const host = app.forge_host || 'github.com';
+    const title = encodeURIComponent(`【反馈】${app.name} ${app.latest_version}`);
+    const body = encodeURIComponent(
+      `## 环境\n- Z-Store 客户端版本：桌面端\n- 应用版本：${app.latest_version}\n- 系统：${navigator.platform}\n\n## 问题描述\n\n## 复现步骤\n1. \n2. \n`
+    );
+    api.openUrl(`https://${host}/${app.owner}/${app.repo}/issues/new?title=${title}&body=${body}`);
+  };
 
   useEffect(() => {
     setSelectedAssetName(null);
@@ -290,6 +348,32 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                 </svg>
               </button>
             )}
+            {onToggleWatch && (
+              <button
+                className="modal-close-btn"
+                onClick={() => onToggleWatch(app.id)}
+                aria-label={isWatched ? '取消关注' : '关注新版本动态'}
+                style={{ position: 'relative', top: 'auto', right: 'auto', color: isWatched ? 'var(--brand-primary)' : 'var(--text-secondary)' }}
+                title={isWatched ? '已关注该应用的新版本动态（点击取消）' : '关注：新版本发布时在应用内提醒'}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill={isWatched ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+              </button>
+            )}
+            {oauthUser && (
+              <button
+                className="modal-close-btn"
+                onClick={handleToggleStar}
+                disabled={isStarring}
+                aria-label={isStarred ? '取消标星' : '在 GitHub 上标星'}
+                style={{ position: 'relative', top: 'auto', right: 'auto', color: isStarred ? '#eab308' : 'var(--text-secondary)' }}
+                title={isStarred ? '已在 GitHub 上标星（点击取消）' : '★ 标星该仓库（需 GitHub 账号登录态）'}
+              >
+                <span style={{ fontSize: '14px', fontWeight: 700, color: isStarred ? '#eab308' : 'inherit' }}>★</span>
+              </button>
+            )}
             <button
               className="modal-close-btn"
               onClick={onClose}
@@ -317,7 +401,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
             <div className="modal-app-title">
               <span>{app.name}</span>
               {app.is_verified && (
-                <span className="verified-badge" title="官方所有权已通过验证">
+                <span className="verified-badge" title="仓库校验码已验证 · 收录库认证">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
                     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" fill="var(--brand-primary)" />
                     <path d="m9 12 2 2 4-4" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -363,6 +447,17 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               </a>
               <span>·</span>
               <span>最新发布 {app.latest_version}</span>
+              <span>·</span>
+              <a
+                href={`https://${app.forge_host || 'github.com'}/${app.owner}/${app.repo}/issues/new`}
+                onClick={handleOpenIssueFeedback}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ fontWeight: 600, color: 'var(--brand-primary)', textDecoration: 'none' }}
+                title="前往开源仓库提交问题反馈（自动预填版本信息）"
+              >
+                🐞 问题反馈
+              </a>
             </div>
             <div className="modal-tags">
               <span className="modal-tag">★ {((app.stars || 0) / 1000).toFixed(1)}k</span>
@@ -455,6 +550,82 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
 
         {/* Modal Body */}
         <div className="modal-body">
+          {/* FR-8: z-store.toml 收录库扩展元数据（全字段可选，缺失时整块隐藏） */}
+          {app.store_meta && (
+            <div
+              className="settings-group"
+              style={{ marginBottom: '12px' }}
+              title={app.is_verified ? '仓库校验码已验证 · 收录库认证' : undefined}
+            >
+              <div className="settings-group-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span>📦 收录库元数据显示</span>
+                {app.is_verified && (
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: 'var(--brand-primary)',
+                      background: 'var(--brand-subtle)',
+                      border: '1px solid var(--border-nav-active)',
+                      borderRadius: '10px',
+                      padding: '1px 8px',
+                    }}
+                    title="仓库校验码已验证 · 收录库认证"
+                  >
+                    🛡️ 所有权勋章
+                  </span>
+                )}
+              </div>
+              {(app.store_meta.display_name || app.store_meta.summary) && (
+                <div style={{ fontSize: '13px', lineHeight: '1.6', marginBottom: '8px' }}>
+                  {app.store_meta.display_name && (
+                    <div style={{ fontWeight: 700, fontSize: '14px' }}>{app.store_meta.display_name}</div>
+                  )}
+                  {app.store_meta.summary && (
+                    <div style={{ color: 'var(--text-secondary)' }}>{app.store_meta.summary}</div>
+                  )}
+                </div>
+              )}
+              {Array.isArray(app.store_meta.aliases) && app.store_meta.aliases.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
+                  {app.store_meta.aliases.map((alias) => (
+                    <span key={alias} className="modal-tag" title={`中文别名：${alias}`}>
+                      🏷️ {alias}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {Array.isArray(app.store_meta.screenshots) && app.store_meta.screenshots.length > 0 && (
+                <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
+                  {app.store_meta.screenshots.map((src) => (
+                    <img
+                      key={src}
+                      src={src}
+                      alt={`${app.name} 应用截图`}
+                      loading="lazy"
+                      style={{
+                        height: '96px',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border-acrylic)',
+                        cursor: 'pointer',
+                        flexShrink: 0,
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        api.openUrl(src);
+                      }}
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {/* Action Card */}
           <div className="install-action-bar">
             <div>

@@ -11,6 +11,8 @@ interface HomeViewProps {
   onOpenDetail: (id: string) => void;
   onQuickInstall: (id: string) => void;
   onToggleFavorite: (id: string) => void;
+  watchedIds?: Set<string>;
+  onToggleWatch?: (id: string) => void;
   onNavigateTrends: () => void;
   onClearRecentViews?: () => void;
 }
@@ -23,6 +25,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onOpenDetail,
   onQuickInstall,
   onToggleFavorite,
+  watchedIds,
+  onToggleWatch,
   onNavigateTrends,
   onClearRecentViews,
 }) => {
@@ -159,9 +163,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 app={app}
                 isInstalled={installedIds.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}
+                isWatched={watchedIds?.has(app.id)}
                 onOpenDetail={onOpenDetail}
                 onQuickInstall={onQuickInstall}
                 onToggleFavorite={onToggleFavorite}
+                onToggleWatch={onToggleWatch}
               />
             ))}
           </div>
@@ -181,9 +187,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 app={app}
                 isInstalled={installedIds.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}
+                isWatched={watchedIds?.has(app.id)}
                 onOpenDetail={onOpenDetail}
                 onQuickInstall={onQuickInstall}
                 onToggleFavorite={onToggleFavorite}
+                onToggleWatch={onToggleWatch}
               />
             ))}
           </div>
@@ -203,9 +211,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 app={app}
                 isInstalled={installedIds.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}
+                isWatched={watchedIds?.has(app.id)}
                 onOpenDetail={onOpenDetail}
                 onQuickInstall={onQuickInstall}
                 onToggleFavorite={onToggleFavorite}
+                onToggleWatch={onToggleWatch}
               />
             ))}
           </div>

@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AppSettings, HostRateLimitStatus, HostTokenEntry, MirrorNodeStatus } from '../types';
 import { api } from '../services/api';
+import { ClientUpdateRow } from '../components/ClientUpdateRow';
+import { OAuthAccountCard } from '../components/OAuthAccountCard';
+import { DataBackupRow } from '../components/DataBackupRow';
 
 interface SettingsViewProps {
   mirrors: MirrorNodeStatus[];
@@ -289,6 +292,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const handleSelectUpdateFrequency = (id: string, label: string) => {
     triggerChangeFeedback('update_frequency', `✓ 自动检查更新已设为: ${label}`);
     onUpdateSetting('update_frequency', id as any);
+  };
+
+  // FR-6.2: 关注更新的应用内提醒频率（每次启动 / 每天），经 user_settings 持久化
+  const handleSelectWatchFrequency = (id: 'startup' | 'daily', label: string) => {
+    triggerChangeFeedback('watch_notify_frequency', `✓ 关注提醒频率已设为: ${label}`);
+    onUpdateSetting('watch_notify_frequency', id);
   };
 
   // 应用详情缓存生存时效 (TTL, ADR-0007)：恰好六档，键名 detail_cache_ttl_minutes，默认 30 分钟
@@ -808,6 +817,44 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
+      {/* Group 3.5: Client Self-Update, GitHub Account & Watch Frequency (FR-4.4 / FR-7 / FR-6.2) */}
+      <div className={`settings-group ${isResetWave ? 'reset-wave-2' : ''}`}>
+        <div className="settings-group-title">📦 客户端更新、GitHub 账号与关注提醒</div>
+
+        {/* FR-4.4 自更新 */}
+        <ClientUpdateRow />
+
+        {/* FR-7 GitHub 账号（OAuth Device Flow） */}
+        <OAuthAccountCard />
+
+        {/* FR-6.2 关注提醒频率 */}
+        <div className={`settings-row ${highlightRow === 'watch_notify_frequency' ? 'row-highlight' : ''}`}>
+          <div className="settings-row-info">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontWeight: 600 }}>关注应用的更新提醒频率</span>
+              {activeNotice?.key === 'watch_notify_frequency' && (
+                <span className="setting-applied-badge">{activeNotice.text}</span>
+              )}
+            </div>
+            <span className="settings-row-desc">你关注的应用发布新版本时，在应用内提醒你的检查节奏</span>
+          </div>
+          <div className="segmented-group">
+            {[
+              { id: 'startup', label: '每次启动检查' },
+              { id: 'daily', label: '每天汇总一次' },
+            ].map((o) => (
+              <button
+                key={o.id}
+                className={`segmented-item ${settings.watch_notify_frequency === o.id ? 'active' : ''}`}
+                onClick={() => handleSelectWatchFrequency(o.id as 'startup' | 'daily', o.label)}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
       {/* Group 4: Update Policies & Rules Center */}
       <div className={`settings-group ${isResetWave ? 'reset-wave-3' : ''}`}>
         <div className="settings-group-title">🛡️ 版本策略与软件屏蔽规则</div>
@@ -877,6 +924,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </button>
           </div>
         </div>
+
+        {/* FR-6.3-manual 用户数据手动备份（收藏 / 关注 / 设置） */}
+        <DataBackupRow />
 
         {/* 6.2 Reset to Defaults */}
         <div className={`settings-row ${highlightRow === 'reset' ? 'row-highlight' : ''}`}>

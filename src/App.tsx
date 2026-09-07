@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { TitleBar } from './components/TitleBar';
 import { Sidebar } from './components/Sidebar';
+import { ToastContainer } from './components/Toast';
 import { AppDetailModal } from './components/AppDetailModal';
 import { DeveloperProfileModal } from './components/DeveloperProfileModal';
 import { AppImportModal } from './components/AppImportModal';
@@ -12,7 +13,7 @@ import { InstalledView } from './views/InstalledView';
 import { UpdatesView } from './views/UpdatesView';
 import { SettingsView } from './views/SettingsView';
 import { FavoritesView } from './views/FavoritesView';
-import { AppDetail, AppSettings, AppSummary, InstalledApp, MirrorNodeStatus, ToastMessage, UpdateItem, UpdateRule, ViewType } from './types';
+import { AppDetail, AppSettings, AppSummary, InstalledApp, MirrorNodeStatus, OAuthUser, ToastMessage, UpdateItem, UpdateRule, ViewType, WatchUpdatedPayload } from './types';
 import { api, DEFAULT_SETTINGS } from './services/api';
 import { preloadIcons } from './components/AppIcon';
 
@@ -35,11 +36,24 @@ export const App: React.FC = () => {
   const [updateRules, setUpdateRules] = useState<UpdateRule[]>([]);
   const [recentlyViewedApps, setRecentlyViewedApps] = useState<AppSummary[]>([]);
   const [detectedAppIds, setDetectedAppIds] = useState<Set<string>>(new Set());
+  // FR-6.2 关注（Watch）
+  const [watchedIds, setWatchedIds] = useState<Set<string>>(new Set());
+  const [watchNotifications, setWatchNotifications] = useState<WatchUpdatedPayload[]>([]);
+  // FR-7 OAuth 登录态（详情弹窗标星门控）
+  const [oauthUser, setOAuthUser] = useState<OAuthUser | null>(null);
   const appDetailMemoryCache = useRef<Map<string, AppDetail>>(new Map());
 
-  // Toast notifications completely disabled per user request in favor of inline animations
-  const showToast = (_text: string, _type: ToastMessage['type'] = 'info') => {
-    // Intentionally no-op to eliminate floating toasts
+  // 应用内通知（FR-6.2 关注提醒 / FR-4.4 自更新 / FR-7 OAuth / FR-6.3 导入导出经此通道呈现）
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const showToast = (text: string, type: ToastMessage['type'] = 'info') => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setToasts((prev) => [...prev.slice(-2), { id, text, type }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 3800);
+  };
+  const handleDismissToast = (id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
   const FONT_SCALE_MAP: Record<string, string> = {
@@ -70,6 +84,46 @@ export const App: React.FC = () => {
       .catch(() => {});
   };
 
+  // 将持久化设置快照合并入 AppSettings 并应用主题 / 字号 / 缩放（导入备份后复用同一路径）
+  const applyPersistedSettings = (persisted: Record<string, string>) => {
+    const merged: AppSettings = { ...DEFAULT_SETTINGS };
+    for (const [k, v] of Object.entries(persisted)) {
+      if (k in merged) {
+        if (typeof (DEFAULT_SETTINGS as any)[k] === 'boolean') {
+          (merged as any)[k] = v === 'true';
+        } else if (typeof (DEFAULT_SETTINGS as any)[k] === 'number') {
+          (merged as any)[k] = Number(v) || (DEFAULT_SETTINGS as any)[k];
+        } else {
+          (merged as any)[k] = v;
+        }
+      }
+    }
+    setSettings(merged);
+
+    // Apply theme
+    let currentTheme: 'light' | 'dark' = 'dark';
+    if (merged.theme === 'light') {
+      currentTheme = 'light';
+    } else if (merged.theme === 'dark') {
+      currentTheme = 'dark';
+    } else {
+      const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      currentTheme = isDark ? 'dark' : 'light';
+    }
+    setTheme(currentTheme);
+    document.documentElement.setAttribute('data-theme', currentTheme);
+
+    // Apply font size
+    applyFontSize(merged.font_size);
+
+    // Apply UI zoom
+    applyUiZoom(merged.ui_scale);
+
+    if (merged.active_mirror) {
+      api.switchMirror(merged.active_mirror);
+    }
+  };
+
   // Initial load
   useEffect(() => {
     // Detect system preference
@@ -98,44 +152,8 @@ export const App: React.FC = () => {
 
     // Load persisted settings
     api.getSettings().then((persisted) => {
-      const merged: AppSettings = { ...DEFAULT_SETTINGS };
-      for (const [k, v] of Object.entries(persisted)) {
-        if (k in merged) {
-          if (typeof (DEFAULT_SETTINGS as any)[k] === 'boolean') {
-            (merged as any)[k] = v === 'true';
-          } else if (typeof (DEFAULT_SETTINGS as any)[k] === 'number') {
-            (merged as any)[k] = Number(v) || (DEFAULT_SETTINGS as any)[k];
-          } else {
-            (merged as any)[k] = v;
-          }
-        }
-      }
-      setSettings(merged);
-
-      // Apply theme
-      let currentTheme: 'light' | 'dark' = 'dark';
-      if (merged.theme === 'light') {
-        currentTheme = 'light';
-      } else if (merged.theme === 'dark') {
-        currentTheme = 'dark';
-      } else {
-        const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-        currentTheme = isDark ? 'dark' : 'light';
-      }
-      setTheme(currentTheme);
-      document.documentElement.setAttribute('data-theme', currentTheme);
-
-      // Apply font size
-      applyFontSize(merged.font_size);
-
-      // Apply UI zoom
-      applyUiZoom(merged.ui_scale);
-
-      if (merged.active_mirror) {
-        api.switchMirror(merged.active_mirror);
-      }
-
-      if (merged.update_frequency === 'startup') {
+      applyPersistedSettings(persisted);
+      if ((persisted.update_frequency || DEFAULT_SETTINGS.update_frequency) === 'startup') {
         api.checkForUpdates(false).then(setUpdates).catch(() => {});
       }
     });
@@ -155,6 +173,84 @@ export const App: React.FC = () => {
 
     return () => {
       window.removeEventListener('zstore:catalog-synced', handleCatalogSynced);
+    };
+  }, []);
+
+  // 应用内通知总线：新功能经 `zstore:toast` 事件投递 Toast
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { text?: string; type?: ToastMessage['type'] } | undefined;
+      if (detail?.text) {
+        showToast(detail.text, detail.type || 'info');
+      }
+    };
+    window.addEventListener('zstore:toast', handler);
+    return () => {
+      window.removeEventListener('zstore:toast', handler);
+    };
+  }, []);
+
+  // FR-6.2: 加载关注列表 + 订阅 `zstore://watch-updated` 应用内提醒
+  useEffect(() => {
+    let isMounted = true;
+    let unlistenFn: (() => void) | null = null;
+    api.getWatchedApps().then((ids) => {
+      if (isMounted) setWatchedIds(new Set(ids));
+    }).catch(() => {});
+    api.onWatchUpdated((payload) => {
+      if (!isMounted) return;
+      const label = payload.app_name || payload.app_id;
+      showToast(`你关注的 ${label} 发布了 ${payload.version}`, 'info');
+      setWatchNotifications((prev) => {
+        const next = prev.filter((n) => n.app_id !== payload.app_id);
+        return [...next, payload];
+      });
+    }).then((unlisten) => {
+      if (isMounted) {
+        unlistenFn = unlisten;
+      } else {
+        unlisten();
+      }
+    }).catch(() => {});
+    return () => {
+      isMounted = false;
+      if (unlistenFn) unlistenFn();
+    };
+  }, []);
+
+  // FR-7 / FR-6.3-manual: OAuth 登录态 + 备份导入刷新
+  useEffect(() => {
+    let isMounted = true;
+    const loadOAuthUser = () => {
+      api.getOAuthUser().then((u) => {
+        if (isMounted) setOAuthUser(u);
+      }).catch(() => {
+        if (isMounted) setOAuthUser(null);
+      });
+    };
+    loadOAuthUser();
+    const handleOAuthChanged = () => loadOAuthUser();
+    const handleDataImported = async () => {
+      try {
+        const [persisted, favs, watched] = await Promise.all([
+          api.getSettings(),
+          api.getFavorites(),
+          api.getWatchedApps().catch(() => [] as string[]),
+        ]);
+        if (!isMounted) return;
+        applyPersistedSettings(persisted);
+        setFavoriteIds(new Set(favs));
+        setWatchedIds(new Set(watched));
+      } catch {
+        // 忽略：后端未就绪时保持现状
+      }
+    };
+    window.addEventListener('zstore:oauth-changed', handleOAuthChanged);
+    window.addEventListener('zstore:data-imported', handleDataImported);
+    return () => {
+      isMounted = false;
+      window.removeEventListener('zstore:oauth-changed', handleOAuthChanged);
+      window.removeEventListener('zstore:data-imported', handleDataImported);
     };
   }, []);
 
@@ -473,6 +569,39 @@ export const App: React.FC = () => {
       delete (window as any).dispatchZStoreDeepLink;
     };
   }, []);
+
+  // Toggle Watch (FR-6.2: 关注 / 取消关注，后端未就绪时 Toast 提示且不崩溃)
+  const handleToggleWatch = async (id: string) => {
+    const isWatched = watchedIds.has(id);
+    try {
+      if (isWatched) {
+        await api.unwatchApp(id);
+      } else {
+        await api.watchApp(id);
+      }
+    } catch (e) {
+      showToast(`关注操作失败: ${String(e)}`, 'error');
+      return;
+    }
+    setWatchedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+        showToast('已取消关注该应用的新版本动态', 'info');
+      } else {
+        next.add(id);
+        showToast('已关注，新版本发布时将在应用内提醒你', 'success');
+      }
+      return next;
+    });
+    if (isWatched) {
+      setWatchNotifications((prev) => prev.filter((n) => n.app_id !== id));
+    }
+  };
+
+  const handleDismissWatchNotification = (appId: string) => {
+    setWatchNotifications((prev) => prev.filter((n) => n.app_id !== appId));
+  };
 
   // Toggle Favorite
   const handleToggleFavorite = async (id: string) => {
@@ -800,7 +929,7 @@ export const App: React.FC = () => {
           currentView={currentView}
           onSelectView={setCurrentView}
           installedCount={installedApps.length}
-          hasUpdates={updates.length > 0}
+          hasUpdates={updates.length > 0 || watchNotifications.length > 0}
           activeMirrorName={activeMirrorName}
           onCycleMirror={handleCycleMirror}
           isCollapsed={isSidebarCollapsed}
@@ -813,10 +942,12 @@ export const App: React.FC = () => {
               apps={apps}
               installedIds={installedIds}
               favoriteIds={favoriteIds}
+              watchedIds={watchedIds}
               recentlyViewedApps={recentlyViewedApps}
               onOpenDetail={handleOpenDetail}
               onQuickInstall={handleQuickInstall}
               onToggleFavorite={handleToggleFavorite}
+              onToggleWatch={handleToggleWatch}
               onNavigateTrends={() => setCurrentView('trends')}
               onClearRecentViews={handleClearRecentViews}
             />
@@ -838,9 +969,11 @@ export const App: React.FC = () => {
               apps={apps}
               installedIds={installedIds}
               favoriteIds={favoriteIds}
+              watchedIds={watchedIds}
               onOpenDetail={handleOpenDetail}
               onQuickInstall={handleQuickInstall}
               onToggleFavorite={handleToggleFavorite}
+              onToggleWatch={handleToggleWatch}
             />
           )}
 
@@ -848,10 +981,12 @@ export const App: React.FC = () => {
             <FavoritesView
               apps={apps}
               favoriteIds={favoriteIds}
+              watchedIds={watchedIds}
               installedIds={installedIds}
               onOpenDetail={handleOpenDetail}
               onQuickInstall={handleQuickInstall}
               onToggleFavorite={handleToggleFavorite}
+              onToggleWatch={handleToggleWatch}
             />
           )}
 
@@ -883,6 +1018,9 @@ export const App: React.FC = () => {
               onHideApp={handleHideApp}
               updateRulesCount={updateRules.length}
               onOpenRules={() => setIsRulesModalOpen(true)}
+              watchNotifications={watchNotifications}
+              onOpenWatchedApp={handleOpenDetail}
+              onDismissWatch={handleDismissWatchNotification}
             />
           )}
 
@@ -923,6 +1061,8 @@ export const App: React.FC = () => {
           isInstalled={installedIds.has(selectedApp.id)}
           isManaged={managedIds.has(selectedApp.id)}
           isFavorite={favoriteIds.has(selectedApp.id)}
+          isWatched={watchedIds.has(selectedApp.id)}
+          oauthUser={oauthUser}
           onClose={() => {
             activeDetailIdRef.current = null;
             setSelectedApp(null);
@@ -933,6 +1073,7 @@ export const App: React.FC = () => {
           onUnmanage={handleUnmanageApp}
           onManageApp={handleManageApp}
           onToggleFavorite={handleToggleFavorite}
+          onToggleWatch={handleToggleWatch}
           onOpenDeveloperProfile={(owner) => setSelectedDeveloper(owner)}
           onRetry={(retryId) => handleOpenDetail(retryId)}
           onRefresh={(refreshId) => handleOpenDetail(refreshId, true)}
@@ -968,6 +1109,9 @@ export const App: React.FC = () => {
         onToggleRuleHidden={handleToggleRuleHidden}
         onSkipVersion={handleSkipVersion}
       />
+
+      {/* 应用内通知 Toast（FR-6.2 / FR-4.4 / FR-7 / FR-6.3 共用通道） */}
+      <ToastContainer toasts={toasts} onDismiss={handleDismissToast} />
     </div>
   );
 };

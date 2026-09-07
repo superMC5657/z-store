@@ -6,27 +6,48 @@ import { api } from '../services/api';
 interface FavoritesViewProps {
   apps: AppSummary[];
   favoriteIds: Set<string>;
+  watchedIds?: Set<string>;
   installedIds: Set<string>;
   onOpenDetail: (id: string) => void;
   onQuickInstall: (id: string) => void;
   onToggleFavorite: (id: string) => void;
+  onToggleWatch?: (id: string) => void;
 }
 
 export const FavoritesView: React.FC<FavoritesViewProps> = ({
   apps,
   favoriteIds,
+  watchedIds,
   installedIds,
   onOpenDetail,
   onQuickInstall,
   onToggleFavorite,
+  onToggleWatch,
 }) => {
-  const [activeTab, setActiveTab] = useState<'local' | 'starred'>('local');
+  const [activeTab, setActiveTab] = useState<'local' | 'watched' | 'starred'>('local');
+  const [searchText, setSearchText] = useState('');
   const [githubUser, setGithubUser] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<StarredSyncResult | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
 
-  const favoriteApps = apps.filter((a) => favoriteIds.has(a.id));
+  const watchedSet = watchedIds || new Set<string>();
+
+  // FR-6.1: 收藏 / 关注搜索框（按名称 / 别名 / 仓库坐标过滤）
+  const matchesSearch = (a: AppSummary) => {
+    const q = searchText.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      a.name.toLowerCase().includes(q) ||
+      a.owner.toLowerCase().includes(q) ||
+      a.repo.toLowerCase().includes(q) ||
+      a.description.toLowerCase().includes(q) ||
+      a.category_name.toLowerCase().includes(q)
+    );
+  };
+
+  const favoriteApps = apps.filter((a) => favoriteIds.has(a.id) && matchesSearch(a));
+  const watchedApps = apps.filter((a) => watchedSet.has(a.id) && matchesSearch(a));
 
   const handleSyncStarred = async () => {
     setIsSyncing(true);
@@ -67,14 +88,21 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   return (
     <div className="favorites-view view-entrance">
       {/* Tab Navigation */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <div style={{ display: 'flex', gap: '8px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <button
             className={`btn-fluent ${activeTab === 'local' ? 'btn-primary' : 'btn-secondary'}`}
             style={{ padding: '7px 16px', fontSize: '13px', fontWeight: 600 }}
             onClick={() => setActiveTab('local')}
           >
-            ⭐️ 本地收藏 ({favoriteApps.length})
+            ⭐️ 收藏 ({favoriteIds.size})
+          </button>
+          <button
+            className={`btn-fluent ${activeTab === 'watched' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ padding: '7px 16px', fontSize: '13px', fontWeight: 600 }}
+            onClick={() => setActiveTab('watched')}
+          >
+            👁 关注 ({watchedSet.size})
           </button>
           <button
             className={`btn-fluent ${activeTab === 'starred' ? 'btn-primary' : 'btn-secondary'}`}
@@ -84,15 +112,37 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
             🌟 GitHub Starred 仓库同步
           </button>
         </div>
+        {activeTab !== 'starred' && (
+          <input
+            type="text"
+            placeholder="搜索名称 / 别名 / owner/repo..."
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            style={{
+              padding: '7px 12px',
+              fontSize: '13px',
+              borderRadius: '6px',
+              border: '1px solid var(--border-acrylic)',
+              background: 'rgba(0, 0, 0, 0.2)',
+              color: 'var(--text-primary)',
+              outline: 'none',
+              minWidth: '220px',
+            }}
+          />
+        )}
       </div>
 
       {activeTab === 'local' ? (
         favoriteApps.length === 0 ? (
           <div className="empty-state-card">
             <div style={{ fontSize: '48px', marginBottom: '12px' }}>⭐️</div>
-            <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>收藏夹还是空的</h4>
+            <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>
+              {searchText.trim() ? '没有匹配的收藏应用' : '收藏夹还是空的'}
+            </h4>
             <p style={{ color: 'var(--text-tertiary)', fontSize: '13px', margin: 0 }}>
-              在应用卡片或详情页中点击星标收藏，常用利器一键集中收纳；或切换至「GitHub Starred 仓库同步」一键批量导入！
+              {searchText.trim()
+                ? '换个关键词试试，或清空搜索框查看全部收藏。'
+                : '在应用卡片或详情页中点击星标收藏，常用利器一键集中收纳；或切换至「GitHub Starred 仓库同步」一键批量导入！'}
             </p>
           </div>
         ) : (
@@ -103,9 +153,41 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 app={app}
                 isInstalled={installedIds.has(app.id)}
                 isFavorite={true}
+                isWatched={watchedSet.has(app.id)}
                 onOpenDetail={onOpenDetail}
                 onQuickInstall={onQuickInstall}
                 onToggleFavorite={onToggleFavorite}
+                onToggleWatch={onToggleWatch}
+              />
+            ))}
+          </div>
+        )
+      ) : activeTab === 'watched' ? (
+        watchedApps.length === 0 ? (
+          <div className="empty-state-card">
+            <div style={{ fontSize: '48px', marginBottom: '12px' }}>👁</div>
+            <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>
+              {searchText.trim() ? '没有匹配的关注应用' : watchedSet.size > 0 ? '关注的应用暂不在当前清单中' : '还没有关注任何应用'}
+            </h4>
+            <p style={{ color: 'var(--text-tertiary)', fontSize: '13px', margin: 0 }}>
+              {searchText.trim()
+                ? '换个关键词试试，或清空搜索框查看全部关注。'
+                : '在应用卡片或详情页点击眼睛图标关注，发布新版本时将在应用内第一时间提醒你。'}
+            </p>
+          </div>
+        ) : (
+          <div className="app-grid">
+            {watchedApps.map((app) => (
+              <AppCard
+                key={app.id}
+                app={app}
+                isInstalled={installedIds.has(app.id)}
+                isFavorite={favoriteIds.has(app.id)}
+                isWatched={true}
+                onOpenDetail={onOpenDetail}
+                onQuickInstall={onQuickInstall}
+                onToggleFavorite={onToggleFavorite}
+                onToggleWatch={onToggleWatch}
               />
             ))}
           </div>
@@ -218,9 +300,11 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                       app={app}
                       isInstalled={installedIds.has(app.id)}
                       isFavorite={favoriteIds.has(app.id)}
+                      isWatched={watchedSet.has(app.id)}
                       onOpenDetail={onOpenDetail}
                       onQuickInstall={onQuickInstall}
                       onToggleFavorite={onToggleFavorite}
+                      onToggleWatch={onToggleWatch}
                     />
                   ))}
                 </div>

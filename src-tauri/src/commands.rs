@@ -1,7 +1,8 @@
 use crate::installer::InstallerEngine;
 use crate::models::{
-    AppDetail, AppSummary, DeepLinkAction, DeveloperProfile, HostRateLimitStatus, HostTokenEntry,
-    InstalledApp, MirrorNodeStatus, StarredSyncResult, UpdateItem, UpdateRule,
+    AppDetail, AppSummary, DeepLinkAction, DeveloperProfile, DevicePollResult, HostRateLimitStatus,
+    HostTokenEntry, ImportUserDataResult, InstalledApp, MirrorNodeStatus, StarredSyncResult,
+    UpdateItem, UpdateRule, WatchUpdatedPayload, WatchedApp,
 };
 use crate::AppState;
 use serde::{Deserialize, Serialize};
@@ -120,6 +121,92 @@ pub fn resolve_repo_key(id: &str, catalog: &crate::github::CatalogService) -> St
     clean
 }
 
+/// FR-8.1：`z-store.toml` 原文获取（SQLite 缓存优先，共用详情 TTL gears；缺失时联网拉取）。
+/// 缺失文件 / 非 GitHub 仓库 / 网络异常均返回 None（调用方用仓库数据兜底）。
+async fn get_store_toml_raw_cached(
+    state: &AppState,
+    app_id: &str,
+    owner: &str,
+    repo: &str,
+) -> Option<String> {
+    let ttl_seconds = {
+        if let Ok(db) = state.db.lock() {
+            db.get_detail_cache_ttl_minutes() * 60
+        } else {
+            crate::db::DETAIL_CACHE_TTL_DEFAULT_MINUTES * 60
+        }
+    };
+    if let Ok(db) = state.db.lock() {
+        if let Ok(Some(raw)) = db.get_cached_store_meta_raw(app_id, Some(ttl_seconds)) {
+            return Some(raw);
+        }
+    }
+    let (host_token, mirror_proxy) = {
+        let db_guard = state.db.lock().ok()?;
+        let token = db_guard.get_host_token("github.com").ok().flatten();
+        let proxy = state.mirror.lock().ok()?.get_proxy_url();
+        (token, proxy)
+    };
+    let raw = crate::store_meta::fetch_store_toml_raw(
+        owner,
+        repo,
+        host_token.as_deref(),
+        mirror_proxy.as_deref(),
+    )
+    .await?;
+    if let Ok(db) = state.db.lock() {
+        let _ = db.save_cached_store_meta_raw(app_id, &raw);
+    }
+    Some(raw)
+}
+
+/// FR-8.1 / FR-8.3：将 `z-store.toml` 解析产物挂载到应用详情，
+/// 并合并 `is_verified`（收录库标记为真，或历史认证通过）。
+/// 全程最佳努力：任何失败均保持原详情不变。
+async fn attach_store_meta(state: &AppState, detail: &mut AppDetail) {
+    if !detail.is_verified {
+        if let Ok(db) = state.db.lock() {
+            if db.is_verified_app(&detail.id).unwrap_or(false) {
+                detail.is_verified = true;
+            }
+        }
+    }
+    if detail.store_meta.is_some() {
+        return;
+    }
+    let is_github = detail
+        .forge
+        .as_deref()
+        .map(|f| f == "github")
+        .unwrap_or(true)
+        && detail
+            .forge_host
+            .as_deref()
+            .map(|h| h.contains("github.com"))
+            .unwrap_or(true);
+    if !is_github {
+        return;
+    }
+    let (app_id, owner, repo) = (
+        detail.id.clone(),
+        detail.owner.clone(),
+        detail.repo.clone(),
+    );
+    if let Some(raw) = get_store_toml_raw_cached(state, &app_id, &owner, &repo).await {
+        if let Ok(meta) = crate::store_meta::parse_store_toml(&raw) {
+            // toml 声明的签名指纹可补齐收录库未标注的指纹
+            if detail.signature_fingerprint.is_none() {
+                if let Some(fp) = meta.store.signature_fingerprint.clone() {
+                    if !fp.trim().is_empty() {
+                        detail.signature_fingerprint = Some(fp);
+                    }
+                }
+            }
+            detail.store_meta = Some(meta);
+        }
+    }
+}
+
 #[tauri::command]
 pub fn get_category_apps(
     state: State<'_, AppState>,
@@ -189,26 +276,25 @@ pub async fn get_app_details_impl(
     };
 
     // 1. 若非主动强制刷新，优先从 SQLite 本地持久化缓存中读取，实现 0ms 瞬间秒开
+    // 注意：锁守卫不得跨越 await（Tauri 命令 Future 需 Send），故查询收拢于闭包内
     if !is_force {
-        if let Ok(db) = state.db.lock() {
-            if let Ok(Some(mut cached_detail)) =
-                db.get_cached_app_detail(&clean_id, Some(ttl_seconds))
-            {
-                cached_detail.id = clean_id.clone();
-                if let Some(cat_item) = state.catalog.get_catalog_item(&clean_id) {
-                    cached_detail.signature_fingerprint = cat_item.publisher_fingerprint;
-                }
-                return Ok(cached_detail);
+        let cached: Option<AppDetail> = state.db.lock().ok().and_then(|db| {
+            db.get_cached_app_detail(&clean_id, Some(ttl_seconds))
+                .ok()
+                .flatten()
+                .or_else(|| {
+                    db.get_cached_app_detail(&repo_key, Some(ttl_seconds))
+                        .ok()
+                        .flatten()
+                })
+        });
+        if let Some(mut cached_detail) = cached {
+            cached_detail.id = clean_id.clone();
+            if let Some(cat_item) = state.catalog.get_catalog_item(&clean_id) {
+                cached_detail.signature_fingerprint = cat_item.publisher_fingerprint;
             }
-            if let Ok(Some(mut cached_detail)) =
-                db.get_cached_app_detail(&repo_key, Some(ttl_seconds))
-            {
-                cached_detail.id = clean_id.clone();
-                if let Some(cat_item) = state.catalog.get_catalog_item(&clean_id) {
-                    cached_detail.signature_fingerprint = cat_item.publisher_fingerprint;
-                }
-                return Ok(cached_detail);
-            }
+            attach_store_meta(state, &mut cached_detail).await;
+            return Ok(cached_detail);
         }
     }
 
@@ -229,7 +315,7 @@ pub async fn get_app_details_impl(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs() as i64;
-            let detail = AppDetail {
+            let mut detail = AppDetail {
                 id: clean_id.clone(),
                 name: repo_info.name.clone(),
                 owner: coord.owner,
@@ -257,7 +343,9 @@ pub async fn get_app_details_impl(
                 cached_at: Some(now),
                 is_stale_fallback: None,
                 homepage: repo_info.homepage.clone(),
+                store_meta: None,
             };
+            attach_store_meta(state, &mut detail).await;
 
             // 存入 SQLite 本地持久化缓存，并动态更新内存中的收录库统计
             state.catalog.update_catalog_item_stats(
@@ -327,6 +415,8 @@ pub async fn get_app_details_impl(
                 .unwrap_or_default()
                 .as_secs() as i64;
             detail.cached_at = Some(now);
+            // FR-8.1/FR-8.3：挂载 z-store.toml 并合并认证标记（入库前完成，缓存即带元数据）
+            attach_store_meta(state, &mut detail).await;
 
             if let Some((etag, payload)) = to_cache {
                 // 远端返回 200 OK，更新 ETag 缓存表
@@ -1123,7 +1213,83 @@ pub async fn check_for_updates(
         }
     }
 
+    // FR-6.2：关注订阅检查（最佳努力，失败不影响更新列表返回）
+    notify_watched_updates(&state, &rules_map, force_refresh).await;
+
     Ok(updates)
+}
+
+/// FR-6.2：遍历被关注应用，若出现较 `last_notified_version` 更新的
+/// Release，按 `watch_notify_frequency`（`startup`|`daily`）决定是否经由
+/// `zstore://watch-updated` 事件应用内通知。`daily` 下每应用 24h 内至多
+/// 通知一次；首次建立基线时静默记录，不打扰用户。
+async fn notify_watched_updates(
+    state: &AppState,
+    rules_map: &HashMap<String, UpdateRule>,
+    force_refresh: Option<bool>,
+) {
+    let watched: Vec<WatchedApp> = match state.db.lock() {
+        Ok(db) => db.get_watched_apps().unwrap_or_default(),
+        Err(_) => return,
+    };
+    if watched.is_empty() {
+        return;
+    }
+    let frequency = match state.db.lock() {
+        Ok(db) => db.get_watch_notify_frequency(),
+        Err(_) => crate::db::WATCH_NOTIFY_FREQUENCY_DEFAULT.to_string(),
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+
+    for w in watched {
+        if let Some(rule) = rules_map.get(&w.app_id.to_lowercase()) {
+            if rule.is_frozen || rule.is_hidden {
+                continue;
+            }
+        }
+        let detail = match get_app_details_impl(state, w.app_id.clone(), force_refresh).await {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
+        let latest = detail.latest_version.trim().to_string();
+        if latest.is_empty() {
+            continue;
+        }
+        let Some(base) = w.last_notified_version.clone() else {
+            // 首次关注：静默建立基线
+            if let Ok(db) = state.db.lock() {
+                let _ = db.init_watch_baseline(&w.app_id, &latest);
+            }
+            continue;
+        };
+        if !is_version_newer(&base, &latest) {
+            continue;
+        }
+        if frequency == "daily" {
+            let last_at = state
+                .db
+                .lock()
+                .ok()
+                .and_then(|db| db.get_watch_last_notified_at(&w.app_id).ok().flatten());
+            if let Some(t) = last_at {
+                if now.saturating_sub(t) < 86400 {
+                    continue;
+                }
+            }
+        }
+        if let Ok(db) = state.db.lock() {
+            let _ = db.set_watch_notified(&w.app_id, &latest, now);
+        }
+        if let Some(tx) = crate::GLOBAL_WATCH_TX.get() {
+            let _ = tx.send(WatchUpdatedPayload {
+                app_id: w.app_id.clone(),
+                version: latest,
+            });
+        }
+    }
 }
 
 #[tauri::command]
@@ -1307,6 +1473,9 @@ pub fn save_setting(
             .parse::<i64>()
             .unwrap_or(crate::db::DETAIL_CACHE_TTL_DEFAULT_MINUTES);
         crate::db::normalize_detail_cache_ttl(parsed).to_string()
+    } else if key == "watch_notify_frequency" {
+        // FR-6.2：非法频率回退默认 daily，保证库中只存 {startup, daily}
+        crate::db::normalize_watch_notify_frequency(&value)
     } else {
         value
     };
@@ -2310,6 +2479,320 @@ pub fn open_url(url: String) -> Result<bool, String> {
     {
         Err("当前操作系统不支持调起外部浏览器".to_string())
     }
+}
+
+// ---------- FR-8.3 所有权认证 ----------
+
+/// 官方所有权认证（MVP）：校验码原文出现在仓库 README 或 `z-store.toml`
+/// 内容中即通过；通过后持久化，`is_verified` 经合并规则在详情中生效。
+#[tauri::command]
+pub async fn verify_ownership(
+    state: State<'_, AppState>,
+    app_id: String,
+    code: String,
+) -> Result<bool, String> {
+    let clean_id = app_id.trim().to_string();
+    if clean_id.is_empty() {
+        return Err("应用 ID 不能为空".to_string());
+    }
+    let needle = code.trim().to_string();
+    if needle.is_empty() {
+        return Ok(false);
+    }
+
+    // 1. 精选收录库已标记认证
+    if let Some(item) = state.catalog.get_catalog_item(&clean_id) {
+        if item.is_verified {
+            return Ok(true);
+        }
+    }
+    // 2. 历史认证通过
+    if let Ok(db) = state.db.lock() {
+        if db.is_verified_app(&clean_id).unwrap_or(false) {
+            return Ok(true);
+        }
+    }
+    // 3. 仓库坐标（MVP 仅支持 GitHub 仓库）
+    let coords = state
+        .catalog
+        .get_repo_coordinates(&clean_id)
+        .map_err(|_| format!("仅支持 GitHub 仓库的所有权校验: {}", clean_id))?;
+
+    // 4. README 复用应用详情链路；toml 原文走缓存优先
+    let readme = get_app_details_impl(&state, clean_id.clone(), None)
+        .await
+        .map(|d| d.readme_markdown)
+        .unwrap_or_default();
+    let toml_raw =
+        get_store_toml_raw_cached(&state, &clean_id, &coords.owner, &coords.repo).await;
+    let passed =
+        crate::store_meta::is_verified_by_code(&readme, toml_raw.as_deref(), &needle);
+    if passed {
+        if let Ok(db) = state.db.lock() {
+            let _ = db.mark_verified_app(&clean_id);
+        }
+    }
+    Ok(passed)
+}
+
+// ---------- FR-6.2 关注订阅 ----------
+
+#[tauri::command]
+pub fn watch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
+    let id = app_id.trim();
+    if id.is_empty() {
+        return Err("应用 ID 不能为空".to_string());
+    }
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.watch_app(id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn unwatch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.unwatch_app(app_id.trim()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_watched_apps(state: State<'_, AppState>) -> Result<Vec<WatchedApp>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.get_watched_apps().map_err(|e| e.to_string())
+}
+
+// ---------- FR-7.1/FR-7.2 GitHub OAuth Device Flow + Star ----------
+
+fn resolve_oauth_client_id_from_db(state: &AppState) -> String {
+    let override_id = state
+        .db
+        .lock()
+        .ok()
+        .and_then(|db| db.get_setting(crate::oauth::SETTING_OAUTH_CLIENT_ID).ok().flatten());
+    crate::oauth::resolve_oauth_client_id(override_id.as_deref())
+}
+
+/// 写操作令牌：OAuth 令牌优先，`github.com` 主机令牌（PAT）兜底。
+fn resolve_write_token(state: &AppState) -> Option<String> {
+    let db = state.db.lock().ok()?;
+    if let Ok(Some(t)) = db.get_setting(crate::oauth::SETTING_OAUTH_TOKEN) {
+        if !t.trim().is_empty() {
+            return Some(t.trim().to_string());
+        }
+    }
+    db.get_host_token("github.com").ok().flatten()
+}
+
+/// 开始 Device Flow：返回用户验证码与浏览器授权地址（前端展示二维码/链接并轮询）。
+#[tauri::command]
+pub async fn oauth_device_start(
+    state: State<'_, AppState>,
+) -> Result<crate::oauth::DeviceStartResult, String> {
+    let client_id = resolve_oauth_client_id_from_db(&state);
+    if client_id.trim().is_empty() || client_id == crate::oauth::GITHUB_OAUTH_CLIENT_ID {
+        return Err(
+            "尚未配置 GitHub OAuth Client ID，请在「设置」中填写后重试".to_string(),
+        );
+    }
+    crate::oauth::request_device_code(&client_id).await
+}
+
+/// 轮询 Device Flow 授权结果（前端按返回 `interval` 节流调用）。
+/// `pending` 继续轮询；`authorized` 已持久化令牌+用户；`error` 停止并提示。
+#[tauri::command]
+pub async fn oauth_device_poll(
+    state: State<'_, AppState>,
+    device_code: String,
+) -> Result<DevicePollResult, String> {
+    let code = device_code.trim().to_string();
+    if code.is_empty() {
+        return Err("设备验证码不能为空".to_string());
+    }
+    let client_id = resolve_oauth_client_id_from_db(&state);
+    match crate::oauth::poll_device_once(&client_id, &code).await? {
+        crate::oauth::DevicePollOutcome::Authorized { access_token } => {
+            let user = crate::oauth::fetch_oauth_user(&access_token).await.ok();
+            if let Ok(db) = state.db.lock() {
+                let _ = db.set_setting(crate::oauth::SETTING_OAUTH_TOKEN, access_token.trim());
+                if let Some(u) = user {
+                    if let Ok(json) = serde_json::to_string(&u) {
+                        let _ = db.set_setting(crate::oauth::SETTING_OAUTH_USER, &json);
+                    }
+                }
+            }
+            Ok(DevicePollResult {
+                status: "authorized".to_string(),
+                message: None,
+            })
+        }
+        crate::oauth::DevicePollOutcome::Pending { message } => Ok(DevicePollResult {
+            status: "pending".to_string(),
+            message: Some(message),
+        }),
+        crate::oauth::DevicePollOutcome::Error { message } => Ok(DevicePollResult {
+            status: "error".to_string(),
+            message: Some(message),
+        }),
+    }
+}
+
+/// 当前 OAuth 登录用户；未登录返回 null。
+#[tauri::command]
+pub async fn get_oauth_user(
+    state: State<'_, AppState>,
+) -> Result<Option<crate::oauth::OAuthUser>, String> {
+    let stored: Option<crate::oauth::OAuthUser> = state
+        .db
+        .lock()
+        .ok()
+        .and_then(|db| db.get_setting(crate::oauth::SETTING_OAUTH_USER).ok().flatten())
+        .filter(|s| !s.trim().is_empty())
+        .and_then(|json| serde_json::from_str::<crate::oauth::OAuthUser>(&json).ok());
+    if stored.is_some() {
+        return Ok(stored);
+    }
+    // 有令牌但缺用户快照时实时补拉一次
+    let token = resolve_write_token(&state);
+    let is_oauth = state
+        .db
+        .lock()
+        .ok()
+        .and_then(|db| db.get_setting(crate::oauth::SETTING_OAUTH_TOKEN).ok().flatten())
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false);
+    if is_oauth {
+        if let Some(t) = token {
+            if let Ok(user) = crate::oauth::fetch_oauth_user(&t).await {
+                if let Ok(db) = state.db.lock() {
+                    if let Ok(json) = serde_json::to_string(&user) {
+                        let _ = db.set_setting(crate::oauth::SETTING_OAUTH_USER, &json);
+                    }
+                }
+                return Ok(Some(user));
+            }
+        }
+    }
+    Ok(None)
+}
+
+#[tauri::command]
+pub fn oauth_logout(state: State<'_, AppState>) -> Result<bool, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.remove_setting(crate::oauth::SETTING_OAUTH_TOKEN)
+        .map_err(|e| e.to_string())?;
+    db.remove_setting(crate::oauth::SETTING_OAUTH_USER)
+        .map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub async fn star_app(
+    state: State<'_, AppState>,
+    owner: String,
+    repo: String,
+) -> Result<bool, String> {
+    if owner.trim().is_empty() || repo.trim().is_empty() {
+        return Err("仓库 owner 与 repo 不能为空".to_string());
+    }
+    let token = resolve_write_token(&state)
+        .ok_or_else(|| "请先完成 GitHub 登录，或在「设置」中配置个人访问令牌 (PAT)".to_string())?;
+    crate::oauth::star_repo(&token, owner.trim(), repo.trim())
+        .await
+        .map(|_| true)
+}
+
+#[tauri::command]
+pub async fn unstar_app(
+    state: State<'_, AppState>,
+    owner: String,
+    repo: String,
+) -> Result<bool, String> {
+    if owner.trim().is_empty() || repo.trim().is_empty() {
+        return Err("仓库 owner 与 repo 不能为空".to_string());
+    }
+    let token = resolve_write_token(&state)
+        .ok_or_else(|| "请先完成 GitHub 登录，或在「设置」中配置个人访问令牌 (PAT)".to_string())?;
+    crate::oauth::unstar_repo(&token, owner.trim(), repo.trim())
+        .await
+        .map(|_| true)
+}
+
+#[tauri::command]
+pub async fn is_starred(
+    state: State<'_, AppState>,
+    owner: String,
+    repo: String,
+) -> Result<bool, String> {
+    if owner.trim().is_empty() || repo.trim().is_empty() {
+        return Err("仓库 owner 与 repo 不能为空".to_string());
+    }
+    let token = resolve_write_token(&state)
+        .ok_or_else(|| "请先完成 GitHub 登录，或在「设置」中配置个人访问令牌 (PAT)".to_string())?;
+    crate::oauth::check_starred(&token, owner.trim(), repo.trim()).await
+}
+
+// ---------- FR-6.3 手动跨设备同步（导入侧；导出由前端经现有 getters 组装） ----------
+
+/// 合并式导入用户数据：只增不删；已安装应用对应条目跳过计数；
+/// 设置项仅接受白名单（主题/语言/缓存保鲜期/关注频率）。
+#[tauri::command]
+pub fn import_user_data(
+    state: State<'_, AppState>,
+    json: String,
+) -> Result<ImportUserDataResult, String> {
+    let plan = crate::oauth::parse_import_payload(&json)?;
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+
+    let installed: std::collections::HashSet<String> = db
+        .get_installed_apps()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|a| a.app_id.to_lowercase())
+        .collect();
+
+    let mut favorites_added = 0usize;
+    let mut watched_added = 0usize;
+    let mut settings_applied = 0usize;
+    let mut installed_skipped = 0usize;
+
+    for id in &plan.favorites {
+        if installed.contains(&id.to_lowercase()) {
+            installed_skipped += 1;
+            continue;
+        }
+        if db.add_favorite(id).map_err(|e| e.to_string())? {
+            favorites_added += 1;
+        }
+    }
+    for id in &plan.watched {
+        if installed.contains(&id.to_lowercase()) {
+            installed_skipped += 1;
+            continue;
+        }
+        if db.watch_app(id).map_err(|e| e.to_string())? {
+            watched_added += 1;
+        }
+    }
+    for (key, value) in &plan.settings {
+        let normalized = if key == "detail_cache_ttl_minutes" {
+            let parsed = value
+                .trim()
+                .parse::<i64>()
+                .unwrap_or(crate::db::DETAIL_CACHE_TTL_DEFAULT_MINUTES);
+            crate::db::normalize_detail_cache_ttl(parsed).to_string()
+        } else if key == "watch_notify_frequency" {
+            crate::db::normalize_watch_notify_frequency(value)
+        } else {
+            value.clone()
+        };
+        db.set_setting(key, &normalized).map_err(|e| e.to_string())?;
+        settings_applied += 1;
+    }
+
+    Ok(ImportUserDataResult {
+        favorites_added,
+        watched_added,
+        settings_applied,
+        installed_skipped,
+    })
 }
 
 #[cfg(test)]

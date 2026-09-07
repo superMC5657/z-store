@@ -59,6 +59,19 @@ export interface AppDetail {
   isRefreshing?: boolean;
   loadError?: string;
   homepage?: string;
+  // FR-8: z-store.toml 收录库扩展元数据（Rust 侧可选下发，缺失时一律按 null 优雅降级）
+  store_meta?: StoreMeta | null;
+}
+
+// FR-8: 随应用详情下发的收录库扩展元数据（源自 z-store.toml），全字段可选
+export interface StoreMeta {
+  display_name?: string | null;
+  summary?: string | null;
+  aliases?: string[] | null;
+  screenshots?: string[] | null;
+  signature_fingerprint?: string | null;
+  homepage?: string | null;
+  categories?: string[] | null;
 }
 
 export interface InstalledApp {
@@ -126,6 +139,8 @@ export interface AppSettings {
   update_frequency: 'startup' | 'daily' | 'manual';
   detail_cache_ttl_minutes: number;
   catalog_source_url: string;
+  // FR-6.2: 关注更新的应用内提醒频率（每次启动检查 / 每天汇总）
+  watch_notify_frequency: 'startup' | 'daily';
 }
 
 export interface SyncCatalogResult {
@@ -272,4 +287,57 @@ export interface ForgeRepoInfo {
   forks: number;
   language?: string | null;
   default_branch: string;
+}
+
+// FR-6.2: 关注（Watch）/ 订阅更新 —— 后端事件 `zstore://watch-updated` 载荷
+export interface WatchUpdatedPayload {
+  app_id: string;
+  version: string;
+  app_name?: string;
+}
+
+// FR-7: GitHub OAuth Device Flow（IPCs 由 Rust 侧并发实现，前端防御性调用）
+export interface OAuthDeviceStartResult {
+  device_code: string;
+  user_code: string;
+  verification_uri: string;
+  verification_uri_complete?: string;
+  expires_in: number;
+  interval: number;
+}
+
+export type OAuthPollStatus = 'pending' | 'complete' | 'expired' | 'denied' | 'error';
+
+export interface OAuthPollResult {
+  status: OAuthPollStatus;
+  message?: string;
+}
+
+export interface OAuthUser {
+  login: string;
+  name?: string | null;
+  avatar_url?: string | null;
+  html_url?: string | null;
+}
+
+// FR-6.3-manual: 用户数据手动导出 / 导入（纯文件同步，M2 服务端同步为远期规划）
+export interface UserDataBackupSettings {
+  theme?: string;
+  language?: string;
+  detail_cache_ttl_minutes?: number;
+  watch_notify_frequency?: string;
+}
+
+export interface UserDataBackup {
+  version: 1;
+  favorites: string[];
+  watched: string[];
+  settings: UserDataBackupSettings;
+}
+
+export interface ImportUserDataCounts {
+  favorites_added: number;
+  watched_added: number;
+  settings_applied: boolean;
+  installed_skipped: number;
 }

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { marked } from 'marked';
-import { UpdateItem } from '../types';
+import { UpdateItem, WatchUpdatedPayload } from '../types';
 import { sanitizeHtml } from '../utils/sanitize';
 import { FlyoutMenu } from '../components/FlyoutMenu';
 
@@ -15,6 +15,10 @@ interface UpdatesViewProps {
   onHideApp?: (id: string) => Promise<void>;
   updateRulesCount?: number;
   onOpenRules?: () => void;
+  // FR-6.2: 关注应用的新版本应用内提醒（经 zstore://watch-updated 事件聚合）
+  watchNotifications?: WatchUpdatedPayload[];
+  onOpenWatchedApp?: (id: string) => void;
+  onDismissWatch?: (appId: string) => void;
 }
 
 export const UpdatesView: React.FC<UpdatesViewProps> = ({
@@ -28,6 +32,9 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
   onHideApp,
   updateRulesCount,
   onOpenRules,
+  watchNotifications,
+  onOpenWatchedApp,
+  onDismissWatch,
 }) => {
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [isUpdatingAll, setIsUpdatingAll] = useState(false);
@@ -117,6 +124,56 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
           )}
         </div>
       </div>
+
+      {/* FR-6.2: 我关注的应用动态（与已安装更新相互独立，仅作提醒） */}
+      {watchNotifications && watchNotifications.length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px',
+            marginBottom: '16px',
+            padding: '14px 18px',
+            borderRadius: 'var(--radius-md)',
+            background: 'var(--brand-subtle)',
+            border: '1px solid var(--border-nav-active)',
+          }}
+        >
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--brand-primary)' }}>
+            👁 你关注的应用有新动态 ({watchNotifications.length})
+          </span>
+          {watchNotifications.map((n) => (
+            <div
+              key={n.app_id}
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', fontSize: '13px' }}
+            >
+              <span>
+                你关注的 {n.app_name || n.app_id} 发布了 {n.version}
+              </span>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                {onOpenWatchedApp && (
+                  <button
+                    className="btn-fluent btn-primary"
+                    style={{ fontSize: '12px', padding: '4px 12px' }}
+                    onClick={() => onOpenWatchedApp(n.app_id)}
+                  >
+                    查看详情
+                  </button>
+                )}
+                {onDismissWatch && (
+                  <button
+                    className="btn-fluent btn-secondary"
+                    style={{ fontSize: '12px', padding: '4px 12px' }}
+                    onClick={() => onDismissWatch(n.app_id)}
+                  >
+                    不再提醒
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {updates.length === 0 ? (
         <div className="empty-state-card">

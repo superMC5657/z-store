@@ -6,7 +6,9 @@ pub mod github;
 pub mod installer;
 pub mod mirror;
 pub mod models;
+pub mod oauth;
 pub mod scanner;
+pub mod store_meta;
 pub mod verifier;
 
 use db::Database;
@@ -23,6 +25,9 @@ pub struct AppState {
 }
 
 pub static GLOBAL_QUOTA_TX: OnceLock<UnboundedSender<models::HostQuotaEvent>> = OnceLock::new();
+/// FR-6.2 关注更新通知事件通道（`zstore://watch-updated`）。
+pub static GLOBAL_WATCH_TX: OnceLock<UnboundedSender<models::WatchUpdatedPayload>> =
+    OnceLock::new();
 
 pub fn extract_rate_limit_headers(
     headers: &reqwest::header::HeaderMap,
@@ -177,6 +182,9 @@ pub fn run() {
 
     let (quota_tx, mut quota_rx) = tokio::sync::mpsc::unbounded_channel::<models::HostQuotaEvent>();
     let _ = GLOBAL_QUOTA_TX.set(quota_tx);
+    let (watch_tx, mut watch_rx) =
+        tokio::sync::mpsc::unbounded_channel::<models::WatchUpdatedPayload>();
+    let _ = GLOBAL_WATCH_TX.set(watch_tx);
 
     let db_arc = Arc::new(Mutex::new(db));
     let state = AppState {
@@ -205,6 +213,13 @@ pub fn run() {
                         );
                     }
                     let _ = handle.emit("zstore://quota-updated", ev);
+                }
+            });
+            let watch_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                use tauri::Emitter;
+                while let Some(ev) = watch_rx.recv().await {
+                    let _ = watch_handle.emit("zstore://watch-updated", ev);
                 }
             });
 
@@ -263,7 +278,19 @@ pub fn run() {
             commands::sync_catalog,
             commands::select_folder,
             commands::get_or_fetch_icon,
-            commands::open_url
+            commands::open_url,
+            commands::verify_ownership,
+            commands::watch_app,
+            commands::unwatch_app,
+            commands::get_watched_apps,
+            commands::oauth_device_start,
+            commands::oauth_device_poll,
+            commands::get_oauth_user,
+            commands::oauth_logout,
+            commands::star_app,
+            commands::unstar_app,
+            commands::is_starred,
+            commands::import_user_data
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

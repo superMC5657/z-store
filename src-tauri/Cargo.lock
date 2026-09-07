@@ -20,6 +20,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tempfile",
  "tokio",
+ "toml 0.8.2",
  "urlencoding",
  "winreg 0.56.0",
  "zip 2.4.2",

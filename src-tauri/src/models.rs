@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+pub use crate::store_meta::StoreMeta;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSummary {
     pub id: String,
@@ -72,6 +74,9 @@ pub struct AppDetail {
     pub is_stale_fallback: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub homepage: Option<String>,
+    /// `z-store.toml` 解析产物（FR-8.1）；缺失文件时为 None，前端用仓库数据兜底。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub store_meta: Option<StoreMeta>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -194,6 +199,38 @@ pub struct HostQuotaEvent {
     pub rate_limit_remaining: Option<u32>,
     pub rate_limit_limit: Option<u32>,
     pub rate_limit_reset: Option<i64>,
+}
+
+/// 关注的应用（FR-6.2）：应用内更新通知订阅。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WatchedApp {
+    pub app_id: String,
+    pub added_at: i64,
+    pub last_notified_version: Option<String>,
+}
+
+/// 应用内关注更新通知事件（`zstore://watch-updated`）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WatchUpdatedPayload {
+    pub app_id: String,
+    pub version: String,
+}
+
+/// OAuth Device 轮询结果：`pending` | `authorized` | `error`。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DevicePollResult {
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// 用户数据导入结果（合并式，仅计数）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ImportUserDataResult {
+    pub favorites_added: usize,
+    pub watched_added: usize,
+    pub settings_applied: usize,
+    pub installed_skipped: usize,
 }
 
 pub use crate::deeplink::DeepLinkAction;
