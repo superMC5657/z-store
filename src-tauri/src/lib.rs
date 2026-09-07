@@ -138,18 +138,189 @@ fn init_windows_system_proxy() {
             let proxy_enable: u32 = settings.get_value("ProxyEnable").unwrap_or(0);
             if proxy_enable == 1 {
                 if let Ok(proxy_server) = settings.get_value::<String, _>("ProxyServer") {
-                    let trimmed = proxy_server.trim();
-                    if !trimmed.is_empty() {
-                        let full = if trimmed.starts_with("http://") || trimmed.starts_with("https://") || trimmed.starts_with("socks5://") {
-                            trimmed.to_string()
-                        } else {
-                            format!("http://{}", trimmed)
-                        };
+                    // 注册表可能是多协议形态（http=..;https=..;socks=..），需解析；
+                    // 解析失败返回 None 时不设置，避免污染环境变量导致直连也被拖累。
+                    if let Some(full) = normalize_windows_proxy_server(&proxy_server) {
                         std::env::set_var("http_proxy", &full);
                         std::env::set_var("https_proxy", &full);
                     }
                 }
             }
+        }
+    }
+}
+
+/// 解析 Windows 注册表 `ProxyServer` 值（纯函数，可单元测试）。
+/// 接受三种形态：`host:port`、`scheme://host:port`、多协议
+/// （`http=..;https=..;socks=..`，优先取 https 条目）。
+/// 返回归一化的代理 URL；无法解析返回 None（调用方不设置环境变量，
+/// 保持直连，避免一条坏代理拖累所有请求）。
+#[cfg(target_os = "windows")]
+fn normalize_windows_proxy_server(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let mut https_pick: Option<&str> = None;
+    let mut http_pick: Option<&str> = None;
+    let mut other_pick: Option<&str> = None;
+    let mut plain_pick: Option<&str> = None;
+    for part in raw.split(';') {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        if let Some((proto, addr)) = part.split_once('=') {
+            let addr = addr.trim();
+            if addr.is_empty() {
+                continue;
+            }
+            match proto.trim().to_ascii_lowercase().as_str() {
+                "https" => {
+                    https_pick = Some(addr);
+                    break;
+                }
+                "http" => {
+                    if http_pick.is_none() {
+                        http_pick = Some(addr);
+                    }
+                }
+                _ => {
+                    if other_pick.is_none() {
+                        other_pick = Some(addr);
+                    }
+                }
+            }
+        } else if plain_pick.is_none() {
+            plain_pick = Some(part);
+        }
+    }
+    let addr = https_pick
+        .or(http_pick)
+        .or(other_pick)
+        .or(plain_pick)?
+        .trim();
+    if addr.is_empty() {
+        return None;
+    }
+    let lower = addr.to_ascii_lowercase();
+    if lower.starts_with("http://")
+        || lower.starts_with("https://")
+        || lower.starts_with("socks5://")
+        || lower.starts_with("socks5h://")
+        || lower.starts_with("socks4")
+    {
+        Some(addr.to_string())
+    } else if addr.contains(':') {
+        Some(format!("http://{}", addr))
+    } else {
+        None
+    }
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod proxy_tests {    use super::normalize_windows_proxy_server;
+
+    #[test]
+    fn test_normalize_proxy_server_forms() {
+        // 裸 host:port
+        assert_eq!(
+            normalize_windows_proxy_server("127.0.0.1:7890"),
+            Some("http://127.0.0.1:7890".to_string())
+        );
+        // 自带 scheme
+        assert_eq!(
+            normalize_windows_proxy_server("http://127.0.0.1:7890"),
+            Some("http://127.0.0.1:7890".to_string())
+        );
+        assert_eq!(
+            normalize_windows_proxy_server("socks5://127.0.0.1:7890"),
+            Some("socks5://127.0.0.1:7890".to_string())
+        );
+        // 多协议形态优先 https
+        assert_eq!(
+            normalize_windows_proxy_server("http=127.0.0.1:7890;https=127.0.0.1:7891"),
+            Some("http://127.0.0.1:7891".to_string())
+        );
+        // 垃圾输入不污染环境
+        assert_eq!(normalize_windows_proxy_server(""), None);
+        assert_eq!(normalize_windows_proxy_server("   "), None);
+        assert_eq!(normalize_windows_proxy_server("notaproxy"), None);
+        assert_eq!(normalize_windows_proxy_server("http=;https="), None);
+    }
+
+    #[test]
+    fn test_normalize_forward_proxy() {
+        use super::normalize_forward_proxy;
+        // 空输入 = 清空
+        assert_eq!(normalize_forward_proxy(""), Ok(None));
+        assert_eq!(normalize_forward_proxy("   "), Ok(None));
+        // 裸 host:port 默认 http
+        assert_eq!(
+            normalize_forward_proxy("127.0.0.1:7890"),
+            Ok(Some("http://127.0.0.1:7890/".to_string()))
+        );
+        // socks 形态保留（非标准 scheme，序列化不补斜杠）
+        assert_eq!(
+            normalize_forward_proxy("socks5://127.0.0.1:7890"),
+            Ok(Some("socks5://127.0.0.1:7890".to_string()))
+        );
+        // 非法输入给原因
+        assert!(normalize_forward_proxy("notaproxy").is_err());
+        assert!(normalize_forward_proxy("http://127.0.0.1").is_err());
+        assert!(normalize_forward_proxy("ftp://127.0.0.1:21").is_err());
+    }
+}
+
+/// 出站代理（登录与 API 直连共用）的设置项键。
+pub const FORWARD_PROXY_SETTING: &str = "http_proxy_url";
+
+/// 校验并归一化用户填写的出站代理（纯函数，可单元测试）。
+/// 接受 `host:port`、`http(s)://host:port`、`socks5(h)://host:port`；
+/// 空输入返回 `Ok(None)`（表示清空，回退系统代理/直连）；非法返回 Err(原因)。
+pub fn normalize_forward_proxy(raw: &str) -> Result<Option<String>, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    let with_scheme = if trimmed.contains("://") {
+        trimmed.to_string()
+    } else {
+        format!("http://{}", trimmed)
+    };
+    let url = reqwest::Url::parse(&with_scheme)
+        .map_err(|_| format!("代理地址无法解析：{}", trimmed))?;
+    match url.scheme() {
+        "http" | "https" | "socks5" | "socks5h" | "socks4" | "socks4a" => {}
+        other => {
+            return Err(format!(
+                "不支持的代理协议：{}（仅支持 http/https/socks5）",
+                other
+            ))
+        }
+    }
+    if url.host_str().map(|h| h.is_empty()).unwrap_or(true) {
+        return Err("代理地址缺少主机名".to_string());
+    }
+    if url.port().is_none() {
+        return Err("代理地址缺少端口，如 127.0.0.1:7890".to_string());
+    }
+    Ok(Some(url.to_string()))
+}
+
+/// 将出站代理应用到进程环境变量（reqwest 默认读取，全部请求即时生效，无需重启）。
+/// `None` 表示清空，回退系统代理/直连（Windows 下重新读取注册表系统代理）。
+pub fn apply_forward_proxy_env(url: Option<&str>) {
+    match url {
+        Some(u) if !u.trim().is_empty() => {
+            std::env::set_var("http_proxy", u.trim());
+            std::env::set_var("https_proxy", u.trim());
+        }
+        _ => {
+            std::env::remove_var("http_proxy");
+            std::env::remove_var("https_proxy");
+            #[cfg(target_os = "windows")]
+            init_windows_system_proxy();
         }
     }
 }
@@ -166,6 +337,13 @@ pub fn run() {
     let db = Database::open(&db_path)
         .or_else(|_| Database::open_in_memory())
         .expect("failed to init database");
+
+    // 出站代理：用户配置优先，缺省回退系统代理 env/直连。
+    if let Ok(Some(saved_proxy)) = db.get_setting(FORWARD_PROXY_SETTING) {
+        if let Ok(Some(url)) = normalize_forward_proxy(&saved_proxy) {
+            apply_forward_proxy_env(Some(&url));
+        }
+    }
 
     let saved_token = db
         .get_setting("github_token")
@@ -244,6 +422,8 @@ pub fn run() {
             commands::toggle_favorite,
             commands::ping_mirrors,
             commands::test_proxy,
+            commands::set_forward_proxy,
+            commands::test_forward_proxy,
             commands::get_app_readme,
             commands::get_catalog_count,
             commands::scan_and_match_local_apps,

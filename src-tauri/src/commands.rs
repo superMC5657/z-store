@@ -2393,6 +2393,70 @@ pub async fn test_host_connection(
     }
 }
 
+/// 设置出站代理（登录与 API 直连共用）：校验 → 落库 → 即时生效（进程 env，无需重启）。
+/// 空字符串表示清空，回退系统代理/直连。
+#[tauri::command]
+pub fn set_forward_proxy(state: State<'_, AppState>, url: String) -> Result<bool, String> {
+    let normalized = crate::normalize_forward_proxy(&url)?;
+    {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        db.set_setting(
+            crate::FORWARD_PROXY_SETTING,
+            normalized.as_deref().unwrap_or(""),
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    crate::apply_forward_proxy_env(normalized.as_deref());
+    Ok(true)
+}
+
+/// 测试出站代理：经指定代理 GET api.github.com/rate_limit，返回连通性与延迟。
+/// 空输入表示测试直连/系统代理。地址非法直接返回 Err（前端红字提示）。
+#[tauri::command]
+pub async fn test_forward_proxy(proxy_url: String) -> Result<ProxyTestResult, String> {
+    let normalized = crate::normalize_forward_proxy(&proxy_url)?;
+    let via = normalized
+        .as_deref()
+        .unwrap_or("直连/系统代理")
+        .to_string();
+    let mut builder = reqwest::Client::builder().timeout(std::time::Duration::from_secs(8));
+    if let Some(ref u) = normalized {
+        let proxy = reqwest::Proxy::all(u).map_err(|e| format!("代理不可用：{}", e))?;
+        builder = builder.proxy(proxy);
+    }
+    let client = builder.build().map_err(|e| e.to_string())?;
+    let start = std::time::Instant::now();
+    match client
+        .get("https://api.github.com/rate_limit")
+        .header(
+            reqwest::header::USER_AGENT,
+            reqwest::header::HeaderValue::from_static("ZStore-Client/0.1.0"),
+        )
+        .send()
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => Ok(ProxyTestResult {
+            success: true,
+            latency_ms: start.elapsed().as_millis() as u32,
+            message: format!(
+                "{} ms（经 {} 连接正常）",
+                start.elapsed().as_millis(),
+                via
+            ),
+        }),
+        Ok(resp) => Ok(ProxyTestResult {
+            success: false,
+            latency_ms: start.elapsed().as_millis() as u32,
+            message: format!("HTTP 状态码: {}（经 {}）", resp.status(), via),
+        }),
+        Err(e) => Ok(ProxyTestResult {
+            success: false,
+            latency_ms: 8000,
+            message: format!("连接失败（经 {}）：{}", via, e),
+        }),
+    }
+}
+
 #[tauri::command]
 pub fn register_deep_link_scheme() -> Result<bool, String> {
     crate::deeplink::register_windows_protocol()
@@ -2587,7 +2651,7 @@ pub async fn oauth_device_start(
     state: State<'_, AppState>,
 ) -> Result<crate::oauth::DeviceStartResult, String> {
     let client_id = resolve_oauth_client_id_from_db(&state);
-    if client_id.trim().is_empty() || client_id == crate::oauth::GITHUB_OAUTH_CLIENT_ID {
+    if client_id.trim().is_empty() || client_id == crate::oauth::OAUTH_CLIENT_ID_PLACEHOLDER {
         return Err(
             "尚未配置 GitHub OAuth Client ID，请在「设置」中填写后重试".to_string(),
         );
@@ -2625,6 +2689,14 @@ pub async fn oauth_device_poll(
         }
         crate::oauth::DevicePollOutcome::Pending { message } => Ok(DevicePollResult {
             status: "pending".to_string(),
+            message: Some(message),
+        }),
+        crate::oauth::DevicePollOutcome::Expired { message } => Ok(DevicePollResult {
+            status: "expired".to_string(),
+            message: Some(message),
+        }),
+        crate::oauth::DevicePollOutcome::Denied { message } => Ok(DevicePollResult {
+            status: "denied".to_string(),
             message: Some(message),
         }),
         crate::oauth::DevicePollOutcome::Error { message } => Ok(DevicePollResult {

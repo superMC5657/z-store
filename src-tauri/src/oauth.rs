@@ -2,8 +2,8 @@
 //!
 //! 说明：
 //! - Device Flow 无需应用密钥（secret），客户端仅需 `client_id`；
-//!   默认占位 `YOUR_CLIENT_ID_HERE`，用户可在设置中覆盖
-//!  （`github_oauth_client_id` 设置项优先）。
+//!   解析优先级：设置项覆盖（`github_oauth_client_id`）＞ 编译期环境变量
+//!   （`ZSTORE_GITHUB_OAUTH_CLIENT_ID`）＞ 内置默认；
 //! - 申请 scope 为 `public_repo`：Star 本质是对公开仓库的写操作，
 //!   `public_repo` 是仍能 Star 的最小 scope（`read:user` 等只读 scope
 //!   会返回 403/404），且不触碰任何私有仓库，符合最小权限原则。
@@ -12,9 +12,16 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// 内置 OAuth App Client ID 占位；正式发布前由打包配置替换，
-/// 用户亦可在设置中填写 `github_oauth_client_id` 覆盖（设置值优先）。
-pub const GITHUB_OAUTH_CLIENT_ID: &str = "YOUR_CLIENT_ID_HERE";
+/// 未配置 Client ID 时的占位；命中它意味着 Device Flow 无法发起。
+pub const OAUTH_CLIENT_ID_PLACEHOLDER: &str = "YOUR_CLIENT_ID_HERE";
+/// 内置 OAuth App Client ID：编译期环境变量 `ZSTORE_GITHUB_OAUTH_CLIENT_ID`
+/// 优先（CI 打包机注入；空字符串视为未设置，回退内置默认），未设置时回退内置默认；
+/// 仍为占位则视为未配置，调用方可对比 `OAUTH_CLIENT_ID_PLACEHOLDER` 判定。
+/// 用户亦可在设置中填写 `github_oauth_client_id` 覆盖（设置值优先，见 commands）。
+pub const GITHUB_OAUTH_CLIENT_ID: &str = match option_env!("ZSTORE_GITHUB_OAUTH_CLIENT_ID") {
+    Some(id) if !id.is_empty() => id,
+    _ => "Ov23lik0b7fDGMLTiOYH",
+};
 /// 设置项键：覆盖内置 Client ID。
 pub const SETTING_OAUTH_CLIENT_ID: &str = "github_oauth_client_id";
 /// 设置项键：持久化 OAuth 访问令牌。
@@ -75,7 +82,11 @@ pub enum DevicePollOutcome {
     Pending { message: String },
     /// 用户已授权，携带访问令牌。
     Authorized { access_token: String },
-    /// 失败（`expired_token` / `access_denied` / 网络与协议错误等）。
+    /// 设备码过期（GitHub 侧约 15 分钟有效；需重新发起登录）。
+    Expired { message: String },
+    /// 用户拒绝授权。
+    Denied { message: String },
+    /// 失败（网络与协议错误等）。
     Error { message: String },
 }
 
@@ -114,10 +125,10 @@ pub fn classify_device_poll(body: &str) -> DevicePollOutcome {
         "slow_down" => DevicePollOutcome::Pending {
             message: "轮询过于频繁，已自动放慢等待用户授权".to_string(),
         },
-        "expired_token" => DevicePollOutcome::Error {
+        "expired_token" => DevicePollOutcome::Expired {
             message: "设备验证码已过期，请重新开始授权".to_string(),
         },
-        "access_denied" => DevicePollOutcome::Error {
+        "access_denied" => DevicePollOutcome::Denied {
             message: "用户拒绝了授权请求".to_string(),
         },
         "" => DevicePollOutcome::Error {
@@ -450,14 +461,14 @@ mod tests {
                 access_token: "gho_abc".to_string()
             }
         );
-        // 过期 / 拒绝
+        // 过期 / 拒绝（独立状态，前端可分别提示）
         assert!(matches!(
             classify_device_poll(r#"{"error":"expired_token"}"#),
-            DevicePollOutcome::Error { .. }
+            DevicePollOutcome::Expired { .. }
         ));
         assert_eq!(
             classify_device_poll(r#"{"error":"access_denied","error_description":"no"}"#),
-            DevicePollOutcome::Error {
+            DevicePollOutcome::Denied {
                 message: "用户拒绝了授权请求".to_string()
             }
         );
