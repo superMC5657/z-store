@@ -23,9 +23,9 @@ interface SettingsViewProps {
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
-  mirrors: _mirrors,
+  mirrors,
   onSelectMirror,
-  onPingMirrors: _onPingMirrors,
+  onPingMirrors,
   theme: _theme,
   onSetTheme,
   onSaveToken,
@@ -52,6 +52,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     badge: string;
   } | null>(null);
   const [proxySavedFeedback, setProxySavedFeedback] = useState<string | null>(null);
+  // 出站代理（登录与 API 直连共用；区别于上面的下载加速前缀）
+  const [fwdProxyInput, setFwdProxyInput] = useState('');
+  const [isTestingFwdProxy, setIsTestingFwdProxy] = useState(false);
+  const [fwdProxyResult, setFwdProxyResult] = useState<{
+    success: boolean;
+    latency_ms: number;
+    message: string;
+  } | null>(null);
+  const [fwdProxyFeedback, setFwdProxyFeedback] = useState<string | null>(null);
   const DEFAULT_CATALOG_URL = 'https://gh-proxy.com/https://raw.githubusercontent.com/supermc/z-store/main/src-tauri/src/catalog.json';
   const [catalogSourceUrl, setCatalogSourceUrl] = useState(
     settings.catalog_source_url && !settings.catalog_source_url.includes('gitmirror.com')
@@ -267,6 +276,47 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setTimeout(() => setProxySavedFeedback(null), 3500);
   };
 
+  // 出站代理：预填已保存值
+  useEffect(() => {
+    api.getSettings().then((s) => {
+      const v = s['http_proxy_url'];
+      if (typeof v === 'string' && v.trim()) {
+        setFwdProxyInput(v.trim());
+      }
+    }).catch(() => {
+      // ignore：保持留空直连
+    });
+  }, []);
+
+  const handleTestFwdProxy = async () => {
+    setIsTestingFwdProxy(true);
+    setFwdProxyResult(null);
+    try {
+      const res = await api.testForwardProxy(fwdProxyInput.trim());
+      setFwdProxyResult(res);
+    } catch (e) {
+      setFwdProxyResult({
+        success: false,
+        latency_ms: 0,
+        message: '测试失败: ' + String(e),
+      });
+    } finally {
+      setIsTestingFwdProxy(false);
+    }
+  };
+
+  const handleSaveFwdProxy = async () => {
+    try {
+      await api.setForwardProxy(fwdProxyInput.trim());
+      const cleared = !fwdProxyInput.trim();
+      setFwdProxyFeedback(cleared ? '✅ 已清空出站代理，回退系统代理/直连' : '✅ 出站代理已保存并即时生效（登录与 API）');
+      triggerChangeFeedback('forward_proxy', cleared ? '✓ 出站代理已清空' : '✓ 出站代理已生效');
+    } catch (e) {
+      setFwdProxyFeedback('❌ 保存失败: ' + String(e));
+    }
+    setTimeout(() => setFwdProxyFeedback(null), 3500);
+  };
+
 
   const handleSelectTheme = (t: 'light' | 'dark' | 'system') => {
     const labelMap: Record<string, string> = {
@@ -336,14 +386,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   return (
     <div className="settings-view view-entrance">
       <div className="section-header">
-        <h3 className="section-title">⚙️ 系统设置与个性化控制中枢</h3>
+        <h3 className="section-title">⚙️ 系统设置</h3>
       </div>
 
-      {/* Group 1: Display, Resolution & Accessibility */}
+      {/* 外观 */}
       <div className={`settings-group ${isResetWave ? 'reset-wave-0' : ''}`}>
-        <div className="settings-group-title">🖥️ 视窗、显示与无障碍</div>
+        <div className="settings-group-title">🖥️ 外观与显示</div>
 
-        {/* 1.1 Theme Mode */}
         <div className={`settings-row ${highlightRow === 'theme' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -352,7 +401,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <span className="setting-applied-badge">{activeNotice.text}</span>
               )}
             </div>
-            <span className="settings-row-desc">选择 Fluent Design 2.0 视觉明暗基调，支持跟随系统明暗设置</span>
+            <span className="settings-row-desc">明暗外观，可跟随系统</span>
           </div>
           <div className="segmented-group">
             <button
@@ -376,7 +425,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
-        {/* 1.2 UI Scale */}
         <div className={`settings-row ${highlightRow === 'ui_scale' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -400,8 +448,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
-        {/* 1.3 Font Size */}
-        {/* 1.3 Font Size (User specified: 12, 14, 16, 18, 20 with step of 2) */}
         <div className={`settings-row ${highlightRow === 'font_size' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -410,7 +456,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <span className="setting-applied-badge">{activeNotice.text}</span>
               )}
             </div>
-            <span className="settings-row-desc">以 2px 为步长微调全界面排版文字大小，兼顾信息密集与阅读舒适</span>
+            <span className="settings-row-desc">步长 2px</span>
           </div>
           <div className="segmented-group">
             {[
@@ -438,210 +484,107 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
-      {/* Group 2: Storage & Manifest Lifecycle */}
+      {/* 更新与提醒 */}
       <div className={`settings-group ${isResetWave ? 'reset-wave-1' : ''}`}>
-        <div className="settings-group-title">📂 清单同步与数据存储</div>
+        <div className="settings-group-title">🔄 更新与提醒</div>
 
-        {/* 2.2 Catalog Manifest Sync (With advanced source fold) */}
-        <div className={`settings-row ${highlightRow === 'catalog_source' || highlightRow === 'catalog_sync' ? 'row-highlight' : ''}`} style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-            <div className="settings-row-info">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontWeight: 600 }}>开源收录清单动态同步</span>
-                {(activeNotice?.key === 'catalog_source' || activeNotice?.key === 'catalog_sync') && (
-                  <span className="setting-applied-badge">{activeNotice.text}</span>
-                )}
-              </div>
-              <span className="settings-row-desc">
-                收录应用由社区开源清单仓库维护，随时检查并拉取最新上架开源软件清单
-              </span>
-            </div>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <button
-                type="button"
-                className="btn-fluent btn-secondary"
-                style={{ fontSize: '12px', padding: '6px 12px' }}
-                onClick={() => setShowAdvancedSource(!showAdvancedSource)}
-              >
-                {showAdvancedSource ? '收起配置 ▲' : '高级源配置 ▼'}
-              </button>
-              <button
-                type="button"
-                className="btn-fluent btn-primary"
-                onClick={handleSyncCatalog}
-                disabled={isSyncingCatalog}
-                style={{ fontSize: '12px', padding: '6px 14px' }}
-              >
-                {isSyncingCatalog ? '🔄 正在同步...' : '🔄 立即同步收录库'}
-              </button>
-            </div>
-          </div>
-
-          {/* Advanced source URL collapsible section */}
-          {showAdvancedSource && (
-            <div
-              style={{
-                display: 'flex',
-                gap: '8px',
-                alignItems: 'center',
-                padding: '10px 12px',
-                borderRadius: '8px',
-                background: 'var(--card-bg-subtle, rgba(255,255,255,0.03))',
-                border: '1px dashed var(--border-color)',
-              }}
-            >
-              <input
-                type="text"
-                className="settings-input"
-                value={catalogSourceUrl}
-                onChange={(e) => {
-                  setCatalogSourceUrl(e.target.value);
-                  setCatalogUrlSaved(false);
-                }}
-                placeholder="https://.../catalog.json"
-                style={{ flex: 1, fontSize: '12px', fontFamily: 'monospace' }}
-              />
-              <button
-                type="button"
-                className="btn-fluent btn-primary"
-                style={{ fontSize: '12px', padding: '5px 12px' }}
-                onClick={() => {
-                  onUpdateSetting('catalog_source_url', catalogSourceUrl.trim());
-                  setCatalogUrlSaved(true);
-                  triggerChangeFeedback('catalog_source', '✓ 收录清单源已保存更新');
-                  setTimeout(() => setCatalogUrlSaved(false), 2500);
-                }}
-              >
-                {catalogUrlSaved ? '✓ 已保存' : '保存源'}
-              </button>
-              <button
-                type="button"
-                className="btn-fluent btn-secondary"
-                style={{ fontSize: '12px', padding: '5px 12px' }}
-                onClick={() => {
-                  const defUrl = 'https://gh-proxy.com/https://raw.githubusercontent.com/supermc/z-store/main/src-tauri/src/catalog.json';
-                  setCatalogSourceUrl(defUrl);
-                  onUpdateSetting('catalog_source_url', defUrl);
-                  setCatalogUrlSaved(true);
-                  triggerChangeFeedback('catalog_source', '✓ 已恢复官方默认收录源');
-                  setTimeout(() => setCatalogUrlSaved(false), 2500);
-                }}
-              >
-                恢复官方默认
-              </button>
-            </div>
-          )}
-
-          {syncFeedback && (
-            <span style={{ fontSize: '12px', color: syncFeedback.includes('失败') ? '#ef4444' : '#10b981' }}>
-              {syncFeedback}
-            </span>
-          )}
-        </div>
-
-        {/* 2.3 Detail Cache TTL (ADR-0007: exactly six gears, key detail_cache_ttl_minutes) */}
-        <div className={`settings-row ${highlightRow === 'detail_cache_ttl_minutes' ? 'row-highlight' : ''}`}>
+        <div className={`settings-row ${highlightRow === 'update_frequency' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 600 }}>应用详情缓存生存时效 (TTL)</span>
-              {activeNotice?.key === 'detail_cache_ttl_minutes' && (
+              <span style={{ fontWeight: 600 }}>自动检查更新频率</span>
+              {activeNotice?.key === 'update_frequency' && (
                 <span className="setting-applied-badge">{activeNotice.text}</span>
               )}
             </div>
-            <span className="settings-row-desc">
-              保鲜期内重复打开直接读取本地缓存（0ms 秒开）；超过时效自动发起 ETag 条件重新验证，离线时回退历史缓存
-            </span>
+            <span className="settings-row-desc">用 ETag 探测已纳管软件的新版本</span>
           </div>
           <div className="segmented-group">
-            {TTL_OPTIONS.map((opt) => (
+            {[
+              { id: 'startup', label: '启动时检测 (推荐)' },
+              { id: 'daily', label: '每 24 小时轮询' },
+              { id: 'manual', label: '仅手动检查' },
+            ].map((u) => (
               <button
-                key={opt.value}
-                className={`segmented-item ${settings.detail_cache_ttl_minutes === opt.value ? 'active' : ''}`}
-                onClick={() => handleSelectTtl(opt.value, opt.label)}
+                key={u.id}
+                className={`segmented-item ${settings.update_frequency === u.id ? 'active' : ''}`}
+                onClick={() => handleSelectUpdateFrequency(u.id, u.label)}
               >
-                {opt.label}
+                {u.label}
               </button>
             ))}
           </div>
         </div>
-      </div>
 
-      {/* Group 3: Network & GitHub API Quota */}
-      <div className={`settings-group ${isResetWave ? 'reset-wave-2' : ''}`}>
-        <div className="settings-group-title">🌐 网络设置与 GitHub API 配额</div>
+        <ClientUpdateRow />
 
-        {/* 3.1 Download Acceleration Proxy Configuration */}
-        <div className={`settings-row ${highlightRow === 'proxy' ? 'row-highlight' : ''}`} style={{ flexDirection: 'column', alignItems: 'stretch', gap: '12px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div className="settings-row-info">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontWeight: 600 }}>GitHub 下载加速代理</span>
-                {activeNotice?.key === 'proxy' && (
-                  <span className="setting-applied-badge">{activeNotice.text}</span>
-                )}
-              </div>
-              <span className="settings-row-desc">
-                默认为 GitHub 官方直连。国内网络如遇下载缓慢，可指定加速代理前缀（如 <code>https://gh-proxy.com</code>），留空即为官方直连
-              </span>
+        <div className={`settings-row ${highlightRow === 'watch_notify_frequency' ? 'row-highlight' : ''}`}>
+          <div className="settings-row-info">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontWeight: 600 }}>关注应用的更新提醒频率</span>
+              {activeNotice?.key === 'watch_notify_frequency' && (
+                <span className="setting-applied-badge">{activeNotice.text}</span>
+              )}
             </div>
-            {proxyTestResult && (
-              <span
-                style={{
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: !proxyTestResult.success ? '#ef4444' : proxyTestResult.latency_ms < 400 ? '#10b981' : proxyTestResult.latency_ms < 1000 ? '#f59e0b' : '#ea580c',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  whiteSpace: 'nowrap',
-                }}
+            <span className="settings-row-desc">关注应用发新版时的提醒节奏</span>
+          </div>
+          <div className="segmented-group">
+            {[
+              { id: 'startup', label: '每次启动检查' },
+              { id: 'daily', label: '每天汇总一次' },
+            ].map((o) => (
+              <button
+                key={o.id}
+                className={`segmented-item ${settings.watch_notify_frequency === o.id ? 'active' : ''}`}
+                onClick={() => handleSelectWatchFrequency(o.id as 'startup' | 'daily', o.label)}
               >
-                <span>{proxyTestResult.badge}</span>
-                <span>{proxyTestResult.text}</span>
-              </span>
-            )}
-          </div>
-
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-            <input
-              type="text"
-              className={`settings-input ${highlightRow === 'proxy' ? 'input-highlight' : ''}`}
-              style={{ flex: 1, fontFamily: 'monospace', fontSize: '13px' }}
-              value={proxyInput}
-              onChange={(e) => setProxyInput(e.target.value)}
-              placeholder="留空为 GitHub 官方直连，或输入加速前缀如 https://gh-proxy.com"
-            />
-            <button
-              className="btn-fluent btn-secondary"
-              style={{ fontSize: '12px', padding: '6px 16px', whiteSpace: 'nowrap' }}
-              onClick={handleTestProxy}
-              disabled={isTestingProxy}
-            >
-              {isTestingProxy ? '⚡ 正在测速...' : '⚡ 单击测速'}
-            </button>
-            <button
-              className="btn-fluent btn-primary"
-              style={{ fontSize: '12px', padding: '6px 16px', whiteSpace: 'nowrap' }}
-              onClick={handleSaveProxy}
-            >
-              保存配置
-            </button>
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: '20px' }}>
-            {proxySavedFeedback ? (
-              <span style={{ fontSize: '12px', color: '#10b981', fontWeight: 500 }}>
-                {proxySavedFeedback}
-              </span>
-            ) : (
-              <span style={{ fontSize: '12px', color: 'var(--text-muted, #94a3b8)' }}>
-                当前生效: {(!proxyInput.trim() || proxyInput.trim() === 'direct') ? '🟢 GitHub 官方直连模式' : `⚡ 自定义加速代理: ${proxyInput.trim()}`}
-              </span>
-            )}
+                {o.label}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* 3.3 GitHub Personal Access Token & API Quota */}
+        <div className="settings-row" style={{ alignItems: 'center' }}>
+          <div className="settings-row-info">
+            <span style={{ fontWeight: 600 }}>版本锁定与隐藏规则</span>
+            <span className="settings-row-desc">
+              {updateRulesCount > 0
+                ? `已生效 ${updateRulesCount} 条，可随时解除锁定、恢复提醒或取消隐藏。`
+                : '在「更新中心」卡片菜单可配置跳过或锁定版本。'}
+            </span>
+          </div>
+          <button
+            type="button"
+            className="btn-fluent btn-secondary"
+            onClick={onOpenRules}
+            style={{ fontSize: '12px', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            <span>🛡️ 规则</span>
+            {updateRulesCount > 0 && (
+              <span
+                style={{
+                  fontSize: '11px',
+                  padding: '1px 7px',
+                  borderRadius: '10px',
+                  background: 'var(--brand-primary)',
+                  color: '#000',
+                  fontWeight: 600,
+                }}
+              >
+                {updateRulesCount}
+              </span>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* 账号与配额 */}
+      <div className={`settings-group ${isResetWave ? 'reset-wave-2' : ''}`}>
+        <div className="settings-group-title">👤 GitHub 账号与配额</div>
+
+        <div id="settings-account">
+          <OAuthAccountCard />
+        </div>
+
         <div className={`settings-row ${highlightRow === 'token' ? 'row-highlight' : ''}`} style={{ flexDirection: 'column', alignItems: 'stretch', gap: '14px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div className="settings-row-info">
@@ -652,7 +595,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 )}
               </div>
               <span className="settings-row-desc">
-                默认匿名公共 IP 共享每小时 60 次 API 配额；配置个人令牌（仅需公开只读权限）可立即提升至 5,000 次/小时
+                匿名 60 次/小时；配置令牌（公开只读即可）提升至 5,000 次/小时
               </span>
             </div>
             {hostStatus['github.com'] && (
@@ -770,7 +713,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 gap: '6px',
               }}
             >
-              <span>💡 提示：前往 GitHub 官网 -&gt; Settings -&gt; Developer Settings -&gt; Personal access tokens 生成</span>
+              <span>💡 前往 GitHub Settings → Developer Settings 生成</span>
               {(tokenInputs['github.com'] || hostTokens.find((t) => t.host === 'github.com')?.token) && (
                 <button
                   type="button"
@@ -787,116 +730,325 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
           </div>
         </div>
-
-        {/* 3.3 Update Frequency */}
-        <div className={`settings-row ${highlightRow === 'update_frequency' ? 'row-highlight' : ''}`}>
-          <div className="settings-row-info">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 600 }}>自动检查更新频率</span>
-              {activeNotice?.key === 'update_frequency' && (
-                <span className="setting-applied-badge">{activeNotice.text}</span>
-              )}
-            </div>
-            <span className="settings-row-desc">基于 GitHub Releases ETag 机制智能探测已纳管软件版本</span>
-          </div>
-          <div className="segmented-group">
-            {[
-              { id: 'startup', label: '启动时检测 (推荐)' },
-              { id: 'daily', label: '每 24 小时轮询' },
-              { id: 'manual', label: '仅手动检查' },
-            ].map((u) => (
-              <button
-                key={u.id}
-                className={`segmented-item ${settings.update_frequency === u.id ? 'active' : ''}`}
-                onClick={() => handleSelectUpdateFrequency(u.id, u.label)}
-              >
-                {u.label}
-              </button>
-            ))}
-          </div>
-        </div>
       </div>
 
-      {/* Group 3.5: Client Self-Update, GitHub Account & Watch Frequency (FR-4.4 / FR-7 / FR-6.2) */}
-      <div className={`settings-group ${isResetWave ? 'reset-wave-2' : ''}`}>
-        <div className="settings-group-title">📦 客户端更新、GitHub 账号与关注提醒</div>
-
-        {/* FR-4.4 自更新 */}
-        <ClientUpdateRow />
-
-        {/* FR-7 GitHub 账号（OAuth Device Flow） */}
-        <OAuthAccountCard />
-
-        {/* FR-6.2 关注提醒频率 */}
-        <div className={`settings-row ${highlightRow === 'watch_notify_frequency' ? 'row-highlight' : ''}`}>
-          <div className="settings-row-info">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 600 }}>关注应用的更新提醒频率</span>
-              {activeNotice?.key === 'watch_notify_frequency' && (
-                <span className="setting-applied-badge">{activeNotice.text}</span>
-              )}
-            </div>
-            <span className="settings-row-desc">你关注的应用发布新版本时，在应用内提醒你的检查节奏</span>
-          </div>
-          <div className="segmented-group">
-            {[
-              { id: 'startup', label: '每次启动检查' },
-              { id: 'daily', label: '每天汇总一次' },
-            ].map((o) => (
-              <button
-                key={o.id}
-                className={`segmented-item ${settings.watch_notify_frequency === o.id ? 'active' : ''}`}
-                onClick={() => handleSelectWatchFrequency(o.id as 'startup' | 'daily', o.label)}
-              >
-                {o.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Group 4: Update Policies & Rules Center */}
+      {/* 网络与清单 */}
       <div className={`settings-group ${isResetWave ? 'reset-wave-3' : ''}`}>
-        <div className="settings-group-title">🛡️ 版本策略与软件屏蔽规则</div>
-        <div className="settings-row" style={{ alignItems: 'center' }}>
+        <div className="settings-group-title">🌐 网络与清单数据</div>
+
+        <div className="settings-row">
           <div className="settings-row-info">
-            <span style={{ fontWeight: 600 }}>更新忽略、版本锁定与全局隐藏规则</span>
-            <span className="settings-row-desc">
-              {updateRulesCount > 0
-                ? `当前已生效 ${updateRulesCount} 条规则。支持随时解除版本锁定、恢复忽略的版本更新提醒或取消隐藏。`
-                : '当前未配置任何版本屏蔽规则。在「更新中心」应用卡片右侧菜单可快速配置版本跳过或锁定。'}
-            </span>
+            <span style={{ fontWeight: 600 }}>加速节点切换</span>
+            <span className="settings-row-desc">当前下载走的镜像节点</span>
           </div>
-          <button
-            type="button"
-            className="btn-fluent btn-secondary"
-            onClick={onOpenRules}
-            style={{ fontSize: '12px', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}
-          >
-            <span>🛡️ 规则</span>
-            {updateRulesCount > 0 && (
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <div className="segmented-group">
+              {mirrors.map((m) => (
+                <button
+                  key={m.id}
+                  className={`segmented-item ${m.is_active ? 'active' : ''}`}
+                  onClick={() => onSelectMirror(m.id)}
+                  title={m.base_url || m.id}
+                >
+                  {m.name}
+                </button>
+              ))}
+            </div>
+            <button
+              className="btn-fluent btn-secondary"
+              style={{ fontSize: '12px', padding: '6px 14px', whiteSpace: 'nowrap' }}
+              onClick={onPingMirrors}
+            >
+              ⚡ 测速
+            </button>
+          </div>
+        </div>
+
+        <div className={`settings-row ${highlightRow === 'proxy' ? 'row-highlight' : ''}`} style={{ flexDirection: 'column', alignItems: 'stretch', gap: '12px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="settings-row-info">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontWeight: 600 }}>GitHub 下载加速代理</span>
+                {activeNotice?.key === 'proxy' && (
+                  <span className="setting-applied-badge">{activeNotice.text}</span>
+                )}
+              </div>
+              <span className="settings-row-desc">
+                留空为官方直连；国内下载慢可填加速前缀
+              </span>
+            </div>
+            {proxyTestResult && (
               <span
                 style={{
-                  fontSize: '11px',
-                  padding: '1px 7px',
-                  borderRadius: '10px',
-                  background: 'var(--brand-primary)',
-                  color: '#000',
+                  fontSize: '12px',
                   fontWeight: 600,
+                  color: !proxyTestResult.success ? '#ef4444' : proxyTestResult.latency_ms < 400 ? '#10b981' : proxyTestResult.latency_ms < 1000 ? '#f59e0b' : '#ea580c',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  whiteSpace: 'nowrap',
                 }}
               >
-                {updateRulesCount}
+                <span>{proxyTestResult.badge}</span>
+                <span>{proxyTestResult.text}</span>
               </span>
             )}
-          </button>
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <input
+              type="text"
+              className={`settings-input ${highlightRow === 'proxy' ? 'input-highlight' : ''}`}
+              style={{ flex: 1, fontFamily: 'monospace', fontSize: '13px' }}
+              value={proxyInput}
+              onChange={(e) => setProxyInput(e.target.value)}
+              placeholder="留空为 GitHub 官方直连，或输入加速前缀如 https://gh-proxy.com"
+            />
+            <button
+              className="btn-fluent btn-secondary"
+              style={{ fontSize: '12px', padding: '6px 16px', whiteSpace: 'nowrap' }}
+              onClick={handleTestProxy}
+              disabled={isTestingProxy}
+            >
+              {isTestingProxy ? '⚡ 正在测速...' : '⚡ 单击测速'}
+            </button>
+            <button
+              className="btn-fluent btn-primary"
+              style={{ fontSize: '12px', padding: '6px 16px', whiteSpace: 'nowrap' }}
+              onClick={handleSaveProxy}
+            >
+              保存配置
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: '20px' }}>
+            {proxySavedFeedback ? (
+              <span style={{ fontSize: '12px', color: '#10b981', fontWeight: 500 }}>
+                {proxySavedFeedback}
+              </span>
+            ) : (
+              <span style={{ fontSize: '12px', color: 'var(--text-muted, #94a3b8)' }}>
+                当前生效: {(!proxyInput.trim() || proxyInput.trim() === 'direct') ? '🟢 GitHub 官方直连模式' : `⚡ 自定义加速代理: ${proxyInput.trim()}`}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className={`settings-row ${highlightRow === 'forward_proxy' ? 'row-highlight' : ''}`} style={{ flexDirection: 'column', alignItems: 'stretch', gap: '12px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="settings-row-info">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontWeight: 600 }}>🌐 出站代理（登录与 API）</span>
+                {activeNotice?.key === 'forward_proxy' && (
+                  <span className="setting-applied-badge">{activeNotice.text}</span>
+                )}
+              </div>
+              <span className="settings-row-desc">
+                留空为直连/跟随系统代理；github.com 连不通（如登录轮询失败）时填，保存即时生效
+              </span>
+            </div>
+            {fwdProxyResult && (
+              <span
+                style={{
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: !fwdProxyResult.success ? '#ef4444' : fwdProxyResult.latency_ms < 400 ? '#10b981' : fwdProxyResult.latency_ms < 1000 ? '#f59e0b' : '#ea580c',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                <span>{fwdProxyResult.success ? '🟢' : '🔴'}</span>
+                <span>{fwdProxyResult.message}</span>
+              </span>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <input
+              type="text"
+              className={`settings-input ${highlightRow === 'forward_proxy' ? 'input-highlight' : ''}`}
+              style={{ flex: 1, fontFamily: 'monospace', fontSize: '13px' }}
+              value={fwdProxyInput}
+              onChange={(e) => setFwdProxyInput(e.target.value)}
+              placeholder="如 http://127.0.0.1:7890 或 socks5://127.0.0.1:7890"
+            />
+            <button
+              className="btn-fluent btn-secondary"
+              style={{ fontSize: '12px', padding: '6px 16px', whiteSpace: 'nowrap' }}
+              onClick={handleTestFwdProxy}
+              disabled={isTestingFwdProxy}
+            >
+              {isTestingFwdProxy ? '正在测试...' : '测试连通性'}
+            </button>
+            <button
+              className="btn-fluent btn-primary"
+              style={{ fontSize: '12px', padding: '6px 16px', whiteSpace: 'nowrap' }}
+              onClick={handleSaveFwdProxy}
+            >
+              保存配置
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: '20px' }}>
+            {fwdProxyFeedback ? (
+              <span style={{ fontSize: '12px', color: '#10b981', fontWeight: 500 }}>
+                {fwdProxyFeedback}
+              </span>
+            ) : (
+              <span style={{ fontSize: '12px', color: 'var(--text-muted, #94a3b8)' }}>
+                当前生效: {!fwdProxyInput.trim() ? '🟢 直连 / 跟随系统代理' : `🌐 出站代理: ${fwdProxyInput.trim()}`}
+              </span>
+            )}
+            {fwdProxyInput.trim() && (
+              <button
+                type="button"
+                className="btn-fluent btn-secondary"
+                style={{ fontSize: '11px', padding: '2px 8px', color: '#ef4444' }}
+                onClick={async () => {
+                  setFwdProxyInput('');
+                  try {
+                    await api.setForwardProxy('');
+                    setFwdProxyFeedback('✅ 已清空出站代理，回退系统代理/直连');
+                    triggerChangeFeedback('forward_proxy', '✓ 出站代理已清空');
+                  } catch (e) {
+                    setFwdProxyFeedback('❌ 清空失败: ' + String(e));
+                  }
+                  setTimeout(() => setFwdProxyFeedback(null), 3500);
+                }}
+              >
+                清空代理
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className={`settings-row ${highlightRow === 'catalog_source' || highlightRow === 'catalog_sync' ? 'row-highlight' : ''}`} style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+            <div className="settings-row-info">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontWeight: 600 }}>开源收录清单动态同步</span>
+                {(activeNotice?.key === 'catalog_source' || activeNotice?.key === 'catalog_sync') && (
+                  <span className="setting-applied-badge">{activeNotice.text}</span>
+                )}
+              </div>
+              <span className="settings-row-desc">
+                从社区开源清单仓库拉取最新收录
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button
+                type="button"
+                className="btn-fluent btn-secondary"
+                style={{ fontSize: '12px', padding: '6px 12px' }}
+                onClick={() => setShowAdvancedSource(!showAdvancedSource)}
+              >
+                {showAdvancedSource ? '收起配置 ▲' : '高级源配置 ▼'}
+              </button>
+              <button
+                type="button"
+                className="btn-fluent btn-primary"
+                onClick={handleSyncCatalog}
+                disabled={isSyncingCatalog}
+                style={{ fontSize: '12px', padding: '6px 14px' }}
+              >
+                {isSyncingCatalog ? '🔄 正在同步...' : '🔄 立即同步收录库'}
+              </button>
+            </div>
+          </div>
+
+          {showAdvancedSource && (
+            <div
+              style={{
+                display: 'flex',
+                gap: '8px',
+                alignItems: 'center',
+                padding: '10px 12px',
+                borderRadius: '8px',
+                background: 'var(--card-bg-subtle, rgba(255,255,255,0.03))',
+                border: '1px dashed var(--border-color)',
+              }}
+            >
+              <input
+                type="text"
+                className="settings-input"
+                value={catalogSourceUrl}
+                onChange={(e) => {
+                  setCatalogSourceUrl(e.target.value);
+                  setCatalogUrlSaved(false);
+                }}
+                placeholder="https://.../catalog.json"
+                style={{ flex: 1, fontSize: '12px', fontFamily: 'monospace' }}
+              />
+              <button
+                type="button"
+                className="btn-fluent btn-primary"
+                style={{ fontSize: '12px', padding: '5px 12px' }}
+                onClick={() => {
+                  onUpdateSetting('catalog_source_url', catalogSourceUrl.trim());
+                  setCatalogUrlSaved(true);
+                  triggerChangeFeedback('catalog_source', '✓ 收录清单源已保存更新');
+                  setTimeout(() => setCatalogUrlSaved(false), 2500);
+                }}
+              >
+                {catalogUrlSaved ? '✓ 已保存' : '保存源'}
+              </button>
+              <button
+                type="button"
+                className="btn-fluent btn-secondary"
+                style={{ fontSize: '12px', padding: '5px 12px' }}
+                onClick={() => {
+                  const defUrl = 'https://gh-proxy.com/https://raw.githubusercontent.com/supermc/z-store/main/src-tauri/src/catalog.json';
+                  setCatalogSourceUrl(defUrl);
+                  onUpdateSetting('catalog_source_url', defUrl);
+                  setCatalogUrlSaved(true);
+                  triggerChangeFeedback('catalog_source', '✓ 已恢复官方默认收录源');
+                  setTimeout(() => setCatalogUrlSaved(false), 2500);
+                }}
+              >
+                恢复官方默认
+              </button>
+            </div>
+          )}
+
+          {syncFeedback && (
+            <span style={{ fontSize: '12px', color: syncFeedback.includes('失败') ? '#ef4444' : '#10b981' }}>
+              {syncFeedback}
+            </span>
+          )}
+        </div>
+
+        <div className={`settings-row ${highlightRow === 'detail_cache_ttl_minutes' ? 'row-highlight' : ''}`}>
+          <div className="settings-row-info">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontWeight: 600 }}>应用详情缓存生存时效 (TTL)</span>
+              {activeNotice?.key === 'detail_cache_ttl_minutes' && (
+                <span className="setting-applied-badge">{activeNotice.text}</span>
+              )}
+            </div>
+            <span className="settings-row-desc">
+              有效期内直接读本地缓存；过期自动 ETag 验证，离线回退缓存
+            </span>
+          </div>
+          <div className="segmented-group">
+            {TTL_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                className={`segmented-item ${settings.detail_cache_ttl_minutes === opt.value ? 'active' : ''}`}
+                onClick={() => handleSelectTtl(opt.value, opt.label)}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Group 5: Data & Factory Reset */}
+      {/* 数据备份与恢复 */}
       <div className={`settings-group ${isResetWave ? 'reset-wave-4' : ''}`}>
-        <div className="settings-group-title">📊 软件资产与恢复出厂设置</div>
+        <div className="settings-group-title">💾 数据备份与恢复</div>
 
-        {/* 6.1 Export Assets */}
         <div className={`settings-row ${highlightRow === 'export' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -905,7 +1057,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <span className="setting-applied-badge">{activeNotice.text}</span>
               )}
             </div>
-            <span className="settings-row-desc">生成标准 Markdown 资产报告或 JSON 结构化备份，便于换机一键装机</span>
+            <span className="settings-row-desc">Markdown 报告或 JSON 备份，便于换机</span>
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
             <button
@@ -925,10 +1077,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
-        {/* FR-6.3-manual 用户数据手动备份（收藏 / 关注 / 设置） */}
         <DataBackupRow />
 
-        {/* 6.2 Reset to Defaults */}
         <div className={`settings-row ${highlightRow === 'reset' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -937,7 +1087,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <span className="setting-applied-badge">{activeNotice.text}</span>
               )}
             </div>
-            <span className="settings-row-desc">将视窗分辨率、缩放比、字体大小及网络参数恢复至初始状态</span>
+            <span className="settings-row-desc">恢复全部设置为初始值</span>
           </div>
           {isResetConfirming ? (
             <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
