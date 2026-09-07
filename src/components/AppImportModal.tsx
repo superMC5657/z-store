@@ -101,59 +101,50 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
 
   return (
     <div
-      className="modal-overlay"
+      className="modal-backdrop"
       onClick={(e) => {
         if (e.target === e.currentTarget && !isImporting) onClose();
       }}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.55)',
-        backdropFilter: 'blur(16px)',
-        zIndex: 1000,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '24px',
-      }}
+      style={{ zIndex: 1000 }}
     >
       <div
-        className="modal-content"
+        className="detail-modal"
         style={{
           width: '100%',
-          maxWidth: '720px',
-          maxHeight: '86vh',
-          background: 'var(--bg-acrylic-default)',
-          backdropFilter: 'blur(30px) saturate(180%)',
-          border: '1px solid var(--border-acrylic)',
-          borderRadius: '12px',
-          boxShadow: '0 24px 48px rgba(0,0,0,0.36)',
+          maxWidth: '740px',
+          maxHeight: 'min(86vh, calc(100% - 32px))',
+          height: matches.length > 2 ? 'min(82vh, 700px)' : 'auto',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
-          animation: 'fadeIn 0.2s ease-out',
         }}
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
       >
         {/* Header */}
         <div
+          className="modal-header"
           style={{
-            padding: '20px 24px 16px',
+            padding: '18px 24px 14px',
             borderBottom: '1px solid var(--border-acrylic)',
             display: 'flex',
             alignItems: 'flex-start',
             justifyContent: 'space-between',
+            background: 'var(--bg-acrylic-thin)',
+            flexShrink: 0,
           }}
         >
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span style={{ fontSize: '20px' }}>🔍</span>
-              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 600 }}>
+              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)' }}>
                 扫描并纳管系统存量开源软件
               </h3>
             </div>
             <p
               style={{
-                margin: '6px 0 0 0',
+                margin: '4px 0 0 0',
                 fontSize: '13px',
                 color: 'var(--text-secondary)',
               }}
@@ -164,22 +155,57 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
           <button
             onClick={onClose}
             disabled={isImporting}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              fontSize: '18px',
-              color: 'var(--text-tertiary)',
-              cursor: 'pointer',
-              padding: '4px 8px',
-              borderRadius: '6px',
-            }}
+            className="modal-close-btn"
+            aria-label="关闭"
+            style={{ position: 'relative', top: 'auto', right: 'auto' }}
           >
-            ✕
+            <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4">
+              <line x1="1" y1="1" x2="9" y2="9" />
+              <line x1="9" y1="1" x2="1" y2="9" />
+            </svg>
           </button>
         </div>
 
-        {/* Body */}
-        <div style={{ padding: '20px 24px', flex: 1, overflowY: 'auto' }}>
+        {/* Batch Actions Toolbar (Pinned below Header) */}
+        {!isLoading && !error && matches.length > 0 && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '10px 24px',
+              background: 'var(--bg-acrylic)',
+              borderBottom: '1px solid var(--border-acrylic)',
+              fontSize: '13px',
+              flexShrink: 0,
+              color: 'var(--text-primary)',
+            }}
+          >
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none', color: 'var(--text-primary)', fontWeight: 500 }}>
+              <input
+                type="checkbox"
+                checked={selectedIds.size === matches.length && matches.length > 0}
+                onChange={handleSelectAll}
+                style={{ cursor: 'pointer', accentColor: 'var(--brand-primary)', width: '16px', height: '16px' }}
+              />
+              <span>全选 / 反选</span>
+            </label>
+            <span style={{ color: 'var(--text-secondary)' }}>
+              共发现 <strong style={{ color: 'var(--text-primary)' }}>{matches.length}</strong> 款开源软件 · 已选中 <strong style={{ color: 'var(--brand-primary)' }}>{selectedIds.size}</strong> 款
+            </span>
+          </div>
+        )}
+
+        {/* Body (Scrollable List) */}
+        <div
+          className="modal-scroll-area"
+          style={{
+            padding: matches.length > 0 ? '16px 24px' : '20px 24px',
+            flex: '1 1 auto',
+            minHeight: 0,
+            overflowY: 'auto',
+          }}
+        >
           {isLoading ? (
             <div
               style={{
@@ -202,7 +228,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                 }}
               />
               <div style={{ textAlign: 'center' }}>
-                <div style={{ fontWeight: 600, fontSize: '14px' }}>正在遍历 Windows 注册表与系统已装程序...</div>
+                <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>正在遍历 Windows 注册表与系统已装程序...</div>
                 <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
                   应用启发式打分引擎比对 Catalog 倒排索引
                 </div>
@@ -233,154 +259,126 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
               <h4 style={{ margin: '0 0 8px 0', fontSize: '16px', color: 'var(--text-primary)' }}>
                 未检测到未纳管的已知开源应用
               </h4>
-              <p style={{ margin: 0, fontSize: '13px' }}>
+              <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>
                 当前系统中的已知开源软件已全部处于 Z-Store 纳管监控中，或尚未检测到与内置收录库匹配的程序。
               </p>
             </div>
           ) : (
-            <div>
-              {/* Batch Actions Toolbar */}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '10px 14px',
-                  background: 'var(--bg-acrylic-thin)',
-                  borderRadius: '8px',
-                  marginBottom: '16px',
-                  fontSize: '13px',
-                  border: '1px solid var(--border-acrylic)',
-                }}
-              >
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.size === matches.length && matches.length > 0}
-                    onChange={handleSelectAll}
-                    style={{ cursor: 'pointer' }}
-                  />
-                  <span>全选 / 反选</span>
-                </label>
-                <span style={{ color: 'var(--text-secondary)' }}>
-                  共发现 <strong>{matches.length}</strong> 款开源软件 · 已选中 <strong>{selectedIds.size}</strong> 款
-                </span>
-              </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {matches.map((item) => {
+                const isSelected = selectedIds.has(item.catalog_id);
+                const isHigh = item.confidence_tier === 'high';
+                return (
+                  <div
+                    key={item.catalog_id}
+                    onClick={() => handleToggleSelect(item.catalog_id)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '14px',
+                      padding: '14px 16px',
+                      background: isSelected ? 'var(--brand-subtle)' : 'var(--bg-acrylic)',
+                      border: `1px solid ${isSelected ? 'var(--brand-primary)' : 'var(--border-acrylic)'}`,
+                      borderRadius: 'var(--radius-md)',
+                      cursor: 'pointer',
+                      transition: 'all 0.18s var(--ease-smooth)',
+                      boxShadow: isSelected ? '0 0 0 1px var(--brand-primary), var(--shadow-rest)' : 'var(--shadow-rest)',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => {}} // handled by row click
+                      style={{ cursor: 'pointer', accentColor: 'var(--brand-primary)', width: '16px', height: '16px' }}
+                    />
 
-              {/* Matches List */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {matches.map((item) => {
-                  const isSelected = selectedIds.has(item.catalog_id);
-                  const isHigh = item.confidence_tier === 'high';
-                  return (
+                    {/* Icon */}
                     <div
-                      key={item.catalog_id}
-                      onClick={() => handleToggleSelect(item.catalog_id)}
                       style={{
+                        width: '42px',
+                        height: '42px',
+                        borderRadius: 'var(--radius-sm)',
+                        background: item.icon_bg || 'var(--brand-subtle)',
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '14px',
-                        padding: '12px 16px',
-                        background: isSelected ? 'var(--brand-subtle)' : 'var(--bg-acrylic-thin)',
-                        border: `1px solid ${isSelected ? 'var(--brand-primary)' : 'var(--border-acrylic)'}`,
-                        borderRadius: '8px',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                        fontSize: '22px',
+                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)',
                       }}
                     >
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => {}} // handled by row click
-                        style={{ cursor: 'pointer' }}
-                      />
+                      {item.icon.endsWith('.svg') || item.icon.startsWith('http') ? (
+                        '📦'
+                      ) : (
+                        item.icon
+                      )}
+                    </div>
 
-                      {/* Icon */}
-                      <div
-                        style={{
-                          width: '40px',
-                          height: '40px',
-                          borderRadius: '8px',
-                          background: item.icon_bg || 'var(--brand-subtle)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          flexShrink: 0,
-                          fontSize: '20px',
-                        }}
-                      >
-                        {item.icon.endsWith('.svg') || item.icon.startsWith('http') ? (
-                          '📦'
-                        ) : (
-                          item.icon
+                    {/* Info */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>
+                          {item.name}
+                        </span>
+                        {item.chinese_name && (
+                          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                            ({item.chinese_name})
+                          </span>
                         )}
-                      </div>
-
-                      {/* Info */}
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontWeight: 600, fontSize: '14px' }}>
-                            {item.name}
-                          </span>
-                          {item.chinese_name && (
-                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                              ({item.chinese_name})
-                            </span>
-                          )}
-                          <span
-                            style={{
-                              fontSize: '11px',
-                              padding: '2px 8px',
-                              borderRadius: '12px',
-                              background: isHigh ? 'rgba(16, 185, 129, 0.15)' : 'rgba(59, 130, 246, 0.15)',
-                              color: isHigh ? '#10b981' : '#3b82f6',
-                              fontWeight: 600,
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '3px',
-                            }}
-                          >
-                            {isHigh ? '🛡️' : '✨'} {Math.round(item.confidence * 100)}% 匹配
-                          </span>
-                        </div>
-
-                        <div
+                        <span
                           style={{
-                            fontSize: '12px',
-                            color: 'var(--text-tertiary)',
-                            marginTop: '4px',
-                            display: 'flex',
-                            gap: '12px',
+                            fontSize: '11px',
+                            padding: '2px 8px',
+                            borderRadius: '12px',
+                            background: isHigh ? 'var(--status-success-bg)' : 'var(--brand-subtle)',
+                            color: isHigh ? 'var(--status-success)' : 'var(--brand-primary)',
+                            border: `1px solid ${isHigh ? 'rgba(16, 185, 129, 0.3)' : 'rgba(0, 120, 212, 0.3)'}`,
+                            fontWeight: 600,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '3px',
                           }}
                         >
-                          <span>本地检测: <strong>v{item.local_version}</strong></span>
-                          <span>·</span>
-                          <span>收录仓库: <code>{item.catalog_id}</code></span>
-                        </div>
-
-                        {(item.resolved_executable_path || item.scanned.install_location) && (
-                          <div
-                            style={{
-                              fontSize: '11px',
-                              color: 'var(--text-tertiary)',
-                              fontFamily: 'monospace',
-                              marginTop: '2px',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                            }}
-                            title={item.resolved_executable_path || item.scanned.install_location}
-                          >
-                            {item.resolved_executable_path
-                              ? `🚀 运行程序: ${item.resolved_executable_path}`
-                              : `📂 安装目录: ${item.scanned.install_location}`}
-                          </div>
-                        )}
+                          {isHigh ? '🛡️' : '✨'} {Math.round(item.confidence * 100)}% 匹配
+                        </span>
                       </div>
+
+                      <div
+                        style={{
+                          fontSize: '12px',
+                          color: 'var(--text-secondary)',
+                          marginTop: '4px',
+                          display: 'flex',
+                          gap: '12px',
+                        }}
+                      >
+                        <span>本地检测: <strong style={{ color: 'var(--text-primary)' }}>v{item.local_version}</strong></span>
+                        <span>·</span>
+                        <span>收录仓库: <code style={{ color: 'var(--brand-primary)', background: 'var(--brand-subtle)', padding: '1px 5px', borderRadius: '4px' }}>{item.catalog_id}</code></span>
+                      </div>
+
+                      {(item.resolved_executable_path || item.scanned.install_location) && (
+                        <div
+                          style={{
+                            fontSize: '11px',
+                            color: 'var(--text-tertiary)',
+                            fontFamily: 'Consolas, Monaco, monospace',
+                            marginTop: '3px',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                          title={item.resolved_executable_path || item.scanned.install_location}
+                        >
+                          {item.resolved_executable_path
+                            ? `🚀 运行程序: ${item.resolved_executable_path}`
+                            : `📂 安装目录: ${item.scanned.install_location}`}
+                        </div>
+                      )}
                     </div>
-                  );
-                })}
-              </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -388,18 +386,29 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
         {/* Footer */}
         <div
           style={{
-            padding: '16px 24px',
+            padding: '14px 24px',
             borderTop: '1px solid var(--border-acrylic)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
             background: 'var(--bg-acrylic-thin)',
+            flexShrink: 0,
           }}
         >
-          <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+          <span
+            style={{
+              fontSize: '12px',
+              color: 'var(--text-tertiary)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              flex: 1,
+              marginRight: '16px',
+            }}
+          >
             💡 纳管后可随时在「可更新」视图检测并一键静默升级
           </span>
-          <div style={{ display: 'flex', gap: '10px' }}>
+          <div style={{ display: 'flex', gap: '10px', flexShrink: 0 }}>
             <button
               className="btn-fluent btn-secondary"
               onClick={onClose}
@@ -412,9 +421,26 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
               className="btn-fluent btn-primary"
               onClick={handleImport}
               disabled={selectedIds.size === 0 || isImporting || isLoading}
-              style={{ padding: '6px 20px', fontSize: '13px', fontWeight: 600 }}
+              style={{ padding: '6px 20px', fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}
             >
-              {isImporting ? '正在纳管...' : `一键纳管已选应用 (${selectedIds.size})`}
+              {isImporting ? (
+                <>
+                  <span
+                    style={{
+                      display: 'inline-block',
+                      width: '12px',
+                      height: '12px',
+                      borderRadius: '50%',
+                      border: '2px solid rgba(255,255,255,0.3)',
+                      borderTopColor: '#fff',
+                      animation: 'spin 1s linear infinite',
+                    }}
+                  />
+                  <span>正在纳管...</span>
+                </>
+              ) : (
+                <span>一键纳管已选应用 ({selectedIds.size})</span>
+              )}
             </button>
           </div>
         </div>

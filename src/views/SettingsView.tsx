@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AppSettings, HostRateLimitStatus, HostTokenEntry, MirrorNodeStatus } from '../types';
-import { api, DEFAULT_SETTINGS } from '../services/api';
+import { api } from '../services/api';
 
 interface SettingsViewProps {
   mirrors: MirrorNodeStatus[];
@@ -8,7 +8,6 @@ interface SettingsViewProps {
   onPingMirrors: () => void;
   theme: 'light' | 'dark' | 'system';
   onSetTheme: (theme: 'light' | 'dark' | 'system') => void;
-  onClearCache: () => void;
   onSaveToken: (token: string) => Promise<void>;
   onExportApps: () => void;
   onExportAppsJson: () => void;
@@ -21,42 +20,77 @@ interface SettingsViewProps {
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
-  mirrors,
+  mirrors: _mirrors,
   onSelectMirror,
-  onPingMirrors,
+  onPingMirrors: _onPingMirrors,
   theme: _theme,
   onSetTheme,
-  onClearCache,
   onSaveToken,
   onExportApps,
   onExportAppsJson,
   settings,
   onUpdateSetting,
   onResetSettings,
-  installedCount,
+  installedCount: _installedCount,
   updateRulesCount,
   onOpenRules,
 }) => {
-  const [isTestingPing, setIsTestingPing] = useState(false);
-  const [portableDir, setPortableDir] = useState(settings.portable_dir);
+  const [proxyInput, setProxyInput] = useState<string>(() => {
+    const act = settings.active_mirror;
+    if (!act || act === 'direct' || act === 'https://github.com') return '';
+    if (act === 'ghproxy') return 'https://gh-proxy.com';
+    return act;
+  });
+  const [isTestingProxy, setIsTestingProxy] = useState(false);
+  const [proxyTestResult, setProxyTestResult] = useState<{
+    success: boolean;
+    latency_ms: number;
+    text: string;
+    badge: string;
+  } | null>(null);
+  const [proxySavedFeedback, setProxySavedFeedback] = useState<string | null>(null);
+  const DEFAULT_CATALOG_URL = 'https://gh-proxy.com/https://raw.githubusercontent.com/supermc/z-store/main/src-tauri/src/catalog.json';
   const [catalogSourceUrl, setCatalogSourceUrl] = useState(
-    settings.catalog_source_url || 'https://raw.gitmirror.com/supermc/z-store/main/src-tauri/src/catalog.json'
+    settings.catalog_source_url && !settings.catalog_source_url.includes('gitmirror.com')
+      ? settings.catalog_source_url
+      : DEFAULT_CATALOG_URL
   );
   const [catalogUrlSaved, setCatalogUrlSaved] = useState(false);
   const [showAdvancedSource, setShowAdvancedSource] = useState(false);
-  const [copiedPortable, setCopiedPortable] = useState(false);
-  const [isBrowsingFolder, setIsBrowsingFolder] = useState(false);
   const [isResetConfirming, setIsResetConfirming] = useState(false);
 
-  // Feature A: Multi-Forge Ecosystem State
+  // Dynamic Animation & Micro-Feedback State
+  const [activeNotice, setActiveNotice] = useState<{ key: string; text: string } | null>(null);
+  const [highlightRow, setHighlightRow] = useState<string | null>(null);
+  const [isResetWave, setIsResetWave] = useState(false);
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const triggerChangeFeedback = (key: string, text: string) => {
+    if (noticeTimerRef.current) {
+      clearTimeout(noticeTimerRef.current);
+    }
+    setActiveNotice({ key, text });
+    setHighlightRow(key);
+    noticeTimerRef.current = setTimeout(() => {
+      setActiveNotice((curr) => (curr?.key === key ? null : curr));
+      setHighlightRow((curr) => (curr === key ? null : curr));
+    }, 2200);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (noticeTimerRef.current) {
+        clearTimeout(noticeTimerRef.current);
+      }
+    };
+  }, []);
+
+  // GitHub PAT & API Quota State
   const [hostTokens, setHostTokens] = useState<HostTokenEntry[]>([]);
   const [tokenInputs, setTokenInputs] = useState<Record<string, string>>({});
   const [showTokens, setShowTokens] = useState<Record<string, boolean>>({});
   const [hostStatus, setHostStatus] = useState<Record<string, HostRateLimitStatus>>({});
   const [isTestingHost, setIsTestingHost] = useState<Record<string, boolean>>({});
-  const [showAddHostForm, setShowAddHostForm] = useState(false);
-  const [newHostDomain, setNewHostDomain] = useState('');
-  const [newHostToken, setNewHostToken] = useState('');
   const [hostFeedback, setHostFeedback] = useState<string | null>(null);
   const [isSyncingCatalog, setIsSyncingCatalog] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
@@ -67,6 +101,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     try {
       const res = await api.syncCatalog(true);
       setSyncFeedback(res.message);
+      triggerChangeFeedback('catalog_sync', '✓ 开源软件收录库已同步最新');
       setTimeout(() => setSyncFeedback(null), 5000);
       window.dispatchEvent(new CustomEvent('zstore:catalog-synced'));
     } catch (e) {
@@ -118,11 +153,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   }, [settings.github_token]);
 
   useEffect(() => {
-    setPortableDir(settings.portable_dir);
     if (settings.catalog_source_url) {
-      setCatalogSourceUrl(settings.catalog_source_url);
+      if (settings.catalog_source_url.includes('gitmirror.com')) {
+        setCatalogSourceUrl(DEFAULT_CATALOG_URL);
+      } else {
+        setCatalogSourceUrl(settings.catalog_source_url);
+      }
     }
-  }, [settings.portable_dir, settings.catalog_source_url]);
+  }, [settings.catalog_source_url]);
 
   const handleSaveHostToken = async (host: string) => {
     const val = tokenInputs[host] || '';
@@ -132,6 +170,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         await onSaveToken(val);
       }
       setHostFeedback(`✅ 已保存 ${host} 的访问令牌`);
+      triggerChangeFeedback('token', val ? '✓ 访问令牌已更新生效' : '✓ 访问令牌已清空');
       setTimeout(() => setHostFeedback(null), 3000);
       loadHostTokens();
       window.dispatchEvent(new CustomEvent('zstore:quota-updated'));
@@ -157,67 +196,117 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   };
 
-  const handleAddCustomHost = async () => {
-    const domain = newHostDomain.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
-    if (!domain) return;
-    try {
-      await api.setHostToken(domain, newHostToken.trim());
-      setNewHostDomain('');
-      setNewHostToken('');
-      setShowAddHostForm(false);
-      setHostFeedback(`🎉 成功添加自建 Git 实例: ${domain}`);
-      setTimeout(() => setHostFeedback(null), 3000);
-      loadHostTokens();
-    } catch (e) {
-      setHostFeedback(`❌ 添加失败: ${String(e)}`);
+  useEffect(() => {
+    const act = settings.active_mirror;
+    if (!act || act === 'direct' || act === 'https://github.com') {
+      setProxyInput('');
+    } else if (act === 'ghproxy') {
+      setProxyInput('https://gh-proxy.com');
+    } else if (act.startsWith('http://') || act.startsWith('https://')) {
+      setProxyInput(act);
     }
-  };
+  }, [settings.active_mirror]);
 
-  const handleRemoveHost = async (host: string) => {
+  const handleTestProxy = async () => {
+    setIsTestingProxy(true);
+    setProxyTestResult(null);
     try {
-      await api.removeHostToken(host);
-      setHostFeedback(`🗑️ 已移除 ${host}`);
-      setTimeout(() => setHostFeedback(null), 3000);
-      loadHostTokens();
-    } catch (e) {
-      setHostFeedback(`❌ 移除失败: ${String(e)}`);
-    }
-  };
-
-  const handlePing = async () => {
-    setIsTestingPing(true);
-    try {
-      await onPingMirrors();
-    } finally {
-      setIsTestingPing(false);
-    }
-  };
-
-  const handleCopy = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedPortable(true);
-    setTimeout(() => setCopiedPortable(false), 2000);
-  };
-
-  const handleBrowseFolder = async () => {
-    setIsBrowsingFolder(true);
-    try {
-      const selected = await api.selectFolder(portableDir);
-      if (selected) {
-        setPortableDir(selected);
-        onUpdateSetting('portable_dir', selected);
+      const url = proxyInput.trim();
+      const res = await api.testProxy(url || undefined);
+      if (res.success) {
+        let badge = '🟢';
+        if (res.latency_ms >= 1000) badge = '🟠';
+        else if (res.latency_ms >= 400) badge = '🟡';
+        setProxyTestResult({
+          success: true,
+          latency_ms: res.latency_ms,
+          text: `${res.latency_ms} ms (连接正常)`,
+          badge,
+        });
+      } else {
+        setProxyTestResult({
+          success: false,
+          latency_ms: res.latency_ms,
+          text: res.message || '连接超时 / 不可达',
+          badge: '🔴',
+        });
       }
-    } catch (err) {
-      console.error('Failed to select folder:', err);
+    } catch (e) {
+      setProxyTestResult({
+        success: false,
+        latency_ms: 9999,
+        text: '测速失败: ' + String(e),
+        badge: '🔴',
+      });
     } finally {
-      setIsBrowsingFolder(false);
+      setIsTestingProxy(false);
     }
   };
 
-  const handleResetPortableDir = () => {
-    const defaultDir = DEFAULT_SETTINGS.portable_dir;
-    setPortableDir(defaultDir);
-    onUpdateSetting('portable_dir', defaultDir);
+  const handleSaveProxy = async () => {
+    const trimmed = proxyInput.trim();
+    if (!trimmed || trimmed === 'direct') {
+      await onSelectMirror('direct');
+      onUpdateSetting('active_mirror', 'direct');
+      setProxySavedFeedback('✅ 已切换为 GitHub 官方直连模式');
+      triggerChangeFeedback('proxy', '✓ 已切换为 GitHub 官方直连');
+    } else {
+      let finalUrl = trimmed;
+      if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
+        finalUrl = 'https://' + finalUrl;
+        setProxyInput(finalUrl);
+      }
+      await onSelectMirror(finalUrl);
+      onUpdateSetting('active_mirror', finalUrl);
+      setProxySavedFeedback(`✅ 已成功启用下载加速代理: ${finalUrl}`);
+      triggerChangeFeedback('proxy', '✓ 加速代理已配置生效');
+    }
+    setTimeout(() => setProxySavedFeedback(null), 3500);
+  };
+
+
+  const handleSelectTheme = (t: 'light' | 'dark' | 'system') => {
+    const labelMap: Record<string, string> = {
+      light: '明亮模式',
+      dark: '暗黑模式',
+      system: '跟随系统',
+    };
+    triggerChangeFeedback('theme', `✓ 已实时切换为${labelMap[t]}`);
+    onSetTheme(t);
+  };
+
+  const handleSelectUiScale = (scale: '90' | '100' | '110' | '125') => {
+    triggerChangeFeedback('ui_scale', `✓ 界面缩放已设为 ${scale}%`);
+    onUpdateSetting('ui_scale', scale);
+  };
+
+  const handleSelectFontSize = (id: string, label: string) => {
+    triggerChangeFeedback('font_size', `✓ 全局排版字号已设为 ${label}`);
+    onUpdateSetting('font_size', id as any);
+  };
+
+
+  const handleSelectUpdateFrequency = (id: string, label: string) => {
+    triggerChangeFeedback('update_frequency', `✓ 自动检查更新已设为: ${label}`);
+    onUpdateSetting('update_frequency', id as any);
+  };
+
+  const handleExportMarkdown = () => {
+    onExportApps();
+    triggerChangeFeedback('export', '✓ 已复制 Markdown 清单到剪贴板');
+  };
+
+  const handleExportJson = () => {
+    onExportAppsJson();
+    triggerChangeFeedback('export', '✓ 已导出软件资产 JSON 备份文件');
+  };
+
+  const handleExecuteResetSettings = async () => {
+    setIsResetWave(true);
+    triggerChangeFeedback('reset', '✓ 所有设置已恢复出厂默认状态');
+    await onResetSettings();
+    setIsResetConfirming(false);
+    setTimeout(() => setIsResetWave(false), 1400);
   };
 
   return (
@@ -227,31 +316,36 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </div>
 
       {/* Group 1: Display, Resolution & Accessibility */}
-      <div className="settings-group">
+      <div className={`settings-group ${isResetWave ? 'reset-wave-0' : ''}`}>
         <div className="settings-group-title">🖥️ 视窗、显示与无障碍</div>
 
         {/* 1.1 Theme Mode */}
-        <div className="settings-row">
+        <div className={`settings-row ${highlightRow === 'theme' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
-            <span style={{ fontWeight: 600 }}>色彩主题模式</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontWeight: 600 }}>色彩主题模式</span>
+              {activeNotice?.key === 'theme' && (
+                <span className="setting-applied-badge">{activeNotice.text}</span>
+              )}
+            </div>
             <span className="settings-row-desc">选择 Fluent Design 2.0 视觉明暗基调，支持跟随系统明暗设置</span>
           </div>
           <div className="segmented-group">
             <button
               className={`segmented-item ${settings.theme === 'light' ? 'active' : ''}`}
-              onClick={() => onSetTheme('light')}
+              onClick={() => handleSelectTheme('light')}
             >
               ☀️ 明亮模式
             </button>
             <button
               className={`segmented-item ${settings.theme === 'dark' ? 'active' : ''}`}
-              onClick={() => onSetTheme('dark')}
+              onClick={() => handleSelectTheme('dark')}
             >
               🌙 暗黑模式
             </button>
             <button
               className={`segmented-item ${settings.theme === 'system' ? 'active' : ''}`}
-              onClick={() => onSetTheme('system')}
+              onClick={() => handleSelectTheme('system')}
             >
               💻 跟随系统
             </button>
@@ -259,9 +353,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
 
         {/* 1.2 UI Scale */}
-        <div className="settings-row">
+        <div className={`settings-row ${highlightRow === 'ui_scale' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
-            <span style={{ fontWeight: 600 }}>界面整体缩放比例 (UI Zoom)</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontWeight: 600 }}>界面整体缩放比例 (UI Zoom)</span>
+              {activeNotice?.key === 'ui_scale' && (
+                <span className="setting-applied-badge">{activeNotice.text}</span>
+              )}
+            </div>
             <span className="settings-row-desc">自适应高 DPI 屏幕与显示器缩放比例</span>
           </div>
           <div className="segmented-group">
@@ -269,7 +368,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <button
                 key={scale}
                 className={`segmented-item ${settings.ui_scale === scale ? 'active' : ''}`}
-                onClick={() => onUpdateSetting('ui_scale', scale)}
+                onClick={() => handleSelectUiScale(scale)}
               >
                 {scale}% {scale === '100' ? '(默认)' : ''}
               </button>
@@ -279,9 +378,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
         {/* 1.3 Font Size */}
         {/* 1.3 Font Size (User specified: 12, 14, 16, 18, 20 with step of 2) */}
-        <div className="settings-row">
+        <div className={`settings-row ${highlightRow === 'font_size' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
-            <span style={{ fontWeight: 600 }}>全局排版字号大小 (Font Size)</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontWeight: 600 }}>全局排版字号大小 (Font Size)</span>
+              {activeNotice?.key === 'font_size' && (
+                <span className="setting-applied-badge">{activeNotice.text}</span>
+              )}
+            </div>
             <span className="settings-row-desc">以 2px 为步长微调全界面排版文字大小，兼顾信息密集与阅读舒适</span>
           </div>
           <div className="segmented-group">
@@ -301,119 +405,29 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     ? 'active'
                     : ''
                 }`}
-                onClick={() => onUpdateSetting('font_size', f.id as any)}
+                onClick={() => handleSelectFontSize(f.id, f.label)}
               >
                 {f.label}
               </button>
             ))}
           </div>
         </div>
-
-        {/* 1.4 Always on Top */}
-        <div className="settings-row">
-          <div className="settings-row-info">
-            <span style={{ fontWeight: 600 }}>窗口最前端置顶 (Always on Top)</span>
-            <span className="settings-row-desc">将 Z-Store 窗口保持在屏幕最上层，便于边查教程边安装软件</span>
-          </div>
-          <label className="fluent-toggle-wrapper">
-            <input
-              type="checkbox"
-              className="fluent-toggle-input"
-              checked={settings.always_on_top}
-              onChange={(e) => onUpdateSetting('always_on_top', e.target.checked)}
-            />
-            <div className="fluent-toggle-track">
-              <div className="fluent-toggle-thumb" />
-            </div>
-          </label>
-        </div>
       </div>
 
-      {/* Group 2: Storage & Directory Lifecycle */}
-      <div className="settings-group">
-        <div className="settings-group-title">📂 目录管理与存储生命周期</div>
+      {/* Group 2: Storage & Manifest Lifecycle */}
+      <div className={`settings-group ${isResetWave ? 'reset-wave-1' : ''}`}>
+        <div className="settings-group-title">📂 清单同步与数据存储</div>
 
-        {/* 2.1 Portable App Directory */}
-        <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-start', gap: '12px' }}>
-          <div className="settings-row-info" style={{ flex: 'none' }}>
-            <span style={{ fontWeight: 600 }}>安装集中目录</span>
-            <span className="settings-row-desc">
-              解压式绿色软件及免安装开源工具的集中安装与存放路径。可直接在此编辑自定义路径，也可点击浏览电脑上的文件夹指定。
-            </span>
-          </div>
-
-          <div className="settings-input-group" style={{ maxWidth: '100%', width: '100%' }}>
-            <input
-              type="text"
-              className="settings-input"
-              style={{ flex: 1 }}
-              placeholder="请输入或选择电脑上的文件夹路径（支持环境变量如 %LOCALAPPDATA%）..."
-              value={portableDir}
-              onChange={(e) => setPortableDir(e.target.value)}
-              onBlur={() => onUpdateSetting('portable_dir', portableDir)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  onUpdateSetting('portable_dir', portableDir);
-                }
-              }}
-            />
-            <button
-              className="btn-fluent btn-primary"
-              style={{ fontSize: '12px', padding: '6px 14px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: '6px' }}
-              onClick={handleBrowseFolder}
-              disabled={isBrowsingFolder}
-              title="浏览电脑文件夹并指定为安装集中目录"
-            >
-              <span>📁</span>
-              <span>{isBrowsingFolder ? '选择中...' : '浏览文件夹'}</span>
-            </button>
-            <button
-              className="btn-fluent btn-secondary"
-              style={{ fontSize: '12px', padding: '6px 14px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: '5px' }}
-              onClick={handleResetPortableDir}
-              disabled={portableDir === DEFAULT_SETTINGS.portable_dir}
-              title={`恢复为系统默认目录 (${DEFAULT_SETTINGS.portable_dir})`}
-            >
-              <span>↩️</span>
-              <span>恢复默认</span>
-            </button>
-            <button
-              className="btn-fluent btn-secondary"
-              style={{ fontSize: '12px', padding: '6px 14px', flexShrink: 0 }}
-              onClick={() => handleCopy(portableDir)}
-              title="复制当前路径到剪贴板"
-            >
-              {copiedPortable ? '✓ 已复制' : '复制路径'}
-            </button>
-          </div>
-        </div>
-
-        {/* 2.2 Auto-clean installer cache */}
-        <div className="settings-row">
-          <div className="settings-row-info">
-            <span style={{ fontWeight: 600 }}>安装成功后自动销毁临时安装包</span>
-            <span className="settings-row-desc">
-              当 MSI/EXE/ZIP 安装或解压完成后，自动清理临时下载缓存以节省系统磁盘空间
-            </span>
-          </div>
-          <label className="fluent-toggle-wrapper">
-            <input
-              type="checkbox"
-              className="fluent-toggle-input"
-              checked={settings.auto_clean_cache}
-              onChange={(e) => onUpdateSetting('auto_clean_cache', e.target.checked)}
-            />
-            <div className="fluent-toggle-track">
-              <div className="fluent-toggle-thumb" />
-            </div>
-          </label>
-        </div>
-
-        {/* 2.3 Catalog Manifest Sync (With advanced source fold) */}
-        <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px' }}>
+        {/* 2.2 Catalog Manifest Sync (With advanced source fold) */}
+        <div className={`settings-row ${highlightRow === 'catalog_source' || highlightRow === 'catalog_sync' ? 'row-highlight' : ''}`} style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
             <div className="settings-row-info">
-              <span style={{ fontWeight: 600 }}>开源收录清单动态同步</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontWeight: 600 }}>开源收录清单动态同步</span>
+                {(activeNotice?.key === 'catalog_source' || activeNotice?.key === 'catalog_sync') && (
+                  <span className="setting-applied-badge">{activeNotice.text}</span>
+                )}
+              </div>
               <span className="settings-row-desc">
                 收录应用由社区开源清单仓库维护，随时检查并拉取最新上架开源软件清单
               </span>
@@ -470,6 +484,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 onClick={() => {
                   onUpdateSetting('catalog_source_url', catalogSourceUrl.trim());
                   setCatalogUrlSaved(true);
+                  triggerChangeFeedback('catalog_source', '✓ 收录清单源已保存更新');
                   setTimeout(() => setCatalogUrlSaved(false), 2500);
                 }}
               >
@@ -480,10 +495,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 className="btn-fluent btn-secondary"
                 style={{ fontSize: '12px', padding: '5px 12px' }}
                 onClick={() => {
-                  const defUrl = 'https://raw.gitmirror.com/supermc/z-store/main/src-tauri/src/catalog.json';
+                  const defUrl = 'https://gh-proxy.com/https://raw.githubusercontent.com/supermc/z-store/main/src-tauri/src/catalog.json';
                   setCatalogSourceUrl(defUrl);
                   onUpdateSetting('catalog_source_url', defUrl);
                   setCatalogUrlSaved(true);
+                  triggerChangeFeedback('catalog_source', '✓ 已恢复官方默认收录源');
                   setTimeout(() => setCatalogUrlSaved(false), 2500);
                 }}
               >
@@ -498,87 +514,119 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </span>
           )}
         </div>
-
-        {/* 2.4 Clear Cache */}
-        <div className="settings-row">
-          <div className="settings-row-info">
-            <span style={{ fontWeight: 600 }}>深度清理临时缓存与残留</span>
-            <span className="settings-row-desc">清空下载暂存目录残留安装包、应用详情元数据及 GitHub Release ETag 索引</span>
-          </div>
-          <button
-            className="btn-fluent btn-secondary"
-            onClick={onClearCache}
-            style={{ fontSize: '12px', padding: '6px 14px', color: '#ef4444' }}
-          >
-            🧹 一键深度清理
-          </button>
-        </div>
       </div>
 
-      {/* Group 3: Network & Multi-Forge Ecosystem */}
-      <div className="settings-group">
-        <div className="settings-group-title">🌐 中国大陆网络加速与代码托管平台</div>
+      {/* Group 3: Network & GitHub API Quota */}
+      <div className={`settings-group ${isResetWave ? 'reset-wave-2' : ''}`}>
+        <div className="settings-group-title">🌐 网络设置与 GitHub API 配额</div>
 
-        {/* 3.1 Mirror Speed Ping */}
-        <div className="settings-row">
-          <div className="settings-row-info">
-            <span style={{ fontWeight: 600 }}>并发测速与线路优选</span>
-            <span className="settings-row-desc">动态探测各镜像节点网络响应时间，智能选择最优加速线路</span>
-          </div>
-          <button
-            className="btn-fluent btn-secondary"
-            onClick={handlePing}
-            disabled={isTestingPing}
-            style={{ fontSize: '12px', padding: '6px 14px' }}
-          >
-            {isTestingPing ? '⚡ 正在测速...' : '⚡ 开始并发测速'}
-          </button>
-        </div>
-
-        {mirrors.map((m) => (
-          <div key={m.id} className="settings-row">
+        {/* 3.1 Download Acceleration Proxy Configuration */}
+        <div className={`settings-row ${highlightRow === 'proxy' ? 'row-highlight' : ''}`} style={{ flexDirection: 'column', alignItems: 'stretch', gap: '12px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div className="settings-row-info">
-              <span style={{ fontWeight: 600 }}>{m.name}</span>
-              <span className="settings-row-desc">{m.base_url}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontWeight: 600 }}>GitHub 下载加速代理</span>
+                {activeNotice?.key === 'proxy' && (
+                  <span className="setting-applied-badge">{activeNotice.text}</span>
+                )}
+              </div>
+              <span className="settings-row-desc">
+                默认为 GitHub 官方直连。国内网络如遇下载缓慢，可指定加速代理前缀（如 <code>https://gh-proxy.com</code>），留空即为官方直连
+              </span>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            {proxyTestResult && (
               <span
                 style={{
                   fontSize: '12px',
                   fontWeight: 600,
-                  color: m.latency_ms < 100 ? '#10b981' : m.latency_ms < 300 ? '#f59e0b' : '#ef4444',
+                  color: !proxyTestResult.success ? '#ef4444' : proxyTestResult.latency_ms < 400 ? '#10b981' : proxyTestResult.latency_ms < 1000 ? '#f59e0b' : '#ea580c',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  whiteSpace: 'nowrap',
                 }}
               >
-                {m.latency_ms} ms
+                <span>{proxyTestResult.badge}</span>
+                <span>{proxyTestResult.text}</span>
               </span>
-              <button
-                className={`btn-fluent ${m.is_active ? 'btn-primary' : 'btn-secondary'}`}
-                style={{ fontSize: '12px', padding: '5px 14px' }}
-                onClick={() => onSelectMirror(m.id)}
-              >
-                {m.is_active ? '当前活跃线路' : '选用此线路'}
-              </button>
-            </div>
+            )}
           </div>
-        ))}
 
-        {/* 3.3 Multi-Forge Ecosystem & PATs */}
-        <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '14px' }}>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <input
+              type="text"
+              className={`settings-input ${highlightRow === 'proxy' ? 'input-highlight' : ''}`}
+              style={{ flex: 1, fontFamily: 'monospace', fontSize: '13px' }}
+              value={proxyInput}
+              onChange={(e) => setProxyInput(e.target.value)}
+              placeholder="留空为 GitHub 官方直连，或输入加速前缀如 https://gh-proxy.com"
+            />
+            <button
+              className="btn-fluent btn-secondary"
+              style={{ fontSize: '12px', padding: '6px 16px', whiteSpace: 'nowrap' }}
+              onClick={handleTestProxy}
+              disabled={isTestingProxy}
+            >
+              {isTestingProxy ? '⚡ 正在测速...' : '⚡ 单击测速'}
+            </button>
+            <button
+              className="btn-fluent btn-primary"
+              style={{ fontSize: '12px', padding: '6px 16px', whiteSpace: 'nowrap' }}
+              onClick={handleSaveProxy}
+            >
+              保存配置
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: '20px' }}>
+            {proxySavedFeedback ? (
+              <span style={{ fontSize: '12px', color: '#10b981', fontWeight: 500 }}>
+                {proxySavedFeedback}
+              </span>
+            ) : (
+              <span style={{ fontSize: '12px', color: 'var(--text-muted, #94a3b8)' }}>
+                当前生效: {(!proxyInput.trim() || proxyInput.trim() === 'direct') ? '🟢 GitHub 官方直连模式' : `⚡ 自定义加速代理: ${proxyInput.trim()}`}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* 3.3 GitHub Personal Access Token & API Quota */}
+        <div className={`settings-row ${highlightRow === 'token' ? 'row-highlight' : ''}`} style={{ flexDirection: 'column', alignItems: 'stretch', gap: '14px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div className="settings-row-info">
-              <span style={{ fontWeight: 600 }}>🌐 多代码托管平台与 API 令牌管理 (Multi-Forge)</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontWeight: 600 }}>🐙 GitHub 个人访问令牌 (Personal Access Token)</span>
+                {activeNotice?.key === 'token' && (
+                  <span className="setting-applied-badge">{activeNotice.text}</span>
+                )}
+              </div>
               <span className="settings-row-desc">
-                原生直连 GitHub、Codeberg 及自建 Gitea/Forgejo 实例，独立管理个人访问令牌（PAT）以解除 API 速率限制
+                默认匿名公共 IP 共享每小时 60 次 API 配额；配置个人令牌（仅需公开只读权限）可立即提升至 5,000 次/小时
               </span>
             </div>
-            <button
-              type="button"
-              className="btn-fluent btn-secondary"
-              style={{ fontSize: '12px', padding: '5px 12px', borderRadius: '6px' }}
-              onClick={() => setShowAddHostForm(!showAddHostForm)}
-            >
-              {showAddHostForm ? '✕ 取消' : '＋ 添加自建 Git 实例'}
-            </button>
+            {hostStatus['github.com'] && (
+              <span
+                style={{
+                  fontSize: '11px',
+                  padding: '3px 10px',
+                  borderRadius: '12px',
+                  background: hostStatus['github.com'].is_connected ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                  color: hostStatus['github.com'].is_connected ? '#10b981' : '#ef4444',
+                  border: `1px solid ${hostStatus['github.com'].is_connected ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  fontWeight: 500,
+                }}
+              >
+                {hostStatus['github.com'].is_connected ? '🟢' : '🔴'}{' '}
+                {hostStatus['github.com'].message ||
+                  (hostStatus['github.com'].is_connected
+                    ? `配额剩余: ${hostStatus['github.com'].rate_limit_remaining ?? '充裕'}`
+                    : '连接失败')}
+              </span>
+            )}
           </div>
 
           {hostFeedback && (
@@ -596,222 +644,109 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
           )}
 
-          {/* Add custom host form */}
-          {showAddHostForm && (
-            <div
-              style={{
-                display: 'flex',
-                gap: '10px',
-                alignItems: 'center',
-                padding: '12px',
-                borderRadius: '8px',
-                background: 'var(--card-bg-subtle, rgba(255,255,255,0.04))',
-                border: '1px dashed var(--border-color)',
-                flexWrap: 'wrap',
-              }}
-            >
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '1 1 200px' }}>
-                <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>主机域名 (例如 git.disroot.org / gitea.lan)</span>
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px',
+              padding: '14px',
+              borderRadius: '8px',
+              background: 'var(--card-bg-subtle, rgba(255,255,255,0.02))',
+              border: '1px solid var(--border-color)',
+            }}
+          >
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ position: 'relative', flex: '1 1 280px' }}>
                 <input
-                  type="text"
-                  placeholder="git.example.com"
-                  className="settings-input"
-                  value={newHostDomain}
-                  onChange={(e) => setNewHostDomain(e.target.value)}
-                  style={{ width: '100%' }}
+                  type={showTokens['github.com'] ? 'text' : 'password'}
+                  placeholder="ghp_xxxxxxxxxxxx (无需勾选敏感权限，公开只读即可)"
+                  value={
+                    tokenInputs['github.com'] !== undefined
+                      ? tokenInputs['github.com']
+                      : hostTokens.find((t) => t.host === 'github.com')?.token || ''
+                  }
+                  onChange={(e) => setTokenInputs({ ...tokenInputs, 'github.com': e.target.value })}
+                  className={`settings-input ${highlightRow === 'token' ? 'input-highlight' : ''}`}
+                  style={{ width: '100%', paddingRight: '32px' }}
                 />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '1 1 240px' }}>
-                <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>访问令牌 Access Token (可选，私有库必填)</span>
-                <input
-                  type="password"
-                  placeholder="token / pat_xxxxxxxx"
-                  className="settings-input"
-                  value={newHostToken}
-                  onChange={(e) => setNewHostToken(e.target.value)}
-                  style={{ width: '100%' }}
-                />
-              </div>
-              <div style={{ display: 'flex', gap: '8px', alignSelf: 'flex-end', paddingTop: '18px' }}>
                 <button
                   type="button"
-                  className="btn-fluent btn-primary"
-                  style={{ fontSize: '12px', padding: '6px 14px' }}
-                  onClick={handleAddCustomHost}
-                  disabled={!newHostDomain.trim()}
+                  onClick={() => setShowTokens({ ...showTokens, 'github.com': !showTokens['github.com'] })}
+                  style={{
+                    position: 'absolute',
+                    right: '6px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: 'var(--text-tertiary)',
+                    fontSize: '12px',
+                  }}
+                  title={showTokens['github.com'] ? '隐藏凭据' : '显示凭据'}
                 >
-                  确认添加
+                  {showTokens['github.com'] ? '🙈' : '👁️'}
                 </button>
               </div>
+
+              <button
+                type="button"
+                className="btn-fluent btn-primary"
+                style={{ fontSize: '12px', padding: '6px 16px' }}
+                onClick={() => handleSaveHostToken('github.com')}
+              >
+                保存令牌
+              </button>
+
+              <button
+                type="button"
+                className="btn-fluent btn-secondary"
+                style={{ fontSize: '12px', padding: '6px 14px' }}
+                disabled={!!isTestingHost['github.com']}
+                onClick={() => handleTestHost('github.com')}
+              >
+                {isTestingHost['github.com'] ? '正在探测...' : '测试连通性'}
+              </button>
             </div>
-          )}
 
-          {/* Host list */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {['github.com', 'codeberg.org', ...hostTokens.map((t) => t.host).filter((h) => h !== 'github.com' && h !== 'codeberg.org')].map((host) => {
-              const isBuiltin = host === 'github.com' || host === 'codeberg.org';
-              const icon = host === 'github.com' ? '🐙' : host === 'codeberg.org' ? '🏔️' : '🍵';
-              const label = host === 'github.com' ? 'GitHub (默认源)' : host === 'codeberg.org' ? 'Codeberg (自由开源)' : `自建实例 (${host})`;
-              const tokenVal = tokenInputs[host] !== undefined ? tokenInputs[host] : (hostTokens.find((t) => t.host === host)?.token || '');
-              const isShowing = !!showTokens[host];
-              const status = hostStatus[host];
-              const isTesting = !!isTestingHost[host];
-
-              return (
-                <div
-                  key={host}
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '8px',
-                    padding: '12px 14px',
-                    borderRadius: '8px',
-                    background: 'var(--card-bg-subtle, rgba(255,255,255,0.02))',
-                    border: '1px solid var(--border-color)',
+            <div
+              style={{
+                fontSize: '11px',
+                color: 'var(--text-tertiary)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '6px',
+              }}
+            >
+              <span>💡 提示：前往 GitHub 官网 -&gt; Settings -&gt; Developer Settings -&gt; Personal access tokens 生成</span>
+              {(tokenInputs['github.com'] || hostTokens.find((t) => t.host === 'github.com')?.token) && (
+                <button
+                  type="button"
+                  className="btn-fluent btn-secondary"
+                  style={{ fontSize: '11px', padding: '2px 8px', color: '#ef4444' }}
+                  onClick={async () => {
+                    setTokenInputs((prev) => ({ ...prev, 'github.com': '' }));
+                    await handleSaveHostToken('github.com');
                   }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '16px' }}>{icon}</span>
-                      <span style={{ fontWeight: 600, fontSize: '13px' }}>{label}</span>
-                      <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{host}</span>
-                    </div>
-                    {status && (
-                      <span
-                        style={{
-                          fontSize: '11px',
-                          padding: '2px 8px',
-                          borderRadius: '10px',
-                          background: status.is_connected ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                          color: status.is_connected ? '#10b981' : '#ef4444',
-                          border: `1px solid ${status.is_connected ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                        }}
-                      >
-                        {status.is_connected ? '🟢' : '🔴'} {status.message || (status.is_connected ? `配额剩余: ${status.rate_limit_remaining ?? '充裕'}` : '连接失败')}
-                      </span>
-                    )}
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                    <div style={{ position: 'relative', flex: '1 1 240px' }}>
-                      <input
-                        type={isShowing ? 'text' : 'password'}
-                        placeholder={host === 'github.com' ? 'ghp_xxxxxxxxxxxx (只读权限)' : 'Token / Personal Access Token'}
-                        value={tokenVal}
-                        onChange={(e) => setTokenInputs({ ...tokenInputs, [host]: e.target.value })}
-                        className="settings-input"
-                        style={{ width: '100%', paddingRight: '32px' }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowTokens({ ...showTokens, [host]: !isShowing })}
-                        style={{
-                          position: 'absolute',
-                          right: '6px',
-                          top: '50%',
-                          transform: 'translateY(-50%)',
-                          background: 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          color: 'var(--text-tertiary)',
-                          fontSize: '12px',
-                        }}
-                        title={isShowing ? '隐藏凭据' : '显示凭据'}
-                      >
-                        {isShowing ? '🙈' : '👁️'}
-                      </button>
-                    </div>
-
-                    <button
-                      type="button"
-                      className="btn-fluent btn-primary"
-                      style={{ fontSize: '12px', padding: '5px 12px' }}
-                      onClick={() => handleSaveHostToken(host)}
-                    >
-                      保存
-                    </button>
-
-                    <button
-                      type="button"
-                      className="btn-fluent btn-secondary"
-                      style={{ fontSize: '12px', padding: '5px 12px' }}
-                      disabled={isTesting}
-                      onClick={() => handleTestHost(host)}
-                    >
-                      {isTesting ? '正在探测...' : '测试连通性'}
-                    </button>
-
-                    {!isBuiltin && (
-                      <button
-                        type="button"
-                        className="btn-fluent btn-secondary"
-                        style={{ fontSize: '12px', padding: '5px 10px', color: '#ef4444' }}
-                        onClick={() => handleRemoveHost(host)}
-                        title="删除该自建实例"
-                      >
-                        🗑️
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* Group 4: Startup & System Behaviors */}
-      <div className="settings-group">
-        <div className="settings-group-title">🚀 启动与系统行为</div>
-
-        {/* 4.1 Close Window Behavior */}
-        <div className="settings-row">
-          <div className="settings-row-info">
-            <span style={{ fontWeight: 600 }}>关闭主窗口时行为</span>
-            <span className="settings-row-desc">点击右上角关闭按钮时的应用程序处置方式</span>
-          </div>
-          <div className="segmented-group">
-            <button
-              className={`segmented-item ${settings.close_to_tray ? 'active' : ''}`}
-              onClick={() => onUpdateSetting('close_to_tray', true)}
-            >
-              最小化至托盘
-            </button>
-            <button
-              className={`segmented-item ${!settings.close_to_tray ? 'active' : ''}`}
-              onClick={() => onUpdateSetting('close_to_tray', false)}
-            >
-              直接退出程序
-            </button>
-          </div>
-        </div>
-
-        {/* 4.2 Auto Launch on Startup */}
-        <div className="settings-row">
-          <div className="settings-row-info">
-            <span style={{ fontWeight: 600 }}>开机自动静默启动</span>
-            <span className="settings-row-desc">系统登录后自动在后台保持就绪，静默纳管更新</span>
-          </div>
-          <label className="fluent-toggle-wrapper">
-            <input
-              type="checkbox"
-              className="fluent-toggle-input"
-              checked={settings.launch_on_startup}
-              onChange={(e) => onUpdateSetting('launch_on_startup', e.target.checked)}
-            />
-            <div className="fluent-toggle-track">
-              <div className="fluent-toggle-thumb" />
+                  清空令牌
+                </button>
+              )}
             </div>
-          </label>
+          </div>
         </div>
 
-        {/* 4.3 Update Frequency */}
-        <div className="settings-row">
+        {/* 3.3 Update Frequency */}
+        <div className={`settings-row ${highlightRow === 'update_frequency' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
-            <span style={{ fontWeight: 600 }}>自动检查更新频率</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontWeight: 600 }}>自动检查更新频率</span>
+              {activeNotice?.key === 'update_frequency' && (
+                <span className="setting-applied-badge">{activeNotice.text}</span>
+              )}
+            </div>
             <span className="settings-row-desc">基于 GitHub Releases ETag 机制智能探测已纳管软件版本</span>
           </div>
           <div className="segmented-group">
@@ -823,7 +758,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <button
                 key={u.id}
                 className={`segmented-item ${settings.update_frequency === u.id ? 'active' : ''}`}
-                onClick={() => onUpdateSetting('update_frequency', u.id as any)}
+                onClick={() => handleSelectUpdateFrequency(u.id, u.label)}
               >
                 {u.label}
               </button>
@@ -832,12 +767,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
-      {/* Group 5: Update Policies & Rules Center */}
-      <div className="settings-group">
+      {/* Group 4: Update Policies & Rules Center */}
+      <div className={`settings-group ${isResetWave ? 'reset-wave-3' : ''}`}>
         <div className="settings-group-title">🛡️ 版本策略与软件屏蔽规则</div>
         <div className="settings-row" style={{ alignItems: 'center' }}>
           <div className="settings-row-info">
-            <span style={{ fontWeight: 600 }}>更新忽略、版本锁定与全局隐藏规则看板</span>
+            <span style={{ fontWeight: 600 }}>更新忽略、版本锁定与全局隐藏规则</span>
             <span className="settings-row-desc">
               {updateRulesCount > 0
                 ? `当前已生效 ${updateRulesCount} 条规则。支持随时解除版本锁定、恢复忽略的版本更新提醒或取消隐藏。`
@@ -850,7 +785,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             onClick={onOpenRules}
             style={{ fontSize: '12px', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}
           >
-            <span>📋 打开规则管理看板</span>
+            <span>🛡️ 规则</span>
             {updateRulesCount > 0 && (
               <span
                 style={{
@@ -869,27 +804,32 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
-      {/* Group 6: Data, Diagnostics & Factory Reset */}
-      <div className="settings-group">
-        <div className="settings-group-title">📊 软件资产、系统诊断与恢复</div>
+      {/* Group 5: Data & Factory Reset */}
+      <div className={`settings-group ${isResetWave ? 'reset-wave-4' : ''}`}>
+        <div className="settings-group-title">📊 软件资产与恢复出厂设置</div>
 
         {/* 6.1 Export Assets */}
-        <div className="settings-row">
+        <div className={`settings-row ${highlightRow === 'export' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
-            <span style={{ fontWeight: 600 }}>软件资产清单双格式导出</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontWeight: 600 }}>软件资产清单双格式导出</span>
+              {activeNotice?.key === 'export' && (
+                <span className="setting-applied-badge">{activeNotice.text}</span>
+              )}
+            </div>
             <span className="settings-row-desc">生成标准 Markdown 资产报告或 JSON 结构化备份，便于换机一键装机</span>
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
             <button
               className="btn-fluent btn-secondary"
-              onClick={onExportApps}
+              onClick={handleExportMarkdown}
               style={{ fontSize: '12px', padding: '6px 14px' }}
             >
               📋 导出 Markdown 清单
             </button>
             <button
               className="btn-fluent btn-primary"
-              onClick={onExportAppsJson}
+              onClick={handleExportJson}
               style={{ fontSize: '12px', padding: '6px 14px' }}
             >
               💾 导出 JSON 备份文件
@@ -897,38 +837,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
-        {/* 5.2 System Diagnostics Card */}
-        <div className="diagnostics-card">
-          <div className="diagnostic-item">
-            <span className="diagnostic-label">操作系统平台</span>
-            <span className="diagnostic-value">Windows 11 (x86_64)</span>
-          </div>
-          <div className="diagnostic-item">
-            <span className="diagnostic-label">桌面运行内核</span>
-            <span className="diagnostic-value">Tauri 2.2 + WebView2</span>
-          </div>
-          <div className="diagnostic-item">
-            <span className="diagnostic-label">本地数据存储</span>
-            <span className="diagnostic-value">SQLite 3 (WAL Mode)</span>
-          </div>
-          <div className="diagnostic-item">
-            <span className="diagnostic-label">当前纳管应用</span>
-            <span className="diagnostic-value">{installedCount} 款开源软件</span>
-          </div>
-          <div className="diagnostic-item">
-            <span className="diagnostic-label">加速分流节点</span>
-            <span className="diagnostic-value">{settings.active_mirror || 'ghproxy'}</span>
-          </div>
-          <div className="diagnostic-item">
-            <span className="diagnostic-label">防篡改校验引擎</span>
-            <span className="diagnostic-value">SHA-256 (Streaming)</span>
-          </div>
-        </div>
-
-        {/* 5.3 Reset to Defaults */}
-        <div className="settings-row">
+        {/* 6.2 Reset to Defaults */}
+        <div className={`settings-row ${highlightRow === 'reset' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
-            <span style={{ fontWeight: 600 }}>恢复出厂默认设置</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontWeight: 600 }}>恢复出厂默认设置</span>
+              {activeNotice?.key === 'reset' && (
+                <span className="setting-applied-badge">{activeNotice.text}</span>
+              )}
+            </div>
             <span className="settings-row-desc">将视窗分辨率、缩放比、字体大小及网络参数恢复至初始状态</span>
           </div>
           {isResetConfirming ? (
@@ -943,10 +860,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   color: '#fff',
                   fontWeight: 600,
                 }}
-                onClick={async () => {
-                  await onResetSettings();
-                  setIsResetConfirming(false);
-                }}
+                onClick={handleExecuteResetSettings}
               >
                 确认重置
               </button>

@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { marked } from 'marked';
 import { UpdateItem } from '../types';
 import { sanitizeHtml } from '../utils/sanitize';
+import { FlyoutMenu } from '../components/FlyoutMenu';
 
 interface UpdatesViewProps {
   updates: UpdateItem[];
@@ -34,22 +35,6 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [fadingIds, setFadingIds] = useState<Set<string>>(new Set());
-  const menuRef = useRef<HTMLDivElement | null>(null);
-
-  // Close dropdown on click outside
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setActiveMenuId(null);
-      }
-    };
-    if (activeMenuId) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [activeMenuId]);
 
   const handleUpdate = async (id: string) => {
     try {
@@ -88,7 +73,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
         <div>
           <h3 className="section-title" style={{ margin: 0 }}>🔄 可更新项管理 ({updates.length})</h3>
           <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: 'var(--text-tertiary)' }}>
-            支持跳过破坏性版本或永久锁定，可点击「🛡️ 规则看板」随时管理或恢复
+            支持跳过破坏性版本或永久锁定，可点击「🛡️ 规则」随时管理或恢复
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -99,7 +84,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
               style={{ fontSize: '13px', padding: '6px 14px' }}
               title="查看与管理跳过、锁定或隐藏的更新规则"
             >
-              🛡️ 规则看板 {typeof updateRulesCount === 'number' && updateRulesCount > 0 ? `(${updateRulesCount})` : ''}
+              🛡️ 规则 {typeof updateRulesCount === 'number' && updateRulesCount > 0 ? `(${updateRulesCount})` : ''}
             </button>
           )}
           {onCheckUpdates && (
@@ -156,6 +141,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                 style={{
                   padding: '20px',
                   position: 'relative',
+                  zIndex: isMenuOpen ? 50 : 1,
                   opacity: isFading ? 0 : 1,
                   transform: isFading ? 'scale(0.96) translateY(-8px)' : 'scale(1) translateY(0)',
                   transition: 'opacity 0.28s cubic-bezier(0.1, 0.9, 0.2, 1), transform 0.28s cubic-bezier(0.1, 0.9, 0.2, 1)',
@@ -192,168 +178,104 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                     </button>
 
                     {/* Fluent 更多菜单按钮 (···) */}
-                    <div style={{ position: 'relative' }} ref={isMenuOpen ? menuRef : undefined}>
+                    <div style={{ position: 'relative' }}>
                       <button
                         className={`btn-fluent btn-secondary ${isMenuOpen ? 'active' : ''}`}
                         style={{
-                          fontSize: '14px',
-                          padding: '6px 10px',
-                          fontWeight: 700,
+                          padding: '6px 8px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
                           lineHeight: '1',
                         }}
-                        onClick={() => setActiveMenuId(isMenuOpen ? null : item.app_id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveMenuId(isMenuOpen ? null : item.app_id);
+                        }}
                         title="版本控制与规则策略"
                         aria-label="更多操作"
                       >
-                        •••
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                          <circle cx="5" cy="12" r="2" />
+                          <circle cx="12" cy="12" r="2" />
+                          <circle cx="19" cy="12" r="2" />
+                        </svg>
                       </button>
 
-                      {isMenuOpen && (
-                        <div
-                          className="flyout-menu"
-                          style={{
-                            position: 'absolute',
-                            right: 0,
-                            top: 'calc(100% + 6px)',
-                            width: '210px',
-                            background: 'var(--bg-surface-flyout, rgba(28, 36, 48, 0.96))',
-                            backdropFilter: 'blur(20px)',
-                            WebkitBackdropFilter: 'blur(20px)',
-                            borderRadius: 'var(--radius-md, 8px)',
-                            border: '1px solid var(--border-highlight, rgba(255, 255, 255, 0.12))',
-                            boxShadow: 'var(--shadow-modal, 0 12px 32px rgba(0, 0, 0, 0.5))',
-                            padding: '6px',
-                            zIndex: 100,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '2px',
-                          }}
-                        >
-                          {onIgnoreUpdate && (
-                            <button
-                              className="menu-item-fluent"
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                padding: '8px 10px',
-                                background: 'transparent',
-                                border: 'none',
-                                borderRadius: '4px',
-                                color: 'var(--text-primary)',
-                                fontSize: '12.5px',
-                                textAlign: 'left',
-                                cursor: 'pointer',
-                                transition: 'background 0.15s ease',
-                              }}
-                              onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-acrylic-thin, rgba(255, 255, 255, 0.08))')}
-                              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                              onClick={() => triggerAnimatedAction(item.app_id, () => onIgnoreUpdate(item.app_id))}
-                            >
-                              <span>🚫</span>
-                              <div>
-                                <div style={{ fontWeight: 600 }}>仅忽略本次提醒</div>
-                                <div style={{ fontSize: '10.5px', color: 'var(--text-tertiary)' }}>
-                                  临时隐藏，下次刷新时恢复
-                                </div>
+                      <FlyoutMenu
+                        isOpen={isMenuOpen}
+                        onClose={() => setActiveMenuId(null)}
+                        width={210}
+                      >
+                        {onIgnoreUpdate && (
+                          <button
+                            className="menu-item-fluent"
+                            onClick={() => {
+                              triggerAnimatedAction(item.app_id, () => onIgnoreUpdate(item.app_id));
+                            }}
+                          >
+                            <span>🚫</span>
+                            <div>
+                              <div style={{ fontWeight: 600 }}>仅忽略本次提醒</div>
+                              <div style={{ fontSize: '10.5px', color: 'var(--text-tertiary)' }}>
+                                临时隐藏，下次刷新时恢复
                               </div>
-                            </button>
-                          )}
+                            </div>
+                          </button>
+                        )}
 
-                          {onSkipVersion && (
-                            <button
-                              className="menu-item-fluent"
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                padding: '8px 10px',
-                                background: 'transparent',
-                                border: 'none',
-                                borderRadius: '4px',
-                                color: 'var(--text-primary)',
-                                fontSize: '12.5px',
-                                textAlign: 'left',
-                                cursor: 'pointer',
-                                transition: 'background 0.15s ease',
-                              }}
-                              onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-acrylic-thin, rgba(255, 255, 255, 0.08))')}
-                              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                              onClick={() => triggerAnimatedAction(item.app_id, () => onSkipVersion(item.app_id, item.latest_version))}
-                            >
-                              <span>⏭️</span>
-                              <div>
-                                <div style={{ fontWeight: 600 }}>跳过此版本</div>
-                                <div style={{ fontSize: '10.5px', color: 'var(--text-tertiary)' }}>
-                                  跳过 {item.latest_version}，下版再提醒
-                                </div>
+                        {onSkipVersion && (
+                          <button
+                            className="menu-item-fluent"
+                            onClick={() => {
+                              triggerAnimatedAction(item.app_id, () => onSkipVersion(item.app_id, item.latest_version));
+                            }}
+                          >
+                            <span>⏭️</span>
+                            <div>
+                              <div style={{ fontWeight: 600 }}>跳过此版本</div>
+                              <div style={{ fontSize: '10.5px', color: 'var(--text-tertiary)' }}>
+                                跳过 {item.latest_version}，下版再提醒
                               </div>
-                            </button>
-                          )}
+                            </div>
+                          </button>
+                        )}
 
-                          {onFreezeVersion && (
-                            <button
-                              className="menu-item-fluent"
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                padding: '8px 10px',
-                                background: 'transparent',
-                                border: 'none',
-                                borderRadius: '4px',
-                                color: 'var(--text-primary)',
-                                fontSize: '12.5px',
-                                textAlign: 'left',
-                                cursor: 'pointer',
-                                transition: 'background 0.15s ease',
-                              }}
-                              onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-acrylic-thin, rgba(255, 255, 255, 0.08))')}
-                              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                              onClick={() => triggerAnimatedAction(item.app_id, () => onFreezeVersion(item.app_id))}
-                            >
-                              <span>🔒</span>
-                              <div>
-                                <div style={{ fontWeight: 600 }}>永久锁定当前版本</div>
-                                <div style={{ fontSize: '10.5px', color: 'var(--text-tertiary)' }}>
-                                  保留 {item.current_version}，忽略所有更新
-                                </div>
+                        {onFreezeVersion && (
+                          <button
+                            className="menu-item-fluent"
+                            onClick={() => {
+                              triggerAnimatedAction(item.app_id, () => onFreezeVersion(item.app_id));
+                            }}
+                          >
+                            <span>🔒</span>
+                            <div>
+                              <div style={{ fontWeight: 600 }}>永久锁定当前版本</div>
+                              <div style={{ fontSize: '10.5px', color: 'var(--text-tertiary)' }}>
+                                保留 {item.current_version}，忽略所有更新
                               </div>
-                            </button>
-                          )}
+                            </div>
+                          </button>
+                        )}
 
-                          {onHideApp && (
-                            <button
-                              className="menu-item-fluent"
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                padding: '8px 10px',
-                                background: 'transparent',
-                                border: 'none',
-                                borderRadius: '4px',
-                                color: '#f87171',
-                                fontSize: '12.5px',
-                                textAlign: 'left',
-                                cursor: 'pointer',
-                                transition: 'background 0.15s ease',
-                              }}
-                              onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(239, 68, 68, 0.12)')}
-                              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                              onClick={() => triggerAnimatedAction(item.app_id, () => onHideApp(item.app_id))}
-                            >
-                              <span>👁️‍🗨️</span>
-                              <div>
-                                <div style={{ fontWeight: 600 }}>隐藏此应用</div>
-                                <div style={{ fontSize: '10.5px', opacity: 0.85 }}>
-                                  在更新中心与探索列表中隐藏
-                                </div>
+                        {onHideApp && (
+                          <button
+                            className="menu-item-fluent"
+                            style={{ color: '#f87171' }}
+                            onClick={() => {
+                              triggerAnimatedAction(item.app_id, () => onHideApp(item.app_id));
+                            }}
+                          >
+                            <span>👁️‍🗨️</span>
+                            <div>
+                              <div style={{ fontWeight: 600 }}>隐藏此应用</div>
+                              <div style={{ fontSize: '10.5px', opacity: 0.85 }}>
+                                在更新中心与探索列表中隐藏
                               </div>
-                            </button>
-                          )}
-                        </div>
-                      )}
+                            </div>
+                          </button>
+                        )}
+                      </FlyoutMenu>
                     </div>
                   </div>
                 </div>
