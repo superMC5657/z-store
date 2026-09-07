@@ -914,6 +914,11 @@ impl AppScanner {
                                 }
 
                                 // C. 检查 UninstallString (若主程序同目录存在 uninstall.exe 等)
+                                // TODO: 此处与 commands::resolve_uninstaller_command 存在 UninstallString
+                                // 读取重复，暂未抽取共享——本处语义是“由 UninstallString 反推主程序
+                                // 所在目录并嗅探 exe”，而 commands 侧是“模糊匹配 DisplayName 后原样
+                                // 返回卸载命令行”；两种注册表遍历/匹配逻辑不同，硬共享会耦合匹配策略，
+                                // 故保持各自内聚，仅在此记录。
                                 if let Ok(uninst) = app_key.get_value::<String, _>("UninstallString") {
                                     let clean_un = uninst.trim().trim_matches('"');
                                     if let Some(first_arg) = clean_un.split(" -").next().and_then(|s| s.split(" /").next()) {

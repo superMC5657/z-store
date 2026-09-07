@@ -7,6 +7,21 @@ pub struct Database {
     conn: Connection,
 }
 
+/// ADR-0007：应用详情缓存保鲜期（TTL）默认推荐值（分钟）。
+pub const DETAIL_CACHE_TTL_DEFAULT_MINUTES: i64 = 30;
+/// ADR-0007：TTL 有效挡位（分钟）：0=每次实时校验，10/30/60/360/1440。
+pub const DETAIL_CACHE_TTL_VALID_MINUTES: [i64; 6] = [0, 10, 30, 60, 360, 1440];
+
+/// 将任意输入归一化到 TTL 有效挡位；非法值回退默认 30。
+/// 调用方应在持久化前用此函数清洗，保证库中只存有效挡位。
+pub fn normalize_detail_cache_ttl(minutes: i64) -> i64 {
+    if DETAIL_CACHE_TTL_VALID_MINUTES.contains(&minutes) {
+        minutes
+    } else {
+        DETAIL_CACHE_TTL_DEFAULT_MINUTES
+    }
+}
+
 impl Database {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         let conn = Connection::open(path)?;
@@ -100,6 +115,9 @@ impl Database {
                 rate_limit_reset INTEGER,
                 updated_at INTEGER NOT NULL
             );
+
+            -- ADR-0007 默认挡位：应用详情缓存保鲜期 30 分钟（仅缺失时填充，不覆盖用户已存值）
+            INSERT OR IGNORE INTO user_settings (key, value) VALUES ('detail_cache_ttl_minutes', '30');
             "#,
         )?;
         Ok(())
@@ -247,6 +265,18 @@ impl Database {
             map.insert(k, v);
         }
         Ok(map)
+    }
+
+    /// 读取用户配置的应用详情缓存保鲜期 TTL（分钟）。
+    /// 缺失 / 解析失败 / 非法挡位时回退默认 30（ADR-0007 有效集 {0,10,30,60,360,1440}）。
+    /// 返回 0 表示每次打开均需向远端条件校验（见 get_cached_app_detail 的 ttl == 0 分支）。
+    pub fn get_detail_cache_ttl_minutes(&self) -> i64 {
+        self.get_setting("detail_cache_ttl_minutes")
+            .ok()
+            .flatten()
+            .and_then(|v| v.trim().parse::<i64>().ok())
+            .map(normalize_detail_cache_ttl)
+            .unwrap_or(DETAIL_CACHE_TTL_DEFAULT_MINUTES)
     }
 
     pub fn get_cached_app_detail(

@@ -291,6 +291,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     onUpdateSetting('update_frequency', id as any);
   };
 
+  // 应用详情缓存生存时效 (TTL, ADR-0007)：恰好六档，键名 detail_cache_ttl_minutes，默认 30 分钟
+  const TTL_OPTIONS: { value: number; label: string }[] = [
+    { value: 0, label: '0 分钟（实时校验）' },
+    { value: 10, label: '10 分钟' },
+    { value: 30, label: '30 分钟（默认推荐）' },
+    { value: 60, label: '1 小时' },
+    { value: 360, label: '6 小时' },
+    { value: 1440, label: '24 小时' },
+  ];
+
+  const handleSelectTtl = (minutes: number, label: string) => {
+    triggerChangeFeedback('detail_cache_ttl_minutes', `✓ 详情缓存生存时效已设为 ${label}`);
+    onUpdateSetting('detail_cache_ttl_minutes', minutes);
+  };
+
   const handleExportMarkdown = () => {
     onExportApps();
     triggerChangeFeedback('export', '✓ 已复制 Markdown 清单到剪贴板');
@@ -513,6 +528,32 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               {syncFeedback}
             </span>
           )}
+        </div>
+
+        {/* 2.3 Detail Cache TTL (ADR-0007: exactly six gears, key detail_cache_ttl_minutes) */}
+        <div className={`settings-row ${highlightRow === 'detail_cache_ttl_minutes' ? 'row-highlight' : ''}`}>
+          <div className="settings-row-info">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontWeight: 600 }}>应用详情缓存生存时效 (TTL)</span>
+              {activeNotice?.key === 'detail_cache_ttl_minutes' && (
+                <span className="setting-applied-badge">{activeNotice.text}</span>
+              )}
+            </div>
+            <span className="settings-row-desc">
+              保鲜期内重复打开直接读取本地缓存（0ms 秒开）；超过时效自动发起 ETag 条件重新验证，离线时回退历史缓存
+            </span>
+          </div>
+          <div className="segmented-group">
+            {TTL_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                className={`segmented-item ${settings.detail_cache_ttl_minutes === opt.value ? 'active' : ''}`}
+                onClick={() => handleSelectTtl(opt.value, opt.label)}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

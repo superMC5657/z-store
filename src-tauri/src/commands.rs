@@ -178,32 +178,31 @@ pub async fn get_app_details_impl(
     let repo_key = resolve_repo_key(&clean_id, &state.catalog);
     let is_force = force_refresh.unwrap_or(false);
 
-    // 获取客户端设置的应用详情缓存保鲜期 (TTL，单位分钟，默认 30 分钟)
-    let _ttl_seconds = {
+    // 获取客户端设置的应用详情缓存保鲜期 (TTL，单位秒；0 表示每次实时校验)。
+    // 非法/缺失挡位由 db 层回退默认 30 分钟（ADR-0007 有效集 {0,10,30,60,360,1440}）。
+    let ttl_seconds = {
         if let Ok(db) = state.db.lock() {
-            let mins = db
-                .get_setting("detail_cache_ttl_minutes")
-                .ok()
-                .flatten()
-                .and_then(|v| v.parse::<i64>().ok())
-                .unwrap_or(30);
-            mins * 60
+            db.get_detail_cache_ttl_minutes() * 60
         } else {
-            1800
+            crate::db::DETAIL_CACHE_TTL_DEFAULT_MINUTES * 60
         }
     };
 
     // 1. 若非主动强制刷新，优先从 SQLite 本地持久化缓存中读取，实现 0ms 瞬间秒开
     if !is_force {
         if let Ok(db) = state.db.lock() {
-            if let Ok(Some(mut cached_detail)) = db.get_cached_app_detail(&clean_id, None) {
+            if let Ok(Some(mut cached_detail)) =
+                db.get_cached_app_detail(&clean_id, Some(ttl_seconds))
+            {
                 cached_detail.id = clean_id.clone();
                 if let Some(cat_item) = state.catalog.get_catalog_item(&clean_id) {
                     cached_detail.signature_fingerprint = cat_item.publisher_fingerprint;
                 }
                 return Ok(cached_detail);
             }
-            if let Ok(Some(mut cached_detail)) = db.get_cached_app_detail(&repo_key, None) {
+            if let Ok(Some(mut cached_detail)) =
+                db.get_cached_app_detail(&repo_key, Some(ttl_seconds))
+            {
                 cached_detail.id = clean_id.clone();
                 if let Some(cat_item) = state.catalog.get_catalog_item(&clean_id) {
                     cached_detail.signature_fingerprint = cat_item.publisher_fingerprint;
@@ -1301,6 +1300,16 @@ pub fn save_setting(
     value: String,
 ) -> Result<bool, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
+    // TTL 挡位归一化：非法值回退默认 30，保证库中只存 ADR-0007 有效集 {0,10,30,60,360,1440}
+    let value = if key == "detail_cache_ttl_minutes" {
+        let parsed = value
+            .trim()
+            .parse::<i64>()
+            .unwrap_or(crate::db::DETAIL_CACHE_TTL_DEFAULT_MINUTES);
+        crate::db::normalize_detail_cache_ttl(parsed).to_string()
+    } else {
+        value
+    };
     db.set_setting(&key, &value).map_err(|e| e.to_string())?;
 
     if key == "launch_on_startup" {
@@ -1371,39 +1380,41 @@ fn detect_image_mime(bytes: &[u8]) -> &'static str {
     }
 }
 
+/// 图标缓存文件名消毒：仅保留字母数字及 `-`/`_`，用于构造本地图标缓存文件名。
+/// 消毒后为空时，调用方回退到基于 remote_url 的 SHA-256 哈希命名（见 icon_hash_filename）。
+pub fn sanitize_icon_segment(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+        .collect()
+}
+
+fn icon_hash_filename(remote_url: &str) -> String {
+    use sha2::Digest;
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(remote_url.as_bytes());
+    let hash = hex::encode(hasher.finalize());
+    format!("{}.png", &hash[..16])
+}
+
 pub fn get_icon_cache_path(
     owner: Option<&str>,
     repo: Option<&str>,
     app_id: Option<&str>,
     remote_url: &str,
 ) -> std::path::PathBuf {
-    use sha2::Digest;
     let icons_dir = crate::get_app_data_dir().join("icons");
 
     // 方案一：优先使用 GitHub 唯一命名空间 {owner}_{repo}.png
     let filename = match (owner, repo) {
         (Some(o), Some(r)) => {
-            let safe_o: String = o
-                .chars()
-                .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
-                .collect();
-            let safe_r: String = r
-                .chars()
-                .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
-                .collect();
+            let safe_o = sanitize_icon_segment(o);
+            let safe_r = sanitize_icon_segment(r);
             if !safe_o.is_empty() && !safe_r.is_empty() {
                 format!("{}_{}.png", safe_o, safe_r)
             } else if let Some(id) = app_id {
-                let safe_id: String = id
-                    .chars()
-                    .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
-                    .collect();
-                format!("{}.png", safe_id)
+                format!("{}.png", sanitize_icon_segment(id))
             } else {
-                let mut hasher = sha2::Sha256::new();
-                hasher.update(remote_url.as_bytes());
-                let hash = hex::encode(hasher.finalize());
-                format!("{}.png", &hash[..16])
+                icon_hash_filename(remote_url)
             }
         }
         _ => {
@@ -1413,36 +1424,21 @@ pub fn get_icon_cache_path(
                 if clean_id.contains('/') {
                     let parts: Vec<&str> = clean_id.split('/').collect();
                     if parts.len() == 2 {
-                        let safe_o: String = parts[0]
-                            .chars()
-                            .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
-                            .collect();
-                        let safe_r: String = parts[1]
-                            .chars()
-                            .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
-                            .collect();
+                        let safe_o = sanitize_icon_segment(parts[0]);
+                        let safe_r = sanitize_icon_segment(parts[1]);
                         if !safe_o.is_empty() && !safe_r.is_empty() {
                             return icons_dir.join(format!("{}_{}.png", safe_o, safe_r));
                         }
                     }
                 }
-                let safe_id: String = clean_id
-                    .chars()
-                    .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
-                    .collect();
+                let safe_id = sanitize_icon_segment(clean_id);
                 if !safe_id.is_empty() {
                     format!("{}.png", safe_id)
                 } else {
-                    let mut hasher = sha2::Sha256::new();
-                    hasher.update(remote_url.as_bytes());
-                    let hash = hex::encode(hasher.finalize());
-                    format!("{}.png", &hash[..16])
+                    icon_hash_filename(remote_url)
                 }
             } else {
-                let mut hasher = sha2::Sha256::new();
-                hasher.update(remote_url.as_bytes());
-                let hash = hex::encode(hasher.finalize());
-                format!("{}.png", &hash[..16])
+                icon_hash_filename(remote_url)
             }
         }
     };

@@ -364,38 +364,80 @@ impl InstallerEngine {
             AssetKind::Msi => {
                 #[cfg(target_os = "windows")]
                 {
-                    // 调起 MSI 安装向导或半静默安装
-                    let mut child = std::process::Command::new("msiexec.exe")
+                    use std::time::{Duration, Instant};
+                    // FR-3.5 静默优先：首先尝试 `msiexec /i <pkg> /qn /norestart` 全静默安装。
+                    // 原生向导仅为降级 fallback，且绝不无限期同步等待 GUI 进程（避免阻塞 Tauri IPC）：
+                    // 短 grace 期内即可捕获“拒绝静默参数”的快速失败并降级拉起向导；
+                    // grace 期后仍在运行则视为安装进行中，移交后台线程等待 + 清理并立即返回。
+                    const SILENT_GRACE: Duration = Duration::from_secs(5);
+                    match std::process::Command::new("msiexec.exe")
                         .arg("/i")
                         .arg(installer_path)
-                        .arg("/passive")
+                        .arg("/qn")
                         .arg("/norestart")
                         .spawn()
-                        .or_else(|_| {
-                            std::process::Command::new("msiexec.exe")
-                                .arg("/i")
-                                .arg(installer_path)
-                                .spawn()
-                        })
-                        .map_err(|e| format!("调起 MSI 安装器失败: {}", e))?;
+                    {
+                        Ok(mut child) => {
+                            let start = Instant::now();
+                            let silent_outcome = loop {
+                                match child.try_wait() {
+                                    Ok(Some(status)) => break Some(status),
+                                    Ok(None) => {
+                                        if start.elapsed() >= SILENT_GRACE {
+                                            break None;
+                                        }
+                                        std::thread::sleep(Duration::from_millis(100));
+                                    }
+                                    Err(e) => {
+                                        return Err(format!("MSI 静默安装进程异常: {}", e));
+                                    }
+                                }
+                            };
 
-                    // 等待 MSI 安装进程完成，确保安装完成后再解析路径与清理临时安装包
-                    let status = child.wait().map_err(|e| format!("MSI 安装进程异常: {}", e))?;
-
-                    // 稍作休眠以确保系统写盘与注册表完全刷新
-                    std::thread::sleep(std::time::Duration::from_millis(800));
-
-                    // 安全清理临时安装包
-                    let _ = std::fs::remove_file(installer_path);
-
-                    if !status.success() {
-                        let code = status.code().unwrap_or(-1);
-                        if code == 1602 {
-                            return Err("用户取消了 MSI 安装向导".to_string());
+                            match silent_outcome {
+                                Some(status) if status.success() => {
+                                    // 稍作休眠以确保系统写盘与注册表完全刷新
+                                    std::thread::sleep(Duration::from_millis(800));
+                                    // 安全清理临时安装包
+                                    let _ = std::fs::remove_file(installer_path);
+                                    Ok("MSI 静默安装已完成".to_string())
+                                }
+                                Some(status) => {
+                                    let code = status.code().unwrap_or(-1);
+                                    if code == 1602 {
+                                        let _ = std::fs::remove_file(installer_path);
+                                        return Err("用户取消了 MSI 安装向导".to_string());
+                                    }
+                                    // 静默被拒绝（快速非零退出）：降级拉起原生向导（不等待），引导用户手动完成
+                                    let mut fallback = std::process::Command::new("msiexec.exe")
+                                        .arg("/i")
+                                        .arg(installer_path)
+                                        .spawn()
+                                        .map_err(|e| {
+                                            format!("静默安装被拒绝且拉起 MSI 向导失败: {}", e)
+                                        })?;
+                                    let p = installer_path.to_path_buf();
+                                    std::thread::spawn(move || {
+                                        let _ = fallback.wait();
+                                        std::thread::sleep(Duration::from_millis(1000));
+                                        let _ = std::fs::remove_file(&p);
+                                    });
+                                    Ok("该安装包拒绝静默参数，已拉起原生 MSI 安装向导，请按界面引导完成安装".to_string())
+                                }
+                                None => {
+                                    // 静默安装进行中：后台等待退出后清理临时包，IPC 立即返回不阻塞
+                                    let p = installer_path.to_path_buf();
+                                    std::thread::spawn(move || {
+                                        let _ = child.wait();
+                                        std::thread::sleep(Duration::from_millis(800));
+                                        let _ = std::fs::remove_file(&p);
+                                    });
+                                    Ok("MSI 静默安装进行中，后台完成后将自动清理临时安装包".to_string())
+                                }
+                            }
                         }
+                        Err(e) => Err(format!("调起 MSI 安装器失败: {}", e)),
                     }
-
-                    Ok("MSI 安装已完成".to_string())
                 }
                 #[cfg(not(target_os = "windows"))]
                 {

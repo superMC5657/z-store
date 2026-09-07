@@ -165,9 +165,9 @@ let mockInstalled: InstalledApp[] = [
 ];
 
 let mockMirrors: MirrorNodeStatus[] = [
-  { id: 'ghproxy', name: 'GH-Proxy 加速线路 (主流推荐)', base_url: 'https://gh-proxy.com', latency_ms: 68, is_active: true },
-  { id: 'ghproxynet', name: 'GHProxy.net 备用线路 (华东/华北)', base_url: 'https://ghproxy.net', latency_ms: 88, is_active: false },
-  { id: 'ghfast', name: 'GHFast 高速线路 (电信/联通优选)', base_url: 'https://ghfast.top', latency_ms: 95, is_active: false },
+  { id: 'ghproxy', name: 'GH-Proxy 加速镜像节点 (主流推荐)', base_url: 'https://gh-proxy.com', latency_ms: 68, is_active: true },
+  { id: 'ghproxynet', name: 'GHProxy.net 加速镜像节点 (华东/华北)', base_url: 'https://ghproxy.net', latency_ms: 88, is_active: false },
+  { id: 'ghfast', name: 'GHFast 加速镜像节点 (电信/联通优选)', base_url: 'https://ghfast.top', latency_ms: 95, is_active: false },
   { id: 'direct', name: 'GitHub 官方直连 (海外/科学上网)', base_url: 'https://github.com', latency_ms: 240, is_active: false },
 ];
 

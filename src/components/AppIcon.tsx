@@ -17,6 +17,21 @@ interface AppIconProps {
 const iconDataCache = new Map<string, string>();
 const iconPendingPromises = new Map<string, Promise<string>>();
 
+// 唯一的远端图标判定谓词：调用方（preloadIcons 与组件本体）必须复用此函数，禁止各自内联重复形状
+export function isRemoteIcon(icon: string | undefined | null): boolean {
+  if (!icon) return false;
+  return (
+    icon.startsWith('http://') ||
+    icon.startsWith('https://') ||
+    icon.startsWith('data:') ||
+    icon.includes('.png') ||
+    icon.includes('.svg') ||
+    icon.includes('.jpg') ||
+    icon.includes('.webp') ||
+    icon.includes('.ico')
+  );
+}
+
 export function preloadIcons(
   items: (string | { id?: string; owner?: string; repo?: string; icon: string })[]
 ) {
@@ -27,12 +42,7 @@ export function preloadIcons(
     const owner = typeof item === 'string' ? undefined : item.owner;
     const repo = typeof item === 'string' ? undefined : item.repo;
     if (!icon || iconDataCache.has(icon) || icon.startsWith('data:')) return;
-    const isUrl =
-      icon.startsWith('http://') ||
-      icon.startsWith('https://') ||
-      icon.includes('.png') ||
-      icon.includes('.svg');
-    if (!isUrl) return;
+    if (!isRemoteIcon(icon)) return;
 
     if (!iconPendingPromises.has(icon)) {
       const p = api
@@ -70,18 +80,8 @@ export const AppIcon: React.FC<AppIconProps> = ({
   });
   const [hasError, setHasError] = useState(false);
 
-  // 判断是否为网络图片 URL
-  const isUrl = Boolean(
-    icon &&
-      (icon.startsWith('http://') ||
-        icon.startsWith('https://') ||
-        icon.startsWith('data:') ||
-        icon.includes('.png') ||
-        icon.includes('.svg') ||
-        icon.includes('.jpg') ||
-        icon.includes('.webp') ||
-        icon.includes('.ico'))
-  );
+  // 判断是否为网络图片 URL（复用模块级唯一谓词，禁止内联重复形状）
+  const isUrl = isRemoteIcon(icon);
 
   useEffect(() => {
     if (!icon || !isUrl || isDataUri) {

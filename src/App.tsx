@@ -736,7 +736,7 @@ export const App: React.FC = () => {
       return;
     }
     const lines = [
-      '# Z-Store 已安装开源软件清单',
+      '# Z-Store 已安装应用清单',
       '',
       `> 导出时间: ${new Date().toLocaleString('zh-CN')}`,
       '',

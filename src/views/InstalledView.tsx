@@ -100,7 +100,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
   return (
     <div className="installed-view view-entrance">
       <div className="section-header">
-        <h3 className="section-title">📦 已安装的开源软件 ({installedApps.length})</h3>
+        <h3 className="section-title">📦 已安装应用 ({installedApps.length})</h3>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           {onOpenRules && (
             <button
@@ -153,9 +153,9 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
               className="btn-fluent btn-secondary"
               style={{ padding: '4px 12px', fontSize: '12px' }}
               onClick={onScanSystemApps}
-              title="扫描系统存量开源软件并纳管"
+              title="存量应用纳管：扫描系统已安装软件并接管更新"
             >
-              🔍 扫描系统开源软件
+              🔍 存量应用纳管
             </button>
           )}
           <button
