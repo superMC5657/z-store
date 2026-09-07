@@ -1,7 +1,4 @@
-// FR-7: GitHub 账号（OAuth Device Flow）卡片
-// IPCs: oauth_device_start / oauth_device_poll / get_oauth_user / oauth_logout
-// Rust 侧并发实现中；所有调用 try/catch，后端未就绪时内联提示、不阻塞。
-// 登录成功后派发 `zstore:oauth-changed`，App 根组件据此刷新详情弹窗的标星门控。
+// GitHub 账号卡片（OAuth Device Flow）：登录态、轮询、退出，变更派发 zstore:oauth-changed。
 import React, { useEffect, useRef, useState } from 'react';
 import { OAuthUser } from '../types';
 import { api } from '../services/api';
@@ -23,6 +20,8 @@ export const OAuthAccountCard: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 连续轮询网络失败计数：抖动不断会话，攒够次数才停（用户码保留展示）
+  const pollFailRef = useRef(0);
 
   const loadUser = async () => {
     setIsLoadingUser(true);
@@ -63,6 +62,7 @@ export const OAuthAccountCard: React.FC = () => {
       }
       try {
         const res = await api.oauthDevicePoll(deviceCode);
+        pollFailRef.current = 0;
         if (res.status === 'complete') {
           stopPolling();
           setSession(null);
@@ -82,9 +82,16 @@ export const OAuthAccountCard: React.FC = () => {
           schedulePoll(deviceCode, deadline, intervalMs);
         }
       } catch (e) {
-        stopPolling();
-        setSession(null);
-        setError(`授权轮询失败: ${String(e)}`);
+        // 轮询只是查状态，网络抖动不断会话：提示后继续下一轮；
+        // 连续多次失败才停，且保留用户码展示，用户可检查网络后重来。
+        pollFailRef.current += 1;
+        if (pollFailRef.current >= 10) {
+          stopPolling();
+          setError('网络多次失败，已停止轮询；用户码仍在有效期内，可检查网络后取消重来');
+          return;
+        }
+        setError(`网络波动，自动重试中 (${pollFailRef.current})：${String(e).slice(0, 80)}`);
+        schedulePoll(deviceCode, deadline, intervalMs);
       }
     }, intervalMs);
   };
@@ -92,18 +99,26 @@ export const OAuthAccountCard: React.FC = () => {
   const handleLogin = async () => {
     setIsStarting(true);
     setError(null);
+    pollFailRef.current = 0;
     try {
       const res = await api.oauthDeviceStart();
       const deadline = Date.now() + res.expires_in * 1000;
       const intervalMs = Math.max(1000, res.interval * 1000);
+      const verificationUri = res.verification_uri_complete || res.verification_uri;
       setSession({
         deviceCode: res.device_code,
         userCode: res.user_code,
-        verificationUri: res.verification_uri_complete || res.verification_uri,
+        verificationUri,
         deadline,
         intervalMs,
       });
       schedulePoll(res.device_code, deadline, intervalMs);
+      // 成功即自动拉起浏览器授权页；失败也不阻塞，卡片上仍保留手动按钮
+      try {
+        await api.openUrl(verificationUri);
+      } catch {
+        // ignore：用户可点「前往授权页」手动打开
+      }
     } catch (e) {
       setError(`发起登录失败: ${String(e)}`);
     } finally {
@@ -113,6 +128,7 @@ export const OAuthAccountCard: React.FC = () => {
 
   const handleCancelSession = () => {
     stopPolling();
+    pollFailRef.current = 0;
     setSession(null);
     setError(null);
   };
@@ -146,7 +162,7 @@ export const OAuthAccountCard: React.FC = () => {
         <div className="settings-row-info">
           <span style={{ fontWeight: 600 }}>🐙 GitHub 账号</span>
           <span className="settings-row-desc">
-            {user ? '已完成 OAuth 授权，可使用标星同步与问题反馈' : '登录后可对应用标星（★），并直达仓库提交问题反馈'}
+            {user ? '已登录，可标星与提交反馈' : '登录后可标星（★）与提交反馈'}
           </span>
         </div>
         {isLoadingUser ? (
@@ -203,7 +219,7 @@ export const OAuthAccountCard: React.FC = () => {
             gap: '10px',
           }}
         >
-          <span style={{ fontSize: '13px', fontWeight: 600 }}>在浏览器中完成授权（正在自动轮询，请勿关闭）</span>
+          <span style={{ fontSize: '13px', fontWeight: 600 }}>在浏览器完成授权（自动轮询中）</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
             <code
               style={{

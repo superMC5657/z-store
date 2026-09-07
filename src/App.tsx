@@ -827,18 +827,6 @@ export const App: React.FC = () => {
     setUpdates(loadedUpdates);
   };
 
-  // Mirror Cycling
-  const handleCycleMirror = async () => {
-    const updated = await api.getMirrorStatus();
-    const active = updated.find((m) => m.is_active);
-    const hasCustom = updated.some((m) => m.id === 'custom' && m.base_url);
-    if (active?.id === 'direct' && hasCustom) {
-      await handleSelectMirror('custom');
-    } else {
-      await handleSelectMirror('direct');
-    }
-  };
-
   const handleSelectMirror = async (mirrorId: string) => {
     await api.switchMirror(mirrorId);
     const updated = await api.getMirrorStatus();
@@ -892,12 +880,13 @@ export const App: React.FC = () => {
     [installedApps]
   );
 
-  const activeMirror = mirrors.find((m) => m.is_active);
-  const activeMirrorName = activeMirror
-    ? activeMirror.id === 'direct'
-      ? '官方直连'
-      : activeMirror.name
-    : '官方直连';
+  // 跳转设置页 GitHub 账号区（侧栏登录胶囊入口）
+  const handleOpenAccountSettings = () => {
+    setCurrentView('settings');
+    setTimeout(() => {
+      document.getElementById('settings-account')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 120);
+  };
 
   return (
     <div className="app-window">
@@ -930,8 +919,7 @@ export const App: React.FC = () => {
           onSelectView={setCurrentView}
           installedCount={installedApps.length}
           hasUpdates={updates.length > 0 || watchNotifications.length > 0}
-          activeMirrorName={activeMirrorName}
-          onCycleMirror={handleCycleMirror}
+          onOpenAccount={handleOpenAccountSettings}
           isCollapsed={isSidebarCollapsed}
         />
 

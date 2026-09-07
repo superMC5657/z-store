@@ -1,13 +1,13 @@
-import React from 'react';
-import { ViewType } from '../types';
+import React, { useEffect, useState } from 'react';
+import { OAuthUser, ViewType } from '../types';
+import { api } from '../services/api';
 
 interface SidebarProps {
   currentView: ViewType;
   onSelectView: (view: ViewType) => void;
   installedCount: number;
   hasUpdates: boolean;
-  activeMirrorName: string;
-  onCycleMirror: () => void;
+  onOpenAccount: () => void;
   isCollapsed?: boolean;
 }
 
@@ -24,10 +24,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectView,
   installedCount,
   hasUpdates,
-  activeMirrorName,
-  onCycleMirror,
+  onOpenAccount,
   isCollapsed = false,
 }) => {
+  const [oauthUser, setOauthUser] = useState<OAuthUser | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      api.getOAuthUser().then((u) => {
+        if (!cancelled) setOauthUser(u);
+      }).catch(() => {
+        if (!cancelled) setOauthUser(null);
+      });
+    };
+    load();
+    window.addEventListener('zstore:oauth-changed', load);
+    window.addEventListener('zstore:data-imported', load);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('zstore:oauth-changed', load);
+      window.removeEventListener('zstore:data-imported', load);
+    };
+  }, []);
   const navItems: NavItemConfig[] = [
     // Group 1: 发现与探索
     {
@@ -202,16 +221,37 @@ export const Sidebar: React.FC<SidebarProps> = ({
         );
       })}
 
-      {/* Bottom Network Mirror Status Capsule */}
+      {/* Bottom GitHub Account Capsule */}
       <div className="sidebar-footer">
         <button
           className="network-pill"
-          onClick={onCycleMirror}
-          title={`当前加速节点: ${activeMirrorName} (点击切换)`}
-          aria-label={`当前加速节点: ${activeMirrorName}`}
+          onClick={onOpenAccount}
+          title={oauthUser ? `GitHub 已登录: ${oauthUser.login} (点击管理)` : '登录 GitHub（标星与高配额）'}
+          aria-label={oauthUser ? `GitHub 已登录: ${oauthUser.login}` : '登录 GitHub'}
         >
-          <span className="status-dot" />
-          <span className="network-pill-text">线路: {activeMirrorName}</span>
+          {oauthUser ? (
+            <>
+              {oauthUser.avatar_url ? (
+                <img
+                  src={oauthUser.avatar_url}
+                  alt={oauthUser.login}
+                  style={{ width: '18px', height: '18px', borderRadius: '50%' }}
+                />
+              ) : (
+                <span className="status-dot" />
+              )}
+              {!isCollapsed && (
+                <span className="network-pill-text">
+                  {oauthUser.login.length > 14 ? `${oauthUser.login.slice(0, 13)}…` : oauthUser.login}
+                </span>
+              )}
+            </>
+          ) : (
+            <>
+              <span aria-hidden="true">🐙</span>
+              {!isCollapsed && <span className="network-pill-text">GitHub 登录</span>}
+            </>
+          )}
         </button>
       </div>
     </aside>
