@@ -26,6 +26,8 @@ pub struct AppSummary {
     pub forge: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub forge_host: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub homepage: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,6 +70,8 @@ pub struct AppDetail {
     pub cached_at: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub is_stale_fallback: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub homepage: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

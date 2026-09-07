@@ -18,6 +18,7 @@ export interface AppSummary {
   installed_version?: string;
   forge?: string;
   forge_host?: string;
+  homepage?: string;
 }
 
 export interface ReleaseAsset {
@@ -55,7 +56,9 @@ export interface AppDetail {
   cached_at?: number;
   is_stale_fallback?: boolean;
   isLoading?: boolean;
+  isRefreshing?: boolean;
   loadError?: string;
+  homepage?: string;
 }
 
 export interface InstalledApp {
@@ -78,6 +81,12 @@ export interface MirrorNodeStatus {
   is_active: boolean;
 }
 
+export interface ProxyTestResult {
+  success: boolean;
+  latency_ms: number;
+  message: string;
+}
+
 export interface UpdateItem {
   app_id: string;
   app_name: string;
@@ -91,7 +100,7 @@ export interface DownloadProgressPayload {
   downloaded_bytes: number;
   total_bytes: number;
   speed_bytes_per_sec: number;
-  state: 'downloading' | 'verifying' | 'verified' | 'installing' | 'completed' | 'error' | 'tampered';
+  state: 'downloading' | 'verifying' | 'verified' | 'completed_unverified' | 'installing' | 'completed' | 'error' | 'tampered';
   message?: string;
 }
 
@@ -107,10 +116,8 @@ export interface AppSettings {
   theme: 'light' | 'dark' | 'system';
   ui_scale: '90' | '100' | '110' | '125';
   font_size: '12' | '14' | '16' | '18' | '20' | 'small' | 'standard' | 'medium' | 'large';
-  always_on_top: boolean;
   portable_dir: string;
   download_dir: string;
-  auto_clean_cache: boolean;
   active_mirror: string;
   max_concurrent_downloads: number;
   github_token: string;

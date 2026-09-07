@@ -22,7 +22,11 @@
     "stars": 76800,
     "forks": 10200,
     "is_verified": true,
-    "publisher_fingerprint": "E8:7A:B4:9C:3D:12:FA:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD"
+    "publisher_fingerprint": "57:B6:08:5F:D9:58:23:77:13:C2:13:79:2F:94:AE:CE:62:B1:5C:51:94:C8:A1:A2:B6:A4:9A:B9:C2:CB:32:8A",
+    "homepage": "https://rustdesk.com",
+    "executables": [
+      "rustdesk.exe"
+    ]
   },
   {
     "id": "localsend",
@@ -46,7 +50,12 @@
     "license": "Apache-2.0",
     "stars": 49200,
     "forks": 3200,
-    "is_verified": true
+    "is_verified": true,
+    "homepage": "https://localsend.org",
+    "executables": [
+      "localsend_app.exe",
+      "LocalSend.exe"
+    ]
   },
   {
     "id": "vlc",
@@ -70,7 +79,14 @@
     "license": "GPL-2.0",
     "stars": 32000,
     "forks": 5800,
-    "is_verified": true
+    "is_verified": true,
+    "homepage": "https://www.videolan.org/vlc/",
+    "executables": [
+      "vlc.exe"
+    ],
+    "publishers": [
+      "VideoLAN"
+    ]
   },
   {
     "id": "obs-studio",
@@ -94,7 +110,21 @@
     "license": "GPL-2.0",
     "stars": 58600,
     "forks": 8100,
-    "is_verified": true
+    "is_verified": true,
+    "homepage": "https://obsproject.com",
+    "executables": [
+      "obs64.exe",
+      "obs32.exe",
+      "obs.exe"
+    ],
+    "search_subdirs": [
+      "bin/64bit",
+      "bin/32bit",
+      "bin"
+    ],
+    "publishers": [
+      "OBS Project"
+    ]
   },
   {
     "id": "keepassxc",
@@ -117,7 +147,11 @@
     "license": "GPL-3.0",
     "stars": 24300,
     "forks": 1700,
-    "is_verified": true
+    "is_verified": true,
+    "homepage": "https://keepassxc.org",
+    "executables": [
+      "KeePassXC.exe"
+    ]
   },
   {
     "id": "vscodium",
@@ -141,7 +175,11 @@
     "license": "MIT",
     "stars": 46800,
     "forks": 2200,
-    "is_verified": true
+    "is_verified": true,
+    "homepage": "https://vscodium.com",
+    "executables": [
+      "VSCodium.exe"
+    ]
   },
   {
     "id": "zed",
@@ -164,7 +202,11 @@
     "license": "GPL-3.0",
     "stars": 49500,
     "forks": 3100,
-    "is_verified": true
+    "is_verified": true,
+    "homepage": "https://zed.dev",
+    "executables": [
+      "zed.exe"
+    ]
   },
   {
     "id": "flameshot",
@@ -188,7 +230,11 @@
     "license": "GPL-3.0",
     "stars": 24900,
     "forks": 1600,
-    "is_verified": true
+    "is_verified": true,
+    "homepage": "https://flameshot.org",
+    "executables": [
+      "flameshot.exe"
+    ]
   },
   {
     "id": "sharex",
@@ -212,7 +258,11 @@
     "license": "GPL-3.0",
     "stars": 28600,
     "forks": 3200,
-    "is_verified": true
+    "is_verified": true,
+    "homepage": "https://getsharex.com",
+    "executables": [
+      "ShareX.exe"
+    ]
   },
   {
     "id": "blender",
@@ -236,7 +286,11 @@
     "license": "GPL-3.0",
     "stars": 24500,
     "forks": 3600,
-    "is_verified": true
+    "is_verified": true,
+    "homepage": "https://www.blender.org",
+    "executables": [
+      "blender.exe"
+    ]
   },
   {
     "id": "joplin",
@@ -260,7 +314,11 @@
     "license": "AGPL-3.0",
     "stars": 45100,
     "forks": 4600,
-    "is_verified": true
+    "is_verified": true,
+    "homepage": "https://joplinapp.org",
+    "executables": [
+      "Joplin.exe"
+    ]
   },
   {
     "id": "logseq",
@@ -284,7 +342,11 @@
     "license": "AGPL-3.0",
     "stars": 33100,
     "forks": 2200,
-    "is_verified": true
+    "is_verified": true,
+    "homepage": "https://logseq.com",
+    "executables": [
+      "Logseq.exe"
+    ]
   },
   {
     "id": "koreader",
@@ -308,7 +370,11 @@
     "license": "AGPL-3.0",
     "stars": 19100,
     "forks": 1500,
-    "is_verified": true
+    "is_verified": true,
+    "homepage": "https://koreader.rocks",
+    "executables": [
+      "koreader.exe"
+    ]
   },
   {
     "id": "calibre",
@@ -331,7 +397,11 @@
     "license": "GPL-3.0",
     "stars": 13900,
     "forks": 1400,
-    "is_verified": true
+    "is_verified": true,
+    "homepage": "https://calibre-ebook.com",
+    "executables": [
+      "calibre.exe"
+    ]
   },
   {
     "id": "clash-verge-rev",
@@ -355,7 +425,11 @@
     "license": "GPL-3.0",
     "stars": 44800,
     "forks": 4200,
-    "is_verified": true
+    "is_verified": true,
+    "homepage": "https://clash-verge-rev.github.io",
+    "executables": [
+      "Clash Verge.exe"
+    ]
   },
   {
     "id": "transmission",
@@ -379,7 +453,12 @@
     "license": "GPL-2.0",
     "stars": 11500,
     "forks": 1400,
-    "is_verified": true
+    "is_verified": true,
+    "homepage": "https://transmissionbt.com",
+    "executables": [
+      "transmission-qt.exe",
+      "transmission.exe"
+    ]
   },
   {
     "id": "7-zip",
@@ -403,7 +482,16 @@
     "license": "LGPL-2.1",
     "stars": 4800,
     "forks": 380,
-    "is_verified": true
+    "is_verified": true,
+    "homepage": "https://www.7-zip.org",
+    "executables": [
+      "7zFM.exe",
+      "7zG.exe",
+      "7z.exe"
+    ],
+    "publishers": [
+      "Igor Pavlov"
+    ]
   },
   {
     "id": "powertoys",
@@ -427,7 +515,14 @@
     "license": "MIT",
     "stars": 109000,
     "forks": 6300,
-    "is_verified": true
+    "is_verified": true,
+    "homepage": "https://learn.microsoft.com/windows/powertoys/",
+    "executables": [
+      "PowerToys.exe"
+    ],
+    "publishers": [
+      "Microsoft Corporation"
+    ]
   },
   {
     "id": "quicklook",
@@ -451,7 +546,10 @@
     "license": "GPL-3.0",
     "stars": 18200,
     "forks": 1100,
-    "is_verified": true
+    "is_verified": true,
+    "executables": [
+      "QuickLook.exe"
+    ]
   },
   {
     "id": "flow-launcher",
@@ -475,7 +573,11 @@
     "license": "MIT",
     "stars": 14900,
     "forks": 650,
-    "is_verified": true
+    "is_verified": true,
+    "homepage": "https://www.flowlauncher.com",
+    "executables": [
+      "Flow.Launcher.exe"
+    ]
   },
   {
     "id": "handbrake",
@@ -499,7 +601,11 @@
     "license": "GPL-2.0",
     "stars": 15800,
     "forks": 1400,
-    "is_verified": true
+    "is_verified": true,
+    "homepage": "https://handbrake.fr",
+    "executables": [
+      "HandBrake.exe"
+    ]
   },
   {
     "id": "bitwarden",
@@ -523,7 +629,11 @@
     "license": "GPL-3.0",
     "stars": 7400,
     "forks": 1100,
-    "is_verified": true
+    "is_verified": true,
+    "homepage": "https://bitwarden.com",
+    "executables": [
+      "Bitwarden.exe"
+    ]
   },
   {
     "id": "neovim",
@@ -547,7 +657,15 @@
     "license": "Apache-2.0",
     "stars": 82900,
     "forks": 5400,
-    "is_verified": true
+    "is_verified": true,
+    "homepage": "https://neovim.io",
+    "executables": [
+      "nvim-qt.exe",
+      "nvim.exe"
+    ],
+    "search_subdirs": [
+      "bin"
+    ]
   },
   {
     "id": "alacritty",
@@ -571,7 +689,11 @@
     "license": "Apache-2.0",
     "stars": 54200,
     "forks": 3000,
-    "is_verified": true
+    "is_verified": true,
+    "homepage": "https://alacritty.org",
+    "executables": [
+      "alacritty.exe"
+    ]
   },
   {
     "id": "wireshark",
@@ -595,7 +717,11 @@
     "license": "GPL-2.0",
     "stars": 7100,
     "forks": 1600,
-    "is_verified": true
+    "is_verified": true,
+    "homepage": "https://www.wireshark.org",
+    "executables": [
+      "Wireshark.exe"
+    ]
   },
   {
     "id": "hoppscotch",
@@ -619,7 +745,11 @@
     "license": "MIT",
     "stars": 64300,
     "forks": 4500,
-    "is_verified": true
+    "is_verified": true,
+    "homepage": "https://hoppscotch.com",
+    "executables": [
+      "Hoppscotch.exe"
+    ]
   },
   {
     "id": "podman-desktop",
@@ -643,7 +773,11 @@
     "license": "Apache-2.0",
     "stars": 7200,
     "forks": 420,
-    "is_verified": true
+    "is_verified": true,
+    "homepage": "https://podman-desktop.io",
+    "executables": [
+      "Podman Desktop.exe"
+    ]
   },
   {
     "id": "retroarch",
@@ -668,7 +802,11 @@
     "license": "GPL-3.0",
     "stars": 11300,
     "forks": 1700,
-    "is_verified": true
+    "is_verified": true,
+    "homepage": "https://www.retroarch.com",
+    "executables": [
+      "retroarch.exe"
+    ]
   },
   {
     "id": "openttd",
@@ -692,7 +830,11 @@
     "license": "GPL-2.0",
     "stars": 6100,
     "forks": 980,
-    "is_verified": true
+    "is_verified": true,
+    "homepage": "https://www.openttd.org",
+    "executables": [
+      "openttd.exe"
+    ]
   },
   {
     "id": "mindustry",
@@ -716,6 +858,298 @@
     "license": "GPL-3.0",
     "stars": 24200,
     "forks": 3100,
-    "is_verified": true
+    "is_verified": true,
+    "homepage": "https://mindustrygame.github.io",
+    "executables": [
+      "Mindustry.exe"
+    ]
+  },
+  {
+    "id": "qbittorrent",
+    "name": "qBittorrent",
+    "chinese_name": "qBittorrent 种子下载器",
+    "owner": "qbittorrent",
+    "repo": "qBittorrent",
+    "icon": "https://github.com/qbittorrent.png",
+    "icon_bg": "linear-gradient(135deg, #2563eb, #1d4ed8)",
+    "description": "自由开源的 BitTorrent 客户端，基于 Qt 工具包构建，无广告，支持远程 Web 控制。",
+    "category": "network",
+    "category_name": "网络工具",
+    "aliases": [
+      "qbittorrent",
+      "qb",
+      "bt",
+      "torrent",
+      "下载器",
+      "种子下载"
+    ],
+    "default_version": "release-5.0.3",
+    "license": "GPL-2.0",
+    "stars": 28600,
+    "forks": 4200,
+    "is_verified": true,
+    "homepage": "https://www.qbittorrent.org",
+    "executables": [
+      "qbittorrent.exe"
+    ],
+    "publishers": [
+      "The qBittorrent project"
+    ]
+  },
+  {
+    "id": "motrix",
+    "name": "Motrix",
+    "chinese_name": "Motrix 全能下载器",
+    "owner": "agalwood",
+    "repo": "Motrix",
+    "icon": "https://github.com/agalwood.png",
+    "icon_bg": "linear-gradient(135deg, #fb7185, #e11d48)",
+    "description": "全能开源下载工具，支持 HTTP、FTP、BT、磁力链接等多协议，界面清爽极简。",
+    "category": "network",
+    "category_name": "网络工具",
+    "aliases": [
+      "motrix",
+      "下载工具",
+      "全能下载器",
+      "aria2",
+      "download manager"
+    ],
+    "default_version": "v1.8.19",
+    "license": "MIT",
+    "stars": 42000,
+    "forks": 5800,
+    "is_verified": true,
+    "homepage": "https://motrix.app",
+    "executables": [
+      "Motrix.exe"
+    ],
+    "publishers": [
+      "Dr_rOot",
+      "agalwood"
+    ]
+  },
+  {
+    "id": "picgo",
+    "name": "PicGo",
+    "chinese_name": "PicGo 图床上传工具",
+    "owner": "Molunerfinn",
+    "repo": "PicGo",
+    "icon": "https://github.com/Molunerfinn.png",
+    "icon_bg": "linear-gradient(135deg, #38bdf8, #0284c7)",
+    "description": "一个用于快速上传图片并获取 Markdown 链接的开源图床客户端工具。",
+    "category": "graphics",
+    "category_name": "图形创作",
+    "aliases": [
+      "picgo",
+      "图床",
+      "图片上传",
+      "markdown 图床",
+      "image uploader"
+    ],
+    "default_version": "v2.4.0-beta.6",
+    "license": "MIT",
+    "stars": 24000,
+    "forks": 3200,
+    "is_verified": true,
+    "homepage": "https://molunerfinn.com/PicGo/",
+    "executables": [
+      "PicGo.exe"
+    ],
+    "publishers": [
+      "Molunerfinn"
+    ]
+  },
+  {
+    "id": "playnite",
+    "name": "Playnite",
+    "chinese_name": "Playnite 游戏整合库",
+    "owner": "JosefNemec",
+    "repo": "Playnite",
+    "icon": "https://github.com/JosefNemec.png",
+    "icon_bg": "linear-gradient(135deg, #ea580c, #c2410c)",
+    "description": "开源多平台视频游戏库管理器，支持 Steam、Epic、GOG、Xbox 等多平台游戏一键整合。",
+    "category": "games",
+    "category_name": "休闲游戏",
+    "aliases": [
+      "playnite",
+      "游戏库",
+      "游戏管理器",
+      "game launcher",
+      "game library"
+    ],
+    "default_version": "10.37",
+    "license": "MIT",
+    "stars": 19500,
+    "forks": 1500,
+    "is_verified": true,
+    "homepage": "https://playnite.link",
+    "executables": [
+      "Playnite.DesktopApp.exe",
+      "Playnite.exe"
+    ],
+    "publishers": [
+      "Josef Nemec"
+    ]
+  },
+  {
+    "id": "wezterm",
+    "name": "WezTerm",
+    "chinese_name": "WezTerm GPU 终端",
+    "owner": "wez",
+    "repo": "wezterm",
+    "icon": "https://github.com/wez.png",
+    "icon_bg": "linear-gradient(135deg, #6366f1, #4338ca)",
+    "description": "使用 Rust 编写的 GPU 加速跨平台终端模拟器与多路复用器，支持 Lua 全面配置。",
+    "category": "dev",
+    "category_name": "开发编程",
+    "aliases": [
+      "wezterm",
+      "终端",
+      "终端模拟器",
+      "terminal",
+      "gpu terminal"
+    ],
+    "default_version": "20240203-110809-50468022",
+    "license": "MIT",
+    "stars": 17800,
+    "forks": 1100,
+    "is_verified": true,
+    "homepage": "https://wezfurlong.org/wezterm/",
+    "executables": [
+      "wezterm-gui.exe",
+      "wezterm.exe"
+    ],
+    "publishers": [
+      "Wez Furlong"
+    ]
+  },
+  {
+    "id": "telegram-desktop",
+    "name": "Telegram Desktop",
+    "chinese_name": "Telegram 桌面端",
+    "owner": "telegramdesktop",
+    "repo": "tdesktop",
+    "icon": "https://github.com/telegramdesktop.png",
+    "icon_bg": "linear-gradient(135deg, #0ea5e9, #0284c7)",
+    "description": "官方 Telegram 桌面开源客户端，高速、安全、端到端加密支持的即时通讯工具。",
+    "category": "network",
+    "category_name": "网络工具",
+    "aliases": [
+      "telegram",
+      "电报",
+      "tg",
+      "tdesktop",
+      "telegram desktop"
+    ],
+    "default_version": "v5.8.0",
+    "license": "GPL-3.0",
+    "stars": 26500,
+    "forks": 5400,
+    "is_verified": true,
+    "homepage": "https://desktop.telegram.org",
+    "executables": [
+      "Telegram.exe",
+      "telegram.exe"
+    ],
+    "publishers": [
+      "Telegram FZ-LLC",
+      "Telegram"
+    ]
+  },
+  {
+    "id": "oh-my-posh",
+    "name": "Oh My Posh",
+    "chinese_name": "Oh My Posh 终端美化",
+    "owner": "JanDeDobbeleer",
+    "repo": "oh-my-posh",
+    "icon": "https://github.com/JanDeDobbeleer.png",
+    "icon_bg": "linear-gradient(135deg, #ec4899, #be185d)",
+    "description": "跨平台通用 Shell 提示符主题引擎，支持 PowerShell、Bash、Zsh 等，极致美化终端。",
+    "category": "dev",
+    "category_name": "开发编程",
+    "aliases": [
+      "oh-my-posh",
+      "posh",
+      "prompt",
+      "oh my posh",
+      "终端美化"
+    ],
+    "default_version": "v24.16.2",
+    "license": "MIT",
+    "stars": 17500,
+    "forks": 1200,
+    "is_verified": true,
+    "homepage": "https://ohmyposh.dev",
+    "executables": [
+      "oh-my-posh.exe"
+    ],
+    "search_subdirs": [
+      "bin"
+    ],
+    "publishers": [
+      "Jan De Dobbeleer"
+    ]
+  },
+  {
+    "id": "winthumbspreloader",
+    "name": "WinThumbsPreloader",
+    "chinese_name": "WinThumbsPreloader 缩略图预热",
+    "owner": "Bruh0v",
+    "repo": "WinThumbsPreloader",
+    "icon": "https://github.com/Bruh0v.png",
+    "icon_bg": "linear-gradient(135deg, #10b981, #047857)",
+    "description": "开源的 Windows 资源管理器缩略图快速批量生成工具，告别打开文件夹时的白块卡顿。",
+    "category": "system",
+    "category_name": "系统实用",
+    "aliases": [
+      "winthumbspreloader",
+      "缩略图预加载",
+      "缩略图缓存",
+      "thumbnail preloader"
+    ],
+    "default_version": "v1.1.0",
+    "license": "GPL-3.0",
+    "stars": 2300,
+    "forks": 140,
+    "is_verified": true,
+    "homepage": "https://github.com/Bruh0v/WinThumbsPreloader",
+    "executables": [
+      "WinThumbsPreloader.exe"
+    ],
+    "publishers": [
+      "Dmitry Bruhov"
+    ]
+  },
+  {
+    "id": "ripgrep",
+    "name": "ripgrep",
+    "chinese_name": "ripgrep 极速文本搜索",
+    "owner": "BurntSushi",
+    "repo": "ripgrep",
+    "icon": "https://github.com/BurntSushi.png",
+    "icon_bg": "linear-gradient(135deg, #84cc16, #4d7c0f)",
+    "description": "基于 Rust 编写的超高速面向代码的递归行搜索工具，比 grep / ack / ag 更快更智能。",
+    "category": "dev",
+    "category_name": "开发编程",
+    "aliases": [
+      "ripgrep",
+      "rg",
+      "grep",
+      "ripgrep msvc",
+      "快速搜索"
+    ],
+    "default_version": "14.1.0",
+    "license": "MIT",
+    "stars": 46500,
+    "forks": 2200,
+    "is_verified": true,
+    "homepage": "https://github.com/BurntSushi/ripgrep",
+    "executables": [
+      "rg.exe",
+      "ripgrep.exe"
+    ],
+    "publishers": [
+      "BurntSushi"
+    ]
   }
 ]

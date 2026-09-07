@@ -38,6 +38,16 @@ pub struct CatalogItem {
     pub is_verified: bool,
     #[serde(default)]
     pub publisher_fingerprint: Option<String>,
+    #[serde(default)]
+    pub homepage: Option<String>,
+    #[serde(default)]
+    pub executables: Vec<String>,
+    #[serde(default)]
+    pub install_dirs: Vec<String>,
+    #[serde(default)]
+    pub search_subdirs: Vec<String>,
+    #[serde(default)]
+    pub publishers: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -67,6 +77,7 @@ struct GitHubRepoResponse {
     forks_count: Option<u64>,
     language: Option<String>,
     license: Option<GitHubLicense>,
+    homepage: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -172,6 +183,18 @@ impl CatalogService {
 
     pub fn get_catalog_items(&self) -> Vec<CatalogItem> {
         self.items.read().map(|i| i.clone()).unwrap_or_default()
+    }
+
+    pub fn get_catalog_item(&self, id: &str) -> Option<CatalogItem> {
+        self.items
+            .read()
+            .ok()
+            .and_then(|items| {
+                items
+                    .iter()
+                    .find(|i| i.id.eq_ignore_ascii_case(id) || format!("{}/{}", i.owner, i.repo).eq_ignore_ascii_case(id))
+                    .cloned()
+            })
     }
 
     pub fn update_items(&self, new_items: Vec<CatalogItem>) {
@@ -366,8 +389,9 @@ impl CatalogService {
     }
 
     pub fn get_repo_coordinates(&self, id: &str) -> Result<AppRepoCoordinates, String> {
+        let clean = id.trim().to_lowercase();
         let items = self.items.read().unwrap_or_else(|e| e.into_inner());
-        if let Some(item) = items.iter().find(|i| i.id == id) {
+        if let Some(item) = items.iter().find(|i| i.id.to_lowercase() == clean) {
             Ok(AppRepoCoordinates {
                 owner: item.owner.clone(),
                 repo: item.repo.clone(),
@@ -498,6 +522,7 @@ impl CatalogService {
                             installed_version: None,
                             forge: Some("github".to_string()),
                             forge_host: Some("github.com".to_string()),
+                            homepage: None,
                         }
                     })
                         .collect();
@@ -566,6 +591,7 @@ impl CatalogService {
             installed_version: None,
             forge: Some("github".to_string()),
             forge_host: Some("github.com".to_string()),
+            homepage: repo_data.homepage,
         })
     }
 
@@ -610,18 +636,21 @@ impl CatalogService {
             "https://api.github.com/repos/{}/{}/releases/latest",
             owner, repo
         );
-        let resp = client
+        let req = client
             .get(&release_url)
             .headers(headers.clone())
-            .send()
-            .await;
+            .send();
+        let resp = match tokio::time::timeout(std::time::Duration::from_secs(5), req).await {
+            Ok(r) => r.ok(),
+            Err(_) => None,
+        };
 
-        if let Ok(ref res) = resp {
+        if let Some(ref res) = resp {
             crate::notify_rate_limit("github.com", res.headers());
         }
 
         let (release_resp, new_cache) = match resp {
-            Ok(res) if res.status() == reqwest::StatusCode::NOT_MODIFIED => {
+            Some(res) if res.status() == reqwest::StatusCode::NOT_MODIFIED => {
                 // 304 Not Modified: 零配额消耗，直接使用 SQLite 本地缓存
                 if let Some(ref payload) = cached_payload {
                     let parsed: GitHubReleaseResponse = serde_json::from_str(payload)
@@ -631,7 +660,7 @@ impl CatalogService {
                     return Err("304 响应但本地未找到缓存数据".to_string());
                 }
             }
-            Ok(res) if res.status().is_success() => {
+            Some(res) if res.status().is_success() => {
                 let new_etag = res
                     .headers()
                     .get("etag")
@@ -675,6 +704,7 @@ impl CatalogService {
 
         let readme_url = format!("https://api.github.com/repos/{}/{}/readme", owner, repo);
         let mut readme_headers = headers.clone();
+        readme_headers.remove(IF_NONE_MATCH);
         readme_headers.insert(
             ACCEPT,
             HeaderValue::from_static("application/vnd.github.v3.raw"),
@@ -697,7 +727,8 @@ impl CatalogService {
         };
 
         let repo_url = format!("https://api.github.com/repos/{}/{}", owner, repo);
-        let repo_headers = headers.clone();
+        let mut repo_headers = headers.clone();
+        repo_headers.remove(IF_NONE_MATCH);
         let repo_task = async {
             let req = client.get(&repo_url).headers(repo_headers).send();
             match tokio::time::timeout(std::time::Duration::from_secs(4), req).await {
@@ -733,6 +764,21 @@ impl CatalogService {
             .and_then(|l| l.spdx_id.clone())
             .or_else(|| catalog_item.as_ref().map(|i| i.license.clone()))
             .unwrap_or_else(|| "FLOSS".to_string());
+
+        let latest_homepage = repo_info
+            .as_ref()
+            .and_then(|r| r.homepage.clone())
+            .filter(|h| !h.trim().is_empty())
+            .or_else(|| catalog_item.as_ref().and_then(|i| i.homepage.clone()))
+            .filter(|h| !h.trim().is_empty())
+            .map(|h| {
+                let trimmed = h.trim();
+                if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+                    trimmed.to_string()
+                } else {
+                    format!("https://{}", trimmed)
+                }
+            });
 
         // 动态回写更新内存中的 CatalogItem 统计数据，使得列表页卡片上的 Stars/Forks/Version 也同步刷新
         self.update_catalog_item_stats(
@@ -776,12 +822,79 @@ impl CatalogService {
             });
         }
 
-        // 优先将匹配当前操作系统 (Windows) 的包置顶排序
-        releases.sort_by(|a, b| {
-            let a_is_win = if a.os == "windows" { 0 } else { 1 };
-            let b_is_win = if b.os == "windows" { 0 } else { 1 };
-            a_is_win.cmp(&b_is_win)
-        });
+        #[cfg(target_os = "windows")]
+        let target_os = "windows";
+        #[cfg(target_os = "macos")]
+        let target_os = "macos";
+        #[cfg(target_os = "linux")]
+        let target_os = "linux";
+        #[cfg(target_os = "android")]
+        let target_os = "android";
+        #[cfg(not(any(
+            target_os = "windows",
+            target_os = "macos",
+            target_os = "linux",
+            target_os = "android"
+        )))]
+        let target_os = "all";
+
+        #[cfg(target_arch = "x86_64")]
+        let target_arch = "x86_64";
+        #[cfg(target_arch = "aarch64")]
+        let target_arch = "aarch64";
+        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+        let target_arch = "universal";
+
+        let score_asset = |a: &ReleaseAsset| -> i32 {
+            let mut score: i32 = 0;
+            if a.os == target_os {
+                score += 100;
+            } else if a.os == "all" {
+                score += 30;
+            } else {
+                score -= 100;
+            }
+
+            if a.arch == target_arch {
+                score += 50;
+            } else if a.arch == "universal" {
+                score += 25;
+            } else if target_arch == "x86_64" && a.arch == "x86" {
+                score += 10;
+            } else {
+                score -= 50;
+            }
+
+            #[cfg(target_os = "windows")]
+            match a.kind.as_str() {
+                "msi" => score += 20,
+                "setup_exe" => score += 15,
+                "portable_zip" => score += 10,
+                _ => {}
+            }
+
+            #[cfg(target_os = "macos")]
+            match a.kind.as_str() {
+                "dmg" => score += 20,
+                "pkg" => score += 15,
+                "portable_zip" => score += 10,
+                _ => {}
+            }
+
+            #[cfg(target_os = "linux")]
+            match a.kind.as_str() {
+                "appimage" => score += 20,
+                "deb" => score += 15,
+                "rpm" => score += 12,
+                "portable_zip" => score += 10,
+                _ => {}
+            }
+
+            score
+        };
+
+        // 按当前宿主系统和 CPU 架构智能打分降序排列，最优资产置于 index 0
+        releases.sort_by_key(|b| std::cmp::Reverse(score_asset(b)));
 
         // 图标层级决策：
         // 1. 若当前应用已具备已知独立官方图标（如收录库指定或 https:// 开头头像），优先保持该正方形应用图标，避免被 README 宽幅 Banner 误覆盖；
@@ -829,6 +942,7 @@ impl CatalogService {
                     .as_secs() as i64,
             ),
             is_stale_fallback: None,
+            homepage: latest_homepage,
         };
 
         Ok((detail, new_cache))
@@ -1278,53 +1392,73 @@ impl CatalogService {
 
         let mut catalog_matches = Vec::new();
         let mut other_repos = Vec::new();
-        let mut total_starred = 0;
 
         let catalog_list = self.get_catalog_items();
-        let res = client.get(&target_url).headers(headers).send().await;
-        if let Ok(resp) = res {
-            crate::notify_rate_limit("github.com", resp.headers());
-            if resp.status().is_success() {
-                if let Ok(starred_list) = resp.json::<Vec<GitHubRepoResponse>>().await {
-                    total_starred = starred_list.len();
-                    for r in starred_list {
-                        let full_name = r.full_name.clone().unwrap_or_default();
-                        let repo_name = r.name.clone().unwrap_or_default();
+        let resp = match client.get(&target_url).headers(headers).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                return Err(format!(
+                    "连接 GitHub API 失败: {}. 如遇国内网络阻断，请检查网络设置或配置下载加速代理。",
+                    e
+                ));
+            }
+        };
 
-                        if let Some(cat) = catalog_list.iter().find(|c| {
-                            c.id.eq_ignore_ascii_case(&full_name)
-                                || c.repo.eq_ignore_ascii_case(&repo_name)
-                        }) {
-                            catalog_matches.push(cat.to_summary());
-                        } else {
-                            other_repos.push(DeveloperRepoItem {
-                                id: full_name.clone(),
-                                name: repo_name.clone(),
-                                full_name: full_name.clone(),
-                                description: r.description,
-                                html_url: r.html_url.unwrap_or_else(|| format!("https://github.com/{}", full_name)),
-                                stars: r.stargazers_count.unwrap_or(0),
-                                forks: r.forks_count.unwrap_or(0),
-                                language: r.language,
-                                has_releases: false,
-                                in_catalog: false,
-                                latest_release_tag: None,
-                            });
-                        }
-                    }
-                }
+        crate::notify_rate_limit("github.com", resp.headers());
+        let status = resp.status();
+        if !status.is_success() {
+            let code = status.as_u16();
+            if code == 401 {
+                return Err("GitHub 认证失败 (401): 个人访问令牌 (Token) 无效或已过期，请在「设置」中重新配置。".to_string());
+            } else if code == 403 {
+                return Err("GitHub API 限额已耗尽 (403): 触发了未登录 API 每小时 60 次的速率限制。请在「设置」中填入个人 GitHub Token (PAT) 即可免费提升至 5000 次/小时配额。".to_string());
+            } else if code == 404 {
+                let user_hint = username.unwrap_or("当前用户");
+                return Err(format!("未在 GitHub 上找到用户「{}」，请检查用户名拼写是否正确。", user_hint));
+            } else {
+                return Err(format!(
+                    "GitHub API 响应异常 (HTTP {}): {}",
+                    code,
+                    status.canonical_reason().unwrap_or("未知错误")
+                ));
             }
         }
 
-        // 离线或模拟演示兜底：如果远端无星标返回或请求失败，根据 catalog 返回样例匹配
-        if total_starred == 0 && catalog_matches.is_empty() && other_repos.is_empty() {
-            let sample_matches: Vec<AppSummary> = catalog_list
-                .iter()
-                .take(3)
-                .map(|i| i.to_summary())
-                .collect();
-            total_starred = sample_matches.len();
-            catalog_matches = sample_matches;
+        let starred_list = resp
+            .json::<Vec<GitHubRepoResponse>>()
+            .await
+            .map_err(|e| format!("解析 GitHub Starred 列表数据失败: {}", e))?;
+
+        let total_starred = starred_list.len();
+        for r in starred_list {
+            let full_name = r.full_name.clone().unwrap_or_default();
+            let repo_name = r.name.clone().unwrap_or_default();
+
+            // 精准匹配：要求与官方 Catalog 的完整 owner/repo 严格对齐，
+            // 杜绝因用户 Star 了同名第三方 Fork（如 someone/rustdesk）而被错误误判为官方应用
+            if let Some(cat) = catalog_list.iter().find(|c| {
+                let canonical_slug = format!("{}/{}", c.owner, c.repo);
+                c.id.eq_ignore_ascii_case(&full_name)
+                    || canonical_slug.eq_ignore_ascii_case(&full_name)
+            }) {
+                catalog_matches.push(cat.to_summary());
+            } else {
+                other_repos.push(DeveloperRepoItem {
+                    id: full_name.clone(),
+                    name: repo_name.clone(),
+                    full_name: full_name.clone(),
+                    description: r.description,
+                    html_url: r
+                        .html_url
+                        .unwrap_or_else(|| format!("https://github.com/{}", full_name)),
+                    stars: r.stargazers_count.unwrap_or(0),
+                    forks: r.forks_count.unwrap_or(0),
+                    language: r.language,
+                    has_releases: false,
+                    in_catalog: false,
+                    latest_release_tag: None,
+                });
+            }
         }
 
         Ok(StarredSyncResult {
@@ -1363,6 +1497,7 @@ impl CatalogItem {
             installed_version: None,
             forge: Some("github".to_string()),
             forge_host: Some("github.com".to_string()),
+            homepage: self.homepage.clone(),
         }
     }
 }
@@ -1403,11 +1538,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_sync_starred_repos_fallback() {
+    async fn test_sync_starred_repos_empty_username_err() {
         let cat = CatalogService::new();
-        let result = cat.sync_starred_repos(Some("test-user"), None).await.unwrap();
-        assert!(result.total_starred > 0);
-        assert!(!result.catalog_matches.is_empty());
+        let result = cat.sync_starred_repos(Some("   "), None).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("请提供 GitHub 用户名"));
     }
 
     #[test]

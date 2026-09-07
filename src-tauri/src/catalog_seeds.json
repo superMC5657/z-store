@@ -13,7 +13,7 @@
     "latest_version": "1.4.9",
     "changelog": "![image](https://github.com/rustdesk/rustdesk/assets/71636191/83754a64-31b8-47f0-8570-da22207759a9)\r\n\r\n| Architecture | Windows | Ubuntu | Mac | Android | Flatpak | iOS | Web |\r\n|--------------|---------|--------|-----|----------|---------|---------|---------|\r\n| x86-64 (64-bit) | [EXE](https://github.com/rustdesk/rustdesk/releases/download/1.4.9/rustdesk-1.4.9-x86_64.exe) &nbsp; [MSI](https://github.com/rustdesk/rustdesk/releases/download/1.4.9/rustdesk-1.4.9-x86_64.msi) | [Download](https://github.com/rustdesk/rustdesk/releases/download/1.4.9/rustdesk-1.4.9-x86_64.deb) | [Download](https://github.com/rustdesk/rustdesk/releases/download/1.4.9/rustdesk-1.4.9-x86_64.dmg) | [Universal](https://github.com/rustdesk/rustdesk/releases/download/1.4.9/rustdesk-1.4.9-universal-signed.apk) | [Download](https://github.com/rustdesk/rustdesk/releases/download/1.4.9/rustdesk-1.4.9-x86_64.flatpak) |  | [Go](https://rustdesk.com/web) |\r\n| AArch64 (ARM64) | [EXE](https://github.com/rustdesk/rustdesk/releases/download/1.4.9/rustdesk-1.4.9-aarch64.exe) &nbsp; [MSI](https://github.com/rustdesk/rustdesk/releases/download/1.4.9/rustdesk-1.4.9-aarch64.msi) | [Download](https://github.com/rustdesk/rustdesk/releases/download/1.4.9/rustdesk-1.4.9-aarch64.deb) | [Download](https://github.com/rustdesk/rustdesk/releases/download/1.4.9/rustdesk-1.4.9-aarch64.dmg) | [Download](https://github.com/rustdesk/rustdesk/releases/download/1.4.9/rustdesk-1.4.9-aarch64-signed.apk) | [Download](https://github.com/rustdesk/rustdesk/releases/download/1.4.9/rustdesk-1.4.9-aarch64.flatpak) |  [App Store](https://apps.apple.com/us/app/rustdesk-remote-desktop/id1581225015) | |\r\n| ARMv7 (32-bit) |  | [Download](https://github.com/rustdesk/rustdesk/releases/download/1.4.9/rustdesk-1.4.9-armv7-sciter.deb) |  |  [Download](https://github.com/rustdesk/rustdesk/releases/download/1.4.9/rustdesk-1.4.9-armv7-signed.apk) |  |  |\r\n| x86-32 (32-bit) | [EXE](https://github.com/rustdesk/rustdesk/releases/download/1.4.9/rustdesk-1.4.9-x86-sciter.exe) (Legacy)|  |  |  |  |  |\r\n\r\n[![RustDesk Server Pro](https://img.shields.io/badge/RustDesk%20Server%20Pro-Advanced%20Features-blue)](https://rustdesk.com/pricing.html)\r\n\r\n## For more downloads ([Fedora](https://github.com/rustdesk/rustdesk/releases/download/1.4.9/rustdesk-1.4.9-0.x86_64.rpm) / [Arch Linux](https://github.com/rustdesk/rustdesk/releases/download/1.4.9/rustdesk-1.4.9-0-x86_64.pkg.tar.zst) / [Suse](https://github.com/rustdesk/rustdesk/releases/download/1.4.9/rustdesk-1.4.9-0.x86_64-suse.rpm) / [AppImage](https://github.com/rustdesk/rustdesk/releases/download/1.4.9/rustdesk-1.4.9-x86_64.AppImage)): [check below please](#)\r\n\r\n## For the latest features: [check out the nightly build](https://github.com/rustdesk/rustdesk/releases/tag/nightly)\r\n\r\n# Changelog\r\n <details>\r\n <summary>Changelog</summary>\r\n\r\n\r\n# Added\r\n\r\n- [Support controller user attribution in audit logs #15407](https://github.com/rustdesk/rustdesk/pull/15407)\r\n- [Feature: Restore the last viewed monitor on auto reconnect #15441](https://github.com/rustdesk/rustdesk/pull/15441)\r\n- [auto-close terminal tab/window when shell exits #15448](https://github.com/rustdesk/rustdesk/pull/15448)\r\n- [Add authentication details to connection audit #15456](https://github.com/rustdesk/rustdesk/pull/15456)\r\n\r\n# Changes\r\n\r\n- [refact: remove feature cli #15524](https://github.com/rustdesk/rustdesk/pull/15524)\r\n\r\n# Fixes\r\n\r\n- [Fix/session scope permission audit #15469](https://github.com/rustdesk/rustdesk/pull/15469)\r\n- [fix: non-E2EE show dialog #15514](https://github.com/rustdesk/rustdesk/pull/15514)\r\n- [fix(wayland): clipboard, support ext-data-control #15366](https://github.com/rustdesk/rustdesk/pull/15366)\r\n- [refact: file transfer, do this for all conflicts(tasks) #15385](https://github.com/rustdesk/rustdesk/pull/15385)\r\n- [fix(clipboard): unix, refresh cached file size/mtime on re-copy #15392](https://github.com/rustdesk/rustdesk/pull/15392)\r\n- [fix(custom-client): show options, incoming-only #15394](https://github.com/rustdesk/rustdesk/pull/15394)\r\n- [fix(fuse): fuse path broken, since ipc path changed #15406](https://github.com/rustdesk/rustdesk/pull/15406)\r\n- [Tray menu opens on left-click after tray-icon ≥0.17 update (regression from 1.4.6) #15413](https://github.com/rustdesk/rustdesk/pull/15413)\r\n- [fix(android): sync input service state with Flutter #15419](https://github.com/rustdesk/rustdesk/pull/15419)\r\n- [fix(fuse): umount #15426](https://github.com/rustdesk/rustdesk/pull/15426)\r\n- [fix(update): msi, norestart #15440](https://github.com/rustdesk/rustdesk/pull/15440)\r\n- [fix(clipboard): make CLIPRDR format-map growth checked #15493](https://github.com/rustdesk/rustdesk/pull/15493)\r\n\r\n</details>",
     "is_verified": true,
-    "signature_fingerprint": "E8:7A:B4:9C:3D:12:FA:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD",
+    "signature_fingerprint": "57:B6:08:5F:D9:58:23:77:13:C2:13:79:2F:94:AE:CE:62:B1:5C:51:94:C8:A1:A2:B6:A4:9A:B9:C2:CB:32:8A",
     "readme_markdown": "# RustDesk\n\n开箱即用的开源远程桌面控制客户端，端到端加密，替代 TeamViewer 与 AnyDesk。\n\n### 核心特性与项目信息\n- **维护团队 / 开发者**: [rustdesk](https://github.com/rustdesk)\n- **开源代码仓库**: [https://github.com/rustdesk/rustdesk](https://github.com/rustdesk/rustdesk)\n- **开源许可证**: AGPL-3.0\n- **社区影响力**: ★ 76800 Stars · 10200 Forks\n- **安全认证**: 已通过 Z-Store 官方所有权认证与签名背书\n\n---\n> 💡 **Z-Store 安全提示**: 本应用由开源社区驱动，已完整收录于本地持久数据库中，点击可 0ms 瞬间打开与极速安装。点击右上角“刷新”按钮可向远程同步最新 Releases 与实时变更日志。\n",
     "releases": [
       {
@@ -254,7 +254,8 @@
     "category": "system",
     "category_name": "系统实用",
     "forge": "github",
-    "forge_host": "github.com"
+    "forge_host": "github.com",
+    "homepage": "https://rustdesk.com"
   },
   {
     "id": "localsend",
@@ -448,7 +449,8 @@
     "category": "network",
     "category_name": "网络工具",
     "forge": "github",
-    "forge_host": "github.com"
+    "forge_host": "github.com",
+    "homepage": "https://localsend.org"
   },
   {
     "id": "vlc",
@@ -480,7 +482,8 @@
     "category": "media",
     "category_name": "影音视听",
     "forge": "github",
-    "forge_host": "github.com"
+    "forge_host": "github.com",
+    "homepage": "https://www.videolan.org/vlc/"
   },
   {
     "id": "obs-studio",
@@ -629,7 +632,8 @@
     "category": "media",
     "category_name": "影音视听",
     "forge": "github",
-    "forge_host": "github.com"
+    "forge_host": "github.com",
+    "homepage": "https://obsproject.com"
   },
   {
     "id": "keepassxc",
@@ -895,7 +899,8 @@
     "category": "security",
     "category_name": "安全隐私",
     "forge": "github",
-    "forge_host": "github.com"
+    "forge_host": "github.com",
+    "homepage": "https://keepassxc.org"
   },
   {
     "id": "vscodium",
@@ -2430,7 +2435,8 @@
     "category": "dev",
     "category_name": "开发工具",
     "forge": "github",
-    "forge_host": "github.com"
+    "forge_host": "github.com",
+    "homepage": "https://vscodium.com"
   },
   {
     "id": "zed",
@@ -2579,7 +2585,8 @@
     "category": "dev",
     "category_name": "开发工具",
     "forge": "github",
-    "forge_host": "github.com"
+    "forge_host": "github.com",
+    "homepage": "https://zed.dev"
   },
   {
     "id": "flameshot",
@@ -2890,7 +2897,8 @@
     "category": "graphics",
     "category_name": "图形设计",
     "forge": "github",
-    "forge_host": "github.com"
+    "forge_host": "github.com",
+    "homepage": "https://flameshot.org"
   },
   {
     "id": "sharex",
@@ -2931,7 +2939,8 @@
     "category": "graphics",
     "category_name": "图形设计",
     "forge": "github",
-    "forge_host": "github.com"
+    "forge_host": "github.com",
+    "homepage": "https://getsharex.com"
   },
   {
     "id": "blender",
@@ -2963,7 +2972,8 @@
     "category": "graphics",
     "category_name": "图形设计",
     "forge": "github",
-    "forge_host": "github.com"
+    "forge_host": "github.com",
+    "homepage": "https://www.blender.org"
   },
   {
     "id": "joplin",
@@ -3166,7 +3176,8 @@
     "category": "office",
     "category_name": "效率办公",
     "forge": "github",
-    "forge_host": "github.com"
+    "forge_host": "github.com",
+    "homepage": "https://joplinapp.org"
   },
   {
     "id": "logseq",
@@ -3432,7 +3443,8 @@
     "category": "office",
     "category_name": "效率办公",
     "forge": "github",
-    "forge_host": "github.com"
+    "forge_host": "github.com",
+    "homepage": "https://logseq.com"
   },
   {
     "id": "koreader",
@@ -3662,7 +3674,8 @@
     "category": "reading",
     "category_name": "学习阅读",
     "forge": "github",
-    "forge_host": "github.com"
+    "forge_host": "github.com",
+    "homepage": "https://koreader.rocks"
   },
   {
     "id": "calibre",
@@ -3730,7 +3743,8 @@
     "category": "reading",
     "category_name": "学习阅读",
     "forge": "github",
-    "forge_host": "github.com"
+    "forge_host": "github.com",
+    "homepage": "https://calibre-ebook.com"
   },
   {
     "id": "clash-verge-rev",
@@ -3960,7 +3974,8 @@
     "category": "network",
     "category_name": "网络工具",
     "forge": "github",
-    "forge_host": "github.com"
+    "forge_host": "github.com",
+    "homepage": "https://clash-verge-rev.github.io"
   },
   {
     "id": "transmission",
@@ -4082,7 +4097,8 @@
     "category": "network",
     "category_name": "网络工具",
     "forge": "github",
-    "forge_host": "github.com"
+    "forge_host": "github.com",
+    "homepage": "https://transmissionbt.com"
   },
   {
     "id": "7-zip",
@@ -4258,7 +4274,8 @@
     "category": "system",
     "category_name": "系统实用",
     "forge": "github",
-    "forge_host": "github.com"
+    "forge_host": "github.com",
+    "homepage": "https://www.7-zip.org"
   },
   {
     "id": "powertoys",
@@ -4344,7 +4361,8 @@
     "category": "system",
     "category_name": "系统实用",
     "forge": "github",
-    "forge_host": "github.com"
+    "forge_host": "github.com",
+    "homepage": "https://learn.microsoft.com/windows/powertoys/"
   },
   {
     "id": "quicklook",
@@ -4471,7 +4489,8 @@
     "category": "system",
     "category_name": "系统实用",
     "forge": "github",
-    "forge_host": "github.com"
+    "forge_host": "github.com",
+    "homepage": "https://www.flowlauncher.com"
   },
   {
     "id": "handbrake",
@@ -4728,7 +4747,8 @@
     "category": "media",
     "category_name": "影音视听",
     "forge": "github",
-    "forge_host": "github.com"
+    "forge_host": "github.com",
+    "homepage": "https://handbrake.fr"
   },
   {
     "id": "bitwarden",
@@ -4769,7 +4789,8 @@
     "category": "security",
     "category_name": "安全隐私",
     "forge": "github",
-    "forge_host": "github.com"
+    "forge_host": "github.com",
+    "homepage": "https://bitwarden.com"
   },
   {
     "id": "neovim",
@@ -4900,7 +4921,8 @@
     "category": "ops",
     "category_name": "极客运维",
     "forge": "github",
-    "forge_host": "github.com"
+    "forge_host": "github.com",
+    "homepage": "https://neovim.io"
   },
   {
     "id": "alacritty",
@@ -5049,7 +5071,8 @@
     "category": "ops",
     "category_name": "极客运维",
     "forge": "github",
-    "forge_host": "github.com"
+    "forge_host": "github.com",
+    "homepage": "https://alacritty.org"
   },
   {
     "id": "wireshark",
@@ -5081,7 +5104,8 @@
     "category": "security",
     "category_name": "安全隐私",
     "forge": "github",
-    "forge_host": "github.com"
+    "forge_host": "github.com",
+    "homepage": "https://www.wireshark.org"
   },
   {
     "id": "hoppscotch",
@@ -5113,7 +5137,8 @@
     "category": "dev",
     "category_name": "开发工具",
     "forge": "github",
-    "forge_host": "github.com"
+    "forge_host": "github.com",
+    "homepage": "https://hoppscotch.com"
   },
   {
     "id": "podman-desktop",
@@ -5541,7 +5566,8 @@
     "category": "ops",
     "category_name": "极客运维",
     "forge": "github",
-    "forge_host": "github.com"
+    "forge_host": "github.com",
+    "homepage": "https://podman-desktop.io"
   },
   {
     "id": "retroarch",
@@ -5573,7 +5599,8 @@
     "category": "games",
     "category_name": "休闲游戏",
     "forge": "github",
-    "forge_host": "github.com"
+    "forge_host": "github.com",
+    "homepage": "https://www.retroarch.com"
   },
   {
     "id": "openttd",
@@ -5605,7 +5632,8 @@
     "category": "games",
     "category_name": "休闲游戏",
     "forge": "github",
-    "forge_host": "github.com"
+    "forge_host": "github.com",
+    "homepage": "https://www.openttd.org"
   },
   {
     "id": "mindustry",
@@ -5664,6 +5692,7 @@
     "category": "games",
     "category_name": "休闲游戏",
     "forge": "github",
-    "forge_host": "github.com"
+    "forge_host": "github.com",
+    "homepage": "https://mindustrygame.github.io"
   }
 ]
