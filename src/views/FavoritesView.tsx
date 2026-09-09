@@ -97,21 +97,21 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
             style={{ padding: '7px 16px', fontSize: '13px', fontWeight: 600 }}
             onClick={() => setActiveTab('local')}
           >
-            ⭐️ 收藏 ({favoriteIds.size})
+            🔖 本地收藏 ({favoriteIds.size})
           </button>
           <button
             className={`btn-fluent ${activeTab === 'watched' ? 'btn-primary' : 'btn-secondary'}`}
             style={{ padding: '7px 16px', fontSize: '13px', fontWeight: 600 }}
             onClick={() => setActiveTab('watched')}
           >
-            👁 关注 ({watchedSet.size})
+            👁 关注更新 ({watchedSet.size})
           </button>
           <button
             className={`btn-fluent ${activeTab === 'starred' ? 'btn-primary' : 'btn-secondary'}`}
             style={{ padding: '7px 16px', fontSize: '13px', fontWeight: 600 }}
             onClick={() => setActiveTab('starred')}
           >
-            🌟 GitHub Starred 仓库同步
+            🌟 GitHub Star 同步
           </button>
         </div>
         {activeTab !== 'starred' && (

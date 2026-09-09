@@ -95,11 +95,11 @@ export const AppCard: React.FC<AppCardProps> = ({
               e.stopPropagation();
               onToggleFavorite(app.id);
             }}
-            title={isFavorite ? '取消收藏' : '添加至收藏夹'}
-            aria-label={isFavorite ? '取消收藏' : '添加至收藏夹'}
+            title={isFavorite ? '已加入应用内收藏（存入本地数据库 · 点击取消）' : '应用内收藏（保存至本机数据库）'}
+            aria-label={isFavorite ? '取消应用内收藏' : '添加至应用内收藏'}
           >
             <svg width="15" height="15" viewBox="0 0 24 24" fill={isFavorite ? '#eab308' : 'none'} stroke={isFavorite ? '#eab308' : 'currentColor'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+              <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
             </svg>
           </button>
         )}

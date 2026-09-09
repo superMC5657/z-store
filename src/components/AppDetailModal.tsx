@@ -446,7 +446,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
           <div className="modal-actions-header" style={{ position: 'absolute', top: '16px', right: '16px', display: 'flex', gap: '8px', zIndex: 10 }}>
             {onRefresh && (
               <button
-                className={`modal-close-btn ${effectiveRefreshing ? 'btn-refreshing' : ''}`}
+                className={`modal-header-btn ${effectiveRefreshing ? 'btn-refreshing' : ''}`}
                 onClick={handleTriggerRefresh}
                 disabled={effectiveRefreshing}
                 aria-label="强制从远端刷新应用信息与最新发布"

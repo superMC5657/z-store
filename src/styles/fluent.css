@@ -1655,6 +1655,29 @@ body {
   transform: scale(1.12) rotate(90deg);
 }
 
+.modal-header-btn {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border-acrylic);
+  background: var(--bg-acrylic);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--shadow-rest);
+  transition: all 0.22s var(--ease-spring);
+}
+
+.modal-header-btn:hover {
+  background: var(--bg-acrylic-hover);
+  color: var(--text-primary);
+  border-color: var(--border-highlight);
+  transform: scale(1.1);
+}
+
 .modal-app-icon {
   width: 72px;
   height: 72px;
