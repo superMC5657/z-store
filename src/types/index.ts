@@ -84,6 +84,8 @@ export interface InstalledApp {
   asset_name: string;
   asset_sha256: string;
   uninstall_command?: string;
+  icon?: string;
+  icon_bg?: string;
 }
 
 export interface MirrorNodeStatus {
@@ -106,6 +108,8 @@ export interface UpdateItem {
   current_version: string;
   latest_version: string;
   changelog: string;
+  icon?: string;
+  icon_bg?: string;
 }
 
 export interface DownloadProgressPayload {
