@@ -1846,7 +1846,7 @@ body {
   background: var(--bg-acrylic);
   border: 1px solid var(--border-acrylic);
   border-radius: var(--radius-md);
-  padding: 18px 22px;
+  padding: 16px 20px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1855,15 +1855,87 @@ body {
   box-shadow: var(--shadow-rest), inset 0 1px 0 var(--border-highlight);
 }
 
+.install-action-left {
+  flex: 1;
+  min-width: 0;
+}
+
 .install-asset-label {
   font-size: 13px;
   color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .install-asset-name {
   font-weight: 600;
   color: var(--text-primary);
   margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.install-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.install-action-buttons .btn-fluent {
+  white-space: nowrap;
+  padding: 6px 14px;
+  font-size: 13px;
+  height: 34px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.btn-danger {
+  background: rgba(239, 68, 68, 0.08);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.28);
+}
+
+.btn-danger:hover {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: #ef4444;
+  color: #f87171;
+  transform: translateY(-1px);
+}
+
+.btn-danger-confirm {
+  background: #ef4444 !important;
+  color: #ffffff !important;
+  border-color: #dc2626 !important;
+  animation: pulseDanger 1.5s infinite;
+}
+
+.btn-danger-confirm:hover {
+  background: #dc2626 !important;
+}
+
+@keyframes pulseDanger {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(239, 68, 68, 0);
+  }
+}
+
+@media (max-width: 680px) {
+  .install-action-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+  }
+  .install-action-buttons {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
 }
 
 .install-progress-bar-container {

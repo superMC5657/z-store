@@ -761,8 +761,21 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
           )}
           {/* Action Card */}
           <div className="install-action-bar">
-            <div>
-              <div className="install-asset-label">
+            <div className="install-action-left">
+              <div
+                className="install-asset-label"
+                title={
+                  app.isLoading && (!releases || releases.length === 0)
+                    ? '正在同步 GitHub Release 最新发布产物...'
+                    : isInstalled
+                    ? isManaged
+                      ? '状态：已安装就绪 (Z-Store 已纳管)'
+                      : '状态：系统已安装就绪 (未纳入当前管理)'
+                    : selectedAssetName
+                    ? `用户指定安装包 (${primaryAsset?.os} · ${primaryAsset?.arch})`
+                    : `建议安装版本 (${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch} 自适应匹配)`
+                }
+              >
                 {app.isLoading && (!releases || releases.length === 0)
                   ? '正在同步 GitHub Release 最新发布产物...'
                   : isInstalled
@@ -773,7 +786,10 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   ? `用户指定安装包 (${primaryAsset?.os} · ${primaryAsset?.arch})`
                   : `建议安装版本 (${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch} 自适应匹配)`}
               </div>
-              <div className="install-asset-name">
+              <div
+                className="install-asset-name"
+                title={primaryAsset ? primaryAsset.name : `${app.name} 最新发布包`}
+              >
                 {app.isLoading && (!releases || releases.length === 0) && showSkeleton ? (
                   <div className="skeleton-box" style={{ width: '240px', height: '18px', margin: '4px 0' }} />
                 ) : primaryAsset ? (
@@ -826,9 +842,10 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               )}
             </div>
 
-            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <div className="install-action-buttons">
               {releases && releases.length > 1 && (
                 <button
+                  type="button"
                   className="btn-fluent btn-secondary"
                   onClick={() => setShowAllAssets(!showAllAssets)}
                   style={{ fontSize: '13px' }}
@@ -838,7 +855,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               )}
 
               {isInstalled ? (
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <>
                   {!isManaged ? (
                     <>
                       {onManageApp && (
@@ -847,7 +864,6 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                           className="btn-fluent btn-secondary"
                           style={{
                             fontSize: '13px',
-                            padding: '6px 14px',
                             fontWeight: 600,
                             color: 'var(--brand-primary)',
                             borderColor: 'var(--border-nav-active)',
@@ -870,7 +886,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                       <button
                         type="button"
                         className="btn-fluent btn-secondary"
-                        style={{ fontSize: '13px', padding: '6px 12px' }}
+                        style={{ fontSize: '13px' }}
                         onClick={handleAction}
                         title="通过 Z-Store 重新下载安装最新版本或覆盖安装"
                       >
@@ -883,7 +899,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                         <button
                           type="button"
                           className={`btn-fluent ${confirmingUnmanage ? 'btn-danger-confirm' : 'btn-secondary'}`}
-                          style={{ fontSize: '13px', padding: '6px 12px' }}
+                          style={{ fontSize: '13px' }}
                           onClick={async () => {
                             if (confirmingUnmanage) {
                               await onUnmanage(app.id);
@@ -904,7 +920,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                         <button
                           type="button"
                           className={`btn-fluent ${confirmingUninstall ? 'btn-danger-confirm' : 'btn-danger'}`}
-                          style={{ fontSize: '13px', padding: '6px 12px' }}
+                          style={{ fontSize: '13px' }}
                           onClick={async () => {
                             if (confirmingUninstall) {
                               await onUninstall(app.id);
@@ -927,17 +943,18 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                     type="button"
                     className="btn-fluent btn-primary"
                     onClick={() => onLaunch(app.id)}
-                    style={{ minWidth: '110px', fontWeight: 600 }}
+                    style={{ fontWeight: 600 }}
                   >
                     🚀 打开应用
                   </button>
-                </div>
+                </>
               ) : (
                 <button
+                  type="button"
                   className="btn-fluent btn-primary"
                   onClick={handleAction}
                   disabled={effectiveIsInstalling || Boolean(app.isLoading && (!releases || releases.length === 0))}
-                  style={{ minWidth: '130px', fontWeight: 600, opacity: app.isLoading && (!releases || releases.length === 0) ? 0.75 : 1 }}
+                  style={{ minWidth: '120px', fontWeight: 600, opacity: app.isLoading && (!releases || releases.length === 0) ? 0.75 : 1 }}
                 >
                   {app.isLoading && (!releases || releases.length === 0) ? (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
