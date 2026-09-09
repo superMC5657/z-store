@@ -94,11 +94,22 @@ pub async fn probe_github_rate_limit(token: Option<&str>) {
     }
 }
 
+static APP_DATA_DIR: OnceLock<std::path::PathBuf> = OnceLock::new();
+
 pub fn get_app_data_dir() -> std::path::PathBuf {
+    if let Some(dir) = APP_DATA_DIR.get() {
+        return dir.clone();
+    }
+    resolve_default_app_data_dir()
+}
+
+pub fn resolve_default_app_data_dir() -> std::path::PathBuf {
+    const IDENTIFIER: &str = "com.zstore.app";
+
     #[cfg(target_os = "windows")]
     {
-        if let Ok(app_data) = std::env::var("LOCALAPPDATA") {
-            return std::path::PathBuf::from(app_data).join("ZStore");
+        if let Ok(app_data) = std::env::var("APPDATA") {
+            return std::path::PathBuf::from(app_data).join(IDENTIFIER);
         }
     }
     #[cfg(target_os = "macos")]
@@ -107,25 +118,62 @@ pub fn get_app_data_dir() -> std::path::PathBuf {
             return std::path::PathBuf::from(home)
                 .join("Library")
                 .join("Application Support")
-                .join("ZStore");
+                .join(IDENTIFIER);
         }
     }
     #[cfg(target_os = "linux")]
     {
         if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
-            return std::path::PathBuf::from(xdg).join("z-store");
+            return std::path::PathBuf::from(xdg).join(IDENTIFIER);
         } else if let Ok(home) = std::env::var("HOME") {
             return std::path::PathBuf::from(home)
                 .join(".local")
                 .join("share")
-                .join("z-store");
+                .join(IDENTIFIER);
         }
     }
 
     if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
-        std::path::PathBuf::from(home).join(".z-store")
+        std::path::PathBuf::from(home).join(format!(".{}", IDENTIFIER))
     } else {
-        std::env::temp_dir().join("ZStore")
+        std::env::temp_dir().join(IDENTIFIER)
+    }
+}
+
+fn migrate_legacy_data_dir(target_dir: &std::path::Path) {
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+            let legacy_dir = std::path::PathBuf::from(local_app_data).join("ZStore");
+            if legacy_dir.exists() && legacy_dir != target_dir {
+                let target_db = target_dir.join("z_store.db");
+                if !target_db.exists() {
+                    for file_name in &["z_store.db", "z_store.db-wal", "z_store.db-shm", "zstore.db"] {
+                        let legacy_file = legacy_dir.join(file_name);
+                        let target_file = target_dir.join(file_name);
+                        if legacy_file.exists() && !target_file.exists() {
+                            let _ = std::fs::copy(&legacy_file, &target_file);
+                        }
+                    }
+                }
+                let legacy_icons = legacy_dir.join("icons");
+                let target_icons = target_dir.join("icons");
+                if legacy_icons.is_dir() && !target_icons.exists() {
+                    let _ = std::fs::create_dir_all(&target_icons);
+                    if let Ok(entries) = std::fs::read_dir(&legacy_icons) {
+                        for entry in entries.flatten() {
+                            let src = entry.path();
+                            if src.is_file() {
+                                let dst = target_icons.join(entry.file_name());
+                                if !dst.exists() {
+                                    let _ = std::fs::copy(&src, &dst);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -249,82 +297,8 @@ mod proxy_tests {    use super::normalize_windows_proxy_server;
         assert_eq!(normalize_windows_proxy_server("notaproxy"), None);
         assert_eq!(normalize_windows_proxy_server("http=;https="), None);
     }
-
-    #[test]
-    fn test_normalize_forward_proxy() {
-        use super::normalize_forward_proxy;
-        // 空输入 = 清空
-        assert_eq!(normalize_forward_proxy(""), Ok(None));
-        assert_eq!(normalize_forward_proxy("   "), Ok(None));
-        // 裸 host:port 默认 http
-        assert_eq!(
-            normalize_forward_proxy("127.0.0.1:7890"),
-            Ok(Some("http://127.0.0.1:7890/".to_string()))
-        );
-        // socks 形态保留（非标准 scheme，序列化不补斜杠）
-        assert_eq!(
-            normalize_forward_proxy("socks5://127.0.0.1:7890"),
-            Ok(Some("socks5://127.0.0.1:7890".to_string()))
-        );
-        // 非法输入给原因
-        assert!(normalize_forward_proxy("notaproxy").is_err());
-        assert!(normalize_forward_proxy("http://127.0.0.1").is_err());
-        assert!(normalize_forward_proxy("ftp://127.0.0.1:21").is_err());
-    }
 }
 
-/// 出站代理（登录与 API 直连共用）的设置项键。
-pub const FORWARD_PROXY_SETTING: &str = "http_proxy_url";
-
-/// 校验并归一化用户填写的出站代理（纯函数，可单元测试）。
-/// 接受 `host:port`、`http(s)://host:port`、`socks5(h)://host:port`；
-/// 空输入返回 `Ok(None)`（表示清空，回退系统代理/直连）；非法返回 Err(原因)。
-pub fn normalize_forward_proxy(raw: &str) -> Result<Option<String>, String> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return Ok(None);
-    }
-    let with_scheme = if trimmed.contains("://") {
-        trimmed.to_string()
-    } else {
-        format!("http://{}", trimmed)
-    };
-    let url = reqwest::Url::parse(&with_scheme)
-        .map_err(|_| format!("代理地址无法解析：{}", trimmed))?;
-    match url.scheme() {
-        "http" | "https" | "socks5" | "socks5h" | "socks4" | "socks4a" => {}
-        other => {
-            return Err(format!(
-                "不支持的代理协议：{}（仅支持 http/https/socks5）",
-                other
-            ))
-        }
-    }
-    if url.host_str().map(|h| h.is_empty()).unwrap_or(true) {
-        return Err("代理地址缺少主机名".to_string());
-    }
-    if url.port().is_none() {
-        return Err("代理地址缺少端口，如 127.0.0.1:7890".to_string());
-    }
-    Ok(Some(url.to_string()))
-}
-
-/// 将出站代理应用到进程环境变量（reqwest 默认读取，全部请求即时生效，无需重启）。
-/// `None` 表示清空，回退系统代理/直连（Windows 下重新读取注册表系统代理）。
-pub fn apply_forward_proxy_env(url: Option<&str>) {
-    match url {
-        Some(u) if !u.trim().is_empty() => {
-            std::env::set_var("http_proxy", u.trim());
-            std::env::set_var("https_proxy", u.trim());
-        }
-        _ => {
-            std::env::remove_var("http_proxy");
-            std::env::remove_var("https_proxy");
-            #[cfg(target_os = "windows")]
-            init_windows_system_proxy();
-        }
-    }
-}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -333,18 +307,12 @@ pub fn run() {
 
     let db_dir = get_app_data_dir();
     let _ = std::fs::create_dir_all(&db_dir);
+    migrate_legacy_data_dir(&db_dir);
     let db_path = db_dir.join("z_store.db");
 
     let db = Database::open(&db_path)
         .or_else(|_| Database::open_in_memory())
         .expect("failed to init database");
-
-    // 出站代理：用户配置优先，缺省回退系统代理 env/直连。
-    if let Ok(Some(saved_proxy)) = db.get_setting(FORWARD_PROXY_SETTING) {
-        if let Ok(Some(url)) = normalize_forward_proxy(&saved_proxy) {
-            apply_forward_proxy_env(Some(&url));
-        }
-    }
 
     let saved_token = db
         .get_setting(crate::oauth::SETTING_OAUTH_TOKEN)
@@ -391,6 +359,10 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(state)
         .setup(move |app| {
+            use tauri::Manager;
+            if let Ok(data_dir) = app.path().app_data_dir() {
+                let _ = APP_DATA_DIR.set(data_dir);
+            }
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 use tauri::Emitter;
@@ -440,8 +412,6 @@ pub fn run() {
             commands::toggle_favorite,
             commands::ping_mirrors,
             commands::test_proxy,
-            commands::set_forward_proxy,
-            commands::test_forward_proxy,
             commands::get_app_readme,
             commands::get_catalog_count,
             commands::scan_and_match_local_apps,
@@ -492,4 +462,16 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resolve_default_app_data_dir() {
+        let dir = resolve_default_app_data_dir();
+        let s = dir.to_string_lossy();
+        assert!(s.ends_with("com.zstore.app") || s.ends_with(".com.zstore.app"));
+    }
 }

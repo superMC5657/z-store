@@ -11,7 +11,6 @@ interface SettingsViewProps {
   onPingMirrors?: () => void;
   theme: 'light' | 'dark' | 'system';
   onSetTheme: (theme: 'light' | 'dark' | 'system') => void;
-  onExportApps: () => void;
   onExportAppsJson: () => void;
   settings: AppSettings;
   onUpdateSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
@@ -27,7 +26,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onPingMirrors: _onPingMirrors,
   theme,
   onSetTheme,
-  onExportApps,
   onExportAppsJson,
   settings,
   onUpdateSetting,
@@ -51,15 +49,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     badge: string;
   } | null>(null);
   const [proxySavedFeedback, setProxySavedFeedback] = useState<string | null>(null);
-  // 出站代理（登录与 API 直连共用；区别于上面的下载加速前缀）
-  const [fwdProxyInput, setFwdProxyInput] = useState('');
-  const [isTestingFwdProxy, setIsTestingFwdProxy] = useState(false);
-  const [fwdProxyResult, setFwdProxyResult] = useState<{
-    success: boolean;
-    latency_ms: number;
-    message: string;
-  } | null>(null);
-  const [fwdProxyFeedback, setFwdProxyFeedback] = useState<string | null>(null);
+
   const DEFAULT_CATALOG_URL = 'https://gh-proxy.com/https://raw.githubusercontent.com/supermc/z-store/main/src-tauri/src/catalog.json';
   const [catalogSourceUrl, setCatalogSourceUrl] = useState(
     settings.catalog_source_url && !settings.catalog_source_url.includes('gitmirror.com')
@@ -193,46 +183,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setTimeout(() => setProxySavedFeedback(null), 3500);
   };
 
-  // 出站代理：预填已保存值
-  useEffect(() => {
-    api.getSettings().then((s) => {
-      const v = s['http_proxy_url'];
-      if (typeof v === 'string' && v.trim()) {
-        setFwdProxyInput(v.trim());
-      }
-    }).catch(() => {
-      // ignore：保持留空直连
-    });
-  }, []);
-
-  const handleTestFwdProxy = async () => {
-    setIsTestingFwdProxy(true);
-    setFwdProxyResult(null);
-    try {
-      const res = await api.testForwardProxy(fwdProxyInput.trim());
-      setFwdProxyResult(res);
-    } catch (e) {
-      setFwdProxyResult({
-        success: false,
-        latency_ms: 0,
-        message: '测试失败: ' + String(e),
-      });
-    } finally {
-      setIsTestingFwdProxy(false);
-    }
-  };
-
-  const handleSaveFwdProxy = async () => {
-    try {
-      await api.setForwardProxy(fwdProxyInput.trim());
-      const cleared = !fwdProxyInput.trim();
-      setFwdProxyFeedback(cleared ? '✅ 已清空出站代理，回退系统代理/直连' : '✅ 出站代理已保存并即时生效（登录与 API）');
-      triggerChangeFeedback('forward_proxy', cleared ? '✓ 出站代理已清空' : '✓ 出站代理已生效');
-    } catch (e) {
-      setFwdProxyFeedback('❌ 保存失败: ' + String(e));
-    }
-    setTimeout(() => setFwdProxyFeedback(null), 3500);
-  };
 
 
   const handleSelectTheme = (t: 'light' | 'dark' | 'system') => {
@@ -267,10 +217,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     onUpdateSetting('watch_notify_frequency', id);
   };
 
-  const handleExportMarkdown = () => {
-    onExportApps();
-    triggerChangeFeedback('export', '✓ 已复制 Markdown 清单到剪贴板');
-  };
 
   const handleExportJson = () => {
     onExportAppsJson();
@@ -721,96 +667,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
-        <div className={`settings-row ${highlightRow === 'forward_proxy' ? 'row-highlight' : ''}`} style={{ flexDirection: 'column', alignItems: 'stretch', gap: '12px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div className="settings-row-info">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontWeight: 600 }}>🌐 出站代理（登录与 API）</span>
-                {activeNotice?.key === 'forward_proxy' && (
-                  <span className="setting-applied-badge">{activeNotice.text}</span>
-                )}
-              </div>
-              <span className="settings-row-desc">
-                留空为直连/跟随系统代理；github.com 连不通（如登录轮询失败）时填，保存即时生效
-              </span>
-            </div>
-            {fwdProxyResult && (
-              <span
-                style={{
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: !fwdProxyResult.success ? '#ef4444' : fwdProxyResult.latency_ms < 400 ? '#10b981' : fwdProxyResult.latency_ms < 1000 ? '#f59e0b' : '#ea580c',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                <span>{fwdProxyResult.success ? '🟢' : '🔴'}</span>
-                <span>{fwdProxyResult.message}</span>
-              </span>
-            )}
-          </div>
-
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-            <input
-              type="text"
-              className={`settings-input ${highlightRow === 'forward_proxy' ? 'input-highlight' : ''}`}
-              style={{ flex: 1, fontFamily: 'monospace', fontSize: '13px' }}
-              value={fwdProxyInput}
-              onChange={(e) => setFwdProxyInput(e.target.value)}
-              placeholder="如 http://127.0.0.1:7890 或 socks5://127.0.0.1:7890"
-            />
-            <button
-              className="btn-fluent btn-secondary"
-              style={{ fontSize: '12px', padding: '6px 16px', whiteSpace: 'nowrap' }}
-              onClick={handleTestFwdProxy}
-              disabled={isTestingFwdProxy}
-            >
-              {isTestingFwdProxy ? '正在测试...' : '测试连通性'}
-            </button>
-            <button
-              className="btn-fluent btn-primary"
-              style={{ fontSize: '12px', padding: '6px 16px', whiteSpace: 'nowrap' }}
-              onClick={handleSaveFwdProxy}
-            >
-              保存配置
-            </button>
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: '20px' }}>
-            {fwdProxyFeedback ? (
-              <span style={{ fontSize: '12px', color: '#10b981', fontWeight: 500 }}>
-                {fwdProxyFeedback}
-              </span>
-            ) : (
-              <span style={{ fontSize: '12px', color: 'var(--text-muted, #94a3b8)' }}>
-                当前生效: {!fwdProxyInput.trim() ? '🟢 直连 / 跟随系统代理' : `🌐 出站代理: ${fwdProxyInput.trim()}`}
-              </span>
-            )}
-            {fwdProxyInput.trim() && (
-              <button
-                type="button"
-                className="btn-fluent btn-secondary"
-                style={{ fontSize: '11px', padding: '2px 8px', color: '#ef4444' }}
-                onClick={async () => {
-                  setFwdProxyInput('');
-                  try {
-                    await api.setForwardProxy('');
-                    setFwdProxyFeedback('✅ 已清空出站代理，回退系统代理/直连');
-                    triggerChangeFeedback('forward_proxy', '✓ 出站代理已清空');
-                  } catch (e) {
-                    setFwdProxyFeedback('❌ 清空失败: ' + String(e));
-                  }
-                  setTimeout(() => setFwdProxyFeedback(null), 3500);
-                }}
-              >
-                清空代理
-              </button>
-            )}
-          </div>
-        </div>
-
         <div className={`settings-row ${highlightRow === 'catalog_source' || highlightRow === 'catalog_sync' ? 'row-highlight' : ''}`} style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
             <div className="settings-row-info">
@@ -914,29 +770,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <div className={`settings-row ${highlightRow === 'export' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 600 }}>软件资产清单双格式导出</span>
+              <span style={{ fontWeight: 600 }}>软件资产清单导出</span>
               {activeNotice?.key === 'export' && (
                 <span className="setting-applied-badge">{activeNotice.text}</span>
               )}
             </div>
             <span className="settings-row-desc">
               {typeof installedCount === 'number' && installedCount > 0
-                ? `已纳管 ${installedCount} 款软件，支持一键导出 Markdown 报告或 JSON 备份`
-                : 'Markdown 报告或 JSON 备份，便于换机与资产迁移'}
+                ? `已纳管 ${installedCount} 款软件，支持导出规范 JSON 格式备份文件`
+                : '导出已安装软件资产清单为 JSON 备份文件，便于换机与资产迁移'}
             </span>
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
             <button
-              className="btn-fluent btn-secondary"
-              onClick={handleExportMarkdown}
-              style={{ fontSize: '12px', padding: '6px 14px' }}
-            >
-              📋 导出 Markdown 清单
-            </button>
-            <button
               className="btn-fluent btn-primary"
               onClick={handleExportJson}
               style={{ fontSize: '12px', padding: '6px 14px' }}
+              disabled={installedCount === 0}
             >
               💾 导出 JSON 备份文件
             </button>

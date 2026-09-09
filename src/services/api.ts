@@ -132,14 +132,6 @@ const tauriApi = {
     return tauriInvoke<ProxyTestResult>('test_proxy', { proxyUrl: proxyUrl || null });
   },
 
-  async setForwardProxy(url: string): Promise<boolean> {
-    return tauriInvoke<boolean>('set_forward_proxy', { url });
-  },
-
-  async testForwardProxy(proxyUrl: string): Promise<ProxyTestResult> {
-    return tauriInvoke<ProxyTestResult>('test_forward_proxy', { proxyUrl });
-  },
-
   async setGithubToken(token: string): Promise<boolean> {
     return tauriInvoke<boolean>('set_github_token', { token });
   },

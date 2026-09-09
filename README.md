@@ -63,16 +63,14 @@
 - 视窗右下角常驻 API 速率指示器胶囊（Rate Limit Pill），动态告警剩余配额；并提供多加速镜像节点延迟状态监测。
 - 侧栏底部为 GitHub 登录胶囊（`Sidebar` 内 `network-pill` 按钮，点击经 `App` 的 `handleOpenAccountSettings` 跳转设置页 `#settings-account` 锚点），取代旧镜像胶囊。未登录显示“GitHub 登录”，已登录显示头像与用户名。
 
-### 7. 🌐 出站代理与下载加速代理的区分
-- **下载加速代理**：只给安装包下载拼接前缀（如 `https://gh-proxy.com`），在设置中心独立配置行中填写并保存，配 `⚡ 单击测速` 按钮探测延迟与快捷恢复直连。
-- **出站代理**：登录与托管源提供者 API 直连共用，走系统代理或自填代理。设置键为 `http_proxy_url`（常量 `FORWARD_PROXY_SETTING`），命令为 `set_forward_proxy`（校验、落库、即时生效，空串清空）与 `test_forward_proxy`（经代理 GET `https://api.github.com/rate_limit`，8 秒超时，返回连通性与延迟）。前端对应 `api.setForwardProxy` 与 `api.testForwardProxy`。
-- **校验规则**：接受 `host:port`、`http(s)://host:port`、`socks5(h)://host:port`（含 `socks4` / `socks4a`），空输入回退系统代理或直连。非法协议、缺主机名、缺端口直接返回原因。依赖 `reqwest` 的 `socks` 特性。
-- **何时填写**：只有 `github.com` 连不通（如登录轮询失败）时才需要填写出站代理，保存即时生效，无需重启。
+### 7. 🌐 网络代理与下载加速代理说明
+- **下载加速代理**：针对 GitHub Release 二进制大文件下载拼接前缀（如 `https://gh-proxy.com`），在设置中心独立配置行中填写并保存，配 `⚡ 单击测速` 按钮探测延迟与快捷恢复直连。
+- **系统代理与 TUN 截获**：客户端发出的 HTTP 请求天然受系统代理及本地代理工具（如 Clash / v2ray / TUN 模式）透明捕获，无需在应用内繁琐配置本地代理 IP/端口；Windows 启动时亦自动探测注册表系统代理无缝衔接。
 
 ### 8. ⚙️ 设置中心 5 组结构
 - 设置中心共 5 组：`🖥️ 外观与显示`、`🔄 更新与提醒`、`👤 GitHub 账号与配额`、`🌐 网络与清单数据`、`💾 数据备份与恢复`。
 - `👤 GitHub 账号与配额`内含 `OAuthAccountCard` 登录卡片（`#settings-account` 锚点）与 PAT 令牌行，匿名 60 次/小时，令牌或登录后 5000 次/小时。
-- `🌐 网络与清单数据`内含下载加速代理行（含单键测速与快捷恢复直连）、出站代理行、精选收录库同步行（应用详情缓存保鲜期固化为半小时，基线配置收敛于 `src-tauri/config.toml`）。
+- `🌐 网络与清单数据`内含下载加速代理行（含单键测速与快捷恢复直连）、精选收录库同步行（应用详情缓存保鲜期固化为半小时，基线配置收敛于 `src-tauri/config.toml`）。
 
 ---
 
@@ -81,7 +79,7 @@
 - **桌面底座**: Tauri 2.2 + Rust 1.77+
 - **前端界面**: React 19 + TypeScript 5.7 + Vite 6 + 原生 Fluent 2.0 CSS
 - **本地数据库**: 嵌入式 SQLite (`rusqlite` bundled)
-- **网络与下载**: `reqwest`（`json` / `stream` / `socks` 特性）+ ETag 条件缓存 + 并发镜像测速管道；出站代理经 `http_proxy_url` 即时生效
+- **网络与下载**: `reqwest`（`json` / `stream` / `socks` 特性）+ ETag 条件缓存 + 并发镜像测速管道；自动继承系统代理与 TUN 模式
 - **桌面开发配置**: `pnpm tauri:dev`（即 `tauri dev --config src-tauri/tauri.dev.conf.json`）覆盖 CSP，支持本地 `http://localhost:1420` 与 `ws://localhost:1421` 调试
 - **安装引擎**: Windows MSI (`/qn`)、Setup EXE (`/S` / `/VERYSILENT`)、便携版 ZIP 自动解压与快捷方式生成、macOS (DMG/PKG) 及 Linux (deb/rpm/AppImage) 管道
 

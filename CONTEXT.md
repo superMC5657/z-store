@@ -28,10 +28,9 @@
 | **代码签名核验** | `Authenticode Verification` | Windows 下调用 WinTrust/Crypt32 API 提取 PE 安装包的数字签名状态、颁发机构与 SHA-256 证书指纹，结合预期指纹校验防投毒。详见 ADR-0004。 | 证书校验、安全验签 |
 | **存量应用纳管** | `External App Scanner` | 扫描操作系统已安装软件（Windows 注册表及程序目录），通过倒排索引与启发式打分智能匹配开源清单并接管更新。 | 软件扫描、外部导入 |
 | **主机配额指示器** | `Host Quota Indicator` | 视窗界面常驻胶囊徽章（Rate Limit Pill），动态监听各托管平台 API 剩余调用配额并在低电平（<15%）时告警。 | 配额胶囊、限流状态 |
-| **出站代理** | `Outbound Forward Proxy` | 用户在设置中心配置的全局 HTTP(S) 出站转发代理，键名 `http_proxy_url`，登录与 API 共用且即时生效；经 `set_forward_proxy` 写入、`test_forward_proxy` 探活；优先级为用户配置＞系统代理 env＞直连。 | 下载加速代理、镜像节点 |
-| **下载加速代理** | `Mirror Download Proxy` | 仅用于大文件下载提速的加速镜像节点重写（如 `gh-proxy.com`），与出站代理正交可叠加；前者改 URL，后者走系统级转发。 | 出站代理、前置代理 |
+| **下载加速代理** | `Mirror Download Proxy` | 仅用于大文件下载提速的加速镜像节点重写（如 `gh-proxy.com`）；仅改变下载 URL 前缀，API 与登录直接走系统网络通道。 | 出站代理、镜像节点 |
 | **GitHub登录胶囊** | `Account Capsule` | 侧栏 `network-pill` 常驻账号入口：未登录显示 🐙，已登录显示 avatar + 截断用户名；点击经 `handleOpenAccountSettings` 跳转 `#settings-account`。 | 配额胶囊、镜像胶囊 |
-| **设置中心分组** | `Settings Groups` | `SettingsView` 固定 5 组标题：外观与显示/更新与提醒/GitHub账号与配额/网络与清单数据/数据备份与恢复；出站代理归属网络与清单数据组。 | 设置页、选项卡 |
+| **设置中心分组** | `Settings Groups` | `SettingsView` 固定 5 组标题：外观与显示/更新与提醒/GitHub账号与配额/网络与清单数据/数据备份与恢复。 | 设置页、选项卡 |
 | **OAuth Device Flow** | `OAuth Device Flow` | GitHub 登录设备码流程，Client ID 取环境变量 `ZSTORE_GITHUB_OAUTH_CLIENT_ID`，缺省占位 `YOUR_CLIENT_ID_HERE`；轮询容错 10 次、单次 10s 超时；`Expired` / `Denied` 独立于 `Error` 展示。 | 网页登录、PAT 登录 |
 
 ---
@@ -44,7 +43,7 @@
    - 客户端从公开维护的开源清单仓库（Open Manifest Catalog Repository）增量同步精选应用元数据（包含分类、中文别名、图标、官方仓库坐标等）；
    - 应用深度详情与构建资产通过 `ForgeProvider` 抽象层按需直连各代码源官方 REST API 获取，不设中心化聚合后端；
     - 本地 SQLite (`z_store.db`) 维护用户可配置的 TTL 缓存（默认 30 分钟，支持 0~1440 分钟自由调节），配合 HTTP ETag 304 条件请求实现零配额消耗延长缓存时效；在离线或请求失败时自动平滑回退至本地持久化数据（详见 ADR-0007）。
-    - 出站代理优先级为用户配置（`http_proxy_url`，经 `set_forward_proxy` / `test_forward_proxy` 管理）＞系统代理 env＞直连，Windows 下读注册表且 https 优先；登录与 API 共用该代理且即时生效，与下载加速镜像节点正交可叠加。
+    - 网络层自动继承操作系统代理与环境变量（Windows 下启动时自探测注册表且 https 优先，支持 Clash / v2ray / TUN 模式透明截获），与针对 Release 大文件下载的加速镜像节点正交可叠加。
    - 所有已安装记录、用户设置、主机令牌（PAT）、更新规则与本地历史均保存在客户端本地嵌入式 SQLite 中。
 3. **D3 零信任完整性防篡改 (Zero-Trust Anti-Tampering)**:
    - 所有下载的二进制安装包强制流式计算 SHA-256 哈希值；若官方提供了预期哈希清单，必须严格比对，哈希不符立即强行阻断并销毁临时文件；在 Windows 下结合 Authenticode 证书指纹与有效性强校验（详见 ADR-0004）。

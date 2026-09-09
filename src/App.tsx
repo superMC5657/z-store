@@ -358,6 +358,7 @@ export const App: React.FC = () => {
     a.download = `zstore-installed-backup-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
+    showToast('已导出软件资产 JSON 备份文件', 'success');
   };
 
   // Search
@@ -869,24 +870,6 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleExportApps = () => {
-    if (installedApps.length === 0) {
-      return;
-    }
-    const lines = [
-      '# Z-Store 已安装应用清单',
-      '',
-      `> 导出时间: ${new Date().toLocaleString('zh-CN')}`,
-      '',
-      '| 应用名称 | 版本 | 安装方式 | 本地路径 |',
-      '|---|---|---|---|',
-      ...installedApps.map(
-        (a) => `| ${a.app_name} | ${a.version} | ${a.install_method} | \`${a.install_path}\` |`
-      ),
-    ];
-    const text = lines.join('\n');
-    navigator.clipboard.writeText(text);
-  };
 
   const installedIds = useMemo(() => {
     const set = new Set(installedApps.map((a) => a.app_id));
@@ -1013,7 +996,6 @@ export const App: React.FC = () => {
               onUninstall={handleUninstallApp}
               onUnmanage={handleUnmanageApp}
               onScanSystemApps={handleScanSystemApps}
-              onExportApps={handleExportApps}
               onExportAppsJson={handleExportAppsJson}
               updateRules={updateRules}
               onToggleRuleFrozen={handleToggleRuleFrozen}
@@ -1048,7 +1030,6 @@ export const App: React.FC = () => {
               onPingMirrors={handlePingMirrors}
               theme={settings.theme}
               onSetTheme={handleSetTheme}
-              onExportApps={handleExportApps}
               onExportAppsJson={handleExportAppsJson}
               settings={settings}
               onUpdateSetting={handleUpdateSetting}

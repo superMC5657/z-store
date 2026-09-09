@@ -31,4 +31,4 @@ default_client_id = "Ov23lik0b7fDGMLTiOYH"
 
 [catalog]
 # 官方精选收录库默认增量同步源
-default_source_url = "https://gh-proxy.com/https://raw.githubusercontent.com/supermc/z-store/main/src-tauri/src/catalog.json"
+default_source_url = "https://raw.githubusercontent.com/supermc/z-store/main/src-tauri/src/catalog.json"

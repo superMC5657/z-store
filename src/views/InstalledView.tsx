@@ -12,7 +12,6 @@ interface InstalledViewProps {
   onUninstall: (id: string) => void;
   onUnmanage?: (id: string) => void;
   onScanSystemApps?: () => void;
-  onExportApps?: () => void;
   onExportAppsJson?: () => void;
   updateRules?: UpdateRule[];
   onToggleRuleFrozen?: (appId: string, isFrozen: boolean) => Promise<void>;
@@ -216,7 +215,6 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
   onUninstall,
   onUnmanage,
   onScanSystemApps,
-  onExportApps,
   onExportAppsJson,
   updateRules = [],
   onToggleRuleFrozen,
@@ -301,21 +299,10 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
               className="btn-fluent btn-secondary"
               style={{ padding: '4px 12px', fontSize: '12px' }}
               onClick={onExportAppsJson}
-              title="导出应用清单为规范 JSON 备份文件"
+              title="导出已安装软件资产清单为规范 JSON 格式文件"
               disabled={installedApps.length === 0}
             >
-              📋 导出 JSON
-            </button>
-          )}
-          {onExportApps && (
-            <button
-              className="btn-fluent btn-secondary"
-              style={{ padding: '4px 12px', fontSize: '12px' }}
-              onClick={onExportApps}
-              title="导出已安装应用清单为 Markdown 文档"
-              disabled={installedApps.length === 0}
-            >
-              📋 导出清单
+              📋 导出资产清单 (JSON)
             </button>
           )}
           {onScanSystemApps && (

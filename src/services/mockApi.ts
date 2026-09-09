@@ -317,19 +317,6 @@ export const mockApi = {
     };
   },
 
-  async setForwardProxy(url: string): Promise<boolean> {
-    mockSettings['http_proxy_url'] = url;
-    return true;
-  },
-
-  async testForwardProxy(_proxyUrl: string): Promise<ProxyTestResult> {
-    return {
-      success: true,
-      latency_ms: 210,
-      message: '210 ms（经直连连接正常）',
-    };
-  },
-
   async setGithubToken(token: string): Promise<boolean> {
     mockSettings.github_token = token;
     return true;
