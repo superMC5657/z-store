@@ -97,8 +97,9 @@ impl MirrorManager {
 
     /// 单击测速：快速探测指定代理地址（或官方直连）的网络握手时延
     pub async fn test_proxy_latency(proxy_url: Option<&str>) -> (bool, u32, String) {
+        let timeout_ms = crate::config::get_project_config().network.ping_timeout_ms;
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_millis(4000))
+            .timeout(std::time::Duration::from_millis(timeout_ms))
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
             .build()
             .unwrap_or_default();

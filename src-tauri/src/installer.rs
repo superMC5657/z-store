@@ -134,11 +134,12 @@ impl InstallerEngine {
         expected_sha256: Option<&str>,
         custom_download_dir: Option<&Path>,
     ) -> Result<(PathBuf, String), String> {
+        let net_conf = &crate::config::get_project_config().network;
         let client = reqwest::Client::builder()
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Z-Store/0.1.0")
-            .connect_timeout(std::time::Duration::from_secs(15))
+            .connect_timeout(std::time::Duration::from_secs(net_conf.connect_timeout_seconds))
             .tcp_keepalive(std::time::Duration::from_secs(15))
-            .timeout(std::time::Duration::from_secs(300))
+            .timeout(std::time::Duration::from_secs(net_conf.download_timeout_seconds))
             .build()
             .map_err(|e| e.to_string())?;
 
@@ -232,7 +233,7 @@ impl InstallerEngine {
         let mut last_emit = Instant::now();
         let mut last_bytes: u64 = 0;
 
-        let chunk_timeout = std::time::Duration::from_secs(30);
+        let chunk_timeout = std::time::Duration::from_secs(net_conf.chunk_timeout_seconds);
         loop {
             let chunk_opt = match tokio::time::timeout(chunk_timeout, stream.next()).await {
                 Ok(Some(chunk_result)) => match chunk_result {

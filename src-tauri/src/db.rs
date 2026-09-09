@@ -47,7 +47,6 @@ impl Database {
         );
         let db = Self { conn };
         db.init_schema()?;
-        let _ = db.seed_initial_cache();
         Ok(db)
     }
 
@@ -55,7 +54,6 @@ impl Database {
         let conn = Connection::open_in_memory()?;
         let db = Self { conn };
         db.init_schema()?;
-        let _ = db.seed_initial_cache();
         Ok(db)
     }
 
@@ -343,8 +341,9 @@ impl Database {
         Ok(map)
     }
 
-    /// 读取用户配置的应用详情缓存保鲜期 TTL（分钟）。
-    /// 缺失 / 解析失败 / 非法挡位时回退默认 30（ADR-0007 有效集 {0,10,30,60,360,1440}）。
+    /// 读取应用详情缓存保鲜期 TTL（分钟）。
+    /// 优先从数据库设置读取（若用户历史自定义）；
+    /// 缺省回退 config.toml 项目基线配置（默认 30 分钟）。
     /// 返回 0 表示每次打开均需向远端条件校验（见 get_cached_app_detail 的 ttl == 0 分支）。
     pub fn get_detail_cache_ttl_minutes(&self) -> i64 {
         self.get_setting("detail_cache_ttl_minutes")
@@ -352,7 +351,7 @@ impl Database {
             .flatten()
             .and_then(|v| v.trim().parse::<i64>().ok())
             .map(normalize_detail_cache_ttl)
-            .unwrap_or(DETAIL_CACHE_TTL_DEFAULT_MINUTES)
+            .unwrap_or_else(|| crate::config::get_project_config().cache.detail_ttl_minutes)
     }
 
     pub fn get_cached_app_detail(
@@ -476,25 +475,6 @@ impl Database {
 
     pub fn clear_app_details_cache(&self) -> Result<()> {
         self.conn.execute("DELETE FROM app_details_cache", [])?;
-        Ok(())
-    }
-
-    pub fn seed_initial_cache(&self) -> Result<()> {
-        let count: i64 = self
-            .conn
-            .query_row("SELECT COUNT(*) FROM app_details_cache", [], |r| r.get(0))
-            .unwrap_or(0);
-
-        if count == 0 {
-            let seeds_str = include_str!("catalog_seeds.json");
-            if let Ok(seeds) = serde_json::from_str::<Vec<AppDetail>>(seeds_str) {
-                for detail in seeds {
-                    let repo_key =
-                        format!("github.com/{}/{}", detail.owner, detail.repo).to_lowercase();
-                    let _ = self.save_cached_app_detail(&detail.id, &repo_key, &detail);
-                }
-            }
-        }
         Ok(())
     }
 
@@ -641,17 +621,24 @@ impl Database {
             "#,
             params![q, now],
         )?;
-        // 限制最多保留 20 条
+        let limit = crate::config::get_project_config().limits.search_history_limit;
         self.conn.execute(
-            "DELETE FROM search_history WHERE id NOT IN (SELECT id FROM search_history ORDER BY searched_at DESC LIMIT 20)",
+            &format!(
+                "DELETE FROM search_history WHERE id NOT IN (SELECT id FROM search_history ORDER BY searched_at DESC LIMIT {})",
+                limit
+            ),
             [],
         )?;
         Ok(())
     }
 
     pub fn get_search_history(&self) -> Result<Vec<String>> {
+        let limit = crate::config::get_project_config().limits.search_history_limit;
         let mut stmt = self.conn.prepare(
-            "SELECT query FROM search_history ORDER BY searched_at DESC LIMIT 20",
+            &format!(
+                "SELECT query FROM search_history ORDER BY searched_at DESC LIMIT {}",
+                limit
+            ),
         )?;
         let rows = stmt.query_map([], |row| row.get(0))?;
         let mut res = Vec::new();
@@ -692,17 +679,24 @@ impl Database {
             "#,
             params![id, now],
         )?;
-        // 限制最多保留 30 条
+        let limit = crate::config::get_project_config().limits.view_history_limit;
         self.conn.execute(
-            "DELETE FROM view_history WHERE id NOT IN (SELECT id FROM view_history ORDER BY viewed_at DESC LIMIT 30)",
+            &format!(
+                "DELETE FROM view_history WHERE id NOT IN (SELECT id FROM view_history ORDER BY viewed_at DESC LIMIT {})",
+                limit
+            ),
             [],
         )?;
         Ok(())
     }
 
     pub fn get_recently_viewed_app_ids(&self) -> Result<Vec<String>> {
+        let limit = crate::config::get_project_config().limits.view_history_limit;
         let mut stmt = self.conn.prepare(
-            "SELECT app_id FROM view_history ORDER BY viewed_at DESC LIMIT 30",
+            &format!(
+                "SELECT app_id FROM view_history ORDER BY viewed_at DESC LIMIT {}",
+                limit
+            ),
         )?;
         let rows = stmt.query_map([], |row| row.get(0))?;
         let mut res = Vec::new();
@@ -1272,6 +1266,17 @@ mod tests {
         // 9. Clear cache
         db.clear_app_details_cache().unwrap();
         assert!(db.get_cached_app_detail("rustdesk", None).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_detail_cache_ttl_config_baseline() {
+        let db = Database::open_in_memory().unwrap();
+        // 1. Without DB setting, returns config.toml baseline (30)
+        assert_eq!(db.get_detail_cache_ttl_minutes(), 30);
+
+        // 2. With DB setting, returns normalized setting
+        db.set_setting("detail_cache_ttl_minutes", "60").unwrap();
+        assert_eq!(db.get_detail_cache_ttl_minutes(), 60);
     }
 
     #[test]

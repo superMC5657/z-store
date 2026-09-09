@@ -6,9 +6,9 @@ import { OAuthAccountCard } from '../components/OAuthAccountCard';
 import { DataBackupRow } from '../components/DataBackupRow';
 
 interface SettingsViewProps {
-  mirrors: MirrorNodeStatus[];
+  mirrors?: MirrorNodeStatus[];
   onSelectMirror: (id: string) => void;
-  onPingMirrors: () => void;
+  onPingMirrors?: () => void;
   theme: 'light' | 'dark' | 'system';
   onSetTheme: (theme: 'light' | 'dark' | 'system') => void;
   onExportApps: () => void;
@@ -22,9 +22,9 @@ interface SettingsViewProps {
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
-  mirrors,
+  mirrors: _mirrors,
   onSelectMirror,
-  onPingMirrors,
+  onPingMirrors: _onPingMirrors,
   theme,
   onSetTheme,
   onExportApps,
@@ -265,21 +265,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const handleSelectWatchFrequency = (id: 'startup' | 'daily', label: string) => {
     triggerChangeFeedback('watch_notify_frequency', `✓ 关注提醒频率已设为: ${label}`);
     onUpdateSetting('watch_notify_frequency', id);
-  };
-
-  // 应用详情缓存生存时效 (TTL, ADR-0007)：恰好六档，键名 detail_cache_ttl_minutes，默认 30 分钟
-  const TTL_OPTIONS: { value: number; label: string }[] = [
-    { value: 0, label: '0 分钟（实时校验）' },
-    { value: 10, label: '10 分钟' },
-    { value: 30, label: '30 分钟（默认推荐）' },
-    { value: 60, label: '1 小时' },
-    { value: 360, label: '6 小时' },
-    { value: 1440, label: '24 小时' },
-  ];
-
-  const handleSelectTtl = (minutes: number, label: string) => {
-    triggerChangeFeedback('detail_cache_ttl_minutes', `✓ 详情缓存生存时效已设为 ${label}`);
-    onUpdateSetting('detail_cache_ttl_minutes', minutes);
   };
 
   const handleExportMarkdown = () => {
@@ -649,34 +634,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       <div className={`settings-group ${isResetWave ? 'reset-wave-3' : ''}`}>
         <div className="settings-group-title">🌐 网络与清单数据</div>
 
-        <div className="settings-row">
-          <div className="settings-row-info">
-            <span style={{ fontWeight: 600 }}>加速节点切换</span>
-            <span className="settings-row-desc">当前下载走的镜像节点</span>
-          </div>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <div className="segmented-group">
-              {mirrors.map((m) => (
-                <button
-                  key={m.id}
-                  className={`segmented-item ${m.is_active ? 'active' : ''}`}
-                  onClick={() => onSelectMirror(m.id)}
-                  title={m.base_url || m.id}
-                >
-                  {m.name}
-                </button>
-              ))}
-            </div>
-            <button
-              className="btn-fluent btn-secondary"
-              style={{ fontSize: '12px', padding: '6px 14px', whiteSpace: 'nowrap' }}
-              onClick={onPingMirrors}
-            >
-              ⚡ 测速
-            </button>
-          </div>
-        </div>
-
         <div className={`settings-row ${highlightRow === 'proxy' ? 'row-highlight' : ''}`} style={{ flexDirection: 'column', alignItems: 'stretch', gap: '12px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div className="settings-row-info">
@@ -743,6 +700,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <span style={{ fontSize: '12px', color: 'var(--text-muted, #94a3b8)' }}>
                 当前生效: {(!proxyInput.trim() || proxyInput.trim() === 'direct') ? '🟢 GitHub 官方直连模式' : `⚡ 自定义加速代理: ${proxyInput.trim()}`}
               </span>
+            )}
+            {proxyInput.trim() && proxyInput.trim() !== 'direct' && (
+              <button
+                type="button"
+                className="btn-fluent btn-secondary"
+                style={{ fontSize: '11px', padding: '2px 8px', color: '#ef4444' }}
+                onClick={async () => {
+                  setProxyInput('');
+                  await onSelectMirror('direct');
+                  onUpdateSetting('active_mirror', 'direct');
+                  setProxySavedFeedback('✅ 已恢复 GitHub 官方直连');
+                  triggerChangeFeedback('proxy', '✓ 已切换为 GitHub 官方直连');
+                  setTimeout(() => setProxySavedFeedback(null), 3500);
+                }}
+              >
+                恢复直连
+              </button>
             )}
           </div>
         </div>
@@ -930,31 +904,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               {syncFeedback}
             </span>
           )}
-        </div>
-
-        <div className={`settings-row ${highlightRow === 'detail_cache_ttl_minutes' ? 'row-highlight' : ''}`}>
-          <div className="settings-row-info">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 600 }}>应用详情缓存生存时效 (TTL)</span>
-              {activeNotice?.key === 'detail_cache_ttl_minutes' && (
-                <span className="setting-applied-badge">{activeNotice.text}</span>
-              )}
-            </div>
-            <span className="settings-row-desc">
-              有效期内直接读本地缓存；过期自动 ETag 验证，离线回退缓存
-            </span>
-          </div>
-          <div className="segmented-group">
-            {TTL_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                className={`segmented-item ${settings.detail_cache_ttl_minutes === opt.value ? 'active' : ''}`}
-                onClick={() => handleSelectTtl(opt.value, opt.label)}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
         </div>
       </div>
 

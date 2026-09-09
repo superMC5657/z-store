@@ -1094,9 +1094,9 @@
     "id": "winthumbspreloader",
     "name": "WinThumbsPreloader",
     "chinese_name": "WinThumbsPreloader 缩略图预热",
-    "owner": "Bruh0v",
+    "owner": "Bruhov",
     "repo": "WinThumbsPreloader",
-    "icon": "https://github.com/Bruh0v.png",
+    "icon": "https://github.com/Bruhov.png",
     "icon_bg": "linear-gradient(135deg, #10b981, #047857)",
     "description": "开源的 Windows 资源管理器缩略图快速批量生成工具，告别打开文件夹时的白块卡顿。",
     "category": "system",
@@ -1112,7 +1112,7 @@
     "stars": 2300,
     "forks": 140,
     "is_verified": true,
-    "homepage": "https://github.com/Bruh0v/WinThumbsPreloader",
+    "homepage": "https://github.com/Bruhov/WinThumbsPreloader",
     "executables": [
       "WinThumbsPreloader.exe"
     ],

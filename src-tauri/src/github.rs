@@ -185,10 +185,11 @@ impl CatalogService {
             serde_json::from_str(json_data).unwrap_or_default()
         });
 
+        let cfg = crate::config::get_project_config();
         let client = reqwest::Client::builder()
             .pool_max_idle_per_host(10)
             .tcp_keepalive(std::time::Duration::from_secs(60))
-            .timeout(std::time::Duration::from_secs(12))
+            .timeout(std::time::Duration::from_secs(cfg.network.api_timeout_seconds))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
         Self {
@@ -504,9 +505,11 @@ impl CatalogService {
             }
         }
 
+        let per_page = crate::config::get_project_config().limits.online_search_page_size;
         let url = format!(
-            "https://api.github.com/search/repositories?q={}+in:name,description&sort=stars&order=desc&per_page=12",
-            urlencoding::encode(q)
+            "https://api.github.com/search/repositories?q={}+in:name,description&sort=stars&order=desc&per_page={}",
+            urlencoding::encode(q),
+            per_page
         );
 
         let resp = client.get(&url).headers(headers).send().await;

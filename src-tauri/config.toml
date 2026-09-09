@@ -1,0 +1,34 @@
+# Z-Store 项目基线全局配置 (Project Baseline Configuration)
+
+[cache]
+# 应用详情本地缓存生存时效 (TTL)，单位：分钟
+# 在保鲜期内直接 0ms 读取本地 SQLite；过期后自动发起 ETag 条件协商
+detail_ttl_minutes = 30
+
+[network]
+# HTTP 连接超时（秒）
+connect_timeout_seconds = 15
+# 下载大文件单请求最大超时（秒）
+download_timeout_seconds = 300
+# 数据流分片空闲等待超时（秒）
+chunk_timeout_seconds = 30
+# GitHub / Forge API 请求超时（秒）
+api_timeout_seconds = 12
+# 代理与镜像节点测速握手超时（毫秒）
+ping_timeout_ms = 4000
+
+[limits]
+# 搜索历史记录最大保留条数
+search_history_limit = 20
+# 最近浏览记录最大保留条数
+view_history_limit = 30
+# 在线 GitHub 搜索单页结果数量
+online_search_page_size = 12
+
+[oauth]
+# GitHub OAuth Device Flow 默认 Client ID（可通过系统设置覆盖）
+default_client_id = "Ov23lik0b7fDGMLTiOYH"
+
+[catalog]
+# 官方精选收录库默认增量同步源
+default_source_url = "https://gh-proxy.com/https://raw.githubusercontent.com/supermc/z-store/main/src-tauri/src/catalog.json"

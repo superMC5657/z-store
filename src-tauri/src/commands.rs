@@ -480,8 +480,10 @@ pub async fn sync_catalog(
             .flatten()
             .filter(|s| !s.trim().is_empty() && !s.contains("gitmirror.com"))
             .unwrap_or_else(|| {
-                "https://gh-proxy.com/https://raw.githubusercontent.com/supermc/z-store/main/src-tauri/src/catalog.json"
-                    .to_string()
+                crate::config::get_project_config()
+                    .catalog
+                    .default_source_url
+                    .clone()
             });
         let is_force = force.unwrap_or(false);
         let etag = if is_force {

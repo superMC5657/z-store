@@ -39,7 +39,10 @@ pub const GITHUB_API_BASE: &str = "https://api.github.com";
 pub fn resolve_oauth_client_id(settings_override: Option<&str>) -> String {
     match settings_override.map(|s| s.trim()) {
         Some(s) if !s.is_empty() => s.to_string(),
-        _ => GITHUB_OAUTH_CLIENT_ID.to_string(),
+        _ => match option_env!("ZSTORE_GITHUB_OAUTH_CLIENT_ID") {
+            Some(id) if !id.trim().is_empty() => id.trim().to_string(),
+            _ => crate::config::get_project_config().oauth.default_client_id.clone(),
+        },
     }
 }
 
@@ -257,8 +260,9 @@ pub fn parse_import_payload(json: &str) -> Result<ImportPlan, String> {
 
 /// 发起 Device Flow：向 GitHub 申请 `device_code` 与用户验证码。
 pub async fn request_device_code(client_id: &str) -> Result<DeviceStartResult, String> {
+    let timeout_sec = crate::config::get_project_config().network.api_timeout_seconds;
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(timeout_sec))
         .build()
         .map_err(|e| format!("创建网络请求失败: {}", e))?;
     let resp = client
@@ -287,8 +291,9 @@ pub async fn poll_device_once(
     client_id: &str,
     device_code: &str,
 ) -> Result<DevicePollOutcome, String> {
+    let timeout_sec = crate::config::get_project_config().network.api_timeout_seconds;
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(timeout_sec))
         .build()
         .map_err(|e| format!("创建网络请求失败: {}", e))?;
     let resp = client
@@ -309,8 +314,9 @@ pub async fn poll_device_once(
 
 /// 构建带认证头的 GitHub API 客户端（令牌仅放 header，永不落日志）。
 fn authed_client(token: &str) -> Result<reqwest::Client, String> {
+    let timeout_sec = crate::config::get_project_config().network.api_timeout_seconds;
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(timeout_sec))
         .build()
         .map_err(|e| format!("创建网络请求失败: {}", e))?;
     let _ = token;
