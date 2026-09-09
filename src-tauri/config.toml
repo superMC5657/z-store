@@ -30,5 +30,7 @@ online_search_page_size = 12
 default_client_id = "Ov23lik0b7fDGMLTiOYH"
 
 [catalog]
-# 官方精选收录库默认增量同步源
-default_source_url = "https://raw.githubusercontent.com/supermc/z-store/main/src-tauri/src/catalog.json"
+# 本地收录清单文件路径（统一维护项目根目录 catalog.json，从 src-tauri 执行相对路径为 ../catalog.json）
+local_path = "../catalog.json"
+# 官方精选收录库默认增量同步源（指向 GitHub 仓库根目录 catalog.json）
+default_source_url = "https://raw.githubusercontent.com/supermc/z-store/main/catalog.json"

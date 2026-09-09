@@ -50,9 +50,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   } | null>(null);
   const [proxySavedFeedback, setProxySavedFeedback] = useState<string | null>(null);
 
-  const DEFAULT_CATALOG_URL = 'https://gh-proxy.com/https://raw.githubusercontent.com/supermc/z-store/main/src-tauri/src/catalog.json';
+  const DEFAULT_CATALOG_URL = 'https://gh-proxy.com/https://raw.githubusercontent.com/supermc/z-store/main/catalog.json';
   const [catalogSourceUrl, setCatalogSourceUrl] = useState(
-    settings.catalog_source_url && !settings.catalog_source_url.includes('gitmirror.com')
+    settings.catalog_source_url && !settings.catalog_source_url.includes('gitmirror.com') && !settings.catalog_source_url.includes('src-tauri/src/catalog.json')
       ? settings.catalog_source_url
       : DEFAULT_CATALOG_URL
   );
@@ -742,7 +742,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 className="btn-fluent btn-secondary"
                 style={{ fontSize: '12px', padding: '5px 12px' }}
                 onClick={() => {
-                  const defUrl = 'https://gh-proxy.com/https://raw.githubusercontent.com/supermc/z-store/main/src-tauri/src/catalog.json';
+                  const defUrl = 'https://gh-proxy.com/https://raw.githubusercontent.com/supermc/z-store/main/catalog.json';
                   setCatalogSourceUrl(defUrl);
                   onUpdateSetting('catalog_source_url', defUrl);
                   setCatalogUrlSaved(true);

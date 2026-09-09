@@ -495,19 +495,13 @@ pub async fn sync_catalog(
     let (new_items, new_etag) = match res {
         Ok(val) => val,
         Err(err) => {
-            // 如果请求远程失败且为默认或远程链接，检测本地开发目录是否存在 catalog.json 作为无缝备选
+            // 如果请求远程失败且为默认或远程链接，检测本地配置的 catalog.json 路径作为无缝备选
             let mut local_fallback = None;
-            let local_candidates = [
-                "catalog.json",
-                "../catalog.json",
-                "src-tauri/src/catalog.json",
-            ];
-            for candidate in &local_candidates {
-                if std::path::Path::new(candidate).exists() {
-                    if let Ok((Some(items), _)) = state.catalog.sync_remote_catalog(candidate, None).await {
-                        local_fallback = Some((items, *candidate));
-                        break;
-                    }
+            let cfg = crate::config::get_project_config();
+            if let Some(resolved_path) = cfg.catalog.resolve_local_path() {
+                let path_str = resolved_path.to_string_lossy().to_string();
+                if let Ok((Some(items), _)) = state.catalog.sync_remote_catalog(&path_str, None).await {
+                    local_fallback = Some((items, path_str));
                 }
             }
 

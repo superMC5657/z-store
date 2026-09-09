@@ -5,7 +5,7 @@
  * 
  * 自动保鲜收录清单脚本：
  * 批量调用 GitHub / Codeberg API，获取各收录应用的最新 Stars、Forks 与 Release Tag，
- * 并自动同步更新根目录与 src-tauri/src/ 下的 catalog.json。
+ * 并自动同步更新根目录下的 catalog.json。
  * 
  * 可在本地运行：node scripts/refresh-catalog.mjs
  * 也可在 GitHub Actions 定时任务中全自动运行。
@@ -19,21 +19,35 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 
-const catalogPaths = [
-  path.join(rootDir, 'catalog.json'),
-  path.join(rootDir, 'src-tauri', 'src', 'catalog.json'),
-];
+/**
+ * 动态从 src-tauri/config.toml 中解析 catalog.local_path，
+ * 保持维护脚本与 Rust 后端配置单一事实来源 (Single Source of Truth) 完全对齐。
+ */
+function resolveCatalogPath() {
+  const configPath = path.join(rootDir, 'src-tauri', 'config.toml');
+  if (fs.existsSync(configPath)) {
+    const configContent = fs.readFileSync(configPath, 'utf8');
+    const match = configContent.match(/local_path\s*=\s*["']([^"']+)["']/);
+    if (match && match[1]) {
+      const configured = match[1];
+      const resolved = path.resolve(rootDir, 'src-tauri', configured);
+      if (fs.existsSync(resolved)) {
+        return resolved;
+      }
+    }
+  }
+  return path.join(rootDir, 'catalog.json');
+}
 
-// 选择存在的主文件作为基准读取
-const primaryPath = catalogPaths.find(p => fs.existsSync(p)) || catalogPaths[0];
+const catalogPath = resolveCatalogPath();
 
-if (!fs.existsSync(primaryPath)) {
-  console.error(`❌ 未找到收录清单文件: ${primaryPath}`);
+if (!fs.existsSync(catalogPath)) {
+  console.error(`❌ 未找到收录清单文件: ${catalogPath}`);
   process.exit(1);
 }
 
-const catalog = JSON.parse(fs.readFileSync(primaryPath, 'utf8'));
-console.log(`📋 开始保鲜收录库，共 ${catalog.length} 款应用...`);
+const catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf8'));
+console.log(`📋 开始保鲜收录库，已从 ${path.relative(rootDir, catalogPath)} 载入 ${catalog.length} 款应用...`);
 
 const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
 const headers = {
@@ -99,13 +113,9 @@ for (let i = 0; i < catalog.length; i++) {
   await new Promise(r => setTimeout(r, 150));
 }
 
-// 格式化回写到两个目录下的 catalog.json
+// 格式化回写到根目录下的 catalog.json
 const outputJson = JSON.stringify(catalog, null, 2) + '\n';
-for (const p of catalogPaths) {
-  if (fs.existsSync(path.dirname(p))) {
-    fs.writeFileSync(p, outputJson, 'utf8');
-    console.log(`💾 已写回并更新: ${path.relative(rootDir, p)}`);
-  }
-}
+fs.writeFileSync(catalogPath, outputJson, 'utf8');
+console.log(`💾 已写回并更新: ${path.relative(rootDir, catalogPath)}`);
 
 console.log(`\n🎉 收录库保鲜完成！成功更新 ${updatedCount} / ${catalog.length} 款应用的最新基线数据。`);

@@ -135,8 +135,11 @@ fn test_clean_display_icon() {
 
 #[test]
 fn test_match_expanded_apps_from_catalog() {
-    let catalog: Vec<CatalogItem> =
-        serde_json::from_str(include_str!("../catalog.json")).unwrap();
+    let cfg = crate::config::get_project_config();
+    let catalog: Vec<CatalogItem> = cfg
+        .catalog
+        .load_catalog_items()
+        .expect("failed to load catalog via config local_path");
     let scanned = vec![
         ScannedRawApp {
             display_name: "qBittorrent".to_string(),
@@ -226,8 +229,11 @@ fn test_resolve_installed_app_path_real() {
 
 #[test]
 fn test_batch_detect_catalog_apps() {
-    let catalog: Vec<CatalogItem> =
-        serde_json::from_str(include_str!("../catalog.json")).unwrap();
+    let cfg = crate::config::get_project_config();
+    let catalog: Vec<CatalogItem> = cfg
+        .catalog
+        .load_catalog_items()
+        .expect("failed to load catalog via config local_path");
     let start = std::time::Instant::now();
     let mut detected = Vec::new();
     for cat in &catalog {

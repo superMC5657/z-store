@@ -227,7 +227,7 @@ impl CatalogService {
                 let rewritten_srcset = srcset
                     .split(',')
                     .map(|candidate| {
-                        let parts: Vec<&str> = candidate.trim().split_whitespace().collect();
+                        let parts: Vec<&str> = candidate.split_whitespace().collect();
                         if parts.is_empty() {
                             candidate.to_string()
                         } else {

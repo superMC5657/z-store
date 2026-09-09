@@ -12,30 +12,8 @@ impl Default for CatalogService {
 
 impl CatalogService {
     pub fn new() -> Self {
-        let mut items: Option<Vec<CatalogItem>> = None;
-        let candidate_paths = [
-            "catalog.json",
-            "../catalog.json",
-            "src-tauri/src/catalog.json",
-            "src/catalog.json",
-        ];
-        for p in &candidate_paths {
-            if let Ok(text) = std::fs::read_to_string(p) {
-                if let Ok(parsed) = serde_json::from_str::<Vec<CatalogItem>>(&text) {
-                    if !parsed.is_empty() {
-                        items = Some(parsed);
-                        break;
-                    }
-                }
-            }
-        }
-
-        let items = items.unwrap_or_else(|| {
-            let json_data = include_str!("../catalog.json");
-            serde_json::from_str(json_data).unwrap_or_default()
-        });
-
         let cfg = crate::config::get_project_config();
+        let items: Vec<CatalogItem> = cfg.catalog.load_catalog_items().unwrap_or_default();
         let client = reqwest::Client::builder()
             .pool_max_idle_per_host(10)
             .tcp_keepalive(std::time::Duration::from_secs(60))

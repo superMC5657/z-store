@@ -111,13 +111,12 @@ fn test_extract_logo_from_readme() {
 #[tokio::test]
 async fn test_sync_remote_catalog_local_file() {
     let cat = CatalogService::new();
-    let target = if std::path::Path::new("catalog.json").exists() {
-        "catalog.json"
-    } else if std::path::Path::new("../catalog.json").exists() {
-        "../catalog.json"
-    } else {
-        "src/catalog.json"
-    };
+    let cfg = crate::config::get_project_config();
+    let target_path = cfg
+        .catalog
+        .resolve_local_path()
+        .expect("catalog.json should be resolvable via config local_path");
+    let target = target_path.to_str().unwrap();
     let (items, etag) = cat.sync_remote_catalog(target, None).await.unwrap();
     assert!(items.is_some());
     let list = items.unwrap();
@@ -128,7 +127,7 @@ async fn test_sync_remote_catalog_local_file() {
     // Test with same etag returns None (unmodified)
     let etag_val = format!(
         "W/\"local-{}\"",
-        std::fs::metadata(target)
+        std::fs::metadata(&target_path)
             .unwrap()
             .modified()
             .unwrap()

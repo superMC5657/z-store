@@ -127,19 +127,70 @@ impl Default for OauthConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CatalogConfig {
+    #[serde(default = "default_local_path", alias = "catalog_path")]
+    pub local_path: String,
     #[serde(default = "default_source_url")]
     pub default_source_url: String,
 }
 
+fn default_local_path() -> String {
+    "../catalog.json".to_string()
+}
+
 fn default_source_url() -> String {
-    "https://gh-proxy.com/https://raw.githubusercontent.com/supermc/z-store/main/src-tauri/src/catalog.json".to_string()
+    "https://gh-proxy.com/https://raw.githubusercontent.com/supermc/z-store/main/catalog.json".to_string()
 }
 
 impl Default for CatalogConfig {
     fn default() -> Self {
         Self {
+            local_path: default_local_path(),
             default_source_url: default_source_url(),
         }
+    }
+}
+
+impl CatalogConfig {
+    /// 解析 catalog.json 的真实有效路径（仅支持按 local_path 配置项进行路径解析，兼容项目根目录与 src-tauri 子目录不同工作目录）
+    pub fn resolve_local_path(&self) -> Option<std::path::PathBuf> {
+        let configured = std::path::Path::new(&self.local_path);
+        if configured.is_file() {
+            return Some(configured.to_path_buf());
+        }
+
+        if configured.is_relative() {
+            // 如果配置为 "../catalog.json"，而在项目根目录运行，尝试去除开头的 ".."
+            if let Ok(stripped) = configured.strip_prefix("..") {
+                if stripped.is_file() {
+                    return Some(stripped.to_path_buf());
+                }
+            }
+            // 如果配置为 "catalog.json"，而在 src-tauri 目录运行，尝试拼上 ".."
+            let up = std::path::Path::new("..").join(configured);
+            if up.is_file() {
+                return Some(up);
+            }
+        }
+
+        None
+    }
+
+    /// 读取本地收录清单内容（使用配置的 local_path；如本地文件不存在则使用编译期内置清单兜底）
+    pub fn load_catalog_json(&self) -> String {
+        if let Some(path) = self.resolve_local_path() {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                if !content.trim().is_empty() {
+                    return content;
+                }
+            }
+        }
+        include_str!("../../catalog.json").to_string()
+    }
+
+    /// 读取并反序列化本地收录清单应用列表（使用配置的 local_path）
+    pub fn load_catalog_items<T: serde::de::DeserializeOwned>(&self) -> Option<Vec<T>> {
+        let json = self.load_catalog_json();
+        serde_json::from_str(&json).ok()
     }
 }
 
@@ -202,7 +253,12 @@ mod tests {
         assert_eq!(conf.limits.view_history_limit, 30);
         assert_eq!(conf.limits.online_search_page_size, 12);
         assert_eq!(conf.oauth.default_client_id, "Ov23lik0b7fDGMLTiOYH");
+        assert_eq!(conf.catalog.local_path, "../catalog.json");
         assert!(!conf.catalog.default_source_url.is_empty());
+        assert!(conf.catalog.resolve_local_path().is_some());
+        let items: Option<Vec<serde_json::Value>> = conf.catalog.load_catalog_items();
+        assert!(items.is_some());
+        assert!(items.unwrap().len() >= 20);
     }
 
     #[test]

@@ -7,11 +7,9 @@ pub fn get_settings(state: State<'_, AppState>) -> Result<HashMap<String, String
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let mut map = db.get_all_settings().map_err(|e| e.to_string())?;
     if let Some(url) = map.get("catalog_source_url") {
-        if url.contains("gitmirror.com") {
-            map.insert(
-                "catalog_source_url".to_string(),
-                "https://gh-proxy.com/https://raw.githubusercontent.com/supermc/z-store/main/src-tauri/src/catalog.json".to_string(),
-            );
+        if url.contains("gitmirror.com") || url.contains("src-tauri/src/catalog.json") {
+            let def_url = crate::config::get_project_config().catalog.default_source_url.clone();
+            map.insert("catalog_source_url".to_string(), def_url);
         }
     }
     let dl_val = map.get("download_dir").cloned().unwrap_or_default();
