@@ -2463,6 +2463,9 @@ body {
   border-collapse: collapse;
   margin-bottom: 12px;
   font-size: 12px;
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
 }
 
 .readme-markdown-body th,
@@ -2484,11 +2487,75 @@ body {
   margin: 10px 0;
 }
 
+.readme-markdown-body picture {
+  display: inline-block;
+  max-width: 100%;
+}
+
 .readme-markdown-body img {
   max-width: 100%;
   height: auto;
   border-radius: var(--radius-sm);
   margin: 8px 0;
+}
+
+/* GitHub Alert Callouts */
+.readme-markdown-body .markdown-alert {
+  padding: 10px 14px;
+  margin: 12px 0;
+  border-left: 4px solid var(--brand-primary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-acrylic-thin);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.readme-markdown-body .markdown-alert-title {
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.readme-markdown-body .markdown-alert-note {
+  border-left-color: #0284c7;
+  background: rgba(2, 132, 199, 0.08);
+}
+.readme-markdown-body .markdown-alert-note .markdown-alert-title {
+  color: #38bdf8;
+}
+
+.readme-markdown-body .markdown-alert-tip {
+  border-left-color: #10b981;
+  background: rgba(16, 185, 129, 0.08);
+}
+.readme-markdown-body .markdown-alert-tip .markdown-alert-title {
+  color: #34d399;
+}
+
+.readme-markdown-body .markdown-alert-important {
+  border-left-color: #8b5cf6;
+  background: rgba(139, 92, 246, 0.08);
+}
+.readme-markdown-body .markdown-alert-important .markdown-alert-title {
+  color: #a78bfa;
+}
+
+.readme-markdown-body .markdown-alert-warning {
+  border-left-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.08);
+}
+.readme-markdown-body .markdown-alert-warning .markdown-alert-title {
+  color: #fbbf24;
+}
+
+.readme-markdown-body .markdown-alert-caution {
+  border-left-color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
+}
+.readme-markdown-body .markdown-alert-caution .markdown-alert-title {
+  color: #f87171;
 }
 
 /* Empty State Glass Card */

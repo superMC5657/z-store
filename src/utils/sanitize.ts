@@ -11,12 +11,42 @@ const ALLOWED_TAGS = new Set([
   'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td',
   'img', 'a', 'br', 'hr', 'kbd',
   'details', 'summary', 'sup', 'sub',
-  'video', 'audio', 'source',
+  'video', 'audio', 'source', 'picture',
 ]);
 
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'asset:', 'tauri:']);
 
-export function sanitizeHtml(rawHtml: string): string {
+export interface SanitizeOptions {
+  /** 仓库素材直链基准地址，如 https://raw.githubusercontent.com/{owner}/{repo}/HEAD/ */
+  rawBaseUrl?: string;
+  /** 仓库网页链接基准地址，如 https://github.com/{owner}/{repo}/blob/HEAD/ */
+  repoBaseUrl?: string;
+}
+
+function resolveRelativeUrl(url: string, baseUrl?: string): string {
+  if (!baseUrl || !url) return url;
+  const trimmed = url.trim();
+  if (
+    trimmed.startsWith('http://') ||
+    trimmed.startsWith('https://') ||
+    trimmed.startsWith('//') ||
+    trimmed.startsWith('data:') ||
+    trimmed.startsWith('#') ||
+    trimmed.startsWith('mailto:') ||
+    trimmed.startsWith('javascript:')
+  ) {
+    return trimmed;
+  }
+  const cleanBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+  const cleanPath = trimmed.replace(/^\.?\/?/, '').replace(/^(\.\.\/)+/, '');
+  try {
+    return new URL(cleanPath, cleanBase).toString();
+  } catch {
+    return `${cleanBase}${cleanPath}`;
+  }
+}
+
+export function sanitizeHtml(rawHtml: string, options?: SanitizeOptions): string {
   if (!rawHtml || typeof rawHtml !== 'string') {
     return '';
   }
@@ -38,7 +68,7 @@ export function sanitizeHtml(rawHtml: string): string {
             el.remove();
             continue;
           }
-          // 对于非高危未知标签，提升子节点，消除外层危险标签
+          // 对于非高危未知标签，提升子节点，消除外层未知标签
           while (el.firstChild) {
             el.parentNode?.insertBefore(el.firstChild, el);
           }
@@ -79,6 +109,38 @@ export function sanitizeHtml(rawHtml: string): string {
                 el.removeAttribute(attr.name);
                 continue;
               }
+            } else if (options) {
+              // 针对相对路径属性，利用上下文基准地址进行兜底安全补齐
+              if (attrName === 'src' && options.rawBaseUrl) {
+                el.setAttribute('src', resolveRelativeUrl(attrVal, options.rawBaseUrl));
+              } else if (attrName === 'href' && options.repoBaseUrl && !attrVal.startsWith('#') && !attrVal.startsWith('mailto:')) {
+                el.setAttribute('href', resolveRelativeUrl(attrVal, options.repoBaseUrl));
+              }
+            }
+          }
+
+          // 处理 <source> 或 <img> 的 srcset 响应式图片集
+          if (attrName === 'srcset') {
+            const candidates = attrVal
+              .split(',')
+              .map((candidate) => {
+                const parts = candidate.trim().split(/\s+/);
+                if (parts.length === 0 || !parts[0]) return '';
+                let candUrl = parts[0];
+                const lower = candUrl.toLowerCase();
+                if (lower.startsWith('javascript:') || lower.startsWith('vbscript:') || lower.startsWith('data:text/')) {
+                  return '';
+                }
+                if (options?.rawBaseUrl) {
+                  candUrl = resolveRelativeUrl(candUrl, options.rawBaseUrl);
+                }
+                return parts.length > 1 ? `${candUrl} ${parts.slice(1).join(' ')}` : candUrl;
+              })
+              .filter(Boolean);
+            if (candidates.length > 0) {
+              el.setAttribute('srcset', candidates.join(', '));
+            } else {
+              el.removeAttribute(attr.name);
             }
           }
 
@@ -96,6 +158,17 @@ export function sanitizeHtml(rawHtml: string): string {
         if (tagName === 'a') {
           el.setAttribute('target', '_blank');
           el.setAttribute('rel', 'noopener noreferrer');
+        }
+
+        // 4. 对 <img> 标签自动附加防盗链策略与平滑异步懒加载
+        if (tagName === 'img') {
+          el.setAttribute('referrerpolicy', 'no-referrer');
+          if (!el.getAttribute('loading')) {
+            el.setAttribute('loading', 'lazy');
+          }
+          if (!el.getAttribute('decoding')) {
+            el.setAttribute('decoding', 'async');
+          }
         }
 
         // 递归处理子节点
