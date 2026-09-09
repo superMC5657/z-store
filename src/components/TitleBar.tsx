@@ -413,7 +413,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
                   outline: 'none',
                   transition: 'all 0.15s ease',
                 }}
-                title="点击前往设置中心配置 API 密钥"
+                title={isConfigured ? '已认证 5000/h 高额配额' : '点击前往设置中心登录 GitHub 账号'}
               >
                 <span>{pillDot}</span>
                 <span>{pillText}</span>
@@ -457,10 +457,10 @@ export const TitleBar: React.FC<TitleBarProps> = ({
                     </div>
                   )}
                   <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                    {isConfigured ? '已配置个人 PAT (配额 5000/h)' : '未配置 PAT (公共 IP 限流 60/h)'}
+                    {isConfigured ? '已登录 GitHub 账号 (配额 5000/h)' : '未登录 GitHub 账号 (公共 IP 限流 60/h)'}
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--brand-primary)', marginTop: '4px' }}>
-                    💡 点击前往设置配置令牌
+                    💡 点击前往设置中心管理 GitHub 账号
                   </div>
                 </div>
               )}

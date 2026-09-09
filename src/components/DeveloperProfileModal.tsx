@@ -293,7 +293,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                               disabled={isInstalling}
                               onClick={() => handleInstall(repo.id)}
                             >
-                              {isInstalling ? '安装中...' : '一键安装'}
+                              {isInstalling ? '安装中...' : '安装'}
                             </button>
                           )}
                         </>

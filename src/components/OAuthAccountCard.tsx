@@ -160,9 +160,9 @@ export const OAuthAccountCard: React.FC = () => {
     <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '12px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
         <div className="settings-row-info">
-          <span style={{ fontWeight: 600 }}>🐙 GitHub 账号</span>
+          <span style={{ fontWeight: 600 }}>🐙 GitHub 账号与 API 配额</span>
           <span className="settings-row-desc">
-            {user ? '已登录，可标星与提交反馈' : '登录后可标星（★）与提交反馈'}
+            {user ? '已登录当前账号，自动享有 5,000 次/小时高额 API 配额、标星与问题反馈' : '登录后自动激活 5,000 次/小时高额 API 配额，并支持标星与反馈'}
           </span>
         </div>
         {isLoadingUser ? (
@@ -200,7 +200,10 @@ export const OAuthAccountCard: React.FC = () => {
       </div>
 
       {user && (
-        <span style={{ fontSize: '12px', color: '#10b981' }}>✅ 已认证 5000/h 限额</span>
+        <span style={{ fontSize: '12px', color: '#10b981', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+          <span>✅</span>
+          <span>已激活当前账号 <strong>5,000 次/小时</strong> 核心 API 访问限额</span>
+        </span>
       )}
 
       {error && (

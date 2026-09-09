@@ -5,6 +5,7 @@ import { api } from '../services/api';
 import { AppIcon } from './AppIcon';
 import { sanitizeHtml } from '../utils/sanitize';
 import { notifyToast } from '../utils/notify';
+import { formatBytes } from '../utils/appHelper';
 
 interface AppDetailModalProps {
   app: AppDetail;
@@ -12,6 +13,7 @@ interface AppDetailModalProps {
   isManaged?: boolean;
   isFavorite?: boolean;
   isWatched?: boolean;
+  isInstallingGlobal?: boolean;
   oauthUser?: OAuthUser | null;
   onClose: () => void;
   onInstall: (id: string, assetName?: string, customInstallDir?: string) => Promise<any>;
@@ -32,6 +34,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   isManaged = true,
   isFavorite = false,
   isWatched = false,
+  isInstallingGlobal = false,
   oauthUser = null,
   onClose,
   onInstall,
@@ -50,6 +53,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgressPayload | null>(null);
   const [installError, setInstallError] = useState<string | null>(null);
   const [isInstalling, setIsInstalling] = useState(false);
+  const effectiveIsInstalling = isInstalling || isInstallingGlobal;
   const [isManaging, setIsManaging] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshSuccessNotice, setRefreshSuccessNotice] = useState(false);
@@ -62,6 +66,12 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   // FR-8.3: 所有权校验码提交态（MVP：README / z-store.toml 子串命中即通过）
   const [verifyCode, setVerifyCode] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
+  const [showVerifySection, setShowVerifySection] = useState(false);
+
+  const isOwner = useMemo(() => {
+    if (!oauthUser?.login || !app?.owner) return false;
+    return oauthUser.login.toLowerCase() === app.owner.toLowerCase();
+  }, [oauthUser?.login, app?.owner]);
 
   useEffect(() => {
     let cancelled = false;
@@ -109,6 +119,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
       if (ok) {
         notifyToast(`所有权验证通过，${app.name} 已颁发认证勋章 🛡️`, 'success');
         setVerifyCode('');
+        setShowVerifySection(false);
         if (onRefresh) await onRefresh(app.id);
       } else {
         notifyToast('校验码未命中：请确认已将其写入仓库 README 或 z-store.toml', 'error');
@@ -139,6 +150,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
     setConfirmingUninstall(false);
     setConfirmingUnmanage(false);
     setVerifyCode('');
+    setShowVerifySection(false);
   }, [app.id]);
 
   const effectiveRefreshing = Boolean(isRefreshing || app.isRefreshing);
@@ -310,13 +322,6 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
     api.openUrl(url);
   };
 
-  const formatBytes = (bytes?: number) => {
-    if (!bytes || typeof bytes !== 'number' || isNaN(bytes) || bytes <= 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i] || 'MB'}`;
-  };
 
   // 避免高频下载进度事件重绘时重复同步解析庞大的 Markdown 文档阻塞渲染主线程，并执行严格 AST 级 XSS 净化
   const readmeHtml = useMemo(() => {
@@ -651,36 +656,6 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               )}
             </div>
           )}
-          {/* FR-8.3: 所有权认证（未验证时展示校验码入口；验证后由勋章代替） */}
-          {!app.is_verified && (
-            <div className="settings-group" style={{ marginBottom: '12px' }}>
-              <div className="settings-group-title">
-                <span>🛡️ 所有权认证</span>
-              </div>
-              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', lineHeight: '1.6' }}>
-                仓库拥有者请将校验码写入 README 或根目录 z-store.toml，提交后颁发 Fluent 蓝色所有权勋章。
-              </div>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <input
-                  value={verifyCode}
-                  onChange={(e) => setVerifyCode(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleVerifyOwnership();
-                  }}
-                  placeholder="输入校验码"
-                  aria-label="所有权校验码"
-                  style={{ flex: 1, minWidth: 0 }}
-                />
-                <button
-                  className="btn-primary"
-                  disabled={!verifyCode.trim() || isVerifying}
-                  onClick={handleVerifyOwnership}
-                >
-                  {isVerifying ? '验证中…' : '提交验证'}
-                </button>
-              </div>
-            </div>
-          )}
           {/* Action Card */}
           <div className="install-action-bar">
             <div>
@@ -858,7 +833,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                 <button
                   className="btn-fluent btn-primary"
                   onClick={handleAction}
-                  disabled={isInstalling || Boolean(app.isLoading && (!releases || releases.length === 0))}
+                  disabled={effectiveIsInstalling || Boolean(app.isLoading && (!releases || releases.length === 0))}
                   style={{ minWidth: '130px', fontWeight: 600, opacity: app.isLoading && (!releases || releases.length === 0) ? 0.75 : 1 }}
                 >
                   {app.isLoading && (!releases || releases.length === 0) ? (
@@ -866,10 +841,13 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                       <span className="spinner-icon" />
                       <span>检索版本中...</span>
                     </span>
-                  ) : isInstalling ? (
-                    '正在安装...'
+                  ) : effectiveIsInstalling ? (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      <span className="spinner-icon" style={{ width: '13px', height: '13px', borderWidth: '2px' }} />
+                      <span>向导运行中 / 正在安装...</span>
+                    </span>
                   ) : (
-                    '一键获取安装'
+                    '安装'
                   )}
                 </button>
               )}
@@ -920,7 +898,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                         onClick={() => setSelectedAssetName(asset.name)}
                         className={`btn-fluent ${isSelected ? 'btn-primary' : 'btn-secondary'}`}
                         style={{ fontSize: '12px', padding: '4px 10px' }}
-                        disabled={isInstalling}
+                        disabled={effectiveIsInstalling}
                         title={isSelected ? '当前正在使用该版本安装' : '将此包选为当前安装目标'}
                       >
                         {isSelected ? '✓ 已选用' : '选用此包'}
@@ -962,6 +940,88 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               </span>
             </div>
           </div>
+
+          {/* FR-8.3: 开发者所有权认领认证（默认收起为低调链接，仅开发者展开使用） */}
+          {!app.is_verified && (
+            <div style={{ margin: '-4px 0 12px', display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => setShowVerifySection(!showVerifySection)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: isOwner ? 'var(--brand-primary)' : 'var(--text-tertiary)',
+                  fontSize: '11px',
+                  cursor: 'pointer',
+                  padding: '4px 8px',
+                  borderRadius: '4px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                }}
+                title="开源项目作者可通过在仓库中加入校验码认领并点亮官方蓝标勋章"
+              >
+                <span>🛡️ {isOwner ? '您是该仓库所有者：点击认领并认证官方所有权' : '我是此项目作者？认领并认证仓库'}</span>
+                <span style={{ fontSize: '10px' }}>{showVerifySection ? '▲' : '▼'}</span>
+              </button>
+
+              {showVerifySection && (
+                <div
+                  className="settings-group"
+                  style={{
+                    width: '100%',
+                    marginTop: '8px',
+                    marginBottom: '4px',
+                    padding: '12px 16px',
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-acrylic)',
+                    borderRadius: '8px',
+                    boxSizing: 'border-box',
+                  }}
+                >
+                  <div className="settings-group-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '13px', fontWeight: 600 }}>🛡️ 开发者官方所有权认证</span>
+                    <button
+                      type="button"
+                      className="btn-fluent btn-secondary"
+                      style={{ fontSize: '11px', padding: '2px 8px', border: 'none', background: 'transparent' }}
+                      onClick={() => setShowVerifySection(false)}
+                    >
+                      收起 ▲
+                    </button>
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', lineHeight: '1.6' }}>
+                    {isOwner ? (
+                      <span>检测到您当前登录账号与仓库作者一致。请将自定义校验码写入仓库 <code>README.md</code> 或根目录 <code>z-store.toml</code>，提交比对通过后即可为该项目点亮 Fluent 蓝色认证勋章。</span>
+                    ) : (
+                      <span>仅限开源项目原作者操作：请将自定义校验码写入仓库 <code>README.md</code> 或根目录 <code>z-store.toml</code>，提交比对通过后颁发 Fluent 蓝色所有权勋章。</span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input
+                      className="settings-input"
+                      value={verifyCode}
+                      onChange={(e) => setVerifyCode(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleVerifyOwnership();
+                      }}
+                      placeholder="输入您写入仓库文件中的校验码（如 zstore-verify-xxxx）"
+                      aria-label="所有权校验码"
+                      style={{ flex: 1, minWidth: 0, fontSize: '12px' }}
+                    />
+                    <button
+                      className="btn-fluent btn-primary"
+                      disabled={!verifyCode.trim() || isVerifying}
+                      onClick={handleVerifyOwnership}
+                      style={{ fontSize: '12px', padding: '6px 14px' }}
+                    >
+                      {isVerifying ? '比对中…' : '提交验证'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* README Section */}
           <div className="readme-preview">
