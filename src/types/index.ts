@@ -322,6 +322,13 @@ export interface OAuthUser {
   name?: string | null;
   avatar_url?: string | null;
   html_url?: string | null;
+  has_list_scope?: boolean;
+}
+
+export interface StarAppResult {
+  starred: boolean;
+  in_list: boolean;
+  warning?: string | null;
 }
 
 // FR-6.3-manual: 用户数据手动导出 / 导入（纯文件同步，M2 服务端同步为远期规划）

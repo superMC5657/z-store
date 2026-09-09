@@ -996,6 +996,7 @@ export const App: React.FC = () => {
               watchedIds={watchedIds}
               installedIds={installedIds}
               installingIds={installingAppIds}
+              oauthUser={oauthUser}
               onOpenDetail={handleOpenDetail}
               onQuickInstall={handleQuickInstall}
               onToggleFavorite={handleToggleFavorite}

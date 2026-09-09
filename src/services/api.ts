@@ -24,6 +24,7 @@ import {
   SyncCatalogResult,
   ForgeRepoInfo,
   WatchUpdatedPayload,
+  StarAppResult,
 } from '../types';
 import { mockApi } from './mockApi';
 
@@ -374,20 +375,20 @@ const tauriApi = {
     }
   },
 
-  async starApp(appId: string): Promise<boolean> {
-    const { owner, repo } = splitOwnerRepo(appId);
-    return tauriInvoke<boolean>('star_app', { owner, repo });
+  async starApp(ownerOrAppId: string, repo?: string): Promise<StarAppResult> {
+    const { owner, repo: r } = repo ? { owner: ownerOrAppId, repo } : splitOwnerRepo(ownerOrAppId);
+    return tauriInvoke<StarAppResult>('star_app', { owner, repo: r });
   },
 
-  async unstarApp(appId: string): Promise<boolean> {
-    const { owner, repo } = splitOwnerRepo(appId);
-    return tauriInvoke<boolean>('unstar_app', { owner, repo });
+  async unstarApp(ownerOrAppId: string, repo?: string): Promise<boolean> {
+    const { owner, repo: r } = repo ? { owner: ownerOrAppId, repo } : splitOwnerRepo(ownerOrAppId);
+    return tauriInvoke<boolean>('unstar_app', { owner, repo: r });
   },
 
-  async isStarred(appId: string): Promise<boolean> {
+  async isStarred(ownerOrAppId: string, repo?: string): Promise<boolean> {
     try {
-      const { owner, repo } = splitOwnerRepo(appId);
-      return await tauriInvoke<boolean>('is_starred', { owner, repo });
+      const { owner, repo: r } = repo ? { owner: ownerOrAppId, repo } : splitOwnerRepo(ownerOrAppId);
+      return await tauriInvoke<boolean>('is_starred', { owner, repo: r });
     } catch {
       return false;
     }

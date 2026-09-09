@@ -98,11 +98,11 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
 
   useEffect(() => {
     let cancelled = false;
-    if (!oauthUser) {
+    if (!app.owner || app.owner === '加载中...' || !app.repo) {
       setIsStarred(false);
       return;
     }
-    api.isStarred(app.id).then((v) => {
+    api.isStarred(app.owner, app.repo).then((v) => {
       if (!cancelled) setIsStarred(v);
     }).catch(() => {
       if (!cancelled) setIsStarred(false);
@@ -110,23 +110,33 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [app.id, oauthUser]);
+  }, [app.owner, app.repo]);
 
   const handleToggleStar = async () => {
-    if (!oauthUser || isStarring) return;
+    if (!app.owner || app.owner === '加载中...' || !app.repo) return;
+    if (isStarring) return;
     setIsStarring(true);
     try {
       if (isStarred) {
-        await api.unstarApp(app.id);
+        await api.unstarApp(app.owner, app.repo);
         setIsStarred(false);
-        notifyToast(`已取消对 ${app.name} 的标星`, 'info');
+        notifyToast(`已取消对 ${app.name} 的 GitHub 收藏`, 'info');
       } else {
-        await api.starApp(app.id);
+        const res = await api.starApp(app.owner, app.repo);
         setIsStarred(true);
-        notifyToast(`已在 GitHub 上标星 ${app.name} ★`, 'success');
+        if (res.warning) {
+          notifyToast(res.warning, 'warning');
+        } else {
+          notifyToast(`已在 GitHub 上标星 ${app.name}，并存入 z-store-list 列表 ★`, 'success');
+        }
       }
     } catch (e) {
-      notifyToast(`标星操作失败: ${String(e)}`, 'error');
+      const errStr = String(e);
+      if (errStr.includes('请先完成 GitHub 登录') || errStr.includes('未配置') || errStr.includes('401')) {
+        notifyToast('请先在「设置」中登录 GitHub 账号或配置个人访问令牌 (PAT)，即可使用 GitHub 收藏/标星功能', 'info');
+      } else {
+        notifyToast(`GitHub 标星失败: ${errStr}`, 'error');
+      }
     } finally {
       setIsStarring(false);
     }
@@ -451,7 +461,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                 disabled={effectiveRefreshing}
                 aria-label="强制从远端刷新应用信息与最新发布"
                 title={effectiveRefreshing ? '正在从远端重新同步数据...' : '强制从远端刷新 (穿透本地缓存)'}
-                style={{ position: 'relative', top: 'auto', right: 'auto', color: effectiveRefreshing ? 'var(--brand-primary)' : 'var(--text-secondary)' }}
+                style={{ color: effectiveRefreshing ? 'var(--brand-primary)' : 'var(--text-secondary)' }}
               >
                 <svg
                   className={effectiveRefreshing ? 'icon-spin' : ''}
@@ -470,24 +480,24 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
             )}
             {onToggleFavorite && (
               <button
-                className="modal-close-btn"
+                className="modal-header-btn"
                 onClick={() => onToggleFavorite(app.id)}
-                aria-label={isFavorite ? '取消收藏' : '添加收藏'}
-                style={{ position: 'relative', top: 'auto', right: 'auto', color: isFavorite ? '#eab308' : 'var(--text-secondary)' }}
-                title={isFavorite ? '已收藏（点击取消）' : '加入收藏夹'}
+                aria-label={isFavorite ? '取消应用内收藏' : '加入应用内收藏'}
+                style={{ color: isFavorite ? '#eab308' : 'var(--text-secondary)' }}
+                title={isFavorite ? '已加入应用内收藏（存入本地数据库 · 点击取消）' : '应用内收藏：保存至本机数据库，离线随时可用'}
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill={isFavorite ? '#eab308' : 'none'} stroke={isFavorite ? '#eab308' : 'currentColor'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                  <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
                 </svg>
               </button>
             )}
             {onToggleWatch && (
               <button
-                className="modal-close-btn"
+                className="modal-header-btn"
                 onClick={() => onToggleWatch(app.id)}
-                aria-label={isWatched ? '取消关注' : '关注新版本动态'}
-                style={{ position: 'relative', top: 'auto', right: 'auto', color: isWatched ? 'var(--brand-primary)' : 'var(--text-secondary)' }}
-                title={isWatched ? '已关注该应用的新版本动态（点击取消）' : '关注：新版本发布时在应用内提醒'}
+                aria-label={isWatched ? '取消关注 Release 更新' : '关注 Release 更新'}
+                style={{ color: isWatched ? 'var(--brand-primary)' : 'var(--text-secondary)' }}
+                title={isWatched ? '已关注该应用的新版本动态（新 Release 发布时在应用内提醒 · 点击取消）' : '关注 Release 更新：该应用发布新版本时在应用内提醒'}
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill={isWatched ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
@@ -495,18 +505,35 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                 </svg>
               </button>
             )}
-            {oauthUser && (
-              <button
-                className="modal-close-btn"
-                onClick={handleToggleStar}
-                disabled={isStarring}
-                aria-label={isStarred ? '取消标星' : '在 GitHub 上标星'}
-                style={{ position: 'relative', top: 'auto', right: 'auto', color: isStarred ? '#eab308' : 'var(--text-secondary)' }}
-                title={isStarred ? '已在 GitHub 上标星（点击取消）' : '★ 标星该仓库（需 GitHub 账号登录态）'}
-              >
-                <span style={{ fontSize: '14px', fontWeight: 700, color: isStarred ? '#eab308' : 'inherit' }}>★</span>
-              </button>
-            )}
+            <button
+              className="modal-header-btn"
+              onClick={handleToggleStar}
+              disabled={isStarring}
+              aria-label={isStarred ? '取消 GitHub 收藏' : 'GitHub 收藏 (Star)'}
+              style={{
+                color: isStarred ? '#eab308' : 'var(--text-secondary)',
+                opacity: 1,
+              }}
+              title={
+                isStarred
+                  ? '已在 GitHub 标星并存入 z-store-list 列表（点击取消 GitHub 收藏）'
+                  : oauthUser
+                  ? oauthUser.has_list_scope
+                    ? 'GitHub 收藏：在 GitHub 标星该仓库并存入 z-store-list 列表'
+                    : 'GitHub 收藏：在 GitHub 标星（当前令牌缺少 user 权限，建议在设置中重新授权以同步至清单）'
+                  : 'GitHub 收藏：在 GitHub 标星该仓库并存入列表（需在设置中登录或配置令牌）'
+              }
+            >
+              {isStarring ? (
+                <svg className="icon-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+                </svg>
+              ) : (
+                <svg width="15" height="15" viewBox="0 0 24 24" fill={isStarred ? '#eab308' : 'none'} stroke={isStarred ? '#eab308' : 'currentColor'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                </svg>
+              )}
+            </button>
             <button
               className="modal-close-btn"
               onClick={onClose}
@@ -519,6 +546,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               </svg>
             </button>
           </div>
+
 
           <AppIcon
             icon={app.icon}

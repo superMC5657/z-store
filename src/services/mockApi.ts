@@ -725,18 +725,21 @@ export const mockApi = {
     return true;
   },
 
-  async starApp(appId: string): Promise<boolean> {
-    if (!mockStarred.includes(appId)) mockStarred.push(appId);
+  async starApp(ownerOrAppId: string, repo?: string): Promise<import('../types').StarAppResult> {
+    const key = repo ? `${ownerOrAppId}/${repo}` : ownerOrAppId;
+    if (!mockStarred.includes(key)) mockStarred.push(key);
+    return { starred: true, in_list: true };
+  },
+
+  async unstarApp(ownerOrAppId: string, repo?: string): Promise<boolean> {
+    const key = repo ? `${ownerOrAppId}/${repo}` : ownerOrAppId;
+    mockStarred = mockStarred.filter((id) => id !== key);
     return true;
   },
 
-  async unstarApp(appId: string): Promise<boolean> {
-    mockStarred = mockStarred.filter((id) => id !== appId);
-    return true;
-  },
-
-  async isStarred(appId: string): Promise<boolean> {
-    return mockStarred.includes(appId);
+  async isStarred(ownerOrAppId: string, repo?: string): Promise<boolean> {
+    const key = repo ? `${ownerOrAppId}/${repo}` : ownerOrAppId;
+    return mockStarred.includes(key);
   },
 
   async verifyOwnership(_appId: string, _code: string): Promise<boolean> {

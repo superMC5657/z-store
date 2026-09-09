@@ -206,6 +206,35 @@ export const OAuthAccountCard: React.FC = () => {
         </span>
       )}
 
+      {user && user.has_list_scope === false && !session && (
+        <div
+          style={{
+            padding: '10px 14px',
+            borderRadius: '6px',
+            background: 'rgba(234, 179, 8, 0.1)',
+            border: '1px solid rgba(234, 179, 8, 0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
+            marginTop: '4px',
+          }}
+        >
+          <div style={{ fontSize: '12px', color: '#eab308', lineHeight: '1.5' }}>
+            ⚠️ <strong>权限需升级</strong>：当前 GitHub 授权令牌缺少「user」权限，无法将标星软件同步入 GitHub 标星清单（<code>z-store-list</code>）。建议重新授权以升级权限。
+          </div>
+          <button
+            type="button"
+            className="btn-fluent btn-primary"
+            style={{ fontSize: '12px', padding: '5px 12px', whiteSpace: 'nowrap' }}
+            disabled={isStarting}
+            onClick={handleLogin}
+          >
+            {isStarting ? '发起中...' : '重新授权'}
+          </button>
+        </div>
+      )}
+
       {error && (
         <span style={{ fontSize: '12px', color: '#ef4444' }}>⚠️ {error}</span>
       )}

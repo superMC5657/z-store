@@ -155,6 +155,14 @@ impl Database {
                 cached_at INTEGER NOT NULL
             );
 
+            -- GitHub Star 列表本地持久化记录
+            CREATE TABLE IF NOT EXISTS user_stars (
+                owner TEXT NOT NULL,
+                repo TEXT NOT NULL,
+                starred_at INTEGER NOT NULL,
+                PRIMARY KEY (owner, repo)
+            );
+
             -- FR-6.2 默认通知频率：daily（仅缺失时填充）
             INSERT OR IGNORE INTO user_settings (key, value) VALUES ('watch_notify_frequency', 'daily');
             "#,
@@ -947,6 +955,51 @@ impl Database {
             params![app_id.trim().to_lowercase(), raw_toml, now],
         )?;
         Ok(())
+    }
+
+    pub fn set_starred(&self, owner: &str, repo: &str, is_starred: bool) -> Result<()> {
+        let o = owner.trim().to_lowercase();
+        let r = repo.trim().to_lowercase();
+        if is_starred {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64;
+            self.conn.execute(
+                "INSERT OR REPLACE INTO user_stars (owner, repo, starred_at) VALUES (?1, ?2, ?3)",
+                params![o, r, now],
+            )?;
+        } else {
+            self.conn.execute(
+                "DELETE FROM user_stars WHERE owner = ?1 AND repo = ?2",
+                params![o, r],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn is_starred(&self, owner: &str, repo: &str) -> Result<bool> {
+        let o = owner.trim().to_lowercase();
+        let r = repo.trim().to_lowercase();
+        let mut stmt = self
+            .conn
+            .prepare("SELECT 1 FROM user_stars WHERE owner = ?1 AND repo = ?2 LIMIT 1")?;
+        let exists = stmt.exists(params![o, r])?;
+        Ok(exists)
+    }
+
+    pub fn get_user_stars(&self) -> Result<Vec<(String, String)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT owner, repo FROM user_stars ORDER BY starred_at DESC")?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
     }
 }
 

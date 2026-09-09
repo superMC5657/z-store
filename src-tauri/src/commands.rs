@@ -2570,10 +2570,12 @@ pub async fn get_oauth_user(
         .and_then(|db| db.get_setting(crate::oauth::SETTING_OAUTH_USER).ok().flatten())
         .filter(|s| !s.trim().is_empty())
         .and_then(|json| serde_json::from_str::<crate::oauth::OAuthUser>(&json).ok());
-    if stored.is_some() {
-        return Ok(stored);
+    if let Some(ref u) = stored {
+        if u.has_list_scope {
+            return Ok(stored);
+        }
     }
-    // 有令牌但缺用户快照时实时补拉一次
+    // 有令牌但缺用户快照或旧版快照未标记权限范围时实时补拉一次
     let token = resolve_write_token(&state);
     let is_oauth = state
         .db
@@ -2594,7 +2596,7 @@ pub async fn get_oauth_user(
             }
         }
     }
-    Ok(None)
+    Ok(stored)
 }
 
 #[tauri::command]
@@ -2623,15 +2625,19 @@ pub async fn star_app(
     state: State<'_, AppState>,
     owner: String,
     repo: String,
-) -> Result<bool, String> {
+) -> Result<crate::oauth::StarRepoOutcome, String> {
     if owner.trim().is_empty() || repo.trim().is_empty() {
         return Err("仓库 owner 与 repo 不能为空".to_string());
     }
     let token = resolve_write_token(&state)
         .ok_or_else(|| "请先完成 GitHub 登录，或在「设置」中配置个人访问令牌 (PAT)".to_string())?;
-    crate::oauth::star_repo(&token, owner.trim(), repo.trim())
-        .await
-        .map(|_| true)
+    let outcome = crate::oauth::star_repo(&token, owner.trim(), repo.trim()).await?;
+    if outcome.starred {
+        if let Ok(db) = state.db.lock() {
+            let _ = db.set_starred(&owner, &repo, true);
+        }
+    }
+    Ok(outcome)
 }
 
 #[tauri::command]
@@ -2647,7 +2653,12 @@ pub async fn unstar_app(
         .ok_or_else(|| "请先完成 GitHub 登录，或在「设置」中配置个人访问令牌 (PAT)".to_string())?;
     crate::oauth::unstar_repo(&token, owner.trim(), repo.trim())
         .await
-        .map(|_| true)
+        .map(|_| {
+            if let Ok(db) = state.db.lock() {
+                let _ = db.set_starred(&owner, &repo, false);
+            }
+            true
+        })
 }
 
 #[tauri::command]
@@ -2659,9 +2670,17 @@ pub async fn is_starred(
     if owner.trim().is_empty() || repo.trim().is_empty() {
         return Err("仓库 owner 与 repo 不能为空".to_string());
     }
-    let token = resolve_write_token(&state)
-        .ok_or_else(|| "请先完成 GitHub 登录，或在「设置」中配置个人访问令牌 (PAT)".to_string())?;
-    crate::oauth::check_starred(&token, owner.trim(), repo.trim()).await
+    let token = resolve_write_token(&state);
+    if let Some(ref t) = token {
+        if let Ok(remote_val) = crate::oauth::check_starred(t, owner.trim(), repo.trim()).await {
+            if let Ok(db) = state.db.lock() {
+                let _ = db.set_starred(&owner, &repo, remote_val);
+            }
+            return Ok(remote_val);
+        }
+    }
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    Ok(db.is_starred(&owner, &repo).unwrap_or(false))
 }
 
 // ---------- FR-6.3 手动跨设备同步（导入侧；导出由前端经现有 getters 组装） ----------

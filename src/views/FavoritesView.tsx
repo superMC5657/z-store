@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AppCard } from '../components/AppCard';
-import { AppSummary, StarredSyncResult } from '../types';
+import { AppSummary, OAuthUser, StarredSyncResult } from '../types';
 import { api } from '../services/api';
 
 interface FavoritesViewProps {
@@ -9,6 +9,7 @@ interface FavoritesViewProps {
   watchedIds?: Set<string>;
   installedIds: Set<string>;
   installingIds?: Set<string>;
+  oauthUser?: OAuthUser | null;
   onOpenDetail: (id: string) => void;
   onQuickInstall: (id: string) => void;
   onToggleFavorite: (id: string) => void;
@@ -21,6 +22,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   watchedIds,
   installedIds,
   installingIds,
+  oauthUser,
   onOpenDetail,
   onQuickInstall,
   onToggleFavorite,
@@ -28,10 +30,16 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'local' | 'watched' | 'starred'>('local');
   const [searchText, setSearchText] = useState('');
-  const [githubUser, setGithubUser] = useState('');
+  const [githubUser, setGithubUser] = useState(oauthUser?.login || '');
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<StarredSyncResult | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (oauthUser?.login && !githubUser) {
+      setGithubUser(oauthUser.login);
+    }
+  }, [oauthUser?.login]);
 
   const watchedSet = watchedIds || new Set<string>();
 
@@ -210,11 +218,27 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
               <div>
-                <h4 style={{ margin: '0 0 6px 0', fontSize: '16px', fontWeight: 600 }}>
-                  同步 GitHub Starred 开源项目
-                </h4>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                  <h4 style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>
+                    同步 GitHub Starred 开源项目
+                  </h4>
+                  {oauthUser?.login && (
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        background: 'var(--brand-subtle)',
+                        color: 'var(--brand-primary)',
+                        border: '1px solid var(--border-nav-active)',
+                      }}
+                    >
+                      已登录: @{oauthUser.login}
+                    </span>
+                  )}
+                </div>
                 <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>
-                  直接输入 GitHub 用户名，或在设置中配置 PAT，自动扫描您已 Star 的开源软件并与 Z-Store 匹配接管安装。
+                  直接输入 GitHub 用户名，或使用已登录账号，自动扫描您已 Star 的开源软件并与 Z-Store 匹配接管安装。
                 </p>
               </div>
 
