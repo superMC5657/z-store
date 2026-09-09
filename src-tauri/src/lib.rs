@@ -346,10 +346,22 @@ pub fn run() {
     }
 
     let saved_token = db
-        .get_setting("github_token")
+        .get_setting(crate::oauth::SETTING_OAUTH_TOKEN)
         .ok()
         .flatten()
-        .filter(|s| !s.is_empty());
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| {
+            db.get_setting("github_token")
+                .ok()
+                .flatten()
+                .filter(|s| !s.trim().is_empty())
+        })
+        .or_else(|| {
+            db.get_host_token("github.com")
+                .ok()
+                .flatten()
+                .filter(|s| !s.trim().is_empty())
+        });
     let saved_mirror = db.get_setting("active_mirror").ok().flatten();
 
     let catalog = CatalogService::new();
@@ -399,6 +411,11 @@ pub fn run() {
                 while let Some(ev) = watch_rx.recv().await {
                     let _ = watch_handle.emit("zstore://watch-updated", ev);
                 }
+            });
+
+            let init_token = saved_token.clone();
+            tauri::async_runtime::spawn(async move {
+                crate::probe_github_rate_limit(init_token.as_deref()).await;
             });
 
             Ok(())

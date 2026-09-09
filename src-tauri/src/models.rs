@@ -97,6 +97,10 @@ pub struct InstalledApp {
     pub asset_name: String,
     pub asset_sha256: String,
     pub uninstall_command: Option<String>,
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub icon_bg: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -115,6 +119,10 @@ pub struct UpdateItem {
     pub current_version: String,
     pub latest_version: String,
     pub changelog: String,
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub icon_bg: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

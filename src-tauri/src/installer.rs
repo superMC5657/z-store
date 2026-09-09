@@ -24,6 +24,21 @@ pub enum AssetKind {
 pub struct InstallerEngine;
 
 impl InstallerEngine {
+    pub fn select_best_asset(
+        assets: &[crate::models::ReleaseAsset],
+    ) -> Option<&crate::models::ReleaseAsset> {
+        select_best_asset(assets)
+    }
+
+    pub fn resolve_uninstaller_command(
+        app_name: &str,
+        app_id: &str,
+        install_path: &str,
+        existing_command: Option<&str>,
+    ) -> Option<String> {
+        resolve_uninstaller_command(app_name, app_id, install_path, existing_command)
+    }
+
     pub fn classify_asset(filename: &str) -> (AssetKind, &'static str, &'static str) {
         let name_lower = filename.to_lowercase();
 
@@ -168,7 +183,7 @@ impl InstallerEngine {
         let temp_dir = if let Some(custom) = custom_download_dir {
             custom.to_path_buf()
         } else {
-            std::env::temp_dir().join("zstore_downloads")
+            default_download_dir()
         };
         let _ = std::fs::create_dir_all(&temp_dir);
 
@@ -180,7 +195,16 @@ impl InstallerEngine {
             .chars()
             .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
             .collect();
-        let temp_path = temp_dir.join(format!("{}_{}", safe_task_id, safe_asset_name));
+        let file_name = if safe_task_id.is_empty()
+            || safe_asset_name
+                .to_lowercase()
+                .starts_with(&safe_task_id.to_lowercase())
+        {
+            safe_asset_name.to_string()
+        } else {
+            format!("{}_{}", safe_task_id, safe_asset_name)
+        };
+        let temp_path = temp_dir.join(file_name);
 
         let mut file = match File::create(&temp_path) {
             Ok(f) => f,
@@ -354,7 +378,7 @@ impl InstallerEngine {
         Ok((temp_path, actual_hash))
     }
 
-    pub fn execute_installation(
+    pub async fn execute_installation(
         installer_path: &Path,
         kind: &AssetKind,
         app_id: &str,
@@ -364,79 +388,55 @@ impl InstallerEngine {
             AssetKind::Msi => {
                 #[cfg(target_os = "windows")]
                 {
-                    use std::time::{Duration, Instant};
-                    // FR-3.5 静默优先：首先尝试 `msiexec /i <pkg> /qn /norestart` 全静默安装。
-                    // 原生向导仅为降级 fallback，且绝不无限期同步等待 GUI 进程（避免阻塞 Tauri IPC）：
-                    // 短 grace 期内即可捕获“拒绝静默参数”的快速失败并降级拉起向导；
-                    // grace 期后仍在运行则视为安装进行中，移交后台线程等待 + 清理并立即返回。
-                    const SILENT_GRACE: Duration = Duration::from_secs(5);
-                    match std::process::Command::new("msiexec.exe")
+                    use std::time::Duration;
+                    // FR-3.5 静默优先：首先尝试 `msiexec /i <pkg> /qn /norestart` 全静默安装
+                    let silent_status = tokio::process::Command::new("msiexec.exe")
                         .arg("/i")
                         .arg(installer_path)
                         .arg("/qn")
                         .arg("/norestart")
-                        .spawn()
-                    {
-                        Ok(mut child) => {
-                            let start = Instant::now();
-                            let silent_outcome = loop {
-                                match child.try_wait() {
-                                    Ok(Some(status)) => break Some(status),
-                                    Ok(None) => {
-                                        if start.elapsed() >= SILENT_GRACE {
-                                            break None;
-                                        }
-                                        std::thread::sleep(Duration::from_millis(100));
-                                    }
-                                    Err(e) => {
-                                        return Err(format!("MSI 静默安装进程异常: {}", e));
-                                    }
-                                }
-                            };
+                        .status()
+                        .await
+                        .map_err(|e| format!("调起 MSI 静默安装器失败: {}", e))?;
 
-                            match silent_outcome {
-                                Some(status) if status.success() => {
-                                    // 稍作休眠以确保系统写盘与注册表完全刷新
-                                    std::thread::sleep(Duration::from_millis(800));
-                                    // 安全清理临时安装包
-                                    let _ = std::fs::remove_file(installer_path);
-                                    Ok("MSI 静默安装已完成".to_string())
-                                }
-                                Some(status) => {
-                                    let code = status.code().unwrap_or(-1);
-                                    if code == 1602 {
-                                        let _ = std::fs::remove_file(installer_path);
-                                        return Err("用户取消了 MSI 安装向导".to_string());
-                                    }
-                                    // 静默被拒绝（快速非零退出）：降级拉起原生向导（不等待），引导用户手动完成
-                                    let mut fallback = std::process::Command::new("msiexec.exe")
-                                        .arg("/i")
-                                        .arg(installer_path)
-                                        .spawn()
-                                        .map_err(|e| {
-                                            format!("静默安装被拒绝且拉起 MSI 向导失败: {}", e)
-                                        })?;
-                                    let p = installer_path.to_path_buf();
-                                    std::thread::spawn(move || {
-                                        let _ = fallback.wait();
-                                        std::thread::sleep(Duration::from_millis(1000));
-                                        let _ = std::fs::remove_file(&p);
-                                    });
-                                    Ok("该安装包拒绝静默参数，已拉起原生 MSI 安装向导，请按界面引导完成安装".to_string())
-                                }
-                                None => {
-                                    // 静默安装进行中：后台等待退出后清理临时包，IPC 立即返回不阻塞
-                                    let p = installer_path.to_path_buf();
-                                    std::thread::spawn(move || {
-                                        let _ = child.wait();
-                                        std::thread::sleep(Duration::from_millis(800));
-                                        let _ = std::fs::remove_file(&p);
-                                    });
-                                    Ok("MSI 静默安装进行中，后台完成后将自动清理临时安装包".to_string())
-                                }
-                            }
+                    if silent_status.success() {
+                        tokio::time::sleep(Duration::from_millis(800)).await;
+                        let _ = std::fs::remove_file(installer_path);
+                        return Ok("MSI 静默安装已完成".to_string());
+                    }
+
+                    let code = silent_status.code().unwrap_or(-1);
+                    if code == 1602 {
+                        let _ = std::fs::remove_file(installer_path);
+                        return Err("用户取消了 MSI 安装向导".to_string());
+                    }
+
+                    // 静默被拒绝或非零退出：降级拉起原生 GUI 向导，并等待用户在向导中完成或取消
+                    let mut fallback = tokio::process::Command::new("msiexec.exe")
+                        .arg("/i")
+                        .arg(installer_path)
+                        .spawn()
+                        .map_err(|e| {
+                            format!("静默安装被拒绝且拉起 MSI 向导失败: {}", e)
+                        })?;
+
+                    let fallback_status = fallback
+                        .wait()
+                        .await
+                        .map_err(|e| format!("MSI 向导进程异常: {}", e))?;
+
+                    let _ = std::fs::remove_file(installer_path);
+
+                    if fallback_status.success() {
+                        tokio::time::sleep(Duration::from_millis(800)).await;
+                        Ok("MSI 安装已完成".to_string())
+                    } else {
+                        let fb_code = fallback_status.code().unwrap_or(-1);
+                        if fb_code == 1602 {
+                            Err("用户取消了 MSI 安装向导".to_string())
+                        } else {
+                            Err(format!("MSI 安装未能成功完成 (退出代码: {})", fb_code))
                         }
-                        Err(e) => Err(format!("调起 MSI 安装器失败: {}", e)),
                     }
                 }
                 #[cfg(not(target_os = "windows"))]
@@ -447,18 +447,29 @@ impl InstallerEngine {
             AssetKind::SetupExe => {
                 #[cfg(target_os = "windows")]
                 {
-                    let mut child = std::process::Command::new(installer_path)
+                    use std::time::Duration;
+                    let mut child = tokio::process::Command::new(installer_path)
                         .spawn()
                         .map_err(|e| format!("调起安装程序失败: {}", e))?;
 
-                    let p = installer_path.to_path_buf();
-                    std::thread::spawn(move || {
-                        let _ = child.wait();
-                        std::thread::sleep(std::time::Duration::from_millis(1000));
-                        let _ = std::fs::remove_file(&p);
-                    });
+                    let status = child
+                        .wait()
+                        .await
+                        .map_err(|e| format!("安装程序运行异常: {}", e))?;
 
-                    Ok("已调起安装程序".to_string())
+                    tokio::time::sleep(Duration::from_millis(800)).await;
+                    let _ = std::fs::remove_file(installer_path);
+
+                    if status.success() {
+                        Ok("安装程序已完成".to_string())
+                    } else {
+                        let code = status.code().unwrap_or(-1);
+                        if code == 1602 || code == 1 || code == 2 {
+                            Err(format!("用户取消了安装向导或安装已中止 (退出代码: {})", code))
+                        } else {
+                            Err(format!("安装程序未能成功完成 (退出代码: {})", code))
+                        }
+                    }
                 }
                 #[cfg(not(target_os = "windows"))]
                 {
@@ -505,12 +516,15 @@ impl InstallerEngine {
                     Self::create_desktop_shortcut(app_id, exe);
                 }
 
+                let _ = std::fs::remove_file(installer_path);
                 Ok(format!("已解压至便携目录: {:?}", app_dir))
             }
             AssetKind::Dmg => {
                 #[cfg(target_os = "macos")]
                 {
-                    Self::install_macos_dmg(installer_path)
+                    let res = Self::install_macos_dmg(installer_path);
+                    let _ = std::fs::remove_file(installer_path);
+                    res
                 }
                 #[cfg(not(target_os = "macos"))]
                 {
@@ -520,10 +534,19 @@ impl InstallerEngine {
             AssetKind::Pkg => {
                 #[cfg(target_os = "macos")]
                 {
-                    let _ = std::process::Command::new("open")
+                    let status = tokio::process::Command::new("open")
+                        .arg("-W")
                         .arg(installer_path)
-                        .spawn();
-                    Ok("已拉起 macOS PKG 系统安装向导".to_string())
+                        .status()
+                        .await
+                        .map_err(|e| format!("拉起 macOS PKG 安装器失败: {}", e))?;
+
+                    let _ = std::fs::remove_file(installer_path);
+                    if status.success() {
+                        Ok("macOS PKG 安装已完成".to_string())
+                    } else {
+                        Err("macOS PKG 安装向导未完成或被取消".to_string())
+                    }
                 }
                 #[cfg(not(target_os = "macos"))]
                 {
@@ -533,12 +556,20 @@ impl InstallerEngine {
             AssetKind::AppImage => {
                 #[cfg(target_os = "linux")]
                 {
-                    let _ = std::process::Command::new("chmod")
+                    let _ = tokio::process::Command::new("chmod")
                         .arg("+x")
                         .arg(installer_path)
-                        .status();
-                    let _ = std::process::Command::new(installer_path).spawn();
-                    Ok("已赋予可执行权限并启动 AppImage".to_string())
+                        .status()
+                        .await;
+                    let status = tokio::process::Command::new(installer_path)
+                        .status()
+                        .await
+                        .map_err(|e| format!("启动 AppImage 失败: {}", e))?;
+                    if status.success() {
+                        Ok("已赋予可执行权限并启动 AppImage".to_string())
+                    } else {
+                        Err("AppImage 执行未正常退出".to_string())
+                    }
                 }
                 #[cfg(not(target_os = "linux"))]
                 {
@@ -548,12 +579,19 @@ impl InstallerEngine {
             AssetKind::Deb => {
                 #[cfg(target_os = "linux")]
                 {
-                    let _ = std::process::Command::new("pkexec")
+                    let status = tokio::process::Command::new("pkexec")
                         .arg("dpkg")
                         .arg("-i")
                         .arg(installer_path)
-                        .spawn();
-                    Ok("已调起 pkexec dpkg 提权安装 deb 包".to_string())
+                        .status()
+                        .await
+                        .map_err(|e| format!("调起 pkexec dpkg 失败: {}", e))?;
+                    let _ = std::fs::remove_file(installer_path);
+                    if status.success() {
+                        Ok("deb 包安装已完成".to_string())
+                    } else {
+                        Err("deb 包提权安装未完成或被取消".to_string())
+                    }
                 }
                 #[cfg(not(target_os = "linux"))]
                 {
@@ -563,12 +601,19 @@ impl InstallerEngine {
             AssetKind::Rpm => {
                 #[cfg(target_os = "linux")]
                 {
-                    let _ = std::process::Command::new("pkexec")
+                    let status = tokio::process::Command::new("pkexec")
                         .arg("rpm")
                         .arg("-i")
                         .arg(installer_path)
-                        .spawn();
-                    Ok("已调起 pkexec rpm 提权安装 rpm 包".to_string())
+                        .status()
+                        .await
+                        .map_err(|e| format!("调起 pkexec rpm 失败: {}", e))?;
+                    let _ = std::fs::remove_file(installer_path);
+                    if status.success() {
+                        Ok("rpm 包安装已完成".to_string())
+                    } else {
+                        Err("rpm 包提权安装未完成或被取消".to_string())
+                    }
                 }
                 #[cfg(not(target_os = "linux"))]
                 {
@@ -578,11 +623,25 @@ impl InstallerEngine {
             _ => {
                 #[cfg(target_os = "windows")]
                 {
-                    let _ = std::process::Command::new("explorer.exe")
+                    let status = tokio::process::Command::new("cmd.exe")
+                        .arg("/c")
+                        .arg("start")
+                        .arg("/wait")
                         .arg(installer_path)
-                        .spawn();
+                        .status()
+                        .await
+                        .map_err(|e| format!("调起系统默认程序失败: {}", e))?;
+                    let _ = std::fs::remove_file(installer_path);
+                    if status.success() {
+                        Ok("系统默认程序已处理完成".to_string())
+                    } else {
+                        Err("处理未正常完成".to_string())
+                    }
                 }
-                Ok("已拉起系统默认处理程序".to_string())
+                #[cfg(not(target_os = "windows"))]
+                {
+                    Ok("已拉起系统默认处理程序".to_string())
+                }
             }
         }
     }
@@ -732,8 +791,59 @@ impl InstallerEngine {
     }
 }
 
+/// 获取当前系统用户的主目录（跨平台：Windows: USERPROFILE / HOMEDRIVE+HOMEPATH；Unix: HOME）
+pub fn user_home_dir() -> Option<PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(profile) = std::env::var("USERPROFILE") {
+            let p = PathBuf::from(profile);
+            if p.exists() {
+                return Some(p);
+            }
+        }
+        if let (Ok(drive), Ok(path)) = (std::env::var("HOMEDRIVE"), std::env::var("HOMEPATH")) {
+            let p = PathBuf::from(format!("{}{}", drive, path));
+            if p.exists() {
+                return Some(p);
+            }
+        }
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        let p = PathBuf::from(home);
+        if p.exists() {
+            return Some(p);
+        }
+    }
+    None
+}
+
+/// 默认下载安装包位置：统一为各操作系统的用户下载文件夹 `~/Downloads`
+/// （Windows: %USERPROFILE%\Downloads；macOS/Linux: $HOME/Downloads）
+pub fn default_download_dir() -> PathBuf {
+    if let Some(home) = user_home_dir() {
+        return home.join("Downloads");
+    }
+    std::env::temp_dir().join("Downloads")
+}
+
 pub fn expand_env_path(path_str: &str) -> PathBuf {
-    let mut expanded = path_str.to_string();
+    let trimmed = path_str.trim();
+    if trimmed.is_empty() {
+        return default_download_dir();
+    }
+
+    // 跨平台识别波浪号 ~ 前缀（~/Downloads 或 ~\Downloads 或 单独 ~）
+    if trimmed == "~" {
+        return user_home_dir().unwrap_or_else(default_download_dir);
+    }
+    if let Some(rest) = trimmed.strip_prefix("~/").or_else(|| trimmed.strip_prefix("~\\")) {
+        if let Some(home) = user_home_dir() {
+            let sub_path: PathBuf = rest.split(['/', '\\']).collect();
+            return home.join(sub_path);
+        }
+    }
+
+    let mut expanded = trimmed.to_string();
     #[cfg(target_os = "windows")]
     {
         if expanded.contains('%') {
@@ -746,8 +856,21 @@ pub fn expand_env_path(path_str: &str) -> PathBuf {
             if let Ok(temp) = std::env::var("TEMP") {
                 expanded = expanded.replace("%TEMP%", &temp);
             }
+            if let Ok(appdata) = std::env::var("APPDATA") {
+                expanded = expanded.replace("%APPDATA%", &appdata);
+            }
         }
     }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        if expanded.starts_with("$HOME") {
+            if let Ok(home) = std::env::var("HOME") {
+                expanded = expanded.replacen("$HOME", &home, 1);
+            }
+        }
+    }
+
     PathBuf::from(expanded)
 }
 
@@ -819,6 +942,221 @@ pub fn dirs_or_fallback(app_id: &str) -> PathBuf {
     } else {
         std::env::temp_dir().join("z-store-apps").join(clean_id)
     }
+}
+
+/// 根据当前系统平台（Windows / macOS / Linux）与 CPU 架构（x86_64 / aarch64）智能择取最优安装包资产
+pub fn select_best_asset(
+    assets: &[crate::models::ReleaseAsset],
+) -> Option<&crate::models::ReleaseAsset> {
+    #[cfg(target_os = "windows")]
+    let target_os = "windows";
+    #[cfg(target_os = "macos")]
+    let target_os = "macos";
+    #[cfg(target_os = "linux")]
+    let target_os = "linux";
+    #[cfg(target_os = "android")]
+    let target_os = "android";
+    #[cfg(not(any(
+        target_os = "windows",
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "android"
+    )))]
+    let target_os = "all";
+
+    #[cfg(target_arch = "x86_64")]
+    let target_arch = "x86_64";
+    #[cfg(target_arch = "aarch64")]
+    let target_arch = "aarch64";
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    let target_arch = "universal";
+
+    let os_matches: Vec<&crate::models::ReleaseAsset> = assets
+        .iter()
+        .filter(|a| a.os == target_os || a.os == "all")
+        .collect();
+
+    let candidates = if os_matches.is_empty() {
+        assets.iter().collect::<Vec<&crate::models::ReleaseAsset>>()
+    } else {
+        os_matches
+    };
+
+    candidates.into_iter().max_by_key(|a| {
+        let mut score: i32 = 0;
+        if a.os == target_os {
+            score += 100;
+        }
+        if a.arch == target_arch {
+            score += 50;
+        } else if a.arch == "universal" {
+            score += 25;
+        } else if target_arch == "x86_64" && a.arch == "x86" {
+            score += 10;
+        } else {
+            score -= 50;
+        }
+
+        #[cfg(target_os = "windows")]
+        match a.kind.as_str() {
+            "msi" => score += 20,
+            "setup_exe" => score += 15,
+            "portable_zip" => score += 10,
+            _ => {}
+        }
+
+        #[cfg(target_os = "macos")]
+        match a.kind.as_str() {
+            "dmg" => score += 20,
+            "pkg" => score += 15,
+            "portable_zip" => score += 10,
+            _ => {}
+        }
+
+        #[cfg(target_os = "linux")]
+        match a.kind.as_str() {
+            "appimage" => score += 20,
+            "deb" => score += 15,
+            "rpm" => score += 12,
+            "portable_zip" => score += 10,
+            _ => {}
+        }
+
+        score
+    })
+}
+
+/// 自动嗅探或构造已安装应用的系统卸载命令行
+pub fn resolve_uninstaller_command(
+    app_name: &str,
+    app_id: &str,
+    install_path: &str,
+    existing_command: Option<&str>,
+) -> Option<String> {
+    // 1. 如果已有明确且有效的卸载指令（非向导提示文案）
+    if let Some(cmd) = existing_command {
+        let trimmed = cmd.trim();
+        if !trimmed.is_empty()
+            && !trimmed.contains("已调起")
+            && !trimmed.contains("跳过")
+            && !trimmed.contains("非 Windows")
+            && !trimmed.contains("已解压至")
+        {
+            return Some(trimmed.to_string());
+        }
+    }
+
+    // 2. Windows 平台：动态查询注册表中的 UninstallString
+    #[cfg(target_os = "windows")]
+    {
+        use winreg::enums::*;
+        use winreg::RegKey;
+
+        let targets = [
+            (
+                HKEY_LOCAL_MACHINE,
+                r"Software\Microsoft\Windows\CurrentVersion\Uninstall",
+            ),
+            (
+                HKEY_LOCAL_MACHINE,
+                r"Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+            ),
+            (
+                HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Uninstall",
+            ),
+        ];
+
+        let name_lower = app_name.to_lowercase();
+        let id_lower = app_id.to_lowercase();
+        let clean_id = id_lower.replace(['-', '_', '.'], "");
+
+        for (hive, subpath) in targets {
+            let root = RegKey::predef(hive);
+            if let Ok(uninstall_key) = root.open_subkey(subpath) {
+                for key_name in uninstall_key.enum_keys().map_while(Result::ok) {
+                    if let Ok(app_key) = uninstall_key.open_subkey(&key_name) {
+                        let display_name: String = app_key
+                            .get_value::<String, _>("DisplayName")
+                            .unwrap_or_default()
+                            .trim()
+                            .to_string();
+                        let disp_lower = display_name.to_lowercase();
+
+                        let matched = !disp_lower.is_empty()
+                            && (disp_lower == name_lower
+                                || disp_lower == id_lower
+                                || disp_lower.contains(&name_lower)
+                                || name_lower.contains(&disp_lower)
+                                || (!clean_id.is_empty()
+                                    && disp_lower.replace(['-', '_', '.'], "").contains(&clean_id)));
+
+                        if matched {
+                            if let Ok(uninst) = app_key.get_value::<String, _>("UninstallString") {
+                                let trimmed_uninst = uninst.trim().to_string();
+                                if !trimmed_uninst.is_empty() {
+                                    return Some(trimmed_uninst);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. 检查安装目录中的标准卸载程序
+        let p = std::path::Path::new(install_path);
+        let base_dir = if p.is_file() {
+            p.parent()
+        } else if p.is_dir() {
+            Some(p)
+        } else {
+            None
+        };
+
+        if let Some(dir) = base_dir {
+            let candidates = [
+                "uninstall.exe",
+                "Uninstall.exe",
+                "unins000.exe",
+                "unins001.exe",
+                "uninst.exe",
+            ];
+            for c in candidates {
+                let candidate_path = dir.join(c);
+                if candidate_path.is_file() {
+                    return Some(format!("\"{}\"", candidate_path.to_string_lossy()));
+                }
+            }
+        }
+
+        // 4. 检查开始菜单程序组中的卸载快捷方式
+        let start_menu_candidates = [
+            std::env::var("APPDATA")
+                .ok()
+                .map(|p| std::path::PathBuf::from(p).join(r"Microsoft\Windows\Start Menu\Programs").join(app_name)),
+            Some(
+                std::path::PathBuf::from(r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs")
+                    .join(app_name),
+            ),
+        ];
+
+        for sdir_opt in start_menu_candidates.into_iter().flatten() {
+            if sdir_opt.is_dir() {
+                if let Ok(entries) = std::fs::read_dir(&sdir_opt) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        let fname = path.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+                        if fname.contains("uninstall") && fname.ends_with(".lnk") {
+                            return Some(format!("\"{}\"", path.to_string_lossy()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    None
 }
 
 #[cfg(test)]
@@ -908,5 +1246,21 @@ mod tests {
 
         let base_default = dirs_or_fallback_with_base("test-app", None);
         assert!(base_default.to_string_lossy().contains("test-app"));
+
+        // 测试跨平台 ~/Downloads 与默认下载目录
+        let def_dl = default_download_dir();
+        assert!(def_dl.to_string_lossy().ends_with("Downloads"));
+
+        let tilde_dl = expand_env_path("~/Downloads");
+        assert_eq!(tilde_dl, def_dl);
+
+        let tilde_win_dl = expand_env_path("~\\Downloads");
+        assert_eq!(tilde_win_dl, def_dl);
+
+        let empty_dl = expand_env_path("");
+        assert_eq!(empty_dl, def_dl);
+
+        let whitespace_dl = expand_env_path("   ");
+        assert_eq!(whitespace_dl, def_dl);
     }
 }

@@ -600,6 +600,7 @@ impl CatalogService {
         id: &str,
         cached_etag: Option<String>,
         cached_payload: Option<String>,
+        cached_detail: Option<AppDetail>,
         token: Option<&str>,
     ) -> Result<(AppDetail, Option<(String, String)>), String> {
         let (owner, repo, name, desc, icon, icon_bg) = self.get_endpoints(id)?;
@@ -649,9 +650,28 @@ impl CatalogService {
             crate::notify_rate_limit("github.com", res.headers());
         }
 
+        // 核心提速门禁：若 GitHub 返回 304 Not Modified（说明最新 Release 版本完全未变）
+        // 且本地已有完整缓存详情，直接零网络开销复用已有 README 与 Release 资产，实现 ~50ms 闪电响应
+        if let Some(ref res) = resp {
+            if res.status() == reqwest::StatusCode::NOT_MODIFIED {
+                if let Some(ref existing) = cached_detail {
+                    if !existing.releases.is_empty() && !existing.readme_markdown.trim().is_empty() {
+                        let mut detail = existing.clone();
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs() as i64;
+                        detail.cached_at = Some(now);
+                        detail.is_stale_fallback = None;
+                        return Ok((detail, None));
+                    }
+                }
+            }
+        }
+
         let (release_resp, new_cache) = match resp {
             Some(res) if res.status() == reqwest::StatusCode::NOT_MODIFIED => {
-                // 304 Not Modified: 零配额消耗，直接使用 SQLite 本地缓存
+                // 304 Not Modified 但本地缺乏完整 cached_detail 时回退走 payload_json 恢复
                 if let Some(ref payload) = cached_payload {
                     let parsed: GitHubReleaseResponse = serde_json::from_str(payload)
                         .map_err(|e| format!("解析本地 ETag 缓存失败: {}", e))?;
@@ -675,7 +695,11 @@ impl CatalogService {
                 (parsed, cache_tuple)
             }
             _ => {
-                // 离线或网络异常回退：若有缓存直接使用缓存，否则构造基础数据
+                // 离线或网络异常回退：若有 cached_detail 直接使用
+                if let Some(mut existing) = cached_detail {
+                    existing.is_stale_fallback = Some(true);
+                    return Ok((existing, None));
+                }
                 if let Some(ref payload) = cached_payload {
                     let parsed: GitHubReleaseResponse = serde_json::from_str(payload)
                         .map_err(|e| format!("解析离线缓存失败: {}", e))?;
@@ -699,6 +723,17 @@ impl CatalogService {
             }
         };
 
+        // 判断版本是否变化以及是否已有缓存的 README
+        let version_changed = cached_detail
+            .as_ref()
+            .map(|c| c.latest_version != release_resp.tag_name)
+            .unwrap_or(true);
+        let has_cached_readme = cached_detail
+            .as_ref()
+            .map(|c| !c.readme_markdown.trim().is_empty())
+            .unwrap_or(false);
+        let cached_readme = cached_detail.as_ref().map(|c| c.readme_markdown.clone());
+
         // 异步并发执行：提取校验和字典、获取 README Markdown、以及拉取实时仓库状态 (Stars/Forks/License)
         let checksum_task = Self::extract_checksums_map(&release_resp.assets, client, &headers);
 
@@ -712,6 +747,12 @@ impl CatalogService {
         let default_readme = format!("# {}\n\n{}", name, desc);
         let default_readme_clone = default_readme.clone();
         let readme_task = async {
+            // 版本未发生变动且已有 README 缓存，不重复发网络请求拉取
+            if !version_changed && has_cached_readme {
+                if let Some(r) = cached_readme {
+                    return r;
+                }
+            }
             let req = client.get(&readme_url).headers(readme_headers).send();
             match tokio::time::timeout(std::time::Duration::from_secs(4), req).await {
                 Ok(Ok(res)) => {

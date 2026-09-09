@@ -1,4 +1,4 @@
-use crate::installer::InstallerEngine;
+pub use crate::installer::{resolve_uninstaller_command, select_best_asset, InstallerEngine};
 use crate::models::{
     AppDetail, AppSummary, DeepLinkAction, DeveloperProfile, DevicePollResult, HostRateLimitStatus,
     HostTokenEntry, ImportUserDataResult, InstalledApp, MirrorNodeStatus, StarredSyncResult,
@@ -56,15 +56,12 @@ pub async fn search_apps(
                     homepage: repo_info.homepage.clone(),
                 }]);
             }
-        } else if query.starts_with("http://")
+        } else if query.contains('/')
             || query.starts_with("https://")
             || query.starts_with("gh:")
             || query.starts_with("github:")
         {
-            let token = {
-                let t = state.github_token.lock().map_err(|e| e.to_string())?;
-                t.clone()
-            };
+            let token = resolve_active_github_token(&state);
             if let Ok(item) = state
                 .catalog
                 .fetch_online_repo(&coord.owner, &coord.repo, token.as_deref())
@@ -75,10 +72,7 @@ pub async fn search_apps(
         }
     }
 
-    let token = {
-        let t = state.github_token.lock().map_err(|e| e.to_string())?;
-        t.clone()
-    };
+    let token = resolve_active_github_token(&state);
     let hidden_ids: std::collections::HashSet<String> = {
         if let Ok(db) = state.db.lock() {
             db.get_all_rules()
@@ -364,12 +358,8 @@ pub async fn get_app_details_impl(
     }
 
     // 2.2 GitHub 仓库拉取
-    let (release_endpoint, cached_etag, cached_payload, token) = {
-        let token = state
-            .github_token
-            .lock()
-            .map_err(|e| e.to_string())?
-            .clone();
+    let (release_endpoint, cached_etag, cached_payload, token, cached_detail_opt) = {
+        let token = resolve_active_github_token(state);
         let coords = match state.catalog.get_repo_coordinates(&clean_id) {
             Ok(c) => c,
             Err(e) => {
@@ -400,12 +390,24 @@ pub async fn get_app_details_impl(
             let payload = db.get_cached_payload(&ep).ok().flatten();
             (etag, payload)
         };
-        (ep, etag, payload, token)
+        let cached_detail = if is_force {
+            None
+        } else {
+            db.get_cached_app_detail_fallback(&clean_id).ok().flatten()
+                .or_else(|| db.get_cached_app_detail_fallback(&repo_key).ok().flatten())
+        };
+        (ep, etag, payload, token, cached_detail)
     };
 
     let fetch_result = state
         .catalog
-        .fetch_app_detail(&clean_id, cached_etag, cached_payload, token.as_deref())
+        .fetch_app_detail(
+            &clean_id,
+            cached_etag,
+            cached_payload,
+            cached_detail_opt,
+            token.as_deref(),
+        )
         .await;
 
     match fetch_result {
@@ -564,6 +566,12 @@ pub fn get_installed_apps(state: State<'_, AppState>) -> Result<Vec<InstalledApp
 
     let mut needs_db_update = Vec::new();
     for app in &mut apps {
+        if app.icon.is_none() {
+            if let Some(item) = state.catalog.get_catalog_item(&app.app_id) {
+                app.icon = Some(item.icon);
+                app.icon_bg = Some(item.icon_bg);
+            }
+        }
         let is_empty = app.install_path.trim().is_empty();
         let not_exist = !is_empty && !std::path::Path::new(&app.install_path).exists();
         if is_empty || not_exist {
@@ -593,88 +601,6 @@ pub fn get_installed_apps(state: State<'_, AppState>) -> Result<Vec<InstalledApp
     Ok(apps)
 }
 
-/// 根据当前系统平台（Windows / macOS / Linux）与 CPU 架构（x86_64 / aarch64）智能择取最优安装包资产
-pub fn select_best_asset(
-    assets: &[crate::models::ReleaseAsset],
-) -> Option<&crate::models::ReleaseAsset> {
-    #[cfg(target_os = "windows")]
-    let target_os = "windows";
-    #[cfg(target_os = "macos")]
-    let target_os = "macos";
-    #[cfg(target_os = "linux")]
-    let target_os = "linux";
-    #[cfg(target_os = "android")]
-    let target_os = "android";
-    #[cfg(not(any(
-        target_os = "windows",
-        target_os = "macos",
-        target_os = "linux",
-        target_os = "android"
-    )))]
-    let target_os = "all";
-
-    #[cfg(target_arch = "x86_64")]
-    let target_arch = "x86_64";
-    #[cfg(target_arch = "aarch64")]
-    let target_arch = "aarch64";
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    let target_arch = "universal";
-
-    let os_matches: Vec<&crate::models::ReleaseAsset> = assets
-        .iter()
-        .filter(|a| a.os == target_os || a.os == "all")
-        .collect();
-
-    let candidates = if os_matches.is_empty() {
-        assets.iter().collect::<Vec<&crate::models::ReleaseAsset>>()
-    } else {
-        os_matches
-    };
-
-    candidates.into_iter().max_by_key(|a| {
-        let mut score: i32 = 0;
-        if a.os == target_os {
-            score += 100;
-        }
-        if a.arch == target_arch {
-            score += 50;
-        } else if a.arch == "universal" {
-            score += 25;
-        } else if target_arch == "x86_64" && a.arch == "x86" {
-            score += 10;
-        } else {
-            score -= 50;
-        }
-
-        #[cfg(target_os = "windows")]
-        match a.kind.as_str() {
-            "msi" => score += 20,
-            "setup_exe" => score += 15,
-            "portable_zip" => score += 10,
-            _ => {}
-        }
-
-        #[cfg(target_os = "macos")]
-        match a.kind.as_str() {
-            "dmg" => score += 20,
-            "pkg" => score += 15,
-            "portable_zip" => score += 10,
-            _ => {}
-        }
-
-        #[cfg(target_os = "linux")]
-        match a.kind.as_str() {
-            "appimage" => score += 20,
-            "deb" => score += 15,
-            "rpm" => score += 12,
-            "portable_zip" => score += 10,
-            _ => {}
-        }
-
-        score
-    })
-}
-
 #[tauri::command]
 pub async fn install_app(
     app_handle: AppHandle,
@@ -688,7 +614,7 @@ pub async fn install_app(
         if let Ok(db) = state.db.lock() {
             let dl = db.get_setting("download_dir").ok().flatten().and_then(|s| {
                 let t = s.trim();
-                if !t.is_empty() {
+                if !t.is_empty() && !t.contains("zstore_downloads") {
                     Some(crate::installer::expand_env_path(t))
                 } else {
                     None
@@ -810,7 +736,8 @@ pub async fn install_app(
         &kind,
         &detail.id,
         effective_portable_dir.as_deref(),
-    )?;
+    )
+    .await?;
 
     // 智能解析真实安装路径，避免存入临时安装包路径
     let mut real_install_path = match kind {
@@ -834,9 +761,9 @@ pub async fn install_app(
         .unwrap_or_default(),
     };
 
-    // 针对外部向导安装，若未立即捕获路径，进行短暂重试嗅探 (最多 3 次，每次 500ms)
+    // 针对外部向导安装，若未立即捕获路径，进行短暂重试嗅探 (最多 5 次，每次 500ms)
     if real_install_path.is_empty() && kind != crate::installer::AssetKind::PortableZip {
-        for _ in 0..3 {
+        for _ in 0..5 {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             if let Some(p) = crate::scanner::AppScanner::resolve_installed_app_path(
                 &detail.name,
@@ -870,6 +797,8 @@ pub async fn install_app(
         asset_name: asset.name.clone(),
         asset_sha256: actual_sha256,
         uninstall_command: resolved_uninst,
+        icon: Some(detail.icon.clone()),
+        icon_bg: Some(detail.icon_bg.clone()),
     };
 
     {
@@ -884,138 +813,6 @@ pub async fn install_app(
     }
 
     Ok(installed_app)
-}
-
-pub fn resolve_uninstaller_command(
-    app_name: &str,
-    app_id: &str,
-    install_path: &str,
-    existing_command: Option<&str>,
-) -> Option<String> {
-    // 1. 如果已有明确且有效的卸载指令（非向导提示文案）
-    if let Some(cmd) = existing_command {
-        let trimmed = cmd.trim();
-        if !trimmed.is_empty()
-            && !trimmed.contains("已调起")
-            && !trimmed.contains("跳过")
-            && !trimmed.contains("非 Windows")
-            && !trimmed.contains("已解压至")
-        {
-            return Some(trimmed.to_string());
-        }
-    }
-
-    // 2. Windows 平台：动态查询注册表中的 UninstallString
-    #[cfg(target_os = "windows")]
-    {
-        use winreg::enums::*;
-        use winreg::RegKey;
-
-        let targets = [
-            (
-                HKEY_LOCAL_MACHINE,
-                r"Software\Microsoft\Windows\CurrentVersion\Uninstall",
-            ),
-            (
-                HKEY_LOCAL_MACHINE,
-                r"Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
-            ),
-            (
-                HKEY_CURRENT_USER,
-                r"Software\Microsoft\Windows\CurrentVersion\Uninstall",
-            ),
-        ];
-
-        let name_lower = app_name.to_lowercase();
-        let id_lower = app_id.to_lowercase();
-        let clean_id = id_lower.replace(['-', '_', '.'], "");
-
-        for (hive, subpath) in targets {
-            let root = RegKey::predef(hive);
-            if let Ok(uninstall_key) = root.open_subkey(subpath) {
-                for key_name in uninstall_key.enum_keys().map_while(Result::ok) {
-                    if let Ok(app_key) = uninstall_key.open_subkey(&key_name) {
-                        let display_name: String = app_key
-                            .get_value::<String, _>("DisplayName")
-                            .unwrap_or_default()
-                            .trim()
-                            .to_string();
-                        let disp_lower = display_name.to_lowercase();
-
-                        let matched = !disp_lower.is_empty()
-                            && (disp_lower == name_lower
-                                || disp_lower == id_lower
-                                || disp_lower.contains(&name_lower)
-                                || name_lower.contains(&disp_lower)
-                                || (!clean_id.is_empty()
-                                    && disp_lower.replace(['-', '_', '.'], "").contains(&clean_id)));
-
-                        if matched {
-                            if let Ok(uninst) = app_key.get_value::<String, _>("UninstallString") {
-                                let trimmed_uninst = uninst.trim().to_string();
-                                if !trimmed_uninst.is_empty() {
-                                    return Some(trimmed_uninst);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // 3. 检查安装目录中的标准卸载程序
-        let p = std::path::Path::new(install_path);
-        let base_dir = if p.is_file() {
-            p.parent()
-        } else if p.is_dir() {
-            Some(p)
-        } else {
-            None
-        };
-
-        if let Some(dir) = base_dir {
-            let candidates = [
-                "uninstall.exe",
-                "Uninstall.exe",
-                "unins000.exe",
-                "unins001.exe",
-                "uninst.exe",
-            ];
-            for c in candidates {
-                let candidate_path = dir.join(c);
-                if candidate_path.is_file() {
-                    return Some(format!("\"{}\"", candidate_path.to_string_lossy()));
-                }
-            }
-        }
-
-        // 4. 检查开始菜单程序组中的卸载快捷方式
-        let start_menu_candidates = [
-            std::env::var("APPDATA")
-                .ok()
-                .map(|p| std::path::PathBuf::from(p).join(r"Microsoft\Windows\Start Menu\Programs").join(app_name)),
-            Some(
-                std::path::PathBuf::from(r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs")
-                    .join(app_name),
-            ),
-        ];
-
-        for sdir_opt in start_menu_candidates.into_iter().flatten() {
-            if sdir_opt.is_dir() {
-                if let Ok(entries) = std::fs::read_dir(&sdir_opt) {
-                    for entry in entries.flatten() {
-                        let path = entry.path();
-                        let fname = path.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
-                        if fname.contains("uninstall") && fname.ends_with(".lnk") {
-                            return Some(format!("\"{}\"", path.to_string_lossy()));
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    None
 }
 
 #[tauri::command]
@@ -1202,12 +999,19 @@ pub async fn check_for_updates(
 
         if let Ok(detail) = get_app_details(state.clone(), app.app_id.clone(), force_refresh).await {
             if should_include_update(&app.version, &detail.latest_version, rule_opt) {
+                let (icon, icon_bg) = if let Some(item) = state.catalog.get_catalog_item(&app.app_id) {
+                    (Some(item.icon), Some(item.icon_bg))
+                } else {
+                    (Some(detail.icon.clone()), Some(detail.icon_bg.clone()))
+                };
                 updates.push(UpdateItem {
                     app_id: app.app_id,
                     app_name: app.app_name,
                     current_version: app.version,
                     latest_version: detail.latest_version,
                     changelog: detail.changelog,
+                    icon,
+                    icon_bg,
                 });
             }
         }
@@ -1429,6 +1233,10 @@ pub fn get_settings(state: State<'_, AppState>) -> Result<HashMap<String, String
             );
         }
     }
+    let dl_val = map.get("download_dir").cloned().unwrap_or_default();
+    if dl_val.trim().is_empty() || dl_val.contains("zstore_downloads") {
+        map.insert("download_dir".to_string(), "~/Downloads".to_string());
+    }
     Ok(map)
 }
 
@@ -1490,9 +1298,13 @@ pub fn save_setting(
 }
 
 #[tauri::command]
-pub async fn select_folder(default_path: Option<String>) -> Result<Option<String>, String> {
+pub async fn select_folder(
+    default_path: Option<String>,
+    title: Option<String>,
+) -> Result<Option<String>, String> {
     tokio::task::spawn_blocking(move || {
-        let mut dialog = rfd::FileDialog::new().set_title("选择解压安装目录（免安装便携版）");
+        let dialog_title = title.unwrap_or_else(|| "选择目录".to_string());
+        let mut dialog = rfd::FileDialog::new().set_title(&dialog_title);
         if let Some(ref path_str) = default_path {
             let expanded = crate::installer::expand_env_path(path_str);
             if expanded.exists() {
@@ -1806,6 +1618,11 @@ pub fn import_matched_apps(
     let db = state.db.lock().map_err(|e| e.to_string())?;
 
     for req in apps {
+        let (icon, icon_bg) = if let Some(cat) = state.catalog.get_catalog_item(&req.app_id) {
+            (Some(cat.icon), Some(cat.icon_bg))
+        } else {
+            (None, None)
+        };
         let installed = InstalledApp {
             app_id: req.app_id,
             app_name: req.app_name,
@@ -1816,6 +1633,8 @@ pub fn import_matched_apps(
             asset_name: "system_detected".to_string(),
             asset_sha256: "system_verified".to_string(),
             uninstall_command: req.uninstall_command,
+            icon,
+            icon_bg,
         };
 
         if db.save_installed_app(&installed).is_ok() {
@@ -1882,15 +1701,17 @@ pub fn import_single_app(state: State<'_, AppState>, app_id: String) -> Result<b
         .as_secs() as i64;
 
     let installed = InstalledApp {
-        app_id: cat.id,
-        app_name: cat.name,
-        version: cat.default_version,
+        app_id: cat.id.clone(),
+        app_name: cat.name.clone(),
+        version: cat.default_version.clone(),
         installed_at: now,
         install_method: "system_import".to_string(),
         install_path: resolved_path.unwrap_or_default(),
         asset_name: "system_detected".to_string(),
         asset_sha256: "system_verified".to_string(),
         uninstall_command: None,
+        icon: Some(cat.icon),
+        icon_bg: Some(cat.icon_bg),
     };
 
     let db = state.db.lock().map_err(|e| e.to_string())?;
@@ -1944,9 +1765,14 @@ pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, St
     // 检查是否为临时下载目录中的安装包（避免误重新调起安装向导）
     let is_temp_installer = target_path.to_lowercase().contains("zstore_downloads")
         || target_path.to_lowercase().contains(r"\temp\")
+        || target_path.to_lowercase().contains(r"/temp/")
         || target_path.to_lowercase().ends_with("-setup.exe")
         || target_path.to_lowercase().ends_with("_setup.exe")
-        || target_path.to_lowercase().ends_with("-installer.exe");
+        || target_path.to_lowercase().ends_with("-installer.exe")
+        || target_path.to_lowercase().ends_with(".msi")
+        || target_path.to_lowercase().ends_with(".dmg")
+        || target_path.to_lowercase().ends_with(".deb")
+        || target_path.to_lowercase().ends_with(".rpm");
 
     // 1. 如果路径本身是存在的可执行文件或快捷方式/应用包，且并非临时下载安装包
     if !is_temp_installer {
@@ -2097,11 +1923,7 @@ pub async fn get_developer_profile(
     state: State<'_, AppState>,
     developer: String,
 ) -> Result<DeveloperProfile, String> {
-    let token = state
-        .github_token
-        .lock()
-        .map_err(|e| e.to_string())?
-        .clone();
+    let token = resolve_active_github_token(&state);
     state
         .catalog
         .fetch_developer_profile(&developer, token.as_deref())
@@ -2113,11 +1935,7 @@ pub async fn sync_github_starred(
     state: State<'_, AppState>,
     username: Option<String>,
 ) -> Result<StarredSyncResult, String> {
-    let token = state
-        .github_token
-        .lock()
-        .map_err(|e| e.to_string())?
-        .clone();
+    let token = resolve_active_github_token(&state);
     state
         .catalog
         .sync_starred_repos(username.as_deref(), token.as_deref())
@@ -2634,15 +2452,44 @@ fn resolve_oauth_client_id_from_db(state: &AppState) -> String {
     crate::oauth::resolve_oauth_client_id(override_id.as_deref())
 }
 
-/// 写操作令牌：OAuth 令牌优先，`github.com` 主机令牌（PAT）兜底。
-fn resolve_write_token(state: &AppState) -> Option<String> {
-    let db = state.db.lock().ok()?;
-    if let Ok(Some(t)) = db.get_setting(crate::oauth::SETTING_OAUTH_TOKEN) {
-        if !t.trim().is_empty() {
-            return Some(t.trim().to_string());
+/// 获取当前生效的 GitHub API 访问令牌（OAuth 登录令牌优先，其次个人访问令牌 PAT，再次主机令牌）。
+pub fn resolve_active_github_token(state: &AppState) -> Option<String> {
+    if let Ok(t) = state.github_token.lock() {
+        if let Some(ref tok) = *t {
+            if !tok.trim().is_empty() {
+                return Some(tok.trim().to_string());
+            }
         }
     }
-    db.get_host_token("github.com").ok().flatten()
+    if let Ok(db) = state.db.lock() {
+        if let Ok(Some(t)) = db.get_setting(crate::oauth::SETTING_OAUTH_TOKEN) {
+            let clean = t.trim().to_string();
+            if !clean.is_empty() {
+                if let Ok(mut mem) = state.github_token.lock() {
+                    *mem = Some(clean.clone());
+                }
+                return Some(clean);
+            }
+        }
+        if let Ok(Some(t)) = db.get_setting("github_token") {
+            let clean = t.trim().to_string();
+            if !clean.is_empty() {
+                return Some(clean);
+            }
+        }
+        if let Ok(Some(t)) = db.get_host_token("github.com") {
+            let clean = t.trim().to_string();
+            if !clean.is_empty() {
+                return Some(clean);
+            }
+        }
+    }
+    None
+}
+
+/// 写操作令牌：OAuth 令牌优先，`github.com` 主机令牌（PAT）兜底。
+fn resolve_write_token(state: &AppState) -> Option<String> {
+    resolve_active_github_token(state)
 }
 
 /// 开始 Device Flow：返回用户验证码与浏览器授权地址（前端展示二维码/链接并轮询）。
@@ -2673,15 +2520,20 @@ pub async fn oauth_device_poll(
     let client_id = resolve_oauth_client_id_from_db(&state);
     match crate::oauth::poll_device_once(&client_id, &code).await? {
         crate::oauth::DevicePollOutcome::Authorized { access_token } => {
-            let user = crate::oauth::fetch_oauth_user(&access_token).await.ok();
+            let clean_token = access_token.trim().to_string();
+            let user = crate::oauth::fetch_oauth_user(&clean_token).await.ok();
             if let Ok(db) = state.db.lock() {
-                let _ = db.set_setting(crate::oauth::SETTING_OAUTH_TOKEN, access_token.trim());
+                let _ = db.set_setting(crate::oauth::SETTING_OAUTH_TOKEN, &clean_token);
                 if let Some(u) = user {
                     if let Ok(json) = serde_json::to_string(&u) {
                         let _ = db.set_setting(crate::oauth::SETTING_OAUTH_USER, &json);
                     }
                 }
             }
+            if let Ok(mut t) = state.github_token.lock() {
+                *t = Some(clean_token.clone());
+            }
+            crate::probe_github_rate_limit(Some(&clean_token)).await;
             Ok(DevicePollResult {
                 status: "authorized".to_string(),
                 message: None,
@@ -2746,12 +2598,23 @@ pub async fn get_oauth_user(
 }
 
 #[tauri::command]
-pub fn oauth_logout(state: State<'_, AppState>) -> Result<bool, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.remove_setting(crate::oauth::SETTING_OAUTH_TOKEN)
-        .map_err(|e| e.to_string())?;
-    db.remove_setting(crate::oauth::SETTING_OAUTH_USER)
-        .map_err(|e| e.to_string())?;
+pub async fn oauth_logout(state: State<'_, AppState>) -> Result<bool, String> {
+    let fallback_pat = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        db.remove_setting(crate::oauth::SETTING_OAUTH_TOKEN)
+            .map_err(|e| e.to_string())?;
+        db.remove_setting(crate::oauth::SETTING_OAUTH_USER)
+            .map_err(|e| e.to_string())?;
+        db.get_setting("github_token")
+            .ok()
+            .flatten()
+            .or_else(|| db.get_host_token("github.com").ok().flatten())
+            .filter(|s| !s.trim().is_empty())
+    };
+    if let Ok(mut t) = state.github_token.lock() {
+        *t = fallback_pat.clone();
+    }
+    crate::probe_github_rate_limit(fallback_pat.as_deref()).await;
     Ok(true)
 }
 

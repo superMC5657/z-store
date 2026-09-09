@@ -183,6 +183,8 @@ impl Database {
                 asset_name: row.get(6)?,
                 asset_sha256: row.get(7)?,
                 uninstall_command: row.get(8)?,
+                icon: None,
+                icon_bg: None,
             })
         })?;
 
@@ -965,6 +967,8 @@ mod tests {
             asset_name: "rustdesk-1.2.6.msi".to_string(),
             asset_sha256: "abcdef1234567890".to_string(),
             uninstall_command: Some("msiexec /x".to_string()),
+            icon: None,
+            icon_bg: None,
         };
 
         db.save_installed_app(&app).unwrap();
