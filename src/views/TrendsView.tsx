@@ -6,6 +6,7 @@ interface TrendsViewProps {
   apps: AppSummary[];
   favoriteIds?: Set<string>;
   installedIds?: Set<string>;
+  installingIds?: Set<string>;
   onOpenDetail: (id: string) => void;
   onQuickInstall: (id: string) => void;
   onToggleFavorite?: (id: string) => void;
@@ -17,6 +18,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   apps,
   favoriteIds,
   installedIds,
+  installingIds,
   onOpenDetail,
   onQuickInstall,
   onToggleFavorite,
@@ -182,6 +184,16 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
                   <span>已安装</span>
+                </button>
+              ) : installingIds?.has(app.id) ? (
+                <button
+                  className="btn-install"
+                  disabled
+                  style={{ padding: '6px 14px', opacity: 0.8, cursor: 'not-allowed' }}
+                  title="正在安装中..."
+                >
+                  <span className="spinner-icon" style={{ width: '10px', height: '10px', borderWidth: '1.5px', marginRight: '4px' }} />
+                  <span>安装中</span>
                 </button>
               ) : (
                 <button

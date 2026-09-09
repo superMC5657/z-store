@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AppSettings, HostRateLimitStatus, HostTokenEntry, MirrorNodeStatus } from '../types';
+import { AppSettings, MirrorNodeStatus } from '../types';
 import { api } from '../services/api';
 import { ClientUpdateRow } from '../components/ClientUpdateRow';
 import { OAuthAccountCard } from '../components/OAuthAccountCard';
@@ -11,7 +11,6 @@ interface SettingsViewProps {
   onPingMirrors: () => void;
   theme: 'light' | 'dark' | 'system';
   onSetTheme: (theme: 'light' | 'dark' | 'system') => void;
-  onSaveToken: (token: string) => Promise<void>;
   onExportApps: () => void;
   onExportAppsJson: () => void;
   settings: AppSettings;
@@ -26,18 +25,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   mirrors,
   onSelectMirror,
   onPingMirrors,
-  theme: _theme,
+  theme,
   onSetTheme,
-  onSaveToken,
   onExportApps,
   onExportAppsJson,
   settings,
   onUpdateSetting,
   onResetSettings,
-  installedCount: _installedCount,
+  installedCount,
   updateRulesCount,
   onOpenRules,
 }) => {
+  const currentTheme = theme || settings.theme;
   const [proxyInput, setProxyInput] = useState<string>(() => {
     const act = settings.active_mirror;
     if (!act || act === 'direct' || act === 'https://github.com') return '';
@@ -97,13 +96,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     };
   }, []);
 
-  // GitHub PAT & API Quota State
-  const [hostTokens, setHostTokens] = useState<HostTokenEntry[]>([]);
-  const [tokenInputs, setTokenInputs] = useState<Record<string, string>>({});
-  const [showTokens, setShowTokens] = useState<Record<string, boolean>>({});
-  const [hostStatus, setHostStatus] = useState<Record<string, HostRateLimitStatus>>({});
-  const [isTestingHost, setIsTestingHost] = useState<Record<string, boolean>>({});
-  const [hostFeedback, setHostFeedback] = useState<string | null>(null);
   const [isSyncingCatalog, setIsSyncingCatalog] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
 
@@ -123,47 +115,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   };
 
-  const loadHostTokens = async () => {
-    try {
-      const tokens = await api.getHostTokens();
-      setHostTokens(tokens);
-      const inputs: Record<string, string> = {};
-      tokens.forEach((t) => {
-        inputs[t.host] = t.token;
-      });
-      if (!inputs['github.com'] && settings.github_token) {
-        inputs['github.com'] = settings.github_token;
-      }
-      setTokenInputs((prev) => ({ ...inputs, ...prev }));
-    } catch {
-      // ignore
-    }
-  };
-
-  useEffect(() => {
-    loadHostTokens();
-    let isMounted = true;
-    let unlistenFn: (() => void) | null = null;
-    api.onQuotaUpdated(() => {
-      if (isMounted) {
-        loadHostTokens();
-      }
-    }).then((unlisten) => {
-      if (isMounted) {
-        unlistenFn = unlisten;
-      } else {
-        unlisten();
-      }
-    });
-
-    return () => {
-      isMounted = false;
-      if (unlistenFn) {
-        unlistenFn();
-      }
-    };
-  }, [settings.github_token]);
-
   useEffect(() => {
     if (settings.catalog_source_url) {
       if (settings.catalog_source_url.includes('gitmirror.com')) {
@@ -173,40 +124,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       }
     }
   }, [settings.catalog_source_url]);
-
-  const handleSaveHostToken = async (host: string) => {
-    const val = tokenInputs[host] || '';
-    try {
-      await api.setHostToken(host, val);
-      if (host.toLowerCase() === 'github.com') {
-        await onSaveToken(val);
-      }
-      setHostFeedback(`✅ 已保存 ${host} 的访问令牌`);
-      triggerChangeFeedback('token', val ? '✓ 访问令牌已更新生效' : '✓ 访问令牌已清空');
-      setTimeout(() => setHostFeedback(null), 3000);
-      loadHostTokens();
-      window.dispatchEvent(new CustomEvent('zstore:quota-updated'));
-    } catch (e) {
-      setHostFeedback(`❌ 保存失败: ${String(e)}`);
-    }
-  };
-
-  const handleTestHost = async (host: string) => {
-    const val = tokenInputs[host] || '';
-    setIsTestingHost((prev) => ({ ...prev, [host]: true }));
-    try {
-      const status = await api.testHostConnection(host, val);
-      setHostStatus((prev) => ({ ...prev, [host]: status }));
-      window.dispatchEvent(new CustomEvent('zstore:quota-updated'));
-    } catch (e) {
-      setHostStatus((prev) => ({
-        ...prev,
-        [host]: { host, is_connected: false, message: String(e) },
-      }));
-    } finally {
-      setIsTestingHost((prev) => ({ ...prev, [host]: false }));
-    }
-  };
 
   useEffect(() => {
     const act = settings.active_mirror;
@@ -405,19 +322,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
           <div className="segmented-group">
             <button
-              className={`segmented-item ${settings.theme === 'light' ? 'active' : ''}`}
+              className={`segmented-item ${currentTheme === 'light' ? 'active' : ''}`}
               onClick={() => handleSelectTheme('light')}
             >
               ☀️ 明亮模式
             </button>
             <button
-              className={`segmented-item ${settings.theme === 'dark' ? 'active' : ''}`}
+              className={`segmented-item ${currentTheme === 'dark' ? 'active' : ''}`}
               onClick={() => handleSelectTheme('dark')}
             >
               🌙 暗黑模式
             </button>
             <button
-              className={`segmented-item ${settings.theme === 'system' ? 'active' : ''}`}
+              className={`segmented-item ${currentTheme === 'system' ? 'active' : ''}`}
               onClick={() => handleSelectTheme('system')}
             >
               💻 跟随系统
@@ -577,158 +494,154 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
-      {/* 账号与配额 */}
+      {/* 存储与下载设置 */}
       <div className={`settings-group ${isResetWave ? 'reset-wave-2' : ''}`}>
-        <div className="settings-group-title">👤 GitHub 账号与配额</div>
+        <div className="settings-group-title">📁 存储与下载设置</div>
 
-        <div id="settings-account">
-          <OAuthAccountCard />
-        </div>
-
-        <div className={`settings-row ${highlightRow === 'token' ? 'row-highlight' : ''}`} style={{ flexDirection: 'column', alignItems: 'stretch', gap: '14px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div
+          className={`settings-row ${highlightRow === 'download_dir' ? 'row-highlight' : ''}`}
+          style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px' }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '10px',
+            }}
+          >
             <div className="settings-row-info">
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontWeight: 600 }}>🐙 GitHub 个人访问令牌 (Personal Access Token)</span>
-                {activeNotice?.key === 'token' && (
+                <span style={{ fontWeight: 600 }}>安装包默认下载位置</span>
+                {activeNotice?.key === 'download_dir' && (
                   <span className="setting-applied-badge">{activeNotice.text}</span>
                 )}
               </div>
               <span className="settings-row-desc">
-                匿名 60 次/小时；配置令牌（公开只读即可）提升至 5,000 次/小时
+                所有安装包（EXE、MSI、DMG、DEB、RPM 等）下载存储目录，跨平台统一默认指向系统下载文件夹 <code>~/Downloads</code>
               </span>
             </div>
-            {hostStatus['github.com'] && (
-              <span
-                style={{
-                  fontSize: '11px',
-                  padding: '3px 10px',
-                  borderRadius: '12px',
-                  background: hostStatus['github.com'].is_connected ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                  color: hostStatus['github.com'].is_connected ? '#10b981' : '#ef4444',
-                  border: `1px solid ${hostStatus['github.com'].is_connected ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  fontWeight: 500,
-                }}
-              >
-                {hostStatus['github.com'].is_connected ? '🟢' : '🔴'}{' '}
-                {hostStatus['github.com'].message ||
-                  (hostStatus['github.com'].is_connected
-                    ? `配额剩余: ${hostStatus['github.com'].rate_limit_remaining ?? '充裕'}`
-                    : '连接失败')}
-              </span>
-            )}
-          </div>
-
-          {hostFeedback && (
-            <div
-              style={{
-                padding: '8px 12px',
-                borderRadius: '6px',
-                background: 'rgba(56, 189, 248, 0.1)',
-                border: '1px solid rgba(56, 189, 248, 0.3)',
-                fontSize: '12px',
-                color: 'var(--brand-primary)',
-              }}
-            >
-              {hostFeedback}
-            </div>
-          )}
-
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '10px',
-              padding: '14px',
-              borderRadius: '8px',
-              background: 'var(--card-bg-subtle, rgba(255,255,255,0.02))',
-              border: '1px solid var(--border-color)',
-            }}
-          >
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <div style={{ position: 'relative', flex: '1 1 280px' }}>
-                <input
-                  type={showTokens['github.com'] ? 'text' : 'password'}
-                  placeholder="ghp_xxxxxxxxxxxx (无需勾选敏感权限，公开只读即可)"
-                  value={
-                    tokenInputs['github.com'] !== undefined
-                      ? tokenInputs['github.com']
-                      : hostTokens.find((t) => t.host === 'github.com')?.token || ''
-                  }
-                  onChange={(e) => setTokenInputs({ ...tokenInputs, 'github.com': e.target.value })}
-                  className={`settings-input ${highlightRow === 'token' ? 'input-highlight' : ''}`}
-                  style={{ width: '100%', paddingRight: '32px' }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowTokens({ ...showTokens, 'github.com': !showTokens['github.com'] })}
-                  style={{
-                    position: 'absolute',
-                    right: '6px',
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    color: 'var(--text-tertiary)',
-                    fontSize: '12px',
-                  }}
-                  title={showTokens['github.com'] ? '隐藏凭据' : '显示凭据'}
-                >
-                  {showTokens['github.com'] ? '🙈' : '👁️'}
-                </button>
-              </div>
-
-              <button
-                type="button"
-                className="btn-fluent btn-primary"
-                style={{ fontSize: '12px', padding: '6px 16px' }}
-                onClick={() => handleSaveHostToken('github.com')}
-              >
-                保存令牌
-              </button>
-
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
               <button
                 type="button"
                 className="btn-fluent btn-secondary"
                 style={{ fontSize: '12px', padding: '6px 14px' }}
-                disabled={!!isTestingHost['github.com']}
-                onClick={() => handleTestHost('github.com')}
+                onClick={async () => {
+                  try {
+                    const picked = await api.selectFolder(settings.download_dir, '选择安装包默认下载目录');
+                    if (picked) {
+                      onUpdateSetting('download_dir', picked);
+                      triggerChangeFeedback('download_dir', `✓ 下载路径已设置为: ${picked}`);
+                    }
+                  } catch (e) {
+                    console.error(e);
+                  }
+                }}
               >
-                {isTestingHost['github.com'] ? '正在探测...' : '测试连通性'}
+                📂 浏览选择...
+              </button>
+              <button
+                type="button"
+                className="btn-fluent btn-secondary"
+                style={{ fontSize: '12px', padding: '6px 12px' }}
+                onClick={() => {
+                  onUpdateSetting('download_dir', '~/Downloads');
+                  triggerChangeFeedback('download_dir', '✓ 已恢复默认位置 ~/Downloads');
+                }}
+              >
+                恢复默认
               </button>
             </div>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <input
+              type="text"
+              className={`settings-input ${highlightRow === 'download_dir' ? 'input-highlight' : ''}`}
+              value={settings.download_dir || '~/Downloads'}
+              onChange={(e) => onUpdateSetting('download_dir', e.target.value)}
+              placeholder="~/Downloads"
+              style={{ flex: 1, fontSize: '12px', fontFamily: 'monospace' }}
+            />
+          </div>
+        </div>
 
-            <div
-              style={{
-                fontSize: '11px',
-                color: 'var(--text-tertiary)',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                flexWrap: 'wrap',
-                gap: '6px',
-              }}
-            >
-              <span>💡 前往 GitHub Settings → Developer Settings 生成</span>
-              {(tokenInputs['github.com'] || hostTokens.find((t) => t.host === 'github.com')?.token) && (
-                <button
-                  type="button"
-                  className="btn-fluent btn-secondary"
-                  style={{ fontSize: '11px', padding: '2px 8px', color: '#ef4444' }}
-                  onClick={async () => {
-                    setTokenInputs((prev) => ({ ...prev, 'github.com': '' }));
-                    await handleSaveHostToken('github.com');
-                  }}
-                >
-                  清空令牌
-                </button>
-              )}
+        <div
+          className={`settings-row ${highlightRow === 'portable_dir' ? 'row-highlight' : ''}`}
+          style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px' }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '10px',
+            }}
+          >
+            <div className="settings-row-info">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontWeight: 600 }}>免安装便携版应用解压目录</span>
+                {activeNotice?.key === 'portable_dir' && (
+                  <span className="setting-applied-badge">{activeNotice.text}</span>
+                )}
+              </div>
+              <span className="settings-row-desc">
+                ZIP 格式绿色免安装软件解压与运行根目录
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button
+                type="button"
+                className="btn-fluent btn-secondary"
+                style={{ fontSize: '12px', padding: '6px 14px' }}
+                onClick={async () => {
+                  try {
+                    const picked = await api.selectFolder(settings.portable_dir, '选择便携版解压目录');
+                    if (picked) {
+                      onUpdateSetting('portable_dir', picked);
+                      triggerChangeFeedback('portable_dir', `✓ 便携版解压路径已设置为: ${picked}`);
+                    }
+                  } catch (e) {
+                    console.error(e);
+                  }
+                }}
+              >
+                📂 浏览选择...
+              </button>
+              <button
+                type="button"
+                className="btn-fluent btn-secondary"
+                style={{ fontSize: '12px', padding: '6px 12px' }}
+                onClick={() => {
+                  const defaultPortable = '%LOCALAPPDATA%\\Programs\\z-store-apps';
+                  onUpdateSetting('portable_dir', defaultPortable);
+                  triggerChangeFeedback('portable_dir', '✓ 已恢复默认便携目录');
+                }}
+              >
+                恢复默认
+              </button>
             </div>
           </div>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <input
+              type="text"
+              className={`settings-input ${highlightRow === 'portable_dir' ? 'input-highlight' : ''}`}
+              value={settings.portable_dir || '%LOCALAPPDATA%\\Programs\\z-store-apps'}
+              onChange={(e) => onUpdateSetting('portable_dir', e.target.value)}
+              placeholder="%LOCALAPPDATA%\Programs\z-store-apps"
+              style={{ flex: 1, fontSize: '12px', fontFamily: 'monospace' }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* 账号与配额 */}
+      <div className={`settings-group ${isResetWave ? 'reset-wave-2' : ''}`}>
+        <div className="settings-group-title">👤 GitHub 账号与 API 配额</div>
+
+        <div id="settings-account">
+          <OAuthAccountCard />
         </div>
       </div>
 
@@ -1057,7 +970,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <span className="setting-applied-badge">{activeNotice.text}</span>
               )}
             </div>
-            <span className="settings-row-desc">Markdown 报告或 JSON 备份，便于换机</span>
+            <span className="settings-row-desc">
+              {typeof installedCount === 'number' && installedCount > 0
+                ? `已纳管 ${installedCount} 款软件，支持一键导出 Markdown 报告或 JSON 备份`
+                : 'Markdown 报告或 JSON 备份，便于换机与资产迁移'}
+            </span>
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
             <button

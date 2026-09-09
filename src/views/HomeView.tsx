@@ -6,6 +6,7 @@ import { AppSummary } from '../types';
 interface HomeViewProps {
   apps: AppSummary[];
   installedIds: Set<string>;
+  installingIds?: Set<string>;
   favoriteIds: Set<string>;
   recentlyViewedApps?: AppSummary[];
   onOpenDetail: (id: string) => void;
@@ -20,6 +21,7 @@ interface HomeViewProps {
 export const HomeView: React.FC<HomeViewProps> = ({
   apps,
   installedIds,
+  installingIds,
   favoriteIds,
   recentlyViewedApps = [],
   onOpenDetail,
@@ -97,12 +99,22 @@ export const HomeView: React.FC<HomeViewProps> = ({
               <button
                 className={`btn-fluent ${installedIds.has(heroApp.id) ? 'btn-secondary' : 'btn-primary'}`}
                 style={{ padding: '9px 22px', fontSize: '13.5px', fontWeight: 600 }}
+                disabled={installingIds?.has(heroApp.id)}
                 onClick={(e) => {
                   e.stopPropagation();
                   onQuickInstall(heroApp.id);
                 }}
               >
-                {installedIds.has(heroApp.id) ? '🚀 已就绪 · 打开' : '⚡ 一键获取安装'}
+                {installingIds?.has(heroApp.id) ? (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <span className="spinner-icon" style={{ width: '12px', height: '12px', borderWidth: '1.5px' }} />
+                    <span>正在安装...</span>
+                  </span>
+                ) : installedIds.has(heroApp.id) ? (
+                  '🚀 已就绪 · 打开'
+                ) : (
+                  '⚡ 安装'
+                )}
               </button>
               <button
                 className="btn-fluent btn-secondary"
@@ -162,6 +174,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 key={app.id}
                 app={app}
                 isInstalled={installedIds.has(app.id)}
+                isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}
                 isWatched={watchedIds?.has(app.id)}
                 onOpenDetail={onOpenDetail}
@@ -186,6 +199,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 key={app.id}
                 app={app}
                 isInstalled={installedIds.has(app.id)}
+                isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}
                 isWatched={watchedIds?.has(app.id)}
                 onOpenDetail={onOpenDetail}
@@ -210,6 +224,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 key={app.id}
                 app={app}
                 isInstalled={installedIds.has(app.id)}
+                isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}
                 isWatched={watchedIds?.has(app.id)}
                 onOpenDetail={onOpenDetail}

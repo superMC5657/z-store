@@ -5,6 +5,7 @@ import { AppSummary } from '../types';
 interface CategoriesViewProps {
   apps: AppSummary[];
   installedIds: Set<string>;
+  installingIds?: Set<string>;
   favoriteIds: Set<string>;
   watchedIds?: Set<string>;
   onOpenDetail: (id: string) => void;
@@ -29,6 +30,7 @@ const CATEGORY_DEFINITIONS = [
 export const CategoriesView: React.FC<CategoriesViewProps> = ({
   apps,
   installedIds,
+  installingIds,
   favoriteIds,
   watchedIds,
   onOpenDetail,
@@ -120,6 +122,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                 key={app.id}
                 app={app}
                 isInstalled={installedIds.has(app.id)}
+                isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}
                 isWatched={watchedIds?.has(app.id)}
                 onOpenDetail={onOpenDetail}

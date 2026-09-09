@@ -8,6 +8,7 @@ interface FavoritesViewProps {
   favoriteIds: Set<string>;
   watchedIds?: Set<string>;
   installedIds: Set<string>;
+  installingIds?: Set<string>;
   onOpenDetail: (id: string) => void;
   onQuickInstall: (id: string) => void;
   onToggleFavorite: (id: string) => void;
@@ -19,6 +20,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   favoriteIds,
   watchedIds,
   installedIds,
+  installingIds,
   onOpenDetail,
   onQuickInstall,
   onToggleFavorite,
@@ -152,6 +154,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 key={app.id}
                 app={app}
                 isInstalled={installedIds.has(app.id)}
+                isInstalling={installingIds?.has(app.id)}
                 isFavorite={true}
                 isWatched={watchedSet.has(app.id)}
                 onOpenDetail={onOpenDetail}
@@ -182,6 +185,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 key={app.id}
                 app={app}
                 isInstalled={installedIds.has(app.id)}
+                isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}
                 isWatched={true}
                 onOpenDetail={onOpenDetail}
@@ -299,6 +303,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                       key={app.id}
                       app={app}
                       isInstalled={installedIds.has(app.id)}
+                      isInstalling={installingIds?.has(app.id)}
                       isFavorite={favoriteIds.has(app.id)}
                       isWatched={watchedSet.has(app.id)}
                       onOpenDetail={onOpenDetail}

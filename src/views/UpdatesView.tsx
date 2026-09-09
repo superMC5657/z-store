@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
 import { marked } from 'marked';
-import { UpdateItem, WatchUpdatedPayload } from '../types';
+import { AppSummary, UpdateItem, WatchUpdatedPayload } from '../types';
 import { sanitizeHtml } from '../utils/sanitize';
 import { FlyoutMenu } from '../components/FlyoutMenu';
+import { AppIcon } from '../components/AppIcon';
+import { resolveAppIconInfo } from '../utils/appHelper';
 
 interface UpdatesViewProps {
   updates: UpdateItem[];
+  apps?: AppSummary[];
   onApplyUpdate: (id: string) => Promise<void>;
   onBatchUpdateAll: () => Promise<void>;
   onCheckUpdates?: () => Promise<void>;
@@ -23,6 +26,7 @@ interface UpdatesViewProps {
 
 export const UpdatesView: React.FC<UpdatesViewProps> = ({
   updates,
+  apps = [],
   onApplyUpdate,
   onBatchUpdateAll,
   onCheckUpdates,
@@ -42,6 +46,9 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [fadingIds, setFadingIds] = useState<Set<string>>(new Set());
+
+  const resolveIconInfo = (appId: string, appName: string, iconOverride?: string, iconBgOverride?: string) =>
+    resolveAppIconInfo(appId, appName, apps, iconOverride, iconBgOverride);
 
   const handleUpdate = async (id: string) => {
     try {
@@ -142,36 +149,57 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
           <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--brand-primary)' }}>
             👁 你关注的应用有新动态 ({watchNotifications.length})
           </span>
-          {watchNotifications.map((n) => (
-            <div
-              key={n.app_id}
-              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', fontSize: '13px' }}
-            >
-              <span>
-                你关注的 {n.app_name || n.app_id} 发布了 {n.version}
-              </span>
-              <div style={{ display: 'flex', gap: '6px' }}>
-                {onOpenWatchedApp && (
-                  <button
-                    className="btn-fluent btn-primary"
-                    style={{ fontSize: '12px', padding: '4px 12px' }}
-                    onClick={() => onOpenWatchedApp(n.app_id)}
+          {watchNotifications.map((n) => {
+            const iconInfo = resolveIconInfo(n.app_id, n.app_name || n.app_id);
+            return (
+              <div
+                key={n.app_id}
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', fontSize: '13px' }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div
+                    style={{ cursor: onOpenWatchedApp ? 'pointer' : 'default', flexShrink: 0 }}
+                    onClick={() => onOpenWatchedApp && onOpenWatchedApp(n.app_id)}
+                    title={onOpenWatchedApp ? '查看应用详情' : undefined}
                   >
-                    查看详情
-                  </button>
-                )}
-                {onDismissWatch && (
-                  <button
-                    className="btn-fluent btn-secondary"
-                    style={{ fontSize: '12px', padding: '4px 12px' }}
-                    onClick={() => onDismissWatch(n.app_id)}
-                  >
-                    不再提醒
-                  </button>
-                )}
+                    <AppIcon
+                      icon={iconInfo.icon}
+                      name={n.app_name || n.app_id}
+                      appId={n.app_id}
+                      owner={iconInfo.owner}
+                      repo={iconInfo.repo}
+                      iconBg={iconInfo.iconBg}
+                      size={26}
+                      style={{ width: '26px', height: '26px', borderRadius: '7px' }}
+                    />
+                  </div>
+                  <span>
+                    你关注的 <strong>{n.app_name || n.app_id}</strong> 发布了 {n.version}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  {onOpenWatchedApp && (
+                    <button
+                      className="btn-fluent btn-primary"
+                      style={{ fontSize: '12px', padding: '4px 12px' }}
+                      onClick={() => onOpenWatchedApp(n.app_id)}
+                    >
+                      查看详情
+                    </button>
+                  )}
+                  {onDismissWatch && (
+                    <button
+                      className="btn-fluent btn-secondary"
+                      style={{ fontSize: '12px', padding: '4px 12px' }}
+                      onClick={() => onDismissWatch(n.app_id)}
+                    >
+                      不再提醒
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -190,6 +218,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
             const isThisUpdating = updatingId === item.app_id;
             const isMenuOpen = activeMenuId === item.app_id;
             const isFading = fadingIds.has(item.app_id);
+            const iconInfo = resolveIconInfo(item.app_id, item.app_name, item.icon, item.icon_bg);
 
             return (
               <div
@@ -204,15 +233,44 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                   transition: 'opacity 0.28s cubic-bezier(0.1, 0.9, 0.2, 1), transform 0.28s cubic-bezier(0.1, 0.9, 0.2, 1)',
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <h4 style={{ margin: '0 0 6px 0', fontSize: '16px' }}>{item.app_name}</h4>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
-                      <span style={{ color: 'var(--text-tertiary)' }}>当前: {item.current_version}</span>
-                      <span>➔</span>
-                      <span style={{ color: 'var(--brand-primary)', fontWeight: 600 }}>
-                        最新: {item.latest_version}
-                      </span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{ cursor: onOpenWatchedApp ? 'pointer' : 'default', flexShrink: 0 }}
+                      onClick={() => onOpenWatchedApp && onOpenWatchedApp(item.app_id)}
+                      title={onOpenWatchedApp ? '查看应用详情' : undefined}
+                    >
+                      <AppIcon
+                        icon={iconInfo.icon}
+                        name={item.app_name}
+                        appId={item.app_id}
+                        owner={iconInfo.owner}
+                        repo={iconInfo.repo}
+                        iconBg={iconInfo.iconBg}
+                        className="app-icon"
+                        size={48}
+                        style={{ width: '48px', height: '48px', borderRadius: '12px' }}
+                      />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <h4
+                        style={{
+                          margin: '0 0 6px 0',
+                          fontSize: '16px',
+                          cursor: onOpenWatchedApp ? 'pointer' : 'default',
+                        }}
+                        onClick={() => onOpenWatchedApp && onOpenWatchedApp(item.app_id)}
+                        title={onOpenWatchedApp ? '查看应用详情' : undefined}
+                      >
+                        {item.app_name}
+                      </h4>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
+                        <span style={{ color: 'var(--text-tertiary)' }}>当前: {item.current_version}</span>
+                        <span>➔</span>
+                        <span style={{ color: 'var(--brand-primary)', fontWeight: 600 }}>
+                          最新: {item.latest_version}
+                        </span>
+                      </div>
                     </div>
                   </div>
 

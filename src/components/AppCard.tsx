@@ -5,6 +5,7 @@ import { AppIcon } from './AppIcon';
 interface AppCardProps {
   app: AppSummary;
   isInstalled: boolean;
+  isInstalling?: boolean;
   isFavorite?: boolean;
   isWatched?: boolean;
   onOpenDetail: (id: string) => void;
@@ -16,6 +17,7 @@ interface AppCardProps {
 export const AppCard: React.FC<AppCardProps> = ({
   app,
   isInstalled,
+  isInstalling = false,
   isFavorite = false,
   isWatched = false,
   onOpenDetail,
@@ -132,18 +134,25 @@ export const AppCard: React.FC<AppCardProps> = ({
 
         <button
           className={`btn-install ${isInstalled ? 'btn-installed' : ''}`}
+          disabled={isInstalling}
           onClick={(e) => {
             e.stopPropagation();
             if (isInstalled) {
               onOpenDetail(app.id);
-            } else {
+            } else if (!isInstalling) {
               onQuickInstall(app.id);
             }
           }}
-          title={isInstalled ? '已安装 · 点击查看详情与管理操作' : `获取 ${app.name}`}
-          aria-label={isInstalled ? `${app.name} 已安装，点击管理` : `获取 ${app.name}`}
+          title={isInstalling ? '正在安装中...' : isInstalled ? '已安装 · 点击查看详情与管理操作' : `获取 ${app.name}`}
+          aria-label={isInstalling ? `${app.name} 正在安装中` : isInstalled ? `${app.name} 已安装，点击管理` : `获取 ${app.name}`}
+          style={isInstalling ? { opacity: 0.8, cursor: 'not-allowed' } : undefined}
         >
-          {isInstalled ? (
+          {isInstalling ? (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+              <span className="spinner-icon" style={{ width: '10px', height: '10px', borderWidth: '1.5px' }} />
+              <span>安装中</span>
+            </span>
+          ) : isInstalled ? (
             <>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="20 6 9 17 4 12" />

@@ -1,9 +1,13 @@
 import React, { useState } from 'react';
-import { InstalledApp, UpdateRule } from '../types';
+import { AppSummary, InstalledApp, UpdateRule } from '../types';
 import { FlyoutMenu } from '../components/FlyoutMenu';
+import { AppIcon } from '../components/AppIcon';
+import { formatAppDate, getMethodBadge, resolveInstalledIconInfo } from '../utils/appHelper';
 
 interface InstalledViewProps {
   installedApps: InstalledApp[];
+  apps?: AppSummary[];
+  onOpenDetail?: (id: string) => void;
   onLaunch: (id: string) => void;
   onUninstall: (id: string) => void;
   onUnmanage?: (id: string) => void;
@@ -16,8 +20,198 @@ interface InstalledViewProps {
   onOpenRules?: () => void;
 }
 
+interface InstalledItemActionsProps {
+  app: InstalledApp;
+  isFrozen: boolean;
+  isHidden: boolean;
+  isMenuOpen: boolean;
+  confirmingUninstallId: string | null;
+  confirmingUnmanageId: string | null;
+  onTriggerUninstall: (id: string) => void;
+  onTriggerUnmanage: (id: string) => void;
+  onCancelConfirm: () => void;
+  onLaunch: (id: string) => void;
+  onToggleMenu: (id: string, e: React.MouseEvent) => void;
+  onCloseMenu: () => void;
+  onToggleRuleFrozen?: (appId: string, isFrozen: boolean) => Promise<void>;
+  onToggleRuleHidden?: (appId: string, isHidden: boolean) => Promise<void>;
+  onOpenRules?: () => void;
+  compact?: boolean;
+}
+
+const InstalledItemActions: React.FC<InstalledItemActionsProps> = ({
+  app,
+  isFrozen,
+  isHidden,
+  isMenuOpen,
+  confirmingUninstallId,
+  confirmingUnmanageId,
+  onTriggerUninstall,
+  onTriggerUnmanage,
+  onCancelConfirm,
+  onLaunch,
+  onToggleMenu,
+  onCloseMenu,
+  onToggleRuleFrozen,
+  onToggleRuleHidden,
+  onOpenRules,
+  compact = false,
+}) => {
+  const isUnmanaging = confirmingUnmanageId === app.app_id;
+  const isUninstalling = confirmingUninstallId === app.app_id;
+  const btnPadding = compact ? '4px 10px' : '5px 12px';
+
+  return (
+    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+      {isUnmanaging ? (
+        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+          <button
+            className="btn-fluent"
+            style={{
+              padding: btnPadding,
+              fontSize: '12px',
+              background: '#eab308',
+              color: '#000',
+              fontWeight: 600,
+            }}
+            onClick={() => onTriggerUnmanage(app.app_id)}
+          >
+            确认取消纳管？
+          </button>
+          <button
+            className="btn-fluent btn-secondary"
+            style={{ padding: compact ? '4px 8px' : '5px 8px', fontSize: '12px' }}
+            onClick={onCancelConfirm}
+          >
+            取消
+          </button>
+        </div>
+      ) : isUninstalling ? (
+        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+          <button
+            className="btn-fluent"
+            style={{
+              padding: btnPadding,
+              fontSize: '12px',
+              background: '#ef4444',
+              color: '#fff',
+              fontWeight: 600,
+            }}
+            onClick={() => onTriggerUninstall(app.app_id)}
+          >
+            确认彻底卸载？
+          </button>
+          <button
+            className="btn-fluent btn-secondary"
+            style={{ padding: compact ? '4px 8px' : '5px 8px', fontSize: '12px' }}
+            onClick={onCancelConfirm}
+          >
+            取消
+          </button>
+        </div>
+      ) : (
+        <>
+          <button
+            className="btn-fluent btn-secondary"
+            style={{ padding: btnPadding, fontSize: '12px' }}
+            onClick={() => onTriggerUnmanage(app.app_id)}
+            title="将此应用从 Z-Store 列表中移除纳管记录（保留本机软件与数据）"
+          >
+            取消纳管
+          </button>
+          <button
+            className="btn-fluent btn-secondary"
+            style={{ padding: btnPadding, fontSize: '12px', color: '#ef4444' }}
+            onClick={() => onTriggerUninstall(app.app_id)}
+            title="调起官方卸载程序或清理本地安装文件彻底卸载应用"
+          >
+            卸载
+          </button>
+        </>
+      )}
+
+      <button
+        className="btn-fluent btn-primary"
+        style={{ padding: compact ? '4px 14px' : '5px 16px', fontSize: '12px' }}
+        onClick={() => onLaunch(app.app_id)}
+        title="运行此应用程序"
+      >
+        启动
+      </button>
+
+      {(onToggleRuleFrozen || onToggleRuleHidden) && (
+        <div style={{ position: 'relative' }}>
+          <button
+            className={`btn-fluent btn-secondary ${isMenuOpen ? 'active' : ''}`}
+            style={{
+              padding: compact ? '4px 8px' : '6px 8px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              lineHeight: '1',
+            }}
+            onClick={(e) => onToggleMenu(app.app_id, e)}
+            title="更多版本控制与屏蔽规则操作"
+            aria-label="更多操作"
+          >
+            •••
+          </button>
+
+          <FlyoutMenu
+            isOpen={isMenuOpen}
+            onClose={onCloseMenu}
+            align="right"
+            width={210}
+          >
+            <div style={{ padding: '4px 0', minWidth: '160px' }}>
+              {onToggleRuleFrozen && (
+                <button
+                  className="flyout-item"
+                  onClick={async () => {
+                    onCloseMenu();
+                    await onToggleRuleFrozen(app.app_id, !isFrozen);
+                  }}
+                >
+                  <span>{isFrozen ? '🔓 解除版本锁定' : '🔒 锁定此版本'}</span>
+                </button>
+              )}
+              {onToggleRuleHidden && (
+                <button
+                  className="flyout-item"
+                  onClick={async () => {
+                    onCloseMenu();
+                    await onToggleRuleHidden(app.app_id, !isHidden);
+                  }}
+                >
+                  <span>{isHidden ? '👁️ 取消隐藏' : '👁️ 在探索与列表中隐藏'}</span>
+                </button>
+              )}
+              {onOpenRules && (
+                <>
+                  <div className="flyout-divider" />
+                  <button
+                    className="flyout-item"
+                    onClick={() => {
+                      onCloseMenu();
+                      onOpenRules();
+                    }}
+                  >
+                    <span>🛡️ 打开规则管理器...</span>
+                  </button>
+                </>
+              )}
+            </div>
+          </FlyoutMenu>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const InstalledView: React.FC<InstalledViewProps> = ({
   installedApps,
+  apps = [],
+  onOpenDetail,
   onLaunch,
   onUninstall,
   onUnmanage,
@@ -34,15 +228,6 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
   const [confirmingUnmanageId, setConfirmingUnmanageId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
-
-  const formatDate = (ts: number) => {
-    const normalizedTs = ts < 10000000000 ? ts * 1000 : ts;
-    return new Date(normalizedTs).toLocaleDateString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    });
-  };
 
   const handleTriggerUninstall = (id: string) => {
     if (confirmingUninstallId === id) {
@@ -82,21 +267,6 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
     }, 2000);
   };
 
-  const getMethodBadge = (method: string) => {
-    switch (method) {
-      case 'msi':
-        return { label: 'MSI 官方安装', color: 'var(--brand-primary)' };
-      case 'setup_exe':
-        return { label: 'EXE 安装向导', color: '#0284c7' };
-      case 'portable_zip':
-        return { label: '便携绿色版', color: '#10b981' };
-      case 'system_import':
-        return { label: '系统纳管', color: '#8b5cf6' };
-      default:
-        return { label: '系统管理', color: 'var(--text-tertiary)' };
-    }
-  };
-
   return (
     <div className="installed-view view-entrance">
       <div className="section-header">
@@ -126,26 +296,26 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
               )}
             </button>
           )}
-          {onExportApps && (
-            <button
-              className="btn-fluent btn-secondary"
-              style={{ padding: '4px 10px', fontSize: '12px' }}
-              onClick={onExportApps}
-              disabled={installedApps.length === 0}
-              title="复制软件清单 Markdown 到剪贴板"
-            >
-              📋 导出 Markdown
-            </button>
-          )}
           {onExportAppsJson && (
             <button
               className="btn-fluent btn-secondary"
-              style={{ padding: '4px 10px', fontSize: '12px' }}
+              style={{ padding: '4px 12px', fontSize: '12px' }}
               onClick={onExportAppsJson}
+              title="导出应用清单为规范 JSON 备份文件"
               disabled={installedApps.length === 0}
-              title="导出软件资产 JSON 备份文件"
             >
-              💾 备份 JSON
+              📋 导出 JSON
+            </button>
+          )}
+          {onExportApps && (
+            <button
+              className="btn-fluent btn-secondary"
+              style={{ padding: '4px 12px', fontSize: '12px' }}
+              onClick={onExportApps}
+              title="导出已安装应用清单为 Markdown 文档"
+              disabled={installedApps.length === 0}
+            >
+              📋 导出清单
             </button>
           )}
           {onScanSystemApps && (
@@ -191,17 +361,49 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
             const isFrozen = Boolean(rule?.is_frozen);
             const isHidden = Boolean(rule?.is_hidden);
             const isMenuOpen = activeMenuId === app.app_id;
+            const iconInfo = resolveInstalledIconInfo(app, apps);
 
             return (
               <div key={app.app_id} className="app-card" style={{ padding: '18px', zIndex: isMenuOpen ? 50 : 1 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
-                    <h4 style={{ margin: '0 0 4px 0', fontSize: '15px' }}>{app.app_name}</h4>
-                    <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
-                      版本 {app.version} · 安装于 {formatDate(app.installed_at)}
-                    </span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{ cursor: onOpenDetail ? 'pointer' : 'default', flexShrink: 0 }}
+                      onClick={() => onOpenDetail && onOpenDetail(app.app_id)}
+                      title={onOpenDetail ? '查看应用详情' : undefined}
+                    >
+                      <AppIcon
+                        icon={iconInfo.icon}
+                        name={app.app_name}
+                        appId={app.app_id}
+                        owner={iconInfo.owner}
+                        repo={iconInfo.repo}
+                        iconBg={iconInfo.iconBg}
+                        className="app-icon"
+                        size={46}
+                      />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <h4
+                        style={{
+                          margin: '0 0 4px 0',
+                          fontSize: '15px',
+                          cursor: onOpenDetail ? 'pointer' : 'default',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                        onClick={() => onOpenDetail && onOpenDetail(app.app_id)}
+                        title={onOpenDetail ? '查看应用详情' : undefined}
+                      >
+                        {app.app_name}
+                      </h4>
+                      <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                        版本 {app.version} · 安装于 {formatAppDate(app.installed_at)}
+                      </span>
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
                     {isFrozen && (
                       <span
                         style={{
@@ -305,121 +507,82 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px' }}>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                    <button
-                      className={`btn-fluent ${confirmingUnmanageId === app.app_id ? 'btn-danger-confirm' : 'btn-secondary'}`}
-                      style={{ padding: '5px 12px', fontSize: '12px' }}
-                      onClick={() => handleTriggerUnmanage(app.app_id)}
-                      title="将此应用从 Z-Store 列表中移除纳管记录（保留本机软件与数据）"
-                    >
-                      {confirmingUnmanageId === app.app_id ? '确认取消纳管?' : '取消纳管'}
-                    </button>
-                    <button
-                      className={`btn-fluent ${confirmingUninstallId === app.app_id ? 'btn-danger-confirm' : 'btn-danger'}`}
-                      style={{ padding: '5px 12px', fontSize: '12px' }}
-                      onClick={() => handleTriggerUninstall(app.app_id)}
-                      title="调起官方卸载程序或清理本地安装文件彻底卸载应用"
-                    >
-                      {confirmingUninstallId === app.app_id ? '确认卸载?' : '卸载'}
-                    </button>
-                    <button
-                      className="btn-fluent btn-primary"
-                      style={{ padding: '5px 16px', fontSize: '12px' }}
-                      onClick={() => onLaunch(app.app_id)}
-                      title="运行此应用程序"
-                    >
-                      启动
-                    </button>
-                  </div>
-
-                  {/* Fluent 更多规则操作菜单 (···) */}
-                  {(onToggleRuleFrozen || onToggleRuleHidden) && (
-                    <div style={{ position: 'relative' }}>
-                      <button
-                        className={`btn-fluent btn-secondary ${isMenuOpen ? 'active' : ''}`}
-                        style={{
-                          padding: '6px 8px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          lineHeight: '1',
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setActiveMenuId(isMenuOpen ? null : app.app_id);
-                        }}
-                        title="版本控制与屏蔽规则"
-                        aria-label="更多操作"
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                          <circle cx="5" cy="12" r="2" />
-                          <circle cx="12" cy="12" r="2" />
-                          <circle cx="19" cy="12" r="2" />
-                        </svg>
-                      </button>
-
-                      <FlyoutMenu
-                        isOpen={isMenuOpen}
-                        onClose={() => setActiveMenuId(null)}
-                        width={210}
-                      >
-                        {onToggleRuleFrozen && (
-                          <button
-                            className="menu-item-fluent"
-                            onClick={async () => {
-                              setActiveMenuId(null);
-                              await onToggleRuleFrozen(app.app_id, !isFrozen);
-                            }}
-                          >
-                            <span>🔒</span>
-                            <div>
-                              <div style={{ fontWeight: 600 }}>{isFrozen ? '解除版本锁定' : '锁定当前版本'}</div>
-                              <div style={{ fontSize: '10.5px', color: 'var(--text-tertiary)' }}>
-                                {isFrozen ? '恢复接收更新通知' : '保留当前版本，忽略后续更新'}
-                              </div>
-                            </div>
-                          </button>
-                        )}
-
-                        {onToggleRuleHidden && (
-                          <button
-                            className="menu-item-fluent"
-                            onClick={async () => {
-                              setActiveMenuId(null);
-                              await onToggleRuleHidden(app.app_id, !isHidden);
-                            }}
-                          >
-                            <span>👁️</span>
-                            <div>
-                              <div style={{ fontWeight: 600 }}>{isHidden ? '取消全局隐藏' : '从探索中隐藏'}</div>
-                              <div style={{ fontSize: '10.5px', color: 'var(--text-tertiary)' }}>
-                                {isHidden ? '在发现和更新中恢复显示' : '在探索发现与更新中心屏蔽'}
-                              </div>
-                            </div>
-                          </button>
-                        )}
-                      </FlyoutMenu>
-                    </div>
-                  )}
+                  <InstalledItemActions
+                    app={app}
+                    isFrozen={isFrozen}
+                    isHidden={isHidden}
+                    isMenuOpen={isMenuOpen}
+                    confirmingUninstallId={confirmingUninstallId}
+                    confirmingUnmanageId={confirmingUnmanageId}
+                    onTriggerUninstall={handleTriggerUninstall}
+                    onTriggerUnmanage={handleTriggerUnmanage}
+                    onCancelConfirm={() => {
+                      setConfirmingUninstallId(null);
+                      setConfirmingUnmanageId(null);
+                    }}
+                    onLaunch={onLaunch}
+                    onToggleMenu={(id, e) => {
+                      e.stopPropagation();
+                      setActiveMenuId(activeMenuId === id ? null : id);
+                    }}
+                    onCloseMenu={() => setActiveMenuId(null)}
+                    onToggleRuleFrozen={onToggleRuleFrozen}
+                    onToggleRuleHidden={onToggleRuleHidden}
+                    onOpenRules={onOpenRules}
+                  />
                 </div>
               </div>
             );
           })}
         </div>
       ) : (
-        <div className="settings-group" style={{ marginBottom: 0 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {installedApps.map((app) => {
             const badge = getMethodBadge(app.install_method);
             const rule = updateRules.find((r) => r.app_id.toLowerCase() === app.app_id.toLowerCase());
             const isFrozen = Boolean(rule?.is_frozen);
             const isHidden = Boolean(rule?.is_hidden);
             const isMenuOpen = activeMenuId === app.app_id;
+            const iconInfo = resolveInstalledIconInfo(app, apps);
 
             return (
-              <div key={app.app_id} className="settings-row" style={{ padding: '12px 20px', position: 'relative', zIndex: isMenuOpen ? 50 : 1 }}>
+              <div
+                key={app.app_id}
+                className="app-card"
+                style={{
+                  padding: '12px 16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '14px',
+                  zIndex: isMenuOpen ? 50 : 1,
+                }}
+              >
+                <div
+                  style={{ cursor: onOpenDetail ? 'pointer' : 'default', flexShrink: 0 }}
+                  onClick={() => onOpenDetail && onOpenDetail(app.app_id)}
+                  title={onOpenDetail ? '查看应用详情' : undefined}
+                >
+                  <AppIcon
+                    icon={iconInfo.icon}
+                    name={app.app_name}
+                    appId={app.app_id}
+                    owner={iconInfo.owner}
+                    repo={iconInfo.repo}
+                    iconBg={iconInfo.iconBg}
+                    className="app-icon"
+                    size={38}
+                  />
+                </div>
+
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                    <span style={{ fontWeight: 600 }}>{app.app_name}</span>
+                    <span
+                      style={{ fontWeight: 600, cursor: onOpenDetail ? 'pointer' : 'default' }}
+                      onClick={() => onOpenDetail && onOpenDetail(app.app_id)}
+                      title={onOpenDetail ? '查看应用详情' : undefined}
+                    >
+                      {app.app_name}
+                    </span>
                     <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{app.version}</span>
                     {isFrozen && (
                       <span
@@ -464,7 +627,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                     </span>
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '3px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span>路径: {app.install_path || '未检测到安装路径 (启动时将自动嗅探修复)'} · 安装于 {formatDate(app.installed_at)}</span>
+                    <span>路径: {app.install_path || '未检测到安装路径 (启动时将自动嗅探修复)'} · 安装于 {formatAppDate(app.installed_at)}</span>
                     {app.install_path ? (
                       <button
                         onClick={() => handleCopyPath(app.app_id, app.install_path)}
@@ -499,151 +662,30 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', position: 'relative' }}>
-                  {confirmingUnmanageId === app.app_id ? (
-                    <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                      <button
-                        className="btn-fluent"
-                        style={{
-                          padding: '4px 10px',
-                          fontSize: '12px',
-                          background: '#eab308',
-                          color: '#000',
-                          fontWeight: 600,
-                        }}
-                        onClick={() => handleTriggerUnmanage(app.app_id)}
-                      >
-                        确认取消纳管？
-                      </button>
-                      <button
-                        className="btn-fluent btn-secondary"
-                        style={{ padding: '4px 8px', fontSize: '12px' }}
-                        onClick={() => setConfirmingUnmanageId(null)}
-                      >
-                        取消
-                      </button>
-                    </div>
-                  ) : confirmingUninstallId === app.app_id ? (
-                    <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                      <button
-                        className="btn-fluent"
-                        style={{
-                          padding: '4px 10px',
-                          fontSize: '12px',
-                          background: '#ef4444',
-                          color: '#fff',
-                          fontWeight: 600,
-                        }}
-                        onClick={() => handleTriggerUninstall(app.app_id)}
-                      >
-                        确认彻底卸载？
-                      </button>
-                      <button
-                        className="btn-fluent btn-secondary"
-                        style={{ padding: '4px 8px', fontSize: '12px' }}
-                        onClick={() => setConfirmingUninstallId(null)}
-                      >
-                        取消
-                      </button>
-                    </div>
-                  ) : (
-                    <>
-                      <button
-                        className="btn-fluent btn-secondary"
-                        style={{ fontSize: '12px', padding: '4px 10px' }}
-                        onClick={() => handleTriggerUnmanage(app.app_id)}
-                        title="从 Z-Store 移除纳管记录，保留本机软件"
-                      >
-                        取消纳管
-                      </button>
-                      <button
-                        className="btn-fluent btn-secondary"
-                        style={{ fontSize: '12px', padding: '4px 10px', color: '#ef4444' }}
-                        onClick={() => handleTriggerUninstall(app.app_id)}
-                        title="调起官方卸载程序彻底移除"
-                      >
-                        卸载
-                      </button>
-                    </>
-                  )}
-                  <button
-                    className="btn-fluent btn-primary"
-                    style={{ fontSize: '12px', padding: '4px 14px' }}
-                    onClick={() => onLaunch(app.app_id)}
-                  >
-                    启动
-                  </button>
-
-                  {/* Fluent 更多规则操作菜单 (···) */}
-                  {(onToggleRuleFrozen || onToggleRuleHidden) && (
-                    <div style={{ position: 'relative' }}>
-                      <button
-                        className={`btn-fluent btn-secondary ${isMenuOpen ? 'active' : ''}`}
-                        style={{
-                          padding: '6px 8px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          lineHeight: '1',
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setActiveMenuId(isMenuOpen ? null : app.app_id);
-                        }}
-                        title="版本控制与屏蔽规则"
-                        aria-label="更多操作"
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                          <circle cx="5" cy="12" r="2" />
-                          <circle cx="12" cy="12" r="2" />
-                          <circle cx="19" cy="12" r="2" />
-                        </svg>
-                      </button>
-
-                      <FlyoutMenu
-                        isOpen={isMenuOpen}
-                        onClose={() => setActiveMenuId(null)}
-                        width={210}
-                      >
-                        {onToggleRuleFrozen && (
-                          <button
-                            className="menu-item-fluent"
-                            onClick={async () => {
-                              setActiveMenuId(null);
-                              await onToggleRuleFrozen(app.app_id, !isFrozen);
-                            }}
-                          >
-                            <span>🔒</span>
-                            <div>
-                              <div style={{ fontWeight: 600 }}>{isFrozen ? '解除版本锁定' : '锁定当前版本'}</div>
-                              <div style={{ fontSize: '10.5px', color: 'var(--text-tertiary)' }}>
-                                {isFrozen ? '恢复接收更新通知' : '保留当前版本，忽略后续更新'}
-                              </div>
-                            </div>
-                          </button>
-                        )}
-
-                        {onToggleRuleHidden && (
-                          <button
-                            className="menu-item-fluent"
-                            onClick={async () => {
-                              setActiveMenuId(null);
-                              await onToggleRuleHidden(app.app_id, !isHidden);
-                            }}
-                          >
-                            <span>👁️</span>
-                            <div>
-                              <div style={{ fontWeight: 600 }}>{isHidden ? '取消全局隐藏' : '从探索中隐藏'}</div>
-                              <div style={{ fontSize: '10.5px', color: 'var(--text-tertiary)' }}>
-                                {isHidden ? '在发现和更新中恢复显示' : '在探索发现与更新中心屏蔽'}
-                              </div>
-                            </div>
-                          </button>
-                        )}
-                      </FlyoutMenu>
-                    </div>
-                  )}
-                </div>
+                <InstalledItemActions
+                  app={app}
+                  isFrozen={isFrozen}
+                  isHidden={isHidden}
+                  isMenuOpen={isMenuOpen}
+                  confirmingUninstallId={confirmingUninstallId}
+                  confirmingUnmanageId={confirmingUnmanageId}
+                  onTriggerUninstall={handleTriggerUninstall}
+                  onTriggerUnmanage={handleTriggerUnmanage}
+                  onCancelConfirm={() => {
+                    setConfirmingUninstallId(null);
+                    setConfirmingUnmanageId(null);
+                  }}
+                  onLaunch={onLaunch}
+                  onToggleMenu={(id, e) => {
+                    e.stopPropagation();
+                    setActiveMenuId(activeMenuId === id ? null : id);
+                  }}
+                  onCloseMenu={() => setActiveMenuId(null)}
+                  onToggleRuleFrozen={onToggleRuleFrozen}
+                  onToggleRuleHidden={onToggleRuleHidden}
+                  onOpenRules={onOpenRules}
+                  compact={true}
+                />
               </div>
             );
           })}
