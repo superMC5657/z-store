@@ -23,6 +23,7 @@ export const App: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [apps, setApps] = useState<AppSummary[]>([]);
   const [installedApps, setInstalledApps] = useState<InstalledApp[]>([]);
+  const [installingAppIds, setInstallingAppIds] = useState<Set<string>>(new Set());
   const [updates, setUpdates] = useState<UpdateItem[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [mirrors, setMirrors] = useState<MirrorNodeStatus[]>([]);
@@ -97,6 +98,9 @@ export const App: React.FC = () => {
           (merged as any)[k] = v;
         }
       }
+    }
+    if (!merged.download_dir || merged.download_dir.includes('zstore_downloads')) {
+      merged.download_dir = DEFAULT_SETTINGS.download_dir;
     }
     setSettings(merged);
 
@@ -385,6 +389,48 @@ export const App: React.FC = () => {
     }
   };
 
+  // 同步详情快照缓存与卡片列表数据（消除后台条件探查与主动刷新之间的重复逻辑）
+  const syncDetailCacheAndAppLists = (idClean: string, detail: AppDetail, isBackgroundSilent = false) => {
+    appDetailMemoryCache.current.set(idClean, detail);
+    if (detail.id.toLowerCase() !== idClean) {
+      appDetailMemoryCache.current.set(detail.id.toLowerCase(), detail);
+    }
+    if (detail.owner && detail.repo) {
+      const repoLower = `${detail.owner}/${detail.repo}`.toLowerCase();
+      appDetailMemoryCache.current.set(repoLower, detail);
+      appDetailMemoryCache.current.set(`github.com/${repoLower}`, detail);
+    }
+
+    if (activeDetailIdRef.current === detail.id || activeDetailIdRef.current?.toLowerCase() === idClean) {
+      setSelectedApp((prev) => {
+        if (!prev) return { ...detail, isLoading: false, isRefreshing: false };
+        if (
+          !isBackgroundSilent ||
+          prev.latest_version !== detail.latest_version ||
+          prev.releases.length !== detail.releases.length ||
+          prev.stars !== detail.stars
+        ) {
+          return { ...detail, isLoading: false, isRefreshing: false };
+        }
+        return prev;
+      });
+    }
+
+    const patchSummary = (app: AppSummary): AppSummary =>
+      app.id.toLowerCase() === idClean ||
+      (detail.id && app.id.toLowerCase() === detail.id.toLowerCase())
+        ? {
+            ...app,
+            stars: detail.stars,
+            forks: detail.forks,
+            latest_version: detail.latest_version,
+          }
+        : app;
+
+    setApps((prev) => prev.map(patchSummary));
+    setRecentlyViewedApps((prev) => prev.map(patchSummary));
+  };
+
   // Open App Detail Modal (优先内存/数据库 0ms 瞬间秒开，且一个仓库生命周期内只拉取一次)
   const handleOpenDetail = async (id: string, forceRefresh = false) => {
     const idClean = id.trim().toLowerCase();
@@ -394,8 +440,16 @@ export const App: React.FC = () => {
     if (!forceRefresh) {
       const cached = appDetailMemoryCache.current.get(idClean);
       if (cached) {
+        // 先以 0ms 瞬间展示内存快照，避免骨架屏闪烁
         setSelectedApp({ ...cached, isLoading: false, isRefreshing: false, loadError: undefined });
         api.recordAppView(id).then(loadRecentViews).catch(() => {});
+
+        // 后台静默发起 ETag 条件探查：版本未变（304）后端毫秒级短路，版本变化则静默平滑更新
+        api.getAppDetails(id, false).then((updatedDetail) => {
+          syncDetailCacheAndAppLists(idClean, updatedDetail, true);
+        }).catch(() => {
+          // 静默忽略后台探查异常，保留已展示的快照
+        });
         return;
       }
     } else {
@@ -467,53 +521,7 @@ export const App: React.FC = () => {
 
     try {
       const fullDetail = await api.getAppDetails(id, forceRefresh);
-      // 写入前端内存缓存，支持 id 及 owner/repo 索引
-      appDetailMemoryCache.current.set(idClean, fullDetail);
-      if (fullDetail.id.toLowerCase() !== idClean) {
-        appDetailMemoryCache.current.set(fullDetail.id.toLowerCase(), fullDetail);
-      }
-      if (fullDetail.owner && fullDetail.repo) {
-        const repoLower = `${fullDetail.owner}/${fullDetail.repo}`.toLowerCase();
-        appDetailMemoryCache.current.set(repoLower, fullDetail);
-        appDetailMemoryCache.current.set(`github.com/${repoLower}`, fullDetail);
-      }
-
-      // 竞态校验：仅当当前关注的应用与返回的应用一致时更新
-      if (activeDetailIdRef.current === id) {
-        setSelectedApp({
-          ...fullDetail,
-          isLoading: false,
-          isRefreshing: false,
-        });
-      }
-
-      // 同步主视图卡片列表中应用的信息（Stars、Forks、版本等）
-      setApps((prev) =>
-        prev.map((app) =>
-          app.id.toLowerCase() === idClean ||
-          (fullDetail.id && app.id.toLowerCase() === fullDetail.id.toLowerCase())
-            ? {
-                ...app,
-                stars: fullDetail.stars,
-                forks: fullDetail.forks,
-                latest_version: fullDetail.latest_version,
-              }
-            : app
-        )
-      );
-      setRecentlyViewedApps((prev) =>
-        prev.map((app) =>
-          app.id.toLowerCase() === idClean ||
-          (fullDetail.id && app.id.toLowerCase() === fullDetail.id.toLowerCase())
-            ? {
-                ...app,
-                stars: fullDetail.stars,
-                forks: fullDetail.forks,
-                latest_version: fullDetail.latest_version,
-              }
-            : app
-        )
-      );
+      syncDetailCacheAndAppLists(idClean, fullDetail, false);
     } catch (e) {
       if (activeDetailIdRef.current === id) {
         setSelectedApp((prev) =>
@@ -621,13 +629,26 @@ export const App: React.FC = () => {
 
   // Install App
   const handleInstallApp = async (id: string, assetName?: string, customInstallDir?: string): Promise<void> => {
+    if (installingAppIds.has(id)) return;
+    setInstallingAppIds((prev) => new Set(prev).add(id));
     try {
       const installed = await api.installApp(id, assetName, customInstallDir);
       setInstalledApps((prev) => [...prev.filter((a) => a.app_id !== id), installed]);
-      showToast(`${installed.app_name} 安装成功并通过 SHA-256 官方防篡改校验！`, 'success');
+      showToast(`${installed.app_name} 安装完成并已成功纳管！`, 'success');
     } catch (err) {
-      showToast(`安装失败: ${String(err)}`, 'error');
+      const errStr = String(err);
+      if (errStr.includes('取消') || errStr.includes('中止') || errStr.includes('1602')) {
+        showToast(`已取消安装: ${errStr}`, 'info');
+      } else {
+        showToast(`安装未完成: ${errStr}`, 'error');
+      }
       throw err;
+    } finally {
+      setInstallingAppIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     }
   };
 
@@ -929,6 +950,7 @@ export const App: React.FC = () => {
             <HomeView
               apps={apps}
               installedIds={installedIds}
+              installingIds={installingAppIds}
               favoriteIds={favoriteIds}
               watchedIds={watchedIds}
               recentlyViewedApps={recentlyViewedApps}
@@ -946,6 +968,7 @@ export const App: React.FC = () => {
               apps={apps}
               favoriteIds={favoriteIds}
               installedIds={installedIds}
+              installingIds={installingAppIds}
               onOpenDetail={handleOpenDetail}
               onQuickInstall={handleQuickInstall}
               onToggleFavorite={handleToggleFavorite}
@@ -956,6 +979,7 @@ export const App: React.FC = () => {
             <CategoriesView
               apps={apps}
               installedIds={installedIds}
+              installingIds={installingAppIds}
               favoriteIds={favoriteIds}
               watchedIds={watchedIds}
               onOpenDetail={handleOpenDetail}
@@ -971,6 +995,7 @@ export const App: React.FC = () => {
               favoriteIds={favoriteIds}
               watchedIds={watchedIds}
               installedIds={installedIds}
+              installingIds={installingAppIds}
               onOpenDetail={handleOpenDetail}
               onQuickInstall={handleQuickInstall}
               onToggleFavorite={handleToggleFavorite}
@@ -981,6 +1006,8 @@ export const App: React.FC = () => {
           {currentView === 'installed' && (
             <InstalledView
               installedApps={installedApps}
+              apps={apps}
+              onOpenDetail={handleOpenDetail}
               onLaunch={handleLaunchApp}
               onUninstall={handleUninstallApp}
               onUnmanage={handleUnmanageApp}
@@ -997,6 +1024,7 @@ export const App: React.FC = () => {
           {currentView === 'updates' && (
             <UpdatesView
               updates={updates}
+              apps={apps}
               onApplyUpdate={handleApplyUpdate}
               onBatchUpdateAll={handleBatchUpdateAll}
               onCheckUpdates={handleCheckUpdates}
@@ -1019,16 +1047,6 @@ export const App: React.FC = () => {
               onPingMirrors={handlePingMirrors}
               theme={settings.theme}
               onSetTheme={handleSetTheme}
-              onSaveToken={async (token) => {
-                await api.setGithubToken(token);
-                handleUpdateSetting('github_token', token);
-                showToast(
-                  token
-                    ? 'GitHub Token 保存成功，API 限额已提升至 5000 次/小时'
-                    : 'Token 已清除',
-                  'success'
-                );
-              }}
               onExportApps={handleExportApps}
               onExportAppsJson={handleExportAppsJson}
               settings={settings}
@@ -1050,6 +1068,7 @@ export const App: React.FC = () => {
           isManaged={managedIds.has(selectedApp.id)}
           isFavorite={favoriteIds.has(selectedApp.id)}
           isWatched={watchedIds.has(selectedApp.id)}
+          isInstallingGlobal={installingAppIds.has(selectedApp.id)}
           oauthUser={oauthUser}
           onClose={() => {
             activeDetailIdRef.current = null;
