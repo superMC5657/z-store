@@ -14,7 +14,7 @@
 ## 决策
 
 1. **确立独立生态数据仓库（`z-store-catalog`）**：
-   - 建立独立的生态清单数据仓库（`supermc/z-store-catalog`）；
+   - 建立独立的生态清单数据仓库（`superMC5657/z-store-catalog`）；
    - 生态仓库独立管理 `catalog.json`、保鲜定时任务 CI、PR 准入格式自动化校验流，以及社区贡献规范（`CONTRIBUTING.md`）；
    - 彻底将数据维度的变动从客户端核心代码仓库剥离。
 
@@ -24,7 +24,7 @@
    - 客户端提供 `pnpm sync:catalog`（`scripts/sync-catalog-seed.mjs`），以便维护者在发版打包前一键拉取远端数据更新本地种子。
 
 3. **客户端同步源与配置对齐**：
-   - `src-tauri/config.toml` 中 `default_source_url` 更新指向 `https://raw.githubusercontent.com/supermc/z-store-catalog/main/catalog.json`；
+   - `src-tauri/config.toml` 中 `default_source_url` 更新指向 `https://raw.githubusercontent.com/superMC5657/z-store-catalog/main/catalog.json`；
    - `src-tauri/src/config.rs` 中代码内置兜底地址同步对齐加速镜像前缀；
    - 客户端已实现的 ETag 条件协商增量同步机制无缝切换至该独立仓库。
 

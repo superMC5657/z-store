@@ -44,7 +44,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   launch_on_startup: false,
   update_frequency: 'startup',
   detail_cache_ttl_minutes: 30,
-  catalog_source_url: 'https://gh-proxy.com/https://raw.githubusercontent.com/supermc/z-store/main/catalog.json',
+  catalog_source_url: 'https://gh-proxy.com/https://raw.githubusercontent.com/superMC5657/z-store-catalog/main/catalog.json',
   watch_notify_frequency: 'daily',
 };
 

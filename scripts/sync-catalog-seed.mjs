@@ -3,7 +3,7 @@
 /**
  * sync-catalog-seed.mjs
  * 
- * 从独立数据仓库 (supermc/z-store-catalog) 同步最新的应用清单数据，
+ * 从独立数据仓库 (superMC5657/z-store-catalog) 同步最新的应用清单数据，
  * 更新本客户端仓库根目录下的离线兜底种子 catalog.json。
  * 
  * 用法:
@@ -25,7 +25,7 @@ const isDryRun = process.argv.includes('--dry-run');
 function resolveCatalogConfig() {
   const configPath = path.join(rootDir, 'src-tauri', 'config.toml');
   let localPath = path.join(rootDir, 'catalog.json');
-  let sourceUrl = 'https://raw.githubusercontent.com/supermc/z-store-catalog/main/catalog.json';
+  let sourceUrl = 'https://raw.githubusercontent.com/superMC5657/z-store-catalog/main/catalog.json';
 
   if (fs.existsSync(configPath)) {
     const configContent = fs.readFileSync(configPath, 'utf8');
