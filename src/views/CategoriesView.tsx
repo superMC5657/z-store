@@ -27,6 +27,23 @@ const CATEGORY_DEFINITIONS = [
   { id: 'games', icon: '🎮', name: '休闲游戏', desc: '复古模拟器, 模拟经营, 像素沙盒', color: '#a855f7' },
 ];
 
+const PLATFORM_OPTIONS = [
+  { id: 'all', label: '全部设备', icon: '💻' },
+  { id: 'windows', label: 'Windows', icon: '🪟' },
+  { id: 'android', label: 'Android', icon: '🤖' },
+  { id: 'macos', label: 'macOS', icon: '🍎' },
+  { id: 'linux', label: 'Linux', icon: '🐧' },
+  { id: 'ios', label: 'iOS', icon: '📱' },
+];
+
+function matchPlatform(app: AppSummary, platform: string): boolean {
+  if (platform === 'all') return true;
+  if (!app.platforms || app.platforms.length === 0) {
+    return platform === 'windows';
+  }
+  return app.platforms.some((p) => p.toLowerCase() === platform.toLowerCase());
+}
+
 export const CategoriesView: React.FC<CategoriesViewProps> = ({
   apps,
   installedIds,
@@ -39,18 +56,51 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   onToggleWatch,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedPlatform, setSelectedPlatform] = useState<string>('all');
 
-  const filteredApps = selectedCategory
-    ? apps.filter((a) => a.category.toLowerCase() === selectedCategory.toLowerCase())
-    : [];
+  // 计算各平台的收录总数
+  const platformCounts = React.useMemo(() => {
+    const counts: Record<string, number> = { all: apps.length };
+    for (const opt of PLATFORM_OPTIONS) {
+      if (opt.id === 'all') continue;
+      counts[opt.id] = apps.filter((a) => matchPlatform(a, opt.id)).length;
+    }
+    return counts;
+  }, [apps]);
+
+  // 符合当前平台筛选的应用集合
+  const platformFilteredApps = React.useMemo(() => {
+    return apps.filter((a) => matchPlatform(a, selectedPlatform));
+  }, [apps, selectedPlatform]);
+
+  // 符合当前分类与平台双重筛选的应用列表
+  const filteredApps = React.useMemo(() => {
+    if (selectedCategory === 'all_apps') {
+      return platformFilteredApps;
+    }
+    if (selectedCategory) {
+      return platformFilteredApps.filter(
+        (a) => a.category.toLowerCase() === selectedCategory.toLowerCase()
+      );
+    }
+    return [];
+  }, [platformFilteredApps, selectedCategory]);
 
   const currentCategoryMeta = CATEGORY_DEFINITIONS.find((c) => c.id === selectedCategory);
+  const currentPlatformMeta = PLATFORM_OPTIONS.find((p) => p.id === selectedPlatform) || PLATFORM_OPTIONS[0];
 
   return (
     <div className="categories-view view-entrance">
+      {/* 顶部标题与返回控制 */}
       <div className="section-header">
         <h3 className="section-title">
-          {selectedCategory ? `${currentCategoryMeta?.icon} ${currentCategoryMeta?.name} (${filteredApps.length})` : '🏷️ 按主题领域与分类浏览'}
+          {selectedCategory === 'all_apps' ? (
+            `${currentPlatformMeta.icon} 全部 ${currentPlatformMeta.label} 应用 (${filteredApps.length})`
+          ) : selectedCategory ? (
+            `${currentCategoryMeta?.icon} ${currentCategoryMeta?.name}${selectedPlatform !== 'all' ? ` · ${currentPlatformMeta.label}` : ''} (${filteredApps.length})`
+          ) : (
+            '🏷️ 按主题领域与设备平台浏览'
+          )}
         </h3>
         {selectedCategory && (
           <button
@@ -58,7 +108,81 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
             onClick={() => setSelectedCategory(null)}
             style={{ fontSize: '12px', padding: '4px 12px' }}
           >
-            ← 返回全部分类
+            ← 返回分类大厅
+          </button>
+        )}
+      </div>
+
+      {/* 支持设备平台筛选胶囊栏 */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          flexWrap: 'wrap',
+          marginBottom: '20px',
+        }}
+      >
+        <span style={{ fontSize: '13px', color: 'var(--text-secondary)', marginRight: '4px', fontWeight: 600 }}>
+          支持设备:
+        </span>
+        {PLATFORM_OPTIONS.map((opt) => {
+          const isActive = selectedPlatform === opt.id;
+          const count = platformCounts[opt.id] ?? 0;
+          return (
+            <button
+              key={opt.id}
+              onClick={() => setSelectedPlatform(opt.id)}
+              className="btn-fluent"
+              style={{
+                borderRadius: '20px',
+                padding: '6px 14px',
+                fontSize: '12px',
+                fontWeight: isActive ? 600 : 500,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                background: isActive ? 'var(--brand-primary)' : 'var(--fill-control-subtle)',
+                color: isActive ? '#ffffff' : 'var(--text-primary)',
+                borderColor: isActive ? 'var(--brand-primary)' : 'var(--border-control)',
+                boxShadow: isActive ? '0 2px 8px rgba(0, 120, 212, 0.25)' : 'none',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <span>{opt.icon}</span>
+              <span>{opt.label}</span>
+              <span
+                style={{
+                  fontSize: '11px',
+                  padding: '1px 6px',
+                  borderRadius: '10px',
+                  background: isActive ? 'rgba(255, 255, 255, 0.25)' : 'var(--border-subtle)',
+                  color: isActive ? '#ffffff' : 'var(--text-tertiary)',
+                  marginLeft: '2px',
+                }}
+              >
+                {count}
+              </span>
+            </button>
+          );
+        })}
+
+        {/* 当处于未展开具体分类且选择了特定平台时，提供“查看该平台全部应用”按钮 */}
+        {!selectedCategory && selectedPlatform !== 'all' && (
+          <button
+            className="btn-fluent btn-secondary"
+            onClick={() => setSelectedCategory('all_apps')}
+            style={{
+              borderRadius: '20px',
+              padding: '6px 14px',
+              fontSize: '12px',
+              fontWeight: 600,
+              marginLeft: 'auto',
+              color: 'var(--brand-primary)',
+            }}
+          >
+            直接查看全部 {platformFilteredApps.length} 款 {currentPlatformMeta.label} 应用 ➔
           </button>
         )}
       </div>
@@ -66,7 +190,9 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
       {!selectedCategory ? (
         <div className="app-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
           {CATEGORY_DEFINITIONS.map((cat) => {
-            const count = apps.filter((a) => a.category.toLowerCase() === cat.id.toLowerCase()).length;
+            const count = platformFilteredApps.filter(
+              (a) => a.category.toLowerCase() === cat.id.toLowerCase()
+            ).length;
             return (
               <div
                 key={cat.id}
@@ -76,6 +202,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                   textAlign: 'center',
                   padding: '22px 16px',
                   cursor: 'pointer',
+                  opacity: count === 0 ? 0.6 : 1,
                 }}
                 onClick={() => setSelectedCategory(cat.id)}
               >
@@ -108,7 +235,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                     fontWeight: 600,
                   }}
                 >
-                  {count > 0 ? `${count} 款收录` : '浏览分类'}
+                  {count > 0 ? `${count} 款可用` : '暂无此端应用'}
                 </div>
               </div>
             );
@@ -133,7 +260,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
             ))
           ) : (
             <div style={{ color: 'var(--text-tertiary)', padding: '32px', textAlign: 'center', width: '100%' }}>
-              该分类暂无收录应用，支持在顶部搜索栏输入 GitHub 仓库名在线安装。
+              当前分类在所选设备平台（{currentPlatformMeta.label}）下暂无收录应用。
             </div>
           )}
         </div>

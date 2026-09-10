@@ -19,6 +19,7 @@ export interface AppSummary {
   forge?: string;
   forge_host?: string;
   homepage?: string;
+  platforms?: string[];
 }
 
 export interface ReleaseAsset {
@@ -59,6 +60,7 @@ export interface AppDetail {
   isRefreshing?: boolean;
   loadError?: string;
   homepage?: string;
+  platforms?: string[];
   // FR-8: z-store.toml 收录库扩展元数据（Rust 侧可选下发，缺失时一律按 null 优雅降级）
   store_meta?: StoreMeta | null;
 }

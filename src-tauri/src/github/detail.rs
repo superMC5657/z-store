@@ -396,6 +396,10 @@ impl CatalogService {
             ),
             is_stale_fallback: None,
             homepage: latest_homepage,
+            platforms: catalog_item
+                .as_ref()
+                .map(|i| i.platforms.clone())
+                .unwrap_or_else(|| vec!["windows".to_string()]),
             store_meta: None,
         };
 

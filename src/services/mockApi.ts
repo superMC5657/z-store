@@ -46,6 +46,7 @@ export const MOCK_APPS: Record<string, AppDetail> = {
     category: 'system',
     category_name: '系统实用',
     homepage: 'https://rustdesk.com',
+    platforms: ['windows', 'macos', 'linux', 'android', 'ios'],
     releases: [
       {
         name: 'rustdesk-1.3.1-x86_64.msi',
@@ -86,6 +87,7 @@ export const MOCK_APPS: Record<string, AppDetail> = {
     category: 'network',
     category_name: '网络工具',
     homepage: 'https://localsend.org',
+    platforms: ['windows', 'macos', 'linux', 'android', 'ios'],
     releases: [
       {
         name: 'LocalSend-1.14.0-windows-x86-64.msi',
@@ -115,6 +117,7 @@ export const MOCK_APPS: Record<string, AppDetail> = {
     readme_markdown: '# VLC Media Player\n\n开源全格式音视频播放器基准。',
     category: 'media',
     category_name: '影音视听',
+    platforms: ['windows', 'macos', 'linux', 'android', 'ios'],
     releases: [
       {
         name: 'vlc-3.0.21-win64.msi',
@@ -190,6 +193,7 @@ export const mockApi = {
       category: d.category,
       category_name: d.category_name,
       is_verified: d.is_verified,
+      platforms: d.platforms,
       is_installed: mockInstalled.some((i) => i.app_id === d.id),
       has_update: mockInstalled.some((i) => i.app_id === d.id && i.version !== d.latest_version),
     }));
@@ -364,6 +368,7 @@ export const mockApi = {
         license: d.license,
         latest_version: d.latest_version,
         is_verified: d.is_verified,
+        platforms: d.platforms,
       }));
   },
 

@@ -47,6 +47,7 @@ pub async fn search_apps(
                     forge: Some(coord.forge.as_str().to_string()),
                     forge_host: Some(coord.host),
                     homepage: repo_info.homepage.clone(),
+                    platforms: vec!["windows".to_string()],
                 }]);
             }
         } else if query.contains('/')
@@ -330,6 +331,7 @@ pub async fn get_app_details_impl(
                 cached_at: Some(now),
                 is_stale_fallback: None,
                 homepage: repo_info.homepage.clone(),
+                platforms: vec!["windows".to_string()],
                 store_meta: None,
             };
             attach_store_meta(state, &mut detail).await;

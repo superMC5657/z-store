@@ -138,3 +138,27 @@ async fn test_sync_remote_catalog_local_file() {
     let (no_items, _) = cat.sync_remote_catalog(target, Some(&etag_val)).await.unwrap();
     assert!(no_items.is_none());
 }
+
+#[test]
+fn test_catalog_platforms_loading_and_mapping() {
+    let cat = CatalogService::new();
+    let rustdesk = cat.get_catalog_item("rustdesk").expect("rustdesk exists in catalog");
+    assert!(rustdesk.platforms.contains(&"windows".to_string()));
+    assert!(rustdesk.platforms.contains(&"android".to_string()));
+    assert!(rustdesk.platforms.contains(&"macos".to_string()));
+    assert!(rustdesk.platforms.contains(&"linux".to_string()));
+    assert!(rustdesk.platforms.contains(&"ios".to_string()));
+
+    let summary = rustdesk.to_summary();
+    assert_eq!(summary.platforms, rustdesk.platforms);
+
+    // 校验所有收录项均有有效的 platforms（至少包含一个支持端）
+    for item in cat.get_catalog_items() {
+        assert!(!item.platforms.is_empty(), "app {} should have platforms", item.id);
+        assert!(
+            item.platforms.iter().all(|p| ["windows", "android", "macos", "linux", "ios"].contains(&p.as_str())),
+            "app {} platforms should be valid: {:?}", item.id, item.platforms
+        );
+    }
+}
+

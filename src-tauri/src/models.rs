@@ -30,6 +30,8 @@ pub struct AppSummary {
     pub forge_host: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub homepage: Option<String>,
+    #[serde(default)]
+    pub platforms: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,6 +76,8 @@ pub struct AppDetail {
     pub is_stale_fallback: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub homepage: Option<String>,
+    #[serde(default)]
+    pub platforms: Vec<String>,
     /// `z-store.toml` 解析产物（FR-8.1）；缺失文件时为 None，前端用仓库数据兜底。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub store_meta: Option<StoreMeta>,

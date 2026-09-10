@@ -94,6 +94,7 @@ impl CatalogService {
                                 forge: Some("github".to_string()),
                                 forge_host: Some("github.com".to_string()),
                                 homepage: None,
+                                platforms: vec!["windows".to_string()],
                             }
                         })
                         .collect();
@@ -163,6 +164,7 @@ impl CatalogService {
             forge: Some("github".to_string()),
             forge_host: Some("github.com".to_string()),
             homepage: repo_data.homepage,
+            platforms: vec!["windows".to_string()],
         })
     }
 }

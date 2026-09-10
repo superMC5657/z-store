@@ -218,6 +218,7 @@ fn test_app_details_cache_crud() {
         cached_at: None,
         is_stale_fallback: None,
         homepage: None,
+        platforms: vec!["windows".to_string()],
         store_meta: None,
     };
 

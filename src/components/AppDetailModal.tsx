@@ -7,6 +7,14 @@ import { sanitizeHtml } from '../utils/sanitize';
 import { notifyToast } from '../utils/notify';
 import { formatBytes } from '../utils/appHelper';
 
+const PLATFORM_META: Record<string, { label: string; icon: string }> = {
+  windows: { label: 'Windows', icon: '🪟' },
+  android: { label: 'Android', icon: '🤖' },
+  macos: { label: 'macOS', icon: '🍎' },
+  linux: { label: 'Linux', icon: '🐧' },
+  ios: { label: 'iOS', icon: '📱' },
+};
+
 interface AppDetailModalProps {
   app: AppDetail;
   isInstalled: boolean;
@@ -628,6 +636,15 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               <span className="modal-tag">★ {((app.stars || 0) / 1000).toFixed(1)}k</span>
               <span className="modal-tag">{app.license}</span>
               <span className="modal-tag">{app.category_name}</span>
+              {app.platforms && app.platforms.length > 0 && (
+                <span
+                  className="modal-tag"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                  title={`支持设备: ${app.platforms.map((p) => PLATFORM_META[p.toLowerCase()]?.label || p).join(', ')}`}
+                >
+                  💻 支持端: {app.platforms.map((p) => `${PLATFORM_META[p.toLowerCase()]?.icon || ''}${PLATFORM_META[p.toLowerCase()]?.label || p}`).join(' · ')}
+                </span>
+              )}
               {app.forge && app.forge !== 'github' && (
                 <span
                   className="modal-tag"

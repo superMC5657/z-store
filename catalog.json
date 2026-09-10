@@ -26,6 +26,13 @@
     "homepage": "https://rustdesk.com",
     "executables": [
       "rustdesk.exe"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux",
+      "android",
+      "ios"
     ]
   },
   {
@@ -55,6 +62,13 @@
     "executables": [
       "localsend_app.exe",
       "LocalSend.exe"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux",
+      "android",
+      "ios"
     ]
   },
   {
@@ -86,6 +100,13 @@
     ],
     "publishers": [
       "VideoLAN"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux",
+      "android",
+      "ios"
     ]
   },
   {
@@ -124,6 +145,11 @@
     ],
     "publishers": [
       "OBS Project"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
     ]
   },
   {
@@ -151,6 +177,11 @@
     "homepage": "https://keepassxc.org",
     "executables": [
       "KeePassXC.exe"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
     ]
   },
   {
@@ -179,6 +210,11 @@
     "homepage": "https://vscodium.com",
     "executables": [
       "VSCodium.exe"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
     ]
   },
   {
@@ -206,6 +242,11 @@
     "homepage": "https://zed.dev",
     "executables": [
       "zed.exe"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
     ]
   },
   {
@@ -234,6 +275,11 @@
     "homepage": "https://flameshot.org",
     "executables": [
       "flameshot.exe"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
     ]
   },
   {
@@ -262,6 +308,9 @@
     "homepage": "https://getsharex.com",
     "executables": [
       "ShareX.exe"
+    ],
+    "platforms": [
+      "windows"
     ]
   },
   {
@@ -290,6 +339,11 @@
     "homepage": "https://www.blender.org",
     "executables": [
       "blender.exe"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
     ]
   },
   {
@@ -318,6 +372,13 @@
     "homepage": "https://joplinapp.org",
     "executables": [
       "Joplin.exe"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux",
+      "android",
+      "ios"
     ]
   },
   {
@@ -346,6 +407,13 @@
     "homepage": "https://logseq.com",
     "executables": [
       "Logseq.exe"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux",
+      "android",
+      "ios"
     ]
   },
   {
@@ -374,6 +442,13 @@
     "homepage": "https://koreader.rocks",
     "executables": [
       "koreader.exe"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux",
+      "android",
+      "ios"
     ]
   },
   {
@@ -401,6 +476,11 @@
     "homepage": "https://calibre-ebook.com",
     "executables": [
       "calibre.exe"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
     ]
   },
   {
@@ -429,6 +509,11 @@
     "homepage": "https://clash-verge-rev.github.io",
     "executables": [
       "Clash Verge.exe"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
     ]
   },
   {
@@ -458,6 +543,11 @@
     "executables": [
       "transmission-qt.exe",
       "transmission.exe"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
     ]
   },
   {
@@ -491,6 +581,10 @@
     ],
     "publishers": [
       "Igor Pavlov"
+    ],
+    "platforms": [
+      "windows",
+      "linux"
     ]
   },
   {
@@ -522,6 +616,9 @@
     ],
     "publishers": [
       "Microsoft Corporation"
+    ],
+    "platforms": [
+      "windows"
     ]
   },
   {
@@ -549,6 +646,9 @@
     "is_verified": true,
     "executables": [
       "QuickLook.exe"
+    ],
+    "platforms": [
+      "windows"
     ]
   },
   {
@@ -577,6 +677,9 @@
     "homepage": "https://www.flowlauncher.com",
     "executables": [
       "Flow.Launcher.exe"
+    ],
+    "platforms": [
+      "windows"
     ]
   },
   {
@@ -605,6 +708,11 @@
     "homepage": "https://handbrake.fr",
     "executables": [
       "HandBrake.exe"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
     ]
   },
   {
@@ -633,6 +741,13 @@
     "homepage": "https://bitwarden.com",
     "executables": [
       "Bitwarden.exe"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux",
+      "android",
+      "ios"
     ]
   },
   {
@@ -665,6 +780,11 @@
     ],
     "search_subdirs": [
       "bin"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
     ]
   },
   {
@@ -693,6 +813,11 @@
     "homepage": "https://alacritty.org",
     "executables": [
       "alacritty.exe"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
     ]
   },
   {
@@ -721,6 +846,11 @@
     "homepage": "https://www.wireshark.org",
     "executables": [
       "Wireshark.exe"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
     ]
   },
   {
@@ -749,6 +879,11 @@
     "homepage": "https://hoppscotch.com",
     "executables": [
       "Hoppscotch.exe"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
     ]
   },
   {
@@ -777,6 +912,11 @@
     "homepage": "https://podman-desktop.io",
     "executables": [
       "Podman Desktop.exe"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
     ]
   },
   {
@@ -806,6 +946,13 @@
     "homepage": "https://www.retroarch.com",
     "executables": [
       "retroarch.exe"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux",
+      "android",
+      "ios"
     ]
   },
   {
@@ -834,6 +981,12 @@
     "homepage": "https://www.openttd.org",
     "executables": [
       "openttd.exe"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux",
+      "android"
     ]
   },
   {
@@ -862,6 +1015,13 @@
     "homepage": "https://mindustrygame.github.io",
     "executables": [
       "Mindustry.exe"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux",
+      "android",
+      "ios"
     ]
   },
   {
@@ -894,6 +1054,11 @@
     ],
     "publishers": [
       "The qBittorrent project"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
     ]
   },
   {
@@ -926,6 +1091,11 @@
     "publishers": [
       "Dr_rOot",
       "agalwood"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
     ]
   },
   {
@@ -957,6 +1127,11 @@
     ],
     "publishers": [
       "Molunerfinn"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
     ]
   },
   {
@@ -989,6 +1164,9 @@
     ],
     "publishers": [
       "Josef Nemec"
+    ],
+    "platforms": [
+      "windows"
     ]
   },
   {
@@ -1021,6 +1199,11 @@
     ],
     "publishers": [
       "Wez Furlong"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
     ]
   },
   {
@@ -1054,6 +1237,11 @@
     "publishers": [
       "Telegram FZ-LLC",
       "Telegram"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
     ]
   },
   {
@@ -1088,6 +1276,11 @@
     ],
     "publishers": [
       "Jan De Dobbeleer"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
     ]
   },
   {
@@ -1118,6 +1311,9 @@
     ],
     "publishers": [
       "Dmitry Bruhov"
+    ],
+    "platforms": [
+      "windows"
     ]
   },
   {
@@ -1150,6 +1346,11 @@
     ],
     "publishers": [
       "BurntSushi"
+    ],
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
     ]
   }
 ]

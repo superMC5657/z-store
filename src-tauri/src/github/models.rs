@@ -31,6 +31,12 @@ pub struct CatalogItem {
     pub search_subdirs: Vec<String>,
     #[serde(default)]
     pub publishers: Vec<String>,
+    #[serde(default = "default_platforms")]
+    pub platforms: Vec<String>,
+}
+
+fn default_platforms() -> Vec<String> {
+    vec!["windows".to_string()]
 }
 
 impl CatalogItem {
@@ -41,6 +47,12 @@ impl CatalogItem {
             } else {
                 format!("https://github.com/{}.png", self.owner)
             };
+
+        let effective_platforms = if self.platforms.is_empty() {
+            vec!["windows".to_string()]
+        } else {
+            self.platforms.clone()
+        };
 
         AppSummary {
             id: self.id.clone(),
@@ -63,6 +75,7 @@ impl CatalogItem {
             forge: Some("github".to_string()),
             forge_host: Some("github.com".to_string()),
             homepage: self.homepage.clone(),
+            platforms: effective_platforms,
         }
     }
 }

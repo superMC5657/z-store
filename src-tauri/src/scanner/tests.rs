@@ -26,6 +26,7 @@ fn create_mock_catalog() -> Vec<CatalogItem> {
             install_dirs: vec!["VideoLAN\\VLC".to_string(), "VLC".to_string()],
             search_subdirs: vec![],
             publishers: vec!["VideoLAN".to_string()],
+            platforms: vec!["windows".to_string(), "macos".to_string(), "linux".to_string()],
         },
         CatalogItem {
             id: "obsproject/obs-studio".to_string(),
@@ -50,6 +51,7 @@ fn create_mock_catalog() -> Vec<CatalogItem> {
             install_dirs: vec!["obs-studio".to_string()],
             search_subdirs: vec!["bin/64bit".to_string(), "bin".to_string()],
             publishers: vec!["OBS Project".to_string()],
+            platforms: vec!["windows".to_string(), "macos".to_string(), "linux".to_string()],
         },
     ]
 }

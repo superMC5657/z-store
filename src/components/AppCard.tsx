@@ -2,6 +2,14 @@ import React from 'react';
 import { AppSummary } from '../types';
 import { AppIcon } from './AppIcon';
 
+const PLATFORM_META: Record<string, { label: string; icon: string }> = {
+  windows: { label: 'Windows', icon: '🪟' },
+  android: { label: 'Android', icon: '🤖' },
+  macos: { label: 'macOS', icon: '🍎' },
+  linux: { label: 'Linux', icon: '🐧' },
+  ios: { label: 'iOS', icon: '📱' },
+};
+
 interface AppCardProps {
   app: AppSummary;
   isInstalled: boolean;
@@ -116,6 +124,15 @@ export const AppCard: React.FC<AppCardProps> = ({
             <span>{formatStars(app.stars)}</span>
           </span>
           <span className="app-tag app-tag-license">{app.license}</span>
+          {app.platforms && app.platforms.length > 0 && (
+            <span
+              className="app-tag app-tag-platforms"
+              title={`支持设备: ${app.platforms.map((p) => PLATFORM_META[p.toLowerCase()]?.label || p).join(', ')}`}
+              style={{ letterSpacing: '2px', padding: '2px 6px', cursor: 'default' }}
+            >
+              {app.platforms.map((p) => PLATFORM_META[p.toLowerCase()]?.icon || p).join('')}
+            </span>
+          )}
           {app.forge && app.forge !== 'github' && (
             <span
               className="app-tag"
