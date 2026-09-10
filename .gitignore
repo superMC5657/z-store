@@ -40,3 +40,9 @@ src-tauri/gen/schemas
 # Standalone catalog repository scaffold
 publish/z-store-catalog
 
+# Local agent issue tracker workspace (docs/agents/issue-tracker.md)
+.scratch/
+
+# Internal design/business documents (not for the public repository)
+docs/design/
+

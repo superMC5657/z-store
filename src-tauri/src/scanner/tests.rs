@@ -196,7 +196,140 @@ fn test_match_expanded_apps_from_catalog() {
 }
 
 #[test]
-fn test_resolve_lnk_target() {
+fn test_is_installer_or_cache_path() {
+    assert!(AppScanner::is_installer_or_cache_path(std::path::Path::new(r"C:\App\unins000.exe")));
+    assert!(AppScanner::is_installer_or_cache_path(std::path::Path::new(r"C:\App\setup.exe")));
+    assert!(AppScanner::is_installer_or_cache_path(std::path::Path::new(r"C:\Package Cache\app.exe")));
+    assert!(AppScanner::is_installer_or_cache_path(std::path::Path::new(r"C:\Temp\app.exe")));
+    assert!(AppScanner::is_installer_or_cache_path(std::path::Path::new(r"C:\App\bundle\app.exe")));
+
+    assert!(!AppScanner::is_installer_or_cache_path(std::path::Path::new(r"C:\Program Files\VLC\vlc.exe")));
+    assert!(!AppScanner::is_installer_or_cache_path(std::path::Path::new(r"C:\Programs\Tool\tool.exe")));
+}
+
+#[test]
+fn test_find_exe_in_directory_deterministic() {
+    let target_parent = std::env::current_dir().unwrap();
+    let temp_dir = tempfile::Builder::new()
+        .prefix(".test_find_exe_")
+        .tempdir_in(target_parent)
+        .unwrap();
+    let root = temp_dir.path();
+    let config = ScanConfig {
+        target_executables: vec!["demo-app.exe".to_string(), "demo.exe".to_string()],
+        install_dirs: vec!["demo-app".to_string()],
+        search_subdirs: vec!["bin/x64".to_string()],
+    };
+
+    // 1. 空目录返回 None
+    assert!(AppScanner::find_exe_in_directory(root, &config).is_none());
+
+    // 2. 存在匹配可执行文件时返回完整路径
+    let target = root.join("demo-app.exe");
+    std::fs::write(&target, b"dummy").unwrap();
+    assert_eq!(
+        AppScanner::find_exe_in_directory(root, &config).map(std::path::PathBuf::from),
+        Some(target.clone())
+    );
+    std::fs::remove_file(&target).unwrap();
+
+    // 3. 存在子目录匹配 (search_subdirs)
+    let sub = root.join("bin").join("x64");
+    std::fs::create_dir_all(&sub).unwrap();
+    let sub_target = sub.join("demo.exe");
+    std::fs::write(&sub_target, b"dummy").unwrap();
+    assert_eq!(
+        AppScanner::find_exe_in_directory(root, &config).map(std::path::PathBuf::from),
+        Some(sub_target.clone())
+    );
+    std::fs::remove_file(&sub_target).unwrap();
+
+    // 4. 单 exe 浅遍历推断（排除安装包与卸载程序）
+    let single_exe = root.join("any_unique_name.exe");
+    std::fs::write(&single_exe, b"dummy").unwrap();
+    let uninstaller = root.join("unins000.exe");
+    std::fs::write(&uninstaller, b"dummy").unwrap();
+    assert_eq!(
+        AppScanner::find_exe_in_directory(root, &config).map(std::path::PathBuf::from),
+        Some(single_exe)
+    );
+}
+
+#[test]
+fn test_resolve_lnk_target_safety() {
+    // 1. 不存在的文件应安全返回 None
+    assert!(AppScanner::resolve_lnk_target(std::path::Path::new(r"C:\non_existent_file.lnk")).is_none());
+
+    // 2. 小于 76 字节或损坏的数据应安全返回 None 而不 Panic
+    let temp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(temp.path(), b"invalid header data").unwrap();
+    assert!(AppScanner::resolve_lnk_target(temp.path()).is_none());
+}
+
+#[test]
+fn test_resolve_lnk_target_fixture() {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let fixture_path = std::path::Path::new(manifest_dir)
+        .join("tests")
+        .join("fixtures")
+        .join("sample_cmd.lnk");
+
+    if fixture_path.exists() {
+        let resolved = AppScanner::resolve_lnk_target(&fixture_path);
+        assert!(resolved.is_some(), "should resolve sample_cmd.lnk target");
+        let target = resolved.unwrap();
+        assert!(
+            target.to_string_lossy().to_lowercase().ends_with("cmd.exe"),
+            "target should end with cmd.exe, got: {:?}",
+            target
+        );
+    }
+}
+
+#[test]
+fn test_resolve_installed_app_path_non_existent() {
+    // 测试不存在的应用返回 None，绝不产生假路径或 Panic（在任何纯净环境/CI 均稳定）
+    let non_existent =
+        AppScanner::resolve_installed_app_path("NonExistentApp999", "non-existent-app-999", None);
+    println!("NonExistent resolved path: {:?}", non_existent);
+    assert!(non_existent.is_none());
+}
+
+#[test]
+fn test_resolve_installed_app_path_deterministic() {
+    let test_app_id = "deterministic-test-app";
+    let portable_dir = crate::installer::dirs_or_fallback_with_base(test_app_id, None);
+    std::fs::create_dir_all(&portable_dir).expect("failed to create portable test dir");
+    let fake_exe = portable_dir.join("deterministic-test-app.exe");
+    std::fs::write(&fake_exe, b"MZ fake executable").expect("failed to write fake exe");
+
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let _guard = Cleanup(portable_dir.clone());
+
+    let resolved = AppScanner::resolve_installed_app_path(
+        "Deterministic Test App",
+        test_app_id,
+        None,
+    );
+    assert!(resolved.is_some(), "should resolve deterministic test app");
+    assert_eq!(
+        std::path::PathBuf::from(resolved.unwrap()),
+        fake_exe
+    );
+}
+
+// ============================================================================
+// 本地开发环境专用测试（依赖本机存量软件与全盘扫描，仅按需执行: cargo test -- --ignored）
+// ============================================================================
+
+#[ignore = "requires Clash Verge shortcut installed at C:\\ProgramData\\..."]
+#[test]
+fn test_resolve_lnk_target_local() {
     let lnk = std::path::Path::new(
         r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Clash Verge.lnk",
     );
@@ -207,6 +340,7 @@ fn test_resolve_lnk_target() {
     }
 }
 
+#[ignore = "requires real local installed apps (e.g. Clash Verge, WezTerm, qBittorrent, Oh My Posh)"]
 #[test]
 fn test_resolve_installed_app_path_real() {
     // 测试真实系统环境中存量软件的多源嗅探能力（注册表/多磁盘/快捷方式解构）
@@ -229,14 +363,9 @@ fn test_resolve_installed_app_path_real() {
     println!("Oh My Posh resolved path: {:?}", path4);
 
     assert!(path1.is_some() || path2.is_some() || path3.is_some());
-
-    // 测试不存在的应用返回 None，绝不产生假路径或 Panic
-    let non_existent =
-        AppScanner::resolve_installed_app_path("NonExistentApp999", "non-existent-app-999", None);
-    println!("NonExistent resolved path: {:?}", non_existent);
-    assert!(non_existent.is_none());
 }
 
+#[ignore = "benchmark/exploratory scan on local host, runs across all catalog items"]
 #[test]
 fn test_batch_detect_catalog_apps() {
     let cfg = crate::config::get_project_config();

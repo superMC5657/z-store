@@ -146,10 +146,6 @@ pnpm tauri build
 - [ADR-0007: 开源清单仓库动态同步与客户端按需 API 详情拉取（含可配置 TTL 缓存）](docs/adr/0007-open-manifest-catalog-and-configurable-ttl-cache.md)
 - [ADR-0008: 出站代理与 OAuth 加固及设置中心重构](docs/adr/0008-outbound-proxy-oauth-hardening-and-settings-restructure.md)
 - [全局决策与执行边界规范 (Decision Protocol)](.agents/rules/decision-protocol.md)
-- [商业化战略、生态变现与低频破局白皮书](docs/商业化战略与低频破局思考.md)
-- [竞品功能深度剖析与下一代演进 Roadmap](docs/竞品分析与下一代Roadmap.md)
-- [跨平台多模式图标规范与开发指引](docs/跨平台图标规范与开发指南.md)
-- [Android 端 Shizuku 免 Root 静默安装预研](docs/android-shizuku-research.md)
 
 ---
 
