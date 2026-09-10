@@ -13,7 +13,7 @@ import { InstalledView } from './views/InstalledView';
 import { UpdatesView } from './views/UpdatesView';
 import { SettingsView } from './views/SettingsView';
 import { FavoritesView } from './views/FavoritesView';
-import { AppDetail, AppSettings, AppSummary, InstalledApp, MirrorNodeStatus, OAuthUser, ToastMessage, UpdateItem, UpdateRule, ViewType, WatchUpdatedPayload } from './types';
+import { AppDetail, AppSettings, AppSummary, InstalledApp, MirrorNodeStatus, OAuthUser, ToastMessage, UpdateItem, UpdateCheckProgressPayload, UpdateRule, ViewType, WatchUpdatedPayload } from './types';
 import { api, DEFAULT_SETTINGS } from './services/api';
 import { preloadIcons } from './components/AppIcon';
 
@@ -27,6 +27,8 @@ export const App: React.FC = () => {
   const [uninstallingAppIds, setUninstallingAppIds] = useState<Set<string>>(new Set());
   const [isRefreshingInstalled, setIsRefreshingInstalled] = useState(false);
   const [updates, setUpdates] = useState<UpdateItem[]>([]);
+  const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
+  const [updateCheckProgress, setUpdateCheckProgress] = useState<UpdateCheckProgressPayload | null>(null);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [mirrors, setMirrors] = useState<MirrorNodeStatus[]>([]);
   const [selectedApp, setSelectedApp] = useState<AppDetail | null>(null);
@@ -221,6 +223,54 @@ export const App: React.FC = () => {
     return () => {
       isMounted = false;
       if (unlistenFn) unlistenFn();
+    };
+  }, []);
+
+  // 订阅更新项逐条跳出事件与流式进度通知（检测出一项立即跳出一项）
+  useEffect(() => {
+    let isMounted = true;
+    let unlistenItem: (() => void) | null = null;
+    let unlistenProgress: (() => void) | null = null;
+    let unlistenFinished: (() => void) | null = null;
+
+    api.onUpdateItemFound((item) => {
+      if (!isMounted) return;
+      setUpdates((prev) => {
+        const idx = prev.findIndex((u) => u.app_id.toLowerCase() === item.app_id.toLowerCase());
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = item;
+          return next;
+        }
+        return [...prev, item];
+      });
+    }).then((unlisten) => {
+      if (isMounted) unlistenItem = unlisten;
+      else unlisten();
+    }).catch(() => {});
+
+    api.onUpdateCheckProgress((payload) => {
+      if (!isMounted) return;
+      setUpdateCheckProgress(payload);
+    }).then((unlisten) => {
+      if (isMounted) unlistenProgress = unlisten;
+      else unlisten();
+    }).catch(() => {});
+
+    api.onUpdateCheckFinished(() => {
+      if (!isMounted) return;
+      setIsCheckingUpdates(false);
+      setUpdateCheckProgress(null);
+    }).then((unlisten) => {
+      if (isMounted) unlistenFinished = unlisten;
+      else unlisten();
+    }).catch(() => {});
+
+    return () => {
+      isMounted = false;
+      if (unlistenItem) unlistenItem();
+      if (unlistenProgress) unlistenProgress();
+      if (unlistenFinished) unlistenFinished();
     };
   }, []);
 
@@ -871,16 +921,22 @@ export const App: React.FC = () => {
   // Trigger Manual Update Check
   const handleCheckUpdates = async () => {
     showToast('正在向各开源托管仓库检查最新发布...', 'info');
+    setIsCheckingUpdates(true);
+    setUpdates([]); // 清空旧列表，使最新检测出来的项目逐个跳出
+    setUpdateCheckProgress({ checked: 0, total: 0, app_id: '', app_name: '' });
     try {
       const freshUpdates = await api.checkForUpdates(true);
       setUpdates(freshUpdates);
       if (freshUpdates.length === 0) {
         showToast('太棒了！所有应用均已是最新版本', 'success');
       } else {
-        showToast(`发现 ${freshUpdates.length} 个应用有新版本可用！`, 'info');
+        showToast(`检查完成，共发现 ${freshUpdates.length} 个应用有新版本可用！`, 'info');
       }
     } catch (e) {
       showToast(`检查更新失败: ${String(e)}`, 'error');
+    } finally {
+      setIsCheckingUpdates(false);
+      setUpdateCheckProgress(null);
     }
   };
 
@@ -1080,6 +1136,8 @@ export const App: React.FC = () => {
             <UpdatesView
               updates={updates}
               apps={apps}
+              isChecking={isCheckingUpdates}
+              checkProgress={updateCheckProgress}
               onApplyUpdate={handleApplyUpdate}
               onBatchUpdateAll={handleBatchUpdateAll}
               onCheckUpdates={handleCheckUpdates}

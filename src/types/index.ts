@@ -112,6 +112,13 @@ export interface UpdateItem {
   icon_bg?: string;
 }
 
+export interface UpdateCheckProgressPayload {
+  checked: number;
+  total: number;
+  app_id: string;
+  app_name: string;
+}
+
 export interface DownloadProgressPayload {
   task_id: string;
   downloaded_bytes: number;

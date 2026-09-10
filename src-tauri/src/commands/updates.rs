@@ -1,8 +1,11 @@
 use crate::models::{UpdateItem, UpdateRule, WatchUpdatedPayload, WatchedApp};
 use crate::AppState;
 use super::installer::get_installed_apps;
+use futures_util::stream::{self, StreamExt};
 use std::collections::HashMap;
-use tauri::State;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use tauri::{AppHandle, Emitter, State};
 
 /// 轻量级获取应用最新版本号与更新说明（专为更新检查与关注动态设计）
 /// 坚决不拉取 README.md、不拉取仓库详情与 Stars、不拉取 z-store.toml、不拉取校验和文件
@@ -247,6 +250,7 @@ pub fn should_include_update(
 
 #[tauri::command]
 pub async fn check_for_updates(
+    app_handle: AppHandle,
     state: State<'_, AppState>,
     force_refresh: Option<bool>,
 ) -> Result<Vec<UpdateItem>, String> {
@@ -259,37 +263,96 @@ pub async fn check_for_updates(
             .map(|r| (r.app_id.to_lowercase(), r))
             .collect()
     };
-    let mut updates = Vec::new();
 
-    for app in installed {
-        let rule_opt = rules_map.get(&app.app_id.to_lowercase());
-        if let Some(rule) = rule_opt {
-            if rule.is_frozen || rule.is_hidden {
-                continue;
+    // 过滤掉已被规则明确锁定（frozen）或隐藏（hidden）的应用
+    let eligible_apps: Vec<_> = installed
+        .into_iter()
+        .filter(|app| {
+            if let Some(rule) = rules_map.get(&app.app_id.to_lowercase()) {
+                if rule.is_frozen || rule.is_hidden {
+                    return false;
+                }
             }
-        }
+            true
+        })
+        .collect();
 
-        if let Ok((latest_version, changelog)) =
-            fetch_app_latest_version_lightweight(&state, &app.app_id, force_refresh).await
-        {
-            if should_include_update(&app.version, &latest_version, rule_opt) {
-                let (icon, icon_bg) = if let Some(item) = state.catalog.get_catalog_item(&app.app_id) {
-                    (Some(item.icon), Some(item.icon_bg))
-                } else {
-                    (app.icon.clone(), app.icon_bg.clone())
-                };
-                updates.push(UpdateItem {
-                    app_id: app.app_id,
-                    app_name: app.app_name,
-                    current_version: app.version,
-                    latest_version,
-                    changelog,
-                    icon,
-                    icon_bg,
-                });
+    let total = eligible_apps.len();
+    let checked_count = Arc::new(AtomicUsize::new(0));
+
+    // 发送初始进度通知
+    let _ = app_handle.emit(
+        "zstore://update-check-progress",
+        serde_json::json!({
+            "checked": 0,
+            "total": total,
+            "app_id": "",
+            "app_name": "",
+        }),
+    );
+
+    // 限制并发度为 3，兼顾并发检查速度与 GitHub API 稳定性
+    // 关键体验优化：只要某款应用检测出有新版本，立即通过事件单项推流，实现“检测出一项跳出一项”的流畅反馈
+    let check_stream = stream::iter(eligible_apps)
+        .map(|app| {
+            let app_handle = app_handle.clone();
+            let state_ref = &state;
+            let checked_count = Arc::clone(&checked_count);
+            let rule_opt = rules_map.get(&app.app_id.to_lowercase()).cloned();
+            async move {
+                let mut found_item = None;
+
+                if let Ok((latest_version, changelog)) =
+                    fetch_app_latest_version_lightweight(state_ref, &app.app_id, force_refresh).await
+                {
+                    if should_include_update(&app.version, &latest_version, rule_opt.as_ref()) {
+                        let (icon, icon_bg) = if let Some(item) = state_ref.catalog.get_catalog_item(&app.app_id) {
+                            (Some(item.icon), Some(item.icon_bg))
+                        } else {
+                            (app.icon.clone(), app.icon_bg.clone())
+                        };
+                        let update_item = UpdateItem {
+                            app_id: app.app_id.clone(),
+                            app_name: app.app_name.clone(),
+                            current_version: app.version.clone(),
+                            latest_version,
+                            changelog,
+                            icon,
+                            icon_bg,
+                        };
+                        // 🚀 核心：发现更新立即触发单项流式推送，前端实现逐项弹入跳出动效
+                        let _ = app_handle.emit("zstore://update-item-found", &update_item);
+                        found_item = Some(update_item);
+                    }
+                }
+
+                let curr_checked = checked_count.fetch_add(1, Ordering::SeqCst) + 1;
+                let _ = app_handle.emit(
+                    "zstore://update-check-progress",
+                    serde_json::json!({
+                        "checked": curr_checked,
+                        "total": total,
+                        "app_id": app.app_id,
+                        "app_name": app.app_name,
+                    }),
+                );
+
+                found_item
             }
-        }
-    }
+        })
+        .buffer_unordered(3);
+
+    let results: Vec<Option<UpdateItem>> = check_stream.collect().await;
+    let updates: Vec<UpdateItem> = results.into_iter().flatten().collect();
+
+    // 发送检查完成事件
+    let _ = app_handle.emit(
+        "zstore://update-check-finished",
+        serde_json::json!({
+            "total_checked": total,
+            "total_found": updates.len(),
+        }),
+    );
 
     // FR-6.2：关注订阅检查（最佳努力，失败不影响更新列表返回）
     notify_watched_updates(&state, &rules_map, force_refresh).await;

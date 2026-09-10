@@ -2276,6 +2276,28 @@ body {
   }
 }
 
+/* Update Item Pop-in Animation (流式逐项跳出) */
+@keyframes updateItemPopIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-16px) scale(0.96);
+    filter: blur(2px);
+  }
+  60% {
+    transform: translateY(2px) scale(1.008);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+.update-item-entrance {
+  animation: updateItemPopIn 0.38s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity, filter;
+}
+
 /* Settings Group - Glass Panels */
 .settings-group {
   background: var(--bg-acrylic);

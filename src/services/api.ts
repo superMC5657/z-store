@@ -16,6 +16,7 @@ import {
   SignatureInfo,
   StarredSyncResult,
   UpdateItem,
+  UpdateCheckProgressPayload,
   UpdateRule,
   DeveloperProfile,
   HostTokenEntry,
@@ -114,6 +115,30 @@ const tauriApi = {
 
   async checkForUpdates(forceRefresh = false): Promise<UpdateItem[]> {
     return tauriInvoke<UpdateItem[]>('check_for_updates', { forceRefresh });
+  },
+
+  async onUpdateItemFound(callback: (item: UpdateItem) => void): Promise<() => void> {
+    if (!isTauri) return () => {};
+    const { listen } = await import('@tauri-apps/api/event');
+    return listen<UpdateItem>('zstore://update-item-found', (e) => {
+      callback(e.payload);
+    });
+  },
+
+  async onUpdateCheckProgress(callback: (payload: UpdateCheckProgressPayload) => void): Promise<() => void> {
+    if (!isTauri) return () => {};
+    const { listen } = await import('@tauri-apps/api/event');
+    return listen<UpdateCheckProgressPayload>('zstore://update-check-progress', (e) => {
+      callback(e.payload);
+    });
+  },
+
+  async onUpdateCheckFinished(callback: (payload: { total_checked: number; total_found: number }) => void): Promise<() => void> {
+    if (!isTauri) return () => {};
+    const { listen } = await import('@tauri-apps/api/event');
+    return listen<{ total_checked: number; total_found: number }>('zstore://update-check-finished', (e) => {
+      callback(e.payload);
+    });
   },
 
   async getMirrorStatus(): Promise<MirrorNodeStatus[]> {

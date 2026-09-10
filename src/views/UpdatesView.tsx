@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { marked } from 'marked';
-import { AppSummary, UpdateItem, WatchUpdatedPayload } from '../types';
+import { AppSummary, UpdateItem, UpdateCheckProgressPayload, WatchUpdatedPayload } from '../types';
 import { sanitizeHtml } from '../utils/sanitize';
 import { FlyoutMenu } from '../components/FlyoutMenu';
 import { AppIcon } from '../components/AppIcon';
@@ -9,6 +9,8 @@ import { resolveAppIconInfo } from '../utils/appHelper';
 interface UpdatesViewProps {
   updates: UpdateItem[];
   apps?: AppSummary[];
+  isChecking?: boolean;
+  checkProgress?: UpdateCheckProgressPayload | null;
   onApplyUpdate: (id: string) => Promise<void>;
   onBatchUpdateAll: () => Promise<void>;
   onCheckUpdates?: () => Promise<void>;
@@ -27,6 +29,8 @@ interface UpdatesViewProps {
 export const UpdatesView: React.FC<UpdatesViewProps> = ({
   updates,
   apps = [],
+  isChecking: propIsChecking,
+  checkProgress,
   onApplyUpdate,
   onBatchUpdateAll,
   onCheckUpdates,
@@ -42,7 +46,8 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
 }) => {
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [isUpdatingAll, setIsUpdatingAll] = useState(false);
-  const [isChecking, setIsChecking] = useState(false);
+  const [localChecking, setLocalChecking] = useState(false);
+  const isChecking = propIsChecking !== undefined ? propIsChecking : localChecking;
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [fadingIds, setFadingIds] = useState<Set<string>>(new Set());
@@ -105,18 +110,28 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
             <button
               className="btn-fluent btn-secondary"
               onClick={async () => {
-                setIsChecking(true);
+                setLocalChecking(true);
                 try {
                   await onCheckUpdates();
                 } finally {
-                  setIsChecking(false);
+                  setLocalChecking(false);
                 }
               }}
               disabled={isChecking || isUpdatingAll}
-              style={{ fontSize: '13px', padding: '6px 14px' }}
+              style={{ fontSize: '13px', padding: '6px 14px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               title="向各开源托管仓库实时检查最新版本"
             >
-              {isChecking ? '正在检查...' : '🔍 检查更新'}
+              {isChecking ? (
+                <>
+                  <span className="spinner-icon" style={{ width: '12px', height: '12px', borderWidth: '1.5px' }} />
+                  <span>正在逐项检测...</span>
+                </>
+              ) : (
+                <>
+                  <span>🔍</span>
+                  <span>检查更新</span>
+                </>
+              )}
             </button>
           )}
           {updates.length > 0 && (
@@ -131,6 +146,43 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
           )}
         </div>
       </div>
+
+      {/* 实时检查更新流式进度条 */}
+      {isChecking && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '12px 18px',
+            marginBottom: '16px',
+            borderRadius: 'var(--radius-md)',
+            background: 'var(--brand-subtle)',
+            border: '1px solid var(--border-nav-active)',
+            fontSize: '13px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div className="spinner-icon" style={{ width: '14px', height: '14px', borderWidth: '2px', flexShrink: 0 }} />
+            <span>
+              <strong>正在流式比对开源应用最新发布</strong>
+              {checkProgress && checkProgress.total > 0 ? (
+                <span style={{ color: 'var(--text-secondary)' }}>
+                  {' '}（已检查 {checkProgress.checked} / {checkProgress.total} 款
+                  {checkProgress.app_name ? ` · 正在比对 ${checkProgress.app_name}` : ''}）
+                </span>
+              ) : (
+                <span style={{ color: 'var(--text-secondary)' }}>，发现可用更新将立即在此跳出...</span>
+              )}
+            </span>
+          </div>
+          {checkProgress && checkProgress.total > 0 && (
+            <div style={{ fontSize: '12px', color: 'var(--brand-primary)', fontWeight: 600, flexShrink: 0 }}>
+              {Math.round((checkProgress.checked / checkProgress.total) * 100)}%
+            </div>
+          )}
+        </div>
+      )}
 
       {/* FR-6.2: 我关注的应用动态（与已安装更新相互独立，仅作提醒） */}
       {watchNotifications && watchNotifications.length > 0 && (
@@ -204,13 +256,23 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
       )}
 
       {updates.length === 0 ? (
-        <div className="empty-state-card">
-          <div style={{ fontSize: '48px', marginBottom: '12px' }}>✨</div>
-          <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>太棒了！所有应用均已是最新版本</h4>
-          <p style={{ color: 'var(--text-tertiary)', fontSize: '13px', margin: 0 }}>
-            Z-Store 基于 ETag 304 条件缓存静默轮询 GitHub Releases，在有新发布时将第一时间在此通知您。
-          </p>
-        </div>
+        isChecking ? (
+          <div className="empty-state-card" style={{ padding: '48px 24px' }}>
+            <div className="spinner-icon" style={{ width: '36px', height: '36px', borderWidth: '3px', margin: '0 auto 16px auto' }} />
+            <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>正在逐项比对已安装开源应用的最新版本...</h4>
+            <p style={{ color: 'var(--text-tertiary)', fontSize: '13px', margin: 0 }}>
+              只要检测出新版本就会立即跳出一项，请稍候
+            </p>
+          </div>
+        ) : (
+          <div className="empty-state-card">
+            <div style={{ fontSize: '48px', marginBottom: '12px' }}>✨</div>
+            <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>太棒了！所有应用均已是最新版本</h4>
+            <p style={{ color: 'var(--text-tertiary)', fontSize: '13px', margin: 0 }}>
+              Z-Store 基于 ETag 304 条件缓存静默轮询 GitHub Releases，在有新发布时将第一时间在此通知您。
+            </p>
+          </div>
+        )
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {updates.map((item) => {
@@ -223,13 +285,13 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
             return (
               <div
                 key={item.app_id}
-                className="app-card"
+                className="app-card update-item-entrance"
                 style={{
                   padding: '20px',
                   position: 'relative',
                   zIndex: isMenuOpen ? 50 : 1,
                   opacity: isFading ? 0 : 1,
-                  transform: isFading ? 'scale(0.96) translateY(-8px)' : 'scale(1) translateY(0)',
+                  transform: isFading ? 'scale(0.96) translateY(-8px)' : undefined,
                   transition: 'opacity 0.28s cubic-bezier(0.1, 0.9, 0.2, 1), transform 0.28s cubic-bezier(0.1, 0.9, 0.2, 1)',
                 }}
               >
