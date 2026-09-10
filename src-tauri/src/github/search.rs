@@ -32,8 +32,11 @@ impl CatalogService {
         }
 
         // 在线 GitHub Search API 回退
+        let api_timeout = std::time::Duration::from_secs(
+            crate::config::get_project_config().network.api_timeout_seconds,
+        );
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(8))
+            .timeout(api_timeout)
             .build()
             .map_err(|e| e.to_string())?;
 
@@ -112,8 +115,11 @@ impl CatalogService {
         repo: &str,
         token: Option<&str>,
     ) -> Result<AppSummary, String> {
+        let api_timeout = std::time::Duration::from_secs(
+            crate::config::get_project_config().network.api_timeout_seconds,
+        );
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(8))
+            .timeout(api_timeout)
             .build()
             .map_err(|e| e.to_string())?;
 

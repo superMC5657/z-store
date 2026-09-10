@@ -7,6 +7,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 
+/// FR-6.2：按天限频关注通知的最小间隔时间（秒，24 小时）
+pub const DAILY_NOTIFY_INTERVAL_SECONDS: i64 = 24 * 60 * 60;
+
 /// 轻量级获取应用最新版本号与更新说明（专为更新检查与关注动态设计）
 /// 坚决不拉取 README.md、不拉取仓库详情与 Stars、不拉取 z-store.toml、不拉取校验和文件
 /// 优先利用本地 ETag 缓存返回 304 Not Modified，将请求量与延迟降到最低
@@ -18,13 +21,11 @@ pub async fn fetch_app_latest_version_lightweight(
     let is_force = force_refresh.unwrap_or(false);
     let clean_id = app_id.trim().to_lowercase();
 
-    let ttl_seconds = {
-        if let Ok(db) = state.db.lock() {
-            (db.get_detail_cache_ttl_minutes() as i64) * 60
-        } else {
-            crate::db::DETAIL_CACHE_TTL_DEFAULT_MINUTES * 60
-        }
-    };
+    let ttl_seconds = state
+        .db
+        .lock()
+        .map(|db| db.get_detail_cache_ttl_minutes() * 60)
+        .unwrap_or_else(|_| crate::config::get_project_config().cache.detail_ttl_minutes * 60);
 
     // 1. 若非强制刷新，优先从 SQLite 本地缓存读取
     if !is_force {
@@ -108,13 +109,16 @@ pub async fn fetch_app_latest_version_lightweight(
         }
     }
 
+    let api_timeout = std::time::Duration::from_secs(
+        crate::config::get_project_config().network.api_timeout_seconds,
+    );
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(6))
+        .timeout(api_timeout)
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
 
     let req = client.get(&ep).headers(headers).send();
-    let resp = match tokio::time::timeout(std::time::Duration::from_secs(6), req).await {
+    let resp = match tokio::time::timeout(api_timeout, req).await {
         Ok(r) => r.ok(),
         Err(_) => None,
     };
@@ -417,7 +421,7 @@ async fn notify_watched_updates(
                 .ok()
                 .and_then(|db| db.get_watch_last_notified_at(&w.app_id).ok().flatten());
             if let Some(t) = last_at {
-                if now.saturating_sub(t) < 86400 {
+                if now.saturating_sub(t) < DAILY_NOTIFY_INTERVAL_SECONDS {
                     continue;
                 }
             }

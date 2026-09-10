@@ -123,8 +123,9 @@ pub async fn test_host_connection(
     token: Option<String>,
 ) -> Result<HostRateLimitStatus, String> {
     let clean_host = host.trim().to_lowercase();
+    let timeout_sec = crate::config::get_project_config().network.api_timeout_seconds;
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(6))
+        .timeout(std::time::Duration::from_secs(timeout_sec))
         .build()
         .map_err(|e| e.to_string())?;
 

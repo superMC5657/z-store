@@ -136,7 +136,7 @@ pub fn import_user_data(
             let parsed = value
                 .trim()
                 .parse::<i64>()
-                .unwrap_or(crate::db::DETAIL_CACHE_TTL_DEFAULT_MINUTES);
+                .unwrap_or_else(|_| crate::db::default_detail_cache_ttl_minutes());
             crate::db::normalize_detail_cache_ttl(parsed).to_string()
         } else if key == "watch_notify_frequency" {
             crate::db::normalize_watch_notify_frequency(value)

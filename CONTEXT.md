@@ -31,7 +31,7 @@
 | **下载加速代理** | `Mirror Download Proxy` | 仅用于大文件下载提速的加速镜像节点重写（如 `gh-proxy.com`）；仅改变下载 URL 前缀，API 与登录直接走系统网络通道。 | 出站代理、镜像节点 |
 | **GitHub登录胶囊** | `Account Capsule` | 侧栏 `network-pill` 常驻账号入口：未登录显示 🐙，已登录显示 avatar + 截断用户名；点击经 `handleOpenAccountSettings` 跳转 `#settings-account`。 | 配额胶囊、镜像胶囊 |
 | **设置中心分组** | `Settings Groups` | `SettingsView` 固定 5 组标题：外观与显示/更新与提醒/GitHub账号与配额/网络与清单数据/数据备份与恢复。 | 设置页、选项卡 |
-| **OAuth Device Flow** | `OAuth Device Flow` | GitHub 登录设备码流程，Client ID 取环境变量 `ZSTORE_GITHUB_OAUTH_CLIENT_ID`，缺省占位 `YOUR_CLIENT_ID_HERE`；轮询容错 10 次、单次 10s 超时；`Expired` / `Denied` 独立于 `Error` 展示。 | 网页登录、PAT 登录 |
+| **OAuth Device Flow** | `OAuth Device Flow` | GitHub 登录设备码流程，Client ID 取全局配置 `config.toml`（支持设置项覆盖），缺省占位 `YOUR_CLIENT_ID_HERE`；轮询容错 10 次、单次 10s 超时；`Expired` / `Denied` 独立于 `Error` 展示。 | 网页登录、PAT 登录 |
 
 ---
 

@@ -17,8 +17,10 @@ pub struct Database {
     pub(crate) conn: Connection,
 }
 
-/// ADR-0007：应用详情缓存保鲜期（TTL）默认推荐值（分钟）。
-pub const DETAIL_CACHE_TTL_DEFAULT_MINUTES: i64 = 30;
+/// ADR-0007：应用详情缓存保鲜期（TTL）默认推荐值（分钟，优先读取 config.toml）。
+pub fn default_detail_cache_ttl_minutes() -> i64 {
+    crate::config::get_project_config().cache.detail_ttl_minutes
+}
 /// ADR-0007：TTL 有效挡位（分钟）：0=每次实时校验，10/30/60/360/1440。
 pub const DETAIL_CACHE_TTL_VALID_MINUTES: [i64; 6] = [0, 10, 30, 60, 360, 1440];
 
@@ -37,13 +39,13 @@ pub fn normalize_watch_notify_frequency(value: &str) -> String {
     }
 }
 
-/// 将任意输入归一化到 TTL 有效挡位；非法值回退默认 30。
+/// 将任意输入归一化到 TTL 有效挡位；非法值回退 config.toml 默认值。
 /// 调用方应在持久化前用此函数清洗，保证库中只存有效挡位。
 pub fn normalize_detail_cache_ttl(minutes: i64) -> i64 {
     if DETAIL_CACHE_TTL_VALID_MINUTES.contains(&minutes) {
         minutes
     } else {
-        DETAIL_CACHE_TTL_DEFAULT_MINUTES
+        default_detail_cache_ttl_minutes()
     }
 }
 

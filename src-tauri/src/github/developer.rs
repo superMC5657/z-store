@@ -3,6 +3,11 @@ use super::CatalogService;
 use crate::models::{DeveloperProfile, DeveloperRepoItem, StarredSyncResult};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, USER_AGENT};
 
+/// 开发者画像仓库列表单次拉取数量
+pub const DEVELOPER_REPOS_PAGE_SIZE: usize = 30;
+/// GitHub Starred 列表单页最大数量（GitHub 允许的最大上限，单次拉取最大化配额效益）
+pub const GITHUB_STARRED_MAX_PAGE_SIZE: usize = 100;
+
 impl CatalogService {
     pub async fn fetch_developer_profile(
         &self,
@@ -14,8 +19,11 @@ impl CatalogService {
             return Err("开发者账号不能为空".to_string());
         }
 
+        let api_timeout = std::time::Duration::from_secs(
+            crate::config::get_project_config().network.api_timeout_seconds,
+        );
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(8))
+            .timeout(api_timeout)
             .build()
             .map_err(|e| e.to_string())?;
 
@@ -109,8 +117,8 @@ impl CatalogService {
 
         // 获取仓库列表
         let repos_url = format!(
-            "https://api.github.com/users/{}/repos?sort=updated&per_page=30",
-            dev
+            "https://api.github.com/users/{}/repos?sort=updated&per_page={}",
+            dev, DEVELOPER_REPOS_PAGE_SIZE
         );
         let repos_res = client.get(&repos_url).headers(headers).send().await;
         if let Ok(ref res) = repos_res {
@@ -204,8 +212,11 @@ impl CatalogService {
         username: Option<&str>,
         token: Option<&str>,
     ) -> Result<StarredSyncResult, String> {
+        let api_timeout = std::time::Duration::from_secs(
+            crate::config::get_project_config().network.api_timeout_seconds,
+        );
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(10))
+            .timeout(api_timeout)
             .build()
             .map_err(|e| e.to_string())?;
 
@@ -233,7 +244,10 @@ impl CatalogService {
         };
 
         let target_url = if has_token && username.map(|u| u.trim().is_empty()).unwrap_or(true) {
-            "https://api.github.com/user/starred?per_page=100".to_string()
+            format!(
+                "https://api.github.com/user/starred?per_page={}",
+                GITHUB_STARRED_MAX_PAGE_SIZE
+            )
         } else if let Some(u) = username {
             let clean_u = u.trim();
             if clean_u.is_empty() {
@@ -242,8 +256,8 @@ impl CatalogService {
                 );
             }
             format!(
-                "https://api.github.com/users/{}/starred?per_page=100",
-                clean_u
+                "https://api.github.com/users/{}/starred?per_page={}",
+                clean_u, GITHUB_STARRED_MAX_PAGE_SIZE
             )
         } else {
             return Err(

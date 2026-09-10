@@ -117,13 +117,11 @@ pub async fn get_store_toml_raw_cached(
     owner: &str,
     repo: &str,
 ) -> Option<String> {
-    let ttl_seconds = {
-        if let Ok(db) = state.db.lock() {
-            db.get_detail_cache_ttl_minutes() * 60
-        } else {
-            crate::db::DETAIL_CACHE_TTL_DEFAULT_MINUTES * 60
-        }
-    };
+    let ttl_seconds = state
+        .db
+        .lock()
+        .map(|db| db.get_detail_cache_ttl_minutes() * 60)
+        .unwrap_or_else(|_| crate::config::get_project_config().cache.detail_ttl_minutes * 60);
     if let Ok(db) = state.db.lock() {
         if let Ok(Some(raw)) = db.get_cached_store_meta_raw(app_id, Some(ttl_seconds)) {
             return Some(raw);
@@ -255,13 +253,11 @@ pub async fn get_app_details_impl(
 
     // 获取客户端设置的应用详情缓存保鲜期 (TTL，单位秒；0 表示每次实时校验)。
     // 非法/缺失挡位由 db 层回退默认 30 分钟（ADR-0007 有效集 {0,10,30,60,360,1440}）。
-    let ttl_seconds = {
-        if let Ok(db) = state.db.lock() {
-            db.get_detail_cache_ttl_minutes() * 60
-        } else {
-            crate::db::DETAIL_CACHE_TTL_DEFAULT_MINUTES * 60
-        }
-    };
+    let ttl_seconds = state
+        .db
+        .lock()
+        .map(|db| db.get_detail_cache_ttl_minutes() * 60)
+        .unwrap_or_else(|_| crate::config::get_project_config().cache.detail_ttl_minutes * 60);
 
     // 1. 若非主动强制刷新，优先从 SQLite 本地持久化缓存中读取，实现 0ms 瞬间秒开
     // 注意：锁守卫不得跨越 await（Tauri 命令 Future 需 Send），故查询收拢于闭包内

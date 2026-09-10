@@ -53,7 +53,7 @@
 
 ### 5. 🌟 开发者全景生态与 GitHub Star 同步
 - **开发者主页**：点击作者一键查看其名下所有的开源项目、开源许可协议与最新发布历史。
-- **GitHub OAuth 登录**：Device Flow 免应用密钥登录，Client ID 三级优先级为设置项 `github_oauth_client_id` ＞ 编译期环境变量 `ZSTORE_GITHUB_OAUTH_CLIENT_ID` ＞ 内置默认 `Ov23lik0b7fDGMLTiOYH`。命中占位 `YOUR_CLIENT_ID_HERE` 视为未配置，无法发起登录。scope 仅申请 `public_repo`，令牌只存本地 SQLite（`user_settings.github_oauth_token`）。
+- **GitHub OAuth 登录**：Device Flow 免应用密钥登录，Client ID 优先级为设置项 `github_oauth_client_id` ＞ 全局配置 `config.toml`（`oauth.default_client_id`）。命中占位 `YOUR_CLIENT_ID_HERE` 视为未配置，无法发起登录。scope 仅申请 `public_repo`，令牌只存本地 SQLite（`user_settings.github_oauth_token`）。
 - **轮询状态机**：后端 `classify_device_poll` 明确区分 `Expired` 与 `Denied` 独立状态，前端分别提示。登录成功自动拉起浏览器授权页（`api.openUrl`），网络抖动不中断会话，连续 10 次失败才停止轮询并保留用户码展示。
 - **GitHub Star 导入**：登录后一键拉取个人 Star 列表中所有具备可用构建资产的开源项目。
 - **本地历史追踪**：自动记录并持久化搜索历史与最近浏览应用，支持一键快捷回访。

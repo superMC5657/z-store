@@ -271,8 +271,11 @@ fn test_app_details_cache_crud() {
 #[test]
 fn test_detail_cache_ttl_config_baseline() {
     let db = Database::open_in_memory().unwrap();
-    // 1. Without DB setting, returns config.toml baseline (30)
-    assert_eq!(db.get_detail_cache_ttl_minutes(), 30);
+    // 1. Without DB setting, returns config.toml baseline
+    assert_eq!(
+        db.get_detail_cache_ttl_minutes(),
+        crate::config::get_project_config().cache.detail_ttl_minutes
+    );
 
     // 2. With DB setting, returns normalized setting
     db.set_setting("detail_cache_ttl_minutes", "60").unwrap();

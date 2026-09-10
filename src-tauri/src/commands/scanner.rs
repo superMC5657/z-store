@@ -68,6 +68,9 @@ pub fn import_matched_apps(
     Ok(imported_count)
 }
 
+/// 本地已安装探测结果内存缓存过期时效（秒）
+pub const DETECTED_APP_IDS_CACHE_TTL_SECS: u64 = 120;
+
 static DETECTED_APP_IDS_CACHE: std::sync::RwLock<Option<(std::time::Instant, Vec<String>)>> =
     std::sync::RwLock::new(None);
 
@@ -104,7 +107,7 @@ pub async fn get_detected_installed_app_ids(
     if !force {
         if let Ok(guard) = DETECTED_APP_IDS_CACHE.read() {
             if let Some((instant, ref ids)) = *guard {
-                if instant.elapsed().as_secs() < 120 {
+                if instant.elapsed().as_secs() < DETECTED_APP_IDS_CACHE_TTL_SECS {
                     return Ok(ids.clone());
                 }
             }

@@ -2,17 +2,18 @@ use super::*;
 
 #[test]
 fn test_resolve_client_id_override() {
+    let default_id = default_oauth_client_id();
     assert_eq!(
         resolve_oauth_client_id(Some("  abc123  ")),
         "abc123".to_string()
     );
     assert_eq!(
         resolve_oauth_client_id(Some("")),
-        GITHUB_OAUTH_CLIENT_ID.to_string()
+        default_id
     );
     assert_eq!(
         resolve_oauth_client_id(None),
-        GITHUB_OAUTH_CLIENT_ID.to_string()
+        default_id
     );
 }
 

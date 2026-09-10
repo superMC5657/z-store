@@ -192,8 +192,11 @@ pub async fn get_or_fetch_icon(
     }
     candidate_urls.push(url_trimmed.to_string());
 
+    let api_timeout = std::time::Duration::from_secs(
+        crate::config::get_project_config().network.api_timeout_seconds,
+    );
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
+        .timeout(api_timeout)
         .redirect(reqwest::redirect::Policy::limited(10))
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());

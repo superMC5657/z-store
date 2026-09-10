@@ -2,8 +2,7 @@
 //!
 //! 说明：
 //! - Device Flow 无需应用密钥（secret），客户端仅需 `client_id`；
-//!   解析优先级：设置项覆盖（`github_oauth_client_id`）＞ 编译期环境变量
-//!   （`ZSTORE_GITHUB_OAUTH_CLIENT_ID`）＞ 内置默认；
+//!   解析优先级：设置项覆盖（`github_oauth_client_id`）＞ 全局配置（`config.toml` 中 `default_client_id`）；
 //! - 申请 scope 为 `public_repo`：Star 本质是对公开仓库的写操作，
 //!   `public_repo` 是仍能 Star 的最小 scope（`read:user` 等只读 scope
 //!   会返回 403/404），且不触碰任何私有仓库，符合最小权限原则。
@@ -22,8 +21,8 @@ pub use backup::{
     parse_import_payload, validate_app_id, ImportPlan, IMPORT_SETTINGS_ALLOWLIST,
 };
 pub use constants::{
-    resolve_oauth_client_id, ACCESS_TOKEN_URL, DEVICE_CODE_URL, GITHUB_API_BASE,
-    GITHUB_OAUTH_CLIENT_ID, OAUTH_CLIENT_ID_PLACEHOLDER, OAUTH_SCOPE, SETTING_OAUTH_CLIENT_ID,
+    default_oauth_client_id, resolve_oauth_client_id, ACCESS_TOKEN_URL, DEVICE_CODE_URL,
+    GITHUB_API_BASE, OAUTH_CLIENT_ID_PLACEHOLDER, OAUTH_SCOPE, SETTING_OAUTH_CLIENT_ID,
     SETTING_OAUTH_TOKEN, SETTING_OAUTH_USER,
 };
 pub use device_flow::{poll_device_once, request_device_code};

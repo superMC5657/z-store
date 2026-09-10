@@ -114,7 +114,7 @@ pub struct OauthConfig {
 }
 
 fn default_oauth_client_id() -> String {
-    "Ov23lik0b7fDGMLTiOYH".to_string()
+    String::new()
 }
 
 impl Default for OauthConfig {
@@ -252,7 +252,7 @@ mod tests {
         assert_eq!(conf.limits.search_history_limit, 20);
         assert_eq!(conf.limits.view_history_limit, 30);
         assert_eq!(conf.limits.online_search_page_size, 12);
-        assert_eq!(conf.oauth.default_client_id, "Ov23lik0b7fDGMLTiOYH");
+        assert!(!conf.oauth.default_client_id.is_empty());
         assert_eq!(conf.catalog.local_path, "../catalog.json");
         assert!(!conf.catalog.default_source_url.is_empty());
         assert!(conf.catalog.resolve_local_path().is_some());

@@ -44,12 +44,15 @@ impl CatalogService {
             }
         }
 
+        let api_timeout = std::time::Duration::from_secs(
+            crate::config::get_project_config().network.api_timeout_seconds,
+        );
         let release_url = format!(
             "https://api.github.com/repos/{}/{}/releases/latest",
             owner, repo
         );
         let req = client.get(&release_url).headers(headers.clone()).send();
-        let resp = match tokio::time::timeout(std::time::Duration::from_secs(5), req).await {
+        let resp = match tokio::time::timeout(api_timeout, req).await {
             Ok(r) => r.ok(),
             Err(_) => None,
         };
@@ -163,7 +166,7 @@ impl CatalogService {
                 }
             }
             let req = client.get(&readme_url).headers(readme_headers).send();
-            match tokio::time::timeout(std::time::Duration::from_secs(4), req).await {
+            match tokio::time::timeout(api_timeout, req).await {
                 Ok(Ok(res)) => {
                     crate::notify_rate_limit("github.com", res.headers());
                     if res.status().is_success() {
@@ -181,7 +184,7 @@ impl CatalogService {
         repo_headers.remove(IF_NONE_MATCH);
         let repo_task = async {
             let req = client.get(&repo_url).headers(repo_headers).send();
-            match tokio::time::timeout(std::time::Duration::from_secs(4), req).await {
+            match tokio::time::timeout(api_timeout, req).await {
                 Ok(Ok(res)) => {
                     crate::notify_rate_limit("github.com", res.headers());
                     if res.status().is_success() {
@@ -273,79 +276,8 @@ impl CatalogService {
             });
         }
 
-        #[cfg(target_os = "windows")]
-        let target_os = "windows";
-        #[cfg(target_os = "macos")]
-        let target_os = "macos";
-        #[cfg(target_os = "linux")]
-        let target_os = "linux";
-        #[cfg(target_os = "android")]
-        let target_os = "android";
-        #[cfg(not(any(
-            target_os = "windows",
-            target_os = "macos",
-            target_os = "linux",
-            target_os = "android"
-        )))]
-        let target_os = "all";
-
-        #[cfg(target_arch = "x86_64")]
-        let target_arch = "x86_64";
-        #[cfg(target_arch = "aarch64")]
-        let target_arch = "aarch64";
-        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-        let target_arch = "universal";
-
-        let score_asset = |a: &ReleaseAsset| -> i32 {
-            let mut score: i32 = 0;
-            if a.os == target_os {
-                score += 100;
-            } else if a.os == "all" {
-                score += 30;
-            } else {
-                score -= 100;
-            }
-
-            if a.arch == target_arch {
-                score += 50;
-            } else if a.arch == "universal" {
-                score += 25;
-            } else if target_arch == "x86_64" && a.arch == "x86" {
-                score += 10;
-            } else {
-                score -= 50;
-            }
-
-            #[cfg(target_os = "windows")]
-            match a.kind.as_str() {
-                "msi" => score += 20,
-                "setup_exe" => score += 15,
-                "portable_zip" => score += 10,
-                _ => {}
-            }
-
-            #[cfg(target_os = "macos")]
-            match a.kind.as_str() {
-                "dmg" => score += 20,
-                "pkg" => score += 15,
-                "portable_zip" => score += 10,
-                _ => {}
-            }
-
-            #[cfg(target_os = "linux")]
-            match a.kind.as_str() {
-                "appimage" => score += 20,
-                "deb" => score += 15,
-                "rpm" => score += 12,
-                "portable_zip" => score += 10,
-                _ => {}
-            }
-
-            score
-        };
-
         // 按当前宿主系统和 CPU 架构智能打分降序排列，最优资产置于 index 0
-        releases.sort_by_key(|b| std::cmp::Reverse(score_asset(b)));
+        releases.sort_by_key(|b| std::cmp::Reverse(crate::installer::score_asset(b)));
 
         // 图标层级决策：
         // 1. 若当前应用已具备已知独立官方图标（如收录库指定或 https:// 开头头像），优先保持该正方形应用图标，避免被 README 宽幅 Banner 误覆盖；
@@ -418,11 +350,14 @@ impl CatalogService {
         });
 
         if let Some(asset) = checksum_asset {
+            let api_timeout = std::time::Duration::from_secs(
+                crate::config::get_project_config().network.api_timeout_seconds,
+            );
             let req = client
                 .get(&asset.browser_download_url)
                 .headers(headers.clone())
                 .send();
-            if let Ok(Ok(res)) = tokio::time::timeout(std::time::Duration::from_secs(4), req).await
+            if let Ok(Ok(res)) = tokio::time::timeout(api_timeout, req).await
             {
                 if let Ok(text) = res.text().await {
                     for line in text.lines() {

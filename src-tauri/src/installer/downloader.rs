@@ -147,7 +147,10 @@ pub async fn download_with_progress(
             Ok(None) => None,
             Err(_) => {
                 let _ = std::fs::remove_file(&temp_path);
-                let err_msg = "下载超时：超过 30 秒未接收到数据块，已中断连接".to_string();
+                let err_msg = format!(
+                    "下载超时：超过 {} 秒未接收到数据块，已中断连接",
+                    net_conf.chunk_timeout_seconds
+                );
                 let _ = app_handle.emit(
                     "zstore://download-progress",
                     DownloadProgressPayload {

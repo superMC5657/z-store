@@ -1,15 +1,6 @@
 /// 未配置 Client ID 时的占位；命中它意味着 Device Flow 无法发起。
 pub const OAUTH_CLIENT_ID_PLACEHOLDER: &str = "YOUR_CLIENT_ID_HERE";
 
-/// 内置 OAuth App Client ID：编译期环境变量 `ZSTORE_GITHUB_OAUTH_CLIENT_ID`
-/// 优先（CI 打包机注入；空字符串视为未设置，回退内置默认），未设置时回退内置默认；
-/// 仍为占位则视为未配置，调用方可对比 `OAUTH_CLIENT_ID_PLACEHOLDER` 判定。
-/// 用户亦可在设置中填写 `github_oauth_client_id` 覆盖（设置值优先，见 commands）。
-pub const GITHUB_OAUTH_CLIENT_ID: &str = match option_env!("ZSTORE_GITHUB_OAUTH_CLIENT_ID") {
-    Some(id) if !id.is_empty() => id,
-    _ => "Ov23lik0b7fDGMLTiOYH",
-};
-
 /// 设置项键：覆盖内置 Client ID。
 pub const SETTING_OAUTH_CLIENT_ID: &str = "github_oauth_client_id";
 /// 设置项键：持久化 OAuth 访问令牌。
@@ -23,13 +14,15 @@ pub const DEVICE_CODE_URL: &str = "https://github.com/login/device/code";
 pub const ACCESS_TOKEN_URL: &str = "https://github.com/login/oauth/access_token";
 pub const GITHUB_API_BASE: &str = "https://api.github.com";
 
-/// 设置覆盖值优先；空值回退内置常量。
+/// 获取默认配置的 Client ID（统一读取自 config.toml [oauth].default_client_id）
+pub fn default_oauth_client_id() -> String {
+    crate::config::get_project_config().oauth.default_client_id.clone()
+}
+
+/// 解析 OAuth Client ID：设置项覆盖优先；空值回退 config.toml 中的 default_client_id。
 pub fn resolve_oauth_client_id(settings_override: Option<&str>) -> String {
     match settings_override.map(|s| s.trim()) {
         Some(s) if !s.is_empty() => s.to_string(),
-        _ => match option_env!("ZSTORE_GITHUB_OAUTH_CLIENT_ID") {
-            Some(id) if !id.trim().is_empty() => id.trim().to_string(),
-            _ => crate::config::get_project_config().oauth.default_client_id.clone(),
-        },
+        _ => default_oauth_client_id(),
     }
 }

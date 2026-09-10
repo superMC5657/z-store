@@ -4,6 +4,15 @@ use crate::models::AppSummary;
 use reqwest::header::{IF_NONE_MATCH, USER_AGENT};
 use std::sync::RwLock;
 
+/// 启发式搜索匹配打分权重常量
+pub const SEARCH_SCORE_EXACT_MATCH: i32 = 100;
+pub const SEARCH_SCORE_PREFIX_MATCH: i32 = 60;
+pub const SEARCH_SCORE_CHINESE_CONTAINS: i32 = 50;
+pub const SEARCH_SCORE_NAME_CONTAINS: i32 = 40;
+pub const SEARCH_SCORE_ALIAS_CONTAINS: i32 = 35;
+pub const SEARCH_SCORE_OWNER_OR_REPO_CONTAINS: i32 = 30;
+pub const SEARCH_SCORE_DESC_CONTAINS: i32 = 15;
+
 impl Default for CatalogService {
     fn default() -> Self {
         Self::new()
@@ -188,19 +197,19 @@ impl CatalogService {
             let repo_lower = item.repo.to_lowercase();
 
             if name_lower == q || id_lower == q {
-                score += 100;
+                score += SEARCH_SCORE_EXACT_MATCH;
             } else if name_lower.starts_with(&q) {
-                score += 60;
+                score += SEARCH_SCORE_PREFIX_MATCH;
             } else if zh_lower.contains(&q) {
-                score += 50;
+                score += SEARCH_SCORE_CHINESE_CONTAINS;
             } else if name_lower.contains(&q) {
-                score += 40;
+                score += SEARCH_SCORE_NAME_CONTAINS;
             } else if owner_lower.contains(&q) || repo_lower.contains(&q) {
-                score += 30;
+                score += SEARCH_SCORE_OWNER_OR_REPO_CONTAINS;
             } else if item.aliases.iter().any(|a| a.to_lowercase().contains(&q)) {
-                score += 35;
+                score += SEARCH_SCORE_ALIAS_CONTAINS;
             } else if desc_lower.contains(&q) {
-                score += 15;
+                score += SEARCH_SCORE_DESC_CONTAINS;
             }
 
             if score > 0 {

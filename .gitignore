@@ -36,6 +36,7 @@ src-tauri/gen/schemas
 # Agent run artifacts
 .omo/
 .reasonix/
+.agents
 
 # Standalone catalog repository scaffold
 publish/z-store-catalog

@@ -150,8 +150,11 @@ pub async fn fetch_store_toml_raw(
         }
     }
 
+    let api_timeout = std::time::Duration::from_secs(
+        crate::config::get_project_config().network.api_timeout_seconds,
+    );
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
+        .timeout(api_timeout)
         .build()
         .ok()?;
 
@@ -170,7 +173,7 @@ pub async fn fetch_store_toml_raw(
                 }
             }
         }
-        match tokio::time::timeout(std::time::Duration::from_secs(5), req.send()).await {
+        match tokio::time::timeout(api_timeout, req.send()).await {
             Ok(Ok(resp)) if resp.status().is_success() => {
                 if let Ok(text) = resp.text().await {
                     if !text.trim().is_empty() {

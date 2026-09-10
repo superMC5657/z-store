@@ -11,7 +11,7 @@ pub use paths::{
     default_download_dir, dirs_or_fallback, dirs_or_fallback_with_base, expand_env_path,
     resolve_uninstaller_command, user_home_dir,
 };
-pub use selector::{classify_asset, select_best_asset};
+pub use selector::{classify_asset, score_asset, select_best_asset};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AssetKind {

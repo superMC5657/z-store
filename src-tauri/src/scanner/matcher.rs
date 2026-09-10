@@ -1,6 +1,21 @@
 use super::{AppMatchResult, AppScanner, ScannedRawApp};
 use crate::github::CatalogItem;
 
+/// 启发式匹配打分权重常量
+pub const SCORE_EXACT_NAME_MATCH: f32 = 0.55;
+pub const SCORE_PREFIX_NAME_MATCH: f32 = 0.42;
+pub const SCORE_CONTAINS_NAME_MATCH: f32 = 0.32;
+pub const SCORE_CHINESE_NAME_MATCH: f32 = 0.38;
+pub const SCORE_ALIAS_MATCH: f32 = 0.35;
+pub const SCORE_PUBLISHER_MATCH: f32 = 0.25;
+pub const SCORE_LOCATION_OR_ICON_MATCH: f32 = 0.20;
+pub const SCORE_VERSION_MATCH: f32 = 0.10;
+
+/// 置信度分级阈值常量
+pub const MIN_QUALIFIED_SCORE: f32 = 0.45;
+pub const TIER_HIGH_CONFIDENCE_THRESHOLD: f32 = 0.70;
+pub const TIER_MEDIUM_CONFIDENCE_THRESHOLD: f32 = 0.55;
+
 impl AppScanner {
     /// 将已扫描的应用与 Catalog 进行启发式匹配打分
     pub fn match_apps(
@@ -32,25 +47,25 @@ impl AppScanner {
 
                 // 1. 软件名称与仓库名称匹配
                 if s_name == c_name || s_name == c_repo || s_name == c_id {
-                    score += 0.55;
+                    score += SCORE_EXACT_NAME_MATCH;
                 } else if s_name.starts_with(&c_name)
                     || s_name.starts_with(&c_repo)
                     || c_name.starts_with(&s_name)
                 {
-                    score += 0.42;
+                    score += SCORE_PREFIX_NAME_MATCH;
                 } else if s_name.contains(&c_name)
                     || c_name.contains(&s_name)
                     || s_name.contains(&c_repo)
                 {
-                    score += 0.32;
+                    score += SCORE_CONTAINS_NAME_MATCH;
                 } else if !c_zh.is_empty() && (s_name.contains(&c_zh) || c_zh.contains(&s_name)) {
-                    score += 0.38;
+                    score += SCORE_CHINESE_NAME_MATCH;
                 } else if cat
                     .aliases
                     .iter()
                     .any(|a| s_name.contains(&a.to_lowercase()))
                 {
-                    score += 0.35;
+                    score += SCORE_ALIAS_MATCH;
                 }
 
                 // 2. 发布者 / 组织匹配（支持 catalog 中配置的 publishers）
@@ -62,7 +77,7 @@ impl AppScanner {
                             .iter()
                             .any(|p| s_pub.contains(&p.to_lowercase()) || p.to_lowercase().contains(&s_pub)))
                 {
-                    score += 0.25;
+                    score += SCORE_PUBLISHER_MATCH;
                 }
 
                 // 3. 安装路径或图标主程序匹配（基于 catalog 配置的 executables 与 install_dirs）
@@ -87,7 +102,7 @@ impl AppScanner {
                         }
                     }
                     if path_matched {
-                        score += 0.20;
+                        score += SCORE_LOCATION_OR_ICON_MATCH;
                     }
                 }
 
@@ -96,12 +111,12 @@ impl AppScanner {
                     let s_ver = scanned.display_version.trim_start_matches('v');
                     let c_ver = cat.default_version.trim_start_matches('v');
                     if s_ver == c_ver {
-                        score += 0.10;
+                        score += SCORE_VERSION_MATCH;
                     }
                 }
 
                 let clamped = score.min(1.0);
-                if clamped >= 0.45 {
+                if clamped >= MIN_QUALIFIED_SCORE {
                     if let Some((best_score, _)) = best_match {
                         if clamped > best_score {
                             best_match = Some((clamped, cat));
@@ -113,9 +128,9 @@ impl AppScanner {
             }
 
             if let Some((confidence, matched_cat)) = best_match {
-                let tier = if confidence >= 0.70 {
+                let tier = if confidence >= TIER_HIGH_CONFIDENCE_THRESHOLD {
                     "high".to_string()
-                } else if confidence >= 0.55 {
+                } else if confidence >= TIER_MEDIUM_CONFIDENCE_THRESHOLD {
                     "medium".to_string()
                 } else {
                     "low".to_string()

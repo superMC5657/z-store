@@ -62,8 +62,11 @@ pub fn notify_rate_limit(host: &str, headers: &reqwest::header::HeaderMap) {
 }
 
 pub async fn probe_github_rate_limit(token: Option<&str>) {
+    let api_timeout = std::time::Duration::from_secs(
+        config::get_project_config().network.api_timeout_seconds,
+    );
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(6))
+        .timeout(api_timeout)
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
     let mut headers = reqwest::header::HeaderMap::new();

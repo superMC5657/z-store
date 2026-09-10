@@ -23,8 +23,9 @@ impl ForgeProvider for GitHubProvider {
         repo: &str,
         token: Option<&str>,
     ) -> Result<ForgeRepoInfo, String> {
+        let timeout_sec = crate::config::get_project_config().network.api_timeout_seconds;
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(8))
+            .timeout(std::time::Duration::from_secs(timeout_sec))
             .build()
             .map_err(|e| e.to_string())?;
 
@@ -92,8 +93,9 @@ impl ForgeProvider for GitHubProvider {
         repo: &str,
         token: Option<&str>,
     ) -> Result<ForgeReleaseInfo, String> {
+        let timeout_sec = crate::config::get_project_config().network.api_timeout_seconds;
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(timeout_sec))
             .build()
             .map_err(|e| e.to_string())?;
 
@@ -189,8 +191,10 @@ impl ForgeProvider for GitHubProvider {
         query: &str,
         token: Option<&str>,
     ) -> Result<Vec<ForgeRepoInfo>, String> {
+        let net_conf = &crate::config::get_project_config().network;
+        let page_size = crate::config::get_project_config().limits.online_search_page_size;
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(8))
+            .timeout(std::time::Duration::from_secs(net_conf.api_timeout_seconds))
             .build()
             .map_err(|e| e.to_string())?;
 
@@ -210,8 +214,8 @@ impl ForgeProvider for GitHubProvider {
 
         let encoded_q = urlencoding::encode(query);
         let url = format!(
-            "https://api.github.com/search/repositories?q={}&per_page=10",
-            encoded_q
+            "https://api.github.com/search/repositories?q={}&per_page={}",
+            encoded_q, page_size
         );
         let resp = client
             .get(&url)
