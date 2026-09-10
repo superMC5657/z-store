@@ -1,8 +1,7 @@
-# CD:Tauri Windows 打包 → 签名 → 发布到公开产物仓库(供公网下载 + 更新)
+# CD:Tauri Windows 打包 → 签名 → 发布到当前仓库 Release (供公网下载 + 更新)
 #
 # 方案:
-#   - 代码仓库为 private(不开源),产物发布到独立的公开产物仓库
-#     (见下方 env 块的 RELEASES_REPO),保证匿名下载与 gh-proxy 加速可行
+#   - 产物直接发布到当前仓库 (superMC5657/z-store) 的 GitHub Releases，无需独立的 release 仓库
 #   - latest.json 的资产 url 统一加 gh-proxy.com 前缀加速国内更新;updater endpoints 见
 #     src-tauri/tauri.conf.json(gh-proxy 优先,直连兜底)
 #   - 目前只要求 Windows 打包:仅 windows-latest → NSIS 安装包;
@@ -15,8 +14,7 @@
 #     注意:若密钥设置了密码,必须同时配置 TAURI_SIGNING_PRIVATE_KEY_PASSWORD,
 #     否则 tauri build 无法解密私钥签名。密钥与密码通常只存本机(如项目根 .env,
 #     已 gitignore),CI 读不到,需配到 GitHub secrets。
-#   RELEASES_PAT = 对 env 块 RELEASES_REPO 指定的产物仓库有 contents:write
-#     权限的 PAT(如 fine-grained token,仅授给该仓库的 Contents: Read/Write)
+#   (无需额外配置 RELEASES_PAT，直接使用内置 GITHUB_TOKEN 发布到当前项目)
 name: Release Tauri
 
 on:
@@ -37,7 +35,7 @@ permissions:
 #  两个脚本本身已与项目解耦)
 env:
   APP_NAME: ZStore
-  RELEASES_REPO: superMC5657/z-store-release
+  RELEASES_REPO: ${{ github.repository }}
 
 jobs:
   # 发布守卫:校验 tag 格式,不符合直接失败
@@ -127,9 +125,11 @@ jobs:
           if-no-files-found: error
 
   publish:
-    name: Publish to releases repo
+    name: Publish GitHub release
     needs: [guard, build]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     env:
       TAG: ${{ github.event.inputs.tag || github.ref_name }}
     steps:
@@ -164,13 +164,13 @@ jobs:
           ASSETS="${ASSETS%,}]"
           node scripts/build-latest-json.mjs --name "$APP_NAME" --repo "$RELEASES_REPO" --tag "$TAG" --assets "$ASSETS" --dir artifacts --output artifacts/latest.json
 
-      - name: Publish GitHub release (releases repo)
+      - name: Publish GitHub release
         env:
-          GH_TOKEN: ${{ secrets.RELEASES_PAT }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
-          # 同名 tag 已存在则删除重建(产物仓库每次发版全量替换)
-          gh release delete "$TAG" --yes --cleanup-tag --repo "$RELEASES_REPO" || true
+          # 若同名 Release 已存在则先删除旧 Release 记录(不加 --cleanup-tag，保留源码 Git 标签本身)
+          gh release delete "$TAG" --yes --repo "$RELEASES_REPO" || true
           cd artifacts
           # 文件名可能含空格($APP_NAME_<ver>_x64-setup.exe),用数组展开避免 shell 分词
           FILES=()
