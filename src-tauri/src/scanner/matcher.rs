@@ -69,7 +69,7 @@ impl AppScanner {
                 if !s_loc.is_empty() || !s_icon.is_empty() {
                     let mut path_matched = s_loc.contains(&c_repo) || s_icon.contains(&c_repo);
                     if !path_matched {
-                        for exe in &cat.executables {
+                        for exe in &cat.get_windows_executables() {
                             let exe_lower = exe.to_lowercase();
                             if s_icon.contains(&exe_lower) || s_loc.contains(&exe_lower) {
                                 path_matched = true;

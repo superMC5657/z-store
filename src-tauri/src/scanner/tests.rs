@@ -22,6 +22,10 @@ fn create_mock_catalog() -> Vec<CatalogItem> {
             is_verified: true,
             publisher_fingerprint: None,
             homepage: None,
+            identifiers: std::collections::HashMap::from([
+                ("windows".to_string(), vec!["vlc.exe".to_string()]),
+                ("linux".to_string(), vec!["vlc".to_string()]),
+            ]),
             executables: vec!["vlc.exe".to_string()],
             install_dirs: vec!["VideoLAN\\VLC".to_string(), "VLC".to_string()],
             search_subdirs: vec![],
@@ -47,6 +51,10 @@ fn create_mock_catalog() -> Vec<CatalogItem> {
             is_verified: true,
             publisher_fingerprint: None,
             homepage: None,
+            identifiers: std::collections::HashMap::from([
+                ("windows".to_string(), vec!["obs64.exe".to_string(), "obs.exe".to_string()]),
+                ("linux".to_string(), vec!["obs".to_string()]),
+            ]),
             executables: vec!["obs64.exe".to_string(), "obs.exe".to_string()],
             install_dirs: vec!["obs-studio".to_string()],
             search_subdirs: vec!["bin/64bit".to_string(), "bin".to_string()],

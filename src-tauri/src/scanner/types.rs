@@ -47,7 +47,7 @@ pub struct ScanConfig {
 
 impl From<&CatalogItem> for ScanConfig {
     fn from(cat: &CatalogItem) -> Self {
-        let mut target_executables = cat.executables.clone();
+        let mut target_executables = cat.get_windows_executables();
         if target_executables.is_empty() {
             let clean_repo = cat.repo.to_lowercase().replace(['.', '-'], "");
             target_executables = vec![

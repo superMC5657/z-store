@@ -162,3 +162,34 @@ fn test_catalog_platforms_loading_and_mapping() {
     }
 }
 
+#[test]
+fn test_catalog_identifiers_and_fallback() {
+    let cat = CatalogService::new();
+
+    // 1. 测试从 catalog.json 加载的多端原生标识符
+    let rustdesk = cat.get_catalog_item("rustdesk").expect("rustdesk exists in catalog");
+    assert_eq!(rustdesk.get_windows_executables(), vec!["rustdesk.exe"]);
+    assert_eq!(rustdesk.get_identifiers("android"), vec!["com.carriez.flutter_rustdesk"]);
+    assert_eq!(rustdesk.get_identifiers("macos"), vec!["RustDesk.app", "rustdesk"]);
+    assert_eq!(rustdesk.get_identifiers("linux"), vec!["rustdesk"]);
+
+    let ripgrep = cat.get_catalog_item("ripgrep").expect("ripgrep exists in catalog");
+    assert!(ripgrep.get_windows_executables().contains(&"rg.exe".to_string()));
+    assert_eq!(ripgrep.get_identifiers("linux"), vec!["rg"]);
+
+    // 2. 校验所有 39 款收录应用均能成功获取 Windows 可执行识别名
+    for item in cat.get_catalog_items() {
+        let win_exes = item.get_windows_executables();
+        assert!(!win_exes.is_empty(), "app {} should have windows executables in identifiers", item.id);
+        assert!(win_exes.iter().any(|e| e.ends_with(".exe")), "windows executable should end with .exe: {:?}", win_exes);
+    }
+
+    // 3. 测试旧格式 executables 降级兼容回退能力
+    let mut legacy_item = rustdesk.clone();
+    legacy_item.identifiers.clear();
+    legacy_item.executables = vec!["legacy_test.exe".to_string()];
+    assert_eq!(legacy_item.get_windows_executables(), vec!["legacy_test.exe"]);
+    assert!(legacy_item.get_identifiers("linux").is_empty());
+}
+
+

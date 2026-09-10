@@ -61,6 +61,7 @@ export interface AppDetail {
   loadError?: string;
   homepage?: string;
   platforms?: string[];
+  identifiers?: Record<string, string[]>;
   // FR-8: z-store.toml 收录库扩展元数据（Rust 侧可选下发，缺失时一律按 null 优雅降级）
   store_meta?: StoreMeta | null;
 }

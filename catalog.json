@@ -24,16 +24,31 @@
     "is_verified": true,
     "publisher_fingerprint": "57:B6:08:5F:D9:58:23:77:13:C2:13:79:2F:94:AE:CE:62:B1:5C:51:94:C8:A1:A2:B6:A4:9A:B9:C2:CB:32:8A",
     "homepage": "https://rustdesk.com",
-    "executables": [
-      "rustdesk.exe"
-    ],
     "platforms": [
       "windows",
       "macos",
       "linux",
       "android",
       "ios"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "rustdesk.exe"
+      ],
+      "linux": [
+        "rustdesk"
+      ],
+      "macos": [
+        "RustDesk.app",
+        "rustdesk"
+      ],
+      "android": [
+        "com.carriez.flutter_rustdesk"
+      ],
+      "ios": [
+        "com.carriez.rustdesk"
+      ]
+    }
   },
   {
     "id": "localsend",
@@ -59,17 +74,32 @@
     "forks": 3200,
     "is_verified": true,
     "homepage": "https://localsend.org",
-    "executables": [
-      "localsend_app.exe",
-      "LocalSend.exe"
-    ],
     "platforms": [
       "windows",
       "macos",
       "linux",
       "android",
       "ios"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "localsend_app.exe",
+        "LocalSend.exe"
+      ],
+      "linux": [
+        "localsend",
+        "localsend_app"
+      ],
+      "macos": [
+        "LocalSend.app"
+      ],
+      "android": [
+        "org.localsend.localsend_app"
+      ],
+      "ios": [
+        "org.localsend.localsendApp"
+      ]
+    }
   },
   {
     "id": "vlc",
@@ -95,9 +125,6 @@
     "forks": 5800,
     "is_verified": true,
     "homepage": "https://www.videolan.org/vlc/",
-    "executables": [
-      "vlc.exe"
-    ],
     "publishers": [
       "VideoLAN"
     ],
@@ -107,7 +134,25 @@
       "linux",
       "android",
       "ios"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "vlc.exe"
+      ],
+      "linux": [
+        "vlc"
+      ],
+      "macos": [
+        "VLC.app",
+        "vlc"
+      ],
+      "android": [
+        "org.videolan.vlc"
+      ],
+      "ios": [
+        "org.videolan.vlc-ios"
+      ]
+    }
   },
   {
     "id": "obs-studio",
@@ -133,11 +178,6 @@
     "forks": 8100,
     "is_verified": true,
     "homepage": "https://obsproject.com",
-    "executables": [
-      "obs64.exe",
-      "obs32.exe",
-      "obs.exe"
-    ],
     "search_subdirs": [
       "bin/64bit",
       "bin/32bit",
@@ -150,7 +190,21 @@
       "windows",
       "macos",
       "linux"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "obs64.exe",
+        "obs32.exe",
+        "obs.exe"
+      ],
+      "linux": [
+        "obs"
+      ],
+      "macos": [
+        "OBS.app",
+        "obs"
+      ]
+    }
   },
   {
     "id": "keepassxc",
@@ -175,14 +229,23 @@
     "forks": 1700,
     "is_verified": true,
     "homepage": "https://keepassxc.org",
-    "executables": [
-      "KeePassXC.exe"
-    ],
     "platforms": [
       "windows",
       "macos",
       "linux"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "KeePassXC.exe"
+      ],
+      "linux": [
+        "keepassxc"
+      ],
+      "macos": [
+        "KeePassXC.app",
+        "keepassxc"
+      ]
+    }
   },
   {
     "id": "vscodium",
@@ -208,14 +271,23 @@
     "forks": 2200,
     "is_verified": true,
     "homepage": "https://vscodium.com",
-    "executables": [
-      "VSCodium.exe"
-    ],
     "platforms": [
       "windows",
       "macos",
       "linux"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "VSCodium.exe"
+      ],
+      "linux": [
+        "codium"
+      ],
+      "macos": [
+        "VSCodium.app",
+        "codium"
+      ]
+    }
   },
   {
     "id": "zed",
@@ -240,14 +312,24 @@
     "forks": 3100,
     "is_verified": true,
     "homepage": "https://zed.dev",
-    "executables": [
-      "zed.exe"
-    ],
     "platforms": [
       "windows",
       "macos",
       "linux"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "zed.exe"
+      ],
+      "linux": [
+        "zed",
+        "zed-editor"
+      ],
+      "macos": [
+        "Zed.app",
+        "zed"
+      ]
+    }
   },
   {
     "id": "flameshot",
@@ -273,14 +355,23 @@
     "forks": 1600,
     "is_verified": true,
     "homepage": "https://flameshot.org",
-    "executables": [
-      "flameshot.exe"
-    ],
     "platforms": [
       "windows",
       "macos",
       "linux"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "flameshot.exe"
+      ],
+      "linux": [
+        "flameshot"
+      ],
+      "macos": [
+        "flameshot.app",
+        "flameshot"
+      ]
+    }
   },
   {
     "id": "sharex",
@@ -306,12 +397,14 @@
     "forks": 3200,
     "is_verified": true,
     "homepage": "https://getsharex.com",
-    "executables": [
-      "ShareX.exe"
-    ],
     "platforms": [
       "windows"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "ShareX.exe"
+      ]
+    }
   },
   {
     "id": "blender",
@@ -337,14 +430,23 @@
     "forks": 3600,
     "is_verified": true,
     "homepage": "https://www.blender.org",
-    "executables": [
-      "blender.exe"
-    ],
     "platforms": [
       "windows",
       "macos",
       "linux"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "blender.exe"
+      ],
+      "linux": [
+        "blender"
+      ],
+      "macos": [
+        "Blender.app",
+        "blender"
+      ]
+    }
   },
   {
     "id": "joplin",
@@ -370,16 +472,31 @@
     "forks": 4600,
     "is_verified": true,
     "homepage": "https://joplinapp.org",
-    "executables": [
-      "Joplin.exe"
-    ],
     "platforms": [
       "windows",
       "macos",
       "linux",
       "android",
       "ios"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "Joplin.exe"
+      ],
+      "linux": [
+        "joplin",
+        "joplin-desktop"
+      ],
+      "macos": [
+        "Joplin.app"
+      ],
+      "android": [
+        "net.cozic.joplin"
+      ],
+      "ios": [
+        "net.cozic.joplin"
+      ]
+    }
   },
   {
     "id": "logseq",
@@ -405,16 +522,30 @@
     "forks": 2200,
     "is_verified": true,
     "homepage": "https://logseq.com",
-    "executables": [
-      "Logseq.exe"
-    ],
     "platforms": [
       "windows",
       "macos",
       "linux",
       "android",
       "ios"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "Logseq.exe"
+      ],
+      "linux": [
+        "logseq"
+      ],
+      "macos": [
+        "Logseq.app"
+      ],
+      "android": [
+        "com.logseq.app"
+      ],
+      "ios": [
+        "com.logseq.mobile"
+      ]
+    }
   },
   {
     "id": "koreader",
@@ -440,16 +571,30 @@
     "forks": 1500,
     "is_verified": true,
     "homepage": "https://koreader.rocks",
-    "executables": [
-      "koreader.exe"
-    ],
     "platforms": [
       "windows",
       "macos",
       "linux",
       "android",
       "ios"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "koreader.exe"
+      ],
+      "linux": [
+        "koreader"
+      ],
+      "macos": [
+        "KOReader.app"
+      ],
+      "android": [
+        "org.koreader.launcher"
+      ],
+      "ios": [
+        "org.koreader.launcher"
+      ]
+    }
   },
   {
     "id": "calibre",
@@ -474,14 +619,24 @@
     "forks": 1400,
     "is_verified": true,
     "homepage": "https://calibre-ebook.com",
-    "executables": [
-      "calibre.exe"
-    ],
     "platforms": [
       "windows",
       "macos",
       "linux"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "calibre.exe"
+      ],
+      "linux": [
+        "calibre",
+        "ebook-viewer"
+      ],
+      "macos": [
+        "calibre.app",
+        "calibre"
+      ]
+    }
   },
   {
     "id": "clash-verge-rev",
@@ -507,14 +662,22 @@
     "forks": 4200,
     "is_verified": true,
     "homepage": "https://clash-verge-rev.github.io",
-    "executables": [
-      "Clash Verge.exe"
-    ],
     "platforms": [
       "windows",
       "macos",
       "linux"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "Clash Verge.exe"
+      ],
+      "linux": [
+        "clash-verge"
+      ],
+      "macos": [
+        "Clash Verge.app"
+      ]
+    }
   },
   {
     "id": "transmission",
@@ -540,15 +703,25 @@
     "forks": 1400,
     "is_verified": true,
     "homepage": "https://transmissionbt.com",
-    "executables": [
-      "transmission-qt.exe",
-      "transmission.exe"
-    ],
     "platforms": [
       "windows",
       "macos",
       "linux"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "transmission-qt.exe",
+        "transmission.exe"
+      ],
+      "linux": [
+        "transmission-gtk",
+        "transmission-qt",
+        "transmission-daemon"
+      ],
+      "macos": [
+        "Transmission.app"
+      ]
+    }
   },
   {
     "id": "7-zip",
@@ -574,18 +747,24 @@
     "forks": 380,
     "is_verified": true,
     "homepage": "https://www.7-zip.org",
-    "executables": [
-      "7zFM.exe",
-      "7zG.exe",
-      "7z.exe"
-    ],
     "publishers": [
       "Igor Pavlov"
     ],
     "platforms": [
       "windows",
       "linux"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "7zFM.exe",
+        "7zG.exe",
+        "7z.exe"
+      ],
+      "linux": [
+        "7z",
+        "7za"
+      ]
+    }
   },
   {
     "id": "powertoys",
@@ -611,15 +790,17 @@
     "forks": 6300,
     "is_verified": true,
     "homepage": "https://learn.microsoft.com/windows/powertoys/",
-    "executables": [
-      "PowerToys.exe"
-    ],
     "publishers": [
       "Microsoft Corporation"
     ],
     "platforms": [
       "windows"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "PowerToys.exe"
+      ]
+    }
   },
   {
     "id": "quicklook",
@@ -644,12 +825,14 @@
     "stars": 18200,
     "forks": 1100,
     "is_verified": true,
-    "executables": [
-      "QuickLook.exe"
-    ],
     "platforms": [
       "windows"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "QuickLook.exe"
+      ]
+    }
   },
   {
     "id": "flow-launcher",
@@ -675,12 +858,14 @@
     "forks": 650,
     "is_verified": true,
     "homepage": "https://www.flowlauncher.com",
-    "executables": [
-      "Flow.Launcher.exe"
-    ],
     "platforms": [
       "windows"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "Flow.Launcher.exe"
+      ]
+    }
   },
   {
     "id": "handbrake",
@@ -706,14 +891,24 @@
     "forks": 1400,
     "is_verified": true,
     "homepage": "https://handbrake.fr",
-    "executables": [
-      "HandBrake.exe"
-    ],
     "platforms": [
       "windows",
       "macos",
       "linux"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "HandBrake.exe"
+      ],
+      "linux": [
+        "ghb",
+        "HandBrakeCLI"
+      ],
+      "macos": [
+        "HandBrake.app",
+        "HandBrakeCLI"
+      ]
+    }
   },
   {
     "id": "bitwarden",
@@ -739,16 +934,30 @@
     "forks": 1100,
     "is_verified": true,
     "homepage": "https://bitwarden.com",
-    "executables": [
-      "Bitwarden.exe"
-    ],
     "platforms": [
       "windows",
       "macos",
       "linux",
       "android",
       "ios"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "Bitwarden.exe"
+      ],
+      "linux": [
+        "bitwarden"
+      ],
+      "macos": [
+        "Bitwarden.app"
+      ],
+      "android": [
+        "com.x8bit.bitwarden"
+      ],
+      "ios": [
+        "com.8bit.bitwarden"
+      ]
+    }
   },
   {
     "id": "neovim",
@@ -774,10 +983,6 @@
     "forks": 5400,
     "is_verified": true,
     "homepage": "https://neovim.io",
-    "executables": [
-      "nvim-qt.exe",
-      "nvim.exe"
-    ],
     "search_subdirs": [
       "bin"
     ],
@@ -785,7 +990,19 @@
       "windows",
       "macos",
       "linux"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "nvim-qt.exe",
+        "nvim.exe"
+      ],
+      "linux": [
+        "nvim"
+      ],
+      "macos": [
+        "nvim"
+      ]
+    }
   },
   {
     "id": "alacritty",
@@ -811,14 +1028,23 @@
     "forks": 3000,
     "is_verified": true,
     "homepage": "https://alacritty.org",
-    "executables": [
-      "alacritty.exe"
-    ],
     "platforms": [
       "windows",
       "macos",
       "linux"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "alacritty.exe"
+      ],
+      "linux": [
+        "alacritty"
+      ],
+      "macos": [
+        "Alacritty.app",
+        "alacritty"
+      ]
+    }
   },
   {
     "id": "wireshark",
@@ -844,14 +1070,24 @@
     "forks": 1600,
     "is_verified": true,
     "homepage": "https://www.wireshark.org",
-    "executables": [
-      "Wireshark.exe"
-    ],
     "platforms": [
       "windows",
       "macos",
       "linux"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "Wireshark.exe"
+      ],
+      "linux": [
+        "wireshark",
+        "tshark"
+      ],
+      "macos": [
+        "Wireshark.app",
+        "tshark"
+      ]
+    }
   },
   {
     "id": "hoppscotch",
@@ -877,14 +1113,22 @@
     "forks": 4500,
     "is_verified": true,
     "homepage": "https://hoppscotch.com",
-    "executables": [
-      "Hoppscotch.exe"
-    ],
     "platforms": [
       "windows",
       "macos",
       "linux"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "Hoppscotch.exe"
+      ],
+      "linux": [
+        "hoppscotch"
+      ],
+      "macos": [
+        "Hoppscotch.app"
+      ]
+    }
   },
   {
     "id": "podman-desktop",
@@ -910,14 +1154,22 @@
     "forks": 420,
     "is_verified": true,
     "homepage": "https://podman-desktop.io",
-    "executables": [
-      "Podman Desktop.exe"
-    ],
     "platforms": [
       "windows",
       "macos",
       "linux"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "Podman Desktop.exe"
+      ],
+      "linux": [
+        "podman-desktop"
+      ],
+      "macos": [
+        "Podman Desktop.app"
+      ]
+    }
   },
   {
     "id": "retroarch",
@@ -944,16 +1196,30 @@
     "forks": 1700,
     "is_verified": true,
     "homepage": "https://www.retroarch.com",
-    "executables": [
-      "retroarch.exe"
-    ],
     "platforms": [
       "windows",
       "macos",
       "linux",
       "android",
       "ios"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "retroarch.exe"
+      ],
+      "linux": [
+        "retroarch"
+      ],
+      "macos": [
+        "RetroArch.app"
+      ],
+      "android": [
+        "com.retroarch"
+      ],
+      "ios": [
+        "com.libretro.RetroArch"
+      ]
+    }
   },
   {
     "id": "openttd",
@@ -979,15 +1245,26 @@
     "forks": 980,
     "is_verified": true,
     "homepage": "https://www.openttd.org",
-    "executables": [
-      "openttd.exe"
-    ],
     "platforms": [
       "windows",
       "macos",
       "linux",
       "android"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "openttd.exe"
+      ],
+      "linux": [
+        "openttd"
+      ],
+      "macos": [
+        "OpenTTD.app"
+      ],
+      "android": [
+        "org.openttd.sdl"
+      ]
+    }
   },
   {
     "id": "mindustry",
@@ -1013,16 +1290,30 @@
     "forks": 3100,
     "is_verified": true,
     "homepage": "https://mindustrygame.github.io",
-    "executables": [
-      "Mindustry.exe"
-    ],
     "platforms": [
       "windows",
       "macos",
       "linux",
       "android",
       "ios"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "Mindustry.exe"
+      ],
+      "linux": [
+        "mindustry"
+      ],
+      "macos": [
+        "Mindustry.app"
+      ],
+      "android": [
+        "io.anuke.mindustry"
+      ],
+      "ios": [
+        "io.anuke.mindustry"
+      ]
+    }
   },
   {
     "id": "qbittorrent",
@@ -1049,9 +1340,6 @@
     "forks": 4200,
     "is_verified": true,
     "homepage": "https://www.qbittorrent.org",
-    "executables": [
-      "qbittorrent.exe"
-    ],
     "publishers": [
       "The qBittorrent project"
     ],
@@ -1059,7 +1347,18 @@
       "windows",
       "macos",
       "linux"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "qbittorrent.exe"
+      ],
+      "linux": [
+        "qbittorrent"
+      ],
+      "macos": [
+        "qbittorrent.app"
+      ]
+    }
   },
   {
     "id": "motrix",
@@ -1085,9 +1384,6 @@
     "forks": 5800,
     "is_verified": true,
     "homepage": "https://motrix.app",
-    "executables": [
-      "Motrix.exe"
-    ],
     "publishers": [
       "Dr_rOot",
       "agalwood"
@@ -1096,7 +1392,18 @@
       "windows",
       "macos",
       "linux"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "Motrix.exe"
+      ],
+      "linux": [
+        "motrix"
+      ],
+      "macos": [
+        "Motrix.app"
+      ]
+    }
   },
   {
     "id": "picgo",
@@ -1122,9 +1429,6 @@
     "forks": 3200,
     "is_verified": true,
     "homepage": "https://molunerfinn.com/PicGo/",
-    "executables": [
-      "PicGo.exe"
-    ],
     "publishers": [
       "Molunerfinn"
     ],
@@ -1132,7 +1436,18 @@
       "windows",
       "macos",
       "linux"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "PicGo.exe"
+      ],
+      "linux": [
+        "picgo"
+      ],
+      "macos": [
+        "PicGo.app"
+      ]
+    }
   },
   {
     "id": "playnite",
@@ -1158,16 +1473,18 @@
     "forks": 1500,
     "is_verified": true,
     "homepage": "https://playnite.link",
-    "executables": [
-      "Playnite.DesktopApp.exe",
-      "Playnite.exe"
-    ],
     "publishers": [
       "Josef Nemec"
     ],
     "platforms": [
       "windows"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "Playnite.DesktopApp.exe",
+        "Playnite.exe"
+      ]
+    }
   },
   {
     "id": "wezterm",
@@ -1193,10 +1510,6 @@
     "forks": 1100,
     "is_verified": true,
     "homepage": "https://wezfurlong.org/wezterm/",
-    "executables": [
-      "wezterm-gui.exe",
-      "wezterm.exe"
-    ],
     "publishers": [
       "Wez Furlong"
     ],
@@ -1204,7 +1517,21 @@
       "windows",
       "macos",
       "linux"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "wezterm-gui.exe",
+        "wezterm.exe"
+      ],
+      "linux": [
+        "wezterm",
+        "wezterm-gui"
+      ],
+      "macos": [
+        "WezTerm.app",
+        "wezterm"
+      ]
+    }
   },
   {
     "id": "telegram-desktop",
@@ -1230,10 +1557,6 @@
     "forks": 5400,
     "is_verified": true,
     "homepage": "https://desktop.telegram.org",
-    "executables": [
-      "Telegram.exe",
-      "telegram.exe"
-    ],
     "publishers": [
       "Telegram FZ-LLC",
       "Telegram"
@@ -1242,7 +1565,20 @@
       "windows",
       "macos",
       "linux"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "Telegram.exe",
+        "telegram.exe"
+      ],
+      "linux": [
+        "telegram-desktop",
+        "Telegram"
+      ],
+      "macos": [
+        "Telegram.app"
+      ]
+    }
   },
   {
     "id": "oh-my-posh",
@@ -1268,9 +1604,6 @@
     "forks": 1200,
     "is_verified": true,
     "homepage": "https://ohmyposh.dev",
-    "executables": [
-      "oh-my-posh.exe"
-    ],
     "search_subdirs": [
       "bin"
     ],
@@ -1281,7 +1614,18 @@
       "windows",
       "macos",
       "linux"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "oh-my-posh.exe"
+      ],
+      "linux": [
+        "oh-my-posh"
+      ],
+      "macos": [
+        "oh-my-posh"
+      ]
+    }
   },
   {
     "id": "winthumbspreloader",
@@ -1306,15 +1650,17 @@
     "forks": 140,
     "is_verified": true,
     "homepage": "https://github.com/Bruhov/WinThumbsPreloader",
-    "executables": [
-      "WinThumbsPreloader.exe"
-    ],
     "publishers": [
       "Dmitry Bruhov"
     ],
     "platforms": [
       "windows"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "WinThumbsPreloader.exe"
+      ]
+    }
   },
   {
     "id": "ripgrep",
@@ -1340,10 +1686,6 @@
     "forks": 2200,
     "is_verified": true,
     "homepage": "https://github.com/BurntSushi/ripgrep",
-    "executables": [
-      "rg.exe",
-      "ripgrep.exe"
-    ],
     "publishers": [
       "BurntSushi"
     ],
@@ -1351,6 +1693,18 @@
       "windows",
       "macos",
       "linux"
-    ]
+    ],
+    "identifiers": {
+      "windows": [
+        "rg.exe",
+        "ripgrep.exe"
+      ],
+      "linux": [
+        "rg"
+      ],
+      "macos": [
+        "rg"
+      ]
+    }
   }
 ]

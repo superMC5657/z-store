@@ -1,5 +1,6 @@
 use crate::models::AppSummary;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CatalogItem {
@@ -24,6 +25,8 @@ pub struct CatalogItem {
     #[serde(default)]
     pub homepage: Option<String>,
     #[serde(default)]
+    pub identifiers: HashMap<String, Vec<String>>,
+    #[serde(default)]
     pub executables: Vec<String>,
     #[serde(default)]
     pub install_dirs: Vec<String>,
@@ -40,6 +43,25 @@ fn default_platforms() -> Vec<String> {
 }
 
 impl CatalogItem {
+    /// 获取指定平台原生标识符列表（如 windows / linux / macos / android / ios）
+    pub fn get_identifiers(&self, platform: &str) -> Vec<String> {
+        if let Some(list) = self.identifiers.get(platform) {
+            if !list.is_empty() {
+                return list.clone();
+            }
+        }
+        // 向后兼容：如果请求 windows 平台且旧的 executables 字段非空，自动降级回退
+        if platform == "windows" && !self.executables.is_empty() {
+            return self.executables.clone();
+        }
+        Vec::new()
+    }
+
+    /// 获取 Windows 下的目标可执行文件名列表（如 ["rg.exe", "ripgrep.exe"]）
+    pub fn get_windows_executables(&self) -> Vec<String> {
+        self.get_identifiers("windows")
+    }
+
     pub fn to_summary(&self) -> AppSummary {
         let effective_icon =
             if self.icon.starts_with("http://") || self.icon.starts_with("https://") {
