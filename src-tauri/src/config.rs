@@ -138,7 +138,7 @@ fn default_local_path() -> String {
 }
 
 fn default_source_url() -> String {
-    "https://gh-proxy.com/https://raw.githubusercontent.com/supermc/z-store/main/catalog.json".to_string()
+    "https://gh-proxy.com/https://raw.githubusercontent.com/supermc/z-store-catalog/main/catalog.json".to_string()
 }
 
 impl Default for CatalogConfig {
