@@ -3,15 +3,65 @@ use std::collections::HashMap;
 use tauri::State;
 
 #[tauri::command]
+pub fn get_default_settings() -> HashMap<String, String> {
+    let cfg = crate::config::get_project_config();
+    let mut map = HashMap::new();
+    map.insert("theme".to_string(), "system".to_string());
+    map.insert("download_dir".to_string(), "~/Downloads".to_string());
+    map.insert("active_mirror".to_string(), "ghproxy".to_string());
+    map.insert("max_concurrent_downloads".to_string(), "3".to_string());
+    map.insert("github_token".to_string(), "".to_string());
+    map.insert("close_to_tray".to_string(), "true".to_string());
+    map.insert("launch_on_startup".to_string(), "false".to_string());
+    map.insert("update_frequency".to_string(), "startup".to_string());
+    map.insert(
+        "detail_cache_ttl_minutes".to_string(),
+        cfg.cache.detail_ttl_minutes.to_string(),
+    );
+    map.insert(
+        "catalog_source_url".to_string(),
+        cfg.catalog.default_source_url.clone(),
+    );
+    map.insert("watch_notify_frequency".to_string(), "daily".to_string());
+    map
+}
+
+#[tauri::command]
+pub fn reset_setting(state: State<'_, AppState>, key: String) -> Result<String, String> {
+    let defaults = get_default_settings();
+    let default_val = defaults.get(&key).cloned().unwrap_or_default();
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.set_setting(&key, &default_val).map_err(|e| e.to_string())?;
+    Ok(default_val)
+}
+
+#[tauri::command]
 pub fn get_settings(state: State<'_, AppState>) -> Result<HashMap<String, String>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    let mut map = db.get_all_settings().map_err(|e| e.to_string())?;
+    let db_settings = db.get_all_settings().map_err(|e| e.to_string())?;
+
+    // 1. 以 config.toml 及项目基准作为权威默认底表
+    let mut map = get_default_settings();
+
+    // 2. 将用户在 SQLite 中持久化的修改项合并覆盖
+    for (k, v) in db_settings {
+        if !v.trim().is_empty() {
+            map.insert(k, v);
+        }
+    }
+
+    // 3. 历史废弃或迁移前的旧地址自动平滑迁移至当前权威源
     if let Some(url) = map.get("catalog_source_url") {
-        if url.contains("gitmirror.com") || url.contains("src-tauri/src/catalog.json") {
+        if url.contains("gitmirror.com")
+            || url.contains("src-tauri/src/catalog.json")
+            || url.contains("supermc/z-store/main/catalog.json")
+            || url.contains("superMC5657/z-store/main/catalog.json")
+        {
             let def_url = crate::config::get_project_config().catalog.default_source_url.clone();
             map.insert("catalog_source_url".to_string(), def_url);
         }
     }
+
     let dl_val = map.get("download_dir").cloned().unwrap_or_default();
     if dl_val.trim().is_empty() || dl_val.contains("zstore_downloads") {
         map.insert("download_dir".to_string(), "~/Downloads".to_string());

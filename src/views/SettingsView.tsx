@@ -50,12 +50,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   } | null>(null);
   const [proxySavedFeedback, setProxySavedFeedback] = useState<string | null>(null);
 
-  const DEFAULT_CATALOG_URL = 'https://gh-proxy.com/https://raw.githubusercontent.com/superMC5657/z-store-catalog/main/catalog.json';
   const [catalogSourceUrl, setCatalogSourceUrl] = useState(
     settings.catalog_source_url && !settings.catalog_source_url.includes('gitmirror.com') && !settings.catalog_source_url.includes('src-tauri/src/catalog.json')
       ? settings.catalog_source_url
-      : DEFAULT_CATALOG_URL
+      : ''
   );
+
+  useEffect(() => {
+    if (settings.catalog_source_url) {
+      setCatalogSourceUrl(settings.catalog_source_url);
+    }
+  }, [settings.catalog_source_url]);
   const [catalogUrlSaved, setCatalogUrlSaved] = useState(false);
   const [showAdvancedSource, setShowAdvancedSource] = useState(false);
   const [isResetConfirming, setIsResetConfirming] = useState(false);
@@ -104,16 +109,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       setIsSyncingCatalog(false);
     }
   };
-
-  useEffect(() => {
-    if (settings.catalog_source_url) {
-      if (settings.catalog_source_url.includes('gitmirror.com')) {
-        setCatalogSourceUrl(DEFAULT_CATALOG_URL);
-      } else {
-        setCatalogSourceUrl(settings.catalog_source_url);
-      }
-    }
-  }, [settings.catalog_source_url]);
 
   useEffect(() => {
     const act = settings.active_mirror;
@@ -741,13 +736,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 type="button"
                 className="btn-fluent btn-secondary"
                 style={{ fontSize: '12px', padding: '5px 12px' }}
-                onClick={() => {
-                  const defUrl = 'https://gh-proxy.com/https://raw.githubusercontent.com/superMC5657/z-store-catalog/main/catalog.json';
-                  setCatalogSourceUrl(defUrl);
-                  onUpdateSetting('catalog_source_url', defUrl);
-                  setCatalogUrlSaved(true);
-                  triggerChangeFeedback('catalog_source', '✓ 已恢复官方默认收录源');
-                  setTimeout(() => setCatalogUrlSaved(false), 2500);
+                onClick={async () => {
+                  try {
+                    const defUrl = await api.resetSetting('catalog_source_url');
+                    setCatalogSourceUrl(defUrl);
+                    onUpdateSetting('catalog_source_url', defUrl);
+                    setCatalogUrlSaved(true);
+                    triggerChangeFeedback('catalog_source', '✓ 已恢复官方默认收录源');
+                    setTimeout(() => setCatalogUrlSaved(false), 2500);
+                  } catch (err) {
+                    console.error('Failed to reset catalog source URL:', err);
+                  }
                 }}
               >
                 恢复官方默认

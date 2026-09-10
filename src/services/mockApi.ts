@@ -330,6 +330,14 @@ export const mockApi = {
     return { ...mockSettings };
   },
 
+  async getDefaultSettings(): Promise<Record<string, string>> {
+    return { ...mockSettings };
+  },
+
+  async resetSetting(key: string): Promise<string> {
+    return mockSettings[key] || '';
+  },
+
   async saveSetting(key: string, value: string): Promise<boolean> {
     mockSettings[key] = value;
     return true;

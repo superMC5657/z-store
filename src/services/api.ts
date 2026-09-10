@@ -44,7 +44,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   launch_on_startup: false,
   update_frequency: 'startup',
   detail_cache_ttl_minutes: 30,
-  catalog_source_url: 'https://gh-proxy.com/https://raw.githubusercontent.com/superMC5657/z-store-catalog/main/catalog.json',
+  catalog_source_url: '',
   watch_notify_frequency: 'daily',
 };
 
@@ -165,12 +165,28 @@ const tauriApi = {
     return tauriInvoke<Record<string, string>>('get_settings');
   },
 
+  async getDefaultSettings(): Promise<Record<string, string>> {
+    return tauriInvoke<Record<string, string>>('get_default_settings');
+  },
+
+  async resetSetting(key: string): Promise<string> {
+    return tauriInvoke<string>('reset_setting', { key });
+  },
+
   async saveSetting(key: string, value: string): Promise<boolean> {
     return tauriInvoke<boolean>('save_setting', { key, value });
   },
 
   async resetSettings(): Promise<boolean> {
-    for (const [key, val] of Object.entries(DEFAULT_SETTINGS)) {
+    let defaults: Record<string, string> = {};
+    try {
+      defaults = await this.getDefaultSettings();
+    } catch {
+      defaults = Object.fromEntries(
+        Object.entries(DEFAULT_SETTINGS).map(([k, v]) => [k, String(v)])
+      );
+    }
+    for (const [key, val] of Object.entries(defaults)) {
       await this.saveSetting(key, String(val));
     }
     return true;

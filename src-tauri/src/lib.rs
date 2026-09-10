@@ -407,6 +407,8 @@ pub fn run() {
             commands::switch_mirror,
             commands::set_github_token,
             commands::get_settings,
+            commands::get_default_settings,
+            commands::reset_setting,
             commands::save_setting,
             commands::get_favorites,
             commands::toggle_favorite,

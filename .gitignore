@@ -38,5 +38,5 @@ src-tauri/gen/schemas
 .reasonix/
 
 # Standalone catalog repository scaffold
-.scratch/z-store-catalog/
+publish/z-store-catalog
 
