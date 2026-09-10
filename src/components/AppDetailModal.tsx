@@ -11,9 +11,11 @@ interface AppDetailModalProps {
   app: AppDetail;
   isInstalled: boolean;
   isManaged?: boolean;
+  isExploreMode?: boolean;
   isFavorite?: boolean;
   isWatched?: boolean;
   isInstallingGlobal?: boolean;
+  isUninstallingGlobal?: boolean;
   oauthUser?: OAuthUser | null;
   onClose: () => void;
   onInstall: (id: string, assetName?: string, customInstallDir?: string) => Promise<any>;
@@ -55,9 +57,11 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   app,
   isInstalled,
   isManaged = true,
+  isExploreMode = false,
   isFavorite = false,
   isWatched = false,
   isInstallingGlobal = false,
+  isUninstallingGlobal = false,
   oauthUser = null,
   onClose,
   onInstall,
@@ -796,7 +800,9 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   app.isLoading && (!releases || releases.length === 0)
                     ? '正在同步 GitHub Release 最新发布产物...'
                     : isInstalled
-                    ? isManaged
+                    ? isExploreMode
+                      ? '状态：已安装就绪'
+                      : isManaged
                       ? '状态：已安装就绪 (Z-Store 已纳管)'
                       : '状态：系统已安装就绪 (未纳入当前管理)'
                     : selectedAssetName
@@ -807,7 +813,9 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                 {app.isLoading && (!releases || releases.length === 0)
                   ? '正在同步 GitHub Release 最新发布产物...'
                   : isInstalled
-                  ? isManaged
+                  ? isExploreMode
+                    ? '状态：已安装就绪'
+                    : isManaged
                     ? '状态：已安装就绪 (Z-Store 已纳管)'
                     : '状态：系统已安装就绪 (未纳入当前管理)'
                   : selectedAssetName
@@ -884,7 +892,32 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
 
               {isInstalled ? (
                 <>
-                  {!isManaged ? (
+                  {isExploreMode ? (
+                    // 发现与探索模式：纯粹的应用商店体验，不展示任何纳管相关操作
+                    <>
+                      {onUninstall && (
+                        <button
+                          type="button"
+                          className={`btn-fluent ${confirmingUninstall ? 'btn-danger-confirm' : 'btn-danger'}`}
+                          style={{ fontSize: '13px' }}
+                          disabled={isUninstallingGlobal}
+                          onClick={async () => {
+                            if (isUninstallingGlobal) return;
+                            if (confirmingUninstall) {
+                              await onUninstall(app.id);
+                              setConfirmingUninstall(false);
+                            } else {
+                              setConfirmingUninstall(true);
+                              setTimeout(() => setConfirmingUninstall(false), 4000);
+                            }
+                          }}
+                          title="卸载：调起官方卸载向导或清理本地安装文件彻底卸载应用"
+                        >
+                          {isUninstallingGlobal ? '⏳ 正在卸载...' : confirmingUninstall ? '确认卸载？' : '🗑️ 卸载应用'}
+                        </button>
+                      )}
+                    </>
+                  ) : !isManaged ? (
                     <>
                       {onManageApp && (
                         <button
@@ -949,7 +982,9 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                           type="button"
                           className={`btn-fluent ${confirmingUninstall ? 'btn-danger-confirm' : 'btn-danger'}`}
                           style={{ fontSize: '13px' }}
+                          disabled={isUninstallingGlobal}
                           onClick={async () => {
+                            if (isUninstallingGlobal) return;
                             if (confirmingUninstall) {
                               await onUninstall(app.id);
                               setConfirmingUninstall(false);
@@ -961,7 +996,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                           }}
                           title="卸载：调起官方卸载向导或清理本地安装文件彻底卸载应用"
                         >
-                          {confirmingUninstall ? '确认卸载？' : '🗑️ 卸载应用'}
+                          {isUninstallingGlobal ? '⏳ 正在卸载...' : confirmingUninstall ? '确认卸载？' : '🗑️ 卸载应用'}
                         </button>
                       )}
                     </>
@@ -970,6 +1005,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   <button
                     type="button"
                     className="btn-fluent btn-primary"
+                    disabled={isUninstallingGlobal}
                     onClick={() => onLaunch(app.id)}
                     style={{ fontWeight: 600 }}
                   >

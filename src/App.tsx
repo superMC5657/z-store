@@ -24,6 +24,8 @@ export const App: React.FC = () => {
   const [apps, setApps] = useState<AppSummary[]>([]);
   const [installedApps, setInstalledApps] = useState<InstalledApp[]>([]);
   const [installingAppIds, setInstallingAppIds] = useState<Set<string>>(new Set());
+  const [uninstallingAppIds, setUninstallingAppIds] = useState<Set<string>>(new Set());
+  const [isRefreshingInstalled, setIsRefreshingInstalled] = useState(false);
   const [updates, setUpdates] = useState<UpdateItem[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [mirrors, setMirrors] = useState<MirrorNodeStatus[]>([]);
@@ -634,8 +636,9 @@ export const App: React.FC = () => {
     setInstallingAppIds((prev) => new Set(prev).add(id));
     try {
       const installed = await api.installApp(id, assetName, customInstallDir);
-      setInstalledApps((prev) => [...prev.filter((a) => a.app_id !== id), installed]);
-      showToast(`${installed.app_name} 安装完成并已成功纳管！`, 'success');
+      setInstalledApps((prev) => [...prev.filter((a) => a.app_id.toLowerCase() !== id.toLowerCase()), installed]);
+      setDetectedAppIds((prev) => new Set(prev).add(id).add(id.toLowerCase()));
+      showToast(`${installed.app_name} 安装完成！`, 'success');
     } catch (err) {
       const errStr = String(err);
       if (errStr.includes('取消') || errStr.includes('中止') || errStr.includes('1602')) {
@@ -674,6 +677,32 @@ export const App: React.FC = () => {
     showToast(`已成功取消对 ${appName} 的纳管（本机软件与数据保持完好）`, 'info');
   };
 
+  // Refresh Installed Apps (self-healing ghost app removal + rescan detected apps)
+  const handleRefreshInstalledApps = async () => {
+    setIsRefreshingInstalled(true);
+    try {
+      const [freshInstalled, freshDetected] = await Promise.all([
+        api.getInstalledApps(),
+        api.getDetectedInstalledAppIds(true),
+      ]);
+      setInstalledApps(freshInstalled);
+      setDetectedAppIds(new Set(freshDetected.map((id) => id.toLowerCase())));
+      showToast('已成功刷新已安装应用状态！', 'success');
+    } catch (err) {
+      console.error('Failed to refresh installed apps:', err);
+      showToast(`刷新失败: ${String(err)}`, 'error');
+    } finally {
+      setIsRefreshingInstalled(false);
+    }
+  };
+
+  // 当用户切换至「已安装应用」视图时，自动触发后台校验与幽灵应用自愈清理
+  useEffect(() => {
+    if (currentView === 'installed') {
+      api.getInstalledApps().then(setInstalledApps).catch(console.error);
+    }
+  }, [currentView]);
+
   // Manage App (import detected app into Z-Store management)
   const handleManageApp = async (id: string) => {
     try {
@@ -687,18 +716,39 @@ export const App: React.FC = () => {
     }
   };
 
-  // Uninstall App (trigger official uninstaller / clean files and remove from list)
+  // Uninstall App (trigger official uninstaller -> await completion -> verify removal -> remove from list)
   const handleUninstallApp = async (id: string) => {
-    const app = installedApps.find((a) => a.app_id === id);
-    const appName = app?.app_name || id;
-    await api.uninstallApp(id);
-    setInstalledApps((prev) => prev.filter((a) => a.app_id !== id));
-    setDetectedAppIds((prev) => {
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-    showToast(`已调用卸载程序并从列表中移除 ${appName}`, 'info');
+    if (uninstallingAppIds.has(id)) return;
+    const app = installedApps.find((a) => a.app_id.toLowerCase() === id.toLowerCase());
+    const appName = app?.app_name || apps.find((a) => a.id.toLowerCase() === id.toLowerCase())?.name || id;
+
+    setUninstallingAppIds((prev) => new Set(prev).add(id));
+    try {
+      await api.uninstallApp(id);
+      // 1. 精准增量从本地已纳管列表中移除
+      setInstalledApps((prev) => prev.filter((a) => a.app_id.toLowerCase() !== id.toLowerCase()));
+      // 2. 精准增量从系统探测列表中剔除（纯内存 O(1) 更新，完全无需触发全盘重扫）
+      setDetectedAppIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        next.delete(id.toLowerCase());
+        return next;
+      });
+      showToast(`已成功卸载 ${appName}！`, 'success');
+    } catch (err) {
+      const errStr = String(err);
+      if (errStr.includes('取消') || errStr.includes('中止') || errStr.includes('保留') || errStr.includes('1602')) {
+        showToast(`已取消卸载操作`, 'info');
+      } else {
+        showToast(`卸载未完成: ${errStr}`, 'error');
+      }
+    } finally {
+      setUninstallingAppIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
   };
 
   // Apply Single Update
@@ -840,13 +890,23 @@ export const App: React.FC = () => {
   };
 
   const handleImportSuccess = async (count: number) => {
-    showToast(`🎉 成功纳管 ${count} 款开源应用！正在检查最新版本...`, 'success');
-    const [loadedInstalled, loadedUpdates] = await Promise.all([
-      api.getInstalledApps(),
-      api.checkForUpdates(),
-    ]);
-    setInstalledApps(loadedInstalled);
-    setUpdates(loadedUpdates);
+    showToast(`🎉 成功纳管 ${count} 款开源应用！`, 'success');
+    try {
+      const loadedInstalled = await api.getInstalledApps();
+      setInstalledApps(loadedInstalled);
+    } catch (e) {
+      console.error('刷新已安装应用列表失败:', e);
+    }
+
+    // 后台静默执行远端更新检查，绝不阻塞本地已安装列表呈现与界面交互
+    api
+      .checkForUpdates(false)
+      .then((loadedUpdates) => {
+        setUpdates(loadedUpdates);
+      })
+      .catch((err) => {
+        console.warn('后台更新检查静默失败:', err);
+      });
   };
 
   const handleSelectMirror = async (mirrorId: string) => {
@@ -872,17 +932,26 @@ export const App: React.FC = () => {
 
 
   const installedIds = useMemo(() => {
-    const set = new Set(installedApps.map((a) => a.app_id));
+    const set = new Set<string>();
+    for (const a of installedApps) {
+      set.add(a.app_id);
+      set.add(a.app_id.toLowerCase());
+    }
     for (const id of detectedAppIds) {
       set.add(id);
+      set.add(id.toLowerCase());
     }
     return set;
   }, [installedApps, detectedAppIds]);
 
-  const managedIds = useMemo(
-    () => new Set(installedApps.map((a) => a.app_id)),
-    [installedApps]
-  );
+  const managedIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const a of installedApps) {
+      set.add(a.app_id);
+      set.add(a.app_id.toLowerCase());
+    }
+    return set;
+  }, [installedApps]);
 
   // 跳转设置页 GitHub 账号区（侧栏登录胶囊入口）
   const handleOpenAccountSettings = () => {
@@ -991,6 +1060,7 @@ export const App: React.FC = () => {
             <InstalledView
               installedApps={installedApps}
               apps={apps}
+              uninstallingAppIds={uninstallingAppIds}
               onOpenDetail={handleOpenDetail}
               onLaunch={handleLaunchApp}
               onUninstall={handleUninstallApp}
@@ -1001,6 +1071,8 @@ export const App: React.FC = () => {
               onToggleRuleFrozen={handleToggleRuleFrozen}
               onToggleRuleHidden={handleToggleRuleHidden}
               onOpenRules={() => setIsRulesModalOpen(true)}
+              onRefresh={handleRefreshInstalledApps}
+              isRefreshing={isRefreshingInstalled}
             />
           )}
 
@@ -1048,9 +1120,11 @@ export const App: React.FC = () => {
           app={selectedApp}
           isInstalled={installedIds.has(selectedApp.id)}
           isManaged={managedIds.has(selectedApp.id)}
+          isExploreMode={currentView === 'home' || currentView === 'trends' || currentView === 'categories'}
           isFavorite={favoriteIds.has(selectedApp.id)}
           isWatched={watchedIds.has(selectedApp.id)}
           isInstallingGlobal={installingAppIds.has(selectedApp.id)}
+          isUninstallingGlobal={uninstallingAppIds.has(selectedApp.id)}
           oauthUser={oauthUser}
           onClose={() => {
             activeDetailIdRef.current = null;

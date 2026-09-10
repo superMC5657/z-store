@@ -296,7 +296,6 @@ impl AppScanner {
                                                     );
                                                 }
                                             }
-                                            return Some(p.to_string_lossy().to_string());
                                         }
                                     }
                                     for dir_name in &config.install_dirs {
@@ -310,7 +309,6 @@ impl AppScanner {
                                                     );
                                                 }
                                             }
-                                            return Some(p.to_string_lossy().to_string());
                                         }
                                     }
                                 }
@@ -614,7 +612,6 @@ impl AppScanner {
                                                 );
                                             }
                                         }
-                                        return Some(p.to_string_lossy().to_string());
                                     }
                                 }
                             }

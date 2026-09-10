@@ -1187,6 +1187,162 @@ body {
   -webkit-backdrop-filter: none;
 }
 
+/* Installed App Action Buttons (已安装应用卡片操作按钮统一样式规范) */
+.installed-actions-group {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 8px;
+}
+
+.installed-actions-group.compact {
+  justify-content: flex-end;
+  width: auto;
+  gap: 6px;
+}
+
+.installed-actions-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.installed-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.installed-actions-group.compact .installed-actions-right {
+  gap: 6px;
+}
+
+/* 统一动作按钮高度与盒模型 */
+.installed-action-btn {
+  height: 32px !important;
+  min-height: 32px !important;
+  max-height: 32px !important;
+  box-sizing: border-box !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  line-height: 1 !important;
+  padding: 0 14px !important;
+  border-radius: var(--radius-sm) !important;
+  white-space: nowrap !important;
+  flex-shrink: 0 !important;
+  margin: 0 !important;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.2s var(--ease-spring);
+  user-select: none;
+}
+
+.installed-action-btn:active {
+  transform: scale(0.96);
+}
+
+.installed-action-btn:disabled {
+  opacity: 0.55 !important;
+  cursor: not-allowed !important;
+  pointer-events: none;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+.installed-action-btn.btn-loading {
+  opacity: 0.85 !important;
+  cursor: wait !important;
+  pointer-events: none;
+  background: rgba(239, 68, 68, 0.12) !important;
+  color: #f87171 !important;
+  border: 1px solid rgba(239, 68, 68, 0.25) !important;
+}
+
+.installed-action-btn.compact {
+  height: 28px !important;
+  min-height: 28px !important;
+  max-height: 28px !important;
+  padding: 0 10px !important;
+  font-size: 11.5px !important;
+}
+
+/* 更多操作按钮等宽高固定正方形 */
+.installed-action-btn.btn-icon-only {
+  width: 32px !important;
+  min-width: 32px !important;
+  max-width: 32px !important;
+  padding: 0 !important;
+}
+
+.installed-action-btn.btn-icon-only.compact {
+  width: 28px !important;
+  min-width: 28px !important;
+  max-width: 28px !important;
+  padding: 0 !important;
+}
+
+/* 次级/危险按钮弱化样式：默认低对比度，hover 警示红 */
+.btn-installed-uninstall {
+  background: transparent !important;
+  color: var(--text-tertiary) !important;
+  border: 1px solid transparent !important;
+  padding: 0 10px !important;
+  transition: all 0.2s var(--ease-smooth) !important;
+}
+
+.btn-installed-uninstall:hover {
+  background: rgba(239, 68, 68, 0.12) !important;
+  color: #ef4444 !important;
+  border-color: rgba(239, 68, 68, 0.28) !important;
+  transform: translateY(-1px);
+}
+
+.btn-installed-uninstall.compact {
+  padding: 0 8px !important;
+}
+
+/* 确认二次操作状态按钮 */
+.installed-action-btn.btn-confirm-danger {
+  background: #ef4444 !important;
+  color: #ffffff !important;
+  border: 1px solid #dc2626 !important;
+  animation: pulseDanger 1.5s infinite;
+}
+
+.installed-action-btn.btn-confirm-warning {
+  background: #eab308 !important;
+  color: #000000 !important;
+  border: 1px solid #ca8a04 !important;
+}
+
+.installed-action-btn.btn-confirm-cancel {
+  background: var(--bg-acrylic) !important;
+  color: var(--text-secondary) !important;
+  border: 1px solid var(--border-acrylic) !important;
+  padding: 0 10px !important;
+}
+
+.installed-action-btn.btn-confirm-cancel:hover {
+  background: var(--bg-acrylic-hover) !important;
+  color: var(--text-primary) !important;
+}
+
+/* 启动按钮微光晕调优 */
+.installed-action-btn.btn-primary {
+  box-shadow: 0 2px 8px var(--brand-glow), inset 0 1px 0 rgba(255, 255, 255, 0.3) !important;
+  gap: 5px !important;
+}
+
+.installed-action-btn.btn-primary:hover {
+  box-shadow: 0 4px 14px var(--brand-glow), inset 0 1px 0 rgba(255, 255, 255, 0.45) !important;
+}
+
 /* Sections & Grid */
 .section-header {
   display: flex;
@@ -2740,11 +2896,22 @@ body {
   }
 }
 
+.flyout-divider {
+  height: 1px;
+  background: var(--border-acrylic);
+  margin: 4px 6px;
+  border: none;
+  flex-shrink: 0;
+}
+
+.flyout-item,
 .menu-item-fluent {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 10px;
   background: transparent;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
@@ -2752,17 +2919,100 @@ body {
   font-size: 12.5px;
   text-align: left;
   cursor: pointer;
-  transition: all 0.18s var(--ease-smooth);
+  transition: all 0.16s var(--ease-smooth);
+  user-select: none;
 }
 
+.flyout-item:hover,
 .menu-item-fluent:hover {
   background: var(--bg-acrylic-hover);
   border-color: var(--border-acrylic);
-  transform: translateX(2px);
+  transform: translateX(1.5px);
 }
 
+.flyout-item:active,
 .menu-item-fluent:active {
   transform: scale(0.98);
+}
+
+.flyout-item-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-acrylic);
+}
+
+.flyout-item:hover .flyout-item-icon {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+.flyout-item-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.flyout-item-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  line-height: 1.2;
+}
+
+.flyout-item-subtitle {
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.flyout-item-badge {
+  font-size: 9.5px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.flyout-item-badge.badge-blue {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+}
+
+.flyout-item-badge.badge-red {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+.flyout-item-danger {
+  color: #f87171 !important;
+}
+
+.flyout-item-danger:hover {
+  background: rgba(239, 68, 68, 0.12) !important;
+  border-color: rgba(239, 68, 68, 0.25) !important;
+}
+
+.flyout-item-danger .flyout-item-icon {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.25);
+  color: #f87171;
 }
 
 /* Skeleton & Loading States for Asynchronous Operations */

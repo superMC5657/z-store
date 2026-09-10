@@ -143,8 +143,8 @@ export const AppCard: React.FC<AppCardProps> = ({
               onQuickInstall(app.id);
             }
           }}
-          title={isInstalling ? '正在安装中...' : isInstalled ? '已安装 · 点击查看详情与管理操作' : `获取 ${app.name}`}
-          aria-label={isInstalling ? `${app.name} 正在安装中` : isInstalled ? `${app.name} 已安装，点击管理` : `获取 ${app.name}`}
+          title={isInstalling ? '正在安装中...' : isInstalled ? '已安装 · 点击查看详情' : `获取 ${app.name}`}
+          aria-label={isInstalling ? `${app.name} 正在安装中` : isInstalled ? `${app.name} 已安装，点击查看详情` : `获取 ${app.name}`}
           style={isInstalling ? { opacity: 0.8, cursor: 'not-allowed' } : undefined}
         >
           {isInstalling ? (

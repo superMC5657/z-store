@@ -71,6 +71,30 @@ pub fn import_matched_apps(
 static DETECTED_APP_IDS_CACHE: std::sync::RwLock<Option<(std::time::Instant, Vec<String>)>> =
     std::sync::RwLock::new(None);
 
+pub fn invalidate_detected_app_ids_cache() {
+    if let Ok(mut guard) = DETECTED_APP_IDS_CACHE.write() {
+        *guard = None;
+    }
+}
+
+pub fn remove_from_detected_cache(app_id: &str) {
+    if let Ok(mut guard) = DETECTED_APP_IDS_CACHE.write() {
+        if let Some((_, ref mut ids)) = *guard {
+            ids.retain(|id| !id.eq_ignore_ascii_case(app_id));
+        }
+    }
+}
+
+pub fn add_to_detected_cache(app_id: &str) {
+    if let Ok(mut guard) = DETECTED_APP_IDS_CACHE.write() {
+        if let Some((_, ref mut ids)) = *guard {
+            if !ids.iter().any(|id| id.eq_ignore_ascii_case(app_id)) {
+                ids.push(app_id.to_string());
+            }
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn get_detected_installed_app_ids(
     state: State<'_, AppState>,

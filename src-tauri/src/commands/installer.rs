@@ -10,6 +10,8 @@ pub fn get_installed_apps(state: State<'_, AppState>) -> Result<Vec<InstalledApp
     let mut apps = db.get_installed_apps().map_err(|e| e.to_string())?;
 
     let mut needs_db_update = Vec::new();
+    let mut ghost_app_ids = Vec::new();
+
     for app in &mut apps {
         if app.icon.is_none() {
             if let Some(item) = state.catalog.get_catalog_item(&app.app_id) {
@@ -35,6 +37,10 @@ pub fn get_installed_apps(state: State<'_, AppState>) -> Result<Vec<InstalledApp
                     );
                 }
                 needs_db_update.push(app.clone());
+            } else {
+                // 如果不仅原路径失效，且全盘嗅探均已找不到真实主程序
+                // 说明该应用已被用户通过系统/外部渠道彻底卸载，标记为幽灵应用进行自愈清理
+                ghost_app_ids.push(app.app_id.clone());
             }
         }
     }
@@ -42,6 +48,11 @@ pub fn get_installed_apps(state: State<'_, AppState>) -> Result<Vec<InstalledApp
     for updated in needs_db_update {
         let _ = db.save_installed_app(&updated);
     }
+    for ghost_id in &ghost_app_ids {
+        let _ = db.remove_installed_app(ghost_id);
+        crate::commands::scanner::remove_from_detected_cache(ghost_id);
+    }
+    apps.retain(|a| !ghost_app_ids.iter().any(|g| g.eq_ignore_ascii_case(&a.app_id)));
 
     Ok(apps)
 }
@@ -252,6 +263,9 @@ pub async fn install_app(
             .map_err(|e| e.to_string())?;
     }
 
+    // 精准将新安装的应用增量写入常驻缓存，避免全盘重新扫描
+    crate::commands::scanner::add_to_detected_cache(&detail.id);
+
     // 仅便携版 (PortableZip) 在此处同步清理临时安装包；MSI 与 SetupExe 已由后台守护线程在安装进程退出后安全移除
     if kind == crate::installer::AssetKind::PortableZip && dest_path.is_file() {
         let _ = std::fs::remove_file(&dest_path);
@@ -261,17 +275,64 @@ pub async fn install_app(
 }
 
 #[tauri::command]
-pub fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
+pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
     let installed_app = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         db.get_installed_apps()
             .map_err(|e| e.to_string())?
             .into_iter()
-            .find(|a| a.app_id == app_id)
+            .find(|a| a.app_id.eq_ignore_ascii_case(&app_id))
     };
 
-    if let Some(app) = installed_app {
-        // 动态探测与获取真实有效的卸载程序（注册表 UninstallString、卸载向导 exe 或开始菜单快捷方式）
+    let app = match installed_app {
+        Some(a) => a,
+        None => {
+            let cat = state
+                .catalog
+                .get_catalog_items()
+                .into_iter()
+                .find(|c| c.id.eq_ignore_ascii_case(&app_id))
+                .ok_or_else(|| format!("未找到 ID 为 {} 的应用安装记录", app_id))?;
+            let resolved_path = crate::scanner::AppScanner::resolve_installed_app_path(&cat.name, &cat.id, Some(&cat.repo));
+            InstalledApp {
+                app_id: cat.id.clone(),
+                app_name: cat.name.clone(),
+                version: cat.default_version.clone(),
+                installed_at: 0,
+                install_method: "system_import".to_string(),
+                install_path: resolved_path.unwrap_or_default(),
+                asset_name: "system_detected".to_string(),
+                asset_sha256: "system_verified".to_string(),
+                uninstall_command: None,
+                icon: Some(cat.icon),
+                icon_bg: Some(cat.icon_bg),
+            }
+        }
+    };
+
+    // 1. 便携版清理：移除安装目录与释放的文件
+    if app.install_method == "portable_zip" {
+        let path = std::path::Path::new(&app.install_path);
+        let dir = if path.is_file() {
+            path.parent()
+        } else if path.is_dir() {
+            Some(path)
+        } else {
+            None
+        };
+        if let Some(d) = dir {
+            let d_str = d.to_string_lossy().to_lowercase();
+            if !d_str.ends_with("program files")
+                && !d_str.ends_with("windows")
+                && !d_str.ends_with("users")
+                && !d_str.ends_with("desktop")
+                && d.exists()
+            {
+                let _ = std::fs::remove_dir_all(d);
+            }
+        }
+    } else {
+        // 2. 安装版 / 系统导入版：动态定位并调起官方卸载向导 EXE，挂起等待用户操作完成并核验
         let resolved_uninst = resolve_uninstaller_command(
             &app.app_name,
             &app.app_id,
@@ -280,84 +341,55 @@ pub fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result<bool,
         );
 
         if let Some(cmd_str) = resolved_uninst {
-            #[cfg(target_os = "windows")]
-            {
-                let lower = cmd_str.to_lowercase();
-                if lower.starts_with("msiexec") {
-                    let _ = std::process::Command::new("cmd")
-                        .args(["/C", &cmd_str])
-                        .spawn();
-                } else if cmd_str.ends_with(".lnk\"") || cmd_str.ends_with(".lnk") {
-                    let clean = cmd_str.trim_matches('"');
-                    let _ = std::process::Command::new("cmd")
-                        .args(["/C", "start", "", clean])
-                        .spawn();
-                } else {
-                    let _ = std::process::Command::new("cmd")
-                        .args(["/C", &cmd_str])
-                        .spawn();
-                }
-            }
-            #[cfg(not(target_os = "windows"))]
-            {
-                let _ = std::process::Command::new("sh")
-                    .args(["-c", &cmd_str])
-                    .spawn();
-            }
+            crate::installer::executor::execute_uninstallation(
+                &cmd_str,
+                &app.install_path,
+                &app.app_name,
+            )
+            .await?;
+        } else {
+            return Err(format!(
+                "未在系统中检测到 {} 的官方卸载程序。如需从 Z-Store 中移除管理记录，请在卡片更多操作中选择「取消纳管」",
+                app.app_name
+            ));
         }
-
-        // 便携版清理：移除安装目录与释放的文件
-        if app.install_method == "portable_zip" {
-            let path = std::path::Path::new(&app.install_path);
-            let dir = if path.is_file() {
-                path.parent()
-            } else if path.is_dir() {
-                Some(path)
-            } else {
-                None
-            };
-            if let Some(d) = dir {
-                let d_str = d.to_string_lossy().to_lowercase();
-                if !d_str.ends_with("program files")
-                    && !d_str.ends_with("windows")
-                    && !d_str.ends_with("users")
-                    && !d_str.ends_with("desktop")
-                    && d.exists()
-                {
-                    let _ = std::fs::remove_dir_all(d);
-                }
-            }
-        }
-
-        // 默认便携缓存目录清理
-        let app_dir = crate::installer::dirs_or_fallback(&app.app_id);
-        if app_dir.exists() {
-            let _ = std::fs::remove_dir_all(&app_dir);
-        }
-
-        // 快捷方式清理
-        #[cfg(target_os = "windows")]
-        {
-            let desktop = std::env::var("USERPROFILE")
-                .map(|p| std::path::PathBuf::from(p).join("Desktop"))
-                .unwrap_or_else(|_| std::path::PathBuf::from("C:\\Users\\Public\\Desktop"));
-            let lnk = desktop.join(format!("{}.lnk", app.app_name));
-            if lnk.exists() {
-                let _ = std::fs::remove_file(lnk);
-            }
-        }
-
-        let db = state.db.lock().map_err(|e| e.to_string())?;
-        db.remove_installed_app(&app_id).map_err(|e| e.to_string())
-    } else {
-        Ok(false)
     }
+
+    // 3. 默认便携缓存目录清理
+    let app_dir = crate::installer::dirs_or_fallback(&app.app_id);
+    if app_dir.exists() {
+        let _ = std::fs::remove_dir_all(&app_dir);
+    }
+
+    // 4. 快捷方式清理
+    #[cfg(target_os = "windows")]
+    {
+        let desktop = std::env::var("USERPROFILE")
+            .map(|p| std::path::PathBuf::from(p).join("Desktop"))
+            .unwrap_or_else(|_| std::path::PathBuf::from("C:\\Users\\Public\\Desktop"));
+        let lnk = desktop.join(format!("{}.lnk", app.app_name));
+        if lnk.exists() {
+            let _ = std::fs::remove_file(lnk);
+        }
+    }
+
+    // 5. 卸载向导操作或目录清理核验通过后，才正式从 SQLite 数据库移除条例
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let res = db.remove_installed_app(&app_id).map_err(|e| e.to_string());
+
+    // 6. 精准从缓存中移除该应用，避免产生全量扫描开销
+    crate::commands::scanner::remove_from_detected_cache(&app_id);
+
+    res
 }
 
 #[tauri::command]
 pub fn unmanage_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.remove_installed_app(&app_id).map_err(|e| e.to_string())
+    let res = db.remove_installed_app(&app_id).map_err(|e| e.to_string());
+    // 取消纳管后，本机依然存在该软件，因此保持/添加到已探测缓存中
+    crate::commands::scanner::add_to_detected_cache(&app_id);
+    res
 }
 
 #[tauri::command]

@@ -102,3 +102,19 @@ fn test_expand_env_path_and_portable_dir() {
     let whitespace_dl = expand_env_path("   ");
     assert_eq!(whitespace_dl, def_dl);
 }
+
+#[test]
+fn test_parse_uninstaller_command() {
+    let (exe, args) = parse_uninstaller_command(r#""E:\Program Files\PicGo\Uninstall PicGo.exe" /allusers /S"#);
+    assert_eq!(exe, r#"E:\Program Files\PicGo\Uninstall PicGo.exe"#);
+    assert_eq!(args, vec!["/allusers", "/S"]);
+
+    let (exe2, args2) = parse_uninstaller_command(r#"C:\Tools\uninstall.exe"#);
+    assert_eq!(exe2, r#"C:\Tools\uninstall.exe"#);
+    assert!(args2.is_empty());
+
+    let (exe3, args3) = parse_uninstaller_command(r#""C:\Program Files (x86)\App\unins000.exe""#);
+    assert_eq!(exe3, r#"C:\Program Files (x86)\App\unins000.exe"#);
+    assert!(args3.is_empty());
+}
+

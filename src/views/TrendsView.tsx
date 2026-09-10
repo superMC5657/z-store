@@ -177,7 +177,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                     e.stopPropagation();
                     onOpenDetail(app.id);
                   }}
-                  title="已安装 · 点击查看详情与管理操作"
+                  title="已安装 · 点击查看详情"
                   aria-label={`${app.name} 已安装，点击查看详情`}
                 >
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '4px' }}>

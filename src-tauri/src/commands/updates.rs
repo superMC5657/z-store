@@ -1,9 +1,191 @@
 use crate::models::{UpdateItem, UpdateRule, WatchUpdatedPayload, WatchedApp};
 use crate::AppState;
-use super::catalog::{get_app_details, get_app_details_impl};
 use super::installer::get_installed_apps;
 use std::collections::HashMap;
 use tauri::State;
+
+/// 轻量级获取应用最新版本号与更新说明（专为更新检查与关注动态设计）
+/// 坚决不拉取 README.md、不拉取仓库详情与 Stars、不拉取 z-store.toml、不拉取校验和文件
+/// 优先利用本地 ETag 缓存返回 304 Not Modified，将请求量与延迟降到最低
+pub async fn fetch_app_latest_version_lightweight(
+    state: &AppState,
+    app_id: &str,
+    force_refresh: Option<bool>,
+) -> Result<(String, String), String> {
+    let is_force = force_refresh.unwrap_or(false);
+    let clean_id = app_id.trim().to_lowercase();
+
+    let ttl_seconds = {
+        if let Ok(db) = state.db.lock() {
+            (db.get_detail_cache_ttl_minutes() as i64) * 60
+        } else {
+            crate::db::DETAIL_CACHE_TTL_DEFAULT_MINUTES * 60
+        }
+    };
+
+    // 1. 若非强制刷新，优先从 SQLite 本地缓存读取
+    if !is_force {
+        let cached_opt = state.db.lock().ok().and_then(|db| {
+            db.get_cached_app_detail(&clean_id, Some(ttl_seconds))
+                .ok()
+                .flatten()
+        });
+        if let Some(cached) = cached_opt {
+            if !cached.latest_version.trim().is_empty() {
+                return Ok((cached.latest_version, cached.changelog));
+            }
+        }
+    }
+
+    // 2. 多源支持 (Codeberg, Gitea 等)
+    if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&clean_id) {
+        if coord.forge != crate::forge::ForgeType::GitHub {
+            let host_token = if let Ok(db) = state.db.lock() {
+                db.get_host_token(&coord.host).ok().flatten()
+            } else {
+                None
+            };
+            let release_info =
+                crate::forge::ForgeRegistry::fetch_latest_release(&coord, host_token.as_deref())
+                    .await?;
+            return Ok((release_info.tag_name, release_info.body.unwrap_or_default()));
+        }
+    }
+
+    // 3. GitHub Releases 极速单请求拉取
+    let coords = match state.catalog.get_repo_coordinates(&clean_id) {
+        Ok(c) => c,
+        Err(_) => {
+            if let Ok(db) = state.db.lock() {
+                if let Ok(Some(fallback)) = db.get_cached_app_detail_fallback(&clean_id) {
+                    return Ok((fallback.latest_version, fallback.changelog));
+                }
+            }
+            return Err(format!("未识别的应用坐标: {}", app_id));
+        }
+    };
+
+    let ep = format!(
+        "https://api.github.com/repos/{}/{}/releases/latest",
+        coords.owner, coords.repo
+    );
+
+    let (cached_etag, cached_payload) = if is_force {
+        (None, None)
+    } else {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let etag = db.get_etag(&ep).ok().flatten();
+        let payload = db.get_cached_payload(&ep).ok().flatten();
+        (etag, payload)
+    };
+
+    let token = super::resolve_active_github_token(state);
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        reqwest::header::USER_AGENT,
+        reqwest::header::HeaderValue::from_static("ZStore-Client/0.1.0"),
+    );
+    headers.insert(
+        reqwest::header::ACCEPT,
+        reqwest::header::HeaderValue::from_static("application/vnd.github.v3+json"),
+    );
+
+    if let Some(tok) = token.as_deref() {
+        if !tok.trim().is_empty() {
+            if let Ok(val) = reqwest::header::HeaderValue::from_str(&format!("token {}", tok.trim()))
+            {
+                headers.insert(reqwest::header::AUTHORIZATION, val);
+            }
+        }
+    }
+
+    if let Some(ref etag) = cached_etag {
+        if let Ok(val) = reqwest::header::HeaderValue::from_str(etag) {
+            headers.insert(reqwest::header::IF_NONE_MATCH, val);
+        }
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(6))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+
+    let req = client.get(&ep).headers(headers).send();
+    let resp = match tokio::time::timeout(std::time::Duration::from_secs(6), req).await {
+        Ok(r) => r.ok(),
+        Err(_) => None,
+    };
+
+    if let Some(ref res) = resp {
+        crate::notify_rate_limit("github.com", res.headers());
+    }
+
+    match resp {
+        Some(res) if res.status() == reqwest::StatusCode::NOT_MODIFIED => {
+            // 304 Not Modified：远端 Release 完全未更新，零配额消耗
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64;
+            if let Ok(db) = state.db.lock() {
+                let _ = db.touch_cached_app_detail(&clean_id, now);
+            }
+            if let Some(ref payload) = cached_payload {
+                if let Ok(parsed) =
+                    serde_json::from_str::<crate::github::models::GitHubReleaseResponse>(payload)
+                {
+                    return Ok((parsed.tag_name, parsed.body.unwrap_or_default()));
+                }
+            }
+            if let Ok(db) = state.db.lock() {
+                if let Ok(Some(fallback)) = db.get_cached_app_detail_fallback(&clean_id) {
+                    return Ok((fallback.latest_version, fallback.changelog));
+                }
+            }
+            if let Some(cat) = state.catalog.get_catalog_item(&clean_id) {
+                return Ok((cat.default_version, String::new()));
+            }
+            Err("304 响应但未能提取到有效版本信息".to_string())
+        }
+        Some(res) if res.status().is_success() => {
+            let new_etag = res
+                .headers()
+                .get("etag")
+                .and_then(|h| h.to_str().ok())
+                .map(|s| s.to_string());
+
+            let payload_text = res.text().await.map_err(|e| e.to_string())?;
+            let parsed: crate::github::models::GitHubReleaseResponse =
+                serde_json::from_str(&payload_text)
+                    .map_err(|e| format!("解析 GitHub Release 失败: {}", e))?;
+
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64;
+
+            if let Ok(db) = state.db.lock() {
+                if let Some(etag_val) = new_etag {
+                    let _ = db.save_etag(&ep, &etag_val, &payload_text, now);
+                }
+            }
+
+            Ok((parsed.tag_name, parsed.body.unwrap_or_default()))
+        }
+        _ => {
+            // 网络故障、超时或被 403 限流，优雅降级：读取本地已有缓存或 catalog
+            if let Ok(db) = state.db.lock() {
+                if let Ok(Some(fallback)) = db.get_cached_app_detail_fallback(&clean_id) {
+                    return Ok((fallback.latest_version, fallback.changelog));
+                }
+            }
+            if let Some(cat) = state.catalog.get_catalog_item(&clean_id) {
+                return Ok((cat.default_version, String::new()));
+            }
+            Err("检查更新网络不可达且无本地缓存".to_string())
+        }
+    }
+}
 
 /// 严格比较两个版本号，仅当 latest 严格高于 current 时返回 true（避免 4 段式 MSI 误报及降级风险）
 pub fn is_version_newer(current: &str, latest: &str) -> bool {
@@ -87,19 +269,21 @@ pub async fn check_for_updates(
             }
         }
 
-        if let Ok(detail) = get_app_details(state.clone(), app.app_id.clone(), force_refresh).await {
-            if should_include_update(&app.version, &detail.latest_version, rule_opt) {
+        if let Ok((latest_version, changelog)) =
+            fetch_app_latest_version_lightweight(&state, &app.app_id, force_refresh).await
+        {
+            if should_include_update(&app.version, &latest_version, rule_opt) {
                 let (icon, icon_bg) = if let Some(item) = state.catalog.get_catalog_item(&app.app_id) {
                     (Some(item.icon), Some(item.icon_bg))
                 } else {
-                    (Some(detail.icon.clone()), Some(detail.icon_bg.clone()))
+                    (app.icon.clone(), app.icon_bg.clone())
                 };
                 updates.push(UpdateItem {
                     app_id: app.app_id,
                     app_name: app.app_name,
                     current_version: app.version,
-                    latest_version: detail.latest_version,
-                    changelog: detail.changelog,
+                    latest_version,
+                    changelog,
                     icon,
                     icon_bg,
                 });
@@ -144,11 +328,12 @@ async fn notify_watched_updates(
                 continue;
             }
         }
-        let detail = match get_app_details_impl(state, w.app_id.clone(), force_refresh).await {
-            Ok(d) => d,
-            Err(_) => continue,
-        };
-        let latest = detail.latest_version.trim().to_string();
+        let (latest, _) =
+            match fetch_app_latest_version_lightweight(state, &w.app_id, force_refresh).await {
+                Ok(res) => res,
+                Err(_) => continue,
+            };
+        let latest = latest.trim().to_string();
         if latest.is_empty() {
             continue;
         }

@@ -266,6 +266,19 @@ pub fn resolve_uninstaller_command(
         };
 
         if let Some(dir) = base_dir {
+            // 3.1 优先扫描目录中所有以 uninstall 或 unins 开头的程序 (如 "Uninstall PicGo.exe")
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_file() {
+                        let fname = path.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+                        if (fname.starts_with("uninstall") || fname.starts_with("unins")) && fname.ends_with(".exe") {
+                            return Some(format!("\"{}\"", path.to_string_lossy()));
+                        }
+                    }
+                }
+            }
+
             let candidates = [
                 "uninstall.exe",
                 "Uninstall.exe",
