@@ -1,18 +1,38 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { marked } from 'marked';
+import {
+  User,
+  Bug,
+  Monitor,
+  Clock,
+  AlertTriangle,
+  Package,
+  Trash2,
+  PlusCircle,
+  RotateCcw,
+  Play,
+  CheckCircle2,
+  Shield,
+  ShieldCheck,
+  Tag,
+  KeyRound,
+  ChevronUp,
+  ChevronDown,
+} from 'lucide-react';
 import { AppDetail, DownloadProgressPayload, OAuthUser, ReleaseAsset } from '../types';
 import { api } from '../services/api';
 import { AppIcon } from './AppIcon';
 import { sanitizeHtml } from '../utils/sanitize';
 import { notifyToast } from '../utils/notify';
 import { formatBytes } from '../utils/appHelper';
+import { PlatformIcon, ForgeIcon } from './icons/PlatformIcons';
 
-const PLATFORM_META: Record<string, { label: string; icon: string }> = {
-  windows: { label: 'Windows', icon: '🪟' },
-  android: { label: 'Android', icon: '🤖' },
-  macos: { label: 'macOS', icon: '🍎' },
-  linux: { label: 'Linux', icon: '🐧' },
-  ios: { label: 'iOS', icon: '📱' },
+const PLATFORM_META: Record<string, { label: string }> = {
+  windows: { label: 'Windows' },
+  android: { label: 'Android' },
+  macos: { label: 'macOS' },
+  linux: { label: 'Linux' },
+  ios: { label: 'iOS' },
 };
 
 interface AppDetailModalProps {
@@ -50,11 +70,11 @@ function preprocessGitHubAlerts(markdown: string): string {
       .join('\n')
       .trim();
     const titles: Record<string, string> = {
-      note: 'ℹ️ 说明 (Note)',
-      tip: '💡 提示 (Tip)',
-      important: '📌 要点 (Important)',
-      warning: '⚠️ 警告 (Warning)',
-      caution: '🛑 注意 (Caution)',
+      note: '说明 (Note)',
+      tip: '提示 (Tip)',
+      important: '要点 (Important)',
+      warning: '警告 (Warning)',
+      caution: '注意 (Caution)',
     };
     const titleText = titles[alertType] || type;
     return `\n<div class="markdown-alert markdown-alert-${alertType}">\n<div class="markdown-alert-title">${titleText}</div>\n\n${cleanBody}\n\n</div>\n`;
@@ -162,7 +182,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
     try {
       const ok = await api.verifyOwnership(app.id, code);
       if (ok) {
-        notifyToast(`所有权验证通过，${app.name} 已颁发认证勋章 🛡️`, 'success');
+        notifyToast(`所有权验证通过，${app.name} 已颁发认证勋章`, 'success');
         setVerifyCode('');
         setShowVerifySection(false);
         if (onRefresh) await onRefresh(app.id);
@@ -602,7 +622,8 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   }}
                   title={`查看 ${app.owner} 开发者全景与开源项目`}
                 >
-                  👤 {app.owner}
+                  <User size={12} />
+                  <span>{app.owner}</span>
                 </button>
               ) : (
                 <span>{app.owner}</span>
@@ -626,10 +647,11 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                 onClick={handleOpenIssueFeedback}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{ fontWeight: 600, color: 'var(--brand-primary)', textDecoration: 'none' }}
+                style={{ fontWeight: 600, color: 'var(--brand-primary)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                 title="前往开源仓库提交问题反馈（自动预填版本信息）"
               >
-                🐞 问题反馈
+                <Bug size={12} />
+                <span>问题反馈</span>
               </a>
             </div>
             <div className="modal-tags">
@@ -639,10 +661,17 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               {app.platforms && app.platforms.length > 0 && (
                 <span
                   className="modal-tag"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                   title={`支持设备: ${app.platforms.map((p) => PLATFORM_META[p.toLowerCase()]?.label || p).join(', ')}`}
                 >
-                  💻 支持端: {app.platforms.map((p) => `${PLATFORM_META[p.toLowerCase()]?.icon || ''}${PLATFORM_META[p.toLowerCase()]?.label || p}`).join(' · ')}
+                  <Monitor size={12} />
+                  <span>支持端:</span>
+                  {app.platforms.map((p) => (
+                    <span key={p} style={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
+                      <PlatformIcon platform={p} size={11} />
+                      <span>{PLATFORM_META[p.toLowerCase()]?.label || p}</span>
+                    </span>
+                  ))}
                 </span>
               )}
               {app.forge && app.forge !== 'github' && (
@@ -653,9 +682,13 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                     color: 'var(--brand-primary)',
                     border: '1px solid var(--border-nav-active)',
                     fontWeight: 600,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
                   }}
                 >
-                  {app.forge === 'codeberg' ? '🏔️ Codeberg 源' : app.forge === 'gitea' ? '🍵 Gitea 源' : `🌐 ${app.forge_host || app.forge}`}
+                  <ForgeIcon forge={app.forge} size={12} />
+                  <span>{app.forge === 'codeberg' ? 'Codeberg 源' : app.forge === 'gitea' ? 'Gitea 源' : `${app.forge_host || app.forge}`}</span>
                 </span>
               )}
               {primaryAsset && (
@@ -669,10 +702,14 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                     color: '#f59e0b',
                     border: '1px solid rgba(245, 158, 11, 0.3)',
                     fontWeight: 600,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
                   }}
                   title="网络不可用或请求受限，当前正在呈现本地历史数据"
                 >
-                  ⚠️ 离线缓存
+                  <AlertTriangle size={11} />
+                  <span>离线缓存</span>
                 </span>
               )}
 
@@ -691,8 +728,10 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                 <span
                   className="modal-tag modal-tag-error tag-spring-in"
                   title={`远端拉取失败: ${refreshErrorNotice}`}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                 >
-                  ⚠️ 同步异常，请稍后重试
+                  <AlertTriangle size={11} />
+                  <span>同步异常，请稍后重试</span>
                 </span>
               ) : effectiveRefreshing ? (
                 <span className="modal-tag modal-tag-refreshing tag-spring-in">
@@ -704,10 +743,11 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   {app.cached_at && !app.is_stale_fallback && (
                     <span
                       className="modal-tag"
-                      style={{ fontSize: '11px', opacity: 0.8 }}
+                      style={{ fontSize: '11px', opacity: 0.8, display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                       title={`最后缓存时间：${new Date(app.cached_at * 1000).toLocaleString()}`}
                     >
-                      🕒 {new Date(app.cached_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} 缓存
+                      <Clock size={11} />
+                      <span>{new Date(app.cached_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} 缓存</span>
                     </span>
                   )}
                   {onRefresh && (
@@ -740,7 +780,8 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               title={app.is_verified ? '仓库校验码已验证 · 收录库认证' : undefined}
             >
               <div className="settings-group-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span>📦 收录库元数据显示</span>
+                <Package size={14} style={{ color: 'var(--brand-primary)' }} />
+                <span>收录库元数据显示</span>
                 {app.is_verified && (
                   <span
                     style={{
@@ -757,7 +798,8 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                     }}
                     title="仓库校验码已验证 · 收录库认证"
                   >
-                    🛡️ 所有权勋章
+                    <ShieldCheck size={11} />
+                    <span>所有权勋章</span>
                   </span>
                 )}
               </div>
@@ -774,8 +816,9 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               {Array.isArray(app.store_meta.aliases) && app.store_meta.aliases.length > 0 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
                   {app.store_meta.aliases.map((alias) => (
-                    <span key={alias} className="modal-tag" title={`中文别名：${alias}`}>
-                      🏷️ {alias}
+                    <span key={alias} className="modal-tag" title={`中文别名：${alias}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      <Tag size={11} />
+                      <span>{alias}</span>
                     </span>
                   ))}
                 </div>
@@ -855,13 +898,43 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               {downloadProgress && (
                 <div style={{ marginTop: '8px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)' }}>
-                    <span>
-                      {downloadProgress.state === 'downloading' && (downloadProgress.message || '⚡ 正在下载...')}
-                      {downloadProgress.state === 'verifying' && '🛡️ 正在进行 SHA-256 完整性比对...'}
-                      {downloadProgress.state === 'verified' && '✅ 哈希匹配！官方防篡改认证通过'}
-                      {downloadProgress.state === 'completed_unverified' && '✅ 下载就绪，准备调用安装'}
-                      {downloadProgress.state === 'tampered' && '❌ 警告：文件篡改已拦截'}
-                      {downloadProgress.state === 'error' && `⚠️ ${downloadProgress.message || '下载异常中断'}`}
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      {downloadProgress.state === 'downloading' && (
+                        <>
+                          <RotateCcw size={12} className="icon-spin" style={{ color: 'var(--brand-primary)' }} />
+                          <span>{downloadProgress.message || '正在下载...'}</span>
+                        </>
+                      )}
+                      {downloadProgress.state === 'verifying' && (
+                        <>
+                          <Shield size={12} style={{ color: 'var(--brand-primary)' }} />
+                          <span>正在校验 SHA-256 完整性...</span>
+                        </>
+                      )}
+                      {downloadProgress.state === 'verified' && (
+                        <>
+                          <CheckCircle2 size={12} style={{ color: '#10b981' }} />
+                          <span>哈希匹配，防篡改校验通过</span>
+                        </>
+                      )}
+                      {downloadProgress.state === 'completed_unverified' && (
+                        <>
+                          <CheckCircle2 size={12} style={{ color: '#10b981' }} />
+                          <span>下载就绪，准备调用安装</span>
+                        </>
+                      )}
+                      {downloadProgress.state === 'tampered' && (
+                        <>
+                          <AlertTriangle size={12} style={{ color: '#ef4444' }} />
+                          <span>警告：文件篡改已拦截</span>
+                        </>
+                      )}
+                      {downloadProgress.state === 'error' && (
+                        <>
+                          <AlertTriangle size={12} style={{ color: '#ef4444' }} />
+                          <span>{downloadProgress.message || '下载异常中断'}</span>
+                        </>
+                      )}
                     </span>
                     <span>
                       {downloadProgress.state === 'error'
@@ -874,7 +947,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                       className={`install-progress-bar ${downloadProgress.state === 'error' ? 'install-progress-bar-error' : ''}`}
                       style={{
                         width: downloadProgress.total_bytes
-                          ? `${Math.min(100, (downloadProgress.downloaded_bytes / downloadProgress.total_bytes) * 100)}%`
+                           ? `${Math.min(100, (downloadProgress.downloaded_bytes / downloadProgress.total_bytes) * 100)}%`
                           : '75%',
                         backgroundColor: downloadProgress.state === 'error' ? '#ef4444' : undefined,
                       }}
@@ -890,7 +963,8 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
 
               {installError && !downloadProgress && (
                 <div style={{ marginTop: '8px', fontSize: '12px', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span>⚠️ 安装异常：{installError}</span>
+                  <AlertTriangle size={12} />
+                  <span>安装异常：{installError}</span>
                 </div>
               )}
             </div>
@@ -910,7 +984,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               {isInstalled ? (
                 <>
                   {isExploreMode ? (
-                    // 发现与探索模式：纯粹的应用商店体验，不展示任何纳管相关操作
+                    // 发现与探索模式：纯粹的应用商店体验，不展示任何管理相关操作
                     <>
                       {onUninstall && (
                         <button
@@ -928,9 +1002,14 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                               setTimeout(() => setConfirmingUninstall(false), 4000);
                             }
                           }}
-                          title="卸载：调起官方卸载向导或清理本地安装文件彻底卸载应用"
+                          title="彻底卸载应用"
                         >
-                          {isUninstallingGlobal ? '⏳ 正在卸载...' : confirmingUninstall ? '确认卸载？' : '🗑️ 卸载应用'}
+                          {isUninstallingGlobal ? '正在卸载...' : confirmingUninstall ? '确认卸载？' : (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                              <Trash2 size={13} />
+                              <span>卸载应用</span>
+                            </span>
+                          )}
                         </button>
                       )}
                     </>
@@ -958,7 +1037,12 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                           }}
                           title="加入管理：将本地已安装应用加入列表，支持版本检测与快捷更新"
                         >
-                          {isManaging ? '正在添加...' : '📥 加入管理'}
+                          {isManaging ? '正在添加...' : (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                              <PlusCircle size={13} />
+                              <span>加入管理</span>
+                            </span>
+                          )}
                         </button>
                       )}
                       <button
@@ -968,7 +1052,10 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                         onClick={handleAction}
                         title="通过 Z-Store 重新下载安装最新版本或覆盖安装"
                       >
-                        ⚡ 覆盖/重装
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                          <RotateCcw size={13} />
+                          <span>覆盖/重装</span>
+                        </span>
                       </button>
                     </>
                   ) : (
@@ -1011,9 +1098,14 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                               setTimeout(() => setConfirmingUninstall(false), 4000);
                             }
                           }}
-                          title="卸载：调起官方卸载向导或清理本地安装文件彻底卸载应用"
+                          title="彻底卸载应用"
                         >
-                          {isUninstallingGlobal ? '⏳ 正在卸载...' : confirmingUninstall ? '确认卸载？' : '🗑️ 卸载应用'}
+                          {isUninstallingGlobal ? '正在卸载...' : confirmingUninstall ? '确认卸载？' : (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                              <Trash2 size={13} />
+                              <span>卸载应用</span>
+                            </span>
+                          )}
                         </button>
                       )}
                     </>
@@ -1024,9 +1116,10 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                     className="btn-fluent btn-primary"
                     disabled={isUninstallingGlobal}
                     onClick={() => onLaunch(app.id)}
-                    style={{ fontWeight: 600 }}
+                    style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '5px' }}
                   >
-                    🚀 打开应用
+                    <Play size={13} />
+                    <span>打开应用</span>
                   </button>
                 </>
               ) : (
@@ -1125,7 +1218,10 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
           {/* Trust Box */}
           <div className="trust-box">
             <div className="trust-row">
-              <span>🛡️ 供应链防篡改机制</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                <ShieldCheck size={13} />
+                <span>供应链防篡改机制</span>
+              </span>
               <span className="trust-hash">
                 {app.isLoading && !primaryAsset?.sha256
                   ? '官方动态流式校验 (准备中...)'
@@ -1135,7 +1231,10 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               </span>
             </div>
             <div className="trust-row">
-              <span>🔑 开发者认证指纹</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                <KeyRound size={13} />
+                <span>开发者认证指纹</span>
+              </span>
               <span className="trust-hash">
                 {app.signature_fingerprint || (app.isLoading ? '正在查询认证指纹...' : 'GitHub Release Verified')}
               </span>
@@ -1162,8 +1261,9 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                 }}
                 title="开源项目作者可通过在仓库中加入校验码认领并点亮官方蓝标勋章"
               >
-                <span>🛡️ {isOwner ? '您是该仓库所有者：点击认领并认证官方所有权' : '我是此项目作者？认领并认证仓库'}</span>
-                <span style={{ fontSize: '10px' }}>{showVerifySection ? '▲' : '▼'}</span>
+                <ShieldCheck size={12} />
+                <span>{isOwner ? '您是该仓库所有者：点击认领并认证官方所有权' : '我是此项目作者？认领并认证仓库'}</span>
+                {showVerifySection ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
               </button>
 
               {showVerifySection && (
@@ -1181,14 +1281,18 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   }}
                 >
                   <div className="settings-group-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '13px', fontWeight: 600 }}>🛡️ 开发者官方所有权认证</span>
+                    <span style={{ fontSize: '13px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      <ShieldCheck size={13} />
+                      <span>开发者官方所有权认证</span>
+                    </span>
                     <button
                       type="button"
                       className="btn-fluent btn-secondary"
-                      style={{ fontSize: '11px', padding: '2px 8px', border: 'none', background: 'transparent' }}
+                      style={{ fontSize: '11px', padding: '2px 8px', border: 'none', background: 'transparent', display: 'flex', alignItems: 'center', gap: '4px' }}
                       onClick={() => setShowVerifySection(false)}
                     >
-                      收起 ▲
+                      <span>收起</span>
+                      <ChevronUp size={11} />
                     </button>
                   </div>
                   <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', lineHeight: '1.6' }}>
@@ -1228,16 +1332,18 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
           <div className="readme-preview">
             {app.loadError ? (
               <div style={{ padding: '36px 20px', textAlign: 'center' }}>
-                <div style={{ fontSize: '15px', color: 'var(--status-warning)', marginBottom: '12px' }}>
-                  ⚠️ 获取详情失败: {app.loadError}
+                <div style={{ fontSize: '15px', color: 'var(--status-warning)', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                  <AlertTriangle size={15} />
+                  <span>获取详情失败: {app.loadError}</span>
                 </div>
                 {onRetry && (
                   <button
                     className="btn-fluent btn-secondary"
                     onClick={() => onRetry(app.id)}
-                    style={{ padding: '6px 18px', fontSize: '13px', cursor: 'pointer' }}
+                    style={{ padding: '6px 18px', fontSize: '13px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                   >
-                    🔄 重试加载
+                    <RotateCcw size={12} />
+                    <span>重试加载</span>
                   </button>
                 )}
               </div>

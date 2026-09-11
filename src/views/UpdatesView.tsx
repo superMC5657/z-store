@@ -1,5 +1,17 @@
 import React, { useState } from 'react';
 import { marked } from 'marked';
+import {
+  RotateCcw,
+  Shield,
+  Search,
+  BellOff,
+  SkipForward,
+  Lock,
+  EyeOff,
+  CheckCircle2,
+  Eye,
+  DownloadCloud,
+} from 'lucide-react';
 import { AppSummary, UpdateItem, UpdateCheckProgressPayload, WatchUpdatedPayload } from '../types';
 import { sanitizeHtml } from '../utils/sanitize';
 import { FlyoutMenu } from '../components/FlyoutMenu';
@@ -90,7 +102,10 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
     <div className="updates-view view-entrance">
       <div className="section-header">
         <div>
-          <h3 className="section-title" style={{ margin: 0 }}>🔄 应用更新 ({updates.length})</h3>
+          <h3 className="section-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <RotateCcw size={18} style={{ color: 'var(--brand-primary)' }} />
+            <span>应用更新 ({updates.length})</span>
+          </h3>
           <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: 'var(--text-tertiary)' }}>
             管理版本更新、跳过或锁定规则
           </p>
@@ -100,10 +115,11 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
             <button
               className="btn-fluent btn-secondary"
               onClick={onOpenRules}
-              style={{ fontSize: '13px', padding: '6px 14px' }}
+              style={{ fontSize: '13px', padding: '6px 14px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               title="管理更新规则"
             >
-              🛡️ 规则 {typeof updateRulesCount === 'number' && updateRulesCount > 0 ? `(${updateRulesCount})` : ''}
+              <Shield size={13} />
+              <span>规则 {typeof updateRulesCount === 'number' && updateRulesCount > 0 ? `(${updateRulesCount})` : ''}</span>
             </button>
           )}
           {onCheckUpdates && (
@@ -123,12 +139,12 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
             >
               {isChecking ? (
                 <>
-                  <span className="spinner-icon" style={{ width: '12px', height: '12px', borderWidth: '1.5px' }} />
+                  <RotateCcw size={13} className="icon-spin" />
                   <span>正在检查...</span>
                 </>
               ) : (
                 <>
-                  <span>🔍</span>
+                  <Search size={13} />
                   <span>检查更新</span>
                 </>
               )}
@@ -139,9 +155,10 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
               className="btn-fluent btn-primary"
               onClick={handleUpdateAll}
               disabled={isUpdatingAll || isChecking}
-              style={{ fontWeight: 600, fontSize: '13px' }}
+              style={{ fontWeight: 600, fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
             >
-              {isUpdatingAll ? '正在更新中...' : `全部更新 (${updates.length})`}
+              <DownloadCloud size={14} />
+              <span>{isUpdatingAll ? '正在更新中...' : `全部更新 (${updates.length})`}</span>
             </button>
           )}
         </div>
@@ -198,8 +215,9 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
             border: '1px solid var(--border-nav-active)',
           }}
         >
-          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--brand-primary)' }}>
-            👁 你关注的应用有新动态 ({watchNotifications.length})
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--brand-primary)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <Eye size={14} />
+            <span>关注的应用有新动态 ({watchNotifications.length})</span>
           </span>
           {watchNotifications.map((n) => {
             const iconInfo = resolveIconInfo(n.app_id, n.app_name || n.app_id);
@@ -266,10 +284,10 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
           </div>
         ) : (
           <div className="empty-state-card">
-            <div style={{ fontSize: '48px', marginBottom: '12px' }}>✨</div>
-            <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>太棒了！所有应用均已是最新版本</h4>
+            <CheckCircle2 size={44} strokeWidth={1.5} style={{ color: 'var(--status-success)', margin: '0 auto 12px' }} />
+            <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>所有应用均已是最新版本</h4>
             <p style={{ color: 'var(--text-tertiary)', fontSize: '13px', margin: 0 }}>
-              Z-Store 基于 ETag 304 条件缓存静默轮询 GitHub Releases，在有新发布时将第一时间在此通知您。
+              有新版本发布时将第一时间在此通知您。
             </p>
           </div>
         )
@@ -391,11 +409,11 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                               triggerAnimatedAction(item.app_id, () => onIgnoreUpdate(item.app_id));
                             }}
                           >
-                            <span>🚫</span>
+                            <BellOff size={14} style={{ color: 'var(--text-secondary)' }} />
                             <div>
-                              <div style={{ fontWeight: 600 }}>仅忽略本次提醒</div>
+                              <div style={{ fontWeight: 600 }}>忽略本次提醒</div>
                               <div style={{ fontSize: '10.5px', color: 'var(--text-tertiary)' }}>
-                                临时隐藏，下次刷新时恢复
+                                下次检查时恢复提醒
                               </div>
                             </div>
                           </button>
@@ -408,7 +426,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                               triggerAnimatedAction(item.app_id, () => onSkipVersion(item.app_id, item.latest_version));
                             }}
                           >
-                            <span>⏭️</span>
+                            <SkipForward size={14} style={{ color: 'var(--brand-primary)' }} />
                             <div>
                               <div style={{ fontWeight: 600 }}>跳过此版本</div>
                               <div style={{ fontSize: '10.5px', color: 'var(--text-tertiary)' }}>
@@ -425,9 +443,9 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                               triggerAnimatedAction(item.app_id, () => onFreezeVersion(item.app_id));
                             }}
                           >
-                            <span>🔒</span>
+                            <Lock size={14} style={{ color: '#60a5fa' }} />
                             <div>
-                              <div style={{ fontWeight: 600 }}>永久锁定当前版本</div>
+                              <div style={{ fontWeight: 600 }}>锁定当前版本</div>
                               <div style={{ fontSize: '10.5px', color: 'var(--text-tertiary)' }}>
                                 保留 {item.current_version}，忽略所有更新
                               </div>
@@ -443,11 +461,11 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                               triggerAnimatedAction(item.app_id, () => onHideApp(item.app_id));
                             }}
                           >
-                            <span>👁️‍🗨️</span>
+                            <EyeOff size={14} style={{ color: '#f87171' }} />
                             <div>
                               <div style={{ fontWeight: 600 }}>隐藏此应用</div>
                               <div style={{ fontSize: '10.5px', opacity: 0.85 }}>
-                                在更新中心与探索列表中隐藏
+                                在更新与探索列表中隐藏
                               </div>
                             </div>
                           </button>

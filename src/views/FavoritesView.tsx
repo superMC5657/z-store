@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Bookmark, Eye, Star, RotateCcw, Zap, BookmarkPlus } from 'lucide-react';
 import { AppCard } from '../components/AppCard';
 import { AppSummary, OAuthUser, StarredSyncResult } from '../types';
 import { api } from '../services/api';
@@ -102,24 +103,27 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <button
             className={`btn-fluent ${activeTab === 'local' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ padding: '7px 16px', fontSize: '13px', fontWeight: 600 }}
+            style={{ padding: '7px 16px', fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}
             onClick={() => setActiveTab('local')}
           >
-            🔖 本地收藏 ({favoriteIds.size})
+            <Bookmark size={14} />
+            <span>本地收藏 ({favoriteIds.size})</span>
           </button>
           <button
             className={`btn-fluent ${activeTab === 'watched' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ padding: '7px 16px', fontSize: '13px', fontWeight: 600 }}
+            style={{ padding: '7px 16px', fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}
             onClick={() => setActiveTab('watched')}
           >
-            👁 关注更新 ({watchedSet.size})
+            <Eye size={14} />
+            <span>关注更新 ({watchedSet.size})</span>
           </button>
           <button
             className={`btn-fluent ${activeTab === 'starred' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ padding: '7px 16px', fontSize: '13px', fontWeight: 600 }}
+            style={{ padding: '7px 16px', fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}
             onClick={() => setActiveTab('starred')}
           >
-            🌟 GitHub Star 同步
+            <Star size={14} />
+            <span>GitHub Star 同步</span>
           </button>
         </div>
         {activeTab !== 'starred' && (
@@ -145,7 +149,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
       {activeTab === 'local' ? (
         favoriteApps.length === 0 ? (
           <div className="empty-state-card">
-            <div style={{ fontSize: '48px', marginBottom: '12px' }}>⭐️</div>
+            <Bookmark size={44} strokeWidth={1.5} style={{ color: 'var(--text-tertiary)', marginBottom: '12px' }} />
             <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>
               {searchText.trim() ? '没有匹配的收藏应用' : '收藏夹还是空的'}
             </h4>
@@ -176,7 +180,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
       ) : activeTab === 'watched' ? (
         watchedApps.length === 0 ? (
           <div className="empty-state-card">
-            <div style={{ fontSize: '48px', marginBottom: '12px' }}>👁</div>
+            <Eye size={44} strokeWidth={1.5} style={{ color: 'var(--text-tertiary)', marginBottom: '12px' }} />
             <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>
               {searchText.trim() ? '没有匹配的关注应用' : watchedSet.size > 0 ? '关注的应用暂不在当前清单中' : '还没有关注任何应用'}
             </h4>
@@ -262,11 +266,12 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 />
                 <button
                   className="btn-fluent btn-primary"
-                  style={{ padding: '7px 16px', fontSize: '13px', fontWeight: 600 }}
+                  style={{ padding: '7px 16px', fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}
                   disabled={isSyncing}
                   onClick={handleSyncStarred}
                 >
-                  {isSyncing ? '正在拉取...' : '🔄 立即同步'}
+                  <RotateCcw size={13} className={isSyncing ? 'icon-spin' : ''} />
+                  <span>{isSyncing ? '正在拉取...' : '立即同步'}</span>
                 </button>
               </div>
             </div>
@@ -303,18 +308,20 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <button
                       className="btn-fluent btn-primary"
-                      style={{ fontSize: '12px', padding: '4px 12px' }}
+                      style={{ fontSize: '12px', padding: '4px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
                       disabled={isBatchInstalling || syncResult.catalog_matches.every((a) => installedIds.has(a.id))}
                       onClick={handleBatchInstallAll}
                     >
-                      {isBatchInstalling ? '⏳ 批量安装中...' : '⚡ 一键批量装机'}
+                      {isBatchInstalling ? <RotateCcw size={12} className="icon-spin" /> : <Zap size={12} />}
+                      <span>{isBatchInstalling ? '批量安装中...' : '一键批量装机'}</span>
                     </button>
                     <button
                       className="btn-fluent btn-secondary"
-                      style={{ fontSize: '12px', padding: '4px 12px' }}
+                      style={{ fontSize: '12px', padding: '4px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
                       onClick={handleAddAllToFavorites}
                     >
-                      📥 全部纳入收藏
+                      <BookmarkPlus size={12} />
+                      <span>全部纳入收藏</span>
                     </button>
                   </div>
                 )}
@@ -349,7 +356,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
             </div>
           ) : (
             <div className="empty-state-card">
-              <div style={{ fontSize: '48px', marginBottom: '12px' }}>🌟</div>
+              <Star size={44} strokeWidth={1.5} style={{ color: 'var(--text-tertiary)', marginBottom: '12px' }} />
               <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>尚未同步 Starred 仓库</h4>
               <p style={{ color: 'var(--text-tertiary)', fontSize: '13px', margin: 0 }}>
                 在上方输入 GitHub 用户名并点击「立即同步」，一站式接管您的 GitHub 开源装机清单。

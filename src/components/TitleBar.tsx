@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Clock, Activity, Info } from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
 import { api } from '../services/api';
 import { HostTokenEntry } from '../types';
@@ -290,7 +291,10 @@ export const TitleBar: React.FC<TitleBarProps> = ({
                   color: 'var(--text-tertiary)',
                 }}
               >
-                <span>🕒 搜索历史</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                  <Clock size={12} />
+                  <span>搜索历史</span>
+                </span>
                 <button
                   type="button"
                   onClick={handleClearHistory}
@@ -359,25 +363,25 @@ export const TitleBar: React.FC<TitleBarProps> = ({
           const limit = ghEntry?.rate_limit_limit ?? (ghEntry?.token ? 5000 : 60);
           const isConfigured = !!ghEntry?.token;
 
-          let pillDot = '🟢';
+          let dotClass = 'status-dot status-dot-success';
           let pillColor = '#10b981';
           let pillBg = 'rgba(16, 185, 129, 0.12)';
           let pillBorder = 'rgba(16, 185, 129, 0.28)';
           let pillText = hasRemaining ? `API ${remaining}/${limit}` : 'API 探测中...';
 
           if (!hasRemaining) {
-            pillDot = '⚪';
+            dotClass = 'status-dot status-dot-neutral';
             pillColor = 'var(--text-tertiary)';
             pillBg = 'rgba(255, 255, 255, 0.05)';
             pillBorder = 'var(--border-subtle)';
           } else if (remaining <= 0) {
-            pillDot = '🔴';
+            dotClass = 'status-dot status-dot-error';
             pillColor = '#ef4444';
             pillBg = 'rgba(239, 68, 68, 0.12)';
             pillBorder = 'rgba(239, 68, 68, 0.28)';
             pillText = 'API 耗尽';
           } else if (limit <= 100 ? remaining <= 10 : remaining <= 100) {
-            pillDot = '🟡';
+            dotClass = 'status-dot status-dot-warning';
             pillColor = '#f59e0b';
             pillBg = 'rgba(245, 158, 11, 0.12)';
             pillBorder = 'rgba(245, 158, 11, 0.28)';
@@ -415,7 +419,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
                 }}
                 title={isConfigured ? '已认证 5000/h 高额配额' : '点击前往设置中心登录 GitHub 账号'}
               >
-                <span>{pillDot}</span>
+                <span className={dotClass} />
                 <span>{pillText}</span>
               </button>
 
@@ -441,8 +445,9 @@ export const TitleBar: React.FC<TitleBarProps> = ({
                     pointerEvents: 'none',
                   }}
                 >
-                  <div style={{ fontWeight: 600, borderBottom: '1px solid var(--border-acrylic)', paddingBottom: '4px' }}>
-                    🌐 API 速率配额感知
+                  <div style={{ fontWeight: 600, borderBottom: '1px solid var(--border-acrylic)', paddingBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Activity size={13} />
+                    <span>API 速率配额感知</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
                     <span>GitHub:</span>
@@ -459,8 +464,9 @@ export const TitleBar: React.FC<TitleBarProps> = ({
                   <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
                     {isConfigured ? '已登录 GitHub 账号 (配额 5000/h)' : '未登录 GitHub 账号 (公共 IP 限流 60/h)'}
                   </div>
-                  <div style={{ fontSize: '11px', color: 'var(--brand-primary)', marginTop: '4px' }}>
-                    💡 点击前往设置中心管理 GitHub 账号
+                  <div style={{ fontSize: '11px', color: 'var(--brand-primary)', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <Info size={12} />
+                    <span>点击前往设置中心管理 GitHub 账号</span>
                   </div>
                 </div>
               )}

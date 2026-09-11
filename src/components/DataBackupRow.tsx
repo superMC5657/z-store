@@ -1,5 +1,5 @@
-// 用户数据手动备份行（FR-6.3）：导出 JSON / 导入合并，成功派发 zstore:data-imported。
 import React, { useRef, useState } from 'react';
+import { Upload, Download, RotateCcw, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { api } from '../services/api';
 import { notifyToast } from '../utils/notify';
 import { UserDataBackup } from '../types';
@@ -49,11 +49,11 @@ export const DataBackupRow: React.FC = () => {
       a.click();
       URL.revokeObjectURL(url);
       const msg = `已导出备份（收藏 ${favorites.length} · 关注 ${watched.length}）`;
-      showFeedback(`✅ ${msg}`, false);
+      showFeedback(msg, false);
       notifyToast(msg, 'success');
     } catch (e) {
       const msg = `导出备份失败: ${String(e)}`;
-      showFeedback(`⚠️ ${msg}`, true);
+      showFeedback(msg, true);
       notifyToast(msg, 'error');
     } finally {
       setIsExporting(false);
@@ -69,12 +69,12 @@ export const DataBackupRow: React.FC = () => {
         `导入完成：收藏 +${counts.favorites_added} · 关注 +${counts.watched_added}` +
         ` · 设置${counts.settings_applied ? '已应用' : '未变更'}` +
         `（已安装 ${counts.installed_skipped} 个不受影响）`;
-      showFeedback(`✅ ${msg}`, false);
+      showFeedback(msg, false);
       notifyToast(msg, 'success');
       window.dispatchEvent(new CustomEvent('zstore:data-imported'));
     } catch (e) {
       const msg = `导入备份失败: ${String(e)}`;
-      showFeedback(`⚠️ ${msg}`, true);
+      showFeedback(msg, true);
       notifyToast(msg, 'error');
     } finally {
       setIsImporting(false);
@@ -87,7 +87,18 @@ export const DataBackupRow: React.FC = () => {
       <div className="settings-row-info">
         <span style={{ fontWeight: 600 }}>用户数据备份</span>
         {feedback ? (
-          <span style={{ fontSize: '12px', color: isError ? '#ef4444' : '#10b981' }}>{feedback}</span>
+          <span
+            style={{
+              fontSize: '12px',
+              color: isError ? 'var(--status-error)' : 'var(--status-success)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            {isError ? <AlertTriangle size={13} /> : <CheckCircle2 size={13} />}
+            <span>{feedback}</span>
+          </span>
         ) : (
           <span className="settings-row-desc">备份或恢复收藏、关注及偏好设置</span>
         )}
@@ -97,17 +108,19 @@ export const DataBackupRow: React.FC = () => {
           className="btn-fluent btn-secondary"
           onClick={handleExport}
           disabled={isExporting}
-          style={{ fontSize: '12px', padding: '6px 14px' }}
+          style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
         >
-          {isExporting ? '正在导出...' : '📤 导出'}
+          {isExporting ? <RotateCcw size={12} className="icon-spin" /> : <Upload size={12} />}
+          <span>{isExporting ? '正在导出...' : '导出'}</span>
         </button>
         <button
           className="btn-fluent btn-primary"
           onClick={() => fileInputRef.current?.click()}
           disabled={isImporting}
-          style={{ fontSize: '12px', padding: '6px 14px' }}
+          style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
         >
-          {isImporting ? '正在导入...' : '📥 导入'}
+          {isImporting ? <RotateCcw size={12} className="icon-spin" /> : <Download size={12} />}
+          <span>{isImporting ? '正在导入...' : '导入'}</span>
         </button>
         <input
           ref={fileInputRef}

@@ -712,7 +712,7 @@ export const App: React.FC = () => {
     const appName = app ? app.app_name : id;
     try {
       await api.launchApp(id);
-      showToast(`🚀 已成功启动 ${appName}！`, 'success');
+      showToast(`已成功启动 ${appName}！`, 'success');
     } catch (err) {
       showToast(`启动失败: ${String(err)}`, 'error');
     }
@@ -724,7 +724,7 @@ export const App: React.FC = () => {
     const appName = app?.app_name || id;
     await api.unmanageApp(id);
     setInstalledApps((prev) => prev.filter((a) => a.app_id !== id));
-    showToast(`已成功取消对 ${appName} 的纳管（本机软件与数据保持完好）`, 'info');
+    showToast(`已成功取消对 ${appName} 的管理（本机软件与数据保持完好）`, 'info');
   };
 
   // Refresh Installed Apps (self-healing ghost app removal + rescan detected apps)

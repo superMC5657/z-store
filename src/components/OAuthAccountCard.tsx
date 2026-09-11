@@ -1,5 +1,6 @@
-// GitHub 账号卡片（OAuth Device Flow）：登录态、轮询、退出，变更派发 zstore:oauth-changed。
 import React, { useEffect, useRef, useState } from 'react';
+import { CheckCircle2, AlertTriangle, AlertCircle, Copy, Check, ExternalLink, LogIn, LogOut } from 'lucide-react';
+import { GitHubIcon } from './icons/PlatformIcons';
 import { OAuthUser } from '../types';
 import { api } from '../services/api';
 import { notifyToast } from '../utils/notify';
@@ -160,7 +161,10 @@ export const OAuthAccountCard: React.FC = () => {
     <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '12px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
         <div className="settings-row-info">
-          <span style={{ fontWeight: 600 }}>🐙 GitHub 账号</span>
+          <span style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <GitHubIcon size={16} />
+            <span>GitHub 账号</span>
+          </span>
           <span className="settings-row-desc">
             {user ? '已登录，享有 5,000 次/小时 API 配额' : '登录后享有 5,000 次/小时 API 配额及标星能力'}
           </span>
@@ -180,28 +184,30 @@ export const OAuthAccountCard: React.FC = () => {
             <button
               type="button"
               className="btn-fluent btn-secondary"
-              style={{ fontSize: '12px', padding: '6px 14px' }}
+              style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
               onClick={handleLogout}
             >
-              退出
+              <LogOut size={12} />
+              <span>退出</span>
             </button>
           </div>
         ) : (
           <button
             type="button"
             className="btn-fluent btn-primary"
-            style={{ fontSize: '12px', padding: '6px 16px' }}
+            style={{ fontSize: '12px', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}
             disabled={isStarting}
             onClick={handleLogin}
           >
-            {isStarting ? '正在发起...' : '登录'}
+            <LogIn size={12} />
+            <span>{isStarting ? '正在发起...' : '登录'}</span>
           </button>
         )}
       </div>
 
       {user && (
-        <span style={{ fontSize: '12px', color: '#10b981', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-          <span>✅</span>
+        <span style={{ fontSize: '12px', color: 'var(--status-success)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+          <CheckCircle2 size={13} />
           <span>已享有 <strong>5,000 次/小时</strong> API 访问配额</span>
         </span>
       )}
@@ -220,8 +226,9 @@ export const OAuthAccountCard: React.FC = () => {
             marginTop: '4px',
           }}
         >
-          <div style={{ fontSize: '12px', color: '#eab308', lineHeight: '1.5' }}>
-            ⚠️ <strong>权限需升级</strong>：当前授权缺少 user 权限，无法同步标星清单，建议重新授权。
+          <div style={{ fontSize: '12px', color: 'var(--status-warning)', lineHeight: '1.5', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <AlertTriangle size={14} style={{ flexShrink: 0 }} />
+            <span><strong>权限需升级</strong>：当前授权缺少 user 权限，无法同步标星清单，建议重新授权。</span>
           </div>
           <button
             type="button"
@@ -236,7 +243,10 @@ export const OAuthAccountCard: React.FC = () => {
       )}
 
       {error && (
-        <span style={{ fontSize: '12px', color: '#ef4444' }}>⚠️ {error}</span>
+        <span style={{ fontSize: '12px', color: 'var(--status-error)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+          <AlertCircle size={13} />
+          <span>{error}</span>
+        </span>
       )}
 
       {session && (
@@ -269,18 +279,20 @@ export const OAuthAccountCard: React.FC = () => {
             <button
               type="button"
               className="btn-fluent btn-secondary"
-              style={{ fontSize: '12px', padding: '6px 12px' }}
+              style={{ fontSize: '12px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
               onClick={handleCopyCode}
             >
-              {copied ? '✓ 已复制' : '复制用户码'}
+              {copied ? <Check size={12} /> : <Copy size={12} />}
+              <span>{copied ? '已复制' : '复制用户码'}</span>
             </button>
             <button
               type="button"
               className="btn-fluent btn-primary"
-              style={{ fontSize: '12px', padding: '6px 12px' }}
+              style={{ fontSize: '12px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
               onClick={() => api.openUrl(session.verificationUri)}
             >
-              前往授权页 ↗
+              <span>前往授权页</span>
+              <ExternalLink size={12} />
             </button>
             <button
               type="button"

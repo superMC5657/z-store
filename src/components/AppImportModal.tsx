@@ -1,4 +1,14 @@
 import React, { useEffect, useState } from 'react';
+import {
+  ScanLine,
+  AlertTriangle,
+  CheckCircle2,
+  ShieldCheck,
+  Sparkles,
+  Terminal,
+  Folder,
+  Info,
+} from 'lucide-react';
 import { AppMatchResult, ImportAppRequest } from '../types';
 import { api } from '../services/api';
 
@@ -137,7 +147,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
         >
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '20px' }}>🔍</span>
+              <ScanLine size={20} style={{ color: 'var(--brand-primary)' }} />
               <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)' }}>
                 扫描并添加本地应用
               </h3>
@@ -243,9 +253,13 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                 borderRadius: '8px',
                 color: '#ef4444',
                 fontSize: '13px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
               }}
             >
-              ⚠️ {error}
+              <AlertTriangle size={16} />
+              <span>{error}</span>
             </div>
           ) : matches.length === 0 ? (
             <div
@@ -255,7 +269,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                 color: 'var(--text-tertiary)',
               }}
             >
-              <div style={{ fontSize: '48px', marginBottom: '12px' }}>✅</div>
+              <CheckCircle2 size={44} strokeWidth={1.5} style={{ color: 'var(--status-success)', margin: '0 auto 12px' }} />
               <h4 style={{ margin: '0 0 8px 0', fontSize: '16px', color: 'var(--text-primary)' }}>
                 未发现可添加的本地应用
               </h4>
@@ -339,7 +353,8 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                             gap: '3px',
                           }}
                         >
-                          {isHigh ? '🛡️' : '✨'} {Math.round(item.confidence * 100)}% 匹配
+                          {isHigh ? <ShieldCheck size={11} /> : <Sparkles size={11} />}
+                          <span>{Math.round(item.confidence * 100)}% 匹配</span>
                         </span>
                       </div>
 
@@ -370,9 +385,17 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                           }}
                           title={item.resolved_executable_path || item.scanned.install_location}
                         >
-                          {item.resolved_executable_path
-                            ? `🚀 运行程序: ${item.resolved_executable_path}`
-                            : `📂 安装目录: ${item.scanned.install_location}`}
+                          {item.resolved_executable_path ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                              <Terminal size={11} />
+                              <span>程序: {item.resolved_executable_path}</span>
+                            </span>
+                          ) : (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                              <Folder size={11} />
+                              <span>目录: {item.scanned.install_location}</span>
+                            </span>
+                          )}
                         </div>
                       )}
                     </div>
@@ -404,9 +427,13 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
               whiteSpace: 'nowrap',
               flex: 1,
               marginRight: '16px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '5px',
             }}
           >
-            💡 添加后可在「更新中心」接收新版本提醒
+            <Info size={13} style={{ color: 'var(--brand-primary)', flexShrink: 0 }} />
+            <span>添加后可在「应用更新」接收新版本提醒</span>
           </span>
           <div style={{ display: 'flex', gap: '10px', flexShrink: 0 }}>
             <button

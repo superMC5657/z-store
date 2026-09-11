@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Package, Users, Building2, MapPin, Link, FolderOpen, Star, GitFork, Code2, ExternalLink } from 'lucide-react';
 import { DeveloperProfile } from '../types';
 import { api } from '../services/api';
 
@@ -144,9 +145,10 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                     target="_blank"
                     rel="noreferrer"
                     className="btn-fluent btn-secondary"
-                    style={{ fontSize: '11px', padding: '2px 8px', textDecoration: 'none' }}
+                    style={{ fontSize: '11px', padding: '2px 8px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                   >
-                    GitHub ↗
+                    <span>GitHub</span>
+                    <ExternalLink size={10} />
                   </a>
                 </div>
 
@@ -157,19 +159,36 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                 )}
 
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', fontSize: '12px' }}>
-                  <span className="modal-tag">📦 {profile.public_repos} 个开源仓库</span>
-                  <span className="modal-tag">👥 {profile.followers} 关注者</span>
-                  {profile.company && <span className="modal-tag">🏢 {profile.company}</span>}
-                  {profile.location && <span className="modal-tag">📍 {profile.location}</span>}
+                  <span className="modal-tag" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    <Package size={12} />
+                    <span>{profile.public_repos} 个开源仓库</span>
+                  </span>
+                  <span className="modal-tag" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    <Users size={12} />
+                    <span>{profile.followers} 关注者</span>
+                  </span>
+                  {profile.company && (
+                    <span className="modal-tag" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      <Building2 size={12} />
+                      <span>{profile.company}</span>
+                    </span>
+                  )}
+                  {profile.location && (
+                    <span className="modal-tag" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      <MapPin size={12} />
+                      <span>{profile.location}</span>
+                    </span>
+                  )}
                   {profile.blog && (
                     <a
                       href={profile.blog.startsWith('http') ? profile.blog : `https://${profile.blog}`}
                       target="_blank"
                       rel="noreferrer"
                       className="modal-tag"
-                      style={{ textDecoration: 'none', color: 'var(--brand-primary)' }}
+                      style={{ textDecoration: 'none', color: 'var(--brand-primary)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                     >
-                      🔗 {profile.blog}
+                      <Link size={12} />
+                      <span>{profile.blog}</span>
                     </a>
                   )}
                 </div>
@@ -181,8 +200,9 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
         {/* Modal Body: Repositories List */}
         <div className="modal-body" style={{ padding: '24px 28px', maxHeight: '55vh', overflowY: 'auto' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h4 style={{ margin: 0, fontSize: '15px', fontWeight: 600 }}>
-              📂 开源项目矩阵 ({profile?.repos.length || 0})
+            <h4 style={{ margin: 0, fontSize: '15px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <FolderOpen size={16} />
+              <span>开源项目矩阵 ({profile?.repos.length || 0})</span>
             </h4>
             <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
               标记「已收录」的项目可直接在 Z-Store 中一键安装与接管更新
@@ -248,10 +268,21 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                         </p>
                       )}
 
-                      <div style={{ display: 'flex', gap: '12px', fontSize: '11.5px', color: 'var(--text-tertiary)' }}>
-                        <span>★ {repo.stars}</span>
-                        <span>🍴 {repo.forks}</span>
-                        {repo.language && <span>💻 {repo.language}</span>}
+                      <div style={{ display: 'flex', gap: '12px', fontSize: '11.5px', color: 'var(--text-tertiary)', alignItems: 'center' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                          <Star size={11} fill="currentColor" />
+                          <span>{repo.stars}</span>
+                        </span>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                          <GitFork size={11} />
+                          <span>{repo.forks}</span>
+                        </span>
+                        {repo.language && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                            <Code2 size={11} />
+                            <span>{repo.language}</span>
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -303,9 +334,10 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                           target="_blank"
                           rel="noreferrer"
                           className="btn-fluent btn-secondary"
-                          style={{ fontSize: '12px', padding: '6px 12px', textDecoration: 'none' }}
+                          style={{ fontSize: '12px', padding: '6px 12px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                         >
-                          打开仓库 ↗
+                          <span>打开仓库</span>
+                          <ExternalLink size={10} />
                         </a>
                       )}
                     </div>

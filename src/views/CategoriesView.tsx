@@ -1,4 +1,21 @@
 import React, { useState } from 'react';
+import {
+  Code2,
+  Music,
+  FileText,
+  ShieldCheck,
+  Palette,
+  Network,
+  Cpu,
+  BookOpen,
+  Terminal,
+  Gamepad2,
+  Monitor,
+  Tag,
+  ArrowLeft,
+  ArrowRight,
+} from 'lucide-react';
+import { PlatformIcon } from '../components/icons/PlatformIcons';
 import { AppCard } from '../components/AppCard';
 import { AppSummary } from '../types';
 
@@ -15,25 +32,25 @@ interface CategoriesViewProps {
 }
 
 const CATEGORY_DEFINITIONS = [
-  { id: 'dev', icon: '💻', name: '开发工具', desc: 'IDE, 编辑器, 调试台, 版本控制', color: '#5865f2' },
-  { id: 'media', icon: '🎵', name: '影音视听', desc: '全能播放器, 录屏推流, 视频压制', color: '#ec4899' },
-  { id: 'office', icon: '📑', name: '效率办公', desc: '双链笔记, Markdown, 知识图谱', color: '#8b5cf6' },
-  { id: 'security', icon: '🛡️', name: '安全隐私', desc: '密码管理器, 网络抓包, 隐私保护', color: '#10b981' },
-  { id: 'graphics', icon: '🎨', name: '图形设计', desc: '3D 建模, 屏幕截图, 矢量绘图', color: '#f59e0b' },
-  { id: 'network', icon: '🌐', name: '网络工具', desc: '局域网快传, 规则分流, P2P 下载', color: '#3b82f6' },
-  { id: 'system', icon: '⚙️', name: '系统实用', desc: '远程桌面, 效率启动器, 空格预览', color: '#6366f1' },
-  { id: 'reading', icon: '📖', name: '学习阅读', desc: 'EPUB 阅读器, 书库管理, 电子书', color: '#14b8a6' },
-  { id: 'ops', icon: '🚀', name: '极客运维', desc: 'GPU 终端, 极客编辑器, 容器平台', color: '#f97316' },
-  { id: 'games', icon: '🎮', name: '休闲游戏', desc: '复古模拟器, 模拟经营, 像素沙盒', color: '#a855f7' },
+  { id: 'dev', Icon: Code2, name: '开发工具', desc: 'IDE, 编辑器, 调试台, 版本控制', color: '#5865f2' },
+  { id: 'media', Icon: Music, name: '影音视听', desc: '全能播放器, 录屏推流, 视频压制', color: '#ec4899' },
+  { id: 'office', Icon: FileText, name: '效率办公', desc: '双链笔记, Markdown, 知识图谱', color: '#8b5cf6' },
+  { id: 'security', Icon: ShieldCheck, name: '安全隐私', desc: '密码管理器, 网络抓包, 隐私保护', color: '#10b981' },
+  { id: 'graphics', Icon: Palette, name: '图形设计', desc: '3D 建模, 屏幕截图, 矢量绘图', color: '#f59e0b' },
+  { id: 'network', Icon: Network, name: '网络工具', desc: '局域网快传, 规则分流, P2P 下载', color: '#3b82f6' },
+  { id: 'system', Icon: Cpu, name: '系统实用', desc: '远程桌面, 效率启动器, 空格预览', color: '#6366f1' },
+  { id: 'reading', Icon: BookOpen, name: '学习阅读', desc: 'EPUB 阅读器, 书库管理, 电子书', color: '#14b8a6' },
+  { id: 'ops', Icon: Terminal, name: '极客运维', desc: 'GPU 终端, 极客编辑器, 容器平台', color: '#f97316' },
+  { id: 'games', Icon: Gamepad2, name: '休闲游戏', desc: '复古模拟器, 模拟经营, 像素沙盒', color: '#a855f7' },
 ];
 
 const PLATFORM_OPTIONS = [
-  { id: 'all', label: '全部设备', icon: '💻' },
-  { id: 'windows', label: 'Windows', icon: '🪟' },
-  { id: 'android', label: 'Android', icon: '🤖' },
-  { id: 'macos', label: 'macOS', icon: '🍎' },
-  { id: 'linux', label: 'Linux', icon: '🐧' },
-  { id: 'ios', label: 'iOS', icon: '📱' },
+  { id: 'all', label: '全部设备', platform: null },
+  { id: 'windows', label: 'Windows', platform: 'windows' },
+  { id: 'android', label: 'Android', platform: 'android' },
+  { id: 'macos', label: 'macOS', platform: 'macos' },
+  { id: 'linux', label: 'Linux', platform: 'linux' },
+  { id: 'ios', label: 'iOS', platform: 'ios' },
 ];
 
 function matchPlatform(app: AppSummary, platform: string): boolean {
@@ -95,20 +112,34 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
       <div className="section-header">
         <h3 className="section-title">
           {selectedCategory === 'all_apps' ? (
-            `${currentPlatformMeta.icon} 全部 ${currentPlatformMeta.label} 应用 (${filteredApps.length})`
-          ) : selectedCategory ? (
-            `${currentCategoryMeta?.icon} ${currentCategoryMeta?.name}${selectedPlatform !== 'all' ? ` · ${currentPlatformMeta.label}` : ''} (${filteredApps.length})`
+            <>
+              {currentPlatformMeta.platform ? (
+                <PlatformIcon platform={currentPlatformMeta.platform} size={18} />
+              ) : (
+                <Monitor size={18} />
+              )}
+              <span>全部 {currentPlatformMeta.label} 应用 ({filteredApps.length})</span>
+            </>
+          ) : selectedCategory && currentCategoryMeta ? (
+            <>
+              <currentCategoryMeta.Icon size={18} style={{ color: currentCategoryMeta.color }} />
+              <span>{currentCategoryMeta.name}{selectedPlatform !== 'all' ? ` · ${currentPlatformMeta.label}` : ''} ({filteredApps.length})</span>
+            </>
           ) : (
-            '🏷️ 按主题领域与设备平台浏览'
+            <>
+              <Tag size={18} />
+              <span>按主题领域与设备平台浏览</span>
+            </>
           )}
         </h3>
         {selectedCategory && (
           <button
             className="btn-fluent btn-secondary"
             onClick={() => setSelectedCategory(null)}
-            style={{ fontSize: '12px', padding: '4px 12px' }}
+            style={{ fontSize: '12px', padding: '4px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
           >
-            ← 返回分类大厅
+            <ArrowLeft size={13} />
+            <span>返回分类大厅</span>
           </button>
         )}
       </div>
@@ -150,7 +181,11 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                 transition: 'all 0.15s ease',
               }}
             >
-              <span>{opt.icon}</span>
+              {opt.platform ? (
+                <PlatformIcon platform={opt.platform} size={13} />
+              ) : (
+                <Monitor size={13} />
+              )}
               <span>{opt.label}</span>
               <span
                 style={{
@@ -180,9 +215,13 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
               fontWeight: 600,
               marginLeft: 'auto',
               color: 'var(--brand-primary)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
             }}
           >
-            直接查看全部 {platformFilteredApps.length} 款 {currentPlatformMeta.label} 应用 ➔
+            <span>直接查看全部 {platformFilteredApps.length} 款 {currentPlatformMeta.label} 应用</span>
+            <ArrowRight size={13} />
           </button>
         )}
       </div>
@@ -215,12 +254,11 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    fontSize: '26px',
                     marginBottom: '10px',
                     boxShadow: `0 4px 12px color-mix(in srgb, ${cat.color} 20%, transparent)`,
                   }}
                 >
-                  {cat.icon}
+                  <cat.Icon size={24} color={cat.color} />
                 </div>
                 <div style={{ fontWeight: 600, fontSize: '15px', color: 'var(--text-primary)' }}>{cat.name}</div>
                 <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px', lineHeight: '1.4' }}>{cat.desc}</div>

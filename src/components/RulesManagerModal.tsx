@@ -1,4 +1,14 @@
 import React, { useState } from 'react';
+import {
+  Shield,
+  Plus,
+  ChevronUp,
+  Lock,
+  EyeOff,
+  SkipForward,
+  ShieldAlert,
+  Info,
+} from 'lucide-react';
 import { InstalledApp, UpdateRule } from '../types';
 
 export interface RulesManagerModalProps {
@@ -129,7 +139,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
         >
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '20px' }}>🛡️</span>
+              <Shield size={20} style={{ color: 'var(--brand-primary)' }} />
               <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 600, color: 'var(--text-primary)' }}>
                 版本策略与屏蔽规则管理 ({updateRules.length})
               </h3>
@@ -142,10 +152,20 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
             <button
               type="button"
               className={`btn-fluent ${isAddOpen ? 'btn-secondary' : 'btn-primary'}`}
-              style={{ fontSize: '12px', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: '4px' }}
+              style={{ fontSize: '12px', padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
               onClick={() => setIsAddOpen(!isAddOpen)}
             >
-              <span>{isAddOpen ? '收起表单 ▲' : '➕ 添加规则'}</span>
+              {isAddOpen ? (
+                <>
+                  <ChevronUp size={13} />
+                  <span>收起表单</span>
+                </>
+              ) : (
+                <>
+                  <Plus size={13} />
+                  <span>添加规则</span>
+                </>
+              )}
             </button>
             <button
               onClick={onClose}
@@ -168,8 +188,8 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
               padding: '8px 24px',
               fontSize: '12px',
               fontWeight: 500,
-              background: noticeMessage.includes('❌') ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)',
-              color: noticeMessage.includes('❌') ? '#ef4444' : '#10b981',
+              background: noticeMessage.includes('失败') ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+              color: noticeMessage.includes('失败') ? '#ef4444' : '#10b981',
               borderBottom: '1px solid var(--border-subtle, rgba(255, 255, 255, 0.08))',
               display: 'flex',
               alignItems: 'center',
@@ -194,7 +214,8 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
             }}
           >
             <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span>➕ 手动新建软件版本与屏蔽规则</span>
+              <Plus size={14} style={{ color: 'var(--brand-primary)' }} />
+              <span>手动新建软件版本与屏蔽规则</span>
             </div>
 
             {/* Target App Row */}
@@ -216,7 +237,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                         {a.app_name} (ID: {a.app_id} · v{a.version})
                       </option>
                     ))}
-                    <option value="__custom__">✍️ 手动输入其他软件 ID...</option>
+                    <option value="__custom__">手动输入其他软件 ID...</option>
                   </select>
                 )}
 
@@ -242,26 +263,29 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                 <button
                   type="button"
                   className={`segmented-item ${ruleType === 'frozen' ? 'active' : ''}`}
-                  style={{ fontSize: '12px', padding: '5px 12px' }}
+                  style={{ fontSize: '12px', padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
                   onClick={() => setRuleType('frozen')}
                 >
-                  🔒 永久锁定版本 (不提示更新)
+                  <Lock size={12} />
+                  <span>锁定版本 (不提示更新)</span>
                 </button>
                 <button
                   type="button"
                   className={`segmented-item ${ruleType === 'hidden' ? 'active' : ''}`}
-                  style={{ fontSize: '12px', padding: '5px 12px' }}
+                  style={{ fontSize: '12px', padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
                   onClick={() => setRuleType('hidden')}
                 >
-                  👁️ 全局隐藏软件 (探索中屏蔽)
+                  <EyeOff size={12} />
+                  <span>全局隐藏 (列表中屏蔽)</span>
                 </button>
                 <button
                   type="button"
                   className={`segmented-item ${ruleType === 'skip' ? 'active' : ''}`}
-                  style={{ fontSize: '12px', padding: '5px 12px' }}
+                  style={{ fontSize: '12px', padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
                   onClick={() => setRuleType('skip')}
                 >
-                  ⏭️ 跳过特定版本
+                  <SkipForward size={12} />
+                  <span>跳过特定版本</span>
                 </button>
               </div>
 
@@ -320,18 +344,19 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
         >
           <div className="segmented-group" style={{ padding: '2px' }}>
             {[
-              { id: 'all', label: `全部 (${updateRules.length})` },
-              { id: 'skipped', label: `⏭️ 已跳过 (${updateRules.filter((r) => Boolean(r.skipped_version)).length})` },
-              { id: 'frozen', label: `🔒 已锁定 (${updateRules.filter((r) => r.is_frozen).length})` },
-              { id: 'hidden', label: `👁️ 已隐藏 (${updateRules.filter((r) => r.is_hidden).length})` },
+              { id: 'all', label: '全部', count: updateRules.length, icon: null },
+              { id: 'skipped', label: '已跳过', count: updateRules.filter((r) => Boolean(r.skipped_version)).length, icon: <SkipForward size={11} /> },
+              { id: 'frozen', label: '已锁定', count: updateRules.filter((r) => r.is_frozen).length, icon: <Lock size={11} /> },
+              { id: 'hidden', label: '已隐藏', count: updateRules.filter((r) => r.is_hidden).length, icon: <EyeOff size={11} /> },
             ].map((tab) => (
               <button
                 key={tab.id}
                 className={`segmented-item ${rulesTab === tab.id ? 'active' : ''}`}
-                style={{ fontSize: '12px', padding: '4px 10px' }}
+                style={{ fontSize: '12px', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                 onClick={() => setRulesTab(tab.id as any)}
               >
-                {tab.label}
+                {tab.icon}
+                <span>{tab.label} ({tab.count})</span>
               </button>
             ))}
           </div>
@@ -368,23 +393,24 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                 fontSize: '13px',
               }}
             >
-              <div style={{ fontSize: '32px', marginBottom: '10px' }}>📋</div>
+              <ShieldAlert size={40} strokeWidth={1.5} style={{ color: 'var(--text-tertiary)', margin: '0 auto 12px' }} />
               <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)', marginBottom: '6px' }}>
                 {updateRules.length === 0 ? '当前未配置任何版本策略规则' : '当前分类下暂无匹配规则'}
               </div>
               <p style={{ maxWidth: '440px', margin: '0 auto 16px', lineHeight: 1.5 }}>
                 {updateRules.length === 0
-                  ? '您可以点击上方「➕ 添加规则」直接为已安装或任意应用锁定版本，也可以在「已安装」或「更新中心」卡片菜单中快捷锁定。'
+                  ? '您可以点击上方「添加规则」直接为已安装应用设置版本规则，也可以在「已安装」或「应用更新」卡片菜单中快捷锁定。'
                   : '可尝试切换上方分类或清空搜索关键词。'}
               </p>
               {updateRules.length === 0 && !isAddOpen && (
                 <button
                   type="button"
                   className="btn-fluent btn-primary"
-                  style={{ fontSize: '12px', padding: '7px 18px' }}
+                  style={{ fontSize: '12px', padding: '7px 18px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
                   onClick={() => setIsAddOpen(true)}
                 >
-                  ➕ 立即添加第一条规则
+                  <Plus size={13} />
+                  <span>添加第一条规则</span>
                 </button>
               )}
             </div>
@@ -439,9 +465,13 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                             background: 'rgba(245, 158, 11, 0.15)',
                             color: '#f59e0b',
                             border: '1px solid rgba(245, 158, 11, 0.3)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '3px',
                           }}
                         >
-                          跳过 {rule.skipped_version}
+                          <SkipForward size={10} />
+                          <span>跳过 {rule.skipped_version}</span>
                         </span>
                       )}
                       {rule.is_frozen && (
@@ -453,9 +483,13 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                             background: 'var(--brand-subtle)',
                             color: 'var(--brand-primary)',
                             border: '1px solid var(--border-nav-active)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '3px',
                           }}
                         >
-                          🔒 锁定当前版本
+                          <Lock size={10} />
+                          <span>锁定当前版本</span>
                         </span>
                       )}
                       {rule.is_hidden && (
@@ -467,9 +501,13 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                             background: 'rgba(239, 68, 68, 0.15)',
                             color: '#ef4444',
                             border: '1px solid rgba(239, 68, 68, 0.3)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '3px',
                           }}
                         >
-                          👁️ 已隐藏
+                          <EyeOff size={10} />
+                          <span>已隐藏</span>
                         </span>
                       )}
                     </div>
@@ -545,8 +583,9 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
             flexShrink: 0,
           }}
         >
-          <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
-            💡 规则变更将自动保存在本地数据库并在后续检查更新与搜索时实时生效
+          <span style={{ fontSize: '12px', color: 'var(--text-tertiary)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <Info size={13} />
+            <span>规则变更将自动保存在本地数据库并在后续检查更新与搜索时实时生效</span>
           </span>
           <button
             type="button"

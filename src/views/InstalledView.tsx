@@ -1,4 +1,18 @@
 import React, { useState } from 'react';
+import {
+  RotateCcw,
+  Shield,
+  Download,
+  Search,
+  ScanLine,
+  LayoutGrid,
+  List,
+  FolderOpen,
+  Lock,
+  EyeOff,
+  MinusCircle,
+  Package,
+} from 'lucide-react';
 import { AppSummary, InstalledApp, UpdateRule } from '../types';
 import { FlyoutMenu } from '../components/FlyoutMenu';
 import { AppIcon } from '../components/AppIcon';
@@ -237,11 +251,7 @@ const InstalledItemActions: React.FC<InstalledItemActionsProps> = ({
                 title="从列表中移除管理记录（保留本机应用与数据）"
               >
                 <div className="flyout-item-icon">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                    <polyline points="7 10 12 15 17 10" />
-                    <line x1="12" y1="15" x2="12" y2="3" />
-                  </svg>
+                  <MinusCircle size={13} />
                 </div>
                 <div className="flyout-item-content">
                   <div className="flyout-item-title">取消管理</div>
@@ -321,30 +331,32 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
   return (
     <div className="installed-view view-entrance">
       <div className="section-header">
-        <h3 className="section-title">📦 已安装应用 ({installedApps.length})</h3>
+        <h3 className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Package size={18} style={{ color: 'var(--brand-primary)' }} />
+          <span>已安装应用 ({installedApps.length})</span>
+        </h3>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           {onRefresh && (
             <button
               className="btn-fluent btn-secondary"
-              style={{ padding: '4px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '5px' }}
+              style={{ padding: '5px 12px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               onClick={onRefresh}
               disabled={isRefreshing}
               title="重新检测本地安装状态"
             >
-              <span className={isRefreshing ? 'spinner-icon' : ''} style={isRefreshing ? { width: '11px', height: '11px', borderWidth: '1.5px' } : undefined}>
-                {!isRefreshing && '🔄'}
-              </span>
+              <RotateCcw size={13} className={isRefreshing ? 'icon-spin' : ''} />
               <span>{isRefreshing ? '刷新中...' : '刷新状态'}</span>
             </button>
           )}
           {onOpenRules && (
             <button
               className="btn-fluent btn-secondary"
-              style={{ padding: '4px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}
+              style={{ padding: '5px 12px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               onClick={onOpenRules}
               title="管理版本与更新规则"
             >
-              <span>🛡️ 规则</span>
+              <Shield size={13} />
+              <span>规则</span>
               {updateRules.length > 0 && (
                 <span
                   style={{
@@ -352,7 +364,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                     padding: '0 6px',
                     borderRadius: '8px',
                     background: 'var(--brand-primary)',
-                    color: '#000',
+                    color: '#fff',
                     fontWeight: 700,
                   }}
                 >
@@ -364,44 +376,50 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
           {onExportAppsJson && (
             <button
               className="btn-fluent btn-secondary"
-              style={{ padding: '4px 12px', fontSize: '12px' }}
+              style={{ padding: '5px 12px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               onClick={onExportAppsJson}
               title="导出已安装软件清单为 JSON 文件"
               disabled={installedApps.length === 0}
             >
-              📋 导出清单
+              <Download size={13} />
+              <span>导出清单</span>
             </button>
           )}
           {onScanSystemApps && (
             <button
               className="btn-fluent btn-secondary"
-              style={{ padding: '4px 12px', fontSize: '12px' }}
+              style={{ padding: '5px 12px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               onClick={onScanSystemApps}
               title="扫描系统已安装软件并加入管理"
             >
-              🔍 扫描本地应用
+              <ScanLine size={13} />
+              <span>扫描本地应用</span>
             </button>
           )}
           <button
             className={`btn-fluent ${viewMode === 'card' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ padding: '4px 12px', fontSize: '12px' }}
+            style={{ padding: '5px 10px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
             onClick={() => setViewMode('card')}
+            title="卡片视图"
           >
-            卡片视图
+            <LayoutGrid size={13} />
+            <span>卡片</span>
           </button>
           <button
             className={`btn-fluent ${viewMode === 'list' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ padding: '4px 12px', fontSize: '12px' }}
+            style={{ padding: '5px 10px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
             onClick={() => setViewMode('list')}
+            title="紧凑列表"
           >
-            紧凑列表
+            <List size={13} />
+            <span>列表</span>
           </button>
         </div>
       </div>
 
       {installedApps.length === 0 ? (
         <div className="empty-state-card">
-          <div style={{ fontSize: '48px', marginBottom: '12px' }}>📂</div>
+          <FolderOpen size={44} strokeWidth={1.5} style={{ color: 'var(--text-tertiary)', margin: '0 auto 12px' }} />
           <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>暂无已安装应用</h4>
           <p style={{ color: 'var(--text-tertiary)', fontSize: '13px', margin: '0 0 16px 0' }}>
             前往「精选发现」或「分类浏览」探索应用，也可点击上方扫描添加本地已安装应用。
@@ -413,9 +431,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
               onClick={onRefresh}
               disabled={isRefreshing}
             >
-              <span className={isRefreshing ? 'spinner-icon' : ''} style={isRefreshing ? { width: '12px', height: '12px', borderWidth: '1.5px' } : undefined}>
-                {!isRefreshing && '🔄'}
-              </span>
+              <RotateCcw size={13} className={isRefreshing ? 'icon-spin' : ''} />
               <span>{isRefreshing ? '正在刷新...' : '刷新列表'}</span>
             </button>
           )}
@@ -484,7 +500,10 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                         }}
                         title="已锁定当前版本，不再接收更新提示"
                       >
-                        🔒 已锁定
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                          <Lock size={10} />
+                          <span>已锁定</span>
+                        </span>
                       </span>
                     )}
                     {isHidden && (
@@ -500,7 +519,10 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                         }}
                         title="已从探索发现及可更新列表中屏蔽"
                       >
-                        👁️ 已隐藏
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                          <EyeOff size={10} />
+                          <span>已隐藏</span>
+                        </span>
                       </span>
                     )}
                     <span
@@ -574,12 +596,14 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                           color: 'var(--brand-primary)',
                           display: 'inline-flex',
                           alignItems: 'center',
+                          gap: '4px',
                           justifyContent: 'center',
                         }}
                         onClick={() => onScanSystemApps && onScanSystemApps()}
                         title="重新探测安装路径"
                       >
-                        🔍 重新探测
+                        <Search size={11} />
+                        <span>重新探测</span>
                       </button>
                     )}
                   </div>
@@ -673,9 +697,13 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                           border: '1px solid rgba(59, 130, 246, 0.35)',
                           color: 'var(--brand-primary)',
                           fontWeight: 600,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '3px',
                         }}
                       >
-                        🔒 锁定版本
+                        <Lock size={10} />
+                        <span>已锁定</span>
                       </span>
                     )}
                     {isHidden && (
@@ -688,9 +716,13 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                           border: '1px solid rgba(239, 68, 68, 0.35)',
                           color: '#ef4444',
                           fontWeight: 600,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '3px',
                         }}
                       >
-                        👁️ 已隐藏
+                        <EyeOff size={10} />
+                        <span>已隐藏</span>
                       </span>
                     )}
                     <span
@@ -732,9 +764,13 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                             cursor: 'pointer',
                             fontSize: '11px',
                             padding: '0 4px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '3px',
                           }}
                         >
-                          🔍 重新探测
+                          <Search size={10} />
+                          <span>重新探测</span>
                         </button>
                       )
                     )}

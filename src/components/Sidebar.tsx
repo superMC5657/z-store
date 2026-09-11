@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { OAuthUser, ViewType } from '../types';
 import { api } from '../services/api';
+import { GitHubIcon } from './icons/PlatformIcons';
 
 interface SidebarProps {
   currentView: ViewType;
@@ -248,7 +249,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </>
           ) : (
             <>
-              <span aria-hidden="true">🐙</span>
+              <GitHubIcon size={14} />
               {!isCollapsed && <span className="network-pill-text">GitHub 登录</span>}
             </>
           )}

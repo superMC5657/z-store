@@ -1,13 +1,14 @@
 import React from 'react';
 import { AppSummary } from '../types';
 import { AppIcon } from './AppIcon';
+import { PlatformIcon, ForgeIcon } from './icons/PlatformIcons';
 
-const PLATFORM_META: Record<string, { label: string; icon: string }> = {
-  windows: { label: 'Windows', icon: '🪟' },
-  android: { label: 'Android', icon: '🤖' },
-  macos: { label: 'macOS', icon: '🍎' },
-  linux: { label: 'Linux', icon: '🐧' },
-  ios: { label: 'iOS', icon: '📱' },
+const PLATFORM_META: Record<string, { label: string }> = {
+  windows: { label: 'Windows' },
+  android: { label: 'Android' },
+  macos: { label: 'macOS' },
+  linux: { label: 'Linux' },
+  ios: { label: 'iOS' },
 };
 
 interface AppCardProps {
@@ -128,9 +129,11 @@ export const AppCard: React.FC<AppCardProps> = ({
             <span
               className="app-tag app-tag-platforms"
               title={`支持设备: ${app.platforms.map((p) => PLATFORM_META[p.toLowerCase()]?.label || p).join(', ')}`}
-              style={{ letterSpacing: '2px', padding: '2px 6px', cursor: 'default' }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 6px', cursor: 'default' }}
             >
-              {app.platforms.map((p) => PLATFORM_META[p.toLowerCase()]?.icon || p).join('')}
+              {app.platforms.map((p) => (
+                <PlatformIcon key={p} platform={p} size={11} />
+              ))}
             </span>
           )}
           {app.forge && app.forge !== 'github' && (
@@ -141,10 +144,14 @@ export const AppCard: React.FC<AppCardProps> = ({
                 color: 'var(--brand-primary)',
                 border: '1px solid var(--border-nav-active)',
                 fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
               }}
               title={`代码源: ${app.forge_host || app.forge}`}
             >
-              {app.forge === 'codeberg' ? '🏔️ Codeberg' : app.forge === 'gitea' ? '🍵 Gitea' : app.forge === 'gitlab' ? '🦊 GitLab' : `🌐 ${app.forge}`}
+              <ForgeIcon forge={app.forge} size={12} />
+              <span>{app.forge_host || app.forge}</span>
             </span>
           )}
         </div>

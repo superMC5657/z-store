@@ -1,5 +1,5 @@
-// 客户端自更新行（FR-4.4）：check → 下载 → 重启，错误内联呈现不阻塞。
 import React, { useState } from 'react';
+import { Search, Download, RotateCcw, CheckCircle2, Sparkles, AlertTriangle } from 'lucide-react';
 import type { DownloadEvent, Update } from '@tauri-apps/plugin-updater';
 import { notifyToast } from '../utils/notify';
 
@@ -98,32 +98,37 @@ export const ClientUpdateRow: React.FC = () => {
     switch (phase.kind) {
       case 'checking':
         return (
-          <button className="btn-fluent btn-secondary" disabled style={{ fontSize: '12px', padding: '6px 16px' }}>
-            🔍 正在检查...
+          <button className="btn-fluent btn-secondary" disabled style={{ fontSize: '12px', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <RotateCcw size={13} className="icon-spin" />
+            <span>正在检查...</span>
           </button>
         );
       case 'available':
         return (
-          <button className="btn-fluent btn-primary" onClick={handleDownloadAndInstall} style={{ fontSize: '12px', padding: '6px 16px' }}>
-            ⬇️ 下载并安装 {phase.version}
+          <button className="btn-fluent btn-primary" onClick={handleDownloadAndInstall} style={{ fontSize: '12px', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Download size={13} />
+            <span>下载并安装 {phase.version}</span>
           </button>
         );
       case 'downloading':
         return (
-          <button className="btn-fluent btn-secondary" disabled style={{ fontSize: '12px', padding: '6px 16px' }}>
-            {phase.percent !== null ? `⏳ 下载中 ${phase.percent}%` : '⏳ 下载中...'}
+          <button className="btn-fluent btn-secondary" disabled style={{ fontSize: '12px', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <RotateCcw size={13} className="icon-spin" />
+            <span>{phase.percent !== null ? `下载中 ${phase.percent}%` : '下载中...'}</span>
           </button>
         );
       case 'ready':
         return (
-          <button className="btn-fluent btn-primary" onClick={handleRestart} style={{ fontSize: '12px', padding: '6px 16px' }}>
-            🔄 立即重启生效
+          <button className="btn-fluent btn-primary" onClick={handleRestart} style={{ fontSize: '12px', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <RotateCcw size={13} />
+            <span>立即重启生效</span>
           </button>
         );
       default:
         return (
-          <button className="btn-fluent btn-primary" onClick={handleCheck} style={{ fontSize: '12px', padding: '6px 16px' }}>
-            🔍 检查更新
+          <button className="btn-fluent btn-primary" onClick={handleCheck} style={{ fontSize: '12px', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Search size={13} />
+            <span>检查更新</span>
           </button>
         );
     }
@@ -136,29 +141,46 @@ export const ClientUpdateRow: React.FC = () => {
       case 'checking':
         return <span className="settings-row-desc">正在检查...</span>;
       case 'latest':
-        return <span style={{ fontSize: '12px', color: '#10b981' }}>✅ 当前客户端已是最新版本</span>;
+        return (
+          <span style={{ fontSize: '12px', color: 'var(--status-success)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <CheckCircle2 size={13} />
+            <span>当前客户端已是最新版本</span>
+          </span>
+        );
       case 'available':
         return (
-          <span style={{ fontSize: '12px', color: 'var(--brand-primary)' }}>
-            🎉 发现新版本 {phase.version}{phase.currentVersion ? `（当前 ${phase.currentVersion}）` : ''}
-            {phase.notes ? ` — ${phase.notes.slice(0, 120)}` : ''}
+          <span style={{ fontSize: '12px', color: 'var(--brand-primary)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <Sparkles size={13} />
+            <span>
+              发现新版本 {phase.version}{phase.currentVersion ? `（当前 ${phase.currentVersion}）` : ''}
+              {phase.notes ? ` — ${phase.notes.slice(0, 120)}` : ''}
+            </span>
           </span>
         );
       case 'downloading':
         return (
-          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-            ⏳ 正在下载安装包{phase.percent !== null ? `（${phase.percent}%）` : ''}
+          <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <RotateCcw size={13} className="icon-spin" />
+            <span>正在下载安装包{phase.percent !== null ? `（${phase.percent}%）` : ''}</span>
           </span>
         );
       case 'ready':
         return (
-          <span style={{ fontSize: '12px', color: '#10b981' }}>
-            ✅ 新版本 {phase.version} 已安装就绪
-            {manualRestartHint ? '，请手动重启客户端以完成更新' : '，点击右侧按钮重启生效'}
+          <span style={{ fontSize: '12px', color: 'var(--status-success)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <CheckCircle2 size={13} />
+            <span>
+              新版本 {phase.version} 已安装就绪
+              {manualRestartHint ? '，请手动重启客户端以完成更新' : '，点击右侧按钮重启生效'}
+            </span>
           </span>
         );
       case 'error':
-        return <span style={{ fontSize: '12px', color: '#ef4444' }}>⚠️ {phase.message}</span>;
+        return (
+          <span style={{ fontSize: '12px', color: 'var(--status-error)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <AlertTriangle size={13} />
+            <span>{phase.message}</span>
+          </span>
+        );
     }
   };
 

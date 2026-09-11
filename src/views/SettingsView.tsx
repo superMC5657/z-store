@@ -1,4 +1,24 @@
 import React, { useState, useEffect, useRef } from 'react';
+import {
+  Settings,
+  Monitor,
+  Sun,
+  Moon,
+  Laptop,
+  RotateCcw,
+  Shield,
+  Folder,
+  FolderOpen,
+  User,
+  Globe,
+  Zap,
+  RefreshCw,
+  ChevronUp,
+  ChevronDown,
+  Check,
+  Database,
+  Download,
+} from 'lucide-react';
 import { AppSettings, MirrorNodeStatus } from '../types';
 import { api } from '../services/api';
 import { ClientUpdateRow } from '../components/ClientUpdateRow';
@@ -128,21 +148,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       const url = proxyInput.trim();
       const res = await api.testProxy(url || undefined);
       if (res.success) {
-        let badge = '🟢';
-        if (res.latency_ms >= 1000) badge = '🟠';
-        else if (res.latency_ms >= 400) badge = '🟡';
         setProxyTestResult({
           success: true,
           latency_ms: res.latency_ms,
           text: `${res.latency_ms} ms (连接正常)`,
-          badge,
+          badge: '',
         });
       } else {
         setProxyTestResult({
           success: false,
           latency_ms: res.latency_ms,
           text: res.message || '连接超时 / 不可达',
-          badge: '🔴',
+          badge: '',
         });
       }
     } catch (e) {
@@ -150,7 +167,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         success: false,
         latency_ms: 9999,
         text: '测速失败: ' + String(e),
-        badge: '🔴',
+        badge: '',
       });
     } finally {
       setIsTestingProxy(false);
@@ -229,12 +246,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   return (
     <div className="settings-view view-entrance">
       <div className="section-header">
-        <h3 className="section-title">⚙️ 系统设置</h3>
+        <h3 className="section-title">
+          <Settings size={18} />
+          <span>系统设置</span>
+        </h3>
       </div>
 
       {/* 外观 */}
       <div className={`settings-group ${isResetWave ? 'reset-wave-0' : ''}`}>
-        <div className="settings-group-title">🖥️ 外观</div>
+        <div className="settings-group-title">
+          <Monitor size={15} />
+          <span>外观</span>
+        </div>
 
         <div className={`settings-row ${highlightRow === 'theme' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
@@ -250,20 +273,26 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <button
               className={`segmented-item ${currentTheme === 'light' ? 'active' : ''}`}
               onClick={() => handleSelectTheme('light')}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
             >
-              ☀️ 明亮模式
+              <Sun size={13} />
+              <span>明亮模式</span>
             </button>
             <button
               className={`segmented-item ${currentTheme === 'dark' ? 'active' : ''}`}
               onClick={() => handleSelectTheme('dark')}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
             >
-              🌙 暗黑模式
+              <Moon size={13} />
+              <span>暗黑模式</span>
             </button>
             <button
               className={`segmented-item ${currentTheme === 'system' ? 'active' : ''}`}
               onClick={() => handleSelectTheme('system')}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
             >
-              💻 跟随系统
+              <Laptop size={13} />
+              <span>跟随系统</span>
             </button>
           </div>
         </div>
@@ -329,7 +358,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
       {/* 更新与提醒 */}
       <div className={`settings-group ${isResetWave ? 'reset-wave-1' : ''}`}>
-        <div className="settings-group-title">🔄 更新与提醒</div>
+        <div className="settings-group-title">
+          <RotateCcw size={15} />
+          <span>更新与提醒</span>
+        </div>
 
         <div className={`settings-row ${highlightRow === 'update_frequency' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
@@ -401,7 +433,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             onClick={onOpenRules}
             style={{ fontSize: '12px', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}
           >
-            <span>🛡️ 规则</span>
+            <Shield size={13} />
+            <span>规则</span>
             {updateRulesCount > 0 && (
               <span
                 style={{
@@ -422,7 +455,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
       {/* 存储与下载 */}
       <div className={`settings-group ${isResetWave ? 'reset-wave-2' : ''}`}>
-        <div className="settings-group-title">📁 存储与下载</div>
+        <div className="settings-group-title">
+          <Folder size={15} />
+          <span>存储与下载</span>
+        </div>
 
         <div
           className={`settings-row ${highlightRow === 'download_dir' ? 'row-highlight' : ''}`}
@@ -452,7 +488,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <button
                 type="button"
                 className="btn-fluent btn-secondary"
-                style={{ fontSize: '12px', padding: '6px 14px' }}
+                style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
                 onClick={async () => {
                   try {
                     const picked = await api.selectFolder(settings.download_dir, '选择安装包默认下载目录');
@@ -465,18 +501,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   }
                 }}
               >
-                📂 浏览选择...
+                <FolderOpen size={13} />
+                <span>浏览选择...</span>
               </button>
               <button
                 type="button"
                 className="btn-fluent btn-secondary"
-                style={{ fontSize: '12px', padding: '6px 12px' }}
+                style={{ fontSize: '12px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
                 onClick={() => {
                   onUpdateSetting('download_dir', '~/Downloads');
                   triggerChangeFeedback('download_dir', '✓ 已恢复默认位置 ~/Downloads');
                 }}
               >
-                恢复默认
+                <RotateCcw size={12} />
+                <span>恢复默认</span>
               </button>
             </div>
           </div>
@@ -520,7 +558,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <button
                 type="button"
                 className="btn-fluent btn-secondary"
-                style={{ fontSize: '12px', padding: '6px 14px' }}
+                style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
                 onClick={async () => {
                   try {
                     const picked = await api.selectFolder(settings.portable_dir, '选择便携版解压目录');
@@ -533,19 +571,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   }
                 }}
               >
-                📂 浏览选择...
+                <FolderOpen size={13} />
+                <span>浏览选择...</span>
               </button>
               <button
                 type="button"
                 className="btn-fluent btn-secondary"
-                style={{ fontSize: '12px', padding: '6px 12px' }}
+                style={{ fontSize: '12px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
                 onClick={() => {
                   const defaultPortable = '%LOCALAPPDATA%\\Programs\\z-store-apps';
                   onUpdateSetting('portable_dir', defaultPortable);
                   triggerChangeFeedback('portable_dir', '✓ 已恢复默认便携目录');
                 }}
               >
-                恢复默认
+                <RotateCcw size={12} />
+                <span>恢复默认</span>
               </button>
             </div>
           </div>
@@ -564,7 +604,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
       {/* 账号与配额 */}
       <div className={`settings-group ${isResetWave ? 'reset-wave-2' : ''}`}>
-        <div className="settings-group-title">👤 账号与配额</div>
+        <div className="settings-group-title">
+          <User size={15} />
+          <span>账号与配额</span>
+        </div>
 
         <div id="settings-account">
           <OAuthAccountCard />
@@ -573,7 +616,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
       {/* 网络与清单 */}
       <div className={`settings-group ${isResetWave ? 'reset-wave-3' : ''}`}>
-        <div className="settings-group-title">🌐 网络与收录</div>
+        <div className="settings-group-title">
+          <Globe size={15} />
+          <span>网络与收录</span>
+        </div>
 
         <div className={`settings-row ${highlightRow === 'proxy' ? 'row-highlight' : ''}`} style={{ flexDirection: 'column', alignItems: 'stretch', gap: '12px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -596,11 +642,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   color: !proxyTestResult.success ? '#ef4444' : proxyTestResult.latency_ms < 400 ? '#10b981' : proxyTestResult.latency_ms < 1000 ? '#f59e0b' : '#ea580c',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '4px',
+                  gap: '6px',
                   whiteSpace: 'nowrap',
                 }}
               >
-                <span>{proxyTestResult.badge}</span>
+                <span className={`status-dot ${!proxyTestResult.success ? 'status-dot-error' : proxyTestResult.latency_ms < 400 ? 'status-dot-success' : proxyTestResult.latency_ms < 1000 ? 'status-dot-warning' : 'status-dot-error'}`} />
                 <span>{proxyTestResult.text}</span>
               </span>
             )}
@@ -617,11 +663,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             />
             <button
               className="btn-fluent btn-secondary"
-              style={{ fontSize: '12px', padding: '6px 16px', whiteSpace: 'nowrap' }}
+              style={{ fontSize: '12px', padding: '6px 16px', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '6px' }}
               onClick={handleTestProxy}
               disabled={isTestingProxy}
             >
-              {isTestingProxy ? '⚡ 测速中...' : '⚡ 测速'}
+              {isTestingProxy ? <RotateCcw size={12} className="icon-spin" /> : <Zap size={12} />}
+              <span>{isTestingProxy ? '测速中...' : '测速'}</span>
             </button>
             <button
               className="btn-fluent btn-primary"
@@ -638,25 +685,37 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 {proxySavedFeedback}
               </span>
             ) : (
-              <span style={{ fontSize: '12px', color: 'var(--text-muted, #94a3b8)' }}>
-                当前生效: {(!proxyInput.trim() || proxyInput.trim() === 'direct') ? '🟢 GitHub 官方直连模式' : `⚡ 自定义加速代理: ${proxyInput.trim()}`}
+              <span style={{ fontSize: '12px', color: 'var(--text-muted, #94a3b8)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span>当前生效:</span>
+                {(!proxyInput.trim() || proxyInput.trim() === 'direct') ? (
+                  <>
+                    <span className="status-dot status-dot-success" />
+                    <span>GitHub 官方直连模式</span>
+                  </>
+                ) : (
+                  <>
+                    <Zap size={12} style={{ color: 'var(--brand-primary)' }} />
+                    <span>自定义加速代理: {proxyInput.trim()}</span>
+                  </>
+                )}
               </span>
             )}
             {proxyInput.trim() && proxyInput.trim() !== 'direct' && (
               <button
                 type="button"
                 className="btn-fluent btn-secondary"
-                style={{ fontSize: '11px', padding: '2px 8px', color: '#ef4444' }}
+                style={{ fontSize: '11px', padding: '2px 8px', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '4px' }}
                 onClick={async () => {
                   setProxyInput('');
                   await onSelectMirror('direct');
                   onUpdateSetting('active_mirror', 'direct');
-                  setProxySavedFeedback('✅ 已恢复 GitHub 官方直连');
+                  setProxySavedFeedback('已恢复 GitHub 官方直连');
                   triggerChangeFeedback('proxy', '✓ 已切换为 GitHub 官方直连');
                   setTimeout(() => setProxySavedFeedback(null), 3500);
                 }}
               >
-                恢复直连
+                <RotateCcw size={10} />
+                <span>恢复直连</span>
               </button>
             )}
           </div>
@@ -679,19 +738,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <button
                 type="button"
                 className="btn-fluent btn-secondary"
-                style={{ fontSize: '12px', padding: '6px 12px' }}
+                style={{ fontSize: '12px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '4px' }}
                 onClick={() => setShowAdvancedSource(!showAdvancedSource)}
               >
-                {showAdvancedSource ? '收起 ▲' : '自定义源 ▼'}
+                {showAdvancedSource ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                <span>{showAdvancedSource ? '收起' : '自定义源'}</span>
               </button>
               <button
                 type="button"
                 className="btn-fluent btn-primary"
                 onClick={handleSyncCatalog}
                 disabled={isSyncingCatalog}
-                style={{ fontSize: '12px', padding: '6px 14px' }}
+                style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
               >
-                {isSyncingCatalog ? '🔄 同步中...' : '🔄 立即同步'}
+                {isSyncingCatalog ? <RotateCcw size={12} className="icon-spin" /> : <RefreshCw size={12} />}
+                <span>{isSyncingCatalog ? '同步中...' : '立即同步'}</span>
               </button>
             </div>
           </div>
@@ -722,7 +783,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <button
                 type="button"
                 className="btn-fluent btn-primary"
-                style={{ fontSize: '12px', padding: '5px 12px' }}
+                style={{ fontSize: '12px', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: '4px' }}
                 onClick={() => {
                   onUpdateSetting('catalog_source_url', catalogSourceUrl.trim());
                   setCatalogUrlSaved(true);
@@ -730,12 +791,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   setTimeout(() => setCatalogUrlSaved(false), 2500);
                 }}
               >
-                {catalogUrlSaved ? '✓ 已保存' : '保存源'}
+                {catalogUrlSaved && <Check size={12} />}
+                <span>{catalogUrlSaved ? '已保存' : '保存源'}</span>
               </button>
               <button
                 type="button"
                 className="btn-fluent btn-secondary"
-                style={{ fontSize: '12px', padding: '5px 12px' }}
+                style={{ fontSize: '12px', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: '4px' }}
                 onClick={async () => {
                   try {
                     const defUrl = await api.resetSetting('catalog_source_url');
@@ -749,7 +811,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   }
                 }}
               >
-                恢复官方默认
+                <RotateCcw size={12} />
+                <span>恢复官方默认</span>
               </button>
             </div>
           )}
@@ -764,7 +827,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
       {/* 数据备份 */}
       <div className={`settings-group ${isResetWave ? 'reset-wave-4' : ''}`}>
-        <div className="settings-group-title">💾 数据备份</div>
+        <div className="settings-group-title">
+          <Database size={15} />
+          <span>数据备份</span>
+        </div>
 
         <div className={`settings-row ${highlightRow === 'export' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
@@ -784,10 +850,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <button
               className="btn-fluent btn-primary"
               onClick={handleExportJson}
-              style={{ fontSize: '12px', padding: '6px 14px' }}
+              style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
               disabled={installedCount === 0}
             >
-              💾 导出清单
+              <Download size={13} />
+              <span>导出清单</span>
             </button>
           </div>
         </div>
@@ -831,10 +898,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           ) : (
             <button
               className="btn-fluent btn-secondary"
-              style={{ fontSize: '12px', padding: '6px 14px', color: '#ef4444' }}
+              style={{ fontSize: '12px', padding: '6px 14px', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '6px' }}
               onClick={() => setIsResetConfirming(true)}
             >
-              🔄 恢复默认
+              <RotateCcw size={13} />
+              <span>恢复默认</span>
             </button>
           )}
         </div>

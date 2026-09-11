@@ -1,4 +1,14 @@
 import React from 'react';
+import {
+  Search,
+  Sparkles,
+  Play,
+  Zap,
+  ArrowRight,
+  Clock,
+  Trash2,
+  Package,
+} from 'lucide-react';
 import { AppCard } from '../components/AppCard';
 import { AppIcon } from '../components/AppIcon';
 import { AppSummary } from '../types';
@@ -36,7 +46,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
     return (
       <div className="home-view">
         <div className="empty-state-card" style={{ marginTop: '40px' }}>
-          <div style={{ fontSize: '48px', marginBottom: '14px' }}>🔍</div>
+          <Search size={44} strokeWidth={1.5} style={{ color: 'var(--text-tertiary)', marginBottom: '14px' }} />
           <h4 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: 600 }}>未在精选收录库中找到匹配软件</h4>
           <p style={{ color: 'var(--text-secondary)', fontSize: '14px', maxWidth: '540px', lineHeight: '1.6', margin: '0 auto 16px auto' }}>
             Z-Store 支持强大的<strong>全网开源生态直连</strong>。您可以直接在顶部搜索栏输入 GitHub 仓库全名（例如 <code>owner/repo</code>），系统将实时穿透解析其最新 Releases 产物供您一键安装！
@@ -68,7 +78,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
         >
           <div className="hero-content">
             <div className="hero-tag">
-              <span>🌟 本周编辑精选推荐</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                <Sparkles size={12} style={{ color: '#eab308' }} />
+                <span>本周编辑精选推荐</span>
+              </span>
               <span>·</span>
               <span>跨平台开源精选</span>
             </div>
@@ -98,7 +111,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             <div className="hero-actions">
               <button
                 className={`btn-fluent ${installedIds.has(heroApp.id) ? 'btn-secondary' : 'btn-primary'}`}
-                style={{ padding: '9px 22px', fontSize: '13.5px', fontWeight: 600 }}
+                style={{ padding: '9px 22px', fontSize: '13.5px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                 disabled={installingIds?.has(heroApp.id)}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -111,20 +124,27 @@ export const HomeView: React.FC<HomeViewProps> = ({
                     <span>正在安装...</span>
                   </span>
                 ) : installedIds.has(heroApp.id) ? (
-                  '🚀 已就绪 · 打开'
+                  <>
+                    <Play size={14} />
+                    <span>已就绪 · 打开</span>
+                  </>
                 ) : (
-                  '⚡ 安装'
+                  <>
+                    <Zap size={14} />
+                    <span>安装</span>
+                  </>
                 )}
               </button>
               <button
                 className="btn-fluent btn-secondary"
-                style={{ padding: '9px 18px', fontSize: '13.5px' }}
+                style={{ padding: '9px 18px', fontSize: '13.5px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                 onClick={(e) => {
                   e.stopPropagation();
                   onNavigateTrends();
                 }}
               >
-                探索飙升热榜 ➔
+                <span>探索飙升热榜</span>
+                <ArrowRight size={13} />
               </button>
             </div>
           </div>
@@ -156,15 +176,19 @@ export const HomeView: React.FC<HomeViewProps> = ({
       {recentlyViewedApps && recentlyViewedApps.length > 0 && (
         <div style={{ marginBottom: '28px' }}>
           <div className="section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h3 className="section-title">🕒 最近浏览</h3>
+            <h3 className="section-title">
+              <Clock size={16} />
+              <span>最近浏览</span>
+            </h3>
             {onClearRecentViews && (
               <button
                 type="button"
                 className="btn-fluent btn-secondary"
-                style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px' }}
+                style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}
                 onClick={onClearRecentViews}
               >
-                清空记录
+                <Trash2 size={11} />
+                <span>清空记录</span>
               </button>
             )}
           </div>
@@ -191,7 +215,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
       {featuredApps.length > 0 && (
         <>
           <div className="section-header">
-            <h3 className="section-title">✨ 经典精选开源软件</h3>
+            <h3 className="section-title">
+              <Sparkles size={16} />
+              <span>经典精选开源软件</span>
+            </h3>
           </div>
           <div className="app-grid">
             {featuredApps.map((app) => (
@@ -216,7 +243,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
       {remainingApps.length > 0 && (
         <>
           <div className="section-header" style={{ marginTop: '28px' }}>
-            <h3 className="section-title">📦 全部精选开源收录</h3>
+            <h3 className="section-title">
+              <Package size={16} />
+              <span>全部精选开源收录</span>
+            </h3>
           </div>
           <div className="app-grid">
             {remainingApps.map((app) => (

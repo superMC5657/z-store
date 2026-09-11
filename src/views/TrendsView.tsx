@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { TrendingUp, Star } from 'lucide-react';
 import { AppSummary } from '../types';
 import { AppIcon } from '../components/AppIcon';
 
@@ -54,7 +55,10 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   return (
     <div className="trends-view view-entrance">
       <div className="section-header">
-        <h3 className="section-title">🚀 GitHub 开源应用飙升热榜</h3>
+        <h3 className="section-title">
+          <TrendingUp size={18} />
+          <span>GitHub 开源应用飙升热榜</span>
+        </h3>
         <div style={{ display: 'flex', gap: '8px' }}>
           {(['day', 'week', 'month', 'all'] as TimeRange[]).map((tab) => {
             const labels: Record<TimeRange, string> = {
@@ -148,8 +152,9 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginLeft: '12px' }}>
-              <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 500 }}>
-                ★ {(app.stars / 1000).toFixed(1)}k
+              <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                <Star size={12} fill="currentColor" />
+                <span>{(app.stars / 1000).toFixed(1)}k</span>
               </span>
               {onToggleFavorite && (
                 <button
@@ -161,12 +166,18 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                     background: 'none',
                     border: 'none',
                     cursor: 'pointer',
-                    fontSize: '16px',
+                    padding: '2px',
+                    display: 'flex',
+                    alignItems: 'center',
                     color: favoriteIds?.has(app.id) ? '#eab308' : 'var(--text-tertiary)',
                   }}
                   title={favoriteIds?.has(app.id) ? '取消收藏' : '添加至我的收藏'}
                 >
-                  {favoriteIds?.has(app.id) ? '★' : '☆'}
+                  <Star
+                    size={16}
+                    fill={favoriteIds?.has(app.id) ? '#eab308' : 'none'}
+                    color={favoriteIds?.has(app.id) ? '#eab308' : 'currentColor'}
+                  />
                 </button>
               )}
               {installedIds?.has(app.id) ? (
