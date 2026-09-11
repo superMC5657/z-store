@@ -167,7 +167,7 @@ pub fn import_single_app(state: State<'_, AppState>, app_id: String) -> Result<b
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.save_installed_app(&installed).map_err(|e| e.to_string())?;
 
-    // 纳管后让探测缓存也包含该 ID
+    // 添加管理后让探测缓存也包含该 ID
     if let Ok(mut guard) = DETECTED_APP_IDS_CACHE.write() {
         if let Some((_, ref mut ids)) = *guard {
             if !ids.iter().any(|id| id.eq_ignore_ascii_case(&installed.app_id)) {

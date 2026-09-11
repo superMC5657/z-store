@@ -27,6 +27,7 @@
   - Windows 端结合 Authenticode 数字证书指纹提取与有效性强核验，防御供应链投毒（详见 [ADR-0004](docs/adr/0004-streaming-installer-and-checksum-verification.md)）。
 - **D4 深度融合 Fluent Design 2.0 (Native Design System)**:
   - 全面遵循微软 Windows 11 Fluent 2.0 规范，提供亚克力毛玻璃 (Acrylic)、折射高光描边、平滑微动效与系统级深浅色自适应（`light-dark()`、`in oklch`）；
+  - 全站功能操作与状态反馈全面采用统一的 Fluent 2 线性矢量图标体系（基于 `lucide-react` 与统一单色矢量 SVG，通过 `currentColor` 适配主题与微动效）；
   - 配套 [ADR-0005](docs/adr/0005-cross-platform-multi-mode-icon-specifications.md) 晶透双模标识体系。
 
 ---
@@ -43,9 +44,9 @@
 - **原生多端标识符结构**：元数据清单原生支持按操作系统划分的应用标识符体系（`identifiers`：Windows 进程/可执行文件名、Linux 进程名、macOS 应用名、Android/iOS 原生包名）。
 - **双维交叉筛选**：分类中心支持按设备平台（全部设备 / Windows / Android / macOS / Linux / iOS）与功能分类（系统实用、开发工具、影音视听等 10 大分类）实时双维交叉过滤。
 
-### 3. 🔍 存量已安装应用外部导入 (External App Import)
+### 3. 🔍 存量已安装应用外部导入与管理 (External App Management)
 - 深度扫描 Windows 系统已安装软件（注册表 `Uninstall` 项与系统目录），提取软件名称、版本与安装路径。
-- 基于倒排索引与启发式置信度打分算法（支持别名匹配与特征指纹），智能识别本地已装的开源软件（如 VLC、OBS、VS Code、Git 等），一键接管自动更新。
+- 基于倒排索引与启发式置信度打分算法（支持别名匹配与特征指纹），智能识别本地已装的开源软件（如 VLC、OBS、VS Code、Git 等），一键导入管理并接管自动更新。
 
 ### 4. 🛡️ 细粒度版本控制与安全防御
 - **版本控制中枢**：更新列表中可针对特定应用选择“跳过此版本”或“锁定当前版本（禁止自动更新）”，避免破坏性升级。
@@ -80,7 +81,7 @@
 ## 🛠️ 架构与技术栈
 
 - **桌面底座**: Tauri 2.2 + Rust 1.77+
-- **前端界面**: React 19 + TypeScript 5.7 + Vite 6 + 原生 Fluent 2.0 CSS
+- **前端界面**: React 19 + TypeScript 5.7 + Vite 6 + 原生 Fluent 2.0 CSS + Fluent 矢量图标体系 (`lucide-react`)
 - **本地数据库**: 嵌入式 SQLite (`rusqlite` bundled，维护 13 张核心表)
 - **配置中枢**: 单一基线配置源（`src-tauri/config.toml`），结合编译期内置兜底与外部重载机制
 - **网络与下载**: `reqwest`（`json` / `stream` / `socks` 特性）+ ETag 条件缓存 + 并发镜像测速管道；自动继承系统代理与 TUN 模式
@@ -95,7 +96,7 @@
 |---|---|---|---|
 | **M0: 核心基座与 MVP** | 基础架构与 Windows 端闭环 | **100% 已交付** | 纯客户端直连、Fluent 2 亚克力界面、国内镜像加速管道 |
 | **Feature A: 多代码托管平台** | Codeberg / Forgejo / Gitea | **100% 已交付** | `ForgeProvider` 抽象、多主机 Token 隔离 ([ADR-0006](docs/adr/0006-multi-forge-ecosystem-support.md)) |
-| **Feature B: 存量应用纳管** | 扫描已装软件并接管更新 | **100% 已交付** | Windows 注册表扫描器、启发式倒排打分匹配引擎 |
+| **Feature B: 存量应用管理** | 扫描已装软件并接管更新 | **100% 已交付** | Windows 注册表扫描器、启发式倒排打分匹配引擎 |
 | **Feature C: 版本控制与验签** | 跳过/锁定版本与证书核验 | **100% 已交付** | SQLite 版本规则表、Windows Authenticode 签名核验 ([ADR-0004](docs/adr/0004-streaming-installer-and-checksum-verification.md)) |
 | **Feature D: 开发者生态** | 开发者全景与 Star 仓库同步 | **100% 已交付** | 开发者主页、GitHub Star 导入、搜索/浏览历史持久化 |
 | **Feature E: 协议唤起与多端** | `zstore://` 路由与多端管道 | **100% 已交付** | URL Scheme 深度链接、API 配额药丸胶囊、类 Unix 安装管道 |
@@ -158,21 +159,4 @@ pnpm tauri build
 
 本项目基于 MIT / Apache-2.0 双开源协议分发，详见 LICENSE。
 
----
 
-## 📝 文档变更与历史演进备注
-
-> 本节记录系统历史技术方案演进与本次文档更新说明，供追溯与参考；文档正文仅保持对系统当前最新实现机制的客观记录。
-
-1. **应用市场清单仓库解耦演进 (ADR-0009)**：
-   - *过去做法*：在早期阶段，`catalog.json` 存放在客户端代码主仓库中，并通过 GitHub Actions 定时任务机器人拉取并提交更新，导致客户端 Git Commit 历史充斥大量自动化提交，且社区贡献应用必须直接向核心客户端提 PR。
-   - *当前现状*：生态数据已完整剥离至独立的 `superMC5657/z-store-catalog` 仓库独立维护，主仓库根目录仅保留打包时的种子清单作为离线兜底，客户端 CI 工作流完全净化。
-2. **侧栏底部常驻胶囊组件演进**：
-   - *过去做法*：早期侧栏底部 `network-pill` 用于展示加速镜像节点的延迟测试信息。
-   - *当前现状*：镜像测速与线路切换已规范收归至设置中心；侧栏底部统一变更为 GitHub 账号入口胶囊（`Account Capsule`），用于展示登录态或快捷唤起设备码认证，实现与 GitHub Star 同步等生态特性的直观联动。
-3. **应用标识符与平台筛选模型升级**：
-   - *过去做法*：应用清单早期仅包含扁平的 `executables: string[]` 数组，且分类浏览页仅支持单一功能分类筛选。
-   - *当前现状*：数据模型重构升级为 `identifiers: Record<string, string[]>` 字典，分别映射 Windows、Linux、macOS、Android、iOS 各端的原生可执行文件名或应用包名；分类浏览页全面升级为设备平台与功能分类双维交叉筛选。
-4. **项目超参及配置中心化治理**：
-   - *过去做法*：网络超时、历史记录上限、默认 Client ID 及清单路径等超参分散硬编码在 Rust 模块及部分辅助脚本中。
-   - *当前现状*：全量收归至 `src-tauri/config.toml` 单一配置源，Rust 端通过 `ProjectConfig` 提供强类型只读引用并内嵌编译期默认值。

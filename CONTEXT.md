@@ -13,7 +13,7 @@
 | **精选收录库** | `Curated Catalog` | 包含中文本地化别名、图标、官方仓库坐标等元数据的精选开源应用清单。 | 应用市场、软件仓库 |
 | **独立生态清单仓库** | `Decoupled Catalog Repository` | 独立维护于 `superMC5657/z-store-catalog` 的开源清单数据仓库，独立运作保鲜 CI 与准入校验，详见 ADR-0009。 | 中心数据库、后台仓库 |
 | **种子清单兜底** | `Catalog Seed Fallback` | 客户端本地打包内置的 `catalog.json` 静态种子，确保初次安装或离线断网时 0 延迟秒开列表。 | 默认缓存、离线数据包 |
-| **多端应用标识符** | `Platform Identifiers` | 按操作系统（Windows、Linux、macOS、Android、iOS）区分的原生进程/包名标识符映射字典，用于精准纳管与启动。 | 执行文件名、进程表 |
+| **多端应用标识符** | `Platform Identifiers` | 按操作系统（Windows、Linux、macOS、Android、iOS）区分的原生进程/包名标识符映射字典，用于精准匹配管理与启动。 | 执行文件名、进程表 |
 | **双维目录筛选** | `Bi-dimensional Filter` | 分类浏览中心提供的“设备平台（全部/Windows/Android/macOS/Linux/iOS）”与“功能分类（开发、影音等 10 类）”双维交叉过滤机制。 | 标签过滤、分类切换 |
 | **应用概要** | `AppSummary` | 列表页展示的轻量级实体，包含 Star 数、协议、分类、图标、多端平台支持与最新版本信息。 | 应用简报、AppInfo |
 | **应用详情** | `AppDetail` | 弹窗呈现的完整元数据，包含对应 Release 的构建资产列表 (`assets`)、官方 README Markdown、扩展元数据 (`StoreMeta`) 与签名证书指纹。 | 详细信息、FullApp |
@@ -30,7 +30,8 @@
 | **协议深层链接** | `Deep Linking` | 注册系统级 `zstore://` URL Scheme，支持浏览器与外部链接一键呼起客户端直达详情、安装或搜索路由。 | 外部协议、跳转链接 |
 | **版本控制规则** | `Update Rule` | 持久化于本地 SQLite 的应用更新策略，支持跳过指定破坏性版本、永久锁定版本与隐藏特定仓库。 | 忽略更新、锁定版本 |
 | **代码签名核验** | `Authenticode Verification` | Windows 下调用 WinTrust/Crypt32 API 提取 PE 安装包的数字签名状态、颁发机构与 SHA-256 证书指纹，结合预期指纹校验防投毒。详见 ADR-0004。 | 证书校验、安全验签 |
-| **存量应用纳管** | `External App Scanner` | 扫描操作系统已安装软件（Windows 注册表及程序目录），通过倒排索引与启发式打分智能匹配开源清单并接管更新。 | 软件扫描、外部导入 |
+| **存量应用管理** | `External App Management` | 扫描操作系统已安装软件（Windows 注册表及程序目录），通过倒排索引与启发式打分智能匹配开源清单，一键添加至管理列表并接管更新。 | 软件扫描、外部导入、应用纳管 |
+| **Fluent 2 矢量图标体系** | `Fluent Vector Icon System` | 全站功能操作、导航菜单、设备平台标识及状态指示全面采用轻量线性矢量图标（`lucide-react` 与统一单色 SVG），严格遵循 Fluent 2.0 视觉规范与 `currentColor` 主题自适应，配合 CSS 微动效与状态指示原点。 | 功能Emoji、彩色贴图、图标库 |
 | **主机配额指示器** | `Host Quota Indicator` | 视窗界面常驻胶囊徽章（Rate Limit Pill），动态监听各托管平台 API 剩余调用配额并在低电平（<15%）时告警。 | 配额胶囊、限流状态 |
 | **下载加速代理** | `Mirror Download Proxy` | 仅用于大文件下载提速的加速镜像节点重写（如 `gh-proxy.com`）；仅改变下载 URL 前缀，API 与登录直接走系统网络通道。 | 出站代理、镜像节点 |
 | **GitHub登录胶囊** | `Account Capsule` | 侧栏底部常驻账号入口：未登录显示 GitHub 快捷登录入口，已登录显示用户头像与用户名；点击直达设置中心账号卡片（`#settings-account`）。 | 侧边栏按钮、用户面板 |
@@ -55,23 +56,5 @@
    - 所有下载的二进制安装包强制流式计算 SHA-256 哈希值；若官方提供了预期哈希清单，严格比对，哈希不符立即强行阻断并销毁临时文件；在 Windows 下结合 Authenticode 证书指纹与有效性强校验（详见 ADR-0004）。
 4. **D4 深度融合 Windows 11 Fluent 2.0 (Native Design System)**:
    - 界面遵循微软 Fluent Design 2.0 规范，提供亚克力毛玻璃 (Acrylic)、折射描边、微动效与系统级深浅色自适应。
+   - 采用统一的 Fluent 2 线性矢量图标体系（统一由 `lucide-react` 及单色矢量 SVG 驱动并适配 `currentColor`），状态反馈采用标准 CSS 微动效（如旋转 `.icon-spin`）与高亮状态指示原点（`.status-dot`），消除视觉割裂。
    - 侧栏底部常驻账号入口胶囊（`Account Capsule`），未登录显示登录入口，已登录呈现头像与用户名，点击直达设置中心账号卡片（`#settings-account`）。
-
----
-
-## 附录：变更与历史演进备注
-
-> 本附录归档项目演进过程中的技术变迁记录，供工程回溯使用；正文内容严格仅反映当前的领域模型与系统契约。
-
-1. **生态清单与客户端解耦演进 (ADR-0009)**：
-   - *过去做法*：最初 `catalog.json` 直接存放于客户端主工程中，由主仓库 GitHub Actions 每周自动运行脚本提交代码刷新，导致主仓库提交历史混入大量机器人提交，且外部社区提交清单需要向客户端代码库提 PR。
-   - *当前现状*：生态清单已完整拆解为独立数据仓库 `superMC5657/z-store-catalog`，客户端通过增量同步机制动态拉取，主工程根目录保留一份打包期种子清单用于无网兜底。
-2. **侧栏底部胶囊语义演进**：
-   - *过去做法*：在早期版本中，侧栏底部按钮为网络镜像测速胶囊，用于直观查看当前加速镜像节点的延迟。
-   - *当前现状*：镜像状态与节点测速收归至设置中心 `🌐 网络与清单数据` 组；侧栏底部空间赋予 GitHub 账号入口胶囊（`Account Capsule`），作为用户登录状态的常驻中枢。
-3. **应用标识符由单一可执行文件重构为多端体系**：
-   - *过去做法*：早期数据结构中使用单一 `executables` 字段记录可执行程序文件名，局限于 Windows 单一平台。
-   - *当前现状*：演进为多端原生 `identifiers: Record<string, string[]>` 体系，清晰解耦 Windows、Linux、macOS、Android、iOS 平台各自的原生标识，支撑双维目录筛选及跨平台生命周期管理。
-4. **工程超参配置单一来源演进**：
-   - *过去做法*：超参（如请求超时、历史保留条数、默认 OAuth Client ID 等）分散硬编码在 Rust 源码与各业务模块中。
-   - *当前现状*：全面收纳至 `src-tauri/config.toml` 单一配置文件，消除魔法数字与重复维护成本。

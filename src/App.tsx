@@ -775,7 +775,7 @@ export const App: React.FC = () => {
     setUninstallingAppIds((prev) => new Set(prev).add(id));
     try {
       await api.uninstallApp(id);
-      // 1. 精准增量从本地已纳管列表中移除
+      // 1. 精准增量从本地管理列表中移除
       setInstalledApps((prev) => prev.filter((a) => a.app_id.toLowerCase() !== id.toLowerCase()));
       // 2. 精准增量从系统探测列表中剔除（纯内存 O(1) 更新，完全无需触发全盘重扫）
       setDetectedAppIds((prev) => {
@@ -946,7 +946,7 @@ export const App: React.FC = () => {
   };
 
   const handleImportSuccess = async (count: number) => {
-    showToast(`🎉 成功纳管 ${count} 款开源应用！`, 'success');
+    showToast(`🎉 成功添加 ${count} 款开源应用到管理列表！`, 'success');
     try {
       const loadedInstalled = await api.getInstalledApps();
       setInstalledApps(loadedInstalled);

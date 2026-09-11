@@ -349,7 +349,7 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result
             .await?;
         } else {
             return Err(format!(
-                "未在系统中检测到 {} 的官方卸载程序。如需从 Z-Store 中移除管理记录，请在卡片更多操作中选择「取消纳管」",
+                "未在系统中检测到 {} 的官方卸载程序。如需从 Z-Store 中移除管理记录，请在卡片更多操作中选择「从列表移除」",
                 app.app_name
             ));
         }
@@ -387,7 +387,7 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result
 pub fn unmanage_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let res = db.remove_installed_app(&app_id).map_err(|e| e.to_string());
-    // 取消纳管后，本机依然存在该软件，因此保持/添加到已探测缓存中
+    // 从列表移除管理后，本机依然存在该软件，因此保持/添加到已探测缓存中
     crate::commands::scanner::add_to_detected_cache(&app_id);
     res
 }
@@ -419,7 +419,7 @@ pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, St
                 .unwrap_or_default();
             (c.name, p, Some(c.repo))
         } else {
-            return Err(format!("未找到已安装或纳管的应用: {}", app_id));
+            return Err(format!("未找到已安装或管理的应用: {}", app_id));
         }
     };
 
@@ -516,7 +516,7 @@ pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, St
                 .spawn()
                 .map_err(|e| format!("启动应用程序失败: {}", e))?;
 
-            // 如果该应用已被纳管，自动将探测到的真实物理路径写回数据库，加速下次启动
+            // 如果该应用已被添加管理，自动将探测到的真实物理路径写回数据库，加速下次启动
             if let Some(mut updated) = installed_app_opt {
                 if target_path != exe_str {
                     if let Ok(db) = state.db.lock() {
@@ -576,7 +576,7 @@ pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, St
     }
 
     Err(format!(
-        "未能定位到该软件的可执行程序。\n记录路径: {}\n建议检查软件是否已被重命名或迁移，或重新纳管。",
+        "未能定位到该软件的可执行程序。\n记录路径: {}\n建议检查软件是否已被重命名或迁移，或重新扫描添加。",
         if target_path.is_empty() { "无" } else { &target_path }
     ))
 }
