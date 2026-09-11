@@ -234,7 +234,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
       {/* 外观 */}
       <div className={`settings-group ${isResetWave ? 'reset-wave-0' : ''}`}>
-        <div className="settings-group-title">🖥️ 外观与显示</div>
+        <div className="settings-group-title">🖥️ 外观</div>
 
         <div className={`settings-row ${highlightRow === 'theme' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
@@ -271,12 +271,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <div className={`settings-row ${highlightRow === 'ui_scale' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 600 }}>界面整体缩放比例 (UI Zoom)</span>
+              <span style={{ fontWeight: 600 }}>界面缩放</span>
               {activeNotice?.key === 'ui_scale' && (
                 <span className="setting-applied-badge">{activeNotice.text}</span>
               )}
             </div>
-            <span className="settings-row-desc">自适应高 DPI 屏幕与显示器缩放比例</span>
+            <span className="settings-row-desc">自适应屏幕显示比例</span>
           </div>
           <div className="segmented-group">
             {(['90', '100', '110', '125'] as const).map((scale) => (
@@ -294,12 +294,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <div className={`settings-row ${highlightRow === 'font_size' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 600 }}>全局排版字号大小 (Font Size)</span>
+              <span style={{ fontWeight: 600 }}>字体大小</span>
               {activeNotice?.key === 'font_size' && (
                 <span className="setting-applied-badge">{activeNotice.text}</span>
               )}
             </div>
-            <span className="settings-row-desc">步长 2px</span>
+            <span className="settings-row-desc">调整全局显示字号</span>
           </div>
           <div className="segmented-group">
             {[
@@ -339,7 +339,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <span className="setting-applied-badge">{activeNotice.text}</span>
               )}
             </div>
-            <span className="settings-row-desc">用 ETag 探测已纳管软件的新版本</span>
+            <span className="settings-row-desc">定期检查已安装软件的更新</span>
           </div>
           <div className="segmented-group">
             {[
@@ -363,12 +363,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <div className={`settings-row ${highlightRow === 'watch_notify_frequency' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 600 }}>关注应用的更新提醒频率</span>
+              <span style={{ fontWeight: 600 }}>关注应用提醒频率</span>
               {activeNotice?.key === 'watch_notify_frequency' && (
                 <span className="setting-applied-badge">{activeNotice.text}</span>
               )}
             </div>
-            <span className="settings-row-desc">关注应用发新版时的提醒节奏</span>
+            <span className="settings-row-desc">关注应用发布新版本时的提醒频率</span>
           </div>
           <div className="segmented-group">
             {[
@@ -391,8 +391,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <span style={{ fontWeight: 600 }}>版本锁定与隐藏规则</span>
             <span className="settings-row-desc">
               {updateRulesCount > 0
-                ? `已生效 ${updateRulesCount} 条，可随时解除锁定、恢复提醒或取消隐藏。`
-                : '在「更新中心」卡片菜单可配置跳过或锁定版本。'}
+                ? `已生效 ${updateRulesCount} 条规则`
+                : '可在应用卡片菜单中配置跳过或锁定版本'}
             </span>
           </div>
           <button
@@ -420,9 +420,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
-      {/* 存储与下载设置 */}
+      {/* 存储与下载 */}
       <div className={`settings-group ${isResetWave ? 'reset-wave-2' : ''}`}>
-        <div className="settings-group-title">📁 存储与下载设置</div>
+        <div className="settings-group-title">📁 存储与下载</div>
 
         <div
           className={`settings-row ${highlightRow === 'download_dir' ? 'row-highlight' : ''}`}
@@ -439,13 +439,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           >
             <div className="settings-row-info">
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontWeight: 600 }}>安装包默认下载位置</span>
+                <span style={{ fontWeight: 600 }}>安装包下载位置</span>
                 {activeNotice?.key === 'download_dir' && (
                   <span className="setting-applied-badge">{activeNotice.text}</span>
                 )}
               </div>
               <span className="settings-row-desc">
-                所有安装包（EXE、MSI、DMG、DEB、RPM 等）下载存储目录，跨平台统一默认指向系统下载文件夹 <code>~/Downloads</code>
+                安装包默认下载保存位置
               </span>
             </div>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -507,13 +507,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           >
             <div className="settings-row-info">
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontWeight: 600 }}>免安装便携版应用解压目录</span>
+                <span style={{ fontWeight: 600 }}>便携版解压目录</span>
                 {activeNotice?.key === 'portable_dir' && (
                   <span className="setting-applied-badge">{activeNotice.text}</span>
                 )}
               </div>
               <span className="settings-row-desc">
-                ZIP 格式绿色免安装软件解压与运行根目录
+                免安装绿色软件解压根目录
               </span>
             </div>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -564,7 +564,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
       {/* 账号与配额 */}
       <div className={`settings-group ${isResetWave ? 'reset-wave-2' : ''}`}>
-        <div className="settings-group-title">👤 GitHub 账号与 API 配额</div>
+        <div className="settings-group-title">👤 账号与配额</div>
 
         <div id="settings-account">
           <OAuthAccountCard />
@@ -573,7 +573,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
       {/* 网络与清单 */}
       <div className={`settings-group ${isResetWave ? 'reset-wave-3' : ''}`}>
-        <div className="settings-group-title">🌐 网络与清单数据</div>
+        <div className="settings-group-title">🌐 网络与收录</div>
 
         <div className={`settings-row ${highlightRow === 'proxy' ? 'row-highlight' : ''}`} style={{ flexDirection: 'column', alignItems: 'stretch', gap: '12px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -585,7 +585,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 )}
               </div>
               <span className="settings-row-desc">
-                留空为官方直连；国内下载慢可填加速前缀
+                留空为官方直连，可配置加速镜像地址
               </span>
             </div>
             {proxyTestResult && (
@@ -621,14 +621,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               onClick={handleTestProxy}
               disabled={isTestingProxy}
             >
-              {isTestingProxy ? '⚡ 正在测速...' : '⚡ 单击测速'}
+              {isTestingProxy ? '⚡ 测速中...' : '⚡ 测速'}
             </button>
             <button
               className="btn-fluent btn-primary"
               style={{ fontSize: '12px', padding: '6px 16px', whiteSpace: 'nowrap' }}
               onClick={handleSaveProxy}
             >
-              保存配置
+              保存
             </button>
           </div>
 
@@ -666,13 +666,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
             <div className="settings-row-info">
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontWeight: 600 }}>开源收录清单动态同步</span>
+                <span style={{ fontWeight: 600 }}>收录清单同步</span>
                 {(activeNotice?.key === 'catalog_source' || activeNotice?.key === 'catalog_sync') && (
                   <span className="setting-applied-badge">{activeNotice.text}</span>
                 )}
               </div>
               <span className="settings-row-desc">
-                从社区开源清单仓库拉取最新收录
+                从开源清单仓库同步最新收录数据
               </span>
             </div>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -682,7 +682,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 style={{ fontSize: '12px', padding: '6px 12px' }}
                 onClick={() => setShowAdvancedSource(!showAdvancedSource)}
               >
-                {showAdvancedSource ? '收起配置 ▲' : '高级源配置 ▼'}
+                {showAdvancedSource ? '收起 ▲' : '自定义源 ▼'}
               </button>
               <button
                 type="button"
@@ -691,7 +691,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 disabled={isSyncingCatalog}
                 style={{ fontSize: '12px', padding: '6px 14px' }}
               >
-                {isSyncingCatalog ? '🔄 正在同步...' : '🔄 立即同步收录库'}
+                {isSyncingCatalog ? '🔄 同步中...' : '🔄 立即同步'}
               </button>
             </div>
           </div>
@@ -762,22 +762,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
-      {/* 数据备份与恢复 */}
+      {/* 数据备份 */}
       <div className={`settings-group ${isResetWave ? 'reset-wave-4' : ''}`}>
-        <div className="settings-group-title">💾 数据备份与恢复</div>
+        <div className="settings-group-title">💾 数据备份</div>
 
         <div className={`settings-row ${highlightRow === 'export' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 600 }}>软件资产清单导出</span>
+              <span style={{ fontWeight: 600 }}>已管理应用导出</span>
               {activeNotice?.key === 'export' && (
                 <span className="setting-applied-badge">{activeNotice.text}</span>
               )}
             </div>
             <span className="settings-row-desc">
               {typeof installedCount === 'number' && installedCount > 0
-                ? `已纳管 ${installedCount} 款软件，支持导出规范 JSON 格式备份文件`
-                : '导出已安装软件资产清单为 JSON 备份文件，便于换机与资产迁移'}
+                ? `已管理 ${installedCount} 款软件，可导出为 JSON 备份`
+                : '导出已安装软件清单为 JSON 备份文件'}
             </span>
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
@@ -787,7 +787,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               style={{ fontSize: '12px', padding: '6px 14px' }}
               disabled={installedCount === 0}
             >
-              💾 导出 JSON 备份文件
+              💾 导出清单
             </button>
           </div>
         </div>
@@ -797,12 +797,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <div className={`settings-row ${highlightRow === 'reset' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 600 }}>恢复出厂默认设置</span>
+              <span style={{ fontWeight: 600 }}>恢复默认设置</span>
               {activeNotice?.key === 'reset' && (
                 <span className="setting-applied-badge">{activeNotice.text}</span>
               )}
             </div>
-            <span className="settings-row-desc">恢复全部设置为初始值</span>
+            <span className="settings-row-desc">将所有设置恢复为默认值</span>
           </div>
           {isResetConfirming ? (
             <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
@@ -834,7 +834,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               style={{ fontSize: '12px', padding: '6px 14px', color: '#ef4444' }}
               onClick={() => setIsResetConfirming(true)}
             >
-              🔄 恢复出厂设置
+              🔄 恢复默认
             </button>
           )}
         </div>

@@ -85,11 +85,11 @@ export const DataBackupRow: React.FC = () => {
   return (
     <div className="settings-row">
       <div className="settings-row-info">
-        <span style={{ fontWeight: 600 }}>用户数据备份（收藏 / 关注 / 设置）</span>
+        <span style={{ fontWeight: 600 }}>用户数据备份</span>
         {feedback ? (
           <span style={{ fontSize: '12px', color: isError ? '#ef4444' : '#10b981' }}>{feedback}</span>
         ) : (
-          <span className="settings-row-desc">导出为本地 JSON 文件换机恢复；导入仅合并收藏与关注，已安装应用不受影响</span>
+          <span className="settings-row-desc">备份或恢复收藏、关注及偏好设置</span>
         )}
       </div>
       <div style={{ display: 'flex', gap: '8px' }}>

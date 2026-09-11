@@ -90,9 +90,9 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
     <div className="updates-view view-entrance">
       <div className="section-header">
         <div>
-          <h3 className="section-title" style={{ margin: 0 }}>🔄 可更新项管理 ({updates.length})</h3>
+          <h3 className="section-title" style={{ margin: 0 }}>🔄 应用更新 ({updates.length})</h3>
           <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: 'var(--text-tertiary)' }}>
-            支持跳过破坏性版本或永久锁定，可点击「🛡️ 规则」随时管理或恢复
+            管理版本更新、跳过或锁定规则
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -101,7 +101,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
               className="btn-fluent btn-secondary"
               onClick={onOpenRules}
               style={{ fontSize: '13px', padding: '6px 14px' }}
-              title="查看与管理跳过、锁定或隐藏的更新规则"
+              title="管理更新规则"
             >
               🛡️ 规则 {typeof updateRulesCount === 'number' && updateRulesCount > 0 ? `(${updateRulesCount})` : ''}
             </button>
@@ -119,12 +119,12 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
               }}
               disabled={isChecking || isUpdatingAll}
               style={{ fontSize: '13px', padding: '6px 14px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-              title="向各开源托管仓库实时检查最新版本"
+              title="检查最新版本"
             >
               {isChecking ? (
                 <>
                   <span className="spinner-icon" style={{ width: '12px', height: '12px', borderWidth: '1.5px' }} />
-                  <span>正在逐项检测...</span>
+                  <span>正在检查...</span>
                 </>
               ) : (
                 <>
@@ -141,7 +141,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
               disabled={isUpdatingAll || isChecking}
               style={{ fontWeight: 600, fontSize: '13px' }}
             >
-              {isUpdatingAll ? '正在批量更新中...' : `一键全部升级 (${updates.length} 个就绪)`}
+              {isUpdatingAll ? '正在更新中...' : `全部更新 (${updates.length})`}
             </button>
           )}
         </div>

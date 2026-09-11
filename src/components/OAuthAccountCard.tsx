@@ -160,9 +160,9 @@ export const OAuthAccountCard: React.FC = () => {
     <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '12px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
         <div className="settings-row-info">
-          <span style={{ fontWeight: 600 }}>🐙 GitHub 账号与 API 配额</span>
+          <span style={{ fontWeight: 600 }}>🐙 GitHub 账号</span>
           <span className="settings-row-desc">
-            {user ? '已登录当前账号，自动享有 5,000 次/小时高额 API 配额、标星与问题反馈' : '登录后自动激活 5,000 次/小时高额 API 配额，并支持标星与反馈'}
+            {user ? '已登录，享有 5,000 次/小时 API 配额' : '登录后享有 5,000 次/小时 API 配额及标星能力'}
           </span>
         </div>
         {isLoadingUser ? (
@@ -202,7 +202,7 @@ export const OAuthAccountCard: React.FC = () => {
       {user && (
         <span style={{ fontSize: '12px', color: '#10b981', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
           <span>✅</span>
-          <span>已激活当前账号 <strong>5,000 次/小时</strong> 核心 API 访问限额</span>
+          <span>已享有 <strong>5,000 次/小时</strong> API 访问配额</span>
         </span>
       )}
 
@@ -221,7 +221,7 @@ export const OAuthAccountCard: React.FC = () => {
           }}
         >
           <div style={{ fontSize: '12px', color: '#eab308', lineHeight: '1.5' }}>
-            ⚠️ <strong>权限需升级</strong>：当前 GitHub 授权令牌缺少「user」权限，无法将标星软件同步入 GitHub 标星清单（<code>z-store-list</code>）。建议重新授权以升级权限。
+            ⚠️ <strong>权限需升级</strong>：当前授权缺少 user 权限，无法同步标星清单，建议重新授权。
           </div>
           <button
             type="button"
@@ -251,7 +251,7 @@ export const OAuthAccountCard: React.FC = () => {
             gap: '10px',
           }}
         >
-          <span style={{ fontSize: '13px', fontWeight: 600 }}>在浏览器完成授权（自动轮询中）</span>
+          <span style={{ fontSize: '13px', fontWeight: 600 }}>请在浏览器中完成授权</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
             <code
               style={{
@@ -292,7 +292,7 @@ export const OAuthAccountCard: React.FC = () => {
             </button>
           </div>
           <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
-            授权地址：{session.verificationUri}（输入上方用户码完成绑定）
+            在授权页输入上方用户码即可完成绑定
           </span>
         </div>
       )}

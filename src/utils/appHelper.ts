@@ -86,7 +86,7 @@ export function getMethodBadge(method: string): MethodBadge {
     case 'portable_zip':
       return { label: '便携绿色版', color: '#10b981' };
     case 'system_import':
-      return { label: '系统纳管', color: '#8b5cf6' };
+      return { label: '本地导入', color: '#8b5cf6' };
     default:
       return { label: '系统管理', color: 'var(--text-tertiary)' };
   }

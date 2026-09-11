@@ -123,7 +123,7 @@ export const ClientUpdateRow: React.FC = () => {
       default:
         return (
           <button className="btn-fluent btn-primary" onClick={handleCheck} style={{ fontSize: '12px', padding: '6px 16px' }}>
-            🔍 检查客户端更新
+            🔍 检查更新
           </button>
         );
     }
@@ -132,7 +132,7 @@ export const ClientUpdateRow: React.FC = () => {
   const renderStatus = () => {
     switch (phase.kind) {
       case 'idle':
-        return <span className="settings-row-desc">检查客户端新版本</span>;
+        return <span className="settings-row-desc">检查新版本</span>;
       case 'checking':
         return <span className="settings-row-desc">正在检查...</span>;
       case 'latest':
@@ -165,7 +165,7 @@ export const ClientUpdateRow: React.FC = () => {
   return (
     <div className="settings-row">
       <div className="settings-row-info">
-        <span style={{ fontWeight: 600 }}>检查客户端更新</span>
+        <span style={{ fontWeight: 600 }}>客户端自更新</span>
         {renderStatus()}
       </div>
       {renderAction()}

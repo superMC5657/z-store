@@ -716,12 +716,12 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                       className="modal-tag modal-tag-action"
                       onClick={handleTriggerRefresh}
                       disabled={effectiveRefreshing}
-                      title="穿透本地 SQLite 缓存，强制从远端拉取最新 README.md 与 Release 资产"
+                      title="从远端拉取最新文档与发布数据"
                     >
                       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
                       </svg>
-                      <span>强制从远端刷新</span>
+                      <span>从远端刷新</span>
                     </button>
                   )}
                 </>
@@ -820,8 +820,8 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                     ? isExploreMode
                       ? '状态：已安装就绪'
                       : isManaged
-                      ? '状态：已安装就绪 (Z-Store 已纳管)'
-                      : '状态：系统已安装就绪 (未纳入当前管理)'
+                      ? '状态：已安装就绪 (已加入管理)'
+                      : '状态：本地已安装 (未加入管理)'
                     : selectedAssetName
                     ? `用户指定安装包 (${primaryAsset?.os} · ${primaryAsset?.arch})`
                     : `建议安装版本 (${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch} 自适应匹配)`
@@ -833,8 +833,8 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   ? isExploreMode
                     ? '状态：已安装就绪'
                     : isManaged
-                    ? '状态：已安装就绪 (Z-Store 已纳管)'
-                    : '状态：系统已安装就绪 (未纳入当前管理)'
+                    ? '状态：已安装就绪 (已加入管理)'
+                    : '状态：本地已安装 (未加入管理)'
                   : selectedAssetName
                   ? `用户指定安装包 (${primaryAsset?.os} · ${primaryAsset?.arch})`
                   : `建议安装版本 (${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch} 自适应匹配)`}
@@ -956,9 +956,9 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                               setIsManaging(false);
                             }
                           }}
-                          title="纳管：将系统已识别的该软件纳入 Z-Store 统一管理，支持版本追踪与快捷更新"
+                          title="加入管理：将本地已安装应用加入列表，支持版本检测与快捷更新"
                         >
-                          {isManaging ? '正在纳管...' : '📥 纳管此应用'}
+                          {isManaging ? '正在添加...' : '📥 加入管理'}
                         </button>
                       )}
                       <button
@@ -988,9 +988,9 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                               setTimeout(() => setConfirmingUnmanage(false), 4000);
                             }
                           }}
-                          title="取消纳管：仅从 Z-Store 列表中移除管理记录，保留本机软件与数据"
+                          title="取消管理：仅从列表中移除管理记录，保留本机应用与数据"
                         >
-                          {confirmingUnmanage ? '确认取消纳管？' : '取消纳管'}
+                          {confirmingUnmanage ? '确认取消管理？' : '取消管理'}
                         </button>
                       )}
 

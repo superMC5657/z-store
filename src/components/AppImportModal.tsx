@@ -93,7 +93,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
       onImportSuccess(importedCount);
       onClose();
     } catch (err) {
-      setError(`纳管导入失败: ${String(err)}`);
+      setError(`导入失败: ${String(err)}`);
     } finally {
       setIsImporting(false);
     }
@@ -139,7 +139,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span style={{ fontSize: '20px' }}>🔍</span>
               <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                扫描并纳管系统存量开源软件
+                扫描并添加本地应用
               </h3>
             </div>
             <p
@@ -149,7 +149,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                 color: 'var(--text-secondary)',
               }}
             >
-              检索本机已安装的应用程序，与 Z-Store 官方收录库匹配并一键接管自动版本更新。
+              扫描本机已安装软件，匹配开源库以获取更新提醒与快捷管理。
             </p>
           </div>
           <button
@@ -228,9 +228,9 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                 }}
               />
               <div style={{ textAlign: 'center' }}>
-                <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>正在遍历 Windows 注册表与系统已装程序...</div>
+                <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>正在扫描系统已安装软件...</div>
                 <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-                  应用启发式打分引擎比对 Catalog 倒排索引
+                  正在比对开源收录清单
                 </div>
               </div>
             </div>
@@ -257,10 +257,10 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
             >
               <div style={{ fontSize: '48px', marginBottom: '12px' }}>✅</div>
               <h4 style={{ margin: '0 0 8px 0', fontSize: '16px', color: 'var(--text-primary)' }}>
-                未检测到未纳管的已知开源应用
+                未发现可添加的本地应用
               </h4>
               <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>
-                当前系统中的已知开源软件已全部处于 Z-Store 纳管监控中，或尚未检测到与内置收录库匹配的程序。
+                本机开源软件均已在管理列表中，或未发现匹配的程序。
               </p>
             </div>
           ) : (
@@ -406,7 +406,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
               marginRight: '16px',
             }}
           >
-            💡 纳管后可随时在「可更新」视图检测并一键静默升级
+            💡 添加后可在「更新中心」接收新版本提醒
           </span>
           <div style={{ display: 'flex', gap: '10px', flexShrink: 0 }}>
             <button
@@ -436,10 +436,10 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                       animation: 'spin 1s linear infinite',
                     }}
                   />
-                  <span>正在纳管...</span>
+                  <span>正在添加...</span>
                 </>
               ) : (
-                <span>一键纳管已选应用 ({selectedIds.size})</span>
+                <span>添加已选应用 ({selectedIds.size})</span>
               )}
             </button>
           </div>

@@ -79,9 +79,9 @@ const InstalledItemActions: React.FC<InstalledItemActionsProps> = ({
             <button
               className={`installed-action-btn btn-confirm-warning ${compact ? 'compact' : ''}`}
               onClick={() => onTriggerUnmanage(app.app_id)}
-              title="确认从 Z-Store 列表中移除纳管记录"
+              title="确认从列表中移除管理记录"
             >
-              确认取消纳管？
+              确认取消管理？
             </button>
             <button
               className={`installed-action-btn btn-confirm-cancel ${compact ? 'compact' : ''}`}
@@ -96,9 +96,9 @@ const InstalledItemActions: React.FC<InstalledItemActionsProps> = ({
             <button
               className={`installed-action-btn btn-confirm-danger ${compact ? 'compact' : ''}`}
               onClick={() => onTriggerUninstall(app.app_id)}
-              title="确认调起卸载或清理本地安装文件"
+              title="确认彻底卸载应用"
             >
-              确认彻底卸载？
+              确认卸载？
             </button>
             <button
               className={`installed-action-btn btn-confirm-cancel ${compact ? 'compact' : ''}`}
@@ -112,7 +112,7 @@ const InstalledItemActions: React.FC<InstalledItemActionsProps> = ({
           <button
             className={`installed-action-btn btn-installed-uninstall ${compact ? 'compact' : ''}`}
             onClick={() => onTriggerUninstall(app.app_id)}
-            title="调起官方卸载程序或清理本地安装文件彻底卸载应用"
+            title="彻底卸载应用"
           >
             卸载
           </button>
@@ -227,14 +227,14 @@ const InstalledItemActions: React.FC<InstalledItemActionsProps> = ({
 
               <div className="flyout-divider" />
 
-              {/* 取消纳管 */}
+              {/* 取消管理 */}
               <button
                 className="flyout-item flyout-item-danger"
                 onClick={() => {
                   onCloseMenu();
                   onTriggerUnmanage(app.app_id);
                 }}
-                title="将此应用从 Z-Store 列表中移除纳管记录（保留本机软件与数据）"
+                title="从列表中移除管理记录（保留本机应用与数据）"
               >
                 <div className="flyout-item-icon">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -244,7 +244,7 @@ const InstalledItemActions: React.FC<InstalledItemActionsProps> = ({
                   </svg>
                 </div>
                 <div className="flyout-item-content">
-                  <div className="flyout-item-title">取消应用纳管</div>
+                  <div className="flyout-item-title">取消管理</div>
                   <div className="flyout-item-subtitle">仅移出列表，保留本机应用与数据</div>
                 </div>
               </button>
@@ -329,7 +329,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
               style={{ padding: '4px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '5px' }}
               onClick={onRefresh}
               disabled={isRefreshing}
-              title="刷新状态：重新检测本地安装状态，自动清理外部卸载的应用"
+              title="重新检测本地安装状态"
             >
               <span className={isRefreshing ? 'spinner-icon' : ''} style={isRefreshing ? { width: '11px', height: '11px', borderWidth: '1.5px' } : undefined}>
                 {!isRefreshing && '🔄'}
@@ -342,7 +342,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
               className="btn-fluent btn-secondary"
               style={{ padding: '4px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}
               onClick={onOpenRules}
-              title="查看与管理版本控制与屏蔽规则"
+              title="管理版本与更新规则"
             >
               <span>🛡️ 规则</span>
               {updateRules.length > 0 && (
@@ -366,10 +366,10 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
               className="btn-fluent btn-secondary"
               style={{ padding: '4px 12px', fontSize: '12px' }}
               onClick={onExportAppsJson}
-              title="导出已安装软件资产清单为规范 JSON 格式文件"
+              title="导出已安装软件清单为 JSON 文件"
               disabled={installedApps.length === 0}
             >
-              📋 导出资产清单 (JSON)
+              📋 导出清单
             </button>
           )}
           {onScanSystemApps && (
@@ -377,9 +377,9 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
               className="btn-fluent btn-secondary"
               style={{ padding: '4px 12px', fontSize: '12px' }}
               onClick={onScanSystemApps}
-              title="存量应用纳管：扫描系统已安装软件并接管更新"
+              title="扫描系统已安装软件并加入管理"
             >
-              🔍 存量应用纳管
+              🔍 扫描本地应用
             </button>
           )}
           <button
@@ -402,9 +402,9 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
       {installedApps.length === 0 ? (
         <div className="empty-state-card">
           <div style={{ fontSize: '48px', marginBottom: '12px' }}>📂</div>
-          <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>尚未通过 Z-Store 安装任何开源软件</h4>
+          <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>暂无已安装应用</h4>
           <p style={{ color: 'var(--text-tertiary)', fontSize: '13px', margin: '0 0 16px 0' }}>
-            前往「精选发现」或「分类浏览」探索优质开源应用，享受一键安装与自动更新服务。
+            前往「精选发现」或「分类浏览」探索应用，也可点击上方扫描添加本地已安装应用。
           </p>
           {onRefresh && (
             <button
@@ -416,7 +416,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
               <span className={isRefreshing ? 'spinner-icon' : ''} style={isRefreshing ? { width: '12px', height: '12px', borderWidth: '1.5px' } : undefined}>
                 {!isRefreshing && '🔄'}
               </span>
-              <span>{isRefreshing ? '正在刷新...' : '刷新已安装软件列表'}</span>
+              <span>{isRefreshing ? '正在刷新...' : '刷新列表'}</span>
             </button>
           )}
         </div>
@@ -524,7 +524,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                       type="text"
                       readOnly
                       value={app.install_path}
-                      placeholder="正在自动探测或未检测到安装路径..."
+                      placeholder="未检测到安装路径"
                       style={{
                         flex: 1,
                         height: '28px',
@@ -558,7 +558,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                           justifyContent: 'center',
                         }}
                         onClick={() => handleCopyPath(app.app_id, app.install_path)}
-                        title="复制完整安装绝对路径"
+                        title="复制路径"
                       >
                         {copiedId === app.app_id ? '✓ 已复制' : '复制路径'}
                       </button>
@@ -577,7 +577,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                           justifyContent: 'center',
                         }}
                         onClick={() => onScanSystemApps && onScanSystemApps()}
-                        title="刷新并重新探测本地安装路径"
+                        title="重新探测安装路径"
                       >
                         🔍 重新探测
                       </button>
