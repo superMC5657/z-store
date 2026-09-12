@@ -84,6 +84,7 @@ export const AppIcon: React.FC<AppIconProps> = ({
   const isUrl = isRemoteIcon(icon);
 
   useEffect(() => {
+    setHasError(false);
     if (!icon || !isUrl || isDataUri) {
       setDisplaySrc(icon);
       return;
@@ -106,6 +107,7 @@ export const AppIcon: React.FC<AppIconProps> = ({
         iconPendingPromises.delete(icon);
         if (isMounted) {
           setDisplaySrc(dataUri);
+          setHasError(false);
         }
       })
       .catch(() => {
