@@ -219,4 +219,39 @@ impl Database {
         )?;
         Ok(())
     }
+
+    pub fn get_icon_cache_url(&self, cache_key: &str) -> Result<Option<String>> {
+        let clean = cache_key.trim();
+        if clean.is_empty() {
+            return Ok(None);
+        }
+        let mut stmt = self
+            .conn
+            .prepare("SELECT remote_url FROM icon_cache_meta WHERE cache_key = ?1")?;
+        let mut rows = stmt.query(params![clean])?;
+        if let Some(row) = rows.next()? {
+            let url: String = row.get(0)?;
+            return Ok(Some(url));
+        }
+        Ok(None)
+    }
+
+    pub fn save_icon_cache_url(&self, cache_key: &str, remote_url: &str) -> Result<()> {
+        let clean_key = cache_key.trim();
+        let clean_url = remote_url.trim();
+        if clean_key.is_empty() || clean_url.is_empty() {
+            return Ok(());
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        self.conn.execute(
+            "INSERT INTO icon_cache_meta (cache_key, remote_url, cached_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(cache_key) DO UPDATE SET remote_url = excluded.remote_url, cached_at = excluded.cached_at",
+            params![clean_key, clean_url, now],
+        )?;
+        Ok(())
+    }
 }
+

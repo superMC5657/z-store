@@ -106,6 +106,13 @@ impl Database {
                 PRIMARY KEY (owner, repo)
             );
 
+            -- 图标缓存来源与有效性追踪表
+            CREATE TABLE IF NOT EXISTS icon_cache_meta (
+                cache_key TEXT PRIMARY KEY,
+                remote_url TEXT NOT NULL,
+                cached_at INTEGER NOT NULL
+            );
+
             -- FR-6.2 默认通知频率：daily（仅缺失时填充）
             INSERT OR IGNORE INTO user_settings (key, value) VALUES ('watch_notify_frequency', 'daily');
             "#,

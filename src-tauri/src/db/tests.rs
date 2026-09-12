@@ -361,3 +361,27 @@ fn test_verified_apps_and_store_meta_cache() {
     let fallback = db.get_cached_store_meta_raw("rustdesk", None).unwrap().unwrap();
     assert!(fallback.contains("display-name"));
 }
+
+#[test]
+fn test_icon_cache_meta_crud() {
+    let db = Database::open_in_memory().unwrap();
+    assert_eq!(db.get_icon_cache_url("agalwood_Motrix.png").unwrap(), None);
+
+    db.save_icon_cache_url("agalwood_Motrix.png", "https://github.com/agalwood.png").unwrap();
+    assert_eq!(
+        db.get_icon_cache_url("agalwood_Motrix.png").unwrap().as_deref(),
+        Some("https://github.com/agalwood.png")
+    );
+
+    // 覆盖更新为官方新图标 URL
+    db.save_icon_cache_url(
+        "agalwood_Motrix.png",
+        "https://raw.githubusercontent.com/agalwood/Motrix/HEAD/public/app-icon.png",
+    )
+    .unwrap();
+    assert_eq!(
+        db.get_icon_cache_url("agalwood_Motrix.png").unwrap().as_deref(),
+        Some("https://raw.githubusercontent.com/agalwood/Motrix/HEAD/public/app-icon.png")
+    );
+}
+

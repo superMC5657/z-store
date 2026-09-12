@@ -35,12 +35,20 @@ pub fn detect_image_mime(bytes: &[u8]) -> &'static str {
         "image/jpeg"
     } else if bytes.starts_with(b"RIFF") && bytes.len() > 12 && &bytes[8..12] == b"WEBP" {
         "image/webp"
-    } else if bytes.starts_with(b"<?xml") || bytes.starts_with(b"<svg") {
-        "image/svg+xml"
     } else if bytes.starts_with(&[0x00, 0x00, 0x01, 0x00]) {
         "image/x-icon"
     } else {
-        "image/png"
+        // SVG 可能带有 UTF-8 BOM (\xef\xbb\xbf) 或前导空白/换行
+        let trimmed = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
+        let trimmed = match trimmed.iter().position(|&b| !b.is_ascii_whitespace()) {
+            Some(idx) => &trimmed[idx..],
+            None => trimmed,
+        };
+        if trimmed.starts_with(b"<?xml") || trimmed.starts_with(b"<svg") {
+            "image/svg+xml"
+        } else {
+            "image/png"
+        }
     }
 }
 
@@ -50,6 +58,13 @@ pub fn sanitize_icon_segment(s: &str) -> String {
     s.chars()
         .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
         .collect()
+}
+
+pub fn is_avatar_url(url: &str) -> bool {
+    let u = url.trim();
+    (u.contains("github.com/") && u.ends_with(".png"))
+        || u.contains("avatars.githubusercontent.com")
+        || u.contains("identicons.github.com")
 }
 
 pub fn icon_hash_filename(remote_url: &str) -> String {
@@ -160,11 +175,50 @@ pub async fn get_or_fetch_icon(
         url_trimmed,
     );
 
-    // 1. 严格优先查找本地内部缓存！缓存有直接读取，绝不发出任何网络请求！
-    if cache_file.is_file() {
+    let cache_key = cache_file
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default()
+        .to_string();
+
+    let is_avatar = is_avatar_url(url_trimmed);
+
+    // 1. 严格优先查找本地内部缓存！
+    // 缓存校验：
+    // a. 本地图片文件必须存在且非空；
+    // b. 数据库中记录的 remote_url 与当前请求的 url_trimmed 一致；
+    // c. 若数据库中尚无记录（例如老版本升级前遗留的历史缓存文件）：
+    //    若当前请求为头像，允许命中本地已有缓存并顺带入库；
+    //    若当前请求为已升级的官方独立图标（非头像），则视为旧版头像缓存过期，强制触发网络重新拉取！
+    let db_cached_url = if !cache_key.is_empty() {
+        state
+            .db
+            .lock()
+            .ok()
+            .and_then(|db| db.get_icon_cache_url(&cache_key).ok().flatten())
+    } else {
+        None
+    };
+
+    let cache_valid = if cache_file.is_file() {
+        if let Some(ref recorded_url) = db_cached_url {
+            recorded_url.trim() == url_trimmed
+        } else {
+            is_avatar
+        }
+    } else {
+        false
+    };
+
+    if cache_valid {
         if let Ok(meta) = std::fs::metadata(&cache_file) {
             if meta.len() > 0 {
                 if let Ok(bytes) = std::fs::read(&cache_file) {
+                    if db_cached_url.is_none() && !cache_key.is_empty() {
+                        if let Ok(db) = state.db.lock() {
+                            let _ = db.save_icon_cache_url(&cache_key, url_trimmed);
+                        }
+                    }
                     let mime = detect_image_mime(&bytes);
                     let b64 = base64_encode(&bytes);
                     return Ok(format!("data:{};base64,{}", mime, b64));
@@ -173,16 +227,10 @@ pub async fn get_or_fetch_icon(
         }
     }
 
-    // 2. 本地缓存找不到，才去外部链接拉取
-    // 注意：GitHub 官方头像链接 (github.com/*.png 与 avatars.githubusercontent.com)
-    // 属于用户头像与全球 CDN 资源，GH-Proxy 等镜像节点会对其直接拦截并返回 403 Forbidden。
-    // 因此对于头像类链接直接直连全球 CDN；对于其他资源优先尝试镜像，若失败自动降级直连。
-    let is_avatar_url = url_trimmed.contains("github.com/") && url_trimmed.ends_with(".png")
-        || url_trimmed.contains("avatars.githubusercontent.com")
-        || url_trimmed.contains("identicons.github.com");
+    // 2. 本地缓存找不到或已过期，才去外部链接拉取
 
     let mut candidate_urls = Vec::new();
-    if !is_avatar_url {
+    if !is_avatar {
         if let Ok(mirror) = state.mirror.lock() {
             let rewritten = mirror.rewrite_download_url(url_trimmed);
             if rewritten != url_trimmed {
@@ -234,8 +282,13 @@ pub async fn get_or_fetch_icon(
         format!("拉取远程图标失败 ({}): {}", url_trimmed, last_err)
     })?;
 
-    // 3. 缓存在用户的配置目录里 (icons/)
+    // 3. 缓存在用户的配置目录里 (icons/)，同时持久化元数据至 SQLite 数据库
     let _ = std::fs::write(&cache_file, &bytes);
+    if !cache_key.is_empty() {
+        if let Ok(db) = state.db.lock() {
+            let _ = db.save_icon_cache_url(&cache_key, url_trimmed);
+        }
+    }
 
     let mime = detect_image_mime(&bytes);
     let b64 = base64_encode(&bytes);
