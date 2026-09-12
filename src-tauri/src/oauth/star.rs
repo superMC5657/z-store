@@ -56,6 +56,7 @@ pub async fn fetch_oauth_user(token: &str) -> Result<OAuthUser, String> {
         .map(|s| s.split(',').any(|part| part.trim() == "user"))
         .unwrap_or(false);
     if resp.status().as_u16() == 401 {
+        crate::notify_auth_expired();
         return Err("GitHub 授权已失效 (401)，请重新登录".to_string());
     }
     if !resp.status().is_success() {
@@ -80,6 +81,7 @@ pub async fn fetch_oauth_user(token: &str) -> Result<OAuthUser, String> {
             .avatar_url
             .unwrap_or_else(|| format!("https://github.com/{}.png", body.login)),
         has_list_scope,
+        is_expired: false,
     })
 }
 
@@ -96,7 +98,10 @@ pub async fn check_starred(token: &str, owner: &str, repo: &str) -> Result<bool,
     match resp.status().as_u16() {
         204 => Ok(true),
         404 => Ok(false),
-        401 => Err("GitHub 授权已失效 (401)，请重新登录".to_string()),
+        401 => {
+            crate::notify_auth_expired();
+            Err("GitHub 授权已失效 (401)，请重新登录".to_string())
+        }
         403 => Err("GitHub API 限额已耗尽 (403)，请稍后重试".to_string()),
         code => Err(format!("查询 Star 状态失败，HTTP 状态码: {}", code)),
     }
@@ -148,6 +153,7 @@ pub async fn star_repo(token: &str, owner: &str, repo: &str) -> Result<StarRepoO
             }),
         }
     } else if resp.status().as_u16() == 401 {
+        crate::notify_auth_expired();
         Err("GitHub 授权已失效 (401)，请重新登录".to_string())
     } else if resp.status().as_u16() == 403 {
         Err("Star 失败 (403)：令牌缺少 public_repo 权限或 API 限额已耗尽".to_string())
@@ -392,6 +398,7 @@ pub async fn unstar_repo(token: &str, owner: &str, repo: &str) -> Result<(), Str
     if resp.status().is_success() {
         Ok(())
     } else if resp.status().as_u16() == 401 {
+        crate::notify_auth_expired();
         Err("GitHub 授权已失效 (401)，请重新登录".to_string())
     } else {
         Err(format!("取消 Star 失败，HTTP 状态码: {}", resp.status()))

@@ -54,6 +54,7 @@ interface AppDetailModalProps {
   onToggleFavorite?: (id: string) => void;
   onToggleWatch?: (id: string) => void;
   onOpenDeveloperProfile?: (developer: string) => void;
+  onOpenAccountSettings?: () => void;
   onRetry?: (id: string) => void;
   onRefresh?: (id: string) => void;
 }
@@ -100,6 +101,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   onToggleFavorite,
   onToggleWatch,
   onOpenDeveloperProfile,
+  onOpenAccountSettings,
   onRetry,
   onRefresh,
 }) => {
@@ -310,6 +312,14 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
     if (Array.isArray(app.assets)) return app.assets;
     return [];
   }, [app.releases, app.assets]);
+
+  const hasNoReleases = !releases || releases.length === 0;
+  const isAuthExpired = Boolean(
+    oauthUser?.is_expired ||
+    app.changelog?.includes('401') ||
+    app.changelog?.includes('凭据已失效') ||
+    app.changelog?.includes('授权已失效')
+  );
 
   const primaryAsset: ReleaseAsset | undefined = useMemo(() => {
     if (selectedAssetName) {
@@ -857,8 +867,12 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               <div
                 className="install-asset-label"
                 title={
-                  app.isLoading && (!releases || releases.length === 0)
+                  app.isLoading && hasNoReleases
                     ? '正在同步 GitHub Release 最新发布产物...'
+                    : hasNoReleases && isAuthExpired
+                    ? 'GitHub 登录凭据已失效 (401) · 暂无法同步版本产物'
+                    : hasNoReleases
+                    ? '暂未检测到匹配的发布产物 (可点击“全部资产”查阅)'
                     : isInstalled
                     ? isExploreMode
                       ? '状态：已安装就绪'
@@ -870,8 +884,12 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                     : `建议安装版本 (${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch} 自适应匹配)`
                 }
               >
-                {app.isLoading && (!releases || releases.length === 0)
+                {app.isLoading && hasNoReleases
                   ? '正在同步 GitHub Release 最新发布产物...'
+                  : hasNoReleases && isAuthExpired
+                  ? 'GitHub 登录凭据已失效 (401) · 暂无可用发布产物'
+                  : hasNoReleases
+                  ? '暂未检测到匹配的发布产物'
                   : isInstalled
                   ? isExploreMode
                     ? '状态：已安装就绪'
@@ -1122,15 +1140,40 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                     <span>打开应用</span>
                   </button>
                 </>
+              ) : hasNoReleases && !app.isLoading ? (
+                isAuthExpired && onOpenAccountSettings ? (
+                  <button
+                    type="button"
+                    className="btn-fluent btn-secondary"
+                    onClick={() => {
+                      onClose();
+                      onOpenAccountSettings();
+                    }}
+                    style={{ minWidth: '120px', fontWeight: 600, color: '#eab308', borderColor: 'rgba(234, 179, 8, 0.4)' }}
+                    title="前往设置重新授权登录 GitHub"
+                  >
+                    <KeyRound size={13} style={{ marginRight: '4px' }} />
+                    <span>重新登录 GitHub</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn-fluent btn-secondary"
+                    disabled
+                    style={{ minWidth: '120px', fontWeight: 600, opacity: 0.6 }}
+                  >
+                    暂无可用安装包
+                  </button>
+                )
               ) : (
                 <button
                   type="button"
                   className="btn-fluent btn-primary"
                   onClick={handleAction}
-                  disabled={effectiveIsInstalling || Boolean(app.isLoading && (!releases || releases.length === 0))}
-                  style={{ minWidth: '120px', fontWeight: 600, opacity: app.isLoading && (!releases || releases.length === 0) ? 0.75 : 1 }}
+                  disabled={effectiveIsInstalling || Boolean(app.isLoading && hasNoReleases)}
+                  style={{ minWidth: '120px', fontWeight: 600, opacity: app.isLoading && hasNoReleases ? 0.75 : 1 }}
                 >
-                  {app.isLoading && (!releases || releases.length === 0) ? (
+                  {app.isLoading && hasNoReleases ? (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                       <span className="spinner-icon" />
                       <span>检索版本中...</span>

@@ -333,6 +333,7 @@ export interface OAuthUser {
   avatar_url?: string | null;
   html_url?: string | null;
   has_list_scope?: boolean;
+  is_expired?: boolean;
 }
 
 export interface StarAppResult {

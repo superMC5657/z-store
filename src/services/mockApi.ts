@@ -708,6 +708,10 @@ export const mockApi = {
     return () => {};
   },
 
+  async onOAuthExpired(_callback: () => void): Promise<() => void> {
+    return () => {};
+  },
+
   async oauthDeviceStart(): Promise<OAuthDeviceStartResult> {
     throw new Error('浏览器预览模式不支持 GitHub OAuth 登录');
   },

@@ -166,21 +166,62 @@ export const OAuthAccountCard: React.FC = () => {
             <span>GitHub 账号</span>
           </span>
           <span className="settings-row-desc">
-            {user ? '已登录，享有 5,000 次/小时 API 配额' : '登录后享有 5,000 次/小时 API 配额及标星能力'}
+            {user
+              ? user.is_expired
+                ? '登录凭据已失效，当前处于离线/受限状态，请重新授权'
+                : '已登录，享有 5,000 次/小时 API 配额'
+              : '登录后享有 5,000 次/小时 API 配额及标星能力'}
           </span>
         </div>
         {isLoadingUser ? (
           <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>正在读取登录态...</span>
         ) : user ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            {user.avatar_url && (
-              <img
-                src={user.avatar_url}
-                alt={user.login}
-                style={{ width: '28px', height: '28px', borderRadius: '50%' }}
-              />
-            )}
-            <span style={{ fontSize: '13px', fontWeight: 600 }}>{user.login}</span>
+            <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+              {user.avatar_url && (
+                <img
+                  src={user.avatar_url}
+                  alt={user.login}
+                  style={{
+                    width: '28px',
+                    height: '28px',
+                    borderRadius: '50%',
+                    opacity: user.is_expired ? 0.6 : 1,
+                    filter: user.is_expired ? 'grayscale(50%)' : 'none',
+                  }}
+                />
+              )}
+              {user.is_expired && (
+                <span
+                  style={{
+                    position: 'absolute',
+                    right: '-2px',
+                    bottom: '-2px',
+                    width: '8px',
+                    height: '8px',
+                    borderRadius: '50%',
+                    backgroundColor: '#eab308',
+                    border: '2px solid var(--bg-primary, #0f172a)',
+                  }}
+                  title="登录已失效"
+                />
+              )}
+            </div>
+            <span style={{ fontSize: '13px', fontWeight: 600, color: user.is_expired ? '#eab308' : undefined }}>
+              {user.login} {user.is_expired && '(已失效)'}
+            </span>
+            {user.is_expired ? (
+              <button
+                type="button"
+                className="btn-fluent btn-primary"
+                style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                disabled={isStarting}
+                onClick={handleLogin}
+              >
+                <LogIn size={12} />
+                <span>重新登录</span>
+              </button>
+            ) : null}
             <button
               type="button"
               className="btn-fluent btn-secondary"
@@ -205,11 +246,43 @@ export const OAuthAccountCard: React.FC = () => {
         )}
       </div>
 
-      {user && (
+      {user && !user.is_expired && (
         <span style={{ fontSize: '12px', color: 'var(--status-success)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
           <CheckCircle2 size={13} />
           <span>已享有 <strong>5,000 次/小时</strong> API 访问配额</span>
         </span>
+      )}
+
+      {user && user.is_expired && !session && (
+        <div
+          style={{
+            padding: '10px 14px',
+            borderRadius: '6px',
+            background: 'rgba(234, 179, 8, 0.1)',
+            border: '1px solid rgba(234, 179, 8, 0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
+            marginTop: '4px',
+          }}
+        >
+          <div style={{ fontSize: '12px', color: '#eab308', lineHeight: '1.5', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <AlertTriangle size={15} style={{ flexShrink: 0 }} />
+            <span>
+              <strong>GitHub 授权已失效 (401)</strong>：登录令牌已过期或已被撤销。请点击「立即重新授权」恢复 5,000 次/小时配额与最新版本同步。
+            </span>
+          </div>
+          <button
+            type="button"
+            className="btn-fluent btn-primary"
+            style={{ fontSize: '12px', padding: '5px 14px', flexShrink: 0 }}
+            onClick={handleLogin}
+            disabled={isStarting}
+          >
+            立即重新授权
+          </button>
+        </div>
       )}
 
       {user && user.has_list_scope === false && !session && (

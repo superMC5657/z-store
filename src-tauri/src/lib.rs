@@ -29,6 +29,14 @@ pub static GLOBAL_QUOTA_TX: OnceLock<UnboundedSender<models::HostQuotaEvent>> = 
 /// FR-6.2 关注更新通知事件通道（`zstore://watch-updated`）。
 pub static GLOBAL_WATCH_TX: OnceLock<UnboundedSender<models::WatchUpdatedPayload>> =
     OnceLock::new();
+/// GitHub OAuth 登录凭证失效通知通道（`zstore://oauth-expired`）。
+pub static GLOBAL_AUTH_EXPIRED_TX: OnceLock<UnboundedSender<()>> = OnceLock::new();
+
+pub fn notify_auth_expired() {
+    if let Some(tx) = GLOBAL_AUTH_EXPIRED_TX.get() {
+        let _ = tx.send(());
+    }
+}
 
 pub fn extract_rate_limit_headers(
     headers: &reqwest::header::HeaderMap,
@@ -94,6 +102,9 @@ pub async fn probe_github_rate_limit(token: Option<&str>) {
         .await
     {
         notify_rate_limit("github.com", resp.headers());
+        if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+            notify_auth_expired();
+        }
     }
 }
 
@@ -347,6 +358,8 @@ pub fn run() {
     let (watch_tx, mut watch_rx) =
         tokio::sync::mpsc::unbounded_channel::<models::WatchUpdatedPayload>();
     let _ = GLOBAL_WATCH_TX.set(watch_tx);
+    let (auth_tx, mut auth_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+    let _ = GLOBAL_AUTH_EXPIRED_TX.set(auth_tx);
 
     let db_arc = Arc::new(Mutex::new(db));
     let state = AppState {
@@ -357,6 +370,7 @@ pub fn run() {
     };
 
     let db_for_worker = Arc::clone(&db_arc);
+    let db_for_auth = Arc::clone(&db_arc);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -386,6 +400,29 @@ pub fn run() {
                 use tauri::Emitter;
                 while let Some(ev) = watch_rx.recv().await {
                     let _ = watch_handle.emit("zstore://watch-updated", ev);
+                }
+            });
+            let auth_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                use tauri::{Emitter, Manager};
+                while let Some(_) = auth_rx.recv().await {
+                    if let Ok(db) = db_for_auth.lock() {
+                        let _ = db.remove_setting(crate::oauth::SETTING_OAUTH_TOKEN);
+                        if let Ok(Some(user_json)) = db.get_setting(crate::oauth::SETTING_OAUTH_USER) {
+                            if let Ok(mut user) = serde_json::from_str::<crate::oauth::OAuthUser>(&user_json) {
+                                user.is_expired = true;
+                                if let Ok(updated_json) = serde_json::to_string(&user) {
+                                    let _ = db.set_setting(crate::oauth::SETTING_OAUTH_USER, &updated_json);
+                                }
+                            }
+                        }
+                    }
+                    if let Some(state) = auth_handle.try_state::<AppState>() {
+                        if let Ok(mut mem) = state.github_token.lock() {
+                            *mem = None;
+                        }
+                    }
+                    let _ = auth_handle.emit("zstore://oauth-expired", ());
                 }
             });
 

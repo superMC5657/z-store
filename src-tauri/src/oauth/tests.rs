@@ -143,3 +143,17 @@ fn test_starred_api_url() {
         "https://api.github.com/user/starred/rustdesk/rustdesk"
     );
 }
+
+#[test]
+fn test_oauth_user_expired_serialization_compat() {
+    // 兼容历史老版本未持久化 is_expired 的数据，反序列化默认为 false
+    let legacy_json = r#"{"login":"superMC5657","avatar_url":"https://github.com/superMC5657.png","has_list_scope":true}"#;
+    let user: OAuthUser = serde_json::from_str(legacy_json).expect("should deserialize legacy json");
+    assert_eq!(user.login, "superMC5657");
+    assert!(!user.is_expired);
+
+    // 带有 is_expired 为 true 的场景
+    let expired_json = r#"{"login":"superMC5657","avatar_url":"https://github.com/superMC5657.png","has_list_scope":true,"is_expired":true}"#;
+    let expired_user: OAuthUser = serde_json::from_str(expired_json).expect("should deserialize expired json");
+    assert!(expired_user.is_expired);
+}

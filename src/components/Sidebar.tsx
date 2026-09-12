@@ -227,23 +227,66 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <button
           className="network-pill"
           onClick={onOpenAccount}
-          title={oauthUser ? `GitHub 已登录: ${oauthUser.login} (点击管理)` : '登录 GitHub（标星与高配额）'}
-          aria-label={oauthUser ? `GitHub 已登录: ${oauthUser.login}` : '登录 GitHub'}
+          title={
+            oauthUser
+              ? oauthUser.is_expired
+                ? `GitHub 授权已失效: ${oauthUser.login} (点击重新登录)`
+                : `GitHub 已登录: ${oauthUser.login} (点击管理)`
+              : '登录 GitHub（标星与高配额）'
+          }
+          aria-label={
+            oauthUser
+              ? oauthUser.is_expired
+                ? `GitHub 授权已失效: ${oauthUser.login}`
+                : `GitHub 已登录: ${oauthUser.login}`
+              : '登录 GitHub'
+          }
+          style={oauthUser?.is_expired ? { borderColor: 'rgba(234, 179, 8, 0.4)', background: 'rgba(234, 179, 8, 0.08)' } : undefined}
         >
           {oauthUser ? (
             <>
-              {oauthUser.avatar_url ? (
-                <img
-                  src={oauthUser.avatar_url}
-                  alt={oauthUser.login}
-                  style={{ width: '18px', height: '18px', borderRadius: '50%' }}
-                />
-              ) : (
-                <span className="status-dot" />
-              )}
+              <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+                {oauthUser.avatar_url ? (
+                  <img
+                    src={oauthUser.avatar_url}
+                    alt={oauthUser.login}
+                    style={{
+                      width: '18px',
+                      height: '18px',
+                      borderRadius: '50%',
+                      opacity: oauthUser.is_expired ? 0.65 : 1,
+                      filter: oauthUser.is_expired ? 'grayscale(50%)' : 'none',
+                    }}
+                  />
+                ) : (
+                  <span className="status-dot" />
+                )}
+                {oauthUser.is_expired && (
+                  <span
+                    style={{
+                      position: 'absolute',
+                      right: '-2px',
+                      bottom: '-2px',
+                      width: '7px',
+                      height: '7px',
+                      borderRadius: '50%',
+                      backgroundColor: '#eab308',
+                      border: '1.5px solid var(--bg-primary, #0f172a)',
+                    }}
+                    title="登录已失效"
+                  />
+                )}
+              </div>
               {!isCollapsed && (
-                <span className="network-pill-text">
-                  {oauthUser.login.length > 14 ? `${oauthUser.login.slice(0, 13)}…` : oauthUser.login}
+                <span
+                  className="network-pill-text"
+                  style={{ color: oauthUser.is_expired ? '#eab308' : undefined }}
+                >
+                  {oauthUser.is_expired
+                    ? '登录已失效'
+                    : oauthUser.login.length > 14
+                    ? `${oauthUser.login.slice(0, 13)}…`
+                    : oauthUser.login}
                 </span>
               )}
             </>

@@ -286,6 +286,17 @@ export const App: React.FC = () => {
     };
     loadOAuthUser();
     const handleOAuthChanged = () => loadOAuthUser();
+    let unlistenExpired: (() => void) | undefined;
+    api.onOAuthExpired(() => {
+      if (isMounted) {
+        showToast('GitHub 登录授权已失效 (401)，请重新登录', 'warning');
+        loadOAuthUser();
+        window.dispatchEvent(new CustomEvent('zstore:oauth-changed'));
+      }
+    }).then((un) => {
+      unlistenExpired = un;
+    }).catch(() => {});
+
     const handleDataImported = async () => {
       try {
         const [persisted, favs, watched] = await Promise.all([
@@ -305,6 +316,7 @@ export const App: React.FC = () => {
     window.addEventListener('zstore:data-imported', handleDataImported);
     return () => {
       isMounted = false;
+      if (unlistenExpired) unlistenExpired();
       window.removeEventListener('zstore:oauth-changed', handleOAuthChanged);
       window.removeEventListener('zstore:data-imported', handleDataImported);
     };
@@ -1196,6 +1208,7 @@ export const App: React.FC = () => {
           onToggleFavorite={handleToggleFavorite}
           onToggleWatch={handleToggleWatch}
           onOpenDeveloperProfile={(owner) => setSelectedDeveloper(owner)}
+          onOpenAccountSettings={handleOpenAccountSettings}
           onRetry={(retryId) => handleOpenDetail(retryId)}
           onRefresh={(refreshId) => handleOpenDetail(refreshId, true)}
         />

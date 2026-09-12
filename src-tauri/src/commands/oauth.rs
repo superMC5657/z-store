@@ -98,6 +98,9 @@ pub async fn get_oauth_user(
         .filter(|s| !s.trim().is_empty())
         .and_then(|json| serde_json::from_str::<crate::oauth::OAuthUser>(&json).ok());
     if let Some(ref u) = stored {
+        if u.is_expired {
+            return Ok(stored);
+        }
         if u.has_list_scope {
             return Ok(stored);
         }

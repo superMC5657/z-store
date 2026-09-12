@@ -375,6 +375,13 @@ const tauriApi = {
     });
   },
 
+  async onOAuthExpired(callback: () => void): Promise<() => void> {
+    const { listen } = await import('@tauri-apps/api/event');
+    return listen('zstore://oauth-expired', () => {
+      callback();
+    });
+  },
+
   async oauthDeviceStart(): Promise<OAuthDeviceStartResult> {
     return tauriInvoke<OAuthDeviceStartResult>('oauth_device_start');
   },

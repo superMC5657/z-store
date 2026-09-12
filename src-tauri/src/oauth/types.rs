@@ -107,6 +107,8 @@ pub struct OAuthUser {
     pub avatar_url: String,
     #[serde(default)]
     pub has_list_scope: bool,
+    #[serde(default)]
+    pub is_expired: bool,
 }
 
 /// 添加到 Star 清单的结果

@@ -57,6 +57,11 @@ impl CatalogService {
             Err(_) => None,
         };
 
+        let is_auth_unauthorized = resp.as_ref().map(|r| r.status() == reqwest::StatusCode::UNAUTHORIZED).unwrap_or(false);
+        if is_auth_unauthorized {
+            crate::notify_auth_expired();
+        }
+
         if let Some(ref res) = resp {
             crate::notify_rate_limit("github.com", res.headers());
         }
@@ -121,12 +126,15 @@ impl CatalogService {
                         .as_ref()
                         .map(|i| i.default_version.clone())
                         .unwrap_or_else(|| "v1.0.0".to_string());
+                    let fallback_body = if is_auth_unauthorized {
+                        "GitHub 登录凭据已失效 (401)，暂无法同步最新 Release 发布产物。请重新登录授权。".to_string()
+                    } else {
+                        "离线模式，暂无法直连获取 GitHub Release 变更日志。".to_string()
+                    };
                     (
                         GitHubReleaseResponse {
                             tag_name: fallback_ver,
-                            body: Some(
-                                "离线模式，暂无法直连获取 GitHub Release 变更日志。".to_string(),
-                            ),
+                            body: Some(fallback_body),
                             assets: Vec::new(),
                         },
                         None,
@@ -169,6 +177,9 @@ impl CatalogService {
             match tokio::time::timeout(api_timeout, req).await {
                 Ok(Ok(res)) => {
                     crate::notify_rate_limit("github.com", res.headers());
+                    if res.status() == reqwest::StatusCode::UNAUTHORIZED {
+                        crate::notify_auth_expired();
+                    }
                     if res.status().is_success() {
                         res.text().await.unwrap_or(default_readme_clone)
                     } else {
@@ -187,6 +198,9 @@ impl CatalogService {
             match tokio::time::timeout(api_timeout, req).await {
                 Ok(Ok(res)) => {
                     crate::notify_rate_limit("github.com", res.headers());
+                    if res.status() == reqwest::StatusCode::UNAUTHORIZED {
+                        crate::notify_auth_expired();
+                    }
                     if res.status().is_success() {
                         res.json::<GitHubRepoResponse>().await.ok()
                     } else {
