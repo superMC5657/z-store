@@ -1,6 +1,6 @@
 [package]
 name = "ZStore"
-version = "0.1.0"
+version = "0.2.0"
 description = "Cross-platform open-source app store based on GitHub Releases"
 authors = ["superMC"]
 edition = "2021"
