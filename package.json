@@ -9,8 +9,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "typecheck": "tsc --noEmit",
-    "bump:version": "node scripts/bump-version.mjs --name ZStore",
-    "refresh:catalog": "node scripts/refresh-catalog.mjs"
+    "bump:version": "node scripts/bump-version.mjs --name ZStore"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.2.0",

@@ -10,44 +10,21 @@
     "description": "开箱即用的开源远程桌面控制客户端，端到端加密，替代 TeamViewer 与 AnyDesk。",
     "category": "system",
     "category_name": "系统实用",
-    "aliases": [
-      "远程桌面",
-      "远控",
-      "桌面控制",
-      "remote desktop",
-      "anydesk"
-    ],
-    "default_version": "v1.3.1",
+    "aliases": ["远程桌面", "远控", "桌面控制", "remote desktop", "anydesk"],
+    "default_version": "1.4.9",
     "license": "AGPL-3.0",
-    "stars": 76800,
-    "forks": 10200,
+    "stars": 123207,
+    "forks": 18979,
     "is_verified": true,
     "publisher_fingerprint": "57:B6:08:5F:D9:58:23:77:13:C2:13:79:2F:94:AE:CE:62:B1:5C:51:94:C8:A1:A2:B6:A4:9A:B9:C2:CB:32:8A",
     "homepage": "https://rustdesk.com",
-    "platforms": [
-      "windows",
-      "macos",
-      "linux",
-      "android",
-      "ios"
-    ],
+    "platforms": ["windows", "macos", "linux", "android", "ios"],
     "identifiers": {
-      "windows": [
-        "rustdesk.exe"
-      ],
-      "linux": [
-        "rustdesk"
-      ],
-      "macos": [
-        "RustDesk.app",
-        "rustdesk"
-      ],
-      "android": [
-        "com.carriez.flutter_rustdesk"
-      ],
-      "ios": [
-        "com.carriez.rustdesk"
-      ]
+      "windows": ["rustdesk.exe"],
+      "linux": ["rustdesk"],
+      "macos": ["RustDesk.app", "rustdesk"],
+      "android": ["com.carriez.flutter_rustdesk"],
+      "ios": ["com.carriez.rustdesk"]
     }
   },
   {
@@ -61,44 +38,20 @@
     "description": "跨平台的开源局域网文件传输工具，无需互联网，基于安全协议高速传输。",
     "category": "network",
     "category_name": "网络工具",
-    "aliases": [
-      "局域网传输",
-      "隔空投送",
-      "快传",
-      "airdrop",
-      "file transfer"
-    ],
-    "default_version": "v1.14.0",
+    "aliases": ["局域网传输", "隔空投送", "快传", "airdrop", "file transfer"],
+    "default_version": "v1.18.2",
     "license": "Apache-2.0",
-    "stars": 49200,
-    "forks": 3200,
+    "stars": 90581,
+    "forks": 5051,
     "is_verified": true,
     "homepage": "https://localsend.org",
-    "platforms": [
-      "windows",
-      "macos",
-      "linux",
-      "android",
-      "ios"
-    ],
+    "platforms": ["windows", "macos", "linux", "android", "ios"],
     "identifiers": {
-      "windows": [
-        "localsend_app.exe",
-        "LocalSend.exe"
-      ],
-      "linux": [
-        "localsend",
-        "localsend_app"
-      ],
-      "macos": [
-        "LocalSend.app"
-      ],
-      "android": [
-        "org.localsend.localsend_app"
-      ],
-      "ios": [
-        "org.localsend.localsendApp"
-      ]
+      "windows": ["localsend_app.exe", "LocalSend.exe"],
+      "linux": ["localsend", "localsend_app"],
+      "macos": ["LocalSend.app"],
+      "android": ["org.localsend.localsend_app"],
+      "ios": ["org.localsend.localsendApp"]
     }
   },
   {
@@ -112,46 +65,21 @@
     "description": "支持所有音频和视频格式的跨平台多媒体播放器与流媒体服务器，开源无广告。",
     "category": "media",
     "category_name": "影音视听",
-    "aliases": [
-      "播放器",
-      "视频播放",
-      "多媒体",
-      "video player",
-      "mp4"
-    ],
+    "aliases": ["播放器", "视频播放", "多媒体", "video player", "mp4"],
     "default_version": "3.0.21",
     "license": "GPL-2.0",
-    "stars": 32000,
-    "forks": 5800,
+    "stars": 19601,
+    "forks": 6192,
     "is_verified": true,
     "homepage": "https://www.videolan.org/vlc/",
-    "publishers": [
-      "VideoLAN"
-    ],
-    "platforms": [
-      "windows",
-      "macos",
-      "linux",
-      "android",
-      "ios"
-    ],
+    "publishers": ["VideoLAN"],
+    "platforms": ["windows", "macos", "linux", "android", "ios"],
     "identifiers": {
-      "windows": [
-        "vlc.exe"
-      ],
-      "linux": [
-        "vlc"
-      ],
-      "macos": [
-        "VLC.app",
-        "vlc"
-      ],
-      "android": [
-        "org.videolan.vlc"
-      ],
-      "ios": [
-        "org.videolan.vlc-ios"
-      ]
+      "windows": ["vlc.exe"],
+      "linux": ["vlc"],
+      "macos": ["VLC.app", "vlc"],
+      "android": ["org.videolan.vlc"],
+      "ios": ["org.videolan.vlc-ios"]
     }
   },
   {
@@ -165,45 +93,20 @@
     "description": "专业级开源视频录制和直播推流软件，强大插件生态与多轨混音支持。",
     "category": "media",
     "category_name": "影音视听",
-    "aliases": [
-      "录屏",
-      "直播",
-      "推流",
-      "screen recorder",
-      "streaming"
-    ],
-    "default_version": "30.2.2",
+    "aliases": ["录屏", "直播", "推流", "screen recorder", "streaming"],
+    "default_version": "32.2.2",
     "license": "GPL-2.0",
-    "stars": 58600,
-    "forks": 8100,
+    "stars": 76070,
+    "forks": 10122,
     "is_verified": true,
     "homepage": "https://obsproject.com",
-    "search_subdirs": [
-      "bin/64bit",
-      "bin/32bit",
-      "bin"
-    ],
-    "publishers": [
-      "OBS Project"
-    ],
-    "platforms": [
-      "windows",
-      "macos",
-      "linux"
-    ],
+    "search_subdirs": ["bin/64bit", "bin/32bit", "bin"],
+    "publishers": ["OBS Project"],
+    "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": [
-        "obs64.exe",
-        "obs32.exe",
-        "obs.exe"
-      ],
-      "linux": [
-        "obs"
-      ],
-      "macos": [
-        "OBS.app",
-        "obs"
-      ]
+      "windows": ["obs64.exe", "obs32.exe", "obs.exe"],
+      "linux": ["obs"],
+      "macos": ["OBS.app", "obs"]
     }
   },
   {
@@ -217,34 +120,18 @@
     "description": "跨平台社区驱动的安全密码库管理器，本地高强度加密保存所有私密凭据。",
     "category": "security",
     "category_name": "安全隐私",
-    "aliases": [
-      "密码管理",
-      "安全密码箱",
-      "password manager",
-      "1password"
-    ],
-    "default_version": "2.7.9",
-    "license": "GPL-3.0",
-    "stars": 24300,
-    "forks": 1700,
+    "aliases": ["密码管理", "安全密码箱", "password manager", "1password"],
+    "default_version": "2.7.12",
+    "license": "NOASSERTION",
+    "stars": 28772,
+    "forks": 1908,
     "is_verified": true,
     "homepage": "https://keepassxc.org",
-    "platforms": [
-      "windows",
-      "macos",
-      "linux"
-    ],
+    "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": [
-        "KeePassXC.exe"
-      ],
-      "linux": [
-        "keepassxc"
-      ],
-      "macos": [
-        "KeePassXC.app",
-        "keepassxc"
-      ]
+      "windows": ["KeePassXC.exe"],
+      "linux": ["keepassxc"],
+      "macos": ["KeePassXC.app", "keepassxc"]
     }
   },
   {
@@ -258,35 +145,18 @@
     "description": "社区驱动的 VS Code 纯净无遥测追踪二进制发行版，100% 自由开源。",
     "category": "dev",
     "category_name": "开发工具",
-    "aliases": [
-      "代码编辑",
-      "vscode",
-      "编程开发",
-      "code editor",
-      "ide"
-    ],
-    "default_version": "1.92.2",
+    "aliases": ["代码编辑", "vscode", "编程开发", "code editor", "ide"],
+    "default_version": "1.135.06055",
     "license": "MIT",
-    "stars": 46800,
-    "forks": 2200,
+    "stars": 33199,
+    "forks": 1859,
     "is_verified": true,
     "homepage": "https://vscodium.com",
-    "platforms": [
-      "windows",
-      "macos",
-      "linux"
-    ],
+    "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": [
-        "VSCodium.exe"
-      ],
-      "linux": [
-        "codium"
-      ],
-      "macos": [
-        "VSCodium.app",
-        "codium"
-      ]
+      "windows": ["VSCodium.exe"],
+      "linux": ["codium"],
+      "macos": ["VSCodium.app", "codium"]
     }
   },
   {
@@ -300,35 +170,18 @@
     "description": "由 Atom 与 Tree-sitter 原作者打造的超高性能 Rust 代码编辑器，毫秒级响应。",
     "category": "dev",
     "category_name": "开发工具",
-    "aliases": [
-      "代码编辑器",
-      "rust编辑器",
-      "高性能开发",
-      "code editor"
-    ],
-    "default_version": "v0.150.4",
-    "license": "GPL-3.0",
-    "stars": 49500,
-    "forks": 3100,
+    "aliases": ["代码编辑器", "rust编辑器", "高性能开发", "code editor"],
+    "default_version": "v1.19.2",
+    "license": "NOASSERTION",
+    "stars": 90126,
+    "forks": 10562,
     "is_verified": true,
     "homepage": "https://zed.dev",
-    "platforms": [
-      "windows",
-      "macos",
-      "linux"
-    ],
+    "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": [
-        "zed.exe"
-      ],
-      "linux": [
-        "zed",
-        "zed-editor"
-      ],
-      "macos": [
-        "Zed.app",
-        "zed"
-      ]
+      "windows": ["zed.exe"],
+      "linux": ["zed", "zed-editor"],
+      "macos": ["Zed.app", "zed"]
     }
   },
   {
@@ -342,35 +195,18 @@
     "description": "强大而简便的开源截图贴图工具，支持丰富的取色、马赛克与标注功能。",
     "category": "graphics",
     "category_name": "图形设计",
-    "aliases": [
-      "截图",
-      "屏幕截取",
-      "贴图",
-      "snip",
-      "screenshot"
-    ],
-    "default_version": "v12.1.0",
+    "aliases": ["截图", "屏幕截取", "贴图", "snip", "screenshot"],
+    "default_version": "v14.0.0",
     "license": "GPL-3.0",
-    "stars": 24900,
-    "forks": 1600,
+    "stars": 30833,
+    "forks": 2011,
     "is_verified": true,
     "homepage": "https://flameshot.org",
-    "platforms": [
-      "windows",
-      "macos",
-      "linux"
-    ],
+    "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": [
-        "flameshot.exe"
-      ],
-      "linux": [
-        "flameshot"
-      ],
-      "macos": [
-        "flameshot.app",
-        "flameshot"
-      ]
+      "windows": ["flameshot.exe"],
+      "linux": ["flameshot"],
+      "macos": ["flameshot.app", "flameshot"]
     }
   },
   {
@@ -384,26 +220,16 @@
     "description": "Windows 平台最强开源截屏、录屏 GIF、OCR 文字识别与文件分享工具。",
     "category": "graphics",
     "category_name": "图形设计",
-    "aliases": [
-      "截屏",
-      "录屏gif",
-      "ocr识别",
-      "屏幕录制",
-      "sharex"
-    ],
-    "default_version": "v16.1.0",
+    "aliases": ["截屏", "录屏gif", "ocr识别", "屏幕录制", "sharex"],
+    "default_version": "v21.0.0",
     "license": "GPL-3.0",
-    "stars": 28600,
-    "forks": 3200,
+    "stars": 39535,
+    "forks": 3913,
     "is_verified": true,
     "homepage": "https://getsharex.com",
-    "platforms": [
-      "windows"
-    ],
+    "platforms": ["windows"],
     "identifiers": {
-      "windows": [
-        "ShareX.exe"
-      ]
+      "windows": ["ShareX.exe"]
     }
   },
   {
@@ -417,35 +243,18 @@
     "description": "全球最受欢迎的自由开源 3D 建模、雕刻、动画、仿真与渲染制作软件。",
     "category": "graphics",
     "category_name": "图形设计",
-    "aliases": [
-      "3d建模",
-      "渲染",
-      "动画制作",
-      "三维设计",
-      "blender3d"
-    ],
+    "aliases": ["3d建模", "渲染", "动画制作", "三维设计", "blender3d"],
     "default_version": "v4.2.1",
-    "license": "GPL-3.0",
-    "stars": 24500,
-    "forks": 3600,
+    "license": "NOASSERTION",
+    "stars": 20251,
+    "forks": 3224,
     "is_verified": true,
     "homepage": "https://www.blender.org",
-    "platforms": [
-      "windows",
-      "macos",
-      "linux"
-    ],
+    "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": [
-        "blender.exe"
-      ],
-      "linux": [
-        "blender"
-      ],
-      "macos": [
-        "Blender.app",
-        "blender"
-      ]
+      "windows": ["blender.exe"],
+      "linux": ["blender"],
+      "macos": ["Blender.app", "blender"]
     }
   },
   {
@@ -459,43 +268,20 @@
     "description": "端到端加密的自由开源笔记与待办软件，支持 Markdown、多端同步与插件。",
     "category": "office",
     "category_name": "效率办公",
-    "aliases": [
-      "笔记",
-      "知识库",
-      "markdown笔记",
-      "evernote替代",
-      "notes"
-    ],
-    "default_version": "v3.0.15",
-    "license": "AGPL-3.0",
-    "stars": 45100,
-    "forks": 4600,
+    "aliases": ["笔记", "知识库", "markdown笔记", "evernote替代", "notes"],
+    "default_version": "v3.7.18",
+    "license": "NOASSERTION",
+    "stars": 56336,
+    "forks": 6278,
     "is_verified": true,
     "homepage": "https://joplinapp.org",
-    "platforms": [
-      "windows",
-      "macos",
-      "linux",
-      "android",
-      "ios"
-    ],
+    "platforms": ["windows", "macos", "linux", "android", "ios"],
     "identifiers": {
-      "windows": [
-        "Joplin.exe"
-      ],
-      "linux": [
-        "joplin",
-        "joplin-desktop"
-      ],
-      "macos": [
-        "Joplin.app"
-      ],
-      "android": [
-        "net.cozic.joplin"
-      ],
-      "ios": [
-        "net.cozic.joplin"
-      ]
+      "windows": ["Joplin.exe"],
+      "linux": ["joplin", "joplin-desktop"],
+      "macos": ["Joplin.app"],
+      "android": ["net.cozic.joplin"],
+      "ios": ["net.cozic.joplin"]
     }
   },
   {
@@ -509,42 +295,20 @@
     "description": "保护隐私的本地优先双链大纲笔记工具，构建个人的第二大脑与知识图谱。",
     "category": "office",
     "category_name": "效率办公",
-    "aliases": [
-      "大纲笔记",
-      "双链笔记",
-      "卡片盒",
-      "第二大脑",
-      "roam"
-    ],
-    "default_version": "0.10.9",
+    "aliases": ["大纲笔记", "双链笔记", "卡片盒", "第二大脑", "roam"],
+    "default_version": "2.0.1",
     "license": "AGPL-3.0",
-    "stars": 33100,
-    "forks": 2200,
+    "stars": 44869,
+    "forks": 2805,
     "is_verified": true,
     "homepage": "https://logseq.com",
-    "platforms": [
-      "windows",
-      "macos",
-      "linux",
-      "android",
-      "ios"
-    ],
+    "platforms": ["windows", "macos", "linux", "android", "ios"],
     "identifiers": {
-      "windows": [
-        "Logseq.exe"
-      ],
-      "linux": [
-        "logseq"
-      ],
-      "macos": [
-        "Logseq.app"
-      ],
-      "android": [
-        "com.logseq.app"
-      ],
-      "ios": [
-        "com.logseq.mobile"
-      ]
+      "windows": ["Logseq.exe"],
+      "linux": ["logseq"],
+      "macos": ["Logseq.app"],
+      "android": ["com.logseq.app"],
+      "ios": ["com.logseq.mobile"]
     }
   },
   {
@@ -558,42 +322,20 @@
     "description": "针对 E-ink 墨水屏及各类桌面设备打造的轻量级 EPUB/PDF 文档阅读神器。",
     "category": "reading",
     "category_name": "学习阅读",
-    "aliases": [
-      "电子书",
-      "epub阅读",
-      "pdf阅读器",
-      "阅读",
-      "ereader"
-    ],
-    "default_version": "v2024.07",
+    "aliases": ["电子书", "epub阅读", "pdf阅读器", "阅读", "ereader"],
+    "default_version": "v2026.07.1",
     "license": "AGPL-3.0",
-    "stars": 19100,
-    "forks": 1500,
+    "stars": 29654,
+    "forks": 1903,
     "is_verified": true,
     "homepage": "https://koreader.rocks",
-    "platforms": [
-      "windows",
-      "macos",
-      "linux",
-      "android",
-      "ios"
-    ],
+    "platforms": ["windows", "macos", "linux", "android", "ios"],
     "identifiers": {
-      "windows": [
-        "koreader.exe"
-      ],
-      "linux": [
-        "koreader"
-      ],
-      "macos": [
-        "KOReader.app"
-      ],
-      "android": [
-        "org.koreader.launcher"
-      ],
-      "ios": [
-        "org.koreader.launcher"
-      ]
+      "windows": ["koreader.exe"],
+      "linux": ["koreader"],
+      "macos": ["KOReader.app"],
+      "android": ["org.koreader.launcher"],
+      "ios": ["org.koreader.launcher"]
     }
   },
   {
@@ -607,35 +349,18 @@
     "description": "开源电子书库管理平台，集成格式转换、元数据抓取与在线阅读分发。",
     "category": "reading",
     "category_name": "学习阅读",
-    "aliases": [
-      "电子书库",
-      "书库管理",
-      "calibre",
-      "阅读器"
-    ],
-    "default_version": "0.6.22",
+    "aliases": ["电子书库", "书库管理", "calibre", "阅读器"],
+    "default_version": "0.6.27",
     "license": "GPL-3.0",
-    "stars": 13900,
-    "forks": 1400,
+    "stars": 18164,
+    "forks": 1853,
     "is_verified": true,
     "homepage": "https://calibre-ebook.com",
-    "platforms": [
-      "windows",
-      "macos",
-      "linux"
-    ],
+    "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": [
-        "calibre.exe"
-      ],
-      "linux": [
-        "calibre",
-        "ebook-viewer"
-      ],
-      "macos": [
-        "calibre.app",
-        "calibre"
-      ]
+      "windows": ["calibre.exe"],
+      "linux": ["calibre", "ebook-viewer"],
+      "macos": ["calibre.app", "calibre"]
     }
   },
   {
@@ -649,34 +374,18 @@
     "description": "采用 Tauri 开发的轻量级规则代理客户端，界面优雅，占用极低。",
     "category": "network",
     "category_name": "网络工具",
-    "aliases": [
-      "网络代理",
-      "规则分流",
-      "代理工具",
-      "proxy",
-      "clash"
-    ],
-    "default_version": "v1.7.5",
+    "aliases": ["网络代理", "规则分流", "代理工具", "proxy", "clash"],
+    "default_version": "v2.5.2",
     "license": "GPL-3.0",
-    "stars": 44800,
-    "forks": 4200,
+    "stars": 143866,
+    "forks": 10357,
     "is_verified": true,
     "homepage": "https://clash-verge-rev.github.io",
-    "platforms": [
-      "windows",
-      "macos",
-      "linux"
-    ],
+    "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": [
-        "Clash Verge.exe"
-      ],
-      "linux": [
-        "clash-verge"
-      ],
-      "macos": [
-        "Clash Verge.app"
-      ]
+      "windows": ["Clash Verge.exe"],
+      "linux": ["clash-verge"],
+      "macos": ["Clash Verge.app"]
     }
   },
   {
@@ -690,37 +399,18 @@
     "description": "极速、轻量、无广告的跨平台 BitTorrent 下载客户端，内存开销极低。",
     "category": "network",
     "category_name": "网络工具",
-    "aliases": [
-      "BT下载",
-      "种子下载",
-      "bt客户端",
-      "torrent",
-      "p2p"
-    ],
-    "default_version": "4.0.6",
-    "license": "GPL-2.0",
-    "stars": 11500,
-    "forks": 1400,
+    "aliases": ["BT下载", "种子下载", "bt客户端", "torrent", "p2p"],
+    "default_version": "4.1.3",
+    "license": "NOASSERTION",
+    "stars": 15186,
+    "forks": 1445,
     "is_verified": true,
     "homepage": "https://transmissionbt.com",
-    "platforms": [
-      "windows",
-      "macos",
-      "linux"
-    ],
+    "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": [
-        "transmission-qt.exe",
-        "transmission.exe"
-      ],
-      "linux": [
-        "transmission-gtk",
-        "transmission-qt",
-        "transmission-daemon"
-      ],
-      "macos": [
-        "Transmission.app"
-      ]
+      "windows": ["transmission-qt.exe", "transmission.exe"],
+      "linux": ["transmission-gtk", "transmission-qt", "transmission-daemon"],
+      "macos": ["Transmission.app"]
     }
   },
   {
@@ -734,36 +424,18 @@
     "description": "拥有极高压缩比的开源解压缩神器，增强支持现代 Zstandard / Brotli 算法。",
     "category": "system",
     "category_name": "系统实用",
-    "aliases": [
-      "解压缩",
-      "压缩软件",
-      "zip解压",
-      "rar解压",
-      "7zip"
-    ],
-    "default_version": "v22.01",
-    "license": "LGPL-2.1",
-    "stars": 4800,
-    "forks": 380,
+    "aliases": ["解压缩", "压缩软件", "zip解压", "rar解压", "7zip"],
+    "default_version": "v26.02-v1.5.7-R2",
+    "license": "NOASSERTION",
+    "stars": 7358,
+    "forks": 410,
     "is_verified": true,
     "homepage": "https://www.7-zip.org",
-    "publishers": [
-      "Igor Pavlov"
-    ],
-    "platforms": [
-      "windows",
-      "linux"
-    ],
+    "publishers": ["Igor Pavlov"],
+    "platforms": ["windows", "linux"],
     "identifiers": {
-      "windows": [
-        "7zFM.exe",
-        "7zG.exe",
-        "7z.exe"
-      ],
-      "linux": [
-        "7z",
-        "7za"
-      ]
+      "windows": ["7zFM.exe", "7zG.exe", "7z.exe"],
+      "linux": ["7z", "7za"]
     }
   },
   {
@@ -777,29 +449,17 @@
     "description": "微软官方开源系统增强套件，包含窗口布局、文本提取、取色器与全局检索。",
     "category": "system",
     "category_name": "系统实用",
-    "aliases": [
-      "系统百宝箱",
-      "窗口分屏",
-      "快速启动",
-      "全局搜索",
-      "powertoys"
-    ],
-    "default_version": "v0.84.0",
+    "aliases": ["系统百宝箱", "窗口分屏", "快速启动", "全局搜索", "powertoys"],
+    "default_version": "v0.101.2362.0",
     "license": "MIT",
-    "stars": 109000,
-    "forks": 6300,
+    "stars": 138565,
+    "forks": 8554,
     "is_verified": true,
     "homepage": "https://learn.microsoft.com/windows/powertoys/",
-    "publishers": [
-      "Microsoft Corporation"
-    ],
-    "platforms": [
-      "windows"
-    ],
+    "publishers": ["Microsoft Corporation"],
+    "platforms": ["windows"],
     "identifiers": {
-      "windows": [
-        "PowerToys.exe"
-      ]
+      "windows": ["PowerToys.exe"]
     }
   },
   {
@@ -813,25 +473,15 @@
     "description": "为 Windows 文件资源管理器带来 macOS 般丝滑的按下空格即时预览文档功能。",
     "category": "system",
     "category_name": "系统实用",
-    "aliases": [
-      "空格预览",
-      "快速预览",
-      "mac预览",
-      "file preview",
-      "quicklook"
-    ],
-    "default_version": "3.7.3",
+    "aliases": ["空格预览", "快速预览", "mac预览", "file preview", "quicklook"],
+    "default_version": "4.5.0",
     "license": "GPL-3.0",
-    "stars": 18200,
-    "forks": 1100,
+    "stars": 24661,
+    "forks": 1298,
     "is_verified": true,
-    "platforms": [
-      "windows"
-    ],
+    "platforms": ["windows"],
     "identifiers": {
-      "windows": [
-        "QuickLook.exe"
-      ]
+      "windows": ["QuickLook.exe"]
     }
   },
   {
@@ -845,26 +495,16 @@
     "description": "快速搜索应用、文件、书签并执行各类计算转换的开源 Windows 启动利器。",
     "category": "system",
     "category_name": "系统实用",
-    "aliases": [
-      "快速启动",
-      "效率搜索",
-      "alfred替代",
-      "spotlight",
-      "launcher"
-    ],
-    "default_version": "v1.18.3",
+    "aliases": ["快速启动", "效率搜索", "alfred替代", "spotlight", "launcher"],
+    "default_version": "v2.1.3",
     "license": "MIT",
-    "stars": 14900,
-    "forks": 650,
+    "stars": 15542,
+    "forks": 642,
     "is_verified": true,
     "homepage": "https://www.flowlauncher.com",
-    "platforms": [
-      "windows"
-    ],
+    "platforms": ["windows"],
     "identifiers": {
-      "windows": [
-        "Flow.Launcher.exe"
-      ]
+      "windows": ["Flow.Launcher.exe"]
     }
   },
   {
@@ -878,36 +518,18 @@
     "description": "功能强大的开源多平台视频转码工具，支持硬件加速与多重格式压制。",
     "category": "media",
     "category_name": "影音视听",
-    "aliases": [
-      "视频压制",
-      "视频转码",
-      "格式转换",
-      "video encoder",
-      "handbrake"
-    ],
-    "default_version": "1.8.2",
-    "license": "GPL-2.0",
-    "stars": 15800,
-    "forks": 1400,
+    "aliases": ["视频压制", "视频转码", "格式转换", "video encoder", "handbrake"],
+    "default_version": "1.11.2",
+    "license": "NOASSERTION",
+    "stars": 24356,
+    "forks": 1694,
     "is_verified": true,
     "homepage": "https://handbrake.fr",
-    "platforms": [
-      "windows",
-      "macos",
-      "linux"
-    ],
+    "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": [
-        "HandBrake.exe"
-      ],
-      "linux": [
-        "ghb",
-        "HandBrakeCLI"
-      ],
-      "macos": [
-        "HandBrake.app",
-        "HandBrakeCLI"
-      ]
+      "windows": ["HandBrake.exe"],
+      "linux": ["ghb", "HandBrakeCLI"],
+      "macos": ["HandBrake.app", "HandBrakeCLI"]
     }
   },
   {
@@ -921,42 +543,20 @@
     "description": "全球最信任的端到端加密开源密码与通行密钥 (Passkey) 管理桌面客户端。",
     "category": "security",
     "category_name": "安全隐私",
-    "aliases": [
-      "密码管理",
-      "安全私钥",
-      "passkey",
-      "password",
-      "bitwarden"
-    ],
-    "default_version": "v2024.8.1",
-    "license": "GPL-3.0",
-    "stars": 7400,
-    "forks": 1100,
+    "aliases": ["密码管理", "安全私钥", "passkey", "password", "bitwarden"],
+    "default_version": "web-v2026.8.1",
+    "license": "NOASSERTION",
+    "stars": 13769,
+    "forks": 2019,
     "is_verified": true,
     "homepage": "https://bitwarden.com",
-    "platforms": [
-      "windows",
-      "macos",
-      "linux",
-      "android",
-      "ios"
-    ],
+    "platforms": ["windows", "macos", "linux", "android", "ios"],
     "identifiers": {
-      "windows": [
-        "Bitwarden.exe"
-      ],
-      "linux": [
-        "bitwarden"
-      ],
-      "macos": [
-        "Bitwarden.app"
-      ],
-      "android": [
-        "com.x8bit.bitwarden"
-      ],
-      "ios": [
-        "com.8bit.bitwarden"
-      ]
+      "windows": ["Bitwarden.exe"],
+      "linux": ["bitwarden"],
+      "macos": ["Bitwarden.app"],
+      "android": ["com.x8bit.bitwarden"],
+      "ios": ["com.8bit.bitwarden"]
     }
   },
   {
@@ -970,38 +570,19 @@
     "description": "重构进化的 Vim 现代分支，内置 Lua 脚本配置、Tree-sitter 与 LSP 支持。",
     "category": "ops",
     "category_name": "极客运维",
-    "aliases": [
-      "vim编辑器",
-      "终端编辑",
-      "极客工具",
-      "editor",
-      "nvim"
-    ],
-    "default_version": "v0.10.1",
-    "license": "Apache-2.0",
-    "stars": 82900,
-    "forks": 5400,
+    "aliases": ["vim编辑器", "终端编辑", "极客工具", "editor", "nvim"],
+    "default_version": "v0.12.5",
+    "license": "NOASSERTION",
+    "stars": 102280,
+    "forks": 7107,
     "is_verified": true,
     "homepage": "https://neovim.io",
-    "search_subdirs": [
-      "bin"
-    ],
-    "platforms": [
-      "windows",
-      "macos",
-      "linux"
-    ],
+    "search_subdirs": ["bin"],
+    "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": [
-        "nvim-qt.exe",
-        "nvim.exe"
-      ],
-      "linux": [
-        "nvim"
-      ],
-      "macos": [
-        "nvim"
-      ]
+      "windows": ["nvim-qt.exe", "nvim.exe"],
+      "linux": ["nvim"],
+      "macos": ["nvim"]
     }
   },
   {
@@ -1015,35 +596,18 @@
     "description": "基于 OpenGL GPU 渲染加速的高性能跨平台轻量终端模拟器，采用 Rust 打造。",
     "category": "ops",
     "category_name": "极客运维",
-    "aliases": [
-      "终端模拟器",
-      "命令行",
-      "gpu终端",
-      "terminal",
-      "alacritty"
-    ],
-    "default_version": "v0.13.2",
+    "aliases": ["终端模拟器", "命令行", "gpu终端", "terminal", "alacritty"],
+    "default_version": "v0.17.0",
     "license": "Apache-2.0",
-    "stars": 54200,
-    "forks": 3000,
+    "stars": 65689,
+    "forks": 3606,
     "is_verified": true,
     "homepage": "https://alacritty.org",
-    "platforms": [
-      "windows",
-      "macos",
-      "linux"
-    ],
+    "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": [
-        "alacritty.exe"
-      ],
-      "linux": [
-        "alacritty"
-      ],
-      "macos": [
-        "Alacritty.app",
-        "alacritty"
-      ]
+      "windows": ["alacritty.exe"],
+      "linux": ["alacritty"],
+      "macos": ["Alacritty.app", "alacritty"]
     }
   },
   {
@@ -1057,36 +621,18 @@
     "description": "全球网络安全与协议工程师必备的开源网络封包实时捕获与协议深度分析器。",
     "category": "security",
     "category_name": "安全隐私",
-    "aliases": [
-      "网络抓包",
-      "封包分析",
-      "网络安全",
-      "packet analyzer",
-      "sniffer"
-    ],
+    "aliases": ["网络抓包", "封包分析", "网络安全", "packet analyzer", "sniffer"],
     "default_version": "v4.2.6",
     "license": "GPL-2.0",
-    "stars": 7100,
-    "forks": 1600,
+    "stars": 9861,
+    "forks": 2206,
     "is_verified": true,
     "homepage": "https://www.wireshark.org",
-    "platforms": [
-      "windows",
-      "macos",
-      "linux"
-    ],
+    "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": [
-        "Wireshark.exe"
-      ],
-      "linux": [
-        "wireshark",
-        "tshark"
-      ],
-      "macos": [
-        "Wireshark.app",
-        "tshark"
-      ]
+      "windows": ["Wireshark.exe"],
+      "linux": ["wireshark", "tshark"],
+      "macos": ["Wireshark.app", "tshark"]
     }
   },
   {
@@ -1100,34 +646,18 @@
     "description": "开源轻量的 API 研发与调试利器，替代 Postman，极速无广告。",
     "category": "dev",
     "category_name": "开发工具",
-    "aliases": [
-      "接口调试",
-      "api测试",
-      "http测试",
-      "postman替代",
-      "rest"
-    ],
-    "default_version": "v2024.7.0",
+    "aliases": ["接口调试", "api测试", "http测试", "postman替代", "rest"],
+    "default_version": "2026.8.0",
     "license": "MIT",
-    "stars": 64300,
-    "forks": 4500,
+    "stars": 80287,
+    "forks": 6100,
     "is_verified": true,
     "homepage": "https://hoppscotch.com",
-    "platforms": [
-      "windows",
-      "macos",
-      "linux"
-    ],
+    "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": [
-        "Hoppscotch.exe"
-      ],
-      "linux": [
-        "hoppscotch"
-      ],
-      "macos": [
-        "Hoppscotch.app"
-      ]
+      "windows": ["Hoppscotch.exe"],
+      "linux": ["hoppscotch"],
+      "macos": ["Hoppscotch.app"]
     }
   },
   {
@@ -1141,34 +671,18 @@
     "description": "自由开源的无根 (Rootless) 容器与 Kubernetes 管理平台，替代商业 Docker。",
     "category": "ops",
     "category_name": "极客运维",
-    "aliases": [
-      "容器管理",
-      "docker替代",
-      "kubernetes",
-      "k8s",
-      "podman"
-    ],
-    "default_version": "v1.12.0",
+    "aliases": ["容器管理", "docker替代", "kubernetes", "k8s", "podman"],
+    "default_version": "v1.29.3",
     "license": "Apache-2.0",
-    "stars": 7200,
-    "forks": 420,
+    "stars": 7999,
+    "forks": 563,
     "is_verified": true,
     "homepage": "https://podman-desktop.io",
-    "platforms": [
-      "windows",
-      "macos",
-      "linux"
-    ],
+    "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": [
-        "Podman Desktop.exe"
-      ],
-      "linux": [
-        "podman-desktop"
-      ],
-      "macos": [
-        "Podman Desktop.app"
-      ]
+      "windows": ["Podman Desktop.exe"],
+      "linux": ["podman-desktop"],
+      "macos": ["Podman Desktop.app"]
     }
   },
   {
@@ -1182,43 +696,20 @@
     "description": "跨平台的经典复古游戏模拟器前端，整合数十种经典游戏机核心与滤镜效果。",
     "category": "games",
     "category_name": "休闲游戏",
-    "aliases": [
-      "游戏模拟器",
-      "红白机",
-      "街机",
-      "经典游戏",
-      "emulator",
-      "retro"
-    ],
-    "default_version": "v1.19.1",
+    "aliases": ["游戏模拟器", "红白机", "街机", "经典游戏", "emulator", "retro"],
+    "default_version": "v1.22.2",
     "license": "GPL-3.0",
-    "stars": 11300,
-    "forks": 1700,
+    "stars": 13949,
+    "forks": 2220,
     "is_verified": true,
     "homepage": "https://www.retroarch.com",
-    "platforms": [
-      "windows",
-      "macos",
-      "linux",
-      "android",
-      "ios"
-    ],
+    "platforms": ["windows", "macos", "linux", "android", "ios"],
     "identifiers": {
-      "windows": [
-        "retroarch.exe"
-      ],
-      "linux": [
-        "retroarch"
-      ],
-      "macos": [
-        "RetroArch.app"
-      ],
-      "android": [
-        "com.retroarch"
-      ],
-      "ios": [
-        "com.libretro.RetroArch"
-      ]
+      "windows": ["retroarch.exe"],
+      "linux": ["retroarch"],
+      "macos": ["RetroArch.app"],
+      "android": ["com.retroarch"],
+      "ios": ["com.libretro.RetroArch"]
     }
   },
   {
@@ -1232,38 +723,19 @@
     "description": "广受欢迎的开源模拟经营游戏《运输大亨豪华版》复刻版，支持多人联机。",
     "category": "games",
     "category_name": "休闲游戏",
-    "aliases": [
-      "模拟经营",
-      "运输大亨",
-      "火车模拟",
-      "经营游戏",
-      "openttd"
-    ],
-    "default_version": "14.1",
-    "license": "GPL-2.0",
-    "stars": 6100,
-    "forks": 980,
+    "aliases": ["模拟经营", "运输大亨", "火车模拟", "经营游戏", "openttd"],
+    "default_version": "15.3",
+    "license": "NOASSERTION",
+    "stars": 8247,
+    "forks": 1260,
     "is_verified": true,
     "homepage": "https://www.openttd.org",
-    "platforms": [
-      "windows",
-      "macos",
-      "linux",
-      "android"
-    ],
+    "platforms": ["windows", "macos", "linux", "android"],
     "identifiers": {
-      "windows": [
-        "openttd.exe"
-      ],
-      "linux": [
-        "openttd"
-      ],
-      "macos": [
-        "OpenTTD.app"
-      ],
-      "android": [
-        "org.openttd.sdl"
-      ]
+      "windows": ["openttd.exe"],
+      "linux": ["openttd"],
+      "macos": ["OpenTTD.app"],
+      "android": ["org.openttd.sdl"]
     }
   },
   {
@@ -1277,42 +749,20 @@
     "description": "融合了塔防、自动化物流与工厂建设的开放源码沙盒策略游戏。",
     "category": "games",
     "category_name": "休闲游戏",
-    "aliases": [
-      "塔防游戏",
-      "工厂模拟",
-      "策略游戏",
-      "像素沙盒",
-      "mindustry"
-    ],
-    "default_version": "v146",
+    "aliases": ["塔防游戏", "工厂模拟", "策略游戏", "像素沙盒", "mindustry"],
+    "default_version": "v160.1",
     "license": "GPL-3.0",
-    "stars": 24200,
-    "forks": 3100,
+    "stars": 28958,
+    "forks": 3764,
     "is_verified": true,
     "homepage": "https://mindustrygame.github.io",
-    "platforms": [
-      "windows",
-      "macos",
-      "linux",
-      "android",
-      "ios"
-    ],
+    "platforms": ["windows", "macos", "linux", "android", "ios"],
     "identifiers": {
-      "windows": [
-        "Mindustry.exe"
-      ],
-      "linux": [
-        "mindustry"
-      ],
-      "macos": [
-        "Mindustry.app"
-      ],
-      "android": [
-        "io.anuke.mindustry"
-      ],
-      "ios": [
-        "io.anuke.mindustry"
-      ]
+      "windows": ["Mindustry.exe"],
+      "linux": ["mindustry"],
+      "macos": ["Mindustry.app"],
+      "android": ["io.anuke.mindustry"],
+      "ios": ["io.anuke.mindustry"]
     }
   },
   {
@@ -1326,38 +776,19 @@
     "description": "自由开源的 BitTorrent 客户端，基于 Qt 工具包构建，无广告，支持远程 Web 控制。",
     "category": "network",
     "category_name": "网络工具",
-    "aliases": [
-      "qbittorrent",
-      "qb",
-      "bt",
-      "torrent",
-      "下载器",
-      "种子下载"
-    ],
-    "default_version": "release-5.0.3",
-    "license": "GPL-2.0",
-    "stars": 28600,
-    "forks": 4200,
+    "aliases": ["qbittorrent", "qb", "bt", "torrent", "下载器", "种子下载"],
+    "default_version": "release-5.2.3",
+    "license": "NOASSERTION",
+    "stars": 40047,
+    "forks": 4875,
     "is_verified": true,
     "homepage": "https://www.qbittorrent.org",
-    "publishers": [
-      "The qBittorrent project"
-    ],
-    "platforms": [
-      "windows",
-      "macos",
-      "linux"
-    ],
+    "publishers": ["The qBittorrent project"],
+    "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": [
-        "qbittorrent.exe"
-      ],
-      "linux": [
-        "qbittorrent"
-      ],
-      "macos": [
-        "qbittorrent.app"
-      ]
+      "windows": ["qbittorrent.exe"],
+      "linux": ["qbittorrent"],
+      "macos": ["qbittorrent.app"]
     }
   },
   {
@@ -1371,38 +802,19 @@
     "description": "全能开源下载工具，支持 HTTP、FTP、BT、磁力链接等多协议，界面清爽极简。",
     "category": "network",
     "category_name": "网络工具",
-    "aliases": [
-      "motrix",
-      "下载工具",
-      "全能下载器",
-      "aria2",
-      "download manager"
-    ],
+    "aliases": ["motrix", "下载工具", "全能下载器", "aria2", "download manager"],
     "default_version": "v1.8.19",
-    "license": "MIT",
-    "stars": 42000,
-    "forks": 5800,
+    "license": "NOASSERTION",
+    "stars": 55451,
+    "forks": 5031,
     "is_verified": true,
     "homepage": "https://motrix.app",
-    "publishers": [
-      "Dr_rOot",
-      "agalwood"
-    ],
-    "platforms": [
-      "windows",
-      "macos",
-      "linux"
-    ],
+    "publishers": ["Dr_rOot", "agalwood"],
+    "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": [
-        "Motrix.exe"
-      ],
-      "linux": [
-        "motrix"
-      ],
-      "macos": [
-        "Motrix.app"
-      ]
+      "windows": ["Motrix.exe"],
+      "linux": ["motrix"],
+      "macos": ["Motrix.app"]
     }
   },
   {
@@ -1416,37 +828,19 @@
     "description": "一个用于快速上传图片并获取 Markdown 链接的开源图床客户端工具。",
     "category": "graphics",
     "category_name": "图形创作",
-    "aliases": [
-      "picgo",
-      "图床",
-      "图片上传",
-      "markdown 图床",
-      "image uploader"
-    ],
-    "default_version": "v2.4.0-beta.6",
+    "aliases": ["picgo", "图床", "图片上传", "markdown 图床", "image uploader"],
+    "default_version": "v3.0.2",
     "license": "MIT",
-    "stars": 24000,
-    "forks": 3200,
+    "stars": 27175,
+    "forks": 2326,
     "is_verified": true,
     "homepage": "https://molunerfinn.com/PicGo/",
-    "publishers": [
-      "Molunerfinn"
-    ],
-    "platforms": [
-      "windows",
-      "macos",
-      "linux"
-    ],
+    "publishers": ["Molunerfinn"],
+    "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": [
-        "PicGo.exe"
-      ],
-      "linux": [
-        "picgo"
-      ],
-      "macos": [
-        "PicGo.app"
-      ]
+      "windows": ["PicGo.exe"],
+      "linux": ["picgo"],
+      "macos": ["PicGo.app"]
     }
   },
   {
@@ -1460,30 +854,17 @@
     "description": "开源多平台视频游戏库管理器，支持 Steam、Epic、GOG、Xbox 等多平台游戏一键整合。",
     "category": "games",
     "category_name": "休闲游戏",
-    "aliases": [
-      "playnite",
-      "游戏库",
-      "游戏管理器",
-      "game launcher",
-      "game library"
-    ],
-    "default_version": "10.37",
+    "aliases": ["playnite", "游戏库", "游戏管理器", "game launcher", "game library"],
+    "default_version": "10.60",
     "license": "MIT",
-    "stars": 19500,
-    "forks": 1500,
+    "stars": 13930,
+    "forks": 681,
     "is_verified": true,
     "homepage": "https://playnite.link",
-    "publishers": [
-      "Josef Nemec"
-    ],
-    "platforms": [
-      "windows"
-    ],
+    "publishers": ["Josef Nemec"],
+    "platforms": ["windows"],
     "identifiers": {
-      "windows": [
-        "Playnite.DesktopApp.exe",
-        "Playnite.exe"
-      ]
+      "windows": ["Playnite.DesktopApp.exe", "Playnite.exe"]
     }
   },
   {
@@ -1497,40 +878,19 @@
     "description": "使用 Rust 编写的 GPU 加速跨平台终端模拟器与多路复用器，支持 Lua 全面配置。",
     "category": "dev",
     "category_name": "开发编程",
-    "aliases": [
-      "wezterm",
-      "终端",
-      "终端模拟器",
-      "terminal",
-      "gpu terminal"
-    ],
-    "default_version": "20240203-110809-50468022",
-    "license": "MIT",
-    "stars": 17800,
-    "forks": 1100,
+    "aliases": ["wezterm", "终端", "终端模拟器", "terminal", "gpu terminal"],
+    "default_version": "20240203-110809-5046fc22",
+    "license": "NOASSERTION",
+    "stars": 28853,
+    "forks": 1729,
     "is_verified": true,
     "homepage": "https://wezfurlong.org/wezterm/",
-    "publishers": [
-      "Wez Furlong"
-    ],
-    "platforms": [
-      "windows",
-      "macos",
-      "linux"
-    ],
+    "publishers": ["Wez Furlong"],
+    "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": [
-        "wezterm-gui.exe",
-        "wezterm.exe"
-      ],
-      "linux": [
-        "wezterm",
-        "wezterm-gui"
-      ],
-      "macos": [
-        "WezTerm.app",
-        "wezterm"
-      ]
+      "windows": ["wezterm-gui.exe", "wezterm.exe"],
+      "linux": ["wezterm", "wezterm-gui"],
+      "macos": ["WezTerm.app", "wezterm"]
     }
   },
   {
@@ -1544,40 +904,19 @@
     "description": "官方 Telegram 桌面开源客户端，高速、安全、端到端加密支持的即时通讯工具。",
     "category": "network",
     "category_name": "网络工具",
-    "aliases": [
-      "telegram",
-      "电报",
-      "tg",
-      "tdesktop",
-      "telegram desktop"
-    ],
-    "default_version": "v5.8.0",
+    "aliases": ["telegram", "电报", "tg", "tdesktop", "telegram desktop"],
+    "default_version": "v7.2.8",
     "license": "GPL-3.0",
-    "stars": 26500,
-    "forks": 5400,
+    "stars": 32896,
+    "forks": 7198,
     "is_verified": true,
     "homepage": "https://desktop.telegram.org",
-    "publishers": [
-      "Telegram FZ-LLC",
-      "Telegram"
-    ],
-    "platforms": [
-      "windows",
-      "macos",
-      "linux"
-    ],
+    "publishers": ["Telegram FZ-LLC", "Telegram"],
+    "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": [
-        "Telegram.exe",
-        "telegram.exe"
-      ],
-      "linux": [
-        "telegram-desktop",
-        "Telegram"
-      ],
-      "macos": [
-        "Telegram.app"
-      ]
+      "windows": ["Telegram.exe", "telegram.exe"],
+      "linux": ["telegram-desktop", "Telegram"],
+      "macos": ["Telegram.app"]
     }
   },
   {
@@ -1591,40 +930,20 @@
     "description": "跨平台通用 Shell 提示符主题引擎，支持 PowerShell、Bash、Zsh 等，极致美化终端。",
     "category": "dev",
     "category_name": "开发编程",
-    "aliases": [
-      "oh-my-posh",
-      "posh",
-      "prompt",
-      "oh my posh",
-      "终端美化"
-    ],
-    "default_version": "v24.16.2",
+    "aliases": ["oh-my-posh", "posh", "prompt", "oh my posh", "终端美化"],
+    "default_version": "v31.2.1",
     "license": "MIT",
-    "stars": 17500,
-    "forks": 1200,
+    "stars": 23447,
+    "forks": 2778,
     "is_verified": true,
     "homepage": "https://ohmyposh.dev",
-    "search_subdirs": [
-      "bin"
-    ],
-    "publishers": [
-      "Jan De Dobbeleer"
-    ],
-    "platforms": [
-      "windows",
-      "macos",
-      "linux"
-    ],
+    "search_subdirs": ["bin"],
+    "publishers": ["Jan De Dobbeleer"],
+    "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": [
-        "oh-my-posh.exe"
-      ],
-      "linux": [
-        "oh-my-posh"
-      ],
-      "macos": [
-        "oh-my-posh"
-      ]
+      "windows": ["oh-my-posh.exe"],
+      "linux": ["oh-my-posh"],
+      "macos": ["oh-my-posh"]
     }
   },
   {
@@ -1638,28 +957,17 @@
     "description": "开源的 Windows 资源管理器缩略图快速批量生成工具，告别打开文件夹时的白块卡顿。",
     "category": "system",
     "category_name": "系统实用",
-    "aliases": [
-      "winthumbspreloader",
-      "缩略图预加载",
-      "缩略图缓存",
-      "thumbnail preloader"
-    ],
-    "default_version": "v1.1.0",
-    "license": "GPL-3.0",
-    "stars": 2300,
-    "forks": 140,
+    "aliases": ["winthumbspreloader", "缩略图预加载", "缩略图缓存", "thumbnail preloader"],
+    "default_version": "v1.0.1",
+    "license": "MIT",
+    "stars": 740,
+    "forks": 49,
     "is_verified": true,
     "homepage": "https://github.com/Bruhov/WinThumbsPreloader",
-    "publishers": [
-      "Dmitry Bruhov"
-    ],
-    "platforms": [
-      "windows"
-    ],
+    "publishers": ["Dmitry Bruhov"],
+    "platforms": ["windows"],
     "identifiers": {
-      "windows": [
-        "WinThumbsPreloader.exe"
-      ]
+      "windows": ["WinThumbsPreloader.exe"]
     }
   },
   {
@@ -1673,38 +981,19 @@
     "description": "基于 Rust 编写的超高速面向代码的递归行搜索工具，比 grep / ack / ag 更快更智能。",
     "category": "dev",
     "category_name": "开发编程",
-    "aliases": [
-      "ripgrep",
-      "rg",
-      "grep",
-      "ripgrep msvc",
-      "快速搜索"
-    ],
-    "default_version": "14.1.0",
-    "license": "MIT",
-    "stars": 46500,
-    "forks": 2200,
+    "aliases": ["ripgrep", "rg", "grep", "ripgrep msvc", "快速搜索"],
+    "default_version": "15.2.0",
+    "license": "Unlicense",
+    "stars": 68190,
+    "forks": 2755,
     "is_verified": true,
     "homepage": "https://github.com/BurntSushi/ripgrep",
-    "publishers": [
-      "BurntSushi"
-    ],
-    "platforms": [
-      "windows",
-      "macos",
-      "linux"
-    ],
+    "publishers": ["BurntSushi"],
+    "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": [
-        "rg.exe",
-        "ripgrep.exe"
-      ],
-      "linux": [
-        "rg"
-      ],
-      "macos": [
-        "rg"
-      ]
+      "windows": ["rg.exe", "ripgrep.exe"],
+      "linux": ["rg"],
+      "macos": ["rg"]
     }
   }
 ]
