@@ -1,6 +1,6 @@
 [
   {
-    "id": "rustdesk",
+    "id": "rustdesk/rustdesk",
     "name": "RustDesk",
     "chinese_name": "RustDesk 远程桌面",
     "owner": "rustdesk",
@@ -28,7 +28,7 @@
     }
   },
   {
-    "id": "localsend",
+    "id": "localsend/localsend",
     "name": "LocalSend",
     "chinese_name": "LocalSend 局域网快传",
     "owner": "localsend",
@@ -55,7 +55,7 @@
     }
   },
   {
-    "id": "vlc",
+    "id": "videolan/vlc",
     "name": "VLC Media Player",
     "chinese_name": "VLC 播放器",
     "owner": "videolan",
@@ -83,7 +83,7 @@
     }
   },
   {
-    "id": "obs-studio",
+    "id": "obsproject/obs-studio",
     "name": "OBS Studio",
     "chinese_name": "OBS 录屏直播利器",
     "owner": "obsproject",
@@ -110,7 +110,7 @@
     }
   },
   {
-    "id": "keepassxc",
+    "id": "keepassxreboot/keepassxc",
     "name": "KeePassXC",
     "chinese_name": "KeePassXC 密码管理器",
     "owner": "keepassxreboot",
@@ -135,7 +135,7 @@
     }
   },
   {
-    "id": "vscodium",
+    "id": "vscodium/vscodium",
     "name": "VSCodium",
     "chinese_name": "VSCodium 纯净版编辑器",
     "owner": "VSCodium",
@@ -160,7 +160,7 @@
     }
   },
   {
-    "id": "zed",
+    "id": "zed-industries/zed",
     "name": "Zed Editor",
     "chinese_name": "Zed 高性能编辑器",
     "owner": "zed-industries",
@@ -185,7 +185,7 @@
     }
   },
   {
-    "id": "flameshot",
+    "id": "flameshot-org/flameshot",
     "name": "Flameshot",
     "chinese_name": "Flameshot 火焰截图",
     "owner": "flameshot-org",
@@ -210,7 +210,7 @@
     }
   },
   {
-    "id": "sharex",
+    "id": "sharex/sharex",
     "name": "ShareX",
     "chinese_name": "ShareX 截屏录屏神器",
     "owner": "ShareX",
@@ -233,7 +233,7 @@
     }
   },
   {
-    "id": "blender",
+    "id": "blender/blender",
     "name": "Blender",
     "chinese_name": "Blender 3D 创作套件",
     "owner": "blender",
@@ -258,7 +258,7 @@
     }
   },
   {
-    "id": "joplin",
+    "id": "laurent22/joplin",
     "name": "Joplin",
     "chinese_name": "Joplin 笔记",
     "owner": "laurent22",
@@ -285,7 +285,7 @@
     }
   },
   {
-    "id": "logseq",
+    "id": "logseq/logseq",
     "name": "Logseq",
     "chinese_name": "Logseq 双链大纲笔记",
     "owner": "logseq",
@@ -312,7 +312,7 @@
     }
   },
   {
-    "id": "koreader",
+    "id": "koreader/koreader",
     "name": "KOReader",
     "chinese_name": "KOReader 电子书阅读器",
     "owner": "koreader",
@@ -339,7 +339,7 @@
     }
   },
   {
-    "id": "calibre",
+    "id": "janeczku/calibre-web",
     "name": "Calibre-web",
     "chinese_name": "Calibre 书库管理",
     "owner": "janeczku",
@@ -364,7 +364,7 @@
     }
   },
   {
-    "id": "clash-verge-rev",
+    "id": "clash-verge-rev/clash-verge-rev",
     "name": "Clash Verge Rev",
     "chinese_name": "Clash Verge 客户端",
     "owner": "clash-verge-rev",
@@ -389,7 +389,7 @@
     }
   },
   {
-    "id": "transmission",
+    "id": "transmission/transmission",
     "name": "Transmission",
     "chinese_name": "Transmission 下载利器",
     "owner": "transmission",
@@ -414,7 +414,7 @@
     }
   },
   {
-    "id": "7-zip",
+    "id": "mcmilk/7-zip-zstd",
     "name": "7-Zip-zstd",
     "chinese_name": "7-Zip 高压解压",
     "owner": "mcmilk",
@@ -439,7 +439,7 @@
     }
   },
   {
-    "id": "powertoys",
+    "id": "microsoft/powertoys",
     "name": "Microsoft PowerToys",
     "chinese_name": "微软 PowerToys 系统百宝箱",
     "owner": "microsoft",
@@ -463,7 +463,7 @@
     }
   },
   {
-    "id": "quicklook",
+    "id": "ql-win/quicklook",
     "name": "QuickLook",
     "chinese_name": "QuickLook 空格预览",
     "owner": "QL-Win",
@@ -485,7 +485,7 @@
     }
   },
   {
-    "id": "flow-launcher",
+    "id": "flow-launcher/flow.launcher",
     "name": "Flow Launcher",
     "chinese_name": "Flow 效率启动器",
     "owner": "Flow-Launcher",
@@ -508,7 +508,7 @@
     }
   },
   {
-    "id": "handbrake",
+    "id": "handbrake/handbrake",
     "name": "HandBrake",
     "chinese_name": "HandBrake 视频转码器",
     "owner": "HandBrake",
@@ -533,7 +533,7 @@
     }
   },
   {
-    "id": "bitwarden",
+    "id": "bitwarden/clients",
     "name": "Bitwarden Desktop",
     "chinese_name": "Bitwarden 官方客户端",
     "owner": "bitwarden",
@@ -560,7 +560,7 @@
     }
   },
   {
-    "id": "neovim",
+    "id": "neovim/neovim",
     "name": "Neovim",
     "chinese_name": "Neovim 极客编辑器",
     "owner": "neovim",
@@ -586,7 +586,7 @@
     }
   },
   {
-    "id": "alacritty",
+    "id": "alacritty/alacritty",
     "name": "Alacritty",
     "chinese_name": "Alacritty GPU 终端",
     "owner": "alacritty",
@@ -611,7 +611,7 @@
     }
   },
   {
-    "id": "wireshark",
+    "id": "wireshark/wireshark",
     "name": "Wireshark",
     "chinese_name": "Wireshark 抓包分析仪",
     "owner": "wireshark",
@@ -636,7 +636,7 @@
     }
   },
   {
-    "id": "hoppscotch",
+    "id": "hoppscotch/hoppscotch",
     "name": "Hoppscotch",
     "chinese_name": "Hoppscotch API 调试台",
     "owner": "hoppscotch",
@@ -661,7 +661,7 @@
     }
   },
   {
-    "id": "podman-desktop",
+    "id": "containers/podman-desktop",
     "name": "Podman Desktop",
     "chinese_name": "Podman 容器工作台",
     "owner": "containers",
@@ -686,7 +686,7 @@
     }
   },
   {
-    "id": "retroarch",
+    "id": "libretro/retroarch",
     "name": "RetroArch",
     "chinese_name": "RetroArch 复古模拟器",
     "owner": "libretro",
@@ -713,7 +713,7 @@
     }
   },
   {
-    "id": "openttd",
+    "id": "openttd/openttd",
     "name": "OpenTTD",
     "chinese_name": "运输大亨开源版",
     "owner": "OpenTTD",
@@ -739,7 +739,7 @@
     }
   },
   {
-    "id": "mindustry",
+    "id": "anuken/mindustry",
     "name": "Mindustry",
     "chinese_name": "Mindustry 像素工厂",
     "owner": "Anuken",
@@ -766,7 +766,7 @@
     }
   },
   {
-    "id": "qbittorrent",
+    "id": "qbittorrent/qbittorrent",
     "name": "qBittorrent",
     "chinese_name": "qBittorrent 种子下载器",
     "owner": "qbittorrent",
@@ -792,7 +792,7 @@
     }
   },
   {
-    "id": "motrix",
+    "id": "agalwood/motrix",
     "name": "Motrix",
     "chinese_name": "Motrix 全能下载器",
     "owner": "agalwood",
@@ -818,7 +818,7 @@
     }
   },
   {
-    "id": "picgo",
+    "id": "molunerfinn/picgo",
     "name": "PicGo",
     "chinese_name": "PicGo 图床上传工具",
     "owner": "Molunerfinn",
@@ -844,7 +844,7 @@
     }
   },
   {
-    "id": "playnite",
+    "id": "josefnemec/playnite",
     "name": "Playnite",
     "chinese_name": "Playnite 游戏整合库",
     "owner": "JosefNemec",
@@ -868,7 +868,7 @@
     }
   },
   {
-    "id": "wezterm",
+    "id": "wez/wezterm",
     "name": "WezTerm",
     "chinese_name": "WezTerm GPU 终端",
     "owner": "wez",
@@ -894,7 +894,7 @@
     }
   },
   {
-    "id": "telegram-desktop",
+    "id": "telegramdesktop/tdesktop",
     "name": "Telegram Desktop",
     "chinese_name": "Telegram 桌面端",
     "owner": "telegramdesktop",
@@ -920,7 +920,7 @@
     }
   },
   {
-    "id": "oh-my-posh",
+    "id": "jandedobbeleer/oh-my-posh",
     "name": "Oh My Posh",
     "chinese_name": "Oh My Posh 终端美化",
     "owner": "JanDeDobbeleer",
@@ -947,7 +947,7 @@
     }
   },
   {
-    "id": "winthumbspreloader",
+    "id": "bruhov/winthumbspreloader",
     "name": "WinThumbsPreloader",
     "chinese_name": "WinThumbsPreloader 缩略图预热",
     "owner": "Bruhov",
@@ -971,7 +971,7 @@
     }
   },
   {
-    "id": "ripgrep",
+    "id": "burntsushi/ripgrep",
     "name": "ripgrep",
     "chinese_name": "ripgrep 极速文本搜索",
     "owner": "BurntSushi",
@@ -997,7 +997,7 @@
     }
   },
   {
-    "id": "lapce",
+    "id": "lapce/lapce",
     "name": "Lapce",
     "chinese_name": "Lapce 极速编辑器",
     "owner": "lapce",
@@ -1024,7 +1024,7 @@
     }
   },
   {
-    "id": "vscode",
+    "id": "microsoft/vscode",
     "name": "VS Code",
     "chinese_name": "VS Code 代码编辑器",
     "owner": "microsoft",
@@ -1051,7 +1051,7 @@
     }
   },
   {
-    "id": "pulsar",
+    "id": "pulsar-edit/pulsar",
     "name": "Pulsar",
     "chinese_name": "Pulsar 社区编辑器",
     "owner": "pulsar-edit",
@@ -1078,7 +1078,7 @@
     }
   },
   {
-    "id": "lite-xl",
+    "id": "lite-xl/lite-xl",
     "name": "Lite XL",
     "chinese_name": "Lite XL 极简编辑器",
     "owner": "lite-xl",
@@ -1105,7 +1105,7 @@
     }
   },
   {
-    "id": "kitty",
+    "id": "kovidgoyal/kitty",
     "name": "kitty",
     "chinese_name": "kitty GPU 终端",
     "owner": "kovidgoyal",
@@ -1132,7 +1132,7 @@
     }
   },
   {
-    "id": "ghostty",
+    "id": "ghostty-org/ghostty",
     "name": "Ghostty",
     "chinese_name": "Ghostty 终端",
     "owner": "ghostty-org",
@@ -1159,7 +1159,7 @@
     }
   },
   {
-    "id": "tabby",
+    "id": "eugeny/tabby",
     "name": "Tabby",
     "chinese_name": "Tabby 现代终端",
     "owner": "Eugeny",
@@ -1186,7 +1186,7 @@
     }
   },
   {
-    "id": "hyper",
+    "id": "vercel/hyper",
     "name": "Hyper",
     "chinese_name": "Hyper 终端",
     "owner": "vercel",
@@ -1213,7 +1213,7 @@
     }
   },
   {
-    "id": "windterm",
+    "id": "kingtoolbox/windterm",
     "name": "WindTerm",
     "chinese_name": "WindTerm 专业终端",
     "owner": "kingToolbox",
@@ -1240,7 +1240,7 @@
     }
   },
   {
-    "id": "waveterm",
+    "id": "wavetermdev/waveterm",
     "name": "Wave Terminal",
     "chinese_name": "Wave 现代终端",
     "owner": "wavetermdev",
@@ -1267,7 +1267,7 @@
     }
   },
   {
-    "id": "rio",
+    "id": "raphamorim/rio",
     "name": "Rio",
     "chinese_name": "Rio GPU 终端",
     "owner": "raphamorim",
@@ -1294,7 +1294,7 @@
     }
   },
   {
-    "id": "windows-terminal",
+    "id": "microsoft/terminal",
     "name": "Windows Terminal",
     "chinese_name": "Windows Terminal 终端",
     "owner": "microsoft",
@@ -1321,7 +1321,7 @@
     }
   },
   {
-    "id": "github-desktop",
+    "id": "desktop/desktop",
     "name": "GitHub Desktop",
     "chinese_name": "GitHub Desktop 桌面版",
     "owner": "desktop",
@@ -1348,7 +1348,7 @@
     }
   },
   {
-    "id": "gittyup",
+    "id": "murmele/gittyup",
     "name": "Gittyup",
     "chinese_name": "Gittyup Git 客户端",
     "owner": "Murmele",
@@ -1375,7 +1375,7 @@
     }
   },
   {
-    "id": "gitextensions",
+    "id": "gitextensions/gitextensions",
     "name": "Git Extensions",
     "chinese_name": "Git Extensions Git 工具",
     "owner": "gitextensions",
@@ -1402,7 +1402,7 @@
     }
   },
   {
-    "id": "git-cola",
+    "id": "git-cola/git-cola",
     "name": "Git Cola",
     "chinese_name": "Git Cola 轻量 Git 客户端",
     "owner": "git-cola",
@@ -1429,7 +1429,7 @@
     }
   },
   {
-    "id": "gitup",
+    "id": "git-up/gitup",
     "name": "GitUp",
     "chinese_name": "GitUp 可视化 Git",
     "owner": "git-up",
@@ -1456,7 +1456,7 @@
     }
   },
   {
-    "id": "bruno",
+    "id": "usebruno/bruno",
     "name": "Bruno",
     "chinese_name": "Bruno 离线 API 客户端",
     "owner": "usebruno",
@@ -1483,7 +1483,7 @@
     }
   },
   {
-    "id": "insomnia",
+    "id": "kong/insomnia",
     "name": "Insomnia",
     "chinese_name": "Insomnia API 调试",
     "owner": "Kong",
@@ -1510,7 +1510,7 @@
     }
   },
   {
-    "id": "altair",
+    "id": "altair-graphql/altair",
     "name": "Altair",
     "chinese_name": "Altair GraphQL 客户端",
     "owner": "altair-graphql",
@@ -1537,7 +1537,7 @@
     }
   },
   {
-    "id": "mockoon",
+    "id": "mockoon/mockoon",
     "name": "Mockoon",
     "chinese_name": "Mockoon API 模拟",
     "owner": "mockoon",
@@ -1564,7 +1564,7 @@
     }
   },
   {
-    "id": "ghidra",
+    "id": "nationalsecurityagency/ghidra",
     "name": "Ghidra",
     "chinese_name": "Ghidra 逆向工程",
     "owner": "NationalSecurityAgency",
@@ -1591,7 +1591,7 @@
     }
   },
   {
-    "id": "cutter",
+    "id": "rizinorg/cutter",
     "name": "Cutter",
     "chinese_name": "Cutter 逆向分析",
     "owner": "rizinorg",
@@ -1618,7 +1618,7 @@
     }
   },
   {
-    "id": "imhex",
+    "id": "werwolv/imhex",
     "name": "ImHex",
     "chinese_name": "ImHex 十六进制编辑",
     "owner": "WerWolv",
@@ -1645,7 +1645,7 @@
     }
   },
   {
-    "id": "x64dbg",
+    "id": "x64dbg/x64dbg",
     "name": "x64dbg",
     "chinese_name": "x64dbg 调试器",
     "owner": "x64dbg",
@@ -1672,7 +1672,7 @@
     }
   },
   {
-    "id": "drawio",
+    "id": "jgraph/drawio-desktop",
     "name": "draw.io",
     "chinese_name": "draw.io 流程图绘制",
     "owner": "jgraph",
@@ -1699,7 +1699,7 @@
     }
   },
   {
-    "id": "devtoys",
+    "id": "devtoys-app/devtoys",
     "name": "DevToys",
     "chinese_name": "DevToys 开发者工具箱",
     "owner": "DevToys-app",
@@ -1726,7 +1726,7 @@
     }
   },
   {
-    "id": "winmerge",
+    "id": "winmerge/winmerge",
     "name": "WinMerge",
     "chinese_name": "WinMerge 文件对比",
     "owner": "WinMerge",
@@ -1753,7 +1753,7 @@
     }
   },
   {
-    "id": "notepad-next",
+    "id": "dail8859/notepadnext",
     "name": "Notepad Next",
     "chinese_name": "Notepad Next 记事本",
     "owner": "dail8859",
@@ -1780,7 +1780,7 @@
     }
   },
   {
-    "id": "notepad-plus-plus",
+    "id": "notepad-plus-plus/notepad-plus-plus",
     "name": "Notepad++",
     "chinese_name": "Notepad++ 经典编辑器",
     "owner": "notepad-plus-plus",
@@ -1807,7 +1807,7 @@
     }
   },
   {
-    "id": "scrcpy",
+    "id": "genymobile/scrcpy",
     "name": "scrcpy",
     "chinese_name": "scrcpy 安卓投屏",
     "owner": "Genymobile",
@@ -1834,7 +1834,7 @@
     }
   },
   {
-    "id": "neovide",
+    "id": "neovide/neovide",
     "name": "Neovide",
     "chinese_name": "Neovide 图形化 Neovim",
     "owner": "neovide",
@@ -1861,7 +1861,7 @@
     }
   },
   {
-    "id": "geany",
+    "id": "geany/geany",
     "name": "Geany",
     "chinese_name": "Geany 轻量 IDE",
     "owner": "geany",
@@ -1888,7 +1888,7 @@
     }
   },
   {
-    "id": "qt-creator",
+    "id": "qt-creator/qt-creator",
     "name": "Qt Creator",
     "chinese_name": "Qt Creator 官方 IDE",
     "owner": "qt-creator",
@@ -1915,7 +1915,7 @@
     }
   },
   {
-    "id": "zeal",
+    "id": "zealdocs/zeal",
     "name": "Zeal",
     "chinese_name": "Zeal 离线文档",
     "owner": "zealdocs",
@@ -1942,7 +1942,7 @@
     }
   },
   {
-    "id": "pcsx2",
+    "id": "pcsx2/pcsx2",
     "name": "PCSX2",
     "chinese_name": "PCSX2 PS2 模拟器",
     "owner": "PCSX2",
@@ -1969,7 +1969,7 @@
     }
   },
   {
-    "id": "duckstation",
+    "id": "stenzek/duckstation",
     "name": "DuckStation",
     "chinese_name": "DuckStation PS1 模拟器",
     "owner": "stenzek",
@@ -1996,7 +1996,7 @@
     }
   },
   {
-    "id": "melonds",
+    "id": "melonds-emu/melonds",
     "name": "melonDS",
     "chinese_name": "melonDS NDS 模拟器",
     "owner": "melonDS-emu",
@@ -2023,7 +2023,7 @@
     }
   },
   {
-    "id": "mgba",
+    "id": "mgba-emu/mgba",
     "name": "mGBA",
     "chinese_name": "mGBA GBA 模拟器",
     "owner": "mgba-emu",
@@ -2050,7 +2050,7 @@
     }
   },
   {
-    "id": "ppsspp",
+    "id": "hrydgard/ppsspp",
     "name": "PPSSPP",
     "chinese_name": "PPSSPP PSP 模拟器",
     "owner": "hrydgard",
@@ -2077,7 +2077,7 @@
     }
   },
   {
-    "id": "xemu",
+    "id": "xemu-project/xemu",
     "name": "xemu",
     "chinese_name": "xemu Xbox 模拟器",
     "owner": "xemu-project",
@@ -2104,7 +2104,7 @@
     }
   },
   {
-    "id": "vita3k",
+    "id": "vita3k/vita3k",
     "name": "Vita3K",
     "chinese_name": "Vita3K PSV 模拟器",
     "owner": "Vita3K",
@@ -2131,7 +2131,7 @@
     }
   },
   {
-    "id": "azahar",
+    "id": "azahar-emu/azahar",
     "name": "Azahar",
     "chinese_name": "Azahar 3DS 模拟器",
     "owner": "azahar-emu",
@@ -2158,7 +2158,7 @@
     }
   },
   {
-    "id": "ares",
+    "id": "ares-emulator/ares",
     "name": "ares",
     "chinese_name": "ares 多系统模拟器",
     "owner": "ares-emulator",
@@ -2185,7 +2185,7 @@
     }
   },
   {
-    "id": "flycast",
+    "id": "flyinghead/flycast",
     "name": "Flycast",
     "chinese_name": "Flycast DC 模拟器",
     "owner": "flyinghead",
@@ -2212,7 +2212,7 @@
     }
   },
   {
-    "id": "heroic",
+    "id": "heroic-games-launcher/heroicgameslauncher",
     "name": "Heroic Games Launcher",
     "chinese_name": "Heroic 游戏启动器",
     "owner": "Heroic-Games-Launcher",
@@ -2239,7 +2239,7 @@
     }
   },
   {
-    "id": "lutris",
+    "id": "lutris/lutris",
     "name": "Lutris",
     "chinese_name": "Lutris 开源游戏平台",
     "owner": "lutris",
@@ -2266,7 +2266,7 @@
     }
   },
   {
-    "id": "minigalaxy",
+    "id": "sharkwouter/minigalaxy",
     "name": "MiniGalaxy",
     "chinese_name": "MiniGalaxy GOG 客户端",
     "owner": "sharkwouter",
@@ -2293,7 +2293,7 @@
     }
   },
   {
-    "id": "protonup-qt",
+    "id": "davidotek/protonup-qt",
     "name": "ProtonUp-Qt",
     "chinese_name": "ProtonUp-Qt Steam 工具",
     "owner": "DavidoTek",
@@ -2320,7 +2320,7 @@
     }
   },
   {
-    "id": "pegasus",
+    "id": "mmatyas/pegasus-frontend",
     "name": "Pegasus",
     "chinese_name": "Pegasus 游戏前端",
     "owner": "mmatyas",
@@ -2347,7 +2347,7 @@
     }
   },
   {
-    "id": "itch",
+    "id": "itchio/itch",
     "name": "itch",
     "chinese_name": "itch 游戏平台",
     "owner": "itchio",
@@ -2374,7 +2374,7 @@
     }
   },
   {
-    "id": "antimicrox",
+    "id": "antimicrox/antimicrox",
     "name": "AntiMicroX",
     "chinese_name": "AntiMicroX 手柄映射",
     "owner": "AntiMicroX",
@@ -2401,7 +2401,7 @@
     }
   },
   {
-    "id": "opentabletdriver",
+    "id": "opentabletdriver/opentabletdriver",
     "name": "OpenTabletDriver",
     "chinese_name": "数位板驱动",
     "owner": "OpenTabletDriver",
@@ -2428,7 +2428,7 @@
     }
   },
   {
-    "id": "mod-organizer-2",
+    "id": "modorganizer2/modorganizer",
     "name": "Mod Organizer 2",
     "chinese_name": "Mod Organizer 2 模组管理",
     "owner": "ModOrganizer2",
@@ -2455,7 +2455,7 @@
     }
   },
   {
-    "id": "unciv",
+    "id": "yairm210/unciv",
     "name": "Unciv",
     "chinese_name": "Unciv 开源文明",
     "owner": "yairm210",
@@ -2482,7 +2482,7 @@
     }
   },
   {
-    "id": "shattered-pixel-dungeon",
+    "id": "00-evan/shattered-pixel-dungeon",
     "name": "Shattered Pixel Dungeon",
     "chinese_name": "破碎的像素地牢",
     "owner": "00-Evan",
@@ -2509,7 +2509,7 @@
     }
   },
   {
-    "id": "luanti",
+    "id": "luanti-org/luanti",
     "name": "Luanti",
     "chinese_name": "Luanti 体素沙盒",
     "owner": "luanti-org",
@@ -2536,7 +2536,7 @@
     }
   },
   {
-    "id": "openra",
+    "id": "openra/openra",
     "name": "OpenRA",
     "chinese_name": "OpenRA 红警重制",
     "owner": "OpenRA",
@@ -2563,7 +2563,7 @@
     }
   },
   {
-    "id": "supertuxkart",
+    "id": "supertuxkart/stk-code",
     "name": "SuperTuxKart",
     "chinese_name": "SuperTuxKart 卡丁车",
     "owner": "supertuxkart",
@@ -2590,7 +2590,7 @@
     }
   },
   {
-    "id": "supertux",
+    "id": "supertux/supertux",
     "name": "SuperTux",
     "chinese_name": "SuperTux 横版跳跃",
     "owner": "SuperTux",
@@ -2617,7 +2617,7 @@
     }
   },
   {
-    "id": "widelands",
+    "id": "widelands/widelands",
     "name": "Widelands",
     "chinese_name": "Widelands 殖民建设",
     "owner": "widelands",
@@ -2644,7 +2644,7 @@
     }
   },
   {
-    "id": "warzone2100",
+    "id": "warzone2100/warzone2100",
     "name": "Warzone 2100",
     "chinese_name": "Warzone 2100 即时战略",
     "owner": "Warzone2100",
@@ -2671,7 +2671,7 @@
     }
   },
   {
-    "id": "endless-sky",
+    "id": "endless-sky/endless-sky",
     "name": "Endless Sky",
     "chinese_name": "Endless Sky 星际冒险",
     "owner": "endless-sky",
@@ -2698,7 +2698,7 @@
     }
   },
   {
-    "id": "pioneer",
+    "id": "pioneerspacesim/pioneer",
     "name": "Pioneer",
     "chinese_name": "Pioneer 太空模拟",
     "owner": "pioneerspacesim",
@@ -2725,7 +2725,7 @@
     }
   },
   {
-    "id": "cataclysm-dda",
+    "id": "cleverraven/cataclysm-dda",
     "name": "Cataclysm DDA",
     "chinese_name": "大灾变 黑暗之日",
     "owner": "CleverRaven",
@@ -2752,7 +2752,7 @@
     }
   },
   {
-    "id": "cockatrice",
+    "id": "cockatrice/cockatrice",
     "name": "Cockatrice",
     "chinese_name": "Cockatrice 卡牌对战",
     "owner": "Cockatrice",
@@ -2779,7 +2779,7 @@
     }
   },
   {
-    "id": "forge",
+    "id": "card-forge/forge",
     "name": "Forge",
     "chinese_name": "Forge 万智牌",
     "owner": "Card-Forge",
@@ -2806,7 +2806,7 @@
     }
   },
   {
-    "id": "simutrans",
+    "id": "simutrans/simutrans",
     "name": "Simutrans",
     "chinese_name": "Simutrans 交通模拟",
     "owner": "simutrans",
@@ -2833,7 +2833,7 @@
     }
   },
   {
-    "id": "julius",
+    "id": "bvschaik/julius",
     "name": "Julius",
     "chinese_name": "Julius 罗马复刻",
     "owner": "bvschaik",
@@ -2860,7 +2860,7 @@
     }
   },
   {
-    "id": "openmw",
+    "id": "openmw/openmw",
     "name": "OpenMW",
     "chinese_name": "OpenMW 复刻引擎",
     "owner": "OpenMW",
@@ -2887,7 +2887,7 @@
     }
   },
   {
-    "id": "openrct2",
+    "id": "openrct2/openrct2",
     "name": "OpenRCT2",
     "chinese_name": "OpenRCT2 过山车大亨",
     "owner": "OpenRCT2",
@@ -2914,7 +2914,7 @@
     }
   },
   {
-    "id": "veloren",
+    "id": "veloren/veloren",
     "name": "Veloren",
     "chinese_name": "Veloren 多人沙盒",
     "owner": "veloren",
@@ -2941,7 +2941,7 @@
     }
   },
   {
-    "id": "maptool",
+    "id": "rptools/maptool",
     "name": "MapTool",
     "chinese_name": "MapTool 线上跑团",
     "owner": "RPTools",
@@ -2968,7 +2968,7 @@
     }
   },
   {
-    "id": "vassal",
+    "id": "vassalengine/vassal",
     "name": "VASSAL",
     "chinese_name": "VASSAL 桌游模拟",
     "owner": "vassalengine",
@@ -2995,7 +2995,7 @@
     }
   },
   {
-    "id": "openhv",
+    "id": "openhv/openhv",
     "name": "OpenHV",
     "chinese_name": "OpenHV 即时战略",
     "owner": "OpenHV",
@@ -3022,7 +3022,7 @@
     }
   },
   {
-    "id": "stuntrally",
+    "id": "stuntrally/stuntrally",
     "name": "Stunt Rally",
     "chinese_name": "Stunt Rally 特技赛车",
     "owner": "stuntrally",
@@ -3049,7 +3049,7 @@
     }
   },
   {
-    "id": "devilutionx",
+    "id": "diasurgical/devilutionx",
     "name": "DevilutionX",
     "chinese_name": "DevilutionX 暗黑复刻",
     "owner": "diasurgical",
@@ -3076,7 +3076,7 @@
     }
   },
   {
-    "id": "vcmi",
+    "id": "vcmi/vcmi",
     "name": "VCMI",
     "chinese_name": "VCMI 英雄无敌3引擎",
     "owner": "vcmi",
@@ -3103,7 +3103,7 @@
     }
   },
   {
-    "id": "openloco",
+    "id": "openloco/openloco",
     "name": "OpenLoco",
     "chinese_name": "OpenLoco 运输大亨",
     "owner": "OpenLoco",
@@ -3130,7 +3130,7 @@
     }
   },
   {
-    "id": "arx-libertatis",
+    "id": "arx/arxlibertatis",
     "name": "Arx Libertatis",
     "chinese_name": "Arx Libertatis 复刻",
     "owner": "arx",
@@ -3157,7 +3157,7 @@
     }
   },
   {
-    "id": "gemrb",
+    "id": "gemrb/gemrb",
     "name": "GemRB",
     "chinese_name": "GemRB 无冬引擎",
     "owner": "gemrb",
@@ -3184,7 +3184,7 @@
     }
   },
   {
-    "id": "gimp",
+    "id": "gnome/gimp",
     "name": "GIMP",
     "chinese_name": "GIMP 图像编辑器",
     "owner": "GNOME",
@@ -3211,7 +3211,7 @@
     }
   },
   {
-    "id": "krita",
+    "id": "kde/krita",
     "name": "Krita",
     "chinese_name": "Krita 数字绘画",
     "owner": "KDE",
@@ -3238,7 +3238,7 @@
     }
   },
   {
-    "id": "freecad",
+    "id": "freecad/freecad",
     "name": "FreeCAD",
     "chinese_name": "FreeCAD 三维建模",
     "owner": "FreeCAD",
@@ -3265,7 +3265,7 @@
     }
   },
   {
-    "id": "openscad",
+    "id": "openscad/openscad",
     "name": "OpenSCAD",
     "chinese_name": "OpenSCAD 代码建模",
     "owner": "openscad",
@@ -3292,7 +3292,7 @@
     }
   },
   {
-    "id": "darktable",
+    "id": "darktable-org/darktable",
     "name": "darktable",
     "chinese_name": "darktable 摄影后期",
     "owner": "darktable-org",
@@ -3319,7 +3319,7 @@
     }
   },
   {
-    "id": "rawtherapee",
+    "id": "rawtherapee/rawtherapee",
     "name": "RawTherapee",
     "chinese_name": "RawTherapee RAW 处理",
     "owner": "RawTherapee",
@@ -3346,7 +3346,7 @@
     }
   },
   {
-    "id": "nomacs",
+    "id": "nomacs/nomacs",
     "name": "nomacs",
     "chinese_name": "nomacs 图片查看器",
     "owner": "nomacs",
@@ -3373,7 +3373,7 @@
     }
   },
   {
-    "id": "imageglass",
+    "id": "d2phap/imageglass",
     "name": "ImageGlass",
     "chinese_name": "ImageGlass 看图工具",
     "owner": "d2phap",
@@ -3400,7 +3400,7 @@
     }
   },
   {
-    "id": "jpegview",
+    "id": "sylikc/jpegview",
     "name": "JPEGView",
     "chinese_name": "JPEGView 极速看图",
     "owner": "sylikc",
@@ -3427,7 +3427,7 @@
     }
   },
   {
-    "id": "qview",
+    "id": "jurplel/qview",
     "name": "qView",
     "chinese_name": "qView 极简看图",
     "owner": "jurplel",
@@ -3454,7 +3454,7 @@
     }
   },
   {
-    "id": "pinta",
+    "id": "pintaproject/pinta",
     "name": "Pinta",
     "chinese_name": "Pinta 简易图像编辑",
     "owner": "PintaProject",
@@ -3481,7 +3481,7 @@
     }
   },
   {
-    "id": "pixelorama",
+    "id": "orama-interactive/pixelorama",
     "name": "Pixelorama",
     "chinese_name": "Pixelorama 像素画",
     "owner": "Orama-Interactive",
@@ -3508,7 +3508,7 @@
     }
   },
   {
-    "id": "libresprite",
+    "id": "libresprite/libresprite",
     "name": "LibreSprite",
     "chinese_name": "LibreSprite 像素动画",
     "owner": "LibreSprite",
@@ -3535,7 +3535,7 @@
     }
   },
   {
-    "id": "opentoonz",
+    "id": "opentoonz/opentoonz",
     "name": "OpenToonz",
     "chinese_name": "OpenToonz 二维动画",
     "owner": "opentoonz",
@@ -3562,7 +3562,7 @@
     }
   },
   {
-    "id": "synfig",
+    "id": "synfig/synfig",
     "name": "Synfig Studio",
     "chinese_name": "Synfig 矢量动画",
     "owner": "synfig",
@@ -3589,7 +3589,7 @@
     }
   },
   {
-    "id": "pencil2d",
+    "id": "pencil2d/pencil",
     "name": "Pencil2D",
     "chinese_name": "Pencil2D 手绘动画",
     "owner": "pencil2d",
@@ -3616,7 +3616,7 @@
     }
   },
   {
-    "id": "bforartists",
+    "id": "bforartists/bforartists",
     "name": "Bforartists",
     "chinese_name": "Bforartists 三维创作",
     "owner": "Bforartists",
@@ -3643,7 +3643,7 @@
     }
   },
   {
-    "id": "meshlab",
+    "id": "cnr-isti-vclab/meshlab",
     "name": "MeshLab",
     "chinese_name": "MeshLab 网格处理",
     "owner": "cnr-isti-vclab",
@@ -3670,7 +3670,7 @@
     }
   },
   {
-    "id": "librecad",
+    "id": "librecad/librecad",
     "name": "LibreCAD",
     "chinese_name": "LibreCAD 二维制图",
     "owner": "LibreCAD",
@@ -3697,7 +3697,7 @@
     }
   },
   {
-    "id": "ksnip",
+    "id": "ksnip/ksnip",
     "name": "Ksnip",
     "chinese_name": "Ksnip 截图标注",
     "owner": "ksnip",
@@ -3724,7 +3724,7 @@
     }
   },
   {
-    "id": "fontforge",
+    "id": "fontforge/fontforge",
     "name": "FontForge",
     "chinese_name": "FontForge 字体编辑",
     "owner": "fontforge",
@@ -3751,7 +3751,7 @@
     }
   },
   {
-    "id": "converseen",
+    "id": "faster3ck/converseen",
     "name": "Converseen",
     "chinese_name": "Converseen 批量转换",
     "owner": "Faster3ck",
@@ -3778,7 +3778,7 @@
     }
   },
   {
-    "id": "upscayl",
+    "id": "upscayl/upscayl",
     "name": "Upscayl",
     "chinese_name": "Upscayl AI 图片放大",
     "owner": "upscayl",
@@ -3805,7 +3805,7 @@
     }
   },
   {
-    "id": "photoflare",
+    "id": "photoflare/photoflare",
     "name": "PhotoFlare",
     "chinese_name": "PhotoFlare 图片编辑",
     "owner": "PhotoFlare",
@@ -3832,7 +3832,7 @@
     }
   },
   {
-    "id": "kicad",
+    "id": "kicad/kicad-source-mirror",
     "name": "KiCad",
     "chinese_name": "KiCad 电路设计",
     "owner": "KiCad",
@@ -3859,7 +3859,7 @@
     }
   },
   {
-    "id": "fritzing",
+    "id": "fritzing/fritzing-app",
     "name": "Fritzing",
     "chinese_name": "Fritzing 电路原型",
     "owner": "fritzing",
@@ -3886,7 +3886,7 @@
     }
   },
   {
-    "id": "mpv-net",
+    "id": "mpvnet-player/mpv.net",
     "name": "mpv.net",
     "chinese_name": "mpv.net Windows 播放器",
     "owner": "mpvnet-player",
@@ -3913,7 +3913,7 @@
     }
   },
   {
-    "id": "mpc-hc",
+    "id": "clsid2/mpc-hc",
     "name": "MPC-HC",
     "chinese_name": "MPC-HC 经典播放器",
     "owner": "clsid2",
@@ -3940,7 +3940,7 @@
     }
   },
   {
-    "id": "mpc-be",
+    "id": "aleksoid1978/mpc-be",
     "name": "MPC-BE",
     "chinese_name": "MPC-BE 增强播放器",
     "owner": "Aleksoid1978",
@@ -3967,7 +3967,7 @@
     }
   },
   {
-    "id": "iina",
+    "id": "iina/iina",
     "name": "IINA",
     "chinese_name": "IINA macOS 播放器",
     "owner": "iina",
@@ -3994,7 +3994,7 @@
     }
   },
   {
-    "id": "smplayer",
+    "id": "smplayer-dev/smplayer",
     "name": "SMPlayer",
     "chinese_name": "SMPlayer 记忆播放器",
     "owner": "smplayer-dev",
@@ -4021,7 +4021,7 @@
     }
   },
   {
-    "id": "jellyfin-media-player",
+    "id": "jellyfin/jellyfin-desktop",
     "name": "Jellyfin Media Player",
     "chinese_name": "Jellyfin 桌面客户端",
     "owner": "jellyfin",
@@ -4048,7 +4048,7 @@
     }
   },
   {
-    "id": "strawberry",
+    "id": "strawberrymusicplayer/strawberry",
     "name": "Strawberry",
     "chinese_name": "Strawberry 音乐播放器",
     "owner": "strawberrymusicplayer",
@@ -4075,7 +4075,7 @@
     }
   },
   {
-    "id": "nuclear",
+    "id": "nukeop/nuclear",
     "name": "Nuclear",
     "chinese_name": "Nuclear 流媒体播放器",
     "owner": "nukeop",
@@ -4102,7 +4102,7 @@
     }
   },
   {
-    "id": "feishin",
+    "id": "jeffvli/feishin",
     "name": "Feishin",
     "chinese_name": "Feishin 音乐客户端",
     "owner": "jeffvli",
@@ -4129,7 +4129,7 @@
     }
   },
   {
-    "id": "museeks",
+    "id": "martpie/museeks",
     "name": "Museeks",
     "chinese_name": "Museeks 音乐播放器",
     "owner": "martpie",
@@ -4156,7 +4156,7 @@
     }
   },
   {
-    "id": "quodlibet",
+    "id": "quodlibet/quodlibet",
     "name": "Quod Libet",
     "chinese_name": "Quod Libet 音乐库管理",
     "owner": "quodlibet",
@@ -4183,7 +4183,7 @@
     }
   },
   {
-    "id": "spotube",
+    "id": "krtirtho/spotube",
     "name": "Spotube",
     "chinese_name": "Spotube Spotify 客户端",
     "owner": "KRTirtho",
@@ -4210,7 +4210,7 @@
     }
   },
   {
-    "id": "supersonic",
+    "id": "supersonic-app/supersonic",
     "name": "Supersonic",
     "chinese_name": "Supersonic 音乐客户端",
     "owner": "supersonic-app",
@@ -4237,7 +4237,7 @@
     }
   },
   {
-    "id": "audacity",
+    "id": "audacity/audacity",
     "name": "Audacity",
     "chinese_name": "Audacity 音频编辑器",
     "owner": "audacity",
@@ -4264,7 +4264,7 @@
     }
   },
   {
-    "id": "mixxx",
+    "id": "mixxxdj/mixxx",
     "name": "Mixxx",
     "chinese_name": "Mixxx DJ 打碟",
     "owner": "mixxxdj",
@@ -4291,7 +4291,7 @@
     }
   },
   {
-    "id": "lmms",
+    "id": "lmms/lmms",
     "name": "LMMS",
     "chinese_name": "LMMS 音乐制作",
     "owner": "LMMS",
@@ -4318,7 +4318,7 @@
     }
   },
   {
-    "id": "zrythm",
+    "id": "zrythm/zrythm",
     "name": "Zrythm",
     "chinese_name": "Zrythm 数字音频工作站",
     "owner": "zrythm",
@@ -4345,7 +4345,7 @@
     }
   },
   {
-    "id": "bespoke",
+    "id": "bespokesynth/bespokesynth",
     "name": "Bespoke",
     "chinese_name": "Bespoke 模块化音乐环境",
     "owner": "BespokeSynth",
@@ -4372,7 +4372,7 @@
     }
   },
   {
-    "id": "kdenlive",
+    "id": "kde/kdenlive",
     "name": "Kdenlive",
     "chinese_name": "Kdenlive 视频剪辑",
     "owner": "KDE",
@@ -4399,7 +4399,7 @@
     }
   },
   {
-    "id": "shotcut",
+    "id": "mltframework/shotcut",
     "name": "Shotcut",
     "chinese_name": "Shotcut 视频剪辑",
     "owner": "mltframework",
@@ -4426,7 +4426,7 @@
     }
   },
   {
-    "id": "openshot",
+    "id": "openshot/openshot-qt",
     "name": "OpenShot",
     "chinese_name": "OpenShot 视频剪辑",
     "owner": "OpenShot",
@@ -4453,7 +4453,7 @@
     }
   },
   {
-    "id": "lossless-cut",
+    "id": "mifi/lossless-cut",
     "name": "LosslessCut",
     "chinese_name": "LosslessCut 无损剪辑",
     "owner": "mifi",
@@ -4480,7 +4480,7 @@
     }
   },
   {
-    "id": "staxrip",
+    "id": "staxrip/staxrip",
     "name": "StaxRip",
     "chinese_name": "StaxRip 视频转码",
     "owner": "staxrip",
@@ -4507,7 +4507,7 @@
     }
   },
   {
-    "id": "video2x",
+    "id": "k4yt3x/video2x",
     "name": "Video2X",
     "chinese_name": "Video2X 视频超分",
     "owner": "k4yt3x",
@@ -4534,7 +4534,7 @@
     }
   },
   {
-    "id": "screentogif",
+    "id": "nickemanarin/screentogif",
     "name": "ScreenToGif",
     "chinese_name": "ScreenToGif 录制 GIF",
     "owner": "NickeManarin",
@@ -4561,7 +4561,7 @@
     }
   },
   {
-    "id": "kap",
+    "id": "wulkano/kap",
     "name": "Kap",
     "chinese_name": "Kap macOS 录屏",
     "owner": "wulkano",
@@ -4588,7 +4588,7 @@
     }
   },
   {
-    "id": "subtitle-edit",
+    "id": "subtitleedit/subtitleedit",
     "name": "Subtitle Edit",
     "chinese_name": "Subtitle Edit 字幕编辑",
     "owner": "SubtitleEdit",
@@ -4615,7 +4615,7 @@
     }
   },
   {
-    "id": "kid3",
+    "id": "kde/kid3",
     "name": "Kid3",
     "chinese_name": "Kid3 音频标签编辑",
     "owner": "KDE",
@@ -4642,7 +4642,7 @@
     }
   },
   {
-    "id": "picard",
+    "id": "metabrainz/picard",
     "name": "MusicBrainz Picard",
     "chinese_name": "Picard 音乐标签工具",
     "owner": "metabrainz",
@@ -4669,7 +4669,7 @@
     }
   },
   {
-    "id": "vidcoder",
+    "id": "randomengy/vidcoder",
     "name": "VidCoder",
     "chinese_name": "VidCoder 视频转码",
     "owner": "RandomEngy",
@@ -4696,7 +4696,7 @@
     }
   },
   {
-    "id": "parabolic",
+    "id": "nickvisionapps/parabolic",
     "name": "Parabolic",
     "chinese_name": "Parabolic 视频下载",
     "owner": "NickvisionApps",
@@ -4723,7 +4723,7 @@
     }
   },
   {
-    "id": "freac",
+    "id": "enzo1982/freac",
     "name": "fre:ac",
     "chinese_name": "fre:ac 音频转换",
     "owner": "enzo1982",
@@ -4750,7 +4750,7 @@
     }
   },
   {
-    "id": "soundswitch",
+    "id": "belphemur/soundswitch",
     "name": "SoundSwitch",
     "chinese_name": "SoundSwitch 音频切换",
     "owner": "Belphemur",
@@ -4777,7 +4777,7 @@
     }
   },
   {
-    "id": "freetube",
+    "id": "freetubeapp/freetube",
     "name": "FreeTube",
     "chinese_name": "FreeTube 隐私视频客户端",
     "owner": "FreeTubeApp",
@@ -4804,7 +4804,7 @@
     }
   },
   {
-    "id": "qutebrowser",
+    "id": "qutebrowser/qutebrowser",
     "name": "qutebrowser",
     "chinese_name": "qutebrowser 键盘流浏览器",
     "owner": "qutebrowser",
@@ -4831,7 +4831,7 @@
     }
   },
   {
-    "id": "min",
+    "id": "minbrowser/min",
     "name": "Min",
     "chinese_name": "Min 极简浏览器",
     "owner": "minbrowser",
@@ -4858,7 +4858,7 @@
     }
   },
   {
-    "id": "nyxt",
+    "id": "atlas-engineer/nyxt",
     "name": "Nyxt",
     "chinese_name": "Nyxt 可编程浏览器",
     "owner": "atlas-engineer",
@@ -4885,7 +4885,7 @@
     }
   },
   {
-    "id": "floorp",
+    "id": "floorp-projects/floorp",
     "name": "Floorp",
     "chinese_name": "Floorp 分屏浏览器",
     "owner": "Floorp-Projects",
@@ -4912,7 +4912,7 @@
     }
   },
   {
-    "id": "zen-browser",
+    "id": "zen-browser/desktop",
     "name": "Zen Browser",
     "chinese_name": "Zen Browser 极简浏览器",
     "owner": "zen-browser",
@@ -4939,7 +4939,7 @@
     }
   },
   {
-    "id": "thorium",
+    "id": "alex313031/thorium",
     "name": "Thorium",
     "chinese_name": "Thorium 高性能浏览器",
     "owner": "Alex313031",
@@ -4966,7 +4966,7 @@
     }
   },
   {
-    "id": "brave",
+    "id": "brave/brave-browser",
     "name": "Brave",
     "chinese_name": "Brave 隐私浏览器",
     "owner": "brave",
@@ -4993,7 +4993,7 @@
     }
   },
   {
-    "id": "mailspring",
+    "id": "foundry376/mailspring",
     "name": "Mailspring",
     "chinese_name": "Mailspring 邮件客户端",
     "owner": "Foundry376",
@@ -5020,7 +5020,7 @@
     }
   },
   {
-    "id": "session",
+    "id": "session-foundation/session-desktop",
     "name": "Session",
     "chinese_name": "Session 匿名加密聊天",
     "owner": "session-foundation",
@@ -5047,7 +5047,7 @@
     }
   },
   {
-    "id": "nheko",
+    "id": "nheko-reborn/nheko",
     "name": "Nheko",
     "chinese_name": "Nheko Matrix 客户端",
     "owner": "Nheko-Reborn",
@@ -5074,7 +5074,7 @@
     }
   },
   {
-    "id": "cinny",
+    "id": "cinnyapp/cinny-desktop",
     "name": "Cinny",
     "chinese_name": "Cinny Matrix 客户端",
     "owner": "cinnyapp",
@@ -5101,7 +5101,7 @@
     }
   },
   {
-    "id": "deltachat",
+    "id": "deltachat/deltachat-desktop",
     "name": "Delta Chat",
     "chinese_name": "Delta Chat 邮件聊天",
     "owner": "deltachat",
@@ -5128,7 +5128,7 @@
     }
   },
   {
-    "id": "jitsi-meet",
+    "id": "jitsi/jitsi-meet-electron",
     "name": "Jitsi Meet",
     "chinese_name": "Jitsi Meet 视频会议",
     "owner": "jitsi",
@@ -5155,7 +5155,7 @@
     }
   },
   {
-    "id": "mremoteng",
+    "id": "mremoteng/mremoteng",
     "name": "mRemoteNG",
     "chinese_name": "mRemoteNG 远程管理",
     "owner": "mRemoteNG",
@@ -5182,7 +5182,7 @@
     }
   },
   {
-    "id": "deskflow",
+    "id": "deskflow/deskflow",
     "name": "Deskflow",
     "chinese_name": "Deskflow 跨机键鼠",
     "owner": "deskflow",
@@ -5209,7 +5209,7 @@
     }
   },
   {
-    "id": "angry-ip-scanner",
+    "id": "angryip/ipscan",
     "name": "Angry IP Scanner",
     "chinese_name": "Angry IP 网段扫描",
     "owner": "angryip",
@@ -5236,7 +5236,7 @@
     }
   },
   {
-    "id": "sniffnet",
+    "id": "gyulyvgc/sniffnet",
     "name": "Sniffnet",
     "chinese_name": "Sniffnet 流量监控",
     "owner": "GyulyVGC",
@@ -5263,7 +5263,7 @@
     }
   },
   {
-    "id": "switchhosts",
+    "id": "oldj/switchhosts",
     "name": "SwitchHosts",
     "chinese_name": "SwitchHosts hosts 管理",
     "owner": "oldj",
@@ -5290,7 +5290,7 @@
     }
   },
   {
-    "id": "netbird",
+    "id": "netbirdio/netbird",
     "name": "NetBird",
     "chinese_name": "NetBird 组网 VPN",
     "owner": "netbirdio",
@@ -5317,7 +5317,7 @@
     }
   },
   {
-    "id": "v2rayn",
+    "id": "2dust/v2rayn",
     "name": "v2rayN",
     "chinese_name": "v2rayN 代理客户端",
     "owner": "2dust",
@@ -5344,7 +5344,7 @@
     }
   },
   {
-    "id": "flclash",
+    "id": "chen08209/flclash",
     "name": "FlClash",
     "chinese_name": "FlClash 多平台代理",
     "owner": "chen08209",
@@ -5371,7 +5371,7 @@
     }
   },
   {
-    "id": "hiddify",
+    "id": "hiddify/hiddify-app",
     "name": "Hiddify",
     "chinese_name": "Hiddify 一站式代理",
     "owner": "hiddify",
@@ -5398,7 +5398,7 @@
     }
   },
   {
-    "id": "clash-nyanpasu",
+    "id": "libnyanpasu/clash-nyanpasu",
     "name": "Clash Nyanpasu",
     "chinese_name": "Clash Nyanpasu 代理",
     "owner": "libnyanpasu",
@@ -5425,7 +5425,7 @@
     }
   },
   {
-    "id": "persepolis",
+    "id": "persepolisdm/persepolis",
     "name": "Persepolis",
     "chinese_name": "Persepolis 下载管理器",
     "owner": "persepolisdm",
@@ -5452,7 +5452,7 @@
     }
   },
   {
-    "id": "varia",
+    "id": "giantpinkrobots/varia",
     "name": "Varia",
     "chinese_name": "Varia 下载管理器",
     "owner": "giantpinkrobots",
@@ -5479,7 +5479,7 @@
     }
   },
   {
-    "id": "landrop",
+    "id": "landrop/landrop",
     "name": "LANDrop",
     "chinese_name": "LANDrop 局域网快传",
     "owner": "LANDrop",
@@ -5506,7 +5506,7 @@
     }
   },
   {
-    "id": "moonlight",
+    "id": "moonlight-stream/moonlight-qt",
     "name": "Moonlight",
     "chinese_name": "Moonlight 游戏串流",
     "owner": "moonlight-stream",
@@ -5533,7 +5533,7 @@
     }
   },
   {
-    "id": "sunshine",
+    "id": "lizardbyte/sunshine",
     "name": "Sunshine",
     "chinese_name": "Sunshine 串流服务端",
     "owner": "LizardByte",
@@ -5560,7 +5560,7 @@
     }
   },
   {
-    "id": "tunnelblick",
+    "id": "tunnelblick/tunnelblick",
     "name": "Tunnelblick",
     "chinese_name": "Tunnelblick OpenVPN 客户端",
     "owner": "Tunnelblick",
@@ -5587,7 +5587,7 @@
     }
   },
   {
-    "id": "netch",
+    "id": "netchx/netch",
     "name": "Netch",
     "chinese_name": "Netch 游戏加速代理",
     "owner": "netchx",
@@ -5614,7 +5614,7 @@
     }
   },
   {
-    "id": "zulip",
+    "id": "zulip/zulip-desktop",
     "name": "Zulip",
     "chinese_name": "Zulip 团队聊天",
     "owner": "zulip",
@@ -5641,7 +5641,7 @@
     }
   },
   {
-    "id": "mumble",
+    "id": "mumble-voip/mumble",
     "name": "Mumble",
     "chinese_name": "Mumble 语音聊天",
     "owner": "mumble-voip",
@@ -5668,7 +5668,7 @@
     }
   },
   {
-    "id": "rocket-chat",
+    "id": "rocketchat/rocket.chat.electron",
     "name": "Rocket.Chat",
     "chinese_name": "Rocket.Chat 客户端",
     "owner": "RocketChat",
@@ -5695,7 +5695,7 @@
     }
   },
   {
-    "id": "appflowy",
+    "id": "appflowy-io/appflowy",
     "name": "AppFlowy",
     "chinese_name": "AppFlowy 知识库",
     "owner": "AppFlowy-IO",
@@ -5722,7 +5722,7 @@
     }
   },
   {
-    "id": "affine",
+    "id": "toeverything/affine",
     "name": "AFFiNE",
     "chinese_name": "AFFiNE 一体化工作区",
     "owner": "toeverything",
@@ -5749,7 +5749,7 @@
     }
   },
   {
-    "id": "siyuan",
+    "id": "siyuan-note/siyuan",
     "name": "SiYuan",
     "chinese_name": "思源笔记",
     "owner": "siyuan-note",
@@ -5776,7 +5776,7 @@
     }
   },
   {
-    "id": "trilium",
+    "id": "triliumnext/trilium",
     "name": "Trilium Notes",
     "chinese_name": "Trilium 层级笔记",
     "owner": "TriliumNext",
@@ -5803,7 +5803,7 @@
     }
   },
   {
-    "id": "notesnook",
+    "id": "streetwriters/notesnook",
     "name": "Notesnook",
     "chinese_name": "Notesnook 加密笔记",
     "owner": "streetwriters",
@@ -5830,7 +5830,7 @@
     }
   },
   {
-    "id": "qownnotes",
+    "id": "pbek/qownnotes",
     "name": "QOwnNotes",
     "chinese_name": "QOwnNotes 纯文本笔记",
     "owner": "pbek",
@@ -5857,7 +5857,7 @@
     }
   },
   {
-    "id": "zettlr",
+    "id": "zettlr/zettlr",
     "name": "Zettlr",
     "chinese_name": "Zettlr 学术写作",
     "owner": "Zettlr",
@@ -5884,7 +5884,7 @@
     }
   },
   {
-    "id": "novelwriter",
+    "id": "saga-soft/novelwriter",
     "name": "novelWriter",
     "chinese_name": "novelWriter 小说写作",
     "owner": "saga-soft",
@@ -5911,7 +5911,7 @@
     }
   },
   {
-    "id": "manuskript",
+    "id": "olivierkes/manuskript",
     "name": "Manuskript",
     "chinese_name": "Manuskript 写作工坊",
     "owner": "olivierkes",
@@ -5938,7 +5938,7 @@
     }
   },
   {
-    "id": "pdf-arranger",
+    "id": "pdfarranger/pdfarranger",
     "name": "PDF Arranger",
     "chinese_name": "PDF Arranger 页面管理",
     "owner": "pdfarranger",
@@ -5965,7 +5965,7 @@
     }
   },
   {
-    "id": "pdfsam",
+    "id": "torakiki/pdfsam",
     "name": "PDFsam Basic",
     "chinese_name": "PDFsam 拆分合并",
     "owner": "torakiki",
@@ -5992,7 +5992,7 @@
     }
   },
   {
-    "id": "xournalpp",
+    "id": "xournalpp/xournalpp",
     "name": "Xournal++",
     "chinese_name": "Xournal++ 手写批注",
     "owner": "xournalpp",
@@ -6019,7 +6019,7 @@
     }
   },
   {
-    "id": "rnote",
+    "id": "flxzt/rnote",
     "name": "Rnote",
     "chinese_name": "Rnote 手写笔记",
     "owner": "flxzt",
@@ -6046,7 +6046,7 @@
     }
   },
   {
-    "id": "sioyek",
+    "id": "ahrm/sioyek",
     "name": "Sioyek",
     "chinese_name": "Sioyek 文献阅读器",
     "owner": "ahrm",
@@ -6073,7 +6073,7 @@
     }
   },
   {
-    "id": "onlyoffice",
+    "id": "onlyoffice/desktopeditors",
     "name": "ONLYOFFICE",
     "chinese_name": "ONLYOFFICE 办公套件",
     "owner": "ONLYOFFICE",
@@ -6100,7 +6100,7 @@
     }
   },
   {
-    "id": "super-productivity",
+    "id": "super-productivity/super-productivity",
     "name": "Super Productivity",
     "chinese_name": "Super Productivity 待办",
     "owner": "super-productivity",
@@ -6127,7 +6127,7 @@
     }
   },
   {
-    "id": "activitywatch",
+    "id": "activitywatch/activitywatch",
     "name": "ActivityWatch",
     "chinese_name": "ActivityWatch 时间统计",
     "owner": "ActivityWatch",
@@ -6154,7 +6154,7 @@
     }
   },
   {
-    "id": "pomatez",
+    "id": "zidoro/pomatez",
     "name": "Pomatez",
     "chinese_name": "Pomatez 番茄钟",
     "owner": "zidoro",
@@ -6181,7 +6181,7 @@
     }
   },
   {
-    "id": "freeplane",
+    "id": "freeplane/freeplane",
     "name": "Freeplane",
     "chinese_name": "Freeplane 思维导图",
     "owner": "freeplane",
@@ -6208,7 +6208,7 @@
     }
   },
   {
-    "id": "texstudio",
+    "id": "texstudio-org/texstudio",
     "name": "TeXstudio",
     "chinese_name": "TeXstudio LaTeX 编辑器",
     "owner": "texstudio-org",
@@ -6235,7 +6235,7 @@
     }
   },
   {
-    "id": "texworks",
+    "id": "texworks/texworks",
     "name": "TeXworks",
     "chinese_name": "TeXworks 简洁 LaTeX",
     "owner": "TeXworks",
@@ -6262,7 +6262,7 @@
     }
   },
   {
-    "id": "cherrytree",
+    "id": "giuspen/cherrytree",
     "name": "CherryTree",
     "chinese_name": "CherryTree 层级笔记",
     "owner": "giuspen",
@@ -6289,7 +6289,7 @@
     }
   },
   {
-    "id": "tagspaces",
+    "id": "tagspaces/tagspaces",
     "name": "TagSpaces",
     "chinese_name": "TagSpaces 文件标签",
     "owner": "tagspaces",
@@ -6316,7 +6316,7 @@
     }
   },
   {
-    "id": "frappe-books",
+    "id": "frappe/books",
     "name": "Frappe Books",
     "chinese_name": "Frappe Books 记账",
     "owner": "frappe",
@@ -6343,7 +6343,7 @@
     }
   },
   {
-    "id": "gnucash",
+    "id": "gnucash/gnucash",
     "name": "GnuCash",
     "chinese_name": "GnuCash 复式记账",
     "owner": "Gnucash",
@@ -6370,7 +6370,7 @@
     }
   },
   {
-    "id": "anytype",
+    "id": "anyproto/anytype-ts",
     "name": "Anytype",
     "chinese_name": "Anytype 对象笔记",
     "owner": "anyproto",
@@ -6397,7 +6397,7 @@
     }
   },
   {
-    "id": "openboard",
+    "id": "openboard-org/openboard",
     "name": "OpenBoard",
     "chinese_name": "OpenBoard 交互白板",
     "owner": "OpenBoard-org",
@@ -6424,7 +6424,7 @@
     }
   },
   {
-    "id": "rancher-desktop",
+    "id": "rancher-sandbox/rancher-desktop",
     "name": "Rancher Desktop",
     "chinese_name": "Rancher Desktop 容器桌面",
     "owner": "rancher-sandbox",
@@ -6451,7 +6451,7 @@
     }
   },
   {
-    "id": "headlamp",
+    "id": "kubernetes-sigs/headlamp",
     "name": "Headlamp",
     "chinese_name": "Headlamp K8s 面板",
     "owner": "kubernetes-sigs",
@@ -6478,7 +6478,7 @@
     }
   },
   {
-    "id": "monokle",
+    "id": "kubeshop/monokle",
     "name": "Monokle",
     "chinese_name": "Monokle K8s 工作台",
     "owner": "kubeshop",
@@ -6505,7 +6505,7 @@
     }
   },
   {
-    "id": "kubenav",
+    "id": "kubenav/kubenav",
     "name": "kubenav",
     "chinese_name": "kubenav 集群管理",
     "owner": "kubenav",
@@ -6532,7 +6532,7 @@
     }
   },
   {
-    "id": "dbeaver",
+    "id": "dbeaver/dbeaver",
     "name": "DBeaver Community",
     "chinese_name": "DBeaver 数据库管理",
     "owner": "dbeaver",
@@ -6559,7 +6559,7 @@
     }
   },
   {
-    "id": "dbgate",
+    "id": "dbgate/dbgate",
     "name": "DbGate",
     "chinese_name": "DbGate 数据库客户端",
     "owner": "dbgate",
@@ -6586,7 +6586,7 @@
     }
   },
   {
-    "id": "beekeeper-studio",
+    "id": "beekeeper-studio/beekeeper-studio",
     "name": "Beekeeper Studio",
     "chinese_name": "Beekeeper 数据库客户端",
     "owner": "beekeeper-studio",
@@ -6613,7 +6613,7 @@
     }
   },
   {
-    "id": "heidisql",
+    "id": "heidisql/heidisql",
     "name": "HeidiSQL",
     "chinese_name": "HeidiSQL 数据库管理",
     "owner": "HeidiSQL",
@@ -6640,7 +6640,7 @@
     }
   },
   {
-    "id": "sqlitebrowser",
+    "id": "sqlitebrowser/sqlitebrowser",
     "name": "DB Browser for SQLite",
     "chinese_name": "SQLite 可视化工具",
     "owner": "sqlitebrowser",
@@ -6667,7 +6667,7 @@
     }
   },
   {
-    "id": "sqlitestudio",
+    "id": "pawelsalawa/letos",
     "name": "SQLiteStudio",
     "chinese_name": "SQLiteStudio 管理工具",
     "owner": "pawelsalawa",
@@ -6694,7 +6694,7 @@
     }
   },
   {
-    "id": "sequel-ace",
+    "id": "sequel-ace/sequel-ace",
     "name": "Sequel Ace",
     "chinese_name": "Sequel Ace MySQL 客户端",
     "owner": "Sequel-Ace",
@@ -6721,7 +6721,7 @@
     }
   },
   {
-    "id": "pgadmin",
+    "id": "pgadmin-org/pgadmin4",
     "name": "pgAdmin 4",
     "chinese_name": "pgAdmin PostgreSQL 管理",
     "owner": "pgadmin-org",
@@ -6748,7 +6748,7 @@
     }
   },
   {
-    "id": "another-redis-desktop",
+    "id": "qishibo/anotherredisdesktopmanager",
     "name": "Another Redis Desktop Manager",
     "chinese_name": "ARDM Redis 可视化",
     "owner": "qishibo",
@@ -6775,7 +6775,7 @@
     }
   },
   {
-    "id": "mqttx",
+    "id": "emqx/mqttx",
     "name": "MQTTX",
     "chinese_name": "MQTTX MQTT 调试",
     "owner": "emqx",
@@ -6802,7 +6802,7 @@
     }
   },
   {
-    "id": "mqtt-explorer",
+    "id": "thomasnordquist/mqtt-explorer",
     "name": "MQTT Explorer",
     "chinese_name": "MQTT Explorer 可视化",
     "owner": "thomasnordquist",
@@ -6829,7 +6829,7 @@
     }
   },
   {
-    "id": "serial-studio",
+    "id": "serial-studio/serial-studio",
     "name": "Serial Studio",
     "chinese_name": "Serial Studio 串口仪表",
     "owner": "Serial-Studio",
@@ -6856,7 +6856,7 @@
     }
   },
   {
-    "id": "winscp",
+    "id": "winscp/winscp",
     "name": "WinSCP",
     "chinese_name": "WinSCP 文件传输",
     "owner": "winscp",
@@ -6883,7 +6883,7 @@
     }
   },
   {
-    "id": "cyberduck",
+    "id": "iterate-ch/cyberduck",
     "name": "Cyberduck",
     "chinese_name": "Cyberduck 云存储客户端",
     "owner": "iterate-ch",
@@ -6910,7 +6910,7 @@
     }
   },
   {
-    "id": "gns3",
+    "id": "gns3/gns3-gui",
     "name": "GNS3",
     "chinese_name": "GNS3 网络模拟",
     "owner": "GNS3",
@@ -6937,7 +6937,7 @@
     }
   },
   {
-    "id": "quickgui",
+    "id": "quickemu-project/quickgui",
     "name": "Quickgui",
     "chinese_name": "Quickgui 虚拟机创建",
     "owner": "quickemu-project",
@@ -6964,7 +6964,7 @@
     }
   },
   {
-    "id": "koodo-reader",
+    "id": "koodo-reader/koodo-reader",
     "name": "Koodo Reader",
     "chinese_name": "Koodo Reader 电子书",
     "owner": "koodo-reader",
@@ -6991,7 +6991,7 @@
     }
   },
   {
-    "id": "readest",
+    "id": "readest/readest",
     "name": "Readest",
     "chinese_name": "Readest 电子书",
     "owner": "readest",
@@ -7018,7 +7018,7 @@
     }
   },
   {
-    "id": "foliate",
+    "id": "johnfactotum/foliate",
     "name": "Foliate",
     "chinese_name": "Foliate 电子书",
     "owner": "johnfactotum",
@@ -7045,7 +7045,7 @@
     }
   },
   {
-    "id": "thorium-reader",
+    "id": "edrlab/thorium-reader",
     "name": "Thorium Reader",
     "chinese_name": "Thorium 无障碍阅读",
     "owner": "edrlab",
@@ -7072,7 +7072,7 @@
     }
   },
   {
-    "id": "yacreader",
+    "id": "yacreader/yacreader",
     "name": "YACReader",
     "chinese_name": "YACReader 漫画管理",
     "owner": "YACReader",
@@ -7099,7 +7099,7 @@
     }
   },
   {
-    "id": "hakuneko",
+    "id": "manga-download/hakuneko",
     "name": "HakuNeko",
     "chinese_name": "HakuNeko 漫画下载",
     "owner": "manga-download",
@@ -7126,7 +7126,7 @@
     }
   },
   {
-    "id": "netnewswire",
+    "id": "ranchero-software/netnewswire",
     "name": "NetNewsWire",
     "chinese_name": "NetNewsWire RSS 阅读",
     "owner": "Ranchero-Software",
@@ -7153,7 +7153,7 @@
     }
   },
   {
-    "id": "fluent-reader",
+    "id": "yang991178/fluent-reader",
     "name": "Fluent Reader",
     "chinese_name": "Fluent Reader RSS",
     "owner": "yang991178",
@@ -7180,7 +7180,7 @@
     }
   },
   {
-    "id": "rssguard",
+    "id": "martinrotter/rssguard",
     "name": "RSS Guard",
     "chinese_name": "RSS Guard 订阅阅读",
     "owner": "martinrotter",
@@ -7207,7 +7207,7 @@
     }
   },
   {
-    "id": "zotero",
+    "id": "zotero/zotero",
     "name": "Zotero",
     "chinese_name": "Zotero 文献管理",
     "owner": "zotero",
@@ -7234,7 +7234,7 @@
     }
   },
   {
-    "id": "jabref",
+    "id": "jabref/jabref",
     "name": "JabRef",
     "chinese_name": "JabRef 文献管理",
     "owner": "JabRef",
@@ -7261,7 +7261,7 @@
     }
   },
   {
-    "id": "anki",
+    "id": "ankitects/anki",
     "name": "Anki",
     "chinese_name": "Anki 记忆卡片",
     "owner": "ankitects",
@@ -7288,7 +7288,7 @@
     }
   },
   {
-    "id": "goldendict",
+    "id": "xiaoyifang/goldendict-ng",
     "name": "GoldenDict-ng",
     "chinese_name": "GoldenDict 词典",
     "owner": "xiaoyifang",
@@ -7315,7 +7315,7 @@
     }
   },
   {
-    "id": "sigil",
+    "id": "sigil-ebook/sigil",
     "name": "Sigil",
     "chinese_name": "Sigil EPUB 编辑",
     "owner": "Sigil-Ebook",
@@ -7342,7 +7342,7 @@
     }
   },
   {
-    "id": "pageedit",
+    "id": "sigil-ebook/pageedit",
     "name": "PageEdit",
     "chinese_name": "PageEdit 可视化排版",
     "owner": "Sigil-Ebook",
@@ -7369,7 +7369,7 @@
     }
   },
   {
-    "id": "biblioteq",
+    "id": "textbrowser/biblioteq",
     "name": "BiblioTEQ",
     "chinese_name": "BiblioTEQ 图书管理",
     "owner": "textbrowser",
@@ -7396,7 +7396,7 @@
     }
   },
   {
-    "id": "anx-reader",
+    "id": "anxcye/anx-reader",
     "name": "Anx Reader",
     "chinese_name": "Anx Reader 电子书",
     "owner": "Anxcye",
@@ -7423,7 +7423,7 @@
     }
   },
   {
-    "id": "calibre-desktop",
+    "id": "kovidgoyal/calibre",
     "name": "calibre",
     "chinese_name": "calibre 电子书管理",
     "owner": "kovidgoyal",
@@ -7450,7 +7450,7 @@
     }
   },
   {
-    "id": "veracrypt",
+    "id": "veracrypt/veracrypt",
     "name": "VeraCrypt",
     "chinese_name": "VeraCrypt 磁盘加密",
     "owner": "veracrypt",
@@ -7477,7 +7477,7 @@
     }
   },
   {
-    "id": "cryptomator",
+    "id": "cryptomator/cryptomator",
     "name": "Cryptomator",
     "chinese_name": "Cryptomator 云盘加密",
     "owner": "cryptomator",
@@ -7504,7 +7504,7 @@
     }
   },
   {
-    "id": "diskcryptor",
+    "id": "diskcryptor/diskcryptor",
     "name": "DiskCryptor",
     "chinese_name": "DiskCryptor 全盘加密",
     "owner": "DiskCryptor",
@@ -7531,7 +7531,7 @@
     }
   },
   {
-    "id": "authpass",
+    "id": "authpass/authpass",
     "name": "AuthPass",
     "chinese_name": "AuthPass 密码管理",
     "owner": "authpass",
@@ -7558,7 +7558,7 @@
     }
   },
   {
-    "id": "padloc",
+    "id": "padloc/padloc",
     "name": "Padloc",
     "chinese_name": "Padloc 密码管理",
     "owner": "padloc",
@@ -7585,7 +7585,7 @@
     }
   },
   {
-    "id": "password-safe",
+    "id": "pwsafe/pwsafe",
     "name": "Password Safe",
     "chinese_name": "Password Safe 密码管理",
     "owner": "pwsafe",
@@ -7612,7 +7612,7 @@
     }
   },
   {
-    "id": "keeweb",
+    "id": "keeweb/keeweb",
     "name": "KeeWeb",
     "chinese_name": "KeeWeb 密码管理",
     "owner": "keeweb",
@@ -7639,7 +7639,7 @@
     }
   },
   {
-    "id": "simplewall",
+    "id": "henrypp/simplewall",
     "name": "simplewall",
     "chinese_name": "simplewall 应用防火墙",
     "owner": "henrypp",
@@ -7666,7 +7666,7 @@
     }
   },
   {
-    "id": "opensnitch",
+    "id": "evilsocket/opensnitch",
     "name": "OpenSnitch",
     "chinese_name": "OpenSnitch 应用防火墙",
     "owner": "evilsocket",
@@ -7693,7 +7693,7 @@
     }
   },
   {
-    "id": "mullvad",
+    "id": "mullvad/mullvadvpn-app",
     "name": "Mullvad VPN",
     "chinese_name": "Mullvad VPN 客户端",
     "owner": "mullvad",
@@ -7720,7 +7720,7 @@
     }
   },
   {
-    "id": "amnezia-vpn",
+    "id": "amnezia-vpn/amnezia-client",
     "name": "AmneziaVPN",
     "chinese_name": "AmneziaVPN 自建 VPN",
     "owner": "amnezia-vpn",
@@ -7747,7 +7747,7 @@
     }
   },
   {
-    "id": "pritunl",
+    "id": "pritunl/pritunl-client",
     "name": "Pritunl Client",
     "chinese_name": "Pritunl VPN 客户端",
     "owner": "pritunl",
@@ -7774,7 +7774,7 @@
     }
   },
   {
-    "id": "outline",
+    "id": "outlinefoundation/outline-apps",
     "name": "Outline Client",
     "chinese_name": "Outline 代理客户端",
     "owner": "OutlineFoundation",
@@ -7801,7 +7801,7 @@
     }
   },
   {
-    "id": "onionshare",
+    "id": "onionshare/onionshare",
     "name": "OnionShare",
     "chinese_name": "OnionShare 匿名分享",
     "owner": "onionshare",
@@ -7828,7 +7828,7 @@
     }
   },
   {
-    "id": "owasp-zap",
+    "id": "zaproxy/zaproxy",
     "name": "OWASP ZAP",
     "chinese_name": "OWASP ZAP 渗透测试",
     "owner": "zaproxy",
@@ -7855,7 +7855,7 @@
     }
   },
   {
-    "id": "exifcleaner",
+    "id": "sztheory/exifcleaner",
     "name": "ExifCleaner",
     "chinese_name": "ExifCleaner 图片隐私",
     "owner": "szTheory",
@@ -7882,7 +7882,7 @@
     }
   },
   {
-    "id": "privacy-sexy",
+    "id": "undergroundwires/privacy.sexy",
     "name": "privacy.sexy",
     "chinese_name": "privacy.sexy 隐私加固",
     "owner": "undergroundwires",
@@ -7909,7 +7909,7 @@
     }
   },
   {
-    "id": "openstego",
+    "id": "syvaidya/openstego",
     "name": "OpenStego",
     "chinese_name": "OpenStego 隐写工具",
     "owner": "syvaidya",
@@ -7936,7 +7936,7 @@
     }
   },
   {
-    "id": "sirikali",
+    "id": "mhogomchungu/sirikali",
     "name": "SiriKali",
     "chinese_name": "SiriKali 加密挂载",
     "owner": "mhogomchungu",
@@ -7963,7 +7963,7 @@
     }
   },
   {
-    "id": "ueli",
+    "id": "oliverschwendener/ueli",
     "name": "Ueli",
     "chinese_name": "Ueli 快捷启动器",
     "owner": "oliverschwendener",
@@ -7990,7 +7990,7 @@
     }
   },
   {
-    "id": "ditto",
+    "id": "sabrogden/ditto",
     "name": "Ditto",
     "chinese_name": "Ditto 剪贴板管理器",
     "owner": "sabrogden",
@@ -8017,7 +8017,7 @@
     }
   },
   {
-    "id": "copyq",
+    "id": "hluk/copyq",
     "name": "CopyQ",
     "chinese_name": "CopyQ 高级剪贴板管理器",
     "owner": "hluk",
@@ -8044,7 +8044,7 @@
     }
   },
   {
-    "id": "twinkle-tray",
+    "id": "xanderfrangos/twinkle-tray",
     "name": "Twinkle Tray",
     "chinese_name": "Twinkle Tray 亮度调节",
     "owner": "xanderfrangos",
@@ -8071,7 +8071,7 @@
     }
   },
   {
-    "id": "translucent-tb",
+    "id": "translucenttb/translucenttb",
     "name": "TranslucentTB",
     "chinese_name": "TranslucentTB 任务栏透明",
     "owner": "TranslucentTB",
@@ -8098,7 +8098,7 @@
     }
   },
   {
-    "id": "windhawk",
+    "id": "ramensoftware/windhawk",
     "name": "Windhawk",
     "chinese_name": "Windhawk 系统调制片",
     "owner": "ramensoftware",
@@ -8125,7 +8125,7 @@
     }
   },
   {
-    "id": "trafficmonitor",
+    "id": "zhongyang219/trafficmonitor",
     "name": "TrafficMonitor",
     "chinese_name": "TrafficMonitor 网速悬浮窗",
     "owner": "zhongyang219",
@@ -8152,7 +8152,7 @@
     }
   },
   {
-    "id": "fsearch",
+    "id": "cboxdoerfer/fsearch",
     "name": "FSearch",
     "chinese_name": "FSearch 文件秒搜",
     "owner": "cboxdoerfer",
@@ -8179,7 +8179,7 @@
     }
   },
   {
-    "id": "czkawka",
+    "id": "qarmin/czkawka",
     "name": "Czkawka",
     "chinese_name": "Czkawka 重复文件清理",
     "owner": "qarmin",
@@ -8206,7 +8206,7 @@
     }
   },
   {
-    "id": "bleachbit",
+    "id": "bleachbit/bleachbit",
     "name": "BleachBit",
     "chinese_name": "BleachBit 系统清理",
     "owner": "bleachbit",
@@ -8233,7 +8233,7 @@
     }
   },
   {
-    "id": "double-commander",
+    "id": "doublecmd/doublecmd",
     "name": "Double Commander",
     "chinese_name": "Double Commander 双栏管理器",
     "owner": "doublecmd",
@@ -8260,7 +8260,7 @@
     }
   },
   {
-    "id": "mucommander",
+    "id": "mucommander/mucommander",
     "name": "muCommander",
     "chinese_name": "muCommander 双栏管理器",
     "owner": "mucommander",
@@ -8287,7 +8287,7 @@
     }
   },
   {
-    "id": "spacedrive",
+    "id": "spacedriveapp/spacedrive",
     "name": "Spacedrive",
     "chinese_name": "Spacedrive 跨设备文件管理",
     "owner": "spacedriveapp",
@@ -8314,7 +8314,7 @@
     }
   },
   {
-    "id": "duplicati",
+    "id": "duplicati/duplicati",
     "name": "Duplicati",
     "chinese_name": "Duplicati 加密备份",
     "owner": "duplicati",
@@ -8341,7 +8341,7 @@
     }
   },
   {
-    "id": "vorta",
+    "id": "borgbase/vorta",
     "name": "Vorta",
     "chinese_name": "Vorta 备份图形前端",
     "owner": "borgbase",
@@ -8368,7 +8368,7 @@
     }
   },
   {
-    "id": "etcher",
+    "id": "balena-io/etcher",
     "name": "balenaEtcher",
     "chinese_name": "balenaEtcher 镜像烧录",
     "owner": "balena-io",
@@ -8395,7 +8395,7 @@
     }
   },
   {
-    "id": "ventoy",
+    "id": "ventoy/ventoy",
     "name": "Ventoy",
     "chinese_name": "Ventoy 多系统启动盘",
     "owner": "ventoy",
@@ -8422,7 +8422,7 @@
     }
   },
   {
-    "id": "rufus",
+    "id": "pbatard/rufus",
     "name": "Rufus",
     "chinese_name": "Rufus 启动盘制作",
     "owner": "pbatard",
@@ -8449,7 +8449,7 @@
     }
   },
   {
-    "id": "nanazip",
+    "id": "m2team/nanazip",
     "name": "NanaZip",
     "chinese_name": "NanaZip 现代解压缩",
     "owner": "M2Team",
@@ -8476,7 +8476,7 @@
     }
   },
   {
-    "id": "peazip",
+    "id": "peazip/peazip",
     "name": "PeaZip",
     "chinese_name": "PeaZip 多格式压缩",
     "owner": "peazip",
@@ -8503,7 +8503,7 @@
     }
   },
   {
-    "id": "lively",
+    "id": "rocksdanister/lively",
     "name": "Lively Wallpaper",
     "chinese_name": "Lively 动态壁纸",
     "owner": "rocksdanister",
@@ -8530,7 +8530,7 @@
     }
   },
   {
-    "id": "stats",
+    "id": "exelban/stats",
     "name": "Stats",
     "chinese_name": "Stats 菜单栏监控",
     "owner": "exelban",
@@ -8557,7 +8557,7 @@
     }
   },
   {
-    "id": "libre-hardware-monitor",
+    "id": "librehardwaremonitor/librehardwaremonitor",
     "name": "Libre Hardware Monitor",
     "chinese_name": "Libre Hardware Monitor 硬件监控",
     "owner": "LibreHardwareMonitor",
@@ -8584,7 +8584,7 @@
     }
   },
   {
-    "id": "bulk-crap-uninstaller",
+    "id": "bcuninstaller/bulk-crap-uninstaller",
     "name": "BCUninstaller",
     "chinese_name": "Bulk Crap Uninstaller 批量卸载",
     "owner": "BCUninstaller",
@@ -8611,7 +8611,7 @@
     }
   },
   {
-    "id": "open-shell",
+    "id": "open-shell/open-shell-menu",
     "name": "Open-Shell",
     "chinese_name": "Open-Shell 经典开始菜单",
     "owner": "Open-Shell",
@@ -8638,7 +8638,7 @@
     }
   },
   {
-    "id": "monitorian",
+    "id": "emoacht/monitorian",
     "name": "Monitorian",
     "chinese_name": "Monitorian 亮度调节",
     "owner": "emoacht",
@@ -8665,7 +8665,7 @@
     }
   },
   {
-    "id": "alt-tab",
+    "id": "lwouis/alt-tab-macos",
     "name": "AltTab",
     "chinese_name": "AltTab 窗口切换器",
     "owner": "lwouis",
@@ -8692,7 +8692,7 @@
     }
   },
   {
-    "id": "rectangle",
+    "id": "rxhanson/rectangle",
     "name": "Rectangle",
     "chinese_name": "Rectangle 窗口管理",
     "owner": "rxhanson",
@@ -8719,7 +8719,7 @@
     }
   },
   {
-    "id": "maccy",
+    "id": "p0deje/maccy",
     "name": "Maccy",
     "chinese_name": "Maccy 剪贴板管理",
     "owner": "p0deje",
@@ -8746,7 +8746,7 @@
     }
   },
   {
-    "id": "mos",
+    "id": "caldis/mos",
     "name": "Mos",
     "chinese_name": "Mos 鼠标平滑滚动",
     "owner": "Caldis",
@@ -8773,7 +8773,7 @@
     }
   },
   {
-    "id": "ice",
+    "id": "jordanbaird/ice",
     "name": "Ice",
     "chinese_name": "Ice 菜单栏管理",
     "owner": "jordanbaird",
@@ -8800,7 +8800,7 @@
     }
   },
   {
-    "id": "keka",
+    "id": "aonez/keka",
     "name": "Keka",
     "chinese_name": "Keka macOS 压缩",
     "owner": "aonez",
@@ -8827,7 +8827,7 @@
     }
   },
   {
-    "id": "mac-mouse-fix",
+    "id": "noah-nuebling/mac-mouse-fix",
     "name": "Mac Mouse Fix",
     "chinese_name": "Mac Mouse Fix 鼠标增强",
     "owner": "noah-nuebling",
@@ -8854,7 +8854,7 @@
     }
   },
   {
-    "id": "ulauncher",
+    "id": "ulauncher/ulauncher",
     "name": "Ulauncher",
     "chinese_name": "Ulauncher Linux 启动器",
     "owner": "Ulauncher",
@@ -8881,7 +8881,7 @@
     }
   },
   {
-    "id": "system-informer",
+    "id": "winsiderss/systeminformer",
     "name": "System Informer",
     "chinese_name": "System Informer 系统信息",
     "owner": "winsiderss",
@@ -8908,7 +8908,7 @@
     }
   },
   {
-    "id": "cpu-x",
+    "id": "thetumultuousunicornofdarkness/cpu-x",
     "name": "CPU-X",
     "chinese_name": "CPU-X 硬件信息",
     "owner": "TheTumultuousUnicornOfDarkness",
@@ -8935,7 +8935,7 @@
     }
   },
   {
-    "id": "karabiner-elements",
+    "id": "pqrs-org/karabiner-elements",
     "name": "Karabiner-Elements",
     "chinese_name": "Karabiner 键盘改键",
     "owner": "pqrs-org",
@@ -8962,7 +8962,7 @@
     }
   },
   {
-    "id": "albert",
+    "id": "albertlauncher/albert",
     "name": "Albert",
     "chinese_name": "Albert Linux 启动器",
     "owner": "albertlauncher",
@@ -8989,7 +8989,7 @@
     }
   },
   {
-    "id": "openrgb",
+    "id": "calcprogrammer1/openrgb",
     "name": "OpenRGB",
     "chinese_name": "OpenRGB 灯效控制",
     "owner": "CalcProgrammer1",
@@ -9016,7 +9016,7 @@
     }
   },
   {
-    "id": "wincompose",
+    "id": "samhocevar/wincompose",
     "name": "WinCompose",
     "chinese_name": "WinCompose 特殊符号输入",
     "owner": "samhocevar",
@@ -9043,7 +9043,7 @@
     }
   },
   {
-    "id": "rime-weasel",
+    "id": "rime/weasel",
     "name": "Weasel 小狼毫",
     "chinese_name": "小狼毫输入法",
     "owner": "rime",
@@ -9070,7 +9070,7 @@
     }
   },
   {
-    "id": "rime-squirrel",
+    "id": "rime/squirrel",
     "name": "Squirrel 鼠须管",
     "chinese_name": "鼠须管输入法",
     "owner": "rime",
@@ -9097,7 +9097,7 @@
     }
   },
   {
-    "id": "kdeconnect",
+    "id": "kde/kdeconnect-kde",
     "name": "KDE Connect",
     "chinese_name": "KDE Connect 手机互联",
     "owner": "KDE",
@@ -9124,7 +9124,7 @@
     }
   },
   {
-    "id": "inkscape",
+    "id": "inkscape/inkscape",
     "name": "Inkscape",
     "chinese_name": "Inkscape 矢量绘图",
     "owner": "inkscape",
@@ -9151,7 +9151,7 @@
     }
   },
   {
-    "id": "explorer-patcher",
+    "id": "valinet/explorerpatcher",
     "name": "ExplorerPatcher",
     "chinese_name": "ExplorerPatcher 任务栏增强",
     "owner": "valinet",
