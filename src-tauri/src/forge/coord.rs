@@ -75,10 +75,20 @@ impl UniversalRepoCoord {
     pub fn web_url(&self) -> String {
         format!("https://{}/{}/{}", self.host, self.owner, self.repo)
     }
+}
 
-    pub fn to_repo_key(&self) -> String {
-        format!("{}/{}/{}", self.host, self.owner, self.repo).to_lowercase()
+/// ADR-0010：入站应用标识归一化为 canonical 形态
+/// （小写 `owner/repo`，或带 forge 前缀的 `forge[:host]:owner/repo`）。
+/// 支持完整仓库 URL、forge 前缀短语法与裸 owner-repo；无法解析时原样小写返回。
+pub fn canonical_app_id(input: &str) -> String {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return String::new();
     }
+    if let Some(coord) = RepositoryUrlParser::parse(trimmed) {
+        return coord.to_app_id().to_lowercase();
+    }
+    trimmed.to_lowercase()
 }
 
 pub struct RepositoryUrlParser;

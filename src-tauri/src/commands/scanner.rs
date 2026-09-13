@@ -14,14 +14,14 @@ pub fn scan_and_match_local_apps(
         db.get_installed_apps()
             .unwrap_or_default()
             .into_iter()
-            .map(|a| a.app_id.to_lowercase())
+            .map(|a| a.app_id)
             .collect()
     };
 
     let matches = crate::scanner::AppScanner::match_apps(&scanned, &catalog_items);
     let unmanaged_matches = matches
         .into_iter()
-        .filter(|m| !installed_ids.contains(&m.catalog_id.to_lowercase()))
+        .filter(|m| !installed_ids.contains(&m.catalog_id))
         .collect();
 
     Ok(unmanaged_matches)
@@ -138,9 +138,7 @@ pub async fn get_detected_installed_app_ids(
 pub fn import_single_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
     let cat = state
         .catalog
-        .get_catalog_items()
-        .into_iter()
-        .find(|c| c.id.eq_ignore_ascii_case(&app_id))
+        .get_catalog_item(app_id.trim())
         .ok_or_else(|| format!("Catalog 中未收录该应用: {}", app_id))?;
 
     let resolved_path = crate::scanner::AppScanner::resolve_installed_app_path(&cat.name, &cat.id, Some(&cat.repo));

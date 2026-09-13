@@ -7,7 +7,7 @@ pub mod provider;
 #[cfg(test)]
 mod tests;
 
-pub use coord::{ForgeType, RepositoryUrlParser, UniversalRepoCoord};
+pub use coord::{canonical_app_id, ForgeType, RepositoryUrlParser, UniversalRepoCoord};
 pub use gitea::GiteaProvider;
 pub use github::GitHubProvider;
 pub use gitlab::GitLabProvider;

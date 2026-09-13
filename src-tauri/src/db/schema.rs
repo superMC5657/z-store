@@ -26,14 +26,11 @@ impl Database {
 
             CREATE TABLE IF NOT EXISTS app_details_cache (
                 app_id TEXT PRIMARY KEY,
-                repo_key TEXT NOT NULL,
                 name TEXT NOT NULL,
                 latest_version TEXT NOT NULL,
                 detail_json TEXT NOT NULL,
                 cached_at INTEGER NOT NULL
             );
-
-            CREATE INDEX IF NOT EXISTS idx_app_details_cache_repo_key ON app_details_cache(repo_key);
 
             CREATE TABLE IF NOT EXISTS user_settings (
                 key TEXT PRIMARY KEY,
@@ -122,6 +119,29 @@ impl Database {
             "ALTER TABLE watched_apps ADD COLUMN last_notified_at INTEGER",
             [],
         );
+        // ADR-0010：slug 时代的 app_details_cache 旧形状（含 repo_key 列）直接重建，
+        // 纯缓存表无数据迁移价值，TTL 内自动重新拉取
+        let has_repo_key: bool = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('app_details_cache') WHERE name = 'repo_key'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .map(|n| n > 0)
+            .unwrap_or(false);
+        if has_repo_key {
+            let _ = self.conn.execute_batch(
+                "DROP TABLE IF EXISTS app_details_cache;
+                 CREATE TABLE IF NOT EXISTS app_details_cache (
+                     app_id TEXT PRIMARY KEY,
+                     name TEXT NOT NULL,
+                     latest_version TEXT NOT NULL,
+                     detail_json TEXT NOT NULL,
+                     cached_at INTEGER NOT NULL
+                 );",
+            );
+        }
         Ok(())
     }
 }

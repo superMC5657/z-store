@@ -7,18 +7,19 @@ fn test_catalog_load_and_search() {
 
     let res = cat.search_apps("rustdesk");
     assert!(!res.is_empty());
-    assert_eq!(res[0].id, "rustdesk");
+    // ADR-0010：清单 id 已迁移为 canonical owner/repo
+    assert_eq!(res[0].id, "rustdesk/rustdesk");
 
     let res_zh = cat.search_apps("远程桌面");
     assert!(!res_zh.is_empty());
-    assert_eq!(res_zh[0].id, "rustdesk");
+    assert_eq!(res_zh[0].id, "rustdesk/rustdesk");
 }
 
 #[test]
 fn test_category_filter() {
     let cat = CatalogService::new();
     let media_apps = cat.filter_by_category("media").unwrap();
-    assert!(media_apps.iter().any(|a| a.id == "vlc"));
+    assert!(media_apps.iter().any(|a| a.id == "videolan/vlc"));
 }
 
 #[tokio::test]
@@ -142,7 +143,9 @@ async fn test_sync_remote_catalog_local_file() {
 #[test]
 fn test_catalog_platforms_loading_and_mapping() {
     let cat = CatalogService::new();
-    let rustdesk = cat.get_catalog_item("rustdesk").expect("rustdesk exists in catalog");
+    let rustdesk = cat
+        .get_catalog_item("rustdesk/rustdesk")
+        .expect("rustdesk exists in catalog");
     assert!(rustdesk.platforms.contains(&"windows".to_string()));
     assert!(rustdesk.platforms.contains(&"android".to_string()));
     assert!(rustdesk.platforms.contains(&"macos".to_string()));
@@ -167,18 +170,26 @@ fn test_catalog_identifiers_and_fallback() {
     let cat = CatalogService::new();
 
     // 1. 测试从 catalog.json 加载的多端原生标识符
-    let rustdesk = cat.get_catalog_item("rustdesk").expect("rustdesk exists in catalog");
+    let rustdesk = cat
+        .get_catalog_item("rustdesk/rustdesk")
+        .expect("rustdesk exists in catalog");
     assert_eq!(rustdesk.get_windows_executables(), vec!["rustdesk.exe"]);
     assert_eq!(rustdesk.get_identifiers("android"), vec!["com.carriez.flutter_rustdesk"]);
     assert_eq!(rustdesk.get_identifiers("macos"), vec!["RustDesk.app", "rustdesk"]);
     assert_eq!(rustdesk.get_identifiers("linux"), vec!["rustdesk"]);
 
-    let ripgrep = cat.get_catalog_item("ripgrep").expect("ripgrep exists in catalog");
+    let ripgrep = cat
+        .get_catalog_item("burntsushi/ripgrep")
+        .expect("ripgrep exists in catalog");
     assert!(ripgrep.get_windows_executables().contains(&"rg.exe".to_string()));
     assert_eq!(ripgrep.get_identifiers("linux"), vec!["rg"]);
 
-    // 2. 校验所有 39 款收录应用均能成功获取 Windows 可执行识别名
+    // 2. 校验声明支持 Windows 的收录应用均能成功获取 Windows 可执行识别名
+    //    （清单中存在 macOS/Linux 专属应用，不应要求其提供 Windows 标识符）
     for item in cat.get_catalog_items() {
+        if !item.platforms.iter().any(|p| p.eq_ignore_ascii_case("windows")) {
+            continue;
+        }
         let win_exes = item.get_windows_executables();
         assert!(!win_exes.is_empty(), "app {} should have windows executables in identifiers", item.id);
         assert!(win_exes.iter().any(|e| e.ends_with(".exe")), "windows executable should end with .exe: {:?}", win_exes);

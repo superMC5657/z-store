@@ -44,15 +44,10 @@ impl CatalogService {
     }
 
     pub fn get_catalog_item(&self, id: &str) -> Option<CatalogItem> {
-        self.items.read().ok().and_then(|items| {
-            items
-                .iter()
-                .find(|i| {
-                    i.id.eq_ignore_ascii_case(id)
-                        || format!("{}/{}", i.owner, i.repo).eq_ignore_ascii_case(id)
-                })
-                .cloned()
-        })
+        self.items
+            .read()
+            .ok()
+            .and_then(|items| items.iter().find(|i| i.id.eq_ignore_ascii_case(id)).cloned())
     }
 
     pub fn update_items(&self, new_items: Vec<CatalogItem>) {
@@ -70,10 +65,7 @@ impl CatalogService {
         version: Option<&str>,
     ) {
         if let Ok(mut items) = self.items.write() {
-            if let Some(item) = items.iter_mut().find(|i| {
-                i.id.eq_ignore_ascii_case(id)
-                    || format!("{}/{}", i.owner, i.repo).eq_ignore_ascii_case(id)
-            }) {
+            if let Some(item) = items.iter_mut().find(|i| i.id.eq_ignore_ascii_case(id)) {
                 if let Some(s) = stars {
                     item.stars = s;
                 }
@@ -253,7 +245,7 @@ impl CatalogService {
     pub fn get_repo_coordinates(&self, id: &str) -> Result<AppRepoCoordinates, String> {
         let clean = id.trim().to_lowercase();
         let items = self.items.read().unwrap_or_else(|e| e.into_inner());
-        if let Some(item) = items.iter().find(|i| i.id.to_lowercase() == clean) {
+        if let Some(item) = items.iter().find(|i| i.id.eq_ignore_ascii_case(&clean)) {
             Ok(AppRepoCoordinates {
                 owner: item.owner.clone(),
                 repo: item.repo.clone(),
@@ -297,5 +289,115 @@ impl CatalogService {
             coords.icon,
             coords.icon_bg,
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn item(id: &str, owner: &str, repo: &str) -> CatalogItem {
+        CatalogItem {
+            id: id.to_string(),
+            name: "Test App".to_string(),
+            chinese_name: None,
+            owner: owner.to_string(),
+            repo: repo.to_string(),
+            icon: String::new(),
+            icon_bg: String::new(),
+            description: String::new(),
+            category: "dev".to_string(),
+            category_name: "开发工具".to_string(),
+            aliases: vec![],
+            default_version: "v1.0.0".to_string(),
+            license: "MIT".to_string(),
+            stars: 0,
+            forks: 0,
+            is_verified: false,
+            publisher_fingerprint: None,
+            homepage: None,
+            identifiers: HashMap::new(),
+            executables: vec![],
+            install_dirs: vec![],
+            search_subdirs: vec![],
+            publishers: vec![],
+            platforms: vec!["windows".to_string()],
+        }
+    }
+
+    fn test_service(items: Vec<CatalogItem>) -> CatalogService {
+        CatalogService {
+            items: RwLock::new(items),
+            client: reqwest::Client::new(),
+        }
+    }
+
+    /// ADR-0010：入站标识归一化（canonical = 小写 owner/repo / forge 前缀坐标）
+    #[test]
+    fn test_canonical_app_id() {
+        // canonical id 原样保留（统一小写）
+        assert_eq!(
+            crate::forge::canonical_app_id("rustdesk/rustdesk"),
+            "rustdesk/rustdesk"
+        );
+        // 大小写不敏感
+        assert_eq!(
+            crate::forge::canonical_app_id("RustDesk/RustDesk"),
+            "rustdesk/rustdesk"
+        );
+        // 完整仓库 URL → canonical
+        assert_eq!(
+            crate::forge::canonical_app_id("https://github.com/rustdesk/rustdesk"),
+            "rustdesk/rustdesk"
+        );
+        // gh: 前缀短语法
+        assert_eq!(
+            crate::forge::canonical_app_id("gh:rustdesk/rustdesk"),
+            "rustdesk/rustdesk"
+        );
+        // 非 GitHub forge 前缀保持带前缀坐标
+        assert_eq!(
+            crate::forge::canonical_app_id("codeberg:FreeTubeApp/FreeTube"),
+            "codeberg:freetubeapp/freetube"
+        );
+        // 未知标识原样小写兜底
+        assert_eq!(crate::forge::canonical_app_id("Unknown-App"), "unknown-app");
+        // 空输入
+        assert_eq!(crate::forge::canonical_app_id(""), "");
+        assert_eq!(crate::forge::canonical_app_id("   "), "");
+    }
+
+    /// ADR-0010：目录检索仅按 id（大小写不敏感）唯一匹配
+    #[test]
+    fn test_get_catalog_item_matches_id_only() {
+        let svc = test_service(vec![item(
+            "rustdesk/rustdesk",
+            "rustdesk",
+            "rustdesk",
+        )]);
+
+        assert!(svc.get_catalog_item("rustdesk/rustdesk").is_some());
+        assert!(svc.get_catalog_item("RUSTDESK/RUSTDESK").is_some());
+        assert!(svc.get_catalog_item("rustdesk").is_none());
+        assert!(svc.get_catalog_item("nope").is_none());
+    }
+
+    #[test]
+    fn test_get_repo_coordinates() {
+        let svc = test_service(vec![item(
+            "rustdesk/rustdesk",
+            "rustdesk",
+            "rustdesk",
+        )]);
+
+        let coords = svc.get_repo_coordinates("rustdesk/rustdesk").unwrap();
+        assert_eq!(coords.owner, "rustdesk");
+        assert_eq!(coords.repo, "rustdesk");
+        // 目录之外的 owner/repo 坐标（在线搜索结果）合成兜底
+        let external = svc.get_repo_coordinates("unknown/external").unwrap();
+        assert_eq!(external.owner, "unknown");
+        assert_eq!(external.repo, "external");
+        assert!(svc.get_repo_coordinates("does-not-exist").is_err());
     }
 }

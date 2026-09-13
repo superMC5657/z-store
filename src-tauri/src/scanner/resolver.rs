@@ -330,7 +330,9 @@ impl AppScanner {
         repo: Option<&str>,
     ) -> Option<String> {
         let repo_str = repo.unwrap_or(app_id);
-        let mut config = ScanConfig::from(app_id);
+        // ADR-0010：canonical id 形如 owner/repo，取 repo 段作为扫描候选基础
+        let repo_base = repo_str.rsplit('/').next().unwrap_or(repo_str);
+        let mut config = ScanConfig::from(repo_base);
 
         const STOP_WORDS: &[&str] = &[
             "microsoft", "google", "apple", "the", "for", "windows", "desktop",
@@ -353,7 +355,7 @@ impl AppScanner {
                 tokens.push(p_lower);
             }
         }
-        for part in app_id.split('-') {
+        for part in app_id.split(['-', '/']) {
             let p_lower = part.trim().to_lowercase();
             if p_lower.len() >= 3
                 && !p_lower.chars().all(|c| c.is_ascii_digit())

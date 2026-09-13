@@ -50,16 +50,16 @@ impl Database {
 
     pub fn get_cached_app_detail(
         &self,
-        id_or_repo: &str,
+        app_id: &str,
         ttl_seconds: Option<i64>,
     ) -> Result<Option<AppDetail>> {
-        let clean = id_or_repo.trim().to_lowercase();
+        let clean = app_id.trim();
         if clean.is_empty() {
             return Ok(None);
         }
 
         let mut stmt = self.conn.prepare(
-            "SELECT detail_json, cached_at FROM app_details_cache WHERE LOWER(app_id) = ?1 OR LOWER(repo_key) = ?1 LIMIT 1",
+            "SELECT detail_json, cached_at FROM app_details_cache WHERE app_id = ?1 LIMIT 1",
         )?;
         let mut rows = stmt.query(params![clean])?;
         if let Some(row) = rows.next()? {
@@ -89,28 +89,21 @@ impl Database {
     }
 
     /// 即使缓存过期，也返回已存储的详情副本（用于离线弱网或 GitHub API 故障时的降级呈现）
-    pub fn get_cached_app_detail_fallback(&self, id_or_repo: &str) -> Result<Option<AppDetail>> {
-        self.get_cached_app_detail(id_or_repo, None)
+    pub fn get_cached_app_detail_fallback(&self, app_id: &str) -> Result<Option<AppDetail>> {
+        self.get_cached_app_detail(app_id, None)
     }
 
     /// 当远端返回 304 Not Modified 时，快速刷新 cached_at 时间戳，零开销延长保鲜期
-    pub fn touch_cached_app_detail(&self, id_or_repo: &str, new_cached_at: i64) -> Result<()> {
-        let clean = id_or_repo.trim().to_lowercase();
+    pub fn touch_cached_app_detail(&self, app_id: &str, new_cached_at: i64) -> Result<()> {
         self.conn.execute(
-            "UPDATE app_details_cache SET cached_at = ?1 WHERE LOWER(app_id) = ?2 OR LOWER(repo_key) = ?2",
-            params![new_cached_at, clean],
+            "UPDATE app_details_cache SET cached_at = ?1 WHERE app_id = ?2",
+            params![new_cached_at, app_id.trim()],
         )?;
         Ok(())
     }
 
-    pub fn save_cached_app_detail(
-        &self,
-        app_id: &str,
-        repo_key: &str,
-        detail: &AppDetail,
-    ) -> Result<()> {
-        let clean_id = app_id.trim().to_lowercase();
-        let clean_repo = repo_key.trim().to_lowercase();
+    pub fn save_cached_app_detail(&self, app_id: &str, detail: &AppDetail) -> Result<()> {
+        let clean_id = app_id.trim();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -120,10 +113,9 @@ impl Database {
 
         self.conn.execute(
             r#"
-            INSERT INTO app_details_cache (app_id, repo_key, name, latest_version, detail_json, cached_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            INSERT INTO app_details_cache (app_id, name, latest_version, detail_json, cached_at)
+            VALUES (?1, ?2, ?3, ?4, ?5)
             ON CONFLICT(app_id) DO UPDATE SET
-                repo_key = excluded.repo_key,
                 name = excluded.name,
                 latest_version = excluded.latest_version,
                 detail_json = excluded.detail_json,
@@ -131,38 +123,12 @@ impl Database {
             "#,
             params![
                 clean_id,
-                clean_repo,
                 detail.name,
                 detail.latest_version,
                 json_str,
                 now,
             ],
         )?;
-
-        // 如果传入的 clean_repo 不为空且不等于 clean_id，且形如 owner/repo 或 host/owner/repo，
-        // 同时以 clean_repo 为主键写入一条记录，确保后续按仓库坐标检索时同样能够直接命中
-        if !clean_repo.is_empty() && clean_repo != clean_id {
-            let _ = self.conn.execute(
-                r#"
-                INSERT INTO app_details_cache (app_id, repo_key, name, latest_version, detail_json, cached_at)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-                ON CONFLICT(app_id) DO UPDATE SET
-                    repo_key = excluded.repo_key,
-                    name = excluded.name,
-                    latest_version = excluded.latest_version,
-                    detail_json = excluded.detail_json,
-                    cached_at = excluded.cached_at;
-                "#,
-                params![
-                    clean_repo,
-                    clean_repo,
-                    detail.name,
-                    detail.latest_version,
-                    json_str,
-                    now,
-                ],
-            );
-        }
 
         Ok(())
     }
@@ -179,7 +145,7 @@ impl Database {
         app_id: &str,
         ttl_seconds: Option<i64>,
     ) -> Result<Option<String>> {
-        let clean = app_id.trim().to_lowercase();
+        let clean = app_id.trim();
         if clean.is_empty() {
             return Ok(None);
         }
@@ -215,7 +181,7 @@ impl Database {
         self.conn.execute(
             "INSERT INTO store_meta_cache (app_id, raw_toml, cached_at) VALUES (?1, ?2, ?3)
              ON CONFLICT(app_id) DO UPDATE SET raw_toml = excluded.raw_toml, cached_at = excluded.cached_at",
-            params![app_id.trim().to_lowercase(), raw_toml, now],
+            params![app_id.trim(), raw_toml, now],
         )?;
         Ok(())
     }

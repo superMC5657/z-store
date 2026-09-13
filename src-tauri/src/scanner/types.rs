@@ -50,13 +50,13 @@ impl From<&CatalogItem> for ScanConfig {
         let mut target_executables = cat.get_windows_executables();
         if target_executables.is_empty() {
             let clean_repo = cat.repo.to_lowercase().replace(['.', '-'], "");
+            // ADR-0010：id 为 owner/repo 坐标，不能再当文件名候选，仅以 repo/name 派生
             target_executables = vec![
                 format!("{}.exe", cat.repo.to_lowercase()),
                 format!("{}.exe", cat.repo),
                 format!("{}.exe", clean_repo),
                 format!("{}64.exe", cat.repo.to_lowercase()),
                 format!("{}-x64.exe", cat.repo.to_lowercase()),
-                format!("{}.exe", cat.id.to_lowercase()),
             ];
         }
 
@@ -66,7 +66,6 @@ impl From<&CatalogItem> for ScanConfig {
                 cat.repo.clone(),
                 cat.repo.to_lowercase(),
                 cat.name.clone(),
-                cat.id.clone(),
             ];
         }
 

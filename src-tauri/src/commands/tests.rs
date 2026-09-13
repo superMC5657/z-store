@@ -61,27 +61,6 @@ fn test_should_include_update() {
 }
 
 #[test]
-fn test_resolve_repo_key() {
-    let catalog = crate::github::CatalogService::new();
-
-    // 1. Catalog short id
-    let k1 = resolve_repo_key("rustdesk", &catalog);
-    assert_eq!(k1, "github.com/rustdesk/rustdesk");
-
-    // 2. Full repo owner/repo
-    let k2 = resolve_repo_key("rustdesk/rustdesk", &catalog);
-    assert_eq!(k2, "github.com/rustdesk/rustdesk");
-
-    // 3. Full GitHub URL
-    let k3 = resolve_repo_key("https://github.com/rustdesk/rustdesk", &catalog);
-    assert_eq!(k3, "github.com/rustdesk/rustdesk");
-
-    // 4. Codeberg
-    let k4 = resolve_repo_key("codeberg:user/repo", &catalog);
-    assert_eq!(k4, "codeberg.org/user/repo");
-}
-
-#[test]
 fn test_select_best_asset() {
     let assets = vec![
         crate::models::ReleaseAsset {

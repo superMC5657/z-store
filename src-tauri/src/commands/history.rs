@@ -105,7 +105,7 @@ pub fn import_user_data(
         .get_installed_apps()
         .unwrap_or_default()
         .into_iter()
-        .map(|a| a.app_id.to_lowercase())
+        .map(|a| a.app_id)
         .collect();
 
     let mut favorites_added = 0usize;
@@ -114,20 +114,22 @@ pub fn import_user_data(
     let mut installed_skipped = 0usize;
 
     for id in &plan.favorites {
-        if installed.contains(&id.to_lowercase()) {
+        let id = crate::forge::canonical_app_id(id);
+        if installed.contains(&id) {
             installed_skipped += 1;
             continue;
         }
-        if db.add_favorite(id).map_err(|e| e.to_string())? {
+        if db.add_favorite(&id).map_err(|e| e.to_string())? {
             favorites_added += 1;
         }
     }
     for id in &plan.watched {
-        if installed.contains(&id.to_lowercase()) {
+        let id = crate::forge::canonical_app_id(id);
+        if installed.contains(&id) {
             installed_skipped += 1;
             continue;
         }
-        if db.watch_app(id).map_err(|e| e.to_string())? {
+        if db.watch_app(&id).map_err(|e| e.to_string())? {
             watched_added += 1;
         }
     }

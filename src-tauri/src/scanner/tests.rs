@@ -189,10 +189,11 @@ fn test_match_expanded_apps_from_catalog() {
 
     let results = AppScanner::match_apps(&scanned, &catalog);
     assert_eq!(results.len(), 4);
-    assert!(results.iter().any(|r| r.catalog_id == "qbittorrent"));
-    assert!(results.iter().any(|r| r.catalog_id == "motrix"));
-    assert!(results.iter().any(|r| r.catalog_id == "playnite"));
-    assert!(results.iter().any(|r| r.catalog_id == "telegram-desktop"));
+    // ADR-0010：真实清单 id 已迁移为 canonical owner/repo
+    assert!(results.iter().any(|r| r.catalog_id == "qbittorrent/qbittorrent"));
+    assert!(results.iter().any(|r| r.catalog_id == "agalwood/motrix"));
+    assert!(results.iter().any(|r| r.catalog_id == "josefnemec/playnite"));
+    assert!(results.iter().any(|r| r.catalog_id == "telegramdesktop/tdesktop"));
 }
 
 #[test]

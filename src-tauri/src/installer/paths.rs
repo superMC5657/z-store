@@ -83,22 +83,30 @@ pub fn expand_env_path(path_str: &str) -> PathBuf {
     PathBuf::from(expanded)
 }
 
-pub fn dirs_or_fallback_with_base(app_id: &str, custom_base: Option<&str>) -> PathBuf {
+/// ADR-0010：canonical id 形如 owner/repo，目录名中将 '/' 折叠为 '-'
+/// （rustdesk/rustdesk → rustdesk-rustdesk），并消毒其余字符防御路径逃逸。
+/// 仅用于新安装目录命名；存量目录以 installed_apps.install_path 记录为准，不受影响。
+fn sanitize_dir_name(app_id: &str) -> String {
     let safe_id: String = app_id
         .chars()
+        .map(|c| if c == '/' { '-' } else { c })
         .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_' || *c == '.')
         .collect();
-    let clean_id = if safe_id.is_empty() || safe_id.starts_with('.') {
+    if safe_id.is_empty() || safe_id.starts_with('.') {
         "app".to_string()
     } else {
         safe_id
-    };
+    }
+}
+
+pub fn dirs_or_fallback_with_base(app_id: &str, custom_base: Option<&str>) -> PathBuf {
+    let clean_id = sanitize_dir_name(app_id);
 
     if let Some(base) = custom_base {
         let trimmed = base.trim();
         if !trimmed.is_empty() {
             let expanded_base = expand_env_path(trimmed);
-            return expanded_base.join(clean_id);
+            return expanded_base.join(&clean_id);
         }
     }
 
@@ -106,16 +114,7 @@ pub fn dirs_or_fallback_with_base(app_id: &str, custom_base: Option<&str>) -> Pa
 }
 
 pub fn dirs_or_fallback(app_id: &str) -> PathBuf {
-    // 消毒 app_id，防御路径逃逸
-    let safe_id: String = app_id
-        .chars()
-        .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_' || *c == '.')
-        .collect();
-    let clean_id = if safe_id.is_empty() || safe_id.starts_with('.') {
-        "app".to_string()
-    } else {
-        safe_id
-    };
+    let clean_id = sanitize_dir_name(app_id);
 
     #[cfg(target_os = "windows")]
     {

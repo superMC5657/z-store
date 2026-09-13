@@ -73,7 +73,7 @@ pub async fn search_apps(
                 .unwrap_or_default()
                 .into_iter()
                 .filter(|r| r.is_hidden)
-                .map(|r| r.app_id.to_lowercase())
+                .map(|r| r.app_id)
                 .collect()
         } else {
             std::collections::HashSet::new()
@@ -90,23 +90,9 @@ pub async fn search_apps(
     } else {
         Ok(results
             .into_iter()
-            .filter(|a| !hidden_ids.contains(&a.id.to_lowercase()))
+            .filter(|a| !hidden_ids.contains(&a.id))
             .collect())
     }
-}
-
-pub fn resolve_repo_key(id: &str, catalog: &crate::github::CatalogService) -> String {
-    let clean = id.trim().to_lowercase();
-    if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&clean) {
-        return coord.to_repo_key();
-    }
-    if let Ok(coords) = catalog.get_repo_coordinates(&clean) {
-        return format!("github.com/{}/{}", coords.owner, coords.repo).to_lowercase();
-    }
-    if clean.contains('/') {
-        return format!("github.com/{}", clean);
-    }
-    clean
 }
 
 /// FR-8.1：`z-store.toml` 原文获取（SQLite 缓存优先，共用详情 TTL gears；缺失时联网拉取）。
@@ -205,7 +191,7 @@ pub fn get_category_apps(
                 .unwrap_or_default()
                 .into_iter()
                 .filter(|r| r.is_hidden)
-                .map(|r| r.app_id.to_lowercase())
+                .map(|r| r.app_id)
                 .collect()
         } else {
             std::collections::HashSet::new()
@@ -217,7 +203,7 @@ pub fn get_category_apps(
         .into_iter()
         .filter(|a| {
             (a.category.to_lowercase() == cat_clean || a.category_name.to_lowercase() == cat_clean)
-                && !hidden_ids.contains(&a.id.to_lowercase())
+                && !hidden_ids.contains(&a.id)
         })
         .collect();
 
@@ -247,8 +233,8 @@ pub async fn get_app_details_impl(
     id: String,
     force_refresh: Option<bool>,
 ) -> Result<AppDetail, String> {
-    let clean_id = id.trim().to_string();
-    let repo_key = resolve_repo_key(&clean_id, &state.catalog);
+    // ADR-0010：入站 id 统一归一化为 canonical（小写 owner/repo / forge 前缀坐标）
+    let clean_id = crate::forge::canonical_app_id(&id);
     let is_force = force_refresh.unwrap_or(false);
 
     // 获取客户端设置的应用详情缓存保鲜期 (TTL，单位秒；0 表示每次实时校验)。
@@ -266,11 +252,6 @@ pub async fn get_app_details_impl(
             db.get_cached_app_detail(&clean_id, Some(ttl_seconds))
                 .ok()
                 .flatten()
-                .or_else(|| {
-                    db.get_cached_app_detail(&repo_key, Some(ttl_seconds))
-                        .ok()
-                        .flatten()
-                })
         });
         if let Some(mut cached_detail) = cached {
             cached_detail.id = clean_id.clone();
@@ -341,7 +322,7 @@ pub async fn get_app_details_impl(
             );
 
             if let Ok(db) = state.db.lock() {
-                let _ = db.save_cached_app_detail(&clean_id, &repo_key, &detail);
+                let _ = db.save_cached_app_detail(&clean_id, &detail);
             }
 
             return Ok(detail);
@@ -356,11 +337,6 @@ pub async fn get_app_details_impl(
             Err(e) => {
                 if let Ok(db) = state.db.lock() {
                     if let Ok(Some(mut fallback)) = db.get_cached_app_detail_fallback(&clean_id) {
-                        fallback.id = clean_id;
-                        fallback.is_stale_fallback = Some(true);
-                        return Ok(fallback);
-                    }
-                    if let Ok(Some(mut fallback)) = db.get_cached_app_detail_fallback(&repo_key) {
                         fallback.id = clean_id;
                         fallback.is_stale_fallback = Some(true);
                         return Ok(fallback);
@@ -385,7 +361,6 @@ pub async fn get_app_details_impl(
             None
         } else {
             db.get_cached_app_detail_fallback(&clean_id).ok().flatten()
-                .or_else(|| db.get_cached_app_detail_fallback(&repo_key).ok().flatten())
         };
         (ep, etag, payload, token, cached_detail)
     };
@@ -421,7 +396,6 @@ pub async fn get_app_details_impl(
                 // 仅刷新 cached_at 时间戳，零配额消耗延长保鲜期
                 if let Ok(db) = state.db.lock() {
                     let _ = db.touch_cached_app_detail(&clean_id, now);
-                    let _ = db.touch_cached_app_detail(&repo_key, now);
                 }
             }
 
@@ -434,7 +408,7 @@ pub async fn get_app_details_impl(
                         }
                     }
                 }
-                let _ = db.save_cached_app_detail(&clean_id, &repo_key, &detail);
+                let _ = db.save_cached_app_detail(&clean_id, &detail);
             }
 
             Ok(detail)
@@ -443,11 +417,6 @@ pub async fn get_app_details_impl(
             // 网络或限额异常时，优雅降级返回已存储的历史缓存
             if let Ok(db) = state.db.lock() {
                 if let Ok(Some(mut fallback_detail)) = db.get_cached_app_detail_fallback(&clean_id) {
-                    fallback_detail.id = clean_id;
-                    fallback_detail.is_stale_fallback = Some(true);
-                    return Ok(fallback_detail);
-                }
-                if let Ok(Some(mut fallback_detail)) = db.get_cached_app_detail_fallback(&repo_key) {
                     fallback_detail.id = clean_id;
                     fallback_detail.is_stale_fallback = Some(true);
                     return Ok(fallback_detail);

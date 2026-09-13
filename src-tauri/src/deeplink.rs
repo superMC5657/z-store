@@ -153,11 +153,12 @@ mod tests {
 
     #[test]
     fn test_parse_app_detail() {
-        let res = DeepLinkParser::parse("zstore://app/rustdesk").unwrap();
+        // ADR-0010：应用 id 为 canonical owner/repo
+        let res = DeepLinkParser::parse("zstore://app/rustdesk/rustdesk").unwrap();
         assert_eq!(
             res,
             DeepLinkAction::AppDetail {
-                app_id: "rustdesk".to_string()
+                app_id: "rustdesk/rustdesk".to_string()
             }
         );
 
@@ -173,11 +174,11 @@ mod tests {
 
     #[test]
     fn test_parse_install_app() {
-        let res = DeepLinkParser::parse("zstore://install/vlc").unwrap();
+        let res = DeepLinkParser::parse("zstore://install/videolan/vlc").unwrap();
         assert_eq!(
             res,
             DeepLinkAction::InstallApp {
-                app_id: "vlc".to_string()
+                app_id: "videolan/vlc".to_string()
             }
         );
     }

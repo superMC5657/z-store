@@ -222,50 +222,62 @@ fn test_app_details_cache_crud() {
         store_meta: None,
     };
 
-    db.save_cached_app_detail("rustdesk", "github.com/rustdesk/rustdesk", &detail).unwrap();
+    db.save_cached_app_detail("rustdesk/rustdesk", &detail).unwrap();
 
-    // 3. Hit via app_id with TTL
-    let cached_by_id = db.get_cached_app_detail("rustdesk", Some(1800)).unwrap().expect("hit by id");
+    // 3. Hit via canonical id with TTL
+    let cached_by_id = db
+        .get_cached_app_detail("rustdesk/rustdesk", Some(1800))
+        .unwrap()
+        .expect("hit by id");
     assert_eq!(cached_by_id.name, "RustDesk");
     assert_eq!(cached_by_id.latest_version, "v1.3.1");
     assert!(cached_by_id.cached_at.is_some());
 
-    // 4. Hit via repo_key
-    let cached_by_repo = db.get_cached_app_detail("github.com/rustdesk/rustdesk", Some(1800)).unwrap().expect("hit by repo_key");
-    assert_eq!(cached_by_repo.id, "rustdesk");
+    // 4. 缓存键精确匹配：旧 slug / repo_key / 大小写变体一律不命中（ADR-0010 单键语义）
+    assert!(db.get_cached_app_detail("rustdesk", Some(1800)).unwrap().is_none());
+    assert!(db
+        .get_cached_app_detail("github.com/rustdesk/rustdesk", Some(1800))
+        .unwrap()
+        .is_none());
 
-    // 5. Hit with different casing
-    let cached_casing = db.get_cached_app_detail("RustDesk", Some(1800)).unwrap().expect("hit with uppercase");
-    assert_eq!(cached_casing.name, "RustDesk");
-    let cached_repo_casing = db.get_cached_app_detail("GitHub.com/RustDesk/RustDesk", Some(1800)).unwrap().expect("hit with uppercase repo");
-    assert_eq!(cached_repo_casing.name, "RustDesk");
-
-    // 6. Test TTL expiration
+    // 5. Test TTL expiration
     // Using ttl = 0 means expired / must revalidate
-    assert!(db.get_cached_app_detail("rustdesk", Some(0)).unwrap().is_none());
+    assert!(db
+        .get_cached_app_detail("rustdesk/rustdesk", Some(0))
+        .unwrap()
+        .is_none());
     // Even if expired, fallback retrieves the cached copy
-    let fallback = db.get_cached_app_detail_fallback("rustdesk").unwrap().expect("fallback hit");
+    let fallback = db
+        .get_cached_app_detail_fallback("rustdesk/rustdesk")
+        .unwrap()
+        .expect("fallback hit");
     assert_eq!(fallback.name, "RustDesk");
 
-    // 7. Test touch_cached_app_detail
+    // 6. Test touch_cached_app_detail
     let fresh_now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs() as i64 + 100;
-    db.touch_cached_app_detail("rustdesk", fresh_now).unwrap();
-    let touched = db.get_cached_app_detail("rustdesk", Some(1800)).unwrap().expect("touched hit");
+    db.touch_cached_app_detail("rustdesk/rustdesk", fresh_now).unwrap();
+    let touched = db
+        .get_cached_app_detail("rustdesk/rustdesk", Some(1800))
+        .unwrap()
+        .expect("touched hit");
     assert_eq!(touched.cached_at, Some(fresh_now));
 
-    // 8. Update
+    // 7. Update
     let mut updated_detail = detail.clone();
     updated_detail.latest_version = "v1.3.2".to_string();
-    db.save_cached_app_detail("rustdesk", "github.com/rustdesk/rustdesk", &updated_detail).unwrap();
-    let cached_updated = db.get_cached_app_detail("rustdesk", Some(1800)).unwrap().unwrap();
+    db.save_cached_app_detail("rustdesk/rustdesk", &updated_detail).unwrap();
+    let cached_updated = db
+        .get_cached_app_detail("rustdesk/rustdesk", Some(1800))
+        .unwrap()
+        .unwrap();
     assert_eq!(cached_updated.latest_version, "v1.3.2");
 
-    // 9. Clear cache
+    // 8. Clear cache
     db.clear_app_details_cache().unwrap();
-    assert!(db.get_cached_app_detail("rustdesk", None).unwrap().is_none());
+    assert!(db.get_cached_app_detail("rustdesk/rustdesk", None).unwrap().is_none());
 }
 
 #[test]
@@ -348,17 +360,35 @@ fn test_verified_apps_and_store_meta_cache() {
     db.mark_verified_app("rustdesk").unwrap();
     assert!(db.is_verified_app("rustdesk").unwrap());
 
-    // store_meta 缓存：TTL 命中 / ttl=0 强制失效 / 无 TTL 常命中
-    assert!(db.get_cached_store_meta_raw("rustdesk", Some(1800)).unwrap().is_none());
-    db.save_cached_store_meta_raw("rustdesk", "[app]\ndisplay-name = \"X\"\n")
+    // store_meta 缓存：单键精确匹配 / TTL 命中 / ttl=0 强制失效 / 无 TTL 常命中
+    assert!(db
+        .get_cached_store_meta_raw("rustdesk/rustdesk", Some(1800))
+        .unwrap()
+        .is_none());
+    db.save_cached_store_meta_raw("rustdesk/rustdesk", "[app]\ndisplay-name = \"X\"\n")
         .unwrap();
     let raw = db
-        .get_cached_store_meta_raw("RustDesk", Some(1800))
+        .get_cached_store_meta_raw("rustdesk/rustdesk", Some(1800))
         .unwrap()
-        .expect("大小写不敏感命中");
+        .expect("canonical id 命中");
     assert!(raw.contains("display-name"));
-    assert!(db.get_cached_store_meta_raw("rustdesk", Some(0)).unwrap().is_none());
-    let fallback = db.get_cached_store_meta_raw("rustdesk", None).unwrap().unwrap();
+    // 大小写不一致 / 旧 slug 形态一律不命中（ADR-0010 单键语义）
+    assert!(db
+        .get_cached_store_meta_raw("RustDesk/RustDesk", Some(1800))
+        .unwrap()
+        .is_none());
+    assert!(db
+        .get_cached_store_meta_raw("rustdesk", Some(1800))
+        .unwrap()
+        .is_none());
+    assert!(db
+        .get_cached_store_meta_raw("rustdesk/rustdesk", Some(0))
+        .unwrap()
+        .is_none());
+    let fallback = db
+        .get_cached_store_meta_raw("rustdesk/rustdesk", None)
+        .unwrap()
+        .unwrap();
     assert!(fallback.contains("display-name"));
 }
 
@@ -384,4 +414,5 @@ fn test_icon_cache_meta_crud() {
         Some("https://raw.githubusercontent.com/agalwood/Motrix/HEAD/public/app-icon.png")
     );
 }
+
 

@@ -19,7 +19,7 @@ pub async fn fetch_app_latest_version_lightweight(
     force_refresh: Option<bool>,
 ) -> Result<(String, String), String> {
     let is_force = force_refresh.unwrap_or(false);
-    let clean_id = app_id.trim().to_lowercase();
+    let clean_id = app_id.trim();
 
     let ttl_seconds = state
         .db
@@ -264,7 +264,7 @@ pub async fn check_for_updates(
         db.get_all_rules()
             .unwrap_or_default()
             .into_iter()
-            .map(|r| (r.app_id.to_lowercase(), r))
+            .map(|r| (r.app_id.clone(), r))
             .collect()
     };
 
@@ -272,7 +272,7 @@ pub async fn check_for_updates(
     let eligible_apps: Vec<_> = installed
         .into_iter()
         .filter(|app| {
-            if let Some(rule) = rules_map.get(&app.app_id.to_lowercase()) {
+            if let Some(rule) = rules_map.get(&app.app_id) {
                 if rule.is_frozen || rule.is_hidden {
                     return false;
                 }
@@ -302,7 +302,7 @@ pub async fn check_for_updates(
             let app_handle = app_handle.clone();
             let state_ref = &state;
             let checked_count = Arc::clone(&checked_count);
-            let rule_opt = rules_map.get(&app.app_id.to_lowercase()).cloned();
+            let rule_opt = rules_map.get(&app.app_id).cloned();
             async move {
                 let mut found_item = None;
 
@@ -390,7 +390,7 @@ async fn notify_watched_updates(
         .as_secs() as i64;
 
     for w in watched {
-        if let Some(rule) = rules_map.get(&w.app_id.to_lowercase()) {
+        if let Some(rule) = rules_map.get(&w.app_id) {
             if rule.is_frozen || rule.is_hidden {
                 continue;
             }

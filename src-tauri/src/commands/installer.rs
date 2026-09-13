@@ -65,6 +65,8 @@ pub async fn install_app(
     asset_name: Option<String>,
     custom_install_dir: Option<String>,
 ) -> Result<InstalledApp, String> {
+    // ADR-0010：深链安装可能传入 URL/前缀形态，入站归一化后全程使用 canonical id
+    let app_id = crate::forge::canonical_app_id(&app_id);
     // 读取用户配置（自定义下载路径、绿色便携根路径）
     let (custom_download_dir, custom_portable_dir) = {
         if let Ok(db) = state.db.lock() {
