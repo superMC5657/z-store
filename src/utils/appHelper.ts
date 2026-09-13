@@ -9,24 +9,15 @@ export interface IconInfo {
 
 /**
  * 统一解析应用的图标与背景色：
- * 优先使用自身覆盖配置，其次在收录库汇总列表中查找匹配项，未匹配则提供稳健默认兜底。
+ * 优先使用自身覆盖配置，其次按 canonical id（owner/repo）在收录库中精确查找，未匹配则提供稳健默认兜底。
  */
 export function resolveAppIconInfo(
   appId: string,
-  appName: string,
   apps: AppSummary[] = [],
   iconOverride?: string,
   iconBgOverride?: string
 ): IconInfo {
-  const idLower = appId.toLowerCase();
-  const nameLower = appName.toLowerCase();
-
-  const catalogApp = apps.find(
-    (a) =>
-      a.id.toLowerCase() === idLower ||
-      (a.owner && a.repo && `${a.owner}/${a.repo}`.toLowerCase() === idLower) ||
-      a.name.toLowerCase() === nameLower
-  );
+  const catalogApp = apps.find((a) => a.id === appId);
 
   return {
     icon: iconOverride || catalogApp?.icon || '📦',
@@ -43,7 +34,7 @@ export function resolveInstalledIconInfo(
   app: InstalledApp,
   apps: AppSummary[] = []
 ): IconInfo {
-  return resolveAppIconInfo(app.app_id, app.app_name, apps, app.icon, app.icon_bg);
+  return resolveAppIconInfo(app.app_id, apps, app.icon, app.icon_bg);
 }
 
 /**

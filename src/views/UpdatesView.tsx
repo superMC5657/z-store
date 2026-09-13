@@ -64,8 +64,8 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [fadingIds, setFadingIds] = useState<Set<string>>(new Set());
 
-  const resolveIconInfo = (appId: string, appName: string, iconOverride?: string, iconBgOverride?: string) =>
-    resolveAppIconInfo(appId, appName, apps, iconOverride, iconBgOverride);
+  const resolveIconInfo = (appId: string, iconOverride?: string, iconBgOverride?: string) =>
+    resolveAppIconInfo(appId, apps, iconOverride, iconBgOverride);
 
   const handleUpdate = async (id: string) => {
     try {
@@ -220,7 +220,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
             <span>关注的应用有新动态 ({watchNotifications.length})</span>
           </span>
           {watchNotifications.map((n) => {
-            const iconInfo = resolveIconInfo(n.app_id, n.app_name || n.app_id);
+            const iconInfo = resolveIconInfo(n.app_id);
             return (
               <div
                 key={n.app_id}
@@ -298,7 +298,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
             const isThisUpdating = updatingId === item.app_id;
             const isMenuOpen = activeMenuId === item.app_id;
             const isFading = fadingIds.has(item.app_id);
-            const iconInfo = resolveIconInfo(item.app_id, item.app_name, item.icon, item.icon_bg);
+            const iconInfo = resolveIconInfo(item.app_id, item.icon, item.icon_bg);
 
             return (
               <div
