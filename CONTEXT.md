@@ -39,7 +39,7 @@
 | **OAuth Device Flow** | `OAuth Device Flow` | GitHub 登录设备码流程，Client ID 取自统一配置中枢 `config.toml`（支持设置项覆盖）；轮询容错 10 次、单次 10s 超时；`Expired` / `Denied` 独立状态机展示。 | 网页登录、PAT 登录 |
 | **流式更新检查** | `Streaming Update Check` | 更新中心采用并发管道流式检测，实时发射 `zstore://update-check-progress` 推流事件，驱动逐项跳出微动效。 | 批量更新、后台检测 |
 | **统一配置中枢** | `Unified Project Config` | `src-tauri/config.toml` 作为项目超参与默认配置的单一配置源 (SSOT)，结合编译期宏内置兜底与运行期动态重载。 | 配置文件、硬编码常量 |
-| **规范应用标识** | `Canonical App Id` | 全系统唯一应用标识，统一为小写 `owner/repo`（GitHub）或 `forge[:host]:owner/repo`（多源）；id 即仓库坐标本身。入站标识（命令/深链/导入）一律经 `canonical_app_id()` 归一化，目录检索仅按 id 唯一匹配。详见 ADR-0010。 | 旧 slug、随机 UUID、应用别名 ID |
+| **规范应用标识** | `Canonical App Id` | 全系统唯一应用标识，统一为小写 `owner/repo`（GitHub）或 `forge[:host]:owner/repo`（多源）；id 即仓库坐标本身。入站标识（命令/深链/导入）一律经 `canonical_app_id()` 归一化，目录检索仅按 id 唯一匹配。详见 ADR-0010。 | 随机 UUID、应用别名 ID |
 
 ---
 

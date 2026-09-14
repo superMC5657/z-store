@@ -40,7 +40,7 @@
 - **TTL 智能缓存与 ETag 续期**：统一基线缓存 TTL（默认 30 分钟），过期后触发 ETag 304 条件请求，零配额消耗延长缓存新鲜度。
 
 ### 2. 🦊 多托管平台与多设备平台双维筛选
-- **多托管源抽象**：`ForgeProvider` 统一抽象层原生支持 **GitHub**、**Codeberg**、**Forgejo** 与自建 **Gitea** 实例（[ADR-0006](docs/adr/0006-multi-forge-ecosystem-support.md)），跨平台统一仓库标识（`gh:`、`cb:`、`gitea:`），支持独立主机 PAT 与速率管理。
+- **多托管源抽象**：`ForgeProvider` 统一抽象层原生支持 **GitHub**、**Codeberg**、**GitLab**、**Forgejo** 与自建 **Gitea** 实例（[ADR-0006](docs/adr/0006-multi-forge-ecosystem-support.md)），跨平台统一仓库标识（`gh:`、`cb:`、`gitea:`），支持独立主机 PAT 与速率管理。
 - **原生多端标识符结构**：元数据清单原生支持按操作系统划分的应用标识符体系（`identifiers`：Windows 进程/可执行文件名、Linux 进程名、macOS 应用名、Android/iOS 原生包名）。
 - **双维交叉筛选**：分类中心支持按设备平台（全部设备 / Windows / Android / macOS / Linux / iOS）与功能分类（系统实用、开发工具、影音视听等 10 大分类）实时双维交叉过滤。
 
@@ -82,7 +82,7 @@
 
 - **桌面底座**: Tauri 2.2 + Rust 1.77+
 - **前端界面**: React 19 + TypeScript 5.7 + Vite 6 + 原生 Fluent 2.0 CSS + Fluent 矢量图标体系 (`lucide-react`)
-- **本地数据库**: 嵌入式 SQLite (`rusqlite` bundled，维护 13 张核心表)
+- **本地数据库**: 嵌入式 SQLite (`rusqlite` bundled，维护 15 张核心表)
 - **配置中枢**: 单一基线配置源（`src-tauri/config.toml`），结合编译期内置兜底与外部重载机制
 - **网络与下载**: `reqwest`（`json` / `stream` / `socks` 特性）+ ETag 条件缓存 + 并发镜像测速管道；自动继承系统代理与 TUN 模式
 - **桌面开发配置**: `pnpm tauri:dev`（基于 `src-tauri/tauri.dev.conf.json` 配置本地安全策略）
@@ -100,9 +100,10 @@
 | **Feature C: 版本控制与验签** | 跳过/锁定版本与证书核验 | **100% 已交付** | SQLite 版本规则表、Windows Authenticode 签名核验 ([ADR-0004](docs/adr/0004-streaming-installer-and-checksum-verification.md)) |
 | **Feature D: 开发者生态** | 开发者全景与 Star 仓库同步 | **100% 已交付** | 开发者主页、GitHub Star 导入、搜索/浏览历史持久化 |
 | **Feature E: 协议唤起与多端** | `zstore://` 路由与多端管道 | **100% 已交付** | URL Scheme 深度链接、API 配额药丸胶囊、类 Unix 安装管道 |
-| **ADR-0007: 开放清单与缓存** | 开放清单同步 + 可配 TTL | **100% 已交付** | 远程 Manifest 仓库动态拉取、0~1440m TTL、ETag 304 零配额续期 |
+| **ADR-0007: 开放清单与缓存** | 开放清单同步 + 固定基线 TTL | **100% 已交付** | 远程 Manifest 仓库动态拉取、统一 30 分钟基线 TTL、ETag 304 零配额续期 |
 | **ADR-0008: 出站代理与设置重构** | 出站代理 + OAuth 加固 + 设置 5 组 | **100% 已交付** | 系统代理透明捕获、OAuth 三级 Client ID、独立状态机、设置 5 组规范 ([ADR-0008](docs/adr/0008-outbound-proxy-oauth-hardening-and-settings-restructure.md)) |
 | **ADR-0009: 清单解耦与多端体系** | 独立生态仓库 + 多端 Identifiers | **100% 已交付** | 解耦至 `superMC5657/z-store-catalog`、原生多端标识符结构、设备与分类双维筛选、单一配置源 ([ADR-0009](docs/adr/0009-catalog-manifest-repository-decoupling.md)) |
+| **ADR-0010: 规范应用标识** | canonical id 全链路统一 | **100% 已交付** | 小写 `owner/repo` 全局唯一标识、入口统一归一化、纯粹单键索引 ([ADR-0010](docs/adr/0010-canonical-app-identifier.md)) |
 | **M1: 体验扩展与 PWA** | 移动适配与网页发现站 | **推进中** | Web/PWA 发现站规划、Android Shizuku 免 Root 安装预研 |
 
 ---
@@ -120,9 +121,9 @@
 # 1. 安装前端依赖
 pnpm install
 
-# 2. 运行自动化测试与类型检查
+# 2. 运行自动化测试与前端类型检查
 cargo test
-pnpm typecheck
+pnpm build
 
 # 3. 启动前端浏览器开发预览
 pnpm dev
@@ -151,6 +152,7 @@ pnpm tauri build
 - [ADR-0007: 开源清单仓库动态同步与客户端按需 API 详情拉取（含可配置 TTL 缓存）](docs/adr/0007-open-manifest-catalog-and-configurable-ttl-cache.md)
 - [ADR-0008: 出站代理与 OAuth 加固及设置中心重构](docs/adr/0008-outbound-proxy-oauth-hardening-and-settings-restructure.md)
 - [ADR-0009: 应用市场生态清单仓库与客户端运行时引擎解耦](docs/adr/0009-catalog-manifest-repository-decoupling.md)
+- [ADR-0010: 规范应用标识（Canonical App Identifier）](docs/adr/0010-canonical-app-identifier.md)
 - [全局决策与执行边界规范 (Decision Protocol)](.agents/rules/decision-protocol.md)
 
 ---

@@ -154,45 +154,6 @@ pub fn resolve_default_app_data_dir() -> std::path::PathBuf {
     }
 }
 
-/// 一次性启动迁移（ADR-0003）：把应用更名前 `%LOCALAPPDATA%/ZStore` 旧数据目录
-/// 搬迁到当前数据目录。项目无存量发布用户，仅为开发机自愈；
-/// 确认旧目录不再残留后，整体删除本函数及其调用点。
-fn migrate_legacy_data_dir(target_dir: &std::path::Path) {
-    #[cfg(target_os = "windows")]
-    {
-        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
-            let legacy_dir = std::path::PathBuf::from(local_app_data).join("ZStore");
-            if legacy_dir.exists() && legacy_dir != target_dir {
-                let target_db = target_dir.join("z_store.db");
-                if !target_db.exists() {
-                    for file_name in &["z_store.db", "z_store.db-wal", "z_store.db-shm", "zstore.db"] {
-                        let legacy_file = legacy_dir.join(file_name);
-                        let target_file = target_dir.join(file_name);
-                        if legacy_file.exists() && !target_file.exists() {
-                            let _ = std::fs::copy(&legacy_file, &target_file);
-                        }
-                    }
-                }
-                let legacy_icons = legacy_dir.join("icons");
-                let target_icons = target_dir.join("icons");
-                if legacy_icons.is_dir() && !target_icons.exists() {
-                    let _ = std::fs::create_dir_all(&target_icons);
-                    if let Ok(entries) = std::fs::read_dir(&legacy_icons) {
-                        for entry in entries.flatten() {
-                            let src = entry.path();
-                            if src.is_file() {
-                                let dst = target_icons.join(entry.file_name());
-                                if !dst.exists() {
-                                    let _ = std::fs::copy(&src, &dst);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
 
 #[cfg(target_os = "windows")]
 fn init_windows_system_proxy() {
@@ -324,7 +285,6 @@ pub fn run() {
 
     let db_dir = get_app_data_dir();
     let _ = std::fs::create_dir_all(&db_dir);
-    migrate_legacy_data_dir(&db_dir);
     let db_path = db_dir.join("z_store.db");
 
     let db = Database::open(&db_path)

@@ -114,34 +114,6 @@ impl Database {
             INSERT OR IGNORE INTO user_settings (key, value) VALUES ('watch_notify_frequency', 'daily');
             "#,
         )?;
-        // 存量库升级兜底：已存在 watched_apps 旧表时补齐通知时间列
-        let _ = self.conn.execute(
-            "ALTER TABLE watched_apps ADD COLUMN last_notified_at INTEGER",
-            [],
-        );
-        // ADR-0010：slug 时代的 app_details_cache 旧形状（含 repo_key 列）直接重建，
-        // 纯缓存表无数据迁移价值，TTL 内自动重新拉取
-        let has_repo_key: bool = self
-            .conn
-            .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('app_details_cache') WHERE name = 'repo_key'",
-                [],
-                |r| r.get::<_, i64>(0),
-            )
-            .map(|n| n > 0)
-            .unwrap_or(false);
-        if has_repo_key {
-            let _ = self.conn.execute_batch(
-                "DROP TABLE IF EXISTS app_details_cache;
-                 CREATE TABLE IF NOT EXISTS app_details_cache (
-                     app_id TEXT PRIMARY KEY,
-                     name TEXT NOT NULL,
-                     latest_version TEXT NOT NULL,
-                     detail_json TEXT NOT NULL,
-                     cached_at INTEGER NOT NULL
-                 );",
-            );
-        }
         Ok(())
     }
 }

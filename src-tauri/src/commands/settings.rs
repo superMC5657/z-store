@@ -50,22 +50,6 @@ pub fn get_settings(state: State<'_, AppState>) -> Result<HashMap<String, String
         }
     }
 
-    // 3. 历史废弃或迁移前的旧地址自动平滑迁移至当前权威源
-    if let Some(url) = map.get("catalog_source_url") {
-        if url.contains("gitmirror.com")
-            || url.contains("src-tauri/src/catalog.json")
-            || url.contains("supermc/z-store/main/catalog.json")
-            || url.contains("superMC5657/z-store/main/catalog.json")
-        {
-            let def_url = crate::config::get_project_config().catalog.default_source_url.clone();
-            map.insert("catalog_source_url".to_string(), def_url);
-        }
-    }
-
-    let dl_val = map.get("download_dir").cloned().unwrap_or_default();
-    if dl_val.trim().is_empty() || dl_val.contains("zstore_downloads") {
-        map.insert("download_dir".to_string(), "~/Downloads".to_string());
-    }
     Ok(map)
 }
 
