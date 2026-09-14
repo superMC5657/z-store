@@ -52,7 +52,7 @@ pub fn get_installed_apps(state: State<'_, AppState>) -> Result<Vec<InstalledApp
         let _ = db.remove_installed_app(ghost_id);
         crate::commands::scanner::remove_from_detected_cache(ghost_id);
     }
-    apps.retain(|a| !ghost_app_ids.iter().any(|g| g.eq_ignore_ascii_case(&a.app_id)));
+    apps.retain(|a| !ghost_app_ids.iter().any(|g| g == &a.app_id));
 
     Ok(apps)
 }
@@ -278,12 +278,13 @@ pub async fn install_app(
 
 #[tauri::command]
 pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
+    let app_id = crate::forge::canonical_app_id(&app_id);
     let installed_app = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         db.get_installed_apps()
             .map_err(|e| e.to_string())?
             .into_iter()
-            .find(|a| a.app_id.eq_ignore_ascii_case(&app_id))
+            .find(|a| a.app_id == app_id)
     };
 
     let app = match installed_app {
@@ -293,7 +294,7 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result
                 .catalog
                 .get_catalog_items()
                 .into_iter()
-                .find(|c| c.id.eq_ignore_ascii_case(&app_id))
+                .find(|c| c.id == app_id)
                 .ok_or_else(|| format!("未找到 ID 为 {} 的应用安装记录", app_id))?;
             let resolved_path = crate::scanner::AppScanner::resolve_installed_app_path(&cat.name, &cat.id, Some(&cat.repo));
             InstalledApp {
@@ -396,12 +397,13 @@ pub fn unmanage_app(state: State<'_, AppState>, app_id: String) -> Result<bool, 
 
 #[tauri::command]
 pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
+    let app_id = crate::forge::canonical_app_id(&app_id);
     let installed_app_opt = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         db.get_installed_apps()
             .map_err(|e| e.to_string())?
             .into_iter()
-            .find(|a| a.app_id.eq_ignore_ascii_case(&app_id))
+            .find(|a| a.app_id == app_id)
     };
 
     let (app_name, target_path, catalog_repo) = if let Some(ref app) = installed_app_opt {
@@ -415,7 +417,7 @@ pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, St
             .catalog
             .get_catalog_items()
             .into_iter()
-            .find(|c| c.id.eq_ignore_ascii_case(&app_id));
+            .find(|c| c.id == app_id);
         if let Some(c) = cat {
             let p = crate::scanner::AppScanner::resolve_installed_app_path(&c.name, &c.id, Some(&c.repo))
                 .unwrap_or_default();

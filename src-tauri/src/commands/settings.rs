@@ -103,19 +103,7 @@ pub fn save_setting(
     value: String,
 ) -> Result<bool, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    // TTL 挡位归一化：非法值回退默认 30，保证库中只存 ADR-0007 有效集 {0,10,30,60,360,1440}
-    let value = if key == "detail_cache_ttl_minutes" {
-        let parsed = value
-            .trim()
-            .parse::<i64>()
-            .unwrap_or_else(|_| crate::db::default_detail_cache_ttl_minutes());
-        crate::db::normalize_detail_cache_ttl(parsed).to_string()
-    } else if key == "watch_notify_frequency" {
-        // FR-6.2：非法频率回退默认 daily，保证库中只存 {startup, daily}
-        crate::db::normalize_watch_notify_frequency(&value)
-    } else {
-        value
-    };
+    let value = crate::db::normalize_setting_value(&key, &value);
     db.set_setting(&key, &value).map_err(|e| e.to_string())?;
 
     if key == "launch_on_startup" {

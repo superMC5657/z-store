@@ -39,7 +39,7 @@ impl DeepLinkParser {
             if let Some(query_str) = query_part {
                 for pair in query_str.split('&') {
                     if let Some((k, v)) = pair.split_once('=') {
-                        if k.eq_ignore_ascii_case("q") || k.eq_ignore_ascii_case("query") {
+                        if k == "q" {
                             let with_spaces = v.replace('+', " ");
                             let decoded = urlencoding::decode(&with_spaces).unwrap_or_else(|_| with_spaces.as_str().into());
                             return Some(DeepLinkAction::Search {

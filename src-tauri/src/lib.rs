@@ -154,6 +154,9 @@ pub fn resolve_default_app_data_dir() -> std::path::PathBuf {
     }
 }
 
+/// 一次性启动迁移（ADR-0003）：把应用更名前 `%LOCALAPPDATA%/ZStore` 旧数据目录
+/// 搬迁到当前数据目录。项目无存量发布用户，仅为开发机自愈；
+/// 确认旧目录不再残留后，整体删除本函数及其调用点。
 fn migrate_legacy_data_dir(target_dir: &std::path::Path) {
     #[cfg(target_os = "windows")]
     {

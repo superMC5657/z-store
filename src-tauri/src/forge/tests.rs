@@ -54,10 +54,6 @@ fn test_repository_url_parser() {
 
 #[test]
 fn test_forge_type_metadata() {
-    assert_eq!(ForgeType::GitHub.icon(), "🐙");
-    assert_eq!(ForgeType::Codeberg.icon(), "🏔️");
-    assert_eq!(ForgeType::Gitea.icon(), "🍵");
-    assert_eq!(ForgeType::GitLab.icon(), "🦊");
     assert_eq!(ForgeType::GitHub.default_host(), "github.com");
     assert_eq!(ForgeType::Codeberg.default_host(), "codeberg.org");
     assert_eq!(ForgeType::GitLab.default_host(), "gitlab.com");

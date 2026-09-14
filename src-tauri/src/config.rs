@@ -127,7 +127,7 @@ impl Default for OauthConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CatalogConfig {
-    #[serde(default = "default_local_path", alias = "catalog_path")]
+    #[serde(default = "default_local_path")]
     pub local_path: String,
     #[serde(default = "default_source_url")]
     pub default_source_url: String,

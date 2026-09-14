@@ -48,6 +48,15 @@ impl CatalogService {
             crate::notify_rate_limit("github.com", res.headers());
         }
 
+        let parsed_user = match user_res {
+            Ok(res) if res.status().is_success() => Some(
+                res.json::<GitHubUserResponse>()
+                    .await
+                    .map_err(|e| format!("解析 GitHub 用户数据失败: {}", e))?,
+            ),
+            _ => None,
+        };
+
         let (
             login,
             name,
@@ -60,59 +69,42 @@ impl CatalogService {
             public_repos,
             followers,
             following,
-        ) = match user_res {
-            Ok(res) if res.status().is_success() => {
-                let u: GitHubUserResponse = res.json().await.unwrap_or(GitHubUserResponse {
-                    login: dev.to_string(),
-                    name: None,
-                    avatar_url: Some(format!("https://avatars.githubusercontent.com/{}", dev)),
-                    html_url: Some(format!("https://github.com/{}", dev)),
-                    bio: None,
-                    company: None,
-                    blog: None,
-                    location: None,
-                    email: None,
-                    public_repos: Some(0),
-                    followers: Some(0),
-                    following: Some(0),
-                });
-                (
-                    u.login,
-                    u.name,
-                    u.avatar_url
-                        .unwrap_or_else(|| format!("https://avatars.githubusercontent.com/{}", dev)),
-                    u.html_url
-                        .unwrap_or_else(|| format!("https://github.com/{}", dev)),
-                    u.bio,
-                    u.company,
-                    u.blog,
-                    u.location,
-                    u.public_repos.unwrap_or(0),
-                    u.followers.unwrap_or(0),
-                    u.following.unwrap_or(0),
-                )
-            }
-            _ => {
-                let fallback_lock = self.items.read().unwrap_or_else(|e| e.into_inner());
-                let matched_count = fallback_lock
-                    .iter()
-                    .filter(|i| i.owner.eq_ignore_ascii_case(dev))
-                    .count();
+        ) = if let Some(u) = parsed_user {
+            (
+                u.login,
+                u.name,
+                u.avatar_url
+                    .unwrap_or_else(|| format!("https://avatars.githubusercontent.com/{}", dev)),
+                u.html_url.unwrap_or_else(|| format!("https://github.com/{}", dev)),
+                u.bio,
+                u.company,
+                u.blog,
+                u.location,
+                u.public_repos.unwrap_or(0),
+                u.followers.unwrap_or(0),
+                u.following.unwrap_or(0),
+            )
+        } else {
+            // 离线/限流降级：仅以收录库归属计数作画像提示，不伪造远端数据
+            let fallback_lock = self.items.read().unwrap_or_else(|e| e.into_inner());
+            let matched_count = fallback_lock
+                .iter()
+                .filter(|i| i.owner.eq_ignore_ascii_case(dev))
+                .count();
 
-                (
-                    dev.to_string(),
-                    Some(dev.to_string()),
-                    format!("https://avatars.githubusercontent.com/{}", dev),
-                    format!("https://github.com/{}", dev),
-                    Some(format!("GitHub 知名开源贡献者/团队 {}", dev)),
-                    None,
-                    None,
-                    None,
-                    matched_count as u64,
-                    100,
-                    0,
-                )
-            }
+            (
+                dev.to_string(),
+                Some(dev.to_string()),
+                format!("https://avatars.githubusercontent.com/{}", dev),
+                format!("https://github.com/{}", dev),
+                Some(format!("GitHub 知名开源贡献者/团队 {}", dev)),
+                None,
+                None,
+                None,
+                matched_count as u64,
+                100,
+                0,
+            )
         };
 
         // 获取仓库列表
@@ -137,11 +129,9 @@ impl CatalogService {
                             .unwrap_or_else(|| format!("{}/{}", dev, repo_name));
                         let id = full_name.clone();
 
-                        let in_cat = catalog_list.iter().find(|i| {
-                            i.id.eq_ignore_ascii_case(&id)
-                                || (i.owner.eq_ignore_ascii_case(dev)
-                                    && i.repo.eq_ignore_ascii_case(&repo_name))
-                        });
+                        let in_cat = catalog_list
+                            .iter()
+                            .find(|i| i.id == crate::forge::canonical_app_id(&full_name));
 
                         repos.push(DeveloperRepoItem {
                             id,
@@ -179,7 +169,7 @@ impl CatalogService {
                     html_url: format!("https://github.com/{}/{}", i.owner, i.repo),
                     stars: i.stars,
                     forks: i.forks,
-                    language: Some("Rust / C++".to_string()),
+                    language: None,
                     has_releases: true,
                     in_catalog: true,
                     latest_release_tag: Some(i.default_version.clone()),
@@ -312,13 +302,12 @@ impl CatalogService {
             let full_name = r.full_name.clone().unwrap_or_default();
             let repo_name = r.name.clone().unwrap_or_default();
 
-            // 精准匹配：要求与官方 Catalog 的完整 owner/repo 严格对齐，
+            // ADR-0010：远端 full_name 归一化为 canonical id 后与收录库精确对齐，
             // 杜绝因用户 Star 了同名第三方 Fork（如 someone/rustdesk）而被错误误判为官方应用
-            if let Some(cat) = catalog_list.iter().find(|c| {
-                let canonical_slug = format!("{}/{}", c.owner, c.repo);
-                c.id.eq_ignore_ascii_case(&full_name)
-                    || canonical_slug.eq_ignore_ascii_case(&full_name)
-            }) {
+            if let Some(cat) = catalog_list
+                .iter()
+                .find(|c| c.id == crate::forge::canonical_app_id(&full_name))
+            {
                 catalog_matches.push(cat.to_summary());
             } else {
                 other_repos.push(DeveloperRepoItem {

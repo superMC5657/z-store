@@ -41,13 +41,14 @@ pub fn import_matched_apps(
     let db = state.db.lock().map_err(|e| e.to_string())?;
 
     for req in apps {
-        let (icon, icon_bg) = if let Some(cat) = state.catalog.get_catalog_item(&req.app_id) {
+        let app_id = crate::forge::canonical_app_id(&req.app_id);
+        let (icon, icon_bg) = if let Some(cat) = state.catalog.get_catalog_item(&app_id) {
             (Some(cat.icon), Some(cat.icon_bg))
         } else {
             (None, None)
         };
         let installed = InstalledApp {
-            app_id: req.app_id,
+            app_id,
             app_name: req.app_name,
             version: req.version,
             installed_at: now,
@@ -83,7 +84,7 @@ pub fn invalidate_detected_app_ids_cache() {
 pub fn remove_from_detected_cache(app_id: &str) {
     if let Ok(mut guard) = DETECTED_APP_IDS_CACHE.write() {
         if let Some((_, ref mut ids)) = *guard {
-            ids.retain(|id| !id.eq_ignore_ascii_case(app_id));
+            ids.retain(|id| id != app_id);
         }
     }
 }
@@ -91,7 +92,7 @@ pub fn remove_from_detected_cache(app_id: &str) {
 pub fn add_to_detected_cache(app_id: &str) {
     if let Ok(mut guard) = DETECTED_APP_IDS_CACHE.write() {
         if let Some((_, ref mut ids)) = *guard {
-            if !ids.iter().any(|id| id.eq_ignore_ascii_case(app_id)) {
+            if !ids.iter().any(|id| id == app_id) {
                 ids.push(app_id.to_string());
             }
         }
@@ -136,9 +137,10 @@ pub async fn get_detected_installed_app_ids(
 
 #[tauri::command]
 pub fn import_single_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
+    let app_id = crate::forge::canonical_app_id(&app_id);
     let cat = state
         .catalog
-        .get_catalog_item(app_id.trim())
+        .get_catalog_item(&app_id)
         .ok_or_else(|| format!("Catalog 中未收录该应用: {}", app_id))?;
 
     let resolved_path = crate::scanner::AppScanner::resolve_installed_app_path(&cat.name, &cat.id, Some(&cat.repo));
@@ -168,7 +170,7 @@ pub fn import_single_app(state: State<'_, AppState>, app_id: String) -> Result<b
     // 添加管理后让探测缓存也包含该 ID
     if let Ok(mut guard) = DETECTED_APP_IDS_CACHE.write() {
         if let Some((_, ref mut ids)) = *guard {
-            if !ids.iter().any(|id| id.eq_ignore_ascii_case(&installed.app_id)) {
+            if !ids.iter().any(|id| *id == installed.app_id) {
                 ids.push(installed.app_id.clone());
             }
         }

@@ -1,4 +1,4 @@
-use super::coord::{ForgeType, UniversalRepoCoord};
+use super::coord::ForgeType;
 use super::provider::{ForgeProvider, ForgeReleaseInfo, ForgeRepoInfo};
 use crate::installer::InstallerEngine;
 use crate::models::ReleaseAsset;
@@ -81,12 +81,6 @@ impl ForgeProvider for GiteaProvider {
         let payload: GiteaRepoPayload = resp.json().await.map_err(|e| e.to_string())?;
 
         Ok(ForgeRepoInfo {
-            coord: UniversalRepoCoord {
-                forge: self.forge_type,
-                host: host.to_string(),
-                owner: owner.to_string(),
-                repo: repo.to_string(),
-            },
             name: payload.name,
             description: payload.description,
             stars: payload.stars_count.unwrap_or(0),
@@ -237,18 +231,12 @@ impl ForgeProvider for GiteaProvider {
         }
 
         #[derive(Deserialize)]
-        struct GiteaSearchOwner {
-            login: String,
-        }
-
-        #[derive(Deserialize)]
         struct GiteaSearchItem {
             name: String,
             description: Option<String>,
             stars_count: Option<u64>,
             forks_count: Option<u64>,
             default_branch: Option<String>,
-            owner: GiteaSearchOwner,
         }
 
         #[derive(Deserialize)]
@@ -262,12 +250,6 @@ impl ForgeProvider for GiteaProvider {
             .unwrap_or_default()
             .into_iter()
             .map(|item| ForgeRepoInfo {
-                coord: UniversalRepoCoord {
-                    forge: self.forge_type,
-                    host: host.to_string(),
-                    owner: item.owner.login,
-                    repo: item.name.clone(),
-                },
                 name: item.name,
                 description: item.description,
                 stars: item.stars_count.unwrap_or(0),

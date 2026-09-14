@@ -10,6 +10,7 @@ pub fn get_favorites(state: State<'_, AppState>) -> Result<Vec<String>, String> 
 
 #[tauri::command]
 pub fn toggle_favorite(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
+    let app_id = crate::forge::canonical_app_id(&app_id);
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.toggle_favorite(&app_id).map_err(|e| e.to_string())
 }
@@ -40,6 +41,7 @@ pub fn remove_search_query(state: State<'_, AppState>, query: String) -> Result<
 
 #[tauri::command]
 pub fn record_app_view(state: State<'_, AppState>, app_id: String) -> Result<(), String> {
+    let app_id = crate::forge::canonical_app_id(&app_id);
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.record_app_view(&app_id).map_err(|e| e.to_string())
 }
@@ -52,7 +54,7 @@ pub fn get_recently_viewed_apps(state: State<'_, AppState>) -> Result<Vec<AppSum
     let mut result = Vec::new();
 
     for id in ids {
-        if let Some(item) = catalog_items.iter().find(|i| i.id.eq_ignore_ascii_case(&id)) {
+        if let Some(item) = catalog_items.iter().find(|i| i.id == id) {
             result.push(item.to_summary());
         }
     }
@@ -69,18 +71,18 @@ pub fn clear_view_history(state: State<'_, AppState>) -> Result<(), String> {
 
 #[tauri::command]
 pub fn watch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
-    let id = app_id.trim();
+    let id = crate::forge::canonical_app_id(&app_id);
     if id.is_empty() {
         return Err("应用 ID 不能为空".to_string());
     }
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.watch_app(id).map_err(|e| e.to_string())
+    db.watch_app(&id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn unwatch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.unwatch_app(app_id.trim()).map_err(|e| e.to_string())
+    db.unwatch_app(&crate::forge::canonical_app_id(&app_id)).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -134,17 +136,7 @@ pub fn import_user_data(
         }
     }
     for (key, value) in &plan.settings {
-        let normalized = if key == "detail_cache_ttl_minutes" {
-            let parsed = value
-                .trim()
-                .parse::<i64>()
-                .unwrap_or_else(|_| crate::db::default_detail_cache_ttl_minutes());
-            crate::db::normalize_detail_cache_ttl(parsed).to_string()
-        } else if key == "watch_notify_frequency" {
-            crate::db::normalize_watch_notify_frequency(value)
-        } else {
-            value.clone()
-        };
+        let normalized = crate::db::normalize_setting_value(key, value);
         db.set_setting(key, &normalized).map_err(|e| e.to_string())?;
         settings_applied += 1;
     }

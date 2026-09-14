@@ -43,11 +43,13 @@ impl CatalogService {
         self.items.read().map(|i| i.clone()).unwrap_or_default()
     }
 
+    /// 按 canonical id 检索收录项（入口统一归一化，库内精确匹配）
     pub fn get_catalog_item(&self, id: &str) -> Option<CatalogItem> {
+        let key = crate::forge::canonical_app_id(id);
         self.items
             .read()
             .ok()
-            .and_then(|items| items.iter().find(|i| i.id.eq_ignore_ascii_case(id)).cloned())
+            .and_then(|items| items.iter().find(|i| i.id == key).cloned())
     }
 
     pub fn update_items(&self, new_items: Vec<CatalogItem>) {
@@ -64,8 +66,9 @@ impl CatalogService {
         forks: Option<u64>,
         version: Option<&str>,
     ) {
+        let key = crate::forge::canonical_app_id(id);
         if let Ok(mut items) = self.items.write() {
-            if let Some(item) = items.iter_mut().find(|i| i.id.eq_ignore_ascii_case(id)) {
+            if let Some(item) = items.iter_mut().find(|i| i.id == key) {
                 if let Some(s) = stars {
                     item.stars = s;
                 }
@@ -242,10 +245,12 @@ impl CatalogService {
         }
     }
 
+    /// 解析仓库坐标：收录库内按 canonical id 精确命中；
+    /// 目录之外的 GitHub 仓库（在线搜索结果）由统一解析器合成坐标。
     pub fn get_repo_coordinates(&self, id: &str) -> Result<AppRepoCoordinates, String> {
-        let clean = id.trim().to_lowercase();
+        let clean = crate::forge::canonical_app_id(id);
         let items = self.items.read().unwrap_or_else(|e| e.into_inner());
-        if let Some(item) = items.iter().find(|i| i.id.eq_ignore_ascii_case(&clean)) {
+        if let Some(item) = items.iter().find(|i| i.id == clean) {
             Ok(AppRepoCoordinates {
                 owner: item.owner.clone(),
                 repo: item.repo.clone(),
@@ -254,18 +259,14 @@ impl CatalogService {
                 icon: item.icon.clone(),
                 icon_bg: item.icon_bg.clone(),
             })
-        } else if id.contains('/') {
-            let parts: Vec<&str> = id.split('/').collect();
-            if parts.len() == 2 {
-                let owner = parts[0].trim().to_string();
-                let repo = parts[1].trim().to_string();
-                let name = repo.clone();
+        } else if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&clean) {
+            if coord.forge == crate::forge::ForgeType::GitHub {
                 Ok(AppRepoCoordinates {
-                    owner,
-                    repo,
-                    name,
+                    owner: coord.owner,
+                    name: coord.repo.clone(),
+                    repo: coord.repo,
                     description: "GitHub 社区开源项目".to_string(),
-                    icon: "📦".to_string(),
+                    icon: String::new(),
                     icon_bg: "linear-gradient(135deg, #475569, #334155)".to_string(),
                 })
             } else {
@@ -318,7 +319,6 @@ mod tests {
             publisher_fingerprint: None,
             homepage: None,
             identifiers: HashMap::new(),
-            executables: vec![],
             install_dirs: vec![],
             search_subdirs: vec![],
             publishers: vec![],
@@ -368,7 +368,7 @@ mod tests {
         assert_eq!(crate::forge::canonical_app_id("   "), "");
     }
 
-    /// ADR-0010：目录检索仅按 id（大小写不敏感）唯一匹配
+    /// ADR-0010：目录检索入口统一归一化后按 id 唯一精确匹配
     #[test]
     fn test_get_catalog_item_matches_id_only() {
         let svc = test_service(vec![item(

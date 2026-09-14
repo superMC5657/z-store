@@ -36,15 +36,6 @@ impl ForgeType {
             Self::GitLab => "GitLab",
         }
     }
-
-    pub fn icon(&self) -> &'static str {
-        match self {
-            Self::GitHub => "🐙",
-            Self::Codeberg => "🏔️",
-            Self::Gitea => "🍵",
-            Self::GitLab => "🦊",
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

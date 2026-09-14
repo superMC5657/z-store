@@ -19,7 +19,7 @@ pub async fn fetch_app_latest_version_lightweight(
     force_refresh: Option<bool>,
 ) -> Result<(String, String), String> {
     let is_force = force_refresh.unwrap_or(false);
-    let clean_id = app_id.trim();
+    let clean_id = crate::forge::canonical_app_id(app_id);
 
     let ttl_seconds = state
         .db

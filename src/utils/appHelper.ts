@@ -3,8 +3,6 @@ import { AppSummary, InstalledApp } from '../types';
 export interface IconInfo {
   icon: string;
   iconBg: string;
-  owner?: string;
-  repo?: string;
 }
 
 /**
@@ -22,8 +20,6 @@ export function resolveAppIconInfo(
   return {
     icon: iconOverride || catalogApp?.icon || '📦',
     iconBg: iconBgOverride || catalogApp?.icon_bg || 'linear-gradient(135deg, #475569, #334155)',
-    owner: catalogApp?.owner,
-    repo: catalogApp?.repo,
   };
 }
 
@@ -38,11 +34,10 @@ export function resolveInstalledIconInfo(
 }
 
 /**
- * 格式化时间戳为本地日期字符串 (YYYY/MM/DD)
+ * 格式化秒级 Unix 时间戳为本地日期字符串 (YYYY/MM/DD)
  */
 export function formatAppDate(ts: number): string {
-  const normalizedTs = ts < 10000000000 ? ts * 1000 : ts;
-  return new Date(normalizedTs).toLocaleDateString('zh-CN', {
+  return new Date(ts * 1000).toLocaleDateString('zh-CN', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',

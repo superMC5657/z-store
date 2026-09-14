@@ -141,31 +141,17 @@ fn test_base64_encode_and_icon_cache_path() {
     assert_eq!(detect_image_mime(&[0xff, 0xd8, 0xff, 0x00]), "image/jpeg");
     assert_eq!(detect_image_mime(b"<svg xmlns=..."), "image/svg+xml");
 
-    // 验证方案一：优先格式化为 {owner}_{repo}.png
-    let p1 = get_icon_cache_path(
-        Some("rustdesk"),
-        Some("rustdesk"),
-        Some("rustdesk"),
-        "https://github.com/rustdesk.png",
-    );
+    // canonical id（owner/repo）优先解析为 {owner}_{repo}.png 唯一命名空间
+    let p1 = get_icon_cache_path("rustdesk/rustdesk", "https://github.com/rustdesk.png");
     assert!(p1.to_string_lossy().ends_with("rustdesk_rustdesk.png"));
 
-    let p2 = get_icon_cache_path(
-        Some("microsoft"),
-        Some("terminal"),
-        None,
-        "https://github.com/microsoft.png",
-    );
+    let p2 = get_icon_cache_path("microsoft/terminal", "https://github.com/microsoft.png");
     assert!(p2.to_string_lossy().ends_with("microsoft_terminal.png"));
 
-    let p3 = get_icon_cache_path(
-        None,
-        None,
-        Some("alacritty/alacritty"),
-        "https://github.com/alacritty.png",
-    );
+    let p3 = get_icon_cache_path("alacritty/alacritty", "https://github.com/alacritty.png");
     assert!(p3.to_string_lossy().ends_with("alacritty_alacritty.png"));
 
-    let p4 = get_icon_cache_path(None, None, Some("localsend"), "https://github.com/localsend.png");
+    // 无法解析为仓库坐标的 id：消毒后直接命名
+    let p4 = get_icon_cache_path("localsend", "https://github.com/localsend.png");
     assert!(p4.to_string_lossy().ends_with("localsend.png"));
 }

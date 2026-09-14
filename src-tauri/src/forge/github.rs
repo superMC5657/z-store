@@ -1,4 +1,4 @@
-use super::coord::{ForgeType, UniversalRepoCoord};
+use super::coord::ForgeType;
 use super::provider::{ForgeProvider, ForgeReleaseInfo, ForgeRepoInfo};
 use crate::installer::InstallerEngine;
 use crate::models::ReleaseAsset;
@@ -70,12 +70,6 @@ impl ForgeProvider for GitHubProvider {
         let payload: GitHubRepoPayload = resp.json().await.map_err(|e| e.to_string())?;
 
         Ok(ForgeRepoInfo {
-            coord: UniversalRepoCoord {
-                forge: ForgeType::GitHub,
-                host: "github.com".to_string(),
-                owner: owner.to_string(),
-                repo: repo.to_string(),
-            },
             name: payload.name,
             description: payload.description,
             stars: payload.stargazers_count.unwrap_or(0),
@@ -230,11 +224,6 @@ impl ForgeProvider for GitHubProvider {
         }
 
         #[derive(Deserialize)]
-        struct GitHubSearchOwner {
-            login: String,
-        }
-
-        #[derive(Deserialize)]
         struct GitHubSearchItem {
             name: String,
             description: Option<String>,
@@ -242,7 +231,6 @@ impl ForgeProvider for GitHubProvider {
             forks_count: Option<u64>,
             language: Option<String>,
             default_branch: Option<String>,
-            owner: GitHubSearchOwner,
         }
 
         #[derive(Deserialize)]
@@ -256,12 +244,6 @@ impl ForgeProvider for GitHubProvider {
             .unwrap_or_default()
             .into_iter()
             .map(|item| ForgeRepoInfo {
-                coord: UniversalRepoCoord {
-                    forge: ForgeType::GitHub,
-                    host: "github.com".to_string(),
-                    owner: item.owner.login,
-                    repo: item.name.clone(),
-                },
                 name: item.name,
                 description: item.description,
                 stars: item.stargazers_count.unwrap_or(0),

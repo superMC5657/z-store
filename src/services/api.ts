@@ -27,7 +27,6 @@ import {
   WatchUpdatedPayload,
   StarAppResult,
 } from '../types';
-import { mockApi } from './mockApi';
 
 export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -56,33 +55,13 @@ async function tauriInvoke<T>(cmd: string, args: Record<string, unknown> = {}): 
   throw new Error('Not in Tauri environment');
 }
 
-/**
- * 仓库坐标拆解（如 "owner/repo" 或 "gh:owner/repo" -> { owner, repo }）
- */
-function splitOwnerRepo(appId: string): { owner: string; repo: string } {
-  const noHost = appId.includes(':') ? appId.slice(appId.indexOf(':') + 1) : appId;
-  const slash = noHost.indexOf('/');
-  const owner = slash >= 0 ? noHost.slice(0, slash) : '';
-  const repo = slash >= 0 ? noHost.slice(slash + 1) : '';
-  if (!owner || !repo || repo.includes('/')) throw new Error(`无法解析仓库坐标: ${appId}`);
-  return { owner, repo };
-}
-
 const tauriApi = {
   async searchApps(query: string): Promise<AppSummary[]> {
     return tauriInvoke<AppSummary[]>('search_apps', { query });
   },
 
   async getAppDetails(id: string, forceRefresh = false): Promise<AppDetail> {
-    const res = await tauriInvoke<AppDetail>('get_app_details', { id, forceRefresh });
-    if (res) {
-      res.releases = Array.isArray(res.releases)
-        ? res.releases
-        : Array.isArray(res.assets)
-        ? res.assets
-        : [];
-    }
-    return res;
+    return tauriInvoke<AppDetail>('get_app_details', { id, forceRefresh });
   },
 
   async forceRefreshApp(id: string): Promise<AppDetail> {
@@ -346,13 +325,8 @@ const tauriApi = {
     return tauriInvoke<string | null>('select_folder', { defaultPath, title });
   },
 
-  async getOrFetchIcon(
-    owner: string | undefined,
-    repo: string | undefined,
-    appId: string | undefined,
-    remoteUrl: string
-  ): Promise<string> {
-    return tauriInvoke<string>('get_or_fetch_icon', { owner, repo, appId, remoteUrl });
+  async getOrFetchIcon(appId: string | undefined, remoteUrl: string): Promise<string> {
+    return tauriInvoke<string>('get_or_fetch_icon', { appId: appId ?? null, remoteUrl });
   },
 
   async getWatchedApps(): Promise<string[]> {
@@ -415,20 +389,17 @@ const tauriApi = {
     }
   },
 
-  async starApp(ownerOrAppId: string, repo?: string): Promise<StarAppResult> {
-    const { owner, repo: r } = repo ? { owner: ownerOrAppId, repo } : splitOwnerRepo(ownerOrAppId);
-    return tauriInvoke<StarAppResult>('star_app', { owner, repo: r });
+  async starApp(appId: string): Promise<StarAppResult> {
+    return tauriInvoke<StarAppResult>('star_app', { appId });
   },
 
-  async unstarApp(ownerOrAppId: string, repo?: string): Promise<boolean> {
-    const { owner, repo: r } = repo ? { owner: ownerOrAppId, repo } : splitOwnerRepo(ownerOrAppId);
-    return tauriInvoke<boolean>('unstar_app', { owner, repo: r });
+  async unstarApp(appId: string): Promise<boolean> {
+    return tauriInvoke<boolean>('unstar_app', { appId });
   },
 
-  async isStarred(ownerOrAppId: string, repo?: string): Promise<boolean> {
+  async isStarred(appId: string): Promise<boolean> {
     try {
-      const { owner, repo: r } = repo ? { owner: ownerOrAppId, repo } : splitOwnerRepo(ownerOrAppId);
-      return await tauriInvoke<boolean>('is_starred', { owner, repo: r });
+      return await tauriInvoke<boolean>('is_starred', { appId });
     } catch {
       return false;
     }
@@ -458,6 +429,7 @@ const tauriApi = {
 };
 
 /**
- * 核心统一 API 导出：在 Tauri 桌面端走 IPC 通信，在独立浏览器预览模式下平滑降级使用内存 Mock
+ * 核心统一 API 导出：仅面向 Tauri 桌面端 IPC 通信；
+ * 浏览器直接访问时由应用入口渲染环境提示页（见 main.tsx）。
  */
-export const api = isTauri ? tauriApi : (mockApi as unknown as typeof tauriApi);
+export const api = tauriApi;

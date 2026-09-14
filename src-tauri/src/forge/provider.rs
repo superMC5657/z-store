@@ -1,10 +1,9 @@
-use super::coord::{ForgeType, UniversalRepoCoord};
+use super::coord::ForgeType;
 use crate::models::ReleaseAsset;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ForgeRepoInfo {
-    pub coord: UniversalRepoCoord,
     pub name: String,
     pub description: Option<String>,
     pub stars: u64,

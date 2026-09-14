@@ -49,6 +49,23 @@ pub fn normalize_detail_cache_ttl(minutes: i64) -> i64 {
     }
 }
 
+/// 设置项写入侧统一清洗：仅对存在有效值集的键归一化，其余原样透传。
+/// 持久化前必须经此函数（ADR-0007 TTL 挡位 / FR-6.2 通知频率）。
+pub fn normalize_setting_value(key: &str, value: &str) -> String {
+    if key == "detail_cache_ttl_minutes" {
+        value
+            .trim()
+            .parse::<i64>()
+            .map(normalize_detail_cache_ttl)
+            .unwrap_or_else(|_| default_detail_cache_ttl_minutes())
+            .to_string()
+    } else if key == "watch_notify_frequency" {
+        normalize_watch_notify_frequency(value)
+    } else {
+        value.to_string()
+    }
+}
+
 impl Database {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         let conn = Connection::open(path)?;

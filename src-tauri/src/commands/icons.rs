@@ -75,60 +75,37 @@ pub fn icon_hash_filename(remote_url: &str) -> String {
     format!("{}.png", &hash[..16])
 }
 
-pub fn get_icon_cache_path(
-    owner: Option<&str>,
-    repo: Option<&str>,
-    app_id: Option<&str>,
-    remote_url: &str,
-) -> std::path::PathBuf {
+/// 图标缓存路径：canonical id 解析出 owner/repo 命名空间时使用 `{owner}_{repo}.png`，
+/// 否则以消毒后的 id 命名；id 完全不可用时回退 remote_url 哈希。
+pub fn get_icon_cache_path(app_id: &str, remote_url: &str) -> std::path::PathBuf {
     let icons_dir = crate::get_app_data_dir().join("icons");
-
-    // 方案一：优先使用 GitHub 唯一命名空间 {owner}_{repo}.png
-    let filename = match (owner, repo) {
-        (Some(o), Some(r)) => {
-            let safe_o = sanitize_icon_segment(o);
-            let safe_r = sanitize_icon_segment(r);
+    let filename = match crate::forge::RepositoryUrlParser::parse(app_id) {
+        Some(coord) if !coord.owner.is_empty() && !coord.repo.is_empty() => {
+            let safe_o = sanitize_icon_segment(&coord.owner);
+            let safe_r = sanitize_icon_segment(&coord.repo);
             if !safe_o.is_empty() && !safe_r.is_empty() {
                 format!("{}_{}.png", safe_o, safe_r)
-            } else if let Some(id) = app_id {
-                format!("{}.png", sanitize_icon_segment(id))
             } else {
-                icon_hash_filename(remote_url)
+                fallback_icon_filename(app_id, remote_url)
             }
         }
-        _ => {
-            if let Some(id) = app_id {
-                let clean_id = id.trim();
-                // 支持类似 "owner/repo" 或 "owner_repo" 格式的 app_id
-                if clean_id.contains('/') {
-                    let parts: Vec<&str> = clean_id.split('/').collect();
-                    if parts.len() == 2 {
-                        let safe_o = sanitize_icon_segment(parts[0]);
-                        let safe_r = sanitize_icon_segment(parts[1]);
-                        if !safe_o.is_empty() && !safe_r.is_empty() {
-                            return icons_dir.join(format!("{}_{}.png", safe_o, safe_r));
-                        }
-                    }
-                }
-                let safe_id = sanitize_icon_segment(clean_id);
-                if !safe_id.is_empty() {
-                    format!("{}.png", safe_id)
-                } else {
-                    icon_hash_filename(remote_url)
-                }
-            } else {
-                icon_hash_filename(remote_url)
-            }
-        }
+        _ => fallback_icon_filename(app_id, remote_url),
     };
     icons_dir.join(filename)
+}
+
+fn fallback_icon_filename(app_id: &str, remote_url: &str) -> String {
+    let safe_id = sanitize_icon_segment(app_id);
+    if safe_id.is_empty() {
+        icon_hash_filename(remote_url)
+    } else {
+        format!("{}.png", safe_id)
+    }
 }
 
 #[tauri::command]
 pub async fn get_or_fetch_icon(
     state: State<'_, AppState>,
-    owner: Option<String>,
-    repo: Option<String>,
     app_id: Option<String>,
     remote_url: String,
 ) -> Result<String, String> {
@@ -146,34 +123,7 @@ pub async fn get_or_fetch_icon(
         let _ = std::fs::create_dir_all(&icons_dir);
     }
 
-    // 优先使用传入的 (owner, repo)；若未显式传入，在应用目录清单中尝试根据 app_id 查找
-    let (resolved_owner, resolved_repo) = match (owner.as_deref(), repo.as_deref()) {
-        (Some(o), Some(r)) if !o.trim().is_empty() && !r.trim().is_empty() => {
-            (Some(o.trim().to_string()), Some(r.trim().to_string()))
-        }
-        _ => {
-            if let Some(id) = app_id.as_deref() {
-                let items = state.catalog.get_catalog_items();
-                if let Some(item) = items
-                    .iter()
-                    .find(|i| i.id.eq_ignore_ascii_case(id) || format!("{}/{}", i.owner, i.repo).eq_ignore_ascii_case(id))
-                {
-                    (Some(item.owner.clone()), Some(item.repo.clone()))
-                } else {
-                    (owner, repo)
-                }
-            } else {
-                (owner, repo)
-            }
-        }
-    };
-
-    let cache_file = get_icon_cache_path(
-        resolved_owner.as_deref(),
-        resolved_repo.as_deref(),
-        app_id.as_deref(),
-        url_trimmed,
-    );
+    let cache_file = get_icon_cache_path(app_id.as_deref().unwrap_or(""), url_trimmed);
 
     let cache_key = cache_file
         .file_name()

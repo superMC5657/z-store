@@ -49,7 +49,6 @@ export interface AppDetail {
   signature_fingerprint?: string;
   readme_markdown: string;
   releases: ReleaseAsset[];
-  assets?: ReleaseAsset[];
   category: string;
   category_name: string;
   forge?: string;
@@ -61,7 +60,6 @@ export interface AppDetail {
   loadError?: string;
   homepage?: string;
   platforms?: string[];
-  identifiers?: Record<string, string[]>;
   // FR-8: z-store.toml 收录库扩展元数据（Rust 侧可选下发，缺失时一律按 null 优雅降级）
   store_meta?: StoreMeta | null;
 }
@@ -284,17 +282,7 @@ export type DeepLinkAction =
   | { action: 'developer_profile'; payload: { owner: string } }
   | { action: 'open_view'; payload: { view: string } };
 
-export type ForgeType = 'github' | 'codeberg' | 'gitea' | 'gitlab';
-
-export interface UniversalRepoCoord {
-  forge: ForgeType;
-  host: string;
-  owner: string;
-  repo: string;
-}
-
 export interface ForgeRepoInfo {
-  coord: UniversalRepoCoord;
   name: string;
   description?: string | null;
   stars: number;

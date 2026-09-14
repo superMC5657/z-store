@@ -150,18 +150,27 @@ pub async fn oauth_logout(state: State<'_, AppState>) -> Result<bool, String> {
     Ok(true)
 }
 
+/// ADR-0010：GitHub Star 仅面向 owner/repo 形态的 canonical 应用标识
+fn split_github_repo_id(app_id: &str) -> Result<(String, String), String> {
+    let id = crate::forge::canonical_app_id(app_id);
+    let (owner, repo) = id
+        .split_once('/')
+        .ok_or_else(|| format!("GitHub Star 仅支持 owner/repo 仓库坐标: {}", app_id))?;
+    if owner.is_empty() || repo.is_empty() || owner.contains(':') || repo.contains('/') {
+        return Err(format!("GitHub Star 仅支持 owner/repo 仓库坐标: {}", app_id));
+    }
+    Ok((owner.to_string(), repo.to_string()))
+}
+
 #[tauri::command]
 pub async fn star_app(
     state: State<'_, AppState>,
-    owner: String,
-    repo: String,
+    app_id: String,
 ) -> Result<crate::oauth::StarRepoOutcome, String> {
-    if owner.trim().is_empty() || repo.trim().is_empty() {
-        return Err("仓库 owner 与 repo 不能为空".to_string());
-    }
+    let (owner, repo) = split_github_repo_id(&app_id)?;
     let token = resolve_write_token(&state)
         .ok_or_else(|| "请先完成 GitHub 登录，或在「设置」中配置个人访问令牌 (PAT)".to_string())?;
-    let outcome = crate::oauth::star_repo(&token, owner.trim(), repo.trim()).await?;
+    let outcome = crate::oauth::star_repo(&token, &owner, &repo).await?;
     if outcome.starred {
         if let Ok(db) = state.db.lock() {
             let _ = db.set_starred(&owner, &repo, true);
@@ -171,17 +180,11 @@ pub async fn star_app(
 }
 
 #[tauri::command]
-pub async fn unstar_app(
-    state: State<'_, AppState>,
-    owner: String,
-    repo: String,
-) -> Result<bool, String> {
-    if owner.trim().is_empty() || repo.trim().is_empty() {
-        return Err("仓库 owner 与 repo 不能为空".to_string());
-    }
+pub async fn unstar_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
+    let (owner, repo) = split_github_repo_id(&app_id)?;
     let token = resolve_write_token(&state)
         .ok_or_else(|| "请先完成 GitHub 登录，或在「设置」中配置个人访问令牌 (PAT)".to_string())?;
-    crate::oauth::unstar_repo(&token, owner.trim(), repo.trim())
+    crate::oauth::unstar_repo(&token, &owner, &repo)
         .await
         .map(|_| {
             if let Ok(db) = state.db.lock() {
@@ -192,17 +195,11 @@ pub async fn unstar_app(
 }
 
 #[tauri::command]
-pub async fn is_starred(
-    state: State<'_, AppState>,
-    owner: String,
-    repo: String,
-) -> Result<bool, String> {
-    if owner.trim().is_empty() || repo.trim().is_empty() {
-        return Err("仓库 owner 与 repo 不能为空".to_string());
-    }
+pub async fn is_starred(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
+    let (owner, repo) = split_github_repo_id(&app_id)?;
     let token = resolve_write_token(&state);
     if let Some(ref t) = token {
-        if let Ok(remote_val) = crate::oauth::check_starred(t, owner.trim(), repo.trim()).await {
+        if let Ok(remote_val) = crate::oauth::check_starred(t, &owner, &repo).await {
             if let Ok(db) = state.db.lock() {
                 let _ = db.set_starred(&owner, &repo, remote_val);
             }

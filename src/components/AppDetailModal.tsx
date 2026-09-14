@@ -136,7 +136,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
       setIsStarred(false);
       return;
     }
-    api.isStarred(app.owner, app.repo).then((v) => {
+    api.isStarred(app.id).then((v) => {
       if (!cancelled) setIsStarred(v);
     }).catch(() => {
       if (!cancelled) setIsStarred(false);
@@ -152,11 +152,11 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
     setIsStarring(true);
     try {
       if (isStarred) {
-        await api.unstarApp(app.owner, app.repo);
+        await api.unstarApp(app.id);
         setIsStarred(false);
         notifyToast(`已取消对 ${app.name} 的 GitHub 收藏`, 'info');
       } else {
-        const res = await api.starApp(app.owner, app.repo);
+        const res = await api.starApp(app.id);
         setIsStarred(true);
         if (res.warning) {
           notifyToast(res.warning, 'warning');
@@ -307,11 +307,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
     return 'x86_64';
   }, []);
 
-  const releases = useMemo(() => {
-    if (Array.isArray(app.releases)) return app.releases;
-    if (Array.isArray(app.assets)) return app.assets;
-    return [];
-  }, [app.releases, app.assets]);
+  const releases = useMemo(() => (Array.isArray(app.releases) ? app.releases : []), [app.releases]);
 
   const hasNoReleases = !releases || releases.length === 0;
   const isAuthExpired = Boolean(
@@ -594,8 +590,6 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
             icon={app.icon}
             name={app.name}
             appId={app.id}
-            owner={app.owner}
-            repo={app.repo}
             iconBg={app.icon_bg}
             className="modal-app-icon"
           />

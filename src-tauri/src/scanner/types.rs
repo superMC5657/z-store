@@ -47,7 +47,7 @@ pub struct ScanConfig {
 
 impl From<&CatalogItem> for ScanConfig {
     fn from(cat: &CatalogItem) -> Self {
-        let mut target_executables = cat.get_windows_executables();
+        let mut target_executables = cat.get_identifiers("windows");
         if target_executables.is_empty() {
             let clean_repo = cat.repo.to_lowercase().replace(['.', '-'], "");
             // ADR-0010：id 为 owner/repo 坐标，不能再当文件名候选，仅以 repo/name 派生

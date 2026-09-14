@@ -27,8 +27,6 @@ pub struct CatalogItem {
     #[serde(default)]
     pub identifiers: HashMap<String, Vec<String>>,
     #[serde(default)]
-    pub executables: Vec<String>,
-    #[serde(default)]
     pub install_dirs: Vec<String>,
     #[serde(default)]
     pub search_subdirs: Vec<String>,
@@ -45,21 +43,11 @@ fn default_platforms() -> Vec<String> {
 impl CatalogItem {
     /// 获取指定平台原生标识符列表（如 windows / linux / macos / android / ios）
     pub fn get_identifiers(&self, platform: &str) -> Vec<String> {
-        if let Some(list) = self.identifiers.get(platform) {
-            if !list.is_empty() {
-                return list.clone();
-            }
-        }
-        // 向后兼容：如果请求 windows 平台且旧的 executables 字段非空，自动降级回退
-        if platform == "windows" && !self.executables.is_empty() {
-            return self.executables.clone();
-        }
-        Vec::new()
-    }
-
-    /// 获取 Windows 下的目标可执行文件名列表（如 ["rg.exe", "ripgrep.exe"]）
-    pub fn get_windows_executables(&self) -> Vec<String> {
-        self.get_identifiers("windows")
+        self.identifiers
+            .get(platform)
+            .filter(|list| !list.is_empty())
+            .cloned()
+            .unwrap_or_default()
     }
 
     pub fn to_summary(&self) -> AppSummary {
@@ -103,7 +91,6 @@ impl CatalogItem {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub(crate) struct GitHubUserResponse {
     pub login: String,
     pub name: Option<String>,
@@ -113,7 +100,6 @@ pub(crate) struct GitHubUserResponse {
     pub company: Option<String>,
     pub blog: Option<String>,
     pub location: Option<String>,
-    pub email: Option<String>,
     pub public_repos: Option<u64>,
     pub followers: Option<u64>,
     pub following: Option<u64>,

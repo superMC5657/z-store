@@ -1,4 +1,4 @@
-use super::coord::{ForgeType, UniversalRepoCoord};
+use super::coord::ForgeType;
 use super::provider::{ForgeProvider, ForgeReleaseInfo, ForgeRepoInfo};
 use crate::installer::InstallerEngine;
 use crate::models::ReleaseAsset;
@@ -69,12 +69,6 @@ impl ForgeProvider for GitLabProvider {
         let payload: GitLabRepoPayload = resp.json().await.map_err(|e| e.to_string())?;
 
         Ok(ForgeRepoInfo {
-            coord: UniversalRepoCoord {
-                forge: ForgeType::GitLab,
-                host: host.to_string(),
-                owner: owner.to_string(),
-                repo: repo.to_string(),
-            },
             name: payload.name,
             description: payload.description,
             stars: payload.star_count.unwrap_or(0),
@@ -255,31 +249,18 @@ impl ForgeProvider for GitLabProvider {
         }
 
         #[derive(Deserialize)]
-        struct GitLabNamespace {
-            path: String,
-        }
-
-        #[derive(Deserialize)]
         struct GitLabProjectItem {
             name: String,
-            path: String,
             description: Option<String>,
             star_count: Option<u64>,
             forks_count: Option<u64>,
             default_branch: Option<String>,
-            namespace: GitLabNamespace,
         }
 
         let items: Vec<GitLabProjectItem> = resp.json().await.map_err(|e| e.to_string())?;
         let result = items
             .into_iter()
             .map(|item| ForgeRepoInfo {
-                coord: UniversalRepoCoord {
-                    forge: ForgeType::GitLab,
-                    host: host.to_string(),
-                    owner: item.namespace.path,
-                    repo: item.path,
-                },
                 name: item.name,
                 description: item.description,
                 stars: item.star_count.unwrap_or(0),

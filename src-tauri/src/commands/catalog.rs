@@ -29,7 +29,7 @@ pub async fn search_apps(
                     name: repo_info.name,
                     owner: coord.owner,
                     repo: coord.repo,
-                    icon: coord.forge.icon().to_string(),
+                    icon: String::new(),
                     icon_bg: "linear-gradient(135deg, #475569, #334155)".to_string(),
                     description: repo_info
                         .description
@@ -285,7 +285,7 @@ pub async fn get_app_details_impl(
                 name: repo_info.name.clone(),
                 owner: coord.owner,
                 repo: coord.repo,
-                icon: coord.forge.icon().to_string(),
+                icon: String::new(),
                 icon_bg: "linear-gradient(135deg, #475569, #334155)".to_string(),
                 description: repo_info.description.clone().unwrap_or_default(),
                 stars: repo_info.stars,
