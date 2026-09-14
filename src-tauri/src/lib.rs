@@ -11,6 +11,7 @@ pub mod oauth;
 pub mod scanner;
 pub mod store_meta;
 pub mod verifier;
+pub mod z_log;
 
 use db::Database;
 use github::CatalogService;
@@ -280,6 +281,7 @@ mod proxy_tests {    use super::normalize_windows_proxy_server;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    z_log::install_panic_hook();
     #[cfg(target_os = "windows")]
     init_windows_system_proxy();
 
@@ -337,9 +339,14 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(z_log::init())
         .manage(state)
         .setup(move |app| {
             use tauri::Manager;
+            // setup 之前先 prune：清理过期/超量日志
+            if let Ok(log_dir) = app.path().app_log_dir() {
+                z_log::prune(&log_dir);
+            }
             if let Ok(data_dir) = app.path().app_data_dir() {
                 let _ = APP_DATA_DIR.set(data_dir);
             }
@@ -463,7 +470,9 @@ pub fn run() {
             commands::star_app,
             commands::unstar_app,
             commands::is_starred,
-            commands::import_user_data
+            commands::import_user_data,
+            z_log::zlog_get_dir,
+            z_log::zlog_export_bundle
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

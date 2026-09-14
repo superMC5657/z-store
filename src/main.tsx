@@ -2,7 +2,10 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
 import { isTauri } from './services/api';
+import { initZLog } from './lib/z-log';
 import './styles/fluent.css';
+
+void initZLog({ batch: 200, flushIntervalMs: 3000 });
 
 // Z-Store 仅以 Tauri 桌面端形态运行；浏览器直接打开时给出明确提示，不做模拟降级
 if (!isTauri) {
