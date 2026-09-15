@@ -61,6 +61,7 @@ pub async fn search_apps(
                 .fetch_online_repo(&coord.owner, &coord.repo, token.as_deref())
                 .await
             {
+                log::debug!("fetch repo ok id={}", item.id);
                 return Ok(vec![item]);
             }
         }
@@ -84,6 +85,7 @@ pub async fn search_apps(
         .catalog
         .search_github_online(&query, token.as_deref())
         .await?;
+    log::debug!("search done hits={}", results.len());
 
     if hidden_ids.is_empty() {
         Ok(results)
@@ -378,6 +380,7 @@ pub async fn get_app_details_impl(
 
     match fetch_result {
         Ok((mut detail, to_cache)) => {
+            log::debug!("fetch detail ok id={}", clean_id);
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
@@ -414,6 +417,12 @@ pub async fn get_app_details_impl(
             Ok(detail)
         }
         Err(err) => {
+            // 单仓抓取失败：命令层记一次 warn（id + host-only + 首行），拉取层零打点。
+            log::warn!(
+                "fetch detail failed id={} host=github.com reason={}",
+                clean_id,
+                crate::log_support::short_reason(&err)
+            );
             // 网络或限额异常时，优雅降级返回已存储的历史缓存
             if let Ok(db) = state.db.lock() {
                 if let Ok(Some(mut fallback_detail)) = db.get_cached_app_detail_fallback(&clean_id) {

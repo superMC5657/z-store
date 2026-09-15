@@ -59,15 +59,20 @@ impl MirrorManager {
         let trimmed = id_or_url.trim();
         if trimmed.is_empty() || trimmed == "direct" {
             self.custom_proxy = None;
+            log::info!("mirror switch ok id=direct");
             true
         } else if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
             self.custom_proxy = Some(trimmed.to_string());
+            // 只记 direct/custom id，不记完整代理 URL。
+            log::info!("mirror switch ok id=custom");
             true
         } else if trimmed == "ghproxy" {
             self.custom_proxy = Some("https://gh-proxy.com".to_string());
+            log::info!("mirror switch ok id=custom");
             true
         } else {
             self.custom_proxy = None;
+            log::info!("mirror switch ok id=direct");
             true
         }
     }

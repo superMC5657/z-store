@@ -5,6 +5,7 @@ pub mod deeplink;
 pub mod forge;
 pub mod github;
 pub mod installer;
+pub mod log_support;
 pub mod mirror;
 pub mod models;
 pub mod oauth;
@@ -67,6 +68,44 @@ pub fn notify_rate_limit(host: &str, headers: &reqwest::header::HeaderMap) {
                 rate_limit_reset: reset,
             });
         }
+        log_rate_limit_water_mark(host, remaining, limit);
+    }
+}
+
+/// 限额低水位日志：remaining<=10% warn，用尽 error；每进程每 host 每种只记一次。
+fn log_rate_limit_water_mark(host: &str, remaining: u32, limit: u32) {
+    use std::collections::HashSet;
+    use std::sync::Mutex;
+    static WARNED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    if limit == 0 {
+        return;
+    }
+    let kind: Option<&str> = if remaining == 0 {
+        Some("exhausted")
+    } else if remaining.saturating_mul(10) <= limit {
+        Some("low")
+    } else {
+        None
+    };
+    let Some(kind) = kind else { return };
+    let key = format!("{}:{}", host.to_lowercase(), kind);
+    let first = WARNED
+        .get_or_init(|| Mutex::new(HashSet::new()))
+        .lock()
+        .map(|mut g| g.insert(key))
+        .unwrap_or(false);
+    if !first {
+        return;
+    }
+    if kind == "exhausted" {
+        log::error!("rate limit exhausted host={} remaining=0 limit={}", host.to_lowercase(), limit);
+    } else {
+        log::warn!(
+            "rate limit low host={} remaining={}/{}",
+            host.to_lowercase(),
+            remaining,
+            limit
+        );
     }
 }
 
@@ -290,7 +329,10 @@ pub fn run() {
     let db_path = db_dir.join("z_store.db");
 
     let db = Database::open(&db_path)
-        .or_else(|_| Database::open_in_memory())
+        .or_else(|_| {
+            log::error!("db open failed fallback to in-memory");
+            Database::open_in_memory()
+        })
         .expect("failed to init database");
 
     let saved_token = db

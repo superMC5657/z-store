@@ -3,7 +3,27 @@ use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
 
+/// 安装执行入口（唯一日志点）：成功 info / 失败 error，只记 id 与短原因。
 pub async fn execute_installation(
+    installer_path: &Path,
+    kind: &AssetKind,
+    app_id: &str,
+    custom_portable_dir: Option<&str>,
+) -> Result<String, String> {
+    let res =
+        execute_installation_inner(installer_path, kind, app_id, custom_portable_dir).await;
+    match &res {
+        Ok(_) => log::info!("install done id={}", app_id),
+        Err(e) => log::error!(
+            "install failed id={} reason={}",
+            app_id,
+            crate::log_support::short_reason(e)
+        ),
+    }
+    res
+}
+
+async fn execute_installation_inner(
     installer_path: &Path,
     kind: &AssetKind,
     app_id: &str,

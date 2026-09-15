@@ -283,6 +283,7 @@ pub async fn check_for_updates(
 
     let total = eligible_apps.len();
     let checked_count = Arc::new(AtomicUsize::new(0));
+    let failed_count = Arc::new(AtomicUsize::new(0));
 
     // 发送初始进度通知
     let _ = app_handle.emit(
@@ -302,13 +303,14 @@ pub async fn check_for_updates(
             let app_handle = app_handle.clone();
             let state_ref = &state;
             let checked_count = Arc::clone(&checked_count);
+            let failed_count = Arc::clone(&failed_count);
             let rule_opt = rules_map.get(&app.app_id).cloned();
             async move {
                 let mut found_item = None;
 
-                if let Ok((latest_version, changelog)) =
-                    fetch_app_latest_version_lightweight(state_ref, &app.app_id, force_refresh).await
+                match fetch_app_latest_version_lightweight(state_ref, &app.app_id, force_refresh).await
                 {
+                    Ok((latest_version, changelog)) => {
                     if should_include_update(&app.version, &latest_version, rule_opt.as_ref()) {
                         let (icon, icon_bg) = if let Some(item) = state_ref.catalog.get_catalog_item(&app.app_id) {
                             (Some(item.icon), Some(item.icon_bg))
@@ -327,6 +329,15 @@ pub async fn check_for_updates(
                         // 🚀 核心：发现更新立即触发单项流式推送，前端实现逐项弹入跳出动效
                         let _ = app_handle.emit("zstore://update-item-found", &update_item);
                         found_item = Some(update_item);
+                    }
+                    }
+                    Err(e) => {
+                        failed_count.fetch_add(1, Ordering::SeqCst);
+                        log::warn!(
+                            "update check item failed id={} host=github.com reason={}",
+                            app.app_id,
+                            crate::log_support::short_reason(&e)
+                        );
                     }
                 }
 
@@ -348,6 +359,14 @@ pub async fn check_for_updates(
 
     let results: Vec<Option<UpdateItem>> = check_stream.collect().await;
     let updates: Vec<UpdateItem> = results.into_iter().flatten().collect();
+
+    // 一轮一行：更新检查轮结束 info（new/failures 计数）。
+    log::info!(
+        "update check finished total={} new={} failures={}",
+        total,
+        updates.len(),
+        failed_count.load(Ordering::SeqCst)
+    );
 
     // 发送检查完成事件
     let _ = app_handle.emit(
@@ -398,7 +417,14 @@ async fn notify_watched_updates(
         let (latest, _) =
             match fetch_app_latest_version_lightweight(state, &w.app_id, force_refresh).await {
                 Ok(res) => res,
-                Err(_) => continue,
+                Err(e) => {
+                    log::debug!(
+                        "watch deferred id={} reason={}",
+                        w.app_id,
+                        crate::log_support::short_reason(&e)
+                    );
+                    continue;
+                }
             };
         let latest = latest.trim().to_string();
         if latest.is_empty() {
@@ -409,6 +435,7 @@ async fn notify_watched_updates(
             if let Ok(db) = state.db.lock() {
                 let _ = db.init_watch_baseline(&w.app_id, &latest);
             }
+            log::debug!("watch deferred id={} reason=baseline-init", w.app_id);
             continue;
         };
         if !is_version_newer(&base, &latest) {
@@ -422,6 +449,7 @@ async fn notify_watched_updates(
                 .and_then(|db| db.get_watch_last_notified_at(&w.app_id).ok().flatten());
             if let Some(t) = last_at {
                 if now.saturating_sub(t) < DAILY_NOTIFY_INTERVAL_SECONDS {
+                    log::debug!("watch deferred id={} reason=daily-throttle", w.app_id);
                     continue;
                 }
             }

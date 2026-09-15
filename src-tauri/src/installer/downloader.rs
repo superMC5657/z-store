@@ -1,3 +1,4 @@
+use crate::log_support::{file_base, host_of, http_err_reason, short_reason};
 use crate::models::DownloadProgressPayload;
 use futures_util::StreamExt;
 use sha2::{Digest, Sha256};
@@ -32,11 +33,28 @@ pub async fn download_with_progress(
         .build()
         .map_err(|e| e.to_string())?;
 
+    let started = Instant::now();
+    let log_file = file_base(asset_name);
+    let log_host = host_of(download_url);
+    log::info!(
+        "download start id={} file={} host={}",
+        task_id,
+        log_file,
+        log_host
+    );
+
     let resp_result = client.get(download_url).send().await;
     let resp = match resp_result {
         Ok(r) => {
             if !r.status().is_success() {
                 let err_msg = format!("下载请求失败，HTTP 状态码: {}", r.status());
+                log::error!(
+                    "download failed id={} file={} host={} reason={}",
+                    task_id,
+                    log_file,
+                    log_host,
+                    short_reason(&err_msg)
+                );
                 let _ = app_handle.emit(
                     "zstore://download-progress",
                     DownloadProgressPayload {
@@ -53,7 +71,16 @@ pub async fn download_with_progress(
             r
         }
         Err(e) => {
-            let err_msg = format!("无法连接下载服务器: {}", e);
+            // reqwest Display 回显完整 URL（含签名 query）：先脱敏再记/再返回。
+            let reason = http_err_reason(&e);
+            let err_msg = format!("无法连接下载服务器: {}", reason);
+            log::error!(
+                "download failed id={} file={} host={} reason={}",
+                task_id,
+                log_file,
+                log_host,
+                reason
+            );
             let _ = app_handle.emit(
                 "zstore://download-progress",
                 DownloadProgressPayload {
@@ -100,6 +127,13 @@ pub async fn download_with_progress(
         Ok(f) => f,
         Err(e) => {
             let err_msg = format!("创建临时文件失败: {}", e);
+            log::error!(
+                "download failed id={} file={} host={} reason={}",
+                task_id,
+                log_file,
+                log_host,
+                short_reason(&err_msg)
+            );
             let _ = app_handle.emit(
                 "zstore://download-progress",
                 DownloadProgressPayload {
@@ -129,7 +163,15 @@ pub async fn download_with_progress(
                 Ok(c) => Some(c),
                 Err(e) => {
                     let _ = std::fs::remove_file(&temp_path);
-                    let err_msg = format!("下载数据流中断: {}", e);
+                    let reason = http_err_reason(&e);
+                    let err_msg = format!("下载数据流中断: {}", reason);
+                    log::error!(
+                        "download failed id={} file={} host={} reason={}",
+                        task_id,
+                        log_file,
+                        log_host,
+                        reason
+                    );
                     let _ = app_handle.emit(
                         "zstore://download-progress",
                         DownloadProgressPayload {
@@ -150,6 +192,13 @@ pub async fn download_with_progress(
                 let err_msg = format!(
                     "下载超时：超过 {} 秒未接收到数据块，已中断连接",
                     net_conf.chunk_timeout_seconds
+                );
+                log::error!(
+                    "download failed id={} file={} host={} reason={}",
+                    task_id,
+                    log_file,
+                    log_host,
+                    short_reason(&err_msg)
                 );
                 let _ = app_handle.emit(
                     "zstore://download-progress",
@@ -174,6 +223,13 @@ pub async fn download_with_progress(
         if let Err(e) = file.write_all(&chunk) {
             let _ = std::fs::remove_file(&temp_path);
             let err_msg = format!("写入磁盘失败: {}", e);
+            log::error!(
+                "download failed id={} file={} host={} reason={}",
+                task_id,
+                log_file,
+                log_host,
+                short_reason(&err_msg)
+            );
             let _ = app_handle.emit(
                 "zstore://download-progress",
                 DownloadProgressPayload {
@@ -234,6 +290,12 @@ pub async fn download_with_progress(
                         )),
                     },
                 );
+                // 校验失败：只记结论与短原因，不记哈希明细与路径。
+                log::error!(
+                    "download verify failed id={} file={}",
+                    task_id,
+                    log_file
+                );
                 return Err(format!(
                     "安全拦截：SHA-256 完整性校验不符！官方校验值: {}，实际下载文件: {}。已阻止潜在篡改软件的安装执行。",
                     exp_clean, actual_hash
@@ -268,5 +330,12 @@ pub async fn download_with_progress(
         },
     );
 
+    log::info!(
+        "download done id={} file={} bytes={} elapsed_ms={}",
+        task_id,
+        log_file,
+        downloaded,
+        started.elapsed().as_millis()
+    );
     Ok((temp_path, actual_hash))
 }

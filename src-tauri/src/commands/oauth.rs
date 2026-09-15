@@ -30,7 +30,13 @@ pub async fn oauth_device_start(
             "尚未配置 GitHub OAuth Client ID，请在「设置」中填写后重试".to_string(),
         );
     }
-    crate::oauth::request_device_code(&client_id).await
+    crate::oauth::request_device_code(&client_id).await.map_err(|e| {
+        log::warn!(
+            "oauth device start failed reason={}",
+            crate::log_support::short_reason(&e)
+        );
+        e
+    })
 }
 
 /// 轮询 Device Flow 授权结果（前端按返回 `interval` 节流调用）。
@@ -45,10 +51,25 @@ pub async fn oauth_device_poll(
         return Err("设备验证码不能为空".to_string());
     }
     let client_id = resolve_oauth_client_id_from_db(&state);
-    match crate::oauth::poll_device_once(&client_id, &code).await? {
+    let outcome = crate::oauth::poll_device_once(&client_id, &code)
+        .await
+        .map_err(|e| {
+            log::warn!(
+                "oauth poll failed reason={}",
+                crate::log_support::short_reason(&e)
+            );
+            e
+        })?;
+    match outcome {
         crate::oauth::DevicePollOutcome::Authorized { access_token } => {
             let clean_token = access_token.trim().to_string();
             let user = crate::oauth::fetch_oauth_user(&clean_token).await.ok();
+            // 登录成功：只记 GitHub login 用户名，不记 token/device_code/user_code。
+            if let Some(ref u) = user {
+                log::info!("oauth login ok user={}", u.login);
+            } else {
+                log::info!("oauth login ok");
+            }
             if let Ok(db) = state.db.lock() {
                 let _ = db.set_setting(crate::oauth::SETTING_OAUTH_TOKEN, &clean_token);
                 if let Some(u) = user {
@@ -74,14 +95,24 @@ pub async fn oauth_device_poll(
             status: "expired".to_string(),
             message: Some(message),
         }),
-        crate::oauth::DevicePollOutcome::Denied { message } => Ok(DevicePollResult {
-            status: "denied".to_string(),
-            message: Some(message),
-        }),
-        crate::oauth::DevicePollOutcome::Error { message } => Ok(DevicePollResult {
-            status: "error".to_string(),
-            message: Some(message),
-        }),
+        crate::oauth::DevicePollOutcome::Denied { message } => {
+            // 用户取消授权属正常流程：debug，不记 token/user_code。
+            log::debug!("oauth device denied");
+            Ok(DevicePollResult {
+                status: "denied".to_string(),
+                message: Some(message),
+            })
+        }
+        crate::oauth::DevicePollOutcome::Error { message } => {
+            log::warn!(
+                "oauth poll failed reason={}",
+                crate::log_support::short_reason(&message)
+            );
+            Ok(DevicePollResult {
+                status: "error".to_string(),
+                message: Some(message),
+            })
+        }
     }
 }
 
@@ -116,13 +147,22 @@ pub async fn get_oauth_user(
         .unwrap_or(false);
     if is_oauth {
         if let Some(t) = token {
-            if let Ok(user) = crate::oauth::fetch_oauth_user(&t).await {
-                if let Ok(db) = state.db.lock() {
-                    if let Ok(json) = serde_json::to_string(&user) {
-                        let _ = db.set_setting(crate::oauth::SETTING_OAUTH_USER, &json);
+            match crate::oauth::fetch_oauth_user(&t).await {
+                Ok(user) => {
+                    if let Ok(db) = state.db.lock() {
+                        if let Ok(json) = serde_json::to_string(&user) {
+                            let _ = db.set_setting(crate::oauth::SETTING_OAUTH_USER, &json);
+                        }
                     }
+                    return Ok(Some(user));
                 }
-                return Ok(Some(user));
+                Err(e) => {
+                    // 刷新/换 token 失败：warn，只记首行，不记 token。
+                    log::warn!(
+                        "oauth refresh failed reason={}",
+                        crate::log_support::short_reason(&e)
+                    );
+                }
             }
         }
     }
@@ -146,6 +186,7 @@ pub async fn oauth_logout(state: State<'_, AppState>) -> Result<bool, String> {
     if let Ok(mut t) = state.github_token.lock() {
         *t = fallback_pat.clone();
     }
+    log::info!("oauth logout ok");
     crate::probe_github_rate_limit(fallback_pat.as_deref()).await;
     Ok(true)
 }

@@ -54,15 +54,25 @@ impl AuthenticodeVerifier {
         }
 
         if !actual_sig.is_signed {
-            return Err("目标安装文件未包含任何 Authenticode 数字签名，无法进行发布者证书指纹比对".to_string());
+            let msg = "目标安装文件未包含任何 Authenticode 数字签名，无法进行发布者证书指纹比对".to_string();
+            log::error!(
+                "verify failed reason={}",
+                crate::log_support::short_reason(&msg)
+            );
+            return Err(msg);
         }
 
         if !actual_sig.is_valid {
             let msg = actual_sig.status_message.as_deref().unwrap_or(&actual_sig.status);
-            return Err(format!(
+            let full = format!(
                 "安全拦截：目标安装文件 Authenticode 数字签名无效或已遭篡改（状态: {}）。已阻止后续安装以保障系统安全。",
                 msg
-            ));
+            );
+            log::error!(
+                "verify failed reason={}",
+                crate::log_support::short_reason(&full)
+            );
+            return Err(full);
         }
 
         // 1. 比对 SHA-256 指纹
@@ -87,6 +97,8 @@ impl AuthenticodeVerifier {
             .or(actual_sig.thumbprint_sha1.as_deref())
             .unwrap_or("未知");
 
+        // 指纹冲突：日志只记结论，不回显完整指纹值。
+        log::error!("verify failed reason=发布者数字签名指纹冲突，已阻断执行");
         Err(format!(
             "安全拦截：发布者数字签名指纹冲突！官方预期指纹: [{}]，实际签名证书指纹: [{}]。为防止供应链篡改投毒，已阻断后续执行。",
             expected_fingerprint, actual_disp

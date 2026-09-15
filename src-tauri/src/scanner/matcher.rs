@@ -164,6 +164,12 @@ impl AppScanner {
                     confidence_tier: tier,
                     resolved_executable_path: resolved_exe,
                 });
+            } else {
+                // 单项未命中属常态：debug，不记路径/图标原文。
+                log::debug!(
+                    "scanner no match name={}",
+                    crate::log_support::short_reason(&scanned.display_name)
+                );
             }
         }
 
