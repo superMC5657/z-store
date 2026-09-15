@@ -421,8 +421,7 @@ const tauriApi = {
     if (!/^https?:\/\//i.test(trimmed)) return;
     try {
       await tauriInvoke('open_url', { url: trimmed });
-    } catch (err) {
-      console.warn('Failed to invoke open_url via Tauri, falling back to window.open:', err);
+    } catch {
       window.open(trimmed, '_blank', 'noopener,noreferrer');
     }
   },

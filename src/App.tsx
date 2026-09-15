@@ -751,7 +751,6 @@ export const App: React.FC = () => {
       setDetectedAppIds(new Set(freshDetected.map((id) => id.toLowerCase())));
       showToast('已成功刷新已安装应用状态！', 'success');
     } catch (err) {
-      console.error('Failed to refresh installed apps:', err);
       showToast(`刷新失败: ${String(err)}`, 'error');
     } finally {
       setIsRefreshingInstalled(false);
@@ -761,7 +760,7 @@ export const App: React.FC = () => {
   // 当用户切换至「已安装应用」视图时，自动触发后台校验与幽灵应用自愈清理
   useEffect(() => {
     if (currentView === 'installed') {
-      api.getInstalledApps().then(setInstalledApps).catch(console.error);
+      api.getInstalledApps().then(setInstalledApps).catch(() => undefined);
     }
   }, [currentView]);
 
@@ -773,8 +772,8 @@ export const App: React.FC = () => {
       setInstalledApps(updatedList);
       setDetectedAppIds((prev) => new Set([...prev, id]));
       showToast(`已成功将应用纳入 Z-Store 统一管理`, 'success');
-    } catch (err) {
-      console.error('Failed to import app into management:', err);
+    } catch {
+      /* import failed silently; list unchanged */
     }
   };
 
@@ -962,8 +961,8 @@ export const App: React.FC = () => {
     try {
       const loadedInstalled = await api.getInstalledApps();
       setInstalledApps(loadedInstalled);
-    } catch (e) {
-      console.error('刷新已安装应用列表失败:', e);
+    } catch {
+      /* refresh failed silently after toast */
     }
 
     // 后台静默执行远端更新检查，绝不阻塞本地已安装列表呈现与界面交互
@@ -972,9 +971,7 @@ export const App: React.FC = () => {
       .then((loadedUpdates) => {
         setUpdates(loadedUpdates);
       })
-      .catch((err) => {
-        console.warn('后台更新检查静默失败:', err);
-      });
+      .catch(() => undefined);
   };
 
   const handleSelectMirror = async (mirrorId: string) => {

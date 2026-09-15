@@ -196,8 +196,7 @@ impl CatalogConfig {
 
 impl Default for ProjectConfig {
     fn default() -> Self {
-        toml::from_str(EMBEDDED_CONFIG).unwrap_or_else(|e| {
-            eprintln!("[Config] Failed to parse embedded config.toml: {}, using hardcoded fallback", e);
+        toml::from_str(EMBEDDED_CONFIG).unwrap_or_else(|_| {
             Self {
                 cache: CacheConfig::default(),
                 network: NetworkConfig::default(),

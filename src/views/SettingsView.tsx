@@ -496,8 +496,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       onUpdateSetting('download_dir', picked);
                       triggerChangeFeedback('download_dir', `✓ 下载路径已设置为: ${picked}`);
                     }
-                  } catch (e) {
-                    console.error(e);
+                  } catch {
+                    /* user cancelled folder picker */
                   }
                 }}
               >
@@ -566,8 +566,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       onUpdateSetting('portable_dir', picked);
                       triggerChangeFeedback('portable_dir', `✓ 便携版解压路径已设置为: ${picked}`);
                     }
-                  } catch (e) {
-                    console.error(e);
+                  } catch {
+                    /* user cancelled folder picker */
                   }
                 }}
               >
@@ -806,8 +806,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     setCatalogUrlSaved(true);
                     triggerChangeFeedback('catalog_source', '✓ 已恢复官方默认收录源');
                     setTimeout(() => setCatalogUrlSaved(false), 2500);
-                  } catch (err) {
-                    console.error('Failed to reset catalog source URL:', err);
+                  } catch {
+                    /* reset failed silently */
                   }
                 }}
               >
