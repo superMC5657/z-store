@@ -47,7 +47,7 @@ impl ForgeProvider for GitLabProvider {
         );
         let url = format!("https://{}/api/v4/projects/{}", host, encoded_path);
         let safe_url = crate::log_support::sanitize_url(&url);
-        log::info!("http get forge url='{}'", safe_url);
+        log::debug!("http get forge url='{}'", safe_url);
         let start = std::time::Instant::now();
         let resp = client
             .get(&url)
@@ -58,7 +58,7 @@ impl ForgeProvider for GitLabProvider {
                 log::warn!("http get forge failed url='{}' reason={}", safe_url, crate::log_support::short_reason(&e.to_string()));
                 e.to_string()
             })?;
-        log::info!("http resp forge url='{}' status={} elapsed_ms={}", safe_url, resp.status().as_u16(), start.elapsed().as_millis());
+        log::debug!("http resp forge url='{}' status={} elapsed_ms={}", safe_url, resp.status().as_u16(), start.elapsed().as_millis());
 
         if !resp.status().is_success() {
             return Err(format!("GitLab API 响应失败: HTTP {}", resp.status()));
@@ -142,7 +142,7 @@ impl ForgeProvider for GitLabProvider {
         );
 
         let safe_latest = crate::log_support::sanitize_url(&latest_url);
-        log::info!("http get forge release url='{}'", safe_latest);
+        log::debug!("http get forge release url='{}'", safe_latest);
         let start = std::time::Instant::now();
         let resp = client
             .get(&latest_url)
@@ -153,7 +153,7 @@ impl ForgeProvider for GitLabProvider {
                 log::warn!("http get forge release failed url='{}' reason={}", safe_latest, crate::log_support::short_reason(&e.to_string()));
                 e.to_string()
             })?;
-        log::info!("http resp forge release url='{}' status={} elapsed_ms={}", safe_latest, resp.status().as_u16(), start.elapsed().as_millis());
+        log::debug!("http resp forge release url='{}' status={} elapsed_ms={}", safe_latest, resp.status().as_u16(), start.elapsed().as_millis());
 
         let release: GitLabReleasePayload = if resp.status().is_success() {
             resp.json().await.map_err(|e| e.to_string())?
@@ -164,7 +164,6 @@ impl ForgeProvider for GitLabProvider {
                 host, encoded_path
             );
             let safe_list = crate::log_support::sanitize_url(&list_url);
-            log::info!("http get forge release fallback url='{}'", safe_list);
             let start_list = std::time::Instant::now();
             let list_resp = client
                 .get(&list_url)
@@ -175,7 +174,8 @@ impl ForgeProvider for GitLabProvider {
                     log::warn!("http get forge release fallback failed url='{}' reason={}", safe_list, crate::log_support::short_reason(&e.to_string()));
                     e.to_string()
                 })?;
-            log::info!("http resp forge release fallback url='{}' status={} elapsed_ms={}", safe_list, list_resp.status().as_u16(), start_list.elapsed().as_millis());
+            // fallback 出入口合一：单条 debug 记列表回退结果。
+            log::debug!("http forge release fallback url='{}' status={} elapsed_ms={}", safe_list, list_resp.status().as_u16(), start_list.elapsed().as_millis());
             if !list_resp.status().is_success() {
                 return Err(format!(
                     "获取 GitLab Release 失败: HTTP {}",

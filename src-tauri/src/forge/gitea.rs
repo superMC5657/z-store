@@ -54,7 +54,7 @@ impl ForgeProvider for GiteaProvider {
         // Gitea / Forgejo API v1
         let url = format!("https://{}/api/v1/repos/{}/{}", host, owner, repo);
         let safe_url = crate::log_support::sanitize_url(&url);
-        log::info!("http get forge url='{}'", safe_url);
+        log::debug!("http get forge url='{}'", safe_url);
         let start = std::time::Instant::now();
         let resp = client
             .get(&url)
@@ -65,7 +65,7 @@ impl ForgeProvider for GiteaProvider {
                 log::warn!("http get forge failed url='{}' reason={}", safe_url, crate::log_support::short_reason(&e.to_string()));
                 e.to_string()
             })?;
-        log::info!("http resp forge url='{}' status={} elapsed_ms={}", safe_url, resp.status().as_u16(), start.elapsed().as_millis());
+        log::debug!("http resp forge url='{}' status={} elapsed_ms={}", safe_url, resp.status().as_u16(), start.elapsed().as_millis());
 
         if !resp.status().is_success() {
             return Err(format!(
@@ -127,7 +127,7 @@ impl ForgeProvider for GiteaProvider {
             host, owner, repo
         );
         let safe_url = crate::log_support::sanitize_url(&url);
-        log::info!("http get forge release url='{}'", safe_url);
+        log::debug!("http get forge release url='{}'", safe_url);
         let start = std::time::Instant::now();
         let resp = client
             .get(&url)
@@ -138,7 +138,7 @@ impl ForgeProvider for GiteaProvider {
                 log::warn!("http get forge release failed url='{}' reason={}", safe_url, crate::log_support::short_reason(&e.to_string()));
                 e.to_string()
             })?;
-        log::info!("http resp forge release url='{}' status={} elapsed_ms={}", safe_url, resp.status().as_u16(), start.elapsed().as_millis());
+        log::debug!("http resp forge release url='{}' status={} elapsed_ms={}", safe_url, resp.status().as_u16(), start.elapsed().as_millis());
 
         if !resp.status().is_success() {
             return Err(format!(

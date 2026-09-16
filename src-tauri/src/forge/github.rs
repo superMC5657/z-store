@@ -44,12 +44,18 @@ impl ForgeProvider for GitHubProvider {
         }
 
         let url = format!("https://api.github.com/repos/{}/{}", owner, repo);
+        log::debug!("forge fetch repo url='{}'", crate::log_support::sanitize_url(&url));
+        let start = std::time::Instant::now();
         let resp = client
             .get(&url)
             .headers(headers)
             .send()
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                log::warn!("forge fetch repo failed url='{}' reason={}", crate::log_support::sanitize_url(&url), crate::log_support::short_reason(&e.to_string()));
+                e.to_string()
+            })?;
+        log::debug!("forge fetch repo done url='{}' status={} elapsed_ms={}", crate::log_support::sanitize_url(&url), resp.status().as_u16(), start.elapsed().as_millis());
         crate::notify_rate_limit("github.com", resp.headers());
 
         if !resp.status().is_success() {
@@ -111,12 +117,18 @@ impl ForgeProvider for GitHubProvider {
             "https://api.github.com/repos/{}/{}/releases/latest",
             owner, repo
         );
+        log::debug!("forge fetch release url='{}'", crate::log_support::sanitize_url(&url));
+        let start = std::time::Instant::now();
         let resp = client
             .get(&url)
             .headers(headers)
             .send()
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                log::warn!("forge fetch release failed url='{}' reason={}", crate::log_support::sanitize_url(&url), crate::log_support::short_reason(&e.to_string()));
+                e.to_string()
+            })?;
+        log::debug!("forge fetch release done url='{}' status={} elapsed_ms={}", crate::log_support::sanitize_url(&url), resp.status().as_u16(), start.elapsed().as_millis());
         crate::notify_rate_limit("github.com", resp.headers());
 
         if !resp.status().is_success() {
@@ -211,12 +223,18 @@ impl ForgeProvider for GitHubProvider {
             "https://api.github.com/search/repositories?q={}&per_page={}",
             encoded_q, page_size
         );
+        log::debug!("forge search url='{}'", crate::log_support::sanitize_url(&url));
+        let start = std::time::Instant::now();
         let resp = client
             .get(&url)
             .headers(headers)
             .send()
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                log::warn!("forge search failed reason={}", crate::log_support::short_reason(&e.to_string()));
+                e.to_string()
+            })?;
+        log::debug!("forge search done status={} elapsed_ms={}", resp.status().as_u16(), start.elapsed().as_millis());
         crate::notify_rate_limit("github.com", resp.headers());
 
         if !resp.status().is_success() {
