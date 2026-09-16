@@ -41,12 +41,14 @@ pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
             } else {
                 record.target()
             };
+            // 落盘前统一脱敏：禁止 token / code / body 原文落盘。
+            let clean = redact(&message.to_string());
             out.finish(format_args!(
                 "{}[{}][{}] {}",
                 now.format(&format).unwrap_or_default(),
                 record.level(),
                 target,
-                message
+                clean
             ))
         })
         .level_for("reqwest", log::LevelFilter::Warn)
@@ -59,7 +61,7 @@ pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     #[cfg(debug_assertions)]
     {
         builder
-            .level(log::LevelFilter::Debug)
+            .level(resolve_level(log::LevelFilter::Debug))
             .targets([
                 Target::new(TargetKind::Stdout),
                 Target::new(TargetKind::LogDir { file_name: None }),
@@ -70,12 +72,41 @@ pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     #[cfg(not(debug_assertions))]
     {
         builder
-            .level(log::LevelFilter::Info)
+            .level(resolve_level(log::LevelFilter::Info))
             .targets([Target::new(TargetKind::LogDir { file_name: None })])
             .build()
     }
 }
 
+/// 日志级别覆盖：`ZSTORE_LOG` 优先，`RUST_LOG` 兜底，均缺失时用编译期默认。
+/// 解析大小写不敏感，兼容 `debug` 与 `z_store_lib=debug` 形态；非法值回退默认。
+pub fn parse_level_str(s: &str) -> Option<log::LevelFilter> {
+    let lower = s.trim().to_lowercase();
+    // 取 `=` 后段（如 `crate=debug`），再取 `,` 首段。
+    let seg = lower.split(',').next().unwrap_or("").trim();
+    let seg = seg.rsplit('=').next().unwrap_or("").trim();
+    match seg {
+        "trace" => Some(log::LevelFilter::Trace),
+        "debug" => Some(log::LevelFilter::Debug),
+        "info" => Some(log::LevelFilter::Info),
+        "warn" | "warning" => Some(log::LevelFilter::Warn),
+        "error" => Some(log::LevelFilter::Error),
+        "off" => Some(log::LevelFilter::Off),
+        _ => None,
+    }
+}
+
+/// 双 cfg 分支共用：环境覆盖解析。
+pub fn resolve_level(default: log::LevelFilter) -> log::LevelFilter {
+    for key in ["ZSTORE_LOG", "RUST_LOG"] {
+        if let Ok(v) = std::env::var(key) {
+            if let Some(lv) = parse_level_str(&v) {
+                return lv;
+            }
+        }
+    }
+    default
+}
 /// 记录新会话启动横幅，明确会话生命周期边界。
 pub fn log_session_start() {
     log::info!(
@@ -87,13 +118,16 @@ pub fn log_session_start() {
     );
 }
 
-/// 脱敏：遮蔽常见 token / Authorization 头，避免密钥落盘。
+/// 脱敏：遮蔽常见 token / Authorization 头 / 邮箱 / code / api_key，避免密钥落盘。
+/// 无正则（no-regex），全分支字符边界安全，永不 panic。
 pub fn redact(msg: &str) -> String {
     // 通用规则：`Bearer xxx` / `token xxx` 后续 token 打码
     let mut out = redact_after_marker(msg, "Bearer ");
     out = redact_after_marker(&out, "bearer ");
     out = redact_after_marker(&out, "Token ");
     out = redact_after_marker(&out, "token ");
+    out = redact_kv_values(&out);
+    out = redact_emails(&out);
     out
 }
 
@@ -116,6 +150,122 @@ fn redact_after_marker(s: &str, marker: &str) -> String {
     }
     result.push_str(rest);
     result
+}
+
+/// ASCII 大小写不敏感查找（仅 ASCII needle，字节下标恒为字符边界，无正则）。
+fn find_ci(hay: &str, needle: &str, from: usize) -> Option<usize> {
+    let hb = hay.as_bytes();
+    let nb = needle.as_bytes();
+    if nb.is_empty() || from >= hb.len() {
+        return None;
+    }
+    let first = nb[0].to_ascii_lowercase();
+    let mut i = from;
+    while i + nb.len() <= hb.len() {
+        if hb[i].to_ascii_lowercase() == first {
+            let mut ok = true;
+            for k in 1..nb.len() {
+                if !hb[i + k].eq_ignore_ascii_case(&nb[k]) {
+                    ok = false;
+                    break;
+                }
+            }
+            if ok {
+                return Some(i);
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// 键值脱敏：`code` / `device_code` / `user_code` / `api_key` 系（大小写不敏感）。
+/// 兼容 `=` / `:` / 空格 / 引号分隔的 JSON 与 query 形态；值遇空白/引号/`,;})` 截断。
+fn redact_kv_values(s: &str) -> String {
+    // 长键优先，避免 `code` 先吞掉 `device_code` 的尾部。
+    const KEYS: [&str; 6] = [
+        "device_code",
+        "user_code",
+        "api_key",
+        "api-key",
+        "apikey",
+        "code",
+    ];
+    let mut out = s.to_string();
+    for key in KEYS {
+        let mut from = 0;
+        while let Some(pos) = find_ci(&out, key, from) {
+            let mut vstart = pos + key.len();
+            // 跳过分隔符：空白 / 引号 / `=` / `:`（均为 ASCII，边界安全）。
+            let bytes = out.as_bytes();
+            while vstart < bytes.len()
+                && matches!(bytes[vstart], b' ' | b'\t' | b'"' | b'\'' | b'=' | b':')
+            {
+                vstart += 1;
+            }
+            if vstart >= out.len() {
+                break;
+            }
+            let rest = &out[vstart..];
+            let vend_rel = rest
+                .find(|c: char| {
+                    c.is_whitespace()
+                        || c == '"'
+                        || c == '\''
+                        || c == ','
+                        || c == ';'
+                        || c == '}'
+                        || c == ')'
+                })
+                .unwrap_or(rest.len());
+            if vend_rel == 0 {
+                from = vstart;
+                continue;
+            }
+            out.replace_range(vstart..vstart + vend_rel, "***");
+            from = vstart + 3;
+        }
+    }
+    out
+}
+
+fn is_email_local(b: u8) -> bool {
+    matches!(b, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'.' | b'_' | b'%' | b'+' | b'-')
+}
+
+fn is_email_domain(b: u8) -> bool {
+    matches!(b, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'.' | b'-')
+}
+
+/// 邮箱脱敏：`local@domain` 整体替换为 `***@***`（ASCII 扫描，宽字符原文不动）。
+fn redact_emails(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    let mut last = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'@' {
+            let mut l = i;
+            while l > 0 && is_email_local(bytes[l - 1]) {
+                l -= 1;
+            }
+            let mut r = i + 1;
+            while r < bytes.len() && is_email_domain(bytes[r]) {
+                r += 1;
+            }
+            let domain = &s[i + 1..r];
+            if l < i && r > i + 1 && domain.contains('.') && !domain.starts_with('.') {
+                out.push_str(&s[last..l]);
+                out.push_str("***@***");
+                last = r;
+                i = r;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    out.push_str(&s[last..]);
+    out
 }
 
 /// 清理过期 / 超量日志：删除超过 KEEP_DAYS 的文件，总量超限时按 mtime 最旧先删。
@@ -256,7 +406,9 @@ pub fn zlog_export_bundle(app: AppHandle) -> Result<String, String> {
         let data = std::fs::read(&path).map_err(|e| e.to_string())?;
         zip.start_file(name, options).map_err(|e| e.to_string())?;
         use std::io::Write as _;
-        zip.write_all(&data).map_err(|e| e.to_string())?;
+        // 导出前脱敏：文本按 lossy 解码后过 redact，禁 token / code / 邮箱原文出包。
+        let clean = redact(&String::from_utf8_lossy(&data));
+        zip.write_all(clean.as_bytes()).map_err(|e| e.to_string())?;
     }
     // 附带一条说明文件
     let readme = format!(
@@ -277,10 +429,73 @@ mod tests {
     use super::*;
 
     #[test]
+    fn converged_waterline_locked() {
+        // 收敛水位线锁定：保留策略常量达标后锁定，防回退（零 prod 改动）。
+        assert_eq!(KEEP_DAYS, 14);
+        assert_eq!(MAX_TOTAL_BYTES, 25 * 1024 * 1024);
+        assert_eq!(MAX_SINGLE_FILE_BYTES, 5 * 1024 * 1024);
+        assert_eq!(ROTATION_KEEP_COUNT, 5);
+        // 脱敏基础能力不 panic（字符边界安全，含宽字符）。
+        let out = redact("Bearer 汉字token测试 abc");
+        assert!(out.contains("***"));
+        assert!(!out.contains("汉字token测试"));
+    }
+
+    #[test]
     fn test_redact_bearer() {
         let out = redact("call with Bearer abc123xyz ok");
         assert!(out.contains("Bearer ***"));
         assert!(!out.contains("abc123xyz"));
+    }
+
+    #[test]
+    fn test_redact_email_code_apikey() {
+        let out = redact("contact user@example.com code=secret123 ok");
+        assert!(out.contains("***@***"));
+        assert!(!out.contains("user@example.com"));
+        assert!(!out.contains("secret123"));
+        let out2 = redact(r#"{"code":"abcd-1234","api_key":"sk-live-999"}"#);
+        assert!(!out2.contains("abcd-1234"));
+        assert!(!out2.contains("sk-live-999"));
+        assert!(out2.contains("code"));
+        let out3 = redact("device_code=DC-999 user_code=UC-111 api-key=AK-222");
+        assert!(!out3.contains("DC-999"));
+        assert!(!out3.contains("UC-111"));
+        assert!(!out3.contains("AK-222"));
+    }
+
+    #[test]
+    fn test_redact_unicode_boundary_safe() {
+        // 宽字符 + emoji 混合，截断/替换不断裂，不 panic。
+        let s: String = std::iter::repeat('汉').take(200).collect::<String>()
+            + " user@test.com Bearer tok 汉😀";
+        let out = redact(&s);
+        assert!(out.contains("***@***"));
+        assert!(out.contains("Bearer ***"));
+        assert!(!out.contains("user@test.com"));
+        // 切片仍为合法 UTF-8（chars 计数可遍历即不断裂）。
+        assert!(out.chars().count() > 0);
+    }
+
+    #[test]
+    fn test_level_override_parse() {
+        // ZSTORE_LOG / RUST_LOG 覆盖解析锁定：双 cfg 分支共用。
+        assert_eq!(parse_level_str("debug"), Some(log::LevelFilter::Debug));
+        assert_eq!(parse_level_str("Z_STORE_LIB=DEBUG"), Some(log::LevelFilter::Debug));
+        assert_eq!(parse_level_str("warn"), Some(log::LevelFilter::Warn));
+        assert_eq!(parse_level_str("off"), Some(log::LevelFilter::Off));
+        assert_eq!(parse_level_str("nonsense"), None);
+        // resolve 在任何环境下不 panic 且恒为合法级别。
+        let lv = resolve_level(log::LevelFilter::Info);
+        assert!(matches!(
+            lv,
+            log::LevelFilter::Trace
+                | log::LevelFilter::Debug
+                | log::LevelFilter::Info
+                | log::LevelFilter::Warn
+                | log::LevelFilter::Error
+                | log::LevelFilter::Off
+        ));
     }
 
     #[test]
