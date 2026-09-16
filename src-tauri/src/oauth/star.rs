@@ -57,9 +57,14 @@ pub async fn fetch_oauth_user(token: &str) -> Result<OAuthUser, String> {
         .unwrap_or(false);
     if resp.status().as_u16() == 401 {
         crate::notify_auth_expired();
+        // 401 warn：只记结论与操作，不记 token / body。
+        log::warn!("oauth auth expired status=401 op=fetch_user");
         return Err("GitHub 授权已失效 (401)，请重新登录".to_string());
     }
     if !resp.status().is_success() {
+        if resp.status().as_u16() == 403 {
+            log::warn!("oauth forbidden status=403 op=fetch_user");
+        }
         return Err(format!(
             "获取 GitHub 用户信息失败，HTTP 状态码: {}",
             resp.status()
@@ -100,9 +105,13 @@ pub async fn check_starred(token: &str, owner: &str, repo: &str) -> Result<bool,
         404 => Ok(false),
         401 => {
             crate::notify_auth_expired();
+            log::warn!("oauth auth expired status=401 op=check_starred owner={} repo={}", owner, repo);
             Err("GitHub 授权已失效 (401)，请重新登录".to_string())
         }
-        403 => Err("GitHub API 限额已耗尽 (403)，请稍后重试".to_string()),
+        403 => {
+            log::warn!("oauth forbidden status=403 op=check_starred owner={} repo={}", owner, repo);
+            Err("GitHub API 限额已耗尽 (403)，请稍后重试".to_string())
+        }
         code => Err(format!("查询 Star 状态失败，HTTP 状态码: {}", code)),
     }
 }
@@ -154,8 +163,10 @@ pub async fn star_repo(token: &str, owner: &str, repo: &str) -> Result<StarRepoO
         }
     } else if resp.status().as_u16() == 401 {
         crate::notify_auth_expired();
+        log::warn!("oauth auth expired status=401 op=star owner={} repo={}", owner, repo);
         Err("GitHub 授权已失效 (401)，请重新登录".to_string())
     } else if resp.status().as_u16() == 403 {
+        log::warn!("oauth forbidden status=403 op=star owner={} repo={}", owner, repo);
         Err("Star 失败 (403)：令牌缺少 public_repo 权限或 API 限额已耗尽".to_string())
     } else {
         Err(format!("Star 失败，HTTP 状态码: {}", resp.status()))
@@ -399,7 +410,11 @@ pub async fn unstar_repo(token: &str, owner: &str, repo: &str) -> Result<(), Str
         Ok(())
     } else if resp.status().as_u16() == 401 {
         crate::notify_auth_expired();
+        log::warn!("oauth auth expired status=401 op=unstar owner={} repo={}", owner, repo);
         Err("GitHub 授权已失效 (401)，请重新登录".to_string())
+    } else if resp.status().as_u16() == 403 {
+        log::warn!("oauth forbidden status=403 op=unstar owner={} repo={}", owner, repo);
+        Err(format!("取消 Star 失败，HTTP 状态码: {}", resp.status()))
     } else {
         Err(format!("取消 Star 失败，HTTP 状态码: {}", resp.status()))
     }

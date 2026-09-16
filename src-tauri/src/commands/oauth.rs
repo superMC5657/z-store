@@ -30,12 +30,11 @@ pub async fn oauth_device_start(
             "尚未配置 GitHub OAuth Client ID，请在「设置」中填写后重试".to_string(),
         );
     }
-    crate::oauth::request_device_code(&client_id).await.map_err(|e| {
+    crate::oauth::request_device_code(&client_id).await.inspect_err(|e| {
         log::warn!(
             "oauth device start failed reason={}",
-            crate::log_support::short_reason(&e)
+            crate::log_support::short_reason(e)
         );
-        e
     })
 }
 
@@ -53,12 +52,11 @@ pub async fn oauth_device_poll(
     let client_id = resolve_oauth_client_id_from_db(&state);
     let outcome = crate::oauth::poll_device_once(&client_id, &code)
         .await
-        .map_err(|e| {
+        .inspect_err(|e| {
             log::warn!(
                 "oauth poll failed reason={}",
-                crate::log_support::short_reason(&e)
+                crate::log_support::short_reason(e)
             );
-            e
         })?;
     match outcome {
         crate::oauth::DevicePollOutcome::Authorized { access_token } => {

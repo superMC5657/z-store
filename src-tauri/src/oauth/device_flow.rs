@@ -3,6 +3,8 @@ use super::types::{classify_device_poll, DeviceCodeResponse, DevicePollOutcome, 
 
 /// 发起 Device Flow：向 GitHub 申请 `device_code` 与用户验证码。
 pub async fn request_device_code(client_id: &str) -> Result<DeviceStartResult, String> {
+    // 入口 debug：不记 client_id / code 明文，只记结论。
+    log::debug!("oauth device start");
     let timeout_sec = crate::config::get_project_config().network.api_timeout_seconds;
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(timeout_sec))
@@ -42,6 +44,8 @@ pub async fn poll_device_once(
     client_id: &str,
     device_code: &str,
 ) -> Result<DevicePollOutcome, String> {
+    // 轮询 debug：不记 device_code 明文，只记轮询结论。
+    log::debug!("oauth device poll");
     let timeout_sec = crate::config::get_project_config().network.api_timeout_seconds;
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(timeout_sec))
@@ -63,5 +67,15 @@ pub async fn poll_device_once(
         .text()
         .await
         .map_err(|e| format!("读取授权响应失败: {}", e))?;
-    Ok(classify_device_poll(&text))
+    let outcome = classify_device_poll(&text);
+    // 轮询结论 debug：只记状态机分支，不记 token / code / body。
+    let kind = match &outcome {
+        DevicePollOutcome::Authorized { .. } => "authorized",
+        DevicePollOutcome::Pending { .. } => "pending",
+        DevicePollOutcome::Expired { .. } => "expired",
+        DevicePollOutcome::Denied { .. } => "denied",
+        DevicePollOutcome::Error { .. } => "error",
+    };
+    log::debug!("oauth device poll done status={}", kind);
+    Ok(outcome)
 }

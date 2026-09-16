@@ -13,8 +13,14 @@ pub fn register_deep_link_scheme() -> Result<bool, String> {
 
 #[tauri::command]
 pub fn handle_deep_link(url: String) -> Result<DeepLinkAction, String> {
-    crate::deeplink::DeepLinkParser::parse(&url)
-        .ok_or_else(|| format!("无法识别的 Z-Store 深度链接: {}", url))
+    crate::deeplink::DeepLinkParser::parse(&url).ok_or_else(|| {
+        // 失败 warn：只记首行短原因，不记完整 query / token。
+        log::warn!(
+            "deeplink parse failed reason={}",
+            crate::log_support::short_reason(&url)
+        );
+        format!("无法识别的 Z-Store 深度链接: {}", url)
+    })
 }
 
 #[tauri::command]
