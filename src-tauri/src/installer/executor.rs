@@ -3,17 +3,35 @@ use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
 
-/// 安装执行入口（唯一日志点）：成功 info / 失败 error，只记 id 与短原因。
+/// 判断是否属于用户主动取消安装流程
+fn is_user_cancellation(reason: &str) -> bool {
+    reason.contains("用户取消")
+        || reason.contains("被取消")
+        || reason.contains("安装已中止")
+        || reason.contains("cancelled")
+        || reason.contains("canceled")
+        || reason.contains("1602")
+}
+
+/// 安装执行入口：成功 info / 正常取消 info / 异常失败 error。
 pub async fn execute_installation(
     installer_path: &Path,
     kind: &AssetKind,
     app_id: &str,
     custom_portable_dir: Option<&str>,
 ) -> Result<String, String> {
+    log::info!("install start id={} kind={:?}", app_id, kind);
     let res =
         execute_installation_inner(installer_path, kind, app_id, custom_portable_dir).await;
     match &res {
         Ok(_) => log::info!("install done id={}", app_id),
+        Err(e) if is_user_cancellation(e) => {
+            log::info!(
+                "install cancelled by user id={} reason={}",
+                app_id,
+                crate::log_support::short_reason(e)
+            );
+        }
         Err(e) => log::error!(
             "install failed id={} reason={}",
             app_id,
@@ -55,6 +73,12 @@ async fn execute_installation_inner(
                     let _ = std::fs::remove_file(installer_path);
                     return Err("用户取消了 MSI 安装向导".to_string());
                 }
+
+                log::info!(
+                    "install silent failed code={}, fallback to interactive wizard id={}",
+                    code,
+                    app_id
+                );
 
                 // 静默被拒绝或非零退出：降级拉起原生 GUI 向导，并等待用户在向导中完成或取消
                 let mut fallback = tokio::process::Command::new("msiexec.exe")

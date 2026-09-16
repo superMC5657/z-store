@@ -85,7 +85,11 @@ pub async fn search_apps(
         .catalog
         .search_github_online(&query, token.as_deref())
         .await?;
-    log::debug!("search done hits={}", results.len());
+    log::debug!(
+        "search done query='{}' hits={}",
+        crate::log_support::short_reason(&query),
+        results.len()
+    );
 
     if hidden_ids.is_empty() {
         Ok(results)
@@ -238,6 +242,7 @@ pub async fn get_app_details_impl(
     // ADR-0010：入站 id 统一归一化为 canonical（小写 owner/repo / forge 前缀坐标）
     let clean_id = crate::forge::canonical_app_id(&id);
     let is_force = force_refresh.unwrap_or(false);
+    let start = std::time::Instant::now();
 
     // 获取客户端设置的应用详情缓存保鲜期 (TTL，单位秒；0 表示每次实时校验)。
     // 非法/缺失挡位由 db 层回退默认 30 分钟（ADR-0007 有效集 {0,10,30,60,360,1440}）。
@@ -261,6 +266,11 @@ pub async fn get_app_details_impl(
                 cached_detail.signature_fingerprint = cat_item.publisher_fingerprint;
             }
             attach_store_meta(state, &mut cached_detail).await;
+            log::info!(
+                "get_app_details id={} from=cache:db elapsed_ms={}",
+                clean_id,
+                start.elapsed().as_millis()
+            );
             return Ok(cached_detail);
         }
     }
@@ -269,6 +279,12 @@ pub async fn get_app_details_impl(
     // 2.1 多源 (Codeberg, Gitea 等) 穿透解析
     if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&clean_id) {
         if coord.forge != crate::forge::ForgeType::GitHub {
+            log::info!(
+                "fetch app detail multi-forge id={} host={} forge={:?}",
+                clean_id,
+                coord.host,
+                coord.forge
+            );
             let host_token = if let Ok(db) = state.db.lock() {
                 db.get_host_token(&coord.host).ok().flatten()
             } else {
@@ -339,8 +355,13 @@ pub async fn get_app_details_impl(
             Err(e) => {
                 if let Ok(db) = state.db.lock() {
                     if let Ok(Some(mut fallback)) = db.get_cached_app_detail_fallback(&clean_id) {
-                        fallback.id = clean_id;
+                        fallback.id = clean_id.clone();
                         fallback.is_stale_fallback = Some(true);
+                        log::debug!(
+                            "fetch detail fallback id={} cache=stale elapsed_ms={}",
+                            clean_id,
+                            start.elapsed().as_millis()
+                        );
                         return Ok(fallback);
                     }
                 }
@@ -367,6 +388,14 @@ pub async fn get_app_details_impl(
         (ep, etag, payload, token, cached_detail)
     };
 
+    let safe_ep = crate::log_support::sanitize_url(&release_endpoint);
+    log::info!(
+        "fetch app detail start id={} url='{}' force={}",
+        clean_id,
+        safe_ep,
+        is_force
+    );
+
     let fetch_result = state
         .catalog
         .fetch_app_detail(
@@ -380,7 +409,14 @@ pub async fn get_app_details_impl(
 
     match fetch_result {
         Ok((mut detail, to_cache)) => {
-            log::debug!("fetch detail ok id={}", clean_id);
+            let cache_type = if to_cache.is_none() { "304" } else { "miss" };
+            log::info!(
+                "fetch app detail done id={} url='{}' cache={} elapsed_ms={}",
+                clean_id,
+                safe_ep,
+                cache_type,
+                start.elapsed().as_millis()
+            );
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
@@ -417,17 +453,22 @@ pub async fn get_app_details_impl(
             Ok(detail)
         }
         Err(err) => {
-            // 单仓抓取失败：命令层记一次 warn（id + host-only + 首行），拉取层零打点。
             log::warn!(
-                "fetch detail failed id={} host=github.com reason={}",
+                "fetch app detail failed id={} url='{}' reason={}",
                 clean_id,
+                safe_ep,
                 crate::log_support::short_reason(&err)
             );
             // 网络或限额异常时，优雅降级返回已存储的历史缓存
             if let Ok(db) = state.db.lock() {
                 if let Ok(Some(mut fallback_detail)) = db.get_cached_app_detail_fallback(&clean_id) {
-                    fallback_detail.id = clean_id;
+                    fallback_detail.id = clean_id.clone();
                     fallback_detail.is_stale_fallback = Some(true);
+                    log::info!(
+                        "fetch app detail fallback id={} from=cache:stale elapsed_ms={}",
+                        clean_id,
+                        start.elapsed().as_millis()
+                    );
                     return Ok(fallback_detail);
                 }
             }
@@ -463,6 +504,10 @@ pub async fn sync_catalog(
         (url, etag)
     };
 
+    let safe_url = crate::log_support::sanitize_url(&url);
+    let is_force = force.unwrap_or(false);
+    log::info!("sync catalog start url='{}' force={}", safe_url, is_force);
+
     let res = state
         .catalog
         .sync_remote_catalog(&url, cached_etag.as_deref())
@@ -483,6 +528,13 @@ pub async fn sync_catalog(
 
             if let Some((items, candidate)) = local_fallback {
                 let count = items.len();
+                log::warn!(
+                    "sync catalog remote failed url='{}' reason={}, fallback to local path='{}' count={}",
+                    safe_url,
+                    crate::log_support::short_reason(&err),
+                    candidate,
+                    count
+                );
                 return Ok(SyncCatalogResult {
                     updated: true,
                     count,
@@ -492,6 +544,7 @@ pub async fn sync_catalog(
                     ),
                 });
             } else {
+                log::error!("sync catalog failed url='{}' reason={}", safe_url, crate::log_support::short_reason(&err));
                 return Err(err);
             }
         }
@@ -509,6 +562,7 @@ pub async fn sync_catalog(
                 let _ = db.save_etag(&url, &etag, &json_str, now);
             }
         }
+        log::info!("sync catalog done url='{}' updated=true count={}", safe_url, count);
         Ok(SyncCatalogResult {
             updated: true,
             count,
@@ -516,6 +570,7 @@ pub async fn sync_catalog(
         })
     } else {
         let count = state.catalog.get_catalog_count();
+        log::info!("sync catalog done url='{}' updated=false (up-to-date) count={}", safe_url, count);
         Ok(SyncCatalogResult {
             updated: false,
             count,

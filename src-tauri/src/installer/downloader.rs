@@ -1,4 +1,4 @@
-use crate::log_support::{file_base, host_of, http_err_reason, short_reason};
+use crate::log_support::{file_base, http_err_reason, sanitize_url, short_reason};
 use crate::models::DownloadProgressPayload;
 use futures_util::StreamExt;
 use sha2::{Digest, Sha256};
@@ -35,12 +35,12 @@ pub async fn download_with_progress(
 
     let started = Instant::now();
     let log_file = file_base(asset_name);
-    let log_host = host_of(download_url);
+    let safe_url = sanitize_url(download_url);
     log::info!(
-        "download start id={} file={} host={}",
+        "download start id={} file={} url='{}'",
         task_id,
         log_file,
-        log_host
+        safe_url
     );
 
     let resp_result = client.get(download_url).send().await;
@@ -49,10 +49,10 @@ pub async fn download_with_progress(
             if !r.status().is_success() {
                 let err_msg = format!("下载请求失败，HTTP 状态码: {}", r.status());
                 log::error!(
-                    "download failed id={} file={} host={} reason={}",
+                    "download failed id={} file={} url='{}' reason={}",
                     task_id,
                     log_file,
-                    log_host,
+                    safe_url,
                     short_reason(&err_msg)
                 );
                 let _ = app_handle.emit(
@@ -75,10 +75,10 @@ pub async fn download_with_progress(
             let reason = http_err_reason(&e);
             let err_msg = format!("无法连接下载服务器: {}", reason);
             log::error!(
-                "download failed id={} file={} host={} reason={}",
+                "download failed id={} file={} url='{}' reason={}",
                 task_id,
                 log_file,
-                log_host,
+                safe_url,
                 reason
             );
             let _ = app_handle.emit(
@@ -128,10 +128,10 @@ pub async fn download_with_progress(
         Err(e) => {
             let err_msg = format!("创建临时文件失败: {}", e);
             log::error!(
-                "download failed id={} file={} host={} reason={}",
+                "download failed id={} file={} url='{}' reason={}",
                 task_id,
                 log_file,
-                log_host,
+                safe_url,
                 short_reason(&err_msg)
             );
             let _ = app_handle.emit(
@@ -166,10 +166,10 @@ pub async fn download_with_progress(
                     let reason = http_err_reason(&e);
                     let err_msg = format!("下载数据流中断: {}", reason);
                     log::error!(
-                        "download failed id={} file={} host={} reason={}",
+                        "download failed id={} file={} url='{}' reason={}",
                         task_id,
                         log_file,
-                        log_host,
+                        safe_url,
                         reason
                     );
                     let _ = app_handle.emit(
@@ -194,10 +194,10 @@ pub async fn download_with_progress(
                     net_conf.chunk_timeout_seconds
                 );
                 log::error!(
-                    "download failed id={} file={} host={} reason={}",
+                    "download failed id={} file={} url='{}' reason={}",
                     task_id,
                     log_file,
-                    log_host,
+                    safe_url,
                     short_reason(&err_msg)
                 );
                 let _ = app_handle.emit(
@@ -224,10 +224,10 @@ pub async fn download_with_progress(
             let _ = std::fs::remove_file(&temp_path);
             let err_msg = format!("写入磁盘失败: {}", e);
             log::error!(
-                "download failed id={} file={} host={} reason={}",
+                "download failed id={} file={} url='{}' reason={}",
                 task_id,
                 log_file,
-                log_host,
+                safe_url,
                 short_reason(&err_msg)
             );
             let _ = app_handle.emit(

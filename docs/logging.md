@@ -19,29 +19,29 @@
 
 | | release | dev（`debug_assertions` / `import.meta.env.DEV`） |
 |---|---|---|
-| 后端 targets（`z_log::init`） | 仅 `LogDir` | `Stdout` + `LogDir` + `Webview` |
+| 后端 targets（`z_log::init`） | 仅 `LogDir`（Level::Info） | `Stdout` + `LogDir` + `Webview`（Level::Debug） |
+| 单文件与轮转 | 单文件 5MB 滚动（`KeepSome(5)`） | 同左 |
+| 时区策略 | 本地时区（`TimezoneStrategy::UseLocal`） | 同左 |
+| 第三方降噪 | reqwest / hyper / tao / wry / h2 / rustls 过滤为 `Warn` | 同左 |
 | 前端 `attachConsole` | 不调用 | 仅 DEV 调用（`src/lib/z-log.ts::initZLog`） |
 | capabilities | `log:default`（`src-tauri/capabilities/default.json`） | 同左 |
 
-v2 API 对齐：`tauri_plugin_log::Builder::targets([...]).build()` 以插件形式接入
+v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模块过滤与 targets 后以插件形式接入
 （`lib.rs::run` 中 `.plugin(z_log::init())`）。
 
-## 3. 级别
+## 3. 级别与直透
 
-- 后端：`log::error!`（panic hook）等标准 `log` 级别直写。
-- 前端：`enqueue` 按 `info/warn/debug` 攒批（批量经一次 `info()` 上送，级别保留在行前缀
-  `[level]` 中）；`error` 级别直透 `error()`，不进批量，保证关键错误不被延迟。
+- 后端：`log::error!`（panic hook）、`log_session_start()`（会话横幅）等标准 `log` 级别直写。
+- 前端：直透刷盘模式。`info / warn / error / debug` 均为纳秒级即时进 IPC 直写，杜绝 3 秒攒批导致的时序颠倒（因果倒置）与崩溃丢日志问题。
+- Target 规范化：Webview 上送的调用栈 Target 统一被后端重写为精简的 `[ui]`，提升日志可读性。
 - `window.onerror` / `unhandledrejection` 直透 `error()`。
 
-## 4. batch 机制（200 条 / 3s）
+## 4. 前端直透与脱敏
 
-前端量大故攒批，减少 IPC：`src/lib/z-log.ts`，入口 `main.tsx` 最早调用
-`initZLog({ batch: 200, flushIntervalMs: 3000 })`。
-
-- 满 `batch`（200 条）即 `flush()`；
-- 每 `flushIntervalMs`（3000ms）`setInterval` 刷一次；
-- `pagehide` + `beforeunload` 补刷尾批（`void flush()`，尽力而为）；
-- `flush()` 失败吞错，不影响业务（丢弃本批）。
+入口 `main.tsx` 最早调用 `initZLog()`。
+- DEV 环境自动执行 `attachConsole()` 桥接；
+- 各级别方法（`zlogInfo / zlogWarn / zlogError / zlogDebug`）即时异步落盘；
+- 失败吞错，不影响任何业务逻辑。
 
 ## 5. 脱敏（redact）
 
@@ -101,6 +101,9 @@ v2 API 对齐：`tauri_plugin_log::Builder::targets([...]).build()` 以插件形
 | 下载开始 `installer/downloader.rs` | info | `download start id=rustdesk/rustdesk file=rustdesk.msi host=objects.githubusercontent.com` |
 | 下载完成 `installer/downloader.rs` | info | `download done id=rustdesk/rustdesk file=rustdesk.msi bytes=12345678 elapsed_ms=4321` |
 | 下载失败 `installer/downloader.rs`（各终端分支记一次） | error | `download failed id=… file=… host=… reason=…首行…` / `download verify failed id=… file=…` |
+| 安装启动 `installer/executor.rs` | info | `install start id=… kind=Msi\|SetupExe\|…` |
+| 安装静默失败降级向导 `installer/executor.rs` | info | `install silent failed code=1603, fallback to interactive wizard id=…` |
+| 安装用户主动取消 `installer/executor.rs` | info | `install cancelled by user id=… reason=用户取消了 MSI 安装向导` |
 | 安装结果 `installer/executor.rs`（唯一出入口） | info/error | `install done id=…` / `install failed id=… reason=…首行…` |
 | 校验失败 `verifier.rs::verify_fingerprint` | error | `verify failed reason=…`（指纹冲突只记结论，不回显指纹值） |
 | 限额低水位 `lib.rs::log_rate_limit_water_mark`（每进程每 host 每种一次） | warn | `rate limit low host=github.com remaining=6/60` |
@@ -115,7 +118,7 @@ v2 API 对齐：`tauri_plugin_log::Builder::targets([...]).build()` 以插件形
 
 | 点位 | 消息样例 |
 |---|---|
-| 单仓/详情/搜索成功 `commands/catalog.rs` | `fetch detail ok id=…` / `fetch repo ok id=…` / `search done hits=3` |
+| 单仓/详情/搜索成功 `commands/catalog.rs` | `fetch detail ok id=…` / `fetch repo ok id=…` / `search done query='rust' hits=3` |
 | scanner 单项未命中 `scanner/matcher.rs` | `scanner no match name=…`（不记路径/图标原文） |
 | 测速毫秒 `commands/network.rs::ping_mirrors` | `proxy ping done latency_ms=210` |
 | 关注挂起 `commands/updates.rs::notify_watched_updates` | `watch deferred id=… reason=daily-throttle\|baseline-init\|…首行…` |
@@ -131,15 +134,15 @@ v2 API 对齐：`tauri_plugin_log::Builder::targets([...]).build()` 以插件形
 - 拉取层（`github/catalog.rs`、`detail.rs`、`search.rs`、`forge/`、
   `mirror.rs::test_proxy_latency`）零打点：错误上浮到命令层记一次，避免双记。
 
-## 11. 脱敏红线
+## 11. 脱敏红线与网络透明化（sanitize_url）
 
-- 本仓最高风险：release 资产 URL 签名 query。reqwest 0.12 `Display`
-  回显完整 URL，错误必须先过 `log_support::http_err_reason` 脱敏（自写，
-  不跨仓 import），日志与返回前端的错误串均不得含签名 query。
-- 公共辅助 `src-tauri/src/log_support.rs`：`host_of(url)->host/unknown` +
-  `short_reason`（首行 + 160 chars 截断，字符边界安全）+ `file_base`
-  （basename，兼容 `/` 与 `\`）；复用于下载链 / 安装入口 / 代理与网络调用方。
-- `z_log::redact` 保持不变（`Bearer/token` 后 token 打码；panic hook 先脱敏）。
+- **网络请求透明化**：客户端对外拉取的所有远端数据（收录清单、Release 资产、README、更新检查、在线搜索、多源 Forge），均在业务层打印出目标 URL、状态码与耗时，保证排查与网络环境审计可知可控。
+- **URL 脱敏与签名保护（`log_support::sanitize_url`）**：
+  - 保留完整协议、Host、端口与 Path 路径（包括镜像代理前缀，如 `https://ghproxy.net/https://github.com/...`）；
+  - 对 Query 参数执行敏感词扫描，自动将 `token`、`sig`、`signature`、`secret`、`key`、`X-Amz-*` 等敏感签名键值替换为 `***`；
+  - 保留常规业务查询参数（如 `q=...`, `per_page=...`, `sort=...`），便于直接在日志中排查搜索请求与参数。
+- **上游错误脱敏（`log_support::http_err_reason`）**：reqwest 0.12 `Display` 回显完整 URL，先剥离签名 query 再取首行（160 字符安全截断）。
+- **令牌遮蔽（`z_log::redact`）**：`Bearer/token` 之后紧跟的 token 原文统一打码为 `***`。
 
 ## 12. 行号索引（以本版代码为准）
 

@@ -16,6 +16,7 @@ import { FavoritesView } from './views/FavoritesView';
 import { AppDetail, AppSettings, AppSummary, InstalledApp, MirrorNodeStatus, OAuthUser, ToastMessage, UpdateItem, UpdateCheckProgressPayload, UpdateRule, ViewType, WatchUpdatedPayload } from './types';
 import { api, DEFAULT_SETTINGS } from './services/api';
 import { preloadIcons } from './components/AppIcon';
+import { zlogError, zlogInfo, zlogWarn } from './lib/z-log';
 
 export const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewType>('home');
@@ -51,6 +52,13 @@ export const App: React.FC = () => {
   // 应用内通知（FR-6.2 关注提醒 / FR-4.4 自更新 / FR-7 OAuth / FR-6.3 导入导出经此通道呈现）
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const showToast = (text: string, type: ToastMessage['type'] = 'info') => {
+    if (type === 'error') {
+      zlogError(`[toast] ${text}`);
+    } else if (type === 'warning') {
+      zlogWarn(`[toast] ${text}`);
+    } else {
+      zlogInfo(`[toast] ${text}`);
+    }
     const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     setToasts((prev) => [...prev.slice(-2), { id, text, type }]);
     setTimeout(() => {
@@ -337,11 +345,25 @@ export const App: React.FC = () => {
     return () => mediaQuery.removeEventListener('change', handleChange);
   }, [settings.theme]);
 
-  // 仅在用户主动进入“更新中心”标签页时才执行轻量检查，彻底避免在后台静默消耗用户配额
+  // 仅在用户主动进入“更新中心”标签页时才执行轻量检查（30 秒防抖冷却，避免频繁切标签重复消耗配额）
+  const lastTabUpdateCheckRef = useRef<number>(0);
   useEffect(() => {
     if (currentView === 'updates' && updates.length === 0) {
-      api.checkForUpdates(false).then(setUpdates).catch(() => {});
+      const now = Date.now();
+      if (now - lastTabUpdateCheckRef.current > 30_000) {
+        lastTabUpdateCheckRef.current = now;
+        api.checkForUpdates(false).then(setUpdates).catch(() => {});
+      }
     }
+  }, [currentView, updates.length]);
+
+  const isFirstViewRender = useRef(true);
+  useEffect(() => {
+    if (isFirstViewRender.current) {
+      isFirstViewRender.current = false;
+      return;
+    }
+    zlogInfo(`switch view='${currentView}'`);
   }, [currentView]);
 
   // Theme Toggler
@@ -695,6 +717,7 @@ export const App: React.FC = () => {
   // Install App
   const handleInstallApp = async (id: string, assetName?: string, customInstallDir?: string): Promise<void> => {
     if (installingAppIds.has(id)) return;
+    zlogInfo(`click install id=${id} asset=${assetName || 'auto'}`);
     setInstallingAppIds((prev) => new Set(prev).add(id));
     try {
       const installed = await api.installApp(id, assetName, customInstallDir);
@@ -720,6 +743,7 @@ export const App: React.FC = () => {
 
   // Launch App
   const handleLaunchApp = async (id: string) => {
+    zlogInfo(`click launch id=${id}`);
     const app = installedApps.find((a) => a.app_id === id);
     const appName = app ? app.app_name : id;
     try {
@@ -780,6 +804,7 @@ export const App: React.FC = () => {
   // Uninstall App (trigger official uninstaller -> await completion -> verify removal -> remove from list)
   const handleUninstallApp = async (id: string) => {
     if (uninstallingAppIds.has(id)) return;
+    zlogInfo(`click uninstall id=${id}`);
     const app = installedApps.find((a) => a.app_id.toLowerCase() === id.toLowerCase());
     const appName = app?.app_name || apps.find((a) => a.id.toLowerCase() === id.toLowerCase())?.name || id;
 

@@ -12,15 +12,54 @@ pub const KEEP_DAYS: u64 = 14;
 /// 日志总大小上限（25MB）。
 pub const MAX_TOTAL_BYTES: u64 = 25 * 1024 * 1024;
 
+/// 单个日志切片大小上限（5MB），防止默认 40KB 到限后直接清空文件。
+pub const MAX_SINGLE_FILE_BYTES: u128 = 5 * 1024 * 1024;
+/// 保留的已归档日志切片数量上限。
+pub const ROTATION_KEEP_COUNT: usize = 5;
+
 /// 初始化 tauri-plugin-log v2。
 ///
-/// - release：只写 `LogDir`
-/// - dev：`Stdout` + `LogDir` + `Webview`
+/// - release：只写 `LogDir`（Level::Info）
+/// - dev：`Stdout` + `LogDir` + `Webview`（Level::Debug）
+/// - 显式配置 5MB 轮转与本地时区，避免 40KB 静默删除与时区偏差
+/// - 降低 reqwest / hyper / tao / wry 等高噪音第三方库级别为 Warn
+/// - 统一将 webview 前端长路径 target 规整为简洁的 [ui]
 pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
-    use tauri_plugin_log::{Target, TargetKind};
+    use tauri_plugin_log::{
+        Builder, RotationStrategy, Target, TargetKind, TimezoneStrategy,
+    };
+
+    let format = time::macros::format_description!("[[[year]-[month]-[day]][[[hour]:[minute]:[second]]");
+    let builder = Builder::default()
+        .max_file_size(MAX_SINGLE_FILE_BYTES)
+        .rotation_strategy(RotationStrategy::KeepSome(ROTATION_KEEP_COUNT))
+        .timezone_strategy(TimezoneStrategy::UseLocal)
+        .format(move |out, message, record| {
+            let now = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+            let target = if record.target().starts_with("webview") {
+                "ui"
+            } else {
+                record.target()
+            };
+            out.finish(format_args!(
+                "{}[{}][{}] {}",
+                now.format(&format).unwrap_or_default(),
+                record.level(),
+                target,
+                message
+            ))
+        })
+        .level_for("reqwest", log::LevelFilter::Warn)
+        .level_for("hyper", log::LevelFilter::Warn)
+        .level_for("tao", log::LevelFilter::Warn)
+        .level_for("wry", log::LevelFilter::Warn)
+        .level_for("h2", log::LevelFilter::Warn)
+        .level_for("rustls", log::LevelFilter::Warn);
+
     #[cfg(debug_assertions)]
     {
-        tauri_plugin_log::Builder::default()
+        builder
+            .level(log::LevelFilter::Debug)
             .targets([
                 Target::new(TargetKind::Stdout),
                 Target::new(TargetKind::LogDir { file_name: None }),
@@ -30,10 +69,22 @@ pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     }
     #[cfg(not(debug_assertions))]
     {
-        tauri_plugin_log::Builder::default()
+        builder
+            .level(log::LevelFilter::Info)
             .targets([Target::new(TargetKind::LogDir { file_name: None })])
             .build()
     }
+}
+
+/// 记录新会话启动横幅，明确会话生命周期边界。
+pub fn log_session_start() {
+    log::info!(
+        "=== Z-Store v{} started (os={} arch={} pid={}) ===",
+        env!("CARGO_PKG_VERSION"),
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        std::process::id()
+    );
 }
 
 /// 脱敏：遮蔽常见 token / Authorization 头，避免密钥落盘。
@@ -83,11 +134,17 @@ fn prune_log_dir(log_dir: &Path, keep_days: u64, max_total_bytes: u64) {
         if !path.is_file() {
             continue;
         }
-        // 只碰 *.log：其他文件（含 .zip 导出包、.txt、业务 DB）一律不动。
-        let is_log = path
-            .extension()
-            .map(|e| e.eq_ignore_ascii_case("log"))
-            .unwrap_or(false);
+        // 只碰 *.log 与 *.log.bak：其他文件（含 .zip 导出包、.txt、业务 DB）一律不动。
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        let is_log = name.ends_with(".log")
+            || name.ends_with(".log.bak")
+            || path
+                .extension()
+                .map(|e| e.eq_ignore_ascii_case("log") || e.eq_ignore_ascii_case("bak"))
+                .unwrap_or(false);
         if !is_log {
             continue;
         }
@@ -185,12 +242,15 @@ pub fn zlog_export_bundle(app: AppHandle) -> Result<String, String> {
         if name.is_empty() || name.ends_with(".zip") {
             continue;
         }
-        // 只打包 *.log，避免把业务 DB / 其他杂物打进 bundle。
-        if !path
-            .extension()
-            .map(|e| e.eq_ignore_ascii_case("log"))
-            .unwrap_or(false)
-        {
+        // 只打包 *.log 与 *.log.bak，避免把业务 DB / 其他杂物打进 bundle。
+        let name_lower = name.to_lowercase();
+        let is_log = name_lower.ends_with(".log")
+            || name_lower.ends_with(".log.bak")
+            || path
+                .extension()
+                .map(|e| e.eq_ignore_ascii_case("log") || e.eq_ignore_ascii_case("bak"))
+                .unwrap_or(false);
+        if !is_log {
             continue;
         }
         let data = std::fs::read(&path).map_err(|e| e.to_string())?;

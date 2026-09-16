@@ -14,7 +14,7 @@ pub fn host_of(url: &str) -> String {
         None => s,
     };
     let end = after
-        .find(|c| c == '/' || c == '?' || c == '#')
+        .find(['/', '?', '#'])
         .unwrap_or(after.len());
     let mut hostport = &after[..end];
     if let Some(at) = hostport.rfind('@') {
@@ -37,6 +37,65 @@ pub fn host_of(url: &str) -> String {
     } else {
         h
     }
+}
+
+/// URL 脱敏与安全日志格式化：
+/// 1. 保留完整协议、Host、端口与 Path 路径（例如 `https://api.github.com/repos/7zip/7zip/releases/latest`
+///    或带镜像前缀的 `https://ghproxy.net/https://github.com/...`）；
+/// 2. 对 Query 参数进行敏感词脱敏（如 token, signature, sig, key, secret, x-amz-*, credential 等）；
+/// 3. 保留非敏感查询参数（如 `q=...`, `per_page=...`, `sort=...`），便于排查搜索与过滤请求。
+pub fn sanitize_url(url: &str) -> String {
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let (base, query_part) = match trimmed.find('?') {
+        Some(pos) => (&trimmed[..pos], Some(&trimmed[pos + 1..])),
+        None => (trimmed, None),
+    };
+
+    let Some(query) = query_part else {
+        return base.to_string();
+    };
+
+    if query.trim().is_empty() {
+        return format!("{}?", base);
+    }
+
+    let is_sensitive_key = |key: &str| -> bool {
+        let k = key.to_ascii_lowercase();
+        k.contains("token")
+            || k.contains("secret")
+            || k.contains("sig")
+            || k.contains("key")
+            || k.contains("auth")
+            || k.contains("credential")
+            || k.contains("pass")
+            || k.starts_with("x-amz-")
+            || k.starts_with("x-goog-")
+            || k.starts_with("x-ms-")
+    };
+
+    let mut sanitized_params = Vec::new();
+    for pair in query.split('&') {
+        if pair.is_empty() {
+            continue;
+        }
+        if let Some((k, _v)) = pair.split_once('=') {
+            if is_sensitive_key(k) {
+                sanitized_params.push(format!("{}=***", k));
+            } else {
+                sanitized_params.push(pair.to_string());
+            }
+        } else if is_sensitive_key(pair) {
+            sanitized_params.push(format!("{}=***", pair));
+        } else {
+            sanitized_params.push(pair.to_string());
+        }
+    }
+
+    let joined = sanitized_params.join("&");
+    format!("{}?{}", base, joined)
 }
 
 /// 取首行并按 chars 截断至 160（字符边界安全）。
@@ -125,5 +184,26 @@ mod tests {
         assert_eq!(file_base("C:\\Temp\\a\\setup.exe"), "setup.exe");
         assert_eq!(file_base("/tmp/dl/pkg.msi"), "pkg.msi");
         assert_eq!(file_base(""), "package.bin");
+    }
+
+    #[test]
+    fn test_sanitize_url() {
+        assert_eq!(
+            sanitize_url("https://api.github.com/repos/7zip/7zip/releases/latest"),
+            "https://api.github.com/repos/7zip/7zip/releases/latest"
+        );
+        assert_eq!(
+            sanitize_url("https://api.github.com/search/repositories?q=rust&sort=stars&order=desc"),
+            "https://api.github.com/search/repositories?q=rust&sort=stars&order=desc"
+        );
+        assert_eq!(
+            sanitize_url("https://objects.githubusercontent.com/file.msi?X-Amz-Signature=deadbeef&token=123&normal=abc"),
+            "https://objects.githubusercontent.com/file.msi?X-Amz-Signature=***&token=***&normal=abc"
+        );
+        assert_eq!(
+            sanitize_url("https://gh-proxy.com/https://github.com/owner/repo/releases/download/v1.0/app.exe"),
+            "https://gh-proxy.com/https://github.com/owner/repo/releases/download/v1.0/app.exe"
+        );
+        assert_eq!(sanitize_url(""), "");
     }
 }

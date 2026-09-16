@@ -117,11 +117,15 @@ pub async fn fetch_app_latest_version_lightweight(
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
 
+    let safe_ep = crate::log_support::sanitize_url(&ep);
+    log::info!("http check update start id={} url='{}' etag={:?}", clean_id, safe_ep, cached_etag);
+    let start_upd = std::time::Instant::now();
     let req = client.get(&ep).headers(headers).send();
     let resp = match tokio::time::timeout(api_timeout, req).await {
         Ok(r) => r.ok(),
         Err(_) => None,
     };
+    let elapsed = start_upd.elapsed().as_millis();
 
     if let Some(ref res) = resp {
         crate::notify_rate_limit("github.com", res.headers());
@@ -141,15 +145,18 @@ pub async fn fetch_app_latest_version_lightweight(
                 if let Ok(parsed) =
                     serde_json::from_str::<crate::github::models::GitHubReleaseResponse>(payload)
                 {
+                    log::info!("http check update resp id={} url='{}' status=304 ver={} elapsed_ms={}", clean_id, safe_ep, parsed.tag_name, elapsed);
                     return Ok((parsed.tag_name, parsed.body.unwrap_or_default()));
                 }
             }
             if let Ok(db) = state.db.lock() {
                 if let Ok(Some(fallback)) = db.get_cached_app_detail_fallback(&clean_id) {
+                    log::info!("http check update resp id={} url='{}' status=304 ver={} elapsed_ms={}", clean_id, safe_ep, fallback.latest_version, elapsed);
                     return Ok((fallback.latest_version, fallback.changelog));
                 }
             }
             if let Some(cat) = state.catalog.get_catalog_item(&clean_id) {
+                log::info!("http check update resp id={} url='{}' status=304 ver={} elapsed_ms={}", clean_id, safe_ep, cat.default_version, elapsed);
                 return Ok((cat.default_version, String::new()));
             }
             Err("304 响应但未能提取到有效版本信息".to_string())
@@ -166,6 +173,8 @@ pub async fn fetch_app_latest_version_lightweight(
                 serde_json::from_str(&payload_text)
                     .map_err(|e| format!("解析 GitHub Release 失败: {}", e))?;
 
+            log::info!("http check update resp id={} url='{}' status=200 ver={} elapsed_ms={}", clean_id, safe_ep, parsed.tag_name, elapsed);
+
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
@@ -180,6 +189,7 @@ pub async fn fetch_app_latest_version_lightweight(
             Ok((parsed.tag_name, parsed.body.unwrap_or_default()))
         }
         _ => {
+            log::warn!("http check update resp failed id={} url='{}' elapsed_ms={}", clean_id, safe_ep, elapsed);
             // 网络故障、超时或被 403 限流，优雅降级：读取本地已有缓存或 catalog
             if let Ok(db) = state.db.lock() {
                 if let Ok(Some(fallback)) = db.get_cached_app_detail_fallback(&clean_id) {

@@ -159,6 +159,9 @@ pub async fn fetch_store_toml_raw(
         .ok()?;
 
     for url in candidates {
+        let safe_url = crate::log_support::sanitize_url(&url);
+        log::debug!("http get store_meta url='{}'", safe_url);
+        let start_meta = std::time::Instant::now();
         let mut req = client
             .get(&url)
             .header("User-Agent", "ZStore-Client/0.1.0")
@@ -177,6 +180,7 @@ pub async fn fetch_store_toml_raw(
             Ok(Ok(resp)) if resp.status().is_success() => {
                 if let Ok(text) = resp.text().await {
                     if !text.trim().is_empty() {
+                        log::info!("http resp store_meta ok url='{}' elapsed_ms={}", safe_url, start_meta.elapsed().as_millis());
                         return Some(text);
                     }
                 }

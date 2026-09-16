@@ -109,10 +109,21 @@ pub async fn install_app(
         .ok_or_else(|| "该 Release 未提供匹配当前操作系统的安装包资产".to_string())?;
 
     // 2. 获取加速下载重写地址
-    let rewritten_url = {
+    let (rewritten_url, is_mirror) = {
         let mirror = state.mirror.lock().map_err(|e| e.to_string())?;
-        mirror.rewrite_download_url(&asset.download_url)
+        let rewritten = mirror.rewrite_download_url(&asset.download_url);
+        let is_mirror = rewritten != asset.download_url;
+        (rewritten, is_mirror)
     };
+
+    log::info!(
+        "download init id={} file='{}' raw_url='{}' effective_url='{}' mirror={}",
+        app_id,
+        asset.name,
+        crate::log_support::sanitize_url(&asset.download_url),
+        crate::log_support::sanitize_url(&rewritten_url),
+        is_mirror
+    );
 
     // 3. 执行流式下载与 SHA-256 完整性防篡改强校验
     let download_res = InstallerEngine::download_with_progress(
@@ -133,6 +144,10 @@ pub async fn install_app(
             let is_direct = rewritten_url == asset.download_url;
             if is_github && is_direct {
                 let fallback_url = format!("https://gh-proxy.com/{}", asset.download_url);
+                log::warn!(
+                    "download direct failed, retrying via fallback mirror url='{}'",
+                    crate::log_support::sanitize_url(&fallback_url)
+                );
                 let _ = app_handle.emit(
                     "zstore://download-progress",
                     crate::models::DownloadProgressPayload {

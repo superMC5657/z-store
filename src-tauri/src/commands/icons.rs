@@ -203,6 +203,9 @@ pub async fn get_or_fetch_icon(
     let mut last_err = String::new();
 
     for url in candidate_urls {
+        let safe_url = crate::log_support::sanitize_url(&url);
+        log::debug!("http get icon url='{}'", safe_url);
+        let start_icon = std::time::Instant::now();
         match client
             .get(&url)
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
@@ -211,9 +214,11 @@ pub async fn get_or_fetch_icon(
             .await
         {
             Ok(resp) => {
+                let status = resp.status().as_u16();
                 if resp.status().is_success() {
                     if let Ok(bytes) = resp.bytes().await {
                         if !bytes.is_empty() {
+                            log::debug!("http resp icon ok url='{}' status={} bytes={} elapsed_ms={}", safe_url, status, bytes.len(), start_icon.elapsed().as_millis());
                             fetched_bytes = Some(bytes);
                             break;
                         }

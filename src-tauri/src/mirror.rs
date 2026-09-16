@@ -57,24 +57,23 @@ impl MirrorManager {
 
     pub fn set_active_mirror(&mut self, id_or_url: &str) -> bool {
         let trimmed = id_or_url.trim();
-        if trimmed.is_empty() || trimmed == "direct" {
-            self.custom_proxy = None;
-            log::info!("mirror switch ok id=direct");
-            true
+        let (new_proxy, id) = if trimmed.is_empty() || trimmed == "direct" {
+            (None, "direct")
         } else if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
-            self.custom_proxy = Some(trimmed.to_string());
-            // 只记 direct/custom id，不记完整代理 URL。
-            log::info!("mirror switch ok id=custom");
-            true
+            (Some(trimmed.to_string()), "custom")
         } else if trimmed == "ghproxy" {
-            self.custom_proxy = Some("https://gh-proxy.com".to_string());
-            log::info!("mirror switch ok id=custom");
-            true
+            (Some("https://gh-proxy.com".to_string()), "custom")
         } else {
-            self.custom_proxy = None;
-            log::info!("mirror switch ok id=direct");
-            true
+            (None, "direct")
+        };
+
+        if self.custom_proxy == new_proxy {
+            return true; // 状态未改变，幂等跳过，避免重复刷日志
         }
+        self.custom_proxy = new_proxy;
+        let proxy_display = self.custom_proxy.as_deref().unwrap_or("direct");
+        log::info!("mirror switch id={} proxy='{}'", id, proxy_display);
+        true
     }
 
     pub fn rewrite_download_url(&self, raw_url: &str) -> String {
@@ -123,6 +122,9 @@ impl MirrorManager {
             None => "https://github.com".to_string(),
         };
 
+        let safe_test_url = crate::log_support::sanitize_url(&test_url);
+        log::info!("test mirror ping start url='{}'", safe_test_url);
+
         let start = Instant::now();
         let mut resp = client.head(&test_url).send().await;
         if resp.is_err() || resp.as_ref().map(|r| r.status().as_u16() == 405).unwrap_or(false) {
@@ -134,12 +136,18 @@ impl MirrorManager {
             Ok(res) => {
                 let status = res.status().as_u16();
                 if status < 500 {
+                    log::info!("test mirror ping resp url='{}' status={} latency_ms={}", safe_test_url, status, elapsed);
                     (true, elapsed.clamp(1, 4000), format!("{} ms (连接正常)", elapsed))
                 } else {
+                    log::warn!("test mirror ping resp url='{}' status={} latency_ms={}", safe_test_url, status, elapsed);
                     (false, 9999, format!("HTTP 状态码异常: {}", status))
                 }
             }
-            Err(e) => (false, 9999, format!("连接失败或超时: {}", e)),
+            Err(e) => {
+                let reason = crate::log_support::short_reason(&e.to_string());
+                log::warn!("test mirror ping failed url='{}' reason={}", safe_test_url, reason);
+                (false, 9999, format!("连接失败或超时: {}", e))
+            }
         }
     }
 }

@@ -104,6 +104,8 @@ impl CatalogService {
                 url.to_string()
             };
 
+            log::info!("sync catalog loading local file='{}'", clean_path);
+
             let path = std::path::Path::new(&clean_path);
             if !path.exists() {
                 return Err(format!("本地收录清单文件不存在: {}", clean_path));
@@ -123,6 +125,7 @@ impl CatalogService {
 
             if let Some(etag) = cached_etag {
                 if etag == local_etag {
+                    log::info!("sync catalog local file='{}' unchanged (304)", clean_path);
                     return Ok((None, None));
                 }
             }
@@ -132,20 +135,32 @@ impl CatalogService {
             let items: Vec<CatalogItem> = serde_json::from_str(&text)
                 .map_err(|e| format!("解析本地收录清单 JSON 失败: {}", e))?;
             self.update_items(items.clone());
+            log::info!("sync catalog local file='{}' ok items={}", clean_path, items.len());
             return Ok((Some(items), Some(local_etag)));
         }
 
         // 远程 HTTP/HTTPS 请求
+        let safe_url = crate::log_support::sanitize_url(url);
+        log::info!("http fetch catalog url='{}' etag={:?}", safe_url, cached_etag);
+        let start = std::time::Instant::now();
+
         let mut req = self.client.get(url).header(USER_AGENT, "ZStore-Client/0.1.0");
         if let Some(etag) = cached_etag {
             req = req.header(IF_NONE_MATCH, etag);
         }
-        let resp = req.send().await.map_err(|e| format!("请求收录清单失败: {}", e))?;
+        let resp = req.send().await.map_err(|e| {
+            let reason = crate::log_support::short_reason(&e.to_string());
+            log::warn!("http fetch catalog failed url='{}' reason={}", safe_url, reason);
+            format!("请求收录清单失败: {}", e)
+        })?;
+        let elapsed = start.elapsed().as_millis();
+
         if resp.status() == reqwest::StatusCode::NOT_MODIFIED {
-            // 清单未变动
+            log::info!("http fetch catalog resp url='{}' status=304 not_modified elapsed_ms={}", safe_url, elapsed);
             return Ok((None, None));
         }
         if !resp.status().is_success() {
+            log::warn!("http fetch catalog resp url='{}' status={} elapsed_ms={}", safe_url, resp.status(), elapsed);
             return Err(format!("同步收录清单失败，HTTP 状态码: {}", resp.status()));
         }
         let new_etag = resp
@@ -157,6 +172,7 @@ impl CatalogService {
         let items: Vec<CatalogItem> = serde_json::from_str(&text)
             .map_err(|e| format!("解析收录清单 JSON 失败: {}", e))?;
         self.update_items(items.clone());
+        log::info!("http fetch catalog resp url='{}' status=200 items={} elapsed_ms={}", safe_url, items.len(), elapsed);
         Ok((Some(items), new_etag))
     }
 

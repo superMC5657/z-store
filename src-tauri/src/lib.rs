@@ -385,6 +385,8 @@ pub fn run() {
         .manage(state)
         .setup(move |app| {
             use tauri::Manager;
+            // 记录新会话启动横幅
+            z_log::log_session_start();
             // setup 之前先 prune：清理过期/超量日志
             if let Ok(log_dir) = app.path().app_log_dir() {
                 z_log::prune(&log_dir);
