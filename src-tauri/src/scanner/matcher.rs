@@ -165,11 +165,7 @@ impl AppScanner {
                     resolved_executable_path: resolved_exe,
                 });
             } else {
-                // 单项未命中属常态：debug，不记路径/图标原文。
-                log::debug!(
-                    "scanner no match name={}",
-                    crate::log_support::short_reason(&scanned.display_name)
-                );
+                // 单项未命中属常态：循环内不记日志，避免 catalog 匹配放量刷屏。
             }
         }
 

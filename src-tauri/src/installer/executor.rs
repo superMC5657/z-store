@@ -438,10 +438,10 @@ pub fn build_unix_install_commands(kind: &AssetKind, asset_path: &Path) -> Vec<V
 /// 智能拆分 Windows 卸载命令行为 (可执行文件路径, 参数列表)
 pub fn parse_uninstaller_command(cmd: &str) -> (String, Vec<String>) {
     let trimmed = cmd.trim();
-    if trimmed.starts_with('"') {
-        if let Some(end_idx) = trimmed[1..].find('"') {
-            let exe = trimmed[1..=end_idx].to_string();
-            let args_part = trimmed[end_idx + 2..].trim();
+    if let Some(stripped) = trimmed.strip_prefix('"') {
+        if let Some(end_idx) = stripped.find('"') {
+            let exe = stripped[..end_idx].to_string();
+            let args_part = stripped[end_idx + 1..].trim();
             let args = if args_part.is_empty() {
                 Vec::new()
             } else {
@@ -523,7 +523,7 @@ fn path_or_dir_still_has_app(target: &std::path::Path) -> bool {
         if let Ok(entries) = std::fs::read_dir(target) {
             for entry in entries.flatten() {
                 let p = entry.path();
-                if p.is_file() && p.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("exe")) {
+                if p.is_file() && p.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("exe")) {
                     return true;
                 }
             }
@@ -556,10 +556,8 @@ fn find_running_nsis_temp_exe() -> Option<std::path::PathBuf> {
                             let sub_p = sub.path();
                             if sub_p.is_file() {
                                 if let Some(ext) = sub_p.extension() {
-                                    if ext.eq_ignore_ascii_case("exe") {
-                                        if is_file_locked(&sub_p) {
-                                            return Some(sub_p);
-                                        }
+                                    if ext.eq_ignore_ascii_case("exe") && is_file_locked(&sub_p) {
+                                        return Some(sub_p);
                                     }
                                 }
                             }

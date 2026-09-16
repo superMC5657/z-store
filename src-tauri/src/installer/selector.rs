@@ -197,5 +197,17 @@ pub fn select_best_asset(
         os_matches
     };
 
-    candidates.into_iter().max_by_key(|a| score_asset(a))
+    let best = candidates.iter().max_by_key(|a| score_asset(a)).copied();
+    // 决策 debug：只记 basename + 分数 + 候选数，不记全路径/URL。
+    if let Some(b) = best {
+        log::debug!(
+            "selector decision file={} score={} candidates={}",
+            crate::log_support::file_base(&b.name),
+            score_asset(b),
+            assets.len()
+        );
+    } else {
+        log::debug!("selector decision none candidates={}", assets.len());
+    }
+    best
 }

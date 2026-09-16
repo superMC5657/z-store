@@ -6,6 +6,7 @@ use tauri::State;
 pub fn scan_and_match_local_apps(
     state: State<'_, AppState>,
 ) -> Result<Vec<crate::scanner::AppMatchResult>, String> {
+    log::info!("scanner start");
     let scanned = crate::scanner::AppScanner::scan_system_apps();
     let catalog_items = state.catalog.get_catalog_items();
 
@@ -23,8 +24,16 @@ pub fn scan_and_match_local_apps(
         .into_iter()
         .filter(|m| !installed_ids.contains(&m.catalog_id))
         .collect();
+    let unmanaged: Vec<crate::scanner::AppMatchResult> = unmanaged_matches;
 
-    Ok(unmanaged_matches)
+    // 汇总一行 info：只记数量，不记路径/名称原文。
+    log::info!(
+        "scanner done scanned={} unmanaged={}",
+        scanned.len(),
+        unmanaged.len()
+    );
+
+    Ok(unmanaged)
 }
 
 #[tauri::command]
@@ -170,7 +179,7 @@ pub fn import_single_app(state: State<'_, AppState>, app_id: String) -> Result<b
     // 添加管理后让探测缓存也包含该 ID
     if let Ok(mut guard) = DETECTED_APP_IDS_CACHE.write() {
         if let Some((_, ref mut ids)) = *guard {
-            if !ids.iter().any(|id| *id == installed.app_id) {
+            if !ids.contains(&installed.app_id) {
                 ids.push(installed.app_id.clone());
             }
         }

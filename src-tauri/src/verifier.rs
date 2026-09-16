@@ -50,6 +50,7 @@ impl AuthenticodeVerifier {
     ) -> Result<bool, String> {
         let norm_expected = Self::normalize_fingerprint(expected_fingerprint);
         if norm_expected.is_empty() {
+            log::info!("verify ok reason=expected-empty");
             return Ok(true);
         }
 
@@ -79,6 +80,7 @@ impl AuthenticodeVerifier {
         if let Some(ref sha256) = actual_sig.thumbprint_sha256 {
             let norm_actual = Self::normalize_fingerprint(sha256);
             if norm_actual == norm_expected {
+                log::info!("verify ok algo=sha256");
                 return Ok(true);
             }
         }
@@ -87,6 +89,7 @@ impl AuthenticodeVerifier {
         if let Some(ref sha1) = actual_sig.thumbprint_sha1 {
             let norm_actual = Self::normalize_fingerprint(sha1);
             if norm_actual == norm_expected {
+                log::info!("verify ok algo=sha1");
                 return Ok(true);
             }
         }
