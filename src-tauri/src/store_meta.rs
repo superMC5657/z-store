@@ -180,7 +180,7 @@ pub async fn fetch_store_toml_raw(
             Ok(Ok(resp)) if resp.status().is_success() => {
                 if let Ok(text) = resp.text().await {
                     if !text.trim().is_empty() {
-                        log::info!("http resp store_meta ok url='{}' elapsed_ms={}", safe_url, start_meta.elapsed().as_millis());
+                        log::debug!("http resp store_meta ok url='{}' elapsed_ms={}", safe_url, start_meta.elapsed().as_millis());
                         return Some(text);
                     }
                 }

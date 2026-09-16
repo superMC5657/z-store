@@ -266,7 +266,7 @@ pub async fn get_app_details_impl(
                 cached_detail.signature_fingerprint = cat_item.publisher_fingerprint;
             }
             attach_store_meta(state, &mut cached_detail).await;
-            log::info!(
+            log::debug!(
                 "get_app_details id={} from=cache:db elapsed_ms={}",
                 clean_id,
                 start.elapsed().as_millis()
@@ -279,7 +279,7 @@ pub async fn get_app_details_impl(
     // 2.1 多源 (Codeberg, Gitea 等) 穿透解析
     if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&clean_id) {
         if coord.forge != crate::forge::ForgeType::GitHub {
-            log::info!(
+            log::debug!(
                 "fetch app detail multi-forge id={} host={} forge={:?}",
                 clean_id,
                 coord.host,
@@ -389,7 +389,7 @@ pub async fn get_app_details_impl(
     };
 
     let safe_ep = crate::log_support::sanitize_url(&release_endpoint);
-    log::info!(
+    log::debug!(
         "fetch app detail start id={} url='{}' force={}",
         clean_id,
         safe_ep,
@@ -410,7 +410,7 @@ pub async fn get_app_details_impl(
     match fetch_result {
         Ok((mut detail, to_cache)) => {
             let cache_type = if to_cache.is_none() { "304" } else { "miss" };
-            log::info!(
+            log::debug!(
                 "fetch app detail done id={} url='{}' cache={} elapsed_ms={}",
                 clean_id,
                 safe_ep,
@@ -464,7 +464,7 @@ pub async fn get_app_details_impl(
                 if let Ok(Some(mut fallback_detail)) = db.get_cached_app_detail_fallback(&clean_id) {
                     fallback_detail.id = clean_id.clone();
                     fallback_detail.is_stale_fallback = Some(true);
-                    log::info!(
+                    log::debug!(
                         "fetch app detail fallback id={} from=cache:stale elapsed_ms={}",
                         clean_id,
                         start.elapsed().as_millis()
