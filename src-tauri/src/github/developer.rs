@@ -44,11 +44,11 @@ impl CatalogService {
 
         let user_url = format!("https://api.github.com/users/{}", dev);
         let safe_user = crate::log_support::sanitize_url(&user_url);
-        log::info!("http get dev user url='{}'", safe_user);
+        log::debug!("http get dev user url='{}'", safe_user);
         let start_user = std::time::Instant::now();
         let user_res = client.get(&user_url).headers(headers.clone()).send().await;
         if let Ok(ref res) = user_res {
-            log::info!("http resp dev user url='{}' status={} elapsed_ms={}", safe_user, res.status().as_u16(), start_user.elapsed().as_millis());
+            log::debug!("http resp dev user url='{}' status={} elapsed_ms={}", safe_user, res.status().as_u16(), start_user.elapsed().as_millis());
             crate::notify_rate_limit("github.com", res.headers());
         } else if let Err(ref e) = user_res {
             log::warn!("http get dev user failed url='{}' reason={} elapsed_ms={}", safe_user, crate::log_support::short_reason(&e.to_string()), start_user.elapsed().as_millis());
@@ -119,11 +119,11 @@ impl CatalogService {
             dev, DEVELOPER_REPOS_PAGE_SIZE
         );
         let safe_repos = crate::log_support::sanitize_url(&repos_url);
-        log::info!("http get dev repos url='{}'", safe_repos);
+        log::debug!("http get dev repos url='{}'", safe_repos);
         let start_repos = std::time::Instant::now();
         let repos_res = client.get(&repos_url).headers(headers).send().await;
         if let Ok(ref res) = repos_res {
-            log::info!("http resp dev repos url='{}' status={} elapsed_ms={}", safe_repos, res.status().as_u16(), start_repos.elapsed().as_millis());
+            log::debug!("http resp dev repos url='{}' status={} elapsed_ms={}", safe_repos, res.status().as_u16(), start_repos.elapsed().as_millis());
             crate::notify_rate_limit("github.com", res.headers());
         } else if let Err(ref e) = repos_res {
             log::warn!("http get dev repos failed url='{}' reason={} elapsed_ms={}", safe_repos, crate::log_support::short_reason(&e.to_string()), start_repos.elapsed().as_millis());
@@ -272,11 +272,11 @@ impl CatalogService {
 
         let catalog_list = self.get_catalog_items();
         let safe_starred = crate::log_support::sanitize_url(&target_url);
-        log::info!("http get starred url='{}'", safe_starred);
+        log::debug!("http get starred url='{}'", safe_starred);
         let start_starred = std::time::Instant::now();
         let resp = match client.get(&target_url).headers(headers).send().await {
             Ok(r) => {
-                log::info!("http resp starred url='{}' status={} elapsed_ms={}", safe_starred, r.status().as_u16(), start_starred.elapsed().as_millis());
+                log::debug!("http resp starred url='{}' status={} elapsed_ms={}", safe_starred, r.status().as_u16(), start_starred.elapsed().as_millis());
                 r
             }
             Err(e) => {

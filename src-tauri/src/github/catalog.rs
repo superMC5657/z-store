@@ -141,7 +141,7 @@ impl CatalogService {
 
         // 远程 HTTP/HTTPS 请求
         let safe_url = crate::log_support::sanitize_url(url);
-        log::info!("http fetch catalog url='{}' etag={:?}", safe_url, cached_etag);
+        log::debug!("http fetch catalog url='{}' etag={:?}", safe_url, cached_etag);
         let start = std::time::Instant::now();
 
         let mut req = self.client.get(url).header(USER_AGENT, "ZStore-Client/0.1.0");
@@ -156,7 +156,7 @@ impl CatalogService {
         let elapsed = start.elapsed().as_millis();
 
         if resp.status() == reqwest::StatusCode::NOT_MODIFIED {
-            log::info!("http fetch catalog resp url='{}' status=304 not_modified elapsed_ms={}", safe_url, elapsed);
+            log::debug!("http fetch catalog resp url='{}' status=304 not_modified elapsed_ms={}", safe_url, elapsed);
             return Ok((None, None));
         }
         if !resp.status().is_success() {
@@ -172,7 +172,7 @@ impl CatalogService {
         let items: Vec<CatalogItem> = serde_json::from_str(&text)
             .map_err(|e| format!("解析收录清单 JSON 失败: {}", e))?;
         self.update_items(items.clone());
-        log::info!("http fetch catalog resp url='{}' status=200 items={} elapsed_ms={}", safe_url, items.len(), elapsed);
+        log::debug!("http fetch catalog resp url='{}' status=200 items={} elapsed_ms={}", safe_url, items.len(), elapsed);
         Ok((Some(items), new_etag))
     }
 

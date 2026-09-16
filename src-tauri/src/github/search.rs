@@ -64,12 +64,12 @@ impl CatalogService {
         );
 
         let safe_url = crate::log_support::sanitize_url(&url);
-        log::info!("http search start url='{}'", safe_url);
+        log::debug!("http search start url='{}'", safe_url);
         let start_search = std::time::Instant::now();
         let resp = client.get(&url).headers(headers).send().await;
         let elapsed = start_search.elapsed().as_millis();
         if let Ok(ref res) = resp {
-            log::info!("http search resp url='{}' status={} elapsed_ms={}", safe_url, res.status().as_u16(), elapsed);
+            log::debug!("http search resp url='{}' status={} elapsed_ms={}", safe_url, res.status().as_u16(), elapsed);
         } else if let Err(ref e) = resp {
             log::warn!("http search failed url='{}' reason={} elapsed_ms={}", safe_url, crate::log_support::short_reason(&e.to_string()), elapsed);
         }
@@ -111,7 +111,7 @@ impl CatalogService {
                             }
                         })
                         .collect();
-                    log::info!("http search done url='{}' hits={}", safe_url, summaries.len());
+                    log::debug!("http search done url='{}' hits={}", safe_url, summaries.len());
                     return Ok(summaries);
                 }
             }
@@ -144,7 +144,7 @@ impl CatalogService {
 
         let url = format!("https://api.github.com/repos/{}/{}", owner, repo);
         let safe_url = crate::log_support::sanitize_url(&url);
-        log::info!("http get repo url='{}'", safe_url);
+        log::debug!("http get repo url='{}'", safe_url);
         let start_fetch = std::time::Instant::now();
         let resp = client
             .get(&url)
@@ -156,7 +156,7 @@ impl CatalogService {
                 e.to_string()
             })?;
         let elapsed = start_fetch.elapsed().as_millis();
-        log::info!("http resp repo url='{}' status={} elapsed_ms={}", safe_url, resp.status().as_u16(), elapsed);
+        log::debug!("http resp repo url='{}' status={} elapsed_ms={}", safe_url, resp.status().as_u16(), elapsed);
 
         crate::notify_rate_limit("github.com", resp.headers());
 

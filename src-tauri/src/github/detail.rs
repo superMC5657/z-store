@@ -51,7 +51,7 @@ impl CatalogService {
             "https://api.github.com/repos/{}/{}/releases/latest",
             owner, repo
         );
-        log::info!("http get release url='{}' etag={:?}", release_url, cached_etag);
+        log::debug!("http get release url='{}' etag={:?}", release_url, cached_etag);
         let start_rel = std::time::Instant::now();
         let req = client.get(&release_url).headers(headers.clone()).send();
         let resp = match tokio::time::timeout(api_timeout, req).await {
@@ -60,7 +60,7 @@ impl CatalogService {
         };
         let rel_elapsed = start_rel.elapsed().as_millis();
         let rel_status = resp.as_ref().map(|r| r.status().as_u16()).unwrap_or(0);
-        log::info!("http resp release url='{}' status={} elapsed_ms={}", release_url, rel_status, rel_elapsed);
+        log::debug!("http resp release url='{}' status={} elapsed_ms={}", release_url, rel_status, rel_elapsed);
 
         let is_auth_unauthorized = resp.as_ref().map(|r| r.status() == reqwest::StatusCode::UNAUTHORIZED).unwrap_or(false);
         if is_auth_unauthorized {
@@ -178,7 +178,7 @@ impl CatalogService {
                     return r;
                 }
             }
-            log::info!("http get readme url='{}'", readme_url);
+            log::debug!("http get readme url='{}'", readme_url);
             let start_readme = std::time::Instant::now();
             let req = client.get(&readme_url).headers(readme_headers).send();
             match tokio::time::timeout(api_timeout, req).await {
@@ -188,7 +188,7 @@ impl CatalogService {
                         crate::notify_auth_expired();
                     }
                     let status = res.status().as_u16();
-                    log::info!("http resp readme url='{}' status={} elapsed_ms={}", readme_url, status, start_readme.elapsed().as_millis());
+                    log::debug!("http resp readme url='{}' status={} elapsed_ms={}", readme_url, status, start_readme.elapsed().as_millis());
                     if res.status().is_success() {
                         res.text().await.unwrap_or(default_readme_clone)
                     } else {
@@ -206,7 +206,7 @@ impl CatalogService {
         let mut repo_headers = headers.clone();
         repo_headers.remove(IF_NONE_MATCH);
         let repo_task = async {
-            log::info!("http get repo url='{}'", repo_url);
+            log::debug!("http get repo url='{}'", repo_url);
             let start_repo = std::time::Instant::now();
             let req = client.get(&repo_url).headers(repo_headers).send();
             match tokio::time::timeout(api_timeout, req).await {
@@ -216,7 +216,7 @@ impl CatalogService {
                         crate::notify_auth_expired();
                     }
                     let status = res.status().as_u16();
-                    log::info!("http resp repo url='{}' status={} elapsed_ms={}", repo_url, status, start_repo.elapsed().as_millis());
+                    log::debug!("http resp repo url='{}' status={} elapsed_ms={}", repo_url, status, start_repo.elapsed().as_millis());
                     if res.status().is_success() {
                         res.json::<GitHubRepoResponse>().await.ok()
                     } else {
