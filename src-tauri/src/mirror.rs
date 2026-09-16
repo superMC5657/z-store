@@ -123,7 +123,7 @@ impl MirrorManager {
         };
 
         let safe_test_url = crate::log_support::sanitize_url(&test_url);
-        log::info!("test mirror ping start url='{}'", safe_test_url);
+        log::debug!("test mirror ping start url='{}'", safe_test_url);
 
         let start = Instant::now();
         let mut resp = client.head(&test_url).send().await;
@@ -136,7 +136,7 @@ impl MirrorManager {
             Ok(res) => {
                 let status = res.status().as_u16();
                 if status < 500 {
-                    log::info!("test mirror ping resp url='{}' status={} latency_ms={}", safe_test_url, status, elapsed);
+                    log::debug!("test mirror ping resp url='{}' status={} latency_ms={}", safe_test_url, status, elapsed);
                     (true, elapsed.clamp(1, 4000), format!("{} ms (连接正常)", elapsed))
                 } else {
                     log::warn!("test mirror ping resp url='{}' status={} latency_ms={}", safe_test_url, status, elapsed);
@@ -193,6 +193,6 @@ mod tests {
     #[tokio::test]
     async fn test_proxy_ping() {
         let (ok, latency, msg) = MirrorManager::test_proxy_latency(None).await;
-        println!("PING DIRECT: ok={}, lat={}, msg={}", ok, latency, msg);
+        log::debug!("PING DIRECT: ok={}, lat={}, msg={}", ok, latency, msg);
     }
 }

@@ -419,7 +419,7 @@ pub fn run() {
             let auth_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 use tauri::{Emitter, Manager};
-                while let Some(_) = auth_rx.recv().await {
+                while auth_rx.recv().await.is_some() {
                     if let Ok(db) = db_for_auth.lock() {
                         let _ = db.remove_setting(crate::oauth::SETTING_OAUTH_TOKEN);
                         if let Ok(Some(user_json)) = db.get_setting(crate::oauth::SETTING_OAUTH_USER) {

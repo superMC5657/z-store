@@ -294,6 +294,7 @@ pub async fn install_app(
 #[tauri::command]
 pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
     let app_id = crate::forge::canonical_app_id(&app_id);
+    log::info!("uninstall start id={}", app_id);
     let installed_app = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         db.get_installed_apps()
@@ -397,6 +398,15 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result
 
     // 6. 精准从缓存中移除该应用，避免产生全量扫描开销
     crate::commands::scanner::remove_from_detected_cache(&app_id);
+
+    match &res {
+        Ok(_) => log::info!("uninstall done id={}", app_id),
+        Err(e) => log::warn!(
+            "uninstall failed id={} reason={}",
+            app_id,
+            crate::log_support::short_reason(e)
+        ),
+    }
 
     res
 }
