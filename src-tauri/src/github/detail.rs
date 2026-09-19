@@ -129,7 +129,7 @@ impl CatalogService {
                             .unwrap_or_default()
                             .as_secs() as i64;
                         detail.cached_at = Some(now);
-                        detail.is_stale_fallback = None;
+                        detail.is_stale = None;
                         return Ok((detail, None));
                     }
                 }
@@ -164,7 +164,7 @@ impl CatalogService {
             _ => {
                 // 离线或网络异常回退：若有 cached_detail 直接使用
                 if let Some(mut existing) = cached_detail {
-                    existing.is_stale_fallback = Some(true);
+                    existing.is_stale = Some(true);
                     return Ok((existing, None));
                 }
                 if let Some(ref payload) = cached_payload {
@@ -440,7 +440,7 @@ impl CatalogService {
                     .unwrap_or_default()
                     .as_secs() as i64,
             ),
-            is_stale_fallback: None,
+            is_stale: None,
             homepage: latest_homepage,
             platforms: catalog_item
                 .as_ref()

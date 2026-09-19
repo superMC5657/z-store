@@ -147,9 +147,9 @@ impl CatalogService {
                             .unwrap_or_else(|| format!("{}/{}", dev, repo_name));
                         let id = full_name.clone();
 
-                        let in_cat = catalog_list
-                            .iter()
-                            .find(|i| i.id == crate::forge::canonical_app_id(&full_name));
+                        let in_cat = catalog_list.iter().find(|i| {
+                            crate::forge::canonical_app_id(&full_name).as_deref() == Some(i.id.as_str())
+                        });
 
                         repos.push(DeveloperRepoItem {
                             id,
@@ -333,10 +333,9 @@ impl CatalogService {
 
             // ADR-0010：远端 full_name 归一化为 canonical id 后与收录库精确对齐，
             // 杜绝因用户 Star 了同名第三方 Fork（如 someone/rustdesk）而被错误误判为官方应用
-            if let Some(cat) = catalog_list
-                .iter()
-                .find(|c| c.id == crate::forge::canonical_app_id(&full_name))
-            {
+            if let Some(cat) = catalog_list.iter().find(|c| {
+                crate::forge::canonical_app_id(&full_name).as_deref() == Some(c.id.as_str())
+            }) {
                 catalog_matches.push(cat.to_summary());
             } else {
                 other_repos.push(DeveloperRepoItem {

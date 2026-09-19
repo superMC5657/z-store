@@ -43,9 +43,9 @@ impl CatalogService {
         self.items.read().map(|i| i.clone()).unwrap_or_default()
     }
 
-    /// 按 canonical id 检索收录项（入口统一归一化，库内精确匹配）
+    /// 按 canonical id 检索收录项（入口统一归一化，库内精确匹配；未知标识直接拒绝）
     pub fn get_catalog_item(&self, id: &str) -> Option<CatalogItem> {
-        let key = crate::forge::canonical_app_id(id);
+        let key = crate::forge::canonical_app_id(id)?;
         self.items
             .read()
             .ok()
@@ -66,7 +66,9 @@ impl CatalogService {
         forks: Option<u64>,
         version: Option<&str>,
     ) {
-        let key = crate::forge::canonical_app_id(id);
+        let Some(key) = crate::forge::canonical_app_id(id) else {
+            return;
+        };
         if let Ok(mut items) = self.items.write() {
             if let Some(item) = items.iter_mut().find(|i| i.id == key) {
                 if let Some(s) = stars {
@@ -267,9 +269,11 @@ impl CatalogService {
     }
 
     /// 解析仓库坐标：收录库内按 canonical id 精确命中；
-    /// 目录之外的 GitHub 仓库（在线搜索结果）由统一解析器合成坐标。
+    /// 目录之外的 GitHub 仓库（在线搜索结果）由统一解析器合成外部坐标（external_synth）。
+    /// 未知标识直接拒绝，不再透传。
     pub fn get_repo_coordinates(&self, id: &str) -> Result<AppRepoCoordinates, String> {
-        let clean = crate::forge::canonical_app_id(id);
+        let clean = crate::forge::canonical_app_id(id)
+            .ok_or_else(|| format!("无法识别的应用标识: {}", id))?;
         let items = self.items.read().unwrap_or_else(|e| e.into_inner());
         if let Some(item) = items.iter().find(|i| i.id == clean) {
             Ok(AppRepoCoordinates {
@@ -281,6 +285,7 @@ impl CatalogService {
                 icon_bg: item.icon_bg.clone(),
             })
         } else if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&clean) {
+            // external_synth：在线搜索返回的目录外 GitHub 坐标，现行 search 回退路径，保留
             if coord.forge == crate::forge::ForgeType::GitHub {
                 Ok(AppRepoCoordinates {
                     owner: coord.owner,
@@ -353,39 +358,39 @@ mod tests {
         }
     }
 
-    /// ADR-0010：入站标识归一化（canonical = 小写 owner/repo / forge 前缀坐标）
+    /// ADR-0010：入站标识归一化（canonical = 小写 owner/repo / forge 前缀坐标；未知标识拒绝）
     #[test]
     fn test_canonical_app_id() {
         // canonical id 原样保留（统一小写）
         assert_eq!(
-            crate::forge::canonical_app_id("rustdesk/rustdesk"),
-            "rustdesk/rustdesk"
+            crate::forge::canonical_app_id("rustdesk/rustdesk").as_deref(),
+            Some("rustdesk/rustdesk")
         );
         // 大小写不敏感
         assert_eq!(
-            crate::forge::canonical_app_id("RustDesk/RustDesk"),
-            "rustdesk/rustdesk"
+            crate::forge::canonical_app_id("RustDesk/RustDesk").as_deref(),
+            Some("rustdesk/rustdesk")
         );
         // 完整仓库 URL → canonical
         assert_eq!(
-            crate::forge::canonical_app_id("https://github.com/rustdesk/rustdesk"),
-            "rustdesk/rustdesk"
+            crate::forge::canonical_app_id("https://github.com/rustdesk/rustdesk").as_deref(),
+            Some("rustdesk/rustdesk")
         );
         // gh: 前缀短语法
         assert_eq!(
-            crate::forge::canonical_app_id("gh:rustdesk/rustdesk"),
-            "rustdesk/rustdesk"
+            crate::forge::canonical_app_id("gh:rustdesk/rustdesk").as_deref(),
+            Some("rustdesk/rustdesk")
         );
         // 非 GitHub forge 前缀保持带前缀坐标
         assert_eq!(
-            crate::forge::canonical_app_id("codeberg:FreeTubeApp/FreeTube"),
-            "codeberg:freetubeapp/freetube"
+            crate::forge::canonical_app_id("codeberg:FreeTubeApp/FreeTube").as_deref(),
+            Some("codeberg:freetubeapp/freetube")
         );
-        // 未知标识原样小写兜底
-        assert_eq!(crate::forge::canonical_app_id("Unknown-App"), "unknown-app");
+        // 未知标识显式拒绝，不再透传
+        assert!(crate::forge::canonical_app_id("Unknown-App").is_none());
         // 空输入
-        assert_eq!(crate::forge::canonical_app_id(""), "");
-        assert_eq!(crate::forge::canonical_app_id("   "), "");
+        assert!(crate::forge::canonical_app_id("").is_none());
+        assert!(crate::forge::canonical_app_id("   ").is_none());
     }
 
     /// ADR-0010：目录检索入口统一归一化后按 id 唯一精确匹配
@@ -414,7 +419,7 @@ mod tests {
         let coords = svc.get_repo_coordinates("rustdesk/rustdesk").unwrap();
         assert_eq!(coords.owner, "rustdesk");
         assert_eq!(coords.repo, "rustdesk");
-        // 目录之外的 owner/repo 坐标（在线搜索结果）合成兜底
+        // external_synth：目录之外的 owner/repo 坐标（在线搜索结果）合成外部坐标
         let external = svc.get_repo_coordinates("unknown/external").unwrap();
         assert_eq!(external.owner, "unknown");
         assert_eq!(external.repo, "external");

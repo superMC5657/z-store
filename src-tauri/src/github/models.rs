@@ -30,12 +30,7 @@ pub struct CatalogItem {
     pub search_subdirs: Vec<String>,
     #[serde(default)]
     pub publishers: Vec<String>,
-    #[serde(default = "default_platforms")]
     pub platforms: Vec<String>,
-}
-
-fn default_platforms() -> Vec<String> {
-    vec!["windows".to_string()]
 }
 
 impl CatalogItem {

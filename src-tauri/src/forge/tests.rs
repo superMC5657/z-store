@@ -33,11 +33,11 @@ fn test_repository_url_parser() {
     assert_eq!(cb_short.repo, "repo");
 
     // 5. 传统 owner/repo
-    let legacy = RepositoryUrlParser::parse("rustdesk/rustdesk").unwrap();
-    assert_eq!(legacy.forge, ForgeType::GitHub);
-    assert_eq!(legacy.owner, "rustdesk");
-    assert_eq!(legacy.repo, "rustdesk");
-    assert_eq!(legacy.to_app_id(), "rustdesk/rustdesk");
+    let classic = RepositoryUrlParser::parse("rustdesk/rustdesk").unwrap();
+    assert_eq!(classic.forge, ForgeType::GitHub);
+    assert_eq!(classic.owner, "rustdesk");
+    assert_eq!(classic.repo, "rustdesk");
+    assert_eq!(classic.to_app_id(), "rustdesk/rustdesk");
 
     // 6. Web URL: GitLab
     let gl = RepositoryUrlParser::parse("https://gitlab.com/inkscape/inkscape").unwrap();
