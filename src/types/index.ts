@@ -46,7 +46,6 @@ export interface AppDetail {
   latest_version: string;
   changelog: string;
   is_verified: boolean;
-  signature_fingerprint?: string;
   readme_markdown: string;
   releases: ReleaseAsset[];
   category: string;

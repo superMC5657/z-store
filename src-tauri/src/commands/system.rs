@@ -1,12 +1,6 @@
 use crate::models::DeepLinkAction;
 
 #[tauri::command]
-pub fn verify_file_signature(file_path: String) -> Result<crate::verifier::SignatureInfo, String> {
-    let p = std::path::Path::new(&file_path);
-    crate::verifier::AuthenticodeVerifier::extract_signature(p)
-}
-
-#[tauri::command]
 pub fn register_deep_link_scheme() -> Result<bool, String> {
     crate::deeplink::register_windows_protocol()
 }

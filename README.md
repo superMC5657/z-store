@@ -23,8 +23,7 @@
   - 本地 SQLite 持久化结合统一配置源（`src-tauri/config.toml`）的 TTL 缓存（默认 30 分钟）与 **HTTP ETag 304 条件重新验证**，实现零 API 配额消耗延长时效与离线平滑降级（详见 [ADR-0007](docs/adr/0007-open-manifest-catalog-and-configurable-ttl-cache.md)）。
 - **D3 零信任完整性防篡改 (Zero-Trust Anti-Tampering)**:
   - 默认利用高可用加速镜像代理大文件下载；
-  - 下载后**强制流式计算 SHA-256 哈希**并与官方清单比对，哈希不符立即强行阻断并销毁临时文件；
-  - Windows 端结合 Authenticode 数字证书指纹提取与有效性强核验，防御供应链投毒（详见 [ADR-0004](docs/adr/0004-streaming-installer-and-checksum-verification.md)）。
+  - 下载后**强制流式计算 SHA-256 哈希**并与官方清单比对，哈希不符立即强行阻断并销毁临时文件，防御供应链投毒（详见 [ADR-0004](docs/adr/0004-streaming-installer-and-checksum-verification.md)）。
 - **D4 深度融合 Fluent Design 2.0 (Native Design System)**:
   - 全面遵循微软 Windows 11 Fluent 2.0 规范，提供亚克力毛玻璃 (Acrylic)、折射高光描边、平滑微动效与系统级深浅色自适应（`light-dark()`、`in oklch`）；
   - 全站功能操作与状态反馈全面采用统一的 Fluent 2 线性矢量图标体系（基于 `lucide-react` 与统一单色矢量 SVG，通过 `currentColor` 适配主题与微动效）；
@@ -51,7 +50,7 @@
 ### 4. 🛡️ 细粒度版本控制与安全防御
 - **版本控制中枢**：更新列表中可针对特定应用选择“跳过此版本”或“锁定当前版本（禁止自动更新）”，避免破坏性升级。
 - **黑名单管理**：支持从推荐与搜索列表中隐藏不感兴趣的应用仓库。
-- **Authenticode 验签**：Windows 平台自动检测并展示安装包的数字签名状态、签名者组织与证书 SHA-256 指纹。
+- **SHA-256 完整性校验**：下载后强制流式计算 SHA-256 并与官方清单比对，不符立即阻断。
 
 ### 5. 🌟 开发者全景生态与 GitHub Star 同步
 - **开发者主页**：点击作者一键查看其名下所有的开源项目、开源许可协议与最新发布历史。
@@ -97,7 +96,7 @@
 | **M0: 核心基座与 MVP** | 基础架构与 Windows 端闭环 | **100% 已交付** | 纯客户端直连、Fluent 2 亚克力界面、国内镜像加速管道 |
 | **Feature A: 多代码托管平台** | Codeberg / Forgejo / Gitea | **100% 已交付** | `ForgeProvider` 抽象、多主机 Token 隔离 ([ADR-0006](docs/adr/0006-multi-forge-ecosystem-support.md)) |
 | **Feature B: 存量应用管理** | 扫描已装软件并接管更新 | **100% 已交付** | Windows 注册表扫描器、启发式倒排打分匹配引擎 |
-| **Feature C: 版本控制与验签** | 跳过/锁定版本与证书核验 | **100% 已交付** | SQLite 版本规则表、Windows Authenticode 签名核验 ([ADR-0004](docs/adr/0004-streaming-installer-and-checksum-verification.md)) |
+| **Feature C: 版本控制与验签** | 跳过/锁定版本 | **100% 已交付** | SQLite 版本规则表、SHA-256 流式校验 ([ADR-0004](docs/adr/0004-streaming-installer-and-checksum-verification.md)) |
 | **Feature D: 开发者生态** | 开发者全景与 Star 仓库同步 | **100% 已交付** | 开发者主页、GitHub Star 导入、搜索/浏览历史持久化 |
 | **Feature E: 协议唤起与多端** | `zstore://` 路由与多端管道 | **100% 已交付** | URL Scheme 深度链接、API 配额药丸胶囊、类 Unix 安装管道 |
 | **ADR-0007: 开放清单与缓存** | 开放清单同步 + 固定基线 TTL | **100% 已交付** | 远程 Manifest 仓库动态拉取、统一 30 分钟基线 TTL、ETag 304 零配额续期 |
@@ -146,7 +145,7 @@ pnpm tauri build
 - [ADR-0001: 采用 Tauri 2 与 React 19 + Fluent 2.0 架构](docs/adr/0001-tauri2-and-react-fluent-architecture.md)
 - [ADR-0002: 客户端直连 GitHub API 与加速镜像下载管道](docs/adr/0002-direct-github-api-and-mirror-pipeline.md)
 - [ADR-0003: 嵌入式 SQLite 持久化与 ETag 条件请求缓存](docs/adr/0003-sqlite-persistence-and-etag-caching.md)
-- [ADR-0004: 流式安装引擎与零信任 SHA-256 / Authenticode 验签防篡改](docs/adr/0004-streaming-installer-and-checksum-verification.md)
+- [ADR-0004: 流式安装引擎与零信任 SHA-256 完整性校验](docs/adr/0004-streaming-installer-and-checksum-verification.md)
 - [ADR-0005: 跨平台多模式应用图标自适应架构规范](docs/adr/0005-cross-platform-multi-mode-icon-specifications.md)
 - [ADR-0006: 多源代码托管平台 (Multi-Forge) 生态支持与统一抽象层](docs/adr/0006-multi-forge-ecosystem-support.md)
 - [ADR-0007: 开源清单仓库动态同步与客户端按需 API 详情拉取（含可配置 TTL 缓存）](docs/adr/0007-open-manifest-catalog-and-configurable-ttl-cache.md)

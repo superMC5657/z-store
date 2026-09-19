@@ -20,7 +20,6 @@ fn create_mock_catalog() -> Vec<CatalogItem> {
             stars: 45000,
             forks: 7000,
             is_verified: true,
-            publisher_fingerprint: None,
             homepage: None,
             identifiers: std::collections::HashMap::from([
                 ("windows".to_string(), vec!["vlc.exe".to_string()]),
@@ -48,7 +47,6 @@ fn create_mock_catalog() -> Vec<CatalogItem> {
             stars: 62000,
             forks: 11000,
             is_verified: true,
-            publisher_fingerprint: None,
             homepage: None,
             identifiers: std::collections::HashMap::from([
                 ("windows".to_string(), vec!["obs64.exe".to_string(), "obs.exe".to_string()]),

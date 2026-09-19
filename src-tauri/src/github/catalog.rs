@@ -337,7 +337,6 @@ mod tests {
             stars: 0,
             forks: 0,
             is_verified: false,
-            publisher_fingerprint: None,
             homepage: None,
             identifiers: HashMap::new(),
             install_dirs: vec![],

@@ -208,7 +208,6 @@ fn test_app_details_cache_crud() {
         latest_version: "v1.3.1".to_string(),
         changelog: "修复已知问题".to_string(),
         is_verified: true,
-        signature_fingerprint: None,
         readme_markdown: "# RustDesk".to_string(),
         releases: vec![],
         category: "system".to_string(),

@@ -13,7 +13,6 @@ import {
   OAuthUser,
   ProxyTestResult,
   QuotaUpdatePayload,
-  SignatureInfo,
   StarredSyncResult,
   UpdateItem,
   UpdateCheckProgressPayload,
@@ -232,10 +231,6 @@ const tauriApi = {
 
   async removeUpdateRule(appId: string): Promise<boolean> {
     return tauriInvoke<boolean>('remove_update_rule', { appId });
-  },
-
-  async verifyFileSignature(filePath: string): Promise<SignatureInfo> {
-    return tauriInvoke<SignatureInfo>('verify_file_signature', { filePath });
   },
 
   async getDeveloperProfile(developer: string): Promise<DeveloperProfile> {

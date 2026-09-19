@@ -205,9 +205,6 @@ pub async fn get_app_details_impl(
         });
         if let Some(mut cached_detail) = cached {
             cached_detail.id = clean_id.clone();
-            if let Some(cat_item) = state.catalog.get_catalog_item(&clean_id) {
-                cached_detail.signature_fingerprint = cat_item.publisher_fingerprint;
-            }
             if !cached_detail.is_verified {
                 if let Ok(db) = state.db.lock() {
                     if db.is_verified_app(&cached_detail.id).unwrap_or(false) {
@@ -261,7 +258,6 @@ pub async fn get_app_details_impl(
                 latest_version: release_info.tag_name,
                 changelog: release_info.body.unwrap_or_default(),
                 is_verified: false,
-                signature_fingerprint: None,
                 readme_markdown: format!(
                     "# {}\n\n{}",
                     repo_info.name,

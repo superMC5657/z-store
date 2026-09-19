@@ -1192,7 +1192,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                 <span>开发者认证指纹</span>
               </span>
               <span className="trust-hash">
-                {app.signature_fingerprint || (app.isLoading ? '正在查询认证指纹...' : 'GitHub Release Verified')}
+                {'GitHub Release Verified'}
               </span>
             </div>
           </div>

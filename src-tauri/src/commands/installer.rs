@@ -93,10 +93,7 @@ pub async fn install_app(
     };
 
     // 1. 获取应用详情与择取匹配资产（支持前端主动指定 asset_name，若未指定则按当前架构自适应择优）
-    let mut detail = get_app_details(state.clone(), app_id.clone(), None).await?;
-    if let Some(cat_item) = state.catalog.get_catalog_item(&app_id) {
-        detail.signature_fingerprint = cat_item.publisher_fingerprint;
-    }
+    let detail = get_app_details(state.clone(), app_id.clone(), None).await?;
 
     let selected_asset = if let Some(ref target_name) = asset_name {
         detail.releases.iter().find(|r| &r.name == target_name)
@@ -177,30 +174,6 @@ pub async fn install_app(
             }
         }
     };
-
-    // 3.5. 增强防御：Windows Authenticode 签名与发布者证书指纹校验 (Feature C)
-    #[cfg(target_os = "windows")]
-    {
-        let is_windows_binary = asset.name.to_lowercase().ends_with(".exe")
-            || asset.name.to_lowercase().ends_with(".msi");
-        if is_windows_binary {
-            if let Some(ref expected_fp) = detail.signature_fingerprint {
-                let trimmed = expected_fp.trim();
-                if !trimmed.is_empty() {
-                    let sig_info = crate::verifier::AuthenticodeVerifier::extract_signature(&dest_path)
-                        .map_err(|e| {
-                            let _ = std::fs::remove_file(&dest_path);
-                            format!("安全拦截：无法提取安装包 Authenticode 数字签名信息（{}），已中止安装", e)
-                        })?;
-                    if let Err(mismatch_err) = crate::verifier::AuthenticodeVerifier::verify_fingerprint(&sig_info, trimmed) {
-                        // 证书指纹不符或无效签名（疑似供应链投毒或替换），销毁临时文件并强行阻断
-                        let _ = std::fs::remove_file(&dest_path);
-                        return Err(mismatch_err);
-                    }
-                }
-            }
-        }
-    }
 
     // 4. 调用原生安装器或解压便携版（优先使用用户在前端主动选择的目录）
     let (kind, _, _) = InstallerEngine::classify_asset(&asset.name);

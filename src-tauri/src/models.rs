@@ -58,7 +58,6 @@ pub struct AppDetail {
     pub latest_version: String,
     pub changelog: String,
     pub is_verified: bool,
-    pub signature_fingerprint: Option<String>,
     pub readme_markdown: String,
     pub releases: Vec<ReleaseAsset>,
     pub category: String,

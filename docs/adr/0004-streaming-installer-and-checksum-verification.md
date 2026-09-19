@@ -14,10 +14,7 @@
    - 安装引擎在分块下载网络流的同时实时计算 SHA-256 哈希值。
    - 文件下载完成后，若 Release 资产或 `checksums.txt` / `SHA256SUMS` 提供了官方预期哈希，必须进行强制比对：一旦哈希不匹配，立即无条件阻断安装、销毁临时文件并向前端告警；
    - 若上游官方未发布任何校验哈希，流式哈希仍会计算并持久化至本地数据库以备审计，但事件状态必须明确标识为未校验（`completed_unverified`），禁止向用户虚假声明“已通过官方校验”。
-2. **Windows Authenticode 签名与证书指纹强校验**：
-   - 对于 Windows 下的 `.exe` 和 `.msi` 安装包，读取其 Authenticode 数字签名状态。
-   - 若应用配置了发布者证书指纹 (`signature_fingerprint`)，则不仅要求文件必须已签名，且必须验证签名状态有效 (`is_valid`) 且证书指纹严格匹配；若校验失败或无法提取签名，立即阻断并销毁文件。
-3. **多平台安装引擎与系统提权规范**：
+2. **多平台安装引擎与系统提权规范**：
    - **Windows MSI**: 执行 `msiexec.exe /i <file> /qn` 静默安装，失败降级唤起向导。
    - **Windows Setup EXE**: 自动探测 NSIS (`/S`) 或 InnoSetup (`/VERYSILENT /NORESTART`) 参数。
    - **便携版 ZIP**: 自动安全解包至 `%LOCALAPPDATA%\Programs\z-store-apps\<app_id>\`，利用 PowerShell COM 组件自动在桌面建立快捷方式，并写入数据库以便后续无残留清理。

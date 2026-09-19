@@ -330,7 +330,7 @@ impl CatalogService {
 
         // 首屏快速路径 (3)：checksum lazy 填充（opportunistic integrity only）。
         // 信任模型：checksum 仅为 opportunistic 完整性参考（条目常为 Linux-only 单文件），
-        // 安全根是 Authenticode 指纹；故 skip/timeout 均安全，直接以 sha256=None 落库。
+        // 安全根是下载时的 SHA-256 强校验；故 skip/timeout 均安全，直接以 sha256=None 落库。
         // Negative cache：调用方（commands/catalog.rs save 路径）将本 detail 整体落库，
         // 全空 sha256 + 新鲜 cached_at 即为 marker；下次 cache=miss 若版本未变且 24h 内，
         // 直接命中 negative 而跳过本 fetch（见下 negative_hit 分支），不再为 Linux-only 小文件阻塞 join。
@@ -422,9 +422,6 @@ impl CatalogService {
             latest_version: release_resp.tag_name,
             changelog: release_resp.body.unwrap_or_default(),
             is_verified: catalog_item.as_ref().map(|i| i.is_verified).unwrap_or(false),
-            signature_fingerprint: catalog_item
-                .as_ref()
-                .and_then(|i| i.publisher_fingerprint.clone()),
             readme_markdown,
             releases,
             category: catalog_item

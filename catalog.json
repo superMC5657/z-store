@@ -16,7 +16,6 @@
     "stars": 123207,
     "forks": 18979,
     "is_verified": true,
-    "publisher_fingerprint": "57:B6:08:5F:D9:58:23:77:13:C2:13:79:2F:94:AE:CE:62:B1:5C:51:94:C8:A1:A2:B6:A4:9A:B9:C2:CB:32:8A",
     "homepage": "https://rustdesk.com",
     "platforms": ["windows", "macos", "linux", "android", "ios"],
     "identifiers": {

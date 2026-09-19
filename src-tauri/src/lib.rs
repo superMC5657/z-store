@@ -10,7 +10,6 @@ pub mod mirror;
 pub mod models;
 pub mod oauth;
 pub mod scanner;
-pub mod verifier;
 pub mod z_log;
 
 use db::Database;
@@ -479,7 +478,6 @@ pub fn run() {
             commands::set_app_frozen,
             commands::set_app_hidden,
             commands::remove_update_rule,
-            commands::verify_file_signature,
             commands::get_developer_profile,
             commands::sync_github_starred,
             commands::record_search_query,

@@ -21,8 +21,6 @@ pub struct CatalogItem {
     pub forks: u64,
     pub is_verified: bool,
     #[serde(default)]
-    pub publisher_fingerprint: Option<String>,
-    #[serde(default)]
     pub homepage: Option<String>,
     #[serde(default)]
     pub identifiers: HashMap<String, Vec<String>>,
