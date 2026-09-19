@@ -36,9 +36,15 @@ pub async fn download_with_progress(
     let started = Instant::now();
     let log_file = file_base(asset_name);
     let safe_url = sanitize_url(download_url);
+    let dl_req = crate::z_log::new_req_id();
+    let dl_sid = crate::z_log::new_session_id();
+    let dl_host = crate::log_support::host_of(download_url);
     log::info!(
-        "download start id={} file={} url='{}'",
+        "download start sid={} req={} id={} host={} file={} url='{}'",
+        dl_sid,
+        dl_req,
         task_id,
+        dl_host,
         log_file,
         safe_url
     );
@@ -49,8 +55,11 @@ pub async fn download_with_progress(
             if !r.status().is_success() {
                 let err_msg = format!("下载请求失败，HTTP 状态码: {}", r.status());
                 log::error!(
-                    "download failed id={} file={} url='{}' reason={}",
+                    "download failed id={} sid={} req={} host={} file={} url='{}' reason={}",
                     task_id,
+                    dl_sid,
+                    dl_req,
+                    dl_host,
                     log_file,
                     safe_url,
                     short_reason(&err_msg)
@@ -75,8 +84,11 @@ pub async fn download_with_progress(
             let reason = http_err_reason(&e);
             let err_msg = format!("无法连接下载服务器: {}", reason);
             log::error!(
-                "download failed id={} file={} url='{}' reason={}",
+                "download failed id={} sid={} req={} host={} file={} url='{}' reason={}",
                 task_id,
+                dl_sid,
+                dl_req,
+                dl_host,
                 log_file,
                 safe_url,
                 reason
@@ -128,8 +140,11 @@ pub async fn download_with_progress(
         Err(e) => {
             let err_msg = format!("创建临时文件失败: {}", e);
             log::error!(
-                "download failed id={} file={} url='{}' reason={}",
+                "download failed id={} sid={} req={} host={} file={} url='{}' reason={}",
                 task_id,
+                dl_sid,
+                dl_req,
+                dl_host,
                 log_file,
                 safe_url,
                 short_reason(&err_msg)
@@ -166,8 +181,11 @@ pub async fn download_with_progress(
                     let reason = http_err_reason(&e);
                     let err_msg = format!("下载数据流中断: {}", reason);
                     log::error!(
-                        "download failed id={} file={} url='{}' reason={}",
+                        "download failed id={} sid={} req={} host={} file={} url='{}' reason={}",
                         task_id,
+                        dl_sid,
+                        dl_req,
+                        dl_host,
                         log_file,
                         safe_url,
                         reason
@@ -194,8 +212,11 @@ pub async fn download_with_progress(
                     net_conf.chunk_timeout_seconds
                 );
                 log::error!(
-                    "download failed id={} file={} url='{}' reason={}",
+                    "download failed id={} sid={} req={} host={} file={} url='{}' reason={}",
                     task_id,
+                    dl_sid,
+                    dl_req,
+                    dl_host,
                     log_file,
                     safe_url,
                     short_reason(&err_msg)
@@ -224,8 +245,11 @@ pub async fn download_with_progress(
             let _ = std::fs::remove_file(&temp_path);
             let err_msg = format!("写入磁盘失败: {}", e);
             log::error!(
-                "download failed id={} file={} url='{}' reason={}",
+                "download failed id={} sid={} req={} host={} file={} url='{}' reason={}",
                 task_id,
+                dl_sid,
+                dl_req,
+                dl_host,
                 log_file,
                 safe_url,
                 short_reason(&err_msg)
@@ -292,8 +316,11 @@ pub async fn download_with_progress(
                 );
                 // 校验失败：只记结论与短原因，不记哈希明细与路径。
                 log::error!(
-                    "download verify failed id={} file={}",
+                    "download verify failed id={} sid={} req={} host={} file={}",
                     task_id,
+                    dl_sid,
+                    dl_req,
+                    dl_host,
                     log_file
                 );
                 return Err(format!(
@@ -331,8 +358,11 @@ pub async fn download_with_progress(
     );
 
     log::info!(
-        "download done id={} file={} bytes={} elapsed_ms={}",
+        "download done sid={} req={} id={} host={} file={} bytes={} elapsed_ms={}",
+        dl_sid,
+        dl_req,
         task_id,
+        dl_host,
         log_file,
         downloaded,
         started.elapsed().as_millis()

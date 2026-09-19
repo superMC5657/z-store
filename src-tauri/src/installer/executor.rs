@@ -20,14 +20,15 @@ pub async fn execute_installation(
     app_id: &str,
     custom_portable_dir: Option<&str>,
 ) -> Result<String, String> {
-    log::info!("install start id={} kind={:?}", app_id, kind);
+    log::info!("install start sid={} id={} kind={:?}", crate::z_log::new_session_id(), app_id, kind);
     let res =
         execute_installation_inner(installer_path, kind, app_id, custom_portable_dir).await;
     match &res {
-        Ok(_) => log::info!("install done id={}", app_id),
+        Ok(_) => log::info!("install done sid={} id={}", crate::z_log::new_session_id(), app_id),
         Err(e) if is_user_cancellation(e) => {
             log::info!(
-                "install cancelled by user id={} reason={}",
+                "install cancelled by user sid={} id={} reason={}",
+                crate::z_log::new_session_id(),
                 app_id,
                 crate::log_support::short_reason(e)
             );
@@ -75,7 +76,8 @@ async fn execute_installation_inner(
                 }
 
                 log::info!(
-                    "install silent failed code={}, fallback to interactive wizard id={}",
+                    "install silent failed sid={} code={}, fallback to interactive wizard id={}",
+                    crate::z_log::new_session_id(),
                     code,
                     app_id
                 );
