@@ -421,10 +421,20 @@ pub fn run() {
                     if let Ok(db) = db_for_auth.lock() {
                         let _ = db.remove_setting(crate::oauth::SETTING_OAUTH_TOKEN);
                         if let Ok(Some(user_json)) = db.get_setting(crate::oauth::SETTING_OAUTH_USER) {
-                            if let Ok(mut user) = serde_json::from_str::<crate::oauth::OAuthUser>(&user_json) {
-                                user.is_expired = true;
-                                if let Ok(updated_json) = serde_json::to_string(&user) {
-                                    let _ = db.set_setting(crate::oauth::SETTING_OAUTH_USER, &updated_json);
+                            match serde_json::from_str::<crate::oauth::OAuthUser>(&user_json) {
+                                Ok(mut user) => {
+                                    user.is_expired = true;
+                                    if let Ok(updated_json) = serde_json::to_string(&user) {
+                                        let _ = db.set_setting(crate::oauth::SETTING_OAUTH_USER, &updated_json);
+                                    }
+                                }
+                                Err(e) => {
+                                    // 旧持久化缺字段无法解析：清理过期快照，用户需重新登录。
+                                    log::warn!(
+                                        "oauth user snapshot invalid reason={} action=clear-and-relogin",
+                                        crate::log_support::short_reason(&e.to_string())
+                                    );
+                                    let _ = db.remove_setting(crate::oauth::SETTING_OAUTH_USER);
                                 }
                             }
                         }

@@ -215,7 +215,7 @@ fn test_app_details_cache_crud() {
         forge: Some("github".to_string()),
         forge_host: Some("github.com".to_string()),
         cached_at: None,
-        is_stale_fallback: None,
+        is_stale: None,
         homepage: None,
         platforms: vec!["windows".to_string()],
     };
@@ -231,7 +231,7 @@ fn test_app_details_cache_crud() {
     assert_eq!(cached_by_id.latest_version, "v1.3.1");
     assert!(cached_by_id.cached_at.is_some());
 
-    // 4. 缓存键精确匹配：旧 slug / repo_key / 大小写变体一律不命中（ADR-0010 单键语义）
+    // 4. 缓存键精确匹配：非 canonical 形态（裸名 /  host 前缀变体）一律不命中（ADR-0010 单键语义）
     assert!(db.get_cached_app_detail("rustdesk", Some(1800)).unwrap().is_none());
     assert!(db
         .get_cached_app_detail("github.com/rustdesk/rustdesk", Some(1800))

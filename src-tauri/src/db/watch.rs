@@ -138,18 +138,4 @@ impl Database {
         let exists = stmt.exists(params![o, r])?;
         Ok(exists)
     }
-
-    pub fn get_user_stars(&self) -> Result<Vec<(String, String)>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT owner, repo FROM user_stars ORDER BY starred_at DESC")?;
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get(0)?, row.get(1)?))
-        })?;
-        let mut out = Vec::new();
-        for r in rows {
-            out.push(r?);
-        }
-        Ok(out)
-    }
 }

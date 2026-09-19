@@ -22,13 +22,12 @@ pub struct AppSummary {
     pub has_update: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub installed_version: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub forge: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub forge_host: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub homepage: Option<String>,
-    #[serde(default)]
     pub platforms: Vec<String>,
 }
 
@@ -62,17 +61,16 @@ pub struct AppDetail {
     pub releases: Vec<ReleaseAsset>,
     pub category: String,
     pub category_name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub forge: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub forge_host: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cached_at: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub is_stale_fallback: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_stale: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub homepage: Option<String>,
-    #[serde(default)]
     pub platforms: Vec<String>,
 }
 
