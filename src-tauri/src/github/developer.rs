@@ -44,14 +44,18 @@ impl CatalogService {
 
         let user_url = format!("https://api.github.com/users/{}", dev);
         let safe_user = crate::log_support::sanitize_url(&user_url);
-        log::debug!("http get dev user url='{}'", safe_user);
+        let req_id = crate::z_log::new_req_id();
+        let sid = crate::z_log::new_session_id();
+        let user_host = crate::log_support::host_of(&user_url);
+        log::debug!("http get dev user id={} sid={} req={} url='{}'", dev, sid, req_id, safe_user);
         let start_user = std::time::Instant::now();
         let user_res = client.get(&user_url).headers(headers.clone()).send().await;
         if let Ok(ref res) = user_res {
-            log::debug!("http resp dev user url='{}' status={} elapsed_ms={}", safe_user, res.status().as_u16(), start_user.elapsed().as_millis());
+            log::debug!("http resp dev user id={} sid={} req={} url='{}' status={} elapsed_ms={}", dev, sid, req_id, safe_user, res.status().as_u16(), start_user.elapsed().as_millis());
+            log::info!("http resp dev user id={} sid={} req={} host={} status={} elapsed_ms={}", dev, sid, req_id, user_host, res.status().as_u16(), start_user.elapsed().as_millis());
             crate::notify_rate_limit("github.com", res.headers());
         } else if let Err(ref e) = user_res {
-            log::warn!("http get dev user failed url='{}' reason={} elapsed_ms={}", safe_user, crate::log_support::short_reason(&e.to_string()), start_user.elapsed().as_millis());
+            log::warn!("http get dev user failed id={} sid={} req={} host={} reason={} elapsed_ms={}", dev, sid, req_id, user_host, crate::log_support::short_reason(&e.to_string()), start_user.elapsed().as_millis());
         }
 
         let parsed_user = match user_res {
@@ -119,14 +123,16 @@ impl CatalogService {
             dev, DEVELOPER_REPOS_PAGE_SIZE
         );
         let safe_repos = crate::log_support::sanitize_url(&repos_url);
-        log::debug!("http get dev repos url='{}'", safe_repos);
+        let repos_host = crate::log_support::host_of(&repos_url);
+        log::debug!("http get dev repos id={} sid={} req={} url='{}'", dev, sid, req_id, safe_repos);
         let start_repos = std::time::Instant::now();
         let repos_res = client.get(&repos_url).headers(headers).send().await;
         if let Ok(ref res) = repos_res {
-            log::debug!("http resp dev repos url='{}' status={} elapsed_ms={}", safe_repos, res.status().as_u16(), start_repos.elapsed().as_millis());
+            log::debug!("http resp dev repos id={} sid={} req={} url='{}' status={} elapsed_ms={}", dev, sid, req_id, safe_repos, res.status().as_u16(), start_repos.elapsed().as_millis());
+            log::info!("http resp dev repos id={} sid={} req={} host={} status={} elapsed_ms={}", dev, sid, req_id, repos_host, res.status().as_u16(), start_repos.elapsed().as_millis());
             crate::notify_rate_limit("github.com", res.headers());
         } else if let Err(ref e) = repos_res {
-            log::warn!("http get dev repos failed url='{}' reason={} elapsed_ms={}", safe_repos, crate::log_support::short_reason(&e.to_string()), start_repos.elapsed().as_millis());
+            log::warn!("http get dev repos failed id={} sid={} req={} host={} reason={} elapsed_ms={}", dev, sid, req_id, repos_host, crate::log_support::short_reason(&e.to_string()), start_repos.elapsed().as_millis());
         }
 
         let mut repos: Vec<DeveloperRepoItem> = Vec::new();
@@ -272,15 +278,19 @@ impl CatalogService {
 
         let catalog_list = self.get_catalog_items();
         let safe_starred = crate::log_support::sanitize_url(&target_url);
-        log::debug!("http get starred url='{}'", safe_starred);
+        let starred_req = crate::z_log::new_req_id();
+        let starred_sid = crate::z_log::new_session_id();
+        let starred_host = crate::log_support::host_of(&target_url);
+        log::debug!("http get starred sid={} req={} url='{}'", starred_sid, starred_req, safe_starred);
         let start_starred = std::time::Instant::now();
         let resp = match client.get(&target_url).headers(headers).send().await {
             Ok(r) => {
-                log::debug!("http resp starred url='{}' status={} elapsed_ms={}", safe_starred, r.status().as_u16(), start_starred.elapsed().as_millis());
+                log::debug!("http resp starred sid={} req={} url='{}' status={} elapsed_ms={}", starred_sid, starred_req, safe_starred, r.status().as_u16(), start_starred.elapsed().as_millis());
+                log::info!("http resp starred sid={} req={} host={} status={} elapsed_ms={}", starred_sid, starred_req, starred_host, r.status().as_u16(), start_starred.elapsed().as_millis());
                 r
             }
             Err(e) => {
-                log::warn!("http get starred failed url='{}' reason={} elapsed_ms={}", safe_starred, crate::log_support::short_reason(&e.to_string()), start_starred.elapsed().as_millis());
+                log::warn!("http get starred failed sid={} req={} host={} reason={} elapsed_ms={}", starred_sid, starred_req, starred_host, crate::log_support::short_reason(&e.to_string()), start_starred.elapsed().as_millis());
                 return Err(format!(
                     "连接 GitHub API 失败: {}. 如遇国内网络阻断，请检查网络设置或配置下载加速代理。",
                     e

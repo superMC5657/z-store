@@ -141,7 +141,10 @@ impl CatalogService {
 
         // 远程 HTTP/HTTPS 请求
         let safe_url = crate::log_support::sanitize_url(url);
-        log::debug!("http fetch catalog url='{}' etag={:?}", safe_url, cached_etag);
+        let req_id = crate::z_log::new_req_id();
+        let sid = crate::z_log::new_session_id();
+        let req_host = crate::log_support::host_of(url);
+        log::debug!("http fetch catalog sid={} req={} url='{}'", sid, req_id, safe_url);
         let start = std::time::Instant::now();
 
         let mut req = self.client.get(url).header(USER_AGENT, "ZStore-Client/0.1.0");
@@ -150,17 +153,18 @@ impl CatalogService {
         }
         let resp = req.send().await.map_err(|e| {
             let reason = crate::log_support::short_reason(&e.to_string());
-            log::warn!("http fetch catalog failed url='{}' reason={}", safe_url, reason);
+            log::warn!("http fetch catalog failed sid={} req={} host={} reason={}", sid, req_id, req_host, reason);
             format!("请求收录清单失败: {}", e)
         })?;
         let elapsed = start.elapsed().as_millis();
 
         if resp.status() == reqwest::StatusCode::NOT_MODIFIED {
-            log::debug!("http fetch catalog resp url='{}' status=304 not_modified elapsed_ms={}", safe_url, elapsed);
+            log::debug!("http fetch catalog resp sid={} req={} url='{}' status=304 not_modified elapsed_ms={}", sid, req_id, safe_url, elapsed);
+            log::info!("http resp catalog sid={} req={} host={} status=304 elapsed_ms={}", sid, req_id, req_host, elapsed);
             return Ok((None, None));
         }
         if !resp.status().is_success() {
-            log::warn!("http fetch catalog resp url='{}' status={} elapsed_ms={}", safe_url, resp.status(), elapsed);
+            log::warn!("http fetch catalog resp sid={} req={} host={} status={} elapsed_ms={}", sid, req_id, req_host, resp.status(), elapsed);
             return Err(format!("同步收录清单失败，HTTP 状态码: {}", resp.status()));
         }
         let new_etag = resp
@@ -172,7 +176,8 @@ impl CatalogService {
         let items: Vec<CatalogItem> = serde_json::from_str(&text)
             .map_err(|e| format!("解析收录清单 JSON 失败: {}", e))?;
         self.update_items(items.clone());
-        log::debug!("http fetch catalog resp url='{}' status=200 items={} elapsed_ms={}", safe_url, items.len(), elapsed);
+        log::debug!("http fetch catalog resp sid={} req={} url='{}' status=200 items={} elapsed_ms={}", sid, req_id, safe_url, items.len(), elapsed);
+        log::info!("http resp catalog sid={} req={} host={} status=200 items={} elapsed_ms={}", sid, req_id, req_host, items.len(), elapsed);
         Ok((Some(items), new_etag))
     }
 
