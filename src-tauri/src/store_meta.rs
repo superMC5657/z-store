@@ -158,11 +158,27 @@ pub async fn fetch_store_toml_raw(
         .build()
         .ok()?;
 
+    let req_id = crate::z_log::new_req_id();
+    let sid = crate::z_log::new_session_id();
+    let start_all = std::time::Instant::now();
+    let first_host = crate::log_support::host_of(&candidates[0]);
+    let total_attempts = candidates.len();
+    log::info!(
+        "http get store_meta id={}/{} sid={} req={} host={} attempts={}",
+        owner, repo, sid, req_id, first_host, total_attempts
+    );
+
+    let mut attempts_done: usize = 0;
     for url in candidates {
         let safe_url = crate::log_support::sanitize_url(&url);
-        log::debug!("http get store_meta url='{}'", safe_url);
+        let host = crate::log_support::host_of(&url);
+        let is_mirror = !host.contains("raw.githubusercontent.com");
+        log::debug!(
+            "http get store_meta attempt id={}/{} sid={} req={} url='{}' mirror={}",
+            owner, repo, sid, req_id, safe_url, is_mirror
+        );
         let start_meta = std::time::Instant::now();
-        let mut req = client
+        let mut reqb = client
             .get(&url)
             .header("User-Agent", "ZStore-Client/0.1.0")
             .header("Accept", "text/plain");
@@ -172,22 +188,34 @@ pub async fn fetch_store_toml_raw(
                 if let Ok(v) =
                     reqwest::header::HeaderValue::from_str(&format!("Bearer {}", tok))
                 {
-                    req = req.header(reqwest::header::AUTHORIZATION, v);
+                    reqb = reqb.header(reqwest::header::AUTHORIZATION, v);
                 }
             }
         }
-        match tokio::time::timeout(api_timeout, req.send()).await {
+        match tokio::time::timeout(api_timeout, reqb.send()).await {
             Ok(Ok(resp)) if resp.status().is_success() => {
+                attempts_done += 1;
                 if let Ok(text) = resp.text().await {
                     if !text.trim().is_empty() {
-                        log::debug!("http resp store_meta ok url='{}' elapsed_ms={}", safe_url, start_meta.elapsed().as_millis());
+                        log::debug!("http resp store_meta ok id={}/{} sid={} req={} url='{}' status=200 elapsed_ms={}", owner, repo, sid, req_id, safe_url, start_meta.elapsed().as_millis());
+                        log::info!(
+                            "http resp store_meta ok id={}/{} sid={} req={} host={} attempts={} elapsed_ms={}",
+                            owner, repo, sid, req_id, host, attempts_done, start_all.elapsed().as_millis()
+                        );
                         return Some(text);
                     }
                 }
             }
-            _ => continue,
+            _ => {
+                attempts_done += 1;
+                continue;
+            }
         }
     }
+    log::info!(
+        "http resp store_meta fail id={}/{} sid={} req={} host={} attempts={} elapsed_ms={}",
+        owner, repo, sid, req_id, first_host, total_attempts, start_all.elapsed().as_millis()
+    );
     None
 }
 

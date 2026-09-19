@@ -123,7 +123,10 @@ impl MirrorManager {
         };
 
         let safe_test_url = crate::log_support::sanitize_url(&test_url);
-        log::debug!("test mirror ping start url='{}'", safe_test_url);
+        let req_id = crate::z_log::new_req_id();
+        let sid = crate::z_log::new_session_id();
+        let req_host = crate::log_support::host_of(&test_url);
+        log::debug!("test mirror ping start sid={} req={} url='{}'", sid, req_id, safe_test_url);
 
         let start = Instant::now();
         let mut resp = client.head(&test_url).send().await;
@@ -136,16 +139,17 @@ impl MirrorManager {
             Ok(res) => {
                 let status = res.status().as_u16();
                 if status < 500 {
-                    log::debug!("test mirror ping resp url='{}' status={} latency_ms={}", safe_test_url, status, elapsed);
+                    log::debug!("test mirror ping resp sid={} req={} url='{}' status={} latency_ms={}", sid, req_id, safe_test_url, status, elapsed);
+                    log::info!("http resp mirror ping sid={} req={} host={} status={} latency_ms={}", sid, req_id, req_host, status, elapsed);
                     (true, elapsed.clamp(1, 4000), format!("{} ms (连接正常)", elapsed))
                 } else {
-                    log::warn!("test mirror ping resp url='{}' status={} latency_ms={}", safe_test_url, status, elapsed);
+                    log::warn!("test mirror ping resp sid={} req={} host={} status={} latency_ms={}", sid, req_id, req_host, status, elapsed);
                     (false, 9999, format!("HTTP 状态码异常: {}", status))
                 }
             }
             Err(e) => {
                 let reason = crate::log_support::short_reason(&e.to_string());
-                log::warn!("test mirror ping failed url='{}' reason={}", safe_test_url, reason);
+                log::warn!("test mirror ping failed sid={} req={} host={} reason={}", sid, req_id, req_host, reason);
                 (false, 9999, format!("连接失败或超时: {}", e))
             }
         }
