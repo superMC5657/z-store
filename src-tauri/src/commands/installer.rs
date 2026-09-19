@@ -117,7 +117,8 @@ pub async fn install_app(
     };
 
     log::info!(
-        "download init id={} file='{}' raw_url='{}' effective_url='{}' mirror={}",
+        "download init sid={} id={} file='{}' raw_url='{}' effective_url='{}' mirror={}",
+        crate::z_log::new_session_id(),
         app_id,
         asset.name,
         crate::log_support::sanitize_url(&asset.download_url),
@@ -294,7 +295,7 @@ pub async fn install_app(
 #[tauri::command]
 pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
     let app_id = crate::forge::canonical_app_id(&app_id);
-    log::info!("uninstall start id={}", app_id);
+    log::info!("uninstall start sid={} id={}", crate::z_log::new_session_id(), app_id);
     let installed_app = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         db.get_installed_apps()
@@ -400,7 +401,7 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result
     crate::commands::scanner::remove_from_detected_cache(&app_id);
 
     match &res {
-        Ok(_) => log::info!("uninstall done id={}", app_id),
+        Ok(_) => log::info!("uninstall done sid={} id={}", crate::z_log::new_session_id(), app_id),
         Err(e) => log::warn!(
             "uninstall failed id={} reason={}",
             app_id,

@@ -201,10 +201,15 @@ pub async fn get_or_fetch_icon(
 
     let mut fetched_bytes = None;
     let mut last_err = String::new();
+    let icon_req = crate::z_log::new_req_id();
+    let icon_sid = crate::z_log::new_session_id();
+    let raw_icon_url = crate::log_support::sanitize_url(url_trimmed);
 
     for url in candidate_urls {
         let safe_url = crate::log_support::sanitize_url(&url);
-        log::debug!("http get icon url='{}'", safe_url);
+        let icon_host = crate::log_support::host_of(&url);
+        let is_mirror = url != url_trimmed;
+        log::debug!("http get icon sid={} req={} url='{}' mirror={}", icon_sid, icon_req, safe_url, is_mirror);
         let start_icon = std::time::Instant::now();
         match client
             .get(&url)
@@ -218,22 +223,26 @@ pub async fn get_or_fetch_icon(
                 if resp.status().is_success() {
                     if let Ok(bytes) = resp.bytes().await {
                         if !bytes.is_empty() {
-                            log::debug!("http resp icon ok url='{}' status={} bytes={} elapsed_ms={}", safe_url, status, bytes.len(), start_icon.elapsed().as_millis());
+                            log::debug!("http resp icon ok sid={} req={} url='{}' status={} bytes={} elapsed_ms={}", icon_sid, icon_req, safe_url, status, bytes.len(), start_icon.elapsed().as_millis());
+                            log::info!("http resp icon ok sid={} req={} host={} status={} bytes={} raw_url='{}' effective_url='{}' mirror={} elapsed_ms={}", icon_sid, icon_req, icon_host, status, bytes.len(), raw_icon_url, safe_url, is_mirror, start_icon.elapsed().as_millis());
                             fetched_bytes = Some(bytes);
                             break;
                         }
                     }
                 } else {
+                    log::debug!("http resp icon fail sid={} req={} url='{}' status={} elapsed_ms={}", icon_sid, icon_req, safe_url, status, start_icon.elapsed().as_millis());
                     last_err = format!("HTTP 状态码: {}", resp.status());
                 }
             }
             Err(e) => {
+                log::debug!("http resp icon err sid={} req={} host={} reason={} elapsed_ms={}", icon_sid, icon_req, icon_host, crate::log_support::short_reason(&e.to_string()), start_icon.elapsed().as_millis());
                 last_err = format!("请求失败: {}", e);
             }
         }
     }
 
     let bytes = fetched_bytes.ok_or_else(|| {
+        log::info!("http resp icon fail sid={} req={} host={} raw_url='{}' reason={}", icon_sid, icon_req, crate::log_support::host_of(url_trimmed), raw_icon_url, crate::log_support::short_reason(&last_err));
         format!("拉取远程图标失败 ({}): {}", url_trimmed, last_err)
     })?;
 
