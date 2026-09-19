@@ -7,11 +7,7 @@
 ## 背景
 
 应用标识（AppId）贯穿 Z-Store 全链路：清单条目、深链、收藏/关注/更新规则、已安装记录、
-详情缓存与便携版安装目录命名。历史上同一 `id` 字段存在三种并存格式：
-
-1. **目录 slug**（旧版 catalog.json）：如 `rustdesk`，由清单仓库脚本按小写 repo 名生成；
-2. **owner/repo**：GitHub 在线搜索结果直接以 `full_name` 作为 id；
-3. **带 Forge 前缀**：多源坐标派生（`UniversalRepoCoord::to_app_id()`），如 `codeberg:owner/repo`。
+详情缓存与便携版安装目录命名。`id` 统一为小写 `owner/repo`（非 GitHub 源为 `forge:owner/repo` 形态），即仓库坐标本身。
 
 为兼容多种形态，客户端散布着多层隐式兜底：目录双匹配（slug 或 owner/repo）、
 DB 查询统一 `LOWER(app_id)`、详情缓存 `app_id + repo_key` 双键镜像行。
@@ -33,9 +29,7 @@ DB 查询统一 `LOWER(app_id)`、详情缓存 `app_id + repo_key` 双键镜像�
    开放清单仓库的社区 PR review 均为硬需求；主流同类系统（winget 的
    `Publisher.PackageName`、homebrew/scoop 的 formula/slug）亦均采用有意义稳定标识。
 
-4. **不做旧标识兼容**：项目处于开发阶段，不存在需要兼容的存量用户数据。
-   旧 slug 直接废弃，不设 `legacy_id` 别名字段，不做数据迁移；
-   开发机上旧格式记录（收藏/关注等）不保证延续。
+4. **数据库只存 canonical id；目录检索仅按 id 匹配**。
 
 5. **入站归一化（系统边界契约）**：所有来自前端的 `app_id` 在 Tauri 命令入口
    统一调用 `crate::forge::canonical_app_id()`：完整仓库 URL / Forge 前缀短语法 /
@@ -50,16 +44,12 @@ DB 查询统一 `LOWER(app_id)`、详情缓存 `app_id + repo_key` 双键镜像�
 
 - **便携版目录命名**：canonical id 含 `/`，目录名消毒规则将 `/` 折叠为 `-`
   （`rustdesk/rustdesk` → `rustdesk-rustdesk`）。
-- **扫描器**：可执行文件名与目录候选改由 `repo`/`name` 字段派生，不再消费
-  id 的字符形态。
-- **详情缓存**：`repo_key` 双键镜像行机制随 slug 时代终结，已退役——
-  `app_details_cache` 为单键（canonical id）精确匹配，旧形状表在开库时自动重建。
+- **扫描器**：扫描器由 `repo`/`name` 字段派生候选。
+- **详情缓存**：`app_details_cache` 为 canonical id 单键精确匹配。
 
 ## 后果
 
 - 正面：全系统单一 id 形态，消除多格式碎片化与 id↔坐标漂移；清单条目
   自校验（id 必须与坐标一致）；检索逻辑大幅简化（单一匹配路径）。
-- 负面：清单仓库一次破坏性格式变更（已一次性完成重写）；开发期本地库中
-  旧格式记录不再匹配，需重新安装/收藏。
 - 中性：非 GitHub 源收录清单条目为未来扩展，届时 `id` 采用 `forge:owner/repo`
   形态，归一化链路无需变更。

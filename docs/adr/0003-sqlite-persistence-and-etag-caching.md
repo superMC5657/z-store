@@ -10,7 +10,7 @@
 
 ## 决策
 
-1. 选用 Rust 嵌入式关系型数据库 `rusqlite`（开启 `bundled` 特性，零外部环境依赖），在本地用户目录 `%APPDATA%/com.zstore.app/z_store.db` 统一管理数据（旧版 `%LOCALAPPDATA%/ZStore/` 路径已由启动时数据目录迁移自动搬迁，详见 `lib.rs` 的 `migrate_legacy_data_dir`）。
+1. 选用 Rust 嵌入式关系型数据库 `rusqlite`（开启 `bundled` 特性，零外部环境依赖），在本地用户目录 `%APPDATA%/com.zstore.app/z_store.db` 统一管理数据。
 2. **ETag 条件请求缓存机制**：
    - 建立 `api_etag_cache` 表，存储 GitHub 各 Release 接口返回的 ETag 标识与 Payload 快照。
    - 发起更新轮询时携带 `If-None-Match: <etag>` 请求头。若内容无更新，GitHub 返回 `304 Not Modified`，完全不扣减每小时 API 限额，实现无限制零配额更新检测。

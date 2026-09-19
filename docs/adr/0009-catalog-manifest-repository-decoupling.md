@@ -29,5 +29,4 @@
    - 客户端已实现的 ETag 条件协商增量同步机制无缝切换至该独立仓库。
 
 4. **主客户端仓库 CI 净化**：
-   - 彻底删除 `z-store` 仓库内的 `.github/workflows/refresh-catalog.yml`，主分支不再接受任何定时数据刷新的机器人提交；
-   - 保持客户端代码历史 100% 纯净。
+    - 清单 CI 归属 `z-store-catalog` 仓库。
