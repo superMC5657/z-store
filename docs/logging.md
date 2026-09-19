@@ -72,7 +72,7 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
 ## 8. 禁 sqlite 声明
 
 - 日志**只进 LogDir**，禁止写入业务 SQLite（`z_store.db`：已安装记录 / 设置 / 令牌 /
-  更新规则 / 足迹等 14 张核心表，与日志物理隔离）。
+  更新规则 / 足迹等 13 张核心表，与日志物理隔离）。
 - panic hook 仅记 `log::error!` 落盘，不写 DB、不上报。
 - 磁盘库（`z_store.db`）打不开回退内存库时记一条 `error`
  （`src-tauri/src/lib.rs::run` 约 L331–L336，
@@ -107,8 +107,8 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
 | 安装静默失败降级向导 `installer/executor.rs` | info | `install silent failed code=1603, fallback to interactive wizard id=…` |
 | 安装用户主动取消 `installer/executor.rs` | info | `install cancelled by user id=… reason=用户取消了 MSI 安装向导` |
 | 安装结果 `installer/executor.rs`（唯一出入口） | info/error | `install done id=…` / `install failed id=… reason=…首行…` |
-| 校验成功 `verifier.rs` | info | `verify ok reason=expected-empty` / `verify ok algo=sha256\|sha1`（不记指纹值） |
-| 校验失败 `verifier.rs::verify_fingerprint` | error | `verify failed reason=…`（指纹冲突只记结论，不回显指纹值） |
+| 校验成功 `installer/downloader.rs` | info | `verify ok reason=expected-empty` / `verify ok algo=sha256` |
+| 校验失败 `installer/downloader.rs` | error | `download verify failed id=… file=…` |
 | 扫描起止 `commands/scanner.rs` | info | `scanner start` / `scanner done scanned=… unmanaged=…` |
 | 卸载起止 `installer/executor.rs` | info/error | `uninstall start/done/failed`（原因首行，不记全路径） |
 | 限额低水位 `lib.rs::log_rate_limit_water_mark`（每进程每 host 每种一次） | warn | `rate limit low host=github.com remaining=6/60` |
@@ -156,7 +156,8 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
   （L51 起多分支）、完成 info（约 L333）。
 - `src-tauri/src/installer/executor.rs`：安装出入口 info/error（L23–L35）；卸载起止 info/error。
 - `src-tauri/src/installer/selector.rs`：选包决策 debug。
-- `src-tauri/src/verifier.rs`：成功 info（L53/L83/L92）；失败 error（L59/L72/L104）。
+- `src-tauri/src/installer/downloader.rs`：开始 info（L39）、失败 error
+  （L51 起多分支）、完成 info（约 L333）；校验成功/失败（`download verify failed`）同文件。
 - `src-tauri/src/commands/updates.rs`：单项 warn（L352）、轮结束 info（L380）、
   挂起 debug（L437/L453/L467）。
 - `src-tauri/src/commands/catalog.rs`：成功 debug（L64/L88）、回退 debug（约 L361）、
