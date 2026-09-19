@@ -88,13 +88,6 @@ impl Database {
                 verified_at INTEGER NOT NULL
             );
 
-            -- FR-8.1 z-store.toml 原文缓存（与应用详情缓存共用 TTL 挡位 gears）
-            CREATE TABLE IF NOT EXISTS store_meta_cache (
-                app_id TEXT PRIMARY KEY,
-                raw_toml TEXT NOT NULL,
-                cached_at INTEGER NOT NULL
-            );
-
             -- GitHub Star 列表本地持久化记录
             CREATE TABLE IF NOT EXISTS user_stars (
                 owner TEXT NOT NULL,

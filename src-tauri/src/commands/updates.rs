@@ -11,7 +11,7 @@ use tauri::{AppHandle, Emitter, State};
 pub const DAILY_NOTIFY_INTERVAL_SECONDS: i64 = 24 * 60 * 60;
 
 /// 轻量级获取应用最新版本号与更新说明（专为更新检查与关注动态设计）
-/// 坚决不拉取 README.md、不拉取仓库详情与 Stars、不拉取 z-store.toml、不拉取校验和文件
+/// 坚决不拉取 README.md、不拉取仓库详情与 Stars、不拉取校验和文件
 /// 优先利用本地 ETag 缓存返回 304 Not Modified，将请求量与延迟降到最低
 pub async fn fetch_app_latest_version_lightweight(
     state: &AppState,

@@ -372,7 +372,6 @@ impl CatalogService {
                 .as_ref()
                 .map(|i| i.platforms.clone())
                 .unwrap_or_else(|| vec!["windows".to_string()]),
-            store_meta: None,
         };
 
         Ok((detail, new_cache))

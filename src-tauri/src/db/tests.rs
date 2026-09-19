@@ -219,7 +219,6 @@ fn test_app_details_cache_crud() {
         is_stale_fallback: None,
         homepage: None,
         platforms: vec!["windows".to_string()],
-        store_meta: None,
     };
 
     db.save_cached_app_detail("rustdesk/rustdesk", &detail).unwrap();
@@ -354,42 +353,11 @@ fn test_watched_apps_crud() {
 }
 
 #[test]
-fn test_verified_apps_and_store_meta_cache() {
+fn test_verified_apps() {
     let db = Database::open_in_memory().unwrap();
     assert!(!db.is_verified_app("rustdesk").unwrap());
     db.mark_verified_app("rustdesk").unwrap();
     assert!(db.is_verified_app("rustdesk").unwrap());
-
-    // store_meta 缓存：单键精确匹配 / TTL 命中 / ttl=0 强制失效 / 无 TTL 常命中
-    assert!(db
-        .get_cached_store_meta_raw("rustdesk/rustdesk", Some(1800))
-        .unwrap()
-        .is_none());
-    db.save_cached_store_meta_raw("rustdesk/rustdesk", "[app]\ndisplay-name = \"X\"\n")
-        .unwrap();
-    let raw = db
-        .get_cached_store_meta_raw("rustdesk/rustdesk", Some(1800))
-        .unwrap()
-        .expect("canonical id 命中");
-    assert!(raw.contains("display-name"));
-    // 大小写不一致 / 旧 slug 形态一律不命中（ADR-0010 单键语义）
-    assert!(db
-        .get_cached_store_meta_raw("RustDesk/RustDesk", Some(1800))
-        .unwrap()
-        .is_none());
-    assert!(db
-        .get_cached_store_meta_raw("rustdesk", Some(1800))
-        .unwrap()
-        .is_none());
-    assert!(db
-        .get_cached_store_meta_raw("rustdesk/rustdesk", Some(0))
-        .unwrap()
-        .is_none());
-    let fallback = db
-        .get_cached_store_meta_raw("rustdesk/rustdesk", None)
-        .unwrap()
-        .unwrap();
-    assert!(fallback.contains("display-name"));
 }
 
 #[test]

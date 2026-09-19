@@ -10,7 +10,6 @@ pub mod mirror;
 pub mod models;
 pub mod oauth;
 pub mod scanner;
-pub mod store_meta;
 pub mod verifier;
 pub mod z_log;
 

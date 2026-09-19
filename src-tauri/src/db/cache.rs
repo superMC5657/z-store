@@ -138,54 +138,6 @@ impl Database {
         Ok(())
     }
 
-    // ---------- FR-8.1 z-store.toml 缓存（共用详情 TTL gears） ----------
-
-    pub fn get_cached_store_meta_raw(
-        &self,
-        app_id: &str,
-        ttl_seconds: Option<i64>,
-    ) -> Result<Option<String>> {
-        let clean = app_id.trim();
-        if clean.is_empty() {
-            return Ok(None);
-        }
-        let mut stmt = self
-            .conn
-            .prepare("SELECT raw_toml, cached_at FROM store_meta_cache WHERE app_id = ?1")?;
-        let mut rows = stmt.query(params![clean])?;
-        if let Some(row) = rows.next()? {
-            let raw: String = row.get(0)?;
-            let cached_at: i64 = row.get(1)?;
-            if let Some(ttl) = ttl_seconds {
-                if ttl <= 0 {
-                    return Ok(None);
-                }
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs() as i64;
-                if now.saturating_sub(cached_at) >= ttl {
-                    return Ok(None);
-                }
-            }
-            return Ok(Some(raw));
-        }
-        Ok(None)
-    }
-
-    pub fn save_cached_store_meta_raw(&self, app_id: &str, raw_toml: &str) -> Result<()> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
-        self.conn.execute(
-            "INSERT INTO store_meta_cache (app_id, raw_toml, cached_at) VALUES (?1, ?2, ?3)
-             ON CONFLICT(app_id) DO UPDATE SET raw_toml = excluded.raw_toml, cached_at = excluded.cached_at",
-            params![app_id.trim(), raw_toml, now],
-        )?;
-        Ok(())
-    }
-
     pub fn get_icon_cache_url(&self, cache_key: &str) -> Result<Option<String>> {
         let clean = cache_key.trim();
         if clean.is_empty() {

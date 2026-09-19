@@ -1,6 +1,6 @@
 use crate::models::{DeveloperProfile, HostRateLimitStatus, HostTokenEntry, StarredSyncResult};
 use crate::AppState;
-use super::catalog::{get_app_details_impl, get_store_toml_raw_cached};
+use super::catalog::get_app_details_impl;
 use super::resolve_active_github_token;
 use tauri::State;
 
@@ -272,7 +272,18 @@ pub async fn search_forge_repos(
 
 // ---------- FR-8.3 所有权认证 ----------
 
-/// 官方所有权认证（MVP）：校验码原文出现在仓库 README 或 `z-store.toml`
+/// 官方所有权认证（MVP）：校验码原文出现在仓库 README 中即通过；
+/// 通过后持久化，`is_verified` 经合并规则在详情中生效。
+/// 空校验码恒为 `false`（避免空串子串恒真导致误认证）。
+pub fn is_verified_by_code(readme_markdown: &str, code: &str) -> bool {
+    let needle = code.trim();
+    if needle.is_empty() {
+        return false;
+    }
+    readme_markdown.contains(needle)
+}
+
+/// 官方所有权认证（MVP）：校验码原文出现在仓库 README
 /// 内容中即通过；通过后持久化，`is_verified` 经合并规则在详情中生效。
 #[tauri::command]
 pub async fn verify_ownership(
@@ -301,21 +312,12 @@ pub async fn verify_ownership(
             return Ok(true);
         }
     }
-    // 3. 仓库坐标（MVP 仅支持 GitHub 仓库）
-    let coords = state
-        .catalog
-        .get_repo_coordinates(&clean_id)
-        .map_err(|_| format!("仅支持 GitHub 仓库的所有权校验: {}", clean_id))?;
-
-    // 4. README 复用应用详情链路；toml 原文走缓存优先
+    // 3. README 复用应用详情链路做子串命中比对
     let readme = get_app_details_impl(&state, clean_id.clone(), None)
         .await
         .map(|d| d.readme_markdown)
         .unwrap_or_default();
-    let toml_raw =
-        get_store_toml_raw_cached(&state, &clean_id, &coords.owner, &coords.repo).await;
-    let passed =
-        crate::store_meta::is_verified_by_code(&readme, toml_raw.as_deref(), &needle);
+    let passed = is_verified_by_code(&readme, &needle);
     if passed {
         if let Ok(db) = state.db.lock() {
             let _ = db.mark_verified_app(&clean_id);

@@ -118,90 +118,6 @@ pub async fn search_apps(
     }
 }
 
-/// FR-8.1：`z-store.toml` 原文获取（SQLite 缓存优先，共用详情 TTL gears；缺失时联网拉取）。
-/// 缺失文件 / 非 GitHub 仓库 / 网络异常均返回 None（调用方用仓库数据兜底）。
-pub async fn get_store_toml_raw_cached(
-    state: &AppState,
-    app_id: &str,
-    owner: &str,
-    repo: &str,
-) -> Option<String> {
-    let ttl_seconds = state
-        .db
-        .lock()
-        .map(|db| db.get_detail_cache_ttl_minutes() * 60)
-        .unwrap_or_else(|_| crate::config::get_project_config().cache.detail_ttl_minutes * 60);
-    if let Ok(db) = state.db.lock() {
-        if let Ok(Some(raw)) = db.get_cached_store_meta_raw(app_id, Some(ttl_seconds)) {
-            return Some(raw);
-        }
-    }
-    let (host_token, mirror_proxy) = {
-        let db_guard = state.db.lock().ok()?;
-        let token = db_guard.get_host_token("github.com").ok().flatten();
-        let proxy = state.mirror.lock().ok()?.get_proxy_url();
-        (token, proxy)
-    };
-    let raw = crate::store_meta::fetch_store_toml_raw(
-        owner,
-        repo,
-        host_token.as_deref(),
-        mirror_proxy.as_deref(),
-    )
-    .await?;
-    if let Ok(db) = state.db.lock() {
-        let _ = db.save_cached_store_meta_raw(app_id, &raw);
-    }
-    Some(raw)
-}
-
-/// FR-8.1 / FR-8.3：将 `z-store.toml` 解析产物挂载到应用详情，
-/// 并合并 `is_verified`（收录库标记为真，或历史认证通过）。
-/// 全程最佳努力：任何失败均保持原详情不变。
-pub async fn attach_store_meta(state: &AppState, detail: &mut AppDetail) {
-    if !detail.is_verified {
-        if let Ok(db) = state.db.lock() {
-            if db.is_verified_app(&detail.id).unwrap_or(false) {
-                detail.is_verified = true;
-            }
-        }
-    }
-    if detail.store_meta.is_some() {
-        return;
-    }
-    let is_github = detail
-        .forge
-        .as_deref()
-        .map(|f| f == "github")
-        .unwrap_or(true)
-        && detail
-            .forge_host
-            .as_deref()
-            .map(|h| h.contains("github.com"))
-            .unwrap_or(true);
-    if !is_github {
-        return;
-    }
-    let (app_id, owner, repo) = (
-        detail.id.clone(),
-        detail.owner.clone(),
-        detail.repo.clone(),
-    );
-    if let Some(raw) = get_store_toml_raw_cached(state, &app_id, &owner, &repo).await {
-        if let Ok(meta) = crate::store_meta::parse_store_toml(&raw) {
-            // toml 声明的签名指纹可补齐收录库未标注的指纹
-            if detail.signature_fingerprint.is_none() {
-                if let Some(fp) = meta.store.signature_fingerprint.clone() {
-                    if !fp.trim().is_empty() {
-                        detail.signature_fingerprint = Some(fp);
-                    }
-                }
-            }
-            detail.store_meta = Some(meta);
-        }
-    }
-}
-
 #[tauri::command]
 pub fn get_category_apps(
     state: State<'_, AppState>,
@@ -282,7 +198,13 @@ pub async fn get_app_details_impl(
             if let Some(cat_item) = state.catalog.get_catalog_item(&clean_id) {
                 cached_detail.signature_fingerprint = cat_item.publisher_fingerprint;
             }
-            attach_store_meta(state, &mut cached_detail).await;
+            if !cached_detail.is_verified {
+                if let Ok(db) = state.db.lock() {
+                    if db.is_verified_app(&cached_detail.id).unwrap_or(false) {
+                        cached_detail.is_verified = true;
+                    }
+                }
+            }
             log::debug!(
                 "get_app_details id={} from=cache:db elapsed_ms={}",
                 clean_id,
@@ -344,9 +266,12 @@ pub async fn get_app_details_impl(
                 is_stale_fallback: None,
                 homepage: repo_info.homepage.clone(),
                 platforms: vec!["windows".to_string()],
-                store_meta: None,
             };
-            attach_store_meta(state, &mut detail).await;
+            if let Ok(db) = state.db.lock() {
+                if db.is_verified_app(&detail.id).unwrap_or(false) {
+                    detail.is_verified = true;
+                }
+            }
 
             // 存入 SQLite 本地持久化缓存，并动态更新内存中的收录库统计
             state.catalog.update_catalog_item_stats(
@@ -439,8 +364,13 @@ pub async fn get_app_details_impl(
                 .unwrap_or_default()
                 .as_secs() as i64;
             detail.cached_at = Some(now);
-            // FR-8.1/FR-8.3：挂载 z-store.toml 并合并认证标记（入库前完成，缓存即带元数据）
-            attach_store_meta(state, &mut detail).await;
+            if !detail.is_verified {
+                if let Ok(db) = state.db.lock() {
+                    if db.is_verified_app(&detail.id).unwrap_or(false) {
+                        detail.is_verified = true;
+                    }
+                }
+            }
 
             if let Some((etag, payload)) = to_cache {
                 // 远端返回 200 OK，更新 ETag 缓存表
