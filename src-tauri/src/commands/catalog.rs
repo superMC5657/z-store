@@ -176,6 +176,16 @@ pub async fn get_app_details_impl(
     let clean_id = crate::forge::canonical_app_id(&id);
     let is_force = force_refresh.unwrap_or(false);
     let start = std::time::Instant::now();
+    // db_save 日志关联用：复用进程级 sid；req 复用线程级（空则新建，仅日志用途，不改并发）。
+    let sid = crate::z_log::new_session_id();
+    let req_id = {
+        let cur = crate::z_log::current_req_id();
+        if cur.is_empty() {
+            crate::z_log::new_req_id()
+        } else {
+            cur
+        }
+    };
 
     // 获取客户端设置的应用详情缓存保鲜期 (TTL，单位秒；0 表示每次实时校验)。
     // 非法/缺失挡位由 db 层回退默认 30 分钟（ADR-0007 有效集 {0,10,30,60,360,1440}）。
@@ -282,7 +292,21 @@ pub async fn get_app_details_impl(
             );
 
             if let Ok(db) = state.db.lock() {
+                let start_db = std::time::Instant::now();
+                log::debug!(
+                    "db_save start id={} sid={} req={}",
+                    clean_id,
+                    sid,
+                    req_id
+                );
                 let _ = db.save_cached_app_detail(&clean_id, &detail);
+                log::debug!(
+                    "db_save done id={} sid={} req={} elapsed_ms={}",
+                    clean_id,
+                    sid,
+                    req_id,
+                    start_db.elapsed().as_millis()
+                );
             }
 
             return Ok(detail);
@@ -386,6 +410,13 @@ pub async fn get_app_details_impl(
             }
 
             // 存入 SQLite 本地持久化缓存：若远端解析产物为空但本地已有资产，继承本地资产以防误清空
+            let start_db = std::time::Instant::now();
+            log::debug!(
+                "db_save start id={} sid={} req={}",
+                clean_id,
+                sid,
+                req_id
+            );
             if let Ok(db) = state.db.lock() {
                 if detail.releases.is_empty() {
                     if let Ok(Some(old)) = db.get_cached_app_detail_fallback(&clean_id) {
@@ -396,6 +427,13 @@ pub async fn get_app_details_impl(
                 }
                 let _ = db.save_cached_app_detail(&clean_id, &detail);
             }
+            log::debug!(
+                "db_save done id={} sid={} req={} elapsed_ms={}",
+                clean_id,
+                sid,
+                req_id,
+                start_db.elapsed().as_millis()
+            );
 
             Ok(detail)
         }
