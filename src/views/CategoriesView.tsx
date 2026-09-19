@@ -10,12 +10,9 @@ import {
   BookOpen,
   Terminal,
   Gamepad2,
-  Monitor,
   Tag,
   ArrowLeft,
-  ArrowRight,
 } from 'lucide-react';
-import { PlatformIcon } from '../components/icons/PlatformIcons';
 import { AppCard } from '../components/AppCard';
 import { AppSummary } from '../types';
 
@@ -29,6 +26,13 @@ interface CategoriesViewProps {
   onQuickInstall: (id: string) => void;
   onToggleFavorite: (id: string) => void;
   onToggleWatch?: (id: string) => void;
+  /**
+   * Global device-platform filter reset owned by the caller (App).
+   * Optional for backward compatibility: when absent, the empty-state reset
+   * button falls back to returning to the category hall (i.e. selecting all
+   * categories again) instead of touching any filter state.
+   */
+  onResetPlatformFilter?: () => void;
 }
 
 const CATEGORY_DEFINITIONS = [
@@ -44,23 +48,6 @@ const CATEGORY_DEFINITIONS = [
   { id: 'games', Icon: Gamepad2, name: '休闲游戏', desc: '复古模拟器, 模拟经营, 像素沙盒', color: '#a855f7' },
 ];
 
-const PLATFORM_OPTIONS = [
-  { id: 'all', label: '全部设备', platform: null },
-  { id: 'windows', label: 'Windows', platform: 'windows' },
-  { id: 'android', label: 'Android', platform: 'android' },
-  { id: 'macos', label: 'macOS', platform: 'macos' },
-  { id: 'linux', label: 'Linux', platform: 'linux' },
-  { id: 'ios', label: 'iOS', platform: 'ios' },
-];
-
-function matchPlatform(app: AppSummary, platform: string): boolean {
-  if (platform === 'all') return true;
-  if (!app.platforms || app.platforms.length === 0) {
-    return platform === 'windows';
-  }
-  return app.platforms.some((p) => p.toLowerCase() === platform.toLowerCase());
-}
-
 export const CategoriesView: React.FC<CategoriesViewProps> = ({
   apps,
   installedIds,
@@ -71,64 +58,43 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   onQuickInstall,
   onToggleFavorite,
   onToggleWatch,
+  onResetPlatformFilter,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [selectedPlatform, setSelectedPlatform] = useState<string>('all');
 
-  // 计算各平台的收录总数
-  const platformCounts = React.useMemo(() => {
-    const counts: Record<string, number> = { all: apps.length };
-    for (const opt of PLATFORM_OPTIONS) {
-      if (opt.id === 'all') continue;
-      counts[opt.id] = apps.filter((a) => matchPlatform(a, opt.id)).length;
-    }
-    return counts;
-  }, [apps]);
-
-  // 符合当前平台筛选的应用集合
-  const platformFilteredApps = React.useMemo(() => {
-    return apps.filter((a) => matchPlatform(a, selectedPlatform));
-  }, [apps, selectedPlatform]);
-
-  // 符合当前分类与平台双重筛选的应用列表
+  // Single-dimension category filtering over the incoming `apps` prop, which
+  // the caller (App) has already filtered by the global device-platform
+  // selection. This view MUST NOT apply any platform filtering of its own.
   const filteredApps = React.useMemo(() => {
-    if (selectedCategory === 'all_apps') {
-      return platformFilteredApps;
-    }
     if (selectedCategory) {
-      return platformFilteredApps.filter(
+      return apps.filter(
         (a) => a.category.toLowerCase() === selectedCategory.toLowerCase()
       );
     }
     return [];
-  }, [platformFilteredApps, selectedCategory]);
+  }, [apps, selectedCategory]);
 
   const currentCategoryMeta = CATEGORY_DEFINITIONS.find((c) => c.id === selectedCategory);
-  const currentPlatformMeta = PLATFORM_OPTIONS.find((p) => p.id === selectedPlatform) || PLATFORM_OPTIONS[0];
+
+  const handleResetFilter = () => {
+    onResetPlatformFilter?.();
+    setSelectedCategory(null);
+  };
 
   return (
     <div className="categories-view view-entrance">
       {/* 顶部标题与返回控制 */}
       <div className="section-header">
         <h3 className="section-title">
-          {selectedCategory === 'all_apps' ? (
-            <>
-              {currentPlatformMeta.platform ? (
-                <PlatformIcon platform={currentPlatformMeta.platform} size={18} />
-              ) : (
-                <Monitor size={18} />
-              )}
-              <span>全部 {currentPlatformMeta.label} 应用 ({filteredApps.length})</span>
-            </>
-          ) : selectedCategory && currentCategoryMeta ? (
+          {selectedCategory && currentCategoryMeta ? (
             <>
               <currentCategoryMeta.Icon size={18} style={{ color: currentCategoryMeta.color }} />
-              <span>{currentCategoryMeta.name}{selectedPlatform !== 'all' ? ` · ${currentPlatformMeta.label}` : ''} ({filteredApps.length})</span>
+              <span>{currentCategoryMeta.name} ({filteredApps.length})</span>
             </>
           ) : (
             <>
               <Tag size={18} />
-              <span>按主题领域与设备平台浏览</span>
+              <span>按主题领域浏览</span>
             </>
           )}
         </h3>
@@ -144,92 +110,10 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
         )}
       </div>
 
-      {/* 支持设备平台筛选胶囊栏 */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          flexWrap: 'wrap',
-          marginBottom: '20px',
-        }}
-      >
-        <span style={{ fontSize: '13px', color: 'var(--text-secondary)', marginRight: '4px', fontWeight: 600 }}>
-          支持设备:
-        </span>
-        {PLATFORM_OPTIONS.map((opt) => {
-          const isActive = selectedPlatform === opt.id;
-          const count = platformCounts[opt.id] ?? 0;
-          return (
-            <button
-              key={opt.id}
-              onClick={() => setSelectedPlatform(opt.id)}
-              className="btn-fluent"
-              style={{
-                borderRadius: '20px',
-                padding: '6px 14px',
-                fontSize: '12px',
-                fontWeight: isActive ? 600 : 500,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                background: isActive ? 'var(--brand-primary)' : 'var(--fill-control-subtle)',
-                color: isActive ? '#ffffff' : 'var(--text-primary)',
-                borderColor: isActive ? 'var(--brand-primary)' : 'var(--border-control)',
-                boxShadow: isActive ? '0 2px 8px rgba(0, 120, 212, 0.25)' : 'none',
-                cursor: 'pointer',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              {opt.platform ? (
-                <PlatformIcon platform={opt.platform} size={13} />
-              ) : (
-                <Monitor size={13} />
-              )}
-              <span>{opt.label}</span>
-              <span
-                style={{
-                  fontSize: '11px',
-                  padding: '1px 6px',
-                  borderRadius: '10px',
-                  background: isActive ? 'rgba(255, 255, 255, 0.25)' : 'var(--border-subtle)',
-                  color: isActive ? '#ffffff' : 'var(--text-tertiary)',
-                  marginLeft: '2px',
-                }}
-              >
-                {count}
-              </span>
-            </button>
-          );
-        })}
-
-        {/* 当处于未展开具体分类且选择了特定平台时，提供“查看该平台全部应用”按钮 */}
-        {!selectedCategory && selectedPlatform !== 'all' && (
-          <button
-            className="btn-fluent btn-secondary"
-            onClick={() => setSelectedCategory('all_apps')}
-            style={{
-              borderRadius: '20px',
-              padding: '6px 14px',
-              fontSize: '12px',
-              fontWeight: 600,
-              marginLeft: 'auto',
-              color: 'var(--brand-primary)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-            }}
-          >
-            <span>直接查看全部 {platformFilteredApps.length} 款 {currentPlatformMeta.label} 应用</span>
-            <ArrowRight size={13} />
-          </button>
-        )}
-      </div>
-
       {!selectedCategory ? (
         <div className="app-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
           {CATEGORY_DEFINITIONS.map((cat) => {
-            const count = platformFilteredApps.filter(
+            const count = apps.filter(
               (a) => a.category.toLowerCase() === cat.id.toLowerCase()
             ).length;
             return (
@@ -298,7 +182,12 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
             ))
           ) : (
             <div style={{ color: 'var(--text-tertiary)', padding: '32px', textAlign: 'center', width: '100%' }}>
-              当前分类在所选设备平台（{currentPlatformMeta.label}）下暂无收录应用。
+              <div style={{ fontSize: '14px', marginBottom: '16px' }}>
+                当前分类在所选设备组合下暂无收录应用，试试放宽设备筛选后重新浏览。
+              </div>
+              <button className="btn-fluent btn-secondary filter-empty-reset" onClick={handleResetFilter}>
+                重置设备筛选
+              </button>
             </div>
           )}
         </div>

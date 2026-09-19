@@ -17,6 +17,46 @@ import { AppDetail, AppSettings, AppSummary, InstalledApp, MirrorNodeStatus, OAu
 import { api, DEFAULT_SETTINGS } from './services/api';
 import { preloadIcons } from './components/AppIcon';
 import { zlogError, zlogInfo, zlogWarn } from './lib/z-log';
+import { PLATFORM_IDS, matchPlatformSet, normalizePlatform, togglePlatformSet } from './lib/platformFilter';
+
+export const PLATFORM_FILTER_STORAGE_KEY = 'zstore:platform-filter:v1';
+
+/**
+ * Parse a raw localStorage value into a validated platform selection.
+ * Unknown ids are whitelisted out; corrupt/empty/unknown-only input falls
+ * back to the full set (equivalent to "unfiltered").
+ */
+export function parseSelectedPlatforms(raw: string | null | undefined): Set<string> {
+  const full = new Set<string>(PLATFORM_IDS);
+  if (!raw) return full;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return full;
+  }
+  if (!Array.isArray(parsed)) return full;
+  const known = new Set<string>();
+  for (const id of parsed) {
+    if (typeof id !== 'string') continue;
+    const n = normalizePlatform(id);
+    if ((PLATFORM_IDS as readonly string[]).includes(n)) known.add(n);
+  }
+  return known.size > 0 ? known : full;
+}
+
+/**
+ * First-render read of the persisted platform selection. Never throws:
+ * missing storage, corrupt values, and throwing storage all yield the full set.
+ */
+export function loadSelectedPlatforms(): Set<string> {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return new Set<string>(PLATFORM_IDS);
+    return parseSelectedPlatforms(window.localStorage.getItem(PLATFORM_FILTER_STORAGE_KEY));
+  } catch {
+    return new Set<string>(PLATFORM_IDS);
+  }
+}
 
 export const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewType>('home');
@@ -45,6 +85,11 @@ export const App: React.FC = () => {
   // FR-6.2 关注（Watch）
   const [watchedIds, setWatchedIds] = useState<Set<string>>(new Set());
   const [watchNotifications, setWatchNotifications] = useState<WatchUpdatedPayload[]>([]);
+  // Task 3 (device-platform global filter): App-level multi-select platform
+  // state, defaulting to all 5 PLATFORM_IDS, persisted to localStorage only —
+  // intentionally NOT wired into api.getSettings()/UserDataBackup (a local UI
+  // preference, not backup data).
+  const [selectedPlatforms, setSelectedPlatforms] = useState<Set<string>>(() => loadSelectedPlatforms());
   // FR-7 OAuth 登录态（详情弹窗标星门控）
   const [oauthUser, setOAuthUser] = useState<OAuthUser | null>(null);
   const appDetailMemoryCache = useRef<Map<string, AppDetail>>(new Map());
@@ -205,6 +250,15 @@ export const App: React.FC = () => {
       window.removeEventListener('zstore:toast', handler);
     };
   }, []);
+
+  // Task 3: write the platform selection back to localStorage on every change.
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(PLATFORM_FILTER_STORAGE_KEY, JSON.stringify([...selectedPlatforms]));
+    } catch {
+      // ignore: private-mode/quota/throwing storage keeps the in-memory selection
+    }
+  }, [selectedPlatforms]);
 
   // FR-6.2: 加载关注列表 + 订阅 `zstore://watch-updated` 应用内提醒
   useEffect(() => {
@@ -719,6 +773,17 @@ export const App: React.FC = () => {
     });
   };
 
+  // Task 3: guarded device-platform toggle. togglePlatformSet refuses to empty
+  // the set (or unknown ids); a refusal surfaces via the existing toast channel.
+  const handleTogglePlatform = (id: string) => {
+    const { next, changed } = togglePlatformSet(selectedPlatforms, id);
+    if (!changed) {
+      showToast('请至少保留一个设备平台', 'warning');
+      return;
+    }
+    setSelectedPlatforms(next);
+  };
+
   // Install App
   const handleInstallApp = async (id: string, assetName?: string, customInstallDir?: string): Promise<void> => {
     if (installingAppIds.has(id)) return;
@@ -1026,8 +1091,24 @@ export const App: React.FC = () => {
   };
 
 
-  const installedIds = useMemo(() => {
-    const set = new Set<string>();
+  // Task 3: platform-first derivation feeding Home/Trends/Categories (same `apps` prop name).
+  const platformFilteredApps = useMemo(
+    () => apps.filter((a) => matchPlatformSet(a, selectedPlatforms)),
+    [apps, selectedPlatforms]
+  );
+
+  // Task 4 (device-platform global filter): per-platform counts for the
+  // Sidebar group, computed over the FULL `apps` array (not the filtered
+  // one) so each count answers "how many apps target this device".
+  const platformCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const id of PLATFORM_IDS) {
+      counts[id] = apps.filter((a) => matchPlatformSet(a, new Set([id]))).length;
+    }
+    return counts;
+  }, [apps]);
+
+  const installedIds = useMemo(() => {    const set = new Set<string>();
     for (const a of installedApps) {
       set.add(a.app_id);
       set.add(a.app_id.toLowerCase());
@@ -1089,13 +1170,16 @@ export const App: React.FC = () => {
           hasUpdates={updates.length > 0 || watchNotifications.length > 0}
           onOpenAccount={handleOpenAccountSettings}
           isCollapsed={isSidebarCollapsed}
+          selectedPlatforms={selectedPlatforms}
+          onTogglePlatform={handleTogglePlatform}
+          platformCounts={platformCounts}
         />
 
         {/* Content Views */}
         <main className="content-area">
           {currentView === 'home' && (
             <HomeView
-              apps={apps}
+              apps={platformFilteredApps}
               installedIds={installedIds}
               installingIds={installingAppIds}
               favoriteIds={favoriteIds}
@@ -1107,24 +1191,26 @@ export const App: React.FC = () => {
               onToggleWatch={handleToggleWatch}
               onNavigateTrends={() => setCurrentView('trends')}
               onClearRecentViews={handleClearRecentViews}
+              onResetPlatformFilter={() => setSelectedPlatforms(new Set<string>(PLATFORM_IDS))}
             />
           )}
 
           {currentView === 'trends' && (
             <TrendsView
-              apps={apps}
+              apps={platformFilteredApps}
               favoriteIds={favoriteIds}
               installedIds={installedIds}
               installingIds={installingAppIds}
               onOpenDetail={handleOpenDetail}
               onQuickInstall={handleQuickInstall}
               onToggleFavorite={handleToggleFavorite}
+              onResetPlatformFilter={() => setSelectedPlatforms(new Set<string>(PLATFORM_IDS))}
             />
           )}
 
           {currentView === 'categories' && (
             <CategoriesView
-              apps={apps}
+              apps={platformFilteredApps}
               installedIds={installedIds}
               installingIds={installingAppIds}
               favoriteIds={favoriteIds}
@@ -1133,6 +1219,7 @@ export const App: React.FC = () => {
               onQuickInstall={handleQuickInstall}
               onToggleFavorite={handleToggleFavorite}
               onToggleWatch={handleToggleWatch}
+              onResetPlatformFilter={() => setSelectedPlatforms(new Set<string>(PLATFORM_IDS))}
             />
           )}
 

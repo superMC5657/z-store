@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { OAuthUser, ViewType } from '../types';
 import { api } from '../services/api';
-import { GitHubIcon } from './icons/PlatformIcons';
+import { GitHubIcon, PlatformIcon } from './icons/PlatformIcons';
 
 interface SidebarProps {
   currentView: ViewType;
@@ -10,6 +10,12 @@ interface SidebarProps {
   hasUpdates: boolean;
   onOpenAccount: () => void;
   isCollapsed?: boolean;
+  /** Multi-select device-platform filter. Defaults to all platforms (no filtering). */
+  selectedPlatforms?: Set<string>;
+  /** Toggle callback only — the last-one guard lives in App/platformFilter. */
+  onTogglePlatform?: (id: string) => void;
+  /** Optional per-platform app counts; accepted as prop, never computed here. */
+  platformCounts?: Record<string, number>;
 }
 
 interface NavItemConfig {
@@ -20,6 +26,23 @@ interface NavItemConfig {
   badge?: number | boolean;
 }
 
+interface PlatformFilterItem {
+  id: string;
+  label: string;
+}
+
+/** Labels mirror CategoriesView platform options. Order mirrors PLATFORM_IDS. */
+export const PLATFORM_FILTER_ITEMS: PlatformFilterItem[] = [
+  { id: 'windows', label: 'Windows' },
+  { id: 'android', label: 'Android' },
+  { id: 'macos', label: 'macOS' },
+  { id: 'linux', label: 'Linux' },
+  { id: 'ios', label: 'iOS' },
+];
+
+/** Render order. 设备平台 sits above 偏好与系统. */
+const NAV_GROUP_ORDER = ['发现与探索', '应用资产', '设备平台', '偏好与系统'] as const;
+
 export const Sidebar: React.FC<SidebarProps> = ({
   currentView,
   onSelectView,
@@ -27,6 +50,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   hasUpdates,
   onOpenAccount,
   isCollapsed = false,
+  selectedPlatforms = new Set(PLATFORM_FILTER_ITEMS.map((p) => p.id)),
+  onTogglePlatform = () => {},
+  platformCounts,
 }) => {
   const [oauthUser, setOauthUser] = useState<OAuthUser | null>(null);
 
@@ -49,7 +75,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     };
   }, []);
   const navItems: NavItemConfig[] = [
-    // Group 1: 发现与探索
+    // 发现与探索
     {
       id: 'home',
       label: '精选发现',
@@ -88,7 +114,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ),
     },
 
-    // Group 2: 应用资产
+    // 应用资产
     {
       id: 'installed',
       label: '已安装应用',
@@ -128,7 +154,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ),
     },
 
-    // Group 3: 偏好与系统
+    // 偏好与系统
     {
       id: 'settings',
       label: '系统设置',
@@ -148,79 +174,74 @@ export const Sidebar: React.FC<SidebarProps> = ({
       role="navigation"
       aria-label="主要导航"
     >
-      {/* Group 1: 发现与探索 */}
-      <div className="nav-group-title">发现与探索</div>
-      {navItems.slice(0, 3).map((item) => {
-        const isSelected = currentView === item.id;
-        return (
-          <button
-            key={item.id}
-            className={`nav-item ${isSelected ? 'active' : ''}`}
-            onClick={() => onSelectView(item.id)}
-            title={isCollapsed ? item.label : undefined}
-            aria-label={item.label}
-          >
-            <span className="nav-icon">
-              {item.icon}
-            </span>
-            <span className="nav-label">{item.label}</span>
-          </button>
-        );
-      })}
+      {NAV_GROUP_ORDER.map((group, groupIndex) => (
+        <React.Fragment key={group}>
+          {groupIndex > 0 && <div className="sidebar-divider" />}
 
-      <div className="sidebar-divider" />
+          {group === '设备平台' ? (
+            <>
+              <div className="nav-group-title">设备平台</div>
+              {PLATFORM_FILTER_ITEMS.map((platform) => {
+                const isChecked = selectedPlatforms.has(platform.id);
+                const count = platformCounts?.[platform.id];
+                return (
+                  <button
+                    key={platform.id}
+                    role="checkbox"
+                    aria-checked={isChecked}
+                    data-platform-id={platform.id}
+                    className={`nav-item ${isChecked ? 'active' : ''}`}
+                    onClick={() => onTogglePlatform(platform.id)}
+                    title={isCollapsed ? platform.label : undefined}
+                  >
+                    <span className="nav-icon">
+                      <PlatformIcon platform={platform.id} />
+                    </span>
+                    <span className="nav-label">{platform.label}</span>
 
-      {/* Group 2: 应用资产 */}
-      <div className="nav-group-title">应用资产</div>
-      {navItems.slice(3, 6).map((item) => {
-        const isSelected = currentView === item.id;
-        return (
-          <button
-            key={item.id}
-            className={`nav-item ${isSelected ? 'active' : ''}`}
-            onClick={() => onSelectView(item.id)}
-            title={isCollapsed ? item.label : undefined}
-            aria-label={item.label}
-          >
-            <span className="nav-icon">
-              {item.icon}
-              {typeof item.badge === 'boolean' && item.badge && (
-                <span className="nav-icon-badge-dot" />
-              )}
-            </span>
-            <span className="nav-label">{item.label}</span>
+                    {typeof count === 'number' && (
+                      <span className="nav-badge">{count}</span>
+                    )}
+                  </button>
+                );
+              })}
+            </>
+          ) : (
+            <>
+              <div className="nav-group-title">{group}</div>
+              {navItems
+                .filter((item) => item.group === group)
+                .map((item) => {
+                  const isSelected = currentView === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      className={`nav-item ${isSelected ? 'active' : ''}`}
+                      onClick={() => onSelectView(item.id)}
+                      title={isCollapsed ? item.label : undefined}
+                      aria-label={item.label}
+                    >
+                      <span className="nav-icon">
+                        {item.icon}
+                        {typeof item.badge === 'boolean' && item.badge && (
+                          <span className="nav-icon-badge-dot" />
+                        )}
+                      </span>
+                      <span className="nav-label">{item.label}</span>
 
-            {typeof item.badge === 'number' && item.badge > 0 && (
-              <span className="nav-badge">{item.badge}</span>
-            )}
-            {typeof item.badge === 'boolean' && item.badge && (
-              <span className="nav-badge-dot" />
-            )}
-          </button>
-        );
-      })}
-
-      <div className="sidebar-divider" />
-
-      {/* Group 3: 偏好与系统 */}
-      <div className="nav-group-title">偏好与系统</div>
-      {navItems.slice(6).map((item) => {
-        const isSelected = currentView === item.id;
-        return (
-          <button
-            key={item.id}
-            className={`nav-item ${isSelected ? 'active' : ''}`}
-            onClick={() => onSelectView(item.id)}
-            title={isCollapsed ? item.label : undefined}
-            aria-label={item.label}
-          >
-            <span className="nav-icon">
-              {item.icon}
-            </span>
-            <span className="nav-label">{item.label}</span>
-          </button>
-        );
-      })}
+                      {typeof item.badge === 'number' && item.badge > 0 && (
+                        <span className="nav-badge">{item.badge}</span>
+                      )}
+                      {typeof item.badge === 'boolean' && item.badge && (
+                        <span className="nav-badge-dot" />
+                      )}
+                    </button>
+                  );
+                })}
+            </>
+          )}
+        </React.Fragment>
+      ))}
 
       {/* Bottom GitHub Account Capsule */}
       <div className="sidebar-footer">

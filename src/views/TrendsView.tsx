@@ -11,6 +11,23 @@ interface TrendsViewProps {
   onOpenDetail: (id: string) => void;
   onQuickInstall: (id: string) => void;
   onToggleFavorite?: (id: string) => void;
+  /**
+   * Seam for App to wire the global platform reset (Todo 7). When omitted,
+   * the reset button falls back to clearing the persisted selection and
+   * broadcasting `zstore:reset-platform-filter` on window (same fallback as
+   * HomeView; key string is literal to avoid a view→App import cycle).
+   */
+  onResetPlatformFilter?: () => void;
+}
+
+/** Fallback reset when App has not wired `onResetPlatformFilter` yet. */
+function broadcastPlatformReset(): void {
+  try {
+    window.localStorage.removeItem('zstore:platform-filter:v1');
+  } catch {
+    // ignore: throwing storage keeps the in-memory selection
+  }
+  window.dispatchEvent(new CustomEvent('zstore:reset-platform-filter'));
 }
 
 type TimeRange = 'day' | 'week' | 'month' | 'all';
@@ -23,9 +40,14 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   onOpenDetail,
   onQuickInstall,
   onToggleFavorite,
+  onResetPlatformFilter,
 }) => {
   const [timeRange, setTimeRange] = useState<TimeRange>('week');
 
+  // Task 6 (device-platform global filter): `apps` arrives PRE-FILTERED from
+  // App.platformFilteredApps. Sort + rank #1..N purely within the received
+  // set — ranks are recomputed, never preserved — and do NO in-page platform
+  // filtering here.
   const sortedApps = useMemo(() => {
     const list = [...apps];
     switch (timeRange) {
@@ -82,7 +104,39 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-        {sortedApps.map((app, index) => (
+        {sortedApps.length === 0 ? (
+          <div
+            className="trends-empty"
+            style={{
+              padding: '48px 24px',
+              textAlign: 'center',
+              color: 'var(--text-tertiary)',
+              border: '1px dashed var(--border-control)',
+              borderRadius: 'var(--radius-md)',
+            }}
+          >
+            <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+              当前设备筛选下暂无上榜应用
+            </div>
+            <div style={{ fontSize: '12px', marginBottom: '16px' }}>
+              所选设备组合没有命中任何收录应用，试试放宽设备勾选，或一键恢复全部设备——热榜会按筛选后的应用重新排名。
+            </div>
+            <button
+              type="button"
+              className="btn-fluent btn-primary filter-empty-reset"
+              onClick={() => {
+                if (onResetPlatformFilter) {
+                  onResetPlatformFilter();
+                } else {
+                  broadcastPlatformReset();
+                }
+              }}
+            >
+              重置设备筛选
+            </button>
+          </div>
+        ) : (
+        sortedApps.map((app, index) => (
           <div
             key={app.id}
             className="app-card"
@@ -225,7 +279,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
               )}
             </div>
           </div>
-        ))}
+        ))
+        )}
       </div>
     </div>
   );

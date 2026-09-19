@@ -14,6 +14,11 @@ import { AppIcon } from '../components/AppIcon';
 import { AppSummary } from '../types';
 
 interface HomeViewProps {
+  /**
+   * Already platform-filtered by App (`platformFilteredApps`): every slice
+   * below executes on this array as-is. Never filter by platform in-page —
+   * the global device-platform selection lives in App/Sidebar.
+   */
   apps: AppSummary[];
   installedIds: Set<string>;
   installingIds?: Set<string>;
@@ -26,6 +31,28 @@ interface HomeViewProps {
   onToggleWatch?: (id: string) => void;
   onNavigateTrends: () => void;
   onClearRecentViews?: () => void;
+  /**
+   * Seam for App to wire the global platform reset (Todo 7). When omitted,
+   * the reset button falls back to clearing the persisted selection and
+   * broadcasting `zstore:reset-platform-filter` on window.
+   */
+  onResetPlatformFilter?: () => void;
+}
+
+/**
+ * Fallback reset when App has not wired `onResetPlatformFilter` yet:
+ * drop the persisted selection (App's `loadSelectedPlatforms` falls back to
+ * the full set on a missing key) and broadcast the intent for any listener.
+ * Key string mirrors App.PLATFORM_FILTER_STORAGE_KEY; kept literal here to
+ * avoid a view→App import cycle.
+ */
+function broadcastPlatformReset(): void {
+  try {
+    window.localStorage.removeItem('zstore:platform-filter:v1');
+  } catch {
+    // ignore: throwing storage keeps the in-memory selection
+  }
+  window.dispatchEvent(new CustomEvent('zstore:reset-platform-filter'));
 }
 
 export const HomeView: React.FC<HomeViewProps> = ({
@@ -41,25 +68,41 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onToggleWatch,
   onNavigateTrends,
   onClearRecentViews,
+  onResetPlatformFilter,
 }) => {
   if (apps.length === 0) {
+    // Filter-empty: the global device-platform selection excluded every app.
+    // Dedicated copy + reset affordance — never the search `owner/repo` guide.
     return (
       <div className="home-view">
         <div className="empty-state-card" style={{ marginTop: '40px' }}>
           <Search size={44} strokeWidth={1.5} style={{ color: 'var(--text-tertiary)', marginBottom: '14px' }} />
-          <h4 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: 600 }}>未在精选收录库中找到匹配软件</h4>
+          <h4 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: 600 }}>当前设备筛选下暂无收录应用</h4>
           <p style={{ color: 'var(--text-secondary)', fontSize: '14px', maxWidth: '540px', lineHeight: '1.6', margin: '0 auto 16px auto' }}>
-            Z-Store 支持强大的<strong>全网开源生态直连</strong>。您可以直接在顶部搜索栏输入 GitHub 仓库全名（例如 <code>owner/repo</code>），系统将实时穿透解析其最新 Releases 产物供您一键安装！
+            侧栏「设备平台」中所选设备组合没有命中任何收录应用。放宽勾选项，或一键恢复全部设备后即可继续浏览精选。
           </p>
           <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
-            <span className="modal-tag">示例: obsproject/obs-studio</span>
-            <span className="modal-tag">示例: localsend/localsend</span>
+            <button
+              type="button"
+              className="btn-fluent btn-primary filter-empty-reset"
+              onClick={() => {
+                if (onResetPlatformFilter) {
+                  onResetPlatformFilter();
+                } else {
+                  broadcastPlatformReset();
+                }
+              }}
+            >
+              重置设备筛选
+            </button>
           </div>
         </div>
       </div>
     );
   }
 
+  // `apps` arrives pre-filtered: hero prefers rustdesk but only within the
+  // set — when rustdesk was filtered out, the first remaining app takes over.
   const heroApp = apps.find((a) => a.id === 'rustdesk') || apps[0];
   // 排除已在官方置顶推荐（Hero Banner）中展示的应用，避免在下方精选列表中重复推荐
   const nonHeroApps = heroApp ? apps.filter((a) => a.id !== heroApp.id) : apps;
