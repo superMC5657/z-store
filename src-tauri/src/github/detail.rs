@@ -51,21 +51,61 @@ impl CatalogService {
             "https://api.github.com/repos/{}/{}/releases/latest",
             owner, repo
         );
+        let repo_url = format!("https://api.github.com/repos/{}/{}", owner, repo);
         let req_id = crate::z_log::new_req_id();
         let sid = crate::z_log::new_session_id();
         let release_host = crate::log_support::host_of(&release_url);
         let safe_release = crate::log_support::sanitize_url(&release_url);
+        // 首屏快速路径 (1)：release ∥ repo 并发发射。repo 仅需 owner/repo，
+        // 与 release 响应无任何依赖，故两个原始请求同时在途，重叠 TLS 握手与首字节等待。
+        // ETag/401/限流语义保持不变（ETag 仍只挂 release，repo 照例剥离 IF_NONE_MATCH）。
+        let mut repo_headers_raw = headers.clone();
+        repo_headers_raw.remove(IF_NONE_MATCH);
+        let repo_url_raw = repo_url.clone();
         log::debug!("http get release id={} sid={} req={} url='{}'", id, sid, req_id, safe_release);
+        log::debug!("http get repo id={} sid={} req={} url='{}'", id, sid, req_id, crate::log_support::sanitize_url(&repo_url_raw));
         let start_rel = std::time::Instant::now();
-        let req = client.get(&release_url).headers(headers.clone()).send();
-        let resp = match tokio::time::timeout(api_timeout, req).await {
-            Ok(r) => r.ok(),
-            Err(_) => None,
-        };
+        let (resp, repo_raw) = tokio::join!(
+            async {
+                let req = client.get(&release_url).headers(headers.clone()).send();
+                match tokio::time::timeout(api_timeout, req).await {
+                    Ok(r) => r.ok(),
+                    Err(_) => None,
+                }
+            },
+            async {
+                let req = client.get(&repo_url_raw).headers(repo_headers_raw).send();
+                match tokio::time::timeout(api_timeout, req).await {
+                    Ok(r) => r.ok(),
+                    Err(_) => None,
+                }
+            }
+        );
         let rel_elapsed = start_rel.elapsed().as_millis();
         let rel_status = resp.as_ref().map(|r| r.status().as_u16()).unwrap_or(0);
         log::debug!("http resp release id={} sid={} req={} url='{}' status={} elapsed_ms={}", id, sid, req_id, safe_release, rel_status, rel_elapsed);
         log::info!("http resp release id={} sid={} req={} host={} status={} elapsed_ms={}", id, sid, req_id, release_host, rel_status, rel_elapsed);
+        // repo 原始响应的 401/限流处理与日志（与原 repo_task 内逻辑一致，仅提前到与 release 同批返回后处理）。
+        let repo_info: Option<GitHubRepoResponse> = match repo_raw {
+            Some(res) => {
+                crate::notify_rate_limit("github.com", res.headers());
+                if res.status() == reqwest::StatusCode::UNAUTHORIZED {
+                    crate::notify_auth_expired();
+                }
+                let status = res.status().as_u16();
+                log::debug!("http resp repo id={} sid={} req={} url='{}' status={} elapsed_ms={}", id, sid, req_id, crate::log_support::sanitize_url(&repo_url), status, start_rel.elapsed().as_millis());
+                log::info!("http resp repo id={} sid={} req={} host={} status={} elapsed_ms={}", id, sid, req_id, crate::log_support::host_of(&repo_url), status, start_rel.elapsed().as_millis());
+                if res.status().is_success() {
+                    res.json::<GitHubRepoResponse>().await.ok()
+                } else {
+                    None
+                }
+            }
+            None => {
+                log::warn!("http resp repo failed id={} sid={} req={} host={} elapsed_ms={}", id, sid, req_id, crate::log_support::host_of(&repo_url), start_rel.elapsed().as_millis());
+                None
+            }
+        };
 
         let is_auth_unauthorized = resp.as_ref().map(|r| r.status() == reqwest::StatusCode::UNAUTHORIZED).unwrap_or(false);
         if is_auth_unauthorized {
@@ -164,10 +204,8 @@ impl CatalogService {
             .unwrap_or(false);
         let cached_readme = cached_detail.as_ref().map(|c| c.readme_markdown.clone());
 
-        // 异步并发执行：提取校验和字典、获取 README Markdown、以及拉取实时仓库状态 (Stars/Forks/License)
-        let checksum_task =
-            Self::extract_checksums_map(&release_resp.assets, client, &headers, id, &sid, &req_id);
-
+        // 首屏快速路径 (2)：checksum 不再参与网络 join（lazy 到 detail 成形之后，
+        // 以 3s 硬超时 opportunistic 填充）；此处仅准备 readme 请求。
         let readme_url = format!("https://api.github.com/repos/{}/{}/readme", owner, repo);
         let mut readme_headers = headers.clone();
         readme_headers.remove(IF_NONE_MATCH);
@@ -213,41 +251,9 @@ impl CatalogService {
             }
         };
 
-        let repo_url = format!("https://api.github.com/repos/{}/{}", owner, repo);
-        let mut repo_headers = headers.clone();
-        repo_headers.remove(IF_NONE_MATCH);
-        // 显式克隆 sid/req/id 供 async 块内日志使用（不碰 thread-local，不改并发）。
-        let repo_id = id.to_string();
-        let repo_sid = sid.clone();
-        let repo_req = req_id.clone();
-        let repo_task = async {
-            log::debug!("http get repo id={} sid={} req={} url='{}'", repo_id, repo_sid, repo_req, crate::log_support::sanitize_url(&repo_url));
-            let start_repo = std::time::Instant::now();
-            let req = client.get(&repo_url).headers(repo_headers).send();
-            match tokio::time::timeout(api_timeout, req).await {
-                Ok(Ok(res)) => {
-                    crate::notify_rate_limit("github.com", res.headers());
-                    if res.status() == reqwest::StatusCode::UNAUTHORIZED {
-                        crate::notify_auth_expired();
-                    }
-                    let status = res.status().as_u16();
-                    log::debug!("http resp repo id={} sid={} req={} url='{}' status={} elapsed_ms={}", repo_id, repo_sid, repo_req, crate::log_support::sanitize_url(&repo_url), status, start_repo.elapsed().as_millis());
-                    log::info!("http resp repo id={} sid={} req={} host={} status={} elapsed_ms={}", repo_id, repo_sid, repo_req, crate::log_support::host_of(&repo_url), status, start_repo.elapsed().as_millis());
-                    if res.status().is_success() {
-                        res.json::<GitHubRepoResponse>().await.ok()
-                    } else {
-                        None
-                    }
-                }
-                _ => {
-                    log::warn!("http resp repo failed id={} sid={} req={} host={} elapsed_ms={}", repo_id, repo_sid, repo_req, crate::log_support::host_of(&repo_url), start_repo.elapsed().as_millis());
-                    None
-                }
-            }
-        };
-
-        let (checksums, raw_readme, repo_info) =
-            tokio::join!(checksum_task, readme_task, repo_task);
+        // 首屏快速路径 (2 续)：repo 已在上游与 release 并发取得（见本函数首部），
+        // 此处 join 仅 await readme；checksum 不阻塞首屏。
+        let raw_readme = readme_task.await;
 
         let latest_stars = repo_info
             .as_ref()
@@ -321,6 +327,42 @@ impl CatalogService {
             readme_markdown.chars().count(),
             start_readme_process.elapsed().as_millis()
         );
+
+        // 首屏快速路径 (3)：checksum lazy 填充（opportunistic integrity only）。
+        // 信任模型：checksum 仅为 opportunistic 完整性参考（条目常为 Linux-only 单文件），
+        // 安全根是 Authenticode 指纹；故 skip/timeout 均安全，直接以 sha256=None 落库。
+        // Negative cache：调用方（commands/catalog.rs save 路径）将本 detail 整体落库，
+        // 全空 sha256 + 新鲜 cached_at 即为 marker；下次 cache=miss 若版本未变且 24h 内，
+        // 直接命中 negative 而跳过本 fetch（见下 negative_hit 分支），不再为 Linux-only 小文件阻塞 join。
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        let negative_hit = !version_changed
+            && cached_detail
+                .as_ref()
+                .map(|c| {
+                    let fresh = c
+                        .cached_at
+                        .map(|t| now_secs - t < 24 * 3600)
+                        .unwrap_or(false);
+                    fresh
+                        && !c.releases.is_empty()
+                        && c.releases.iter().all(|r| r.sha256.is_none())
+                })
+                .unwrap_or(false);
+        let checksums = if negative_hit {
+            log::debug!(
+                "checksum skip id={} sid={} req={} reason=negative_cache_hit_24h",
+                id,
+                sid,
+                req_id
+            );
+            HashMap::new()
+        } else {
+            Self::extract_checksums_map(&release_resp.assets, client, &headers, id, &sid, &req_id)
+                .await
+        };
 
         let mut releases = Vec::new();
         for asset in release_resp.assets {
@@ -429,17 +471,35 @@ impl CatalogService {
             assets.len()
         );
         let mut map = HashMap::new();
-        let checksum_asset = assets.iter().find(|a| {
+        // 平台过滤：仅当 checksum 文件名暗示 Windows 相关（msi/exe/zip/setup/portable/win）
+        // 或为通用文件（checksum/sha256 命名且不带 linux/mac/dmg/appimage/deb/rpm/aarch64 等）
+        // 时才发起请求；Linux-aarch64-only 文件直接跳过，不产生任何网络请求。
+        let mut first_ineligible: Option<(String, &'static str)> = None;
+        let mut candidate: Option<&GitHubAssetResponse> = None;
+        for a in assets {
             let n = a.name.to_lowercase();
-            n.contains("checksum") || n.contains("sha256") || n.ends_with(".sha256")
-        });
+            if !(n.contains("checksum") || n.contains("sha256") || n.ends_with(".sha256")) {
+                continue;
+            }
+            let (eligible, reason) = Self::checksum_asset_platform_eligible(&n);
+            if eligible {
+                candidate = Some(a);
+                break;
+            } else if first_ineligible.is_none() {
+                first_ineligible = Some((a.name.clone(), reason));
+            }
+        }
 
-        let Some(asset) = checksum_asset else {
+        let Some(asset) = candidate else {
+            let reason = first_ineligible
+                .map(|(f, r)| format!("platform_filtered file='{}' hint={}", f, r))
+                .unwrap_or_else(|| "no_checksum_asset".to_string());
             log::debug!(
-                "checksum skip id={} sid={} req={} reason=no_checksum_asset assets={} elapsed_ms={}",
+                "checksum skip id={} sid={} req={} reason={} assets={} elapsed_ms={}",
                 app_id,
                 sid,
                 req_id,
+                reason,
                 assets.len(),
                 start.elapsed().as_millis()
             );
@@ -448,41 +508,57 @@ impl CatalogService {
         // 仅记文件名 + 字节数 + 脱敏 URL/host，永不记 body/hash 值。
         let file_name = asset.name.clone();
         let file_bytes = asset.size;
+        // 镜像改写（等价 MirrorManager::rewrite_download_url 语义）：CatalogService 够不到
+        // AppState 中的 MirrorManager，故用 gh-proxy 前缀兜底加速 GitHub 官方小文件。
+        let (effective_url, is_mirror) =
+            Self::rewrite_checksum_url_with_fallback(&asset.browser_download_url);
         let safe_url = crate::log_support::sanitize_url(&asset.browser_download_url);
-        let host = crate::log_support::host_of(&asset.browser_download_url);
+        let safe_effective = crate::log_support::sanitize_url(&effective_url);
+        let host = crate::log_support::host_of(&effective_url);
         log::debug!(
-            "checksum fetch start id={} sid={} req={} file='{}' bytes={} url='{}'",
+            "checksum fetch start id={} sid={} req={} file='{}' bytes={} url='{}' effective='{}' mirror={}",
             app_id,
             sid,
             req_id,
             file_name,
             file_bytes,
-            safe_url
+            safe_url,
+            safe_effective,
+            is_mirror
         );
-        let api_timeout = std::time::Duration::from_secs(
-            crate::config::get_project_config().network.api_timeout_seconds,
-        );
-        let req = client
-            .get(&asset.browser_download_url)
+        // 3s 硬超时：checksum 为 opportunistic 填充，绝不允许 10s 级阻塞首屏。
+        let checksum_timeout = std::time::Duration::from_secs(3);
+        let send_fut = client
+            .get(&effective_url)
             .headers(headers.clone())
             .send();
-        let fetch_res = tokio::time::timeout(api_timeout, req).await;
-        let Ok(Ok(res)) = fetch_res else {
-            let reason = match fetch_res {
-                Ok(Err(e)) => crate::log_support::short_reason(&e.to_string()),
-                _ => "timeout_or_send_failed".to_string(),
-            };
-            log::debug!(
-                "checksum fail id={} sid={} req={} file='{}' host={} reason={} elapsed_ms={}",
-                app_id,
-                sid,
-                req_id,
-                file_name,
-                host,
-                reason,
-                start.elapsed().as_millis()
-            );
-            return map;
+        let res = match tokio::time::timeout(checksum_timeout, send_fut).await {
+            Ok(Ok(r)) => r,
+            Ok(Err(e)) => {
+                log::debug!(
+                    "checksum fail id={} sid={} req={} file='{}' host={} reason={} elapsed_ms={}",
+                    app_id,
+                    sid,
+                    req_id,
+                    file_name,
+                    host,
+                    crate::log_support::short_reason(&e.to_string()),
+                    start.elapsed().as_millis()
+                );
+                return map;
+            }
+            Err(_) => {
+                log::debug!(
+                    "checksum fail id={} sid={} req={} file='{}' host={} reason=checksum_timeout_3s elapsed_ms={}",
+                    app_id,
+                    sid,
+                    req_id,
+                    file_name,
+                    host,
+                    start.elapsed().as_millis()
+                );
+                return map;
+            }
         };
         let status = res.status().as_u16();
         if !res.status().is_success() {
@@ -498,17 +574,20 @@ impl CatalogService {
             );
             return map;
         }
-        let Ok(text) = res.text().await else {
-            log::debug!(
-                "checksum fail id={} sid={} req={} file='{}' host={} reason=read_body_failed elapsed_ms={}",
-                app_id,
-                sid,
-                req_id,
-                file_name,
-                host,
-                start.elapsed().as_millis()
-            );
-            return map;
+        let text = match tokio::time::timeout(checksum_timeout, res.text()).await {
+            Ok(Ok(t)) => t,
+            _ => {
+                log::debug!(
+                    "checksum fail id={} sid={} req={} file='{}' host={} reason=read_body_failed_or_timeout elapsed_ms={}",
+                    app_id,
+                    sid,
+                    req_id,
+                    file_name,
+                    host,
+                    start.elapsed().as_millis()
+                );
+                return map;
+            }
         };
         for line in text.lines() {
             let parts: Vec<&str> = line.split_whitespace().collect();
@@ -531,5 +610,79 @@ impl CatalogService {
             start.elapsed().as_millis()
         );
         map
+    }
+
+    /// checksum 文件名平台相关性判定（入参须为小写文件名）。
+    /// Windows 相关（msi/exe/zip/setup/portable/win）或通用命名时返回 true；
+    /// 携带 linux/mac/dmg/appimage/deb/rpm/aarch64/arm64/darwin 任一 hint 时返回 false 及命中的 hint。
+    fn checksum_asset_platform_eligible(lower_name: &str) -> (bool, &'static str) {
+        const WIN_HINTS: &[&str] = &["msi", "exe", "zip", "setup", "portable", "win"];
+        if WIN_HINTS.iter().any(|h| lower_name.contains(*h)) {
+            return (true, "windows_relevant");
+        }
+        const NON_WIN_HINTS: &[&str] = &[
+            "linux", "mac", "dmg", "appimage", "deb", "rpm", "aarch64", "arm64", "darwin",
+        ];
+        for hint in NON_WIN_HINTS {
+            if lower_name.contains(*hint) {
+                return (false, hint);
+            }
+        }
+        (true, "generic")
+    }
+
+    /// checksum 下载地址镜像改写（`MirrorManager::rewrite_download_url` 的无状态等价实现）。
+    /// `CatalogService` 够不到 `AppState` 中的 `MirrorManager`，故对 GitHub 官方小文件
+    /// 直接套用 `gh-proxy` 前缀兜底；非 GitHub 域保持直连。
+    fn rewrite_checksum_url_with_fallback(raw_url: &str) -> (String, bool) {
+        let is_github_url = raw_url.contains("github.com")
+            || raw_url.contains("githubusercontent.com")
+            || raw_url.contains("github-releases");
+        if !is_github_url {
+            return (raw_url.to_string(), false);
+        }
+        const FALLBACK_PROXY: &str = "https://gh-proxy.com";
+        if raw_url.starts_with(FALLBACK_PROXY) {
+            return (raw_url.to_string(), false);
+        }
+        (format!("{}/{}", FALLBACK_PROXY, raw_url), true)
+    }
+}
+
+#[cfg(test)]
+mod detail_fast_path_tests {
+    use super::CatalogService;
+
+    #[test]
+    fn test_checksum_platform_filter_skips_linux_aarch64_only() {
+        // FreeCAD 案：Linux-aarch64-only 的 checksum 文件必须跳过，不产生请求。
+        let (ok, _) =
+            CatalogService::checksum_asset_platform_eligible("freecad-linux-aarch64.sha256");
+        assert!(!ok);
+        let (ok, _) =
+            CatalogService::checksum_asset_platform_eligible("app-1.0-linux.tar.gz.sha256");
+        assert!(!ok);
+        // Windows 相关与通用命名允许请求。
+        let (ok, reason) =
+            CatalogService::checksum_asset_platform_eligible("rustdesk-1.2.6-windows-msi.sha256");
+        assert!(ok, "{}", reason);
+        let (ok, reason) =
+            CatalogService::checksum_asset_platform_eligible("checksums-sha256.txt");
+        assert!(ok, "{}", reason);
+        let (ok, _) = CatalogService::checksum_asset_platform_eligible("SHA256SUMS");
+        assert!(ok);
+    }
+
+    #[test]
+    fn test_checksum_mirror_fallback_rewrites_github_only() {
+        let raw = "https://github.com/o/r/releases/download/v1/f.sha256";
+        let (effective, mirror) = CatalogService::rewrite_checksum_url_with_fallback(raw);
+        assert!(mirror);
+        assert!(effective.starts_with("https://gh-proxy.com/https://github.com"));
+        // 非 GitHub 域保持直连。
+        let cb = "https://codeberg.org/attachments/f.sha256";
+        let (effective, mirror) = CatalogService::rewrite_checksum_url_with_fallback(cb);
+        assert!(!mirror);
+        assert_eq!(effective, cb);
     }
 }
