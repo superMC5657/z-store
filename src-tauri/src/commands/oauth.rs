@@ -140,13 +140,29 @@ pub async fn oauth_device_poll(
 pub async fn get_oauth_user(
     state: State<'_, AppState>,
 ) -> Result<Option<crate::oauth::OAuthUser>, String> {
-    let stored: Option<crate::oauth::OAuthUser> = state
+    let raw_stored: Option<String> = state
         .db
         .lock()
         .ok()
         .and_then(|db| db.get_setting(crate::oauth::SETTING_OAUTH_USER).ok().flatten())
-        .filter(|s| !s.trim().is_empty())
-        .and_then(|json| serde_json::from_str::<crate::oauth::OAuthUser>(&json).ok());
+        .filter(|s| !s.trim().is_empty());
+    let stored: Option<crate::oauth::OAuthUser> = match raw_stored {
+        Some(json) => match serde_json::from_str::<crate::oauth::OAuthUser>(&json) {
+            Ok(u) => Some(u),
+            Err(e) => {
+                // 旧持久化缺字段无法解析：视为过期快照，清理后提示需重新登录。
+                log::warn!(
+                    "oauth user snapshot invalid reason={} action=clear-and-relogin",
+                    crate::log_support::short_reason(&e.to_string())
+                );
+                if let Ok(db) = state.db.lock() {
+                    let _ = db.remove_setting(crate::oauth::SETTING_OAUTH_USER);
+                }
+                None
+            }
+        },
+        None => None,
+    };
     if let Some(ref u) = stored {
         if u.is_expired {
             return Ok(stored);
@@ -220,7 +236,8 @@ pub async fn oauth_logout(state: State<'_, AppState>) -> Result<bool, String> {
 
 /// ADR-0010：GitHub Star 仅面向 owner/repo 形态的 canonical 应用标识
 fn split_github_repo_id(app_id: &str) -> Result<(String, String), String> {
-    let id = crate::forge::canonical_app_id(app_id);
+    let id = crate::forge::canonical_app_id(app_id)
+        .ok_or_else(|| format!("GitHub Star 仅支持 owner/repo 仓库坐标: {}", app_id))?;
     let (owner, repo) = id
         .split_once('/')
         .ok_or_else(|| format!("GitHub Star 仅支持 owner/repo 仓库坐标: {}", app_id))?;

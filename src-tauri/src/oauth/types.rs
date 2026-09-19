@@ -105,9 +105,7 @@ pub fn classify_device_poll(body: &str) -> DevicePollOutcome {
 pub struct OAuthUser {
     pub login: String,
     pub avatar_url: String,
-    #[serde(default)]
     pub has_list_scope: bool,
-    #[serde(default)]
     pub is_expired: bool,
 }
 

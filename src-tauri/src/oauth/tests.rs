@@ -145,15 +145,15 @@ fn test_starred_api_url() {
 }
 
 #[test]
-fn test_oauth_user_expired_serialization_compat() {
-    // 兼容历史老版本未持久化 is_expired 的数据，反序列化默认为 false
+fn test_oauth_user_requires_all_fields() {
+    // 缺字段的旧持久化数据必须解析失败，调用方将其视为“需重新登录”。
     let legacy_json = r#"{"login":"superMC5657","avatar_url":"https://github.com/superMC5657.png","has_list_scope":true}"#;
-    let user: OAuthUser = serde_json::from_str(legacy_json).expect("should deserialize legacy json");
-    assert_eq!(user.login, "superMC5657");
-    assert!(!user.is_expired);
+    assert!(serde_json::from_str::<OAuthUser>(legacy_json).is_err());
 
-    // 带有 is_expired 为 true 的场景
-    let expired_json = r#"{"login":"superMC5657","avatar_url":"https://github.com/superMC5657.png","has_list_scope":true,"is_expired":true}"#;
-    let expired_user: OAuthUser = serde_json::from_str(expired_json).expect("should deserialize expired json");
-    assert!(expired_user.is_expired);
+    // 完整字段正常解析
+    let full_json = r#"{"login":"superMC5657","avatar_url":"https://github.com/superMC5657.png","has_list_scope":true,"is_expired":true}"#;
+    let user: OAuthUser = serde_json::from_str(full_json).expect("should deserialize full json");
+    assert_eq!(user.login, "superMC5657");
+    assert!(user.has_list_scope);
+    assert!(user.is_expired);
 }
