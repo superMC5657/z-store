@@ -47,7 +47,10 @@ impl ForgeProvider for GitLabProvider {
         );
         let url = format!("https://{}/api/v4/projects/{}", host, encoded_path);
         let safe_url = crate::log_support::sanitize_url(&url);
-        log::debug!("http get forge url='{}'", safe_url);
+        let req_id = crate::z_log::new_req_id();
+        let sid = crate::z_log::new_session_id();
+        let req_host = crate::log_support::host_of(&url);
+        log::debug!("http get forge id={}/{} sid={} req={} url='{}'", owner, repo, sid, req_id, safe_url);
         let start = std::time::Instant::now();
         let resp = client
             .get(&url)
@@ -55,10 +58,11 @@ impl ForgeProvider for GitLabProvider {
             .send()
             .await
             .map_err(|e| {
-                log::warn!("http get forge failed url='{}' reason={}", safe_url, crate::log_support::short_reason(&e.to_string()));
+                log::warn!("http get forge failed id={}/{} sid={} req={} host={} reason={}", owner, repo, sid, req_id, req_host, crate::log_support::short_reason(&e.to_string()));
                 e.to_string()
             })?;
-        log::debug!("http resp forge url='{}' status={} elapsed_ms={}", safe_url, resp.status().as_u16(), start.elapsed().as_millis());
+        log::debug!("http resp forge id={}/{} sid={} req={} url='{}' status={} elapsed_ms={}", owner, repo, sid, req_id, safe_url, resp.status().as_u16(), start.elapsed().as_millis());
+        log::info!("http resp forge id={}/{} sid={} req={} host={} status={} elapsed_ms={}", owner, repo, sid, req_id, req_host, resp.status().as_u16(), start.elapsed().as_millis());
 
         if !resp.status().is_success() {
             return Err(format!("GitLab API 响应失败: HTTP {}", resp.status()));
@@ -142,7 +146,10 @@ impl ForgeProvider for GitLabProvider {
         );
 
         let safe_latest = crate::log_support::sanitize_url(&latest_url);
-        log::debug!("http get forge release url='{}'", safe_latest);
+        let req_id = crate::z_log::new_req_id();
+        let sid = crate::z_log::new_session_id();
+        let req_host = crate::log_support::host_of(&latest_url);
+        log::debug!("http get forge release id={}/{} sid={} req={} url='{}'", owner, repo, sid, req_id, safe_latest);
         let start = std::time::Instant::now();
         let resp = client
             .get(&latest_url)
@@ -150,10 +157,11 @@ impl ForgeProvider for GitLabProvider {
             .send()
             .await
             .map_err(|e| {
-                log::warn!("http get forge release failed url='{}' reason={}", safe_latest, crate::log_support::short_reason(&e.to_string()));
+                log::warn!("http get forge release failed id={}/{} sid={} req={} host={} reason={}", owner, repo, sid, req_id, req_host, crate::log_support::short_reason(&e.to_string()));
                 e.to_string()
             })?;
-        log::debug!("http resp forge release url='{}' status={} elapsed_ms={}", safe_latest, resp.status().as_u16(), start.elapsed().as_millis());
+        log::debug!("http resp forge release id={}/{} sid={} req={} url='{}' status={} elapsed_ms={}", owner, repo, sid, req_id, safe_latest, resp.status().as_u16(), start.elapsed().as_millis());
+        log::info!("http resp forge release id={}/{} sid={} req={} host={} status={} elapsed_ms={}", owner, repo, sid, req_id, req_host, resp.status().as_u16(), start.elapsed().as_millis());
 
         let release: GitLabReleasePayload = if resp.status().is_success() {
             resp.json().await.map_err(|e| e.to_string())?
@@ -165,17 +173,19 @@ impl ForgeProvider for GitLabProvider {
             );
             let safe_list = crate::log_support::sanitize_url(&list_url);
             let start_list = std::time::Instant::now();
+            log::debug!("http get forge release fallback id={}/{} sid={} req={} url='{}'", owner, repo, sid, req_id, safe_list);
             let list_resp = client
                 .get(&list_url)
                 .headers(headers)
                 .send()
                 .await
                 .map_err(|e| {
-                    log::warn!("http get forge release fallback failed url='{}' reason={}", safe_list, crate::log_support::short_reason(&e.to_string()));
+                    log::warn!("http get forge release fallback failed id={}/{} sid={} req={} host={} reason={}", owner, repo, sid, req_id, req_host, crate::log_support::short_reason(&e.to_string()));
                     e.to_string()
                 })?;
             // fallback 出入口合一：单条 debug 记列表回退结果。
-            log::debug!("http forge release fallback url='{}' status={} elapsed_ms={}", safe_list, list_resp.status().as_u16(), start_list.elapsed().as_millis());
+            log::debug!("http forge release fallback id={}/{} sid={} req={} url='{}' status={} elapsed_ms={}", owner, repo, sid, req_id, safe_list, list_resp.status().as_u16(), start_list.elapsed().as_millis());
+            log::info!("http resp forge release fallback id={}/{} sid={} req={} host={} status={} elapsed_ms={}", owner, repo, sid, req_id, req_host, list_resp.status().as_u16(), start_list.elapsed().as_millis());
             if !list_resp.status().is_success() {
                 return Err(format!(
                     "获取 GitLab Release 失败: HTTP {}",
@@ -258,12 +268,22 @@ impl ForgeProvider for GitLabProvider {
             "https://{}/api/v4/projects?search={}&per_page={}",
             host, encoded_q, page_size
         );
+        let req_id = crate::z_log::new_req_id();
+        let sid = crate::z_log::new_session_id();
+        let req_host = crate::log_support::host_of(&url);
+        log::debug!("http get forge search sid={} req={} url='{}'", sid, req_id, crate::log_support::sanitize_url(&url));
+        let start = std::time::Instant::now();
         let resp = client
             .get(&url)
             .headers(headers)
             .send()
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                log::warn!("http get forge search failed sid={} req={} host={} reason={}", sid, req_id, req_host, crate::log_support::short_reason(&e.to_string()));
+                e.to_string()
+            })?;
+        log::debug!("http resp forge search sid={} req={} url='{}' status={} elapsed_ms={}", sid, req_id, crate::log_support::sanitize_url(&url), resp.status().as_u16(), start.elapsed().as_millis());
+        log::info!("http resp forge search sid={} req={} host={} status={} elapsed_ms={}", sid, req_id, req_host, resp.status().as_u16(), start.elapsed().as_millis());
 
         if !resp.status().is_success() {
             return Err(format!("GitLab 搜索失败: HTTP {}", resp.status()));
