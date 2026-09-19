@@ -24,14 +24,7 @@ import { sanitizeHtml } from '../utils/sanitize';
 import { notifyToast } from '../utils/notify';
 import { formatBytes } from '../utils/appHelper';
 import { PlatformIcon, ForgeIcon } from './icons/PlatformIcons';
-
-const PLATFORM_META: Record<string, { label: string }> = {
-  windows: { label: 'Windows' },
-  android: { label: 'Android' },
-  macos: { label: 'macOS' },
-  linux: { label: 'Linux' },
-  ios: { label: 'iOS' },
-};
+import { PLATFORM_META, type PlatformId } from '../lib/platformFilter';
 
 interface AppDetailModalProps {
   app: AppDetailViewModel;
@@ -664,14 +657,14 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                 <span
                   className="modal-tag"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                  title={`支持设备: ${app.platforms.map((p) => PLATFORM_META[p.toLowerCase()]?.label || p).join(', ')}`}
+                  title={`支持设备: ${app.platforms.map((p) => PLATFORM_META[p.toLowerCase() as PlatformId]?.label || p).join(', ')}`}
                 >
                   <Monitor size={12} />
                   <span>支持端:</span>
                   {app.platforms.map((p) => (
                     <span key={p} style={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
                       <PlatformIcon platform={p} size={11} />
-                      <span>{PLATFORM_META[p.toLowerCase()]?.label || p}</span>
+                      <span>{PLATFORM_META[p.toLowerCase() as PlatformId]?.label || p}</span>
                     </span>
                   ))}
                 </span>
@@ -1170,32 +1163,6 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               })}
             </div>
           )}
-
-          {/* Trust Box */}
-          <div className="trust-box">
-            <div className="trust-row">
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                <ShieldCheck size={13} />
-                <span>供应链防篡改机制</span>
-              </span>
-              <span className="trust-hash">
-                {app.isLoading && !primaryAsset?.sha256
-                  ? '官方动态流式校验 (准备中...)'
-                  : primaryAsset?.sha256
-                  ? `SHA-256: ${primaryAsset.sha256.slice(0, 20)}...`
-                  : '官方动态流式校验'}
-              </span>
-            </div>
-            <div className="trust-row">
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                <KeyRound size={13} />
-                <span>开发者认证指纹</span>
-              </span>
-              <span className="trust-hash">
-                {'GitHub Release Verified'}
-              </span>
-            </div>
-          </div>
 
           {/* FR-8.3: 开发者所有权认领认证（默认收起为低调链接，仅开发者展开使用） */}
           {!app.is_verified && (
