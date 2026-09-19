@@ -1,7 +1,22 @@
 use crate::models::DevicePollResult;
 use crate::AppState;
 use super::{resolve_oauth_client_id_from_db, resolve_write_token};
+use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::State;
+
+/// Wave2：登录/登出 INFO 去重窗口（毫秒）。StrictMode 双调用与重复点击只产生一行 INFO，
+/// 窗口内重复调用降级为 debug，行为本身（落盘 token / 清理）不受影响。
+static LAST_LOGIN_INFO_MS: AtomicU64 = AtomicU64::new(0);
+static LAST_LOGOUT_INFO_MS: AtomicU64 = AtomicU64::new(0);
+const LOGIN_DEDUP_WINDOW_MS: u64 = 5000;
+const LOGOUT_DEDUP_WINDOW_MS: u64 = 2000;
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
 
 #[tauri::command]
 pub fn set_github_token(state: State<'_, AppState>, token: String) -> Result<bool, String> {
@@ -63,10 +78,16 @@ pub async fn oauth_device_poll(
             let clean_token = access_token.trim().to_string();
             let user = crate::oauth::fetch_oauth_user(&clean_token).await.ok();
             // 登录成功：只记 GitHub login 用户名，不记 token/device_code/user_code。
-            if let Some(ref u) = user {
-                log::info!("oauth login ok user={}", u.login);
+            // Wave2：幂等去重 + sid 关联，窗口内重复授权只记一行 INFO。
+            let sid = crate::z_log::new_session_id();
+            let now = now_ms();
+            let last = LAST_LOGIN_INFO_MS.swap(now, Ordering::SeqCst);
+            if now.saturating_sub(last) < LOGIN_DEDUP_WINDOW_MS {
+                log::debug!("oauth login skipped reason=duplicate sid={}", sid);
+            } else if let Some(ref u) = user {
+                log::info!("oauth login ok sid={} user={}", sid, u.login);
             } else {
-                log::info!("oauth login ok");
+                log::info!("oauth login ok sid={}", sid);
             }
             if let Ok(db) = state.db.lock() {
                 let _ = db.set_setting(crate::oauth::SETTING_OAUTH_TOKEN, &clean_token);
@@ -184,7 +205,15 @@ pub async fn oauth_logout(state: State<'_, AppState>) -> Result<bool, String> {
     if let Ok(mut t) = state.github_token.lock() {
         *t = fallback_pat.clone();
     }
-    log::info!("oauth logout ok");
+    // Wave2：登出幂等去重 + sid 关联，清理行为每次都执行，INFO 窗口内只记一行。
+    let sid = crate::z_log::new_session_id();
+    let now = now_ms();
+    let last = LAST_LOGOUT_INFO_MS.swap(now, Ordering::SeqCst);
+    if now.saturating_sub(last) < LOGOUT_DEDUP_WINDOW_MS {
+        log::debug!("oauth logout skipped reason=duplicate sid={}", sid);
+    } else {
+        log::info!("oauth logout ok sid={}", sid);
+    }
     crate::probe_github_rate_limit(fallback_pat.as_deref()).await;
     Ok(true)
 }

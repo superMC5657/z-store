@@ -118,7 +118,10 @@ pub async fn fetch_app_latest_version_lightweight(
         .unwrap_or_else(|_| reqwest::Client::new());
 
     let safe_ep = crate::log_support::sanitize_url(&ep);
-    log::debug!("http check update start id={} url='{}' etag={:?}", clean_id, safe_ep, cached_etag);
+    let req_id = crate::z_log::new_req_id();
+    let sid = crate::z_log::new_session_id();
+    let req_host = crate::log_support::host_of(&ep);
+    log::debug!("http check update start id={} sid={} req={} url='{}'", clean_id, sid, req_id, safe_ep);
     let start_upd = std::time::Instant::now();
     let req = client.get(&ep).headers(headers).send();
     let resp = match tokio::time::timeout(api_timeout, req).await {
@@ -161,7 +164,8 @@ pub async fn fetch_app_latest_version_lightweight(
                     .map(|cat| (cat.default_version, String::new()))
             })();
             if let Some((ver, body)) = resolved_304 {
-                log::debug!("http check update resp id={} url='{}' status=304 ver={} elapsed_ms={}", clean_id, safe_ep, ver, elapsed);
+                log::debug!("http check update resp id={} sid={} req={} url='{}' status=304 ver={} elapsed_ms={}", clean_id, sid, req_id, safe_ep, ver, elapsed);
+                log::info!("http resp update id={} sid={} req={} host={} status=304 ver={} elapsed_ms={}", clean_id, sid, req_id, req_host, ver, elapsed);
                 return Ok((ver, body));
             }
             Err("304 响应但未能提取到有效版本信息".to_string())
@@ -178,7 +182,8 @@ pub async fn fetch_app_latest_version_lightweight(
                 serde_json::from_str(&payload_text)
                     .map_err(|e| format!("解析 GitHub Release 失败: {}", e))?;
 
-            log::debug!("http check update resp id={} url='{}' status=200 ver={} elapsed_ms={}", clean_id, safe_ep, parsed.tag_name, elapsed);
+            log::debug!("http check update resp id={} sid={} req={} url='{}' status=200 ver={} elapsed_ms={}", clean_id, sid, req_id, safe_ep, parsed.tag_name, elapsed);
+            log::info!("http resp update id={} sid={} req={} host={} status=200 ver={} elapsed_ms={}", clean_id, sid, req_id, req_host, parsed.tag_name, elapsed);
 
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -194,7 +199,7 @@ pub async fn fetch_app_latest_version_lightweight(
             Ok((parsed.tag_name, parsed.body.unwrap_or_default()))
         }
         _ => {
-            log::warn!("http check update resp failed id={} url='{}' elapsed_ms={}", clean_id, safe_ep, elapsed);
+            log::warn!("http check update resp failed id={} sid={} req={} host={} elapsed_ms={}", clean_id, sid, req_id, req_host, elapsed);
             // 网络故障、超时或被 403 限流，优雅降级：读取本地已有缓存或 catalog
             if let Ok(db) = state.db.lock() {
                 if let Ok(Some(fallback)) = db.get_cached_app_detail_fallback(&clean_id) {
@@ -273,6 +278,8 @@ pub async fn check_for_updates(
     state: State<'_, AppState>,
     force_refresh: Option<bool>,
 ) -> Result<Vec<UpdateItem>, String> {
+    // Wave2：整轮耗时 + sid 关联，结束只记一行汇总。
+    let check_start = std::time::Instant::now();
     let installed = get_installed_apps(state.clone())?;
     let rules_map: HashMap<String, UpdateRule> = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
@@ -375,12 +382,14 @@ pub async fn check_for_updates(
     let results: Vec<Option<UpdateItem>> = check_stream.collect().await;
     let updates: Vec<UpdateItem> = results.into_iter().flatten().collect();
 
-    // 一轮一行：更新检查轮结束 info（new/failures 计数）。
+    // 一轮一行：更新检查轮结束 info（new/failures 计数 + 耗时 + sid）。
     log::info!(
-        "update check finished total={} new={} failures={}",
+        "update batch check done sid={} total={} updates={} failures={} elapsed_ms={}",
+        crate::z_log::new_session_id(),
         total,
         updates.len(),
-        failed_count.load(Ordering::SeqCst)
+        failed_count.load(Ordering::SeqCst),
+        check_start.elapsed().as_millis()
     );
 
     // 发送检查完成事件

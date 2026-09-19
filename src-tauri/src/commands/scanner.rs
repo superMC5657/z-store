@@ -6,7 +6,10 @@ use tauri::State;
 pub fn scan_and_match_local_apps(
     state: State<'_, AppState>,
 ) -> Result<Vec<crate::scanner::AppMatchResult>, String> {
-    log::info!("scanner start");
+    // Wave2：行为链 sid 关联 + 耗时，汇总行保持只记数量。
+    let sid = crate::z_log::new_session_id();
+    let scan_start = std::time::Instant::now();
+    log::info!("scanner start sid={}", sid);
     let scanned = crate::scanner::AppScanner::scan_system_apps();
     let catalog_items = state.catalog.get_catalog_items();
 
@@ -28,9 +31,11 @@ pub fn scan_and_match_local_apps(
 
     // 汇总一行 info：只记数量，不记路径/名称原文。
     log::info!(
-        "scanner done scanned={} unmanaged={}",
+        "scanner done sid={} scanned={} unmanaged={} elapsed_ms={}",
+        sid,
         scanned.len(),
-        unmanaged.len()
+        unmanaged.len(),
+        scan_start.elapsed().as_millis()
     );
 
     Ok(unmanaged)

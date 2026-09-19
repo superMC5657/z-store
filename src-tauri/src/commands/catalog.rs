@@ -7,6 +7,9 @@ pub async fn search_apps(
     state: State<'_, AppState>,
     query: String,
 ) -> Result<Vec<AppSummary>, String> {
+    // Wave2：单次 search_apps 只记一行 INFO `search done`（行为链 sid 关联）；
+    // 内层 github/search 的同名 debug 已移除，此处为唯一 `search done`。
+    let search_start = std::time::Instant::now();
     // 1. 优先检查是否为多源 (Codeberg, Gitea, 自建源) 仓库 URL 或 short syntax
     if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&query) {
         if coord.forge != crate::forge::ForgeType::GitHub {
@@ -24,6 +27,12 @@ pub async fn search_apps(
                 let latest_ver = release_res
                     .map(|r| r.tag_name)
                     .unwrap_or_else(|_| "latest".to_string());
+                log::info!(
+                    "search done sid={} query='{}' hits=1 elapsed_ms={}",
+                    crate::z_log::new_session_id(),
+                    crate::log_support::short_reason(&query),
+                    search_start.elapsed().as_millis()
+                );
                 return Ok(vec![AppSummary {
                     id: coord.to_app_id(),
                     name: repo_info.name,
@@ -62,6 +71,12 @@ pub async fn search_apps(
                 .await
             {
                 log::debug!("fetch repo ok id={}", item.id);
+                log::info!(
+                    "search done sid={} query='{}' hits=1 elapsed_ms={}",
+                    crate::z_log::new_session_id(),
+                    crate::log_support::short_reason(&query),
+                    search_start.elapsed().as_millis()
+                );
                 return Ok(vec![item]);
             }
         }
@@ -85,10 +100,12 @@ pub async fn search_apps(
         .catalog
         .search_github_online(&query, token.as_deref())
         .await?;
-    log::debug!(
-        "search done query='{}' hits={}",
+    log::info!(
+        "search done sid={} query='{}' hits={} elapsed_ms={}",
+        crate::z_log::new_session_id(),
         crate::log_support::short_reason(&query),
-        results.len()
+        results.len(),
+        search_start.elapsed().as_millis()
     );
 
     if hidden_ids.is_empty() {
