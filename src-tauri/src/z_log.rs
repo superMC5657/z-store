@@ -24,6 +24,11 @@ pub const ROTATION_KEEP_COUNT: usize = 5;
 /// - 显式配置 5MB 轮转与本地时区，避免 40KB 静默删除与时区偏差
 /// - 降低 reqwest / hyper / tao / wry 等高噪音第三方库级别为 Warn
 /// - 统一将 webview 前端长路径 target 规整为简洁的 [ui]
+///
+/// 级别策略（Wave1 契约）：INFO 只记行为摘要（结果 / 计数 / 耗时 / host），
+/// DEBUG 才记完整 URL 与细节正文；release 默认 Info，故 DEBUG 的完整 URL
+/// 默认不可见（后续任务按需提升）。调用方另用 `log_support::sanitize_url` /
+/// `host_of` / `short_reason` 先脱敏再记行。
 pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     use tauri_plugin_log::{
         Builder, RotationStrategy, Target, TargetKind, TimezoneStrategy,
@@ -43,9 +48,14 @@ pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
             };
             // 落盘前统一脱敏：禁止 token / code / body 原文落盘。
             let clean = redact(&message.to_string());
+            // 会话/请求关联前缀：未供给（空串）时整体省略，行首干净。
+            let sid = SESSION_ID.get().cloned().unwrap_or_default();
+            let req = REQ_ID.with(|c| c.borrow().clone());
+            let prefix = prefix_sid_req(&sid, &req);
             out.finish(format_args!(
-                "{}[{}][{}] {}",
+                "{}{}[{}][{}] {}",
                 now.format(&format).unwrap_or_default(),
+                prefix,
                 record.level(),
                 target,
                 clean
@@ -56,7 +66,9 @@ pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
         .level_for("tao", log::LevelFilter::Warn)
         .level_for("wry", log::LevelFilter::Warn)
         .level_for("h2", log::LevelFilter::Warn)
-        .level_for("rustls", log::LevelFilter::Warn);
+        .level_for("rustls", log::LevelFilter::Warn)
+        .level_for("tauri_plugin_updater", log::LevelFilter::Warn)
+        .level_for("tauri_plugin_log", log::LevelFilter::Warn);
 
     #[cfg(debug_assertions)]
     {
@@ -76,6 +88,74 @@ pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
             .targets([Target::new(TargetKind::LogDir { file_name: None })])
             .build()
     }
+}
+
+/// 会话 / 请求关联 ID：`sid` 进程级 `OnceLock` 生成一次全局复用；
+/// `req` 线程级短 ID，随请求设置、随行输出。
+static SESSION_ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+static REQ_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+thread_local! {
+    static REQ_ID: std::cell::RefCell<String> =
+        const { std::cell::RefCell::new(String::new()) };
+}
+
+/// 进程级会话 ID：首次调用生成并冻结，后续调用返回同一值。
+/// 与 `log_session_start` 横幅及每行 `[sid=..]` 共用。
+pub fn new_session_id() -> String {
+    SESSION_ID
+        .get_or_init(|| {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos() as u64)
+                .unwrap_or(0);
+            // 短 ID：`s` + pid(hex) + 时间低 32 位(hex)，无额外依赖。
+            format!("s{:x}{:08x}", std::process::id(), nanos & 0xffff_ffff)
+        })
+        .clone()
+}
+
+/// 当前线程请求短 ID（未设置时为空串，由 format 层省略）。
+pub fn current_req_id() -> String {
+    REQ_ID.with(|c| c.borrow().clone())
+}
+
+/// 生成并安装当前线程请求短 ID（8 位 hex），返回该 ID。
+pub fn new_req_id() -> String {
+    use std::sync::atomic::Ordering;
+    let n = REQ_SEQ.fetch_add(1, Ordering::Relaxed);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
+    let id = format!("{:04x}{:04x}", (nanos ^ n) & 0xffff, n & 0xffff);
+    REQ_ID.with(|c| *c.borrow_mut() = id.clone());
+    id
+}
+
+/// 显式设置当前线程请求 ID（为空则后续行省略 `[req=..]`）。
+pub fn set_req_id(id: &str) {
+    REQ_ID.with(|c| *c.borrow_mut() = id.to_string());
+}
+
+/// 清除当前线程请求 ID。
+pub fn clear_req_id() {
+    REQ_ID.with(|c| c.borrow_mut().clear());
+}
+
+/// 纯函数：`[sid=..][req=..]` 前缀合成，两者为空即整体省略（行首干净无多余空格）。
+fn prefix_sid_req(sid: &str, req: &str) -> String {
+    let mut p = String::new();
+    if !sid.is_empty() {
+        p.push_str("[sid=");
+        p.push_str(sid);
+        p.push(']');
+    }
+    if !req.is_empty() {
+        p.push_str("[req=");
+        p.push_str(req);
+        p.push(']');
+    }
+    p
 }
 
 /// 日志级别覆盖：`ZSTORE_LOG` 优先，`RUST_LOG` 兜底，均缺失时用编译期默认。
@@ -107,11 +187,13 @@ pub fn resolve_level(default: log::LevelFilter) -> log::LevelFilter {
     }
     default
 }
-/// 记录新会话启动横幅，明确会话生命周期边界。
+/// 记录新会话启动横幅，明确会话生命周期边界（含进程级 `sid` 便于跨行关联）。
 pub fn log_session_start() {
+    let sid = new_session_id();
     log::info!(
-        "=== Z-Store v{} started (os={} arch={} pid={}) ===",
+        "=== Z-Store v{} started sid={} (os={} arch={} pid={}) ===",
         env!("CARGO_PKG_VERSION"),
+        sid,
         std::env::consts::OS,
         std::env::consts::ARCH,
         std::process::id()
@@ -181,6 +263,9 @@ fn find_ci(hay: &str, needle: &str, from: usize) -> Option<usize> {
 
 /// 键值脱敏：`code` / `device_code` / `user_code` / `api_key` 系（大小写不敏感）。
 /// 兼容 `=` / `:` / 空格 / 引号分隔的 JSON 与 query 形态；值遇空白/引号/`,;})` 截断。
+/// 键边界：命中仅当“前一字节为起始或 `? & ; 空白 \" ' { ,`”且“后一字节为
+/// `= : 空白 \" '`”时才视为键值；路径段内子串（如 `vscode`）永不触发。
+/// 全分支 ASCII 字节判定，字符边界安全，无正则，永不 panic。
 fn redact_kv_values(s: &str) -> String {
     // 长键优先，避免 `code` 先吞掉 `device_code` 的尾部。
     const KEYS: [&str; 6] = [
@@ -191,10 +276,31 @@ fn redact_kv_values(s: &str) -> String {
         "apikey",
         "code",
     ];
+    fn is_kv_pre(b: u8) -> bool {
+        matches!(
+            b,
+            b'?' | b'&' | b';' | b' ' | b'\t' | b'"' | b'\'' | b'{' | b','
+        )
+    }
+    fn is_kv_post(b: u8) -> bool {
+        matches!(b, b'=' | b':' | b' ' | b'\t' | b'"' | b'\'')
+    }
     let mut out = s.to_string();
     for key in KEYS {
         let mut from = 0;
         while let Some(pos) = find_ci(&out, key, from) {
+            // 前边界：起始或分隔符；`vscode` 中的 `code` 前为 `s` 直接跳过。
+            // `pos` 恒为 ASCII 起始字节，`pos-1` 字节索引永不 panic、不切分宽字符。
+            if pos > 0 && !is_kv_pre(out.as_bytes()[pos - 1]) {
+                from = pos + 1;
+                continue;
+            }
+            // 后边界：键后紧跟 `= : 空白 引号` 才视为键值；路径 `/vscode/releases` 后为 `/` 跳过。
+            let after = pos + key.len();
+            if after >= out.len() || !is_kv_post(out.as_bytes()[after]) {
+                from = pos + key.len();
+                continue;
+            }
             let mut vstart = pos + key.len();
             // 跳过分隔符：空白 / 引号 / `=` / `:`（均为 ASCII，边界安全）。
             let bytes = out.as_bytes();
@@ -496,6 +602,42 @@ mod tests {
                 | log::LevelFilter::Error
                 | log::LevelFilter::Off
         ));
+    }
+
+    #[test]
+    fn test_redact_vscode_url_preserved() {
+        // 回归：`vscode` 路径段内的 `code` 子串不得触发键值脱敏。
+        let u1 = "https://api.github.com/repos/microsoft/vscode/releases/latest";
+        let out1 = redact(u1);
+        assert_eq!(out1, u1, "vscode path must stay verbatim");
+        assert!(!out1.contains("***"));
+        let u2 = "https://update.code.visualstudio.com/api/update/win32-x64/stable/latest";
+        let out2 = redact(u2);
+        assert_eq!(out2, u2, "visualstudio update path must stay verbatim");
+        assert!(!out2.contains("***"));
+        // 真正的键值仍需脱敏。
+        let out3 = redact("fetch ok code=secret123 done");
+        assert!(!out3.contains("secret123"));
+        assert!(out3.contains("***"));
+    }
+
+    #[test]
+    fn test_sid_req_prefix() {
+        // 空值整体省略，行首干净。
+        assert_eq!(prefix_sid_req("", ""), "");
+        assert_eq!(prefix_sid_req("s1", ""), "[sid=s1]");
+        assert_eq!(prefix_sid_req("", "a1"), "[req=a1]");
+        assert_eq!(prefix_sid_req("s1", "a1"), "[sid=s1][req=a1]");
+        // sid 进程级稳定，req 短 ID 非空且互异（线程级隔离天然成立）。
+        assert_eq!(new_session_id(), new_session_id());
+        let r1 = new_req_id();
+        assert_eq!(r1.len(), 8);
+        assert_eq!(current_req_id(), r1);
+        clear_req_id();
+        assert_eq!(current_req_id(), "");
+        set_req_id("q9");
+        assert_eq!(current_req_id(), "q9");
+        clear_req_id();
     }
 
     #[test]
