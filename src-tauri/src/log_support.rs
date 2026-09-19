@@ -41,9 +41,16 @@ pub fn host_of(url: &str) -> String {
 
 /// URL 脱敏与安全日志格式化：
 /// 1. 保留完整协议、Host、端口与 Path 路径（例如 `https://api.github.com/repos/7zip/7zip/releases/latest`
-///    或带镜像前缀的 `https://ghproxy.net/https://github.com/...`）；
-/// 2. 对 Query 参数进行敏感词脱敏（如 token, signature, sig, key, secret, x-amz-*, credential 等）；
-/// 3. 保留非敏感查询参数（如 `q=...`, `per_page=...`, `sort=...`），便于排查搜索与过滤请求。
+///    或带镜像前缀的 `https://gh-proxy.net/https://github.com/...`）；路径段永不动
+///    （`vscode` 内的 `code` 子串永不触发）；
+/// 2. Query 键值脱敏（query-key-only）：只看 `=` 前的键名，值含敏感词永不触发；
+///    键边界镜像 Wave1（`redact_kv_values`）：起始或前一字节为 `? & ;` 才视为键，
+///    此处按 `&` / `;` 切分并原样保留分隔形态；
+/// 3. `code` 系精确匹配（`code` / `device_code` / `user_code` / `api_key` 系），避免
+///    `vscode` 子串误杀；其余短键（`sig` / `key` / `auth` / `pass`）按分隔符分词匹配，
+///    长键（`token` / `secret` / `credential` / `signature` / `password`）子串匹配；
+/// 4. 保留非敏感查询参数（如 `q=...`, `per_page=...`, `sort=...`），便于排查搜索与过滤请求。
+/// 全分支 ASCII 字节判定，字符边界安全，永不 panic；签名稳定（调用方 20+ 处不动）。
 pub fn sanitize_url(url: &str) -> String {
     let trimmed = url.trim();
     if trimmed.is_empty() {
@@ -63,39 +70,87 @@ pub fn sanitize_url(url: &str) -> String {
     }
 
     let is_sensitive_key = |key: &str| -> bool {
-        let k = key.to_ascii_lowercase();
-        k.contains("token")
+        let k = key.trim().to_ascii_lowercase();
+        if k.is_empty() {
+            return false;
+        }
+        // 精确键（含 Wave1 六键 + 常见单键）：`vscode` 等子串宿主永不命中。
+        match k.as_str() {
+            "code" | "device_code" | "user_code" | "api_key" | "api-key" | "apikey"
+            | "token" | "secret" | "sig" | "signature" | "key" | "auth" | "credential"
+            | "pass" | "password" => return true,
+            _ => {}
+        }
+        // 长键子串：足够长，无碰撞风险。
+        if k.contains("token")
             || k.contains("secret")
-            || k.contains("sig")
-            || k.contains("key")
-            || k.contains("auth")
             || k.contains("credential")
-            || k.contains("pass")
-            || k.starts_with("x-amz-")
-            || k.starts_with("x-goog-")
-            || k.starts_with("x-ms-")
+            || k.contains("password")
+            || k.contains("signature")
+            || k.contains("apikey")
+            || k.contains("api_key")
+            || k.contains("api-key")
+            || k.contains("device_code")
+            || k.contains("user_code")
+        {
+            return true;
+        }
+        // 服务端签名头透传进 query 时：`x-amz-` / `x-goog-` / `x-ms-` 前缀。
+        if k.starts_with("x-amz-") || k.starts_with("x-goog-") || k.starts_with("x-ms-") {
+            return true;
+        }
+        // 短键收敛为分隔符分词匹配：`design` / `monkey` / `author` / `bypass` 不触发，
+        // 而 `auth-token` / `client_key` / `my_sig` 照常脱敏。
+        for part in k.split(['_', '-', '.', ':', '[', ']']) {
+            if matches!(part, "sig" | "key" | "auth" | "pass") {
+                return true;
+            }
+        }
+        false
     };
 
-    let mut sanitized_params = Vec::new();
-    for pair in query.split('&') {
-        if pair.is_empty() {
-            continue;
-        }
-        if let Some((k, _v)) = pair.split_once('=') {
-            if is_sensitive_key(k) {
-                sanitized_params.push(format!("{}=***", k));
-            } else {
-                sanitized_params.push(pair.to_string());
+    // 手工扫描：按 `&` / `;` 切分并原样保留分隔符（均为 ASCII，索引恒为字符边界）。
+    let mut out = String::with_capacity(trimmed.len());
+    out.push_str(base);
+    out.push('?');
+    let mut emitted = false;
+    let mut pending_sep: Option<char> = None;
+    let mut start = 0;
+    loop {
+        let rest = &query[start..];
+        let (seg, sep, next) = match rest.find(['&', ';']) {
+            Some(r) => (&rest[..r], rest.as_bytes()[r] as char, start + r + 1),
+            None => (rest, '\0', query.len() + 1),
+        };
+        if !seg.is_empty() {
+            if emitted {
+                out.push(pending_sep.unwrap_or('&'));
             }
-        } else if is_sensitive_key(pair) {
-            sanitized_params.push(format!("{}=***", pair));
-        } else {
-            sanitized_params.push(pair.to_string());
+            if let Some((k, _v)) = seg.split_once('=') {
+                if is_sensitive_key(k) {
+                    out.push_str(k);
+                    out.push_str("=***");
+                } else {
+                    out.push_str(seg);
+                }
+            } else if is_sensitive_key(seg) {
+                out.push_str(seg);
+                out.push_str("=***");
+            } else {
+                out.push_str(seg);
+            }
+            emitted = true;
+            pending_sep = None;
         }
+        if next > query.len() {
+            break;
+        }
+        if sep != '\0' && pending_sep.is_none() {
+            pending_sep = Some(sep);
+        }
+        start = next;
     }
-
-    let joined = sanitized_params.join("&");
-    format!("{}?{}", base, joined)
+    out
 }
 
 /// 取首行并按 chars 截断至 160（字符边界安全）。
@@ -205,5 +260,48 @@ mod tests {
             "https://gh-proxy.com/https://github.com/owner/repo/releases/download/v1.0/app.exe"
         );
         assert_eq!(sanitize_url(""), "");
+    }
+
+    #[test]
+    fn test_sanitize_url_keeps_search_params() {
+        // 搜索类非敏感参数原样保留；签名/令牌按 query-key 脱敏；gh-proxy 前缀原样保留。
+        assert_eq!(
+            sanitize_url("https://api.github.com/search/repositories?q=vscode&sort=stars&per_page=20"),
+            "https://api.github.com/search/repositories?q=vscode&sort=stars&per_page=20"
+        );
+        assert_eq!(
+            sanitize_url("https://objects.githubusercontent.com/file.msi?X-Amz-Signature=deadbeef&normal=abc"),
+            "https://objects.githubusercontent.com/file.msi?X-Amz-Signature=***&normal=abc"
+        );
+        assert_eq!(
+            sanitize_url("https://gh-proxy.com/https://github.com/owner/repo/releases/download/v1.0/app.exe"),
+            "https://gh-proxy.com/https://github.com/owner/repo/releases/download/v1.0/app.exe"
+        );
+    }
+
+    #[test]
+    fn test_sanitize_url_vscode_path_vs_code_param() {
+        // 路径段 `vscode` 永不触发；真正的 `code` 查询键必须脱敏；值含敏感词不触发。
+        assert_eq!(
+            sanitize_url("https://api.github.com/repos/microsoft/vscode/releases/latest"),
+            "https://api.github.com/repos/microsoft/vscode/releases/latest"
+        );
+        assert_eq!(
+            sanitize_url("https://github.com/microsoft/vscode/releases/download/v1.0/VSCode.exe?code=secret"),
+            "https://github.com/microsoft/vscode/releases/download/v1.0/VSCode.exe?code=***"
+        );
+        assert_eq!(
+            sanitize_url("https://example.com/vscode/update?code=secret&q=vscode&sort=stars"),
+            "https://example.com/vscode/update?code=***&q=vscode&sort=stars"
+        );
+        assert_eq!(
+            sanitize_url("https://example.com/dl?token=topsecret&sig=abc123&q=mytoken"),
+            "https://example.com/dl?token=***&sig=***&q=mytoken"
+        );
+        // Wave1 边界镜像：`;` 同为 query 分隔符，分隔形态原样保留。
+        assert_eq!(
+            sanitize_url("https://example.com/f?q=a;code=secret"),
+            "https://example.com/f?q=a;code=secret".replace("code=secret", "code=***")
+        );
     }
 }
