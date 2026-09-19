@@ -1,13 +1,15 @@
 /**
- * Platform 禁止全空 setter-guard regression (real <App/> path).
+ * Platform allow-empty regression (real <App/> path).
  *
- * The last-one guard must evaluate the latest committed selection. A prior
- * revision read `selectedPlatforms` from the render closure, so two toggles
- * dispatched in the same tick recomputed from the same stale base: the first
- * update was silently lost and the guard judged a stale snapshot (wrong
- * survivor, missing refusal toast). The guard now lives inside the
- * `setSelectedPlatforms` functional updater, so same-tick toggles apply
- * sequentially against fresh state. Sidebar stays dumb (callback-only).
+ * Empty platform selection is VALID and means empty list: the three
+ * discovery pages already render their own filter-empty states for an
+ * empty selection (matchPlatformSet matches nothing against an empty
+ * set). There is no refusal toast — unchecking the last platform
+ * commits the empty set and persists `[]`.
+ *
+ * Same-tick toggles still apply sequentially: the toggle lives inside
+ * the `setSelectedPlatforms` functional updater, so each dispatch sees
+ * the latest committed state. Sidebar stays dumb (callback-only).
  */
 // @ts-ignore - vitest is fetched transiently via npx (not a repo dep per task scope)
 import { describe, expect, it, vi, afterEach } from 'vitest';
@@ -82,8 +84,8 @@ function checkedIds(): string[] {
     .sort();
 }
 
-describe('platform no-empty setter guard (real App + Sidebar path)', () => {
-  it('sequential deselect of all 5 leaves exactly the last one checked', async () => {
+describe('platform allow-empty (real App + Sidebar path)', () => {
+  it('sequential deselect of all 5 reaches the empty set and persists []', async () => {
     render(<App />);
     expect(await screen.findAllByRole('checkbox')).toHaveLength(5);
     for (let i = 0; i < 5; i += 1) {
@@ -91,11 +93,28 @@ describe('platform no-empty setter guard (real App + Sidebar path)', () => {
       const target = current[i];
       if (target) fireEvent.click(target);
     }
-    expect(checkedIds()).toHaveLength(1);
-    expect(window.localStorage.getItem(PLATFORM_FILTER_STORAGE_KEY)).not.toBe('[]');
+    expect(checkedIds()).toEqual([]);
+    expect(window.localStorage.getItem(PLATFORM_FILTER_STORAGE_KEY)).toBe('[]');
   });
 
-  it('same-tick double toggle applies sequentially: guard sees fresh state', async () => {
+  it('rechecking from empty re-adds the platform', async () => {
+    window.localStorage.setItem(PLATFORM_FILTER_STORAGE_KEY, JSON.stringify([]));
+    render(<App />);
+    expect(await screen.findAllByRole('checkbox')).toHaveLength(5);
+    expect(checkedIds()).toEqual([]);
+    fireEvent.click(screen.getByRole('checkbox', { name: /Linux/ }));
+    expect(checkedIds()).toEqual(['linux']);
+    expect(window.localStorage.getItem(PLATFORM_FILTER_STORAGE_KEY)).toBe('["linux"]');
+  });
+
+  it('reload with stored [] restores [] (no full-set fallback)', async () => {
+    window.localStorage.setItem(PLATFORM_FILTER_STORAGE_KEY, JSON.stringify([]));
+    render(<App />);
+    expect(await screen.findAllByRole('checkbox')).toHaveLength(5);
+    expect(checkedIds()).toEqual([]);
+  });
+
+  it('same-tick double toggle applies sequentially against fresh state', async () => {
     window.localStorage.setItem(PLATFORM_FILTER_STORAGE_KEY, JSON.stringify(['windows', 'linux']));
     render(<App />);
     expect(await screen.findAllByRole('checkbox')).toHaveLength(5);
@@ -106,10 +125,21 @@ describe('platform no-empty setter guard (real App + Sidebar path)', () => {
       screen.getByRole('checkbox', { name: /Windows/ }).click();
       screen.getByRole('checkbox', { name: /Linux/ }).click();
     });
-    // {windows,linux} -windows -> {linux}; -linux on the single remainder
-    // is refused -> stays {linux}. The stale-closure revision ended at
-    // {windows} here (first removal silently lost, refusal toast skipped).
+    // {windows,linux} -windows -> {linux}; -linux -> {} (empty is valid).
+    expect(checkedIds()).toEqual([]);
+    expect(window.localStorage.getItem(PLATFORM_FILTER_STORAGE_KEY)).toBe('[]');
+  });
+
+  it('toggling off the last platform commits the empty set and the view shows the empty-filter state, not the full list', async () => {
+    window.localStorage.setItem(PLATFORM_FILTER_STORAGE_KEY, JSON.stringify(['linux']));
+    render(<App />);
+    expect(await screen.findAllByRole('checkbox')).toHaveLength(5);
     expect(checkedIds()).toEqual(['linux']);
-    expect(window.localStorage.getItem(PLATFORM_FILTER_STORAGE_KEY)).toBe('["linux"]');
+    fireEvent.click(screen.getByRole('checkbox', { name: /Linux/ }));
+    // toggle off last -> selection becomes the empty Set (empty is valid) ...
+    expect(checkedIds()).toEqual([]);
+    expect(window.localStorage.getItem(PLATFORM_FILTER_STORAGE_KEY)).toBe('[]');
+    // ... and the discovery view renders its empty-filter affordance, not the full list
+    expect(document.querySelector('.filter-empty-reset')).toBeTruthy();
   });
 });

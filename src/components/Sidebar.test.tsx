@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import React from 'react';
 import { Sidebar } from './Sidebar';
+import { parseSelectedPlatforms, togglePlatformSet } from '../lib/platformFilter';
 
 afterEach(() => {
   cleanup();
@@ -134,8 +135,7 @@ describe('Sidebar: 设备平台 multi-select group', () => {
     expect(document.activeElement).toBe(item);
   });
 
-  it('sits above the 偏好与系统 group and collapses like existing groups', () => {
-    const { container } = renderSidebar({
+  it('sits above the 偏好与系统 group and collapses like existing groups', () => {    const { container } = renderSidebar({
       selectedPlatforms: new Set(['windows']),
       onTogglePlatform: () => {},
     });
@@ -152,5 +152,45 @@ describe('Sidebar: 设备平台 multi-select group', () => {
       name: /Windows/,
     });
     expect(item.getAttribute('title')).toBe('Windows');
+  });
+});
+
+describe('Sidebar: Decision B select-nothing (empty is valid, never falls back to all)', () => {
+  it('empty selection renders all five items unchecked', () => {
+    renderSidebar({
+      selectedPlatforms: parseSelectedPlatforms([]),
+      onTogglePlatform: () => {},
+    });
+    expect(screen.getAllByRole('checkbox')).toHaveLength(5);
+    for (const { label } of EXPECTED_PLATFORMS) {
+      expect(
+        screen.getByRole('checkbox', { name: new RegExp(label) }).getAttribute('aria-checked'),
+      ).toBe('false');
+    }
+  });
+
+  it('unknown-only persisted selection restores to all-unchecked (no fallback-to-all)', () => {
+    renderSidebar({
+      selectedPlatforms: parseSelectedPlatforms(['amigaos']),
+      onTogglePlatform: () => {},
+    });
+    expect(screen.getAllByRole('checkbox')).toHaveLength(5);
+    for (const { label } of EXPECTED_PLATFORMS) {
+      expect(
+        screen.getByRole('checkbox', { name: new RegExp(label) }).getAttribute('aria-checked'),
+      ).toBe('false');
+    }
+  });
+
+  it('toggling off the last checked item yields the empty set via togglePlatformSet', () => {
+    const onTogglePlatform = vi.fn();
+    renderSidebar({
+      selectedPlatforms: parseSelectedPlatforms(['windows']),
+      onTogglePlatform,
+    });
+    fireEvent.click(screen.getByRole('checkbox', { name: /Windows/ }));
+    expect(onTogglePlatform).toHaveBeenCalledWith('windows');
+    // the committed next state is the empty Set (select-nothing), not a refusal
+    expect(togglePlatformSet(parseSelectedPlatforms(['windows']), 'windows').size).toBe(0);
   });
 });

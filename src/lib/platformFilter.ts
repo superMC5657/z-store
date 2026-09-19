@@ -1,17 +1,44 @@
 /**
- * Multi-select device-platform filter.
+ * Multi-select device-platform filter (Decision B semantics).
  *
- * Single-select matching semantics mirror CategoriesView.matchPlatform:
- * an app with missing/empty `platforms` counts as windows-only, and all
- * comparisons are case-insensitive. Unknown ids are ignored wherever a
- * selection set is constructed or consumed.
+ * - Empty selection is VALID and means select-nothing (pages render
+ *   filter-empty states for it).
+ * - Unknown ids are ignored wherever a selection set is constructed
+ *   or consumed.
+ * - Single-select matching semantics mirror CategoriesView.matchPlatform:
+ *   an app with missing/empty `platforms` counts as windows-only, and
+ *   all comparisons are case-insensitive.
  */
 
-export const PLATFORM_IDS = ['windows', 'android', 'macos', 'linux', 'ios'] as const;
+export type PlatformId = 'windows' | 'macos' | 'linux' | 'android' | 'ios';
 
-export type PlatformId = (typeof PLATFORM_IDS)[number];
+export const PLATFORM_IDS: readonly PlatformId[] = [
+  'windows',
+  'android',
+  'macos',
+  'linux',
+  'ios',
+] as const;
+
+export const PLATFORM_META: Record<PlatformId, { label: string }> = {
+  windows: { label: 'Windows' },
+  android: { label: 'Android' },
+  macos: { label: 'macOS' },
+  linux: { label: 'Linux' },
+  ios: { label: 'iOS' },
+};
+
+export interface PlatformFilterSelection {
+  selectedPlatforms: ReadonlySet<PlatformId>;
+  platformCounts: Readonly<Record<PlatformId, number>>;
+  onTogglePlatform: (id: PlatformId) => void;
+}
 
 const KNOWN_PLATFORMS: ReadonlySet<string> = new Set<string>(PLATFORM_IDS);
+
+function isPlatformId(value: string): value is PlatformId {
+  return KNOWN_PLATFORMS.has(value);
+}
 
 export function normalizePlatform(p: string): string {
   return p.toLowerCase();
@@ -34,6 +61,7 @@ function knownSelected(selected: ReadonlySet<string>): Set<string> {
 /**
  * True when the app targets at least one selected (known) platform.
  * Apps with missing/empty `platforms` count as windows-only.
+ * An empty (or unknown-only) selection matches nothing.
  */
 export function matchPlatformSet(app: PlatformApp, selected: ReadonlySet<string>): boolean {
   const wanted = knownSelected(selected);
@@ -42,26 +70,38 @@ export function matchPlatformSet(app: PlatformApp, selected: ReadonlySet<string>
   return actual.some((p) => wanted.has(normalizePlatform(p)));
 }
 
-export interface ToggleResult {
-  next: Set<string>;
-  changed: boolean;
-}
-
 /**
- * Toggle one platform in a selection set. Refuses to empty the set and
- * rejects unknown ids: both cases return `prev` unchanged with
- * `changed: false`.
+ * Toggle one platform in a selection set. Empty selection is VALID and
+ * means select-nothing. Unknown ids return a copy unchanged.
  */
-export function togglePlatformSet(prev: Set<string>, id: string): ToggleResult {
+export function togglePlatformSet(prev: ReadonlySet<PlatformId>, id: string): Set<PlatformId> {
   const n = normalizePlatform(id);
-  if (!KNOWN_PLATFORMS.has(n)) return { next: prev, changed: false };
-  const next = new Set<string>();
-  for (const entry of prev) next.add(normalizePlatform(entry));
+  const next = new Set<PlatformId>();
+  for (const entry of prev) {
+    const normalized = normalizePlatform(entry);
+    if (isPlatformId(normalized)) next.add(normalized);
+  }
+  if (!isPlatformId(n)) return next;
   if (next.has(n)) {
-    if (next.size === 1) return { next: prev, changed: false };
     next.delete(n);
   } else {
     next.add(n);
   }
-  return { next, changed: true };
+  return next;
+}
+
+/**
+ * Parse a persisted selection (localStorage key
+ * 'zstore:platform-filter:v1') into a set of known platform ids.
+ * Empty array / unknown-only / null / undefined -> empty Set
+ * (NOT fallback-to-all), so `[]` round-trips to `[]`.
+ */
+export function parseSelectedPlatforms(input: readonly string[] | null | undefined): Set<PlatformId> {
+  const out = new Set<PlatformId>();
+  if (input === null || input === undefined) return out;
+  for (const raw of input) {
+    const n = normalizePlatform(raw);
+    if (isPlatformId(n)) out.add(n);
+  }
+  return out;
 }

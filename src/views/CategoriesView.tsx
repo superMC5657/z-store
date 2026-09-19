@@ -110,7 +110,21 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
       </div>
 
       {!selectedCategory ? (
-        <div className="app-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
+        <>
+          {apps.length === 0 && (
+            <div className="empty-state-card" style={{ marginBottom: '16px', padding: '24px', textAlign: 'center' }}>
+              <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                当前设备筛选下暂无收录应用
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '16px' }}>
+                侧栏「设备平台」中所选设备组合没有命中任何收录应用。放宽勾选项，或一键恢复全部设备后即可继续浏览分类。
+              </div>
+              <button className="btn-fluent btn-primary filter-empty-reset" onClick={handleResetFilter}>
+                重置设备筛选
+              </button>
+            </div>
+          )}
+          <div className="app-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
           {CATEGORY_DEFINITIONS.map((cat) => {
             const count = apps.filter(
               (a) => a.category.toLowerCase() === cat.id.toLowerCase()
@@ -161,7 +175,8 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
               </div>
             );
           })}
-        </div>
+          </div>
+        </>
       ) : (
         <div className="app-grid">
           {filteredApps.length > 0 ? (

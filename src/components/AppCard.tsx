@@ -2,14 +2,7 @@ import React from 'react';
 import { AppSummary } from '../types';
 import { AppIcon } from './AppIcon';
 import { PlatformIcon, ForgeIcon } from './icons/PlatformIcons';
-
-const PLATFORM_META: Record<string, { label: string }> = {
-  windows: { label: 'Windows' },
-  android: { label: 'Android' },
-  macos: { label: 'macOS' },
-  linux: { label: 'Linux' },
-  ios: { label: 'iOS' },
-};
+import { PLATFORM_META, type PlatformId } from '../lib/platformFilter';
 
 interface AppCardProps {
   app: AppSummary;
@@ -126,7 +119,7 @@ export const AppCard: React.FC<AppCardProps> = ({
           {app.platforms && app.platforms.length > 0 && (
             <span
               className="app-tag app-tag-platforms"
-              title={`支持设备: ${app.platforms.map((p) => PLATFORM_META[p.toLowerCase()]?.label || p).join(', ')}`}
+              title={`支持设备: ${app.platforms.map((p) => PLATFORM_META[p.toLowerCase() as PlatformId]?.label || p).join(', ')}`}
               style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 6px', cursor: 'default' }}
             >
               {app.platforms.map((p) => (

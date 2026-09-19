@@ -12,10 +12,8 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/react';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import { TrendsView } from './TrendsView';
-import { matchPlatformSet, PLATFORM_IDS } from '../lib/platformFilter';
+import { matchPlatformSet, PLATFORM_IDS, parseSelectedPlatforms } from '../lib/platformFilter';
 import { AppSummary } from '../types';
 
 afterEach(() => {
@@ -146,9 +144,30 @@ describe('task6: rerank #1..N within the filtered set', () => {
     }
   });
 
-  it('TrendsView does no in-page platform filtering of its own', () => {
-    const src = fs.readFileSync(path.join(__dirname, 'TrendsView.tsx'), 'utf-8');
-    expect(src).not.toMatch(/matchPlatform|platforms\.some|selectedPlatform/);
-    expect(src).toMatch(/trends-empty/);
+  it('empty selection pre-filters everything out and renders .trends-empty with reset (no fallback-to-all)', () => {
+    const sel = parseSelectedPlatforms([]);
+    expect(sel.size).toBe(0);
+    const filtered = FIXTURE.filter((a) => matchPlatformSet(a, sel));
+    expect(filtered).toEqual([]);
+    const onResetPlatformFilter = vi.fn();
+    const { container } = renderTrends(filtered, { onResetPlatformFilter });
+    expect(container.querySelectorAll('.app-card').length).toBe(0);
+    const empty = container.querySelector('.trends-empty');
+    expect(empty).not.toBeNull();
+    expect(empty!.textContent).toMatch(/所选设备组合/);
+    expect(empty!.textContent).not.toContain('owner/repo');
+    const btn = empty!.querySelector('.filter-empty-reset');
+    expect(btn).not.toBeNull();
+    expect(btn!.tagName).toBe('BUTTON');
+    fireEvent.click(btn as Element);
+    expect(onResetPlatformFilter).toHaveBeenCalledTimes(1);
+  });
+
+  it('unknown-only selection behaves like empty (never falls back to all)', () => {
+    const sel = parseSelectedPlatforms(['amigaos']);
+    expect(sel.size).toBe(0);
+    const { container } = renderTrends(FIXTURE.filter((a) => matchPlatformSet(a, sel)));
+    expect(container.querySelectorAll('.app-card').length).toBe(0);
+    expect(container.querySelector('.trends-empty')).not.toBeNull();
   });
 });

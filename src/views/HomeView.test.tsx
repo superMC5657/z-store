@@ -20,7 +20,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { HomeView } from './HomeView';
 import type { AppSummary } from '../types';
-import { PLATFORM_IDS, matchPlatformSet } from '../lib/platformFilter';
+import { PLATFORM_IDS, matchPlatformSet, parseSelectedPlatforms } from '../lib/platformFilter';
 
 afterEach(() => {
   cleanup();
@@ -174,5 +174,27 @@ describe('task5: filter-empty state with .filter-empty-reset', () => {
     } finally {
       dispatchSpy.mockRestore();
     }
+  });
+});
+
+describe('HomeView: Decision B select-nothing (empty/unknown-only match nothing)', () => {
+  it('empty selection filters the whole fixture out (no fallback-to-all)', () => {
+    const sel = parseSelectedPlatforms([]);
+    expect(sel.size).toBe(0);
+    expect(EXTENDED_FIXTURE.filter((a) => matchPlatformSet(a, sel))).toEqual([]);
+  });
+
+  it('unknown-only selection behaves like empty (renders filter-empty, never the full list)', () => {
+    const sel = parseSelectedPlatforms(['amigaos']);
+    expect(sel.size).toBe(0);
+    const filtered = BASE_FIXTURE.filter((a) => matchPlatformSet(a, sel));
+    expect(filtered).toEqual([]);
+    const { container } = renderHomeView(filtered);
+    expect(container.querySelector('.filter-empty-reset')).toBeTruthy();
+    expect(container.textContent).not.toContain('owner/repo');
+  });
+
+  it('null persisted selection is empty too (not fallback-to-all)', () => {
+    expect(parseSelectedPlatforms(null).size).toBe(0);
   });
 });

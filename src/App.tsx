@@ -17,17 +17,21 @@ import { AppDetail, AppDetailViewModel, AppSettings, AppSummary, InstalledApp, M
 import { api, DEFAULT_SETTINGS } from './services/api';
 import { preloadIcons } from './components/AppIcon';
 import { zlogError, zlogInfo, zlogWarn } from './lib/z-log';
-import { PLATFORM_IDS, matchPlatformSet, normalizePlatform, togglePlatformSet } from './lib/platformFilter';
+import { PLATFORM_IDS, matchPlatformSet, normalizePlatform, togglePlatformSet, type PlatformId } from './lib/platformFilter';
 
 export const PLATFORM_FILTER_STORAGE_KEY = 'zstore:platform-filter:v1';
 
 /**
  * Parse a raw localStorage value into a validated platform selection.
- * Unknown ids are whitelisted out; corrupt/empty/unknown-only input falls
- * back to the full set (equivalent to "unfiltered").
+ * Unknown ids are whitelisted out. A valid (parseable) array is honored
+ * as-is — including the empty array, which is a legitimate selection
+ * meaning empty list (per-page filter-empty states render for it), and
+ * including unknown-only arrays, which whitelist down to [] by the same
+ * rule. The full set (equivalent to "unfiltered") is the fallback ONLY
+ * for missing keys and corrupt/non-array JSON.
  */
-export function parseSelectedPlatforms(raw: string | null | undefined): Set<string> {
-  const full = new Set<string>(PLATFORM_IDS);
+export function parseSelectedPlatforms(raw: string | null | undefined): Set<PlatformId> {
+  const full = new Set<PlatformId>(PLATFORM_IDS);
   if (!raw) return full;
   let parsed: unknown;
   try {
@@ -36,25 +40,26 @@ export function parseSelectedPlatforms(raw: string | null | undefined): Set<stri
     return full;
   }
   if (!Array.isArray(parsed)) return full;
-  const known = new Set<string>();
+  const known = new Set<PlatformId>();
   for (const id of parsed) {
     if (typeof id !== 'string') continue;
     const n = normalizePlatform(id);
-    if ((PLATFORM_IDS as readonly string[]).includes(n)) known.add(n);
+    if ((PLATFORM_IDS as readonly string[]).includes(n)) known.add(n as PlatformId);
   }
-  return known.size > 0 ? known : full;
+  return known;
 }
 
 /**
  * First-render read of the persisted platform selection. Never throws:
- * missing storage, corrupt values, and throwing storage all yield the full set.
+ * missing storage, corrupt values, and throwing storage yield the full
+ * set; a stored valid empty array yields the empty set.
  */
-export function loadSelectedPlatforms(): Set<string> {
+export function loadSelectedPlatforms(): Set<PlatformId> {
   try {
-    if (typeof window === 'undefined' || !window.localStorage) return new Set<string>(PLATFORM_IDS);
+    if (typeof window === 'undefined' || !window.localStorage) return new Set<PlatformId>(PLATFORM_IDS);
     return parseSelectedPlatforms(window.localStorage.getItem(PLATFORM_FILTER_STORAGE_KEY));
   } catch {
-    return new Set<string>(PLATFORM_IDS);
+    return new Set<PlatformId>(PLATFORM_IDS);
   }
 }
 
@@ -89,7 +94,7 @@ export const App: React.FC = () => {
   // state, defaulting to all 5 PLATFORM_IDS, persisted to localStorage only —
   // intentionally NOT wired into api.getSettings()/UserDataBackup (a local UI
   // preference, not backup data).
-  const [selectedPlatforms, setSelectedPlatforms] = useState<Set<string>>(() => loadSelectedPlatforms());
+  const [selectedPlatforms, setSelectedPlatforms] = useState<Set<PlatformId>>(() => loadSelectedPlatforms());
   // FR-7 OAuth 登录态（详情弹窗标星门控）
   const [oauthUser, setOAuthUser] = useState<OAuthUser | null>(null);
   const appDetailMemoryCache = useRef<Map<string, AppDetail>>(new Map());
@@ -779,19 +784,14 @@ export const App: React.FC = () => {
     });
   };
 
-  // Task 3: guarded device-platform toggle. The 禁止全空 guard lives INSIDE
-  // the setter (functional updater) so it always evaluates the latest
-  // committed selection: same-tick double toggles apply sequentially and a
-  // removal refused against fresh state surfaces via the toast channel.
-  const handleTogglePlatform = (id: string) => {
-    setSelectedPlatforms((prev) => {
-      const { next, changed } = togglePlatformSet(prev, id);
-      if (!changed) {
-        showToast('请至少保留一个设备平台', 'warning');
-        return prev;
-      }
-      return next;
-    });
+  // Task 3: device-platform toggle. Empty selection is valid (means
+  // empty list; pages render their filter-empty states), so every known-id
+  // toggle commits unconditionally. The toggle lives INSIDE the setter
+  // (functional updater) so it always evaluates the latest committed
+  // selection: same-tick double toggles apply sequentially. Unknown ids
+  // are ignored silently (Sidebar only emits known ids; no toast path).
+  const handleTogglePlatform = (id: PlatformId) => {
+    setSelectedPlatforms((prev) => togglePlatformSet(prev, id));
   };
 
   // Install App
@@ -1111,7 +1111,7 @@ export const App: React.FC = () => {
   // Sidebar group, computed over the FULL `apps` array (not the filtered
   // one) so each count answers "how many apps target this device".
   const platformCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
+    const counts = {} as Record<PlatformId, number>;
     for (const id of PLATFORM_IDS) {
       counts[id] = apps.filter((a) => matchPlatformSet(a, new Set([id]))).length;
     }
@@ -1201,7 +1201,7 @@ export const App: React.FC = () => {
               onToggleWatch={handleToggleWatch}
               onNavigateTrends={() => setCurrentView('trends')}
               onClearRecentViews={handleClearRecentViews}
-              onResetPlatformFilter={() => setSelectedPlatforms(new Set<string>(PLATFORM_IDS))}
+              onResetPlatformFilter={() => setSelectedPlatforms(new Set<PlatformId>(PLATFORM_IDS))}
             />
           )}
 
@@ -1214,7 +1214,7 @@ export const App: React.FC = () => {
               onOpenDetail={handleOpenDetail}
               onQuickInstall={handleQuickInstall}
               onToggleFavorite={handleToggleFavorite}
-              onResetPlatformFilter={() => setSelectedPlatforms(new Set<string>(PLATFORM_IDS))}
+              onResetPlatformFilter={() => setSelectedPlatforms(new Set<PlatformId>(PLATFORM_IDS))}
             />
           )}
 
@@ -1229,7 +1229,7 @@ export const App: React.FC = () => {
               onQuickInstall={handleQuickInstall}
               onToggleFavorite={handleToggleFavorite}
               onToggleWatch={handleToggleWatch}
-              onResetPlatformFilter={() => setSelectedPlatforms(new Set<string>(PLATFORM_IDS))}
+              onResetPlatformFilter={() => setSelectedPlatforms(new Set<PlatformId>(PLATFORM_IDS))}
             />
           )}
 

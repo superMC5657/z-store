@@ -18,6 +18,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import React from 'react';
 import { CategoriesView } from './CategoriesView';
 import type { AppSummary } from '../types';
+import { matchPlatformSet, parseSelectedPlatforms } from '../lib/platformFilter';
 
 afterEach(() => {
   cleanup();
@@ -149,5 +150,31 @@ describe('CategoriesView: converged to global filter (no local platform state)',
     expect(onResetPlatformFilter).toHaveBeenCalledTimes(1);
     // Reset also returns to the hall (all categories visible again).
     expect(within(container as HTMLElement).getByText('开发工具')).toBeTruthy();
+  });
+});
+
+describe('CategoriesView: Decision B select-nothing (empty/unknown-only match nothing)', () => {
+  it('empty selection pre-filters everything out (no fallback-to-all)', () => {
+    const sel = parseSelectedPlatforms([]);
+    expect(sel.size).toBe(0);
+    expect([DEV_WIN, DEV_IOS, MEDIA_IOS].filter((a) => matchPlatformSet(a, sel))).toEqual([]);
+  });
+
+  it('unknown-only selection behaves like empty (never falls back to all)', () => {
+    const sel = parseSelectedPlatforms(['amigaos']);
+    expect(sel.size).toBe(0);
+    expect([DEV_WIN, DEV_IOS, MEDIA_IOS].filter((a) => matchPlatformSet(a, sel))).toEqual([]);
+  });
+
+  it('empty prop renders the filter-empty copy + reset wired to onResetPlatformFilter', () => {
+    const onResetPlatformFilter = vi.fn();
+    const { container } = renderCategories([], { onResetPlatformFilter });
+    openCategory(container, '开发工具');
+    expect(screen.getByText(/设备组合/)).toBeTruthy();
+    const reset = container.querySelector('.filter-empty-reset');
+    expect(reset).toBeTruthy();
+    expect(reset?.tagName).toBe('BUTTON');
+    fireEvent.click(reset as HTMLElement);
+    expect(onResetPlatformFilter).toHaveBeenCalledTimes(1);
   });
 });

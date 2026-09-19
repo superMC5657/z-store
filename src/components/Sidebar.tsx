@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { OAuthUser, ViewType } from '../types';
 import { api } from '../services/api';
 import { GitHubIcon, PlatformIcon } from './icons/PlatformIcons';
+import { PLATFORM_IDS, PLATFORM_META, type PlatformId } from '../lib/platformFilter';
 
 interface SidebarProps {
   currentView: ViewType;
@@ -10,12 +11,12 @@ interface SidebarProps {
   hasUpdates: boolean;
   onOpenAccount: () => void;
   isCollapsed?: boolean;
-  /** Multi-select device-platform filter. Defaults to all platforms (no filtering). */
-  selectedPlatforms?: Set<string>;
-  /** Toggle callback only — the last-one guard lives in App/platformFilter. */
-  onTogglePlatform?: (id: string) => void;
+  /** Multi-select device-platform filter. Empty set is valid (empty-filter UI). */
+  selectedPlatforms?: Set<PlatformId>;
+  /** Toggle callback only — toggle logic lives in lib/platformFilter. */
+  onTogglePlatform?: (id: PlatformId) => void;
   /** Optional per-platform app counts; accepted as prop, never computed here. */
-  platformCounts?: Record<string, number>;
+  platformCounts?: Record<PlatformId, number>;
 }
 
 interface NavItemConfig {
@@ -26,19 +27,12 @@ interface NavItemConfig {
   badge?: number | boolean;
 }
 
-interface PlatformFilterItem {
-  id: string;
-  label: string;
-}
-
-/** Labels mirror CategoriesView platform options. Order mirrors PLATFORM_IDS. */
-export const PLATFORM_FILTER_ITEMS: PlatformFilterItem[] = [
-  { id: 'windows', label: 'Windows' },
-  { id: 'android', label: 'Android' },
-  { id: 'macos', label: 'macOS' },
-  { id: 'linux', label: 'Linux' },
-  { id: 'ios', label: 'iOS' },
-];
+/**
+ * Back-compat alias for the former local mirror. Single source of truth is
+ * lib/platformFilter (PLATFORM_IDS + PLATFORM_META); labels stay identical.
+ */
+export const PLATFORM_FILTER_ITEMS: ReadonlyArray<{ id: PlatformId; label: string }> =
+  PLATFORM_IDS.map((id) => ({ id, label: PLATFORM_META[id].label }));
 
 /** Render order. 设备平台 sits above 偏好与系统. */
 const NAV_GROUP_ORDER = ['发现与探索', '应用资产', '设备平台', '偏好与系统'] as const;
@@ -50,7 +44,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   hasUpdates,
   onOpenAccount,
   isCollapsed = false,
-  selectedPlatforms = new Set(PLATFORM_FILTER_ITEMS.map((p) => p.id)),
+  selectedPlatforms = new Set<PlatformId>(PLATFORM_IDS),
   onTogglePlatform = () => {},
   platformCounts,
 }) => {
@@ -181,23 +175,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {group === '设备平台' ? (
             <>
               <div className="nav-group-title">设备平台</div>
-              {PLATFORM_FILTER_ITEMS.map((platform) => {
-                const isChecked = selectedPlatforms.has(platform.id);
-                const count = platformCounts?.[platform.id];
+              {PLATFORM_IDS.map((platformId) => {
+                const isChecked = selectedPlatforms.has(platformId);
+                const count = platformCounts?.[platformId];
+                const label = PLATFORM_META[platformId].label;
                 return (
                   <button
-                    key={platform.id}
+                    key={platformId}
                     role="checkbox"
                     aria-checked={isChecked}
-                    data-platform-id={platform.id}
+                    data-platform-id={platformId}
                     className={`nav-item ${isChecked ? 'active' : ''}`}
-                    onClick={() => onTogglePlatform(platform.id)}
-                    title={isCollapsed ? platform.label : undefined}
+                    onClick={() => onTogglePlatform(platformId)}
+                    title={isCollapsed ? label : undefined}
                   >
                     <span className="nav-icon">
-                      <PlatformIcon platform={platform.id} />
+                      <PlatformIcon platform={platformId} />
                     </span>
-                    <span className="nav-label">{platform.label}</span>
+                    <span className="nav-label">{label}</span>
 
                     {typeof count === 'number' && (
                       <span className="nav-badge">{count}</span>

@@ -1,16 +1,18 @@
 /**
- * Task 3 — App-level platform filter state + localStorage persistence.
+ * Task 3 — App-level platform filter state + localStorage persistence
+ * (Decision B: [] = select-nothing).
  *
- * SECTION A (BASELINE characterization): pins CURRENT behavior on unchanged
- * code — a full 5-platform selection is equivalent to "unfiltered", and the
- * three discovery views receive their data through the same `apps` prop name.
- * Must stay GREEN before AND after the Task 3 implementation.
+ * All coverage is behavioral: persistence round-trips through
+ * loadSelectedPlatforms/parseSelectedPlatforms, and filtering semantics
+ * through matchPlatformSet. No source-text assertions.
  */
 // @ts-ignore - vitest is fetched transiently via npx (not a repo dep per task scope)
-import { describe, expect, it } from 'vitest';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import { PLATFORM_IDS, matchPlatformSet } from './lib/platformFilter';
+import { describe, expect, it, afterEach } from 'vitest';
+import {
+  PLATFORM_IDS,
+  matchPlatformSet,
+  parseSelectedPlatforms as parsePersistedSelection,
+} from './lib/platformFilter';
 
 interface BaselineApp {
   platforms?: string[];
@@ -34,25 +36,16 @@ describe('baseline: full platform selection is equivalent to unfiltered', () => 
     }
   });
 
-  it('Home/Trends/Categories receive data via the same `apps` prop name', () => {
-    const src = fs.readFileSync(path.join(__dirname, 'App.tsx'), 'utf-8');
-    for (const view of ['HomeView', 'TrendsView', 'CategoriesView']) {
-      const openTag = new RegExp(`<${view}[\\s>]`);
-      expect(src, `${view} rendered in App.tsx`).toMatch(openTag);
-      const withAppsProp = new RegExp(`<${view}[^]*?apps=\\{`);
-      expect(src, `${view} receives an apps={...} prop`).toMatch(withAppsProp);
+  it('an empty selection matches no fixture app (empty-filter premise, not the full list)', () => {
+    const empty = parsePersistedSelection([]);
+    expect(empty.size).toBe(0);
+    for (const app of FIXTURE) {
+      expect(matchPlatformSet(app, empty)).toBe(false);
     }
+    expect(FIXTURE.filter((a) => matchPlatformSet(a, empty))).toEqual([]);
   });
 });
 
-/**
- * SECTION B (Task 3 implementation): localStorage persistence tri-state.
- * Written FAILING-FIRST: assertion run against the pre-Task-3 App.tsx fails
- * (no PLATFORM_FILTER_STORAGE_KEY / parseSelectedPlatforms export), then
- * passes after the implementation. Covers the mandated tri-state matrix:
- * no key → full 5; written ["windows","ios"] + reload → restored;
- * "{bad" corrupt → full fallback; throwing storage → still renders (full set).
- */
 // @ts-ignore - App.tsx ships without a vitest dep; resolved transiently via npx
 import {
   PLATFORM_FILTER_STORAGE_KEY,
@@ -60,7 +53,11 @@ import {
   parseSelectedPlatforms,
 } from './App';
 
-describe('task3: platform-filter persistence tri-state', () => {
+afterEach(() => {
+  window.localStorage.clear();
+});
+
+describe('task3: platform-filter persistence (Decision B select-nothing)', () => {
   it('uses the stable storage key zstore:platform-filter:v1', () => {
     expect(PLATFORM_FILTER_STORAGE_KEY).toBe('zstore:platform-filter:v1');
   });
@@ -79,18 +76,25 @@ describe('task3: platform-filter persistence tri-state', () => {
     expect(parseSelectedPlatforms(JSON.stringify([...reloaded]))).toEqual(reloaded);
   });
 
-  it('corrupt "{bad" → full-set fallback', () => {
+  it('stored [] (valid empty array) restores [] — no full-set fallback', () => {
+    expect(parseSelectedPlatforms(JSON.stringify([]))).toEqual(new Set<string>([]));
+    // round-trip: persisting an empty selection reloads empty
+    expect(parseSelectedPlatforms(JSON.stringify([...parseSelectedPlatforms('[]')]))).toEqual(
+      new Set<string>([])
+    );
+  });
+
+  it('corrupt "{bad" → full-set fallback (retained)', () => {
     expect(parseSelectedPlatforms('{bad')).toEqual(new Set(PLATFORM_IDS));
     expect(parseSelectedPlatforms('not-json-at-all{{{')).toEqual(new Set(PLATFORM_IDS));
     expect(parseSelectedPlatforms('"just-a-string"')).toEqual(new Set(PLATFORM_IDS));
   });
 
-  it('unknown ids are whitelisted; unknown-only/empty → full fallback', () => {
+  it('unknown ids are whitelisted; unknown-only/empty stays empty (valid array, not corrupt)', () => {
     expect(parseSelectedPlatforms(JSON.stringify(['windows', 'amigaos']))).toEqual(
       new Set(['windows'])
     );
-    expect(parseSelectedPlatforms(JSON.stringify(['amigaos']))).toEqual(new Set(PLATFORM_IDS));
-    expect(parseSelectedPlatforms(JSON.stringify([]))).toEqual(new Set(PLATFORM_IDS));
+    expect(parseSelectedPlatforms(JSON.stringify(['amigaos']))).toEqual(new Set<string>([]));
     expect(parseSelectedPlatforms(JSON.stringify(['WINDOWS', 'Ios']))).toEqual(
       new Set(['windows', 'ios'])
     );
@@ -115,34 +119,54 @@ describe('task3: platform-filter persistence tri-state', () => {
     }
   });
 
-  it('App wires platformFilteredApps into Home/Trends/Categories via the same apps prop', () => {
-    const src = fs.readFileSync(path.join(__dirname, 'App.tsx'), 'utf-8');
-    expect(src).toMatch(/togglePlatformSet/);
-    expect(src).toMatch(/platformFilteredApps/);
-    expect(src).toMatch(/localStorage\.setItem\(PLATFORM_FILTER_STORAGE_KEY/);
-    // separation: filter preference stays out of api.getSettings()/UserDataBackup
-    expect(src).toMatch(/NOT wired into api\.getSettings\(\)\/UserDataBackup/);
-    for (const view of ['HomeView', 'TrendsView', 'CategoriesView']) {
-      const wired = new RegExp(`<${view}[^]*?apps=\\{platformFilteredApps\\}`);
-      expect(src, `${view} receives apps={platformFilteredApps}`).toMatch(wired);
-    }
+  it('loadSelectedPlatforms honors a stored empty array (no full-set fallback on reload)', () => {
+    window.localStorage.setItem(PLATFORM_FILTER_STORAGE_KEY, JSON.stringify([]));
+    expect(loadSelectedPlatforms()).toEqual(new Set<string>([]));
   });
 
-  it('task7: Sidebar platformCounts derive from FULL apps per PLATFORM_IDS via matchPlatformSet (same source as hall counts)', () => {
-    const appSrc = fs.readFileSync(path.join(__dirname, 'App.tsx'), 'utf-8');
-    // full-apps basis (NOT platformFilteredApps): each badge answers
-    // "how many apps target this device" with the same matcher the hall uses.
-    expect(appSrc).toMatch(/for \(const id of PLATFORM_IDS\)/);
-    expect(appSrc).toMatch(/counts\[id\] = apps\.filter\(\(a\) => matchPlatformSet\(a, new Set\(\[id\]\)\)\)\.length/);
-    // passed through to Sidebar, never recomputed there.
-    expect(appSrc).toMatch(/platformCounts=\{platformCounts\}/);
-    const sidebarSrc = fs.readFileSync(path.join(__dirname, 'components', 'Sidebar.tsx'), 'utf-8');
-    expect(sidebarSrc).not.toMatch(/matchPlatformSet/);
-    expect(sidebarSrc).not.toMatch(/from '.*platformFilter'/);
-    // Home + Trends + Categories reset buttons all route to the same full-set restore.
-    for (const view of ['HomeView', 'TrendsView', 'CategoriesView']) {
-      const reset = new RegExp(`<${view}[^]*?onResetPlatformFilter=\\{\\(\\) => setSelectedPlatforms\\(new Set<string>\\(PLATFORM_IDS\\)\\)\\}`);
-      expect(appSrc, `${view} wires onResetPlatformFilter to the full-set restore`).toMatch(reset);
+  it('loadSelectedPlatforms restores a stored subset exactly', () => {
+    window.localStorage.setItem(
+      PLATFORM_FILTER_STORAGE_KEY,
+      JSON.stringify(['windows', 'ios'])
+    );
+    expect(loadSelectedPlatforms()).toEqual(new Set(['windows', 'ios']));
+  });
+
+  it('loadSelectedPlatforms yields the full set when nothing is stored', () => {
+    expect(loadSelectedPlatforms()).toEqual(new Set(PLATFORM_IDS));
+  });
+
+  it('filtering derivation: empty selection keeps nothing, full keeps all, partial keeps its subset', () => {
+    const full = new Set<string>(PLATFORM_IDS);
+    expect(FIXTURE.filter((a) => matchPlatformSet(a, full))).toHaveLength(FIXTURE.length);
+    const empty = parsePersistedSelection([]);
+    expect(FIXTURE.filter((a) => matchPlatformSet(a, empty))).toEqual([]);
+    const iosOnly = parsePersistedSelection(['ios']);
+    expect(FIXTURE.filter((a) => matchPlatformSet(a, iosOnly))).toEqual([
+      { platforms: ['ios'] },
+    ]);
+  });
+
+  it('per-platform counts derive from the FULL app list via matchPlatformSet singletons', () => {
+    const counts: Record<string, number> = {};
+    for (const id of PLATFORM_IDS) {
+      counts[id] = FIXTURE.filter((a) => matchPlatformSet(a, new Set([id]))).length;
     }
+    // windows matches the explicit entry plus the two missing/empty ones (windows-only rule)
+    expect(counts['windows']).toBe(3);
+    expect(counts['ios']).toBe(1);
+    expect(counts['android']).toBe(1);
+    expect(counts['linux']).toBe(1);
+    expect(counts['macos']).toBe(1);
+  });
+
+  it('reset restores the full device set (matches everything again)', () => {
+    const reset = new Set<string>(PLATFORM_IDS);
+    expect(reset.size).toBe(5);
+    for (const app of FIXTURE) {
+      expect(matchPlatformSet(app, reset)).toBe(true);
+    }
+    // reset round-trips through storage back to the full set
+    expect(parseSelectedPlatforms(JSON.stringify([...reset]))).toEqual(reset);
   });
 });

@@ -52,8 +52,10 @@ import {
   PLATFORM_IDS,
   matchPlatformSet,
   normalizePlatform,
+  parseSelectedPlatforms,
   togglePlatformSet,
 } from './platformFilter';
+import type { PlatformId } from './platformFilter';
 
 describe('platformFilter: multi-select set semantics', () => {
   it('exposes the five known platform ids', () => {
@@ -91,29 +93,67 @@ describe('platformFilter: multi-select set semantics', () => {
     expect(matchPlatformSet({ platforms: ['android', 'linux'] }, all)).toBe(true);
   });
 
-  it('toggle adds a missing id and reports changed=true', () => {
-    const { next, changed } = togglePlatformSet(new Set(['windows']), 'linux');
-    expect(changed).toBe(true);
-    expect(next).toEqual(new Set(['windows', 'linux']));
+  it('toggle adds a missing id (returns the next Set)', () => {
+    expect(togglePlatformSet(new Set<PlatformId>(['windows']), 'linux')).toEqual(
+      new Set(['windows', 'linux'])
+    );
   });
 
-  it('toggle removes a present id and reports changed=true', () => {
-    const { next, changed } = togglePlatformSet(new Set(['windows', 'linux']), 'linux');
-    expect(changed).toBe(true);
-    expect(next).toEqual(new Set(['windows']));
+  it('toggle removes a present id (returns the next Set)', () => {
+    expect(togglePlatformSet(new Set<PlatformId>(['windows', 'linux']), 'linux')).toEqual(
+      new Set(['windows'])
+    );
   });
 
-  it('toggle-last-one keeps the set and reports changed=false', () => {
-    const prev = new Set(['windows']);
-    const { next, changed } = togglePlatformSet(prev, 'windows');
-    expect(changed).toBe(false);
-    expect(next).toBe(prev);
+  it('toggle-last-one allows the empty set (select-nothing is valid)', () => {
+    expect(togglePlatformSet(new Set<PlatformId>(['windows']), 'windows')).toEqual(
+      new Set<PlatformId>([])
+    );
   });
 
-  it('toggle with unknown id returns prev unchanged with changed=false', () => {
-    const prev = new Set(['windows', 'linux']);
-    const { next, changed } = togglePlatformSet(prev, 'amigaos');
-    expect(changed).toBe(false);
-    expect(next).toBe(prev);
+  it('toggle chain can empty all 5 then re-add (empty matches nothing)', () => {
+    let current: Set<PlatformId> = new Set(PLATFORM_IDS);
+    for (const id of PLATFORM_IDS) {
+      current = togglePlatformSet(current, id);
+    }
+    expect(current).toEqual(new Set<PlatformId>([]));
+    // every app misses an empty selection -> pages show filter-empty states
+    expect(matchPlatformSet({ platforms: ['windows'] }, current)).toBe(false);
+    expect(matchPlatformSet({}, current)).toBe(false);
+    // rechecking works
+    expect(togglePlatformSet(current, 'linux')).toEqual(new Set(['linux']));
+  });
+
+  it('toggle with unknown id is a no-op returning an equal copy (no fallback-to-all)', () => {
+    const prev = new Set<PlatformId>(['windows', 'linux']);
+    const next = togglePlatformSet(prev, 'amigaos');
+    expect(next).toEqual(prev);
+    expect(next).not.toBe(prev);
+  });
+
+  it('parseSelectedPlatforms([]) -> empty Set (no fallback-to-all)', () => {
+    expect(parseSelectedPlatforms([])).toEqual(new Set<PlatformId>([]));
+  });
+
+  it('parseSelectedPlatforms(null/undefined) -> empty Set', () => {
+    expect(parseSelectedPlatforms(null)).toEqual(new Set<PlatformId>([]));
+    expect(parseSelectedPlatforms(undefined)).toEqual(new Set<PlatformId>([]));
+  });
+
+  it('parseSelectedPlatforms(unknown-only) -> empty Set (valid, not corrupt)', () => {
+    expect(parseSelectedPlatforms(['amigaos'])).toEqual(new Set<PlatformId>([]));
+    expect(parseSelectedPlatforms(['amigaos', 'commodore64'])).toEqual(new Set<PlatformId>([]));
+  });
+
+  it('parseSelectedPlatforms whitelists unknown ids and lowercases known ones', () => {
+    expect(parseSelectedPlatforms(['windows', 'amigaos'])).toEqual(new Set(['windows']));
+    expect(parseSelectedPlatforms(['WINDOWS', 'Ios'])).toEqual(new Set(['windows', 'ios']));
+  });
+
+  it('unknown-only selection matches nothing (empty-filter premise)', () => {
+    const unknownOnly = parseSelectedPlatforms(['amigaos']);
+    expect(unknownOnly.size).toBe(0);
+    expect(matchPlatformSet({ platforms: ['windows'] }, unknownOnly)).toBe(false);
+    expect(matchPlatformSet({}, unknownOnly)).toBe(false);
   });
 });
