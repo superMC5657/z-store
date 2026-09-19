@@ -28,11 +28,10 @@ interface CategoriesViewProps {
   onToggleWatch?: (id: string) => void;
   /**
    * Global device-platform filter reset owned by the caller (App).
-   * Optional for backward compatibility: when absent, the empty-state reset
-   * button falls back to returning to the category hall (i.e. selecting all
-   * categories again) instead of touching any filter state.
+   * Required: the empty-state reset button always restores the full
+   * device set via App and returns to the category hall.
    */
-  onResetPlatformFilter?: () => void;
+  onResetPlatformFilter: () => void;
 }
 
 const CATEGORY_DEFINITIONS = [
@@ -77,7 +76,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   const currentCategoryMeta = CATEGORY_DEFINITIONS.find((c) => c.id === selectedCategory);
 
   const handleResetFilter = () => {
-    onResetPlatformFilter?.();
+    onResetPlatformFilter();
     setSelectedCategory(null);
   };
 

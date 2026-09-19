@@ -40,6 +40,10 @@ function makeApp(overrides: Partial<AppSummary> & { id: string; name: string }):
     category: 'system',
     category_name: '系统实用',
     is_verified: false,
+    forge: 'github',
+    forge_host: 'github.com',
+    homepage: null,
+    platforms: [],
     ...overrides,
   };
 }

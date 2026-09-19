@@ -10,8 +10,8 @@
  * on unchanged code (capsule bar + dual filtering present), passes after:
  *   no platform capsule bar; hall counts come from the incoming (pre-filtered)
  *   `apps` prop only; empty state uses multi-select Join copy + a
- *   `.filter-empty-reset` button wired to `onResetPlatformFilter` (with an
- *   internal hall fallback when the caller does not provide it).
+ *   `.filter-empty-reset` button wired to the required `onResetPlatformFilter`
+ *   prop (restores the full device set via App and returns to the hall).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
@@ -39,7 +39,10 @@ function makeApp(id: string, category: string, platforms?: string[]): AppSummary
     category,
     category_name: category,
     is_verified: false,
-    platforms,
+    forge: 'github',
+    forge_host: 'github.com',
+    homepage: null,
+    platforms: platforms ?? [],
   };
 }
 
@@ -63,6 +66,7 @@ function renderCategories(
       onQuickInstall={() => {}}
       onToggleFavorite={() => {}}
       onToggleWatch={() => {}}
+      onResetPlatformFilter={() => {}}
       {...extraProps}
     />,
   );
@@ -135,13 +139,15 @@ describe('CategoriesView: converged to global filter (no local platform state)',
     expect(onResetPlatformFilter).toHaveBeenCalledTimes(1);
   });
 
-  it('reset falls back to the hall when the caller provides no callback (documented fallback)', () => {
-    const { container } = renderCategories([DEV_WIN]);
+  it('reset restores the full device set and returns to the hall', () => {
+    const onResetPlatformFilter = vi.fn();
+    const { container } = renderCategories([DEV_WIN], { onResetPlatformFilter });
     openCategory(container, '图形设计');
     const reset = container.querySelector('.filter-empty-reset');
     expect(reset).toBeTruthy();
     fireEvent.click(reset as HTMLElement);
-    // Fallback = show all categories again (no crash, no-opener required).
+    expect(onResetPlatformFilter).toHaveBeenCalledTimes(1);
+    // Reset also returns to the hall (all categories visible again).
     expect(within(container as HTMLElement).getByText('开发工具')).toBeTruthy();
   });
 });

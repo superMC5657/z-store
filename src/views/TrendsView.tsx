@@ -12,15 +12,15 @@ interface TrendsViewProps {
   onQuickInstall: (id: string) => void;
   onToggleFavorite?: (id: string) => void;
   /**
-   * Seam for App to wire the global platform reset (Todo 7). When omitted,
-   * the reset button falls back to clearing the persisted selection and
-   * broadcasting `zstore:reset-platform-filter` on window (same fallback as
+   * Global device-platform reset owned by App (restores the full device set).
+   * When omitted, the reset button clears the persisted selection and
+   * broadcasts `zstore:reset-platform-filter` on window (same fallback as
    * HomeView; key string is literal to avoid a view→App import cycle).
    */
   onResetPlatformFilter?: () => void;
 }
 
-/** Fallback reset when App has not wired `onResetPlatformFilter` yet. */
+/** Reset path when App has not wired `onResetPlatformFilter`. */
 function broadcastPlatformReset(): void {
   try {
     window.localStorage.removeItem('zstore:platform-filter:v1');
