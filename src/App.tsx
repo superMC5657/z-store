@@ -773,15 +773,19 @@ export const App: React.FC = () => {
     });
   };
 
-  // Task 3: guarded device-platform toggle. togglePlatformSet refuses to empty
-  // the set (or unknown ids); a refusal surfaces via the existing toast channel.
+  // Task 3: guarded device-platform toggle. The 禁止全空 guard lives INSIDE
+  // the setter (functional updater) so it always evaluates the latest
+  // committed selection: same-tick double toggles apply sequentially and a
+  // removal refused against fresh state surfaces via the toast channel.
   const handleTogglePlatform = (id: string) => {
-    const { next, changed } = togglePlatformSet(selectedPlatforms, id);
-    if (!changed) {
-      showToast('请至少保留一个设备平台', 'warning');
-      return;
-    }
-    setSelectedPlatforms(next);
+    setSelectedPlatforms((prev) => {
+      const { next, changed } = togglePlatformSet(prev, id);
+      if (!changed) {
+        showToast('请至少保留一个设备平台', 'warning');
+        return prev;
+      }
+      return next;
+    });
   };
 
   // Install App
