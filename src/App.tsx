@@ -13,7 +13,7 @@ import { InstalledView } from './views/InstalledView';
 import { UpdatesView } from './views/UpdatesView';
 import { SettingsView } from './views/SettingsView';
 import { FavoritesView } from './views/FavoritesView';
-import { AppDetail, AppSettings, AppSummary, InstalledApp, MirrorNodeStatus, OAuthUser, ToastMessage, UpdateItem, UpdateCheckProgressPayload, UpdateRule, ViewType, WatchUpdatedPayload } from './types';
+import { AppDetail, AppDetailViewModel, AppSettings, AppSummary, InstalledApp, MirrorNodeStatus, OAuthUser, ToastMessage, UpdateItem, UpdateCheckProgressPayload, UpdateRule, ViewType, WatchUpdatedPayload } from './types';
 import { api, DEFAULT_SETTINGS } from './services/api';
 import { preloadIcons } from './components/AppIcon';
 import { zlogError, zlogInfo, zlogWarn } from './lib/z-log';
@@ -72,7 +72,7 @@ export const App: React.FC = () => {
   const [updateCheckProgress, setUpdateCheckProgress] = useState<UpdateCheckProgressPayload | null>(null);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [mirrors, setMirrors] = useState<MirrorNodeStatus[]>([]);
-  const [selectedApp, setSelectedApp] = useState<AppDetail | null>(null);
+  const [selectedApp, setSelectedApp] = useState<AppDetailViewModel | null>(null);
   const activeDetailIdRef = useRef<string | null>(null);
   const [selectedDeveloper, setSelectedDeveloper] = useState<string | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -613,7 +613,7 @@ export const App: React.FC = () => {
       apps.find((a) => a.id.toLowerCase() === idClean) ||
       recentlyViewedApps.find((a) => a.id.toLowerCase() === idClean);
 
-    const initialDetail: AppDetail = selectedApp && selectedApp.id.toLowerCase() === idClean && forceRefresh
+    const initialDetail: AppDetailViewModel = selectedApp && selectedApp.id.toLowerCase() === idClean && forceRefresh
       ? { ...selectedApp, isLoading: false, isRefreshing: true, loadError: undefined }
       : existing
       ? {
@@ -636,6 +636,8 @@ export const App: React.FC = () => {
           category_name: existing.category_name,
           forge: existing.forge,
           forge_host: existing.forge_host,
+          homepage: existing.homepage,
+          platforms: existing.platforms,
           isLoading: true,
           isRefreshing: forceRefresh,
         }
@@ -657,6 +659,10 @@ export const App: React.FC = () => {
           releases: [],
           category: 'system',
           category_name: '应用',
+          forge: 'github',
+          forge_host: 'github.com',
+          homepage: null,
+          platforms: ['windows'],
           isLoading: true,
           isRefreshing: forceRefresh,
         };

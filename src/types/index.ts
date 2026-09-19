@@ -16,10 +16,10 @@ export interface AppSummary {
   is_installed?: boolean;
   has_update?: boolean;
   installed_version?: string;
-  forge?: string;
-  forge_host?: string;
-  homepage?: string;
-  platforms?: string[];
+  forge: string;
+  forge_host: string;
+  homepage: string | null;
+  platforms: string[];
 }
 
 export interface ReleaseAsset {
@@ -50,15 +50,19 @@ export interface AppDetail {
   releases: ReleaseAsset[];
   category: string;
   category_name: string;
-  forge?: string;
-  forge_host?: string;
+  forge: string;
+  forge_host: string;
   cached_at?: number;
-  is_stale_fallback?: boolean;
+  is_stale?: boolean;
+  homepage: string | null;
+  platforms: string[];
+}
+
+// 纯前端视图态：加载/刷新/错误状态不属于后端 AppDetail，独立存放
+export interface AppDetailViewModel extends AppDetail {
   isLoading?: boolean;
   isRefreshing?: boolean;
   loadError?: string;
-  homepage?: string;
-  platforms?: string[];
 }
 
 export interface InstalledApp {
@@ -306,8 +310,8 @@ export interface OAuthUser {
   name?: string | null;
   avatar_url?: string | null;
   html_url?: string | null;
-  has_list_scope?: boolean;
-  is_expired?: boolean;
+  has_list_scope: boolean;
+  is_expired: boolean;
 }
 
 export interface StarAppResult {

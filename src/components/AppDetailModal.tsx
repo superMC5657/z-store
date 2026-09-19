@@ -17,7 +17,7 @@ import {
   ChevronUp,
   ChevronDown,
 } from 'lucide-react';
-import { AppDetail, DownloadProgressPayload, OAuthUser, ReleaseAsset } from '../types';
+import { AppDetailViewModel, DownloadProgressPayload, OAuthUser, ReleaseAsset } from '../types';
 import { api } from '../services/api';
 import { AppIcon } from './AppIcon';
 import { sanitizeHtml } from '../utils/sanitize';
@@ -34,7 +34,7 @@ const PLATFORM_META: Record<string, { label: string }> = {
 };
 
 interface AppDetailModalProps {
-  app: AppDetail;
+  app: AppDetailViewModel;
   isInstalled: boolean;
   isManaged?: boolean;
   isExploreMode?: boolean;
@@ -696,7 +696,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               {primaryAsset && (
                 <span className="modal-tag">大小 {formatBytes(primaryAsset.size_bytes)}</span>
               )}
-              {app.is_stale_fallback && (
+              {app.is_stale && (
                 <span
                   className="modal-tag"
                   style={{
@@ -742,7 +742,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                 </span>
               ) : (
                 <>
-                  {app.cached_at && !app.is_stale_fallback && (
+                  {app.cached_at && !app.is_stale && (
                     <span
                       className="modal-tag"
                       style={{ fontSize: '11px', opacity: 0.8, display: 'inline-flex', alignItems: 'center', gap: '4px' }}
