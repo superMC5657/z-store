@@ -358,12 +358,17 @@ export const App: React.FC = () => {
   }, [currentView, updates.length]);
 
   const isFirstViewRender = useRef(true);
+  const prevViewRef = useRef<ViewType>('home');
   useEffect(() => {
     if (isFirstViewRender.current) {
       isFirstViewRender.current = false;
+      prevViewRef.current = currentView;
       return;
     }
-    zlogInfo(`switch view='${currentView}'`);
+    // Wave2：视图切换永带 from + params（杜绝裸 switch），sid 由 z-log 自动关联行为链。
+    const from = prevViewRef.current;
+    prevViewRef.current = currentView;
+    zlogInfo(`switch view='${currentView}' from='${from}' params={}`);
   }, [currentView]);
 
   // Theme Toggler
