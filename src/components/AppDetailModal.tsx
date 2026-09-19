@@ -6,7 +6,6 @@ import {
   Monitor,
   Clock,
   AlertTriangle,
-  Package,
   Trash2,
   PlusCircle,
   RotateCcw,
@@ -14,7 +13,6 @@ import {
   CheckCircle2,
   Shield,
   ShieldCheck,
-  Tag,
   KeyRound,
   ChevronUp,
   ChevronDown,
@@ -120,7 +118,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   // FR-7: GitHub 标星态（仅登录可见；后端未就绪时一律按未标星降级）
   const [isStarred, setIsStarred] = useState(false);
   const [isStarring, setIsStarring] = useState(false);
-  // FR-8.3: 所有权校验码提交态（MVP：README / z-store.toml 子串命中即通过）
+  // FR-8.3: 所有权校验码提交态（MVP：README 子串命中即通过）
   const [verifyCode, setVerifyCode] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
   const [showVerifySection, setShowVerifySection] = useState(false);
@@ -189,7 +187,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
         setShowVerifySection(false);
         if (onRefresh) await onRefresh(app.id);
       } else {
-        notifyToast('校验码未命中：请确认已将其写入仓库 README 或 z-store.toml', 'error');
+        notifyToast('校验码未命中：请确认已将其写入仓库 README', 'error');
       }
     } catch (e) {
       notifyToast(`验证失败: ${String(e)}`, 'error');
@@ -776,85 +774,6 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
 
         {/* Modal Body */}
         <div className="modal-body">
-          {/* FR-8: z-store.toml 收录库扩展元数据（全字段可选，缺失时整块隐藏） */}
-          {app.store_meta && (
-            <div
-              className="settings-group"
-              style={{ marginBottom: '12px' }}
-              title={app.is_verified ? '仓库校验码已验证 · 收录库认证' : undefined}
-            >
-              <div className="settings-group-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Package size={14} style={{ color: 'var(--brand-primary)' }} />
-                <span>收录库元数据显示</span>
-                {app.is_verified && (
-                  <span
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      fontSize: '11px',
-                      fontWeight: 600,
-                      color: 'var(--brand-primary)',
-                      background: 'var(--brand-subtle)',
-                      border: '1px solid var(--border-nav-active)',
-                      borderRadius: '10px',
-                      padding: '1px 8px',
-                    }}
-                    title="仓库校验码已验证 · 收录库认证"
-                  >
-                    <ShieldCheck size={11} />
-                    <span>所有权勋章</span>
-                  </span>
-                )}
-              </div>
-              {(app.store_meta.display_name || app.store_meta.summary) && (
-                <div style={{ fontSize: '13px', lineHeight: '1.6', marginBottom: '8px' }}>
-                  {app.store_meta.display_name && (
-                    <div style={{ fontWeight: 700, fontSize: '14px' }}>{app.store_meta.display_name}</div>
-                  )}
-                  {app.store_meta.summary && (
-                    <div style={{ color: 'var(--text-secondary)' }}>{app.store_meta.summary}</div>
-                  )}
-                </div>
-              )}
-              {Array.isArray(app.store_meta.aliases) && app.store_meta.aliases.length > 0 && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
-                  {app.store_meta.aliases.map((alias) => (
-                    <span key={alias} className="modal-tag" title={`中文别名：${alias}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                      <Tag size={11} />
-                      <span>{alias}</span>
-                    </span>
-                  ))}
-                </div>
-              )}
-              {Array.isArray(app.store_meta.screenshots) && app.store_meta.screenshots.length > 0 && (
-                <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
-                  {app.store_meta.screenshots.map((src) => (
-                    <img
-                      key={src}
-                      src={src}
-                      alt={`${app.name} 应用截图`}
-                      loading="lazy"
-                      style={{
-                        height: '96px',
-                        borderRadius: '8px',
-                        border: '1px solid var(--border-acrylic)',
-                        cursor: 'pointer',
-                        flexShrink: 0,
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        api.openUrl(src);
-                      }}
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = 'none';
-                      }}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
           {/* Action Card */}
           <div className="install-action-bar">
             <div className="install-action-left">
@@ -1334,9 +1253,9 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   </div>
                   <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', lineHeight: '1.6' }}>
                     {isOwner ? (
-                      <span>检测到您当前登录账号与仓库作者一致。请将自定义校验码写入仓库 <code>README.md</code> 或根目录 <code>z-store.toml</code>，提交比对通过后即可为该项目点亮 Fluent 蓝色认证勋章。</span>
+                      <span>检测到您当前登录账号与仓库作者一致。请将自定义校验码写入仓库 <code>README.md</code>，提交比对通过后即可为该项目点亮 Fluent 蓝色认证勋章。</span>
                     ) : (
-                      <span>仅限开源项目原作者操作：请将自定义校验码写入仓库 <code>README.md</code> 或根目录 <code>z-store.toml</code>，提交比对通过后颁发 Fluent 蓝色所有权勋章。</span>
+                      <span>仅限开源项目原作者操作：请将自定义校验码写入仓库 <code>README.md</code>，提交比对通过后颁发 Fluent 蓝色所有权勋章。</span>
                     )}
                   </div>
                   <div style={{ display: 'flex', gap: '8px' }}>
