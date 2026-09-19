@@ -172,8 +172,10 @@ pub async fn get_app_details_impl(
     id: String,
     force_refresh: Option<bool>,
 ) -> Result<AppDetail, String> {
-    // ADR-0010：入站 id 统一归一化为 canonical（小写 owner/repo / forge 前缀坐标）
-    let clean_id = crate::forge::canonical_app_id(&id);
+    // ADR-0010：入站 id 统一归一化为 canonical（小写 owner/repo / forge 前缀坐标）；未知标识直接拒绝
+    let Some(clean_id) = crate::forge::canonical_app_id(&id) else {
+        return Err(format!("无法识别的应用标识: {}", id));
+    };
     let is_force = force_refresh.unwrap_or(false);
     let start = std::time::Instant::now();
     // db_save 日志关联用：复用进程级 sid；req 复用线程级（空则新建，仅日志用途，不改并发）。
@@ -269,7 +271,7 @@ pub async fn get_app_details_impl(
                 forge: Some(coord.forge.as_str().to_string()),
                 forge_host: Some(coord.host),
                 cached_at: Some(now),
-                is_stale_fallback: None,
+                is_stale: None,
                 homepage: repo_info.homepage.clone(),
                 platforms: vec!["windows".to_string()],
             };
@@ -318,7 +320,7 @@ pub async fn get_app_details_impl(
                 if let Ok(db) = state.db.lock() {
                     if let Ok(Some(mut fallback)) = db.get_cached_app_detail_fallback(&clean_id) {
                         fallback.id = clean_id.clone();
-                        fallback.is_stale_fallback = Some(true);
+                        fallback.is_stale = Some(true);
                         log::debug!(
                             "fetch detail fallback id={} cache=stale elapsed_ms={}",
                             clean_id,
@@ -444,7 +446,7 @@ pub async fn get_app_details_impl(
             if let Ok(db) = state.db.lock() {
                 if let Ok(Some(mut fallback_detail)) = db.get_cached_app_detail_fallback(&clean_id) {
                     fallback_detail.id = clean_id.clone();
-                    fallback_detail.is_stale_fallback = Some(true);
+                    fallback_detail.is_stale = Some(true);
                     log::debug!(
                         "fetch app detail fallback id={} from=cache:stale elapsed_ms={}",
                         clean_id,

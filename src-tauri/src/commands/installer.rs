@@ -65,8 +65,10 @@ pub async fn install_app(
     asset_name: Option<String>,
     custom_install_dir: Option<String>,
 ) -> Result<InstalledApp, String> {
-    // ADR-0010：深链安装可能传入 URL/前缀形态，入站归一化后全程使用 canonical id
-    let app_id = crate::forge::canonical_app_id(&app_id);
+    // ADR-0010：深链安装可能传入 URL/前缀形态，入站归一化后全程使用 canonical id；未知标识直接拒绝
+    let Some(app_id) = crate::forge::canonical_app_id(&app_id) else {
+        return Err(format!("无法识别的应用标识: {}", app_id));
+    };
     // 读取用户配置（自定义下载路径、绿色便携根路径）
     let (custom_download_dir, custom_portable_dir) = {
         if let Ok(db) = state.db.lock() {
@@ -267,7 +269,9 @@ pub async fn install_app(
 
 #[tauri::command]
 pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
-    let app_id = crate::forge::canonical_app_id(&app_id);
+    let Some(app_id) = crate::forge::canonical_app_id(&app_id) else {
+        return Err(format!("无法识别的应用标识: {}", app_id));
+    };
     log::info!("uninstall start sid={} id={}", crate::z_log::new_session_id(), app_id);
     let installed_app = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
@@ -396,7 +400,9 @@ pub fn unmanage_app(state: State<'_, AppState>, app_id: String) -> Result<bool, 
 
 #[tauri::command]
 pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
-    let app_id = crate::forge::canonical_app_id(&app_id);
+    let Some(app_id) = crate::forge::canonical_app_id(&app_id) else {
+        return Err(format!("无法识别的应用标识: {}", app_id));
+    };
     let installed_app_opt = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         db.get_installed_apps()

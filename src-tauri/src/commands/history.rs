@@ -10,7 +10,9 @@ pub fn get_favorites(state: State<'_, AppState>) -> Result<Vec<String>, String> 
 
 #[tauri::command]
 pub fn toggle_favorite(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
-    let app_id = crate::forge::canonical_app_id(&app_id);
+    let Some(app_id) = crate::forge::canonical_app_id(&app_id) else {
+        return Err(format!("无法识别的应用标识: {}", app_id));
+    };
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.toggle_favorite(&app_id).map_err(|e| e.to_string())
 }
@@ -41,7 +43,9 @@ pub fn remove_search_query(state: State<'_, AppState>, query: String) -> Result<
 
 #[tauri::command]
 pub fn record_app_view(state: State<'_, AppState>, app_id: String) -> Result<(), String> {
-    let app_id = crate::forge::canonical_app_id(&app_id);
+    let Some(app_id) = crate::forge::canonical_app_id(&app_id) else {
+        return Err(format!("无法识别的应用标识: {}", app_id));
+    };
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.record_app_view(&app_id).map_err(|e| e.to_string())
 }
@@ -71,18 +75,20 @@ pub fn clear_view_history(state: State<'_, AppState>) -> Result<(), String> {
 
 #[tauri::command]
 pub fn watch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
-    let id = crate::forge::canonical_app_id(&app_id);
-    if id.is_empty() {
-        return Err("应用 ID 不能为空".to_string());
-    }
+    let Some(id) = crate::forge::canonical_app_id(&app_id) else {
+        return Err(format!("无法识别的应用标识: {}", app_id));
+    };
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.watch_app(&id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn unwatch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
+    let Some(id) = crate::forge::canonical_app_id(&app_id) else {
+        return Err(format!("无法识别的应用标识: {}", app_id));
+    };
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.unwatch_app(&crate::forge::canonical_app_id(&app_id)).map_err(|e| e.to_string())
+    db.unwatch_app(&id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -116,7 +122,8 @@ pub fn import_user_data(
     let mut installed_skipped = 0usize;
 
     for id in &plan.favorites {
-        let id = crate::forge::canonical_app_id(id);
+        let id = crate::forge::canonical_app_id(id)
+            .ok_or_else(|| format!("无法识别的应用标识: {}", id))?;
         if installed.contains(&id) {
             installed_skipped += 1;
             continue;
@@ -126,7 +133,8 @@ pub fn import_user_data(
         }
     }
     for id in &plan.watched {
-        let id = crate::forge::canonical_app_id(id);
+        let id = crate::forge::canonical_app_id(id)
+            .ok_or_else(|| format!("无法识别的应用标识: {}", id))?;
         if installed.contains(&id) {
             installed_skipped += 1;
             continue;

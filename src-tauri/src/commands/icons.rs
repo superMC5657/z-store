@@ -134,12 +134,10 @@ pub async fn get_or_fetch_icon(
     let is_avatar = is_avatar_url(url_trimmed);
 
     // 1. 严格优先查找本地内部缓存！
-    // 缓存校验：
+    // 缓存校验（缺一即视为未命中，转网络重拉）：
     // a. 本地图片文件必须存在且非空；
-    // b. 数据库中记录的 remote_url 与当前请求的 url_trimmed 一致；
-    // c. 若数据库中尚无记录（例如老版本升级前遗留的历史缓存文件）：
-    //    若当前请求为头像，允许命中本地已有缓存并顺带入库；
-    //    若当前请求为已升级的官方独立图标（非头像），则视为旧版头像缓存过期，强制触发网络重新拉取！
+    // b. 数据库中必有该缓存键的记录，且记录的 remote_url 与当前请求的 url_trimmed 一致；
+    //    无记录或记录不一致时强制触发网络重新拉取并刷新入库。
     let db_cached_url = if !cache_key.is_empty() {
         state
             .db
@@ -154,7 +152,7 @@ pub async fn get_or_fetch_icon(
         if let Some(ref recorded_url) = db_cached_url {
             recorded_url.trim() == url_trimmed
         } else {
-            is_avatar
+            false
         }
     } else {
         false
@@ -164,11 +162,6 @@ pub async fn get_or_fetch_icon(
         if let Ok(meta) = std::fs::metadata(&cache_file) {
             if meta.len() > 0 {
                 if let Ok(bytes) = std::fs::read(&cache_file) {
-                    if db_cached_url.is_none() && !cache_key.is_empty() {
-                        if let Ok(db) = state.db.lock() {
-                            let _ = db.save_icon_cache_url(&cache_key, url_trimmed);
-                        }
-                    }
                     let mime = detect_image_mime(&bytes);
                     let b64 = base64_encode(&bytes);
                     return Ok(format!("data:{};base64,{}", mime, b64));

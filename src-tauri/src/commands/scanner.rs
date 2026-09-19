@@ -55,7 +55,8 @@ pub fn import_matched_apps(
     let db = state.db.lock().map_err(|e| e.to_string())?;
 
     for req in apps {
-        let app_id = crate::forge::canonical_app_id(&req.app_id);
+        let app_id = crate::forge::canonical_app_id(&req.app_id)
+            .ok_or_else(|| format!("无法识别的应用标识: {}", req.app_id))?;
         let (icon, icon_bg) = if let Some(cat) = state.catalog.get_catalog_item(&app_id) {
             (Some(cat.icon), Some(cat.icon_bg))
         } else {
@@ -151,7 +152,9 @@ pub async fn get_detected_installed_app_ids(
 
 #[tauri::command]
 pub fn import_single_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
-    let app_id = crate::forge::canonical_app_id(&app_id);
+    let Some(app_id) = crate::forge::canonical_app_id(&app_id) else {
+        return Err(format!("无法识别的应用标识: {}", app_id));
+    };
     let cat = state
         .catalog
         .get_catalog_item(&app_id)
