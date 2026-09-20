@@ -206,13 +206,15 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 style={{ width: '100%', height: '100%', borderRadius: 'inherit' }}
               />
             </div>
-            <div className="hero-verified-badge" title="该开源项目已通过官方仓库认证">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                <polyline points="9 12 11 14 15 10" />
-              </svg>
-              <span>官方认证 · Verified</span>
-            </div>
+            {Boolean(heroApp.is_verified) && (
+              <div className="hero-verified-badge" title="该开源项目已通过官方仓库认证">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                  <polyline points="9 12 11 14 15 10" />
+                </svg>
+                <span>官方认证 · Verified</span>
+              </div>
+            )}
           </div>
         </div>
       )}

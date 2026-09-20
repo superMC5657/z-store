@@ -144,6 +144,20 @@ describe('baseline: HomeView slices the incoming apps prop as-is', () => {
     expect(gridText).toContain('无platformsApp');
     expect(gridText).not.toContain('RustDesk');
   });
+
+  it('does not render hero-verified-badge when heroApp.is_verified is false or missing', () => {
+    const unverifiedApp = makeApp({ id: 'custom-app', name: 'CustomApp', is_verified: false });
+    const { container } = renderHomeView([unverifiedApp]);
+    expect(container.querySelector('.hero-verified-badge')).toBeNull();
+  });
+
+  it('renders hero-verified-badge when heroApp.is_verified is true', () => {
+    const verifiedApp = makeApp({ id: 'verified-app', name: 'VerifiedApp', is_verified: true });
+    const { container } = renderHomeView([verifiedApp]);
+    const badge = container.querySelector('.hero-verified-badge');
+    expect(badge).toBeTruthy();
+    expect(badge?.textContent).toContain('官方认证 · Verified');
+  });
 });
 
 describe('task5: filter-empty state with .filter-empty-reset', () => {
