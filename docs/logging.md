@@ -42,6 +42,7 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
 - DEV 环境自动执行 `attachConsole()` 桥接；
 - 各级别方法（`zlogInfo / zlogWarn / zlogError / zlogDebug`）即时异步落盘；
 - 失败吞错，不影响任何业务逻辑。
+- `flush()` 有意为 no-op（直透无缓冲，保留仅为调用方兼容，无需手动调用）；初始化幂等由 `isInitialized` 守卫（非 `inited`）。
 
 ## 5. 脱敏（redact）
 
@@ -49,21 +50,21 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
   邮箱掩码；`code` / `device_code` / `user_code` / `api_key` 系（大小写不敏感，含 JSON `"key": "值"` 形态）掩码；
   `Bearer` / `Token` 后紧跟的 token 原文打码为 `***`；
   panic hook 入参先脱敏再记 `error`。
-- 前端同规则轻量脱敏（`redact()`）：`enqueue` 与 `error` 直透路径均先脱敏，避免密钥落盘。
+- 前端同规则轻量脱敏（`redact()`）：`zlogInfo / zlogWarn / zlogError / zlogDebug` 与 `onerror / unhandledrejection` 直透路径均先脱敏，避免密钥落盘。
 
-## 6. 保留与清理（prune 14d / 25MB，只碰 *.log）
+## 6. 保留与清理（prune 14d / 25MB，只碰 *.log，含 *.log.bak）
 
 `z_log::prune` 在 `setup` 中对 `app_log_dir` 执行：
 
 - `KEEP_DAYS = 14`：mtime 超 14 天删；
 - `MAX_TOTAL_BYTES = 25MB`：超量按 mtime 最旧先删；
-- **只碰 `*.log`**（按扩展名 `log` 大小写不敏感判定）：`.zip` 导出包、`.txt`、
+- **只碰 `*.log`（含 `*.log.bak` / `*.bak`）**（按扩展名 `log` / `bak` 大小写不敏感判定）：`.zip` 导出包、`.txt`、
   业务 SQLite（`z_store.db` 在 AppDataDir，与 LogDir 分离）一律不动。
 
 ## 7. 导出命令
 
 - `zlog_get_dir(app) -> String`：返回 LogDir 路径。
-- `zlog_export_bundle(app) -> String`：把 LogDir 内 `*.log` 打成
+- `zlog_export_bundle(app) -> String`：把 LogDir 内 `*.log`（含 `*.log.bak`）打成
   `zstore-logs-<unix_secs>.zip`（deflate，附 `README.txt` 记 identifier / keep_days /
   max_total_bytes），返回 bundle 路径；跳过自身与一切 `.zip`。
 
@@ -85,7 +86,7 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
 - `src-tauri/src/lib.rs::run`：首行 `install_panic_hook()` + `.plugin(z_log::init())` +
   `setup` 内 `prune` + commands 注册。
 - `src-tauri/src/main.rs`：首行 `install_panic_hook()`（与 `run` 双入口，`OnceLock` 幂等）。
-- `src/lib/z-log.ts` + `src/main.tsx`：前端 batch 入口。
+- `src/lib/z-log.ts` + `src/main.tsx`：前端直透入口（`initZLog / zlog* / flush / isInitialized`）。
 
 ## 10. 业务打点三层设计（定稿）
 

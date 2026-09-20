@@ -48,9 +48,10 @@
 - 基于倒排索引与启发式置信度打分算法（支持别名匹配与特征指纹），智能识别本地已装的开源软件（如 VLC、OBS、VS Code、Git 等），一键导入管理并接管自动更新。
 
 ### 4. 🛡️ 细粒度版本控制与安全防御
-- **版本控制中枢**：更新列表中可针对特定应用选择“跳过此版本”或“锁定当前版本（禁止自动更新）”，避免破坏性升级。
+- **版本控制中枢**：更新列表中可针对特定应用选择“跳过此版本”或“锁定当前版本（禁止自动更新）”，避免破坏性升级；版本新旧比较遵循 semver 语义。
 - **黑名单管理**：支持从推荐与搜索列表中隐藏不感兴趣的应用仓库。
 - **SHA-256 完整性校验**：下载后强制流式计算 SHA-256 并与官方清单比对，不符立即阻断。
+- **便携卸载隔离**：`remove_dir_all` 仅允许删除 Z-Store 自建的隔离目录，共享目录只做安全清理。
 
 ### 5. 🌟 开发者全景生态与 GitHub Star 同步
 - **开发者主页**：点击作者一键查看其名下所有的开源项目、开源许可协议与最新发布历史。
@@ -63,7 +64,7 @@
 - **轻量版本嗅探**：更新检查仅拉取版本号与 Release 说明，结合 ETag 304 极速响应，不下载大体积 README 或非必要元数据。
 
 ### 7. 🔗 系统级协议与状态指示
-- **深层链接唤起**：注册 `zstore://` URL Scheme，支持浏览器与外部命令行直接唤起客户端直达详情、安装或搜索。
+- **深层链接唤起**：注册 `zstore://` URL Scheme，支持浏览器与外部命令行直接唤起客户端直达详情、安装或搜索；安装类深链必须经过显式确认对话框，用户点确认后才开始安装。
 - **API 速率胶囊**：视窗右下角常驻 API 配额指示器（Rate Limit Pill），动态告警剩余配额。
 - **GitHub 账号胶囊**：侧栏底部常驻账号入口（`Account Capsule`），未登录状态下展示登录入口，登录后展示用户头像与用户名，点击直达设置中心账号卡片。
 
@@ -74,18 +75,21 @@
 ### 9. ⚙️ 设置中心 5 组架构
 - 设置中心规范分为 5 个业务分组：`🖥️ 外观与显示`、`🔄 更新与提醒`、`👤 GitHub 账号与配额`、`🌐 网络与清单数据`、`💾 数据备份与恢复`。
 - 全量项目超参与默认配置收敛于 `src-tauri/config.toml` 单一真相源，确保前后端与引擎默认行为严格对齐。
+- **数据备份范围**：备份覆盖 14 个设置字段，`github_token`（PAT 凭据）刻意排除，永不经备份文件流转。
+- **更新频率选项**：`daily`（每 24 小时轮询）目前禁用（即将推出），仅 `startup` 可用。
+- **自定义清单源**：填写非官方同步源属于破坏性替换，需经过显式二次确认；留空即恢复官方默认流程。
 
 ---
 
 ## 🛠️ 架构与技术栈
 
 - **桌面底座**: Tauri 2.2 + Rust 1.77+
-- **前端界面**: React 19 + TypeScript 5.7 + Vite 6 + 原生 Fluent 2.0 CSS + Fluent 矢量图标体系 (`lucide-react`)
-- **本地数据库**: 嵌入式 SQLite (`rusqlite` bundled，维护 13 张核心表)
+- **前端界面**: React 19 + TypeScript 5.7 (strict) + Vite 6 + 原生 Fluent 2.0 CSS + Fluent 矢量图标体系 (`lucide-react`)
+- **本地数据库**: 嵌入式 SQLite (`rusqlite` bundled，WAL 模式，维护 13 张核心表)
 - **配置中枢**: 单一基线配置源（`src-tauri/config.toml`），结合编译期内置兜底与外部重载机制
-- **网络与下载**: `reqwest`（`json` / `stream` / `socks` 特性）+ ETag 条件缓存 + 并发镜像测速管道；自动继承系统代理与 TUN 模式
-- **桌面开发配置**: `pnpm tauri:dev`（基于 `src-tauri/tauri.dev.conf.json` 配置本地安全策略）
-- **安装引擎**: Windows MSI (`/qn`)、Setup EXE (`/S` / `/VERYSILENT`)、便携版 ZIP 自动解压与快捷方式生成、macOS (DMG/PKG) 及 Linux (deb/rpm/AppImage) 管道
+- **网络与下载**: `reqwest` 共享 Client（`json` / `stream` / `socks` 特性）+ `tokio` 异步流式下载 + ETag 条件缓存 + 并发镜像测速管道；自动继承系统代理与 TUN 模式
+- **桌面开发配置**: `pnpm tauri dev`（基于 `src-tauri/tauri.conf.json` 配置本地安全策略）
+- **安装引擎**: Windows MSI (`/qn`)、Setup EXE (`/S` / `/VERYSILENT`)、便携版 ZIP 自动解压与快捷方式生成（仅支持 `.zip`，不支持 `.7z`）、macOS (DMG/PKG) 及 Linux (deb/rpm/AppImage) 管道；Unix 卸载走 argv 直调，不经 `sh -c`
 
 ---
 
@@ -103,6 +107,7 @@
 | **ADR-0008: 出站代理与设置重构** | 出站代理 + OAuth 加固 + 设置 5 组 | **100% 已交付** | 系统代理透明捕获、OAuth 三级 Client ID、独立状态机、设置 5 组规范 ([ADR-0008](docs/adr/0008-outbound-proxy-oauth-hardening-and-settings-restructure.md)) |
 | **ADR-0009: 清单解耦与多端体系** | 独立生态仓库 + 多端 Identifiers | **100% 已交付** | 解耦至 `superMC5657/z-store-catalog`、原生多端标识符结构、设备与分类双维筛选、单一配置源 ([ADR-0009](docs/adr/0009-catalog-manifest-repository-decoupling.md)) |
 | **ADR-0010: 规范应用标识** | canonical id 全链路统一 | **100% 已交付** | 小写 `owner/repo` 全局唯一标识、入口统一归一化、纯粹单键索引 ([ADR-0010](docs/adr/0010-canonical-app-identifier.md)) |
+| **合并审查 28 项整改 (4938964)** | 安全加固与测试台补齐 | **100% 已交付** | 深链安装二次确认、便携卸载目录白名单、semver 版本比较、去 `.7z` 宣称；前端 18 文件/119 用例、`cargo test` 106 通过/3 忽略 |
 | **M1: 体验扩展与 PWA** | 移动适配与网页发现站 | **推进中** | Web/PWA 发现站规划、Android Shizuku 免 Root 安装预研 |
 
 ---
@@ -120,15 +125,16 @@
 # 1. 安装前端依赖
 pnpm install
 
-# 2. 运行自动化测试与前端类型检查
+# 2. 运行自动化测试（后端 106 通过/3 忽略，前端 18 文件/119 用例）与前端类型检查
 cargo test
+pnpm test
 pnpm build
 
 # 3. 启动前端浏览器开发预览
 pnpm dev
 
 # 4. 启动 Tauri 桌面完整应用
-pnpm tauri:dev
+pnpm tauri dev
 ```
 
 ### 构建打包
