@@ -2,13 +2,13 @@ use crate::models::{AppDetail, AppSummary, SyncCatalogResult};
 use crate::AppState;
 use tauri::State;
 
-/// Derive the platform list from release assets via `installer::classify_asset` OS labels.
+/// 通过 `installer::classify_asset` 的操作系统标签，从 Release 产物中推导支持的平台列表。
 ///
-/// Each asset filename is classified and its OS label collected (sorted, deduplicated;
-/// the `"all"` label means unclassifiable and is skipped).
-/// An empty derivation yields an explicitly empty vec — there is intentionally NO
-/// fallback to `["windows"]`, so Linux-only or Android-containing releases are never
-/// mislabeled. How `matchPlatformSet` treats a missing/empty list is out of scope.
+/// 对每个产物文件名进行分类并收集其 OS 标签（有序且去重；
+/// `"all"` 标签代表无法明确分类，予以跳过）。
+/// 若推导结果为空，则明确返回空向量 —— 此处特意不设置
+/// 回退到 `["windows"]` 的兜底，确保仅限 Linux 或包含 Android 的发布版本绝不会被错误标记。
+/// 前端 `matchPlatformSet` 如何处理缺失/空列表由前端规则决定。
 fn platforms_from_assets(assets: &[crate::models::ReleaseAsset]) -> Vec<String> {
     let mut set = std::collections::BTreeSet::new();
     for a in assets {

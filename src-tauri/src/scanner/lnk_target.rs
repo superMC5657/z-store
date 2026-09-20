@@ -107,14 +107,14 @@ mod resolver_lnk_tests {
     /// 旧代码返回 None，新代码应返回 Some。
     fn build_lnk_with_idlist_and_linkinfo(target: &str, id_list_size: usize) -> Vec<u8> {
         let mut data = vec![0u8; 76];
-        // ShellLinkHeader: HeaderSize + LinkCLSID + LinkFlags
+        // ShellLinkHeader 头部：HeaderSize + LinkCLSID + LinkFlags
         data[0x00..0x04].copy_from_slice(&76u32.to_le_bytes());
         let clsid: [u8; 16] = [
             0x01, 0x14, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x46,
         ];
         data[0x04..0x14].copy_from_slice(&clsid);
-        // HasLinkTargetIDList (0x01) | HasLinkInfo (0x02)
+        // 包含 LinkTargetIDList (0x01) 或包含 LinkInfo (0x02)
         data[0x14..0x18].copy_from_slice(&0x03u32.to_le_bytes());
 
         // LinkTargetIDList：u16 长度 + 变长 IDList（0xFF 填充，破坏固定偏移误读）

@@ -356,7 +356,7 @@ export interface ImportUserDataCounts {
   installed_skipped: number;
 }
 
-// P3-4: 客户端自更新契约（正式确立为产品需求，NOT slated for removal）。
+// P3-4: 客户端自更新契约（正式确立为产品需求，绝非待废弃项）。
 // 实现面：`src/components/ClientUpdateRow.tsx` 经 `@tauri-apps/plugin-updater`
 // 执行 check / downloadAndInstall；签名与更新源以 `src-tauri/tauri.conf.json`
 // `plugins.updater`（endpoints + pubkey）为准。此处仅做类型层面的加法声明，

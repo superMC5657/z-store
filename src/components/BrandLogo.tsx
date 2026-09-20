@@ -27,7 +27,7 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
       title={`Z-Store (${isDark ? '暗夜模式' : '明亮模式'})`}
     >
       {isDark ? (
-        // D-轻4: 晶透亚克力 (Dark Mode: Frosted Acrylic Translucent)
+        // D-轻4: 晶透亚克力（深色模式：磨砂半透亚克力）
         <svg
           viewBox="0 0 512 512"
           width="100%"
@@ -80,7 +80,7 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
           </g>
         </svg>
       ) : (
-        // D-轻1: 冰川浅蓝 (Light Mode: Glacier Light Azure)
+        // D-轻1: 冰川浅蓝（浅色模式：冰川蔚蓝）
         <svg
           viewBox="0 0 512 512"
           width="100%"

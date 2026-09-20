@@ -305,7 +305,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
         role="dialog"
         aria-modal="true"
       >
-        {/* Header Hero */}
+        {/* 顶部概览横幅 */}
         <div className="modal-header">
           <div className="modal-actions-header" style={{ position: 'absolute', top: '16px', right: '16px', display: 'flex', gap: '8px', zIndex: 10 }}>
             {onRefresh && (
@@ -590,9 +590,9 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
           </div>
         </div>
 
-        {/* Modal Body */}
+        {/* 弹窗主体内容区 */}
         <div className="modal-body">
-          {/* Action Card */}
+          {/* 操作交互卡片 */}
           <div className="install-action-bar">
             <div className="install-action-left">
               <div
@@ -922,7 +922,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
             </div>
           </div>
 
-          {/* All Assets Drawer */}
+          {/* 完整发布产物抽屉列表 */}
           {showAllAssets && (
             <div className="settings-group" style={{ marginBottom: 0 }}>
               <div className="settings-group-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1076,7 +1076,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
             </div>
           )}
 
-          {/* README Section */}
+          {/* 自述文档区块 */}
           <div className="readme-preview">
             {app.loadError ? (
               <div style={{ padding: '36px 20px', textAlign: 'center' }}>

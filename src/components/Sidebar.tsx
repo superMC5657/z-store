@@ -11,11 +11,11 @@ interface SidebarProps {
   hasUpdates: boolean;
   onOpenAccount: () => void;
   isCollapsed?: boolean;
-  /** Multi-select device-platform filter. Empty set is valid (empty-filter UI). */
+  /** 多选设备平台过滤器。空集合为有效状态（渲染空筛选提示界面）。 */
   selectedPlatforms?: Set<PlatformId>;
-  /** Toggle callback only — toggle logic lives in lib/platformFilter. */
+  /** 仅负责触发切换回调——切换运算逻辑统筹于 lib/platformFilter。 */
   onTogglePlatform?: (id: PlatformId) => void;
-  /** Optional per-platform app counts; accepted as prop, never computed here. */
+  /** 可选的各平台应用数量统计；由上层作为属性传入，本组件不自行计算。 */
   platformCounts?: Record<PlatformId, number>;
 }
 
@@ -28,13 +28,13 @@ interface NavItemConfig {
 }
 
 /**
- * Back-compat alias for the former local mirror. Single source of truth is
- * lib/platformFilter (PLATFORM_IDS + PLATFORM_META); labels stay identical.
+ * 历史本地镜像项的向后兼容别名。唯一定义源为 lib/platformFilter
+ * （PLATFORM_IDS + PLATFORM_META）；显示文案保持完全一致。
  */
 export const PLATFORM_FILTER_ITEMS: ReadonlyArray<{ id: PlatformId; label: string }> =
   PLATFORM_IDS.map((id) => ({ id, label: PLATFORM_META[id].label }));
 
-/** Render order. 设备平台 sits above 偏好与系统. */
+/** 渲染次序。「设备平台」分组位于「偏好与系统」之上。 */
 const NAV_GROUP_ORDER = ['发现与探索', '应用资产', '设备平台', '偏好与系统'] as const;
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -238,7 +238,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </React.Fragment>
       ))}
 
-      {/* Bottom GitHub Account Capsule */}
+      {/* 底部 GitHub 账号快捷入口胶囊 */}
       <div className="sidebar-footer">
         <button
           className="network-pill"

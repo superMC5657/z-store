@@ -1,9 +1,9 @@
 /**
- * Settings characterization (pre-extract guard for the useAppSettings split).
+ * 设置特征化测试（用于 useAppSettings 模块拆分前的防劣化保护）。
  *
- * Pins the persisted-settings apply contract before it moves into a hook:
- * backend `getSettings()` snapshot merges over defaults and drives
- * `data-theme` / `data-font-size` / `--font-scale` on <html>.
+ * 在抽取到独立的 Hook 之前锁定持久化设置应用契约：
+ * 后端 `getSettings()` 快照与默认设置合并，并驱动 <html> 上的
+ * `data-theme` / `data-font-size` / `--font-scale` 属性生效。
  */
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { cleanup, render, waitFor } from '@testing-library/react';

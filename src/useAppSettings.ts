@@ -3,10 +3,9 @@ import { AppSettings } from './types';
 import { api, DEFAULT_SETTINGS } from './services/api';
 
 /**
- * App-level appearance + persisted-settings concern.
- * Pure move of the theme/settings state, font-size/zoom appliers,
- * persisted-snapshot merge, system-theme follower and the generic
- * setting updater previously inline in App.tsx. No behavior change.
+ * 应用级外观表现与持久化设置 Hook。
+ * 纯粹提取原 App.tsx 内联的主题/设置状态、字号/缩放应用逻辑、
+ * 持久化快照合并、系统主题跟随以及通用设置更新器。无任何行为变更。
  */
 export function useAppSettings() {
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
@@ -59,7 +58,7 @@ export function useAppSettings() {
     }
     setSettings(merged);
 
-    // Apply theme
+    // 应用主题
     let currentTheme: 'light' | 'dark' = 'dark';
     if (merged.theme === 'light') {
       currentTheme = 'light';
@@ -72,10 +71,10 @@ export function useAppSettings() {
     setTheme(currentTheme);
     document.documentElement.setAttribute('data-theme', currentTheme);
 
-    // Apply font size
+    // 应用字号
     applyFontSize(merged.font_size);
 
-    // Apply UI zoom
+    // 应用界面缩放
     applyUiZoom(merged.ui_scale);
 
     if (merged.active_mirror) {
@@ -83,8 +82,7 @@ export function useAppSettings() {
     }
   };
 
-  // Initial theme from the system preference (the persisted snapshot
-  // loaded by App's initial fetch overrides it when it lands).
+  // 根据系统色彩偏好初始化主题（随后由 App 初始加载获取的持久化快照覆盖）
   useEffect(() => {
     const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
     const initialTheme = isDark ? 'dark' : 'light';
@@ -106,7 +104,7 @@ export function useAppSettings() {
     return () => mediaQuery.removeEventListener('change', handleChange);
   }, [settings.theme]);
 
-  // Theme Toggler
+  // 主题快速切换器
   const handleToggleTheme = () => {
     const next = theme === 'light' ? 'dark' : 'light';
     setTheme(next);
@@ -129,7 +127,7 @@ export function useAppSettings() {
     handleUpdateSetting('theme', t);
   };
 
-  // Generic Setting Updater
+  // 通用单项设置更新器
   const handleUpdateSetting = async <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
     await api.saveSetting(key, String(value));
@@ -154,7 +152,7 @@ export function useAppSettings() {
     }
   };
 
-  // Reset all settings to factory default
+  // 恢复所有设置至出厂默认值
   const handleResetSettings = async () => {
     await api.resetSettings();
     setSettings(DEFAULT_SETTINGS);

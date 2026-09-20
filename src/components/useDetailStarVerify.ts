@@ -3,10 +3,9 @@ import { api } from '../services/api';
 import { notifyToast } from '../utils/notify';
 
 /**
- * AppDetailModal star + ownership-verify concern (FR-7 / FR-8.3).
- * Pure move of the starred state, owner check, verify-code submit state
- * and their handlers previously inline in AppDetailModal.tsx.
- * No behavior change; prop surface of the modal is untouched.
+ * AppDetailModal 标星与所有权校验关注点 Hook（FR-7 / FR-8.3）。
+ * 纯粹提取原 AppDetailModal.tsx 内联的标星状态、所有者检测、校验码提交状态及对应处理器。
+ * 无任何行为变更；弹窗组件对外属性保持原样。
  */
 export function useDetailStarVerify(opts: {
   appId: string;

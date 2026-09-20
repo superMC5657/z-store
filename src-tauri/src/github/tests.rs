@@ -125,7 +125,7 @@ async fn test_sync_remote_catalog_local_file() {
     assert!(etag.is_some());
     assert!(etag.unwrap().contains("local-"));
 
-    // Test with same etag returns None (unmodified)
+    // 使用相同 etag 进行测试应返回 None（数据未变更）
     let etag_val = format!(
         "W/\"local-{}\"",
         std::fs::metadata(&target_path)

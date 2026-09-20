@@ -13,8 +13,7 @@ pub const SEARCH_SCORE_ALIAS_CONTAINS: i32 = 35;
 pub const SEARCH_SCORE_OWNER_OR_REPO_CONTAINS: i32 = 30;
 pub const SEARCH_SCORE_DESC_CONTAINS: i32 = 15;
 
-/// P3-3: true when `url` is the official default catalog source (empty is also
-/// treated as default by the caller, which resolves it before invoking sync).
+/// P3-3: 当 `url` 为官方默认软件源时返回 true（空字符串同样由调用方视为默认源，并在发起同步前进行解析）。
 fn is_default_catalog_source(url: &str) -> bool {
     let trimmed = url.trim();
     if trimmed.is_empty() {
@@ -106,11 +105,9 @@ impl CatalogService {
         url: &str,
         cached_etag: Option<&str>,
     ) -> Result<(Option<Vec<CatalogItem>>, Option<String>), String> {
-        // P3-3 trust friction: any non-default source silently replaces the trusted
-        // directory, so log provenance prominently here (Settings UI gates the change
-        // behind a destructive confirm). Default flow is unchanged.
-        // FUTURE (not built): allowlist of trusted catalog hosts + signature/manifest
-        // verification (e.g. signed catalog payload); no signature infra in this step.
+        // P3-3 信任冲突防范：任何非默认软件源都会静默替换受信任的软件目录，
+        // 因此在此处重点记录其来源（设置界面已在危险确认弹窗后方才放行变更）。默认流程保持不变。
+        // 未来演进（暂未实现）：受信任源域名白名单 + 签名/清单校验（如已签名的目录数据包）；本阶段暂无签名基础设施。
         if is_default_catalog_source(url) {
             log::info!(
                 "sync catalog official default source url='{}'",
@@ -458,7 +455,7 @@ mod tests {
         assert!(svc.get_repo_coordinates("does-not-exist").is_err());
     }
 
-    /// P3-3: default vs custom catalog source provenance check (sync log gate).
+    /// P3-3：默认源与自定义源来源检查（同步日志审计门禁）。
     #[test]
     fn test_is_default_catalog_source() {
         let default_url = crate::config::get_project_config()

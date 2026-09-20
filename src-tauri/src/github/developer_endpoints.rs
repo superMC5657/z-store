@@ -67,8 +67,8 @@ mod developer_endpoints_tests {
 
     #[test]
     fn test_release_endpoint_key_matches_updates_ep_format() {
-        // Cache key must equal the canonical release endpoint used by updates.rs/catalog.rs
-        // so the existing api_etag_cache table is shared with zero new schema.
+        // 缓存键必须与 updates.rs/catalog.rs 使用的规范化 release 接口保持一致，
+        // 从而实现无新增数据库架构直接复用既有的 api_etag_cache 数据表。
         let key = CatalogService::starred_release_endpoint("SomeOne/R1");
         assert_eq!(
             key,

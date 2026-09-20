@@ -1,14 +1,11 @@
 /**
- * Task 2 — Sidebar device-platform multi-select group.
+ * 任务 2 — 侧边栏设备平台多选分组测试。
  *
- * SECTION A (baseline characterization): pins the CURRENT group titles/order
- * rendered by src/components/Sidebar.tsx. Passes on unchanged code:
- *   发现与探索 (first) → 应用资产 → 偏好与系统 (last).
- * Written order-flexibly so it keeps passing after the new 设备平台 group
- * is inserted above 偏好与系统.
+ * 第一部分（基线特征化测试）：锁定 src/components/Sidebar.tsx 渲染的现有分组标题与顺序。
+ *   发现与探索（首个）→ 应用资产 → 偏好与系统（末尾）。
+ * 采用弹性顺序断言，确保在「偏好与系统」上方插入新的「设备平台」分组后依然通过。
  *
- * SECTION B (new multi-select spec): requires the 设备平台 group with 5
- * checkbox-semantics items. FAILS on unchanged code (no such group).
+ * 第二部分（多选新规范测试）：要求「设备平台」分组包含 5 个具备复选框语义的子项。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
@@ -86,7 +83,7 @@ describe('Sidebar: 设备平台 multi-select group', () => {
       expect(item.getAttribute('data-platform-id')).toBe(id);
       expect(item.getAttribute('aria-checked')).toBe('true');
     }
-    // counts reuse the existing nav-badge styling
+    // 计数复用现有的导航徽标样式
     expect(screen.getByText('12')).toBeTruthy();
     expect(screen.getByText('3')).toBeTruthy();
   });
@@ -190,7 +187,7 @@ describe('Sidebar: Decision B select-nothing (empty is valid, never falls back t
     });
     fireEvent.click(screen.getByRole('checkbox', { name: /Windows/ }));
     expect(onTogglePlatform).toHaveBeenCalledWith('windows');
-    // the committed next state is the empty Set (select-nothing), not a refusal
+    // 提交的下一状态为代表不选任何平台的空 Set，绝非拒绝操作
     expect(togglePlatformSet(parseSelectedPlatformArray(['windows']), 'windows').size).toBe(0);
   });
 });

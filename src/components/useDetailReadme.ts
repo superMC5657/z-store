@@ -27,10 +27,10 @@ export function preprocessGitHubAlerts(markdown: string): string {
 }
 
 /**
- * AppDetailModal README concern: alert preprocessing, sanitized HTML,
- * link-click routing and image-fallback handling.
- * Pure move of the readme block previously inline in AppDetailModal.tsx.
- * No behavior change; prop surface of the modal is untouched.
+ * AppDetailModal README 关注点 Hook：警示框预处理、HTML 净化清洗、
+ * 链接点击分流与图片回退兜底处理。
+ * 纯粹提取原 AppDetailModal.tsx 内联的 README 处理逻辑代码块。
+ * 无任何行为变更；弹窗组件对外属性保持原样。
  */
 export function useDetailReadme(opts: {
   readmeMarkdown: string;

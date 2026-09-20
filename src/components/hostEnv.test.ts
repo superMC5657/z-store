@@ -1,7 +1,6 @@
 /**
- * hostEnv characterization: pins the `navigator.userAgent` cascade
- * currently inline in AppDetailModal (currentOs/currentArch memos)
- * before it moves behind `detectHostOs`/`detectHostArch`.
+ * hostEnv 特征化测试：在将 AppDetailModal 内联的 currentOs/currentArch memos
+ * 移动至 `detectHostOs`/`detectHostArch` 之前，锁定其 `navigator.userAgent` 级联嗅探行为。
  */
 import { describe, expect, it } from 'vitest';
 import { detectHostArch, detectHostOs } from './hostEnv';

@@ -15,9 +15,9 @@ import { AppSummary } from '../types';
 
 interface HomeViewProps {
   /**
-   * Already platform-filtered by App (`platformFilteredApps`): every slice
-   * below executes on this array as-is. Never filter by platform in-page —
-   * the global device-platform selection lives in App/Sidebar.
+   * 已由 App 完成平台预过滤（`platformFilteredApps`）：
+   * 下方的每个分片均直接基于此数组运行。切勿在页面内重复进行平台过滤——
+   * 全局设备平台选择状态由 App/Sidebar 统筹维护。
    */
   apps: AppSummary[];
   installedIds: Set<string>;
@@ -32,25 +32,23 @@ interface HomeViewProps {
   onNavigateTrends: () => void;
   onClearRecentViews?: () => void;
   /**
-   * Seam for App to wire the global platform reset (Todo 7). When omitted,
-   * the reset button falls back to clearing the persisted selection and
-   * broadcasting `zstore:reset-platform-filter` on window.
+   * 由 App 接驳全局平台重置的扩展点。当未传入时，
+   * 重置按钮回退为直接清理持久化存储并在 window 上广播 `zstore:reset-platform-filter`。
    */
   onResetPlatformFilter?: () => void;
 }
 
 /**
- * Fallback reset when App has not wired `onResetPlatformFilter` yet:
- * drop the persisted selection (App's `loadSelectedPlatforms` falls back to
- * the full set on a missing key) and broadcast the intent for any listener.
- * Key string mirrors App.PLATFORM_FILTER_STORAGE_KEY; kept literal here to
- * avoid a view→App import cycle.
+ * 当 App 尚未接入 `onResetPlatformFilter` 时的兜底重置方案：
+ * 清理持久化存储（App 的 `loadSelectedPlatforms` 在缺少键时会回退至全选集合），
+ * 并向所有监听器广播重置意图。键名字符串与 App.PLATFORM_FILTER_STORAGE_KEY 一致；
+ * 此处保持字面量以避免 view 与 App 之间的循环引用。
  */
 function broadcastPlatformReset(): void {
   try {
     window.localStorage.removeItem('zstore:platform-filter:v1');
   } catch {
-    // ignore: throwing storage keeps the in-memory selection
+    // 忽略：存储抛错时保持内存中的选择
   }
   window.dispatchEvent(new CustomEvent('zstore:reset-platform-filter'));
 }
@@ -71,8 +69,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onResetPlatformFilter,
 }) => {
   if (apps.length === 0) {
-    // Filter-empty: the global device-platform selection excluded every app.
-    // Dedicated copy + reset affordance — never the search `owner/repo` guide.
+    // 筛选为空：全局设备平台筛选排除了所有应用。
+    // 专属文案与重置按钮——绝不复用搜索页的 `owner/repo` 引导文案。
     return (
       <div className="home-view">
         <div className="empty-state-card" style={{ marginTop: '40px' }}>
@@ -101,8 +99,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
     );
   }
 
-  // `apps` arrives pre-filtered: hero prefers rustdesk but only within the
-  // set — when rustdesk was filtered out, the first remaining app takes over.
+  // `apps` 传入时已完成预过滤：置顶优先展示 rustdesk，但仅限在当前结果集内；
+  // 当 rustdesk 被过滤掉时，由结果集中的首个应用接替置顶。
   const heroApp = apps.find((a) => a.id === 'rustdesk') || apps[0];
   // 排除已在官方置顶推荐（Hero Banner）中展示的应用，避免在下方精选列表中重复推荐
   const nonHeroApps = heroApp ? apps.filter((a) => a.id !== heroApp.id) : apps;
@@ -111,7 +109,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
   return (
     <div className="home-view view-entrance">
-      {/* Hero Acrylic Banner (PRD 5.1 & Section 3) */}
+      {/* 置顶亚克力横幅（PRD 5.1 与第 3 节规范） */}
       {heroApp && (
         <div
           className="hero-banner"
@@ -139,7 +137,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               {heroApp.description}
             </p>
 
-            {/* Meta Tags */}
+            {/* 元信息标签 */}
             <div className="hero-tags">
               <span className="app-tag app-tag-star">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="#eab308" stroke="#eab308" strokeWidth="1">
@@ -154,7 +152,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               )}
             </div>
 
-            {/* Actions */}
+            {/* 操作按钮组 */}
             <div className="hero-actions">
               <button
                 className={`btn-fluent ${installedIds.has(heroApp.id) ? 'btn-secondary' : 'btn-primary'}`}
@@ -219,7 +217,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </div>
       )}
 
-      {/* Recently Viewed Apps (Feature D) */}
+      {/* 最近浏览应用（功能 D） */}
       {recentlyViewedApps && recentlyViewedApps.length > 0 && (
         <div style={{ marginBottom: '28px' }}>
           <div className="section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -258,7 +256,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </div>
       )}
 
-      {/* Featured Grid */}
+      {/* 经典精选开源列表 */}
       {featuredApps.length > 0 && (
         <>
           <div className="section-header">
@@ -286,7 +284,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </>
       )}
 
-      {/* Discover All Grid */}
+      {/* 全部精选开源收录列表 */}
       {remainingApps.length > 0 && (
         <>
           <div className="section-header" style={{ marginTop: '28px' }}>

@@ -1,11 +1,11 @@
 /**
- * P0-1 deeplink silent-install RCE guard (real <App/> path).
+ * P0-1 深度链接静默安装 RCE 防护测试（真实 <App/> 链路）。
  *
- * `zstore://install/<owner>/<repo>` must NEVER start an install by itself:
- * it opens the app detail view plus an explicit confirmation dialog, and
- * installation starts only on the user's confirm click. The other four
- * deeplink branches (app_detail / search / developer_profile / open_view)
- * behave exactly as before.
+ * `zstore://install/<owner>/<repo>` 绝对不允许自行触发安装：
+ * 它必须打开应用详情视图并弹出显式确认弹窗，
+ * 仅在用户显式点击确认后方可启动安装。其余四种
+ * 深度链接分支（app_detail / search / developer_profile / open_view）
+ * 行为与此前完全保持一致。
  */
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -145,22 +145,22 @@ describe('P0-1 deeplink install guard (real App path)', () => {
       dispatchDeepLink('zstore://install/testowner/testrepo');
     });
 
-    // Gate: no install may start without an explicit confirm click.
+    // 关卡门控：未经显式点击确认，绝不可启动安装。
     const dialog = await screen.findByRole('dialog', { name: /确认安装/ });
     expect(dialog).toBeTruthy();
     expect(hooks.installApp).not.toHaveBeenCalled();
 
-    // Detail view opens alongside the dialog (reuse of handleOpenDetail path).
+    // 详情视图与弹窗同步打开（复用 handleOpenDetail 链路）。
     await waitFor(() => {
       expect(hooks.getAppDetailsImpl).toHaveBeenCalledWith('testowner/testrepo', false);
     });
 
-    // Dialog surfaces app name, repo/source and SHA-256 where available.
+    // 弹窗展示应用名称、仓库/来源以及 SHA-256（如可用）。
     expect(dialog.textContent).toContain('DeepLink Guard Fixture');
     expect(dialog.textContent).toContain('testowner/testrepo');
     expect(dialog.textContent).toContain('cd'.repeat(32));
 
-    // Only the explicit confirm click starts the install.
+    // 仅在显式点击确认按钮后才启动安装。
     fireEvent.click(screen.getByRole('button', { name: /确认安装/ }));
     await waitFor(() => {
       expect(hooks.installApp).toHaveBeenCalledTimes(1);

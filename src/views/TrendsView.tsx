@@ -12,20 +12,19 @@ interface TrendsViewProps {
   onQuickInstall: (id: string) => void;
   onToggleFavorite?: (id: string) => void;
   /**
-   * Global device-platform reset owned by App (restores the full device set).
-   * When omitted, the reset button clears the persisted selection and
-   * broadcasts `zstore:reset-platform-filter` on window (same fallback as
-   * HomeView; key string is literal to avoid a view→App import cycle).
+   * 由 App 维护的全局设备平台重置回调（恢复全量设备集合）。
+   * 当未传入时，重置按钮会清理持久化存储并在 window 上广播
+   * `zstore:reset-platform-filter`（兜底方案与 HomeView 一致；保持字面量以避免 view 与 App 循环引用）。
    */
   onResetPlatformFilter?: () => void;
 }
 
-/** Reset path when App has not wired `onResetPlatformFilter`. */
+/** 当 App 尚未接入 `onResetPlatformFilter` 时的兜底重置路径。 */
 function broadcastPlatformReset(): void {
   try {
     window.localStorage.removeItem('zstore:platform-filter:v1');
   } catch {
-    // ignore: throwing storage keeps the in-memory selection
+    // 忽略：存储抛错时保持内存中的选择
   }
   window.dispatchEvent(new CustomEvent('zstore:reset-platform-filter'));
 }
@@ -44,14 +43,11 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
 }) => {
   const [timeRange, setTimeRange] = useState<TimeRange>('week');
 
-  // Task 6 (device-platform global filter): `apps` arrives PRE-FILTERED from
-  // App.platformFilteredApps. Sort + rank #1..N purely within the received
-  // set — ranks are recomputed, never preserved — and do NO in-page platform
-  // filtering here.
-  // Static-snapshot sorts: `apps` comes from the static catalog.json snapshot
-  // (fields: stars/forks only — no timestamps, no deltas). The 'day' /
-  // 'week' / 'month' / 'all' keys are legacy sort-preset names only and imply
-  // no time window or momentum.
+  // 任务 6（设备平台全局过滤）：`apps` 传入时已由 App.platformFilteredApps 预过滤。
+  // 在接收到的集合内部纯粹进行排序并重新计算名次 #1..N（名次实时重算，不予保留），
+  // 本视图内绝不重复做任何平台过滤。
+  // 静态快照排序：`apps` 源自静态 catalog.json 快照（仅有 stars/forks 字段，无时间戳或增量）。
+  // 'day' / 'week' / 'month' / 'all' 仅为历史遗留的排序预设名称，不代表实际时间窗口或增长趋势。
   const sortedApps = useMemo(() => {
     const list = [...apps];
     switch (timeRange) {

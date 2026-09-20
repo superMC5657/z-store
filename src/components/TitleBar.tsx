@@ -38,7 +38,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
       const history = await api.getSearchHistory();
       setSearchHistory(history);
     } catch {
-      // ignore
+      // 忽略错误
     }
   };
 
@@ -47,7 +47,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
       const tokens = await api.getHostTokens();
       setHostTokens(tokens);
     } catch {
-      // ignore
+      // 忽略错误
     }
   };
 
@@ -107,7 +107,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
     };
   }, []);
 
-  // Close dropdown on click outside
+  // 点击外部区域时关闭下拉面板
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (searchBoxRef.current && !searchBoxRef.current.contains(e.target as Node)) {
@@ -165,7 +165,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
       await api.clearSearchHistory();
       setSearchHistory([]);
     } catch {
-      // ignore
+      // 忽略错误
     }
   };
 
@@ -175,7 +175,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
       await api.removeSearchQuery(item);
       setSearchHistory((prev) => prev.filter((x) => x !== item));
     } catch {
-      // ignore
+      // 忽略错误
     }
   };
 
@@ -184,7 +184,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
       const { getCurrentWindow } = await import('@tauri-apps/api/window');
       await getCurrentWindow().minimize();
     } catch {
-      // Browser preview mode
+      // 纯浏览器预览模式
     }
   };
 
@@ -194,7 +194,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
       await getCurrentWindow().toggleMaximize();
       setIsMaximized(await getCurrentWindow().isMaximized());
     } catch {
-      // Browser preview mode
+      // 纯浏览器预览模式
     }
   };
 
@@ -203,7 +203,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
       const { getCurrentWindow } = await import('@tauri-apps/api/window');
       await getCurrentWindow().close();
     } catch {
-      // Browser preview mode
+      // 纯浏览器预览模式
     }
   };
 
@@ -262,7 +262,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
             Ctrl K
           </kbd>
 
-          {/* Search History Dropdown Popover */}
+          {/* 搜索历史记录浮层气泡 */}
           {isDropdownOpen && searchHistory.length > 0 && !localQuery && (
             <div
               style={{
@@ -354,7 +354,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
       </div>
 
       <div className="titlebar-right">
-        {/* Rate Limit Indicator Pill (Feature E) */}
+        {/* 速率限制状态胶囊指示器（功能 E） */}
         {(() => {
           const ghEntry = hostTokens.find((t) => t.host.toLowerCase() === 'github.com');
           const hasRemaining =

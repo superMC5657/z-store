@@ -64,9 +64,8 @@ pub fn classify_asset(filename: &str) -> (AssetKind, &'static str, &'static str)
         };
         (AssetKind::PortableZip, zip_os, arch)
     } else if name_lower.ends_with(".7z") {
-        // P1-4: drop the `.7z` portable claim — extractor only opens
-        // `zip::ZipArchive`, so `.7z` maps to Other (unsupported),
-        // following the `.tar.gz` precedent below. No 7z dependency.
+        // P1-4：移除 `.7z` 文件的便携版识别声明 —— 解压器仅支持
+        // `zip::ZipArchive`，因此 `.7z` 按照下文 `.tar.gz` 的既有惯例归类为 Other（不支持）。不额外引入 7z 依赖。
         (AssetKind::Other, "all", "universal")
     } else if name_lower.ends_with(".tar.gz") || name_lower.ends_with(".tar.xz") {
         let tar_os = if name_lower.contains("darwin")
@@ -196,8 +195,8 @@ pub fn select_best_asset(
         .filter(|a| a.os == target_os || a.os == "all")
         .collect();
 
-    // P1-5 fail closed: empty OS-match with non-empty assets yields None —
-    // never fall back to cross-OS assets.
+    // P1-5 故障阻断：产物非空但操作系统匹配结果为空时返回 None ——
+    // 绝不可跨系统回退选择产物。
     if os_matches.is_empty() {
         log::debug!("selector decision none candidates={}", assets.len());
         return None;

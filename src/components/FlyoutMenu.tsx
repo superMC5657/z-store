@@ -27,8 +27,8 @@ export const FlyoutMenu: React.FC<FlyoutMenuProps> = ({
     const spaceBelow = window.innerHeight - parentRect.bottom;
     const spaceAbove = parentRect.top;
 
-    // A flyout menu is approximately 180px high
-    // If not enough room below (< 210px) and more room above, pop upwards!
+    // 浮出菜单高度约为 180px
+    // 若下方空间不足（< 210px）且上方空间更充裕，则向上弹出！
     if (spaceBelow < 210 && spaceAbove > spaceBelow) {
       setPlacement('top');
     } else {

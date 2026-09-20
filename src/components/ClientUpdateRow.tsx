@@ -14,7 +14,7 @@ type UpdatePhase =
 
 const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
-// P3-4 contract: 客户端自更新面（check/downloadAndInstall，配置见 tauri.conf.json plugins.updater，类型见 src/types/index.ts ClientUpdate*)。
+// P3-4 契约：客户端自更新面板（check/downloadAndInstall，配置见 tauri.conf.json plugins.updater，类型见 src/types/index.ts ClientUpdate*)。
 export const ClientUpdateRow: React.FC = () => {
   const [phase, setPhase] = useState<UpdatePhase>({ kind: 'idle' });
   const [updateHandle, setUpdateHandle] = useState<Update | null>(null);

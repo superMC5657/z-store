@@ -52,7 +52,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
     };
   }, [developer, isOpen]);
 
-  // Global Esc key
+  // 全局 Esc 快捷键监听
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
@@ -83,7 +83,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
         role="dialog"
         aria-modal="true"
       >
-        {/* Header Hero */}
+        {/* 顶部个人概览横幅 */}
         <div className="modal-header" style={{ position: 'relative', padding: '24px 28px' }}>
           <button
             className="modal-close-btn"
@@ -197,7 +197,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
           ) : null}
         </div>
 
-        {/* Modal Body: Repositories List */}
+        {/* 弹窗内容区：代码仓库列表 */}
         <div className="modal-body" style={{ padding: '24px 28px', maxHeight: '55vh', overflowY: 'auto' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <h4 style={{ margin: 0, fontSize: '15px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>

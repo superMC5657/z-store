@@ -416,7 +416,7 @@ mod developer_profile_tests {
             .await
             .unwrap();
         assert_eq!(profile.login, "someone");
-        // Must send If-None-Match on both endpoints (ETag conditional-request path).
+        // 必须在两个接口上均发送 If-None-Match 请求头（ETag 条件请求路径）。
         let seen = srv.seen_inm.lock().unwrap();
         assert_eq!(
             seen.get("/users/someone").cloned().flatten().as_deref(),
@@ -430,7 +430,7 @@ mod developer_profile_tests {
                 .as_deref(),
             Some("\"cached-repos-etag\"")
         );
-        // 200 must return fresh (etag, payload) tuples for the caller to persist via save_etag.
+        // 200 响应必须返回全新的 (etag, payload) 元组，供调用方通过 save_etag 进行持久化。
         assert_eq!(user_new.unwrap().0, "\"user-etag-1\"");
         assert_eq!(repos_new.unwrap().0, "\"repos-etag-1\"");
     }
@@ -475,7 +475,7 @@ mod developer_profile_tests {
             )
             .await
             .unwrap();
-        // 304 honored: cached payload wins, no fresh cache tuple to persist.
+        // 响应 304 时：沿用缓存载荷，无需持久化新的缓存元组。
         assert_eq!(profile.login, "someone");
         assert!(user_new.is_none());
         assert!(repos_new.is_none());

@@ -1,15 +1,12 @@
 /**
- * Platform allow-empty regression (real <App/> path).
+ * 平台筛选允许空集合回归测试（真实 <App/> 链路）。
  *
- * Empty platform selection is VALID and means empty list: the three
- * discovery pages already render their own filter-empty states for an
- * empty selection (matchPlatformSet matches nothing against an empty
- * set). There is no refusal toast — unchecking the last platform
- * commits the empty set and persists `[]`.
+ * 空平台选择为有效状态，代表空列表：三个发现页面均针对空选择渲染各自的筛选为空引导界面
+ * （matchPlatformSet 对空集合不匹配任何应用）。绝不会弹出拒绝操作的 Toast——
+ * 取消勾选最后一个平台会正常提交空集合并持久化 `[]`。
  *
- * Same-tick toggles still apply sequentially: the toggle lives inside
- * the `setSelectedPlatforms` functional updater, so each dispatch sees
- * the latest committed state. Sidebar stays dumb (callback-only).
+ * 同一 tick 内的多次切换仍顺序执行：切换逻辑位于 `setSelectedPlatforms` 函数式 updater 内部，
+ * 每次派发均能看到最新的提交状态。侧栏保持无状态（仅回调通知）。
  */
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
@@ -65,8 +62,8 @@ vi.mock('./services/api', () => {
 
 import { App, PLATFORM_FILTER_STORAGE_KEY } from './App';
 
-// Same-tick dispatches below use React.act directly (not via fireEvent), so
-// opt the jsdom env into act() explicitly to avoid the benign warning.
+// 下方的同一 tick 派发直接使用 React.act（而非通过 fireEvent），
+// 显式为 jsdom 环境启用 act() 以避免无害告警。
 (globalThis as Record<string, unknown>)['IS_REACT_ACT_ENVIRONMENT'] = true;
 
 afterEach(() => {
@@ -117,13 +114,13 @@ describe('platform allow-empty (real App + Sidebar path)', () => {
     render(<App />);
     expect(await screen.findAllByRole('checkbox')).toHaveLength(5);
     expect(checkedIds()).toEqual(['linux', 'windows']);
-    // No intermediate flush between the two clicks: both dispatches must
-    // chain on the latest state, not on the shared render-closure snapshot.
+    // 两次点击之间无中间渲染刷新：两次派发都必须链接在最新状态上，
+    // 而非依赖共享的渲染闭包快照。
     act(() => {
       screen.getByRole('checkbox', { name: /Windows/ }).click();
       screen.getByRole('checkbox', { name: /Linux/ }).click();
     });
-    // {windows,linux} -windows -> {linux}; -linux -> {} (empty is valid).
+    // {windows,linux} -windows -> {linux}; -linux -> {}（空选择有效）。
     expect(checkedIds()).toEqual([]);
     expect(window.localStorage.getItem(PLATFORM_FILTER_STORAGE_KEY)).toBe('[]');
   });
@@ -134,10 +131,10 @@ describe('platform allow-empty (real App + Sidebar path)', () => {
     expect(await screen.findAllByRole('checkbox')).toHaveLength(5);
     expect(checkedIds()).toEqual(['linux']);
     fireEvent.click(screen.getByRole('checkbox', { name: /Linux/ }));
-    // toggle off last -> selection becomes the empty Set (empty is valid) ...
+    // 取消勾选最后一项 -> 选择变为由空 Set 组成的有效状态 ...
     expect(checkedIds()).toEqual([]);
     expect(window.localStorage.getItem(PLATFORM_FILTER_STORAGE_KEY)).toBe('[]');
-    // ... and the discovery view renders its empty-filter affordance, not the full list
+    // ... 且发现视图渲染其筛选为空引导提示，绝非展示完整列表
     expect(document.querySelector('.filter-empty-reset')).toBeTruthy();
   });
 });

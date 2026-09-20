@@ -19,8 +19,8 @@ pub const ROTATION_KEEP_COUNT: usize = 5;
 
 /// 初始化 tauri-plugin-log v2。
 ///
-/// - release：只写 `LogDir`（Level::Info）
-/// - dev：`Stdout` + `LogDir` + `Webview`（Level::Debug）
+/// - Release 生产模式：只写 `LogDir`（Level::Info 级别）
+/// - Dev 开发模式：同时输出到 `Stdout` + `LogDir` + `Webview`（Level::Debug 级别）
 /// - 显式配置 5MB 轮转与本地时区，避免 40KB 静默删除与时区偏差
 /// - 降低 reqwest / hyper / tao / wry 等高噪音第三方库级别为 Warn
 /// - 统一将 webview 前端长路径 target 规整为简洁的 [ui]

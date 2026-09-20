@@ -1,10 +1,9 @@
 /**
- * P2-7 — batch-install button must never get stuck.
+ * P2-7 — 批量安装按钮绝不能处于永久卡住状态。
  *
- * Contract: `handleBatchInstallAll` awaits per-app installs; a single item
- * failure must NOT leave `isBatchInstalling` true forever. The button must
- * become live again and an error summary (with the failure count) must be
- * shown, mirroring the existing syncError pattern of `handleSyncStarred`.
+ * 契约规范：`handleBatchInstallAll` 依次等待每个应用安装；单个应用安装失败
+ * 绝不能导致 `isBatchInstalling` 永久停留在 true。按钮必须重新变为可用状态，
+ * 并展示错误汇总（包含失败数量），对齐 `handleSyncStarred` 现有的 syncError 模式。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -71,19 +70,19 @@ describe('P2-7: batch install survives a single item failure', () => {
     const batchBtn = await screen.findByText('一键批量装机');
     fireEvent.click(batchBtn.closest('button') as HTMLButtonElement);
 
-    // Both items must be attempted despite the first one failing.
+    // 尽管第一项安装失败，两项均必须被尝试执行。
     await waitFor(() => expect(onQuickInstall).toHaveBeenCalledTimes(2));
     expect(onQuickInstall).toHaveBeenNthCalledWith(1, 'owner/app-a');
     expect(onQuickInstall).toHaveBeenNthCalledWith(2, 'owner/app-b');
 
-    // Button must be live again (not stuck on 批量安装中...).
+    // 按钮必须重新恢复可用状态（不应停留在“批量安装中...”）。
     await waitFor(() => {
       const btn = screen.getByText('一键批量装机').closest('button') as HTMLButtonElement;
       expect(btn.disabled).toBe(false);
     });
     expect(screen.queryByText('批量安装中...')).toBeNull();
 
-    // Error summary with the failure count must be shown.
+    // 必须展示包含失败数量的错误汇总提示。
     await waitFor(() => expect(screen.getByText(/1\/2.*失败|失败.*1\/2/)).not.toBeNull());
   });
 });

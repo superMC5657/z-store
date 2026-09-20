@@ -309,7 +309,7 @@ pub(crate) mod test_support {
         pub(crate) reason: &'static str,
         pub(crate) etag: Option<String>,
         pub(crate) body: String,
-        /// If set, reply 304 when request If-None-Match equals this value.
+        /// 若设置，当请求中的 If-None-Match 等于该值时响应 304。
         pub(crate) honor_inm: Option<String>,
     }
 
@@ -430,8 +430,7 @@ pub(crate) mod test_support {
         ])
         .to_string()
     }
-    // Silence dead-code warnings for the shared mock helper when only a
-    // subset of tests runs.
+    // 当仅运行部分单测时，抑制共享 mock 辅助函数的 dead-code 告警。
     #[allow(dead_code)]
     fn _mock_helper_used() {
         let _ = hits_of;

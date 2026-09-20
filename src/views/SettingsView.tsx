@@ -86,7 +86,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [isCatalogSourceConfirming, setIsCatalogSourceConfirming] = useState(false);
   const [isResetConfirming, setIsResetConfirming] = useState(false);
 
-  // Dynamic Animation & Micro-Feedback State
+  // 动态动效与微交互状态
   const [activeNotice, setActiveNotice] = useState<{ key: string; text: string } | null>(null);
   const [highlightRow, setHighlightRow] = useState<string | null>(null);
   const [isResetWave, setIsResetWave] = useState(false);
@@ -244,9 +244,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setTimeout(() => setIsResetWave(false), 1400);
   };
 
-  // P3-3 trust friction: switching to a non-default (custom) catalog source
-  // replaces the trusted directory, so it requires an explicit destructive
-  // confirm. Saving empty (= official default flow) applies immediately.
+  // P3-3 信任阻尼：切换至非默认（自定义）收录源将替换受信任的目录，
+  // 属于敏感破坏性操作，必须经过二次显式确认。保存为空值（即恢复官方默认源流）立即生效。
   const pendingCatalogUrl = catalogSourceUrl.trim();
   const isCustomCatalogSourceChange =
     pendingCatalogUrl.length > 0 && pendingCatalogUrl !== (settings.catalog_source_url || '').trim();
@@ -525,7 +524,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       triggerChangeFeedback('download_dir', `✓ 下载路径已设置为: ${picked}`);
                     }
                   } catch {
-                    /* user cancelled folder picker */
+                    /* 用户取消了文件夹选择器 */
                   }
                 }}
               >
@@ -595,7 +594,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       triggerChangeFeedback('portable_dir', `✓ 便携版解压路径已设置为: ${picked}`);
                     }
                   } catch {
-                    /* user cancelled folder picker */
+                    /* 用户取消了文件夹选择器 */
                   }
                 }}
               >
@@ -853,7 +852,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     triggerChangeFeedback('catalog_source', '✓ 已恢复官方默认收录源');
                     setTimeout(() => setCatalogUrlSaved(false), 2500);
                   } catch {
-                    /* reset failed silently */
+                    /* 重置静默失败 */
                   }
                 }}
               >

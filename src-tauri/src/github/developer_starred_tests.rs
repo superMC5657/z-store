@@ -71,7 +71,7 @@ mod developer_starred_tests {
             .unwrap();
         assert!(r1.has_releases);
         assert_eq!(r1.latest_release_tag.as_deref(), Some("v9.9.9"));
-        // API failure (404) preserves old behavior: false + no tag, no panic.
+        // API 请求失败 (404) 时保持原有行为：返回 false 且无 tag，不触发 panic。
         let r2 = result
             .other_repos
             .iter()
@@ -79,7 +79,7 @@ mod developer_starred_tests {
             .unwrap();
         assert!(!r2.has_releases);
         assert!(r2.latest_release_tag.is_none());
-        // Fresh 200 populates cache-first map for cheap re-syncs.
+        // 全新的 200 响应填充缓存优先映射表，加速后续的低成本重新同步。
         let key = CatalogService::starred_release_endpoint("o1/r1");
         let entry = cache.get(&key).unwrap();
         assert_eq!(entry.0.as_deref(), Some("\"rel-etag-1\""));
@@ -130,8 +130,7 @@ mod developer_starred_tests {
                         }
                     }
                     let body = if path.starts_with("/repos/") {
-                        // If cache-first works this must never fire; return 500 to
-                        // prove cached data (not network) decided the outcome.
+                        // 若“缓存优先”机制正常工作，此处绝不会被触发；若触发则返回 500 以证明是缓存数据（而非网络请求）决定了结果。
                         hits_c.fetch_add(1, Ordering::SeqCst);
                         "boom".to_string()
                     } else {
@@ -250,7 +249,7 @@ mod developer_starred_tests {
                 });
             }
         });
-        // Give the mock a moment to bind before the client fires.
+        // 客户端发起请求前，给予 mock 服务短暂的端口绑定就绪时间。
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let svc = test_service();
         let mut cache: HashMap<String, (Option<String>, Option<String>)> = HashMap::new();
@@ -263,7 +262,7 @@ mod developer_starred_tests {
             release_hits.load(Ordering::SeqCst) <= super::STARRED_RELEASE_ENRICH_LIMIT,
             "quota guard: release lookups capped at STARRED_RELEASE_ENRICH_LIMIT"
         );
-        // Beyond-cap repos keep old behavior (false, installable-unknown) without network.
+        // 超出上限的仓库保持原有行为（false，安装状态未知），不再发起网络请求。
         let enriched = result.other_repos.iter().filter(|r| r.has_releases).count();
         assert!(enriched <= super::STARRED_RELEASE_ENRICH_LIMIT);
     }

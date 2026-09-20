@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn test_repository_url_parser() {
-    // 1. Web URL: Codeberg
+    // 1. 网页 URL：Codeberg
     let cb = RepositoryUrlParser::parse("https://codeberg.org/FreeTube/FreeTube").unwrap();
     assert_eq!(cb.forge, ForgeType::Codeberg);
     assert_eq!(cb.host, "codeberg.org");
@@ -10,7 +10,7 @@ fn test_repository_url_parser() {
     assert_eq!(cb.repo, "FreeTube");
     assert_eq!(cb.to_app_id(), "codeberg:FreeTube/FreeTube");
 
-    // 2. Web URL: GitHub with .git
+    // 2. 网页 URL：包含 .git 后缀的 GitHub 仓库
     let gh = RepositoryUrlParser::parse("https://github.com/localsend/localsend.git").unwrap();
     assert_eq!(gh.forge, ForgeType::GitHub);
     assert_eq!(gh.host, "github.com");
@@ -18,7 +18,7 @@ fn test_repository_url_parser() {
     assert_eq!(gh.repo, "localsend");
     assert_eq!(gh.to_app_id(), "localsend/localsend");
 
-    // 3. Web URL: 自建 Gitea / Forgejo 实例
+    // 3. 网页 URL：自建 Gitea / Forgejo 实例
     let custom = RepositoryUrlParser::parse("https://git.disroot.org/user/my-app/").unwrap();
     assert_eq!(custom.forge, ForgeType::Gitea);
     assert_eq!(custom.host, "git.disroot.org");
@@ -26,20 +26,20 @@ fn test_repository_url_parser() {
     assert_eq!(custom.repo, "my-app");
     assert_eq!(custom.to_app_id(), "gitea:git.disroot.org/user/my-app");
 
-    // 4. 短语法: codeberg:owner/repo
+    // 4. 短语法：codeberg:owner/repo
     let cb_short = RepositoryUrlParser::parse("codeberg:author/repo").unwrap();
     assert_eq!(cb_short.forge, ForgeType::Codeberg);
     assert_eq!(cb_short.owner, "author");
     assert_eq!(cb_short.repo, "repo");
 
-    // 5. 传统 owner/repo
+    // 5. 传统语法：owner/repo
     let classic = RepositoryUrlParser::parse("rustdesk/rustdesk").unwrap();
     assert_eq!(classic.forge, ForgeType::GitHub);
     assert_eq!(classic.owner, "rustdesk");
     assert_eq!(classic.repo, "rustdesk");
     assert_eq!(classic.to_app_id(), "rustdesk/rustdesk");
 
-    // 6. Web URL: GitLab
+    // 6. 网页 URL：GitLab
     let gl = RepositoryUrlParser::parse("https://gitlab.com/inkscape/inkscape").unwrap();
     assert_eq!(gl.forge, ForgeType::GitLab);
     assert_eq!(gl.host, "gitlab.com");
@@ -47,7 +47,7 @@ fn test_repository_url_parser() {
     assert_eq!(gl.repo, "inkscape");
     assert_eq!(gl.to_app_id(), "gitlab:inkscape/inkscape");
 
-    // 7. 无效字符
+    // 7. 无效输入判定
     assert!(RepositoryUrlParser::parse("invalid query here").is_none());
     assert!(RepositoryUrlParser::parse("").is_none());
 }

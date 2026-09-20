@@ -67,11 +67,11 @@ fn test_settings_and_favorites() {
 fn test_update_rules_crud() {
     let db = Database::open_in_memory().unwrap();
 
-    // 1. Initial state: no rules
+    // 1. 初始状态：无规则
     assert!(db.get_rule("rustdesk").unwrap().is_none());
     assert_eq!(db.get_all_rules().unwrap().len(), 0);
 
-    // 2. Set skip version
+    // 2. 设置跳过版本
     db.set_skip_version("rustdesk", Some("v1.3.0")).unwrap();
     let rule = db.get_rule("rustdesk").unwrap().expect("rule exists");
     assert_eq!(rule.app_id, "rustdesk");
@@ -79,30 +79,30 @@ fn test_update_rules_crud() {
     assert!(!rule.is_frozen);
     assert!(!rule.is_hidden);
 
-    // 3. Freeze version
+    // 3. 锁定版本
     db.set_frozen_status("rustdesk", true).unwrap();
     let rule = db.get_rule("rustdesk").unwrap().unwrap();
     assert!(rule.is_frozen);
     assert_eq!(rule.skipped_version.as_deref(), Some("v1.3.0"));
 
-    // 4. Hide status
+    // 4. 隐藏状态
     db.set_hidden_status("rustdesk", true).unwrap();
     let rule = db.get_rule("rustdesk").unwrap().unwrap();
     assert!(rule.is_hidden);
 
-    // 5. Add second app rule
+    // 5. 添加第二款应用的规则
     db.set_skip_version("localsend", Some("v1.14.1")).unwrap();
     let all = db.get_all_rules().unwrap();
     assert_eq!(all.len(), 2);
 
-    // 6. Unfreeze and unhide
+    // 6. 解锁与取消隐藏
     db.set_frozen_status("rustdesk", false).unwrap();
     db.set_hidden_status("rustdesk", false).unwrap();
     let rule = db.get_rule("rustdesk").unwrap().unwrap();
     assert!(!rule.is_frozen);
     assert!(!rule.is_hidden);
 
-    // 7. Remove rule
+    // 7. 移除规则
     let removed = db.remove_rule("rustdesk").unwrap();
     assert!(removed);
     assert!(db.get_rule("rustdesk").unwrap().is_none());
@@ -113,10 +113,10 @@ fn test_update_rules_crud() {
 fn test_search_and_view_history_crud() {
     let db = Database::open_in_memory().unwrap();
 
-    // 1. Search history
+    // 1. 搜索历史
     db.record_search_query("rustdesk").unwrap();
     db.record_search_query("localsend").unwrap();
-    db.record_search_query("rustdesk").unwrap(); // upsert (should move to top)
+    db.record_search_query("rustdesk").unwrap(); // 插入或更新（应当移至顶部）
 
     let queries = db.get_search_history().unwrap();
     assert_eq!(queries.len(), 2);
@@ -131,10 +131,10 @@ fn test_search_and_view_history_crud() {
     db.clear_search_history().unwrap();
     assert!(db.get_search_history().unwrap().is_empty());
 
-    // 2. View history
+    // 2. 浏览历史
     db.record_app_view("rustdesk").unwrap();
     db.record_app_view("vlc").unwrap();
-    db.record_app_view("rustdesk").unwrap(); // upsert to top
+    db.record_app_view("rustdesk").unwrap(); // 插入或更新至顶部
 
     let app_ids = db.get_recently_viewed_app_ids().unwrap();
     assert_eq!(app_ids.len(), 2);
@@ -149,11 +149,11 @@ fn test_search_and_view_history_crud() {
 fn test_host_tokens_crud() {
     let db = Database::open_in_memory().unwrap();
 
-    // 1. Initially empty
+    // 1. 初始状态为空
     let tokens = db.get_host_tokens().unwrap();
     assert!(tokens.is_empty());
 
-    // 2. Set token
+    // 2. 设置令牌
     db.set_host_token("codeberg.org", "cb_token_123").unwrap();
     db.set_host_token("github.com", "gh_token_456").unwrap();
 
@@ -162,19 +162,19 @@ fn test_host_tokens_crud() {
     assert_eq!(db.get_host_token("codeberg.org").unwrap().as_deref(), Some("cb_token_123"));
     assert_eq!(db.get_host_token("github.com").unwrap().as_deref(), Some("gh_token_456"));
 
-    // 3. Update rate limit
+    // 3. 更新速率限制
     db.update_host_rate_limit("codeberg.org", Some(2990), Some(3000), Some(1700000000)).unwrap();
     let tokens_after = db.get_host_tokens().unwrap();
     let cb = tokens_after.iter().find(|t| t.host == "codeberg.org").unwrap();
     assert_eq!(cb.rate_limit_remaining, Some(2990));
 
-    // 4. Remove token
+    // 4. 移除令牌
     let removed = db.remove_host_token("codeberg.org").unwrap();
     assert!(removed);
     assert!(db.get_host_token("codeberg.org").unwrap().is_none());
     assert_eq!(db.get_host_tokens().unwrap().len(), 1);
 
-    // 5. Update rate limit without prior token (Anonymous/Public host entry)
+    // 5. 在未配置前置令牌的情况下更新速率限制（匿名/公开主机记录）
     db.update_host_rate_limit("gitea.com", Some(55), Some(60), Some(1700000100)).unwrap();
     let tokens_new = db.get_host_tokens().unwrap();
     assert_eq!(tokens_new.len(), 2);
@@ -189,11 +189,11 @@ fn test_app_details_cache_crud() {
     let db = Database::open_in_memory().unwrap();
     db.clear_app_details_cache().unwrap();
 
-    // 1. Initial: empty
+    // 1. 初始状态：为空
     assert!(db.get_cached_app_detail("rustdesk", None).unwrap().is_none());
     assert!(db.get_cached_app_detail("github.com/rustdesk/rustdesk", None).unwrap().is_none());
 
-    // 2. Save detail
+    // 2. 保存详情缓存
     let detail = AppDetail {
         id: "rustdesk".to_string(),
         name: "RustDesk".to_string(),
@@ -222,7 +222,7 @@ fn test_app_details_cache_crud() {
 
     db.save_cached_app_detail("rustdesk/rustdesk", &detail).unwrap();
 
-    // 3. Hit via canonical id with TTL
+    // 3. 在 TTL 有效期内通过规范化 ID 命中缓存
     let cached_by_id = db
         .get_cached_app_detail("rustdesk/rustdesk", Some(1800))
         .unwrap()
@@ -238,20 +238,20 @@ fn test_app_details_cache_crud() {
         .unwrap()
         .is_none());
 
-    // 5. Test TTL expiration
-    // Using ttl = 0 means expired / must revalidate
+    // 5. 测试 TTL 过期机制
+    // 使用 ttl = 0 表示已过期 / 必须重新验证
     assert!(db
         .get_cached_app_detail("rustdesk/rustdesk", Some(0))
         .unwrap()
         .is_none());
-    // Even if expired, fallback retrieves the cached copy
+    // 即使过期，兜底回退查询依然能获取到缓存副本
     let fallback = db
         .get_cached_app_detail_fallback("rustdesk/rustdesk")
         .unwrap()
         .expect("fallback hit");
     assert_eq!(fallback.name, "RustDesk");
 
-    // 6. Test touch_cached_app_detail
+    // 6. 测试 touch_cached_app_detail 刷新缓存时间
     let fresh_now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -263,7 +263,7 @@ fn test_app_details_cache_crud() {
         .expect("touched hit");
     assert_eq!(touched.cached_at, Some(fresh_now));
 
-    // 7. Update
+    // 7. 更新缓存
     let mut updated_detail = detail.clone();
     updated_detail.latest_version = "v1.3.2".to_string();
     db.save_cached_app_detail("rustdesk/rustdesk", &updated_detail).unwrap();
@@ -273,7 +273,7 @@ fn test_app_details_cache_crud() {
         .unwrap();
     assert_eq!(cached_updated.latest_version, "v1.3.2");
 
-    // 8. Clear cache
+    // 8. 清除缓存
     db.clear_app_details_cache().unwrap();
     assert!(db.get_cached_app_detail("rustdesk/rustdesk", None).unwrap().is_none());
 }
@@ -281,13 +281,13 @@ fn test_app_details_cache_crud() {
 #[test]
 fn test_detail_cache_ttl_config_baseline() {
     let db = Database::open_in_memory().unwrap();
-    // 1. Without DB setting, returns config.toml baseline
+    // 1. 未设置数据库配置时，返回 config.toml 基线配置
     assert_eq!(
         db.get_detail_cache_ttl_minutes(),
         crate::config::get_project_config().cache.detail_ttl_minutes
     );
 
-    // 2. With DB setting, returns normalized setting
+    // 2. 存在数据库配置时，返回规范化后的设置值
     db.set_setting("detail_cache_ttl_minutes", "60").unwrap();
     assert_eq!(db.get_detail_cache_ttl_minutes(), 60);
 }

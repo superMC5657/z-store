@@ -27,9 +27,8 @@ interface CategoriesViewProps {
   onToggleFavorite: (id: string) => void;
   onToggleWatch?: (id: string) => void;
   /**
-   * Global device-platform filter reset owned by the caller (App).
-   * Required: the empty-state reset button always restores the full
-   * device set via App and returns to the category hall.
+   * 由调用方（App）维护的全局设备平台筛选重置回调。
+   * 必选属性：空状态重置按钮始终通过 App 恢复全量设备集合并返回分类大厅。
    */
   onResetPlatformFilter: () => void;
 }
@@ -61,9 +60,8 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
-  // Single-dimension category filtering over the incoming `apps` prop, which
-  // the caller (App) has already filtered by the global device-platform
-  // selection. This view MUST NOT apply any platform filtering of its own.
+  // 对传入的 `apps` 属性进行单维度分类过滤；
+  // 调用方（App）已按全局设备平台选择进行了预过滤。本视图绝不自行做二次平台过滤。
   const filteredApps = React.useMemo(() => {
     if (selectedCategory) {
       return apps.filter(

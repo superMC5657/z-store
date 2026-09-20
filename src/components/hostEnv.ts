@@ -1,8 +1,7 @@
 /**
- * Host environment detection for AppDetailModal asset matching.
- * Pure move of the duplicated `navigator.userAgent` cascade previously
- * inline as `currentOs`/`currentArch` memos (one helper per axis,
- * injectable UA for tests). No behavior change.
+ * 宿主系统环境嗅探工具，用于 AppDetailModal 安装包版本资产匹配。
+ * 纯粹提取原内联在 AppDetailModal.tsx 中作为 `currentOs`/`currentArch` memo 的
+ * 重复 `navigator.userAgent` 级联嗅探逻辑（每个维度独立辅助函数，测试可注入 UA）。无任何行为变更。
  */
 
 export type HostOs = 'windows' | 'macos' | 'linux';

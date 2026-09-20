@@ -1,13 +1,12 @@
 /**
- * Task 6 — TrendsView reranks AFTER the global platform filter.
+ * 任务 6 — TrendsView 在全局平台筛选生效后重新排名。
  *
- * Contract: `apps` arrives PRE-FILTERED from App.platformFilteredApps, so the
- * component only sorts the received set and recomputes ranks #1..N inside it
- * (never preserves original ranks), and renders a `.trends-empty` empty state
- * instead of a blank page when the filtered set is empty. No in-page platform
- * filtering.
+ * 约定：`apps` 从 App.platformFilteredApps 传入时已预先经过过滤，
+ * 因此组件只需对传入集合进行排序并在其内部重新计算 #1..N 名次
+ * （绝不保留原始名次），并在过滤结果为空时渲染 `.trends-empty` 空状态
+ * 而非空白页面。页面内部不再进行平台过滤。
  *
- * Shared fixture (same as Home/Categories siblings):
+ * 共享测试数据（与 Home/Categories 一致）：
  *   rustdesk → windows | 仅iosApp → ios | 无platformsApp → undefined (=windows)
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -42,15 +41,15 @@ function makeApp(overrides: Partial<AppSummary> & { id: string; name: string }):
   };
 }
 
-// Shared fixture: distinct week-scores so the full-select order is pinned.
+// 共享测试数据：设定区分度明显的周热度分数，锁定全选时的排序。
 const FIXTURE: AppSummary[] = [
   makeApp({ id: 'rustdesk', name: 'RustDesk', platforms: ['windows'], stars: 90000, forks: 10000 }),
   makeApp({ id: 'ios-only-app', name: '仅iosApp', platforms: ['ios'], stars: 50000, forks: 5000 }),
-  // platforms: undefined counts as windows-only (same rule as CategoriesView legacy).
+  // platforms: undefined 视作仅限 windows（规则与原 CategoriesView 一致）。
   makeApp({ id: 'no-platform-app', name: '无platformsApp', stars: 10000, forks: 1000 }),
 ];
 
-/** Mirror of App.tsx: the `apps` prop TrendsView receives is already filtered. */
+/** 与 App.tsx 对齐：TrendsView 接收到的 `apps` 属性已经是过滤后的数据。 */
 function preFiltered(selected: string[]): AppSummary[] {
   return FIXTURE.filter((a) => matchPlatformSet(a, new Set(selected)));
 }
@@ -101,7 +100,7 @@ describe('task6: rerank #1..N within the filtered set', () => {
     const cards = container.querySelectorAll('.app-card');
     expect(cards.length).toBe(filtered.length);
     expect(cards[0].textContent).toContain('仅iosApp');
-    // reranked inside the filtered set: rank restarts at #1 (not preserved).
+    // 在过滤集合内部重新排名：名次从 #1 重新开始计数（不保留旧名次）。
     expect(cards[0].textContent).toContain('#1');
     expect(container.querySelector('.trends-empty')).toBeNull();
   });
@@ -119,9 +118,9 @@ describe('task6: rerank #1..N within the filtered set', () => {
     const { container } = renderTrends([], { onResetPlatformFilter });
     const empty = container.querySelector('.trends-empty');
     expect(empty).not.toBeNull();
-    // shared terminology with Home/Categories filter-empty states
+    // 与 Home/Categories 筛选为空状态保持一致的文案术语
     expect(empty!.textContent).toMatch(/所选设备组合/);
-    // never the search owner/repo guide copy
+    // 绝不复用搜索 owner/repo 的引导文案
     expect(empty!.textContent).not.toContain('owner/repo');
     const btn = empty!.querySelector('.filter-empty-reset');
     expect(btn).not.toBeNull();

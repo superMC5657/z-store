@@ -1,19 +1,16 @@
 /**
- * Task 5 — HomeView derives AFTER the global platform filter.
+ * 任务 5 — HomeView 基于全局平台过滤后的数据派生测试。
  *
- * Contract: App.tsx passes `platformFilteredApps` under the SAME `apps` prop
- * name, so HomeView must treat the prop as already platform-filtered:
- * Hero/featured/remaining slices execute on the prop as-is, and when the
- * prop is empty HomeView shows a dedicated filter-empty state (NOT the
- * search `owner/repo` copy) with a `.filter-empty-reset` button.
- * No in-page platform filtering code is allowed in HomeView.tsx.
+ * 契约规范：App.tsx 在相同的 `apps` 属性名下传入 `platformFilteredApps`，
+ * 因此 HomeView 必须将传入的属性视为已完成平台预过滤：
+ * 置顶/精选/收录分片均直接基于传入数组切分；当传入为空时，
+ * HomeView 展示专属的筛选为空引导界面（绝非搜索 `owner/repo` 引导文案），
+ * 并提供 `.filter-empty-reset` 按钮。HomeView.tsx 内不允许存在任何页面内平台过滤逻辑。
  *
- * SECTION A (baseline characterization): pins CURRENT derivation behavior on
- * unchanged code — slices run on the prop as-is and the hero falls back to
- * apps[0] when rustdesk is absent from the set. Stays GREEN before AND after.
+ * 第一部分（基线特征化测试）：锁定当前派生行为——分片直接基于属性运行，
+ * 当 rustdesk 不在集合中时置顶回退至 apps[0]。
  *
- * SECTION B (new filter-empty spec): FAILS on unchanged code (the current
- * empty state shows the search `owner/repo` copy with no reset button).
+ * 第二部分（筛选为空新规范测试）：验证筛选为空状态与重置按钮行为。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
@@ -48,15 +45,15 @@ function makeApp(overrides: Partial<AppSummary> & { id: string; name: string }):
   };
 }
 
-// Mandated fixture: rustdesk:windows, 仅iosApp:ios, 无platformsApp:undefined.
+// 规范测试数据：rustdesk:windows, 仅iosApp:ios, 无platformsApp:undefined。
 const RUSTDESK = makeApp({ id: 'rustdesk', name: 'RustDesk', platforms: ['windows'], stars: 90000 });
 const IOS_APP = makeApp({ id: 'ios-only-app', name: '仅iosApp', platforms: ['ios'], stars: 5000 });
 const NO_PLATFORMS_APP = makeApp({ id: 'no-platforms-app', name: '无platformsApp', stars: 3000 });
-// platforms intentionally omitted (undefined) — counts as windows-only per filter semantics.
+// platforms 刻意省略 (undefined) — 按过滤语义视作仅限 windows。
 
 const BASE_FIXTURE: AppSummary[] = [RUSTDESK, IOS_APP, NO_PLATFORMS_APP];
 
-// Extended fixture so hero + featured(4) + remaining(1) are ALL non-empty on full-select.
+// 扩展测试数据，确保全选时 置顶 + 精选(4) + 剩余(1) 全部非空。
 const EXTENDED_FIXTURE: AppSummary[] = [
   RUSTDESK,
   IOS_APP,
@@ -66,7 +63,7 @@ const EXTENDED_FIXTURE: AppSummary[] = [
   makeApp({ id: 'macos-app', name: 'MacApp', platforms: ['macos'], stars: 1200 }),
 ];
 
-/** Mirrors the App.tsx derivation exactly: apps filtered by the selection set. */
+/** 与 App.tsx 派生逻辑完全对齐：应用按所选集合进行过滤。 */
 function filterApps(apps: AppSummary[], selected: string[]): AppSummary[] {
   return apps.filter((a) => matchPlatformSet(a, new Set(selected)));
 }
@@ -97,7 +94,7 @@ describe('baseline: HomeView slices the incoming apps prop as-is', () => {
   });
 
   it('hero falls back to the first app of the set when rustdesk is absent (never outside the set)', () => {
-    // ios-only selection excludes rustdesk (windows) and 无platformsApp (windows-only fallback).
+    // 仅选 ios 会排除 rustdesk (windows) 和 无platformsApp (兜底视作 windows-only)。
     const filtered = filterApps(BASE_FIXTURE, ['ios']);
     expect(filtered.map((a) => a.id)).toEqual(['ios-only-app']);
     const { container } = renderHomeView(filtered);
@@ -107,8 +104,8 @@ describe('baseline: HomeView slices the incoming apps prop as-is', () => {
   });
 
   it('fallback hero uses generic copy (name + category, no RustDesk-specific claims)', () => {
-    // ios-only selection excludes rustdesk: hero is 仅iosApp, so the
-    // RustDesk-specific title/tags must NOT leak onto it.
+    // 仅选 ios 会排除 rustdesk：置顶为 仅iosApp，
+    // 因此针对 RustDesk 的专属标题和标签绝不能泄露到该应用上。
     const filtered = filterApps(BASE_FIXTURE, ['ios']);
     expect(filtered.map((a) => a.id)).toEqual(['ios-only-app']);
     const { container } = renderHomeView(filtered);
@@ -136,7 +133,7 @@ describe('baseline: HomeView slices the incoming apps prop as-is', () => {
 
   it('featured/remaining slices execute on the prop as-is (hero excluded, order kept)', () => {
     const { container } = renderHomeView(BASE_FIXTURE);
-    // hero (rustdesk) must not repeat in the grids below.
+    // 置顶应用 (rustdesk) 绝不能在下方的网格列表中重复出现。
     const gridText = Array.from(container.querySelectorAll('.app-grid'))
       .map((g) => g.textContent ?? '')
       .join('\n');
@@ -175,9 +172,9 @@ describe('task5: filter-empty state with .filter-empty-reset', () => {
     const filtered = filterApps(EXTENDED_FIXTURE, [...PLATFORM_IDS]);
     expect(filtered).toHaveLength(EXTENDED_FIXTURE.length);
     const { container } = renderHomeView(filtered);
-    // hero
+    // 置顶应用
     expect(container.querySelector('.hero-banner')).toBeTruthy();
-    // featured grid (经典精选开源软件) non-empty
+    // 经典精选开源软件网格非空
     const grids = container.querySelectorAll('.app-grid');
     expect(grids.length).toBeGreaterThanOrEqual(2);
     grids.forEach((g) => {
@@ -189,9 +186,9 @@ describe('task5: filter-empty state with .filter-empty-reset', () => {
 
   it('empty prop → dedicated filter-empty state, NOT the search owner/repo copy', () => {
     const { container } = renderHomeView([]);
-    // dedicated reset affordance for the global device-platform filter
+    // 针对全局设备平台筛选的专属重置入口
     expect(container.querySelector('.filter-empty-reset')).toBeTruthy();
-    // must NOT reuse the search empty-state guidance
+    // 绝不能复用搜索为空状态的引导文案
     expect(container.textContent).not.toContain('owner/repo');
   });
 
@@ -242,15 +239,14 @@ describe('HomeView: Decision B select-nothing (empty/unknown-only match nothing)
 });
 
 describe('U16b: recently-viewed platform filter (App derivation)', () => {
-  // Mirrors the App.tsx derivation exactly: recents pass through
-  // matchPlatformSet before setRecentlyViewedApps, so non-matching recents
-  // never reach HomeView's 最近浏览 section (backend history.rs untouched).
+  // 与 App.tsx 派生逻辑严格对齐：最近浏览数据在进入 setRecentlyViewedApps 前
+  // 先经过 matchPlatformSet 过滤，非匹配项绝不会流入 HomeView 的「最近浏览」区域（后端 history.rs 保持纯净）。
   function filterRecents(apps: AppSummary[], selected: string[]): AppSummary[] {
     return apps.filter((a) => matchPlatformSet(a, new Set(selected)));
   }
 
   it('non-matching recents are excluded by the derivation', () => {
-    // ios-only selection excludes rustdesk (windows) and 无platformsApp (windows-only fallback).
+    // 仅选 ios 会排除 rustdesk (windows) 和 无platformsApp (兜底视作 windows-only)。
     const visible = filterRecents(BASE_FIXTURE, ['ios']);
     expect(visible.map((a) => a.id)).toEqual(['ios-only-app']);
   });
@@ -260,10 +256,10 @@ describe('U16b: recently-viewed platform filter (App derivation)', () => {
     const { container } = renderHomeView(filterApps(BASE_FIXTURE, ['ios']), {
       recentlyViewedApps: visible,
     });
-    // 最近浏览 section renders for the visible recents…
+    // 「最近浏览」区域渲染可见的最近浏览项…
     expect(container.textContent).toContain('最近浏览');
     expect(container.textContent).toContain('仅iosApp');
-    // …while the filtered-out windows-only recents stay hidden.
+    // …而过滤掉的仅限 windows 的最近浏览项保持隐藏。
     expect(container.textContent).not.toContain('RustDesk');
     expect(container.textContent).not.toContain('无platformsApp');
   });

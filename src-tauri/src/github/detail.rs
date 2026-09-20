@@ -328,12 +328,12 @@ impl CatalogService {
             start_readme_process.elapsed().as_millis()
         );
 
-        // 首屏快速路径 (3)：checksum lazy 填充（opportunistic integrity only）。
-        // 信任模型：checksum 仅为 opportunistic 完整性参考（条目常为 Linux-only 单文件），
-        // 安全根是下载时的 SHA-256 强校验；故 skip/timeout 均安全，直接以 sha256=None 落库。
-        // Negative cache：调用方（commands/catalog.rs save 路径）将本 detail 整体落库，
-        // 全空 sha256 + 新鲜 cached_at 即为 marker；下次 cache=miss 若版本未变且 24h 内，
-        // 直接命中 negative 而跳过本 fetch（见下 negative_hit 分支），不再为 Linux-only 小文件阻塞 join。
+        // 首屏快速路径 (3)：校验和延迟惰性填充（仅提供机会性完整性保障）。
+        // 信任模型：校验和仅作为机会性完整性参考（条目常为仅限 Linux 的单文件），
+        // 安全根基是下载时的 SHA-256 强校验；因此跳过/超时均安全，直接以 sha256=None 落库。
+        // 消极缓存（Negative Cache）：调用方（commands/catalog.rs save 路径）将本 detail 整体落库，
+        // 全空 sha256 + 较新的 cached_at 即为标记；下次 cache=miss 若版本未变且在 24 小时内，
+        // 直接命中消极缓存从而跳过本次抓取（见下方 negative_hit 分支），不再为仅限 Linux 的小文件阻塞等待。
         let now_secs = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -611,7 +611,7 @@ impl CatalogService {
 
     /// checksum 文件名平台相关性判定（入参须为小写文件名）。
     /// Windows 相关（msi/exe/zip/setup/portable/win）或通用命名时返回 true；
-    /// 携带 linux/mac/dmg/appimage/deb/rpm/aarch64/arm64/darwin 任一 hint 时返回 false 及命中的 hint。
+    /// 携带 linux/mac/dmg/appimage/deb/rpm/aarch64/arm64/darwin 任一提示词时返回 false 及命中的提示词。
     fn checksum_asset_platform_eligible(lower_name: &str) -> (bool, &'static str) {
         const WIN_HINTS: &[&str] = &["msi", "exe", "zip", "setup", "portable", "win"];
         if WIN_HINTS.iter().any(|h| lower_name.contains(*h)) {

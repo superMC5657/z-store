@@ -132,7 +132,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
         role="dialog"
         aria-modal="true"
       >
-        {/* Header */}
+        {/* 弹窗头部 */}
         <div
           className="modal-header"
           style={{
@@ -176,7 +176,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
           </button>
         </div>
 
-        {/* Batch Actions Toolbar (Pinned below Header) */}
+        {/* 批量操作工具栏（固定在头部下方） */}
         {!isLoading && !error && matches.length > 0 && (
           <div
             style={{
@@ -206,7 +206,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
           </div>
         )}
 
-        {/* Body (Scrollable List) */}
+        {/* 内容区域（可滚动列表） */}
         <div
           className="modal-scroll-area"
           style={{
@@ -302,11 +302,11 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                     <input
                       type="checkbox"
                       checked={isSelected}
-                      onChange={() => {}} // handled by row click
+                      onChange={() => {}} // 由行点击事件统一处理
                       style={{ cursor: 'pointer', accentColor: 'var(--brand-primary)', width: '16px', height: '16px' }}
                     />
 
-                    {/* Icon */}
+                    {/* 图标 */}
                     <div
                       style={{
                         width: '42px',
@@ -328,7 +328,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                       )}
                     </div>
 
-                    {/* Info */}
+                    {/* 应用信息 */}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                         <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>
@@ -406,7 +406,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
           )}
         </div>
 
-        {/* Footer */}
+        {/* 底部操作栏 */}
         <div
           style={{
             padding: '14px 24px',

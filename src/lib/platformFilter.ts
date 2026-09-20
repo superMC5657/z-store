@@ -1,13 +1,11 @@
 /**
- * Multi-select device-platform filter (Decision B semantics).
+ * 设备平台多选过滤器（决策方案 B 语义）。
  *
- * - Empty selection is VALID and means select-nothing (pages render
- *   filter-empty states for it).
- * - Unknown ids are ignored wherever a selection set is constructed
- *   or consumed.
- * - Single-select matching semantics mirror CategoriesView.matchPlatform:
- *   an app with missing/empty `platforms` counts as windows-only, and
- *   all comparisons are case-insensitive.
+ * - 空选择是有效状态，表示“不选任何平台”（各视图据此渲染平台筛选为空的引导状态）。
+ * - 无论在构建还是消费选择集合时，未知平台 ID 均会被直接忽略。
+ * - 单选匹配语义与 CategoriesView.matchPlatform 保持一致：
+ *   若应用的 `platforms` 缺失或为空，则默认视作仅支持 Windows；
+ *   所有平台比较均忽略大小写。
  */
 
 export type PlatformId = 'windows' | 'macos' | 'linux' | 'android' | 'ios';
@@ -48,7 +46,7 @@ interface PlatformApp {
   platforms?: string[];
 }
 
-/** Keep only known ids (normalized) from a selection set. */
+/** 从传入的选择集合中仅保留已知的规范化平台 ID。 */
 function knownSelected(selected: ReadonlySet<string>): Set<string> {
   const out = new Set<string>();
   for (const id of selected) {
@@ -59,9 +57,9 @@ function knownSelected(selected: ReadonlySet<string>): Set<string> {
 }
 
 /**
- * True when the app targets at least one selected (known) platform.
- * Apps with missing/empty `platforms` count as windows-only.
- * An empty (or unknown-only) selection matches nothing.
+ * 当应用支持至少一个已选中的已知平台时返回 true。
+ * 若应用的 `platforms` 缺失或为空，默认计为仅 Windows。
+ * 空选择集合（或仅含未知平台）时不匹配任何应用。
  */
 export function matchPlatformSet(app: PlatformApp, selected: ReadonlySet<string>): boolean {
   const wanted = knownSelected(selected);
@@ -71,8 +69,8 @@ export function matchPlatformSet(app: PlatformApp, selected: ReadonlySet<string>
 }
 
 /**
- * Toggle one platform in a selection set. Empty selection is VALID and
- * means select-nothing. Unknown ids return a copy unchanged.
+ * 在选择集合中切换某个平台的状态。空选择为有效状态，表示不选任何平台。
+ * 若传入未知平台 ID，则原样返回副本。
  */
 export function togglePlatformSet(prev: ReadonlySet<PlatformId>, id: string): Set<PlatformId> {
   const n = normalizePlatform(id);
@@ -91,14 +89,13 @@ export function togglePlatformSet(prev: ReadonlySet<PlatformId>, id: string): Se
 }
 
 /**
- * Parse a persisted selection (already-decoded string array) into a set of
- * known platform ids. Empty array / unknown-only / null / undefined ->
- * empty Set (NOT fallback-to-all), so `[]` round-trips to `[]`.
+ * 将持久化选择结果（已解码的字符串数组）解析为已知平台 ID 集合。
+ * 空数组 / 仅未知项 / null / undefined 均解析为空 Set（绝不回退至全选），
+ * 确保 `[]` 能完整往返持久化。
  *
- * NOTE: distinct from `parseSelectedPlatforms` in `src/App.tsx`, which takes
- * the raw localStorage string (string | null | undefined) and falls back to
- * the full set on missing/corrupt values. This array version never falls
- * back — null means empty.
+ * 注意：此函数与 `src/App.tsx` 中的 `parseSelectedPlatforms` 有所区别——
+ * 后者接收原始 localStorage 字符串（string | null | undefined），并在缺失或损坏时回退至全选集合；
+ * 而本数组版本从不回退，null 即表示空选择。
  */
 export function parseSelectedPlatformArray(input: readonly string[] | null | undefined): Set<PlatformId> {
   const out = new Set<PlatformId>();

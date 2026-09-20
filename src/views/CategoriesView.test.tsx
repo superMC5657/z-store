@@ -1,17 +1,14 @@
 /**
- * Task 4 — CategoriesView convergence to the global device-platform filter.
+ * 任务 4 — CategoriesView 汇聚至全局设备平台过滤器测试。
  *
- * SECTION A (baseline characterization): pins category one-dimension behavior
- * that SURVIVES convergence — passes on unchanged AND converged code:
- *   hall renders category cards; clicking a card lists that category's apps;
- *   back button returns to the hall.
+ * 第一部分（基线特征化测试）：锁定收敛改造后依然保留的单维度分类行为：
+ *   大厅渲染分类卡片；点击卡片列出该分类下的应用；
+ *   返回按钮返回大厅。
  *
- * SECTION B (new convergence spec): requires the converged contract — FAILS
- * on unchanged code (capsule bar + dual filtering present), passes after:
- *   no platform capsule bar; hall counts come from the incoming (pre-filtered)
- *   `apps` prop only; empty state uses multi-select Join copy + a
- *   `.filter-empty-reset` button wired to the required `onResetPlatformFilter`
- *   prop (restores the full device set via App and returns to the hall).
+ * 第二部分（新收敛规范测试）：验证收敛后的新契约：
+ *   移除平台胶囊切换栏；大厅各分类计数仅来源于传入的预过滤 `apps` 属性；
+ *   空状态使用多选连接文案 + 绑定了必选 `onResetPlatformFilter` 属性的
+ *   `.filter-empty-reset` 按钮（通过 App 恢复全量设备集合并返回大厅）。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
@@ -47,7 +44,7 @@ function makeApp(id: string, category: string, platforms?: string[]): AppSummary
   };
 }
 
-// Intersection fixture: dev spans windows+ios, media is ios-only.
+// 交集测试数据：dev 覆盖 windows+ios，media 仅限 ios。
 const DEV_WIN = makeApp('a-dev-win', 'dev', ['windows']);
 const DEV_IOS = makeApp('a-dev-ios', 'dev', ['ios']);
 const MEDIA_IOS = makeApp('a-media-ios', 'media', ['ios']);
@@ -73,7 +70,7 @@ function renderCategories(
   );
 }
 
-/** Click a hall card by its visible category name. */
+/** 通过可见的分类名称点击大厅卡片。 */
 function openCategory(container: HTMLElement, name: string) {
   const card = within(container as HTMLElement)
     .getAllByText(name)
@@ -109,7 +106,7 @@ describe('CategoriesView: converged to global filter (no local platform state)',
   });
 
   it('hall card counts come from the incoming pre-filtered prop only', () => {
-    // Caller pre-filtered globally to ios: dev=1 (DEV_IOS), media=1.
+    // 调用方在全局预过滤为 ios：dev=1 (DEV_IOS), media=1。
     const { container } = renderCategories([DEV_IOS, MEDIA_IOS]);
     const cards = Array.from(container.querySelectorAll('.app-card'));
     const devCard = cards.find((c) => c.textContent?.includes('开发工具'));
@@ -117,7 +114,7 @@ describe('CategoriesView: converged to global filter (no local platform state)',
     const graphicsCard = cards.find((c) => c.textContent?.includes('图形设计'));
     expect(devCard?.textContent).toContain('1 款可用');
     expect(mediaCard?.textContent).toContain('1 款可用');
-    // A category absent from the prop reports no availability (never filters itself).
+    // 属性中缺失的分类展示无可用项（绝不自行二次过滤）。
     expect(graphicsCard?.textContent).toContain('暂无此端应用');
   });
 
@@ -131,7 +128,7 @@ describe('CategoriesView: converged to global filter (no local platform state)',
     const onResetPlatformFilter = vi.fn();
     const { container } = renderCategories([DEV_WIN], { onResetPlatformFilter });
     openCategory(container, '图形设计');
-    // Multi-select Join copy: names the device combination, never the search empty copy.
+    // 多选连接文案：指明设备组合名称，绝不显示搜索为空提示。
     expect(screen.getByText(/设备组合/)).toBeTruthy();
     const reset = container.querySelector('.filter-empty-reset');
     expect(reset).toBeTruthy();
@@ -148,7 +145,7 @@ describe('CategoriesView: converged to global filter (no local platform state)',
     expect(reset).toBeTruthy();
     fireEvent.click(reset as HTMLElement);
     expect(onResetPlatformFilter).toHaveBeenCalledTimes(1);
-    // Reset also returns to the hall (all categories visible again).
+    // 重置同时会返回大厅（所有分类重新可见）。
     expect(within(container as HTMLElement).getByText('开发工具')).toBeTruthy();
   });
 });

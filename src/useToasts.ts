@@ -3,9 +3,8 @@ import { ToastMessage } from './types';
 import { zlogError, zlogInfo, zlogWarn } from './lib/z-log';
 
 /**
- * App-level toast channel (FR-6.2 / FR-4.4 / FR-7 / FR-6.3 shared).
- * Pure move of the toast state + showToast + dismiss + `zstore:toast`
- * event bus previously inline in App.tsx. No behavior change.
+ * 应用级 Toast 通知通道（供 FR-6.2 / FR-4.4 / FR-7 / FR-6.3 共用）。
+ * 纯粹提取原 App.tsx 内联的 Toast 状态、showToast、dismiss 及 `zstore:toast` 事件总线。无任何行为变更。
  */
 export function useToasts() {
   // 应用内通知（FR-6.2 关注提醒 / FR-4.4 自更新 / FR-7 OAuth / FR-6.3 导入导出经此通道呈现）

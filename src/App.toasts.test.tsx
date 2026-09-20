@@ -1,10 +1,10 @@
 /**
- * Toast characterization (pre-extract guard for the useToasts split).
+ * Toast 提示特征化测试（用于 useToasts 模块拆分前的防劣化保护）。
  *
- * Pins the App-level toast contract before it moves into a hook:
- * - `zstore:toast` window events surface text in the toast region;
- * - only the latest toast is visible;
- * - the dismiss button clears it.
+ * 在抽取到独立的 Hook 之前锁定 App 级 Toast 契约：
+ * - window 上的 `zstore:toast` 事件在通知区域展示文本；
+ * - 仅展示最新的 Toast 消息；
+ * - 点击关闭按钮可清除当前提示。
  */
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';

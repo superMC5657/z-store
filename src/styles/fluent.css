@@ -1,35 +1,35 @@
 /* ==========================================================================
-   NextGen Fluent & Glassmorphism System · Core Tokens & Styles
+   新一代 Fluent 磨砂玻璃体系 · 核心变量与样式
    ========================================================================== */
 
 :root {
   color-scheme: light dark;
 
-  /* Modern Physics Easing (Spring overshoot & damping curves) */
+  /* 现代物理缓动曲线（弹性过冲与阻尼曲线） */
   --ease-spring: linear(0, 0.016 0.5%, 0.06 1%, 0.226 2%, 1.116 5.4%, 1.375 6.6%, 1.527 7.7%, 1.565 8.2%, 1.585 8.8%, 1.581 9.3%, 1.559 9.8%, 1.458 10.9%, 0.937 14.3%, 0.784 15.5%, 0.693 16.6%, 0.67 17.1%, 0.657 17.7%, 0.671 18.7%, 0.729 19.8%, 1.042 23.3%, 1.13 24.5%, 1.182 25.6%, 1.201 26.7%, 1.192 27.7%, 1.156 28.8%, 0.977 32.2%, 0.925 33.4%, 0.894 34.5%, 0.882 35.6%, 0.887 36.6%, 0.907 37.7%, 1.045 42.4%, 1.069 44.5%, 1.059 46.3%, 0.979 50.9%, 0.96 53.4%, 0.966 55.3%, 1.013 59.9%, 1.024 62.3%, 0.986 71.2%, 1.008 79.9%, 0.995 88.9%, 1);
   --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
   --ease-smooth: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-fluent: cubic-bezier(0.1, 0.9, 0.2, 1);
 
-  /* Fluent Brand Colors (Light - Electric Azure) */
+  /* Fluent 品牌色彩（浅色模式 - 蔚蓝） */
   --brand-primary: #0078d4;
   --brand-hover: #106ebe;
   --brand-pressed: #005a9e;
   --brand-subtle: rgba(0, 120, 212, 0.09);
   --brand-glow: rgba(0, 120, 212, 0.38);
 
-  /* Ambient Aurora Lights */
+  /* 极光氛围灯效 */
   --aurora-1: #0284c7;
   --aurora-2: #8b5cf6;
   --aurora-3: #06b6d4;
 
-  /* Semantic Status */
+  /* 语义化状态色彩 */
   --status-success: #107c10;
   --status-success-bg: rgba(16, 124, 16, 0.12);
   --status-warning: #d83b01;
   --status-warning-bg: rgba(216, 59, 1, 0.12);
 
-  /* Light Theme Defaults (Frosted Opal Glass / 羊脂白玉磨砂玻璃) */
+  /* 浅色主题默认变量（羊脂玉质感磨砂玻璃） */
   --bg-canvas: radial-gradient(at 15% 15%, rgba(2, 132, 199, 0.07) 0px, transparent 55%),
                radial-gradient(at 85% 85%, rgba(139, 92, 246, 0.05) 0px, transparent 50%),
                linear-gradient(145deg, #f0f4f9 0%, #e8eef6 50%, #e1e9f4 100%);
@@ -50,7 +50,7 @@
   --glass-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.07), 0 2px 6px -1px rgba(0, 0, 0, 0.03);
   --frosted-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='fn'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.038 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23fn)'/%3E%3C/svg%3E");
 
-  /* Frosted Components Theme Tokens (Light Mode - Opal Crystal) */
+  /* 磨砂组件主题变量（浅色模式 - 水晶蛋白石） */
   --bg-nav-active: linear-gradient(90deg, rgba(0, 120, 212, 0.12) 0%, rgba(0, 120, 212, 0.04) 100%), rgba(255, 255, 255, 0.94);
   --border-nav-active: rgba(0, 120, 212, 0.28);
   --shadow-nav-active: 0 4px 14px rgba(0, 120, 212, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.95);
@@ -86,7 +86,7 @@
   --radius-xl: 24px;
   --radius-pill: 9999px;
 
-  /* Acrylic & Frosted Glass Blur Tokens (95% Max Depth) */
+  /* 亚克力与磨砂玻璃模糊变量（95% 最大景深） */
   --acrylic-blur-window: 95px;
   --acrylic-blur-modal: 95px;
   --acrylic-blur-surface: 64px;
@@ -94,7 +94,7 @@
   --acrylic-blur-titlebar: 48px;
   --acrylic-blur-subtle: 24px;
 
-  /* Global Font Scale System */
+  /* 全局字体缩放体系 */
   --font-scale: 1;
   --font-xs: calc(11px * var(--font-scale));
   --font-sm: calc(12px * var(--font-scale));
@@ -136,7 +136,7 @@
 }
 
 [data-theme="dark"] {
-  /* Discord Dark / Midnight Design Tokens */
+  /* 深色主题设计变量（Discord Dark / 午夜黑） */
   --brand-primary: #5865f2;
   --brand-hover: #4752c4;
   --brand-pressed: #3c45a5;
@@ -152,7 +152,7 @@
   --status-warning: #f0b232;
   --status-warning-bg: rgba(240, 178, 50, 0.16);
 
-  /* Deep Matte Charcoal (#1a1a1e & #121214) */
+  /* 哑光深炭黑主题基色（#1a1a1e 与 #121214） */
   --bg-canvas: #1a1a1e;
   --bg-acrylic: #222327;
   --bg-acrylic-hover: #2b2d32;
@@ -171,7 +171,7 @@
   --glass-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.55), 0 2px 8px -2px rgba(0, 0, 0, 0.35);
   --frosted-noise: none;
 
-  /* Frosted Components Theme Tokens (Dark Mode - Discord Dark/Midnight) */
+  /* 磨砂组件主题变量（深色模式 - 午夜黑） */
   --bg-nav-active: rgba(88, 101, 242, 0.18);
   --border-nav-active: rgba(88, 101, 242, 0.35);
   --shadow-nav-active: 0 4px 12px rgba(0, 0, 0, 0.3);
@@ -202,7 +202,7 @@
   --shadow-modal: 0 32px 72px rgba(0, 0, 0, 0.8);
 }
 
-/* Reset & Base */
+/* 基础样式重置与排版规范 */
 * {
   box-sizing: border-box;
   margin: 0;
@@ -229,7 +229,7 @@ body {
   transition: background 0.4s var(--ease-smooth);
 }
 
-/* App Window Container */
+/* 应用主窗口容器 */
 .app-window {
   width: calc(100vw / var(--app-zoom, 1));
   height: calc(100vh / var(--app-zoom, 1));
@@ -246,7 +246,7 @@ body {
   box-shadow: none;
 }
 
-/* Dynamic Ambient Aurora Glow Behind Glass */
+/* 玻璃背后的动态极光流光氛围层 */
 .aurora-ambient-glow {
   position: absolute;
   inset: 0;
@@ -319,7 +319,7 @@ body {
   100% { transform: translate(50px, 35px) scale(0.96); }
 }
 
-/* Authentic Acrylic Frosted Noise Overlay (亚克力微晶磨砂层) */
+/* 真实亚克力微晶磨砂噪点覆层 */
 .acrylic-noise-overlay {
   position: absolute;
   inset: 0;
@@ -338,7 +338,7 @@ body {
   display: none !important;
 }
 
-/* Titlebar - Frosted Glass Bar */
+/* 顶部标题栏 - 磨砂玻璃栏 */
 .titlebar {
   height: 50px;
   padding: 0 16px;
@@ -566,7 +566,7 @@ body {
   color: #fff;
 }
 
-/* App Body */
+/* 应用主体区域 */
 .app-body {
   flex: 1;
   display: flex;
@@ -575,7 +575,7 @@ body {
   z-index: 10;
 }
 
-/* Sidebar */
+/* 侧边导航栏 */
 .sidebar {
   width: 240px;
   background:
@@ -892,7 +892,7 @@ body {
   }
 }
 
-/* Nav Toggle Button (TitleBar) */
+/* 导航切换按钮（标题栏） */
 .nav-toggle-btn {
   width: 32px;
   height: 32px;
@@ -918,7 +918,7 @@ body {
   transform: scale(0.92);
 }
 
-/* Content Area */
+/* 主内容显示区域 */
 .content-area {
   flex: 1;
   overflow-y: auto;
@@ -939,7 +939,7 @@ body {
   background: var(--brand-primary);
 }
 
-/* Hero Banner - Frosted Glass Showcase */
+/* 置顶横幅推荐（Hero Banner）- 磨砂玻璃展台 */
 .hero-banner {
   background: var(--bg-hero-banner);
   border: 1px solid var(--border-hero-banner);
@@ -1057,7 +1057,7 @@ body {
   gap: 12px;
 }
 
-/* Hero Visual Card (Right side) */
+/* 置顶横幅右侧视觉卡片 */
 .hero-visual {
   position: relative;
   z-index: 1;
@@ -1090,7 +1090,7 @@ body {
   transform: scale(1.05) translateY(-2px);
 }
 
-/* Verified Trust Badge below App Icon */
+/* 应用图标下方的官方认证徽标 */
 .hero-verified-badge {
   display: inline-flex;
   align-items: center;
@@ -1135,7 +1135,7 @@ body {
   box-shadow: 0 4px 18px rgba(88, 101, 242, 0.35);
 }
 
-/* Fluent Buttons */
+/* Fluent 风格通用按钮 */
 .btn-fluent {
   display: inline-flex;
   align-items: center;
@@ -1187,7 +1187,7 @@ body {
   -webkit-backdrop-filter: none;
 }
 
-/* Installed App Action Buttons (已安装应用卡片操作按钮统一样式规范) */
+/* 已安装应用卡片操作按钮统一样式规范 */
 .installed-actions-group {
   display: flex;
   align-items: center;
@@ -1343,7 +1343,7 @@ body {
   box-shadow: 0 4px 14px var(--brand-glow), inset 0 1px 0 rgba(255, 255, 255, 0.45) !important;
 }
 
-/* Sections & Grid */
+/* 内容区块与网格布局 */
 .section-header {
   display: flex;
   align-items: center;
@@ -1378,7 +1378,7 @@ body {
   margin-bottom: 32px;
 }
 
-/* App Card - High-End Frosted Glass Tile (高端磨砂玻璃砖) */
+/* 应用卡片 - 高端磨砂玻璃卡片 */
 .app-card {
   background:
     var(--frosted-noise),
@@ -1648,7 +1648,7 @@ body {
   font-size: var(--font-xs);
 }
 
-/* Install Action Buttons */
+/* 安装与操作按钮组 */
 .btn-install,
 .btn-install-sm {
   display: inline-flex;
@@ -1697,7 +1697,7 @@ body {
   box-shadow: 0 4px 14px rgba(74, 222, 128, 0.4);
 }
 
-/* Modal / Flyout */
+/* 弹窗与浮层面板（Modal / Flyout） */
 .modal-backdrop {
   position: absolute;
   inset: 0;
@@ -1884,7 +1884,7 @@ body {
   backdrop-filter: blur(8px);
 }
 
-/* Action Tag Button (Force Refresh) */
+/* 操作标签按钮（强制刷新） */
 .modal-tag-action {
   cursor: pointer;
   background: var(--brand-subtle);
@@ -1914,7 +1914,7 @@ body {
   cursor: not-allowed;
 }
 
-/* Modal Tag Status Badges */
+/* 弹窗标签状态徽标 */
 .modal-tag-refreshing {
   display: inline-flex;
   align-items: center;
@@ -2187,7 +2187,7 @@ body {
   border: 1px solid var(--border-acrylic);
 }
 
-/* Toast Notification - Completely disabled per user request in favor of inline animations */
+/* Toast 气泡通知样式（配合内联微动效） */
 .toast-container {
   display: none !important;
 }
@@ -2257,7 +2257,7 @@ body {
   }
 }
 
-/* Fluent 2.0 View Entrance Transition with Unblur */
+/* Fluent 2.0 视图切入过渡动画（去模糊淡入） */
 .view-entrance {
   animation: fluentViewEnter 0.32s var(--ease-smooth) forwards;
   will-change: transform, opacity, filter;
@@ -2276,7 +2276,7 @@ body {
   }
 }
 
-/* Update Item Pop-in Animation (流式逐项跳出) */
+/* 更新项弹入动效（流式逐项跳出） */
 @keyframes updateItemPopIn {
   0% {
     opacity: 0;
@@ -2298,7 +2298,7 @@ body {
   will-change: transform, opacity, filter;
 }
 
-/* Settings Group - Glass Panels */
+/* 设置面板分组 - 玻璃面板 */
 .settings-group {
   background: var(--bg-acrylic);
   border: 1px solid var(--border-acrylic);
@@ -2322,7 +2322,7 @@ body {
   border-bottom-right-radius: var(--radius-md);
 }
 
-/* Reset settings cascade ripple animations */
+/* 恢复默认设置级联涟漪动效 */
 .settings-group.reset-wave-0 { animation: factoryResetWave 0.7s var(--ease-spring) 0.0s forwards; }
 .settings-group.reset-wave-1 { animation: factoryResetWave 0.7s var(--ease-spring) 0.07s forwards; }
 .settings-group.reset-wave-2 { animation: factoryResetWave 0.7s var(--ease-spring) 0.14s forwards; }
@@ -2414,7 +2414,7 @@ body {
   }
 }
 
-/* Inline badge for real-time setting feedback */
+/* 实时设置反馈内联徽标 */
 .setting-applied-badge {
   display: inline-flex;
   align-items: center;
@@ -2500,7 +2500,7 @@ body {
   box-shadow: 0 0 0 3px var(--brand-glow);
 }
 
-/* Fluent Toggle Switch */
+/* Fluent 风格滑动开关 */
 .fluent-toggle-wrapper {
   display: inline-flex;
   align-items: center;
@@ -2551,7 +2551,7 @@ body {
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
 }
 
-/* Segmented Pill Buttons */
+/* 分段胶囊选择按钮 */
 .segmented-group {
   display: inline-flex;
   flex-wrap: wrap;
@@ -2599,7 +2599,7 @@ body {
   100% { transform: scale(1); }
 }
 
-/* Settings Input Group */
+/* 设置输入控件组 */
 .settings-input-group {
   display: flex;
   align-items: center;
@@ -2649,7 +2649,7 @@ body {
   }
 }
 
-/* Markdown README Typography */
+/* Markdown README 详细排版样式 */
 @keyframes fluentFadeIn {
   from {
     opacity: 0;
@@ -2772,7 +2772,7 @@ body {
   margin: 8px 0;
 }
 
-/* GitHub Alert Callouts */
+/* GitHub 风格警示引用框（Alert Callouts） */
 .readme-markdown-body .markdown-alert {
   padding: 10px 14px;
   margin: 12px 0;
@@ -2831,7 +2831,7 @@ body {
   color: #f87171;
 }
 
-/* Empty State Glass Card */
+/* 空状态玻璃卡片 */
 .empty-state-card {
   background:
     var(--frosted-noise),
@@ -2878,7 +2878,7 @@ body {
   display: none;
 }
 
-/* Flyout Glass Menu */
+/* 浮出式玻璃右键菜单 */
 .flyout-menu {
   background:
     var(--frosted-noise),
@@ -3037,7 +3037,7 @@ body {
   color: #f87171;
 }
 
-/* Skeleton & Loading States for Asynchronous Operations */
+/* 异步操作骨架屏与加载动效状态 */
 @keyframes skeletonPulse {
   0% {
     opacity: 0.35;
@@ -3106,7 +3106,7 @@ body {
   background-color: var(--text-tertiary);
 }
 
-/* Accessibility: Respect Reduced Motion Preferences */
+/* 无障碍支持：遵循系统的减弱动态效果偏好 */
 @media (prefers-reduced-motion: reduce) {
   *, ::before, ::after {
     animation-duration: 0.01ms !important;

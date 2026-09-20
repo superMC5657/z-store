@@ -1,10 +1,9 @@
 /**
- * Task 3 — App-level platform filter state + localStorage persistence
- * (Decision B: [] = select-nothing).
+ * 任务 3 — App 级别平台筛选状态 + localStorage 持久化测试
+ * （决策方案 B：[] = 不选任何平台）。
  *
- * All coverage is behavioral: persistence round-trips through
- * loadSelectedPlatforms/parseSelectedPlatforms, and filtering semantics
- * through matchPlatformSet. No source-text assertions.
+ * 所有测试均基于行为级覆盖：持久化往返经过 loadSelectedPlatforms/parseSelectedPlatforms 检验，
+ * 过滤语义经过 matchPlatformSet 检验。无任何针对源码字面量的脆弱断言。
  */
 import { describe, expect, it, afterEach } from 'vitest';
 import {
@@ -70,13 +69,13 @@ describe('task3: platform-filter persistence (Decision B select-nothing)', () =>
     const written = JSON.stringify(['windows', 'ios']);
     const reloaded = parseSelectedPlatforms(written);
     expect(reloaded).toEqual(new Set(['windows', 'ios']));
-    // round-trip through the write-back serialization shape
+    // 验证经过回写序列化结构的持久化往返
     expect(parseSelectedPlatforms(JSON.stringify([...reloaded]))).toEqual(reloaded);
   });
 
   it('stored [] (valid empty array) restores [] — no full-set fallback', () => {
     expect(parseSelectedPlatforms(JSON.stringify([]))).toEqual(new Set<string>([]));
-    // round-trip: persisting an empty selection reloads empty
+    // 持久化往返：持久化空选择后重新加载仍为空
     expect(parseSelectedPlatforms(JSON.stringify([...parseSelectedPlatforms('[]')]))).toEqual(
       new Set<string>([])
     );
@@ -150,7 +149,7 @@ describe('task3: platform-filter persistence (Decision B select-nothing)', () =>
     for (const id of PLATFORM_IDS) {
       counts[id] = FIXTURE.filter((a) => matchPlatformSet(a, new Set([id]))).length;
     }
-    // windows matches the explicit entry plus the two missing/empty ones (windows-only rule)
+    // windows 匹配显式声明项以及两条缺失/为空的项（仅限 windows 规则）
     expect(counts['windows']).toBe(3);
     expect(counts['ios']).toBe(1);
     expect(counts['android']).toBe(1);
@@ -164,7 +163,7 @@ describe('task3: platform-filter persistence (Decision B select-nothing)', () =>
     for (const app of FIXTURE) {
       expect(matchPlatformSet(app, reset)).toBe(true);
     }
-    // reset round-trips through storage back to the full set
+    // 重置后经存储往返恢复为全量集合
     expect(parseSelectedPlatforms(JSON.stringify([...reset]))).toEqual(reset);
   });
 });
@@ -196,9 +195,9 @@ describe('P2-3a: global platform filter applies to Favorites/Installed/Updates',
     { app_id: 'owner/external-app' },
   ];
 
-  // Mirrors the App.tsx wiring exactly: Favorites renders platformFilteredApps;
-  // Installed/Updates join their id-lists against the FULL catalog via
-  // matchPlatformSet, keeping rows with no catalog entry visible.
+  // 与 App.tsx 逻辑严格对齐：收藏页渲染 platformFilteredApps；
+  // 已安装/更新页通过 matchPlatformSet 将 ID 列表与全量收录库关联匹配，
+  // 保持未收录条目依然可见。
   const iosOnly = new Set<string>(['ios']);
   const filterCatalog = (sel: ReadonlySet<string>) =>
     CATALOG.filter((a) => matchPlatformSet(a, sel));
@@ -236,7 +235,7 @@ describe('P2-3a: global platform filter applies to Favorites/Installed/Updates',
   it('platformCounts still derived from the FULL set (unchanged by the view filter)', () => {
     expect(countOverFull('windows')).toBe(1);
     expect(countOverFull('ios')).toBe(1);
-    // filtering the views must not shrink the counts
+    // 视图内的筛选绝不能缩减统计计数
     expect(filterCatalog(iosOnly)).toHaveLength(1);
     expect(countOverFull('windows')).toBe(1);
   });

@@ -24,20 +24,15 @@ import { useAppSettings } from './useAppSettings';
 export const PLATFORM_FILTER_STORAGE_KEY = 'zstore:platform-filter:v1';
 
 /**
- * Parse a raw localStorage value into a validated platform selection.
- * Unknown ids are whitelisted out. A valid (parseable) array is honored
- * as-is — including the empty array, which is a legitimate selection
- * meaning empty list (per-page filter-empty states render for it), and
- * including unknown-only arrays, which whitelist down to [] by the same
- * rule. The full set (equivalent to "unfiltered") is the fallback ONLY
- * for missing keys and corrupt/non-array JSON.
+ * 将原始 localStorage 字符串解析为经过验证的平台选择集合。
+ * 未知 ID 会被白名单过滤剔除。有效（可解析）的数组将按原样处理——
+ * 包括空数组（这是合法的选择，代表空列表，各页面会据此渲染筛选为空的引导状态），
+ * 以及仅含未知项的数组（根据同一规则过滤缩减为 []）。
+ * 仅在键缺失或 JSON 损坏/非数组时，才会回退至全选集合（等效于“无过滤”）。
  *
- * NOTE: distinct from `parseSelectedPlatformArray` in
- * `src/lib/platformFilter.ts`, which takes an already-decoded string
- * array (readonly string[] | null | undefined) and maps null/undefined
- * to the empty set (no fallback-to-all). This string version takes the
- * raw storage string and intentionally falls back to the full set on
- * missing/corrupt input.
+ * 注意：此函数与 `src/lib/platformFilter.ts` 中的 `parseSelectedPlatformArray` 有所区别——
+ * 后者接收已解码的字符串数组（readonly string[] | null | undefined）并将 null/undefined
+ * 映射为空集合（绝不回退至全选）。而本字符串版本接收原始存储字符串，在缺失或损坏时有意回退至全选。
  */
 export function parseSelectedPlatforms(raw: string | null | undefined): Set<PlatformId> {
   const full = new Set<PlatformId>(PLATFORM_IDS);
@@ -59,9 +54,9 @@ export function parseSelectedPlatforms(raw: string | null | undefined): Set<Plat
 }
 
 /**
- * First-render read of the persisted platform selection. Never throws:
- * missing storage, corrupt values, and throwing storage yield the full
- * set; a stored valid empty array yields the empty set.
+ * 首次渲染时读取持久化的平台选择。保证绝不抛错：
+ * 存储缺失、值损坏或存储抛错均产生全选集合；
+ * 存储为有效的空数组则产生空集合。
  */
 export function loadSelectedPlatforms(): Set<PlatformId> {
   try {
@@ -89,8 +84,7 @@ export const App: React.FC = () => {
   const [selectedApp, setSelectedApp] = useState<AppDetailViewModel | null>(null);
   const activeDetailIdRef = useRef<string | null>(null);
   const [selectedDeveloper, setSelectedDeveloper] = useState<string | null>(null);
-  // P0-1 deeplink install guard: an `install_app` deeplink only stages a
-  // pending confirmation — installation starts solely from the confirm click.
+  // P0-1 深链安装守卫：`install_app` 深链仅暂存待确认状态——安装必须经由用户显式点击确认方可启动。
   const [pendingDeepLinkInstall, setPendingDeepLinkInstall] = useState<string | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
@@ -109,10 +103,8 @@ export const App: React.FC = () => {
   // FR-6.2 关注（Watch）
   const [watchedIds, setWatchedIds] = useState<Set<string>>(new Set());
   const [watchNotifications, setWatchNotifications] = useState<WatchUpdatedPayload[]>([]);
-  // Task 3 (device-platform global filter): App-level multi-select platform
-  // state, defaulting to all 5 PLATFORM_IDS, persisted to localStorage only —
-  // intentionally NOT wired into api.getSettings()/UserDataBackup (a local UI
-  // preference, not backup data).
+  // 任务 3（设备平台全局过滤）：App 级别多选平台状态，默认选中全部 5 种 PLATFORM_IDS，
+  // 仅持久化至 localStorage——刻意不接入 api.getSettings()/UserDataBackup（仅为本地界面偏好，非备份数据）。
   const [selectedPlatforms, setSelectedPlatforms] = useState<Set<PlatformId>>(() => loadSelectedPlatforms());
   // FR-7 OAuth 登录态（详情弹窗标星门控）
   const [oauthUser, setOAuthUser] = useState<OAuthUser | null>(null);
@@ -121,9 +113,9 @@ export const App: React.FC = () => {
   // 应用内通知（FR-6.2 关注提醒 / FR-4.4 自更新 / FR-7 OAuth / FR-6.3 导入导出经此通道呈现）
   const { toasts, showToast, handleDismissToast } = useToasts();
 
-  // Initial load
+  // 初始加载
   useEffect(() => {
-    // Initial data fetch
+    // 初始数据拉取
     api.searchApps('').then((loadedApps) => {
       setApps(loadedApps);
       // 预解码热门应用图标，若本地配置目录已缓存则秒读，未缓存则后台下载并缓存
@@ -141,13 +133,11 @@ export const App: React.FC = () => {
     api.getRecentlyViewedApps().then((recents) => setRecentlyViewedApps(recents.filter((a) => matchPlatformSet(a, selectedPlatforms)))).catch(() => {});
     api.registerDeepLinkScheme().catch(() => {});
 
-    // Load persisted settings
+    // 加载持久化设置
     api.getSettings().then((persisted) => {
       applyPersistedSettings(persisted);
-      // P2-6: startup-only auto-check — the `daily` update_frequency option is
-      // intentionally disabled in Settings (upcoming feature, no scheduler),
-      // so only `startup` triggers an automatic check here; `daily`/`manual`
-      // users check from the Updates tab.
+      // P2-6: 仅启动时自动检查更新——`daily`（每日）更新频率选项目前在“设置”中刻意禁用（未开发功能，暂无调度器），
+      // 因此此处仅对 `startup`（启动时）触发自动检查；`daily`/`manual` 用户可通过“更新中心”标签页手动检查。
       if ((persisted.update_frequency || DEFAULT_SETTINGS.update_frequency) === 'startup') {
         api.checkForUpdates(false).then(setUpdates).catch(() => {});
       }
@@ -171,12 +161,12 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  // Task 3: write the platform selection back to localStorage on every change.
+  // 任务 3：平台选择变更时将其回写至 localStorage。
   useEffect(() => {
     try {
       window.localStorage.setItem(PLATFORM_FILTER_STORAGE_KEY, JSON.stringify([...selectedPlatforms]));
     } catch {
-      // ignore: private-mode/quota/throwing storage keeps the in-memory selection
+      // 忽略：无痕模式/配额满/存储抛错时保持内存选择状态
     }
   }, [selectedPlatforms]);
 
@@ -330,7 +320,7 @@ export const App: React.FC = () => {
     zlogInfo(`switch view='${currentView}' from='${from}' params={}`);
   }, [currentView]);
 
-  // Export JSON Backup
+  // 导出软件资产 JSON 备份
   const handleExportAppsJson = () => {
     if (installedApps.length === 0) {
       showToast('当前尚未安装任何应用，无需导出', 'warning');
@@ -353,7 +343,7 @@ export const App: React.FC = () => {
     showToast('已导出软件资产 JSON 备份文件', 'success');
   };
 
-  // Search
+  // 搜索逻辑
   const handleSearchChange = async (q: string) => {
     setSearchQuery(q);
     const results = await api.searchApps(q);
@@ -368,7 +358,7 @@ export const App: React.FC = () => {
       const recents = await api.getRecentlyViewedApps();
       setRecentlyViewedApps(recents);
     } catch {
-      // ignore
+      // 忽略错误
     }
   };
 
@@ -378,7 +368,7 @@ export const App: React.FC = () => {
       setRecentlyViewedApps([]);
       showToast('已清空最近浏览足迹', 'info');
     } catch {
-      // ignore
+      // 忽略错误
     }
   };
 
@@ -532,21 +522,19 @@ export const App: React.FC = () => {
     }
   };
 
-  // Quick Install
+  // 快捷安装
   const handleQuickInstall = async (id: string) => {
     handleInstallApp(id);
   };
 
-  // Deep Link Dispatcher (Feature E)
+  // 深链调度分发器（功能 E）
   const handleDispatchDeepLink = async (rawUrl: string) => {
     try {
       const action = await api.handleDeepLink(rawUrl);
       if (action.action === 'app_detail') {
         handleOpenDetail(action.payload.app_id);
       } else if (action.action === 'install_app') {
-        // P0-1: never auto-install from a deeplink — open the detail view
-        // and stage an explicit confirmation dialog; installation starts
-        // only on the user's confirm click.
+        // P0-1: 绝不直接自深链自动安装——打开详情视图并弹出显式确认弹窗；安装仅在用户点击确认后启动。
         handleOpenDetail(action.payload.app_id);
         setPendingDeepLinkInstall(action.payload.app_id);
         showToast(`外部链接请求安装 ${action.payload.app_id}，请在弹窗中确认后继续`, 'warning');
@@ -614,7 +602,7 @@ export const App: React.FC = () => {
     setWatchNotifications((prev) => prev.filter((n) => n.app_id !== appId));
   };
 
-  // Toggle Favorite
+  // 切换收藏状态
   const handleToggleFavorite = async (id: string) => {
     await api.toggleFavorite(id);
     setFavoriteIds((prev) => {
@@ -630,17 +618,15 @@ export const App: React.FC = () => {
     });
   };
 
-  // Task 3: device-platform toggle. Empty selection is valid (means
-  // empty list; pages render their filter-empty states), so every known-id
-  // toggle commits unconditionally. The toggle lives INSIDE the setter
-  // (functional updater) so it always evaluates the latest committed
-  // selection: same-tick double toggles apply sequentially. Unknown ids
-  // are ignored silently (Sidebar only emits known ids; no toast path).
+  // 任务 3：设备平台切换。空选择是有效状态（代表空列表；页面渲染筛选为空的引导状态），
+  // 因此对任何已知 ID 的切换均无条件提交。切换逻辑位于更新函数（函数式 updater）内部，
+  // 保证始终基于最新提交的选择进行计算，同一 tick 内的双击顺序生效。
+  // 未知 ID 会被静默忽略（侧栏仅发射已知 ID，无需 Toast 提示）。
   const handleTogglePlatform = (id: PlatformId) => {
     setSelectedPlatforms((prev) => togglePlatformSet(prev, id));
   };
 
-  // Install App
+  // 安装应用
   const handleInstallApp = async (id: string, assetName?: string, customInstallDir?: string): Promise<void> => {
     if (installingAppIds.has(id)) return;
     zlogInfo(`click install id=${id} asset=${assetName || 'auto'}`);
@@ -667,7 +653,7 @@ export const App: React.FC = () => {
     }
   };
 
-  // Launch App
+  // 启动应用
   const handleLaunchApp = async (id: string) => {
     zlogInfo(`click launch id=${id}`);
     const app = installedApps.find((a) => a.app_id === id);
@@ -680,7 +666,7 @@ export const App: React.FC = () => {
     }
   };
 
-  // Unmanage App (remove from Z-Store list, keep local files intact)
+  // 取消管理应用（从 Z-Store 列表中移除，保留本地文件完好）
   const handleUnmanageApp = async (id: string) => {
     const app = installedApps.find((a) => a.app_id === id);
     const appName = app?.app_name || id;
@@ -689,7 +675,7 @@ export const App: React.FC = () => {
     showToast(`已成功取消对 ${appName} 的管理（本机软件与数据保持完好）`, 'info');
   };
 
-  // Refresh Installed Apps (self-healing ghost app removal + rescan detected apps)
+  // 刷新已安装应用列表（幽灵应用自愈清理 + 重新扫描探测应用）
   const handleRefreshInstalledApps = async () => {
     setIsRefreshingInstalled(true);
     try {
@@ -714,7 +700,7 @@ export const App: React.FC = () => {
     }
   }, [currentView]);
 
-  // Manage App (import detected app into Z-Store management)
+  // 将探测到的应用纳入 Z-Store 管理
   const handleManageApp = async (id: string) => {
     try {
       await api.importSingleApp(id);
@@ -723,11 +709,11 @@ export const App: React.FC = () => {
       setDetectedAppIds((prev) => new Set([...prev, id]));
       showToast(`已成功将应用纳入 Z-Store 统一管理`, 'success');
     } catch {
-      /* import failed silently; list unchanged */
+      /* 导入静默失败；列表保持不变 */
     }
   };
 
-  // Uninstall App (trigger official uninstaller -> await completion -> verify removal -> remove from list)
+  // 卸载应用（触发官方卸载器 -> 等待完成 -> 校验移除 -> 从列表删除）
   const handleUninstallApp = async (id: string) => {
     if (uninstallingAppIds.has(id)) return;
     zlogInfo(`click uninstall id=${id}`);
@@ -763,7 +749,7 @@ export const App: React.FC = () => {
     }
   };
 
-  // Apply Single Update
+  // 应用单项更新
   const handleApplyUpdate = async (id: string) => {
     try {
       const updatedApp = await api.installApp(id);
@@ -775,7 +761,7 @@ export const App: React.FC = () => {
     }
   };
 
-  // Ignore Single Update (FR-4.4)
+  // 忽略单项更新（FR-4.4）
   const handleIgnoreUpdate = async (id: string) => {
     const target = updates.find((u) => u.app_id === id);
     await api.setAppSkipVersion(id, target?.latest_version ?? null);
@@ -785,7 +771,7 @@ export const App: React.FC = () => {
     showToast(`已跳过并忽略 ${id} 本次版本更新`, 'info');
   };
 
-  // Skip Version (Feature C)
+  // 跳过指定版本（功能 C）
   const handleSkipVersion = async (id: string, version: string) => {
     await api.setAppSkipVersion(id, version);
     setUpdates((prev) => prev.filter((u) => u.app_id !== id));
@@ -794,7 +780,7 @@ export const App: React.FC = () => {
     showToast(`已跳过 ${id} 的 ${version} 版本，下个新版本发布时将重新通知`, 'info');
   };
 
-  // Freeze Version (Feature C)
+  // 锁定当前版本（功能 C）
   const handleFreezeVersion = async (id: string) => {
     await api.setAppFrozen(id, true);
     setUpdates((prev) => prev.filter((u) => u.app_id !== id));
@@ -803,7 +789,7 @@ export const App: React.FC = () => {
     showToast(`已永久锁定 ${id} 当前版本，不再接收该应用更新`, 'info');
   };
 
-  // Hide App (Feature C)
+  // 隐藏应用（功能 C）
   const handleHideApp = async (id: string) => {
     await api.setAppHidden(id, true);
     setUpdates((prev) => prev.filter((u) => u.app_id !== id));
@@ -814,7 +800,7 @@ export const App: React.FC = () => {
     showToast(`已隐藏 ${id}，将不再在探索和更新中心显示`, 'info');
   };
 
-  // Remove Rule (Feature C)
+  // 移除规则（功能 C）
   const handleRemoveRule = async (appId: string) => {
     await api.removeUpdateRule(appId);
     const rules = await api.getUpdateRules();
@@ -826,7 +812,7 @@ export const App: React.FC = () => {
     showToast(`已清空 ${appId} 的全部版本与屏蔽规则`, 'success');
   };
 
-  // Clear Rule Skip Version
+  // 清除跳过版本规则
   const handleClearRuleSkip = async (appId: string) => {
     await api.setAppSkipVersion(appId, null);
     const rules = await api.getUpdateRules();
@@ -836,7 +822,7 @@ export const App: React.FC = () => {
     showToast(`已恢复 ${appId} 的版本更新提醒`, 'success');
   };
 
-  // Toggle Rule Frozen
+  // 切换版本锁定状态
   const handleToggleRuleFrozen = async (appId: string, isFrozen: boolean) => {
     await api.setAppFrozen(appId, isFrozen);
     const rules = await api.getUpdateRules();
@@ -846,7 +832,7 @@ export const App: React.FC = () => {
     showToast(isFrozen ? `已锁定 ${appId} 版本` : `已解除 ${appId} 版本锁定`, 'info');
   };
 
-  // Toggle Rule Hidden
+  // 切换应用隐藏状态
   const handleToggleRuleHidden = async (appId: string, isHidden: boolean) => {
     await api.setAppHidden(appId, isHidden);
     const rules = await api.getUpdateRules();
@@ -858,7 +844,7 @@ export const App: React.FC = () => {
     showToast(isHidden ? `已隐藏 ${appId}` : `已取消隐藏 ${appId}`, 'info');
   };
 
-  // Batch Update
+  // 批量升级
   const handleBatchUpdateAll = async () => {
     showToast('正在批量升级所有就绪应用...', 'info');
     let successCount = 0;
@@ -884,7 +870,7 @@ export const App: React.FC = () => {
     }
   };
 
-  // Trigger Manual Update Check
+  // 手动触发检查更新
   const handleCheckUpdates = async () => {
     showToast('正在向各开源托管仓库检查最新发布...', 'info');
     setIsCheckingUpdates(true);
@@ -906,7 +892,7 @@ export const App: React.FC = () => {
     }
   };
 
-  // Scan System Installed Open-Source Apps (FR-5.3)
+  // 扫描系统已安装的开源应用（FR-5.3）
   const handleScanSystemApps = () => {
     setIsImportModalOpen(true);
   };
@@ -917,7 +903,7 @@ export const App: React.FC = () => {
       const loadedInstalled = await api.getInstalledApps();
       setInstalledApps(loadedInstalled);
     } catch {
-      /* refresh failed silently after toast */
+      /* Toast 提示后刷新静默失败 */
     }
 
     // 后台静默执行远端更新检查，绝不阻塞本地已安装列表呈现与界面交互
@@ -951,15 +937,14 @@ export const App: React.FC = () => {
   };
 
 
-  // Task 3: platform-first derivation feeding Home/Trends/Categories (same `apps` prop name).
+  // 任务 3：以平台优先派生数据供给 精选/趋势/分类 视图（使用同名 apps 属性）。
   const platformFilteredApps = useMemo(
     () => apps.filter((a) => matchPlatformSet(a, selectedPlatforms)),
     [apps, selectedPlatforms]
   );
 
-  // Task 4 (device-platform global filter): per-platform counts for the
-  // Sidebar group, computed over the FULL `apps` array (not the filtered
-  // one) so each count answers "how many apps target this device".
+  // 任务 4（设备平台全局过滤）：侧栏分组的各平台应用计数，
+  // 基于全量 `apps` 数组（而非已过滤数组）计算，以便准确呈现“有多少应用支持该设备”。
   const platformCounts = useMemo(() => {
     const counts = {} as Record<PlatformId, number>;
     for (const id of PLATFORM_IDS) {
@@ -989,8 +974,7 @@ export const App: React.FC = () => {
     return set;
   }, [installedApps]);
 
-  // P0-1 deeplink install confirmation: surface app name, repo/source and
-  // SHA-256 where available (loaded detail preferred, list snapshot fallback).
+  // P0-1 深链安装确认弹窗：呈现应用名称、仓库/来源以及 SHA-256（优先使用已加载详情，兜底使用列表快照）。
   const pendingDeepLinkDetail =
     pendingDeepLinkInstall !== null &&
     selectedApp !== null &&
@@ -1017,17 +1001,17 @@ export const App: React.FC = () => {
 
   return (
     <div className="app-window">
-      {/* Dynamic Ambient Aurora Background Blobs for Glass Refraction */}
+      {/* 用于毛玻璃折射效果的动态环境极光背景光斑 */}
       <div className="aurora-ambient-glow" aria-hidden="true">
         <div className="aurora-blob aurora-blob-1" />
         <div className="aurora-blob aurora-blob-2" />
         <div className="aurora-blob aurora-blob-3" />
       </div>
 
-      {/* Authentic Acrylic Frosted Noise Texture Layer (亚克力微晶磨砂层) */}
+      {/* 真实亚克力微晶磨砂噪点覆层 */}
       <div className="acrylic-noise-overlay" aria-hidden="true" />
 
-      {/* TitleBar */}
+      {/* 顶部标题栏 */}
       <TitleBar
         searchQuery={searchQuery}
         onSearchChange={handleSearchChange}
@@ -1038,9 +1022,9 @@ export const App: React.FC = () => {
         onNavigateSettings={() => setCurrentView('settings')}
       />
 
-      {/* App Body */}
+      {/* 应用主体区域 */}
       <div className="app-body">
-        {/* Sidebar */}
+        {/* 侧边导航栏 */}
         <Sidebar
           currentView={currentView}
           onSelectView={setCurrentView}
@@ -1053,7 +1037,7 @@ export const App: React.FC = () => {
           platformCounts={platformCounts}
         />
 
-        {/* Content Views */}
+        {/* 主内容显示区域 */}
         <main className="content-area">
           {currentView === 'home' && (
             <HomeView
@@ -1186,7 +1170,7 @@ export const App: React.FC = () => {
         </main>
       </div>
 
-      {/* P0-1 deeplink install confirmation (explicit user consent gate) */}
+      {/* P0-1 深度链接安装确认弹窗（显式用户授权门禁） */}
       {pendingDeepLinkInstall !== null && (
         <div className="modal-backdrop" onClick={() => setPendingDeepLinkInstall(null)}>
           <div
@@ -1250,7 +1234,7 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* App Detail Modal */}
+      {/* 应用详情弹窗 */}
       {selectedApp && (
         <AppDetailModal
           app={selectedApp}
@@ -1280,7 +1264,7 @@ export const App: React.FC = () => {
         />
       )}
 
-      {/* Developer Profile Modal (Feature D) */}
+      {/* 开发者主页弹窗（功能 D） */}
       <DeveloperProfileModal
         developer={selectedDeveloper || ''}
         isOpen={Boolean(selectedDeveloper)}
@@ -1290,14 +1274,14 @@ export const App: React.FC = () => {
         installedIds={installedIds}
       />
 
-      {/* System Apps Import Modal (FR-5.3) */}
+      {/* 系统已安装应用导入弹窗（FR-5.3） */}
       <AppImportModal
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
         onImportSuccess={handleImportSuccess}
       />
 
-      {/* Update Rules Manager Modal */}
+      {/* 更新规则管理弹窗 */}
       <RulesManagerModal
         isOpen={isRulesModalOpen}
         onClose={() => setIsRulesModalOpen(false)}

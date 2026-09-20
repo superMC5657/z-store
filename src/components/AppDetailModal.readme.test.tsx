@@ -1,9 +1,8 @@
 /**
- * Readme characterization (pre-extract guard for the useDetailReadme
- * split of AppDetailModal).
+ * README 特征化测试（用于从 AppDetailModal 拆分出 useDetailReadme 前的防劣化保护）。
  *
- * Pins the README render contract through the real component path:
- * markdown becomes HTML, GitHub alert blocks become alert divs.
+ * 通过真实组件路径锁定 README 渲染契约：
+ * Markdown 被解析为 HTML，GitHub 风格警示块被转换为 alert 提示容器。
  */
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';

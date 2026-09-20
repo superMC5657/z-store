@@ -111,7 +111,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
 
   return (
     <div className="favorites-view view-entrance">
-      {/* Tab Navigation */}
+      {/* 标签导航栏 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <button
@@ -223,7 +223,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
         )
       ) : (
         <div>
-          {/* Starred Sync Controls Banner */}
+          {/* Starred 标星同步操作横幅 */}
           <div
             style={{
               padding: '20px 24px',
@@ -296,7 +296,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
             )}
           </div>
 
-          {/* Sync Results */}
+          {/* 同步结果展示 */}
           {syncResult ? (
             <div>
               <div

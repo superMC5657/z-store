@@ -16,9 +16,8 @@ pub fn compute_sha256(path: &Path) -> Result<String, String> {
     Ok(hex::encode(result))
 }
 
-/// Outcome of the async persist hot path (P1-10a).
-/// Carries exactly the context the caller needs to reproduce the
-/// historical log + `zstore://download-progress` emit payloads.
+/// 异步落盘关键路径（P1-10a）的执行结果。
+/// 携带调用方重现历史日志与发送 `zstore://download-progress` 事件所需的全部上下文。
 #[derive(Debug)]
 enum PersistError<E> {
     Create(std::io::Error),

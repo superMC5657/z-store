@@ -4,7 +4,7 @@ use super::catalog::get_app_details;
 use super::{resolve_uninstaller_command, select_best_asset, InstallerEngine};
 use tauri::{AppHandle, Emitter, State};
 
-/// Install flow body (moved verbatim from `installer.rs`; command wrapper stays there).
+/// 安装流程核心实现（从 `installer.rs` 抽离；命令包装层保留在原处）。
 pub async fn install_app(
     app_handle: AppHandle,
     state: State<'_, AppState>,

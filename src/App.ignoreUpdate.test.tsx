@@ -1,9 +1,9 @@
 /**
- * P2-5 ignore-update persistence (real <App/> path).
+ * P2-5 忽略更新持久化测试（真实 <App/> 链路）。
  *
- * `忽略本次提醒` must flow through the same backend path as `跳过此版本`
- * (api.setAppSkipVersion + rules refresh): an ignored update stays absent
- * after re-check, and the rules UI reflects the persisted skip rule.
+ * `忽略本次提醒` 必须走与 `跳过此版本` 相同的后端链路
+ * (api.setAppSkipVersion + 规则刷新)：被忽略的更新在重新检查后依然保持忽略状态，
+ * 且规则管理弹窗界面需准确反映该持久化的跳过规则。
  */
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -107,15 +107,15 @@ describe('P2-5 ignore-update persistence (real App path)', () => {
   it('ignore persists via setAppSkipVersion; re-check keeps it absent and rules UI reflects it', async () => {
     render(<App />);
 
-    // Navigate to the updates center; the backend-fed fixture is listed.
+    // 导航至更新中心；后端供给的测试用例项已列出。
     fireEvent.click(screen.getByRole('button', { name: '更新中心' }));
     expect(await screen.findByText('Ignored App')).toBeTruthy();
 
-    // Ignore this update (same entry point as the user-facing menu).
+    // 忽略该更新（入口与用户界面菜单一致）。
     fireEvent.click(screen.getByRole('button', { name: '更多操作' }));
     fireEvent.click(await screen.findByText('忽略本次提醒'));
 
-    // Backend path (copied from skip-version flow): skip persisted + rules refreshed.
+    // 后端链路（对齐跳过版本流程）：跳过规则已持久化 + 规则列表已刷新。
     await waitFor(() => {
       expect(hooks.setAppSkipVersion).toHaveBeenCalledWith(APP_ID, LATEST);
     });
@@ -123,12 +123,12 @@ describe('P2-5 ignore-update persistence (real App path)', () => {
       expect(hooks.getUpdateRules).toHaveBeenCalled();
     });
 
-    // Item disappears immediately...
+    // 该更新项立即自列表中消失...
     await waitFor(() => {
       expect(screen.queryByText('Ignored App')).toBeNull();
     });
 
-    // ...and stays absent after an explicit re-check (would return without persistence).
+    // ...且显式触发重新检查后依然保持排除状态（若无持久化则会重新出现）。
     const checksBefore = hooks.checkForUpdates.mock.calls.length;
     fireEvent.click(screen.getByRole('button', { name: '检查更新' }));
     await waitFor(() => {
@@ -139,10 +139,10 @@ describe('P2-5 ignore-update persistence (real App path)', () => {
     });
     expect(await screen.findByText('所有应用均已是最新版本')).toBeTruthy();
 
-    // Rules UI reflects the persisted skip: updates header count...
+    // 规则管理界面反映该持久化跳过规则：更新头部统计...
     expect(screen.getByRole('button', { name: /规则.*\(1\)/ })).toBeTruthy();
 
-    // ...and the rules manager modal lists the skipped app + version.
+    // ...且规则管理器弹窗列出跳过的应用及其版本号。
     fireEvent.click(screen.getByRole('button', { name: /规则.*\(1\)/ }));
     expect(await screen.findByText(/版本策略与屏蔽规则管理 \(1\)/)).toBeTruthy();
     expect(screen.getByText(APP_ID)).toBeTruthy();

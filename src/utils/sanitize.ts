@@ -15,8 +15,8 @@ const ALLOWED_TAGS = new Set([
 
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'asset:', 'tauri:']);
 
-// data: URLs are blocked entirely except raster stills needed for README/changelog
-// inline images (SVG can carry script/event handlers and must never pass).
+// 除 README/更新日志中内联展示所需的光栅位图外，完全阻断其他 data: URL
+// （SVG 可能携带脚本/事件监听器，绝不允许放行）。
 const ALLOWED_DATA_IMAGE_PREFIXES = [
   'data:image/png;',
   'data:image/png,',

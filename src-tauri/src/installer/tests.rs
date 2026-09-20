@@ -41,8 +41,8 @@ fn test_classify_asset() {
 
 #[test]
 fn test_classify_7z_never_portable() {
-    // P1-4: product decision — drop the `.7z` portable claim, do NOT add a 7z dependency.
-    // No `.7z` filename may ever classify as PortableZip (extractor only opens zip::ZipArchive).
+    // P1-4：产品决策 —— 放弃对 `.7z` 的便携版支持声明，不增加 7z 依赖。
+    // 任何 `.7z` 文件名均不得分类为 PortableZip（解压器仅能解开 zip::ZipArchive）。
     let cases = [
         "app-portable.7z",
         "app-portable-win64.7z",
@@ -58,7 +58,7 @@ fn test_classify_7z_never_portable() {
         assert_ne!(kind, AssetKind::PortableZip, ".7z must never be PortableZip: {}", name);
         assert_eq!(kind, AssetKind::Other, ".7z must map to Other: {}", name);
     }
-    // Guard: `.zip` portable claim stays intact.
+    // 守卫测试：确保 `.zip` 的便携版声明保持完好。
     assert_eq!(
         InstallerEngine::classify_asset("app-portable.zip").0,
         AssetKind::PortableZip
@@ -153,7 +153,7 @@ fn test_uninstaller_payload_semicolon_stays_inert_argv() {
     let payload = r#""/opt/myapp/uninstall.sh" --remove; touch /tmp/zstore_pwned_semicolon"#;
     let (exe, args) = parse_uninstaller_command(payload);
     assert_eq!(exe, "/opt/myapp/uninstall.sh");
-    // `;` must remain a literal argv element, never a shell command separator.
+    // `;` 必须作为 argv 的字面量元素保留，绝不能作为 shell 命令分隔符。
     assert!(args.iter().any(|a| a.contains(';')), "semicolon must stay inside argv, got: {:?}", args);
     assert!(!exe.contains(';'));
 }
@@ -163,7 +163,7 @@ fn test_uninstaller_payload_andand_stays_inert_argv() {
     let payload = r#""/opt/myapp/uninstall.sh" --remove && touch /tmp/zstore_pwned_andand"#;
     let (exe, args) = parse_uninstaller_command(payload);
     assert_eq!(exe, "/opt/myapp/uninstall.sh");
-    // `&&` must remain a literal argv element, never a shell chain operator.
+    // `&&` 必须作为 argv 的字面量元素保留，绝不能作为 shell 连词运算符。
     assert!(args.iter().any(|a| a.contains("&&")), "&& must stay inside argv, got: {:?}", args);
     assert!(!exe.contains('&'));
 }
@@ -173,15 +173,15 @@ fn test_uninstaller_payload_backtick_stays_inert_argv() {
     let payload = r#""/opt/myapp/uninstall.sh" --remove `touch /tmp/zstore_pwned_backtick`"#;
     let (exe, args) = parse_uninstaller_command(payload);
     assert_eq!(exe, "/opt/myapp/uninstall.sh");
-    // Backticks must remain literal argv text, never command substitution.
+    // 反引号必须作为 argv 的字面量文本保留，绝不能作为命令替换符。
     assert!(args.iter().any(|a| a.contains('`')), "backticks must stay inside argv, got: {:?}", args);
     assert!(!exe.contains('`'));
 }
 
 #[test]
 fn test_uninstaller_payload_argv_spawn_never_executes_injected_command() {
-    // Mirror of the fixed Unix path: parse -> argv spawn (never `sh -c`).
-    // The injected `touch` must never run; the bogus exe must be rejected.
+    // 与修复后的 Unix 路径对称：解析 -> argv spawn（绝不使用 `sh -c`）。
+    // 注入的 `touch` 绝不得运行；虚假 exe 必须被拒绝。
     let dir = std::env::temp_dir().join("zstore_uninstall_pwn_test");
     let _ = std::fs::create_dir_all(&dir);
     let sentinel = dir.join("pwned_argv");
@@ -200,9 +200,8 @@ fn test_uninstaller_payload_argv_spawn_never_executes_injected_command() {
 
 #[test]
 fn test_select_best_asset_fail_closed_no_cross_os_fallback() {
-    // P1-5: empty OS-match with non-empty assets must return None — never fall
-    // back to cross-OS assets (e.g. `.deb`-only assets on Windows must not
-    // select the `.deb`).
+    // P1-5：产物非空但操作系统匹配结果为空时必须返回 None —— 绝不可跨系统回退
+    // （例如在 Windows 下仅有 `.deb` 产物时绝不能误选 `.deb`）。
     #[cfg(target_os = "windows")]
     let foreign_os = "linux";
     #[cfg(target_os = "macos")]
@@ -233,15 +232,15 @@ fn test_select_best_asset_fail_closed_no_cross_os_fallback() {
         "fail closed: foreign-OS-only assets must yield None, got {:?}",
         select_best_asset(&assets).map(|a| &a.name)
     );
-    // Empty input stays None as well.
+    // 输入为空时同样保持返回 None。
     let empty: Vec<crate::models::ReleaseAsset> = vec![];
     assert!(select_best_asset(&empty).is_none());
 }
 
 #[test]
 fn test_uninstall_unix_path_never_shells_command_string() {
-    // P0-3: the Unix uninstall path must not hand the DB-sourced command
-    // string to `sh -c`; it must spawn via argv from parse_uninstaller_command.
+    // P0-3：Unix 卸载路径绝不能将来自数据库的命令字符串直接传给 `sh -c`；
+    // 必须通过 parse_uninstaller_command 解析出的 argv 参数列表进行调用。
     let src = include_str!("executor.rs");
     assert!(
         !src.contains("\"-c\", uninstaller_cmd"),
@@ -249,10 +248,10 @@ fn test_uninstall_unix_path_never_shells_command_string() {
     );
 }
 
-// --- Finding 3.3-3: SetupExe installer-type sniff + silent args (pure, no launch) ---
+// --- 审查项 3.3-3：SetupExe 安装包类型嗅探 + 静默参数识别（纯函数，无实际启动）---
 #[test]
 fn test_sniff_nsis_fixture() {
-    // Minimal PE-prefix fixture carrying the NSIS marker.
+    // 包含 NSIS 标记的最小 PE 头测试固件。
     let mut bytes = vec![0x4Du8, 0x5A, 0x90, 0x00];
     bytes.extend_from_slice(b"NullsoftInst foo");
     assert_eq!(
@@ -296,7 +295,7 @@ fn test_silent_args_mapping() {
     );
 }
 
-// --- Finding 3.3-4: platform skips are a non-success signal, never Ok-installed ---
+// --- 审查项 3.3-4：跨平台跳过是非成功信号，绝不能视为 Ok 安装完成 ---
 #[test]
 fn test_skipped_outcome_is_non_success() {
     let skipped = executor::InstallOutcome::Skipped("skip: test".to_string());
@@ -307,8 +306,8 @@ fn test_skipped_outcome_is_non_success() {
 
 #[tokio::test]
 async fn test_foreign_platform_skip_is_not_recorded_as_installed() {
-    // On this Windows host, a macOS DMG install is a total no-op: it must
-    // come back as Skipped (mapped to Err by the caller), never Ok.
+    // 在当前 Windows 主机上，macOS DMG 安装是完全无操作的操作：
+    // 它必须作为 Skipped 返回（由调用方转换为 Err），绝不能返回 Ok。
     #[cfg(target_os = "windows")]
     {
         let res = executor::execute_installation(

@@ -1,9 +1,8 @@
 /**
- * Task 1 — device-platform global filter.
+ * 任务 1 — 设备平台全局过滤器测试。
  *
- * SECTION A (baseline characterization): pins the CURRENT single-select
- * matchPlatform semantics copied verbatim from src/views/CategoriesView.tsx:56-62.
- * Self-contained: runs green on unchanged code with no new module required.
+ * 第一部分（基线特征化测试）：锁定完全复制自 src/views/CategoriesView.tsx:56-62 的单选 matchPlatform 现有语义。
+ * 自包含测试：在不引入新模块的情况下即可通过。
  */
 import { describe, expect, it } from 'vitest';
 
@@ -11,7 +10,7 @@ interface BaselineApp {
   platforms?: string[];
 }
 
-// Verbatim copy of CategoriesView.matchPlatform (single-select) for pinning.
+// 原样复制 CategoriesView.matchPlatform（单选）用于基线特征化断言。
 function baselineMatchPlatform(app: BaselineApp, platform: string): boolean {
   if (platform === 'all') return true;
   if (!app.platforms || app.platforms.length === 0) {
@@ -44,8 +43,7 @@ describe('baseline: single-select matchPlatform (CategoriesView:56-62)', () => {
 });
 
 /**
- * SECTION B (new multi-select spec): exercises src/lib/platformFilter.ts.
- * Expected to FAIL (collection error) until the module is implemented.
+ * 第二部分（多选新规范测试）：全面测试 src/lib/platformFilter.ts。
  */
 import {
   PLATFORM_IDS,
@@ -116,10 +114,10 @@ describe('platformFilter: multi-select set semantics', () => {
       current = togglePlatformSet(current, id);
     }
     expect(current).toEqual(new Set<PlatformId>([]));
-    // every app misses an empty selection -> pages show filter-empty states
+    // 空选择时不匹配任何应用 -> 各页面展示筛选为空引导界面
     expect(matchPlatformSet({ platforms: ['windows'] }, current)).toBe(false);
     expect(matchPlatformSet({}, current)).toBe(false);
-    // rechecking works
+    // 重新勾选恢复有效匹配
     expect(togglePlatformSet(current, 'linux')).toEqual(new Set(['linux']));
   });
 

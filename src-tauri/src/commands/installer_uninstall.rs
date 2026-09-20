@@ -3,18 +3,17 @@ use crate::AppState;
 use super::resolve_uninstaller_command;
 use tauri::State;
 
-/// ADR-0010 entry guard (same pattern as `launch_app`): normalize the inbound
-/// id to canonical form; reject unparseable ids instead of passing raw ids through.
+/// ADR-0010 入口门禁（与 `launch_app` 保持同一模式）：将入站 id 归一化为规范形式；
+/// 拒绝无法解析的非法 id，严禁透传原始未校验的 id。
 pub(crate) fn resolve_managed_app_id(raw: &str) -> Result<String, String> {
     crate::forge::canonical_app_id(raw)
         .ok_or_else(|| format!("无法识别的应用标识: {}", raw))
 }
 
-/// Finding 3.2-3 no-schema-change marking: `InstalledApp` carries no missing
-/// flag without a DB migration (models.rs intentionally untouched), so ghosts
-/// are hidden from the returned view while their DB rows are kept. Pure
-/// filter — performs zero DB/cache deletes; the count is surfaced via log in
-/// `get_installed_apps`. Actual deletion only via explicit uninstall/unmanage paths.
+/// 审查项 3.2-3 无架构变更标记：在不执行数据库迁移的前提下 `InstalledApp` 无 missing 标记
+/// （models.rs 保持刻意未动），因此幽灵应用在返回视图中被隐藏，但数据库记录予以保留。
+/// 纯过滤函数 —— 执行 0 次数据库/缓存删除操作；幽灵计数在 `get_installed_apps` 中通过日志体现。
+/// 仅当用户显式调用卸载/取消管理时才执行实际删除。
 pub(crate) fn hide_ghost_apps(
     apps: Vec<InstalledApp>,
     ghost_ids: &[String],
@@ -25,10 +24,10 @@ pub(crate) fn hide_ghost_apps(
         .collect()
 }
 
-/// P0-2 portable-uninstall guard: `remove_dir_all` is allowed ONLY inside
-/// Z-Store's own self-created isolated dir (`dirs_or_fallback(app_id)`).
-/// Both paths are canonicalized first (symlink/case/prefix edges); the
-/// component-wise `starts_with` prevents sibling-prefix confusion (`app` vs `app2`).
+/// P0-2 便携版卸载安全门禁：仅允许在 Z-Store 自身创建的专用隔离目录内执行 `remove_dir_all`
+/// （即 `dirs_or_fallback(app_id)`）。
+/// 两个路径均首先进行规范化（消除符号链接、大小写和路径前缀差异）；
+/// 逐级路径组件 `starts_with` 比较可防止同级前缀混淆（例如 `app` 与 `app2`）。
 pub(crate) fn is_owned_portable_dir(
     candidate: &std::path::Path,
     owned_dir: &std::path::Path,
@@ -41,7 +40,7 @@ pub(crate) fn is_owned_portable_dir(
     }
     #[cfg(target_os = "windows")]
     {
-        // Case-insensitive fallback with separator-aware prefix compare.
+        // 针对 Windows 平台不区分大小写且兼顾路径分隔符的前缀比对回退方案。
         let cand = canon_candidate.to_string_lossy().to_lowercase();
         let mut owned = canon_owned.to_string_lossy().to_lowercase();
         while owned.ends_with('\\') || owned.ends_with('/') {
@@ -59,8 +58,8 @@ pub(crate) fn is_owned_portable_dir(
     }
 }
 
-/// P0-2 safe cleanup: owned dir -> `remove_dir_all`; shared dir (Downloads /
-/// D:\Tools style) -> remove only the manifest-recorded single file, or refuse.
+/// P0-2 安全清理：属于自有专属目录 -> 执行 `remove_dir_all`；共享目录（如“下载”或 D:\Tools）
+/// -> 仅删除清单记录的单一文件，或拒绝整目录删除。
 pub(crate) fn cleanup_portable_path(
     install_path: &std::path::Path,
     owned_dir: &std::path::Path,
@@ -187,7 +186,7 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result
 }
 
 pub fn unmanage_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
-    // ADR-0010: same entry guard as `launch_app` — normalize then use canonical id throughout.
+    // ADR-0010：与 `launch_app` 相同的入口门禁 —— 归一化后全程使用规范化 canonical id。
     let app_id = resolve_managed_app_id(&app_id)?;
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let res = db.remove_installed_app(&app_id).map_err(|e| e.to_string());
@@ -202,8 +201,8 @@ mod portable_uninstall_safety_tests {
 
     #[test]
     fn uninstall_shared_dir_survives() {
-        // P0-2 RED: app unpacked into a shared dir (Downloads / D:\Tools style)
-        // must NEVER trigger remove_dir_all on the shared dir.
+        // P0-2 红色警戒用例：解压到共享目录（如 Downloads 或 D:\Tools）的应用
+        // 绝不能对共享目录触发 remove_dir_all 递归删除。
         let base = std::env::temp_dir().join(format!("zstore-red-shared-{}", std::process::id()));
         let shared = base.join("shared");
         let owned = base.join("owned").join("owner-repo");
@@ -223,7 +222,7 @@ mod portable_uninstall_safety_tests {
 
     #[test]
     fn uninstall_owned_dir_is_cleaned() {
-        // Owned isolated dir (dirs_or_fallback shape) must still be fully cleaned.
+        // 自有专属隔离目录（dirs_or_fallback 形态）必须被完整清理删除。
         let base = std::env::temp_dir().join(format!("zstore-green-owned-{}", std::process::id()));
         let owned = base.join("owned").join("owner-repo");
         fs::create_dir_all(&owned).unwrap();
@@ -238,7 +237,7 @@ mod portable_uninstall_safety_tests {
 
     #[test]
     fn uninstall_owned_prefix_sibling_is_not_owned() {
-        // Prefix edge: <base>/app2 must not count as inside <base>/app.
+        // 前缀边界：<base>/app2 绝不能被判定在 <base>/app 内部。
         let base = std::env::temp_dir().join(format!("zstore-prefix-{}", std::process::id()));
         let owned = base.join("app");
         let sibling = base.join("app2");
@@ -271,7 +270,7 @@ mod ghost_and_id_guard_tests {
 
     #[test]
     fn unmanage_rejects_unparseable_id() {
-        // Finding 2.1-1 part B: unparseable ids must be rejected, never pass through raw.
+        // 审查项 2.1-1 乙部：无法解析的 id 必须直接报错拒绝，绝不可透传原始字符串。
         assert!(super::resolve_managed_app_id("").is_err());
         assert!(super::resolve_managed_app_id("   ").is_err());
         assert!(super::resolve_managed_app_id("not a valid id !!!").is_err());
@@ -279,7 +278,7 @@ mod ghost_and_id_guard_tests {
 
     #[test]
     fn unmanage_normalizes_to_canonical_id() {
-        // Same ADR-0010 pattern as launch_app: entry guard normalizes, canonical used downstream.
+        // 与 launch_app 相同的 ADR-0010 模式：入口校验门禁归一化，下游统一使用规范化 id。
         assert_eq!(
             super::resolve_managed_app_id("Owner/Repo").unwrap(),
             "owner/repo"
@@ -292,9 +291,9 @@ mod ghost_and_id_guard_tests {
 
     #[test]
     fn scan_hides_ghost_from_view_but_signals_retention() {
-        // Finding 3.2-3: vanished executable -> hidden from returned view;
-        // DB row retention is structural (pure filter performs zero DB deletes;
-        // get_installed_apps must not call remove_installed_app on ghosts).
+        // 审查项 3.2-3：可执行文件丢失 -> 从返回视图中隐藏；
+        // 数据库行保留属于架构设计（纯过滤执行零数据库删除；
+        // get_installed_apps 严禁对幽灵应用调用 remove_installed_app）。
         let apps = vec![
             sample_app("owner/healthy", "C:\\exists\\a.exe"),
             sample_app("owner/ghost", "C:\\vanished\\g.exe"),

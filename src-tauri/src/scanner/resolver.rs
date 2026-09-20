@@ -1,12 +1,12 @@
-//! Resolver compatibility surface.
+//! 解析器兼容层。
 //!
-//! Pure-move split of the former monolithic `resolver.rs` (731 lines):
-//! - `super::lnk_target`: MS-SHLLINK binary parsing (`resolve_lnk_target`) + fixture tests.
-//! - `super::display_icon`: DisplayIcon cleanup, installer/cache filter, exe search.
-//! - `super::executable`: executable / installed-path resolution.
+//! 原单体文件 `resolver.rs`（731 行）的纯代码结构拆分：
+//! - `super::lnk_target`: MS-SHLLINK 二进制解析 (`resolve_lnk_target`) 与测试固件。
+//! - `super::display_icon`: DisplayIcon 清理、安装包/缓存过滤与 exe 搜索。
+//! - `super::executable`: 可执行程序 / 安装路径解析。
 //!
-//! All public entry points remain inherent methods on `super::AppScanner`
-//! with identical signatures; this module only re-exports the split surface.
+//! 所有公共入口依然保持为 `super::AppScanner` 的固有方法且签名完全一致；
+//! 该模块仅重新导出拆分后的接口。
 
 pub use super::display_icon;
 pub use super::executable;

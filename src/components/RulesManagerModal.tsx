@@ -37,7 +37,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
   const [rulesTab, setRulesTab] = useState<'all' | 'skipped' | 'frozen' | 'hidden'>('all');
   const [filterQuery, setFilterQuery] = useState('');
 
-  // Add rule state
+  // 新增规则表单状态
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [selectedAppId, setSelectedAppId] = useState<string>('');
   const [customAppId, setCustomAppId] = useState<string>('');
@@ -124,7 +124,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
         role="dialog"
         aria-modal="true"
       >
-        {/* Header */}
+        {/* 弹窗头部 */}
         <div
           className="modal-header"
           style={{
@@ -181,7 +181,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
           </div>
         </div>
 
-        {/* Inline Notification Banner */}
+        {/* 内联通知提示条 */}
         {noticeMessage && (
           <div
             style={{
@@ -200,7 +200,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
           </div>
         )}
 
-        {/* Collapsible Manual Add Rule Form */}
+        {/* 可折叠的手动添加规则表单 */}
         {isAddOpen && (
           <div
             style={{
@@ -218,7 +218,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
               <span>手动新建软件版本与屏蔽规则</span>
             </div>
 
-            {/* Target App Row */}
+            {/* 目标应用选择行 */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 500 }}>
                 1. 选择或输入目标开源软件:
@@ -254,7 +254,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
               </div>
             </div>
 
-            {/* Rule Policy Type */}
+            {/* 规则策略类型 */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 500 }}>
                 2. 选择策略行为:
@@ -303,7 +303,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
               )}
             </div>
 
-            {/* Actions */}
+            {/* 操作按钮 */}
             <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '4px' }}>
               <button
                 type="button"
@@ -330,7 +330,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
           </div>
         )}
 
-        {/* Filter Toolbar */}
+        {/* 过滤工具栏 */}
         <div
           style={{
             padding: '12px 24px',
@@ -371,7 +371,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
           />
         </div>
 
-        {/* Rules Content */}
+        {/* 规则列表内容区 */}
         <div
           className="modal-scroll-area"
           style={{
@@ -571,7 +571,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
           )}
         </div>
 
-        {/* Footer */}
+        {/* 底部状态与操作栏 */}
         <div
           style={{
             padding: '12px 24px',

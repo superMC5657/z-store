@@ -1,12 +1,11 @@
 /**
- * P3-3 trust friction — custom catalog source requires a destructive confirm.
+ * P3-3 信任阻尼 — 自定义应用收录源需经过二次破坏性确认。
  *
- * - Saving a non-default (custom) catalog_source_url first arms a confirm
- *   step (destructive "confirm switch" + warning) and does NOT persist yet;
- *   confirming persists the custom URL.
- * - Saving empty (= official default flow) applies immediately, unchanged.
- * - Cancelling the confirm discards without persisting.
- * - Re-saving the already-active custom URL applies immediately (no change).
+ * - 保存非默认（自定义）catalog_source_url 时，首先进入确认步骤（高危“确认切换” + 警告），
+ *   此时尚未持久化；确认后方才持久化该自定义 URL。
+ * - 保存为空值（= 官方默认源流）立即生效。
+ * - 取消确认会直接丢弃改动而不予持久化。
+ * - 重新保存当前已生效的相同自定义 URL 立即应用（无改动）。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';

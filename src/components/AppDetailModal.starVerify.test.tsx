@@ -1,9 +1,7 @@
 /**
- * Star/verify characterization (pre-extract guard for the
- * useDetailStarVerify split of AppDetailModal).
+ * 标星与所有权校验特征化测试（用于从 AppDetailModal 拆分出 useDetailStarVerify 前的防劣化保护）。
  *
- * Pins the modal's GitHub star toggle + ownership-verify submit
- * contract through the real component path before the move.
+ * 在模块拆分前通过真实组件路径锁定详情弹窗的 GitHub Star 切换及所有权校验提交契约。
  */
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';

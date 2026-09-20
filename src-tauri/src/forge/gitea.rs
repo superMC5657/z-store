@@ -51,7 +51,7 @@ impl ForgeProvider for GiteaProvider {
             }
         }
 
-        // Gitea / Forgejo API v1
+        // Gitea / Forgejo 接口 v1
         let url = format!("https://{}/api/v1/repos/{}/{}", host, owner, repo);
         let safe_url = crate::log_support::sanitize_url(&url);
         let req_id = crate::z_log::new_req_id();
