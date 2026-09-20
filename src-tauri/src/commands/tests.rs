@@ -19,6 +19,31 @@ fn test_is_version_newer() {
 }
 
 #[test]
+fn test_is_version_newer_matrix() {
+    // 子问题 1：预发布版本低于正式版（SemVer 全序：1.0.0-beta.1 < 1.0.0）
+    assert!(!is_version_newer("1.0.0", "1.0.0-beta.1"));
+    assert!(is_version_newer("1.0.0-beta.1", "1.0.0"));
+    assert!(is_version_newer("1.0.0-beta.1", "1.0.0-beta.2"));
+    assert!(!is_version_newer("1.0.0-beta.2", "1.0.0-beta.1"));
+
+    // 子问题 2：`tip` 等非 SemVer 标签不对任何版本误报
+    assert!(!is_version_newer("1.0.0", "tip"));
+    assert!(!is_version_newer("tip", "1.0.0"));
+    assert!(!is_version_newer("tip", "tip"));
+
+    // 子问题 3：`R2` 后缀不做数值推测——单侧不可解析一律不提示；
+    // 两侧都不可解析才退化为归一化字符串不等。
+    assert!(!is_version_newer("v1.5.7", "v26.02-v1.5.7-R2"));
+    assert!(is_version_newer("v26.02-v1.5.7-R1", "v26.02-v1.5.7-R2"));
+    assert!(!is_version_newer("v26.02-v1.5.7-R2", "v26.02-v1.5.7-R2"));
+
+    // 4 段式 MSI：末段 0 截断后按 SemVer 比较（等值不误报，真升级仍检出）
+    assert!(!is_version_newer("3.0.21.0", "v3.0.21"));
+    assert!(is_version_newer("3.0.21.0", "3.0.22"));
+    assert!(!is_version_newer("3.0.22", "3.0.21.0"));
+}
+
+#[test]
 fn test_should_include_update() {
     // 1. 无规则，有新版本 -> 应当包含
     assert!(should_include_update("v1.0.0", "v1.1.0", None));
@@ -127,6 +152,36 @@ fn test_select_best_asset_arch_priority() {
     let selected = select_best_asset(&assets).unwrap();
     #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
     assert_eq!(selected.name, "rustdesk-1.4.9-x86_64.msi");
+}
+
+#[test]
+fn test_decide_ownership_verified_requires_api_auth() {
+    // README 命中 + 未授权（wrong token / 无 token）⇒ 恒为 false：
+    // 子串命中 alone NEVER verifies。
+    assert!(!super::forge::decide_ownership_verified(
+        "welcome CODE123 here",
+        "CODE123",
+        false
+    ));
+    // owner + API-ok（README 命中且仓库 API 确认 push 权限）⇒ true。
+    assert!(super::forge::decide_ownership_verified(
+        "welcome CODE123 here",
+        "CODE123",
+        true
+    ));
+    // README 未命中 + API-ok ⇒ false。
+    assert!(!super::forge::decide_ownership_verified(
+        "no code here",
+        "CODE123",
+        true
+    ));
+    // 空校验码 ⇒ 恒为 false（即使 API-ok）。
+    assert!(!super::forge::decide_ownership_verified(
+        "welcome CODE123 here",
+        "   ",
+        true
+    ));
+    assert!(!super::forge::decide_ownership_verified("anything", "", true));
 }
 
 #[test]

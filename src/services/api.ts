@@ -1,3 +1,5 @@
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import {
   AppDetail,
   AppMatchResult,
@@ -31,6 +33,7 @@ export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in
 
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'dark',
+  language: 'zh-CN',
   ui_scale: '100',
   font_size: '14',
   portable_dir: '%LOCALAPPDATA%\\Programs\\z-store-apps',
@@ -48,7 +51,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
 async function tauriInvoke<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
   if (isTauri) {
-    const { invoke } = await import('@tauri-apps/api/core');
     return invoke<T>(cmd, args);
   }
   throw new Error('Not in Tauri environment');
@@ -97,7 +99,6 @@ const tauriApi = {
 
   async onUpdateItemFound(callback: (item: UpdateItem) => void): Promise<() => void> {
     if (!isTauri) return () => {};
-    const { listen } = await import('@tauri-apps/api/event');
     return listen<UpdateItem>('zstore://update-item-found', (e) => {
       callback(e.payload);
     });
@@ -105,7 +106,6 @@ const tauriApi = {
 
   async onUpdateCheckProgress(callback: (payload: UpdateCheckProgressPayload) => void): Promise<() => void> {
     if (!isTauri) return () => {};
-    const { listen } = await import('@tauri-apps/api/event');
     return listen<UpdateCheckProgressPayload>('zstore://update-check-progress', (e) => {
       callback(e.payload);
     });
@@ -113,7 +113,6 @@ const tauriApi = {
 
   async onUpdateCheckFinished(callback: (payload: { total_checked: number; total_found: number }) => void): Promise<() => void> {
     if (!isTauri) return () => {};
-    const { listen } = await import('@tauri-apps/api/event');
     return listen<{ total_checked: number; total_found: number }>('zstore://update-check-finished', (e) => {
       callback(e.payload);
     });
@@ -207,7 +206,7 @@ const tauriApi = {
   },
 
   async onDownloadProgress(callback: (payload: DownloadProgressPayload) => void): Promise<() => void> {
-    const { listen } = await import('@tauri-apps/api/event');
+    if (!isTauri) return () => {};
     return listen<DownloadProgressPayload>('zstore://download-progress', (e) => {
       callback(e.payload);
     });
@@ -282,7 +281,7 @@ const tauriApi = {
   },
 
   async onQuotaUpdated(callback: (payload: QuotaUpdatePayload) => void): Promise<() => void> {
-    const { listen } = await import('@tauri-apps/api/event');
+    if (!isTauri) return () => {};
     return listen<QuotaUpdatePayload>('zstore://quota-updated', (e) => {
       callback(e.payload);
     });
@@ -338,14 +337,14 @@ const tauriApi = {
   },
 
   async onWatchUpdated(callback: (payload: WatchUpdatedPayload) => void): Promise<() => void> {
-    const { listen } = await import('@tauri-apps/api/event');
+    if (!isTauri) return () => {};
     return listen<WatchUpdatedPayload>('zstore://watch-updated', (e) => {
       callback(e.payload);
     });
   },
 
   async onOAuthExpired(callback: () => void): Promise<() => void> {
-    const { listen } = await import('@tauri-apps/api/event');
+    if (!isTauri) return () => {};
     return listen('zstore://oauth-expired', () => {
       callback();
     });

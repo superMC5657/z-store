@@ -5,7 +5,6 @@
  * matchPlatform semantics copied verbatim from src/views/CategoriesView.tsx:56-62.
  * Self-contained: runs green on unchanged code with no new module required.
  */
-// @ts-ignore - vitest is fetched transiently via npx (not a repo dep per task scope)
 import { describe, expect, it } from 'vitest';
 
 interface BaselineApp {
@@ -52,7 +51,7 @@ import {
   PLATFORM_IDS,
   matchPlatformSet,
   normalizePlatform,
-  parseSelectedPlatforms,
+  parseSelectedPlatformArray,
   togglePlatformSet,
 } from './platformFilter';
 import type { PlatformId } from './platformFilter';
@@ -131,27 +130,27 @@ describe('platformFilter: multi-select set semantics', () => {
     expect(next).not.toBe(prev);
   });
 
-  it('parseSelectedPlatforms([]) -> empty Set (no fallback-to-all)', () => {
-    expect(parseSelectedPlatforms([])).toEqual(new Set<PlatformId>([]));
+  it('parseSelectedPlatformArray([]) -> empty Set (no fallback-to-all)', () => {
+    expect(parseSelectedPlatformArray([])).toEqual(new Set<PlatformId>([]));
   });
 
-  it('parseSelectedPlatforms(null/undefined) -> empty Set', () => {
-    expect(parseSelectedPlatforms(null)).toEqual(new Set<PlatformId>([]));
-    expect(parseSelectedPlatforms(undefined)).toEqual(new Set<PlatformId>([]));
+  it('parseSelectedPlatformArray(null/undefined) -> empty Set', () => {
+    expect(parseSelectedPlatformArray(null)).toEqual(new Set<PlatformId>([]));
+    expect(parseSelectedPlatformArray(undefined)).toEqual(new Set<PlatformId>([]));
   });
 
-  it('parseSelectedPlatforms(unknown-only) -> empty Set (valid, not corrupt)', () => {
-    expect(parseSelectedPlatforms(['amigaos'])).toEqual(new Set<PlatformId>([]));
-    expect(parseSelectedPlatforms(['amigaos', 'commodore64'])).toEqual(new Set<PlatformId>([]));
+  it('parseSelectedPlatformArray(unknown-only) -> empty Set (valid, not corrupt)', () => {
+    expect(parseSelectedPlatformArray(['amigaos'])).toEqual(new Set<PlatformId>([]));
+    expect(parseSelectedPlatformArray(['amigaos', 'commodore64'])).toEqual(new Set<PlatformId>([]));
   });
 
-  it('parseSelectedPlatforms whitelists unknown ids and lowercases known ones', () => {
-    expect(parseSelectedPlatforms(['windows', 'amigaos'])).toEqual(new Set(['windows']));
-    expect(parseSelectedPlatforms(['WINDOWS', 'Ios'])).toEqual(new Set(['windows', 'ios']));
+  it('parseSelectedPlatformArray whitelists unknown ids and lowercases known ones', () => {
+    expect(parseSelectedPlatformArray(['windows', 'amigaos'])).toEqual(new Set(['windows']));
+    expect(parseSelectedPlatformArray(['WINDOWS', 'Ios'])).toEqual(new Set(['windows', 'ios']));
   });
 
   it('unknown-only selection matches nothing (empty-filter premise)', () => {
-    const unknownOnly = parseSelectedPlatforms(['amigaos']);
+    const unknownOnly = parseSelectedPlatformArray(['amigaos']);
     expect(unknownOnly.size).toBe(0);
     expect(matchPlatformSet({ platforms: ['windows'] }, unknownOnly)).toBe(false);
     expect(matchPlatformSet({}, unknownOnly)).toBe(false);

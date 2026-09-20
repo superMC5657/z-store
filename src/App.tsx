@@ -13,11 +13,13 @@ import { InstalledView } from './views/InstalledView';
 import { UpdatesView } from './views/UpdatesView';
 import { SettingsView } from './views/SettingsView';
 import { FavoritesView } from './views/FavoritesView';
-import { AppDetail, AppDetailViewModel, AppSettings, AppSummary, InstalledApp, MirrorNodeStatus, OAuthUser, ToastMessage, UpdateItem, UpdateCheckProgressPayload, UpdateRule, ViewType, WatchUpdatedPayload } from './types';
+import { AppDetail, AppDetailViewModel, AppSummary, InstalledApp, MirrorNodeStatus, OAuthUser, UpdateItem, UpdateCheckProgressPayload, UpdateRule, ViewType, WatchUpdatedPayload } from './types';
 import { api, DEFAULT_SETTINGS } from './services/api';
 import { preloadIcons } from './components/AppIcon';
-import { zlogError, zlogInfo, zlogWarn } from './lib/z-log';
+import { zlogInfo } from './lib/z-log';
 import { PLATFORM_IDS, matchPlatformSet, normalizePlatform, togglePlatformSet, type PlatformId } from './lib/platformFilter';
+import { useToasts } from './useToasts';
+import { useAppSettings } from './useAppSettings';
 
 export const PLATFORM_FILTER_STORAGE_KEY = 'zstore:platform-filter:v1';
 
@@ -29,6 +31,13 @@ export const PLATFORM_FILTER_STORAGE_KEY = 'zstore:platform-filter:v1';
  * including unknown-only arrays, which whitelist down to [] by the same
  * rule. The full set (equivalent to "unfiltered") is the fallback ONLY
  * for missing keys and corrupt/non-array JSON.
+ *
+ * NOTE: distinct from `parseSelectedPlatformArray` in
+ * `src/lib/platformFilter.ts`, which takes an already-decoded string
+ * array (readonly string[] | null | undefined) and maps null/undefined
+ * to the empty set (no fallback-to-all). This string version takes the
+ * raw storage string and intentionally falls back to the full set on
+ * missing/corrupt input.
  */
 export function parseSelectedPlatforms(raw: string | null | undefined): Set<PlatformId> {
   const full = new Set<PlatformId>(PLATFORM_IDS);
@@ -80,10 +89,20 @@ export const App: React.FC = () => {
   const [selectedApp, setSelectedApp] = useState<AppDetailViewModel | null>(null);
   const activeDetailIdRef = useRef<string | null>(null);
   const [selectedDeveloper, setSelectedDeveloper] = useState<string | null>(null);
+  // P0-1 deeplink install guard: an `install_app` deeplink only stages a
+  // pending confirmation — installation starts solely from the confirm click.
+  const [pendingDeepLinkInstall, setPendingDeepLinkInstall] = useState<string | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
-  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
-  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const {
+    theme,
+    settings,
+    applyPersistedSettings,
+    handleToggleTheme,
+    handleSetTheme,
+    handleUpdateSetting,
+    handleResetSettings,
+  } = useAppSettings();
   const [updateRules, setUpdateRules] = useState<UpdateRule[]>([]);
   const [recentlyViewedApps, setRecentlyViewedApps] = useState<AppSummary[]>([]);
   const [detectedAppIds, setDetectedAppIds] = useState<Set<string>>(new Set());
@@ -100,104 +119,10 @@ export const App: React.FC = () => {
   const appDetailMemoryCache = useRef<Map<string, AppDetail>>(new Map());
 
   // 应用内通知（FR-6.2 关注提醒 / FR-4.4 自更新 / FR-7 OAuth / FR-6.3 导入导出经此通道呈现）
-  const [toasts, setToasts] = useState<ToastMessage[]>([]);
-  const showToast = (text: string, type: ToastMessage['type'] = 'info') => {
-    if (type === 'error') {
-      zlogError(`[toast] ${text}`);
-    } else if (type === 'warning') {
-      zlogWarn(`[toast] ${text}`);
-    } else {
-      zlogInfo(`[toast] ${text}`);
-    }
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    setToasts((prev) => [...prev.slice(-2), { id, text, type }]);
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 3800);
-  };
-  const handleDismissToast = (id: string) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
-  };
-
-  const FONT_SCALE_MAP: Record<string, string> = {
-    '12': '0.86',
-    '14': '1',
-    '16': '1.14',
-    '18': '1.28',
-    '20': '1.43',
-    small: '0.86',
-    standard: '1',
-    medium: '1.14',
-    large: '1.28',
-  };
-
-  const applyFontSize = (sizeKey: string) => {
-    document.documentElement.setAttribute('data-font-size', sizeKey);
-    const scale = FONT_SCALE_MAP[sizeKey] || '1';
-    document.documentElement.style.setProperty('--font-scale', scale);
-  };
-
-  const applyUiZoom = (scaleStr: string) => {
-    const factor = Number(scaleStr) / 100;
-    document.documentElement.style.zoom = `${factor}`;
-    document.documentElement.style.setProperty('--app-zoom', `${factor}`);
-
-    import('@tauri-apps/api/webview')
-      .then(({ getCurrentWebview }) => getCurrentWebview().setZoom(factor))
-      .catch(() => {});
-  };
-
-  // 将持久化设置快照合并入 AppSettings 并应用主题 / 字号 / 缩放（导入备份后复用同一路径）
-  const applyPersistedSettings = (persisted: Record<string, string>) => {
-    const merged: AppSettings = { ...DEFAULT_SETTINGS };
-    for (const [k, v] of Object.entries(persisted)) {
-      if (k in merged) {
-        if (typeof (DEFAULT_SETTINGS as any)[k] === 'boolean') {
-          (merged as any)[k] = v === 'true';
-        } else if (typeof (DEFAULT_SETTINGS as any)[k] === 'number') {
-          (merged as any)[k] = Number(v) || (DEFAULT_SETTINGS as any)[k];
-        } else {
-          (merged as any)[k] = v;
-        }
-      }
-    }
-    if (!merged.download_dir || merged.download_dir.includes('zstore_downloads')) {
-      merged.download_dir = DEFAULT_SETTINGS.download_dir;
-    }
-    setSettings(merged);
-
-    // Apply theme
-    let currentTheme: 'light' | 'dark' = 'dark';
-    if (merged.theme === 'light') {
-      currentTheme = 'light';
-    } else if (merged.theme === 'dark') {
-      currentTheme = 'dark';
-    } else {
-      const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-      currentTheme = isDark ? 'dark' : 'light';
-    }
-    setTheme(currentTheme);
-    document.documentElement.setAttribute('data-theme', currentTheme);
-
-    // Apply font size
-    applyFontSize(merged.font_size);
-
-    // Apply UI zoom
-    applyUiZoom(merged.ui_scale);
-
-    if (merged.active_mirror) {
-      api.switchMirror(merged.active_mirror);
-    }
-  };
+  const { toasts, showToast, handleDismissToast } = useToasts();
 
   // Initial load
   useEffect(() => {
-    // Detect system preference
-    const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-    const initialTheme = isDark ? 'dark' : 'light';
-    setTheme(initialTheme);
-    document.documentElement.setAttribute('data-theme', initialTheme);
-
     // Initial data fetch
     api.searchApps('').then((loadedApps) => {
       setApps(loadedApps);
@@ -213,12 +138,16 @@ export const App: React.FC = () => {
     api.getMirrorStatus().then(setMirrors);
     api.getFavorites().then((favs) => setFavoriteIds(new Set(favs)));
     api.getUpdateRules().then(setUpdateRules);
-    api.getRecentlyViewedApps().then(setRecentlyViewedApps).catch(() => {});
+    api.getRecentlyViewedApps().then((recents) => setRecentlyViewedApps(recents.filter((a) => matchPlatformSet(a, selectedPlatforms)))).catch(() => {});
     api.registerDeepLinkScheme().catch(() => {});
 
     // Load persisted settings
     api.getSettings().then((persisted) => {
       applyPersistedSettings(persisted);
+      // P2-6: startup-only auto-check — the `daily` update_frequency option is
+      // intentionally disabled in Settings (upcoming feature, no scheduler),
+      // so only `startup` triggers an automatic check here; `daily`/`manual`
+      // users check from the Updates tab.
       if ((persisted.update_frequency || DEFAULT_SETTINGS.update_frequency) === 'startup') {
         api.checkForUpdates(false).then(setUpdates).catch(() => {});
       }
@@ -239,20 +168,6 @@ export const App: React.FC = () => {
 
     return () => {
       window.removeEventListener('zstore:catalog-synced', handleCatalogSynced);
-    };
-  }, []);
-
-  // 应用内通知总线：新功能经 `zstore:toast` 事件投递 Toast
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { text?: string; type?: ToastMessage['type'] } | undefined;
-      if (detail?.text) {
-        showToast(detail.text, detail.type || 'info');
-      }
-    };
-    window.addEventListener('zstore:toast', handler);
-    return () => {
-      window.removeEventListener('zstore:toast', handler);
     };
   }, []);
 
@@ -389,21 +304,6 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  // 跟随系统主题动态监听
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return;
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const handleChange = (e: MediaQueryListEvent) => {
-      if (settings.theme === 'system') {
-        const nextTheme = e.matches ? 'dark' : 'light';
-        setTheme(nextTheme);
-        document.documentElement.setAttribute('data-theme', nextTheme);
-      }
-    };
-    mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
-  }, [settings.theme]);
-
   // 仅在用户主动进入“更新中心”标签页时才执行轻量检查（30 秒防抖冷却，避免频繁切标签重复消耗配额）
   const lastTabUpdateCheckRef = useRef<number>(0);
   useEffect(() => {
@@ -429,64 +329,6 @@ export const App: React.FC = () => {
     prevViewRef.current = currentView;
     zlogInfo(`switch view='${currentView}' from='${from}' params={}`);
   }, [currentView]);
-
-  // Theme Toggler
-  const handleToggleTheme = () => {
-    const next = theme === 'light' ? 'dark' : 'light';
-    setTheme(next);
-    document.documentElement.setAttribute('data-theme', next);
-    handleUpdateSetting('theme', next);
-  };
-
-  const handleSetTheme = (t: 'light' | 'dark' | 'system') => {
-    let effective: 'light' | 'dark' = 'dark';
-    if (t === 'light') {
-      effective = 'light';
-    } else if (t === 'dark') {
-      effective = 'dark';
-    } else {
-      const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-      effective = isDark ? 'dark' : 'light';
-    }
-    setTheme(effective);
-    document.documentElement.setAttribute('data-theme', effective);
-    handleUpdateSetting('theme', t);
-  };
-
-  // Generic Setting Updater
-  const handleUpdateSetting = async <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
-    setSettings((prev) => ({ ...prev, [key]: value }));
-    await api.saveSetting(key, String(value));
-
-    if (key === 'theme') {
-      const t = value as 'light' | 'dark' | 'system';
-      let effective: 'light' | 'dark' = 'dark';
-      if (t === 'light') {
-        effective = 'light';
-      } else if (t === 'dark') {
-        effective = 'dark';
-      } else {
-        const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-        effective = isDark ? 'dark' : 'light';
-      }
-      setTheme(effective);
-      document.documentElement.setAttribute('data-theme', effective);
-    } else if (key === 'font_size') {
-      applyFontSize(String(value));
-    } else if (key === 'ui_scale') {
-      applyUiZoom(String(value));
-    }
-  };
-
-  // Reset all settings to factory default
-  const handleResetSettings = async () => {
-    await api.resetSettings();
-    setSettings(DEFAULT_SETTINGS);
-    setTheme('dark');
-    document.documentElement.setAttribute('data-theme', 'dark');
-    applyFontSize('14');
-    applyUiZoom('100');
-  };
 
   // Export JSON Backup
   const handleExportAppsJson = () => {
@@ -702,8 +544,12 @@ export const App: React.FC = () => {
       if (action.action === 'app_detail') {
         handleOpenDetail(action.payload.app_id);
       } else if (action.action === 'install_app') {
+        // P0-1: never auto-install from a deeplink — open the detail view
+        // and stage an explicit confirmation dialog; installation starts
+        // only on the user's confirm click.
         handleOpenDetail(action.payload.app_id);
-        handleInstallApp(action.payload.app_id);
+        setPendingDeepLinkInstall(action.payload.app_id);
+        showToast(`外部链接请求安装 ${action.payload.app_id}，请在弹窗中确认后继续`, 'warning');
       } else if (action.action === 'search') {
         handleSearchChange(action.payload.query);
       } else if (action.action === 'developer_profile') {
@@ -930,8 +776,12 @@ export const App: React.FC = () => {
   };
 
   // Ignore Single Update (FR-4.4)
-  const handleIgnoreUpdate = (id: string) => {
+  const handleIgnoreUpdate = async (id: string) => {
+    const target = updates.find((u) => u.app_id === id);
+    await api.setAppSkipVersion(id, target?.latest_version ?? null);
     setUpdates((prev) => prev.filter((u) => u.app_id !== id));
+    const rules = await api.getUpdateRules();
+    setUpdateRules(rules);
     showToast(`已跳过并忽略 ${id} 本次版本更新`, 'info');
   };
 
@@ -1139,6 +989,24 @@ export const App: React.FC = () => {
     return set;
   }, [installedApps]);
 
+  // P0-1 deeplink install confirmation: surface app name, repo/source and
+  // SHA-256 where available (loaded detail preferred, list snapshot fallback).
+  const pendingDeepLinkDetail =
+    pendingDeepLinkInstall !== null &&
+    selectedApp !== null &&
+    selectedApp.id.toLowerCase() === pendingDeepLinkInstall.toLowerCase() &&
+    !selectedApp.isLoading
+      ? selectedApp
+      : null;
+  const pendingDeepLinkSummary =
+    pendingDeepLinkDetail ??
+    (pendingDeepLinkInstall !== null
+      ? apps.find((a) => a.id.toLowerCase() === pendingDeepLinkInstall.toLowerCase()) ??
+        recentlyViewedApps.find((a) => a.id.toLowerCase() === pendingDeepLinkInstall.toLowerCase()) ??
+        null
+      : null);
+  const pendingDeepLinkSha256 = pendingDeepLinkDetail?.releases.find((r) => r.sha256)?.sha256;
+
   // 跳转设置页 GitHub 账号区（侧栏登录胶囊入口）
   const handleOpenAccountSettings = () => {
     setCurrentView('settings');
@@ -1235,7 +1103,7 @@ export const App: React.FC = () => {
 
           {currentView === 'favorites' && (
             <FavoritesView
-              apps={apps}
+              apps={platformFilteredApps}
               favoriteIds={favoriteIds}
               watchedIds={watchedIds}
               installedIds={installedIds}
@@ -1250,8 +1118,13 @@ export const App: React.FC = () => {
 
           {currentView === 'installed' && (
             <InstalledView
-              installedApps={installedApps}
-              apps={apps}
+              installedApps={installedApps.filter((inst) => {
+                const catalogEntry = apps.find(
+                  (a) => a.id.toLowerCase() === inst.app_id.toLowerCase()
+                );
+                return !catalogEntry || matchPlatformSet(catalogEntry, selectedPlatforms);
+              })}
+              apps={platformFilteredApps}
               uninstallingAppIds={uninstallingAppIds}
               onOpenDetail={handleOpenDetail}
               onLaunch={handleLaunchApp}
@@ -1270,8 +1143,13 @@ export const App: React.FC = () => {
 
           {currentView === 'updates' && (
             <UpdatesView
-              updates={updates}
-              apps={apps}
+              updates={updates.filter((u) => {
+                const catalogEntry = apps.find(
+                  (a) => a.id.toLowerCase() === u.app_id.toLowerCase()
+                );
+                return !catalogEntry || matchPlatformSet(catalogEntry, selectedPlatforms);
+              })}
+              apps={platformFilteredApps}
               isChecking={isCheckingUpdates}
               checkProgress={updateCheckProgress}
               onApplyUpdate={handleApplyUpdate}
@@ -1307,6 +1185,70 @@ export const App: React.FC = () => {
           )}
         </main>
       </div>
+
+      {/* P0-1 deeplink install confirmation (explicit user consent gate) */}
+      {pendingDeepLinkInstall !== null && (
+        <div className="modal-backdrop" onClick={() => setPendingDeepLinkInstall(null)}>
+          <div
+            className="detail-modal"
+            style={{ maxWidth: '480px', width: '92%', padding: '24px 28px' }}
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="确认安装"
+          >
+            <div className="modal-header" style={{ position: 'relative', padding: 0, marginBottom: '12px' }}>
+              <h2 style={{ margin: 0, fontSize: '18px' }}>确认安装</h2>
+            </div>
+            <p style={{ margin: '0 0 12px', lineHeight: 1.6 }}>
+              外部链接请求安装以下应用，请确认后再继续：
+            </p>
+            <div style={{ margin: '0 0 8px', lineHeight: 1.8 }}>
+              <div>
+                应用：{pendingDeepLinkDetail?.name ?? pendingDeepLinkSummary?.name ?? pendingDeepLinkInstall}
+              </div>
+              <div>
+                仓库：{pendingDeepLinkDetail
+                  ? `${pendingDeepLinkDetail.owner}/${pendingDeepLinkDetail.repo}`
+                  : pendingDeepLinkSummary
+                    ? `${pendingDeepLinkSummary.owner}/${pendingDeepLinkSummary.repo}`
+                    : pendingDeepLinkInstall}
+              </div>
+              <div>
+                来源：{pendingDeepLinkDetail?.forge_host ?? pendingDeepLinkSummary?.forge_host ?? '未知来源'}
+              </div>
+              {pendingDeepLinkSha256 && (
+                <div style={{ wordBreak: 'break-all' }}>
+                  SHA-256：{pendingDeepLinkSha256}
+                </div>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '16px' }}>
+              <button
+                className="btn-fluent btn-secondary"
+                onClick={() => {
+                  setPendingDeepLinkInstall(null);
+                  showToast('已取消外部链接发起的安装请求', 'info');
+                }}
+              >
+                取消
+              </button>
+              <button
+                className="btn-fluent btn-primary"
+                onClick={() => {
+                  const id = pendingDeepLinkInstall;
+                  setPendingDeepLinkInstall(null);
+                  if (id !== null) {
+                    handleInstallApp(id);
+                  }
+                }}
+              >
+                确认安装
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* App Detail Modal */}
       {selectedApp && (

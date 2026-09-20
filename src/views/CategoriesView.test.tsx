@@ -18,7 +18,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import React from 'react';
 import { CategoriesView } from './CategoriesView';
 import type { AppSummary } from '../types';
-import { matchPlatformSet, parseSelectedPlatforms } from '../lib/platformFilter';
+import { matchPlatformSet, parseSelectedPlatformArray } from '../lib/platformFilter';
 
 afterEach(() => {
   cleanup();
@@ -155,13 +155,13 @@ describe('CategoriesView: converged to global filter (no local platform state)',
 
 describe('CategoriesView: Decision B select-nothing (empty/unknown-only match nothing)', () => {
   it('empty selection pre-filters everything out (no fallback-to-all)', () => {
-    const sel = parseSelectedPlatforms([]);
+    const sel = parseSelectedPlatformArray([]);
     expect(sel.size).toBe(0);
     expect([DEV_WIN, DEV_IOS, MEDIA_IOS].filter((a) => matchPlatformSet(a, sel))).toEqual([]);
   });
 
   it('unknown-only selection behaves like empty (never falls back to all)', () => {
-    const sel = parseSelectedPlatforms(['amigaos']);
+    const sel = parseSelectedPlatformArray(['amigaos']);
     expect(sel.size).toBe(0);
     expect([DEV_WIN, DEV_IOS, MEDIA_IOS].filter((a) => matchPlatformSet(a, sel))).toEqual([]);
   });

@@ -108,7 +108,7 @@ fn test_parse_import_payload_merge_rules() {
         vec!["rustdesk".to_string(), "vlc".to_string()]
     );
     assert_eq!(plan.watched, vec!["localsend".to_string()]);
-    // 仅白名单设置项通过，数值转字符串
+    // 仅白名单设置项通过（P1-8：除 github_token 外全量通过），数值/布尔转字符串
     let mut keys: Vec<&str> = plan.settings.iter().map(|(k, _)| k.as_str()).collect();
     keys.sort_unstable();
     assert_eq!(
@@ -134,6 +134,53 @@ fn test_parse_import_payload_merge_rules() {
     assert!(minimal.favorites.is_empty());
     assert!(minimal.watched.is_empty());
     assert!(minimal.settings.is_empty());
+}
+
+#[test]
+fn test_backup_settings_full_round_trip() {
+    // P1-8：导出 → JSON → 导入往返：除 github_token 外的全部 14 项设置无损通过，
+    // 混合 JSON 类型（字符串/数值/布尔）统一转字符串；version 保持为 1。
+    let json = r#"{
+        "version": 1,
+        "favorites": ["rustdesk/rustdesk"],
+        "watched": ["localsend/localsend"],
+        "settings": {
+            "theme": "dark",
+            "language": "zh-CN",
+            "ui_scale": "110",
+            "font_size": "16",
+            "portable_dir": "D:\\apps",
+            "download_dir": "D:\\dl",
+            "active_mirror": "direct",
+            "max_concurrent_downloads": 5,
+            "close_to_tray": false,
+            "launch_on_startup": true,
+            "update_frequency": "daily",
+            "detail_cache_ttl_minutes": 60,
+            "catalog_source_url": "https://example.com/catalog.json",
+            "watch_notify_frequency": "startup",
+            "github_token": "gho_should-never-leak"
+        }
+    }"#;
+    let plan = parse_import_payload(json).expect("全量设置导入 JSON 应当解析成功");
+    let got: std::collections::HashMap<&str, &str> = plan
+        .settings
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    for key in IMPORT_SETTINGS_ALLOWLIST {
+        assert!(got.contains_key(key), "白名单键缺失: {}", key);
+    }
+    assert_eq!(got.get("theme"), Some(&"dark"));
+    assert_eq!(got.get("language"), Some(&"zh-CN"));
+    assert_eq!(got.get("ui_scale"), Some(&"110"));
+    assert_eq!(got.get("max_concurrent_downloads"), Some(&"5"));
+    assert_eq!(got.get("close_to_tray"), Some(&"false"));
+    assert_eq!(got.get("launch_on_startup"), Some(&"true"));
+    assert_eq!(got.get("detail_cache_ttl_minutes"), Some(&"60"));
+    // github_token 被刻意排除：永不经备份流转
+    assert!(!got.contains_key("github_token"));
+    assert!(!plan.settings.iter().any(|(_, v)| v.contains("gho_")));
 }
 
 #[test]

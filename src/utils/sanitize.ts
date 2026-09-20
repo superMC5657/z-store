@@ -11,10 +11,29 @@ const ALLOWED_TAGS = new Set([
   'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td',
   'img', 'a', 'br', 'hr', 'kbd',
   'details', 'summary', 'sup', 'sub',
-  'video', 'audio', 'source', 'picture',
 ]);
 
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'asset:', 'tauri:']);
+
+// data: URLs are blocked entirely except raster stills needed for README/changelog
+// inline images (SVG can carry script/event handlers and must never pass).
+const ALLOWED_DATA_IMAGE_PREFIXES = [
+  'data:image/png;',
+  'data:image/png,',
+  'data:image/jpeg;',
+  'data:image/jpeg,',
+  'data:image/jpg;',
+  'data:image/jpg,',
+  'data:image/gif;',
+  'data:image/gif,',
+  'data:image/webp;',
+  'data:image/webp,',
+];
+
+function isAllowedDataUrl(lowerVal: string): boolean {
+  if (!lowerVal.startsWith('data:')) return false;
+  return ALLOWED_DATA_IMAGE_PREFIXES.some((prefix) => lowerVal.startsWith(prefix));
+}
 
 export interface SanitizeOptions {
   /** 仓库素材直链基准地址，如 https://raw.githubusercontent.com/{owner}/{repo}/HEAD/ */
@@ -23,7 +42,7 @@ export interface SanitizeOptions {
   repoBaseUrl?: string;
 }
 
-function resolveRelativeUrl(url: string, baseUrl?: string): string {
+function resolveRelativeAssetUrl(url: string, baseUrl?: string): string {
   if (!baseUrl || !url) return url;
   const trimmed = url.trim();
   if (
@@ -68,9 +87,12 @@ export function sanitizeHtml(rawHtml: string, options?: SanitizeOptions): string
             el.remove();
             continue;
           }
-          // 对于非高危未知标签，提升子节点，消除外层未知标签
+          // 对于非高危未知标签，提升子节点，消除外层未知标签；
+          // 被提升的子节点追加回待遍历队列，保证它们同样经过完整的白名单与属性核验
           while (el.firstChild) {
-            el.parentNode?.insertBefore(el.firstChild, el);
+            const lifted = el.firstChild;
+            el.parentNode?.insertBefore(lifted, el);
+            children.push(lifted);
           }
           el.remove();
           continue;
@@ -91,9 +113,15 @@ export function sanitizeHtml(rawHtml: string, options?: SanitizeOptions): string
           // 严格核验链接类属性（href, src）协议
           if (attrName === 'href' || attrName === 'src') {
             const lowerVal = attrVal.toLowerCase();
-            // 阻断 javascript:, vbscript:, data:text/html 等恶意伪协议
-            if (lowerVal.startsWith('javascript:') || lowerVal.startsWith('vbscript:') || lowerVal.startsWith('data:text/')) {
+            // 阻断 javascript:, vbscript: 及 data:（仅放行 png/jpeg/gif/webp 光栅静图，data:image/svg 等一律阻断）
+            if (lowerVal.startsWith('javascript:') || lowerVal.startsWith('vbscript:')) {
               el.removeAttribute(attr.name);
+              continue;
+            }
+            if (lowerVal.startsWith('data:')) {
+              if (!isAllowedDataUrl(lowerVal)) {
+                el.removeAttribute(attr.name);
+              }
               continue;
             }
 
@@ -112,9 +140,9 @@ export function sanitizeHtml(rawHtml: string, options?: SanitizeOptions): string
             } else if (options) {
               // 针对相对路径属性，利用上下文基准地址进行兜底安全补齐
               if (attrName === 'src' && options.rawBaseUrl) {
-                el.setAttribute('src', resolveRelativeUrl(attrVal, options.rawBaseUrl));
+                el.setAttribute('src', resolveRelativeAssetUrl(attrVal, options.rawBaseUrl));
               } else if (attrName === 'href' && options.repoBaseUrl && !attrVal.startsWith('#') && !attrVal.startsWith('mailto:')) {
-                el.setAttribute('href', resolveRelativeUrl(attrVal, options.repoBaseUrl));
+                el.setAttribute('href', resolveRelativeAssetUrl(attrVal, options.repoBaseUrl));
               }
             }
           }
@@ -128,11 +156,14 @@ export function sanitizeHtml(rawHtml: string, options?: SanitizeOptions): string
                 if (parts.length === 0 || !parts[0]) return '';
                 let candUrl = parts[0];
                 const lower = candUrl.toLowerCase();
-                if (lower.startsWith('javascript:') || lower.startsWith('vbscript:') || lower.startsWith('data:text/')) {
+                if (lower.startsWith('javascript:') || lower.startsWith('vbscript:')) {
                   return '';
                 }
+                if (lower.startsWith('data:')) {
+                  return isAllowedDataUrl(lower) ? (parts.length > 1 ? `${candUrl} ${parts.slice(1).join(' ')}` : candUrl) : '';
+                }
                 if (options?.rawBaseUrl) {
-                  candUrl = resolveRelativeUrl(candUrl, options.rawBaseUrl);
+                  candUrl = resolveRelativeAssetUrl(candUrl, options.rawBaseUrl);
                 }
                 return parts.length > 1 ? `${candUrl} ${parts.slice(1).join(' ')}` : candUrl;
               })

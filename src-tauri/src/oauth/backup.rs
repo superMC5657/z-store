@@ -1,11 +1,23 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 
-/// 用户数据导入：允许合入设置项的白名单（仅主题/语言/缓存保鲜期/关注通知频率）。
+/// 用户数据导入：允许合入设置项的白名单（P1-8：覆盖除凭据外的全部设置项）。
+/// `github_token`（PAT 凭据）被刻意排除：永不经备份文件跨设备流转，
+/// 导出侧（DataBackupRow）同样不写入该键。
 pub const IMPORT_SETTINGS_ALLOWLIST: &[&str] = &[
     "theme",
     "language",
+    "ui_scale",
+    "font_size",
+    "portable_dir",
+    "download_dir",
+    "active_mirror",
+    "max_concurrent_downloads",
+    "close_to_tray",
+    "launch_on_startup",
+    "update_frequency",
     "detail_cache_ttl_minutes",
+    "catalog_source_url",
     "watch_notify_frequency",
 ];
 

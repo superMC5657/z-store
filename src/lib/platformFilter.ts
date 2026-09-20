@@ -91,12 +91,16 @@ export function togglePlatformSet(prev: ReadonlySet<PlatformId>, id: string): Se
 }
 
 /**
- * Parse a persisted selection (localStorage key
- * 'zstore:platform-filter:v1') into a set of known platform ids.
- * Empty array / unknown-only / null / undefined -> empty Set
- * (NOT fallback-to-all), so `[]` round-trips to `[]`.
+ * Parse a persisted selection (already-decoded string array) into a set of
+ * known platform ids. Empty array / unknown-only / null / undefined ->
+ * empty Set (NOT fallback-to-all), so `[]` round-trips to `[]`.
+ *
+ * NOTE: distinct from `parseSelectedPlatforms` in `src/App.tsx`, which takes
+ * the raw localStorage string (string | null | undefined) and falls back to
+ * the full set on missing/corrupt values. This array version never falls
+ * back — null means empty.
  */
-export function parseSelectedPlatforms(input: readonly string[] | null | undefined): Set<PlatformId> {
+export function parseSelectedPlatformArray(input: readonly string[] | null | undefined): Set<PlatformId> {
   const out = new Set<PlatformId>();
   if (input === null || input === undefined) return out;
   for (const raw of input) {

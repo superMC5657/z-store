@@ -8,7 +8,7 @@ export interface ZLogOptions {
 
 // TODO(opt-in): 自动上报网络开关，默认关闭、不上报。仅落盘 + 导出，需用户显式开启后再接上报通道。
 
-let inited = false;
+let isInitialized = false;
 
 /** 前端轻量脱敏：与后端 z_log::redact 同规则，避免 token 落盘。 */
 function redact(msg: string): string {
@@ -98,7 +98,10 @@ export function zlogDebug(msg: string, meta?: ZLogMeta): void {
   void debug(redact(line)).catch(() => undefined);
 }
 
-/** 兼容接口：直透模式下无需手动刷盘。 */
+/**
+ * 兼容接口：有意为 no-op。直透模式下每条日志调用即时经 IPC 上送，
+ * 无缓冲队列可刷；保留此函数仅为调用方兼容，无需手动调用。
+ */
 export async function flush(): Promise<void> {}
 
 /**
@@ -108,8 +111,8 @@ export async function flush(): Promise<void> {}
  * - 接管 onerror / unhandledrejection
  */
 export async function initZLog(_opts: ZLogOptions = {}): Promise<void> {
-  if (inited) return;
-  inited = true;
+  if (isInitialized) return;
+  isInitialized = true;
 
   if (import.meta.env.DEV) {
     try {

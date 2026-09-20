@@ -6,12 +6,11 @@
  * loadSelectedPlatforms/parseSelectedPlatforms, and filtering semantics
  * through matchPlatformSet. No source-text assertions.
  */
-// @ts-ignore - vitest is fetched transiently via npx (not a repo dep per task scope)
 import { describe, expect, it, afterEach } from 'vitest';
 import {
   PLATFORM_IDS,
   matchPlatformSet,
-  parseSelectedPlatforms as parsePersistedSelection,
+  parseSelectedPlatformArray as parsePersistedSelection,
 } from './lib/platformFilter';
 
 interface BaselineApp {
@@ -46,7 +45,6 @@ describe('baseline: full platform selection is equivalent to unfiltered', () => 
   });
 });
 
-// @ts-ignore - App.tsx ships without a vitest dep; resolved transiently via npx
 import {
   PLATFORM_FILTER_STORAGE_KEY,
   loadSelectedPlatforms,
@@ -168,5 +166,78 @@ describe('task3: platform-filter persistence (Decision B select-nothing)', () =>
     }
     // reset round-trips through storage back to the full set
     expect(parseSelectedPlatforms(JSON.stringify([...reset]))).toEqual(reset);
+  });
+});
+
+describe('P2-3a: global platform filter applies to Favorites/Installed/Updates', () => {
+  interface CatalogApp {
+    id: string;
+    platforms?: string[];
+  }
+  interface InstalledRow {
+    app_id: string;
+  }
+  interface UpdateRow {
+    app_id: string;
+  }
+
+  const CATALOG: CatalogApp[] = [
+    { id: 'owner/win-app', platforms: ['windows'] },
+    { id: 'owner/ios-app', platforms: ['ios'] },
+  ];
+  const INSTALLED: InstalledRow[] = [
+    { app_id: 'owner/win-app' },
+    { app_id: 'owner/ios-app' },
+    { app_id: 'owner/external-app' },
+  ];
+  const UPDATES: UpdateRow[] = [
+    { app_id: 'owner/win-app' },
+    { app_id: 'owner/ios-app' },
+    { app_id: 'owner/external-app' },
+  ];
+
+  // Mirrors the App.tsx wiring exactly: Favorites renders platformFilteredApps;
+  // Installed/Updates join their id-lists against the FULL catalog via
+  // matchPlatformSet, keeping rows with no catalog entry visible.
+  const iosOnly = new Set<string>(['ios']);
+  const filterCatalog = (sel: ReadonlySet<string>) =>
+    CATALOG.filter((a) => matchPlatformSet(a, sel));
+  const filterInstalled = (sel: ReadonlySet<string>) =>
+    INSTALLED.filter((inst) => {
+      const c = CATALOG.find((a) => a.id.toLowerCase() === inst.app_id.toLowerCase());
+      return !c || matchPlatformSet(c, sel);
+    });
+  const filterUpdates = (sel: ReadonlySet<string>) =>
+    UPDATES.filter((u) => {
+      const c = CATALOG.find((a) => a.id.toLowerCase() === u.app_id.toLowerCase());
+      return !c || matchPlatformSet(c, sel);
+    });
+  const countOverFull = (id: string) =>
+    CATALOG.filter((a) => matchPlatformSet(a, new Set([id]))).length;
+
+  it('favorites: non-matching OS hidden via the filtered memo', () => {
+    expect(filterCatalog(iosOnly).map((a) => a.id)).toEqual(['owner/ios-app']);
+  });
+
+  it('installed: non-matching OS hidden, unknown-catalog rows kept', () => {
+    expect(filterInstalled(iosOnly).map((r) => r.app_id)).toEqual([
+      'owner/ios-app',
+      'owner/external-app',
+    ]);
+  });
+
+  it('updates: non-matching OS hidden, unknown-catalog rows kept', () => {
+    expect(filterUpdates(iosOnly).map((r) => r.app_id)).toEqual([
+      'owner/ios-app',
+      'owner/external-app',
+    ]);
+  });
+
+  it('platformCounts still derived from the FULL set (unchanged by the view filter)', () => {
+    expect(countOverFull('windows')).toBe(1);
+    expect(countOverFull('ios')).toBe(1);
+    // filtering the views must not shrink the counts
+    expect(filterCatalog(iosOnly)).toHaveLength(1);
+    expect(countOverFull('windows')).toBe(1);
   });
 });

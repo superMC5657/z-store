@@ -130,7 +130,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
             </div>
 
             <h2 className="hero-title">
-              {heroApp.name} · 安全流畅的开源远程桌面
+              {heroApp.id === 'rustdesk/rustdesk' || heroApp.id === 'rustdesk'
+                ? `${heroApp.name} · 安全流畅的开源远程桌面`
+                : `${heroApp.name} · ${heroApp.category_name}`}
             </h2>
 
             <p className="hero-desc">
@@ -147,7 +149,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
               </span>
               <span className="app-tag app-tag-license">{heroApp.license} 协议</span>
               <span className="app-tag">{heroApp.category_name}</span>
-              <span className="app-tag">自建中继 · 端到端加密</span>
+              {(heroApp.id === 'rustdesk/rustdesk' || heroApp.id === 'rustdesk') && (
+                <span className="app-tag">自建中继 · 端到端加密</span>
+              )}
             </div>
 
             {/* Actions */}

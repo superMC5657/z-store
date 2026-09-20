@@ -35,7 +35,7 @@ pub fn classify_asset(filename: &str) -> (AssetKind, &'static str, &'static str)
     } else if (name_lower.contains("portable")
         || name_lower.contains("win")
         || name_lower.contains("windows"))
-        && (name_lower.ends_with(".zip") || name_lower.ends_with(".7z"))
+        && name_lower.ends_with(".zip")
     {
         (AssetKind::PortableZip, "windows", arch)
     } else if name_lower.ends_with(".deb") {
@@ -50,7 +50,7 @@ pub fn classify_asset(filename: &str) -> (AssetKind, &'static str, &'static str)
         (AssetKind::Pkg, "macos", arch)
     } else if name_lower.ends_with(".apk") {
         (AssetKind::Apk, "android", "arm64-v8a")
-    } else if name_lower.ends_with(".zip") || name_lower.ends_with(".7z") {
+    } else if name_lower.ends_with(".zip") {
         let zip_os = if name_lower.contains("darwin")
             || name_lower.contains("macos")
             || name_lower.contains("osx")
@@ -63,6 +63,11 @@ pub fn classify_asset(filename: &str) -> (AssetKind, &'static str, &'static str)
             "windows"
         };
         (AssetKind::PortableZip, zip_os, arch)
+    } else if name_lower.ends_with(".7z") {
+        // P1-4: drop the `.7z` portable claim — extractor only opens
+        // `zip::ZipArchive`, so `.7z` maps to Other (unsupported),
+        // following the `.tar.gz` precedent below. No 7z dependency.
+        (AssetKind::Other, "all", "universal")
     } else if name_lower.ends_with(".tar.gz") || name_lower.ends_with(".tar.xz") {
         let tar_os = if name_lower.contains("darwin")
             || name_lower.contains("macos")
@@ -191,11 +196,14 @@ pub fn select_best_asset(
         .filter(|a| a.os == target_os || a.os == "all")
         .collect();
 
-    let candidates = if os_matches.is_empty() {
-        assets.iter().collect::<Vec<&crate::models::ReleaseAsset>>()
-    } else {
-        os_matches
-    };
+    // P1-5 fail closed: empty OS-match with non-empty assets yields None —
+    // never fall back to cross-OS assets.
+    if os_matches.is_empty() {
+        log::debug!("selector decision none candidates={}", assets.len());
+        return None;
+    }
+
+    let candidates = os_matches;
 
     let best = candidates.iter().max_by_key(|a| score_asset(a)).copied();
     // 决策 debug：只记 basename + 分数 + 候选数，不记全路径/URL。

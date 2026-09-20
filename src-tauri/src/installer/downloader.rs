@@ -3,7 +3,7 @@ use crate::models::DownloadProgressPayload;
 use futures_util::StreamExt;
 use sha2::{Digest, Sha256};
 use std::fs::File;
-use std::io::{self, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use tauri::Emitter;
@@ -14,6 +14,86 @@ pub fn compute_sha256(path: &Path) -> Result<String, String> {
     io::copy(&mut file, &mut hasher).map_err(|e| format!("计算哈希失败: {}", e))?;
     let result = hasher.finalize();
     Ok(hex::encode(result))
+}
+
+/// Outcome of the async persist hot path (P1-10a).
+/// Carries exactly the context the caller needs to reproduce the
+/// historical log + `zstore://download-progress` emit payloads.
+#[derive(Debug)]
+enum PersistError<E> {
+    Create(std::io::Error),
+    Stream { downloaded: u64, source: E },
+    Timeout { downloaded: u64 },
+    Write { downloaded: u64, source: std::io::Error },
+    Tampered {
+        downloaded: u64,
+        expected: String,
+        actual: String,
+    },
+}
+
+async fn persist_stream_to_file<S, B, E>(
+    stream: &mut S,
+    temp_path: &Path,
+    expected_sha256: Option<&str>,
+    chunk_timeout: std::time::Duration,
+    mut on_progress: impl FnMut(u64),
+) -> Result<(u64, String), PersistError<E>>
+where
+    S: futures_util::Stream<Item = Result<B, E>> + Unpin,
+    B: AsRef<[u8]>,
+{
+    use tokio::io::AsyncWriteExt;
+    let mut file = tokio::fs::File::create(temp_path)
+        .await
+        .map_err(PersistError::Create)?;
+    let mut hasher = Sha256::new();
+    let mut downloaded: u64 = 0;
+    loop {
+        let chunk_opt = match tokio::time::timeout(chunk_timeout, stream.next()).await {
+            Ok(Some(Ok(chunk))) => Some(chunk),
+            Ok(Some(Err(e))) => {
+                let _ = tokio::fs::remove_file(temp_path).await;
+                return Err(PersistError::Stream {
+                    downloaded,
+                    source: e,
+                });
+            }
+            Ok(None) => None,
+            Err(_) => {
+                let _ = tokio::fs::remove_file(temp_path).await;
+                return Err(PersistError::Timeout { downloaded });
+            }
+        };
+        let chunk = match chunk_opt {
+            Some(c) => c,
+            None => break,
+        };
+        let bytes = chunk.as_ref();
+        if let Err(e) = file.write_all(bytes).await {
+            let _ = tokio::fs::remove_file(temp_path).await;
+            return Err(PersistError::Write {
+                downloaded,
+                source: e,
+            });
+        }
+        hasher.update(bytes);
+        downloaded += bytes.len() as u64;
+        on_progress(downloaded);
+    }
+    let actual_hash = hex::encode(hasher.finalize());
+    if let Some(expected) = expected_sha256 {
+        let exp_clean = expected.trim().to_lowercase();
+        if !exp_clean.is_empty() && actual_hash.to_lowercase() != exp_clean {
+            let _ = tokio::fs::remove_file(temp_path).await;
+            return Err(PersistError::Tampered {
+                downloaded,
+                expected: exp_clean,
+                actual: actual_hash,
+            });
+        }
+    }
+    Ok((downloaded, actual_hash))
 }
 
 pub async fn download_with_progress(
@@ -114,7 +194,7 @@ pub async fn download_with_progress(
     } else {
         super::paths::default_download_dir()
     };
-    let _ = std::fs::create_dir_all(&temp_dir);
+    let _ = tokio::fs::create_dir_all(&temp_dir).await;
 
     let safe_asset_name = Path::new(asset_name)
         .file_name()
@@ -135,9 +215,44 @@ pub async fn download_with_progress(
     };
     let temp_path = temp_dir.join(file_name);
 
-    let mut file = match File::create(&temp_path) {
-        Ok(f) => f,
-        Err(e) => {
+    let mut stream = resp.bytes_stream();
+
+    let mut last_emit = Instant::now();
+    let mut last_bytes: u64 = 0;
+
+    let chunk_timeout = std::time::Duration::from_secs(net_conf.chunk_timeout_seconds);
+    let persist_result = persist_stream_to_file(
+        &mut stream,
+        &temp_path,
+        expected_sha256,
+        chunk_timeout,
+        |downloaded| {
+            if last_emit.elapsed().as_millis() >= 200 || (total_bytes > 0 && downloaded == total_bytes) {
+                let elapsed_secs = last_emit.elapsed().as_secs_f64().max(0.001);
+                let speed = ((downloaded - last_bytes) as f64 / elapsed_secs) as u64;
+
+                let _ = app_handle.emit(
+                    "zstore://download-progress",
+                    DownloadProgressPayload {
+                        task_id: task_id.to_string(),
+                        downloaded_bytes: downloaded,
+                        total_bytes,
+                        speed_bytes_per_sec: speed,
+                        state: "downloading".to_string(),
+                        message: None,
+                    },
+                );
+
+                last_emit = Instant::now();
+                last_bytes = downloaded;
+            }
+        },
+    )
+    .await;
+
+    let (downloaded, actual_hash) = match persist_result {
+        Ok(ok) => ok,
+        Err(PersistError::Create(e)) => {
             let err_msg = format!("创建临时文件失败: {}", e);
             log::error!(
                 "download failed id={} sid={} req={} host={} file={} url='{}' reason={}",
@@ -162,87 +277,61 @@ pub async fn download_with_progress(
             );
             return Err(err_msg);
         }
-    };
-
-    let mut stream = resp.bytes_stream();
-    let mut downloaded: u64 = 0;
-    let mut hasher = Sha256::new();
-
-    let mut last_emit = Instant::now();
-    let mut last_bytes: u64 = 0;
-
-    let chunk_timeout = std::time::Duration::from_secs(net_conf.chunk_timeout_seconds);
-    loop {
-        let chunk_opt = match tokio::time::timeout(chunk_timeout, stream.next()).await {
-            Ok(Some(chunk_result)) => match chunk_result {
-                Ok(c) => Some(c),
-                Err(e) => {
-                    let _ = std::fs::remove_file(&temp_path);
-                    let reason = http_err_reason(&e);
-                    let err_msg = format!("下载数据流中断: {}", reason);
-                    log::error!(
-                        "download failed id={} sid={} req={} host={} file={} url='{}' reason={}",
-                        task_id,
-                        dl_sid,
-                        dl_req,
-                        dl_host,
-                        log_file,
-                        safe_url,
-                        reason
-                    );
-                    let _ = app_handle.emit(
-                        "zstore://download-progress",
-                        DownloadProgressPayload {
-                            task_id: task_id.to_string(),
-                            downloaded_bytes: downloaded,
-                            total_bytes,
-                            speed_bytes_per_sec: 0,
-                            state: "error".to_string(),
-                            message: Some(err_msg.clone()),
-                        },
-                    );
-                    return Err(err_msg);
-                }
-            },
-            Ok(None) => None,
-            Err(_) => {
-                let _ = std::fs::remove_file(&temp_path);
-                let err_msg = format!(
-                    "下载超时：超过 {} 秒未接收到数据块，已中断连接",
-                    net_conf.chunk_timeout_seconds
-                );
-                log::error!(
-                    "download failed id={} sid={} req={} host={} file={} url='{}' reason={}",
-                    task_id,
-                    dl_sid,
-                    dl_req,
-                    dl_host,
-                    log_file,
-                    safe_url,
-                    short_reason(&err_msg)
-                );
-                let _ = app_handle.emit(
-                    "zstore://download-progress",
-                    DownloadProgressPayload {
-                        task_id: task_id.to_string(),
-                        downloaded_bytes: downloaded,
-                        total_bytes,
-                        speed_bytes_per_sec: 0,
-                        state: "error".to_string(),
-                        message: Some(err_msg.clone()),
-                    },
-                );
-                return Err(err_msg);
-            }
-        };
-
-        let chunk = match chunk_opt {
-            Some(c) => c,
-            None => break,
-        };
-
-        if let Err(e) = file.write_all(&chunk) {
-            let _ = std::fs::remove_file(&temp_path);
+        Err(PersistError::Stream { downloaded, source }) => {
+            let reason = http_err_reason(&source);
+            let err_msg = format!("下载数据流中断: {}", reason);
+            log::error!(
+                "download failed id={} sid={} req={} host={} file={} url='{}' reason={}",
+                task_id,
+                dl_sid,
+                dl_req,
+                dl_host,
+                log_file,
+                safe_url,
+                reason
+            );
+            let _ = app_handle.emit(
+                "zstore://download-progress",
+                DownloadProgressPayload {
+                    task_id: task_id.to_string(),
+                    downloaded_bytes: downloaded,
+                    total_bytes,
+                    speed_bytes_per_sec: 0,
+                    state: "error".to_string(),
+                    message: Some(err_msg.clone()),
+                },
+            );
+            return Err(err_msg);
+        }
+        Err(PersistError::Timeout { downloaded }) => {
+            let err_msg = format!(
+                "下载超时：超过 {} 秒未接收到数据块，已中断连接",
+                net_conf.chunk_timeout_seconds
+            );
+            log::error!(
+                "download failed id={} sid={} req={} host={} file={} url='{}' reason={}",
+                task_id,
+                dl_sid,
+                dl_req,
+                dl_host,
+                log_file,
+                safe_url,
+                short_reason(&err_msg)
+            );
+            let _ = app_handle.emit(
+                "zstore://download-progress",
+                DownloadProgressPayload {
+                    task_id: task_id.to_string(),
+                    downloaded_bytes: downloaded,
+                    total_bytes,
+                    speed_bytes_per_sec: 0,
+                    state: "error".to_string(),
+                    message: Some(err_msg.clone()),
+                },
+            );
+            return Err(err_msg);
+        }
+        Err(PersistError::Write { downloaded, source: e }) => {
             let err_msg = format!("写入磁盘失败: {}", e);
             log::error!(
                 "download failed id={} sid={} req={} host={} file={} url='{}' reason={}",
@@ -267,39 +356,47 @@ pub async fn download_with_progress(
             );
             return Err(err_msg);
         }
-        hasher.update(&chunk);
-
-        downloaded += chunk.len() as u64;
-
-        if last_emit.elapsed().as_millis() >= 200 || (total_bytes > 0 && downloaded == total_bytes) {
-            let elapsed_secs = last_emit.elapsed().as_secs_f64().max(0.001);
-            let speed = ((downloaded - last_bytes) as f64 / elapsed_secs) as u64;
-
+        Err(PersistError::Tampered {
+            downloaded,
+            expected,
+            actual,
+        }) => {
             let _ = app_handle.emit(
                 "zstore://download-progress",
                 DownloadProgressPayload {
                     task_id: task_id.to_string(),
                     downloaded_bytes: downloaded,
-                    total_bytes,
-                    speed_bytes_per_sec: speed,
-                    state: "downloading".to_string(),
-                    message: None,
+                    total_bytes: downloaded,
+                    speed_bytes_per_sec: 0,
+                    state: "tampered".to_string(),
+                    message: Some(format!(
+                        "哈希不符！期望: {}, 实际: {}",
+                        expected, actual
+                    )),
                 },
             );
-
-            last_emit = Instant::now();
-            last_bytes = downloaded;
+            // 校验失败：只记结论与短原因，不记哈希明细与路径。
+            log::error!(
+                "download verify failed id={} sid={} req={} host={} file={}",
+                task_id,
+                dl_sid,
+                dl_req,
+                dl_host,
+                log_file
+            );
+            return Err(format!(
+                "安全拦截：SHA-256 完整性校验不符！官方校验值: {}，实际下载文件: {}。已阻止潜在篡改软件的安装执行。",
+                expected, actual
+            ));
         }
-    }
-
-    let actual_hash = hex::encode(hasher.finalize());
+    };
 
     // 零信任哈希比对防篡改核心拦截
     let (verified_state, verified_msg) = if let Some(expected) = expected_sha256 {
         let exp_clean = expected.trim().to_lowercase();
         if !exp_clean.is_empty() {
             if actual_hash.to_lowercase() != exp_clean {
-                let _ = std::fs::remove_file(&temp_path);
+                let _ = tokio::fs::remove_file(&temp_path).await;
                 let _ = app_handle.emit(
                     "zstore://download-progress",
                     DownloadProgressPayload {
@@ -368,4 +465,120 @@ pub async fn download_with_progress(
         started.elapsed().as_millis()
     );
     Ok((temp_path, actual_hash))
+}
+
+#[cfg(test)]
+mod persist_tests {
+    use super::*;
+    use futures_util::stream;
+    use sha2::Digest;
+    use std::time::Duration;
+
+    fn test_chunks() -> Vec<Vec<u8>> {
+        vec![b"hello ".to_vec(), b"world".to_vec(), b"!".to_vec()]
+    }
+
+    fn sha256_of(data: &[u8]) -> String {
+        let mut h = Sha256::new();
+        h.update(data);
+        hex::encode(h.finalize())
+    }
+
+    #[tokio::test]
+    async fn download_persist_writes_bytes_and_reports_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("package.bin");
+        let chunks = test_chunks();
+        let expected_bytes = chunks.concat();
+        let mut stream = stream::iter(chunks.into_iter().map(Ok::<_, String>));
+        let mut progress: Vec<u64> = Vec::new();
+        let (downloaded, hash) = persist_stream_to_file(
+            &mut stream,
+            &path,
+            None,
+            Duration::from_secs(5),
+            |n| progress.push(n),
+        )
+        .await
+        .expect("persist should succeed");
+        assert_eq!(downloaded, expected_bytes.len() as u64);
+        let on_disk = tokio::fs::read(&path).await.unwrap();
+        assert_eq!(on_disk, expected_bytes);
+        assert_eq!(hash, sha256_of(&expected_bytes));
+        assert_eq!(progress.last().copied(), Some(downloaded));
+    }
+
+    #[tokio::test]
+    async fn download_persist_matching_hash_ok() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("package.bin");
+        let chunks = test_chunks();
+        let expected_bytes = chunks.concat();
+        let good_hash = sha256_of(&expected_bytes);
+        let mut stream = stream::iter(chunks.into_iter().map(Ok::<_, String>));
+        let (downloaded, hash) = persist_stream_to_file(
+            &mut stream,
+            &path,
+            Some(&good_hash),
+            Duration::from_secs(5),
+            |_| {},
+        )
+        .await
+        .expect("matching hash should succeed");
+        assert_eq!(downloaded, expected_bytes.len() as u64);
+        assert_eq!(hash, good_hash);
+        assert!(path.exists());
+    }
+
+    #[tokio::test]
+    async fn download_persist_hash_mismatch_aborts_and_deletes_temp() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("package.bin");
+        let chunks = test_chunks();
+        let mut stream = stream::iter(chunks.into_iter().map(Ok::<_, String>));
+        let wrong = "0".repeat(64);
+        let err = persist_stream_to_file(
+            &mut stream,
+            &path,
+            Some(&wrong),
+            Duration::from_secs(5),
+            |_| {},
+        )
+        .await
+        .expect_err("mismatch must fail");
+        match err {
+            PersistError::Tampered { .. } => {}
+            _ => panic!("expected Tampered"),
+        }
+        assert!(
+            !path.exists(),
+            "temp file must be deleted on hash mismatch"
+        );
+    }
+
+    #[tokio::test]
+    async fn download_persist_stream_error_aborts_and_deletes_temp() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("package.bin");
+        let items: Vec<Result<Vec<u8>, String>> =
+            vec![Ok(b"partial".to_vec()), Err("boom".to_string())];
+        let mut stream = stream::iter(items);
+        let err = persist_stream_to_file(
+            &mut stream,
+            &path,
+            None,
+            Duration::from_secs(5),
+            |_| {},
+        )
+        .await
+        .expect_err("stream error must fail");
+        match err {
+            PersistError::Stream { .. } => {}
+            _ => panic!("expected Stream error"),
+        }
+        assert!(
+            !path.exists(),
+            "temp file must be deleted on stream error"
+        );
+    }
 }

@@ -2,9 +2,57 @@ import React, { useRef, useState } from 'react';
 import { Upload, Download, RotateCcw, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { api } from '../services/api';
 import { notifyToast } from '../utils/notify';
-import { UserDataBackup } from '../types';
+import { UserDataBackup, UserDataBackupSettings } from '../types';
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
+
+// P1-8: 出于安全考虑，github_token（PAT 凭据）永不写入备份文件；
+// 导入侧白名单（src-tauri/src/oauth/backup.rs）同样拒绝该键。
+export const BACKUP_EXCLUDED_KEYS = ['github_token'] as const;
+
+const toOptionalNumber = (v: unknown): number | undefined => {
+  if (typeof v === 'number') return v;
+  if (typeof v === 'string' && v.trim() !== '') return Number(v);
+  return undefined;
+};
+
+const toOptionalBool = (v: unknown): boolean | undefined => {
+  if (typeof v === 'boolean') return v;
+  if (v === 'true') return true;
+  if (v === 'false') return false;
+  return undefined;
+};
+
+// P1-8: 纯函数导出组装（version 保持为 1，便于单测覆盖导出 → JSON → 导入往返）。
+export const buildBackupSettings = (
+  settings: Record<string, unknown>,
+): UserDataBackupSettings => ({
+  theme: settings.theme as string | undefined,
+  language: settings.language as string | undefined,
+  ui_scale: settings.ui_scale as string | undefined,
+  font_size: settings.font_size as string | undefined,
+  portable_dir: settings.portable_dir as string | undefined,
+  download_dir: settings.download_dir as string | undefined,
+  active_mirror: settings.active_mirror as string | undefined,
+  max_concurrent_downloads: toOptionalNumber(settings.max_concurrent_downloads),
+  close_to_tray: toOptionalBool(settings.close_to_tray),
+  launch_on_startup: toOptionalBool(settings.launch_on_startup),
+  update_frequency: settings.update_frequency as string | undefined,
+  detail_cache_ttl_minutes: toOptionalNumber(settings.detail_cache_ttl_minutes),
+  catalog_source_url: settings.catalog_source_url as string | undefined,
+  watch_notify_frequency: settings.watch_notify_frequency as string | undefined,
+});
+
+export const buildUserDataBackup = (
+  favorites: string[],
+  watched: string[],
+  settings: Record<string, unknown>,
+): UserDataBackup => ({
+  version: 1,
+  favorites,
+  watched,
+  settings: buildBackupSettings(settings),
+});
 
 export const DataBackupRow: React.FC = () => {
   const [isExporting, setIsExporting] = useState(false);
@@ -27,17 +75,7 @@ export const DataBackupRow: React.FC = () => {
         api.getWatchedApps().catch(() => [] as string[]),
         api.getSettings().catch(() => ({} as Record<string, string>)),
       ]);
-      const backup: UserDataBackup = {
-        version: 1,
-        favorites,
-        watched,
-        settings: {
-          theme: settings.theme,
-          language: settings.language,
-          detail_cache_ttl_minutes: settings.detail_cache_ttl_minutes ? Number(settings.detail_cache_ttl_minutes) : undefined,
-          watch_notify_frequency: settings.watch_notify_frequency,
-        },
-      };
+      const backup: UserDataBackup = buildUserDataBackup(favorites, watched, settings);
       const jsonStr = JSON.stringify(backup, null, 2);
       const blob = new Blob([jsonStr], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -100,7 +138,7 @@ export const DataBackupRow: React.FC = () => {
             <span>{feedback}</span>
           </span>
         ) : (
-          <span className="settings-row-desc">备份或恢复收藏、关注及偏好设置</span>
+          <span className="settings-row-desc">备份或恢复收藏、关注及偏好设置（不含登录令牌）</span>
         )}
       </div>
       <div style={{ display: 'flex', gap: '8px' }}>

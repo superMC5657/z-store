@@ -1,0 +1,138 @@
+/**
+ * P3-3 trust friction — custom catalog source requires a destructive confirm.
+ *
+ * - Saving a non-default (custom) catalog_source_url first arms a confirm
+ *   step (destructive "confirm switch" + warning) and does NOT persist yet;
+ *   confirming persists the custom URL.
+ * - Saving empty (= official default flow) applies immediately, unchanged.
+ * - Cancelling the confirm discards without persisting.
+ * - Re-saving the already-active custom URL applies immediately (no change).
+ */
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+
+vi.mock('../services/api', () => ({
+  api: {
+    syncCatalog: async () => ({ updated: false, count: 0, message: 'ok' }),
+    resetSetting: async () => '',
+    selectFolder: async () => null,
+    testProxy: async () => ({ success: true, latency_ms: 10, message: 'ok' }),
+  },
+}));
+vi.mock('../components/ClientUpdateRow', () => ({ ClientUpdateRow: () => null }));
+vi.mock('../components/OAuthAccountCard', () => ({ OAuthAccountCard: () => null }));
+vi.mock('../components/DataBackupRow', () => ({ DataBackupRow: () => null }));
+
+import { SettingsView } from './SettingsView';
+import type { AppSettings } from '../types';
+
+(globalThis as Record<string, unknown>)['IS_REACT_ACT_ENVIRONMENT'] = true;
+
+afterEach(() => {
+  cleanup();
+});
+
+function baseSettings(overrides?: Partial<AppSettings>): AppSettings {
+  return {
+    theme: 'dark',
+    language: 'zh-CN',
+    ui_scale: '100',
+    font_size: '14',
+    portable_dir: '%LOCALAPPDATA%\Programs\z-store-apps',
+    download_dir: '~/Downloads',
+    active_mirror: 'direct',
+    max_concurrent_downloads: 3,
+    github_token: '',
+    close_to_tray: true,
+    launch_on_startup: false,
+    update_frequency: 'startup',
+    detail_cache_ttl_minutes: 30,
+    catalog_source_url: '',
+    watch_notify_frequency: 'daily',
+    ...overrides,
+  };
+}
+
+interface SavedCall {
+  key: keyof AppSettings;
+  value: unknown;
+}
+
+function renderSettings(settings: AppSettings) {
+  const calls: SavedCall[] = [];
+  const onUpdateSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]): void => {
+    calls.push({ key, value });
+  };
+  render(
+    <SettingsView
+      mirrors={[]}
+      onSelectMirror={async () => undefined}
+      theme="dark"
+      onSetTheme={() => undefined}
+      onExportAppsJson={() => undefined}
+      settings={settings}
+      onUpdateSetting={onUpdateSetting}
+      onResetSettings={async () => undefined}
+      installedCount={0}
+      updateRulesCount={0}
+      onOpenRules={() => undefined}
+    />,
+  );
+  return { calls };
+}
+
+function expandCustomSource() {
+  fireEvent.click(screen.getByText('自定义源'));
+  return screen.getByPlaceholderText('https://.../catalog.json');
+}
+
+describe('SettingsView custom catalog source confirm', () => {
+  it('custom URL arms a destructive confirm first and persists only on confirm', () => {
+    const { calls } = renderSettings(baseSettings());
+    const input = expandCustomSource();
+    fireEvent.change(input, { target: { value: 'https://evil.example.com/catalog.json' } });
+    fireEvent.click(screen.getByText('保存源'));
+
+    expect(calls).toHaveLength(0);
+    expect(screen.getByText('确认切换')).toBeTruthy();
+    expect(screen.getByText(/自定义源将替换官方可信收录目录/)).toBeTruthy();
+
+    fireEvent.click(screen.getByText('确认切换'));
+    expect(calls).toHaveLength(1);
+    expect(calls[0].key).toBe('catalog_source_url');
+    expect(calls[0].value).toBe('https://evil.example.com/catalog.json');
+  });
+
+  it('empty input (official default flow) saves immediately with no confirm', () => {
+    const { calls } = renderSettings(baseSettings());
+    expandCustomSource();
+    fireEvent.click(screen.getByText('保存源'));
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].value).toBe('');
+    expect(screen.queryByText('确认切换')).toBeNull();
+  });
+
+  it('cancelling the confirm discards without persisting', () => {
+    const { calls } = renderSettings(baseSettings());
+    const input = expandCustomSource();
+    fireEvent.change(input, { target: { value: 'https://evil.example.com/catalog.json' } });
+    fireEvent.click(screen.getByText('保存源'));
+    expect(screen.getByText('确认切换')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('取消'));
+    expect(calls).toHaveLength(0);
+    expect(screen.queryByText('确认切换')).toBeNull();
+  });
+
+  it('re-saving the already-active custom URL applies immediately (no change)', () => {
+    const custom = 'https://mirror.example.com/catalog.json';
+    const { calls } = renderSettings(baseSettings({ catalog_source_url: custom }));
+    expandCustomSource();
+    fireEvent.click(screen.getByText('保存源'));
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].value).toBe(custom);
+    expect(screen.queryByText('确认切换')).toBeNull();
+  });
+});

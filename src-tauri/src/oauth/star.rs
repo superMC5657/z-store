@@ -14,13 +14,8 @@ pub fn starred_api_url(owner: &str, repo: &str) -> String {
 
 /// 构建带认证头的 GitHub API 客户端（令牌仅放 header，永不落日志）。
 fn authed_client(token: &str) -> Result<reqwest::Client, String> {
-    let timeout_sec = crate::config::get_project_config().network.api_timeout_seconds;
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(timeout_sec))
-        .build()
-        .map_err(|e| format!("创建网络请求失败: {}", e))?;
     let _ = token;
-    Ok(client)
+    Ok(crate::shared_http_client())
 }
 
 fn auth_headers(token: &str) -> Result<reqwest::header::HeaderMap, String> {

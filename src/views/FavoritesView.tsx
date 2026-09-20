@@ -75,6 +75,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   };
 
   const [isBatchInstalling, setIsBatchInstalling] = useState(false);
+  const [batchError, setBatchError] = useState<string | null>(null);
 
   const handleAddAllToFavorites = () => {
     if (!syncResult) return;
@@ -90,10 +91,22 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
     const toInstall = syncResult.catalog_matches.filter((app) => !installedIds.has(app.id));
     if (toInstall.length === 0) return;
     setIsBatchInstalling(true);
-    for (const app of toInstall) {
-      await onQuickInstall(app.id);
+    setBatchError(null);
+    try {
+      const failures: string[] = [];
+      for (const app of toInstall) {
+        try {
+          await onQuickInstall(app.id);
+        } catch (err) {
+          failures.push(`${app.name || app.id}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      if (failures.length > 0) {
+        setBatchError(`批量安装完成，${failures.length}/${toInstall.length} 个失败：${failures.join('；')}`);
+      }
+    } finally {
+      setIsBatchInstalling(false);
     }
-    setIsBatchInstalling(false);
   };
 
   return (
@@ -326,6 +339,11 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                   </div>
                 )}
               </div>
+              {batchError && (
+                <div style={{ marginTop: '8px', fontSize: '12.5px', color: '#f87171' }}>
+                  {batchError}
+                </div>
+              )}
 
               {syncResult.catalog_matches.length > 0 ? (
                 <div className="app-grid">

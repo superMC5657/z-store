@@ -23,6 +23,26 @@ pub struct AppState {
     pub catalog: CatalogService,
     pub mirror: Mutex<MirrorManager>,
     pub github_token: Mutex<Option<String>>,
+    pub http: reqwest::Client,
+}
+
+static SHARED_HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+fn build_shared_http_client() -> reqwest::Client {
+    let api_timeout = std::time::Duration::from_secs(
+        config::get_project_config().network.api_timeout_seconds,
+    );
+    reqwest::Client::builder()
+        .timeout(api_timeout)
+        .user_agent("ZStore-Client/0.1.0")
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
+}
+
+pub fn shared_http_client() -> reqwest::Client {
+    SHARED_HTTP_CLIENT
+        .get_or_init(build_shared_http_client)
+        .clone()
 }
 
 pub static GLOBAL_QUOTA_TX: OnceLock<UnboundedSender<models::HostQuotaEvent>> = OnceLock::new();
@@ -108,13 +128,7 @@ fn log_rate_limit_water_mark(host: &str, remaining: u32, limit: u32) {
 }
 
 pub async fn probe_github_rate_limit(token: Option<&str>) {
-    let api_timeout = std::time::Duration::from_secs(
-        config::get_project_config().network.api_timeout_seconds,
-    );
-    let client = reqwest::Client::builder()
-        .timeout(api_timeout)
-        .build()
-        .unwrap_or_else(|_| reqwest::Client::new());
+    let client = shared_http_client();
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(
         reqwest::header::USER_AGENT,
@@ -367,11 +381,13 @@ pub fn run() {
     let _ = GLOBAL_AUTH_EXPIRED_TX.set(auth_tx);
 
     let db_arc = Arc::new(Mutex::new(db));
+    let http = shared_http_client();
     let state = AppState {
         db: Arc::clone(&db_arc),
         catalog,
         mirror: Mutex::new(mirror),
         github_token: Mutex::new(saved_token.clone()),
+        http,
     };
 
     let db_for_worker = Arc::clone(&db_arc);

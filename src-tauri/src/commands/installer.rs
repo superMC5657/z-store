@@ -267,9 +267,64 @@ pub async fn install_app(
     Ok(installed_app)
 }
 
+/// P0-2 portable-uninstall guard: `remove_dir_all` is allowed ONLY inside
+/// Z-Store's own self-created isolated dir (`dirs_or_fallback(app_id)`).
+/// Both paths are canonicalized first (symlink/case/prefix edges); the
+/// component-wise `starts_with` prevents sibling-prefix confusion (`app` vs `app2`).
+pub(crate) fn is_owned_portable_dir(
+    candidate: &std::path::Path,
+    owned_dir: &std::path::Path,
+) -> bool {
+    let canon_candidate =
+        std::fs::canonicalize(candidate).unwrap_or_else(|_| candidate.to_path_buf());
+    let canon_owned = std::fs::canonicalize(owned_dir).unwrap_or_else(|_| owned_dir.to_path_buf());
+    if canon_candidate.starts_with(&canon_owned) {
+        return true;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // Case-insensitive fallback with separator-aware prefix compare.
+        let cand = canon_candidate.to_string_lossy().to_lowercase();
+        let mut owned = canon_owned.to_string_lossy().to_lowercase();
+        while owned.ends_with('\\') || owned.ends_with('/') {
+            owned.pop();
+        }
+        if cand == owned {
+            return true;
+        }
+        return cand.starts_with(&owned)
+            && cand[owned.len()..].starts_with(['\\', '/']);
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
+    }
+}
+
+/// P0-2 safe cleanup: owned dir -> `remove_dir_all`; shared dir (Downloads /
+/// D:\Tools style) -> remove only the manifest-recorded single file, or refuse.
+pub(crate) fn cleanup_portable_path(
+    install_path: &std::path::Path,
+    owned_dir: &std::path::Path,
+) {
+    let dir = if install_path.is_file() {
+        install_path.parent()
+    } else if install_path.is_dir() {
+        Some(install_path)
+    } else {
+        None
+    };
+    if let Some(d) = dir {
+        if d.exists() && is_owned_portable_dir(d, owned_dir) {
+            let _ = std::fs::remove_dir_all(d);
+        } else if install_path.is_file() && install_path.exists() {
+            let _ = std::fs::remove_file(install_path);
+        }
+    }
+}
+
 #[tauri::command]
-pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
-    let Some(app_id) = crate::forge::canonical_app_id(&app_id) else {
+pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {    let Some(app_id) = crate::forge::canonical_app_id(&app_id) else {
         return Err(format!("无法识别的应用标识: {}", app_id));
     };
     log::info!("uninstall start sid={} id={}", crate::z_log::new_session_id(), app_id);
@@ -307,27 +362,12 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result
         }
     };
 
-    // 1. 便携版清理：移除安装目录与释放的文件
+    // 1. 便携版清理：remove_dir_all 仅允许在 Z-Store 自建隔离目录内 (P0-2)
     if app.install_method == "portable_zip" {
-        let path = std::path::Path::new(&app.install_path);
-        let dir = if path.is_file() {
-            path.parent()
-        } else if path.is_dir() {
-            Some(path)
-        } else {
-            None
-        };
-        if let Some(d) = dir {
-            let d_str = d.to_string_lossy().to_lowercase();
-            if !d_str.ends_with("program files")
-                && !d_str.ends_with("windows")
-                && !d_str.ends_with("users")
-                && !d_str.ends_with("desktop")
-                && d.exists()
-            {
-                let _ = std::fs::remove_dir_all(d);
-            }
-        }
+        cleanup_portable_path(
+            std::path::Path::new(&app.install_path),
+            &crate::installer::dirs_or_fallback(&app.app_id),
+        );
     } else {
         // 2. 安装版 / 系统导入版：动态定位并调起官方卸载向导 EXE，挂起等待用户操作完成并核验
         let resolved_uninst = resolve_uninstaller_command(
@@ -588,4 +628,57 @@ pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, St
         "未能定位到该软件的可执行程序。\n记录路径: {}\n建议检查软件是否已被重命名或迁移，或重新扫描添加。",
         if target_path.is_empty() { "无" } else { &target_path }
     ))
+}
+
+#[cfg(test)]
+mod portable_uninstall_safety_tests {
+    use std::fs;
+
+    #[test]
+    fn uninstall_shared_dir_survives() {
+        // P0-2 RED: app unpacked into a shared dir (Downloads / D:\Tools style)
+        // must NEVER trigger remove_dir_all on the shared dir.
+        let base = std::env::temp_dir().join(format!("zstore-red-shared-{}", std::process::id()));
+        let shared = base.join("shared");
+        let owned = base.join("owned").join("owner-repo");
+        fs::create_dir_all(&shared).unwrap();
+        fs::create_dir_all(&owned).unwrap();
+        let exe = shared.join("app.exe");
+        let precious = shared.join("precious.txt");
+        fs::write(&exe, b"fake-exe").unwrap();
+        fs::write(&precious, b"user data must survive").unwrap();
+
+        super::cleanup_portable_path(&exe, &owned);
+
+        assert!(precious.exists(), "shared dir sibling file was wiped (data loss)");
+        assert!(shared.exists(), "shared dir itself was wiped (data loss)");
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn uninstall_owned_dir_is_cleaned() {
+        // Owned isolated dir (dirs_or_fallback shape) must still be fully cleaned.
+        let base = std::env::temp_dir().join(format!("zstore-green-owned-{}", std::process::id()));
+        let owned = base.join("owned").join("owner-repo");
+        fs::create_dir_all(&owned).unwrap();
+        let exe = owned.join("app.exe");
+        fs::write(&exe, b"fake-exe").unwrap();
+
+        super::cleanup_portable_path(&exe, &owned);
+
+        assert!(!owned.exists(), "owned isolated dir should be fully cleaned");
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn uninstall_owned_prefix_sibling_is_not_owned() {
+        // Prefix edge: <base>/app2 must not count as inside <base>/app.
+        let base = std::env::temp_dir().join(format!("zstore-prefix-{}", std::process::id()));
+        let owned = base.join("app");
+        let sibling = base.join("app2");
+        fs::create_dir_all(&owned).unwrap();
+        fs::create_dir_all(&sibling).unwrap();
+        assert!(!super::is_owned_portable_dir(&sibling, &owned));
+        let _ = fs::remove_dir_all(&base);
+    }
 }

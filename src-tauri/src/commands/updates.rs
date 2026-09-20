@@ -114,10 +114,7 @@ pub async fn fetch_app_latest_version_lightweight(
     let api_timeout = std::time::Duration::from_secs(
         crate::config::get_project_config().network.api_timeout_seconds,
     );
-    let client = reqwest::Client::builder()
-        .timeout(api_timeout)
-        .build()
-        .unwrap_or_else(|_| reqwest::Client::new());
+    let client = state.http.clone();
 
     let safe_ep = crate::log_support::sanitize_url(&ep);
     let req_id = crate::z_log::new_req_id();
@@ -217,40 +214,38 @@ pub async fn fetch_app_latest_version_lightweight(
 }
 
 /// 严格比较两个版本号，仅当 latest 严格高于 current 时返回 true（避免 4 段式 MSI 误报及降级风险）
+///
+/// SemVer 优先：两侧经归一化（去 `v` 前缀与首尾空白）后若都能解析为 SemVer
+///（含预发布，如 `1.0.0-beta.1`，满足 `1.0.0-beta.1 < 1.0.0`），则按 SemVer 全序比较。
+/// 4 段式 MSI（如 `3.0.21.0`）若 4 段全为纯数字且末段为 0，则截断为 3 段后再按
+/// SemVer 比较，使其与同值 3 段式 Release 不误报，同时 `3.0.21.0 -> 3.0.22` 仍能检出。
+/// 非 SemVer 回退策略（显式 string-inequality 策略）：任一侧不可解析（如 `tip`、
+/// `v26.02-v1.5.7-R2`）时不做数值推测——两侧都不可解析才退化为归一化字符串不等
+///（即 `norm(cur) != norm(lat)`）；仅一侧可解析则一律返回 false，避免 `tip` 相对
+/// 任何正式版本都误报、或 `R2` 这类后缀被当成数字段参与比较。
 pub fn is_version_newer(current: &str, latest: &str) -> bool {
-    let parse_nums = |s: &str| -> Vec<u64> {
+    /// 归一化：去 `v` 前缀与空白；4 段式纯数字 MSI 且末段为 0 时截断为 3 段。
+    fn normalize(s: &str) -> String {
         let clean = s.trim_start_matches('v').trim();
-        clean
-            .split(['.', '-', '_'])
-            .filter_map(|part| {
-                part.chars()
-                    .take_while(|c| c.is_ascii_digit())
-                    .collect::<String>()
-                    .parse::<u64>()
-                    .ok()
-            })
-            .collect()
-    };
-
-    let cur_nums = parse_nums(current);
-    let lat_nums = parse_nums(latest);
-
-    if cur_nums.is_empty() || lat_nums.is_empty() {
-        return current.trim_start_matches('v') != latest.trim_start_matches('v');
-    }
-
-    let max_len = cur_nums.len().max(lat_nums.len());
-    for i in 0..max_len {
-        let c = cur_nums.get(i).copied().unwrap_or(0);
-        let l = lat_nums.get(i).copied().unwrap_or(0);
-        if l > c {
-            return true;
-        } else if l < c {
-            return false;
+        let parts: Vec<&str> = clean.split('.').collect();
+        if parts.len() == 4
+            && parts
+                .iter()
+                .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+            && parts[3].trim_start_matches('0').is_empty()
+        {
+            return parts[..3].join(".");
         }
+        clean.to_string()
     }
 
-    false
+    let cur = normalize(current);
+    let lat = normalize(latest);
+    match (semver::Version::parse(&cur), semver::Version::parse(&lat)) {
+        (Ok(c), Ok(l)) => l > c,
+        (Err(_), Err(_)) => cur != lat,
+        _ => false,
+    }
 }
 
 /// 判定是否应当提示此更新，综合考量版本策略表（跳过指定版本、锁定、隐藏）

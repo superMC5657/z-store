@@ -48,21 +48,25 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   // App.platformFilteredApps. Sort + rank #1..N purely within the received
   // set — ranks are recomputed, never preserved — and do NO in-page platform
   // filtering here.
+  // Static-snapshot sorts: `apps` comes from the static catalog.json snapshot
+  // (fields: stars/forks only — no timestamps, no deltas). The 'day' /
+  // 'week' / 'month' / 'all' keys are legacy sort-preset names only and imply
+  // no time window or momentum.
   const sortedApps = useMemo(() => {
     const list = [...apps];
     switch (timeRange) {
       case 'day':
-        // 日飙升：基于 Star 与活跃加权
+        // 静态快照排序 A（Fork 加权）：基于 catalog.json 的 stars/forks 快照
         return list.sort((a, b) => (b.forks * 3 + b.stars % 500) - (a.forks * 3 + a.stars % 500));
       case 'week':
-        // 周飙升：基于活跃增长加权
+        // 静态快照排序 B（综合加权）：基于 catalog.json 的 stars/forks 快照
         return list.sort((a, b) => (b.stars * 0.7 + b.forks * 4) - (a.stars * 0.7 + a.forks * 4));
       case 'month':
-        // 月榜：按综合综合活跃度
+        // 静态快照排序 C（Star 侧重）：基于 catalog.json 的 stars/forks 快照
         return list.sort((a, b) => (b.stars + b.forks * 2) - (a.stars + a.forks * 2));
       case 'all':
       default:
-        // 历史总榜：纯 Star 排序
+        // 静态快照排序 D（按 Star 总数）：基于 catalog.json 的 stars 快照
         return list.sort((a, b) => b.stars - a.stars);
     }
   }, [apps, timeRange]);
@@ -79,15 +83,15 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       <div className="section-header">
         <h3 className="section-title">
           <TrendingUp size={18} />
-          <span>GitHub 开源应用飙升热榜</span>
+          <span>GitHub 开源应用快照排名</span>
         </h3>
         <div style={{ display: 'flex', gap: '8px' }}>
           {(['day', 'week', 'month', 'all'] as TimeRange[]).map((tab) => {
             const labels: Record<TimeRange, string> = {
-              day: '今日飙升',
-              week: '本周热榜',
-              month: '本月焦点',
-              all: '历史总榜',
+              day: 'Fork 加权',
+              week: '综合热度',
+              month: 'Star 侧重',
+              all: '按 Star 总数',
             };
             return (
               <button

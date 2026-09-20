@@ -7,6 +7,13 @@ pub fn get_default_settings() -> HashMap<String, String> {
     let cfg = crate::config::get_project_config();
     let mut map = HashMap::new();
     map.insert("theme".to_string(), "system".to_string());
+    map.insert("language".to_string(), "zh-CN".to_string());
+    map.insert("ui_scale".to_string(), "100".to_string());
+    map.insert("font_size".to_string(), "14".to_string());
+    map.insert(
+        "portable_dir".to_string(),
+        "%LOCALAPPDATA%\\Programs\\z-store-apps".to_string(),
+    );
     map.insert("download_dir".to_string(), "~/Downloads".to_string());
     map.insert("active_mirror".to_string(), "ghproxy".to_string());
     map.insert("max_concurrent_downloads".to_string(), "3".to_string());

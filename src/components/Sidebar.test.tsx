@@ -14,7 +14,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import React from 'react';
 import { Sidebar } from './Sidebar';
-import { parseSelectedPlatforms, togglePlatformSet } from '../lib/platformFilter';
+import { parseSelectedPlatformArray, togglePlatformSet } from '../lib/platformFilter';
 
 afterEach(() => {
   cleanup();
@@ -158,7 +158,7 @@ describe('Sidebar: 设备平台 multi-select group', () => {
 describe('Sidebar: Decision B select-nothing (empty is valid, never falls back to all)', () => {
   it('empty selection renders all five items unchecked', () => {
     renderSidebar({
-      selectedPlatforms: parseSelectedPlatforms([]),
+      selectedPlatforms: parseSelectedPlatformArray([]),
       onTogglePlatform: () => {},
     });
     expect(screen.getAllByRole('checkbox')).toHaveLength(5);
@@ -171,7 +171,7 @@ describe('Sidebar: Decision B select-nothing (empty is valid, never falls back t
 
   it('unknown-only persisted selection restores to all-unchecked (no fallback-to-all)', () => {
     renderSidebar({
-      selectedPlatforms: parseSelectedPlatforms(['amigaos']),
+      selectedPlatforms: parseSelectedPlatformArray(['amigaos']),
       onTogglePlatform: () => {},
     });
     expect(screen.getAllByRole('checkbox')).toHaveLength(5);
@@ -185,12 +185,12 @@ describe('Sidebar: Decision B select-nothing (empty is valid, never falls back t
   it('toggling off the last checked item yields the empty set via togglePlatformSet', () => {
     const onTogglePlatform = vi.fn();
     renderSidebar({
-      selectedPlatforms: parseSelectedPlatforms(['windows']),
+      selectedPlatforms: parseSelectedPlatformArray(['windows']),
       onTogglePlatform,
     });
     fireEvent.click(screen.getByRole('checkbox', { name: /Windows/ }));
     expect(onTogglePlatform).toHaveBeenCalledWith('windows');
     // the committed next state is the empty Set (select-nothing), not a refusal
-    expect(togglePlatformSet(parseSelectedPlatforms(['windows']), 'windows').size).toBe(0);
+    expect(togglePlatformSet(parseSelectedPlatformArray(['windows']), 'windows').size).toBe(0);
   });
 });

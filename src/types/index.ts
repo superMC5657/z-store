@@ -129,6 +129,8 @@ export interface ToastMessage {
 
 export interface AppSettings {
   theme: 'light' | 'dark' | 'system';
+  // P1-8: 界面语言（后端导入白名单已先行支持，前端类型与默认值在此补齐）。
+  language: string;
   ui_scale: '90' | '100' | '110' | '125';
   font_size: '12' | '14' | '16' | '18' | '20' | 'small' | 'standard' | 'medium' | 'large';
   portable_dir: string;
@@ -321,10 +323,22 @@ export interface StarAppResult {
 }
 
 // FR-6.3-manual: 用户数据手动导出 / 导入（纯文件同步，M2 服务端同步为远期规划）
+// P1-8: 备份覆盖除 github_token 之外的全部设置项。github_token（PAT 凭据）
+// 出于安全考虑被刻意排除：永不写入备份文件，导入侧白名单同样拒绝该键。
 export interface UserDataBackupSettings {
   theme?: string;
   language?: string;
+  ui_scale?: string;
+  font_size?: string;
+  portable_dir?: string;
+  download_dir?: string;
+  active_mirror?: string;
+  max_concurrent_downloads?: number;
+  close_to_tray?: boolean;
+  launch_on_startup?: boolean;
+  update_frequency?: string;
   detail_cache_ttl_minutes?: number;
+  catalog_source_url?: string;
   watch_notify_frequency?: string;
 }
 
@@ -340,4 +354,34 @@ export interface ImportUserDataCounts {
   watched_added: number;
   settings_applied: boolean;
   installed_skipped: number;
+}
+
+// P3-4: 客户端自更新契约（正式确立为产品需求，NOT slated for removal）。
+// 实现面：`src/components/ClientUpdateRow.tsx` 经 `@tauri-apps/plugin-updater`
+// 执行 check / downloadAndInstall；签名与更新源以 `src-tauri/tauri.conf.json`
+// `plugins.updater`（endpoints + pubkey）为准。此处仅做类型层面的加法声明，
+// 不改变任何运行时行为。
+export type ClientUpdatePhaseKind =
+  | 'idle'
+  | 'checking'
+  | 'latest'
+  | 'available'
+  | 'downloading'
+  | 'ready'
+  | 'error';
+
+export interface ClientUpdateAvailable {
+  version: string;
+  currentVersion: string;
+  notes: string;
+}
+
+export interface ClientUpdateDownloadProgress {
+  version: string;
+  percent: number | null;
+}
+
+export interface ClientUpdaterConfig {
+  endpoints: string[];
+  pubkey: string;
 }

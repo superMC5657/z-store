@@ -11,7 +11,6 @@
  * the `setSelectedPlatforms` functional updater, so each dispatch sees
  * the latest committed state. Sidebar stays dumb (callback-only).
  */
-// @ts-ignore - vitest is fetched transiently via npx (not a repo dep per task scope)
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { act } from 'react';
@@ -64,7 +63,6 @@ vi.mock('./services/api', () => {
   };
 });
 
-// @ts-ignore - App.tsx ships without a vitest dep; resolved transiently via npx
 import { App, PLATFORM_FILTER_STORAGE_KEY } from './App';
 
 // Same-tick dispatches below use React.act directly (not via fireEvent), so

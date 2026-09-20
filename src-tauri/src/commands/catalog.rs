@@ -2,6 +2,24 @@ use crate::models::{AppDetail, AppSummary, SyncCatalogResult};
 use crate::AppState;
 use tauri::State;
 
+/// Derive the platform list from release assets via `installer::classify_asset` OS labels.
+///
+/// Each asset filename is classified and its OS label collected (sorted, deduplicated;
+/// the `"all"` label means unclassifiable and is skipped).
+/// An empty derivation yields an explicitly empty vec — there is intentionally NO
+/// fallback to `["windows"]`, so Linux-only or Android-containing releases are never
+/// mislabeled. How `matchPlatformSet` treats a missing/empty list is out of scope.
+fn platforms_from_assets(assets: &[crate::models::ReleaseAsset]) -> Vec<String> {
+    let mut set = std::collections::BTreeSet::new();
+    for a in assets {
+        let (_, os, _) = crate::installer::classify_asset(&a.name);
+        if os != "all" {
+            set.insert(os.to_string());
+        }
+    }
+    set.into_iter().collect()
+}
+
 #[tauri::command]
 pub async fn search_apps(
     state: State<'_, AppState>,
@@ -24,9 +42,13 @@ pub async fn search_apps(
                 let release_res =
                     crate::forge::ForgeRegistry::fetch_latest_release(&coord, host_token.as_deref())
                         .await;
-                let latest_ver = release_res
-                    .map(|r| r.tag_name)
-                    .unwrap_or_else(|_| "latest".to_string());
+                let (latest_ver, platforms) = match release_res {
+                    Ok(r) => {
+                        let plats = platforms_from_assets(&r.assets);
+                        (r.tag_name, plats)
+                    }
+                    Err(_) => ("latest".to_string(), Vec::new()),
+                };
                 log::info!(
                     "search done sid={} query='{}' hits=1 elapsed_ms={}",
                     crate::z_log::new_session_id(),
@@ -56,7 +78,7 @@ pub async fn search_apps(
                     forge: Some(coord.forge.as_str().to_string()),
                     forge_host: Some(coord.host),
                     homepage: repo_info.homepage.clone(),
-                    platforms: vec!["windows".to_string()],
+                    platforms,
                 }]);
             }
         } else if query.contains('/')
@@ -189,31 +211,25 @@ pub async fn get_app_details_impl(
         }
     };
 
-    // 获取客户端设置的应用详情缓存保鲜期 (TTL，单位秒；0 表示每次实时校验)。
-    // 非法/缺失挡位由 db 层回退默认 30 分钟（ADR-0007 有效集 {0,10,30,60,360,1440}）。
-    let ttl_seconds = state
-        .db
-        .lock()
-        .map(|db| db.get_detail_cache_ttl_minutes() * 60)
-        .unwrap_or_else(|_| crate::config::get_project_config().cache.detail_ttl_minutes * 60);
-
     // 1. 若非主动强制刷新，优先从 SQLite 本地持久化缓存中读取，实现 0ms 瞬间秒开
-    // 注意：锁守卫不得跨越 await（Tauri 命令 Future 需 Send），故查询收拢于闭包内
+    // 单次临界区完成 TTL + 缓存读取 + verified 标记解析，避免同请求内多次加/解锁；
+    // 注意：锁守卫不得跨越 await（Tauri 命令 Future 需 Send），故查询收拢于单闭包内。
+    // 后续优化方向：r2d2 连接池（当前仍用全局 Mutex<Database>，见 ADR-0003；无 schema 变更）。
+    // 非法/缺失 TTL 挡位由 db 层回退默认 30 分钟（ADR-0007 有效集 {0,10,30,60,360,1440}）。
     if !is_force {
         let cached: Option<AppDetail> = state.db.lock().ok().and_then(|db| {
-            db.get_cached_app_detail(&clean_id, Some(ttl_seconds))
+            let ttl_seconds = db.get_detail_cache_ttl_minutes() * 60;
+            let mut detail = db
+                .get_cached_app_detail(&clean_id, Some(ttl_seconds))
                 .ok()
-                .flatten()
+                .flatten()?;
+            if !detail.is_verified && db.is_verified_app(&clean_id).unwrap_or(false) {
+                detail.is_verified = true;
+            }
+            Some(detail)
         });
         if let Some(mut cached_detail) = cached {
             cached_detail.id = clean_id.clone();
-            if !cached_detail.is_verified {
-                if let Ok(db) = state.db.lock() {
-                    if db.is_verified_app(&cached_detail.id).unwrap_or(false) {
-                        cached_detail.is_verified = true;
-                    }
-                }
-            }
             log::debug!(
                 "get_app_details id={} from=cache:db elapsed_ms={}",
                 clean_id,
@@ -246,6 +262,7 @@ pub async fn get_app_details_impl(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs() as i64;
+            let platforms = platforms_from_assets(&release_info.assets);
             let mut detail = AppDetail {
                 id: clean_id.clone(),
                 name: repo_info.name.clone(),
@@ -273,7 +290,7 @@ pub async fn get_app_details_impl(
                 cached_at: Some(now),
                 is_stale: None,
                 homepage: repo_info.homepage.clone(),
-                platforms: vec!["windows".to_string()],
+                platforms,
             };
             if let Ok(db) = state.db.lock() {
                 if db.is_verified_app(&detail.id).unwrap_or(false) {
@@ -571,4 +588,52 @@ pub fn get_catalog_count(state: State<'_, AppState>) -> Result<usize, String> {
 pub async fn get_app_readme(state: State<'_, AppState>, id: String) -> Result<String, String> {
     let detail = get_app_details(state, id, None).await?;
     Ok(detail.readme_markdown)
+}
+
+#[cfg(test)]
+mod catalog_platform_tests {
+    use super::platforms_from_assets;
+    use crate::models::ReleaseAsset;
+
+    fn asset(name: &str) -> ReleaseAsset {
+        ReleaseAsset {
+            name: name.to_string(),
+            download_url: String::new(),
+            size_bytes: 0,
+            sha256: None,
+            os: String::new(),
+            arch: String::new(),
+            kind: String::new(),
+        }
+    }
+
+    #[test]
+    fn linux_only_release_must_not_be_labeled_windows() {
+        let assets = vec![asset("app-1.0_amd64.deb"), asset("app-1.0.AppImage")];
+        let plats = platforms_from_assets(&assets);
+        assert_eq!(plats, vec!["linux".to_string()]);
+        assert!(!plats.contains(&"windows".to_string()));
+    }
+
+    #[test]
+    fn android_containing_release_derives_android_without_windows_fallback() {
+        let assets = vec![asset("app-1.0.apk"), asset("app-1.0_amd64.deb")];
+        let plats = platforms_from_assets(&assets);
+        assert!(plats.contains(&"android".to_string()));
+        assert!(plats.contains(&"linux".to_string()));
+        assert!(!plats.contains(&"windows".to_string()));
+    }
+
+    #[test]
+    fn empty_assets_yield_explicit_empty_vec() {
+        let plats: Vec<String> = platforms_from_assets(&[]);
+        assert!(plats.is_empty());
+    }
+
+    #[test]
+    fn unknown_only_assets_yield_explicit_empty_vec() {
+        let assets = vec![asset("checksums-sha256.txt")];
+        let plats = platforms_from_assets(&assets);
+        assert!(plats.is_empty());
+    }
 }

@@ -13,6 +13,21 @@ pub const SEARCH_SCORE_ALIAS_CONTAINS: i32 = 35;
 pub const SEARCH_SCORE_OWNER_OR_REPO_CONTAINS: i32 = 30;
 pub const SEARCH_SCORE_DESC_CONTAINS: i32 = 15;
 
+/// P3-3: true when `url` is the official default catalog source (empty is also
+/// treated as default by the caller, which resolves it before invoking sync).
+fn is_default_catalog_source(url: &str) -> bool {
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+    let default_url = crate::config::get_project_config()
+        .catalog
+        .default_source_url
+        .trim()
+        .to_string();
+    trimmed == default_url
+}
+
 impl Default for CatalogService {
     fn default() -> Self {
         Self::new()
@@ -91,6 +106,23 @@ impl CatalogService {
         url: &str,
         cached_etag: Option<&str>,
     ) -> Result<(Option<Vec<CatalogItem>>, Option<String>), String> {
+        // P3-3 trust friction: any non-default source silently replaces the trusted
+        // directory, so log provenance prominently here (Settings UI gates the change
+        // behind a destructive confirm). Default flow is unchanged.
+        // FUTURE (not built): allowlist of trusted catalog hosts + signature/manifest
+        // verification (e.g. signed catalog payload); no signature infra in this step.
+        if is_default_catalog_source(url) {
+            log::info!(
+                "sync catalog official default source url='{}'",
+                crate::log_support::sanitize_url(url)
+            );
+        } else {
+            log::warn!(
+                "sync catalog CUSTOM source url='{}' (non-default, replaces trusted directory)",
+                crate::log_support::sanitize_url(url)
+            );
+        }
+
         let is_local = url.starts_with("file://")
             || (!url.starts_with("http://") && !url.starts_with("https://"));
 
@@ -424,5 +456,22 @@ mod tests {
         assert_eq!(external.owner, "unknown");
         assert_eq!(external.repo, "external");
         assert!(svc.get_repo_coordinates("does-not-exist").is_err());
+    }
+
+    /// P3-3: default vs custom catalog source provenance check (sync log gate).
+    #[test]
+    fn test_is_default_catalog_source() {
+        let default_url = crate::config::get_project_config()
+            .catalog
+            .default_source_url
+            .clone();
+        assert!(!default_url.trim().is_empty());
+        assert!(is_default_catalog_source(""));
+        assert!(is_default_catalog_source("   "));
+        assert!(is_default_catalog_source(&default_url));
+        assert!(!is_default_catalog_source(
+            "https://evil.example.com/catalog.json"
+        ));
+        assert!(!is_default_catalog_source("file:///tmp/custom-catalog.json"));
     }
 }

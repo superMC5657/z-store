@@ -5,11 +5,7 @@ use super::types::{classify_device_poll, DeviceCodeResponse, DevicePollOutcome, 
 pub async fn request_device_code(client_id: &str) -> Result<DeviceStartResult, String> {
     // 入口 debug：不记 client_id / code 明文，只记结论。
     log::debug!("oauth device start");
-    let timeout_sec = crate::config::get_project_config().network.api_timeout_seconds;
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(timeout_sec))
-        .build()
-        .map_err(|e| format!("创建网络请求失败: {}", e))?;
+    let client = crate::shared_http_client();
     let resp = client
         .post(DEVICE_CODE_URL)
         .header("Accept", "application/json")
@@ -46,11 +42,7 @@ pub async fn poll_device_once(
 ) -> Result<DevicePollOutcome, String> {
     // 轮询 debug：不记 device_code 明文，只记轮询结论。
     log::debug!("oauth device poll");
-    let timeout_sec = crate::config::get_project_config().network.api_timeout_seconds;
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(timeout_sec))
-        .build()
-        .map_err(|e| format!("创建网络请求失败: {}", e))?;
+    let client = crate::shared_http_client();
     let resp = client
         .post(ACCESS_TOKEN_URL)
         .header("Accept", "application/json")

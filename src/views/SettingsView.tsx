@@ -83,6 +83,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   }, [settings.catalog_source_url]);
   const [catalogUrlSaved, setCatalogUrlSaved] = useState(false);
   const [showAdvancedSource, setShowAdvancedSource] = useState(false);
+  const [isCatalogSourceConfirming, setIsCatalogSourceConfirming] = useState(false);
   const [isResetConfirming, setIsResetConfirming] = useState(false);
 
   // Dynamic Animation & Micro-Feedback State
@@ -243,6 +244,25 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setTimeout(() => setIsResetWave(false), 1400);
   };
 
+  // P3-3 trust friction: switching to a non-default (custom) catalog source
+  // replaces the trusted directory, so it requires an explicit destructive
+  // confirm. Saving empty (= official default flow) applies immediately.
+  const pendingCatalogUrl = catalogSourceUrl.trim();
+  const isCustomCatalogSourceChange =
+    pendingCatalogUrl.length > 0 && pendingCatalogUrl !== (settings.catalog_source_url || '').trim();
+
+  const handleSaveCatalogSource = () => {
+    if (isCustomCatalogSourceChange && !isCatalogSourceConfirming) {
+      setIsCatalogSourceConfirming(true);
+      return;
+    }
+    onUpdateSetting('catalog_source_url', pendingCatalogUrl);
+    setIsCatalogSourceConfirming(false);
+    setCatalogUrlSaved(true);
+    triggerChangeFeedback('catalog_source', '✓ 收录清单源已保存更新');
+    setTimeout(() => setCatalogUrlSaved(false), 2500);
+  };
+
   return (
     <div className="settings-view view-entrance">
       <div className="section-header">
@@ -374,17 +394,25 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <span className="settings-row-desc">定期检查已安装软件的更新</span>
           </div>
           <div className="segmented-group">
-            {[
-              { id: 'startup', label: '启动时检测 (推荐)' },
-              { id: 'daily', label: '每 24 小时轮询' },
-              { id: 'manual', label: '仅手动检查' },
-            ].map((u) => (
+            {(
+              [
+                { id: 'startup', label: '启动时检测 (推荐)' },
+                // P2-6 产品决策：每日轮询尚未实现（无调度器），该选项置灰禁用，
+                // 仅保留启动时检测与手动检查两个可用入口。
+                { id: 'daily', label: '每 24 小时轮询', disabled: true, hint: '即将推出' },
+                { id: 'manual', label: '仅手动检查' },
+              ] as { id: string; label: string; disabled?: boolean; hint?: string }[]
+            ).map((u) => (
               <button
                 key={u.id}
                 className={`segmented-item ${settings.update_frequency === u.id ? 'active' : ''}`}
+                disabled={u.disabled}
+                title={u.disabled ? u.hint : u.label}
+                style={u.disabled ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
                 onClick={() => handleSelectUpdateFrequency(u.id, u.label)}
               >
                 {u.label}
+                {u.disabled && u.hint ? `（${u.hint}）` : ''}
               </button>
             ))}
           </div>
@@ -776,24 +804,41 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 onChange={(e) => {
                   setCatalogSourceUrl(e.target.value);
                   setCatalogUrlSaved(false);
+                  setIsCatalogSourceConfirming(false);
                 }}
                 placeholder="https://.../catalog.json"
                 style={{ flex: 1, fontSize: '12px', fontFamily: 'monospace' }}
               />
-              <button
-                type="button"
-                className="btn-fluent btn-primary"
-                style={{ fontSize: '12px', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: '4px' }}
-                onClick={() => {
-                  onUpdateSetting('catalog_source_url', catalogSourceUrl.trim());
-                  setCatalogUrlSaved(true);
-                  triggerChangeFeedback('catalog_source', '✓ 收录清单源已保存更新');
-                  setTimeout(() => setCatalogUrlSaved(false), 2500);
-                }}
-              >
-                {catalogUrlSaved && <Check size={12} />}
-                <span>{catalogUrlSaved ? '已保存' : '保存源'}</span>
-              </button>
+              {isCatalogSourceConfirming ? (
+                <>
+                  <button
+                    type="button"
+                    className="btn-fluent"
+                    style={{ fontSize: '12px', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: '4px', background: '#ef4444', color: '#fff', fontWeight: 600, whiteSpace: 'nowrap' }}
+                    onClick={handleSaveCatalogSource}
+                  >
+                    <span>确认切换</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-fluent btn-secondary"
+                    style={{ fontSize: '12px', padding: '5px 12px', whiteSpace: 'nowrap' }}
+                    onClick={() => setIsCatalogSourceConfirming(false)}
+                  >
+                    <span>取消</span>
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="btn-fluent btn-primary"
+                  style={{ fontSize: '12px', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  onClick={handleSaveCatalogSource}
+                >
+                  {catalogUrlSaved && <Check size={12} />}
+                  <span>{catalogUrlSaved ? '已保存' : '保存源'}</span>
+                </button>
+              )}
               <button
                 type="button"
                 className="btn-fluent btn-secondary"
@@ -803,6 +848,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     const defUrl = await api.resetSetting('catalog_source_url');
                     setCatalogSourceUrl(defUrl);
                     onUpdateSetting('catalog_source_url', defUrl);
+                    setIsCatalogSourceConfirming(false);
                     setCatalogUrlSaved(true);
                     triggerChangeFeedback('catalog_source', '✓ 已恢复官方默认收录源');
                     setTimeout(() => setCatalogUrlSaved(false), 2500);
@@ -815,6 +861,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <span>恢复官方默认</span>
               </button>
             </div>
+          )}
+          {isCatalogSourceConfirming && (
+            <span style={{ fontSize: '12px', color: '#ef4444', fontWeight: 600 }}>
+              ⚠️ 自定义源将替换官方可信收录目录，仅在信任该来源时确认切换；恶意源可伪造应用清单。
+            </span>
           )}
 
           {syncFeedback && (

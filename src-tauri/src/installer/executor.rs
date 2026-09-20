@@ -152,8 +152,13 @@ async fn execute_installation_inner(
             let _ = std::fs::create_dir_all(&app_dir);
 
             let file = File::open(installer_path).map_err(|e| e.to_string())?;
-            let mut archive =
-                zip::ZipArchive::new(file).map_err(|e| format!("打开 ZIP 归档失败: {}", e))?;
+            let mut archive = zip::ZipArchive::new(file).map_err(|e| {
+                format!(
+                    "打开 ZIP 归档失败 (文件: {}): {}。仅支持 .zip 格式，不支持 .7z",
+                    installer_path.display(),
+                    e
+                )
+            })?;
 
             let mut main_exe: Option<PathBuf> = None;
             for i in 0..archive.len() {
@@ -665,8 +670,12 @@ pub async fn execute_uninstallation(
 
     #[cfg(not(target_os = "windows"))]
     {
-        let mut child = tokio::process::Command::new("sh")
-            .args(["-c", uninstaller_cmd])
+        let (exe, args) = parse_uninstaller_command(uninstaller_cmd);
+        if exe.trim().is_empty() {
+            return Err("卸载命令为空，已拒绝执行".to_string());
+        }
+        let mut child = tokio::process::Command::new(&exe)
+            .args(&args)
             .spawn()
             .map_err(|e| format!("执行卸载脚本失败: {}", e))?;
         let status = child.wait().await.map_err(|e| format!("卸载进程异常: {}", e))?;

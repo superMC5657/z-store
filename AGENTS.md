@@ -18,7 +18,4 @@ Single-context layout: one `CONTEXT.md` + `docs/adr/` at the repo root. See `doc
 
 ## Rules
 
-### Decision protocol
-
-In case of business logic divergence, major architectural choices, or breaking refactoring, immediately halt all code execution and present structured options for user confirmation. Routine detail development executes autonomously. See `.agents/rules/decision-protocol.md`.
-
+Don't Use Find on Windows, Replace by fd;

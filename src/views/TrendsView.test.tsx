@@ -13,7 +13,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import { TrendsView } from './TrendsView';
-import { matchPlatformSet, PLATFORM_IDS, parseSelectedPlatforms } from '../lib/platformFilter';
+import { matchPlatformSet, PLATFORM_IDS, parseSelectedPlatformArray } from '../lib/platformFilter';
 import { AppSummary } from '../types';
 
 afterEach(() => {
@@ -145,7 +145,7 @@ describe('task6: rerank #1..N within the filtered set', () => {
   });
 
   it('empty selection pre-filters everything out and renders .trends-empty with reset (no fallback-to-all)', () => {
-    const sel = parseSelectedPlatforms([]);
+    const sel = parseSelectedPlatformArray([]);
     expect(sel.size).toBe(0);
     const filtered = FIXTURE.filter((a) => matchPlatformSet(a, sel));
     expect(filtered).toEqual([]);
@@ -164,7 +164,7 @@ describe('task6: rerank #1..N within the filtered set', () => {
   });
 
   it('unknown-only selection behaves like empty (never falls back to all)', () => {
-    const sel = parseSelectedPlatforms(['amigaos']);
+    const sel = parseSelectedPlatformArray(['amigaos']);
     expect(sel.size).toBe(0);
     const { container } = renderTrends(FIXTURE.filter((a) => matchPlatformSet(a, sel)));
     expect(container.querySelectorAll('.app-card').length).toBe(0);

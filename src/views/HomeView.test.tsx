@@ -20,7 +20,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { HomeView } from './HomeView';
 import type { AppSummary } from '../types';
-import { PLATFORM_IDS, matchPlatformSet, parseSelectedPlatforms } from '../lib/platformFilter';
+import { PLATFORM_IDS, matchPlatformSet, parseSelectedPlatformArray } from '../lib/platformFilter';
 
 afterEach(() => {
   cleanup();
@@ -106,6 +106,34 @@ describe('baseline: HomeView slices the incoming apps prop as-is', () => {
     expect(heroTitle?.textContent).not.toContain('RustDesk');
   });
 
+  it('fallback hero uses generic copy (name + category, no RustDesk-specific claims)', () => {
+    // ios-only selection excludes rustdesk: hero is 仅iosApp, so the
+    // RustDesk-specific title/tags must NOT leak onto it.
+    const filtered = filterApps(BASE_FIXTURE, ['ios']);
+    expect(filtered.map((a) => a.id)).toEqual(['ios-only-app']);
+    const { container } = renderHomeView(filtered);
+    const heroTitle = container.querySelector('.hero-banner .hero-title');
+    expect(heroTitle?.textContent).toContain('仅iosApp');
+    expect(heroTitle?.textContent).toContain(filtered[0].category_name);
+    expect(heroTitle?.textContent).not.toContain('开源远程桌面');
+    const heroTags = container.querySelector('.hero-banner .hero-tags');
+    expect(heroTags?.textContent).toContain('Stars');
+    expect(heroTags?.textContent).toContain(filtered[0].license);
+    expect(heroTags?.textContent).toContain(filtered[0].category_name);
+    expect(heroTags?.textContent).not.toContain('自建中继');
+    expect(heroTags?.textContent).not.toContain('端到端加密');
+  });
+
+  it('rustdesk hero keeps the RustDesk-specific title/tags', () => {
+    const { container } = renderHomeView(BASE_FIXTURE);
+    const heroTitle = container.querySelector('.hero-banner .hero-title');
+    expect(heroTitle?.textContent).toContain('RustDesk');
+    expect(heroTitle?.textContent).toContain('开源远程桌面');
+    const heroTags = container.querySelector('.hero-banner .hero-tags');
+    expect(heroTags?.textContent).toContain('自建中继');
+    expect(heroTags?.textContent).toContain('端到端加密');
+  });
+
   it('featured/remaining slices execute on the prop as-is (hero excluded, order kept)', () => {
     const { container } = renderHomeView(BASE_FIXTURE);
     // hero (rustdesk) must not repeat in the grids below.
@@ -179,13 +207,13 @@ describe('task5: filter-empty state with .filter-empty-reset', () => {
 
 describe('HomeView: Decision B select-nothing (empty/unknown-only match nothing)', () => {
   it('empty selection filters the whole fixture out (no fallback-to-all)', () => {
-    const sel = parseSelectedPlatforms([]);
+    const sel = parseSelectedPlatformArray([]);
     expect(sel.size).toBe(0);
     expect(EXTENDED_FIXTURE.filter((a) => matchPlatformSet(a, sel))).toEqual([]);
   });
 
   it('unknown-only selection behaves like empty (renders filter-empty, never the full list)', () => {
-    const sel = parseSelectedPlatforms(['amigaos']);
+    const sel = parseSelectedPlatformArray(['amigaos']);
     expect(sel.size).toBe(0);
     const filtered = BASE_FIXTURE.filter((a) => matchPlatformSet(a, sel));
     expect(filtered).toEqual([]);
@@ -195,6 +223,34 @@ describe('HomeView: Decision B select-nothing (empty/unknown-only match nothing)
   });
 
   it('null persisted selection is empty too (not fallback-to-all)', () => {
-    expect(parseSelectedPlatforms(null).size).toBe(0);
+    expect(parseSelectedPlatformArray(null).size).toBe(0);
+  });
+});
+
+describe('U16b: recently-viewed platform filter (App derivation)', () => {
+  // Mirrors the App.tsx derivation exactly: recents pass through
+  // matchPlatformSet before setRecentlyViewedApps, so non-matching recents
+  // never reach HomeView's 最近浏览 section (backend history.rs untouched).
+  function filterRecents(apps: AppSummary[], selected: string[]): AppSummary[] {
+    return apps.filter((a) => matchPlatformSet(a, new Set(selected)));
+  }
+
+  it('non-matching recents are excluded by the derivation', () => {
+    // ios-only selection excludes rustdesk (windows) and 无platformsApp (windows-only fallback).
+    const visible = filterRecents(BASE_FIXTURE, ['ios']);
+    expect(visible.map((a) => a.id)).toEqual(['ios-only-app']);
+  });
+
+  it('non-matching recents stay hidden in Home 最近浏览', () => {
+    const visible = filterRecents(BASE_FIXTURE, ['ios']);
+    const { container } = renderHomeView(filterApps(BASE_FIXTURE, ['ios']), {
+      recentlyViewedApps: visible,
+    });
+    // 最近浏览 section renders for the visible recents…
+    expect(container.textContent).toContain('最近浏览');
+    expect(container.textContent).toContain('仅iosApp');
+    // …while the filtered-out windows-only recents stay hidden.
+    expect(container.textContent).not.toContain('RustDesk');
+    expect(container.textContent).not.toContain('无platformsApp');
   });
 });

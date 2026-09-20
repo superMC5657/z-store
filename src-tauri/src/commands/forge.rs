@@ -283,8 +283,87 @@ pub fn is_verified_by_code(readme_markdown: &str, code: &str) -> bool {
     readme_markdown.contains(needle)
 }
 
-/// 官方所有权认证（MVP）：校验码原文出现在仓库 README
-/// 内容中即通过；通过后持久化，`is_verified` 经合并规则在详情中生效。
+/// 纯决策函数（离线可测）：README 子串命中 alone NEVER verifies；
+/// 仅当 `api_authorized`（调用方 GitHub token 经仓库 API 确认具备
+/// owner / collaborator / push 权限）为 true 且校验码命中时才通过。
+/// 网络 I/O 全部隔离在 `check_github_push_access` 中，本函数无网络依赖。
+pub fn decide_ownership_verified(
+    readme_markdown: &str,
+    code: &str,
+    api_authorized: bool,
+) -> bool {
+    if !api_authorized {
+        return false;
+    }
+    is_verified_by_code(readme_markdown, code)
+}
+
+/// 经 GitHub 仓库 API 确认调用方 token 具备 owner / collaborator /
+/// write（push）权限：`GET /repos/{owner}/{repo}` 在认证上下文中返回
+/// `permissions.push|admin|maintain`，任一为 true 即通过。
+/// 无 token / 非 `owner/repo` 坐标 / 请求失败 / 权限不足均返回 false。
+/// 仅支持 github.com；其余 forge 直接返回 false（拒绝误认证）。
+async fn check_github_push_access(owner: &str, repo: &str, token: &str) -> bool {
+    if owner.trim().is_empty() || repo.trim().is_empty() || token.trim().is_empty() {
+        return false;
+    }
+    let timeout_sec = crate::config::get_project_config().network.api_timeout_seconds;
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(timeout_sec))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        reqwest::header::USER_AGENT,
+        reqwest::header::HeaderValue::from_static("ZStore-Client/0.1.0"),
+    );
+    headers.insert(
+        reqwest::header::ACCEPT,
+        reqwest::header::HeaderValue::from_static("application/vnd.github.v3+json"),
+    );
+    let auth_val = match reqwest::header::HeaderValue::from_str(&format!(
+        "Bearer {}",
+        token.trim()
+    )) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    headers.insert(reqwest::header::AUTHORIZATION, auth_val);
+    let url = format!("https://api.github.com/repos/{}/{}", owner.trim(), repo.trim());
+    let resp = match client.get(&url).headers(headers).send().await {
+        Ok(r) => r,
+        Err(_) => return false,
+    };
+    if !resp.status().is_success() {
+        return false;
+    }
+    #[derive(serde::Deserialize)]
+    struct PermPayload {
+        permissions: Option<PermDetail>,
+    }
+    #[derive(serde::Deserialize)]
+    struct PermDetail {
+        push: Option<bool>,
+        admin: Option<bool>,
+        maintain: Option<bool>,
+    }
+    match resp.json::<PermPayload>().await {
+        Ok(p) => match p.permissions {
+            Some(d) => {
+                d.push.unwrap_or(false) || d.admin.unwrap_or(false) || d.maintain.unwrap_or(false)
+            }
+            None => false,
+        },
+        Err(_) => false,
+    }
+}
+
+/// 官方所有权认证（加固）：README 校验码命中 **且** 调用方 GitHub token
+/// 经仓库 API 确认具备 owner / collaborator / write 权限时才通过；
+/// 通过后持久化，`is_verified` 经合并规则在详情中生效。
 #[tauri::command]
 pub async fn verify_ownership(
     state: State<'_, AppState>,
@@ -312,12 +391,27 @@ pub async fn verify_ownership(
             return Ok(true);
         }
     }
-    // 3. README 复用应用详情链路做子串命中比对
+    // 3. README 复用应用详情链路做子串命中比对 + 仓库 API 鉴权：
+    // 子串命中 alone NEVER verifies，必须同时满足调用方 token 的
+    // owner / collaborator / push 权限（经 GitHub 仓库 API 确认）。
     let readme = get_app_details_impl(&state, clean_id.clone(), None)
         .await
         .map(|d| d.readme_markdown)
         .unwrap_or_default();
-    let passed = is_verified_by_code(&readme, &needle);
+    if !is_verified_by_code(&readme, &needle) {
+        return Ok(false);
+    }
+    let token = match resolve_active_github_token(&state) {
+        Some(t) if !t.trim().is_empty() => t,
+        _ => return Ok(false),
+    };
+    let mut parts = clean_id.splitn(2, '/');
+    let (owner, repo) = match (parts.next(), parts.next()) {
+        (Some(o), Some(r)) if !o.trim().is_empty() && !r.trim().is_empty() => (o, r),
+        _ => return Ok(false),
+    };
+    let api_authorized = check_github_push_access(owner, repo, &token).await;
+    let passed = decide_ownership_verified(&readme, &needle, api_authorized);
     if passed {
         if let Ok(db) = state.db.lock() {
             let _ = db.mark_verified_app(&clean_id);
