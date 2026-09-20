@@ -249,3 +249,79 @@ fn test_uninstall_unix_path_never_shells_command_string() {
     );
 }
 
+// --- Finding 3.3-3: SetupExe installer-type sniff + silent args (pure, no launch) ---
+#[test]
+fn test_sniff_nsis_fixture() {
+    // Minimal PE-prefix fixture carrying the NSIS marker.
+    let mut bytes = vec![0x4Du8, 0x5A, 0x90, 0x00];
+    bytes.extend_from_slice(b"NullsoftInst foo");
+    assert_eq!(
+        executor::sniff_setup_kind(&bytes),
+        executor::SetupKind::Nsis
+    );
+}
+
+#[test]
+fn test_sniff_inno_fixture() {
+    let mut bytes = vec![0x4Du8, 0x5A, 0x90, 0x00];
+    bytes.extend_from_slice(b"Inno Setup Setup Data v6");
+    assert_eq!(
+        executor::sniff_setup_kind(&bytes),
+        executor::SetupKind::Inno
+    );
+}
+
+#[test]
+fn test_sniff_unknown_fixture() {
+    let bytes = vec![0x4Du8, 0x5A, 0x90, 0x00, 0x01, 0x02, 0x03];
+    assert_eq!(
+        executor::sniff_setup_kind(&bytes),
+        executor::SetupKind::Unknown
+    );
+}
+
+#[test]
+fn test_silent_args_mapping() {
+    assert_eq!(
+        executor::silent_args_for_setup_kind(&executor::SetupKind::Nsis),
+        vec!["/S".to_string()]
+    );
+    assert_eq!(
+        executor::silent_args_for_setup_kind(&executor::SetupKind::Inno),
+        vec!["/VERYSILENT".to_string(), "/NORESTART".to_string()]
+    );
+    assert!(
+        executor::silent_args_for_setup_kind(&executor::SetupKind::Unknown).is_empty(),
+        "unknown type must never guess flags (interactive fallback)"
+    );
+}
+
+// --- Finding 3.3-4: platform skips are a non-success signal, never Ok-installed ---
+#[test]
+fn test_skipped_outcome_is_non_success() {
+    let skipped = executor::InstallOutcome::Skipped("skip: test".to_string());
+    assert!(skipped.into_result().is_err(), "Skipped must not read as success");
+    let installed = executor::InstallOutcome::Installed("ok".to_string());
+    assert!(installed.into_result().is_ok());
+}
+
+#[tokio::test]
+async fn test_foreign_platform_skip_is_not_recorded_as_installed() {
+    // On this Windows host, a macOS DMG install is a total no-op: it must
+    // come back as Skipped (mapped to Err by the caller), never Ok.
+    #[cfg(target_os = "windows")]
+    {
+        let res = executor::execute_installation(
+            Path::new("C:\\nonexistent\\pkg.dmg"),
+            &AssetKind::Dmg,
+            "test-app",
+            None,
+        )
+        .await;
+        match res {
+            Ok(executor::InstallOutcome::Skipped(_)) => {}
+            other => panic!("DMG on Windows must be Skipped, got {:?}", other.is_ok()),
+        }
+    }
+}
+

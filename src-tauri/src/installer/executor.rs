@@ -13,18 +13,111 @@ fn is_user_cancellation(reason: &str) -> bool {
         || reason.contains("1602")
 }
 
+/// 安装执行结果：平台跳过是全量 no-op，必须是结构化的非成功信号，
+/// 调用方将其映射为"未安装"（绝不落库为已安装），保持文案人类可读。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InstallOutcome {
+    Installed(String),
+    Skipped(String),
+}
+
+impl InstallOutcome {
+    /// `Installed` ⇒ `Ok`；`Skipped` ⇒ `Err`（非成功，调用方 `?` 直接中断、不落库）。
+    pub fn into_result(self) -> Result<String, String> {
+        match self {
+            InstallOutcome::Installed(msg) => Ok(msg),
+            InstallOutcome::Skipped(msg) => Err(msg),
+        }
+    }
+}
+
+/// Windows SetupExe 安装器类型：仅做 PE 字符串/版本信息嗅探，不做猜测。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetupKind {
+    Nsis,
+    Inno,
+    Unknown,
+}
+
+fn bytes_contain(haystack: &[u8], needle: &[u8]) -> bool {
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return false;
+    }
+    haystack.windows(needle.len()).any(|w| w == needle)
+}
+
+fn bytes_contain_ascii_insensitive(haystack: &[u8], needle_lower: &[u8]) -> bool {
+    if needle_lower.is_empty() || haystack.len() < needle_lower.len() {
+        return false;
+    }
+    haystack
+        .windows(needle_lower.len())
+        .any(|w| w.iter().zip(needle_lower.iter()).all(|(a, b)| a.to_ascii_lowercase() == *b))
+}
+
+/// 纯嗅探：扫描二进制中的安装器签名标记（不启动任何进程，可单元测试）。
+/// - NSIS ⇒ 含 `NullsoftInst`（与卸载侧 `is_nsis_uninstaller` 同一标记）；
+/// - Inno Setup ⇒ 含 `Inno Setup` / `InnoSetup` / `JR.Inno`（版本信息与节签名）；
+/// - 其余 ⇒ `Unknown`（调用方走现有交互式行为 + 日志，绝不猜测静默参数）。
+pub fn sniff_setup_kind(bytes: &[u8]) -> SetupKind {
+    if bytes_contain(bytes, b"NullsoftInst") {
+        return SetupKind::Nsis;
+    }
+    if bytes_contain_ascii_insensitive(bytes, b"inno setup")
+        || bytes_contain(bytes, b"InnoSetup")
+        || bytes_contain_ascii_insensitive(bytes, b"jr.inno")
+    {
+        return SetupKind::Inno;
+    }
+    SetupKind::Unknown
+}
+
+/// 从文件嗅探安装器类型：仅读取头部字节做字符串扫描；读取失败 ⇒ `Unknown`。
+pub fn sniff_setup_kind_from_file(path: &Path) -> SetupKind {
+    use std::io::Read;
+    match File::open(path) {
+        Ok(mut f) => {
+            let mut buf = [0u8; 262144];
+            match f.read(&mut buf) {
+                Ok(0) => SetupKind::Unknown,
+                Ok(n) => sniff_setup_kind(&buf[..n]),
+                Err(_) => SetupKind::Unknown,
+            }
+        }
+        Err(_) => SetupKind::Unknown,
+    }
+}
+
+/// 安装器类型 ⇒ 静默参数映射（纯函数，可单元测试）。
+/// 未知类型返回空（调用方走交互式回退，绝不猜测）。
+pub fn silent_args_for_setup_kind(kind: &SetupKind) -> Vec<String> {
+    match kind {
+        SetupKind::Nsis => vec!["/S".to_string()],
+        SetupKind::Inno => vec!["/VERYSILENT".to_string(), "/NORESTART".to_string()],
+        SetupKind::Unknown => Vec::new(),
+    }
+}
+
 /// 安装执行入口：成功 info / 正常取消 info / 异常失败 error。
 pub async fn execute_installation(
     installer_path: &Path,
     kind: &AssetKind,
     app_id: &str,
     custom_portable_dir: Option<&str>,
-) -> Result<String, String> {
+) -> Result<InstallOutcome, String> {
     log::info!("install start sid={} id={} kind={:?}", crate::z_log::new_session_id(), app_id, kind);
     let res =
         execute_installation_inner(installer_path, kind, app_id, custom_portable_dir).await;
     match &res {
-        Ok(_) => log::info!("install done sid={} id={}", crate::z_log::new_session_id(), app_id),
+        Ok(InstallOutcome::Installed(_)) => {
+            log::info!("install done sid={} id={}", crate::z_log::new_session_id(), app_id)
+        }
+        Ok(InstallOutcome::Skipped(msg)) => log::info!(
+            "install skipped sid={} id={} reason={}",
+            crate::z_log::new_session_id(),
+            app_id,
+            crate::log_support::short_reason(msg)
+        ),
         Err(e) if is_user_cancellation(e) => {
             log::info!(
                 "install cancelled by user sid={} id={} reason={}",
@@ -47,7 +140,7 @@ async fn execute_installation_inner(
     kind: &AssetKind,
     app_id: &str,
     custom_portable_dir: Option<&str>,
-) -> Result<String, String> {
+) -> Result<InstallOutcome, String> {
     match kind {
         AssetKind::Msi => {
             #[cfg(target_os = "windows")]
@@ -66,7 +159,7 @@ async fn execute_installation_inner(
                 if silent_status.success() {
                     tokio::time::sleep(Duration::from_millis(800)).await;
                     let _ = std::fs::remove_file(installer_path);
-                    return Ok("MSI 静默安装已完成".to_string());
+                    return Ok(InstallOutcome::Installed("MSI 静默安装已完成".to_string()));
                 }
 
                 let code = silent_status.code().unwrap_or(-1);
@@ -100,7 +193,7 @@ async fn execute_installation_inner(
 
                 if fallback_status.success() {
                     tokio::time::sleep(Duration::from_millis(800)).await;
-                    Ok("MSI 安装已完成".to_string())
+                    Ok(InstallOutcome::Installed("MSI 安装已完成".to_string()))
                 } else {
                     let fb_code = fallback_status.code().unwrap_or(-1);
                     if fb_code == 1602 {
@@ -112,14 +205,37 @@ async fn execute_installation_inner(
             }
             #[cfg(not(target_os = "windows"))]
             {
-                Ok(format!("当前平台跳过 MSI 安装: {:?}", installer_path))
+                Ok(InstallOutcome::Skipped(format!(
+                    "当前平台跳过 MSI 安装: {:?}",
+                    installer_path
+                )))
             }
         }
         AssetKind::SetupExe => {
             #[cfg(target_os = "windows")]
             {
                 use std::time::Duration;
+                // Finding 3.3-3：嗅探安装器类型并传递静默参数（NSIS ⇒ /S，
+                // Inno Setup ⇒ /VERYSILENT /NORESTART；未知类型 ⇒ 交互式回退，绝不猜测）。
+                let setup_kind = sniff_setup_kind_from_file(installer_path);
+                let silent_args = silent_args_for_setup_kind(&setup_kind);
+                if silent_args.is_empty() {
+                    log::info!(
+                        "install setup sniff sid={} kind=unknown, interactive fallback id={}",
+                        crate::z_log::new_session_id(),
+                        app_id
+                    );
+                } else {
+                    log::info!(
+                        "install setup sniff sid={} kind={:?} args={:?} id={}",
+                        crate::z_log::new_session_id(),
+                        setup_kind,
+                        silent_args,
+                        app_id
+                    );
+                }
                 let mut child = tokio::process::Command::new(installer_path)
+                    .args(&silent_args)
                     .spawn()
                     .map_err(|e| format!("调起安装程序失败: {}", e))?;
 
@@ -132,7 +248,7 @@ async fn execute_installation_inner(
                 let _ = std::fs::remove_file(installer_path);
 
                 if status.success() {
-                    Ok("安装程序已完成".to_string())
+                    Ok(InstallOutcome::Installed("安装程序已完成".to_string()))
                 } else {
                     let code = status.code().unwrap_or(-1);
                     if code == 1602 || code == 1 || code == 2 {
@@ -144,7 +260,10 @@ async fn execute_installation_inner(
             }
             #[cfg(not(target_os = "windows"))]
             {
-                Ok(format!("非 Windows 平台: {:?}", installer_path))
+                Ok(InstallOutcome::Skipped(format!(
+                    "非 Windows 平台跳过 SetupExe 安装: {:?}",
+                    installer_path
+                )))
             }
         }
         AssetKind::PortableZip => {
@@ -193,18 +312,21 @@ async fn execute_installation_inner(
             }
 
             let _ = std::fs::remove_file(installer_path);
-            Ok(format!("已解压至便携目录: {:?}", app_dir))
+            Ok(InstallOutcome::Installed(format!("已解压至便携目录: {:?}", app_dir)))
         }
         AssetKind::Dmg => {
             #[cfg(target_os = "macos")]
             {
                 let res = install_macos_dmg(installer_path);
                 let _ = std::fs::remove_file(installer_path);
-                res
+                res.map(InstallOutcome::Installed)
             }
             #[cfg(not(target_os = "macos"))]
             {
-                Ok(format!("非 macOS 平台跳过 DMG 挂载与解构安装: {:?}", installer_path))
+                Ok(InstallOutcome::Skipped(format!(
+                    "非 macOS 平台跳过 DMG 挂载与解构安装: {:?}",
+                    installer_path
+                )))
             }
         }
         AssetKind::Pkg => {
@@ -219,14 +341,17 @@ async fn execute_installation_inner(
 
                 let _ = std::fs::remove_file(installer_path);
                 if status.success() {
-                    Ok("macOS PKG 安装已完成".to_string())
+                    Ok(InstallOutcome::Installed("macOS PKG 安装已完成".to_string()))
                 } else {
                     Err("macOS PKG 安装向导未完成或被取消".to_string())
                 }
             }
             #[cfg(not(target_os = "macos"))]
             {
-                Ok(format!("非 macOS 平台跳过 PKG 安装: {:?}", installer_path))
+                Ok(InstallOutcome::Skipped(format!(
+                    "非 macOS 平台跳过 PKG 安装: {:?}",
+                    installer_path
+                )))
             }
         }
         AssetKind::AppImage => {
@@ -242,14 +367,17 @@ async fn execute_installation_inner(
                     .await
                     .map_err(|e| format!("启动 AppImage 失败: {}", e))?;
                 if status.success() {
-                    Ok("已赋予可执行权限并启动 AppImage".to_string())
+                    Ok(InstallOutcome::Installed("已赋予可执行权限并启动 AppImage".to_string()))
                 } else {
                     Err("AppImage 执行未正常退出".to_string())
                 }
             }
             #[cfg(not(target_os = "linux"))]
             {
-                Ok(format!("非 Linux 平台跳过 AppImage 执行: {:?}", installer_path))
+                Ok(InstallOutcome::Skipped(format!(
+                    "非 Linux 平台跳过 AppImage 执行: {:?}",
+                    installer_path
+                )))
             }
         }
         AssetKind::Deb => {
@@ -264,14 +392,17 @@ async fn execute_installation_inner(
                     .map_err(|e| format!("调起 pkexec dpkg 失败: {}", e))?;
                 let _ = std::fs::remove_file(installer_path);
                 if status.success() {
-                    Ok("deb 包安装已完成".to_string())
+                    Ok(InstallOutcome::Installed("deb 包安装已完成".to_string()))
                 } else {
                     Err("deb 包提权安装未完成或被取消".to_string())
                 }
             }
             #[cfg(not(target_os = "linux"))]
             {
-                Ok(format!("非 Linux 平台跳过 deb 安装: {:?}", installer_path))
+                Ok(InstallOutcome::Skipped(format!(
+                    "非 Linux 平台跳过 deb 安装: {:?}",
+                    installer_path
+                )))
             }
         }
         AssetKind::Rpm => {
@@ -286,14 +417,17 @@ async fn execute_installation_inner(
                     .map_err(|e| format!("调起 pkexec rpm 失败: {}", e))?;
                 let _ = std::fs::remove_file(installer_path);
                 if status.success() {
-                    Ok("rpm 包安装已完成".to_string())
+                    Ok(InstallOutcome::Installed("rpm 包安装已完成".to_string()))
                 } else {
                     Err("rpm 包提权安装未完成或被取消".to_string())
                 }
             }
             #[cfg(not(target_os = "linux"))]
             {
-                Ok(format!("非 Linux 平台跳过 rpm 安装: {:?}", installer_path))
+                Ok(InstallOutcome::Skipped(format!(
+                    "非 Linux 平台跳过 rpm 安装: {:?}",
+                    installer_path
+                )))
             }
         }
         _ => {
@@ -309,14 +443,17 @@ async fn execute_installation_inner(
                     .map_err(|e| format!("调起系统默认程序失败: {}", e))?;
                 let _ = std::fs::remove_file(installer_path);
                 if status.success() {
-                    Ok("系统默认程序已处理完成".to_string())
+                    Ok(InstallOutcome::Installed("系统默认程序已处理完成".to_string()))
                 } else {
                     Err("处理未正常完成".to_string())
                 }
             }
             #[cfg(not(target_os = "windows"))]
             {
-                Ok(format!("已拉起系统默认处理程序: {:?}", installer_path))
+                Ok(InstallOutcome::Skipped(format!(
+                    "当前平台跳过系统默认处理程序拉起: {:?}",
+                    installer_path
+                )))
             }
         }
     }

@@ -4,6 +4,28 @@ use super::catalog::get_app_details;
 use super::{resolve_uninstaller_command, select_best_asset, InstallerEngine};
 use tauri::{AppHandle, Emitter, State};
 
+/// ADR-0010 entry guard (same pattern as `launch_app`): normalize the inbound
+/// id to canonical form; reject unparseable ids instead of passing raw ids through.
+pub(crate) fn resolve_managed_app_id(raw: &str) -> Result<String, String> {
+    crate::forge::canonical_app_id(raw)
+        .ok_or_else(|| format!("无法识别的应用标识: {}", raw))
+}
+
+/// Finding 3.2-3 no-schema-change marking: `InstalledApp` carries no missing
+/// flag without a DB migration (models.rs intentionally untouched), so ghosts
+/// are hidden from the returned view while their DB rows are kept. Pure
+/// filter — performs zero DB/cache deletes; the count is surfaced via log in
+/// `get_installed_apps`. Actual deletion only via explicit uninstall/unmanage paths.
+pub(crate) fn hide_ghost_apps(
+    apps: Vec<InstalledApp>,
+    ghost_ids: &[String],
+) -> Vec<InstalledApp> {
+    apps
+        .into_iter()
+        .filter(|a| !ghost_ids.iter().any(|g| g == &a.app_id))
+        .collect()
+}
+
 #[tauri::command]
 pub fn get_installed_apps(state: State<'_, AppState>) -> Result<Vec<InstalledApp>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
@@ -48,11 +70,16 @@ pub fn get_installed_apps(state: State<'_, AppState>) -> Result<Vec<InstalledApp
     for updated in needs_db_update {
         let _ = db.save_installed_app(&updated);
     }
-    for ghost_id in &ghost_app_ids {
-        let _ = db.remove_installed_app(ghost_id);
-        crate::commands::scanner::remove_from_detected_cache(ghost_id);
+    // Finding 3.2-3: read-only scan contract — a vanished executable must NOT
+    // delete DB rows here (no remove_installed_app, no detected-cache removal);
+    // rows are kept, ghosts are only hidden from the returned view, count surfaced.
+    if !ghost_app_ids.is_empty() {
+        log::warn!(
+            "installed scan hid {} ghost app(s); rows kept, delete only via uninstall/unmanage",
+            ghost_app_ids.len()
+        );
     }
-    apps.retain(|a| !ghost_app_ids.iter().any(|g| g == &a.app_id));
+    let apps = hide_ghost_apps(apps, &ghost_app_ids);
 
     Ok(apps)
 }
@@ -180,13 +207,19 @@ pub async fn install_app(
     // 4. 调用原生安装器或解压便携版（优先使用用户在前端主动选择的目录）
     let (kind, _, _) = InstallerEngine::classify_asset(&asset.name);
     let effective_portable_dir = custom_install_dir.or(custom_portable_dir);
-    let _install_note = InstallerEngine::execute_installation(
+    // Finding 3.3-4：平台跳过是结构化非成功信号，映射为 Err 中断、
+    // 绝不落库为"已安装"。
+    let _install_note = match InstallerEngine::execute_installation(
         &dest_path,
         &kind,
         &detail.id,
         effective_portable_dir.as_deref(),
     )
-    .await?;
+    .await?
+    {
+        crate::installer::InstallOutcome::Installed(note) => note,
+        crate::installer::InstallOutcome::Skipped(msg) => return Err(msg),
+    };
 
     // 智能解析真实安装路径，避免存入临时安装包路径
     let mut real_install_path = match kind {
@@ -431,6 +464,8 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result
 
 #[tauri::command]
 pub fn unmanage_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
+    // ADR-0010: same entry guard as `launch_app` — normalize then use canonical id throughout.
+    let app_id = resolve_managed_app_id(&app_id)?;
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let res = db.remove_installed_app(&app_id).map_err(|e| e.to_string());
     // 从列表移除管理后，本机依然存在该软件，因此保持/添加到已探测缓存中
@@ -680,5 +715,75 @@ mod portable_uninstall_safety_tests {
         fs::create_dir_all(&sibling).unwrap();
         assert!(!super::is_owned_portable_dir(&sibling, &owned));
         let _ = fs::remove_dir_all(&base);
+    }
+}
+
+#[cfg(test)]
+mod ghost_and_id_guard_tests {
+    use crate::models::InstalledApp;
+
+    fn sample_app(id: &str, path: &str) -> InstalledApp {
+        InstalledApp {
+            app_id: id.to_string(),
+            app_name: format!("{}-name", id),
+            version: "1.0.0".to_string(),
+            installed_at: 0,
+            install_method: "portable_zip".to_string(),
+            install_path: path.to_string(),
+            asset_name: "a.zip".to_string(),
+            asset_sha256: "x".to_string(),
+            uninstall_command: None,
+            icon: None,
+            icon_bg: None,
+        }
+    }
+
+    #[test]
+    fn unmanage_rejects_unparseable_id() {
+        // Finding 2.1-1 part B: unparseable ids must be rejected, never pass through raw.
+        assert!(super::resolve_managed_app_id("").is_err());
+        assert!(super::resolve_managed_app_id("   ").is_err());
+        assert!(super::resolve_managed_app_id("not a valid id !!!").is_err());
+    }
+
+    #[test]
+    fn unmanage_normalizes_to_canonical_id() {
+        // Same ADR-0010 pattern as launch_app: entry guard normalizes, canonical used downstream.
+        assert_eq!(
+            super::resolve_managed_app_id("Owner/Repo").unwrap(),
+            "owner/repo"
+        );
+        assert_eq!(
+            super::resolve_managed_app_id("https://github.com/Owner/Repo").unwrap(),
+            "owner/repo"
+        );
+    }
+
+    #[test]
+    fn scan_hides_ghost_from_view_but_signals_retention() {
+        // Finding 3.2-3: vanished executable -> hidden from returned view;
+        // DB row retention is structural (pure filter performs zero DB deletes;
+        // get_installed_apps must not call remove_installed_app on ghosts).
+        let apps = vec![
+            sample_app("owner/healthy", "C:\\exists\\a.exe"),
+            sample_app("owner/ghost", "C:\\vanished\\g.exe"),
+        ];
+        let out = super::hide_ghost_apps(apps, &["owner/ghost".to_string()]);
+        assert_eq!(out.len(), 1, "ghost must be hidden from returned view");
+        assert_eq!(out[0].app_id, "owner/healthy");
+        assert!(
+            !out.iter().any(|a| a.app_id == "owner/ghost"),
+            "ghost id must not leak into view"
+        );
+    }
+
+    #[test]
+    fn scan_without_ghosts_returns_all() {
+        let apps = vec![
+            sample_app("owner/a", "C:\\exists\\a.exe"),
+            sample_app("owner/b", "C:\\exists\\b.exe"),
+        ];
+        let out = super::hide_ghost_apps(apps, &[]);
+        assert_eq!(out.len(), 2);
     }
 }
