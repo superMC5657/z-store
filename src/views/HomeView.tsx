@@ -14,6 +14,7 @@ import {
 import { AppCard } from '../components/AppCard';
 import { AppIcon } from '../components/AppIcon';
 import { AppSummary } from '../types';
+import { getAppDisplayName, getAppDescription, getCategoryLabel } from '../utils/appHelper';
 
 interface HomeViewProps {
   /**
@@ -70,7 +71,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onClearRecentViews,
   onResetPlatformFilter,
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   if (apps.length === 0) {
     // 筛选为空：全局设备平台筛选排除了所有应用。
@@ -106,6 +107,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
   // `apps` 传入时已完成预过滤：置顶优先展示 rustdesk，但仅限在当前结果集内；
   // 当 rustdesk 被过滤掉时，由结果集中的首个应用接替置顶。
   const heroApp = apps.find((a) => a.id === 'rustdesk') || apps[0];
+  const heroDisplayName = heroApp ? getAppDisplayName(heroApp, i18n.language) : '';
+  const heroDisplayDesc = heroApp ? getAppDescription(heroApp, i18n.language) : '';
+  const heroCategoryName = heroApp ? getCategoryLabel(heroApp.category, heroApp.category_name, t) : '';
+
   // 排除已在官方置顶推荐（Hero Banner）中展示的应用，避免在下方精选列表中重复推荐
   const nonHeroApps = heroApp ? apps.filter((a) => a.id !== heroApp.id) : apps;
   const featuredApps = nonHeroApps.slice(0, 4);
@@ -133,12 +138,12 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
             <h2 className="hero-title">
               {heroApp.id === 'rustdesk/rustdesk' || heroApp.id === 'rustdesk'
-                ? `${heroApp.name} · ${t('home.rustdesk_subtitle')}`
-                : `${heroApp.name} · ${heroApp.category_name}`}
+                ? `${heroDisplayName} · ${t('home.rustdesk_subtitle')}`
+                : `${heroDisplayName} · ${heroCategoryName}`}
             </h2>
 
             <p className="hero-desc">
-              {heroApp.description}
+              {heroDisplayDesc}
             </p>
 
             {/* 元信息标签 */}
@@ -150,7 +155,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <span>{(heroApp.stars / 1000).toFixed(1)}k Stars</span>
               </span>
               <span className="app-tag app-tag-license">{heroApp.license} {t('home.license_suffix')}</span>
-              <span className="app-tag">{heroApp.category_name}</span>
+              <span className="app-tag">{heroCategoryName}</span>
               {(heroApp.id === 'rustdesk/rustdesk' || heroApp.id === 'rustdesk') && (
                 <span className="app-tag">{t('home.rustdesk_tag')}</span>
               )}
@@ -202,7 +207,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             <div className="hero-icon-card">
               <AppIcon
                 icon={heroApp.icon}
-                name={heroApp.name}
+                name={heroDisplayName}
                 appId={heroApp.id}
                 iconBg={heroApp.icon_bg}
                 style={{ width: '100%', height: '100%', borderRadius: 'inherit' }}

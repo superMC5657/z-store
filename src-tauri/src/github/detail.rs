@@ -411,6 +411,8 @@ impl CatalogService {
         let detail = AppDetail {
             id: id.to_string(),
             name,
+            chinese_name: catalog_item.as_ref().and_then(|i| i.chinese_name.clone()),
+            description_en: catalog_item.as_ref().and_then(|i| i.description_en.clone()),
             owner,
             repo,
             icon: final_icon,

@@ -220,7 +220,9 @@
     "watch_active": "已关注（点击取消关注）",
     "watch_inactive": "关注该应用的新版本动态",
     "fav_active": "已加入应用内收藏（存入本地数据库 · 点击取消）",
-    "fav_inactive": "应用内收藏（保存至本机数据库）"
+    "fav_inactive": "应用内收藏（保存至本机数据库）",
+    "supported_devices": "支持设备",
+    "code_source": "代码源"
   },
   "categories": {
     "title": "按主题领域浏览",
@@ -250,7 +252,9 @@
     "cat_ops_name": "极客运维",
     "cat_ops_desc": "GPU 终端, 极客编辑器, 容器平台",
     "cat_games_name": "休闲游戏",
-    "cat_games_desc": "复古模拟器, 模拟经营, 像素沙盒"
+    "cat_games_desc": "复古模拟器, 模拟经营, 像素沙盒",
+    "cat_external_name": "跨平台开源",
+    "cat_multimedia_name": "影音视听"
   },
   "installed": {
     "title": "已安装应用 ({{count}})",

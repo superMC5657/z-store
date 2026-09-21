@@ -1,6 +1,8 @@
 export interface AppSummary {
   id: string;
   name: string;
+  chinese_name?: string;
+  description_en?: string;
   owner: string;
   repo: string;
   icon: string;
@@ -35,6 +37,8 @@ export interface ReleaseAsset {
 export interface AppDetail {
   id: string;
   name: string;
+  chinese_name?: string;
+  description_en?: string;
   owner: string;
   repo: string;
   icon: string;

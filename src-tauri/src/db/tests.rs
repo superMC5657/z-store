@@ -197,6 +197,8 @@ fn test_app_details_cache_crud() {
     let detail = AppDetail {
         id: "rustdesk".to_string(),
         name: "RustDesk".to_string(),
+        chinese_name: Some("RustDesk 远程桌面".to_string()),
+        description_en: Some("Remote desktop software".to_string()),
         owner: "rustdesk".to_string(),
         repo: "rustdesk".to_string(),
         icon: "https://github.com/rustdesk.png".to_string(),
@@ -228,6 +230,8 @@ fn test_app_details_cache_crud() {
         .unwrap()
         .expect("hit by id");
     assert_eq!(cached_by_id.name, "RustDesk");
+    assert_eq!(cached_by_id.chinese_name.as_deref(), Some("RustDesk 远程桌面"));
+    assert_eq!(cached_by_id.description_en.as_deref(), Some("Remote desktop software"));
     assert_eq!(cached_by_id.latest_version, "v1.3.1");
     assert!(cached_by_id.cached_at.is_some());
 

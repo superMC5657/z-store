@@ -16,10 +16,12 @@ import {
   ChevronUp,
   ChevronDown,
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import '../i18n';
 import { AppDetailViewModel, DownloadProgressPayload, OAuthUser, ReleaseAsset } from '../types';
 import { api } from '../services/api';
 import { AppIcon } from './AppIcon';
-import { formatBytes } from '../utils/appHelper';
+import { formatBytes, getAppDisplayName, getAppDescription, getCategoryLabel } from '../utils/appHelper';
 import { PlatformIcon, ForgeIcon } from './icons/PlatformIcons';
 import { PLATFORM_META, type PlatformId } from '../lib/platformFilter';
 import { detectHostArch, detectHostOs } from './hostEnv';
@@ -73,6 +75,11 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   onRetry,
   onRefresh,
 }) => {
+  const { t, i18n } = useTranslation();
+  const displayName = getAppDisplayName(app, i18n.language);
+  const displayDesc = getAppDescription(app, i18n.language);
+  const displayCategory = getCategoryLabel(app.category, app.category_name, t);
+
   const [showAllAssets, setShowAllAssets] = useState(false);
   const [selectedAssetName, setSelectedAssetName] = useState<string | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgressPayload | null>(null);
@@ -111,7 +118,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
     e.preventDefault();
     e.stopPropagation();
     const host = app.forge_host || 'github.com';
-    const title = encodeURIComponent(`【反馈】${app.name} ${app.latest_version}`);
+    const title = encodeURIComponent(`【反馈】${displayName} ${app.latest_version}`);
     const body = encodeURIComponent(
       `## 环境\n- Z-Store 客户端版本：桌面端\n- 应用版本：${app.latest_version}\n- 系统：${navigator.platform}\n\n## 问题描述\n\n## 复现步骤\n1. \n2. \n`
     );
@@ -404,7 +411,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
 
           <AppIcon
             icon={app.icon}
-            name={app.name}
+            name={displayName}
             appId={app.id}
             iconBg={app.icon_bg}
             className="modal-app-icon"
@@ -412,7 +419,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
 
           <div className="modal-header-info">
             <div className="modal-app-title">
-              <span>{app.name}</span>
+              <span>{displayName}</span>
               {app.is_verified && (
                 <span className="verified-badge" title="仓库校验码已验证 · 收录库认证">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
@@ -477,7 +484,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
             <div className="modal-tags">
               <span className="modal-tag">★ {((app.stars || 0) / 1000).toFixed(1)}k</span>
               <span className="modal-tag">{app.license}</span>
-              <span className="modal-tag">{app.category_name}</span>
+              <span className="modal-tag">{displayCategory}</span>
               {app.platforms && app.platforms.length > 0 && (
                 <span
                   className="modal-tag"
@@ -633,14 +640,14 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               </div>
               <div
                 className="install-asset-name"
-                title={primaryAsset ? primaryAsset.name : `${app.name} 最新发布包`}
+                title={primaryAsset ? primaryAsset.name : `${displayName} 最新发布包`}
               >
                 {app.isLoading && (!releases || releases.length === 0) && showSkeleton ? (
                   <div className="skeleton-box" style={{ width: '240px', height: '18px', margin: '4px 0' }} />
                 ) : primaryAsset ? (
                   primaryAsset.name
                 ) : (
-                  `${app.name} 最新发布包`
+                  `${displayName} 最新发布包`
                 )}
               </div>
 
@@ -1110,7 +1117,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                 </div>
               ) : (
                 <div style={{ padding: '28px 24px', color: 'var(--text-tertiary)', fontSize: '13px', lineHeight: '1.6' }}>
-                  {app.description}
+                  {displayDesc}
                 </div>
               )
             ) : (

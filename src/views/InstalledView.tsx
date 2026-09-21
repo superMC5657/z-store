@@ -18,7 +18,7 @@ import {
 import { AppSummary, InstalledApp, UpdateRule } from '../types';
 import { FlyoutMenu } from '../components/FlyoutMenu';
 import { AppIcon } from '../components/AppIcon';
-import { formatAppDate, getMethodBadge, resolveInstalledIconInfo } from '../utils/appHelper';
+import { formatAppDate, getMethodBadge, resolveInstalledIconInfo, resolveInstalledAppName } from '../utils/appHelper';
 
 interface InstalledViewProps {
   installedApps: InstalledApp[];
@@ -449,6 +449,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
             const isHidden = Boolean(rule?.is_hidden);
             const isMenuOpen = activeMenuId === app.app_id;
             const iconInfo = resolveInstalledIconInfo(app, apps);
+            const appDisplayName = resolveInstalledAppName(app, apps, i18n.language);
 
             return (
               <div key={app.app_id} className="app-card" style={{ padding: '18px', zIndex: isMenuOpen ? 50 : 1 }}>
@@ -461,7 +462,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                     >
                       <AppIcon
                         icon={iconInfo.icon}
-                        name={app.app_name}
+                        name={appDisplayName}
                         appId={app.app_id}
                         iconBg={iconInfo.iconBg}
                         className="app-icon"
@@ -481,7 +482,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                         onClick={() => onOpenDetail && onOpenDetail(app.app_id)}
                         title={onOpenDetail ? t('app.view_details') : undefined}
                       >
-                        {app.app_name}
+                        {appDisplayName}
                       </h4>
                       <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
                         {t('installed.version_and_date', { version: app.version, date: formatAppDate(app.installed_at, i18n.language) })}
@@ -649,6 +650,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
             const isHidden = Boolean(rule?.is_hidden);
             const isMenuOpen = activeMenuId === app.app_id;
             const iconInfo = resolveInstalledIconInfo(app, apps);
+            const appDisplayName = resolveInstalledAppName(app, apps, i18n.language);
 
             return (
               <div
@@ -669,7 +671,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                 >
                   <AppIcon
                     icon={iconInfo.icon}
-                    name={app.app_name}
+                    name={appDisplayName}
                     appId={app.app_id}
                     iconBg={iconInfo.iconBg}
                     className="app-icon"
@@ -684,7 +686,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                       onClick={() => onOpenDetail && onOpenDetail(app.app_id)}
                       title={onOpenDetail ? t('app.view_details') : undefined}
                     >
-                      {app.app_name}
+                      {appDisplayName}
                     </span>
                     <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{app.version}</span>
                     {isFrozen && (

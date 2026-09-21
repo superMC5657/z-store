@@ -91,6 +91,8 @@ impl CatalogService {
                             AppSummary {
                                 id: it.full_name.clone(),
                                 name: it.name,
+                                chinese_name: None,
+                                description_en: it.description.clone(),
                                 owner,
                                 repo: it.full_name.split('/').nth(1).unwrap_or("").to_string(),
                                 icon,
@@ -176,14 +178,17 @@ impl CatalogService {
         }
 
         let repo_data: GitHubRepoResponse = resp.json().await.map_err(|e| e.to_string())?;
+        let repo_desc = repo_data.description.clone();
         Ok(AppSummary {
             id: format!("{}/{}", owner, repo),
             name: repo_data.name.unwrap_or_else(|| repo.to_string()),
+            chinese_name: None,
+            description_en: repo_desc.clone(),
             owner: owner.to_string(),
             repo: repo.to_string(),
             icon: format!("https://github.com/{}.png", owner),
             icon_bg: "linear-gradient(135deg, #0284c7, #0369a1)".to_string(),
-            description: repo_data.description.unwrap_or_default(),
+            description: repo_desc.unwrap_or_default(),
             stars: repo_data.stargazers_count.unwrap_or(0),
             forks: repo_data.forks_count.unwrap_or(0),
             license: repo_data

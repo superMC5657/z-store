@@ -5,6 +5,7 @@ import { AppSummary } from '../types';
 import { AppIcon } from './AppIcon';
 import { PlatformIcon, ForgeIcon } from './icons/PlatformIcons';
 import { PLATFORM_META, type PlatformId } from '../lib/platformFilter';
+import { getAppDisplayName, getAppDescription, getCategoryLabel } from '../utils/appHelper';
 
 interface AppCardProps {
   app: AppSummary;
@@ -29,7 +30,11 @@ export const AppCard: React.FC<AppCardProps> = ({
   onToggleFavorite,
   onToggleWatch,
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const displayName = getAppDisplayName(app, i18n.language);
+  const displayDesc = getAppDescription(app, i18n.language);
+  const displayCategory = getCategoryLabel(app.category, app.category_name, t);
+
   const formatStars = (count: number) => {
     if (count >= 1000) {
       return `${(count / 1000).toFixed(1)}k`;
@@ -52,14 +57,14 @@ export const AppCard: React.FC<AppCardProps> = ({
       <div className="app-card-header">
         <AppIcon
           icon={app.icon}
-          name={app.name}
+          name={displayName}
           appId={app.id}
           iconBg={app.icon_bg}
           className="app-icon"
         />
         <div className="app-meta">
           <div className="app-title">
-            <span className="app-name">{app.name}</span>
+            <span className="app-name">{displayName}</span>
             {app.is_verified && (
               <span className="verified-badge" title={t('app.verified_badge')}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
@@ -70,7 +75,7 @@ export const AppCard: React.FC<AppCardProps> = ({
             )}
           </div>
           <div className="app-owner">
-            {app.owner} · {app.category_name}
+            {app.owner} · {displayCategory}
           </div>
         </div>
 
@@ -108,7 +113,7 @@ export const AppCard: React.FC<AppCardProps> = ({
         )}
       </div>
 
-      <p className="app-desc" title={app.description}>{app.description}</p>
+      <p className="app-desc" title={displayDesc}>{displayDesc}</p>
 
       <div className="app-card-footer">
         <div className="app-tags">
@@ -122,7 +127,7 @@ export const AppCard: React.FC<AppCardProps> = ({
           {app.platforms && app.platforms.length > 0 && (
             <span
               className="app-tag app-tag-platforms"
-              title={`支持设备: ${app.platforms.map((p) => PLATFORM_META[p.toLowerCase() as PlatformId]?.label || p).join(', ')}`}
+              title={`${t('app.supported_devices', { defaultValue: '支持设备' })}: ${app.platforms.map((p) => PLATFORM_META[p.toLowerCase() as PlatformId]?.label || p).join(', ')}`}
               style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 6px', cursor: 'default' }}
             >
               {app.platforms.map((p) => (
@@ -142,7 +147,7 @@ export const AppCard: React.FC<AppCardProps> = ({
                 alignItems: 'center',
                 gap: '4px',
               }}
-              title={`代码源: ${app.forge_host || app.forge}`}
+              title={`${t('app.code_source', { defaultValue: '代码源' })}: ${app.forge_host || app.forge}`}
             >
               <ForgeIcon forge={app.forge} size={12} />
               <span>{app.forge_host || app.forge}</span>
@@ -163,17 +168,17 @@ export const AppCard: React.FC<AppCardProps> = ({
           }}
           title={
             isInstalling
-              ? t('app.installing_app', { name: app.name })
+              ? t('app.installing_app', { name: displayName })
               : isInstalled
-                ? t('app.installed_details', { name: app.name })
-                : t('app.get_app', { name: app.name })
+                ? t('app.installed_details', { name: displayName })
+                : t('app.get_app', { name: displayName })
           }
           aria-label={
             isInstalling
-              ? t('app.installing_app', { name: app.name })
+              ? t('app.installing_app', { name: displayName })
               : isInstalled
-                ? t('app.installed_details', { name: app.name })
-                : t('app.get_app', { name: app.name })
+                ? t('app.installed_details', { name: displayName })
+                : t('app.get_app', { name: displayName })
           }
           style={isInstalling ? { opacity: 0.8, cursor: 'not-allowed' } : undefined}
         >

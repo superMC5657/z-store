@@ -289,4 +289,104 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
       expect(screen.getByText('All Applications Are Up to Date')).toBeTruthy();
     });
   });
+
+  describe('App Bilingual Display (zh-CN <-> en-US)', () => {
+    const BILINGUAL_APP: AppSummary = {
+      id: 'rustdesk/rustdesk',
+      name: 'RustDesk',
+      chinese_name: 'RustDesk 远程桌面',
+      description: '开箱即用的开源远程桌面控制客户端',
+      description_en: 'An open-source remote desktop client software',
+      owner: 'rustdesk',
+      repo: 'rustdesk',
+      icon: '',
+      icon_bg: '#f97316',
+      stars: 120000,
+      forks: 18000,
+      license: 'AGPL-3.0',
+      latest_version: '1.4.9',
+      category: 'system',
+      category_name: '系统实用',
+      is_verified: true,
+      forge: 'github',
+      forge_host: 'github.com',
+      homepage: null,
+      platforms: ['windows'],
+    };
+
+    it('switches app name, description and category in AppCard between Chinese and English', async () => {
+      const { AppCard } = await import('../components/AppCard');
+
+      // 1. Chinese mode
+      await i18n.changeLanguage('zh-CN');
+      const { unmount } = render(
+        <AppCard
+          app={BILINGUAL_APP}
+          isInstalled={false}
+          onOpenDetail={() => {}}
+          onQuickInstall={() => {}}
+        />,
+      );
+
+      expect(screen.getByText('RustDesk 远程桌面')).toBeTruthy();
+      expect(screen.getByText('开箱即用的开源远程桌面控制客户端')).toBeTruthy();
+      expect(screen.getByText(/rustdesk · 系统实用/)).toBeTruthy();
+      unmount();
+
+      // 2. English mode
+      await i18n.changeLanguage('en-US');
+      render(
+        <AppCard
+          app={BILINGUAL_APP}
+          isInstalled={false}
+          onOpenDetail={() => {}}
+          onQuickInstall={() => {}}
+        />,
+      );
+
+      expect(screen.getByText('RustDesk')).toBeTruthy();
+      expect(screen.getByText('An open-source remote desktop client software')).toBeTruthy();
+      expect(screen.getByText(/rustdesk · System Utilities/)).toBeTruthy();
+    });
+
+    it('switches installed app display name in InstalledView between Chinese and English', async () => {
+      const installed: InstalledApp = {
+        app_id: 'rustdesk/rustdesk',
+        app_name: 'RustDesk',
+        version: '1.4.9',
+        installed_at: 1700000000,
+        install_path: 'C:\\RustDesk',
+        install_method: 'setup_exe',
+        asset_name: 'rustdesk.exe',
+        asset_sha256: 'hash123',
+      };
+
+      // 1. Chinese mode
+      await i18n.changeLanguage('zh-CN');
+      const { unmount } = render(
+        <InstalledView
+          installedApps={[installed]}
+          apps={[BILINGUAL_APP]}
+          onLaunch={() => {}}
+          onUninstall={() => {}}
+        />,
+      );
+
+      expect(screen.getAllByText('RustDesk 远程桌面').length).toBeGreaterThan(0);
+      unmount();
+
+      // 2. English mode
+      await i18n.changeLanguage('en-US');
+      render(
+        <InstalledView
+          installedApps={[installed]}
+          apps={[BILINGUAL_APP]}
+          onLaunch={() => {}}
+          onUninstall={() => {}}
+        />,
+      );
+
+      expect(screen.getAllByText('RustDesk').length).toBeGreaterThan(0);
+    });
+  });
 });

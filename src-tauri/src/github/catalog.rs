@@ -363,6 +363,7 @@ mod tests {
             icon: String::new(),
             icon_bg: String::new(),
             description: String::new(),
+            description_en: None,
             category: "dev".to_string(),
             category_name: "开发工具".to_string(),
             aliases: vec![],

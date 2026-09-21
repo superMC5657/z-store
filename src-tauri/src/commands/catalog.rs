@@ -58,6 +58,8 @@ pub async fn search_apps(
                 return Ok(vec![AppSummary {
                     id: coord.to_app_id(),
                     name: repo_info.name,
+                    chinese_name: None,
+                    description_en: repo_info.description.clone(),
                     owner: coord.owner,
                     repo: coord.repo,
                     icon: String::new(),
@@ -230,6 +232,16 @@ pub async fn get_app_details_impl(
         });
         if let Some(mut cached_detail) = cached {
             cached_detail.id = clean_id.clone();
+            if cached_detail.chinese_name.is_none() || cached_detail.description_en.is_none() {
+                if let Some(cat_item) = state.catalog.get_catalog_item(&clean_id) {
+                    if cached_detail.chinese_name.is_none() {
+                        cached_detail.chinese_name = cat_item.chinese_name.clone();
+                    }
+                    if cached_detail.description_en.is_none() {
+                        cached_detail.description_en = cat_item.description_en.clone();
+                    }
+                }
+            }
             log::debug!(
                 "get_app_details id={} from=cache:db elapsed_ms={}",
                 clean_id,
@@ -266,6 +278,8 @@ pub async fn get_app_details_impl(
             let mut detail = AppDetail {
                 id: clean_id.clone(),
                 name: repo_info.name.clone(),
+                chinese_name: None,
+                description_en: repo_info.description.clone(),
                 owner: coord.owner,
                 repo: coord.repo,
                 icon: String::new(),

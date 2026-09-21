@@ -12,6 +12,8 @@ pub struct CatalogItem {
     pub icon: String,
     pub icon_bg: String,
     pub description: String,
+    #[serde(default)]
+    pub description_en: Option<String>,
     pub category: String,
     pub category_name: String,
     pub aliases: Vec<String>,
@@ -60,6 +62,8 @@ impl CatalogItem {
         AppSummary {
             id: self.id.clone(),
             name: self.name.clone(),
+            chinese_name: self.chinese_name.clone(),
+            description_en: self.description_en.clone(),
             owner: self.owner.clone(),
             repo: self.repo.clone(),
             icon: effective_icon,
