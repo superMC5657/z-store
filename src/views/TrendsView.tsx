@@ -4,6 +4,7 @@ import '../i18n';
 import { TrendingUp, Star } from 'lucide-react';
 import { AppSummary } from '../types';
 import { AppIcon } from '../components/AppIcon';
+import { getAppDisplayName, getAppDescription, getCategoryLabel } from '../utils/appHelper';
 
 interface TrendsViewProps {
   apps: AppSummary[];
@@ -43,7 +44,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   onToggleFavorite,
   onResetPlatformFilter,
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [timeRange, setTimeRange] = useState<TimeRange>('week');
 
   // 任务 6（设备平台全局过滤）：`apps` 传入时已由 App.platformFilteredApps 预过滤。
@@ -139,7 +140,12 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
             </button>
           </div>
         ) : (
-        sortedApps.map((app, index) => (
+        sortedApps.map((app, index) => {
+          const displayName = getAppDisplayName(app, i18n.language);
+          const displayDesc = getAppDescription(app, i18n.language);
+          const displayCategory = getCategoryLabel(app.category, app.category_name, t);
+
+          return (
           <div
             key={app.id}
             className="app-card"
@@ -165,7 +171,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
 
             <AppIcon
               icon={app.icon}
-              name={app.name}
+              name={displayName}
               appId={app.id}
               iconBg={app.icon_bg}
               className="app-icon"
@@ -179,7 +185,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
 
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontWeight: 600, fontSize: '15px' }}>{app.name}</span>
+                <span style={{ fontWeight: 600, fontSize: '15px' }}>{displayName}</span>
                 {app.is_verified && (
                   <span className="verified-badge" title={t('app.verified_badge')}>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
@@ -189,7 +195,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                   </span>
                 )}
                 <span className="app-tag" style={{ fontSize: '11px' }}>
-                  {app.category_name}
+                  {displayCategory}
                 </span>
               </div>
               <div
@@ -201,8 +207,9 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                 }}
+                title={`${app.owner} · ${displayDesc}`}
               >
-                {app.owner} · {app.description}
+                {app.owner} · {displayDesc}
               </div>
             </div>
 
@@ -243,8 +250,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                     e.stopPropagation();
                     onOpenDetail(app.id);
                   }}
-                  title={t('app.installed_details', { name: app.name })}
-                  aria-label={t('app.installed_details', { name: app.name })}
+                  title={t('app.installed_details', { name: displayName })}
+                  aria-label={t('app.installed_details', { name: displayName })}
                 >
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '4px' }}>
                     <polyline points="20 6 9 17 4 12" />
@@ -256,7 +263,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                   className="btn-install"
                   disabled
                   style={{ padding: '6px 14px', opacity: 0.8, cursor: 'not-allowed' }}
-                  title={t('app.installing_app', { name: app.name })}
+                  title={t('app.installing_app', { name: displayName })}
                 >
                   <span className="spinner-icon" style={{ width: '10px', height: '10px', borderWidth: '1.5px', marginRight: '4px' }} />
                   <span>{t('app.installing')}</span>
@@ -269,8 +276,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                     e.stopPropagation();
                     onQuickInstall(app.id);
                   }}
-                  title={t('app.get_app', { name: app.name })}
-                  aria-label={t('app.get_app', { name: app.name })}
+                  title={t('app.get_app', { name: displayName })}
+                  aria-label={t('app.get_app', { name: displayName })}
                 >
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '4px' }}>
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -282,7 +289,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
               )}
             </div>
           </div>
-        ))
+        );
+        })
         )}
       </div>
     </div>

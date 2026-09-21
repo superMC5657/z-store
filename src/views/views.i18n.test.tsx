@@ -388,5 +388,48 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
 
       expect(screen.getAllByText('RustDesk').length).toBeGreaterThan(0);
     });
+
+    it('switches app name, description and category in AppDetailModal between Chinese and English', async () => {
+      const { AppDetailModal } = await import('../components/AppDetailModal');
+      const detailApp: any = {
+        ...BILINGUAL_APP,
+        readme_markdown: '# Readme',
+        releases: [],
+        changelog: '',
+      };
+
+      // 1. Chinese mode
+      await i18n.changeLanguage('zh-CN');
+      const { unmount } = render(
+        <AppDetailModal
+          app={detailApp}
+          isInstalled={false}
+          onClose={() => {}}
+          onInstall={async () => {}}
+          onLaunch={() => {}}
+        />,
+      );
+
+      expect(screen.getByText('RustDesk 远程桌面')).toBeTruthy();
+      expect(screen.getByText('开箱即用的开源远程桌面控制客户端')).toBeTruthy();
+      expect(screen.getByText('系统实用')).toBeTruthy();
+      unmount();
+
+      // 2. English mode
+      await i18n.changeLanguage('en-US');
+      render(
+        <AppDetailModal
+          app={detailApp}
+          isInstalled={false}
+          onClose={() => {}}
+          onInstall={async () => {}}
+          onLaunch={() => {}}
+        />,
+      );
+
+      expect(screen.getByText('RustDesk')).toBeTruthy();
+      expect(screen.getByText('An open-source remote desktop client software')).toBeTruthy();
+      expect(screen.getByText('System Utilities')).toBeTruthy();
+    });
   });
 });

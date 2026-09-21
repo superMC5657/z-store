@@ -110,6 +110,6 @@ describe('readme characterization (real AppDetailModal path)', () => {
         onLaunch={() => {}}
       />,
     );
-    expect(screen.getByText('fixture for readme characterization')).toBeTruthy();
+    expect(screen.getAllByText('fixture for readme characterization').length).toBeGreaterThan(0);
   });
 });

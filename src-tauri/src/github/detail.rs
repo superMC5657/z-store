@@ -124,6 +124,14 @@ impl CatalogService {
                     if !existing.releases.is_empty() && !existing.readme_markdown.trim().is_empty()
                     {
                         let mut detail = existing.clone();
+                        if let Some(ref item) = catalog_item {
+                            if item.chinese_name.is_some() {
+                                detail.chinese_name = item.chinese_name.clone();
+                            }
+                            if item.description_en.is_some() {
+                                detail.description_en = item.description_en.clone();
+                            }
+                        }
                         let now = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()
@@ -164,6 +172,14 @@ impl CatalogService {
             _ => {
                 // 离线或网络异常回退：若有 cached_detail 直接使用
                 if let Some(mut existing) = cached_detail {
+                    if let Some(ref item) = catalog_item {
+                        if item.chinese_name.is_some() {
+                            existing.chinese_name = item.chinese_name.clone();
+                        }
+                        if item.description_en.is_some() {
+                            existing.description_en = item.description_en.clone();
+                        }
+                    }
                     existing.is_stale = Some(true);
                     return Ok((existing, None));
                 }

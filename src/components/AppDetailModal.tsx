@@ -481,6 +481,19 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                 <span>问题反馈</span>
               </a>
             </div>
+            {displayDesc && (
+              <p
+                className="modal-app-desc"
+                style={{
+                  fontSize: '13px',
+                  color: 'var(--text-secondary)',
+                  margin: '4px 0 10px 0',
+                  lineHeight: '1.5',
+                }}
+              >
+                {displayDesc}
+              </p>
+            )}
             <div className="modal-tags">
               <span className="modal-tag">★ {((app.stars || 0) / 1000).toFixed(1)}k</span>
               <span className="modal-tag">{app.license}</span>

@@ -169,4 +169,31 @@ describe('task6: rerank #1..N within the filtered set', () => {
     expect(container.querySelectorAll('.app-card').length).toBe(0);
     expect(container.querySelector('.trends-empty')).not.toBeNull();
   });
+
+  it('switches app name, category and description in TrendsView between Chinese and English', async () => {
+    const { default: i18n } = await import('../i18n');
+    const bilingualApp = makeApp({
+      id: 'rustdesk',
+      name: 'RustDesk',
+      chinese_name: 'RustDesk 远程桌面',
+      description: '开源远程桌面软件',
+      description_en: 'Open source remote desktop software',
+      category: 'system',
+      category_name: '系统实用',
+    });
+
+    await i18n.changeLanguage('zh-CN');
+    const { container, unmount } = renderTrends([bilingualApp]);
+    expect(container.textContent).toContain('RustDesk 远程桌面');
+    expect(container.textContent).toContain('开源远程桌面软件');
+    expect(container.textContent).toContain('系统实用');
+    unmount();
+
+    await i18n.changeLanguage('en-US');
+    const { container: enContainer } = renderTrends([bilingualApp]);
+    expect(enContainer.textContent).toContain('RustDesk');
+    expect(enContainer.textContent).toContain('Open source remote desktop software');
+    expect(enContainer.textContent).toContain('System Utilities');
+    await i18n.changeLanguage('zh-CN');
+  });
 });
