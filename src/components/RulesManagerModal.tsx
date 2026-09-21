@@ -9,6 +9,8 @@ import {
   ShieldAlert,
   Info,
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import '../i18n';
 import { InstalledApp, UpdateRule } from '../types';
 
 export interface RulesManagerModalProps {
@@ -34,6 +36,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
   onToggleRuleHidden,
   onSkipVersion,
 }) => {
+  const { t, i18n } = useTranslation();
   const [rulesTab, setRulesTab] = useState<'all' | 'skipped' | 'frozen' | 'hidden'>('all');
   const [filterQuery, setFilterQuery] = useState('');
 
@@ -58,7 +61,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
   const handleCreateRule = async () => {
     const finalAppId = (selectedAppId === '__custom__' || !selectedAppId ? customAppId : selectedAppId).trim();
     if (!finalAppId) {
-      showNotice('⚠️ 请选择或输入要配置规则的应用 ID');
+      showNotice(t('rules.notice_select_app'));
       return;
     }
 
@@ -66,19 +69,19 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
     try {
       if (ruleType === 'frozen') {
         await onToggleRuleFrozen(finalAppId, true);
-        showNotice(`✅ 已成功为 ${finalAppId} 锁定当前版本`);
+        showNotice(t('rules.notice_frozen_success', { id: finalAppId }));
       } else if (ruleType === 'hidden') {
         await onToggleRuleHidden(finalAppId, true);
-        showNotice(`✅ 已成功将 ${finalAppId} 设为全局隐藏`);
+        showNotice(t('rules.notice_hidden_success', { id: finalAppId }));
       } else if (ruleType === 'skip') {
         if (!skipVersion.trim()) {
-          showNotice('⚠️ 请输入要跳过的具体版本号 (如 v1.2.0)');
+          showNotice(t('rules.notice_input_skip_version'));
           setIsSubmitting(false);
           return;
         }
         if (onSkipVersion) {
           await onSkipVersion(finalAppId, skipVersion.trim());
-          showNotice(`✅ 已成功为 ${finalAppId} 设置跳过版本 ${skipVersion.trim()}`);
+          showNotice(t('rules.notice_skip_success', { id: finalAppId, version: skipVersion.trim() }));
         }
       }
       setIsAddOpen(false);
@@ -86,7 +89,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
       setCustomAppId('');
       setSkipVersion('');
     } catch (err) {
-      showNotice(`❌ 规则保存失败: ${String(err)}`);
+      showNotice(t('rules.notice_save_failed', { error: String(err) }));
     } finally {
       setIsSubmitting(false);
     }
@@ -141,11 +144,11 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Shield size={20} style={{ color: 'var(--brand-primary)' }} />
               <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                版本策略与屏蔽规则管理 ({updateRules.length})
+                {t('rules.title', { count: updateRules.length })}
               </h3>
             </div>
             <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: 'var(--text-secondary)' }}>
-              管理已跳过版本、版本锁定与全局隐藏的开源应用，随时恢复正常版本更新通知
+              {t('rules.desc')}
             </p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -158,19 +161,19 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
               {isAddOpen ? (
                 <>
                   <ChevronUp size={13} />
-                  <span>收起表单</span>
+                  <span>{t('rules.collapse_add')}</span>
                 </>
               ) : (
                 <>
                   <Plus size={13} />
-                  <span>添加规则</span>
+                  <span>{t('rules.add_rule')}</span>
                 </>
               )}
             </button>
             <button
               onClick={onClose}
               className="modal-close-btn"
-              aria-label="关闭弹窗"
+              aria-label={t('rules.close_modal')}
               style={{ position: 'relative', top: 'auto', right: 'auto' }}
             >
               <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4">
@@ -188,8 +191,8 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
               padding: '8px 24px',
               fontSize: '12px',
               fontWeight: 500,
-              background: noticeMessage.includes('失败') ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)',
-              color: noticeMessage.includes('失败') ? '#ef4444' : '#10b981',
+              background: noticeMessage.includes('失败') || noticeMessage.includes('failed') || noticeMessage.includes('Failed') ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+              color: noticeMessage.includes('失败') || noticeMessage.includes('failed') || noticeMessage.includes('Failed') ? '#ef4444' : '#10b981',
               borderBottom: '1px solid var(--border-subtle, rgba(255, 255, 255, 0.08))',
               display: 'flex',
               alignItems: 'center',
@@ -215,13 +218,13 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
           >
             <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <Plus size={14} style={{ color: 'var(--brand-primary)' }} />
-              <span>手动新建软件版本与屏蔽规则</span>
+              <span>{t('rules.form_manual_title')}</span>
             </div>
 
             {/* 目标应用选择行 */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 500 }}>
-                1. 选择或输入目标开源软件:
+                {t('rules.form_step_target')}
               </label>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 {installedApps.length > 0 && (
@@ -231,13 +234,13 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                     onChange={(e) => setSelectedAppId(e.target.value)}
                     style={{ flex: '1 1 240px', fontSize: '12px', padding: '6px 10px' }}
                   >
-                    <option value="">-- 从已安装软件中快捷选择 ({installedApps.length} 款) --</option>
+                    <option value="">{t('rules.form_select_installed', { count: installedApps.length })}</option>
                     {installedApps.map((a) => (
                       <option key={a.app_id} value={a.app_id}>
                         {a.app_name} (ID: {a.app_id} · v{a.version})
                       </option>
                     ))}
-                    <option value="__custom__">手动输入其他软件 ID...</option>
+                    <option value="__custom__">{t('rules.form_custom_input')}</option>
                   </select>
                 )}
 
@@ -245,7 +248,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                   <input
                     type="text"
                     className="settings-input"
-                    placeholder="输入开源软件 ID (如 rustdesk, localsend, obsidian)..."
+                    placeholder={t('rules.form_custom_input_placeholder')}
                     value={customAppId}
                     onChange={(e) => setCustomAppId(e.target.value)}
                     style={{ flex: '1 1 200px', fontSize: '12px', fontFamily: 'monospace' }}
@@ -257,7 +260,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
             {/* 规则策略类型 */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 500 }}>
-                2. 选择策略行为:
+                {t('rules.form_step_action')}
               </label>
               <div className="segmented-group" style={{ padding: '3px', alignSelf: 'flex-start' }}>
                 <button
@@ -267,7 +270,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                   onClick={() => setRuleType('frozen')}
                 >
                   <Lock size={12} />
-                  <span>锁定版本 (不提示更新)</span>
+                  <span>{t('rules.form_type_frozen')}</span>
                 </button>
                 <button
                   type="button"
@@ -276,7 +279,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                   onClick={() => setRuleType('hidden')}
                 >
                   <EyeOff size={12} />
-                  <span>全局隐藏 (列表中屏蔽)</span>
+                  <span>{t('rules.form_type_hidden')}</span>
                 </button>
                 <button
                   type="button"
@@ -285,7 +288,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                   onClick={() => setRuleType('skip')}
                 >
                   <SkipForward size={12} />
-                  <span>跳过特定版本</span>
+                  <span>{t('rules.form_type_skip')}</span>
                 </button>
               </div>
 
@@ -294,7 +297,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                   <input
                     type="text"
                     className="settings-input"
-                    placeholder="请输入要跳过的具体版本号 (例如 v1.4.0)..."
+                    placeholder={t('rules.form_skip_version_placeholder')}
                     value={skipVersion}
                     onChange={(e) => setSkipVersion(e.target.value)}
                     style={{ width: '260px', fontSize: '12px' }}
@@ -315,7 +318,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                   setCustomAppId('');
                 }}
               >
-                取消
+                {t('rules.cancel')}
               </button>
               <button
                 type="button"
@@ -324,7 +327,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                 onClick={handleCreateRule}
                 disabled={isSubmitting}
               >
-                {isSubmitting ? '正在保存...' : '确认添加规则'}
+                {isSubmitting ? t('rules.form_saving') : t('rules.confirm_add')}
               </button>
             </div>
           </div>
@@ -344,10 +347,10 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
         >
           <div className="segmented-group" style={{ padding: '2px' }}>
             {[
-              { id: 'all', label: '全部', count: updateRules.length, icon: null },
-              { id: 'skipped', label: '已跳过', count: updateRules.filter((r) => Boolean(r.skipped_version)).length, icon: <SkipForward size={11} /> },
-              { id: 'frozen', label: '已锁定', count: updateRules.filter((r) => r.is_frozen).length, icon: <Lock size={11} /> },
-              { id: 'hidden', label: '已隐藏', count: updateRules.filter((r) => r.is_hidden).length, icon: <EyeOff size={11} /> },
+              { id: 'all', label: t('rules.tab_all_short'), count: updateRules.length, icon: null },
+              { id: 'skipped', label: t('rules.tab_skipped_short'), count: updateRules.filter((r) => Boolean(r.skipped_version)).length, icon: <SkipForward size={11} /> },
+              { id: 'frozen', label: t('rules.tab_frozen_short'), count: updateRules.filter((r) => r.is_frozen).length, icon: <Lock size={11} /> },
+              { id: 'hidden', label: t('rules.tab_hidden_short'), count: updateRules.filter((r) => r.is_hidden).length, icon: <EyeOff size={11} /> },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -364,7 +367,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
           <input
             type="text"
             className="settings-input"
-            placeholder="搜索规则应用 ID..."
+            placeholder={t('rules.search_placeholder')}
             value={filterQuery}
             onChange={(e) => setFilterQuery(e.target.value)}
             style={{ width: '160px', fontSize: '11px', padding: '4px 8px' }}
@@ -395,12 +398,12 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
             >
               <ShieldAlert size={40} strokeWidth={1.5} style={{ color: 'var(--text-tertiary)', margin: '0 auto 12px' }} />
               <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)', marginBottom: '6px' }}>
-                {updateRules.length === 0 ? '当前未配置任何版本策略规则' : '当前分类下暂无匹配规则'}
+                {updateRules.length === 0 ? t('rules.empty_no_rules') : t('rules.empty_filtered')}
               </div>
               <p style={{ maxWidth: '440px', margin: '0 auto 16px', lineHeight: 1.5 }}>
                 {updateRules.length === 0
-                  ? '您可以点击上方「添加规则」直接为已安装应用设置版本规则，也可以在「已安装」或「应用更新」卡片菜单中快捷锁定。'
-                  : '可尝试切换上方分类或清空搜索关键词。'}
+                  ? t('rules.empty_no_rules_desc')
+                  : t('rules.empty_filtered_desc')}
               </p>
               {updateRules.length === 0 && !isAddOpen && (
                 <button
@@ -410,7 +413,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                   onClick={() => setIsAddOpen(true)}
                 >
                   <Plus size={13} />
-                  <span>添加第一条规则</span>
+                  <span>{t('rules.add_first_rule')}</span>
                 </button>
               )}
             </div>
@@ -422,14 +425,14 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                     rule.updated_at * 1000 > 1000000000000
                       ? rule.updated_at
                       : rule.updated_at * 1000
-                  ).toLocaleDateString('zh-CN', {
+                  ).toLocaleDateString(i18n.language || 'zh-CN', {
                     year: 'numeric',
                     month: '2-digit',
                     day: '2-digit',
                     hour: '2-digit',
                     minute: '2-digit',
                   })
-                : '近期设置';
+                : t('rules.recent_set');
 
               return (
                 <div
@@ -471,7 +474,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                           }}
                         >
                           <SkipForward size={10} />
-                          <span>跳过 {rule.skipped_version}</span>
+                          <span>{t('rules.badge_skipped', { version: rule.skipped_version })}</span>
                         </span>
                       )}
                       {rule.is_frozen && (
@@ -489,7 +492,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                           }}
                         >
                           <Lock size={10} />
-                          <span>锁定当前版本</span>
+                          <span>{t('rules.badge_frozen')}</span>
                         </span>
                       )}
                       {rule.is_hidden && (
@@ -507,12 +510,12 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                           }}
                         >
                           <EyeOff size={10} />
-                          <span>已隐藏</span>
+                          <span>{t('rules.badge_hidden')}</span>
                         </span>
                       )}
                     </div>
                     <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                      生效于: {dateStr}
+                      {t('rules.effective_at', { date: dateStr })}
                     </span>
                   </div>
 
@@ -524,10 +527,10 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                         style={{ fontSize: '11px', padding: '4px 8px' }}
                         onClick={async () => {
                           await onClearRuleSkip(rule.app_id);
-                          showNotice(`✓ 已恢复 ${rule.app_id} 的版本更新提醒`);
+                          showNotice(t('rules.restore_notice_success', { id: rule.app_id }));
                         }}
                       >
-                        恢复提醒
+                        {t('rules.restore_reminder')}
                       </button>
                     )}
                     <button
@@ -536,10 +539,10 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                       style={{ fontSize: '11px', padding: '4px 8px' }}
                       onClick={async () => {
                         await onToggleRuleFrozen(rule.app_id, !rule.is_frozen);
-                        showNotice(rule.is_frozen ? `✓ 已解除 ${rule.app_id} 的版本锁定` : `✓ 已锁定 ${rule.app_id} 当前版本`);
+                        showNotice(rule.is_frozen ? t('rules.unlock_notice_success', { id: rule.app_id }) : t('rules.frozen_notice_success', { id: rule.app_id }));
                       }}
                     >
-                      {rule.is_frozen ? '解除锁定' : '锁定版本'}
+                      {rule.is_frozen ? t('rules.unlock_version') : t('rules.lock_version')}
                     </button>
                     <button
                       type="button"
@@ -547,10 +550,10 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                       style={{ fontSize: '11px', padding: '4px 8px' }}
                       onClick={async () => {
                         await onToggleRuleHidden(rule.app_id, !rule.is_hidden);
-                        showNotice(rule.is_hidden ? `✓ 已取消隐藏 ${rule.app_id}` : `✓ 已将 ${rule.app_id} 全局隐藏`);
+                        showNotice(rule.is_hidden ? t('rules.unhide_notice_success', { id: rule.app_id }) : t('rules.hide_notice_success', { id: rule.app_id }));
                       }}
                     >
-                      {rule.is_hidden ? '取消隐藏' : '隐藏应用'}
+                      {rule.is_hidden ? t('rules.unhide_app') : t('rules.hide_app')}
                     </button>
                     <button
                       type="button"
@@ -558,11 +561,11 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                       style={{ fontSize: '11px', padding: '4px 8px', color: '#ef4444' }}
                       onClick={async () => {
                         await onRemoveRule(rule.app_id);
-                        showNotice(`✓ 已清空 ${rule.app_id} 的全部规则`);
+                        showNotice(t('rules.remove_notice_success', { id: rule.app_id }));
                       }}
-                      title="清除该应用的所有规则"
+                      title={t('rules.remove_rule_title')}
                     >
-                      🗑️ 移除规则
+                      {t('rules.remove_rule_btn')}
                     </button>
                   </div>
                 </div>
@@ -585,7 +588,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
         >
           <span style={{ fontSize: '12px', color: 'var(--text-tertiary)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
             <Info size={13} />
-            <span>规则变更将自动保存在本地数据库并在后续检查更新与搜索时实时生效</span>
+            <span>{t('rules.rules_footer_hint')}</span>
           </span>
           <button
             type="button"
@@ -593,7 +596,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
             style={{ fontSize: '12px', padding: '6px 18px' }}
             onClick={onClose}
           >
-            完成
+            {t('rules.done')}
           </button>
         </div>
       </div>

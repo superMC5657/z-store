@@ -63,7 +63,7 @@ vi.mock('./services/api', () => {
         if (prop === 'checkForUpdates') return (f?: boolean) => hooks.checkForUpdates(f);
         if (prop === 'setAppSkipVersion') return (id: string, v: string | null) => hooks.setAppSkipVersion(id, v);
         if (prop === 'getUpdateRules') return () => hooks.getUpdateRules();
-        if (prop === 'getSettings') return async () => ({ update_frequency: 'startup' });
+        if (prop === 'getSettings') return async () => ({ update_frequency: 'startup', language: 'zh-CN' });
         if (prop === 'getOAuthUser' || prop === 'getCliDeepLink') return async () => null;
         if (listMethods.has(prop)) return async () => [];
         if (prop.startsWith('on')) return async () => () => {};
@@ -75,6 +75,7 @@ vi.mock('./services/api', () => {
     api,
     DEFAULT_SETTINGS: {
       theme: 'dark',
+      language: 'zh-CN',
       ui_scale: '100',
       font_size: '14',
       portable_dir: '',

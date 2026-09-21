@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AppSettings } from './types';
 import { api, DEFAULT_SETTINGS } from './services/api';
+import i18n, { getSystemLanguage } from './i18n';
 
 /**
  * 应用级外观表现与持久化设置 Hook。
@@ -56,7 +57,11 @@ export function useAppSettings() {
     if (!merged.download_dir || merged.download_dir.includes('zstore_downloads')) {
       merged.download_dir = DEFAULT_SETTINGS.download_dir;
     }
+    if (!persisted.language) {
+      merged.language = getSystemLanguage();
+    }
     setSettings(merged);
+    void i18n.changeLanguage(merged.language);
 
     // 应用主题
     let currentTheme: 'light' | 'dark' = 'dark';
@@ -149,13 +154,21 @@ export function useAppSettings() {
       applyFontSize(String(value));
     } else if (key === 'ui_scale') {
       applyUiZoom(String(value));
+    } else if (key === 'language') {
+      void i18n.changeLanguage(String(value));
     }
+  };
+
+  const handleToggleLanguage = () => {
+    const nextLang = settings.language === 'zh-CN' ? 'en-US' : 'zh-CN';
+    void handleUpdateSetting('language', nextLang);
   };
 
   // 恢复所有设置至出厂默认值
   const handleResetSettings = async () => {
     await api.resetSettings();
     setSettings(DEFAULT_SETTINGS);
+    void i18n.changeLanguage(DEFAULT_SETTINGS.language);
     setTheme('dark');
     document.documentElement.setAttribute('data-theme', 'dark');
     applyFontSize('14');
@@ -168,6 +181,7 @@ export function useAppSettings() {
     applyPersistedSettings,
     handleToggleTheme,
     handleSetTheme,
+    handleToggleLanguage,
     handleUpdateSetting,
     handleResetSettings,
   };

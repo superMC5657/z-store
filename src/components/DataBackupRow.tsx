@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { Upload, Download, RotateCcw, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { api } from '../services/api';
 import { notifyToast } from '../utils/notify';
 import { UserDataBackup, UserDataBackupSettings } from '../types';
@@ -55,6 +56,7 @@ export const buildUserDataBackup = (
 });
 
 export const DataBackupRow: React.FC = () => {
+  const { t } = useTranslation();
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -86,11 +88,11 @@ export const DataBackupRow: React.FC = () => {
       a.download = `z-store-backup-${stamp}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      const msg = `已导出备份（收藏 ${favorites.length} · 关注 ${watched.length}）`;
+      const msg = t('backup.export_success', { fav: favorites.length, watch: watched.length });
       showFeedback(msg, false);
       notifyToast(msg, 'success');
     } catch (e) {
-      const msg = `导出备份失败: ${String(e)}`;
+      const msg = t('backup.export_failed', { error: String(e) });
       showFeedback(msg, true);
       notifyToast(msg, 'error');
     } finally {
@@ -103,15 +105,18 @@ export const DataBackupRow: React.FC = () => {
     try {
       const text = await file.text();
       const counts = await api.importUserData(text);
-      const msg =
-        `导入完成：收藏 +${counts.favorites_added} · 关注 +${counts.watched_added}` +
-        ` · 设置${counts.settings_applied ? '已应用' : '未变更'}` +
-        `（已安装 ${counts.installed_skipped} 个不受影响）`;
+      const settingsStatus = counts.settings_applied ? t('backup.settings_applied') : t('backup.settings_unchanged');
+      const msg = t('backup.import_success', {
+        fav: counts.favorites_added,
+        watch: counts.watched_added,
+        settings: settingsStatus,
+        skipped: counts.installed_skipped,
+      });
       showFeedback(msg, false);
       notifyToast(msg, 'success');
       window.dispatchEvent(new CustomEvent('zstore:data-imported'));
     } catch (e) {
-      const msg = `导入备份失败: ${String(e)}`;
+      const msg = t('backup.import_failed', { error: String(e) });
       showFeedback(msg, true);
       notifyToast(msg, 'error');
     } finally {
@@ -123,7 +128,7 @@ export const DataBackupRow: React.FC = () => {
   return (
     <div className="settings-row">
       <div className="settings-row-info">
-        <span style={{ fontWeight: 600 }}>用户数据备份</span>
+        <span style={{ fontWeight: 600 }}>{t('backup.title')}</span>
         {feedback ? (
           <span
             style={{
@@ -138,7 +143,7 @@ export const DataBackupRow: React.FC = () => {
             <span>{feedback}</span>
           </span>
         ) : (
-          <span className="settings-row-desc">备份或恢复收藏、关注及偏好设置（不含登录令牌）</span>
+          <span className="settings-row-desc">{t('backup.desc')}</span>
         )}
       </div>
       <div style={{ display: 'flex', gap: '8px' }}>
@@ -149,7 +154,7 @@ export const DataBackupRow: React.FC = () => {
           style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
         >
           {isExporting ? <RotateCcw size={12} className="icon-spin" /> : <Upload size={12} />}
-          <span>{isExporting ? '正在导出...' : '导出'}</span>
+          <span>{isExporting ? t('backup.exporting') : t('backup.export')}</span>
         </button>
         <button
           className="btn-fluent btn-primary"
@@ -158,7 +163,7 @@ export const DataBackupRow: React.FC = () => {
           style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
         >
           {isImporting ? <RotateCcw size={12} className="icon-spin" /> : <Download size={12} />}
-          <span>{isImporting ? '正在导入...' : '导入'}</span>
+          <span>{isImporting ? t('backup.importing') : t('backup.import')}</span>
         </button>
         <input
           ref={fileInputRef}

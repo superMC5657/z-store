@@ -94,6 +94,7 @@ export const App: React.FC = () => {
     applyPersistedSettings,
     handleToggleTheme,
     handleSetTheme,
+    handleToggleLanguage,
     handleUpdateSetting,
     handleResetSettings,
   } = useAppSettings();
@@ -1017,6 +1018,8 @@ export const App: React.FC = () => {
         onSearchChange={handleSearchChange}
         theme={theme}
         onToggleTheme={handleToggleTheme}
+        language={settings.language}
+        onToggleLanguage={handleToggleLanguage}
         isSidebarCollapsed={isSidebarCollapsed}
         onToggleSidebar={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
         onNavigateSettings={() => setCurrentView('settings')}

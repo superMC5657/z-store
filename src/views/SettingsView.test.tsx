@@ -9,6 +9,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import i18n from '../i18n';
 
 vi.mock('../services/api', () => ({
   api: {
@@ -27,8 +28,9 @@ import type { AppSettings } from '../types';
 
 (globalThis as Record<string, unknown>)['IS_REACT_ACT_ENVIRONMENT'] = true;
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
+  await i18n.changeLanguage('zh-CN');
 });
 
 function baseSettings(overrides?: Partial<AppSettings>): AppSettings {
@@ -133,5 +135,39 @@ describe('SettingsView custom catalog source confirm', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].value).toBe(custom);
     expect(screen.queryByText('确认切换')).toBeNull();
+  });
+
+  it('allows switching interface language between zh-CN and en-US', () => {
+    const { calls } = renderSettings(baseSettings({ language: 'zh-CN' }));
+    const enBtn = screen.getByText('English');
+    fireEvent.click(enBtn);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].key).toBe('language');
+    expect(calls[0].value).toBe('en-US');
+  });
+
+  it('renders settings groups, proxy status, and backup section in English when en-US is active', async () => {
+    await i18n.changeLanguage('en-US');
+    renderSettings(baseSettings({ language: 'en-US', active_mirror: 'https://gh-proxy.com' }));
+
+    // Account & Quota group
+    expect(screen.getByText('Account & Quota')).toBeTruthy();
+
+    // Network & Catalog group and proxy status
+    expect(screen.getByText('Network & Catalog')).toBeTruthy();
+    expect(screen.getByText('Currently active:')).toBeTruthy();
+    expect(screen.getByText('Custom Proxy: https://gh-proxy.com')).toBeTruthy();
+    expect(screen.getByText('Restore Direct')).toBeTruthy();
+
+    // Data Backup group
+    expect(screen.getByText('Data Backup')).toBeTruthy();
+    expect(screen.getByText('Export Managed Apps')).toBeTruthy();
+    expect(screen.getByText('Export List')).toBeTruthy();
+
+    // Updates & Notifications group
+    expect(screen.getByText('Updates & Notifications')).toBeTruthy();
+    expect(screen.getByText('Auto Check Updates')).toBeTruthy();
+    expect(screen.getByText('Version Pin & Ignore Rules')).toBeTruthy();
   });
 });

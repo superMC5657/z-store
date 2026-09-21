@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { App } from './App';
 import { isTauri } from './services/api';
 import { initZLog } from './lib/z-log';
+import './i18n';
 import './styles/fluent.css';
 
 void initZLog({ batch: 200, flushIntervalMs: 3000 });

@@ -190,4 +190,26 @@ describe('Sidebar: Decision B select-nothing (empty is valid, never falls back t
     // 提交的下一状态为代表不选任何平台的空 Set，绝非拒绝操作
     expect(togglePlatformSet(parseSelectedPlatformArray(['windows']), 'windows').size).toBe(0);
   });
+
+  it('renders English navigation group titles and items when switched to en-US', async () => {
+    const { default: i18n } = await import('../i18n');
+    await i18n.changeLanguage('en-US');
+    const { container } = renderSidebar();
+    const titles = groupTitles(container);
+    expect(titles).toEqual(['Discovery', 'Assets', 'Platforms', 'System & Settings']);
+
+    const labels = screen
+      .getAllByRole('button')
+      .map((b) => b.getAttribute('aria-label'))
+      .filter((l): l is string => l !== null && l !== '登录 GitHub');
+    expect(labels.slice(0, 6)).toEqual([
+      'Featured',
+      'Trending',
+      'Categories',
+      'Installed',
+      'Updates',
+      'Favorites',
+    ]);
+    await i18n.changeLanguage('zh-CN');
+  });
 });

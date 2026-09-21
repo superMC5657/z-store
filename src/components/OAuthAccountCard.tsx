@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, AlertTriangle, AlertCircle, Copy, Check, ExternalLink, LogIn, LogOut } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { GitHubIcon } from './icons/PlatformIcons';
 import { OAuthUser } from '../types';
 import { api } from '../services/api';
@@ -14,6 +15,7 @@ interface DeviceSession {
 }
 
 export const OAuthAccountCard: React.FC = () => {
+  const { t } = useTranslation();
   const [user, setUser] = useState<OAuthUser | null>(null);
   const [isLoadingUser, setIsLoadingUser] = useState(true);
   const [session, setSession] = useState<DeviceSession | null>(null);
@@ -57,7 +59,7 @@ export const OAuthAccountCard: React.FC = () => {
     stopPolling();
     pollTimerRef.current = setTimeout(async () => {
       if (Date.now() > deadline) {
-        setError('授权已超时，请重新发起登录');
+        setError(t('oauth.poll_timeout'));
         setSession(null);
         return;
       }
@@ -69,16 +71,16 @@ export const OAuthAccountCard: React.FC = () => {
           setSession(null);
           setError(null);
           await loadUser();
-          notifyToast('GitHub 账号登录成功', 'success');
+          notifyToast(t('oauth.login_success'), 'success');
           window.dispatchEvent(new CustomEvent('zstore:oauth-changed'));
         } else if (res.status === 'expired' || res.status === 'denied') {
           stopPolling();
           setSession(null);
-          setError(res.status === 'expired' ? '授权已过期，请重新发起登录' : '已取消授权，可随时重新登录');
+          setError(res.status === 'expired' ? t('oauth.poll_expired') : t('oauth.poll_denied'));
         } else if (res.status === 'error') {
           stopPolling();
           setSession(null);
-          setError(res.message || '授权轮询异常，请重试');
+          setError(res.message || t('oauth.poll_error'));
         } else {
           schedulePoll(deviceCode, deadline, intervalMs);
         }
@@ -88,10 +90,10 @@ export const OAuthAccountCard: React.FC = () => {
         pollFailRef.current += 1;
         if (pollFailRef.current >= 10) {
           stopPolling();
-          setError('网络多次失败，已停止轮询；用户码仍在有效期内，可检查网络后取消重来');
+          setError(t('oauth.network_failed'));
           return;
         }
-        setError(`网络波动，自动重试中 (${pollFailRef.current})：${String(e).slice(0, 80)}`);
+        setError(t('oauth.network_retry', { count: pollFailRef.current, error: String(e).slice(0, 80) }));
         schedulePoll(deviceCode, deadline, intervalMs);
       }
     }, intervalMs);
@@ -121,7 +123,7 @@ export const OAuthAccountCard: React.FC = () => {
         // ignore：用户可点「前往授权页」手动打开
       }
     } catch (e) {
-      setError(`发起登录失败: ${String(e)}`);
+      setError(t('oauth.login_failed', { error: String(e) }));
     } finally {
       setIsStarting(false);
     }
@@ -141,7 +143,7 @@ export const OAuthAccountCard: React.FC = () => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      setError('复制失败，请手动选中用户码');
+      setError(t('oauth.copy_failed'));
     }
   };
 
@@ -149,11 +151,11 @@ export const OAuthAccountCard: React.FC = () => {
     try {
       await api.oauthLogout();
     } catch (e) {
-      notifyToast(`退出登录失败: ${String(e)}`, 'error');
+      notifyToast(t('oauth.logout_failed', { error: String(e) }), 'error');
       return;
     }
     setUser(null);
-    notifyToast('已退出 GitHub 账号', 'info');
+    notifyToast(t('oauth.logged_out'), 'info');
     window.dispatchEvent(new CustomEvent('zstore:oauth-changed'));
   };
 
@@ -163,18 +165,18 @@ export const OAuthAccountCard: React.FC = () => {
         <div className="settings-row-info">
           <span style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
             <GitHubIcon size={16} />
-            <span>GitHub 账号</span>
+            <span>{t('oauth.title')}</span>
           </span>
           <span className="settings-row-desc">
             {user
               ? user.is_expired
-                ? '登录凭据已失效，当前处于离线/受限状态，请重新授权'
-                : '已登录，享有 5,000 次/小时 API 配额'
-              : '登录后享有 5,000 次/小时 API 配额及标星能力'}
+                ? t('oauth.desc_expired')
+                : t('oauth.desc_logged_in')
+              : t('oauth.desc_anonymous')}
           </span>
         </div>
         {isLoadingUser ? (
-          <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>正在读取登录态...</span>
+          <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{t('oauth.loading_user')}</span>
         ) : user ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
@@ -203,12 +205,12 @@ export const OAuthAccountCard: React.FC = () => {
                     backgroundColor: '#eab308',
                     border: '2px solid var(--bg-primary, #0f172a)',
                   }}
-                  title="登录已失效"
+                  title={t('oauth.expired_tag')}
                 />
               )}
             </div>
             <span style={{ fontSize: '13px', fontWeight: 600, color: user.is_expired ? '#eab308' : undefined }}>
-              {user.login} {user.is_expired && '(已失效)'}
+              {user.login} {user.is_expired && t('oauth.expired_tag')}
             </span>
             {user.is_expired ? (
               <button
@@ -219,7 +221,7 @@ export const OAuthAccountCard: React.FC = () => {
                 onClick={handleLogin}
               >
                 <LogIn size={12} />
-                <span>重新登录</span>
+                <span>{t('oauth.relogin')}</span>
               </button>
             ) : null}
             <button
@@ -229,7 +231,7 @@ export const OAuthAccountCard: React.FC = () => {
               onClick={handleLogout}
             >
               <LogOut size={12} />
-              <span>退出</span>
+              <span>{t('oauth.logout')}</span>
             </button>
           </div>
         ) : (
@@ -241,7 +243,7 @@ export const OAuthAccountCard: React.FC = () => {
             onClick={handleLogin}
           >
             <LogIn size={12} />
-            <span>{isStarting ? '正在发起...' : '登录'}</span>
+            <span>{isStarting ? t('oauth.starting') : t('oauth.login')}</span>
           </button>
         )}
       </div>
@@ -249,7 +251,7 @@ export const OAuthAccountCard: React.FC = () => {
       {user && !user.is_expired && (
         <span style={{ fontSize: '12px', color: 'var(--status-success)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
           <CheckCircle2 size={13} />
-          <span>已享有 <strong>5,000 次/小时</strong> API 访问配额</span>
+          <span>{t('oauth.quota_badge')}</span>
         </span>
       )}
 
@@ -270,7 +272,7 @@ export const OAuthAccountCard: React.FC = () => {
           <div style={{ fontSize: '12px', color: '#eab308', lineHeight: '1.5', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <AlertTriangle size={15} style={{ flexShrink: 0 }} />
             <span>
-              <strong>GitHub 授权已失效 (401)</strong>：登录令牌已过期或已被撤销。请点击「立即重新授权」恢复 5,000 次/小时配额与最新版本同步。
+              <strong>{t('oauth.token_expired_title')}</strong>: {t('oauth.token_expired_desc')}
             </span>
           </div>
           <button
@@ -280,7 +282,7 @@ export const OAuthAccountCard: React.FC = () => {
             onClick={handleLogin}
             disabled={isStarting}
           >
-            立即重新授权
+            {t('oauth.reauth_now')}
           </button>
         </div>
       )}
@@ -301,7 +303,7 @@ export const OAuthAccountCard: React.FC = () => {
         >
           <div style={{ fontSize: '12px', color: 'var(--status-warning)', lineHeight: '1.5', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <AlertTriangle size={14} style={{ flexShrink: 0 }} />
-            <span><strong>权限需升级</strong>：当前授权缺少 user 权限，无法同步标星清单，建议重新授权。</span>
+            <span><strong>{t('oauth.scope_alert_title')}</strong>: {t('oauth.scope_alert_desc')}</span>
           </div>
           <button
             type="button"
@@ -310,7 +312,7 @@ export const OAuthAccountCard: React.FC = () => {
             disabled={isStarting}
             onClick={handleLogin}
           >
-            {isStarting ? '发起中...' : '重新授权'}
+            {isStarting ? t('oauth.starting') : t('oauth.reauth')}
           </button>
         </div>
       )}
@@ -334,7 +336,7 @@ export const OAuthAccountCard: React.FC = () => {
             gap: '10px',
           }}
         >
-          <span style={{ fontSize: '13px', fontWeight: 600 }}>请在浏览器中完成授权</span>
+          <span style={{ fontSize: '13px', fontWeight: 600 }}>{t('oauth.complete_in_browser')}</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
             <code
               style={{
@@ -356,7 +358,7 @@ export const OAuthAccountCard: React.FC = () => {
               onClick={handleCopyCode}
             >
               {copied ? <Check size={12} /> : <Copy size={12} />}
-              <span>{copied ? '已复制' : '复制用户码'}</span>
+              <span>{copied ? t('oauth.copied') : t('oauth.copy_code')}</span>
             </button>
             <button
               type="button"
@@ -364,7 +366,7 @@ export const OAuthAccountCard: React.FC = () => {
               style={{ fontSize: '12px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
               onClick={() => api.openUrl(session.verificationUri)}
             >
-              <span>前往授权页</span>
+              <span>{t('oauth.open_auth_page')}</span>
               <ExternalLink size={12} />
             </button>
             <button
@@ -373,11 +375,11 @@ export const OAuthAccountCard: React.FC = () => {
               style={{ fontSize: '12px', padding: '6px 12px' }}
               onClick={handleCancelSession}
             >
-              取消
+              {t('common.cancel')}
             </button>
           </div>
           <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
-            在授权页输入上方用户码即可完成绑定
+            {t('oauth.enter_code_hint')}
           </span>
         </div>
       )}

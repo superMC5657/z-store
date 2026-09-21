@@ -1,4 +1,6 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
+import '../i18n';
 import {
   Search,
   Sparkles,
@@ -68,6 +70,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onClearRecentViews,
   onResetPlatformFilter,
 }) => {
+  const { t } = useTranslation();
+
   if (apps.length === 0) {
     // 筛选为空：全局设备平台筛选排除了所有应用。
     // 专属文案与重置按钮——绝不复用搜索页的 `owner/repo` 引导文案。
@@ -75,9 +79,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
       <div className="home-view">
         <div className="empty-state-card" style={{ marginTop: '40px' }}>
           <Search size={44} strokeWidth={1.5} style={{ color: 'var(--text-tertiary)', marginBottom: '14px' }} />
-          <h4 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: 600 }}>当前设备筛选下暂无收录应用</h4>
+          <h4 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: 600 }}>{t('home.empty_title')}</h4>
           <p style={{ color: 'var(--text-secondary)', fontSize: '14px', maxWidth: '540px', lineHeight: '1.6', margin: '0 auto 16px auto' }}>
-            侧栏「设备平台」中所选设备组合没有命中任何收录应用。放宽勾选项，或一键恢复全部设备后即可继续浏览精选。
+            {t('home.empty_desc')}
           </p>
           <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
             <button
@@ -91,7 +95,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 }
               }}
             >
-              重置设备筛选
+              {t('home.reset_device_filter')}
             </button>
           </div>
         </div>
@@ -121,15 +125,15 @@ export const HomeView: React.FC<HomeViewProps> = ({
             <div className="hero-tag">
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                 <Sparkles size={12} style={{ color: '#eab308' }} />
-                <span>本周编辑精选推荐</span>
+                <span>{t('home.hero_tag_featured')}</span>
               </span>
               <span>·</span>
-              <span>跨平台开源精选</span>
+              <span>{t('home.hero_tag_cross_platform')}</span>
             </div>
 
             <h2 className="hero-title">
               {heroApp.id === 'rustdesk/rustdesk' || heroApp.id === 'rustdesk'
-                ? `${heroApp.name} · 安全流畅的开源远程桌面`
+                ? `${heroApp.name} · ${t('home.rustdesk_subtitle')}`
                 : `${heroApp.name} · ${heroApp.category_name}`}
             </h2>
 
@@ -145,10 +149,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 </svg>
                 <span>{(heroApp.stars / 1000).toFixed(1)}k Stars</span>
               </span>
-              <span className="app-tag app-tag-license">{heroApp.license} 协议</span>
+              <span className="app-tag app-tag-license">{heroApp.license} {t('home.license_suffix')}</span>
               <span className="app-tag">{heroApp.category_name}</span>
               {(heroApp.id === 'rustdesk/rustdesk' || heroApp.id === 'rustdesk') && (
-                <span className="app-tag">自建中继 · 端到端加密</span>
+                <span className="app-tag">{t('home.rustdesk_tag')}</span>
               )}
             </div>
 
@@ -166,17 +170,17 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 {installingIds?.has(heroApp.id) ? (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                     <span className="spinner-icon" style={{ width: '12px', height: '12px', borderWidth: '1.5px' }} />
-                    <span>正在安装...</span>
+                    <span>{t('app.installing')}</span>
                   </span>
                 ) : installedIds.has(heroApp.id) ? (
                   <>
                     <Play size={14} />
-                    <span>已就绪 · 打开</span>
+                    <span>{t('home.ready_open')}</span>
                   </>
                 ) : (
                   <>
                     <Zap size={14} />
-                    <span>安装</span>
+                    <span>{t('app.install')}</span>
                   </>
                 )}
               </button>
@@ -188,7 +192,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   onNavigateTrends();
                 }}
               >
-                <span>探索飙升热榜</span>
+                <span>{t('home.explore_trends')}</span>
                 <ArrowRight size={13} />
               </button>
             </div>
@@ -205,12 +209,12 @@ export const HomeView: React.FC<HomeViewProps> = ({
               />
             </div>
             {Boolean(heroApp.is_verified) && (
-              <div className="hero-verified-badge" title="该开源项目已通过官方仓库认证">
+              <div className="hero-verified-badge" title={t('home.verified_tooltip')}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
                   <polyline points="9 12 11 14 15 10" />
                 </svg>
-                <span>官方认证 · Verified</span>
+                <span>{t('home.verified_badge')}</span>
               </div>
             )}
           </div>
@@ -223,7 +227,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
           <div className="section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h3 className="section-title">
               <Clock size={16} />
-              <span>最近浏览</span>
+              <span>{t('home.recent_views')}</span>
             </h3>
             {onClearRecentViews && (
               <button
@@ -233,7 +237,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 onClick={onClearRecentViews}
               >
                 <Trash2 size={11} />
-                <span>清空记录</span>
+                <span>{t('home.clear_recent')}</span>
               </button>
             )}
           </div>
@@ -262,7 +266,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
           <div className="section-header">
             <h3 className="section-title">
               <Sparkles size={16} />
-              <span>经典精选开源软件</span>
+              <span>{t('home.classic_featured')}</span>
             </h3>
           </div>
           <div className="app-grid">
@@ -290,7 +294,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
           <div className="section-header" style={{ marginTop: '28px' }}>
             <h3 className="section-title">
               <Package size={16} />
-              <span>全部精选开源收录</span>
+              <span>{t('home.all_featured')}</span>
             </h3>
           </div>
           <div className="app-grid">

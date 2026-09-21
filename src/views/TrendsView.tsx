@@ -1,4 +1,6 @@
 import React, { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import '../i18n';
 import { TrendingUp, Star } from 'lucide-react';
 import { AppSummary } from '../types';
 import { AppIcon } from '../components/AppIcon';
@@ -41,6 +43,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   onToggleFavorite,
   onResetPlatformFilter,
 }) => {
+  const { t } = useTranslation();
   const [timeRange, setTimeRange] = useState<TimeRange>('week');
 
   // 任务 6（设备平台全局过滤）：`apps` 传入时已由 App.platformFilteredApps 预过滤。
@@ -79,15 +82,15 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       <div className="section-header">
         <h3 className="section-title">
           <TrendingUp size={18} />
-          <span>GitHub 开源应用快照排名</span>
+          <span>{t('trends.title')}</span>
         </h3>
         <div style={{ display: 'flex', gap: '8px' }}>
           {(['day', 'week', 'month', 'all'] as TimeRange[]).map((tab) => {
             const labels: Record<TimeRange, string> = {
-              day: 'Fork 加权',
-              week: '综合热度',
-              month: 'Star 侧重',
-              all: '按 Star 总数',
+              day: t('trends.tab_day'),
+              week: t('trends.tab_week'),
+              month: t('trends.tab_month'),
+              all: t('trends.tab_all'),
             };
             return (
               <button
@@ -116,10 +119,10 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
             }}
           >
             <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-              当前设备筛选下暂无上榜应用
+              {t('trends.empty_title')}
             </div>
             <div style={{ fontSize: '12px', marginBottom: '16px' }}>
-              所选设备组合没有命中任何收录应用，试试放宽设备勾选，或一键恢复全部设备——热榜会按筛选后的应用重新排名。
+              {t('trends.empty_desc')}
             </div>
             <button
               type="button"
@@ -132,7 +135,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                 }
               }}
             >
-              重置设备筛选
+              {t('trends.reset_device_filter')}
             </button>
           </div>
         ) : (
@@ -178,7 +181,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span style={{ fontWeight: 600, fontSize: '15px' }}>{app.name}</span>
                 {app.is_verified && (
-                  <span className="verified-badge" title="GitHub 官方所有权认证">
+                  <span className="verified-badge" title={t('app.verified_badge')}>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
                       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" fill="var(--brand-primary)" />
                       <path d="m9 12 2 2 4-4" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -223,7 +226,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                     alignItems: 'center',
                     color: favoriteIds?.has(app.id) ? '#eab308' : 'var(--text-tertiary)',
                   }}
-                  title={favoriteIds?.has(app.id) ? '取消收藏' : '添加至我的收藏'}
+                  title={favoriteIds?.has(app.id) ? t('app.fav_active') : t('app.fav_inactive')}
                 >
                   <Star
                     size={16}
@@ -240,23 +243,23 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                     e.stopPropagation();
                     onOpenDetail(app.id);
                   }}
-                  title="已安装 · 点击查看详情"
-                  aria-label={`${app.name} 已安装，点击查看详情`}
+                  title={t('app.installed_details', { name: app.name })}
+                  aria-label={t('app.installed_details', { name: app.name })}
                 >
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '4px' }}>
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
-                  <span>已安装</span>
+                  <span>{t('app.installed')}</span>
                 </button>
               ) : installingIds?.has(app.id) ? (
                 <button
                   className="btn-install"
                   disabled
                   style={{ padding: '6px 14px', opacity: 0.8, cursor: 'not-allowed' }}
-                  title="正在安装中..."
+                  title={t('app.installing_app', { name: app.name })}
                 >
                   <span className="spinner-icon" style={{ width: '10px', height: '10px', borderWidth: '1.5px', marginRight: '4px' }} />
-                  <span>安装中</span>
+                  <span>{t('app.installing')}</span>
                 </button>
               ) : (
                 <button
@@ -266,15 +269,15 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                     e.stopPropagation();
                     onQuickInstall(app.id);
                   }}
-                  title={`获取 ${app.name}`}
-                  aria-label={`获取 ${app.name}`}
+                  title={t('app.get_app', { name: app.name })}
+                  aria-label={t('app.get_app', { name: app.name })}
                 >
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '4px' }}>
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                     <polyline points="7 10 12 15 17 10" />
                     <line x1="12" y1="15" x2="12" y2="3" />
                   </svg>
-                  <span>获取</span>
+                  <span>{t('app.get')}</span>
                 </button>
               )}
             </div>

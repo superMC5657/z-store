@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Bookmark, Eye, Star, RotateCcw, Zap, BookmarkPlus } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import '../i18n';
 import { AppCard } from '../components/AppCard';
 import { AppSummary, OAuthUser, StarredSyncResult } from '../types';
 import { api } from '../services/api';
@@ -29,6 +31,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   onToggleFavorite,
   onToggleWatch,
 }) => {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'local' | 'watched' | 'starred'>('local');
   const [searchText, setSearchText] = useState('');
   const [githubUser, setGithubUser] = useState(oauthUser?.login || '');
@@ -102,7 +105,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
         }
       }
       if (failures.length > 0) {
-        setBatchError(`批量安装完成，${failures.length}/${toInstall.length} 个失败：${failures.join('；')}`);
+        setBatchError(t('favorites.batch_error', { failed: failures.length, total: toInstall.length, errors: failures.join('；') }));
       }
     } finally {
       setIsBatchInstalling(false);
@@ -120,7 +123,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
             onClick={() => setActiveTab('local')}
           >
             <Bookmark size={14} />
-            <span>本地收藏 ({favoriteIds.size})</span>
+            <span>{t('favorites.tab_local', { count: favoriteIds.size })}</span>
           </button>
           <button
             className={`btn-fluent ${activeTab === 'watched' ? 'btn-primary' : 'btn-secondary'}`}
@@ -128,7 +131,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
             onClick={() => setActiveTab('watched')}
           >
             <Eye size={14} />
-            <span>关注更新 ({watchedSet.size})</span>
+            <span>{t('favorites.tab_watched', { count: watchedSet.size })}</span>
           </button>
           <button
             className={`btn-fluent ${activeTab === 'starred' ? 'btn-primary' : 'btn-secondary'}`}
@@ -136,13 +139,13 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
             onClick={() => setActiveTab('starred')}
           >
             <Star size={14} />
-            <span>GitHub Star 同步</span>
+            <span>{t('favorites.tab_starred')}</span>
           </button>
         </div>
         {activeTab !== 'starred' && (
           <input
             type="text"
-            placeholder="搜索名称 / 别名 / owner/repo..."
+            placeholder={t('favorites.search_placeholder')}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             style={{
@@ -164,12 +167,12 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
           <div className="empty-state-card">
             <Bookmark size={44} strokeWidth={1.5} style={{ color: 'var(--text-tertiary)', marginBottom: '12px' }} />
             <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>
-              {searchText.trim() ? '没有匹配的收藏应用' : '收藏夹还是空的'}
+              {searchText.trim() ? t('favorites.no_match_fav') : t('favorites.empty_fav_title')}
             </h4>
             <p style={{ color: 'var(--text-tertiary)', fontSize: '13px', margin: 0 }}>
               {searchText.trim()
-                ? '换个关键词试试，或清空搜索框查看全部收藏。'
-                : '在应用卡片或详情页中点击星标收藏，常用利器一键集中收纳；或切换至「GitHub Starred 仓库同步」一键批量导入！'}
+                ? t('favorites.no_match_fav_desc')
+                : t('favorites.empty_fav_desc')}
             </p>
           </div>
         ) : (
@@ -195,12 +198,16 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
           <div className="empty-state-card">
             <Eye size={44} strokeWidth={1.5} style={{ color: 'var(--text-tertiary)', marginBottom: '12px' }} />
             <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>
-              {searchText.trim() ? '没有匹配的关注应用' : watchedSet.size > 0 ? '关注的应用暂不在当前清单中' : '还没有关注任何应用'}
+              {searchText.trim()
+                ? t('favorites.no_match_watch')
+                : watchedSet.size > 0
+                ? t('favorites.watch_not_in_catalog')
+                : t('favorites.empty_watch_title')}
             </h4>
             <p style={{ color: 'var(--text-tertiary)', fontSize: '13px', margin: 0 }}>
               {searchText.trim()
-                ? '换个关键词试试，或清空搜索框查看全部关注。'
-                : '在应用卡片或详情页点击眼睛图标关注，发布新版本时将在应用内第一时间提醒你。'}
+                ? t('favorites.no_match_watch_desc')
+                : t('favorites.empty_watch_desc')}
             </p>
           </div>
         ) : (
@@ -237,7 +244,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
                   <h4 style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>
-                    同步 GitHub Starred 开源项目
+                    {t('favorites.sync_starred_title')}
                   </h4>
                   {oauthUser?.login && (
                     <span
@@ -250,19 +257,19 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                         border: '1px solid var(--border-nav-active)',
                       }}
                     >
-                      已登录: @{oauthUser.login}
+                      {t('favorites.logged_in_as', { user: oauthUser.login })}
                     </span>
                   )}
                 </div>
                 <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>
-                  直接输入 GitHub 用户名，或使用已登录账号，自动扫描您已 Star 的开源软件并与 Z-Store 匹配接管安装。
+                  {t('favorites.sync_starred_desc')}
                 </p>
               </div>
 
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                 <input
                   type="text"
-                  placeholder="GitHub 用户名（如 torvalds）"
+                  placeholder={t('favorites.username_placeholder')}
                   value={githubUser}
                   onChange={(e) => setGithubUser(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleSyncStarred()}
@@ -284,14 +291,14 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                   onClick={handleSyncStarred}
                 >
                   <RotateCcw size={13} className={isSyncing ? 'icon-spin' : ''} />
-                  <span>{isSyncing ? '正在拉取...' : '立即同步'}</span>
+                  <span>{isSyncing ? t('favorites.syncing') : t('favorites.sync_now')}</span>
                 </button>
               </div>
             </div>
 
             {syncError && (
               <div style={{ marginTop: '12px', fontSize: '12.5px', color: '#f87171' }}>
-                同步异常: {syncError}
+                {t('favorites.sync_error', { error: syncError })}
               </div>
             )}
           </div>
@@ -313,8 +320,8 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
               >
                 <span style={{ fontSize: '13px', color: 'var(--brand-primary)', fontWeight: 500 }}>
                   {syncResult.total_starred === 0
-                    ? '该 GitHub 账号当前星标 (Starred) 仓库数量为 0'
-                    : `✓ 共扫描到 ${syncResult.total_starred} 个 Starred 仓库，其中 ${syncResult.catalog_matches.length} 个已收录于 Z-Store`}
+                    ? t('favorites.starred_zero')
+                    : t('favorites.starred_summary', { total: syncResult.total_starred, matched: syncResult.catalog_matches.length })}
                 </span>
 
                 {syncResult.catalog_matches.length > 0 && (
@@ -326,7 +333,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                       onClick={handleBatchInstallAll}
                     >
                       {isBatchInstalling ? <RotateCcw size={12} className="icon-spin" /> : <Zap size={12} />}
-                      <span>{isBatchInstalling ? '批量安装中...' : '一键批量装机'}</span>
+                      <span>{isBatchInstalling ? t('favorites.batch_installing') : t('favorites.batch_install_btn')}</span>
                     </button>
                     <button
                       className="btn-fluent btn-secondary"
@@ -334,7 +341,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                       onClick={handleAddAllToFavorites}
                     >
                       <BookmarkPlus size={12} />
-                      <span>全部纳入收藏</span>
+                      <span>{t('favorites.add_all_favorites')}</span>
                     </button>
                   </div>
                 )}
@@ -366,8 +373,8 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 <div className="empty-state-card" style={{ marginTop: '20px' }}>
                   <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-tertiary)' }}>
                     {syncResult.total_starred === 0
-                      ? '该账号在 GitHub 上尚未星标（Star）任何公开仓库。'
-                      : `您 Star 的 ${syncResult.total_starred} 个开源项目中暂未匹配到 Z-Store 已收录的应用。您可在主页搜索栏直接输入 owner/repo 实时检索并一键安装。`}
+                      ? t('favorites.starred_zero_desc')
+                      : t('favorites.starred_no_match_desc', { total: syncResult.total_starred })}
                   </p>
                 </div>
               )}
@@ -375,9 +382,9 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
           ) : (
             <div className="empty-state-card">
               <Star size={44} strokeWidth={1.5} style={{ color: 'var(--text-tertiary)', marginBottom: '12px' }} />
-              <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>尚未同步 Starred 仓库</h4>
+              <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>{t('favorites.not_synced_title')}</h4>
               <p style={{ color: 'var(--text-tertiary)', fontSize: '13px', margin: 0 }}>
-                在上方输入 GitHub 用户名并点击「立即同步」，一站式接管您的 GitHub 开源装机清单。
+                {t('favorites.not_synced_desc')}
               </p>
             </div>
           )}

@@ -18,7 +18,10 @@ import {
   Check,
   Database,
   Download,
+  Languages,
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import '../i18n';
 import { AppSettings, MirrorNodeStatus } from '../types';
 import { api } from '../services/api';
 import { ClientUpdateRow } from '../components/ClientUpdateRow';
@@ -54,6 +57,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   updateRulesCount,
   onOpenRules,
 }) => {
+  const { t } = useTranslation();
   const currentTheme = theme || settings.theme;
   const [proxyInput, setProxyInput] = useState<string>(() => {
     const act = settings.active_mirror;
@@ -121,11 +125,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     try {
       const res = await api.syncCatalog(true);
       setSyncFeedback(res.message);
-      triggerChangeFeedback('catalog_sync', '✓ 开源软件收录库已同步最新');
+      triggerChangeFeedback('catalog_sync', t('settings.catalog_sync_success'));
       setTimeout(() => setSyncFeedback(null), 5000);
       window.dispatchEvent(new CustomEvent('zstore:catalog-synced'));
     } catch (e) {
-      setSyncFeedback(`同步失败: ${String(e)}`);
+      setSyncFeedback(t('settings.catalog_sync_failed', { error: String(e) }));
     } finally {
       setIsSyncingCatalog(false);
     }
@@ -152,14 +156,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         setProxyTestResult({
           success: true,
           latency_ms: res.latency_ms,
-          text: `${res.latency_ms} ms (连接正常)`,
+          text: `${res.latency_ms} ms (${t('settings.test_latency_ok')})`,
           badge: '',
         });
       } else {
         setProxyTestResult({
           success: false,
           latency_ms: res.latency_ms,
-          text: res.message || '连接超时 / 不可达',
+          text: res.message || t('settings.test_latency_timeout'),
           badge: '',
         });
       }
@@ -167,7 +171,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       setProxyTestResult({
         success: false,
         latency_ms: 9999,
-        text: '测速失败: ' + String(e),
+        text: t('settings.test_failed', { error: String(e) }),
         badge: '',
       });
     } finally {
@@ -180,8 +184,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     if (!trimmed || trimmed === 'direct') {
       await onSelectMirror('direct');
       onUpdateSetting('active_mirror', 'direct');
-      setProxySavedFeedback('✅ 已切换为 GitHub 官方直连模式');
-      triggerChangeFeedback('proxy', '✓ 已切换为 GitHub 官方直连');
+      setProxySavedFeedback(t('settings.proxy_saved_direct'));
+      triggerChangeFeedback('proxy', '✓ ' + t('settings.proxy_active_direct'));
     } else {
       let finalUrl = trimmed;
       if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
@@ -190,55 +194,60 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       }
       await onSelectMirror(finalUrl);
       onUpdateSetting('active_mirror', finalUrl);
-      setProxySavedFeedback(`✅ 已成功启用下载加速代理: ${finalUrl}`);
-      triggerChangeFeedback('proxy', '✓ 加速代理已配置生效');
+      setProxySavedFeedback(t('settings.proxy_saved_custom', { url: finalUrl }));
+      triggerChangeFeedback('proxy', '✓ ' + t('settings.save_proxy'));
     }
     setTimeout(() => setProxySavedFeedback(null), 3500);
   };
 
 
 
-  const handleSelectTheme = (t: 'light' | 'dark' | 'system') => {
+  const handleSelectTheme = (themeMode: 'light' | 'dark' | 'system') => {
     const labelMap: Record<string, string> = {
-      light: '明亮模式',
-      dark: '暗黑模式',
-      system: '跟随系统',
+      light: t('settings.theme_light'),
+      dark: t('settings.theme_dark'),
+      system: t('settings.theme_system'),
     };
-    triggerChangeFeedback('theme', `✓ 已实时切换为${labelMap[t]}`);
-    onSetTheme(t);
+    triggerChangeFeedback('theme', `✓ ${labelMap[themeMode]}`);
+    onSetTheme(themeMode);
+  };
+
+  const handleSelectLanguage = (lng: 'zh-CN' | 'en-US') => {
+    triggerChangeFeedback('language', lng === 'zh-CN' ? '✓ 简体中文' : '✓ English');
+    onUpdateSetting('language', lng);
   };
 
   const handleSelectUiScale = (scale: '90' | '100' | '110' | '125') => {
-    triggerChangeFeedback('ui_scale', `✓ 界面缩放已设为 ${scale}%`);
+    triggerChangeFeedback('ui_scale', `✓ ${scale}%`);
     onUpdateSetting('ui_scale', scale);
   };
 
   const handleSelectFontSize = (id: string, label: string) => {
-    triggerChangeFeedback('font_size', `✓ 全局排版字号已设为 ${label}`);
+    triggerChangeFeedback('font_size', `✓ ${label}`);
     onUpdateSetting('font_size', id as any);
   };
 
 
   const handleSelectUpdateFrequency = (id: string, label: string) => {
-    triggerChangeFeedback('update_frequency', `✓ 自动检查更新已设为: ${label}`);
+    triggerChangeFeedback('update_frequency', `✓ ${label}`);
     onUpdateSetting('update_frequency', id as any);
   };
 
   // FR-6.2: 关注更新的应用内提醒频率（每次启动 / 每天），经 user_settings 持久化
   const handleSelectWatchFrequency = (id: 'startup' | 'daily', label: string) => {
-    triggerChangeFeedback('watch_notify_frequency', `✓ 关注提醒频率已设为: ${label}`);
+    triggerChangeFeedback('watch_notify_frequency', `✓ ${label}`);
     onUpdateSetting('watch_notify_frequency', id);
   };
 
 
   const handleExportJson = () => {
     onExportAppsJson();
-    triggerChangeFeedback('export', '✓ 已导出软件资产 JSON 备份文件');
+    triggerChangeFeedback('export', '✓ ' + t('settings.export_apps'));
   };
 
   const handleExecuteResetSettings = async () => {
     setIsResetWave(true);
-    triggerChangeFeedback('reset', '✓ 所有设置已恢复出厂默认状态');
+    triggerChangeFeedback('reset', '✓ ' + t('settings.reset_all_title'));
     await onResetSettings();
     setIsResetConfirming(false);
     setTimeout(() => setIsResetWave(false), 1400);
@@ -258,7 +267,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     onUpdateSetting('catalog_source_url', pendingCatalogUrl);
     setIsCatalogSourceConfirming(false);
     setCatalogUrlSaved(true);
-    triggerChangeFeedback('catalog_source', '✓ 收录清单源已保存更新');
+    triggerChangeFeedback('catalog_source', '✓ ' + t('settings.catalog_sync_title'));
     setTimeout(() => setCatalogUrlSaved(false), 2500);
   };
 
@@ -267,7 +276,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       <div className="section-header">
         <h3 className="section-title">
           <Settings size={18} />
-          <span>系统设置</span>
+          <span>{t('settings.title')}</span>
         </h3>
       </div>
 
@@ -275,18 +284,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       <div className={`settings-group ${isResetWave ? 'reset-wave-0' : ''}`}>
         <div className="settings-group-title">
           <Monitor size={15} />
-          <span>外观</span>
+          <span>{t('settings.appearance')}</span>
         </div>
 
         <div className={`settings-row ${highlightRow === 'theme' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 600 }}>色彩主题模式</span>
+              <span style={{ fontWeight: 600 }}>{t('settings.theme_mode')}</span>
               {activeNotice?.key === 'theme' && (
                 <span className="setting-applied-badge">{activeNotice.text}</span>
               )}
             </div>
-            <span className="settings-row-desc">明暗外观，可跟随系统</span>
+            <span className="settings-row-desc">{t('settings.theme_desc')}</span>
           </div>
           <div className="segmented-group">
             <button
@@ -295,7 +304,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
             >
               <Sun size={13} />
-              <span>明亮模式</span>
+              <span>{t('settings.theme_light')}</span>
             </button>
             <button
               className={`segmented-item ${currentTheme === 'dark' ? 'active' : ''}`}
@@ -303,7 +312,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
             >
               <Moon size={13} />
-              <span>暗黑模式</span>
+              <span>{t('settings.theme_dark')}</span>
             </button>
             <button
               className={`segmented-item ${currentTheme === 'system' ? 'active' : ''}`}
@@ -311,7 +320,37 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
             >
               <Laptop size={13} />
-              <span>跟随系统</span>
+              <span>{t('settings.theme_system')}</span>
+            </button>
+          </div>
+        </div>
+
+        <div className={`settings-row ${highlightRow === 'language' ? 'row-highlight' : ''}`}>
+          <div className="settings-row-info">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontWeight: 600 }}>{t('settings.language_title')}</span>
+              {activeNotice?.key === 'language' && (
+                <span className="setting-applied-badge">{activeNotice.text}</span>
+              )}
+            </div>
+            <span className="settings-row-desc">{t('settings.language_desc')}</span>
+          </div>
+          <div className="segmented-group">
+            <button
+              className={`segmented-item ${settings.language === 'zh-CN' ? 'active' : ''}`}
+              onClick={() => handleSelectLanguage('zh-CN')}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              <Languages size={13} />
+              <span>简体中文</span>
+            </button>
+            <button
+              className={`segmented-item ${settings.language === 'en-US' ? 'active' : ''}`}
+              onClick={() => handleSelectLanguage('en-US')}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              <Globe size={13} />
+              <span>English</span>
             </button>
           </div>
         </div>
@@ -319,12 +358,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <div className={`settings-row ${highlightRow === 'ui_scale' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 600 }}>界面缩放</span>
+              <span style={{ fontWeight: 600 }}>{t('settings.ui_scale')}</span>
               {activeNotice?.key === 'ui_scale' && (
                 <span className="setting-applied-badge">{activeNotice.text}</span>
               )}
             </div>
-            <span className="settings-row-desc">自适应屏幕显示比例</span>
+            <span className="settings-row-desc">{t('settings.ui_scale_desc')}</span>
           </div>
           <div className="segmented-group">
             {(['90', '100', '110', '125'] as const).map((scale) => (
@@ -333,7 +372,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 className={`segmented-item ${settings.ui_scale === scale ? 'active' : ''}`}
                 onClick={() => handleSelectUiScale(scale)}
               >
-                {scale}% {scale === '100' ? '(默认)' : ''}
+                {scale}% {scale === '100' ? t('settings.default_tag') : ''}
               </button>
             ))}
           </div>
@@ -342,17 +381,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <div className={`settings-row ${highlightRow === 'font_size' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 600 }}>字体大小</span>
+              <span style={{ fontWeight: 600 }}>{t('settings.font_size')}</span>
               {activeNotice?.key === 'font_size' && (
                 <span className="setting-applied-badge">{activeNotice.text}</span>
               )}
             </div>
-            <span className="settings-row-desc">调整全局显示字号</span>
+            <span className="settings-row-desc">{t('settings.font_size_desc')}</span>
           </div>
           <div className="segmented-group">
             {[
               { id: '12', label: '12px' },
-              { id: '14', label: '14px (默认)' },
+              { id: '14', label: `14px ${t('settings.default_tag')}` },
               { id: '16', label: '16px' },
               { id: '18', label: '18px' },
               { id: '20', label: '20px' },
@@ -379,27 +418,27 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       <div className={`settings-group ${isResetWave ? 'reset-wave-1' : ''}`}>
         <div className="settings-group-title">
           <RotateCcw size={15} />
-          <span>更新与提醒</span>
+          <span>{t('settings.updates_and_notifs')}</span>
         </div>
 
         <div className={`settings-row ${highlightRow === 'update_frequency' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 600 }}>自动检查更新频率</span>
+              <span style={{ fontWeight: 600 }}>{t('settings.update_frequency')}</span>
               {activeNotice?.key === 'update_frequency' && (
                 <span className="setting-applied-badge">{activeNotice.text}</span>
               )}
             </div>
-            <span className="settings-row-desc">定期检查已安装软件的更新</span>
+            <span className="settings-row-desc">{t('settings.update_freq_desc')}</span>
           </div>
           <div className="segmented-group">
             {(
               [
-                { id: 'startup', label: '启动时检测 (推荐)' },
+                { id: 'startup', label: t('settings.freq_startup') },
                 // P2-6 产品决策：每日轮询尚未实现（无调度器），该选项置灰禁用，
                 // 仅保留启动时检测与手动检查两个可用入口。
-                { id: 'daily', label: '每 24 小时轮询', disabled: true, hint: '即将推出' },
-                { id: 'manual', label: '仅手动检查' },
+                { id: 'daily', label: t('settings.freq_daily'), disabled: true, hint: t('settings.coming_soon') },
+                { id: 'manual', label: t('settings.freq_manual') },
               ] as { id: string; label: string; disabled?: boolean; hint?: string }[]
             ).map((u) => (
               <button
@@ -411,7 +450,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 onClick={() => handleSelectUpdateFrequency(u.id, u.label)}
               >
                 {u.label}
-                {u.disabled && u.hint ? `（${u.hint}）` : ''}
+                {u.disabled && u.hint ? ` (${u.hint})` : ''}
               </button>
             ))}
           </div>
@@ -422,17 +461,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <div className={`settings-row ${highlightRow === 'watch_notify_frequency' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 600 }}>关注应用提醒频率</span>
+              <span style={{ fontWeight: 600 }}>{t('settings.watch_notify_frequency')}</span>
               {activeNotice?.key === 'watch_notify_frequency' && (
                 <span className="setting-applied-badge">{activeNotice.text}</span>
               )}
             </div>
-            <span className="settings-row-desc">关注应用发布新版本时的提醒频率</span>
+            <span className="settings-row-desc">{t('settings.watch_notify_desc')}</span>
           </div>
           <div className="segmented-group">
             {[
-              { id: 'startup', label: '每次启动检查' },
-              { id: 'daily', label: '每天汇总一次' },
+              { id: 'startup', label: t('settings.watch_startup') },
+              { id: 'daily', label: t('settings.watch_daily') },
             ].map((o) => (
               <button
                 key={o.id}
@@ -447,11 +486,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
         <div className="settings-row" style={{ alignItems: 'center' }}>
           <div className="settings-row-info">
-            <span style={{ fontWeight: 600 }}>版本锁定与隐藏规则</span>
+            <span style={{ fontWeight: 600 }}>{t('settings.rules_title')}</span>
             <span className="settings-row-desc">
               {updateRulesCount > 0
-                ? `已生效 ${updateRulesCount} 条规则`
-                : '可在应用卡片菜单中配置跳过或锁定版本'}
+                ? t('settings.rules_desc_active', { count: updateRulesCount })
+                : t('settings.rules_desc_empty')}
             </span>
           </div>
           <button
@@ -461,7 +500,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             style={{ fontSize: '12px', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}
           >
             <Shield size={13} />
-            <span>规则</span>
+            <span>{t('settings.rules_btn')}</span>
             {updateRulesCount > 0 && (
               <span
                 style={{
@@ -484,7 +523,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       <div className={`settings-group ${isResetWave ? 'reset-wave-2' : ''}`}>
         <div className="settings-group-title">
           <Folder size={15} />
-          <span>存储与下载</span>
+          <span>{t('settings.storage_and_download')}</span>
         </div>
 
         <div
@@ -502,13 +541,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           >
             <div className="settings-row-info">
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontWeight: 600 }}>安装包下载位置</span>
+                <span style={{ fontWeight: 600 }}>{t('settings.download_dir')}</span>
                 {activeNotice?.key === 'download_dir' && (
                   <span className="setting-applied-badge">{activeNotice.text}</span>
                 )}
               </div>
               <span className="settings-row-desc">
-                安装包默认下载保存位置
+                {t('settings.download_dir_desc')}
               </span>
             </div>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -518,10 +557,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
                 onClick={async () => {
                   try {
-                    const picked = await api.selectFolder(settings.download_dir, '选择安装包默认下载目录');
+                    const picked = await api.selectFolder(settings.download_dir, t('settings.select_download_dir'));
                     if (picked) {
                       onUpdateSetting('download_dir', picked);
-                      triggerChangeFeedback('download_dir', `✓ 下载路径已设置为: ${picked}`);
+                      triggerChangeFeedback('download_dir', '✓ ' + t('settings.download_dir'));
                     }
                   } catch {
                     /* 用户取消了文件夹选择器 */
@@ -529,7 +568,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 }}
               >
                 <FolderOpen size={13} />
-                <span>浏览选择...</span>
+                <span>{t('settings.browse')}</span>
               </button>
               <button
                 type="button"
@@ -537,11 +576,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 style={{ fontSize: '12px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
                 onClick={() => {
                   onUpdateSetting('download_dir', '~/Downloads');
-                  triggerChangeFeedback('download_dir', '✓ 已恢复默认位置 ~/Downloads');
+                  triggerChangeFeedback('download_dir', '✓ ' + t('settings.reset_default'));
                 }}
               >
                 <RotateCcw size={12} />
-                <span>恢复默认</span>
+                <span>{t('settings.reset_default')}</span>
               </button>
             </div>
           </div>
@@ -572,13 +611,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           >
             <div className="settings-row-info">
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontWeight: 600 }}>便携版解压目录</span>
+                <span style={{ fontWeight: 600 }}>{t('settings.portable_dir')}</span>
                 {activeNotice?.key === 'portable_dir' && (
                   <span className="setting-applied-badge">{activeNotice.text}</span>
                 )}
               </div>
               <span className="settings-row-desc">
-                免安装绿色软件解压根目录
+                {t('settings.portable_dir_desc')}
               </span>
             </div>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -588,10 +627,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
                 onClick={async () => {
                   try {
-                    const picked = await api.selectFolder(settings.portable_dir, '选择便携版解压目录');
+                    const picked = await api.selectFolder(settings.portable_dir, t('settings.select_portable_dir'));
                     if (picked) {
                       onUpdateSetting('portable_dir', picked);
-                      triggerChangeFeedback('portable_dir', `✓ 便携版解压路径已设置为: ${picked}`);
+                      triggerChangeFeedback('portable_dir', '✓ ' + t('settings.portable_dir'));
                     }
                   } catch {
                     /* 用户取消了文件夹选择器 */
@@ -599,7 +638,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 }}
               >
                 <FolderOpen size={13} />
-                <span>浏览选择...</span>
+                <span>{t('settings.browse')}</span>
               </button>
               <button
                 type="button"
@@ -608,11 +647,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 onClick={() => {
                   const defaultPortable = '%LOCALAPPDATA%\\Programs\\z-store-apps';
                   onUpdateSetting('portable_dir', defaultPortable);
-                  triggerChangeFeedback('portable_dir', '✓ 已恢复默认便携目录');
+                  triggerChangeFeedback('portable_dir', '✓ ' + t('settings.reset_default'));
                 }}
               >
                 <RotateCcw size={12} />
-                <span>恢复默认</span>
+                <span>{t('settings.reset_default')}</span>
               </button>
             </div>
           </div>
@@ -633,7 +672,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       <div className={`settings-group ${isResetWave ? 'reset-wave-2' : ''}`}>
         <div className="settings-group-title">
           <User size={15} />
-          <span>账号与配额</span>
+          <span>{t('settings.account')}</span>
         </div>
 
         <div id="settings-account">
@@ -645,20 +684,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       <div className={`settings-group ${isResetWave ? 'reset-wave-3' : ''}`}>
         <div className="settings-group-title">
           <Globe size={15} />
-          <span>网络与收录</span>
+          <span>{t('settings.network_and_catalog')}</span>
         </div>
 
         <div className={`settings-row ${highlightRow === 'proxy' ? 'row-highlight' : ''}`} style={{ flexDirection: 'column', alignItems: 'stretch', gap: '12px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div className="settings-row-info">
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontWeight: 600 }}>GitHub 下载加速代理</span>
+                <span style={{ fontWeight: 600 }}>{t('settings.proxy_title')}</span>
                 {activeNotice?.key === 'proxy' && (
                   <span className="setting-applied-badge">{activeNotice.text}</span>
                 )}
               </div>
               <span className="settings-row-desc">
-                留空为官方直连，可配置加速镜像地址
+                {t('settings.proxy_desc')}
               </span>
             </div>
             {proxyTestResult && (
@@ -686,7 +725,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               style={{ flex: 1, fontFamily: 'monospace', fontSize: '13px' }}
               value={proxyInput}
               onChange={(e) => setProxyInput(e.target.value)}
-              placeholder="留空为 GitHub 官方直连，或输入加速前缀如 https://gh-proxy.com"
+              placeholder={t('settings.proxy_placeholder')}
             />
             <button
               className="btn-fluent btn-secondary"
@@ -695,14 +734,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               disabled={isTestingProxy}
             >
               {isTestingProxy ? <RotateCcw size={12} className="icon-spin" /> : <Zap size={12} />}
-              <span>{isTestingProxy ? '测速中...' : '测速'}</span>
+              <span>{isTestingProxy ? t('settings.testing_speed') : t('settings.test_speed')}</span>
             </button>
             <button
               className="btn-fluent btn-primary"
               style={{ fontSize: '12px', padding: '6px 16px', whiteSpace: 'nowrap' }}
               onClick={handleSaveProxy}
             >
-              保存
+              {t('settings.save_proxy')}
             </button>
           </div>
 
@@ -713,16 +752,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </span>
             ) : (
               <span style={{ fontSize: '12px', color: 'var(--text-muted, #94a3b8)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span>当前生效:</span>
+                <span>{t('settings.currently_active')}</span>
                 {(!proxyInput.trim() || proxyInput.trim() === 'direct') ? (
                   <>
                     <span className="status-dot status-dot-success" />
-                    <span>GitHub 官方直连模式</span>
+                    <span>{t('settings.proxy_active_direct')}</span>
                   </>
                 ) : (
                   <>
                     <Zap size={12} style={{ color: 'var(--brand-primary)' }} />
-                    <span>自定义加速代理: {proxyInput.trim()}</span>
+                    <span>{t('settings.proxy_active_custom', { url: proxyInput.trim() })}</span>
                   </>
                 )}
               </span>
@@ -736,13 +775,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   setProxyInput('');
                   await onSelectMirror('direct');
                   onUpdateSetting('active_mirror', 'direct');
-                  setProxySavedFeedback('已恢复 GitHub 官方直连');
-                  triggerChangeFeedback('proxy', '✓ 已切换为 GitHub 官方直连');
+                  setProxySavedFeedback(t('settings.proxy_saved_direct'));
+                  triggerChangeFeedback('proxy', '✓ ' + t('settings.proxy_active_direct'));
                   setTimeout(() => setProxySavedFeedback(null), 3500);
                 }}
               >
                 <RotateCcw size={10} />
-                <span>恢复直连</span>
+                <span>{t('settings.restore_direct')}</span>
               </button>
             )}
           </div>
@@ -752,13 +791,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
             <div className="settings-row-info">
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontWeight: 600 }}>收录清单同步</span>
+                <span style={{ fontWeight: 600 }}>{t('settings.catalog_sync_title')}</span>
                 {(activeNotice?.key === 'catalog_source' || activeNotice?.key === 'catalog_sync') && (
                   <span className="setting-applied-badge">{activeNotice.text}</span>
                 )}
               </div>
               <span className="settings-row-desc">
-                从开源清单仓库同步最新收录数据
+                {t('settings.catalog_sync_desc')}
               </span>
             </div>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -769,7 +808,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 onClick={() => setShowAdvancedSource(!showAdvancedSource)}
               >
                 {showAdvancedSource ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                <span>{showAdvancedSource ? '收起' : '自定义源'}</span>
+                <span>{showAdvancedSource ? t('settings.catalog_collapse_btn') : t('settings.catalog_custom_btn')}</span>
               </button>
               <button
                 type="button"
@@ -779,7 +818,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
               >
                 {isSyncingCatalog ? <RotateCcw size={12} className="icon-spin" /> : <RefreshCw size={12} />}
-                <span>{isSyncingCatalog ? '同步中...' : '立即同步'}</span>
+                <span>{isSyncingCatalog ? t('settings.catalog_syncing') : t('settings.catalog_sync_now')}</span>
               </button>
             </div>
           </div>
@@ -816,7 +855,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     style={{ fontSize: '12px', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: '4px', background: '#ef4444', color: '#fff', fontWeight: 600, whiteSpace: 'nowrap' }}
                     onClick={handleSaveCatalogSource}
                   >
-                    <span>确认切换</span>
+                    <span>{t('settings.catalog_confirm_switch')}</span>
                   </button>
                   <button
                     type="button"
@@ -824,7 +863,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     style={{ fontSize: '12px', padding: '5px 12px', whiteSpace: 'nowrap' }}
                     onClick={() => setIsCatalogSourceConfirming(false)}
                   >
-                    <span>取消</span>
+                    <span>{t('common.cancel')}</span>
                   </button>
                 </>
               ) : (
@@ -835,7 +874,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   onClick={handleSaveCatalogSource}
                 >
                   {catalogUrlSaved && <Check size={12} />}
-                  <span>{catalogUrlSaved ? '已保存' : '保存源'}</span>
+                  <span>{catalogUrlSaved ? t('common.save') : t('settings.catalog_save_btn')}</span>
                 </button>
               )}
               <button
@@ -849,7 +888,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     onUpdateSetting('catalog_source_url', defUrl);
                     setIsCatalogSourceConfirming(false);
                     setCatalogUrlSaved(true);
-                    triggerChangeFeedback('catalog_source', '✓ 已恢复官方默认收录源');
+                    triggerChangeFeedback('catalog_source', t('settings.catalog_source_restored'));
                     setTimeout(() => setCatalogUrlSaved(false), 2500);
                   } catch {
                     /* 重置静默失败 */
@@ -857,13 +896,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 }}
               >
                 <RotateCcw size={12} />
-                <span>恢复官方默认</span>
+                <span>{t('settings.reset_default')}</span>
               </button>
             </div>
           )}
           {isCatalogSourceConfirming && (
             <span style={{ fontSize: '12px', color: '#ef4444', fontWeight: 600 }}>
-              ⚠️ 自定义源将替换官方可信收录目录，仅在信任该来源时确认切换；恶意源可伪造应用清单。
+              {t('settings.catalog_warn_custom')}
             </span>
           )}
 
@@ -879,21 +918,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       <div className={`settings-group ${isResetWave ? 'reset-wave-4' : ''}`}>
         <div className="settings-group-title">
           <Database size={15} />
-          <span>数据备份</span>
+          <span>{t('settings.data_backup')}</span>
         </div>
 
         <div className={`settings-row ${highlightRow === 'export' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 600 }}>已管理应用导出</span>
+              <span style={{ fontWeight: 600 }}>{t('settings.export_apps')}</span>
               {activeNotice?.key === 'export' && (
                 <span className="setting-applied-badge">{activeNotice.text}</span>
               )}
             </div>
             <span className="settings-row-desc">
               {typeof installedCount === 'number' && installedCount > 0
-                ? `已管理 ${installedCount} 款软件，可导出为 JSON 备份`
-                : '导出已安装软件清单为 JSON 备份文件'}
+                ? t('settings.export_apps_count', { count: installedCount })
+                : t('settings.export_apps_desc')}
             </span>
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
@@ -904,7 +943,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               disabled={installedCount === 0}
             >
               <Download size={13} />
-              <span>导出清单</span>
+              <span>{t('settings.export_btn')}</span>
             </button>
           </div>
         </div>
@@ -914,16 +953,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <div className={`settings-row ${highlightRow === 'reset' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 600 }}>恢复默认设置</span>
+              <span style={{ fontWeight: 600 }}>{t('settings.reset_all_title')}</span>
               {activeNotice?.key === 'reset' && (
                 <span className="setting-applied-badge">{activeNotice.text}</span>
               )}
             </div>
-            <span className="settings-row-desc">将所有设置恢复为默认值</span>
+            <span className="settings-row-desc">{t('settings.reset_all_desc')}</span>
           </div>
           {isResetConfirming ? (
             <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-              <span style={{ fontSize: '12px', color: '#ef4444', fontWeight: 600 }}>确定重置所有设置？</span>
+              <span style={{ fontSize: '12px', color: '#ef4444', fontWeight: 600 }}>{t('settings.reset_confirm_btn')}？</span>
               <button
                 className="btn-fluent"
                 style={{
@@ -935,14 +974,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 }}
                 onClick={handleExecuteResetSettings}
               >
-                确认重置
+                {t('common.confirm')}
               </button>
               <button
                 className="btn-fluent btn-secondary"
                 style={{ padding: '6px 10px', fontSize: '12px' }}
                 onClick={() => setIsResetConfirming(false)}
               >
-                取消
+                {t('common.cancel')}
               </button>
             </div>
           ) : (
@@ -952,7 +991,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               onClick={() => setIsResetConfirming(true)}
             >
               <RotateCcw size={13} />
-              <span>恢复默认</span>
+              <span>{t('settings.reset_default')}</span>
             </button>
           )}
         </div>

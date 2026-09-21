@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Search, Download, RotateCcw, CheckCircle2, Sparkles, AlertTriangle } from 'lucide-react';
 import type { DownloadEvent, Update } from '@tauri-apps/plugin-updater';
+import { useTranslation } from 'react-i18next';
 import { notifyToast } from '../utils/notify';
 
 type UpdatePhase =
@@ -16,6 +17,7 @@ const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in win
 
 // P3-4 契约：客户端自更新面板（check/downloadAndInstall，配置见 tauri.conf.json plugins.updater，类型见 src/types/index.ts ClientUpdate*)。
 export const ClientUpdateRow: React.FC = () => {
+  const { t } = useTranslation();
   const [phase, setPhase] = useState<UpdatePhase>({ kind: 'idle' });
   const [updateHandle, setUpdateHandle] = useState<Update | null>(null);
   const [manualRestartHint, setManualRestartHint] = useState(false);
@@ -27,7 +29,7 @@ export const ClientUpdateRow: React.FC = () => {
 
   const handleCheck = async () => {
     if (!isTauriEnv) {
-      fail('自更新仅在 Tauri 桌面客户端内可用，浏览器预览模式请直接下载安装包');
+      fail(t('client_update.tauri_only'));
       return;
     }
     setPhase({ kind: 'checking' });
@@ -37,7 +39,7 @@ export const ClientUpdateRow: React.FC = () => {
       const update = await check();
       if (!update) {
         setPhase({ kind: 'latest', currentVersion: '' });
-        notifyToast('当前已是最新版本', 'success');
+        notifyToast(t('client_update.is_latest_toast'), 'success');
         return;
       }
       setUpdateHandle(update);
@@ -48,7 +50,7 @@ export const ClientUpdateRow: React.FC = () => {
         notes: update.body || '',
       });
     } catch (e) {
-      fail(`检查客户端更新失败: ${String(e)}`);
+      fail(t('client_update.check_failed', { error: String(e) }));
     }
   };
 
@@ -70,9 +72,9 @@ export const ClientUpdateRow: React.FC = () => {
         setPhase({ kind: 'downloading', version, percent });
       });
       setPhase({ kind: 'ready', version });
-      notifyToast(`新版本 ${version} 已安装就绪，重启后生效`, 'success');
+      notifyToast(t('client_update.ready_toast', { version }), 'success');
     } catch (e) {
-      fail(`下载安装更新失败: ${String(e)}`);
+      fail(t('client_update.download_failed', { error: String(e) }));
     } finally {
       try {
         await updateHandle.close();
@@ -91,7 +93,7 @@ export const ClientUpdateRow: React.FC = () => {
     } catch {
       // 未注册 plugin-process（本仓库未引入该依赖）：提示用户手动重启
       setManualRestartHint(true);
-      notifyToast('更新已就绪，请手动重启客户端以完成更新', 'warning');
+      notifyToast(t('client_update.manual_restart_toast'), 'warning');
     }
   };
 
@@ -101,35 +103,35 @@ export const ClientUpdateRow: React.FC = () => {
         return (
           <button className="btn-fluent btn-secondary" disabled style={{ fontSize: '12px', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <RotateCcw size={13} className="icon-spin" />
-            <span>正在检查...</span>
+            <span>{t('client_update.checking')}</span>
           </button>
         );
       case 'available':
         return (
           <button className="btn-fluent btn-primary" onClick={handleDownloadAndInstall} style={{ fontSize: '12px', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <Download size={13} />
-            <span>下载并安装 {phase.version}</span>
+            <span>{t('client_update.download_and_install', { version: phase.version })}</span>
           </button>
         );
       case 'downloading':
         return (
           <button className="btn-fluent btn-secondary" disabled style={{ fontSize: '12px', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <RotateCcw size={13} className="icon-spin" />
-            <span>{phase.percent !== null ? `下载中 ${phase.percent}%` : '下载中...'}</span>
+            <span>{phase.percent !== null ? t('client_update.downloading_percent', { percent: phase.percent }) : t('client_update.downloading_btn')}</span>
           </button>
         );
       case 'ready':
         return (
           <button className="btn-fluent btn-primary" onClick={handleRestart} style={{ fontSize: '12px', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <RotateCcw size={13} />
-            <span>立即重启生效</span>
+            <span>{t('client_update.restart_btn')}</span>
           </button>
         );
       default:
         return (
           <button className="btn-fluent btn-primary" onClick={handleCheck} style={{ fontSize: '12px', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <Search size={13} />
-            <span>检查更新</span>
+            <span>{t('client_update.check_btn')}</span>
           </button>
         );
     }
@@ -138,14 +140,14 @@ export const ClientUpdateRow: React.FC = () => {
   const renderStatus = () => {
     switch (phase.kind) {
       case 'idle':
-        return <span className="settings-row-desc">检查新版本</span>;
+        return <span className="settings-row-desc">{t('client_update.check_desc')}</span>;
       case 'checking':
-        return <span className="settings-row-desc">正在检查...</span>;
+        return <span className="settings-row-desc">{t('client_update.checking')}</span>;
       case 'latest':
         return (
           <span style={{ fontSize: '12px', color: 'var(--status-success)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
             <CheckCircle2 size={13} />
-            <span>当前客户端已是最新版本</span>
+            <span>{t('client_update.latest')}</span>
           </span>
         );
       case 'available':
@@ -153,7 +155,8 @@ export const ClientUpdateRow: React.FC = () => {
           <span style={{ fontSize: '12px', color: 'var(--brand-primary)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
             <Sparkles size={13} />
             <span>
-              发现新版本 {phase.version}{phase.currentVersion ? `（当前 ${phase.currentVersion}）` : ''}
+              {t('client_update.available', { version: phase.version })}
+              {phase.currentVersion ? ` (${t('client_update.current_version', { version: phase.currentVersion })})` : ''}
               {phase.notes ? ` — ${phase.notes.slice(0, 120)}` : ''}
             </span>
           </span>
@@ -162,7 +165,7 @@ export const ClientUpdateRow: React.FC = () => {
         return (
           <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
             <RotateCcw size={13} className="icon-spin" />
-            <span>正在下载安装包{phase.percent !== null ? `（${phase.percent}%）` : ''}</span>
+            <span>{t('client_update.downloading_package', { percent: phase.percent !== null ? ` (${phase.percent}%)` : '' })}</span>
           </span>
         );
       case 'ready':
@@ -170,8 +173,8 @@ export const ClientUpdateRow: React.FC = () => {
           <span style={{ fontSize: '12px', color: 'var(--status-success)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
             <CheckCircle2 size={13} />
             <span>
-              新版本 {phase.version} 已安装就绪
-              {manualRestartHint ? '，请手动重启客户端以完成更新' : '，点击右侧按钮重启生效'}
+              {t('client_update.ready', { version: phase.version })}
+              {manualRestartHint ? t('client_update.manual_restart_hint') : t('client_update.click_restart_hint')}
             </span>
           </span>
         );
@@ -188,7 +191,7 @@ export const ClientUpdateRow: React.FC = () => {
   return (
     <div className="settings-row">
       <div className="settings-row-info">
-        <span style={{ fontWeight: 600 }}>客户端自更新</span>
+        <span style={{ fontWeight: 600 }}>{t('client_update.title')}</span>
         {renderStatus()}
       </div>
       {renderAction()}

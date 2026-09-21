@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import '../i18n';
 import { OAuthUser, ViewType } from '../types';
 import { api } from '../services/api';
 import { GitHubIcon, PlatformIcon } from './icons/PlatformIcons';
@@ -19,10 +21,19 @@ interface SidebarProps {
   platformCounts?: Record<PlatformId, number>;
 }
 
+interface NavGroupConfig {
+  id: 'discovery' | 'assets' | 'platforms' | 'system';
+  i18nKey:
+    | 'nav.groups.discovery'
+    | 'nav.groups.assets'
+    | 'nav.groups.platforms'
+    | 'nav.groups.system';
+}
+
 interface NavItemConfig {
   id: ViewType;
   label: string;
-  group: string;
+  groupId: 'discovery' | 'assets' | 'system';
   icon: React.ReactNode;
   badge?: number | boolean;
 }
@@ -35,7 +46,12 @@ export const PLATFORM_FILTER_ITEMS: ReadonlyArray<{ id: PlatformId; label: strin
   PLATFORM_IDS.map((id) => ({ id, label: PLATFORM_META[id].label }));
 
 /** 渲染次序。「设备平台」分组位于「偏好与系统」之上。 */
-const NAV_GROUP_ORDER = ['发现与探索', '应用资产', '设备平台', '偏好与系统'] as const;
+const NAV_GROUPS: ReadonlyArray<NavGroupConfig> = [
+  { id: 'discovery', i18nKey: 'nav.groups.discovery' },
+  { id: 'assets', i18nKey: 'nav.groups.assets' },
+  { id: 'platforms', i18nKey: 'nav.groups.platforms' },
+  { id: 'system', i18nKey: 'nav.groups.system' },
+];
 
 export const Sidebar: React.FC<SidebarProps> = ({
   currentView,
@@ -68,12 +84,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       window.removeEventListener('zstore:data-imported', load);
     };
   }, []);
+  const { t } = useTranslation();
   const navItems: NavItemConfig[] = [
     // 发现与探索
     {
       id: 'home',
-      label: '精选发现',
-      group: '发现与探索',
+      label: t('nav.items.home'),
+      groupId: 'discovery',
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
@@ -83,8 +100,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'trends',
-      label: '趋势榜单',
-      group: '发现与探索',
+      label: t('nav.items.trends'),
+      groupId: 'discovery',
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" />
@@ -96,8 +113,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'categories',
-      label: '分类浏览',
-      group: '发现与探索',
+      label: t('nav.items.categories'),
+      groupId: 'discovery',
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <rect width="7" height="7" x="3" y="3" rx="1.5" />
@@ -111,8 +128,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     // 应用资产
     {
       id: 'installed',
-      label: '已安装应用',
-      group: '应用资产',
+      label: t('nav.items.installed'),
+      groupId: 'assets',
       badge: installedCount,
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -125,8 +142,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'updates',
-      label: '更新中心',
-      group: '应用资产',
+      label: t('nav.items.updates'),
+      groupId: 'assets',
       badge: hasUpdates,
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -139,8 +156,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'favorites',
-      label: '我的收藏',
-      group: '应用资产',
+      label: t('nav.items.favorites'),
+      groupId: 'assets',
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
@@ -151,8 +168,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     // 偏好与系统
     {
       id: 'settings',
-      label: '系统设置',
-      group: '偏好与系统',
+      label: t('nav.items.settings'),
+      groupId: 'system',
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
@@ -168,13 +185,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       role="navigation"
       aria-label="主要导航"
     >
-      {NAV_GROUP_ORDER.map((group, groupIndex) => (
-        <React.Fragment key={group}>
+      {NAV_GROUPS.map((group, groupIndex) => (
+        <React.Fragment key={group.id}>
           {groupIndex > 0 && <div className="sidebar-divider" />}
 
-          {group === '设备平台' ? (
+          {group.id === 'platforms' ? (
             <>
-              <div className="nav-group-title">设备平台</div>
+              <div className="nav-group-title">{t(group.i18nKey)}</div>
               {PLATFORM_IDS.map((platformId) => {
                 const isChecked = selectedPlatforms.has(platformId);
                 const count = platformCounts?.[platformId];
@@ -203,9 +220,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </>
           ) : (
             <>
-              <div className="nav-group-title">{group}</div>
+              <div className="nav-group-title">{t(group.i18nKey)}</div>
               {navItems
-                .filter((item) => item.group === group)
+                .filter((item) => item.groupId === group.id)
                 .map((item) => {
                   const isSelected = currentView === item.id;
                   return (

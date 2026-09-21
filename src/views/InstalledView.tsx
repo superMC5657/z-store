@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import '../i18n';
 import {
   RotateCcw,
   Shield,
@@ -73,6 +75,7 @@ const InstalledItemActions: React.FC<InstalledItemActionsProps> = ({
   onToggleRuleHidden,
   compact = false,
 }) => {
+  const { t } = useTranslation();
   const isUnmanaging = confirmingUnmanageId === app.app_id;
   const isUninstalling = confirmingUninstallId === app.app_id;
 
@@ -84,25 +87,25 @@ const InstalledItemActions: React.FC<InstalledItemActionsProps> = ({
           <button
             className={`installed-action-btn btn-installed-uninstall btn-loading ${compact ? 'compact' : ''}`}
             disabled
-            title="正在调起官方卸载向导并等待完成..."
+            title={t('installed.uninstalling_tooltip')}
           >
-            ⏳ 正在卸载...
+            {t('installed.uninstalling')}
           </button>
         ) : isUnmanaging ? (
           <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
             <button
               className={`installed-action-btn btn-confirm-warning ${compact ? 'compact' : ''}`}
               onClick={() => onTriggerUnmanage(app.app_id)}
-              title="确认从列表中移除管理记录"
+              title={t('installed.confirm_unmanage_tooltip')}
             >
-              确认取消管理？
+              {t('installed.confirm_unmanage')}
             </button>
             <button
               className={`installed-action-btn btn-confirm-cancel ${compact ? 'compact' : ''}`}
               onClick={onCancelConfirm}
-              title="取消操作"
+              title={t('installed.cancel_confirm_tooltip')}
             >
-              取消
+              {t('common.cancel')}
             </button>
           </div>
         ) : isUninstalling ? (
@@ -110,25 +113,25 @@ const InstalledItemActions: React.FC<InstalledItemActionsProps> = ({
             <button
               className={`installed-action-btn btn-confirm-danger ${compact ? 'compact' : ''}`}
               onClick={() => onTriggerUninstall(app.app_id)}
-              title="确认彻底卸载应用"
+              title={t('installed.confirm_uninstall_tooltip')}
             >
-              确认卸载？
+              {t('installed.confirm_uninstall')}
             </button>
             <button
               className={`installed-action-btn btn-confirm-cancel ${compact ? 'compact' : ''}`}
               onClick={onCancelConfirm}
-              title="取消操作"
+              title={t('installed.cancel_confirm_tooltip')}
             >
-              取消
+              {t('common.cancel')}
             </button>
           </div>
         ) : (
           <button
             className={`installed-action-btn btn-installed-uninstall ${compact ? 'compact' : ''}`}
             onClick={() => onTriggerUninstall(app.app_id)}
-            title="彻底卸载应用"
+            title={t('installed.uninstall_tooltip')}
           >
-            卸载
+            {t('installed.uninstall')}
           </button>
         )}
       </div>
@@ -139,12 +142,12 @@ const InstalledItemActions: React.FC<InstalledItemActionsProps> = ({
           className={`installed-action-btn btn-fluent btn-primary ${compact ? 'compact' : ''}`}
           disabled={isUninstallingLoading}
           onClick={() => onLaunch(app.app_id)}
-          title="运行此应用程序"
+          title={t('installed.launch_tooltip')}
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style={{ marginRight: '4px' }}>
             <polygon points="5 3 19 12 5 21 5 3" />
           </svg>
-          <span>启动</span>
+          <span>{t('installed.launch')}</span>
         </button>
 
         <div style={{ position: 'relative' }}>
@@ -152,8 +155,8 @@ const InstalledItemActions: React.FC<InstalledItemActionsProps> = ({
             className={`installed-action-btn btn-fluent btn-secondary btn-icon-only ${compact ? 'compact' : ''} ${isMenuOpen ? 'active' : ''}`}
             disabled={isUninstallingLoading}
             onClick={(e) => onToggleMenu(app.app_id, e)}
-            title="更多管理与版本控制操作"
-            aria-label="更多操作"
+            title={t('installed.more_options_tooltip')}
+            aria-label={t('installed.more_options')}
           >
             <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
               <circle cx="5" cy="12" r="2" />
@@ -177,7 +180,7 @@ const InstalledItemActions: React.FC<InstalledItemActionsProps> = ({
                     onCloseMenu();
                     await onToggleRuleFrozen(app.app_id, !isFrozen);
                   }}
-                  title={isFrozen ? '已锁定当前版本，点击解除锁定并恢复更新提示' : '锁定当前版本，不再提示更新'}
+                  title={isFrozen ? t('installed.unlock_version_tooltip') : t('installed.lock_version_tooltip')}
                 >
                   <div className="flyout-item-icon">
                     {isFrozen ? (
@@ -194,11 +197,11 @@ const InstalledItemActions: React.FC<InstalledItemActionsProps> = ({
                   </div>
                   <div className="flyout-item-content">
                     <div className="flyout-item-title">
-                      <span>{isFrozen ? '解除版本锁定' : '锁定当前版本'}</span>
-                      {isFrozen && <span className="flyout-item-badge badge-blue">已锁定</span>}
+                      <span>{isFrozen ? t('installed.unlock_version') : t('installed.lock_version')}</span>
+                      {isFrozen && <span className="flyout-item-badge badge-blue">{t('installed.locked')}</span>}
                     </div>
                     <div className="flyout-item-subtitle">
-                      {isFrozen ? '点击恢复接收更新提示' : '保留此版本，不再提示更新'}
+                      {isFrozen ? t('installed.unlock_version_desc') : t('installed.lock_version_desc')}
                     </div>
                   </div>
                 </button>
@@ -212,7 +215,7 @@ const InstalledItemActions: React.FC<InstalledItemActionsProps> = ({
                     onCloseMenu();
                     await onToggleRuleHidden(app.app_id, !isHidden);
                   }}
-                  title={isHidden ? '取消隐藏，重新在列表中展示' : '在探索发现与列表中隐藏此应用'}
+                  title={isHidden ? t('installed.unhide_app_tooltip') : t('installed.hide_app_tooltip')}
                 >
                   <div className="flyout-item-icon">
                     {isHidden ? (
@@ -229,11 +232,11 @@ const InstalledItemActions: React.FC<InstalledItemActionsProps> = ({
                   </div>
                   <div className="flyout-item-content">
                     <div className="flyout-item-title">
-                      <span>{isHidden ? '恢复显示应用' : '在列表中隐藏'}</span>
-                      {isHidden && <span className="flyout-item-badge badge-red">已隐藏</span>}
+                      <span>{isHidden ? t('installed.unhide_app') : t('installed.hide_app')}</span>
+                      {isHidden && <span className="flyout-item-badge badge-red">{t('installed.hidden')}</span>}
                     </div>
                     <div className="flyout-item-subtitle">
-                      {isHidden ? '点击恢复在发现与更新中可见' : '不在探索与更新列表中展示'}
+                      {isHidden ? t('installed.unhide_app_desc') : t('installed.hide_app_desc')}
                     </div>
                   </div>
                 </button>
@@ -248,14 +251,14 @@ const InstalledItemActions: React.FC<InstalledItemActionsProps> = ({
                   onCloseMenu();
                   onTriggerUnmanage(app.app_id);
                 }}
-                title="从列表中移除管理记录（保留本机应用与数据）"
+                title={t('installed.unmanage_tooltip')}
               >
                 <div className="flyout-item-icon">
                   <MinusCircle size={13} />
                 </div>
                 <div className="flyout-item-content">
-                  <div className="flyout-item-title">取消管理</div>
-                  <div className="flyout-item-subtitle">仅移出列表，保留本机应用与数据</div>
+                  <div className="flyout-item-title">{t('installed.unmanage')}</div>
+                  <div className="flyout-item-subtitle">{t('installed.unmanage_desc')}</div>
                 </div>
               </button>
             </div>
@@ -283,6 +286,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
   onRefresh,
   isRefreshing = false,
 }) => {
+  const { t, i18n } = useTranslation();
   const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
   const [confirmingUninstallId, setConfirmingUninstallId] = useState<string | null>(null);
   const [confirmingUnmanageId, setConfirmingUnmanageId] = useState<string | null>(null);
@@ -333,7 +337,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
       <div className="section-header">
         <h3 className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Package size={18} style={{ color: 'var(--brand-primary)' }} />
-          <span>已安装应用 ({installedApps.length})</span>
+          <span>{t('installed.title', { count: installedApps.length })}</span>
         </h3>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           {onRefresh && (
@@ -342,10 +346,10 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
               style={{ padding: '5px 12px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               onClick={onRefresh}
               disabled={isRefreshing}
-              title="重新检测本地安装状态"
+              title={t('installed.refresh_status_tooltip')}
             >
               <RotateCcw size={13} className={isRefreshing ? 'icon-spin' : ''} />
-              <span>{isRefreshing ? '刷新中...' : '刷新状态'}</span>
+              <span>{isRefreshing ? t('installed.refreshing') : t('installed.refresh_status')}</span>
             </button>
           )}
           {onOpenRules && (
@@ -353,10 +357,10 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
               className="btn-fluent btn-secondary"
               style={{ padding: '5px 12px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               onClick={onOpenRules}
-              title="管理版本与更新规则"
+              title={t('installed.rules_tooltip')}
             >
               <Shield size={13} />
-              <span>规则</span>
+              <span>{t('installed.rules')}</span>
               {updateRules.length > 0 && (
                 <span
                   style={{
@@ -378,11 +382,11 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
               className="btn-fluent btn-secondary"
               style={{ padding: '5px 12px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               onClick={onExportAppsJson}
-              title="导出已安装软件清单为 JSON 文件"
+              title={t('installed.export_list_tooltip')}
               disabled={installedApps.length === 0}
             >
               <Download size={13} />
-              <span>导出清单</span>
+              <span>{t('installed.export_list')}</span>
             </button>
           )}
           {onScanSystemApps && (
@@ -390,29 +394,29 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
               className="btn-fluent btn-secondary"
               style={{ padding: '5px 12px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               onClick={onScanSystemApps}
-              title="扫描系统已安装软件并加入管理"
+              title={t('installed.scan_local_tooltip')}
             >
               <ScanLine size={13} />
-              <span>扫描本地应用</span>
+              <span>{t('installed.scan_local_apps')}</span>
             </button>
           )}
           <button
             className={`btn-fluent ${viewMode === 'card' ? 'btn-primary' : 'btn-secondary'}`}
             style={{ padding: '5px 10px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
             onClick={() => setViewMode('card')}
-            title="卡片视图"
+            title={t('installed.view_card_tooltip')}
           >
             <LayoutGrid size={13} />
-            <span>卡片</span>
+            <span>{t('installed.view_card')}</span>
           </button>
           <button
             className={`btn-fluent ${viewMode === 'list' ? 'btn-primary' : 'btn-secondary'}`}
             style={{ padding: '5px 10px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
             onClick={() => setViewMode('list')}
-            title="紧凑列表"
+            title={t('installed.view_list_tooltip')}
           >
             <List size={13} />
-            <span>列表</span>
+            <span>{t('installed.view_list')}</span>
           </button>
         </div>
       </div>
@@ -420,9 +424,9 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
       {installedApps.length === 0 ? (
         <div className="empty-state-card">
           <FolderOpen size={44} strokeWidth={1.5} style={{ color: 'var(--text-tertiary)', margin: '0 auto 12px' }} />
-          <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>暂无已安装应用</h4>
+          <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>{t('installed.empty_title')}</h4>
           <p style={{ color: 'var(--text-tertiary)', fontSize: '13px', margin: '0 0 16px 0' }}>
-            前往「精选发现」或「分类浏览」探索应用，也可点击上方扫描添加本地已安装应用。
+            {t('installed.empty_desc')}
           </p>
           {onRefresh && (
             <button
@@ -432,14 +436,14 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
               disabled={isRefreshing}
             >
               <RotateCcw size={13} className={isRefreshing ? 'icon-spin' : ''} />
-              <span>{isRefreshing ? '正在刷新...' : '刷新列表'}</span>
+              <span>{isRefreshing ? t('installed.refreshing_list') : t('installed.refresh_list')}</span>
             </button>
           )}
         </div>
       ) : viewMode === 'card' ? (
         <div className="app-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
           {installedApps.map((app) => {
-            const badge = getMethodBadge(app.install_method);
+            const badge = getMethodBadge(app.install_method, t);
             const rule = updateRules.find((r) => r.app_id.toLowerCase() === app.app_id.toLowerCase());
             const isFrozen = Boolean(rule?.is_frozen);
             const isHidden = Boolean(rule?.is_hidden);
@@ -453,7 +457,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                     <div
                       style={{ cursor: onOpenDetail ? 'pointer' : 'default', flexShrink: 0 }}
                       onClick={() => onOpenDetail && onOpenDetail(app.app_id)}
-                      title={onOpenDetail ? '查看应用详情' : undefined}
+                      title={onOpenDetail ? t('app.view_details') : undefined}
                     >
                       <AppIcon
                         icon={iconInfo.icon}
@@ -475,12 +479,12 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                           whiteSpace: 'nowrap',
                         }}
                         onClick={() => onOpenDetail && onOpenDetail(app.app_id)}
-                        title={onOpenDetail ? '查看应用详情' : undefined}
+                        title={onOpenDetail ? t('app.view_details') : undefined}
                       >
                         {app.app_name}
                       </h4>
                       <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
-                        版本 {app.version} · 安装于 {formatAppDate(app.installed_at)}
+                        {t('installed.version_and_date', { version: app.version, date: formatAppDate(app.installed_at, i18n.language) })}
                       </span>
                     </div>
                   </div>
@@ -496,11 +500,11 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                           fontWeight: 600,
                           border: '1px solid rgba(59, 130, 246, 0.3)',
                         }}
-                        title="已锁定当前版本，不再接收更新提示"
+                        title={t('installed.locked_tooltip')}
                       >
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
                           <Lock size={10} />
-                          <span>已锁定</span>
+                          <span>{t('installed.locked')}</span>
                         </span>
                       </span>
                     )}
@@ -515,11 +519,11 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                           fontWeight: 600,
                           border: '1px solid rgba(239, 68, 68, 0.3)',
                         }}
-                        title="已从探索发现及可更新列表中屏蔽"
+                        title={t('installed.hidden_tooltip')}
                       >
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
                           <EyeOff size={10} />
-                          <span>已隐藏</span>
+                          <span>{t('installed.hidden')}</span>
                         </span>
                       </span>
                     )}
@@ -544,7 +548,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                       type="text"
                       readOnly
                       value={app.install_path}
-                      placeholder="未检测到安装路径"
+                      placeholder={t('installed.path_not_detected')}
                       style={{
                         flex: 1,
                         height: '28px',
@@ -560,7 +564,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                         cursor: 'text',
                         userSelect: 'all',
                       }}
-                      title={app.install_path || '未检测到安装路径'}
+                      title={app.install_path || t('installed.path_not_detected')}
                       onClick={(e) => (e.target as HTMLInputElement).select()}
                     />
                     {app.install_path ? (
@@ -578,9 +582,9 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                           justifyContent: 'center',
                         }}
                         onClick={() => handleCopyPath(app.app_id, app.install_path)}
-                        title="复制路径"
+                        title={t('installed.copy_path')}
                       >
-                        {copiedId === app.app_id ? '✓ 已复制' : '复制路径'}
+                        {copiedId === app.app_id ? t('installed.copied') : t('installed.copy_path')}
                       </button>
                     ) : (
                       <button
@@ -598,10 +602,10 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                           justifyContent: 'center',
                         }}
                         onClick={() => onScanSystemApps && onScanSystemApps()}
-                        title="重新探测安装路径"
+                        title={t('installed.rescan_tooltip')}
                       >
                         <Search size={11} />
-                        <span>重新探测</span>
+                        <span>{t('installed.rescan')}</span>
                       </button>
                     )}
                   </div>
@@ -639,7 +643,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {installedApps.map((app) => {
-            const badge = getMethodBadge(app.install_method);
+            const badge = getMethodBadge(app.install_method, t);
             const rule = updateRules.find((r) => r.app_id.toLowerCase() === app.app_id.toLowerCase());
             const isFrozen = Boolean(rule?.is_frozen);
             const isHidden = Boolean(rule?.is_hidden);
@@ -661,7 +665,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                 <div
                   style={{ cursor: onOpenDetail ? 'pointer' : 'default', flexShrink: 0 }}
                   onClick={() => onOpenDetail && onOpenDetail(app.app_id)}
-                  title={onOpenDetail ? '查看应用详情' : undefined}
+                  title={onOpenDetail ? t('app.view_details') : undefined}
                 >
                   <AppIcon
                     icon={iconInfo.icon}
@@ -678,7 +682,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                     <span
                       style={{ fontWeight: 600, cursor: onOpenDetail ? 'pointer' : 'default' }}
                       onClick={() => onOpenDetail && onOpenDetail(app.app_id)}
-                      title={onOpenDetail ? '查看应用详情' : undefined}
+                      title={onOpenDetail ? t('app.view_details') : undefined}
                     >
                       {app.app_name}
                     </span>
@@ -699,7 +703,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                         }}
                       >
                         <Lock size={10} />
-                        <span>已锁定</span>
+                        <span>{t('installed.locked')}</span>
                       </span>
                     )}
                     {isHidden && (
@@ -718,7 +722,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                         }}
                       >
                         <EyeOff size={10} />
-                        <span>已隐藏</span>
+                        <span>{t('installed.hidden')}</span>
                       </span>
                     )}
                     <span
@@ -734,7 +738,12 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                     </span>
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '3px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span>路径: {app.install_path || '未检测到安装路径 (启动时将自动嗅探修复)'} · 安装于 {formatAppDate(app.installed_at)}</span>
+                    <span>
+                      {app.install_path
+                        ? t('installed.path_prefix', { path: app.install_path })
+                        : t('installed.path_not_detected_hint')}{' '}
+                      · {t('installed.version_and_date', { version: app.version, date: formatAppDate(app.installed_at, i18n.language) })}
+                    </span>
                     {app.install_path ? (
                       <button
                         onClick={() => handleCopyPath(app.app_id, app.install_path)}
@@ -747,7 +756,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                           padding: '0 4px',
                         }}
                       >
-                        {copiedId === app.app_id ? '✓ 已复制' : '复制'}
+                        {copiedId === app.app_id ? t('installed.copied') : t('installed.copy')}
                       </button>
                     ) : (
                       onScanSystemApps && (
@@ -766,7 +775,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                           }}
                         >
                           <Search size={10} />
-                          <span>重新探测</span>
+                          <span>{t('installed.rescan')}</span>
                         </button>
                       )
                     )}

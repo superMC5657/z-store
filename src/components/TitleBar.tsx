@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Clock, Activity, Info } from 'lucide-react';
+import { Clock, Activity, Info, Languages } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { BrandLogo } from './BrandLogo';
 import { api } from '../services/api';
 import { HostTokenEntry } from '../types';
@@ -9,6 +10,8 @@ interface TitleBarProps {
   onSearchChange: (q: string) => void;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
+  language?: string;
+  onToggleLanguage?: () => void;
   isSidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
   onNavigateSettings?: () => void;
@@ -19,10 +22,14 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   onSearchChange,
   theme,
   onToggleTheme,
+  language,
+  onToggleLanguage,
   isSidebarCollapsed = false,
   onToggleSidebar,
   onNavigateSettings,
 }) => {
+  const { t, i18n } = useTranslation();
+  const currentLang = language || i18n.language || 'zh-CN';
   const [localQuery, setLocalQuery] = useState(searchQuery);
   const [isMaximized, setIsMaximized] = useState(false);
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
@@ -218,8 +225,8 @@ export const TitleBar: React.FC<TitleBarProps> = ({
           <button
             className="nav-toggle-btn"
             onClick={onToggleSidebar}
-            title={isSidebarCollapsed ? "展开侧边导航栏" : "折叠侧边导航栏"}
-            aria-label="切换侧边导航栏"
+            title={isSidebarCollapsed ? t('titlebar.nav_toggle_expand') : t('titlebar.nav_toggle_collapse')}
+            aria-label={isSidebarCollapsed ? t('titlebar.nav_toggle_expand') : t('titlebar.nav_toggle_collapse')}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <line x1="3" y1="6" x2="21" y2="6" />
@@ -249,7 +256,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
               loadSearchHistory();
               setIsDropdownOpen(true);
             }}
-            placeholder="搜索开源应用、别名、GitHub 仓库 (例如: vlc, 远程桌面, rustdesk)..."
+            placeholder={t('titlebar.search_placeholder')}
           />
           <kbd
             className="search-kbd"
@@ -293,7 +300,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
               >
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
                   <Clock size={12} />
-                  <span>搜索历史</span>
+                  <span>{t('titlebar.search_history')}</span>
                 </span>
                 <button
                   type="button"
@@ -307,9 +314,9 @@ export const TitleBar: React.FC<TitleBarProps> = ({
                     padding: '2px 6px',
                     borderRadius: '4px',
                   }}
-                  title="清空所有搜索历史"
+                  title={t('titlebar.clear_history_tooltip')}
                 >
-                  清空全部
+                  {t('titlebar.clear_all')}
                 </button>
               </div>
 
@@ -341,7 +348,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
                         cursor: 'pointer',
                         padding: '0 2px',
                       }}
-                      title="删除此条记录"
+                      title={t('titlebar.delete_history_item')}
                     >
                       ×
                     </span>
@@ -367,7 +374,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
           let pillColor = '#10b981';
           let pillBg = 'rgba(16, 185, 129, 0.12)';
           let pillBorder = 'rgba(16, 185, 129, 0.28)';
-          let pillText = hasRemaining ? `API ${remaining}/${limit}` : 'API 探测中...';
+          let pillText = hasRemaining ? `API ${remaining}/${limit}` : t('titlebar.api_probing');
 
           if (!hasRemaining) {
             dotClass = 'status-dot status-dot-neutral';
@@ -379,7 +386,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
             pillColor = '#ef4444';
             pillBg = 'rgba(239, 68, 68, 0.12)';
             pillBorder = 'rgba(239, 68, 68, 0.28)';
-            pillText = 'API 耗尽';
+            pillText = t('titlebar.api_exhausted');
           } else if (limit <= 100 ? remaining <= 10 : remaining <= 100) {
             dotClass = 'status-dot status-dot-warning';
             pillColor = '#f59e0b';
@@ -417,7 +424,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
                   outline: 'none',
                   transition: 'all 0.15s ease',
                 }}
-                title={isConfigured ? '已认证 5000/h 高额配额' : '点击前往设置中心登录 GitHub 账号'}
+                title={isConfigured ? t('titlebar.quota_logged_in') : t('titlebar.quota_settings_hint')}
               >
                 <span className={dotClass} />
                 <span>{pillText}</span>
@@ -447,26 +454,26 @@ export const TitleBar: React.FC<TitleBarProps> = ({
                 >
                   <div style={{ fontWeight: 600, borderBottom: '1px solid var(--border-acrylic)', paddingBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <Activity size={13} />
-                    <span>API 速率配额感知</span>
+                    <span>{t('titlebar.api_quota')}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
                     <span>GitHub:</span>
                     <span style={{ fontWeight: 500, color: pillColor }}>
-                      {hasRemaining ? `${remaining} / ${limit}` : '探测中...'}
+                      {hasRemaining ? `${remaining} / ${limit}` : t('titlebar.api_probing')}
                     </span>
                   </div>
                   {resetTimeStr && (
                     <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-tertiary)', fontSize: '11px' }}>
-                      <span>配额重置时间:</span>
+                      <span>{t('titlebar.quota_reset_time')}</span>
                       <span>{resetTimeStr}</span>
                     </div>
                   )}
                   <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                    {isConfigured ? '已登录 GitHub 账号 (配额 5000/h)' : '未登录 GitHub 账号 (公共 IP 限流 60/h)'}
+                    {isConfigured ? t('titlebar.quota_logged_in') : t('titlebar.quota_anonymous')}
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--brand-primary)', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <Info size={12} />
-                    <span>点击前往设置中心管理 GitHub 账号</span>
+                    <span>{t('titlebar.quota_settings_hint')}</span>
                   </div>
                 </div>
               )}
@@ -474,7 +481,32 @@ export const TitleBar: React.FC<TitleBarProps> = ({
           );
         })()}
 
-        <button className="theme-toggle-btn" onClick={onToggleTheme} title="切换深色/浅色外观">
+        {onToggleLanguage && (
+          <button
+            type="button"
+            className="theme-toggle-btn lang-toggle-btn"
+            onClick={onToggleLanguage}
+            title={t('titlebar.lang_toggle_tooltip')}
+            aria-label={t('titlebar.lang_toggle_tooltip')}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '4px',
+              width: 'auto',
+              minWidth: '46px',
+              padding: '0 8px',
+              fontSize: '11px',
+              fontWeight: 600,
+              fontFamily: 'inherit',
+            }}
+          >
+            <Languages size={13} />
+            <span>{currentLang.startsWith('en') ? '中文' : 'EN'}</span>
+          </button>
+        )}
+
+        <button className="theme-toggle-btn" onClick={onToggleTheme} title={t('titlebar.theme_toggle')}>
           {theme === 'dark' ? (
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="12" cy="12" r="5" />
@@ -495,12 +527,12 @@ export const TitleBar: React.FC<TitleBarProps> = ({
         </button>
 
         <div className="win-controls">
-          <div className="win-btn" onClick={handleMinimize} title="最小化" aria-label="最小化">
+          <div className="win-btn" onClick={handleMinimize} title={t('titlebar.minimize')} aria-label={t('titlebar.minimize')}>
             <svg width="10" height="1" viewBox="0 0 10 1" fill="currentColor">
               <rect width="10" height="1" />
             </svg>
           </div>
-          <div className="win-btn" onClick={handleMaximize} title={isMaximized ? "向下还原" : "最大化"} aria-label={isMaximized ? "向下还原" : "最大化"}>
+          <div className="win-btn" onClick={handleMaximize} title={isMaximized ? t('titlebar.restore') : t('titlebar.maximize')} aria-label={isMaximized ? t('titlebar.restore') : t('titlebar.maximize')}>
             {isMaximized ? (
               <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1">
                 <path d="M2.5 2.5V0.5H9.5V7.5H7.5" />
@@ -512,7 +544,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
               </svg>
             )}
           </div>
-          <div className="win-btn close" onClick={handleClose} title="关闭" aria-label="关闭">
+          <div className="win-btn close" onClick={handleClose} title={t('titlebar.close')} aria-label={t('titlebar.close')}>
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2">
               <line x1="1" y1="1" x2="9" y2="9" />
               <line x1="9" y1="1" x2="1" y2="9" />

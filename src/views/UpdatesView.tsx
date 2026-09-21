@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import '../i18n';
 import { marked } from 'marked';
 import {
   RotateCcw,
@@ -56,6 +58,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
   onOpenWatchedApp,
   onDismissWatch,
 }) => {
+  const { t } = useTranslation();
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [isUpdatingAll, setIsUpdatingAll] = useState(false);
   const [localChecking, setLocalChecking] = useState(false);
@@ -104,10 +107,10 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
         <div>
           <h3 className="section-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
             <RotateCcw size={18} style={{ color: 'var(--brand-primary)' }} />
-            <span>应用更新 ({updates.length})</span>
+            <span>{t('updates.title', { count: updates.length })}</span>
           </h3>
           <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: 'var(--text-tertiary)' }}>
-            管理版本更新、跳过或锁定规则
+            {t('updates.subtitle')}
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -116,10 +119,10 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
               className="btn-fluent btn-secondary"
               onClick={onOpenRules}
               style={{ fontSize: '13px', padding: '6px 14px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-              title="管理更新规则"
+              title={t('updates.rules_tooltip')}
             >
               <Shield size={13} />
-              <span>规则 {typeof updateRulesCount === 'number' && updateRulesCount > 0 ? `(${updateRulesCount})` : ''}</span>
+              <span>{t('updates.rules_btn')} {typeof updateRulesCount === 'number' && updateRulesCount > 0 ? `(${updateRulesCount})` : ''}</span>
             </button>
           )}
           {onCheckUpdates && (
@@ -135,17 +138,17 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
               }}
               disabled={isChecking || isUpdatingAll}
               style={{ fontSize: '13px', padding: '6px 14px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-              title="检查最新版本"
+              title={t('updates.check_tooltip')}
             >
               {isChecking ? (
                 <>
                   <RotateCcw size={13} className="icon-spin" />
-                  <span>正在检查...</span>
+                  <span>{t('updates.checking')}</span>
                 </>
               ) : (
                 <>
                   <Search size={13} />
-                  <span>检查更新</span>
+                  <span>{t('updates.check_updates')}</span>
                 </>
               )}
             </button>
@@ -158,7 +161,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
               style={{ fontWeight: 600, fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
             >
               <DownloadCloud size={14} />
-              <span>{isUpdatingAll ? '正在更新中...' : `全部更新 (${updates.length})`}</span>
+              <span>{isUpdatingAll ? t('updates.updating_all') : t('updates.update_all', { count: updates.length })}</span>
             </button>
           )}
         </div>
@@ -182,14 +185,17 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <div className="spinner-icon" style={{ width: '14px', height: '14px', borderWidth: '2px', flexShrink: 0 }} />
             <span>
-              <strong>正在流式比对开源应用最新发布</strong>
+              <strong>{t('updates.progress_title')}</strong>
               {checkProgress && checkProgress.total > 0 ? (
                 <span style={{ color: 'var(--text-secondary)' }}>
-                  {' '}（已检查 {checkProgress.checked} / {checkProgress.total} 款
-                  {checkProgress.app_name ? ` · 正在比对 ${checkProgress.app_name}` : ''}）
+                  {' '}{t('updates.progress_checked', {
+                    checked: checkProgress.checked,
+                    total: checkProgress.total,
+                    current: checkProgress.app_name ? t('updates.progress_comparing', { name: checkProgress.app_name }) : '',
+                  })}
                 </span>
               ) : (
-                <span style={{ color: 'var(--text-secondary)' }}>，发现可用更新将立即在此跳出...</span>
+                <span style={{ color: 'var(--text-secondary)' }}>{t('updates.progress_hint')}</span>
               )}
             </span>
           </div>
@@ -217,7 +223,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
         >
           <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--brand-primary)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
             <Eye size={14} />
-            <span>关注的应用有新动态 ({watchNotifications.length})</span>
+            <span>{t('updates.watch_updates_title', { count: watchNotifications.length })}</span>
           </span>
           {watchNotifications.map((n) => {
             const iconInfo = resolveIconInfo(n.app_id);
@@ -230,7 +236,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                   <div
                     style={{ cursor: onOpenWatchedApp ? 'pointer' : 'default', flexShrink: 0 }}
                     onClick={() => onOpenWatchedApp && onOpenWatchedApp(n.app_id)}
-                    title={onOpenWatchedApp ? '查看应用详情' : undefined}
+                    title={onOpenWatchedApp ? t('app.view_details') : undefined}
                   >
                     <AppIcon
                       icon={iconInfo.icon}
@@ -242,7 +248,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                     />
                   </div>
                   <span>
-                    你关注的 <strong>{n.app_name || n.app_id}</strong> 发布了 {n.version}
+                    {t('updates.watch_released', { name: n.app_name || n.app_id, version: n.version })}
                   </span>
                 </div>
                 <div style={{ display: 'flex', gap: '6px' }}>
@@ -252,7 +258,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                       style={{ fontSize: '12px', padding: '4px 12px' }}
                       onClick={() => onOpenWatchedApp(n.app_id)}
                     >
-                      查看详情
+                      {t('updates.view_details')}
                     </button>
                   )}
                   {onDismissWatch && (
@@ -261,7 +267,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                       style={{ fontSize: '12px', padding: '4px 12px' }}
                       onClick={() => onDismissWatch(n.app_id)}
                     >
-                      不再提醒
+                      {t('updates.dismiss_watch')}
                     </button>
                   )}
                 </div>
@@ -275,17 +281,17 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
         isChecking ? (
           <div className="empty-state-card" style={{ padding: '48px 24px' }}>
             <div className="spinner-icon" style={{ width: '36px', height: '36px', borderWidth: '3px', margin: '0 auto 16px auto' }} />
-            <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>正在逐项比对已安装开源应用的最新版本...</h4>
+            <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>{t('updates.stream_checking_title')}</h4>
             <p style={{ color: 'var(--text-tertiary)', fontSize: '13px', margin: 0 }}>
-              只要检测出新版本就会立即跳出一项，请稍候
+              {t('updates.stream_checking_desc')}
             </p>
           </div>
         ) : (
           <div className="empty-state-card">
             <CheckCircle2 size={44} strokeWidth={1.5} style={{ color: 'var(--status-success)', margin: '0 auto 12px' }} />
-            <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>所有应用均已是最新版本</h4>
+            <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>{t('updates.all_latest_title')}</h4>
             <p style={{ color: 'var(--text-tertiary)', fontSize: '13px', margin: 0 }}>
-              有新版本发布时将第一时间在此通知您。
+              {t('updates.all_latest_desc')}
             </p>
           </div>
         )
@@ -316,7 +322,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                     <div
                       style={{ cursor: onOpenWatchedApp ? 'pointer' : 'default', flexShrink: 0 }}
                       onClick={() => onOpenWatchedApp && onOpenWatchedApp(item.app_id)}
-                      title={onOpenWatchedApp ? '查看应用详情' : undefined}
+                      title={onOpenWatchedApp ? t('app.view_details') : undefined}
                     >
                       <AppIcon
                         icon={iconInfo.icon}
@@ -336,15 +342,15 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                           cursor: onOpenWatchedApp ? 'pointer' : 'default',
                         }}
                         onClick={() => onOpenWatchedApp && onOpenWatchedApp(item.app_id)}
-                        title={onOpenWatchedApp ? '查看应用详情' : undefined}
+                        title={onOpenWatchedApp ? t('app.view_details') : undefined}
                       >
                         {item.app_name}
                       </h4>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
-                        <span style={{ color: 'var(--text-tertiary)' }}>当前: {item.current_version}</span>
+                        <span style={{ color: 'var(--text-tertiary)' }}>{t('updates.current_version', { version: item.current_version })}</span>
                         <span>➔</span>
                         <span style={{ color: 'var(--brand-primary)', fontWeight: 600 }}>
-                          最新: {item.latest_version}
+                          {t('updates.latest_version', { version: item.latest_version })}
                         </span>
                       </div>
                     </div>
@@ -356,7 +362,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                       style={{ fontSize: '12px', padding: '6px 12px' }}
                       onClick={() => setExpandedId(isExpanded ? null : item.app_id)}
                     >
-                      {isExpanded ? '收起更新日志' : '查看日志'}
+                      {isExpanded ? t('updates.collapse_changelog') : t('updates.view_changelog')}
                     </button>
 
                     <button
@@ -365,7 +371,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                       disabled={isThisUpdating || isUpdatingAll}
                       onClick={() => handleUpdate(item.app_id)}
                     >
-                      {isThisUpdating ? '升级中...' : '立即升级'}
+                      {isThisUpdating ? t('updates.updating') : t('updates.update_now')}
                     </button>
 
                     {/* Fluent 更多菜单按钮 (···) */}
@@ -383,8 +389,8 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                           e.stopPropagation();
                           setActiveMenuId(isMenuOpen ? null : item.app_id);
                         }}
-                        title="版本控制与规则策略"
-                        aria-label="更多操作"
+                        title={t('updates.more_rules_tooltip')}
+                        aria-label={t('installed.more_options')}
                       >
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                           <circle cx="5" cy="12" r="2" />
@@ -407,9 +413,9 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                           >
                             <BellOff size={14} style={{ color: 'var(--text-secondary)' }} />
                             <div>
-                              <div style={{ fontWeight: 600 }}>忽略本次提醒</div>
+                              <div style={{ fontWeight: 600 }}>{t('updates.ignore_once')}</div>
                               <div style={{ fontSize: '10.5px', color: 'var(--text-tertiary)' }}>
-                                下次检查时恢复提醒
+                                {t('updates.ignore_once_desc')}
                               </div>
                             </div>
                           </button>
@@ -424,9 +430,9 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                           >
                             <SkipForward size={14} style={{ color: 'var(--brand-primary)' }} />
                             <div>
-                              <div style={{ fontWeight: 600 }}>跳过此版本</div>
+                              <div style={{ fontWeight: 600 }}>{t('updates.skip_version')}</div>
                               <div style={{ fontSize: '10.5px', color: 'var(--text-tertiary)' }}>
-                                跳过 {item.latest_version}，下版再提醒
+                                {t('updates.skip_version_desc', { version: item.latest_version })}
                               </div>
                             </div>
                           </button>
@@ -441,9 +447,9 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                           >
                             <Lock size={14} style={{ color: '#60a5fa' }} />
                             <div>
-                              <div style={{ fontWeight: 600 }}>锁定当前版本</div>
+                              <div style={{ fontWeight: 600 }}>{t('updates.lock_version')}</div>
                               <div style={{ fontSize: '10.5px', color: 'var(--text-tertiary)' }}>
-                                保留 {item.current_version}，忽略所有更新
+                                {t('updates.lock_version_desc', { version: item.current_version })}
                               </div>
                             </div>
                           </button>
@@ -459,9 +465,9 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                           >
                             <EyeOff size={14} style={{ color: '#f87171' }} />
                             <div>
-                              <div style={{ fontWeight: 600 }}>隐藏此应用</div>
+                              <div style={{ fontWeight: 600 }}>{t('updates.hide_app')}</div>
                               <div style={{ fontSize: '10.5px', opacity: 0.85 }}>
-                                在更新与探索列表中隐藏
+                                {t('updates.hide_app_desc')}
                               </div>
                             </div>
                           </button>

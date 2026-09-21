@@ -36,8 +36,8 @@ export function resolveInstalledIconInfo(
 /**
  * 格式化秒级 Unix 时间戳为本地日期字符串 (YYYY/MM/DD)
  */
-export function formatAppDate(ts: number): string {
-  return new Date(ts * 1000).toLocaleDateString('zh-CN', {
+export function formatAppDate(ts: number, locale = 'zh-CN'): string {
+  return new Date(ts * 1000).toLocaleDateString(locale === 'en-US' ? 'en-US' : 'zh-CN', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -63,18 +63,18 @@ export interface MethodBadge {
 /**
  * 获取安装方式标签与对应主题色彩
  */
-export function getMethodBadge(method: string): MethodBadge {
+export function getMethodBadge(method: string, t?: (key: any) => string): MethodBadge {
   switch (method) {
     case 'msi':
-      return { label: 'MSI 官方安装', color: 'var(--brand-primary)' };
+      return { label: t ? t('installed.method_msi') : 'MSI 官方安装', color: 'var(--brand-primary)' };
     case 'setup_exe':
-      return { label: 'EXE 安装向导', color: '#0284c7' };
+      return { label: t ? t('installed.method_setup_exe') : 'EXE 安装向导', color: '#0284c7' };
     case 'portable_zip':
-      return { label: '便携绿色版', color: '#10b981' };
+      return { label: t ? t('installed.method_portable') : '便携绿色版', color: '#10b981' };
     case 'system_import':
-      return { label: '本地导入', color: '#8b5cf6' };
+      return { label: t ? t('installed.method_import') : '本地导入', color: '#8b5cf6' };
     default:
-      return { label: '系统管理', color: 'var(--text-tertiary)' };
+      return { label: t ? t('installed.method_system') : '系统管理', color: 'var(--text-tertiary)' };
   }
 }
 

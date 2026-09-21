@@ -529,6 +529,10 @@ body {
   transform: scale(1.08) rotate(12deg);
 }
 
+.lang-toggle-btn:hover {
+  transform: scale(1.04);
+}
+
 .theme-toggle-btn:active {
   transform: scale(0.92);
 }

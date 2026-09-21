@@ -1,4 +1,6 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
+import '../i18n';
 import { AppSummary } from '../types';
 import { AppIcon } from './AppIcon';
 import { PlatformIcon, ForgeIcon } from './icons/PlatformIcons';
@@ -27,6 +29,7 @@ export const AppCard: React.FC<AppCardProps> = ({
   onToggleFavorite,
   onToggleWatch,
 }) => {
+  const { t } = useTranslation();
   const formatStars = (count: number) => {
     if (count >= 1000) {
       return `${(count / 1000).toFixed(1)}k`;
@@ -58,7 +61,7 @@ export const AppCard: React.FC<AppCardProps> = ({
           <div className="app-title">
             <span className="app-name">{app.name}</span>
             {app.is_verified && (
-              <span className="verified-badge" title="仓库校验码已验证 · 收录库认证">
+              <span className="verified-badge" title={t('app.verified_badge')}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
                   <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" fill="var(--brand-primary)" />
                   <path d="m9 12 2 2 4-4" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -78,8 +81,8 @@ export const AppCard: React.FC<AppCardProps> = ({
               e.stopPropagation();
               onToggleWatch(app.id);
             }}
-            title={isWatched ? '已关注（点击取消关注）' : '关注该应用的新版本动态'}
-            aria-label={isWatched ? '取消关注' : '关注'}
+            title={isWatched ? t('app.watch_active') : t('app.watch_inactive')}
+            aria-label={isWatched ? t('app.watch_active') : t('app.watch_inactive')}
             style={isWatched ? { color: 'var(--brand-primary)' } : undefined}
           >
             <svg width="15" height="15" viewBox="0 0 24 24" fill={isWatched ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -95,8 +98,8 @@ export const AppCard: React.FC<AppCardProps> = ({
               e.stopPropagation();
               onToggleFavorite(app.id);
             }}
-            title={isFavorite ? '已加入应用内收藏（存入本地数据库 · 点击取消）' : '应用内收藏（保存至本机数据库）'}
-            aria-label={isFavorite ? '取消应用内收藏' : '添加至应用内收藏'}
+            title={isFavorite ? t('app.fav_active') : t('app.fav_inactive')}
+            aria-label={isFavorite ? t('app.fav_active') : t('app.fav_inactive')}
           >
             <svg width="15" height="15" viewBox="0 0 24 24" fill={isFavorite ? '#eab308' : 'none'} stroke={isFavorite ? '#eab308' : 'currentColor'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
@@ -158,21 +161,33 @@ export const AppCard: React.FC<AppCardProps> = ({
               onQuickInstall(app.id);
             }
           }}
-          title={isInstalling ? '正在安装中...' : isInstalled ? '已安装 · 点击查看详情' : `获取 ${app.name}`}
-          aria-label={isInstalling ? `${app.name} 正在安装中` : isInstalled ? `${app.name} 已安装，点击查看详情` : `获取 ${app.name}`}
+          title={
+            isInstalling
+              ? t('app.installing_app', { name: app.name })
+              : isInstalled
+                ? t('app.installed_details', { name: app.name })
+                : t('app.get_app', { name: app.name })
+          }
+          aria-label={
+            isInstalling
+              ? t('app.installing_app', { name: app.name })
+              : isInstalled
+                ? t('app.installed_details', { name: app.name })
+                : t('app.get_app', { name: app.name })
+          }
           style={isInstalling ? { opacity: 0.8, cursor: 'not-allowed' } : undefined}
         >
           {isInstalling ? (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
               <span className="spinner-icon" style={{ width: '10px', height: '10px', borderWidth: '1.5px' }} />
-              <span>安装中</span>
+              <span>{t('app.installing')}</span>
             </span>
           ) : isInstalled ? (
             <>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="20 6 9 17 4 12" />
               </svg>
-              <span>已安装</span>
+              <span>{t('app.installed')}</span>
             </>
           ) : (
             <>
@@ -181,7 +196,7 @@ export const AppCard: React.FC<AppCardProps> = ({
                 <polyline points="7 10 12 15 17 10" />
                 <line x1="12" y1="15" x2="12" y2="3" />
               </svg>
-              <span>获取</span>
+              <span>{t('app.get')}</span>
             </>
           )}
         </button>

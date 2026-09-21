@@ -129,8 +129,8 @@ export interface ToastMessage {
 
 export interface AppSettings {
   theme: 'light' | 'dark' | 'system';
-  // P1-8: 界面语言（后端导入白名单已先行支持，前端类型与默认值在此补齐）。
-  language: string;
+  // 界面语言（支持中英文）
+  language: 'zh-CN' | 'en-US';
   ui_scale: '90' | '100' | '110' | '125';
   font_size: '12' | '14' | '16' | '18' | '20' | 'small' | 'standard' | 'medium' | 'large';
   portable_dir: string;
