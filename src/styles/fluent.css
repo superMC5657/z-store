@@ -2191,6 +2191,29 @@ body {
   flex-shrink: 0;
 }
 
+/* 资产抽屉列表区独立滚动：标题常驻，仅列表滚动，最多展示约 3 行（3 × 65px） */
+.asset-list-scroll {
+  overflow-y: auto;
+  min-height: 0;
+  max-height: 200px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-acrylic) transparent;
+}
+
+.asset-list-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.asset-list-scroll::-webkit-scrollbar-thumb {
+  background: var(--border-acrylic);
+  border-radius: 3px;
+  transition: background 0.2s;
+}
+
+.asset-list-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--brand-primary);
+}
+
 .modal-scroll-area {
   min-height: 0;
   scrollbar-width: thin;

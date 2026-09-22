@@ -129,4 +129,141 @@ export function getCategoryLabel(
   return translated || defaultName;
 }
 
+/**
+ * 非产物后缀：签名 / 校验和 / 元数据 / 映射表，不可安装也无需展示。
+ * 命中任一即视为非产物（大小写不敏感）。
+ */
+const NON_PRODUCT_SUFFIXES = [
+  '.sig',
+  '.asc',
+  '.pem',
+  '.gpg',
+  '.sign',
+  '.signature',
+  '.sha256',
+  '.sha512',
+  '.sha1',
+  '.md5',
+  '.checksum',
+  '.hash',
+  '.sbom',
+  '.blockmap',
+  '.zsync',
+  '.json',
+  '.yml',
+  '.yaml',
+  '.txt',
+  '.md',
+];
+
+/** 非产物文件名关键字：校验和汇总文件（如 SHA256SUMS / checksums.txt 已被后缀覆盖，此处补聚合命名）。 */
+const NON_PRODUCT_NAME_HINTS = [
+  'checksum',
+  'checksums',
+  'sha256sums',
+  'sha512sums',
+  'md5sums',
+];
+
+/**
+ * 判断 Release 资产是否为真实产物：
+ * 过滤签名（.sig/.asc）、校验和与汇总文件、元数据（latest.json / .yml / .blockmap 等）。
+ * 后缀产物（.tar.gz / .7z / .apk 等）一律保留——它们仍可下载。
+ */
+export function isProductAssetName(name: string): boolean {
+  if (!name || typeof name !== 'string') return false;
+  const lower = name.toLowerCase();
+  if (NON_PRODUCT_SUFFIXES.some((s) => lower.endsWith(s))) return false;
+  if (NON_PRODUCT_NAME_HINTS.some((h) => lower.includes(h))) return false;
+  return true;
+}
+
+/**
+ * 宿主原生可安装的资产类型（与后端 execute_installation_inner 的平台分发对齐）：
+ * - windows: msi / setup_exe / portable_zip（便携解压纳入管理）
+ * - macos: dmg / pkg / portable_zip
+ * - linux: deb / rpm / appimage / portable_zip
+ * 其余（apk / tarball / other 等）后端只会跳过，前端应提供下载而非安装。
+ */
+export function isInstallableAssetKind(kind: string, hostOs: string): boolean {
+  const k = (kind || '').toLowerCase();
+  const os = (hostOs || '').toLowerCase();
+  if (k === 'portable_zip') return true;
+  if (os === 'windows') return k === 'msi' || k === 'setup_exe';
+  if (os === 'macos') return k === 'dmg' || k === 'pkg';
+  if (os === 'linux') return k === 'deb' || k === 'rpm' || k === 'appimage';
+  return false;
+}
+
+/** 资产类型档位分（与后端 SCORE_ASSET_KIND_* 对齐，跨平台 portable_zip 恒为末档）。 */
+function assetKindTierScore(kind: string, hostOs: string): number {
+  const k = (kind || '').toLowerCase();
+  const os = (hostOs || '').toLowerCase();
+  if (k === 'portable_zip') return 10;
+  if (os === 'windows') {
+    if (k === 'msi') return 20;
+    if (k === 'setup_exe') return 15;
+    return 0;
+  }
+  if (os === 'macos') {
+    if (k === 'dmg') return 20;
+    if (k === 'pkg') return 15;
+    return 0;
+  }
+  if (os === 'linux') {
+    if (k === 'appimage') return 20;
+    if (k === 'deb') return 15;
+    if (k === 'rpm') return 12;
+    return 0;
+  }
+  return 0;
+}
+
+export interface AssetRelevance {
+  os: string;
+  arch: string;
+  kind: string;
+  name: string;
+}
+
+/**
+ * 资产相对宿主的相关度打分（与后端 score_asset 权重对齐）：
+ * 系统匹配 +100 / 通用 +30 / 系统失配 -100；
+ * 架构一致 +50 / 通用 +25 / x86_64 宿主兼容 x86 +10 / 失配 -50；
+ * 类型档位 +20/+15/+12/+10。
+ */
+export function scoreAssetRelevance(a: AssetRelevance, hostOs: string, hostArch: string): number {
+  const os = (hostOs || '').toLowerCase();
+  const arch = (hostArch || '').toLowerCase();
+  const aOs = (a.os || '').toLowerCase();
+  const aArch = (a.arch || '').toLowerCase();
+  let score = 0;
+  if (aOs === os) score += 100;
+  else if (aOs === 'all') score += 30;
+  else score -= 100;
+  if (aArch === arch) score += 50;
+  else if (aArch === 'universal') score += 25;
+  else if (arch === 'x86_64' && aArch === 'x86') score += 10;
+  else score -= 50;
+  score += assetKindTierScore(a.kind, os);
+  return score;
+}
+
+/**
+ * 按宿主相关度降序排列资产（分数相同按文件名稳定排序，保证抽屉顺序确定）。
+ * 返回新数组，不修改入参。
+ */
+export function sortAssetsByRelevance<T extends AssetRelevance>(
+  assets: T[],
+  hostOs: string,
+  hostArch: string
+): T[] {
+  return [...assets].sort((x, y) => {
+    const diff = scoreAssetRelevance(y, hostOs, hostArch) - scoreAssetRelevance(x, hostOs, hostArch);
+    if (diff !== 0) return diff;
+    return x.name.localeCompare(y.name);
+  });
+}
+
+
 

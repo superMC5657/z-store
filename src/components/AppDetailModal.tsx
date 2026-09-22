@@ -21,7 +21,7 @@ import '../i18n';
 import { AppDetailViewModel, DownloadProgressPayload, OAuthUser, ReleaseAsset } from '../types';
 import { api } from '../services/api';
 import { AppIcon } from './AppIcon';
-import { formatBytes, getAppDisplayName, getAppDescription, getCategoryLabel } from '../utils/appHelper';
+import { formatBytes, getAppDisplayName, getAppDescription, getCategoryLabel, isInstallableAssetKind, isProductAssetName, sortAssetsByRelevance } from '../utils/appHelper';
 import { PlatformIcon, ForgeIcon } from './icons/PlatformIcons';
 import { PLATFORM_META, type PlatformId } from '../lib/platformFilter';
 import { detectHostArch, detectHostOs } from './hostEnv';
@@ -209,7 +209,12 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
 
   const currentArch = useMemo(() => detectHostArch(), []);
 
-  const releases = useMemo(() => (Array.isArray(app.releases) ? app.releases : []), [app.releases]);
+  // 资产抽屉仅展示真实产物：过滤签名（.sig/.asc）、校验和与汇总文件、元数据（latest.json 等），
+  // 并按宿主相关度（系统/架构/类型档位）降序，宿主最相关的排最前
+  const releases = useMemo(() => {
+    const products = Array.isArray(app.releases) ? app.releases.filter((r) => isProductAssetName(r?.name)) : [];
+    return sortAssetsByRelevance(products, currentOs, currentArch);
+  }, [app.releases, currentOs, currentArch]);
 
   const hasNoReleases = !releases || releases.length === 0;
   const isAuthExpired = Boolean(
@@ -257,6 +262,15 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
 
     return releases[0];
   }, [releases, selectedAssetName, currentOs, currentArch]);
+
+  // 主按钮分流：宿主原生可装（Windows 下 msi/exe/便携 zip）走安装，其余走浏览器下载
+  const canInstallPrimary = Boolean(primaryAsset && isInstallableAssetKind(primaryAsset.kind, currentOs));
+
+  const handleDownloadPrimary = () => {
+    if (primaryAsset) {
+      api.openUrl(primaryAsset.download_url);
+    }
+  };
 
   const handleAction = async () => {
     if (isInstalled) {
@@ -631,8 +645,12 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                       ? '已安装就绪'
                       : '本地已安装'
                     : selectedAssetName
-                    ? `已选安装包 · ${primaryAsset?.os || ''} ${primaryAsset?.arch || ''}`
-                    : `推荐版本 · ${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch}`
+                    ? canInstallPrimary
+                      ? `已选安装包 · ${primaryAsset?.os || ''} ${primaryAsset?.arch || ''}`
+                      : `已选文件 · ${primaryAsset?.os || ''} ${primaryAsset?.arch || ''}（仅下载）`
+                    : canInstallPrimary
+                    ? `推荐版本 · ${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch}`
+                    : `下载版本 · ${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch}`
                 }
               >
                 {app.isLoading && hasNoReleases
@@ -648,8 +666,12 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                     ? '已安装就绪'
                     : '本地已安装'
                   : selectedAssetName
-                  ? `已选安装包 · ${primaryAsset?.os || ''} ${primaryAsset?.arch || ''}`
-                  : `推荐版本 · ${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch}`}
+                  ? canInstallPrimary
+                    ? `已选安装包 · ${primaryAsset?.os || ''} ${primaryAsset?.arch || ''}`
+                    : `已选文件 · ${primaryAsset?.os || ''} ${primaryAsset?.arch || ''}（仅下载）`
+                  : canInstallPrimary
+                  ? `推荐版本 · ${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch}`
+                  : `下载版本 · ${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch}`}
               </div>
               <div
                 className="install-asset-name"
@@ -916,6 +938,17 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                     暂无可用安装包
                   </button>
                 )
+              ) : !canInstallPrimary && primaryAsset ? (
+                <button
+                  type="button"
+                  className="btn-fluent btn-primary"
+                  onClick={handleDownloadPrimary}
+                  disabled={effectiveIsInstalling}
+                  style={{ minWidth: '120px', fontWeight: 600 }}
+                  title={`当前宿主不支持安装 ${primaryAsset.kind} 格式，通过系统浏览器下载该文件`}
+                >
+                  下载
+                </button>
               ) : (
                 <button
                   type="button"
@@ -942,7 +975,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
             </div>
           </div>
 
-          {/* 完整发布产物抽屉列表 */}
+          {/* 完整发布产物抽屉列表（按宿主相关度排序；列表区独立滚动最多展示 3 行，标题常驻） */}
           {showAllAssets && (
             <div className="settings-group" style={{ marginBottom: 0 }}>
               <div className="settings-group-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -951,6 +984,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   宿主环境匹配: {currentOs} ({currentArch})
                 </span>
               </div>
+              <div className="asset-list-scroll">
               {releases.map((asset) => {
                 const isSelected = asset.name === primaryAsset?.name;
                 return (
@@ -1006,6 +1040,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   </div>
                 );
               })}
+              </div>
             </div>
           )}
 
