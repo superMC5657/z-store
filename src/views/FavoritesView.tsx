@@ -120,7 +120,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <button
             className={`btn-fluent ${activeTab === 'local' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ padding: '7px 16px', fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}
+            style={{ fontSize: '13px', gap: '6px' }}
             onClick={() => setActiveTab('local')}
           >
             <Bookmark size={14} />
@@ -128,7 +128,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
           </button>
           <button
             className={`btn-fluent ${activeTab === 'watched' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ padding: '7px 16px', fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}
+            style={{ fontSize: '13px', gap: '6px' }}
             onClick={() => setActiveTab('watched')}
           >
             <Eye size={14} />
@@ -136,7 +136,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
           </button>
           <button
             className={`btn-fluent ${activeTab === 'starred' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ padding: '7px 16px', fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}
+            style={{ fontSize: '13px', gap: '6px' }}
             onClick={() => setActiveTab('starred')}
           >
             <Star size={14} />

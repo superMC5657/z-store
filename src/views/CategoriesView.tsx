@@ -100,9 +100,9 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
         </h3>
         {selectedCategory && (
           <button
-            className="btn-fluent btn-secondary"
+            className="btn-fluent btn-sm btn-secondary"
             onClick={() => setSelectedCategory(null)}
-            style={{ fontSize: '12px', padding: '4px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+            style={{ gap: '6px' }}
           >
             <ArrowLeft size={13} />
             <span>{t('categories.back_to_hall')}</span>

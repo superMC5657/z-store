@@ -211,6 +211,12 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+button, input, select, textarea {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
 html, body {
   width: 100%;
   height: 100%;
@@ -221,10 +227,12 @@ html, body {
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Roboto, Helvetica, Arial, sans-serif;
   color: var(--text-primary);
   font-size: var(--font-base);
   line-height: 1.5;
+  font-size-adjust: from-font;
+  text-rendering: optimizeLegibility;
   user-select: none;
   transition: background 0.4s var(--ease-smooth);
 }
@@ -529,6 +537,25 @@ body {
   transform: scale(1.08) rotate(12deg);
 }
 
+.lang-toggle-btn {
+  width: 58px !important;
+  min-width: 58px !important;
+  max-width: 58px !important;
+  height: 32px !important;
+  min-height: 32px !important;
+  max-height: 32px !important;
+  padding: 0 6px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 4px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  line-height: 1 !important;
+  flex-shrink: 0 !important;
+  box-sizing: border-box !important;
+}
+
 .lang-toggle-btn:hover {
   transform: scale(1.04);
 }
@@ -618,9 +645,11 @@ body {
   color: var(--text-tertiary);
   padding: 10px 10px 4px 10px;
   font-weight: 700;
+  line-height: 1.3;
   white-space: nowrap;
   overflow: hidden;
   max-height: 32px;
+  box-sizing: border-box;
   opacity: 1;
   transform: translateY(0);
   transition:
@@ -759,6 +788,7 @@ body {
   text-overflow: ellipsis;
   flex: 1;
   margin-left: 10px;
+  line-height: 1.3;
   opacity: 1;
   transform: translateX(0);
   transition: opacity 0.2s ease, transform 0.22s var(--ease-smooth);
@@ -1145,16 +1175,31 @@ body {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 8px 18px;
+  height: 34px;
+  min-height: 34px;
+  box-sizing: border-box;
+  padding: 0 16px;
   border-radius: var(--radius-sm);
   font-size: var(--font-base);
   font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
   border: 1px solid transparent;
   transition: all 0.22s var(--ease-spring);
   user-select: none;
   position: relative;
   overflow: hidden;
+  flex-shrink: 0;
+}
+
+.btn-fluent.btn-sm,
+.btn-fluent.btn-compact {
+  height: 28px;
+  min-height: 28px;
+  padding: 0 12px;
+  font-size: var(--font-sm);
+  gap: 5px;
 }
 
 .btn-fluent:active {
@@ -1366,6 +1411,102 @@ body {
 
 .installed-action-btn.btn-primary:hover {
   box-shadow: 0 4px 14px var(--brand-glow), inset 0 1px 0 rgba(255, 255, 255, 0.45) !important;
+}
+
+/* Fluent 标准横向列表规范（趋势榜单 / 已安装列表 / 应用更新 统一基底） */
+.fluent-list-container,
+.installed-list-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fluent-list-row,
+.installed-list-row,
+.app-card.fluent-list-row {
+  background:
+    var(--frosted-noise),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.015) 100%),
+    var(--bg-acrylic);
+  border: 1px solid var(--border-acrylic);
+  border-top: 1px solid var(--glass-highlight);
+  border-radius: var(--radius-md) !important;
+  padding: 10px 16px !important;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 16px !important;
+  box-shadow: var(--shadow-rest);
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  position: relative;
+  box-sizing: border-box;
+  min-height: 60px;
+  transform: none !important;
+}
+
+.fluent-list-row.has-expanded-content {
+  flex-direction: column !important;
+  align-items: stretch !important;
+  justify-content: center !important;
+  gap: 0 !important;
+}
+
+.fluent-list-row.has-expanded-content > .fluent-list-row-main {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 16px !important;
+  width: 100% !important;
+}
+
+.fluent-list-row:hover,
+.installed-list-row:hover,
+.app-card.fluent-list-row:hover {
+  background:
+    var(--frosted-noise),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.025) 100%),
+    var(--bg-acrylic-hover);
+  border-color: var(--border-highlight);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.07);
+  transform: none !important;
+}
+
+[data-theme="dark"] .fluent-list-row,
+[data-theme="dark"] .installed-list-row,
+[data-theme="dark"] .app-card.fluent-list-row {
+  background: var(--bg-acrylic);
+  border-color: var(--border-acrylic);
+  border-top-color: var(--border-acrylic);
+  box-shadow: none;
+}
+
+[data-theme="dark"] .fluent-list-row:hover,
+[data-theme="dark"] .installed-list-row:hover,
+[data-theme="dark"] .app-card.fluent-list-row:hover {
+  background: var(--bg-acrylic-hover);
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  transform: none !important;
+}
+
+.fluent-list-row .app-icon,
+.installed-list-row .app-icon,
+.app-card.fluent-list-row .app-icon {
+  width: 40px !important;
+  height: 40px !important;
+  border-radius: 10px !important;
+  font-size: 17px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  transition: none;
+  transform: none !important;
+}
+
+.fluent-list-row:hover .app-icon,
+.installed-list-row:hover .app-icon,
+.app-card.fluent-list-row:hover .app-icon {
+  transform: none !important;
 }
 
 /* 内容区块与网格布局 */
@@ -1680,9 +1821,6 @@ body {
   align-items: center;
   justify-content: center;
   gap: 5px;
-  padding: 5px 16px;
-  font-size: var(--font-sm);
-  font-weight: 600;
   border-radius: var(--radius-pill);
   background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-hover) 100%);
   color: #ffffff;
@@ -1693,6 +1831,28 @@ body {
   transition: all 0.25s var(--ease-spring);
   user-select: none;
   flex-shrink: 0;
+  white-space: nowrap;
+  font-weight: 600;
+  line-height: 1;
+  box-sizing: border-box;
+}
+
+.btn-install {
+  height: 30px;
+  min-height: 30px;
+  max-height: 30px;
+  min-width: 68px;
+  padding: 0 14px;
+  font-size: var(--font-sm);
+}
+
+.btn-install-sm {
+  height: 26px;
+  min-height: 26px;
+  max-height: 26px;
+  min-width: 58px;
+  padding: 0 10px;
+  font-size: var(--font-xs);
 }
 
 .btn-install:hover,
@@ -2301,26 +2461,21 @@ body {
   }
 }
 
-/* 更新项弹入动效（流式逐项跳出） */
+/* 更新项平滑淡入动效（与全站列表动效对齐，杜绝大幅度弹跳） */
 @keyframes updateItemPopIn {
   0% {
     opacity: 0;
-    transform: translateY(-16px) scale(0.96);
-    filter: blur(2px);
-  }
-  60% {
-    transform: translateY(2px) scale(1.008);
+    transform: translateY(6px);
   }
   100% {
     opacity: 1;
-    transform: translateY(0) scale(1);
-    filter: blur(0);
+    transform: translateY(0);
   }
 }
 
 .update-item-entrance {
-  animation: updateItemPopIn 0.38s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  will-change: transform, opacity, filter;
+  animation: updateItemPopIn 0.25s var(--ease-smooth) forwards;
+  will-change: transform, opacity;
 }
 
 /* 设置面板分组 - 玻璃面板 */
@@ -2347,31 +2502,6 @@ body {
   border-bottom-left-radius: var(--radius-md);
   border-bottom-right-radius: var(--radius-md);
   border-bottom: none;
-}
-
-/* 恢复默认设置级联涟漪动效 */
-.settings-group.reset-wave-0 { animation: factoryResetWave 0.7s var(--ease-spring) 0.0s forwards; }
-.settings-group.reset-wave-1 { animation: factoryResetWave 0.7s var(--ease-spring) 0.07s forwards; }
-.settings-group.reset-wave-2 { animation: factoryResetWave 0.7s var(--ease-spring) 0.14s forwards; }
-.settings-group.reset-wave-3 { animation: factoryResetWave 0.7s var(--ease-spring) 0.21s forwards; }
-.settings-group.reset-wave-4 { animation: factoryResetWave 0.7s var(--ease-spring) 0.28s forwards; }
-.settings-group.reset-wave-5 { animation: factoryResetWave 0.7s var(--ease-spring) 0.35s forwards; }
-
-@keyframes factoryResetWave {
-  0% {
-    transform: scale(1);
-    box-shadow: var(--shadow-rest);
-  }
-  35% {
-    transform: scale(1.015);
-    box-shadow: 0 0 26px var(--brand-glow);
-    border-color: var(--brand-primary);
-  }
-  100% {
-    transform: scale(1);
-    box-shadow: var(--shadow-rest);
-    border-color: var(--border-acrylic);
-  }
 }
 
 .settings-group::before {
@@ -2426,6 +2556,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-height: 56px;
+  box-sizing: border-box;
   padding: 13px 20px;
   border-bottom: 1px solid var(--border-acrylic);
   font-size: var(--font-base);
@@ -2598,7 +2730,8 @@ body {
 /* 分段胶囊选择按钮 */
 .segmented-group {
   display: inline-flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  align-items: center;
   background: rgba(0, 0, 0, 0.05);
   border: 1px solid var(--border-acrylic);
   border-radius: var(--radius-sm);
@@ -2606,20 +2739,29 @@ body {
   gap: 3px;
   flex-shrink: 0;
   max-width: 100%;
+  box-sizing: border-box;
 }
 
 .segmented-item {
-  padding: 5px 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  min-height: 28px;
+  max-height: 28px;
+  padding: 0 12px;
   font-size: var(--font-sm);
-  font-weight: 500;
+  font-weight: 600;
+  line-height: 1;
   color: var(--text-secondary);
   background: transparent;
   border: none;
   border-radius: 5px;
   cursor: pointer;
-  transition: all 0.2s var(--ease-spring);
+  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
   user-select: none;
   white-space: nowrap;
+  box-sizing: border-box;
 }
 
 .segmented-item:hover {
@@ -2633,7 +2775,6 @@ body {
   background: linear-gradient(135deg, var(--brand-primary), var(--brand-hover));
   font-weight: 600;
   box-shadow: 0 2px 8px var(--brand-glow);
-  animation: segmentedActivePop 0.32s var(--ease-spring);
 }
 
 [data-theme="dark"] .segmented-group {
@@ -2645,13 +2786,6 @@ body {
   color: var(--text-primary);
   background: rgba(255, 255, 255, 0.08);
   box-shadow: none;
-}
-
-@keyframes segmentedActivePop {
-  0% { transform: scale(0.92); }
-  45% { transform: scale(1.08); }
-  75% { transform: scale(0.98); }
-  100% { transform: scale(1); }
 }
 
 /* 设置输入控件组 */
