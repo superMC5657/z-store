@@ -8,22 +8,22 @@
  *   所有平台比较均忽略大小写。
  */
 
-export type PlatformId = 'windows' | 'macos' | 'linux' | 'android' | 'ios';
+export type PlatformId = 'windows' | 'macos' | 'linux' | 'ios' | 'android';
 
 export const PLATFORM_IDS: readonly PlatformId[] = [
   'windows',
-  'android',
   'macos',
   'linux',
   'ios',
+  'android',
 ] as const;
 
 export const PLATFORM_META: Record<PlatformId, { label: string }> = {
   windows: { label: 'Windows' },
-  android: { label: 'Android' },
   macos: { label: 'macOS' },
   linux: { label: 'Linux' },
   ios: { label: 'iOS' },
+  android: { label: 'Android' },
 };
 
 export interface PlatformFilterSelection {

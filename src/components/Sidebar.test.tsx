@@ -64,10 +64,10 @@ describe('baseline: Sidebar nav groups (Sidebar.tsx slices)', () => {
 
 const EXPECTED_PLATFORMS: Array<{ id: string; label: string }> = [
   { id: 'windows', label: 'Windows' },
-  { id: 'android', label: 'Android' },
   { id: 'macos', label: 'macOS' },
   { id: 'linux', label: 'Linux' },
   { id: 'ios', label: 'iOS' },
+  { id: 'android', label: 'Android' },
 ];
 
 describe('Sidebar: 设备平台 multi-select group', () => {

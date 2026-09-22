@@ -56,7 +56,7 @@ import type { PlatformId } from './platformFilter';
 
 describe('platformFilter: multi-select set semantics', () => {
   it('exposes the five known platform ids', () => {
-    expect(PLATFORM_IDS).toEqual(['windows', 'android', 'macos', 'linux', 'ios']);
+    expect(PLATFORM_IDS).toEqual(['windows', 'macos', 'linux', 'ios', 'android']);
   });
 
   it('normalizePlatform lowercases ids', () => {
