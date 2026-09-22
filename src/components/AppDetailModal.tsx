@@ -593,32 +593,16 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   <span>正在同步最新数据...</span>
                 </span>
               ) : (
-                <>
-                  {app.cached_at && !app.is_stale && (
-                    <span
-                      className="modal-tag"
-                      style={{ fontSize: '11px', opacity: 0.8, display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                      title={`最后缓存时间：${new Date(app.cached_at * 1000).toLocaleString()}`}
-                    >
-                      <Clock size={11} />
-                      <span>{new Date(app.cached_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} 缓存</span>
-                    </span>
-                  )}
-                  {onRefresh && (
-                    <button
-                      type="button"
-                      className="modal-tag modal-tag-action"
-                      onClick={handleTriggerRefresh}
-                      disabled={effectiveRefreshing}
-                      title="从远端拉取最新文档与发布数据"
-                    >
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
-                      </svg>
-                      <span>从远端刷新</span>
-                    </button>
-                  )}
-                </>
+                app.cached_at && !app.is_stale && (
+                  <span
+                    className="modal-tag"
+                    style={{ fontSize: '11px', opacity: 0.8, display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                    title={`最后缓存时间：${new Date(app.cached_at * 1000).toLocaleString()}`}
+                  >
+                    <Clock size={11} />
+                    <span>{new Date(app.cached_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} 缓存</span>
+                  </span>
+                )
               )}
             </div>
           </div>
