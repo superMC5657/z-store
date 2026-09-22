@@ -96,8 +96,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
             return (
               <button
                 key={tab}
-                className={`btn-fluent ${timeRange === tab ? 'btn-primary' : 'btn-secondary'}`}
-                style={{ padding: '5px 14px', fontSize: '12px', fontWeight: timeRange === tab ? 600 : 400 }}
+                className={`btn-fluent btn-sm ${timeRange === tab ? 'btn-primary' : 'btn-secondary'}`}
                 onClick={() => setTimeRange(tab)}
               >
                 {labels[tab]}
@@ -107,7 +106,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
         </div>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      <div className="fluent-list-container" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
         {sortedApps.length === 0 ? (
           <div
             className="trends-empty"
@@ -148,22 +147,21 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
           return (
           <div
             key={app.id}
-            className="app-card"
+            className="app-card fluent-list-row"
             style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              padding: '14px 20px',
               cursor: 'pointer',
             }}
             onClick={() => onOpenDetail(app.id)}
           >
             <div
               style={{
-                fontSize: '18px',
+                fontSize: '15px',
                 fontWeight: 800,
-                width: '36px',
+                width: '32px',
+                flexShrink: 0,
                 color: getRankBadgeColor(index),
                 fontVariantNumeric: 'tabular-nums',
+                textAlign: 'center',
               }}
             >
               #{index + 1}
@@ -175,17 +173,20 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
               appId={app.id}
               iconBg={app.icon_bg}
               className="app-icon"
+              size={40}
               style={{
-                width: '42px',
-                height: '42px',
-                fontSize: '18px',
-                marginRight: '14px',
+                width: '40px',
+                height: '40px',
+                borderRadius: '10px',
+                fontSize: '17px',
+                marginRight: '12px',
+                flexShrink: 0,
               }}
             />
 
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontWeight: 600, fontSize: '15px' }}>{displayName}</span>
+                <span style={{ fontWeight: 600, fontSize: '14px' }}>{displayName}</span>
                 {app.is_verified && (
                   <span className="verified-badge" title={t('app.verified_badge')}>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
