@@ -339,11 +339,23 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
           <Package size={18} style={{ color: 'var(--brand-primary)' }} />
           <span>{t('installed.title', { count: installedApps.length })}</span>
         </h3>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          {onScanSystemApps && (
+            <button
+              className="btn-fluent btn-sm btn-primary"
+              style={{ height: '30px', padding: '0 12px', fontSize: '12px', gap: '6px', fontWeight: 600 }}
+              onClick={onScanSystemApps}
+              title={t('installed.scan_local_tooltip')}
+            >
+              <ScanLine size={13} />
+              <span>{t('installed.scan_local_apps')}</span>
+            </button>
+          )}
+
           {onRefresh && (
             <button
-              className="btn-fluent btn-secondary"
-              style={{ padding: '5px 12px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              className="btn-fluent btn-sm btn-secondary"
+              style={{ height: '30px', padding: '0 10px', fontSize: '12px', gap: '5px' }}
               onClick={onRefresh}
               disabled={isRefreshing}
               title={t('installed.refresh_status_tooltip')}
@@ -352,10 +364,11 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
               <span>{isRefreshing ? t('installed.refreshing') : t('installed.refresh_status')}</span>
             </button>
           )}
+
           {onOpenRules && (
             <button
-              className="btn-fluent btn-secondary"
-              style={{ padding: '5px 12px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              className="btn-fluent btn-sm btn-secondary"
+              style={{ height: '30px', padding: '0 10px', fontSize: '12px', gap: '5px' }}
               onClick={onOpenRules}
               title={t('installed.rules_tooltip')}
             >
@@ -365,11 +378,12 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                 <span
                   style={{
                     fontSize: '10px',
-                    padding: '0 6px',
+                    padding: '0 5px',
                     borderRadius: '8px',
                     background: 'var(--brand-primary)',
                     color: '#fff',
                     fontWeight: 700,
+                    lineHeight: '14px',
                   }}
                 >
                   {updateRules.length}
@@ -377,10 +391,11 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
               )}
             </button>
           )}
+
           {onExportAppsJson && (
             <button
-              className="btn-fluent btn-secondary"
-              style={{ padding: '5px 12px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              className="btn-fluent btn-sm btn-secondary"
+              style={{ height: '30px', padding: '0 10px', fontSize: '12px', gap: '5px' }}
               onClick={onExportAppsJson}
               title={t('installed.export_list_tooltip')}
               disabled={installedApps.length === 0}
@@ -389,35 +404,37 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
               <span>{t('installed.export_list')}</span>
             </button>
           )}
-          {onScanSystemApps && (
+
+          <div
+            style={{
+              width: '1px',
+              height: '16px',
+              background: 'var(--border-acrylic)',
+              margin: '0 2px',
+              opacity: 0.7,
+            }}
+          />
+
+          <div className="segmented-group" style={{ height: '30px', padding: '2px', boxSizing: 'border-box' }}>
             <button
-              className="btn-fluent btn-secondary"
-              style={{ padding: '5px 12px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-              onClick={onScanSystemApps}
-              title={t('installed.scan_local_tooltip')}
+              className={`segmented-item ${viewMode === 'card' ? 'active' : ''}`}
+              style={{ height: '24px', minHeight: '24px', padding: '0 8px', fontSize: '11.5px', gap: '4px' }}
+              onClick={() => setViewMode('card')}
+              title={t('installed.view_card_tooltip')}
             >
-              <ScanLine size={13} />
-              <span>{t('installed.scan_local_apps')}</span>
+              <LayoutGrid size={12} />
+              <span>{t('installed.view_card')}</span>
             </button>
-          )}
-          <button
-            className={`btn-fluent ${viewMode === 'card' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ padding: '5px 10px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
-            onClick={() => setViewMode('card')}
-            title={t('installed.view_card_tooltip')}
-          >
-            <LayoutGrid size={13} />
-            <span>{t('installed.view_card')}</span>
-          </button>
-          <button
-            className={`btn-fluent ${viewMode === 'list' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ padding: '5px 10px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
-            onClick={() => setViewMode('list')}
-            title={t('installed.view_list_tooltip')}
-          >
-            <List size={13} />
-            <span>{t('installed.view_list')}</span>
-          </button>
+            <button
+              className={`segmented-item ${viewMode === 'list' ? 'active' : ''}`}
+              style={{ height: '24px', minHeight: '24px', padding: '0 8px', fontSize: '11.5px', gap: '4px' }}
+              onClick={() => setViewMode('list')}
+              title={t('installed.view_list_tooltip')}
+            >
+              <List size={12} />
+              <span>{t('installed.view_list')}</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -642,7 +659,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
           })}
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div className="installed-list-container">
           {installedApps.map((app) => {
             const badge = getMethodBadge(app.install_method, t);
             const rule = updateRules.find((r) => r.app_id.toLowerCase() === app.app_id.toLowerCase());
@@ -655,17 +672,13 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
             return (
               <div
                 key={app.app_id}
-                className="app-card"
+                className="installed-list-row fluent-list-row"
                 style={{
-                  padding: '12px 16px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '14px',
                   zIndex: isMenuOpen ? 50 : 1,
                 }}
               >
                 <div
-                  style={{ cursor: onOpenDetail ? 'pointer' : 'default', flexShrink: 0 }}
+                  style={{ cursor: onOpenDetail ? 'pointer' : 'default', flexShrink: 0, display: 'flex', alignItems: 'center' }}
                   onClick={() => onOpenDetail && onOpenDetail(app.app_id)}
                   title={onOpenDetail ? t('app.view_details') : undefined}
                 >
@@ -675,20 +688,25 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                     appId={app.app_id}
                     iconBg={iconInfo.iconBg}
                     className="app-icon"
-                    size={38}
+                    size={40}
                   />
                 </div>
 
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flexWrap: 'wrap' }}>
                     <span
-                      style={{ fontWeight: 600, cursor: onOpenDetail ? 'pointer' : 'default' }}
+                      style={{
+                        fontWeight: 600,
+                        fontSize: '14px',
+                        cursor: onOpenDetail ? 'pointer' : 'default',
+                        color: 'var(--text-primary)',
+                      }}
                       onClick={() => onOpenDetail && onOpenDetail(app.app_id)}
                       title={onOpenDetail ? t('app.view_details') : undefined}
                     >
                       {appDisplayName}
                     </span>
-                    <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{app.version}</span>
+                    <span style={{ fontSize: '12px', color: 'var(--text-tertiary)', flexShrink: 0 }}>{app.version}</span>
                     {isFrozen && (
                       <span
                         style={{
@@ -702,6 +720,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                           display: 'inline-flex',
                           alignItems: 'center',
                           gap: '3px',
+                          flexShrink: 0,
                         }}
                       >
                         <Lock size={10} />
@@ -721,6 +740,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                           display: 'inline-flex',
                           alignItems: 'center',
                           gap: '3px',
+                          flexShrink: 0,
                         }}
                       >
                         <EyeOff size={10} />
@@ -734,13 +754,26 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                         borderRadius: '4px',
                         background: 'var(--brand-subtle)',
                         color: badge.color,
+                        flexShrink: 0,
                       }}
                     >
                       {badge.label}
                     </span>
                   </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '3px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span>
+                  <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                    <span
+                      style={{
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        minWidth: 0,
+                      }}
+                      title={
+                        app.install_path
+                          ? `${t('installed.path_prefix', { path: app.install_path })} · ${t('installed.version_and_date', { version: app.version, date: formatAppDate(app.installed_at, i18n.language) })}`
+                          : undefined
+                      }
+                    >
                       {app.install_path
                         ? t('installed.path_prefix', { path: app.install_path })
                         : t('installed.path_not_detected_hint')}{' '}
@@ -756,6 +789,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                           cursor: 'pointer',
                           fontSize: '11px',
                           padding: '0 4px',
+                          flexShrink: 0,
                         }}
                       >
                         {copiedId === app.app_id ? t('installed.copied') : t('installed.copy')}
@@ -774,6 +808,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: '3px',
+                            flexShrink: 0,
                           }}
                         >
                           <Search size={10} />
@@ -784,30 +819,32 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                   </div>
                 </div>
 
-                <InstalledItemActions
-                  app={app}
-                  isFrozen={isFrozen}
-                  isHidden={isHidden}
-                  isMenuOpen={isMenuOpen}
-                  isUninstallingLoading={uninstallingAppIds?.has(app.app_id)}
-                  confirmingUninstallId={confirmingUninstallId}
-                  confirmingUnmanageId={confirmingUnmanageId}
-                  onTriggerUninstall={handleTriggerUninstall}
-                  onTriggerUnmanage={handleTriggerUnmanage}
-                  onCancelConfirm={() => {
-                    setConfirmingUninstallId(null);
-                    setConfirmingUnmanageId(null);
-                  }}
-                  onLaunch={onLaunch}
-                  onToggleMenu={(id, e) => {
-                    e.stopPropagation();
-                    setActiveMenuId(activeMenuId === id ? null : id);
-                  }}
-                  onCloseMenu={() => setActiveMenuId(null)}
-                  onToggleRuleFrozen={onToggleRuleFrozen}
-                  onToggleRuleHidden={onToggleRuleHidden}
-                  compact={true}
-                />
+                <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+                  <InstalledItemActions
+                    app={app}
+                    isFrozen={isFrozen}
+                    isHidden={isHidden}
+                    isMenuOpen={isMenuOpen}
+                    isUninstallingLoading={uninstallingAppIds?.has(app.app_id)}
+                    confirmingUninstallId={confirmingUninstallId}
+                    confirmingUnmanageId={confirmingUnmanageId}
+                    onTriggerUninstall={handleTriggerUninstall}
+                    onTriggerUnmanage={handleTriggerUnmanage}
+                    onCancelConfirm={() => {
+                      setConfirmingUninstallId(null);
+                      setConfirmingUnmanageId(null);
+                    }}
+                    onLaunch={onLaunch}
+                    onToggleMenu={(id, e) => {
+                      e.stopPropagation();
+                      setActiveMenuId(activeMenuId === id ? null : id);
+                    }}
+                    onCloseMenu={() => setActiveMenuId(null)}
+                    onToggleRuleFrozen={onToggleRuleFrozen}
+                    onToggleRuleHidden={onToggleRuleHidden}
+                    compact={true}
+                  />
+                </div>
               </div>
             );
           })}

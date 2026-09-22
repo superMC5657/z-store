@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, act } from '@testing-library/react';
 import i18n from '../i18n';
 import { CategoriesView } from './CategoriesView';
 import { InstalledView } from './InstalledView';
@@ -160,6 +160,34 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
 
       expect(screen.getByText('Launch')).toBeTruthy();
       expect(screen.getByText('Uninstall')).toBeTruthy();
+    });
+
+    it('switches between card and list view modes correctly', async () => {
+      await i18n.changeLanguage('zh-CN');
+      const { container } = render(
+        <InstalledView
+          installedApps={[MOCK_INSTALLED]}
+          onLaunch={() => {}}
+          onUninstall={() => {}}
+        />,
+      );
+
+      // Default is card mode
+      expect(container.querySelector('.app-grid')).toBeTruthy();
+      expect(container.querySelector('.app-card')).toBeTruthy();
+      expect(container.querySelector('.installed-list-row')).toBeNull();
+
+      // Switch to list mode
+      const listBtn = screen.getByRole('button', { name: /^列表$/ });
+      act(() => {
+        fireEvent.click(listBtn);
+      });
+
+      expect(container.querySelector('.app-grid')).toBeNull();
+      expect(container.querySelector('.installed-list-container')).toBeTruthy();
+      expect(container.querySelector('.installed-list-row')).toBeTruthy();
+      expect(screen.getByText('Demo App')).toBeTruthy();
+      expect(screen.getByText('启动')).toBeTruthy();
     });
   });
 

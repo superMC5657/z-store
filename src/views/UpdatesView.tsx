@@ -104,15 +104,10 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
   return (
     <div className="updates-view view-entrance">
       <div className="section-header">
-        <div>
-          <h3 className="section-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <RotateCcw size={18} style={{ color: 'var(--brand-primary)' }} />
-            <span>{t('updates.title', { count: updates.length })}</span>
-          </h3>
-          <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: 'var(--text-tertiary)' }}>
-            {t('updates.subtitle')}
-          </p>
-        </div>
+        <h3 className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <RotateCcw size={18} style={{ color: 'var(--brand-primary)' }} />
+          <span>{t('updates.title', { count: updates.length })}</span>
+        </h3>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           {onOpenRules && (
             <button
@@ -296,7 +291,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
           </div>
         )
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div className="fluent-list-container" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {updates.map((item) => {
             const isExpanded = expandedId === item.app_id;
             const isThisUpdating = updatingId === item.app_id;
@@ -307,9 +302,8 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
             return (
               <div
                 key={item.app_id}
-                className="app-card update-item-entrance"
+                className="fluent-list-row has-expanded-content update-item-entrance"
                 style={{
-                  padding: '20px',
                   position: 'relative',
                   zIndex: isMenuOpen ? 50 : 1,
                   opacity: isFading ? 0 : 1,
@@ -317,10 +311,10 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                   transition: 'opacity 0.28s cubic-bezier(0.1, 0.9, 0.2, 1), transform 0.28s cubic-bezier(0.1, 0.9, 0.2, 1)',
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flex: 1, minWidth: 0 }}>
+                <div className="fluent-list-row-main">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
                     <div
-                      style={{ cursor: onOpenWatchedApp ? 'pointer' : 'default', flexShrink: 0 }}
+                      style={{ cursor: onOpenWatchedApp ? 'pointer' : 'default', flexShrink: 0, display: 'flex', alignItems: 'center' }}
                       onClick={() => onOpenWatchedApp && onOpenWatchedApp(item.app_id)}
                       title={onOpenWatchedApp ? t('app.view_details') : undefined}
                     >
@@ -330,25 +324,26 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                         appId={item.app_id}
                         iconBg={iconInfo.iconBg}
                         className="app-icon"
-                        size={48}
-                        style={{ width: '48px', height: '48px', borderRadius: '12px' }}
+                        size={40}
                       />
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <h4
                         style={{
-                          margin: '0 0 6px 0',
-                          fontSize: '16px',
+                          margin: '0 0 3px 0',
+                          fontSize: '14px',
+                          fontWeight: 600,
                           cursor: onOpenWatchedApp ? 'pointer' : 'default',
+                          color: 'var(--text-primary)',
                         }}
                         onClick={() => onOpenWatchedApp && onOpenWatchedApp(item.app_id)}
                         title={onOpenWatchedApp ? t('app.view_details') : undefined}
                       >
                         {item.app_name}
                       </h4>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
                         <span style={{ color: 'var(--text-tertiary)' }}>{t('updates.current_version', { version: item.current_version })}</span>
-                        <span>➔</span>
+                        <span style={{ color: 'var(--text-tertiary)', fontSize: '11px' }}>➔</span>
                         <span style={{ color: 'var(--brand-primary)', fontWeight: 600 }}>
                           {t('updates.latest_version', { version: item.latest_version })}
                         </span>
@@ -358,16 +353,16 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
 
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center', position: 'relative' }}>
                     <button
-                      className="btn-fluent btn-secondary"
-                      style={{ fontSize: '12px', padding: '6px 12px' }}
+                      className="btn-fluent btn-sm btn-secondary"
+                      style={{ height: '30px', boxSizing: 'border-box', padding: '0 10px', fontSize: '12px' }}
                       onClick={() => setExpandedId(isExpanded ? null : item.app_id)}
                     >
                       {isExpanded ? t('updates.collapse_changelog') : t('updates.view_changelog')}
                     </button>
 
                     <button
-                      className="btn-fluent btn-primary"
-                      style={{ fontSize: '13px', padding: '6px 16px', fontWeight: 600 }}
+                      className="btn-fluent btn-sm btn-primary"
+                      style={{ height: '30px', boxSizing: 'border-box', padding: '0 14px', fontSize: '12.5px', fontWeight: 600 }}
                       disabled={isThisUpdating || isUpdatingAll}
                       onClick={() => handleUpdate(item.app_id)}
                     >
@@ -377,9 +372,12 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                     {/* Fluent 更多菜单按钮 (···) */}
                     <div style={{ position: 'relative' }}>
                       <button
-                        className={`btn-fluent btn-secondary ${isMenuOpen ? 'active' : ''}`}
+                        className={`btn-fluent btn-sm btn-secondary ${isMenuOpen ? 'active' : ''}`}
                         style={{
-                          padding: '6px 8px',
+                          width: '30px',
+                          height: '30px',
+                          boxSizing: 'border-box',
+                          padding: 0,
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
@@ -392,7 +390,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                         title={t('updates.more_rules_tooltip')}
                         aria-label={t('installed.more_options')}
                       >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
                           <circle cx="5" cy="12" r="2" />
                           <circle cx="12" cy="12" r="2" />
                           <circle cx="19" cy="12" r="2" />
@@ -480,11 +478,13 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                 {isExpanded && item.changelog && (
                   <div
                     style={{
-                      marginTop: '16px',
-                      padding: '16px 20px',
+                      marginTop: '12px',
+                      padding: '14px 16px',
                       background: 'var(--bg-acrylic-thin)',
                       borderRadius: 'var(--radius-md)',
                       border: '1px solid var(--border-acrylic)',
+                      width: '100%',
+                      boxSizing: 'border-box',
                     }}
                   >
                     <div
