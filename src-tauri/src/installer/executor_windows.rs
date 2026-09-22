@@ -9,9 +9,11 @@ pub async fn install_msi(
     installer_path: &Path,
     app_id: &str,
 ) -> Result<InstallOutcome, String> {
-    use std::time::Duration;
-    // FR-3.5 静默优先：首先尝试 `msiexec /i <pkg> /qn /norestart` 全静默安装
+    // 跳过系统还原点创建（MSIFASTINSTALL=7）：应用商店高频安装场景下，
+    // 每个 MSI 都建还原点动辄十几秒；失败回滚仍可走卸载重装。
+    // 仅作用于我们拉起的这两个 msiexec 进程，不改系统全局策略。
     let silent_status = tokio::process::Command::new("msiexec.exe")
+        .env("MSIFASTINSTALL", "7")
         .arg("/i")
         .arg(installer_path)
         .arg("/qn")
@@ -21,7 +23,6 @@ pub async fn install_msi(
         .map_err(|e| format!("调起 MSI 静默安装器失败: {}", e))?;
 
     if silent_status.success() {
-        tokio::time::sleep(Duration::from_millis(800)).await;
         return Ok(InstallOutcome::Installed("MSI 静默安装已完成".to_string()));
     }
 
@@ -39,6 +40,7 @@ pub async fn install_msi(
 
     // 静默被拒绝或非零退出：降级拉起原生 GUI 向导，并等待用户在向导中完成或取消
     let mut fallback = tokio::process::Command::new("msiexec.exe")
+        .env("MSIFASTINSTALL", "7")
         .arg("/i")
         .arg(installer_path)
         .spawn()
@@ -52,7 +54,6 @@ pub async fn install_msi(
         .map_err(|e| format!("MSI 向导进程异常: {}", e))?;
 
     if fallback_status.success() {
-        tokio::time::sleep(Duration::from_millis(800)).await;
         Ok(InstallOutcome::Installed("MSI 安装已完成".to_string()))
     } else {
         let fb_code = fallback_status.code().unwrap_or(-1);
@@ -70,7 +71,6 @@ pub async fn install_setup_exe(
     installer_path: &Path,
     app_id: &str,
 ) -> Result<InstallOutcome, String> {
-    use std::time::Duration;
     // Finding 3.3-3：嗅探安装器类型并传递静默参数（NSIS ⇒ /S，
     // Inno Setup ⇒ /VERYSILENT /NORESTART；未知类型 ⇒ 交互式回退，绝不猜测）。
     let setup_kind = sniff_setup_kind_from_file(installer_path);
@@ -99,8 +99,6 @@ pub async fn install_setup_exe(
         .wait()
         .await
         .map_err(|e| format!("安装程序运行异常: {}", e))?;
-
-    tokio::time::sleep(Duration::from_millis(800)).await;
 
     if status.success() {
         Ok(InstallOutcome::Installed("安装程序已完成".to_string()))
