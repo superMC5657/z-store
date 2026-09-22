@@ -2308,7 +2308,7 @@ body {
   border: 1px solid var(--border-acrylic);
   border-radius: var(--radius-md);
   margin-bottom: 20px;
-  overflow: visible;
+  overflow: hidden;
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   box-shadow: var(--shadow-rest), inset 0 1px 0 var(--border-highlight);
@@ -2324,6 +2324,7 @@ body {
 .settings-group .settings-row:last-child {
   border-bottom-left-radius: var(--radius-md);
   border-bottom-right-radius: var(--radius-md);
+  border-bottom: none;
 }
 
 /* 恢复默认设置级联涟漪动效 */

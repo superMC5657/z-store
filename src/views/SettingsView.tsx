@@ -1,22 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Settings,
-  Monitor,
   Sun,
   Moon,
   Laptop,
   RotateCcw,
   Shield,
-  Folder,
   FolderOpen,
-  User,
   Globe,
   Zap,
   RefreshCw,
   ChevronUp,
   ChevronDown,
   Check,
-  Database,
   Download,
   Languages,
 } from 'lucide-react';
@@ -270,13 +266,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </h3>
       </div>
 
-      {/* 外观 */}
       <div className="settings-group">
-        <div className="settings-group-title">
-          <Monitor size={16} />
-          <span>{t('settings.appearance')}</span>
-        </div>
-
         <div className={`settings-row ${highlightRow === 'theme' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -398,14 +388,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             ))}
           </div>
         </div>
-      </div>
-
-      {/* 更新与提醒 */}
-      <div className="settings-group">
-        <div className="settings-group-title">
-          <RotateCcw size={16} />
-          <span>{t('settings.updates_and_notifs')}</span>
-        </div>
 
         <div className={`settings-row ${highlightRow === 'update_frequency' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
@@ -496,14 +478,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             )}
           </button>
         </div>
-      </div>
-
-      {/* 存储与下载 */}
-      <div className="settings-group">
-        <div className="settings-group-title">
-          <Folder size={16} />
-          <span>{t('settings.storage_and_download')}</span>
-        </div>
 
         <div className={`settings-row ${highlightRow === 'download_dir' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
@@ -580,25 +554,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </button>
           </div>
         </div>
-      </div>
-
-      {/* 账号与配额 */}
-      <div className="settings-group">
-        <div className="settings-group-title">
-          <User size={16} />
-          <span>{t('settings.account')}</span>
-        </div>
 
         <div id="settings-account">
           <OAuthAccountCard />
-        </div>
-      </div>
-
-      {/* 网络与清单 */}
-      <div className="settings-group">
-        <div className="settings-group-title">
-          <Globe size={16} />
-          <span>{t('settings.network_and_catalog')}</span>
         </div>
 
         <div className={`settings-row ${highlightRow === 'proxy' ? 'row-highlight' : ''}`}>
@@ -758,14 +716,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               {syncFeedback}
             </span>
           )}
-        </div>
-      </div>
-
-      {/* 数据备份 */}
-      <div className="settings-group">
-        <div className="settings-group-title">
-          <Database size={16} />
-          <span>{t('settings.data_backup')}</span>
         </div>
 
         <div className={`settings-row ${highlightRow === 'export' ? 'row-highlight' : ''}`}>

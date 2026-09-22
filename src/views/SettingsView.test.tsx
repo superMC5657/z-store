@@ -147,24 +147,21 @@ describe('SettingsView custom catalog source confirm', () => {
     expect(calls[0].value).toBe('en-US');
   });
 
-  it('renders settings groups, proxy status, and backup section in English when en-US is active', async () => {
+  it('renders settings rows in English when en-US is active', async () => {
     await i18n.changeLanguage('en-US');
     renderSettings(baseSettings({ language: 'en-US', active_mirror: 'https://gh-proxy.com' }));
 
-    // Account & Quota group
-    expect(screen.getByText('Account & Quota')).toBeTruthy();
+    // Appearance row
+    expect(screen.getByText('Theme Mode')).toBeTruthy();
 
-    // Network & Catalog group
-    expect(screen.getByText('Network & Catalog')).toBeTruthy();
+    // Network & Proxy row
     expect(screen.getByText('GitHub Download Proxy')).toBeTruthy();
 
-    // Data Backup group
-    expect(screen.getByText('Data Backup')).toBeTruthy();
+    // Data Backup row
     expect(screen.getByText('Export Managed Apps')).toBeTruthy();
     expect(screen.getByText('Export List')).toBeTruthy();
 
-    // Updates & Notifications group
-    expect(screen.getByText('Updates & Notifications')).toBeTruthy();
+    // Updates & Notifications row
     expect(screen.getByText('Auto Check Updates')).toBeTruthy();
     expect(screen.getByText('Version Pin & Ignore Rules')).toBeTruthy();
   });
