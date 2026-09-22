@@ -564,9 +564,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <div id="settings-account">
           <OAuthAccountCard />
         </div>
-      </div>
 
-      <div className="settings-group">
         <div className={`settings-row ${highlightRow === 'proxy' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
