@@ -32,7 +32,6 @@ pub async fn install_deb(installer_path: &Path) -> Result<InstallOutcome, String
         .status()
         .await
         .map_err(|e| format!("调起 pkexec dpkg 失败: {}", e))?;
-    let _ = std::fs::remove_file(installer_path);
     if status.success() {
         Ok(InstallOutcome::Installed("deb 包安装已完成".to_string()))
     } else {
@@ -50,7 +49,6 @@ pub async fn install_rpm(installer_path: &Path) -> Result<InstallOutcome, String
         .status()
         .await
         .map_err(|e| format!("调起 pkexec rpm 失败: {}", e))?;
-    let _ = std::fs::remove_file(installer_path);
     if status.success() {
         Ok(InstallOutcome::Installed("rpm 包安装已完成".to_string()))
     } else {

@@ -22,13 +22,11 @@ pub async fn install_msi(
 
     if silent_status.success() {
         tokio::time::sleep(Duration::from_millis(800)).await;
-        let _ = std::fs::remove_file(installer_path);
         return Ok(InstallOutcome::Installed("MSI 静默安装已完成".to_string()));
     }
 
     let code = silent_status.code().unwrap_or(-1);
     if code == 1602 {
-        let _ = std::fs::remove_file(installer_path);
         return Err("用户取消了 MSI 安装向导".to_string());
     }
 
@@ -52,8 +50,6 @@ pub async fn install_msi(
         .wait()
         .await
         .map_err(|e| format!("MSI 向导进程异常: {}", e))?;
-
-    let _ = std::fs::remove_file(installer_path);
 
     if fallback_status.success() {
         tokio::time::sleep(Duration::from_millis(800)).await;
@@ -105,7 +101,6 @@ pub async fn install_setup_exe(
         .map_err(|e| format!("安装程序运行异常: {}", e))?;
 
     tokio::time::sleep(Duration::from_millis(800)).await;
-    let _ = std::fs::remove_file(installer_path);
 
     if status.success() {
         Ok(InstallOutcome::Installed("安装程序已完成".to_string()))
@@ -132,7 +127,6 @@ pub async fn install_fallback_default(
         .status()
         .await
         .map_err(|e| format!("调起系统默认程序失败: {}", e))?;
-    let _ = std::fs::remove_file(installer_path);
     if status.success() {
         Ok(InstallOutcome::Installed("系统默认程序已处理完成".to_string()))
     } else {

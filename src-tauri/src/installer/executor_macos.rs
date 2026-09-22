@@ -7,7 +7,6 @@ use std::path::{Path, PathBuf};
 #[cfg(target_os = "macos")]
 pub async fn install_dmg(installer_path: &Path) -> Result<InstallOutcome, String> {
     let res = install_macos_dmg(installer_path);
-    let _ = std::fs::remove_file(installer_path);
     res.map(InstallOutcome::Installed)
 }
 
@@ -21,7 +20,6 @@ pub async fn install_pkg(installer_path: &Path) -> Result<InstallOutcome, String
         .await
         .map_err(|e| format!("拉起 macOS PKG 安装器失败: {}", e))?;
 
-    let _ = std::fs::remove_file(installer_path);
     if status.success() {
         Ok(InstallOutcome::Installed("macOS PKG 安装已完成".to_string()))
     } else {

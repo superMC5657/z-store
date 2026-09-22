@@ -53,6 +53,5 @@ pub fn install_portable_zip(
         crate::installer::paths::create_desktop_shortcut(app_id, exe);
     }
 
-    let _ = std::fs::remove_file(installer_path);
     Ok(InstallOutcome::Installed(format!("已解压至便携目录: {:?}", app_dir)))
 }

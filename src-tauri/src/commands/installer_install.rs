@@ -212,10 +212,5 @@ pub async fn install_app(
     // 精准将新安装的应用增量写入常驻缓存，避免全盘重新扫描
     crate::commands::scanner::add_to_detected_cache(&detail.id);
 
-    // 仅便携版 (PortableZip) 在此处同步清理临时安装包；MSI 与 SetupExe 已由后台守护线程在安装进程退出后安全移除
-    if kind == crate::installer::AssetKind::PortableZip && dest_path.is_file() {
-        let _ = std::fs::remove_file(&dest_path);
-    }
-
     Ok(installed_app)
 }
