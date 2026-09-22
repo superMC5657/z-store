@@ -7,7 +7,6 @@ import {
   EyeOff,
   SkipForward,
   ShieldAlert,
-  Info,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
@@ -147,9 +146,6 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                 {t('rules.title', { count: updateRules.length })}
               </h3>
             </div>
-            <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: 'var(--text-secondary)' }}>
-              {t('rules.desc')}
-            </p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <button
@@ -397,14 +393,9 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
               }}
             >
               <ShieldAlert size={40} strokeWidth={1.5} style={{ color: 'var(--text-tertiary)', margin: '0 auto 12px' }} />
-              <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)', marginBottom: '6px' }}>
+              <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)', marginBottom: '16px' }}>
                 {updateRules.length === 0 ? t('rules.empty_no_rules') : t('rules.empty_filtered')}
               </div>
-              <p style={{ maxWidth: '440px', margin: '0 auto 16px', lineHeight: 1.5 }}>
-                {updateRules.length === 0
-                  ? t('rules.empty_no_rules_desc')
-                  : t('rules.empty_filtered_desc')}
-              </p>
               {updateRules.length === 0 && !isAddOpen && (
                 <button
                   type="button"
@@ -580,16 +571,12 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
             padding: '12px 24px',
             borderTop: '1px solid var(--border-color)',
             display: 'flex',
-            justifyContent: 'space-between',
+            justifyContent: 'flex-end',
             alignItems: 'center',
             background: 'var(--card-bg-subtle, rgba(0,0,0,0.15))',
             flexShrink: 0,
           }}
         >
-          <span style={{ fontSize: '12px', color: 'var(--text-tertiary)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-            <Info size={13} />
-            <span>{t('rules.rules_footer_hint')}</span>
-          </span>
           <button
             type="button"
             className="btn-fluent btn-primary"

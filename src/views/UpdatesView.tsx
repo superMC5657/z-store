@@ -410,12 +410,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                             }}
                           >
                             <BellOff size={14} style={{ color: 'var(--text-secondary)' }} />
-                            <div>
-                              <div style={{ fontWeight: 600 }}>{t('updates.ignore_once')}</div>
-                              <div style={{ fontSize: '10.5px', color: 'var(--text-tertiary)' }}>
-                                {t('updates.ignore_once_desc')}
-                              </div>
-                            </div>
+                            <div style={{ fontWeight: 600 }}>{t('updates.ignore_once')}</div>
                           </button>
                         )}
 
@@ -427,12 +422,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                             }}
                           >
                             <SkipForward size={14} style={{ color: 'var(--brand-primary)' }} />
-                            <div>
-                              <div style={{ fontWeight: 600 }}>{t('updates.skip_version')}</div>
-                              <div style={{ fontSize: '10.5px', color: 'var(--text-tertiary)' }}>
-                                {t('updates.skip_version_desc', { version: item.latest_version })}
-                              </div>
-                            </div>
+                            <div style={{ fontWeight: 600 }}>{t('updates.skip_version')}</div>
                           </button>
                         )}
 
@@ -444,12 +434,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                             }}
                           >
                             <Lock size={14} style={{ color: '#60a5fa' }} />
-                            <div>
-                              <div style={{ fontWeight: 600 }}>{t('updates.lock_version')}</div>
-                              <div style={{ fontSize: '10.5px', color: 'var(--text-tertiary)' }}>
-                                {t('updates.lock_version_desc', { version: item.current_version })}
-                              </div>
-                            </div>
+                            <div style={{ fontWeight: 600 }}>{t('updates.lock_version')}</div>
                           </button>
                         )}
 
@@ -462,12 +447,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                             }}
                           >
                             <EyeOff size={14} style={{ color: '#f87171' }} />
-                            <div>
-                              <div style={{ fontWeight: 600 }}>{t('updates.hide_app')}</div>
-                              <div style={{ fontSize: '10.5px', opacity: 0.85 }}>
-                                {t('updates.hide_app_desc')}
-                              </div>
-                            </div>
+                            <div style={{ fontWeight: 600 }}>{t('updates.hide_app')}</div>
                           </button>
                         )}
                       </FlyoutMenu>

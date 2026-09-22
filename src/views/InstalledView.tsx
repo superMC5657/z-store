@@ -200,9 +200,6 @@ const InstalledItemActions: React.FC<InstalledItemActionsProps> = ({
                       <span>{isFrozen ? t('installed.unlock_version') : t('installed.lock_version')}</span>
                       {isFrozen && <span className="flyout-item-badge badge-blue">{t('installed.locked')}</span>}
                     </div>
-                    <div className="flyout-item-subtitle">
-                      {isFrozen ? t('installed.unlock_version_desc') : t('installed.lock_version_desc')}
-                    </div>
                   </div>
                 </button>
               )}
@@ -235,9 +232,6 @@ const InstalledItemActions: React.FC<InstalledItemActionsProps> = ({
                       <span>{isHidden ? t('installed.unhide_app') : t('installed.hide_app')}</span>
                       {isHidden && <span className="flyout-item-badge badge-red">{t('installed.hidden')}</span>}
                     </div>
-                    <div className="flyout-item-subtitle">
-                      {isHidden ? t('installed.unhide_app_desc') : t('installed.hide_app_desc')}
-                    </div>
                   </div>
                 </button>
               )}
@@ -258,7 +252,6 @@ const InstalledItemActions: React.FC<InstalledItemActionsProps> = ({
                 </div>
                 <div className="flyout-item-content">
                   <div className="flyout-item-title">{t('installed.unmanage')}</div>
-                  <div className="flyout-item-subtitle">{t('installed.unmanage_desc')}</div>
                 </div>
               </button>
             </div>
