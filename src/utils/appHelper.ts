@@ -34,17 +34,16 @@ export function resolveInstalledIconInfo(
 }
 
 /**
- * 解析已安装应用的本地化展示名称：
- * 优先匹配收录库中的多语言配置（中文显示 chinese_name，英文显示 name），未匹配则回退到原生 app_name。
+ * 解析已安装应用的展示名称：
+ * 优先匹配收录库中的名称，未匹配则回退到原生 app_name。
  */
 export function resolveInstalledAppName(
   app: InstalledApp,
-  apps: AppSummary[] = [],
-  locale?: string
+  apps: AppSummary[] = []
 ): string {
   const catalogApp = apps.find((a) => a.id === app.app_id);
   if (catalogApp) {
-    return getAppDisplayName(catalogApp, locale);
+    return getAppDisplayName(catalogApp);
   }
   return app.app_name;
 }
@@ -95,18 +94,9 @@ export function getMethodBadge(method: string, t?: (key: any) => string): Method
 }
 
 /**
- * 根据当前语言获取应用展示名称
- * 中文环境下若存在 chinese_name 则展示 chinese_name，否则展示 name；
- * 英文或其它语言环境下展示英文原名 name。
+ * 获取应用展示名称：直接返回英文原名 name。
  */
-export function getAppDisplayName(
-  app: { name: string; chinese_name?: string },
-  locale?: string
-): string {
-  const isZh = !locale || locale.startsWith('zh');
-  if (isZh && app.chinese_name && app.chinese_name.trim()) {
-    return app.chinese_name;
-  }
+export function getAppDisplayName(app: { name: string }): string {
   return app.name;
 }
 

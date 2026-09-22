@@ -449,7 +449,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
             const isHidden = Boolean(rule?.is_hidden);
             const isMenuOpen = activeMenuId === app.app_id;
             const iconInfo = resolveInstalledIconInfo(app, apps);
-            const appDisplayName = resolveInstalledAppName(app, apps, i18n.language);
+            const appDisplayName = resolveInstalledAppName(app, apps);
 
             return (
               <div key={app.app_id} className="app-card" style={{ padding: '18px', zIndex: isMenuOpen ? 50 : 1 }}>
@@ -650,7 +650,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
             const isHidden = Boolean(rule?.is_hidden);
             const isMenuOpen = activeMenuId === app.app_id;
             const iconInfo = resolveInstalledIconInfo(app, apps);
-            const appDisplayName = resolveInstalledAppName(app, apps, i18n.language);
+            const appDisplayName = resolveInstalledAppName(app, apps);
 
             return (
               <div

@@ -175,7 +175,6 @@ describe('task6: rerank #1..N within the filtered set', () => {
     const bilingualApp = makeApp({
       id: 'rustdesk',
       name: 'RustDesk',
-      chinese_name: 'RustDesk 远程桌面',
       description: '开源远程桌面软件',
       description_en: 'Open source remote desktop software',
       category: 'system',
@@ -184,7 +183,7 @@ describe('task6: rerank #1..N within the filtered set', () => {
 
     await i18n.changeLanguage('zh-CN');
     const { container, unmount } = renderTrends([bilingualApp]);
-    expect(container.textContent).toContain('RustDesk 远程桌面');
+    expect(container.textContent).toContain('RustDesk');
     expect(container.textContent).toContain('开源远程桌面软件');
     expect(container.textContent).toContain('系统实用');
     unmount();

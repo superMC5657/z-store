@@ -457,7 +457,6 @@ export const App: React.FC = () => {
       ? {
           id: existing.id,
           name: existing.name,
-          chinese_name: existing.chinese_name,
           description_en: existing.description_en,
           owner: existing.owner,
           repo: existing.repo,

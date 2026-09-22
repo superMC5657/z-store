@@ -294,7 +294,6 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
     const BILINGUAL_APP: AppSummary = {
       id: 'rustdesk/rustdesk',
       name: 'RustDesk',
-      chinese_name: 'RustDesk 远程桌面',
       description: '开箱即用的开源远程桌面控制客户端',
       description_en: 'An open-source remote desktop client software',
       owner: 'rustdesk',
@@ -328,7 +327,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
         />,
       );
 
-      expect(screen.getByText('RustDesk 远程桌面')).toBeTruthy();
+      expect(screen.getByText('RustDesk')).toBeTruthy();
       expect(screen.getByText('开箱即用的开源远程桌面控制客户端')).toBeTruthy();
       expect(screen.getByText(/rustdesk · 系统实用/)).toBeTruthy();
       unmount();
@@ -372,7 +371,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
         />,
       );
 
-      expect(screen.getAllByText('RustDesk 远程桌面').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('RustDesk').length).toBeGreaterThan(0);
       unmount();
 
       // 2. English mode
@@ -410,7 +409,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
         />,
       );
 
-      expect(screen.getByText('RustDesk 远程桌面')).toBeTruthy();
+      expect(screen.getByText('RustDesk')).toBeTruthy();
       expect(screen.getByText('开箱即用的开源远程桌面控制客户端')).toBeTruthy();
       expect(screen.getByText('系统实用')).toBeTruthy();
       unmount();

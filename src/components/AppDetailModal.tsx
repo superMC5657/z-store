@@ -76,7 +76,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   onRefresh,
 }) => {
   const { t, i18n } = useTranslation();
-  const displayName = getAppDisplayName(app, i18n.language);
+  const displayName = getAppDisplayName(app);
   const displayDesc = getAppDescription(app, i18n.language);
   const displayCategory = getCategoryLabel(app.category, app.category_name, t);
 

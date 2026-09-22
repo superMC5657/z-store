@@ -107,7 +107,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   // `apps` 传入时已完成预过滤：置顶优先展示 rustdesk，但仅限在当前结果集内；
   // 当 rustdesk 被过滤掉时，由结果集中的首个应用接替置顶。
   const heroApp = apps.find((a) => a.id === 'rustdesk') || apps[0];
-  const heroDisplayName = heroApp ? getAppDisplayName(heroApp, i18n.language) : '';
+  const heroDisplayName = heroApp ? getAppDisplayName(heroApp) : '';
   const heroDisplayDesc = heroApp ? getAppDescription(heroApp, i18n.language) : '';
   const heroCategoryName = heroApp ? getCategoryLabel(heroApp.category, heroApp.category_name, t) : '';
 

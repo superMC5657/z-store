@@ -141,7 +141,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
           </div>
         ) : (
         sortedApps.map((app, index) => {
-          const displayName = getAppDisplayName(app, i18n.language);
+          const displayName = getAppDisplayName(app);
           const displayDesc = getAppDescription(app, i18n.language);
           const displayCategory = getCategoryLabel(app.category, app.category_name, t);
 

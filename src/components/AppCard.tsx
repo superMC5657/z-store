@@ -31,7 +31,7 @@ export const AppCard: React.FC<AppCardProps> = ({
   onToggleWatch,
 }) => {
   const { t, i18n } = useTranslation();
-  const displayName = getAppDisplayName(app, i18n.language);
+  const displayName = getAppDisplayName(app);
   const displayDesc = getAppDescription(app, i18n.language);
   const displayCategory = getCategoryLabel(app.category, app.category_name, t);
 

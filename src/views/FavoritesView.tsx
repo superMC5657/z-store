@@ -53,7 +53,6 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
     if (!q) return true;
     return (
       a.name.toLowerCase().includes(q) ||
-      (a.chinese_name && a.chinese_name.toLowerCase().includes(q)) ||
       (a.description_en && a.description_en.toLowerCase().includes(q)) ||
       a.owner.toLowerCase().includes(q) ||
       a.repo.toLowerCase().includes(q) ||

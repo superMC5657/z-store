@@ -334,11 +334,6 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                         <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>
                           {item.name}
                         </span>
-                        {item.chinese_name && (
-                          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                            ({item.chinese_name})
-                          </span>
-                        )}
                         <span
                           style={{
                             fontSize: '11px',
