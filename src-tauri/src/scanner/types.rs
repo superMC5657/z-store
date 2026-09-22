@@ -16,7 +16,6 @@ pub struct AppMatchResult {
     pub scanned: ScannedRawApp,
     pub catalog_id: String,
     pub name: String,
-    pub chinese_name: Option<String>,
     pub owner: String,
     pub repo: String,
     pub icon: String,

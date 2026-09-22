@@ -5,8 +5,6 @@ pub struct AppSummary {
     pub id: String,
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub chinese_name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description_en: Option<String>,
     pub owner: String,
     pub repo: String,
@@ -50,8 +48,6 @@ pub struct ReleaseAsset {
 pub struct AppDetail {
     pub id: String,
     pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub chinese_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description_en: Option<String>,
     pub owner: String,

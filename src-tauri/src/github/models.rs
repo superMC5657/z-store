@@ -6,7 +6,6 @@ use std::collections::HashMap;
 pub struct CatalogItem {
     pub id: String,
     pub name: String,
-    pub chinese_name: Option<String>,
     pub owner: String,
     pub repo: String,
     pub icon: String,
@@ -62,7 +61,6 @@ impl CatalogItem {
         AppSummary {
             id: self.id.clone(),
             name: self.name.clone(),
-            chinese_name: self.chinese_name.clone(),
             description_en: self.description_en.clone(),
             owner: self.owner.clone(),
             repo: self.repo.clone(),

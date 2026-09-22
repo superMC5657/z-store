@@ -2,7 +2,6 @@
   {
     "id": "rustdesk/rustdesk",
     "name": "RustDesk",
-    "chinese_name": "RustDesk 远程桌面",
     "owner": "rustdesk",
     "repo": "rustdesk",
     "icon": "https://raw.githubusercontent.com/rustdesk/rustdesk/master/res/icon.png",
@@ -30,7 +29,6 @@
   {
     "id": "localsend/localsend",
     "name": "LocalSend",
-    "chinese_name": "LocalSend 局域网快传",
     "owner": "localsend",
     "repo": "localsend",
     "icon": "https://raw.githubusercontent.com/localsend/localsend/main/app/assets/img/logo-512.png",
@@ -58,7 +56,6 @@
   {
     "id": "videolan/vlc",
     "name": "VLC Media Player",
-    "chinese_name": "VLC 播放器",
     "owner": "videolan",
     "repo": "vlc",
     "icon": "https://raw.githubusercontent.com/videolan/vlc/master/share/vlc512x512.png",
@@ -87,7 +84,6 @@
   {
     "id": "obsproject/obs-studio",
     "name": "OBS Studio",
-    "chinese_name": "OBS 录屏直播利器",
     "owner": "obsproject",
     "repo": "obs-studio",
     "icon": "https://raw.githubusercontent.com/obsproject/obs-studio/master/frontend/cmake/linux/icons/obs-logo-512.png",
@@ -115,7 +111,6 @@
   {
     "id": "keepassxreboot/keepassxc",
     "name": "KeePassXC",
-    "chinese_name": "KeePassXC 密码管理器",
     "owner": "keepassxreboot",
     "repo": "keepassxc",
     "icon": "https://raw.githubusercontent.com/keepassxreboot/keepassxc/develop/share/macosx/keepassxc.iconset/icon_512x512.png",
@@ -141,7 +136,6 @@
   {
     "id": "vscodium/vscodium",
     "name": "VSCodium",
-    "chinese_name": "VSCodium 纯净版编辑器",
     "owner": "VSCodium",
     "repo": "vscodium",
     "icon": "https://raw.githubusercontent.com/VSCodium/vscodium/master/icons/stable/codium_cnl.svg",
@@ -167,7 +161,6 @@
   {
     "id": "zed-industries/zed",
     "name": "Zed Editor",
-    "chinese_name": "Zed 高性能编辑器",
     "owner": "zed-industries",
     "repo": "zed",
     "icon": "https://raw.githubusercontent.com/zed-industries/zed/main/crates/zed/resources/app-icon.png",
@@ -193,7 +186,6 @@
   {
     "id": "flameshot-org/flameshot",
     "name": "Flameshot",
-    "chinese_name": "Flameshot 火焰截图",
     "owner": "flameshot-org",
     "repo": "flameshot",
     "icon": "https://raw.githubusercontent.com/flameshot-org/flameshot/master/data/img/app/flameshot.png",
@@ -219,7 +211,6 @@
   {
     "id": "sharex/sharex",
     "name": "ShareX",
-    "chinese_name": "ShareX 截屏录屏神器",
     "owner": "ShareX",
     "repo": "ShareX",
     "icon": "https://raw.githubusercontent.com/ShareX/ShareX/develop/ShareX.HelpersLib/Resources/ShareX_Logo.png",
@@ -243,7 +234,6 @@
   {
     "id": "blender/blender",
     "name": "Blender",
-    "chinese_name": "Blender 3D 创作套件",
     "owner": "blender",
     "repo": "blender",
     "icon": "https://raw.githubusercontent.com/blender/blender/main/release/darwin/blender_liquid_glass.icon/Assets/Blender%20Logo.svg",
@@ -269,7 +259,6 @@
   {
     "id": "laurent22/joplin",
     "name": "Joplin",
-    "chinese_name": "Joplin 笔记",
     "owner": "laurent22",
     "repo": "joplin",
     "icon": "https://raw.githubusercontent.com/laurent22/joplin/dev/Assets/SquareIcon512.png",
@@ -297,7 +286,6 @@
   {
     "id": "logseq/logseq",
     "name": "Logseq",
-    "chinese_name": "Logseq 双链大纲笔记",
     "owner": "logseq",
     "repo": "logseq",
     "icon": "https://raw.githubusercontent.com/logseq/logseq/master/resources/icon.png",
@@ -325,7 +313,6 @@
   {
     "id": "koreader/koreader",
     "name": "KOReader",
-    "chinese_name": "KOReader 电子书阅读器",
     "owner": "koreader",
     "repo": "koreader",
     "icon": "https://raw.githubusercontent.com/koreader/koreader/master/metadata/en-US/images/icon.png",
@@ -353,7 +340,6 @@
   {
     "id": "janeczku/calibre-web",
     "name": "Calibre-web",
-    "chinese_name": "Calibre 书库管理",
     "owner": "janeczku",
     "repo": "calibre-web",
     "icon": "https://raw.githubusercontent.com/janeczku/calibre-web/master/cps/static/icon.png",
@@ -379,7 +365,6 @@
   {
     "id": "clash-verge-rev/clash-verge-rev",
     "name": "Clash Verge Rev",
-    "chinese_name": "Clash Verge 客户端",
     "owner": "clash-verge-rev",
     "repo": "clash-verge-rev",
     "icon": "https://raw.githubusercontent.com/clash-verge-rev/clash-verge-rev/dev/src-tauri/icons/icon.png",
@@ -405,7 +390,6 @@
   {
     "id": "transmission/transmission",
     "name": "Transmission",
-    "chinese_name": "Transmission 下载利器",
     "owner": "transmission",
     "repo": "transmission",
     "icon": "https://raw.githubusercontent.com/transmission/transmission/main/icon.png",
@@ -431,7 +415,6 @@
   {
     "id": "mcmilk/7-zip-zstd",
     "name": "7-Zip-zstd",
-    "chinese_name": "7-Zip 高压解压",
     "owner": "mcmilk",
     "repo": "7-Zip-zstd",
     "icon": "https://raw.githubusercontent.com/mcmilk/7-Zip-zstd/master/CPP/7zip/UI/FileManager/7zipLogo.ico",
@@ -457,7 +440,6 @@
   {
     "id": "microsoft/powertoys",
     "name": "Microsoft PowerToys",
-    "chinese_name": "微软 PowerToys 系统百宝箱",
     "owner": "microsoft",
     "repo": "PowerToys",
     "icon": "https://raw.githubusercontent.com/microsoft/PowerToys/main/installer/PowerToysSetupVNext/Images/logo.png",
@@ -482,7 +464,6 @@
   {
     "id": "ql-win/quicklook",
     "name": "QuickLook",
-    "chinese_name": "QuickLook 空格预览",
     "owner": "QL-Win",
     "repo": "QuickLook",
     "icon": "https://raw.githubusercontent.com/QL-Win/QuickLook/master/Build/Assets/Square44x44Logo.altform-unplated_targetsize-256.png",
@@ -505,7 +486,6 @@
   {
     "id": "flow-launcher/flow.launcher",
     "name": "Flow Launcher",
-    "chinese_name": "Flow 效率启动器",
     "owner": "Flow-Launcher",
     "repo": "Flow.Launcher",
     "icon": "https://raw.githubusercontent.com/Flow-Launcher/Flow.Launcher/dev/Artworks/Logo/logo.png",
@@ -529,7 +509,6 @@
   {
     "id": "handbrake/handbrake",
     "name": "HandBrake",
-    "chinese_name": "HandBrake 视频转码器",
     "owner": "HandBrake",
     "repo": "HandBrake",
     "icon": "https://raw.githubusercontent.com/HandBrake/HandBrake/master/gtk/icons/256x256/apps/fr.handbrake.ghb.png",
@@ -555,7 +534,6 @@
   {
     "id": "bitwarden/clients",
     "name": "Bitwarden Desktop",
-    "chinese_name": "Bitwarden 官方客户端",
     "owner": "bitwarden",
     "repo": "clients",
     "icon": "https://raw.githubusercontent.com/bitwarden/clients/main/apps/desktop/resources/icon.png",
@@ -583,7 +561,6 @@
   {
     "id": "neovim/neovim",
     "name": "Neovim",
-    "chinese_name": "Neovim 极客编辑器",
     "owner": "neovim",
     "repo": "neovim",
     "icon": "https://raw.githubusercontent.com/neovim/neovim/master/cmake.packaging/neovim.png",
@@ -610,7 +587,6 @@
   {
     "id": "alacritty/alacritty",
     "name": "Alacritty",
-    "chinese_name": "Alacritty GPU 终端",
     "owner": "alacritty",
     "repo": "alacritty",
     "icon": "https://raw.githubusercontent.com/alacritty/alacritty/master/extra/logo/compat/alacritty-term.png",
@@ -636,7 +612,6 @@
   {
     "id": "wireshark/wireshark",
     "name": "Wireshark",
-    "chinese_name": "Wireshark 抓包分析仪",
     "owner": "wireshark",
     "repo": "wireshark",
     "icon": "https://raw.githubusercontent.com/wireshark/wireshark/master/resources/icons/wsicon256.png",
@@ -662,7 +637,6 @@
   {
     "id": "hoppscotch/hoppscotch",
     "name": "Hoppscotch",
-    "chinese_name": "Hoppscotch API 调试台",
     "owner": "hoppscotch",
     "repo": "hoppscotch",
     "icon": "https://raw.githubusercontent.com/hoppscotch/hoppscotch/main/packages/hoppscotch-desktop/src-tauri/icons/icon.png",
@@ -688,7 +662,6 @@
   {
     "id": "containers/podman-desktop",
     "name": "Podman Desktop",
-    "chinese_name": "Podman 容器工作台",
     "owner": "containers",
     "repo": "podman-desktop",
     "icon": "https://raw.githubusercontent.com/containers/podman-desktop/main/buildResources/icon.png",
@@ -714,7 +687,6 @@
   {
     "id": "libretro/retroarch",
     "name": "RetroArch",
-    "chinese_name": "RetroArch 复古模拟器",
     "owner": "libretro",
     "repo": "RetroArch",
     "icon": "https://raw.githubusercontent.com/libretro/RetroArch/master/media/icons/playstore/icon.png",
@@ -742,7 +714,6 @@
   {
     "id": "openttd/openttd",
     "name": "OpenTTD",
-    "chinese_name": "运输大亨开源版",
     "owner": "OpenTTD",
     "repo": "OpenTTD",
     "icon": "https://raw.githubusercontent.com/OpenTTD/OpenTTD/master/media/openttd.512.png",
@@ -769,7 +740,6 @@
   {
     "id": "anuken/mindustry",
     "name": "Mindustry",
-    "chinese_name": "Mindustry 像素工厂",
     "owner": "Anuken",
     "repo": "Mindustry",
     "icon": "https://raw.githubusercontent.com/Anuken/Mindustry/master/ios/data/Assets.xcassets/AppIcon.appiconset/icon-512.png",
@@ -797,7 +767,6 @@
   {
     "id": "qbittorrent/qbittorrent",
     "name": "qBittorrent",
-    "chinese_name": "qBittorrent 种子下载器",
     "owner": "qbittorrent",
     "repo": "qBittorrent",
     "icon": "https://raw.githubusercontent.com/qbittorrent/qBittorrent/master/dist/unix/menuicons/scalable/apps/qbittorrent.svg",
@@ -824,7 +793,6 @@
   {
     "id": "agalwood/motrix",
     "name": "Motrix",
-    "chinese_name": "Motrix 全能下载器",
     "owner": "agalwood",
     "repo": "Motrix",
     "icon": "https://raw.githubusercontent.com/agalwood/Motrix/main/public/app-icon.png",
@@ -851,7 +819,6 @@
   {
     "id": "molunerfinn/picgo",
     "name": "PicGo",
-    "chinese_name": "PicGo 图床上传工具",
     "owner": "Molunerfinn",
     "repo": "PicGo",
     "icon": "https://raw.githubusercontent.com/Molunerfinn/PicGo/dev/build/icons/512x512.png",
@@ -878,7 +845,6 @@
   {
     "id": "josefnemec/playnite",
     "name": "Playnite",
-    "chinese_name": "Playnite 游戏整合库",
     "owner": "JosefNemec",
     "repo": "Playnite",
     "icon": "https://raw.githubusercontent.com/JosefNemec/Playnite/master/media/playnite-avatar.png",
@@ -903,7 +869,6 @@
   {
     "id": "wez/wezterm",
     "name": "WezTerm",
-    "chinese_name": "WezTerm GPU 终端",
     "owner": "wez",
     "repo": "wezterm",
     "icon": "https://raw.githubusercontent.com/wez/wezterm/main/assets/icon/terminal.png",
@@ -930,7 +895,6 @@
   {
     "id": "telegramdesktop/tdesktop",
     "name": "Telegram Desktop",
-    "chinese_name": "Telegram 桌面端",
     "owner": "telegramdesktop",
     "repo": "tdesktop",
     "icon": "https://raw.githubusercontent.com/telegramdesktop/tdesktop/dev/Telegram/Resources/art/icon512.png",
@@ -957,7 +921,6 @@
   {
     "id": "jandedobbeleer/oh-my-posh",
     "name": "Oh My Posh",
-    "chinese_name": "Oh My Posh 终端美化",
     "owner": "JanDeDobbeleer",
     "repo": "oh-my-posh",
     "icon": "https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/main/packages/msix/icons/icon.png",
@@ -985,7 +948,6 @@
   {
     "id": "bruhov/winthumbspreloader",
     "name": "WinThumbsPreloader",
-    "chinese_name": "WinThumbsPreloader 缩略图预热",
     "owner": "Bruhov",
     "repo": "WinThumbsPreloader",
     "icon": "https://raw.githubusercontent.com/Bruhov/WinThumbsPreloader/master/WinThumbsPreloader/WinThumbsPreloader/icon.ico",
@@ -1010,7 +972,6 @@
   {
     "id": "burntsushi/ripgrep",
     "name": "ripgrep",
-    "chinese_name": "ripgrep 极速文本搜索",
     "owner": "BurntSushi",
     "repo": "ripgrep",
     "icon": "https://raw.githubusercontent.com/rust-lang/www.rust-lang.org/main/static/images/rust-logo-blk.svg",
@@ -1037,7 +998,6 @@
   {
     "id": "lapce/lapce",
     "name": "Lapce",
-    "chinese_name": "Lapce 极速编辑器",
     "owner": "lapce",
     "repo": "lapce",
     "icon": "https://raw.githubusercontent.com/lapce/lapce/master/extra/images/logo.png",
@@ -1065,7 +1025,6 @@
   {
     "id": "microsoft/vscode",
     "name": "VS Code",
-    "chinese_name": "VS Code 代码编辑器",
     "owner": "microsoft",
     "repo": "vscode",
     "icon": "https://raw.githubusercontent.com/microsoft/vscode/main/resources/linux/code.png",
@@ -1093,7 +1052,6 @@
   {
     "id": "pulsar-edit/pulsar",
     "name": "Pulsar",
-    "chinese_name": "Pulsar 社区编辑器",
     "owner": "pulsar-edit",
     "repo": "pulsar",
     "icon": "https://raw.githubusercontent.com/pulsar-edit/pulsar/master/resources/pulsar.png",
@@ -1121,7 +1079,6 @@
   {
     "id": "lite-xl/lite-xl",
     "name": "Lite XL",
-    "chinese_name": "Lite XL 极简编辑器",
     "owner": "lite-xl",
     "repo": "lite-xl",
     "icon": "https://raw.githubusercontent.com/lite-xl/lite-xl/master/resources/icons/icon.ico",
@@ -1149,7 +1106,6 @@
   {
     "id": "kovidgoyal/kitty",
     "name": "kitty",
-    "chinese_name": "kitty GPU 终端",
     "owner": "kovidgoyal",
     "repo": "kitty",
     "icon": "https://raw.githubusercontent.com/kovidgoyal/kitty/master/logo/kitty.png",
@@ -1177,7 +1133,6 @@
   {
     "id": "ghostty-org/ghostty",
     "name": "Ghostty",
-    "chinese_name": "Ghostty 终端",
     "owner": "ghostty-org",
     "repo": "ghostty",
     "icon": "https://raw.githubusercontent.com/ghostty-org/ghostty/main/images/icons/icon_1024.png",
@@ -1205,7 +1160,6 @@
   {
     "id": "eugeny/tabby",
     "name": "Tabby",
-    "chinese_name": "Tabby 现代终端",
     "owner": "Eugeny",
     "repo": "tabby",
     "icon": "https://raw.githubusercontent.com/Eugeny/tabby/master/build/icons/512x512.png",
@@ -1233,7 +1187,6 @@
   {
     "id": "vercel/hyper",
     "name": "Hyper",
-    "chinese_name": "Hyper 终端",
     "owner": "vercel",
     "repo": "hyper",
     "icon": "https://raw.githubusercontent.com/vercel/hyper/canary/app/static/icon.png",
@@ -1261,7 +1214,6 @@
   {
     "id": "kingtoolbox/windterm",
     "name": "WindTerm",
-    "chinese_name": "WindTerm 专业终端",
     "owner": "kingToolbox",
     "repo": "WindTerm",
     "icon": "https://raw.githubusercontent.com/kingToolbox/WindTerm/master/images/WindTerm_icon_1024x1024.png",
@@ -1289,7 +1241,6 @@
   {
     "id": "wavetermdev/waveterm",
     "name": "Wave Terminal",
-    "chinese_name": "Wave 现代终端",
     "owner": "wavetermdev",
     "repo": "waveterm",
     "icon": "https://raw.githubusercontent.com/wavetermdev/waveterm/main/frontend/app/asset/logo.svg",
@@ -1317,7 +1268,6 @@
   {
     "id": "raphamorim/rio",
     "name": "Rio",
-    "chinese_name": "Rio GPU 终端",
     "owner": "raphamorim",
     "repo": "rio",
     "icon": "https://raw.githubusercontent.com/raphamorim/rio/main/frontends/rioterm/src/router/resources/images/rio-logo.ico",
@@ -1345,7 +1295,6 @@
   {
     "id": "microsoft/terminal",
     "name": "Windows Terminal",
-    "chinese_name": "Windows Terminal 终端",
     "owner": "microsoft",
     "repo": "terminal",
     "icon": "https://raw.githubusercontent.com/microsoft/terminal/main/res/terminal/Terminal.svg",
@@ -1373,7 +1322,6 @@
   {
     "id": "desktop/desktop",
     "name": "GitHub Desktop",
-    "chinese_name": "GitHub Desktop 桌面版",
     "owner": "desktop",
     "repo": "desktop",
     "icon": "https://raw.githubusercontent.com/desktop/desktop/development/app/static/common/logo-64x64@2x.png",
@@ -1401,7 +1349,6 @@
   {
     "id": "murmele/gittyup",
     "name": "Gittyup",
-    "chinese_name": "Gittyup Git 客户端",
     "owner": "Murmele",
     "repo": "Gittyup",
     "icon": "https://raw.githubusercontent.com/Murmele/Gittyup/master/rsrc/Gittyup.iconset/icon_512x512@2x.png",
@@ -1429,7 +1376,6 @@
   {
     "id": "gitextensions/gitextensions",
     "name": "Git Extensions",
-    "chinese_name": "Git Extensions Git 工具",
     "owner": "gitextensions",
     "repo": "gitextensions",
     "icon": "https://raw.githubusercontent.com/gitextensions/gitextensions/master/setup/assets/Logo/git-extensions-logo-512px.png",
@@ -1457,7 +1403,6 @@
   {
     "id": "git-cola/git-cola",
     "name": "Git Cola",
-    "chinese_name": "Git Cola 轻量 Git 客户端",
     "owner": "git-cola",
     "repo": "git-cola",
     "icon": "https://raw.githubusercontent.com/git-cola/git-cola/main/cola/icons/dark/git-cola.ico",
@@ -1485,7 +1430,6 @@
   {
     "id": "git-up/gitup",
     "name": "GitUp",
-    "chinese_name": "GitUp 可视化 Git",
     "owner": "git-up",
     "repo": "GitUp",
     "icon": "https://raw.githubusercontent.com/git-up/GitUp/master/GitUp/Application/Application.xcassets/AppIcon.appiconset/icon_512x512@2x.png",
@@ -1513,7 +1457,6 @@
   {
     "id": "usebruno/bruno",
     "name": "Bruno",
-    "chinese_name": "Bruno 离线 API 客户端",
     "owner": "usebruno",
     "repo": "bruno",
     "icon": "https://raw.githubusercontent.com/usebruno/bruno/main/assets/images/logo.png",
@@ -1541,7 +1484,6 @@
   {
     "id": "kong/insomnia",
     "name": "Insomnia",
-    "chinese_name": "Insomnia API 调试",
     "owner": "Kong",
     "repo": "insomnia",
     "icon": "https://raw.githubusercontent.com/Kong/insomnia/develop/packages/insomnia-inso/assets/logo.svg",
@@ -1569,7 +1511,6 @@
   {
     "id": "altair-graphql/altair",
     "name": "Altair",
-    "chinese_name": "Altair GraphQL 客户端",
     "owner": "altair-graphql",
     "repo": "altair",
     "icon": "https://raw.githubusercontent.com/altair-graphql/altair/master/packages/altair-tauri/src-tauri/icons/icon.png",
@@ -1597,7 +1538,6 @@
   {
     "id": "mockoon/mockoon",
     "name": "Mockoon",
-    "chinese_name": "Mockoon API 模拟",
     "owner": "mockoon",
     "repo": "mockoon",
     "icon": "https://raw.githubusercontent.com/mockoon/mockoon/main/packages/app/build-res/icon_1024x1024x32.png",
@@ -1625,7 +1565,6 @@
   {
     "id": "nationalsecurityagency/ghidra",
     "name": "Ghidra",
-    "chinese_name": "Ghidra 逆向工程",
     "owner": "NationalSecurityAgency",
     "repo": "ghidra",
     "icon": "https://raw.githubusercontent.com/NationalSecurityAgency/ghidra/master/Ghidra/Framework/Gui/src/main/resources/images/GhidraIcon256.png",
@@ -1653,7 +1592,6 @@
   {
     "id": "rizinorg/cutter",
     "name": "Cutter",
-    "chinese_name": "Cutter 逆向分析",
     "owner": "rizinorg",
     "repo": "cutter",
     "icon": "https://raw.githubusercontent.com/rizinorg/cutter/dev/src/img/cutter.svg",
@@ -1681,7 +1619,6 @@
   {
     "id": "werwolv/imhex",
     "name": "ImHex",
-    "chinese_name": "ImHex 十六进制编辑",
     "owner": "WerWolv",
     "repo": "ImHex",
     "icon": "https://raw.githubusercontent.com/WerWolv/ImHex/master/resources/icon.svg",
@@ -1709,7 +1646,6 @@
   {
     "id": "x64dbg/x64dbg",
     "name": "x64dbg",
-    "chinese_name": "x64dbg 调试器",
     "owner": "x64dbg",
     "repo": "x64dbg",
     "icon": "https://avatars.githubusercontent.com/u/7937360?v=4&s=200&v=4",
@@ -1737,7 +1673,6 @@
   {
     "id": "jgraph/drawio-desktop",
     "name": "draw.io",
-    "chinese_name": "draw.io 流程图绘制",
     "owner": "jgraph",
     "repo": "drawio-desktop",
     "icon": "https://raw.githubusercontent.com/jgraph/drawio-desktop/dev/build/icon.png",
@@ -1765,7 +1700,6 @@
   {
     "id": "devtoys-app/devtoys",
     "name": "DevToys",
-    "chinese_name": "DevToys 开发者工具箱",
     "owner": "DevToys-app",
     "repo": "DevToys",
     "icon": "https://raw.githubusercontent.com/DevToys-app/DevToys/main/assets/logo/Windows-Linux/Stable/msix/Square44x44Logo.altform-lightunplated_targetsize-256.png",
@@ -1793,7 +1727,6 @@
   {
     "id": "winmerge/winmerge",
     "name": "WinMerge",
-    "chinese_name": "WinMerge 文件对比",
     "owner": "WinMerge",
     "repo": "winmerge",
     "icon": "https://raw.githubusercontent.com/WinMerge/winmerge/master/Src/res/logo.png",
@@ -1821,7 +1754,6 @@
   {
     "id": "dail8859/notepadnext",
     "name": "Notepad Next",
-    "chinese_name": "Notepad Next 记事本",
     "owner": "dail8859",
     "repo": "NotepadNext",
     "icon": "https://raw.githubusercontent.com/dail8859/NotepadNext/master/src/icons/NotepadNext.png",
@@ -1849,7 +1781,6 @@
   {
     "id": "notepad-plus-plus/notepad-plus-plus",
     "name": "Notepad++",
-    "chinese_name": "Notepad++ 经典编辑器",
     "owner": "notepad-plus-plus",
     "repo": "notepad-plus-plus",
     "icon": "https://raw.githubusercontent.com/notepad-plus-plus/notepad-plus-plus/master/PowerEditor/src/icons/npp.ico",
@@ -1877,7 +1808,6 @@
   {
     "id": "genymobile/scrcpy",
     "name": "scrcpy",
-    "chinese_name": "scrcpy 安卓投屏",
     "owner": "Genymobile",
     "repo": "scrcpy",
     "icon": "https://raw.githubusercontent.com/Genymobile/scrcpy/master/app/data/scrcpy.png",
@@ -1905,7 +1835,6 @@
   {
     "id": "neovide/neovide",
     "name": "Neovide",
-    "chinese_name": "Neovide 图形化 Neovim",
     "owner": "neovide",
     "repo": "neovide",
     "icon": "https://raw.githubusercontent.com/neovide/neovide/main/assets/neovide.svg",
@@ -1933,7 +1862,6 @@
   {
     "id": "geany/geany",
     "name": "Geany",
-    "chinese_name": "Geany 轻量 IDE",
     "owner": "geany",
     "repo": "geany",
     "icon": "https://raw.githubusercontent.com/geany/geany/master/icons/48x48/geany.png",
@@ -1961,7 +1889,6 @@
   {
     "id": "qt-creator/qt-creator",
     "name": "Qt Creator",
-    "chinese_name": "Qt Creator 官方 IDE",
     "owner": "qt-creator",
     "repo": "qt-creator",
     "icon": "https://raw.githubusercontent.com/qt-creator/qt-creator/master/src/app/macos/qtcreator.icon/Assets/icon.png",
@@ -1989,7 +1916,6 @@
   {
     "id": "zealdocs/zeal",
     "name": "Zeal",
-    "chinese_name": "Zeal 离线文档",
     "owner": "zealdocs",
     "repo": "zeal",
     "icon": "https://raw.githubusercontent.com/zealdocs/zeal/main/assets/freedesktop/512-apps-zeal.png",
@@ -2017,7 +1943,6 @@
   {
     "id": "pcsx2/pcsx2",
     "name": "PCSX2",
-    "chinese_name": "PCSX2 PS2 模拟器",
     "owner": "PCSX2",
     "repo": "pcsx2",
     "icon": "https://raw.githubusercontent.com/PCSX2/pcsx2/master/bin/resources/icons/AppIconLarge.ico",
@@ -2045,7 +1970,6 @@
   {
     "id": "stenzek/duckstation",
     "name": "DuckStation",
-    "chinese_name": "DuckStation PS1 模拟器",
     "owner": "stenzek",
     "repo": "duckstation",
     "icon": "https://raw.githubusercontent.com/stenzek/duckstation/master/src/duckstation-qt/resources/icons/monochrome/svg/vidicon-line.svg",
@@ -2073,7 +1997,6 @@
   {
     "id": "melonds-emu/melonds",
     "name": "melonDS",
-    "chinese_name": "melonDS NDS 模拟器",
     "owner": "melonDS-emu",
     "repo": "melonDS",
     "icon": "https://raw.githubusercontent.com/melonDS-emu/melonDS/master/res/icon/melon_256x256.png",
@@ -2101,7 +2024,6 @@
   {
     "id": "mgba-emu/mgba",
     "name": "mGBA",
-    "chinese_name": "mGBA GBA 模拟器",
     "owner": "mgba-emu",
     "repo": "mgba",
     "icon": "https://raw.githubusercontent.com/mgba-emu/mgba/master/res/gba-icon-256.png",
@@ -2129,7 +2051,6 @@
   {
     "id": "hrydgard/ppsspp",
     "name": "PPSSPP",
-    "chinese_name": "PPSSPP PSP 模拟器",
     "owner": "hrydgard",
     "repo": "ppsspp",
     "icon": "https://raw.githubusercontent.com/hrydgard/ppsspp/master/icons/hicolor/512x512/apps/ppsspp.png",
@@ -2157,7 +2078,6 @@
   {
     "id": "xemu-project/xemu",
     "name": "xemu",
-    "chinese_name": "xemu Xbox 模拟器",
     "owner": "xemu-project",
     "repo": "xemu",
     "icon": "https://raw.githubusercontent.com/xemu-project/xemu/master/ui/icons/xemu.svg",
@@ -2185,7 +2105,6 @@
   {
     "id": "vita3k/vita3k",
     "name": "Vita3K",
-    "chinese_name": "Vita3K PSV 模拟器",
     "owner": "Vita3K",
     "repo": "Vita3K",
     "icon": "https://raw.githubusercontent.com/Vita3K/Vita3K/master/vita3k/Vita3K.png",
@@ -2213,7 +2132,6 @@
   {
     "id": "azahar-emu/azahar",
     "name": "Azahar",
-    "chinese_name": "Azahar 3DS 模拟器",
     "owner": "azahar-emu",
     "repo": "azahar",
     "icon": "https://raw.githubusercontent.com/azahar-emu/azahar/master/dist/azahar.png",
@@ -2241,7 +2159,6 @@
   {
     "id": "ares-emulator/ares",
     "name": "ares",
-    "chinese_name": "ares 多系统模拟器",
     "owner": "ares-emulator",
     "repo": "ares",
     "icon": "https://raw.githubusercontent.com/ares-emulator/ares/master/desktop-ui/resource/ares.png",
@@ -2269,7 +2186,6 @@
   {
     "id": "flyinghead/flycast",
     "name": "Flycast",
-    "chinese_name": "Flycast DC 模拟器",
     "owner": "flyinghead",
     "repo": "flycast",
     "icon": "https://raw.githubusercontent.com/flyinghead/flycast/master/shell/apple/emulator-osx/emulator-osx/Images.xcassets/AppIcon.appiconset/Icon-1024.png",
@@ -2297,7 +2213,6 @@
   {
     "id": "heroic-games-launcher/heroicgameslauncher",
     "name": "Heroic Games Launcher",
-    "chinese_name": "Heroic 游戏启动器",
     "owner": "Heroic-Games-Launcher",
     "repo": "HeroicGamesLauncher",
     "icon": "https://raw.githubusercontent.com/Heroic-Games-Launcher/HeroicGamesLauncher/main/public/icon.png",
@@ -2325,7 +2240,6 @@
   {
     "id": "lutris/lutris",
     "name": "Lutris",
-    "chinese_name": "Lutris 开源游戏平台",
     "owner": "lutris",
     "repo": "lutris",
     "icon": "https://raw.githubusercontent.com/lutris/lutris/master/share/lutris/media/logo.png",
@@ -2353,7 +2267,6 @@
   {
     "id": "sharkwouter/minigalaxy",
     "name": "MiniGalaxy",
-    "chinese_name": "MiniGalaxy GOG 客户端",
     "owner": "sharkwouter",
     "repo": "minigalaxy",
     "icon": "https://raw.githubusercontent.com/sharkwouter/minigalaxy/master/minigalaxy/ui/data/icon_linux.png",
@@ -2381,7 +2294,6 @@
   {
     "id": "davidotek/protonup-qt",
     "name": "ProtonUp-Qt",
-    "chinese_name": "ProtonUp-Qt Steam 工具",
     "owner": "DavidoTek",
     "repo": "ProtonUp-Qt",
     "icon": "https://raw.githubusercontent.com/DavidoTek/ProtonUp-Qt/main/pupgui2/resources/img/appicon256.png",
@@ -2409,7 +2321,6 @@
   {
     "id": "mmatyas/pegasus-frontend",
     "name": "Pegasus",
-    "chinese_name": "Pegasus 游戏前端",
     "owner": "mmatyas",
     "repo": "pegasus-frontend",
     "icon": "https://raw.githubusercontent.com/mmatyas/pegasus-frontend/master/assets/icon.png",
@@ -2437,7 +2348,6 @@
   {
     "id": "itchio/itch",
     "name": "itch",
-    "chinese_name": "itch 游戏平台",
     "owner": "itchio",
     "repo": "itch",
     "icon": "https://raw.githubusercontent.com/itchio/itch/master/src/static/images/window/kitch/icon.png",
@@ -2465,7 +2375,6 @@
   {
     "id": "antimicrox/antimicrox",
     "name": "AntiMicroX",
-    "chinese_name": "AntiMicroX 手柄映射",
     "owner": "AntiMicroX",
     "repo": "antimicrox",
     "icon": "https://raw.githubusercontent.com/AntiMicroX/antimicrox/master/src/images/antimicrox.png",
@@ -2493,7 +2402,6 @@
   {
     "id": "opentabletdriver/opentabletdriver",
     "name": "OpenTabletDriver",
-    "chinese_name": "数位板驱动",
     "owner": "OpenTabletDriver",
     "repo": "OpenTabletDriver",
     "icon": "https://raw.githubusercontent.com/OpenTabletDriver/OpenTabletDriver/0.6.x/OpenTabletDriver.UX/Assets/otd.png",
@@ -2521,7 +2429,6 @@
   {
     "id": "modorganizer2/modorganizer",
     "name": "Mod Organizer 2",
-    "chinese_name": "Mod Organizer 2 模组管理",
     "owner": "ModOrganizer2",
     "repo": "modorganizer",
     "icon": "https://raw.githubusercontent.com/ModOrganizer2/modorganizer/master/src/mo_icon.ico",
@@ -2549,7 +2456,6 @@
   {
     "id": "yairm210/unciv",
     "name": "Unciv",
-    "chinese_name": "Unciv 开源文明",
     "owner": "yairm210",
     "repo": "Unciv",
     "icon": "https://raw.githubusercontent.com/yairm210/Unciv/master/docs/assets/Icon.png",
@@ -2577,7 +2483,6 @@
   {
     "id": "00-evan/shattered-pixel-dungeon",
     "name": "Shattered Pixel Dungeon",
-    "chinese_name": "破碎的像素地牢",
     "owner": "00-Evan",
     "repo": "shattered-pixel-dungeon",
     "icon": "https://raw.githubusercontent.com/00-Evan/shattered-pixel-dungeon/master/desktop/src/main/assets/icons/icon_256.png",
@@ -2605,7 +2510,6 @@
   {
     "id": "luanti-org/luanti",
     "name": "Luanti",
-    "chinese_name": "Luanti 体素沙盒",
     "owner": "luanti-org",
     "repo": "luanti",
     "icon": "https://raw.githubusercontent.com/luanti-org/luanti/master/textures/base/pack/logo.png",
@@ -2633,7 +2537,6 @@
   {
     "id": "openra/openra",
     "name": "OpenRA",
-    "chinese_name": "OpenRA 红警重制",
     "owner": "OpenRA",
     "repo": "OpenRA",
     "icon": "https://raw.githubusercontent.com/OpenRA/OpenRA/bleed/packaging/artwork/ra_512x512.png",
@@ -2661,7 +2564,6 @@
   {
     "id": "supertuxkart/stk-code",
     "name": "SuperTuxKart",
-    "chinese_name": "SuperTuxKart 卡丁车",
     "owner": "supertuxkart",
     "repo": "stk-code",
     "icon": "https://raw.githubusercontent.com/supertuxkart/stk-code/master/data/gui/icons/logo.png",
@@ -2689,7 +2591,6 @@
   {
     "id": "supertux/supertux",
     "name": "SuperTux",
-    "chinese_name": "SuperTux 横版跳跃",
     "owner": "SuperTux",
     "repo": "supertux",
     "icon": "https://raw.githubusercontent.com/SuperTux/supertux/master/data/images/engine/icons/supertux.png",
@@ -2717,7 +2618,6 @@
   {
     "id": "widelands/widelands",
     "name": "Widelands",
-    "chinese_name": "Widelands 殖民建设",
     "owner": "widelands",
     "repo": "widelands",
     "icon": "https://raw.githubusercontent.com/widelands/widelands/master/data/images/logos/wl-ico-128.png",
@@ -2745,7 +2645,6 @@
   {
     "id": "warzone2100/warzone2100",
     "name": "Warzone 2100",
-    "chinese_name": "Warzone 2100 即时战略",
     "owner": "Warzone2100",
     "repo": "warzone2100",
     "icon": "https://raw.githubusercontent.com/Warzone2100/warzone2100/master/icons/warzone2100.png",
@@ -2773,7 +2672,6 @@
   {
     "id": "endless-sky/endless-sky",
     "name": "Endless Sky",
-    "chinese_name": "Endless Sky 星际冒险",
     "owner": "endless-sky",
     "repo": "endless-sky",
     "icon": "https://raw.githubusercontent.com/endless-sky/endless-sky/master/icons/endless-sky.iconset/icon_512x512@2x.png",
@@ -2801,7 +2699,6 @@
   {
     "id": "pioneerspacesim/pioneer",
     "name": "Pioneer",
-    "chinese_name": "Pioneer 太空模拟",
     "owner": "pioneerspacesim",
     "repo": "pioneer",
     "icon": "https://raw.githubusercontent.com/pioneerspacesim/pioneer/master/data/icons/logo.svg",
@@ -2829,7 +2726,6 @@
   {
     "id": "cleverraven/cataclysm-dda",
     "name": "Cataclysm DDA",
-    "chinese_name": "大灾变 黑暗之日",
     "owner": "CleverRaven",
     "repo": "Cataclysm-DDA",
     "icon": "https://raw.githubusercontent.com/CleverRaven/Cataclysm-DDA/master/build-data/osx/AppIcon.iconset/icon_512x512@2x.png",
@@ -2857,7 +2753,6 @@
   {
     "id": "cockatrice/cockatrice",
     "name": "Cockatrice",
-    "chinese_name": "Cockatrice 卡牌对战",
     "owner": "Cockatrice",
     "repo": "Cockatrice",
     "icon": "https://raw.githubusercontent.com/Cockatrice/Cockatrice/master/cockatrice/resources/cockatrice.svg",
@@ -2885,7 +2780,6 @@
   {
     "id": "card-forge/forge",
     "name": "Forge",
-    "chinese_name": "Forge 万智牌",
     "owner": "Card-Forge",
     "repo": "forge",
     "icon": "https://raw.githubusercontent.com/Card-Forge/forge/master/forge-gui-android/res/drawable/logo.png",
@@ -2913,7 +2807,6 @@
   {
     "id": "simutrans/simutrans",
     "name": "Simutrans",
-    "chinese_name": "Simutrans 交通模拟",
     "owner": "simutrans",
     "repo": "simutrans",
     "icon": "https://raw.githubusercontent.com/simutrans/simutrans/master/src/android/icon.png",
@@ -2941,7 +2834,6 @@
   {
     "id": "bvschaik/julius",
     "name": "Julius",
-    "chinese_name": "Julius 罗马复刻",
     "owner": "bvschaik",
     "repo": "julius",
     "icon": "https://raw.githubusercontent.com/bvschaik/julius/master/res/android/mipmap-xxxhdpi/julius.png",
@@ -2969,7 +2861,6 @@
   {
     "id": "openmw/openmw",
     "name": "OpenMW",
-    "chinese_name": "OpenMW 复刻引擎",
     "owner": "OpenMW",
     "repo": "openmw",
     "icon": "https://raw.githubusercontent.com/OpenMW/openmw/master/files/launcher/images/openmw.png",
@@ -2997,7 +2888,6 @@
   {
     "id": "openrct2/openrct2",
     "name": "OpenRCT2",
-    "chinese_name": "OpenRCT2 过山车大亨",
     "owner": "OpenRCT2",
     "repo": "OpenRCT2",
     "icon": "https://raw.githubusercontent.com/OpenRCT2/OpenRCT2/develop/resources/g2/logo.png",
@@ -3025,7 +2915,6 @@
   {
     "id": "veloren/veloren",
     "name": "Veloren",
-    "chinese_name": "Veloren 多人沙盒",
     "owner": "veloren",
     "repo": "veloren",
     "icon": "https://raw.githubusercontent.com/veloren/veloren/master/assets/voxygen/logo.ico",
@@ -3053,7 +2942,6 @@
   {
     "id": "rptools/maptool",
     "name": "MapTool",
-    "chinese_name": "MapTool 线上跑团",
     "owner": "RPTools",
     "repo": "maptool",
     "icon": "https://raw.githubusercontent.com/RPTools/maptool/develop/src/main/resources/net/rptools/maptool/client/maptool.png",
@@ -3081,7 +2969,6 @@
   {
     "id": "vassalengine/vassal",
     "name": "VASSAL",
-    "chinese_name": "VASSAL 桌游模拟",
     "owner": "vassalengine",
     "repo": "vassal",
     "icon": "https://raw.githubusercontent.com/vassalengine/vassal/master/vassal-app/src/main/resources/icons/32x32/VASSAL.png",
@@ -3109,7 +2996,6 @@
   {
     "id": "openhv/openhv",
     "name": "OpenHV",
-    "chinese_name": "OpenHV 即时战略",
     "owner": "OpenHV",
     "repo": "OpenHV",
     "icon": "https://raw.githubusercontent.com/OpenHV/OpenHV/main/packaging/artwork/icon_512x512.png",
@@ -3137,7 +3023,6 @@
   {
     "id": "stuntrally/stuntrally",
     "name": "Stunt Rally",
-    "chinese_name": "Stunt Rally 特技赛车",
     "owner": "stuntrally",
     "repo": "stuntrally",
     "icon": "https://raw.githubusercontent.com/stuntrally/stuntrally/master/data/gui/stuntrally.png",
@@ -3165,7 +3050,6 @@
   {
     "id": "diasurgical/devilutionx",
     "name": "DevilutionX",
-    "chinese_name": "DevilutionX 暗黑复刻",
     "owner": "diasurgical",
     "repo": "DevilutionX",
     "icon": "https://raw.githubusercontent.com/diasurgical/DevilutionX/master/Packaging/resources/icon.png",
@@ -3193,7 +3077,6 @@
   {
     "id": "vcmi/vcmi",
     "name": "VCMI",
-    "chinese_name": "VCMI 英雄无敌3引擎",
     "owner": "vcmi",
     "repo": "vcmi",
     "icon": "https://raw.githubusercontent.com/vcmi/vcmi/develop/clientapp/icons/vcmiclient.1024x1024.png",
@@ -3221,7 +3104,6 @@
   {
     "id": "openloco/openloco",
     "name": "OpenLoco",
-    "chinese_name": "OpenLoco 运输大亨",
     "owner": "OpenLoco",
     "repo": "OpenLoco",
     "icon": "https://raw.githubusercontent.com/OpenLoco/OpenLoco/master/src/Resources/src/logo/icon_x1024.png",
@@ -3249,7 +3131,6 @@
   {
     "id": "arx/arxlibertatis",
     "name": "Arx Libertatis",
-    "chinese_name": "Arx Libertatis 复刻",
     "owner": "arx",
     "repo": "ArxLibertatis",
     "icon": "https://raw.githubusercontent.com/arx/ArxLibertatis/master/data/icons/arx-libertatis-logo.svg",
@@ -3277,7 +3158,6 @@
   {
     "id": "gemrb/gemrb",
     "name": "GemRB",
-    "chinese_name": "GemRB 无冬引擎",
     "owner": "gemrb",
     "repo": "gemrb",
     "icon": "https://raw.githubusercontent.com/gemrb/gemrb/master/artwork/gemrb-logo.ico",
@@ -3305,7 +3185,6 @@
   {
     "id": "gnome/gimp",
     "name": "GIMP",
-    "chinese_name": "GIMP 图像编辑器",
     "owner": "GNOME",
     "repo": "gimp",
     "icon": "https://raw.githubusercontent.com/GNOME/gimp/master/plug-ins/gfig/images/gfig-logo.png",
@@ -3333,7 +3212,6 @@
   {
     "id": "kde/krita",
     "name": "Krita",
-    "chinese_name": "Krita 数字绘画",
     "owner": "KDE",
     "repo": "krita",
     "icon": "https://raw.githubusercontent.com/KDE/krita/master/packaging/windows/msix/pkg/Assets/Square44x44Logo.altform-unplated_targetsize-256.png",
@@ -3361,7 +3239,6 @@
   {
     "id": "freecad/freecad",
     "name": "FreeCAD",
-    "chinese_name": "FreeCAD 三维建模",
     "owner": "FreeCAD",
     "repo": "FreeCAD",
     "icon": "https://raw.githubusercontent.com/FreeCAD/FreeCAD/main/src/Gui/Icons/freecad.svg",
@@ -3389,7 +3266,6 @@
   {
     "id": "openscad/openscad",
     "name": "OpenSCAD",
-    "chinese_name": "OpenSCAD 代码建模",
     "owner": "openscad",
     "repo": "openscad",
     "icon": "https://raw.githubusercontent.com/openscad/openscad/master/resources/icons/icon.png",
@@ -3417,7 +3293,6 @@
   {
     "id": "darktable-org/darktable",
     "name": "darktable",
-    "chinese_name": "darktable 摄影后期",
     "owner": "darktable-org",
     "repo": "darktable",
     "icon": "https://raw.githubusercontent.com/darktable-org/darktable/master/data/pixmaps/256x256/darktable.png",
@@ -3445,7 +3320,6 @@
   {
     "id": "rawtherapee/rawtherapee",
     "name": "RawTherapee",
-    "chinese_name": "RawTherapee RAW 处理",
     "owner": "RawTherapee",
     "repo": "RawTherapee",
     "icon": "https://raw.githubusercontent.com/RawTherapee/RawTherapee/dev/rtdata/icons/hicolor/256x256/apps/rawtherapee.png",
@@ -3473,7 +3347,6 @@
   {
     "id": "nomacs/nomacs",
     "name": "nomacs",
-    "chinese_name": "nomacs 图片查看器",
     "owner": "nomacs",
     "repo": "nomacs",
     "icon": "https://raw.githubusercontent.com/nomacs/nomacs/master/ImageLounge/nomacs.svg",
@@ -3501,7 +3374,6 @@
   {
     "id": "d2phap/imageglass",
     "name": "ImageGlass",
-    "chinese_name": "ImageGlass 看图工具",
     "owner": "d2phap",
     "repo": "ImageGlass",
     "icon": "https://raw.githubusercontent.com/d2phap/ImageGlass/develop/v9/_Setup/Settings/Logo.svg",
@@ -3529,7 +3401,6 @@
   {
     "id": "sylikc/jpegview",
     "name": "JPEGView",
-    "chinese_name": "JPEGView 极速看图",
     "owner": "sylikc",
     "repo": "jpegview",
     "icon": "https://raw.githubusercontent.com/sylikc/jpegview/master/src/JPEGView/res/JPEGView.ico",
@@ -3557,7 +3428,6 @@
   {
     "id": "jurplel/qview",
     "name": "qView",
-    "chinese_name": "qView 极简看图",
     "owner": "jurplel",
     "repo": "qView",
     "icon": "https://raw.githubusercontent.com/jurplel/qView/main/dist/linux/hicolor/scalable/apps/com.interversehq.qView.svg",
@@ -3585,7 +3455,6 @@
   {
     "id": "pintaproject/pinta",
     "name": "Pinta",
-    "chinese_name": "Pinta 简易图像编辑",
     "owner": "PintaProject",
     "repo": "Pinta",
     "icon": "https://raw.githubusercontent.com/PintaProject/Pinta/master/Pinta.Resources/icons/hicolor/32x32/apps/com.github.PintaProject.Pinta.png",
@@ -3613,7 +3482,6 @@
   {
     "id": "orama-interactive/pixelorama",
     "name": "Pixelorama",
-    "chinese_name": "Pixelorama 像素画",
     "owner": "Orama-Interactive",
     "repo": "Pixelorama",
     "icon": "https://raw.githubusercontent.com/Orama-Interactive/Pixelorama/master/assets/graphics/icons/icon.png",
@@ -3641,7 +3509,6 @@
   {
     "id": "libresprite/libresprite",
     "name": "LibreSprite",
-    "chinese_name": "LibreSprite 像素动画",
     "owner": "LibreSprite",
     "repo": "LibreSprite",
     "icon": "https://raw.githubusercontent.com/LibreSprite/LibreSprite/master/desktop/icons/hicolor/256x256/apps/libresprite.png",
@@ -3669,7 +3536,6 @@
   {
     "id": "opentoonz/opentoonz",
     "name": "OpenToonz",
-    "chinese_name": "OpenToonz 二维动画",
     "owner": "opentoonz",
     "repo": "opentoonz",
     "icon": "https://raw.githubusercontent.com/opentoonz/opentoonz/master/toonz/sources/xdg-data/io.github.OpenToonz.png",
@@ -3697,7 +3563,6 @@
   {
     "id": "synfig/synfig",
     "name": "Synfig Studio",
-    "chinese_name": "Synfig 矢量动画",
     "owner": "synfig",
     "repo": "synfig",
     "icon": "https://raw.githubusercontent.com/synfig/synfig/master/synfig-studio/images/org.synfig.SynfigStudio.svg",
@@ -3725,7 +3590,6 @@
   {
     "id": "pencil2d/pencil",
     "name": "Pencil2D",
-    "chinese_name": "Pencil2D 手绘动画",
     "owner": "pencil2d",
     "repo": "pencil",
     "icon": "https://raw.githubusercontent.com/pencil2d/pencil/master/app/data/icons/icon.png",
@@ -3753,7 +3617,6 @@
   {
     "id": "bforartists/bforartists",
     "name": "Bforartists",
-    "chinese_name": "Bforartists 三维创作",
     "owner": "Bforartists",
     "repo": "Bforartists",
     "icon": "https://raw.githubusercontent.com/Bforartists/Bforartists/master/release/freedesktop/icons/scalable/apps/bforartists.svg",
@@ -3781,7 +3644,6 @@
   {
     "id": "cnr-isti-vclab/meshlab",
     "name": "MeshLab",
-    "chinese_name": "MeshLab 网格处理",
     "owner": "cnr-isti-vclab",
     "repo": "meshlab",
     "icon": "https://raw.githubusercontent.com/cnr-isti-vclab/meshlab/main/resources/icons/meshlab.png",
@@ -3809,7 +3671,6 @@
   {
     "id": "librecad/librecad",
     "name": "LibreCAD",
-    "chinese_name": "LibreCAD 二维制图",
     "owner": "LibreCAD",
     "repo": "LibreCAD",
     "icon": "https://raw.githubusercontent.com/LibreCAD/LibreCAD/master/desktop/res_old/main/librecad.png",
@@ -3837,7 +3698,6 @@
   {
     "id": "ksnip/ksnip",
     "name": "Ksnip",
-    "chinese_name": "Ksnip 截图标注",
     "owner": "ksnip",
     "repo": "ksnip",
     "icon": "https://raw.githubusercontent.com/ksnip/ksnip/master/desktop/ksnip.svg",
@@ -3865,7 +3725,6 @@
   {
     "id": "fontforge/fontforge",
     "name": "FontForge",
-    "chinese_name": "FontForge 字体编辑",
     "owner": "fontforge",
     "repo": "fontforge",
     "icon": "https://raw.githubusercontent.com/fontforge/fontforge/master/desktop/icons-older/fontforge.svg",
@@ -3893,7 +3752,6 @@
   {
     "id": "faster3ck/converseen",
     "name": "Converseen",
-    "chinese_name": "Converseen 批量转换",
     "owner": "Faster3ck",
     "repo": "Converseen",
     "icon": "https://raw.githubusercontent.com/Faster3ck/Converseen/main/res/icons/512x512/converseen.png",
@@ -3921,7 +3779,6 @@
   {
     "id": "upscayl/upscayl",
     "name": "Upscayl",
-    "chinese_name": "Upscayl AI 图片放大",
     "owner": "upscayl",
     "repo": "upscayl",
     "icon": "https://raw.githubusercontent.com/upscayl/upscayl/main/renderer/public/icon.png",
@@ -3949,7 +3806,6 @@
   {
     "id": "photoflare/photoflare",
     "name": "PhotoFlare",
-    "chinese_name": "PhotoFlare 图片编辑",
     "owner": "PhotoFlare",
     "repo": "photoflare",
     "icon": "https://raw.githubusercontent.com/PhotoFlare/photoflare/master/installers/deb/DEBIAN/usr/share/icons/hicolor/256x256/apps/photoflare.png",
@@ -3977,7 +3833,6 @@
   {
     "id": "kicad/kicad-source-mirror",
     "name": "KiCad",
-    "chinese_name": "KiCad 电路设计",
     "owner": "KiCad",
     "repo": "kicad-source-mirror",
     "icon": "https://raw.githubusercontent.com/KiCad/kicad-source-mirror/master/resources/bitmaps_png/png/icon_kicad_256.png",
@@ -4005,7 +3860,6 @@
   {
     "id": "fritzing/fritzing-app",
     "name": "Fritzing",
-    "chinese_name": "Fritzing 电路原型",
     "owner": "fritzing",
     "repo": "fritzing-app",
     "icon": "https://raw.githubusercontent.com/fritzing/fritzing-app/develop/resources/system_icons/linux/fzbz_icon256.png",
@@ -4033,7 +3887,6 @@
   {
     "id": "mpvnet-player/mpv.net",
     "name": "mpv.net",
-    "chinese_name": "mpv.net Windows 播放器",
     "owner": "mpvnet-player",
     "repo": "mpv.net",
     "icon": "https://raw.githubusercontent.com/mpvnet-player/mpv.net/main/src/MpvNet.Windows/mpv-icon.ico",
@@ -4061,7 +3914,6 @@
   {
     "id": "clsid2/mpc-hc",
     "name": "MPC-HC",
-    "chinese_name": "MPC-HC 经典播放器",
     "owner": "clsid2",
     "repo": "mpc-hc",
     "icon": "https://raw.githubusercontent.com/clsid2/mpc-hc/develop/src/mpc-hc/res/icon.ico",
@@ -4089,7 +3941,6 @@
   {
     "id": "aleksoid1978/mpc-be",
     "name": "MPC-BE",
-    "chinese_name": "MPC-BE 增强播放器",
     "owner": "Aleksoid1978",
     "repo": "MPC-BE",
     "icon": "https://raw.githubusercontent.com/Aleksoid1978/MPC-BE/master/src/apps/mpciconlib/icons/icon.ico",
@@ -4117,7 +3968,6 @@
   {
     "id": "iina/iina",
     "name": "IINA",
-    "chinese_name": "IINA macOS 播放器",
     "owner": "iina",
     "repo": "iina",
     "icon": "https://raw.githubusercontent.com/iina/iina/develop/browser/Chrome_Open_In_IINA/icon.png",
@@ -4145,7 +3995,6 @@
   {
     "id": "smplayer-dev/smplayer",
     "name": "SMPlayer",
-    "chinese_name": "SMPlayer 记忆播放器",
     "owner": "smplayer-dev",
     "repo": "smplayer",
     "icon": "https://raw.githubusercontent.com/smplayer-dev/smplayer/master/src/default-theme/logo.png",
@@ -4173,7 +4022,6 @@
   {
     "id": "jellyfin/jellyfin-desktop",
     "name": "Jellyfin Media Player",
-    "chinese_name": "Jellyfin 桌面客户端",
     "owner": "jellyfin",
     "repo": "jellyfin-desktop",
     "icon": "https://raw.githubusercontent.com/jellyfin/jellyfin-desktop/master/resources/images/icon.png",
@@ -4201,7 +4049,6 @@
   {
     "id": "strawberrymusicplayer/strawberry",
     "name": "Strawberry",
-    "chinese_name": "Strawberry 音乐播放器",
     "owner": "strawberrymusicplayer",
     "repo": "strawberry",
     "icon": "https://raw.githubusercontent.com/strawberrymusicplayer/strawberry/master/data/icons/128x128/strawberry.png",
@@ -4229,7 +4076,6 @@
   {
     "id": "nukeop/nuclear",
     "name": "Nuclear",
-    "chinese_name": "Nuclear 流媒体播放器",
     "owner": "nukeop",
     "repo": "nuclear",
     "icon": "https://raw.githubusercontent.com/nukeop/nuclear/master/packages/player/src-tauri/icons/icon.png",
@@ -4257,7 +4103,6 @@
   {
     "id": "jeffvli/feishin",
     "name": "Feishin",
-    "chinese_name": "Feishin 音乐客户端",
     "owner": "jeffvli",
     "repo": "feishin",
     "icon": "https://raw.githubusercontent.com/jeffvli/feishin/development/assets/icons/icon.png",
@@ -4285,7 +4130,6 @@
   {
     "id": "martpie/museeks",
     "name": "Museeks",
-    "chinese_name": "Museeks 音乐播放器",
     "owner": "martpie",
     "repo": "museeks",
     "icon": "https://raw.githubusercontent.com/martpie/museeks/master/src-tauri/icons/app-icon.png",
@@ -4313,7 +4157,6 @@
   {
     "id": "quodlibet/quodlibet",
     "name": "Quod Libet",
-    "chinese_name": "Quod Libet 音乐库管理",
     "owner": "quodlibet",
     "repo": "quodlibet",
     "icon": "https://raw.githubusercontent.com/quodlibet/quodlibet/main/docs/favicon/favicon.ico",
@@ -4341,7 +4184,6 @@
   {
     "id": "krtirtho/spotube",
     "name": "Spotube",
-    "chinese_name": "Spotube Spotify 客户端",
     "owner": "KRTirtho",
     "repo": "spotube",
     "icon": "https://raw.githubusercontent.com/KRTirtho/spotube/master/web/icons/Icon-maskable-512.png",
@@ -4369,7 +4211,6 @@
   {
     "id": "supersonic-app/supersonic",
     "name": "Supersonic",
-    "chinese_name": "Supersonic 音乐客户端",
     "owner": "supersonic-app",
     "repo": "supersonic",
     "icon": "https://raw.githubusercontent.com/supersonic-app/supersonic/main/res/appicon-512.png",
@@ -4397,7 +4238,6 @@
   {
     "id": "audacity/audacity",
     "name": "Audacity",
-    "chinese_name": "Audacity 音频编辑器",
     "owner": "audacity",
     "repo": "audacity",
     "icon": "https://raw.githubusercontent.com/audacity/audacity/master/share/icons/AppIcon/AU4_AppIcon_512x512.png",
@@ -4425,7 +4265,6 @@
   {
     "id": "mixxxdj/mixxx",
     "name": "Mixxx",
-    "chinese_name": "Mixxx DJ 打碟",
     "owner": "mixxxdj",
     "repo": "mixxx",
     "icon": "https://raw.githubusercontent.com/mixxxdj/mixxx/main/res/images/icons/512x512/apps/mixxx.png",
@@ -4453,7 +4292,6 @@
   {
     "id": "lmms/lmms",
     "name": "LMMS",
-    "chinese_name": "LMMS 音乐制作",
     "owner": "LMMS",
     "repo": "lmms",
     "icon": "https://raw.githubusercontent.com/LMMS/lmms/master/cmake/linux/icons/256x256/apps/lmms.png",
@@ -4481,7 +4319,6 @@
   {
     "id": "zrythm/zrythm",
     "name": "Zrythm",
-    "chinese_name": "Zrythm 数字音频工作站",
     "owner": "zrythm",
     "repo": "zrythm",
     "icon": "https://raw.githubusercontent.com/zrythm/zrythm/master/src/gui/resources/icons/zrythm-dark/scalable/apps/zrythm.svg",
@@ -4509,7 +4346,6 @@
   {
     "id": "bespokesynth/bespokesynth",
     "name": "Bespoke",
-    "chinese_name": "Bespoke 模块化音乐环境",
     "owner": "BespokeSynth",
     "repo": "BespokeSynth",
     "icon": "https://raw.githubusercontent.com/BespokeSynth/BespokeSynth/main/bespoke_icon.png",
@@ -4537,7 +4373,6 @@
   {
     "id": "kde/kdenlive",
     "name": "Kdenlive",
-    "chinese_name": "Kdenlive 视频剪辑",
     "owner": "KDE",
     "repo": "kdenlive",
     "icon": "https://raw.githubusercontent.com/KDE/kdenlive/master/data/icons/1024-apps-kdenlive.png",
@@ -4565,7 +4400,6 @@
   {
     "id": "mltframework/shotcut",
     "name": "Shotcut",
-    "chinese_name": "Shotcut 视频剪辑",
     "owner": "mltframework",
     "repo": "shotcut",
     "icon": "https://raw.githubusercontent.com/mltframework/shotcut/master/packaging/windows/Microsoft Store/PackageFiles/Assets/Square44x44Logo.targetsize-256.png",
@@ -4593,7 +4427,6 @@
   {
     "id": "openshot/openshot-qt",
     "name": "OpenShot",
-    "chinese_name": "OpenShot 视频剪辑",
     "owner": "OpenShot",
     "repo": "openshot-qt",
     "icon": "https://raw.githubusercontent.com/OpenShot/openshot-qt/develop/xdg/icon/512/openshot-qt.png",
@@ -4621,7 +4454,6 @@
   {
     "id": "mifi/lossless-cut",
     "name": "LosslessCut",
-    "chinese_name": "LosslessCut 无损剪辑",
     "owner": "mifi",
     "repo": "lossless-cut",
     "icon": "https://raw.githubusercontent.com/mifi/lossless-cut/master/src/renderer/src/icon.svg",
@@ -4649,7 +4481,6 @@
   {
     "id": "staxrip/staxrip",
     "name": "StaxRip",
-    "chinese_name": "StaxRip 视频转码",
     "owner": "staxrip",
     "repo": "staxrip",
     "icon": "https://raw.githubusercontent.com/staxrip/staxrip/master/Source/SR_blue.ico",
@@ -4677,7 +4508,6 @@
   {
     "id": "k4yt3x/video2x",
     "name": "Video2X",
-    "chinese_name": "Video2X 视频超分",
     "owner": "k4yt3x",
     "repo": "video2x",
     "icon": "https://raw.githubusercontent.com/k4yt3x/video2x/master/packaging/appimage/video2x.png",
@@ -4705,7 +4535,6 @@
   {
     "id": "nickemanarin/screentogif",
     "name": "ScreenToGif",
-    "chinese_name": "ScreenToGif 录制 GIF",
     "owner": "NickeManarin",
     "repo": "ScreenToGif",
     "icon": "https://raw.githubusercontent.com/NickeManarin/ScreenToGif/master/ScreenToGif/Resources/Logo.ico",
@@ -4733,7 +4562,6 @@
   {
     "id": "wulkano/kap",
     "name": "Kap",
-    "chinese_name": "Kap macOS 录屏",
     "owner": "wulkano",
     "repo": "Kap",
     "icon": "https://raw.githubusercontent.com/wulkano/Kap/main/renderer/public/static/kap-icon.png",
@@ -4761,7 +4589,6 @@
   {
     "id": "subtitleedit/subtitleedit",
     "name": "Subtitle Edit",
-    "chinese_name": "Subtitle Edit 字幕编辑",
     "owner": "SubtitleEdit",
     "repo": "subtitleedit",
     "icon": "https://raw.githubusercontent.com/SubtitleEdit/subtitleedit/main/src/libse/Icon.png",
@@ -4789,7 +4616,6 @@
   {
     "id": "kde/kid3",
     "name": "Kid3",
-    "chinese_name": "Kid3 音频标签编辑",
     "owner": "KDE",
     "repo": "kid3",
     "icon": "https://raw.githubusercontent.com/KDE/kid3/master/logo.png",
@@ -4817,7 +4643,6 @@
   {
     "id": "metabrainz/picard",
     "name": "MusicBrainz Picard",
-    "chinese_name": "Picard 音乐标签工具",
     "owner": "metabrainz",
     "repo": "picard",
     "icon": "https://raw.githubusercontent.com/metabrainz/picard/master/resources/img-src/macos-picard.iconset/icon_512@2x.png",
@@ -4845,7 +4670,6 @@
   {
     "id": "randomengy/vidcoder",
     "name": "VidCoder",
-    "chinese_name": "VidCoder 视频转码",
     "owner": "RandomEngy",
     "repo": "VidCoder",
     "icon": "https://raw.githubusercontent.com/RandomEngy/VidCoder/beta/VidCoder/Icons/VidCoder.png",
@@ -4873,7 +4697,6 @@
   {
     "id": "nickvisionapps/parabolic",
     "name": "Parabolic",
-    "chinese_name": "Parabolic 视频下载",
     "owner": "NickvisionApps",
     "repo": "Parabolic",
     "icon": "https://raw.githubusercontent.com/NickvisionApps/Parabolic/main/extension/chrome/icons/icon128.png",
@@ -4901,7 +4724,6 @@
   {
     "id": "enzo1982/freac",
     "name": "fre:ac",
-    "chinese_name": "fre:ac 音频转换",
     "owner": "enzo1982",
     "repo": "freac",
     "icon": "https://www.freac.org/favicon.ico",
@@ -4929,7 +4751,6 @@
   {
     "id": "belphemur/soundswitch",
     "name": "SoundSwitch",
-    "chinese_name": "SoundSwitch 音频切换",
     "owner": "Belphemur",
     "repo": "SoundSwitch",
     "icon": "https://raw.githubusercontent.com/Belphemur/SoundSwitch/dev/SoundSwitch/Resources/Switch-Logo.ico",
@@ -4957,7 +4778,6 @@
   {
     "id": "freetubeapp/freetube",
     "name": "FreeTube",
-    "chinese_name": "FreeTube 隐私视频客户端",
     "owner": "FreeTubeApp",
     "repo": "FreeTube",
     "icon": "https://raw.githubusercontent.com/FreeTubeApp/FreeTube/development/_icons/icon.svg",
@@ -4985,7 +4805,6 @@
   {
     "id": "qutebrowser/qutebrowser",
     "name": "qutebrowser",
-    "chinese_name": "qutebrowser 键盘流浏览器",
     "owner": "qutebrowser",
     "repo": "qutebrowser",
     "icon": "https://raw.githubusercontent.com/qutebrowser/qutebrowser/main/qutebrowser/icons/qutebrowser.svg",
@@ -5013,7 +4832,6 @@
   {
     "id": "minbrowser/min",
     "name": "Min",
-    "chinese_name": "Min 极简浏览器",
     "owner": "minbrowser",
     "repo": "min",
     "icon": "https://raw.githubusercontent.com/minbrowser/min/master/icons/icon256.ico",
@@ -5041,7 +4859,6 @@
   {
     "id": "atlas-engineer/nyxt",
     "name": "Nyxt",
-    "chinese_name": "Nyxt 可编程浏览器",
     "owner": "atlas-engineer",
     "repo": "nyxt",
     "icon": "https://raw.githubusercontent.com/atlas-engineer/nyxt/master/assets/icon_512x512.png.ico",
@@ -5069,7 +4886,6 @@
   {
     "id": "floorp-projects/floorp",
     "name": "Floorp",
-    "chinese_name": "Floorp 分屏浏览器",
     "owner": "Floorp-Projects",
     "repo": "Floorp",
     "icon": "https://raw.githubusercontent.com/Floorp-Projects/Floorp/main/static/installers/stub-win64-installer/src-tauri/icons/icon.png",
@@ -5097,7 +4913,6 @@
   {
     "id": "zen-browser/desktop",
     "name": "Zen Browser",
-    "chinese_name": "Zen Browser 极简浏览器",
     "owner": "zen-browser",
     "repo": "desktop",
     "icon": "https://raw.githubusercontent.com/zen-browser/desktop/dev/configs/branding/twilight/logo.png",
@@ -5125,7 +4940,6 @@
   {
     "id": "alex313031/thorium",
     "name": "Thorium",
-    "chinese_name": "Thorium 高性能浏览器",
     "owner": "Alex313031",
     "repo": "thorium",
     "icon": "https://raw.githubusercontent.com/Alex313031/thorium/main/logos/NEW/mac/gen/app/icon_512x512.png",
@@ -5153,7 +4967,6 @@
   {
     "id": "brave/brave-browser",
     "name": "Brave",
-    "chinese_name": "Brave 隐私浏览器",
     "owner": "brave",
     "repo": "brave-browser",
     "icon": "https://raw.githubusercontent.com/brave/brave-core/master/app/theme/brave/product_logo_256.png",
@@ -5181,7 +4994,6 @@
   {
     "id": "foundry376/mailspring",
     "name": "Mailspring",
-    "chinese_name": "Mailspring 邮件客户端",
     "owner": "Foundry376",
     "repo": "Mailspring",
     "icon": "https://raw.githubusercontent.com/Foundry376/Mailspring/master/app/internal_packages/open-tracking/icon.png",
@@ -5209,7 +5021,6 @@
   {
     "id": "session-foundation/session-desktop",
     "name": "Session",
-    "chinese_name": "Session 匿名加密聊天",
     "owner": "session-foundation",
     "repo": "session-desktop",
     "icon": "https://raw.githubusercontent.com/session-foundation/session-desktop/dev/build/icons/icon_1024x1024.png",
@@ -5237,7 +5048,6 @@
   {
     "id": "nheko-reborn/nheko",
     "name": "Nheko",
-    "chinese_name": "Nheko Matrix 客户端",
     "owner": "Nheko-Reborn",
     "repo": "nheko",
     "icon": "https://raw.githubusercontent.com/Nheko-Reborn/nheko/master/resources/nheko.png",
@@ -5265,7 +5075,6 @@
   {
     "id": "cinnyapp/cinny-desktop",
     "name": "Cinny",
-    "chinese_name": "Cinny Matrix 客户端",
     "owner": "cinnyapp",
     "repo": "cinny-desktop",
     "icon": "https://raw.githubusercontent.com/cinnyapp/cinny-desktop/main/src-tauri/icons/icon.png",
@@ -5293,7 +5102,6 @@
   {
     "id": "deltachat/deltachat-desktop",
     "name": "Delta Chat",
-    "chinese_name": "Delta Chat 邮件聊天",
     "owner": "deltachat",
     "repo": "deltachat-desktop",
     "icon": "https://raw.githubusercontent.com/deltachat/deltachat-desktop/main/packages/target-electron/build/icon.png",
@@ -5321,7 +5129,6 @@
   {
     "id": "jitsi/jitsi-meet-electron",
     "name": "Jitsi Meet",
-    "chinese_name": "Jitsi Meet 视频会议",
     "owner": "jitsi",
     "repo": "jitsi-meet-electron",
     "icon": "https://raw.githubusercontent.com/jitsi/jitsi-meet-electron/master/resources/icon.png",
@@ -5349,7 +5156,6 @@
   {
     "id": "mremoteng/mremoteng",
     "name": "mRemoteNG",
-    "chinese_name": "mRemoteNG 远程管理",
     "owner": "mRemoteNG",
     "repo": "mRemoteNG",
     "icon": "https://raw.githubusercontent.com/mRemoteNG/mRemoteNG/v1.78.2-dev/mRemoteNGDocumentation/logo.png",
@@ -5377,7 +5183,6 @@
   {
     "id": "deskflow/deskflow",
     "name": "Deskflow",
-    "chinese_name": "Deskflow 跨机键鼠",
     "owner": "deskflow",
     "repo": "deskflow",
     "icon": "https://raw.githubusercontent.com/deskflow/deskflow/master/docs/dev/deskflow-logo.png",
@@ -5405,7 +5210,6 @@
   {
     "id": "angryip/ipscan",
     "name": "Angry IP Scanner",
-    "chinese_name": "Angry IP 网段扫描",
     "owner": "angryip",
     "repo": "ipscan",
     "icon": "https://raw.githubusercontent.com/angryip/ipscan/master/resources/images/icon.png",
@@ -5433,7 +5237,6 @@
   {
     "id": "gyulyvgc/sniffnet",
     "name": "Sniffnet",
-    "chinese_name": "Sniffnet 流量监控",
     "owner": "GyulyVGC",
     "repo": "sniffnet",
     "icon": "https://raw.githubusercontent.com/GyulyVGC/sniffnet/main/resources/logos/raw/icon.png",
@@ -5461,7 +5264,6 @@
   {
     "id": "oldj/switchhosts",
     "name": "SwitchHosts",
-    "chinese_name": "SwitchHosts hosts 管理",
     "owner": "oldj",
     "repo": "SwitchHosts",
     "icon": "https://raw.githubusercontent.com/oldj/SwitchHosts/master/assets/icon.png",
@@ -5489,7 +5291,6 @@
   {
     "id": "netbirdio/netbird",
     "name": "NetBird",
-    "chinese_name": "NetBird 组网 VPN",
     "owner": "netbirdio",
     "repo": "netbird",
     "icon": "https://raw.githubusercontent.com/netbirdio/netbird/main/docs/media/logo.png",
@@ -5517,7 +5318,6 @@
   {
     "id": "2dust/v2rayn",
     "name": "v2rayN",
-    "chinese_name": "v2rayN 代理客户端",
     "owner": "2dust",
     "repo": "v2rayN",
     "icon": "https://raw.githubusercontent.com/2dust/v2rayN/master/v2rayN/v2rayN.Desktop/v2rayN.png",
@@ -5545,7 +5345,6 @@
   {
     "id": "chen08209/flclash",
     "name": "FlClash",
-    "chinese_name": "FlClash 多平台代理",
     "owner": "chen08209",
     "repo": "FlClash",
     "icon": "https://raw.githubusercontent.com/chen08209/FlClash/main/assets/images/icon.png",
@@ -5573,7 +5372,6 @@
   {
     "id": "hiddify/hiddify-app",
     "name": "Hiddify",
-    "chinese_name": "Hiddify 一站式代理",
     "owner": "hiddify",
     "repo": "hiddify-app",
     "icon": "https://raw.githubusercontent.com/hiddify/hiddify-app/main/assets/images/logo.svg",
@@ -5601,7 +5399,6 @@
   {
     "id": "libnyanpasu/clash-nyanpasu",
     "name": "Clash Nyanpasu",
-    "chinese_name": "Clash Nyanpasu 代理",
     "owner": "libnyanpasu",
     "repo": "clash-nyanpasu",
     "icon": "https://raw.githubusercontent.com/libnyanpasu/clash-nyanpasu/main/backend/tauri/icons/icon.png",
@@ -5629,7 +5426,6 @@
   {
     "id": "persepolisdm/persepolis",
     "name": "Persepolis",
-    "chinese_name": "Persepolis 下载管理器",
     "owner": "persepolisdm",
     "repo": "persepolis",
     "icon": "https://raw.githubusercontent.com/persepolisdm/persepolis/master/resources/Papirus/stop_all.svg",
@@ -5657,7 +5453,6 @@
   {
     "id": "giantpinkrobots/varia",
     "name": "Varia",
-    "chinese_name": "Varia 下载管理器",
     "owner": "giantpinkrobots",
     "repo": "varia",
     "icon": "https://raw.githubusercontent.com/giantpinkrobots/varia/next/windows/icon.ico",
@@ -5685,7 +5480,6 @@
   {
     "id": "landrop/landrop",
     "name": "LANDrop",
-    "chinese_name": "LANDrop 局域网快传",
     "owner": "LANDrop",
     "repo": "LANDrop",
     "icon": "https://raw.githubusercontent.com/LANDrop/LANDrop/master/LANDrop/icons/app.ico",
@@ -5713,7 +5507,6 @@
   {
     "id": "moonlight-stream/moonlight-qt",
     "name": "Moonlight",
-    "chinese_name": "Moonlight 游戏串流",
     "owner": "moonlight-stream",
     "repo": "moonlight-qt",
     "icon": "https://raw.githubusercontent.com/moonlight-stream/moonlight-qt/master/app/moonlight.ico",
@@ -5741,7 +5534,6 @@
   {
     "id": "lizardbyte/sunshine",
     "name": "Sunshine",
-    "chinese_name": "Sunshine 串流服务端",
     "owner": "LizardByte",
     "repo": "Sunshine",
     "icon": "https://raw.githubusercontent.com/LizardByte/Sunshine/master/sunshine.png",
@@ -5769,7 +5561,6 @@
   {
     "id": "tunnelblick/tunnelblick",
     "name": "Tunnelblick",
-    "chinese_name": "Tunnelblick OpenVPN 客户端",
     "owner": "Tunnelblick",
     "repo": "Tunnelblick",
     "icon": "https://raw.githubusercontent.com/Tunnelblick/Tunnelblick/main/tunnelblick/tb-icon-64x64.v1.png",
@@ -5797,7 +5588,6 @@
   {
     "id": "netchx/netch",
     "name": "Netch",
-    "chinese_name": "Netch 游戏加速代理",
     "owner": "netchx",
     "repo": "netch",
     "icon": "https://raw.githubusercontent.com/netchx/netch/main/Netch/Resources/Netch.png",
@@ -5825,7 +5615,6 @@
   {
     "id": "zulip/zulip-desktop",
     "name": "Zulip",
-    "chinese_name": "Zulip 团队聊天",
     "owner": "zulip",
     "repo": "zulip-desktop",
     "icon": "https://raw.githubusercontent.com/zulip/zulip-desktop/main/public/resources/Icon.png",
@@ -5853,7 +5642,6 @@
   {
     "id": "mumble-voip/mumble",
     "name": "Mumble",
-    "chinese_name": "Mumble 语音聊天",
     "owner": "mumble-voip",
     "repo": "mumble",
     "icon": "https://raw.githubusercontent.com/mumble-voip/mumble/master/icons/mumble.svg",
@@ -5881,7 +5669,6 @@
   {
     "id": "rocketchat/rocket.chat.electron",
     "name": "Rocket.Chat",
-    "chinese_name": "Rocket.Chat 客户端",
     "owner": "RocketChat",
     "repo": "Rocket.Chat.Electron",
     "icon": "https://raw.githubusercontent.com/RocketChat/Rocket.Chat.Electron/dev/build/icon.ico",
@@ -5909,7 +5696,6 @@
   {
     "id": "appflowy-io/appflowy",
     "name": "AppFlowy",
-    "chinese_name": "AppFlowy 知识库",
     "owner": "AppFlowy-IO",
     "repo": "AppFlowy",
     "icon": "https://raw.githubusercontent.com/AppFlowy-IO/AppFlowy/main/frontend/appflowy_flutter/linux/packaging/assets/logo.png",
@@ -5937,7 +5723,6 @@
   {
     "id": "toeverything/affine",
     "name": "AFFiNE",
-    "chinese_name": "AFFiNE 一体化工作区",
     "owner": "toeverything",
     "repo": "AFFiNE",
     "icon": "https://raw.githubusercontent.com/toeverything/AFFiNE/canary/packages/frontend/apps/electron/resources/icons/icon.png",
@@ -5965,7 +5750,6 @@
   {
     "id": "siyuan-note/siyuan",
     "name": "SiYuan",
-    "chinese_name": "思源笔记",
     "owner": "siyuan-note",
     "repo": "siyuan",
     "icon": "https://raw.githubusercontent.com/siyuan-note/siyuan/master/app/src/assets/icon.png",
@@ -5993,7 +5777,6 @@
   {
     "id": "triliumnext/trilium",
     "name": "Trilium Notes",
-    "chinese_name": "Trilium 层级笔记",
     "owner": "TriliumNext",
     "repo": "Trilium",
     "icon": "https://raw.githubusercontent.com/TriliumNext/Trilium/main/apps/mobile/ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png",
@@ -6021,7 +5804,6 @@
   {
     "id": "streetwriters/notesnook",
     "name": "Notesnook",
-    "chinese_name": "Notesnook 加密笔记",
     "owner": "streetwriters",
     "repo": "notesnook",
     "icon": "https://raw.githubusercontent.com/streetwriters/notesnook/master/resources/icon.png",
@@ -6049,7 +5831,6 @@
   {
     "id": "pbek/qownnotes",
     "name": "QOwnNotes",
-    "chinese_name": "QOwnNotes 纯文本笔记",
     "owner": "pbek",
     "repo": "QOwnNotes",
     "icon": "https://raw.githubusercontent.com/pbek/QOwnNotes/main/src/images/icons/512x512/apps/QOwnNotes.png",
@@ -6077,7 +5858,6 @@
   {
     "id": "zettlr/zettlr",
     "name": "Zettlr",
-    "chinese_name": "Zettlr 学术写作",
     "owner": "Zettlr",
     "repo": "Zettlr",
     "icon": "https://raw.githubusercontent.com/Zettlr/Zettlr/develop/resources/icons/icns/icon.iconset/icon_512x512@2x.png",
@@ -6105,7 +5885,6 @@
   {
     "id": "saga-soft/novelwriter",
     "name": "novelWriter",
-    "chinese_name": "novelWriter 小说写作",
     "owner": "saga-soft",
     "repo": "novelWriter",
     "icon": "https://raw.githubusercontent.com/saga-soft/novelWriter/main/setup/data/hicolor/512x512/apps/novelwriter.png",
@@ -6133,7 +5912,6 @@
   {
     "id": "olivierkes/manuskript",
     "name": "Manuskript",
-    "chinese_name": "Manuskript 写作工坊",
     "owner": "olivierkes",
     "repo": "manuskript",
     "icon": "https://raw.githubusercontent.com/olivierkes/manuskript/develop/icons/Manuskript/icon-512px.png",
@@ -6161,7 +5939,6 @@
   {
     "id": "pdfarranger/pdfarranger",
     "name": "PDF Arranger",
-    "chinese_name": "PDF Arranger 页面管理",
     "owner": "pdfarranger",
     "repo": "pdfarranger",
     "icon": "https://raw.githubusercontent.com/pdfarranger/pdfarranger/main/data/icons/hicolor/256x256/apps/com.github.jeromerobert.pdfarranger.png",
@@ -6189,7 +5966,6 @@
   {
     "id": "torakiki/pdfsam",
     "name": "PDFsam Basic",
-    "chinese_name": "PDFsam 拆分合并",
     "owner": "torakiki",
     "repo": "pdfsam",
     "icon": "https://raw.githubusercontent.com/torakiki/pdfsam/master/pdfsam-gui/src/main/resources/org/pdfsam/gui/images/logo.png",
@@ -6217,7 +5993,6 @@
   {
     "id": "xournalpp/xournalpp",
     "name": "Xournal++",
-    "chinese_name": "Xournal++ 手写批注",
     "owner": "xournalpp",
     "repo": "xournalpp",
     "icon": "https://raw.githubusercontent.com/xournalpp/xournalpp/master/mac-setup/icon/Icon1024.png",
@@ -6245,7 +6020,6 @@
   {
     "id": "flxzt/rnote",
     "name": "Rnote",
-    "chinese_name": "Rnote 手写笔记",
     "owner": "flxzt",
     "repo": "rnote",
     "icon": "https://raw.githubusercontent.com/flxzt/rnote/main/crates/rnote-ui/data/icons/scalable/apps/rnote.svg",
@@ -6273,7 +6047,6 @@
   {
     "id": "ahrm/sioyek",
     "name": "Sioyek",
-    "chinese_name": "Sioyek 文献阅读器",
     "owner": "ahrm",
     "repo": "sioyek",
     "icon": "https://raw.githubusercontent.com/ahrm/sioyek/development/android/res/drawable-xxxhdpi/icon.png",
@@ -6301,7 +6074,6 @@
   {
     "id": "onlyoffice/desktopeditors",
     "name": "ONLYOFFICE",
-    "chinese_name": "ONLYOFFICE 办公套件",
     "owner": "ONLYOFFICE",
     "repo": "DesktopEditors",
     "icon": "https://avatars.githubusercontent.com/u/1426033?v=4&s=200&v=4",
@@ -6329,7 +6101,6 @@
   {
     "id": "super-productivity/super-productivity",
     "name": "Super Productivity",
-    "chinese_name": "Super Productivity 待办",
     "owner": "super-productivity",
     "repo": "super-productivity",
     "icon": "https://raw.githubusercontent.com/super-productivity/super-productivity/master/ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png",
@@ -6357,7 +6128,6 @@
   {
     "id": "activitywatch/activitywatch",
     "name": "ActivityWatch",
-    "chinese_name": "ActivityWatch 时间统计",
     "owner": "ActivityWatch",
     "repo": "activitywatch",
     "icon": "https://avatars.githubusercontent.com/u/18249061?v=4&s=200&v=4",
@@ -6385,7 +6155,6 @@
   {
     "id": "zidoro/pomatez",
     "name": "Pomatez",
-    "chinese_name": "Pomatez 番茄钟",
     "owner": "zidoro",
     "repo": "pomatez",
     "icon": "https://raw.githubusercontent.com/zidoro/pomatez/master/app/tauri/icons/icon.png",
@@ -6413,7 +6182,6 @@
   {
     "id": "freeplane/freeplane",
     "name": "Freeplane",
-    "chinese_name": "Freeplane 思维导图",
     "owner": "freeplane",
     "repo": "freeplane",
     "icon": "https://raw.githubusercontent.com/freeplane/freeplane/1.13.x/freeplane/src/editor/resources/images/Freeplane_frame_icon_512x512.png",
@@ -6441,7 +6209,6 @@
   {
     "id": "texstudio-org/texstudio",
     "name": "TeXstudio",
-    "chinese_name": "TeXstudio LaTeX 编辑器",
     "owner": "texstudio-org",
     "repo": "texstudio",
     "icon": "https://raw.githubusercontent.com/texstudio-org/texstudio/master/utilities/texstudio.svg",
@@ -6469,7 +6236,6 @@
   {
     "id": "texworks/texworks",
     "name": "TeXworks",
-    "chinese_name": "TeXworks 简洁 LaTeX",
     "owner": "TeXworks",
     "repo": "texworks",
     "icon": "https://raw.githubusercontent.com/TeXworks/texworks/main/res/images/TeXworks.png",
@@ -6497,7 +6263,6 @@
   {
     "id": "giuspen/cherrytree",
     "name": "CherryTree",
-    "chinese_name": "CherryTree 层级笔记",
     "owner": "giuspen",
     "repo": "cherrytree",
     "icon": "https://raw.githubusercontent.com/giuspen/cherrytree/master/icons/48px/cherrytree.svg",
@@ -6525,7 +6290,6 @@
   {
     "id": "tagspaces/tagspaces",
     "name": "TagSpaces",
-    "chinese_name": "TagSpaces 文件标签",
     "owner": "tagspaces",
     "repo": "tagspaces",
     "icon": "https://raw.githubusercontent.com/tagspaces/tagspaces/develop/assets/icon.png",
@@ -6553,7 +6317,6 @@
   {
     "id": "frappe/books",
     "name": "Frappe Books",
-    "chinese_name": "Frappe Books 记账",
     "owner": "frappe",
     "repo": "books",
     "icon": "https://raw.githubusercontent.com/frappe/books/master/build/icon.png",
@@ -6581,7 +6344,6 @@
   {
     "id": "gnucash/gnucash",
     "name": "GnuCash",
-    "chinese_name": "GnuCash 复式记账",
     "owner": "Gnucash",
     "repo": "gnucash",
     "icon": "https://raw.githubusercontent.com/Gnucash/gnucash/stable/borrowed/chartjs-2/samples/logo.svg",
@@ -6609,7 +6371,6 @@
   {
     "id": "anyproto/anytype-ts",
     "name": "Anytype",
-    "chinese_name": "Anytype 对象笔记",
     "owner": "anyproto",
     "repo": "anytype-ts",
     "icon": "https://raw.githubusercontent.com/anyproto/anytype-ts/develop/nightly/electron/img/icon.png",
@@ -6637,7 +6398,6 @@
   {
     "id": "openboard-org/openboard",
     "name": "OpenBoard",
-    "chinese_name": "OpenBoard 交互白板",
     "owner": "OpenBoard-org",
     "repo": "OpenBoard",
     "icon": "https://raw.githubusercontent.com/OpenBoard-org/OpenBoard/master/resources/library/applications/Latex2svg.wgt/icon.png",
@@ -6665,7 +6425,6 @@
   {
     "id": "rancher-sandbox/rancher-desktop",
     "name": "Rancher Desktop",
-    "chinese_name": "Rancher Desktop 容器桌面",
     "owner": "rancher-sandbox",
     "repo": "rancher-desktop",
     "icon": "https://raw.githubusercontent.com/rancher-sandbox/rancher-desktop/main/resources/icons/logo-square-512.png",
@@ -6693,7 +6452,6 @@
   {
     "id": "kubernetes-sigs/headlamp",
     "name": "Headlamp",
-    "chinese_name": "Headlamp K8s 面板",
     "owner": "kubernetes-sigs",
     "repo": "headlamp",
     "icon": "https://raw.githubusercontent.com/kubernetes-sigs/headlamp/main/docs/images/icon.png",
@@ -6721,7 +6479,6 @@
   {
     "id": "kubeshop/monokle",
     "name": "Monokle",
-    "chinese_name": "Monokle K8s 工作台",
     "owner": "kubeshop",
     "repo": "monokle",
     "icon": "https://raw.githubusercontent.com/kubeshop/monokle/main/public/icon.png",
@@ -6749,7 +6506,6 @@
   {
     "id": "kubenav/kubenav",
     "name": "kubenav",
-    "chinese_name": "kubenav 集群管理",
     "owner": "kubenav",
     "repo": "kubenav",
     "icon": "https://raw.githubusercontent.com/kubenav/kubenav/main/metadata/en-US/images/icon.png",
@@ -6777,7 +6533,6 @@
   {
     "id": "dbeaver/dbeaver",
     "name": "DBeaver Community",
-    "chinese_name": "DBeaver 数据库管理",
     "owner": "dbeaver",
     "repo": "dbeaver",
     "icon": "https://raw.githubusercontent.com/dbeaver/dbeaver/devel/product/community/icons/dbeaver.png",
@@ -6805,7 +6560,6 @@
   {
     "id": "dbgate/dbgate",
     "name": "DbGate",
-    "chinese_name": "DbGate 数据库客户端",
     "owner": "dbgate",
     "repo": "dbgate",
     "icon": "https://raw.githubusercontent.com/dbgate/dbgate/master/misc/icon.png",
@@ -6833,7 +6587,6 @@
   {
     "id": "beekeeper-studio/beekeeper-studio",
     "name": "Beekeeper Studio",
-    "chinese_name": "Beekeeper 数据库客户端",
     "owner": "beekeeper-studio",
     "repo": "beekeeper-studio",
     "icon": "https://raw.githubusercontent.com/beekeeper-studio/beekeeper-studio/master/apps/studio/public/icons/png/1024x1024.png",
@@ -6861,7 +6614,6 @@
   {
     "id": "heidisql/heidisql",
     "name": "HeidiSQL",
-    "chinese_name": "HeidiSQL 数据库管理",
     "owner": "HeidiSQL",
     "repo": "HeidiSQL",
     "icon": "https://raw.githubusercontent.com/HeidiSQL/HeidiSQL/master/res/Assets/Square44x44Logo.targetsize-256.png",
@@ -6889,7 +6641,6 @@
   {
     "id": "sqlitebrowser/sqlitebrowser",
     "name": "DB Browser for SQLite",
-    "chinese_name": "SQLite 可视化工具",
     "owner": "sqlitebrowser",
     "repo": "sqlitebrowser",
     "icon": "https://raw.githubusercontent.com/sqlitebrowser/sqlitebrowser/master/src/icons/sqlitebrowser.png",
@@ -6917,7 +6668,6 @@
   {
     "id": "pawelsalawa/letos",
     "name": "SQLiteStudio",
-    "chinese_name": "SQLiteStudio 管理工具",
     "owner": "pawelsalawa",
     "repo": "letos",
     "icon": "https://raw.githubusercontent.com/pawelsalawa/letos/master/Letos/gui/img/letos.svg",
@@ -6945,7 +6695,6 @@
   {
     "id": "sequel-ace/sequel-ace",
     "name": "Sequel Ace",
-    "chinese_name": "Sequel Ace MySQL 客户端",
     "owner": "Sequel-Ace",
     "repo": "Sequel-Ace",
     "icon": "https://raw.githubusercontent.com/Sequel-Ace/Sequel-Ace/main/Resources/Images.xcassets/AppIcon.appiconset/icon_512x512@2x.png",
@@ -6973,7 +6722,6 @@
   {
     "id": "pgadmin-org/pgadmin4",
     "name": "pgAdmin 4",
-    "chinese_name": "pgAdmin PostgreSQL 管理",
     "owner": "pgadmin-org",
     "repo": "pgadmin4",
     "icon": "https://raw.githubusercontent.com/pgadmin-org/pgadmin4/master/runtime/assets/pgAdmin4.png",
@@ -7001,7 +6749,6 @@
   {
     "id": "qishibo/anotherredisdesktopmanager",
     "name": "Another Redis Desktop Manager",
-    "chinese_name": "ARDM Redis 可视化",
     "owner": "qishibo",
     "repo": "AnotherRedisDesktopManager",
     "icon": "https://raw.githubusercontent.com/qishibo/AnotherRedisDesktopManager/master/pack/electron/icons/icon.png",
@@ -7029,7 +6776,6 @@
   {
     "id": "emqx/mqttx",
     "name": "MQTTX",
-    "chinese_name": "MQTTX MQTT 调试",
     "owner": "emqx",
     "repo": "MQTTX",
     "icon": "https://raw.githubusercontent.com/emqx/MQTTX/main/public/icons/app.ico",
@@ -7057,7 +6803,6 @@
   {
     "id": "thomasnordquist/mqtt-explorer",
     "name": "MQTT Explorer",
-    "chinese_name": "MQTT Explorer 可视化",
     "owner": "thomasnordquist",
     "repo": "MQTT-Explorer",
     "icon": "https://raw.githubusercontent.com/thomasnordquist/MQTT-Explorer/master/res/icon.png",
@@ -7085,7 +6830,6 @@
   {
     "id": "serial-studio/serial-studio",
     "name": "Serial Studio",
-    "chinese_name": "Serial Studio 串口仪表",
     "owner": "Serial-Studio",
     "repo": "Serial-Studio",
     "icon": "https://raw.githubusercontent.com/Serial-Studio/Serial-Studio/master/lib/QSimpleUpdater/etc/icon.png",
@@ -7113,7 +6857,6 @@
   {
     "id": "winscp/winscp",
     "name": "WinSCP",
-    "chinese_name": "WinSCP 文件传输",
     "owner": "winscp",
     "repo": "winscp",
     "icon": "https://raw.githubusercontent.com/winscp/winscp/master/source/resource/Application.ico",
@@ -7141,7 +6884,6 @@
   {
     "id": "iterate-ch/cyberduck",
     "name": "Cyberduck",
-    "chinese_name": "Cyberduck 云存储客户端",
     "owner": "iterate-ch",
     "repo": "cyberduck",
     "icon": "https://raw.githubusercontent.com/iterate-ch/cyberduck/master/cyberduck-application.png",
@@ -7169,7 +6911,6 @@
   {
     "id": "gns3/gns3-gui",
     "name": "GNS3",
-    "chinese_name": "GNS3 网络模拟",
     "owner": "GNS3",
     "repo": "gns3-gui",
     "icon": "https://raw.githubusercontent.com/GNS3/gns3-gui/master/resources/images/gns3_icon_256x256.png",
@@ -7197,7 +6938,6 @@
   {
     "id": "quickemu-project/quickgui",
     "name": "Quickgui",
-    "chinese_name": "Quickgui 虚拟机创建",
     "owner": "quickemu-project",
     "repo": "quickgui",
     "icon": "https://raw.githubusercontent.com/quickemu-project/quickgui/main/assets/images/logo.png",
@@ -7225,7 +6965,6 @@
   {
     "id": "koodo-reader/koodo-reader",
     "name": "Koodo Reader",
-    "chinese_name": "Koodo Reader 电子书",
     "owner": "koodo-reader",
     "repo": "koodo-reader",
     "icon": "https://raw.githubusercontent.com/koodo-reader/koodo-reader/dev/public/assets/icon.png",
@@ -7253,7 +6992,6 @@
   {
     "id": "readest/readest",
     "name": "Readest",
-    "chinese_name": "Readest 电子书",
     "owner": "readest",
     "repo": "readest",
     "icon": "https://raw.githubusercontent.com/readest/readest/main/apps/readest-app/src-tauri/icons/icon.png",
@@ -7281,7 +7019,6 @@
   {
     "id": "johnfactotum/foliate",
     "name": "Foliate",
-    "chinese_name": "Foliate 电子书",
     "owner": "johnfactotum",
     "repo": "foliate",
     "icon": "https://raw.githubusercontent.com/johnfactotum/foliate/gtk4/src/icons/hicolor/scalable/actions/speedometer-symbolic.svg",
@@ -7309,7 +7046,6 @@
   {
     "id": "edrlab/thorium-reader",
     "name": "Thorium Reader",
-    "chinese_name": "Thorium 无障碍阅读",
     "owner": "edrlab",
     "repo": "thorium-reader",
     "icon": "https://raw.githubusercontent.com/edrlab/thorium-reader/develop/resources/icon.png",
@@ -7337,7 +7073,6 @@
   {
     "id": "yacreader/yacreader",
     "name": "YACReader",
-    "chinese_name": "YACReader 漫画管理",
     "owner": "YACReader",
     "repo": "yacreader",
     "icon": "https://raw.githubusercontent.com/YACReader/yacreader/develop/images/icon.png",
@@ -7365,7 +7100,6 @@
   {
     "id": "manga-download/hakuneko",
     "name": "HakuNeko",
-    "chinese_name": "HakuNeko 漫画下载",
     "owner": "manga-download",
     "repo": "hakuneko",
     "icon": "https://raw.githubusercontent.com/manga-download/hakuneko/master/res/logo.png",
@@ -7393,7 +7127,6 @@
   {
     "id": "ranchero-software/netnewswire",
     "name": "NetNewsWire",
-    "chinese_name": "NetNewsWire RSS 阅读",
     "owner": "Ranchero-Software",
     "repo": "NetNewsWire",
     "icon": "https://raw.githubusercontent.com/Ranchero-Software/NetNewsWire/main/Widget/Assets.xcassets/AppIcon.appiconset/Icon_1024x1024.png",
@@ -7421,7 +7154,6 @@
   {
     "id": "yang991178/fluent-reader",
     "name": "Fluent Reader",
-    "chinese_name": "Fluent Reader RSS",
     "owner": "yang991178",
     "repo": "fluent-reader",
     "icon": "https://raw.githubusercontent.com/yang991178/fluent-reader/master/build/icon.png",
@@ -7449,7 +7181,6 @@
   {
     "id": "martinrotter/rssguard",
     "name": "RSS Guard",
-    "chinese_name": "RSS Guard 订阅阅读",
     "owner": "martinrotter",
     "repo": "rssguard",
     "icon": "https://raw.githubusercontent.com/martinrotter/rssguard/master/resources/graphics/rssguard.png",
@@ -7477,7 +7208,6 @@
   {
     "id": "zotero/zotero",
     "name": "Zotero",
-    "chinese_name": "Zotero 文献管理",
     "owner": "zotero",
     "repo": "zotero",
     "icon": "https://raw.githubusercontent.com/zotero/zotero/main/app/linux/icons/icon128.png",
@@ -7505,7 +7235,6 @@
   {
     "id": "jabref/jabref",
     "name": "JabRef",
-    "chinese_name": "JabRef 文献管理",
     "owner": "JabRef",
     "repo": "jabref",
     "icon": "https://raw.githubusercontent.com/JabRef/jabref/main/jabgui/src/main/resources/icons/jabref.svg",
@@ -7533,7 +7262,6 @@
   {
     "id": "ankitects/anki",
     "name": "Anki",
-    "chinese_name": "Anki 记忆卡片",
     "owner": "ankitects",
     "repo": "anki",
     "icon": "https://raw.githubusercontent.com/ankitects/anki/main/qt/installer/app/resources/anki.png",
@@ -7561,7 +7289,6 @@
   {
     "id": "xiaoyifang/goldendict-ng",
     "name": "GoldenDict-ng",
-    "chinese_name": "GoldenDict 词典",
     "owner": "xiaoyifang",
     "repo": "goldendict-ng",
     "icon": "https://raw.githubusercontent.com/xiaoyifang/goldendict-ng/staged/icons/icon.svg",
@@ -7589,7 +7316,6 @@
   {
     "id": "sigil-ebook/sigil",
     "name": "Sigil",
-    "chinese_name": "Sigil EPUB 编辑",
     "owner": "Sigil-Ebook",
     "repo": "Sigil",
     "icon": "https://raw.githubusercontent.com/Sigil-Ebook/Sigil/master/src/Resource_Files/icon/app_icons_orig/app_icon_512.png",
@@ -7617,7 +7343,6 @@
   {
     "id": "sigil-ebook/pageedit",
     "name": "PageEdit",
-    "chinese_name": "PageEdit 可视化排版",
     "owner": "Sigil-Ebook",
     "repo": "PageEdit",
     "icon": "https://raw.githubusercontent.com/Sigil-Ebook/PageEdit/master/screencaps/pageedit.png",
@@ -7645,7 +7370,6 @@
   {
     "id": "textbrowser/biblioteq",
     "name": "BiblioTEQ",
-    "chinese_name": "BiblioTEQ 图书管理",
     "owner": "textbrowser",
     "repo": "biblioteq",
     "icon": "https://raw.githubusercontent.com/textbrowser/biblioteq/master/Android/res/drawable-xxxhdpi/icon.png",
@@ -7673,7 +7397,6 @@
   {
     "id": "anxcye/anx-reader",
     "name": "Anx Reader",
-    "chinese_name": "Anx Reader 电子书",
     "owner": "Anxcye",
     "repo": "anx-reader",
     "icon": "https://raw.githubusercontent.com/Anxcye/anx-reader/develop/web/icons/Icon-512.png",
@@ -7701,7 +7424,6 @@
   {
     "id": "kovidgoyal/calibre",
     "name": "calibre",
-    "chinese_name": "calibre 电子书管理",
     "owner": "kovidgoyal",
     "repo": "calibre",
     "icon": "https://raw.githubusercontent.com/kovidgoyal/calibre/master/resources/images/favicon-512.png",
@@ -7729,7 +7451,6 @@
   {
     "id": "veracrypt/veracrypt",
     "name": "VeraCrypt",
-    "chinese_name": "VeraCrypt 磁盘加密",
     "owner": "veracrypt",
     "repo": "VeraCrypt",
     "icon": "https://raw.githubusercontent.com/veracrypt/VeraCrypt/master/src/Resources/Icons/VeraCrypt.svg",
@@ -7757,7 +7478,6 @@
   {
     "id": "cryptomator/cryptomator",
     "name": "Cryptomator",
-    "chinese_name": "Cryptomator 云盘加密",
     "owner": "cryptomator",
     "repo": "cryptomator",
     "icon": "https://raw.githubusercontent.com/cryptomator/cryptomator/develop/.idea/icon.svg",
@@ -7785,7 +7505,6 @@
   {
     "id": "diskcryptor/diskcryptor",
     "name": "DiskCryptor",
-    "chinese_name": "DiskCryptor 全盘加密",
     "owner": "DiskCryptor",
     "repo": "DiskCryptor",
     "icon": "https://raw.githubusercontent.com/DiskCryptor/DiskCryptor/master/DCrypt/gui/dcrypt.ico",
@@ -7813,7 +7532,6 @@
   {
     "id": "authpass/authpass",
     "name": "AuthPass",
-    "chinese_name": "AuthPass 密码管理",
     "owner": "authpass",
     "repo": "authpass",
     "icon": "https://raw.githubusercontent.com/authpass/authpass/main/metadata/android/de-DE/icon.png",
@@ -7841,7 +7559,6 @@
   {
     "id": "padloc/padloc",
     "name": "Padloc",
-    "chinese_name": "Padloc 密码管理",
     "owner": "padloc",
     "repo": "padloc",
     "icon": "https://raw.githubusercontent.com/padloc/padloc/main/assets/icons/app-icon.png",
@@ -7869,7 +7586,6 @@
   {
     "id": "pwsafe/pwsafe",
     "name": "Password Safe",
-    "chinese_name": "Password Safe 密码管理",
     "owner": "pwsafe",
     "repo": "pwsafe",
     "icon": "https://raw.githubusercontent.com/pwsafe/pwsafe/master/install/graphics/128x128/pwsafe.png",
@@ -7897,7 +7613,6 @@
   {
     "id": "keeweb/keeweb",
     "name": "KeeWeb",
-    "chinese_name": "KeeWeb 密码管理",
     "owner": "keeweb",
     "repo": "keeweb",
     "icon": "https://raw.githubusercontent.com/keeweb/keeweb/master/desktop/img/icon.png",
@@ -7925,7 +7640,6 @@
   {
     "id": "henrypp/simplewall",
     "name": "simplewall",
-    "chinese_name": "simplewall 应用防火墙",
     "owner": "henrypp",
     "repo": "simplewall",
     "icon": "https://raw.githubusercontent.com/henrypp/simplewall/master/src/res/100.ico",
@@ -7953,7 +7667,6 @@
   {
     "id": "evilsocket/opensnitch",
     "name": "OpenSnitch",
-    "chinese_name": "OpenSnitch 应用防火墙",
     "owner": "evilsocket",
     "repo": "opensnitch",
     "icon": "https://raw.githubusercontent.com/evilsocket/opensnitch/master/ui/opensnitch/res/icon.png",
@@ -7981,7 +7694,6 @@
   {
     "id": "mullvad/mullvadvpn-app",
     "name": "Mullvad VPN",
-    "chinese_name": "Mullvad VPN 客户端",
     "owner": "mullvad",
     "repo": "mullvadvpn-app",
     "icon": "https://raw.githubusercontent.com/mullvad/mullvadvpn-app/main/android/src/main/play/listings/en-US/graphics/icon/icon.png",
@@ -8009,7 +7721,6 @@
   {
     "id": "amnezia-vpn/amnezia-client",
     "name": "AmneziaVPN",
-    "chinese_name": "AmneziaVPN 自建 VPN",
     "owner": "amnezia-vpn",
     "repo": "amnezia-client",
     "icon": "https://raw.githubusercontent.com/amnezia-vpn/amnezia-client/dev/metadata/en-US/images/icon.png",
@@ -8037,7 +7748,6 @@
   {
     "id": "pritunl/pritunl-client",
     "name": "Pritunl Client",
-    "chinese_name": "Pritunl VPN 客户端",
     "owner": "pritunl",
     "repo": "pritunl-client",
     "icon": "https://raw.githubusercontent.com/pritunl/pritunl-client/master/client/dist-dev/img/logo.png",
@@ -8065,7 +7775,6 @@
   {
     "id": "outlinefoundation/outline-apps",
     "name": "Outline Client",
-    "chinese_name": "Outline 代理客户端",
     "owner": "OutlineFoundation",
     "repo": "outline-apps",
     "icon": "https://raw.githubusercontent.com/OutlineFoundation/outline-apps/master/client/resources/icons/osx/icon-1024.png",
@@ -8093,7 +7802,6 @@
   {
     "id": "onionshare/onionshare",
     "name": "OnionShare",
-    "chinese_name": "OnionShare 匿名分享",
     "owner": "onionshare",
     "repo": "onionshare",
     "icon": "https://raw.githubusercontent.com/onionshare/onionshare/main/desktop/onionshare/resources/images/logo.png",
@@ -8121,7 +7829,6 @@
   {
     "id": "zaproxy/zaproxy",
     "name": "OWASP ZAP",
-    "chinese_name": "OWASP ZAP 渗透测试",
     "owner": "zaproxy",
     "repo": "zaproxy",
     "icon": "https://raw.githubusercontent.com/zaproxy/zaproxy/main/snap/snap/gui/icon.png",
@@ -8149,7 +7856,6 @@
   {
     "id": "sztheory/exifcleaner",
     "name": "ExifCleaner",
-    "chinese_name": "ExifCleaner 图片隐私",
     "owner": "szTheory",
     "repo": "exifcleaner",
     "icon": "https://raw.githubusercontent.com/szTheory/exifcleaner/master/.resources/icon.png",
@@ -8177,7 +7883,6 @@
   {
     "id": "undergroundwires/privacy.sexy",
     "name": "privacy.sexy",
-    "chinese_name": "privacy.sexy 隐私加固",
     "owner": "undergroundwires",
     "repo": "privacy.sexy",
     "icon": "https://raw.githubusercontent.com/undergroundwires/privacy.sexy/master/src/presentation/electron/build/icon.png",
@@ -8205,7 +7910,6 @@
   {
     "id": "syvaidya/openstego",
     "name": "OpenStego",
-    "chinese_name": "OpenStego 隐写工具",
     "owner": "syvaidya",
     "repo": "openstego",
     "icon": "https://raw.githubusercontent.com/syvaidya/openstego/master/artifacts/openstego.svg",
@@ -8233,7 +7937,6 @@
   {
     "id": "mhogomchungu/sirikali",
     "name": "SiriKali",
-    "chinese_name": "SiriKali 加密挂载",
     "owner": "mhogomchungu",
     "repo": "sirikali",
     "icon": "https://raw.githubusercontent.com/mhogomchungu/sirikali/master/icons/256x256/sirikali.png",
@@ -8261,7 +7964,6 @@
   {
     "id": "oliverschwendener/ueli",
     "name": "Ueli",
-    "chinese_name": "Ueli 快捷启动器",
     "owner": "oliverschwendener",
     "repo": "ueli",
     "icon": "https://raw.githubusercontent.com/oliverschwendener/ueli/main/assets/Core/FileImageGenerator/macOS/DesktopFolderIcon.png",
@@ -8289,7 +7991,6 @@
   {
     "id": "sabrogden/ditto",
     "name": "Ditto",
-    "chinese_name": "Ditto 剪贴板管理器",
     "owner": "sabrogden",
     "repo": "Ditto",
     "icon": "https://raw.githubusercontent.com/sabrogden/Ditto/master/DittoSetup/appx/ditto.png",
@@ -8317,7 +8018,6 @@
   {
     "id": "hluk/copyq",
     "name": "CopyQ",
-    "chinese_name": "CopyQ 高级剪贴板管理器",
     "owner": "hluk",
     "repo": "CopyQ",
     "icon": "https://raw.githubusercontent.com/hluk/CopyQ/master/src/images/icon.svg",
@@ -8345,7 +8045,6 @@
   {
     "id": "xanderfrangos/twinkle-tray",
     "name": "Twinkle Tray",
-    "chinese_name": "Twinkle Tray 亮度调节",
     "owner": "xanderfrangos",
     "repo": "twinkle-tray",
     "icon": "https://raw.githubusercontent.com/xanderfrangos/twinkle-tray/master/src/assets/logo.png",
@@ -8373,7 +8072,6 @@
   {
     "id": "translucenttb/translucenttb",
     "name": "TranslucentTB",
-    "chinese_name": "TranslucentTB 任务栏透明",
     "owner": "TranslucentTB",
     "repo": "TranslucentTB",
     "icon": "https://raw.githubusercontent.com/TranslucentTB/TranslucentTB/release/AppPackage/Assets-Canary/Square44x44Logo.targetsize-256.png",
@@ -8401,7 +8099,6 @@
   {
     "id": "ramensoftware/windhawk",
     "name": "Windhawk",
-    "chinese_name": "Windhawk 系统调制片",
     "owner": "ramensoftware",
     "repo": "windhawk",
     "icon": "https://raw.githubusercontent.com/ramensoftware/windhawk/main/src/windhawk-core/ui/icons/icon.ico",
@@ -8429,7 +8126,6 @@
   {
     "id": "zhongyang219/trafficmonitor",
     "name": "TrafficMonitor",
-    "chinese_name": "TrafficMonitor 网速悬浮窗",
     "owner": "zhongyang219",
     "repo": "TrafficMonitor",
     "icon": "https://raw.githubusercontent.com/zhongyang219/TrafficMonitor/master/TrafficMonitor/res/notifyicon.ico",
@@ -8457,7 +8153,6 @@
   {
     "id": "cboxdoerfer/fsearch",
     "name": "FSearch",
-    "chinese_name": "FSearch 文件秒搜",
     "owner": "cboxdoerfer",
     "repo": "fsearch",
     "icon": "https://raw.githubusercontent.com/cboxdoerfer/fsearch/master/help/C/figures/FSearch.png",
@@ -8485,7 +8180,6 @@
   {
     "id": "qarmin/czkawka",
     "name": "Czkawka",
-    "chinese_name": "Czkawka 重复文件清理",
     "owner": "qarmin",
     "repo": "czkawka",
     "icon": "https://raw.githubusercontent.com/qarmin/czkawka/master/czkawka_gui/icons/icon.ico",
@@ -8513,7 +8207,6 @@
   {
     "id": "bleachbit/bleachbit",
     "name": "BleachBit",
-    "chinese_name": "BleachBit 系统清理",
     "owner": "bleachbit",
     "repo": "bleachbit",
     "icon": "https://raw.githubusercontent.com/bleachbit/bleachbit/master/bleachbit.png",
@@ -8541,7 +8234,6 @@
   {
     "id": "doublecmd/doublecmd",
     "name": "Double Commander",
-    "chinese_name": "Double Commander 双栏管理器",
     "owner": "doublecmd",
     "repo": "doublecmd",
     "icon": "https://raw.githubusercontent.com/doublecmd/doublecmd/master/pixmaps/mainicon/alt/doublecmd.svg",
@@ -8569,7 +8261,6 @@
   {
     "id": "mucommander/mucommander",
     "name": "muCommander",
-    "chinese_name": "muCommander 双栏管理器",
     "owner": "mucommander",
     "repo": "mucommander",
     "icon": "https://raw.githubusercontent.com/mucommander/mucommander/master/mucommander-core/src/main/resources/images/mucommander/icon256_24.png",
@@ -8597,7 +8288,6 @@
   {
     "id": "spacedriveapp/spacedrive",
     "name": "Spacedrive",
-    "chinese_name": "Spacedrive 跨设备文件管理",
     "owner": "spacedriveapp",
     "repo": "spacedrive",
     "icon": "https://raw.githubusercontent.com/spacedriveapp/spacedrive/main/apps/tauri/src-tauri/icons/icon.png",
@@ -8625,7 +8315,6 @@
   {
     "id": "duplicati/duplicati",
     "name": "Duplicati",
-    "chinese_name": "Duplicati 加密备份",
     "owner": "duplicati",
     "repo": "duplicati",
     "icon": "https://raw.githubusercontent.com/duplicati/duplicati/master/ReleaseBuilder/Resources/QNAP/icons/Duplicati.png",
@@ -8653,7 +8342,6 @@
   {
     "id": "borgbase/vorta",
     "name": "Vorta",
-    "chinese_name": "Vorta 备份图形前端",
     "owner": "borgbase",
     "repo": "vorta",
     "icon": "https://raw.githubusercontent.com/borgbase/vorta/master/src/vorta/assets/icons/icon.svg",
@@ -8681,7 +8369,6 @@
   {
     "id": "balena-io/etcher",
     "name": "balenaEtcher",
-    "chinese_name": "balenaEtcher 镜像烧录",
     "owner": "balena-io",
     "repo": "etcher",
     "icon": "https://raw.githubusercontent.com/balena-io/etcher/master/assets/icon.png",
@@ -8709,7 +8396,6 @@
   {
     "id": "ventoy/ventoy",
     "name": "Ventoy",
-    "chinese_name": "Ventoy 多系统启动盘",
     "owner": "ventoy",
     "repo": "Ventoy",
     "icon": "https://raw.githubusercontent.com/ventoy/Ventoy/master/ICON/logo_512.png",
@@ -8737,7 +8423,6 @@
   {
     "id": "pbatard/rufus",
     "name": "Rufus",
-    "chinese_name": "Rufus 启动盘制作",
     "owner": "pbatard",
     "repo": "rufus",
     "icon": "https://raw.githubusercontent.com/pbatard/rufus/master/res/appstore/Images/Square44x44Logo.altform-lightunplated_targetsize-256.png",
@@ -8765,7 +8450,6 @@
   {
     "id": "m2team/nanazip",
     "name": "NanaZip",
-    "chinese_name": "NanaZip 现代解压缩",
     "owner": "M2Team",
     "repo": "NanaZip",
     "icon": "https://raw.githubusercontent.com/M2Team/NanaZip/main/Assets/PackageAssets/Square44x44Logo.targetsize-1024.png",
@@ -8793,7 +8477,6 @@
   {
     "id": "peazip/peazip",
     "name": "PeaZip",
-    "chinese_name": "PeaZip 多格式压缩",
     "owner": "peazip",
     "repo": "PeaZip",
     "icon": "https://raw.githubusercontent.com/peazip/PeaZip/sources/peazip-sources/res/share/icons/peazip.png",
@@ -8821,7 +8504,6 @@
   {
     "id": "rocksdanister/lively",
     "name": "Lively Wallpaper",
-    "chinese_name": "Lively 动态壁纸",
     "owner": "rocksdanister",
     "repo": "lively",
     "icon": "https://raw.githubusercontent.com/rocksdanister/lively/core-separation/src/Lively/Lively.UI.WinUI/Assets/Square44x44Logo.altform-lightunplated_targetsize-256.png",
@@ -8849,7 +8531,6 @@
   {
     "id": "exelban/stats",
     "name": "Stats",
-    "chinese_name": "Stats 菜单栏监控",
     "owner": "exelban",
     "repo": "stats",
     "icon": "https://raw.githubusercontent.com/exelban/stats/master/Stats/Supporting Files/Assets.xcassets/AppIcon.appiconset/icon_512x512@2x.png",
@@ -8877,7 +8558,6 @@
   {
     "id": "librehardwaremonitor/librehardwaremonitor",
     "name": "Libre Hardware Monitor",
-    "chinese_name": "Libre Hardware Monitor 硬件监控",
     "owner": "LibreHardwareMonitor",
     "repo": "LibreHardwareMonitor",
     "icon": "https://raw.githubusercontent.com/LibreHardwareMonitor/LibreHardwareMonitor/master/LibreHardwareMonitor.Windows.Forms/Resources/icon.ico",
@@ -8905,7 +8585,6 @@
   {
     "id": "bcuninstaller/bulk-crap-uninstaller",
     "name": "BCUninstaller",
-    "chinese_name": "Bulk Crap Uninstaller 批量卸载",
     "owner": "BCUninstaller",
     "repo": "Bulk-Crap-Uninstaller",
     "icon": "https://raw.githubusercontent.com/BCUninstaller/Bulk-Crap-Uninstaller/master/source/BulkCrapUninstaller/Resources/logo.ico",
@@ -8933,7 +8612,6 @@
   {
     "id": "open-shell/open-shell-menu",
     "name": "Open-Shell",
-    "chinese_name": "Open-Shell 经典开始菜单",
     "owner": "Open-Shell",
     "repo": "Open-Shell-Menu",
     "icon": "https://raw.githubusercontent.com/Open-Shell/Open-Shell-Menu/master/Src/Localization/English/images/OpenShell.png",
@@ -8961,7 +8639,6 @@
   {
     "id": "emoacht/monitorian",
     "name": "Monitorian",
-    "chinese_name": "Monitorian 亮度调节",
     "owner": "emoacht",
     "repo": "Monitorian",
     "icon": "https://raw.githubusercontent.com/emoacht/Monitorian/master/Source/Monitorian.Core/Resources/Icons/LightTrayIcon.ico",
@@ -8989,7 +8666,6 @@
   {
     "id": "lwouis/alt-tab-macos",
     "name": "AltTab",
-    "chinese_name": "AltTab 窗口切换器",
     "owner": "lwouis",
     "repo": "alt-tab-macos",
     "icon": "https://raw.githubusercontent.com/lwouis/alt-tab-macos/master/resources/icons/app/app.iconset/icon_512x512@2x.png",
@@ -9017,7 +8693,6 @@
   {
     "id": "rxhanson/rectangle",
     "name": "Rectangle",
-    "chinese_name": "Rectangle 窗口管理",
     "owner": "rxhanson",
     "repo": "Rectangle",
     "icon": "https://raw.githubusercontent.com/rxhanson/Rectangle/main/Rectangle/Assets.xcassets/AppIcon.appiconset/mac512pts2x.png",
@@ -9045,7 +8720,6 @@
   {
     "id": "p0deje/maccy",
     "name": "Maccy",
-    "chinese_name": "Maccy 剪贴板管理",
     "owner": "p0deje",
     "repo": "Maccy",
     "icon": "https://raw.githubusercontent.com/p0deje/Maccy/master/Maccy/Assets.xcassets/AppIcon.appiconset/AppIcon (Big Sur)-1024w.png",
@@ -9073,7 +8747,6 @@
   {
     "id": "caldis/mos",
     "name": "Mos",
-    "chinese_name": "Mos 鼠标平滑滚动",
     "owner": "Caldis",
     "repo": "Mos",
     "icon": "https://raw.githubusercontent.com/Caldis/Mos/master/assets/readme/app-icon.png",
@@ -9101,7 +8774,6 @@
   {
     "id": "jordanbaird/ice",
     "name": "Ice",
-    "chinese_name": "Ice 菜单栏管理",
     "owner": "jordanbaird",
     "repo": "Ice",
     "icon": "https://raw.githubusercontent.com/jordanbaird/Ice/main/Resources/Icon.png",
@@ -9129,7 +8801,6 @@
   {
     "id": "aonez/keka",
     "name": "Keka",
-    "chinese_name": "Keka macOS 压缩",
     "owner": "aonez",
     "repo": "Keka",
     "icon": "https://www.keka.io/favicon-square-v2.ico",
@@ -9157,7 +8828,6 @@
   {
     "id": "noah-nuebling/mac-mouse-fix",
     "name": "Mac Mouse Fix",
-    "chinese_name": "Mac Mouse Fix 鼠标增强",
     "owner": "noah-nuebling",
     "repo": "mac-mouse-fix",
     "icon": "https://raw.githubusercontent.com/noah-nuebling/mac-mouse-fix/master/Shared/Resources/Assets/MainAppAssets.xcassets/UniversalAccess.imageset/UniversalAccess-Icon-512-120x120@2x.png",
@@ -9185,7 +8855,6 @@
   {
     "id": "ulauncher/ulauncher",
     "name": "Ulauncher",
-    "chinese_name": "Ulauncher Linux 启动器",
     "owner": "Ulauncher",
     "repo": "Ulauncher",
     "icon": "https://raw.githubusercontent.com/Ulauncher/Ulauncher/main/data/icons/system/apps/ulauncher.svg",
@@ -9213,7 +8882,6 @@
   {
     "id": "winsiderss/systeminformer",
     "name": "System Informer",
-    "chinese_name": "System Informer 系统信息",
     "owner": "winsiderss",
     "repo": "systeminformer",
     "icon": "https://raw.githubusercontent.com/winsiderss/systeminformer/master/SystemInformer/resources/systeminformer.png",
@@ -9241,7 +8909,6 @@
   {
     "id": "thetumultuousunicornofdarkness/cpu-x",
     "name": "CPU-X",
-    "chinese_name": "CPU-X 硬件信息",
     "owner": "TheTumultuousUnicornOfDarkness",
     "repo": "CPU-X",
     "icon": "https://raw.githubusercontent.com/TheTumultuousUnicornOfDarkness/CPU-X/master/data/icons/CPU-X_512x512.png",
@@ -9269,7 +8936,6 @@
   {
     "id": "pqrs-org/karabiner-elements",
     "name": "Karabiner-Elements",
-    "chinese_name": "Karabiner 键盘改键",
     "owner": "pqrs-org",
     "repo": "Karabiner-Elements",
     "icon": "https://raw.githubusercontent.com/pqrs-org/Karabiner-Elements/main/files/icons/@Zabriskije/KarabinerElements/exported/KarabinerElements.png",
@@ -9297,7 +8963,6 @@
   {
     "id": "albertlauncher/albert",
     "name": "Albert",
-    "chinese_name": "Albert Linux 启动器",
     "owner": "albertlauncher",
     "repo": "albert",
     "icon": "https://raw.githubusercontent.com/albertlauncher/albert/main/resources/albert.svg",
@@ -9325,7 +8990,6 @@
   {
     "id": "calcprogrammer1/openrgb",
     "name": "OpenRGB",
-    "chinese_name": "OpenRGB 灯效控制",
     "owner": "CalcProgrammer1",
     "repo": "OpenRGB",
     "icon": "https://raw.githubusercontent.com/CalcProgrammer1/OpenRGB/master/Documentation/Images/OpenRGB.png",
@@ -9353,7 +9017,6 @@
   {
     "id": "samhocevar/wincompose",
     "name": "WinCompose",
-    "chinese_name": "WinCompose 特殊符号输入",
     "owner": "samhocevar",
     "repo": "wincompose",
     "icon": "https://raw.githubusercontent.com/samhocevar/wincompose/master/web/icon.png",
@@ -9381,7 +9044,6 @@
   {
     "id": "rime/weasel",
     "name": "Weasel 小狼毫",
-    "chinese_name": "小狼毫输入法",
     "owner": "rime",
     "repo": "weasel",
     "icon": "https://raw.githubusercontent.com/rime/weasel/master/resource/weasel.ico",
@@ -9409,7 +9071,6 @@
   {
     "id": "rime/squirrel",
     "name": "Squirrel 鼠须管",
-    "chinese_name": "鼠须管输入法",
     "owner": "rime",
     "repo": "squirrel",
     "icon": "https://raw.githubusercontent.com/rime/squirrel/master/Rime.icon/Assets/logo.svg",
@@ -9437,7 +9098,6 @@
   {
     "id": "kde/kdeconnect-kde",
     "name": "KDE Connect",
-    "chinese_name": "KDE Connect 手机互联",
     "owner": "KDE",
     "repo": "kdeconnect-kde",
     "icon": "https://raw.githubusercontent.com/KDE/kdeconnect-kde/master/icons/windows/512-apps-kdeconnect.png",
@@ -9465,7 +9125,6 @@
   {
     "id": "inkscape/inkscape",
     "name": "Inkscape",
-    "chinese_name": "Inkscape 矢量绘图",
     "owner": "inkscape",
     "repo": "inkscape",
     "icon": "https://avatars.githubusercontent.com/u/8506907?v=4&s=200&v=4",

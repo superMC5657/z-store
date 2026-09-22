@@ -91,7 +91,6 @@ impl CatalogService {
                             AppSummary {
                                 id: it.full_name.clone(),
                                 name: it.name,
-                                chinese_name: None,
                                 description_en: it.description.clone(),
                                 owner,
                                 repo: it.full_name.split('/').nth(1).unwrap_or("").to_string(),
@@ -182,7 +181,6 @@ impl CatalogService {
         Ok(AppSummary {
             id: format!("{}/{}", owner, repo),
             name: repo_data.name.unwrap_or_else(|| repo.to_string()),
-            chinese_name: None,
             description_en: repo_desc.clone(),
             owner: owner.to_string(),
             repo: repo.to_string(),

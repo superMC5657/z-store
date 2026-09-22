@@ -7,7 +7,6 @@ use std::sync::RwLock;
 /// 启发式搜索匹配打分权重常量
 pub const SEARCH_SCORE_EXACT_MATCH: i32 = 100;
 pub const SEARCH_SCORE_PREFIX_MATCH: i32 = 60;
-pub const SEARCH_SCORE_CHINESE_CONTAINS: i32 = 50;
 pub const SEARCH_SCORE_NAME_CONTAINS: i32 = 40;
 pub const SEARCH_SCORE_ALIAS_CONTAINS: i32 = 35;
 pub const SEARCH_SCORE_OWNER_OR_REPO_CONTAINS: i32 = 30;
@@ -238,7 +237,6 @@ impl CatalogService {
 
             let name_lower = item.name.to_lowercase();
             let id_lower = item.id.to_lowercase();
-            let zh_lower = item.chinese_name.as_deref().unwrap_or("").to_lowercase();
             let desc_lower = item.description.to_lowercase();
             let owner_lower = item.owner.to_lowercase();
             let repo_lower = item.repo.to_lowercase();
@@ -247,8 +245,6 @@ impl CatalogService {
                 score += SEARCH_SCORE_EXACT_MATCH;
             } else if name_lower.starts_with(&q) {
                 score += SEARCH_SCORE_PREFIX_MATCH;
-            } else if zh_lower.contains(&q) {
-                score += SEARCH_SCORE_CHINESE_CONTAINS;
             } else if name_lower.contains(&q) {
                 score += SEARCH_SCORE_NAME_CONTAINS;
             } else if owner_lower.contains(&q) || repo_lower.contains(&q) {
@@ -357,7 +353,6 @@ mod tests {
         CatalogItem {
             id: id.to_string(),
             name: "Test App".to_string(),
-            chinese_name: None,
             owner: owner.to_string(),
             repo: repo.to_string(),
             icon: String::new(),

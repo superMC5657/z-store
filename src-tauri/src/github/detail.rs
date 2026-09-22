@@ -125,9 +125,6 @@ impl CatalogService {
                     {
                         let mut detail = existing.clone();
                         if let Some(ref item) = catalog_item {
-                            if item.chinese_name.is_some() {
-                                detail.chinese_name = item.chinese_name.clone();
-                            }
                             if item.description_en.is_some() {
                                 detail.description_en = item.description_en.clone();
                             }
@@ -173,9 +170,6 @@ impl CatalogService {
                 // 离线或网络异常回退：若有 cached_detail 直接使用
                 if let Some(mut existing) = cached_detail {
                     if let Some(ref item) = catalog_item {
-                        if item.chinese_name.is_some() {
-                            existing.chinese_name = item.chinese_name.clone();
-                        }
                         if item.description_en.is_some() {
                             existing.description_en = item.description_en.clone();
                         }
@@ -427,7 +421,6 @@ impl CatalogService {
         let detail = AppDetail {
             id: id.to_string(),
             name,
-            chinese_name: catalog_item.as_ref().and_then(|i| i.chinese_name.clone()),
             description_en: catalog_item.as_ref().and_then(|i| i.description_en.clone()),
             owner,
             repo,

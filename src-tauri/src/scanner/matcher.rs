@@ -5,7 +5,6 @@ use crate::github::CatalogItem;
 pub const SCORE_EXACT_NAME_MATCH: f32 = 0.55;
 pub const SCORE_PREFIX_NAME_MATCH: f32 = 0.42;
 pub const SCORE_CONTAINS_NAME_MATCH: f32 = 0.32;
-pub const SCORE_CHINESE_NAME_MATCH: f32 = 0.38;
 pub const SCORE_ALIAS_MATCH: f32 = 0.35;
 pub const SCORE_PUBLISHER_MATCH: f32 = 0.25;
 pub const SCORE_LOCATION_OR_ICON_MATCH: f32 = 0.20;
@@ -40,7 +39,6 @@ impl AppScanner {
                 let c_name = cat.name.to_lowercase();
                 let c_repo = cat.repo.to_lowercase();
                 let c_id = cat.id.to_lowercase();
-                let c_zh = cat.chinese_name.as_deref().unwrap_or("").to_lowercase();
                 let c_owner = cat.owner.to_lowercase();
 
                 let mut score: f32 = 0.0;
@@ -58,8 +56,6 @@ impl AppScanner {
                     || s_name.contains(&c_repo)
                 {
                     score += SCORE_CONTAINS_NAME_MATCH;
-                } else if !c_zh.is_empty() && (s_name.contains(&c_zh) || c_zh.contains(&s_name)) {
-                    score += SCORE_CHINESE_NAME_MATCH;
                 } else if cat
                     .aliases
                     .iter()
@@ -152,7 +148,6 @@ impl AppScanner {
                     scanned: scanned.clone(),
                     catalog_id: matched_cat.id.clone(),
                     name: matched_cat.name.clone(),
-                    chinese_name: matched_cat.chinese_name.clone(),
                     owner: matched_cat.owner.clone(),
                     repo: matched_cat.repo.clone(),
                     icon: matched_cat.icon.clone(),

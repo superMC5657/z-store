@@ -6,7 +6,6 @@ fn create_mock_catalog() -> Vec<CatalogItem> {
         CatalogItem {
             id: "videolan/vlc".to_string(),
             name: "VLC Media Player".to_string(),
-            chinese_name: Some("VLC 播放器".to_string()),
             owner: "videolan".to_string(),
             repo: "vlc".to_string(),
             icon: "vlc.svg".to_string(),
@@ -34,7 +33,6 @@ fn create_mock_catalog() -> Vec<CatalogItem> {
         CatalogItem {
             id: "obsproject/obs-studio".to_string(),
             name: "OBS Studio".to_string(),
-            chinese_name: Some("OBS 直播录屏".to_string()),
             owner: "obsproject".to_string(),
             repo: "obs-studio".to_string(),
             icon: "obs.svg".to_string(),
