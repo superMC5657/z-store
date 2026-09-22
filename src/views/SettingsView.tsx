@@ -388,7 +388,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             ))}
           </div>
         </div>
+      </div>
 
+      <div className="settings-group">
         <div className={`settings-row ${highlightRow === 'update_frequency' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -478,7 +480,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             )}
           </button>
         </div>
+      </div>
 
+      <div className="settings-group">
         <div className={`settings-row ${highlightRow === 'download_dir' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -554,11 +558,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </button>
           </div>
         </div>
+      </div>
 
+      <div className="settings-group">
         <div id="settings-account">
           <OAuthAccountCard />
         </div>
+      </div>
 
+      <div className="settings-group">
         <div className={`settings-row ${highlightRow === 'proxy' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -717,7 +725,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </span>
           )}
         </div>
+      </div>
 
+      <div className="settings-group">
         <div className={`settings-row ${highlightRow === 'export' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
