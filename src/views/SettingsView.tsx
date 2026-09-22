@@ -349,7 +349,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 className={`segmented-item ${settings.ui_scale === scale ? 'active' : ''}`}
                 onClick={() => handleSelectUiScale(scale)}
               >
-                {scale}% {scale === '100' ? t('settings.default_tag') : ''}
+                {scale}%
               </button>
             ))}
           </div>
@@ -367,7 +367,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <div className="segmented-group">
             {[
               { id: '12', label: '12px' },
-              { id: '14', label: `14px ${t('settings.default_tag')}` },
+              { id: '14', label: '14px' },
               { id: '16', label: '16px' },
               { id: '18', label: '18px' },
               { id: '20', label: '20px' },

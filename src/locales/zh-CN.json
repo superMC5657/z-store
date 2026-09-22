@@ -65,7 +65,6 @@
     "ui_scale_desc": "自适应屏幕显示比例",
     "font_size": "字体大小",
     "font_size_desc": "调整全局显示字号",
-    "default_tag": "(默认)",
     "updates_and_notifs": "更新与提醒",
     "update_frequency": "自动检查更新频率",
     "update_freq_desc": "定期检查已安装软件的更新",

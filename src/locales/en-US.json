@@ -65,7 +65,6 @@
     "ui_scale_desc": "Display zoom and scaling factor",
     "font_size": "Font Size",
     "font_size_desc": "Adjust global typography size",
-    "default_tag": "(Default)",
     "updates_and_notifs": "Updates & Notifications",
     "update_frequency": "Auto Check Updates",
     "update_freq_desc": "Regularly check updates for installed applications",
