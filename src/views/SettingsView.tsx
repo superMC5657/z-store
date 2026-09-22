@@ -295,7 +295,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <span className="setting-applied-badge">{activeNotice.text}</span>
               )}
             </div>
-            <span className="settings-row-desc">{t('settings.theme_desc')}</span>
           </div>
           <div className="segmented-group">
             <button
@@ -333,7 +332,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <span className="setting-applied-badge">{activeNotice.text}</span>
               )}
             </div>
-            <span className="settings-row-desc">{t('settings.language_desc')}</span>
           </div>
           <div className="segmented-group">
             <button
@@ -363,7 +361,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <span className="setting-applied-badge">{activeNotice.text}</span>
               )}
             </div>
-            <span className="settings-row-desc">{t('settings.ui_scale_desc')}</span>
           </div>
           <div className="segmented-group">
             {(['90', '100', '110', '125'] as const).map((scale) => (
@@ -386,7 +383,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <span className="setting-applied-badge">{activeNotice.text}</span>
               )}
             </div>
-            <span className="settings-row-desc">{t('settings.font_size_desc')}</span>
           </div>
           <div className="segmented-group">
             {[
@@ -429,7 +425,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <span className="setting-applied-badge">{activeNotice.text}</span>
               )}
             </div>
-            <span className="settings-row-desc">{t('settings.update_freq_desc')}</span>
           </div>
           <div className="segmented-group">
             {(
@@ -466,7 +461,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <span className="setting-applied-badge">{activeNotice.text}</span>
               )}
             </div>
-            <span className="settings-row-desc">{t('settings.watch_notify_desc')}</span>
           </div>
           <div className="segmented-group">
             {[

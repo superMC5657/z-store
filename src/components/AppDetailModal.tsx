@@ -557,12 +557,12 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               {refreshSuccessNotice ? (
                 <span
                   className="modal-tag modal-tag-success tag-spring-in"
-                  title="已成功从远端获取最新 README 与 Release 资产并写回本地数据库"
+                  title="已成功同步最新版本与文档数据"
                 >
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
-                  <span>已从远端同步最新文档与发布</span>
+                  <span>已同步最新数据</span>
                 </span>
               ) : refreshErrorNotice ? (
                 <span
@@ -571,12 +571,12 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                 >
                   <AlertTriangle size={11} />
-                  <span>同步异常，请稍后重试</span>
+                  <span>同步异常，请重试</span>
                 </span>
               ) : effectiveRefreshing ? (
                 <span className="modal-tag modal-tag-refreshing tag-spring-in">
                   <span className="spinner-icon" style={{ width: '10px', height: '10px', borderWidth: '1.5px' }} />
-                  <span>正在穿透缓存拉取最新数据...</span>
+                  <span>正在同步最新数据...</span>
                 </span>
               ) : (
                 <>
@@ -619,37 +619,37 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                 className="install-asset-label"
                 title={
                   app.isLoading && hasNoReleases
-                    ? '正在同步 GitHub Release 最新发布产物...'
+                    ? '正在获取最新发布版本...'
                     : hasNoReleases && isAuthExpired
-                    ? 'GitHub 登录凭据已失效 (401) · 暂无法同步版本产物'
+                    ? 'GitHub 登录凭据已失效 · 请重新登录'
                     : hasNoReleases
-                    ? '暂未检测到匹配的发布产物 (可点击“全部资产”查阅)'
+                    ? '暂无匹配的安装包'
                     : isInstalled
                     ? isExploreMode
-                      ? '状态：已安装就绪'
+                      ? '已安装'
                       : isManaged
-                      ? '状态：已安装就绪 (已加入管理)'
-                      : '状态：本地已安装 (未加入管理)'
+                      ? '已安装就绪'
+                      : '本地已安装'
                     : selectedAssetName
-                    ? `用户指定安装包 (${primaryAsset?.os} · ${primaryAsset?.arch})`
-                    : `建议安装版本 (${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch} 自适应匹配)`
+                    ? `已选安装包 · ${primaryAsset?.os || ''} ${primaryAsset?.arch || ''}`
+                    : `推荐版本 · ${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch}`
                 }
               >
                 {app.isLoading && hasNoReleases
-                  ? '正在同步 GitHub Release 最新发布产物...'
+                  ? '正在获取最新发布版本...'
                   : hasNoReleases && isAuthExpired
-                  ? 'GitHub 登录凭据已失效 (401) · 暂无可用发布产物'
+                  ? 'GitHub 登录凭据已失效 · 请重新登录'
                   : hasNoReleases
-                  ? '暂未检测到匹配的发布产物'
+                  ? '暂无匹配的安装包'
                   : isInstalled
                   ? isExploreMode
-                    ? '状态：已安装就绪'
+                    ? '已安装'
                     : isManaged
-                    ? '状态：已安装就绪 (已加入管理)'
-                    : '状态：本地已安装 (未加入管理)'
+                    ? '已安装就绪'
+                    : '本地已安装'
                   : selectedAssetName
-                  ? `用户指定安装包 (${primaryAsset?.os} · ${primaryAsset?.arch})`
-                  : `建议安装版本 (${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch} 自适应匹配)`}
+                  ? `已选安装包 · ${primaryAsset?.os || ''} ${primaryAsset?.arch || ''}`
+                  : `推荐版本 · ${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch}`}
               </div>
               <div
                 className="install-asset-name"

@@ -123,7 +123,6 @@ export const AppCard: React.FC<AppCardProps> = ({
             </svg>
             <span>{formatStars(app.stars)}</span>
           </span>
-          <span className="app-tag app-tag-license">{app.license}</span>
           {app.platforms && app.platforms.length > 0 && (
             <span
               className="app-tag app-tag-platforms"
