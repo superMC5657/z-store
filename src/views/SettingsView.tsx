@@ -690,28 +690,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </button>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: '20px' }}>
-            {proxySavedFeedback ? (
+          {proxySavedFeedback && (
+            <div style={{ display: 'flex', alignItems: 'center', minHeight: '20px' }}>
               <span style={{ fontSize: '12px', color: '#10b981', fontWeight: 500 }}>
                 {proxySavedFeedback}
               </span>
-            ) : (
-              <span style={{ fontSize: '12px', color: 'var(--text-muted, #94a3b8)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span>{t('settings.currently_active')}</span>
-                {(!proxyInput.trim() || proxyInput.trim() === 'direct') ? (
-                  <>
-                    <span className="status-dot status-dot-success" />
-                    <span>{t('settings.proxy_active_direct')}</span>
-                  </>
-                ) : (
-                  <>
-                    <Zap size={12} style={{ color: 'var(--brand-primary)' }} />
-                    <span>{t('settings.proxy_active_custom', { url: proxyInput.trim() })}</span>
-                  </>
-                )}
-              </span>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
         <div className={`settings-row ${highlightRow === 'catalog_source' || highlightRow === 'catalog_sync' ? 'row-highlight' : ''}`} style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px' }}>
