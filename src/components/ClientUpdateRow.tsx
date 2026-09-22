@@ -140,7 +140,7 @@ export const ClientUpdateRow: React.FC = () => {
   const renderStatus = () => {
     switch (phase.kind) {
       case 'idle':
-        return <span className="settings-row-desc">{t('client_update.check_desc')}</span>;
+        return null;
       case 'checking':
         return <span className="settings-row-desc">{t('client_update.checking')}</span>;
       case 'latest':

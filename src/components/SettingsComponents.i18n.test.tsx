@@ -56,7 +56,6 @@ describe('Settings subcomponents i18n verification', () => {
     await i18n.changeLanguage('zh-CN');
     const { unmount } = render(<DataBackupRow />);
     expect(screen.getByText('用户数据备份')).toBeTruthy();
-    expect(screen.getByText('备份或恢复收藏、关注及偏好设置（不含登录令牌）')).toBeTruthy();
     expect(screen.getByText('导出')).toBeTruthy();
     expect(screen.getByText('导入')).toBeTruthy();
     unmount();
@@ -64,7 +63,6 @@ describe('Settings subcomponents i18n verification', () => {
     await i18n.changeLanguage('en-US');
     render(<DataBackupRow />);
     expect(screen.getByText('User Data Backup')).toBeTruthy();
-    expect(screen.getByText('Backup or restore favorites, watch lists, and preferences (tokens excluded)')).toBeTruthy();
     expect(screen.getByText('Export')).toBeTruthy();
     expect(screen.getByText('Import')).toBeTruthy();
   });
@@ -73,14 +71,12 @@ describe('Settings subcomponents i18n verification', () => {
     await i18n.changeLanguage('zh-CN');
     const { unmount } = render(<ClientUpdateRow />);
     expect(screen.getByText('客户端自更新')).toBeTruthy();
-    expect(screen.getByText('检查新版本')).toBeTruthy();
     expect(screen.getByText('检查更新')).toBeTruthy();
     unmount();
 
     await i18n.changeLanguage('en-US');
     render(<ClientUpdateRow />);
     expect(screen.getByText('Client Auto-Update')).toBeTruthy();
-    expect(screen.getByText('Check for new versions')).toBeTruthy();
     expect(screen.getByText('Check for Updates')).toBeTruthy();
   });
 });

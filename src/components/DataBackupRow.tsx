@@ -142,9 +142,7 @@ export const DataBackupRow: React.FC = () => {
             {isError ? <AlertTriangle size={13} /> : <CheckCircle2 size={13} />}
             <span>{feedback}</span>
           </span>
-        ) : (
-          <span className="settings-row-desc">{t('backup.desc')}</span>
-        )}
+        ) : null}
       </div>
       <div style={{ display: 'flex', gap: '8px' }}>
         <button

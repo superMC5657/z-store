@@ -481,11 +481,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <div className="settings-row" style={{ alignItems: 'center' }}>
           <div className="settings-row-info">
             <span style={{ fontWeight: 600 }}>{t('settings.rules_title')}</span>
-            <span className="settings-row-desc">
-              {updateRulesCount > 0
-                ? t('settings.rules_desc_active', { count: updateRulesCount })
-                : t('settings.rules_desc_empty')}
-            </span>
           </div>
           <button
             type="button"
@@ -540,9 +535,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   <span className="setting-applied-badge">{activeNotice.text}</span>
                 )}
               </div>
-              <span className="settings-row-desc">
-                {t('settings.download_dir_desc')}
-              </span>
             </div>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
               <button
@@ -610,9 +602,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   <span className="setting-applied-badge">{activeNotice.text}</span>
                 )}
               </div>
-              <span className="settings-row-desc">
-                {t('settings.portable_dir_desc')}
-              </span>
             </div>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
               <button
@@ -690,9 +679,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   <span className="setting-applied-badge">{activeNotice.text}</span>
                 )}
               </div>
-              <span className="settings-row-desc">
-                {t('settings.proxy_desc')}
-              </span>
             </div>
             {proxyTestResult && (
               <span
@@ -790,9 +776,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   <span className="setting-applied-badge">{activeNotice.text}</span>
                 )}
               </div>
-              <span className="settings-row-desc">
-                {t('settings.catalog_sync_desc')}
-              </span>
             </div>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
               <button
@@ -923,11 +906,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <span className="setting-applied-badge">{activeNotice.text}</span>
               )}
             </div>
-            <span className="settings-row-desc">
-              {typeof installedCount === 'number' && installedCount > 0
-                ? t('settings.export_apps_count', { count: installedCount })
-                : t('settings.export_apps_desc')}
-            </span>
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
             <button
@@ -952,7 +930,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <span className="setting-applied-badge">{activeNotice.text}</span>
               )}
             </div>
-            <span className="settings-row-desc">{t('settings.reset_all_desc')}</span>
           </div>
           {isResetConfirming ? (
             <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
