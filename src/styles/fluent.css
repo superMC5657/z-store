@@ -11,17 +11,17 @@
   --ease-smooth: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-fluent: cubic-bezier(0.1, 0.9, 0.2, 1);
 
-  /* Fluent 品牌色彩（浅色模式 - 蔚蓝） */
-  --brand-primary: #0078d4;
-  --brand-hover: #106ebe;
-  --brand-pressed: #005a9e;
-  --brand-subtle: rgba(0, 120, 212, 0.09);
-  --brand-glow: rgba(0, 120, 212, 0.38);
+  /* Fluent 品牌色彩（浅色模式 - Blurple 亮色适配，与暗色 #5865f2 同系） */
+  --brand-primary: #4752c4;
+  --brand-hover: #3c45a5;
+  --brand-pressed: #32378a;
+  --brand-subtle: rgba(71, 82, 196, 0.1);
+  --brand-glow: rgba(71, 82, 196, 0.28);
 
-  /* 极光氛围灯效 */
-  --aurora-1: #0284c7;
-  --aurora-2: #8b5cf6;
-  --aurora-3: #06b6d4;
+  /* 极光氛围灯效（收敛克制 - 同系雾蓝/鸢尾灰紫，低饱和） */
+  --aurora-1: #6772e5;
+  --aurora-2: #8f9bf2;
+  --aurora-3: #b9c4f7;
 
   /* 语义化状态色彩 */
   --status-success: #107c10;
@@ -29,14 +29,14 @@
   --status-warning: #d83b01;
   --status-warning-bg: rgba(216, 59, 1, 0.12);
 
-  /* 浅色主题默认变量（羊脂玉质感磨砂玻璃） */
-  --bg-canvas: radial-gradient(at 15% 15%, rgba(2, 132, 199, 0.07) 0px, transparent 55%),
-               radial-gradient(at 85% 85%, rgba(139, 92, 246, 0.05) 0px, transparent 50%),
-               linear-gradient(145deg, #f0f4f9 0%, #e8eef6 50%, #e1e9f4 100%);
-  --bg-acrylic: rgba(255, 255, 255, 0.88);
-  --bg-acrylic-hover: rgba(255, 255, 255, 0.96);
-  --bg-acrylic-thin: rgba(246, 250, 255, 0.84);
-  --bg-acrylic-card: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(244, 248, 253, 0.85) 100%);
+  /* 浅色主题默认变量（冷白清透磨砂玻璃） */
+  --bg-canvas: radial-gradient(at 15% 15%, rgba(103, 114, 229, 0.08) 0px, transparent 55%),
+               radial-gradient(at 85% 85%, rgba(143, 155, 242, 0.06) 0px, transparent 50%),
+               linear-gradient(180deg, #ffffff 0%, #f7f9fd 55%, #f1f5fa 100%);
+  --bg-acrylic: rgba(255, 255, 255, 0.92);
+  --bg-acrylic-hover: rgba(255, 255, 255, 0.98);
+  --bg-acrylic-thin: rgba(255, 255, 255, 0.78);
+  --bg-acrylic-card: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(247, 249, 253, 0.9) 100%);
   --bg-surface-flyout: rgba(255, 255, 255, 0.98);
   --bg-acrylic-default: var(--bg-surface-flyout);
   --bg-acrylic-dialog: var(--bg-surface-flyout);
@@ -50,26 +50,26 @@
   --glass-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.07), 0 2px 6px -1px rgba(0, 0, 0, 0.03);
   --frosted-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='fn'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.038 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23fn)'/%3E%3C/svg%3E");
 
-  /* 磨砂组件主题变量（浅色模式 - 水晶蛋白石） */
-  --bg-nav-active: linear-gradient(90deg, rgba(0, 120, 212, 0.12) 0%, rgba(0, 120, 212, 0.04) 100%), rgba(255, 255, 255, 0.94);
-  --border-nav-active: rgba(0, 120, 212, 0.28);
-  --shadow-nav-active: 0 4px 14px rgba(0, 120, 212, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  /* 磨砂组件主题变量（浅色模式 - 冷白亚克力） */
+  --bg-nav-active: linear-gradient(90deg, rgba(71, 82, 196, 0.12) 0%, rgba(71, 82, 196, 0.04) 100%), rgba(255, 255, 255, 0.96);
+  --border-nav-active: rgba(71, 82, 196, 0.3);
+  --shadow-nav-active: 0 4px 14px rgba(71, 82, 196, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.95);
   --color-nav-active: var(--brand-primary);
 
-  --bg-search-box: linear-gradient(135deg, rgba(255, 255, 255, 0.96) 0%, rgba(244, 248, 253, 0.9) 100%);
+  --bg-search-box: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(247, 249, 253, 0.92) 100%);
   --border-search-box: rgba(0, 0, 0, 0.1);
   --border-search-top: #ffffff;
   --shadow-search-box: 0 2px 6px rgba(0, 0, 0, 0.05), inset 0 1px 1px #ffffff;
   --placeholder-search: #64748b;
 
-  --bg-hero-banner: var(--frosted-noise), linear-gradient(135deg, rgba(255, 255, 255, 0.96) 0%, rgba(240, 246, 254, 0.9) 100%), #ffffff;
+  --bg-hero-banner: var(--frosted-noise), linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(247, 249, 253, 0.92) 100%), #ffffff;
   --border-hero-banner: rgba(0, 0, 0, 0.08);
   --border-hero-top: #ffffff;
   --shadow-hero-banner: 0 12px 32px -4px rgba(0, 0, 0, 0.08), inset 0 1px 1px #ffffff;
-  --badge-verified-bg: rgba(0, 120, 212, 0.08);
-  --badge-verified-border: rgba(0, 120, 212, 0.22);
-  --badge-verified-color: #0062a8;
-  --badge-verified-shadow: 0 2px 8px rgba(0, 120, 212, 0.08);
+  --badge-verified-bg: rgba(71, 82, 196, 0.08);
+  --badge-verified-border: rgba(71, 82, 196, 0.24);
+  --badge-verified-color: #3c45a5;
+  --badge-verified-shadow: 0 2px 8px rgba(71, 82, 196, 0.1);
   --hero-icon-shadow: drop-shadow(0 8px 22px rgba(0, 0, 0, 0.12));
 
   --text-primary: #0f172a;
@@ -2355,12 +2355,14 @@ body {
   content: "";
   position: absolute;
   top: 0;
-  left: 0;
-  right: 0;
+  left: 8px;
+  right: 8px;
   height: 1px;
   background: linear-gradient(90deg, transparent, var(--border-highlight), transparent);
   opacity: 0.6;
   pointer-events: none;
+  border-top-left-radius: var(--radius-md);
+  border-top-right-radius: var(--radius-md);
 }
 
 [data-theme="dark"] .settings-group {
@@ -2380,6 +2382,8 @@ body {
   font-size: var(--font-md);
   border-bottom: 1px solid var(--border-acrylic);
   background: var(--bg-acrylic-thin);
+  border-top-left-radius: var(--radius-md);
+  border-top-right-radius: var(--radius-md);
 }
 
 [data-theme="dark"] .settings-group-title {
