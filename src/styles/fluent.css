@@ -2622,29 +2622,71 @@ body {
   align-items: center;
   gap: 8px;
   width: 100%;
-  max-width: 440px;
+  max-width: 480px;
   min-width: 0;
   flex-shrink: 1;
+}
+
+.settings-input-group .btn-fluent {
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 14px;
+  font-size: 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .settings-input {
   flex: 1;
   min-width: 0;
-  background: var(--bg-acrylic);
+  height: 32px;
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.04);
   border: 1px solid var(--border-acrylic);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.22);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  padding: 6px 12px;
-  font-size: var(--font-base);
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  padding: 0 12px;
+  font-size: 13px;
+  font-family: inherit;
   outline: none;
-  transition: border-color 0.2s, box-shadow 0.2s;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05);
+  transition: all 0.2s var(--ease-spring);
+}
+
+.settings-input:hover {
+  background: rgba(0, 0, 0, 0.06);
+  border-color: var(--border-highlight);
 }
 
 .settings-input:focus {
+  background: var(--bg-acrylic-card);
   border-color: var(--brand-primary);
-  box-shadow: 0 0 0 3px var(--brand-glow);
+  border-bottom: 2px solid var(--brand-primary);
+  box-shadow: 0 0 0 2px var(--brand-glow);
+}
+
+.settings-input::placeholder {
+  color: var(--text-tertiary);
+  opacity: 0.75;
+}
+
+[data-theme="dark"] .settings-input {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+[data-theme="dark"] .settings-input:hover {
+  background: rgba(0, 0, 0, 0.35);
+  border-color: rgba(255, 255, 255, 0.15);
+  border-bottom-color: rgba(255, 255, 255, 0.3);
+}
+
+[data-theme="dark"] .settings-input:focus {
+  background: rgba(0, 0, 0, 0.3);
+  border-color: var(--brand-primary);
+  border-bottom: 2px solid var(--brand-primary);
+  box-shadow: 0 0 0 2px var(--brand-glow);
 }
 
 .settings-input.input-highlight {

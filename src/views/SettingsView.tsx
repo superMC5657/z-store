@@ -505,113 +505,79 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <span>{t('settings.storage_and_download')}</span>
         </div>
 
-        <div
-          className={`settings-row ${highlightRow === 'download_dir' ? 'row-highlight' : ''}`}
-          style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px' }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              gap: '10px',
-            }}
-          >
-            <div className="settings-row-info">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontWeight: 600 }}>{t('settings.download_dir')}</span>
-                {activeNotice?.key === 'download_dir' && (
-                  <span className="setting-applied-badge">{activeNotice.text}</span>
-                )}
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <button
-                type="button"
-                className="btn-fluent btn-secondary"
-                style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
-                onClick={async () => {
-                  try {
-                    const picked = await api.selectFolder(settings.download_dir, t('settings.select_download_dir'));
-                    if (picked) {
-                      onUpdateSetting('download_dir', picked);
-                      triggerChangeFeedback('download_dir', '✓ ' + t('settings.download_dir'));
-                    }
-                  } catch {
-                    /* 用户取消了文件夹选择器 */
-                  }
-                }}
-              >
-                <FolderOpen size={13} />
-                <span>{t('settings.browse')}</span>
-              </button>
+        <div className={`settings-row ${highlightRow === 'download_dir' ? 'row-highlight' : ''}`}>
+          <div className="settings-row-info">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontWeight: 600 }}>{t('settings.download_dir')}</span>
+              {activeNotice?.key === 'download_dir' && (
+                <span className="setting-applied-badge">{activeNotice.text}</span>
+              )}
             </div>
           </div>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <div className="settings-input-group">
             <input
               type="text"
               className={`settings-input ${highlightRow === 'download_dir' ? 'input-highlight' : ''}`}
               value={settings.download_dir || '~/Downloads'}
               onChange={(e) => onUpdateSetting('download_dir', e.target.value)}
               placeholder="~/Downloads"
-              style={{ flex: 1, fontSize: '12px', fontFamily: 'monospace' }}
             />
+            <button
+              type="button"
+              className="btn-fluent btn-secondary"
+              onClick={async () => {
+                try {
+                  const picked = await api.selectFolder(settings.download_dir, t('settings.select_download_dir'));
+                  if (picked) {
+                    onUpdateSetting('download_dir', picked);
+                    triggerChangeFeedback('download_dir', '✓ ' + t('settings.download_dir'));
+                  }
+                } catch {
+                  /* 用户取消了文件夹选择器 */
+                }
+              }}
+            >
+              <FolderOpen size={13} />
+              <span>{t('settings.browse')}</span>
+            </button>
           </div>
         </div>
 
-        <div
-          className={`settings-row ${highlightRow === 'portable_dir' ? 'row-highlight' : ''}`}
-          style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px' }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              gap: '10px',
-            }}
-          >
-            <div className="settings-row-info">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontWeight: 600 }}>{t('settings.portable_dir')}</span>
-                {activeNotice?.key === 'portable_dir' && (
-                  <span className="setting-applied-badge">{activeNotice.text}</span>
-                )}
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <button
-                type="button"
-                className="btn-fluent btn-secondary"
-                style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
-                onClick={async () => {
-                  try {
-                    const picked = await api.selectFolder(settings.portable_dir, t('settings.select_portable_dir'));
-                    if (picked) {
-                      onUpdateSetting('portable_dir', picked);
-                      triggerChangeFeedback('portable_dir', '✓ ' + t('settings.portable_dir'));
-                    }
-                  } catch {
-                    /* 用户取消了文件夹选择器 */
-                  }
-                }}
-              >
-                <FolderOpen size={13} />
-                <span>{t('settings.browse')}</span>
-              </button>
+        <div className={`settings-row ${highlightRow === 'portable_dir' ? 'row-highlight' : ''}`}>
+          <div className="settings-row-info">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontWeight: 600 }}>{t('settings.portable_dir')}</span>
+              {activeNotice?.key === 'portable_dir' && (
+                <span className="setting-applied-badge">{activeNotice.text}</span>
+              )}
             </div>
           </div>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <div className="settings-input-group">
             <input
               type="text"
               className={`settings-input ${highlightRow === 'portable_dir' ? 'input-highlight' : ''}`}
               value={settings.portable_dir || '%LOCALAPPDATA%\\Programs\\z-store-apps'}
               onChange={(e) => onUpdateSetting('portable_dir', e.target.value)}
               placeholder="%LOCALAPPDATA%\Programs\z-store-apps"
-              style={{ flex: 1, fontSize: '12px', fontFamily: 'monospace' }}
             />
+            <button
+              type="button"
+              className="btn-fluent btn-secondary"
+              onClick={async () => {
+                try {
+                  const picked = await api.selectFolder(settings.portable_dir, t('settings.select_portable_dir'));
+                  if (picked) {
+                    onUpdateSetting('portable_dir', picked);
+                    triggerChangeFeedback('portable_dir', '✓ ' + t('settings.portable_dir'));
+                  }
+                } catch {
+                  /* 用户取消了文件夹选择器 */
+                }
+              }}
+            >
+              <FolderOpen size={13} />
+              <span>{t('settings.browse')}</span>
+            </button>
           </div>
         </div>
       </div>
@@ -635,46 +601,48 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <span>{t('settings.network_and_catalog')}</span>
         </div>
 
-        <div className={`settings-row ${highlightRow === 'proxy' ? 'row-highlight' : ''}`} style={{ flexDirection: 'column', alignItems: 'stretch', gap: '12px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div className="settings-row-info">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontWeight: 600 }}>{t('settings.proxy_title')}</span>
-                {activeNotice?.key === 'proxy' && (
-                  <span className="setting-applied-badge">{activeNotice.text}</span>
-                )}
-              </div>
+        <div className={`settings-row ${highlightRow === 'proxy' ? 'row-highlight' : ''}`}>
+          <div className="settings-row-info">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 600 }}>{t('settings.proxy_title')}</span>
+              {proxyTestResult && (
+                <span
+                  style={{
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: !proxyTestResult.success ? '#ef4444' : proxyTestResult.latency_ms < 400 ? '#10b981' : proxyTestResult.latency_ms < 1000 ? '#f59e0b' : '#ea580c',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <span className={`status-dot ${!proxyTestResult.success ? 'status-dot-error' : proxyTestResult.latency_ms < 400 ? 'status-dot-success' : proxyTestResult.latency_ms < 1000 ? 'status-dot-warning' : 'status-dot-error'}`} />
+                  <span>{proxyTestResult.text}</span>
+                </span>
+              )}
+              {proxySavedFeedback && (
+                <span style={{ fontSize: '12px', color: '#10b981', fontWeight: 500 }}>
+                  {proxySavedFeedback}
+                </span>
+              )}
+              {activeNotice?.key === 'proxy' && (
+                <span className="setting-applied-badge">{activeNotice.text}</span>
+              )}
             </div>
-            {proxyTestResult && (
-              <span
-                style={{
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: !proxyTestResult.success ? '#ef4444' : proxyTestResult.latency_ms < 400 ? '#10b981' : proxyTestResult.latency_ms < 1000 ? '#f59e0b' : '#ea580c',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                <span className={`status-dot ${!proxyTestResult.success ? 'status-dot-error' : proxyTestResult.latency_ms < 400 ? 'status-dot-success' : proxyTestResult.latency_ms < 1000 ? 'status-dot-warning' : 'status-dot-error'}`} />
-                <span>{proxyTestResult.text}</span>
-              </span>
-            )}
           </div>
 
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <div className="settings-input-group" style={{ maxWidth: '460px' }}>
             <input
               type="text"
               className={`settings-input ${highlightRow === 'proxy' ? 'input-highlight' : ''}`}
-              style={{ flex: 1, fontFamily: 'monospace', fontSize: '13px' }}
               value={proxyInput}
               onChange={(e) => setProxyInput(e.target.value)}
               placeholder={t('settings.proxy_placeholder')}
             />
             <button
+              type="button"
               className="btn-fluent btn-secondary"
-              style={{ fontSize: '12px', padding: '6px 16px', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '6px' }}
               onClick={handleTestProxy}
               disabled={isTestingProxy}
             >
@@ -682,21 +650,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <span>{isTestingProxy ? t('settings.testing_speed') : t('settings.test_speed')}</span>
             </button>
             <button
+              type="button"
               className="btn-fluent btn-primary"
-              style={{ fontSize: '12px', padding: '6px 16px', whiteSpace: 'nowrap' }}
               onClick={handleSaveProxy}
             >
               {t('settings.save_proxy')}
             </button>
           </div>
-
-          {proxySavedFeedback && (
-            <div style={{ display: 'flex', alignItems: 'center', minHeight: '20px' }}>
-              <span style={{ fontSize: '12px', color: '#10b981', fontWeight: 500 }}>
-                {proxySavedFeedback}
-              </span>
-            </div>
-          )}
         </div>
 
         <div className={`settings-row ${highlightRow === 'catalog_source' || highlightRow === 'catalog_sync' ? 'row-highlight' : ''}`} style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px' }}>
@@ -738,10 +698,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 display: 'flex',
                 gap: '8px',
                 alignItems: 'center',
-                padding: '10px 12px',
-                borderRadius: '8px',
-                background: 'var(--card-bg-subtle, rgba(255,255,255,0.03))',
-                border: '1px dashed var(--border-color)',
+                padding: '8px 12px',
+                borderRadius: 'var(--radius-sm)',
+                background: 'var(--bg-acrylic-thin)',
+                border: '1px solid var(--border-acrylic)',
               }}
             >
               <input
@@ -754,14 +714,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   setIsCatalogSourceConfirming(false);
                 }}
                 placeholder="https://.../catalog.json"
-                style={{ flex: 1, fontSize: '12px', fontFamily: 'monospace' }}
               />
               {isCatalogSourceConfirming ? (
                 <>
                   <button
                     type="button"
                     className="btn-fluent"
-                    style={{ fontSize: '12px', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: '4px', background: '#ef4444', color: '#fff', fontWeight: 600, whiteSpace: 'nowrap' }}
+                    style={{ fontSize: '12px', padding: '0 12px', height: '32px', display: 'flex', alignItems: 'center', gap: '4px', background: '#ef4444', color: '#fff', fontWeight: 600, whiteSpace: 'nowrap' }}
                     onClick={handleSaveCatalogSource}
                   >
                     <span>{t('settings.catalog_confirm_switch')}</span>
@@ -769,7 +728,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   <button
                     type="button"
                     className="btn-fluent btn-secondary"
-                    style={{ fontSize: '12px', padding: '5px 12px', whiteSpace: 'nowrap' }}
+                    style={{ fontSize: '12px', padding: '0 12px', height: '32px', whiteSpace: 'nowrap' }}
                     onClick={() => setIsCatalogSourceConfirming(false)}
                   >
                     <span>{t('common.cancel')}</span>
@@ -779,7 +738,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <button
                   type="button"
                   className="btn-fluent btn-primary"
-                  style={{ fontSize: '12px', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  style={{ fontSize: '12px', padding: '0 14px', height: '32px', display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' }}
                   onClick={handleSaveCatalogSource}
                 >
                   {catalogUrlSaved && <Check size={12} />}

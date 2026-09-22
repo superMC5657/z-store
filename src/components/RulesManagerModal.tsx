@@ -251,7 +251,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                     placeholder={t('rules.form_custom_input_placeholder')}
                     value={customAppId}
                     onChange={(e) => setCustomAppId(e.target.value)}
-                    style={{ flex: '1 1 200px', fontSize: '12px', fontFamily: 'monospace' }}
+                    style={{ flex: '1 1 200px', fontSize: '12px' }}
                   />
                 )}
               </div>
