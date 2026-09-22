@@ -1,9 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Clock, Activity, Info, Languages } from 'lucide-react';
+import { Clock, Languages } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { BrandLogo } from './BrandLogo';
 import { api } from '../services/api';
-import { HostTokenEntry } from '../types';
 
 interface TitleBarProps {
   searchQuery: string;
@@ -26,7 +25,6 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   onToggleLanguage,
   isSidebarCollapsed = false,
   onToggleSidebar,
-  onNavigateSettings,
 }) => {
   const { t, i18n } = useTranslation();
   const currentLang = language || i18n.language || 'zh-CN';
@@ -34,8 +32,6 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   const [isMaximized, setIsMaximized] = useState(false);
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [hostTokens, setHostTokens] = useState<HostTokenEntry[]>([]);
-  const [showQuotaTooltip, setShowQuotaTooltip] = useState(false);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchBoxRef = useRef<HTMLDivElement>(null);
@@ -49,69 +45,8 @@ export const TitleBar: React.FC<TitleBarProps> = ({
     }
   };
 
-  const loadQuota = async () => {
-    try {
-      const tokens = await api.getHostTokens();
-      setHostTokens(tokens);
-    } catch {
-      // 忽略错误
-    }
-  };
-
   useEffect(() => {
     loadSearchHistory();
-    loadQuota();
-    const timer = setInterval(loadQuota, 30000);
-    const handleQuotaChanged = () => loadQuota();
-    window.addEventListener('zstore:quota-updated', handleQuotaChanged);
-
-    let isMounted = true;
-    let unlistenFn: (() => void) | null = null;
-    api.onQuotaUpdated((payload) => {
-      if (!isMounted) return;
-      setHostTokens((prev) => {
-        const cleanHost = payload.host.toLowerCase();
-        const idx = prev.findIndex((t) => t.host.toLowerCase() === cleanHost);
-        if (idx >= 0) {
-          const copy = [...prev];
-          copy[idx] = {
-            ...copy[idx],
-            rate_limit_remaining: payload.rate_limit_remaining,
-            rate_limit_limit: payload.rate_limit_limit,
-            rate_limit_reset: payload.rate_limit_reset,
-            updated_at: Math.floor(Date.now() / 1000),
-          };
-          return copy;
-        } else {
-          return [
-            ...prev,
-            {
-              host: payload.host,
-              token: '',
-              rate_limit_remaining: payload.rate_limit_remaining,
-              rate_limit_limit: payload.rate_limit_limit,
-              rate_limit_reset: payload.rate_limit_reset,
-              updated_at: Math.floor(Date.now() / 1000),
-            },
-          ];
-        }
-      });
-    }).then((unlisten) => {
-      if (isMounted) {
-        unlistenFn = unlisten;
-      } else {
-        unlisten();
-      }
-    });
-
-    return () => {
-      isMounted = false;
-      clearInterval(timer);
-      window.removeEventListener('zstore:quota-updated', handleQuotaChanged);
-      if (unlistenFn) {
-        unlistenFn();
-      }
-    };
   }, []);
 
   // 点击外部区域时关闭下拉面板
@@ -361,126 +296,6 @@ export const TitleBar: React.FC<TitleBarProps> = ({
       </div>
 
       <div className="titlebar-right">
-        {/* 速率限制状态胶囊指示器（功能 E） */}
-        {(() => {
-          const ghEntry = hostTokens.find((t) => t.host.toLowerCase() === 'github.com');
-          const hasRemaining =
-            ghEntry?.rate_limit_remaining !== undefined && ghEntry?.rate_limit_remaining !== null;
-          const remaining = ghEntry?.rate_limit_remaining ?? 0;
-          const limit = ghEntry?.rate_limit_limit ?? (ghEntry?.token ? 5000 : 60);
-          const isConfigured = !!ghEntry?.token;
-
-          let dotClass = 'status-dot status-dot-success';
-          let pillColor = '#10b981';
-          let pillBg = 'rgba(16, 185, 129, 0.12)';
-          let pillBorder = 'rgba(16, 185, 129, 0.28)';
-          let pillText = hasRemaining ? `API ${remaining}/${limit}` : t('titlebar.api_probing');
-
-          if (!hasRemaining) {
-            dotClass = 'status-dot status-dot-neutral';
-            pillColor = 'var(--text-tertiary)';
-            pillBg = 'rgba(255, 255, 255, 0.05)';
-            pillBorder = 'var(--border-subtle)';
-          } else if (remaining <= 0) {
-            dotClass = 'status-dot status-dot-error';
-            pillColor = '#ef4444';
-            pillBg = 'rgba(239, 68, 68, 0.12)';
-            pillBorder = 'rgba(239, 68, 68, 0.28)';
-            pillText = t('titlebar.api_exhausted');
-          } else if (limit <= 100 ? remaining <= 10 : remaining <= 100) {
-            dotClass = 'status-dot status-dot-warning';
-            pillColor = '#f59e0b';
-            pillBg = 'rgba(245, 158, 11, 0.12)';
-            pillBorder = 'rgba(245, 158, 11, 0.28)';
-            pillText = `API ${remaining}/${limit}`;
-          }
-
-          const resetTimeStr = ghEntry?.rate_limit_reset
-            ? new Date(ghEntry.rate_limit_reset * 1000).toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
-              })
-            : null;
-
-          return (
-            <div style={{ position: 'relative' }}>
-              <button
-                type="button"
-                onClick={onNavigateSettings}
-                onMouseEnter={() => setShowQuotaTooltip(true)}
-                onMouseLeave={() => setShowQuotaTooltip(false)}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '3px 10px',
-                  borderRadius: '12px',
-                  fontSize: '11px',
-                  fontWeight: 500,
-                  cursor: onNavigateSettings ? 'pointer' : 'default',
-                  background: pillBg,
-                  border: `1px solid ${pillBorder}`,
-                  color: pillColor,
-                  outline: 'none',
-                  transition: 'all 0.15s ease',
-                }}
-                title={isConfigured ? t('titlebar.quota_logged_in') : t('titlebar.quota_settings_hint')}
-              >
-                <span className={dotClass} />
-                <span>{pillText}</span>
-              </button>
-
-              {showQuotaTooltip && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: 'calc(100% + 8px)',
-                    right: 0,
-                    width: '240px',
-                    padding: '12px',
-                    borderRadius: 'var(--radius-md)',
-                    background: 'var(--bg-surface-flyout)',
-                    border: '1px solid var(--border-highlight)',
-                    boxShadow: 'var(--shadow-modal), 0 0 24px rgba(0, 0, 0, 0.3)',
-                    zIndex: 1000,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '6px',
-                    fontSize: '12px',
-                    backdropFilter: 'blur(28px) saturate(180%)',
-                    WebkitBackdropFilter: 'blur(28px) saturate(180%)',
-                    pointerEvents: 'none',
-                  }}
-                >
-                  <div style={{ fontWeight: 600, borderBottom: '1px solid var(--border-acrylic)', paddingBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Activity size={13} />
-                    <span>{t('titlebar.api_quota')}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
-                    <span>GitHub:</span>
-                    <span style={{ fontWeight: 500, color: pillColor }}>
-                      {hasRemaining ? `${remaining} / ${limit}` : t('titlebar.api_probing')}
-                    </span>
-                  </div>
-                  {resetTimeStr && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-tertiary)', fontSize: '11px' }}>
-                      <span>{t('titlebar.quota_reset_time')}</span>
-                      <span>{resetTimeStr}</span>
-                    </div>
-                  )}
-                  <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                    {isConfigured ? t('titlebar.quota_logged_in') : t('titlebar.quota_anonymous')}
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--brand-primary)', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <Info size={12} />
-                    <span>{t('titlebar.quota_settings_hint')}</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })()}
-
         {onToggleLanguage && (
           <button
             type="button"
