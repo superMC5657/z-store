@@ -401,25 +401,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
           </div>
           <div className="segmented-group">
-            {(
-              [
-                { id: 'startup', label: t('settings.freq_startup') },
-                // P2-6 产品决策：每日轮询尚未实现（无调度器），该选项置灰禁用，
-                // 仅保留启动时检测与手动检查两个可用入口。
-                { id: 'daily', label: t('settings.freq_daily'), disabled: true, hint: t('settings.coming_soon') },
-                { id: 'manual', label: t('settings.freq_manual') },
-              ] as { id: string; label: string; disabled?: boolean; hint?: string }[]
-            ).map((u) => (
+            {[
+              { id: 'startup', label: t('settings.freq_startup') },
+              { id: 'manual', label: t('settings.freq_manual') },
+            ].map((u) => (
               <button
                 key={u.id}
                 className={`segmented-item ${settings.update_frequency === u.id ? 'active' : ''}`}
-                disabled={u.disabled}
-                title={u.disabled ? u.hint : u.label}
-                style={u.disabled ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
                 onClick={() => handleSelectUpdateFrequency(u.id, u.label)}
               >
                 {u.label}
-                {u.disabled && u.hint ? ` (${u.hint})` : ''}
               </button>
             ))}
           </div>
