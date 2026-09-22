@@ -27,6 +27,7 @@ import {
   ForgeRepoInfo,
   WatchUpdatedPayload,
   StarAppResult,
+  DownloadAssetResult,
 } from '../types';
 
 export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -75,6 +76,21 @@ const tauriApi = {
       assetName: assetName || null,
       customInstallDir: customInstallDir || null,
     });
+  },
+
+  async downloadAsset(appId: string, assetName?: string): Promise<DownloadAssetResult> {
+    return tauriInvoke<DownloadAssetResult>('download_asset', {
+      appId,
+      assetName: assetName || null,
+    });
+  },
+
+  async showFileInFolder(path: string): Promise<boolean> {
+    return tauriInvoke<boolean>('show_file_in_folder', { path });
+  },
+
+  async openFolder(path: string): Promise<boolean> {
+    return tauriInvoke<boolean>('open_folder', { path });
   },
 
   async uninstallApp(appId: string): Promise<boolean> {

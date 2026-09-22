@@ -121,6 +121,14 @@ export interface DownloadProgressPayload {
   message?: string;
 }
 
+export interface DownloadAssetResult {
+  file_path: string;
+  file_name: string;
+  dir: string;
+  sha256: string;
+  verified: boolean;
+}
+
 export type ViewType = 'home' | 'trends' | 'categories' | 'favorites' | 'installed' | 'updates' | 'settings';
 
 export interface ToastMessage {

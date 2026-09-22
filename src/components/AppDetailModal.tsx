@@ -18,8 +18,8 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
-import { AppDetailViewModel, DownloadProgressPayload, OAuthUser, ReleaseAsset } from '../types';
-import { api } from '../services/api';
+import { AppDetailViewModel, DownloadAssetResult, DownloadProgressPayload, OAuthUser, ReleaseAsset } from '../types';
+import { api, isTauri } from '../services/api';
 import { AppIcon } from './AppIcon';
 import { formatBytes, getAppDisplayName, getAppDescription, getCategoryLabel, isInstallableAssetKind, isProductAssetName, sortAssetsByRelevance } from '../utils/appHelper';
 import { PlatformIcon, ForgeIcon } from './icons/PlatformIcons';
@@ -85,7 +85,11 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgressPayload | null>(null);
   const [installError, setInstallError] = useState<string | null>(null);
   const [isInstalling, setIsInstalling] = useState(false);
+  const [isDownloadingOnly, setIsDownloadingOnly] = useState(false);
+  const [downloadedFile, setDownloadedFile] = useState<DownloadAssetResult | null>(null);
+  const [isRevealingFolder, setIsRevealingFolder] = useState(false);
   const effectiveIsInstalling = isInstalling || isInstallingGlobal;
+  const effectiveIsBusy = effectiveIsInstalling || isDownloadingOnly;
   const [isManaging, setIsManaging] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshSuccessNotice, setRefreshSuccessNotice] = useState(false);
@@ -129,9 +133,16 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
     setSelectedAssetName(null);
     setInstallError(null);
     setDownloadProgress(null);
+    setDownloadedFile(null);
+    setIsDownloadingOnly(false);
     setConfirmingUninstall(false);
     setConfirmingUnmanage(false);
   }, [app.id]);
+
+  // 切换选用包时清空上一包的下载结果，避免“打开文件夹”指向旧文件
+  useEffect(() => {
+    setDownloadedFile(null);
+  }, [selectedAssetName]);
 
   const effectiveRefreshing = Boolean(isRefreshing || app.isRefreshing);
 
@@ -263,12 +274,45 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
     return releases[0];
   }, [releases, selectedAssetName, currentOs, currentArch]);
 
-  // 主按钮分流：宿主原生可装（Windows 下 msi/exe/便携 zip）走安装，其余走浏览器下载
+  // 主按钮分流：宿主原生可装（Windows 下 msi/exe/便携 zip）走安装，其余走应用内仅下载（进度条 + 落盘，不调用安装）
   const canInstallPrimary = Boolean(primaryAsset && isInstallableAssetKind(primaryAsset.kind, currentOs));
 
-  const handleDownloadPrimary = () => {
-    if (primaryAsset) {
+  // 应用内仅下载：复用安装通道的下载进度事件，完成后保留文件路径供“打开所在文件夹”
+  const handleDownloadPrimary = async () => {
+    if (!primaryAsset || isDownloadingOnly) return;
+    // 浏览器预览无 Tauri 下载通道，回退到系统浏览器直链
+    if (!isTauri) {
       api.openUrl(primaryAsset.download_url);
+      return;
+    }
+    setInstallError(null);
+    setDownloadedFile(null);
+    setIsDownloadingOnly(true);
+    try {
+      const res = await api.downloadAsset(app.id, primaryAsset.name);
+      setDownloadedFile(res);
+    } catch (e) {
+      setInstallError(String(e));
+      setTimeout(() => {
+        setInstallError(null);
+      }, 5000);
+    } finally {
+      setIsDownloadingOnly(false);
+    }
+  };
+
+  const handleRevealDownload = async () => {
+    if (!downloadedFile || isRevealingFolder || !isTauri) return;
+    setIsRevealingFolder(true);
+    try {
+      await api.showFileInFolder(downloadedFile.file_path);
+    } catch (e) {
+      setInstallError(String(e));
+      setTimeout(() => {
+        setInstallError(null);
+      }, 5000);
+    } finally {
+      setIsRevealingFolder(false);
     }
   };
 
@@ -695,7 +739,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                       {downloadProgress.state === 'completed_unverified' && (
                         <>
                           <CheckCircle2 size={12} style={{ color: '#10b981' }} />
-                          <span>下载就绪，准备调用安装</span>
+                          <span>{canInstallPrimary ? '下载就绪，准备调用安装' : '下载完成，文件已保存到本地'}</span>
                         </>
                       )}
                       {downloadProgress.state === 'tampered' && (
@@ -739,7 +783,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               {installError && !downloadProgress && (
                 <div style={{ marginTop: '8px', fontSize: '12px', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <AlertTriangle size={12} />
-                  <span>安装异常：{installError}</span>
+                  <span>{canInstallPrimary ? '安装异常：' : '下载异常：'}{installError}</span>
                 </div>
               )}
             </div>
@@ -923,22 +967,45 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   </button>
                 )
               ) : !canInstallPrimary && primaryAsset ? (
-                <button
-                  type="button"
-                  className="btn-fluent btn-primary"
-                  onClick={handleDownloadPrimary}
-                  disabled={effectiveIsInstalling}
-                  style={{ minWidth: '120px', fontWeight: 600 }}
-                  title={`当前宿主不支持安装 ${primaryAsset.kind} 格式，通过系统浏览器下载该文件`}
-                >
-                  下载
-                </button>
+                <>
+                  {downloadedFile && isTauri && (
+                    <button
+                      type="button"
+                      className="btn-fluent btn-secondary"
+                      onClick={handleRevealDownload}
+                      disabled={isRevealingFolder || isDownloadingOnly}
+                      style={{ fontSize: '13px' }}
+                      title="在系统文件管理器中定位已下载的文件"
+                    >
+                      {isRevealingFolder ? '正在打开…' : '打开文件夹'}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="btn-fluent btn-primary"
+                    onClick={handleDownloadPrimary}
+                    disabled={effectiveIsBusy}
+                    style={{ minWidth: '120px', fontWeight: 600 }}
+                    title="通过应用内下载通道保存该文件到下载目录，不调用安装"
+                  >
+                    {isDownloadingOnly ? (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                        <span className="spinner-icon" style={{ width: '13px', height: '13px', borderWidth: '2px' }} />
+                        <span>下载中...</span>
+                      </span>
+                    ) : downloadedFile ? (
+                      '重新下载'
+                    ) : (
+                      '下载'
+                    )}
+                  </button>
+                </>
               ) : (
                 <button
                   type="button"
                   className="btn-fluent btn-primary"
                   onClick={handleAction}
-                  disabled={effectiveIsInstalling || Boolean(app.isLoading && hasNoReleases)}
+                  disabled={effectiveIsBusy || Boolean(app.isLoading && hasNoReleases)}
                   style={{ minWidth: '120px', fontWeight: 600, opacity: app.isLoading && hasNoReleases ? 0.75 : 1 }}
                 >
                   {app.isLoading && hasNoReleases ? (
@@ -1004,7 +1071,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                         onClick={() => setSelectedAssetName(asset.name)}
                         className={`btn-fluent ${isSelected ? 'btn-primary' : 'btn-secondary'}`}
                         style={{ fontSize: '12px', padding: '4px 10px' }}
-                        disabled={effectiveIsInstalling}
+                        disabled={effectiveIsBusy}
                         title={isSelected ? '当前正在使用该版本安装' : '将此包选为当前安装目标'}
                       >
                         {isSelected ? '✓ 已选用' : '选用此包'}
