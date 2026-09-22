@@ -2183,6 +2183,14 @@ body {
   scrollbar-color: var(--border-acrylic) transparent;
 }
 
+/* 滚动容器内的子项禁止纵向压缩：纵向 flex 子项默认 flex-shrink: 1，
+   而带 overflow: hidden 的子项（如资产抽屉 .settings-group）其 min-height: auto 会坍缩为 0，
+   资产较多时内容总高超出容器，抽屉会独自吸收全部压缩量被压成一条边框线。
+   本容器负责滚动，子项一律保持自然高度。 */
+.modal-body > * {
+  flex-shrink: 0;
+}
+
 .modal-scroll-area {
   min-height: 0;
   scrollbar-width: thin;
