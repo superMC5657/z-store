@@ -283,7 +283,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       {/* 外观 */}
       <div className={`settings-group ${isResetWave ? 'reset-wave-0' : ''}`}>
         <div className="settings-group-title">
-          <Monitor size={15} />
+          <Monitor size={16} />
           <span>{t('settings.appearance')}</span>
         </div>
 
@@ -417,7 +417,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       {/* 更新与提醒 */}
       <div className={`settings-group ${isResetWave ? 'reset-wave-1' : ''}`}>
         <div className="settings-group-title">
-          <RotateCcw size={15} />
+          <RotateCcw size={16} />
           <span>{t('settings.updates_and_notifs')}</span>
         </div>
 
@@ -522,7 +522,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       {/* 存储与下载 */}
       <div className={`settings-group ${isResetWave ? 'reset-wave-2' : ''}`}>
         <div className="settings-group-title">
-          <Folder size={15} />
+          <Folder size={16} />
           <span>{t('settings.storage_and_download')}</span>
         </div>
 
@@ -671,7 +671,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       {/* 账号与配额 */}
       <div className={`settings-group ${isResetWave ? 'reset-wave-2' : ''}`}>
         <div className="settings-group-title">
-          <User size={15} />
+          <User size={16} />
           <span>{t('settings.account')}</span>
         </div>
 
@@ -683,7 +683,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       {/* 网络与清单 */}
       <div className={`settings-group ${isResetWave ? 'reset-wave-3' : ''}`}>
         <div className="settings-group-title">
-          <Globe size={15} />
+          <Globe size={16} />
           <span>{t('settings.network_and_catalog')}</span>
         </div>
 
@@ -917,7 +917,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       {/* 数据备份 */}
       <div className={`settings-group ${isResetWave ? 'reset-wave-4' : ''}`}>
         <div className="settings-group-title">
-          <Database size={15} />
+          <Database size={16} />
           <span>{t('settings.data_backup')}</span>
         </div>
 
