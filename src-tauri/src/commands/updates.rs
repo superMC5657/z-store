@@ -12,7 +12,9 @@ pub const DAILY_NOTIFY_INTERVAL_SECONDS: i64 = 24 * 60 * 60;
 
 /// 轻量级获取应用最新版本号与更新说明（专为更新检查与关注动态设计）
 /// 坚决不拉取 README.md、不拉取仓库详情与 Stars、不拉取校验和文件
-/// 优先利用本地 ETag 缓存返回 304 Not Modified，将请求量与延迟降到最低
+/// 不看详情缓存 TTL：每次都走 ETag 轻量探查（无新版本时 304 零配额返回），
+/// 保证“有更新”提示不受详情浏览缓存过期时间拖累；
+/// 离线/限流时仍降级返回本地已有缓存。
 pub async fn fetch_app_latest_version_lightweight(
     state: &AppState,
     app_id: &str,
@@ -23,25 +25,9 @@ pub async fn fetch_app_latest_version_lightweight(
         return Err(format!("无法识别的应用标识: {}", app_id));
     };
 
-    let ttl_seconds = state
-        .db
-        .lock()
-        .map(|db| db.get_detail_cache_ttl_minutes() * 60)
-        .unwrap_or_else(|_| crate::config::get_project_config().cache.detail_ttl_minutes * 60);
-
-    // 1. 若非强制刷新，优先从 SQLite 本地缓存读取
-    if !is_force {
-        let cached_opt = state.db.lock().ok().and_then(|db| {
-            db.get_cached_app_detail(&clean_id, Some(ttl_seconds))
-                .ok()
-                .flatten()
-        });
-        if let Some(cached) = cached_opt {
-            if !cached.latest_version.trim().is_empty() {
-                return Ok((cached.latest_version, cached.changelog));
-            }
-        }
-    }
+    // 注意：此处故意不读详情缓存 TTL。更新发现对新鲜度的要求与详情浏览不同，
+    // 若复用详情 TTL，“有更新”提示最长会被拖累一个 TTL 窗口；轻量 ETag 探查足够便宜，
+    // 每次都走网络（304 命中时零配额），失败时再降级读本地缓存。
 
     // 2. 多源支持 (Codeberg, Gitea 等)
     if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&clean_id) {
