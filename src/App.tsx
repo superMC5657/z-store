@@ -13,7 +13,7 @@ import { InstalledView } from './views/InstalledView';
 import { UpdatesView } from './views/UpdatesView';
 import { SettingsView } from './views/SettingsView';
 import { FavoritesView } from './views/FavoritesView';
-import { AppDetail, AppDetailViewModel, AppSummary, InstalledApp, MirrorNodeStatus, OAuthUser, UpdateItem, UpdateCheckProgressPayload, UpdateRule, ViewType, WatchUpdatedPayload } from './types';
+import { AppDetail, AppDetailViewModel, AppSummary, InstalledApp, OAuthUser, UpdateItem, UpdateCheckProgressPayload, UpdateRule, ViewType, WatchUpdatedPayload } from './types';
 import { api, DEFAULT_SETTINGS } from './services/api';
 import { preloadIcons } from './components/AppIcon';
 import { zlogInfo } from './lib/z-log';
@@ -80,7 +80,6 @@ export const App: React.FC = () => {
   const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
   const [updateCheckProgress, setUpdateCheckProgress] = useState<UpdateCheckProgressPayload | null>(null);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
-  const [mirrors, setMirrors] = useState<MirrorNodeStatus[]>([]);
   const [selectedApp, setSelectedApp] = useState<AppDetailViewModel | null>(null);
   const activeDetailIdRef = useRef<string | null>(null);
   const [selectedDeveloper, setSelectedDeveloper] = useState<string | null>(null);
@@ -96,7 +95,6 @@ export const App: React.FC = () => {
     handleSetTheme,
     handleToggleLanguage,
     handleUpdateSetting,
-    handleResetSettings,
   } = useAppSettings();
   const [updateRules, setUpdateRules] = useState<UpdateRule[]>([]);
   const [recentlyViewedApps, setRecentlyViewedApps] = useState<AppSummary[]>([]);
@@ -128,7 +126,6 @@ export const App: React.FC = () => {
     });
     api.getInstalledApps().then(setInstalledApps);
     api.getDetectedInstalledAppIds().then((ids) => setDetectedAppIds(new Set(ids))).catch(() => {});
-    api.getMirrorStatus().then(setMirrors);
     api.getFavorites().then((favs) => setFavoriteIds(new Set(favs)));
     api.getUpdateRules().then(setUpdateRules);
     api.getRecentlyViewedApps().then((recents) => setRecentlyViewedApps(recents.filter((a) => matchPlatformSet(a, selectedPlatforms)))).catch(() => {});
@@ -919,23 +916,6 @@ export const App: React.FC = () => {
 
   const handleSelectMirror = async (mirrorId: string) => {
     await api.switchMirror(mirrorId);
-    const updated = await api.getMirrorStatus();
-    setMirrors(updated);
-  };
-
-  const handlePingMirrors = async () => {
-    try {
-      const active = mirrors.find((m) => m.is_active);
-      const testUrl = active?.id === 'custom' ? active.base_url : undefined;
-      const res = await api.testProxy(testUrl);
-      if (res.success) {
-        showToast(`测速成功: ${res.message}`, 'success');
-      } else {
-        showToast(`测速失败: ${res.message}`, 'error');
-      }
-    } catch {
-      showToast('测速失败，请检查网络连接', 'error');
-    }
   };
 
 
@@ -1023,7 +1003,6 @@ export const App: React.FC = () => {
         onToggleLanguage={handleToggleLanguage}
         isSidebarCollapsed={isSidebarCollapsed}
         onToggleSidebar={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-        onNavigateSettings={() => setCurrentView('settings')}
       />
 
       {/* 应用主体区域 */}
@@ -1157,15 +1136,12 @@ export const App: React.FC = () => {
 
           {currentView === 'settings' && (
             <SettingsView
-              mirrors={mirrors}
               onSelectMirror={handleSelectMirror}
-              onPingMirrors={handlePingMirrors}
               theme={settings.theme}
               onSetTheme={handleSetTheme}
               onExportAppsJson={handleExportAppsJson}
               settings={settings}
               onUpdateSetting={handleUpdateSetting}
-              onResetSettings={handleResetSettings}
               installedCount={installedApps.length}
               updateRulesCount={updateRules.length}
               onOpenRules={() => setIsRulesModalOpen(true)}

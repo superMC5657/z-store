@@ -2,8 +2,7 @@ use crate::AppState;
 use std::collections::HashMap;
 use tauri::State;
 
-#[tauri::command]
-pub fn get_default_settings() -> HashMap<String, String> {
+pub(crate) fn get_default_settings() -> HashMap<String, String> {
     let cfg = crate::config::get_project_config();
     let mut map = HashMap::new();
     map.insert("theme".to_string(), "system".to_string());
@@ -31,15 +30,6 @@ pub fn get_default_settings() -> HashMap<String, String> {
     );
     map.insert("watch_notify_frequency".to_string(), "daily".to_string());
     map
-}
-
-#[tauri::command]
-pub fn reset_setting(state: State<'_, AppState>, key: String) -> Result<String, String> {
-    let defaults = get_default_settings();
-    let default_val = defaults.get(&key).cloned().unwrap_or_default();
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.set_setting(&key, &default_val).map_err(|e| e.to_string())?;
-    Ok(default_val)
 }
 
 #[tauri::command]

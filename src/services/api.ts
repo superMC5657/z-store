@@ -65,10 +65,6 @@ const tauriApi = {
     return tauriInvoke<AppDetail>('get_app_details', { id, forceRefresh });
   },
 
-  async forceRefreshApp(id: string): Promise<AppDetail> {
-    return this.getAppDetails(id, true);
-  },
-
   async getInstalledApps(): Promise<InstalledApp[]> {
     return tauriInvoke<InstalledApp[]>('get_installed_apps');
   },
@@ -126,10 +122,6 @@ const tauriApi = {
     return tauriInvoke<boolean>('switch_mirror', { mirrorId });
   },
 
-  async pingMirrors(): Promise<MirrorNodeStatus[]> {
-    return tauriInvoke<MirrorNodeStatus[]>('ping_mirrors');
-  },
-
   async testProxy(proxyUrl?: string): Promise<ProxyTestResult> {
     return tauriInvoke<ProxyTestResult>('test_proxy', { proxyUrl: proxyUrl || null });
   },
@@ -142,31 +134,8 @@ const tauriApi = {
     return tauriInvoke<Record<string, string>>('get_settings');
   },
 
-  async getDefaultSettings(): Promise<Record<string, string>> {
-    return tauriInvoke<Record<string, string>>('get_default_settings');
-  },
-
-  async resetSetting(key: string): Promise<string> {
-    return tauriInvoke<string>('reset_setting', { key });
-  },
-
   async saveSetting(key: string, value: string): Promise<boolean> {
     return tauriInvoke<boolean>('save_setting', { key, value });
-  },
-
-  async resetSettings(): Promise<boolean> {
-    let defaults: Record<string, string> = {};
-    try {
-      defaults = await this.getDefaultSettings();
-    } catch {
-      defaults = Object.fromEntries(
-        Object.entries(DEFAULT_SETTINGS).map(([k, v]) => [k, String(v)])
-      );
-    }
-    for (const [key, val] of Object.entries(defaults)) {
-      await this.saveSetting(key, String(val));
-    }
-    return true;
   },
 
   async getFavorites(): Promise<string[]> {
@@ -183,10 +152,6 @@ const tauriApi = {
 
   async getCatalogCount(): Promise<number> {
     return tauriInvoke<number>('get_catalog_count');
-  },
-
-  async warmupTopApps(limit = 15): Promise<number> {
-    return tauriInvoke<number>('warmup_top_apps', { limit });
   },
 
   async scanAndMatchLocalApps(): Promise<AppMatchResult[]> {

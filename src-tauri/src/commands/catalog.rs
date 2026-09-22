@@ -173,15 +173,6 @@ pub fn get_category_apps(
 }
 
 #[tauri::command]
-pub async fn warmup_top_apps(
-    _state: State<'_, AppState>,
-    _limit: Option<usize>,
-) -> Result<usize, String> {
-    // 完全移除后台静默预热逻辑，保障用户 API 限额不被后台请求消耗
-    Ok(0)
-}
-
-#[tauri::command]
 pub async fn get_app_details(
     state: State<'_, AppState>,
     id: String,
@@ -589,12 +580,6 @@ pub async fn sync_catalog(
 #[tauri::command]
 pub fn get_catalog_count(state: State<'_, AppState>) -> Result<usize, String> {
     Ok(state.catalog.get_catalog_count())
-}
-
-#[tauri::command]
-pub async fn get_app_readme(state: State<'_, AppState>, id: String) -> Result<String, String> {
-    let detail = get_app_details(state, id, None).await?;
-    Ok(detail.readme_markdown)
 }
 
 #[cfg(test)]

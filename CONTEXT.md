@@ -10,7 +10,7 @@
 
 | 标准术语 (Term) | 英文标识 | 领域定义与业务边界 | 避免使用的非规范称呼 |
 |---|---|---|---|
-| **精选收录库** | `Curated Catalog` | 包含中文本地化别名、图标、官方仓库坐标等元数据的精选开源应用清单。 | 应用市场、软件仓库 |
+| **精选收录库** | `Curated Catalog` | 包含应用英文原名、图标、官方仓库坐标等元数据的精选开源应用清单。 | 应用市场、软件仓库 |
 | **独立生态清单仓库** | `Decoupled Catalog Repository` | 独立维护于 `superMC5657/z-store-catalog` 的开源清单数据仓库，独立运作保鲜 CI 与准入校验，详见 ADR-0009。 | 中心数据库、后台仓库 |
 | **种子清单兜底** | `Catalog Seed Fallback` | 客户端本地打包内置的 `catalog.json` 静态种子，确保初次安装或离线断网时 0 延迟秒开列表。 | 默认缓存、离线数据包 |
 | **多端应用标识符** | `Platform Identifiers` | 按操作系统（Windows、Linux、macOS、Android、iOS）区分的原生进程/包名标识符映射字典，用于精准匹配管理与启动。 | 执行文件名、进程表 |
@@ -32,10 +32,10 @@
 | **代码签名核验** | `Authenticode Verification` | 下载后强制 SHA-256 流式校验，与 `checksums.txt` / `SHA256SUMS` 比对（详见 ADR-0004）。 | 证书校验、安全验签 |
 | **存量应用管理** | `External App Management` | 扫描操作系统已安装软件（Windows 注册表及程序目录），通过倒排索引与启发式打分智能匹配开源清单，一键添加至管理列表并接管更新。 | 软件扫描、外部导入、应用纳管 |
 | **Fluent 2 矢量图标体系** | `Fluent Vector Icon System` | 全站功能操作、导航菜单、设备平台标识及状态指示全面采用轻量线性矢量图标（`lucide-react` 与统一单色 SVG），严格遵循 Fluent 2.0 视觉规范与 `currentColor` 主题自适应，配合 CSS 微动效与状态指示原点。 | 功能Emoji、彩色贴图、图标库 |
-| **主机配额指示器** | `Host Quota Indicator` | 视窗界面常驻胶囊徽章（Rate Limit Pill），动态监听各托管平台 API 剩余调用配额并在低电平（<15%）时告警。 | 配额胶囊、限流状态 |
+| **主机配额指示器** | `Host Quota Indicator` | 各托管平台 API 调用配额监听与告警机制（主界面已隐藏胶囊徽章，收敛于账号卡片按需管理）。 | 配额胶囊、限流状态 |
 | **下载加速代理** | `Mirror Download Proxy` | 仅用于大文件下载提速的加速镜像节点重写（如 `gh-proxy.com`）；仅改变下载 URL 前缀，API 与登录直接走系统网络通道。 | 出站代理、镜像节点 |
 | **GitHub登录胶囊** | `Account Capsule` | 侧栏底部常驻账号入口：未登录显示 GitHub 快捷登录入口，已登录显示用户头像与用户名；点击直达设置中心账号卡片（`#settings-account`）。 | 侧边栏按钮、用户面板 |
-| **设置中心分组** | `Settings Groups` | `SettingsView` 规范 5 组结构：外观与显示 / 更新与提醒 / GitHub账号与配额 / 网络与清单数据 / 数据备份与恢复。 | 设置页、选项卡 |
+| **设置中心分组** | `Settings Groups` | `SettingsView` 规范 5 组结构：外观与显示 / 更新与提醒 / 存储与下载 / 账号与网络 / 数据备份。 | 设置页、选项卡 |
 | **OAuth Device Flow** | `OAuth Device Flow` | GitHub 登录设备码流程，Client ID 取自统一配置中枢 `config.toml`（支持设置项覆盖）；轮询容错 10 次、单次 10s 超时；`Expired` / `Denied` 独立状态机展示。 | 网页登录、PAT 登录 |
 | **流式更新检查** | `Streaming Update Check` | 更新中心采用并发管道流式检测，实时发射 `zstore://update-check-progress` 推流事件，驱动逐项跳出微动效。 | 批量更新、后台检测 |
 | **统一配置中枢** | `Unified Project Config` | `src-tauri/config.toml` 作为项目超参与默认配置的单一配置源 (SSOT)，结合编译期宏内置兜底与运行期动态重载。 | 配置文件、硬编码常量 |
@@ -48,7 +48,7 @@
 1. **D1 纯粹开源 (Strictly FLOSS)**:
    - 仅收录和分发托管于 GitHub、Codeberg、Gitea、GitLab 等主流开源托管平台且拥有 OSI 认证开源协议的软件，严禁集成任何闭源专有软件包或商业广告推广。
 2. **D2 零服务器成本与解耦清单同步 (Serverless Direct API & Decoupled Manifest Sync)**:
-   - 客户端从独立开源清单仓库（`superMC5657/z-store-catalog`）增量同步精选应用元数据（包含分类、中文别名、图标、多端标识符与仓库坐标等）；本地预置 `catalog.json` 种子清单兜底（详见 ADR-0009）。
+   - 客户端从独立开源清单仓库（`superMC5657/z-store-catalog`）增量同步精选应用元数据（包含分类、英文原名、图标、多端标识符与仓库坐标等）；本地预置 `catalog.json` 种子清单兜底（详见 ADR-0009）。
    - 应用深度详情与构建资产通过 `ForgeProvider` 抽象层按需直连各代码源官方 REST API 获取，不设中心化聚合后端；
    - 本地 SQLite (`z_store.db`) 维护基于单一配置源（`src-tauri/config.toml`）的 TTL 缓存（默认 30 分钟），配合 HTTP ETag 304 条件请求实现零配额消耗延长缓存时效；离线或请求失败时平滑回退本地持久化数据（详见 ADR-0007）。
    - 网络层自动继承操作系统代理与环境变量（Windows 下启动时自探测注册表且 https 优先，支持 Clash / v2ray / TUN 模式透明截获），与针对 Release 大文件下载的加速镜像节点正交可叠加。

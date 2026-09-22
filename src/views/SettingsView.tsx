@@ -18,37 +18,31 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
-import { AppSettings, MirrorNodeStatus } from '../types';
+import { AppSettings } from '../types';
 import { api } from '../services/api';
 import { ClientUpdateRow } from '../components/ClientUpdateRow';
 import { OAuthAccountCard } from '../components/OAuthAccountCard';
 import { DataBackupRow } from '../components/DataBackupRow';
 
 interface SettingsViewProps {
-  mirrors?: MirrorNodeStatus[];
   onSelectMirror: (id: string) => void;
-  onPingMirrors?: () => void;
   theme: 'light' | 'dark' | 'system';
   onSetTheme: (theme: 'light' | 'dark' | 'system') => void;
   onExportAppsJson: () => void;
   settings: AppSettings;
   onUpdateSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
-  onResetSettings?: () => Promise<void>;
   installedCount: number;
   updateRulesCount: number;
   onOpenRules: () => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
-  mirrors: _mirrors,
   onSelectMirror,
-  onPingMirrors: _onPingMirrors,
   theme,
   onSetTheme,
   onExportAppsJson,
   settings,
   onUpdateSetting,
-  onResetSettings: _onResetSettings,
   installedCount,
   updateRulesCount,
   onOpenRules,

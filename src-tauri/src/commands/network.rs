@@ -47,24 +47,3 @@ pub fn switch_mirror(state: State<'_, AppState>, mirror_id: String) -> Result<bo
     }
     Ok(ok)
 }
-
-#[tauri::command]
-pub async fn ping_mirrors(state: State<'_, AppState>) -> Result<Vec<MirrorNodeStatus>, String> {
-    let proxy = {
-        let mirror = state.mirror.lock().map_err(|e| e.to_string())?;
-        mirror.get_proxy_url()
-    };
-    let (_success, latency, _msg) =
-        crate::mirror::MirrorManager::test_proxy_latency(proxy.as_deref()).await;
-    log::debug!("proxy ping done latency_ms={}", latency);
-    let mut statuses = {
-        let mirror = state.mirror.lock().map_err(|e| e.to_string())?;
-        mirror.get_mirror_statuses()
-    };
-    for s in &mut statuses {
-        if s.is_active {
-            s.latency_ms = latency;
-        }
-    }
-    Ok(statuses)
-}

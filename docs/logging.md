@@ -125,7 +125,6 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
 | 点位 | 消息样例 |
 |---|---|
 | 单仓/详情/搜索成功 `commands/catalog.rs` | `fetch detail ok id=…` / `fetch repo ok id=…` / `search done query='rust' hits=3` |
-| 测速毫秒 `commands/network.rs::ping_mirrors` | `proxy ping done latency_ms=210` |
 | 关注挂起 `commands/updates.rs::notify_watched_updates` | `watch deferred id=… reason=daily-throttle\|baseline-init\|…首行…` |
 | device 取消 `commands/oauth.rs` | `oauth device denied`（正常流程，不记 token/user_code） |
 | 拉取层正常请求 `github/*`、`forge/*` | `http fetch … / http forge …`（成功/304 一律 debug；失败 warn，错误上浮到命令层记一次） |

@@ -14,7 +14,6 @@ import i18n from '../i18n';
 vi.mock('../services/api', () => ({
   api: {
     syncCatalog: async () => ({ updated: false, count: 0, message: 'ok' }),
-    resetSetting: async () => '',
     selectFolder: async () => null,
     testProxy: async () => ({ success: true, latency_ms: 10, message: 'ok' }),
   },
@@ -66,14 +65,12 @@ function renderSettings(settings: AppSettings) {
   };
   render(
     <SettingsView
-      mirrors={[]}
       onSelectMirror={async () => undefined}
       theme="dark"
       onSetTheme={() => undefined}
       onExportAppsJson={() => undefined}
       settings={settings}
       onUpdateSetting={onUpdateSetting}
-      onResetSettings={async () => undefined}
       installedCount={0}
       updateRulesCount={0}
       onOpenRules={() => undefined}

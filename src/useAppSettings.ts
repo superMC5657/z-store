@@ -164,17 +164,6 @@ export function useAppSettings() {
     void handleUpdateSetting('language', nextLang);
   };
 
-  // 恢复所有设置至出厂默认值
-  const handleResetSettings = async () => {
-    await api.resetSettings();
-    setSettings(DEFAULT_SETTINGS);
-    void i18n.changeLanguage(DEFAULT_SETTINGS.language);
-    setTheme('dark');
-    document.documentElement.setAttribute('data-theme', 'dark');
-    applyFontSize('14');
-    applyUiZoom('100');
-  };
-
   return {
     theme,
     settings,
@@ -183,6 +172,5 @@ export function useAppSettings() {
     handleSetTheme,
     handleToggleLanguage,
     handleUpdateSetting,
-    handleResetSettings,
   };
 }
