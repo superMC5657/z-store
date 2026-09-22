@@ -11,6 +11,7 @@ pub fn get_installed_apps(state: State<'_, AppState>) -> Result<Vec<InstalledApp
     let mut ghost_app_ids = Vec::new();
 
     for app in &mut apps {
+        let mut app_changed = false;
         if app.icon.is_none() {
             if let Some(item) = state.catalog.get_catalog_item(&app.app_id) {
                 app.icon = Some(item.icon);
@@ -34,12 +35,30 @@ pub fn get_installed_apps(state: State<'_, AppState>) -> Result<Vec<InstalledApp
                         None,
                     );
                 }
-                needs_db_update.push(app.clone());
+                app_changed = true;
             } else {
                 // 如果不仅原路径失效，且全盘嗅探均已找不到真实主程序
                 // 说明该应用已被用户通过系统/外部渠道彻底卸载，标记为幽灵应用进行自愈清理
                 ghost_app_ids.push(app.app_id.clone());
             }
+        }
+
+        // 自愈已导入本地应用的真实安装时间（解决此前导入时全量盖章当前时刻的问题）
+        if app.install_method == "system_import" {
+            if let Some(real_time) = crate::scanner::AppScanner::resolve_app_installed_at(
+                &app.app_name,
+                &app.app_id,
+                &app.install_path,
+            ) {
+                if real_time != app.installed_at && real_time > 0 {
+                    app.installed_at = real_time;
+                    app_changed = true;
+                }
+            }
+        }
+
+        if app_changed {
+            needs_db_update.push(app.clone());
         }
     }
 

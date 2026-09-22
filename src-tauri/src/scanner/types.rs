@@ -9,6 +9,8 @@ pub struct ScannedRawApp {
     pub install_location: Option<String>,
     pub display_icon: Option<String>,
     pub uninstall_string: Option<String>,
+    #[serde(default)]
+    pub installed_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,6 +37,8 @@ pub struct ImportAppRequest {
     pub version: String,
     pub install_path: Option<String>,
     pub uninstall_command: Option<String>,
+    #[serde(default)]
+    pub installed_at: Option<i64>,
 }
 
 #[derive(Debug, Clone)]

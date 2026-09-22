@@ -458,4 +458,141 @@ impl AppScanner {
         // 5. 调用已有 resolve_executable_path
         Self::resolve_executable_path(None, None, config)
     }
+
+    /// 检测本地文件路径对应的主程序或安装目录的文件系统创建/修改时间戳
+    pub fn detect_path_installed_at(path_str: &str) -> Option<i64> {
+        let clean = path_str.trim().trim_matches('"');
+        if clean.is_empty() {
+            return None;
+        }
+        let p = Path::new(clean);
+        if !p.exists() {
+            return None;
+        }
+
+        let meta = std::fs::metadata(p).ok()?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+
+        // 优先读取文件/目录自身的创建时间 (NTFS birthtime)
+        if let Ok(created) = meta.created() {
+            if let Ok(dur) = created.duration_since(std::time::UNIX_EPOCH) {
+                let ts = dur.as_secs() as i64;
+                if ts > 631_152_000 && ts <= now + 86_400 {
+                    return Some(ts);
+                }
+            }
+        }
+
+        // 回退读取文件/目录自身的最后修改时间
+        if let Ok(modified) = meta.modified() {
+            if let Ok(dur) = modified.duration_since(std::time::UNIX_EPOCH) {
+                let ts = dur.as_secs() as i64;
+                if ts > 631_152_000 && ts <= now + 86_400 {
+                    return Some(ts);
+                }
+            }
+        }
+
+        None
+    }
+
+    /// 解析应用的真实系统安装时间戳
+    /// 优先级：
+    /// 1. 注册表匹配项的 InstallDate
+    /// 2. 注册表匹配项对应键的 LastWriteTime
+    /// 3. 本地安装路径 / 可执行文件 / 安装目录创建时间
+    pub fn resolve_app_installed_at(
+        app_name: &str,
+        app_id: &str,
+        install_path: &str,
+    ) -> Option<i64> {
+        #[cfg(target_os = "windows")]
+        {
+            use winreg::enums::*;
+            use winreg::RegKey;
+
+            let mut tokens = Vec::new();
+            let name_clean = app_name.trim().to_lowercase();
+            if !name_clean.is_empty() {
+                tokens.push(name_clean.clone());
+            }
+            if let Some((_, repo)) = app_id.split_once('/') {
+                let r_lower = repo.trim().to_lowercase();
+                if !r_lower.is_empty() && !tokens.contains(&r_lower) {
+                    tokens.push(r_lower);
+                }
+            }
+
+            let targets = [
+                (
+                    HKEY_LOCAL_MACHINE,
+                    r"Software\Microsoft\Windows\CurrentVersion\Uninstall",
+                ),
+                (
+                    HKEY_LOCAL_MACHINE,
+                    r"Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+                ),
+                (
+                    HKEY_CURRENT_USER,
+                    r"Software\Microsoft\Windows\CurrentVersion\Uninstall",
+                ),
+            ];
+
+            let mut candidate_reg_time: Option<i64> = None;
+
+            for (hive, subpath) in targets {
+                let root = RegKey::predef(hive);
+                if let Ok(uninstall_key) = root.open_subkey(subpath) {
+                    for key_name in uninstall_key.enum_keys().map_while(Result::ok) {
+                        let k_lower = key_name.to_lowercase();
+                        let is_guid = k_lower.starts_with('{') && k_lower.ends_with('}');
+                        if let Ok(app_key) = uninstall_key.open_subkey(&key_name) {
+                            let disp_name: String = app_key
+                                .get_value::<String, _>("DisplayName")
+                                .unwrap_or_default()
+                                .trim()
+                                .to_string();
+                            let d_lower = disp_name.to_lowercase();
+
+                            let is_match = !d_lower.is_empty()
+                                && tokens.iter().any(|t| {
+                                    d_lower == *t
+                                        || (t.len() >= 4 && d_lower.contains(t))
+                                        || (d_lower.len() >= 4 && t.contains(&d_lower))
+                                        || (!is_guid
+                                            && (k_lower == *t
+                                                || (t.len() >= 4 && k_lower.contains(t))))
+                                });
+
+                            if is_match {
+                                // 1. 优先读取 InstallDate 字符串
+                                if let Ok(date_str) = app_key.get_value::<String, _>("InstallDate") {
+                                    if let Some(parsed) =
+                                        super::registry::parse_install_date_to_unix(&date_str)
+                                    {
+                                        return Some(parsed);
+                                    }
+                                }
+                                // 2. 备选注册表项本身的 LastWriteTime
+                                if candidate_reg_time.is_none() {
+                                    candidate_reg_time =
+                                        super::registry::get_reg_key_last_write_time(&app_key);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if let Some(reg_ts) = candidate_reg_time {
+                return Some(reg_ts);
+            }
+        }
+
+        // 3. 回退尝试从物理路径/可执行文件元数据获取创建时间
+        Self::detect_path_installed_at(install_path)
+    }
 }

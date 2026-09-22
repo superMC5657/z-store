@@ -62,11 +62,22 @@ pub fn import_matched_apps(
         } else {
             (None, None)
         };
+        let installed_at = req
+            .installed_at
+            .or_else(|| {
+                crate::scanner::AppScanner::resolve_app_installed_at(
+                    &req.app_name,
+                    &app_id,
+                    req.install_path.as_deref().unwrap_or_default(),
+                )
+            })
+            .unwrap_or(now);
+
         let installed = InstalledApp {
             app_id,
             app_name: req.app_name,
             version: req.version,
-            installed_at: now,
+            installed_at,
             install_method: "system_import".to_string(),
             install_path: req.install_path.unwrap_or_default(),
             asset_name: "system_detected".to_string(),
@@ -161,19 +172,27 @@ pub fn import_single_app(state: State<'_, AppState>, app_id: String) -> Result<b
         .ok_or_else(|| format!("Catalog 中未收录该应用: {}", app_id))?;
 
     let resolved_path = crate::scanner::AppScanner::resolve_installed_app_path(&cat.name, &cat.id, Some(&cat.repo));
+    let resolved_path_str = resolved_path.unwrap_or_default();
 
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64;
 
+    let installed_at = crate::scanner::AppScanner::resolve_app_installed_at(
+        &cat.name,
+        &cat.id,
+        &resolved_path_str,
+    )
+    .unwrap_or(now);
+
     let installed = InstalledApp {
         app_id: cat.id.clone(),
         app_name: cat.name.clone(),
         version: cat.default_version.clone(),
-        installed_at: now,
+        installed_at,
         install_method: "system_import".to_string(),
-        install_path: resolved_path.unwrap_or_default(),
+        install_path: resolved_path_str,
         asset_name: "system_detected".to_string(),
         asset_sha256: "system_verified".to_string(),
         uninstall_command: None,

@@ -162,6 +162,7 @@ export interface ScannedRawApp {
   install_location?: string;
   display_icon?: string;
   uninstall_string?: string;
+  installed_at?: number;
 }
 
 export interface AppMatchResult {
@@ -186,6 +187,7 @@ export interface ImportAppRequest {
   version: string;
   install_path?: string;
   uninstall_command?: string;
+  installed_at?: number;
 }
 
 export interface UpdateRule {

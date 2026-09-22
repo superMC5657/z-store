@@ -71,6 +71,7 @@ fn test_match_apps_high_confidence() {
             install_location: Some(r"C:\Program Files\VideoLAN\VLC".to_string()),
             display_icon: Some(r"C:\Program Files\VideoLAN\VLC\vlc.exe,0".to_string()),
             uninstall_string: Some(r"C:\Program Files\VideoLAN\VLC\uninstall.exe".to_string()),
+            installed_at: None,
         },
         ScannedRawApp {
             display_name: "OBS Studio".to_string(),
@@ -79,6 +80,7 @@ fn test_match_apps_high_confidence() {
             install_location: Some(r"C:\Program Files\obs-studio".to_string()),
             display_icon: None,
             uninstall_string: None,
+            installed_at: None,
         },
     ];
 
@@ -110,6 +112,7 @@ fn test_match_apps_unrelated_filtered() {
         install_location: None,
         display_icon: None,
         uninstall_string: None,
+        installed_at: None,
     }];
 
     let results = AppScanner::match_apps(&scanned, &catalog);
@@ -154,6 +157,7 @@ fn test_match_expanded_apps_from_catalog() {
             install_location: None,
             display_icon: Some(r#""E:\Program Files\qBittorrent\qbittorrent.exe",0"#.to_string()),
             uninstall_string: None,
+            installed_at: None,
         },
         ScannedRawApp {
             display_name: "Motrix 1.8.19".to_string(),
@@ -162,6 +166,7 @@ fn test_match_expanded_apps_from_catalog() {
             install_location: None,
             display_icon: Some(r#"E:\Program Files\Motrix\Motrix.exe,0"#.to_string()),
             uninstall_string: None,
+            installed_at: None,
         },
         ScannedRawApp {
             display_name: "Playnite".to_string(),
@@ -172,6 +177,7 @@ fn test_match_expanded_apps_from_catalog() {
                 r#"C:\Users\user\AppData\Local\Playnite\Playnite.DesktopApp.exe"#.to_string(),
             ),
             uninstall_string: None,
+            installed_at: None,
         },
         ScannedRawApp {
             display_name: "Telegram Desktop".to_string(),
@@ -180,6 +186,7 @@ fn test_match_expanded_apps_from_catalog() {
             install_location: Some(r#"E:\Program Files\Telegram Desktop\"#.to_string()),
             display_icon: Some(r#"E:\Program Files\Telegram Desktop\Telegram.exe"#.to_string()),
             uninstall_string: None,
+            installed_at: None,
         },
     ];
 
@@ -202,6 +209,50 @@ fn test_is_installer_or_cache_path() {
 
     assert!(!AppScanner::is_installer_or_cache_path(std::path::Path::new(r"C:\Program Files\VLC\vlc.exe")));
     assert!(!AppScanner::is_installer_or_cache_path(std::path::Path::new(r"C:\Programs\Tool\tool.exe")));
+}
+
+#[test]
+fn test_parse_install_date_to_unix() {
+    use crate::scanner::registry::parse_install_date_to_unix;
+
+    // YYYYMMDD
+    let ts = parse_install_date_to_unix("20260915");
+    assert!(ts.is_some());
+    let ts_val = ts.unwrap();
+
+    // YYYY-MM-DD
+    let ts2 = parse_install_date_to_unix("2026-09-15");
+    assert_eq!(ts2, Some(ts_val));
+
+    // YYYY/MM/DD
+    let ts3 = parse_install_date_to_unix("2026/09/15");
+    assert_eq!(ts3, Some(ts_val));
+
+    // YYYY.MM.DD
+    let ts4 = parse_install_date_to_unix("2026.09.15");
+    assert_eq!(ts4, Some(ts_val));
+
+    // Invalid dates
+    assert_eq!(parse_install_date_to_unix(""), None);
+    assert_eq!(parse_install_date_to_unix("not-a-date"), None);
+    assert_eq!(parse_install_date_to_unix("20261301"), None);
+}
+
+#[test]
+fn test_detect_path_installed_at() {
+    let temp_file = tempfile::NamedTempFile::new().unwrap();
+    let ts = AppScanner::detect_path_installed_at(temp_file.path().to_str().unwrap());
+    assert!(ts.is_some());
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    assert!((ts.unwrap() - now).abs() <= 10);
+
+    assert_eq!(
+        AppScanner::detect_path_installed_at(r"C:\non_existent_folder_xyz_123\not_real.exe"),
+        None
+    );
 }
 
 #[test]

@@ -1,5 +1,93 @@
 use super::{AppScanner, ScannedRawApp};
 
+/// 解析注册表中的 InstallDate 字符串（常见格式 YYYYMMDD 或 YYYY-MM-DD / YYYY/MM/DD）转换为 Unix 秒时间戳
+pub fn parse_install_date_to_unix(s: &str) -> Option<i64> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+
+    let (year, month, day) = if s.len() == 8 && s.chars().all(|c| c.is_ascii_digit()) {
+        let y: i32 = s[0..4].parse().ok()?;
+        let m: u32 = s[4..6].parse().ok()?;
+        let d: u32 = s[6..8].parse().ok()?;
+        (y, m, d)
+    } else if s.len() == 10 {
+        let parts: Vec<&str> = s.split(|c| c == '-' || c == '/' || c == '.').collect();
+        if parts.len() == 3 {
+            let y: i32 = parts[0].parse().ok()?;
+            let m: u32 = parts[1].parse().ok()?;
+            let d: u32 = parts[2].parse().ok()?;
+            (y, m, d)
+        } else {
+            return None;
+        }
+    } else {
+        return None;
+    };
+
+    if (1990..=2100).contains(&year) && (1..=12).contains(&month) && (1..=31).contains(&day) {
+        if let Ok(m) = (month as u8).try_into() {
+            if let Ok(date) = time::Date::from_calendar_date(year, m, day as u8) {
+                return Some(date.midnight().assume_utc().unix_timestamp());
+            }
+        }
+    }
+    None
+}
+
+/// 读取 Windows 注册表项本身的最后写入时间戳（FILETIME 转 Unix 秒级时间戳）
+#[cfg(target_os = "windows")]
+pub fn get_reg_key_last_write_time(key: &winreg::RegKey) -> Option<i64> {
+    #[repr(C)]
+    struct FILETIME {
+        low: u32,
+        high: u32,
+    }
+    extern "system" {
+        fn RegQueryInfoKeyW(
+            hKey: *mut std::ffi::c_void,
+            lpClass: *mut u16,
+            lpcchClass: *mut u32,
+            lpReserved: *mut u32,
+            lpcSubKeys: *mut u32,
+            lpcbMaxSubKeyLen: *mut u32,
+            lpcbMaxClassLen: *mut u32,
+            lpcValues: *mut u32,
+            lpcbMaxValueNameLen: *mut u32,
+            lpcbMaxValueLen: *mut u32,
+            lpcbSecurityDescriptor: *mut u32,
+            lpftLastWriteTime: *mut FILETIME,
+        ) -> i32;
+    }
+    let mut ft = FILETIME { low: 0, high: 0 };
+    let ret = unsafe {
+        RegQueryInfoKeyW(
+            key.raw_handle() as _,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut ft,
+        )
+    };
+    if ret == 0 {
+        let intervals = ((ft.high as u64) << 32) | (ft.low as u64);
+        // 116444736000000000 100-ns intervals between 1601-01-01 and 1970-01-01
+        if intervals > 116_444_736_000_000_000 {
+            let unix_secs = (intervals - 116_444_736_000_000_000) / 10_000_000;
+            return Some(unix_secs as i64);
+        }
+    }
+    None
+}
+
 impl AppScanner {
     #[cfg(target_os = "windows")]
     pub(crate) fn scan_windows_registry() -> Vec<ScannedRawApp> {
@@ -127,6 +215,20 @@ impl AppScanner {
                             .map(|s: String| s.trim().to_string())
                             .filter(|s| !s.is_empty());
 
+                        let install_date_str: Option<String> = app_key
+                            .get_value("InstallDate")
+                            .ok()
+                            .map(|s: String| s.trim().to_string())
+                            .filter(|s| !s.is_empty());
+
+                        let mut installed_at: Option<i64> = install_date_str
+                            .as_deref()
+                            .and_then(parse_install_date_to_unix);
+
+                        if installed_at.is_none() {
+                            installed_at = get_reg_key_last_write_time(&app_key);
+                        }
+
                         scanned_list.push(ScannedRawApp {
                             display_name,
                             display_version,
@@ -134,6 +236,7 @@ impl AppScanner {
                             install_location,
                             display_icon,
                             uninstall_string,
+                            installed_at,
                         });
                     }
                 }

@@ -93,6 +93,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
         version: m.local_version || m.catalog_version,
         install_path: m.resolved_executable_path || m.scanned.install_location || m.scanned.display_icon || undefined,
         uninstall_command: m.scanned.uninstall_string || undefined,
+        installed_at: m.scanned.installed_at || undefined,
       }));
 
     if (toImport.length === 0) return;

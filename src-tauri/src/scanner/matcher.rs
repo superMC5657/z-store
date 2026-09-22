@@ -144,8 +144,21 @@ impl AppScanner {
                     matched_cat,
                 );
 
+                let mut scanned_entry = scanned.clone();
+                if scanned_entry.installed_at.is_none() {
+                    scanned_entry.installed_at = resolved_exe
+                        .as_deref()
+                        .and_then(Self::detect_path_installed_at)
+                        .or_else(|| {
+                            scanned_entry
+                                .install_location
+                                .as_deref()
+                                .and_then(Self::detect_path_installed_at)
+                        });
+                }
+
                 results.push(AppMatchResult {
-                    scanned: scanned.clone(),
+                    scanned: scanned_entry,
                     catalog_id: matched_cat.id.clone(),
                     name: matched_cat.name.clone(),
                     owner: matched_cat.owner.clone(),
