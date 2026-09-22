@@ -37,7 +37,7 @@ interface SettingsViewProps {
   onExportAppsJson: () => void;
   settings: AppSettings;
   onUpdateSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
-  onResetSettings: () => Promise<void>;
+  onResetSettings?: () => Promise<void>;
   installedCount: number;
   updateRulesCount: number;
   onOpenRules: () => void;
@@ -52,7 +52,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onExportAppsJson,
   settings,
   onUpdateSetting,
-  onResetSettings,
+  onResetSettings: _onResetSettings,
   installedCount,
   updateRulesCount,
   onOpenRules,
@@ -88,12 +88,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [catalogUrlSaved, setCatalogUrlSaved] = useState(false);
   const [showAdvancedSource, setShowAdvancedSource] = useState(false);
   const [isCatalogSourceConfirming, setIsCatalogSourceConfirming] = useState(false);
-  const [isResetConfirming, setIsResetConfirming] = useState(false);
 
   // 动态动效与微交互状态
   const [activeNotice, setActiveNotice] = useState<{ key: string; text: string } | null>(null);
   const [highlightRow, setHighlightRow] = useState<string | null>(null);
-  const [isResetWave, setIsResetWave] = useState(false);
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const triggerChangeFeedback = (key: string, text: string) => {
@@ -245,14 +243,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     triggerChangeFeedback('export', '✓ ' + t('settings.export_apps'));
   };
 
-  const handleExecuteResetSettings = async () => {
-    setIsResetWave(true);
-    triggerChangeFeedback('reset', '✓ ' + t('settings.reset_all_title'));
-    await onResetSettings();
-    setIsResetConfirming(false);
-    setTimeout(() => setIsResetWave(false), 1400);
-  };
-
   // P3-3 信任阻尼：切换至非默认（自定义）收录源将替换受信任的目录，
   // 属于敏感破坏性操作，必须经过二次显式确认。保存为空值（即恢复官方默认源流）立即生效。
   const pendingCatalogUrl = catalogSourceUrl.trim();
@@ -281,7 +271,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </div>
 
       {/* 外观 */}
-      <div className={`settings-group ${isResetWave ? 'reset-wave-0' : ''}`}>
+      <div className="settings-group">
         <div className="settings-group-title">
           <Monitor size={16} />
           <span>{t('settings.appearance')}</span>
@@ -411,7 +401,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </div>
 
       {/* 更新与提醒 */}
-      <div className={`settings-group ${isResetWave ? 'reset-wave-1' : ''}`}>
+      <div className="settings-group">
         <div className="settings-group-title">
           <RotateCcw size={16} />
           <span>{t('settings.updates_and_notifs')}</span>
@@ -509,7 +499,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </div>
 
       {/* 存储与下载 */}
-      <div className={`settings-group ${isResetWave ? 'reset-wave-2' : ''}`}>
+      <div className="settings-group">
         <div className="settings-group-title">
           <Folder size={16} />
           <span>{t('settings.storage_and_download')}</span>
@@ -555,18 +545,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               >
                 <FolderOpen size={13} />
                 <span>{t('settings.browse')}</span>
-              </button>
-              <button
-                type="button"
-                className="btn-fluent btn-secondary"
-                style={{ fontSize: '12px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
-                onClick={() => {
-                  onUpdateSetting('download_dir', '~/Downloads');
-                  triggerChangeFeedback('download_dir', '✓ ' + t('settings.reset_default'));
-                }}
-              >
-                <RotateCcw size={12} />
-                <span>{t('settings.reset_default')}</span>
               </button>
             </div>
           </div>
@@ -623,19 +601,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <FolderOpen size={13} />
                 <span>{t('settings.browse')}</span>
               </button>
-              <button
-                type="button"
-                className="btn-fluent btn-secondary"
-                style={{ fontSize: '12px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
-                onClick={() => {
-                  const defaultPortable = '%LOCALAPPDATA%\\Programs\\z-store-apps';
-                  onUpdateSetting('portable_dir', defaultPortable);
-                  triggerChangeFeedback('portable_dir', '✓ ' + t('settings.reset_default'));
-                }}
-              >
-                <RotateCcw size={12} />
-                <span>{t('settings.reset_default')}</span>
-              </button>
             </div>
           </div>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -652,7 +617,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </div>
 
       {/* 账号与配额 */}
-      <div className={`settings-group ${isResetWave ? 'reset-wave-2' : ''}`}>
+      <div className="settings-group">
         <div className="settings-group-title">
           <User size={16} />
           <span>{t('settings.account')}</span>
@@ -664,7 +629,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </div>
 
       {/* 网络与清单 */}
-      <div className={`settings-group ${isResetWave ? 'reset-wave-3' : ''}`}>
+      <div className="settings-group">
         <div className="settings-group-title">
           <Globe size={16} />
           <span>{t('settings.network_and_catalog')}</span>
@@ -745,24 +710,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   </>
                 )}
               </span>
-            )}
-            {proxyInput.trim() && proxyInput.trim() !== 'direct' && (
-              <button
-                type="button"
-                className="btn-fluent btn-secondary"
-                style={{ fontSize: '11px', padding: '2px 8px', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '4px' }}
-                onClick={async () => {
-                  setProxyInput('');
-                  await onSelectMirror('direct');
-                  onUpdateSetting('active_mirror', 'direct');
-                  setProxySavedFeedback(t('settings.proxy_saved_direct'));
-                  triggerChangeFeedback('proxy', '✓ ' + t('settings.proxy_active_direct'));
-                  setTimeout(() => setProxySavedFeedback(null), 3500);
-                }}
-              >
-                <RotateCcw size={10} />
-                <span>{t('settings.restore_direct')}</span>
-              </button>
             )}
           </div>
         </div>
@@ -854,27 +801,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   <span>{catalogUrlSaved ? t('common.save') : t('settings.catalog_save_btn')}</span>
                 </button>
               )}
-              <button
-                type="button"
-                className="btn-fluent btn-secondary"
-                style={{ fontSize: '12px', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: '4px' }}
-                onClick={async () => {
-                  try {
-                    const defUrl = await api.resetSetting('catalog_source_url');
-                    setCatalogSourceUrl(defUrl);
-                    onUpdateSetting('catalog_source_url', defUrl);
-                    setIsCatalogSourceConfirming(false);
-                    setCatalogUrlSaved(true);
-                    triggerChangeFeedback('catalog_source', t('settings.catalog_source_restored'));
-                    setTimeout(() => setCatalogUrlSaved(false), 2500);
-                  } catch {
-                    /* 重置静默失败 */
-                  }
-                }}
-              >
-                <RotateCcw size={12} />
-                <span>{t('settings.reset_default')}</span>
-              </button>
             </div>
           )}
           {isCatalogSourceConfirming && (
@@ -892,7 +818,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </div>
 
       {/* 数据备份 */}
-      <div className={`settings-group ${isResetWave ? 'reset-wave-4' : ''}`}>
+      <div className="settings-group">
         <div className="settings-group-title">
           <Database size={16} />
           <span>{t('settings.data_backup')}</span>
@@ -921,51 +847,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
 
         <DataBackupRow />
-
-        <div className={`settings-row ${highlightRow === 'reset' ? 'row-highlight' : ''}`}>
-          <div className="settings-row-info">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 600 }}>{t('settings.reset_all_title')}</span>
-              {activeNotice?.key === 'reset' && (
-                <span className="setting-applied-badge">{activeNotice.text}</span>
-              )}
-            </div>
-          </div>
-          {isResetConfirming ? (
-            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-              <span style={{ fontSize: '12px', color: '#ef4444', fontWeight: 600 }}>{t('settings.reset_confirm_btn')}？</span>
-              <button
-                className="btn-fluent"
-                style={{
-                  padding: '6px 14px',
-                  fontSize: '12px',
-                  background: '#ef4444',
-                  color: '#fff',
-                  fontWeight: 600,
-                }}
-                onClick={handleExecuteResetSettings}
-              >
-                {t('common.confirm')}
-              </button>
-              <button
-                className="btn-fluent btn-secondary"
-                style={{ padding: '6px 10px', fontSize: '12px' }}
-                onClick={() => setIsResetConfirming(false)}
-              >
-                {t('common.cancel')}
-              </button>
-            </div>
-          ) : (
-            <button
-              className="btn-fluent btn-secondary"
-              style={{ fontSize: '12px', padding: '6px 14px', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '6px' }}
-              onClick={() => setIsResetConfirming(true)}
-            >
-              <RotateCcw size={13} />
-              <span>{t('settings.reset_default')}</span>
-            </button>
-          )}
-        </div>
       </div>
     </div>
   );

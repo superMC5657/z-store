@@ -158,7 +158,6 @@ describe('SettingsView custom catalog source confirm', () => {
     expect(screen.getByText('Network & Catalog')).toBeTruthy();
     expect(screen.getByText('Currently active:')).toBeTruthy();
     expect(screen.getByText('Custom Proxy: https://gh-proxy.com')).toBeTruthy();
-    expect(screen.getByText('Restore Direct')).toBeTruthy();
 
     // Data Backup group
     expect(screen.getByText('Data Backup')).toBeTruthy();
