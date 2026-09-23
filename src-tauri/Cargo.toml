@@ -1,12 +1,12 @@
 [package]
-name = "ZStore"
-version = "0.2.0"
+name = "z-store"
+version = "0.3.0"
 description = "Cross-platform open-source app store based on GitHub Releases"
 authors = ["superMC"]
 edition = "2021"
 
 [lib]
-name = "z_store_lib"
+name = "zstore_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

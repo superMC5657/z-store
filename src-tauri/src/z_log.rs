@@ -161,7 +161,7 @@ fn prefix_sid_req(sid: &str, req: &str) -> String {
 }
 
 /// 日志级别覆盖：`ZSTORE_LOG` 优先，`RUST_LOG` 兜底，均缺失时用编译期默认。
-/// 解析大小写不敏感，兼容 `debug` 与 `z_store_lib=debug` 形态；非法值回退默认。
+/// 解析大小写不敏感，兼容 `debug` 与 `zstore_lib=debug` 形态；非法值回退默认。
 pub fn parse_level_str(s: &str) -> Option<log::LevelFilter> {
     let lower = s.trim().to_lowercase();
     // 取 `=` 后段（如 `crate=debug`），再取 `,` 首段。

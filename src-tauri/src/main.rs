@@ -2,6 +2,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    z_store_lib::z_log::install_panic_hook();
-    z_store_lib::run();
+    zstore_lib::z_log::install_panic_hook();
+    zstore_lib::run();
 }
