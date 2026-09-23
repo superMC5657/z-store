@@ -13,7 +13,7 @@ pub fn parse_install_date_to_unix(s: &str) -> Option<i64> {
         let d: u32 = s[6..8].parse().ok()?;
         (y, m, d)
     } else if s.len() == 10 {
-        let parts: Vec<&str> = s.split(|c| c == '-' || c == '/' || c == '.').collect();
+        let parts: Vec<&str> = s.split(['-', '/', '.']).collect();
         if parts.len() == 3 {
             let y: i32 = parts[0].parse().ok()?;
             let m: u32 = parts[1].parse().ok()?;
@@ -40,7 +40,7 @@ pub fn parse_install_date_to_unix(s: &str) -> Option<i64> {
 #[cfg(target_os = "windows")]
 pub fn get_reg_key_last_write_time(key: &winreg::RegKey) -> Option<i64> {
     #[repr(C)]
-    struct FILETIME {
+    struct Filetime {
         low: u32,
         high: u32,
     }
@@ -57,10 +57,10 @@ pub fn get_reg_key_last_write_time(key: &winreg::RegKey) -> Option<i64> {
             lpcbMaxValueNameLen: *mut u32,
             lpcbMaxValueLen: *mut u32,
             lpcbSecurityDescriptor: *mut u32,
-            lpftLastWriteTime: *mut FILETIME,
+            lpftLastWriteTime: *mut Filetime,
         ) -> i32;
     }
-    let mut ft = FILETIME { low: 0, high: 0 };
+    let mut ft = Filetime { low: 0, high: 0 };
     let ret = unsafe {
         RegQueryInfoKeyW(
             key.raw_handle() as _,

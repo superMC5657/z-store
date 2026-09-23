@@ -189,11 +189,9 @@ impl CatalogService {
                 continue;
             }
             let key = Self::starred_release_endpoint(&p.full_name);
-            if let Some((_, payload)) = release_cache.get(&key) {
-                if let Some(payload) = payload {
-                    if let Some(tag) = Self::parse_release_tag(payload) {
-                        resolved[i] = Some((true, Some(tag)));
-                    }
+            if let Some((_, Some(payload))) = release_cache.get(&key) {
+                if let Some(tag) = Self::parse_release_tag(payload) {
+                    resolved[i] = Some((true, Some(tag)));
                 }
             }
         }
@@ -267,7 +265,7 @@ impl CatalogService {
             }
         }
 
-        for (p, r) in pending.into_iter().zip(resolved.into_iter()) {
+        for (p, r) in pending.into_iter().zip(resolved) {
             let (has_releases, latest_release_tag) = r.unwrap_or((false, None));
             other_repos.push(DeveloperRepoItem {
                 id: p.full_name.clone(),

@@ -575,7 +575,7 @@ mod tests {
     #[test]
     fn test_redact_unicode_boundary_safe() {
         // 宽字符 + emoji 混合，截断/替换不断裂，不 panic。
-        let s: String = std::iter::repeat('汉').take(200).collect::<String>()
+        let s: String = "汉".repeat(200)
             + " user@test.com Bearer tok 汉😀";
         let out = redact(&s);
         assert!(out.contains("***@***"));

@@ -2,7 +2,7 @@
 use super::developer_endpoints::STARRED_RELEASE_ENRICH_LIMIT;
 
 #[cfg(test)]
-mod developer_starred_tests {
+mod tests {
     use super::super::CatalogService;
     use crate::github::developer_starred::test_support::*;
     use std::collections::HashMap;

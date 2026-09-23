@@ -119,7 +119,7 @@ mod resolver_lnk_tests {
 
         // LinkTargetIDList：u16 长度 + 变长 IDList（0xFF 填充，破坏固定偏移误读）
         data.extend_from_slice(&(id_list_size as u16).to_le_bytes());
-        data.extend(std::iter::repeat(0xFFu8).take(id_list_size));
+        data.extend(std::iter::repeat_n(0xFFu8, id_list_size));
 
         // LinkInfo（含最小 VolumeID + LocalBasePath ANSI 字符串）
         let path_bytes = target.as_bytes();

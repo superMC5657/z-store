@@ -50,6 +50,7 @@ pub fn host_of(url: &str) -> String {
 ///    `vscode` 子串误杀；其余短键（`sig` / `key` / `auth` / `pass`）按分隔符分词匹配，
 ///    长键（`token` / `secret` / `credential` / `signature` / `password`）子串匹配；
 /// 4. 保留非敏感查询参数（如 `q=...`, `per_page=...`, `sort=...`），便于排查搜索与过滤请求。
+///
 /// 全分支 ASCII 字节判定，字符边界安全，永不 panic；签名稳定（调用方 20+ 处不动）。
 pub fn sanitize_url(url: &str) -> String {
     let trimmed = url.trim();
@@ -230,7 +231,7 @@ mod tests {
     fn test_short_reason_first_line_chars_safe() {
         let s = "第一行错误\n第二行body不应出现";
         assert_eq!(short_reason(s), "第一行错误");
-        let long_cn: String = std::iter::repeat('汉').take(200).collect();
+        let long_cn: String = "汉".repeat(200);
         assert_eq!(short_reason(&long_cn).chars().count(), 160);
     }
 

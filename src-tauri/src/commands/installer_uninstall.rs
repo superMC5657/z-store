@@ -38,9 +38,9 @@ pub(crate) fn is_owned_portable_dir(
     if canon_candidate.starts_with(&canon_owned) {
         return true;
     }
-    #[cfg(target_os = "windows")]
-    {
-        // 针对 Windows 平台不区分大小写且兼顾路径分隔符的前缀比对回退方案。
+    // 针对 Windows 平台不区分大小写且兼顾路径分隔符的前缀比对回退方案。
+    // 用 `cfg!` 而非 `#[cfg]` 块做尾表达式，避免 `needless_return` 与块值丢弃冲突。
+    if cfg!(target_os = "windows") {
         let cand = canon_candidate.to_string_lossy().to_lowercase();
         let mut owned = canon_owned.to_string_lossy().to_lowercase();
         while owned.ends_with('\\') || owned.ends_with('/') {
@@ -49,11 +49,8 @@ pub(crate) fn is_owned_portable_dir(
         if cand == owned {
             return true;
         }
-        return cand.starts_with(&owned)
-            && cand[owned.len()..].starts_with(['\\', '/']);
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
+        cand.starts_with(&owned) && cand[owned.len()..].starts_with(['\\', '/'])
+    } else {
         false
     }
 }
