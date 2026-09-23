@@ -1,4 +1,4 @@
-use crate::models::DownloadProgressPayload;
+use crate::models::{DownloadProgressPayload, ReleaseAsset};
 use crate::AppState;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
@@ -12,16 +12,98 @@ pub struct DownloadAssetResult {
     pub verified: bool,
 }
 
-fn resolve_download_dir(state: &State<'_, AppState>) -> Option<std::path::PathBuf> {
+pub(crate) fn resolve_download_dir(state: &AppState) -> Option<std::path::PathBuf> {
     if let Ok(db) = state.db.lock() {
         if let Ok(Some(s)) = db.get_setting("download_dir") {
             let t = s.trim();
-            if !t.is_empty() && !t.contains("zstore_downloads") {
+            if !t.is_empty() {
                 return Some(crate::installer::expand_env_path(t));
             }
         }
     }
     None
+}
+
+/// 安装与仅下载共用的下载通道：镜像改写 + 流式下载 + SHA-256 校验 + 进度事件，
+/// 直连失败且为 GitHub 官方链接时自动切换公共加速镜像重试。
+/// `init_log_tag` / `fallback_log_tag` 仅区分日志来源（`download init` / `download-only init`）。
+pub(crate) async fn download_asset_with_fallback(
+    app_handle: &AppHandle,
+    state: &AppState,
+    app_id: &str,
+    asset: &ReleaseAsset,
+    custom_download_dir: Option<&std::path::Path>,
+    init_log_tag: &str,
+    fallback_log_tag: &str,
+) -> Result<(std::path::PathBuf, String), String> {
+    let (rewritten_url, is_mirror) = {
+        let mirror = state.mirror.lock().map_err(|e| e.to_string())?;
+        let rewritten = mirror.rewrite_download_url(&asset.download_url);
+        let is_mirror = rewritten != asset.download_url;
+        (rewritten, is_mirror)
+    };
+
+    log::info!(
+        "{} sid={} id={} file='{}' raw_url='{}' effective_url='{}' mirror={}",
+        init_log_tag,
+        crate::z_log::new_session_id(),
+        app_id,
+        asset.name,
+        crate::log_support::sanitize_url(&asset.download_url),
+        crate::log_support::sanitize_url(&rewritten_url),
+        is_mirror
+    );
+
+    let download_res = super::InstallerEngine::download_with_progress(
+        app_handle,
+        app_id,
+        &rewritten_url,
+        &asset.name,
+        asset.sha256.as_deref(),
+        custom_download_dir,
+    )
+    .await;
+
+    match download_res {
+        Ok(ok) => Ok(ok),
+        Err(e) => {
+            let is_github = asset.download_url.contains("github.com");
+            let is_direct = rewritten_url == asset.download_url;
+            if is_github && is_direct {
+                let fallback_url = format!("https://gh-proxy.com/{}", asset.download_url);
+                log::warn!(
+                    "{} url='{}'",
+                    fallback_log_tag,
+                    crate::log_support::sanitize_url(&fallback_url)
+                );
+                let _ = app_handle.emit(
+                    "zstore://download-progress",
+                    DownloadProgressPayload {
+                        task_id: app_id.to_string(),
+                        downloaded_bytes: 0,
+                        total_bytes: 0,
+                        speed_bytes_per_sec: 0,
+                        state: "downloading".to_string(),
+                        message: Some("直连通道不稳定，正在切换公共加速镜像自动重试...".to_string()),
+                    },
+                );
+                super::InstallerEngine::download_with_progress(
+                    app_handle,
+                    app_id,
+                    &fallback_url,
+                    &asset.name,
+                    asset.sha256.as_deref(),
+                    custom_download_dir,
+                )
+                .await
+                .map_err(|fallback_err| {
+                    format!("下载失败（直连: {}；镜像重试: {}）", e, fallback_err)
+                })
+            } else {
+                Err(e)
+            }
+        }
+    }
 }
 
 /// 仅下载：复用安装通道的镜像改写 + 流式下载 + SHA-256 校验 + 进度事件，
@@ -49,72 +131,16 @@ pub async fn download_asset(
         .or_else(|| super::select_best_asset(&detail.releases))
         .ok_or_else(|| "该 Release 未提供可下载的产物资产".to_string())?;
 
-    let (rewritten_url, is_mirror) = {
-        let mirror = state.mirror.lock().map_err(|e| e.to_string())?;
-        let rewritten = mirror.rewrite_download_url(&asset.download_url);
-        let is_mirror = rewritten != asset.download_url;
-        (rewritten, is_mirror)
-    };
-
-    log::info!(
-        "download-only init sid={} id={} file='{}' raw_url='{}' effective_url='{}' mirror={}",
-        crate::z_log::new_session_id(),
-        app_id,
-        asset.name,
-        crate::log_support::sanitize_url(&asset.download_url),
-        crate::log_support::sanitize_url(&rewritten_url),
-        is_mirror
-    );
-
-    let download_res = super::InstallerEngine::download_with_progress(
+    let (dest_path, actual_sha256) = download_asset_with_fallback(
         &app_handle,
+        &state,
         &app_id,
-        &rewritten_url,
-        &asset.name,
-        asset.sha256.as_deref(),
+        asset,
         custom_download_dir.as_deref(),
+        "download-only init",
+        "download-only direct failed, retrying via fallback mirror",
     )
-    .await;
-
-    let (dest_path, actual_sha256) = match download_res {
-        Ok(ok) => ok,
-        Err(e) => {
-            let is_github = asset.download_url.contains("github.com");
-            let is_direct = rewritten_url == asset.download_url;
-            if is_github && is_direct {
-                let fallback_url = format!("https://gh-proxy.com/{}", asset.download_url);
-                log::warn!(
-                    "download-only direct failed, retrying via fallback mirror url='{}'",
-                    crate::log_support::sanitize_url(&fallback_url)
-                );
-                let _ = app_handle.emit(
-                    "zstore://download-progress",
-                    DownloadProgressPayload {
-                        task_id: app_id.clone(),
-                        downloaded_bytes: 0,
-                        total_bytes: 0,
-                        speed_bytes_per_sec: 0,
-                        state: "downloading".to_string(),
-                        message: Some("直连通道不稳定，正在切换公共加速镜像自动重试...".to_string()),
-                    },
-                );
-                super::InstallerEngine::download_with_progress(
-                    &app_handle,
-                    &app_id,
-                    &fallback_url,
-                    &asset.name,
-                    asset.sha256.as_deref(),
-                    custom_download_dir.as_deref(),
-                )
-                .await
-                .map_err(|fallback_err| {
-                    format!("下载失败（直连: {}；镜像重试: {}）", e, fallback_err)
-                })?
-            } else {
-                return Err(e);
-            }
-        }
-    };
+    .await?;
 
     let verified = asset
         .sha256
@@ -166,7 +192,7 @@ fn open_path_with_system(path: &std::path::Path, select_file: bool) -> Result<bo
                 .spawn()
                 .map_err(|e| format!("无法打开目录: {}", e))?;
         }
-        return Ok(true);
+        Ok(true)
     }
     #[cfg(target_os = "macos")]
     {

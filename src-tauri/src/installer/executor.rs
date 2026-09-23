@@ -264,9 +264,6 @@ async fn execute_installation_inner(
     }
 }
 
-#[cfg(target_os = "macos")]
-pub use macos::install_macos_dmg;
-
 pub fn build_unix_install_commands(kind: &AssetKind, asset_path: &Path) -> Vec<Vec<String>> {
     let p = asset_path.to_string_lossy().to_string();
     match kind {

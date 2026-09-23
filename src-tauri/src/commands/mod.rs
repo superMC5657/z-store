@@ -34,7 +34,7 @@ pub use crate::installer::{resolve_uninstaller_command, select_best_asset, Insta
 
 use crate::AppState;
 
-/// 获取当前生效的 GitHub API 访问令牌（OAuth 登录令牌优先，其次个人访问令牌 PAT，再次主机令牌）。
+/// 获取当前生效的 GitHub API 访问令牌（OAuth 登录令牌优先，其次主机令牌）。
 pub fn resolve_active_github_token(state: &AppState) -> Option<String> {
     if let Ok(t) = state.github_token.lock() {
         if let Some(ref tok) = *t {
@@ -50,12 +50,6 @@ pub fn resolve_active_github_token(state: &AppState) -> Option<String> {
                 if let Ok(mut mem) = state.github_token.lock() {
                     *mem = Some(clean.clone());
                 }
-                return Some(clean);
-            }
-        }
-        if let Ok(Some(t)) = db.get_setting("github_token") {
-            let clean = t.trim().to_string();
-            if !clean.is_empty() {
                 return Some(clean);
             }
         }

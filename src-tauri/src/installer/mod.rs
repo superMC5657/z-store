@@ -31,27 +31,8 @@ pub enum AssetKind {
 pub struct InstallerEngine;
 
 impl InstallerEngine {
-    pub fn select_best_asset(
-        assets: &[crate::models::ReleaseAsset],
-    ) -> Option<&crate::models::ReleaseAsset> {
-        selector::select_best_asset(assets)
-    }
-
-    pub fn resolve_uninstaller_command(
-        app_name: &str,
-        app_id: &str,
-        install_path: &str,
-        existing_command: Option<&str>,
-    ) -> Option<String> {
-        paths::resolve_uninstaller_command(app_name, app_id, install_path, existing_command)
-    }
-
     pub fn classify_asset(filename: &str) -> (AssetKind, &'static str, &'static str) {
         selector::classify_asset(filename)
-    }
-
-    pub fn compute_sha256(path: &std::path::Path) -> Result<String, String> {
-        downloader::compute_sha256(path)
     }
 
     pub async fn download_with_progress(
@@ -80,17 +61,5 @@ impl InstallerEngine {
         custom_portable_dir: Option<&str>,
     ) -> Result<executor::InstallOutcome, String> {
         executor::execute_installation(installer_path, kind, app_id, custom_portable_dir).await
-    }
-
-    pub fn build_unix_install_commands(
-        kind: &AssetKind,
-        asset_path: &std::path::Path,
-    ) -> Vec<Vec<String>> {
-        executor::build_unix_install_commands(kind, asset_path)
-    }
-
-    #[cfg(target_os = "windows")]
-    pub fn create_desktop_shortcut(app_name: &str, exe_path: &std::path::Path) {
-        paths::create_desktop_shortcut(app_name, exe_path);
     }
 }

@@ -27,15 +27,6 @@ impl ForgeType {
             Self::GitLab => "gitlab.com",
         }
     }
-
-    pub fn display_name(&self) -> &'static str {
-        match self {
-            Self::GitHub => "GitHub",
-            Self::Codeberg => "Codeberg",
-            Self::Gitea => "Gitea / Forgejo",
-            Self::GitLab => "GitLab",
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -61,10 +52,6 @@ impl UniversalRepoCoord {
                 self.repo
             )
         }
-    }
-
-    pub fn web_url(&self) -> String {
-        format!("https://{}/{}/{}", self.host, self.owner, self.repo)
     }
 }
 

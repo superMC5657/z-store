@@ -20,16 +20,6 @@ impl MirrorManager {
         }
     }
 
-    pub fn get_proxy_url(&self) -> Option<String> {
-        self.custom_proxy.clone()
-    }
-
-    pub fn set_proxy_url(&mut self, url: Option<String>) {
-        self.custom_proxy = url
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty() && s != "direct");
-    }
-
     pub fn get_mirror_statuses(&self) -> Vec<MirrorNodeStatus> {
         let is_custom = self.custom_proxy.is_some();
         let proxy_url = self.custom_proxy.clone().unwrap_or_default();

@@ -12,10 +12,6 @@ impl ForgeProvider for GitHubProvider {
         ForgeType::GitHub
     }
 
-    fn default_host(&self) -> &str {
-        "github.com"
-    }
-
     async fn fetch_repo(
         &self,
         _host: &str,

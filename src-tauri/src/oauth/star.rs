@@ -12,9 +12,8 @@ pub fn starred_api_url(owner: &str, repo: &str) -> String {
     )
 }
 
-/// 构建带认证头的 GitHub API 客户端（令牌仅放 header，永不落日志）。
-fn authed_client(token: &str) -> Result<reqwest::Client, String> {
-    let _ = token;
+/// 构建 GitHub API 客户端（认证按请求经 auth_headers 携带，永不落日志）。
+fn authed_client() -> Result<reqwest::Client, String> {
     Ok(crate::shared_http_client())
 }
 
@@ -36,7 +35,7 @@ fn auth_headers(token: &str) -> Result<reqwest::header::HeaderMap, String> {
 
 /// 拉取当前令牌对应的 GitHub 用户（`login` + `avatar_url` + `has_list_scope`）。
 pub async fn fetch_oauth_user(token: &str) -> Result<OAuthUser, String> {
-    let client = authed_client(token)?;
+    let client = authed_client()?;
     let resp = client
         .get(format!("{}/user", GITHUB_API_BASE))
         .headers(auth_headers(token)?)
@@ -87,7 +86,7 @@ pub async fn fetch_oauth_user(token: &str) -> Result<OAuthUser, String> {
 
 /// 查询是否已 Star（204 = 已 Star，404 = 未 Star）。
 pub async fn check_starred(token: &str, owner: &str, repo: &str) -> Result<bool, String> {
-    let client = authed_client(token)?;
+    let client = authed_client()?;
     let resp = client
         .get(starred_api_url(owner, repo))
         .headers(auth_headers(token)?)
@@ -114,7 +113,7 @@ pub async fn check_starred(token: &str, owner: &str, repo: &str) -> Result<bool,
 /// Star 指定仓库（幂等，PUT 成功返回 204）。
 /// 并自动尝试将仓库归入 GitHub User List（z-store-list 列表）。
 pub async fn star_repo(token: &str, owner: &str, repo: &str) -> Result<StarRepoOutcome, String> {
-    let client = authed_client(token)?;
+    let client = authed_client()?;
     let resp = client
         .put(starred_api_url(owner, repo))
         .headers(auth_headers(token)?)
@@ -141,7 +140,7 @@ pub async fn star_repo(token: &str, owner: &str, repo: &str) -> Result<StarRepoO
                 starred: true,
                 in_list: false,
                 warning: Some(format!(
-                    "已在 GitHub 成功标星！但该仓库属于组织「{}」，组织开启了第三方 OAuth 访问限制，GitHub 拒绝第三方应用将其写入清单。如需将组织仓库归入清单，请在「设置」中配置个人访问令牌 (PAT)。",
+                    "已在 GitHub 成功标星！但该仓库属于组织「{}」，组织开启了第三方 OAuth 访问限制，GitHub 拒绝第三方应用将其写入清单，该仓库暂无法归入清单。",
                     org
                 )),
             }),
@@ -175,7 +174,7 @@ pub async fn add_repo_to_star_list(
     owner: &str,
     repo: &str,
 ) -> Result<AddToListOutcome, String> {
-    let client = authed_client(token)?;
+    let client = authed_client()?;
     let headers = auth_headers(token)?;
     let gql_url = format!("{}/graphql", GITHUB_API_BASE);
 
@@ -393,7 +392,7 @@ pub async fn add_repo_to_star_list(
 
 /// 取消 Star（幂等，DELETE 成功返回 204）。
 pub async fn unstar_repo(token: &str, owner: &str, repo: &str) -> Result<(), String> {
-    let client = authed_client(token)?;
+    let client = authed_client()?;
     let resp = client
         .delete(starred_api_url(owner, repo))
         .headers(auth_headers(token)?)

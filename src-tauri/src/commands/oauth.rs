@@ -18,22 +18,6 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-#[tauri::command]
-pub fn set_github_token(state: State<'_, AppState>, token: String) -> Result<bool, String> {
-    let tok_opt = if token.trim().is_empty() {
-        None
-    } else {
-        Some(token.trim().to_string())
-    };
-    {
-        let mut t = state.github_token.lock().map_err(|e| e.to_string())?;
-        *t = tok_opt.clone();
-    }
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let _ = db.set_setting("github_token", tok_opt.as_deref().unwrap_or(""));
-    Ok(true)
-}
-
 /// 开始 Device Flow：返回用户验证码与浏览器授权地址（前端展示二维码/链接并轮询）。
 #[tauri::command]
 pub async fn oauth_device_start(
@@ -212,10 +196,9 @@ pub async fn oauth_logout(state: State<'_, AppState>) -> Result<bool, String> {
             .map_err(|e| e.to_string())?;
         db.remove_setting(crate::oauth::SETTING_OAUTH_USER)
             .map_err(|e| e.to_string())?;
-        db.get_setting("github_token")
+        db.get_host_token("github.com")
             .ok()
             .flatten()
-            .or_else(|| db.get_host_token("github.com").ok().flatten())
             .filter(|s| !s.trim().is_empty())
     };
     if let Ok(mut t) = state.github_token.lock() {
@@ -254,7 +237,7 @@ pub async fn star_app(
 ) -> Result<crate::oauth::StarRepoOutcome, String> {
     let (owner, repo) = split_github_repo_id(&app_id)?;
     let token = resolve_write_token(&state)
-        .ok_or_else(|| "请先完成 GitHub 登录，或在「设置」中配置个人访问令牌 (PAT)".to_string())?;
+        .ok_or_else(|| "请先完成 GitHub 登录".to_string())?;
     let outcome = crate::oauth::star_repo(&token, &owner, &repo).await?;
     if outcome.starred {
         if let Ok(db) = state.db.lock() {
@@ -268,7 +251,7 @@ pub async fn star_app(
 pub async fn unstar_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
     let (owner, repo) = split_github_repo_id(&app_id)?;
     let token = resolve_write_token(&state)
-        .ok_or_else(|| "请先完成 GitHub 登录，或在「设置」中配置个人访问令牌 (PAT)".to_string())?;
+        .ok_or_else(|| "请先完成 GitHub 登录".to_string())?;
     crate::oauth::unstar_repo(&token, &owner, &repo)
         .await
         .map(|_| {

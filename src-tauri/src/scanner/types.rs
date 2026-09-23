@@ -125,15 +125,3 @@ impl From<&String> for ScanConfig {
         Self::from(name.as_str())
     }
 }
-
-impl From<String> for ScanConfig {
-    fn from(name: String) -> Self {
-        Self::from(name.as_str())
-    }
-}
-
-impl From<&ScanConfig> for ScanConfig {
-    fn from(config: &ScanConfig) -> Self {
-        config.clone()
-    }
-}

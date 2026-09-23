@@ -353,12 +353,6 @@ pub fn run() {
         .flatten()
         .filter(|s| !s.trim().is_empty())
         .or_else(|| {
-            db.get_setting("github_token")
-                .ok()
-                .flatten()
-                .filter(|s| !s.trim().is_empty())
-        })
-        .or_else(|| {
             db.get_host_token("github.com")
                 .ok()
                 .flatten()
@@ -485,7 +479,6 @@ pub fn run() {
             commands::check_for_updates,
             commands::get_mirror_status,
             commands::switch_mirror,
-            commands::set_github_token,
             commands::get_settings,
             commands::save_setting,
             commands::get_favorites,

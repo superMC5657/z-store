@@ -12,8 +12,6 @@ pub const IMPORT_SETTINGS_ALLOWLIST: &[&str] = &[
     "portable_dir",
     "download_dir",
     "active_mirror",
-    "max_concurrent_downloads",
-    "close_to_tray",
     "launch_on_startup",
     "update_frequency",
     "detail_cache_ttl_minutes",

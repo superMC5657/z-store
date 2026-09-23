@@ -26,7 +26,6 @@ pub struct ForgeReleaseInfo {
 #[allow(async_fn_in_trait)]
 pub trait ForgeProvider: Send + Sync {
     fn forge_type(&self) -> ForgeType;
-    fn default_host(&self) -> &str;
 
     async fn fetch_repo(
         &self,

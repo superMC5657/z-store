@@ -76,7 +76,7 @@ impl CatalogService {
             let clean_u = u.trim();
             if clean_u.is_empty() {
                 return Err(
-                    "请提供 GitHub 用户名或在设置中配置个人访问令牌 (PAT)".to_string(),
+                    "请提供 GitHub 用户名或先在「设置」中登录 GitHub 账号".to_string(),
                 );
             }
             format!(
@@ -85,7 +85,7 @@ impl CatalogService {
             )
         } else {
             return Err(
-                "请提供 GitHub 用户名或在设置中配置个人访问令牌 (PAT)".to_string(),
+                "请提供 GitHub 用户名或先在「设置」中登录 GitHub 账号".to_string(),
             );
         };
 
@@ -120,7 +120,7 @@ impl CatalogService {
         if !status.is_success() {
             let code = status.as_u16();
             if code == 401 {
-                return Err("GitHub 认证失败 (401): 个人访问令牌 (Token) 无效或已过期，请在「设置」中重新配置。".to_string());
+                return Err("GitHub 认证失败 (401)：登录凭据无效或已过期，请在「设置」中重新登录 GitHub 账号。".to_string());
             } else if code == 403 {
                 return Err("GitHub API 限额已耗尽 (403): 触发了未登录 API 每小时 60 次的速率限制。请在「设置」中填入个人 GitHub Token (PAT) 即可免费提升至 5000 次/小时配额。".to_string());
             } else if code == 404 {

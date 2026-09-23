@@ -133,6 +133,8 @@ impl Database {
         Ok(())
     }
 
+    /// 测试专用：清空详情缓存（生产路径只增量写入，从不全清）。
+    #[cfg(test)]
     pub fn clear_app_details_cache(&self) -> Result<()> {
         self.conn.execute("DELETE FROM app_details_cache", [])?;
         Ok(())

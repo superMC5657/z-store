@@ -138,7 +138,7 @@ fn test_parse_import_payload_merge_rules() {
 
 #[test]
 fn test_backup_settings_full_round_trip() {
-    // P1-8：导出 → JSON → 导入往返：除 github_token 外的全部 14 项设置无损通过，
+    // P1-8：导出 → JSON → 导入往返：除 github_token 外的全部 12 项设置无损通过，
     // 混合 JSON 类型（字符串/数值/布尔）统一转字符串；version 保持为 1。
     let json = r#"{
         "version": 1,
@@ -152,8 +152,6 @@ fn test_backup_settings_full_round_trip() {
             "portable_dir": "D:\\apps",
             "download_dir": "D:\\dl",
             "active_mirror": "direct",
-            "max_concurrent_downloads": 5,
-            "close_to_tray": false,
             "launch_on_startup": true,
             "update_frequency": "daily",
             "detail_cache_ttl_minutes": 60,
@@ -174,8 +172,6 @@ fn test_backup_settings_full_round_trip() {
     assert_eq!(got.get("theme"), Some(&"dark"));
     assert_eq!(got.get("language"), Some(&"zh-CN"));
     assert_eq!(got.get("ui_scale"), Some(&"110"));
-    assert_eq!(got.get("max_concurrent_downloads"), Some(&"5"));
-    assert_eq!(got.get("close_to_tray"), Some(&"false"));
     assert_eq!(got.get("launch_on_startup"), Some(&"true"));
     assert_eq!(got.get("detail_cache_ttl_minutes"), Some(&"60"));
     // github_token 被刻意排除：永不经备份流转

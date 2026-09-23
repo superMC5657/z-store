@@ -4,6 +4,7 @@ pub mod developer;
 pub mod developer_endpoints;
 pub mod developer_profile;
 pub mod developer_starred;
+#[cfg(test)]
 pub mod developer_starred_tests;
 pub mod markdown;
 pub mod models;

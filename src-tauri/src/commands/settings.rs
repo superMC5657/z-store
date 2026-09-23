@@ -2,7 +2,7 @@ use crate::AppState;
 use std::collections::HashMap;
 use tauri::State;
 
-pub(crate) fn get_default_settings() -> HashMap<String, String> {
+fn get_default_settings() -> HashMap<String, String> {
     let cfg = crate::config::get_project_config();
     let mut map = HashMap::new();
     map.insert("theme".to_string(), "system".to_string());
@@ -15,9 +15,6 @@ pub(crate) fn get_default_settings() -> HashMap<String, String> {
     );
     map.insert("download_dir".to_string(), "~/Downloads".to_string());
     map.insert("active_mirror".to_string(), "ghproxy".to_string());
-    map.insert("max_concurrent_downloads".to_string(), "3".to_string());
-    map.insert("github_token".to_string(), "".to_string());
-    map.insert("close_to_tray".to_string(), "true".to_string());
     map.insert("launch_on_startup".to_string(), "false".to_string());
     map.insert("update_frequency".to_string(), "startup".to_string());
     map.insert(

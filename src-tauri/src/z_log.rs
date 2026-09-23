@@ -132,12 +132,14 @@ pub fn new_req_id() -> String {
     id
 }
 
-/// 显式设置当前线程请求 ID（为空则后续行省略 `[req=..]`）。
+/// 显式设置当前线程请求 ID（为空则后续行省略 `[req=..]`）。仅测试使用。
+#[cfg(test)]
 pub fn set_req_id(id: &str) {
     REQ_ID.with(|c| *c.borrow_mut() = id.to_string());
 }
 
-/// 清除当前线程请求 ID。
+/// 清除当前线程请求 ID。仅测试使用。
+#[cfg(test)]
 pub fn clear_req_id() {
     REQ_ID.with(|c| c.borrow_mut().clear());
 }

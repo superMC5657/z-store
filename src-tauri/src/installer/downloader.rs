@@ -2,19 +2,9 @@ use crate::log_support::{file_base, http_err_reason, sanitize_url, short_reason}
 use crate::models::DownloadProgressPayload;
 use futures_util::StreamExt;
 use sha2::{Digest, Sha256};
-use std::fs::File;
-use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use tauri::Emitter;
-
-pub fn compute_sha256(path: &Path) -> Result<String, String> {
-    let mut file = File::open(path).map_err(|e| format!("无法打开文件进行校验: {}", e))?;
-    let mut hasher = Sha256::new();
-    io::copy(&mut file, &mut hasher).map_err(|e| format!("计算哈希失败: {}", e))?;
-    let result = hasher.finalize();
-    Ok(hex::encode(result))
-}
 
 /// 异步落盘关键路径（P1-10a）的执行结果。
 /// 携带调用方重现历史日志与发送 `zstore://download-progress` 事件所需的全部上下文。
@@ -390,55 +380,17 @@ pub async fn download_with_progress(
         }
     };
 
-    // 零信任哈希比对防篡改核心拦截
-    let (verified_state, verified_msg) = if let Some(expected) = expected_sha256 {
-        let exp_clean = expected.trim().to_lowercase();
-        if !exp_clean.is_empty() {
-            if actual_hash.to_lowercase() != exp_clean {
-                let _ = tokio::fs::remove_file(&temp_path).await;
-                let _ = app_handle.emit(
-                    "zstore://download-progress",
-                    DownloadProgressPayload {
-                        task_id: task_id.to_string(),
-                        downloaded_bytes: downloaded,
-                        total_bytes: downloaded,
-                        speed_bytes_per_sec: 0,
-                        state: "tampered".to_string(),
-                        message: Some(format!(
-                            "哈希不符！期望: {}, 实际: {}",
-                            exp_clean, actual_hash
-                        )),
-                    },
-                );
-                // 校验失败：只记结论与短原因，不记哈希明细与路径。
-                log::error!(
-                    "download verify failed id={} sid={} req={} host={} file={}",
-                    task_id,
-                    dl_sid,
-                    dl_req,
-                    dl_host,
-                    log_file
-                );
-                return Err(format!(
-                    "安全拦截：SHA-256 完整性校验不符！官方校验值: {}，实际下载文件: {}。已阻止潜在篡改软件的安装执行。",
-                    exp_clean, actual_hash
-                ));
-            }
-            (
-                "verified".to_string(),
-                format!("已通过官方 SHA-256 完整性校验: {}", actual_hash),
-            )
-        } else {
-            (
-                "completed_unverified".to_string(),
-                format!("上游未提供官方校验清单，已记录本地计算 SHA-256: {}", actual_hash),
-            )
-        }
-    } else {
-        (
+    // 零信任哈希终态判定：不符已在落盘时以 Tampered 中断并删文件，
+    // 能执行到此处说明已通过官方校验或上游未提供期望值，此处只做终态分支，不再重复比对。
+    let (verified_state, verified_msg) = match expected_sha256 {
+        Some(expected) if !expected.trim().is_empty() => (
+            "verified".to_string(),
+            format!("已通过官方 SHA-256 完整性校验: {}", actual_hash),
+        ),
+        _ => (
             "completed_unverified".to_string(),
             format!("上游未提供官方校验清单，已记录本地计算 SHA-256: {}", actual_hash),
-        )
+        ),
     };
 
     let _ = app_handle.emit(

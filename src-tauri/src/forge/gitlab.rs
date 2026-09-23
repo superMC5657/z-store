@@ -12,10 +12,6 @@ impl ForgeProvider for GitLabProvider {
         ForgeType::GitLab
     }
 
-    fn default_host(&self) -> &str {
-        "gitlab.com"
-    }
-
     async fn fetch_repo(
         &self,
         host: &str,

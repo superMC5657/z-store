@@ -115,8 +115,7 @@ pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, St
     let path_obj = std::path::Path::new(&target_path);
 
     // 检查是否为临时下载目录中的安装包（避免误重新调起安装向导）
-    let is_temp_installer = target_path.to_lowercase().contains("zstore_downloads")
-        || target_path.to_lowercase().contains(r"\temp\")
+    let is_temp_installer = target_path.to_lowercase().contains(r"\temp\")
         || target_path.to_lowercase().contains(r"/temp/")
         || target_path.to_lowercase().ends_with("-setup.exe")
         || target_path.to_lowercase().ends_with("_setup.exe")

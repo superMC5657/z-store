@@ -15,7 +15,7 @@ pub const DAILY_NOTIFY_INTERVAL_SECONDS: i64 = 24 * 60 * 60;
 /// 不看详情缓存 TTL：每次都走 ETag 轻量探查（无新版本时 304 零配额返回），
 /// 保证“有更新”提示不受详情浏览缓存过期时间拖累；
 /// 离线/限流时仍降级返回本地已有缓存。
-pub async fn fetch_app_latest_version_lightweight(
+pub(crate) async fn fetch_app_latest_version_lightweight(
     state: &AppState,
     app_id: &str,
     force_refresh: Option<bool>,
@@ -209,7 +209,7 @@ pub async fn fetch_app_latest_version_lightweight(
 /// `v26.02-v1.5.7-R2`）时不做数值推测——两侧都不可解析才退化为归一化字符串不等
 ///（即 `norm(cur) != norm(lat)`）；仅一侧可解析则一律返回 false，避免 `tip` 相对
 /// 任何正式版本都误报、或 `R2` 这类后缀被当成数字段参与比较。
-pub fn is_version_newer(current: &str, latest: &str) -> bool {
+pub(crate) fn is_version_newer(current: &str, latest: &str) -> bool {
     /// 归一化：去 `v` 前缀与空白；4 段式纯数字 MSI 且末段为 0 时截断为 3 段。
     fn normalize(s: &str) -> String {
         let clean = s.trim_start_matches('v').trim();
@@ -235,7 +235,7 @@ pub fn is_version_newer(current: &str, latest: &str) -> bool {
 }
 
 /// 判定是否应当提示此更新，综合考量版本策略表（跳过指定版本、锁定、隐藏）
-pub fn should_include_update(
+pub(crate) fn should_include_update(
     current_version: &str,
     latest_version: &str,
     rule: Option<&UpdateRule>,

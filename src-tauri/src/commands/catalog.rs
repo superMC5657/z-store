@@ -486,7 +486,7 @@ pub async fn sync_catalog(
             .get_setting("catalog_source_url")
             .ok()
             .flatten()
-            .filter(|s| !s.trim().is_empty() && !s.contains("gitmirror.com"))
+            .filter(|s| !s.trim().is_empty())
             .unwrap_or_else(|| {
                 crate::config::get_project_config()
                     .catalog

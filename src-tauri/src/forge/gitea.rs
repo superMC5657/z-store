@@ -20,13 +20,6 @@ impl ForgeProvider for GiteaProvider {
         self.forge_type
     }
 
-    fn default_host(&self) -> &str {
-        match self.forge_type {
-            ForgeType::Codeberg => "codeberg.org",
-            _ => "gitea.com",
-        }
-    }
-
     async fn fetch_repo(
         &self,
         host: &str,
