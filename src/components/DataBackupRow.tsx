@@ -25,7 +25,7 @@ const toOptionalBool = (v: unknown): boolean | undefined => {
 };
 
 // P1-8: 纯函数导出组装（version 保持为 1，便于单测覆盖导出 → JSON → 导入往返）。
-export const buildBackupSettings = (
+const buildBackupSettings = (
   settings: Record<string, unknown>,
 ): UserDataBackupSettings => ({
   theme: settings.theme as string | undefined,
@@ -35,8 +35,6 @@ export const buildBackupSettings = (
   portable_dir: settings.portable_dir as string | undefined,
   download_dir: settings.download_dir as string | undefined,
   active_mirror: settings.active_mirror as string | undefined,
-  max_concurrent_downloads: toOptionalNumber(settings.max_concurrent_downloads),
-  close_to_tray: toOptionalBool(settings.close_to_tray),
   launch_on_startup: toOptionalBool(settings.launch_on_startup),
   update_frequency: settings.update_frequency as string | undefined,
   detail_cache_ttl_minutes: toOptionalNumber(settings.detail_cache_ttl_minutes),

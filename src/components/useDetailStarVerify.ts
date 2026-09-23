@@ -67,7 +67,7 @@ export function useDetailStarVerify(opts: {
     } catch (e) {
       const errStr = String(e);
       if (errStr.includes('请先完成 GitHub 登录') || errStr.includes('未配置') || errStr.includes('401')) {
-        notifyToast('请先在「设置」中登录 GitHub 账号或配置个人访问令牌 (PAT)，即可使用 GitHub 收藏/标星功能', 'info');
+        notifyToast('请先在「设置」中登录 GitHub 账号，即可使用 GitHub 收藏/标星功能', 'info');
       } else {
         notifyToast(`GitHub 标星失败: ${errStr}`, 'error');
       }

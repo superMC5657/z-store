@@ -6,7 +6,7 @@ interface IconProps {
   style?: React.CSSProperties;
 }
 
-export const WindowsIcon: React.FC<IconProps> = ({ size = 14, className, style }) => (
+const WindowsIcon: React.FC<IconProps> = ({ size = 14, className, style }) => (
   <svg
     width={size}
     height={size}
@@ -20,7 +20,7 @@ export const WindowsIcon: React.FC<IconProps> = ({ size = 14, className, style }
   </svg>
 );
 
-export const AppleIcon: React.FC<IconProps> = ({ size = 14, className, style }) => (
+const AppleIcon: React.FC<IconProps> = ({ size = 14, className, style }) => (
   <svg
     width={size}
     height={size}
@@ -34,7 +34,7 @@ export const AppleIcon: React.FC<IconProps> = ({ size = 14, className, style }) 
   </svg>
 );
 
-export const LinuxIcon: React.FC<IconProps> = ({ size = 14, className, style }) => (
+const LinuxIcon: React.FC<IconProps> = ({ size = 14, className, style }) => (
   <svg
     width={size}
     height={size}
@@ -57,7 +57,7 @@ export const LinuxIcon: React.FC<IconProps> = ({ size = 14, className, style }) 
   </svg>
 );
 
-export const AndroidIcon: React.FC<IconProps> = ({ size = 14, className, style }) => (
+const AndroidIcon: React.FC<IconProps> = ({ size = 14, className, style }) => (
   <svg
     width={size}
     height={size}
@@ -79,7 +79,7 @@ export const AndroidIcon: React.FC<IconProps> = ({ size = 14, className, style }
   </svg>
 );
 
-export const IosIcon: React.FC<IconProps> = ({ size = 14, className, style }) => (
+const IosIcon: React.FC<IconProps> = ({ size = 14, className, style }) => (
   <svg
     width={size}
     height={size}
@@ -112,7 +112,7 @@ export const GitHubIcon: React.FC<IconProps> = ({ size = 14, className, style })
   </svg>
 );
 
-export const GitLabIcon: React.FC<IconProps> = ({ size = 14, className, style }) => (
+const GitLabIcon: React.FC<IconProps> = ({ size = 14, className, style }) => (
   <svg
     width={size}
     height={size}
@@ -126,7 +126,7 @@ export const GitLabIcon: React.FC<IconProps> = ({ size = 14, className, style })
   </svg>
 );
 
-export const CodebergIcon: React.FC<IconProps> = ({ size = 14, className, style }) => (
+const CodebergIcon: React.FC<IconProps> = ({ size = 14, className, style }) => (
   <svg
     width={size}
     height={size}
@@ -140,7 +140,7 @@ export const CodebergIcon: React.FC<IconProps> = ({ size = 14, className, style 
   </svg>
 );
 
-export const GiteaIcon: React.FC<IconProps> = ({ size = 14, className, style }) => (
+const GiteaIcon: React.FC<IconProps> = ({ size = 14, className, style }) => (
   <svg
     width={size}
     height={size}

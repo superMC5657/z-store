@@ -401,20 +401,6 @@ body {
   font-size: 14px;
 }
 
-.brand-icon {
-  width: 22px;
-  height: 22px;
-  background: linear-gradient(135deg, var(--brand-primary), #7983f5);
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-weight: 800;
-  font-size: 13px;
-  box-shadow: 0 2px 8px var(--brand-glow);
-}
-
 .brand-logo-wrapper {
   display: inline-flex;
   align-items: center;
@@ -1193,8 +1179,7 @@ body {
   flex-shrink: 0;
 }
 
-.btn-fluent.btn-sm,
-.btn-fluent.btn-compact {
+.btn-fluent.btn-sm {
   height: 28px;
   min-height: 28px;
   padding: 0 12px;
@@ -1618,8 +1603,7 @@ body {
   box-shadow: var(--shadow-hover), 0 0 20px -2px var(--brand-glow);
 }
 
-.app-card-header,
-.app-card-top {
+.app-card-header {
   display: flex;
   align-items: flex-start;
   gap: 12px;
@@ -1678,8 +1662,7 @@ body {
   border-radius: 4px;
 }
 
-.app-meta,
-.app-info {
+.app-meta {
   flex: 1;
   min-width: 0;
   display: flex;
@@ -1762,8 +1745,7 @@ body {
   margin: 0;
 }
 
-.app-card-footer,
-.app-card-bottom {
+.app-card-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1773,8 +1755,7 @@ body {
   border-top: 1px solid var(--border-acrylic);
 }
 
-.app-tags,
-.app-meta-stats {
+.app-tags {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1815,8 +1796,7 @@ body {
 }
 
 /* 安装与操作按钮组 */
-.btn-install,
-.btn-install-sm {
+.btn-install {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1846,36 +1826,23 @@ body {
   font-size: var(--font-sm);
 }
 
-.btn-install-sm {
-  height: 26px;
-  min-height: 26px;
-  max-height: 26px;
-  min-width: 58px;
-  padding: 0 10px;
-  font-size: var(--font-xs);
-}
-
-.btn-install:hover,
-.btn-install-sm:hover {
+.btn-install:hover {
   box-shadow: 0 6px 16px var(--brand-glow), inset 0 1px 0 rgba(255, 255, 255, 0.4);
   transform: translateY(-2px) scale(1.02);
 }
 
-.btn-install:active,
-.btn-install-sm:active {
+.btn-install:active {
   transform: scale(0.95);
 }
 
-.btn-install.btn-installed,
-.btn-install-sm.btn-installed {
+.btn-install.btn-installed {
   background: var(--status-success-bg);
   color: var(--status-success);
   border-color: rgba(74, 222, 128, 0.3);
   box-shadow: none;
 }
 
-.btn-install.btn-installed:hover,
-.btn-install-sm.btn-installed:hover {
+.btn-install.btn-installed:hover {
   background: var(--status-success);
   color: #ffffff;
   border-color: transparent;
@@ -3254,15 +3221,6 @@ body {
   align-items: center;
   justify-content: space-between;
   line-height: 1.2;
-}
-
-.flyout-item-subtitle {
-  font-size: 10.5px;
-  color: var(--text-tertiary);
-  line-height: 1.2;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .flyout-item-badge {

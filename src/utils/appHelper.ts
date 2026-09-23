@@ -1,6 +1,6 @@
 import { AppSummary, InstalledApp } from '../types';
 
-export interface IconInfo {
+interface IconInfo {
   icon: string;
   iconBg: string;
 }
@@ -70,7 +70,7 @@ export function formatBytes(bytes?: number): string {
   return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i] || 'MB'}`;
 }
 
-export interface MethodBadge {
+interface MethodBadge {
   label: string;
   color: string;
 }
@@ -219,7 +219,7 @@ function assetKindTierScore(kind: string, hostOs: string): number {
   return 0;
 }
 
-export interface AssetRelevance {
+interface AssetRelevance {
   os: string;
   arch: string;
   kind: string;
@@ -232,7 +232,7 @@ export interface AssetRelevance {
  * 架构一致 +50 / 通用 +25 / x86_64 宿主兼容 x86 +10 / 失配 -50；
  * 类型档位 +20/+15/+12/+10。
  */
-export function scoreAssetRelevance(a: AssetRelevance, hostOs: string, hostArch: string): number {
+function scoreAssetRelevance(a: AssetRelevance, hostOs: string, hostArch: string): number {
   const os = (hostOs || '').toLowerCase();
   const arch = (hostArch || '').toLowerCase();
   const aOs = (a.os || '').toLowerCase();

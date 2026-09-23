@@ -117,7 +117,9 @@ export interface DownloadProgressPayload {
   downloaded_bytes: number;
   total_bytes: number;
   speed_bytes_per_sec: number;
-  state: 'downloading' | 'verifying' | 'verified' | 'completed_unverified' | 'installing' | 'completed' | 'error' | 'tampered';
+  // 后端实际 emit 的终态只有 verified / completed_unverified；
+  // installing 预留给安装阶段进度（调起安装器前后emit），verifying/completed 已确认为死取值并移除。
+  state: 'downloading' | 'verified' | 'completed_unverified' | 'installing' | 'error' | 'tampered';
   message?: string;
 }
 
@@ -146,9 +148,6 @@ export interface AppSettings {
   portable_dir: string;
   download_dir: string;
   active_mirror: string;
-  max_concurrent_downloads: number;
-  github_token: string;
-  close_to_tray: boolean;
   launch_on_startup: boolean;
   update_frequency: 'startup' | 'daily' | 'manual';
   detail_cache_ttl_minutes: number;
@@ -204,19 +203,6 @@ export interface UpdateRule {
   is_frozen: boolean;
   is_hidden: boolean;
   updated_at: number;
-}
-
-export interface SignatureInfo {
-  is_signed: boolean;
-  is_valid: boolean;
-  status: string;
-  status_message?: string;
-  subject?: string;
-  issuer?: string;
-  serial_number?: string;
-  thumbprint_sha1?: string;
-  thumbprint_sha256?: string;
-  error_message?: string;
 }
 
 export interface DeveloperProfile {
@@ -344,8 +330,6 @@ export interface UserDataBackupSettings {
   portable_dir?: string;
   download_dir?: string;
   active_mirror?: string;
-  max_concurrent_downloads?: number;
-  close_to_tray?: boolean;
   launch_on_startup?: boolean;
   update_frequency?: string;
   detail_cache_ttl_minutes?: number;
@@ -369,8 +353,9 @@ export interface ImportUserDataCounts {
 
 // P3-4: 客户端自更新契约（正式确立为产品需求，绝非待废弃项）。
 // 实现面：`src/components/ClientUpdateRow.tsx` 经 `@tauri-apps/plugin-updater`
-// 执行 check / downloadAndInstall；签名与更新源以 `src-tauri/tauri.conf.json`
-// `plugins.updater`（endpoints + pubkey）为准。此处仅做类型层面的加法声明，
+// 执行 check / downloadAndInstall，状态机见该文件内本地 `UpdatePhase` 类型；
+// 签名与更新源以 `src-tauri/tauri.conf.json`
+// `plugins.updater`（endpoints + pubkey）为准。此处仅保留类型层面的加法声明，
 // 不改变任何运行时行为。
 export type ClientUpdatePhaseKind =
   | 'idle'
@@ -380,19 +365,3 @@ export type ClientUpdatePhaseKind =
   | 'downloading'
   | 'ready'
   | 'error';
-
-export interface ClientUpdateAvailable {
-  version: string;
-  currentVersion: string;
-  notes: string;
-}
-
-export interface ClientUpdateDownloadProgress {
-  version: string;
-  percent: number | null;
-}
-
-export interface ClientUpdaterConfig {
-  endpoints: string[];
-  pubkey: string;
-}

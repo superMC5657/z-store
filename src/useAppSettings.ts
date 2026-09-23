@@ -54,7 +54,7 @@ export function useAppSettings() {
         }
       }
     }
-    if (!merged.download_dir || merged.download_dir.includes('zstore_downloads')) {
+    if (!merged.download_dir) {
       merged.download_dir = DEFAULT_SETTINGS.download_dir;
     }
     if (!persisted.language) {

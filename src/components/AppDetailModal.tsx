@@ -10,7 +10,6 @@ import {
   RotateCcw,
   Play,
   CheckCircle2,
-  Shield,
   ShieldCheck,
   KeyRound,
   ChevronUp,
@@ -193,7 +192,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
         return;
       }
       setDownloadProgress(payload);
-      if (payload.state === 'completed' || payload.state === 'verified' || payload.state === 'completed_unverified') {
+      if (payload.state === 'verified' || payload.state === 'completed_unverified') {
         setTimeout(() => {
           if (isMounted) setDownloadProgress(null);
         }, 3500);
@@ -722,12 +721,6 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                         <>
                           <RotateCcw size={12} className="icon-spin" style={{ color: 'var(--brand-primary)' }} />
                           <span>{downloadProgress.message || '正在下载...'}</span>
-                        </>
-                      )}
-                      {downloadProgress.state === 'verifying' && (
-                        <>
-                          <Shield size={12} style={{ color: 'var(--brand-primary)' }} />
-                          <span>正在校验 SHA-256 完整性...</span>
                         </>
                       )}
                       {downloadProgress.state === 'verified' && (

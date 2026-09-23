@@ -14,9 +14,7 @@ const FULL_SETTINGS: Record<string, string> = {
   portable_dir: 'D:\\apps',
   download_dir: 'D:\\dl',
   active_mirror: 'direct',
-  max_concurrent_downloads: '5',
   github_token: 'gho_should-never-leak',
-  close_to_tray: 'false',
   launch_on_startup: 'true',
   update_frequency: 'daily',
   detail_cache_ttl_minutes: '60',
@@ -32,8 +30,6 @@ const EXPECTED_SETTINGS = {
   portable_dir: 'D:\\apps',
   download_dir: 'D:\\dl',
   active_mirror: 'direct',
-  max_concurrent_downloads: 5,
-  close_to_tray: false,
   launch_on_startup: true,
   update_frequency: 'daily',
   detail_cache_ttl_minutes: 60,
@@ -42,7 +38,7 @@ const EXPECTED_SETTINGS = {
 };
 
 describe('DataBackupRow backup schema (P1-8)', () => {
-  it('导出覆盖全部设置项（13 个），version 保持为 1', () => {
+  it('导出覆盖全部设置项（12 个），version 保持为 1', () => {
     const backup = buildUserDataBackup(['a/b'], ['c/d'], FULL_SETTINGS);
     expect(backup.version).toBe(1);
     expect(backup.favorites).toEqual(['a/b']);

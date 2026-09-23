@@ -1,12 +1,4 @@
-import { attachConsole, debug, error, info, warn } from '@tauri-apps/plugin-log';
-
-export interface ZLogOptions {
-  /** 保留参数，供向前兼容 */
-  batch?: number;
-  flushIntervalMs?: number;
-}
-
-// TODO(opt-in): 自动上报网络开关，默认关闭、不上报。仅落盘 + 导出，需用户显式开启后再接上报通道。
+import { attachConsole, error, info, warn } from '@tauri-apps/plugin-log';
 
 let isInitialized = false;
 
@@ -30,7 +22,7 @@ function redact(msg: string): string {
 
 /** 前端会话 ID：进程级一次生成全局复用，与后端 sid 行为链对齐。 */
 let frontendSid = '';
-export function getSid(): string {
+function getSid(): string {
   if (!frontendSid) {
     frontendSid = `s${Date.now().toString(36)}${Math.floor(Math.random() * 0xffff)
       .toString(16)
@@ -39,14 +31,7 @@ export function getSid(): string {
   return frontendSid;
 }
 
-let reqSeq = 0;
-/** 生成前端请求短 ID（8 位 hex），调用方透传为 req 关联。 */
-export function newReqId(): string {
-  reqSeq += 1;
-  return `${(Date.now() ^ reqSeq).toString(16).slice(-4)}${reqSeq.toString(16).padStart(4, '0')}`;
-}
-
-export interface ZLogMeta {
+interface ZLogMeta {
   sid?: string;
   req?: string;
 }
@@ -92,25 +77,13 @@ export function zlogError(msg: string, meta?: ZLogMeta): void {
   void error(redact(line)).catch(() => undefined);
 }
 
-export function zlogDebug(msg: string, meta?: ZLogMeta): void {
-  const line = withPrefix(msg, meta);
-  if (isDuplicate(line)) return;
-  void debug(redact(line)).catch(() => undefined);
-}
-
-/**
- * 兼容接口：有意为 no-op。直透模式下每条日志调用即时经 IPC 上送，
- * 无缓冲队列可刷；保留此函数仅为调用方兼容，无需手动调用。
- */
-export async function flush(): Promise<void> {}
-
 /**
  * 前端日志入口初始化：在 main.tsx 最早调用。
  * - 直透模式：所有 UI 日志纳秒级即时进 IPC，确保时序严格真实
  * - DEV 才 attachConsole（把 console 转发到后端）
  * - 接管 onerror / unhandledrejection
  */
-export async function initZLog(_opts: ZLogOptions = {}): Promise<void> {
+export async function initZLog(): Promise<void> {
   if (isInitialized) return;
   isInitialized = true;
 

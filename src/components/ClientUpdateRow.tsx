@@ -3,6 +3,7 @@ import { Search, Download, RotateCcw, CheckCircle2, Sparkles, AlertTriangle } fr
 import type { DownloadEvent, Update } from '@tauri-apps/plugin-updater';
 import { useTranslation } from 'react-i18next';
 import { notifyToast } from '../utils/notify';
+import { isTauri } from '../services/api';
 
 type UpdatePhase =
   | { kind: 'idle' }
@@ -13,9 +14,7 @@ type UpdatePhase =
   | { kind: 'ready'; version: string }
   | { kind: 'error'; message: string };
 
-const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-
-// P3-4 契约：客户端自更新面板（check/downloadAndInstall，配置见 tauri.conf.json plugins.updater，类型见 src/types/index.ts ClientUpdate*)。
+// P3-4 契约：客户端自更新面板（check/downloadAndInstall，配置见 tauri.conf.json plugins.updater，状态机见下方本地 UpdatePhase）。
 export const ClientUpdateRow: React.FC = () => {
   const { t } = useTranslation();
   const [phase, setPhase] = useState<UpdatePhase>({ kind: 'idle' });
@@ -28,7 +27,7 @@ export const ClientUpdateRow: React.FC = () => {
   };
 
   const handleCheck = async () => {
-    if (!isTauriEnv) {
+    if (!isTauri) {
       fail(t('client_update.tauri_only'));
       return;
     }

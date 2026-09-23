@@ -65,9 +65,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [proxySavedFeedback, setProxySavedFeedback] = useState<string | null>(null);
 
   const [catalogSourceUrl, setCatalogSourceUrl] = useState(
-    settings.catalog_source_url && !settings.catalog_source_url.includes('gitmirror.com') && !settings.catalog_source_url.includes('src-tauri/src/catalog.json')
-      ? settings.catalog_source_url
-      : ''
+    settings.catalog_source_url || ''
   );
 
   useEffect(() => {

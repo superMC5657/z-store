@@ -38,13 +38,6 @@ interface NavItemConfig {
   badge?: number | boolean;
 }
 
-/**
- * 历史本地镜像项的向后兼容别名。唯一定义源为 lib/platformFilter
- * （PLATFORM_IDS + PLATFORM_META）；显示文案保持完全一致。
- */
-export const PLATFORM_FILTER_ITEMS: ReadonlyArray<{ id: PlatformId; label: string }> =
-  PLATFORM_IDS.map((id) => ({ id, label: PLATFORM_META[id].label }));
-
 /** 渲染次序。「设备平台」分组位于「偏好与系统」之上。 */
 const NAV_GROUPS: ReadonlyArray<NavGroupConfig> = [
   { id: 'discovery', i18nKey: 'nav.groups.discovery' },

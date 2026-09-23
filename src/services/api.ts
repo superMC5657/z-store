@@ -40,9 +40,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   portable_dir: '%LOCALAPPDATA%\\Programs\\z-store-apps',
   download_dir: '~/Downloads',
   active_mirror: 'ghproxy',
-  max_concurrent_downloads: 3,
-  github_token: '',
-  close_to_tray: true,
   launch_on_startup: false,
   update_frequency: 'startup',
   detail_cache_ttl_minutes: 30,
@@ -140,10 +137,6 @@ const tauriApi = {
 
   async testProxy(proxyUrl?: string): Promise<ProxyTestResult> {
     return tauriInvoke<ProxyTestResult>('test_proxy', { proxyUrl: proxyUrl || null });
-  },
-
-  async setGithubToken(token: string): Promise<boolean> {
-    return tauriInvoke<boolean>('set_github_token', { token });
   },
 
   async getSettings(): Promise<Record<string, string>> {
