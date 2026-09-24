@@ -34,7 +34,7 @@ impl DeepLinkParser {
             None => (after_scheme.trim_end_matches('/'), None),
         };
 
-        // 1. zstore://search?q={query}
+        // 1. 搜索路由：zstore://search?q={query}
         if path_part.eq_ignore_ascii_case("search") {
             if let Some(query_str) = query_part {
                 for pair in query_str.split('&') {
@@ -54,7 +54,7 @@ impl DeepLinkParser {
             });
         }
 
-        // 2. zstore://app/{app_id}
+        // 2. 应用详情路由：zstore://app/{app_id}
         if let Some(app_id) = path_part.strip_prefix("app/") {
             let id = urlencoding::decode(app_id).unwrap_or_else(|_| app_id.into());
             if !id.trim().is_empty() {
@@ -64,7 +64,7 @@ impl DeepLinkParser {
             }
         }
 
-        // 3. zstore://install/{app_id}
+        // 3. 安装应用路由：zstore://install/{app_id}
         if let Some(app_id) = path_part.strip_prefix("install/") {
             let id = urlencoding::decode(app_id).unwrap_or_else(|_| app_id.into());
             if !id.trim().is_empty() {
@@ -74,7 +74,7 @@ impl DeepLinkParser {
             }
         }
 
-        // 4. zstore://developer/{owner}
+        // 4. 开发者主页路由：zstore://developer/{owner}
         if let Some(owner) = path_part.strip_prefix("developer/") {
             let o = urlencoding::decode(owner).unwrap_or_else(|_| owner.into());
             if !o.trim().is_empty() {
@@ -84,7 +84,7 @@ impl DeepLinkParser {
             }
         }
 
-        // 5. zstore://view/{view}
+        // 5. 视图切换路由：zstore://view/{view}
         if let Some(view) = path_part.strip_prefix("view/") {
             return Some(DeepLinkAction::OpenView {
                 view: view.to_string(),

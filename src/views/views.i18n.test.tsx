@@ -172,12 +172,12 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
         />,
       );
 
-      // Default is card mode
+      // 默认为卡片模式
       expect(container.querySelector('.app-grid')).toBeTruthy();
       expect(container.querySelector('.app-card')).toBeTruthy();
       expect(container.querySelector('.installed-list-row')).toBeNull();
 
-      // Switch to list mode
+      // 切换到列表模式
       const listBtn = screen.getByRole('button', { name: /^列表$/ });
       act(() => {
         fireEvent.click(listBtn);
@@ -344,7 +344,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
     it('switches app name, description and category in AppCard between Chinese and English', async () => {
       const { AppCard } = await import('../components/AppCard');
 
-      // 1. Chinese mode
+      // 1. 中文模式
       await i18n.changeLanguage('zh-CN');
       const { unmount } = render(
         <AppCard
@@ -360,7 +360,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
       expect(screen.getByText(/rustdesk · 系统实用/)).toBeTruthy();
       unmount();
 
-      // 2. English mode
+      // 2. 英文模式
       await i18n.changeLanguage('en-US');
       render(
         <AppCard
@@ -388,7 +388,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
         asset_sha256: 'hash123',
       };
 
-      // 1. Chinese mode
+      // 1. 中文模式
       await i18n.changeLanguage('zh-CN');
       const { unmount } = render(
         <InstalledView
@@ -402,7 +402,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
       expect(screen.getAllByText('RustDesk').length).toBeGreaterThan(0);
       unmount();
 
-      // 2. English mode
+      // 2. 英文模式
       await i18n.changeLanguage('en-US');
       render(
         <InstalledView
@@ -425,7 +425,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
         changelog: '',
       };
 
-      // 1. Chinese mode
+      // 1. 中文模式
       await i18n.changeLanguage('zh-CN');
       const { unmount } = render(
         <AppDetailModal
@@ -442,7 +442,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
       expect(screen.getByText('系统实用')).toBeTruthy();
       unmount();
 
-      // 2. English mode
+      // 2. 英文模式
       await i18n.changeLanguage('en-US');
       render(
         <AppDetailModal

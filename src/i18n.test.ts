@@ -31,7 +31,7 @@ describe('i18n core configuration and language switching', () => {
 
   it('falls back to zh-CN when key exists in fallback', async () => {
     await i18n.changeLanguage('en-US');
-    // Testing fallback behavior for nonexistent key
+    // 测试不存在键的回退行为
     expect(i18n.t('non_existent.key' as any)).toBe('non_existent.key');
   });
 

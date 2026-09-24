@@ -412,7 +412,7 @@ export const App: React.FC = () => {
     setRecentlyViewedApps((prev) => prev.map(patchSummary));
   };
 
-  // Open App Detail Modal (优先内存/数据库 0ms 瞬间秒开，且一个仓库生命周期内只拉取一次)
+  // 打开应用详情弹窗（优先内存/数据库 0ms 瞬间秒开，且一个仓库生命周期内只拉取一次）
   const handleOpenDetail = async (id: string, forceRefresh = false) => {
     const idClean = id.trim().toLowerCase();
     activeDetailIdRef.current = id;

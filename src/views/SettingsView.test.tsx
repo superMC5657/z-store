@@ -145,17 +145,17 @@ describe('SettingsView custom catalog source confirm', () => {
     await i18n.changeLanguage('en-US');
     renderSettings(baseSettings({ language: 'en-US', active_mirror: 'https://gh-proxy.com' }));
 
-    // Appearance row
+    // 外观设置行
     expect(screen.getByText('Theme Mode')).toBeTruthy();
 
-    // Network & Proxy row
+    // 网络与代理设置行
     expect(screen.getByText('GitHub Download Proxy')).toBeTruthy();
 
-    // Data Backup row
+    // 数据备份设置行
     expect(screen.getByText('Export Managed Apps')).toBeTruthy();
     expect(screen.getByText('Export List')).toBeTruthy();
 
-    // Updates & Notifications row
+    // 更新与通知设置行
     expect(screen.getByText('Auto Check Updates')).toBeTruthy();
     expect(screen.getByText('Version Pin & Ignore Rules')).toBeTruthy();
   });

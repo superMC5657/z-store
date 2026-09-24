@@ -26,7 +26,7 @@ pub struct AppMatchResult {
     pub local_version: String,
     pub catalog_version: String,
     pub confidence: f32,
-    pub confidence_tier: String, // "high", "medium", "low"
+    pub confidence_tier: String, // 置信度等级："high"（高）、"medium"（中）、"low"（低）
     pub resolved_executable_path: Option<String>,
 }
 

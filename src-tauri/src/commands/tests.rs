@@ -157,7 +157,7 @@ fn test_select_best_asset_arch_priority() {
 #[test]
 fn test_decide_ownership_verified_requires_api_auth() {
     // README 命中 + 未授权（wrong token / 无 token）⇒ 恒为 false：
-    // 子串命中 alone NEVER verifies。
+    // 仅靠子串命中绝不予以认证。
     assert!(!super::forge::decide_ownership_verified(
         "welcome CODE123 here",
         "CODE123",

@@ -283,7 +283,7 @@ pub fn is_verified_by_code(readme_markdown: &str, code: &str) -> bool {
     readme_markdown.contains(needle)
 }
 
-/// 纯决策函数（离线可测）：README 子串命中 alone NEVER verifies；
+/// 纯决策函数（离线可测）：仅靠 README 子串命中绝不予以认证；
 /// 仅当 `api_authorized`（调用方 GitHub token 经仓库 API 确认具备
 /// owner / collaborator / push 权限）为 true 且校验码命中时才通过。
 /// 网络 I/O 全部隔离在 `check_github_push_access` 中，本函数无网络依赖。

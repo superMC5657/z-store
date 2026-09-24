@@ -79,7 +79,7 @@ pub fn get_reg_key_last_write_time(key: &winreg::RegKey) -> Option<i64> {
     };
     if ret == 0 {
         let intervals = ((ft.high as u64) << 32) | (ft.low as u64);
-        // 116444736000000000 100-ns intervals between 1601-01-01 and 1970-01-01
+        // 1601-01-01 到 1970-01-01 之间的 100 纳秒间隔数（116444736000000000）
         if intervals > 116_444_736_000_000_000 {
             let unix_secs = (intervals - 116_444_736_000_000_000) / 10_000_000;
             return Some(unix_secs as i64);
