@@ -17,9 +17,7 @@ pub mod types;
 #[cfg(test)]
 mod tests;
 
-pub use backup::{
-    parse_import_payload, validate_app_id, ImportPlan, IMPORT_SETTINGS_ALLOWLIST,
-};
+pub use backup::{parse_import_payload, validate_app_id, ImportPlan, IMPORT_SETTINGS_ALLOWLIST};
 pub use constants::{
     default_oauth_client_id, resolve_oauth_client_id, ACCESS_TOKEN_URL, DEVICE_CODE_URL,
     GITHUB_API_BASE, OAUTH_CLIENT_ID_PLACEHOLDER, OAUTH_SCOPE, SETTING_OAUTH_CLIENT_ID,
@@ -27,8 +25,7 @@ pub use constants::{
 };
 pub use device_flow::{poll_device_once, request_device_code};
 pub use star::{
-    add_repo_to_star_list, check_starred, fetch_oauth_user, star_repo, starred_api_url,
-    unstar_repo,
+    add_repo_to_star_list, check_starred, fetch_oauth_user, star_repo, starred_api_url, unstar_repo,
 };
 pub use types::{
     classify_device_poll, AddToListOutcome, DeviceCodeResponse, DevicePollOutcome,

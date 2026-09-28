@@ -27,15 +27,15 @@ impl AppScanner {
         };
 
         let path = PathBuf::from(unquoted.trim());
-        if path.extension().is_some_and(|ext| {
-            ext.eq_ignore_ascii_case("exe") || ext.eq_ignore_ascii_case("lnk")
-        }) {
+        if path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("exe") || ext.eq_ignore_ascii_case("lnk"))
+        {
             Some(path)
         } else {
             None
         }
     }
-
 
     pub fn is_installer_or_cache_path(p: &Path) -> bool {
         let lower = p.to_string_lossy().to_lowercase();

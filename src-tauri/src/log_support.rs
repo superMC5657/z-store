@@ -13,9 +13,7 @@ pub fn host_of(url: &str) -> String {
         Some(i) => &s[i + 3..],
         None => s,
     };
-    let end = after
-        .find(['/', '?', '#'])
-        .unwrap_or(after.len());
+    let end = after.find(['/', '?', '#']).unwrap_or(after.len());
     let mut hostport = &after[..end];
     if let Some(at) = hostport.rfind('@') {
         hostport = &hostport[at + 1..];
@@ -77,9 +75,9 @@ pub fn sanitize_url(url: &str) -> String {
         }
         // 精确键（含 Wave1 六键 + 常见单键）：`vscode` 等子串宿主永不命中。
         match k.as_str() {
-            "code" | "device_code" | "user_code" | "api_key" | "api-key" | "apikey"
-            | "token" | "secret" | "sig" | "signature" | "key" | "auth" | "credential"
-            | "pass" | "password" => return true,
+            "code" | "device_code" | "user_code" | "api_key" | "api-key" | "apikey" | "token"
+            | "secret" | "sig" | "signature" | "key" | "auth" | "credential" | "pass"
+            | "password" => return true,
             _ => {}
         }
         // 长键子串：足够长，无碰撞风险。
@@ -218,11 +216,9 @@ mod tests {
 
     #[test]
     fn test_host_of_strips_signed_query() {
-        let url = "https://objects.githubusercontent.com/abc/file.msi?X-Amz-Signature=deadbeef&token=123";
-        assert_eq!(
-            host_of(url),
-            "objects.githubusercontent.com"
-        );
+        let url =
+            "https://objects.githubusercontent.com/abc/file.msi?X-Amz-Signature=deadbeef&token=123";
+        assert_eq!(host_of(url), "objects.githubusercontent.com");
         assert_eq!(host_of("not a url :::"), "not a url");
         assert_eq!(host_of(""), "unknown");
     }
@@ -257,7 +253,9 @@ mod tests {
             "https://objects.githubusercontent.com/file.msi?X-Amz-Signature=***&token=***&normal=abc"
         );
         assert_eq!(
-            sanitize_url("https://gh-proxy.com/https://github.com/owner/repo/releases/download/v1.0/app.exe"),
+            sanitize_url(
+                "https://gh-proxy.com/https://github.com/owner/repo/releases/download/v1.0/app.exe"
+            ),
             "https://gh-proxy.com/https://github.com/owner/repo/releases/download/v1.0/app.exe"
         );
         assert_eq!(sanitize_url(""), "");
@@ -267,7 +265,9 @@ mod tests {
     fn test_sanitize_url_keeps_search_params() {
         // 搜索类非敏感参数原样保留；签名/令牌按 query-key 脱敏；gh-proxy 前缀原样保留。
         assert_eq!(
-            sanitize_url("https://api.github.com/search/repositories?q=vscode&sort=stars&per_page=20"),
+            sanitize_url(
+                "https://api.github.com/search/repositories?q=vscode&sort=stars&per_page=20"
+            ),
             "https://api.github.com/search/repositories?q=vscode&sort=stars&per_page=20"
         );
         assert_eq!(
@@ -275,7 +275,9 @@ mod tests {
             "https://objects.githubusercontent.com/file.msi?X-Amz-Signature=***&normal=abc"
         );
         assert_eq!(
-            sanitize_url("https://gh-proxy.com/https://github.com/owner/repo/releases/download/v1.0/app.exe"),
+            sanitize_url(
+                "https://gh-proxy.com/https://github.com/owner/repo/releases/download/v1.0/app.exe"
+            ),
             "https://gh-proxy.com/https://github.com/owner/repo/releases/download/v1.0/app.exe"
         );
     }
@@ -288,7 +290,9 @@ mod tests {
             "https://api.github.com/repos/microsoft/vscode/releases/latest"
         );
         assert_eq!(
-            sanitize_url("https://github.com/microsoft/vscode/releases/download/v1.0/VSCode.exe?code=secret"),
+            sanitize_url(
+                "https://github.com/microsoft/vscode/releases/download/v1.0/VSCode.exe?code=secret"
+            ),
             "https://github.com/microsoft/vscode/releases/download/v1.0/VSCode.exe?code=***"
         );
         assert_eq!(

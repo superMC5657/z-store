@@ -1,9 +1,10 @@
 use crate::AppState;
 use tauri::State;
 
-const BASE64_ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const BASE64_ALPHABET: &[u8; 64] =
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-pub fn base64_encode(data: &[u8]) -> String {
+pub(crate) fn base64_encode(data: &[u8]) -> String {
     let mut result = String::with_capacity(data.len().div_ceil(3) * 4);
     for chunk in data.chunks(3) {
         let b0 = chunk[0];
@@ -26,7 +27,7 @@ pub fn base64_encode(data: &[u8]) -> String {
     result
 }
 
-pub fn detect_image_mime(bytes: &[u8]) -> &'static str {
+pub(crate) fn detect_image_mime(bytes: &[u8]) -> &'static str {
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         "image/png"
     } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
@@ -54,20 +55,20 @@ pub fn detect_image_mime(bytes: &[u8]) -> &'static str {
 
 /// 图标缓存文件名消毒：仅保留字母数字及 `-`/`_`，用于构造本地图标缓存文件名。
 /// 消毒后为空时，调用方回退到基于 remote_url 的 SHA-256 哈希命名（见 icon_hash_filename）。
-pub fn sanitize_icon_segment(s: &str) -> String {
+pub(crate) fn sanitize_icon_segment(s: &str) -> String {
     s.chars()
         .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
         .collect()
 }
 
-pub fn is_avatar_url(url: &str) -> bool {
+pub(crate) fn is_avatar_url(url: &str) -> bool {
     let u = url.trim();
     (u.contains("github.com/") && u.ends_with(".png"))
         || u.contains("avatars.githubusercontent.com")
         || u.contains("identicons.github.com")
 }
 
-pub fn icon_hash_filename(remote_url: &str) -> String {
+pub(crate) fn icon_hash_filename(remote_url: &str) -> String {
     use sha2::Digest;
     let mut hasher = sha2::Sha256::new();
     hasher.update(remote_url.as_bytes());
@@ -77,7 +78,7 @@ pub fn icon_hash_filename(remote_url: &str) -> String {
 
 /// 图标缓存路径：canonical id 解析出 owner/repo 命名空间时使用 `{owner}_{repo}.png`，
 /// 否则以消毒后的 id 命名；id 完全不可用时回退 remote_url 哈希。
-pub fn get_icon_cache_path(app_id: &str, remote_url: &str) -> std::path::PathBuf {
+pub(crate) fn get_icon_cache_path(app_id: &str, remote_url: &str) -> std::path::PathBuf {
     let icons_dir = crate::get_app_data_dir().join("icons");
     let filename = match crate::forge::RepositoryUrlParser::parse(app_id) {
         Some(coord) if !coord.owner.is_empty() && !coord.repo.is_empty() => {
@@ -101,6 +102,20 @@ fn fallback_icon_filename(app_id: &str, remote_url: &str) -> String {
     } else {
         format!("{}.png", safe_id)
     }
+}
+
+/// H2：图标拉取专用 HTTP 客户端（超时 + 有限重定向）。
+fn icon_http_client() -> reqwest::Client {
+    let api_timeout = std::time::Duration::from_secs(
+        crate::config::get_project_config()
+            .network
+            .api_timeout_seconds,
+    );
+    reqwest::Client::builder()
+        .timeout(api_timeout)
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
 }
 
 #[tauri::command]
@@ -140,8 +155,7 @@ pub async fn get_or_fetch_icon(
     //    无记录或记录不一致时强制触发网络重新拉取并刷新入库。
     let db_cached_url = if !cache_key.is_empty() {
         state
-            .db
-            .lock()
+            .db()
             .ok()
             .and_then(|db| db.get_icon_cache_url(&cache_key).ok().flatten())
     } else {
@@ -183,14 +197,7 @@ pub async fn get_or_fetch_icon(
     }
     candidate_urls.push(url_trimmed.to_string());
 
-    let api_timeout = std::time::Duration::from_secs(
-        crate::config::get_project_config().network.api_timeout_seconds,
-    );
-    let client = reqwest::Client::builder()
-        .timeout(api_timeout)
-        .redirect(reqwest::redirect::Policy::limited(10))
-        .build()
-        .unwrap_or_else(|_| reqwest::Client::new());
+    let client = icon_http_client();
 
     let mut fetched_bytes = None;
     let mut last_err = String::new();
@@ -202,7 +209,13 @@ pub async fn get_or_fetch_icon(
         let safe_url = crate::log_support::sanitize_url(&url);
         let icon_host = crate::log_support::host_of(&url);
         let is_mirror = url != url_trimmed;
-        log::debug!("http get icon sid={} req={} url='{}' mirror={}", icon_sid, icon_req, safe_url, is_mirror);
+        log::debug!(
+            "http get icon sid={} req={} url='{}' mirror={}",
+            icon_sid,
+            icon_req,
+            safe_url,
+            is_mirror
+        );
         let start_icon = std::time::Instant::now();
         match client
             .get(&url)
@@ -235,14 +248,21 @@ pub async fn get_or_fetch_icon(
     }
 
     let bytes = fetched_bytes.ok_or_else(|| {
-        log::info!("http resp icon fail sid={} req={} host={} raw_url='{}' reason={}", icon_sid, icon_req, crate::log_support::host_of(url_trimmed), raw_icon_url, crate::log_support::short_reason(&last_err));
+        log::info!(
+            "http resp icon fail sid={} req={} host={} raw_url='{}' reason={}",
+            icon_sid,
+            icon_req,
+            crate::log_support::host_of(url_trimmed),
+            raw_icon_url,
+            crate::log_support::short_reason(&last_err)
+        );
         format!("拉取远程图标失败 ({}): {}", url_trimmed, last_err)
     })?;
 
     // 3. 缓存在用户的配置目录里 (icons/)，同时持久化元数据至 SQLite 数据库
     let _ = std::fs::write(&cache_file, &bytes);
     if !cache_key.is_empty() {
-        if let Ok(db) = state.db.lock() {
+        if let Ok(db) = state.db() {
             let _ = db.save_icon_cache_url(&cache_key, url_trimmed);
         }
     }

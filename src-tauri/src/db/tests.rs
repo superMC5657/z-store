@@ -1,22 +1,35 @@
 use super::*;
-use crate::models::{AppDetail, InstalledApp};
+use crate::models::AppDetail;
+
+pub mod fixtures {
+    use crate::db::Database;
+    use crate::models::InstalledApp;
+
+    pub fn test_db() -> Database {
+        Database::open_in_memory().unwrap()
+    }
+
+    pub fn sample_app() -> InstalledApp {
+        InstalledApp {
+            app_id: "rustdesk".to_string(),
+            app_name: "RustDesk".to_string(),
+            version: "v1.2.6".to_string(),
+            installed_at: 1700000000,
+            install_method: "msi".to_string(),
+            install_path: "C:\\Program Files\\RustDesk".to_string(),
+            asset_name: "rustdesk-1.2.6.msi".to_string(),
+            asset_sha256: "abcdef1234567890".to_string(),
+            uninstall_command: Some("msiexec /x".to_string()),
+            icon: None,
+            icon_bg: None,
+        }
+    }
+}
 
 #[test]
 fn test_installed_apps_crud() {
-    let db = Database::open_in_memory().unwrap();
-    let app = InstalledApp {
-        app_id: "rustdesk".to_string(),
-        app_name: "RustDesk".to_string(),
-        version: "v1.2.6".to_string(),
-        installed_at: 1700000000,
-        install_method: "msi".to_string(),
-        install_path: "C:\\Program Files\\RustDesk".to_string(),
-        asset_name: "rustdesk-1.2.6.msi".to_string(),
-        asset_sha256: "abcdef1234567890".to_string(),
-        uninstall_command: Some("msiexec /x".to_string()),
-        icon: None,
-        icon_bg: None,
-    };
+    let db = fixtures::test_db();
+    let app = fixtures::sample_app();
 
     db.save_installed_app(&app).unwrap();
     let apps = db.get_installed_apps().unwrap();
@@ -31,7 +44,7 @@ fn test_installed_apps_crud() {
 
 #[test]
 fn test_etag_cache() {
-    let db = Database::open_in_memory().unwrap();
+    let db = fixtures::test_db();
     let ep = "https://api.github.com/repos/rustdesk/rustdesk/releases/latest";
     db.save_etag(ep, "W/\"123456\"", "{\"tag_name\":\"v1.2.6\"}", 1700000000)
         .unwrap();
@@ -50,7 +63,7 @@ fn test_etag_cache() {
 
 #[test]
 fn test_settings_and_favorites() {
-    let db = Database::open_in_memory().unwrap();
+    let db = fixtures::test_db();
     db.set_setting("theme", "dark").unwrap();
     assert_eq!(db.get_setting("theme").unwrap(), Some("dark".to_string()));
 
@@ -65,7 +78,7 @@ fn test_settings_and_favorites() {
 
 #[test]
 fn test_update_rules_crud() {
-    let db = Database::open_in_memory().unwrap();
+    let db = fixtures::test_db();
 
     // 1. 初始状态：无规则
     assert!(db.get_rule("rustdesk").unwrap().is_none());
@@ -111,7 +124,7 @@ fn test_update_rules_crud() {
 
 #[test]
 fn test_search_and_view_history_crud() {
-    let db = Database::open_in_memory().unwrap();
+    let db = fixtures::test_db();
 
     // 1. 搜索历史
     db.record_search_query("rustdesk").unwrap();
@@ -147,7 +160,7 @@ fn test_search_and_view_history_crud() {
 
 #[test]
 fn test_host_tokens_crud() {
-    let db = Database::open_in_memory().unwrap();
+    let db = fixtures::test_db();
 
     // 1. 初始状态为空
     let tokens = db.get_host_tokens().unwrap();
@@ -159,13 +172,23 @@ fn test_host_tokens_crud() {
 
     let tokens = db.get_host_tokens().unwrap();
     assert_eq!(tokens.len(), 2);
-    assert_eq!(db.get_host_token("codeberg.org").unwrap().as_deref(), Some("cb_token_123"));
-    assert_eq!(db.get_host_token("github.com").unwrap().as_deref(), Some("gh_token_456"));
+    assert_eq!(
+        db.get_host_token("codeberg.org").unwrap().as_deref(),
+        Some("cb_token_123")
+    );
+    assert_eq!(
+        db.get_host_token("github.com").unwrap().as_deref(),
+        Some("gh_token_456")
+    );
 
     // 3. 更新速率限制
-    db.update_host_rate_limit("codeberg.org", Some(2990), Some(3000), Some(1700000000)).unwrap();
+    db.update_host_rate_limit("codeberg.org", Some(2990), Some(3000), Some(1700000000))
+        .unwrap();
     let tokens_after = db.get_host_tokens().unwrap();
-    let cb = tokens_after.iter().find(|t| t.host == "codeberg.org").unwrap();
+    let cb = tokens_after
+        .iter()
+        .find(|t| t.host == "codeberg.org")
+        .unwrap();
     assert_eq!(cb.rate_limit_remaining, Some(2990));
 
     // 4. 移除令牌
@@ -175,7 +198,8 @@ fn test_host_tokens_crud() {
     assert_eq!(db.get_host_tokens().unwrap().len(), 1);
 
     // 5. 在未配置前置令牌的情况下更新速率限制（匿名/公开主机记录）
-    db.update_host_rate_limit("gitea.com", Some(55), Some(60), Some(1700000100)).unwrap();
+    db.update_host_rate_limit("gitea.com", Some(55), Some(60), Some(1700000100))
+        .unwrap();
     let tokens_new = db.get_host_tokens().unwrap();
     assert_eq!(tokens_new.len(), 2);
     let gitea = tokens_new.iter().find(|t| t.host == "gitea.com").unwrap();
@@ -186,12 +210,18 @@ fn test_host_tokens_crud() {
 
 #[test]
 fn test_app_details_cache_crud() {
-    let db = Database::open_in_memory().unwrap();
+    let db = fixtures::test_db();
     db.clear_app_details_cache().unwrap();
 
     // 1. 初始状态：为空
-    assert!(db.get_cached_app_detail("rustdesk", None).unwrap().is_none());
-    assert!(db.get_cached_app_detail("github.com/rustdesk/rustdesk", None).unwrap().is_none());
+    assert!(db
+        .get_cached_app_detail("rustdesk", None)
+        .unwrap()
+        .is_none());
+    assert!(db
+        .get_cached_app_detail("github.com/rustdesk/rustdesk", None)
+        .unwrap()
+        .is_none());
 
     // 2. 保存详情缓存
     let detail = AppDetail {
@@ -221,7 +251,8 @@ fn test_app_details_cache_crud() {
         platforms: vec!["windows".to_string()],
     };
 
-    db.save_cached_app_detail("rustdesk/rustdesk", &detail).unwrap();
+    db.save_cached_app_detail("rustdesk/rustdesk", &detail)
+        .unwrap();
 
     // 3. 在 TTL 有效期内通过规范化 ID 命中缓存
     let cached_by_id = db
@@ -229,12 +260,18 @@ fn test_app_details_cache_crud() {
         .unwrap()
         .expect("hit by id");
     assert_eq!(cached_by_id.name, "RustDesk");
-    assert_eq!(cached_by_id.description_en.as_deref(), Some("Remote desktop software"));
+    assert_eq!(
+        cached_by_id.description_en.as_deref(),
+        Some("Remote desktop software")
+    );
     assert_eq!(cached_by_id.latest_version, "v1.3.1");
     assert!(cached_by_id.cached_at.is_some());
 
     // 4. 缓存键精确匹配：非 canonical 形态（裸名 /  host 前缀变体）一律不命中（ADR-0010 单键语义）
-    assert!(db.get_cached_app_detail("rustdesk", Some(1800)).unwrap().is_none());
+    assert!(db
+        .get_cached_app_detail("rustdesk", Some(1800))
+        .unwrap()
+        .is_none());
     assert!(db
         .get_cached_app_detail("github.com/rustdesk/rustdesk", Some(1800))
         .unwrap()
@@ -254,11 +291,9 @@ fn test_app_details_cache_crud() {
     assert_eq!(fallback.name, "RustDesk");
 
     // 6. 测试 touch_cached_app_detail 刷新缓存时间
-    let fresh_now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64 + 100;
-    db.touch_cached_app_detail("rustdesk/rustdesk", fresh_now).unwrap();
+    let fresh_now = now_secs() + 100;
+    db.touch_cached_app_detail("rustdesk/rustdesk", fresh_now)
+        .unwrap();
     let touched = db
         .get_cached_app_detail("rustdesk/rustdesk", Some(1800))
         .unwrap()
@@ -268,7 +303,8 @@ fn test_app_details_cache_crud() {
     // 7. 更新缓存
     let mut updated_detail = detail.clone();
     updated_detail.latest_version = "v1.3.2".to_string();
-    db.save_cached_app_detail("rustdesk/rustdesk", &updated_detail).unwrap();
+    db.save_cached_app_detail("rustdesk/rustdesk", &updated_detail)
+        .unwrap();
     let cached_updated = db
         .get_cached_app_detail("rustdesk/rustdesk", Some(1800))
         .unwrap()
@@ -277,12 +313,15 @@ fn test_app_details_cache_crud() {
 
     // 8. 清除缓存
     db.clear_app_details_cache().unwrap();
-    assert!(db.get_cached_app_detail("rustdesk/rustdesk", None).unwrap().is_none());
+    assert!(db
+        .get_cached_app_detail("rustdesk/rustdesk", None)
+        .unwrap()
+        .is_none());
 }
 
 #[test]
 fn test_detail_cache_ttl_config_baseline() {
-    let db = Database::open_in_memory().unwrap();
+    let db = fixtures::test_db();
     // 1. 未设置数据库配置时，返回 config.toml 基线配置
     assert_eq!(
         db.get_detail_cache_ttl_minutes(),
@@ -302,7 +341,7 @@ fn test_watch_notify_frequency_normalize() {
     assert_eq!(normalize_watch_notify_frequency("hourly"), "daily");
     assert_eq!(normalize_watch_notify_frequency(""), "daily");
 
-    let db = Database::open_in_memory().unwrap();
+    let db = fixtures::test_db();
     assert_eq!(db.get_watch_notify_frequency(), "daily");
     db.set_setting("watch_notify_frequency", "startup").unwrap();
     assert_eq!(db.get_watch_notify_frequency(), "startup");
@@ -312,7 +351,7 @@ fn test_watch_notify_frequency_normalize() {
 
 #[test]
 fn test_watched_apps_crud() {
-    let db = Database::open_in_memory().unwrap();
+    let db = fixtures::test_db();
     assert!(db.get_watched_apps().unwrap().is_empty());
 
     assert!(db.watch_app("rustdesk/rustdesk").unwrap());
@@ -326,14 +365,16 @@ fn test_watched_apps_crud() {
     assert!(watched[0].last_notified_version.is_none());
 
     // 基线初始化仅在 NULL 时写入
-    db.init_watch_baseline("rustdesk/rustdesk", "v1.0.0").unwrap();
+    db.init_watch_baseline("rustdesk/rustdesk", "v1.0.0")
+        .unwrap();
     assert_eq!(
         db.get_watched_apps().unwrap()[0]
             .last_notified_version
             .as_deref(),
         Some("v1.0.0")
     );
-    db.init_watch_baseline("rustdesk/rustdesk", "v9.9.9").unwrap();
+    db.init_watch_baseline("rustdesk/rustdesk", "v9.9.9")
+        .unwrap();
     assert_eq!(
         db.get_watched_apps().unwrap()[0]
             .last_notified_version
@@ -346,7 +387,10 @@ fn test_watched_apps_crud() {
         .unwrap();
     let w = db.get_watched_apps().unwrap()[0].clone();
     assert_eq!(w.last_notified_version.as_deref(), Some("v1.1.0"));
-    assert_eq!(db.get_watch_last_notified_at("rustdesk/rustdesk").unwrap(), Some(1700000000));
+    assert_eq!(
+        db.get_watch_last_notified_at("rustdesk/rustdesk").unwrap(),
+        Some(1700000000)
+    );
 
     assert!(db.unwatch_app("rustdesk/rustdesk").unwrap());
     assert!(!db.unwatch_app("rustdesk/rustdesk").unwrap());
@@ -355,7 +399,7 @@ fn test_watched_apps_crud() {
 
 #[test]
 fn test_verified_apps() {
-    let db = Database::open_in_memory().unwrap();
+    let db = fixtures::test_db();
     assert!(!db.is_verified_app("rustdesk").unwrap());
     db.mark_verified_app("rustdesk").unwrap();
     assert!(db.is_verified_app("rustdesk").unwrap());
@@ -363,12 +407,15 @@ fn test_verified_apps() {
 
 #[test]
 fn test_icon_cache_meta_crud() {
-    let db = Database::open_in_memory().unwrap();
+    let db = fixtures::test_db();
     assert_eq!(db.get_icon_cache_url("agalwood_Motrix.png").unwrap(), None);
 
-    db.save_icon_cache_url("agalwood_Motrix.png", "https://github.com/agalwood.png").unwrap();
+    db.save_icon_cache_url("agalwood_Motrix.png", "https://github.com/agalwood.png")
+        .unwrap();
     assert_eq!(
-        db.get_icon_cache_url("agalwood_Motrix.png").unwrap().as_deref(),
+        db.get_icon_cache_url("agalwood_Motrix.png")
+            .unwrap()
+            .as_deref(),
         Some("https://github.com/agalwood.png")
     );
 
@@ -379,9 +426,9 @@ fn test_icon_cache_meta_crud() {
     )
     .unwrap();
     assert_eq!(
-        db.get_icon_cache_url("agalwood_Motrix.png").unwrap().as_deref(),
+        db.get_icon_cache_url("agalwood_Motrix.png")
+            .unwrap()
+            .as_deref(),
         Some("https://raw.githubusercontent.com/agalwood/Motrix/HEAD/public/app-icon.png")
     );
 }
-
-

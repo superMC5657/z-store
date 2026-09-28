@@ -54,12 +54,7 @@ mod tests {
         let svc = test_service();
         let mut cache: HashMap<String, (Option<String>, Option<String>)> = HashMap::new();
         let result = svc
-            .sync_starred_repos_with_cache(
-                Some("testuser"),
-                None,
-                &mut cache,
-                Some(&srv.base),
-            )
+            .sync_starred_repos_with_cache(Some("testuser"), None, &mut cache, Some(&srv.base))
             .await
             .unwrap();
         assert_eq!(result.total_starred, 2);
@@ -90,9 +85,7 @@ mod tests {
     async fn test_starred_release_cache_first_no_refetch() {
         let release_hits = Arc::new(AtomicUsize::new(0));
         let hits_c = release_hits.clone();
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let base = format!("http://127.0.0.1:{}", port);
         let starred_body = serde_json::json!([
@@ -159,8 +152,7 @@ mod tests {
             (
                 Some("\"cached-rel-etag\"".to_string()),
                 Some(
-                    serde_json::json!({"tag_name": "v1.0.0", "body": "", "assets": []})
-                        .to_string(),
+                    serde_json::json!({"tag_name": "v1.0.0", "body": "", "assets": []}).to_string(),
                 ),
             ),
         );
@@ -186,9 +178,7 @@ mod tests {
     async fn test_starred_release_fanout_capped() {
         let release_hits = Arc::new(AtomicUsize::new(0));
         let hits_c = release_hits.clone();
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let base = format!("http://127.0.0.1:{}", port);
         let n = super::STARRED_RELEASE_ENRICH_LIMIT + 5;

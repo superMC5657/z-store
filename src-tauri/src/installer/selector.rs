@@ -106,11 +106,7 @@ pub fn score_asset(a: &crate::models::ReleaseAsset) -> i32 {
     let target_os = "macos";
     #[cfg(target_os = "linux")]
     let target_os = "linux";
-    #[cfg(not(any(
-        target_os = "windows",
-        target_os = "macos",
-        target_os = "linux"
-    )))]
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     let target_os = "all";
 
     #[cfg(target_arch = "x86_64")]
@@ -177,11 +173,7 @@ pub fn select_best_asset(
     let target_os = "macos";
     #[cfg(target_os = "linux")]
     let target_os = "linux";
-    #[cfg(not(any(
-        target_os = "windows",
-        target_os = "macos",
-        target_os = "linux"
-    )))]
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     let target_os = "all";
 
     let os_matches: Vec<&crate::models::ReleaseAsset> = assets

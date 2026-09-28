@@ -2,6 +2,7 @@ pub mod coord;
 pub mod gitea;
 pub mod github;
 pub mod gitlab;
+pub(crate) mod http;
 pub mod provider;
 
 #[cfg(test)]
@@ -79,7 +80,11 @@ impl ForgeRegistry {
         token: Option<&str>,
     ) -> Result<Vec<ForgeRepoInfo>, String> {
         match forge {
-            ForgeType::GitHub => GitHubProvider.search_repos("github.com", query, token).await,
+            ForgeType::GitHub => {
+                GitHubProvider
+                    .search_repos("github.com", query, token)
+                    .await
+            }
             ForgeType::Codeberg => {
                 GiteaProvider::new(ForgeType::Codeberg)
                     .search_repos(host.unwrap_or("codeberg.org"), query, token)

@@ -7,14 +7,8 @@ fn test_resolve_client_id_override() {
         resolve_oauth_client_id(Some("  abc123  ")),
         "abc123".to_string()
     );
-    assert_eq!(
-        resolve_oauth_client_id(Some("")),
-        default_id
-    );
-    assert_eq!(
-        resolve_oauth_client_id(None),
-        default_id
-    );
+    assert_eq!(resolve_oauth_client_id(Some("")), default_id);
+    assert_eq!(resolve_oauth_client_id(None), default_id);
 }
 
 #[test]
@@ -54,9 +48,7 @@ fn test_classify_device_poll_state_machine() {
     );
     // 未知错误透出描述
     assert_eq!(
-        classify_device_poll(
-            r#"{"error":"incorrect_device_code","error_description":"bad code"}"#
-        ),
+        classify_device_poll(r#"{"error":"incorrect_device_code","error_description":"bad code"}"#),
         DevicePollOutcome::Error {
             message: "bad code".to_string()
         }
@@ -120,10 +112,9 @@ fn test_parse_import_payload_merge_rules() {
             "watch_notify_frequency"
         ]
     );
-    assert!(plan.settings.contains(&(
-        "detail_cache_ttl_minutes".to_string(),
-        "60".to_string()
-    )));
+    assert!(plan
+        .settings
+        .contains(&("detail_cache_ttl_minutes".to_string(), "60".to_string())));
 
     // 非法版本拒绝
     assert!(parse_import_payload(r#"{"version": 2}"#).is_err());

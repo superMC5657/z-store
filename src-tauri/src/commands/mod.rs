@@ -34,6 +34,12 @@ pub use crate::installer::{resolve_uninstaller_command, select_best_asset, Insta
 
 use crate::AppState;
 
+/// H6：入站 `app_id` 统一归一化守卫（ADR-0010）。
+/// 成功返回 canonical id；未知标识直接拒绝，调用方永不触碰 SQLite。
+pub(crate) fn require_app_id(raw: &str) -> Result<String, String> {
+    crate::forge::canonical_app_id(raw).ok_or_else(|| format!("无法识别的应用标识: {}", raw))
+}
+
 /// 获取当前生效的 GitHub API 访问令牌（OAuth 登录令牌优先，其次主机令牌）。
 pub fn resolve_active_github_token(state: &AppState) -> Option<String> {
     if let Ok(t) = state.github_token.lock() {
@@ -43,7 +49,7 @@ pub fn resolve_active_github_token(state: &AppState) -> Option<String> {
             }
         }
     }
-    if let Ok(db) = state.db.lock() {
+    if let Ok(db) = state.db() {
         if let Ok(Some(t)) = db.get_setting(crate::oauth::SETTING_OAUTH_TOKEN) {
             let clean = t.trim().to_string();
             if !clean.is_empty() {
@@ -64,11 +70,11 @@ pub fn resolve_active_github_token(state: &AppState) -> Option<String> {
 }
 
 pub(crate) fn resolve_oauth_client_id_from_db(state: &AppState) -> String {
-    let override_id = state
-        .db
-        .lock()
-        .ok()
-        .and_then(|db| db.get_setting(crate::oauth::SETTING_OAUTH_CLIENT_ID).ok().flatten());
+    let override_id = state.db().ok().and_then(|db| {
+        db.get_setting(crate::oauth::SETTING_OAUTH_CLIENT_ID)
+            .ok()
+            .flatten()
+    });
     crate::oauth::resolve_oauth_client_id(override_id.as_deref())
 }
 

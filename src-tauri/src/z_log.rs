@@ -30,17 +30,17 @@ pub const ROTATION_KEEP_COUNT: usize = 5;
 /// 默认不可见（后续任务按需提升）。调用方另用 `log_support::sanitize_url` /
 /// `host_of` / `short_reason` 先脱敏再记行。
 pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
-    use tauri_plugin_log::{
-        Builder, RotationStrategy, Target, TargetKind, TimezoneStrategy,
-    };
+    use tauri_plugin_log::{Builder, RotationStrategy, Target, TargetKind, TimezoneStrategy};
 
-    let format = time::macros::format_description!("[[[year]-[month]-[day]][[[hour]:[minute]:[second]]");
+    let format =
+        time::macros::format_description!("[[[year]-[month]-[day]][[[hour]:[minute]:[second]]");
     let builder = Builder::default()
         .max_file_size(MAX_SINGLE_FILE_BYTES)
         .rotation_strategy(RotationStrategy::KeepSome(ROTATION_KEEP_COUNT))
         .timezone_strategy(TimezoneStrategy::UseLocal)
         .format(move |out, message, record| {
-            let now = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+            let now = time::OffsetDateTime::now_local()
+                .unwrap_or_else(|_| time::OffsetDateTime::now_utc());
             let target = if record.target().starts_with("webview") {
                 "ui"
             } else {
@@ -481,8 +481,8 @@ pub fn zlog_export_bundle(app: AppHandle) -> Result<String, String> {
     let out_path = log_dir.join(format!("zstore-logs-{}.zip", stamp));
     let out_file = std::fs::File::create(&out_path).map_err(|e| e.to_string())?;
     let mut zip = zip::ZipWriter::new(out_file);
-    let options =
-        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
 
     let entries = std::fs::read_dir(&log_dir).map_err(|e| e.to_string())?;
     for entry in entries.flatten() {
@@ -575,8 +575,7 @@ mod tests {
     #[test]
     fn test_redact_unicode_boundary_safe() {
         // 宽字符 + emoji 混合，截断/替换不断裂，不 panic。
-        let s: String = "汉".repeat(200)
-            + " user@test.com Bearer tok 汉😀";
+        let s: String = "汉".repeat(200) + " user@test.com Bearer tok 汉😀";
         let out = redact(&s);
         assert!(out.contains("***@***"));
         assert!(out.contains("Bearer ***"));
@@ -589,7 +588,10 @@ mod tests {
     fn test_level_override_parse() {
         // ZSTORE_LOG / RUST_LOG 覆盖解析锁定：双 cfg 分支共用。
         assert_eq!(parse_level_str("debug"), Some(log::LevelFilter::Debug));
-        assert_eq!(parse_level_str("Z_STORE_LIB=DEBUG"), Some(log::LevelFilter::Debug));
+        assert_eq!(
+            parse_level_str("Z_STORE_LIB=DEBUG"),
+            Some(log::LevelFilter::Debug)
+        );
         assert_eq!(parse_level_str("warn"), Some(log::LevelFilter::Warn));
         assert_eq!(parse_level_str("off"), Some(log::LevelFilter::Off));
         assert_eq!(parse_level_str("nonsense"), None);

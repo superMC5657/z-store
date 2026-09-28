@@ -1,8 +1,8 @@
-pub mod matcher;
-pub mod registry;
-pub mod lnk_target;
 pub mod display_icon;
 pub mod executable;
+pub mod lnk_target;
+pub mod matcher;
+pub mod registry;
 pub mod types;
 
 #[cfg(test)]

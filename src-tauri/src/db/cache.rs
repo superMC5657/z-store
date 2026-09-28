@@ -1,4 +1,4 @@
-use super::Database;
+use super::{now_secs, Database};
 use crate::models::AppDetail;
 use rusqlite::{params, Result};
 
@@ -34,7 +34,7 @@ impl Database {
         payload_json: &str,
         timestamp: i64,
     ) -> Result<()> {
-        self.conn.execute(
+        self.exec_upsert(
             r#"
             INSERT INTO api_etag_cache (endpoint_url, etag, payload_json, last_checked_at)
             VALUES (?1, ?2, ?3, ?4)
@@ -44,8 +44,7 @@ impl Database {
                 last_checked_at = excluded.last_checked_at;
             "#,
             params![endpoint_url, etag, payload_json, timestamp],
-        )?;
-        Ok(())
+        )
     }
 
     pub fn get_cached_app_detail(
@@ -67,10 +66,7 @@ impl Database {
             let cached_at: i64 = row.get(1)?;
             if let Some(ttl) = ttl_seconds {
                 if ttl > 0 {
-                    let now = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs() as i64;
+                    let now = now_secs();
                     if now.saturating_sub(cached_at) >= ttl {
                         // 缓存已过期，返回 None 以促使远端触发 ETag 条件校验
                         return Ok(None);
@@ -104,14 +100,11 @@ impl Database {
 
     pub fn save_cached_app_detail(&self, app_id: &str, detail: &AppDetail) -> Result<()> {
         let clean_id = app_id.trim();
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let now = now_secs();
         let json_str = serde_json::to_string(detail)
             .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
 
-        self.conn.execute(
+        self.exec_upsert(
             r#"
             INSERT INTO app_details_cache (app_id, name, latest_version, detail_json, cached_at)
             VALUES (?1, ?2, ?3, ?4, ?5)
@@ -121,16 +114,8 @@ impl Database {
                 detail_json = excluded.detail_json,
                 cached_at = excluded.cached_at;
             "#,
-            params![
-                clean_id,
-                detail.name,
-                detail.latest_version,
-                json_str,
-                now,
-            ],
-        )?;
-
-        Ok(())
+            params![clean_id, detail.name, detail.latest_version, json_str, now,],
+        )
     }
 
     /// 测试专用：清空详情缓存（生产路径只增量写入，从不全清）。
@@ -162,16 +147,11 @@ impl Database {
         if clean_key.is_empty() || clean_url.is_empty() {
             return Ok(());
         }
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
-        self.conn.execute(
+        let now = now_secs();
+        self.exec_upsert(
             "INSERT INTO icon_cache_meta (cache_key, remote_url, cached_at) VALUES (?1, ?2, ?3)
              ON CONFLICT(cache_key) DO UPDATE SET remote_url = excluded.remote_url, cached_at = excluded.cached_at",
             params![clean_key, clean_url, now],
-        )?;
-        Ok(())
+        )
     }
 }
-

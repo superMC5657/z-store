@@ -1,4 +1,4 @@
-use super::Database;
+use super::{now_secs, Database};
 use rusqlite::{params, Result};
 
 impl Database {
@@ -8,10 +8,7 @@ impl Database {
         if id.is_empty() {
             return Ok(false);
         }
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let now = now_secs();
         let rows = self.conn.execute(
             "INSERT OR IGNORE INTO user_favorites (app_id, favorited_at) VALUES (?1, ?2)",
             params![id, now],
@@ -20,15 +17,11 @@ impl Database {
     }
 
     pub fn get_favorites(&self) -> Result<Vec<String>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT app_id FROM user_favorites ORDER BY favorited_at DESC")?;
-        let rows = stmt.query_map([], |row| row.get(0))?;
-        let mut favs = Vec::new();
-        for r in rows {
-            favs.push(r?);
-        }
-        Ok(favs)
+        self.query_vec(
+            "SELECT app_id FROM user_favorites ORDER BY favorited_at DESC",
+            [],
+            |row| row.get(0),
+        )
     }
 
     pub fn toggle_favorite(&self, app_id: &str) -> Result<bool> {
@@ -45,10 +38,7 @@ impl Database {
             )?;
             Ok(false)
         } else {
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs() as i64;
+            let now = now_secs();
             self.conn.execute(
                 "INSERT INTO user_favorites (app_id, favorited_at) VALUES (?1, ?2)",
                 params![app_id, now],
@@ -62,11 +52,8 @@ impl Database {
         if q.is_empty() {
             return Ok(());
         }
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
-        self.conn.execute(
+        let now = now_secs();
+        self.exec_upsert(
             r#"
             INSERT INTO search_history (query, searched_at)
             VALUES (?1, ?2)
@@ -75,7 +62,9 @@ impl Database {
             "#,
             params![q, now],
         )?;
-        let limit = crate::config::get_project_config().limits.search_history_limit;
+        let limit = crate::config::get_project_config()
+            .limits
+            .search_history_limit;
         self.conn.execute(
             &format!(
                 "DELETE FROM search_history WHERE id NOT IN (SELECT id FROM search_history ORDER BY searched_at DESC LIMIT {})",
@@ -87,19 +76,17 @@ impl Database {
     }
 
     pub fn get_search_history(&self) -> Result<Vec<String>> {
-        let limit = crate::config::get_project_config().limits.search_history_limit;
-        let mut stmt = self.conn.prepare(
+        let limit = crate::config::get_project_config()
+            .limits
+            .search_history_limit;
+        self.query_vec(
             &format!(
                 "SELECT query FROM search_history ORDER BY searched_at DESC LIMIT {}",
                 limit
             ),
-        )?;
-        let rows = stmt.query_map([], |row| row.get(0))?;
-        let mut res = Vec::new();
-        for r in rows {
-            res.push(r?);
-        }
-        Ok(res)
+            [],
+            |row| row.get(0),
+        )
     }
 
     pub fn clear_search_history(&self) -> Result<()> {
@@ -120,11 +107,8 @@ impl Database {
         if id.is_empty() {
             return Ok(());
         }
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
-        self.conn.execute(
+        let now = now_secs();
+        self.exec_upsert(
             r#"
             INSERT INTO view_history (app_id, viewed_at)
             VALUES (?1, ?2)
@@ -133,7 +117,9 @@ impl Database {
             "#,
             params![id, now],
         )?;
-        let limit = crate::config::get_project_config().limits.view_history_limit;
+        let limit = crate::config::get_project_config()
+            .limits
+            .view_history_limit;
         self.conn.execute(
             &format!(
                 "DELETE FROM view_history WHERE id NOT IN (SELECT id FROM view_history ORDER BY viewed_at DESC LIMIT {})",
@@ -145,19 +131,17 @@ impl Database {
     }
 
     pub fn get_recently_viewed_app_ids(&self) -> Result<Vec<String>> {
-        let limit = crate::config::get_project_config().limits.view_history_limit;
-        let mut stmt = self.conn.prepare(
+        let limit = crate::config::get_project_config()
+            .limits
+            .view_history_limit;
+        self.query_vec(
             &format!(
                 "SELECT app_id FROM view_history ORDER BY viewed_at DESC LIMIT {}",
                 limit
             ),
-        )?;
-        let rows = stmt.query_map([], |row| row.get(0))?;
-        let mut res = Vec::new();
-        for r in rows {
-            res.push(r?);
-        }
-        Ok(res)
+            [],
+            |row| row.get(0),
+        )
     }
 
     pub fn clear_view_history(&self) -> Result<()> {

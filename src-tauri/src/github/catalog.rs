@@ -39,7 +39,9 @@ impl CatalogService {
         let client = reqwest::Client::builder()
             .pool_max_idle_per_host(10)
             .tcp_keepalive(std::time::Duration::from_secs(60))
-            .timeout(std::time::Duration::from_secs(cfg.network.api_timeout_seconds))
+            .timeout(std::time::Duration::from_secs(
+                cfg.network.api_timeout_seconds,
+            ))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
         Self {
@@ -165,36 +167,66 @@ impl CatalogService {
             let items: Vec<CatalogItem> = serde_json::from_str(&text)
                 .map_err(|e| format!("解析本地收录清单 JSON 失败: {}", e))?;
             self.update_items(items.clone());
-            log::info!("sync catalog local file='{}' ok items={}", clean_path, items.len());
+            log::info!(
+                "sync catalog local file='{}' ok items={}",
+                clean_path,
+                items.len()
+            );
             return Ok((Some(items), Some(local_etag)));
         }
 
         // 远程 HTTP/HTTPS 请求
         let safe_url = crate::log_support::sanitize_url(url);
-        let req_id = crate::z_log::new_req_id();
-        let sid = crate::z_log::new_session_id();
+        let (req_id, sid) = super::http::new_log_ctx();
         let req_host = crate::log_support::host_of(url);
-        log::debug!("http fetch catalog sid={} req={} url='{}'", sid, req_id, safe_url);
+        log::debug!(
+            "http fetch catalog sid={} req={} url='{}'",
+            sid,
+            req_id,
+            safe_url
+        );
         let start = std::time::Instant::now();
 
-        let mut req = self.client.get(url).header(USER_AGENT, "ZStore-Client/0.1.0");
+        let mut req = self
+            .client
+            .get(url)
+            .header(USER_AGENT, super::http::GH_USER_AGENT);
         if let Some(etag) = cached_etag {
             req = req.header(IF_NONE_MATCH, etag);
         }
         let resp = req.send().await.map_err(|e| {
             let reason = crate::log_support::short_reason(&e.to_string());
-            log::warn!("http fetch catalog failed sid={} req={} host={} reason={}", sid, req_id, req_host, reason);
+            log::warn!(
+                "http fetch catalog failed sid={} req={} host={} reason={}",
+                sid,
+                req_id,
+                req_host,
+                reason
+            );
             format!("请求收录清单失败: {}", e)
         })?;
         let elapsed = start.elapsed().as_millis();
 
         if resp.status() == reqwest::StatusCode::NOT_MODIFIED {
             log::debug!("http fetch catalog resp sid={} req={} url='{}' status=304 not_modified elapsed_ms={}", sid, req_id, safe_url, elapsed);
-            log::info!("http resp catalog sid={} req={} host={} status=304 elapsed_ms={}", sid, req_id, req_host, elapsed);
+            log::info!(
+                "http resp catalog sid={} req={} host={} status=304 elapsed_ms={}",
+                sid,
+                req_id,
+                req_host,
+                elapsed
+            );
             return Ok((None, None));
         }
         if !resp.status().is_success() {
-            log::warn!("http fetch catalog resp sid={} req={} host={} status={} elapsed_ms={}", sid, req_id, req_host, resp.status(), elapsed);
+            log::warn!(
+                "http fetch catalog resp sid={} req={} host={} status={} elapsed_ms={}",
+                sid,
+                req_id,
+                req_host,
+                resp.status(),
+                elapsed
+            );
             return Err(format!("同步收录清单失败，HTTP 状态码: {}", resp.status()));
         }
         let new_etag = resp
@@ -202,12 +234,29 @@ impl CatalogService {
             .get("etag")
             .and_then(|h| h.to_str().ok())
             .map(|s| s.to_string());
-        let text = resp.text().await.map_err(|e| format!("读取清单内容失败: {}", e))?;
-        let items: Vec<CatalogItem> = serde_json::from_str(&text)
-            .map_err(|e| format!("解析收录清单 JSON 失败: {}", e))?;
+        let text = resp
+            .text()
+            .await
+            .map_err(|e| format!("读取清单内容失败: {}", e))?;
+        let items: Vec<CatalogItem> =
+            serde_json::from_str(&text).map_err(|e| format!("解析收录清单 JSON 失败: {}", e))?;
         self.update_items(items.clone());
-        log::debug!("http fetch catalog resp sid={} req={} url='{}' status=200 items={} elapsed_ms={}", sid, req_id, safe_url, items.len(), elapsed);
-        log::info!("http resp catalog sid={} req={} host={} status=200 items={} elapsed_ms={}", sid, req_id, req_host, items.len(), elapsed);
+        log::debug!(
+            "http fetch catalog resp sid={} req={} url='{}' status=200 items={} elapsed_ms={}",
+            sid,
+            req_id,
+            safe_url,
+            items.len(),
+            elapsed
+        );
+        log::info!(
+            "http resp catalog sid={} req={} host={} status=200 items={} elapsed_ms={}",
+            sid,
+            req_id,
+            req_host,
+            items.len(),
+            elapsed
+        );
         Ok((Some(items), new_etag))
     }
 
@@ -421,11 +470,7 @@ mod tests {
     /// ADR-0010：目录检索入口统一归一化后按 id 唯一精确匹配
     #[test]
     fn test_get_catalog_item_matches_id_only() {
-        let svc = test_service(vec![item(
-            "rustdesk/rustdesk",
-            "rustdesk",
-            "rustdesk",
-        )]);
+        let svc = test_service(vec![item("rustdesk/rustdesk", "rustdesk", "rustdesk")]);
 
         assert!(svc.get_catalog_item("rustdesk/rustdesk").is_some());
         assert!(svc.get_catalog_item("RUSTDESK/RUSTDESK").is_some());
@@ -435,11 +480,7 @@ mod tests {
 
     #[test]
     fn test_get_repo_coordinates() {
-        let svc = test_service(vec![item(
-            "rustdesk/rustdesk",
-            "rustdesk",
-            "rustdesk",
-        )]);
+        let svc = test_service(vec![item("rustdesk/rustdesk", "rustdesk", "rustdesk")]);
 
         let coords = svc.get_repo_coordinates("rustdesk/rustdesk").unwrap();
         assert_eq!(coords.owner, "rustdesk");
@@ -465,6 +506,8 @@ mod tests {
         assert!(!is_default_catalog_source(
             "https://evil.example.com/catalog.json"
         ));
-        assert!(!is_default_catalog_source("file:///tmp/custom-catalog.json"));
+        assert!(!is_default_catalog_source(
+            "file:///tmp/custom-catalog.json"
+        ));
     }
 }

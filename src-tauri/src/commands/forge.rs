@@ -1,7 +1,7 @@
-use crate::models::{DeveloperProfile, HostRateLimitStatus, HostTokenEntry, StarredSyncResult};
-use crate::AppState;
 use super::catalog::get_app_details_impl;
 use super::resolve_active_github_token;
+use crate::models::{DeveloperProfile, HostRateLimitStatus, HostTokenEntry, StarredSyncResult};
+use crate::AppState;
 use tauri::State;
 
 #[tauri::command]
@@ -30,7 +30,7 @@ pub async fn sync_github_starred(
 
 #[tauri::command]
 pub fn get_host_tokens(state: State<'_, AppState>) -> Result<Vec<HostTokenEntry>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db()?;
     db.get_host_tokens().map_err(|e| e.to_string())
 }
 
@@ -41,8 +41,9 @@ pub async fn set_host_token(
     token: String,
 ) -> Result<(), String> {
     {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
-        db.set_host_token(&host, &token).map_err(|e| e.to_string())?;
+        let db = state.db()?;
+        db.set_host_token(&host, &token)
+            .map_err(|e| e.to_string())?;
     }
     if host.eq_ignore_ascii_case("github.com") {
         let clean_tok = token.trim().to_string();
@@ -67,7 +68,7 @@ pub async fn set_host_token(
 #[tauri::command]
 pub async fn remove_host_token(state: State<'_, AppState>, host: String) -> Result<(), String> {
     {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let db = state.db()?;
         db.remove_host_token(&host).map_err(|e| e.to_string())?;
     }
     if host.eq_ignore_ascii_case("github.com") {
@@ -90,16 +91,19 @@ pub async fn refresh_host_rate_limit(
         .trim()
         .to_lowercase();
     let token = {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let db = state.db()?;
         db.get_host_token(&clean_host).ok().flatten()
     };
     if clean_host.contains("github.com") {
         crate::probe_github_rate_limit(token.as_deref()).await;
     }
     tokio::time::sleep(std::time::Duration::from_millis(60)).await;
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db()?;
     let tokens = db.get_host_tokens().map_err(|e| e.to_string())?;
-    if let Some(entry) = tokens.into_iter().find(|t| t.host.eq_ignore_ascii_case(&clean_host)) {
+    if let Some(entry) = tokens
+        .into_iter()
+        .find(|t| t.host.eq_ignore_ascii_case(&clean_host))
+    {
         Ok(entry)
     } else {
         Ok(HostTokenEntry {
@@ -123,11 +127,7 @@ pub async fn test_host_connection(
     token: Option<String>,
 ) -> Result<HostRateLimitStatus, String> {
     let clean_host = host.trim().to_lowercase();
-    let timeout_sec = crate::config::get_project_config().network.api_timeout_seconds;
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(timeout_sec))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = build_api_client()?;
 
     let effective_token = if let Some(ref tok) = token {
         if !tok.trim().is_empty() {
@@ -135,25 +135,17 @@ pub async fn test_host_connection(
         } else {
             None
         }
-    } else if let Ok(db) = state.db.lock() {
+    } else if let Ok(db) = state.db() {
         db.get_host_token(&clean_host).ok().flatten()
     } else {
         None
     };
 
-    let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert(
-        reqwest::header::USER_AGENT,
-        reqwest::header::HeaderValue::from_static("ZStore-Client/0.1.0"),
-    );
+    let mut headers = base_ua_headers();
 
     if clean_host.contains("github.com") {
         if let Some(ref tok) = effective_token {
-            if let Ok(v) =
-                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", tok))
-            {
-                headers.insert(reqwest::header::AUTHORIZATION, v);
-            }
+            try_insert_auth(&mut headers, "Bearer", tok);
         }
         let url = "https://api.github.com/rate_limit";
         match client.get(url).headers(headers).send().await {
@@ -198,11 +190,7 @@ pub async fn test_host_connection(
     } else {
         // Gitea / Codeberg / 自建实例
         if let Some(ref tok) = effective_token {
-            if let Ok(v) =
-                reqwest::header::HeaderValue::from_str(&format!("token {}", tok))
-            {
-                headers.insert(reqwest::header::AUTHORIZATION, v);
-            }
+            try_insert_auth(&mut headers, "token", tok);
         }
         let url = format!("https://{}/api/v1/version", clean_host);
         match client.get(&url).headers(headers).send().await {
@@ -261,13 +249,19 @@ pub async fn search_forge_repos(
         _ => crate::forge::ForgeType::GitHub,
     };
     let target_host = host.as_deref().unwrap_or_else(|| forge_type.default_host());
-    let token = if let Ok(db) = state.db.lock() {
+    let token = if let Ok(db) = state.db() {
         db.get_host_token(target_host).ok().flatten()
     } else {
         None
     };
 
-    crate::forge::ForgeRegistry::search_repos(forge_type, Some(target_host), &query, token.as_deref()).await
+    crate::forge::ForgeRegistry::search_repos(
+        forge_type,
+        Some(target_host),
+        &query,
+        token.as_deref(),
+    )
+    .await
 }
 
 // ---------- FR-8.3 所有权认证 ----------
@@ -287,11 +281,7 @@ pub fn is_verified_by_code(readme_markdown: &str, code: &str) -> bool {
 /// 仅当 `api_authorized`（调用方 GitHub token 经仓库 API 确认具备
 /// owner / collaborator / push 权限）为 true 且校验码命中时才通过。
 /// 网络 I/O 全部隔离在 `check_github_push_access` 中，本函数无网络依赖。
-pub fn decide_ownership_verified(
-    readme_markdown: &str,
-    code: &str,
-    api_authorized: bool,
-) -> bool {
+pub fn decide_ownership_verified(readme_markdown: &str, code: &str, api_authorized: bool) -> bool {
     if !api_authorized {
         return false;
     }
@@ -303,36 +293,58 @@ pub fn decide_ownership_verified(
 /// `permissions.push|admin|maintain`，任一为 true 即通过。
 /// 无 token / 非 `owner/repo` 坐标 / 请求失败 / 权限不足均返回 false。
 /// 仅支持 github.com；其余 forge 直接返回 false（拒绝误认证）。
-async fn check_github_push_access(owner: &str, repo: &str, token: &str) -> bool {
-    if owner.trim().is_empty() || repo.trim().is_empty() || token.trim().is_empty() {
-        return false;
-    }
-    let timeout_sec = crate::config::get_project_config().network.api_timeout_seconds;
-    let client = match reqwest::Client::builder()
+/// H1/H2：本作用域 API 请求头/客户端收敛（UA 恒定；认证方案按调用方原样传递）。
+/// 各调用点的 Accept/认证组合保持不变，仅收敛样板。
+fn build_api_client() -> Result<reqwest::Client, String> {
+    let timeout_sec = crate::config::get_project_config()
+        .network
+        .api_timeout_seconds;
+    reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(timeout_sec))
         .build()
-    {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
+        .map_err(|e| e.to_string())
+}
+
+fn base_ua_headers() -> reqwest::header::HeaderMap {
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(
         reqwest::header::USER_AGENT,
         reqwest::header::HeaderValue::from_static("ZStore-Client/0.1.0"),
     );
+    headers
+}
+
+fn try_insert_auth(headers: &mut reqwest::header::HeaderMap, scheme: &str, token: &str) -> bool {
+    match reqwest::header::HeaderValue::from_str(&format!("{} {}", scheme, token.trim())) {
+        Ok(v) => {
+            headers.insert(reqwest::header::AUTHORIZATION, v);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+async fn check_github_push_access(owner: &str, repo: &str, token: &str) -> bool {
+    if owner.trim().is_empty() || repo.trim().is_empty() || token.trim().is_empty() {
+        return false;
+    }
+    let client = match build_api_client() {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let mut headers = base_ua_headers();
     headers.insert(
         reqwest::header::ACCEPT,
         reqwest::header::HeaderValue::from_static("application/vnd.github.v3+json"),
     );
-    let auth_val = match reqwest::header::HeaderValue::from_str(&format!(
-        "Bearer {}",
-        token.trim()
-    )) {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
-    headers.insert(reqwest::header::AUTHORIZATION, auth_val);
-    let url = format!("https://api.github.com/repos/{}/{}", owner.trim(), repo.trim());
+    if !try_insert_auth(&mut headers, "Bearer", token) {
+        return false;
+    }
+    let url = format!(
+        "https://api.github.com/repos/{}/{}",
+        owner.trim(),
+        repo.trim()
+    );
     let resp = match client.get(&url).headers(headers).send().await {
         Ok(r) => r,
         Err(_) => return false,
@@ -386,7 +398,7 @@ pub async fn verify_ownership(
         }
     }
     // 2. 历史认证通过
-    if let Ok(db) = state.db.lock() {
+    if let Ok(db) = state.db() {
         if db.is_verified_app(&clean_id).unwrap_or(false) {
             return Ok(true);
         }
@@ -413,7 +425,7 @@ pub async fn verify_ownership(
     let api_authorized = check_github_push_access(owner, repo, &token).await;
     let passed = decide_ownership_verified(&readme, &needle, api_authorized);
     if passed {
-        if let Ok(db) = state.db.lock() {
+        if let Ok(db) = state.db() {
             let _ = db.mark_verified_app(&clean_id);
         }
     }

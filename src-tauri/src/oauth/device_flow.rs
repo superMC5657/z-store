@@ -1,5 +1,7 @@
-use super::constants::{ACCESS_TOKEN_URL, DEVICE_CODE_URL, OAUTH_SCOPE};
-use super::types::{classify_device_poll, DeviceCodeResponse, DevicePollOutcome, DeviceStartResult};
+use super::constants::{ACCESS_TOKEN_URL, DEVICE_CODE_URL, DEVICE_GRANT_TYPE, OAUTH_SCOPE};
+use super::types::{
+    classify_device_poll, DeviceCodeResponse, DevicePollOutcome, DeviceStartResult,
+};
 
 /// 发起 Device Flow：向 GitHub 申请 `device_code` 与用户验证码。
 pub async fn request_device_code(client_id: &str) -> Result<DeviceStartResult, String> {
@@ -50,7 +52,7 @@ pub async fn poll_device_once(
         .json(&serde_json::json!({
             "client_id": client_id,
             "device_code": device_code,
-            "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+            "grant_type": DEVICE_GRANT_TYPE,
         }))
         .send()
         .await

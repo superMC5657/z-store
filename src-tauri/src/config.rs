@@ -184,14 +184,12 @@ impl CatalogConfig {
 
 impl Default for ProjectConfig {
     fn default() -> Self {
-        toml::from_str(EMBEDDED_CONFIG).unwrap_or_else(|_| {
-            Self {
-                cache: CacheConfig::default(),
-                network: NetworkConfig::default(),
-                limits: LimitsConfig::default(),
-                oauth: OauthConfig::default(),
-                catalog: CatalogConfig::default(),
-            }
+        toml::from_str(EMBEDDED_CONFIG).unwrap_or_else(|_| Self {
+            cache: CacheConfig::default(),
+            network: NetworkConfig::default(),
+            limits: LimitsConfig::default(),
+            oauth: OauthConfig::default(),
+            catalog: CatalogConfig::default(),
         })
     }
 }

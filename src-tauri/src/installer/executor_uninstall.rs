@@ -8,7 +8,10 @@ pub fn parse_uninstaller_command(cmd: &str) -> (String, Vec<String>) {
             let args = if args_part.is_empty() {
                 Vec::new()
             } else {
-                args_part.split_whitespace().map(|s| s.to_string()).collect()
+                args_part
+                    .split_whitespace()
+                    .map(|s| s.to_string())
+                    .collect()
             };
             return (exe, args);
         }
@@ -85,7 +88,10 @@ fn path_or_dir_still_has_app(target: &std::path::Path) -> bool {
         if let Ok(entries) = std::fs::read_dir(target) {
             for entry in entries.flatten() {
                 let p = entry.path();
-                if p.is_file() && p.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("exe")) {
+                if p.is_file()
+                    && p.extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
+                {
                     return true;
                 }
             }
@@ -96,11 +102,13 @@ fn path_or_dir_still_has_app(target: &std::path::Path) -> bool {
 
 #[cfg(target_os = "windows")]
 fn is_file_locked(path: &std::path::Path) -> bool {
-    match std::fs::OpenOptions::new().read(true).write(true).open(path) {
+    match std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+    {
         Ok(_) => false,
-        Err(e) => {
-            e.raw_os_error() == Some(32) || e.kind() == std::io::ErrorKind::PermissionDenied
-        }
+        Err(e) => e.raw_os_error() == Some(32) || e.kind() == std::io::ErrorKind::PermissionDenied,
     }
 }
 
@@ -150,17 +158,23 @@ pub async fn execute_uninstallation(
                 .args(["/C", "start", "/WAIT", "", &exe])
                 .spawn()
                 .map_err(|e| format!("启动卸载快捷方式失败 ({}): {}", exe, e))?;
-            child.wait().await.map_err(|e| format!("快捷方式执行异常: {}", e))?
+            child
+                .wait()
+                .await
+                .map_err(|e| format!("快捷方式执行异常: {}", e))?
         } else {
             let is_nsis = is_nsis_uninstaller(&exe);
             let mut std_cmd = std::process::Command::new(&exe);
             std_cmd.args(&args);
 
             let mut cmd = tokio::process::Command::from(std_cmd);
-            let mut child = cmd.spawn().map_err(|e| {
-                format!("无法调起 {} 的官方卸载程序 ({}): {}", app_name, exe, e)
-            })?;
-            let exit_status = child.wait().await.map_err(|e| format!("卸载向导运行异常: {}", e))?;
+            let mut child = cmd
+                .spawn()
+                .map_err(|e| format!("无法调起 {} 的官方卸载程序 ({}): {}", app_name, exe, e))?;
+            let exit_status = child
+                .wait()
+                .await
+                .map_err(|e| format!("卸载向导运行异常: {}", e))?;
 
             // 关键机制：NSIS 卸载向导会复制自身到 %TEMP%\~nsu.tmp\Un_A.exe 或 Au_.exe 并退出原进程，
             // 绝不能对 electron-builder/NSIS 程序强加 `_?=` 参数，否则其内置的 PowerShell 进程探测
@@ -213,10 +227,7 @@ pub async fn execute_uninstallation(
             }
         } else if !status.success() {
             let code = status.code().unwrap_or(-1);
-            return Err(format!(
-                "卸载向导异常退出或被用户取消 (退出代码: {})",
-                code
-            ));
+            return Err(format!("卸载向导异常退出或被用户取消 (退出代码: {})", code));
         }
 
         Ok(())
@@ -232,7 +243,10 @@ pub async fn execute_uninstallation(
             .args(&args)
             .spawn()
             .map_err(|e| format!("执行卸载脚本失败: {}", e))?;
-        let status = child.wait().await.map_err(|e| format!("卸载进程异常: {}", e))?;
+        let status = child
+            .wait()
+            .await
+            .map_err(|e| format!("卸载进程异常: {}", e))?;
         if status.success() {
             Ok(())
         } else {

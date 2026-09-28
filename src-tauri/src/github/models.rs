@@ -49,11 +49,11 @@ impl CatalogItem {
             if self.icon.starts_with("http://") || self.icon.starts_with("https://") {
                 self.icon.clone()
             } else {
-                format!("https://github.com/{}.png", self.owner)
+                super::http::fallback_icon(&self.owner)
             };
 
         let effective_platforms = if self.platforms.is_empty() {
-            vec!["windows".to_string()]
+            super::http::fallback_platforms()
         } else {
             self.platforms.clone()
         };

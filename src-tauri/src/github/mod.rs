@@ -1,11 +1,11 @@
 pub mod catalog;
 pub mod detail;
-pub mod developer;
 pub mod developer_endpoints;
 pub mod developer_profile;
 pub mod developer_starred;
 #[cfg(test)]
-pub mod developer_starred_tests;
+mod developer_starred_tests;
+pub(crate) mod http;
 pub mod markdown;
 pub mod models;
 pub mod search;

@@ -34,7 +34,12 @@ impl MirrorManager {
             MirrorNodeStatus {
                 id: "custom".to_string(),
                 name: if is_custom {
-                    format!("自定义代理 ({})", proxy_url.trim_start_matches("https://").trim_start_matches("http://"))
+                    format!(
+                        "自定义代理 ({})",
+                        proxy_url
+                            .trim_start_matches("https://")
+                            .trim_start_matches("http://")
+                    )
                 } else {
                     "自定义加速代理".to_string()
                 },
@@ -89,14 +94,19 @@ impl MirrorManager {
         format!("{}/{}", base, raw_url)
     }
 
-    /// 单击测速：快速探测指定代理地址（或官方直连）的网络握手时延
-    pub async fn test_proxy_latency(proxy_url: Option<&str>) -> (bool, u32, String) {
-        let timeout_ms = crate::config::get_project_config().network.ping_timeout_ms;
-        let client = reqwest::Client::builder()
+    /// H2：测速专用 HTTP 客户端（短超时 + 浏览器 UA）。
+    fn ping_client(timeout_ms: u64) -> reqwest::Client {
+        reqwest::Client::builder()
             .timeout(std::time::Duration::from_millis(timeout_ms))
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
             .build()
-            .unwrap_or_default();
+            .unwrap_or_default()
+    }
+
+    /// 单击测速：快速探测指定代理地址（或官方直连）的网络握手时延
+    pub async fn test_proxy_latency(proxy_url: Option<&str>) -> (bool, u32, String) {
+        let timeout_ms = crate::config::get_project_config().network.ping_timeout_ms;
+        let client = Self::ping_client(timeout_ms);
 
         let clean_url = proxy_url
             .map(|s| s.trim())
@@ -105,7 +115,11 @@ impl MirrorManager {
         let test_url = match clean_url {
             Some(p) => {
                 if !p.starts_with("http://") && !p.starts_with("https://") {
-                    return (false, 9999, "代理地址格式需以 http:// 或 https:// 开头".to_string());
+                    return (
+                        false,
+                        9999,
+                        "代理地址格式需以 http:// 或 https:// 开头".to_string(),
+                    );
                 }
                 p.trim_end_matches('/').to_string()
             }
@@ -116,11 +130,21 @@ impl MirrorManager {
         let req_id = crate::z_log::new_req_id();
         let sid = crate::z_log::new_session_id();
         let req_host = crate::log_support::host_of(&test_url);
-        log::debug!("test mirror ping start sid={} req={} url='{}'", sid, req_id, safe_test_url);
+        log::debug!(
+            "test mirror ping start sid={} req={} url='{}'",
+            sid,
+            req_id,
+            safe_test_url
+        );
 
         let start = Instant::now();
         let mut resp = client.head(&test_url).send().await;
-        if resp.is_err() || resp.as_ref().map(|r| r.status().as_u16() == 405).unwrap_or(false) {
+        if resp.is_err()
+            || resp
+                .as_ref()
+                .map(|r| r.status().as_u16() == 405)
+                .unwrap_or(false)
+        {
             resp = client.get(&test_url).send().await;
         }
         let elapsed = start.elapsed().as_millis() as u32;
@@ -129,17 +153,48 @@ impl MirrorManager {
             Ok(res) => {
                 let status = res.status().as_u16();
                 if status < 500 {
-                    log::debug!("test mirror ping resp sid={} req={} url='{}' status={} latency_ms={}", sid, req_id, safe_test_url, status, elapsed);
-                    log::info!("http resp mirror ping sid={} req={} host={} status={} latency_ms={}", sid, req_id, req_host, status, elapsed);
-                    (true, elapsed.clamp(1, 4000), format!("{} ms (连接正常)", elapsed))
+                    log::debug!(
+                        "test mirror ping resp sid={} req={} url='{}' status={} latency_ms={}",
+                        sid,
+                        req_id,
+                        safe_test_url,
+                        status,
+                        elapsed
+                    );
+                    log::info!(
+                        "http resp mirror ping sid={} req={} host={} status={} latency_ms={}",
+                        sid,
+                        req_id,
+                        req_host,
+                        status,
+                        elapsed
+                    );
+                    (
+                        true,
+                        elapsed.clamp(1, 4000),
+                        format!("{} ms (连接正常)", elapsed),
+                    )
                 } else {
-                    log::warn!("test mirror ping resp sid={} req={} host={} status={} latency_ms={}", sid, req_id, req_host, status, elapsed);
+                    log::warn!(
+                        "test mirror ping resp sid={} req={} host={} status={} latency_ms={}",
+                        sid,
+                        req_id,
+                        req_host,
+                        status,
+                        elapsed
+                    );
                     (false, 9999, format!("HTTP 状态码异常: {}", status))
                 }
             }
             Err(e) => {
                 let reason = crate::log_support::short_reason(&e.to_string());
-                log::warn!("test mirror ping failed sid={} req={} host={} reason={}", sid, req_id, req_host, reason);
+                log::warn!(
+                    "test mirror ping failed sid={} req={} host={} reason={}",
+                    sid,
+                    req_id,
+                    req_host,
+                    reason
+                );
                 (false, 9999, format!("连接失败或超时: {}", e))
             }
         }

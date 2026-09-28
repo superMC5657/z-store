@@ -26,7 +26,10 @@ fn test_category_filter() {
 async fn test_fetch_developer_profile_fallback() {
     let cat = CatalogService::new();
     // 测试针对 catalog 中已知组织 localsend 的 profile 获取（网络不通时自动从 catalog 兜底）
-    let profile = cat.fetch_developer_profile("localsend", None).await.unwrap();
+    let profile = cat
+        .fetch_developer_profile("localsend", None)
+        .await
+        .unwrap();
     assert_eq!(profile.login, "localsend");
     assert!(!profile.repos.is_empty());
     assert!(profile.repos.iter().any(|r| r.in_catalog));
@@ -84,9 +87,9 @@ fn test_rewrite_readme_images() {
     assert!(rewritten.contains("https://img.shields.io/badge/license-MIT-blue"));
 
     // 验证 GitHub 资产/截图直链绝不能被套用 gh-proxy，保持直连
-    assert!(rewritten.contains(
-        "https://user-images.githubusercontent.com/71636191/171661982-demo.png"
-    ));
+    assert!(
+        rewritten.contains("https://user-images.githubusercontent.com/71636191/171661982-demo.png")
+    );
     assert!(!rewritten.contains("gh-proxy.com/https://user-images.githubusercontent.com"));
     assert!(rewritten.contains("https://github.com/user-attachments/assets/abcd-1234"));
     assert!(!rewritten.contains("gh-proxy.com/https://github.com/user-attachments/assets"));
@@ -136,7 +139,10 @@ async fn test_sync_remote_catalog_local_file() {
             .unwrap()
             .as_secs()
     );
-    let (no_items, _) = cat.sync_remote_catalog(target, Some(&etag_val)).await.unwrap();
+    let (no_items, _) = cat
+        .sync_remote_catalog(target, Some(&etag_val))
+        .await
+        .unwrap();
     assert!(no_items.is_none());
 }
 
@@ -157,10 +163,18 @@ fn test_catalog_platforms_loading_and_mapping() {
 
     // 校验所有收录项均有有效的 platforms（至少包含一个支持端）
     for item in cat.get_catalog_items() {
-        assert!(!item.platforms.is_empty(), "app {} should have platforms", item.id);
         assert!(
-            item.platforms.iter().all(|p| ["windows", "android", "macos", "linux", "ios"].contains(&p.as_str())),
-            "app {} platforms should be valid: {:?}", item.id, item.platforms
+            !item.platforms.is_empty(),
+            "app {} should have platforms",
+            item.id
+        );
+        assert!(
+            item.platforms
+                .iter()
+                .all(|p| ["windows", "android", "macos", "linux", "ios"].contains(&p.as_str())),
+            "app {} platforms should be valid: {:?}",
+            item.id,
+            item.platforms
         );
     }
 }
@@ -174,27 +188,44 @@ fn test_catalog_identifiers_and_fallback() {
         .get_catalog_item("rustdesk/rustdesk")
         .expect("rustdesk exists in catalog");
     assert_eq!(rustdesk.get_identifiers("windows"), vec!["rustdesk.exe"]);
-    assert_eq!(rustdesk.get_identifiers("android"), vec!["com.carriez.flutter_rustdesk"]);
-    assert_eq!(rustdesk.get_identifiers("macos"), vec!["RustDesk.app", "rustdesk"]);
+    assert_eq!(
+        rustdesk.get_identifiers("android"),
+        vec!["com.carriez.flutter_rustdesk"]
+    );
+    assert_eq!(
+        rustdesk.get_identifiers("macos"),
+        vec!["RustDesk.app", "rustdesk"]
+    );
     assert_eq!(rustdesk.get_identifiers("linux"), vec!["rustdesk"]);
 
     let ripgrep = cat
         .get_catalog_item("burntsushi/ripgrep")
         .expect("ripgrep exists in catalog");
-    assert!(ripgrep.get_identifiers("windows").contains(&"rg.exe".to_string()));
+    assert!(ripgrep
+        .get_identifiers("windows")
+        .contains(&"rg.exe".to_string()));
     assert_eq!(ripgrep.get_identifiers("linux"), vec!["rg"]);
 
     // 2. 校验声明支持 Windows 的收录应用均能成功获取 Windows 可执行识别名
     //    （清单中存在 macOS/Linux 专属应用，不应要求其提供 Windows 标识符）
     for item in cat.get_catalog_items() {
-        if !item.platforms.iter().any(|p| p.eq_ignore_ascii_case("windows")) {
+        if !item
+            .platforms
+            .iter()
+            .any(|p| p.eq_ignore_ascii_case("windows"))
+        {
             continue;
         }
         let win_exes = item.get_identifiers("windows");
-        assert!(!win_exes.is_empty(), "app {} should have windows executables in identifiers", item.id);
-        assert!(win_exes.iter().any(|e| e.ends_with(".exe")), "windows executable should end with .exe: {:?}", win_exes);
+        assert!(
+            !win_exes.is_empty(),
+            "app {} should have windows executables in identifiers",
+            item.id
+        );
+        assert!(
+            win_exes.iter().any(|e| e.ends_with(".exe")),
+            "windows executable should end with .exe: {:?}",
+            win_exes
+        );
     }
-
 }
-
-

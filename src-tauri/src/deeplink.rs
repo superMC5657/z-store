@@ -41,7 +41,8 @@ impl DeepLinkParser {
                     if let Some((k, v)) = pair.split_once('=') {
                         if k == "q" {
                             let with_spaces = v.replace('+', " ");
-                            let decoded = urlencoding::decode(&with_spaces).unwrap_or_else(|_| with_spaces.as_str().into());
+                            let decoded = urlencoding::decode(&with_spaces)
+                                .unwrap_or_else(|_| with_spaces.as_str().into());
                             return Some(DeepLinkAction::Search {
                                 query: decoded.to_string(),
                             });
@@ -94,7 +95,12 @@ impl DeepLinkParser {
         // 6. 如果直接是 zstore://{app_id} (例如 zstore://rustdesk 或 zstore://localsend/localsend)
         if !path_part.is_empty() && !path_part.contains('?') {
             let lower = path_part.to_lowercase();
-            if lower == "app" || lower == "install" || lower == "developer" || lower == "view" || lower == "search" {
+            if lower == "app"
+                || lower == "install"
+                || lower == "developer"
+                || lower == "view"
+                || lower == "search"
+            {
                 return None;
             }
             let id = urlencoding::decode(path_part).unwrap_or_else(|_| path_part.into());
@@ -116,7 +122,9 @@ pub fn register_windows_protocol() -> Result<bool, String> {
     use winreg::RegKey;
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let path = std::path::Path::new("Software").join("Classes").join("zstore");
+    let path = std::path::Path::new("Software")
+        .join("Classes")
+        .join("zstore");
 
     let (key, _) = hkcu
         .create_subkey_with_flags(&path, KEY_ALL_ACCESS)
@@ -127,8 +135,8 @@ pub fn register_windows_protocol() -> Result<bool, String> {
     key.set_value("URL Protocol", &"")
         .map_err(|e| format!("设置 URL Protocol 失败: {}", e))?;
 
-    let exe_path = std::env::current_exe()
-        .map_err(|e| format!("获取当前可执行文件路径失败: {}", e))?;
+    let exe_path =
+        std::env::current_exe().map_err(|e| format!("获取当前可执行文件路径失败: {}", e))?;
     let cmd_str = format!("\"{}\" \"%1\"", exe_path.to_string_lossy());
 
     let (shell_cmd, _) = key

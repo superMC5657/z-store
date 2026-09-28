@@ -1,6 +1,18 @@
 use super::*;
 use crate::github::CatalogItem;
 
+const TEST_ICON_BG_VLC: &str = "#ff8800";
+const TEST_ICON_BG_OBS: &str = "#302e31";
+
+/// 测试本地临时目录 helper（收敛 current_dir + tempdir_in 样板，仅测试代码）。
+fn temp_test_dir(prefix: &str) -> tempfile::TempDir {
+    let parent = std::env::current_dir().expect("current_dir for temp_test_dir");
+    tempfile::Builder::new()
+        .prefix(prefix)
+        .tempdir_in(parent)
+        .expect("temp_test_dir")
+}
+
 fn create_mock_catalog() -> Vec<CatalogItem> {
     vec![
         CatalogItem {
@@ -9,7 +21,7 @@ fn create_mock_catalog() -> Vec<CatalogItem> {
             owner: "videolan".to_string(),
             repo: "vlc".to_string(),
             icon: "vlc.svg".to_string(),
-            icon_bg: "#ff8800".to_string(),
+            icon_bg: TEST_ICON_BG_VLC.to_string(),
             description: "开源全能媒体播放器".to_string(),
             description_en: Some("Open source multimedia player".to_string()),
             category: "multimedia".to_string(),
@@ -28,7 +40,11 @@ fn create_mock_catalog() -> Vec<CatalogItem> {
             install_dirs: vec!["VideoLAN\\VLC".to_string(), "VLC".to_string()],
             search_subdirs: vec![],
             publishers: vec!["VideoLAN".to_string()],
-            platforms: vec!["windows".to_string(), "macos".to_string(), "linux".to_string()],
+            platforms: vec![
+                "windows".to_string(),
+                "macos".to_string(),
+                "linux".to_string(),
+            ],
         },
         CatalogItem {
             id: "obsproject/obs-studio".to_string(),
@@ -36,9 +52,11 @@ fn create_mock_catalog() -> Vec<CatalogItem> {
             owner: "obsproject".to_string(),
             repo: "obs-studio".to_string(),
             icon: "obs.svg".to_string(),
-            icon_bg: "#302e31".to_string(),
+            icon_bg: TEST_ICON_BG_OBS.to_string(),
             description: "开源直播与录屏工具".to_string(),
-            description_en: Some("Open source software for video recording and live streaming".to_string()),
+            description_en: Some(
+                "Open source software for video recording and live streaming".to_string(),
+            ),
             category: "multimedia".to_string(),
             category_name: "影音视听".to_string(),
             aliases: vec!["obs".to_string(), "bilibili".to_string()],
@@ -49,13 +67,20 @@ fn create_mock_catalog() -> Vec<CatalogItem> {
             is_verified: true,
             homepage: None,
             identifiers: std::collections::HashMap::from([
-                ("windows".to_string(), vec!["obs64.exe".to_string(), "obs.exe".to_string()]),
+                (
+                    "windows".to_string(),
+                    vec!["obs64.exe".to_string(), "obs.exe".to_string()],
+                ),
                 ("linux".to_string(), vec!["obs".to_string()]),
             ]),
             install_dirs: vec!["obs-studio".to_string()],
             search_subdirs: vec!["bin/64bit".to_string(), "bin".to_string()],
             publishers: vec!["OBS Project".to_string()],
-            platforms: vec!["windows".to_string(), "macos".to_string(), "linux".to_string()],
+            platforms: vec![
+                "windows".to_string(),
+                "macos".to_string(),
+                "linux".to_string(),
+            ],
         },
     ]
 }
@@ -193,22 +218,42 @@ fn test_match_expanded_apps_from_catalog() {
     let results = AppScanner::match_apps(&scanned, &catalog);
     assert_eq!(results.len(), 4);
     // ADR-0010：真实清单 id 已迁移为 canonical owner/repo
-    assert!(results.iter().any(|r| r.catalog_id == "qbittorrent/qbittorrent"));
+    assert!(results
+        .iter()
+        .any(|r| r.catalog_id == "qbittorrent/qbittorrent"));
     assert!(results.iter().any(|r| r.catalog_id == "agalwood/motrix"));
-    assert!(results.iter().any(|r| r.catalog_id == "josefnemec/playnite"));
-    assert!(results.iter().any(|r| r.catalog_id == "telegramdesktop/tdesktop"));
+    assert!(results
+        .iter()
+        .any(|r| r.catalog_id == "josefnemec/playnite"));
+    assert!(results
+        .iter()
+        .any(|r| r.catalog_id == "telegramdesktop/tdesktop"));
 }
 
 #[test]
 fn test_is_installer_or_cache_path() {
-    assert!(AppScanner::is_installer_or_cache_path(std::path::Path::new(r"C:\App\unins000.exe")));
-    assert!(AppScanner::is_installer_or_cache_path(std::path::Path::new(r"C:\App\setup.exe")));
-    assert!(AppScanner::is_installer_or_cache_path(std::path::Path::new(r"C:\Package Cache\app.exe")));
-    assert!(AppScanner::is_installer_or_cache_path(std::path::Path::new(r"C:\Temp\app.exe")));
-    assert!(AppScanner::is_installer_or_cache_path(std::path::Path::new(r"C:\App\bundle\app.exe")));
+    assert!(AppScanner::is_installer_or_cache_path(
+        std::path::Path::new(r"C:\App\unins000.exe")
+    ));
+    assert!(AppScanner::is_installer_or_cache_path(
+        std::path::Path::new(r"C:\App\setup.exe")
+    ));
+    assert!(AppScanner::is_installer_or_cache_path(
+        std::path::Path::new(r"C:\Package Cache\app.exe")
+    ));
+    assert!(AppScanner::is_installer_or_cache_path(
+        std::path::Path::new(r"C:\Temp\app.exe")
+    ));
+    assert!(AppScanner::is_installer_or_cache_path(
+        std::path::Path::new(r"C:\App\bundle\app.exe")
+    ));
 
-    assert!(!AppScanner::is_installer_or_cache_path(std::path::Path::new(r"C:\Program Files\VLC\vlc.exe")));
-    assert!(!AppScanner::is_installer_or_cache_path(std::path::Path::new(r"C:\Programs\Tool\tool.exe")));
+    assert!(!AppScanner::is_installer_or_cache_path(
+        std::path::Path::new(r"C:\Program Files\VLC\vlc.exe")
+    ));
+    assert!(!AppScanner::is_installer_or_cache_path(
+        std::path::Path::new(r"C:\Programs\Tool\tool.exe")
+    ));
 }
 
 #[test]
@@ -243,10 +288,7 @@ fn test_detect_path_installed_at() {
     let temp_file = tempfile::NamedTempFile::new().unwrap();
     let ts = AppScanner::detect_path_installed_at(temp_file.path().to_str().unwrap());
     assert!(ts.is_some());
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64;
+    let now = super::types::now_secs();
     assert!((ts.unwrap() - now).abs() <= 10);
 
     assert_eq!(
@@ -257,11 +299,7 @@ fn test_detect_path_installed_at() {
 
 #[test]
 fn test_find_exe_in_directory_deterministic() {
-    let target_parent = std::env::current_dir().unwrap();
-    let temp_dir = tempfile::Builder::new()
-        .prefix(".test_find_exe_")
-        .tempdir_in(target_parent)
-        .unwrap();
+    let temp_dir = temp_test_dir(".test_find_exe_");
     let root = temp_dir.path();
     let config = ScanConfig {
         target_executables: vec!["demo-app.exe".to_string(), "demo.exe".to_string()],
@@ -306,7 +344,9 @@ fn test_find_exe_in_directory_deterministic() {
 #[test]
 fn test_resolve_lnk_target_safety() {
     // 1. 不存在的文件应安全返回 None
-    assert!(AppScanner::resolve_lnk_target(std::path::Path::new(r"C:\non_existent_file.lnk")).is_none());
+    assert!(
+        AppScanner::resolve_lnk_target(std::path::Path::new(r"C:\non_existent_file.lnk")).is_none()
+    );
 
     // 2. 小于 76 字节或损坏的数据应安全返回 None 而不 Panic
     let temp = tempfile::NamedTempFile::new().unwrap();
@@ -359,16 +399,10 @@ fn test_resolve_installed_app_path_deterministic() {
     }
     let _guard = Cleanup(portable_dir.clone());
 
-    let resolved = AppScanner::resolve_installed_app_path(
-        "Deterministic Test App",
-        test_app_id,
-        None,
-    );
+    let resolved =
+        AppScanner::resolve_installed_app_path("Deterministic Test App", test_app_id, None);
     assert!(resolved.is_some(), "should resolve deterministic test app");
-    assert_eq!(
-        std::path::PathBuf::from(resolved.unwrap()),
-        fake_exe
-    );
+    assert_eq!(std::path::PathBuf::from(resolved.unwrap()), fake_exe);
 }
 
 // ============================================================================

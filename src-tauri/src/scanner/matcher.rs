@@ -68,10 +68,9 @@ impl AppScanner {
                 if !s_pub.is_empty()
                     && (s_pub.contains(&c_owner)
                         || c_owner.contains(&s_pub)
-                        || cat
-                            .publishers
-                            .iter()
-                            .any(|p| s_pub.contains(&p.to_lowercase()) || p.to_lowercase().contains(&s_pub)))
+                        || cat.publishers.iter().any(|p| {
+                            s_pub.contains(&p.to_lowercase()) || p.to_lowercase().contains(&s_pub)
+                        }))
                 {
                     score += SCORE_PUBLISHER_MATCH;
                 }

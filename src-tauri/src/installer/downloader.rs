@@ -11,9 +11,17 @@ use tauri::Emitter;
 #[derive(Debug)]
 enum PersistError<E> {
     Create(std::io::Error),
-    Stream { downloaded: u64, source: E },
-    Timeout { downloaded: u64 },
-    Write { downloaded: u64, source: std::io::Error },
+    Stream {
+        downloaded: u64,
+        source: E,
+    },
+    Timeout {
+        downloaded: u64,
+    },
+    Write {
+        downloaded: u64,
+        source: std::io::Error,
+    },
     Tampered {
         downloaded: u64,
         expected: String,
@@ -216,7 +224,9 @@ pub async fn download_with_progress(
         expected_sha256,
         chunk_timeout,
         |downloaded| {
-            if last_emit.elapsed().as_millis() >= 200 || (total_bytes > 0 && downloaded == total_bytes) {
+            if last_emit.elapsed().as_millis() >= 200
+                || (total_bytes > 0 && downloaded == total_bytes)
+            {
                 let elapsed_secs = last_emit.elapsed().as_secs_f64().max(0.001);
                 let speed = ((downloaded - last_bytes) as f64 / elapsed_secs) as u64;
 
@@ -320,7 +330,10 @@ pub async fn download_with_progress(
             );
             return Err(err_msg);
         }
-        Err(PersistError::Write { downloaded, source: e }) => {
+        Err(PersistError::Write {
+            downloaded,
+            source: e,
+        }) => {
             let err_msg = format!("写入磁盘失败: {}", e);
             log::error!(
                 "download failed id={} sid={} req={} host={} file={} url='{}' reason={}",
@@ -358,10 +371,7 @@ pub async fn download_with_progress(
                     total_bytes: downloaded,
                     speed_bytes_per_sec: 0,
                     state: "tampered".to_string(),
-                    message: Some(format!(
-                        "哈希不符！期望: {}, 实际: {}",
-                        expected, actual
-                    )),
+                    message: Some(format!("哈希不符！期望: {}, 实际: {}", expected, actual)),
                 },
             );
             // 校验失败：只记结论与短原因，不记哈希明细与路径。
@@ -389,7 +399,10 @@ pub async fn download_with_progress(
         ),
         _ => (
             "completed_unverified".to_string(),
-            format!("上游未提供官方校验清单，已记录本地计算 SHA-256: {}", actual_hash),
+            format!(
+                "上游未提供官方校验清单，已记录本地计算 SHA-256: {}",
+                actual_hash
+            ),
         ),
     };
 
@@ -443,15 +456,12 @@ mod persist_tests {
         let expected_bytes = chunks.concat();
         let mut stream = stream::iter(chunks.into_iter().map(Ok::<_, String>));
         let mut progress: Vec<u64> = Vec::new();
-        let (downloaded, hash) = persist_stream_to_file(
-            &mut stream,
-            &path,
-            None,
-            Duration::from_secs(5),
-            |n| progress.push(n),
-        )
-        .await
-        .expect("persist should succeed");
+        let (downloaded, hash) =
+            persist_stream_to_file(&mut stream, &path, None, Duration::from_secs(5), |n| {
+                progress.push(n)
+            })
+            .await
+            .expect("persist should succeed");
         assert_eq!(downloaded, expected_bytes.len() as u64);
         let on_disk = tokio::fs::read(&path).await.unwrap();
         assert_eq!(on_disk, expected_bytes);
@@ -501,10 +511,7 @@ mod persist_tests {
             PersistError::Tampered { .. } => {}
             _ => panic!("expected Tampered"),
         }
-        assert!(
-            !path.exists(),
-            "temp file must be deleted on hash mismatch"
-        );
+        assert!(!path.exists(), "temp file must be deleted on hash mismatch");
     }
 
     #[tokio::test]
@@ -514,22 +521,13 @@ mod persist_tests {
         let items: Vec<Result<Vec<u8>, String>> =
             vec![Ok(b"partial".to_vec()), Err("boom".to_string())];
         let mut stream = stream::iter(items);
-        let err = persist_stream_to_file(
-            &mut stream,
-            &path,
-            None,
-            Duration::from_secs(5),
-            |_| {},
-        )
-        .await
-        .expect_err("stream error must fail");
+        let err = persist_stream_to_file(&mut stream, &path, None, Duration::from_secs(5), |_| {})
+            .await
+            .expect_err("stream error must fail");
         match err {
             PersistError::Stream { .. } => {}
             _ => panic!("expected Stream error"),
         }
-        assert!(
-            !path.exists(),
-            "temp file must be deleted on stream error"
-        );
+        assert!(!path.exists(), "temp file must be deleted on stream error");
     }
 }

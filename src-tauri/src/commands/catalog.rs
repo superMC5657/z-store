@@ -20,6 +20,20 @@ fn platforms_from_assets(assets: &[crate::models::ReleaseAsset]) -> Vec<String> 
     set.into_iter().collect()
 }
 
+/// H8：隐藏规则 id 集合（本地收敛 `search_apps` / `get_category_apps` 重复块）。
+fn hidden_rule_ids(state: &AppState) -> std::collections::HashSet<String> {
+    if let Ok(db) = state.db() {
+        db.get_all_rules()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|r| r.is_hidden)
+            .map(|r| r.app_id)
+            .collect()
+    } else {
+        std::collections::HashSet::new()
+    }
+}
+
 #[tauri::command]
 pub async fn search_apps(
     state: State<'_, AppState>,
@@ -31,7 +45,7 @@ pub async fn search_apps(
     // 1. 优先检查是否为多源 (Codeberg, Gitea, 自建源) 仓库 URL 或 short syntax
     if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&query) {
         if coord.forge != crate::forge::ForgeType::GitHub {
-            let host_token = if let Ok(db) = state.db.lock() {
+            let host_token = if let Ok(db) = state.db() {
                 db.get_host_token(&coord.host).ok().flatten()
             } else {
                 None
@@ -39,9 +53,11 @@ pub async fn search_apps(
             if let Ok(repo_info) =
                 crate::forge::ForgeRegistry::fetch_repo(&coord, host_token.as_deref()).await
             {
-                let release_res =
-                    crate::forge::ForgeRegistry::fetch_latest_release(&coord, host_token.as_deref())
-                        .await;
+                let release_res = crate::forge::ForgeRegistry::fetch_latest_release(
+                    &coord,
+                    host_token.as_deref(),
+                )
+                .await;
                 let (latest_ver, platforms) = match release_res {
                     Ok(r) => {
                         let plats = platforms_from_assets(&r.assets);
@@ -106,18 +122,7 @@ pub async fn search_apps(
     }
 
     let token = super::resolve_active_github_token(&state);
-    let hidden_ids: std::collections::HashSet<String> = {
-        if let Ok(db) = state.db.lock() {
-            db.get_all_rules()
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|r| r.is_hidden)
-                .map(|r| r.app_id)
-                .collect()
-        } else {
-            std::collections::HashSet::new()
-        }
-    };
+    let hidden_ids: std::collections::HashSet<String> = hidden_rule_ids(&state);
 
     let results = state
         .catalog
@@ -147,18 +152,7 @@ pub fn get_category_apps(
     category: String,
 ) -> Result<Vec<AppSummary>, String> {
     let cat_clean = category.trim().to_lowercase();
-    let hidden_ids: std::collections::HashSet<String> = {
-        if let Ok(db) = state.db.lock() {
-            db.get_all_rules()
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|r| r.is_hidden)
-                .map(|r| r.app_id)
-                .collect()
-        } else {
-            std::collections::HashSet::new()
-        }
-    };
+    let hidden_ids: std::collections::HashSet<String> = hidden_rule_ids(&state);
 
     let all = state.catalog.get_all_summaries();
     let filtered: Vec<AppSummary> = all
@@ -187,9 +181,7 @@ pub async fn get_app_details_impl(
     force_refresh: Option<bool>,
 ) -> Result<AppDetail, String> {
     // ADR-0010：入站 id 统一归一化为 canonical（小写 owner/repo / forge 前缀坐标）；未知标识直接拒绝
-    let Some(clean_id) = crate::forge::canonical_app_id(&id) else {
-        return Err(format!("无法识别的应用标识: {}", id));
-    };
+    let clean_id = super::require_app_id(&id)?;
     let is_force = force_refresh.unwrap_or(false);
     let start = std::time::Instant::now();
     // db_save 日志关联用：复用进程级 sid；req 复用线程级（空则新建，仅日志用途，不改并发）。
@@ -209,7 +201,7 @@ pub async fn get_app_details_impl(
     // 后续优化方向：r2d2 连接池（当前仍用全局 Mutex<Database>，见 ADR-0003；无 schema 变更）。
     // 非法/缺失 TTL 挡位由 db 层回退默认 30 分钟（ADR-0007 有效集 {0,10,30,60,360,1440}）。
     if !is_force {
-        let cached: Option<AppDetail> = state.db.lock().ok().and_then(|db| {
+        let cached: Option<AppDetail> = state.db().ok().and_then(|db| {
             let ttl_seconds = db.get_detail_cache_ttl_minutes() * 60;
             let mut detail = db
                 .get_cached_app_detail(&clean_id, Some(ttl_seconds))
@@ -246,7 +238,7 @@ pub async fn get_app_details_impl(
                 coord.host,
                 coord.forge
             );
-            let host_token = if let Ok(db) = state.db.lock() {
+            let host_token = if let Ok(db) = state.db() {
                 db.get_host_token(&coord.host).ok().flatten()
             } else {
                 None
@@ -290,7 +282,7 @@ pub async fn get_app_details_impl(
                 homepage: repo_info.homepage.clone(),
                 platforms,
             };
-            if let Ok(db) = state.db.lock() {
+            if let Ok(db) = state.db() {
                 if db.is_verified_app(&detail.id).unwrap_or(false) {
                     detail.is_verified = true;
                 }
@@ -304,14 +296,9 @@ pub async fn get_app_details_impl(
                 Some(&detail.latest_version),
             );
 
-            if let Ok(db) = state.db.lock() {
+            if let Ok(db) = state.db() {
                 let start_db = std::time::Instant::now();
-                log::debug!(
-                    "db_save start id={} sid={} req={}",
-                    clean_id,
-                    sid,
-                    req_id
-                );
+                log::debug!("db_save start id={} sid={} req={}", clean_id, sid, req_id);
                 let _ = db.save_cached_app_detail(&clean_id, &detail);
                 log::debug!(
                     "db_save done id={} sid={} req={} elapsed_ms={}",
@@ -332,7 +319,7 @@ pub async fn get_app_details_impl(
         let coords = match state.catalog.get_repo_coordinates(&clean_id) {
             Ok(c) => c,
             Err(e) => {
-                if let Ok(db) = state.db.lock() {
+                if let Ok(db) = state.db() {
                     if let Ok(Some(mut fallback)) = db.get_cached_app_detail_fallback(&clean_id) {
                         fallback.id = clean_id.clone();
                         fallback.is_stale = Some(true);
@@ -351,7 +338,7 @@ pub async fn get_app_details_impl(
             "https://api.github.com/repos/{}/{}/releases/latest",
             coords.owner, coords.repo
         );
-        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let db = state.db()?;
         let (etag, payload) = if is_force {
             (None, None)
         } else {
@@ -402,7 +389,7 @@ pub async fn get_app_details_impl(
                 .as_secs() as i64;
             detail.cached_at = Some(now);
             if !detail.is_verified {
-                if let Ok(db) = state.db.lock() {
+                if let Ok(db) = state.db() {
                     if db.is_verified_app(&detail.id).unwrap_or(false) {
                         detail.is_verified = true;
                     }
@@ -411,26 +398,21 @@ pub async fn get_app_details_impl(
 
             if let Some((etag, payload)) = to_cache {
                 // 远端返回 200 OK，更新 ETag 缓存表
-                if let Ok(db) = state.db.lock() {
+                if let Ok(db) = state.db() {
                     let _ = db.save_etag(&release_endpoint, &etag, &payload, now);
                 }
             } else {
                 // 远端返回 304 Not Modified（to_cache 为 None）
                 // 仅刷新 cached_at 时间戳，零配额消耗延长保鲜期
-                if let Ok(db) = state.db.lock() {
+                if let Ok(db) = state.db() {
                     let _ = db.touch_cached_app_detail(&clean_id, now);
                 }
             }
 
             // 存入 SQLite 本地持久化缓存：若远端解析产物为空但本地已有资产，继承本地资产以防误清空
             let start_db = std::time::Instant::now();
-            log::debug!(
-                "db_save start id={} sid={} req={}",
-                clean_id,
-                sid,
-                req_id
-            );
-            if let Ok(db) = state.db.lock() {
+            log::debug!("db_save start id={} sid={} req={}", clean_id, sid, req_id);
+            if let Ok(db) = state.db() {
                 if detail.releases.is_empty() {
                     if let Ok(Some(old)) = db.get_cached_app_detail_fallback(&clean_id) {
                         if !old.releases.is_empty() {
@@ -458,8 +440,9 @@ pub async fn get_app_details_impl(
                 crate::log_support::short_reason(&err)
             );
             // 网络或限额异常时，优雅降级返回已存储的历史缓存
-            if let Ok(db) = state.db.lock() {
-                if let Ok(Some(mut fallback_detail)) = db.get_cached_app_detail_fallback(&clean_id) {
+            if let Ok(db) = state.db() {
+                if let Ok(Some(mut fallback_detail)) = db.get_cached_app_detail_fallback(&clean_id)
+                {
                     fallback_detail.id = clean_id.clone();
                     fallback_detail.is_stale = Some(true);
                     log::debug!(
@@ -481,7 +464,7 @@ pub async fn sync_catalog(
     force: Option<bool>,
 ) -> Result<SyncCatalogResult, String> {
     let (url, cached_etag) = {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let db = state.db()?;
         let url = db
             .get_setting("catalog_source_url")
             .ok()
@@ -519,7 +502,9 @@ pub async fn sync_catalog(
             let cfg = crate::config::get_project_config();
             if let Some(resolved_path) = cfg.catalog.resolve_local_path() {
                 let path_str = resolved_path.to_string_lossy().to_string();
-                if let Ok((Some(items), _)) = state.catalog.sync_remote_catalog(&path_str, None).await {
+                if let Ok((Some(items), _)) =
+                    state.catalog.sync_remote_catalog(&path_str, None).await
+                {
                     local_fallback = Some((items, path_str));
                 }
             }
@@ -542,7 +527,11 @@ pub async fn sync_catalog(
                     ),
                 });
             } else {
-                log::error!("sync catalog failed url='{}' reason={}", safe_url, crate::log_support::short_reason(&err));
+                log::error!(
+                    "sync catalog failed url='{}' reason={}",
+                    safe_url,
+                    crate::log_support::short_reason(&err)
+                );
                 return Err(err);
             }
         }
@@ -551,7 +540,7 @@ pub async fn sync_catalog(
     if let Some(items) = new_items {
         let count = items.len();
         if let Some(etag) = new_etag {
-            if let Ok(db) = state.db.lock() {
+            if let Ok(db) = state.db() {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
@@ -560,7 +549,11 @@ pub async fn sync_catalog(
                 let _ = db.save_etag(&url, &etag, &json_str, now);
             }
         }
-        log::info!("sync catalog done url='{}' updated=true count={}", safe_url, count);
+        log::info!(
+            "sync catalog done url='{}' updated=true count={}",
+            safe_url,
+            count
+        );
         Ok(SyncCatalogResult {
             updated: true,
             count,
@@ -568,7 +561,11 @@ pub async fn sync_catalog(
         })
     } else {
         let count = state.catalog.get_catalog_count();
-        log::info!("sync catalog done url='{}' updated=false (up-to-date) count={}", safe_url, count);
+        log::info!(
+            "sync catalog done url='{}' updated=false (up-to-date) count={}",
+            safe_url,
+            count
+        );
         Ok(SyncCatalogResult {
             updated: false,
             count,

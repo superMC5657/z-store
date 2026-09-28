@@ -33,6 +33,11 @@ fn auth_headers(token: &str) -> Result<reqwest::header::HeaderMap, String> {
     Ok(headers)
 }
 
+/// H14：GraphQL 单条错误是否为权限不足（`INSUFFICIENT_SCOPES`）。
+fn is_insufficient_scopes(err: &serde_json::Value) -> bool {
+    err.get("type").and_then(|t| t.as_str()) == Some("INSUFFICIENT_SCOPES")
+}
+
 /// 拉取当前令牌对应的 GitHub 用户（`login` + `avatar_url` + `has_list_scope`）。
 pub async fn fetch_oauth_user(token: &str) -> Result<OAuthUser, String> {
     let client = authed_client()?;
@@ -49,10 +54,8 @@ pub async fn fetch_oauth_user(token: &str) -> Result<OAuthUser, String> {
         .and_then(|v| v.to_str().ok())
         .map(|s| s.split(',').any(|part| part.trim() == "user"))
         .unwrap_or(false);
-    if resp.status().as_u16() == 401 {
-        crate::notify_auth_expired();
+    if crate::check_auth_expired(resp.status().as_u16(), "op=fetch_user") {
         // 401 warn：只记结论与操作，不记 token / body。
-        log::warn!("oauth auth expired status=401 op=fetch_user");
         return Err("GitHub 授权已失效 (401)，请重新登录".to_string());
     }
     if !resp.status().is_success() {
@@ -98,12 +101,18 @@ pub async fn check_starred(token: &str, owner: &str, repo: &str) -> Result<bool,
         204 => Ok(true),
         404 => Ok(false),
         401 => {
-            crate::notify_auth_expired();
-            log::warn!("oauth auth expired status=401 op=check_starred owner={} repo={}", owner, repo);
+            crate::check_auth_expired(
+                401,
+                &format!("op=check_starred owner={} repo={}", owner, repo),
+            );
             Err("GitHub 授权已失效 (401)，请重新登录".to_string())
         }
         403 => {
-            log::warn!("oauth forbidden status=403 op=check_starred owner={} repo={}", owner, repo);
+            log::warn!(
+                "oauth forbidden status=403 op=check_starred owner={} repo={}",
+                owner,
+                repo
+            );
             Err("GitHub API 限额已耗尽 (403)，请稍后重试".to_string())
         }
         code => Err(format!("查询 Star 状态失败，HTTP 状态码: {}", code)),
@@ -155,12 +164,17 @@ pub async fn star_repo(token: &str, owner: &str, repo: &str) -> Result<StarRepoO
                 warning: Some(format!("已在 GitHub 标星，列表同步异常: {}", e)),
             }),
         }
-    } else if resp.status().as_u16() == 401 {
-        crate::notify_auth_expired();
-        log::warn!("oauth auth expired status=401 op=star owner={} repo={}", owner, repo);
+    } else if crate::check_auth_expired(
+        resp.status().as_u16(),
+        &format!("op=star owner={} repo={}", owner, repo),
+    ) {
         Err("GitHub 授权已失效 (401)，请重新登录".to_string())
     } else if resp.status().as_u16() == 403 {
-        log::warn!("oauth forbidden status=403 op=star owner={} repo={}", owner, repo);
+        log::warn!(
+            "oauth forbidden status=403 op=star owner={} repo={}",
+            owner,
+            repo
+        );
         Err("Star 失败 (403)：令牌缺少 public_repo 权限或 API 限额已耗尽".to_string())
     } else {
         Err(format!("Star 失败，HTTP 状态码: {}", resp.status()))
@@ -233,7 +247,7 @@ pub async fn add_repo_to_star_list(
 
     if let Some(errs) = val.get("errors").and_then(|e| e.as_array()) {
         for err in errs {
-            if err.get("type").and_then(|t| t.as_str()) == Some("INSUFFICIENT_SCOPES") {
+            if is_insufficient_scopes(err) {
                 return Ok(AddToListOutcome::InsufficientScopes);
             }
         }
@@ -248,7 +262,10 @@ pub async fn add_repo_to_star_list(
     let mut target_list_id: Option<String> = None;
     let mut item_list_ids: Vec<String> = Vec::new();
 
-    if let Some(nodes) = val.pointer("/data/viewer/lists/nodes").and_then(|v| v.as_array()) {
+    if let Some(nodes) = val
+        .pointer("/data/viewer/lists/nodes")
+        .and_then(|v| v.as_array())
+    {
         for n in nodes {
             let id = n.get("id").and_then(|v| v.as_str()).unwrap_or_default();
             let name = n.get("name").and_then(|v| v.as_str()).unwrap_or_default();
@@ -306,7 +323,7 @@ pub async fn add_repo_to_star_list(
 
             if let Some(errs) = create_val.get("errors").and_then(|e| e.as_array()) {
                 for err in errs {
-                    if err.get("type").and_then(|t| t.as_str()) == Some("INSUFFICIENT_SCOPES") {
+                    if is_insufficient_scopes(err) {
                         return Ok(AddToListOutcome::InsufficientScopes);
                     }
                 }
@@ -366,15 +383,12 @@ pub async fn add_repo_to_star_list(
 
     if let Some(errs) = add_val.get("errors").and_then(|e| e.as_array()) {
         for err in errs {
-            let err_type = err
-                .get("type")
-                .and_then(|t| t.as_str())
-                .unwrap_or_default();
+            let err_type = err.get("type").and_then(|t| t.as_str()).unwrap_or_default();
             let err_msg = err
                 .get("message")
                 .and_then(|m| m.as_str())
                 .unwrap_or_default();
-            if err_type == "INSUFFICIENT_SCOPES" {
+            if is_insufficient_scopes(err) {
                 return Ok(AddToListOutcome::InsufficientScopes);
             }
             if err_type == "FORBIDDEN" || err_msg.contains("OAuth App access restrictions") {
@@ -402,12 +416,17 @@ pub async fn unstar_repo(token: &str, owner: &str, repo: &str) -> Result<(), Str
     crate::notify_rate_limit("github.com", resp.headers());
     if resp.status().is_success() {
         Ok(())
-    } else if resp.status().as_u16() == 401 {
-        crate::notify_auth_expired();
-        log::warn!("oauth auth expired status=401 op=unstar owner={} repo={}", owner, repo);
+    } else if crate::check_auth_expired(
+        resp.status().as_u16(),
+        &format!("op=unstar owner={} repo={}", owner, repo),
+    ) {
         Err("GitHub 授权已失效 (401)，请重新登录".to_string())
     } else if resp.status().as_u16() == 403 {
-        log::warn!("oauth forbidden status=403 op=unstar owner={} repo={}", owner, repo);
+        log::warn!(
+            "oauth forbidden status=403 op=unstar owner={} repo={}",
+            owner,
+            repo
+        );
         Err(format!("取消 Star 失败，HTTP 状态码: {}", resp.status()))
     } else {
         Err(format!("取消 Star 失败，HTTP 状态码: {}", resp.status()))

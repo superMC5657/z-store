@@ -1,25 +1,20 @@
+use super::resolve_uninstaller_command;
 use crate::models::InstalledApp;
 use crate::AppState;
-use super::resolve_uninstaller_command;
 use tauri::State;
 
 /// ADR-0010 入口门禁（与 `launch_app` 保持同一模式）：将入站 id 归一化为规范形式；
 /// 拒绝无法解析的非法 id，严禁透传原始未校验的 id。
 pub(crate) fn resolve_managed_app_id(raw: &str) -> Result<String, String> {
-    crate::forge::canonical_app_id(raw)
-        .ok_or_else(|| format!("无法识别的应用标识: {}", raw))
+    super::require_app_id(raw)
 }
 
 /// 审查项 3.2-3 无架构变更标记：在不执行数据库迁移的前提下 `InstalledApp` 无 missing 标记
 /// （models.rs 保持刻意未动），因此幽灵应用在返回视图中被隐藏，但数据库记录予以保留。
 /// 纯过滤函数 —— 执行 0 次数据库/缓存删除操作；幽灵计数在 `get_installed_apps` 中通过日志体现。
 /// 仅当用户显式调用卸载/取消管理时才执行实际删除。
-pub(crate) fn hide_ghost_apps(
-    apps: Vec<InstalledApp>,
-    ghost_ids: &[String],
-) -> Vec<InstalledApp> {
-    apps
-        .into_iter()
+pub(crate) fn hide_ghost_apps(apps: Vec<InstalledApp>, ghost_ids: &[String]) -> Vec<InstalledApp> {
+    apps.into_iter()
         .filter(|a| !ghost_ids.iter().any(|g| g == &a.app_id))
         .collect()
 }
@@ -57,10 +52,7 @@ pub(crate) fn is_owned_portable_dir(
 
 /// P0-2 安全清理：属于自有专属目录 -> 执行 `remove_dir_all`；共享目录（如“下载”或 D:\Tools）
 /// -> 仅删除清单记录的单一文件，或拒绝整目录删除。
-pub(crate) fn cleanup_portable_path(
-    install_path: &std::path::Path,
-    owned_dir: &std::path::Path,
-) {
+pub(crate) fn cleanup_portable_path(install_path: &std::path::Path, owned_dir: &std::path::Path) {
     let dir = if install_path.is_file() {
         install_path.parent()
     } else if install_path.is_dir() {
@@ -77,12 +69,15 @@ pub(crate) fn cleanup_portable_path(
     }
 }
 
-pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {    let Some(app_id) = crate::forge::canonical_app_id(&app_id) else {
-        return Err(format!("无法识别的应用标识: {}", app_id));
-    };
-    log::info!("uninstall start sid={} id={}", crate::z_log::new_session_id(), app_id);
+pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
+    let app_id = super::require_app_id(&app_id)?;
+    log::info!(
+        "uninstall start sid={} id={}",
+        crate::z_log::new_session_id(),
+        app_id
+    );
     let installed_app = {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let db = state.db()?;
         db.get_installed_apps()
             .map_err(|e| e.to_string())?
             .into_iter()
@@ -98,7 +93,11 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result
                 .into_iter()
                 .find(|c| c.id == app_id)
                 .ok_or_else(|| format!("未找到 ID 为 {} 的应用安装记录", app_id))?;
-            let resolved_path = crate::scanner::AppScanner::resolve_installed_app_path(&cat.name, &cat.id, Some(&cat.repo));
+            let resolved_path = crate::scanner::AppScanner::resolve_installed_app_path(
+                &cat.name,
+                &cat.id,
+                Some(&cat.repo),
+            );
             InstalledApp {
                 app_id: cat.id.clone(),
                 app_name: cat.name.clone(),
@@ -164,14 +163,18 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result
     }
 
     // 5. 卸载向导操作或目录清理核验通过后，才正式从 SQLite 数据库移除条例
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db()?;
     let res = db.remove_installed_app(&app_id).map_err(|e| e.to_string());
 
     // 6. 精准从缓存中移除该应用，避免产生全量扫描开销
     crate::commands::scanner::remove_from_detected_cache(&app_id);
 
     match &res {
-        Ok(_) => log::info!("uninstall done sid={} id={}", crate::z_log::new_session_id(), app_id),
+        Ok(_) => log::info!(
+            "uninstall done sid={} id={}",
+            crate::z_log::new_session_id(),
+            app_id
+        ),
         Err(e) => log::warn!(
             "uninstall failed id={} reason={}",
             app_id,
@@ -185,7 +188,7 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result
 pub fn unmanage_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
     // ADR-0010：与 `launch_app` 相同的入口门禁 —— 归一化后全程使用规范化 canonical id。
     let app_id = resolve_managed_app_id(&app_id)?;
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db()?;
     let res = db.remove_installed_app(&app_id).map_err(|e| e.to_string());
     // 从列表移除管理后，本机依然存在该软件，因此保持/添加到已探测缓存中
     crate::commands::scanner::add_to_detected_cache(&app_id);
@@ -212,7 +215,10 @@ mod portable_uninstall_safety_tests {
 
         super::cleanup_portable_path(&exe, &owned);
 
-        assert!(precious.exists(), "shared dir sibling file was wiped (data loss)");
+        assert!(
+            precious.exists(),
+            "shared dir sibling file was wiped (data loss)"
+        );
         assert!(shared.exists(), "shared dir itself was wiped (data loss)");
         let _ = fs::remove_dir_all(&base);
     }
@@ -228,7 +234,10 @@ mod portable_uninstall_safety_tests {
 
         super::cleanup_portable_path(&exe, &owned);
 
-        assert!(!owned.exists(), "owned isolated dir should be fully cleaned");
+        assert!(
+            !owned.exists(),
+            "owned isolated dir should be fully cleaned"
+        );
         let _ = fs::remove_dir_all(&base);
     }
 

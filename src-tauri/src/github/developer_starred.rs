@@ -1,11 +1,11 @@
-use super::CatalogService;
-use super::developer_profile::EtagGetOutcome;
 use super::developer_endpoints::{
     GITHUB_API_BASE, GITHUB_STARRED_MAX_PAGE_SIZE, STARRED_RELEASE_ENRICH_LIMIT,
 };
+use super::developer_profile::EtagGetOutcome;
 use super::models::GitHubRepoResponse;
+use super::CatalogService;
 use crate::models::{DeveloperRepoItem, StarredSyncResult};
-use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, USER_AGENT};
+use reqwest::header::AUTHORIZATION;
 use std::collections::HashMap;
 
 impl CatalogService {
@@ -36,36 +36,10 @@ impl CatalogService {
         release_cache: &mut HashMap<String, (Option<String>, Option<String>)>,
         api_base: Option<&str>,
     ) -> Result<StarredSyncResult, String> {
-        let api_timeout = std::time::Duration::from_secs(
-            crate::config::get_project_config().network.api_timeout_seconds,
-        );
-        let client = reqwest::Client::builder()
-            .timeout(api_timeout)
-            .build()
-            .map_err(|e| e.to_string())?;
+        let client = super::http::build_api_client()?;
 
-        let mut headers = HeaderMap::new();
-        headers.insert(USER_AGENT, HeaderValue::from_static("ZStore-Client/0.1.0"));
-        headers.insert(
-            ACCEPT,
-            HeaderValue::from_static("application/vnd.github.v3+json"),
-        );
-
-        let has_token = if let Some(tok) = token {
-            let t = tok.trim();
-            if !t.is_empty() {
-                if let Ok(val) = HeaderValue::from_str(&format!("Bearer {}", t)) {
-                    headers.insert(AUTHORIZATION, val);
-                    true
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
-        } else {
-            false
-        };
+        let headers = super::http::bearer_headers(token);
+        let has_token = headers.contains_key(AUTHORIZATION);
 
         let target_url = if has_token && username.map(|u| u.trim().is_empty()).unwrap_or(true) {
             format!(
@@ -75,18 +49,14 @@ impl CatalogService {
         } else if let Some(u) = username {
             let clean_u = u.trim();
             if clean_u.is_empty() {
-                return Err(
-                    "请提供 GitHub 用户名或先在「设置」中登录 GitHub 账号".to_string(),
-                );
+                return Err("请提供 GitHub 用户名或先在「设置」中登录 GitHub 账号".to_string());
             }
             format!(
                 "{}/users/{}/starred?per_page={}",
                 GITHUB_API_BASE, clean_u, GITHUB_STARRED_MAX_PAGE_SIZE
             )
         } else {
-            return Err(
-                "请提供 GitHub 用户名或先在「设置」中登录 GitHub 账号".to_string(),
-            );
+            return Err("请提供 GitHub 用户名或先在「设置」中登录 GitHub 账号".to_string());
         };
 
         let mut catalog_matches = Vec::new();
@@ -95,19 +65,49 @@ impl CatalogService {
         let catalog_list = self.get_catalog_items();
         let request_target = Self::request_url(&target_url, api_base);
         let safe_starred = crate::log_support::sanitize_url(&request_target);
-        let starred_req = crate::z_log::new_req_id();
-        let starred_sid = crate::z_log::new_session_id();
+        let (starred_req, starred_sid) = super::http::new_log_ctx();
         let starred_host = crate::log_support::host_of(&request_target);
-        log::debug!("http get starred sid={} req={} url='{}'", starred_sid, starred_req, safe_starred);
+        log::debug!(
+            "http get starred sid={} req={} url='{}'",
+            starred_sid,
+            starred_req,
+            safe_starred
+        );
         let start_starred = std::time::Instant::now();
-        let resp = match client.get(&request_target).headers(headers.clone()).send().await {
+        let resp = match client
+            .get(&request_target)
+            .headers(headers.clone())
+            .send()
+            .await
+        {
             Ok(r) => {
-                log::debug!("http resp starred sid={} req={} url='{}' status={} elapsed_ms={}", starred_sid, starred_req, safe_starred, r.status().as_u16(), start_starred.elapsed().as_millis());
-                log::info!("http resp starred sid={} req={} host={} status={} elapsed_ms={}", starred_sid, starred_req, starred_host, r.status().as_u16(), start_starred.elapsed().as_millis());
+                log::debug!(
+                    "http resp starred sid={} req={} url='{}' status={} elapsed_ms={}",
+                    starred_sid,
+                    starred_req,
+                    safe_starred,
+                    r.status().as_u16(),
+                    start_starred.elapsed().as_millis()
+                );
+                log::info!(
+                    "http resp starred sid={} req={} host={} status={} elapsed_ms={}",
+                    starred_sid,
+                    starred_req,
+                    starred_host,
+                    r.status().as_u16(),
+                    start_starred.elapsed().as_millis()
+                );
                 r
             }
             Err(e) => {
-                log::warn!("http get starred failed sid={} req={} host={} reason={} elapsed_ms={}", starred_sid, starred_req, starred_host, crate::log_support::short_reason(&e.to_string()), start_starred.elapsed().as_millis());
+                log::warn!(
+                    "http get starred failed sid={} req={} host={} reason={} elapsed_ms={}",
+                    starred_sid,
+                    starred_req,
+                    starred_host,
+                    crate::log_support::short_reason(&e.to_string()),
+                    start_starred.elapsed().as_millis()
+                );
                 return Err(format!(
                     "连接 GitHub API 失败: {}. 如遇国内网络阻断，请检查网络设置或配置下载加速代理。",
                     e
@@ -217,9 +217,7 @@ impl CatalogService {
             }
             budget -= 1;
             let key = Self::starred_release_endpoint(&p.full_name);
-            let cached_etag = release_cache
-                .get(&key)
-                .and_then(|(e, _)| e.clone());
+            let cached_etag = release_cache.get(&key).and_then(|(e, _)| e.clone());
             match Self::get_with_etag(
                 &client,
                 &key,
@@ -238,10 +236,7 @@ impl CatalogService {
                         resolved[i] = Some((true, Some(tag)));
                     }
                     None => {
-                        log::debug!(
-                            "starred release no tag full_name='{}'",
-                            p.full_name
-                        );
+                        log::debug!("starred release no tag full_name='{}'", p.full_name);
                         resolved[i] = Some((false, None));
                     }
                 },
@@ -255,7 +250,7 @@ impl CatalogService {
                         None => (false, None),
                     });
                 }
-                EtagGetOutcome::Failed => {
+                EtagGetOutcome::Failed | EtagGetOutcome::Unauthorized => {
                     log::debug!(
                         "starred release check failed full_name='{}' keep has_releases=false",
                         p.full_name
@@ -318,9 +313,7 @@ pub(crate) mod test_support {
     }
 
     pub(crate) async fn spawn_mock(routes: HashMap<String, MockResp>) -> MockServer {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let routes = Arc::new(routes);
         let hits: Arc<Mutex<HashMap<String, usize>>> = Arc::new(Mutex::new(HashMap::new()));
@@ -427,10 +420,5 @@ pub(crate) mod test_support {
              "description": "d1", "stargazers_count": 5u64, "forks_count": 1u64, "language": "Rust"}
         ])
         .to_string()
-    }
-    // 当仅运行部分单测时，抑制共享 mock 辅助函数的 dead-code 告警。
-    #[allow(dead_code)]
-    fn _mock_helper_used() {
-        let _ = hits_of;
     }
 }

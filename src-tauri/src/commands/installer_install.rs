@@ -1,8 +1,8 @@
-use crate::models::InstalledApp;
-use crate::AppState;
 use super::catalog::get_app_details;
 use super::installer_download::{download_asset_with_fallback, resolve_download_dir};
 use super::{resolve_uninstaller_command, select_best_asset, InstallerEngine};
+use crate::models::InstalledApp;
+use crate::AppState;
 use tauri::{AppHandle, State};
 
 /// 安装流程核心实现（从 `installer.rs` 抽离；命令包装层保留在原处）。
@@ -14,13 +14,11 @@ pub async fn install_app(
     custom_install_dir: Option<String>,
 ) -> Result<InstalledApp, String> {
     // ADR-0010：深链安装可能传入 URL/前缀形态，入站归一化后全程使用 canonical id；未知标识直接拒绝
-    let Some(app_id) = crate::forge::canonical_app_id(&app_id) else {
-        return Err(format!("无法识别的应用标识: {}", app_id));
-    };
+    let app_id = super::require_app_id(&app_id)?;
     // 读取用户配置（自定义下载路径、绿色便携根路径）
     let custom_download_dir = resolve_download_dir(&state);
     let custom_portable_dir = {
-        if let Ok(db) = state.db.lock() {
+        if let Ok(db) = state.db() {
             db.get_setting("portable_dir").ok().flatten().and_then(|s| {
                 let t = s.trim().to_string();
                 if !t.is_empty() {
@@ -110,12 +108,8 @@ pub async fn install_app(
         }
     }
 
-    let resolved_uninst = resolve_uninstaller_command(
-        &detail.name,
-        &detail.id,
-        &real_install_path,
-        None,
-    );
+    let resolved_uninst =
+        resolve_uninstaller_command(&detail.name, &detail.id, &real_install_path, None);
 
     // 5. 写入本地 SQLite 持久化
     let installed_app = InstalledApp {
@@ -136,7 +130,7 @@ pub async fn install_app(
     };
 
     {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let db = state.db()?;
         db.save_installed_app(&installed_app)
             .map_err(|e| e.to_string())?;
     }

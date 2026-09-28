@@ -53,7 +53,12 @@ fn test_classify_7z_never_portable() {
     ];
     for name in cases {
         let (kind, _, _) = InstallerEngine::classify_asset(name);
-        assert_ne!(kind, AssetKind::PortableZip, ".7z must never be PortableZip: {}", name);
+        assert_ne!(
+            kind,
+            AssetKind::PortableZip,
+            ".7z must never be PortableZip: {}",
+            name
+        );
         assert_eq!(kind, AssetKind::Other, ".7z must map to Other: {}", name);
     }
     // 守卫测试：确保 `.zip` 的便携版声明保持完好。
@@ -68,29 +73,51 @@ fn test_classify_7z_never_portable() {
 }
 
 #[test]
-fn test_build_unix_install_commands() {
-    let test_path = Path::new("/tmp/test-installer.dmg");
-    let cmds = executor::build_unix_install_commands(&AssetKind::Dmg, test_path);
-    assert_eq!(cmds[0][0], "hdiutil");
-    assert_eq!(cmds[0][1], "attach");
+fn test_unix_real_impl_argv_locked() {
+    // 旧桩 build_unix_install_commands 已删：Pkg 桩曾用 `installer -pkg -target`，
+    // 与 macOS 真实实现 `open -W` 漂移；Dmg 桩用占位 `/Volumes/<App>`，
+    // 与真实 hdiutil 挂载探测漂移；Apk 桩（`pm install`）无真实执行体。
+    // 故直调 linux/macos 真实 argv helper 锁定，不再经由已删旧桩。
+    let deb = executor::linux::deb_install_argv(Path::new("/tmp/pkg.deb"));
+    assert_eq!(deb, vec!["pkexec", "dpkg", "-i", "/tmp/pkg.deb"]);
+    let rpm = executor::linux::rpm_install_argv(Path::new("/tmp/pkg.rpm"));
+    assert_eq!(rpm, vec!["pkexec", "rpm", "-i", "/tmp/pkg.rpm"]);
+    let chmod = executor::linux::appimage_chmod_argv(Path::new("/home/user/app.AppImage"));
+    assert_eq!(chmod, vec!["chmod", "+x", "/home/user/app.AppImage"]);
+    let launch = executor::linux::appimage_launch_argv(Path::new("/home/user/app.AppImage"));
+    assert_eq!(launch, vec!["/home/user/app.AppImage"]);
 
-    let pkg_path = Path::new("/tmp/app.pkg");
-    let pkg_cmds = executor::build_unix_install_commands(&AssetKind::Pkg, pkg_path);
-    assert_eq!(pkg_cmds[0][0], "installer");
-
-    let appimage_path = Path::new("/home/user/app.AppImage");
-    let ai_cmds = executor::build_unix_install_commands(&AssetKind::AppImage, appimage_path);
-    assert_eq!(ai_cmds[0][0], "chmod");
-
-    let deb_path = Path::new("/tmp/pkg.deb");
-    let deb_cmds = executor::build_unix_install_commands(&AssetKind::Deb, deb_path);
-    assert_eq!(deb_cmds[0][0], "pkexec");
-    assert_eq!(deb_cmds[0][1], "dpkg");
-
-    let rpm_path = Path::new("/tmp/pkg.rpm");
-    let rpm_cmds = executor::build_unix_install_commands(&AssetKind::Rpm, rpm_path);
-    assert_eq!(rpm_cmds[0][0], "pkexec");
-    assert_eq!(rpm_cmds[0][1], "rpm");
+    let pkg = executor::macos::pkg_open_argv(Path::new("/tmp/app.pkg"));
+    assert_eq!(pkg, vec!["open", "-W", "/tmp/app.pkg"]);
+    let attach = executor::macos::dmg_attach_argv(Path::new("/tmp/test-installer.dmg"));
+    assert_eq!(
+        attach,
+        vec![
+            "hdiutil",
+            "attach",
+            "-nobrowse",
+            "-readonly",
+            "/tmp/test-installer.dmg"
+        ]
+    );
+    let detach = executor::macos::dmg_detach_argv(Path::new("/Volumes/TestApp"));
+    assert_eq!(
+        detach,
+        vec!["hdiutil", "detach", "/Volumes/TestApp", "-force"]
+    );
+    let copy = executor::macos::dmg_copy_argv(
+        Path::new("/Volumes/TestApp/TestApp.app"),
+        Path::new("/Applications/TestApp.app"),
+    );
+    assert_eq!(
+        copy,
+        vec![
+            "cp",
+            "-R",
+            "/Volumes/TestApp/TestApp.app",
+            "/Applications/TestApp.app"
+        ]
+    );
 }
 
 #[test]
@@ -123,7 +150,8 @@ fn test_expand_env_path_and_portable_dir() {
 
 #[test]
 fn test_parse_uninstaller_command() {
-    let (exe, args) = parse_uninstaller_command(r#""E:\Program Files\PicGo\Uninstall PicGo.exe" /allusers /S"#);
+    let (exe, args) =
+        parse_uninstaller_command(r#""E:\Program Files\PicGo\Uninstall PicGo.exe" /allusers /S"#);
     assert_eq!(exe, r#"E:\Program Files\PicGo\Uninstall PicGo.exe"#);
     assert_eq!(args, vec!["/allusers", "/S"]);
 
@@ -142,7 +170,11 @@ fn test_uninstaller_payload_semicolon_stays_inert_argv() {
     let (exe, args) = parse_uninstaller_command(payload);
     assert_eq!(exe, "/opt/myapp/uninstall.sh");
     // `;` 必须作为 argv 的字面量元素保留，绝不能作为 shell 命令分隔符。
-    assert!(args.iter().any(|a| a.contains(';')), "semicolon must stay inside argv, got: {:?}", args);
+    assert!(
+        args.iter().any(|a| a.contains(';')),
+        "semicolon must stay inside argv, got: {:?}",
+        args
+    );
     assert!(!exe.contains(';'));
 }
 
@@ -152,7 +184,11 @@ fn test_uninstaller_payload_andand_stays_inert_argv() {
     let (exe, args) = parse_uninstaller_command(payload);
     assert_eq!(exe, "/opt/myapp/uninstall.sh");
     // `&&` 必须作为 argv 的字面量元素保留，绝不能作为 shell 连词运算符。
-    assert!(args.iter().any(|a| a.contains("&&")), "&& must stay inside argv, got: {:?}", args);
+    assert!(
+        args.iter().any(|a| a.contains("&&")),
+        "&& must stay inside argv, got: {:?}",
+        args
+    );
     assert!(!exe.contains('&'));
 }
 
@@ -162,7 +198,11 @@ fn test_uninstaller_payload_backtick_stays_inert_argv() {
     let (exe, args) = parse_uninstaller_command(payload);
     assert_eq!(exe, "/opt/myapp/uninstall.sh");
     // 反引号必须作为 argv 的字面量文本保留，绝不能作为命令替换符。
-    assert!(args.iter().any(|a| a.contains('`')), "backticks must stay inside argv, got: {:?}", args);
+    assert!(
+        args.iter().any(|a| a.contains('`')),
+        "backticks must stay inside argv, got: {:?}",
+        args
+    );
     assert!(!exe.contains('`'));
 }
 
@@ -183,7 +223,10 @@ fn test_uninstaller_payload_argv_spawn_never_executes_injected_command() {
     assert!(args.iter().any(|a| a.contains(';')));
     let spawn = std::process::Command::new(&exe).args(&args).output();
     assert!(spawn.is_err(), "bogus exe must be rejected, never shelled");
-    assert!(!sentinel.exists(), "injected command must not have executed");
+    assert!(
+        !sentinel.exists(),
+        "injected command must not have executed"
+    );
 }
 
 #[test]
@@ -196,11 +239,7 @@ fn test_select_best_asset_fail_closed_no_cross_os_fallback() {
     let foreign_os = "linux";
     #[cfg(target_os = "linux")]
     let foreign_os = "windows";
-    #[cfg(not(any(
-        target_os = "windows",
-        target_os = "macos",
-        target_os = "linux"
-    )))]
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     let foreign_os = "never-matching-os-xyz";
 
     let assets = vec![crate::models::ReleaseAsset {
@@ -284,7 +323,10 @@ fn test_silent_args_mapping() {
 #[test]
 fn test_skipped_outcome_is_non_success() {
     let skipped = executor::InstallOutcome::Skipped("skip: test".to_string());
-    assert!(skipped.into_result().is_err(), "Skipped must not read as success");
+    assert!(
+        skipped.into_result().is_err(),
+        "Skipped must not read as success"
+    );
     let installed = executor::InstallOutcome::Installed("ok".to_string());
     assert!(installed.into_result().is_ok());
 }
@@ -308,4 +350,3 @@ async fn test_foreign_platform_skip_is_not_recorded_as_installed() {
         }
     }
 }
-

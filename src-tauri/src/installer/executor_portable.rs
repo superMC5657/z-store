@@ -40,8 +40,7 @@ pub fn install_portable_zip(
             let mut outfile = File::create(&outpath).map_err(|e| e.to_string())?;
             io::copy(&mut file, &mut outfile).map_err(|e| e.to_string())?;
 
-            if outpath.extension().and_then(|ext| ext.to_str()) == Some("exe")
-                && main_exe.is_none()
+            if outpath.extension().and_then(|ext| ext.to_str()) == Some("exe") && main_exe.is_none()
             {
                 main_exe = Some(outpath);
             }
@@ -53,5 +52,8 @@ pub fn install_portable_zip(
         crate::installer::paths::create_desktop_shortcut(app_id, exe);
     }
 
-    Ok(InstallOutcome::Installed(format!("已解压至便携目录: {:?}", app_dir)))
+    Ok(InstallOutcome::Installed(format!(
+        "已解压至便携目录: {:?}",
+        app_dir
+    )))
 }

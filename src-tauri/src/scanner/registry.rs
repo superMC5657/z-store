@@ -128,15 +128,12 @@ impl AppScanner {
                                     if let Ok(loc) =
                                         app_key.get_value::<String, _>("InstallLocation")
                                     {
-                                        let trimmed_loc =
-                                            loc.trim().trim_matches('"').to_string();
+                                        let trimmed_loc = loc.trim().trim_matches('"').to_string();
                                         if !trimmed_loc.is_empty()
                                             && std::path::Path::new(&trimmed_loc).exists()
                                         {
-                                            component_locations.insert(
-                                                disp.trim().to_lowercase(),
-                                                trimmed_loc,
-                                            );
+                                            component_locations
+                                                .insert(disp.trim().to_lowercase(), trimmed_loc);
                                         }
                                     }
                                 }

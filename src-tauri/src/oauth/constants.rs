@@ -13,10 +13,15 @@ pub const OAUTH_SCOPE: &str = "public_repo user";
 pub const DEVICE_CODE_URL: &str = "https://github.com/login/device/code";
 pub const ACCESS_TOKEN_URL: &str = "https://github.com/login/oauth/access_token";
 pub const GITHUB_API_BASE: &str = "https://api.github.com";
+/// L1：Device Flow 授权轮询 grant_type（RFC 8628 `device_code` 固定值）。
+pub const DEVICE_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:device_code";
 
 /// 获取默认配置的 Client ID（统一读取自 config.toml [oauth].default_client_id）
 pub fn default_oauth_client_id() -> String {
-    crate::config::get_project_config().oauth.default_client_id.clone()
+    crate::config::get_project_config()
+        .oauth
+        .default_client_id
+        .clone()
 }
 
 /// 解析 OAuth Client ID：设置项覆盖优先；空值回退 config.toml 中的 default_client_id。

@@ -31,7 +31,7 @@ fn get_default_settings() -> HashMap<String, String> {
 
 #[tauri::command]
 pub fn get_settings(state: State<'_, AppState>) -> Result<HashMap<String, String>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db()?;
     let db_settings = db.get_all_settings().map_err(|e| e.to_string())?;
 
     // 1. 以 config.toml 及项目基准作为权威默认底表
@@ -80,7 +80,7 @@ pub fn save_setting(
     key: String,
     value: String,
 ) -> Result<bool, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db()?;
     let value = crate::db::normalize_setting_value(&key, &value);
     db.set_setting(&key, &value).map_err(|e| e.to_string())?;
 

@@ -99,6 +99,13 @@ impl AppScanner {
 mod resolver_lnk_tests {
     use super::*;
 
+    /// 测试本地临时目录 helper（仅测试代码，与 scanner/tests 收敛命名）。
+    fn temp_test_dir() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("zstore-lnk-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
     /// 构造 MS-SHLLINK 合成夹具：flags = 0x01|0x02（IDList + LinkInfo 共存），
     /// LinkInfo 起始于 76 + 2 + id_list_size（u16 IDListSize + 变长 IDList 之后）。
     /// IDList 填充 0xFF，使旧代码在固定偏移 76 处误读出的 link_info_size /
@@ -149,8 +156,7 @@ mod resolver_lnk_tests {
 
     #[test]
     fn lnk_with_idlist_resolves_through_structured_path() {
-        let dir = std::env::temp_dir().join(format!("zstore-lnk-test-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = temp_test_dir();
         let target = dir.join("fixture-target.exe");
         std::fs::write(&target, b"fake exe").unwrap();
         // 刻意使用正斜杠分隔符：Windows 上 is_file 照常通过，但启发式分支

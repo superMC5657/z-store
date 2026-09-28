@@ -14,7 +14,7 @@ pub fn scan_and_match_local_apps(
     let catalog_items = state.catalog.get_catalog_items();
 
     let installed_ids: std::collections::HashSet<String> = {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let db = state.db()?;
         db.get_installed_apps()
             .unwrap_or_default()
             .into_iter()
@@ -52,11 +52,10 @@ pub fn import_matched_apps(
         .unwrap_or_default()
         .as_secs() as i64;
 
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db()?;
 
     for req in apps {
-        let app_id = crate::forge::canonical_app_id(&req.app_id)
-            .ok_or_else(|| format!("无法识别的应用标识: {}", req.app_id))?;
+        let app_id = super::require_app_id(&req.app_id)?;
         let (icon, icon_bg) = if let Some(cat) = state.catalog.get_catalog_item(&app_id) {
             (Some(cat.icon), Some(cat.icon_bg))
         } else {
@@ -139,7 +138,13 @@ pub async fn get_detected_installed_app_ids(
     let detected: Vec<String> = tokio::task::spawn_blocking(move || {
         let mut detected = Vec::new();
         for cat in &catalog_items {
-            if crate::scanner::AppScanner::resolve_installed_app_path(&cat.name, &cat.id, Some(&cat.repo)).is_some() {
+            if crate::scanner::AppScanner::resolve_installed_app_path(
+                &cat.name,
+                &cat.id,
+                Some(&cat.repo),
+            )
+            .is_some()
+            {
                 detected.push(cat.id.clone());
             }
         }
@@ -157,15 +162,14 @@ pub async fn get_detected_installed_app_ids(
 
 #[tauri::command]
 pub fn import_single_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
-    let Some(app_id) = crate::forge::canonical_app_id(&app_id) else {
-        return Err(format!("无法识别的应用标识: {}", app_id));
-    };
+    let app_id = super::require_app_id(&app_id)?;
     let cat = state
         .catalog
         .get_catalog_item(&app_id)
         .ok_or_else(|| format!("Catalog 中未收录该应用: {}", app_id))?;
 
-    let resolved_path = crate::scanner::AppScanner::resolve_installed_app_path(&cat.name, &cat.id, Some(&cat.repo));
+    let resolved_path =
+        crate::scanner::AppScanner::resolve_installed_app_path(&cat.name, &cat.id, Some(&cat.repo));
     let resolved_path_str = resolved_path.unwrap_or_default();
 
     let now = std::time::SystemTime::now()
@@ -194,8 +198,9 @@ pub fn import_single_app(state: State<'_, AppState>, app_id: String) -> Result<b
         icon_bg: Some(cat.icon_bg),
     };
 
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.save_installed_app(&installed).map_err(|e| e.to_string())?;
+    let db = state.db()?;
+    db.save_installed_app(&installed)
+        .map_err(|e| e.to_string())?;
 
     // 添加管理后让探测缓存也包含该 ID
     if let Ok(mut guard) = DETECTED_APP_IDS_CACHE.write() {

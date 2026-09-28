@@ -45,7 +45,10 @@ pub fn expand_env_path(path_str: &str) -> PathBuf {
     if trimmed == "~" {
         return user_home_dir().unwrap_or_else(default_download_dir);
     }
-    if let Some(rest) = trimmed.strip_prefix("~/").or_else(|| trimmed.strip_prefix("~\\")) {
+    if let Some(rest) = trimmed
+        .strip_prefix("~/")
+        .or_else(|| trimmed.strip_prefix("~\\"))
+    {
         if let Some(home) = user_home_dir() {
             let sub_path: PathBuf = rest.split(['/', '\\']).collect();
             return home.join(sub_path);
@@ -160,7 +163,11 @@ pub fn create_desktop_shortcut(app_name: &str, exe_path: &Path) {
         .filter(|c| !['\\', '/', ':', '*', '?', '"', '<', '>', '|'].contains(c))
         .collect();
     let safe_name = clean_name.trim();
-    let final_name = if safe_name.is_empty() { "App" } else { safe_name };
+    let final_name = if safe_name.is_empty() {
+        "App"
+    } else {
+        safe_name
+    };
 
     let working_dir = exe_path.parent().unwrap_or(exe_path);
     let script = format!(
@@ -239,7 +246,9 @@ pub fn resolve_uninstaller_command(
                                 || disp_lower.contains(&name_lower)
                                 || name_lower.contains(&disp_lower)
                                 || (!clean_id.is_empty()
-                                    && disp_lower.replace(['-', '_', '.'], "").contains(&clean_id)));
+                                    && disp_lower
+                                        .replace(['-', '_', '.'], "")
+                                        .contains(&clean_id)));
 
                         if matched {
                             if let Ok(uninst) = app_key.get_value::<String, _>("UninstallString") {
@@ -270,8 +279,14 @@ pub fn resolve_uninstaller_command(
                 for entry in entries.flatten() {
                     let path = entry.path();
                     if path.is_file() {
-                        let fname = path.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
-                        if (fname.starts_with("uninstall") || fname.starts_with("unins")) && fname.ends_with(".exe") {
+                        let fname = path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_lowercase();
+                        if (fname.starts_with("uninstall") || fname.starts_with("unins"))
+                            && fname.ends_with(".exe")
+                        {
                             return Some(format!("\"{}\"", path.to_string_lossy()));
                         }
                     }
@@ -295,9 +310,11 @@ pub fn resolve_uninstaller_command(
 
         // 4. 检查开始菜单程序组中的卸载快捷方式
         let start_menu_candidates = [
-            std::env::var("APPDATA")
-                .ok()
-                .map(|p| std::path::PathBuf::from(p).join(r"Microsoft\Windows\Start Menu\Programs").join(app_name)),
+            std::env::var("APPDATA").ok().map(|p| {
+                std::path::PathBuf::from(p)
+                    .join(r"Microsoft\Windows\Start Menu\Programs")
+                    .join(app_name)
+            }),
             Some(
                 std::path::PathBuf::from(r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs")
                     .join(app_name),
@@ -309,7 +326,11 @@ pub fn resolve_uninstaller_command(
                 if let Ok(entries) = std::fs::read_dir(&sdir_opt) {
                     for entry in entries.flatten() {
                         let path = entry.path();
-                        let fname = path.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+                        let fname = path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_lowercase();
                         if fname.contains("uninstall") && fname.ends_with(".lnk") {
                             return Some(format!("\"{}\"", path.to_string_lossy()));
                         }

@@ -4,56 +4,54 @@ use tauri::State;
 
 #[tauri::command]
 pub fn get_favorites(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db()?;
     db.get_favorites().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn toggle_favorite(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
-    let Some(app_id) = crate::forge::canonical_app_id(&app_id) else {
-        return Err(format!("无法识别的应用标识: {}", app_id));
-    };
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let app_id = super::require_app_id(&app_id)?;
+    let db = state.db()?;
     db.toggle_favorite(&app_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn record_search_query(state: State<'_, AppState>, query: String) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db()?;
     db.record_search_query(&query).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn get_search_history(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db()?;
     db.get_search_history().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn clear_search_history(state: State<'_, AppState>) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db()?;
     db.clear_search_history().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn remove_search_query(state: State<'_, AppState>, query: String) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db()?;
     db.remove_search_query(&query).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn record_app_view(state: State<'_, AppState>, app_id: String) -> Result<(), String> {
-    let Some(app_id) = crate::forge::canonical_app_id(&app_id) else {
-        return Err(format!("无法识别的应用标识: {}", app_id));
-    };
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let app_id = super::require_app_id(&app_id)?;
+    let db = state.db()?;
     db.record_app_view(&app_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn get_recently_viewed_apps(state: State<'_, AppState>) -> Result<Vec<AppSummary>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let ids = db.get_recently_viewed_app_ids().map_err(|e| e.to_string())?;
+    let db = state.db()?;
+    let ids = db
+        .get_recently_viewed_app_ids()
+        .map_err(|e| e.to_string())?;
     let catalog_items = state.catalog.get_catalog_items();
     let mut result = Vec::new();
 
@@ -67,7 +65,7 @@ pub fn get_recently_viewed_apps(state: State<'_, AppState>) -> Result<Vec<AppSum
 
 #[tauri::command]
 pub fn clear_view_history(state: State<'_, AppState>) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db()?;
     db.clear_view_history().map_err(|e| e.to_string())
 }
 
@@ -75,25 +73,21 @@ pub fn clear_view_history(state: State<'_, AppState>) -> Result<(), String> {
 
 #[tauri::command]
 pub fn watch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
-    let Some(id) = crate::forge::canonical_app_id(&app_id) else {
-        return Err(format!("无法识别的应用标识: {}", app_id));
-    };
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let id = super::require_app_id(&app_id)?;
+    let db = state.db()?;
     db.watch_app(&id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn unwatch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
-    let Some(id) = crate::forge::canonical_app_id(&app_id) else {
-        return Err(format!("无法识别的应用标识: {}", app_id));
-    };
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let id = super::require_app_id(&app_id)?;
+    let db = state.db()?;
     db.unwatch_app(&id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn get_watched_apps(state: State<'_, AppState>) -> Result<Vec<WatchedApp>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db()?;
     db.get_watched_apps().map_err(|e| e.to_string())
 }
 
@@ -107,7 +101,7 @@ pub fn import_user_data(
     json: String,
 ) -> Result<ImportUserDataResult, String> {
     let plan = crate::oauth::parse_import_payload(&json)?;
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db()?;
 
     let installed: std::collections::HashSet<String> = db
         .get_installed_apps()
@@ -126,22 +120,21 @@ pub fn import_user_data(
     let _ = &installed;
     let _ = &mut installed_skipped;
     for id in &plan.favorites {
-        let id = crate::forge::canonical_app_id(id)
-            .ok_or_else(|| format!("无法识别的应用标识: {}", id))?;
+        let id = super::require_app_id(id)?;
         if db.add_favorite(&id).map_err(|e| e.to_string())? {
             favorites_added += 1;
         }
     }
     for id in &plan.watched {
-        let id = crate::forge::canonical_app_id(id)
-            .ok_or_else(|| format!("无法识别的应用标识: {}", id))?;
+        let id = super::require_app_id(id)?;
         if db.watch_app(&id).map_err(|e| e.to_string())? {
             watched_added += 1;
         }
     }
     for (key, value) in &plan.settings {
         let normalized = crate::db::normalize_setting_value(key, value);
-        db.set_setting(key, &normalized).map_err(|e| e.to_string())?;
+        db.set_setting(key, &normalized)
+            .map_err(|e| e.to_string())?;
         settings_applied += 1;
     }
 

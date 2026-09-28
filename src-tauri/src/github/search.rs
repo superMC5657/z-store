@@ -1,7 +1,6 @@
 use super::models::{GitHubRepoResponse, GitHubSearchResponse};
 use super::CatalogService;
 use crate::models::AppSummary;
-use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, USER_AGENT};
 
 impl CatalogService {
     pub async fn search_github_online(
@@ -32,27 +31,9 @@ impl CatalogService {
         }
 
         // 在线 GitHub Search API 回退
-        let api_timeout = std::time::Duration::from_secs(
-            crate::config::get_project_config().network.api_timeout_seconds,
-        );
-        let client = reqwest::Client::builder()
-            .timeout(api_timeout)
-            .build()
-            .map_err(|e| e.to_string())?;
+        let client = super::http::build_api_client()?;
 
-        let mut headers = HeaderMap::new();
-        headers.insert(USER_AGENT, HeaderValue::from_static("ZStore-Client/0.1.0"));
-        headers.insert(
-            ACCEPT,
-            HeaderValue::from_static("application/vnd.github.v3+json"),
-        );
-        if let Some(tok) = token {
-            if !tok.trim().is_empty() {
-                if let Ok(val) = HeaderValue::from_str(&format!("token {}", tok.trim())) {
-                    headers.insert(AUTHORIZATION, val);
-                }
-            }
-        }
+        let headers = super::http::token_headers(token);
 
         let per_page = crate::config::get_project_config()
             .limits
@@ -64,18 +45,43 @@ impl CatalogService {
         );
 
         let safe_url = crate::log_support::sanitize_url(&url);
-        let req_id = crate::z_log::new_req_id();
-        let sid = crate::z_log::new_session_id();
+        let (req_id, sid) = super::http::new_log_ctx();
         let req_host = crate::log_support::host_of(&url);
-        log::debug!("http search start sid={} req={} url='{}'", sid, req_id, safe_url);
+        log::debug!(
+            "http search start sid={} req={} url='{}'",
+            sid,
+            req_id,
+            safe_url
+        );
         let start_search = std::time::Instant::now();
         let resp = client.get(&url).headers(headers).send().await;
         let elapsed = start_search.elapsed().as_millis();
         if let Ok(ref res) = resp {
-            log::debug!("http search resp sid={} req={} url='{}' status={} elapsed_ms={}", sid, req_id, safe_url, res.status().as_u16(), elapsed);
-            log::info!("http resp search sid={} req={} host={} status={} elapsed_ms={}", sid, req_id, req_host, res.status().as_u16(), elapsed);
+            log::debug!(
+                "http search resp sid={} req={} url='{}' status={} elapsed_ms={}",
+                sid,
+                req_id,
+                safe_url,
+                res.status().as_u16(),
+                elapsed
+            );
+            log::info!(
+                "http resp search sid={} req={} host={} status={} elapsed_ms={}",
+                sid,
+                req_id,
+                req_host,
+                res.status().as_u16(),
+                elapsed
+            );
         } else if let Err(ref e) = resp {
-            log::warn!("http search failed sid={} req={} host={} reason={} elapsed_ms={}", sid, req_id, req_host, crate::log_support::short_reason(&e.to_string()), elapsed);
+            log::warn!(
+                "http search failed sid={} req={} host={} reason={} elapsed_ms={}",
+                sid,
+                req_id,
+                req_host,
+                crate::log_support::short_reason(&e.to_string()),
+                elapsed
+            );
         }
 
         if let Ok(res) = resp {
@@ -87,39 +93,44 @@ impl CatalogService {
                         .into_iter()
                         .map(|it| {
                             let owner = it.owner.login;
-                            let icon = format!("https://github.com/{}.png", owner);
-                            AppSummary {
-                                id: it.full_name.clone(),
-                                name: it.name,
-                                description_en: it.description.clone(),
+                            let repo = it.full_name.split('/').nth(1).unwrap_or("").to_string();
+                            let description_en = it.description.clone();
+                            let description =
+                                it.description.unwrap_or_else(|| "开源软件项目".to_string());
+                            super::http::fallback_summary(
+                                it.full_name.clone(),
+                                it.name,
                                 owner,
-                                repo: it.full_name.split('/').nth(1).unwrap_or("").to_string(),
-                                icon,
-                                icon_bg: "linear-gradient(135deg, #0ea5e9, #2563eb)".to_string(),
-                                description: it
-                                    .description
-                                    .unwrap_or_else(|| "开源软件项目".to_string()),
-                                stars: it.stargazers_count,
-                                forks: it.forks_count,
-                                license: "OpenSource".to_string(),
-                                latest_version: "latest".to_string(),
-                                category: "dev".to_string(),
-                                category_name: "开发工具".to_string(),
-                                is_verified: false,
-                                is_installed: None,
-                                has_update: None,
-                                installed_version: None,
-                                forge: Some("github".to_string()),
-                                forge_host: Some("github.com".to_string()),
-                                homepage: None,
-                                platforms: vec!["windows".to_string()],
-                            }
+                                repo,
+                                description,
+                                description_en,
+                                it.stargazers_count,
+                                it.forks_count,
+                                "OpenSource".to_string(),
+                                "linear-gradient(135deg, #0ea5e9, #2563eb)",
+                                "dev",
+                                "开发工具",
+                                None,
+                            )
                         })
                         .collect();
-                    log::debug!("http search done sid={} req={} url='{}' hits={}", sid, req_id, safe_url, summaries.len());
+                    log::debug!(
+                        "http search done sid={} req={} url='{}' hits={}",
+                        sid,
+                        req_id,
+                        safe_url,
+                        summaries.len()
+                    );
                     // Wave2：`search done` 的 INFO 唯一归属 commands/catalog，此处结论降级为 debug，
                     // 单次搜索只产生一行 INFO `search done`（行为链），避免双 INFO。
-                    log::debug!("http resp search done sid={} req={} host={} hits={} elapsed_ms={}", sid, req_id, req_host, summaries.len(), start_search.elapsed().as_millis());
+                    log::debug!(
+                        "http resp search done sid={} req={} host={} hits={} elapsed_ms={}",
+                        sid,
+                        req_id,
+                        req_host,
+                        summaries.len(),
+                        start_search.elapsed().as_millis()
+                    );
                     return Ok(summaries);
                 }
             }
@@ -134,28 +145,22 @@ impl CatalogService {
         repo: &str,
         token: Option<&str>,
     ) -> Result<AppSummary, String> {
-        let api_timeout = std::time::Duration::from_secs(
-            crate::config::get_project_config().network.api_timeout_seconds,
-        );
-        let client = reqwest::Client::builder()
-            .timeout(api_timeout)
-            .build()
-            .map_err(|e| e.to_string())?;
+        let client = super::http::build_api_client()?;
 
-        let mut headers = HeaderMap::new();
-        headers.insert(USER_AGENT, HeaderValue::from_static("ZStore-Client/0.1.0"));
-        if let Some(tok) = token {
-            if let Ok(val) = HeaderValue::from_str(&format!("token {}", tok.trim())) {
-                headers.insert(AUTHORIZATION, val);
-            }
-        }
+        let headers = super::http::token_headers(token);
 
         let url = format!("https://api.github.com/repos/{}/{}", owner, repo);
         let safe_url = crate::log_support::sanitize_url(&url);
-        let req_id = crate::z_log::new_req_id();
-        let sid = crate::z_log::new_session_id();
+        let (req_id, sid) = super::http::new_log_ctx();
         let req_host = crate::log_support::host_of(&url);
-        log::debug!("http get repo id={}/{} sid={} req={} url='{}'", owner, repo, sid, req_id, safe_url);
+        log::debug!(
+            "http get repo id={}/{} sid={} req={} url='{}'",
+            owner,
+            repo,
+            sid,
+            req_id,
+            safe_url
+        );
         let start_fetch = std::time::Instant::now();
         let resp = client
             .get(&url)
@@ -163,12 +168,38 @@ impl CatalogService {
             .send()
             .await
             .map_err(|e| {
-                log::warn!("http get repo failed id={}/{} sid={} req={} host={} reason={}", owner, repo, sid, req_id, req_host, crate::log_support::short_reason(&e.to_string()));
+                log::warn!(
+                    "http get repo failed id={}/{} sid={} req={} host={} reason={}",
+                    owner,
+                    repo,
+                    sid,
+                    req_id,
+                    req_host,
+                    crate::log_support::short_reason(&e.to_string())
+                );
                 e.to_string()
             })?;
         let elapsed = start_fetch.elapsed().as_millis();
-        log::debug!("http resp repo id={}/{} sid={} req={} url='{}' status={} elapsed_ms={}", owner, repo, sid, req_id, safe_url, resp.status().as_u16(), elapsed);
-        log::info!("http resp repo id={}/{} sid={} req={} host={} status={} elapsed_ms={}", owner, repo, sid, req_id, req_host, resp.status().as_u16(), elapsed);
+        log::debug!(
+            "http resp repo id={}/{} sid={} req={} url='{}' status={} elapsed_ms={}",
+            owner,
+            repo,
+            sid,
+            req_id,
+            safe_url,
+            resp.status().as_u16(),
+            elapsed
+        );
+        log::info!(
+            "http resp repo id={}/{} sid={} req={} host={} status={} elapsed_ms={}",
+            owner,
+            repo,
+            sid,
+            req_id,
+            req_host,
+            resp.status().as_u16(),
+            elapsed
+        );
 
         crate::notify_rate_limit("github.com", resp.headers());
 
@@ -178,32 +209,24 @@ impl CatalogService {
 
         let repo_data: GitHubRepoResponse = resp.json().await.map_err(|e| e.to_string())?;
         let repo_desc = repo_data.description.clone();
-        Ok(AppSummary {
-            id: format!("{}/{}", owner, repo),
-            name: repo_data.name.unwrap_or_else(|| repo.to_string()),
-            description_en: repo_desc.clone(),
-            owner: owner.to_string(),
-            repo: repo.to_string(),
-            icon: format!("https://github.com/{}.png", owner),
-            icon_bg: "linear-gradient(135deg, #0284c7, #0369a1)".to_string(),
-            description: repo_desc.unwrap_or_default(),
-            stars: repo_data.stargazers_count.unwrap_or(0),
-            forks: repo_data.forks_count.unwrap_or(0),
-            license: repo_data
-                .license
-                .and_then(|l| l.spdx_id)
-                .unwrap_or_else(|| "FLOSS".to_string()),
-            latest_version: "latest".to_string(),
-            category: "system".to_string(),
-            category_name: "系统实用".to_string(),
-            is_verified: false,
-            is_installed: None,
-            has_update: None,
-            installed_version: None,
-            forge: Some("github".to_string()),
-            forge_host: Some("github.com".to_string()),
-            homepage: repo_data.homepage,
-            platforms: vec!["windows".to_string()],
-        })
+        let license = repo_data
+            .license
+            .and_then(|l| l.spdx_id)
+            .unwrap_or_else(|| "FLOSS".to_string());
+        Ok(super::http::fallback_summary(
+            format!("{}/{}", owner, repo),
+            repo_data.name.unwrap_or_else(|| repo.to_string()),
+            owner.to_string(),
+            repo.to_string(),
+            repo_desc.clone().unwrap_or_default(),
+            repo_desc,
+            repo_data.stargazers_count.unwrap_or(0),
+            repo_data.forks_count.unwrap_or(0),
+            license,
+            "linear-gradient(135deg, #0284c7, #0369a1)",
+            "system",
+            "系统实用",
+            repo_data.homepage,
+        ))
     }
 }

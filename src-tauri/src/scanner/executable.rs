@@ -74,9 +74,7 @@ impl AppScanner {
                     .ok(),
                 Some(PathBuf::from(r"C:\Users\Public\Desktop")),
                 std::env::var("APPDATA")
-                    .map(|p| {
-                        PathBuf::from(p).join(r"Microsoft\Windows\Start Menu\Programs")
-                    })
+                    .map(|p| PathBuf::from(p).join(r"Microsoft\Windows\Start Menu\Programs"))
                     .ok(),
                 Some(PathBuf::from(
                     r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs",
@@ -108,8 +106,7 @@ impl AppScanner {
                                         .to_string_lossy()
                                         .to_lowercase();
                                     for exe in &config.target_executables {
-                                        let base_name =
-                                            exe.trim_end_matches(".exe").to_lowercase();
+                                        let base_name = exe.trim_end_matches(".exe").to_lowercase();
                                         if !base_name.is_empty() && fname.contains(&base_name) {
                                             if let Some(target_exe) = Self::resolve_lnk_target(&p) {
                                                 if !Self::is_installer_or_cache_path(&target_exe)
@@ -159,10 +156,34 @@ impl AppScanner {
         let mut config = ScanConfig::from(repo_base);
 
         const STOP_WORDS: &[&str] = &[
-            "microsoft", "google", "apple", "the", "for", "windows", "desktop",
-            "community", "edition", "open", "source", "client", "official", "project",
-            "player", "editor", "launcher", "viewer", "manager", "tool", "tools",
-            "app", "studio", "suite", "media", "system", "helper", "service",
+            "microsoft",
+            "google",
+            "apple",
+            "the",
+            "for",
+            "windows",
+            "desktop",
+            "community",
+            "edition",
+            "open",
+            "source",
+            "client",
+            "official",
+            "project",
+            "player",
+            "editor",
+            "launcher",
+            "viewer",
+            "manager",
+            "tool",
+            "tools",
+            "app",
+            "studio",
+            "suite",
+            "media",
+            "system",
+            "helper",
+            "service",
         ];
 
         let mut tokens = vec![
@@ -387,14 +408,10 @@ impl AppScanner {
         {
             let shortcut_roots = [
                 std::env::var("ProgramData")
-                    .map(|p| {
-                        PathBuf::from(p).join(r"Microsoft\Windows\Start Menu\Programs")
-                    })
+                    .map(|p| PathBuf::from(p).join(r"Microsoft\Windows\Start Menu\Programs"))
                     .ok(),
                 std::env::var("APPDATA")
-                    .map(|p| {
-                        PathBuf::from(p).join(r"Microsoft\Windows\Start Menu\Programs")
-                    })
+                    .map(|p| PathBuf::from(p).join(r"Microsoft\Windows\Start Menu\Programs"))
                     .ok(),
                 std::env::var("USERPROFILE")
                     .map(|p| PathBuf::from(p).join("Desktop"))
@@ -471,10 +488,7 @@ impl AppScanner {
         }
 
         let meta = std::fs::metadata(p).ok()?;
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let now = super::types::now_secs();
 
         // 优先读取文件/目录自身的创建时间 (NTFS birthtime)
         if let Ok(created) = meta.created() {
@@ -569,7 +583,8 @@ impl AppScanner {
 
                             if is_match {
                                 // 1. 优先读取 InstallDate 字符串
-                                if let Ok(date_str) = app_key.get_value::<String, _>("InstallDate") {
+                                if let Ok(date_str) = app_key.get_value::<String, _>("InstallDate")
+                                {
                                     if let Some(parsed) =
                                         super::registry::parse_install_date_to_unix(&date_str)
                                     {

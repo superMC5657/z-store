@@ -1,9 +1,20 @@
+use super::developer_profile::EtagGetOutcome;
 use super::models::{GitHubAssetResponse, GitHubReleaseResponse, GitHubRepoResponse};
 use super::CatalogService;
 use crate::installer::InstallerEngine;
 use crate::models::{AppDetail, ReleaseAsset};
-use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, IF_NONE_MATCH, USER_AGENT};
+use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, IF_NONE_MATCH};
 use std::collections::HashMap;
+
+/// H7：detail 内统一 401 判定 + 失效通知，返回是否为 401。
+fn check_auth_expired(status: reqwest::StatusCode) -> bool {
+    if status == reqwest::StatusCode::UNAUTHORIZED {
+        crate::notify_auth_expired();
+        true
+    } else {
+        false
+    }
+}
 
 impl CatalogService {
     pub async fn fetch_app_detail(
@@ -23,20 +34,9 @@ impl CatalogService {
 
         let client = &self.client;
 
-        let mut headers = HeaderMap::new();
-        headers.insert(USER_AGENT, HeaderValue::from_static("ZStore-Client/0.1.0"));
-        headers.insert(
-            ACCEPT,
-            HeaderValue::from_static("application/vnd.github.v3+json"),
-        );
-
-        if let Some(tok) = token {
-            if !tok.trim().is_empty() {
-                if let Ok(val) = HeaderValue::from_str(&format!("token {}", tok.trim())) {
-                    headers.insert(AUTHORIZATION, val);
-                }
-            }
-        }
+        // H1/H2/H3：header/client/log 收敛为 github 内本地 helper，语义不变。
+        let base_headers = super::http::token_headers(token);
+        let mut headers = base_headers.clone();
 
         if let Some(ref etag) = cached_etag {
             if let Ok(val) = HeaderValue::from_str(etag) {
@@ -44,35 +44,36 @@ impl CatalogService {
             }
         }
 
-        let api_timeout = std::time::Duration::from_secs(
-            crate::config::get_project_config().network.api_timeout_seconds,
-        );
+        let api_timeout = super::http::api_timeout();
         let release_url = format!(
             "https://api.github.com/repos/{}/{}/releases/latest",
             owner, repo
         );
         let repo_url = format!("https://api.github.com/repos/{}/{}", owner, repo);
-        let req_id = crate::z_log::new_req_id();
-        let sid = crate::z_log::new_session_id();
-        let release_host = crate::log_support::host_of(&release_url);
-        let safe_release = crate::log_support::sanitize_url(&release_url);
+        let (req_id, sid) = super::http::new_log_ctx();
         // 首屏快速路径 (1)：release ∥ repo 并发发射。repo 仅需 owner/repo，
         // 与 release 响应无任何依赖，故两个原始请求同时在途，重叠 TLS 握手与首字节等待。
-        // ETag/401/限流语义保持不变（ETag 仍只挂 release，repo 照例剥离 IF_NONE_MATCH）。
-        let mut repo_headers_raw = headers.clone();
-        repo_headers_raw.remove(IF_NONE_MATCH);
+        // ETag/401/限流语义保持不变（ETag 经 get_with_etag 只挂 release，repo 照例无 IF_NONE_MATCH）。
+        // H9：release 复用已有 get_with_etag（304/200/ETag 与 developer_* 共用实现）。
+        let repo_headers_raw = base_headers.clone();
         let repo_url_raw = repo_url.clone();
-        log::debug!("http get release id={} sid={} req={} url='{}'", id, sid, req_id, safe_release);
-        log::debug!("http get repo id={} sid={} req={} url='{}'", id, sid, req_id, crate::log_support::sanitize_url(&repo_url_raw));
+        log::debug!(
+            "http get repo id={} sid={} req={} url='{}'",
+            id,
+            sid,
+            req_id,
+            crate::log_support::sanitize_url(&repo_url_raw)
+        );
         let start_rel = std::time::Instant::now();
-        let (resp, repo_raw) = tokio::join!(
-            async {
-                let req = client.get(&release_url).headers(headers.clone()).send();
-                match tokio::time::timeout(api_timeout, req).await {
-                    Ok(r) => r.ok(),
-                    Err(_) => None,
-                }
-            },
+        let (release_outcome, repo_raw) = tokio::join!(
+            Self::get_with_etag(
+                client,
+                &release_url,
+                None,
+                &base_headers,
+                cached_etag.as_deref(),
+                "detail-release",
+            ),
             async {
                 let req = client.get(&repo_url_raw).headers(repo_headers_raw).send();
                 match tokio::time::timeout(api_timeout, req).await {
@@ -81,20 +82,30 @@ impl CatalogService {
                 }
             }
         );
-        let rel_elapsed = start_rel.elapsed().as_millis();
-        let rel_status = resp.as_ref().map(|r| r.status().as_u16()).unwrap_or(0);
-        log::debug!("http resp release id={} sid={} req={} url='{}' status={} elapsed_ms={}", id, sid, req_id, safe_release, rel_status, rel_elapsed);
-        log::info!("http resp release id={} sid={} req={} host={} status={} elapsed_ms={}", id, sid, req_id, release_host, rel_status, rel_elapsed);
         // repo 原始响应的 401/限流处理与日志（与原 repo_task 内逻辑一致，仅提前到与 release 同批返回后处理）。
         let repo_info: Option<GitHubRepoResponse> = match repo_raw {
             Some(res) => {
                 crate::notify_rate_limit("github.com", res.headers());
-                if res.status() == reqwest::StatusCode::UNAUTHORIZED {
-                    crate::notify_auth_expired();
-                }
+                check_auth_expired(res.status());
                 let status = res.status().as_u16();
-                log::debug!("http resp repo id={} sid={} req={} url='{}' status={} elapsed_ms={}", id, sid, req_id, crate::log_support::sanitize_url(&repo_url), status, start_rel.elapsed().as_millis());
-                log::info!("http resp repo id={} sid={} req={} host={} status={} elapsed_ms={}", id, sid, req_id, crate::log_support::host_of(&repo_url), status, start_rel.elapsed().as_millis());
+                log::debug!(
+                    "http resp repo id={} sid={} req={} url='{}' status={} elapsed_ms={}",
+                    id,
+                    sid,
+                    req_id,
+                    crate::log_support::sanitize_url(&repo_url),
+                    status,
+                    start_rel.elapsed().as_millis()
+                );
+                log::info!(
+                    "http resp repo id={} sid={} req={} host={} status={} elapsed_ms={}",
+                    id,
+                    sid,
+                    req_id,
+                    crate::log_support::host_of(&repo_url),
+                    status,
+                    start_rel.elapsed().as_millis()
+                );
                 if res.status().is_success() {
                     res.json::<GitHubRepoResponse>().await.ok()
                 } else {
@@ -102,47 +113,45 @@ impl CatalogService {
                 }
             }
             None => {
-                log::warn!("http resp repo failed id={} sid={} req={} host={} elapsed_ms={}", id, sid, req_id, crate::log_support::host_of(&repo_url), start_rel.elapsed().as_millis());
+                log::warn!(
+                    "http resp repo failed id={} sid={} req={} host={} elapsed_ms={}",
+                    id,
+                    sid,
+                    req_id,
+                    crate::log_support::host_of(&repo_url),
+                    start_rel.elapsed().as_millis()
+                );
                 None
             }
         };
 
-        let is_auth_unauthorized = resp.as_ref().map(|r| r.status() == reqwest::StatusCode::UNAUTHORIZED).unwrap_or(false);
+        // H7：release 401 统一经 check_auth_expired 通知；H9 的 get_with_etag 已做限流上报。
+        let is_auth_unauthorized = matches!(release_outcome, EtagGetOutcome::Unauthorized);
         if is_auth_unauthorized {
             crate::notify_auth_expired();
         }
 
-        if let Some(ref res) = resp {
-            crate::notify_rate_limit("github.com", res.headers());
-        }
-
         // 核心提速门禁：若 GitHub 返回 304 Not Modified（说明最新 Release 版本完全未变）
         // 且本地已有完整缓存详情，直接零网络开销复用已有 README 与 Release 资产，实现 ~50ms 闪电响应
-        if let Some(ref res) = resp {
-            if res.status() == reqwest::StatusCode::NOT_MODIFIED {
-                if let Some(ref existing) = cached_detail {
-                    if !existing.releases.is_empty() && !existing.readme_markdown.trim().is_empty()
-                    {
-                        let mut detail = existing.clone();
-                        if let Some(ref item) = catalog_item {
-                            if item.description_en.is_some() {
-                                detail.description_en = item.description_en.clone();
-                            }
+        // H8：时间戳收敛为 github 内 now_secs()。
+        if matches!(release_outcome, EtagGetOutcome::NotModified) {
+            if let Some(ref existing) = cached_detail {
+                if !existing.releases.is_empty() && !existing.readme_markdown.trim().is_empty() {
+                    let mut detail = existing.clone();
+                    if let Some(ref item) = catalog_item {
+                        if item.description_en.is_some() {
+                            detail.description_en = item.description_en.clone();
                         }
-                        let now = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs() as i64;
-                        detail.cached_at = Some(now);
-                        detail.is_stale = None;
-                        return Ok((detail, None));
                     }
+                    detail.cached_at = Some(super::http::now_secs());
+                    detail.is_stale = None;
+                    return Ok((detail, None));
                 }
             }
         }
 
-        let (release_resp, new_cache) = match resp {
-            Some(res) if res.status() == reqwest::StatusCode::NOT_MODIFIED => {
+        let (release_resp, new_cache) = match release_outcome {
+            EtagGetOutcome::NotModified => {
                 // 304 Not Modified 但本地缺乏完整 cached_detail 时回退走 payload_json 恢复
                 if let Some(ref payload) = cached_payload {
                     let parsed: GitHubReleaseResponse = serde_json::from_str(payload)
@@ -152,21 +161,14 @@ impl CatalogService {
                     return Err("304 响应但本地未找到缓存数据".to_string());
                 }
             }
-            Some(res) if res.status().is_success() => {
-                let new_etag = res
-                    .headers()
-                    .get("etag")
-                    .and_then(|h| h.to_str().ok())
-                    .map(|s| s.to_string());
-
-                let payload_text = res.text().await.map_err(|e| e.to_string())?;
-                let parsed: GitHubReleaseResponse = serde_json::from_str(&payload_text)
+            EtagGetOutcome::Fresh { text, etag } => {
+                let parsed: GitHubReleaseResponse = serde_json::from_str(&text)
                     .map_err(|e| format!("解析 GitHub Release 失败: {}", e))?;
 
-                let cache_tuple = new_etag.map(|et| (et, payload_text));
+                let cache_tuple = etag.map(|et| (et, text));
                 (parsed, cache_tuple)
             }
-            _ => {
+            EtagGetOutcome::Unauthorized | EtagGetOutcome::Failed => {
                 // 离线或网络异常回退：若有 cached_detail 直接使用
                 if let Some(mut existing) = cached_detail {
                     if let Some(ref item) = catalog_item {
@@ -236,18 +238,38 @@ impl CatalogService {
                     return r;
                 }
             }
-            log::debug!("http get readme id={} sid={} req={} url='{}'", readme_id, readme_sid, readme_req, crate::log_support::sanitize_url(&readme_url));
+            log::debug!(
+                "http get readme id={} sid={} req={} url='{}'",
+                readme_id,
+                readme_sid,
+                readme_req,
+                crate::log_support::sanitize_url(&readme_url)
+            );
             let start_readme = std::time::Instant::now();
             let req = client.get(&readme_url).headers(readme_headers).send();
             match tokio::time::timeout(api_timeout, req).await {
                 Ok(Ok(res)) => {
                     crate::notify_rate_limit("github.com", res.headers());
-                    if res.status() == reqwest::StatusCode::UNAUTHORIZED {
-                        crate::notify_auth_expired();
-                    }
+                    check_auth_expired(res.status());
                     let status = res.status().as_u16();
-                    log::debug!("http resp readme id={} sid={} req={} url='{}' status={} elapsed_ms={}", readme_id, readme_sid, readme_req, crate::log_support::sanitize_url(&readme_url), status, start_readme.elapsed().as_millis());
-                    log::info!("http resp readme id={} sid={} req={} host={} status={} elapsed_ms={}", readme_id, readme_sid, readme_req, crate::log_support::host_of(&readme_url), status, start_readme.elapsed().as_millis());
+                    log::debug!(
+                        "http resp readme id={} sid={} req={} url='{}' status={} elapsed_ms={}",
+                        readme_id,
+                        readme_sid,
+                        readme_req,
+                        crate::log_support::sanitize_url(&readme_url),
+                        status,
+                        start_readme.elapsed().as_millis()
+                    );
+                    log::info!(
+                        "http resp readme id={} sid={} req={} host={} status={} elapsed_ms={}",
+                        readme_id,
+                        readme_sid,
+                        readme_req,
+                        crate::log_support::host_of(&readme_url),
+                        status,
+                        start_readme.elapsed().as_millis()
+                    );
                     if res.status().is_success() {
                         res.text().await.unwrap_or(default_readme_clone)
                     } else {
@@ -255,7 +277,14 @@ impl CatalogService {
                     }
                 }
                 _ => {
-                    log::warn!("http resp readme failed id={} sid={} req={} host={} elapsed_ms={}", readme_id, readme_sid, readme_req, crate::log_support::host_of(&readme_url), start_readme.elapsed().as_millis());
+                    log::warn!(
+                        "http resp readme failed id={} sid={} req={} host={} elapsed_ms={}",
+                        readme_id,
+                        readme_sid,
+                        readme_req,
+                        crate::log_support::host_of(&readme_url),
+                        start_readme.elapsed().as_millis()
+                    );
                     default_readme_clone
                 }
             }
@@ -344,10 +373,8 @@ impl CatalogService {
         // 消极缓存（Negative Cache）：调用方（commands/catalog.rs save 路径）将本 detail 整体落库，
         // 全空 sha256 + 较新的 cached_at 即为标记；下次 cache=miss 若版本未变且在 24 小时内，
         // 直接命中消极缓存从而跳过本次抓取（见下方 negative_hit 分支），不再为仅限 Linux 的小文件阻塞等待。
-        let now_secs = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        // H8：时间戳收敛为 github 内 now_secs()。
+        let now_secs = super::http::now_secs();
         let negative_hit = !version_changed
             && cached_detail
                 .as_ref()
@@ -356,9 +383,7 @@ impl CatalogService {
                         .cached_at
                         .map(|t| now_secs - t < 24 * 3600)
                         .unwrap_or(false);
-                    fresh
-                        && !c.releases.is_empty()
-                        && c.releases.iter().all(|r| r.sha256.is_none())
+                    fresh && !c.releases.is_empty() && c.releases.iter().all(|r| r.sha256.is_none())
                 })
                 .unwrap_or(false);
         let checksums = if negative_hit {
@@ -415,7 +440,7 @@ impl CatalogService {
         } else if let Some(logo) = extracted_logo {
             logo
         } else {
-            format!("https://github.com/{}.png", owner)
+            super::http::fallback_icon(&owner)
         };
 
         let detail = AppDetail {
@@ -432,7 +457,10 @@ impl CatalogService {
             license: latest_license,
             latest_version: release_resp.tag_name,
             changelog: release_resp.body.unwrap_or_default(),
-            is_verified: catalog_item.as_ref().map(|i| i.is_verified).unwrap_or(false),
+            is_verified: catalog_item
+                .as_ref()
+                .map(|i| i.is_verified)
+                .unwrap_or(false),
             readme_markdown,
             releases,
             category: catalog_item
@@ -445,18 +473,13 @@ impl CatalogService {
                 .unwrap_or_else(|| "系统实用".to_string()),
             forge: Some("github".to_string()),
             forge_host: Some("github.com".to_string()),
-            cached_at: Some(
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs() as i64,
-            ),
+            cached_at: Some(super::http::now_secs()),
             is_stale: None,
             homepage: latest_homepage,
             platforms: catalog_item
                 .as_ref()
                 .map(|i| i.platforms.clone())
-                .unwrap_or_else(|| vec!["windows".to_string()]),
+                .unwrap_or_else(super::http::fallback_platforms),
         };
 
         Ok((detail, new_cache))
@@ -536,10 +559,7 @@ impl CatalogService {
         );
         // 3s 硬超时：checksum 为 opportunistic 填充，绝不允许 10s 级阻塞首屏。
         let checksum_timeout = std::time::Duration::from_secs(3);
-        let send_fut = client
-            .get(&effective_url)
-            .headers(headers.clone())
-            .send();
+        let send_fut = client.get(&effective_url).headers(headers.clone()).send();
         let res = match tokio::time::timeout(checksum_timeout, send_fut).await {
             Ok(Ok(r)) => r,
             Ok(Err(e)) => {
@@ -674,8 +694,7 @@ mod detail_fast_path_tests {
         let (ok, reason) =
             CatalogService::checksum_asset_platform_eligible("rustdesk-1.2.6-windows-msi.sha256");
         assert!(ok, "{}", reason);
-        let (ok, reason) =
-            CatalogService::checksum_asset_platform_eligible("checksums-sha256.txt");
+        let (ok, reason) = CatalogService::checksum_asset_platform_eligible("checksums-sha256.txt");
         assert!(ok, "{}", reason);
         let (ok, _) = CatalogService::checksum_asset_platform_eligible("SHA256SUMS");
         assert!(ok);

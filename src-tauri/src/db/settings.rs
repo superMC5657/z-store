@@ -16,31 +16,28 @@ impl Database {
     }
 
     pub fn set_setting(&self, key: &str, value: &str) -> Result<()> {
-        self.conn.execute(
+        self.exec_upsert(
             r#"
             INSERT INTO user_settings (key, value)
             VALUES (?1, ?2)
             ON CONFLICT(key) DO UPDATE SET value = excluded.value;
             "#,
             params![key, value],
-        )?;
-        Ok(())
+        )
     }
 
     pub fn remove_setting(&self, key: &str) -> Result<()> {
-        self.conn.execute("DELETE FROM user_settings WHERE key = ?1", params![key])?;
+        self.conn
+            .execute("DELETE FROM user_settings WHERE key = ?1", params![key])?;
         Ok(())
     }
 
     pub fn get_all_settings(&self) -> Result<HashMap<String, String>> {
-        let mut stmt = self.conn.prepare("SELECT key, value FROM user_settings")?;
-        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
-        let mut map = HashMap::new();
-        for r in rows {
-            let (k, v) = r?;
-            map.insert(k, v);
-        }
-        Ok(map)
+        let pairs: Vec<(String, String)> =
+            self.query_vec("SELECT key, value FROM user_settings", [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })?;
+        Ok(pairs.into_iter().collect())
     }
 
     /// 读取应用详情缓存保鲜期 TTL（分钟）。

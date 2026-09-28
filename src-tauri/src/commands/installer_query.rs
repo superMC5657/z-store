@@ -1,10 +1,10 @@
+use super::resolve_uninstaller_command;
 use crate::models::InstalledApp;
 use crate::AppState;
-use super::resolve_uninstaller_command;
 use tauri::State;
 
 pub fn get_installed_apps(state: State<'_, AppState>) -> Result<Vec<InstalledApp>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db()?;
     let mut apps = db.get_installed_apps().map_err(|e| e.to_string())?;
 
     let mut needs_db_update = Vec::new();
@@ -80,11 +80,9 @@ pub fn get_installed_apps(state: State<'_, AppState>) -> Result<Vec<InstalledApp
 }
 
 pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
-    let Some(app_id) = crate::forge::canonical_app_id(&app_id) else {
-        return Err(format!("无法识别的应用标识: {}", app_id));
-    };
+    let app_id = super::require_app_id(&app_id)?;
     let installed_app_opt = {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let db = state.db()?;
         db.get_installed_apps()
             .map_err(|e| e.to_string())?
             .into_iter()
@@ -104,8 +102,12 @@ pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, St
             .into_iter()
             .find(|c| c.id == app_id);
         if let Some(c) = cat {
-            let p = crate::scanner::AppScanner::resolve_installed_app_path(&c.name, &c.id, Some(&c.repo))
-                .unwrap_or_default();
+            let p = crate::scanner::AppScanner::resolve_installed_app_path(
+                &c.name,
+                &c.id,
+                Some(&c.repo),
+            )
+            .unwrap_or_default();
             (c.name, p, Some(c.repo))
         } else {
             return Err(format!("未找到已安装或管理的应用: {}", app_id));
@@ -128,7 +130,9 @@ pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, St
     // 1. 如果路径本身是存在的可执行文件或快捷方式/应用包，且并非临时下载安装包
     if !is_temp_installer {
         #[cfg(target_os = "macos")]
-        if path_obj.exists() && ((path_obj.is_dir() && target_path.ends_with(".app")) || path_obj.is_file()) {
+        if path_obj.exists()
+            && ((path_obj.is_dir() && target_path.ends_with(".app")) || path_obj.is_file())
+        {
             std::process::Command::new("open")
                 .arg(&target_path)
                 .spawn()
@@ -161,7 +165,10 @@ pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, St
             } else {
                 #[cfg(target_os = "linux")]
                 {
-                    let _ = std::process::Command::new("chmod").arg("+x").arg(path_obj).status();
+                    let _ = std::process::Command::new("chmod")
+                        .arg("+x")
+                        .arg(path_obj)
+                        .status();
                     let parent = path_obj
                         .parent()
                         .unwrap_or_else(|| std::path::Path::new("."));
@@ -207,7 +214,7 @@ pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, St
             // 如果该应用已被添加管理，自动将探测到的真实物理路径写回数据库，加速下次启动
             if let Some(mut updated) = installed_app_opt {
                 if target_path != exe_str {
-                    if let Ok(db) = state.db.lock() {
+                    if let Ok(db) = state.db() {
                         updated.install_path = exe_str;
                         let _ = db.save_installed_app(&updated);
                     }

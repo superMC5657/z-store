@@ -3,8 +3,7 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 static MD_IMG_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"!\[(.*?)\]\((\s*<)?([^\s\)>]+)(>)?(\s+.*?)?\)")
-        .expect("invalid MD_IMG_RE regex")
+    Regex::new(r"!\[(.*?)\]\((\s*<)?([^\s\)>]+)(>)?(\s+.*?)?\)").expect("invalid MD_IMG_RE regex")
 });
 
 static HTML_IMG_RE: LazyLock<Regex> = LazyLock::new(|| {
@@ -33,21 +32,16 @@ static HTML_SOURCE_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 static MD_REF_LINK_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?m)^(\s*\[[^\]]+\]:\s*)(\S+)(\s*.*)$"#)
-        .expect("invalid MD_REF_LINK_RE regex")
+    Regex::new(r#"(?m)^(\s*\[[^\]]+\]:\s*)(\S+)(\s*.*)$"#).expect("invalid MD_REF_LINK_RE regex")
 });
 
 impl CatalogService {
     pub fn clean_image_url(url: &str, owner: &str, repo: &str) -> String {
-        Self::clean_image_url_with_mirror(url, owner, repo, "https://gh-proxy.com/")
+        Self::clean_image_url_with_mirror(url, owner, repo)
     }
 
-    pub fn clean_image_url_with_mirror(
-        url: &str,
-        owner: &str,
-        repo: &str,
-        mirror_prefix: &str,
-    ) -> String {
+    pub fn clean_image_url_with_mirror(url: &str, owner: &str, repo: &str) -> String {
+        const MIRROR_PREFIX: &str = "https://gh-proxy.com/";
         let trimmed = url.trim().trim_matches(|c| c == '<' || c == '>');
         if trimmed.is_empty()
             || trimmed.starts_with('#')
@@ -57,12 +51,6 @@ impl CatalogService {
         {
             return trimmed.to_string();
         }
-
-        let prefix = if mirror_prefix.is_empty() || mirror_prefix.ends_with('/') {
-            mirror_prefix.to_string()
-        } else {
-            format!("{}/", mirror_prefix)
-        };
 
         // 1. GitHub 官方素材资产直链与第三方 CDN 必须保持直连，绝不能包装 gh-proxy 代理（gh-proxy 不支持会导致请求死锁或超时）
         if trimmed.starts_with("https://user-images.githubusercontent.com/")
@@ -75,14 +63,14 @@ impl CatalogService {
             || (trimmed.contains("github.com/") && trimmed.contains("/assets/"))
         {
             // 如果历史数据已误带代理前缀，清洗剥离
-            if let Some(rest) = trimmed.strip_prefix("https://gh-proxy.com/") {
+            if let Some(rest) = trimmed.strip_prefix(MIRROR_PREFIX) {
                 return rest.to_string();
             }
             return trimmed.to_string();
         }
 
         // 2. 如果已带有指定镜像前缀，不重复添加
-        if !prefix.is_empty() && trimmed.starts_with(&prefix) {
+        if trimmed.starts_with(MIRROR_PREFIX) {
             return trimmed.to_string();
         }
 
@@ -97,11 +85,7 @@ impl CatalogService {
                 "https://raw.githubusercontent.com/{}/{}/{}/{}",
                 b_owner, b_repo, b_branch, b_path
             );
-            return if prefix.is_empty() {
-                raw_url
-            } else {
-                format!("{}{}", prefix, raw_url)
-            };
+            return format!("{}{}", MIRROR_PREFIX, raw_url);
         }
 
         // 4. GitHub Raw 页面链接：
@@ -114,22 +98,14 @@ impl CatalogService {
                 "https://raw.githubusercontent.com/{}/{}/{}/{}",
                 r_owner, r_repo, r_branch, r_path
             );
-            return if prefix.is_empty() {
-                raw_url
-            } else {
-                format!("{}{}", prefix, raw_url)
-            };
+            return format!("{}{}", MIRROR_PREFIX, raw_url);
         }
 
         // 5. GitHub raw.githubusercontent.com 直链（支持加速代理）
         if trimmed.starts_with("https://raw.githubusercontent.com/")
             || trimmed.starts_with("http://raw.githubusercontent.com/")
         {
-            return if prefix.is_empty() {
-                trimmed.to_string()
-            } else {
-                format!("{}{}", prefix, trimmed)
-            };
+            return format!("{}{}", MIRROR_PREFIX, trimmed);
         }
 
         // 6. 其他已带 http:// 或 https:// 的外部绝对链接（shields.io, 外部 CDN 等保持直连）
@@ -138,9 +114,7 @@ impl CatalogService {
         }
 
         // 7. 相对路径（如 ./assets/logo.png, docs/preview.jpg, /images/banner.svg, Command Palette.png）
-        let clean_path = trimmed
-            .trim_start_matches("./")
-            .trim_start_matches('/');
+        let clean_path = trimmed.trim_start_matches("./").trim_start_matches('/');
         let clean_path = clean_path.trim_start_matches("../").trim_start_matches('/');
 
         // 对相对路径中可能未转义的空格及特殊字符进行安全 URL 编码
@@ -160,11 +134,7 @@ impl CatalogService {
             "https://raw.githubusercontent.com/{}/{}/HEAD/{}",
             owner, repo, encoded_path
         );
-        if prefix.is_empty() {
-            raw_url
-        } else {
-            format!("{}{}", prefix, raw_url)
-        }
+        format!("{}{}", MIRROR_PREFIX, raw_url)
     }
 
     pub fn rewrite_readme_images(raw_markdown: &str, owner: &str, repo: &str) -> String {
@@ -337,13 +307,5 @@ impl CatalogService {
         }
 
         (None, raw_markdown.to_string())
-    }
-
-    pub fn extract_logo_from_readme(
-        raw_markdown: &str,
-        owner: &str,
-        repo: &str,
-    ) -> Option<String> {
-        Self::extract_and_strip_logo_from_readme(raw_markdown, owner, repo).0
     }
 }

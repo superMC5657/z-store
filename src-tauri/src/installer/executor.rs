@@ -2,16 +2,16 @@ use super::AssetKind;
 use std::fs::File;
 use std::path::Path;
 
-#[path = "executor_windows.rs"]
-pub mod windows;
-#[path = "executor_macos.rs"]
-pub mod macos;
 #[path = "executor_linux.rs"]
 pub mod linux;
+#[path = "executor_macos.rs"]
+pub mod macos;
 #[path = "executor_portable.rs"]
 pub mod portable;
 #[path = "executor_uninstall.rs"]
 pub mod uninstall;
+#[path = "executor_windows.rs"]
+pub mod windows;
 
 pub use uninstall::{execute_uninstallation, parse_uninstaller_command};
 
@@ -62,9 +62,11 @@ fn bytes_contain_ascii_insensitive(haystack: &[u8], needle_lower: &[u8]) -> bool
     if needle_lower.is_empty() || haystack.len() < needle_lower.len() {
         return false;
     }
-    haystack
-        .windows(needle_lower.len())
-        .any(|w| w.iter().zip(needle_lower.iter()).all(|(a, b)| a.to_ascii_lowercase() == *b))
+    haystack.windows(needle_lower.len()).any(|w| {
+        w.iter()
+            .zip(needle_lower.iter())
+            .all(|(a, b)| a.to_ascii_lowercase() == *b)
+    })
 }
 
 /// 纯嗅探：扫描二进制中的安装器签名标记（不启动任何进程，可单元测试）。
@@ -117,12 +119,20 @@ pub async fn execute_installation(
     app_id: &str,
     custom_portable_dir: Option<&str>,
 ) -> Result<InstallOutcome, String> {
-    log::info!("install start sid={} id={} kind={:?}", crate::z_log::new_session_id(), app_id, kind);
-    let res =
-        execute_installation_inner(installer_path, kind, app_id, custom_portable_dir).await;
+    log::info!(
+        "install start sid={} id={} kind={:?}",
+        crate::z_log::new_session_id(),
+        app_id,
+        kind
+    );
+    let res = execute_installation_inner(installer_path, kind, app_id, custom_portable_dir).await;
     match &res {
         Ok(InstallOutcome::Installed(_)) => {
-            log::info!("install done sid={} id={}", crate::z_log::new_session_id(), app_id)
+            log::info!(
+                "install done sid={} id={}",
+                crate::z_log::new_session_id(),
+                app_id
+            )
         }
         Ok(InstallOutcome::Skipped(msg)) => log::info!(
             "install skipped sid={} id={} reason={}",
@@ -263,32 +273,3 @@ async fn execute_installation_inner(
         }
     }
 }
-
-pub fn build_unix_install_commands(kind: &AssetKind, asset_path: &Path) -> Vec<Vec<String>> {
-    let p = asset_path.to_string_lossy().to_string();
-    match kind {
-        AssetKind::Dmg => vec![
-            vec!["hdiutil".into(), "attach".into(), "-nobrowse".into(), "-readonly".into(), p],
-            vec!["cp".into(), "-R".into(), "/Volumes/<App>/<App>.app".into(), "/Applications/".into()],
-            vec!["hdiutil".into(), "detach".into(), "/Volumes/<App>".into(), "-force".into()],
-        ],
-        AssetKind::Pkg => vec![
-            vec!["installer".into(), "-pkg".into(), p, "-target".into(), "CurrentUserHomeDirectory".into()]
-        ],
-        AssetKind::AppImage => vec![
-            vec!["chmod".into(), "+x".into(), p.clone()],
-            vec![p],
-        ],
-        AssetKind::Deb => vec![
-            vec!["pkexec".into(), "dpkg".into(), "-i".into(), p]
-        ],
-        AssetKind::Rpm => vec![
-            vec!["pkexec".into(), "rpm".into(), "-i".into(), p]
-        ],
-        AssetKind::Apk => vec![
-            vec!["pm".into(), "install".into(), "-r".into(), p]
-        ],
-        _ => vec![],
-    }
-}
-

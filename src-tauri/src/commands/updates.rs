@@ -1,6 +1,6 @@
+use super::installer::get_installed_apps;
 use crate::models::{UpdateItem, UpdateRule, WatchUpdatedPayload, WatchedApp};
 use crate::AppState;
-use super::installer::get_installed_apps;
 use futures_util::stream::{self, StreamExt};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -15,15 +15,42 @@ pub const DAILY_NOTIFY_INTERVAL_SECONDS: i64 = 24 * 60 * 60;
 /// 不看详情缓存 TTL：每次都走 ETag 轻量探查（无新版本时 304 零配额返回），
 /// 保证“有更新”提示不受详情浏览缓存过期时间拖累；
 /// 离线/限流时仍降级返回本地已有缓存。
+/// H1：更新检查专用 GitHub 请求头（UA + Accept + 可选 `token` 认证 + 可选 ETag）。
+/// `token` 认证方案与 Star 侧 `Bearer` 不同，此处保持 GitHub API 兼容原样。
+fn github_update_headers(token: Option<&str>, etag: Option<&str>) -> reqwest::header::HeaderMap {
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        reqwest::header::USER_AGENT,
+        reqwest::header::HeaderValue::from_static("ZStore-Client/0.1.0"),
+    );
+    headers.insert(
+        reqwest::header::ACCEPT,
+        reqwest::header::HeaderValue::from_static("application/vnd.github.v3+json"),
+    );
+    if let Some(tok) = token {
+        if !tok.trim().is_empty() {
+            if let Ok(val) =
+                reqwest::header::HeaderValue::from_str(&format!("token {}", tok.trim()))
+            {
+                headers.insert(reqwest::header::AUTHORIZATION, val);
+            }
+        }
+    }
+    if let Some(etag) = etag {
+        if let Ok(val) = reqwest::header::HeaderValue::from_str(etag) {
+            headers.insert(reqwest::header::IF_NONE_MATCH, val);
+        }
+    }
+    headers
+}
+
 pub(crate) async fn fetch_app_latest_version_lightweight(
     state: &AppState,
     app_id: &str,
     force_refresh: Option<bool>,
 ) -> Result<(String, String), String> {
     let is_force = force_refresh.unwrap_or(false);
-    let Some(clean_id) = crate::forge::canonical_app_id(app_id) else {
-        return Err(format!("无法识别的应用标识: {}", app_id));
-    };
+    let clean_id = super::require_app_id(app_id)?;
 
     // 注意：此处故意不读详情缓存 TTL。更新发现对新鲜度的要求与详情浏览不同，
     // 若复用详情 TTL，“有更新”提示最长会被拖累一个 TTL 窗口；轻量 ETag 探查足够便宜，
@@ -32,7 +59,7 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
     // 2. 多源支持 (Codeberg, Gitea 等)
     if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&clean_id) {
         if coord.forge != crate::forge::ForgeType::GitHub {
-            let host_token = if let Ok(db) = state.db.lock() {
+            let host_token = if let Ok(db) = state.db() {
                 db.get_host_token(&coord.host).ok().flatten()
             } else {
                 None
@@ -48,7 +75,7 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
     let coords = match state.catalog.get_repo_coordinates(&clean_id) {
         Ok(c) => c,
         Err(_) => {
-            if let Ok(db) = state.db.lock() {
+            if let Ok(db) = state.db() {
                 if let Ok(Some(fallback)) = db.get_cached_app_detail_fallback(&clean_id) {
                     return Ok((fallback.latest_version, fallback.changelog));
                 }
@@ -65,40 +92,19 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
     let (cached_etag, cached_payload) = if is_force {
         (None, None)
     } else {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let db = state.db()?;
         let etag = db.get_etag(&ep).ok().flatten();
         let payload = db.get_cached_payload(&ep).ok().flatten();
         (etag, payload)
     };
 
     let token = super::resolve_active_github_token(state);
-    let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert(
-        reqwest::header::USER_AGENT,
-        reqwest::header::HeaderValue::from_static("ZStore-Client/0.1.0"),
-    );
-    headers.insert(
-        reqwest::header::ACCEPT,
-        reqwest::header::HeaderValue::from_static("application/vnd.github.v3+json"),
-    );
-
-    if let Some(tok) = token.as_deref() {
-        if !tok.trim().is_empty() {
-            if let Ok(val) = reqwest::header::HeaderValue::from_str(&format!("token {}", tok.trim()))
-            {
-                headers.insert(reqwest::header::AUTHORIZATION, val);
-            }
-        }
-    }
-
-    if let Some(ref etag) = cached_etag {
-        if let Ok(val) = reqwest::header::HeaderValue::from_str(etag) {
-            headers.insert(reqwest::header::IF_NONE_MATCH, val);
-        }
-    }
+    let headers = github_update_headers(token.as_deref(), cached_etag.as_deref());
 
     let api_timeout = std::time::Duration::from_secs(
-        crate::config::get_project_config().network.api_timeout_seconds,
+        crate::config::get_project_config()
+            .network
+            .api_timeout_seconds,
     );
     let client = state.http.clone();
 
@@ -106,7 +112,13 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
     let req_id = crate::z_log::new_req_id();
     let sid = crate::z_log::new_session_id();
     let req_host = crate::log_support::host_of(&ep);
-    log::debug!("http check update start id={} sid={} req={} url='{}'", clean_id, sid, req_id, safe_ep);
+    log::debug!(
+        "http check update start id={} sid={} req={} url='{}'",
+        clean_id,
+        sid,
+        req_id,
+        safe_ep
+    );
     let start_upd = std::time::Instant::now();
     let req = client.get(&ep).headers(headers).send();
     let resp = match tokio::time::timeout(api_timeout, req).await {
@@ -126,19 +138,20 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs() as i64;
-            if let Ok(db) = state.db.lock() {
+            if let Ok(db) = state.db() {
                 let _ = db.touch_cached_app_detail(&clean_id, now);
             }
             // 304 三源合一：payload → 本地详情缓存 → 收录库默认版本，单条 debug 收敛。
             let resolved_304: Option<(String, String)> = (|| {
                 if let Some(ref payload) = cached_payload {
-                    if let Ok(parsed) =
-                        serde_json::from_str::<crate::github::models::GitHubReleaseResponse>(payload)
+                    if let Ok(parsed) = serde_json::from_str::<
+                        crate::github::models::GitHubReleaseResponse,
+                    >(payload)
                     {
                         return Some((parsed.tag_name, parsed.body.unwrap_or_default()));
                     }
                 }
-                if let Ok(db) = state.db.lock() {
+                if let Ok(db) = state.db() {
                     if let Ok(Some(fallback)) = db.get_cached_app_detail_fallback(&clean_id) {
                         return Some((fallback.latest_version, fallback.changelog));
                     }
@@ -150,7 +163,15 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
             })();
             if let Some((ver, body)) = resolved_304 {
                 log::debug!("http check update resp id={} sid={} req={} url='{}' status=304 ver={} elapsed_ms={}", clean_id, sid, req_id, safe_ep, ver, elapsed);
-                log::info!("http resp update id={} sid={} req={} host={} status=304 ver={} elapsed_ms={}", clean_id, sid, req_id, req_host, ver, elapsed);
+                log::info!(
+                    "http resp update id={} sid={} req={} host={} status=304 ver={} elapsed_ms={}",
+                    clean_id,
+                    sid,
+                    req_id,
+                    req_host,
+                    ver,
+                    elapsed
+                );
                 return Ok((ver, body));
             }
             Err("304 响应但未能提取到有效版本信息".to_string())
@@ -168,14 +189,22 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
                     .map_err(|e| format!("解析 GitHub Release 失败: {}", e))?;
 
             log::debug!("http check update resp id={} sid={} req={} url='{}' status=200 ver={} elapsed_ms={}", clean_id, sid, req_id, safe_ep, parsed.tag_name, elapsed);
-            log::info!("http resp update id={} sid={} req={} host={} status=200 ver={} elapsed_ms={}", clean_id, sid, req_id, req_host, parsed.tag_name, elapsed);
+            log::info!(
+                "http resp update id={} sid={} req={} host={} status=200 ver={} elapsed_ms={}",
+                clean_id,
+                sid,
+                req_id,
+                req_host,
+                parsed.tag_name,
+                elapsed
+            );
 
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs() as i64;
 
-            if let Ok(db) = state.db.lock() {
+            if let Ok(db) = state.db() {
                 if let Some(etag_val) = new_etag {
                     let _ = db.save_etag(&ep, &etag_val, &payload_text, now);
                 }
@@ -184,9 +213,16 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
             Ok((parsed.tag_name, parsed.body.unwrap_or_default()))
         }
         _ => {
-            log::warn!("http check update resp failed id={} sid={} req={} host={} elapsed_ms={}", clean_id, sid, req_id, req_host, elapsed);
+            log::warn!(
+                "http check update resp failed id={} sid={} req={} host={} elapsed_ms={}",
+                clean_id,
+                sid,
+                req_id,
+                req_host,
+                elapsed
+            );
             // 网络故障、超时或被 403 限流，优雅降级：读取本地已有缓存或 catalog
-            if let Ok(db) = state.db.lock() {
+            if let Ok(db) = state.db() {
                 if let Ok(Some(fallback)) = db.get_cached_app_detail_fallback(&clean_id) {
                     return Ok((fallback.latest_version, fallback.changelog));
                 }
@@ -265,7 +301,7 @@ pub async fn check_for_updates(
     let check_start = std::time::Instant::now();
     let installed = get_installed_apps(state.clone())?;
     let rules_map: HashMap<String, UpdateRule> = {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let db = state.db()?;
         db.get_all_rules()
             .unwrap_or_default()
             .into_iter()
@@ -313,28 +349,31 @@ pub async fn check_for_updates(
             async move {
                 let mut found_item = None;
 
-                match fetch_app_latest_version_lightweight(state_ref, &app.app_id, force_refresh).await
+                match fetch_app_latest_version_lightweight(state_ref, &app.app_id, force_refresh)
+                    .await
                 {
                     Ok((latest_version, changelog)) => {
-                    if should_include_update(&app.version, &latest_version, rule_opt.as_ref()) {
-                        let (icon, icon_bg) = if let Some(item) = state_ref.catalog.get_catalog_item(&app.app_id) {
-                            (Some(item.icon), Some(item.icon_bg))
-                        } else {
-                            (app.icon.clone(), app.icon_bg.clone())
-                        };
-                        let update_item = UpdateItem {
-                            app_id: app.app_id.clone(),
-                            app_name: app.app_name.clone(),
-                            current_version: app.version.clone(),
-                            latest_version,
-                            changelog,
-                            icon,
-                            icon_bg,
-                        };
-                        // 🚀 核心：发现更新立即触发单项流式推送，前端实现逐项弹入跳出动效
-                        let _ = app_handle.emit("zstore://update-item-found", &update_item);
-                        found_item = Some(update_item);
-                    }
+                        if should_include_update(&app.version, &latest_version, rule_opt.as_ref()) {
+                            let (icon, icon_bg) = if let Some(item) =
+                                state_ref.catalog.get_catalog_item(&app.app_id)
+                            {
+                                (Some(item.icon), Some(item.icon_bg))
+                            } else {
+                                (app.icon.clone(), app.icon_bg.clone())
+                            };
+                            let update_item = UpdateItem {
+                                app_id: app.app_id.clone(),
+                                app_name: app.app_name.clone(),
+                                current_version: app.version.clone(),
+                                latest_version,
+                                changelog,
+                                icon,
+                                icon_bg,
+                            };
+                            // 🚀 核心：发现更新立即触发单项流式推送，前端实现逐项弹入跳出动效
+                            let _ = app_handle.emit("zstore://update-item-found", &update_item);
+                            found_item = Some(update_item);
+                        }
                     }
                     Err(e) => {
                         failed_count.fetch_add(1, Ordering::SeqCst);
@@ -399,14 +438,14 @@ async fn notify_watched_updates(
     rules_map: &HashMap<String, UpdateRule>,
     force_refresh: Option<bool>,
 ) {
-    let watched: Vec<WatchedApp> = match state.db.lock() {
+    let watched: Vec<WatchedApp> = match state.db() {
         Ok(db) => db.get_watched_apps().unwrap_or_default(),
         Err(_) => return,
     };
     if watched.is_empty() {
         return;
     }
-    let frequency = match state.db.lock() {
+    let frequency = match state.db() {
         Ok(db) => db.get_watch_notify_frequency(),
         Err(_) => crate::db::WATCH_NOTIFY_FREQUENCY_DEFAULT.to_string(),
     };
@@ -439,7 +478,7 @@ async fn notify_watched_updates(
         }
         let Some(base) = w.last_notified_version.clone() else {
             // 首次关注：静默建立基线
-            if let Ok(db) = state.db.lock() {
+            if let Ok(db) = state.db() {
                 let _ = db.init_watch_baseline(&w.app_id, &latest);
             }
             log::debug!("watch deferred id={} reason=baseline-init", w.app_id);
@@ -461,7 +500,7 @@ async fn notify_watched_updates(
                 }
             }
         }
-        if let Ok(db) = state.db.lock() {
+        if let Ok(db) = state.db() {
             let _ = db.set_watch_notified(&w.app_id, &latest, now);
         }
         if let Some(tx) = crate::GLOBAL_WATCH_TX.get() {
@@ -475,7 +514,7 @@ async fn notify_watched_updates(
 
 #[tauri::command]
 pub fn get_update_rules(state: State<'_, AppState>) -> Result<Vec<UpdateRule>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db()?;
     db.get_all_rules().map_err(|e| e.to_string())
 }
 
@@ -486,10 +525,8 @@ pub fn set_app_skip_version(
     version: Option<String>,
 ) -> Result<bool, String> {
     // ADR-0010：入站归一化后全程使用 canonical id；未知标识直接拒绝，永不写入
-    let Some(app_id) = crate::forge::canonical_app_id(&app_id) else {
-        return Err(format!("无法识别的应用标识: {}", app_id));
-    };
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let app_id = super::require_app_id(&app_id)?;
+    let db = state.db()?;
     db.set_skip_version(&app_id, version.as_deref())
         .map_err(|e| e.to_string())?;
     Ok(true)
@@ -502,10 +539,8 @@ pub fn set_app_frozen(
     is_frozen: bool,
 ) -> Result<bool, String> {
     // ADR-0010：入站归一化后全程使用 canonical id；未知标识直接拒绝，永不写入
-    let Some(app_id) = crate::forge::canonical_app_id(&app_id) else {
-        return Err(format!("无法识别的应用标识: {}", app_id));
-    };
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let app_id = super::require_app_id(&app_id)?;
+    let db = state.db()?;
     db.set_frozen_status(&app_id, is_frozen)
         .map_err(|e| e.to_string())?;
     Ok(true)
@@ -518,10 +553,8 @@ pub fn set_app_hidden(
     is_hidden: bool,
 ) -> Result<bool, String> {
     // ADR-0010：入站归一化后全程使用 canonical id；未知标识直接拒绝，永不写入
-    let Some(app_id) = crate::forge::canonical_app_id(&app_id) else {
-        return Err(format!("无法识别的应用标识: {}", app_id));
-    };
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let app_id = super::require_app_id(&app_id)?;
+    let db = state.db()?;
     db.set_hidden_status(&app_id, is_hidden)
         .map_err(|e| e.to_string())?;
     Ok(true)
@@ -530,10 +563,8 @@ pub fn set_app_hidden(
 #[tauri::command]
 pub fn remove_update_rule(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
     // ADR-0010：入站归一化后全程使用 canonical id；未知标识直接拒绝，永不写入
-    let Some(app_id) = crate::forge::canonical_app_id(&app_id) else {
-        return Err(format!("无法识别的应用标识: {}", app_id));
-    };
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let app_id = super::require_app_id(&app_id)?;
+    let db = state.db()?;
     db.remove_rule(&app_id).map_err(|e| e.to_string())
 }
 
@@ -563,7 +594,10 @@ mod update_rule_inbound_normalization_tests {
             let id = normalize(raw).expect("parseable id must normalize");
             assert_eq!(id, CANONICAL);
             db.set_skip_version(&id, Some("v1.0.0")).unwrap();
-            let rule = db.get_rule(CANONICAL).unwrap().expect("canonical row stored");
+            let rule = db
+                .get_rule(CANONICAL)
+                .unwrap()
+                .expect("canonical row stored");
             assert_eq!(rule.app_id, CANONICAL);
             assert_eq!(rule.skipped_version.as_deref(), Some("v1.0.0"));
             assert!(
@@ -592,7 +626,10 @@ mod update_rule_inbound_normalization_tests {
             let id = normalize(raw).expect("parseable id must normalize");
             assert_eq!(id, CANONICAL);
             db.set_frozen_status(&id, true).unwrap();
-            let rule = db.get_rule(CANONICAL).unwrap().expect("canonical row stored");
+            let rule = db
+                .get_rule(CANONICAL)
+                .unwrap()
+                .expect("canonical row stored");
             assert!(rule.is_frozen);
             assert!(
                 db.get_rule(raw).unwrap().is_none(),
@@ -618,7 +655,10 @@ mod update_rule_inbound_normalization_tests {
             let id = normalize(raw).expect("parseable id must normalize");
             assert_eq!(id, CANONICAL);
             db.set_hidden_status(&id, true).unwrap();
-            let rule = db.get_rule(CANONICAL).unwrap().expect("canonical row stored");
+            let rule = db
+                .get_rule(CANONICAL)
+                .unwrap()
+                .expect("canonical row stored");
             assert!(rule.is_hidden);
             assert!(
                 db.get_rule(raw).unwrap().is_none(),

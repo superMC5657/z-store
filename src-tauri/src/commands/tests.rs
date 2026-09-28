@@ -58,7 +58,11 @@ fn test_should_include_update() {
         is_hidden: false,
         updated_at: 1000,
     };
-    assert!(!should_include_update("v1.0.0", "v2.0.0", Some(&frozen_rule)));
+    assert!(!should_include_update(
+        "v1.0.0",
+        "v2.0.0",
+        Some(&frozen_rule)
+    ));
 
     // 4. 规则隐藏 (is_hidden == true) -> 即使有新版本也忽略
     let hidden_rule = UpdateRule {
@@ -68,7 +72,11 @@ fn test_should_include_update() {
         is_hidden: true,
         updated_at: 1000,
     };
-    assert!(!should_include_update("v1.0.0", "v2.0.0", Some(&hidden_rule)));
+    assert!(!should_include_update(
+        "v1.0.0",
+        "v2.0.0",
+        Some(&hidden_rule)
+    ));
 
     // 5. 规则跳过当前最新版本 -> 忽略此最新版本
     let skip_rule = UpdateRule {
@@ -181,7 +189,9 @@ fn test_decide_ownership_verified_requires_api_auth() {
         "   ",
         true
     ));
-    assert!(!super::forge::decide_ownership_verified("anything", "", true));
+    assert!(!super::forge::decide_ownership_verified(
+        "anything", "", true
+    ));
 }
 
 #[test]

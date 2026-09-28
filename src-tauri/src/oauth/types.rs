@@ -94,9 +94,9 @@ pub fn classify_device_poll(body: &str) -> DevicePollOutcome {
                 .unwrap_or_else(|| "授权轮询失败，请稍后重试".to_string()),
         },
         other => DevicePollOutcome::Error {
-            message: parsed.error_description.unwrap_or_else(|| {
-                format!("授权失败（{}），请重新开始授权", other)
-            }),
+            message: parsed
+                .error_description
+                .unwrap_or_else(|| format!("授权失败（{}），请重新开始授权", other)),
         },
     }
 }

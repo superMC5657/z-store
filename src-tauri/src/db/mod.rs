@@ -66,7 +66,30 @@ pub fn normalize_setting_value(key: &str, value: &str) -> String {
     }
 }
 
+/// SystemTime 唯一落点：返回当前 Unix 秒数（db 内统一使用，避免散落样板）。
+pub(crate) fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
+}
+
 impl Database {
+    pub(crate) fn query_vec<T, P, F>(&self, sql: &str, params: P, f: F) -> Result<Vec<T>>
+    where
+        P: rusqlite::Params,
+        F: FnMut(&rusqlite::Row<'_>) -> Result<T>,
+    {
+        let mut stmt = self.conn.prepare(sql)?;
+        let rows = stmt.query_map(params, f)?;
+        rows.collect()
+    }
+
+    pub(crate) fn exec_upsert<P: rusqlite::Params>(&self, sql: &str, params: P) -> Result<()> {
+        self.conn.execute(sql, params)?;
+        Ok(())
+    }
+
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         let conn = Connection::open(path)?;
         let _ = conn.execute_batch(

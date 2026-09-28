@@ -1,4 +1,4 @@
-use super::Database;
+use super::{now_secs, Database};
 use crate::models::UpdateRule;
 use rusqlite::{params, Result};
 
@@ -24,26 +24,21 @@ impl Database {
     }
 
     pub fn get_all_rules(&self) -> Result<Vec<UpdateRule>> {
-        let mut stmt = self.conn.prepare(
+        self.query_vec(
             "SELECT app_id, skipped_version, is_frozen, is_hidden, updated_at FROM update_rules ORDER BY updated_at DESC",
-        )?;
-        let rows = stmt.query_map([], |row| {
-            let is_frozen_int: i64 = row.get(2)?;
-            let is_hidden_int: i64 = row.get(3)?;
-            Ok(UpdateRule {
-                app_id: row.get(0)?,
-                skipped_version: row.get(1)?,
-                is_frozen: is_frozen_int != 0,
-                is_hidden: is_hidden_int != 0,
-                updated_at: row.get(4)?,
-            })
-        })?;
-
-        let mut rules = Vec::new();
-        for r in rows {
-            rules.push(r?);
-        }
-        Ok(rules)
+            [],
+            |row| {
+                let is_frozen_int: i64 = row.get(2)?;
+                let is_hidden_int: i64 = row.get(3)?;
+                Ok(UpdateRule {
+                    app_id: row.get(0)?,
+                    skipped_version: row.get(1)?,
+                    is_frozen: is_frozen_int != 0,
+                    is_hidden: is_hidden_int != 0,
+                    updated_at: row.get(4)?,
+                })
+            },
+        )
     }
 
     fn upsert_update_rule_field<T: rusqlite::ToSql>(
@@ -52,10 +47,7 @@ impl Database {
         field_name: &str,
         value: T,
     ) -> Result<()> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let now = now_secs();
         let sql = format!(
             r#"
             INSERT INTO update_rules (app_id, {field}, updated_at)
@@ -66,8 +58,7 @@ impl Database {
             "#,
             field = field_name
         );
-        self.conn.execute(&sql, params![app_id, value, now])?;
-        Ok(())
+        self.exec_upsert(&sql, params![app_id, value, now])
     }
 
     pub fn set_skip_version(&self, app_id: &str, version: Option<&str>) -> Result<()> {

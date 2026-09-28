@@ -1,38 +1,20 @@
 use super::models::{GitHubRepoResponse, GitHubUserResponse};
 use super::CatalogService;
 use crate::models::{DeveloperProfile, DeveloperRepoItem};
-use reqwest::header::{
-    HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, IF_NONE_MATCH, USER_AGENT,
-};
+use reqwest::header::{HeaderMap, HeaderValue, IF_NONE_MATCH};
 
 pub(crate) enum EtagGetOutcome {
     /// 200：正文 + 响应 ETag（无 ETag 头时为 None，调用方此时不落库）。
     Fresh { text: String, etag: Option<String> },
     /// 304：远端未变更，调用方用 `cached_payload` 恢复。
     NotModified,
-    /// 传输失败或非 2xx/304 状态；调用方走降级（旧行为 + 日志）。
+    /// 401：凭据失效，调用方按需提示并走降级（与 `Failed` 同为降级，语义更明确）。
+    Unauthorized,
+    /// 传输失败或非 2xx/304/401 状态；调用方走降级（旧行为 + 日志）。
     Failed,
 }
 
 impl CatalogService {
-    fn dev_auth_headers(token: Option<&str>) -> HeaderMap {
-        let mut headers = HeaderMap::new();
-        headers.insert(USER_AGENT, HeaderValue::from_static("ZStore-Client/0.1.0"));
-        headers.insert(
-            ACCEPT,
-            HeaderValue::from_static("application/vnd.github.v3+json"),
-        );
-        if let Some(tok) = token {
-            let t = tok.trim();
-            if !t.is_empty() {
-                if let Ok(val) = HeaderValue::from_str(&format!("Bearer {}", t)) {
-                    headers.insert(AUTHORIZATION, val);
-                }
-            }
-        }
-        headers
-    }
-
     /// 通用 ETag GET（镜像 `detail.rs`：挂 `If-None-Match` → 304 复用 / 200 捕获新 ETag）。
     pub(crate) async fn get_with_etag(
         client: &reqwest::Client,
@@ -52,8 +34,7 @@ impl CatalogService {
             }
         }
         let safe_url = crate::log_support::sanitize_url(&url);
-        let req_id = crate::z_log::new_req_id();
-        let sid = crate::z_log::new_session_id();
+        let (req_id, sid) = super::http::new_log_ctx();
         let host = crate::log_support::host_of(&url);
         log::debug!(
             "http get dev etag tag={} sid={} req={} url='{}'",
@@ -101,6 +82,9 @@ impl CatalogService {
         if status == reqwest::StatusCode::NOT_MODIFIED {
             return EtagGetOutcome::NotModified;
         }
+        if status == reqwest::StatusCode::UNAUTHORIZED {
+            return EtagGetOutcome::Unauthorized;
+        }
         if !status.is_success() {
             return EtagGetOutcome::Failed;
         }
@@ -134,13 +118,7 @@ impl CatalogService {
         // 持有 DB 的调用方应使用 fetch_developer_profile_with_cache，并经
         // db.get_etag/save_etag 持久化（镜像 commands/catalog.rs 的 ETag 调用模式）。
         let (profile, _, _) = self
-            .fetch_developer_profile_with_cache(
-                developer,
-                token,
-                (None, None),
-                (None, None),
-                None,
-            )
+            .fetch_developer_profile_with_cache(developer, token, (None, None), (None, None), None)
             .await?;
         Ok(profile)
     }
@@ -169,15 +147,9 @@ impl CatalogService {
             return Err("开发者账号不能为空".to_string());
         }
 
-        let api_timeout = std::time::Duration::from_secs(
-            crate::config::get_project_config().network.api_timeout_seconds,
-        );
-        let client = reqwest::Client::builder()
-            .timeout(api_timeout)
-            .build()
-            .map_err(|e| e.to_string())?;
+        let client = super::http::build_api_client()?;
 
-        let headers = Self::dev_auth_headers(token);
+        let headers = super::http::bearer_headers(token);
 
         let user_key = Self::dev_user_endpoint(dev);
         let (user_etag, user_payload) = user_cache;
@@ -208,6 +180,7 @@ impl CatalogService {
                     }
                 }
                 EtagGetOutcome::Failed => (None, None),
+                EtagGetOutcome::Unauthorized => (None, None),
             };
 
         let (
@@ -228,7 +201,8 @@ impl CatalogService {
                 u.name,
                 u.avatar_url
                     .unwrap_or_else(|| format!("https://avatars.githubusercontent.com/{}", dev)),
-                u.html_url.unwrap_or_else(|| format!("https://github.com/{}", dev)),
+                u.html_url
+                    .unwrap_or_else(|| format!("https://github.com/{}", dev)),
                 u.bio,
                 u.company,
                 u.blog,
@@ -290,39 +264,40 @@ impl CatalogService {
                     }
                 }
                 EtagGetOutcome::Failed => (Vec::new(), None),
+                EtagGetOutcome::Unauthorized => (Vec::new(), None),
             };
 
         let mut repos: Vec<DeveloperRepoItem> = Vec::new();
         let catalog_list = self.get_catalog_items();
         if !repo_items.is_empty() {
             for r in repo_items {
-                        let repo_name = r.name.unwrap_or_default();
-                        let full_name = r
-                            .full_name
-                            .unwrap_or_else(|| format!("{}/{}", dev, repo_name));
-                        let id = full_name.clone();
+                let repo_name = r.name.unwrap_or_default();
+                let full_name = r
+                    .full_name
+                    .unwrap_or_else(|| format!("{}/{}", dev, repo_name));
+                let id = full_name.clone();
 
-                        let in_cat = catalog_list.iter().find(|i| {
-                            crate::forge::canonical_app_id(&full_name).as_deref() == Some(i.id.as_str())
-                        });
+                let in_cat = catalog_list.iter().find(|i| {
+                    crate::forge::canonical_app_id(&full_name).as_deref() == Some(i.id.as_str())
+                });
 
-                        repos.push(DeveloperRepoItem {
-                            id,
-                            name: in_cat
-                                .map(|c| c.name.clone())
-                                .unwrap_or_else(|| repo_name.clone()),
-                            full_name,
-                            description: r.description,
-                            html_url: r
-                                .html_url
-                                .unwrap_or_else(|| format!("https://github.com/{}/{}", dev, repo_name)),
-                            stars: r.stargazers_count.unwrap_or(0),
-                            forks: r.forks_count.unwrap_or(0),
-                            language: r.language,
-                            has_releases: in_cat.is_some(),
-                            in_catalog: in_cat.is_some(),
-                            latest_release_tag: in_cat.map(|c| c.default_version.clone()),
-                        });
+                repos.push(DeveloperRepoItem {
+                    id,
+                    name: in_cat
+                        .map(|c| c.name.clone())
+                        .unwrap_or_else(|| repo_name.clone()),
+                    full_name,
+                    description: r.description,
+                    html_url: r
+                        .html_url
+                        .unwrap_or_else(|| format!("https://github.com/{}/{}", dev, repo_name)),
+                    stars: r.stargazers_count.unwrap_or(0),
+                    forks: r.forks_count.unwrap_or(0),
+                    language: r.language,
+                    has_releases: in_cat.is_some(),
+                    in_catalog: in_cat.is_some(),
+                    latest_release_tag: in_cat.map(|c| c.default_version.clone()),
+                });
             }
         }
 
@@ -371,7 +346,6 @@ impl CatalogService {
             repos_new_cache,
         ))
     }
-
 }
 
 #[cfg(test)]
@@ -423,8 +397,7 @@ mod developer_profile_tests {
             Some("\"cached-user-etag\"")
         );
         assert_eq!(
-            seen
-                .get("/users/someone/repos?sort=updated&per_page=30")
+            seen.get("/users/someone/repos?sort=updated&per_page=30")
                 .cloned()
                 .flatten()
                 .as_deref(),

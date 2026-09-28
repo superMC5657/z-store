@@ -1,6 +1,4 @@
-use super::{
-    normalize_watch_notify_frequency, Database, WATCH_NOTIFY_FREQUENCY_DEFAULT,
-};
+use super::{normalize_watch_notify_frequency, now_secs, Database, WATCH_NOTIFY_FREQUENCY_DEFAULT};
 use rusqlite::{params, Result};
 
 impl Database {
@@ -20,10 +18,7 @@ impl Database {
         if id.is_empty() {
             return Ok(false);
         }
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let now = now_secs();
         let rows = self.conn.execute(
             "INSERT OR IGNORE INTO watched_apps (app_id, added_at, last_notified_version, last_notified_at) VALUES (?1, ?2, NULL, NULL)",
             params![id, now],
@@ -32,28 +27,25 @@ impl Database {
     }
 
     pub fn unwatch_app(&self, app_id: &str) -> Result<bool> {
-        let rows = self
-            .conn
-            .execute("DELETE FROM watched_apps WHERE app_id = ?1", params![app_id.trim()])?;
+        let rows = self.conn.execute(
+            "DELETE FROM watched_apps WHERE app_id = ?1",
+            params![app_id.trim()],
+        )?;
         Ok(rows > 0)
     }
 
     pub fn get_watched_apps(&self) -> Result<Vec<crate::models::WatchedApp>> {
-        let mut stmt = self.conn.prepare(
+        self.query_vec(
             "SELECT app_id, added_at, last_notified_version FROM watched_apps ORDER BY added_at DESC",
-        )?;
-        let rows = stmt.query_map([], |row| {
-            Ok(crate::models::WatchedApp {
-                app_id: row.get(0)?,
-                added_at: row.get(1)?,
-                last_notified_version: row.get(2)?,
-            })
-        })?;
-        let mut res = Vec::new();
-        for r in rows {
-            res.push(r?);
-        }
-        Ok(res)
+            [],
+            |row| {
+                Ok(crate::models::WatchedApp {
+                    app_id: row.get(0)?,
+                    added_at: row.get(1)?,
+                    last_notified_version: row.get(2)?,
+                })
+            },
+        )
     }
 
     pub fn get_watch_last_notified_at(&self, app_id: &str) -> Result<Option<i64>> {
@@ -97,10 +89,7 @@ impl Database {
     }
 
     pub fn mark_verified_app(&self, app_id: &str) -> Result<()> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let now = now_secs();
         self.conn.execute(
             "INSERT OR IGNORE INTO verified_apps (app_id, verified_at) VALUES (?1, ?2)",
             params![app_id.trim(), now],
@@ -112,10 +101,7 @@ impl Database {
         let o = owner.trim().to_lowercase();
         let r = repo.trim().to_lowercase();
         if is_starred {
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs() as i64;
+            let now = now_secs();
             self.conn.execute(
                 "INSERT OR REPLACE INTO user_stars (owner, repo, starred_at) VALUES (?1, ?2, ?3)",
                 params![o, r, now],

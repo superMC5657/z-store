@@ -10,7 +10,8 @@ pub async fn install_app(
     asset_name: Option<String>,
     custom_install_dir: Option<String>,
 ) -> Result<InstalledApp, String> {
-    super::installer_install::install_app(app_handle, state, app_id, asset_name, custom_install_dir).await
+    super::installer_install::install_app(app_handle, state, app_id, asset_name, custom_install_dir)
+        .await
 }
 
 #[tauri::command]

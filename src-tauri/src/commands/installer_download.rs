@@ -13,7 +13,7 @@ pub struct DownloadAssetResult {
 }
 
 pub(crate) fn resolve_download_dir(state: &AppState) -> Option<std::path::PathBuf> {
-    if let Ok(db) = state.db.lock() {
+    if let Ok(db) = state.db() {
         if let Ok(Some(s)) = db.get_setting("download_dir") {
             let t = s.trim();
             if !t.is_empty() {
@@ -84,7 +84,9 @@ pub(crate) async fn download_asset_with_fallback(
                         total_bytes: 0,
                         speed_bytes_per_sec: 0,
                         state: "downloading".to_string(),
-                        message: Some("直连通道不稳定，正在切换公共加速镜像自动重试...".to_string()),
+                        message: Some(
+                            "直连通道不稳定，正在切换公共加速镜像自动重试...".to_string(),
+                        ),
                     },
                 );
                 super::InstallerEngine::download_with_progress(
@@ -115,9 +117,7 @@ pub async fn download_asset(
     app_id: String,
     asset_name: Option<String>,
 ) -> Result<DownloadAssetResult, String> {
-    let Some(app_id) = crate::forge::canonical_app_id(&app_id) else {
-        return Err(format!("无法识别的应用标识: {}", app_id));
-    };
+    let app_id = super::require_app_id(&app_id)?;
     let custom_download_dir = resolve_download_dir(&state);
 
     let detail = super::catalog::get_app_details(state.clone(), app_id.clone(), None).await?;

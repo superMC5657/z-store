@@ -26,12 +26,31 @@ pub struct AppState {
     pub http: reqwest::Client,
 }
 
+impl AppState {
+    /// H5：集中收敛 `state.db.lock()` 样板（含毒锁映射）。
+    /// `tauri::State<AppState>` 经 `Deref` 自动命中本方法，`&AppState` 直接调用。
+    pub fn db(&self) -> Result<std::sync::MutexGuard<'_, Database>, String> {
+        self.db.lock().map_err(|e| e.to_string())
+    }
+}
+
+/// H7：401 统一收敛（通知 + warn 日志），返回是否命中过期。
+/// `ctx` 仅传 `op=...` 及必要的 `owner/repo` 上下文，不含 token/body。
+pub(crate) fn check_auth_expired(status: u16, ctx: &str) -> bool {
+    if status == 401 {
+        notify_auth_expired();
+        log::warn!("oauth auth expired status=401 {}", ctx);
+        true
+    } else {
+        false
+    }
+}
+
 static SHARED_HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
 fn build_shared_http_client() -> reqwest::Client {
-    let api_timeout = std::time::Duration::from_secs(
-        config::get_project_config().network.api_timeout_seconds,
-    );
+    let api_timeout =
+        std::time::Duration::from_secs(config::get_project_config().network.api_timeout_seconds);
     reqwest::Client::builder()
         .timeout(api_timeout)
         .user_agent("ZStore-Client/0.1.0")
@@ -116,7 +135,11 @@ fn log_rate_limit_water_mark(host: &str, remaining: u32, limit: u32) {
         return;
     }
     if kind == "exhausted" {
-        log::error!("rate limit exhausted host={} remaining=0 limit={}", host.to_lowercase(), limit);
+        log::error!(
+            "rate limit exhausted host={} remaining=0 limit={}",
+            host.to_lowercase(),
+            limit
+        );
     } else {
         log::warn!(
             "rate limit low host={} remaining={}/{}",
@@ -127,8 +150,8 @@ fn log_rate_limit_water_mark(host: &str, remaining: u32, limit: u32) {
     }
 }
 
-pub async fn probe_github_rate_limit(token: Option<&str>) {
-    let client = shared_http_client();
+/// H1：探针请求头收敛（与 `oauth::star::auth_headers` 同值，本地保留以避免跨层耦合）。
+fn probe_headers(token: Option<&str>) -> reqwest::header::HeaderMap {
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(
         reqwest::header::USER_AGENT,
@@ -140,13 +163,18 @@ pub async fn probe_github_rate_limit(token: Option<&str>) {
     );
     if let Some(tok) = token {
         if !tok.trim().is_empty() {
-            if let Ok(v) =
-                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", tok.trim()))
+            if let Ok(v) = reqwest::header::HeaderValue::from_str(&format!("Bearer {}", tok.trim()))
             {
                 headers.insert(reqwest::header::AUTHORIZATION, v);
             }
         }
     }
+    headers
+}
+
+pub async fn probe_github_rate_limit(token: Option<&str>) {
+    let client = shared_http_client();
+    let headers = probe_headers(token);
     if let Ok(resp) = client
         .get("https://api.github.com/rate_limit")
         .headers(headers)
@@ -206,14 +234,15 @@ pub fn resolve_default_app_data_dir() -> std::path::PathBuf {
     }
 }
 
-
 #[cfg(target_os = "windows")]
 fn init_windows_system_proxy() {
     if std::env::var("http_proxy").is_err() && std::env::var("HTTP_PROXY").is_err() {
         use winreg::enums::HKEY_CURRENT_USER;
         use winreg::RegKey;
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-        if let Ok(settings) = hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings") {
+        if let Ok(settings) =
+            hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings")
+        {
             let proxy_enable: u32 = settings.get_value("ProxyEnable").unwrap_or(0);
             if proxy_enable == 1 {
                 if let Ok(proxy_server) = settings.get_value::<String, _>("ProxyServer") {
@@ -298,7 +327,8 @@ fn normalize_windows_proxy_server(raw: &str) -> Option<String> {
 }
 
 #[cfg(all(test, target_os = "windows"))]
-mod proxy_tests {    use super::normalize_windows_proxy_server;
+mod proxy_tests {
+    use super::normalize_windows_proxy_server;
 
     #[test]
     fn test_normalize_proxy_server_forms() {
@@ -328,7 +358,6 @@ mod proxy_tests {    use super::normalize_windows_proxy_server;
         assert_eq!(normalize_windows_proxy_server("http=;https="), None);
     }
 }
-
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
