@@ -2,7 +2,7 @@
 //!
 //! - 日志只进 LogDir（Win `%LOCALAPPDATA%/com.zstore.app/logs`），禁止写 sqlite 业务库。
 //! - 保留策略：14 天 / 总量 25MB（store 联网，日志价值高保留更久）。
-//! - 自动上报网络：TODO(opt-in)：默认关闭，需用户显式开启后再加上传开关，当前仅落盘 + 导出。
+//! - 自动上报网络：当前默认关闭，仅落盘 + 导出。
 
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};

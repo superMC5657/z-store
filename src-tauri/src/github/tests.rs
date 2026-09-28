@@ -96,7 +96,7 @@ fn test_rewrite_readme_images() {
 }
 
 #[test]
-fn test_extract_logo_from_readme() {
+fn test_extract_and_strip_logo_from_readme() {
     let sample = r#"
 <p align="center">
   <img src="./assets/logo.png" width="100" alt="RustDesk Logo" />

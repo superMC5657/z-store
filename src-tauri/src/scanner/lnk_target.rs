@@ -108,10 +108,10 @@ mod resolver_lnk_tests {
 
     /// 构造 MS-SHLLINK 合成夹具：flags = 0x01|0x02（IDList + LinkInfo 共存），
     /// LinkInfo 起始于 76 + 2 + id_list_size（u16 IDListSize + 变长 IDList 之后）。
-    /// IDList 填充 0xFF，使旧代码在固定偏移 76 处误读出的 link_info_size /
+    /// IDList 填充 0xFF，使固定偏移 76 处读出的 link_info_size /
     /// local_base_path_offset 非法；目标路径使用 Unix 绝对路径，启发式分支
     ///（仅匹配 `X:\` 盘符模式）必然扫不到，从而把"结构化路径"与"启发式兜底"区分开：
-    /// 旧代码返回 None，新代码应返回 Some。
+    /// 对 IDList + LinkInfo 共存、目标为非盘符 Unix 路径的输入，解析应返回 Some。
     fn build_lnk_with_idlist_and_linkinfo(target: &str, id_list_size: usize) -> Vec<u8> {
         let mut data = vec![0u8; 76];
         // ShellLinkHeader 头部：HeaderSize + LinkCLSID + LinkFlags
@@ -160,8 +160,8 @@ mod resolver_lnk_tests {
         let target = dir.join("fixture-target.exe");
         std::fs::write(&target, b"fake exe").unwrap();
         // 刻意使用正斜杠分隔符：Windows 上 is_file 照常通过，但启发式分支
-        // 仅匹配 `X:\`（反斜杠）盘符模式，必然扫不到 —— 旧代码返回 None，
-        // 新代码走结构化路径返回 Some，二者得以区分。
+        // 仅匹配 `X:\`（反斜杠）盘符模式，必然扫不到 —— 此类输入只能经
+        // 结构化 LinkInfo 路径解析，断言其返回 Some。
         let target_str = target.to_string_lossy().replace('\\', "/");
 
         let lnk_bytes = build_lnk_with_idlist_and_linkinfo(&target_str, 16);

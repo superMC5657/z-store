@@ -74,10 +74,10 @@ fn test_classify_7z_never_portable() {
 
 #[test]
 fn test_unix_real_impl_argv_locked() {
-    // 旧桩 build_unix_install_commands 已删：Pkg 桩曾用 `installer -pkg -target`，
-    // 与 macOS 真实实现 `open -W` 漂移；Dmg 桩用占位 `/Volumes/<App>`，
-    // 与真实 hdiutil 挂载探测漂移；Apk 桩（`pm install`）无真实执行体。
-    // 故直调 linux/macos 真实 argv helper 锁定，不再经由已删旧桩。
+    // 直调 linux/macos 真实 argv helper 逐项断言，锁定各安装器执行参数：
+    // deb/rpm 经 pkexec 调 dpkg/rpm -i，AppImage 走 chmod +x 与直启，
+    // pkg 经 `open -W`，dmg 经 hdiutil attach -nobrowse -readonly、
+    // detach -force 与 cp -R。
     let deb = executor::linux::deb_install_argv(Path::new("/tmp/pkg.deb"));
     assert_eq!(deb, vec!["pkexec", "dpkg", "-i", "/tmp/pkg.deb"]);
     let rpm = executor::linux::rpm_install_argv(Path::new("/tmp/pkg.rpm"));
