@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Search, Download, RotateCcw, CheckCircle2, Sparkles, AlertTriangle } from 'lucide-react';
 import type { DownloadEvent, Update } from '@tauri-apps/plugin-updater';
 import { useTranslation } from 'react-i18next';
 import { notifyToast } from '../utils/notify';
 import { isTauri } from '../services/api';
+import { resolveUpdateFeed, ZSTORE_REPO } from '../utils/updateManifest';
 
 type UpdatePhase =
   | { kind: 'idle' }
@@ -12,7 +13,7 @@ type UpdatePhase =
   | { kind: 'available'; version: string; currentVersion: string; notes: string }
   | { kind: 'downloading'; version: string; percent: number | null }
   | { kind: 'ready'; version: string }
-  | { kind: 'error'; message: string };
+  | { kind: 'error'; message: string; fallback?: { label: string; url: string } };
 
 // P3-4 契约：客户端自更新面板（check/downloadAndInstall，配置见 tauri.conf.json plugins.updater，状态机见下方本地 UpdatePhase）。
 export const ClientUpdateRow: React.FC = () => {
@@ -20,6 +21,7 @@ export const ClientUpdateRow: React.FC = () => {
   const [phase, setPhase] = useState<UpdatePhase>({ kind: 'idle' });
   const [updateHandle, setUpdateHandle] = useState<Update | null>(null);
   const [manualRestartHint, setManualRestartHint] = useState(false);
+  const checkTokenRef = useRef(0);
 
   const fail = (message: string) => {
     setPhase({ kind: 'error', message });
@@ -31,6 +33,7 @@ export const ClientUpdateRow: React.FC = () => {
       fail(t('client_update.tauri_only'));
       return;
     }
+    const currentToken = ++checkTokenRef.current;
     setPhase({ kind: 'checking' });
     setManualRestartHint(false);
     try {
@@ -50,6 +53,45 @@ export const ClientUpdateRow: React.FC = () => {
       });
     } catch (e) {
       fail(t('client_update.check_failed', { error: String(e) }));
+      try {
+        const feed = await resolveUpdateFeed({ repo: ZSTORE_REPO, timeoutMs: 10000 });
+        if (checkTokenRef.current !== currentToken) {
+          return;
+        }
+        let fallback: { label: string; url: string } | undefined;
+        if (feed.source === 'manifest') {
+          const platform = feed.manifest.platforms['windows-x86_64'] ?? Object.values(feed.manifest.platforms)[0];
+          if (platform?.url) {
+            fallback = {
+              label: t('client_update.manual_download', { version: feed.manifest.version }),
+              url: platform.url,
+            };
+          }
+        } else if (feed.source === 'releases-api') {
+          const entries = Object.values(feed.manifest.platforms);
+          const preferred =
+            entries.find((p) => {
+              const name = (p.name ?? p.url).toLowerCase();
+              return name.includes('x64') || name.includes('.exe');
+            }) ?? entries[0];
+          if (preferred?.url) {
+            fallback = {
+              label: t('client_update.manual_download', { version: feed.manifest.version }),
+              url: preferred.url,
+            };
+          }
+        } else if (feed.source === 'releases-page') {
+          fallback = {
+            label: t('client_update.open_releases_page'),
+            url: feed.url,
+          };
+        }
+        if (fallback) {
+          setPhase((prev) => (prev.kind === 'error' ? { ...prev, fallback } : prev));
+        }
+      } catch {
+        // resolveUpdateFeed 设计上不 reject，仍 try/catch 静默兜底
+      }
     }
   };
 
@@ -182,6 +224,16 @@ export const ClientUpdateRow: React.FC = () => {
           <span style={{ fontSize: '12px', color: 'var(--status-error)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
             <AlertTriangle size={13} />
             <span>{phase.message}</span>
+            {phase.fallback && (
+              <a
+                href={phase.fallback.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ fontSize: '12px', color: 'var(--brand-primary)', textDecoration: 'underline' }}
+              >
+                {phase.fallback.label}
+              </a>
+            )}
           </span>
         );
     }

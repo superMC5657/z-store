@@ -150,7 +150,9 @@
     "ready_toast": "新版本 {{version}} 已安装就绪，重启后生效",
     "manual_restart_toast": "更新已就绪，请手动重启客户端以完成更新",
     "check_failed": "检查客户端更新失败: {{error}}",
-    "download_failed": "下载安装更新失败: {{error}}"
+    "download_failed": "下载安装更新失败: {{error}}",
+    "manual_download": "手动下载 {{version}}",
+    "open_releases_page": "前往发布页下载"
   },
   "app": {
     "get": "获取",

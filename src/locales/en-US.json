@@ -150,7 +150,9 @@
     "ready_toast": "New version {{version}} installed, restart to apply",
     "manual_restart_toast": "Update is ready, please restart manually to apply",
     "check_failed": "Failed to check for client updates: {{error}}",
-    "download_failed": "Failed to download update: {{error}}"
+    "download_failed": "Failed to download update: {{error}}",
+    "manual_download": "Manual download {{version}}",
+    "open_releases_page": "Open releases page"
   },
   "app": {
     "get": "Get",
