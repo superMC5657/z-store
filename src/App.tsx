@@ -20,6 +20,8 @@ import { zlogInfo } from './lib/z-log';
 import { PLATFORM_IDS, matchPlatformSet, normalizePlatform, togglePlatformSet, type PlatformId } from './lib/platformFilter';
 import { useToasts } from './useToasts';
 import { useAppSettings } from './useAppSettings';
+import { useTranslation } from 'react-i18next';
+import './i18n';
 
 export const PLATFORM_FILTER_STORAGE_KEY = 'zstore:platform-filter:v1';
 
@@ -111,6 +113,7 @@ export const App: React.FC = () => {
 
   // 应用内通知（FR-6.2 关注提醒 / FR-4.4 自更新 / FR-7 OAuth / FR-6.3 导入导出经此通道呈现）
   const { toasts, showToast, handleDismissToast } = useToasts();
+  const { t } = useTranslation();
 
   // 初始加载
   useEffect(() => {
@@ -178,7 +181,7 @@ export const App: React.FC = () => {
     api.onWatchUpdated((payload) => {
       if (!isMounted) return;
       const label = payload.app_name || payload.app_id;
-      showToast(`你关注的 ${label} 发布了 ${payload.version}`, 'info');
+      showToast(t('toast.watch_update_released', { name: label, version: payload.version }), 'info');
       setWatchNotifications((prev) => {
         const next = prev.filter((n) => n.app_id !== payload.app_id);
         return [...next, payload];
@@ -259,7 +262,7 @@ export const App: React.FC = () => {
     let unlistenExpired: (() => void) | undefined;
     api.onOAuthExpired(() => {
       if (isMounted) {
-        showToast('GitHub 登录授权已失效 (401)，请重新登录', 'warning');
+        showToast(t('toast.github_auth_expired'), 'warning');
         loadOAuthUser();
         window.dispatchEvent(new CustomEvent('zstore:oauth-changed'));
       }
@@ -321,7 +324,7 @@ export const App: React.FC = () => {
   // 导出软件资产 JSON 备份
   const handleExportAppsJson = () => {
     if (installedApps.length === 0) {
-      showToast('当前尚未安装任何应用，无需导出', 'warning');
+      showToast(t('toast.no_installed_to_export'), 'warning');
       return;
     }
     const data = {
@@ -338,7 +341,7 @@ export const App: React.FC = () => {
     a.download = `zstore-installed-backup-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    showToast('已导出软件资产 JSON 备份文件', 'success');
+    showToast(t('toast.export_success'), 'success');
   };
 
   // 搜索逻辑
@@ -364,7 +367,7 @@ export const App: React.FC = () => {
     try {
       await api.clearViewHistory();
       setRecentlyViewedApps([]);
-      showToast('已清空最近浏览足迹', 'info');
+      showToast(t('toast.clear_history_success'), 'info');
     } catch {
       // 忽略错误
     }
@@ -536,7 +539,7 @@ export const App: React.FC = () => {
         // P0-1: 绝不直接自深链自动安装——打开详情视图并弹出显式确认弹窗；安装仅在用户点击确认后启动。
         handleOpenDetail(action.payload.app_id);
         setPendingDeepLinkInstall(action.payload.app_id);
-        showToast(`外部链接请求安装 ${action.payload.app_id}，请在弹窗中确认后继续`, 'warning');
+        showToast(t('toast.deeplink_confirm_notice', { id: action.payload.app_id }), 'warning');
       } else if (action.action === 'search') {
         handleSearchChange(action.payload.query);
       } else if (action.action === 'developer_profile') {
@@ -547,7 +550,7 @@ export const App: React.FC = () => {
           setCurrentView(action.payload.view as ViewType);
         }
       }
-      showToast(`已响应协议链接: ${rawUrl}`, 'info');
+      showToast(t('toast.deeplink_responded', { url: rawUrl }), 'info');
     } catch (e) {
       showToast(String(e), 'error');
     }
@@ -578,17 +581,17 @@ export const App: React.FC = () => {
         await api.watchApp(id);
       }
     } catch (e) {
-      showToast(`关注操作失败: ${String(e)}`, 'error');
+      showToast(t('toast.watch_failed', { error: String(e) }), 'error');
       return;
     }
     setWatchedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
         next.delete(id);
-        showToast('已取消关注该应用的新版本动态', 'info');
+        showToast(t('toast.watch_unfollowed'), 'info');
       } else {
         next.add(id);
-        showToast('已关注，新版本发布时将在应用内提醒你', 'success');
+        showToast(t('toast.watch_followed'), 'success');
       }
       return next;
     });
@@ -608,10 +611,10 @@ export const App: React.FC = () => {
       const next = new Set(prev);
       if (next.has(id)) {
         next.delete(id);
-        showToast('已从收藏夹中移除', 'info');
+        showToast(t('toast.favorite_removed'), 'info');
       } else {
         next.add(id);
-        showToast('已成功添加至我的收藏夹！', 'success');
+        showToast(t('toast.favorite_added'), 'success');
       }
       return next;
     });
@@ -634,13 +637,13 @@ export const App: React.FC = () => {
       const installed = await api.installApp(id, assetName, customInstallDir);
       setInstalledApps((prev) => [...prev.filter((a) => a.app_id.toLowerCase() !== id.toLowerCase()), installed]);
       setDetectedAppIds((prev) => new Set(prev).add(id).add(id.toLowerCase()));
-      showToast(`${installed.app_name} 安装完成！`, 'success');
+      showToast(t('toast.install_success', { name: installed.app_name }), 'success');
     } catch (err) {
       const errStr = String(err);
       if (errStr.includes('取消') || errStr.includes('中止') || errStr.includes('1602')) {
-        showToast(`已取消安装: ${errStr}`, 'info');
+        showToast(t('toast.install_cancelled', { error: errStr }), 'info');
       } else {
-        showToast(`安装未完成: ${errStr}`, 'error');
+        showToast(t('toast.install_failed', { error: errStr }), 'error');
       }
       throw err;
     } finally {
@@ -659,9 +662,9 @@ export const App: React.FC = () => {
     const appName = app ? app.app_name : id;
     try {
       await api.launchApp(id);
-      showToast(`已成功启动 ${appName}！`, 'success');
+      showToast(t('toast.launch_success', { name: appName }), 'success');
     } catch (err) {
-      showToast(`启动失败: ${String(err)}`, 'error');
+      showToast(t('toast.launch_failed', { error: String(err) }), 'error');
     }
   };
 
@@ -671,7 +674,7 @@ export const App: React.FC = () => {
     const appName = app?.app_name || id;
     await api.unmanageApp(id);
     setInstalledApps((prev) => prev.filter((a) => a.app_id !== id));
-    showToast(`已成功取消对 ${appName} 的管理（本机软件与数据保持完好）`, 'info');
+    showToast(t('toast.unmanage_success', { name: appName }), 'info');
   };
 
   // 刷新已安装应用列表（幽灵应用自愈清理 + 重新扫描探测应用）
@@ -684,9 +687,9 @@ export const App: React.FC = () => {
       ]);
       setInstalledApps(freshInstalled);
       setDetectedAppIds(new Set(freshDetected.map((id) => id.toLowerCase())));
-      showToast('已成功刷新已安装应用状态！', 'success');
+      showToast(t('toast.refresh_installed_success'), 'success');
     } catch (err) {
-      showToast(`刷新失败: ${String(err)}`, 'error');
+      showToast(t('toast.refresh_installed_failed', { error: String(err) }), 'error');
     } finally {
       setIsRefreshingInstalled(false);
     }
@@ -706,7 +709,7 @@ export const App: React.FC = () => {
       const updatedList = await api.getInstalledApps();
       setInstalledApps(updatedList);
       setDetectedAppIds((prev) => new Set([...prev, id]));
-      showToast(`已成功将应用纳入 Z-Store 统一管理`, 'success');
+      showToast(t('toast.import_success'), 'success');
     } catch {
       /* 导入静默失败；列表保持不变 */
     }
@@ -731,13 +734,13 @@ export const App: React.FC = () => {
         next.delete(id.toLowerCase());
         return next;
       });
-      showToast(`已成功卸载 ${appName}！`, 'success');
+      showToast(t('toast.uninstall_success', { name: appName }), 'success');
     } catch (err) {
       const errStr = String(err);
       if (errStr.includes('取消') || errStr.includes('中止') || errStr.includes('保留') || errStr.includes('1602')) {
-        showToast(`已取消卸载操作`, 'info');
+        showToast(t('toast.uninstall_cancelled'), 'info');
       } else {
-        showToast(`卸载未完成: ${errStr}`, 'error');
+        showToast(t('toast.uninstall_failed', { error: errStr }), 'error');
       }
     } finally {
       setUninstallingAppIds((prev) => {
@@ -754,9 +757,9 @@ export const App: React.FC = () => {
       const updatedApp = await api.installApp(id);
       setInstalledApps((prev) => [...prev.filter((a) => a.app_id !== id), updatedApp]);
       setUpdates((prev) => prev.filter((u) => u.app_id !== id));
-      showToast(`${updatedApp.app_name || id} 已无缝平滑升级至最新版本！`, 'success');
+      showToast(t('toast.update_success', { name: updatedApp.app_name || id }), 'success');
     } catch (err) {
-      showToast(`升级失败: ${String(err)}`, 'error');
+      showToast(t('toast.update_failed', { error: String(err) }), 'error');
     }
   };
 
@@ -767,7 +770,7 @@ export const App: React.FC = () => {
     setUpdates((prev) => prev.filter((u) => u.app_id !== id));
     const rules = await api.getUpdateRules();
     setUpdateRules(rules);
-    showToast(`已跳过并忽略 ${id} 本次版本更新`, 'info');
+    showToast(t('toast.skip_update', { id }), 'info');
   };
 
   // 跳过指定版本（功能 C）
@@ -776,7 +779,7 @@ export const App: React.FC = () => {
     setUpdates((prev) => prev.filter((u) => u.app_id !== id));
     const rules = await api.getUpdateRules();
     setUpdateRules(rules);
-    showToast(`已跳过 ${id} 的 ${version} 版本，下个新版本发布时将重新通知`, 'info');
+    showToast(t('toast.skip_version', { id, version }), 'info');
   };
 
   // 锁定当前版本（功能 C）
@@ -785,7 +788,7 @@ export const App: React.FC = () => {
     setUpdates((prev) => prev.filter((u) => u.app_id !== id));
     const rules = await api.getUpdateRules();
     setUpdateRules(rules);
-    showToast(`已永久锁定 ${id} 当前版本，不再接收该应用更新`, 'info');
+    showToast(t('toast.lock_version', { id }), 'info');
   };
 
   // 隐藏应用（功能 C）
@@ -796,7 +799,7 @@ export const App: React.FC = () => {
     setUpdateRules(rules);
     const catalogApps = await api.searchApps(searchQuery);
     setApps(catalogApps);
-    showToast(`已隐藏 ${id}，将不再在探索和更新中心显示`, 'info');
+    showToast(t('toast.hide_app', { id }), 'info');
   };
 
   // 移除规则（功能 C）
@@ -808,7 +811,7 @@ export const App: React.FC = () => {
     setUpdates(freshUpdates);
     const catalogApps = await api.searchApps(searchQuery);
     setApps(catalogApps);
-    showToast(`已清空 ${appId} 的全部版本与屏蔽规则`, 'success');
+    showToast(t('toast.clear_rules', { id: appId }), 'success');
   };
 
   // 清除跳过版本规则
@@ -818,7 +821,7 @@ export const App: React.FC = () => {
     setUpdateRules(rules);
     const freshUpdates = await api.checkForUpdates();
     setUpdates(freshUpdates);
-    showToast(`已恢复 ${appId} 的版本更新提醒`, 'success');
+    showToast(t('toast.restore_rules', { id: appId }), 'success');
   };
 
   // 切换版本锁定状态
@@ -828,7 +831,7 @@ export const App: React.FC = () => {
     setUpdateRules(rules);
     const freshUpdates = await api.checkForUpdates();
     setUpdates(freshUpdates);
-    showToast(isFrozen ? `已锁定 ${appId} 版本` : `已解除 ${appId} 版本锁定`, 'info');
+    showToast(isFrozen ? t('toast.rule_locked', { id: appId }) : t('toast.rule_unlocked', { id: appId }), 'info');
   };
 
   // 切换应用隐藏状态
@@ -840,12 +843,12 @@ export const App: React.FC = () => {
     setUpdates(freshUpdates);
     const catalogApps = await api.searchApps(searchQuery);
     setApps(catalogApps);
-    showToast(isHidden ? `已隐藏 ${appId}` : `已取消隐藏 ${appId}`, 'info');
+    showToast(isHidden ? t('toast.rule_hidden', { id: appId }) : t('toast.rule_unhidden', { id: appId }), 'info');
   };
 
   // 批量升级
   const handleBatchUpdateAll = async () => {
-    showToast('正在批量升级所有就绪应用...', 'info');
+    showToast(t('toast.batch_update_starting'), 'info');
     let successCount = 0;
     let failCount = 0;
     const remainingUpdates: UpdateItem[] = [];
@@ -863,15 +866,15 @@ export const App: React.FC = () => {
 
     setUpdates(remainingUpdates);
     if (failCount === 0) {
-      showToast(`全部 ${successCount} 款应用已成功升级至最新版本！`, 'success');
+      showToast(t('toast.batch_update_success', { count: successCount }), 'success');
     } else {
-      showToast(`批量升级完成：${successCount} 款成功，${failCount} 款失败`, 'warning');
+      showToast(t('toast.batch_update_partial', { success: successCount, fail: failCount }), 'warning');
     }
   };
 
   // 手动触发检查更新
   const handleCheckUpdates = async () => {
-    showToast('正在向各开源托管仓库检查最新发布...', 'info');
+    showToast(t('toast.checking_updates'), 'info');
     setIsCheckingUpdates(true);
     setUpdates([]); // 清空旧列表，使最新检测出来的项目逐个跳出
     setUpdateCheckProgress({ checked: 0, total: 0, app_id: '', app_name: '' });
@@ -879,12 +882,12 @@ export const App: React.FC = () => {
       const freshUpdates = await api.checkForUpdates(true);
       setUpdates(freshUpdates);
       if (freshUpdates.length === 0) {
-        showToast('太棒了！所有应用均已是最新版本', 'success');
+        showToast(t('toast.all_latest'), 'success');
       } else {
-        showToast(`检查完成，共发现 ${freshUpdates.length} 个应用有新版本可用！`, 'info');
+        showToast(t('toast.updates_found', { count: freshUpdates.length }), 'info');
       }
     } catch (e) {
-      showToast(`检查更新失败: ${String(e)}`, 'error');
+      showToast(t('toast.check_failed', { error: String(e) }), 'error');
     } finally {
       setIsCheckingUpdates(false);
       setUpdateCheckProgress(null);
@@ -897,7 +900,7 @@ export const App: React.FC = () => {
   };
 
   const handleImportSuccess = async (count: number) => {
-    showToast(`🎉 成功添加 ${count} 款开源应用到管理列表！`, 'success');
+    showToast(t('toast.batch_import_success', { count }), 'success');
     try {
       const loadedInstalled = await api.getInstalledApps();
       setInstalledApps(loadedInstalled);
@@ -1172,17 +1175,17 @@ export const App: React.FC = () => {
                 来源：{pendingDeepLinkDetail?.forge_host ?? pendingDeepLinkSummary?.forge_host ?? '未知来源'}
               </div>
               {pendingDeepLinkSha256 && (
-                <div style={{ wordBreak: 'break-all' }}>
+                <div className="text-mono" style={{ wordBreak: 'break-all' }}>
                   SHA-256：{pendingDeepLinkSha256}
                 </div>
               )}
             </div>
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '16px' }}>
+            <div className="modal-footer" style={{ borderTop: 'none', background: 'transparent', padding: '16px 0 0 0', marginTop: '16px' }}>
               <button
                 className="btn-fluent btn-secondary"
                 onClick={() => {
                   setPendingDeepLinkInstall(null);
-                  showToast('已取消外部链接发起的安装请求', 'info');
+                  showToast(t('toast.deeplink_cancelled'), 'info');
                 }}
               >
                 取消

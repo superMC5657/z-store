@@ -18,6 +18,7 @@ import { AppSummary, UpdateItem, UpdateCheckProgressPayload, WatchUpdatedPayload
 import { sanitizeHtml } from '../utils/sanitize';
 import { FlyoutMenu } from '../components/FlyoutMenu';
 import { AppIcon } from '../components/AppIcon';
+import { EmptyState } from '../components/EmptyState';
 import { resolveAppIconInfo } from '../utils/appHelper';
 
 interface UpdatesViewProps {
@@ -111,18 +112,20 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           {onOpenRules && (
             <button
-              className="btn-fluent btn-secondary"
+              className="btn-fluent btn-secondary btn-sm"
               onClick={onOpenRules}
-              style={{ fontSize: '13px', padding: '6px 14px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               title={t('updates.rules_tooltip')}
             >
               <Shield size={14} strokeWidth={1.5} />
-              <span>{t('updates.rules_btn')} {typeof updateRulesCount === 'number' && updateRulesCount > 0 ? `(${updateRulesCount})` : ''}</span>
+              <span>{t('updates.rules_btn')}</span>
+              {typeof updateRulesCount === 'number' && updateRulesCount > 0 && (
+                <span className="badge-capsule">({updateRulesCount})</span>
+              )}
             </button>
           )}
           {onCheckUpdates && (
             <button
-              className="btn-fluent btn-secondary"
+              className="btn-fluent btn-secondary btn-sm"
               onClick={async () => {
                 setLocalChecking(true);
                 try {
@@ -132,7 +135,6 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                 }
               }}
               disabled={isChecking || isUpdatingAll}
-              style={{ fontSize: '13px', padding: '6px 14px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               title={t('updates.check_tooltip')}
             >
               {isChecking ? (
@@ -150,10 +152,9 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
           )}
           {updates.length > 0 && (
             <button
-              className="btn-fluent btn-primary"
+              className="btn-fluent btn-primary btn-sm"
               onClick={handleUpdateAll}
               disabled={isUpdatingAll || isChecking}
-              style={{ fontWeight: 510, fontSize: '13px', padding: '6px 14px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
             >
               <DownloadCloud size={14} strokeWidth={1.5} />
               <span>{isUpdatingAll ? t('updates.updating_all') : t('updates.update_all', { count: updates.length })}</span>
@@ -274,21 +275,17 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
 
       {updates.length === 0 ? (
         isChecking ? (
-          <div className="empty-state-card" style={{ padding: '48px 24px' }}>
-            <div className="spinner-icon" style={{ width: '36px', height: '36px', borderWidth: '3px', margin: '0 auto 16px auto' }} />
-            <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>{t('updates.stream_checking_title')}</h4>
-            <p style={{ color: 'var(--text-tertiary)', fontSize: '13px', margin: 0 }}>
-              {t('updates.stream_checking_desc')}
-            </p>
-          </div>
+          <EmptyState
+            icon={<div className="spinner-icon" style={{ width: '36px', height: '36px', borderWidth: '3px' }} />}
+            title={t('updates.stream_checking_title')}
+            description={t('updates.stream_checking_desc')}
+          />
         ) : (
-          <div className="empty-state-card">
-            <CheckCircle2 size={44} strokeWidth={1.5} style={{ color: 'var(--status-success)', margin: '0 auto 12px' }} />
-            <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>{t('updates.all_latest_title')}</h4>
-            <p style={{ color: 'var(--text-tertiary)', fontSize: '13px', margin: 0 }}>
-              {t('updates.all_latest_desc')}
-            </p>
-          </div>
+          <EmptyState
+            icon={<CheckCircle2 size={40} strokeWidth={1.5} style={{ color: 'var(--status-success)' }} />}
+            title={t('updates.all_latest_title')}
+            description={t('updates.all_latest_desc')}
+          />
         )
       ) : (
         <div className="fluent-list-container" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>

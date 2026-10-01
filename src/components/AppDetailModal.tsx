@@ -20,6 +20,8 @@ import '../i18n';
 import { AppDetailViewModel, DownloadAssetResult, DownloadProgressPayload, OAuthUser, ReleaseAsset } from '../types';
 import { api, isTauri } from '../services/api';
 import { AppIcon } from './AppIcon';
+import { VerifiedBadge } from './VerifiedBadge';
+import { InlineConfirmButton } from './InlineConfirmButton';
 import { formatBytes, getAppDisplayName, getAppDescription, getCategoryLabel, isInstallableAssetKind, isProductAssetName, sortAssetsByRelevance } from '../utils/appHelper';
 import { PlatformIcon, ForgeIcon } from './icons/PlatformIcons';
 import { PLATFORM_META, type PlatformId } from '../lib/platformFilter';
@@ -93,8 +95,6 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshSuccessNotice, setRefreshSuccessNotice] = useState(false);
   const [refreshErrorNotice, setRefreshErrorNotice] = useState<string | null>(null);
-  const [confirmingUninstall, setConfirmingUninstall] = useState(false);
-  const [confirmingUnmanage, setConfirmingUnmanage] = useState(false);
   // FR-7 / FR-8.3: GitHub 标星 + 所有权校验（见 useDetailStarVerify）
   const {
     isOwner,
@@ -134,8 +134,6 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
     setDownloadProgress(null);
     setDownloadedFile(null);
     setIsDownloadingOnly(false);
-    setConfirmingUninstall(false);
-    setConfirmingUnmanage(false);
   }, [app.id]);
 
   // 切换选用包时清空上一包的下载结果，避免“打开文件夹”指向旧文件
@@ -477,14 +475,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
           <div className="modal-header-info">
             <div className="modal-app-title">
               <span>{displayName}</span>
-              {app.is_verified && (
-                <span className="verified-badge" title="仓库校验码已验证 · 收录库认证">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" fill="var(--brand-primary)" />
-                    <path d="m9 12 2 2 4-4" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </span>
-              )}
+              {app.is_verified && <VerifiedBadge size="md" />}
             </div>
             <div className="modal-app-repo" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
               {onOpenDeveloperProfile ? (
@@ -799,30 +790,26 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                     // 发现与探索模式：纯粹的应用商店体验，不展示任何管理相关操作
                     <>
                       {onUninstall && (
-                        <button
-                          type="button"
-                          className={`btn-fluent ${confirmingUninstall ? 'btn-danger-confirm' : 'btn-danger'}`}
-                          style={{ fontSize: '13px' }}
+                        <InlineConfirmButton
+                          variant="danger"
+                          confirmVariant="danger"
+                          confirmText="确认卸载？"
+                          cancelTitle="取消操作"
+                          onConfirm={() => onUninstall(app.id)}
                           disabled={isUninstallingGlobal}
-                          onClick={async () => {
-                            if (isUninstallingGlobal) return;
-                            if (confirmingUninstall) {
-                              await onUninstall(app.id);
-                              setConfirmingUninstall(false);
-                            } else {
-                              setConfirmingUninstall(true);
-                              setTimeout(() => setConfirmingUninstall(false), 4000);
-                            }
-                          }}
                           title="彻底卸载应用"
+                          timeoutMs={4000}
+                          style={{ fontSize: '13px' }}
                         >
-                          {isUninstallingGlobal ? '正在卸载...' : confirmingUninstall ? '确认卸载？' : (
+                          {isUninstallingGlobal ? (
+                            '正在卸载...'
+                          ) : (
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                               <Trash2 size={13} />
                               <span>卸载应用</span>
                             </span>
                           )}
-                        </button>
+                        </InlineConfirmButton>
                       )}
                     </>
                   ) : !isManaged ? (
@@ -873,52 +860,42 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   ) : (
                     <>
                       {onUnmanage && (
-                        <button
-                          type="button"
-                          className={`btn-fluent ${confirmingUnmanage ? 'btn-danger-confirm' : 'btn-secondary'}`}
-                          style={{ fontSize: '13px' }}
-                          onClick={async () => {
-                            if (confirmingUnmanage) {
-                              await onUnmanage(app.id);
-                              setConfirmingUnmanage(false);
-                            } else {
-                              setConfirmingUnmanage(true);
-                              setConfirmingUninstall(false);
-                              setTimeout(() => setConfirmingUnmanage(false), 4000);
-                            }
-                          }}
+                        <InlineConfirmButton
+                          variant="secondary"
+                          confirmVariant="danger"
+                          confirmText="确认取消管理？"
+                          cancelTitle="取消操作"
+                          onConfirm={() => onUnmanage(app.id)}
+                          disabled={isUninstallingGlobal}
                           title="取消管理：仅从列表中移除管理记录，保留本机应用与数据"
+                          timeoutMs={4000}
+                          style={{ fontSize: '13px' }}
                         >
-                          {confirmingUnmanage ? '确认取消管理？' : '取消管理'}
-                        </button>
+                          <span>取消管理</span>
+                        </InlineConfirmButton>
                       )}
 
                       {onUninstall && (
-                        <button
-                          type="button"
-                          className={`btn-fluent ${confirmingUninstall ? 'btn-danger-confirm' : 'btn-danger'}`}
-                          style={{ fontSize: '13px' }}
+                        <InlineConfirmButton
+                          variant="danger"
+                          confirmVariant="danger"
+                          confirmText="确认卸载？"
+                          cancelTitle="取消操作"
+                          onConfirm={() => onUninstall(app.id)}
                           disabled={isUninstallingGlobal}
-                          onClick={async () => {
-                            if (isUninstallingGlobal) return;
-                            if (confirmingUninstall) {
-                              await onUninstall(app.id);
-                              setConfirmingUninstall(false);
-                            } else {
-                              setConfirmingUninstall(true);
-                              setConfirmingUnmanage(false);
-                              setTimeout(() => setConfirmingUninstall(false), 4000);
-                            }
-                          }}
                           title="彻底卸载应用"
+                          timeoutMs={4000}
+                          style={{ fontSize: '13px' }}
                         >
-                          {isUninstallingGlobal ? '正在卸载...' : confirmingUninstall ? '确认卸载？' : (
+                          {isUninstallingGlobal ? (
+                            '正在卸载...'
+                          ) : (
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                               <Trash2 size={13} />
                               <span>卸载应用</span>
                             </span>
                           )}
-                        </button>
+                        </InlineConfirmButton>
                       )}
                     </>
                   )}
@@ -931,7 +908,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                     style={{ fontWeight: 510, display: 'inline-flex', alignItems: 'center', gap: '5px' }}
                   >
                     <Play size={13} strokeWidth={1.5} />
-                    <span>打开应用</span>
+                    <span>{t('app.launch')}</span>
                   </button>
                 </>
               ) : hasNoReleases && !app.isLoading ? (
@@ -1052,9 +1029,9 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       {asset.sha256 && (
                         <span
-                          className="trust-hash"
+                          className="trust-hash text-mono"
                           title={`官方校验值: ${asset.sha256}`}
-                          style={{ maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                          style={{ maxWidth: '120px' }}
                         >
                           SHA-256: {asset.sha256.slice(0, 10)}...
                         </span>

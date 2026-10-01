@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Package, Users, Building2, MapPin, Link, FolderOpen, Star, GitFork, Code2, ExternalLink } from 'lucide-react';
 import { DeveloperProfile } from '../types';
 import { api } from '../services/api';
+import { EmptyState } from './EmptyState';
 
 interface DeveloperProfileModalProps {
   developer: string;
@@ -214,9 +215,9 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
               正在通过 GitHub API 解析该开发者名下项目...
             </div>
           ) : profile && profile.repos.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-tertiary)' }}>
-              该开发者暂无公开开源仓库
-            </div>
+            <EmptyState
+              title="该开发者暂无公开开源仓库"
+            />
           ) : profile ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {profile.repos.map((repo) => {
@@ -225,15 +226,12 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                 return (
                   <div
                     key={repo.id}
+                    className="fluent-list-row"
                     style={{
                       display: 'flex',
                       justifyContent: 'space-between',
                       alignItems: 'center',
                       padding: '12px 16px',
-                      borderRadius: 'var(--radius-lg)',
-                      background: 'var(--bg-acrylic-card)',
-                      border: '1px solid var(--border-color)',
-                      transition: 'background 0.1s var(--ease-smooth), border-color 0.1s var(--ease-smooth)',
                     }}
                   >
                     <div style={{ flex: 1, marginRight: '16px' }}>
@@ -301,16 +299,8 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                           </button>
                           {installedIds?.has(repo.id) ? (
                             <button
-                              className="btn-fluent btn-secondary"
-                              style={{
-                                fontSize: '12px',
-                                padding: '5px 12px',
-                                fontWeight: 510,
-                                color: '#4CB782',
-                                background: 'rgba(76, 183, 130, 0.10)',
-                                border: '1px solid rgba(76, 183, 130, 0.25)',
-                                borderRadius: 'var(--radius-xs)',
-                              }}
+                              className="btn-fluent btn-install btn-installed"
+                              style={{ fontSize: '12px', padding: '5px 12px' }}
                               onClick={() => {
                                 onClose();
                                 onOpenAppDetail(repo.id);

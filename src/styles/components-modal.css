@@ -168,6 +168,19 @@
   line-height: 1.2;
 }
 
+/* 标准弹窗底栏 */
+.modal-footer {
+  padding: 14px 24px;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  background: var(--bg-acrylic-thin);
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
 .modal-tag-refreshing {
   display: inline-flex;
   align-items: center;

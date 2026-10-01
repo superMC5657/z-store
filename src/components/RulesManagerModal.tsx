@@ -7,10 +7,13 @@ import {
   EyeOff,
   SkipForward,
   ShieldAlert,
+  Search,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { InstalledApp, UpdateRule } from '../types';
+import { SegmentedControl } from './SegmentedControl';
+import { EmptyState } from './EmptyState';
 
 export interface RulesManagerModalProps {
   isOpen: boolean;
@@ -258,35 +261,40 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
               <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 500 }}>
                 {t('rules.form_step_action')}
               </label>
-              <div className="segmented-group" style={{ padding: '3px', alignSelf: 'flex-start' }}>
-                <button
-                  type="button"
-                  className={`segmented-item ${ruleType === 'frozen' ? 'active' : ''}`}
-                  style={{ fontSize: '12px', padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
-                  onClick={() => setRuleType('frozen')}
-                >
-                  <Lock size={12} />
-                  <span>{t('rules.form_type_frozen')}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`segmented-item ${ruleType === 'hidden' ? 'active' : ''}`}
-                  style={{ fontSize: '12px', padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
-                  onClick={() => setRuleType('hidden')}
-                >
-                  <EyeOff size={12} />
-                  <span>{t('rules.form_type_hidden')}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`segmented-item ${ruleType === 'skip' ? 'active' : ''}`}
-                  style={{ fontSize: '12px', padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
-                  onClick={() => setRuleType('skip')}
-                >
-                  <SkipForward size={12} />
-                  <span>{t('rules.form_type_skip')}</span>
-                </button>
-              </div>
+              <SegmentedControl
+                value={ruleType}
+                onChange={(val) => setRuleType(val as 'frozen' | 'hidden' | 'skip')}
+                style={{ alignSelf: 'flex-start' }}
+                options={[
+                  {
+                    value: 'frozen',
+                    label: (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                        <Lock size={12} />
+                        <span>{t('rules.form_type_frozen')}</span>
+                      </span>
+                    ),
+                  },
+                  {
+                    value: 'hidden',
+                    label: (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                        <EyeOff size={12} />
+                        <span>{t('rules.form_type_hidden')}</span>
+                      </span>
+                    ),
+                  },
+                  {
+                    value: 'skip',
+                    label: (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                        <SkipForward size={12} />
+                        <span>{t('rules.form_type_skip')}</span>
+                      </span>
+                    ),
+                  },
+                ]}
+              />
 
               {ruleType === 'skip' && (
                 <div style={{ marginTop: '4px' }}>
@@ -303,7 +311,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
             </div>
 
             {/* 操作按钮 */}
-            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '4px' }}>
+            <div className="modal-footer" style={{ borderTop: 'none', background: 'transparent', padding: '8px 0 0 0', marginTop: '4px' }}>
               <button
                 type="button"
                 className="btn-fluent btn-secondary"
@@ -341,33 +349,57 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
             flexWrap: 'wrap',
           }}
         >
-          <div className="segmented-group" style={{ padding: '2px' }}>
-            {[
-              { id: 'all', label: t('rules.tab_all_short'), count: updateRules.length, icon: null },
-              { id: 'skipped', label: t('rules.tab_skipped_short'), count: updateRules.filter((r) => Boolean(r.skipped_version)).length, icon: <SkipForward size={11} strokeWidth={1.5} /> },
-              { id: 'frozen', label: t('rules.tab_frozen_short'), count: updateRules.filter((r) => r.is_frozen).length, icon: <Lock size={11} strokeWidth={1.5} /> },
-              { id: 'hidden', label: t('rules.tab_hidden_short'), count: updateRules.filter((r) => r.is_hidden).length, icon: <EyeOff size={11} strokeWidth={1.5} /> },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                className={`segmented-item ${rulesTab === tab.id ? 'active' : ''}`}
-                style={{ fontSize: '12px', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                onClick={() => setRulesTab(tab.id as any)}
-              >
-                {tab.icon}
-                <span>{tab.label} ({tab.count})</span>
-              </button>
-            ))}
-          </div>
-
-          <input
-            type="text"
-            className="settings-input"
-            placeholder={t('rules.search_placeholder')}
-            value={filterQuery}
-            onChange={(e) => setFilterQuery(e.target.value)}
-            style={{ width: '160px', fontSize: '11px', padding: '4px 8px' }}
+          <SegmentedControl
+            value={rulesTab}
+            onChange={(val) => setRulesTab(val as 'all' | 'skipped' | 'frozen' | 'hidden')}
+            options={[
+              {
+                value: 'all',
+                label: (
+                  <span>
+                    {t('rules.tab_all_short')} ({updateRules.length})
+                  </span>
+                ),
+              },
+              {
+                value: 'skipped',
+                label: (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    <SkipForward size={11} strokeWidth={1.5} />
+                    <span>{t('rules.tab_skipped_short')} ({updateRules.filter((r) => Boolean(r.skipped_version)).length})</span>
+                  </span>
+                ),
+              },
+              {
+                value: 'frozen',
+                label: (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    <Lock size={11} strokeWidth={1.5} />
+                    <span>{t('rules.tab_frozen_short')} ({updateRules.filter((r) => r.is_frozen).length})</span>
+                  </span>
+                ),
+              },
+              {
+                value: 'hidden',
+                label: (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    <EyeOff size={11} strokeWidth={1.5} />
+                    <span>{t('rules.tab_hidden_short')} ({updateRules.filter((r) => r.is_hidden).length})</span>
+                  </span>
+                ),
+              },
+            ]}
           />
+
+          <div className="fluent-input-search" style={{ width: '180px' }}>
+            <Search size={13} />
+            <input
+              type="text"
+              placeholder={t('rules.search_placeholder')}
+              value={filterQuery}
+              onChange={(e) => setFilterQuery(e.target.value)}
+            />
+          </div>
         </div>
 
         {/* 规则列表内容区 */}
@@ -384,30 +416,23 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
           }}
         >
           {filteredRules.length === 0 ? (
-            <div
-              style={{
-                padding: '44px 20px',
-                textAlign: 'center',
-                color: 'var(--text-tertiary)',
-                fontSize: '13px',
-              }}
-            >
-              <ShieldAlert size={40} strokeWidth={1.5} style={{ color: 'var(--text-tertiary)', margin: '0 auto 12px' }} />
-              <div style={{ fontWeight: 590, fontSize: '14px', color: 'var(--text-primary)', marginBottom: '16px', letterSpacing: '-0.015em' }}>
-                {updateRules.length === 0 ? t('rules.empty_no_rules') : t('rules.empty_filtered')}
-              </div>
-              {updateRules.length === 0 && !isAddOpen && (
-                <button
-                  type="button"
-                  className="btn-fluent btn-primary"
-                  style={{ fontSize: '12px', padding: '7px 18px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                  onClick={() => setIsAddOpen(true)}
-                >
-                  <Plus size={14} strokeWidth={1.5} />
-                  <span>{t('rules.add_first_rule')}</span>
-                </button>
-              )}
-            </div>
+            <EmptyState
+              icon={<ShieldAlert size={40} strokeWidth={1.5} />}
+              title={updateRules.length === 0 ? t('rules.empty_no_rules') : t('rules.empty_filtered')}
+              action={
+                updateRules.length === 0 && !isAddOpen ? (
+                  <button
+                    type="button"
+                    className="btn-fluent btn-primary"
+                    style={{ fontSize: '12px', padding: '7px 18px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    onClick={() => setIsAddOpen(true)}
+                  >
+                    <Plus size={14} strokeWidth={1.5} />
+                    <span>{t('rules.add_first_rule')}</span>
+                  </button>
+                ) : undefined
+              }
+            />
           ) : (
             filteredRules.map((rule) => {
               const matchedApp = installedApps.find((a) => a.app_id.toLowerCase() === rule.app_id.toLowerCase());
@@ -428,14 +453,12 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
               return (
                 <div
                   key={rule.app_id}
+                  className="fluent-list-row"
                   style={{
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
                     padding: '12px 14px',
-                    borderRadius: '8px',
-                    background: 'var(--card-bg-subtle, rgba(255,255,255,0.03))',
-                    border: '1px solid var(--border-color)',
                     gap: '12px',
                     flexWrap: 'wrap',
                   }}
@@ -446,60 +469,24 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                         {matchedApp ? matchedApp.app_name : rule.app_id}
                       </span>
                       {matchedApp && (
-                        <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>
+                        <span className="text-mono" style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
                           ({rule.app_id})
                         </span>
                       )}
                       {rule.skipped_version && (
-                        <span
-                          style={{
-                            fontSize: '11px',
-                            padding: '1px 6px',
-                            borderRadius: '4px',
-                            background: 'rgba(245, 158, 11, 0.15)',
-                            color: '#f59e0b',
-                            border: '1px solid rgba(245, 158, 11, 0.3)',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '3px',
-                          }}
-                        >
+                        <span className="app-tag app-tag-skipped">
                           <SkipForward size={10} strokeWidth={1.5} />
                           <span>{t('rules.badge_skipped', { version: rule.skipped_version })}</span>
                         </span>
                       )}
                       {rule.is_frozen && (
-                        <span
-                          style={{
-                            fontSize: '11px',
-                            padding: '1px 6px',
-                            borderRadius: '4px',
-                            background: 'var(--brand-subtle)',
-                            color: 'var(--brand-primary)',
-                            border: '1px solid var(--border-nav-active)',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '3px',
-                          }}
-                        >
+                        <span className="app-tag app-tag-locked">
                           <Lock size={10} strokeWidth={1.5} />
                           <span>{t('rules.badge_frozen')}</span>
                         </span>
                       )}
                       {rule.is_hidden && (
-                        <span
-                          style={{
-                            fontSize: '11px',
-                            padding: '1px 6px',
-                            borderRadius: '4px',
-                            background: 'rgba(239, 68, 68, 0.15)',
-                            color: '#ef4444',
-                            border: '1px solid rgba(239, 68, 68, 0.3)',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '3px',
-                          }}
-                        >
+                        <span className="app-tag app-tag-hidden">
                           <EyeOff size={10} strokeWidth={1.5} />
                           <span>{t('rules.badge_hidden')}</span>
                         </span>
@@ -567,14 +554,10 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
 
         {/* 底部状态与操作栏 */}
         <div
+          className="modal-footer"
           style={{
             padding: '12px 24px',
-            borderTop: '1px solid var(--border-color)',
-            display: 'flex',
-            justifyContent: 'flex-end',
-            alignItems: 'center',
             background: 'var(--card-bg-subtle, rgba(0,0,0,0.15))',
-            flexShrink: 0,
           }}
         >
           <button

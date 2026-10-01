@@ -59,3 +59,51 @@
 .status-dot-neutral {
   background-color: var(--text-tertiary);
 }
+
+/* 空状态卡片（Linear Empty State 标准样式） */
+.empty-state-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 48px 24px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-sizing: border-box;
+}
+
+.empty-state-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  margin-bottom: 12px;
+}
+
+.empty-state-icon svg {
+  width: 40px;
+  height: 40px;
+}
+
+.empty-state-title {
+  margin: 0 0 8px 0;
+  font-size: 16px;
+  font-weight: 590;
+  letter-spacing: -0.015em;
+  color: var(--text-primary);
+}
+
+.empty-state-desc {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  max-width: 440px;
+  line-height: 1.5;
+}
+
+.empty-state-action {
+  margin-top: 16px;
+}
+

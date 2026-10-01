@@ -59,9 +59,17 @@ p {
 }
 
 code, kbd, samp, pre {
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
   font-feature-settings: normal;
   letter-spacing: normal;
+}
+
+/* 统一等宽与路径截断工具类 */
+.text-mono {
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 应用主窗口容器（反 L 形布局骨架） */

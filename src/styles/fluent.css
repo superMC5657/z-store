@@ -11,9 +11,11 @@
 @import "./components-readme.css";
 @import "./components-flyout.css";
 @import "./components-feedback.css";
+@import "./components-inputs.css";
 @import "./components-buttons.css";
 @import "./components-hero.css";
 @import "./components-modal.css";
+@import "./components-segmented.css";
 @import "./components-settings.css";
 @import "./components-app-card.css";
 @import "./components-list-row.css";

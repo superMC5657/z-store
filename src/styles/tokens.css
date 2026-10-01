@@ -99,6 +99,7 @@
   --radius-pill: 9999px;
 
   /* Linear 精确字重标准：只用 400, 510, 590，禁用 700+ */
+  --font-mono: ui-monospace, SFMono-Regular, "Cascadia Code", "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
   --font-weight-regular: 400;
   --font-weight-medium: 510;
   --font-weight-semibold: 590;

@@ -12,10 +12,12 @@ import {
   EyeOff,
   MinusCircle,
   Package,
+  Play,
 } from 'lucide-react';
 import { AppSummary, InstalledApp, UpdateRule } from '../types';
 import { FlyoutMenu } from '../components/FlyoutMenu';
 import { AppIcon } from '../components/AppIcon';
+import { EmptyState } from '../components/EmptyState';
 import { formatAppDate, resolveInstalledIconInfo, resolveInstalledAppName } from '../utils/appHelper';
 
 interface InstalledViewProps {
@@ -142,9 +144,7 @@ const InstalledItemActions: React.FC<InstalledItemActionsProps> = ({
           onClick={() => onLaunch(app.app_id)}
           title={t('installed.launch_tooltip')}
         >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style={{ marginRight: '4px' }}>
-            <polygon points="5 3 19 12 5 21 5 3" />
-          </svg>
+          <Play size={12} fill="currentColor" style={{ marginRight: '4px' }} />
           <span>{t('installed.launch')}</span>
         </button>
 
@@ -332,8 +332,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
           {onScanSystemApps && (
             <button
-              className="btn-fluent btn-primary"
-              style={{ height: '30px', padding: '0 12px', fontSize: '12px', gap: '6px', fontWeight: 510 }}
+              className="btn-fluent btn-primary btn-sm"
               onClick={onScanSystemApps}
               title={t('installed.scan_local_tooltip')}
             >
@@ -344,8 +343,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
 
           {onRefresh && (
             <button
-              className="btn-fluent btn-secondary"
-              style={{ height: '30px', padding: '0 10px', fontSize: '12px', gap: '6px' }}
+              className="btn-fluent btn-secondary btn-sm"
               onClick={onRefresh}
               disabled={isRefreshing}
               title={t('installed.refresh_status_tooltip')}
@@ -357,25 +355,14 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
 
           {onOpenRules && (
             <button
-              className="btn-fluent btn-secondary"
-              style={{ height: '30px', padding: '0 10px', fontSize: '12px', gap: '6px' }}
+              className="btn-fluent btn-secondary btn-sm"
               onClick={onOpenRules}
               title={t('installed.rules_tooltip')}
             >
               <Shield size={14} strokeWidth={1.5} />
               <span>{t('installed.rules')}</span>
               {updateRules.length > 0 && (
-                <span
-                  style={{
-                    fontSize: '10px',
-                    padding: '0 5px',
-                    borderRadius: 'var(--radius-pill)',
-                    background: 'var(--brand-primary)',
-                    color: '#fff',
-                    fontWeight: 510,
-                    lineHeight: '14px',
-                  }}
-                >
+                <span className="badge-capsule">
                   {updateRules.length}
                 </span>
               )}
@@ -384,8 +371,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
 
           {onExportAppsJson && (
             <button
-              className="btn-fluent btn-secondary"
-              style={{ height: '30px', padding: '0 10px', fontSize: '12px', gap: '6px' }}
+              className="btn-fluent btn-secondary btn-sm"
               onClick={onExportAppsJson}
               title={t('installed.export_list_tooltip')}
               disabled={installedApps.length === 0}
@@ -398,14 +384,13 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
       </div>
 
       {installedApps.length === 0 ? (
-        <div className="empty-state-card">
-          <FolderOpen size={44} strokeWidth={1.5} style={{ color: 'var(--text-tertiary)', margin: '0 auto 12px' }} />
-          <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>{t('installed.empty_title')}</h4>
-          <p style={{ color: 'var(--text-tertiary)', fontSize: '13px', margin: '0 0 16px 0' }}>
-            {t('installed.empty_desc')}
-          </p>
-          {onRefresh && (
+        <EmptyState
+          icon={<FolderOpen size={40} strokeWidth={1.5} />}
+          title={t('installed.empty_title')}
+          description={t('installed.empty_desc')}
+          action={onRefresh && (
             <button
+              type="button"
               className="btn-fluent btn-secondary"
               style={{ padding: '6px 16px', fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               onClick={onRefresh}
@@ -415,7 +400,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
               <span>{isRefreshing ? t('installed.refreshing_list') : t('installed.refresh_list')}</span>
             </button>
           )}
-        </div>
+        />
       ) : (
         <div className="installed-list-container">
           {installedApps.map((app) => {
@@ -445,7 +430,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                     appId={app.app_id}
                     iconBg={iconInfo.iconBg}
                     className="app-icon"
-                    size={40}
+                    size={32}
                   />
                 </div>
 
@@ -466,41 +451,13 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                     </span>
                     <span style={{ fontSize: '12px', color: 'var(--text-tertiary)', flexShrink: 0 }}>{app.version}</span>
                     {isFrozen && (
-                      <span
-                        style={{
-                          fontSize: '10px',
-                          padding: '1px 6px',
-                          borderRadius: '4px',
-                          background: 'rgba(59, 130, 246, 0.15)',
-                          border: '1px solid rgba(59, 130, 246, 0.35)',
-                          color: 'var(--brand-primary)',
-                          fontWeight: 510,
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '3px',
-                          flexShrink: 0,
-                        }}
-                      >
+                      <span className="app-tag app-tag-locked">
                         <Lock size={10} strokeWidth={1.5} />
                         <span>{t('installed.locked')}</span>
                       </span>
                     )}
                     {isHidden && (
-                      <span
-                        style={{
-                          fontSize: '10px',
-                          padding: '1px 6px',
-                          borderRadius: '4px',
-                          background: 'rgba(239, 68, 68, 0.15)',
-                          border: '1px solid rgba(239, 68, 68, 0.35)',
-                          color: '#ef4444',
-                          fontWeight: 510,
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '3px',
-                          flexShrink: 0,
-                        }}
-                      >
+                      <span className="app-tag app-tag-hidden">
                         <EyeOff size={10} strokeWidth={1.5} />
                         <span>{t('installed.hidden')}</span>
                       </span>
@@ -508,10 +465,8 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
                     <span
+                      className="text-mono"
                       style={{
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
                         minWidth: 0,
                       }}
                       title={

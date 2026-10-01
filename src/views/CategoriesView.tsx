@@ -16,6 +16,7 @@ import {
   ArrowLeft,
 } from 'lucide-react';
 import { AppCard } from '../components/AppCard';
+import { EmptyState } from '../components/EmptyState';
 import { AppSummary } from '../types';
 
 interface CategoriesViewProps {
@@ -113,17 +114,16 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
       {!selectedCategory ? (
         <>
           {apps.length === 0 && (
-            <div className="empty-state-card" style={{ marginBottom: '16px', padding: '24px', textAlign: 'center' }}>
-              <div style={{ fontSize: '15px', fontWeight: 590, color: 'var(--text-secondary)', marginBottom: '6px', letterSpacing: '-0.015em' }}>
-                {t('categories.no_apps_device_filter')}
-              </div>
-              <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '16px' }}>
-                {t('categories.no_apps_device_filter_desc')}
-              </div>
-              <button className="btn-fluent btn-primary filter-empty-reset" onClick={handleResetFilter}>
-                {t('categories.reset_device_filter')}
-              </button>
-            </div>
+            <EmptyState
+              style={{ marginBottom: '16px' }}
+              title={t('categories.no_apps_device_filter')}
+              description={t('categories.no_apps_device_filter_desc')}
+              action={(
+                <button type="button" className="btn-fluent btn-primary filter-empty-reset" onClick={handleResetFilter}>
+                  {t('categories.reset_device_filter')}
+                </button>
+              )}
+            />
           )}
           <div className="app-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
           {CATEGORY_DEFINITIONS.map((cat) => {
@@ -197,14 +197,15 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
               />
             ))
           ) : (
-            <div style={{ color: 'var(--text-tertiary)', padding: '32px', textAlign: 'center', width: '100%' }}>
-              <div style={{ fontSize: '14px', marginBottom: '16px' }}>
-                {t('categories.category_empty_for_platform')}
-              </div>
-              <button className="btn-fluent btn-secondary filter-empty-reset" onClick={handleResetFilter}>
-                {t('categories.reset_device_filter')}
-              </button>
-            </div>
+            <EmptyState
+              style={{ width: '100%' }}
+              title={t('categories.category_empty_for_platform')}
+              action={(
+                <button type="button" className="btn-fluent btn-secondary filter-empty-reset" onClick={handleResetFilter}>
+                  {t('categories.reset_device_filter')}
+                </button>
+              )}
+            />
           )}
         </div>
       )}

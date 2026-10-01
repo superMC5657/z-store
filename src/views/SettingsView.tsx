@@ -24,6 +24,7 @@ import { api } from '../services/api';
 import { ClientUpdateRow } from '../components/ClientUpdateRow';
 import { OAuthAccountCard } from '../components/OAuthAccountCard';
 import { DataBackupRow } from '../components/DataBackupRow';
+import { SegmentedControl } from '../components/SegmentedControl';
 
 interface SettingsViewProps {
   onSelectMirror: (id: string) => void;
@@ -273,32 +274,39 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               )}
             </div>
           </div>
-          <div className="segmented-group">
-            <button
-              className={`segmented-item ${currentTheme === 'light' ? 'active' : ''}`}
-              onClick={() => handleSelectTheme('light')}
-              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-            >
-              <Sun size={13} strokeWidth={1.5} />
-              <span>{t('settings.theme_light')}</span>
-            </button>
-            <button
-              className={`segmented-item ${currentTheme === 'dark' ? 'active' : ''}`}
-              onClick={() => handleSelectTheme('dark')}
-              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-            >
-              <Moon size={13} strokeWidth={1.5} />
-              <span>{t('settings.theme_dark')}</span>
-            </button>
-            <button
-              className={`segmented-item ${currentTheme === 'system' ? 'active' : ''}`}
-              onClick={() => handleSelectTheme('system')}
-              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-            >
-              <Laptop size={13} strokeWidth={1.5} />
-              <span>{t('settings.theme_system')}</span>
-            </button>
-          </div>
+          <SegmentedControl
+            value={currentTheme}
+            onChange={handleSelectTheme}
+            options={[
+              {
+                value: 'light',
+                label: (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <Sun size={13} strokeWidth={1.5} />
+                    <span>{t('settings.theme_light')}</span>
+                  </span>
+                ),
+              },
+              {
+                value: 'dark',
+                label: (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <Moon size={13} strokeWidth={1.5} />
+                    <span>{t('settings.theme_dark')}</span>
+                  </span>
+                ),
+              },
+              {
+                value: 'system',
+                label: (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <Laptop size={13} strokeWidth={1.5} />
+                    <span>{t('settings.theme_system')}</span>
+                  </span>
+                ),
+              },
+            ]}
+          />
         </div>
 
         <div className={`settings-row ${highlightRow === 'language' ? 'row-highlight' : ''}`}>
@@ -310,24 +318,30 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               )}
             </div>
           </div>
-          <div className="segmented-group">
-            <button
-              className={`segmented-item ${settings.language === 'zh-CN' ? 'active' : ''}`}
-              onClick={() => handleSelectLanguage('zh-CN')}
-              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-            >
-              <Languages size={13} strokeWidth={1.5} />
-              <span>简体中文</span>
-            </button>
-            <button
-              className={`segmented-item ${settings.language === 'en-US' ? 'active' : ''}`}
-              onClick={() => handleSelectLanguage('en-US')}
-              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-            >
-              <Globe size={13} strokeWidth={1.5} />
-              <span>English</span>
-            </button>
-          </div>
+          <SegmentedControl
+            value={settings.language}
+            onChange={handleSelectLanguage}
+            options={[
+              {
+                value: 'zh-CN',
+                label: (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <Languages size={13} strokeWidth={1.5} />
+                    <span>简体中文</span>
+                  </span>
+                ),
+              },
+              {
+                value: 'en-US',
+                label: (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <Globe size={13} strokeWidth={1.5} />
+                    <span>English</span>
+                  </span>
+                ),
+              },
+            ]}
+          />
         </div>
 
         <div className={`settings-row ${highlightRow === 'ui_scale' ? 'row-highlight' : ''}`}>
@@ -339,17 +353,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               )}
             </div>
           </div>
-          <div className="segmented-group">
-            {(['90', '100', '110', '125'] as const).map((scale) => (
-              <button
-                key={scale}
-                className={`segmented-item ${settings.ui_scale === scale ? 'active' : ''}`}
-                onClick={() => handleSelectUiScale(scale)}
-              >
-                {scale}%
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            value={settings.ui_scale}
+            onChange={handleSelectUiScale}
+            options={(['90', '100', '110', '125'] as const).map((scale) => ({
+              value: scale,
+              label: `${scale}%`,
+            }))}
+          />
         </div>
 
         <div className={`settings-row ${highlightRow === 'font_size' ? 'row-highlight' : ''}`}>
@@ -361,29 +372,32 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               )}
             </div>
           </div>
-          <div className="segmented-group">
-            {[
-              { id: '12', label: '12px' },
-              { id: '14', label: '14px' },
-              { id: '16', label: '16px' },
-              { id: '18', label: '18px' },
-              { id: '20', label: '20px' },
-            ].map((f) => (
-              <button
-                key={f.id}
-                className={`segmented-item ${
-                  settings.font_size === f.id ||
-                  (f.id === '14' && settings.font_size === 'standard') ||
-                  (f.id === '12' && settings.font_size === 'small')
-                    ? 'active'
-                    : ''
-                }`}
-                onClick={() => handleSelectFontSize(f.id, f.label)}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            value={
+              settings.font_size === 'standard'
+                ? '14'
+                : settings.font_size === 'small'
+                ? '12'
+                : settings.font_size
+            }
+            onChange={(val) => {
+              const opt = [
+                { id: '12', label: '12px' },
+                { id: '14', label: '14px' },
+                { id: '16', label: '16px' },
+                { id: '18', label: '18px' },
+                { id: '20', label: '20px' },
+              ].find((f) => f.id === val);
+              handleSelectFontSize(val, opt?.label || `${val}px`);
+            }}
+            options={[
+              { value: '12', label: '12px' },
+              { value: '14', label: '14px' },
+              { value: '16', label: '16px' },
+              { value: '18', label: '18px' },
+              { value: '20', label: '20px' },
+            ]}
+          />
         </div>
       </div>
 
@@ -401,20 +415,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               )}
             </div>
           </div>
-          <div className="segmented-group">
-            {[
-              { id: 'startup', label: t('settings.freq_startup') },
-              { id: 'manual', label: t('settings.freq_manual') },
-            ].map((u) => (
-              <button
-                key={u.id}
-                className={`segmented-item ${settings.update_frequency === u.id ? 'active' : ''}`}
-                onClick={() => handleSelectUpdateFrequency(u.id, u.label)}
-              >
-                {u.label}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            value={settings.update_frequency}
+            onChange={(val) => {
+              const opt = [
+                { id: 'startup', label: t('settings.freq_startup') },
+                { id: 'manual', label: t('settings.freq_manual') },
+              ].find((u) => u.id === val);
+              handleSelectUpdateFrequency(val, opt?.label || val);
+            }}
+            options={[
+              { value: 'startup', label: t('settings.freq_startup') },
+              { value: 'manual', label: t('settings.freq_manual') },
+            ]}
+          />
         </div>
 
         <ClientUpdateRow />
@@ -428,20 +442,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               )}
             </div>
           </div>
-          <div className="segmented-group">
-            {[
-              { id: 'startup', label: t('settings.watch_startup') },
-              { id: 'daily', label: t('settings.watch_daily') },
-            ].map((o) => (
-              <button
-                key={o.id}
-                className={`segmented-item ${settings.watch_notify_frequency === o.id ? 'active' : ''}`}
-                onClick={() => handleSelectWatchFrequency(o.id as 'startup' | 'daily', o.label)}
-              >
-                {o.label}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            value={settings.watch_notify_frequency}
+            onChange={(val) => {
+              const opt = [
+                { id: 'startup', label: t('settings.watch_startup') },
+                { id: 'daily', label: t('settings.watch_daily') },
+              ].find((o) => o.id === val);
+              handleSelectWatchFrequency(val as 'startup' | 'daily', opt?.label || val);
+            }}
+            options={[
+              { value: 'startup', label: t('settings.watch_startup') },
+              { value: 'daily', label: t('settings.watch_daily') },
+            ]}
+          />
         </div>
 
         <div className="settings-row" style={{ alignItems: 'center' }}>

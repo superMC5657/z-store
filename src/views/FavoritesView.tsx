@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Bookmark, Eye, Star, RotateCcw, Zap, BookmarkPlus } from 'lucide-react';
+import { Bookmark, Eye, Star, RotateCcw, Zap, BookmarkPlus, Search } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { AppCard } from '../components/AppCard';
+import { EmptyState } from '../components/EmptyState';
+import { SegmentedControl } from '../components/SegmentedControl';
 import { AppSummary, OAuthUser, StarredSyncResult } from '../types';
 import { api } from '../services/api';
 
@@ -117,60 +119,63 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
     <div className="favorites-view view-entrance">
       {/* 标签导航栏（Linear Segmented Control） */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
-        <div className="segmented-group" style={{ padding: '2px', boxSizing: 'border-box' }}>
-          <button
-            className={`segmented-item ${activeTab === 'local' ? 'active' : ''}`}
-            style={{ height: '28px', minHeight: '28px', padding: '0 12px', fontSize: '13px', gap: '6px' }}
-            onClick={() => setActiveTab('local')}
-          >
-            <Bookmark size={13} strokeWidth={1.5} />
-            <span>{t('favorites.tab_local', { count: favoriteIds.size })}</span>
-          </button>
-          <button
-            className={`segmented-item ${activeTab === 'watched' ? 'active' : ''}`}
-            style={{ height: '28px', minHeight: '28px', padding: '0 12px', fontSize: '13px', gap: '6px' }}
-            onClick={() => setActiveTab('watched')}
-          >
-            <Eye size={13} strokeWidth={1.5} />
-            <span>{t('favorites.tab_watched', { count: watchedSet.size })}</span>
-          </button>
-          <button
-            className={`segmented-item ${activeTab === 'starred' ? 'active' : ''}`}
-            style={{ height: '28px', minHeight: '28px', padding: '0 12px', fontSize: '13px', gap: '6px' }}
-            onClick={() => setActiveTab('starred')}
-          >
-            <Star size={13} strokeWidth={1.5} />
-            <span>{t('favorites.tab_starred')}</span>
-          </button>
-        </div>
+        <SegmentedControl
+          value={activeTab}
+          onChange={setActiveTab}
+          options={[
+            {
+              value: 'local',
+              label: (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <Bookmark size={13} strokeWidth={1.5} />
+                  <span>{t('favorites.tab_local', { count: favoriteIds.size })}</span>
+                </span>
+              ),
+            },
+            {
+              value: 'watched',
+              label: (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <Eye size={13} strokeWidth={1.5} />
+                  <span>{t('favorites.tab_watched', { count: watchedSet.size })}</span>
+                </span>
+              ),
+            },
+            {
+              value: 'starred',
+              label: (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <Star size={13} strokeWidth={1.5} />
+                  <span>{t('favorites.tab_starred')}</span>
+                </span>
+              ),
+            },
+          ]}
+        />
         {activeTab !== 'starred' && (
-          <input
-            type="text"
-            className="settings-input"
-            placeholder={t('favorites.search_placeholder')}
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-            style={{
-              height: '32px',
-              minWidth: '220px',
-            }}
-          />
+          <div className="fluent-input-search" style={{ minWidth: '220px' }}>
+            <Search size={14} />
+            <input
+              type="text"
+              placeholder={t('favorites.search_placeholder')}
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+            />
+          </div>
         )}
       </div>
 
       {activeTab === 'local' ? (
         favoriteApps.length === 0 ? (
-          <div className="empty-state-card">
-            <Bookmark size={44} strokeWidth={1.5} style={{ color: 'var(--text-tertiary)', marginBottom: '12px' }} />
-            <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>
-              {searchText.trim() ? t('favorites.no_match_fav') : t('favorites.empty_fav_title')}
-            </h4>
-            <p style={{ color: 'var(--text-tertiary)', fontSize: '13px', margin: 0 }}>
-              {searchText.trim()
+          <EmptyState
+            icon={<Bookmark size={40} strokeWidth={1.5} />}
+            title={searchText.trim() ? t('favorites.no_match_fav') : t('favorites.empty_fav_title')}
+            description={
+              searchText.trim()
                 ? t('favorites.no_match_fav_desc')
-                : t('favorites.empty_fav_desc')}
-            </p>
-          </div>
+                : t('favorites.empty_fav_desc')
+            }
+          />
         ) : (
           <div className="app-grid">
             {favoriteApps.map((app) => (
@@ -191,21 +196,21 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
         )
       ) : activeTab === 'watched' ? (
         watchedApps.length === 0 ? (
-          <div className="empty-state-card">
-            <Eye size={44} strokeWidth={1.5} style={{ color: 'var(--text-tertiary)', marginBottom: '12px' }} />
-            <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>
-              {searchText.trim()
+          <EmptyState
+            icon={<Eye size={40} strokeWidth={1.5} />}
+            title={
+              searchText.trim()
                 ? t('favorites.no_match_watch')
                 : watchedSet.size > 0
                 ? t('favorites.watch_not_in_catalog')
-                : t('favorites.empty_watch_title')}
-            </h4>
-            <p style={{ color: 'var(--text-tertiary)', fontSize: '13px', margin: 0 }}>
-              {searchText.trim()
+                : t('favorites.empty_watch_title')
+            }
+            description={
+              searchText.trim()
                 ? t('favorites.no_match_watch_desc')
-                : t('favorites.empty_watch_desc')}
-            </p>
-          </div>
+                : t('favorites.empty_watch_desc')
+            }
+          />
         ) : (
           <div className="app-grid">
             {watchedApps.map((app) => (
@@ -362,23 +367,22 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                   ))}
                 </div>
               ) : (
-                <div className="empty-state-card" style={{ marginTop: '20px' }}>
-                  <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-tertiary)' }}>
-                    {syncResult.total_starred === 0
+                <EmptyState
+                  style={{ marginTop: '20px' }}
+                  description={
+                    syncResult.total_starred === 0
                       ? t('favorites.starred_zero_desc')
-                      : t('favorites.starred_no_match_desc', { total: syncResult.total_starred })}
-                  </p>
-                </div>
+                      : t('favorites.starred_no_match_desc', { total: syncResult.total_starred })
+                  }
+                />
               )}
             </div>
           ) : (
-            <div className="empty-state-card">
-              <Star size={44} strokeWidth={1.5} style={{ color: 'var(--text-tertiary)', marginBottom: '12px' }} />
-              <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>{t('favorites.not_synced_title')}</h4>
-              <p style={{ color: 'var(--text-tertiary)', fontSize: '13px', margin: 0 }}>
-                {t('favorites.not_synced_desc')}
-              </p>
-            </div>
+            <EmptyState
+              icon={<Star size={40} strokeWidth={1.5} />}
+              title={t('favorites.not_synced_title')}
+              description={t('favorites.not_synced_desc')}
+            />
           )}
         </div>
       )}

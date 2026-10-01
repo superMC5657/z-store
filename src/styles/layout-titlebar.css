@@ -73,7 +73,7 @@
   -webkit-app-region: no-drag;
   app-region: no-drag;
   width: 100%;
-  height: 28px;
+  height: 30px;
   background: var(--bg-search-box);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);

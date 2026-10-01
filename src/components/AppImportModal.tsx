@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { AppMatchResult, ImportAppRequest } from '../types';
 import { api } from '../services/api';
+import { EmptyState } from './EmptyState';
 
 interface AppImportModalProps {
   isOpen: boolean;
@@ -263,21 +264,11 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
               <span>{error}</span>
             </div>
           ) : matches.length === 0 ? (
-            <div
-              style={{
-                textAlign: 'center',
-                padding: '60px 20px',
-                color: 'var(--text-tertiary)',
-              }}
-            >
-              <CheckCircle2 size={44} strokeWidth={1.5} style={{ color: 'var(--status-success)', margin: '0 auto 12px' }} />
-              <h4 style={{ margin: '0 0 8px 0', fontSize: '16px', color: 'var(--text-primary)' }}>
-                未发现可添加的本地应用
-              </h4>
-              <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>
-                本机开源软件均已在管理列表中，或未发现匹配的程序。
-              </p>
-            </div>
+            <EmptyState
+              icon={<CheckCircle2 size={40} strokeWidth={1.5} style={{ color: 'var(--status-success)' }} />}
+              title="未发现可添加的本地应用"
+              description="本机开源软件均已在管理列表中，或未发现匹配的程序。"
+            />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {matches.map((item) => {
@@ -286,18 +277,17 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                 return (
                   <div
                     key={item.catalog_id}
+                    className={`fluent-list-row ${isSelected ? 'active' : ''}`.trim()}
                     onClick={() => handleToggleSelect(item.catalog_id)}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
                       gap: '14px',
                       padding: '14px 16px',
-                      background: isSelected ? 'var(--brand-subtle)' : 'var(--bg-acrylic)',
+                      background: isSelected ? 'var(--brand-subtle)' : undefined,
                       border: `1px solid ${isSelected ? 'var(--brand-primary)' : 'var(--border-color)'}`,
-                      borderRadius: 'var(--radius-md)',
                       cursor: 'pointer',
-                      transition: 'all 0.18s var(--ease-smooth)',
-                      boxShadow: isSelected ? '0 0 0 1px var(--brand-primary), var(--shadow-rest)' : 'var(--shadow-rest)',
+                      boxShadow: isSelected ? '0 0 0 1px var(--brand-primary), var(--shadow-rest)' : undefined,
                     }}
                   >
                     <input
@@ -370,14 +360,11 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
 
                       {(item.resolved_executable_path || item.scanned.install_location) && (
                         <div
+                          className="text-mono"
                           style={{
                             fontSize: '11px',
                             color: 'var(--text-tertiary)',
-                            fontFamily: 'Consolas, Monaco, monospace',
                             marginTop: '3px',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
                           }}
                           title={item.resolved_executable_path || item.scanned.install_location}
                         >
@@ -404,14 +391,9 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
 
         {/* 底部操作栏 */}
         <div
+          className="modal-footer"
           style={{
-            padding: '14px 24px',
-            borderTop: '1px solid var(--border-color)',
-            display: 'flex',
-            alignItems: 'center',
             justifyContent: 'space-between',
-            background: 'var(--bg-acrylic-thin)',
-            flexShrink: 0,
           }}
         >
           <span

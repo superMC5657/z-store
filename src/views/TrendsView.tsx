@@ -4,6 +4,9 @@ import '../i18n';
 import { TrendingUp, Star } from 'lucide-react';
 import { AppSummary } from '../types';
 import { AppIcon } from '../components/AppIcon';
+import { EmptyState } from '../components/EmptyState';
+import { SegmentedControl } from '../components/SegmentedControl';
+import { VerifiedBadge } from '../components/VerifiedBadge';
 import { getAppDisplayName, getAppDescription, getCategoryLabel } from '../utils/appHelper';
 
 interface TrendsViewProps {
@@ -85,60 +88,41 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
           <TrendingUp size={18} />
           <span>{t('trends.title')}</span>
         </h3>
-        <div className="segmented-group" style={{ padding: '2px', boxSizing: 'border-box' }}>
-          {(['day', 'week', 'month', 'all'] as TimeRange[]).map((tab) => {
-            const labels: Record<TimeRange, string> = {
-              day: t('trends.tab_day'),
-              week: t('trends.tab_week'),
-              month: t('trends.tab_month'),
-              all: t('trends.tab_all'),
-            };
-            return (
-              <button
-                key={tab}
-                className={`segmented-item ${timeRange === tab ? 'active' : ''}`}
-                style={{ height: '24px', minHeight: '24px', padding: '0 10px', fontSize: '12px' }}
-                onClick={() => setTimeRange(tab)}
-              >
-                {labels[tab]}
-              </button>
-            );
-          })}
-        </div>
+        <SegmentedControl
+          value={timeRange}
+          onChange={setTimeRange}
+          options={([
+            { value: 'day' as TimeRange, label: t('trends.tab_day') },
+            { value: 'week' as TimeRange, label: t('trends.tab_week') },
+            { value: 'month' as TimeRange, label: t('trends.tab_month') },
+            { value: 'all' as TimeRange, label: t('trends.tab_all') },
+          ])}
+        />
       </div>
 
       <div className="fluent-list-container" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
         {sortedApps.length === 0 ? (
-          <div
+          <EmptyState
             className="trends-empty"
-            style={{
-              padding: '48px 24px',
-              textAlign: 'center',
-              color: 'var(--text-tertiary)',
-              border: '1px dashed var(--border-control)',
-              borderRadius: 'var(--radius-md)',
-            }}
-          >
-            <div style={{ fontSize: '15px', fontWeight: 590, color: 'var(--text-secondary)', marginBottom: '6px', letterSpacing: '-0.015em' }}>
-              {t('trends.empty_title')}
-            </div>
-            <div style={{ fontSize: '12px', marginBottom: '16px' }}>
-              {t('trends.empty_desc')}
-            </div>
-            <button
-              type="button"
-              className="btn-fluent btn-primary filter-empty-reset"
-              onClick={() => {
-                if (onResetPlatformFilter) {
-                  onResetPlatformFilter();
-                } else {
-                  broadcastPlatformReset();
-                }
-              }}
-            >
-              {t('trends.reset_device_filter')}
-            </button>
-          </div>
+            icon={<TrendingUp size={40} strokeWidth={1.5} />}
+            title={t('trends.empty_title')}
+            description={t('trends.empty_desc')}
+            action={(
+              <button
+                type="button"
+                className="btn-fluent btn-primary filter-empty-reset"
+                onClick={() => {
+                  if (onResetPlatformFilter) {
+                    onResetPlatformFilter();
+                  } else {
+                    broadcastPlatformReset();
+                  }
+                }}
+              >
+                {t('trends.reset_device_filter')}
+              </button>
+            )}
+          />
         ) : (
         sortedApps.map((app, index) => {
           const displayName = getAppDisplayName(app);
@@ -175,10 +159,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
               appId={app.id}
               iconBg={app.icon_bg}
               className="app-icon"
-              size={36}
+              size={32}
               style={{
-                width: '36px',
-                height: '36px',
                 borderRadius: 'var(--radius-sm)',
                 fontSize: '15px',
                 marginRight: '12px',
@@ -189,14 +171,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span style={{ fontWeight: 590, fontSize: '14px', letterSpacing: '-0.015em' }}>{displayName}</span>
-                {app.is_verified && (
-                  <span className="verified-badge" title={t('app.verified_badge')}>
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" fill="var(--brand-primary)" />
-                      <path d="m9 12 2 2 4-4" stroke="#ffffff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </span>
-                )}
+                {app.is_verified && <VerifiedBadge size="sm" />}
                 <span className="app-tag" style={{ fontSize: '11px' }}>
                   {displayCategory}
                 </span>

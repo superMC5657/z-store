@@ -14,6 +14,7 @@ import {
 import { AppCard } from '../components/AppCard';
 import { AppIcon } from '../components/AppIcon';
 import { AppSummary } from '../types';
+import { EmptyState } from '../components/EmptyState';
 import { getAppDisplayName, getAppDescription, getCategoryLabel } from '../utils/appHelper';
 
 interface HomeViewProps {
@@ -78,13 +79,12 @@ export const HomeView: React.FC<HomeViewProps> = ({
     // 专属文案与重置按钮——绝不复用搜索页的 `owner/repo` 引导文案。
     return (
       <div className="home-view">
-        <div className="empty-state-card" style={{ marginTop: '40px' }}>
-          <Search size={44} strokeWidth={1.5} style={{ color: 'var(--text-tertiary)', marginBottom: '14px' }} />
-          <h4 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: 590, letterSpacing: '-0.018em' }}>{t('home.empty_title')}</h4>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '14px', maxWidth: '540px', lineHeight: '1.6', margin: '0 auto 16px auto' }}>
-            {t('home.empty_desc')}
-          </p>
-          <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+        <EmptyState
+          style={{ marginTop: '40px' }}
+          icon={<Search size={40} strokeWidth={1.5} />}
+          title={t('home.empty_title')}
+          description={t('home.empty_desc')}
+          action={(
             <button
               type="button"
               className="btn-fluent btn-primary filter-empty-reset"
@@ -98,8 +98,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
             >
               {t('home.reset_device_filter')}
             </button>
-          </div>
-        </div>
+          )}
+        />
       </div>
     );
   }

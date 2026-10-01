@@ -202,7 +202,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
 
       <div className="titlebar-center" data-tauri-drag-region>
         <div
-          className="search-box"
+          className="search-box fluent-input-search"
           ref={searchBoxRef}
           data-tauri-drag-region="false"
           onDoubleClick={(e) => e.stopPropagation()}
