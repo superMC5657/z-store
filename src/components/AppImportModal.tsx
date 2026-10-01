@@ -138,7 +138,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
           className="modal-header"
           style={{
             padding: '18px 24px 14px',
-            borderBottom: '1px solid var(--border-acrylic)',
+            borderBottom: '1px solid var(--border-color)',
             display: 'flex',
             alignItems: 'flex-start',
             justifyContent: 'space-between',
@@ -148,8 +148,8 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
         >
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <ScanLine size={20} style={{ color: 'var(--brand-primary)' }} />
-              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)' }}>
+              <ScanLine size={18} strokeWidth={1.5} style={{ color: 'var(--brand-primary)' }} />
+              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 590, color: 'var(--text-primary)', letterSpacing: '-0.018em' }}>
                 扫描并添加本地应用
               </h3>
             </div>
@@ -186,7 +186,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
               justifyContent: 'space-between',
               padding: '10px 24px',
               background: 'var(--bg-acrylic)',
-              borderBottom: '1px solid var(--border-acrylic)',
+              borderBottom: '1px solid var(--border-color)',
               fontSize: '13px',
               flexShrink: 0,
               color: 'var(--text-primary)',
@@ -233,13 +233,13 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                   width: '40px',
                   height: '40px',
                   borderRadius: '50%',
-                  border: '3px solid var(--border-acrylic)',
+                  border: '3px solid var(--border-color)',
                   borderTopColor: 'var(--brand-primary)',
                   animation: 'spin 1s linear infinite',
                 }}
               />
               <div style={{ textAlign: 'center' }}>
-                <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>正在扫描系统已安装软件...</div>
+                <div style={{ fontWeight: 590, fontSize: '14px', color: 'var(--text-primary)', letterSpacing: '-0.015em' }}>正在扫描系统已安装软件...</div>
                 <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
                   正在比对开源收录清单
                 </div>
@@ -293,7 +293,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                       gap: '14px',
                       padding: '14px 16px',
                       background: isSelected ? 'var(--brand-subtle)' : 'var(--bg-acrylic)',
-                      border: `1px solid ${isSelected ? 'var(--brand-primary)' : 'var(--border-acrylic)'}`,
+                      border: `1px solid ${isSelected ? 'var(--brand-primary)' : 'var(--border-color)'}`,
                       borderRadius: 'var(--radius-md)',
                       cursor: 'pointer',
                       transition: 'all 0.18s var(--ease-smooth)',
@@ -332,18 +332,18 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                     {/* 应用信息 */}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                        <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>
+                        <span style={{ fontWeight: 590, fontSize: '14px', color: 'var(--text-primary)', letterSpacing: '-0.015em' }}>
                           {item.name}
                         </span>
                         <span
                           style={{
                             fontSize: '11px',
-                            padding: '2px 8px',
-                            borderRadius: '12px',
+                            padding: '2px 6px',
+                            borderRadius: 'var(--radius-xs)',
                             background: isHigh ? 'var(--status-success-bg)' : 'var(--brand-subtle)',
                             color: isHigh ? 'var(--status-success)' : 'var(--brand-primary)',
-                            border: `1px solid ${isHigh ? 'rgba(16, 185, 129, 0.3)' : 'rgba(0, 120, 212, 0.3)'}`,
-                            fontWeight: 600,
+                            border: `1px solid ${isHigh ? 'rgba(76, 183, 130, 0.3)' : 'var(--border-nav-active)'}`,
+                            fontWeight: 510,
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: '3px',
@@ -406,7 +406,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
         <div
           style={{
             padding: '14px 24px',
-            borderTop: '1px solid var(--border-acrylic)',
+            borderTop: '1px solid var(--border-color)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
@@ -444,7 +444,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
               className="btn-fluent btn-primary"
               onClick={handleImport}
               disabled={selectedIds.size === 0 || isImporting || isLoading}
-              style={{ padding: '6px 20px', fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}
+              style={{ padding: '6px 20px', fontSize: '13px', fontWeight: 510, display: 'flex', alignItems: 'center', gap: '6px' }}
             >
               {isImporting ? (
                 <>

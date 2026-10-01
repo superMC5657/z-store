@@ -1,0 +1,82 @@
+/* base.css · Linear Design System Base & Reset */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: rgba(94, 106, 210, 0.35);
+  color: var(--text-primary);
+}
+
+button, input, select, textarea {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 1px;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--bg-canvas);
+}
+
+body {
+  font-family: "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-feature-settings: 'cv01' 1, 'ss03' 1, 'cv11' 1;
+  font-weight: 400;
+  letter-spacing: -0.011em;
+  color: var(--text-primary);
+  font-size: var(--font-base);
+  line-height: 1.5;
+  text-rendering: optimizeLegibility;
+  user-select: none;
+  transition: background 0.12s var(--ease-smooth), color 0.12s var(--ease-smooth);
+}
+
+/* Linear 标题字重与负字距收敛：禁用 700 粗体，严格采用 590 */
+h1, h2, h3, h4, h5, h6, strong, b {
+  font-weight: 590;
+  letter-spacing: -0.018em;
+  color: var(--text-primary);
+}
+
+p {
+  max-width: 80ch;
+  letter-spacing: -0.011em;
+}
+
+code, kbd, samp, pre {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-feature-settings: normal;
+  letter-spacing: normal;
+}
+
+/* 应用主窗口容器（反 L 形布局骨架） */
+.app-window {
+  width: calc(100vw / var(--app-zoom, 1));
+  height: calc(100vh / var(--app-zoom, 1));
+  min-height: calc(100vh / var(--app-zoom, 1));
+  background: var(--bg-canvas);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  box-shadow: none;
+}
+
+[data-theme="dark"] .app-window {
+  box-shadow: none;
+}

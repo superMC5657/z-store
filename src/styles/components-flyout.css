@@ -1,0 +1,118 @@
+/* components-flyout.css · Linear Design System Flyout Menus */
+/* 浮出式右键菜单与操作气泡 - 8px 圆角 / 28-30px 菜单项 / 13px 字体 */
+.flyout-menu {
+  background: var(--bg-surface-flyout);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-modal);
+  padding: 4px;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  animation: flyoutIn 0.14s var(--ease-smooth);
+  min-width: 160px;
+}
+
+[data-theme="dark"] .flyout-menu {
+  background: var(--bg-surface-flyout);
+  border-color: var(--border-color);
+}
+
+@keyframes flyoutIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.flyout-divider {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 3px 4px;
+  border: none;
+  flex-shrink: 0;
+}
+
+.flyout-item,
+.menu-item-fluent {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  height: 28px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: -0.011em;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s var(--ease-smooth), color 0.1s var(--ease-smooth);
+  user-select: none;
+}
+
+.flyout-item:hover,
+.menu-item-fluent:hover {
+  background: var(--bg-acrylic-hover);
+  border-color: transparent;
+}
+
+.flyout-item:active,
+.menu-item-fluent:active {
+  background: var(--border-subtle);
+}
+
+.flyout-item-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-xs);
+  background: var(--bg-acrylic-hover);
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+}
+
+.flyout-item:hover .flyout-item-icon {
+  color: var(--text-primary);
+  border-color: var(--border-highlight);
+}
+
+.flyout-item-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+
+.flyout-item-title {
+  font-size: 12px;
+  font-weight: 510;
+  letter-spacing: -0.011em;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  line-height: 1.2;
+}
+
+.flyout-item-badge {
+  font-size: 10px;
+  padding: 1px 4px;
+  border-radius: var(--radius-xs);
+  background: var(--brand-subtle);
+  color: var(--brand-primary);
+}

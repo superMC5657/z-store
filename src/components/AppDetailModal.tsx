@@ -388,7 +388,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="2"
+                  strokeWidth="1.5"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 >
@@ -404,7 +404,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                 style={{ color: isFavorite ? '#eab308' : 'var(--text-secondary)' }}
                 title={isFavorite ? '已加入应用内收藏（存入本地数据库 · 点击取消）' : '应用内收藏：保存至本机数据库，离线随时可用'}
               >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill={isFavorite ? '#eab308' : 'none'} stroke={isFavorite ? '#eab308' : 'currentColor'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill={isFavorite ? '#eab308' : 'none'} stroke={isFavorite ? '#eab308' : 'currentColor'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
                 </svg>
               </button>
@@ -417,7 +417,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                 style={{ color: isWatched ? 'var(--brand-primary)' : 'var(--text-secondary)' }}
                 title={isWatched ? '已关注该应用的新版本动态（新 Release 发布时在应用内提醒 · 点击取消）' : '关注 Release 更新：该应用发布新版本时在应用内提醒'}
               >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill={isWatched ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill={isWatched ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
                   <circle cx="12" cy="12" r="3" />
                 </svg>
@@ -443,11 +443,11 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               }
             >
               {isStarring ? (
-                <svg className="icon-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg className="icon-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                   <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
                 </svg>
               ) : (
-                <svg width="15" height="15" viewBox="0 0 24 24" fill={isStarred ? '#eab308' : 'none'} stroke={isStarred ? '#eab308' : 'currentColor'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill={isStarred ? '#eab308' : 'none'} stroke={isStarred ? '#eab308' : 'currentColor'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
                 </svg>
               )}
@@ -495,8 +495,8 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   style={{
                     padding: '2px 8px',
                     fontSize: '12px',
-                    fontWeight: 600,
-                    borderRadius: '12px',
+                    fontWeight: 510,
+                    borderRadius: 'var(--radius-xs)',
                     color: 'var(--brand-primary)',
                     cursor: 'pointer',
                     display: 'inline-flex',
@@ -506,7 +506,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   }}
                   title={`查看 ${app.owner} 开发者全景与开源项目`}
                 >
-                  <User size={12} />
+                  <User size={12} strokeWidth={1.5} />
                   <span>{app.owner}</span>
                 </button>
               ) : (
@@ -518,7 +518,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                 onClick={(e) => handleOpenExternal(e, app.forge_host ? `https://${app.forge_host}/${app.owner}/${app.repo}` : `https://github.com/${app.owner}/${app.repo}`)}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{ fontWeight: 600, color: 'inherit', textDecoration: 'none' }}
+                style={{ fontWeight: 510, color: 'inherit', textDecoration: 'none' }}
                 title="在浏览器中查看开源仓库"
               >
                 {app.repo} ↗
@@ -531,10 +531,10 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                 onClick={handleOpenIssueFeedback}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{ fontWeight: 600, color: 'var(--brand-primary)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                style={{ fontWeight: 510, color: 'var(--brand-primary)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                 title="前往开源仓库提交问题反馈（自动预填版本信息）"
               >
-                <Bug size={12} />
+                <Bug size={12} strokeWidth={1.5} />
                 <span>问题反馈</span>
               </a>
             </div>
@@ -578,7 +578,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                     background: 'var(--brand-subtle)',
                     color: 'var(--brand-primary)',
                     border: '1px solid var(--border-nav-active)',
-                    fontWeight: 600,
+                    fontWeight: 510,
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: '4px',
@@ -598,14 +598,14 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                     background: 'rgba(245, 158, 11, 0.15)',
                     color: '#f59e0b',
                     border: '1px solid rgba(245, 158, 11, 0.3)',
-                    fontWeight: 600,
+                    fontWeight: 510,
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: '4px',
                   }}
                   title="网络不可用或请求受限，当前正在呈现本地历史数据"
                 >
-                  <AlertTriangle size={11} />
+                  <AlertTriangle size={11} strokeWidth={1.5} />
                   <span>离线缓存</span>
                 </span>
               )}
@@ -833,7 +833,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                           className="btn-fluent btn-secondary"
                           style={{
                             fontSize: '13px',
-                            fontWeight: 600,
+                            fontWeight: 510,
                             color: 'var(--brand-primary)',
                             borderColor: 'var(--border-nav-active)',
                           }}
@@ -928,9 +928,9 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                     className="btn-fluent btn-primary"
                     disabled={isUninstallingGlobal}
                     onClick={() => onLaunch(app.id)}
-                    style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                    style={{ fontWeight: 510, display: 'inline-flex', alignItems: 'center', gap: '5px' }}
                   >
-                    <Play size={13} />
+                    <Play size={13} strokeWidth={1.5} />
                     <span>打开应用</span>
                   </button>
                 </>
@@ -943,10 +943,10 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                       onClose();
                       onOpenAccountSettings();
                     }}
-                    style={{ minWidth: '120px', fontWeight: 600, color: '#eab308', borderColor: 'rgba(234, 179, 8, 0.4)' }}
+                    style={{ minWidth: '120px', fontWeight: 510, color: '#eab308', borderColor: 'rgba(234, 179, 8, 0.4)' }}
                     title="前往设置重新授权登录 GitHub"
                   >
-                    <KeyRound size={13} style={{ marginRight: '4px' }} />
+                    <KeyRound size={13} strokeWidth={1.5} style={{ marginRight: '4px' }} />
                     <span>重新登录 GitHub</span>
                   </button>
                 ) : (
@@ -954,7 +954,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                     type="button"
                     className="btn-fluent btn-secondary"
                     disabled
-                    style={{ minWidth: '120px', fontWeight: 600, opacity: 0.6 }}
+                    style={{ minWidth: '120px', fontWeight: 510, opacity: 0.6 }}
                   >
                     暂无可用安装包
                   </button>
@@ -978,7 +978,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                     className="btn-fluent btn-primary"
                     onClick={handleDownloadPrimary}
                     disabled={effectiveIsBusy}
-                    style={{ minWidth: '120px', fontWeight: 600 }}
+                    style={{ minWidth: '120px', fontWeight: 510 }}
                     title="通过应用内下载通道保存该文件到下载目录，不调用安装"
                   >
                     {isDownloadingOnly ? (
@@ -999,7 +999,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   className="btn-fluent btn-primary"
                   onClick={handleAction}
                   disabled={effectiveIsBusy || Boolean(app.isLoading && hasNoReleases)}
-                  style={{ minWidth: '120px', fontWeight: 600, opacity: app.isLoading && hasNoReleases ? 0.75 : 1 }}
+                  style={{ minWidth: '120px', fontWeight: 510, opacity: app.isLoading && hasNoReleases ? 0.75 : 1 }}
                 >
                   {app.isLoading && hasNoReleases ? (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
@@ -1034,7 +1034,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                 return (
                   <div key={asset.name} className="settings-row" style={{ padding: '12px 20px' }}>
                     <div>
-                      <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div style={{ fontWeight: 510, display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <span>{asset.name}</span>
                         {isSelected && (
                           <span
@@ -1122,14 +1122,14 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                     marginBottom: '4px',
                     padding: '12px 16px',
                     background: 'var(--bg-secondary)',
-                    border: '1px solid var(--border-acrylic)',
+                    border: '1px solid var(--border-color)',
                     borderRadius: '8px',
                     boxSizing: 'border-box',
                   }}
                 >
                   <div className="settings-group-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '13px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                      <ShieldCheck size={13} />
+                    <span style={{ fontSize: '13px', fontWeight: 590, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      <ShieldCheck size={13} strokeWidth={1.5} />
                       <span>开发者官方所有权认证</span>
                     </span>
                     <button

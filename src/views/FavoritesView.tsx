@@ -115,48 +115,43 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
 
   return (
     <div className="favorites-view view-entrance">
-      {/* 标签导航栏 */}
+      {/* 标签导航栏（Linear Segmented Control） */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        <div className="segmented-group" style={{ padding: '2px', boxSizing: 'border-box' }}>
           <button
-            className={`btn-fluent ${activeTab === 'local' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ fontSize: '13px', gap: '6px' }}
+            className={`segmented-item ${activeTab === 'local' ? 'active' : ''}`}
+            style={{ height: '28px', minHeight: '28px', padding: '0 12px', fontSize: '13px', gap: '6px' }}
             onClick={() => setActiveTab('local')}
           >
-            <Bookmark size={14} />
+            <Bookmark size={13} strokeWidth={1.5} />
             <span>{t('favorites.tab_local', { count: favoriteIds.size })}</span>
           </button>
           <button
-            className={`btn-fluent ${activeTab === 'watched' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ fontSize: '13px', gap: '6px' }}
+            className={`segmented-item ${activeTab === 'watched' ? 'active' : ''}`}
+            style={{ height: '28px', minHeight: '28px', padding: '0 12px', fontSize: '13px', gap: '6px' }}
             onClick={() => setActiveTab('watched')}
           >
-            <Eye size={14} />
+            <Eye size={13} strokeWidth={1.5} />
             <span>{t('favorites.tab_watched', { count: watchedSet.size })}</span>
           </button>
           <button
-            className={`btn-fluent ${activeTab === 'starred' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ fontSize: '13px', gap: '6px' }}
+            className={`segmented-item ${activeTab === 'starred' ? 'active' : ''}`}
+            style={{ height: '28px', minHeight: '28px', padding: '0 12px', fontSize: '13px', gap: '6px' }}
             onClick={() => setActiveTab('starred')}
           >
-            <Star size={14} />
+            <Star size={13} strokeWidth={1.5} />
             <span>{t('favorites.tab_starred')}</span>
           </button>
         </div>
         {activeTab !== 'starred' && (
           <input
             type="text"
+            className="settings-input"
             placeholder={t('favorites.search_placeholder')}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             style={{
-              padding: '7px 12px',
-              fontSize: '13px',
-              borderRadius: '6px',
-              border: '1px solid var(--border-acrylic)',
-              background: 'rgba(0, 0, 0, 0.2)',
-              color: 'var(--text-primary)',
-              outline: 'none',
+              height: '32px',
               minWidth: '220px',
             }}
           />
@@ -235,16 +230,16 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
           <div
             style={{
               padding: '20px 24px',
-              borderRadius: 'var(--radius-lg, 10px)',
-              background: 'var(--bg-acrylic-thin, rgba(255, 255, 255, 0.05))',
-              border: '1px solid var(--border-acrylic, rgba(255, 255, 255, 0.1))',
-              marginBottom: '24px',
+              borderRadius: 'var(--radius-lg)',
+              background: 'var(--bg-acrylic-card)',
+              border: '1px solid var(--border-color)',
+              marginBottom: '20px',
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                  <h4 style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>
+                  <h4 style={{ margin: 0, fontSize: '16px', fontWeight: 590, letterSpacing: '-0.015em' }}>
                     {t('favorites.sync_starred_title')}
                   </h4>
                   {oauthUser?.login && (
@@ -252,10 +247,11 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                       style={{
                         fontSize: '11px',
                         padding: '2px 8px',
-                        borderRadius: '4px',
+                        borderRadius: 'var(--radius-xs)',
                         background: 'var(--brand-subtle)',
                         color: 'var(--brand-primary)',
                         border: '1px solid var(--border-nav-active)',
+                        fontWeight: 510,
                       }}
                     >
                       {t('favorites.logged_in_as', { user: oauthUser.login })}
@@ -274,24 +270,19 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                   value={githubUser}
                   onChange={(e) => setGithubUser(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleSyncStarred()}
+                  className="settings-input"
                   style={{
-                    padding: '7px 12px',
-                    fontSize: '13px',
-                    borderRadius: '6px',
-                    border: '1px solid var(--border-acrylic)',
-                    background: 'rgba(0, 0, 0, 0.2)',
-                    color: 'var(--text-primary)',
-                    outline: 'none',
+                    height: '28px',
                     minWidth: '220px',
                   }}
                 />
                 <button
                   className="btn-fluent btn-primary"
-                  style={{ padding: '7px 16px', fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}
+                  style={{ height: '28px', padding: '0 14px', fontSize: '12.5px', fontWeight: 510, display: 'flex', alignItems: 'center', gap: '6px' }}
                   disabled={isSyncing}
                   onClick={handleSyncStarred}
                 >
-                  <RotateCcw size={13} className={isSyncing ? 'icon-spin' : ''} />
+                  <RotateCcw size={13} strokeWidth={1.5} className={isSyncing ? 'icon-spin' : ''} />
                   <span>{isSyncing ? t('favorites.syncing') : t('favorites.sync_now')}</span>
                 </button>
               </div>

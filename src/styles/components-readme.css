@@ -1,0 +1,124 @@
+/* components-readme.css · Linear Design System Markdown Typography */
+/* Markdown README 详细排版样式 */
+@keyframes fluentFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.readme-markdown-body {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text-primary);
+  word-break: break-word;
+  animation: fluentFadeIn 0.16s var(--ease-smooth) forwards;
+}
+
+.readme-markdown-body h1,
+.readme-markdown-body h2 {
+  font-weight: 590;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 6px;
+  margin-top: 18px;
+  margin-bottom: 10px;
+  letter-spacing: -0.018em;
+}
+
+.readme-markdown-body h1 { font-size: 18px; }
+.readme-markdown-body h2 { font-size: 16px; }
+.readme-markdown-body h3 { font-size: 14px; font-weight: 590; margin-top: 14px; margin-bottom: 8px; letter-spacing: -0.015em; }
+
+.readme-markdown-body p {
+  margin-bottom: 10px;
+  letter-spacing: -0.011em;
+}
+
+.readme-markdown-body a {
+  color: var(--brand-primary);
+  text-decoration: none;
+}
+
+.readme-markdown-body a:hover {
+  text-decoration: underline;
+}
+
+.readme-markdown-body pre {
+  background: var(--bg-acrylic-hover);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+
+.readme-markdown-body code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  background: var(--bg-acrylic-hover);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  padding: 2px 5px;
+  font-size: 11.5px;
+}
+
+.readme-markdown-body pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.readme-markdown-body ul,
+.readme-markdown-body ol {
+  padding-left: 20px;
+  margin-bottom: 10px;
+}
+
+.readme-markdown-body li {
+  margin-bottom: 4px;
+}
+
+.readme-markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 12px;
+  font-size: 12px;
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.readme-markdown-body th,
+.readme-markdown-body td {
+  border: 1px solid var(--border-subtle);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.readme-markdown-body th {
+  background: var(--bg-acrylic-thin);
+  font-weight: 590;
+}
+
+.readme-markdown-body blockquote {
+  border-left: 3px solid var(--brand-primary);
+  padding-left: 12px;
+  color: var(--text-secondary);
+  margin: 10px 0;
+}
+
+.readme-markdown-body picture {
+  display: inline-block;
+  max-width: 100%;
+}
+
+.readme-markdown-body img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-xs);
+}

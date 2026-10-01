@@ -163,7 +163,7 @@ export const OAuthAccountCard: React.FC = () => {
     <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '12px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
         <div className="settings-row-info">
-          <span style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ fontWeight: 510, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
             <GitHubIcon size={16} />
             <span>{t('oauth.title')}</span>
           </span>
@@ -209,18 +209,18 @@ export const OAuthAccountCard: React.FC = () => {
                 />
               )}
             </div>
-            <span style={{ fontSize: '13px', fontWeight: 600, color: user.is_expired ? '#eab308' : undefined }}>
+            <span style={{ fontSize: '13px', fontWeight: 510, color: user.is_expired ? '#eab308' : undefined }}>
               {user.login} {user.is_expired && t('oauth.expired_tag')}
             </span>
             {user.is_expired ? (
               <button
                 type="button"
-                className="btn-fluent btn-primary"
+                className="btn-fluent btn-secondary"
                 style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
                 disabled={isStarting}
                 onClick={handleLogin}
               >
-                <LogIn size={12} />
+                <LogIn size={13} strokeWidth={1.5} />
                 <span>{t('oauth.relogin')}</span>
               </button>
             ) : null}
@@ -230,7 +230,7 @@ export const OAuthAccountCard: React.FC = () => {
               style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
               onClick={handleLogout}
             >
-              <LogOut size={12} />
+              <LogOut size={13} strokeWidth={1.5} />
               <span>{t('oauth.logout')}</span>
             </button>
           </div>
@@ -242,17 +242,30 @@ export const OAuthAccountCard: React.FC = () => {
             disabled={isStarting}
             onClick={handleLogin}
           >
-            <LogIn size={12} />
+            <LogIn size={13} strokeWidth={1.5} />
             <span>{isStarting ? t('oauth.starting') : t('oauth.login')}</span>
           </button>
         )}
       </div>
 
       {user && !user.is_expired && (
-        <span style={{ fontSize: '12px', color: 'var(--status-success)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-          <CheckCircle2 size={13} />
+        <div
+          style={{
+            padding: '8px 12px',
+            borderRadius: 'var(--radius-lg)',
+            background: 'rgba(76, 183, 130, 0.10)',
+            border: '1px solid rgba(76, 183, 130, 0.25)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '12.5px',
+            color: 'var(--text-secondary)',
+            marginTop: '2px',
+          }}
+        >
+          <CheckCircle2 size={14} strokeWidth={1.5} style={{ color: '#4CB782', flexShrink: 0 }} />
           <span>{t('oauth.quota_badge')}</span>
-        </span>
+        </div>
       )}
 
       {user && user.is_expired && !session && (
@@ -336,16 +349,17 @@ export const OAuthAccountCard: React.FC = () => {
             gap: '10px',
           }}
         >
-          <span style={{ fontSize: '13px', fontWeight: 600 }}>{t('oauth.complete_in_browser')}</span>
+          <span style={{ fontSize: '13px', fontWeight: 590, letterSpacing: '-0.015em' }}>{t('oauth.complete_in_browser')}</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
             <code
               style={{
-                fontSize: '22px',
-                fontWeight: 700,
-                letterSpacing: '4px',
+                fontSize: '20px',
+                fontWeight: 590,
+                letterSpacing: '3px',
                 padding: '6px 14px',
-                borderRadius: '6px',
-                background: 'rgba(0,0,0,0.25)',
+                borderRadius: 'var(--radius-sm)',
+                background: 'var(--bg-input)',
+                border: '1px solid var(--border-subtle)',
                 userSelect: 'all',
               }}
             >

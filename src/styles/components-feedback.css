@@ -1,0 +1,61 @@
+/* components-feedback.css · Linear Design System Feedback Elements */
+@keyframes skeletonPulse {
+  0% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.6;
+  }
+  100% {
+    opacity: 0.3;
+  }
+}
+
+.skeleton-box {
+  background: var(--bg-acrylic-hover);
+  border-radius: var(--radius-xs);
+  animation: skeletonPulse 1.4s var(--ease-smooth) infinite;
+}
+
+@keyframes spinInfinite {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spinner-icon {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--border-color);
+  border-top-color: var(--brand-primary);
+  border-radius: 50%;
+  animation: spinInfinite 0.7s linear infinite;
+}
+
+.icon-spin {
+  animation: spinInfinite 0.8s linear infinite;
+}
+
+.status-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot-success {
+  background-color: var(--status-success);
+}
+
+.status-dot-warning {
+  background-color: var(--status-warning);
+}
+
+.status-dot-error {
+  background-color: var(--status-danger);
+}
+
+.status-dot-neutral {
+  background-color: var(--text-tertiary);
+}

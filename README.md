@@ -24,10 +24,10 @@
 - **D3 零信任完整性防篡改 (Zero-Trust Anti-Tampering)**:
   - 默认利用高可用加速镜像代理大文件下载；
   - 下载后**强制流式计算 SHA-256 哈希**并与官方清单比对，哈希不符立即强行阻断并销毁临时文件，防御供应链投毒（详见 [ADR-0004](docs/adr/0004-streaming-installer-and-checksum-verification.md)）。
-- **D4 深度融合 Fluent Design 2.0 (Native Design System)**:
-  - 全面遵循微软 Windows 11 Fluent 2.0 规范，提供亚克力毛玻璃 (Acrylic)、折射高光描边、平滑微动效与系统级深浅色自适应（`light-dark()`、`in oklch`）；
-  - 全站功能操作与状态反馈全面采用统一的 Fluent 2 线性矢量图标体系（基于 `lucide-react` 与统一单色矢量 SVG，通过 `currentColor` 适配主题与微动效）；
-  - 配套 [ADR-0005](docs/adr/0005-cross-platform-multi-mode-icon-specifications.md) 晶透双模标识体系。
+- **D4 Linear 去彩单色界面 (Monochrome Design System)**:
+  - 全站采用 Linear 风格的去彩单色体系：原生黑白灰画布、hairline 微边框、6/8px 精密圆角、510/590 字重与负字距，配 100~200ms snappy 微动效与系统级深浅色自适应；
+  - 全站功能操作与状态反馈全面采用统一的线性矢量图标体系（基于 `lucide-react` 14px/stroke 1.5 与统一单色矢量 SVG，通过 `currentColor` 适配主题与微动效）；
+  - 配套 [ADR-0005](docs/adr/0005-cross-platform-multi-mode-icon-specifications.md) 明暗双模标识体系（暗夜实底 `#08090A` / 明亮实底 `#FFFFFF`）。
 
 ---
 

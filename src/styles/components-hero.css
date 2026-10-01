@@ -1,0 +1,147 @@
+/* components-hero.css · Linear Design System Hero Banner */
+/* 置顶横幅推荐（Hero Banner）- Linear 风格精炼展台 */
+.hero-banner {
+  background: var(--bg-hero-banner);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 20px 24px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: var(--shadow-rest);
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: border-color 0.1s var(--ease-smooth), background 0.1s var(--ease-smooth);
+  cursor: pointer;
+}
+
+[data-theme="dark"] .hero-banner {
+  background: var(--bg-hero-banner);
+  border-color: var(--border-color);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.hero-banner:hover {
+  border-color: var(--border-highlight);
+  background: var(--bg-acrylic-hover);
+  transform: none;
+  box-shadow: var(--shadow-hover);
+}
+
+[data-theme="dark"] .hero-banner:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.hero-content {
+  position: relative;
+  z-index: 1;
+  max-width: 70%;
+}
+
+.hero-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: var(--brand-subtle);
+  color: var(--brand-primary);
+  border: 1px solid var(--border-nav-active);
+  border-radius: var(--radius-xs);
+  font-size: 11px;
+  font-weight: 510;
+  letter-spacing: -0.011em;
+  margin-bottom: 8px;
+  box-shadow: none;
+}
+
+.hero-title {
+  font-size: 18px;
+  font-weight: 590;
+  letter-spacing: -0.018em;
+  margin-bottom: 6px;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+
+.hero-desc {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  margin-bottom: 14px;
+  max-width: 65ch;
+  letter-spacing: -0.011em;
+}
+
+.hero-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 置顶横幅右侧视觉卡片 */
+.hero-visual {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 4px 16px;
+  flex-shrink: 0;
+}
+
+.hero-icon-card {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  flex-shrink: 0;
+  user-select: none;
+  background: transparent;
+  border: none;
+  filter: none;
+}
+
+.hero-banner:hover .hero-icon-card {
+  transform: none;
+}
+
+/* 官方认证徽标 */
+.hero-verified-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+  font-size: 11px;
+  font-weight: 510;
+  white-space: nowrap;
+  user-select: none;
+  cursor: default;
+  background: var(--badge-verified-bg);
+  border: 1px solid var(--badge-verified-border);
+  color: var(--badge-verified-color);
+  box-shadow: none;
+}
+
+.hero-verified-badge svg {
+  flex-shrink: 0;
+}
+
+.hero-banner:hover .hero-verified-badge {
+  transform: none;
+}

@@ -114,7 +114,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
         <>
           {apps.length === 0 && (
             <div className="empty-state-card" style={{ marginBottom: '16px', padding: '24px', textAlign: 'center' }}>
-              <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+              <div style={{ fontSize: '15px', fontWeight: 590, color: 'var(--text-secondary)', marginBottom: '6px', letterSpacing: '-0.015em' }}>
                 {t('categories.no_apps_device_filter')}
               </div>
               <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '16px' }}>
@@ -137,7 +137,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                 style={{
                   alignItems: 'center',
                   textAlign: 'center',
-                  padding: '22px 16px',
+                  padding: '20px 16px',
                   cursor: 'pointer',
                   opacity: count === 0 ? 0.6 : 1,
                 }}
@@ -145,30 +145,31 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
               >
                 <div
                   style={{
-                    width: '52px',
-                    height: '52px',
-                    borderRadius: 'var(--radius-md)',
-                    background: `color-mix(in srgb, ${cat.color} 15%, transparent)`,
+                    width: '44px',
+                    height: '44px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: `color-mix(in srgb, ${cat.color} 12%, transparent)`,
+                    border: `1px solid color-mix(in srgb, ${cat.color} 25%, transparent)`,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     marginBottom: '10px',
-                    boxShadow: `0 4px 12px color-mix(in srgb, ${cat.color} 20%, transparent)`,
                   }}
                 >
-                  <cat.Icon size={24} color={cat.color} />
+                  <cat.Icon size={20} color={cat.color} strokeWidth={1.5} />
                 </div>
-                <div style={{ fontWeight: 600, fontSize: '15px', color: 'var(--text-primary)' }}>{t(cat.nameKey)}</div>
+                <div style={{ fontWeight: 590, fontSize: '15px', color: 'var(--text-primary)', letterSpacing: '-0.015em' }}>{t(cat.nameKey)}</div>
                 <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px', lineHeight: '1.4' }}>{t(cat.descKey)}</div>
                 <div
                   style={{
                     fontSize: '11px',
-                    marginTop: '12px',
+                    marginTop: '10px',
                     padding: '2px 8px',
-                    borderRadius: '10px',
-                    background: `color-mix(in srgb, ${cat.color} 12%, transparent)`,
+                    borderRadius: 'var(--radius-xs)',
+                    background: `color-mix(in srgb, ${cat.color} 10%, transparent)`,
                     color: cat.color,
-                    fontWeight: 600,
+                    fontWeight: 510,
+                    border: `1px solid color-mix(in srgb, ${cat.color} 20%, transparent)`,
                   }}
                 >
                   {count > 0 ? t('categories.apps_available', { count }) : t('categories.no_apps_for_platform')}

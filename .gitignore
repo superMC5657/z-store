@@ -37,6 +37,7 @@ src-tauri/gen/schemas
 .omo/
 .reasonix/
 .agents
+.openchamber
 
 # Standalone catalog repository scaffold
 publish/z-store-catalog

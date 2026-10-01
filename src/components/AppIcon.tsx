@@ -172,7 +172,7 @@ export const AppIcon: React.FC<AppIconProps> = ({
           className="app-icon-fallback-badge"
           style={{
             fontSize: '0.45em',
-            fontWeight: 800,
+            fontWeight: 590,
             letterSpacing: '0.5px',
             color: '#ffffff',
             textShadow: '0 1px 2px rgba(0,0,0,0.3)',

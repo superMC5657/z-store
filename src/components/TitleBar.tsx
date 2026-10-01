@@ -177,7 +177,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
       data-tauri-drag-region
       onDoubleClick={handleHeaderDoubleClick}
     >
-      <div className="titlebar-left">
+      <div className={`titlebar-left ${isSidebarCollapsed ? 'collapsed' : ''}`} data-tauri-drag-region>
         {onToggleSidebar && (
           <button
             className="nav-toggle-btn"
@@ -187,20 +187,20 @@ export const TitleBar: React.FC<TitleBarProps> = ({
             title={isSidebarCollapsed ? t('titlebar.nav_toggle_expand') : t('titlebar.nav_toggle_collapse')}
             aria-label={isSidebarCollapsed ? t('titlebar.nav_toggle_expand') : t('titlebar.nav_toggle_collapse')}
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
               <line x1="3" y1="6" x2="21" y2="6" />
               <line x1="3" y1="12" x2="21" y2="12" />
               <line x1="3" y1="18" x2="21" y2="18" />
             </svg>
           </button>
         )}
-        <div className="app-brand-badge">
+        <div className="app-brand-badge" data-tauri-drag-region>
           <BrandLogo theme={theme} size={22} />
-          <span>Z-Store</span>
+          <span data-tauri-drag-region>Z-Store</span>
         </div>
       </div>
 
-      <div className="titlebar-center">
+      <div className="titlebar-center" data-tauri-drag-region>
         <div
           className="search-box"
           ref={searchBoxRef}
@@ -208,7 +208,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
           onDoubleClick={(e) => e.stopPropagation()}
           style={{ position: 'relative' }}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
             <circle cx="11" cy="11" r="8" />
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
@@ -229,30 +229,14 @@ export const TitleBar: React.FC<TitleBarProps> = ({
               searchInputRef.current?.focus();
               searchInputRef.current?.select();
             }}
-            title="快捷键: Ctrl + K 激活搜索"
+            title="快捷键: ⌘K / Ctrl+K 激活搜索"
           >
-            Ctrl K
+            ⌘K
           </kbd>
 
           {/* 搜索历史记录浮层气泡 */}
           {isDropdownOpen && searchHistory.length > 0 && !localQuery && (
-            <div
-              style={{
-                position: 'absolute',
-                top: 'calc(100% + 6px)',
-                left: 0,
-                right: 0,
-                background: 'var(--bg-surface-flyout)',
-                backdropFilter: 'blur(28px) saturate(180%)',
-                WebkitBackdropFilter: 'blur(28px) saturate(180%)',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--border-highlight)',
-                boxShadow: 'var(--shadow-modal), 0 0 20px rgba(0, 0, 0, 0.25)',
-                padding: '12px 14px',
-                zIndex: 1000,
-                textAlign: 'left',
-              }}
-            >
+            <div className="search-history-dropdown">
               <div
                 style={{
                   display: 'flex',
@@ -264,7 +248,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
                 }}
               >
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
-                  <Clock size={12} />
+                  <Clock size={12} strokeWidth={1.5} />
                   <span>{t('titlebar.search_history')}</span>
                 </span>
                 <button
@@ -277,7 +261,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
                     cursor: 'pointer',
                     fontSize: '11px',
                     padding: '2px 6px',
-                    borderRadius: '4px',
+                    borderRadius: 'var(--radius-xs)',
                   }}
                   title={t('titlebar.clear_history_tooltip')}
                 >
@@ -294,14 +278,14 @@ export const TitleBar: React.FC<TitleBarProps> = ({
                       display: 'inline-flex',
                       alignItems: 'center',
                       gap: '6px',
-                      padding: '4px 10px',
-                      borderRadius: '12px',
-                      background: 'var(--bg-acrylic-thin, rgba(255, 255, 255, 0.06))',
-                      border: '1px solid var(--border-acrylic, rgba(255, 255, 255, 0.08))',
+                      padding: '3px 8px',
+                      borderRadius: 'var(--radius-xs)',
+                      background: 'var(--bg-acrylic-hover)',
+                      border: '1px solid var(--border-subtle)',
                       fontSize: '12px',
                       color: 'var(--text-primary)',
                       cursor: 'pointer',
-                      transition: 'all 0.15s ease',
+                      transition: 'border-color 0.1s ease',
                     }}
                   >
                     <span>{item}</span>
@@ -325,7 +309,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
         </div>
       </div>
 
-      <div className="titlebar-right">
+      <div className="titlebar-right" data-tauri-drag-region>
         {onToggleLanguage && (
           <button
             type="button"
@@ -336,7 +320,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
             title={t('titlebar.lang_toggle_tooltip')}
             aria-label={t('titlebar.lang_toggle_tooltip')}
           >
-            <Languages size={13} />
+            <Languages size={13} strokeWidth={1.5} />
             <span>{currentLang.startsWith('en') ? '中文' : 'EN'}</span>
           </button>
         )}
@@ -349,7 +333,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
           title={t('titlebar.theme_toggle')}
         >
           {theme === 'dark' ? (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <circle cx="12" cy="12" r="5" />
               <line x1="12" y1="1" x2="12" y2="3" />
               <line x1="12" y1="21" x2="12" y2="23" />
@@ -361,7 +345,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
               <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
             </svg>
           ) : (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
             </svg>
           )}

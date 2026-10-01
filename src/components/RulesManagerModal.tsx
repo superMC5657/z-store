@@ -131,7 +131,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
           className="modal-header"
           style={{
             padding: '18px 24px 14px',
-            borderBottom: '1px solid var(--border-acrylic)',
+            borderBottom: '1px solid var(--border-color)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
@@ -141,8 +141,8 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
         >
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Shield size={20} style={{ color: 'var(--brand-primary)' }} />
-              <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 600, color: 'var(--text-primary)' }}>
+              <Shield size={18} strokeWidth={1.5} style={{ color: 'var(--brand-primary)' }} />
+              <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 590, color: 'var(--text-primary)', letterSpacing: '-0.018em' }}>
                 {t('rules.title', { count: updateRules.length })}
               </h3>
             </div>
@@ -151,17 +151,17 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
             <button
               type="button"
               className={`btn-fluent ${isAddOpen ? 'btn-secondary' : 'btn-primary'}`}
-              style={{ fontSize: '12px', padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+              style={{ fontSize: '12px', padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               onClick={() => setIsAddOpen(!isAddOpen)}
             >
               {isAddOpen ? (
                 <>
-                  <ChevronUp size={13} />
+                  <ChevronUp size={14} strokeWidth={1.5} />
                   <span>{t('rules.collapse_add')}</span>
                 </>
               ) : (
                 <>
-                  <Plus size={13} />
+                  <Plus size={14} strokeWidth={1.5} />
                   <span>{t('rules.add_rule')}</span>
                 </>
               )}
@@ -205,15 +205,15 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
             style={{
               padding: '16px 24px',
               background: 'var(--card-bg-subtle, rgba(255, 255, 255, 0.03))',
-              borderBottom: '1px solid var(--border-acrylic)',
+              borderBottom: '1px solid var(--border-color)',
               display: 'flex',
               flexDirection: 'column',
               gap: '12px',
               animation: 'fadeIn 0.2s ease-out',
             }}
           >
-            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <Plus size={14} style={{ color: 'var(--brand-primary)' }} />
+            <div style={{ fontSize: '13px', fontWeight: 590, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px', letterSpacing: '-0.015em' }}>
+              <Plus size={14} strokeWidth={1.5} style={{ color: 'var(--brand-primary)' }} />
               <span>{t('rules.form_manual_title')}</span>
             </div>
 
@@ -319,7 +319,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
               <button
                 type="button"
                 className="btn-fluent btn-primary"
-                style={{ fontSize: '12px', padding: '6px 18px', fontWeight: 600 }}
+                style={{ fontSize: '12px', padding: '6px 18px', fontWeight: 510 }}
                 onClick={handleCreateRule}
                 disabled={isSubmitting}
               >
@@ -344,9 +344,9 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
           <div className="segmented-group" style={{ padding: '2px' }}>
             {[
               { id: 'all', label: t('rules.tab_all_short'), count: updateRules.length, icon: null },
-              { id: 'skipped', label: t('rules.tab_skipped_short'), count: updateRules.filter((r) => Boolean(r.skipped_version)).length, icon: <SkipForward size={11} /> },
-              { id: 'frozen', label: t('rules.tab_frozen_short'), count: updateRules.filter((r) => r.is_frozen).length, icon: <Lock size={11} /> },
-              { id: 'hidden', label: t('rules.tab_hidden_short'), count: updateRules.filter((r) => r.is_hidden).length, icon: <EyeOff size={11} /> },
+              { id: 'skipped', label: t('rules.tab_skipped_short'), count: updateRules.filter((r) => Boolean(r.skipped_version)).length, icon: <SkipForward size={11} strokeWidth={1.5} /> },
+              { id: 'frozen', label: t('rules.tab_frozen_short'), count: updateRules.filter((r) => r.is_frozen).length, icon: <Lock size={11} strokeWidth={1.5} /> },
+              { id: 'hidden', label: t('rules.tab_hidden_short'), count: updateRules.filter((r) => r.is_hidden).length, icon: <EyeOff size={11} strokeWidth={1.5} /> },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -393,17 +393,17 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
               }}
             >
               <ShieldAlert size={40} strokeWidth={1.5} style={{ color: 'var(--text-tertiary)', margin: '0 auto 12px' }} />
-              <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)', marginBottom: '16px' }}>
+              <div style={{ fontWeight: 590, fontSize: '14px', color: 'var(--text-primary)', marginBottom: '16px', letterSpacing: '-0.015em' }}>
                 {updateRules.length === 0 ? t('rules.empty_no_rules') : t('rules.empty_filtered')}
               </div>
               {updateRules.length === 0 && !isAddOpen && (
                 <button
                   type="button"
                   className="btn-fluent btn-primary"
-                  style={{ fontSize: '12px', padding: '7px 18px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                  style={{ fontSize: '12px', padding: '7px 18px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                   onClick={() => setIsAddOpen(true)}
                 >
-                  <Plus size={13} />
+                  <Plus size={14} strokeWidth={1.5} />
                   <span>{t('rules.add_first_rule')}</span>
                 </button>
               )}
@@ -442,7 +442,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                 >
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '180px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                      <span style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)' }}>
+                      <span style={{ fontWeight: 590, fontSize: '13px', color: 'var(--text-primary)', letterSpacing: '-0.015em' }}>
                         {matchedApp ? matchedApp.app_name : rule.app_id}
                       </span>
                       {matchedApp && (
@@ -464,7 +464,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                             gap: '3px',
                           }}
                         >
-                          <SkipForward size={10} />
+                          <SkipForward size={10} strokeWidth={1.5} />
                           <span>{t('rules.badge_skipped', { version: rule.skipped_version })}</span>
                         </span>
                       )}
@@ -482,7 +482,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                             gap: '3px',
                           }}
                         >
-                          <Lock size={10} />
+                          <Lock size={10} strokeWidth={1.5} />
                           <span>{t('rules.badge_frozen')}</span>
                         </span>
                       )}
@@ -500,7 +500,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                             gap: '3px',
                           }}
                         >
-                          <EyeOff size={10} />
+                          <EyeOff size={10} strokeWidth={1.5} />
                           <span>{t('rules.badge_hidden')}</span>
                         </span>
                       )}

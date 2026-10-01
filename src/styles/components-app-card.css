@@ -1,0 +1,235 @@
+/* components-app-card.css · Linear Design System Compact Row Card */
+/* 应用卡片 - Linear 紧凑行式卡片（Row Card） */
+.app-card {
+  background: var(--bg-acrylic-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 6px 12px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 40px;
+  cursor: pointer;
+  box-shadow: var(--shadow-rest);
+  transition: background 0.12s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.12s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  box-sizing: border-box;
+}
+
+.app-card:hover {
+  background: var(--bg-acrylic-hover);
+  border-color: var(--border-highlight);
+  box-shadow: var(--shadow-hover);
+}
+
+.app-card:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 1px;
+}
+
+[data-theme="dark"] .app-card {
+  background: var(--bg-acrylic-card);
+  border-color: var(--border-color);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+[data-theme="dark"] .app-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--border-highlight);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.app-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 1 260px;
+  min-width: 160px;
+  position: relative;
+}
+
+.app-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 590;
+  font-size: 13px;
+  color: #ffffff;
+  flex-shrink: 0;
+  box-shadow: none;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  transition: none;
+}
+
+.app-icon-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  display: block;
+}
+
+.readme-preview img,
+.readme-markdown-body img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-xs);
+  display: inline-block;
+  vertical-align: middle;
+  margin: 6px 0;
+  clear: both;
+}
+
+.readme-preview img[src*="badge"],
+.readme-preview img[src*="shields.io"],
+.readme-preview img[src*="workflows"],
+.readme-markdown-body img[src*="badge"],
+.readme-markdown-body img[src*="shields.io"],
+.readme-markdown-body img[src*="workflows"] {
+  box-shadow: none;
+  margin: 2px 3px;
+  border-radius: var(--radius-xs);
+}
+
+.app-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.app-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.app-name {
+  font-size: 13px;
+  font-weight: 590;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.015em;
+}
+
+.verified-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--brand-primary);
+}
+
+.app-owner {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.011em;
+}
+
+.btn-fav-card {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-xs);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: color 0.1s var(--ease-smooth), background 0.1s var(--ease-smooth);
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+
+.btn-fav-card:hover {
+  background: var(--bg-acrylic-hover);
+  color: #eab308;
+  border-color: var(--border-subtle);
+}
+
+.btn-fav-card.active {
+  color: #eab308;
+}
+
+.app-desc {
+  flex: 1 1 200px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-height: 0;
+  margin: 0;
+  max-width: 480px;
+  letter-spacing: -0.011em;
+}
+
+.app-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+  flex-shrink: 0;
+}
+
+.app-tags {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.app-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: ui-monospace, SFMono-Regular, "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 510;
+  letter-spacing: -0.011em;
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  background: var(--bg-acrylic-hover);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  line-height: 1.2;
+  white-space: nowrap;
+  user-select: none;
+  transition: border-color 0.1s var(--ease-smooth);
+}
+
+.app-tag-star {
+  color: var(--text-primary);
+  font-weight: 510;
+}
+
+.app-tag-license {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+}
+
+@media (max-width: 720px) {
+  .app-desc {
+    display: none;
+  }
+}

@@ -20,9 +20,9 @@
     </filter>
   </defs>
 
-  <!-- Dark Mode Frosted Acrylic Base -->
-  <rect x="36" y="36" width="440" height="440" rx="105" ry="105" fill="rgba(255,255,255,0.08)" />
-  <rect x="36" y="36" width="440" height="440" rx="105" ry="105" fill="none" stroke="url(#z_dark_rim)" stroke-width="2.5" />
+  <!-- Dark Mode Solid Opaque Base (#08090A) -->
+  <rect x="36" y="36" width="440" height="440" rx="105" ry="105" fill="#08090A" />
+  <rect x="36" y="36" width="440" height="440" rx="105" ry="105" fill="none" stroke="url(#z_dark_rim)" stroke-width="2.75" />
 
   <!-- Luminous Ribbon -->
   <g filter="url(#z_dark_glow)">

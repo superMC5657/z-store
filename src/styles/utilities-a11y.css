@@ -1,0 +1,10 @@
+/* utilities-a11y.css · 由 fluent.css 拆分而来（原文行 3287-EOF），只做搬运，未改选择器/值/顺序语义。 */
+/* 无障碍支持：遵循系统的减弱动态效果偏好 */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

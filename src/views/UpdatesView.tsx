@@ -116,7 +116,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
               style={{ fontSize: '13px', padding: '6px 14px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               title={t('updates.rules_tooltip')}
             >
-              <Shield size={13} />
+              <Shield size={14} strokeWidth={1.5} />
               <span>{t('updates.rules_btn')} {typeof updateRulesCount === 'number' && updateRulesCount > 0 ? `(${updateRulesCount})` : ''}</span>
             </button>
           )}
@@ -137,12 +137,12 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
             >
               {isChecking ? (
                 <>
-                  <RotateCcw size={13} className="icon-spin" />
+                  <RotateCcw size={14} strokeWidth={1.5} className="icon-spin" />
                   <span>{t('updates.checking')}</span>
                 </>
               ) : (
                 <>
-                  <Search size={13} />
+                  <Search size={14} strokeWidth={1.5} />
                   <span>{t('updates.check_updates')}</span>
                 </>
               )}
@@ -153,9 +153,9 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
               className="btn-fluent btn-primary"
               onClick={handleUpdateAll}
               disabled={isUpdatingAll || isChecking}
-              style={{ fontWeight: 600, fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              style={{ fontWeight: 510, fontSize: '13px', padding: '6px 14px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
             >
-              <DownloadCloud size={14} />
+              <DownloadCloud size={14} strokeWidth={1.5} />
               <span>{isUpdatingAll ? t('updates.updating_all') : t('updates.update_all', { count: updates.length })}</span>
             </button>
           )}
@@ -171,7 +171,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
             justifyContent: 'space-between',
             padding: '12px 18px',
             marginBottom: '16px',
-            borderRadius: 'var(--radius-md)',
+            borderRadius: 'var(--radius-lg)',
             background: 'var(--brand-subtle)',
             border: '1px solid var(--border-nav-active)',
             fontSize: '13px',
@@ -195,7 +195,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
             </span>
           </div>
           {checkProgress && checkProgress.total > 0 && (
-            <div style={{ fontSize: '12px', color: 'var(--brand-primary)', fontWeight: 600, flexShrink: 0 }}>
+            <div style={{ fontSize: '12px', color: 'var(--brand-primary)', fontWeight: 510, flexShrink: 0 }}>
               {Math.round((checkProgress.checked / checkProgress.total) * 100)}%
             </div>
           )}
@@ -211,13 +211,13 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
             gap: '8px',
             marginBottom: '16px',
             padding: '14px 18px',
-            borderRadius: 'var(--radius-md)',
+            borderRadius: 'var(--radius-lg)',
             background: 'var(--brand-subtle)',
             border: '1px solid var(--border-nav-active)',
           }}
         >
-          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--brand-primary)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-            <Eye size={14} />
+          <span style={{ fontSize: '13px', fontWeight: 590, color: 'var(--brand-primary)', display: 'inline-flex', alignItems: 'center', gap: '6px', letterSpacing: '-0.015em' }}>
+            <Eye size={14} strokeWidth={1.5} />
             <span>{t('updates.watch_updates_title', { count: watchNotifications.length })}</span>
           </span>
           {watchNotifications.map((n) => {
@@ -332,9 +332,10 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                         style={{
                           margin: '0 0 3px 0',
                           fontSize: '14px',
-                          fontWeight: 600,
+                          fontWeight: 590,
                           cursor: onOpenWatchedApp ? 'pointer' : 'default',
                           color: 'var(--text-primary)',
+                          letterSpacing: '-0.015em',
                         }}
                         onClick={() => onOpenWatchedApp && onOpenWatchedApp(item.app_id)}
                         title={onOpenWatchedApp ? t('app.view_details') : undefined}
@@ -344,7 +345,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
                         <span style={{ color: 'var(--text-tertiary)' }}>{t('updates.current_version', { version: item.current_version })}</span>
                         <span style={{ color: 'var(--text-tertiary)', fontSize: '11px' }}>➔</span>
-                        <span style={{ color: 'var(--brand-primary)', fontWeight: 600 }}>
+                        <span style={{ color: 'var(--brand-primary)', fontWeight: 510 }}>
                           {t('updates.latest_version', { version: item.latest_version })}
                         </span>
                       </div>
@@ -362,7 +363,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
 
                     <button
                       className="btn-fluent btn-sm btn-primary"
-                      style={{ height: '30px', boxSizing: 'border-box', padding: '0 14px', fontSize: '12.5px', fontWeight: 600 }}
+                      style={{ height: '30px', boxSizing: 'border-box', padding: '0 14px', fontSize: '12.5px', fontWeight: 510 }}
                       disabled={isThisUpdating || isUpdatingAll}
                       onClick={() => handleUpdate(item.app_id)}
                     >
@@ -409,8 +410,8 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                               triggerAnimatedAction(item.app_id, () => onIgnoreUpdate(item.app_id));
                             }}
                           >
-                            <BellOff size={14} style={{ color: 'var(--text-secondary)' }} />
-                            <div style={{ fontWeight: 600 }}>{t('updates.ignore_once')}</div>
+                            <BellOff size={14} strokeWidth={1.5} style={{ color: 'var(--text-secondary)' }} />
+                            <div style={{ fontWeight: 510 }}>{t('updates.ignore_once')}</div>
                           </button>
                         )}
 
@@ -421,8 +422,8 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                               triggerAnimatedAction(item.app_id, () => onSkipVersion(item.app_id, item.latest_version));
                             }}
                           >
-                            <SkipForward size={14} style={{ color: 'var(--brand-primary)' }} />
-                            <div style={{ fontWeight: 600 }}>{t('updates.skip_version')}</div>
+                            <SkipForward size={14} strokeWidth={1.5} style={{ color: 'var(--brand-primary)' }} />
+                            <div style={{ fontWeight: 510 }}>{t('updates.skip_version')}</div>
                           </button>
                         )}
 
@@ -433,8 +434,8 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                               triggerAnimatedAction(item.app_id, () => onFreezeVersion(item.app_id));
                             }}
                           >
-                            <Lock size={14} style={{ color: '#60a5fa' }} />
-                            <div style={{ fontWeight: 600 }}>{t('updates.lock_version')}</div>
+                            <Lock size={14} strokeWidth={1.5} style={{ color: '#60a5fa' }} />
+                            <div style={{ fontWeight: 510 }}>{t('updates.lock_version')}</div>
                           </button>
                         )}
 
@@ -446,8 +447,8 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                               triggerAnimatedAction(item.app_id, () => onHideApp(item.app_id));
                             }}
                           >
-                            <EyeOff size={14} style={{ color: '#f87171' }} />
-                            <div style={{ fontWeight: 600 }}>{t('updates.hide_app')}</div>
+                            <EyeOff size={14} strokeWidth={1.5} style={{ color: '#f87171' }} />
+                            <div style={{ fontWeight: 510 }}>{t('updates.hide_app')}</div>
                           </button>
                         )}
                       </FlyoutMenu>
@@ -462,7 +463,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                       padding: '14px 16px',
                       background: 'var(--bg-acrylic-thin)',
                       borderRadius: 'var(--radius-md)',
-                      border: '1px solid var(--border-acrylic)',
+                      border: '1px solid var(--border-color)',
                       width: '100%',
                       boxSizing: 'border-box',
                     }}

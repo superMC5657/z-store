@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, fireEvent, render, screen, act } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import i18n from '../i18n';
 import { CategoriesView } from './CategoriesView';
 import { InstalledView } from './InstalledView';
@@ -162,7 +162,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
       expect(screen.getByText('Uninstall')).toBeTruthy();
     });
 
-    it('switches between card and list view modes correctly', async () => {
+    it('renders installed list directly without card mode toggle', async () => {
       await i18n.changeLanguage('zh-CN');
       const { container } = render(
         <InstalledView
@@ -172,22 +172,17 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
         />,
       );
 
-      // 默认为卡片模式
-      expect(container.querySelector('.app-grid')).toBeTruthy();
-      expect(container.querySelector('.app-card')).toBeTruthy();
-      expect(container.querySelector('.installed-list-row')).toBeNull();
-
-      // 切换到列表模式
-      const listBtn = screen.getByRole('button', { name: /^列表$/ });
-      act(() => {
-        fireEvent.click(listBtn);
-      });
-
+      // 仅渲染列表容器，无卡片网格
       expect(container.querySelector('.app-grid')).toBeNull();
       expect(container.querySelector('.installed-list-container')).toBeTruthy();
       expect(container.querySelector('.installed-list-row')).toBeTruthy();
       expect(screen.getByText('Demo App')).toBeTruthy();
       expect(screen.getByText('启动')).toBeTruthy();
+
+      // 无视图模式切换按钮与分段控制器
+      expect(screen.queryByRole('button', { name: /^卡片$/ })).toBeNull();
+      expect(screen.queryByRole('button', { name: /^列表$/ })).toBeNull();
+      expect(container.querySelector('.segmented-group')).toBeNull();
     });
   });
 

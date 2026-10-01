@@ -15,6 +15,7 @@ import {
   Check,
   Download,
   Languages,
+  Sliders,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
@@ -171,7 +172,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       await onSelectMirror('direct');
       onUpdateSetting('active_mirror', 'direct');
       setProxySavedFeedback(t('settings.proxy_saved_direct'));
-      triggerChangeFeedback('proxy', '✓ ' + t('settings.proxy_active_direct'));
+      triggerChangeFeedback('proxy', t('settings.proxy_active_direct'));
     } else {
       let finalUrl = trimmed;
       if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
@@ -181,7 +182,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       await onSelectMirror(finalUrl);
       onUpdateSetting('active_mirror', finalUrl);
       setProxySavedFeedback(t('settings.proxy_saved_custom', { url: finalUrl }));
-      triggerChangeFeedback('proxy', '✓ ' + t('settings.save_proxy'));
+      triggerChangeFeedback('proxy', t('settings.save_proxy'));
     }
     setTimeout(() => setProxySavedFeedback(null), 3500);
   };
@@ -194,41 +195,41 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       dark: t('settings.theme_dark'),
       system: t('settings.theme_system'),
     };
-    triggerChangeFeedback('theme', `✓ ${labelMap[themeMode]}`);
+    triggerChangeFeedback('theme', labelMap[themeMode]);
     onSetTheme(themeMode);
   };
 
   const handleSelectLanguage = (lng: 'zh-CN' | 'en-US') => {
-    triggerChangeFeedback('language', lng === 'zh-CN' ? '✓ 简体中文' : '✓ English');
+    triggerChangeFeedback('language', lng === 'zh-CN' ? '简体中文' : 'English');
     onUpdateSetting('language', lng);
   };
 
   const handleSelectUiScale = (scale: '90' | '100' | '110' | '125') => {
-    triggerChangeFeedback('ui_scale', `✓ ${scale}%`);
+    triggerChangeFeedback('ui_scale', `${scale}%`);
     onUpdateSetting('ui_scale', scale);
   };
 
   const handleSelectFontSize = (id: string, label: string) => {
-    triggerChangeFeedback('font_size', `✓ ${label}`);
+    triggerChangeFeedback('font_size', label);
     onUpdateSetting('font_size', id as any);
   };
 
 
   const handleSelectUpdateFrequency = (id: string, label: string) => {
-    triggerChangeFeedback('update_frequency', `✓ ${label}`);
+    triggerChangeFeedback('update_frequency', label);
     onUpdateSetting('update_frequency', id as any);
   };
 
   // FR-6.2: 关注更新的应用内提醒频率（每次启动 / 每天），经 user_settings 持久化
   const handleSelectWatchFrequency = (id: 'startup' | 'daily', label: string) => {
-    triggerChangeFeedback('watch_notify_frequency', `✓ ${label}`);
+    triggerChangeFeedback('watch_notify_frequency', label);
     onUpdateSetting('watch_notify_frequency', id);
   };
 
 
   const handleExportJson = () => {
     onExportAppsJson();
-    triggerChangeFeedback('export', '✓ ' + t('settings.export_apps'));
+    triggerChangeFeedback('export', t('settings.export_apps'));
   };
 
   // P3-3 信任阻尼：切换至非默认（自定义）收录源将替换受信任的目录，
@@ -245,7 +246,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     onUpdateSetting('catalog_source_url', pendingCatalogUrl);
     setIsCatalogSourceConfirming(false);
     setCatalogUrlSaved(true);
-    triggerChangeFeedback('catalog_source', '✓ ' + t('settings.catalog_sync_title'));
+    triggerChangeFeedback('catalog_source', t('settings.catalog_sync_title'));
     setTimeout(() => setCatalogUrlSaved(false), 2500);
   };
 
@@ -253,18 +254,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     <div className="settings-view view-entrance">
       <div className="section-header">
         <h3 className="section-title">
-          <Settings size={18} />
+          <Settings size={16} strokeWidth={1.5} />
           <span>{t('settings.title')}</span>
         </h3>
       </div>
 
       <div className="settings-group">
+        <div className="settings-group-title">
+          <Sliders size={15} strokeWidth={1.5} />
+          <span>{t('settings.appearance', { defaultValue: '外观与个性化' })}</span>
+        </div>
         <div className={`settings-row ${highlightRow === 'theme' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 600 }}>{t('settings.theme_mode')}</span>
+              <span style={{ fontWeight: 510 }}>{t('settings.theme_mode')}</span>
               {activeNotice?.key === 'theme' && (
-                <span className="setting-applied-badge">{activeNotice.text}</span>
+                <span className="setting-applied-badge"><Check size={11} strokeWidth={1.5} style={{ color: 'currentColor' }} /><span>{activeNotice.text}</span></span>
               )}
             </div>
           </div>
@@ -274,7 +279,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               onClick={() => handleSelectTheme('light')}
               style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
             >
-              <Sun size={13} />
+              <Sun size={13} strokeWidth={1.5} />
               <span>{t('settings.theme_light')}</span>
             </button>
             <button
@@ -282,7 +287,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               onClick={() => handleSelectTheme('dark')}
               style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
             >
-              <Moon size={13} />
+              <Moon size={13} strokeWidth={1.5} />
               <span>{t('settings.theme_dark')}</span>
             </button>
             <button
@@ -290,7 +295,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               onClick={() => handleSelectTheme('system')}
               style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
             >
-              <Laptop size={13} />
+              <Laptop size={13} strokeWidth={1.5} />
               <span>{t('settings.theme_system')}</span>
             </button>
           </div>
@@ -299,9 +304,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <div className={`settings-row ${highlightRow === 'language' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 600 }}>{t('settings.language_title')}</span>
+              <span style={{ fontWeight: 510 }}>{t('settings.language_title')}</span>
               {activeNotice?.key === 'language' && (
-                <span className="setting-applied-badge">{activeNotice.text}</span>
+                <span className="setting-applied-badge"><Check size={11} strokeWidth={1.5} style={{ color: 'currentColor' }} /><span>{activeNotice.text}</span></span>
               )}
             </div>
           </div>
@@ -311,7 +316,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               onClick={() => handleSelectLanguage('zh-CN')}
               style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
             >
-              <Languages size={13} />
+              <Languages size={13} strokeWidth={1.5} />
               <span>简体中文</span>
             </button>
             <button
@@ -319,7 +324,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               onClick={() => handleSelectLanguage('en-US')}
               style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
             >
-              <Globe size={13} />
+              <Globe size={13} strokeWidth={1.5} />
               <span>English</span>
             </button>
           </div>
@@ -328,9 +333,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <div className={`settings-row ${highlightRow === 'ui_scale' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 600 }}>{t('settings.ui_scale')}</span>
+              <span style={{ fontWeight: 510 }}>{t('settings.ui_scale')}</span>
               {activeNotice?.key === 'ui_scale' && (
-                <span className="setting-applied-badge">{activeNotice.text}</span>
+                <span className="setting-applied-badge"><Check size={11} strokeWidth={1.5} style={{ color: 'currentColor' }} /><span>{activeNotice.text}</span></span>
               )}
             </div>
           </div>
@@ -350,9 +355,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <div className={`settings-row ${highlightRow === 'font_size' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 600 }}>{t('settings.font_size')}</span>
+              <span style={{ fontWeight: 510 }}>{t('settings.font_size')}</span>
               {activeNotice?.key === 'font_size' && (
-                <span className="setting-applied-badge">{activeNotice.text}</span>
+                <span className="setting-applied-badge"><Check size={11} strokeWidth={1.5} style={{ color: 'currentColor' }} /><span>{activeNotice.text}</span></span>
               )}
             </div>
           </div>
@@ -383,12 +388,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </div>
 
       <div className="settings-group">
+        <div className="settings-group-title">
+          <RefreshCw size={15} strokeWidth={1.5} />
+          <span>{t('settings.updates_rules', { defaultValue: '更新与规则' })}</span>
+        </div>
         <div className={`settings-row ${highlightRow === 'update_frequency' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 600 }}>{t('settings.update_frequency')}</span>
+              <span style={{ fontWeight: 510 }}>{t('settings.update_frequency')}</span>
               {activeNotice?.key === 'update_frequency' && (
-                <span className="setting-applied-badge">{activeNotice.text}</span>
+                <span className="setting-applied-badge"><Check size={11} strokeWidth={1.5} style={{ color: 'currentColor' }} /><span>{activeNotice.text}</span></span>
               )}
             </div>
           </div>
@@ -413,9 +422,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <div className={`settings-row ${highlightRow === 'watch_notify_frequency' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 600 }}>{t('settings.watch_notify_frequency')}</span>
+              <span style={{ fontWeight: 510 }}>{t('settings.watch_notify_frequency')}</span>
               {activeNotice?.key === 'watch_notify_frequency' && (
-                <span className="setting-applied-badge">{activeNotice.text}</span>
+                <span className="setting-applied-badge"><Check size={11} strokeWidth={1.5} style={{ color: 'currentColor' }} /><span>{activeNotice.text}</span></span>
               )}
             </div>
           </div>
@@ -437,7 +446,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
         <div className="settings-row" style={{ alignItems: 'center' }}>
           <div className="settings-row-info">
-            <span style={{ fontWeight: 600 }}>{t('settings.rules_title')}</span>
+            <span style={{ fontWeight: 510 }}>{t('settings.rules_title')}</span>
           </div>
           <button
             type="button"
@@ -445,17 +454,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             onClick={onOpenRules}
             style={{ fontSize: '12px', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}
           >
-            <Shield size={13} />
+            <Shield size={13} strokeWidth={1.5} />
             <span>{t('settings.rules_btn')}</span>
             {updateRulesCount > 0 && (
               <span
                 style={{
                   fontSize: '11px',
                   padding: '1px 7px',
-                  borderRadius: '10px',
+                  borderRadius: 'var(--radius-pill)',
                   background: 'var(--brand-primary)',
-                  color: '#000',
-                  fontWeight: 600,
+                  color: '#ffffff',
+                  fontWeight: 510,
                 }}
               >
                 {updateRulesCount}
@@ -466,12 +475,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </div>
 
       <div className="settings-group">
+        <div className="settings-group-title">
+          <FolderOpen size={15} strokeWidth={1.5} />
+          <span>{t('settings.storage_paths', { defaultValue: '存储与安装' })}</span>
+        </div>
         <div className={`settings-row ${highlightRow === 'download_dir' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 600 }}>{t('settings.download_dir')}</span>
+              <span style={{ fontWeight: 510 }}>{t('settings.download_dir')}</span>
               {activeNotice?.key === 'download_dir' && (
-                <span className="setting-applied-badge">{activeNotice.text}</span>
+                <span className="setting-applied-badge"><Check size={11} strokeWidth={1.5} style={{ color: 'currentColor' }} /><span>{activeNotice.text}</span></span>
               )}
             </div>
           </div>
@@ -491,14 +504,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   const picked = await api.selectFolder(settings.download_dir, t('settings.select_download_dir'));
                   if (picked) {
                     onUpdateSetting('download_dir', picked);
-                    triggerChangeFeedback('download_dir', '✓ ' + t('settings.download_dir'));
+                    triggerChangeFeedback('download_dir', t('settings.download_dir'));
                   }
                 } catch {
                   /* 用户取消了文件夹选择器 */
                 }
               }}
             >
-              <FolderOpen size={13} />
+              <FolderOpen size={13} strokeWidth={1.5} />
               <span>{t('settings.browse')}</span>
             </button>
           </div>
@@ -507,9 +520,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <div className={`settings-row ${highlightRow === 'portable_dir' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 600 }}>{t('settings.portable_dir')}</span>
+              <span style={{ fontWeight: 510 }}>{t('settings.portable_dir')}</span>
               {activeNotice?.key === 'portable_dir' && (
-                <span className="setting-applied-badge">{activeNotice.text}</span>
+                <span className="setting-applied-badge"><Check size={11} strokeWidth={1.5} style={{ color: 'currentColor' }} /><span>{activeNotice.text}</span></span>
               )}
             </div>
           </div>
@@ -529,14 +542,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   const picked = await api.selectFolder(settings.portable_dir, t('settings.select_portable_dir'));
                   if (picked) {
                     onUpdateSetting('portable_dir', picked);
-                    triggerChangeFeedback('portable_dir', '✓ ' + t('settings.portable_dir'));
+                    triggerChangeFeedback('portable_dir', t('settings.portable_dir'));
                   }
                 } catch {
                   /* 用户取消了文件夹选择器 */
                 }
               }}
             >
-              <FolderOpen size={13} />
+              <FolderOpen size={13} strokeWidth={1.5} />
               <span>{t('settings.browse')}</span>
             </button>
           </div>
@@ -544,6 +557,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </div>
 
       <div className="settings-group">
+        <div className="settings-group-title">
+          <Globe size={15} strokeWidth={1.5} />
+          <span>{t('settings.network_data', { defaultValue: '网络与数据' })}</span>
+        </div>
         <div id="settings-account">
           <OAuthAccountCard />
         </div>
@@ -551,12 +568,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <div className={`settings-row ${highlightRow === 'proxy' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-              <span style={{ fontWeight: 600 }}>{t('settings.proxy_title')}</span>
+              <span style={{ fontWeight: 510 }}>{t('settings.proxy_title')}</span>
               {proxyTestResult && (
                 <span
                   style={{
                     fontSize: '12px',
-                    fontWeight: 600,
+                    fontWeight: 510,
                     color: !proxyTestResult.success ? '#ef4444' : proxyTestResult.latency_ms < 400 ? '#10b981' : proxyTestResult.latency_ms < 1000 ? '#f59e0b' : '#ea580c',
                     display: 'flex',
                     alignItems: 'center',
@@ -574,7 +591,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </span>
               )}
               {activeNotice?.key === 'proxy' && (
-                <span className="setting-applied-badge">{activeNotice.text}</span>
+                <span className="setting-applied-badge"><Check size={11} strokeWidth={1.5} style={{ color: 'currentColor' }} /><span>{activeNotice.text}</span></span>
               )}
             </div>
           </div>
@@ -598,7 +615,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </button>
             <button
               type="button"
-              className="btn-fluent btn-primary"
+              className="btn-fluent btn-secondary"
               onClick={handleSaveProxy}
             >
               {t('settings.save_proxy')}
@@ -610,9 +627,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
             <div className="settings-row-info">
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontWeight: 600 }}>{t('settings.catalog_sync_title')}</span>
+                <span style={{ fontWeight: 510 }}>{t('settings.catalog_sync_title')}</span>
                 {(activeNotice?.key === 'catalog_source' || activeNotice?.key === 'catalog_sync') && (
-                  <span className="setting-applied-badge">{activeNotice.text}</span>
+                  <span className="setting-applied-badge"><Check size={11} strokeWidth={1.5} style={{ color: 'currentColor' }} /><span>{activeNotice.text}</span></span>
                 )}
               </div>
             </div>
@@ -620,10 +637,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <button
                 type="button"
                 className="btn-fluent btn-secondary"
-                style={{ fontSize: '12px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                style={{ fontSize: '12px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
                 onClick={() => setShowAdvancedSource(!showAdvancedSource)}
               >
-                {showAdvancedSource ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                {showAdvancedSource ? <ChevronUp size={14} strokeWidth={1.5} /> : <ChevronDown size={14} strokeWidth={1.5} />}
                 <span>{showAdvancedSource ? t('settings.catalog_collapse_btn') : t('settings.catalog_custom_btn')}</span>
               </button>
               <button
@@ -631,9 +648,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 className="btn-fluent btn-primary"
                 onClick={handleSyncCatalog}
                 disabled={isSyncingCatalog}
-                style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                style={{ fontSize: '12px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
               >
-                {isSyncingCatalog ? <RotateCcw size={12} className="icon-spin" /> : <RefreshCw size={12} />}
+                {isSyncingCatalog ? <RotateCcw size={14} strokeWidth={1.5} className="icon-spin" /> : <RefreshCw size={14} strokeWidth={1.5} />}
                 <span>{isSyncingCatalog ? t('settings.catalog_syncing') : t('settings.catalog_sync_now')}</span>
               </button>
             </div>
@@ -648,7 +665,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 padding: '8px 12px',
                 borderRadius: 'var(--radius-sm)',
                 background: 'var(--bg-acrylic-thin)',
-                border: '1px solid var(--border-acrylic)',
+                border: '1px solid var(--border-color)',
               }}
             >
               <input
@@ -667,7 +684,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   <button
                     type="button"
                     className="btn-fluent"
-                    style={{ fontSize: '12px', padding: '0 12px', height: '32px', display: 'flex', alignItems: 'center', gap: '4px', background: '#ef4444', color: '#fff', fontWeight: 600, whiteSpace: 'nowrap' }}
+                    style={{ fontSize: '12px', padding: '0 12px', height: '32px', display: 'flex', alignItems: 'center', gap: '4px', background: '#ef4444', color: '#fff', fontWeight: 510, whiteSpace: 'nowrap' }}
                     onClick={handleSaveCatalogSource}
                   >
                     <span>{t('settings.catalog_confirm_switch')}</span>
@@ -684,7 +701,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               ) : (
                 <button
                   type="button"
-                  className="btn-fluent btn-primary"
+                  className="btn-fluent btn-secondary"
                   style={{ fontSize: '12px', padding: '0 14px', height: '32px', display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' }}
                   onClick={handleSaveCatalogSource}
                 >
@@ -695,7 +712,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
           )}
           {isCatalogSourceConfirming && (
-            <span style={{ fontSize: '12px', color: '#ef4444', fontWeight: 600 }}>
+            <span style={{ fontSize: '12px', color: '#ef4444', fontWeight: 510 }}>
               {t('settings.catalog_warn_custom')}
             </span>
           )}
@@ -709,23 +726,27 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </div>
 
       <div className="settings-group">
+        <div className="settings-group-title">
+          <Download size={15} strokeWidth={1.5} />
+          <span>{t('settings.data_management', { defaultValue: '数据管理与迁移' })}</span>
+        </div>
         <div className={`settings-row ${highlightRow === 'export' ? 'row-highlight' : ''}`}>
           <div className="settings-row-info">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 600 }}>{t('settings.export_apps')}</span>
+              <span style={{ fontWeight: 510 }}>{t('settings.export_apps')}</span>
               {activeNotice?.key === 'export' && (
-                <span className="setting-applied-badge">{activeNotice.text}</span>
+                <span className="setting-applied-badge"><Check size={11} strokeWidth={1.5} style={{ color: 'currentColor' }} /><span>{activeNotice.text}</span></span>
               )}
             </div>
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
             <button
-              className="btn-fluent btn-primary"
+              className="btn-fluent btn-secondary"
               onClick={handleExportJson}
               style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
               disabled={installedCount === 0}
             >
-              <Download size={13} />
+              <Download size={13} strokeWidth={1.5} />
               <span>{t('settings.export_btn')}</span>
             </button>
           </div>

@@ -126,7 +126,7 @@ export const DataBackupRow: React.FC = () => {
   return (
     <div className="settings-row">
       <div className="settings-row-info">
-        <span style={{ fontWeight: 600 }}>{t('backup.title')}</span>
+        <span style={{ fontWeight: 510 }}>{t('backup.title')}</span>
         {feedback ? (
           <span
             style={{
@@ -137,7 +137,7 @@ export const DataBackupRow: React.FC = () => {
               gap: '6px',
             }}
           >
-            {isError ? <AlertTriangle size={13} /> : <CheckCircle2 size={13} />}
+            {isError ? <AlertTriangle size={13} strokeWidth={1.5} /> : <CheckCircle2 size={13} strokeWidth={1.5} />}
             <span>{feedback}</span>
           </span>
         ) : null}
@@ -149,16 +149,16 @@ export const DataBackupRow: React.FC = () => {
           disabled={isExporting}
           style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
         >
-          {isExporting ? <RotateCcw size={12} className="icon-spin" /> : <Upload size={12} />}
+          {isExporting ? <RotateCcw size={13} strokeWidth={1.5} className="icon-spin" /> : <Upload size={13} strokeWidth={1.5} />}
           <span>{isExporting ? t('backup.exporting') : t('backup.export')}</span>
         </button>
         <button
-          className="btn-fluent btn-primary"
+          className="btn-fluent btn-secondary"
           onClick={() => fileInputRef.current?.click()}
           disabled={isImporting}
           style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
         >
-          {isImporting ? <RotateCcw size={12} className="icon-spin" /> : <Download size={12} />}
+          {isImporting ? <RotateCcw size={13} strokeWidth={1.5} className="icon-spin" /> : <Download size={13} strokeWidth={1.5} />}
           <span>{isImporting ? t('backup.importing') : t('backup.import')}</span>
         </button>
         <input

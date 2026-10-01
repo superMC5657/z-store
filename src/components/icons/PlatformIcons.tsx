@@ -41,7 +41,7 @@ const LinuxIcon: React.FC<IconProps> = ({ size = 14, className, style }) => (
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
-    strokeWidth="1.75"
+    strokeWidth="1.5"
     strokeLinecap="round"
     strokeLinejoin="round"
     className={className}
@@ -64,7 +64,7 @@ const AndroidIcon: React.FC<IconProps> = ({ size = 14, className, style }) => (
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
-    strokeWidth="1.75"
+    strokeWidth="1.5"
     strokeLinecap="round"
     strokeLinejoin="round"
     className={className}
@@ -86,7 +86,7 @@ const IosIcon: React.FC<IconProps> = ({ size = 14, className, style }) => (
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
-    strokeWidth="1.75"
+    strokeWidth="1.5"
     strokeLinecap="round"
     strokeLinejoin="round"
     className={className}

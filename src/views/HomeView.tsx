@@ -80,7 +80,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
       <div className="home-view">
         <div className="empty-state-card" style={{ marginTop: '40px' }}>
           <Search size={44} strokeWidth={1.5} style={{ color: 'var(--text-tertiary)', marginBottom: '14px' }} />
-          <h4 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: 600 }}>{t('home.empty_title')}</h4>
+          <h4 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: 590, letterSpacing: '-0.018em' }}>{t('home.empty_title')}</h4>
           <p style={{ color: 'var(--text-secondary)', fontSize: '14px', maxWidth: '540px', lineHeight: '1.6', margin: '0 auto 16px auto' }}>
             {t('home.empty_desc')}
           </p>
@@ -118,7 +118,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
   return (
     <div className="home-view view-entrance">
-      {/* 置顶亚克力横幅（PRD 5.1 与第 3 节规范） */}
+      {/* 置顶推荐横幅（Linear 去彩单色展台） */}
       {heroApp && (
         <div
           className="hero-banner"
@@ -165,7 +165,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             <div className="hero-actions">
               <button
                 className={`btn-fluent ${installedIds.has(heroApp.id) ? 'btn-secondary' : 'btn-primary'}`}
-                style={{ padding: '9px 22px', fontSize: '13.5px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                style={{ padding: '8px 20px', fontSize: '13px', fontWeight: 510, display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                 disabled={installingIds?.has(heroApp.id)}
                 onClick={(e) => {
                   e.stopPropagation();

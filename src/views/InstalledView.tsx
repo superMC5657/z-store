@@ -7,8 +7,6 @@ import {
   Download,
   Search,
   ScanLine,
-  LayoutGrid,
-  List,
   FolderOpen,
   Lock,
   EyeOff,
@@ -18,7 +16,7 @@ import {
 import { AppSummary, InstalledApp, UpdateRule } from '../types';
 import { FlyoutMenu } from '../components/FlyoutMenu';
 import { AppIcon } from '../components/AppIcon';
-import { formatAppDate, getMethodBadge, resolveInstalledIconInfo, resolveInstalledAppName } from '../utils/appHelper';
+import { formatAppDate, resolveInstalledIconInfo, resolveInstalledAppName } from '../utils/appHelper';
 
 interface InstalledViewProps {
   installedApps: InstalledApp[];
@@ -280,7 +278,6 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
   isRefreshing = false,
 }) => {
   const { t, i18n } = useTranslation();
-  const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
   const [confirmingUninstallId, setConfirmingUninstallId] = useState<string | null>(null);
   const [confirmingUnmanageId, setConfirmingUnmanageId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -329,53 +326,53 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
     <div className="installed-view view-entrance">
       <div className="section-header">
         <h3 className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Package size={18} style={{ color: 'var(--brand-primary)' }} />
+          <Package size={16} strokeWidth={1.5} style={{ color: 'var(--brand-primary)' }} />
           <span>{t('installed.title', { count: installedApps.length })}</span>
         </h3>
         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
           {onScanSystemApps && (
             <button
-              className="btn-fluent btn-sm btn-primary"
-              style={{ height: '30px', padding: '0 12px', fontSize: '12px', gap: '6px', fontWeight: 600 }}
+              className="btn-fluent btn-primary"
+              style={{ height: '30px', padding: '0 12px', fontSize: '12px', gap: '6px', fontWeight: 510 }}
               onClick={onScanSystemApps}
               title={t('installed.scan_local_tooltip')}
             >
-              <ScanLine size={13} />
+              <ScanLine size={14} strokeWidth={1.5} />
               <span>{t('installed.scan_local_apps')}</span>
             </button>
           )}
 
           {onRefresh && (
             <button
-              className="btn-fluent btn-sm btn-secondary"
-              style={{ height: '30px', padding: '0 10px', fontSize: '12px', gap: '5px' }}
+              className="btn-fluent btn-secondary"
+              style={{ height: '30px', padding: '0 10px', fontSize: '12px', gap: '6px' }}
               onClick={onRefresh}
               disabled={isRefreshing}
               title={t('installed.refresh_status_tooltip')}
             >
-              <RotateCcw size={13} className={isRefreshing ? 'icon-spin' : ''} />
+              <RotateCcw size={14} strokeWidth={1.5} className={isRefreshing ? 'icon-spin' : ''} />
               <span>{isRefreshing ? t('installed.refreshing') : t('installed.refresh_status')}</span>
             </button>
           )}
 
           {onOpenRules && (
             <button
-              className="btn-fluent btn-sm btn-secondary"
-              style={{ height: '30px', padding: '0 10px', fontSize: '12px', gap: '5px' }}
+              className="btn-fluent btn-secondary"
+              style={{ height: '30px', padding: '0 10px', fontSize: '12px', gap: '6px' }}
               onClick={onOpenRules}
               title={t('installed.rules_tooltip')}
             >
-              <Shield size={13} />
+              <Shield size={14} strokeWidth={1.5} />
               <span>{t('installed.rules')}</span>
               {updateRules.length > 0 && (
                 <span
                   style={{
                     fontSize: '10px',
                     padding: '0 5px',
-                    borderRadius: '8px',
+                    borderRadius: 'var(--radius-pill)',
                     background: 'var(--brand-primary)',
                     color: '#fff',
-                    fontWeight: 700,
+                    fontWeight: 510,
                     lineHeight: '14px',
                   }}
                 >
@@ -387,47 +384,16 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
 
           {onExportAppsJson && (
             <button
-              className="btn-fluent btn-sm btn-secondary"
-              style={{ height: '30px', padding: '0 10px', fontSize: '12px', gap: '5px' }}
+              className="btn-fluent btn-secondary"
+              style={{ height: '30px', padding: '0 10px', fontSize: '12px', gap: '6px' }}
               onClick={onExportAppsJson}
               title={t('installed.export_list_tooltip')}
               disabled={installedApps.length === 0}
             >
-              <Download size={13} />
+              <Download size={14} strokeWidth={1.5} />
               <span>{t('installed.export_list')}</span>
             </button>
           )}
-
-          <div
-            style={{
-              width: '1px',
-              height: '16px',
-              background: 'var(--border-acrylic)',
-              margin: '0 2px',
-              opacity: 0.7,
-            }}
-          />
-
-          <div className="segmented-group" style={{ height: '30px', padding: '2px', boxSizing: 'border-box' }}>
-            <button
-              className={`segmented-item ${viewMode === 'card' ? 'active' : ''}`}
-              style={{ height: '24px', minHeight: '24px', padding: '0 8px', fontSize: '11.5px', gap: '4px' }}
-              onClick={() => setViewMode('card')}
-              title={t('installed.view_card_tooltip')}
-            >
-              <LayoutGrid size={12} />
-              <span>{t('installed.view_card')}</span>
-            </button>
-            <button
-              className={`segmented-item ${viewMode === 'list' ? 'active' : ''}`}
-              style={{ height: '24px', minHeight: '24px', padding: '0 8px', fontSize: '11.5px', gap: '4px' }}
-              onClick={() => setViewMode('list')}
-              title={t('installed.view_list_tooltip')}
-            >
-              <List size={12} />
-              <span>{t('installed.view_list')}</span>
-            </button>
-          </div>
         </div>
       </div>
 
@@ -445,216 +411,14 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
               onClick={onRefresh}
               disabled={isRefreshing}
             >
-              <RotateCcw size={13} className={isRefreshing ? 'icon-spin' : ''} />
+              <RotateCcw size={14} strokeWidth={1.5} className={isRefreshing ? 'icon-spin' : ''} />
               <span>{isRefreshing ? t('installed.refreshing_list') : t('installed.refresh_list')}</span>
             </button>
           )}
         </div>
-      ) : viewMode === 'card' ? (
-        <div className="app-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
-          {installedApps.map((app) => {
-            const badge = getMethodBadge(app.install_method, t);
-            const rule = updateRules.find((r) => r.app_id.toLowerCase() === app.app_id.toLowerCase());
-            const isFrozen = Boolean(rule?.is_frozen);
-            const isHidden = Boolean(rule?.is_hidden);
-            const isMenuOpen = activeMenuId === app.app_id;
-            const iconInfo = resolveInstalledIconInfo(app, apps);
-            const appDisplayName = resolveInstalledAppName(app, apps);
-
-            return (
-              <div key={app.app_id} className="app-card" style={{ padding: '18px', zIndex: isMenuOpen ? 50 : 1 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
-                    <div
-                      style={{ cursor: onOpenDetail ? 'pointer' : 'default', flexShrink: 0 }}
-                      onClick={() => onOpenDetail && onOpenDetail(app.app_id)}
-                      title={onOpenDetail ? t('app.view_details') : undefined}
-                    >
-                      <AppIcon
-                        icon={iconInfo.icon}
-                        name={appDisplayName}
-                        appId={app.app_id}
-                        iconBg={iconInfo.iconBg}
-                        className="app-icon"
-                        size={46}
-                      />
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <h4
-                        style={{
-                          margin: '0 0 4px 0',
-                          fontSize: '15px',
-                          cursor: onOpenDetail ? 'pointer' : 'default',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                        onClick={() => onOpenDetail && onOpenDetail(app.app_id)}
-                        title={onOpenDetail ? t('app.view_details') : undefined}
-                      >
-                        {appDisplayName}
-                      </h4>
-                      <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
-                        {t('installed.version_and_date', { version: app.version, date: formatAppDate(app.installed_at, i18n.language) })}
-                      </span>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
-                    {isFrozen && (
-                      <span
-                        style={{
-                          fontSize: '10px',
-                          padding: '2px 7px',
-                          borderRadius: '10px',
-                          background: 'rgba(59, 130, 246, 0.15)',
-                          color: '#60a5fa',
-                          fontWeight: 600,
-                          border: '1px solid rgba(59, 130, 246, 0.3)',
-                        }}
-                        title={t('installed.locked_tooltip')}
-                      >
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                          <Lock size={10} />
-                          <span>{t('installed.locked')}</span>
-                        </span>
-                      </span>
-                    )}
-                    {isHidden && (
-                      <span
-                        style={{
-                          fontSize: '10px',
-                          padding: '2px 7px',
-                          borderRadius: '10px',
-                          background: 'rgba(239, 68, 68, 0.15)',
-                          color: '#f87171',
-                          fontWeight: 600,
-                          border: '1px solid rgba(239, 68, 68, 0.3)',
-                        }}
-                        title={t('installed.hidden_tooltip')}
-                      >
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                          <EyeOff size={10} />
-                          <span>{t('installed.hidden')}</span>
-                        </span>
-                      </span>
-                    )}
-                    <span
-                      style={{
-                        fontSize: '11px',
-                        padding: '2px 8px',
-                        borderRadius: '4px',
-                        background: 'var(--brand-subtle)',
-                        color: badge.color,
-                        fontWeight: 500,
-                      }}
-                    >
-                      {badge.label}
-                    </span>
-                  </div>
-                </div>
-
-                <div style={{ marginTop: '12px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <input
-                      type="text"
-                      readOnly
-                      value={app.install_path}
-                      placeholder={t('installed.path_not_detected')}
-                      style={{
-                        flex: 1,
-                        height: '28px',
-                        boxSizing: 'border-box',
-                        fontSize: '11.5px',
-                        padding: '0 8px',
-                        background: 'var(--bg-acrylic-input, rgba(0, 0, 0, 0.25))',
-                        border: '1px solid var(--border-acrylic)',
-                        borderRadius: 'var(--radius-sm)',
-                        color: app.install_path ? 'var(--text-secondary)' : 'var(--text-tertiary)',
-                        fontFamily: 'Consolas, Monaco, "Courier New", monospace',
-                        outline: 'none',
-                        cursor: 'text',
-                        userSelect: 'all',
-                      }}
-                      title={app.install_path || t('installed.path_not_detected')}
-                      onClick={(e) => (e.target as HTMLInputElement).select()}
-                    />
-                    {app.install_path ? (
-                      <button
-                        className="btn-fluent btn-secondary"
-                        style={{
-                          height: '28px',
-                          boxSizing: 'border-box',
-                          padding: '0 10px',
-                          fontSize: '11.5px',
-                          whiteSpace: 'nowrap',
-                          color: copiedId === app.app_id ? '#4ade80' : 'var(--text-secondary)',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                        onClick={() => handleCopyPath(app.app_id, app.install_path)}
-                        title={t('installed.copy_path')}
-                      >
-                        {copiedId === app.app_id ? t('installed.copied') : t('installed.copy_path')}
-                      </button>
-                    ) : (
-                      <button
-                        className="btn-fluent btn-secondary"
-                        style={{
-                          height: '28px',
-                          boxSizing: 'border-box',
-                          padding: '0 10px',
-                          fontSize: '11.5px',
-                          whiteSpace: 'nowrap',
-                          color: 'var(--brand-primary)',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          justifyContent: 'center',
-                        }}
-                        onClick={() => onScanSystemApps && onScanSystemApps()}
-                        title={t('installed.rescan_tooltip')}
-                      >
-                        <Search size={11} />
-                        <span>{t('installed.rescan')}</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <div style={{ marginTop: '16px', width: '100%' }}>
-                  <InstalledItemActions
-                    app={app}
-                    isFrozen={isFrozen}
-                    isHidden={isHidden}
-                    isMenuOpen={isMenuOpen}
-                    isUninstallingLoading={uninstallingAppIds?.has(app.app_id)}
-                    confirmingUninstallId={confirmingUninstallId}
-                    confirmingUnmanageId={confirmingUnmanageId}
-                    onTriggerUninstall={handleTriggerUninstall}
-                    onTriggerUnmanage={handleTriggerUnmanage}
-                    onCancelConfirm={() => {
-                      setConfirmingUninstallId(null);
-                      setConfirmingUnmanageId(null);
-                    }}
-                    onLaunch={onLaunch}
-                    onToggleMenu={(id, e) => {
-                      e.stopPropagation();
-                      setActiveMenuId(activeMenuId === id ? null : id);
-                    }}
-                    onCloseMenu={() => setActiveMenuId(null)}
-                    onToggleRuleFrozen={onToggleRuleFrozen}
-                    onToggleRuleHidden={onToggleRuleHidden}
-                  />
-                </div>
-              </div>
-            );
-          })}
-        </div>
       ) : (
         <div className="installed-list-container">
           {installedApps.map((app) => {
-            const badge = getMethodBadge(app.install_method, t);
             const rule = updateRules.find((r) => r.app_id.toLowerCase() === app.app_id.toLowerCase());
             const isFrozen = Boolean(rule?.is_frozen);
             const isHidden = Boolean(rule?.is_hidden);
@@ -689,10 +453,11 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flexWrap: 'wrap' }}>
                     <span
                       style={{
-                        fontWeight: 600,
+                        fontWeight: 590,
                         fontSize: '14px',
                         cursor: onOpenDetail ? 'pointer' : 'default',
                         color: 'var(--text-primary)',
+                        letterSpacing: '-0.015em',
                       }}
                       onClick={() => onOpenDetail && onOpenDetail(app.app_id)}
                       title={onOpenDetail ? t('app.view_details') : undefined}
@@ -709,14 +474,14 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                           background: 'rgba(59, 130, 246, 0.15)',
                           border: '1px solid rgba(59, 130, 246, 0.35)',
                           color: 'var(--brand-primary)',
-                          fontWeight: 600,
+                          fontWeight: 510,
                           display: 'inline-flex',
                           alignItems: 'center',
                           gap: '3px',
                           flexShrink: 0,
                         }}
                       >
-                        <Lock size={10} />
+                        <Lock size={10} strokeWidth={1.5} />
                         <span>{t('installed.locked')}</span>
                       </span>
                     )}
@@ -729,29 +494,17 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                           background: 'rgba(239, 68, 68, 0.15)',
                           border: '1px solid rgba(239, 68, 68, 0.35)',
                           color: '#ef4444',
-                          fontWeight: 600,
+                          fontWeight: 510,
                           display: 'inline-flex',
                           alignItems: 'center',
                           gap: '3px',
                           flexShrink: 0,
                         }}
                       >
-                        <EyeOff size={10} />
+                        <EyeOff size={10} strokeWidth={1.5} />
                         <span>{t('installed.hidden')}</span>
                       </span>
                     )}
-                    <span
-                      style={{
-                        fontSize: '10px',
-                        padding: '1px 6px',
-                        borderRadius: '4px',
-                        background: 'var(--brand-subtle)',
-                        color: badge.color,
-                        flexShrink: 0,
-                      }}
-                    >
-                      {badge.label}
-                    </span>
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
                     <span

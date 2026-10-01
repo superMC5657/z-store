@@ -134,7 +134,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
               />
               <div style={{ flex: 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                  <h3 style={{ margin: 0, fontSize: '20px', fontWeight: 700 }}>
+                  <h3 style={{ margin: 0, fontSize: '20px', fontWeight: 590, letterSpacing: '-0.018em' }}>
                     {profile.name || profile.login}
                   </h3>
                   <span style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>
@@ -200,8 +200,8 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
         {/* 弹窗内容区：代码仓库列表 */}
         <div className="modal-body" style={{ padding: '24px 28px', maxHeight: '55vh', overflowY: 'auto' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h4 style={{ margin: 0, fontSize: '15px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <FolderOpen size={16} />
+            <h4 style={{ margin: 0, fontSize: '15px', fontWeight: 590, display: 'flex', alignItems: 'center', gap: '6px', letterSpacing: '-0.015em' }}>
+              <FolderOpen size={15} strokeWidth={1.5} />
               <span>开源项目矩阵 ({profile?.repos.length || 0})</span>
             </h4>
             <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
@@ -229,16 +229,16 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                       display: 'flex',
                       justifyContent: 'space-between',
                       alignItems: 'center',
-                      padding: '14px 18px',
-                      borderRadius: 'var(--radius-md, 8px)',
-                      background: 'var(--bg-acrylic-thin, rgba(255, 255, 255, 0.04))',
-                      border: '1px solid var(--border-acrylic, rgba(255, 255, 255, 0.08))',
-                      transition: 'background 0.2s ease, border-color 0.2s ease',
+                      padding: '12px 16px',
+                      borderRadius: 'var(--radius-lg)',
+                      background: 'var(--bg-acrylic-card)',
+                      border: '1px solid var(--border-color)',
+                      transition: 'background 0.1s var(--ease-smooth), border-color 0.1s var(--ease-smooth)',
                     }}
                   >
                     <div style={{ flex: 1, marginRight: '16px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                        <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>
+                        <span style={{ fontWeight: 590, fontSize: '14px', color: 'var(--text-primary)', letterSpacing: '-0.015em' }}>
                           {repo.name}
                         </span>
                         {repo.in_catalog && (
@@ -246,17 +246,17 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                             style={{
                               fontSize: '11px',
                               padding: '2px 6px',
-                              borderRadius: '4px',
+                              borderRadius: 'var(--radius-xs)',
                               background: 'var(--brand-subtle)',
                               color: 'var(--brand-primary)',
-                              fontWeight: 600,
+                              fontWeight: 510,
                             }}
                           >
                             ✓ Z-Store 已收录
                           </span>
                         )}
                         {repo.latest_release_tag && (
-                          <span style={{ fontSize: '11.5px', color: 'var(--brand-primary)', fontWeight: 600 }}>
+                          <span style={{ fontSize: '11.5px', color: 'var(--brand-primary)', fontWeight: 510 }}>
                             {repo.latest_release_tag}
                           </span>
                         )}
@@ -304,10 +304,12 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                               className="btn-fluent btn-secondary"
                               style={{
                                 fontSize: '12px',
-                                padding: '6px 14px',
-                                fontWeight: 600,
-                                color: 'var(--brand-primary)',
-                                borderColor: 'var(--border-nav-active)',
+                                padding: '5px 12px',
+                                fontWeight: 510,
+                                color: '#4CB782',
+                                background: 'rgba(76, 183, 130, 0.10)',
+                                border: '1px solid rgba(76, 183, 130, 0.25)',
+                                borderRadius: 'var(--radius-xs)',
                               }}
                               onClick={() => {
                                 onClose();
@@ -320,7 +322,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                           ) : (
                             <button
                               className="btn-fluent btn-primary"
-                              style={{ fontSize: '12px', padding: '6px 14px', fontWeight: 600 }}
+                              style={{ fontSize: '12px', padding: '6px 14px', fontWeight: 510 }}
                               disabled={isInstalling}
                               onClick={() => handleInstall(repo.id)}
                             >

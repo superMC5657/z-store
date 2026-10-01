@@ -7,7 +7,7 @@ interface BrandLogoProps {
 }
 
 export const BrandLogo: React.FC<BrandLogoProps> = ({
-  theme = 'light',
+  theme = 'dark',
   size = 22,
   className = '',
 }) => {
@@ -27,7 +27,7 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
       title={`Z-Store (${isDark ? '暗夜模式' : '明亮模式'})`}
     >
       {isDark ? (
-        // D-轻4: 晶透亚克力（深色模式：磨砂半透亚克力）
+        // 深色模式：暗夜实底（#08090A）+ 高光描边与紫蓝极光双环
         <svg
           viewBox="0 0 512 512"
           width="100%"
@@ -55,7 +55,7 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
               <feDropShadow dx="0" dy="6" stdDeviation="12" floodColor="#5865f2" floodOpacity="0.45" />
             </filter>
           </defs>
-          <rect x="36" y="36" width="440" height="440" rx="105" ry="105" fill="rgba(255,255,255,0.08)" />
+          <rect x="36" y="36" width="440" height="440" rx="105" ry="105" fill="#08090A" />
           <rect x="36" y="36" width="440" height="440" rx="105" ry="105" fill="none" stroke="url(#bl_dark_rim)" strokeWidth="3" />
           <g filter="url(#bl_dark_glow)">
             <path
@@ -89,10 +89,10 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
           style={{ transition: 'all 0.3s ease' }}
         >
           <defs>
-            <linearGradient id="bl_light_bg" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#ffffff" />
-              <stop offset="50%" stopColor="#f8fafc" />
-              <stop offset="100%" stopColor="#f0f9ff" />
+            <linearGradient id="bl_light_rim" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="rgba(255, 255, 255, 0.95)" />
+              <stop offset="40%" stopColor="rgba(56, 189, 248, 0.35)" />
+              <stop offset="100%" stopColor="rgba(2, 132, 199, 0.22)" />
             </linearGradient>
             <linearGradient id="bl_light_r1" x1="0%" y1="0%" x2="100%" y2="100%">
               <stop offset="0%" stopColor="#38bdf8" />
@@ -111,9 +111,8 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
               <feDropShadow dx="0" dy="5" stdDeviation="10" floodColor="#0284c7" floodOpacity="0.22" />
             </filter>
           </defs>
-          <rect x="36" y="36" width="440" height="440" rx="105" ry="105" fill="url(#bl_light_bg)" filter="url(#bl_light_shadow)" />
-          <rect x="36" y="36" width="440" height="440" rx="105" ry="105" fill="none" stroke="rgba(255,255,255,0.95)" strokeWidth="3" />
-          <rect x="38" y="38" width="436" height="436" rx="103" ry="103" fill="none" stroke="rgba(2,132,199,0.16)" strokeWidth="1.5" />
+          <rect x="36" y="36" width="440" height="440" rx="105" ry="105" fill="#FFFFFF" filter="url(#bl_light_shadow)" />
+          <rect x="36" y="36" width="440" height="440" rx="105" ry="105" fill="none" stroke="url(#bl_light_rim)" strokeWidth="3" />
           <g filter="url(#bl_light_glow)">
             <path
               d="M 152 168 C 152 116 220 116 264 116 L 316 116 C 368 116 368 176 320 226 L 196 348 C 148 396 200 396 248 396 L 360 396"

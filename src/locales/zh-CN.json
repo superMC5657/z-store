@@ -199,8 +199,7 @@
     "cat_ops_name": "极客运维",
     "cat_ops_desc": "GPU 终端, 极客编辑器, 容器平台",
     "cat_games_name": "休闲游戏",
-    "cat_games_desc": "复古模拟器, 模拟经营, 像素沙盒",
-    "cat_external_name": "跨平台开源"
+    "cat_games_desc": "复古模拟器, 模拟经营, 像素沙盒"
   },
   "installed": {
     "title": "已安装应用 ({{count}})",
@@ -213,10 +212,6 @@
     "export_list_tooltip": "导出已安装软件清单为 JSON 文件",
     "scan_local_apps": "扫描本地应用",
     "scan_local_tooltip": "扫描系统已安装软件并加入管理",
-    "view_card": "卡片",
-    "view_card_tooltip": "卡片视图",
-    "view_list": "列表",
-    "view_list_tooltip": "紧凑列表",
     "empty_title": "暂无已安装应用",
     "empty_desc": "前往「精选发现」或「分类浏览」探索应用，也可点击上方扫描添加本地已安装应用。",
     "refresh_list": "刷新列表",
@@ -250,18 +245,10 @@
     "unmanage_tooltip": "从列表中移除管理记录（保留本机应用与数据）",
     "version_and_date": "版本 {{version}} · 安装于 {{date}}",
     "path_prefix": "路径: {{path}}",
-    "path_not_detected": "未检测到安装路径",
     "path_not_detected_hint": "未检测到安装路径 (启动时将自动嗅探修复)",
-    "copy_path": "复制路径",
     "copy": "复制",
     "copied": "✓ 已复制",
-    "rescan": "重新探测",
-    "rescan_tooltip": "重新探测安装路径",
-    "method_msi": "MSI 官方安装",
-    "method_setup_exe": "EXE 安装向导",
-    "method_portable": "便携绿色版",
-    "method_import": "本地导入",
-    "method_system": "系统管理"
+    "rescan": "重新探测"
   },
   "home": {
     "empty_title": "当前设备筛选下暂无收录应用",

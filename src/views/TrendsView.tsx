@@ -85,7 +85,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
           <TrendingUp size={18} />
           <span>{t('trends.title')}</span>
         </h3>
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div className="segmented-group" style={{ padding: '2px', boxSizing: 'border-box' }}>
           {(['day', 'week', 'month', 'all'] as TimeRange[]).map((tab) => {
             const labels: Record<TimeRange, string> = {
               day: t('trends.tab_day'),
@@ -96,7 +96,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
             return (
               <button
                 key={tab}
-                className={`btn-fluent btn-sm ${timeRange === tab ? 'btn-primary' : 'btn-secondary'}`}
+                className={`segmented-item ${timeRange === tab ? 'active' : ''}`}
+                style={{ height: '24px', minHeight: '24px', padding: '0 10px', fontSize: '12px' }}
                 onClick={() => setTimeRange(tab)}
               >
                 {labels[tab]}
@@ -118,7 +119,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
               borderRadius: 'var(--radius-md)',
             }}
           >
-            <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+            <div style={{ fontSize: '15px', fontWeight: 590, color: 'var(--text-secondary)', marginBottom: '6px', letterSpacing: '-0.015em' }}>
               {t('trends.empty_title')}
             </div>
             <div style={{ fontSize: '12px', marginBottom: '16px' }}>
@@ -156,12 +157,13 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
             <div
               style={{
                 fontSize: '15px',
-                fontWeight: 800,
+                fontWeight: 590,
                 width: '32px',
                 flexShrink: 0,
                 color: getRankBadgeColor(index),
                 fontVariantNumeric: 'tabular-nums',
                 textAlign: 'center',
+                letterSpacing: '-0.018em',
               }}
             >
               #{index + 1}
@@ -173,12 +175,12 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
               appId={app.id}
               iconBg={app.icon_bg}
               className="app-icon"
-              size={40}
+              size={36}
               style={{
-                width: '40px',
-                height: '40px',
-                borderRadius: '10px',
-                fontSize: '17px',
+                width: '36px',
+                height: '36px',
+                borderRadius: 'var(--radius-sm)',
+                fontSize: '15px',
                 marginRight: '12px',
                 flexShrink: 0,
               }}
@@ -186,12 +188,12 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
 
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontWeight: 600, fontSize: '14px' }}>{displayName}</span>
+                <span style={{ fontWeight: 590, fontSize: '14px', letterSpacing: '-0.015em' }}>{displayName}</span>
                 {app.is_verified && (
                   <span className="verified-badge" title={t('app.verified_badge')}>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
                       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" fill="var(--brand-primary)" />
-                      <path d="m9 12 2 2 4-4" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="m9 12 2 2 4-4" stroke="#ffffff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </span>
                 )}

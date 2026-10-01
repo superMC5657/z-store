@@ -1,0 +1,385 @@
+/* components-buttons.css · Linear Design System Buttons (Achromatic Monochrome) */
+/* Linear 去彩单色通用按钮系统 - 28-32px / 6px 圆角 / 510 字重 / press scale 0.97 / 120ms 缓动 */
+.btn-fluent {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  min-height: 28px;
+  max-height: 32px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 510;
+  letter-spacing: -0.011em;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.12s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.12s cubic-bezier(0.16, 1, 0.3, 1),
+              color 0.12s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.12s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.btn-fluent svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.5;
+  flex-shrink: 0;
+}
+
+.btn-fluent:active {
+  transform: scale(0.97);
+}
+
+.btn-fluent:focus-visible {
+  outline: 2px solid var(--border-highlight);
+  outline-offset: 1px;
+}
+
+.btn-fluent.btn-sm {
+  height: 26px;
+  min-height: 24px;
+  max-height: 28px;
+  padding: 0 8px;
+  font-size: 12px;
+  gap: 4px;
+}
+
+/* 主按钮：去彩单色（Light: #08090A 白字 / Dark: #F7F8F8 黑字）30px 高 6px 圆角 + 顶部中性 inset 高光 + press scale 0.97 */
+.btn-primary {
+  height: 30px;
+  min-height: 28px;
+  padding: 0 12px;
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-text);
+  border: 1px solid var(--btn-primary-border);
+  box-shadow: var(--btn-primary-inset), 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.btn-primary:hover {
+  background: var(--btn-primary-hover);
+  border-color: var(--btn-primary-border);
+  color: var(--btn-primary-text);
+}
+
+.btn-primary:active {
+  background: var(--btn-primary-active);
+  transform: scale(0.97);
+}
+
+[data-theme="dark"] .btn-primary {
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-text);
+  border: 1px solid var(--btn-primary-border);
+  box-shadow: var(--btn-primary-inset), 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="dark"] .btn-primary:hover {
+  background: var(--btn-primary-hover);
+  color: var(--btn-primary-text);
+}
+
+[data-theme="dark"] .btn-primary:active {
+  background: var(--btn-primary-active);
+}
+
+/* 次级与幽灵按钮：Ghost 透明底 / secondary 文字 / hover 微透 / 28-32px / 6px 圆角 */
+.btn-secondary {
+  height: 30px;
+  min-height: 28px;
+  background: var(--btn-secondary-bg);
+  color: var(--btn-secondary-text);
+  border: 1px solid var(--btn-secondary-border);
+  box-shadow: var(--shadow-rest);
+}
+
+.btn-secondary:hover {
+  background: var(--btn-secondary-hover);
+  color: var(--btn-secondary-hover-text);
+  border-color: var(--btn-secondary-hover-border);
+}
+
+.btn-secondary:active {
+  background: var(--btn-secondary-active);
+  transform: scale(0.97);
+}
+
+[data-theme="dark"] .btn-secondary {
+  background: var(--btn-secondary-bg);
+  color: var(--btn-secondary-text);
+  border: 1px solid var(--btn-secondary-border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+[data-theme="dark"] .btn-secondary:hover {
+  background: var(--btn-secondary-hover);
+  color: var(--btn-secondary-hover-text);
+  border-color: var(--btn-secondary-hover-border);
+}
+
+[data-theme="dark"] .btn-secondary:active {
+  background: var(--btn-secondary-active);
+}
+
+/* 已安装应用操作按钮组 */
+.installed-actions-group {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 6px;
+}
+
+.installed-actions-group.compact {
+  justify-content: flex-end;
+  width: auto;
+  gap: 4px;
+}
+
+.installed-actions-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.installed-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.installed-actions-group.compact .installed-actions-right {
+  gap: 4px;
+}
+
+/* 统一动作按钮 */
+.installed-action-btn {
+  height: 28px !important;
+  min-height: 28px !important;
+  max-height: 28px !important;
+  box-sizing: border-box !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-size: 12px !important;
+  font-weight: 510 !important;
+  letter-spacing: -0.011em !important;
+  line-height: 1 !important;
+  padding: 0 10px !important;
+  border-radius: var(--radius-sm) !important;
+  white-space: nowrap !important;
+  flex-shrink: 0 !important;
+  margin: 0 !important;
+  cursor: pointer;
+  border: 1px solid var(--btn-secondary-border);
+  background: var(--btn-secondary-bg);
+  color: var(--text-primary);
+  transition: background 0.12s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.12s cubic-bezier(0.16, 1, 0.3, 1),
+              color 0.12s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+}
+
+.installed-action-btn:hover {
+  background: var(--btn-secondary-hover);
+  border-color: var(--btn-secondary-hover-border);
+}
+
+.installed-action-btn:active {
+  transform: scale(0.97) !important;
+}
+
+.installed-action-btn:disabled {
+  opacity: 0.45 !important;
+  cursor: not-allowed !important;
+  pointer-events: none;
+}
+
+.installed-action-btn.btn-loading {
+  opacity: 0.85 !important;
+  cursor: wait !important;
+  pointer-events: none;
+  background: var(--status-danger-bg) !important;
+  color: var(--status-danger) !important;
+  border: 1px solid rgba(239, 68, 68, 0.25) !important;
+}
+
+.installed-action-btn.compact {
+  height: 26px !important;
+  min-height: 26px !important;
+  max-height: 26px !important;
+  padding: 0 8px !important;
+  font-size: 11.5px !important;
+}
+
+.installed-action-btn.btn-icon-only {
+  width: 28px !important;
+  min-width: 28px !important;
+  max-width: 28px !important;
+  padding: 0 !important;
+}
+
+.installed-action-btn.btn-icon-only.compact {
+  width: 26px !important;
+  min-width: 26px !important;
+  max-width: 26px !important;
+  padding: 0 !important;
+}
+
+/* 卸载/危险按钮弱化 - 纯净 Ghost 样式 + 中性红 subtle hover */
+.btn-installed-uninstall {
+  background: transparent !important;
+  color: var(--text-tertiary) !important;
+  border: 1px solid transparent !important;
+  padding: 0 8px !important;
+  transition: background 0.12s cubic-bezier(0.16, 1, 0.3, 1),
+              color 0.12s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.12s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.12s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.btn-installed-uninstall:hover {
+  background: var(--status-danger-bg) !important;
+  color: var(--status-danger) !important;
+  border-color: rgba(239, 68, 68, 0.25) !important;
+}
+
+.btn-installed-uninstall:active {
+  transform: scale(0.97) !important;
+}
+
+.btn-installed-uninstall.compact {
+  padding: 0 6px !important;
+}
+
+/* 确认二次操作状态按钮 - 中性红 subtle / 中性黄 subtle */
+.installed-action-btn.btn-confirm-danger {
+  background: var(--status-danger-bg) !important;
+  color: var(--status-danger) !important;
+  border: 1px solid rgba(239, 68, 68, 0.30) !important;
+}
+
+.installed-action-btn.btn-confirm-danger:hover {
+  background: rgba(239, 68, 68, 0.18) !important;
+  color: var(--status-danger) !important;
+}
+
+.installed-action-btn.btn-confirm-warning {
+  background: var(--status-warning-bg) !important;
+  color: var(--status-warning) !important;
+  border: 1px solid rgba(245, 165, 36, 0.30) !important;
+}
+
+.installed-action-btn.btn-confirm-warning:hover {
+  background: rgba(245, 165, 36, 0.18) !important;
+}
+
+.installed-action-btn.btn-confirm-cancel {
+  background: transparent !important;
+  color: var(--text-secondary) !important;
+  border: 1px solid var(--border-color) !important;
+  padding: 0 8px !important;
+}
+
+.installed-action-btn.btn-confirm-cancel:hover {
+  background: var(--bg-acrylic-hover) !important;
+  color: var(--text-primary) !important;
+}
+
+/* 核心启动按钮（使用去彩单色 Primary） */
+.installed-action-btn.btn-primary {
+  height: 28px !important;
+  min-height: 28px !important;
+  background: var(--btn-primary-bg) !important;
+  color: var(--btn-primary-text) !important;
+  border: 1px solid var(--btn-primary-border) !important;
+  box-shadow: var(--btn-primary-inset) !important;
+}
+
+.installed-action-btn.btn-primary.compact {
+  height: 26px !important;
+  min-height: 26px !important;
+  max-height: 26px !important;
+}
+
+.installed-action-btn.btn-primary:hover {
+  background: var(--btn-primary-hover) !important;
+  color: var(--btn-primary-text) !important;
+}
+
+.installed-action-btn.btn-primary:active {
+  background: var(--btn-primary-active) !important;
+  transform: scale(0.97) !important;
+}
+
+/* 获取/安装按钮（Ghost 边框按钮 28px 6px，图标 stroke 1.5） */
+.btn-install {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--btn-secondary-border);
+  cursor: pointer;
+  box-shadow: none;
+  transition: background 0.12s cubic-bezier(0.16, 1, 0.3, 1),
+              color 0.12s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.12s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-weight: 510;
+  letter-spacing: -0.011em;
+  line-height: 1;
+  box-sizing: border-box;
+  height: 28px;
+  min-height: 28px;
+  max-height: 28px;
+  min-width: 56px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.btn-install svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 1.5;
+}
+
+.btn-install:hover {
+  background: var(--btn-secondary-hover);
+  color: var(--text-primary);
+  border-color: var(--btn-secondary-hover-border);
+}
+
+.btn-install:active {
+  transform: scale(0.97);
+}
+
+/* 成功态（已安装）：subtle 灰绿，无高饱和填充 */
+.btn-install.btn-installed {
+  background: var(--status-success-bg);
+  color: var(--status-success);
+  border-color: rgba(76, 183, 130, 0.25);
+  box-shadow: none;
+}
+
+.btn-install.btn-installed:hover {
+  background: rgba(76, 183, 130, 0.18);
+  border-color: rgba(76, 183, 130, 0.35);
+  color: var(--status-success);
+}

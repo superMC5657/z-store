@@ -199,8 +199,7 @@
     "cat_ops_name": "DevOps & CLI",
     "cat_ops_desc": "GPU terminals, CLI editors, and container engines",
     "cat_games_name": "Casual Games",
-    "cat_games_desc": "Retro emulators, management sims, and sandbox games",
-    "cat_external_name": "Open Source"
+    "cat_games_desc": "Retro emulators, management sims, and sandbox games"
   },
   "installed": {
     "title": "Installed Apps ({{count}})",
@@ -213,10 +212,6 @@
     "export_list_tooltip": "Export installed apps list as JSON",
     "scan_local_apps": "Scan Local Apps",
     "scan_local_tooltip": "Scan system installed software and add to management",
-    "view_card": "Card",
-    "view_card_tooltip": "Card view",
-    "view_list": "List",
-    "view_list_tooltip": "Compact list view",
     "empty_title": "No Installed Apps",
     "empty_desc": "Go to Featured or Categories to explore apps, or click above to scan and manage local installations.",
     "refresh_list": "Refresh List",
@@ -250,18 +245,10 @@
     "unmanage_tooltip": "Remove from management list (keeps app & data intact)",
     "version_and_date": "Version {{version}} · Installed on {{date}}",
     "path_prefix": "Path: {{path}}",
-    "path_not_detected": "Installation path not detected",
     "path_not_detected_hint": "Path not detected (will auto-detect on launch)",
-    "copy_path": "Copy Path",
     "copy": "Copy",
     "copied": "✓ Copied",
-    "rescan": "Rescan",
-    "rescan_tooltip": "Rescan installation path",
-    "method_msi": "MSI Installer",
-    "method_setup_exe": "EXE Setup Wizard",
-    "method_portable": "Portable App",
-    "method_import": "Local Import",
-    "method_system": "System Managed"
+    "rescan": "Rescan"
   },
   "home": {
     "empty_title": "No Apps Under Current Platform Filter",

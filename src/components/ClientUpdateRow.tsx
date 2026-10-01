@@ -143,35 +143,35 @@ export const ClientUpdateRow: React.FC = () => {
       case 'checking':
         return (
           <button className="btn-fluent btn-sm btn-secondary" disabled style={{ gap: '6px' }}>
-            <RotateCcw size={13} className="icon-spin" />
+            <RotateCcw size={14} strokeWidth={1.5} className="icon-spin" />
             <span>{t('client_update.checking')}</span>
           </button>
         );
       case 'available':
         return (
           <button className="btn-fluent btn-sm btn-primary" onClick={handleDownloadAndInstall} style={{ gap: '6px' }}>
-            <Download size={13} />
+            <Download size={14} strokeWidth={1.5} />
             <span>{t('client_update.download_and_install', { version: phase.version })}</span>
           </button>
         );
       case 'downloading':
         return (
           <button className="btn-fluent btn-sm btn-secondary" disabled style={{ gap: '6px' }}>
-            <RotateCcw size={13} className="icon-spin" />
+            <RotateCcw size={14} strokeWidth={1.5} className="icon-spin" />
             <span>{phase.percent !== null ? t('client_update.downloading_percent', { percent: phase.percent }) : t('client_update.downloading_btn')}</span>
           </button>
         );
       case 'ready':
         return (
           <button className="btn-fluent btn-sm btn-primary" onClick={handleRestart} style={{ gap: '6px' }}>
-            <RotateCcw size={13} />
+            <RotateCcw size={14} strokeWidth={1.5} />
             <span>{t('client_update.restart_btn')}</span>
           </button>
         );
       default:
         return (
-          <button className="btn-fluent btn-sm btn-primary" onClick={handleCheck} style={{ gap: '6px' }}>
-            <Search size={13} />
+          <button className="btn-fluent btn-sm btn-secondary" onClick={handleCheck} style={{ gap: '6px' }}>
+            <Search size={14} strokeWidth={1.5} />
             <span>{t('client_update.check_btn')}</span>
           </button>
         );
@@ -242,7 +242,7 @@ export const ClientUpdateRow: React.FC = () => {
   return (
     <div className="settings-row">
       <div className="settings-row-info">
-        <span style={{ fontWeight: 600 }}>{t('client_update.title')}</span>
+        <span style={{ fontWeight: 510 }}>{t('client_update.title')}</span>
         {renderStatus()}
       </div>
       {renderAction()}

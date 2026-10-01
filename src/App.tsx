@@ -983,16 +983,6 @@ export const App: React.FC = () => {
 
   return (
     <div className="app-window">
-      {/* 用于毛玻璃折射效果的动态环境极光背景光斑 */}
-      <div className="aurora-ambient-glow" aria-hidden="true">
-        <div className="aurora-blob aurora-blob-1" />
-        <div className="aurora-blob aurora-blob-2" />
-        <div className="aurora-blob aurora-blob-3" />
-      </div>
-
-      {/* 真实亚克力微晶磨砂噪点覆层 */}
-      <div className="acrylic-noise-overlay" aria-hidden="true" />
-
       {/* 顶部标题栏 */}
       <TitleBar
         searchQuery={searchQuery}

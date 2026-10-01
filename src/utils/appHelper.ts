@@ -70,29 +70,6 @@ export function formatBytes(bytes?: number): string {
   return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i] || 'MB'}`;
 }
 
-interface MethodBadge {
-  label: string;
-  color: string;
-}
-
-/**
- * 获取安装方式标签与对应主题色彩
- */
-export function getMethodBadge(method: string, t?: (key: any) => string): MethodBadge {
-  switch (method) {
-    case 'msi':
-      return { label: t ? t('installed.method_msi') : 'MSI 官方安装', color: 'var(--brand-primary)' };
-    case 'setup_exe':
-      return { label: t ? t('installed.method_setup_exe') : 'EXE 安装向导', color: '#0284c7' };
-    case 'portable_zip':
-      return { label: t ? t('installed.method_portable') : '便携绿色版', color: '#10b981' };
-    case 'system_import':
-      return { label: t ? t('installed.method_import') : '本地导入', color: '#8b5cf6' };
-    default:
-      return { label: t ? t('installed.method_system') : '系统管理', color: 'var(--text-tertiary)' };
-  }
-}
-
 /**
  * 获取应用展示名称：直接返回英文原名 name。
  */
