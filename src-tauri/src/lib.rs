@@ -2,6 +2,7 @@ pub mod commands;
 pub mod config;
 pub mod db;
 pub mod deeplink;
+pub mod error;
 pub mod forge;
 pub mod github;
 pub mod installer;
@@ -11,6 +12,8 @@ pub mod models;
 pub mod oauth;
 pub mod scanner;
 pub mod z_log;
+
+pub use error::{AppError, AppResult};
 
 use db::Database;
 use github::CatalogService;
@@ -24,6 +27,37 @@ pub struct AppState {
     pub mirror: Mutex<MirrorManager>,
     pub github_token: Mutex<Option<String>>,
     pub http: reqwest::Client,
+}
+
+/// 集中统一秒级 Unix 时间戳，替换各模块手写 SystemTime::now() 样板。
+pub fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// 集中统一毫秒级 Unix 时间戳。
+pub fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// 计算数据的 SHA-256 哈希并返回小写十六进制字符串。
+pub fn sha256_digest_hex(data: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    hex::encode(hasher.finalize())
+}
+
+/// 校验实际 SHA-256 哈希值与期望哈希值是否匹配（大小写不敏感且去除首尾空白）。
+pub fn verify_sha256_str(actual_hex: &str, expected_hex: &str) -> bool {
+    let exp = expected_hex.trim();
+    let act = actual_hex.trim();
+    !exp.is_empty() && !act.is_empty() && act.eq_ignore_ascii_case(exp)
 }
 
 impl AppState {

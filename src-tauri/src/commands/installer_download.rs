@@ -1,7 +1,7 @@
 use crate::models::{DownloadProgressPayload, ReleaseAsset};
 use crate::AppState;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, State};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DownloadAssetResult {
@@ -67,27 +67,23 @@ pub(crate) async fn download_asset_with_fallback(
     match download_res {
         Ok(ok) => Ok(ok),
         Err(e) => {
-            let is_github = asset.download_url.contains("github.com");
+            let is_github = crate::mirror::is_github_domain(&asset.download_url);
             let is_direct = rewritten_url == asset.download_url;
             if is_github && is_direct {
-                let fallback_url = format!("https://gh-proxy.com/{}", asset.download_url);
+                let fallback_url = crate::mirror::wrap_gh_proxy(&asset.download_url);
                 log::warn!(
                     "{} url='{}'",
                     fallback_log_tag,
                     crate::log_support::sanitize_url(&fallback_url)
                 );
-                let _ = app_handle.emit(
-                    "zstore://download-progress",
-                    DownloadProgressPayload {
-                        task_id: app_id.to_string(),
-                        downloaded_bytes: 0,
-                        total_bytes: 0,
-                        speed_bytes_per_sec: 0,
-                        state: "downloading".to_string(),
-                        message: Some(
-                            "直连通道不稳定，正在切换公共加速镜像自动重试...".to_string(),
-                        ),
-                    },
+                DownloadProgressPayload::emit_event(
+                    app_handle,
+                    app_id,
+                    0,
+                    0,
+                    0,
+                    "downloading",
+                    Some("直连通道不稳定，正在切换公共加速镜像自动重试...".to_string()),
                 );
                 super::InstallerEngine::download_with_progress(
                     app_handle,
@@ -108,6 +104,54 @@ pub(crate) async fn download_asset_with_fallback(
     }
 }
 
+pub(crate) struct PreparedDownload {
+    pub detail: crate::models::AppDetail,
+    pub asset: ReleaseAsset,
+    pub dest_path: std::path::PathBuf,
+    pub actual_sha256: String,
+}
+
+pub(crate) async fn prepare_and_download_asset(
+    app_handle: &AppHandle,
+    state: &State<'_, AppState>,
+    app_id: &str,
+    asset_name: Option<&str>,
+    missing_asset_err: &str,
+    init_log_tag: &str,
+    fallback_log_tag: &str,
+) -> Result<PreparedDownload, String> {
+    let custom_download_dir = resolve_download_dir(state);
+    let detail = super::catalog::get_app_details(state.clone(), app_id.to_string(), None).await?;
+
+    let selected_asset = if let Some(target_name) = asset_name {
+        detail.releases.iter().find(|r| r.name == target_name).cloned()
+    } else {
+        None
+    };
+
+    let asset = selected_asset
+        .or_else(|| super::select_best_asset(&detail.releases).cloned())
+        .ok_or_else(|| missing_asset_err.to_string())?;
+
+    let (dest_path, actual_sha256) = download_asset_with_fallback(
+        app_handle,
+        state,
+        app_id,
+        &asset,
+        custom_download_dir.as_deref(),
+        init_log_tag,
+        fallback_log_tag,
+    )
+    .await?;
+
+    Ok(PreparedDownload {
+        detail,
+        asset,
+        dest_path,
+        actual_sha256,
+    })
+}
+
 /// 仅下载：复用安装通道的镜像改写 + 流式下载 + SHA-256 校验 + 进度事件，
 /// 但不调用任何安装器。文件落盘至用户配置的下载目录，前端展示进度并提供“打开所在文件夹”。
 #[tauri::command]
@@ -116,140 +160,62 @@ pub async fn download_asset(
     state: State<'_, AppState>,
     app_id: String,
     asset_name: Option<String>,
-) -> Result<DownloadAssetResult, String> {
+) -> crate::AppResult<DownloadAssetResult> {
     let app_id = super::require_app_id(&app_id)?;
-    let custom_download_dir = resolve_download_dir(&state);
 
-    let detail = super::catalog::get_app_details(state.clone(), app_id.clone(), None).await?;
-
-    let selected_asset = if let Some(ref target_name) = asset_name {
-        detail.releases.iter().find(|r| &r.name == target_name)
-    } else {
-        None
-    };
-    let asset = selected_asset
-        .or_else(|| super::select_best_asset(&detail.releases))
-        .ok_or_else(|| "该 Release 未提供可下载的产物资产".to_string())?;
-
-    let (dest_path, actual_sha256) = download_asset_with_fallback(
+    let prep = prepare_and_download_asset(
         &app_handle,
         &state,
         &app_id,
-        asset,
-        custom_download_dir.as_deref(),
+        asset_name.as_deref(),
+        "该 Release 未提供可下载的产物资产",
         "download-only init",
         "download-only direct failed, retrying via fallback mirror",
     )
     .await?;
 
-    let verified = asset
+    let verified = prep
+        .asset
         .sha256
         .as_deref()
-        .map(|s| !s.trim().is_empty() && s.trim().to_lowercase() == actual_sha256.to_lowercase())
+        .map(|s| crate::verify_sha256_str(&prep.actual_sha256, s))
         .unwrap_or(false);
-    let file_name = dest_path
+    let file_name = prep
+        .dest_path
         .file_name()
         .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| asset.name.clone());
-    let dir = dest_path
+        .unwrap_or_else(|| prep.asset.name.clone());
+    let dir = prep
+        .dest_path
         .parent()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_default();
 
     Ok(DownloadAssetResult {
-        file_path: dest_path.to_string_lossy().to_string(),
+        file_path: prep.dest_path.to_string_lossy().to_string(),
         file_name,
         dir,
-        sha256: actual_sha256,
+        sha256: prep.actual_sha256,
         verified,
     })
 }
 
-fn open_path_with_system(path: &std::path::Path, select_file: bool) -> Result<bool, String> {
-    if !path.exists() {
-        return Err(format!("路径不存在: {}", path.to_string_lossy()));
-    }
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        if select_file && path.is_file() {
-            std::process::Command::new("explorer")
-                .arg("/select,")
-                .arg(path)
-                .creation_flags(CREATE_NO_WINDOW)
-                .spawn()
-                .map_err(|e| format!("无法打开文件所在目录: {}", e))?;
-        } else {
-            let dir = if path.is_file() {
-                path.parent().unwrap_or(path)
-            } else {
-                path
-            };
-            std::process::Command::new("explorer")
-                .arg(dir)
-                .creation_flags(CREATE_NO_WINDOW)
-                .spawn()
-                .map_err(|e| format!("无法打开目录: {}", e))?;
-        }
-        Ok(true)
-    }
-    #[cfg(target_os = "macos")]
-    {
-        if select_file {
-            std::process::Command::new("open")
-                .args(["-R", &path.to_string_lossy().to_string()])
-                .spawn()
-                .map_err(|e| format!("无法在访达中定位文件: {}", e))?;
-        } else {
-            let dir = if path.is_file() {
-                path.parent().unwrap_or(path)
-            } else {
-                path
-            };
-            std::process::Command::new("open")
-                .arg(dir)
-                .spawn()
-                .map_err(|e| format!("无法打开目录: {}", e))?;
-        }
-        return Ok(true);
-    }
-    #[cfg(target_os = "linux")]
-    {
-        let dir = if path.is_file() {
-            path.parent().unwrap_or(path)
-        } else {
-            path
-        };
-        std::process::Command::new("xdg-open")
-            .arg(dir)
-            .spawn()
-            .map_err(|e| format!("无法打开目录: {}", e))?;
-        return Ok(true);
-    }
-    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
-    {
-        let _ = (path, select_file);
-        Err("当前操作系统不支持打开本地目录".to_string())
-    }
-}
-
 /// 在系统文件管理器中选中已下载的文件（Windows 资源管理器 /select，macOS 访达 -R，Linux 打开父目录）。
 #[tauri::command]
-pub fn show_file_in_folder(path: String) -> Result<bool, String> {
+pub fn show_file_in_folder(path: String) -> crate::AppResult<bool> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
-        return Err("文件路径为空".to_string());
+        return Err(crate::AppError::new("文件路径为空"));
     }
-    open_path_with_system(std::path::Path::new(trimmed), true)
+    Ok(super::system::open_desktop_path(std::path::Path::new(trimmed), true)?)
 }
 
 /// 直接打开目录（若传入文件路径则打开其父目录）。
 #[tauri::command]
-pub fn open_folder(path: String) -> Result<bool, String> {
+pub fn open_folder(path: String) -> crate::AppResult<bool> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
-        return Err("目录路径为空".to_string());
+        return Err(crate::AppError::new("目录路径为空"));
     }
-    open_path_with_system(std::path::Path::new(trimmed), false)
+    Ok(super::system::open_desktop_path(std::path::Path::new(trimmed), false)?)
 }

@@ -49,15 +49,10 @@ impl Database {
     }
 
     pub fn get_watch_last_notified_at(&self, app_id: &str) -> Result<Option<i64>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT last_notified_at FROM watched_apps WHERE app_id = ?1")?;
-        let mut rows = stmt.query(params![app_id.trim()])?;
-        if let Some(row) = rows.next()? {
-            Ok(row.get(0)?)
-        } else {
-            Ok(None)
-        }
+        self.query_scalar_opt(
+            "SELECT last_notified_at FROM watched_apps WHERE app_id = ?1",
+            params![app_id.trim()],
+        )
     }
 
     pub fn set_watch_notified(&self, app_id: &str, version: &str, at: i64) -> Result<()> {
@@ -118,10 +113,9 @@ impl Database {
     pub fn is_starred(&self, owner: &str, repo: &str) -> Result<bool> {
         let o = owner.trim().to_lowercase();
         let r = repo.trim().to_lowercase();
-        let mut stmt = self
-            .conn
-            .prepare("SELECT 1 FROM user_stars WHERE owner = ?1 AND repo = ?2 LIMIT 1")?;
-        let exists = stmt.exists(params![o, r])?;
-        Ok(exists)
+        self.record_exists(
+            "SELECT 1 FROM user_stars WHERE owner = ?1 AND repo = ?2 LIMIT 1",
+            params![o, r],
+        )
     }
 }

@@ -98,23 +98,46 @@ pub const SCORE_ASSET_KIND_SECONDARY: i32 = 15;
 pub const SCORE_ASSET_KIND_TERTIARY: i32 = 12;
 pub const SCORE_ASSET_KIND_PORTABLE: i32 = 10;
 
+/// 获取当前系统平台标识字符串（windows / macos / linux / all）。
+pub fn current_target_os() -> &'static str {
+    #[cfg(target_os = "windows")]
+    {
+        "windows"
+    }
+    #[cfg(target_os = "macos")]
+    {
+        "macos"
+    }
+    #[cfg(target_os = "linux")]
+    {
+        "linux"
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        "all"
+    }
+}
+
+/// 获取当前 CPU 架构标识字符串（x86_64 / aarch64 / universal）。
+pub fn current_target_arch() -> &'static str {
+    #[cfg(target_arch = "x86_64")]
+    {
+        "x86_64"
+    }
+    #[cfg(target_arch = "aarch64")]
+    {
+        "aarch64"
+    }
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    {
+        "universal"
+    }
+}
+
 /// 根据当前系统平台与 CPU 架构为资产计算适配匹配度打分
 pub fn score_asset(a: &crate::models::ReleaseAsset) -> i32 {
-    #[cfg(target_os = "windows")]
-    let target_os = "windows";
-    #[cfg(target_os = "macos")]
-    let target_os = "macos";
-    #[cfg(target_os = "linux")]
-    let target_os = "linux";
-    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
-    let target_os = "all";
-
-    #[cfg(target_arch = "x86_64")]
-    let target_arch = "x86_64";
-    #[cfg(target_arch = "aarch64")]
-    let target_arch = "aarch64";
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    let target_arch = "universal";
+    let target_os = current_target_os();
+    let target_arch = current_target_arch();
 
     let mut score: i32 = 0;
     if a.os == target_os {

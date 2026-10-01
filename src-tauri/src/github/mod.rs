@@ -5,7 +5,7 @@ pub mod developer_profile;
 pub mod developer_starred;
 #[cfg(test)]
 mod developer_starred_tests;
-pub(crate) mod http;
+pub mod http;
 pub mod markdown;
 pub mod models;
 pub mod search;

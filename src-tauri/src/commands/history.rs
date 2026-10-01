@@ -3,55 +3,53 @@ use crate::AppState;
 use tauri::State;
 
 #[tauri::command]
-pub fn get_favorites(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+pub fn get_favorites(state: State<'_, AppState>) -> crate::AppResult<Vec<String>> {
     let db = state.db()?;
-    db.get_favorites().map_err(|e| e.to_string())
+    Ok(db.get_favorites()?)
 }
 
 #[tauri::command]
-pub fn toggle_favorite(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
+pub fn toggle_favorite(state: State<'_, AppState>, app_id: String) -> crate::AppResult<bool> {
     let app_id = super::require_app_id(&app_id)?;
     let db = state.db()?;
-    db.toggle_favorite(&app_id).map_err(|e| e.to_string())
+    Ok(db.toggle_favorite(&app_id)?)
 }
 
 #[tauri::command]
-pub fn record_search_query(state: State<'_, AppState>, query: String) -> Result<(), String> {
+pub fn record_search_query(state: State<'_, AppState>, query: String) -> crate::AppResult<()> {
     let db = state.db()?;
-    db.record_search_query(&query).map_err(|e| e.to_string())
+    Ok(db.record_search_query(&query)?)
 }
 
 #[tauri::command]
-pub fn get_search_history(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+pub fn get_search_history(state: State<'_, AppState>) -> crate::AppResult<Vec<String>> {
     let db = state.db()?;
-    db.get_search_history().map_err(|e| e.to_string())
+    Ok(db.get_search_history()?)
 }
 
 #[tauri::command]
-pub fn clear_search_history(state: State<'_, AppState>) -> Result<(), String> {
+pub fn clear_search_history(state: State<'_, AppState>) -> crate::AppResult<()> {
     let db = state.db()?;
-    db.clear_search_history().map_err(|e| e.to_string())
+    Ok(db.clear_search_history()?)
 }
 
 #[tauri::command]
-pub fn remove_search_query(state: State<'_, AppState>, query: String) -> Result<(), String> {
+pub fn remove_search_query(state: State<'_, AppState>, query: String) -> crate::AppResult<()> {
     let db = state.db()?;
-    db.remove_search_query(&query).map_err(|e| e.to_string())
+    Ok(db.remove_search_query(&query)?)
 }
 
 #[tauri::command]
-pub fn record_app_view(state: State<'_, AppState>, app_id: String) -> Result<(), String> {
+pub fn record_app_view(state: State<'_, AppState>, app_id: String) -> crate::AppResult<()> {
     let app_id = super::require_app_id(&app_id)?;
     let db = state.db()?;
-    db.record_app_view(&app_id).map_err(|e| e.to_string())
+    Ok(db.record_app_view(&app_id)?)
 }
 
 #[tauri::command]
-pub fn get_recently_viewed_apps(state: State<'_, AppState>) -> Result<Vec<AppSummary>, String> {
+pub fn get_recently_viewed_apps(state: State<'_, AppState>) -> crate::AppResult<Vec<AppSummary>> {
     let db = state.db()?;
-    let ids = db
-        .get_recently_viewed_app_ids()
-        .map_err(|e| e.to_string())?;
+    let ids = db.get_recently_viewed_app_ids()?;
     let catalog_items = state.catalog.get_catalog_items();
     let mut result = Vec::new();
 
@@ -64,31 +62,31 @@ pub fn get_recently_viewed_apps(state: State<'_, AppState>) -> Result<Vec<AppSum
 }
 
 #[tauri::command]
-pub fn clear_view_history(state: State<'_, AppState>) -> Result<(), String> {
+pub fn clear_view_history(state: State<'_, AppState>) -> crate::AppResult<()> {
     let db = state.db()?;
-    db.clear_view_history().map_err(|e| e.to_string())
+    Ok(db.clear_view_history()?)
 }
 
 // ---------- FR-6.2 关注订阅 ----------
 
 #[tauri::command]
-pub fn watch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
+pub fn watch_app(state: State<'_, AppState>, app_id: String) -> crate::AppResult<bool> {
     let id = super::require_app_id(&app_id)?;
     let db = state.db()?;
-    db.watch_app(&id).map_err(|e| e.to_string())
+    Ok(db.watch_app(&id)?)
 }
 
 #[tauri::command]
-pub fn unwatch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
+pub fn unwatch_app(state: State<'_, AppState>, app_id: String) -> crate::AppResult<bool> {
     let id = super::require_app_id(&app_id)?;
     let db = state.db()?;
-    db.unwatch_app(&id).map_err(|e| e.to_string())
+    Ok(db.unwatch_app(&id)?)
 }
 
 #[tauri::command]
-pub fn get_watched_apps(state: State<'_, AppState>) -> Result<Vec<WatchedApp>, String> {
+pub fn get_watched_apps(state: State<'_, AppState>) -> crate::AppResult<Vec<WatchedApp>> {
     let db = state.db()?;
-    db.get_watched_apps().map_err(|e| e.to_string())
+    Ok(db.get_watched_apps()?)
 }
 
 // ---------- FR-6.3 手动跨设备同步（导入侧；导出由前端经现有 getters 组装） ----------
@@ -99,7 +97,7 @@ pub fn get_watched_apps(state: State<'_, AppState>) -> Result<Vec<WatchedApp>, S
 pub fn import_user_data(
     state: State<'_, AppState>,
     json: String,
-) -> Result<ImportUserDataResult, String> {
+) -> crate::AppResult<ImportUserDataResult> {
     let plan = crate::oauth::parse_import_payload(&json)?;
     let db = state.db()?;
 

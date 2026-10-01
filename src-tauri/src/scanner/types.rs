@@ -77,10 +77,7 @@ fn default_search_subdirs() -> Vec<String> {
 
 /// 秒级时间戳（本地 helper，供 executable/tests 收敛 now_secs）。
 pub(crate) fn now_secs() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
+    crate::now_secs()
 }
 
 impl From<&CatalogItem> for ScanConfig {

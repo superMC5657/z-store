@@ -12,29 +12,26 @@ const LOGIN_DEDUP_WINDOW_MS: u64 = 5000;
 const LOGOUT_DEDUP_WINDOW_MS: u64 = 2000;
 
 fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+    crate::now_ms()
 }
 
 /// 开始 Device Flow：返回用户验证码与浏览器授权地址（前端展示二维码/链接并轮询）。
 #[tauri::command]
 pub async fn oauth_device_start(
     state: State<'_, AppState>,
-) -> Result<crate::oauth::DeviceStartResult, String> {
+) -> crate::AppResult<crate::oauth::DeviceStartResult> {
     let client_id = resolve_oauth_client_id_from_db(&state);
     if client_id.trim().is_empty() || client_id == crate::oauth::OAUTH_CLIENT_ID_PLACEHOLDER {
-        return Err("尚未配置 GitHub OAuth Client ID，请在「设置」中填写后重试".to_string());
+        return Err("尚未配置 GitHub OAuth Client ID，请在「设置」中填写后重试".into());
     }
-    crate::oauth::request_device_code(&client_id)
+    Ok(crate::oauth::request_device_code(&client_id)
         .await
         .inspect_err(|e| {
             log::warn!(
                 "oauth device start failed reason={}",
                 crate::log_support::short_reason(e)
             );
-        })
+        })?)
 }
 
 /// 轮询 Device Flow 授权结果（前端按返回 `interval` 节流调用）。
@@ -43,10 +40,10 @@ pub async fn oauth_device_start(
 pub async fn oauth_device_poll(
     state: State<'_, AppState>,
     device_code: String,
-) -> Result<DevicePollResult, String> {
+) -> crate::AppResult<DevicePollResult> {
     let code = device_code.trim().to_string();
     if code.is_empty() {
-        return Err("设备验证码不能为空".to_string());
+        return Err("设备验证码不能为空".into());
     }
     let client_id = resolve_oauth_client_id_from_db(&state);
     let outcome = crate::oauth::poll_device_once(&client_id, &code)
@@ -123,7 +120,7 @@ pub async fn oauth_device_poll(
 #[tauri::command]
 pub async fn get_oauth_user(
     state: State<'_, AppState>,
-) -> Result<Option<crate::oauth::OAuthUser>, String> {
+) -> crate::AppResult<Option<crate::oauth::OAuthUser>> {
     let raw_stored: Option<String> = state
         .db
         .lock()
@@ -197,13 +194,11 @@ pub async fn get_oauth_user(
 }
 
 #[tauri::command]
-pub async fn oauth_logout(state: State<'_, AppState>) -> Result<bool, String> {
+pub async fn oauth_logout(state: State<'_, AppState>) -> crate::AppResult<bool> {
     let fallback_pat = {
         let db = state.db()?;
-        db.remove_setting(crate::oauth::SETTING_OAUTH_TOKEN)
-            .map_err(|e| e.to_string())?;
-        db.remove_setting(crate::oauth::SETTING_OAUTH_USER)
-            .map_err(|e| e.to_string())?;
+        db.remove_setting(crate::oauth::SETTING_OAUTH_TOKEN)?;
+        db.remove_setting(crate::oauth::SETTING_OAUTH_USER)?;
         db.get_host_token("github.com")
             .ok()
             .flatten()
@@ -252,7 +247,7 @@ fn sync_star_cache(state: &AppState, owner: &str, repo: &str, starred: bool) {
 pub async fn star_app(
     state: State<'_, AppState>,
     app_id: String,
-) -> Result<crate::oauth::StarRepoOutcome, String> {
+) -> crate::AppResult<crate::oauth::StarRepoOutcome> {
     let (owner, repo) = split_github_repo_id(&app_id)?;
     let token = resolve_write_token(&state).ok_or_else(|| "请先完成 GitHub 登录".to_string())?;
     let outcome = crate::oauth::star_repo(&token, &owner, &repo).await?;
@@ -263,7 +258,7 @@ pub async fn star_app(
 }
 
 #[tauri::command]
-pub async fn unstar_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
+pub async fn unstar_app(state: State<'_, AppState>, app_id: String) -> crate::AppResult<bool> {
     let (owner, repo) = split_github_repo_id(&app_id)?;
     let token = resolve_write_token(&state).ok_or_else(|| "请先完成 GitHub 登录".to_string())?;
     crate::oauth::unstar_repo(&token, &owner, &repo)
@@ -272,10 +267,11 @@ pub async fn unstar_app(state: State<'_, AppState>, app_id: String) -> Result<bo
             sync_star_cache(&state, &owner, &repo, false);
             true
         })
+        .map_err(Into::into)
 }
 
 #[tauri::command]
-pub async fn is_starred(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
+pub async fn is_starred(state: State<'_, AppState>, app_id: String) -> crate::AppResult<bool> {
     let (owner, repo) = split_github_repo_id(&app_id)?;
     let token = resolve_write_token(&state);
     if let Some(ref t) = token {

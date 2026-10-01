@@ -4,27 +4,17 @@ use rusqlite::{params, Result};
 
 impl Database {
     pub fn get_etag(&self, endpoint_url: &str) -> Result<Option<String>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT etag FROM api_etag_cache WHERE endpoint_url = ?1")?;
-        let mut rows = stmt.query(params![endpoint_url])?;
-        if let Some(row) = rows.next()? {
-            Ok(Some(row.get(0)?))
-        } else {
-            Ok(None)
-        }
+        self.query_scalar_opt(
+            "SELECT etag FROM api_etag_cache WHERE endpoint_url = ?1",
+            params![endpoint_url],
+        )
     }
 
     pub fn get_cached_payload(&self, endpoint_url: &str) -> Result<Option<String>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT payload_json FROM api_etag_cache WHERE endpoint_url = ?1")?;
-        let mut rows = stmt.query(params![endpoint_url])?;
-        if let Some(row) = rows.next()? {
-            Ok(Some(row.get(0)?))
-        } else {
-            Ok(None)
-        }
+        self.query_scalar_opt(
+            "SELECT payload_json FROM api_etag_cache WHERE endpoint_url = ?1",
+            params![endpoint_url],
+        )
     }
 
     pub fn save_etag(
@@ -130,15 +120,10 @@ impl Database {
         if clean.is_empty() {
             return Ok(None);
         }
-        let mut stmt = self
-            .conn
-            .prepare("SELECT remote_url FROM icon_cache_meta WHERE cache_key = ?1")?;
-        let mut rows = stmt.query(params![clean])?;
-        if let Some(row) = rows.next()? {
-            let url: String = row.get(0)?;
-            return Ok(Some(url));
-        }
-        Ok(None)
+        self.query_scalar_opt(
+            "SELECT remote_url FROM icon_cache_meta WHERE cache_key = ?1",
+            params![clean],
+        )
     }
 
     pub fn save_icon_cache_url(&self, cache_key: &str, remote_url: &str) -> Result<()> {

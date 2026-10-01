@@ -4,15 +4,10 @@ use std::collections::HashMap;
 
 impl Database {
     pub fn get_setting(&self, key: &str) -> Result<Option<String>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT value FROM user_settings WHERE key = ?1")?;
-        let mut rows = stmt.query(params![key])?;
-        if let Some(row) = rows.next()? {
-            Ok(Some(row.get(0)?))
-        } else {
-            Ok(None)
-        }
+        self.query_scalar_opt(
+            "SELECT value FROM user_settings WHERE key = ?1",
+            params![key],
+        )
     }
 
     pub fn set_setting(&self, key: &str, value: &str) -> Result<()> {

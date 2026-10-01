@@ -11,7 +11,7 @@ pub struct ProxyTestResult {
 }
 
 #[tauri::command]
-pub async fn test_proxy(proxy_url: Option<String>) -> Result<ProxyTestResult, String> {
+pub async fn test_proxy(proxy_url: Option<String>) -> crate::AppResult<ProxyTestResult> {
     let (success, latency_ms, message) =
         crate::mirror::MirrorManager::test_proxy_latency(proxy_url.as_deref()).await;
     // 结果由调用方记 info/warn：延迟毫秒可进消息，不记被测 URL 值。
@@ -36,13 +36,13 @@ pub async fn test_proxy(proxy_url: Option<String>) -> Result<ProxyTestResult, St
 }
 
 #[tauri::command]
-pub fn get_mirror_status(state: State<'_, AppState>) -> Result<Vec<MirrorNodeStatus>, String> {
+pub fn get_mirror_status(state: State<'_, AppState>) -> crate::AppResult<Vec<MirrorNodeStatus>> {
     let mirror = state.mirror.lock().map_err(|e| e.to_string())?;
     Ok(mirror.get_mirror_statuses())
 }
 
 #[tauri::command]
-pub fn switch_mirror(state: State<'_, AppState>, mirror_id: String) -> Result<bool, String> {
+pub fn switch_mirror(state: State<'_, AppState>, mirror_id: String) -> crate::AppResult<bool> {
     let mut mirror = state.mirror.lock().map_err(|e| e.to_string())?;
     let ok = mirror.set_active_mirror(&mirror_id);
     if ok {

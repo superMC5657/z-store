@@ -1,6 +1,25 @@
 use crate::models::MirrorNodeStatus;
 use std::time::Instant;
 
+pub const DEFAULT_GH_PROXY: &str = "https://gh-proxy.com";
+
+pub fn is_github_domain(raw_url: &str) -> bool {
+    raw_url.contains("github.com")
+        || raw_url.contains("githubusercontent.com")
+        || raw_url.contains("github-releases")
+}
+
+pub fn wrap_gh_proxy(raw_url: &str) -> String {
+    if !is_github_domain(raw_url) {
+        return raw_url.to_string();
+    }
+    let base = DEFAULT_GH_PROXY.trim_end_matches('/');
+    if raw_url.starts_with(base) {
+        return raw_url.to_string();
+    }
+    format!("{}/{}", base, raw_url)
+}
+
 pub struct MirrorManager {
     // 默认为 None，表示 GitHub 官方直连；
     // 用户可指定加速代理前缀（例如 "https://gh-proxy.com"）
@@ -57,7 +76,7 @@ impl MirrorManager {
         } else if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
             (Some(trimmed.to_string()), "custom")
         } else if trimmed == "ghproxy" {
-            (Some("https://gh-proxy.com".to_string()), "custom")
+            (Some(DEFAULT_GH_PROXY.to_string()), "custom")
         } else {
             (None, "direct")
         };
@@ -79,9 +98,7 @@ impl MirrorManager {
 
         // 仅对 GitHub 官方链接及 Releases 资产应用镜像代理；
         // Codeberg、Gitea、GitLab 等其它平台保持官方直连
-        let is_github_url = raw_url.contains("github.com")
-            || raw_url.contains("githubusercontent.com")
-            || raw_url.contains("github-releases");
+        let is_github_url = is_github_domain(raw_url);
 
         if !is_github_url {
             return raw_url.to_string();

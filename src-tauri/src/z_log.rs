@@ -474,10 +474,7 @@ pub fn zlog_get_dir(app: AppHandle) -> Result<String, String> {
 pub fn zlog_export_bundle(app: AppHandle) -> Result<String, String> {
     let log_dir = app.path().app_log_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&log_dir).map_err(|e| e.to_string())?;
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    let stamp = crate::now_secs();
     let out_path = log_dir.join(format!("zstore-logs-{}.zip", stamp));
     let out_file = std::fs::File::create(&out_path).map_err(|e| e.to_string())?;
     let mut zip = zip::ZipWriter::new(out_file);

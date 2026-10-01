@@ -21,20 +21,11 @@ impl Database {
     }
 
     pub fn get_host_token(&self, host: &str) -> Result<Option<String>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT token FROM host_tokens WHERE host = ?1")?;
-        let mut rows = stmt.query_map(params![host.to_lowercase()], |row| row.get(0))?;
-        if let Some(row) = rows.next() {
-            let t: String = row?;
-            if t.trim().is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some(t))
-            }
-        } else {
-            Ok(None)
-        }
+        let val: Option<String> = self.query_scalar_opt(
+            "SELECT token FROM host_tokens WHERE host = ?1",
+            params![host.to_lowercase()],
+        )?;
+        Ok(val.filter(|t| !t.trim().is_empty()))
     }
 
     pub fn set_host_token(&self, host: &str, token: &str) -> Result<()> {

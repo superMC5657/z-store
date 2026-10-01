@@ -38,7 +38,7 @@ fn hidden_rule_ids(state: &AppState) -> std::collections::HashSet<String> {
 pub async fn search_apps(
     state: State<'_, AppState>,
     query: String,
-) -> Result<Vec<AppSummary>, String> {
+) -> crate::AppResult<Vec<AppSummary>> {
     // Wave2：单次 search_apps 只记一行 INFO `search done`（行为链 sid 关联）；
     // 内层 github/search 的同名 debug 已移除，此处为唯一 `search done`。
     let search_start = std::time::Instant::now();
@@ -150,7 +150,7 @@ pub async fn search_apps(
 pub fn get_category_apps(
     state: State<'_, AppState>,
     category: String,
-) -> Result<Vec<AppSummary>, String> {
+) -> crate::AppResult<Vec<AppSummary>> {
     let cat_clean = category.trim().to_lowercase();
     let hidden_ids: std::collections::HashSet<String> = hidden_rule_ids(&state);
 
@@ -171,8 +171,8 @@ pub async fn get_app_details(
     state: State<'_, AppState>,
     id: String,
     force_refresh: Option<bool>,
-) -> Result<AppDetail, String> {
-    get_app_details_impl(&state, id, force_refresh).await
+) -> crate::AppResult<AppDetail> {
+    Ok(get_app_details_impl(&state, id, force_refresh).await?)
 }
 
 pub async fn get_app_details_impl(
@@ -247,10 +247,7 @@ pub async fn get_app_details_impl(
                 crate::forge::ForgeRegistry::fetch_repo(&coord, host_token.as_deref()),
                 crate::forge::ForgeRegistry::fetch_latest_release(&coord, host_token.as_deref())
             )?;
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs() as i64;
+            let now = crate::now_secs();
             let platforms = platforms_from_assets(&release_info.assets);
             let mut detail = AppDetail {
                 id: clean_id.clone(),
@@ -383,10 +380,7 @@ pub async fn get_app_details_impl(
                 cache_type,
                 start.elapsed().as_millis()
             );
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs() as i64;
+            let now = crate::now_secs();
             detail.cached_at = Some(now);
             if !detail.is_verified {
                 if let Ok(db) = state.db() {
@@ -462,7 +456,7 @@ pub async fn get_app_details_impl(
 pub async fn sync_catalog(
     state: State<'_, AppState>,
     force: Option<bool>,
-) -> Result<SyncCatalogResult, String> {
+) -> crate::AppResult<SyncCatalogResult> {
     let (url, cached_etag) = {
         let db = state.db()?;
         let url = db
@@ -532,7 +526,7 @@ pub async fn sync_catalog(
                     safe_url,
                     crate::log_support::short_reason(&err)
                 );
-                return Err(err);
+                return Err(err.into());
             }
         }
     };
@@ -541,10 +535,7 @@ pub async fn sync_catalog(
         let count = items.len();
         if let Some(etag) = new_etag {
             if let Ok(db) = state.db() {
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs() as i64;
+                let now = crate::now_secs();
                 let json_str = serde_json::to_string(&items).unwrap_or_default();
                 let _ = db.save_etag(&url, &etag, &json_str, now);
             }
@@ -575,7 +566,7 @@ pub async fn sync_catalog(
 }
 
 #[tauri::command]
-pub fn get_catalog_count(state: State<'_, AppState>) -> Result<usize, String> {
+pub fn get_catalog_count(state: State<'_, AppState>) -> crate::AppResult<usize> {
     Ok(state.catalog.get_catalog_count())
 }
 

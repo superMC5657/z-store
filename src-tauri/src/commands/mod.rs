@@ -30,6 +30,7 @@ pub use settings::*;
 pub use system::*;
 pub use updates::*;
 
+pub use crate::error::{AppError, AppResult};
 pub use crate::installer::{resolve_uninstaller_command, select_best_asset, InstallerEngine};
 
 use crate::AppState;

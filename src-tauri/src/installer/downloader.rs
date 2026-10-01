@@ -4,7 +4,6 @@ use futures_util::StreamExt;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use tauri::Emitter;
 
 /// 异步落盘关键路径（P1-10a）的执行结果。
 /// 携带调用方重现历史日志与发送 `zstore://download-progress` 事件所需的全部上下文。
@@ -80,12 +79,12 @@ where
     }
     let actual_hash = hex::encode(hasher.finalize());
     if let Some(expected) = expected_sha256 {
-        let exp_clean = expected.trim().to_lowercase();
-        if !exp_clean.is_empty() && actual_hash.to_lowercase() != exp_clean {
+        let exp_clean = expected.trim();
+        if !exp_clean.is_empty() && !crate::verify_sha256_str(&actual_hash, exp_clean) {
             let _ = tokio::fs::remove_file(temp_path).await;
             return Err(PersistError::Tampered {
                 downloaded,
-                expected: exp_clean,
+                expected: exp_clean.to_lowercase(),
                 actual: actual_hash,
             });
         }
@@ -141,16 +140,14 @@ pub async fn download_with_progress(
                     safe_url,
                     short_reason(&err_msg)
                 );
-                let _ = app_handle.emit(
-                    "zstore://download-progress",
-                    DownloadProgressPayload {
-                        task_id: task_id.to_string(),
-                        downloaded_bytes: 0,
-                        total_bytes: 0,
-                        speed_bytes_per_sec: 0,
-                        state: "error".to_string(),
-                        message: Some(err_msg.clone()),
-                    },
+                DownloadProgressPayload::emit_event(
+                    app_handle,
+                    task_id,
+                    0,
+                    0,
+                    0,
+                    "error",
+                    Some(err_msg.clone()),
                 );
                 return Err(err_msg);
             }
@@ -170,16 +167,14 @@ pub async fn download_with_progress(
                 safe_url,
                 reason
             );
-            let _ = app_handle.emit(
-                "zstore://download-progress",
-                DownloadProgressPayload {
-                    task_id: task_id.to_string(),
-                    downloaded_bytes: 0,
-                    total_bytes: 0,
-                    speed_bytes_per_sec: 0,
-                    state: "error".to_string(),
-                    message: Some(err_msg.clone()),
-                },
+            DownloadProgressPayload::emit_event(
+                app_handle,
+                task_id,
+                0,
+                0,
+                0,
+                "error",
+                Some(err_msg.clone()),
             );
             return Err(err_msg);
         }
@@ -230,16 +225,14 @@ pub async fn download_with_progress(
                 let elapsed_secs = last_emit.elapsed().as_secs_f64().max(0.001);
                 let speed = ((downloaded - last_bytes) as f64 / elapsed_secs) as u64;
 
-                let _ = app_handle.emit(
-                    "zstore://download-progress",
-                    DownloadProgressPayload {
-                        task_id: task_id.to_string(),
-                        downloaded_bytes: downloaded,
-                        total_bytes,
-                        speed_bytes_per_sec: speed,
-                        state: "downloading".to_string(),
-                        message: None,
-                    },
+                DownloadProgressPayload::emit_event(
+                    app_handle,
+                    task_id,
+                    downloaded,
+                    total_bytes,
+                    speed,
+                    "downloading",
+                    None,
                 );
 
                 last_emit = Instant::now();
@@ -263,16 +256,14 @@ pub async fn download_with_progress(
                 safe_url,
                 short_reason(&err_msg)
             );
-            let _ = app_handle.emit(
-                "zstore://download-progress",
-                DownloadProgressPayload {
-                    task_id: task_id.to_string(),
-                    downloaded_bytes: 0,
-                    total_bytes: 0,
-                    speed_bytes_per_sec: 0,
-                    state: "error".to_string(),
-                    message: Some(err_msg.clone()),
-                },
+            DownloadProgressPayload::emit_event(
+                app_handle,
+                task_id,
+                0,
+                0,
+                0,
+                "error",
+                Some(err_msg.clone()),
             );
             return Err(err_msg);
         }
@@ -289,16 +280,14 @@ pub async fn download_with_progress(
                 safe_url,
                 reason
             );
-            let _ = app_handle.emit(
-                "zstore://download-progress",
-                DownloadProgressPayload {
-                    task_id: task_id.to_string(),
-                    downloaded_bytes: downloaded,
-                    total_bytes,
-                    speed_bytes_per_sec: 0,
-                    state: "error".to_string(),
-                    message: Some(err_msg.clone()),
-                },
+            DownloadProgressPayload::emit_event(
+                app_handle,
+                task_id,
+                downloaded,
+                total_bytes,
+                0,
+                "error",
+                Some(err_msg.clone()),
             );
             return Err(err_msg);
         }
@@ -317,16 +306,14 @@ pub async fn download_with_progress(
                 safe_url,
                 short_reason(&err_msg)
             );
-            let _ = app_handle.emit(
-                "zstore://download-progress",
-                DownloadProgressPayload {
-                    task_id: task_id.to_string(),
-                    downloaded_bytes: downloaded,
-                    total_bytes,
-                    speed_bytes_per_sec: 0,
-                    state: "error".to_string(),
-                    message: Some(err_msg.clone()),
-                },
+            DownloadProgressPayload::emit_event(
+                app_handle,
+                task_id,
+                downloaded,
+                total_bytes,
+                0,
+                "error",
+                Some(err_msg.clone()),
             );
             return Err(err_msg);
         }
@@ -345,16 +332,14 @@ pub async fn download_with_progress(
                 safe_url,
                 short_reason(&err_msg)
             );
-            let _ = app_handle.emit(
-                "zstore://download-progress",
-                DownloadProgressPayload {
-                    task_id: task_id.to_string(),
-                    downloaded_bytes: downloaded,
-                    total_bytes,
-                    speed_bytes_per_sec: 0,
-                    state: "error".to_string(),
-                    message: Some(err_msg.clone()),
-                },
+            DownloadProgressPayload::emit_event(
+                app_handle,
+                task_id,
+                downloaded,
+                total_bytes,
+                0,
+                "error",
+                Some(err_msg.clone()),
             );
             return Err(err_msg);
         }
@@ -363,16 +348,14 @@ pub async fn download_with_progress(
             expected,
             actual,
         }) => {
-            let _ = app_handle.emit(
-                "zstore://download-progress",
-                DownloadProgressPayload {
-                    task_id: task_id.to_string(),
-                    downloaded_bytes: downloaded,
-                    total_bytes: downloaded,
-                    speed_bytes_per_sec: 0,
-                    state: "tampered".to_string(),
-                    message: Some(format!("哈希不符！期望: {}, 实际: {}", expected, actual)),
-                },
+            DownloadProgressPayload::emit_event(
+                app_handle,
+                task_id,
+                downloaded,
+                downloaded,
+                0,
+                "tampered",
+                Some(format!("哈希不符！期望: {}, 实际: {}", expected, actual)),
             );
             // 校验失败：只记结论与短原因，不记哈希明细与路径。
             log::error!(
@@ -406,16 +389,14 @@ pub async fn download_with_progress(
         ),
     };
 
-    let _ = app_handle.emit(
-        "zstore://download-progress",
-        DownloadProgressPayload {
-            task_id: task_id.to_string(),
-            downloaded_bytes: downloaded,
-            total_bytes: downloaded,
-            speed_bytes_per_sec: 0,
-            state: verified_state,
-            message: Some(verified_msg),
-        },
+    DownloadProgressPayload::emit_event(
+        app_handle,
+        task_id,
+        downloaded,
+        downloaded,
+        0,
+        &verified_state,
+        Some(verified_msg),
     );
 
     log::info!(
@@ -435,7 +416,6 @@ pub async fn download_with_progress(
 mod persist_tests {
     use super::*;
     use futures_util::stream;
-    use sha2::Digest;
     use std::time::Duration;
 
     fn test_chunks() -> Vec<Vec<u8>> {
@@ -443,9 +423,7 @@ mod persist_tests {
     }
 
     fn sha256_of(data: &[u8]) -> String {
-        let mut h = Sha256::new();
-        h.update(data);
-        hex::encode(h.finalize())
+        crate::sha256_digest_hex(data)
     }
 
     #[tokio::test]

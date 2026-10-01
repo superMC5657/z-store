@@ -15,35 +15,6 @@ pub const DAILY_NOTIFY_INTERVAL_SECONDS: i64 = 24 * 60 * 60;
 /// 不看详情缓存 TTL：每次都走 ETag 轻量探查（无新版本时 304 零配额返回），
 /// 保证“有更新”提示不受详情浏览缓存过期时间拖累；
 /// 离线/限流时仍降级返回本地已有缓存。
-/// H1：更新检查专用 GitHub 请求头（UA + Accept + 可选 `token` 认证 + 可选 ETag）。
-/// `token` 认证方案与 Star 侧 `Bearer` 不同，此处保持 GitHub API 兼容原样。
-fn github_update_headers(token: Option<&str>, etag: Option<&str>) -> reqwest::header::HeaderMap {
-    let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert(
-        reqwest::header::USER_AGENT,
-        reqwest::header::HeaderValue::from_static("ZStore-Client/0.1.0"),
-    );
-    headers.insert(
-        reqwest::header::ACCEPT,
-        reqwest::header::HeaderValue::from_static("application/vnd.github.v3+json"),
-    );
-    if let Some(tok) = token {
-        if !tok.trim().is_empty() {
-            if let Ok(val) =
-                reqwest::header::HeaderValue::from_str(&format!("token {}", tok.trim()))
-            {
-                headers.insert(reqwest::header::AUTHORIZATION, val);
-            }
-        }
-    }
-    if let Some(etag) = etag {
-        if let Ok(val) = reqwest::header::HeaderValue::from_str(etag) {
-            headers.insert(reqwest::header::IF_NONE_MATCH, val);
-        }
-    }
-    headers
-}
-
 pub(crate) async fn fetch_app_latest_version_lightweight(
     state: &AppState,
     app_id: &str,
@@ -99,45 +70,22 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
     };
 
     let token = super::resolve_active_github_token(state);
-    let headers = github_update_headers(token.as_deref(), cached_etag.as_deref());
+    let base_headers = crate::github::http::token_headers(token.as_deref());
 
-    let api_timeout = std::time::Duration::from_secs(
-        crate::config::get_project_config()
-            .network
-            .api_timeout_seconds,
-    );
-    let client = state.http.clone();
+    let outcome = crate::github::http::get_with_etag(
+        &state.http,
+        &ep,
+        None,
+        &base_headers,
+        cached_etag.as_deref(),
+        "updates",
+    )
+    .await;
 
-    let safe_ep = crate::log_support::sanitize_url(&ep);
-    let req_id = crate::z_log::new_req_id();
-    let sid = crate::z_log::new_session_id();
-    let req_host = crate::log_support::host_of(&ep);
-    log::debug!(
-        "http check update start id={} sid={} req={} url='{}'",
-        clean_id,
-        sid,
-        req_id,
-        safe_ep
-    );
-    let start_upd = std::time::Instant::now();
-    let req = client.get(&ep).headers(headers).send();
-    let resp = match tokio::time::timeout(api_timeout, req).await {
-        Ok(r) => r.ok(),
-        Err(_) => None,
-    };
-    let elapsed = start_upd.elapsed().as_millis();
-
-    if let Some(ref res) = resp {
-        crate::notify_rate_limit("github.com", res.headers());
-    }
-
-    match resp {
-        Some(res) if res.status() == reqwest::StatusCode::NOT_MODIFIED => {
+    match outcome {
+        crate::github::http::EtagGetOutcome::NotModified => {
             // 304 Not Modified：远端 Release 完全未更新，零配额消耗
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs() as i64;
+            let now = crate::now_secs();
             if let Ok(db) = state.db() {
                 let _ = db.touch_cached_app_detail(&clean_id, now);
             }
@@ -162,47 +110,16 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
                     .map(|cat| (cat.default_version, String::new()))
             })();
             if let Some((ver, body)) = resolved_304 {
-                log::debug!("http check update resp id={} sid={} req={} url='{}' status=304 ver={} elapsed_ms={}", clean_id, sid, req_id, safe_ep, ver, elapsed);
-                log::info!(
-                    "http resp update id={} sid={} req={} host={} status=304 ver={} elapsed_ms={}",
-                    clean_id,
-                    sid,
-                    req_id,
-                    req_host,
-                    ver,
-                    elapsed
-                );
                 return Ok((ver, body));
             }
             Err("304 响应但未能提取到有效版本信息".to_string())
         }
-        Some(res) if res.status().is_success() => {
-            let new_etag = res
-                .headers()
-                .get("etag")
-                .and_then(|h| h.to_str().ok())
-                .map(|s| s.to_string());
-
-            let payload_text = res.text().await.map_err(|e| e.to_string())?;
+        crate::github::http::EtagGetOutcome::Fresh { text: payload_text, etag: new_etag } => {
             let parsed: crate::github::models::GitHubReleaseResponse =
                 serde_json::from_str(&payload_text)
                     .map_err(|e| format!("解析 GitHub Release 失败: {}", e))?;
 
-            log::debug!("http check update resp id={} sid={} req={} url='{}' status=200 ver={} elapsed_ms={}", clean_id, sid, req_id, safe_ep, parsed.tag_name, elapsed);
-            log::info!(
-                "http resp update id={} sid={} req={} host={} status=200 ver={} elapsed_ms={}",
-                clean_id,
-                sid,
-                req_id,
-                req_host,
-                parsed.tag_name,
-                elapsed
-            );
-
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs() as i64;
+            let now = crate::now_secs();
 
             if let Ok(db) = state.db() {
                 if let Some(etag_val) = new_etag {
@@ -213,14 +130,9 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
             Ok((parsed.tag_name, parsed.body.unwrap_or_default()))
         }
         _ => {
-            log::warn!(
-                "http check update resp failed id={} sid={} req={} host={} elapsed_ms={}",
-                clean_id,
-                sid,
-                req_id,
-                req_host,
-                elapsed
-            );
+            if matches!(outcome, crate::github::http::EtagGetOutcome::Unauthorized) {
+                crate::check_auth_expired(401, &format!("op=check_updates app={}", clean_id));
+            }
             // 网络故障、超时或被 403 限流，优雅降级：读取本地已有缓存或 catalog
             if let Ok(db) = state.db() {
                 if let Ok(Some(fallback)) = db.get_cached_app_detail_fallback(&clean_id) {
@@ -296,7 +208,7 @@ pub async fn check_for_updates(
     app_handle: AppHandle,
     state: State<'_, AppState>,
     force_refresh: Option<bool>,
-) -> Result<Vec<UpdateItem>, String> {
+) -> crate::AppResult<Vec<UpdateItem>> {
     // Wave2：整轮耗时 + sid 关联，结束只记一行汇总。
     let check_start = std::time::Instant::now();
     let installed = get_installed_apps(state.clone())?;
@@ -449,10 +361,7 @@ async fn notify_watched_updates(
         Ok(db) => db.get_watch_notify_frequency(),
         Err(_) => crate::db::WATCH_NOTIFY_FREQUENCY_DEFAULT.to_string(),
     };
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64;
+    let now = crate::now_secs();
 
     for w in watched {
         if let Some(rule) = rules_map.get(&w.app_id) {
@@ -513,9 +422,9 @@ async fn notify_watched_updates(
 }
 
 #[tauri::command]
-pub fn get_update_rules(state: State<'_, AppState>) -> Result<Vec<UpdateRule>, String> {
+pub fn get_update_rules(state: State<'_, AppState>) -> crate::AppResult<Vec<UpdateRule>> {
     let db = state.db()?;
-    db.get_all_rules().map_err(|e| e.to_string())
+    Ok(db.get_all_rules()?)
 }
 
 #[tauri::command]
@@ -523,12 +432,11 @@ pub fn set_app_skip_version(
     state: State<'_, AppState>,
     app_id: String,
     version: Option<String>,
-) -> Result<bool, String> {
+) -> crate::AppResult<bool> {
     // ADR-0010：入站归一化后全程使用 canonical id；未知标识直接拒绝，永不写入
     let app_id = super::require_app_id(&app_id)?;
     let db = state.db()?;
-    db.set_skip_version(&app_id, version.as_deref())
-        .map_err(|e| e.to_string())?;
+    db.set_skip_version(&app_id, version.as_deref())?;
     Ok(true)
 }
 
@@ -537,12 +445,11 @@ pub fn set_app_frozen(
     state: State<'_, AppState>,
     app_id: String,
     is_frozen: bool,
-) -> Result<bool, String> {
+) -> crate::AppResult<bool> {
     // ADR-0010：入站归一化后全程使用 canonical id；未知标识直接拒绝，永不写入
     let app_id = super::require_app_id(&app_id)?;
     let db = state.db()?;
-    db.set_frozen_status(&app_id, is_frozen)
-        .map_err(|e| e.to_string())?;
+    db.set_frozen_status(&app_id, is_frozen)?;
     Ok(true)
 }
 
@@ -551,21 +458,20 @@ pub fn set_app_hidden(
     state: State<'_, AppState>,
     app_id: String,
     is_hidden: bool,
-) -> Result<bool, String> {
+) -> crate::AppResult<bool> {
     // ADR-0010：入站归一化后全程使用 canonical id；未知标识直接拒绝，永不写入
     let app_id = super::require_app_id(&app_id)?;
     let db = state.db()?;
-    db.set_hidden_status(&app_id, is_hidden)
-        .map_err(|e| e.to_string())?;
+    db.set_hidden_status(&app_id, is_hidden)?;
     Ok(true)
 }
 
 #[tauri::command]
-pub fn remove_update_rule(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
+pub fn remove_update_rule(state: State<'_, AppState>, app_id: String) -> crate::AppResult<bool> {
     // ADR-0010：入站归一化后全程使用 canonical id；未知标识直接拒绝，永不写入
     let app_id = super::require_app_id(&app_id)?;
     let db = state.db()?;
-    db.remove_rule(&app_id).map_err(|e| e.to_string())
+    Ok(db.remove_rule(&app_id)?)
 }
 
 /// ADR-0010 入站归一化契约（finding 2.1-1, part A）：

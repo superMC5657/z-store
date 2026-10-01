@@ -3,17 +3,116 @@
 //! 仅 `github` 模块内使用，跨 crate 统一留给二阶段，行为与原样板一致。
 
 use crate::models::AppSummary;
-use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, USER_AGENT};
+use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, IF_NONE_MATCH, USER_AGENT};
+
+#[derive(Debug, Clone)]
+pub(crate) enum EtagGetOutcome {
+    Fresh { text: String, etag: Option<String> },
+    NotModified,
+    Unauthorized,
+    Failed,
+}
+
+/// 通用 ETag GET 请求通道：挂载 `If-None-Match`，处理 304 / 401 / 200 结果并上报限流。
+pub(crate) async fn get_with_etag(
+    client: &reqwest::Client,
+    canonical_url: &str,
+    api_base: Option<&str>,
+    base_headers: &HeaderMap,
+    cached_etag: Option<&str>,
+    log_tag: &str,
+) -> EtagGetOutcome {
+    let url = crate::github::CatalogService::request_url(canonical_url, api_base);
+    let mut headers = base_headers.clone();
+    if let Some(etag) = cached_etag {
+        if !etag.trim().is_empty() {
+            if let Ok(val) = HeaderValue::from_str(etag) {
+                headers.insert(IF_NONE_MATCH, val);
+            }
+        }
+    }
+    let safe_url = crate::log_support::sanitize_url(&url);
+    let (req_id, sid) = new_log_ctx();
+    let host = crate::log_support::host_of(&url);
+    log::debug!(
+        "http get dev etag tag={} sid={} req={} url='{}'",
+        log_tag,
+        sid,
+        req_id,
+        safe_url
+    );
+    let start = std::time::Instant::now();
+    let res = match client.get(&url).headers(headers).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            log::warn!(
+                "http get dev etag failed tag={} sid={} req={} host={} reason={} elapsed_ms={}",
+                log_tag,
+                sid,
+                req_id,
+                host,
+                crate::log_support::short_reason(&e.to_string()),
+                start.elapsed().as_millis()
+            );
+            return EtagGetOutcome::Failed;
+        }
+    };
+    crate::notify_rate_limit("github.com", res.headers());
+    let status = res.status();
+    log::debug!(
+        "http resp dev etag tag={} sid={} req={} url='{}' status={} elapsed_ms={}",
+        log_tag,
+        sid,
+        req_id,
+        safe_url,
+        status.as_u16(),
+        start.elapsed().as_millis()
+    );
+    log::info!(
+        "http resp dev etag tag={} sid={} req={} host={} status={} elapsed_ms={}",
+        log_tag,
+        sid,
+        req_id,
+        host,
+        status.as_u16(),
+        start.elapsed().as_millis()
+    );
+    if status == reqwest::StatusCode::NOT_MODIFIED {
+        return EtagGetOutcome::NotModified;
+    }
+    if status == reqwest::StatusCode::UNAUTHORIZED {
+        return EtagGetOutcome::Unauthorized;
+    }
+    if !status.is_success() {
+        return EtagGetOutcome::Failed;
+    }
+    let etag = res
+        .headers()
+        .get("etag")
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.to_string());
+    match res.text().await {
+        Ok(text) => EtagGetOutcome::Fresh { text, etag },
+        Err(e) => {
+            log::warn!(
+                "http read dev etag body failed tag={} sid={} req={} host={} reason={}",
+                log_tag,
+                sid,
+                req_id,
+                host,
+                crate::log_support::short_reason(&e.to_string())
+            );
+            EtagGetOutcome::Failed
+        }
+    }
+}
 
 pub(crate) const GH_USER_AGENT: &str = "ZStore-Client/0.1.0";
 pub(crate) const GH_ACCEPT: &str = "application/vnd.github.v3+json";
 
 /// H8：github 内统一秒级时间戳（与 `db::now_secs` 同语义，跨 crate 统一留给二阶段）。
 pub(crate) fn now_secs() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64
+    crate::now_secs()
 }
 
 /// H2：统一 API 超时（读取项目配置）。

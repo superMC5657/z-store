@@ -134,6 +134,35 @@ pub struct DownloadProgressPayload {
     pub message: Option<String>,
 }
 
+impl DownloadProgressPayload {
+    pub const EVENT_NAME: &str = "zstore://download-progress";
+
+    pub fn emit(&self, app_handle: &tauri::AppHandle) {
+        use tauri::Emitter;
+        let _ = app_handle.emit(Self::EVENT_NAME, self);
+    }
+
+    pub fn emit_event(
+        app_handle: &tauri::AppHandle,
+        task_id: &str,
+        downloaded_bytes: u64,
+        total_bytes: u64,
+        speed_bytes_per_sec: u64,
+        state: &str,
+        message: Option<String>,
+    ) {
+        Self {
+            task_id: task_id.to_string(),
+            downloaded_bytes,
+            total_bytes,
+            speed_bytes_per_sec,
+            state: state.to_string(),
+            message,
+        }
+        .emit(app_handle);
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UpdateRule {
     pub app_id: String,

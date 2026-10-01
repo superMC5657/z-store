@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, AlertTriangle, AlertCircle, Copy, Check, ExternalLink, LogIn, LogOut } from 'lucide-react';
+import { AlertTriangle, AlertCircle, Copy, Check, ExternalLink, LogIn, LogOut } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { GitHubIcon } from './icons/PlatformIcons';
 import { OAuthUser } from '../types';
@@ -247,26 +247,6 @@ export const OAuthAccountCard: React.FC = () => {
           </button>
         )}
       </div>
-
-      {user && !user.is_expired && (
-        <div
-          style={{
-            padding: '8px 12px',
-            borderRadius: 'var(--radius-lg)',
-            background: 'rgba(76, 183, 130, 0.10)',
-            border: '1px solid rgba(76, 183, 130, 0.25)',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '8px',
-            fontSize: '12.5px',
-            color: 'var(--text-secondary)',
-            marginTop: '2px',
-          }}
-        >
-          <CheckCircle2 size={14} strokeWidth={1.5} style={{ color: '#4CB782', flexShrink: 0 }} />
-          <span>{t('oauth.quota_badge')}</span>
-        </div>
-      )}
 
       {user && user.is_expired && !session && (
         <div

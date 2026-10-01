@@ -69,10 +69,7 @@ pub(crate) fn is_avatar_url(url: &str) -> bool {
 }
 
 pub(crate) fn icon_hash_filename(remote_url: &str) -> String {
-    use sha2::Digest;
-    let mut hasher = sha2::Sha256::new();
-    hasher.update(remote_url.as_bytes());
-    let hash = hex::encode(hasher.finalize());
+    let hash = crate::sha256_digest_hex(remote_url.as_bytes());
     format!("{}.png", &hash[..16])
 }
 
@@ -123,10 +120,10 @@ pub async fn get_or_fetch_icon(
     state: State<'_, AppState>,
     app_id: Option<String>,
     remote_url: String,
-) -> Result<String, String> {
+) -> crate::AppResult<String> {
     let url_trimmed = remote_url.trim();
     if url_trimmed.is_empty() {
-        return Err("图标链接不能为空".to_string());
+        return Err("图标链接不能为空".into());
     }
 
     if url_trimmed.starts_with("data:") {

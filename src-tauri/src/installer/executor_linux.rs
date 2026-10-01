@@ -58,34 +58,34 @@ pub async fn install_appimage(installer_path: &Path) -> Result<InstallOutcome, S
     }
 }
 
-/// Linux deb 安装体（原 executor.rs 内联 cfg(linux) 分支纯移动）。
 #[cfg(target_os = "linux")]
-pub async fn install_deb(installer_path: &Path) -> Result<InstallOutcome, String> {
-    let argv = deb_install_argv(installer_path);
+async fn run_pkexec_package_installer(
+    argv: &[String],
+    tool_label: &str,
+    pkg_kind: &str,
+) -> Result<InstallOutcome, String> {
     let status = tokio::process::Command::new(&argv[0])
         .args(&argv[1..])
         .status()
         .await
-        .map_err(|e| format!("调起 pkexec dpkg 失败: {}", e))?;
+        .map_err(|e| format!("调起 pkexec {} 失败: {}", tool_label, e))?;
     if status.success() {
-        Ok(InstallOutcome::Installed("deb 包安装已完成".to_string()))
+        Ok(InstallOutcome::Installed(format!("{} 包安装已完成", pkg_kind)))
     } else {
-        Err("deb 包提权安装未完成或被取消".to_string())
+        Err(format!("{} 包提权安装未完成或被取消", pkg_kind))
     }
+}
+
+/// Linux deb 安装体（原 executor.rs 内联 cfg(linux) 分支纯移动）。
+#[cfg(target_os = "linux")]
+pub async fn install_deb(installer_path: &Path) -> Result<InstallOutcome, String> {
+    let argv = deb_install_argv(installer_path);
+    run_pkexec_package_installer(&argv, "dpkg", "deb").await
 }
 
 /// Linux rpm 安装体（原 executor.rs 内联 cfg(linux) 分支纯移动）。
 #[cfg(target_os = "linux")]
 pub async fn install_rpm(installer_path: &Path) -> Result<InstallOutcome, String> {
     let argv = rpm_install_argv(installer_path);
-    let status = tokio::process::Command::new(&argv[0])
-        .args(&argv[1..])
-        .status()
-        .await
-        .map_err(|e| format!("调起 pkexec rpm 失败: {}", e))?;
-    if status.success() {
-        Ok(InstallOutcome::Installed("rpm 包安装已完成".to_string()))
-    } else {
-        Err("rpm 包提权安装未完成或被取消".to_string())
-    }
+    run_pkexec_package_installer(&argv, "rpm", "rpm").await
 }

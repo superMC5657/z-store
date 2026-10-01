@@ -663,17 +663,12 @@ impl CatalogService {
     /// `CatalogService` 够不到 `AppState` 中的 `MirrorManager`，故对 GitHub 官方小文件
     /// 直接套用 `gh-proxy` 前缀兜底；非 GitHub 域保持直连。
     fn rewrite_checksum_url_with_fallback(raw_url: &str) -> (String, bool) {
-        let is_github_url = raw_url.contains("github.com")
-            || raw_url.contains("githubusercontent.com")
-            || raw_url.contains("github-releases");
-        if !is_github_url {
+        if !crate::mirror::is_github_domain(raw_url) {
             return (raw_url.to_string(), false);
         }
-        const FALLBACK_PROXY: &str = "https://gh-proxy.com";
-        if raw_url.starts_with(FALLBACK_PROXY) {
-            return (raw_url.to_string(), false);
-        }
-        (format!("{}/{}", FALLBACK_PROXY, raw_url), true)
+        let wrapped = crate::mirror::wrap_gh_proxy(raw_url);
+        let changed = wrapped != raw_url;
+        (wrapped, changed)
     }
 }
 

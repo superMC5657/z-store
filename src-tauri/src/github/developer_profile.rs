@@ -1,21 +1,12 @@
 use super::models::{GitHubRepoResponse, GitHubUserResponse};
 use super::CatalogService;
 use crate::models::{DeveloperProfile, DeveloperRepoItem};
-use reqwest::header::{HeaderMap, HeaderValue, IF_NONE_MATCH};
+use reqwest::header::HeaderMap;
 
-pub(crate) enum EtagGetOutcome {
-    /// 200：正文 + 响应 ETag（无 ETag 头时为 None，调用方此时不落库）。
-    Fresh { text: String, etag: Option<String> },
-    /// 304：远端未变更，调用方用 `cached_payload` 恢复。
-    NotModified,
-    /// 401：凭据失效，调用方按需提示并走降级（与 `Failed` 同为降级，语义更明确）。
-    Unauthorized,
-    /// 传输失败或非 2xx/304/401 状态；调用方走降级（旧行为 + 日志）。
-    Failed,
-}
+pub(crate) use super::http::EtagGetOutcome;
 
 impl CatalogService {
-    /// 通用 ETag GET（镜像 `detail.rs`：挂 `If-None-Match` → 304 复用 / 200 捕获新 ETag）。
+    /// 通用 ETag GET（委托到 `super::http::get_with_etag`）。
     pub(crate) async fn get_with_etag(
         client: &reqwest::Client,
         canonical_url: &str,
@@ -24,89 +15,15 @@ impl CatalogService {
         cached_etag: Option<&str>,
         log_tag: &str,
     ) -> EtagGetOutcome {
-        let url = Self::request_url(canonical_url, api_base);
-        let mut headers = base_headers.clone();
-        if let Some(etag) = cached_etag {
-            if !etag.trim().is_empty() {
-                if let Ok(val) = HeaderValue::from_str(etag) {
-                    headers.insert(IF_NONE_MATCH, val);
-                }
-            }
-        }
-        let safe_url = crate::log_support::sanitize_url(&url);
-        let (req_id, sid) = super::http::new_log_ctx();
-        let host = crate::log_support::host_of(&url);
-        log::debug!(
-            "http get dev etag tag={} sid={} req={} url='{}'",
+        super::http::get_with_etag(
+            client,
+            canonical_url,
+            api_base,
+            base_headers,
+            cached_etag,
             log_tag,
-            sid,
-            req_id,
-            safe_url
-        );
-        let start = std::time::Instant::now();
-        let res = match client.get(&url).headers(headers).send().await {
-            Ok(r) => r,
-            Err(e) => {
-                log::warn!(
-                    "http get dev etag failed tag={} sid={} req={} host={} reason={} elapsed_ms={}",
-                    log_tag,
-                    sid,
-                    req_id,
-                    host,
-                    crate::log_support::short_reason(&e.to_string()),
-                    start.elapsed().as_millis()
-                );
-                return EtagGetOutcome::Failed;
-            }
-        };
-        crate::notify_rate_limit("github.com", res.headers());
-        let status = res.status();
-        log::debug!(
-            "http resp dev etag tag={} sid={} req={} url='{}' status={} elapsed_ms={}",
-            log_tag,
-            sid,
-            req_id,
-            safe_url,
-            status.as_u16(),
-            start.elapsed().as_millis()
-        );
-        log::info!(
-            "http resp dev etag tag={} sid={} req={} host={} status={} elapsed_ms={}",
-            log_tag,
-            sid,
-            req_id,
-            host,
-            status.as_u16(),
-            start.elapsed().as_millis()
-        );
-        if status == reqwest::StatusCode::NOT_MODIFIED {
-            return EtagGetOutcome::NotModified;
-        }
-        if status == reqwest::StatusCode::UNAUTHORIZED {
-            return EtagGetOutcome::Unauthorized;
-        }
-        if !status.is_success() {
-            return EtagGetOutcome::Failed;
-        }
-        let etag = res
-            .headers()
-            .get("etag")
-            .and_then(|h| h.to_str().ok())
-            .map(|s| s.to_string());
-        match res.text().await {
-            Ok(text) => EtagGetOutcome::Fresh { text, etag },
-            Err(e) => {
-                log::warn!(
-                    "http read dev etag body failed tag={} sid={} req={} host={} reason={}",
-                    log_tag,
-                    sid,
-                    req_id,
-                    host,
-                    crate::log_support::short_reason(&e.to_string())
-                );
-                EtagGetOutcome::Failed
-            }
-        }
+        )
+        .await
     }
 
     pub async fn fetch_developer_profile(

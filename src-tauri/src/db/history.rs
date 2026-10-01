@@ -25,10 +25,9 @@ impl Database {
     }
 
     pub fn toggle_favorite(&self, app_id: &str) -> Result<bool> {
-        let exists: bool = self.conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM user_favorites WHERE app_id = ?1)",
+        let exists = self.record_exists(
+            "SELECT 1 FROM user_favorites WHERE app_id = ?1",
             params![app_id],
-            |row| row.get(0),
         )?;
 
         if exists {

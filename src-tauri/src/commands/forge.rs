@@ -8,30 +8,30 @@ use tauri::State;
 pub async fn get_developer_profile(
     state: State<'_, AppState>,
     developer: String,
-) -> Result<DeveloperProfile, String> {
+) -> crate::AppResult<DeveloperProfile> {
     let token = resolve_active_github_token(&state);
-    state
+    Ok(state
         .catalog
         .fetch_developer_profile(&developer, token.as_deref())
-        .await
+        .await?)
 }
 
 #[tauri::command]
 pub async fn sync_github_starred(
     state: State<'_, AppState>,
     username: Option<String>,
-) -> Result<StarredSyncResult, String> {
+) -> crate::AppResult<StarredSyncResult> {
     let token = resolve_active_github_token(&state);
-    state
+    Ok(state
         .catalog
         .sync_starred_repos(username.as_deref(), token.as_deref())
-        .await
+        .await?)
 }
 
 #[tauri::command]
-pub fn get_host_tokens(state: State<'_, AppState>) -> Result<Vec<HostTokenEntry>, String> {
+pub fn get_host_tokens(state: State<'_, AppState>) -> crate::AppResult<Vec<HostTokenEntry>> {
     let db = state.db()?;
-    db.get_host_tokens().map_err(|e| e.to_string())
+    Ok(db.get_host_tokens()?)
 }
 
 #[tauri::command]
@@ -39,7 +39,7 @@ pub async fn set_host_token(
     state: State<'_, AppState>,
     host: String,
     token: String,
-) -> Result<(), String> {
+) -> crate::AppResult<()> {
     {
         let db = state.db()?;
         db.set_host_token(&host, &token)
@@ -66,10 +66,10 @@ pub async fn set_host_token(
 }
 
 #[tauri::command]
-pub async fn remove_host_token(state: State<'_, AppState>, host: String) -> Result<(), String> {
+pub async fn remove_host_token(state: State<'_, AppState>, host: String) -> crate::AppResult<()> {
     {
         let db = state.db()?;
-        db.remove_host_token(&host).map_err(|e| e.to_string())?;
+        db.remove_host_token(&host)?;
     }
     if host.eq_ignore_ascii_case("github.com") {
         {
@@ -85,7 +85,7 @@ pub async fn remove_host_token(state: State<'_, AppState>, host: String) -> Resu
 pub async fn refresh_host_rate_limit(
     state: State<'_, AppState>,
     host: Option<String>,
-) -> Result<HostTokenEntry, String> {
+) -> crate::AppResult<HostTokenEntry> {
     let clean_host = host
         .unwrap_or_else(|| "github.com".to_string())
         .trim()
@@ -99,7 +99,7 @@ pub async fn refresh_host_rate_limit(
     }
     tokio::time::sleep(std::time::Duration::from_millis(60)).await;
     let db = state.db()?;
-    let tokens = db.get_host_tokens().map_err(|e| e.to_string())?;
+    let tokens = db.get_host_tokens()?;
     if let Some(entry) = tokens
         .into_iter()
         .find(|t| t.host.eq_ignore_ascii_case(&clean_host))
@@ -112,10 +112,7 @@ pub async fn refresh_host_rate_limit(
             rate_limit_remaining: None,
             rate_limit_limit: None,
             rate_limit_reset: None,
-            updated_at: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs() as i64,
+            updated_at: crate::now_secs(),
         })
     }
 }
@@ -125,7 +122,7 @@ pub async fn test_host_connection(
     state: State<'_, AppState>,
     host: String,
     token: Option<String>,
-) -> Result<HostRateLimitStatus, String> {
+) -> crate::AppResult<HostRateLimitStatus> {
     let clean_host = host.trim().to_lowercase();
     let client = build_api_client()?;
 
@@ -241,7 +238,7 @@ pub async fn search_forge_repos(
     forge: String,
     host: Option<String>,
     query: String,
-) -> Result<Vec<crate::forge::ForgeRepoInfo>, String> {
+) -> crate::AppResult<Vec<crate::forge::ForgeRepoInfo>> {
     let forge_type = match forge.to_lowercase().as_str() {
         "codeberg" => crate::forge::ForgeType::Codeberg,
         "gitea" | "forgejo" => crate::forge::ForgeType::Gitea,
@@ -255,13 +252,13 @@ pub async fn search_forge_repos(
         None
     };
 
-    crate::forge::ForgeRegistry::search_repos(
+    Ok(crate::forge::ForgeRegistry::search_repos(
         forge_type,
         Some(target_host),
         &query,
         token.as_deref(),
     )
-    .await
+    .await?)
 }
 
 // ---------- FR-8.3 所有权认证 ----------
@@ -381,10 +378,10 @@ pub async fn verify_ownership(
     state: State<'_, AppState>,
     app_id: String,
     code: String,
-) -> Result<bool, String> {
+) -> crate::AppResult<bool> {
     let clean_id = app_id.trim().to_string();
     if clean_id.is_empty() {
-        return Err("应用 ID 不能为空".to_string());
+        return Err("应用 ID 不能为空".into());
     }
     let needle = code.trim().to_string();
     if needle.is_empty() {

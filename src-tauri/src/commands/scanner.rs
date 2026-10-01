@@ -5,7 +5,7 @@ use tauri::State;
 #[tauri::command]
 pub fn scan_and_match_local_apps(
     state: State<'_, AppState>,
-) -> Result<Vec<crate::scanner::AppMatchResult>, String> {
+) -> crate::AppResult<Vec<crate::scanner::AppMatchResult>> {
     // Wave2：行为链 sid 关联 + 耗时，汇总行保持只记数量。
     let sid = crate::z_log::new_session_id();
     let scan_start = std::time::Instant::now();
@@ -45,12 +45,9 @@ pub fn scan_and_match_local_apps(
 pub fn import_matched_apps(
     state: State<'_, AppState>,
     apps: Vec<crate::scanner::ImportAppRequest>,
-) -> Result<usize, String> {
+) -> crate::AppResult<usize> {
     let mut imported_count = 0;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64;
+    let now = crate::now_secs();
 
     let db = state.db()?;
 
@@ -122,7 +119,7 @@ pub fn add_to_detected_cache(app_id: &str) {
 pub async fn get_detected_installed_app_ids(
     state: State<'_, AppState>,
     force_refresh: Option<bool>,
-) -> Result<Vec<String>, String> {
+) -> crate::AppResult<Vec<String>> {
     let force = force_refresh.unwrap_or(false);
     if !force {
         if let Ok(guard) = DETECTED_APP_IDS_CACHE.read() {
@@ -161,7 +158,7 @@ pub async fn get_detected_installed_app_ids(
 }
 
 #[tauri::command]
-pub fn import_single_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
+pub fn import_single_app(state: State<'_, AppState>, app_id: String) -> crate::AppResult<bool> {
     let app_id = super::require_app_id(&app_id)?;
     let cat = state
         .catalog
@@ -172,10 +169,7 @@ pub fn import_single_app(state: State<'_, AppState>, app_id: String) -> Result<b
         crate::scanner::AppScanner::resolve_installed_app_path(&cat.name, &cat.id, Some(&cat.repo));
     let resolved_path_str = resolved_path.unwrap_or_default();
 
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64;
+    let now = crate::now_secs();
 
     let installed_at = crate::scanner::AppScanner::resolve_app_installed_at(
         &cat.name,

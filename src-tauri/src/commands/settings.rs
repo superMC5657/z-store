@@ -30,9 +30,9 @@ fn get_default_settings() -> HashMap<String, String> {
 }
 
 #[tauri::command]
-pub fn get_settings(state: State<'_, AppState>) -> Result<HashMap<String, String>, String> {
+pub fn get_settings(state: State<'_, AppState>) -> crate::AppResult<HashMap<String, String>> {
     let db = state.db()?;
-    let db_settings = db.get_all_settings().map_err(|e| e.to_string())?;
+    let db_settings = db.get_all_settings()?;
 
     // 1. 以 config.toml 及项目基准作为权威默认底表
     let mut map = get_default_settings();
@@ -79,10 +79,10 @@ pub fn save_setting(
     state: State<'_, AppState>,
     key: String,
     value: String,
-) -> Result<bool, String> {
+) -> crate::AppResult<bool> {
     let db = state.db()?;
     let value = crate::db::normalize_setting_value(&key, &value);
-    db.set_setting(&key, &value).map_err(|e| e.to_string())?;
+    db.set_setting(&key, &value)?;
 
     if key == "launch_on_startup" {
         let enabled = value == "true" || value == "1";
@@ -96,8 +96,8 @@ pub fn save_setting(
 pub async fn select_folder(
     default_path: Option<String>,
     title: Option<String>,
-) -> Result<Option<String>, String> {
-    tokio::task::spawn_blocking(move || {
+) -> crate::AppResult<Option<String>> {
+    let res = tokio::task::spawn_blocking(move || {
         let dialog_title = title.unwrap_or_else(|| "选择目录".to_string());
         let mut dialog = rfd::FileDialog::new().set_title(&dialog_title);
         if let Some(ref path_str) = default_path {
@@ -110,5 +110,6 @@ pub async fn select_folder(
         folder.map(|p| p.to_string_lossy().to_string())
     })
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| crate::AppError::new(e.to_string()))?;
+    Ok(res)
 }

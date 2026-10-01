@@ -157,6 +157,43 @@ pub async fn execute_installation(
     res
 }
 
+fn platform_skipped(desc: &str, path: &Path) -> Result<InstallOutcome, String> {
+    Ok(InstallOutcome::Skipped(format!("{}: {:?}", desc, path)))
+}
+
+macro_rules! run_on_target {
+    (windows => $run:expr, skip => $msg:expr, $path:expr) => {{
+        #[cfg(target_os = "windows")]
+        {
+            $run
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            platform_skipped($msg, $path)
+        }
+    }};
+    (macos => $run:expr, skip => $msg:expr, $path:expr) => {{
+        #[cfg(target_os = "macos")]
+        {
+            $run
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            platform_skipped($msg, $path)
+        }
+    }};
+    (linux => $run:expr, skip => $msg:expr, $path:expr) => {{
+        #[cfg(target_os = "linux")]
+        {
+            $run
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            platform_skipped($msg, $path)
+        }
+    }};
+}
+
 async fn execute_installation_inner(
     installer_path: &Path,
     kind: &AssetKind,
@@ -164,112 +201,40 @@ async fn execute_installation_inner(
     custom_portable_dir: Option<&str>,
 ) -> Result<InstallOutcome, String> {
     match kind {
-        AssetKind::Msi => {
-            #[cfg(target_os = "windows")]
-            {
-                windows::install_msi(installer_path, app_id).await
-            }
-            #[cfg(not(target_os = "windows"))]
-            {
-                Ok(InstallOutcome::Skipped(format!(
-                    "当前平台跳过 MSI 安装: {:?}",
-                    installer_path
-                )))
-            }
-        }
-        AssetKind::SetupExe => {
-            #[cfg(target_os = "windows")]
-            {
-                windows::install_setup_exe(installer_path, app_id).await
-            }
-            #[cfg(not(target_os = "windows"))]
-            {
-                Ok(InstallOutcome::Skipped(format!(
-                    "非 Windows 平台跳过 SetupExe 安装: {:?}",
-                    installer_path
-                )))
-            }
-        }
+        AssetKind::Msi => run_on_target!(
+            windows => windows::install_msi(installer_path, app_id).await,
+            skip => "当前平台跳过 MSI 安装", installer_path
+        ),
+        AssetKind::SetupExe => run_on_target!(
+            windows => windows::install_setup_exe(installer_path, app_id).await,
+            skip => "非 Windows 平台跳过 SetupExe 安装", installer_path
+        ),
         AssetKind::PortableZip => {
             portable::install_portable_zip(installer_path, app_id, custom_portable_dir)
         }
-        AssetKind::Dmg => {
-            #[cfg(target_os = "macos")]
-            {
-                macos::install_dmg(installer_path).await
-            }
-            #[cfg(not(target_os = "macos"))]
-            {
-                Ok(InstallOutcome::Skipped(format!(
-                    "非 macOS 平台跳过 DMG 挂载与解构安装: {:?}",
-                    installer_path
-                )))
-            }
-        }
-        AssetKind::Pkg => {
-            #[cfg(target_os = "macos")]
-            {
-                macos::install_pkg(installer_path).await
-            }
-            #[cfg(not(target_os = "macos"))]
-            {
-                Ok(InstallOutcome::Skipped(format!(
-                    "非 macOS 平台跳过 PKG 安装: {:?}",
-                    installer_path
-                )))
-            }
-        }
-        AssetKind::AppImage => {
-            #[cfg(target_os = "linux")]
-            {
-                linux::install_appimage(installer_path).await
-            }
-            #[cfg(not(target_os = "linux"))]
-            {
-                Ok(InstallOutcome::Skipped(format!(
-                    "非 Linux 平台跳过 AppImage 执行: {:?}",
-                    installer_path
-                )))
-            }
-        }
-        AssetKind::Deb => {
-            #[cfg(target_os = "linux")]
-            {
-                linux::install_deb(installer_path).await
-            }
-            #[cfg(not(target_os = "linux"))]
-            {
-                Ok(InstallOutcome::Skipped(format!(
-                    "非 Linux 平台跳过 deb 安装: {:?}",
-                    installer_path
-                )))
-            }
-        }
-        AssetKind::Rpm => {
-            #[cfg(target_os = "linux")]
-            {
-                linux::install_rpm(installer_path).await
-            }
-            #[cfg(not(target_os = "linux"))]
-            {
-                Ok(InstallOutcome::Skipped(format!(
-                    "非 Linux 平台跳过 rpm 安装: {:?}",
-                    installer_path
-                )))
-            }
-        }
-        _ => {
-            #[cfg(target_os = "windows")]
-            {
-                windows::install_fallback_default(installer_path).await
-            }
-            #[cfg(not(target_os = "windows"))]
-            {
-                Ok(InstallOutcome::Skipped(format!(
-                    "当前平台跳过系统默认处理程序拉起: {:?}",
-                    installer_path
-                )))
-            }
-        }
+        AssetKind::Dmg => run_on_target!(
+            macos => macos::install_dmg(installer_path).await,
+            skip => "非 macOS 平台跳过 DMG 挂载与解构安装", installer_path
+        ),
+        AssetKind::Pkg => run_on_target!(
+            macos => macos::install_pkg(installer_path).await,
+            skip => "非 macOS 平台跳过 PKG 安装", installer_path
+        ),
+        AssetKind::AppImage => run_on_target!(
+            linux => linux::install_appimage(installer_path).await,
+            skip => "非 Linux 平台跳过 AppImage 执行", installer_path
+        ),
+        AssetKind::Deb => run_on_target!(
+            linux => linux::install_deb(installer_path).await,
+            skip => "非 Linux 平台跳过 deb 安装", installer_path
+        ),
+        AssetKind::Rpm => run_on_target!(
+            linux => linux::install_rpm(installer_path).await,
+            skip => "非 Linux 平台跳过 rpm 安装", installer_path
+        ),
+        _ => run_on_target!(
+            windows => windows::install_fallback_default(installer_path).await,
+            skip => "当前平台跳过系统默认处理程序拉起", installer_path
+        ),
     }
 }
