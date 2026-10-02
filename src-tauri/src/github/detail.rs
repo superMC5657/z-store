@@ -896,6 +896,23 @@ pub(crate) fn sort_platforms(platforms: &mut Vec<String>) {
     platforms.sort_by_key(|p| {
         ORDER.iter().position(|&x| x == p.as_str()).unwrap_or(99)
     });
+}
+
+#[cfg(test)]
+mod detail_fast_path_tests {
+    use super::CatalogService;
+
+    #[test]
+    fn test_checksum_platform_filter_skips_linux_aarch64_only() {
+        // FreeCAD 案：Linux-aarch64-only 的 checksum 文件必须跳过，不产生请求。
+        let (ok, _) =
+            CatalogService::checksum_asset_platform_eligible("freecad-linux-aarch64.sha256");
+        assert!(!ok);
+        let (ok, _) =
+            CatalogService::checksum_asset_platform_eligible("app-1.0-linux.tar.gz.sha256");
+        assert!(!ok);
+        // Windows 相关与通用命名允许请求。
+        let (ok, reason) =
             CatalogService::checksum_asset_platform_eligible("rustdesk-1.2.6-windows-msi.sha256");
         assert!(ok, "{}", reason);
         let (ok, reason) = CatalogService::checksum_asset_platform_eligible("checksums-sha256.txt");
@@ -916,7 +933,6 @@ pub(crate) fn sort_platforms(platforms: &mut Vec<String>) {
         assert!(!mirror);
         assert_eq!(effective, cb);
     }
-}
 
     #[test]
     fn test_is_valid_installer_asset_filters() {
@@ -1043,3 +1059,4 @@ pub(crate) fn sort_platforms(platforms: &mut Vec<String>) {
         assert_eq!(raw_plats, vec!["windows".to_string(), "android".to_string()]);
         assert_eq!(deduce_platforms_from_raw_assets(&raw), raw_plats);
     }
+}

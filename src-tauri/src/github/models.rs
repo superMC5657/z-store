@@ -134,26 +134,6 @@ pub(crate) struct GitHubAssetResponse {
     pub browser_download_url: String,
 }
 
-#[derive(Debug, Deserialize)]
-pub(crate) struct GitHubSearchResponse {
-    pub items: Vec<GitHubSearchItem>,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct GitHubSearchItem {
-    pub name: String,
-    pub full_name: String,
-    pub owner: GitHubSearchOwner,
-    pub description: Option<String>,
-    pub stargazers_count: u64,
-    pub forks_count: u64,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct GitHubSearchOwner {
-    pub login: String,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppRepoCoordinates {
     pub owner: String,

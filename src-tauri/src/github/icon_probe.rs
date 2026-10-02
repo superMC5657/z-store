@@ -1,5 +1,5 @@
-//! 图标五级探测（与 z-store-catalog `scripts/lib/catalog-shared.mjs` 同源逻辑）：
-//! 种子提示 → Simple Icons 品牌库 → Git Trees 全库评分 → 静态路径 →（调用方）头像兜底。
+//! 图标探测（与 z-store-catalog 同源逻辑）：
+//! 品牌库 Simple Icons → 翻全家 Git Trees 全库评分。
 //! 调用方找不到缓存时按此逻辑派生替代图标 URL；本模块只负责“找 URL 并验字节”，
 //! 缓存读写仍由调用方（`commands::icons` / `github::detail`）负责。
 
@@ -152,35 +152,6 @@ pub(crate) fn score_candidate(file_path: &str, size: Option<u64>, repo: &str) ->
     score
 }
 
-/// 静态候选路径（与 catalog-shared 一致，经 jsDelivr 实测后返回 raw 权威 URL）。
-fn static_paths() -> [&'static str; 13] {
-    [
-        "res/icon.png",
-        "assets/icon.png",
-        "assets/logo.png",
-        "assets/app-icon.png",
-        "src-tauri/icons/icon.png",
-        "buildResources/icon.png",
-        "public/icon.png",
-        "public/logo.png",
-        "public/app-icon.png",
-        "resources/icon.png",
-        "icon.png",
-        "logo.png",
-        "logo.svg",
-    ]
-}
-
-fn jsdelivr_url(owner: &str, repo: &str, branch: &str, file_path: &str) -> String {
-    format!(
-        "https://cdn.jsdelivr.net/gh/{}/{}@{}/{}",
-        owner,
-        repo,
-        branch,
-        file_path.trim_start_matches('/')
-    )
-}
-
 fn raw_url(owner: &str, repo: &str, branch: &str, file_path: &str) -> String {
     format!(
         "https://raw.githubusercontent.com/{}/{}/{}/{}",
@@ -230,31 +201,17 @@ struct GitTreeNode {
     size: Option<u64>,
 }
 
-/// 五级探测主入口。`headers` 传入带 token 的鉴权头则含 Trees 级；
+/// 图标探测主入口（Simple Icons 品牌库 → Git Trees 全库评分）。
+/// `headers` 传入带 token 的鉴权头则含 Trees 级；
 /// 传 `None`（如无 token 的图标命令回退路径）则跳过 Trees，只做免鉴权级。
-/// `icon_hint` 为种子/收录库提示的相对路径。命中返回权威 URL，未命中返回 `None` 由调用方用头像兜底。
+/// 命中返回权威 URL，未命中返回 `None`。
 pub(crate) async fn probe_repo_logo(
     client: &reqwest::Client,
     headers: Option<&HeaderMap>,
     owner: &str,
     repo: &str,
     branch: &str,
-    icon_hint: Option<&str>,
 ) -> Option<ProbedIcon> {
-    // 0. 种子提示。
-    if let Some(hint) = icon_hint.map(str::trim).filter(|h| !h.is_empty()) {
-        let probe = jsdelivr_url(owner, repo, branch, hint);
-        if verify_image(client, &probe, std::time::Duration::from_secs(10))
-            .await
-            .is_some()
-        {
-            return Some(ProbedIcon {
-                url: raw_url(owner, repo, branch, hint),
-                source: "hint",
-            });
-        }
-    }
-
     // 1. Simple Icons 品牌库（免鉴权）。
     for slug in derive_slugs(repo) {
         let cdn = format!("https://cdn.simpleicons.org/{slug}");
@@ -304,20 +261,6 @@ pub(crate) async fn probe_repo_logo(
         }
     }
 
-    // 3. 静态路径（经 jsDelivr 实测后返回 raw 权威 URL）。
-    for candidate in static_paths() {
-        let probe = jsdelivr_url(owner, repo, branch, candidate);
-        if verify_image(client, &probe, std::time::Duration::from_secs(10))
-            .await
-            .is_some()
-        {
-            return Some(ProbedIcon {
-                url: raw_url(owner, repo, branch, candidate),
-                source: "static",
-            });
-        }
-    }
-
     None
 }
 
@@ -346,13 +289,13 @@ mod tests {
     }
 
     #[test]
-    fn test_mirror_url_shapes() {
-        assert_eq!(
-            jsdelivr_url("o", "r", "main", "/a/b.png"),
-            "https://cdn.jsdelivr.net/gh/o/r@main/a/b.png"
-        );
+    fn test_raw_url_shape() {
         assert_eq!(
             raw_url("o", "r", "main", "a/b.png"),
+            "https://raw.githubusercontent.com/o/r/main/a/b.png"
+        );
+        assert_eq!(
+            raw_url("o", "r", "main", "/a/b.png"),
             "https://raw.githubusercontent.com/o/r/main/a/b.png"
         );
     }
