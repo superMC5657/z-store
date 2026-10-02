@@ -138,6 +138,26 @@ impl CatalogService {
             if let Some(ref existing) = cached_detail {
                 if !existing.releases.is_empty() && !existing.readme_markdown.trim().is_empty() {
                     let mut detail = existing.clone();
+                    detail.releases.retain(|r| is_valid_installer_asset(&r.name, r.size_bytes));
+                    let deduced = platforms_from_assets(&detail.releases);
+                    detail.platforms = if deduced.is_empty() {
+                        Vec::new()
+                    } else if let Some(ref item) = catalog_item {
+                        let mut set = std::collections::BTreeSet::new();
+                        for p in &deduced {
+                            set.insert(p.clone());
+                        }
+                        for p in &item.platforms {
+                            if p == "ios" {
+                                set.insert(p.clone());
+                            }
+                        }
+                        let mut list: Vec<String> = set.into_iter().collect();
+                        sort_platforms(&mut list);
+                        list
+                    } else {
+                        deduced
+                    };
                     if let Some(ref item) = catalog_item {
                         if item.description_en.is_some() {
                             detail.description_en = item.description_en.clone();
@@ -401,6 +421,11 @@ impl CatalogService {
 
         let mut releases = Vec::new();
         for asset in release_resp.assets {
+            // 安装包校验过滤：排除 .sha256/.sig/.txt、过滤 <=1MB 占位包、排除源码包
+            if !is_valid_installer_asset(&asset.name, asset.size) {
+                continue;
+            }
+
             let (kind, os, arch) = InstallerEngine::classify_asset(&asset.name);
             let kind_str = match kind {
                 crate::installer::AssetKind::Msi => "msi",
@@ -412,17 +437,27 @@ impl CatalogService {
                 crate::installer::AssetKind::Dmg => "dmg",
                 crate::installer::AssetKind::Pkg => "pkg",
                 crate::installer::AssetKind::Apk => "apk",
-                crate::installer::AssetKind::Other => "other",
+                crate::installer::AssetKind::Other => {
+                    if asset.name.to_lowercase().ends_with(".msix") {
+                        "setup_exe"
+                    } else {
+                        "other"
+                    }
+                }
             };
 
             let matched_sha256 = checksums.get(&asset.name).cloned();
 
             releases.push(ReleaseAsset {
-                name: asset.name,
+                name: asset.name.clone(),
                 download_url: asset.browser_download_url,
                 size_bytes: asset.size,
                 sha256: matched_sha256,
-                os: os.to_string(),
+                os: if os == "all" && asset.name.to_lowercase().ends_with(".msix") {
+                    "windows".to_string()
+                } else {
+                    os.to_string()
+                },
                 arch: arch.to_string(),
                 kind: kind_str.to_string(),
             });
@@ -698,6 +733,169 @@ mod detail_fast_path_tests {
         assert!(!ok);
         // Windows 相关与通用命名允许请求。
         let (ok, reason) =
+
+    /// 判断资产是否为可安装的有效二进制发布包（对齐 catalog 仓 checkBinary 规则）
+    pub fn is_valid_installer_asset(name: &str, size_bytes: u64) -> bool {
+        is_valid_installer_asset(name, size_bytes)
+    }
+
+    /// 从发布资产列表中推断平台（带安装包校验规则过滤）
+    pub fn platforms_from_assets(assets: &[ReleaseAsset]) -> Vec<String> {
+        platforms_from_assets(assets)
+    }
+
+    /// deduce 别名（兼容调用规范）
+    pub fn deduce_platforms(assets: &[ReleaseAsset]) -> Vec<String> {
+        deduce_platforms(assets)
+    }
+
+    /// 对 GitHub 原始 API 资产推断平台
+    #[allow(dead_code)]
+    pub(crate) fn deduce_platforms_from_raw_assets(assets: &[GitHubAssetResponse]) -> Vec<String> {
+        deduce_platforms_from_raw_assets(assets)
+    }
+}
+
+/// 1MB 门禁阈值（对齐 catalog 仓 checkBinary）
+pub const ONE_MB_BYTES: u64 = 1024 * 1024;
+
+/// 判断文件名是否为排除的校验和、签名或轻量元数据文件
+pub fn is_excluded_signature_or_text(name_lower: &str) -> bool {
+    const EXCLUDED_SUFFIXES: &[&str] = &[
+        ".sha256", ".sha512", ".sha1", ".md5",
+        ".sig", ".asc",
+        ".txt", ".md",
+        ".json", ".yml", ".yaml", ".xml",
+        ".sbom", ".blockmap", ".zsync",
+    ];
+    if EXCLUDED_SUFFIXES.iter().any(|s| name_lower.ends_with(s)) {
+        return true;
+    }
+    // 聚合校验和文件名判定（如 SHA256SUMS 等）
+    if name_lower.contains("checksum")
+        || name_lower.contains("sha256sum")
+        || name_lower.contains("sha512sum")
+        || name_lower.contains("md5sum")
+    {
+        return true;
+    }
+    false
+}
+
+/// 判断是否为源码包（源码归档或含源码标记的包，不可作为安装包）
+pub fn is_source_package(name_lower: &str) -> bool {
+    // 源码归档扩展名（.tar.gz/.tar.xz/.tgz 等在 GitHub Release 常为源码打包，且安装引擎不执行 tar 解压）
+    if name_lower.ends_with(".tar.gz")
+        || name_lower.ends_with(".tar.xz")
+        || name_lower.ends_with(".tar.bz2")
+        || name_lower.ends_with(".tgz")
+        || name_lower.ends_with(".tar")
+    {
+        return true;
+    }
+    // 包含 source/sources 命名标记
+    if name_lower.contains("source") || name_lower.contains("sources") {
+        return true;
+    }
+    // 包含 src 关键字命名标记（如 app-src.zip, app_src.zip, src.zip 等）
+    if name_lower.contains("-src.")
+        || name_lower.contains("_src.")
+        || name_lower.contains(".src.")
+        || name_lower.starts_with("src.")
+        || name_lower.starts_with("src-")
+        || name_lower.ends_with("-src.zip")
+        || name_lower.ends_with("_src.zip")
+    {
+        return true;
+    }
+    false
+}
+
+/// 判断资产是否为有效可安装的二进制分发包（对齐 catalog 仓 checkBinary）：
+/// 1. 过滤 <= 1MB (1_048_576 字节) 占位包与小文件；
+/// 2. 排除 .sha256/.sig/.txt 及类似校验、签名、元数据文件；
+/// 3. 排除源码包（含有 source/src 标记或 .tar.gz 归档等）；
+/// 4. 认可 exe/msi/msix/dmg/pkg/AppImage/deb/rpm/apk 及非源码便携 zip。
+pub fn is_valid_installer_asset(name: &str, size_bytes: u64) -> bool {
+    if size_bytes <= ONE_MB_BYTES {
+        return false;
+    }
+    let lower = name.to_lowercase();
+    if is_excluded_signature_or_text(&lower) {
+        return false;
+    }
+    if is_source_package(&lower) {
+        return false;
+    }
+    let (kind, _, _) = InstallerEngine::classify_asset(name);
+    match kind {
+        crate::installer::AssetKind::Msi
+        | crate::installer::AssetKind::SetupExe
+        | crate::installer::AssetKind::Dmg
+        | crate::installer::AssetKind::Pkg
+        | crate::installer::AssetKind::AppImage
+        | crate::installer::AssetKind::Deb
+        | crate::installer::AssetKind::Rpm
+        | crate::installer::AssetKind::Apk => true,
+        crate::installer::AssetKind::PortableZip => true,
+        crate::installer::AssetKind::Other => {
+            // msix 扩展名特殊兼容支持
+            lower.ends_with(".msix")
+        }
+    }
+}
+
+/// 根据资产列表推断支持的平台（带安装包校验规则过滤）。
+/// 源码包、<=1MB 占位包、.sha256/.sig/.txt 均不算可安装资产；
+/// 若无任何有效可安装包，则返回空列表（避免虚假发布）。
+pub fn platforms_from_assets(assets: &[ReleaseAsset]) -> Vec<String> {
+    let mut set = std::collections::BTreeSet::new();
+    for a in assets {
+        if !is_valid_installer_asset(&a.name, a.size_bytes) {
+            continue;
+        }
+        let (_, os, _) = InstallerEngine::classify_asset(&a.name);
+        if os != "all" {
+            set.insert(os.to_string());
+        } else if a.name.to_lowercase().ends_with(".msix") {
+            set.insert("windows".to_string());
+        }
+    }
+    let mut plats: Vec<String> = set.into_iter().collect();
+    sort_platforms(&mut plats);
+    plats
+}
+
+/// 别名 deduce_platforms / platforms_from_assets 对齐
+pub fn deduce_platforms(assets: &[ReleaseAsset]) -> Vec<String> {
+    platforms_from_assets(assets)
+}
+
+/// 对 GitHub 原始 API 资产推断平台
+#[allow(dead_code)]
+pub(crate) fn deduce_platforms_from_raw_assets(assets: &[GitHubAssetResponse]) -> Vec<String> {
+    let mut set = std::collections::BTreeSet::new();
+    for a in assets {
+        if !is_valid_installer_asset(&a.name, a.size) {
+            continue;
+        }
+        let (_, os, _) = InstallerEngine::classify_asset(&a.name);
+        if os != "all" {
+            set.insert(os.to_string());
+        } else if a.name.to_lowercase().ends_with(".msix") {
+            set.insert("windows".to_string());
+        }
+    }
+    let mut plats: Vec<String> = set.into_iter().collect();
+    sort_platforms(&mut plats);
+    plats
+}
+
+pub(crate) fn sort_platforms(platforms: &mut Vec<String>) {
+    const ORDER: &[&str] = &["windows", "macos", "linux", "ios", "android"];
+    platforms.sort_by_key(|p| {
+        ORDER.iter().position(|&x| x == p.as_str()).unwrap_or(99)
+    });
             CatalogService::checksum_asset_platform_eligible("rustdesk-1.2.6-windows-msi.sha256");
         assert!(ok, "{}", reason);
         let (ok, reason) = CatalogService::checksum_asset_platform_eligible("checksums-sha256.txt");
@@ -719,3 +917,129 @@ mod detail_fast_path_tests {
         assert_eq!(effective, cb);
     }
 }
+
+    #[test]
+    fn test_is_valid_installer_asset_filters() {
+        use super::{is_valid_installer_asset, ONE_MB_BYTES};
+
+        // 1. <= 1MB 占位包与小文件被过滤
+        assert!(!is_valid_installer_asset("app-setup.exe", ONE_MB_BYTES));
+        assert!(!is_valid_installer_asset("app-setup.exe", 500_000));
+        assert!(!is_valid_installer_asset("app.deb", 1024));
+
+        // 2. 校验和、签名、元数据被过滤
+        assert!(!is_valid_installer_asset("app.exe.sha256", 5_000_000));
+        assert!(!is_valid_installer_asset("app.sig", 5_000_000));
+        assert!(!is_valid_installer_asset("app.asc", 5_000_000));
+        assert!(!is_valid_installer_asset("release-notes.txt", 5_000_000));
+        assert!(!is_valid_installer_asset("SHA256SUMS", 5_000_000));
+        assert!(!is_valid_installer_asset("checksums.txt", 5_000_000));
+
+        // 3. 源码包不可作为安装包
+        assert!(!is_valid_installer_asset("app-1.0.tar.gz", 25_000_000));
+        assert!(!is_valid_installer_asset("source.tar.gz", 25_000_000));
+        assert!(!is_valid_installer_asset("sources.tar.xz", 25_000_000));
+        assert!(!is_valid_installer_asset("app-source.zip", 25_000_000));
+        assert!(!is_valid_installer_asset("app-src.zip", 25_000_000));
+        assert!(!is_valid_installer_asset("src.zip", 25_000_000));
+
+        // 4. 认可的主流二进制安装包
+        assert!(is_valid_installer_asset("RustDesk-1.2.6-Setup.exe", 20_000_000));
+        assert!(is_valid_installer_asset("vlc-3.0.21-win64.msi", 40_000_000));
+        assert!(is_valid_installer_asset("app.msix", 30_000_000));
+        assert!(is_valid_installer_asset("KeePassXC-2.7.9.dmg", 50_000_000));
+        assert!(is_valid_installer_asset("Wireshark-4.2.4.pkg", 60_000_000));
+        assert!(is_valid_installer_asset("LocalSend-1.15.2.AppImage", 35_000_000));
+        assert!(is_valid_installer_asset("obs-studio_30.1.2_amd64.deb", 70_000_000));
+        assert!(is_valid_installer_asset("rustdesk-1.2.6.rpm", 30_000_000));
+        assert!(is_valid_installer_asset("app-release.apk", 15_000_000));
+        assert!(is_valid_installer_asset("app-windows-x64.zip", 15_000_000));
+    }
+
+    #[test]
+    fn test_platforms_from_assets_empty_on_source_and_invalid() {
+        use super::platforms_from_assets;
+        use crate::models::ReleaseAsset;
+
+        fn make_asset(name: &str, size_bytes: u64) -> ReleaseAsset {
+            ReleaseAsset {
+                name: name.to_string(),
+                download_url: "https://example.com/download".to_string(),
+                size_bytes,
+                sha256: None,
+                os: String::new(),
+                arch: String::new(),
+                kind: String::new(),
+            }
+        }
+
+        // 纯源码包：platforms 必须置空
+        let source_only = vec![
+            make_asset("app-1.0.tar.gz", 20_000_000),
+            make_asset("app-source.zip", 15_000_000),
+        ];
+        assert!(platforms_from_assets(&source_only).is_empty());
+
+        // 纯校验和与文档：platforms 必须置空
+        let docs_only = vec![
+            make_asset("checksums.txt", 5_000_000),
+            make_asset("app.sig", 2_000_000),
+        ];
+        assert!(platforms_from_assets(&docs_only).is_empty());
+
+        // 占位包 (<= 1MB)：platforms 必须置空
+        let stub_only = vec![make_asset("app-setup.exe", 500_000)];
+        assert!(platforms_from_assets(&stub_only).is_empty());
+
+        // 空资产列表：platforms 必须置空
+        assert!(platforms_from_assets(&[]).is_empty());
+    }
+
+    #[test]
+    fn test_platforms_from_assets_derives_valid_platforms() {
+        use super::{deduce_platforms, deduce_platforms_from_raw_assets, platforms_from_assets};
+        use crate::github::models::GitHubAssetResponse;
+        use crate::models::ReleaseAsset;
+
+        fn make_asset(name: &str, size_bytes: u64) -> ReleaseAsset {
+            ReleaseAsset {
+                name: name.to_string(),
+                download_url: "https://example.com/download".to_string(),
+                size_bytes,
+                sha256: None,
+                os: String::new(),
+                arch: String::new(),
+                kind: String::new(),
+            }
+        }
+
+        let mixed = vec![
+            make_asset("app-setup.exe", 20_000_000),
+            make_asset("app_amd64.deb", 25_000_000),
+            make_asset("app.dmg", 30_000_000),
+            make_asset("app.tar.gz", 15_000_000), // 源码包，被过滤
+            make_asset("app.sig", 5_000),          // 签名，被过滤
+            make_asset("stub.exe", 500_000),       // <= 1MB，被过滤
+        ];
+
+        let plats = platforms_from_assets(&mixed);
+        assert_eq!(plats, vec!["windows".to_string(), "macos".to_string(), "linux".to_string()]);
+        assert_eq!(deduce_platforms(&mixed), plats);
+
+        // 测试 GitHubAssetResponse 推断
+        let raw = vec![
+            GitHubAssetResponse {
+                name: "app-setup.exe".to_string(),
+                size: 20_000_000,
+                browser_download_url: "https://example.com".to_string(),
+            },
+            GitHubAssetResponse {
+                name: "app.apk".to_string(),
+                size: 15_000_000,
+                browser_download_url: "https://example.com".to_string(),
+            },
+        ];
+        let raw_plats = CatalogService::deduce_platforms_from_raw_assets(&raw);
+        assert_eq!(raw_plats, vec!["windows".to_string(), "android".to_string()]);
+        assert_eq!(deduce_platforms_from_raw_assets(&raw), raw_plats);
+    }
