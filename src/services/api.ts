@@ -400,3 +400,6 @@ const tauriApi = {
  * 浏览器直接访问时由应用入口渲染环境提示页（见 main.tsx）。
  */
 export const api = tauriApi;
+
+export * from './trends';
+
