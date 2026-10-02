@@ -205,18 +205,121 @@ fn test_base64_encode_and_icon_cache_path() {
     assert_eq!(detect_image_mime(b"GIF89a..."), "image/gif");
     assert_eq!(detect_image_mime(&[0xff, 0xd8, 0xff, 0x00]), "image/jpeg");
     assert_eq!(detect_image_mime(b"<svg xmlns=..."), "image/svg+xml");
+    assert_eq!(detect_image_mime(b"BM1234"), "image/bmp");
+    assert_eq!(
+        detect_image_mime(b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00"),
+        "image/avif"
+    );
 
-    // canonical id（owner/repo）优先解析为 {owner}_{repo}.png 唯一命名空间
+    assert_eq!(detect_image_ext(b"\x89PNG\r\n\x1a\n123"), "png");
+    assert_eq!(detect_image_ext(b"<svg xmlns=..."), "svg");
+
+    // 扩展名推断与 mime 双向映射
+    assert_eq!(infer_icon_ext_from_url("https://github.com/rustdesk.png"), Some("png"));
+    assert_eq!(infer_icon_ext_from_url("https://example.com/logo.JPEG?raw=1#top"), Some("jpg"));
+    assert_eq!(infer_icon_ext_from_url("https://example.com/logo.jpg"), Some("jpg"));
+    assert_eq!(infer_icon_ext_from_url("https://example.com/icon.svg"), Some("svg"));
+    assert_eq!(infer_icon_ext_from_url("https://example.com/app.ICO"), Some("ico"));
+    assert_eq!(infer_icon_ext_from_url("https://example.com/app.webp"), Some("webp"));
+    assert_eq!(infer_icon_ext_from_url("https://example.com/app.gif"), Some("gif"));
+    assert_eq!(infer_icon_ext_from_url("https://example.com/app.avif"), Some("avif"));
+    assert_eq!(infer_icon_ext_from_url("https://example.com/app.apng"), Some("apng"));
+    assert_eq!(infer_icon_ext_from_url("https://example.com/app.bmp"), Some("bmp"));
+    assert_eq!(infer_icon_ext_from_url("https://example.com/no-ext-logo"), None);
+    assert_eq!(infer_icon_ext_from_url("https://example.com/file.exe"), None);
+
+    assert_eq!(mime_to_ext("image/svg+xml"), "svg");
+    assert_eq!(mime_to_ext("image/x-icon"), "ico");
+    assert_eq!(mime_to_ext("image/jpeg"), "jpg");
+    assert_eq!(mime_to_ext("image/png"), "png");
+    assert_eq!(ext_to_mime("svg"), "image/svg+xml");
+    assert_eq!(ext_to_mime("ico"), "image/x-icon");
+    assert_eq!(ext_to_mime("jpg"), "image/jpeg");
+
+    // canonical id（owner/repo）优先解析为 {owner}_{repo}.{ext} 唯一命名空间
     let p1 = get_icon_cache_path("rustdesk/rustdesk", "https://github.com/rustdesk.png");
     assert!(p1.to_string_lossy().ends_with("rustdesk_rustdesk.png"));
 
-    let p2 = get_icon_cache_path("microsoft/terminal", "https://github.com/microsoft.png");
-    assert!(p2.to_string_lossy().ends_with("microsoft_terminal.png"));
+    let p2 = get_icon_cache_path(
+        "microsoft/terminal",
+        "https://raw.githubusercontent.com/microsoft/terminal/main/res/terminal.svg?v=1#anchor",
+    );
+    assert!(p2.to_string_lossy().ends_with("microsoft_terminal.svg"));
 
-    let p3 = get_icon_cache_path("alacritty/alacritty", "https://github.com/alacritty.png");
-    assert!(p3.to_string_lossy().ends_with("alacritty_alacritty.png"));
+    let p3 = get_icon_cache_path("alacritty/alacritty", "https://alacritty.org/assets/logo.jpeg");
+    assert!(p3.to_string_lossy().ends_with("alacritty_alacritty.jpg"));
 
-    // 无法解析为仓库坐标的 id：消毒后直接命名
-    let p4 = get_icon_cache_path("localsend", "https://github.com/localsend.png");
-    assert!(p4.to_string_lossy().ends_with("localsend.png"));
+    // 无法解析为仓库坐标的 id：消毒后按 URL 后缀命名
+    let p4 = get_icon_cache_path("localsend", "https://localsend.org/favicon.ico");
+    assert!(p4.to_string_lossy().ends_with("localsend.ico"));
+
+    // 无后缀 URL：默认 .png 以兼容旧缓存
+    let p5 = get_icon_cache_path("localsend", "https://localsend.org/app-logo");
+    assert!(p5.to_string_lossy().ends_with("localsend.png"));
+
+    // hash 回退：app_id 为空，URL 带有 .svg 后缀
+    let p6_url = "https://example.com/custom-icon.svg";
+    let p6 = get_icon_cache_path("", p6_url);
+    let h6 = &crate::sha256_digest_hex(p6_url.as_bytes())[..16];
+    assert!(p6.to_string_lossy().ends_with(&format!("{}.svg", h6)));
+
+    // hash 回退：app_id 消毒后为空且 URL 无后缀，默认 .png
+    let p7_url = "https://example.com/avatar";
+    let p7 = get_icon_cache_path("###", p7_url);
+    let h7 = &crate::sha256_digest_hex(p7_url.as_bytes())[..16];
+    assert!(p7.to_string_lossy().ends_with(&format!("{}.png", h7)));
+    assert_eq!(icon_hash_filename(p7_url), format!("{}.png", h7));
+    assert_eq!(icon_hash_filename(p6_url), format!("{}.svg", h6));
+}
+
+#[test]
+fn test_icon_cache_compat_and_rename_simulation() {
+    let tmp = tempfile::tempdir().unwrap();
+    let icons_dir = tmp.path().join("icons");
+    std::fs::create_dir_all(&icons_dir).unwrap();
+
+    let stem = get_icon_stem("demo/app", "https://example.com/logo.svg");
+    assert_eq!(stem, "demo_app");
+
+    // 模拟旧版本写入了 demo_app.png，并存入 DB
+    let old_png_path = icons_dir.join("demo_app.png");
+    std::fs::write(&old_png_path, b"<svg>test</svg>").unwrap();
+
+    // 模拟从 URL 推断的候选列表：优先精确匹配 .svg，其次通配候选（包含 .png）
+    let inferred_ext = infer_icon_ext_from_url("https://example.com/logo.svg").unwrap_or("png");
+    assert_eq!(inferred_ext, "svg");
+
+    let mut candidate_filenames = Vec::new();
+    candidate_filenames.push(format!("{}.{}", stem, inferred_ext));
+    for &ext in SUPPORTED_ICON_EXTENSIONS {
+        if ext != inferred_ext {
+            let name = format!("{}.{}", stem, ext);
+            if !candidate_filenames.contains(&name) {
+                candidate_filenames.push(name);
+            }
+        }
+    }
+    assert_eq!(candidate_filenames[0], "demo_app.svg");
+    assert!(candidate_filenames.contains(&"demo_app.png".to_string()));
+
+    // 模拟内容校核与重命名流程：
+    // 当内容真实为 svg 时，initial 写为 demo_app.png，校核后重命名为 demo_app.svg，并清理旧 demo_app.png
+    let initial_file = icons_dir.join("demo_app.png");
+    let content = b"<svg xmlns=\"http://www.w3.org/2000/svg\"><circle/></svg>";
+    let mime = detect_image_mime(content);
+    let real_ext = mime_to_ext(mime);
+    assert_eq!(real_ext, "svg");
+
+    let final_file = icons_dir.join(format!("{}.{}", stem, real_ext));
+    if final_file != initial_file {
+        if final_file.exists() {
+            let _ = std::fs::remove_file(&final_file);
+        }
+        if std::fs::rename(&initial_file, &final_file).is_err() {
+            let _ = std::fs::write(&final_file, content);
+            let _ = std::fs::remove_file(&initial_file);
+        }
+    }
+    assert!(final_file.exists());
+    assert!(!initial_file.exists());
 }

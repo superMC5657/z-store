@@ -431,4 +431,8 @@ fn test_icon_cache_meta_crud() {
             .as_deref(),
         Some("https://raw.githubusercontent.com/agalwood/Motrix/HEAD/public/app-icon.png")
     );
+
+    // 删除单条缓存记录
+    db.delete_icon_cache_url("agalwood_Motrix.png").unwrap();
+    assert_eq!(db.get_icon_cache_url("agalwood_Motrix.png").unwrap(), None);
 }

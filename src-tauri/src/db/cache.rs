@@ -139,4 +139,16 @@ impl Database {
             params![clean_key, clean_url, now],
         )
     }
+
+    pub fn delete_icon_cache_url(&self, cache_key: &str) -> Result<()> {
+        let clean_key = cache_key.trim();
+        if clean_key.is_empty() {
+            return Ok(());
+        }
+        self.conn.execute(
+            "DELETE FROM icon_cache_meta WHERE cache_key = ?1",
+            params![clean_key],
+        )?;
+        Ok(())
+    }
 }
