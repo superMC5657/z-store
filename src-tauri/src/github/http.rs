@@ -176,7 +176,283 @@ pub(crate) fn fallback_platforms() -> Vec<String> {
     vec!["windows".to_string()]
 }
 
-/// H10：目录外仓库 `AppSummary` 兜底构造（`search` 两处回退共用，字段语义不变）。
+/// H10：分类元信息结构体。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CategoryMeta {
+    pub key: &'static str,
+    pub name: &'static str,
+    pub gradient: &'static str,
+}
+
+/// 移植 catalog guessCategory 关键词表（system/network/media/security/dev/graphics/office/reading/ops/games）。
+/// 依据 description（含中文与英文）及 GitHub topics 标签推断最贴切的分类。
+pub(crate) fn guess_category(
+    desc: Option<&str>,
+    desc_en: Option<&str>,
+    topics: &[String],
+) -> CategoryMeta {
+    let mut text = String::new();
+    if let Some(d) = desc {
+        text.push_str(d);
+        text.push(' ');
+    }
+    if let Some(d) = desc_en {
+        text.push_str(d);
+        text.push(' ');
+    }
+    for topic in topics {
+        text.push_str(topic);
+        text.push(' ');
+    }
+    let text = text.to_lowercase();
+
+    if text.contains("remote")
+        || text.contains("desktop")
+        || text.contains("cleaner")
+        || text.contains("launcher")
+        || text.contains("file manager")
+    {
+        return CategoryMeta {
+            key: "system",
+            name: "系统实用",
+            gradient: "linear-gradient(135deg, #475569, #334155)",
+        };
+    }
+    if text.contains("network")
+        || text.contains("transfer")
+        || text.contains("download")
+        || text.contains("torrent")
+        || text.contains("proxy")
+        || text.contains("vpn")
+    {
+        return CategoryMeta {
+            key: "network",
+            name: "网络工具",
+            gradient: "linear-gradient(135deg, #0284c7, #0369a1)",
+        };
+    }
+    if text.contains("player")
+        || text.contains("video")
+        || text.contains("audio")
+        || text.contains("music")
+        || text.contains("stream")
+        || text.contains("record")
+    {
+        return CategoryMeta {
+            key: "media",
+            name: "影音视听",
+            gradient: "linear-gradient(135deg, #ec4899, #be185d)",
+        };
+    }
+    if text.contains("password")
+        || text.contains("security")
+        || text.contains("crypto")
+        || text.contains("2fa")
+        || text.contains("otp")
+        || text.contains("authenticator")
+    {
+        return CategoryMeta {
+            key: "security",
+            name: "安全隐私",
+            gradient: "linear-gradient(135deg, #059669, #047857)",
+        };
+    }
+    if text.contains("editor")
+        || text.contains("terminal")
+        || text.contains("git")
+        || text.contains("code")
+        || text.contains("developer")
+        || text.contains("api")
+    {
+        return CategoryMeta {
+            key: "dev",
+            name: "开发工具",
+            gradient: "linear-gradient(135deg, #2563eb, #1d4ed8)",
+        };
+    }
+    if text.contains("image")
+        || text.contains("paint")
+        || text.contains("photo")
+        || text.contains("screenshot")
+        || text.contains("3d")
+        || text.contains("svg")
+    {
+        return CategoryMeta {
+            key: "graphics",
+            name: "图形设计",
+            gradient: "linear-gradient(135deg, #8b5cf6, #6d28d9)",
+        };
+    }
+    if text.contains("note")
+        || text.contains("markdown")
+        || text.contains("pdf")
+        || text.contains("office")
+        || text.contains("todo")
+        || text.contains("calendar")
+    {
+        return CategoryMeta {
+            key: "office",
+            name: "效率办公",
+            gradient: "linear-gradient(135deg, #d97706, #b45309)",
+        };
+    }
+    if text.contains("book")
+        || text.contains("reader")
+        || text.contains("rss")
+        || text.contains("epub")
+        || text.contains("feed")
+    {
+        return CategoryMeta {
+            key: "reading",
+            name: "学习阅读",
+            gradient: "linear-gradient(135deg, #0d9488, #0f766e)",
+        };
+    }
+    if text.contains("docker")
+        || text.contains("kubernetes")
+        || text.contains("monitor")
+        || text.contains("database")
+        || text.contains("server")
+    {
+        return CategoryMeta {
+            key: "ops",
+            name: "极客运维",
+            gradient: "linear-gradient(135deg, #4f46e5, #3730a3)",
+        };
+    }
+    if text.contains("game") || text.contains("emulator") || text.contains("arcade") {
+        return CategoryMeta {
+            key: "games",
+            name: "休闲游戏",
+            gradient: "linear-gradient(135deg, #e11d48, #be123c)",
+        };
+    }
+
+    CategoryMeta {
+        key: "dev",
+        name: "开发工具",
+        gradient: "linear-gradient(135deg, #2563eb, #1d4ed8)",
+    }
+}
+
+/// 复用 Simple Icons CDN 试探图标（免鉴权、超时短、失败即空）。
+/// 优先按 repo 派生 slug，次选 owner；绝不调 GitHub users API，不拼 avatar_url。
+pub(crate) async fn probe_simple_icon(
+    client: &reqwest::Client,
+    owner: &str,
+    repo: &str,
+) -> String {
+    let mut slugs = crate::github::icon_probe::derive_slugs(repo);
+    for s in crate::github::icon_probe::derive_slugs(owner) {
+        if !slugs.contains(&s) {
+            slugs.push(s);
+        }
+    }
+    if slugs.is_empty() {
+        return String::new();
+    }
+
+    const BROWSER_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+    let probe_timeout = std::time::Duration::from_millis(1500);
+
+    for slug in slugs {
+        let cdn = format!("https://cdn.simpleicons.org/{slug}");
+        let req = client.get(&cdn).header(USER_AGENT, BROWSER_UA).send();
+        if let Ok(Ok(resp)) = tokio::time::timeout(probe_timeout, req).await {
+            if resp.status().is_success() {
+                let ctype = resp
+                    .headers()
+                    .get(reqwest::header::CONTENT_TYPE)
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("")
+                    .to_string();
+                if ctype.contains("svg")
+                    || ctype.starts_with("image/")
+                    || ctype.contains("octet-stream")
+                {
+                    if let Ok(bytes) = resp.bytes().await {
+                        if bytes.len() >= 300 {
+                            return cdn;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    String::new()
+}
+
+/// 若 app_icon_cycles 有该 app 且 selected_url 非空且本地缓存文件存在，
+/// 则返回已确认的图标（优先返回 dataURI 语义，不可读时回退到可用 remote_url），否则返回 None。
+pub(crate) fn resolve_confirmed_icon_from_db(
+    db: &crate::db::Database,
+    app_id: &str,
+    owner: &str,
+    repo: &str,
+) -> Option<String> {
+    let clean_id = app_id.trim();
+    let cycle = db
+        .get_icon_cycle(clean_id)
+        .ok()
+        .flatten()
+        .or_else(|| {
+            let lower = clean_id.to_lowercase();
+            if lower != clean_id {
+                db.get_icon_cycle(&lower).ok().flatten()
+            } else {
+                None
+            }
+        })
+        .or_else(|| db.get_icon_cycle_by_repo(owner, repo).ok().flatten())
+        .or_else(|| {
+            let o = owner.to_lowercase();
+            let r = repo.to_lowercase();
+            if o != owner || r != repo {
+                db.get_icon_cycle_by_repo(&o, &r).ok().flatten()
+            } else {
+                None
+            }
+        })?;
+
+    let selected = cycle.selected_url.trim();
+    if selected.is_empty() {
+        return None;
+    }
+
+    let cache_file = cycle.cache_file.trim();
+    if cache_file.is_empty() {
+        return None;
+    }
+
+    let icons_dir = crate::get_app_data_dir().join("icons");
+    let cache_path = icons_dir.join(cache_file);
+    if !cache_path.is_file() {
+        return None;
+    }
+
+    if let Ok(bytes) = std::fs::read(&cache_path) {
+        if !bytes.is_empty() && crate::commands::is_valid_image(&bytes) {
+            return Some(crate::commands::bytes_to_data_uri(&bytes));
+        }
+    }
+
+    Some(selected.to_string())
+}
+
+/// 尝试从本地默认数据库解析已确认的图标。
+pub(crate) fn open_db_opt() -> Option<crate::db::Database> {
+    let db_path = crate::get_app_data_dir().join("z_store.db");
+    if db_path.is_file() {
+        crate::db::Database::open(&db_path).ok()
+    } else {
+        None
+    }
+}
+
+/// H10：目录外仓库 `AppSummary` 兜底构造。
+/// 图标：若 probe 为 true，复用现有 icon_probe::derive_slugs + cdn.simpleicons.org 逻辑派 slug 试探（免鉴权、超时短、失败即空），绝不调 users API、不拼 avatar_url；若 probe 为 false，图标置空。
+/// 分类：移植 catalog guessCategory 关键词表，按 topics+description 判定。
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn fallback_summary(
     client: &reqwest::Client,
@@ -189,16 +465,29 @@ pub(crate) async fn fallback_summary(
     stars: u64,
     forks: u64,
     license: String,
-    icon_bg: &str,
-    category: &str,
-    category_name: &str,
+    topics: &[String],
     homepage: Option<String>,
+    probe: bool,
+    confirmed_icon: Option<String>,
 ) -> AppSummary {
+    let cat = guess_category(Some(&description), description_en.as_deref(), topics);
+    let confirmed = match confirmed_icon {
+        Some(ci) => Some(ci),
+        None => open_db_opt().and_then(|db| resolve_confirmed_icon_from_db(&db, &id, &owner, &repo)),
+    };
+    let icon = if let Some(ci) = confirmed {
+        ci
+    } else if probe {
+        probe_simple_icon(client, &owner, &repo).await
+    } else {
+        String::new()
+    };
+
     AppSummary {
         id,
         name,
         description_en,
-        owner: owner.clone(),
+        owner,
         repo,
         icon,
         icon_bg: cat.gradient.to_string(),
@@ -207,8 +496,8 @@ pub(crate) async fn fallback_summary(
         forks,
         license,
         latest_version: "latest".to_string(),
-        category: category.to_string(),
-        category_name: category_name.to_string(),
+        category: cat.key.to_string(),
+        category_name: cat.name.to_string(),
         is_verified: false,
         is_installed: None,
         has_update: None,
@@ -219,8 +508,6 @@ pub(crate) async fn fallback_summary(
         platforms: fallback_platforms(),
     }
 }
-    probe: bool,
-    confirmed_icon: Option<String>,
 
 #[cfg(test)]
 mod tests {
@@ -366,5 +653,3 @@ mod tests {
         assert_eq!(summary_confirmed.icon, custom_uri);
     }
 }
-    probe: bool,
-    confirmed_icon: Option<String>,

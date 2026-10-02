@@ -1,5 +1,5 @@
-use super::models::{GitHubRepoResponse, GitHubSearchResponse};
 use super::CatalogService;
+use crate::models::AppSummary;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -49,7 +49,7 @@ impl CatalogService {
     ) -> Result<Vec<AppSummary>, String> {
         let q = query.trim();
         if q.is_empty() {
-            return Ok(self.get_all_summaries());
+            return Ok(Vec::new());
         }
 
         // 检查是否直接输入了 owner/repo 格式
@@ -121,33 +121,47 @@ impl CatalogService {
         if let Ok(res) = resp {
             crate::notify_rate_limit("github.com", res.headers());
             if res.status().is_success() {
-                if let Ok(data) = res.json::<GitHubSearchResponse>().await {
-                    let summaries: Vec<AppSummary> = data
-                        .items
-                        .into_iter()
-                        .map(|it| {
-                            let owner = it.owner.login;
-                            let repo = it.full_name.split('/').nth(1).unwrap_or("").to_string();
-                            let description_en = it.description.clone();
-                            let description =
-                                it.description.unwrap_or_else(|| "开源软件项目".to_string());
-                            super::http::fallback_summary(
-                                it.full_name.clone(),
-                                it.name,
-                                owner,
-                                repo,
-                                description,
-                                description_en,
-                                it.stargazers_count,
-                                it.forks_count,
-                                "OpenSource".to_string(),
-                                "linear-gradient(135deg, #0ea5e9, #2563eb)",
-                                "dev",
-                                "开发工具",
-                                None,
-                            )
-                        })
-                        .collect();
+                if let Ok(data) = res.json::<OnlineSearchResponse>().await {
+                    let db_opt = super::http::open_db_opt();
+                    let summaries: Vec<AppSummary> = futures_util::future::join_all(
+                        data.items.into_iter().map(|it| {
+                            let client = &client;
+                            let confirmed_icon = db_opt.as_ref().and_then(|db| {
+                                super::http::resolve_confirmed_icon_from_db(
+                                    db,
+                                    &it.full_name,
+                                    &it.owner.login,
+                                    it.full_name.split('/').nth(1).unwrap_or(""),
+                                )
+                            });
+                            async move {
+                                let owner = it.owner.login;
+                                let repo = it.full_name.split('/').nth(1).unwrap_or("").to_string();
+                                let description_en = it.description.clone();
+                                let description =
+                                    it.description.unwrap_or_else(|| "开源软件项目".to_string());
+                                let topics = it.topics.unwrap_or_default();
+                                super::http::fallback_summary(
+                                    client,
+                                    it.full_name,
+                                    it.name,
+                                    owner,
+                                    repo,
+                                    description,
+                                    description_en,
+                                    it.stargazers_count,
+                                    it.forks_count,
+                                    "OpenSource".to_string(),
+                                    &topics,
+                                    None,
+                                    false,
+                                    confirmed_icon,
+                                )
+                                .await
+                            }
+                        }),
+                    )
+                    .await;
                     log::debug!(
                         "http search done sid={} req={} url='{}' hits={}",
                         sid,
@@ -247,7 +261,12 @@ impl CatalogService {
             .license
             .and_then(|l| l.spdx_id)
             .unwrap_or_else(|| "FLOSS".to_string());
+        let topics = repo_data.topics.unwrap_or_default();
+        let confirmed_icon = super::http::open_db_opt().and_then(|db| {
+            super::http::resolve_confirmed_icon_from_db(&db, &format!("{}/{}", owner, repo), owner, repo)
+        });
         Ok(super::http::fallback_summary(
+            &client,
             format!("{}/{}", owner, repo),
             repo_data.name.unwrap_or_else(|| repo.to_string()),
             owner.to_string(),
@@ -259,6 +278,9 @@ impl CatalogService {
             license,
             &topics,
             repo_data.homepage,
-        ))
+            true,
+            confirmed_icon,
+        )
+        .await)
     }
 }

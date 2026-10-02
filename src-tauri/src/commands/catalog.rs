@@ -100,13 +100,25 @@ pub async fn search_apps_online(
                     crate::log_support::short_reason(&query),
                     search_start.elapsed().as_millis()
                 );
+                let app_id = coord.to_app_id();
+                let icon = if let Ok(db) = state.db() {
+                    crate::github::http::resolve_confirmed_icon_from_db(
+                        &db,
+                        &app_id,
+                        &coord.owner,
+                        &coord.repo,
+                    )
+                    .unwrap_or_default()
+                } else {
+                    String::new()
+                };
                 return Ok(vec![AppSummary {
-                    id: coord.to_app_id(),
+                    id: app_id,
                     name: repo_info.name,
                     description_en: repo_info.description.clone(),
                     owner: coord.owner,
                     repo: coord.repo,
-                    icon: String::new(),
+                    icon,
                     icon_bg: "linear-gradient(135deg, #475569, #334155)".to_string(),
                     description: repo_info
                         .description
@@ -133,11 +145,21 @@ pub async fn search_apps_online(
             || query.starts_with("github:")
         {
             let token = super::resolve_active_github_token(&state);
-            if let Ok(item) = state
+            if let Ok(mut item) = state
                 .catalog
                 .fetch_online_repo(&coord.owner, &coord.repo, token.as_deref())
                 .await
             {
+                if let Ok(db) = state.db() {
+                    if let Some(ci) = crate::github::http::resolve_confirmed_icon_from_db(
+                        &db,
+                        &item.id,
+                        &item.owner,
+                        &item.repo,
+                    ) {
+                        item.icon = ci;
+                    }
+                }
                 log::debug!("fetch repo ok id={}", item.id);
                 log::info!(
                     "search done sid={} query='{}' hits=1 elapsed_ms={}",
@@ -153,10 +175,24 @@ pub async fn search_apps_online(
     let token = super::resolve_active_github_token(&state);
     let hidden_ids: std::collections::HashSet<String> = hidden_rule_ids(&state);
 
-    let results = state
+    let mut results = state
         .catalog
         .search_github_online(&query, token.as_deref())
         .await?;
+
+    if let Ok(db) = state.db() {
+        for item in &mut results {
+            if let Some(ci) = crate::github::http::resolve_confirmed_icon_from_db(
+                &db,
+                &item.id,
+                &item.owner,
+                &item.repo,
+            ) {
+                item.icon = ci;
+            }
+        }
+    }
+
     log::info!(
         "search done sid={} query='{}' hits={} elapsed_ms={}",
         crate::z_log::new_session_id(),
@@ -644,5 +680,66 @@ mod catalog_platform_tests {
         let assets = vec![asset("checksums-sha256.txt")];
         let plats = platforms_from_assets(&assets);
         assert!(plats.is_empty());
+    }
+
+    #[test]
+    fn test_confirmed_icon_enrichment_logic() {
+        let db = crate::db::Database::open_in_memory().unwrap();
+        let app_id = "testowner/testrepo";
+        let icons_dir = crate::get_app_data_dir().join("icons");
+        let _ = std::fs::create_dir_all(&icons_dir);
+        let test_filename = "testowner_testrepo_l2.png";
+        let test_file_path = icons_dir.join(test_filename);
+        let png_bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4";
+        std::fs::write(&test_file_path, png_bytes).unwrap();
+
+        let cycle = crate::db::AppIconCycle {
+            app_id: app_id.to_string(),
+            owner: "testowner".to_string(),
+            repo: "testrepo".to_string(),
+            level: 2,
+            selected_url: "https://example.com/icon.png".to_string(),
+            cache_file: test_filename.to_string(),
+            ..Default::default()
+        };
+        db.upsert_icon_cycle(&cycle).unwrap();
+
+        let mut summary = crate::models::AppSummary {
+            id: app_id.to_string(),
+            name: "testrepo".to_string(),
+            description_en: None,
+            owner: "testowner".to_string(),
+            repo: "testrepo".to_string(),
+            icon: String::new(),
+            icon_bg: "linear-gradient(135deg, #475569, #334155)".to_string(),
+            description: "A test project".to_string(),
+            stars: 10,
+            forks: 2,
+            license: "MIT".to_string(),
+            latest_version: "1.0.0".to_string(),
+            category: "dev".to_string(),
+            category_name: "开发工具".to_string(),
+            is_verified: false,
+            is_installed: None,
+            has_update: None,
+            installed_version: None,
+            forge: Some("github".to_string()),
+            forge_host: Some("github.com".to_string()),
+            homepage: None,
+            platforms: vec!["windows".to_string()],
+        };
+
+        if let Some(ci) = crate::github::http::resolve_confirmed_icon_from_db(
+            &db,
+            &summary.id,
+            &summary.owner,
+            &summary.repo,
+        ) {
+            summary.icon = ci;
+        }
+
+        assert!(summary.icon.starts_with("data:image/png;base64,"));
+
+        let _ = std::fs::remove_file(&test_file_path);
     }
 }
