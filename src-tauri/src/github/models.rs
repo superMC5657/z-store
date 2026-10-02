@@ -111,6 +111,8 @@ pub(crate) struct GitHubRepoResponse {
     pub language: Option<String>,
     pub license: Option<GitHubLicense>,
     pub homepage: Option<String>,
+    #[serde(default)]
+    pub default_branch: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -431,16 +431,27 @@ impl CatalogService {
         // 按当前宿主系统和 CPU 架构智能打分降序排列，最优资产置于 index 0
         releases.sort_by_key(|b| std::cmp::Reverse(crate::installer::score_asset(b)));
 
-        // 图标层级决策：
-        // 1. 若当前应用已具备已知独立官方图标（如收录库指定或 https:// 开头头像），优先保持该正方形应用图标，避免被 README 宽幅 Banner 误覆盖；
-        // 2. 若当前未收录，则优先采用从 README 中提取并已清洗出的 Logo；
-        // 3. 兜底采用 GitHub 官方组织头像 https://github.com/{owner}.png
+        // 图标层级决策（与 z-store-catalog 五级探测同源逻辑）：
+        // 1. 已具备已知独立官方图标则保持，避免被 README 宽幅 Banner 误覆盖；
+        // 2. 未收录则采用 README 提取并清洗出的 Logo；
+        // 3. 否则按探测链派生（Simple Icons → Git Trees → 静态路径），找不到缓存即按此逻辑；
+        // 4. 全未命中兜底 GitHub 组织头像。
         let final_icon = if icon.starts_with("http://") || icon.starts_with("https://") {
             icon
         } else if let Some(logo) = extracted_logo {
             logo
         } else {
-            super::http::fallback_icon(&owner)
+            let branch = repo_info
+                .as_ref()
+                .and_then(|r| r.default_branch.clone())
+                .unwrap_or_else(|| "HEAD".to_string());
+            match super::icon_probe::probe_repo_logo(client, Some(&base_headers), &owner, &repo, &branch, None).await {
+                Some(probed) => {
+                    log::info!("icon probe hit id={} source={} url='{}'", id, probed.source, crate::log_support::sanitize_url(&probed.url));
+                    probed.url
+                }
+                None => super::http::fallback_icon(&owner),
+            }
         };
 
         let detail = AppDetail {

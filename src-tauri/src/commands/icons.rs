@@ -315,17 +315,66 @@ pub async fn get_or_fetch_icon(
         }
     }
 
-    let bytes = fetched_bytes.ok_or_else(|| {
-        log::info!(
-            "http resp icon fail sid={} req={} host={} raw_url='{}' reason={}",
-            icon_sid,
-            icon_req,
-            crate::log_support::host_of(url_trimmed),
-            raw_icon_url,
-            crate::log_support::short_reason(&last_err)
-        );
-        format!("拉取远程图标失败 ({}): {}", url_trimmed, last_err)
-    })?;
+    let bytes = match fetched_bytes {
+        Some(b) => b,
+        _ => {
+            // 缓存缺失且直取失败：按 catalog 五级探测逻辑找替代图标。
+            // 此处无用户 token，只跑免鉴权级（Simple Icons + 静态），跳过 Trees 以保护匿名配额。
+            // 命中后按原请求缓存（文件存替代字节、DB 记录原 URL），后续同请求零网络命中。
+            let coord = crate::forge::RepositoryUrlParser::parse(app_id.as_deref().unwrap_or(""));
+            let mut probed_url: Option<String> = None;
+            if let Some(c) = coord {
+                if !c.owner.is_empty() && !c.repo.is_empty() {
+                    // 先拿确切默认分支（匿名一次调用，失败则退化 main/master 双试）。
+                    let mut branches: Vec<String> = Vec::with_capacity(2);
+                    let repo_api = format!("https://api.github.com/repos/{}/{}", c.owner, c.repo);
+                    if let Ok(resp) = client.get(&repo_api).header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36").send().await {
+                        if let Ok(v) = resp.json::<serde_json::Value>().await {
+                            if let Some(b) = v.get("default_branch").and_then(|x| x.as_str()) {
+                                branches.push(b.to_string());
+                            }
+                        }
+                    }
+                    branches.push("main".to_string());
+                    branches.push("master".to_string());
+                    for b in branches {
+                        if let Some(p) = crate::github::icon_probe::probe_repo_logo(&client, None, &c.owner, &c.repo, &b, None).await {
+                            log::info!("icon probe fallback hit app_id='{}' source={} url='{}'", app_id.as_deref().unwrap_or(""), p.source, crate::log_support::sanitize_url(&p.url));
+                            probed_url = Some(p.url);
+                            break;
+                        }
+                    }
+                }
+            }
+            let mut probe_bytes = None;
+            if let Some(purl) = probed_url {
+                match client.get(&purl).header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36").send().await {
+                    Ok(r) if r.status().is_success() => {
+                        if let Ok(b) = r.bytes().await {
+                            if !b.is_empty() {
+                                probe_bytes = Some(b);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            match probe_bytes {
+                Some(b) => b,
+                None => {
+                    log::info!(
+                        "http resp icon fail sid={} req={} host={} raw_url='{}' reason={}",
+                        icon_sid,
+                        icon_req,
+                        crate::log_support::host_of(url_trimmed),
+                        raw_icon_url,
+                        crate::log_support::short_reason(&last_err)
+                    );
+                    return Err(format!("拉取远程图标失败 ({}): {}", url_trimmed, last_err).into());
+                }
+            }
+        }
+    };
 
     // 3. 缓存在用户的配置目录里 (icons/)，同时持久化元数据至 SQLite 数据库
     // 检查真实内容扩展名，若与推断扩展名不一致，以真实扩展名写入并纠正 DB 键。
