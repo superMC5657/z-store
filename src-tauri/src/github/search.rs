@@ -1,5 +1,45 @@
 use super::models::{GitHubRepoResponse, GitHubSearchResponse};
 use super::CatalogService;
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize)]
+struct OnlineSearchResponse {
+    items: Vec<OnlineSearchItem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OnlineSearchItem {
+    name: String,
+    full_name: String,
+    owner: OnlineSearchOwner,
+    description: Option<String>,
+    stargazers_count: u64,
+    forks_count: u64,
+    #[serde(default)]
+    topics: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OnlineSearchOwner {
+    login: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct OnlineRepoResponse {
+    name: Option<String>,
+    description: Option<String>,
+    stargazers_count: Option<u64>,
+    forks_count: Option<u64>,
+    license: Option<OnlineRepoLicense>,
+    homepage: Option<String>,
+    #[serde(default)]
+    topics: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OnlineRepoLicense {
+    spdx_id: Option<String>,
+}
 use crate::models::AppSummary;
 
 impl CatalogService {
@@ -207,7 +247,7 @@ impl CatalogService {
             return Err(format!("未找到该 GitHub 仓库: {}/{}", owner, repo));
         }
 
-        let repo_data: GitHubRepoResponse = resp.json().await.map_err(|e| e.to_string())?;
+        let repo_data: OnlineRepoResponse = resp.json().await.map_err(|e| e.to_string())?;
         let repo_desc = repo_data.description.clone();
         let license = repo_data
             .license
@@ -223,9 +263,7 @@ impl CatalogService {
             repo_data.stargazers_count.unwrap_or(0),
             repo_data.forks_count.unwrap_or(0),
             license,
-            "linear-gradient(135deg, #0284c7, #0369a1)",
-            "system",
-            "系统实用",
+            &topics,
             repo_data.homepage,
         ))
     }
