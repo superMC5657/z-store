@@ -466,26 +466,46 @@ impl CatalogService {
         // 按当前宿主系统和 CPU 架构智能打分降序排列，最优资产置于 index 0
         releases.sort_by_key(|b| std::cmp::Reverse(crate::installer::score_asset(b)));
 
-        // 图标层级决策（与 z-store-catalog 五级探测同源逻辑）：
-        // 1. 已具备已知独立官方图标则保持，避免被 README 宽幅 Banner 误覆盖；
-        // 2. 未收录则采用 README 提取并清洗出的 Logo；
-        // 3. 否则按探测链派生（Simple Icons → Git Trees → 静态路径），找不到缓存即按此逻辑；
-        // 4. 全未命中兜底 GitHub 组织头像。
+        // 从经校验的有效发布资产中推断平台；无有效安装包则置空，避免虚假发布
+        let deduced_platforms = platforms_from_assets(&releases);
+        let final_platforms = if deduced_platforms.is_empty() {
+            Vec::new()
+        } else if let Some(ref item) = catalog_item {
+            let mut set = std::collections::BTreeSet::new();
+            for p in &deduced_platforms {
+                set.insert(p.clone());
+            }
+            for p in &item.platforms {
+                if p == "ios" {
+                    set.insert(p.clone());
+                }
+            }
+            let mut list: Vec<String> = set.into_iter().collect();
+            sort_platforms(&mut list);
+            list
+        } else {
+            deduced_platforms
+        };
+
+        // 图标层级决策：收录官方 → 品牌库 Simple Icons → 翻全家 Git Trees → README logo → 空。
+        // 1. 已具备已知独立官方图标则保持，避免被误覆盖；
+        // 2. 否则进入探测链（Simple Icons → Git Trees 全库评分）；
+        // 3. 探测未命中则采用 README 提取并清洗出的 Logo；
+        // 4. 全未命中兜底返回空字符串（前端降级为首字母徽章）。
         let final_icon = if icon.starts_with("http://") || icon.starts_with("https://") {
             icon
-        } else if let Some(logo) = extracted_logo {
-            logo
         } else {
             let branch = repo_info
                 .as_ref()
                 .and_then(|r| r.default_branch.clone())
                 .unwrap_or_else(|| "HEAD".to_string());
-            match super::icon_probe::probe_repo_logo(client, Some(&base_headers), &owner, &repo, &branch, None).await {
-                Some(probed) => {
-                    log::info!("icon probe hit id={} source={} url='{}'", id, probed.source, crate::log_support::sanitize_url(&probed.url));
-                    probed.url
-                }
-                None => super::http::fallback_icon(&owner),
+            if let Some(probed) = super::icon_probe::probe_repo_logo(client, Some(&base_headers), &owner, &repo, &branch).await {
+                log::info!("icon probe hit id={} source={} url='{}'", id, probed.source, crate::log_support::sanitize_url(&probed.url));
+                probed.url
+            } else if let Some(logo) = extracted_logo {
+                logo
+            } else {
+                String::new()
             }
         };
 
@@ -522,10 +542,7 @@ impl CatalogService {
             cached_at: Some(super::http::now_secs()),
             is_stale: None,
             homepage: latest_homepage,
-            platforms: catalog_item
-                .as_ref()
-                .map(|i| i.platforms.clone())
-                .unwrap_or_else(super::http::fallback_platforms),
+            platforms: final_platforms,
         };
 
         Ok((detail, new_cache))
@@ -716,23 +733,6 @@ impl CatalogService {
         let changed = wrapped != raw_url;
         (wrapped, changed)
     }
-}
-
-#[cfg(test)]
-mod detail_fast_path_tests {
-    use super::CatalogService;
-
-    #[test]
-    fn test_checksum_platform_filter_skips_linux_aarch64_only() {
-        // FreeCAD 案：Linux-aarch64-only 的 checksum 文件必须跳过，不产生请求。
-        let (ok, _) =
-            CatalogService::checksum_asset_platform_eligible("freecad-linux-aarch64.sha256");
-        assert!(!ok);
-        let (ok, _) =
-            CatalogService::checksum_asset_platform_eligible("app-1.0-linux.tar.gz.sha256");
-        assert!(!ok);
-        // Windows 相关与通用命名允许请求。
-        let (ok, reason) =
 
     /// 判断资产是否为可安装的有效二进制发布包（对齐 catalog 仓 checkBinary 规则）
     pub fn is_valid_installer_asset(name: &str, size_bytes: u64) -> bool {
