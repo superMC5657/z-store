@@ -49,7 +49,7 @@ impl CatalogItem {
             if self.icon.starts_with("http://") || self.icon.starts_with("https://") {
                 self.icon.clone()
             } else {
-                super::http::fallback_icon(&self.owner)
+                String::new()
             };
 
         let effective_platforms = if self.platforms.is_empty() {

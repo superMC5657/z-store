@@ -171,11 +171,6 @@ pub(crate) fn new_log_ctx() -> (String, String) {
     (crate::z_log::new_req_id(), crate::z_log::new_session_id())
 }
 
-/// H10：兜底组织头像。
-pub(crate) fn fallback_icon(owner: &str) -> String {
-    format!("https://github.com/{}.png", owner)
-}
-
 /// H10：兜底平台列表。
 pub(crate) fn fallback_platforms() -> Vec<String> {
     vec!["windows".to_string()]
