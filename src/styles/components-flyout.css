@@ -51,7 +51,7 @@
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--font-base);
   font-weight: 400;
   letter-spacing: -0.011em;
   text-align: left;
@@ -80,7 +80,7 @@
   border-radius: var(--radius-xs);
   background: var(--bg-acrylic-hover);
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: var(--font-sm);
   color: var(--text-secondary);
   border: 1px solid var(--border-subtle);
 }
@@ -99,7 +99,7 @@
 }
 
 .flyout-item-title {
-  font-size: 12px;
+  font-size: var(--font-sm);
   font-weight: 510;
   letter-spacing: -0.011em;
   color: var(--text-primary);
@@ -110,7 +110,7 @@
 }
 
 .flyout-item-badge {
-  font-size: 10px;
+  font-size: calc(10px * var(--font-scale));
   padding: 1px 4px;
   border-radius: var(--radius-xs);
   background: var(--brand-subtle);

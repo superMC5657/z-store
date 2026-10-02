@@ -176,7 +176,7 @@ export const OAuthAccountCard: React.FC = () => {
           </span>
         </div>
         {isLoadingUser ? (
-          <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{t('oauth.loading_user')}</span>
+          <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-tertiary)' }}>{t('oauth.loading_user')}</span>
         ) : user ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
@@ -209,14 +209,14 @@ export const OAuthAccountCard: React.FC = () => {
                 />
               )}
             </div>
-            <span style={{ fontSize: '13px', fontWeight: 510, color: user.is_expired ? '#eab308' : undefined }}>
+            <span style={{ fontSize: 'var(--font-base)', fontWeight: 510, color: user.is_expired ? '#eab308' : undefined }}>
               {user.login} {user.is_expired && t('oauth.expired_tag')}
             </span>
             {user.is_expired ? (
               <button
                 type="button"
                 className="btn-fluent btn-secondary"
-                style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                style={{ fontSize: 'var(--font-sm)', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
                 disabled={isStarting}
                 onClick={handleLogin}
               >
@@ -227,7 +227,7 @@ export const OAuthAccountCard: React.FC = () => {
             <button
               type="button"
               className="btn-fluent btn-secondary"
-              style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+              style={{ fontSize: 'var(--font-sm)', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
               onClick={handleLogout}
             >
               <LogOut size={13} strokeWidth={1.5} />
@@ -238,7 +238,7 @@ export const OAuthAccountCard: React.FC = () => {
           <button
             type="button"
             className="btn-fluent btn-primary"
-            style={{ fontSize: '12px', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}
+            style={{ fontSize: 'var(--font-sm)', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}
             disabled={isStarting}
             onClick={handleLogin}
           >
@@ -262,7 +262,7 @@ export const OAuthAccountCard: React.FC = () => {
             marginTop: '4px',
           }}
         >
-          <div style={{ fontSize: '12px', color: '#eab308', lineHeight: '1.5', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ fontSize: 'var(--font-sm)', color: '#eab308', lineHeight: '1.5', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <AlertTriangle size={15} style={{ flexShrink: 0 }} />
             <span>
               <strong>{t('oauth.token_expired_title')}</strong>: {t('oauth.token_expired_desc')}
@@ -271,7 +271,7 @@ export const OAuthAccountCard: React.FC = () => {
           <button
             type="button"
             className="btn-fluent btn-primary"
-            style={{ fontSize: '12px', padding: '5px 14px', flexShrink: 0 }}
+            style={{ fontSize: 'var(--font-sm)', padding: '5px 14px', flexShrink: 0 }}
             onClick={handleLogin}
             disabled={isStarting}
           >
@@ -294,14 +294,14 @@ export const OAuthAccountCard: React.FC = () => {
             marginTop: '4px',
           }}
         >
-          <div style={{ fontSize: '12px', color: 'var(--status-warning)', lineHeight: '1.5', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div style={{ fontSize: 'var(--font-sm)', color: 'var(--status-warning)', lineHeight: '1.5', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <AlertTriangle size={14} style={{ flexShrink: 0 }} />
             <span><strong>{t('oauth.scope_alert_title')}</strong>: {t('oauth.scope_alert_desc')}</span>
           </div>
           <button
             type="button"
             className="btn-fluent btn-primary"
-            style={{ fontSize: '12px', padding: '5px 12px', whiteSpace: 'nowrap' }}
+            style={{ fontSize: 'var(--font-sm)', padding: '5px 12px', whiteSpace: 'nowrap' }}
             disabled={isStarting}
             onClick={handleLogin}
           >
@@ -311,7 +311,7 @@ export const OAuthAccountCard: React.FC = () => {
       )}
 
       {error && (
-        <span style={{ fontSize: '12px', color: 'var(--status-error)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+        <span style={{ fontSize: 'var(--font-sm)', color: 'var(--status-error)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
           <AlertCircle size={13} />
           <span>{error}</span>
         </span>
@@ -329,11 +329,11 @@ export const OAuthAccountCard: React.FC = () => {
             gap: '10px',
           }}
         >
-          <span style={{ fontSize: '13px', fontWeight: 590, letterSpacing: '-0.015em' }}>{t('oauth.complete_in_browser')}</span>
+          <span style={{ fontSize: 'var(--font-base)', fontWeight: 590, letterSpacing: '-0.015em' }}>{t('oauth.complete_in_browser')}</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
             <code
               style={{
-                fontSize: '20px',
+                fontSize: 'calc(20px * var(--font-scale))',
                 fontWeight: 590,
                 letterSpacing: '3px',
                 padding: '6px 14px',
@@ -348,7 +348,7 @@ export const OAuthAccountCard: React.FC = () => {
             <button
               type="button"
               className="btn-fluent btn-secondary"
-              style={{ fontSize: '12px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+              style={{ fontSize: 'var(--font-sm)', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
               onClick={handleCopyCode}
             >
               {copied ? <Check size={12} /> : <Copy size={12} />}
@@ -357,7 +357,7 @@ export const OAuthAccountCard: React.FC = () => {
             <button
               type="button"
               className="btn-fluent btn-primary"
-              style={{ fontSize: '12px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+              style={{ fontSize: 'var(--font-sm)', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
               onClick={() => api.openUrl(session.verificationUri)}
             >
               <span>{t('oauth.open_auth_page')}</span>
@@ -366,13 +366,13 @@ export const OAuthAccountCard: React.FC = () => {
             <button
               type="button"
               className="btn-fluent btn-secondary"
-              style={{ fontSize: '12px', padding: '6px 12px' }}
+              style={{ fontSize: 'var(--font-sm)', padding: '6px 12px' }}
               onClick={handleCancelSession}
             >
               {t('common.cancel')}
             </button>
           </div>
-          <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+          <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-tertiary)' }}>
             {t('oauth.enter_code_hint')}
           </span>
         </div>

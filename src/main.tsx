@@ -23,7 +23,7 @@ if (!isTauri) {
         color: 'var(--text-primary, #ffffff)',
       }}
     >
-      <h1 style={{ fontSize: '20px', margin: 0 }}>Z-Store 需要在桌面端运行</h1>
+      <h1 style={{ fontSize: 'calc(20px * var(--font-scale))', margin: 0 }}>Z-Store 需要在桌面端运行</h1>
       <p style={{ opacity: 0.7, margin: 0 }}>
         当前浏览器环境无法访问系统 API，请通过 Tauri 桌面应用启动（pnpm tauri dev）。
       </p>

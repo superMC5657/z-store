@@ -12,7 +12,7 @@
 }
 
 .readme-markdown-body {
-  font-size: 13px;
+  font-size: var(--font-base);
   line-height: 1.65;
   color: var(--text-primary);
   word-break: break-word;
@@ -29,9 +29,9 @@
   letter-spacing: -0.018em;
 }
 
-.readme-markdown-body h1 { font-size: 18px; }
-.readme-markdown-body h2 { font-size: 16px; }
-.readme-markdown-body h3 { font-size: 14px; font-weight: 590; margin-top: 14px; margin-bottom: 8px; letter-spacing: -0.015em; }
+.readme-markdown-body h1 { font-size: var(--font-xl); }
+.readme-markdown-body h2 { font-size: var(--font-lg); }
+.readme-markdown-body h3 { font-size: var(--font-md); font-weight: 590; margin-top: 14px; margin-bottom: 8px; letter-spacing: -0.015em; }
 
 .readme-markdown-body p {
   margin-bottom: 10px;
@@ -54,7 +54,7 @@
   padding: 10px 14px;
   overflow-x: auto;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 12px;
+  font-size: var(--font-sm);
   margin-bottom: 12px;
 }
 
@@ -64,7 +64,7 @@
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-xs);
   padding: 2px 5px;
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--font-scale));
 }
 
 .readme-markdown-body pre code {
@@ -87,7 +87,7 @@
   width: 100%;
   border-collapse: collapse;
   margin-bottom: 12px;
-  font-size: 12px;
+  font-size: var(--font-sm);
   display: block;
   overflow-x: auto;
   max-width: 100%;

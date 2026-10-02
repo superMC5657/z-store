@@ -186,14 +186,14 @@ export const ClientUpdateRow: React.FC = () => {
         return <span className="settings-row-desc">{t('client_update.checking')}</span>;
       case 'latest':
         return (
-          <span style={{ fontSize: '12px', color: 'var(--status-success)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ fontSize: 'var(--font-sm)', color: 'var(--status-success)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
             <CheckCircle2 size={13} />
             <span>{t('client_update.latest')}</span>
           </span>
         );
       case 'available':
         return (
-          <span style={{ fontSize: '12px', color: 'var(--brand-primary)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ fontSize: 'var(--font-sm)', color: 'var(--brand-primary)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
             <Sparkles size={13} />
             <span>
               {t('client_update.available', { version: phase.version })}
@@ -204,14 +204,14 @@ export const ClientUpdateRow: React.FC = () => {
         );
       case 'downloading':
         return (
-          <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
             <RotateCcw size={13} className="icon-spin" />
             <span>{t('client_update.downloading_package', { percent: phase.percent !== null ? ` (${phase.percent}%)` : '' })}</span>
           </span>
         );
       case 'ready':
         return (
-          <span style={{ fontSize: '12px', color: 'var(--status-success)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ fontSize: 'var(--font-sm)', color: 'var(--status-success)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
             <CheckCircle2 size={13} />
             <span>
               {t('client_update.ready', { version: phase.version })}
@@ -221,7 +221,7 @@ export const ClientUpdateRow: React.FC = () => {
         );
       case 'error':
         return (
-          <span style={{ fontSize: '12px', color: 'var(--status-error)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ fontSize: 'var(--font-sm)', color: 'var(--status-error)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
             <AlertTriangle size={13} />
             <span>{phase.message}</span>
             {phase.fallback && (
@@ -229,7 +229,7 @@ export const ClientUpdateRow: React.FC = () => {
                 href={phase.fallback.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{ fontSize: '12px', color: 'var(--brand-primary)', textDecoration: 'underline' }}
+                style={{ fontSize: 'var(--font-sm)', color: 'var(--brand-primary)', textDecoration: 'underline' }}
               >
                 {phase.fallback.label}
               </a>

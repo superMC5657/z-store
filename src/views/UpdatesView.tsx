@@ -175,7 +175,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
             borderRadius: 'var(--radius-lg)',
             background: 'var(--brand-subtle)',
             border: '1px solid var(--border-nav-active)',
-            fontSize: '13px',
+            fontSize: 'var(--font-base)',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -196,7 +196,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
             </span>
           </div>
           {checkProgress && checkProgress.total > 0 && (
-            <div style={{ fontSize: '12px', color: 'var(--brand-primary)', fontWeight: 510, flexShrink: 0 }}>
+            <div style={{ fontSize: 'var(--font-sm)', color: 'var(--brand-primary)', fontWeight: 510, flexShrink: 0 }}>
               {Math.round((checkProgress.checked / checkProgress.total) * 100)}%
             </div>
           )}
@@ -217,7 +217,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
             border: '1px solid var(--border-nav-active)',
           }}
         >
-          <span style={{ fontSize: '13px', fontWeight: 590, color: 'var(--brand-primary)', display: 'inline-flex', alignItems: 'center', gap: '6px', letterSpacing: '-0.015em' }}>
+          <span style={{ fontSize: 'var(--font-base)', fontWeight: 590, color: 'var(--brand-primary)', display: 'inline-flex', alignItems: 'center', gap: '6px', letterSpacing: '-0.015em' }}>
             <Eye size={14} strokeWidth={1.5} />
             <span>{t('updates.watch_updates_title', { count: watchNotifications.length })}</span>
           </span>
@@ -226,7 +226,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
             return (
               <div
                 key={n.app_id}
-                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', fontSize: '13px' }}
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', fontSize: 'var(--font-base)' }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <div
@@ -251,7 +251,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                   {onOpenWatchedApp && (
                     <button
                       className="btn-fluent btn-primary"
-                      style={{ fontSize: '12px', padding: '4px 12px' }}
+                      style={{ fontSize: 'var(--font-sm)', padding: '4px 12px' }}
                       onClick={() => onOpenWatchedApp(n.app_id)}
                     >
                       {t('updates.view_details')}
@@ -260,7 +260,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                   {onDismissWatch && (
                     <button
                       className="btn-fluent btn-secondary"
-                      style={{ fontSize: '12px', padding: '4px 12px' }}
+                      style={{ fontSize: 'var(--font-sm)', padding: '4px 12px' }}
                       onClick={() => onDismissWatch(n.app_id)}
                     >
                       {t('updates.dismiss_watch')}
@@ -328,7 +328,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                       <h4
                         style={{
                           margin: '0 0 3px 0',
-                          fontSize: '14px',
+                          fontSize: 'var(--font-md)',
                           fontWeight: 590,
                           cursor: onOpenWatchedApp ? 'pointer' : 'default',
                           color: 'var(--text-primary)',
@@ -339,9 +339,9 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                       >
                         {item.app_name}
                       </h4>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: 'var(--font-sm)' }}>
                         <span style={{ color: 'var(--text-tertiary)' }}>{t('updates.current_version', { version: item.current_version })}</span>
-                        <span style={{ color: 'var(--text-tertiary)', fontSize: '11px' }}>➔</span>
+                        <span style={{ color: 'var(--text-tertiary)', fontSize: 'var(--font-xs)' }}>➔</span>
                         <span style={{ color: 'var(--brand-primary)', fontWeight: 510 }}>
                           {t('updates.latest_version', { version: item.latest_version })}
                         </span>
@@ -352,7 +352,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center', position: 'relative' }}>
                     <button
                       className="btn-fluent btn-sm btn-secondary"
-                      style={{ height: '30px', boxSizing: 'border-box', padding: '0 10px', fontSize: '12px' }}
+                      style={{ height: '30px', boxSizing: 'border-box', padding: '0 10px', fontSize: 'var(--font-sm)' }}
                       onClick={() => setExpandedId(isExpanded ? null : item.app_id)}
                     >
                       {isExpanded ? t('updates.collapse_changelog') : t('updates.view_changelog')}
@@ -360,7 +360,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
 
                     <button
                       className="btn-fluent btn-sm btn-primary"
-                      style={{ height: '30px', boxSizing: 'border-box', padding: '0 14px', fontSize: '12.5px', fontWeight: 510 }}
+                      style={{ height: '30px', boxSizing: 'border-box', padding: '0 14px', fontSize: 'calc(12.5px * var(--font-scale))', fontWeight: 510 }}
                       disabled={isThisUpdating || isUpdatingAll}
                       onClick={() => handleUpdate(item.app_id)}
                     >

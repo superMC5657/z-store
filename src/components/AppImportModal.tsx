@@ -150,14 +150,14 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <ScanLine size={18} strokeWidth={1.5} style={{ color: 'var(--brand-primary)' }} />
-              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 590, color: 'var(--text-primary)', letterSpacing: '-0.018em' }}>
+              <h3 style={{ margin: 0, fontSize: 'var(--font-xl)', fontWeight: 590, color: 'var(--text-primary)', letterSpacing: '-0.018em' }}>
                 扫描并添加本地应用
               </h3>
             </div>
             <p
               style={{
                 margin: '4px 0 0 0',
-                fontSize: '13px',
+                fontSize: 'var(--font-base)',
                 color: 'var(--text-secondary)',
               }}
             >
@@ -188,7 +188,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
               padding: '10px 24px',
               background: 'var(--bg-acrylic)',
               borderBottom: '1px solid var(--border-color)',
-              fontSize: '13px',
+              fontSize: 'var(--font-base)',
               flexShrink: 0,
               color: 'var(--text-primary)',
             }}
@@ -240,8 +240,8 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                 }}
               />
               <div style={{ textAlign: 'center' }}>
-                <div style={{ fontWeight: 590, fontSize: '14px', color: 'var(--text-primary)', letterSpacing: '-0.015em' }}>正在扫描系统已安装软件...</div>
-                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+                <div style={{ fontWeight: 590, fontSize: 'var(--font-md)', color: 'var(--text-primary)', letterSpacing: '-0.015em' }}>正在扫描系统已安装软件...</div>
+                <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-tertiary)', marginTop: '4px' }}>
                   正在比对开源收录清单
                 </div>
               </div>
@@ -254,7 +254,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                 border: '1px solid rgba(239, 68, 68, 0.3)',
                 borderRadius: '8px',
                 color: '#ef4444',
-                fontSize: '13px',
+                fontSize: 'var(--font-base)',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '8px',
@@ -308,7 +308,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                         alignItems: 'center',
                         justifyContent: 'center',
                         flexShrink: 0,
-                        fontSize: '22px',
+                        fontSize: 'var(--font-2xl)',
                         boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)',
                       }}
                     >
@@ -322,12 +322,12 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                     {/* 应用信息 */}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                        <span style={{ fontWeight: 590, fontSize: '14px', color: 'var(--text-primary)', letterSpacing: '-0.015em' }}>
+                        <span style={{ fontWeight: 590, fontSize: 'var(--font-md)', color: 'var(--text-primary)', letterSpacing: '-0.015em' }}>
                           {item.name}
                         </span>
                         <span
                           style={{
-                            fontSize: '11px',
+                            fontSize: 'var(--font-xs)',
                             padding: '2px 6px',
                             borderRadius: 'var(--radius-xs)',
                             background: isHigh ? 'var(--status-success-bg)' : 'var(--brand-subtle)',
@@ -346,7 +346,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
 
                       <div
                         style={{
-                          fontSize: '12px',
+                          fontSize: 'var(--font-sm)',
                           color: 'var(--text-secondary)',
                           marginTop: '4px',
                           display: 'flex',
@@ -362,7 +362,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                         <div
                           className="text-mono"
                           style={{
-                            fontSize: '11px',
+                            fontSize: 'var(--font-xs)',
                             color: 'var(--text-tertiary)',
                             marginTop: '3px',
                           }}
@@ -398,7 +398,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
         >
           <span
             style={{
-              fontSize: '12px',
+              fontSize: 'var(--font-sm)',
               color: 'var(--text-tertiary)',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
@@ -418,7 +418,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
               className="btn-fluent btn-secondary"
               onClick={onClose}
               disabled={isImporting}
-              style={{ padding: '6px 16px', fontSize: '13px' }}
+              style={{ padding: '6px 16px', fontSize: 'var(--font-base)' }}
             >
               取消
             </button>
@@ -426,7 +426,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
               className="btn-fluent btn-primary"
               onClick={handleImport}
               disabled={selectedIds.size === 0 || isImporting || isLoading}
-              style={{ padding: '6px 20px', fontSize: '13px', fontWeight: 510, display: 'flex', alignItems: 'center', gap: '6px' }}
+              style={{ padding: '6px 20px', fontSize: 'var(--font-base)', fontWeight: 510, display: 'flex', alignItems: 'center', gap: '6px' }}
             >
               {isImporting ? (
                 <>

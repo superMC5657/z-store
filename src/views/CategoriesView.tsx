@@ -158,11 +158,11 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                 >
                   <cat.Icon size={20} color={cat.color} strokeWidth={1.5} />
                 </div>
-                <div style={{ fontWeight: 590, fontSize: '15px', color: 'var(--text-primary)', letterSpacing: '-0.015em' }}>{t(cat.nameKey)}</div>
-                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px', lineHeight: '1.4' }}>{t(cat.descKey)}</div>
+                <div style={{ fontWeight: 590, fontSize: 'calc(15px * var(--font-scale))', color: 'var(--text-primary)', letterSpacing: '-0.015em' }}>{t(cat.nameKey)}</div>
+                <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-tertiary)', marginTop: '4px', lineHeight: '1.4' }}>{t(cat.descKey)}</div>
                 <div
                   style={{
-                    fontSize: '11px',
+                    fontSize: 'var(--font-xs)',
                     marginTop: '10px',
                     padding: '2px 8px',
                     borderRadius: 'var(--radius-xs)',

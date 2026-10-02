@@ -33,7 +33,7 @@
 
 /* 分组标题：12px 中灰，不用全大写 */
 .nav-group-title {
-  font-size: 12px;
+  font-size: var(--font-sm);
   text-transform: none;
   letter-spacing: -0.011em;
   color: var(--text-tertiary);
@@ -77,7 +77,7 @@
   min-height: 30px;
   padding: 0 8px;
   border-radius: var(--radius-sm);
-  font-size: 13px;
+  font-size: var(--font-base);
   font-weight: 510;
   letter-spacing: -0.011em;
   color: var(--text-secondary);
@@ -248,7 +248,7 @@
 /* 计数徽标：微型 4px 圆角矩形 */
 .nav-badge {
   margin-left: auto;
-  font-size: 11px;
+  font-size: var(--font-xs);
   padding: 1px 5px;
   border-radius: var(--radius-xs);
   background: var(--bg-acrylic-hover);
@@ -303,7 +303,7 @@
   height: 28px;
   border-radius: var(--radius-sm);
   background: var(--bg-acrylic-card);
-  font-size: 12px;
+  font-size: var(--font-sm);
   font-weight: 400;
   letter-spacing: -0.011em;
   color: var(--text-secondary);

@@ -48,7 +48,7 @@
   align-items: center;
   gap: 8px;
   font-weight: 590;
-  font-size: 13px;
+  font-size: var(--font-base);
   color: var(--text-primary);
   letter-spacing: -0.015em;
 }
@@ -82,7 +82,7 @@
   padding: 0 8px;
   gap: 6px;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: var(--font-sm);
   box-shadow: var(--shadow-rest);
   transition: border-color 0.1s var(--ease-smooth),
               background 0.1s var(--ease-smooth),
@@ -105,7 +105,7 @@
   outline: none;
   width: 100%;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: var(--font-sm);
   font-family: inherit;
   caret-color: var(--brand-primary);
   letter-spacing: -0.011em;
@@ -128,7 +128,7 @@
 /* kbd 11px muted 极简按键标贴 */
 .search-kbd {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 510;
   color: var(--text-tertiary);
   background: var(--bg-acrylic-hover);
@@ -229,7 +229,7 @@
   align-items: center !important;
   justify-content: center !important;
   gap: 4px !important;
-  font-size: 11px !important;
+  font-size: var(--font-xs) !important;
   font-weight: 510 !important;
   line-height: 1 !important;
   flex-shrink: 0 !important;

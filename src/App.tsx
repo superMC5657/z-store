@@ -1155,7 +1155,7 @@ export const App: React.FC = () => {
             aria-label="确认安装"
           >
             <div className="modal-header" style={{ position: 'relative', padding: 0, marginBottom: '12px' }}>
-              <h2 style={{ margin: 0, fontSize: '18px' }}>确认安装</h2>
+              <h2 style={{ margin: 0, fontSize: 'var(--font-xl)' }}>确认安装</h2>
             </div>
             <p style={{ margin: '0 0 12px', lineHeight: 1.6 }}>
               外部链接请求安装以下应用，请确认后再继续：

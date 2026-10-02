@@ -165,7 +165,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             <div className="hero-actions">
               <button
                 className={`btn-fluent ${installedIds.has(heroApp.id) ? 'btn-secondary' : 'btn-primary'}`}
-                style={{ padding: '8px 20px', fontSize: '13px', fontWeight: 510, display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                style={{ padding: '8px 20px', fontSize: 'var(--font-base)', fontWeight: 510, display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                 disabled={installingIds?.has(heroApp.id)}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -191,7 +191,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               </button>
               <button
                 className="btn-fluent btn-secondary"
-                style={{ padding: '9px 18px', fontSize: '13.5px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                style={{ padding: '9px 18px', fontSize: 'calc(13.5px * var(--font-scale))', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                 onClick={(e) => {
                   e.stopPropagation();
                   onNavigateTrends();
@@ -238,7 +238,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               <button
                 type="button"
                 className="btn-fluent btn-secondary"
-                style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                style={{ fontSize: 'var(--font-xs)', padding: '2px 8px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}
                 onClick={onClearRecentViews}
               >
                 <Trash2 size={11} />

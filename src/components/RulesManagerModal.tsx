@@ -145,7 +145,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Shield size={18} strokeWidth={1.5} style={{ color: 'var(--brand-primary)' }} />
-              <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 590, color: 'var(--text-primary)', letterSpacing: '-0.018em' }}>
+              <h3 style={{ margin: 0, fontSize: 'calc(17px * var(--font-scale))', fontWeight: 590, color: 'var(--text-primary)', letterSpacing: '-0.018em' }}>
                 {t('rules.title', { count: updateRules.length })}
               </h3>
             </div>
@@ -154,7 +154,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
             <button
               type="button"
               className={`btn-fluent ${isAddOpen ? 'btn-secondary' : 'btn-primary'}`}
-              style={{ fontSize: '12px', padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              style={{ fontSize: 'var(--font-sm)', padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               onClick={() => setIsAddOpen(!isAddOpen)}
             >
               {isAddOpen ? (
@@ -188,7 +188,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
           <div
             style={{
               padding: '8px 24px',
-              fontSize: '12px',
+              fontSize: 'var(--font-sm)',
               fontWeight: 500,
               background: noticeMessage.includes('失败') || noticeMessage.includes('failed') || noticeMessage.includes('Failed') ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)',
               color: noticeMessage.includes('失败') || noticeMessage.includes('failed') || noticeMessage.includes('Failed') ? '#ef4444' : '#10b981',
@@ -215,14 +215,14 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
               animation: 'fadeIn 0.2s ease-out',
             }}
           >
-            <div style={{ fontSize: '13px', fontWeight: 590, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px', letterSpacing: '-0.015em' }}>
+            <div style={{ fontSize: 'var(--font-base)', fontWeight: 590, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px', letterSpacing: '-0.015em' }}>
               <Plus size={14} strokeWidth={1.5} style={{ color: 'var(--brand-primary)' }} />
               <span>{t('rules.form_manual_title')}</span>
             </div>
 
             {/* 目标应用选择行 */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 500 }}>
+              <label style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', fontWeight: 500 }}>
                 {t('rules.form_step_target')}
               </label>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -231,7 +231,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                     className="settings-input"
                     value={selectedAppId}
                     onChange={(e) => setSelectedAppId(e.target.value)}
-                    style={{ flex: '1 1 240px', fontSize: '12px', padding: '6px 10px' }}
+                    style={{ flex: '1 1 240px', fontSize: 'var(--font-sm)', padding: '6px 10px' }}
                   >
                     <option value="">{t('rules.form_select_installed', { count: installedApps.length })}</option>
                     {installedApps.map((a) => (
@@ -250,7 +250,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                     placeholder={t('rules.form_custom_input_placeholder')}
                     value={customAppId}
                     onChange={(e) => setCustomAppId(e.target.value)}
-                    style={{ flex: '1 1 200px', fontSize: '12px' }}
+                    style={{ flex: '1 1 200px', fontSize: 'var(--font-sm)' }}
                   />
                 )}
               </div>
@@ -258,7 +258,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
 
             {/* 规则策略类型 */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 500 }}>
+              <label style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', fontWeight: 500 }}>
                 {t('rules.form_step_action')}
               </label>
               <SegmentedControl
@@ -304,7 +304,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                     placeholder={t('rules.form_skip_version_placeholder')}
                     value={skipVersion}
                     onChange={(e) => setSkipVersion(e.target.value)}
-                    style={{ width: '260px', fontSize: '12px' }}
+                    style={{ width: '260px', fontSize: 'var(--font-sm)' }}
                   />
                 </div>
               )}
@@ -315,7 +315,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
               <button
                 type="button"
                 className="btn-fluent btn-secondary"
-                style={{ fontSize: '12px', padding: '6px 14px' }}
+                style={{ fontSize: 'var(--font-sm)', padding: '6px 14px' }}
                 onClick={() => {
                   setIsAddOpen(false);
                   setSelectedAppId('');
@@ -327,7 +327,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
               <button
                 type="button"
                 className="btn-fluent btn-primary"
-                style={{ fontSize: '12px', padding: '6px 18px', fontWeight: 510 }}
+                style={{ fontSize: 'var(--font-sm)', padding: '6px 18px', fontWeight: 510 }}
                 onClick={handleCreateRule}
                 disabled={isSubmitting}
               >
@@ -424,7 +424,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                   <button
                     type="button"
                     className="btn-fluent btn-primary"
-                    style={{ fontSize: '12px', padding: '7px 18px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    style={{ fontSize: 'var(--font-sm)', padding: '7px 18px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                     onClick={() => setIsAddOpen(true)}
                   >
                     <Plus size={14} strokeWidth={1.5} />
@@ -465,11 +465,11 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                 >
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '180px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                      <span style={{ fontWeight: 590, fontSize: '13px', color: 'var(--text-primary)', letterSpacing: '-0.015em' }}>
+                      <span style={{ fontWeight: 590, fontSize: 'var(--font-base)', color: 'var(--text-primary)', letterSpacing: '-0.015em' }}>
                         {matchedApp ? matchedApp.app_name : rule.app_id}
                       </span>
                       {matchedApp && (
-                        <span className="text-mono" style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                        <span className="text-mono" style={{ fontSize: 'var(--font-xs)', color: 'var(--text-tertiary)' }}>
                           ({rule.app_id})
                         </span>
                       )}
@@ -492,7 +492,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                         </span>
                       )}
                     </div>
-                    <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                    <span style={{ fontSize: 'var(--font-xs)', color: 'var(--text-tertiary)' }}>
                       {t('rules.effective_at', { date: dateStr })}
                     </span>
                   </div>
@@ -502,7 +502,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                       <button
                         type="button"
                         className="btn-fluent btn-secondary"
-                        style={{ fontSize: '11px', padding: '4px 8px' }}
+                        style={{ fontSize: 'var(--font-xs)', padding: '4px 8px' }}
                         onClick={async () => {
                           await onClearRuleSkip(rule.app_id);
                           showNotice(t('rules.restore_notice_success', { id: rule.app_id }));
@@ -514,7 +514,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                     <button
                       type="button"
                       className="btn-fluent btn-secondary"
-                      style={{ fontSize: '11px', padding: '4px 8px' }}
+                      style={{ fontSize: 'var(--font-xs)', padding: '4px 8px' }}
                       onClick={async () => {
                         await onToggleRuleFrozen(rule.app_id, !rule.is_frozen);
                         showNotice(rule.is_frozen ? t('rules.unlock_notice_success', { id: rule.app_id }) : t('rules.frozen_notice_success', { id: rule.app_id }));
@@ -525,7 +525,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                     <button
                       type="button"
                       className="btn-fluent btn-secondary"
-                      style={{ fontSize: '11px', padding: '4px 8px' }}
+                      style={{ fontSize: 'var(--font-xs)', padding: '4px 8px' }}
                       onClick={async () => {
                         await onToggleRuleHidden(rule.app_id, !rule.is_hidden);
                         showNotice(rule.is_hidden ? t('rules.unhide_notice_success', { id: rule.app_id }) : t('rules.hide_notice_success', { id: rule.app_id }));
@@ -536,7 +536,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                     <button
                       type="button"
                       className="btn-fluent btn-secondary"
-                      style={{ fontSize: '11px', padding: '4px 8px', color: '#ef4444' }}
+                      style={{ fontSize: 'var(--font-xs)', padding: '4px 8px', color: '#ef4444' }}
                       onClick={async () => {
                         await onRemoveRule(rule.app_id);
                         showNotice(t('rules.remove_notice_success', { id: rule.app_id }));
@@ -563,7 +563,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
           <button
             type="button"
             className="btn-fluent btn-primary"
-            style={{ fontSize: '12px', padding: '6px 18px' }}
+            style={{ fontSize: 'var(--font-sm)', padding: '6px 18px' }}
             onClick={onClose}
           >
             {t('rules.done')}

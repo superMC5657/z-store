@@ -244,13 +244,13 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                  <h4 style={{ margin: 0, fontSize: '16px', fontWeight: 590, letterSpacing: '-0.015em' }}>
+                  <h4 style={{ margin: 0, fontSize: 'var(--font-lg)', fontWeight: 590, letterSpacing: '-0.015em' }}>
                     {t('favorites.sync_starred_title')}
                   </h4>
                   {oauthUser?.login && (
                     <span
                       style={{
-                        fontSize: '11px',
+                        fontSize: 'var(--font-xs)',
                         padding: '2px 8px',
                         borderRadius: 'var(--radius-xs)',
                         background: 'var(--brand-subtle)',
@@ -263,7 +263,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                     </span>
                   )}
                 </div>
-                <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>
+                <p style={{ margin: 0, fontSize: 'var(--font-base)', color: 'var(--text-secondary)' }}>
                   {t('favorites.sync_starred_desc')}
                 </p>
               </div>
@@ -283,7 +283,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 />
                 <button
                   className="btn-fluent btn-primary"
-                  style={{ height: '28px', padding: '0 14px', fontSize: '12.5px', fontWeight: 510, display: 'flex', alignItems: 'center', gap: '6px' }}
+                  style={{ height: '28px', padding: '0 14px', fontSize: 'calc(12.5px * var(--font-scale))', fontWeight: 510, display: 'flex', alignItems: 'center', gap: '6px' }}
                   disabled={isSyncing}
                   onClick={handleSyncStarred}
                 >
@@ -294,7 +294,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
             </div>
 
             {syncError && (
-              <div style={{ marginTop: '12px', fontSize: '12.5px', color: '#f87171' }}>
+              <div style={{ marginTop: '12px', fontSize: 'calc(12.5px * var(--font-scale))', color: '#f87171' }}>
                 {t('favorites.sync_error', { error: syncError })}
               </div>
             )}
@@ -315,7 +315,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                   border: '1px solid var(--border-nav-active)',
                 }}
               >
-                <span style={{ fontSize: '13px', color: 'var(--brand-primary)', fontWeight: 500 }}>
+                <span style={{ fontSize: 'var(--font-base)', color: 'var(--brand-primary)', fontWeight: 500 }}>
                   {syncResult.total_starred === 0
                     ? t('favorites.starred_zero')
                     : t('favorites.starred_summary', { total: syncResult.total_starred, matched: syncResult.catalog_matches.length })}
@@ -325,7 +325,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <button
                       className="btn-fluent btn-primary"
-                      style={{ fontSize: '12px', padding: '4px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                      style={{ fontSize: 'var(--font-sm)', padding: '4px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
                       disabled={isBatchInstalling || syncResult.catalog_matches.every((a) => installedIds.has(a.id))}
                       onClick={handleBatchInstallAll}
                     >
@@ -334,7 +334,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                     </button>
                     <button
                       className="btn-fluent btn-secondary"
-                      style={{ fontSize: '12px', padding: '4px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                      style={{ fontSize: 'var(--font-sm)', padding: '4px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
                       onClick={handleAddAllToFavorites}
                     >
                       <BookmarkPlus size={12} />
@@ -344,7 +344,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 )}
               </div>
               {batchError && (
-                <div style={{ marginTop: '8px', fontSize: '12.5px', color: '#f87171' }}>
+                <div style={{ marginTop: '8px', fontSize: 'calc(12.5px * var(--font-scale))', color: '#f87171' }}>
                   {batchError}
                 </div>
               )}

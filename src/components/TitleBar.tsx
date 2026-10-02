@@ -243,7 +243,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
                   justifyContent: 'space-between',
                   alignItems: 'center',
                   marginBottom: '8px',
-                  fontSize: '11.5px',
+                  fontSize: 'calc(11.5px * var(--font-scale))',
                   color: 'var(--text-tertiary)',
                 }}
               >
@@ -259,7 +259,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
                     border: 'none',
                     color: 'var(--text-tertiary)',
                     cursor: 'pointer',
-                    fontSize: '11px',
+                    fontSize: 'var(--font-xs)',
                     padding: '2px 6px',
                     borderRadius: 'var(--radius-xs)',
                   }}
@@ -282,7 +282,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
                       borderRadius: 'var(--radius-xs)',
                       background: 'var(--bg-acrylic-hover)',
                       border: '1px solid var(--border-subtle)',
-                      fontSize: '12px',
+                      fontSize: 'var(--font-sm)',
                       color: 'var(--text-primary)',
                       cursor: 'pointer',
                       transition: 'border-color 0.1s ease',
@@ -293,7 +293,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
                       onClick={(e) => handleRemoveHistoryItem(e, item)}
                       style={{
                         color: 'var(--text-tertiary)',
-                        fontSize: '11px',
+                        fontSize: 'var(--font-xs)',
                         cursor: 'pointer',
                         padding: '0 2px',
                       }}

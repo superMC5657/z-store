@@ -81,7 +81,7 @@
   width: 32px !important;
   height: 32px !important;
   border-radius: var(--radius-sm) !important;
-  font-size: 13px !important;
+  font-size: var(--font-base) !important;
   box-shadow: none;
   transition: none;
 }
@@ -96,7 +96,7 @@
 }
 
 .section-title {
-  font-size: 13px;
+  font-size: var(--font-base);
   font-weight: 590;
   color: var(--text-primary);
   display: flex;
@@ -106,7 +106,7 @@
 }
 
 .section-link {
-  font-size: 12px;
+  font-size: var(--font-sm);
   color: var(--brand-primary);
   font-weight: 510;
   cursor: pointer;

@@ -392,7 +392,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
             <button
               type="button"
               className="btn-fluent btn-secondary"
-              style={{ padding: '6px 16px', fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              style={{ padding: '6px 16px', fontSize: 'var(--font-base)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               onClick={onRefresh}
               disabled={isRefreshing}
             >
@@ -439,7 +439,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                     <span
                       style={{
                         fontWeight: 590,
-                        fontSize: '14px',
+                        fontSize: 'var(--font-md)',
                         cursor: onOpenDetail ? 'pointer' : 'default',
                         color: 'var(--text-primary)',
                         letterSpacing: '-0.015em',
@@ -449,7 +449,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                     >
                       {appDisplayName}
                     </span>
-                    <span style={{ fontSize: '12px', color: 'var(--text-tertiary)', flexShrink: 0 }}>{app.version}</span>
+                    <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-tertiary)', flexShrink: 0 }}>{app.version}</span>
                     {isFrozen && (
                       <span className="app-tag app-tag-locked">
                         <Lock size={10} strokeWidth={1.5} />
@@ -463,7 +463,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                       </span>
                     )}
                   </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                  <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
                     <span
                       className="text-mono"
                       style={{
@@ -488,7 +488,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                           border: 'none',
                           color: 'var(--brand-primary)',
                           cursor: 'pointer',
-                          fontSize: '11px',
+                          fontSize: 'var(--font-xs)',
                           padding: '0 4px',
                           flexShrink: 0,
                         }}
@@ -504,7 +504,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                             border: 'none',
                             color: 'var(--brand-primary)',
                             cursor: 'pointer',
-                            fontSize: '11px',
+                            fontSize: 'var(--font-xs)',
                             padding: '0 4px',
                             display: 'inline-flex',
                             alignItems: 'center',

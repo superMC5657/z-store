@@ -466,14 +466,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             type="button"
             className="btn-fluent btn-secondary"
             onClick={onOpenRules}
-            style={{ fontSize: '12px', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}
+            style={{ fontSize: 'var(--font-sm)', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}
           >
             <Shield size={13} strokeWidth={1.5} />
             <span>{t('settings.rules_btn')}</span>
             {updateRulesCount > 0 && (
               <span
                 style={{
-                  fontSize: '11px',
+                  fontSize: 'var(--font-xs)',
                   padding: '1px 7px',
                   borderRadius: 'var(--radius-pill)',
                   background: 'var(--brand-primary)',
@@ -586,7 +586,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               {proxyTestResult && (
                 <span
                   style={{
-                    fontSize: '12px',
+                    fontSize: 'var(--font-sm)',
                     fontWeight: 510,
                     color: !proxyTestResult.success ? '#ef4444' : proxyTestResult.latency_ms < 400 ? '#10b981' : proxyTestResult.latency_ms < 1000 ? '#f59e0b' : '#ea580c',
                     display: 'flex',
@@ -600,7 +600,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </span>
               )}
               {proxySavedFeedback && (
-                <span style={{ fontSize: '12px', color: '#10b981', fontWeight: 500 }}>
+                <span style={{ fontSize: 'var(--font-sm)', color: '#10b981', fontWeight: 500 }}>
                   {proxySavedFeedback}
                 </span>
               )}
@@ -651,7 +651,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <button
                 type="button"
                 className="btn-fluent btn-secondary"
-                style={{ fontSize: '12px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                style={{ fontSize: 'var(--font-sm)', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
                 onClick={() => setShowAdvancedSource(!showAdvancedSource)}
               >
                 {showAdvancedSource ? <ChevronUp size={14} strokeWidth={1.5} /> : <ChevronDown size={14} strokeWidth={1.5} />}
@@ -662,7 +662,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 className="btn-fluent btn-primary"
                 onClick={handleSyncCatalog}
                 disabled={isSyncingCatalog}
-                style={{ fontSize: '12px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                style={{ fontSize: 'var(--font-sm)', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
               >
                 {isSyncingCatalog ? <RotateCcw size={14} strokeWidth={1.5} className="icon-spin" /> : <RefreshCw size={14} strokeWidth={1.5} />}
                 <span>{isSyncingCatalog ? t('settings.catalog_syncing') : t('settings.catalog_sync_now')}</span>
@@ -698,7 +698,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   <button
                     type="button"
                     className="btn-fluent"
-                    style={{ fontSize: '12px', padding: '0 12px', height: '32px', display: 'flex', alignItems: 'center', gap: '4px', background: '#ef4444', color: '#fff', fontWeight: 510, whiteSpace: 'nowrap' }}
+                    style={{ fontSize: 'var(--font-sm)', padding: '0 12px', height: '32px', display: 'flex', alignItems: 'center', gap: '4px', background: '#ef4444', color: '#fff', fontWeight: 510, whiteSpace: 'nowrap' }}
                     onClick={handleSaveCatalogSource}
                   >
                     <span>{t('settings.catalog_confirm_switch')}</span>
@@ -706,7 +706,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   <button
                     type="button"
                     className="btn-fluent btn-secondary"
-                    style={{ fontSize: '12px', padding: '0 12px', height: '32px', whiteSpace: 'nowrap' }}
+                    style={{ fontSize: 'var(--font-sm)', padding: '0 12px', height: '32px', whiteSpace: 'nowrap' }}
                     onClick={() => setIsCatalogSourceConfirming(false)}
                   >
                     <span>{t('common.cancel')}</span>
@@ -716,7 +716,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <button
                   type="button"
                   className="btn-fluent btn-secondary"
-                  style={{ fontSize: '12px', padding: '0 14px', height: '32px', display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' }}
+                  style={{ fontSize: 'var(--font-sm)', padding: '0 14px', height: '32px', display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' }}
                   onClick={handleSaveCatalogSource}
                 >
                   {catalogUrlSaved && <Check size={12} />}
@@ -726,13 +726,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
           )}
           {isCatalogSourceConfirming && (
-            <span style={{ fontSize: '12px', color: '#ef4444', fontWeight: 510 }}>
+            <span style={{ fontSize: 'var(--font-sm)', color: '#ef4444', fontWeight: 510 }}>
               {t('settings.catalog_warn_custom')}
             </span>
           )}
 
           {syncFeedback && (
-            <span style={{ fontSize: '12px', color: syncFeedback.includes('失败') ? '#ef4444' : '#10b981' }}>
+            <span style={{ fontSize: 'var(--font-sm)', color: syncFeedback.includes('失败') ? '#ef4444' : '#10b981' }}>
               {syncFeedback}
             </span>
           )}
@@ -757,7 +757,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <button
               className="btn-fluent btn-secondary"
               onClick={handleExportJson}
-              style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+              style={{ fontSize: 'var(--font-sm)', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
               disabled={installedCount === 0}
             >
               <Download size={13} strokeWidth={1.5} />

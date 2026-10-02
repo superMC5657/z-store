@@ -485,7 +485,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   className="btn-fluent btn-secondary"
                   style={{
                     padding: '2px 8px',
-                    fontSize: '12px',
+                    fontSize: 'var(--font-sm)',
                     fontWeight: 510,
                     borderRadius: 'var(--radius-xs)',
                     color: 'var(--brand-primary)',
@@ -533,7 +533,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               <p
                 className="modal-app-desc"
                 style={{
-                  fontSize: '13px',
+                  fontSize: 'var(--font-base)',
                   color: 'var(--text-secondary)',
                   margin: '4px 0 10px 0',
                   lineHeight: '1.5',
@@ -630,7 +630,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                 app.cached_at && !app.is_stale && (
                   <span
                     className="modal-tag"
-                    style={{ fontSize: '11px', opacity: 0.8, display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                    style={{ fontSize: 'var(--font-xs)', opacity: 0.8, display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                     title={`最后缓存时间：${new Date(app.cached_at * 1000).toLocaleString()}`}
                   >
                     <Clock size={11} />
@@ -706,7 +706,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
 
               {downloadProgress && (
                 <div style={{ marginTop: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                       {downloadProgress.state === 'downloading' && (
                         <>
@@ -757,7 +757,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                     />
                   </div>
                   {downloadProgress.state === 'error' && downloadProgress.message && (
-                    <div style={{ fontSize: '11px', color: '#ef4444', marginTop: '4px' }}>
+                    <div style={{ fontSize: 'var(--font-xs)', color: '#ef4444', marginTop: '4px' }}>
                       {downloadProgress.message}
                     </div>
                   )}
@@ -765,7 +765,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               )}
 
               {installError && !downloadProgress && (
-                <div style={{ marginTop: '8px', fontSize: '12px', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <div style={{ marginTop: '8px', fontSize: 'var(--font-sm)', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <AlertTriangle size={12} />
                   <span>{canInstallPrimary ? '安装异常：' : '下载异常：'}{installError}</span>
                 </div>
@@ -994,7 +994,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
             <div className="settings-group" style={{ marginBottom: 0 }}>
               <div className="settings-group-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span>GitHub Release 原生构建设施产物</span>
-                <span style={{ fontSize: '12px', fontWeight: 'normal', color: 'var(--text-tertiary)' }}>
+                <span style={{ fontSize: 'var(--font-sm)', fontWeight: 'normal', color: 'var(--text-tertiary)' }}>
                   宿主环境匹配: {currentOs} ({currentArch})
                 </span>
               </div>
@@ -1009,13 +1009,13 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                         {isSelected && (
                           <span
                             className="modal-tag modal-tag-success"
-                            style={{ fontSize: '10px', padding: '1px 6px' }}
+                            style={{ fontSize: 'calc(10px * var(--font-scale))', padding: '1px 6px' }}
                           >
                             当前目标
                           </span>
                         )}
                       </div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                      <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-tertiary)' }}>
                         目标平台: {asset.os} ({asset.arch}) · 类型: {asset.kind} · 体积: {formatBytes(asset.size_bytes)}
                       </div>
                     </div>
@@ -1066,7 +1066,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   background: 'none',
                   border: 'none',
                   color: isOwner ? 'var(--brand-primary)' : 'var(--text-tertiary)',
-                  fontSize: '11px',
+                  fontSize: 'var(--font-xs)',
                   cursor: 'pointer',
                   padding: '4px 8px',
                   borderRadius: '4px',
@@ -1096,21 +1096,21 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   }}
                 >
                   <div className="settings-group-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '13px', fontWeight: 590, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontSize: 'var(--font-base)', fontWeight: 590, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                       <ShieldCheck size={13} strokeWidth={1.5} />
                       <span>开发者官方所有权认证</span>
                     </span>
                     <button
                       type="button"
                       className="btn-fluent btn-secondary"
-                      style={{ fontSize: '11px', padding: '2px 8px', border: 'none', background: 'transparent', display: 'flex', alignItems: 'center', gap: '4px' }}
+                      style={{ fontSize: 'var(--font-xs)', padding: '2px 8px', border: 'none', background: 'transparent', display: 'flex', alignItems: 'center', gap: '4px' }}
                       onClick={() => setShowVerifySection(false)}
                     >
                       <span>收起</span>
                       <ChevronUp size={11} />
                     </button>
                   </div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', lineHeight: '1.6' }}>
+                  <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', marginBottom: '8px', lineHeight: '1.6' }}>
                     {isOwner ? (
                       <span>检测到您当前登录账号与仓库作者一致。请将自定义校验码写入仓库 <code>README.md</code>，提交比对通过后即可为该项目点亮 Fluent 蓝色认证勋章。</span>
                     ) : (
@@ -1127,13 +1127,13 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                       }}
                       placeholder="输入您写入仓库文件中的校验码（如 zstore-verify-xxxx）"
                       aria-label="所有权校验码"
-                      style={{ flex: 1, minWidth: 0, fontSize: '12px' }}
+                      style={{ flex: 1, minWidth: 0, fontSize: 'var(--font-sm)' }}
                     />
                     <button
                       className="btn-fluent btn-primary"
                       disabled={!verifyCode.trim() || isVerifying}
                       onClick={handleVerifyOwnership}
-                      style={{ fontSize: '12px', padding: '6px 14px' }}
+                      style={{ fontSize: 'var(--font-sm)', padding: '6px 14px' }}
                     >
                       {isVerifying ? '比对中…' : '提交验证'}
                     </button>
@@ -1147,7 +1147,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
           <div className="readme-preview">
             {app.loadError ? (
               <div style={{ padding: '36px 20px', textAlign: 'center' }}>
-                <div style={{ fontSize: '15px', color: 'var(--status-warning)', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                <div style={{ fontSize: 'calc(15px * var(--font-scale))', color: 'var(--status-warning)', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
                   <AlertTriangle size={15} />
                   <span>获取详情失败: {app.loadError}</span>
                 </div>
@@ -1155,7 +1155,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   <button
                     className="btn-fluent btn-secondary"
                     onClick={() => onRetry(app.id)}
-                    style={{ padding: '6px 18px', fontSize: '13px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    style={{ padding: '6px 18px', fontSize: 'var(--font-base)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                   >
                     <RotateCcw size={12} />
                     <span>重试加载</span>
@@ -1170,13 +1170,13 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   <div className="skeleton-box" style={{ width: '82%', height: '14px' }} />
                   <div className="skeleton-box" style={{ width: '88%', height: '14px' }} />
                   <div className="skeleton-box" style={{ width: '60%', height: '14px' }} />
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '14px', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '14px', color: 'var(--text-tertiary)', fontSize: 'var(--font-base)' }}>
                     <span className="spinner-icon" />
                     <span>正在通过加速通道异步获取软件完整文档与变更日志...</span>
                   </div>
                 </div>
               ) : (
-                <div style={{ padding: '28px 24px', color: 'var(--text-tertiary)', fontSize: '13px', lineHeight: '1.6' }}>
+                <div style={{ padding: '28px 24px', color: 'var(--text-tertiary)', fontSize: 'var(--font-base)', lineHeight: '1.6' }}>
                   {displayDesc}
                 </div>
               )

@@ -89,7 +89,7 @@
 
 .empty-state-title {
   margin: 0 0 8px 0;
-  font-size: 16px;
+  font-size: var(--font-lg);
   font-weight: 590;
   letter-spacing: -0.015em;
   color: var(--text-primary);
@@ -97,7 +97,7 @@
 
 .empty-state-desc {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-base);
   color: var(--text-secondary);
   max-width: 440px;
   line-height: 1.5;
