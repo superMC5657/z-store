@@ -103,6 +103,24 @@ impl Database {
                 cached_at INTEGER NOT NULL
             );
 
+            -- 刷新图标轮换状态追踪表
+            CREATE TABLE IF NOT EXISTS app_icon_cycles (
+                app_id TEXT PRIMARY KEY,
+                owner TEXT NOT NULL,
+                repo TEXT NOT NULL,
+                is_cataloged INTEGER NOT NULL DEFAULT 0,
+                level INTEGER NOT NULL DEFAULT 1,
+                l1_url TEXT NOT NULL DEFAULT '',
+                l2_url TEXT NOT NULL DEFAULT '',
+                l3_url TEXT NOT NULL DEFAULT '',
+                l4_url TEXT NOT NULL DEFAULT '',
+                selected_url TEXT NOT NULL DEFAULT '',
+                cache_file TEXT NOT NULL DEFAULT '',
+                updated_at INTEGER NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_icon_cycles_owner_repo ON app_icon_cycles(owner, repo);
+
             -- FR-6.2 默认通知频率：daily（仅缺失时填充）
             INSERT OR IGNORE INTO user_settings (key, value) VALUES ('watch_notify_frequency', 'daily');
             "#,

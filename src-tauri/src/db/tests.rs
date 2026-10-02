@@ -436,3 +436,185 @@ fn test_icon_cache_meta_crud() {
     db.delete_icon_cache_url("agalwood_Motrix.png").unwrap();
     assert_eq!(db.get_icon_cache_url("agalwood_Motrix.png").unwrap(), None);
 }
+
+#[test]
+fn test_icon_cycle_crud() {
+    let db = fixtures::test_db();
+    let app_id = "rustdesk/rustdesk";
+
+    // 1. 初始状态：无记录
+    assert!(db.get_icon_cycle(app_id).unwrap().is_none());
+    assert!(db.get_icon_cycle_by_repo("rustdesk", "rustdesk").unwrap().is_none());
+
+    // 2. 插入新记录
+    let cycle = AppIconCycle {
+        app_id: app_id.to_string(),
+        owner: "rustdesk".to_string(),
+        repo: "rustdesk".to_string(),
+        is_cataloged: true,
+        level: 1,
+        l1_url: "https://example.com/l1.png".to_string(),
+        l2_url: "https://example.com/l2.png".to_string(),
+        l3_url: "https://example.com/l3.svg".to_string(),
+        l4_url: "https://example.com/l4.png".to_string(),
+        selected_url: "https://example.com/l1.png".to_string(),
+        cache_file: "rustdesk_rustdesk_l1.png".to_string(),
+        updated_at: 1700000000,
+    };
+    db.upsert_icon_cycle(&cycle).unwrap();
+
+    // 3. 按 app_id 查询
+    let fetched = db.get_icon_cycle(app_id).unwrap().expect("cycle exists");
+    assert_eq!(fetched.app_id, app_id);
+    assert_eq!(fetched.owner, "rustdesk");
+    assert_eq!(fetched.repo, "rustdesk");
+    assert!(fetched.is_cataloged);
+    assert_eq!(fetched.level, 1);
+    assert_eq!(fetched.l1_url, "https://example.com/l1.png");
+    assert_eq!(fetched.l2_url, "https://example.com/l2.png");
+    assert_eq!(fetched.l3_url, "https://example.com/l3.svg");
+    assert_eq!(fetched.l4_url, "https://example.com/l4.png");
+    assert_eq!(fetched.selected_url, "https://example.com/l1.png");
+    assert_eq!(fetched.cache_file, "rustdesk_rustdesk_l1.png");
+    assert_eq!(fetched.updated_at, 1700000000);
+
+    // 4. 按 (owner, repo) 索引查询
+    let fetched_by_repo = db
+        .get_icon_cycle_by_repo("rustdesk", "rustdesk")
+        .unwrap()
+        .expect("cycle exists by repo");
+    assert_eq!(fetched_by_repo.app_id, app_id);
+
+    // 5. 模块别名方法 (get / upsert)
+    let alias_fetched = db.get(app_id).unwrap().expect("alias get exists");
+    assert_eq!(alias_fetched.app_id, app_id);
+
+    let module_fetched = icon_cycle::get(&db, app_id).unwrap().expect("module get exists");
+    assert_eq!(module_fetched.app_id, app_id);
+
+    // 6. 删除记录
+    assert!(db.delete_icon_cycle(app_id).unwrap());
+    assert!(!db.delete_icon_cycle(app_id).unwrap());
+    assert!(db.get_icon_cycle(app_id).unwrap().is_none());
+}
+
+#[test]
+fn test_icon_cycle_upsert_on_conflict() {
+    let db = fixtures::test_db();
+    let app_id = "agalwood/Motrix";
+
+    let initial = AppIconCycle {
+        app_id: app_id.to_string(),
+        owner: "agalwood".to_string(),
+        repo: "Motrix".to_string(),
+        is_cataloged: false,
+        level: 1,
+        l1_url: "https://example.com/motrix_l1.png".to_string(),
+        l2_url: "".to_string(),
+        l3_url: "".to_string(),
+        l4_url: "https://avatars.githubusercontent.com/u/123".to_string(),
+        selected_url: "https://example.com/motrix_l1.png".to_string(),
+        cache_file: "motrix_1.png".to_string(),
+        updated_at: 1000,
+    };
+    db.upsert_icon_cycle(&initial).unwrap();
+
+    let fetched1 = db.get_icon_cycle(app_id).unwrap().unwrap();
+    assert_eq!(fetched1.level, 1);
+    assert!(!fetched1.is_cataloged);
+    assert_eq!(fetched1.l2_url, "");
+
+    // 冲突更新：同 app_id 覆盖写入升级后的完整字段
+    let updated = AppIconCycle {
+        app_id: app_id.to_string(),
+        owner: "agalwood".to_string(),
+        repo: "Motrix".to_string(),
+        is_cataloged: true,
+        level: 2,
+        l1_url: "https://example.com/motrix_l1.png".to_string(),
+        l2_url: "https://example.com/motrix_l2.png".to_string(),
+        l3_url: "https://cdn.simpleicons.org/motrix".to_string(),
+        l4_url: "https://avatars.githubusercontent.com/u/123".to_string(),
+        selected_url: "https://example.com/motrix_l2.png".to_string(),
+        cache_file: "motrix_2.png".to_string(),
+        updated_at: 2000,
+    };
+    db.upsert_icon_cycle(&updated).unwrap();
+
+    let fetched2 = db.get_icon_cycle(app_id).unwrap().unwrap();
+    assert_eq!(fetched2.level, 2);
+    assert!(fetched2.is_cataloged);
+    assert_eq!(fetched2.l2_url, "https://example.com/motrix_l2.png");
+    assert_eq!(fetched2.l3_url, "https://cdn.simpleicons.org/motrix");
+    assert_eq!(fetched2.selected_url, "https://example.com/motrix_l2.png");
+    assert_eq!(fetched2.cache_file, "motrix_2.png");
+    assert_eq!(fetched2.updated_at, 2000);
+
+    // 确认表中只有 1 条记录，无重复
+    let count: i64 = db
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM app_icon_cycles WHERE app_id = ?1",
+            [app_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 1);
+}
+
+#[test]
+fn test_icon_cycle_set_level() {
+    let db = fixtures::test_db();
+    let app_id = "localsend/localsend";
+
+    let item = AppIconCycle {
+        app_id: app_id.to_string(),
+        owner: "localsend".to_string(),
+        repo: "localsend".to_string(),
+        is_cataloged: true,
+        level: 1,
+        l1_url: "https://example.com/ls_l1.png".to_string(),
+        l2_url: "https://example.com/ls_l2.png".to_string(),
+        l3_url: "https://example.com/ls_l3.png".to_string(),
+        l4_url: "https://example.com/ls_l4.png".to_string(),
+        selected_url: "https://example.com/ls_l1.png".to_string(),
+        cache_file: "ls_1.png".to_string(),
+        updated_at: 1000,
+    };
+    db.upsert_icon_cycle(&item).unwrap();
+
+    // 1. 使用 set_icon_cycle_level 切换到 level 2
+    db.set_icon_cycle_level(app_id, 2).unwrap();
+    let after_l2 = db.get_icon_cycle(app_id).unwrap().unwrap();
+    assert_eq!(after_l2.level, 2);
+    assert_eq!(after_l2.selected_url, "https://example.com/ls_l2.png");
+    assert!(after_l2.updated_at >= 1000);
+
+    // 2. 使用别名 set_level 切换到 level 3
+    db.set_level(app_id, 3).unwrap();
+    let after_l3 = db.get_icon_cycle(app_id).unwrap().unwrap();
+    assert_eq!(after_l3.level, 3);
+    assert_eq!(after_l3.selected_url, "https://example.com/ls_l3.png");
+
+    // 3. 使用模块方法 icon_cycle::set_level 切换到 level 4
+    icon_cycle::set_level(&db, app_id, 4).unwrap();
+    let after_l4 = db.get_icon_cycle(app_id).unwrap().unwrap();
+    assert_eq!(after_l4.level, 4);
+    assert_eq!(after_l4.selected_url, "https://example.com/ls_l4.png");
+
+    // 4. set_icon_cycle_selected 显式覆盖 selected_url 和 cache_file
+    db.set_icon_cycle_selected(app_id, 2, "https://custom.com/icon.png", "custom.png")
+        .unwrap();
+    let custom = db.get_icon_cycle(app_id).unwrap().unwrap();
+    assert_eq!(custom.level, 2);
+    assert_eq!(custom.selected_url, "https://custom.com/icon.png");
+    assert_eq!(custom.cache_file, "custom.png");
+
+    // 5. 辅助方法 url_for_level 验证
+    assert_eq!(item.url_for_level(1), Some("https://example.com/ls_l1.png"));
+    assert_eq!(item.url_for_level(2), Some("https://example.com/ls_l2.png"));
+    assert_eq!(item.url_for_level(3), Some("https://example.com/ls_l3.png"));
+    assert_eq!(item.url_for_level(4), Some("https://example.com/ls_l4.png"));
+    assert_eq!(item.url_for_level(5), None);
+}
+

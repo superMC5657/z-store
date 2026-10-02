@@ -1,11 +1,14 @@
 pub mod apps;
 pub mod cache;
 pub mod history;
+pub mod icon_cycle;
 pub mod rules;
 pub mod schema;
 pub mod settings;
 pub mod tokens;
 pub mod watch;
+
+pub use icon_cycle::AppIconCycle;
 
 #[cfg(test)]
 mod tests;

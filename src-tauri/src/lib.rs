@@ -580,6 +580,8 @@ pub fn run() {
             commands::sync_catalog,
             commands::select_folder,
             commands::get_or_fetch_icon,
+            commands::cycle_app_icon,
+            commands::get_app_icon_cycle,
             commands::open_url,
             commands::verify_ownership,
             commands::watch_app,

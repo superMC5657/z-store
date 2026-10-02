@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
 
-interface AppIconProps {
+export interface AppIconProps {
   icon: string;
   name: string;
   appId?: string;
@@ -9,11 +9,26 @@ interface AppIconProps {
   className?: string;
   style?: React.CSSProperties;
   size?: number | string;
+  iconOverride?: string;
 }
 
 // 模块级内存缓存，避免页面切页重新计算与读取
 const iconDataCache = new Map<string, string>();
 const iconPendingPromises = new Map<string, Promise<string>>();
+
+/**
+ * 失效或清空图标内存缓存。
+ * 若提供 key，则移除该 key 对应的缓存；若不提供 key，则清空全部内存缓存。
+ */
+export function invalidateIconCache(key?: string): void {
+  if (key) {
+    iconDataCache.delete(key);
+    iconPendingPromises.delete(key);
+  } else {
+    iconDataCache.clear();
+    iconPendingPromises.clear();
+  }
+}
 
 // 唯一的远端图标判定谓词：调用方（preloadIcons 与组件本体）必须复用此函数，禁止各自内联重复形状
 export function isRemoteIcon(icon: string | undefined | null): boolean {
@@ -63,56 +78,81 @@ export const AppIcon: React.FC<AppIconProps> = ({
   className = '',
   style = {},
   size,
+  iconOverride,
 }) => {
-  const isDataUri = Boolean(icon && icon.startsWith('data:'));
+  const activeIcon = iconOverride !== undefined ? iconOverride : icon;
+  const isDataUri = Boolean(activeIcon && activeIcon.startsWith('data:'));
   const [displaySrc, setDisplaySrc] = useState<string>(() => {
-    if (!icon) return '';
-    if (isDataUri) return icon;
-    return iconDataCache.get(icon) || icon;
+    if (!activeIcon) return '';
+    if (isDataUri) return activeIcon;
+    if (iconOverride !== undefined) return activeIcon;
+    return iconDataCache.get(activeIcon) || activeIcon;
   });
   const [hasError, setHasError] = useState(false);
 
   // 判断是否为网络图片 URL（复用模块级唯一谓词，禁止内联重复形状）
-  const isUrl = isRemoteIcon(icon);
+  const isUrl = isRemoteIcon(activeIcon);
 
   useEffect(() => {
     setHasError(false);
-    if (!icon || !isUrl || isDataUri) {
-      setDisplaySrc(icon);
+    if (!activeIcon || !isUrl || isDataUri) {
+      setDisplaySrc(activeIcon);
       return;
     }
-    if (iconDataCache.has(icon)) {
-      setDisplaySrc(iconDataCache.get(icon)!);
+
+    // 详情页临时覆盖展示：仅改当前组件实例展示，不回写全局缓存，列表不动
+    if (iconOverride !== undefined) {
+      let isMounted = true;
+      api
+        .getOrFetchIcon(appId, activeIcon)
+        .then((dataUri) => {
+          if (isMounted) {
+            setDisplaySrc(dataUri);
+            setHasError(false);
+          }
+        })
+        .catch(() => {
+          if (isMounted) {
+            setDisplaySrc(activeIcon);
+          }
+        });
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    if (iconDataCache.has(activeIcon)) {
+      setDisplaySrc(iconDataCache.get(activeIcon)!);
       return;
     }
 
     let isMounted = true;
-    let promise = iconPendingPromises.get(icon);
+    let promise = iconPendingPromises.get(activeIcon);
     if (!promise) {
-      promise = api.getOrFetchIcon(appId, icon);
-      iconPendingPromises.set(icon, promise);
+      promise = api.getOrFetchIcon(appId, activeIcon);
+      iconPendingPromises.set(activeIcon, promise);
     }
 
     promise
       .then((dataUri) => {
-        iconDataCache.set(icon, dataUri);
-        iconPendingPromises.delete(icon);
+        iconDataCache.set(activeIcon, dataUri);
+        iconPendingPromises.delete(activeIcon);
         if (isMounted) {
           setDisplaySrc(dataUri);
           setHasError(false);
         }
       })
       .catch(() => {
-        iconPendingPromises.delete(icon);
+        iconPendingPromises.delete(activeIcon);
         if (isMounted) {
-          setDisplaySrc(icon);
+          setDisplaySrc(activeIcon);
         }
       });
 
     return () => {
       isMounted = false;
     };
-  }, [icon, appId, isUrl, isDataUri]);
+  }, [activeIcon, appId, isUrl, isDataUri, iconOverride]);
 
   const handleError = () => {
     // 若图片加载失败（网络不可达或链接失效），平滑降级为首字母徽章
@@ -167,7 +207,7 @@ export const AppIcon: React.FC<AppIconProps> = ({
             opacity: 1,
           }}
         />
-      ) : isUrl && hasError ? (
+      ) : (isUrl && hasError) || (iconOverride !== undefined && !isUrl) ? (
         <span
           className="app-icon-fallback-badge"
           style={{
@@ -182,7 +222,7 @@ export const AppIcon: React.FC<AppIconProps> = ({
           {getInitials(name)}
         </span>
       ) : (
-        <span className="app-icon-emoji">{icon || '📦'}</span>
+        <span className="app-icon-emoji">{activeIcon || '📦'}</span>
       )}
     </div>
   );

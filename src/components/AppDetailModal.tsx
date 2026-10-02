@@ -8,6 +8,7 @@ import {
   Trash2,
   PlusCircle,
   RotateCcw,
+  RefreshCw,
   Play,
   CheckCircle2,
   ShieldCheck,
@@ -18,8 +19,9 @@ import {
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { AppDetailViewModel, DownloadAssetResult, DownloadProgressPayload, OAuthUser, ReleaseAsset } from '../types';
-import { api, isTauri } from '../services/api';
+import { api, type AppIconCycleResult } from '../services/api';
 import { AppIcon } from './AppIcon';
+import { notifyToast } from '../utils/notify';
 import { VerifiedBadge } from './VerifiedBadge';
 import { InlineConfirmButton } from './InlineConfirmButton';
 import { formatBytes, getAppDisplayName, getAppDescription, getCategoryLabel, isInstallableAssetKind, isProductAssetName, sortAssetsByRelevance } from '../utils/appHelper';
@@ -28,6 +30,8 @@ import { PLATFORM_META, type PlatformId } from '../lib/platformFilter';
 import { detectHostArch, detectHostOs } from './hostEnv';
 import { useDetailStarVerify } from './useDetailStarVerify';
 import { useDetailReadme } from './useDetailReadme';
+
+const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
 interface AppDetailModalProps {
   app: AppDetailViewModel;
@@ -52,6 +56,14 @@ interface AppDetailModalProps {
   onRetry?: (id: string) => void;
   onRefresh?: (id: string) => void;
 }
+
+const ICON_LEVEL_NAMES: Record<number, string> = {
+  1: '收录官方',
+  2: '品牌库',
+  3: '仓库文件',
+  4: '文档Logo',
+  5: '首字母',
+};
 
 export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   app,
@@ -95,6 +107,66 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshSuccessNotice, setRefreshSuccessNotice] = useState(false);
   const [refreshErrorNotice, setRefreshErrorNotice] = useState<string | null>(null);
+
+  // 图标轮换态（T3 刷新图标）
+  const [iconCycle, setIconCycle] = useState<AppIconCycleResult | null>(null);
+  const [isCyclingIcon, setIsCyclingIcon] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    setIconCycle(null);
+    if (!isTauri || !app.id) return;
+
+    api
+      .getAppIconCycle(app.id)
+      .then((data) => {
+        if (isMounted && data) {
+          setIconCycle(data);
+        }
+      })
+      .catch(() => {
+        // 降级不崩
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [app.id]);
+
+  const totalLevels = iconCycle?.total_levels ?? iconCycle?.totalLevels ?? 5;
+  const currentLevel = iconCycle?.level ?? 1;
+  const nextLevel = currentLevel >= totalLevels ? 1 : currentLevel + 1;
+  const nextLevelName = ICON_LEVEL_NAMES[nextLevel] || `L${nextLevel}`;
+  const nextLevelTitle = `下一档：L${nextLevel}${nextLevelName} (${nextLevel}/${totalLevels})`;
+
+  const effectiveIconOverride = useMemo(() => {
+    if (!iconCycle) return undefined;
+    if (iconCycle.level === 5 || iconCycle.is_fallback || iconCycle.isFallback) {
+      return iconCycle.url || '';
+    }
+    return iconCycle.url;
+  }, [iconCycle]);
+
+  const handleCycleIcon = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isCyclingIcon || !isTauri || !app.id) return;
+    setIsCyclingIcon(true);
+    try {
+      const res = await api.cycleAppIcon(app.id);
+      if (res) {
+        setIconCycle(res);
+        const total = res.total_levels ?? res.totalLevels ?? 5;
+        const name = ICON_LEVEL_NAMES[res.level] || '';
+        notifyToast(`图标已切换为 L${res.level}${name} (${res.level}/${total})`, 'success');
+      }
+    } catch (err) {
+      notifyToast(`切换图标失败: ${err instanceof Error ? err.message : String(err)}`, 'error');
+    } finally {
+      setIsCyclingIcon(false);
+    }
+  };
+
   // FR-7 / FR-8.3: GitHub 标星 + 所有权校验（见 useDetailStarVerify）
   const {
     isOwner,
@@ -465,7 +537,9 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
 
 
           <AppIcon
+            key={`${app.id}-${iconCycle?.level ?? 1}`}
             icon={app.icon}
+            iconOverride={effectiveIconOverride}
             name={displayName}
             appId={app.id}
             iconBg={app.icon_bg}
@@ -528,6 +602,37 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                 <Bug size={12} strokeWidth={1.5} />
                 <span>问题反馈</span>
               </a>
+              {isTauri && (
+                <button
+                  type="button"
+                  className="modal-icon-cycle-btn"
+                  onClick={handleCycleIcon}
+                  disabled={isCyclingIcon}
+                  title={nextLevelTitle}
+                  aria-label={nextLevelTitle}
+                  style={{
+                    width: 20,
+                    height: 20,
+                    borderRadius: '50%',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'var(--bg-card, #1e293b)',
+                    border: '1px solid var(--border-color, rgba(255, 255, 255, 0.2))',
+                    color: 'var(--text-secondary, #94a3b8)',
+                    cursor: isCyclingIcon ? 'not-allowed' : 'pointer',
+                    padding: 0,
+                    flexShrink: 0,
+                    transition: 'all 0.15s ease',
+                    opacity: isCyclingIcon ? 0.6 : 1,
+                  }}
+                >
+                  <RefreshCw
+                    size={11}
+                    className={isCyclingIcon ? 'icon-spin' : ''}
+                  />
+                </button>
+              )}
             </div>
             {displayDesc && (
               <p

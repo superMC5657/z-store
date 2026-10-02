@@ -30,6 +30,18 @@ import {
   DownloadAssetResult,
 } from '../types';
 
+export interface AppIconCycleResult {
+  url: string;
+  remote_url?: string;
+  remoteUrl?: string;
+  level: number;
+  source?: string;
+  is_fallback?: boolean;
+  isFallback?: boolean;
+  total_levels?: number;
+  totalLevels?: number;
+}
+
 export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -59,6 +71,15 @@ const tauriApi = {
     return tauriInvoke<AppSummary[]>('search_apps', { query });
   },
 
+  async searchAppsOnline(query: string): Promise<AppSummary[]> {
+    try {
+      return await tauriInvoke<AppSummary[]>('search_apps_online', { query });
+    } catch (err) {
+      console.warn('search_apps_online is not available or failed:', err);
+      return [];
+    }
+  },
+
   async getAppDetails(id: string, forceRefresh = false): Promise<AppDetail> {
     return tauriInvoke<AppDetail>('get_app_details', { id, forceRefresh });
   },
@@ -71,15 +92,6 @@ const tauriApi = {
     return tauriInvoke<InstalledApp>('install_app', {
       appId,
       assetName: assetName || null,
-  async searchAppsOnline(query: string): Promise<AppSummary[]> {
-    try {
-      return await tauriInvoke<AppSummary[]>('search_apps_online', { query });
-    } catch (err) {
-      console.warn('search_apps_online is not available or failed:', err);
-      return [];
-    }
-  },
-
       customInstallDir: customInstallDir || null,
     });
   },
@@ -304,6 +316,18 @@ const tauriApi = {
 
   async getOrFetchIcon(appId: string | undefined, remoteUrl: string): Promise<string> {
     return tauriInvoke<string>('get_or_fetch_icon', { appId: appId ?? null, remoteUrl });
+  },
+
+  async cycleAppIcon(appId: string): Promise<AppIconCycleResult> {
+    return tauriInvoke<AppIconCycleResult>('cycle_app_icon', { appId, app_id: appId });
+  },
+
+  async getAppIconCycle(appId: string): Promise<AppIconCycleResult | null> {
+    try {
+      return await tauriInvoke<AppIconCycleResult | null>('get_app_icon_cycle', { appId, app_id: appId });
+    } catch {
+      return null;
+    }
   },
 
   async getWatchedApps(): Promise<string[]> {
