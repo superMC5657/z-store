@@ -147,6 +147,10 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                     rel="noreferrer"
                     className="btn-fluent btn-secondary"
                     style={{ fontSize: 'var(--font-xs)', padding: '2px 8px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      void api.openUrl(profile.html_url);
+                    }}
                   >
                     <span>GitHub</span>
                     <ExternalLink size={10} />
@@ -187,6 +191,13 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                       rel="noreferrer"
                       className="modal-tag"
                       style={{ textDecoration: 'none', color: 'var(--brand-primary)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        const blog = profile.blog;
+                        if (!blog) return;
+                        const url = blog.startsWith('http') ? blog : `https://${blog}`;
+                        void api.openUrl(url);
+                      }}
                     >
                       <Link size={12} />
                       <span>{profile.blog}</span>

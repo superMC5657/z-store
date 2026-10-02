@@ -54,16 +54,33 @@ pub(crate) fn resolve_app_coord(app_id: &str) -> Result<(String, String, String)
     Err(format!("无法识别的应用标识: {}", clean))
 }
 
-/// 计算下一个轮换级别：空档顺延，5→1 回绕。
+/// 获取周期记录中首个有效 URL 对应的级别 (收录应用 1..=4，非收录应用 2..=4)
+pub(crate) fn first_available_level(cycle: &crate::db::AppIconCycle) -> Option<i32> {
+    let start = if cycle.is_cataloged { 1 } else { 2 };
+    for lvl in start..=4 {
+        if let Some(u) = cycle.url_for_level(lvl) {
+            if !u.trim().is_empty() {
+                return Some(lvl);
+            }
+        }
+    }
+    None
+}
+
+/// 计算下一个轮换级别：空档顺延，5→1/2 回绕。
 /// Level 5 为"空"，始终有效；Level 1..=4 当对应 URL 为空时视为"空档"，顺延至下一级别。
+/// 非收录应用绝不轮换到 Level 1（官方）。
 pub(crate) fn next_cycle_level(curr_level: i32, cycle: &crate::db::AppIconCycle) -> i32 {
     let mut cand = if !(1..=5).contains(&curr_level) {
-        1
+        if cycle.is_cataloged { 1 } else { 2 }
     } else {
         (curr_level % 5) + 1
     };
 
-    while cand != 5 && cycle.url_for_level(cand).unwrap_or("").trim().is_empty() {
+    while cand != 5
+        && ((!cycle.is_cataloged && cand == 1)
+            || cycle.url_for_level(cand).unwrap_or("").trim().is_empty())
+    {
         cand = (cand % 5) + 1;
     }
     cand
@@ -280,21 +297,12 @@ async fn ensure_cycle_levels(
 ) {
     let client = super::icon_http_client();
 
-    // L1: 收录官方 / 非收录首选
-    if cycle.l1_url.trim().is_empty() {
-        if is_cataloged {
-            if let Some(item) = catalog_item {
-                let u = item.icon.trim();
-                if u.starts_with("http://") || u.starts_with("https://") {
-                    cycle.l1_url = u.to_string();
-                }
-            }
-        } else if let Ok(db) = state.db() {
-            if let Ok(Some(detail)) = db.get_cached_app_detail(app_id, None) {
-                let u = detail.icon.trim();
-                if u.starts_with("http://") || u.starts_with("https://") {
-                    cycle.l1_url = u.to_string();
-                }
+    // L1: 仅收录应用官方源填 L1；未收录应用保持为空
+    if is_cataloged && cycle.l1_url.trim().is_empty() {
+        if let Some(item) = catalog_item {
+            let u = item.icon.trim();
+            if u.starts_with("http://") || u.starts_with("https://") {
+                cycle.l1_url = u.to_string();
             }
         }
     }
@@ -375,12 +383,14 @@ pub async fn cycle_app_icon(
                 token.as_deref(),
             )
             .await;
+            if !is_cataloged && c.level == 1 {
+                c.level = first_available_level(&c).unwrap_or(2);
+            }
             c
         }
         None => {
             let mut c = crate::db::AppIconCycle::new(&canonical_id, &owner, &repo);
             c.is_cataloged = is_cataloged;
-            c.level = 1;
             ensure_cycle_levels(
                 &mut c,
                 &state,
@@ -392,6 +402,11 @@ pub async fn cycle_app_icon(
                 token.as_deref(),
             )
             .await;
+            c.level = if is_cataloged {
+                1
+            } else {
+                first_available_level(&c).unwrap_or(2)
+            };
             c
         }
     };
@@ -540,7 +555,7 @@ pub async fn get_app_icon_cycle(
     state: State<'_, AppState>,
     app_id: String,
 ) -> crate::AppResult<IconCycleResult> {
-    let (canonical_id, _owner, _repo) = resolve_app_coord(&app_id)?;
+    let (canonical_id, owner, repo) = resolve_app_coord(&app_id)?;
     let catalog_item = state.catalog.get_catalog_item(&canonical_id);
     let is_cataloged = catalog_item.is_some();
 
@@ -563,7 +578,11 @@ pub async fn get_app_icon_cycle(
             });
         }
 
-        let lvl = cycle.level;
+        let lvl = if !cycle.is_cataloged && cycle.level == 1 {
+            first_available_level(&cycle).unwrap_or(2)
+        } else {
+            cycle.level
+        };
         let remote_url = cycle
             .url_for_level(lvl)
             .filter(|u| !u.trim().is_empty())
@@ -645,52 +664,141 @@ pub async fn get_app_icon_cycle(
         });
     }
 
-    // 尚未记录过轮换状态：返回默认 L1 (收录官方/非收录首选)
-    let default_url = if is_cataloged {
-        catalog_item
+    // 尚未记录过轮换状态：
+    if is_cataloged {
+        let default_url = catalog_item
             .as_ref()
             .map(|i| i.icon.trim().to_string())
-            .unwrap_or_default()
-    } else {
-        state
-            .db()
-            .ok()
-            .and_then(|db| db.get_cached_app_detail(&canonical_id, None).ok().flatten())
-            .map(|d| d.icon.trim().to_string())
-            .unwrap_or_default()
-    };
+            .unwrap_or_default();
 
-    if !default_url.is_empty() {
-        let stem = super::get_icon_stem(&canonical_id, &default_url);
-        let inferred_ext = super::infer_icon_ext_from_url(&default_url).unwrap_or("png");
-        let filename = format!("{}.{}", stem, inferred_ext);
+        if !default_url.is_empty() {
+            let stem = super::get_icon_stem(&canonical_id, &default_url);
+            let inferred_ext = super::infer_icon_ext_from_url(&default_url).unwrap_or("png");
+            let filename = format!("{}.{}", stem, inferred_ext);
+            let cache_file = icons_dir.join(&filename);
+            if cache_file.is_file() {
+                if let Ok(bytes) = std::fs::read(&cache_file) {
+                    if !bytes.is_empty() && super::is_valid_image(&bytes) {
+                        return Ok(IconCycleResult {
+                            url: super::bytes_to_data_uri(&bytes),
+                            remote_url: default_url,
+                            level: 1,
+                            source: "official".to_string(),
+                            is_fallback: false,
+                            total_levels: 5,
+                        });
+                    }
+                }
+            }
+        }
+
+        // 初始状态且无本地缓存：返回 Level 1 与对应 remote_url
+        let lvl = if default_url.is_empty() { 5 } else { 1 };
+        return Ok(IconCycleResult {
+            url: String::new(),
+            remote_url: default_url,
+            level: lvl,
+            source: source_for_level(lvl).to_string(),
+            is_fallback: is_fallback_for_level(lvl),
+            total_levels: 5,
+        });
+    }
+
+    // 未收录应用且未落库：调 ensure 后返回首个有效级别，无有效则走 L5 首字母徽章逻辑
+    let token = crate::commands::resolve_active_github_token(&state);
+    let mut temp_cycle = crate::db::AppIconCycle::new(&canonical_id, &owner, &repo);
+    temp_cycle.is_cataloged = false;
+    ensure_cycle_levels(
+        &mut temp_cycle,
+        &state,
+        &owner,
+        &repo,
+        &canonical_id,
+        false,
+        None,
+        token.as_deref(),
+    )
+    .await;
+
+    if let Some(lvl) = first_available_level(&temp_cycle) {
+        let remote_url = temp_cycle.url_for_level(lvl).unwrap_or("").trim().to_string();
+        let stem = super::get_icon_stem(&canonical_id, &remote_url);
+        let inferred_ext = super::infer_icon_ext_from_url(&remote_url).unwrap_or("png");
+        let filename = format!("{}_l{}.{}", stem, lvl, inferred_ext);
         let cache_file = icons_dir.join(&filename);
         if cache_file.is_file() {
             if let Ok(bytes) = std::fs::read(&cache_file) {
                 if !bytes.is_empty() && super::is_valid_image(&bytes) {
                     return Ok(IconCycleResult {
                         url: super::bytes_to_data_uri(&bytes),
-                        remote_url: default_url,
-                        level: 1,
-                        source: "official".to_string(),
-                        is_fallback: false,
+                        remote_url,
+                        level: lvl,
+                        source: source_for_level(lvl).to_string(),
+                        is_fallback: is_fallback_for_level(lvl),
                         total_levels: 5,
                     });
                 }
             }
         }
-    }
 
-    // 初始状态且无本地缓存：返回 Level 1 与对应 remote_url
-    let lvl = if default_url.is_empty() { 5 } else { 1 };
-    Ok(IconCycleResult {
-        url: String::new(),
-        remote_url: default_url,
-        level: lvl,
-        source: source_for_level(lvl).to_string(),
-        is_fallback: is_fallback_for_level(lvl),
-        total_levels: 5,
-    })
+        // 文件缺失但有 remote_url 时尝试恢复
+        if !remote_url.is_empty() {
+            let client = super::icon_http_client();
+            let mirror_url = if !super::is_avatar_url(&remote_url) {
+                state.mirror.lock().ok().and_then(|m| {
+                    let rewritten = m.rewrite_download_url(&remote_url);
+                    if rewritten != remote_url {
+                        Some(rewritten)
+                    } else {
+                        None
+                    }
+                })
+            } else {
+                None
+            };
+            if let Ok(bytes) = super::download_icon_bytes(&client, mirror_url.as_deref(), &remote_url).await {
+                let mime = super::detect_image_mime(&bytes);
+                let real_ext = super::mime_to_ext(mime);
+                let fn_non = format!("{}_l{}.{}", stem, lvl, real_ext);
+                let _ = std::fs::write(icons_dir.join(&fn_non), &bytes);
+                temp_cycle.level = lvl;
+                temp_cycle.selected_url = remote_url.clone();
+                temp_cycle.cache_file = fn_non.clone();
+                temp_cycle.updated_at = crate::now_secs();
+                if let Ok(db) = state.db() {
+                    let _ = db.upsert_icon_cycle(&temp_cycle);
+                }
+
+                return Ok(IconCycleResult {
+                    url: super::bytes_to_data_uri(&bytes),
+                    remote_url,
+                    level: lvl,
+                    source: source_for_level(lvl).to_string(),
+                    is_fallback: is_fallback_for_level(lvl),
+                    total_levels: 5,
+                });
+            }
+        }
+
+        Ok(IconCycleResult {
+            url: String::new(),
+            remote_url,
+            level: lvl,
+            source: source_for_level(lvl).to_string(),
+            is_fallback: is_fallback_for_level(lvl),
+            total_levels: 5,
+        })
+    } else {
+        // 无有效则走 L5 首字母徽章逻辑
+        Ok(IconCycleResult {
+            url: String::new(),
+            remote_url: String::new(),
+            level: 5,
+            source: "none".to_string(),
+            is_fallback: true,
+            total_levels: 5,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -785,6 +893,30 @@ mod tests {
         cycle.l1_url = "".to_string();
         assert_eq!(next_cycle_level(1, &cycle), 5);
         assert_eq!(next_cycle_level(5, &cycle), 5);
+
+        // 非收录应用：1 档永远跳过，5 回绕到 2
+        let non_cat = crate::db::AppIconCycle {
+            app_id: "noncat/test".to_string(),
+            owner: "noncat".to_string(),
+            repo: "test".to_string(),
+            is_cataloged: false,
+            level: 2,
+            l1_url: "".to_string(),
+            l2_url: "https://example.com/2.png".to_string(),
+            l3_url: "https://example.com/3.png".to_string(),
+            l4_url: "https://example.com/4.png".to_string(),
+            selected_url: "https://example.com/2.png".to_string(),
+            cache_file: "test_l2.png".to_string(),
+            updated_at: 0,
+        };
+        assert_eq!(next_cycle_level(2, &non_cat), 3);
+        assert_eq!(next_cycle_level(3, &non_cat), 4);
+        assert_eq!(next_cycle_level(4, &non_cat), 5);
+        assert_eq!(next_cycle_level(5, &non_cat), 2);
+
+        // 验证 first_available_level
+        assert_eq!(first_available_level(&non_cat), Some(2));
+        assert_eq!(first_available_level(&cycle), None);
     }
 
     #[test]

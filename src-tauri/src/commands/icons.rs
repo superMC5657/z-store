@@ -522,50 +522,64 @@ pub async fn get_or_fetch_icon(
             let _ = db.save_icon_cache_url(&final_filename, url_trimmed);
         }
     } else {
-        let level = if let Some(ref id) = app_id {
-            state
-                .db()
-                .ok()
-                .and_then(|db| db.get_icon_cycle(id).ok().flatten())
-                .map(|c| c.level)
-                .unwrap_or(1)
+        let clean_id = app_id.as_deref().map(str::trim).unwrap_or("");
+        let (_level, final_filename) = if !clean_id.is_empty() {
+            if let Ok(db) = state.db() {
+                let mut cycle = db
+                    .get_icon_cycle(clean_id)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_else(|| {
+                        let (owner, repo) = match crate::forge::RepositoryUrlParser::parse(clean_id) {
+                            Some(c) => (c.owner, c.repo),
+                            None => clean_id
+                                .split_once('/')
+                                .map(|(o, r)| (o.to_string(), r.to_string()))
+                                .unwrap_or_default(),
+                        };
+                        crate::db::AppIconCycle::new(clean_id, owner, repo)
+                    });
+                cycle.is_cataloged = false;
+
+                // url 写入首个空的 l2/l3/l4，不写 l1_url
+                let actual_level = if cycle.l2_url.trim() == url_trimmed {
+                    2
+                } else if cycle.l3_url.trim() == url_trimmed {
+                    3
+                } else if cycle.l4_url.trim() == url_trimmed {
+                    4
+                } else if cycle.l2_url.trim().is_empty() {
+                    cycle.l2_url = url_trimmed.to_string();
+                    2
+                } else if cycle.l3_url.trim().is_empty() {
+                    cycle.l3_url = url_trimmed.to_string();
+                    3
+                } else if cycle.l4_url.trim().is_empty() {
+                    cycle.l4_url = url_trimmed.to_string();
+                    4
+                } else if cycle.level >= 2 && cycle.level <= 4 {
+                    cycle.level
+                } else {
+                    2
+                };
+
+                let filename = format!("{}_l{}.{}", stem, actual_level, real_ext);
+                cycle.level = actual_level;
+                cycle.selected_url = url_trimmed.to_string();
+                cycle.cache_file = filename.clone();
+                cycle.updated_at = crate::now_secs();
+                let _ = db.upsert_icon_cycle(&cycle);
+
+                (actual_level, filename)
+            } else {
+                (2, format!("{}_l2.{}", stem, real_ext))
+            }
         } else {
-            1
+            (2, format!("{}_l2.{}", stem, real_ext))
         };
-        let final_filename = format!("{}_l{}.{}", stem, level, real_ext);
+
         let final_cache_file = icons_dir.join(&final_filename);
         let _ = std::fs::write(&final_cache_file, &bytes);
-
-        if let Some(ref id) = app_id {
-            let clean_id = id.trim();
-            if !clean_id.is_empty() {
-                if let Ok(db) = state.db() {
-                    let mut cycle = db
-                        .get_icon_cycle(clean_id)
-                        .ok()
-                        .flatten()
-                        .unwrap_or_else(|| {
-                            let (owner, repo) = match crate::forge::RepositoryUrlParser::parse(clean_id) {
-                                Some(c) => (c.owner, c.repo),
-                                None => clean_id
-                                    .split_once('/')
-                                    .map(|(o, r)| (o.to_string(), r.to_string()))
-                                    .unwrap_or_default(),
-                            };
-                            crate::db::AppIconCycle::new(clean_id, owner, repo)
-                        });
-                    cycle.is_cataloged = false;
-                    cycle.level = level;
-                    if cycle.l1_url.is_empty() {
-                        cycle.l1_url = url_trimmed.to_string();
-                    }
-                    cycle.selected_url = url_trimmed.to_string();
-                    cycle.cache_file = final_filename;
-                    cycle.updated_at = crate::now_secs();
-                    let _ = db.upsert_icon_cycle(&cycle);
-                }
-            }
-        }
     }
 
     Ok(bytes_to_data_uri(&bytes))

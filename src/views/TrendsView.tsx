@@ -6,6 +6,7 @@ import { AppSummary } from '../types';
 import { AppCard, getRankBadgeColor } from '../components/AppCard';
 import { EmptyState } from '../components/EmptyState';
 import { SegmentedControl } from '../components/SegmentedControl';
+import { api } from '../services/api';
 import {
   fetchTrends,
   formatStars,
@@ -189,12 +190,12 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                 style={{ cursor: item.repo.url ? 'pointer' : 'default' }}
                 onClick={() => {
                   if (item.repo.url) {
-                    window.open(item.repo.url, '_blank', 'noopener,noreferrer');
+                    void api.openUrl(item.repo.url);
                   }
                 }}
                 onKeyDown={(e) => {
                   if (item.repo.url && (e.key === 'Enter' || e.key === ' ')) {
-                    window.open(item.repo.url, '_blank', 'noopener,noreferrer');
+                    void api.openUrl(item.repo.url);
                   }
                 }}
               >

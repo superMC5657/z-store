@@ -10,6 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "withGlobalTauri": false,
     "windows": [
       {
         "label": "main",
@@ -20,11 +21,16 @@
         "minHeight": 640,
         "resizable": true,
         "decorations": false,
-        "transparent": false
+        "transparent": false,
+        "devtools": false,
+        "dragDropEnabled": false,
+        "zoomHotkeysEnabled": false,
+        "incognito": false
       }
     ],
     "security": {
-      "csp": "default-src 'self' ipc: http://ipc.localhost; img-src 'self' asset: https: http: data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' https: data:; connect-src 'self' ipc: http://ipc.localhost https:;"
+      "csp": "default-src 'self' ipc: http://ipc.localhost; img-src 'self' asset: https: http: data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' https: data:; connect-src 'self' ipc: http://ipc.localhost https:;",
+      "freezePrototype": true
     }
   },
   "bundle": {
