@@ -1,13 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
-import { TrendingUp, Star } from 'lucide-react';
+import { TrendingUp } from 'lucide-react';
 import { AppSummary } from '../types';
-import { AppIcon } from '../components/AppIcon';
+import { AppCard } from '../components/AppCard';
 import { EmptyState } from '../components/EmptyState';
 import { SegmentedControl } from '../components/SegmentedControl';
-import { VerifiedBadge } from '../components/VerifiedBadge';
-import { getAppDisplayName, getAppDescription, getCategoryLabel } from '../utils/appHelper';
 
 interface TrendsViewProps {
   apps: AppSummary[];
@@ -47,7 +45,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   onToggleFavorite,
   onResetPlatformFilter,
 }) => {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const [timeRange, setTimeRange] = useState<TimeRange>('week');
 
   // 任务 6（设备平台全局过滤）：`apps` 传入时已由 App.platformFilteredApps 预过滤。
@@ -74,13 +72,6 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     }
   }, [apps, timeRange]);
 
-  const getRankBadgeColor = (index: number) => {
-    if (index === 0) return '#eab308'; // 冠军金
-    if (index === 1) return '#94a3b8'; // 亚军银
-    if (index === 2) return '#d97706'; // 季军铜
-    return 'var(--text-tertiary)';
-  };
-
   return (
     <div className="trends-view view-entrance">
       <div className="section-header">
@@ -100,7 +91,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
         />
       </div>
 
-      <div className="fluent-list-container" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      <div className="fluent-list-container">
         {sortedApps.length === 0 ? (
           <EmptyState
             className="trends-empty"
@@ -124,151 +115,20 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
             )}
           />
         ) : (
-        sortedApps.map((app, index) => {
-          const displayName = getAppDisplayName(app);
-          const displayDesc = getAppDescription(app, i18n.language);
-          const displayCategory = getCategoryLabel(app.category, app.category_name, t);
-
-          return (
-          <div
+        sortedApps.map((app, index) => (
+          <AppCard
             key={app.id}
-            className="app-card fluent-list-row"
-            style={{
-              cursor: 'pointer',
-            }}
-            onClick={() => onOpenDetail(app.id)}
-          >
-            <div
-              style={{
-                fontSize: '15px',
-                fontWeight: 590,
-                width: '32px',
-                flexShrink: 0,
-                color: getRankBadgeColor(index),
-                fontVariantNumeric: 'tabular-nums',
-                textAlign: 'center',
-                letterSpacing: '-0.018em',
-              }}
-            >
-              #{index + 1}
-            </div>
-
-            <AppIcon
-              icon={app.icon}
-              name={displayName}
-              appId={app.id}
-              iconBg={app.icon_bg}
-              className="app-icon"
-              size={32}
-              style={{
-                borderRadius: 'var(--radius-sm)',
-                fontSize: '15px',
-                marginRight: '12px',
-                flexShrink: 0,
-              }}
-            />
-
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontWeight: 590, fontSize: '14px', letterSpacing: '-0.015em' }}>{displayName}</span>
-                {app.is_verified && <VerifiedBadge size="sm" />}
-                <span className="app-tag" style={{ fontSize: '11px' }}>
-                  {displayCategory}
-                </span>
-              </div>
-              <div
-                style={{
-                  fontSize: '12px',
-                  color: 'var(--text-tertiary)',
-                  marginTop: '3px',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}
-                title={`${app.owner} · ${displayDesc}`}
-              >
-                {app.owner} · {displayDesc}
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginLeft: '12px' }}>
-              <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                <Star size={12} fill="currentColor" />
-                <span>{(app.stars / 1000).toFixed(1)}k</span>
-              </span>
-              {onToggleFavorite && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onToggleFavorite(app.id);
-                  }}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    padding: '2px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    color: favoriteIds?.has(app.id) ? '#eab308' : 'var(--text-tertiary)',
-                  }}
-                  title={favoriteIds?.has(app.id) ? t('app.fav_active') : t('app.fav_inactive')}
-                >
-                  <Star
-                    size={16}
-                    fill={favoriteIds?.has(app.id) ? '#eab308' : 'none'}
-                    color={favoriteIds?.has(app.id) ? '#eab308' : 'currentColor'}
-                  />
-                </button>
-              )}
-              {installedIds?.has(app.id) ? (
-                <button
-                  className="btn-install btn-installed"
-                  style={{ padding: '6px 14px' }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onOpenDetail(app.id);
-                  }}
-                  title={t('app.installed_details', { name: displayName })}
-                  aria-label={t('app.installed_details', { name: displayName })}
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '4px' }}>
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                  <span>{t('app.installed')}</span>
-                </button>
-              ) : installingIds?.has(app.id) ? (
-                <button
-                  className="btn-install"
-                  disabled
-                  style={{ padding: '6px 14px', opacity: 0.8, cursor: 'not-allowed' }}
-                  title={t('app.installing_app', { name: displayName })}
-                >
-                  <span className="spinner-icon" style={{ width: '10px', height: '10px', borderWidth: '1.5px', marginRight: '4px' }} />
-                  <span>{t('app.installing')}</span>
-                </button>
-              ) : (
-                <button
-                  className="btn-install"
-                  style={{ padding: '6px 14px' }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onQuickInstall(app.id);
-                  }}
-                  title={t('app.get_app', { name: displayName })}
-                  aria-label={t('app.get_app', { name: displayName })}
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '4px' }}>
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                    <polyline points="7 10 12 15 17 10" />
-                    <line x1="12" y1="15" x2="12" y2="3" />
-                  </svg>
-                  <span>{t('app.get')}</span>
-                </button>
-              )}
-            </div>
-          </div>
-        );
-        })
+            app={app}
+            rank={index + 1}
+            className="fluent-list-row"
+            isInstalled={installedIds?.has(app.id) ?? false}
+            isInstalling={installingIds?.has(app.id) ?? false}
+            isFavorite={favoriteIds?.has(app.id) ?? false}
+            onOpenDetail={onOpenDetail}
+            onQuickInstall={onQuickInstall}
+            onToggleFavorite={onToggleFavorite}
+          />
+        ))
         )}
       </div>
     </div>

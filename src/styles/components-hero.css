@@ -12,6 +12,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
+  min-width: 0;
+  align-self: stretch;
+  box-sizing: border-box;
   transition: border-color 0.1s var(--ease-smooth), background 0.1s var(--ease-smooth);
   cursor: pointer;
 }

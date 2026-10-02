@@ -11,6 +11,9 @@
   justify-content: space-between;
   gap: 12px;
   min-height: 40px;
+  width: 100%;
+  min-width: 0;
+  align-self: stretch;
   cursor: pointer;
   box-shadow: var(--shadow-rest);
   transition: background 0.12s cubic-bezier(0.16, 1, 0.3, 1),
@@ -47,8 +50,9 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  flex: 0 1 260px;
-  min-width: 160px;
+  flex: 0 1 300px;
+  min-width: 180px;
+  max-width: 360px;
   position: relative;
 }
 
@@ -66,6 +70,17 @@
   box-shadow: none;
   border: 1px solid rgba(255, 255, 255, 0.12);
   transition: none;
+}
+
+/* 趋势榜单名次（AppCard rank prop）：仅当传入 rank 时渲染，精选页不传则零变化 */
+.app-rank {
+  font-size: 15px;
+  font-weight: 590;
+  width: 32px;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  letter-spacing: -0.018em;
 }
 
 .app-icon-image {
@@ -167,7 +182,7 @@
 }
 
 .app-desc {
-  flex: 1 1 200px;
+  flex: 1 1 auto;
   font-size: 12px;
   line-height: 1.4;
   color: var(--text-secondary);
@@ -175,8 +190,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   min-height: 0;
+  min-width: 0;
   margin: 0;
-  max-width: 480px;
+  max-width: none;
   letter-spacing: -0.011em;
 }
 
@@ -188,7 +204,10 @@
   margin-top: 0;
   padding-top: 0;
   border-top: none;
+  flex: 0 0 auto;
   flex-shrink: 0;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .app-tags {
@@ -246,8 +265,21 @@
   border-color: rgba(245, 158, 11, 0.25);
 }
 
+@media (max-width: 1024px) {
+  .app-card-header {
+    flex-basis: 240px;
+    max-width: 280px;
+    min-width: 160px;
+  }
+}
+
 @media (max-width: 720px) {
   .app-desc {
     display: none;
+  }
+  .app-card-header {
+    flex: 1 1 auto;
+    max-width: none;
+    min-width: 0;
   }
 }

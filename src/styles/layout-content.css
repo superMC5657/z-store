@@ -1,19 +1,36 @@
 /* layout-content.css · Linear Design System Content Layout */
-/* 主内容显示区域 - max-width ~1080px 居中 */
+/* 主内容显示区域 - fluid 全宽：宽屏铺满可用宽度，超宽屏上限 1600px 居中 */
 .content-area {
   flex: 1;
   overflow-y: auto;
-  padding: 20px 32px;
+  padding: 20px clamp(16px, 3vw, 56px);
   position: relative;
   scrollbar-color: var(--border-color) transparent;
   display: flex;
   flex-direction: column;
+  align-items: stretch;
   background: var(--bg-canvas);
 }
 
 .content-area > * {
-  max-width: 1080px;
+  max-width: min(100%, 1600px);
   width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  min-width: 0;
+}
+
+/* 趋势 / 精选视图容器：始终撑满 content-area 可用宽度 */
+.trends-view,
+.home-view,
+.categories-view,
+.favorites-view,
+.installed-view,
+.updates-view,
+.settings-view {
+  width: 100%;
+  max-width: min(100%, 1600px);
+  min-width: 0;
   margin-left: auto;
   margin-right: auto;
 }

@@ -244,7 +244,7 @@
     "unhide_app_tooltip": "取消隐藏，重新在列表中展示",
     "unmanage": "取消管理",
     "unmanage_tooltip": "从列表中移除管理记录（保留本机应用与数据）",
-    "version_and_date": "版本 {{version}} · 安装于 {{date}}",
+    "installed_date": "安装于 {{date}}",
     "path_prefix": "路径: {{path}}",
     "path_not_detected_hint": "未检测到安装路径 (启动时将自动嗅探修复)",
     "copy": "复制",

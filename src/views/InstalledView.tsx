@@ -471,14 +471,14 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                       }}
                       title={
                         app.install_path
-                          ? `${t('installed.path_prefix', { path: app.install_path })} · ${t('installed.version_and_date', { version: app.version, date: formatAppDate(app.installed_at, i18n.language) })}`
+                          ? `${t('installed.path_prefix', { path: app.install_path })} · ${t('installed.installed_date', { date: formatAppDate(app.installed_at, i18n.language) })}`
                           : undefined
                       }
                     >
                       {app.install_path
                         ? t('installed.path_prefix', { path: app.install_path })
                         : t('installed.path_not_detected_hint')}{' '}
-                      · {t('installed.version_and_date', { version: app.version, date: formatAppDate(app.installed_at, i18n.language) })}
+                      · {t('installed.installed_date', { date: formatAppDate(app.installed_at, i18n.language) })}
                     </span>
                     {app.install_path ? (
                       <button

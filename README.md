@@ -107,7 +107,7 @@
 | **ADR-0008: 出站代理与设置重构** | 出站代理 + OAuth 加固 + 设置 5 组 | **100% 已交付** | 系统代理透明捕获、OAuth 三级 Client ID、独立状态机、设置 5 组规范 ([ADR-0008](docs/adr/0008-outbound-proxy-oauth-hardening-and-settings-restructure.md)) |
 | **ADR-0009: 清单解耦与多端体系** | 独立生态仓库 + 多端 Identifiers | **100% 已交付** | 解耦至 `superMC5657/z-store-catalog`、原生多端标识符结构、设备与分类双维筛选、单一配置源 ([ADR-0009](docs/adr/0009-catalog-manifest-repository-decoupling.md)) |
 | **ADR-0010: 规范应用标识** | canonical id 全链路统一 | **100% 已交付** | 小写 `owner/repo` 全局唯一标识、入口统一归一化、纯粹单键索引 ([ADR-0010](docs/adr/0010-canonical-app-identifier.md)) |
-| **合并审查 28 项整改 (4938964)** | 安全加固与测试台补齐 | **100% 已交付** | 深链安装二次确认、便携卸载目录白名单、semver 版本比较、去 `.7z` 宣称；前端 18 文件/119 用例、`cargo test` 106 通过/3 忽略 |
+| **合并审查 28 项整改 (4938964)** | 安全加固与测试台补齐 | **100% 已交付** | 深链安装二次确认、便携卸载目录白名单、semver 版本比较、去 `.7z` 宣称；前后端自动化测试全量通过（计数以 `cargo test` / `pnpm test` 实际运行结果为准） |
 | **M1: 体验扩展与 PWA** | 移动适配与网页发现站 | **推进中** | Web/PWA 发现站规划、Android Shizuku 免 Root 安装预研 |
 
 ---
@@ -125,7 +125,7 @@
 # 1. 安装前端依赖
 pnpm install
 
-# 2. 运行自动化测试（后端 106 通过/3 忽略，前端 18 文件/119 用例）与前端类型检查
+# 2. 运行自动化测试与前端类型检查（通过计数以实际运行输出为准）
 cargo test
 pnpm test
 pnpm build
@@ -158,7 +158,7 @@ pnpm tauri build
 - [ADR-0008: 出站代理与 OAuth 加固及设置中心重构](docs/adr/0008-outbound-proxy-oauth-hardening-and-settings-restructure.md)
 - [ADR-0009: 应用市场生态清单仓库与客户端运行时引擎解耦](docs/adr/0009-catalog-manifest-repository-decoupling.md)
 - [ADR-0010: 规范应用标识（Canonical App Identifier）](docs/adr/0010-canonical-app-identifier.md)
-- [全局决策与执行边界规范 (Decision Protocol)](.agents/rules/decision-protocol.md)
+- [协作规范与 Agent 指南](AGENTS.md)
 
 ---
 

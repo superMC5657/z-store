@@ -778,7 +778,6 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   type="button"
                   className="btn-fluent btn-secondary"
                   onClick={() => setShowAllAssets(!showAllAssets)}
-                  style={{ fontSize: '13px' }}
                 >
                   {showAllAssets ? '收起资产' : `全部资产 (${releases.length})`}
                 </button>
@@ -799,7 +798,6 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                           disabled={isUninstallingGlobal}
                           title="彻底卸载应用"
                           timeoutMs={4000}
-                          style={{ fontSize: '13px' }}
                         >
                           {isUninstallingGlobal ? (
                             '正在卸载...'
@@ -819,7 +817,6 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                           type="button"
                           className="btn-fluent btn-secondary"
                           style={{
-                            fontSize: '13px',
                             fontWeight: 510,
                             color: 'var(--brand-primary)',
                             borderColor: 'var(--border-nav-active)',
@@ -847,7 +844,6 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                       <button
                         type="button"
                         className="btn-fluent btn-secondary"
-                        style={{ fontSize: '13px' }}
                         onClick={handleAction}
                         title="通过 Z-Store 重新下载安装最新版本或覆盖安装"
                       >
@@ -869,7 +865,6 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                           disabled={isUninstallingGlobal}
                           title="取消管理：仅从列表中移除管理记录，保留本机应用与数据"
                           timeoutMs={4000}
-                          style={{ fontSize: '13px' }}
                         >
                           <span>取消管理</span>
                         </InlineConfirmButton>
@@ -885,7 +880,6 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                           disabled={isUninstallingGlobal}
                           title="彻底卸载应用"
                           timeoutMs={4000}
-                          style={{ fontSize: '13px' }}
                         >
                           {isUninstallingGlobal ? (
                             '正在卸载...'
@@ -944,7 +938,6 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                       className="btn-fluent btn-secondary"
                       onClick={handleRevealDownload}
                       disabled={isRevealingFolder || isDownloadingOnly}
-                      style={{ fontSize: '13px' }}
                       title="在系统文件管理器中定位已下载的文件"
                     >
                       {isRevealingFolder ? '正在打开…' : '打开文件夹'}
@@ -1039,8 +1032,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                       <button
                         type="button"
                         onClick={() => setSelectedAssetName(asset.name)}
-                        className={`btn-fluent ${isSelected ? 'btn-primary' : 'btn-secondary'}`}
-                        style={{ fontSize: '12px', padding: '4px 10px' }}
+                        className={`btn-fluent ${isSelected ? 'btn-primary' : 'btn-secondary'} detail-asset-btn`}
                         disabled={effectiveIsBusy}
                         title={isSelected ? '当前正在使用该版本安装' : '将此包选为当前安装目标'}
                       >
@@ -1051,8 +1043,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                         onClick={(e) => handleOpenExternal(e, asset.download_url)}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="btn-fluent btn-secondary"
-                        style={{ fontSize: '12px', padding: '4px 10px', textDecoration: 'none' }}
+                        className="btn-fluent btn-secondary detail-asset-btn"
                         title="在浏览器中直接下载"
                       >
                         直链

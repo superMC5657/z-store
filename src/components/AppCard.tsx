@@ -14,10 +14,23 @@ interface AppCardProps {
   isInstalling?: boolean;
   isFavorite?: boolean;
   isWatched?: boolean;
+  /** 趋势榜单名次（1-based）。不传则不渲染名次，精选页外观零变化。 */
+  rank?: number;
+  /** 名次颜色覆盖；默认按金银铜规则着色。 */
+  rankColor?: string;
+  className?: string;
   onOpenDetail: (id: string) => void;
   onQuickInstall: (id: string) => void;
   onToggleFavorite?: (id: string) => void;
   onToggleWatch?: (id: string) => void;
+}
+
+/** 趋势名次配色：冠军金 / 亚军银 / 季军铜，其余为次级文本色。入参为 0-based index。 */
+export function getRankBadgeColor(index: number): string {
+  if (index === 0) return '#eab308';
+  if (index === 1) return '#94a3b8';
+  if (index === 2) return '#d97706';
+  return 'var(--text-tertiary)';
 }
 
 export const AppCard: React.FC<AppCardProps> = ({
@@ -26,6 +39,9 @@ export const AppCard: React.FC<AppCardProps> = ({
   isInstalling = false,
   isFavorite = false,
   isWatched = false,
+  rank,
+  rankColor,
+  className,
   onOpenDetail,
   onQuickInstall,
   onToggleFavorite,
@@ -45,7 +61,7 @@ export const AppCard: React.FC<AppCardProps> = ({
 
   return (
     <div
-      className="app-card"
+      className={className ? `app-card ${className}` : 'app-card'}
       onClick={() => onOpenDetail(app.id)}
       role="button"
       tabIndex={0}
@@ -55,6 +71,15 @@ export const AppCard: React.FC<AppCardProps> = ({
         }
       }}
     >
+      {rank !== undefined && (
+        <div
+          className="app-rank"
+          style={{ color: rankColor ?? getRankBadgeColor(rank - 1) }}
+          aria-label={`#${rank}`}
+        >
+          #{rank}
+        </div>
+      )}
       <div className="app-card-header">
         <AppIcon
           icon={app.icon}

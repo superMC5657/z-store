@@ -57,7 +57,8 @@ export const InlineConfirmButton: React.FC<InlineConfirmButtonProps> = ({
         <button
           type="button"
           className="btn-fluent btn-secondary btn-icon-only"
-          style={{ width: '28px', height: '28px', padding: 0 }}
+          // 与详情弹窗顶部操作行的大按钮档同高（30px），确认态展开时不跳动
+          style={{ width: '30px', height: '30px', minHeight: '30px', maxHeight: '30px', padding: 0, boxSizing: 'border-box', flexShrink: 0 }}
           onClick={(e) => {
             e.stopPropagation();
             setIsConfirming(false);
