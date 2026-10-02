@@ -140,6 +140,7 @@ impl Database {
         )
     }
 
+    /// 内容扩展名与推断不一致纠正时，删除推断错误的缓存键。
     pub fn delete_icon_cache_url(&self, cache_key: &str) -> Result<()> {
         let clean_key = cache_key.trim();
         if clean_key.is_empty() {

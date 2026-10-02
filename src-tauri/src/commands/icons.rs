@@ -96,10 +96,6 @@ pub(crate) fn detect_image_ext(bytes: &[u8]) -> &'static str {
     mime_to_ext(detect_image_mime(bytes))
 }
 
-pub(crate) const SUPPORTED_ICON_EXTENSIONS: &[&str] = &[
-    "png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "avif", "apng", "bmp",
-];
-
 /// 从 remote_url path 中提取真实扩展名（去掉 query/fragment，转小写，仅允许 png/jpg/jpeg/gif/webp/svg/ico/avif/apng/bmp，jpeg 统一为 jpg）。
 /// 无有效扩展名时返回 None。
 pub(crate) fn infer_icon_ext_from_url(remote_url: &str) -> Option<&'static str> {
@@ -142,9 +138,7 @@ pub(crate) fn sanitize_icon_segment(s: &str) -> String {
 
 pub(crate) fn is_avatar_url(url: &str) -> bool {
     let u = url.trim();
-    (u.contains("github.com/") && u.ends_with(".png"))
-        || u.contains("avatars.githubusercontent.com")
-        || u.contains("identicons.github.com")
+    u.contains("avatars.githubusercontent.com") || u.contains("identicons.github.com")
 }
 
 pub(crate) fn get_icon_stem(app_id: &str, remote_url: &str) -> String {
@@ -181,7 +175,7 @@ pub(crate) fn icon_hash_filename(remote_url: &str) -> String {
 
 /// 图标缓存路径：canonical id 解析出 owner/repo 命名空间时使用 `{owner}_{repo}.{ext}`，
 /// 否则以消毒后的 id 命名；id 完全不可用时回退 remote_url 哈希。
-/// 后缀根据 remote_url 路径推断；若无有效后缀，默认 .png 兼容旧缓存。
+/// 后缀根据 remote_url 路径推断；若无有效后缀，暂定 png，下载后按内容纠正。
 pub(crate) fn get_icon_cache_path(app_id: &str, remote_url: &str) -> std::path::PathBuf {
     let icons_dir = crate::get_app_data_dir().join("icons");
     let ext = infer_icon_ext_from_url(remote_url).unwrap_or("png");
@@ -236,48 +230,17 @@ pub async fn get_or_fetch_icon(
     let is_avatar = is_avatar_url(url_trimmed);
 
     // 1. 严格优先查找本地内部缓存！
-    // 缓存校验（缺一即视为未命中，转网络重拉）：
-    // a. 本地图片文件必须存在且非空；优先精确路径，若不存在则在 icons/ 目录下按同 stem 候选后缀查找（兼容旧 .png）；
-    // b. 数据库中必有同 stem 或对应缓存键的记录，且记录的 remote_url 与当前请求的 url_trimmed 一致；
-    //    无记录或记录不一致时强制触发网络重新拉取并刷新入库。
-    let mut candidate_filenames = Vec::with_capacity(SUPPORTED_ICON_EXTENSIONS.len());
-    candidate_filenames.push(format!("{}.{}", stem, inferred_ext));
-    for &ext in SUPPORTED_ICON_EXTENSIONS {
-        if ext != inferred_ext {
-            let name = format!("{}.{}", stem, ext);
-            if !candidate_filenames.contains(&name) {
-                candidate_filenames.push(name);
-            }
-        }
-    }
+    // 仅按精确推断路径与 DB 精确 key 校验（文件存在且非空，且 DB 记录的 remote_url 与当前请求一致）。
+    let filename = format!("{}.{}", stem, inferred_ext);
+    let cache_file = icons_dir.join(&filename);
 
     if let Ok(db) = state.db() {
-        for cand_name in &candidate_filenames {
-            let cand_file = icons_dir.join(cand_name);
-            if cand_file.is_file() {
-                if let Ok(meta) = std::fs::metadata(&cand_file) {
-                    if meta.len() > 0 {
-                        let mut db_match = false;
-                        if let Ok(Some(recorded_url)) = db.get_icon_cache_url(cand_name) {
-                            if recorded_url.trim() == url_trimmed {
-                                db_match = true;
-                            }
-                        }
-                        if !db_match {
-                            for other_name in &candidate_filenames {
-                                if other_name != cand_name {
-                                    if let Ok(Some(rec)) = db.get_icon_cache_url(other_name) {
-                                        if rec.trim() == url_trimmed {
-                                            db_match = true;
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        if db_match {
-                            if let Ok(bytes) = std::fs::read(&cand_file) {
+        if cache_file.is_file() {
+            if let Ok(meta) = std::fs::metadata(&cache_file) {
+                if meta.len() > 0 {
+                    if let Ok(Some(recorded_url)) = db.get_icon_cache_url(&filename) {
+                        if recorded_url.trim() == url_trimmed {
+                            if let Ok(bytes) = std::fs::read(&cache_file) {
                                 let mime = detect_image_mime(&bytes);
                                 let b64 = base64_encode(&bytes);
                                 return Ok(format!("data:{};base64,{}", mime, b64));
@@ -365,33 +328,18 @@ pub async fn get_or_fetch_icon(
     })?;
 
     // 3. 缓存在用户的配置目录里 (icons/)，同时持久化元数据至 SQLite 数据库
-    // 写入时先按 URL 推断的路径写，写完后用 detect_image_mime 校核，若扩展名与内容不符（如 URL 无后缀或说谎），
-    // 重命名为正确后缀文件并删除旧 .png 遗留，DB 的 cache_key 更新为最终文件名（清理旧 key 并保存）。
-    let initial_filename = format!("{}.{}", stem, inferred_ext);
-    let initial_cache_file = icons_dir.join(&initial_filename);
-    let _ = std::fs::write(&initial_cache_file, &bytes);
-
+    // 检查真实内容扩展名，若与推断扩展名不一致，以真实扩展名写入并纠正 DB 键。
     let mime = detect_image_mime(&bytes);
     let real_ext = mime_to_ext(mime);
     let final_filename = format!("{}.{}", stem, real_ext);
     let final_cache_file = icons_dir.join(&final_filename);
+    let _ = std::fs::write(&final_cache_file, &bytes);
 
-    if final_cache_file != initial_cache_file {
-        if final_cache_file.exists() {
-            let _ = std::fs::remove_file(&final_cache_file);
-        }
-        if std::fs::rename(&initial_cache_file, &final_cache_file).is_err() {
-            let _ = std::fs::write(&final_cache_file, &bytes);
+    let initial_filename = format!("{}.{}", stem, inferred_ext);
+    if initial_filename != final_filename {
+        let initial_cache_file = icons_dir.join(&initial_filename);
+        if initial_cache_file.exists() {
             let _ = std::fs::remove_file(&initial_cache_file);
-        }
-    }
-
-    // 若最终格式不是 png，删除可能存在的旧 .png 遗留文件
-    let old_png_filename = format!("{}.png", stem);
-    if old_png_filename != final_filename {
-        let old_png_path = icons_dir.join(&old_png_filename);
-        if old_png_path.exists() {
-            let _ = std::fs::remove_file(&old_png_path);
         }
     }
 
@@ -399,13 +347,9 @@ pub async fn get_or_fetch_icon(
         if initial_filename != final_filename {
             let _ = db.delete_icon_cache_url(&initial_filename);
         }
-        if old_png_filename != final_filename {
-            let _ = db.delete_icon_cache_url(&old_png_filename);
-        }
         let _ = db.save_icon_cache_url(&final_filename, url_trimmed);
     }
 
-    let mime = detect_image_mime(&bytes);
     let b64 = base64_encode(&bytes);
     Ok(format!("data:{};base64,{}", mime, b64))
 }

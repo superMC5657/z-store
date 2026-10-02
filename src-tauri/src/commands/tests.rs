@@ -253,9 +253,14 @@ fn test_base64_encode_and_icon_cache_path() {
     let p4 = get_icon_cache_path("localsend", "https://localsend.org/favicon.ico");
     assert!(p4.to_string_lossy().ends_with("localsend.ico"));
 
-    // 无后缀 URL：默认 .png 以兼容旧缓存
+    // 无后缀 URL：暂定 png，下载后按内容纠正
     let p5 = get_icon_cache_path("localsend", "https://localsend.org/app-logo");
     assert!(p5.to_string_lossy().ends_with("localsend.png"));
+
+    // 头像 URL 判断
+    assert!(is_avatar_url("https://avatars.githubusercontent.com/u/71480370?s=200&v=4"));
+    assert!(is_avatar_url("https://identicons.github.com/user.png"));
+    assert!(!is_avatar_url("https://github.com/rustdesk.png"));
 
     // hash 回退：app_id 为空，URL 带有 .svg 后缀
     let p6_url = "https://example.com/custom-icon.svg";
@@ -281,45 +286,27 @@ fn test_icon_cache_compat_and_rename_simulation() {
     let stem = get_icon_stem("demo/app", "https://example.com/logo.svg");
     assert_eq!(stem, "demo_app");
 
-    // 模拟旧版本写入了 demo_app.png，并存入 DB
-    let old_png_path = icons_dir.join("demo_app.png");
-    std::fs::write(&old_png_path, b"<svg>test</svg>").unwrap();
-
-    // 模拟从 URL 推断的候选列表：优先精确匹配 .svg，其次通配候选（包含 .png）
+    // 推断扩展名
     let inferred_ext = infer_icon_ext_from_url("https://example.com/logo.svg").unwrap_or("png");
     assert_eq!(inferred_ext, "svg");
 
-    let mut candidate_filenames = Vec::new();
-    candidate_filenames.push(format!("{}.{}", stem, inferred_ext));
-    for &ext in SUPPORTED_ICON_EXTENSIONS {
-        if ext != inferred_ext {
-            let name = format!("{}.{}", stem, ext);
-            if !candidate_filenames.contains(&name) {
-                candidate_filenames.push(name);
-            }
-        }
-    }
-    assert_eq!(candidate_filenames[0], "demo_app.svg");
-    assert!(candidate_filenames.contains(&"demo_app.png".to_string()));
+    // 内容校核与扩展名纠正流程：
+    // 若推断扩展名与真实内容不一致（例如 URL 暂定 png，但实际内容为 svg），
+    // 直接以真实扩展名写入最终文件，并清理推断不符的文件
+    let initial_file = icons_dir.join(format!("{}.png", stem));
+    std::fs::write(&initial_file, b"temporary placeholder").unwrap();
 
-    // 模拟内容校核与重命名流程：
-    // 当内容真实为 svg 时，initial 写为 demo_app.png，校核后重命名为 demo_app.svg，并清理旧 demo_app.png
-    let initial_file = icons_dir.join("demo_app.png");
     let content = b"<svg xmlns=\"http://www.w3.org/2000/svg\"><circle/></svg>";
     let mime = detect_image_mime(content);
     let real_ext = mime_to_ext(mime);
     assert_eq!(real_ext, "svg");
 
     let final_file = icons_dir.join(format!("{}.{}", stem, real_ext));
-    if final_file != initial_file {
-        if final_file.exists() {
-            let _ = std::fs::remove_file(&final_file);
-        }
-        if std::fs::rename(&initial_file, &final_file).is_err() {
-            let _ = std::fs::write(&final_file, content);
-            let _ = std::fs::remove_file(&initial_file);
-        }
+    std::fs::write(&final_file, content).unwrap();
+    if final_file != initial_file && initial_file.exists() {
+        let _ = std::fs::remove_file(&initial_file);
     }
+
     assert!(final_file.exists());
     assert!(!initial_file.exists());
 }
