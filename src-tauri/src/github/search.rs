@@ -40,7 +40,6 @@ struct OnlineRepoResponse {
 struct OnlineRepoLicense {
     spdx_id: Option<String>,
 }
-use crate::models::AppSummary;
 
 impl CatalogService {
     pub async fn search_github_online(
@@ -48,11 +47,6 @@ impl CatalogService {
         query: &str,
         token: Option<&str>,
     ) -> Result<Vec<AppSummary>, String> {
-        let local_results = self.search_apps(query);
-        if !local_results.is_empty() {
-            return Ok(local_results);
-        }
-
         let q = query.trim();
         if q.is_empty() {
             return Ok(self.get_all_summaries());

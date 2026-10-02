@@ -39,6 +39,35 @@ pub async fn search_apps(
     state: State<'_, AppState>,
     query: String,
 ) -> crate::AppResult<Vec<AppSummary>> {
+    let search_start = std::time::Instant::now();
+    let hidden_ids: std::collections::HashSet<String> = hidden_rule_ids(&state);
+
+    let results = state.catalog.search_apps(&query);
+    let filtered: Vec<AppSummary> = if hidden_ids.is_empty() {
+        results
+    } else {
+        results
+            .into_iter()
+            .filter(|a| !hidden_ids.contains(&a.id))
+            .collect()
+    };
+
+    log::info!(
+        "search done sid={} query='{}' hits={} elapsed_ms={}",
+        crate::z_log::new_session_id(),
+        crate::log_support::short_reason(&query),
+        filtered.len(),
+        search_start.elapsed().as_millis()
+    );
+
+    Ok(filtered)
+}
+
+#[tauri::command]
+pub async fn search_apps_online(
+    state: State<'_, AppState>,
+    query: String,
+) -> crate::AppResult<Vec<AppSummary>> {
     // Wave2：单次 search_apps 只记一行 INFO `search done`（行为链 sid 关联）；
     // 内层 github/search 的同名 debug 已移除，此处为唯一 `search done`。
     let search_start = std::time::Instant::now();

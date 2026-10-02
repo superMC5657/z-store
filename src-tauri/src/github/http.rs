@@ -366,3 +366,5 @@ mod tests {
         assert_eq!(summary_confirmed.icon, custom_uri);
     }
 }
+    probe: bool,
+    confirmed_icon: Option<String>,

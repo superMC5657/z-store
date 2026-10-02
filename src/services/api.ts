@@ -71,6 +71,15 @@ const tauriApi = {
     return tauriInvoke<InstalledApp>('install_app', {
       appId,
       assetName: assetName || null,
+  async searchAppsOnline(query: string): Promise<AppSummary[]> {
+    try {
+      return await tauriInvoke<AppSummary[]>('search_apps_online', { query });
+    } catch (err) {
+      console.warn('search_apps_online is not available or failed:', err);
+      return [];
+    }
+  },
+
       customInstallDir: customInstallDir || null,
     });
   },

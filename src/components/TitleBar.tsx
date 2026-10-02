@@ -7,6 +7,7 @@ import { api } from '../services/api';
 interface TitleBarProps {
   searchQuery: string;
   onSearchChange: (q: string) => void;
+  onSearchSubmit?: (q: string) => void;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
   language?: string;
@@ -18,6 +19,7 @@ interface TitleBarProps {
 export const TitleBar: React.FC<TitleBarProps> = ({
   searchQuery,
   onSearchChange,
+  onSearchSubmit,
   theme,
   onToggleTheme,
   language,
@@ -46,6 +48,11 @@ export const TitleBar: React.FC<TitleBarProps> = ({
 
   useEffect(() => {
     loadSearchHistory();
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
   }, []);
 
   // 点击外部区域时关闭下拉面板
@@ -84,16 +91,33 @@ export const TitleBar: React.FC<TitleBarProps> = ({
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
-    // 150ms 防抖响应（FR-1.1）
+    // 250ms 防抖响应（纯本地内存搜索，不写/读历史）
     debounceTimerRef.current = setTimeout(() => {
       onSearchChange(val);
-      if (val.trim()) {
-        api.recordSearchQuery(val.trim()).then(loadSearchHistory).catch(() => {});
-      }
     }, 250);
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+      setIsDropdownOpen(false);
+      const query = localQuery.trim();
+      onSearchChange(localQuery);
+      if (onSearchSubmit) {
+        onSearchSubmit(localQuery);
+      }
+      if (query) {
+        api.recordSearchQuery(query).then(loadSearchHistory).catch(() => {});
+      }
+    }
+  };
+
   const handleSelectHistory = (query: string) => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
     setLocalQuery(query);
     onSearchChange(query);
     setIsDropdownOpen(false);
@@ -217,6 +241,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
             type="text"
             value={localQuery}
             onChange={(e) => handleInputChange(e.target.value)}
+            onKeyDown={handleKeyDown}
             onFocus={() => {
               loadSearchHistory();
               setIsDropdownOpen(true);

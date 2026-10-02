@@ -13,6 +13,8 @@ import { InstalledView } from './views/InstalledView';
 import { UpdatesView } from './views/UpdatesView';
 import { SettingsView } from './views/SettingsView';
 import { FavoritesView } from './views/FavoritesView';
+import { EmptyState } from './components/EmptyState';
+import { Search } from 'lucide-react';
 import { AppDetail, AppDetailViewModel, AppSummary, InstalledApp, OAuthUser, UpdateItem, UpdateCheckProgressPayload, UpdateRule, ViewType, WatchUpdatedPayload } from './types';
 import { api, DEFAULT_SETTINGS } from './services/api';
 import { preloadIcons } from './components/AppIcon';
@@ -73,6 +75,9 @@ export const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewType>('home');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const searchSeqRef = useRef(0);
+  const [isSearchingOnline, setIsSearchingOnline] = useState(false);
+  const [onlineSearchPerformed, setOnlineSearchPerformed] = useState(false);
   const [apps, setApps] = useState<AppSummary[]>([]);
   const [installedApps, setInstalledApps] = useState<InstalledApp[]>([]);
   const [installingAppIds, setInstallingAppIds] = useState<Set<string>>(new Set());
@@ -344,13 +349,79 @@ export const App: React.FC = () => {
     showToast(t('toast.export_success'), 'success');
   };
 
-  // 搜索逻辑
+  // 搜索逻辑（本地内存搜索，防抖触发）
   const handleSearchChange = async (q: string) => {
     setSearchQuery(q);
-    const results = await api.searchApps(q);
-    setApps(results);
-    if (q && currentView !== 'home' && currentView !== 'trends' && currentView !== 'categories') {
-      setCurrentView('home');
+    setOnlineSearchPerformed(false);
+    const seq = ++searchSeqRef.current;
+    try {
+      const results = await api.searchApps(q);
+      if (seq !== searchSeqRef.current) return;
+      setApps(results);
+      if (q && currentView !== 'home' && currentView !== 'trends' && currentView !== 'categories') {
+        setCurrentView('home');
+      }
+    } catch (err) {
+      if (seq !== searchSeqRef.current) return;
+      console.warn('searchApps error:', err);
+    }
+  };
+
+  // 在线搜索提交逻辑（按回车或点击“在线搜索”按钮，仅在本地无结果时调用一次）
+  const handleSearchSubmit = async (queryToSubmit?: string) => {
+    const q = (queryToSubmit !== undefined ? queryToSubmit : searchQuery).trim();
+    if (!q) return;
+
+    // 若本地已有匹配结果，按契约不发起在线搜索
+    if (q === searchQuery.trim() && apps.length > 0) {
+      return;
+    }
+
+    const seq = ++searchSeqRef.current;
+
+    // 若本地搜索尚未完成或搜索词变更，先查一次本地
+    let localResults = (q === searchQuery.trim()) ? apps : null;
+    if (localResults === null) {
+      setSearchQuery(q);
+      setOnlineSearchPerformed(false);
+      try {
+        localResults = await api.searchApps(q);
+        if (seq !== searchSeqRef.current) return;
+        setApps(localResults);
+        if (currentView !== 'home' && currentView !== 'trends' && currentView !== 'categories') {
+          setCurrentView('home');
+        }
+      } catch (err) {
+        if (seq !== searchSeqRef.current) return;
+        console.warn('searchApps error:', err);
+        localResults = [];
+      }
+    }
+
+    // 仅在本地无结果时调用在线搜索
+    if (localResults.length === 0) {
+      setIsSearchingOnline(true);
+      try {
+        const onlineResults = await api.searchAppsOnline(q);
+        if (seq !== searchSeqRef.current) return;
+        setOnlineSearchPerformed(true);
+        if (onlineResults && onlineResults.length > 0) {
+          setApps(onlineResults);
+          showToast(t('search.online_success', '已找到在线应用'), 'success');
+        } else {
+          // 调不到或无结果就保持本地结果+提示，不报错
+          showToast(t('search.online_no_results', '未找到相关在线应用，已保持本地结果'), 'info');
+        }
+      } catch (err) {
+        if (seq !== searchSeqRef.current) return;
+        console.warn('searchAppsOnline error:', err);
+        setOnlineSearchPerformed(true);
+        showToast(t('search.online_failed', '在线搜索暂不可用，已保持本地结果'), 'info');
+      } finally {
+        if (seq === searchSeqRef.current) {
+          setIsSearchingOnline(false);
+        }
+      }
     }
   };
 
@@ -990,6 +1061,7 @@ export const App: React.FC = () => {
       <TitleBar
         searchQuery={searchQuery}
         onSearchChange={handleSearchChange}
+        onSearchSubmit={handleSearchSubmit}
         theme={theme}
         onToggleTheme={handleToggleTheme}
         language={settings.language}
@@ -1016,21 +1088,56 @@ export const App: React.FC = () => {
         {/* 主内容显示区域 */}
         <main className="content-area">
           {currentView === 'home' && (
-            <HomeView
-              apps={platformFilteredApps}
-              installedIds={installedIds}
-              installingIds={installingAppIds}
-              favoriteIds={favoriteIds}
-              watchedIds={watchedIds}
-              recentlyViewedApps={recentlyViewedApps}
-              onOpenDetail={handleOpenDetail}
-              onQuickInstall={handleQuickInstall}
-              onToggleFavorite={handleToggleFavorite}
-              onToggleWatch={handleToggleWatch}
-              onNavigateTrends={() => setCurrentView('trends')}
-              onClearRecentViews={handleClearRecentViews}
-              onResetPlatformFilter={() => setSelectedPlatforms(new Set<PlatformId>(PLATFORM_IDS))}
-            />
+            searchQuery.trim() && apps.length === 0 ? (
+              <div className="search-empty-state" style={{ marginTop: '40px', textAlign: 'center' }}>
+                <EmptyState
+                  icon={<Search size={40} strokeWidth={1.5} />}
+                  title={
+                    isSearchingOnline
+                      ? t('search.searching_online', '正在在线搜索...')
+                      : onlineSearchPerformed
+                        ? t('search.no_online_results', '未找到相关应用')
+                        : t('search.no_local_results', '本地未找到匹配应用')
+                  }
+                  description={
+                    isSearchingOnline
+                      ? t('search.searching_online_desc', '正在向云端检索应用数据，请稍候...')
+                      : onlineSearchPerformed
+                        ? t('search.online_empty_desc', '在线搜索亦未检索到匹配结果，请尝试其他关键词或直接输入 owner/repo')
+                        : t('search.press_enter_online_hint', '未在本地索引中找到相关应用，按回车在线搜索或点击下方按钮检索 GitHub')
+                  }
+                  action={
+                    !isSearchingOnline && (
+                      <button
+                        type="button"
+                        className="btn-fluent btn-primary"
+                        onClick={() => handleSearchSubmit(searchQuery)}
+                      >
+                        {onlineSearchPerformed
+                          ? t('search.retry_online', '重新在线搜索')
+                          : t('search.search_online_btn', '在线搜索')}
+                      </button>
+                    )
+                  }
+                />
+              </div>
+            ) : (
+              <HomeView
+                apps={platformFilteredApps}
+                installedIds={installedIds}
+                installingIds={installingAppIds}
+                favoriteIds={favoriteIds}
+                watchedIds={watchedIds}
+                recentlyViewedApps={recentlyViewedApps}
+                onOpenDetail={handleOpenDetail}
+                onQuickInstall={handleQuickInstall}
+                onToggleFavorite={handleToggleFavorite}
+                onToggleWatch={handleToggleWatch}
+                onNavigateTrends={() => setCurrentView('trends')}
+                onClearRecentViews={handleClearRecentViews}
+                onResetPlatformFilter={() => setSelectedPlatforms(new Set<PlatformId>(PLATFORM_IDS))}
+              />
+            )
           )}
 
           {currentView === 'trends' && (
@@ -1127,19 +1234,19 @@ export const App: React.FC = () => {
             />
           )}
 
-          {currentView === 'settings' && (
-            <SettingsView
-              onSelectMirror={handleSelectMirror}
-              theme={settings.theme}
-              onSetTheme={handleSetTheme}
-              onExportAppsJson={handleExportAppsJson}
-              settings={settings}
-              onUpdateSetting={handleUpdateSetting}
-              installedCount={installedApps.length}
-              updateRulesCount={updateRules.length}
-              onOpenRules={() => setIsRulesModalOpen(true)}
-            />
-          )}
+              {currentView === 'settings' && (
+                <SettingsView
+                  onSelectMirror={handleSelectMirror}
+                  theme={settings.theme}
+                  onSetTheme={handleSetTheme}
+                  onExportAppsJson={handleExportAppsJson}
+                  settings={settings}
+                  onUpdateSetting={handleUpdateSetting}
+                  installedCount={installedApps.length}
+                  updateRulesCount={updateRules.length}
+                  onOpenRules={() => setIsRulesModalOpen(true)}
+                />
+              )}
         </main>
       </div>
 
