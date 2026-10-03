@@ -570,7 +570,6 @@ pub fn run() {
             commands::cycle_app_icon,
             commands::get_app_icon_cycle,
             commands::open_url,
-            commands::verify_ownership,
             commands::watch_app,
             commands::unwatch_app,
             commands::get_watched_apps,

@@ -11,10 +11,7 @@ import {
   RefreshCw,
   Play,
   CheckCircle2,
-  ShieldCheck,
   KeyRound,
-  ChevronUp,
-  ChevronDown,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
@@ -179,18 +176,11 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
     }
   };
 
-  // FR-7 / FR-8.3: GitHub 标星 + 所有权校验（见 useDetailStarVerify）
+  // FR-7: GitHub 标星（见 useDetailStarVerify）；已认证蓝标由 catalog 驱动展示（is_verified + VerifiedBadge）
   const {
-    isOwner,
     isStarred,
     isStarring,
-    verifyCode,
-    setVerifyCode,
-    isVerifying,
-    showVerifySection,
-    setShowVerifySection,
     handleToggleStar,
-    handleVerifyOwnership,
   } = useDetailStarVerify({
     appId: app.id,
     owner: app.owner,
@@ -1170,93 +1160,6 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                 );
               })}
               </div>
-            </div>
-          )}
-
-          {/* FR-8.3: 开发者所有权认领认证（默认收起为低调链接，仅开发者展开使用） */}
-          {!app.is_verified && (
-            <div style={{ margin: '-4px 0 12px', display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-              <button
-                type="button"
-                onClick={() => setShowVerifySection(!showVerifySection)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: isOwner ? 'var(--brand-primary)' : 'var(--text-tertiary)',
-                  fontSize: 'var(--font-xs)',
-                  cursor: 'pointer',
-                  padding: '4px 8px',
-                  borderRadius: '4px',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                }}
-                title="开源项目作者可通过在仓库中加入校验码认领并点亮官方蓝标勋章"
-              >
-                <ShieldCheck size={12} />
-                <span>{isOwner ? '您是该仓库所有者：点击认领并认证官方所有权' : '我是此项目作者？认领并认证仓库'}</span>
-                {showVerifySection ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-              </button>
-
-              {showVerifySection && (
-                <div
-                  className="settings-group"
-                  style={{
-                    width: '100%',
-                    marginTop: '8px',
-                    marginBottom: '4px',
-                    padding: '12px 16px',
-                    background: 'var(--bg-secondary)',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: '8px',
-                    boxSizing: 'border-box',
-                  }}
-                >
-                  <div className="settings-group-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: 'var(--font-base)', fontWeight: 590, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                      <ShieldCheck size={13} strokeWidth={1.5} />
-                      <span>开发者官方所有权认证</span>
-                    </span>
-                    <button
-                      type="button"
-                      className="btn-fluent btn-secondary"
-                      style={{ fontSize: 'var(--font-xs)', padding: '2px 8px', border: 'none', background: 'transparent', display: 'flex', alignItems: 'center', gap: '4px' }}
-                      onClick={() => setShowVerifySection(false)}
-                    >
-                      <span>收起</span>
-                      <ChevronUp size={11} />
-                    </button>
-                  </div>
-                  <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', marginBottom: '8px', lineHeight: '1.6' }}>
-                    {isOwner ? (
-                      <span>检测到您当前登录账号与仓库作者一致。请将自定义校验码写入仓库 <code>README.md</code>，提交比对通过后即可为该项目点亮 Fluent 蓝色认证勋章。</span>
-                    ) : (
-                      <span>仅限开源项目原作者操作：请将自定义校验码写入仓库 <code>README.md</code>，提交比对通过后颁发 Fluent 蓝色所有权勋章。</span>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <input
-                      className="settings-input"
-                      value={verifyCode}
-                      onChange={(e) => setVerifyCode(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') handleVerifyOwnership();
-                      }}
-                      placeholder="输入您写入仓库文件中的校验码（如 zstore-verify-xxxx）"
-                      aria-label="所有权校验码"
-                      style={{ flex: 1, minWidth: 0, fontSize: 'var(--font-sm)' }}
-                    />
-                    <button
-                      className="btn-fluent btn-primary"
-                      disabled={!verifyCode.trim() || isVerifying}
-                      onClick={handleVerifyOwnership}
-                      style={{ fontSize: 'var(--font-sm)', padding: '6px 14px' }}
-                    >
-                      {isVerifying ? '比对中…' : '提交验证'}
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
           )}
 

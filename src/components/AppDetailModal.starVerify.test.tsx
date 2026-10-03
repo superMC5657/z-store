@@ -1,7 +1,8 @@
 /**
- * 标星与所有权校验特征化测试（用于从 AppDetailModal 拆分出 useDetailStarVerify 前的防劣化保护）。
+ * 标星特征化测试（用于从 AppDetailModal 拆分出 useDetailStarVerify 后的防劣化保护）。
  *
- * 在模块拆分前通过真实组件路径锁定详情弹窗的 GitHub Star 切换及所有权校验提交契约。
+ * 在模块拆分后通过真实组件路径锁定详情弹窗的 GitHub Star 切换契约。
+ * 已认证蓝标由 catalog 驱动展示（is_verified + VerifiedBadge），不在此覆盖。
  */
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -13,7 +14,6 @@ const APP_ID = 'testowner/testrepo';
 const hooks = vi.hoisted(() => ({
   isStarred: vi.fn(async (_id: string) => false),
   starApp: vi.fn(async (_id: string) => ({ starred: true, in_list: true })),
-  verifyOwnership: vi.fn(async (_id: string, _code: string) => true),
   onRefresh: vi.fn(async (_id: string) => {}),
 }));
 
@@ -25,7 +25,6 @@ vi.mock('../services/api', () => {
         if (prop === 'then') return undefined;
         if (prop === 'isStarred') return (id: string) => hooks.isStarred(id);
         if (prop === 'starApp') return (id: string) => hooks.starApp(id);
-        if (prop === 'verifyOwnership') return (id: string, code: string) => hooks.verifyOwnership(id, code);
         if (prop === 'openUrl') return async () => undefined;
         if (prop.startsWith('on')) return async () => () => {};
         return async () => undefined;
@@ -52,7 +51,7 @@ function fixtureApp(): AppDetailViewModel {
     repo: 'testrepo',
     icon: '📦',
     icon_bg: 'linear-gradient(135deg, #475569, #334155)',
-    description: 'fixture for star/verify characterization',
+    description: 'fixture for star characterization',
     stars: 10,
     forks: 1,
     license: 'MIT',
@@ -85,7 +84,7 @@ function collectToasts(): string[] {
   return texts;
 }
 
-describe('star/verify characterization (real AppDetailModal path)', () => {
+describe('star characterization (real AppDetailModal path)', () => {
   it('star toggle calls api.starApp and toasts success', async () => {
     const toasts = collectToasts();
     render(
@@ -110,38 +109,5 @@ describe('star/verify characterization (real AppDetailModal path)', () => {
     });
     expect(screen.getByRole('button', { name: '取消 GitHub 收藏' })).toBeTruthy();
     expect(toasts.some((t) => t.includes('标星'))).toBe(true);
-  });
-
-  it('ownership verify submit calls api.verifyOwnership then onRefresh', async () => {
-    const toasts = collectToasts();
-    render(
-      <AppDetailModal
-        app={fixtureApp()}
-        isInstalled={false}
-        oauthUser={fixtureUser()}
-        onClose={() => {}}
-        onInstall={async () => {}}
-        onLaunch={() => {}}
-        onRefresh={hooks.onRefresh}
-      />,
-    );
-    await waitFor(() => {
-      expect(hooks.isStarred).toHaveBeenCalled();
-    });
-
-    fireEvent.click(screen.getByText(/您是该仓库所有者/));
-    const input = screen.getByPlaceholderText(/zstore-verify-xxxx/);
-    fireEvent.change(input, { target: { value: 'zstore-verify-abc123' } });
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: '提交验证' }));
-    });
-
-    await waitFor(() => {
-      expect(hooks.verifyOwnership).toHaveBeenCalledWith(APP_ID, 'zstore-verify-abc123');
-    });
-    await waitFor(() => {
-      expect(hooks.onRefresh).toHaveBeenCalledWith(APP_ID);
-    });
-    expect(toasts.some((t) => t.includes('所有权验证通过'))).toBe(true);
   });
 });

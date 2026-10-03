@@ -82,12 +82,6 @@ impl Database {
                 last_notified_at INTEGER
             );
 
-            -- FR-8.3 所有权认证通过记录（verify_ownership 成功后持久化，与收录库标记合并生效）
-            CREATE TABLE IF NOT EXISTS verified_apps (
-                app_id TEXT PRIMARY KEY,
-                verified_at INTEGER NOT NULL
-            );
-
             -- GitHub Star 列表本地持久化记录
             CREATE TABLE IF NOT EXISTS user_stars (
                 owner TEXT NOT NULL,

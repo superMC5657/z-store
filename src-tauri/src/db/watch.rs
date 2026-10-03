@@ -74,28 +74,6 @@ impl Database {
         Ok(())
     }
 
-    // ---------- FR-8.3 所有权认证 ----------
-
-    pub fn is_verified_app(&self, app_id: &str) -> Result<bool> {
-        self.record_exists(
-            "SELECT 1 FROM verified_apps WHERE app_id = ?1",
-            params![clean(app_id)],
-        )
-    }
-
-    pub fn mark_verified_app(&self, app_id: &str) -> Result<()> {
-        let id = clean(app_id);
-        if id.is_empty() {
-            return Ok(());
-        }
-        let now = now_secs();
-        self.exec_upsert(
-            "INSERT OR IGNORE INTO verified_apps (app_id, verified_at) VALUES (?1, ?2)",
-            params![id, now],
-        )?;
-        Ok(())
-    }
-
     pub fn set_starred(&self, owner: &str, repo: &str, is_starred: bool) -> Result<()> {
         let o = clean(owner).to_lowercase();
         let r = clean(repo).to_lowercase();

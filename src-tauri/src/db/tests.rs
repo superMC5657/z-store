@@ -398,14 +398,6 @@ fn test_watched_apps_crud() {
 }
 
 #[test]
-fn test_verified_apps() {
-    let db = fixtures::test_db();
-    assert!(!db.is_verified_app("rustdesk").unwrap());
-    db.mark_verified_app("rustdesk").unwrap();
-    assert!(db.is_verified_app("rustdesk").unwrap());
-}
-
-#[test]
 fn test_icon_cache_meta_crud() {
     let db = fixtures::test_db();
     assert_eq!(db.get_icon_cache_url("agalwood_Motrix.png").unwrap(), None);

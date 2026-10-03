@@ -434,13 +434,10 @@ pub async fn get_app_details_impl(
     if !is_force {
         let cached: Option<AppDetail> = state.db().ok().and_then(|db| {
             let ttl_seconds = db.get_detail_cache_ttl_minutes() * 60;
-            let mut detail = db
+            let detail = db
                 .get_cached_app_detail(&clean_id, Some(ttl_seconds))
                 .ok()
                 .flatten()?;
-            if !detail.is_verified && db.is_verified_app(&clean_id).unwrap_or(false) {
-                detail.is_verified = true;
-            }
             Some(detail)
         });
         if let Some(mut cached_detail) = cached {
@@ -480,7 +477,7 @@ pub async fn get_app_details_impl(
             )?;
             let now = crate::now_secs();
             let platforms = platforms_from_assets(&release_info.assets);
-            let mut detail = AppDetail {
+            let detail = AppDetail {
                 id: clean_id.clone(),
                 name: repo_info.name.clone(),
                 description_en: repo_info.description.clone(),
@@ -510,11 +507,6 @@ pub async fn get_app_details_impl(
                 homepage: repo_info.homepage.clone(),
                 platforms,
             };
-            if let Ok(db) = state.db() {
-                if db.is_verified_app(&detail.id).unwrap_or(false) {
-                    detail.is_verified = true;
-                }
-            }
 
             // 存入 SQLite 本地持久化缓存，并动态更新内存中的收录库统计
             state.catalog.update_catalog_item_stats(
@@ -632,13 +624,6 @@ pub async fn get_app_details_impl(
             );
             let now = crate::now_secs();
             detail.cached_at = Some(now);
-            if !detail.is_verified {
-                if let Ok(db) = state.db() {
-                    if db.is_verified_app(&detail.id).unwrap_or(false) {
-                        detail.is_verified = true;
-                    }
-                }
-            }
 
             if let Some((etag, payload)) = to_cache {
                 // 远端返回 200 OK，更新 ETag 缓存表

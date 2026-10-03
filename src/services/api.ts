@@ -157,7 +157,6 @@ export const CMD = {
   starApp: 'star_app',
   unstarApp: 'unstar_app',
   isStarred: 'is_starred',
-  verifyOwnership: 'verify_ownership',
   importUserData: 'import_user_data',
   openUrl: 'open_url',
 } as const;
@@ -537,12 +536,6 @@ export const tauriApi = {
     } catch {
       return false;
     }
-  },
-
-  async verifyOwnership(appId: string, code: string): Promise<boolean> {
-    const trimmed = code.trim();
-    if (!trimmed) return false;
-    return tauriInvoke<boolean>(CMD.verifyOwnership, { appId, code: trimmed });
   },
 
   async importUserData(json: string): Promise<ImportUserDataCounts> {

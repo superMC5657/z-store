@@ -163,38 +163,6 @@ fn test_select_best_asset_arch_priority() {
 }
 
 #[test]
-fn test_decide_ownership_verified_requires_api_auth() {
-    // README 命中 + 未授权（wrong token / 无 token）⇒ 恒为 false：
-    // 仅靠子串命中绝不予以认证。
-    assert!(!super::forge::decide_ownership_verified(
-        "welcome CODE123 here",
-        "CODE123",
-        false
-    ));
-    // owner + API-ok（README 命中且仓库 API 确认 push 权限）⇒ true。
-    assert!(super::forge::decide_ownership_verified(
-        "welcome CODE123 here",
-        "CODE123",
-        true
-    ));
-    // README 未命中 + API-ok ⇒ false。
-    assert!(!super::forge::decide_ownership_verified(
-        "no code here",
-        "CODE123",
-        true
-    ));
-    // 空校验码 ⇒ 恒为 false（即使 API-ok）。
-    assert!(!super::forge::decide_ownership_verified(
-        "welcome CODE123 here",
-        "   ",
-        true
-    ));
-    assert!(!super::forge::decide_ownership_verified(
-        "anything", "", true
-    ));
-}
-
-#[test]
 fn test_base64_encode_and_icon_cache_path() {
     assert_eq!(base64_encode(b""), "");
     assert_eq!(base64_encode(b"f"), "Zg==");
