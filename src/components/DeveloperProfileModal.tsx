@@ -332,16 +332,33 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                           )}
                         </>
                       ) : (
-                        <a
-                          href={repo.html_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="btn-fluent btn-secondary"
-                          style={{ fontSize: 'var(--font-sm)', padding: '6px 12px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                        >
-                          <span>打开仓库</span>
-                          <ExternalLink size={10} />
-                        </a>
+                        <>
+                          <button
+                            className="btn-fluent btn-secondary"
+                            style={{ fontSize: 'var(--font-sm)', padding: '6px 12px' }}
+                            onClick={() => {
+                              onClose();
+                              onOpenAppDetail(repo.id);
+                            }}
+                          >
+                            查看详情
+                          </button>
+                          <a
+                            href={repo.html_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="btn-fluent btn-secondary"
+                            style={{ fontSize: 'var(--font-sm)', padding: '6px 8px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+                            title="在 GitHub 中打开仓库"
+                            aria-label={`在 GitHub 中打开 ${repo.name}`}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              void api.openUrl(repo.html_url);
+                            }}
+                          >
+                            <ExternalLink size={12} />
+                          </a>
+                        </>
                       )}
                     </div>
                   </div>
