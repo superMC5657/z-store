@@ -1,6 +1,6 @@
 # CONTEXT.md: Z-Store 领域模型与核心契约
 
-本项目为 **Z-Store**，一个基于 **Tauri 2 + Rust + React 19 + Fluent Design 2.0** 构建的轻量级跨平台开源应用商店。
+本项目为 **Z-Store**，一个基于 **Tauri 2 + Rust + React 19** 构建的轻量级跨平台开源应用商店（界面以 Linear 去彩单色为主，Fluent 仅指 `lucide-react` 矢量图标体系，不要求 Acrylic/品牌蓝）。
 
 ---
 
@@ -14,7 +14,7 @@
 | **独立生态清单仓库** | `Decoupled Catalog Repository` | 独立维护于 `superMC5657/z-store-catalog` 的开源清单数据仓库，独立运作保鲜 CI 与准入校验，详见 ADR-0009。 | 中心数据库、后台仓库 |
 | **种子清单兜底** | `Catalog Seed Fallback` | 客户端本地打包内置的 `catalog.json` 静态种子，确保初次安装或离线断网时 0 延迟秒开列表。 | 默认缓存、离线数据包 |
 | **多端应用标识符** | `Platform Identifiers` | 按操作系统（Windows、Linux、macOS、Android、iOS）区分的原生进程/包名标识符映射字典，用于精准匹配管理与启动。 | 执行文件名、进程表 |
-| **双维目录筛选** | `Bi-dimensional Filter` | 分类浏览中心提供的“设备平台（全部/Windows/Android/macOS/Linux/iOS）”与“功能分类（开发、影音等 10 类）”双维交叉过滤机制。其中设备平台轴取值为全部 + Windows/Android/macOS/Linux/iOS 五端，全部为不过滤快捷方式；空选择（`[]`）表示什么都不选，视图渲染空筛选状态。 | 标签过滤、分类切换 |
+| **双维目录筛选** | `Bi-dimensional Filter` | 分类浏览中心提供的“设备平台（全部/Windows/Android/macOS/Linux/iOS）”与“功能分类（开发、影音等 10 类）”双维交叉过滤机制。其中设备平台轴取值为全部 + Windows/Android/macOS/Linux/iOS 五端，全部为不过滤快捷方式；空选择（`[]`）表示什么都不选，视图渲染空筛选状态；缺少本地键时回退全选，仅显式 `[]` 渲染空状态。 | 标签过滤、分类切换 |
 | **应用概要** | `AppSummary` | 列表页展示的轻量级实体，包含 Star 数、协议、分类、图标、多端平台支持与最新版本信息。 | 应用简报、AppInfo |
 | **应用详情** | `AppDetail` | 弹窗呈现的完整元数据，包含对应 Release 的构建资产列表 (`assets`)、官方 README Markdown、分类与多端标识符等字段（以 `src-tauri/src/models.rs` 为准）。 | 详细信息、FullApp |
 | **构建资产** | `ReleaseAsset` | Release 附带的编译产物二进制包（如 `.msi`、`.exe`、`.zip`、`.deb`、`.dmg`、`.apk`），带有平台架构分类。 | 附件、下载包、安装文件 |
@@ -57,6 +57,6 @@
 3. **D3 零信任完整性防篡改 (Zero-Trust Anti-Tampering)**:
     - 所有下载的二进制安装包强制流式计算 SHA-256 哈希值并与官方校验清单比对，哈希不符立即强行阻断并销毁临时文件（详见 ADR-0004）。
 4. **D4 Linear 去彩单色界面 (Monochrome Design System)**:
-   - 界面采用 Linear 风格的去彩单色体系：黑白灰画布、hairline 微边框、6/8px 圆角、510/590 字重与系统级深浅色自适应。
-   - 采用统一的线性矢量图标体系（统一由 `lucide-react` 14px/stroke 1.5 及单色矢量 SVG 驱动并适配 `currentColor`），状态反馈采用标准 CSS 微动效（如旋转 `.icon-spin`）与高亮状态指示原点（`.status-dot`），消除视觉割裂。
+   - 界面采用 Linear 风格的去彩单色体系：黑白灰画布、hairline 微边框、6/8px 圆角、510/590 字重与系统级深浅色自适应（Fluent 仅指 `lucide-react` 矢量图标体系，不要求 Acrylic/品牌蓝）。
+   - 采用统一的线性矢量图标体系（统一由 `lucide-react` 14px/stroke 1.5 及单色矢量 SVG 驱动并适配 `currentColor`），状态反馈采用标准 CSS 微动效（如旋转 `.icon-spin`）与高亮状态指示原点（`.status-dot`），消除视觉割裂；基底保持单色，星级收藏（金 `#eab308`）、榜单排名（金/银/铜）与告警/错误等状态色为例外点缀，图标本体仍为单色 `currentColor`。
    - 侧栏底部常驻账号入口胶囊（`Account Capsule`），未登录显示登录入口，已登录呈现头像与用户名，点击直达设置中心账号卡片（`#settings-account`）。
