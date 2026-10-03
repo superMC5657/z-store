@@ -110,6 +110,25 @@ impl Database {
         Ok(())
     }
 
+    /// 详情 + 图标原子落库（Top1+2：原 2 提交 → 1 提交）：
+    /// 事务边界：`BEGIN IMMEDIATE` → `save_cached_app_detail` + 可选 `upsert_icon_cycle` → `COMMIT`，
+    /// 失败整体 `ROLLBACK` 返回 Err，调用方保持 `let _ =` 吞错并可回退逐条（见 commands/catalog 调用处）。
+    /// 不改 TTL/ETag 逻辑（`cached_at` 仍取 `now_secs()`，与原单条一致）。
+    pub fn save_detail_with_icon(
+        &self,
+        app_id: &str,
+        detail: &AppDetail,
+        cycle: Option<&super::AppIconCycle>,
+    ) -> Result<()> {
+        self.with_immediate_transaction(|| {
+            self.save_cached_app_detail(app_id, detail)?;
+            if let Some(c) = cycle {
+                self.upsert_icon_cycle(c)?;
+            }
+            Ok(())
+        })
+    }
+
     /// 测试专用：清空详情缓存（生产路径只增量写入，从不全清）。
     #[cfg(test)]
     pub fn clear_app_details_cache(&self) -> Result<()> {

@@ -365,6 +365,8 @@ pub(crate) fn resolve_confirmed_icon_from_db(
 }
 
 /// 尝试从本地默认数据库解析已确认的图标。
+/// Top1 fallback 保留：仅当调用方传不进 `&Database`（`None`）且 `probe=true` 时回退本地直连，
+/// `ok()` 吞错不 panic；搜索首屏 `probe=false` 传 `None` 时直接置空，零直连。
 pub(crate) fn open_db_opt() -> Option<crate::db::Database> {
     let db_path = crate::get_app_data_dir().join("z_store.db");
     if db_path.is_file() {
@@ -398,9 +400,19 @@ pub(crate) async fn fallback_summary(
     token: Option<&str>,
 ) -> AppSummary {
     let cat = guess_category(Some(&description), description_en.as_deref(), topics);
+    // Top1 灭 N+1：`probe=false` 搜索首屏直接置空零直连（确认图标由调用方 `state.db()` 单锁批量 enrich 回填）；
+    // `probe=true` 单仓直查才回退本地直连（`ok()` 吞错不 panic，单条非 N+1，`Send` 安全因直连为 owned 短命）。
     let confirmed = match confirmed_icon {
         Some(ci) => Some(ci),
-        None => open_db_opt().and_then(|db| resolve_confirmed_icon_from_db(&db, &id, &owner, &repo)),
+        None => {
+            if probe {
+                open_db_opt().and_then(|odb| {
+                    resolve_confirmed_icon_from_db(&odb, &id, &owner, &repo)
+                })
+            } else {
+                None
+            }
+        }
     };
     let icon = if let Some(ci) = confirmed {
         ci

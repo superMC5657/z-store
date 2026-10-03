@@ -42,10 +42,14 @@ struct OnlineRepoLicense {
 }
 
 impl CatalogService {
+    /// Top1 灭 N+1（`Send` 安全）：本函数零 DB（零直连零查询，`Send` 无借用），首屏 `probe=false` 置空图标；
+    /// 确认图标由调用方 `commands/catalog` 经 `state.db()` 单锁批量 enrich 统一回填（`ok()` 吞错不 panic）。
+    /// 单仓直查透传调用方预解析的 owned 确认图标（`Send`），免二次查询/直连。
     pub async fn search_github_online(
         &self,
         query: &str,
         token: Option<&str>,
+        pre_confirmed_for_direct: Option<String>,
     ) -> Result<Vec<AppSummary>, String> {
         let q = query.trim();
         if q.is_empty() {
@@ -58,7 +62,10 @@ impl CatalogService {
             if parts.len() == 2 {
                 let owner = parts[0];
                 let repo = parts[1];
-                if let Ok(item) = self.fetch_online_repo(owner, repo, token).await {
+                if let Ok(item) = self
+                    .fetch_online_repo(owner, repo, token, pre_confirmed_for_direct)
+                    .await
+                {
                     return Ok(vec![item]);
                 }
             }
@@ -122,18 +129,11 @@ impl CatalogService {
             crate::notify_rate_limit("github.com", res.headers());
             if res.status().is_success() {
                 if let Ok(data) = res.json::<OnlineSearchResponse>().await {
-                    let db_opt = super::http::open_db_opt();
+                    // Top1：零 DB（零直连零查询，`Send` 安全），每条直接 `None`；
+                    // `fallback_summary`（`probe=false` + `None`）直接置空零直连，确认图标由调用方单锁批量回填。
                     let summaries: Vec<AppSummary> = futures_util::future::join_all(
                         data.items.into_iter().map(|it| {
                             let client = &client;
-                            let confirmed_icon = db_opt.as_ref().and_then(|db| {
-                                super::http::resolve_confirmed_icon_from_db(
-                                    db,
-                                    &it.full_name,
-                                    &it.owner.login,
-                                    it.full_name.split('/').nth(1).unwrap_or(""),
-                                )
-                            });
                             async move {
                                 let owner = it.owner.login;
                                 let repo = it.full_name.split('/').nth(1).unwrap_or("").to_string();
@@ -156,7 +156,7 @@ impl CatalogService {
                                     &topics,
                                     None,
                                     false,
-                                    confirmed_icon,
+                                    None,
                                     token,
                                 )
                                 .await
@@ -189,11 +189,14 @@ impl CatalogService {
         Ok(Vec::new())
     }
 
+    /// Top1+`Send` 安全：`pre_confirmed` 为调用方短锁预解析的 owned 确认图标，
+    /// 传不进（`None`）时回退兜底不 panic，单条非 N+1；落库收敛至调用方批量 enrich，此处零写。
     pub async fn fetch_online_repo(
         &self,
         owner: &str,
         repo: &str,
         token: Option<&str>,
+        pre_confirmed: Option<String>,
     ) -> Result<AppSummary, String> {
         let client = super::http::build_api_client()?;
 
@@ -264,9 +267,9 @@ impl CatalogService {
             .and_then(|l| l.spdx_id)
             .unwrap_or_else(|| "FLOSS".to_string());
         let topics = repo_data.topics.unwrap_or_default();
-        let confirmed_icon = super::http::open_db_opt().and_then(|db| {
-            super::http::resolve_confirmed_icon_from_db(&db, &format!("{}/{}", owner, repo), owner, repo)
-        });
+        // Top1：复用调用方预解析 `pre_confirmed`（owned `Send`，零查询零直连）；
+        // `None` 时 `fallback_summary`（`probe=true`）内回退本地直连（`ok()` 吞错不 panic，单条）。
+        let confirmed_icon = pre_confirmed;
         // 单仓直查：先快后慢，快路径免鉴权，慢路径有 token 才跑。
         let item = super::http::fallback_summary(
             &client,
@@ -287,14 +290,8 @@ impl CatalogService {
         )
         .await;
 
-        if let Some(cycle) =
-            crate::db::icon_cycle::record_online_icon(&item.id, &item.owner, &item.repo, &item.icon)
-        {
-            if let Some(db) = super::http::open_db_opt() {
-                let _ = db.upsert_icon_cycle(&cycle);
-            }
-        }
-
+        // Top2：落库收敛至调用方 `commands/catalog` 批量 enrich（单锁单事务），此处不再写，
+        // 免与调用方重复写同一 `app_id`，搜索热路径零写。
         Ok(item)
     }
 }

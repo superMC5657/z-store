@@ -173,9 +173,19 @@ pub async fn search_apps_online(
             || query.starts_with("github:")
         {
             let token = super::resolve_active_github_token(&state);
+            // Top1（`Send` 安全）：短锁预解析 owned 确认图标（同步无 `await`，锁即取即放），
+            // 传 owned `String` 跨 `await`（`Send`），`fetch` 内零查询零直连；传不进（锁失败）则 `None` 回退兜底不 panic。
+            let pre_confirmed: Option<String> = state.db().ok().and_then(|db| {
+                crate::github::http::resolve_confirmed_icon_from_db(
+                    &db,
+                    &coord.to_app_id(),
+                    &coord.owner,
+                    &coord.repo,
+                )
+            });
             if let Ok(mut item) = state
                 .catalog
-                .fetch_online_repo(&coord.owner, &coord.repo, token.as_deref())
+                .fetch_online_repo(&coord.owner, &coord.repo, token.as_deref(), pre_confirmed)
                 .await
             {
                 if let Ok(db) = state.db() {
@@ -216,12 +226,42 @@ pub async fn search_apps_online(
     let token = super::resolve_active_github_token(&state);
     let hidden_ids: std::collections::HashSet<String> = hidden_rule_ids(&state);
 
+    // Top1（`Send` 安全）：直查 shortcut（`owner/repo`）短锁预解析 owned 确认图标（同步无 `await`），
+    // 传 owned 跨 `await`（`Send`），搜索侧零直连；非直查传 `None`，首屏置空由下方批量回填（`ok()` 吞错不 panic）。
+    let pre_for_direct: Option<String> = {
+        let q = query.trim();
+        if q.contains('/') && !q.contains(' ') {
+            let parts: Vec<&str> = q.split('/').collect();
+            if parts.len() == 2 {
+                let owner = parts[0].trim();
+                let repo = parts[1].trim();
+                if !owner.is_empty() && !repo.is_empty() {
+                    let app_id = format!("{}/{}", owner.to_lowercase(), repo.to_lowercase());
+                    state.db().ok().and_then(|db| {
+                        crate::github::http::resolve_confirmed_icon_from_db(
+                            &db, &app_id, owner, repo,
+                        )
+                    })
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
     let mut results = state
         .catalog
-        .search_github_online(&query, token.as_deref())
+        .search_github_online(&query, token.as_deref(), pre_for_direct)
         .await?;
 
+    // Top1+2：循环外一次取 `db` 锁复用（单临界区同步无 `await`），读解析 + 写包事务化。
+    // 事务边界：`BEGIN IMMEDIATE` → N 条 `upsert_icon_cycle` → `COMMIT`（12 条逐条提交变 1 提交），
+    // 失败整体 `ROLLBACK` 并回退逐条（保持 `let _ =` 吞错 + 下次重试语义）。
     if let Ok(db) = state.db() {
+        let mut pending: Vec<crate::db::AppIconCycle> = Vec::new();
         for item in &mut results {
             if let Some(ci) = crate::github::http::resolve_confirmed_icon_from_db(
                 &db,
@@ -242,7 +282,14 @@ pub async fn search_apps_online(
                 }
                 cycle.selected_url = item.icon.clone();
                 cycle.updated_at = crate::now_secs();
-                let _ = db.upsert_icon_cycle(&cycle);
+                pending.push(cycle);
+            }
+        }
+        if !pending.is_empty() {
+            if db.upsert_icon_cycles_batch(&pending).is_err() {
+                for c in &pending {
+                    let _ = db.upsert_icon_cycle(c);
+                }
             }
         }
     }
@@ -318,7 +365,12 @@ pub async fn search_apps_online(
                             cycle.l2_url = fast_url.clone();
                             cycle.selected_url = fast_url.clone();
                             cycle.updated_at = crate::now_secs();
-                            let _ = db.upsert_icon_cycle(&cycle);
+                            // Top2：单条显式事务边界（单语句隐式事务显式化，仍 1 提交，快 emit 不延迟）；
+                            // 失败 `ROLLBACK` 返回 Err，上层 `let _ =` 吞错下次补探重试。
+                            let _ = db.with_immediate_transaction(|| {
+                                db.upsert_icon_cycle(&cycle)?;
+                                Ok(())
+                            });
                         }
 
                         if SEARCH_GEN.load(Ordering::SeqCst) != current_gen {
@@ -353,7 +405,11 @@ pub async fn search_apps_online(
                                 cycle.l3_url = hit.url.clone();
                                 cycle.selected_url = hit.url.clone();
                                 cycle.updated_at = crate::now_secs();
-                                let _ = db.upsert_icon_cycle(&cycle);
+                                // Top2：单条显式事务边界（同快路径，仍 1 提交，慢 emit 不延迟）。
+                                let _ = db.with_immediate_transaction(|| {
+                                    db.upsert_icon_cycle(&cycle)?;
+                                    Ok(())
+                                });
                             }
 
                             if SEARCH_GEN.load(Ordering::SeqCst) != current_gen {
@@ -520,25 +576,37 @@ pub async fn get_app_details_impl(
             if let Ok(db) = state.db() {
                 let start_db = std::time::Instant::now();
                 log::debug!("db_save start id={} sid={} req={}", clean_id, sid, req_id);
-                let _ = db.save_cached_app_detail(&clean_id, &detail);
-
+                // Top2：详情 + 图标原子落库（2 提交变 1 提交），事务边界见 `save_detail_with_icon`；
+                // 失败整体回滚并回退逐条，保持 `let _ =` 吞错 + 下次重试语义，不改 TTL/ETag。
                 let icon_trimmed = detail.icon.trim();
                 let is_avatar = crate::commands::is_avatar_url(icon_trimmed)
                     || (icon_trimmed.starts_with("https://github.com/") && icon_trimmed.ends_with(".png") && !icon_trimmed.contains("/raw/"));
-                if !icon_trimmed.is_empty() && !is_avatar {
-                    let mut cycle = db
-                        .get_icon_cycle(&clean_id)
-                        .ok()
-                        .flatten()
-                        .unwrap_or_else(|| {
-                            crate::db::AppIconCycle::new(&clean_id, &detail.owner, &detail.repo)
-                        });
-                    cycle.is_cataloged = false;
-                    cycle.level = 4;
-                    cycle.l4_url = icon_trimmed.to_string();
-                    cycle.selected_url = icon_trimmed.to_string();
-                    cycle.updated_at = crate::now_secs();
-                    let _ = db.upsert_icon_cycle(&cycle);
+                let pending_cycle: Option<crate::db::AppIconCycle> =
+                    if !icon_trimmed.is_empty() && !is_avatar {
+                        let mut cycle = db
+                            .get_icon_cycle(&clean_id)
+                            .ok()
+                            .flatten()
+                            .unwrap_or_else(|| {
+                                crate::db::AppIconCycle::new(&clean_id, &detail.owner, &detail.repo)
+                            });
+                        cycle.is_cataloged = false;
+                        cycle.level = 4;
+                        cycle.l4_url = icon_trimmed.to_string();
+                        cycle.selected_url = icon_trimmed.to_string();
+                        cycle.updated_at = crate::now_secs();
+                        Some(cycle)
+                    } else {
+                        None
+                    };
+                if db
+                    .save_detail_with_icon(&clean_id, &detail, pending_cycle.as_ref())
+                    .is_err()
+                {
+                    let _ = db.save_cached_app_detail(&clean_id, &detail);
+                    if let Some(c) = pending_cycle.as_ref() {
+                        let _ = db.upsert_icon_cycle(c);
+                    }
                 }
                 log::debug!(
                     "db_save done id={} sid={} req={} elapsed_ms={}",
@@ -650,40 +718,51 @@ pub async fn get_app_details_impl(
                         }
                     }
                 }
-                let _ = db.save_cached_app_detail(&clean_id, &detail);
-
+                // Top2：详情 + 图标原子落库（2 提交变 1 提交），失败回滚并回退逐条，不改 TTL/ETag。
                 let icon_trimmed = detail.icon.trim();
                 let is_avatar = crate::commands::is_avatar_url(icon_trimmed)
                     || (icon_trimmed.starts_with("https://github.com/") && icon_trimmed.ends_with(".png") && !icon_trimmed.contains("/raw/"));
-                if !icon_trimmed.is_empty() && !is_avatar {
-                    let level = if icon_trimmed.contains("simpleicons.org") {
-                        2
-                    } else if icon_trimmed.contains("/blob/") || icon_trimmed.to_lowercase().contains("readme") {
-                        4
+                let pending_cycle: Option<crate::db::AppIconCycle> =
+                    if !icon_trimmed.is_empty() && !is_avatar {
+                        let level = if icon_trimmed.contains("simpleicons.org") {
+                            2
+                        } else if icon_trimmed.contains("/blob/") || icon_trimmed.to_lowercase().contains("readme") {
+                            4
+                        } else {
+                            3
+                        };
+
+                        let mut cycle = db
+                            .get_icon_cycle(&clean_id)
+                            .ok()
+                            .flatten()
+                            .unwrap_or_else(|| {
+                                crate::db::AppIconCycle::new(&clean_id, &detail.owner, &detail.repo)
+                            });
+
+                        cycle.is_cataloged = state.catalog.get_catalog_item(&clean_id).is_some();
+                        cycle.level = level;
+                        if level == 3 {
+                            cycle.l3_url = icon_trimmed.to_string();
+                        } else if level == 4 {
+                            cycle.l4_url = icon_trimmed.to_string();
+                        } else if level == 2 {
+                            cycle.l2_url = icon_trimmed.to_string();
+                        }
+                        cycle.selected_url = icon_trimmed.to_string();
+                        cycle.updated_at = now;
+                        Some(cycle)
                     } else {
-                        3
+                        None
                     };
-
-                    let mut cycle = db
-                        .get_icon_cycle(&clean_id)
-                        .ok()
-                        .flatten()
-                        .unwrap_or_else(|| {
-                            crate::db::AppIconCycle::new(&clean_id, &detail.owner, &detail.repo)
-                        });
-
-                    cycle.is_cataloged = state.catalog.get_catalog_item(&clean_id).is_some();
-                    cycle.level = level;
-                    if level == 3 {
-                        cycle.l3_url = icon_trimmed.to_string();
-                    } else if level == 4 {
-                        cycle.l4_url = icon_trimmed.to_string();
-                    } else if level == 2 {
-                        cycle.l2_url = icon_trimmed.to_string();
+                if db
+                    .save_detail_with_icon(&clean_id, &detail, pending_cycle.as_ref())
+                    .is_err()
+                {
+                    let _ = db.save_cached_app_detail(&clean_id, &detail);
+                    if let Some(c) = pending_cycle.as_ref() {
+                        let _ = db.upsert_icon_cycle(c);
                     }
-                    cycle.selected_url = icon_trimmed.to_string();
-                    cycle.updated_at = now;
-                    let _ = db.upsert_icon_cycle(&cycle);
                 }
             }
             log::debug!(

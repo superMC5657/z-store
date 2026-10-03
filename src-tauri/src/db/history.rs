@@ -53,20 +53,23 @@ impl Database {
             return Ok(());
         }
         let now = now_secs();
-        self.exec_upsert(
-            r#"
+        // 事务边界：插入 + prune 合并为 1 提交（原 2 提交），失败整体回滚返回 Err。
+        self.with_immediate_transaction(|| {
+            self.exec_upsert(
+                r#"
             INSERT INTO search_history (query, searched_at)
             VALUES (?1, ?2)
             ON CONFLICT(query) DO UPDATE SET
                 searched_at = excluded.searched_at;
             "#,
-            params![q, now],
-        )?;
-        let limit = crate::config::get_project_config()
-            .limits
-            .search_history_limit;
-        self.prune_history_table(ValidatedTable::SearchHistory, limit as u64)?;
-        Ok(())
+                params![q, now],
+            )?;
+            let limit = crate::config::get_project_config()
+                .limits
+                .search_history_limit;
+            self.prune_history_table(ValidatedTable::SearchHistory, limit as u64)?;
+            Ok(())
+        })
     }
 
     pub fn get_search_history(&self) -> Result<Vec<String>> {
@@ -102,20 +105,23 @@ impl Database {
             return Ok(());
         }
         let now = now_secs();
-        self.exec_upsert(
-            r#"
+        // 事务边界：插入 + prune 合并为 1 提交（原 2 提交），失败整体回滚返回 Err。
+        self.with_immediate_transaction(|| {
+            self.exec_upsert(
+                r#"
             INSERT INTO view_history (app_id, viewed_at)
             VALUES (?1, ?2)
             ON CONFLICT(app_id) DO UPDATE SET
                 viewed_at = excluded.viewed_at;
             "#,
-            params![id, now],
-        )?;
-        let limit = crate::config::get_project_config()
-            .limits
-            .view_history_limit;
-        self.prune_history_table(ValidatedTable::ViewHistory, limit as u64)?;
-        Ok(())
+                params![id, now],
+            )?;
+            let limit = crate::config::get_project_config()
+                .limits
+                .view_history_limit;
+            self.prune_history_table(ValidatedTable::ViewHistory, limit as u64)?;
+            Ok(())
+        })
     }
 
     pub fn get_recently_viewed_app_ids(&self) -> Result<Vec<String>> {

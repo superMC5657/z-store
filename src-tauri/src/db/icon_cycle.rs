@@ -193,6 +193,21 @@ impl Database {
         Ok(())
     }
 
+    /// 批量 upsert（Top1+2：12 条逐条提交 → 1 提交）：
+    /// 事务边界：`BEGIN IMMEDIATE` → N 条 `upsert_icon_cycle` → `COMMIT`，失败整体 `ROLLBACK` 返回 Err。
+    /// 调用方保持 `let _ =` 吞错语义，下次搜索重试；失败时调用方可回退逐条（见 commands/catalog 调用处）。
+    pub fn upsert_icon_cycles_batch(&self, cycles: &[AppIconCycle]) -> Result<()> {
+        if cycles.is_empty() {
+            return Ok(());
+        }
+        self.with_immediate_transaction(|| {
+            for c in cycles {
+                self.upsert_icon_cycle(c)?;
+            }
+            Ok(())
+        })
+    }
+
     /// 更新当前图标轮换级别，并在对应级别 URL 非空时自动同步切换 selected_url
     pub fn set_icon_cycle_level(&self, app_id: &str, level: i32) -> Result<()> {
         let cleaned = clean(app_id);
