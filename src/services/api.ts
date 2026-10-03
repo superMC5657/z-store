@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { zlogWarn } from '../lib/z-log';
 import {
   AppDetail,
   AppMatchResult,
@@ -200,7 +201,7 @@ export const tauriApi = {
         search_id: searchId,
       });
     } catch (err) {
-      console.warn('search_apps_online is not available or failed:', err);
+      zlogWarn(`search_apps_online is not available or failed: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
       return [];
     }
   },

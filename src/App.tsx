@@ -18,7 +18,7 @@ import { Search } from 'lucide-react';
 import { AppDetail, AppDetailViewModel, AppSummary, InstalledApp, OAuthUser, UpdateItem, UpdateCheckProgressPayload, UpdateRule, ViewType, WatchUpdatedPayload } from './types';
 import { api, DEFAULT_SETTINGS } from './services/api';
 import { preloadIcons, invalidateIconCache, isAvatarUrl } from './components/AppIcon';
-import { zlogInfo } from './lib/z-log';
+import { zlogInfo, zlogWarn } from './lib/z-log';
 import { PLATFORM_IDS, matchPlatformSet, normalizePlatform, togglePlatformSet, type PlatformId } from './lib/platformFilter';
 import { useToasts } from './useToasts';
 import { useAppSettings } from './useAppSettings';
@@ -404,7 +404,7 @@ export const App: React.FC = () => {
       }
     } catch (err) {
       if (seq !== searchSeqRef.current) return;
-      console.warn('searchApps error:', err);
+      zlogWarn(`searchApps error: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
     }
   };
 
@@ -434,7 +434,7 @@ export const App: React.FC = () => {
         }
       } catch (err) {
         if (seq !== searchSeqRef.current) return;
-        console.warn('searchApps error:', err);
+        zlogWarn(`searchApps error: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
         localResults = [];
       }
     }
@@ -457,7 +457,7 @@ export const App: React.FC = () => {
         }
       } catch (err) {
         if (seq !== searchSeqRef.current) return;
-        console.warn('searchAppsOnline error:', err);
+        zlogWarn(`searchAppsOnline error: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
         setOnlineSearchPerformed(true);
         showToast(t('search.online_failed', '在线搜索暂不可用，已保持本地结果'), 'info');
       } finally {

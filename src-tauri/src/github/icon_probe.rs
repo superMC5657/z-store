@@ -205,10 +205,25 @@ struct GitTreeNode {
 /// `headers` 传入带 token 的鉴权头则含 Trees 级；
 /// 传 `None`（如无 token 的图标命令回退路径）则跳过 Trees，只做免鉴权级。
 /// 命中返回权威 URL，未命中返回 `None`。
-/// 快慢分离超时：快路径 SimpleIcons 每 slug ≤1500ms（免鉴权），慢路径 Trees 保持 12s（需鉴权）。
-pub(crate) const SIMPLE_ICON_TIMEOUT: std::time::Duration =
-    std::time::Duration::from_millis(1500);
-const TREES_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12);
+/// 快慢分离超时：快路径 SimpleIcons 每 slug 1500ms（免鉴权），慢路径 Trees 12s（需鉴权）。
+/// 两者均经 `api_timeout_seconds` 统一配置，未设置（0）时回退上述历史值，行为保持不变。
+/// ADR-0008：网络超时统一经 `get_project_config().network.api_timeout_seconds` 获取。
+fn api_timeout_or(fallback: std::time::Duration) -> std::time::Duration {
+    let secs = crate::config::get_project_config()
+        .network
+        .api_timeout_seconds;
+    if secs > 0 {
+        std::time::Duration::from_secs(secs)
+    } else {
+        fallback
+    }
+}
+pub(crate) fn simple_icon_timeout() -> std::time::Duration {
+    api_timeout_or(std::time::Duration::from_millis(1500))
+}
+fn trees_timeout() -> std::time::Duration {
+    api_timeout_or(std::time::Duration::from_secs(12))
+}
 
 /// repo+owner 去重 slug 单循环（旧行为）：先 repo 后 owner，去重后逐个试探。
 pub(crate) fn dedup_slugs(owner: &str, repo: &str) -> Vec<String> {
@@ -221,7 +236,7 @@ pub(crate) fn dedup_slugs(owner: &str, repo: &str) -> Vec<String> {
     out
 }
 
-/// 快路径：SimpleIcons 品牌库（免鉴权），每 slug ≤1500ms，命中即返。
+/// 快路径：SimpleIcons 品牌库（免鉴权），每 slug 超时经配置（未设置回退 1500ms），命中即返。
 pub(crate) async fn probe_simple_icons(
     client: &reqwest::Client,
     owner: &str,
@@ -229,7 +244,7 @@ pub(crate) async fn probe_simple_icons(
 ) -> Option<ProbedIcon> {
     for slug in dedup_slugs(owner, repo) {
         let cdn = format!("https://cdn.simpleicons.org/{slug}");
-        if let Some((_, ctype)) = verify_image(client, &cdn, SIMPLE_ICON_TIMEOUT).await {
+        if let Some((_, ctype)) = verify_image(client, &cdn, simple_icon_timeout()).await {
             if ctype.contains("svg") || ctype.starts_with("image/") {
                 return Some(ProbedIcon {
                     url: cdn,
@@ -241,7 +256,7 @@ pub(crate) async fn probe_simple_icons(
     None
 }
 
-/// 慢路径：Git Trees 全库评分（需鉴权头），保持 12s 超时。
+/// 慢路径：Git Trees 全库评分（需鉴权头），超时经配置（未设置回退 12s）。
 pub(crate) async fn probe_trees(
     client: &reqwest::Client,
     headers: &HeaderMap,
@@ -254,7 +269,7 @@ pub(crate) async fn probe_trees(
         owner, repo, branch
     );
     let req = client.get(&tree_url).headers(headers.clone()).send();
-    if let Ok(Ok(resp)) = tokio::time::timeout(TREES_TIMEOUT, req).await {
+    if let Ok(Ok(resp)) = tokio::time::timeout(trees_timeout(), req).await {
         if resp.status().is_success() {
             if let Ok(tree) = resp.json::<GitTree>().await {
                 let mut best: Option<(i32, u64, String)> = None;

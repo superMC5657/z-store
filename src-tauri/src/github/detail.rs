@@ -474,7 +474,7 @@ impl CatalogService {
                 .and_then(|r| r.default_branch.clone())
                 .unwrap_or_else(|| "HEAD".to_string());
             if let Some(probed) = super::icon_probe::probe_repo_logo(client, Some(&base_headers), &owner, &repo, &branch).await {
-                log::info!("icon probe hit id={} source={} url='{}'", id, probed.source, crate::log_support::sanitize_url(&probed.url));
+                log::debug!("icon probe hit id={} source={} url='{}'", id, probed.source, crate::log_support::sanitize_url(&probed.url));
                 probed.url
             } else if let Some(logo) = extracted_logo {
                 logo

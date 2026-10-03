@@ -2,6 +2,19 @@ use crate::AppState;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
+/// ADR-0008：网络超时统一经 `get_project_config().network.api_timeout_seconds` 获取；
+/// 配置为 0（未设置）时回退到调用方传入的历史硬编码值，行为保持不变。
+fn api_timeout_or(fallback: std::time::Duration) -> std::time::Duration {
+    let secs = crate::config::get_project_config()
+        .network
+        .api_timeout_seconds;
+    if secs > 0 {
+        std::time::Duration::from_secs(secs)
+    } else {
+        fallback
+    }
+}
+
 /// 图标轮换返回结构
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct IconCycleResult {
@@ -100,7 +113,7 @@ async fn probe_simple_icons(client: &reqwest::Client, owner: &str, repo: &str) -
     }
 
     const BROWSER_UA: &str = crate::forge::http::BROWSER_UA_VALUE;
-    let probe_timeout = std::time::Duration::from_secs(5);
+    let probe_timeout = api_timeout_or(std::time::Duration::from_secs(5));
 
     for slug in slugs {
         let cdn = format!("https://cdn.simpleicons.org/{}", slug);
@@ -153,7 +166,7 @@ async fn probe_git_trees(
     let mut branches: Vec<String> = Vec::with_capacity(3);
     let repo_api = format!("https://api.github.com/repos/{}/{}", owner, repo);
     if let Ok(Ok(resp)) = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
+        api_timeout_or(std::time::Duration::from_secs(5)),
         client.get(&repo_api).headers(hdrs.clone()).send(),
     )
     .await
@@ -189,7 +202,7 @@ async fn probe_git_trees(
             owner, repo, branch
         );
         let req = client.get(&tree_url).headers(hdrs.clone()).send();
-        if let Ok(Ok(resp)) = tokio::time::timeout(std::time::Duration::from_secs(12), req).await {
+        if let Ok(Ok(resp)) = tokio::time::timeout(api_timeout_or(std::time::Duration::from_secs(12)), req).await {
             if resp.status().is_success() {
                 if let Ok(tree) = resp.json::<GitTree>().await {
                     let mut best: Option<(i32, u64, String)> = None;
@@ -262,7 +275,7 @@ async fn probe_readme(
         );
     }
 
-    if let Ok(Ok(resp)) = tokio::time::timeout(std::time::Duration::from_secs(8), req.send()).await {
+    if let Ok(Ok(resp)) = tokio::time::timeout(api_timeout_or(std::time::Duration::from_secs(8)), req.send()).await {
         if resp.status().is_success() {
             if let Ok(raw_readme) = resp.text().await {
                 let (logo, _) = crate::github::CatalogService::extract_and_strip_logo_from_readme(

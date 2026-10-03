@@ -5,6 +5,19 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 static SEARCH_GEN: AtomicU64 = AtomicU64::new(0);
 
+/// ADR-0008：网络超时统一经 `get_project_config().network.api_timeout_seconds` 获取；
+/// 配置为 0（未设置）时回退到调用方传入的历史硬编码值，行为保持不变。
+fn api_timeout_or(fallback: std::time::Duration) -> std::time::Duration {
+    let secs = crate::config::get_project_config()
+        .network
+        .api_timeout_seconds;
+    if secs > 0 {
+        std::time::Duration::from_secs(secs)
+    } else {
+        fallback
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SearchIconReadyPayload {
     pub search_id: String,
@@ -278,10 +291,11 @@ pub async fn search_apps_online(
                 let sid = sid.clone();
                 let slow_headers = slow_headers.clone();
                 tokio::spawn(async move {
-                    // 快慢分离：快路径 SimpleIcons（repo+owner 去重单循环，每 slug ≤1500ms，
-                    // 外层 8000ms 兜底），快命中立即落库并 emit，不等慢路径。
+                    // 快慢分离：快路径 SimpleIcons（repo+owner 去重单循环，每 slug 超时与
+                    // 外层兜底均经 api_timeout_seconds 统一配置，未设置时回退 1500ms/8000ms 历史值），
+                    // 快命中立即落库并 emit，不等慢路径。
                     let fast_url = tokio::time::timeout(
-                        std::time::Duration::from_millis(8000),
+                        api_timeout_or(std::time::Duration::from_millis(8000)),
                         crate::github::icon_probe::probe_simple_icons(&client, &owner, &repo),
                     )
                     .await

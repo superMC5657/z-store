@@ -471,7 +471,7 @@ pub async fn get_or_fetch_icon(
                     branches.push("master".to_string());
                     for b in branches {
                         if let Some(p) = crate::github::icon_probe::probe_repo_logo(&client, None, &c.owner, &c.repo, &b).await {
-                            log::info!("icon probe fallback hit app_id='{}' source={} url='{}'", app_id.as_deref().unwrap_or(""), p.source, crate::log_support::sanitize_url(&p.url));
+                            log::debug!("icon probe fallback hit app_id='{}' source={} url='{}'", app_id.as_deref().unwrap_or(""), p.source, crate::log_support::sanitize_url(&p.url));
                             probed_url = Some(p.url);
                             break;
                         }
