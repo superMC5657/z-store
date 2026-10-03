@@ -1,0 +1,177 @@
+/* components-trends.css · 趋势榜单：榜单切换 + 筛选 + 涨星徽标 */
+
+.trends-view .trends-header {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+
+.trends-subtitle {
+  width: 100%;
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--text-tertiary);
+  letter-spacing: -0.011em;
+}
+
+.trends-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 4px;
+}
+
+.trends-boards {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+
+.trends-boards .segmented-group {
+  max-width: none;
+  width: max-content;
+}
+
+.trends-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.trends-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.trends-filter-label {
+  color: var(--text-tertiary);
+  font-size: var(--font-sm);
+}
+
+.trends-select {
+  height: 28px;
+  min-width: 128px;
+  font-size: var(--font-sm);
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.trends-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 2px 0 8px;
+  min-width: 0;
+}
+
+.trends-board-desc {
+  font-size: var(--font-sm);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.011em;
+}
+
+.trends-count {
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* 常青离线快照徽标：明确标注本地快照，避免伪装成远端榜 */
+.trends-snapshot-badge {
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.32);
+  border-radius: var(--radius-sm);
+  padding: 1px 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+[data-theme="dark"] .trends-snapshot-badge {
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.14);
+  border-color: rgba(251, 191, 36, 0.32);
+}
+
+/* 涨星徽标：浅绿底，与星数标签区分但不抢色 */
+.app-tag.trend-gain {
+  background: rgba(16, 185, 129, 0.12);
+  color: #059669;
+  border-color: rgba(16, 185, 129, 0.28);
+  font-weight: 600;
+}
+
+[data-theme="dark"] .app-tag.trend-gain {
+  background: rgba(16, 185, 129, 0.14);
+  color: #34d399;
+  border-color: rgba(52, 211, 153, 0.3);
+}
+
+/* 未收录行：主次信息收紧，保持与 AppCard 行同高 */
+.trend-uncataloged-row .trend-uncataloged-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+}
+
+.trend-uncataloged-row .trend-uncataloged-side {
+  margin-top: 0;
+  border-top: none;
+  margin-left: auto;
+}
+
+@media (max-width: 1024px) {
+  .trends-filters {
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 720px) {
+  .trends-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .trends-boards {
+    width: 100%;
+  }
+
+  .trends-filters {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .trends-filter {
+    flex: 1 1 auto;
+  }
+
+  .trends-select {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .trends-board-desc {
+    white-space: normal;
+  }
+
+  .trend-uncataloged-row .trend-uncataloged-side .app-tags {
+    flex-wrap: nowrap;
+  }
+}

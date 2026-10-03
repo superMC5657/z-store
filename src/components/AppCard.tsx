@@ -7,6 +7,7 @@ import { VerifiedBadge } from './VerifiedBadge';
 import { PlatformIcon, ForgeIcon } from './icons/PlatformIcons';
 import { PLATFORM_META, type PlatformId } from '../lib/platformFilter';
 import { getAppDisplayName, getAppDescription, getCategoryLabel } from '../utils/appHelper';
+import { formatStars } from '../services/trends';
 
 interface AppCardProps {
   app: AppSummary;
@@ -18,6 +19,10 @@ interface AppCardProps {
   rank?: number;
   /** 名次颜色覆盖；默认按金银铜规则着色。 */
   rankColor?: string;
+  /** 趋势榜涨星数（>0 才渲染徽标，缺失时不渲染，保持精选页零变化）。 */
+  trendGain?: number;
+  /** 已按当前语言格式化好的涨星文案，如“本周 +1.2k”。 */
+  trendGainText?: string;
   className?: string;
   /** 首屏卡片传入 true（图标 eager），其余默认 lazy，避免全网格抢加载。 */
   eager?: boolean;
@@ -79,6 +84,8 @@ function areAppCardPropsEqual(prev: AppCardProps, next: AppCardProps): boolean {
     (prev.isWatched ?? false) === (next.isWatched ?? false) &&
     prev.rank === next.rank &&
     prev.rankColor === next.rankColor &&
+    prev.trendGain === next.trendGain &&
+    prev.trendGainText === next.trendGainText &&
     prev.className === next.className &&
     (prev.eager ?? false) === (next.eager ?? false) &&
     prev.onOpenDetail === next.onOpenDetail &&
@@ -96,6 +103,8 @@ export const AppCard: React.FC<AppCardProps> = memo(({
   isWatched = false,
   rank,
   rankColor,
+  trendGain,
+  trendGainText,
   className,
   eager = false,
   onOpenDetail,
@@ -107,13 +116,6 @@ export const AppCard: React.FC<AppCardProps> = memo(({
   const displayName = getAppDisplayName(app);
   const displayDesc = getAppDescription(app, i18n.language);
   const displayCategory = getCategoryLabel(app.category, app.category_name, t);
-
-  const formatStars = (count: number) => {
-    if (count >= 1000) {
-      return `${(count / 1000).toFixed(1)}k`;
-    }
-    return count.toString();
-  };
 
   return (
     <div
@@ -199,6 +201,11 @@ export const AppCard: React.FC<AppCardProps> = memo(({
             </svg>
             <span>{formatStars(app.stars)}</span>
           </span>
+          {typeof trendGain === 'number' && trendGain > 0 && trendGainText && (
+            <span className="app-tag trend-gain" title={trendGainText}>
+              {trendGainText}
+            </span>
+          )}
           {app.platforms && app.platforms.length > 0 && (
             <span
               className="app-tag app-tag-platforms"

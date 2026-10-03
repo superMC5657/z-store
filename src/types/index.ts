@@ -350,3 +350,46 @@ export interface ImportUserDataCounts {
   settings_applied: boolean;
   installed_skipped: number;
 }
+
+// 趋势榜单数据层契约（SSOT）。
+// `services/trends.ts` 负责抓取与排序实现，本文件只承载可序列化的类型定义，
+// UI（含 TrendsView）可从任意一侧导入：`services/trends.ts` 会原样 re-export。
+export type TrendBoardId =
+  | 'daily'
+  | 'weekly'
+  | 'monthly'
+  | 'new'
+  | 'rising'
+  | 'category'
+  | 'healthy'
+  | 'top';
+
+export interface TrendRepo {
+  id: string;
+  name: string;
+  owner: string;
+  repo: string;
+  stars: number;
+  /**
+   * 本周期新增星数。仅当上游明确提供速度口径（OSSInsight current_period_growth
+   * 等）时为 defined；缺失/不可解析时一律为 undefined，绝不回退为总 stars。
+   * UI 契约：仅在 defined 时渲染 +N 徽标，undefined 一律不渲染。
+   */
+  starsGained?: number;
+  forks?: number;
+  description?: string;
+  url?: string;
+  category?: string;
+}
+
+export interface FetchTrendsOptions {
+  language?: string;
+  category?: string;
+  forceRefresh?: boolean;
+  /**
+   * 本地精选库快照（可选）：传入时 `fetchTrends('category')` 会在 service 内
+   * 先 enrichWithCatalogCategory 再按 category 过滤，保证 category 参数在
+   * service 层即被兑现，而非仅 UI 过滤。
+   */
+  catalogApps?: AppSummary[];
+}
