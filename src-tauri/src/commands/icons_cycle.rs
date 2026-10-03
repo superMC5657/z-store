@@ -11,6 +11,7 @@ pub struct IconCycleResult {
     pub source: String,
     pub is_fallback: bool,
     pub total_levels: usize,
+    pub is_cataloged: bool,
 }
 
 pub(crate) fn source_for_level(level: i32) -> &'static str {
@@ -358,6 +359,10 @@ pub async fn cycle_app_icon(
     let (canonical_id, owner, repo) = resolve_app_coord(&app_id)?;
     let catalog_item = state.catalog.get_catalog_item(&canonical_id);
     let is_cataloged = catalog_item.is_some();
+    if is_cataloged {
+        // 加固：收录应用直接返回当前 L1，不切换（防误调）
+        return get_app_icon_cycle(state, app_id).await;
+    }
     let token = crate::commands::resolve_active_github_token(&state);
 
     let icons_dir = crate::get_app_data_dir().join("icons");
@@ -431,6 +436,7 @@ pub async fn cycle_app_icon(
             source: "none".to_string(),
             is_fallback: true,
             total_levels: 5,
+            is_cataloged: false,
         });
     }
 
@@ -546,6 +552,7 @@ pub async fn cycle_app_icon(
         source: source_for_level(next_level).to_string(),
         is_fallback: is_fallback_for_level(next_level),
         total_levels: 5,
+        is_cataloged: false,
     })
 }
 
@@ -575,6 +582,7 @@ pub async fn get_app_icon_cycle(
                 source: "none".to_string(),
                 is_fallback: true,
                 total_levels: 5,
+                is_cataloged,
             });
         }
 
@@ -601,6 +609,7 @@ pub async fn get_app_icon_cycle(
                             source: source_for_level(lvl).to_string(),
                             is_fallback: is_fallback_for_level(lvl),
                             total_levels: 5,
+                            is_cataloged,
                         });
                     }
                 }
@@ -650,6 +659,7 @@ pub async fn get_app_icon_cycle(
                     source: source_for_level(lvl).to_string(),
                     is_fallback: is_fallback_for_level(lvl),
                     total_levels: 5,
+                    is_cataloged,
                 });
             }
         }
@@ -661,6 +671,7 @@ pub async fn get_app_icon_cycle(
             source: source_for_level(lvl).to_string(),
             is_fallback: is_fallback_for_level(lvl),
             total_levels: 5,
+            is_cataloged,
         });
     }
 
@@ -686,6 +697,7 @@ pub async fn get_app_icon_cycle(
                             source: "official".to_string(),
                             is_fallback: false,
                             total_levels: 5,
+                            is_cataloged: true,
                         });
                     }
                 }
@@ -701,6 +713,7 @@ pub async fn get_app_icon_cycle(
             source: source_for_level(lvl).to_string(),
             is_fallback: is_fallback_for_level(lvl),
             total_levels: 5,
+            is_cataloged: true,
         });
     }
 
@@ -736,6 +749,7 @@ pub async fn get_app_icon_cycle(
                         source: source_for_level(lvl).to_string(),
                         is_fallback: is_fallback_for_level(lvl),
                         total_levels: 5,
+                        is_cataloged: false,
                     });
                 }
             }
@@ -776,6 +790,7 @@ pub async fn get_app_icon_cycle(
                     source: source_for_level(lvl).to_string(),
                     is_fallback: is_fallback_for_level(lvl),
                     total_levels: 5,
+                    is_cataloged: false,
                 });
             }
         }
@@ -787,6 +802,7 @@ pub async fn get_app_icon_cycle(
             source: source_for_level(lvl).to_string(),
             is_fallback: is_fallback_for_level(lvl),
             total_levels: 5,
+            is_cataloged: false,
         })
     } else {
         // 无有效则走 L5 首字母徽章逻辑
@@ -797,6 +813,7 @@ pub async fn get_app_icon_cycle(
             source: "none".to_string(),
             is_fallback: true,
             total_levels: 5,
+            is_cataloged: false,
         })
     }
 }

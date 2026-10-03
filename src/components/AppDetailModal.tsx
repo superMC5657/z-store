@@ -20,7 +20,7 @@ import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { AppDetailViewModel, DownloadAssetResult, DownloadProgressPayload, OAuthUser, ReleaseAsset } from '../types';
 import { api, type AppIconCycleResult } from '../services/api';
-import { AppIcon } from './AppIcon';
+import { AppIcon, invalidateIconCache } from './AppIcon';
 import { notifyToast } from '../utils/notify';
 import { VerifiedBadge } from './VerifiedBadge';
 import { InlineConfirmButton } from './InlineConfirmButton';
@@ -133,6 +133,12 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
     };
   }, [app.id]);
 
+  const isCataloged = Boolean(
+    iconCycle?.is_cataloged ??
+    iconCycle?.isCataloged ??
+    (app.category && app.category !== 'external')
+  );
+
   const totalLevels = iconCycle?.total_levels ?? iconCycle?.totalLevels ?? 5;
   const currentLevel = iconCycle?.level ?? 1;
   const nextLevel = currentLevel >= totalLevels ? 1 : currentLevel + 1;
@@ -150,12 +156,18 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   const handleCycleIcon = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (isCyclingIcon || !isTauri || !app.id) return;
+    if (isCyclingIcon || !isTauri || !app.id || isCataloged) return;
     setIsCyclingIcon(true);
     try {
       const res = await api.cycleAppIcon(app.id);
       if (res) {
         setIconCycle(res);
+        invalidateIconCache(app.id);
+        window.dispatchEvent(
+          new CustomEvent('zstore:icon-changed', {
+            detail: { appId: app.id, icon: res.url },
+          })
+        );
         const total = res.total_levels ?? res.totalLevels ?? 5;
         const name = ICON_LEVEL_NAMES[res.level] || '';
         notifyToast(`图标已切换为 L${res.level}${name} (${res.level}/${total})`, 'success');
@@ -602,7 +614,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                 <Bug size={12} strokeWidth={1.5} />
                 <span>问题反馈</span>
               </a>
-              {isTauri && (
+              {isTauri && !isCataloged && (
                 <button
                   type="button"
                   className="modal-icon-cycle-btn"

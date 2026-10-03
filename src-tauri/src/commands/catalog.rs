@@ -1,6 +1,17 @@
 use crate::models::{AppDetail, AppSummary, SyncCatalogResult};
 use crate::AppState;
-use tauri::State;
+use std::sync::atomic::{AtomicU64, Ordering};
+use tauri::{AppHandle, Emitter, Manager, State};
+
+static SEARCH_GEN: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SearchIconReadyPayload {
+    pub search_id: String,
+    pub app_id: String,
+    pub icon: String,
+    pub level: i32,
+}
 
 /// 通过 `installer::classify_asset` 的操作系统标签，从 Release 产物中推导支持的平台列表。
 ///
@@ -65,12 +76,16 @@ pub async fn search_apps(
 
 #[tauri::command]
 pub async fn search_apps_online(
+    app_handle: AppHandle,
     state: State<'_, AppState>,
     query: String,
+    search_id: Option<String>,
 ) -> crate::AppResult<Vec<AppSummary>> {
     // Wave2：单次 search_apps 只记一行 INFO `search done`（行为链 sid 关联）；
     // 内层 github/search 的同名 debug 已移除，此处为唯一 `search done`。
     let search_start = std::time::Instant::now();
+    let current_gen = SEARCH_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    let actual_search_id = search_id.unwrap_or_else(|| current_gen.to_string());
     // 1. 优先检查是否为多源 (Codeberg, Gitea, 自建源) 仓库 URL 或 short syntax
     if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&query) {
         if coord.forge != crate::forge::ForgeType::GitHub {
@@ -158,6 +173,19 @@ pub async fn search_apps_online(
                         &item.repo,
                     ) {
                         item.icon = ci;
+                    } else if !item.icon.trim().is_empty() {
+                        let mut cycle = crate::db::AppIconCycle::new(&item.id, &item.owner, &item.repo);
+                        cycle.is_cataloged = false;
+                        if item.icon.contains("simpleicons.org") {
+                            cycle.level = 2;
+                            cycle.l2_url = item.icon.clone();
+                        } else {
+                            cycle.level = 4;
+                            cycle.l4_url = item.icon.clone();
+                        }
+                        cycle.selected_url = item.icon.clone();
+                        cycle.updated_at = crate::now_secs();
+                        let _ = db.upsert_icon_cycle(&cycle);
                     }
                 }
                 log::debug!("fetch repo ok id={}", item.id);
@@ -189,9 +217,32 @@ pub async fn search_apps_online(
                 &item.repo,
             ) {
                 item.icon = ci;
+            } else if !item.icon.trim().is_empty() {
+                let mut cycle = crate::db::AppIconCycle::new(&item.id, &item.owner, &item.repo);
+                cycle.is_cataloged = false;
+                if item.icon.contains("simpleicons.org") {
+                    cycle.level = 2;
+                    cycle.l2_url = item.icon.clone();
+                } else {
+                    cycle.level = 4;
+                    cycle.l4_url = item.icon.clone();
+                }
+                cycle.selected_url = item.icon.clone();
+                cycle.updated_at = crate::now_secs();
+                let _ = db.upsert_icon_cycle(&cycle);
             }
         }
     }
+
+    let candidates: Vec<(String, String, String)> = results
+        .iter()
+        .filter(|item| {
+            state.catalog.get_catalog_item(&item.id).is_none()
+                && !item.icon.contains("simpleicons.org")
+        })
+        .take(12)
+        .map(|item| (item.id.to_lowercase(), item.owner.clone(), item.repo.clone()))
+        .collect();
 
     log::info!(
         "search done sid={} query='{}' hits={} elapsed_ms={}",
@@ -201,14 +252,73 @@ pub async fn search_apps_online(
         search_start.elapsed().as_millis()
     );
 
-    if hidden_ids.is_empty() {
-        Ok(results)
+    let filtered_results: Vec<AppSummary> = if hidden_ids.is_empty() {
+        results
     } else {
-        Ok(results
+        results
             .into_iter()
             .filter(|a| !hidden_ids.contains(&a.id))
-            .collect())
+            .collect()
+    };
+
+    if !candidates.is_empty() {
+        let handle = app_handle.clone();
+        let sid = actual_search_id.clone();
+        tokio::spawn(async move {
+            let client = super::icon_http_client();
+            for (id, owner, repo) in candidates {
+                let handle = handle.clone();
+                let client = client.clone();
+                let sid = sid.clone();
+                tokio::spawn(async move {
+                    let probe_res = tokio::time::timeout(
+                        std::time::Duration::from_millis(1500),
+                        crate::github::http::probe_simple_icon(&client, &owner, &repo),
+                    )
+                    .await;
+
+                    let icon = match probe_res {
+                        Ok(u) => u,
+                        Err(_) => return,
+                    };
+
+                    if icon.trim().is_empty() {
+                        return;
+                    }
+
+                    // 世代比对防串词：若用户在此期间触发了新搜索，抛弃过时探测结果
+                    if SEARCH_GEN.load(Ordering::SeqCst) != current_gen {
+                        return;
+                    }
+
+                    let state = handle.state::<AppState>();
+                    if let Ok(db) = state.db() {
+                        let mut cycle = crate::db::AppIconCycle::new(&id, &owner, &repo);
+                        cycle.is_cataloged = false;
+                        cycle.level = 2;
+                        cycle.l2_url = icon.clone();
+                        cycle.selected_url = icon.clone();
+                        cycle.updated_at = crate::now_secs();
+                        let _ = db.upsert_icon_cycle(&cycle);
+                    }
+
+                    if SEARCH_GEN.load(Ordering::SeqCst) != current_gen {
+                        return;
+                    }
+
+                    let payload = SearchIconReadyPayload {
+                        search_id: sid,
+                        app_id: id,
+                        icon,
+                        level: 2,
+                    };
+                    let _ = handle.emit("zstore://search-icon-ready", &payload);
+                });
+            }
+        });
     }
+
+    Ok(filtered_results)
 }
 
 #[tauri::command]
@@ -362,6 +472,25 @@ pub async fn get_app_details_impl(
                 let start_db = std::time::Instant::now();
                 log::debug!("db_save start id={} sid={} req={}", clean_id, sid, req_id);
                 let _ = db.save_cached_app_detail(&clean_id, &detail);
+
+                let icon_trimmed = detail.icon.trim();
+                let is_avatar = crate::commands::is_avatar_url(icon_trimmed)
+                    || (icon_trimmed.starts_with("https://github.com/") && icon_trimmed.ends_with(".png") && !icon_trimmed.contains("/raw/"));
+                if !icon_trimmed.is_empty() && !is_avatar {
+                    let mut cycle = db
+                        .get_icon_cycle(&clean_id)
+                        .ok()
+                        .flatten()
+                        .unwrap_or_else(|| {
+                            crate::db::AppIconCycle::new(&clean_id, &detail.owner, &detail.repo)
+                        });
+                    cycle.is_cataloged = false;
+                    cycle.level = 4;
+                    cycle.l4_url = icon_trimmed.to_string();
+                    cycle.selected_url = icon_trimmed.to_string();
+                    cycle.updated_at = crate::now_secs();
+                    let _ = db.upsert_icon_cycle(&cycle);
+                }
                 log::debug!(
                     "db_save done id={} sid={} req={} elapsed_ms={}",
                     clean_id,
@@ -480,6 +609,40 @@ pub async fn get_app_details_impl(
                     }
                 }
                 let _ = db.save_cached_app_detail(&clean_id, &detail);
+
+                let icon_trimmed = detail.icon.trim();
+                let is_avatar = crate::commands::is_avatar_url(icon_trimmed)
+                    || (icon_trimmed.starts_with("https://github.com/") && icon_trimmed.ends_with(".png") && !icon_trimmed.contains("/raw/"));
+                if !icon_trimmed.is_empty() && !is_avatar {
+                    let level = if icon_trimmed.contains("simpleicons.org") {
+                        2
+                    } else if icon_trimmed.contains("/blob/") || icon_trimmed.to_lowercase().contains("readme") {
+                        4
+                    } else {
+                        3
+                    };
+
+                    let mut cycle = db
+                        .get_icon_cycle(&clean_id)
+                        .ok()
+                        .flatten()
+                        .unwrap_or_else(|| {
+                            crate::db::AppIconCycle::new(&clean_id, &detail.owner, &detail.repo)
+                        });
+
+                    cycle.is_cataloged = state.catalog.get_catalog_item(&clean_id).is_some();
+                    cycle.level = level;
+                    if level == 3 {
+                        cycle.l3_url = icon_trimmed.to_string();
+                    } else if level == 4 {
+                        cycle.l4_url = icon_trimmed.to_string();
+                    } else if level == 2 {
+                        cycle.l2_url = icon_trimmed.to_string();
+                    }
+                    cycle.selected_url = icon_trimmed.to_string();
+                    cycle.updated_at = now;
+                    let _ = db.upsert_icon_cycle(&cycle);
+                }
             }
             log::debug!(
                 "db_save done id={} sid={} req={} elapsed_ms={}",

@@ -17,7 +17,7 @@ import { EmptyState } from './components/EmptyState';
 import { Search } from 'lucide-react';
 import { AppDetail, AppDetailViewModel, AppSummary, InstalledApp, OAuthUser, UpdateItem, UpdateCheckProgressPayload, UpdateRule, ViewType, WatchUpdatedPayload } from './types';
 import { api, DEFAULT_SETTINGS } from './services/api';
-import { preloadIcons } from './components/AppIcon';
+import { preloadIcons, invalidateIconCache, isAvatarUrl } from './components/AppIcon';
 import { zlogInfo } from './lib/z-log';
 import { PLATFORM_IDS, matchPlatformSet, normalizePlatform, togglePlatformSet, type PlatformId } from './lib/platformFilter';
 import { useToasts } from './useToasts';
@@ -76,6 +76,7 @@ export const App: React.FC = () => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const searchSeqRef = useRef(0);
+  const currentSearchIdRef = useRef<string>('');
   const [isSearchingOnline, setIsSearchingOnline] = useState(false);
   const [onlineSearchPerformed, setOnlineSearchPerformed] = useState(false);
   const [apps, setApps] = useState<AppSummary[]>([]);
@@ -162,8 +163,48 @@ export const App: React.FC = () => {
     };
     window.addEventListener('zstore:catalog-synced', handleCatalogSynced);
 
+    const handleIconChanged = (e: Event) => {
+      const customEvent = e as CustomEvent<{ appId: string; icon: string }>;
+      const { appId, icon } = customEvent.detail || {};
+      if (!appId) return;
+      if (icon && isAvatarUrl(icon)) return;
+      const targetId = appId.toLowerCase();
+      setApps((prevApps) =>
+        prevApps.map((a) => (a.id.toLowerCase() === targetId ? { ...a, icon } : a))
+      );
+      setRecentlyViewedApps((prevRecents) =>
+        prevRecents.map((a) => (a.id.toLowerCase() === targetId ? { ...a, icon } : a))
+      );
+    };
+    window.addEventListener('zstore:icon-changed', handleIconChanged);
+
+    let unlistenSearchIcons: (() => void) | null = null;
+    api
+      .onSearchIconUpgraded((payload) => {
+        if (!payload || !payload.app_id || !payload.icon || isAvatarUrl(payload.icon)) return;
+        if (payload.search_id && currentSearchIdRef.current && payload.search_id !== currentSearchIdRef.current) {
+          return;
+        }
+
+        const targetId = payload.app_id.toLowerCase();
+        invalidateIconCache(targetId);
+        preloadIcons([{ id: targetId, icon: payload.icon }]);
+
+        setApps((prevApps) =>
+          prevApps.map((a) => (a.id.toLowerCase() === targetId ? { ...a, icon: payload.icon } : a))
+        );
+        setRecentlyViewedApps((prevRecents) =>
+          prevRecents.map((a) => (a.id.toLowerCase() === targetId ? { ...a, icon: payload.icon } : a))
+        );
+      })
+      .then((unlisten) => {
+        unlistenSearchIcons = unlisten;
+      });
+
     return () => {
       window.removeEventListener('zstore:catalog-synced', handleCatalogSynced);
+      window.removeEventListener('zstore:icon-changed', handleIconChanged);
+      if (unlistenSearchIcons) unlistenSearchIcons();
     };
   }, []);
 
@@ -401,8 +442,10 @@ export const App: React.FC = () => {
     // 仅在本地无结果时调用在线搜索
     if (localResults.length === 0) {
       setIsSearchingOnline(true);
+      const searchId = `search-${seq}-${Date.now()}`;
+      currentSearchIdRef.current = searchId;
       try {
-        const onlineResults = await api.searchAppsOnline(q);
+        const onlineResults = await api.searchAppsOnline(q, searchId);
         if (seq !== searchSeqRef.current) return;
         setOnlineSearchPerformed(true);
         if (onlineResults && onlineResults.length > 0) {
@@ -456,7 +499,7 @@ export const App: React.FC = () => {
       appDetailMemoryCache.current.set(`github.com/${repoLower}`, detail);
     }
 
-    if (activeDetailIdRef.current === detail.id || activeDetailIdRef.current?.toLowerCase() === idClean) {
+    if (activeDetailIdRef.current?.toLowerCase() === detail.id.toLowerCase() || activeDetailIdRef.current?.toLowerCase() === idClean) {
       setSelectedApp((prev) => {
         if (!prev) return { ...detail, isLoading: false, isRefreshing: false };
         if (
@@ -471,6 +514,8 @@ export const App: React.FC = () => {
       });
     }
 
+    const patchedIcon = detail.icon?.trim() && !isAvatarUrl(detail.icon) ? detail.icon.trim() : undefined;
+
     const patchSummary = (app: AppSummary): AppSummary =>
       app.id.toLowerCase() === idClean ||
       (detail.id && app.id.toLowerCase() === detail.id.toLowerCase())
@@ -479,11 +524,21 @@ export const App: React.FC = () => {
             stars: detail.stars,
             forks: detail.forks,
             latest_version: detail.latest_version,
+            icon: patchedIcon ? patchedIcon : app.icon,
           }
         : app;
 
     setApps((prev) => prev.map(patchSummary));
     setRecentlyViewedApps((prev) => prev.map(patchSummary));
+
+    if (patchedIcon) {
+      invalidateIconCache(idClean);
+      window.dispatchEvent(
+        new CustomEvent('zstore:icon-changed', {
+          detail: { appId: idClean, icon: patchedIcon },
+        })
+      );
+    }
   };
 
   // 打开应用详情弹窗（优先内存/数据库 0ms 瞬间秒开，且一个仓库生命周期内只拉取一次）
@@ -1128,7 +1183,8 @@ export const App: React.FC = () => {
                 installingIds={installingAppIds}
                 favoriteIds={favoriteIds}
                 watchedIds={watchedIds}
-                recentlyViewedApps={recentlyViewedApps}
+                recentlyViewedApps={searchQuery.trim() ? [] : recentlyViewedApps}
+                searchQuery={searchQuery}
                 onOpenDetail={handleOpenDetail}
                 onQuickInstall={handleQuickInstall}
                 onToggleFavorite={handleToggleFavorite}

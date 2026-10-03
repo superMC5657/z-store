@@ -28,6 +28,7 @@ interface HomeViewProps {
   installingIds?: Set<string>;
   favoriteIds: Set<string>;
   recentlyViewedApps?: AppSummary[];
+  searchQuery?: string;
   onOpenDetail: (id: string) => void;
   onQuickInstall: (id: string) => void;
   onToggleFavorite: (id: string) => void;
@@ -63,6 +64,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   installingIds,
   favoriteIds,
   recentlyViewedApps = [],
+  searchQuery = '',
   onOpenDetail,
   onQuickInstall,
   onToggleFavorite,
@@ -73,6 +75,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onResetPlatformFilter,
 }) => {
   const { t, i18n } = useTranslation();
+  const isSearching = Boolean(searchQuery && searchQuery.trim().length > 0);
 
   if (apps.length === 0) {
     // 筛选为空：全局设备平台筛选排除了所有应用。
@@ -226,8 +229,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </div>
       )}
 
-      {/* 最近浏览应用（功能 D） */}
-      {recentlyViewedApps && recentlyViewedApps.length > 0 && (
+      {/* 最近浏览应用（功能 D）：仅在非搜索态（首页）展示，搜索态不展示 */}
+      {!isSearching && recentlyViewedApps && recentlyViewedApps.length > 0 && (
         <div style={{ marginBottom: '28px' }}>
           <div className="section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h3 className="section-title">

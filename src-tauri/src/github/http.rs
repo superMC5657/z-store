@@ -383,6 +383,13 @@ pub(crate) async fn probe_simple_icon(
     String::new()
 }
 
+pub(crate) fn is_avatar_icon_url(url: &str) -> bool {
+    let u = url.trim();
+    crate::commands::is_avatar_url(u)
+        || (u.starts_with("https://github.com/") && u.ends_with(".png") && !u.contains("/raw/"))
+        || u.contains("github.com/identicons/")
+}
+
 /// 若 app_icon_cycles 有该 app 且 selected_url 非空且本地缓存文件存在，
 /// 则返回已确认的图标（优先返回 dataURI 语义，不可读时回退到可用 remote_url），否则返回 None。
 pub(crate) fn resolve_confirmed_icon_from_db(
@@ -416,7 +423,7 @@ pub(crate) fn resolve_confirmed_icon_from_db(
         })?;
 
     let selected = cycle.selected_url.trim();
-    if selected.is_empty() {
+    if selected.is_empty() || is_avatar_icon_url(selected) {
         return None;
     }
 

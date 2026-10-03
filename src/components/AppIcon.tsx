@@ -15,18 +15,33 @@ export interface AppIconProps {
 // 模块级内存缓存，避免页面切页重新计算与读取
 const iconDataCache = new Map<string, string>();
 const iconPendingPromises = new Map<string, Promise<string>>();
+const appIdToIconMap = new Map<string, string>();
 
 /**
  * 失效或清空图标内存缓存。
- * 若提供 key，则移除该 key 对应的缓存；若不提供 key，则清空全部内存缓存。
+ * 若提供 key（appId 或 icon URL），则移除该 key 及其对应映射的缓存；若不提供 key，则清空全部内存缓存。
  */
 export function invalidateIconCache(key?: string): void {
   if (key) {
     iconDataCache.delete(key);
     iconPendingPromises.delete(key);
+    const mappedIcon = appIdToIconMap.get(key);
+    if (mappedIcon) {
+      iconDataCache.delete(mappedIcon);
+      iconPendingPromises.delete(mappedIcon);
+      appIdToIconMap.delete(key);
+    }
+    for (const [id, url] of appIdToIconMap.entries()) {
+      if (url === key) {
+        iconDataCache.delete(id);
+        iconPendingPromises.delete(id);
+        appIdToIconMap.delete(id);
+      }
+    }
   } else {
     iconDataCache.clear();
     iconPendingPromises.clear();
+    appIdToIconMap.clear();
   }
 }
 
@@ -45,12 +60,23 @@ export function isRemoteIcon(icon: string | undefined | null): boolean {
   );
 }
 
+// 判定是否为作者头像（统一过滤，不再使用作者头像当仓库 Logo，无专属图走 L5 徽章）
+export function isAvatarUrl(url: string | undefined | null): boolean {
+  if (!url) return false;
+  const u = url.trim().toLowerCase();
+  return (
+    u.includes('avatars.githubusercontent.com') ||
+    u.includes('identicons.github.com') ||
+    (u.startsWith('https://github.com/') && u.endsWith('.png') && !u.includes('/raw/'))
+  );
+}
+
 export function preloadIcons(items: (string | { id?: string; icon: string })[]) {
   if (typeof window === 'undefined') return;
   items.forEach((item) => {
     const icon = typeof item === 'string' ? item : item.icon;
     const id = typeof item === 'string' ? undefined : item.id;
-    if (!icon || iconDataCache.has(icon) || icon.startsWith('data:')) return;
+    if (!icon || isAvatarUrl(icon) || iconDataCache.has(icon) || icon.startsWith('data:')) return;
     if (!isRemoteIcon(icon)) return;
 
     if (!iconPendingPromises.has(icon)) {
@@ -58,6 +84,12 @@ export function preloadIcons(items: (string | { id?: string; icon: string })[]) 
         .getOrFetchIcon(id, icon)
         .then((dataUri) => {
           iconDataCache.set(icon, dataUri);
+          if (id) {
+            appIdToIconMap.set(id, icon);
+            appIdToIconMap.set(id.toLowerCase(), icon);
+            iconDataCache.set(id, dataUri);
+            iconDataCache.set(id.toLowerCase(), dataUri);
+          }
           iconPendingPromises.delete(icon);
           return dataUri;
         })
@@ -80,22 +112,82 @@ export const AppIcon: React.FC<AppIconProps> = ({
   size,
   iconOverride,
 }) => {
-  const activeIcon = iconOverride !== undefined ? iconOverride : icon;
+  const rawActiveIcon = iconOverride !== undefined ? iconOverride : icon;
+  const activeIcon = isAvatarUrl(rawActiveIcon) ? '' : rawActiveIcon;
   const isDataUri = Boolean(activeIcon && activeIcon.startsWith('data:'));
   const [displaySrc, setDisplaySrc] = useState<string>(() => {
-    if (!activeIcon) return '';
+    const rawCached = appId ? (iconDataCache.get(appId) || iconDataCache.get(appId.toLowerCase())) : '';
+    const cachedAppIcon = isAvatarUrl(rawCached) ? '' : rawCached;
+    if (!activeIcon) return cachedAppIcon || '';
     if (isDataUri) return activeIcon;
     if (iconOverride !== undefined) return activeIcon;
-    return iconDataCache.get(activeIcon) || activeIcon;
+    const fromCache = iconDataCache.get(activeIcon);
+    const validCache = fromCache && !isAvatarUrl(fromCache) ? fromCache : '';
+    return validCache || cachedAppIcon || activeIcon;
   });
   const [hasError, setHasError] = useState(false);
+
+  // 监听即时图标变更事件（零 IPC 总线），直接更新展示
+  useEffect(() => {
+    if (!appId) return;
+    const handleCustomChange = (e: Event) => {
+      const customEvent = e as CustomEvent<{ appId: string; icon: string }>;
+      const eventAppId = customEvent.detail?.appId;
+      if (eventAppId && eventAppId.toLowerCase() === appId.toLowerCase()) {
+        const newIcon = customEvent.detail.icon || '';
+        if (newIcon && !isAvatarUrl(newIcon)) {
+          if (newIcon.startsWith('data:')) {
+            iconDataCache.set(appId, newIcon);
+            iconDataCache.set(appId.toLowerCase(), newIcon);
+            iconDataCache.set(eventAppId, newIcon);
+            iconDataCache.set(eventAppId.toLowerCase(), newIcon);
+            setDisplaySrc(newIcon);
+            setHasError(false);
+          } else {
+            api
+              .getOrFetchIcon(appId, newIcon)
+              .then((dataUri) => {
+                iconDataCache.set(appId, dataUri);
+                iconDataCache.set(appId.toLowerCase(), dataUri);
+                iconDataCache.set(eventAppId, dataUri);
+                iconDataCache.set(eventAppId.toLowerCase(), dataUri);
+                iconDataCache.set(newIcon, dataUri);
+                setDisplaySrc(dataUri);
+                setHasError(false);
+              })
+              .catch(() => {
+                setDisplaySrc(newIcon);
+                setHasError(false);
+              });
+          }
+        } else {
+          setDisplaySrc('');
+          setHasError(false);
+        }
+      }
+    };
+    window.addEventListener('zstore:icon-changed', handleCustomChange);
+    return () => {
+      window.removeEventListener('zstore:icon-changed', handleCustomChange);
+    };
+  }, [appId]);
 
   // 判断是否为网络图片 URL（复用模块级唯一谓词，禁止内联重复形状）
   const isUrl = isRemoteIcon(activeIcon);
 
   useEffect(() => {
     setHasError(false);
-    if (!activeIcon || !isUrl || isDataUri) {
+    if (!activeIcon) {
+      const rawCached = appId ? (iconDataCache.get(appId) || iconDataCache.get(appId.toLowerCase())) : undefined;
+      const cached = rawCached && !isAvatarUrl(rawCached) ? rawCached : undefined;
+      if (cached) {
+        setDisplaySrc(cached);
+        return;
+      }
+      setDisplaySrc('');
+      return;
+    }
+    if (!isUrl || isDataUri) {
       setDisplaySrc(activeIcon);
       return;
     }
@@ -136,6 +228,12 @@ export const AppIcon: React.FC<AppIconProps> = ({
     promise
       .then((dataUri) => {
         iconDataCache.set(activeIcon, dataUri);
+        if (appId) {
+          appIdToIconMap.set(appId, activeIcon);
+          appIdToIconMap.set(appId.toLowerCase(), activeIcon);
+          iconDataCache.set(appId, dataUri);
+          iconDataCache.set(appId.toLowerCase(), dataUri);
+        }
         iconPendingPromises.delete(activeIcon);
         if (isMounted) {
           setDisplaySrc(dataUri);

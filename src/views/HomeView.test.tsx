@@ -263,4 +263,13 @@ describe('U16b: recently-viewed platform filter (App derivation)', () => {
     expect(container.textContent).not.toContain('RustDesk');
     expect(container.textContent).not.toContain('无platformsApp');
   });
+
+  it('hides 最近浏览 in search state when searchQuery is present', () => {
+    const visible = filterRecents(BASE_FIXTURE, ['ios']);
+    const { container } = renderHomeView(filterApps(BASE_FIXTURE, ['ios']), {
+      recentlyViewedApps: visible,
+      searchQuery: 'ios',
+    });
+    expect(container.textContent).not.toContain('最近浏览');
+  });
 });

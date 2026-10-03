@@ -30,6 +30,13 @@ import {
   DownloadAssetResult,
 } from '../types';
 
+export interface SearchIconReadyPayload {
+  search_id: string;
+  app_id: string;
+  icon: string;
+  level: number;
+}
+
 export interface AppIconCycleResult {
   url: string;
   remote_url?: string;
@@ -40,6 +47,8 @@ export interface AppIconCycleResult {
   isFallback?: boolean;
   total_levels?: number;
   totalLevels?: number;
+  is_cataloged?: boolean;
+  isCataloged?: boolean;
 }
 
 export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -71,13 +80,24 @@ const tauriApi = {
     return tauriInvoke<AppSummary[]>('search_apps', { query });
   },
 
-  async searchAppsOnline(query: string): Promise<AppSummary[]> {
+  async searchAppsOnline(query: string, searchId?: string): Promise<AppSummary[]> {
     try {
-      return await tauriInvoke<AppSummary[]>('search_apps_online', { query });
+      return await tauriInvoke<AppSummary[]>('search_apps_online', {
+        query,
+        searchId,
+        search_id: searchId,
+      });
     } catch (err) {
       console.warn('search_apps_online is not available or failed:', err);
       return [];
     }
+  },
+
+  async onSearchIconUpgraded(callback: (payload: SearchIconReadyPayload) => void): Promise<() => void> {
+    if (!isTauri) return () => {};
+    return listen<SearchIconReadyPayload>('zstore://search-icon-ready', (e) => {
+      callback(e.payload);
+    });
   },
 
   async getAppDetails(id: string, forceRefresh = false): Promise<AppDetail> {

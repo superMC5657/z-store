@@ -143,7 +143,7 @@ impl CatalogService {
                                 let topics = it.topics.unwrap_or_default();
                                 super::http::fallback_summary(
                                     client,
-                                    it.full_name,
+                                    it.full_name.to_lowercase(),
                                     it.name,
                                     owner,
                                     repo,
@@ -265,7 +265,7 @@ impl CatalogService {
         let confirmed_icon = super::http::open_db_opt().and_then(|db| {
             super::http::resolve_confirmed_icon_from_db(&db, &format!("{}/{}", owner, repo), owner, repo)
         });
-        Ok(super::http::fallback_summary(
+        let item = super::http::fallback_summary(
             &client,
             format!("{}/{}", owner, repo),
             repo_data.name.unwrap_or_else(|| repo.to_string()),
@@ -281,6 +281,20 @@ impl CatalogService {
             true,
             confirmed_icon,
         )
-        .await)
+        .await;
+
+        if !item.icon.trim().is_empty() {
+            if let Some(db) = super::http::open_db_opt() {
+                let mut cycle = crate::db::AppIconCycle::new(&item.id, &item.owner, &item.repo);
+                cycle.is_cataloged = false;
+                cycle.level = 2;
+                cycle.l2_url = item.icon.clone();
+                cycle.selected_url = item.icon.clone();
+                cycle.updated_at = crate::now_secs();
+                let _ = db.upsert_icon_cycle(&cycle);
+            }
+        }
+
+        Ok(item)
     }
 }
