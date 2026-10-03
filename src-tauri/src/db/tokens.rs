@@ -1,4 +1,4 @@
-use super::{now_secs, Database};
+use super::{clean, now_secs, Database};
 use crate::models::HostTokenEntry;
 use rusqlite::{params, Result};
 
@@ -23,9 +23,9 @@ impl Database {
     pub fn get_host_token(&self, host: &str) -> Result<Option<String>> {
         let val: Option<String> = self.query_scalar_opt(
             "SELECT token FROM host_tokens WHERE host = ?1",
-            params![host.to_lowercase()],
+            params![clean(host).to_lowercase()],
         )?;
-        Ok(val.filter(|t| !t.trim().is_empty()))
+        Ok(val.filter(|t| !clean(t).is_empty()))
     }
 
     pub fn set_host_token(&self, host: &str, token: &str) -> Result<()> {
@@ -38,14 +38,15 @@ impl Database {
                 token = excluded.token,
                 updated_at = excluded.updated_at;
             "#,
-            params![host.to_lowercase(), token.trim(), now],
-        )
+            params![clean(host).to_lowercase(), clean(token), now],
+        )?;
+        Ok(())
     }
 
     pub fn remove_host_token(&self, host: &str) -> Result<bool> {
-        let rows = self.conn.execute(
+        let rows = self.exec_upsert(
             "DELETE FROM host_tokens WHERE host = ?1",
-            params![host.to_lowercase()],
+            params![clean(host).to_lowercase()],
         )?;
         Ok(rows > 0)
     }
@@ -68,7 +69,8 @@ impl Database {
                 rate_limit_reset = excluded.rate_limit_reset,
                 updated_at = excluded.updated_at;
             "#,
-            params![host.to_lowercase(), remaining, limit, reset, now],
-        )
+            params![clean(host).to_lowercase(), remaining, limit, reset, now],
+        )?;
+        Ok(())
     }
 }

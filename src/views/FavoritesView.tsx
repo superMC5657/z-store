@@ -6,19 +6,12 @@ import { AppCard } from '../components/AppCard';
 import { EmptyState } from '../components/EmptyState';
 import { SegmentedControl } from '../components/SegmentedControl';
 import { AppSummary, OAuthUser, StarredSyncResult } from '../types';
-import { api } from '../services/api';
+import { tauriApi } from '../services/api';
+import { ViewAppActions, ViewShell } from './ViewShell';
+import { matchesAppText } from './useViewFilter';
 
-interface FavoritesViewProps {
-  apps: AppSummary[];
-  favoriteIds: Set<string>;
-  watchedIds?: Set<string>;
-  installedIds: Set<string>;
-  installingIds?: Set<string>;
+interface FavoritesViewProps extends ViewAppActions {
   oauthUser?: OAuthUser | null;
-  onOpenDetail: (id: string) => void;
-  onQuickInstall: (id: string) => void;
-  onToggleFavorite: (id: string) => void;
-  onToggleWatch?: (id: string) => void;
 }
 
 export const FavoritesView: React.FC<FavoritesViewProps> = ({
@@ -49,19 +42,8 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
 
   const watchedSet = watchedIds || new Set<string>();
 
-  // FR-6.1: 收藏 / 关注搜索框（按名称 / 别名 / 仓库坐标过滤）
-  const matchesSearch = (a: AppSummary) => {
-    const q = searchText.trim().toLowerCase();
-    if (!q) return true;
-    return (
-      a.name.toLowerCase().includes(q) ||
-      (a.description_en && a.description_en.toLowerCase().includes(q)) ||
-      a.owner.toLowerCase().includes(q) ||
-      a.repo.toLowerCase().includes(q) ||
-      a.description.toLowerCase().includes(q) ||
-      a.category_name.toLowerCase().includes(q)
-    );
-  };
+  // FR-6.1: 收藏 / 关注搜索框（按名称 / 别名 / 仓库坐标过滤，见 useViewFilter.matchesAppText）
+  const matchesSearch = (a: AppSummary) => matchesAppText(a, searchText);
 
   const favoriteApps = apps.filter((a) => favoriteIds.has(a.id) && matchesSearch(a));
   const watchedApps = apps.filter((a) => watchedSet.has(a.id) && matchesSearch(a));
@@ -71,7 +53,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
     setSyncError(null);
     setSyncResult(null);
     try {
-      const res = await api.syncGithubStarred(githubUser.trim() || undefined);
+      const res = await tauriApi.syncGithubStarred(githubUser.trim() || undefined);
       setSyncResult(res);
     } catch (err) {
       setSyncError(String(err));
@@ -116,7 +98,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   };
 
   return (
-    <div className="favorites-view view-entrance">
+    <ViewShell viewClass="favorites-view">
       {/* 标签导航栏（Linear Segmented Control） */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
         <SegmentedControl
@@ -386,6 +368,6 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
           )}
         </div>
       )}
-    </div>
+    </ViewShell>
   );
 };

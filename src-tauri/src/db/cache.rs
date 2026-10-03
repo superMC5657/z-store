@@ -1,4 +1,4 @@
-use super::{now_secs, Database};
+use super::{clean, now_secs, Database};
 use crate::models::AppDetail;
 use rusqlite::{params, Result};
 
@@ -34,7 +34,8 @@ impl Database {
                 last_checked_at = excluded.last_checked_at;
             "#,
             params![endpoint_url, etag, payload_json, timestamp],
-        )
+        )?;
+        Ok(())
     }
 
     pub fn get_cached_app_detail(
@@ -42,15 +43,15 @@ impl Database {
         app_id: &str,
         ttl_seconds: Option<i64>,
     ) -> Result<Option<AppDetail>> {
-        let clean = app_id.trim();
-        if clean.is_empty() {
+        let cleaned = clean(app_id);
+        if cleaned.is_empty() {
             return Ok(None);
         }
 
         let mut stmt = self.conn.prepare(
             "SELECT detail_json, cached_at FROM app_details_cache WHERE app_id = ?1 LIMIT 1",
         )?;
-        let mut rows = stmt.query(params![clean])?;
+        let mut rows = stmt.query(params![cleaned])?;
         if let Some(row) = rows.next()? {
             let json_str: String = row.get(0)?;
             let cached_at: i64 = row.get(1)?;
@@ -81,15 +82,15 @@ impl Database {
 
     /// 当远端返回 304 Not Modified 时，快速刷新 cached_at 时间戳，零开销延长保鲜期
     pub fn touch_cached_app_detail(&self, app_id: &str, new_cached_at: i64) -> Result<()> {
-        self.conn.execute(
+        self.exec_upsert(
             "UPDATE app_details_cache SET cached_at = ?1 WHERE app_id = ?2",
-            params![new_cached_at, app_id.trim()],
+            params![new_cached_at, clean(app_id)],
         )?;
         Ok(())
     }
 
     pub fn save_cached_app_detail(&self, app_id: &str, detail: &AppDetail) -> Result<()> {
-        let clean_id = app_id.trim();
+        let clean_id = clean(app_id);
         let now = now_secs();
         let json_str = serde_json::to_string(detail)
             .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
@@ -105,30 +106,31 @@ impl Database {
                 cached_at = excluded.cached_at;
             "#,
             params![clean_id, detail.name, detail.latest_version, json_str, now,],
-        )
+        )?;
+        Ok(())
     }
 
     /// 测试专用：清空详情缓存（生产路径只增量写入，从不全清）。
     #[cfg(test)]
     pub fn clear_app_details_cache(&self) -> Result<()> {
-        self.conn.execute("DELETE FROM app_details_cache", [])?;
+        self.exec_upsert("DELETE FROM app_details_cache", [])?;
         Ok(())
     }
 
     pub fn get_icon_cache_url(&self, cache_key: &str) -> Result<Option<String>> {
-        let clean = cache_key.trim();
-        if clean.is_empty() {
+        let cleaned = clean(cache_key);
+        if cleaned.is_empty() {
             return Ok(None);
         }
         self.query_scalar_opt(
             "SELECT remote_url FROM icon_cache_meta WHERE cache_key = ?1",
-            params![clean],
+            params![cleaned],
         )
     }
 
     pub fn save_icon_cache_url(&self, cache_key: &str, remote_url: &str) -> Result<()> {
-        let clean_key = cache_key.trim();
-        let clean_url = remote_url.trim();
+        let clean_key = clean(cache_key);
+        let clean_url = clean(remote_url);
         if clean_key.is_empty() || clean_url.is_empty() {
             return Ok(());
         }
@@ -137,16 +139,17 @@ impl Database {
             "INSERT INTO icon_cache_meta (cache_key, remote_url, cached_at) VALUES (?1, ?2, ?3)
              ON CONFLICT(cache_key) DO UPDATE SET remote_url = excluded.remote_url, cached_at = excluded.cached_at",
             params![clean_key, clean_url, now],
-        )
+        )?;
+        Ok(())
     }
 
     /// 内容扩展名与推断不一致纠正时，删除推断错误的缓存键。
     pub fn delete_icon_cache_url(&self, cache_key: &str) -> Result<()> {
-        let clean_key = cache_key.trim();
+        let clean_key = clean(cache_key);
         if clean_key.is_empty() {
             return Ok(());
         }
-        self.conn.execute(
+        self.exec_upsert(
             "DELETE FROM icon_cache_meta WHERE cache_key = ?1",
             params![clean_key],
         )?;

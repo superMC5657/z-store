@@ -19,6 +19,7 @@ import { sanitizeHtml } from '../utils/sanitize';
 import { FlyoutMenu } from '../components/FlyoutMenu';
 import { AppIcon } from '../components/AppIcon';
 import { EmptyState } from '../components/EmptyState';
+import { ViewShell } from './ViewShell';
 import { resolveAppIconInfo } from '../utils/appHelper';
 
 interface UpdatesViewProps {
@@ -103,7 +104,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
   };
 
   return (
-    <div className="updates-view view-entrance">
+    <ViewShell viewClass="updates-view">
       <div className="section-header">
         <h3 className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <RotateCcw size={18} style={{ color: 'var(--brand-primary)' }} />
@@ -478,7 +479,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
           })}
         </div>
       )}
-    </div>
+    </ViewShell>
   );
 };
 

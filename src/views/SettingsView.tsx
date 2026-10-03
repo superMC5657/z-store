@@ -20,7 +20,8 @@ import {
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { AppSettings } from '../types';
-import { api } from '../services/api';
+import { tauriApi } from '../services/api';
+import { ViewShell } from './ViewShell';
 import { ClientUpdateRow } from '../components/ClientUpdateRow';
 import { OAuthAccountCard } from '../components/OAuthAccountCard';
 import { DataBackupRow } from '../components/DataBackupRow';
@@ -111,7 +112,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setIsSyncingCatalog(true);
     setSyncFeedback(null);
     try {
-      const res = await api.syncCatalog(true);
+      const res = await tauriApi.syncCatalog(true);
       setSyncFeedback(res.message);
       triggerChangeFeedback('catalog_sync', t('settings.catalog_sync_success'));
       setTimeout(() => setSyncFeedback(null), 5000);
@@ -139,7 +140,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setProxyTestResult(null);
     try {
       const url = proxyInput.trim();
-      const res = await api.testProxy(url || undefined);
+      const res = await tauriApi.testProxy(url || undefined);
       if (res.success) {
         setProxyTestResult({
           success: true,
@@ -252,7 +253,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   };
 
   return (
-    <div className="settings-view view-entrance">
+    <ViewShell viewClass="settings-view">
       <div className="section-header">
         <h3 className="section-title">
           <Settings size={16} strokeWidth={1.5} />
@@ -515,7 +516,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               className="btn-fluent btn-secondary"
               onClick={async () => {
                 try {
-                  const picked = await api.selectFolder(settings.download_dir, t('settings.select_download_dir'));
+                  const picked = await tauriApi.selectFolder(settings.download_dir, t('settings.select_download_dir'));
                   if (picked) {
                     onUpdateSetting('download_dir', picked);
                     triggerChangeFeedback('download_dir', t('settings.download_dir'));
@@ -553,7 +554,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               className="btn-fluent btn-secondary"
               onClick={async () => {
                 try {
-                  const picked = await api.selectFolder(settings.portable_dir, t('settings.select_portable_dir'));
+                  const picked = await tauriApi.selectFolder(settings.portable_dir, t('settings.select_portable_dir'));
                   if (picked) {
                     onUpdateSetting('portable_dir', picked);
                     triggerChangeFeedback('portable_dir', t('settings.portable_dir'));
@@ -768,6 +769,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
         <DataBackupRow />
       </div>
-    </div>
+    </ViewShell>
   );
 };

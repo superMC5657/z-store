@@ -16,25 +16,14 @@ import {
   ArrowLeft,
 } from 'lucide-react';
 import { AppCard } from '../components/AppCard';
-import { EmptyState } from '../components/EmptyState';
-import { AppSummary } from '../types';
+import {
+  FilterEmptyState,
+  RequiredPlatformReset,
+  ViewAppActions,
+  ViewShell,
+} from './ViewShell';
 
-interface CategoriesViewProps {
-  apps: AppSummary[];
-  installedIds: Set<string>;
-  installingIds?: Set<string>;
-  favoriteIds: Set<string>;
-  watchedIds?: Set<string>;
-  onOpenDetail: (id: string) => void;
-  onQuickInstall: (id: string) => void;
-  onToggleFavorite: (id: string) => void;
-  onToggleWatch?: (id: string) => void;
-  /**
-   * 由调用方（App）维护的全局设备平台筛选重置回调。
-   * 必选属性：空状态重置按钮始终通过 App 恢复全量设备集合并返回分类大厅。
-   */
-  onResetPlatformFilter: () => void;
-}
+interface CategoriesViewProps extends ViewAppActions, RequiredPlatformReset {}
 
 const CATEGORY_DEFINITIONS = [
   { id: 'dev', Icon: Code2, nameKey: 'categories.cat_dev_name' as const, descKey: 'categories.cat_dev_desc' as const, color: '#5865f2' },
@@ -83,7 +72,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   };
 
   return (
-    <div className="categories-view view-entrance">
+    <ViewShell viewClass="categories-view">
       {/* 顶部标题与返回控制 */}
       <div className="section-header">
         <h3 className="section-title">
@@ -114,15 +103,12 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
       {!selectedCategory ? (
         <>
           {apps.length === 0 && (
-            <EmptyState
+            <FilterEmptyState
               style={{ marginBottom: '16px' }}
               title={t('categories.no_apps_device_filter')}
               description={t('categories.no_apps_device_filter_desc')}
-              action={(
-                <button type="button" className="btn-fluent btn-primary filter-empty-reset" onClick={handleResetFilter}>
-                  {t('categories.reset_device_filter')}
-                </button>
-              )}
+              resetLabel={t('categories.reset_device_filter')}
+              onReset={handleResetFilter}
             />
           )}
           <div className="app-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
@@ -197,18 +183,16 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
               />
             ))
           ) : (
-            <EmptyState
+            <FilterEmptyState
               style={{ width: '100%' }}
               title={t('categories.category_empty_for_platform')}
-              action={(
-                <button type="button" className="btn-fluent btn-secondary filter-empty-reset" onClick={handleResetFilter}>
-                  {t('categories.reset_device_filter')}
-                </button>
-              )}
+              resetLabel={t('categories.reset_device_filter')}
+              variant="secondary"
+              onReset={handleResetFilter}
             />
           )}
         </div>
       )}
-    </div>
+    </ViewShell>
   );
 };

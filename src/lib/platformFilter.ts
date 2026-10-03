@@ -26,12 +26,6 @@ export const PLATFORM_META: Record<PlatformId, { label: string }> = {
   android: { label: 'Android' },
 };
 
-export interface PlatformFilterSelection {
-  selectedPlatforms: ReadonlySet<PlatformId>;
-  platformCounts: Readonly<Record<PlatformId, number>>;
-  onTogglePlatform: (id: PlatformId) => void;
-}
-
 const KNOWN_PLATFORMS: ReadonlySet<string> = new Set<string>(PLATFORM_IDS);
 
 function isPlatformId(value: string): value is PlatformId {

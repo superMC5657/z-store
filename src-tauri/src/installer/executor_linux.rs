@@ -40,13 +40,9 @@ pub fn appimage_launch_argv(path: &Path) -> Vec<String> {
 #[cfg(target_os = "linux")]
 pub async fn install_appimage(installer_path: &Path) -> Result<InstallOutcome, String> {
     let chmod_argv = appimage_chmod_argv(installer_path);
-    let _ = tokio::process::Command::new(&chmod_argv[0])
-        .args(&chmod_argv[1..])
-        .status()
-        .await;
+    let _ = super::run_argv(&chmod_argv).await;
     let launch_argv = appimage_launch_argv(installer_path);
-    let status = tokio::process::Command::new(&launch_argv[0])
-        .status()
+    let status = super::run_argv(&launch_argv)
         .await
         .map_err(|e| format!("启动 AppImage 失败: {}", e))?;
     if status.success() {
@@ -64,9 +60,7 @@ async fn run_pkexec_package_installer(
     tool_label: &str,
     pkg_kind: &str,
 ) -> Result<InstallOutcome, String> {
-    let status = tokio::process::Command::new(&argv[0])
-        .args(&argv[1..])
-        .status()
+    let status = super::run_argv(argv)
         .await
         .map_err(|e| format!("调起 pkexec {} 失败: {}", tool_label, e))?;
     if status.success() {

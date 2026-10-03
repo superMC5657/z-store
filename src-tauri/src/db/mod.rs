@@ -34,9 +34,9 @@ pub const WATCH_NOTIFY_FREQUENCY_VALID: [&str; 2] = ["startup", "daily"];
 
 /// 将任意输入归一化到关注通知频率有效值；非法值回退默认 `daily`。
 pub fn normalize_watch_notify_frequency(value: &str) -> String {
-    let clean = value.trim().to_lowercase();
-    if WATCH_NOTIFY_FREQUENCY_VALID.contains(&clean.as_str()) {
-        clean
+    let clean_value = clean(value).to_lowercase();
+    if WATCH_NOTIFY_FREQUENCY_VALID.contains(&clean_value.as_str()) {
+        clean_value
     } else {
         WATCH_NOTIFY_FREQUENCY_DEFAULT.to_string()
     }
@@ -56,8 +56,7 @@ pub fn normalize_detail_cache_ttl(minutes: i64) -> i64 {
 /// 持久化前必须经此函数（ADR-0007 TTL 挡位 / FR-6.2 通知频率）。
 pub fn normalize_setting_value(key: &str, value: &str) -> String {
     if key == "detail_cache_ttl_minutes" {
-        value
-            .trim()
+        clean(value)
             .parse::<i64>()
             .map(normalize_detail_cache_ttl)
             .unwrap_or_else(|_| default_detail_cache_ttl_minutes())
@@ -66,6 +65,35 @@ pub fn normalize_setting_value(key: &str, value: &str) -> String {
         normalize_watch_notify_frequency(value)
     } else {
         value.to_string()
+    }
+}
+
+/// 输入清洗唯一落点：去首尾空白（db 内统一使用，避免 trim() 散写）。
+#[inline]
+pub(crate) fn clean(s: &str) -> &str {
+    s.trim()
+}
+
+/// 历史裁剪表白名单（防 SQL 注入：表名/排序列仅允许白名单常量，limit 为整数格式化）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ValidatedTable {
+    SearchHistory,
+    ViewHistory,
+}
+
+impl ValidatedTable {
+    fn table_name(self) -> &'static str {
+        match self {
+            Self::SearchHistory => "search_history",
+            Self::ViewHistory => "view_history",
+        }
+    }
+
+    fn order_col(self) -> &'static str {
+        match self {
+            Self::SearchHistory => "searched_at",
+            Self::ViewHistory => "viewed_at",
+        }
     }
 }
 
@@ -85,8 +113,24 @@ impl Database {
         rows.collect()
     }
 
-    pub(crate) fn exec_upsert<P: rusqlite::Params>(&self, sql: &str, params: P) -> Result<()> {
-        self.conn.execute(sql, params)?;
+    pub(crate) fn exec_upsert<P: rusqlite::Params>(&self, sql: &str, params: P) -> Result<usize> {
+        self.conn.execute(sql, params)
+    }
+
+    /// 历史裁剪唯一落点：白名单表名防注入，limit 为整数格式化（调用方需 `as u64` 传入配置值）。
+    pub(crate) fn prune_history_table(
+        &self,
+        table: ValidatedTable,
+        limit: u64,
+    ) -> Result<()> {
+        let sql = format!(
+            "DELETE FROM {} WHERE id NOT IN (SELECT id FROM {} ORDER BY {} DESC LIMIT {})",
+            table.table_name(),
+            table.table_name(),
+            table.order_col(),
+            limit
+        );
+        self.exec_upsert(&sql, [])?;
         Ok(())
     }
 

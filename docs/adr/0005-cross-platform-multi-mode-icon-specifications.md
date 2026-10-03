@@ -65,8 +65,8 @@
    ```bash
    npx tauri icon app-icon.svg
    ```
-2. **多端独立深色包烘焙建议**：
-   未来为 iOS/Android 单独烘焙暗色资产时，可直接调用：
+2. **多端独立深色包烘焙建议（未来规划，未落地）**：
+   未来为 iOS/Android 单独烘焙暗色资产时，设想调用（当前仓库不存在 `src-tauri/icons-dark/`，以下命令不可直接执行）：
    ```bash
    npx tauri icon app-icon-dark.svg -o src-tauri/icons-dark/
    ```

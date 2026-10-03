@@ -18,6 +18,7 @@ import { AppSummary, InstalledApp, UpdateRule } from '../types';
 import { FlyoutMenu } from '../components/FlyoutMenu';
 import { AppIcon } from '../components/AppIcon';
 import { EmptyState } from '../components/EmptyState';
+import { ViewShell } from './ViewShell';
 import { formatAppDate, resolveInstalledIconInfo, resolveInstalledAppName } from '../utils/appHelper';
 
 interface InstalledViewProps {
@@ -323,7 +324,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
   };
 
   return (
-    <div className="installed-view view-entrance">
+    <ViewShell viewClass="installed-view">
       <div className="section-header">
         <h3 className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Package size={16} strokeWidth={1.5} style={{ color: 'var(--brand-primary)' }} />
@@ -551,6 +552,6 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
           })}
         </div>
       )}
-    </div>
+    </ViewShell>
   );
 };

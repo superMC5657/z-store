@@ -99,7 +99,7 @@ async fn probe_simple_icons(client: &reqwest::Client, owner: &str, repo: &str) -
         return String::new();
     }
 
-    const BROWSER_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+    const BROWSER_UA: &str = crate::forge::http::BROWSER_UA_VALUE;
     let probe_timeout = std::time::Duration::from_secs(5);
 
     for slug in slugs {
@@ -147,9 +147,7 @@ async fn probe_git_trees(
     }
     hdrs.insert(
         reqwest::header::USER_AGENT,
-        reqwest::header::HeaderValue::from_static(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        ),
+        reqwest::header::HeaderValue::from_static(crate::forge::http::BROWSER_UA_VALUE),
     );
 
     let mut branches: Vec<String> = Vec::with_capacity(3);
@@ -255,10 +253,7 @@ async fn probe_readme(
     let readme_url = format!("https://api.github.com/repos/{}/{}/readme", owner, repo);
     let mut req = client
         .get(&readme_url)
-        .header(
-            "User-Agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        )
+        .header("User-Agent", crate::forge::http::BROWSER_UA_VALUE)
         .header("Accept", "application/vnd.github.raw");
     if let Some(tok) = token.filter(|t| !t.trim().is_empty()) {
         req = req.header(

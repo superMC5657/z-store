@@ -162,7 +162,7 @@ fn raw_url(owner: &str, repo: &str, branch: &str, file_path: &str) -> String {
     )
 }
 
-const BROWSER_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+const BROWSER_UA: &str = crate::forge::http::BROWSER_UA_VALUE;
 
 /// 实测图片字节：200 + image/* + ≥300B（与 `verifyImageBytes` 同阈值）。
 /// 返回 `(字节数, content-type)`。
@@ -205,18 +205,31 @@ struct GitTreeNode {
 /// `headers` 传入带 token 的鉴权头则含 Trees 级；
 /// 传 `None`（如无 token 的图标命令回退路径）则跳过 Trees，只做免鉴权级。
 /// 命中返回权威 URL，未命中返回 `None`。
-pub(crate) async fn probe_repo_logo(
+/// 快慢分离超时：快路径 SimpleIcons 每 slug ≤1500ms（免鉴权），慢路径 Trees 保持 12s（需鉴权）。
+pub(crate) const SIMPLE_ICON_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_millis(1500);
+const TREES_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12);
+
+/// repo+owner 去重 slug 单循环（旧行为）：先 repo 后 owner，去重后逐个试探。
+pub(crate) fn dedup_slugs(owner: &str, repo: &str) -> Vec<String> {
+    let mut out = derive_slugs(repo);
+    for s in derive_slugs(owner) {
+        if !out.contains(&s) {
+            out.push(s);
+        }
+    }
+    out
+}
+
+/// 快路径：SimpleIcons 品牌库（免鉴权），每 slug ≤1500ms，命中即返。
+pub(crate) async fn probe_simple_icons(
     client: &reqwest::Client,
-    headers: Option<&HeaderMap>,
     owner: &str,
     repo: &str,
-    branch: &str,
 ) -> Option<ProbedIcon> {
-    // 1. Simple Icons 品牌库（免鉴权）。
-    for slug in derive_slugs(repo) {
+    for slug in dedup_slugs(owner, repo) {
         let cdn = format!("https://cdn.simpleicons.org/{slug}");
-        if let Some((_, ctype)) = verify_image(client, &cdn, std::time::Duration::from_secs(10)).await
-        {
+        if let Some((_, ctype)) = verify_image(client, &cdn, SIMPLE_ICON_TIMEOUT).await {
             if ctype.contains("svg") || ctype.starts_with("image/") {
                 return Some(ProbedIcon {
                     url: cdn,
@@ -225,39 +238,66 @@ pub(crate) async fn probe_repo_logo(
             }
         }
     }
+    None
+}
 
-    // 2. Git Trees 全库评分（需鉴权头；无 token 时跳过以保护匿名配额）。
-    if let Some(hdrs) = headers {
-        let tree_url = format!(
-            "https://api.github.com/repos/{}/{}/git/trees/{}?recursive=1",
-            owner, repo, branch
-        );
-        let req = client.get(&tree_url).headers(hdrs.clone()).send();
-        if let Ok(Ok(resp)) = tokio::time::timeout(std::time::Duration::from_secs(12), req).await {
-            if resp.status().is_success() {
-                if let Ok(tree) = resp.json::<GitTree>().await {
-                    let mut best: Option<(i32, u64, String)> = None;
-                    for node in tree.tree.iter().filter(|n| {
-                        n.node_type.as_deref() == Some("blob") && n.path.is_some()
-                    }) {
-                        let p = node.path.as_deref().unwrap_or("");
-                        let s = score_candidate(p, node.size, repo);
-                        if s > 0 && node.size.is_none_or(|z| z >= 300) {
-                            let cand = (s, node.size.unwrap_or(0), p.to_string());
-                            if best.as_ref().is_none_or(|b| cand.0 > b.0 || (cand.0 == b.0 && cand.1 > b.1)) {
-                                best = Some(cand);
-                            }
+/// 慢路径：Git Trees 全库评分（需鉴权头），保持 12s 超时。
+pub(crate) async fn probe_trees(
+    client: &reqwest::Client,
+    headers: &HeaderMap,
+    owner: &str,
+    repo: &str,
+    branch: &str,
+) -> Option<ProbedIcon> {
+    let tree_url = format!(
+        "https://api.github.com/repos/{}/{}/git/trees/{}?recursive=1",
+        owner, repo, branch
+    );
+    let req = client.get(&tree_url).headers(headers.clone()).send();
+    if let Ok(Ok(resp)) = tokio::time::timeout(TREES_TIMEOUT, req).await {
+        if resp.status().is_success() {
+            if let Ok(tree) = resp.json::<GitTree>().await {
+                let mut best: Option<(i32, u64, String)> = None;
+                for node in tree.tree.iter().filter(|n| {
+                    n.node_type.as_deref() == Some("blob") && n.path.is_some()
+                }) {
+                    let p = node.path.as_deref().unwrap_or("");
+                    let s = score_candidate(p, node.size, repo);
+                    if s > 0 && node.size.is_none_or(|z| z >= 300) {
+                        let cand = (s, node.size.unwrap_or(0), p.to_string());
+                        if best.as_ref().is_none_or(|b| cand.0 > b.0 || (cand.0 == b.0 && cand.1 > b.1)) {
+                            best = Some(cand);
                         }
                     }
-                    if let Some((_, size, path)) = best {
-                        log::debug!("icon probe trees hit {}/{} path='{}' size={}", owner, repo, path, size);
-                        return Some(ProbedIcon {
-                            url: raw_url(owner, repo, branch, &path),
-                            source: "trees",
-                        });
-                    }
+                }
+                if let Some((_, size, path)) = best {
+                    log::debug!("icon probe trees hit {}/{} path='{}' size={}", owner, repo, path, size);
+                    return Some(ProbedIcon {
+                        url: raw_url(owner, repo, branch, &path),
+                        source: "trees",
+                    });
                 }
             }
+        }
+    }
+    None
+}
+
+pub(crate) async fn probe_repo_logo(
+    client: &reqwest::Client,
+    headers: Option<&HeaderMap>,
+    owner: &str,
+    repo: &str,
+    branch: &str,
+) -> Option<ProbedIcon> {
+    // 先快后慢：快命中即返，不阻塞慢路径；无 token 只走快路径。
+    if let Some(hit) = probe_simple_icons(client, owner, repo).await {
+        return Some(hit);
+    }
+    // 2. Git Trees 全库评分（需鉴权头；无 token 时跳过以保护匿名配额）。
+    if let Some(hdrs) = headers {
+        if let Some(hit) = probe_trees(client, hdrs, owner, repo, branch).await {
+            return Some(hit);
         }
     }
 

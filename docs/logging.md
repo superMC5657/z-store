@@ -73,7 +73,7 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
 ## 8. 禁 sqlite 声明
 
 - 日志**只进 LogDir**，禁止写入业务 SQLite（`z_store.db`：已安装记录 / 设置 / 令牌 /
-  更新规则 / 足迹等 13 张核心表，与日志物理隔离）。
+  更新规则 / 足迹等 14 张核心表（含 `icon_cache_meta` / `app_icon_cycles` 图标缓存分流两表），与日志物理隔离）。
 - panic hook 仅记 `log::error!` 落盘，不写 DB、不上报。
 - 磁盘库（`z_store.db`）打不开回退内存库时记一条 `error`
  （`src-tauri/src/lib.rs::run` 约 L331–L336，
@@ -147,24 +147,21 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
 - **上游错误脱敏（`log_support::http_err_reason`）**：reqwest 0.12 `Display` 回显完整 URL，先剥离签名 query 再取首行（160 字符安全截断）。
 - **令牌遮蔽（`z_log::redact`）**：`Bearer/token` 之后紧跟的 token 原文统一打码为 `***`。
 
-## 12. 行号索引（以本版代码为准）
+## 12. 接线位置索引（以当前代码为准，不记行号）
 
-- `src-tauri/src/log_support.rs`：全文件（辅助定义 + 单测）。
-- `src-tauri/src/lib.rs`：`mod log_support`；限流 error/warn（约 L101/L103）；
-  磁盘库回退内存库 error（约 L333，`db open failed fallback to in-memory`）。
-- `src-tauri/src/installer/downloader.rs`：开始 info（L39）、失败 error
-  （L51 起多分支）、完成 info（约 L333）。
-- `src-tauri/src/installer/executor.rs`：安装出入口 info/error（L23–L35）；卸载起止 info/error。
+- `src-tauri/src/log_support.rs`：辅助定义 + 单测。
+- `src-tauri/src/lib.rs`：`mod log_support`；限流 error/warn（`log_rate_limit_water_mark`）；
+  磁盘库回退内存库 error（`db open failed fallback to in-memory`）。
+- `src-tauri/src/installer/downloader.rs`：下载开始 info、失败 error（多分支）、完成 info；
+  校验成功 / 失败（`download verify failed`）同文件。
+- `src-tauri/src/installer/executor.rs`：安装出入口 info/error；卸载起止 info/error。
 - `src-tauri/src/installer/selector.rs`：选包决策 debug。
-- `src-tauri/src/installer/downloader.rs`：开始 info（L39）、失败 error
-  （L51 起多分支）、完成 info（约 L333）；校验成功/失败（`download verify failed`）同文件。
-- `src-tauri/src/commands/updates.rs`：单项 warn（L352）、轮结束 info（L380）、
-  挂起 debug（L437/L453/L467）。
-- `src-tauri/src/commands/catalog.rs`：成功 debug（L64/L88）、回退 debug（约 L361）、
-  失败 warn（约 L456）、同步起止 info（L509/L565/L573）。
-- `src-tauri/src/commands/oauth.rs`：登录 info（L67/L69）、取消 debug（L98）、
-  失败 warn（L57 起多分支）、登出 info（L187）。
+- `src-tauri/src/commands/updates.rs`：单项 warn、轮结束 info、挂起 debug。
+- `src-tauri/src/commands/catalog.rs`：成功 debug、回退 debug、失败 warn、同步起止 info。
+- `src-tauri/src/commands/oauth.rs`：登录 info、取消 debug、失败 warn、登出 info。
 - `src-tauri/src/oauth/device_flow.rs`、`star.rs`：轮询 debug、401/403 warn。
-- `src-tauri/src/commands/scanner.rs`：起止 info（L9/L31）。
-- `src-tauri/src/mirror.rs`：切换 info（L75）。
-- `src-tauri/src/commands/network.rs`：测速 info/warn（L19/L22）、ping debug（L59）。
+- `src-tauri/src/commands/scanner.rs`：扫描起止 info。
+- `src-tauri/src/mirror.rs`：切换 info（`set_active_mirror`）。
+- `src-tauri/src/commands/network.rs`：测速 info/warn、ping debug。
+
+行号以当前代码为准，例如：`rg -n "download start|download done|oauth login ok" src-tauri/src`。

@@ -296,17 +296,14 @@ fn build_api_client() -> Result<reqwest::Client, String> {
     let timeout_sec = crate::config::get_project_config()
         .network
         .api_timeout_seconds;
-    reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(timeout_sec))
-        .build()
-        .map_err(|e| e.to_string())
+    crate::forge::http::new_api_client(timeout_sec)
 }
 
 fn base_ua_headers() -> reqwest::header::HeaderMap {
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(
         reqwest::header::USER_AGENT,
-        reqwest::header::HeaderValue::from_static("ZStore-Client/0.1.0"),
+        reqwest::header::HeaderValue::from_static(crate::forge::http::USER_AGENT_VALUE),
     );
     headers
 }
@@ -332,7 +329,7 @@ async fn check_github_push_access(owner: &str, repo: &str, token: &str) -> bool 
     let mut headers = base_ua_headers();
     headers.insert(
         reqwest::header::ACCEPT,
-        reqwest::header::HeaderValue::from_static("application/vnd.github.v3+json"),
+        reqwest::header::HeaderValue::from_static(crate::forge::http::GITHUB_ACCEPT_VALUE),
     );
     if !try_insert_auth(&mut headers, "Bearer", token) {
         return false;

@@ -17,20 +17,16 @@ fn authed_client() -> Result<reqwest::Client, String> {
     Ok(crate::shared_http_client())
 }
 
-fn auth_headers(token: &str) -> Result<reqwest::header::HeaderMap, String> {
-    let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert(
-        reqwest::header::USER_AGENT,
-        reqwest::header::HeaderValue::from_static("ZStore-Client/0.1.0"),
-    );
-    headers.insert(
-        reqwest::header::ACCEPT,
-        reqwest::header::HeaderValue::from_static("application/vnd.github.v3+json"),
-    );
-    let v = reqwest::header::HeaderValue::from_str(&format!("Bearer {}", token.trim()))
-        .map_err(|_| "认证令牌格式无效".to_string())?;
-    headers.insert(reqwest::header::AUTHORIZATION, v);
-    Ok(headers)
+pub(super) fn auth_headers(token: &str) -> Result<reqwest::header::HeaderMap, String> {
+    // 语义保持：非法 header 字符仍返回 Err（`forge::http` 侧为静默跳过，此处保留旧错误文案）。
+    if reqwest::header::HeaderValue::from_str(&format!("Bearer {}", token.trim())).is_err() {
+        return Err("认证令牌格式无效".to_string());
+    }
+    Ok(crate::forge::http::api_headers(
+        crate::forge::http::GITHUB_ACCEPT_VALUE,
+        Some(token),
+        crate::forge::http::AuthScheme::Bearer,
+    ))
 }
 
 /// H14：GraphQL 单条错误是否为权限不足（`INSUFFICIENT_SCOPES`）。
@@ -89,48 +85,43 @@ pub async fn fetch_oauth_user(token: &str) -> Result<OAuthUser, String> {
 
 /// 查询是否已 Star（204 = 已 Star，404 = 未 Star）。
 pub async fn check_starred(token: &str, owner: &str, repo: &str) -> Result<bool, String> {
-    let client = authed_client()?;
-    let resp = client
-        .get(starred_api_url(owner, repo))
-        .headers(auth_headers(token)?)
-        .send()
-        .await
-        .map_err(|e| format!("查询 Star 状态失败: {}", e))?;
-    crate::notify_rate_limit("github.com", resp.headers());
+    let resp = super::http::authed_req(
+        reqwest::Method::GET,
+        &starred_api_url(owner, repo),
+        token,
+        None,
+        "查询 Star 状态失败",
+    )
+    .await?;
     match resp.status().as_u16() {
         204 => Ok(true),
         404 => Ok(false),
-        401 => {
-            crate::check_auth_expired(
-                401,
-                &format!("op=check_starred owner={} repo={}", owner, repo),
-            );
-            Err("GitHub 授权已失效 (401)，请重新登录".to_string())
+        code => {
+            let op_ctx = format!("op=check_starred owner={} repo={}", owner, repo);
+            if let Err(e) = super::http::map_auth_status(
+                code,
+                &op_ctx,
+                "GitHub 授权已失效 (401)，请重新登录",
+                "GitHub API 限额已耗尽 (403)，请稍后重试",
+            ) {
+                return Err(e);
+            }
+            Err(format!("查询 Star 状态失败，HTTP 状态码: {}", code))
         }
-        403 => {
-            log::warn!(
-                "oauth forbidden status=403 op=check_starred owner={} repo={}",
-                owner,
-                repo
-            );
-            Err("GitHub API 限额已耗尽 (403)，请稍后重试".to_string())
-        }
-        code => Err(format!("查询 Star 状态失败，HTTP 状态码: {}", code)),
     }
 }
 
 /// Star 指定仓库（幂等，PUT 成功返回 204）。
 /// 并自动尝试将仓库归入 GitHub User List（z-store-list 列表）。
 pub async fn star_repo(token: &str, owner: &str, repo: &str) -> Result<StarRepoOutcome, String> {
-    let client = authed_client()?;
-    let resp = client
-        .put(starred_api_url(owner, repo))
-        .headers(auth_headers(token)?)
-        .header("Content-Length", "0")
-        .send()
-        .await
-        .map_err(|e| format!("Star 失败: {}", e))?;
-    crate::notify_rate_limit("github.com", resp.headers());
+    let resp = super::http::authed_req(
+        reqwest::Method::PUT,
+        &starred_api_url(owner, repo),
+        token,
+        None,
+        "Star 失败",
+    )
+    .await?;
     if resp.status().is_success() {
         // 自动同步归入 GitHub User List（z-store-list）
         let list_outcome = add_repo_to_star_list(token, owner, repo).await;
@@ -164,19 +155,17 @@ pub async fn star_repo(token: &str, owner: &str, repo: &str) -> Result<StarRepoO
                 warning: Some(format!("已在 GitHub 标星，列表同步异常: {}", e)),
             }),
         }
-    } else if crate::check_auth_expired(
-        resp.status().as_u16(),
-        &format!("op=star owner={} repo={}", owner, repo),
-    ) {
-        Err("GitHub 授权已失效 (401)，请重新登录".to_string())
-    } else if resp.status().as_u16() == 403 {
-        log::warn!(
-            "oauth forbidden status=403 op=star owner={} repo={}",
-            owner,
-            repo
-        );
-        Err("Star 失败 (403)：令牌缺少 public_repo 权限或 API 限额已耗尽".to_string())
     } else {
+        let code = resp.status().as_u16();
+        let op_ctx = format!("op=star owner={} repo={}", owner, repo);
+        if let Err(e) = super::http::map_auth_status(
+            code,
+            &op_ctx,
+            "GitHub 授权已失效 (401)，请重新登录",
+            "Star 失败 (403)：令牌缺少 public_repo 权限或 API 限额已耗尽",
+        ) {
+            return Err(e);
+        }
         Err(format!("Star 失败，HTTP 状态码: {}", resp.status()))
     }
 }
@@ -406,29 +395,29 @@ pub async fn add_repo_to_star_list(
 
 /// 取消 Star（幂等，DELETE 成功返回 204）。
 pub async fn unstar_repo(token: &str, owner: &str, repo: &str) -> Result<(), String> {
-    let client = authed_client()?;
-    let resp = client
-        .delete(starred_api_url(owner, repo))
-        .headers(auth_headers(token)?)
-        .send()
-        .await
-        .map_err(|e| format!("取消 Star 失败: {}", e))?;
-    crate::notify_rate_limit("github.com", resp.headers());
+    let resp = super::http::authed_req(
+        reqwest::Method::DELETE,
+        &starred_api_url(owner, repo),
+        token,
+        None,
+        "取消 Star 失败",
+    )
+    .await?;
     if resp.status().is_success() {
         Ok(())
-    } else if crate::check_auth_expired(
-        resp.status().as_u16(),
-        &format!("op=unstar owner={} repo={}", owner, repo),
-    ) {
-        Err("GitHub 授权已失效 (401)，请重新登录".to_string())
-    } else if resp.status().as_u16() == 403 {
-        log::warn!(
-            "oauth forbidden status=403 op=unstar owner={} repo={}",
-            owner,
-            repo
-        );
-        Err(format!("取消 Star 失败，HTTP 状态码: {}", resp.status()))
     } else {
-        Err(format!("取消 Star 失败，HTTP 状态码: {}", resp.status()))
+        let code = resp.status().as_u16();
+        let status = resp.status();
+        let op_ctx = format!("op=unstar owner={} repo={}", owner, repo);
+        let forbidden_msg = format!("取消 Star 失败，HTTP 状态码: {}", status);
+        if let Err(e) = super::http::map_auth_status(
+            code,
+            &op_ctx,
+            "GitHub 授权已失效 (401)，请重新登录",
+            &forbidden_msg,
+        ) {
+            return Err(e);
+        }
+        Err(format!("取消 Star 失败，HTTP 状态码: {}", status))
     }
 }

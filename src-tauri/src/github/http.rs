@@ -3,7 +3,7 @@
 //! 仅 `github` 模块内使用，跨 crate 统一留给二阶段，行为与原样板一致。
 
 use crate::models::AppSummary;
-use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, IF_NONE_MATCH, USER_AGENT};
+use reqwest::header::{HeaderMap, HeaderValue, IF_NONE_MATCH};
 
 #[derive(Debug, Clone)]
 pub(crate) enum EtagGetOutcome {
@@ -107,8 +107,9 @@ pub(crate) async fn get_with_etag(
     }
 }
 
-pub(crate) const GH_USER_AGENT: &str = "ZStore-Client/0.1.0";
-pub(crate) const GH_ACCEPT: &str = "application/vnd.github.v3+json";
+/// UA 常量统一收敛到 `forge::http` SSOT（第一步：常量统一，值与旧字面量一致）。
+/// `GH_ACCEPT` 已由 `ApiPreset::GithubApi` 表驱动收敛，不再保留字面量别名，避免双源漂移。
+pub(crate) const GH_USER_AGENT: &str = crate::forge::http::USER_AGENT_VALUE;
 
 /// H8：github 内统一秒级时间戳（与 `db::now_secs` 同语义，跨 crate 统一留给二阶段）。
 pub(crate) fn now_secs() -> i64 {
@@ -124,46 +125,29 @@ pub(crate) fn api_timeout() -> std::time::Duration {
     )
 }
 
-/// H2：统一 API 客户端构造（timeout 语义不变）。
+/// H2：统一 API 客户端构造（timeout 语义不变，委托 `forge::http` SSOT）。
 pub(crate) fn build_api_client() -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
-        .timeout(api_timeout())
-        .build()
-        .map_err(|e| e.to_string())
-}
-
-fn base_headers() -> HeaderMap {
-    let mut headers = HeaderMap::new();
-    headers.insert(USER_AGENT, HeaderValue::from_static(GH_USER_AGENT));
-    headers.insert(ACCEPT, HeaderValue::from_static(GH_ACCEPT));
-    headers
+    crate::forge::http::new_api_client(api_timeout().as_secs())
 }
 
 /// H1：`token {}` 方案（含 ACCEPT），镜像 `detail`/`search` 旧行为。
+/// 薄包装：保留旧名与签名，函数体委托 `forge::http` 表驱动预设（`Token` 小写前缀不可合错）。
 pub(crate) fn token_headers(token: Option<&str>) -> HeaderMap {
-    let mut headers = base_headers();
-    if let Some(tok) = token {
-        if !tok.trim().is_empty() {
-            if let Ok(val) = HeaderValue::from_str(&format!("token {}", tok.trim())) {
-                headers.insert(AUTHORIZATION, val);
-            }
-        }
-    }
-    headers
+    crate::forge::http::preset_headers(
+        crate::forge::http::ApiPreset::GithubApi,
+        token,
+        crate::forge::http::AuthScheme::Token,
+    )
 }
 
 /// H1：`Bearer {}` 方案（含 ACCEPT），镜像 `developer_*` 旧行为。
+/// 薄包装：保留旧名与签名，函数体委托 `forge::http` 表驱动预设。
 pub(crate) fn bearer_headers(token: Option<&str>) -> HeaderMap {
-    let mut headers = base_headers();
-    if let Some(tok) = token {
-        let t = tok.trim();
-        if !t.is_empty() {
-            if let Ok(val) = HeaderValue::from_str(&format!("Bearer {}", t)) {
-                headers.insert(AUTHORIZATION, val);
-            }
-        }
-    }
-    headers
+    crate::forge::http::preset_headers(
+        crate::forge::http::ApiPreset::GithubApi,
+        token,
+        crate::forge::http::AuthScheme::Bearer,
+    )
 }
 
 /// H3：统一日志上下文，返回 `(req_id, sid)`，顺序与原样板一致。
@@ -335,54 +319,6 @@ pub(crate) fn guess_category(
     }
 }
 
-/// 复用 Simple Icons CDN 试探图标（免鉴权、超时短、失败即空）。
-/// 优先按 repo 派生 slug，次选 owner；绝不调 GitHub users API，不拼 avatar_url。
-pub(crate) async fn probe_simple_icon(
-    client: &reqwest::Client,
-    owner: &str,
-    repo: &str,
-) -> String {
-    let mut slugs = crate::github::icon_probe::derive_slugs(repo);
-    for s in crate::github::icon_probe::derive_slugs(owner) {
-        if !slugs.contains(&s) {
-            slugs.push(s);
-        }
-    }
-    if slugs.is_empty() {
-        return String::new();
-    }
-
-    const BROWSER_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-    let probe_timeout = std::time::Duration::from_millis(1500);
-
-    for slug in slugs {
-        let cdn = format!("https://cdn.simpleicons.org/{slug}");
-        let req = client.get(&cdn).header(USER_AGENT, BROWSER_UA).send();
-        if let Ok(Ok(resp)) = tokio::time::timeout(probe_timeout, req).await {
-            if resp.status().is_success() {
-                let ctype = resp
-                    .headers()
-                    .get(reqwest::header::CONTENT_TYPE)
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or("")
-                    .to_string();
-                if ctype.contains("svg")
-                    || ctype.starts_with("image/")
-                    || ctype.contains("octet-stream")
-                {
-                    if let Ok(bytes) = resp.bytes().await {
-                        if bytes.len() >= 300 {
-                            return cdn;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    String::new()
-}
-
 pub(crate) fn is_avatar_icon_url(url: &str) -> bool {
     let u = url.trim();
     crate::commands::is_avatar_url(u)
@@ -392,35 +328,15 @@ pub(crate) fn is_avatar_icon_url(url: &str) -> bool {
 
 /// 若 app_icon_cycles 有该 app 且 selected_url 非空且本地缓存文件存在，
 /// 则返回已确认的图标（优先返回 dataURI 语义，不可读时回退到可用 remote_url），否则返回 None。
+/// B3-G11 SSOT：标识解析经 `RepositoryUrlParser` + `canonical_app_id`，大小写回退收进
+/// `forge::coord::lookup_case_insensitive`（db 查询侧），此处不再手写 `to_lowercase` 多段回退。
 pub(crate) fn resolve_confirmed_icon_from_db(
     db: &crate::db::Database,
     app_id: &str,
     owner: &str,
     repo: &str,
 ) -> Option<String> {
-    let clean_id = app_id.trim();
-    let cycle = db
-        .get_icon_cycle(clean_id)
-        .ok()
-        .flatten()
-        .or_else(|| {
-            let lower = clean_id.to_lowercase();
-            if lower != clean_id {
-                db.get_icon_cycle(&lower).ok().flatten()
-            } else {
-                None
-            }
-        })
-        .or_else(|| db.get_icon_cycle_by_repo(owner, repo).ok().flatten())
-        .or_else(|| {
-            let o = owner.to_lowercase();
-            let r = repo.to_lowercase();
-            if o != owner || r != repo {
-                db.get_icon_cycle_by_repo(&o, &r).ok().flatten()
-            } else {
-                None
-            }
-        })?;
+    let cycle = crate::forge::coord::lookup_case_insensitive(db, app_id, owner, repo)?;
 
     let selected = cycle.selected_url.trim();
     if selected.is_empty() || is_avatar_icon_url(selected) {
@@ -458,7 +374,9 @@ pub(crate) fn open_db_opt() -> Option<crate::db::Database> {
 }
 
 /// H10：目录外仓库 `AppSummary` 兜底构造。
-/// 图标：若 probe 为 true，复用现有 icon_probe::derive_slugs + cdn.simpleicons.org 逻辑派 slug 试探（免鉴权、超时短、失败即空），绝不调 users API、不拼 avatar_url；若 probe 为 false，图标置空。
+/// 图标：若 probe 为 true，先快后慢——快路径 SimpleIcons（免鉴权，repo+owner 去重单循环，
+/// 每 slug ≤1500ms，命中即返），慢路径 Trees（有 token 才跑，保持 12s）；绝不调 users API、不拼 avatar_url；
+/// 若 probe 为 false，图标置空（首屏快返，等后台补探 emit）。
 /// 分类：移植 catalog guessCategory 关键词表，按 topics+description 判定。
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn fallback_summary(
@@ -476,6 +394,7 @@ pub(crate) async fn fallback_summary(
     homepage: Option<String>,
     probe: bool,
     confirmed_icon: Option<String>,
+    token: Option<&str>,
 ) -> AppSummary {
     let cat = guess_category(Some(&description), description_en.as_deref(), topics);
     let confirmed = match confirmed_icon {
@@ -485,7 +404,20 @@ pub(crate) async fn fallback_summary(
     let icon = if let Some(ci) = confirmed {
         ci
     } else if probe {
-        probe_simple_icon(client, &owner, &repo).await
+        // 先快后慢：快路径无 token 也可跑，慢路径有 token 才跑。
+        if let Some(hit) =
+            crate::github::icon_probe::probe_simple_icons(client, &owner, &repo).await
+        {
+            hit.url
+        } else if let Some(tok) = token.filter(|t| !t.trim().is_empty()) {
+            let hdrs = token_headers(Some(tok));
+            crate::github::icon_probe::probe_trees(client, &hdrs, &owner, &repo, "main")
+                .await
+                .map(|h| h.url)
+                .unwrap_or_default()
+        } else {
+            String::new()
+        }
     } else {
         String::new()
     };
@@ -634,6 +566,7 @@ mod tests {
             None,
             false,
             None,
+            None,
         )
         .await;
         assert_eq!(summary_none.icon, "");
@@ -655,6 +588,7 @@ mod tests {
             None,
             false,
             Some(custom_uri.to_string()),
+            None,
         )
         .await;
         assert_eq!(summary_confirmed.icon, custom_uri);

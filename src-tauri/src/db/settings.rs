@@ -1,4 +1,4 @@
-use super::{normalize_detail_cache_ttl, Database};
+use super::{clean, normalize_detail_cache_ttl, Database};
 use rusqlite::{params, Result};
 use std::collections::HashMap;
 
@@ -18,12 +18,12 @@ impl Database {
             ON CONFLICT(key) DO UPDATE SET value = excluded.value;
             "#,
             params![key, value],
-        )
+        )?;
+        Ok(())
     }
 
     pub fn remove_setting(&self, key: &str) -> Result<()> {
-        self.conn
-            .execute("DELETE FROM user_settings WHERE key = ?1", params![key])?;
+        self.exec_upsert("DELETE FROM user_settings WHERE key = ?1", params![key])?;
         Ok(())
     }
 
@@ -43,7 +43,7 @@ impl Database {
         self.get_setting("detail_cache_ttl_minutes")
             .ok()
             .flatten()
-            .and_then(|v| v.trim().parse::<i64>().ok())
+            .and_then(|v| clean(&v).parse::<i64>().ok())
             .map(normalize_detail_cache_ttl)
             .unwrap_or_else(|| crate::config::get_project_config().cache.detail_ttl_minutes)
     }

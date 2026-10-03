@@ -1,8 +1,6 @@
 use super::coord::ForgeType;
 use super::http::{api_headers, new_api_client, AuthScheme, HttpSpan, JSON_ACCEPT_VALUE};
-use super::provider::{AssetKindExt, ForgeProvider, ForgeReleaseInfo, ForgeRepoInfo};
-use crate::installer::InstallerEngine;
-use crate::models::ReleaseAsset;
+use super::provider::{parse_assets, ForgeProvider, ForgeReleaseInfo, ForgeRepoInfo};
 use serde::Deserialize;
 
 pub struct GiteaProvider {
@@ -136,24 +134,13 @@ impl ForgeProvider for GiteaProvider {
 
         let release: GiteaRelease = resp.json().await.map_err(|e| e.to_string())?;
 
-        let assets = release
-            .assets
-            .unwrap_or_default()
-            .into_iter()
-            .map(|a| {
-                let (kind, os, arch) = InstallerEngine::classify_asset(&a.name);
-                let kind_str = kind.as_str();
-                ReleaseAsset {
-                    name: a.name,
-                    download_url: a.browser_download_url,
-                    size_bytes: a.size,
-                    sha256: None,
-                    os: os.to_string(),
-                    arch: arch.to_string(),
-                    kind: kind_str.to_string(),
-                }
-            })
-            .collect();
+        let assets = parse_assets(
+            release
+                .assets
+                .unwrap_or_default()
+                .into_iter()
+                .map(|a| (a.name, a.browser_download_url, a.size)),
+        );
 
         Ok(ForgeReleaseInfo {
             tag_name: release.tag_name,

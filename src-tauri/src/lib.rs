@@ -87,7 +87,7 @@ fn build_shared_http_client() -> reqwest::Client {
         std::time::Duration::from_secs(config::get_project_config().network.api_timeout_seconds);
     reqwest::Client::builder()
         .timeout(api_timeout)
-        .user_agent("ZStore-Client/0.1.0")
+        .user_agent(crate::forge::http::USER_AGENT_VALUE)
         .build()
         .unwrap_or_else(|_| reqwest::Client::new())
 }
@@ -184,26 +184,13 @@ fn log_rate_limit_water_mark(host: &str, remaining: u32, limit: u32) {
     }
 }
 
-/// H1：探针请求头收敛（与 `oauth::star::auth_headers` 同值，本地保留以避免跨层耦合）。
+/// H1：探针请求头收敛（委托 `forge::http` SSOT，与 `oauth::star::auth_headers` 同值）。
 fn probe_headers(token: Option<&str>) -> reqwest::header::HeaderMap {
-    let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert(
-        reqwest::header::USER_AGENT,
-        reqwest::header::HeaderValue::from_static("ZStore-Client/0.1.0"),
-    );
-    headers.insert(
-        reqwest::header::ACCEPT,
-        reqwest::header::HeaderValue::from_static("application/vnd.github.v3+json"),
-    );
-    if let Some(tok) = token {
-        if !tok.trim().is_empty() {
-            if let Ok(v) = reqwest::header::HeaderValue::from_str(&format!("Bearer {}", tok.trim()))
-            {
-                headers.insert(reqwest::header::AUTHORIZATION, v);
-            }
-        }
-    }
-    headers
+    crate::forge::http::api_headers(
+        crate::forge::http::GITHUB_ACCEPT_VALUE,
+        token,
+        crate::forge::http::AuthScheme::Bearer,
+    )
 }
 
 pub async fn probe_github_rate_limit(token: Option<&str>) {

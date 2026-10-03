@@ -1,15 +1,15 @@
-use super::{now_secs, Database};
+use super::{clean, now_secs, Database, ValidatedTable};
 use rusqlite::{params, Result};
 
 impl Database {
     /// 收藏（合并式）：已存在返回 false，否则插入返回 true。
     pub fn add_favorite(&self, app_id: &str) -> Result<bool> {
-        let id = app_id.trim();
+        let id = clean(app_id);
         if id.is_empty() {
             return Ok(false);
         }
         let now = now_secs();
-        let rows = self.conn.execute(
+        let rows = self.exec_upsert(
             "INSERT OR IGNORE INTO user_favorites (app_id, favorited_at) VALUES (?1, ?2)",
             params![id, now],
         )?;
@@ -25,29 +25,30 @@ impl Database {
     }
 
     pub fn toggle_favorite(&self, app_id: &str) -> Result<bool> {
+        let id = clean(app_id);
         let exists = self.record_exists(
             "SELECT 1 FROM user_favorites WHERE app_id = ?1",
-            params![app_id],
+            params![id],
         )?;
 
         if exists {
-            self.conn.execute(
+            self.exec_upsert(
                 "DELETE FROM user_favorites WHERE app_id = ?1",
-                params![app_id],
+                params![id],
             )?;
             Ok(false)
         } else {
             let now = now_secs();
-            self.conn.execute(
+            self.exec_upsert(
                 "INSERT INTO user_favorites (app_id, favorited_at) VALUES (?1, ?2)",
-                params![app_id, now],
+                params![id, now],
             )?;
             Ok(true)
         }
     }
 
     pub fn record_search_query(&self, query: &str) -> Result<()> {
-        let q = query.trim();
+        let q = clean(query);
         if q.is_empty() {
             return Ok(());
         }
@@ -64,13 +65,7 @@ impl Database {
         let limit = crate::config::get_project_config()
             .limits
             .search_history_limit;
-        self.conn.execute(
-            &format!(
-                "DELETE FROM search_history WHERE id NOT IN (SELECT id FROM search_history ORDER BY searched_at DESC LIMIT {})",
-                limit
-            ),
-            [],
-        )?;
+        self.prune_history_table(ValidatedTable::SearchHistory, limit as u64)?;
         Ok(())
     }
 
@@ -89,20 +84,20 @@ impl Database {
     }
 
     pub fn clear_search_history(&self) -> Result<()> {
-        self.conn.execute("DELETE FROM search_history", [])?;
+        self.exec_upsert("DELETE FROM search_history", [])?;
         Ok(())
     }
 
     pub fn remove_search_query(&self, query: &str) -> Result<()> {
-        self.conn.execute(
+        self.exec_upsert(
             "DELETE FROM search_history WHERE query = ?1",
-            params![query.trim()],
+            params![clean(query)],
         )?;
         Ok(())
     }
 
     pub fn record_app_view(&self, app_id: &str) -> Result<()> {
-        let id = app_id.trim();
+        let id = clean(app_id);
         if id.is_empty() {
             return Ok(());
         }
@@ -119,13 +114,7 @@ impl Database {
         let limit = crate::config::get_project_config()
             .limits
             .view_history_limit;
-        self.conn.execute(
-            &format!(
-                "DELETE FROM view_history WHERE id NOT IN (SELECT id FROM view_history ORDER BY viewed_at DESC LIMIT {})",
-                limit
-            ),
-            [],
-        )?;
+        self.prune_history_table(ValidatedTable::ViewHistory, limit as u64)?;
         Ok(())
     }
 
@@ -144,7 +133,7 @@ impl Database {
     }
 
     pub fn clear_view_history(&self) -> Result<()> {
-        self.conn.execute("DELETE FROM view_history", [])?;
+        self.exec_upsert("DELETE FROM view_history", [])?;
         Ok(())
     }
 }

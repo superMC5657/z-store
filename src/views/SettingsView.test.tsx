@@ -11,13 +11,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import i18n from '../i18n';
 
-vi.mock('../services/api', () => ({
-  api: {
+vi.mock('../services/api', () => {
+  // B3-G12：View 统一经 tauriApi 调用；此处 mock 同时提供历史别名 api。
+  const tauriApi = {
     syncCatalog: async () => ({ updated: false, count: 0, message: 'ok' }),
     selectFolder: async () => null,
     testProxy: async () => ({ success: true, latency_ms: 10, message: 'ok' }),
-  },
-}));
+  };
+  return { api: tauriApi, tauriApi };
+});
 vi.mock('../components/ClientUpdateRow', () => ({ ClientUpdateRow: () => null }));
 vi.mock('../components/OAuthAccountCard', () => ({ OAuthAccountCard: () => null }));
 vi.mock('../components/DataBackupRow', () => ({ DataBackupRow: () => null }));

@@ -38,7 +38,7 @@ DB 查询统一 `LOWER(app_id)`、详情缓存 `app_id + repo_key` 双键镜像�
    唯一匹配。
 
 6. **清单格式**：catalog.json 的 `id` 字段为小写 `owner/repo`；
-   `validate-catalog.mjs` 强制校验 `id === owner/repo` 与全库唯一。
+   `id === owner/repo` 与全库唯一的自动化校验拟由独立生态清单仓库侧的 `validate-catalog.mjs` 承担（未来规划，当前客户端仓库不存在该脚本，切勿当作可用命令）。
 
 ## 配套调整
 

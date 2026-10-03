@@ -264,55 +264,97 @@ pub async fn search_apps_online(
     if !candidates.is_empty() {
         let handle = app_handle.clone();
         let sid = actual_search_id.clone();
+        let bg_token = token.clone();
         tokio::spawn(async move {
             let client = super::icon_http_client();
+            // 慢路径鉴权头：有 token 才跑 Trees，无 token 只走快路径。
+            let slow_headers = bg_token
+                .as_deref()
+                .filter(|t| !t.trim().is_empty())
+                .map(|t| crate::github::http::token_headers(Some(t)));
             for (id, owner, repo) in candidates {
                 let handle = handle.clone();
                 let client = client.clone();
                 let sid = sid.clone();
+                let slow_headers = slow_headers.clone();
                 tokio::spawn(async move {
-                    let probe_res = tokio::time::timeout(
-                        std::time::Duration::from_millis(1500),
-                        crate::github::http::probe_simple_icon(&client, &owner, &repo),
+                    // 快慢分离：快路径 SimpleIcons（repo+owner 去重单循环，每 slug ≤1500ms，
+                    // 外层 8000ms 兜底），快命中立即落库并 emit，不等慢路径。
+                    let fast_url = tokio::time::timeout(
+                        std::time::Duration::from_millis(8000),
+                        crate::github::icon_probe::probe_simple_icons(&client, &owner, &repo),
                     )
-                    .await;
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|h| h.url)
+                    .unwrap_or_default();
 
-                    let icon = match probe_res {
-                        Ok(u) => u,
-                        Err(_) => return,
-                    };
+                    if !fast_url.trim().is_empty() {
+                        // 世代比对防串词：若用户在此期间触发了新搜索，抛弃过时探测结果
+                        if SEARCH_GEN.load(Ordering::SeqCst) != current_gen {
+                            return;
+                        }
 
-                    if icon.trim().is_empty() {
+                        let state = handle.state::<AppState>();
+                        if let Ok(db) = state.db() {
+                            let mut cycle = crate::db::AppIconCycle::new(&id, &owner, &repo);
+                            cycle.is_cataloged = false;
+                            cycle.level = 2;
+                            cycle.l2_url = fast_url.clone();
+                            cycle.selected_url = fast_url.clone();
+                            cycle.updated_at = crate::now_secs();
+                            let _ = db.upsert_icon_cycle(&cycle);
+                        }
+
+                        if SEARCH_GEN.load(Ordering::SeqCst) != current_gen {
+                            return;
+                        }
+
+                        let payload = SearchIconReadyPayload {
+                            search_id: sid.clone(),
+                            app_id: id.clone(),
+                            icon: fast_url.clone(),
+                            level: 2,
+                        };
+                        let _ = handle.emit("zstore://search-icon-ready", &payload);
                         return;
                     }
 
-                    // 世代比对防串词：若用户在此期间触发了新搜索，抛弃过时探测结果
-                    if SEARCH_GEN.load(Ordering::SeqCst) != current_gen {
-                        return;
-                    }
+                    // 慢路径：快未命中且有 token 才跑 Trees（内部 12s）；超时只弃慢不弃快。
+                    if let Some(hdrs) = slow_headers.as_ref() {
+                        if let Some(hit) =
+                            crate::github::icon_probe::probe_trees(&client, hdrs, &owner, &repo, "main")
+                                .await
+                        {
+                            if SEARCH_GEN.load(Ordering::SeqCst) != current_gen {
+                                return;
+                            }
 
-                    let state = handle.state::<AppState>();
-                    if let Ok(db) = state.db() {
-                        let mut cycle = crate::db::AppIconCycle::new(&id, &owner, &repo);
-                        cycle.is_cataloged = false;
-                        cycle.level = 2;
-                        cycle.l2_url = icon.clone();
-                        cycle.selected_url = icon.clone();
-                        cycle.updated_at = crate::now_secs();
-                        let _ = db.upsert_icon_cycle(&cycle);
-                    }
+                            let state = handle.state::<AppState>();
+                            if let Ok(db) = state.db() {
+                                let mut cycle = crate::db::AppIconCycle::new(&id, &owner, &repo);
+                                cycle.is_cataloged = false;
+                                cycle.level = 3;
+                                cycle.l3_url = hit.url.clone();
+                                cycle.selected_url = hit.url.clone();
+                                cycle.updated_at = crate::now_secs();
+                                let _ = db.upsert_icon_cycle(&cycle);
+                            }
 
-                    if SEARCH_GEN.load(Ordering::SeqCst) != current_gen {
-                        return;
-                    }
+                            if SEARCH_GEN.load(Ordering::SeqCst) != current_gen {
+                                return;
+                            }
 
-                    let payload = SearchIconReadyPayload {
-                        search_id: sid,
-                        app_id: id,
-                        icon,
-                        level: 2,
-                    };
-                    let _ = handle.emit("zstore://search-icon-ready", &payload);
+                            let payload = SearchIconReadyPayload {
+                                search_id: sid.clone(),
+                                app_id: id.clone(),
+                                icon: hit.url.clone(),
+                                level: 3,
+                            };
+                            let _ = handle.emit("zstore://search-icon-ready", &payload);
+                        }
+                    }
                 });
             }
         });

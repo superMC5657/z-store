@@ -9,34 +9,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { FavoritesView } from './FavoritesView';
 import { api } from '../services/api';
-import { AppSummary } from '../types';
+import { makeApp } from './test-utils/filterFixture';
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
 
-function makeApp(overrides: Partial<AppSummary> & { id: string; name: string }): AppSummary {
-  return {
-    owner: 'owner',
-    repo: overrides.id,
-    icon: '',
-    icon_bg: '#888888',
-    description: `desc of ${overrides.name}`,
-    stars: 1000,
-    forks: 100,
-    license: 'MIT',
-    latest_version: '1.0.0',
-    category: 'system',
-    category_name: '系统实用',
-    is_verified: false,
-    forge: 'github',
-    forge_host: 'github.com',
-    homepage: null,
-    platforms: [],
-    ...overrides,
-  };
-}
+// 批量安装夹具经 test-utils/filterFixture.makeApp 构造。
 
 describe('P2-7: batch install survives a single item failure', () => {
   it('single failure ⇒ button live again + error count shown, remaining items still attempted', async () => {

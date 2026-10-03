@@ -6,16 +6,6 @@ use crate::models::{AppDetail, ReleaseAsset};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, IF_NONE_MATCH};
 use std::collections::HashMap;
 
-/// H7：detail 内统一 401 判定 + 失效通知，返回是否为 401。
-fn check_auth_expired(status: reqwest::StatusCode) -> bool {
-    if status == reqwest::StatusCode::UNAUTHORIZED {
-        crate::notify_auth_expired();
-        true
-    } else {
-        false
-    }
-}
-
 impl CatalogService {
     pub async fn fetch_app_detail(
         &self,
@@ -57,14 +47,10 @@ impl CatalogService {
         // H9：release 复用已有 get_with_etag（304/200/ETag 与 developer_* 共用实现）。
         let repo_headers_raw = base_headers.clone();
         let repo_url_raw = repo_url.clone();
-        log::debug!(
-            "http get repo id={} sid={} req={} url='{}'",
-            id,
-            sid,
-            req_id,
-            crate::log_support::sanitize_url(&repo_url_raw)
-        );
-        let start_rel = std::time::Instant::now();
+        // H7/HttpSpan：repo 并发请求收敛为 forge HttpSpan（log_search_* 分支），
+        // ETag 经 get_with_etag 只挂 release、repo 照例无 IF_NONE_MATCH 语义不变。
+        let repo_span = crate::forge::http::HttpSpan::start(&repo_url_raw);
+        repo_span.log_search_start("repo");
         let (release_outcome, repo_raw) = tokio::join!(
             Self::get_with_etag(
                 client,
@@ -77,55 +63,40 @@ impl CatalogService {
             async {
                 let req = client.get(&repo_url_raw).headers(repo_headers_raw).send();
                 match tokio::time::timeout(api_timeout, req).await {
-                    Ok(r) => r.ok(),
-                    Err(_) => None,
+                    Ok(Ok(r)) => Some(r),
+                    Ok(Err(e)) => {
+                        repo_span.log_search_fail("repo", &e.to_string());
+                        None
+                    }
+                    Err(_) => {
+                        repo_span.log_search_fail("repo", "timeout");
+                        None
+                    }
                 }
             }
         );
         // repo 原始响应的 401/限流处理与日志（与原 repo_task 内逻辑一致，仅提前到与 release 同批返回后处理）。
+        // H7：401 经 crate::check_auth_expired 统一通知 + warn；日志经 HttpSpan 统一收敛。
         let repo_info: Option<GitHubRepoResponse> = match repo_raw {
             Some(res) => {
-                crate::notify_rate_limit("github.com", res.headers());
-                check_auth_expired(res.status());
+                repo_span.notify(&res, "github.com");
+                crate::check_auth_expired(
+                    res.status().as_u16(),
+                    &format!("op=detail-repo id={}", id),
+                );
                 let status = res.status().as_u16();
-                log::debug!(
-                    "http resp repo id={} sid={} req={} url='{}' status={} elapsed_ms={}",
-                    id,
-                    sid,
-                    req_id,
-                    crate::log_support::sanitize_url(&repo_url),
-                    status,
-                    start_rel.elapsed().as_millis()
-                );
-                log::info!(
-                    "http resp repo id={} sid={} req={} host={} status={} elapsed_ms={}",
-                    id,
-                    sid,
-                    req_id,
-                    crate::log_support::host_of(&repo_url),
-                    status,
-                    start_rel.elapsed().as_millis()
-                );
+                repo_span.log_search_done("repo", status);
                 if res.status().is_success() {
                     res.json::<GitHubRepoResponse>().await.ok()
                 } else {
                     None
                 }
             }
-            None => {
-                log::warn!(
-                    "http resp repo failed id={} sid={} req={} host={} elapsed_ms={}",
-                    id,
-                    sid,
-                    req_id,
-                    crate::log_support::host_of(&repo_url),
-                    start_rel.elapsed().as_millis()
-                );
-                None
-            }
+            // 失败已在并发 future 内经 log_search_fail 落盘，此处不再重复 warn。
+            None => None,
         };
 
-        // H7：release 401 统一经 check_auth_expired 通知；H9 的 get_with_etag 已做限流上报。
+        // H7：release 401 统一经 crate::check_auth_expired 通知；H9 的 get_with_etag 已做限流上报。
         let is_auth_unauthorized = matches!(release_outcome, EtagGetOutcome::Unauthorized);
         if is_auth_unauthorized {
             crate::notify_auth_expired();
@@ -270,7 +241,10 @@ impl CatalogService {
             match tokio::time::timeout(api_timeout, req).await {
                 Ok(Ok(res)) => {
                     crate::notify_rate_limit("github.com", res.headers());
-                    check_auth_expired(res.status());
+                    crate::check_auth_expired(
+                        res.status().as_u16(),
+                        &format!("op=detail-readme id={}", readme_id),
+                    );
                     let status = res.status().as_u16();
                     log::debug!(
                         "http resp readme id={} sid={} req={} url='{}' status={} elapsed_ms={}",
@@ -748,12 +722,6 @@ impl CatalogService {
     pub fn deduce_platforms(assets: &[ReleaseAsset]) -> Vec<String> {
         deduce_platforms(assets)
     }
-
-    /// 对 GitHub 原始 API 资产推断平台
-    #[allow(dead_code)]
-    pub(crate) fn deduce_platforms_from_raw_assets(assets: &[GitHubAssetResponse]) -> Vec<String> {
-        deduce_platforms_from_raw_assets(assets)
-    }
 }
 
 /// 1MB 门禁阈值（对齐 catalog 仓 checkBinary）
@@ -869,26 +837,6 @@ pub fn platforms_from_assets(assets: &[ReleaseAsset]) -> Vec<String> {
 /// 别名 deduce_platforms / platforms_from_assets 对齐
 pub fn deduce_platforms(assets: &[ReleaseAsset]) -> Vec<String> {
     platforms_from_assets(assets)
-}
-
-/// 对 GitHub 原始 API 资产推断平台
-#[allow(dead_code)]
-pub(crate) fn deduce_platforms_from_raw_assets(assets: &[GitHubAssetResponse]) -> Vec<String> {
-    let mut set = std::collections::BTreeSet::new();
-    for a in assets {
-        if !is_valid_installer_asset(&a.name, a.size) {
-            continue;
-        }
-        let (_, os, _) = InstallerEngine::classify_asset(&a.name);
-        if os != "all" {
-            set.insert(os.to_string());
-        } else if a.name.to_lowercase().ends_with(".msix") {
-            set.insert("windows".to_string());
-        }
-    }
-    let mut plats: Vec<String> = set.into_iter().collect();
-    sort_platforms(&mut plats);
-    plats
 }
 
 pub(crate) fn sort_platforms(platforms: &mut Vec<String>) {
@@ -1013,8 +961,7 @@ mod detail_fast_path_tests {
 
     #[test]
     fn test_platforms_from_assets_derives_valid_platforms() {
-        use super::{deduce_platforms, deduce_platforms_from_raw_assets, platforms_from_assets};
-        use crate::github::models::GitHubAssetResponse;
+        use super::{deduce_platforms, platforms_from_assets};
         use crate::models::ReleaseAsset;
 
         fn make_asset(name: &str, size_bytes: u64) -> ReleaseAsset {
@@ -1041,22 +988,5 @@ mod detail_fast_path_tests {
         let plats = platforms_from_assets(&mixed);
         assert_eq!(plats, vec!["windows".to_string(), "macos".to_string(), "linux".to_string()]);
         assert_eq!(deduce_platforms(&mixed), plats);
-
-        // 测试 GitHubAssetResponse 推断
-        let raw = vec![
-            GitHubAssetResponse {
-                name: "app-setup.exe".to_string(),
-                size: 20_000_000,
-                browser_download_url: "https://example.com".to_string(),
-            },
-            GitHubAssetResponse {
-                name: "app.apk".to_string(),
-                size: 15_000_000,
-                browser_download_url: "https://example.com".to_string(),
-            },
-        ];
-        let raw_plats = CatalogService::deduce_platforms_from_raw_assets(&raw);
-        assert_eq!(raw_plats, vec!["windows".to_string(), "android".to_string()]);
-        assert_eq!(deduce_platforms_from_raw_assets(&raw), raw_plats);
     }
 }

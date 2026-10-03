@@ -1,4 +1,4 @@
-use super::Database;
+use super::{clean, Database};
 use crate::models::InstalledApp;
 use rusqlite::{params, Result};
 
@@ -51,13 +51,14 @@ impl Database {
                 app.asset_sha256,
                 app.uninstall_command,
             ],
-        )
+        )?;
+        Ok(())
     }
 
     pub fn remove_installed_app(&self, app_id: &str) -> Result<bool> {
-        let rows = self.conn.execute(
+        let rows = self.exec_upsert(
             "DELETE FROM installed_apps WHERE app_id = ?1",
-            params![app_id],
+            params![clean(app_id)],
         )?;
         Ok(rows > 0)
     }

@@ -618,3 +618,36 @@ fn test_icon_cycle_set_level() {
     assert_eq!(item.url_for_level(5), None);
 }
 
+#[test]
+fn test_history_prune_limit_n_plus_one() {
+    let db = fixtures::test_db();
+    // B1-G5：裁剪唯一落点 prune_history_table，插入 LIMIT+1 条断言仍为 LIMIT
+    let search_limit = crate::config::get_project_config()
+        .limits
+        .search_history_limit;
+    assert!(search_limit > 0);
+    for i in 0..(search_limit + 1) {
+        db.record_search_query(&format!("prune-q-{i}")).unwrap();
+    }
+    let queries = db.get_search_history().unwrap();
+    assert_eq!(queries.len(), search_limit);
+
+    let view_limit = crate::config::get_project_config()
+        .limits
+        .view_history_limit;
+    assert!(view_limit > 0);
+    for i in 0..(view_limit + 1) {
+        db.record_app_view(&format!("prune-app-{i}")).unwrap();
+    }
+    let viewed = db.get_recently_viewed_app_ids().unwrap();
+    assert_eq!(viewed.len(), view_limit);
+
+    // 直接调用白名单裁剪：limit=1 时仅保留最新 1 条
+    db.prune_history_table(ValidatedTable::SearchHistory, 1)
+        .unwrap();
+    assert_eq!(db.get_search_history().unwrap().len(), 1);
+    db.prune_history_table(ValidatedTable::ViewHistory, 1)
+        .unwrap();
+    assert_eq!(db.get_recently_viewed_app_ids().unwrap().len(), 1);
+}
+

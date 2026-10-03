@@ -16,7 +16,9 @@ pub mod windows;
 pub use uninstall::{execute_uninstallation, parse_uninstaller_command};
 
 /// 判断是否属于用户主动取消安装流程
-fn is_user_cancellation(reason: &str) -> bool {
+/// B1-G7 SSOT：取消谓词唯一来源（回滚点：保持 19-26 行判定语义不动），
+/// 卸载侧（executor_uninstall）直接复用，禁止本地副本。
+pub(crate) fn is_user_cancellation(reason: &str) -> bool {
     reason.contains("用户取消")
         || reason.contains("被取消")
         || reason.contains("安装已中止")
@@ -110,6 +112,21 @@ pub fn silent_args_for_setup_kind(kind: &SetupKind) -> Vec<String> {
         SetupKind::Inno => vec!["/VERYSILENT".to_string(), "/NORESTART".to_string()],
         SetupKind::Unknown => Vec::new(),
     }
+}
+
+/// B3-G6 argv 统一执行入口：deb/rpm/pkg/dmg 共用，防空 argv 索引越界 panic。
+/// 纯透传 `argv[0]` 为程序、`argv[1..]` 为参数；argv 组装仍由各纯函数负责（SSOT 不动）。
+/// 调用方自行叠加业务上下文（见各 install_* 的 map_err），此处仅透传 io 错误文本。
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub(crate) async fn run_argv(argv: &[String]) -> Result<std::process::ExitStatus, String> {
+    let (prog, args) = argv
+        .split_first()
+        .ok_or_else(|| "空 argv：拒绝执行".to_string())?;
+    tokio::process::Command::new(prog)
+        .args(args)
+        .status()
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// 安装执行入口：成功 info / 正常取消 info / 异常失败 error。

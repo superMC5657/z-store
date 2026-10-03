@@ -1,4 +1,4 @@
-use super::{now_secs, Database};
+use super::{clean, now_secs, Database};
 use rusqlite::{params, Result};
 use serde::{Deserialize, Serialize};
 
@@ -62,8 +62,8 @@ impl AppIconCycle {
 impl Database {
     /// 查询指定 app_id 的图标轮换记录
     pub fn get_icon_cycle(&self, app_id: &str) -> Result<Option<AppIconCycle>> {
-        let clean = app_id.trim();
-        if clean.is_empty() {
+        let cleaned = clean(app_id);
+        if cleaned.is_empty() {
             return Ok(None);
         }
 
@@ -78,7 +78,7 @@ impl Database {
             LIMIT 1
             "#,
         )?;
-        let mut rows = stmt.query(params![clean])?;
+        let mut rows = stmt.query(params![cleaned])?;
         if let Some(row) = rows.next()? {
             let is_cataloged_int: i64 = row.get(3)?;
             Ok(Some(AppIconCycle {
@@ -102,8 +102,8 @@ impl Database {
 
     /// 根据 owner 与 repo 索引快速查找图标轮换记录
     pub fn get_icon_cycle_by_repo(&self, owner: &str, repo: &str) -> Result<Option<AppIconCycle>> {
-        let o = owner.trim();
-        let r = repo.trim();
+        let o = clean(owner);
+        let r = clean(repo);
         if o.is_empty() || r.is_empty() {
             return Ok(None);
         }
@@ -143,7 +143,7 @@ impl Database {
 
     /// 插入或更新图标轮换记录，主键冲突走 ON CONFLICT(app_id) DO UPDATE SET
     pub fn upsert_icon_cycle(&self, cycle: &AppIconCycle) -> Result<()> {
-        let clean_id = cycle.app_id.trim();
+        let clean_id = clean(&cycle.app_id);
         if clean_id.is_empty() {
             return Ok(());
         }
@@ -176,29 +176,30 @@ impl Database {
             "#,
             params![
                 clean_id,
-                cycle.owner.trim(),
-                cycle.repo.trim(),
+                clean(&cycle.owner),
+                clean(&cycle.repo),
                 is_cataloged_int,
                 cycle.level,
-                cycle.l1_url.trim(),
-                cycle.l2_url.trim(),
-                cycle.l3_url.trim(),
-                cycle.l4_url.trim(),
-                cycle.selected_url.trim(),
-                cycle.cache_file.trim(),
+                clean(&cycle.l1_url),
+                clean(&cycle.l2_url),
+                clean(&cycle.l3_url),
+                clean(&cycle.l4_url),
+                clean(&cycle.selected_url),
+                clean(&cycle.cache_file),
                 updated_at,
             ],
-        )
+        )?;
+        Ok(())
     }
 
     /// 更新当前图标轮换级别，并在对应级别 URL 非空时自动同步切换 selected_url
     pub fn set_icon_cycle_level(&self, app_id: &str, level: i32) -> Result<()> {
-        let clean = app_id.trim();
-        if clean.is_empty() {
+        let cleaned = clean(app_id);
+        if cleaned.is_empty() {
             return Ok(());
         }
         let now = now_secs();
-        self.conn.execute(
+        self.exec_upsert(
             r#"
             UPDATE app_icon_cycles
             SET level = ?1,
@@ -212,7 +213,7 @@ impl Database {
                 updated_at = ?2
             WHERE app_id = ?3
             "#,
-            params![level, now, clean],
+            params![level, now, cleaned],
         )?;
         Ok(())
     }
@@ -225,12 +226,12 @@ impl Database {
         selected_url: &str,
         cache_file: &str,
     ) -> Result<()> {
-        let clean = app_id.trim();
-        if clean.is_empty() {
+        let cleaned = clean(app_id);
+        if cleaned.is_empty() {
             return Ok(());
         }
         let now = now_secs();
-        self.conn.execute(
+        self.exec_upsert(
             r#"
             UPDATE app_icon_cycles
             SET level = ?1,
@@ -239,20 +240,20 @@ impl Database {
                 updated_at = ?4
             WHERE app_id = ?5
             "#,
-            params![level, selected_url.trim(), cache_file.trim(), now, clean],
+            params![level, clean(selected_url), clean(cache_file), now, cleaned],
         )?;
         Ok(())
     }
 
     /// 删除指定 app_id 的图标轮换记录
     pub fn delete_icon_cycle(&self, app_id: &str) -> Result<bool> {
-        let clean = app_id.trim();
-        if clean.is_empty() {
+        let cleaned = clean(app_id);
+        if cleaned.is_empty() {
             return Ok(false);
         }
-        let rows = self.conn.execute(
+        let rows = self.exec_upsert(
             "DELETE FROM app_icon_cycles WHERE app_id = ?1",
-            params![clean],
+            params![cleaned],
         )?;
         Ok(rows > 0)
     }
@@ -277,17 +278,7 @@ pub fn get(db: &Database, app_id: &str) -> Result<Option<AppIconCycle>> {
     db.get_icon_cycle(app_id)
 }
 
-/// 模块级便捷函数：插入或更新图标轮换记录
-pub fn upsert(db: &Database, cycle: &AppIconCycle) -> Result<()> {
-    db.upsert_icon_cycle(cycle)
-}
-
 /// 模块级便捷函数：更新图标轮换级别
 pub fn set_level(db: &Database, app_id: &str, level: i32) -> Result<()> {
     db.set_icon_cycle_level(app_id, level)
-}
-
-/// 模块级便捷函数：删除指定图标轮换记录
-pub fn delete(db: &Database, app_id: &str) -> Result<bool> {
-    db.delete_icon_cycle(app_id)
 }

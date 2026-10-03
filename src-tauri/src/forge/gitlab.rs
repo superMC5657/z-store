@@ -1,8 +1,6 @@
 use super::coord::ForgeType;
 use super::http::{api_headers, new_api_client, AuthScheme, HttpSpan, JSON_ACCEPT_VALUE};
-use super::provider::{AssetKindExt, ForgeProvider, ForgeReleaseInfo, ForgeRepoInfo};
-use crate::installer::InstallerEngine;
-use crate::models::ReleaseAsset;
+use super::provider::{parse_assets, ForgeProvider, ForgeReleaseInfo, ForgeRepoInfo};
 use serde::Deserialize;
 
 pub struct GitLabProvider;
@@ -172,25 +170,11 @@ impl ForgeProvider for GitLabProvider {
                 .ok_or_else(|| "该 GitLab 项目未找到任何 Release".to_string())?
         };
 
-        let mut assets = Vec::new();
-        if let Some(rel_assets) = release.assets {
-            if let Some(links) = rel_assets.links {
-                for l in links {
-                    let (kind, os, arch) = InstallerEngine::classify_asset(&l.name);
-                    let dl_url = l.direct_asset_url.unwrap_or(l.url);
-                    let kind_str = kind.as_str();
-                    assets.push(ReleaseAsset {
-                        name: l.name,
-                        download_url: dl_url,
-                        size_bytes: 0,
-                        sha256: None,
-                        os: os.to_string(),
-                        arch: arch.to_string(),
-                        kind: kind_str.to_string(),
-                    });
-                }
-            }
-        }
+        let links = release.assets.and_then(|a| a.links).unwrap_or_default();
+        let assets = parse_assets(links.into_iter().map(|l| {
+            let dl_url = l.direct_asset_url.unwrap_or(l.url);
+            (l.name, dl_url, 0)
+        }));
 
         Ok(ForgeReleaseInfo {
             tag_name: release.tag_name,

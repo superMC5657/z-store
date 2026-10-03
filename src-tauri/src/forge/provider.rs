@@ -1,4 +1,5 @@
 use super::coord::ForgeType;
+use crate::installer::InstallerEngine;
 use crate::models::ReleaseAsset;
 use serde::{Deserialize, Serialize};
 
@@ -36,6 +37,30 @@ impl ForgeRepoInfo {
             homepage: homepage.filter(|h| !h.trim().is_empty()),
         }
     }
+}
+
+/// 三家 `classify_asset + as_str` 闭包逐字相同段的唯一收敛点。
+/// 调用方保留合法差异：GitLab permalink/latest 回退与 `direct_asset_url` 回退、
+/// Gitea `assets: Option` 的 `unwrap_or_default`，此处只做 `(name, url, size)` -> `ReleaseAsset` 纯映射。
+pub(crate) fn parse_assets(
+    items: impl IntoIterator<Item = (String, String, u64)>,
+) -> Vec<ReleaseAsset> {
+    items
+        .into_iter()
+        .map(|(name, download_url, size_bytes)| {
+            let (kind, os, arch) = InstallerEngine::classify_asset(&name);
+            let kind_str = kind.as_str();
+            ReleaseAsset {
+                name,
+                download_url,
+                size_bytes,
+                sha256: None,
+                os: os.to_string(),
+                arch: arch.to_string(),
+                kind: kind_str.to_string(),
+            }
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

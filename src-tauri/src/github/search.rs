@@ -141,6 +141,7 @@ impl CatalogService {
                                 let description =
                                     it.description.unwrap_or_else(|| "开源软件项目".to_string());
                                 let topics = it.topics.unwrap_or_default();
+                                // 首屏快返：probe=false 置空图标，等后台快慢分离补探 emit。
                                 super::http::fallback_summary(
                                     client,
                                     it.full_name.to_lowercase(),
@@ -156,6 +157,7 @@ impl CatalogService {
                                     None,
                                     false,
                                     confirmed_icon,
+                                    token,
                                 )
                                 .await
                             }
@@ -265,6 +267,7 @@ impl CatalogService {
         let confirmed_icon = super::http::open_db_opt().and_then(|db| {
             super::http::resolve_confirmed_icon_from_db(&db, &format!("{}/{}", owner, repo), owner, repo)
         });
+        // 单仓直查：先快后慢，快路径免鉴权，慢路径有 token 才跑。
         let item = super::http::fallback_summary(
             &client,
             format!("{}/{}", owner, repo),
@@ -280,6 +283,7 @@ impl CatalogService {
             repo_data.homepage,
             true,
             confirmed_icon,
+            token,
         )
         .await;
 

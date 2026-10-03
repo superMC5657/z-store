@@ -47,7 +47,7 @@ pub fn dmg_copy_argv(src_app: &Path, dst_app: &Path) -> Vec<String> {
 /// macOS DMG 安装体（原 executor.rs 内联 cfg(macos) 分支纯移动）。
 #[cfg(target_os = "macos")]
 pub async fn install_dmg(installer_path: &Path) -> Result<InstallOutcome, String> {
-    let res = install_macos_dmg(installer_path);
+    let res = install_macos_dmg(installer_path).await;
     res.map(InstallOutcome::Installed)
 }
 
@@ -55,9 +55,7 @@ pub async fn install_dmg(installer_path: &Path) -> Result<InstallOutcome, String
 #[cfg(target_os = "macos")]
 pub async fn install_pkg(installer_path: &Path) -> Result<InstallOutcome, String> {
     let argv = pkg_open_argv(installer_path);
-    let status = tokio::process::Command::new(&argv[0])
-        .args(&argv[1..])
-        .status()
+    let status = super::run_argv(&argv)
         .await
         .map_err(|e| format!("拉起 macOS PKG 安装器失败: {}", e))?;
 
@@ -71,12 +69,18 @@ pub async fn install_pkg(installer_path: &Path) -> Result<InstallOutcome, String
 }
 
 #[cfg(target_os = "macos")]
-pub fn install_macos_dmg(installer_path: &Path) -> Result<String, String> {
+pub async fn install_macos_dmg(installer_path: &Path) -> Result<String, String> {
     // 1. 命令行 hdiutil attach -nobrowse -readonly 挂载镜像
+    // B3-G6：attach 需解析 stdout（output），走同一空 argv 守卫后直调 tokio output；
+    // 其余 detach/cp -R 状态执行统一走 super::run_argv。
     let attach_argv = dmg_attach_argv(installer_path);
-    let attach_output = std::process::Command::new(&attach_argv[0])
-        .args(&attach_argv[1..])
+    let (attach_prog, attach_args) = attach_argv
+        .split_first()
+        .ok_or_else(|| "空 argv：拒绝执行".to_string())?;
+    let attach_output = tokio::process::Command::new(attach_prog)
+        .args(attach_args)
         .output()
+        .await
         .map_err(|e| format!("挂载 DMG 镜像失败: {}", e))?;
 
     if !attach_output.status.success() {
@@ -117,9 +121,7 @@ pub fn install_macos_dmg(installer_path: &Path) -> Result<String, String> {
         Some(p) => p,
         None => {
             let detach_argv = dmg_detach_argv(&volume_path);
-            let _ = std::process::Command::new(&detach_argv[0])
-                .args(&detach_argv[1..])
-                .status();
+            let _ = super::run_argv(&detach_argv).await;
             return Err("DMG 挂载卷内未发现有效 .app 应用程序包".to_string());
         }
     };
@@ -137,16 +139,13 @@ pub fn install_macos_dmg(installer_path: &Path) -> Result<String, String> {
     }
 
     let copy_argv = dmg_copy_argv(&target_app, &dest_app);
-    let cp_status = std::process::Command::new(&copy_argv[0])
-        .args(&copy_argv[1..])
-        .status()
+    let cp_status = super::run_argv(&copy_argv)
+        .await
         .map_err(|e| format!("拷贝应用至 /Applications 失败: {}", e))?;
 
     // 5. 卸载 DMG 释放挂载点
     let detach_argv = dmg_detach_argv(&volume_path);
-    let _ = std::process::Command::new(&detach_argv[0])
-        .args(&detach_argv[1..])
-        .status();
+    let _ = super::run_argv(&detach_argv).await;
 
     if cp_status.success() {
         Ok(format!(

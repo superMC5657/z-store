@@ -1,4 +1,4 @@
-use super::{now_secs, Database};
+use super::{clean, now_secs, Database};
 use crate::models::UpdateRule;
 use rusqlite::{params, Result};
 
@@ -7,7 +7,7 @@ impl Database {
         let mut stmt = self.conn.prepare(
             "SELECT app_id, skipped_version, is_frozen, is_hidden, updated_at FROM update_rules WHERE app_id = ?1",
         )?;
-        let mut rows = stmt.query(params![app_id])?;
+        let mut rows = stmt.query(params![clean(app_id)])?;
         if let Some(row) = rows.next()? {
             let is_frozen_int: i64 = row.get(2)?;
             let is_hidden_int: i64 = row.get(3)?;
@@ -58,7 +58,8 @@ impl Database {
             "#,
             field = field_name
         );
-        self.exec_upsert(&sql, params![app_id, value, now])
+        self.exec_upsert(&sql, params![clean(app_id), value, now])?;
+        Ok(())
     }
 
     pub fn set_skip_version(&self, app_id: &str, version: Option<&str>) -> Result<()> {
@@ -74,9 +75,9 @@ impl Database {
     }
 
     pub fn remove_rule(&self, app_id: &str) -> Result<bool> {
-        let rows = self.conn.execute(
+        let rows = self.exec_upsert(
             "DELETE FROM update_rules WHERE app_id = ?1",
-            params![app_id],
+            params![clean(app_id)],
         )?;
         Ok(rows > 0)
     }

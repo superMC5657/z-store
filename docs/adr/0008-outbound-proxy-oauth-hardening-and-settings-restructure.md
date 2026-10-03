@@ -30,32 +30,32 @@
    - 一句话区分：API与登录走系统代理透明截获；大文件下载慢在设置页切换下载加速代理。
 
 3. **OAuth 加固（Device Flow）**：
-   - Client ID 三级优先级公式为设置覆盖优先：
-     - `github_oauth_client_id`（`SETTING_OAUTH_CLIENT_ID`）大于编译期 `ZSTORE_GITHUB_OAUTH_CLIENT_ID` 大于内置默认 `Ov23lik0b7fDGMLTiOYH`。
-     - 实现为 `resolve_oauth_client_id`（`oauth.rs:39-44`）与 `resolve_oauth_client_id_from_db`（`commands.rs:2628`）。
+   - Client ID 二级优先级公式为设置覆盖优先：
+     - `github_oauth_client_id`（`SETTING_OAUTH_CLIENT_ID`）大于 `config.toml [oauth].default_client_id`（当前为 `Ov23lik0b7fDGMLTiOYH`）。
+     - 实现为 `resolve_oauth_client_id`（`oauth/constants.rs:28-33`）与 `resolve_oauth_client_id_from_db`（`commands/mod.rs:73-79`）；无编译期环境变量注入。
    - 占位拦截文案固定：
-     - 占位值为 `YOUR_CLIENT_ID_HERE`（`OAUTH_CLIENT_ID_PLACEHOLDER`，`oauth.rs:16`）。
-     - `oauth_device_start`（`commands.rs:2650`）命中占位直接返回 `尚未配置 GitHub OAuth Client ID，请在「设置」中填写后重试`。
-   - 五态表由 `DevicePollOutcome` 承载（`oauth.rs:80-91`），解析为 `classify_device_poll`（`oauth.rs:104-145`）：
+     - 占位值为 `YOUR_CLIENT_ID_HERE`（`OAUTH_CLIENT_ID_PLACEHOLDER`，`oauth/constants.rs:2`）。
+     - `oauth_device_start`（`commands/oauth.rs:20-24`）命中占位直接返回 `尚未配置 GitHub OAuth Client ID，请在「设置」中填写后重试`。
+   - 五态表由 `DevicePollOutcome` 承载（`oauth/types.rs:37-48`），解析为 `classify_device_poll`（`oauth/types.rs:61-102`）：
      - `Pending`：对应 `authorization_pending` 与 `slow_down`。
      - `Authorized`：携带 `access_token`，空令牌不算授权。
      - `Expired`：对应 `expired_token`，文案为 `设备验证码已过期，请重新开始授权`。
      - `Denied`：对应 `access_denied`，文案为 `用户拒绝了授权请求`。
      - `Error`：未知错误透出 `error_description`，非 JSON 体提示轮询响应无法解析。
-     - 前端 `api.ts:1009-1025` 把 `authorized` 收敛为 `complete`，其余保留 `pending`、`expired`、`denied`、`error`。
+     - 前端 `src/services/api.ts:384-395` 把 `authorized` 收敛为 `complete`，其余保留 `pending`、`expired`、`denied`、`error`。
    - 协议常量固定：
-     - 端点为 `https://github.com/login/device/code`（`DEVICE_CODE_URL`）与 `https://github.com/login/oauth/access_token`（`ACCESS_TOKEN_URL`）。
-     - 权限为 `OAUTH_SCOPE = public_repo`（`oauth.rs:32`），为仍能 Star 的最小权限。
-     - 发起与轮询超时均为 `10s`（`oauth.rs:259/289`）。
+     - 端点为 `https://github.com/login/device/code`（`DEVICE_CODE_URL`）与 `https://github.com/login/oauth/access_token`（`ACCESS_TOKEN_URL`），定义于 `oauth/constants.rs:13-14`。
+     - 权限为 `OAUTH_SCOPE = "public_repo user"`（`oauth/constants.rs:11`），覆盖 Star 与 Star 清单管理。
+     - 发起与轮询复用共享 HTTP 客户端统一 API 超时（`config.toml api_timeout_seconds`，默认 `12s`；实现经 `shared_http_client`，见 `oauth/device_flow.rs`），无独立 `10s` 超时。
    - 前端容错为连续 `10` 次失败才停：
      - `OAuthAccountCard` 以 `pollFailRef` 计数，抖动只提示 `网络波动，自动重试中` 并继续下一轮。
      - 攒够 `10` 次才停轮询，且保留用户码展示，提示检查网络后取消重来。
      - 轮询间隔下限为 `Math.max(1000, interval * 1000)`。
    - 成功即自动拉起浏览器兜底：
-     - `handleLogin` 成功后调 `api.openUrl(verificationUri)`（`api.ts:1111` 的 `openUrl`）。
+     - `handleLogin` 成功后调 `api.openUrl(verificationUri)`（`OAuthAccountCard.tsx:119-124`，经 `src/services/api.ts:439-448` 的 `openUrl`）。
      - 拉起失败不阻塞，卡片保留手动前往授权页按钮。
-   - CI 变量由打包机注入：
-     - `release-tauri.yml:102-103` 注入 `ZSTORE_GITHUB_OAUTH_CLIENT_ID`，未配置回退内置默认。
+   - Client ID 默认值来源：
+     - 默认值收敛于 `config.toml [oauth].default_client_id` 单一配置源；`.github/workflows/release-tauri.yml` 不注入任何 OAuth Client ID 变量，不存在编译期环境变量覆盖。
      - 该值为公开标识，非密钥；访问令牌只存 `user_settings.github_oauth_token`（`SETTING_OAUTH_TOKEN`），永不打印日志。
 
 4. **设置页重组为五组**：
@@ -67,12 +67,11 @@
    - 状态指示保留：右下速率胶囊与节点延迟徽标不变，设置内配额徽标与锚点跳转同步保留。
    - 详情缓存 TTL 由 `config.toml` 单一基线控制（默认 30 分钟），不在设置页暴露调节项（缓存策略详见 ADR-0007）。
 
-5. **开发配置隔离**：
-   - 新增 `src-tauri/tauri.dev.conf.json`，全 `8` 行，只放宽 `app.security.csp`。
-   - 放行行为 `connect-src` 与 `default-src` 中的 `http://localhost:1420` 与 `ws://localhost:1421`，保障 HMR。
-   - 合并语义为 Tauri 的 `--config` 文件合并，开发启动时叠加到主配置之上。
-   - 启动命令为 `pnpm tauri:dev`（`package.json:11`），等价于 `tauri dev --config src-tauri/tauri.dev.conf.json`。
-   - 该文件仅用于开发，禁止用于构建；`pnpm tauri build` 不带该参数，生产 CSP 保持收紧。
+5. **开发配置说明（以当前代码为准，无独立开发配置文件）**：
+   - 无独立开发配置文件；开发与构建共用主配置 `src-tauri/tauri.conf.json`。
+   - 开发地址收敛于主配置：`devUrl` 为 `http://localhost:1420`，`beforeDevCommand` 为 `pnpm dev`。
+   - 启动命令为 `pnpm tauri dev`（经 `package.json:13` 的 `"tauri": "tauri"` 透传 Tauri CLI），无 `--config` 叠加文件。
+   - 生产构建为 `pnpm tauri build`，沿用同一主配置的收紧 CSP。
 
 ## 后果与收益
 
@@ -87,6 +86,6 @@
   - 非法代理地址在入库前拦截，错误文案直接定位缺主机名、缺端口、不支持协议。
   - 占位值拦截阻止无效 Device Flow 发起，避免用户对着失效二维码等待。
   - 轮询 `10` 次熔断防止无限重试，用户码保留避免有效授权被误杀。
-  - 开发配置与构建配置隔离，`tauri.dev.conf.json` 永不污染生产包。
+  - 开发与构建共用 `tauri.conf.json` 单一主配置，不存在独立开发配置污染生产包的风险。
 
 > 现状更新（2026-09）：“后果与收益”中“TTL 六档”一词已过时。详情缓存 TTL 为 `config.toml` 单一基线（默认 30 分钟），不在设置页暴露（见 ADR-0007 与本 ADR 决策第 4 节），设置页无档位选项；第五组“恢复出厂设置”各处入口及对应命令已在需求精简中彻底移除，仅保留纯粹的数据备份；右下速率胶囊已从主界面隐藏收敛至账号卡片。决策原文历史归档保留。

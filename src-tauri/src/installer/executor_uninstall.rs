@@ -1,3 +1,5 @@
+use super::{InstallOutcome, is_user_cancellation};
+
 /// 智能拆分 Windows 卸载命令行为 (可执行文件路径, 参数列表)
 pub fn parse_uninstaller_command(cmd: &str) -> (String, Vec<String>) {
     let trimmed = cmd.trim();
@@ -140,11 +142,49 @@ fn find_running_nsis_temp_exe() -> Option<std::path::PathBuf> {
     None
 }
 /// 执行官方卸载向导并异步挂起等待用户操作完成，随后核验卸载状态
+/// B1-G7 收敛：取消判定复用 `super::is_user_cancellation`（SSOT），
+/// 成功经 `InstallOutcome::Installed(..).into_result()` 收敛为 `Ok(())`；
+/// 本文件不保留本地取消谓词/退出码映射副本。
 pub async fn execute_uninstallation(
     uninstaller_cmd: &str,
     main_install_path: &str,
     app_name: &str,
 ) -> Result<(), String> {
+    let res =
+        execute_uninstallation_inner(uninstaller_cmd, main_install_path, app_name).await;
+    match &res {
+        Ok(InstallOutcome::Installed(_)) => {
+            log::info!("uninstall done id={}", app_name)
+        }
+        Ok(InstallOutcome::Skipped(msg)) => log::info!(
+            "uninstall skipped id={} reason={}",
+            app_name,
+            crate::log_support::short_reason(msg)
+        ),
+        Err(e) if is_user_cancellation(e) => {
+            log::info!(
+                "uninstall cancelled by user id={} reason={}",
+                app_name,
+                crate::log_support::short_reason(e)
+            );
+        }
+        Err(e) => log::error!(
+            "uninstall failed id={} reason={}",
+            app_name,
+            crate::log_support::short_reason(e)
+        ),
+    }
+    match res {
+        Ok(outcome) => outcome.into_result().map(|_| ()),
+        Err(e) => Err(e),
+    }
+}
+
+async fn execute_uninstallation_inner(
+    uninstaller_cmd: &str,
+    main_install_path: &str,
+    app_name: &str,
+) -> Result<InstallOutcome, String> {
     #[cfg(target_os = "windows")]
     {
         use std::time::Duration;
@@ -230,7 +270,7 @@ pub async fn execute_uninstallation(
             return Err(format!("卸载向导异常退出或被用户取消 (退出代码: {})", code));
         }
 
-        Ok(())
+        Ok(InstallOutcome::Installed("卸载已完成".to_string()))
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -248,7 +288,7 @@ pub async fn execute_uninstallation(
             .await
             .map_err(|e| format!("卸载进程异常: {}", e))?;
         if status.success() {
-            Ok(())
+            Ok(InstallOutcome::Installed("卸载已完成".to_string()))
         } else {
             Err(format!("卸载未能成功完成 (退出代码: {:?})", status.code()))
         }

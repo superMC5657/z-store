@@ -350,18 +350,3 @@ export interface ImportUserDataCounts {
   settings_applied: boolean;
   installed_skipped: number;
 }
-
-// P3-4: 客户端自更新契约。
-// 实现面：`src/components/ClientUpdateRow.tsx` 经 `@tauri-apps/plugin-updater`
-// 执行 check / downloadAndInstall，状态机见该文件内本地 `UpdatePhase` 类型；
-// 签名与更新源以 `src-tauri/tauri.conf.json`
-// `plugins.updater`（endpoints + pubkey）为准。此处仅保留类型层面的加法声明，
-// 不改变任何运行时行为。
-export type ClientUpdatePhaseKind =
-  | 'idle'
-  | 'checking'
-  | 'latest'
-  | 'available'
-  | 'downloading'
-  | 'ready'
-  | 'error';

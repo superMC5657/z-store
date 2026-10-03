@@ -7,23 +7,20 @@ use super::types::{
 pub async fn request_device_code(client_id: &str) -> Result<DeviceStartResult, String> {
     // 入口 debug：不记 client_id / code 明文，只记结论。
     log::debug!("oauth device start");
-    let client = crate::shared_http_client();
-    let resp = client
-        .post(DEVICE_CODE_URL)
-        .header("Accept", "application/json")
-        .header("User-Agent", "ZStore-Client/0.1.0")
-        .json(&serde_json::json!({
+    let resp = super::http::post_oauth_json(
+        DEVICE_CODE_URL,
+        &serde_json::json!({
             "client_id": client_id,
             "scope": OAUTH_SCOPE,
-        }))
-        .send()
-        .await
-        .map_err(|e| {
-            format!(
-                "连接 GitHub 授权服务失败: {}。如遇国内网络阻断，请检查网络设置。",
-                e
-            )
-        })?;
+        }),
+    )
+    .await
+    .map_err(|e| {
+        format!(
+            "连接 GitHub 授权服务失败: {}。如遇国内网络阻断，请检查网络设置。",
+            e
+        )
+    })?;
     if !resp.status().is_success() {
         return Err(format!(
             "申请设备验证码失败，HTTP 状态码: {}",
@@ -44,19 +41,16 @@ pub async fn poll_device_once(
 ) -> Result<DevicePollOutcome, String> {
     // 轮询 debug：不记 device_code 明文，只记轮询结论。
     log::debug!("oauth device poll");
-    let client = crate::shared_http_client();
-    let resp = client
-        .post(ACCESS_TOKEN_URL)
-        .header("Accept", "application/json")
-        .header("User-Agent", "ZStore-Client/0.1.0")
-        .json(&serde_json::json!({
+    let resp = super::http::post_oauth_json(
+        ACCESS_TOKEN_URL,
+        &serde_json::json!({
             "client_id": client_id,
             "device_code": device_code,
             "grant_type": DEVICE_GRANT_TYPE,
-        }))
-        .send()
-        .await
-        .map_err(|e| format!("连接 GitHub 授权服务失败: {}", e))?;
+        }),
+    )
+    .await
+    .map_err(|e| format!("连接 GitHub 授权服务失败: {}", e))?;
     let text = resp
         .text()
         .await

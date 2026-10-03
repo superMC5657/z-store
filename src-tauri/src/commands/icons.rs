@@ -31,37 +31,50 @@ pub(crate) fn base64_encode(data: &[u8]) -> String {
     result
 }
 
-pub(crate) fn detect_image_mime(bytes: &[u8]) -> &'static str {
-    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-        "image/png"
-    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
-        "image/gif"
-    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
-        "image/jpeg"
-    } else if bytes.starts_with(b"RIFF") && bytes.len() > 12 && &bytes[8..12] == b"WEBP" {
-        "image/webp"
-    } else if bytes.starts_with(&[0x00, 0x00, 0x01, 0x00]) {
-        "image/x-icon"
-    } else if bytes.starts_with(b"BM") {
-        "image/bmp"
-    } else if bytes.len() >= 12
+/// B1-G10：图标魔数单一对照表——所有字节前缀魔数只在此一处定义。
+/// `detect_image_mime` 与 `is_valid_image` 均经由 [`sniff_image_mime`] 同调，消除双实现漂移。
+const MAGIC_PREFIXES: &[(&[u8], &str)] = &[
+    (b"\x89PNG\r\n\x1a\n", "image/png"),
+    (b"GIF87a", "image/gif"),
+    (b"GIF89a", "image/gif"),
+    (b"\xff\xd8\xff", "image/jpeg"),
+    (b"\x00\x00\x01\x00", "image/x-icon"),
+    (b"BM", "image/bmp"),
+];
+
+/// 由 [`MAGIC_PREFIXES`] 及容器/文本分支嗅探 MIME；未知返回 `None`（由调用方决定回退）。
+/// - WEBP：`RIFF....WEBP`（偏移 8 处 4 字节，需 len > 12，保持历史阈值）；
+/// - AVIF：`....ftypavif/avis`（偏移 4/8，需 len >= 12）；
+/// - SVG：去 UTF-8 BOM + 跳过前导 ASCII 空白后，以 `<?xml` / `<svg` 开头。
+fn sniff_image_mime(bytes: &[u8]) -> Option<&'static str> {
+    for &(magic, mime) in MAGIC_PREFIXES {
+        if bytes.starts_with(magic) {
+            return Some(mime);
+        }
+    }
+    if bytes.starts_with(b"RIFF") && bytes.len() > 12 && &bytes[8..12] == b"WEBP" {
+        return Some("image/webp");
+    }
+    if bytes.len() >= 12
         && &bytes[4..8] == b"ftyp"
         && (&bytes[8..12] == b"avif" || &bytes[8..12] == b"avis")
     {
-        "image/avif"
-    } else {
-        // SVG 可能带有 UTF-8 BOM (\xef\xbb\xbf) 或前导空白/换行
-        let trimmed = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
-        let trimmed = match trimmed.iter().position(|&b| !b.is_ascii_whitespace()) {
-            Some(idx) => &trimmed[idx..],
-            None => trimmed,
-        };
-        if trimmed.starts_with(b"<?xml") || trimmed.starts_with(b"<svg") {
-            "image/svg+xml"
-        } else {
-            "image/png"
-        }
+        return Some("image/avif");
     }
+    // SVG 可能带有 UTF-8 BOM (\xef\xbb\xbf) 或前导空白/换行
+    let trimmed = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
+    let trimmed = match trimmed.iter().position(|&b| !b.is_ascii_whitespace()) {
+        Some(idx) => &trimmed[idx..],
+        None => trimmed,
+    };
+    if trimmed.starts_with(b"<?xml") || trimmed.starts_with(b"<svg") {
+        return Some("image/svg+xml");
+    }
+    None
+}
+
+pub(crate) fn detect_image_mime(bytes: &[u8]) -> &'static str {
+    sniff_image_mime(bytes).unwrap_or("image/png")
 }
 
 pub(crate) fn bytes_to_data_uri(bytes: &[u8]) -> String {
@@ -74,61 +87,56 @@ pub fn is_valid_image(bytes: &[u8]) -> bool {
     if bytes.is_empty() {
         return false;
     }
-    if bytes.starts_with(b"\x89PNG\r\n\x1a\n")
-        || bytes.starts_with(b"GIF87a")
-        || bytes.starts_with(b"GIF89a")
-        || bytes.starts_with(&[0xff, 0xd8, 0xff])
-        || (bytes.starts_with(b"RIFF") && bytes.len() > 12 && &bytes[8..12] == b"WEBP")
-        || bytes.starts_with(&[0x00, 0x00, 0x01, 0x00])
-        || bytes.starts_with(b"BM")
-        || (bytes.len() >= 12
-            && &bytes[4..8] == b"ftyp"
-            && (&bytes[8..12] == b"avif" || &bytes[8..12] == b"avis"))
-    {
-        return true;
-    }
-    let trimmed = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
-    let trimmed = match trimmed.iter().position(|&b| !b.is_ascii_whitespace()) {
-        Some(idx) => &trimmed[idx..],
-        None => trimmed,
-    };
-    trimmed.starts_with(b"<?xml") || trimmed.starts_with(b"<svg")
+    sniff_image_mime(bytes).is_some()
 }
+
+/// B1-G10：mime<->ext 单一对照表（规范对）。`mime_to_ext` / `ext_to_mime` 均由此派生；
+/// 历史别名（`image/apng`→`png`、`image/vnd.microsoft.icon`→`ico`、
+/// `apng`→`image/apng`、`jpeg`→`image/jpeg`）保留为显式分支，行为与合表前一致。
+const MIME_EXT_TABLE: &[(&str, &str)] = &[
+    ("image/png", "png"),
+    ("image/jpeg", "jpg"),
+    ("image/gif", "gif"),
+    ("image/webp", "webp"),
+    ("image/x-icon", "ico"),
+    ("image/svg+xml", "svg"),
+    ("image/avif", "avif"),
+    ("image/bmp", "bmp"),
+];
 
 pub(crate) fn mime_to_ext(mime: &str) -> &'static str {
     let clean = mime.trim().to_ascii_lowercase();
-    match clean.as_str() {
-        "image/png" | "image/apng" => "png",
-        "image/jpeg" => "jpg",
-        "image/gif" => "gif",
-        "image/webp" => "webp",
-        "image/x-icon" | "image/vnd.microsoft.icon" => "ico",
-        "image/svg+xml" => "svg",
-        "image/avif" => "avif",
-        "image/bmp" => "bmp",
-        _ => "png",
+    if clean == "image/apng" {
+        return "png";
     }
+    if clean == "image/vnd.microsoft.icon" {
+        return "ico";
+    }
+    for (m, e) in MIME_EXT_TABLE {
+        if clean.as_str() == *m {
+            return e;
+        }
+    }
+    "png"
 }
 
+/// 仅测试调用（`commands::tests`），生产代码无调用；非 test 构建下允许死代码，保持 `cargo check` 零警告。
+/// 签名保持不变，作为回滚线。
+#[allow(dead_code)]
 pub(crate) fn ext_to_mime(ext: &str) -> &'static str {
     let clean = ext.trim().trim_start_matches('.').to_ascii_lowercase();
-    match clean.as_str() {
-        "png" => "image/png",
-        "apng" => "image/apng",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "ico" => "image/x-icon",
-        "svg" => "image/svg+xml",
-        "avif" => "image/avif",
-        "bmp" => "image/bmp",
-        _ => "image/png",
+    if clean == "apng" {
+        return "image/apng";
     }
-}
-
-#[allow(dead_code)]
-pub(crate) fn detect_image_ext(bytes: &[u8]) -> &'static str {
-    mime_to_ext(detect_image_mime(bytes))
+    if clean == "jpeg" {
+        return "image/jpeg";
+    }
+    for (m, e) in MIME_EXT_TABLE {
+        if clean.as_str() == *e {
+            return m;
+        }
+    }
+    "image/png"
 }
 
 /// 从 remote_url path 中提取真实扩展名（去掉 query/fragment，转小写，仅允许 png/jpg/jpeg/gif/webp/svg/ico/avif/apng/bmp，jpeg 统一为 jpg）。
@@ -164,7 +172,7 @@ pub(crate) fn infer_icon_ext_from_url(remote_url: &str) -> Option<&'static str> 
 }
 
 /// 图标缓存文件名消毒：仅保留字母数字及 `-`/`_`，用于构造本地图标缓存文件名。
-/// 消毒后为空时，调用方回退到基于 remote_url 的 SHA-256 哈希命名（见 icon_hash_filename）。
+/// 消毒后为空时，调用方回退到基于 remote_url 的 SHA-256 哈希命名。
 pub(crate) fn sanitize_icon_segment(s: &str) -> String {
     s.chars()
         .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
@@ -176,6 +184,7 @@ pub(crate) fn is_avatar_url(url: &str) -> bool {
     u.contains("avatars.githubusercontent.com") || u.contains("identicons.github.com")
 }
 
+/// B3-G11 标识解析 SSOT：统一经 `RepositoryUrlParser::parse` 取 owner/repo，不手写 split_once。
 pub(crate) fn get_icon_stem(app_id: &str, remote_url: &str) -> String {
     match crate::forge::RepositoryUrlParser::parse(app_id) {
         Some(coord) if !coord.owner.is_empty() && !coord.repo.is_empty() => {
@@ -191,7 +200,24 @@ pub(crate) fn get_icon_stem(app_id: &str, remote_url: &str) -> String {
     }
 }
 
+/// B3-G11 标识解析 SSOT：回退亦先经 `canonical_app_id`（内部即 parse）归一化，不手写 split_once；
+/// canonical 可解析时按 owner_repo 语义组 stem，避免 '/' 被消毒吞掉；否则消毒原始 id；全空则哈希 remote_url。
 fn fallback_icon_stem(app_id: &str, remote_url: &str) -> String {
+    if let Some(canon) = crate::forge::canonical_app_id(app_id) {
+        if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&canon) {
+            if !coord.owner.is_empty() && !coord.repo.is_empty() {
+                let safe_o = sanitize_icon_segment(&coord.owner);
+                let safe_r = sanitize_icon_segment(&coord.repo);
+                if !safe_o.is_empty() && !safe_r.is_empty() {
+                    return format!("{}_{}", safe_o, safe_r);
+                }
+            }
+        }
+        let safe_canon = sanitize_icon_segment(&canon);
+        if !safe_canon.is_empty() {
+            return safe_canon;
+        }
+    }
     let safe_id = sanitize_icon_segment(app_id);
     if safe_id.is_empty() {
         let hash = crate::sha256_digest_hex(remote_url.as_bytes());
@@ -201,16 +227,12 @@ fn fallback_icon_stem(app_id: &str, remote_url: &str) -> String {
     }
 }
 
-#[allow(dead_code)]
-pub(crate) fn icon_hash_filename(remote_url: &str) -> String {
-    let ext = infer_icon_ext_from_url(remote_url).unwrap_or("png");
-    let hash = crate::sha256_digest_hex(remote_url.as_bytes());
-    format!("{}.{}", &hash[..16], ext)
-}
-
 /// 图标缓存路径：canonical id 解析出 owner/repo 命名空间时使用 `{owner}_{repo}.{ext}`，
 /// 否则以消毒后的 id 命名；id 完全不可用时回退 remote_url 哈希。
 /// 后缀根据 remote_url 路径推断；若无有效后缀，暂定 png，下载后按内容纠正。
+/// 仅测试调用（`commands::tests`），生产代码无调用（生产内联 stem+推断后缀逻辑）；
+/// 删除会破坏测试编译，故保留签名（回滚线），非 test 构建下允许死代码，保持 `cargo check` 零警告。
+#[allow(dead_code)]
 pub(crate) fn get_icon_cache_path(app_id: &str, remote_url: &str) -> std::path::PathBuf {
     let icons_dir = crate::get_app_data_dir().join("icons");
     let ext = infer_icon_ext_from_url(remote_url).unwrap_or("png");
@@ -218,25 +240,12 @@ pub(crate) fn get_icon_cache_path(app_id: &str, remote_url: &str) -> std::path::
     icons_dir.join(format!("{}.{}", stem, ext))
 }
 
-#[allow(dead_code)]
-fn fallback_icon_filename(app_id: &str, remote_url: &str) -> String {
-    let ext = infer_icon_ext_from_url(remote_url).unwrap_or("png");
-    let stem = fallback_icon_stem(app_id, remote_url);
-    format!("{}.{}", stem, ext)
-}
-
-/// H2：图标拉取专用 HTTP 客户端（超时 + 有限重定向）。
+/// H2：图标拉取专用 HTTP 客户端（超时 + 有限重定向，委托 `forge::http` SSOT，与 API client 隔离）。
 pub(crate) fn icon_http_client() -> reqwest::Client {
-    let api_timeout = std::time::Duration::from_secs(
-        crate::config::get_project_config()
-            .network
-            .api_timeout_seconds,
-    );
-    reqwest::Client::builder()
-        .timeout(api_timeout)
-        .redirect(reqwest::redirect::Policy::limited(10))
-        .build()
-        .unwrap_or_else(|_| reqwest::Client::new())
+    let secs = crate::config::get_project_config()
+        .network
+        .api_timeout_seconds;
+    crate::forge::http::new_icon_client(secs).unwrap_or_default()
 }
 
 /// 图标下载与校验通用 helper（支持镜像重写、超时重试、格式与非空校验）。
@@ -278,14 +287,7 @@ pub async fn download_icon_bytes(
         let start_icon = std::time::Instant::now();
         match client
             .get(&candidate)
-            .header(
-                "User-Agent",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            )
-            .header(
-                "Accept",
-                "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-            )
+            .headers(crate::forge::http::icon_headers())
             .send()
             .await
         {
@@ -458,7 +460,7 @@ pub async fn get_or_fetch_icon(
                     // 先拿确切默认分支（匿名一次调用，失败则退化 main/master 双试）。
                     let mut branches: Vec<String> = Vec::with_capacity(2);
                     let repo_api = format!("https://api.github.com/repos/{}/{}", c.owner, c.repo);
-                    if let Ok(resp) = client.get(&repo_api).header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36").send().await {
+                    if let Ok(resp) = client.get(&repo_api).header("User-Agent", crate::forge::http::BROWSER_UA_VALUE).send().await {
                         if let Ok(v) = resp.json::<serde_json::Value>().await {
                             if let Some(b) = v.get("default_branch").and_then(|x| x.as_str()) {
                                 branches.push(b.to_string());

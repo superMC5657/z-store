@@ -211,9 +211,6 @@ fn test_base64_encode_and_icon_cache_path() {
         "image/avif"
     );
 
-    assert_eq!(detect_image_ext(b"\x89PNG\r\n\x1a\n123"), "png");
-    assert_eq!(detect_image_ext(b"<svg xmlns=..."), "svg");
-
     // 扩展名推断与 mime 双向映射
     assert_eq!(infer_icon_ext_from_url("https://github.com/rustdesk.png"), Some("png"));
     assert_eq!(infer_icon_ext_from_url("https://example.com/logo.JPEG?raw=1#top"), Some("jpg"));
@@ -273,8 +270,6 @@ fn test_base64_encode_and_icon_cache_path() {
     let p7 = get_icon_cache_path("###", p7_url);
     let h7 = &crate::sha256_digest_hex(p7_url.as_bytes())[..16];
     assert!(p7.to_string_lossy().ends_with(&format!("{}.png", h7)));
-    assert_eq!(icon_hash_filename(p7_url), format!("{}.png", h7));
-    assert_eq!(icon_hash_filename(p6_url), format!("{}.svg", h6));
 }
 
 #[test]

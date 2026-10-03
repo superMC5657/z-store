@@ -11,6 +11,7 @@
 pub mod backup;
 pub mod constants;
 pub mod device_flow;
+pub mod http;
 pub mod star;
 pub mod types;
 

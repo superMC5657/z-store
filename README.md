@@ -12,7 +12,7 @@
 
 ## 🌟 项目定位与基石原则 (Core Principles)
 
-**Z-Store 致力于成为开源世界的系统级应用商店**，把 GitHub 及主流开源托管平台的 Releases 转化为人人可用、一键安装、自动更新的跨平台现代化应用市场。
+**Z-Store 致力于成为开源世界的系统级应用商店**，把 GitHub 及主流开源托管平台的 Releases 转化为人人可用、一键安装、自动更新的跨平台现代化应用商店。
 
 本项目严格遵循四大基石原则：
 
@@ -85,7 +85,7 @@
 
 - **桌面底座**: Tauri 2.2 + Rust 1.77+
 - **前端界面**: React 19 + TypeScript 5.7 (strict) + Vite 6 + 原生 Fluent 2.0 CSS + Fluent 矢量图标体系 (`lucide-react`)
-- **本地数据库**: 嵌入式 SQLite (`rusqlite` bundled，WAL 模式，维护 13 张核心表)
+- **本地数据库**: 嵌入式 SQLite (`rusqlite` bundled，WAL 模式，维护 14 张核心表：新增 `icon_cache_meta` 与 `app_icon_cycles`，图标缓存来源与轮换状态分流）
 - **配置中枢**: 单一基线配置源（`src-tauri/config.toml`），结合编译期内置兜底与外部重载机制
 - **网络与下载**: `reqwest` 共享 Client（`json` / `stream` / `socks` 特性）+ `tokio` 异步流式下载 + ETag 条件缓存 + 并发镜像测速管道；自动继承系统代理与 TUN 模式
 - **桌面开发配置**: `pnpm tauri dev`（基于 `src-tauri/tauri.conf.json` 配置本地安全策略）
@@ -156,7 +156,7 @@ pnpm tauri build
 - [ADR-0006: 多源代码托管平台 (Multi-Forge) 生态支持与统一抽象层](docs/adr/0006-multi-forge-ecosystem-support.md)
 - [ADR-0007: 开源清单仓库动态同步与客户端按需 API 详情拉取（含可配置 TTL 缓存）](docs/adr/0007-open-manifest-catalog-and-configurable-ttl-cache.md)
 - [ADR-0008: 出站代理与 OAuth 加固及设置中心重构](docs/adr/0008-outbound-proxy-oauth-hardening-and-settings-restructure.md)
-- [ADR-0009: 应用市场生态清单仓库与客户端运行时引擎解耦](docs/adr/0009-catalog-manifest-repository-decoupling.md)
+- [ADR-0009: 独立生态清单仓库与客户端运行时引擎解耦](docs/adr/0009-catalog-manifest-repository-decoupling.md)
 - [ADR-0010: 规范应用标识（Canonical App Identifier）](docs/adr/0010-canonical-app-identifier.md)
 - [协作规范与 Agent 指南](AGENTS.md)
 

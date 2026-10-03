@@ -4,9 +4,15 @@ import '../i18n';
 import { TrendingUp } from 'lucide-react';
 import { AppSummary } from '../types';
 import { AppCard, getRankBadgeColor } from '../components/AppCard';
-import { EmptyState } from '../components/EmptyState';
 import { SegmentedControl } from '../components/SegmentedControl';
-import { api } from '../services/api';
+import { tauriApi } from '../services/api';
+import {
+  FilterEmptyState,
+  PlatformResetOption,
+  ViewAppActions,
+  ViewShell,
+  resolvePlatformReset,
+} from './ViewShell';
 import {
   fetchTrends,
   formatStars,
@@ -16,30 +22,14 @@ import {
   TrendRepo,
 } from '../services/trends';
 
-interface TrendsViewProps {
-  apps: AppSummary[];
+interface TrendsViewProps
+  extends
+    Omit<ViewAppActions, 'favoriteIds' | 'installedIds' | 'installingIds' | 'onToggleFavorite'>,
+    PlatformResetOption {
   favoriteIds?: Set<string>;
   installedIds?: Set<string>;
   installingIds?: Set<string>;
-  onOpenDetail: (id: string) => void;
-  onQuickInstall: (id: string) => void;
   onToggleFavorite?: (id: string) => void;
-  /**
-   * 由 App 维护的全局设备平台重置回调（恢复全量设备集合）。
-   * 当未传入时，重置按钮会清理持久化存储并在 window 上广播
-   * `zstore:reset-platform-filter`（兜底方案与 HomeView 一致；保持字面量以避免 view 与 App 循环引用）。
-   */
-  onResetPlatformFilter?: () => void;
-}
-
-/** 当 App 尚未接入 `onResetPlatformFilter` 时的兜底重置路径。 */
-function broadcastPlatformReset(): void {
-  try {
-    window.localStorage.removeItem('zstore:platform-filter:v1');
-  } catch {
-    // 忽略：存储抛错时保持内存中的选择
-  }
-  window.dispatchEvent(new CustomEvent('zstore:reset-platform-filter'));
 }
 
 type TimeRange = TrendPeriod;
@@ -121,7 +111,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   }, [remoteTrends, localSortedApps, apps]);
 
   return (
-    <div className="trends-view view-entrance">
+    <ViewShell viewClass="trends-view">
       <div className="section-header">
         <h3 className="section-title">
           <TrendingUp size={18} />
@@ -141,26 +131,13 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
 
       <div className="fluent-list-container">
         {apps.length === 0 || displayItems.length === 0 ? (
-          <EmptyState
+          <FilterEmptyState
             className="trends-empty"
             icon={<TrendingUp size={40} strokeWidth={1.5} />}
             title={t('trends.empty_title')}
             description={t('trends.empty_desc')}
-            action={(
-              <button
-                type="button"
-                className="btn-fluent btn-primary filter-empty-reset"
-                onClick={() => {
-                  if (onResetPlatformFilter) {
-                    onResetPlatformFilter();
-                  } else {
-                    broadcastPlatformReset();
-                  }
-                }}
-              >
-                {t('trends.reset_device_filter')}
-              </button>
-            )}
+            resetLabel={t('trends.reset_device_filter')}
+            onReset={resolvePlatformReset(onResetPlatformFilter)}
           />
         ) : (
           displayItems.map((item, index) => {
@@ -190,12 +167,12 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                 style={{ cursor: item.repo.url ? 'pointer' : 'default' }}
                 onClick={() => {
                   if (item.repo.url) {
-                    void api.openUrl(item.repo.url);
+                    void tauriApi.openUrl(item.repo.url);
                   }
                 }}
                 onKeyDown={(e) => {
                   if (item.repo.url && (e.key === 'Enter' || e.key === ' ')) {
-                    void api.openUrl(item.repo.url);
+                    void tauriApi.openUrl(item.repo.url);
                   }
                 }}
               >
@@ -228,6 +205,6 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
           })
         )}
       </div>
-    </div>
+    </ViewShell>
   );
 };

@@ -18,32 +18,11 @@ import React from 'react';
 import { HomeView } from './HomeView';
 import type { AppSummary } from '../types';
 import { PLATFORM_IDS, matchPlatformSet, parseSelectedPlatformArray } from '../lib/platformFilter';
+import { filterAppsByPlatform, makeApp } from './test-utils/filterFixture';
 
 afterEach(() => {
   cleanup();
 });
-
-function makeApp(overrides: Partial<AppSummary> & { id: string; name: string }): AppSummary {
-  return {
-    owner: 'owner',
-    repo: overrides.id,
-    icon: '📦',
-    icon_bg: 'linear-gradient(135deg, #475569, #334155)',
-    description: `${overrides.name} desc`,
-    stars: 1000,
-    forks: 100,
-    license: 'MIT',
-    latest_version: '1.0.0',
-    category: 'system',
-    category_name: '系统实用',
-    is_verified: false,
-    forge: 'github',
-    forge_host: 'github.com',
-    homepage: null,
-    platforms: [],
-    ...overrides,
-  };
-}
 
 // 规范测试数据：rustdesk:windows, 仅iosApp:ios, 无platformsApp:undefined。
 const RUSTDESK = makeApp({ id: 'rustdesk', name: 'RustDesk', platforms: ['windows'], stars: 90000 });
@@ -63,9 +42,9 @@ const EXTENDED_FIXTURE: AppSummary[] = [
   makeApp({ id: 'macos-app', name: 'MacApp', platforms: ['macos'], stars: 1200 }),
 ];
 
-/** 与 App.tsx 派生逻辑完全对齐：应用按所选集合进行过滤。 */
+/** 与 App.tsx 派生逻辑完全对齐：应用按所选集合进行过滤（见 test-utils/filterFixture）。 */
 function filterApps(apps: AppSummary[], selected: string[]): AppSummary[] {
-  return apps.filter((a) => matchPlatformSet(a, new Set(selected)));
+  return filterAppsByPlatform(apps, selected);
 }
 
 function renderHomeView(

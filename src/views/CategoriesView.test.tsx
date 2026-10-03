@@ -16,35 +16,13 @@ import React from 'react';
 import { CategoriesView } from './CategoriesView';
 import type { AppSummary } from '../types';
 import { matchPlatformSet, parseSelectedPlatformArray } from '../lib/platformFilter';
+import { makeCategorizedApp as makeApp } from './test-utils/filterFixture';
 
 afterEach(() => {
   cleanup();
 });
 
-function makeApp(id: string, category: string, platforms?: string[]): AppSummary {
-  return {
-    id,
-    name: id,
-    owner: 'owner',
-    repo: id,
-    icon: '📦',
-    icon_bg: 'linear-gradient(135deg, #475569, #334155)',
-    description: `${id} desc`,
-    stars: 1,
-    forks: 0,
-    license: 'MIT',
-    latest_version: '1.0.0',
-    category,
-    category_name: category,
-    is_verified: false,
-    forge: 'github',
-    forge_host: 'github.com',
-    homepage: null,
-    platforms: platforms ?? [],
-  };
-}
-
-// 交集测试数据：dev 覆盖 windows+ios，media 仅限 ios。
+// 交集测试数据：dev 覆盖 windows+ios，media 仅限 ios（makeApp 见 test-utils/filterFixture）。
 const DEV_WIN = makeApp('a-dev-win', 'dev', ['windows']);
 const DEV_IOS = makeApp('a-dev-ios', 'dev', ['ios']);
 const MEDIA_IOS = makeApp('a-media-ios', 'media', ['ios']);

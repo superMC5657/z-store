@@ -14,34 +14,13 @@ import { cleanup, fireEvent, render } from '@testing-library/react';
 import { TrendsView } from './TrendsView';
 import { matchPlatformSet, PLATFORM_IDS, parseSelectedPlatformArray } from '../lib/platformFilter';
 import { AppSummary } from '../types';
+import { filterAppsByPlatform, makeApp } from './test-utils/filterFixture';
 
 afterEach(() => {
   cleanup();
 });
 
-function makeApp(overrides: Partial<AppSummary> & { id: string; name: string }): AppSummary {
-  return {
-    owner: 'owner',
-    repo: overrides.id,
-    icon: '',
-    icon_bg: '#888888',
-    description: `desc of ${overrides.name}`,
-    stars: 1000,
-    forks: 100,
-    license: 'MIT',
-    latest_version: '1.0.0',
-    category: 'system',
-    category_name: '系统实用',
-    is_verified: false,
-    forge: 'github',
-    forge_host: 'github.com',
-    homepage: null,
-    platforms: [],
-    ...overrides,
-  };
-}
-
-// 共享测试数据：设定区分度明显的周热度分数，锁定全选时的排序。
+// 共享测试数据：设定区分度明显的周热度分数，锁定全选时的排序（makeApp 见 test-utils/filterFixture）。
 const FIXTURE: AppSummary[] = [
   makeApp({ id: 'rustdesk', name: 'RustDesk', platforms: ['windows'], stars: 90000, forks: 10000 }),
   makeApp({ id: 'ios-only-app', name: '仅iosApp', platforms: ['ios'], stars: 50000, forks: 5000 }),
@@ -51,7 +30,7 @@ const FIXTURE: AppSummary[] = [
 
 /** 与 App.tsx 对齐：TrendsView 接收到的 `apps` 属性已经是过滤后的数据。 */
 function preFiltered(selected: string[]): AppSummary[] {
-  return FIXTURE.filter((a) => matchPlatformSet(a, new Set(selected)));
+  return filterAppsByPlatform(FIXTURE, selected);
 }
 
 function renderTrends(apps: AppSummary[], extra: Partial<React.ComponentProps<typeof TrendsView>> = {}) {

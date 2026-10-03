@@ -14,48 +14,25 @@ import {
 import { AppCard } from '../components/AppCard';
 import { AppIcon } from '../components/AppIcon';
 import { AppSummary } from '../types';
-import { EmptyState } from '../components/EmptyState';
+import {
+  FilterEmptyState,
+  PlatformResetOption,
+  ViewAppActions,
+  ViewShell,
+  resolvePlatformReset,
+} from './ViewShell';
 import { getAppDisplayName, getAppDescription, getCategoryLabel } from '../utils/appHelper';
 
-interface HomeViewProps {
+interface HomeViewProps extends ViewAppActions, PlatformResetOption {
   /**
    * 已由 App 完成平台预过滤（`platformFilteredApps`）：
    * 下方的每个分片均直接基于此数组运行。切勿在页面内重复进行平台过滤——
    * 全局设备平台选择状态由 App/Sidebar 统筹维护。
    */
-  apps: AppSummary[];
-  installedIds: Set<string>;
-  installingIds?: Set<string>;
-  favoriteIds: Set<string>;
   recentlyViewedApps?: AppSummary[];
   searchQuery?: string;
-  onOpenDetail: (id: string) => void;
-  onQuickInstall: (id: string) => void;
-  onToggleFavorite: (id: string) => void;
-  watchedIds?: Set<string>;
-  onToggleWatch?: (id: string) => void;
   onNavigateTrends: () => void;
   onClearRecentViews?: () => void;
-  /**
-   * 由 App 接驳全局平台重置的扩展点。当未传入时，
-   * 重置按钮回退为直接清理持久化存储并在 window 上广播 `zstore:reset-platform-filter`。
-   */
-  onResetPlatformFilter?: () => void;
-}
-
-/**
- * 当 App 尚未接入 `onResetPlatformFilter` 时的兜底重置方案：
- * 清理持久化存储（App 的 `loadSelectedPlatforms` 在缺少键时会回退至全选集合），
- * 并向所有监听器广播重置意图。键名字符串与 App.PLATFORM_FILTER_STORAGE_KEY 一致；
- * 此处保持字面量以避免 view 与 App 之间的循环引用。
- */
-function broadcastPlatformReset(): void {
-  try {
-    window.localStorage.removeItem('zstore:platform-filter:v1');
-  } catch {
-    // 忽略：存储抛错时保持内存中的选择
-  }
-  window.dispatchEvent(new CustomEvent('zstore:reset-platform-filter'));
 }
 
 export const HomeView: React.FC<HomeViewProps> = ({
@@ -81,29 +58,16 @@ export const HomeView: React.FC<HomeViewProps> = ({
     // 筛选为空：全局设备平台筛选排除了所有应用。
     // 专属文案与重置按钮——绝不复用搜索页的 `owner/repo` 引导文案。
     return (
-      <div className="home-view">
-        <EmptyState
+      <ViewShell viewClass="home-view">
+        <FilterEmptyState
           style={{ marginTop: '40px' }}
           icon={<Search size={40} strokeWidth={1.5} />}
           title={t('home.empty_title')}
           description={t('home.empty_desc')}
-          action={(
-            <button
-              type="button"
-              className="btn-fluent btn-primary filter-empty-reset"
-              onClick={() => {
-                if (onResetPlatformFilter) {
-                  onResetPlatformFilter();
-                } else {
-                  broadcastPlatformReset();
-                }
-              }}
-            >
-              {t('home.reset_device_filter')}
-            </button>
-          )}
+          resetLabel={t('home.reset_device_filter')}
+          onReset={resolvePlatformReset(onResetPlatformFilter)}
         />
-      </div>
+      </ViewShell>
     );
   }
 
@@ -120,7 +84,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const remainingApps = nonHeroApps.slice(4);
 
   return (
-    <div className="home-view view-entrance">
+    <ViewShell viewClass="home-view">
       {/* 置顶推荐横幅（Linear 去彩单色展台） */}
       {heroApp && (
         <div
@@ -323,6 +287,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </div>
         </>
       )}
-    </div>
+    </ViewShell>
   );
 };

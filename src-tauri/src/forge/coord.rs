@@ -204,3 +204,78 @@ impl RepositoryUrlParser {
         None
     }
 }
+
+/// B3-G11：图标已确认记录的大小写容错查询 SSOT（db 查询侧）。
+/// 收拢散落在调用方的 `to_lowercase` 多段回退；解析器本身保持大小写保留、不被污染。
+/// 查询顺序：`app_id` 原值 → `canonical_app_id` → 小写 → `owner/repo`（解析器优先）原值 → 小写；
+/// `owner/repo` 优先经 `RepositoryUrlParser::parse(app_id)` 推导（SSOT），回退调用方传入值；命中即返。
+pub fn lookup_case_insensitive(
+    db: &crate::db::Database,
+    app_id: &str,
+    owner: &str,
+    repo: &str,
+) -> Option<crate::db::AppIconCycle> {
+    let clean_id = app_id.trim();
+    if !clean_id.is_empty() {
+        if let Ok(Some(cycle)) = db.get_icon_cycle(clean_id) {
+            return Some(cycle);
+        }
+        if let Some(canon) = canonical_app_id(clean_id) {
+            if canon != clean_id {
+                if let Ok(Some(cycle)) = db.get_icon_cycle(&canon) {
+                    return Some(cycle);
+                }
+            }
+            // canonical 已是小写归一；仅当其与原值小写不一致（如 forge 前缀形态）时再补试小写。
+            let lower = clean_id.to_lowercase();
+            if lower != clean_id && lower != canon {
+                if let Ok(Some(cycle)) = db.get_icon_cycle(&lower) {
+                    return Some(cycle);
+                }
+            }
+        } else {
+            let lower = clean_id.to_lowercase();
+            if lower != clean_id {
+                if let Ok(Some(cycle)) = db.get_icon_cycle(&lower) {
+                    return Some(cycle);
+                }
+            }
+        }
+    }
+
+    // owner/repo 维度：SSOT 经 RepositoryUrlParser 优先推导，回退调用方传入值。
+    let (eff_owner, eff_repo) = match RepositoryUrlParser::parse(clean_id) {
+        Some(coord) if !coord.owner.is_empty() && !coord.repo.is_empty() => {
+            (coord.owner, coord.repo)
+        }
+        _ => (owner.trim().to_string(), repo.trim().to_string()),
+    };
+    if !eff_owner.is_empty() && !eff_repo.is_empty() {
+        if let Ok(Some(cycle)) = db.get_icon_cycle_by_repo(&eff_owner, &eff_repo) {
+            return Some(cycle);
+        }
+        let lower_o = eff_owner.to_lowercase();
+        let lower_r = eff_repo.to_lowercase();
+        if lower_o != eff_owner || lower_r != eff_repo {
+            if let Ok(Some(cycle)) = db.get_icon_cycle_by_repo(&lower_o, &lower_r) {
+                return Some(cycle);
+            }
+        }
+        // 解析器与传入值不一致时，补试传入值（兼容调用方传入与 app_id 不一致的旧数据）。
+        let in_o = owner.trim();
+        let in_r = repo.trim();
+        if !in_o.is_empty() && !in_r.is_empty() && (in_o != eff_owner || in_r != eff_repo) {
+            if let Ok(Some(cycle)) = db.get_icon_cycle_by_repo(in_o, in_r) {
+                return Some(cycle);
+            }
+            let ilo = in_o.to_lowercase();
+            let ilr = in_r.to_lowercase();
+            if ilo != in_o || ilr != in_r {
+                if let Ok(Some(cycle)) = db.get_icon_cycle_by_repo(&ilo, &ilr) {
+                    return Some(cycle);
+                }
+            }
+        }
+    }
+    None
+}

@@ -39,17 +39,129 @@ export interface SearchIconReadyPayload {
 
 export interface AppIconCycleResult {
   url: string;
+  level: number;
+  source?: string;
+  // 后端规范字段（snake_case，唯一可信来源；后端字段不动）。
   remote_url?: string;
+  is_fallback?: boolean;
+  total_levels?: number;
+  is_cataloged?: boolean;
+  /**
+   * @deprecated 前端兼容别名：历史双命名残留，禁止新增写入；
+   * 读取请经 normalizeIconCycle 收敛。
+   */
+  remoteUrl?: string;
+  /** @deprecated 同上，经 normalizeIconCycle 收敛。 */
+  isFallback?: boolean;
+  /** @deprecated 同上，经 normalizeIconCycle 收敛。 */
+  totalLevels?: number;
+  /** @deprecated 同上，经 normalizeIconCycle 收敛。 */
+  isCataloged?: boolean;
+}
+
+/**
+ * B3-G12 前端收敛：图标轮换双命名的唯一归一出口。
+ * 后端只认 snake_case；此函数以后端字段优先、camelCase 兜底，
+ * 输出统一的 camelCase 只读视图，供 View/组件层消费。
+ */
+export interface NormalizedIconCycle {
+  url: string;
   remoteUrl?: string;
   level: number;
   source?: string;
-  is_fallback?: boolean;
   isFallback?: boolean;
-  total_levels?: number;
   totalLevels?: number;
-  is_cataloged?: boolean;
   isCataloged?: boolean;
 }
+
+export function normalizeIconCycle(raw: AppIconCycleResult | null | undefined): NormalizedIconCycle | null {
+  if (!raw) return null;
+  return {
+    url: raw.url,
+    remoteUrl: raw.remote_url ?? raw.remoteUrl,
+    level: raw.level,
+    source: raw.source,
+    isFallback: raw.is_fallback ?? raw.isFallback,
+    totalLevels: raw.total_levels ?? raw.totalLevels,
+    isCataloged: raw.is_cataloged ?? raw.isCataloged,
+  };
+}
+
+/**
+ * B3-G12 表驱动：全部 Tauri 命令名的唯一来源。
+ * View 层禁止出现字面量命令名与直调 invoke，必须经 tauriApi 方法调用；
+ * api.ts 内部统一经 CMD 派发（见下方的 tauriApi 实现）。
+ */
+export const CMD = {
+  search: 'search_apps',
+  searchOnline: 'search_apps_online',
+  getAppDetails: 'get_app_details',
+  getInstalledApps: 'get_installed_apps',
+  installApp: 'install_app',
+  downloadAsset: 'download_asset',
+  showFileInFolder: 'show_file_in_folder',
+  openFolder: 'open_folder',
+  uninstallApp: 'uninstall_app',
+  unmanageApp: 'unmanage_app',
+  launchApp: 'launch_app',
+  checkForUpdates: 'check_for_updates',
+  getMirrorStatus: 'get_mirror_status',
+  switchMirror: 'switch_mirror',
+  testProxy: 'test_proxy',
+  getSettings: 'get_settings',
+  saveSetting: 'save_setting',
+  getFavorites: 'get_favorites',
+  toggleFavorite: 'toggle_favorite',
+  getCategoryApps: 'get_category_apps',
+  getCatalogCount: 'get_catalog_count',
+  scanAndMatchLocalApps: 'scan_and_match_local_apps',
+  importMatchedApps: 'import_matched_apps',
+  getDetectedInstalledAppIds: 'get_detected_installed_app_ids',
+  importSingleApp: 'import_single_app',
+  getUpdateRules: 'get_update_rules',
+  setAppSkipVersion: 'set_app_skip_version',
+  setAppFrozen: 'set_app_frozen',
+  setAppHidden: 'set_app_hidden',
+  removeUpdateRule: 'remove_update_rule',
+  getDeveloperProfile: 'get_developer_profile',
+  syncGithubStarred: 'sync_github_starred',
+  recordSearchQuery: 'record_search_query',
+  getSearchHistory: 'get_search_history',
+  clearSearchHistory: 'clear_search_history',
+  removeSearchQuery: 'remove_search_query',
+  recordAppView: 'record_app_view',
+  getRecentlyViewedApps: 'get_recently_viewed_apps',
+  clearViewHistory: 'clear_view_history',
+  getHostTokens: 'get_host_tokens',
+  setHostToken: 'set_host_token',
+  removeHostToken: 'remove_host_token',
+  refreshHostRateLimit: 'refresh_host_rate_limit',
+  testHostConnection: 'test_host_connection',
+  registerDeepLinkScheme: 'register_deep_link_scheme',
+  handleDeepLink: 'handle_deep_link',
+  getCliDeepLink: 'get_cli_deep_link',
+  searchForgeRepos: 'search_forge_repos',
+  syncCatalog: 'sync_catalog',
+  selectFolder: 'select_folder',
+  getOrFetchIcon: 'get_or_fetch_icon',
+  cycleAppIcon: 'cycle_app_icon',
+  getAppIconCycle: 'get_app_icon_cycle',
+  getWatchedApps: 'get_watched_apps',
+  watchApp: 'watch_app',
+  unwatchApp: 'unwatch_app',
+  oauthDeviceStart: 'oauth_device_start',
+  oauthDevicePoll: 'oauth_device_poll',
+  getOAuthUser: 'get_oauth_user',
+  oauthLogout: 'oauth_logout',
+  starApp: 'star_app',
+  unstarApp: 'unstar_app',
+  isStarred: 'is_starred',
+  verifyOwnership: 'verify_ownership',
+  importUserData: 'import_user_data',
+  openUrl: 'open_url',
+} as const;
+
+export type TauriCommand = (typeof CMD)[keyof typeof CMD];
 
 export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -68,21 +180,21 @@ export const DEFAULT_SETTINGS: AppSettings = {
   watch_notify_frequency: 'daily',
 };
 
-async function tauriInvoke<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
+async function tauriInvoke<T>(cmd: TauriCommand, args: Record<string, unknown> = {}): Promise<T> {
   if (isTauri) {
     return invoke<T>(cmd, args);
   }
   throw new Error('Not in Tauri environment');
 }
 
-const tauriApi = {
+export const tauriApi = {
   async searchApps(query: string): Promise<AppSummary[]> {
-    return tauriInvoke<AppSummary[]>('search_apps', { query });
+    return tauriInvoke<AppSummary[]>(CMD.search, { query });
   },
 
   async searchAppsOnline(query: string, searchId?: string): Promise<AppSummary[]> {
     try {
-      return await tauriInvoke<AppSummary[]>('search_apps_online', {
+      return await tauriInvoke<AppSummary[]>(CMD.searchOnline, {
         query,
         searchId,
         search_id: searchId,
@@ -101,15 +213,15 @@ const tauriApi = {
   },
 
   async getAppDetails(id: string, forceRefresh = false): Promise<AppDetail> {
-    return tauriInvoke<AppDetail>('get_app_details', { id, forceRefresh });
+    return tauriInvoke<AppDetail>(CMD.getAppDetails, { id, forceRefresh });
   },
 
   async getInstalledApps(): Promise<InstalledApp[]> {
-    return tauriInvoke<InstalledApp[]>('get_installed_apps');
+    return tauriInvoke<InstalledApp[]>(CMD.getInstalledApps);
   },
 
   async installApp(appId: string, assetName?: string, customInstallDir?: string): Promise<InstalledApp> {
-    return tauriInvoke<InstalledApp>('install_app', {
+    return tauriInvoke<InstalledApp>(CMD.installApp, {
       appId,
       assetName: assetName || null,
       customInstallDir: customInstallDir || null,
@@ -117,34 +229,34 @@ const tauriApi = {
   },
 
   async downloadAsset(appId: string, assetName?: string): Promise<DownloadAssetResult> {
-    return tauriInvoke<DownloadAssetResult>('download_asset', {
+    return tauriInvoke<DownloadAssetResult>(CMD.downloadAsset, {
       appId,
       assetName: assetName || null,
     });
   },
 
   async showFileInFolder(path: string): Promise<boolean> {
-    return tauriInvoke<boolean>('show_file_in_folder', { path });
+    return tauriInvoke<boolean>(CMD.showFileInFolder, { path });
   },
 
   async openFolder(path: string): Promise<boolean> {
-    return tauriInvoke<boolean>('open_folder', { path });
+    return tauriInvoke<boolean>(CMD.openFolder, { path });
   },
 
   async uninstallApp(appId: string): Promise<boolean> {
-    return tauriInvoke<boolean>('uninstall_app', { appId });
+    return tauriInvoke<boolean>(CMD.uninstallApp, { appId });
   },
 
   async unmanageApp(appId: string): Promise<boolean> {
-    return tauriInvoke<boolean>('unmanage_app', { appId });
+    return tauriInvoke<boolean>(CMD.unmanageApp, { appId });
   },
 
   async launchApp(appId: string): Promise<boolean> {
-    return tauriInvoke<boolean>('launch_app', { appId });
+    return tauriInvoke<boolean>(CMD.launchApp, { appId });
   },
 
   async checkForUpdates(forceRefresh = false): Promise<UpdateItem[]> {
-    return tauriInvoke<UpdateItem[]>('check_for_updates', { forceRefresh });
+    return tauriInvoke<UpdateItem[]>(CMD.checkForUpdates, { forceRefresh });
   },
 
   async onUpdateItemFound(callback: (item: UpdateItem) => void): Promise<() => void> {
@@ -169,55 +281,55 @@ const tauriApi = {
   },
 
   async getMirrorStatus(): Promise<MirrorNodeStatus[]> {
-    return tauriInvoke<MirrorNodeStatus[]>('get_mirror_status');
+    return tauriInvoke<MirrorNodeStatus[]>(CMD.getMirrorStatus);
   },
 
   async switchMirror(mirrorId: string): Promise<boolean> {
-    return tauriInvoke<boolean>('switch_mirror', { mirrorId });
+    return tauriInvoke<boolean>(CMD.switchMirror, { mirrorId });
   },
 
   async testProxy(proxyUrl?: string): Promise<ProxyTestResult> {
-    return tauriInvoke<ProxyTestResult>('test_proxy', { proxyUrl: proxyUrl || null });
+    return tauriInvoke<ProxyTestResult>(CMD.testProxy, { proxyUrl: proxyUrl || null });
   },
 
   async getSettings(): Promise<Record<string, string>> {
-    return tauriInvoke<Record<string, string>>('get_settings');
+    return tauriInvoke<Record<string, string>>(CMD.getSettings);
   },
 
   async saveSetting(key: string, value: string): Promise<boolean> {
-    return tauriInvoke<boolean>('save_setting', { key, value });
+    return tauriInvoke<boolean>(CMD.saveSetting, { key, value });
   },
 
   async getFavorites(): Promise<string[]> {
-    return tauriInvoke<string[]>('get_favorites');
+    return tauriInvoke<string[]>(CMD.getFavorites);
   },
 
   async toggleFavorite(appId: string): Promise<boolean> {
-    return tauriInvoke<boolean>('toggle_favorite', { appId });
+    return tauriInvoke<boolean>(CMD.toggleFavorite, { appId });
   },
 
   async getCategoryApps(category: string): Promise<AppSummary[]> {
-    return tauriInvoke<AppSummary[]>('get_category_apps', { category });
+    return tauriInvoke<AppSummary[]>(CMD.getCategoryApps, { category });
   },
 
   async getCatalogCount(): Promise<number> {
-    return tauriInvoke<number>('get_catalog_count');
+    return tauriInvoke<number>(CMD.getCatalogCount);
   },
 
   async scanAndMatchLocalApps(): Promise<AppMatchResult[]> {
-    return tauriInvoke<AppMatchResult[]>('scan_and_match_local_apps');
+    return tauriInvoke<AppMatchResult[]>(CMD.scanAndMatchLocalApps);
   },
 
   async importMatchedApps(apps: ImportAppRequest[]): Promise<number> {
-    return tauriInvoke<number>('import_matched_apps', { apps });
+    return tauriInvoke<number>(CMD.importMatchedApps, { apps });
   },
 
   async getDetectedInstalledAppIds(forceRefresh = false): Promise<string[]> {
-    return tauriInvoke<string[]>('get_detected_installed_app_ids', { forceRefresh });
+    return tauriInvoke<string[]>(CMD.getDetectedInstalledAppIds, { forceRefresh });
   },
 
   async importSingleApp(appId: string): Promise<boolean> {
-    return tauriInvoke<boolean>('import_single_app', { appId });
+    return tauriInvoke<boolean>(CMD.importSingleApp, { appId });
   },
 
   async onDownloadProgress(callback: (payload: DownloadProgressPayload) => void): Promise<() => void> {
@@ -228,71 +340,71 @@ const tauriApi = {
   },
 
   async getUpdateRules(): Promise<UpdateRule[]> {
-    return tauriInvoke<UpdateRule[]>('get_update_rules');
+    return tauriInvoke<UpdateRule[]>(CMD.getUpdateRules);
   },
 
   async setAppSkipVersion(appId: string, version: string | null): Promise<boolean> {
-    return tauriInvoke<boolean>('set_app_skip_version', { appId, version });
+    return tauriInvoke<boolean>(CMD.setAppSkipVersion, { appId, version });
   },
 
   async setAppFrozen(appId: string, isFrozen: boolean): Promise<boolean> {
-    return tauriInvoke<boolean>('set_app_frozen', { appId, isFrozen });
+    return tauriInvoke<boolean>(CMD.setAppFrozen, { appId, isFrozen });
   },
 
   async setAppHidden(appId: string, isHidden: boolean): Promise<boolean> {
-    return tauriInvoke<boolean>('set_app_hidden', { appId, isHidden });
+    return tauriInvoke<boolean>(CMD.setAppHidden, { appId, isHidden });
   },
 
   async removeUpdateRule(appId: string): Promise<boolean> {
-    return tauriInvoke<boolean>('remove_update_rule', { appId });
+    return tauriInvoke<boolean>(CMD.removeUpdateRule, { appId });
   },
 
   async getDeveloperProfile(developer: string): Promise<DeveloperProfile> {
-    return tauriInvoke<DeveloperProfile>('get_developer_profile', { developer });
+    return tauriInvoke<DeveloperProfile>(CMD.getDeveloperProfile, { developer });
   },
 
   async syncGithubStarred(username?: string): Promise<StarredSyncResult> {
-    return tauriInvoke<StarredSyncResult>('sync_github_starred', { username });
+    return tauriInvoke<StarredSyncResult>(CMD.syncGithubStarred, { username });
   },
 
   async recordSearchQuery(query: string): Promise<void> {
-    return tauriInvoke<void>('record_search_query', { query });
+    return tauriInvoke<void>(CMD.recordSearchQuery, { query });
   },
 
   async getSearchHistory(): Promise<string[]> {
-    return tauriInvoke<string[]>('get_search_history');
+    return tauriInvoke<string[]>(CMD.getSearchHistory);
   },
 
   async clearSearchHistory(): Promise<void> {
-    return tauriInvoke<void>('clear_search_history');
+    return tauriInvoke<void>(CMD.clearSearchHistory);
   },
 
   async removeSearchQuery(query: string): Promise<void> {
-    return tauriInvoke<void>('remove_search_query', { query });
+    return tauriInvoke<void>(CMD.removeSearchQuery, { query });
   },
 
   async recordAppView(appId: string): Promise<void> {
-    return tauriInvoke<void>('record_app_view', { appId });
+    return tauriInvoke<void>(CMD.recordAppView, { appId });
   },
 
   async getRecentlyViewedApps(): Promise<AppSummary[]> {
-    return tauriInvoke<AppSummary[]>('get_recently_viewed_apps');
+    return tauriInvoke<AppSummary[]>(CMD.getRecentlyViewedApps);
   },
 
   async clearViewHistory(): Promise<void> {
-    return tauriInvoke<void>('clear_view_history');
+    return tauriInvoke<void>(CMD.clearViewHistory);
   },
 
   async getHostTokens(): Promise<HostTokenEntry[]> {
-    return tauriInvoke<HostTokenEntry[]>('get_host_tokens');
+    return tauriInvoke<HostTokenEntry[]>(CMD.getHostTokens);
   },
 
   async setHostToken(host: string, token: string): Promise<void> {
-    return tauriInvoke<void>('set_host_token', { host, token });
+    return tauriInvoke<void>(CMD.setHostToken, { host, token });
   },
 
   async removeHostToken(host: string): Promise<void> {
-    return tauriInvoke<void>('remove_host_token', { host });
+    return tauriInvoke<void>(CMD.removeHostToken, { host });
   },
 
   async onQuotaUpdated(callback: (payload: QuotaUpdatePayload) => void): Promise<() => void> {
@@ -303,64 +415,64 @@ const tauriApi = {
   },
 
   async refreshHostRateLimit(host?: string): Promise<HostTokenEntry> {
-    return tauriInvoke<HostTokenEntry>('refresh_host_rate_limit', { host });
+    return tauriInvoke<HostTokenEntry>(CMD.refreshHostRateLimit, { host });
   },
 
   async testHostConnection(host: string, token?: string): Promise<HostRateLimitStatus> {
-    return tauriInvoke<HostRateLimitStatus>('test_host_connection', { host, token });
+    return tauriInvoke<HostRateLimitStatus>(CMD.testHostConnection, { host, token });
   },
 
   async registerDeepLinkScheme(): Promise<boolean> {
-    return tauriInvoke<boolean>('register_deep_link_scheme');
+    return tauriInvoke<boolean>(CMD.registerDeepLinkScheme);
   },
 
   async handleDeepLink(url: string): Promise<DeepLinkAction> {
-    return tauriInvoke<DeepLinkAction>('handle_deep_link', { url });
+    return tauriInvoke<DeepLinkAction>(CMD.handleDeepLink, { url });
   },
 
   async getCliDeepLink(): Promise<string | null> {
-    return tauriInvoke<string | null>('get_cli_deep_link');
+    return tauriInvoke<string | null>(CMD.getCliDeepLink);
   },
 
   async searchForgeRepos(forge: string, query: string, host?: string): Promise<ForgeRepoInfo[]> {
-    return tauriInvoke<ForgeRepoInfo[]>('search_forge_repos', { forge, host, query });
+    return tauriInvoke<ForgeRepoInfo[]>(CMD.searchForgeRepos, { forge, host, query });
   },
 
   async syncCatalog(force?: boolean): Promise<SyncCatalogResult> {
-    return tauriInvoke<SyncCatalogResult>('sync_catalog', { force });
+    return tauriInvoke<SyncCatalogResult>(CMD.syncCatalog, { force });
   },
 
   async selectFolder(defaultPath?: string, title?: string): Promise<string | null> {
-    return tauriInvoke<string | null>('select_folder', { defaultPath, title });
+    return tauriInvoke<string | null>(CMD.selectFolder, { defaultPath, title });
   },
 
   async getOrFetchIcon(appId: string | undefined, remoteUrl: string): Promise<string> {
-    return tauriInvoke<string>('get_or_fetch_icon', { appId: appId ?? null, remoteUrl });
+    return tauriInvoke<string>(CMD.getOrFetchIcon, { appId: appId ?? null, remoteUrl });
   },
 
   async cycleAppIcon(appId: string): Promise<AppIconCycleResult> {
-    return tauriInvoke<AppIconCycleResult>('cycle_app_icon', { appId, app_id: appId });
+    return tauriInvoke<AppIconCycleResult>(CMD.cycleAppIcon, { appId, app_id: appId });
   },
 
   async getAppIconCycle(appId: string): Promise<AppIconCycleResult | null> {
     try {
-      return await tauriInvoke<AppIconCycleResult | null>('get_app_icon_cycle', { appId, app_id: appId });
+      return await tauriInvoke<AppIconCycleResult | null>(CMD.getAppIconCycle, { appId, app_id: appId });
     } catch {
       return null;
     }
   },
 
   async getWatchedApps(): Promise<string[]> {
-    const rows = await tauriInvoke<Array<{ app_id: string }>>('get_watched_apps');
+    const rows = await tauriInvoke<Array<{ app_id: string }>>(CMD.getWatchedApps);
     return rows.map((r) => r.app_id);
   },
 
   async watchApp(appId: string): Promise<boolean> {
-    return tauriInvoke<boolean>('watch_app', { appId });
+    return tauriInvoke<boolean>(CMD.watchApp, { appId });
   },
 
   async unwatchApp(appId: string): Promise<boolean> {
-    return tauriInvoke<boolean>('unwatch_app', { appId });
+    return tauriInvoke<boolean>(CMD.unwatchApp, { appId });
   },
 
   async onWatchUpdated(callback: (payload: WatchUpdatedPayload) => void): Promise<() => void> {
@@ -378,11 +490,11 @@ const tauriApi = {
   },
 
   async oauthDeviceStart(): Promise<OAuthDeviceStartResult> {
-    return tauriInvoke<OAuthDeviceStartResult>('oauth_device_start');
+    return tauriInvoke<OAuthDeviceStartResult>(CMD.oauthDeviceStart);
   },
 
   async oauthDevicePoll(deviceCode: string): Promise<OAuthPollResult> {
-    const raw = await tauriInvoke<{ status: string; message?: string }>('oauth_device_poll', {
+    const raw = await tauriInvoke<{ status: string; message?: string }>(CMD.oauthDevicePoll, {
       deviceCode,
     });
     const status =
@@ -396,7 +508,7 @@ const tauriApi = {
 
   async getOAuthUser(): Promise<OAuthUser | null> {
     try {
-      return await tauriInvoke<OAuthUser | null>('get_oauth_user');
+      return await tauriInvoke<OAuthUser | null>(CMD.getOAuthUser);
     } catch {
       return null;
     }
@@ -404,23 +516,23 @@ const tauriApi = {
 
   async oauthLogout(): Promise<boolean> {
     try {
-      return await tauriInvoke<boolean>('oauth_logout');
+      return await tauriInvoke<boolean>(CMD.oauthLogout);
     } catch {
       return false;
     }
   },
 
   async starApp(appId: string): Promise<StarAppResult> {
-    return tauriInvoke<StarAppResult>('star_app', { appId });
+    return tauriInvoke<StarAppResult>(CMD.starApp, { appId });
   },
 
   async unstarApp(appId: string): Promise<boolean> {
-    return tauriInvoke<boolean>('unstar_app', { appId });
+    return tauriInvoke<boolean>(CMD.unstarApp, { appId });
   },
 
   async isStarred(appId: string): Promise<boolean> {
     try {
-      return await tauriInvoke<boolean>('is_starred', { appId });
+      return await tauriInvoke<boolean>(CMD.isStarred, { appId });
     } catch {
       return false;
     }
@@ -429,11 +541,11 @@ const tauriApi = {
   async verifyOwnership(appId: string, code: string): Promise<boolean> {
     const trimmed = code.trim();
     if (!trimmed) return false;
-    return tauriInvoke<boolean>('verify_ownership', { appId, code: trimmed });
+    return tauriInvoke<boolean>(CMD.verifyOwnership, { appId, code: trimmed });
   },
 
   async importUserData(json: string): Promise<ImportUserDataCounts> {
-    return tauriInvoke<ImportUserDataCounts>('import_user_data', { json });
+    return tauriInvoke<ImportUserDataCounts>(CMD.importUserData, { json });
   },
 
   async openUrl(url: string): Promise<void> {
@@ -441,7 +553,7 @@ const tauriApi = {
     const trimmed = url.trim();
     if (!/^https?:\/\//i.test(trimmed)) return;
     try {
-      await tauriInvoke('open_url', { url: trimmed });
+      await tauriInvoke(CMD.openUrl, { url: trimmed });
     } catch {
       window.open(trimmed, '_blank', 'noopener,noreferrer');
     }
@@ -452,6 +564,7 @@ const tauriApi = {
  * 核心统一 API 导出：仅面向 Tauri 桌面端 IPC 通信；
  * 浏览器直接访问时由应用入口渲染环境提示页（见 main.tsx）。
  */
+/** 历史别名：与 tauriApi 同一实例；View 层新代码请统一使用 tauriApi。 */
 export const api = tauriApi;
 
 export * from './trends';
