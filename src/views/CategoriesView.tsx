@@ -168,10 +168,11 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
       ) : (
         <div className="app-grid">
           {filteredApps.length > 0 ? (
-            filteredApps.map((app) => (
+            filteredApps.map((app, index) => (
               <AppCard
                 key={app.id}
                 app={app}
+                eager={index < 6}
                 isInstalled={installedIds.has(app.id)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}

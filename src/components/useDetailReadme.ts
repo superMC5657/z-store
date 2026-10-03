@@ -34,6 +34,45 @@ function defaultLangFromI18n(lng?: string): ReadmeLang {
   return 'en-US';
 }
 
+// README 变体内存缓存：appId（小写）维度存 variants + mtime，TTL 复用详情 30min。
+// 命中且未过期直接复用，不调 getReadmeVariants；语言切换只切 activeMarkdown，不触发重拉。
+export const README_VARIANTS_TTL_MS = 30 * 60 * 1000;
+
+interface ReadmeVariantsCacheEntry {
+  variants: ReadmeVariant[];
+  mtime: number;
+}
+
+const readmeVariantsCache = new Map<string, ReadmeVariantsCacheEntry>();
+
+export function clearReadmeVariantsCache(appId?: string): void {
+  if (appId) {
+    const key = appId.trim().toLowerCase();
+    readmeVariantsCache.delete(key);
+  } else {
+    readmeVariantsCache.clear();
+  }
+}
+
+function readmeCacheKey(appId: string): string {
+  return appId.trim().toLowerCase();
+}
+
+function normalizeReadmeVariants(input: unknown): ReadmeVariant[] {
+  const list = Array.isArray(input)
+    ? (input as ReadmeVariant[])
+    : (input as { variants?: unknown } | null | undefined) &&
+        Array.isArray((input as { variants?: unknown }).variants)
+      ? ((input as { variants: ReadmeVariant[] }).variants as ReadmeVariant[])
+      : [];
+  return (list || []).filter(
+    (v) =>
+      v &&
+      (v.lang === 'zh-CN' || v.lang === 'en-US') &&
+      typeof v.markdown === 'string',
+  );
+}
+
 /**
  * AppDetailModal README 关注点 Hook：警示框预处理、HTML 净化清洗、
  * 链接点击分流与图片回退兜底处理。
@@ -50,8 +89,12 @@ export function useDetailReadme(opts: {
   repo: string;
   forgeHost: string;
   appId?: string;
+  /** AppDetail 已携带的变体（若有则直接复用，不调 getReadmeVariants）。 */
+  readmeVariants?: ReadmeVariant[];
+  /** 缓存 TTL，默认复用详情 30min。 */
+  variantsTtlMs?: number;
 }) {
-  const { readmeMarkdown, owner, repo, forgeHost, appId } = opts;
+  const { readmeMarkdown, owner, repo, forgeHost, appId, readmeVariants, variantsTtlMs } = opts;
   const { i18n } = useTranslation();
   const uiLang = i18n?.language;
 
@@ -69,11 +112,29 @@ export function useDetailReadme(opts: {
     setReadmeLangState(defaultLangFromI18n(uiLang));
   }, [appId, uiLang]);
 
-  // 变体拉取：失败静默回退主文档，不弹错
+  // 变体拉取：AppDetail 自带 / 内存缓存命中（30min 内）直接复用，不调接口；
+  // 失败静默回退主文档，不弹错；语言切换只改 activeMarkdown，不进此 effect
   useEffect(() => {
     let cancelled = false;
     if (!appId) {
       setVariants([]);
+      setVariantsLoading(false);
+      return;
+    }
+    const ttl = variantsTtlMs ?? README_VARIANTS_TTL_MS;
+    const key = readmeCacheKey(appId);
+    // 1. AppDetail 已带变体 → 直接复用并回填缓存
+    const preset = normalizeReadmeVariants(readmeVariants);
+    if (preset.length > 0) {
+      setVariants(preset);
+      setVariantsLoading(false);
+      readmeVariantsCache.set(key, { variants: preset, mtime: Date.now() });
+      return;
+    }
+    // 2. 内存缓存命中且未过期 → 直接复用（主 readme 已有且刚拉过同样走这里）
+    const cached = readmeVariantsCache.get(key);
+    if (cached && Date.now() - cached.mtime < ttl) {
+      setVariants(cached.variants);
       setVariantsLoading(false);
       return;
     }
@@ -89,19 +150,9 @@ export function useDetailReadme(opts: {
           | null
           | undefined;
         if (cancelled) return;
-        let list: ReadmeVariant[] = [];
-        if (Array.isArray(res)) {
-          list = res;
-        } else if (res && Array.isArray((res as { variants?: unknown }).variants)) {
-          list = (res as { variants: ReadmeVariant[] }).variants;
-        }
-        list = (list || []).filter(
-          (v) =>
-            v &&
-            (v.lang === 'zh-CN' || v.lang === 'en-US') &&
-            typeof v.markdown === 'string',
-        );
+        const list = normalizeReadmeVariants(res);
         setVariants(list);
+        readmeVariantsCache.set(key, { variants: list, mtime: Date.now() });
       } catch {
         if (!cancelled) setVariants([]);
       } finally {
@@ -111,7 +162,7 @@ export function useDetailReadme(opts: {
     return () => {
       cancelled = true;
     };
-  }, [appId]);
+  }, [appId, readmeVariants, variantsTtlMs]);
 
   const hasZhVariant = useMemo(
     () => variants.some((v) => v.lang === 'zh-CN'),

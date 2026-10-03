@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TitleBar } from './components/TitleBar';
 import { Sidebar } from './components/Sidebar';
 import { ToastContainer } from './components/Toast';
@@ -26,6 +26,23 @@ import { useTranslation } from 'react-i18next';
 import './i18n';
 
 export const PLATFORM_FILTER_STORAGE_KEY = 'zstore:platform-filter:v1';
+
+/**
+ * 单图标升级时仅替换对应 id 的对象，其余复用原引用；
+ * 若目标不存在或图标已一致则直接返回原数组引用，避免全网格重渲染闪烁。
+ */
+export function patchAppIconList(prev: AppSummary[], targetIdLower: string, icon: string): AppSummary[] {
+  let changed = false;
+  const next = prev.map((a) => {
+    if (a.id.toLowerCase() === targetIdLower) {
+      if (a.icon === icon) return a;
+      changed = true;
+      return { ...a, icon };
+    }
+    return a;
+  });
+  return changed ? next : prev;
+}
 
 /**
  * 将原始 localStorage 字符串解析为经过验证的平台选择集合。
@@ -116,6 +133,18 @@ export const App: React.FC = () => {
   // FR-7 OAuth 登录态（详情弹窗标星门控）
   const [oauthUser, setOAuthUser] = useState<OAuthUser | null>(null);
   const appDetailMemoryCache = useRef<Map<string, AppDetail>>(new Map());
+  // 卡片 memo 稳定回调支撑：经 ref 读取最新列表/详情，避免 handleOpenDetail 依赖 apps 而每搜必变
+  const appsRef = useRef<AppSummary[]>([]);
+  appsRef.current = apps;
+  const recentsRef = useRef<AppSummary[]>([]);
+  recentsRef.current = recentlyViewedApps;
+  const selectedAppRef = useRef<AppDetailViewModel | null>(null);
+  selectedAppRef.current = selectedApp;
+  // 安装/关注集合经 ref 读取，回调引用在搜索、图标升级时保持稳定，仅语言变化时更新
+  const installingRef = useRef<Set<string>>(installingAppIds);
+  installingRef.current = installingAppIds;
+  const watchedRef = useRef<Set<string>>(watchedIds);
+  watchedRef.current = watchedIds;
 
   // 应用内通知（FR-6.2 关注提醒 / FR-4.4 自更新 / FR-7 OAuth / FR-6.3 导入导出经此通道呈现）
   const { toasts, showToast, handleDismissToast } = useToasts();
@@ -169,12 +198,8 @@ export const App: React.FC = () => {
       if (!appId) return;
       if (icon && isAvatarUrl(icon)) return;
       const targetId = appId.toLowerCase();
-      setApps((prevApps) =>
-        prevApps.map((a) => (a.id.toLowerCase() === targetId ? { ...a, icon } : a))
-      );
-      setRecentlyViewedApps((prevRecents) =>
-        prevRecents.map((a) => (a.id.toLowerCase() === targetId ? { ...a, icon } : a))
-      );
+      setApps((prevApps) => patchAppIconList(prevApps, targetId, icon));
+      setRecentlyViewedApps((prevRecents) => patchAppIconList(prevRecents, targetId, icon));
     };
     window.addEventListener('zstore:icon-changed', handleIconChanged);
 
@@ -190,12 +215,8 @@ export const App: React.FC = () => {
         invalidateIconCache(targetId);
         preloadIcons([{ id: targetId, icon: payload.icon }]);
 
-        setApps((prevApps) =>
-          prevApps.map((a) => (a.id.toLowerCase() === targetId ? { ...a, icon: payload.icon } : a))
-        );
-        setRecentlyViewedApps((prevRecents) =>
-          prevRecents.map((a) => (a.id.toLowerCase() === targetId ? { ...a, icon: payload.icon } : a))
-        );
+        setApps((prevApps) => patchAppIconList(prevApps, targetId, payload.icon));
+        setRecentlyViewedApps((prevRecents) => patchAppIconList(prevRecents, targetId, payload.icon));
       })
       .then((unlisten) => {
         unlistenSearchIcons = unlisten;
@@ -476,14 +497,14 @@ export const App: React.FC = () => {
     }
   };
 
-  const loadRecentViews = async () => {
+  const loadRecentViews = useCallback(async () => {
     try {
       const recents = await api.getRecentlyViewedApps();
       setRecentlyViewedApps(recents);
     } catch {
       // 忽略错误
     }
-  };
+  }, []);
 
   const handleClearRecentViews = async () => {
     try {
@@ -496,7 +517,8 @@ export const App: React.FC = () => {
   };
 
   // 同步详情快照缓存与卡片列表数据（消除后台条件探查与主动刷新之间的重复逻辑）
-  const syncDetailCacheAndAppLists = (idClean: string, detail: AppDetail, isBackgroundSilent = false) => {
+  // 列表 patch 仅在目标命中且字段确变时生成新对象并返回新数组，否则原引用返回，避免无谓全网格重渲染
+  const syncDetailCacheAndAppLists = useCallback((idClean: string, detail: AppDetail, isBackgroundSilent = false) => {
     appDetailMemoryCache.current.set(idClean, detail);
     if (detail.id.toLowerCase() !== idClean) {
       appDetailMemoryCache.current.set(detail.id.toLowerCase(), detail);
@@ -524,20 +546,40 @@ export const App: React.FC = () => {
 
     const patchedIcon = detail.icon?.trim() && !isAvatarUrl(detail.icon) ? detail.icon.trim() : undefined;
 
-    const patchSummary = (app: AppSummary): AppSummary =>
-      app.id.toLowerCase() === idClean ||
-      (detail.id && app.id.toLowerCase() === detail.id.toLowerCase())
-        ? {
-            ...app,
-            stars: detail.stars,
-            forks: detail.forks,
-            latest_version: detail.latest_version,
-            icon: patchedIcon ? patchedIcon : app.icon,
-          }
-        : app;
+    const patchSummary = (app: AppSummary): AppSummary => {
+      const isTarget =
+        app.id.toLowerCase() === idClean ||
+        (detail.id && app.id.toLowerCase() === detail.id.toLowerCase());
+      if (!isTarget) return app;
+      const nextIcon = patchedIcon ? patchedIcon : app.icon;
+      if (
+        app.stars === detail.stars &&
+        app.forks === detail.forks &&
+        app.latest_version === detail.latest_version &&
+        app.icon === nextIcon
+      ) {
+        return app;
+      }
+      return {
+        ...app,
+        stars: detail.stars,
+        forks: detail.forks,
+        latest_version: detail.latest_version,
+        icon: nextIcon,
+      };
+    };
 
-    setApps((prev) => prev.map(patchSummary));
-    setRecentlyViewedApps((prev) => prev.map(patchSummary));
+    const patchList = (prev: AppSummary[]): AppSummary[] => {
+      let changed = false;
+      const next = prev.map((app) => {
+        const patched = patchSummary(app);
+        if (patched !== app) changed = true;
+        return patched;
+      });
+      return changed ? next : prev;
+    };
+    setApps(patchList);
+    setRecentlyViewedApps(patchList);
 
     if (patchedIcon) {
       invalidateIconCache(idClean);
@@ -547,10 +589,11 @@ export const App: React.FC = () => {
         })
       );
     }
-  };
+  }, []);
 
   // 打开应用详情弹窗（优先内存/数据库 0ms 瞬间秒开，且一个仓库生命周期内只拉取一次）
-  const handleOpenDetail = async (id: string, forceRefresh = false) => {
+  // 经 useCallback + ref 稳定：搜索键入改 apps 时回调引用不变，memo 卡片不跟风重渲染
+  const handleOpenDetail = useCallback(async (id: string, forceRefresh = false) => {
     const idClean = id.trim().toLowerCase();
     activeDetailIdRef.current = id;
 
@@ -573,8 +616,9 @@ export const App: React.FC = () => {
     } else {
       // 强制刷新：清理内存快照中的旧引用，确保直接穿透
       appDetailMemoryCache.current.delete(idClean);
-      if (selectedApp && selectedApp.owner && selectedApp.repo) {
-        const repoLower = `${selectedApp.owner}/${selectedApp.repo}`.toLowerCase();
+      const selectedSnapshot = selectedAppRef.current;
+      if (selectedSnapshot && selectedSnapshot.owner && selectedSnapshot.repo) {
+        const repoLower = `${selectedSnapshot.owner}/${selectedSnapshot.repo}`.toLowerCase();
         appDetailMemoryCache.current.delete(repoLower);
         appDetailMemoryCache.current.delete(`github.com/${repoLower}`);
       }
@@ -582,11 +626,12 @@ export const App: React.FC = () => {
 
     // 2. 内存未命中或主动刷新：若弹窗已打开则保持现有视图无感刷新，否则展示基础卡片信息
     const existing =
-      apps.find((a) => a.id.toLowerCase() === idClean) ||
-      recentlyViewedApps.find((a) => a.id.toLowerCase() === idClean);
+      appsRef.current.find((a) => a.id.toLowerCase() === idClean) ||
+      recentsRef.current.find((a) => a.id.toLowerCase() === idClean);
 
-    const initialDetail: AppDetailViewModel = selectedApp && selectedApp.id.toLowerCase() === idClean && forceRefresh
-      ? { ...selectedApp, isLoading: false, isRefreshing: true, loadError: undefined }
+    const selectedSnapshot = selectedAppRef.current;
+    const initialDetail: AppDetailViewModel = selectedSnapshot && selectedSnapshot.id.toLowerCase() === idClean && forceRefresh
+      ? { ...selectedSnapshot, isLoading: false, isRefreshing: true, loadError: undefined }
       : existing
       ? {
           id: existing.id,
@@ -656,12 +701,7 @@ export const App: React.FC = () => {
         );
       }
     }
-  };
-
-  // 快捷安装
-  const handleQuickInstall = async (id: string) => {
-    handleInstallApp(id);
-  };
+  }, [loadRecentViews, syncDetailCacheAndAppLists]);
 
   // 深链调度分发器（功能 E）
   const handleDispatchDeepLink = async (rawUrl: string) => {
@@ -706,8 +746,9 @@ export const App: React.FC = () => {
   }, []);
 
   // Toggle Watch (FR-6.2: 关注 / 取消关注，后端未就绪时 Toast 提示且不崩溃)
-  const handleToggleWatch = async (id: string) => {
-    const isWatched = watchedIds.has(id);
+  // useCallback + ref 稳定引用：搜索键入/图标升级时不连带卡片重渲染，仅选中态变化的那张经 isWatched 重渲染
+  const handleToggleWatch = useCallback(async (id: string) => {
+    const isWatched = watchedRef.current.has(id);
     try {
       if (isWatched) {
         await api.unwatchApp(id);
@@ -732,14 +773,14 @@ export const App: React.FC = () => {
     if (isWatched) {
       setWatchNotifications((prev) => prev.filter((n) => n.app_id !== id));
     }
-  };
+  }, [showToast, t]);
 
-  const handleDismissWatchNotification = (appId: string) => {
+  const handleDismissWatchNotification = useCallback((appId: string) => {
     setWatchNotifications((prev) => prev.filter((n) => n.app_id !== appId));
-  };
+  }, []);
 
-  // 切换收藏状态
-  const handleToggleFavorite = async (id: string) => {
+  // 切换收藏状态（稳定回调，供 memo 卡片复用）
+  const handleToggleFavorite = useCallback(async (id: string) => {
     await api.toggleFavorite(id);
     setFavoriteIds((prev) => {
       const next = new Set(prev);
@@ -752,19 +793,19 @@ export const App: React.FC = () => {
       }
       return next;
     });
-  };
+  }, [showToast, t]);
 
   // 任务 3：设备平台切换。空选择是有效状态（代表空列表；页面渲染筛选为空的引导状态），
   // 因此对任何已知 ID 的切换均无条件提交。切换逻辑位于更新函数（函数式 updater）内部，
   // 保证始终基于最新提交的选择进行计算，同一 tick 内的双击顺序生效。
   // 未知 ID 会被静默忽略（侧栏仅发射已知 ID，无需 Toast 提示）。
-  const handleTogglePlatform = (id: PlatformId) => {
+  const handleTogglePlatform = useCallback((id: PlatformId) => {
     setSelectedPlatforms((prev) => togglePlatformSet(prev, id));
-  };
+  }, []);
 
-  // 安装应用
-  const handleInstallApp = async (id: string, assetName?: string, customInstallDir?: string): Promise<void> => {
-    if (installingAppIds.has(id)) return;
+  // 安装应用（稳定回调：经 ref 读 installing，搜索键入/图标升级时引用不变）
+  const handleInstallApp = useCallback(async (id: string, assetName?: string, customInstallDir?: string): Promise<void> => {
+    if (installingRef.current.has(id)) return;
     zlogInfo(`click install id=${id} asset=${assetName || 'auto'}`);
     setInstallingAppIds((prev) => new Set(prev).add(id));
     try {
@@ -787,7 +828,12 @@ export const App: React.FC = () => {
         return next;
       });
     }
-  };
+  }, [showToast, t]);
+
+  // 快捷安装（稳定回调，供 memo 卡片复用）
+  const handleQuickInstall = useCallback(async (id: string) => {
+    await handleInstallApp(id);
+  }, [handleInstallApp]);
 
   // 启动应用
   const handleLaunchApp = async (id: string) => {
@@ -1064,13 +1110,54 @@ export const App: React.FC = () => {
 
   // 任务 4（设备平台全局过滤）：侧栏分组的各平台应用计数，
   // 基于全量 `apps` 数组（而非已过滤数组）计算，以便准确呈现“有多少应用支持该设备”。
+  // 一次 reduce 扫完 5 端：缺 platforms 视作仅 Windows，大小写归一，同应用去重后各端 +1（与 5×filter 语义一致）。
   const platformCounts = useMemo(() => {
     const counts = {} as Record<PlatformId, number>;
     for (const id of PLATFORM_IDS) {
-      counts[id] = apps.filter((a) => matchPlatformSet(a, new Set([id]))).length;
+      counts[id] = 0;
+    }
+    const known = new Set<string>(PLATFORM_IDS as readonly string[]);
+    for (const a of apps) {
+      const actual = !a.platforms || a.platforms.length === 0 ? ['windows'] : a.platforms;
+      const seen = new Set<string>();
+      for (const p of actual) {
+        const n = normalizePlatform(p);
+        if (known.has(n) && !seen.has(n)) {
+          seen.add(n);
+          counts[n as PlatformId] += 1;
+        }
+      }
     }
     return counts;
   }, [apps]);
+
+  // 目录 id（小写）→ AppSummary 索引，供已安装/更新列表 O(1) 查表，避免每行 apps.find 全扫
+  const appsById = useMemo(() => {
+    const map = new Map<string, AppSummary>();
+    for (const a of apps) {
+      const key = a.id.toLowerCase();
+      if (!map.has(key)) map.set(key, a);
+    }
+    return map;
+  }, [apps]);
+
+  const filteredInstalledApps = useMemo(() => {
+    return installedApps.filter((inst) => {
+      const catalogEntry = appsById.get(inst.app_id.toLowerCase());
+      return !catalogEntry || matchPlatformSet(catalogEntry, selectedPlatforms);
+    });
+  }, [installedApps, appsById, selectedPlatforms]);
+
+  const filteredUpdates = useMemo(() => {
+    return updates.filter((u) => {
+      const catalogEntry = appsById.get(u.app_id.toLowerCase());
+      return !catalogEntry || matchPlatformSet(catalogEntry, selectedPlatforms);
+    });
+  }, [updates, appsById, selectedPlatforms]);
+
+  const handleResetPlatformFilter = useCallback(() => {
+    setSelectedPlatforms(new Set<PlatformId>(PLATFORM_IDS));
+  }, []);
 
   const installedIds = useMemo(() => {    const set = new Set<string>();
     for (const a of installedApps) {
@@ -1104,7 +1191,7 @@ export const App: React.FC = () => {
   const pendingDeepLinkSummary =
     pendingDeepLinkDetail ??
     (pendingDeepLinkInstall !== null
-      ? apps.find((a) => a.id.toLowerCase() === pendingDeepLinkInstall.toLowerCase()) ??
+      ? appsById.get(pendingDeepLinkInstall.toLowerCase()) ??
         recentlyViewedApps.find((a) => a.id.toLowerCase() === pendingDeepLinkInstall.toLowerCase()) ??
         null
       : null);
@@ -1199,7 +1286,7 @@ export const App: React.FC = () => {
                 onToggleWatch={handleToggleWatch}
                 onNavigateTrends={() => setCurrentView('trends')}
                 onClearRecentViews={handleClearRecentViews}
-                onResetPlatformFilter={() => setSelectedPlatforms(new Set<PlatformId>(PLATFORM_IDS))}
+                onResetPlatformFilter={handleResetPlatformFilter}
               />
             )
           )}
@@ -1213,7 +1300,7 @@ export const App: React.FC = () => {
               onOpenDetail={handleOpenDetail}
               onQuickInstall={handleQuickInstall}
               onToggleFavorite={handleToggleFavorite}
-              onResetPlatformFilter={() => setSelectedPlatforms(new Set<PlatformId>(PLATFORM_IDS))}
+              onResetPlatformFilter={handleResetPlatformFilter}
             />
           )}
 
@@ -1228,7 +1315,7 @@ export const App: React.FC = () => {
               onQuickInstall={handleQuickInstall}
               onToggleFavorite={handleToggleFavorite}
               onToggleWatch={handleToggleWatch}
-              onResetPlatformFilter={() => setSelectedPlatforms(new Set<PlatformId>(PLATFORM_IDS))}
+              onResetPlatformFilter={handleResetPlatformFilter}
             />
           )}
 
@@ -1249,12 +1336,7 @@ export const App: React.FC = () => {
 
           {currentView === 'installed' && (
             <InstalledView
-              installedApps={installedApps.filter((inst) => {
-                const catalogEntry = apps.find(
-                  (a) => a.id.toLowerCase() === inst.app_id.toLowerCase()
-                );
-                return !catalogEntry || matchPlatformSet(catalogEntry, selectedPlatforms);
-              })}
+              installedApps={filteredInstalledApps}
               apps={platformFilteredApps}
               uninstallingAppIds={uninstallingAppIds}
               onOpenDetail={handleOpenDetail}
@@ -1274,12 +1356,7 @@ export const App: React.FC = () => {
 
           {currentView === 'updates' && (
             <UpdatesView
-              updates={updates.filter((u) => {
-                const catalogEntry = apps.find(
-                  (a) => a.id.toLowerCase() === u.app_id.toLowerCase()
-                );
-                return !catalogEntry || matchPlatformSet(catalogEntry, selectedPlatforms);
-              })}
+              updates={filteredUpdates}
               apps={platformFilteredApps}
               isChecking={isCheckingUpdates}
               checkProgress={updateCheckProgress}

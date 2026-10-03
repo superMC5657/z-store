@@ -160,10 +160,11 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
           />
         ) : (
           <div className="app-grid">
-            {favoriteApps.map((app) => (
+            {favoriteApps.map((app, index) => (
               <AppCard
                 key={app.id}
                 app={app}
+                eager={index < 6}
                 isInstalled={installedIds.has(app.id)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={true}
@@ -195,10 +196,11 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
           />
         ) : (
           <div className="app-grid">
-            {watchedApps.map((app) => (
+            {watchedApps.map((app, index) => (
               <AppCard
                 key={app.id}
                 app={app}
+                eager={index < 6}
                 isInstalled={installedIds.has(app.id)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}
@@ -333,10 +335,11 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
 
               {syncResult.catalog_matches.length > 0 ? (
                 <div className="app-grid">
-                  {syncResult.catalog_matches.map((app) => (
+                  {syncResult.catalog_matches.map((app, index) => (
                     <AppCard
                       key={app.id}
                       app={app}
+                      eager={index < 6}
                       isInstalled={installedIds.has(app.id)}
                       isInstalling={installingIds?.has(app.id)}
                       isFavorite={favoriteIds.has(app.id)}

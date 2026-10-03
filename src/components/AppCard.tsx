@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { AppSummary } from '../types';
@@ -19,6 +19,8 @@ interface AppCardProps {
   /** 名次颜色覆盖；默认按金银铜规则着色。 */
   rankColor?: string;
   className?: string;
+  /** 首屏卡片传入 true（图标 eager），其余默认 lazy，避免全网格抢加载。 */
+  eager?: boolean;
   onOpenDetail: (id: string) => void;
   onQuickInstall: (id: string) => void;
   onToggleFavorite?: (id: string) => void;
@@ -33,7 +35,60 @@ export function getRankBadgeColor(index: number): string {
   return 'var(--text-tertiary)';
 }
 
-export const AppCard: React.FC<AppCardProps> = ({
+function arePlatformsEqual(a?: string[], b?: string[]): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+function isAppVisualEqual(prev: AppSummary, next: AppSummary): boolean {
+  if (prev === next) return true;
+  return (
+    prev.id === next.id &&
+    prev.icon === next.icon &&
+    prev.icon_bg === next.icon_bg &&
+    prev.name === next.name &&
+    prev.description === next.description &&
+    prev.description_en === next.description_en &&
+    prev.owner === next.owner &&
+    prev.repo === next.repo &&
+    prev.stars === next.stars &&
+    prev.forks === next.forks &&
+    prev.license === next.license &&
+    prev.latest_version === next.latest_version &&
+    prev.category === next.category &&
+    prev.category_name === next.category_name &&
+    prev.is_verified === next.is_verified &&
+    prev.forge === next.forge &&
+    prev.forge_host === next.forge_host &&
+    prev.homepage === next.homepage &&
+    arePlatformsEqual(prev.platforms, next.platforms)
+  );
+}
+
+function areAppCardPropsEqual(prev: AppCardProps, next: AppCardProps): boolean {
+  return (
+    isAppVisualEqual(prev.app, next.app) &&
+    prev.isInstalled === next.isInstalled &&
+    (prev.isInstalling ?? false) === (next.isInstalling ?? false) &&
+    (prev.isFavorite ?? false) === (next.isFavorite ?? false) &&
+    (prev.isWatched ?? false) === (next.isWatched ?? false) &&
+    prev.rank === next.rank &&
+    prev.rankColor === next.rankColor &&
+    prev.className === next.className &&
+    (prev.eager ?? false) === (next.eager ?? false) &&
+    prev.onOpenDetail === next.onOpenDetail &&
+    prev.onQuickInstall === next.onQuickInstall &&
+    prev.onToggleFavorite === next.onToggleFavorite &&
+    prev.onToggleWatch === next.onToggleWatch
+  );
+}
+
+export const AppCard: React.FC<AppCardProps> = memo(({
   app,
   isInstalled,
   isInstalling = false,
@@ -42,6 +97,7 @@ export const AppCard: React.FC<AppCardProps> = ({
   rank,
   rankColor,
   className,
+  eager = false,
   onOpenDetail,
   onQuickInstall,
   onToggleFavorite,
@@ -87,6 +143,7 @@ export const AppCard: React.FC<AppCardProps> = ({
           appId={app.id}
           iconBg={app.icon_bg}
           className="app-icon"
+          loading={eager ? 'eager' : 'lazy'}
         />
         <div className="app-meta">
           <div className="app-title">
@@ -226,4 +283,4 @@ export const AppCard: React.FC<AppCardProps> = ({
       </div>
     </div>
   );
-};
+}, areAppCardPropsEqual);

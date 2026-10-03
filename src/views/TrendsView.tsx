@@ -148,6 +148,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                   app={item.app}
                   rank={item.rank}
                   className="fluent-list-row"
+                  eager={index < 6}
                   isInstalled={installedIds?.has(item.app.id) ?? false}
                   isInstalling={installingIds?.has(item.app.id) ?? false}
                   isFavorite={favoriteIds?.has(item.app.id) ?? false}

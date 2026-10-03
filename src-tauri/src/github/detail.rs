@@ -207,8 +207,9 @@ impl CatalogService {
             .unwrap_or(false);
         let cached_readme = cached_detail.as_ref().map(|c| c.readme_markdown.clone());
 
-        // 首屏快速路径 (2)：checksum 不再参与网络 join（lazy 到 detail 成形之后，
-        // 以 3s 硬超时 opportunistic 填充）；此处仅准备 readme 请求。
+        // 首屏快速路径 (2)：保持 join(release,repo) 后，
+        // readme + probe_repo_logo + checksums 三路 join 并发。
+        // checksum 为 opportunistic，失败/超时置空不阻塞；probe 无 token 直接跳过不计时。
         let readme_url = format!("https://api.github.com/repos/{}/{}/readme", owner, repo);
         let mut readme_headers = headers.clone();
         readme_headers.remove(IF_NONE_MATCH);
@@ -222,7 +223,7 @@ impl CatalogService {
         let readme_id = id.to_string();
         let readme_sid = sid.clone();
         let readme_req = req_id.clone();
-        let readme_task = async {
+        let readme_fut = async {
             // 版本未发生变动且已有 README 缓存，不重复发网络请求拉取
             if !version_changed && has_cached_readme {
                 if let Some(r) = cached_readme {
@@ -284,9 +285,67 @@ impl CatalogService {
             }
         };
 
-        // 首屏快速路径 (2 续)：repo 已在上游与 release 并发取得（见本函数首部），
-        // 此处 join 仅 await readme；checksum 不阻塞首屏。
-        let raw_readme = readme_task.await;
+        // probe 分支取值与原图标决策一致，仅前移以便并发（repo_info 已与 release 并发就绪）。
+        let probe_branch: String = repo_info
+            .as_ref()
+            .and_then(|r| r.default_branch.clone())
+            .map(|b| b.trim().to_string())
+            .filter(|b| !b.is_empty())
+            .unwrap_or_else(|| "HEAD".to_string());
+        // 无 token 直接跳过探测，不计时、不耗配额；有 token 才进 SimpleIcons+Trees。
+        let has_token = token.map(|t| !t.trim().is_empty()).unwrap_or(false);
+        // 消极缓存判定前移，供 checksum 并发分支使用（语义与原 lazy 段一致）。
+        // H8：时间戳收敛为 github 内 now_secs()。
+        let now_secs = super::http::now_secs();
+        let negative_hit = !version_changed
+            && cached_detail
+                .as_ref()
+                .map(|c| {
+                    let fresh = c
+                        .cached_at
+                        .map(|t| now_secs - t < 24 * 3600)
+                        .unwrap_or(false);
+                    fresh && !c.releases.is_empty() && c.releases.iter().all(|r| r.sha256.is_none())
+                })
+                .unwrap_or(false);
+        let probe_fut = async {
+            if !has_token {
+                return None;
+            }
+            super::icon_probe::probe_repo_logo(
+                client,
+                Some(&base_headers),
+                &owner,
+                &repo,
+                &probe_branch,
+            )
+            .await
+        };
+        let checksum_fut = async {
+            if negative_hit {
+                log::debug!(
+                    "checksum skip id={} sid={} req={} reason=negative_cache_hit_24h",
+                    id,
+                    sid,
+                    req_id
+                );
+                return HashMap::new();
+            }
+            Self::extract_checksums_map(&release_resp.assets, client, &headers, id, &sid, &req_id)
+                .await
+        };
+        // 三路并发：readme 文本、图标探测、校验和抓取同时在途，超时各自内部收敛。
+        let (raw_readme, probed_hit, checksums) =
+            tokio::join!(readme_fut, probe_fut, checksum_fut);
+        if let Some(ref p) = probed_hit {
+            log::debug!(
+                "icon probe hit id={} source={} url='{}'",
+                id,
+                p.source,
+                crate::log_support::sanitize_url(&p.url)
+            );
+        }
+        let probed_url: Option<String> = probed_hit.map(|p| p.url);
 
         let latest_stars = repo_info
             .as_ref()
@@ -361,37 +420,9 @@ impl CatalogService {
             start_readme_process.elapsed().as_millis()
         );
 
-        // 首屏快速路径 (3)：校验和延迟惰性填充（仅提供机会性完整性保障）。
-        // 信任模型：校验和仅作为机会性完整性参考（条目常为仅限 Linux 的单文件），
-        // 安全根基是下载时的 SHA-256 强校验；因此跳过/超时均安全，直接以 sha256=None 落库。
-        // 消极缓存（Negative Cache）：调用方（commands/catalog.rs save 路径）将本 detail 整体落库，
-        // 全空 sha256 + 较新的 cached_at 即为标记；下次 cache=miss 若版本未变且在 24 小时内，
-        // 直接命中消极缓存从而跳过本次抓取（见下方 negative_hit 分支），不再为仅限 Linux 的小文件阻塞等待。
-        // H8：时间戳收敛为 github 内 now_secs()。
-        let now_secs = super::http::now_secs();
-        let negative_hit = !version_changed
-            && cached_detail
-                .as_ref()
-                .map(|c| {
-                    let fresh = c
-                        .cached_at
-                        .map(|t| now_secs - t < 24 * 3600)
-                        .unwrap_or(false);
-                    fresh && !c.releases.is_empty() && c.releases.iter().all(|r| r.sha256.is_none())
-                })
-                .unwrap_or(false);
-        let checksums = if negative_hit {
-            log::debug!(
-                "checksum skip id={} sid={} req={} reason=negative_cache_hit_24h",
-                id,
-                sid,
-                req_id
-            );
-            HashMap::new()
-        } else {
-            Self::extract_checksums_map(&release_resp.assets, client, &headers, id, &sid, &req_id)
-                .await
-        };
+        // checksums 已与 readme/probe 三路并发就绪（见上游 join），此处直接复用。
+        // opportunistic 语义不变：跳过/超时均以空表落库，sha256 缺失由调用方降级。
+        // 消极缓存说明见上游 negative_hit 定义处。
 
         let mut releases = Vec::new();
         for asset in release_resp.assets {
@@ -469,17 +500,8 @@ impl CatalogService {
         let final_icon = if icon.starts_with("http://") || icon.starts_with("https://") {
             icon
         } else {
-            let branch = repo_info
-                .as_ref()
-                .and_then(|r| r.default_branch.clone())
-                .unwrap_or_else(|| "HEAD".to_string());
-            let probed = if let Some(p) = super::icon_probe::probe_repo_logo(client, Some(&base_headers), &owner, &repo, &branch).await {
-                log::debug!("icon probe hit id={} source={} url='{}'", id, p.source, crate::log_support::sanitize_url(&p.url));
-                Some(p.url)
-            } else {
-                None
-            };
-            crate::db::icon_cycle::pick_detail_icon(&icon, probed, extracted_logo)
+            // probe 已与 readme/checksums 三路并发完成，此处直接复用 probed_url。
+            crate::db::icon_cycle::pick_detail_icon(&icon, probed_url, extracted_logo)
         };
 
         let detail = AppDetail {
@@ -501,7 +523,16 @@ impl CatalogService {
                 .map(|i| i.is_verified)
                 .unwrap_or(false),
             readme_markdown,
-            readme_variants: None,
+            // 变体复用：版本未变时沿用缓存详情中的 variants，避免清零已回填的多语言正文；
+            // 版本变化时置空，待 get_readme_variants 按需重拉（不改 API 形状）。
+            readme_variants: if version_changed {
+                None
+            } else {
+                cached_detail
+                    .as_ref()
+                    .and_then(|c| c.readme_variants.clone())
+                    .filter(|v| !v.is_empty())
+            },
             releases,
             category: catalog_item
                 .as_ref()

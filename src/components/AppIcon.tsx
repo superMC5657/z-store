@@ -10,6 +10,8 @@ export interface AppIconProps {
   style?: React.CSSProperties;
   size?: number | string;
   iconOverride?: string;
+  /** 首屏以上 eager，其余一律 lazy（默认 lazy，避免全网格同时抢带宽）。 */
+  loading?: 'eager' | 'lazy';
 }
 
 // 模块级内存缓存，避免页面切页重新计算与读取
@@ -111,6 +113,7 @@ export const AppIcon: React.FC<AppIconProps> = ({
   style = {},
   size,
   iconOverride,
+  loading = 'lazy',
 }) => {
   const rawActiveIcon = iconOverride !== undefined ? iconOverride : icon;
   const activeIcon = isAvatarUrl(rawActiveIcon) ? '' : rawActiveIcon;
@@ -289,12 +292,11 @@ export const AppIcon: React.FC<AppIconProps> = ({
     <div className={`app-icon-container ${className}`} style={containerStyle}>
       {isUrl && !hasError ? (
         <img
-          key={displaySrc}
           src={displaySrc}
           alt={name}
           className="app-icon-image"
           decoding="async"
-          loading="eager"
+          loading={loading}
           onError={handleError}
           style={{
             width: '100%',

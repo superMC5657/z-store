@@ -426,6 +426,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
 
 
   // README 文档渲染（见 useDetailReadme，含 zh-CN / en-US 变体局部切换）
+  // AppDetail 若已带 readme_variants 则直接复用，不重调 getReadmeVariants；语言切换只切 activeMarkdown
   const {
     readmeHtml,
     handleReadmeClick,
@@ -441,6 +442,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
     repo: app.repo,
     forgeHost: app.forge_host,
     appId: app.id,
+    readmeVariants: (app as unknown as { readme_variants?: import('../services/api').ReadmeVariant[] }).readme_variants,
   });
 
   return (

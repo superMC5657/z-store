@@ -29,6 +29,152 @@ static README_BARE_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r"(?i)^readme\.(md|markdown)$").expect("invalid README_BARE_RE regex")
 });
 
+/// README 变体复用缓存：`default_branch` 按 `owner/repo` 缓存，
+/// 根目录列表按 `owner/repo@branch` 缓存，TTL 与详情缓存挡位一致。
+/// 内存一次、无新表、无 schema 变更；失败静默降级（锁失败即视为未命中）。
+static DEFAULT_BRANCH_CACHE: LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, (String, i64)>>,
+> = LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+static ROOT_PATHS_CACHE: LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, (Vec<String>, i64)>>,
+> = LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+fn readme_list_ttl_secs() -> i64 {
+    if let Some(db) = super::http::open_db_opt() {
+        let minutes = db.get_detail_cache_ttl_minutes();
+        if minutes <= 0 {
+            return 0;
+        }
+        return minutes * 60;
+    }
+    let d = crate::config::get_project_config()
+        .cache
+        .detail_ttl_minutes;
+    if d <= 0 {
+        return 0;
+    }
+    d * 60
+}
+
+fn branch_cache_key(owner: &str, repo: &str) -> String {
+    format!(
+        "{}/{}",
+        owner.trim().to_lowercase(),
+        repo.trim().to_lowercase()
+    )
+}
+
+fn root_cache_key(owner: &str, repo: &str, branch: &str) -> String {
+    format!(
+        "{}/{}@{}",
+        owner.trim().to_lowercase(),
+        repo.trim().to_lowercase(),
+        branch.trim()
+    )
+}
+
+fn cached_default_branch(owner: &str, repo: &str, ttl_secs: i64) -> Option<String> {
+    if ttl_secs <= 0 {
+        return None;
+    }
+    let key = branch_cache_key(owner, repo);
+    let guard = DEFAULT_BRANCH_CACHE.lock().ok()?;
+    let (branch, at) = guard.get(&key)?.clone();
+    if branch.trim().is_empty() {
+        return None;
+    }
+    if super::http::now_secs().saturating_sub(at) >= ttl_secs {
+        return None;
+    }
+    Some(branch)
+}
+
+fn store_default_branch(owner: &str, repo: &str, branch: &str) {
+    let branch = branch.trim();
+    if branch.is_empty() {
+        return;
+    }
+    let key = branch_cache_key(owner, repo);
+    if let Ok(mut guard) = DEFAULT_BRANCH_CACHE.lock() {
+        guard.insert(key, (branch.to_string(), super::http::now_secs()));
+    }
+}
+
+fn cached_root_paths(owner: &str, repo: &str, branch: &str, ttl_secs: i64) -> Option<Vec<String>> {
+    if ttl_secs <= 0 {
+        return None;
+    }
+    let key = root_cache_key(owner, repo, branch);
+    let guard = ROOT_PATHS_CACHE.lock().ok()?;
+    let (paths, at) = guard.get(&key)?.clone();
+    if super::http::now_secs().saturating_sub(at) >= ttl_secs {
+        return None;
+    }
+    Some(paths)
+}
+
+fn store_root_paths(owner: &str, repo: &str, branch: &str, paths: &[String]) {
+    let key = root_cache_key(owner, repo, branch);
+    if let Ok(mut guard) = ROOT_PATHS_CACHE.lock() {
+        guard.insert(key, (paths.to_vec(), super::http::now_secs()));
+    }
+}
+
+/// AppDetail 缓存快查：`detail_json.readme_variants` 非空且 TTL 内直接复用。
+/// 测试覆写 `api_base` 时由调用方跳过，避免 mock 污染。
+fn try_cached_readme_variants(
+    app_id: &str,
+    owner: &str,
+    repo: &str,
+    ttl_secs: i64,
+) -> Option<Vec<ReadmeVariant>> {
+    if ttl_secs <= 0 {
+        return None;
+    }
+    let db = super::http::open_db_opt()?;
+    let key = crate::forge::canonical_app_id(app_id).unwrap_or_else(|| {
+        format!(
+            "{}/{}",
+            owner.trim().to_lowercase(),
+            repo.trim().to_lowercase()
+        )
+    });
+    let detail = db.get_cached_app_detail(&key, Some(ttl_secs)).ok().flatten()?;
+    let variants = detail.readme_variants?;
+    if variants.is_empty() {
+        return None;
+    }
+    Some(variants)
+}
+
+/// 变体回填 `detail_json`：有落库详情时原地补 `readme_variants`，无则跳过。
+/// 全部静默降级（`ok()` 吞错），不改 API 形状、不改 ETag 语义。
+fn persist_readme_variants_silent(
+    app_id: &str,
+    owner: &str,
+    repo: &str,
+    variants: &[ReadmeVariant],
+) {
+    if variants.is_empty() {
+        return;
+    }
+    let Some(db) = super::http::open_db_opt() else {
+        return;
+    };
+    let key = crate::forge::canonical_app_id(app_id).unwrap_or_else(|| {
+        format!(
+            "{}/{}",
+            owner.trim().to_lowercase(),
+            repo.trim().to_lowercase()
+        )
+    });
+    let Ok(Some(mut detail)) = db.get_cached_app_detail_fallback(&key) else {
+        return;
+    };
+    detail.readme_variants = Some(variants.to_vec());
+    let _ = db.save_cached_app_detail(&key, &detail);
+}
+
 #[derive(Debug, serde::Deserialize)]
 struct ContentsEntry {
     #[serde(default)]
@@ -347,14 +493,40 @@ impl CatalogService {
         let coords = self.get_repo_coordinates(app_id)?;
         let (owner, repo) = (coords.owner, coords.repo);
 
+        // 测试覆写 api_base 时跳过全部复用缓存，保持 mock 确定性。
+        let use_cache = !api_base.is_some_and(|b| !b.trim().is_empty());
+        let list_ttl = if use_cache { readme_list_ttl_secs() } else { 0 };
+
+        // 快查 AppDetail 缓存：detail_json.readme_variants 未过期直接返回。
+        if use_cache && list_ttl > 0 {
+            if let Some(cached) = try_cached_readme_variants(app_id, &owner, &repo, list_ttl) {
+                return Ok(cached);
+            }
+        }
+
         let api_timeout = super::http::api_timeout();
         let client = crate::forge::http::new_api_client(api_timeout.as_secs())
             .unwrap_or_else(|_| self.client.clone());
         let headers = super::http::token_headers(token);
 
-        let default_branch =
-            fetch_repo_default_branch(&client, &headers, &owner, &repo, api_base, api_timeout)
+        // default_branch 在 TTL 内复用，key 按 repo（大小写收敛）。
+        let default_branch = if use_cache {
+            if let Some(cached) = cached_default_branch(&owner, &repo, list_ttl) {
+                Some(cached)
+            } else {
+                let fetched = fetch_repo_default_branch(
+                    &client, &headers, &owner, &repo, api_base, api_timeout,
+                )
                 .await;
+                if let Some(ref b) = fetched {
+                    store_default_branch(&owner, &repo, b);
+                }
+                fetched
+            }
+        } else {
+            fetch_repo_default_branch(&client, &headers, &owner, &repo, api_base, api_timeout)
+                .await
+        };
 
         let mut branches: Vec<String> = Vec::with_capacity(4);
         if let Some(b) = default_branch {
@@ -369,10 +541,31 @@ impl CatalogService {
         let mut effective_branch: Option<String> = None;
         let mut selected: Vec<(String, String)> = Vec::new();
         for branch in &branches {
-            if let Some(paths) =
+            // contents 列表结果在 TTL 内复用，key 按 repo+branch。
+            let paths_opt = if use_cache {
+                if let Some(cached) = cached_root_paths(&owner, &repo, branch, list_ttl) {
+                    Some(cached)
+                } else {
+                    let fetched = list_root_paths(
+                        &client,
+                        &headers,
+                        &owner,
+                        &repo,
+                        branch,
+                        api_base,
+                        api_timeout,
+                    )
+                    .await;
+                    if let Some(ref paths) = fetched {
+                        store_root_paths(&owner, &repo, branch, paths);
+                    }
+                    fetched
+                }
+            } else {
                 list_root_paths(&client, &headers, &owner, &repo, branch, api_base, api_timeout)
                     .await
-            {
+            };
+            if let Some(paths) = paths_opt {
                 effective_branch = Some(branch.clone());
                 selected = select_readme_candidates(&paths);
                 break;
@@ -385,9 +578,15 @@ impl CatalogService {
             return Ok(Vec::new());
         }
 
-        let mut out = Vec::with_capacity(selected.len().min(2));
-        for (lang, path) in selected.into_iter().take(2) {
-            let Some(raw) = fetch_readme_text(
+        // 2 路正文 join 并发：超时仍走 api_timeout，不硬编码；失败静默跳过。
+        let items: Vec<(String, String)> = selected.into_iter().take(2).collect();
+        if items.is_empty() {
+            return Ok(Vec::new());
+        }
+        let raws: Vec<((String, String), Option<String>)> = if items.len() == 1 {
+            let single = items.into_iter().next().expect("len==1");
+            let path = single.1.clone();
+            let raw = fetch_readme_text(
                 &client,
                 &headers,
                 &owner,
@@ -397,8 +596,40 @@ impl CatalogService {
                 api_base,
                 api_timeout,
             )
-            .await
-            else {
+            .await;
+            vec![(single, raw)]
+        } else {
+            let first = items[0].clone();
+            let second = items[1].clone();
+            let first_path = first.1.clone();
+            let second_path = second.1.clone();
+            let (raw_first, raw_second) = tokio::join!(
+                fetch_readme_text(
+                    &client,
+                    &headers,
+                    &owner,
+                    &repo,
+                    &branch,
+                    &first_path,
+                    api_base,
+                    api_timeout,
+                ),
+                fetch_readme_text(
+                    &client,
+                    &headers,
+                    &owner,
+                    &repo,
+                    &branch,
+                    &second_path,
+                    api_base,
+                    api_timeout,
+                )
+            );
+            vec![(first, raw_first), (second, raw_second)]
+        };
+        let mut out = Vec::with_capacity(raws.len());
+        for ((lang, path), raw_opt) in raws {
+            let Some(raw) = raw_opt else {
                 continue;
             };
             // 清洗管线与 detail.rs 完全一致：先提 Logo 再重写图片。
@@ -413,6 +644,10 @@ impl CatalogService {
                 path,
                 markdown,
             });
+        }
+        // 回填 detail_json 供下次快查复用（无落库详情时跳过，吞错）。
+        if use_cache && !out.is_empty() {
+            persist_readme_variants_silent(app_id, &owner, &repo, &out);
         }
         Ok(out)
     }

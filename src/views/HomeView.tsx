@@ -178,6 +178,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 appId={heroApp.id}
                 iconBg={heroApp.icon_bg}
                 style={{ width: '100%', height: '100%', borderRadius: 'inherit' }}
+                loading="eager"
               />
             </div>
             {Boolean(heroApp.is_verified) && (
@@ -246,6 +247,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               <AppCard
                 key={app.id}
                 app={app}
+                eager
                 isInstalled={installedIds.has(app.id)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}
