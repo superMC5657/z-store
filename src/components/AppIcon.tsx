@@ -305,7 +305,7 @@ export const AppIcon: React.FC<AppIconProps> = ({
             opacity: 1,
           }}
         />
-      ) : (isUrl && hasError) || (iconOverride !== undefined && !isUrl) ? (
+      ) : (isUrl && hasError) || !activeIcon || (iconOverride !== undefined && !isUrl) ? (
         <span
           className="app-icon-fallback-badge"
           style={{
