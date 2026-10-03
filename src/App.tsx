@@ -390,6 +390,17 @@ export const App: React.FC = () => {
     showToast(t('toast.export_success'), 'success');
   };
 
+  // 搜索 stale 守卫 + 错误回退合一：seq 过期返回 true（调用方直接 return）；
+  // 否则若传入 err 则记录日志并执行 fallback，返回 false。日志内容与回退行为与原内联代码保持一致。
+  const guardFreshSearch = (seq: number, err?: unknown, logPrefix?: string, fallback?: () => void): boolean => {
+    if (seq !== searchSeqRef.current) return true;
+    if (err !== undefined && logPrefix !== undefined) {
+      zlogWarn(`${logPrefix}: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
+      fallback?.();
+    }
+    return false;
+  };
+
   // 搜索逻辑（本地内存搜索，防抖触发）
   const handleSearchChange = async (q: string) => {
     setSearchQuery(q);
@@ -397,14 +408,13 @@ export const App: React.FC = () => {
     const seq = ++searchSeqRef.current;
     try {
       const results = await api.searchApps(q);
-      if (seq !== searchSeqRef.current) return;
+      if (guardFreshSearch(seq)) return;
       setApps(results);
       if (q && currentView !== 'home' && currentView !== 'trends' && currentView !== 'categories') {
         setCurrentView('home');
       }
     } catch (err) {
-      if (seq !== searchSeqRef.current) return;
-      zlogWarn(`searchApps error: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
+      if (guardFreshSearch(seq, err, 'searchApps error')) return;
     }
   };
 
@@ -427,26 +437,24 @@ export const App: React.FC = () => {
       setOnlineSearchPerformed(false);
       try {
         localResults = await api.searchApps(q);
-        if (seq !== searchSeqRef.current) return;
+        if (guardFreshSearch(seq)) return;
         setApps(localResults);
         if (currentView !== 'home' && currentView !== 'trends' && currentView !== 'categories') {
           setCurrentView('home');
         }
       } catch (err) {
-        if (seq !== searchSeqRef.current) return;
-        zlogWarn(`searchApps error: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
-        localResults = [];
+        if (guardFreshSearch(seq, err, 'searchApps error', () => { localResults = []; })) return;
       }
     }
 
     // 仅在本地无结果时调用在线搜索
-    if (localResults.length === 0) {
+    if (localResults!.length === 0) {
       setIsSearchingOnline(true);
       const searchId = `search-${seq}-${Date.now()}`;
       currentSearchIdRef.current = searchId;
       try {
         const onlineResults = await api.searchAppsOnline(q, searchId);
-        if (seq !== searchSeqRef.current) return;
+        if (guardFreshSearch(seq)) return;
         setOnlineSearchPerformed(true);
         if (onlineResults && onlineResults.length > 0) {
           setApps(onlineResults);
@@ -456,10 +464,10 @@ export const App: React.FC = () => {
           showToast(t('search.online_no_results', '未找到相关在线应用，已保持本地结果'), 'info');
         }
       } catch (err) {
-        if (seq !== searchSeqRef.current) return;
-        zlogWarn(`searchAppsOnline error: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
-        setOnlineSearchPerformed(true);
-        showToast(t('search.online_failed', '在线搜索暂不可用，已保持本地结果'), 'info');
+        if (guardFreshSearch(seq, err, 'searchAppsOnline error', () => {
+          setOnlineSearchPerformed(true);
+          showToast(t('search.online_failed', '在线搜索暂不可用，已保持本地结果'), 'info');
+        })) return;
       } finally {
         if (seq === searchSeqRef.current) {
           setIsSearchingOnline(false);
