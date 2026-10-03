@@ -425,12 +425,22 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   };
 
 
-  // README 文档渲染（见 useDetailReadme）
-  const { readmeHtml, handleReadmeClick, handleReadmeImageErrorCapture } = useDetailReadme({
+  // README 文档渲染（见 useDetailReadme，含 zh-CN / en-US 变体局部切换）
+  const {
+    readmeHtml,
+    handleReadmeClick,
+    handleReadmeImageErrorCapture,
+    readmeLang,
+    setReadmeLang,
+    hasZhVariant,
+    hasEnVariant,
+    isVariantsLoading,
+  } = useDetailReadme({
     readmeMarkdown: app.readme_markdown,
     owner: app.owner,
     repo: app.repo,
     forgeHost: app.forge_host,
+    appId: app.id,
   });
 
   return (
@@ -1182,31 +1192,102 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   </button>
                 )}
               </div>
-            ) : app.isLoading && !readmeHtml ? (
-              showSkeleton ? (
-                <div style={{ padding: '28px 24px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                  <div className="skeleton-box" style={{ width: '38%', height: '24px' }} />
-                  <div className="skeleton-box" style={{ width: '95%', height: '14px' }} />
-                  <div className="skeleton-box" style={{ width: '82%', height: '14px' }} />
-                  <div className="skeleton-box" style={{ width: '88%', height: '14px' }} />
-                  <div className="skeleton-box" style={{ width: '60%', height: '14px' }} />
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '14px', color: 'var(--text-tertiary)', fontSize: 'var(--font-base)' }}>
-                    <span className="spinner-icon" />
-                    <span>正在通过加速通道异步获取软件完整文档与变更日志...</span>
+            ) : (
+              <>
+                <div
+                  className="readme-lang-header"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    flexWrap: 'wrap',
+                    marginBottom: '12px',
+                  }}
+                >
+                  <div
+                    style={{
+                      flex: '1 1 160px',
+                      minWidth: 0,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                    }}
+                  >
+                    <h4
+                      style={{
+                        margin: 0,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      README
+                    </h4>
+                  </div>
+                  <div
+                    role="group"
+                    aria-label={t('readme.lang_switch_label')}
+                    title={t('readme.lang_switch_label')}
+                    style={{
+                      display: 'flex',
+                      gap: '4px',
+                      flexShrink: 0,
+                      marginLeft: 'auto',
+                    }}
+                  >
+                    <button
+                      type="button"
+                      className={`btn-fluent btn-sm ${readmeLang === 'zh-CN' ? 'btn-primary' : 'btn-secondary'}`}
+                      onClick={() => setReadmeLang('zh-CN')}
+                      disabled={!hasZhVariant || isVariantsLoading}
+                      aria-pressed={readmeLang === 'zh-CN'}
+                      aria-label={`${t('readme.lang_switch_label')}: ${t('readme.lang_zh')}`}
+                      title={t('readme.lang_zh')}
+                      style={{ minWidth: '56px' }}
+                    >
+                      <span>{t('readme.lang_zh')}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn-fluent btn-sm ${readmeLang === 'en-US' ? 'btn-primary' : 'btn-secondary'}`}
+                      onClick={() => setReadmeLang('en-US')}
+                      disabled={!hasEnVariant || isVariantsLoading}
+                      aria-pressed={readmeLang === 'en-US'}
+                      aria-label={`${t('readme.lang_switch_label')}: ${t('readme.lang_en')}`}
+                      title={t('readme.lang_en')}
+                      style={{ minWidth: '56px' }}
+                    >
+                      <span>{t('readme.lang_en')}</span>
+                    </button>
                   </div>
                 </div>
-              ) : (
-                <div style={{ padding: '28px 24px', color: 'var(--text-tertiary)', fontSize: 'var(--font-base)', lineHeight: '1.6' }}>
-                  {displayDesc}
-                </div>
-              )
-            ) : (
-              <div
-                className="readme-markdown-body"
-                dangerouslySetInnerHTML={{ __html: readmeHtml }}
-                onClick={handleReadmeClick}
-                onErrorCapture={handleReadmeImageErrorCapture}
-              />
+                {app.isLoading && !readmeHtml ? (
+                  showSkeleton ? (
+                    <div style={{ padding: '28px 24px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                      <div className="skeleton-box" style={{ width: '38%', height: '24px' }} />
+                      <div className="skeleton-box" style={{ width: '95%', height: '14px' }} />
+                      <div className="skeleton-box" style={{ width: '82%', height: '14px' }} />
+                      <div className="skeleton-box" style={{ width: '88%', height: '14px' }} />
+                      <div className="skeleton-box" style={{ width: '60%', height: '14px' }} />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '14px', color: 'var(--text-tertiary)', fontSize: 'var(--font-base)' }}>
+                        <span className="spinner-icon" />
+                        <span>正在通过加速通道异步获取软件完整文档与变更日志...</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ padding: '28px 24px', color: 'var(--text-tertiary)', fontSize: 'var(--font-base)', lineHeight: '1.6' }}>
+                      {displayDesc}
+                    </div>
+                  )
+                ) : (
+                  <div
+                    className="readme-markdown-body"
+                    dangerouslySetInnerHTML={{ __html: readmeHtml }}
+                    onClick={handleReadmeClick}
+                    onErrorCapture={handleReadmeImageErrorCapture}
+                  />
+                )}
+              </>
             )}
           </div>
         </div>

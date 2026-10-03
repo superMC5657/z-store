@@ -38,6 +38,16 @@ export interface SearchIconReadyPayload {
   level: number;
 }
 
+export interface ReadmeVariant {
+  lang: 'zh-CN' | 'en-US';
+  path: string;
+  markdown: string;
+}
+
+export interface ReadmeVariantsResult {
+  variants: ReadmeVariant[];
+}
+
 export interface AppIconCycleResult {
   url: string;
   level: number;
@@ -147,6 +157,7 @@ export const CMD = {
   getOrFetchIcon: 'get_or_fetch_icon',
   cycleAppIcon: 'cycle_app_icon',
   getAppIconCycle: 'get_app_icon_cycle',
+  getReadmeVariants: 'get_readme_variants',
   getWatchedApps: 'get_watched_apps',
   watchApp: 'watch_app',
   unwatchApp: 'unwatch_app',
@@ -214,6 +225,23 @@ export const tauriApi = {
 
   async getAppDetails(id: string, forceRefresh = false): Promise<AppDetail> {
     return tauriInvoke<AppDetail>(CMD.getAppDetails, { id, forceRefresh });
+  },
+
+  async getReadmeVariants(appId: string): Promise<ReadmeVariantsResult> {
+    try {
+      const raw = await tauriInvoke<ReadmeVariantsResult | ReadmeVariant[] | null>(
+        CMD.getReadmeVariants,
+        { appId, app_id: appId },
+      );
+      if (!raw) return { variants: [] };
+      if (Array.isArray(raw)) return { variants: raw };
+      if (Array.isArray((raw as ReadmeVariantsResult).variants)) {
+        return { variants: (raw as ReadmeVariantsResult).variants };
+      }
+      return { variants: [] };
+    } catch {
+      return { variants: [] };
+    }
   },
 
   async getInstalledApps(): Promise<InstalledApp[]> {

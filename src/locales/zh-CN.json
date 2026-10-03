@@ -345,8 +345,7 @@
     "not_synced_desc": "在上方输入 GitHub 用户名并点击「立即同步」，一站式接管您的 GitHub 开源装机清单。"
   },
   "rules": {
-    "title": "版本策略与屏蔽规则管理 ({{count}})",
-    "add_rule": "新建规则",
+    "title": "版本策略与屏蔽规则管理 ({{count}})",    "add_rule": "新建规则",
     "collapse_add": "收起新建",
     "search_placeholder": "按应用 ID 检索规则...",
     "form_custom_input": "手动输入应用 ID...",
@@ -395,6 +394,11 @@
     "remove_rule_btn": "🗑️ 移除规则",
     "remove_rule_title": "清除该应用的所有规则",
     "close_modal": "关闭弹窗"
+  },
+  "readme": {
+    "lang_zh": "中文",
+    "lang_en": "EN",
+    "lang_switch_label": "文档语言"
   },
   "toast": {
     "watch_update_released": "你关注的 {{name}} 发布了 {{version}}",

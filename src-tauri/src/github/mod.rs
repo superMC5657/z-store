@@ -9,6 +9,7 @@ pub mod http;
 pub mod icon_probe;
 pub mod markdown;
 pub mod models;
+pub mod readme_variants;
 pub mod search;
 
 #[cfg(test)]

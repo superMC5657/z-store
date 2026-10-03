@@ -240,6 +240,7 @@ fn test_app_details_cache_crud() {
         changelog: "修复已知问题".to_string(),
         is_verified: true,
         readme_markdown: "# RustDesk".to_string(),
+        readme_variants: None,
         releases: vec![],
         category: "system".to_string(),
         category_name: "系统实用".to_string(),

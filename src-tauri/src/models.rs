@@ -62,6 +62,10 @@ pub struct AppDetail {
     pub changelog: String,
     pub is_verified: bool,
     pub readme_markdown: String,
+    /// README 多语言变体（`get_readme_variants` 按需拉取后可回填）。
+    /// `#[serde(default)]` 保证旧 `detail_json`（无此字段）反序列化不炸，零 migration。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub readme_variants: Option<Vec<ReadmeVariant>>,
     pub releases: Vec<ReleaseAsset>,
     pub category: String,
     pub category_name: String,
@@ -76,6 +80,18 @@ pub struct AppDetail {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub homepage: Option<String>,
     pub platforms: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReadmeVariant {
+    pub lang: String,
+    pub path: String,
+    pub markdown: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReadmeVariantsResponse {
+    pub variants: Vec<ReadmeVariant>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

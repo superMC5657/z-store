@@ -396,6 +396,11 @@
     "remove_rule_title": "Clear all rules for this app",
     "close_modal": "Close modal"
   },
+  "readme": {
+    "lang_zh": "中文",
+    "lang_en": "EN",
+    "lang_switch_label": "Docs language"
+  },
   "toast": {
     "watch_update_released": "Watched app {{name}} released {{version}}",
     "github_auth_expired": "GitHub authorization expired (401), please log in again",

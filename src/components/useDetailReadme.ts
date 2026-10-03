@@ -1,6 +1,7 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { marked } from 'marked';
-import { api } from '../services/api';
+import { api, type ReadmeVariant } from '../services/api';
 import { sanitizeHtml } from '../utils/sanitize';
 
 // GitHub Markdown 块级引用 Alerts 预处理器（支持 [!NOTE], [!TIP], [!IMPORTANT], [!WARNING], [!CAUTION]）
@@ -26,19 +27,127 @@ export function preprocessGitHubAlerts(markdown: string): string {
   });
 }
 
+export type ReadmeLang = 'zh-CN' | 'en-US';
+
+function defaultLangFromI18n(lng?: string): ReadmeLang {
+  if (lng && lng.toLowerCase().startsWith('zh')) return 'zh-CN';
+  return 'en-US';
+}
+
 /**
  * AppDetailModal README 关注点 Hook：警示框预处理、HTML 净化清洗、
  * 链接点击分流与图片回退兜底处理。
  * 纯粹提取原 AppDetailModal.tsx 内联的 README 处理逻辑代码块。
  * 无任何行为变更；弹窗组件对外属性保持原样。
+ *
+ * README 双语：经 get_readme_variants 拉取 zh-CN / en-US 变体，
+ * 默认跟随界面语言（zh 开头选中中文，否则 EN），局部 state 切换，
+ * 绝不调用 i18n.changeLanguage；缺变体时回退主 readme_markdown。
  */
 export function useDetailReadme(opts: {
   readmeMarkdown: string;
   owner: string;
   repo: string;
   forgeHost: string;
+  appId?: string;
 }) {
-  const { readmeMarkdown, owner, repo, forgeHost } = opts;
+  const { readmeMarkdown, owner, repo, forgeHost, appId } = opts;
+  const { i18n } = useTranslation();
+  const uiLang = i18n?.language;
+
+  const [variants, setVariants] = useState<ReadmeVariant[]>([]);
+  const [variantsLoading, setVariantsLoading] = useState(false);
+  const [readmeLang, setReadmeLangState] = useState<ReadmeLang>(() =>
+    defaultLangFromI18n(uiLang),
+  );
+  // 用户手动切换后不再被自动归一化覆盖；appId / 界面语言变化时重置
+  const hasUserSelectedRef = useRef(false);
+
+  // appId 切换重置 + 界面语言切换默认跟随（局部 state，不动全局 i18n）
+  useEffect(() => {
+    hasUserSelectedRef.current = false;
+    setReadmeLangState(defaultLangFromI18n(uiLang));
+  }, [appId, uiLang]);
+
+  // 变体拉取：失败静默回退主文档，不弹错
+  useEffect(() => {
+    let cancelled = false;
+    if (!appId) {
+      setVariants([]);
+      setVariantsLoading(false);
+      return;
+    }
+    setVariants([]);
+    setVariantsLoading(true);
+    (async () => {
+      try {
+        const res = (await (api as unknown as {
+          getReadmeVariants?: (id: string) => Promise<unknown>;
+        }).getReadmeVariants?.(appId)) as
+          | { variants?: ReadmeVariant[] }
+          | ReadmeVariant[]
+          | null
+          | undefined;
+        if (cancelled) return;
+        let list: ReadmeVariant[] = [];
+        if (Array.isArray(res)) {
+          list = res;
+        } else if (res && Array.isArray((res as { variants?: unknown }).variants)) {
+          list = (res as { variants: ReadmeVariant[] }).variants;
+        }
+        list = (list || []).filter(
+          (v) =>
+            v &&
+            (v.lang === 'zh-CN' || v.lang === 'en-US') &&
+            typeof v.markdown === 'string',
+        );
+        setVariants(list);
+      } catch {
+        if (!cancelled) setVariants([]);
+      } finally {
+        if (!cancelled) setVariantsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [appId]);
+
+  const hasZhVariant = useMemo(
+    () => variants.some((v) => v.lang === 'zh-CN'),
+    [variants],
+  );
+  const hasEnVariant = useMemo(
+    () => variants.some((v) => v.lang === 'en-US'),
+    [variants],
+  );
+
+  // 变体加载完成后归一化一次：当前选中无对应变体时回退到存在的那一侧，
+  // 高亮与内容保持一致；用户手动选过后不再自动覆盖
+  useEffect(() => {
+    if (variantsLoading) return;
+    if (hasUserSelectedRef.current) return;
+    if (!appId) return;
+    let desired: ReadmeLang | null = null;
+    if (hasZhVariant && hasEnVariant) {
+      desired = defaultLangFromI18n(uiLang);
+    } else if (hasZhVariant && !hasEnVariant) {
+      desired = 'zh-CN';
+    } else if (!hasZhVariant && hasEnVariant) {
+      desired = 'en-US';
+    } else {
+      return;
+    }
+    if (desired !== readmeLang) {
+      setReadmeLangState(desired);
+    }
+  }, [variantsLoading, hasZhVariant, hasEnVariant, uiLang, appId, readmeLang]);
+
+  const activeMarkdown = useMemo(() => {
+    const hit = variants.find((v) => v.lang === readmeLang);
+    if (hit && hit.markdown) return hit.markdown;
+    return readmeMarkdown;
+  }, [variants, readmeLang, readmeMarkdown]);
 
   const { rawBaseUrl, repoBaseUrl } = useMemo(() => {
     const host = forgeHost || 'github.com';
@@ -56,15 +165,20 @@ export function useDetailReadme(opts: {
 
   // 避免高频下载进度事件重绘时重复同步解析庞大的 Markdown 文档阻塞渲染主线程，并执行严格 AST 级 XSS 净化与基准路径补全
   const readmeHtml = useMemo(() => {
-    if (!readmeMarkdown) return '';
-    const preprocessed = preprocessGitHubAlerts(readmeMarkdown);
+    if (!activeMarkdown) return '';
+    const preprocessed = preprocessGitHubAlerts(activeMarkdown);
     const rawParsed = marked.parse(preprocessed, {
       async: false,
       gfm: true,
       breaks: false,
     }) as string;
     return sanitizeHtml(rawParsed, { rawBaseUrl, repoBaseUrl });
-  }, [readmeMarkdown, rawBaseUrl, repoBaseUrl]);
+  }, [activeMarkdown, rawBaseUrl, repoBaseUrl]);
+
+  const setReadmeLang = (lang: ReadmeLang) => {
+    hasUserSelectedRef.current = true;
+    setReadmeLangState(lang);
+  };
 
   // 拦截超链接点击：内部锚点平滑滚动定位，外链直通系统默认浏览器
   const handleReadmeClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -127,5 +241,14 @@ export function useDetailReadme(opts: {
     img.title = `图片暂无法加载: ${img.alt || currentSrc}`;
   };
 
-  return { readmeHtml, handleReadmeClick, handleReadmeImageErrorCapture };
+  return {
+    readmeHtml,
+    handleReadmeClick,
+    handleReadmeImageErrorCapture,
+    readmeLang,
+    setReadmeLang,
+    hasZhVariant,
+    hasEnVariant,
+    isVariantsLoading: variantsLoading,
+  };
 }

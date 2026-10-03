@@ -501,6 +501,7 @@ impl CatalogService {
                 .map(|i| i.is_verified)
                 .unwrap_or(false),
             readme_markdown,
+            readme_variants: None,
             releases,
             category: catalog_item
                 .as_ref()

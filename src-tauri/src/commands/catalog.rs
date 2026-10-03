@@ -497,6 +497,7 @@ pub async fn get_app_details_impl(
                     repo_info.name,
                     repo_info.description.unwrap_or_default()
                 ),
+                readme_variants: None,
                 releases: release_info.assets,
                 category: "external".to_string(),
                 category_name: "跨平台开源".to_string(),
@@ -719,6 +720,22 @@ pub async fn get_app_details_impl(
             Err(err)
         }
     }
+}
+
+#[tauri::command]
+pub async fn get_readme_variants(
+    state: State<'_, AppState>,
+    app_id: String,
+) -> crate::AppResult<crate::models::ReadmeVariantsResponse> {
+    // ADR-0010：入站 id 统一归一化为 canonical；未知标识直接拒绝，不触碰网络。
+    // token 经服务端鉴权头透传（token_headers），永不回传前端。
+    let clean_id = super::require_app_id(&app_id)?;
+    let token = super::resolve_active_github_token(&state);
+    let variants = state
+        .catalog
+        .fetch_readme_variants(&clean_id, token.as_deref(), None)
+        .await?;
+    Ok(crate::models::ReadmeVariantsResponse { variants })
 }
 
 #[tauri::command]

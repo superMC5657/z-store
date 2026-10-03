@@ -520,6 +520,7 @@ pub fn run() {
             commands::search_apps_online,
             commands::get_category_apps,
             commands::get_app_details,
+            commands::get_readme_variants,
             commands::get_installed_apps,
             commands::install_app,
             commands::download_asset,

@@ -122,3 +122,27 @@
   height: auto;
   border-radius: var(--radius-xs);
 }
+
+/* README 双语切换头：标题弹性占位 + 分段按钮右置，窄窗自动换行不挤占标题 */
+.readme-lang-header {
+  min-width: 0;
+}
+
+.readme-lang-header h4 {
+  font-size: var(--font-md);
+}
+
+.readme-lang-header .btn-fluent.btn-sm {
+  min-width: 56px;
+}
+
+.readme-lang-header .btn-fluent:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+@media (max-width: 560px) {
+  .readme-lang-header {
+    align-items: flex-start;
+  }
+}
