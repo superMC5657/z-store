@@ -336,7 +336,8 @@ pub(crate) fn resolve_confirmed_icon_from_db(
     owner: &str,
     repo: &str,
 ) -> Option<String> {
-    let cycle = crate::forge::coord::lookup_case_insensitive(db, app_id, owner, repo)?;
+    let repo_ref = crate::forge::coord::RepoRef::new(owner, repo);
+    let cycle = crate::forge::coord::lookup_case_insensitive(db, app_id, &repo_ref)?;
 
     let selected = cycle.selected_url.trim();
     if selected.is_empty() || is_avatar_icon_url(selected) {
