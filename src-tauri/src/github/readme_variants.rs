@@ -5,7 +5,7 @@
 //!   `owner/repo`，未知标识直接拒绝；大小写容错收敛于 `forge::coord` + canonical 单点，
 //!   本模块不再手写 `to_lowercase` 多段回退。
 //! - 分支优先 `repo_info.default_branch`，依次回退 `main` / `master` / `HEAD`
-//!  （兼容 `detail.rs` 的 `default_branch … or HEAD` 语义）。
+//!   （兼容 `detail.rs` 的 `default_branch … or HEAD` 语义）。
 //! - 根目录优先 `GET /repos/{o}/{r}/contents?ref={branch}`（轻量），失败再回退
 //!   `git/trees?recursive=1` 并只收 `path` 不含 `/` 的根文件。
 //! - 超时统一 `github::http::api_timeout`，鉴权头统一 `token_headers`，client 统一
@@ -35,9 +35,8 @@ static README_BARE_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
 static DEFAULT_BRANCH_CACHE: LazyLock<
     std::sync::Mutex<std::collections::HashMap<String, (String, i64)>>,
 > = LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
-static ROOT_PATHS_CACHE: LazyLock<
-    std::sync::Mutex<std::collections::HashMap<String, (Vec<String>, i64)>>,
-> = LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+type RootPathsCache = std::collections::HashMap<String, (Vec<String>, i64)>;
+static ROOT_PATHS_CACHE: LazyLock<std::sync::Mutex<RootPathsCache>> = LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
 fn readme_list_ttl_secs() -> i64 {
     if let Some(db) = super::http::open_db_opt() {
@@ -235,10 +234,8 @@ pub(crate) fn select_readme_candidates(paths: &[String]) -> Vec<(String, String)
                     zh_cands.push(trimmed.to_string());
                 }
             }
-            Some("en-US") => {
-                if !en_cands.iter().any(|x| x == trimmed) {
-                    en_cands.push(trimmed.to_string());
-                }
+            Some("en-US") if !en_cands.iter().any(|x| x == trimmed) => {
+                en_cands.push(trimmed.to_string());
             }
             _ => {}
         }
@@ -403,6 +400,7 @@ async fn list_root_paths(
 
 /// 取单个 README 文本：`contents/{path}?ref=` + raw Accept（与 `detail.rs` 一致），
 /// 失败再试 `raw.githubusercontent.com`。测试覆写 `api_base` 时跳过直连回退。
+#[allow(clippy::too_many_arguments)]
 async fn fetch_readme_text(
     client: &reqwest::Client,
     headers: &reqwest::header::HeaderMap,

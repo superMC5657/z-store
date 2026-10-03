@@ -401,6 +401,7 @@ async fn probe_readme(
 }
 
 /// 填充补全 1..4 各级可用 URL
+#[allow(clippy::too_many_arguments)]
 async fn ensure_cycle_levels(
     cycle: &mut crate::db::AppIconCycle,
     state: &AppState,
@@ -614,7 +615,7 @@ pub async fn cycle_app_icon(
         // 收录应用：写 icon_cache_meta，文件名为 stem.ext
         persist_catalog_icon(
             &icons_dir,
-            db_opt.as_ref().map(|v| &**v),
+            db_opt.as_deref(),
             &stem,
             real_ext,
             inferred_ext,

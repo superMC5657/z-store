@@ -285,11 +285,9 @@ pub async fn search_apps_online(
                 pending.push(cycle);
             }
         }
-        if !pending.is_empty() {
-            if db.upsert_icon_cycles_batch(&pending).is_err() {
-                for c in &pending {
-                    let _ = db.upsert_icon_cycle(c);
-                }
+        if !pending.is_empty() && db.upsert_icon_cycles_batch(&pending).is_err() {
+            for c in &pending {
+                let _ = db.upsert_icon_cycle(c);
             }
         }
     }

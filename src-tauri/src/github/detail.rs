@@ -870,7 +870,7 @@ pub fn deduce_platforms(assets: &[ReleaseAsset]) -> Vec<String> {
     platforms_from_assets(assets)
 }
 
-pub(crate) fn sort_platforms(platforms: &mut Vec<String>) {
+pub(crate) fn sort_platforms(platforms: &mut [String]) {
     const ORDER: &[&str] = &["windows", "macos", "linux", "ios", "android"];
     platforms.sort_by_key(|p| {
         ORDER.iter().position(|&x| x == p.as_str()).unwrap_or(99)

@@ -308,6 +308,7 @@ pub(crate) mod test_support {
 
     pub(crate) struct MockServer {
         pub(crate) base: String,
+        #[allow(dead_code)]
         pub(crate) hits: Arc<Mutex<HashMap<String, usize>>>,
         pub(crate) seen_inm: Arc<Mutex<HashMap<String, Option<String>>>>,
     }
@@ -396,6 +397,7 @@ pub(crate) mod test_support {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn hits_of(srv: &MockServer, path: &str) -> usize {
         srv.hits.lock().unwrap().get(path).copied().unwrap_or(0)
     }

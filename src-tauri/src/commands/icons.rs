@@ -386,7 +386,7 @@ pub async fn get_or_fetch_icon(
     let stem = get_icon_stem(app_id.as_deref().unwrap_or(""), url_trimmed);
     let inferred_ext = infer_icon_ext_from_url(url_trimmed).unwrap_or("png");
 
-    let is_cataloged = app_id.as_deref().map_or(false, |id| {
+    let is_cataloged = app_id.as_deref().is_some_and(|id| {
         state.catalog.get_catalog_item(id.trim()).is_some()
     });
 
@@ -453,7 +453,7 @@ pub async fn get_or_fetch_icon(
     if is_cataloged {
         icons_cycle::persist_catalog_icon(
             &icons_dir,
-            db_opt.as_ref().map(|v| &**v),
+            db_opt.as_deref(),
             &stem,
             real_ext,
             inferred_ext,

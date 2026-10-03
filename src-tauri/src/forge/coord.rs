@@ -270,7 +270,7 @@ fn repo_lookup_keys(app_id: &str, fallback: &RepoRef) -> Vec<RepoRef> {
         _ => fallback.clone(),
     };
     let mut keys = Vec::new();
-    let mut push_unique = |r: RepoRef, keys: &mut Vec<RepoRef>| {
+    let push_unique = |r: RepoRef, keys: &mut Vec<RepoRef>| {
         if !r.is_empty() && !keys.contains(&r) {
             keys.push(r);
         }

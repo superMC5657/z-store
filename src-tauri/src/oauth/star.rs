@@ -98,14 +98,12 @@ pub async fn check_starred(token: &str, owner: &str, repo: &str) -> Result<bool,
         404 => Ok(false),
         code => {
             let op_ctx = format!("op=check_starred owner={} repo={}", owner, repo);
-            if let Err(e) = super::http::map_auth_status(
+            super::http::map_auth_status(
                 code,
                 &op_ctx,
                 "GitHub 授权已失效 (401)，请重新登录",
                 "GitHub API 限额已耗尽 (403)，请稍后重试",
-            ) {
-                return Err(e);
-            }
+            )?;
             Err(format!("查询 Star 状态失败，HTTP 状态码: {}", code))
         }
     }
@@ -158,14 +156,12 @@ pub async fn star_repo(token: &str, owner: &str, repo: &str) -> Result<StarRepoO
     } else {
         let code = resp.status().as_u16();
         let op_ctx = format!("op=star owner={} repo={}", owner, repo);
-        if let Err(e) = super::http::map_auth_status(
+        super::http::map_auth_status(
             code,
             &op_ctx,
             "GitHub 授权已失效 (401)，请重新登录",
             "Star 失败 (403)：令牌缺少 public_repo 权限或 API 限额已耗尽",
-        ) {
-            return Err(e);
-        }
+        )?;
         Err(format!("Star 失败，HTTP 状态码: {}", resp.status()))
     }
 }
@@ -410,14 +406,12 @@ pub async fn unstar_repo(token: &str, owner: &str, repo: &str) -> Result<(), Str
         let status = resp.status();
         let op_ctx = format!("op=unstar owner={} repo={}", owner, repo);
         let forbidden_msg = format!("取消 Star 失败，HTTP 状态码: {}", status);
-        if let Err(e) = super::http::map_auth_status(
+        super::http::map_auth_status(
             code,
             &op_ctx,
             "GitHub 授权已失效 (401)，请重新登录",
             &forbidden_msg,
-        ) {
-            return Err(e);
-        }
+        )?;
         Err(format!("取消 Star 失败，HTTP 状态码: {}", status))
     }
 }
