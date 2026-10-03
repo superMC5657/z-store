@@ -287,14 +287,10 @@ impl CatalogService {
         )
         .await;
 
-        if !item.icon.trim().is_empty() {
+        if let Some(cycle) =
+            crate::db::icon_cycle::record_online_icon(&item.id, &item.owner, &item.repo, &item.icon)
+        {
             if let Some(db) = super::http::open_db_opt() {
-                let mut cycle = crate::db::AppIconCycle::new(&item.id, &item.owner, &item.repo);
-                cycle.is_cataloged = false;
-                cycle.level = 2;
-                cycle.l2_url = item.icon.clone();
-                cycle.selected_url = item.icon.clone();
-                cycle.updated_at = crate::now_secs();
                 let _ = db.upsert_icon_cycle(&cycle);
             }
         }

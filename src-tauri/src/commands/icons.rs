@@ -385,63 +385,37 @@ pub async fn get_or_fetch_icon(
 
     let stem = get_icon_stem(app_id.as_deref().unwrap_or(""), url_trimmed);
     let inferred_ext = infer_icon_ext_from_url(url_trimmed).unwrap_or("png");
-    let is_avatar = is_avatar_url(url_trimmed);
 
     let is_cataloged = app_id.as_deref().map_or(false, |id| {
         state.catalog.get_catalog_item(id.trim()).is_some()
     });
 
-    // 1. 严格优先查找本地内部缓存！
-    // 两表分流读取：收录应用查 icon_cache_meta，非收录应用查 app_icon_cycles
+    // 1. 严格优先查找本地内部缓存（两表分流读取收敛至共享 helper）
+    // 收录应用查 icon_cache_meta，非收录应用查 app_icon_cycles
     if let Ok(db) = state.db() {
-        if is_cataloged {
-            let filename = format!("{}.{}", stem, inferred_ext);
-            let cache_file = icons_dir.join(&filename);
-            if cache_file.is_file() {
-                if let Ok(meta) = std::fs::metadata(&cache_file) {
-                    if meta.len() > 0 {
-                        if let Ok(Some(recorded_url)) = db.get_icon_cache_url(&filename) {
-                            if recorded_url.trim() == url_trimmed {
-                                if let Ok(bytes) = std::fs::read(&cache_file) {
-                                    if !bytes.is_empty() && is_valid_image(&bytes) {
-                                        return Ok(bytes_to_data_uri(&bytes));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        } else if let Some(ref id) = app_id {
-            if let Ok(Some(cycle)) = db.get_icon_cycle(id) {
-                if !cycle.cache_file.is_empty() && cycle.selected_url.trim() == url_trimmed {
-                    let cache_file = icons_dir.join(&cycle.cache_file);
-                    if cache_file.is_file() {
-                        if let Ok(bytes) = std::fs::read(&cache_file) {
-                            if !bytes.is_empty() && is_valid_image(&bytes) {
-                                return Ok(bytes_to_data_uri(&bytes));
-                            }
-                        }
-                    }
-                }
-            }
+        let noncatalog_cycle = if is_cataloged {
+            None
+        } else {
+            app_id
+                .as_deref()
+                .and_then(|id| db.get_icon_cycle(id).ok().flatten())
+        };
+        if let Some(bytes) = icons_cycle::load_split_cached_bytes(
+            &icons_dir,
+            &db,
+            &stem,
+            inferred_ext,
+            url_trimmed,
+            is_cataloged,
+            noncatalog_cycle.as_ref(),
+        ) {
+            return Ok(bytes_to_data_uri(&bytes));
         }
     }
 
     // 2. 本地缓存找不到或已过期，才去外部链接拉取
     let client = icon_http_client();
-    let mirror_url = if !is_avatar {
-        state.mirror.lock().ok().and_then(|m| {
-            let rewritten = m.rewrite_download_url(url_trimmed);
-            if rewritten != url_trimmed {
-                Some(rewritten)
-            } else {
-                None
-            }
-        })
-    } else {
-        None
-    };
+    let mirror_url = icons_cycle::mirror_url_for(&state, url_trimmed);
 
     let fetched_bytes = download_icon_bytes(&client, mirror_url.as_deref(), url_trimmed)
         .await
@@ -450,45 +424,16 @@ pub async fn get_or_fetch_icon(
     let bytes = match fetched_bytes {
         Some(b) => b,
         _ => {
-            // 缓存缺失且直取失败：按图标探测逻辑找替代图标。
-            // 此处无用户 token，只跑免鉴权级（Simple Icons），跳过 Trees 以保护匿名配额。
+            // 缓存缺失且直取失败：匿名兜底探测（收敛至共享 helper，无 token 免鉴权级）。
             // 命中后按原请求缓存（文件存替代字节、DB 记录原 URL），后续同请求零网络命中。
-            let coord = crate::forge::RepositoryUrlParser::parse(app_id.as_deref().unwrap_or(""));
-            let mut probed_url: Option<String> = None;
-            if let Some(c) = coord {
-                if !c.owner.is_empty() && !c.repo.is_empty() {
-                    // 先拿确切默认分支（匿名一次调用，失败则退化 main/master 双试）。
-                    let mut branches: Vec<String> = Vec::with_capacity(2);
-                    let repo_api = format!("https://api.github.com/repos/{}/{}", c.owner, c.repo);
-                    if let Ok(resp) = client.get(&repo_api).header("User-Agent", crate::forge::http::BROWSER_UA_VALUE).send().await {
-                        if let Ok(v) = resp.json::<serde_json::Value>().await {
-                            if let Some(b) = v.get("default_branch").and_then(|x| x.as_str()) {
-                                branches.push(b.to_string());
-                            }
-                        }
-                    }
-                    branches.push("main".to_string());
-                    branches.push("master".to_string());
-                    for b in branches {
-                        if let Some(p) = crate::github::icon_probe::probe_repo_logo(&client, None, &c.owner, &c.repo, &b).await {
-                            log::debug!("icon probe fallback hit app_id='{}' source={} url='{}'", app_id.as_deref().unwrap_or(""), p.source, crate::log_support::sanitize_url(&p.url));
-                            probed_url = Some(p.url);
-                            break;
-                        }
-                    }
-                }
-            }
+            let raw_id = app_id.as_deref().unwrap_or("");
             let mut probe_bytes = None;
-            if let Some(purl) = probed_url {
-                let probe_mirror = state.mirror.lock().ok().and_then(|m| {
-                    let r = m.rewrite_download_url(&purl);
-                    if r != purl {
-                        Some(r)
-                    } else {
-                        None
-                    }
-                });
-                probe_bytes = download_icon_bytes(&client, probe_mirror.as_deref(), &purl).await.ok();
+            if let Some(c) = crate::forge::RepositoryUrlParser::parse(raw_id) {
+                if !c.owner.is_empty() && !c.repo.is_empty() {
+                    probe_bytes =
+                        icons_cycle::fetch_anon_probe_bytes(&client, &state, raw_id, &c.owner, &c.repo)
+                            .await;
+                }
             }
             match probe_bytes {
                 Some(b) => b,
@@ -499,85 +444,49 @@ pub async fn get_or_fetch_icon(
         }
     };
 
-    // 3. 两表分流落盘：
+    // 3. 两表分流落盘（收敛至共享 helper；语义与原内联分支一致）：
     // icon_cache_meta 只写收录应用；非收录走 app_icon_cycles（文件复用 icons/ 目录，文件名带 _l{level} 后缀隔离）。
     let mime = detect_image_mime(&bytes);
     let real_ext = mime_to_ext(mime);
+    let db_opt = state.db().ok();
 
     if is_cataloged {
-        let final_filename = format!("{}.{}", stem, real_ext);
-        let final_cache_file = icons_dir.join(&final_filename);
-        let _ = std::fs::write(&final_cache_file, &bytes);
-
-        let initial_filename = format!("{}.{}", stem, inferred_ext);
-        if initial_filename != final_filename {
-            let initial_cache_file = icons_dir.join(&initial_filename);
-            if initial_cache_file.exists() {
-                let _ = std::fs::remove_file(&initial_cache_file);
-            }
-        }
-
-        if let Ok(db) = state.db() {
-            if initial_filename != final_filename {
-                let _ = db.delete_icon_cache_url(&initial_filename);
-            }
-            let _ = db.save_icon_cache_url(&final_filename, url_trimmed);
-        }
+        icons_cycle::persist_catalog_icon(
+            &icons_dir,
+            db_opt.as_ref().map(|v| &**v),
+            &stem,
+            real_ext,
+            inferred_ext,
+            url_trimmed,
+            &bytes,
+        );
     } else {
         let clean_id = app_id.as_deref().map(str::trim).unwrap_or("");
-        let (_level, final_filename) = if !clean_id.is_empty() {
-            if let Ok(db) = state.db() {
-                let mut cycle = db
-                    .get_icon_cycle(clean_id)
-                    .ok()
-                    .flatten()
-                    .unwrap_or_else(|| {
-                        let (owner, repo) = match crate::forge::RepositoryUrlParser::parse(clean_id) {
-                            Some(c) => (c.owner, c.repo),
-                            None => clean_id
-                                .split_once('/')
-                                .map(|(o, r)| (o.to_string(), r.to_string()))
-                                .unwrap_or_default(),
-                        };
-                        crate::db::AppIconCycle::new(clean_id, owner, repo)
-                    });
+        let final_filename = if !clean_id.is_empty() {
+            if let Some(ref db) = db_opt {
+                let mut cycle = icons_cycle::load_or_new_cycle(db, clean_id);
                 cycle.is_cataloged = false;
 
                 // url 写入首个空的 l2/l3/l4，不写 l1_url
-                let actual_level = if cycle.l2_url.trim() == url_trimmed {
-                    2
-                } else if cycle.l3_url.trim() == url_trimmed {
-                    3
-                } else if cycle.l4_url.trim() == url_trimmed {
-                    4
-                } else if cycle.l2_url.trim().is_empty() {
-                    cycle.l2_url = url_trimmed.to_string();
-                    2
-                } else if cycle.l3_url.trim().is_empty() {
-                    cycle.l3_url = url_trimmed.to_string();
-                    3
-                } else if cycle.l4_url.trim().is_empty() {
-                    cycle.l4_url = url_trimmed.to_string();
-                    4
-                } else if cycle.level >= 2 && cycle.level <= 4 {
-                    cycle.level
-                } else {
-                    2
-                };
+                let actual_level =
+                    crate::db::icon_cycle::claim_cycle_url_slot(&mut cycle, url_trimmed);
 
-                let filename = format!("{}_l{}.{}", stem, actual_level, real_ext);
-                cycle.level = actual_level;
-                cycle.selected_url = url_trimmed.to_string();
-                cycle.cache_file = filename.clone();
-                cycle.updated_at = crate::now_secs();
+                let filename =
+                    crate::db::icon_cycle::cycle_filename(&stem, actual_level, real_ext);
+                crate::db::icon_cycle::seal_cycle_selection(
+                    &mut cycle,
+                    actual_level,
+                    url_trimmed,
+                    filename.clone(),
+                );
                 let _ = db.upsert_icon_cycle(&cycle);
 
-                (actual_level, filename)
+                filename
             } else {
-                (2, format!("{}_l2.{}", stem, real_ext))
+                crate::db::icon_cycle::cycle_filename(&stem, 2, real_ext)
             }
         } else {
-            (2, format!("{}_l2.{}", stem, real_ext))
+            crate::db::icon_cycle::cycle_filename(&stem, 2, real_ext)
         };
 
         let final_cache_file = icons_dir.join(&final_filename);

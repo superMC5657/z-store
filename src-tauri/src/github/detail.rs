@@ -461,7 +461,7 @@ impl CatalogService {
             deduced_platforms
         };
 
-        // 图标层级决策：收录官方 → 品牌库 Simple Icons → 翻全家 Git Trees → README logo → 空。
+        // 图标层级决策收敛至 db::icon_cycle::pick_detail_icon（收录官方 → 品牌库 → Trees → README → 空）：
         // 1. 已具备已知独立官方图标则保持，避免被误覆盖；
         // 2. 否则进入探测链（Simple Icons → Git Trees 全库评分）；
         // 3. 探测未命中则采用 README 提取并清洗出的 Logo；
@@ -473,14 +473,13 @@ impl CatalogService {
                 .as_ref()
                 .and_then(|r| r.default_branch.clone())
                 .unwrap_or_else(|| "HEAD".to_string());
-            if let Some(probed) = super::icon_probe::probe_repo_logo(client, Some(&base_headers), &owner, &repo, &branch).await {
-                log::debug!("icon probe hit id={} source={} url='{}'", id, probed.source, crate::log_support::sanitize_url(&probed.url));
-                probed.url
-            } else if let Some(logo) = extracted_logo {
-                logo
+            let probed = if let Some(p) = super::icon_probe::probe_repo_logo(client, Some(&base_headers), &owner, &repo, &branch).await {
+                log::debug!("icon probe hit id={} source={} url='{}'", id, p.source, crate::log_support::sanitize_url(&p.url));
+                Some(p.url)
             } else {
-                String::new()
-            }
+                None
+            };
+            crate::db::icon_cycle::pick_detail_icon(&icon, probed, extracted_logo)
         };
 
         let detail = AppDetail {
