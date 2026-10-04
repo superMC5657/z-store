@@ -26,9 +26,9 @@ const FIXTURE: BaselineApp[] = [
 ];
 
 describe('baseline: full platform selection is equivalent to unfiltered', () => {
-  it('a full 5-platform set matches every fixture app', () => {
+  it('a full 6-platform set matches every fixture app', () => {
     const full = new Set<string>(PLATFORM_IDS);
-    expect(full.size).toBe(5);
+    expect(full.size).toBe(6);
     for (const app of FIXTURE) {
       expect(matchPlatformSet(app, full)).toBe(true);
     }
@@ -55,8 +55,8 @@ afterEach(() => {
 });
 
 describe('task3: platform-filter persistence (Decision B select-nothing)', () => {
-  it('uses the stable storage key zstore:platform-filter:v1', () => {
-    expect(PLATFORM_FILTER_STORAGE_KEY).toBe('zstore:platform-filter:v1');
+  it('uses the stable storage key zstore:platform-filter:v2', () => {
+    expect(PLATFORM_FILTER_STORAGE_KEY).toBe('zstore:platform-filter:v2');
   });
 
   it('no key (null) → full 5-platform set', () => {
@@ -133,6 +133,37 @@ describe('task3: platform-filter persistence (Decision B select-nothing)', () =>
     expect(loadSelectedPlatforms()).toEqual(new Set(PLATFORM_IDS));
   });
 
+  it('v1 → v2 migration: legacy full-5 (show-all) upgrades to full-6, libraries stay visible', () => {
+    window.localStorage.setItem(
+      'zstore:platform-filter:v1',
+      JSON.stringify(['windows', 'macos', 'linux', 'ios', 'android'])
+    );
+    expect(loadSelectedPlatforms()).toEqual(new Set(PLATFORM_IDS));
+    expect(loadSelectedPlatforms().has('other')).toBe(true);
+  });
+
+  it('v1 → v2 migration: any legacy subset gains other (discoverability default)', () => {
+    window.localStorage.setItem(
+      'zstore:platform-filter:v1',
+      JSON.stringify(['windows', 'ios'])
+    );
+    expect(loadSelectedPlatforms()).toEqual(new Set(['windows', 'ios', 'other']));
+  });
+
+  it('v1 → v2 migration: corrupt legacy falls back to full-6', () => {
+    window.localStorage.setItem('zstore:platform-filter:v1', '{bad');
+    expect(loadSelectedPlatforms()).toEqual(new Set(PLATFORM_IDS));
+  });
+
+  it('v2 key wins over legacy v1 when both are present', () => {
+    window.localStorage.setItem(
+      'zstore:platform-filter:v1',
+      JSON.stringify(['windows', 'macos', 'linux', 'ios', 'android'])
+    );
+    window.localStorage.setItem(PLATFORM_FILTER_STORAGE_KEY, JSON.stringify(['ios']));
+    expect(loadSelectedPlatforms()).toEqual(new Set(['ios']));
+  });
+
   it('filtering derivation: empty selection keeps nothing, full keeps all, partial keeps its subset', () => {
     const full = new Set<string>(PLATFORM_IDS);
     expect(FIXTURE.filter((a) => matchPlatformSet(a, full))).toHaveLength(FIXTURE.length);
@@ -149,17 +180,18 @@ describe('task3: platform-filter persistence (Decision B select-nothing)', () =>
     for (const id of PLATFORM_IDS) {
       counts[id] = FIXTURE.filter((a) => matchPlatformSet(a, new Set([id]))).length;
     }
-    // windows 匹配显式声明项以及两条缺失/为空的项（仅限 windows 规则）
-    expect(counts['windows']).toBe(3);
+    // windows 仅匹配显式声明项；缺失/为空的两项归入虚拟 other 桶
+    expect(counts['windows']).toBe(1);
     expect(counts['ios']).toBe(1);
     expect(counts['android']).toBe(1);
     expect(counts['linux']).toBe(1);
     expect(counts['macos']).toBe(1);
+    expect(counts['other']).toBe(2);
   });
 
-  it('reset restores the full device set (matches everything again)', () => {
+  it('reset restores the full set incl. other (matches everything again)', () => {
     const reset = new Set<string>(PLATFORM_IDS);
-    expect(reset.size).toBe(5);
+    expect(reset.size).toBe(6);
     for (const app of FIXTURE) {
       expect(matchPlatformSet(app, reset)).toBe(true);
     }
@@ -183,6 +215,7 @@ describe('P2-3a: global platform filter applies to Favorites/Installed/Updates',
   const CATALOG: CatalogApp[] = [
     { id: 'owner/win-app', platforms: ['windows'] },
     { id: 'owner/ios-app', platforms: ['ios'] },
+    { id: 'owner/lib', platforms: [] },
   ];
   const INSTALLED: InstalledRow[] = [
     { app_id: 'owner/win-app' },
@@ -214,8 +247,16 @@ describe('P2-3a: global platform filter applies to Favorites/Installed/Updates',
   const countOverFull = (id: string) =>
     CATALOG.filter((a) => matchPlatformSet(a, new Set([id]))).length;
 
-  it('favorites: non-matching OS hidden via the filtered memo', () => {
+  it('other bucket: libraries hide under OS-only selections, show under other/full', () => {
+    const otherOnly = new Set<string>(['other']);
     expect(filterCatalog(iosOnly).map((a) => a.id)).toEqual(['owner/ios-app']);
+    expect(filterCatalog(otherOnly).map((a) => a.id)).toEqual(['owner/lib']);
+    expect(filterCatalog(new Set<string>(PLATFORM_IDS)).map((a) => a.id)).toEqual([
+      'owner/win-app',
+      'owner/ios-app',
+      'owner/lib',
+    ]);
+    expect(countOverFull('other')).toBe(1);
   });
 
   it('installed: non-matching OS hidden, unknown-catalog rows kept', () => {

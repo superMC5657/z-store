@@ -48,6 +48,11 @@ publish/z-store-catalog
 # Local agent issue tracker workspace (docs/agents/issue-tracker.md)
 .scratch/
 
+# BEGIN oh-my-opencode-slim worktrees
+.slim/worktrees/
+.slim/worktrees.json
+# END oh-my-opencode-slim worktrees
+
 # Internal design/business documents (not for the public repository)
 docs/design/
 

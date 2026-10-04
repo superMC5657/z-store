@@ -14,7 +14,7 @@ import type { AppSummary } from '../types';
  * 原有的 CSS 类名不变，已有测试的选择器（`.filter-empty-reset` 等）不受影响。
  */
 
-export const PLATFORM_FILTER_STORAGE_KEY = 'z-store:platform-filter:v1';
+export const PLATFORM_FILTER_STORAGE_KEY = 'zstore:platform-filter:v2';
 export const PLATFORM_RESET_EVENT = 'zstore:reset-platform-filter';
 
 /**
@@ -22,6 +22,7 @@ export const PLATFORM_RESET_EVENT = 'zstore:reset-platform-filter';
  * 清理持久化存储（App 的 `loadSelectedPlatforms` 在缺少键时会回退至全选集合），
  * 并向所有监听器广播重置意图。键名字符串与 App.PLATFORM_FILTER_STORAGE_KEY 一致；
  * 此处保持字面量以避免 view 与 App 之间的循环引用。
+ * 注意连字符：`zstore:` 无横杠（历史 `z-store:` 写法已修正统一）。
  */
 export function broadcastPlatformReset(): void {
   try {

@@ -521,6 +521,7 @@ pub fn run() {
             commands::enrich_trend_repos,
             commands::get_category_apps,
             commands::get_app_details,
+            commands::get_platforms_lite,
             commands::get_readme_variants,
             commands::get_installed_apps,
             commands::install_app,

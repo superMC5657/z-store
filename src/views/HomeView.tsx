@@ -29,6 +29,7 @@ interface HomeViewProps extends ViewAppActions, PlatformResetOption {
    * 下方的每个分片均直接基于此数组运行。切勿在页面内重复进行平台过滤——
    * 全局设备平台选择状态由 App/Sidebar 统筹维护。
    */
+  platformResolvedOtherIds?: ReadonlySet<string>;
   recentlyViewedApps?: AppSummary[];
   searchQuery?: string;
   onNavigateTrends: () => void;
@@ -37,6 +38,7 @@ interface HomeViewProps extends ViewAppActions, PlatformResetOption {
 
 export const HomeView: React.FC<HomeViewProps> = ({
   apps,
+  platformResolvedOtherIds,
   installedIds,
   installingIds,
   favoriteIds,
@@ -53,6 +55,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
 }) => {
   const { t, i18n } = useTranslation();
   const isSearching = Boolean(searchQuery && searchQuery.trim().length > 0);
+  const isPending = (a: AppSummary): boolean => {
+    if (a.platforms && a.platforms.length > 0) return false;
+    if (!platformResolvedOtherIds) return false;
+    return !platformResolvedOtherIds.has(a.id.toLowerCase());
+  };
 
   if (apps.length === 0) {
     // 筛选为空：全局设备平台筛选排除了所有应用。
@@ -219,6 +226,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               <AppCard
                 key={app.id}
                 app={app}
+                platformPending={isPending(app)}
                 isInstalled={installedIds.has(app.id)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}
@@ -248,6 +256,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 key={app.id}
                 app={app}
                 eager
+                platformPending={isPending(app)}
                 isInstalled={installedIds.has(app.id)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}
@@ -276,6 +285,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               <AppCard
                 key={app.id}
                 app={app}
+                platformPending={isPending(app)}
                 isInstalled={installedIds.has(app.id)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}

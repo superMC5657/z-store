@@ -87,7 +87,7 @@ function toSummary(c: CatalogRaw): AppSummary {
     forge: 'github',
     forge_host: 'github.com',
     homepage: c.homepage ?? null,
-    platforms: c.platforms && c.platforms.length > 0 ? c.platforms : ['windows'],
+    platforms: c.platforms && c.platforms.length > 0 ? c.platforms : [],
   };
 }
 
@@ -557,6 +557,20 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
         if (!owner || !repo) return null;
         return summaries.find((s) => s.owner.toLowerCase() === owner && s.repo.toLowerCase() === repo) ?? null;
       });
+    }
+    case 'get_platforms_lite': {
+      const id = argStr(a, 'id', 'appId', 'app_id');
+      const hit = findSummary(id);
+      if (hit) {
+        return {
+          id: hit.id,
+          platforms: [...(hit.platforms ?? [])],
+          from_cache: true,
+          is_stale: null,
+        };
+      }
+      // 未收录坐标：stale pending（永不返回 null，避免调用方误确认为 Other）。
+      return { id, platforms: [], is_stale: true, from_cache: false };
     }
 
     // -- catalog / details / icons / readme --------------------------------

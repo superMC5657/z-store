@@ -421,7 +421,7 @@ mod tests {
             install_dirs: vec![],
             search_subdirs: vec![],
             publishers: vec![],
-            platforms: vec!["windows".to_string()],
+            platforms: Vec::new(),
         }
     }
 

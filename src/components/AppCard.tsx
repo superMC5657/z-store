@@ -15,6 +15,8 @@ interface AppCardProps {
   isInstalling?: boolean;
   isFavorite?: boolean;
   isWatched?: boolean;
+  /** 待确认态（summary 为空且详情尚未落定）：此时不渲染 Other 徽标，改以占位保持布局稳定。 */
+  platformPending?: boolean;
   /** 趋势榜单名次（1-based）。不传则不渲染名次，精选页外观零变化。 */
   rank?: number;
   /** 名次颜色覆盖；默认按金银铜规则着色。 */
@@ -82,6 +84,7 @@ function areAppCardPropsEqual(prev: AppCardProps, next: AppCardProps): boolean {
     (prev.isInstalling ?? false) === (next.isInstalling ?? false) &&
     (prev.isFavorite ?? false) === (next.isFavorite ?? false) &&
     (prev.isWatched ?? false) === (next.isWatched ?? false) &&
+    (prev.platformPending ?? false) === (next.platformPending ?? false) &&
     prev.rank === next.rank &&
     prev.rankColor === next.rankColor &&
     prev.trendGain === next.trendGain &&
@@ -101,6 +104,7 @@ export const AppCard: React.FC<AppCardProps> = memo(({
   isInstalling = false,
   isFavorite = false,
   isWatched = false,
+  platformPending = false,
   rank,
   rankColor,
   trendGain,
@@ -116,6 +120,18 @@ export const AppCard: React.FC<AppCardProps> = memo(({
   const displayName = getAppDisplayName(app);
   const displayDesc = getAppDescription(app, i18n.language);
   const displayCategory = getCategoryLabel(app.category, app.category_name, t);
+  // 平台徽标三态：有平台展示 OS 图标；已确认 other 展示 Other 徽标；
+  // 待确认（summary 为空且详情未落定）不展示 Other，改以同尺寸占位避免布局跳动。
+  const hasPlatforms = !!app.platforms && app.platforms.length > 0;
+  const showPendingPlaceholder = !hasPlatforms && platformPending;
+  const showOther = !hasPlatforms && !platformPending;
+  // 主按钮降级：平台为空（pending 待确认或已确认 Other）且未安装时，
+  // 不承诺安装——统一为次级“查看详情”直开详情（避免安装后 toast 失败）。
+  // 已安装行保持原样（已安装徽标直开详情）。
+  const showDetailOnly = !isInstalled && !hasPlatforms;
+  const detailLabel = t('app.view_details');
+  const otherLabel = t('nav.platforms_other');
+  const supportedDevicesLabel = t('app.supported_devices', { defaultValue: '支持设备' });
 
   return (
     <div
@@ -206,15 +222,34 @@ export const AppCard: React.FC<AppCardProps> = memo(({
               {trendGainText}
             </span>
           )}
-          {app.platforms && app.platforms.length > 0 && (
+          {showPendingPlaceholder ? (
+            <span
+              className="app-tag app-tag-platforms app-tag-platforms-pending"
+              title={supportedDevicesLabel}
+              aria-label={supportedDevicesLabel}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 6px', cursor: 'default', opacity: 0.55, minWidth: '52px', justifyContent: 'center' }}
+            >
+              <span
+                aria-hidden="true"
+                style={{ width: '34px', height: '10px', borderRadius: '3px', background: 'var(--border-subtle)', display: 'inline-block' }}
+              />
+            </span>
+          ) : (
             <span
               className="app-tag app-tag-platforms"
-              title={`${t('app.supported_devices', { defaultValue: '支持设备' })}: ${app.platforms.map((p) => PLATFORM_META[p.toLowerCase() as PlatformId]?.label || p).join(', ')}`}
+              title={hasPlatforms ? `${supportedDevicesLabel}: ${app.platforms!.map((p) => PLATFORM_META[p.toLowerCase() as PlatformId]?.label || p).join(', ')}` : `${supportedDevicesLabel}: ${otherLabel}`}
               style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 6px', cursor: 'default' }}
             >
-              {app.platforms.map((p) => (
-                <PlatformIcon key={p} platform={p} size={11} />
-              ))}
+              {hasPlatforms ? (
+                app.platforms!.map((p) => (
+                  <PlatformIcon key={p} platform={p} size={11} />
+                ))
+              ) : showOther ? (
+                <>
+                  <PlatformIcon platform="other" size={11} />
+                  <span>{otherLabel}</span>
+                </>
+              ) : null}
             </span>
           )}
           {app.forge && app.forge !== 'github' && (
@@ -239,32 +274,44 @@ export const AppCard: React.FC<AppCardProps> = memo(({
 
         <button
           className={`btn-install ${isInstalled ? 'btn-installed' : ''}`}
-          disabled={isInstalling}
+          disabled={showDetailOnly ? false : isInstalling}
           onClick={(e) => {
             e.stopPropagation();
-            if (isInstalled) {
+            if (isInstalled || showDetailOnly) {
               onOpenDetail(app.id);
             } else if (!isInstalling) {
               onQuickInstall(app.id);
             }
           }}
           title={
-            isInstalling
-              ? t('app.installing_app', { name: displayName })
-              : isInstalled
-                ? t('app.installed_details', { name: displayName })
-                : t('app.get_app', { name: displayName })
+            showDetailOnly
+              ? detailLabel
+              : isInstalling
+                ? t('app.installing_app', { name: displayName })
+                : isInstalled
+                  ? t('app.installed_details', { name: displayName })
+                  : t('app.get_app', { name: displayName })
           }
           aria-label={
-            isInstalling
-              ? t('app.installing_app', { name: displayName })
-              : isInstalled
-                ? t('app.installed_details', { name: displayName })
-                : t('app.get_app', { name: displayName })
+            showDetailOnly
+              ? detailLabel
+              : isInstalling
+                ? t('app.installing_app', { name: displayName })
+                : isInstalled
+                  ? t('app.installed_details', { name: displayName })
+                  : t('app.get_app', { name: displayName })
           }
-          style={isInstalling ? { opacity: 0.8, cursor: 'not-allowed' } : undefined}
+          style={!showDetailOnly && isInstalling ? { opacity: 0.8, cursor: 'not-allowed' } : undefined}
         >
-          {isInstalling ? (
+          {showDetailOnly ? (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+              <span>{detailLabel}</span>
+            </span>
+          ) : isInstalling ? (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
               <span className="spinner-icon" style={{ width: '10px', height: '10px', borderWidth: '1.5px' }} />
               <span>{t('app.installing')}</span>

@@ -11,11 +11,13 @@ import { ViewAppActions, ViewShell } from './ViewShell';
 import { matchesAppText } from './useViewFilter';
 
 interface FavoritesViewProps extends ViewAppActions {
+  platformResolvedOtherIds?: ReadonlySet<string>;
   oauthUser?: OAuthUser | null;
 }
 
 export const FavoritesView: React.FC<FavoritesViewProps> = ({
   apps,
+  platformResolvedOtherIds,
   favoriteIds,
   watchedIds,
   installedIds,
@@ -41,6 +43,11 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   }, [oauthUser?.login]);
 
   const watchedSet = watchedIds || new Set<string>();
+  const isPending = (a: AppSummary): boolean => {
+    if (a.platforms && a.platforms.length > 0) return false;
+    if (!platformResolvedOtherIds) return false;
+    return !platformResolvedOtherIds.has(a.id.toLowerCase());
+  };
 
   // FR-6.1: 收藏 / 关注搜索框（按名称 / 别名 / 仓库坐标过滤，见 useViewFilter.matchesAppText）
   const matchesSearch = (a: AppSummary) => matchesAppText(a, searchText);
@@ -165,6 +172,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 key={app.id}
                 app={app}
                 eager={index < 6}
+                platformPending={isPending(app)}
                 isInstalled={installedIds.has(app.id)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={true}
@@ -201,6 +209,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 key={app.id}
                 app={app}
                 eager={index < 6}
+                platformPending={isPending(app)}
                 isInstalled={installedIds.has(app.id)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}
@@ -340,6 +349,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                       key={app.id}
                       app={app}
                       eager={index < 6}
+                      platformPending={isPending(app)}
                       isInstalled={installedIds.has(app.id)}
                       isInstalling={installingIds?.has(app.id)}
                       isFavorite={favoriteIds.has(app.id)}

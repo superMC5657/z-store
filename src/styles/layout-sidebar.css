@@ -8,9 +8,9 @@
   z-index: 10;
 }
 
-/* 侧边导航栏 - 展开态 230px / 折叠态 60px 极简 Icon 栏（Panel #0F1011 / #FFFFFF） */
+/* 侧边导航栏 - 展开态 184px / 折叠态 60px 极简 Icon 栏（Panel #0F1011 / #FFFFFF） */
 .sidebar {
-  width: 230px;
+  width: 184px;
   background: var(--bg-acrylic-thin);
   border-right: 1px solid var(--border-subtle);
   display: flex;
@@ -364,5 +364,169 @@
 }
 
 .sidebar.collapsed .network-pill-text {
+  display: none !important;
+}
+
+/* ---- 设备平台紧凑开关：单头 + 3 列宫格（3+2 两排，替代 5 个整行） ---- */
+/* 展开态约 120px，替代原来的 ~176px；折叠态 2 列迷你格约 92px，替代 ~170px。 */
+.platform-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 8px;
+}
+
+.platform-head .nav-group-title {
+  flex: 1;
+  min-width: 0;
+  padding-right: 0;
+}
+
+.platform-summary {
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.platform-reset {
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  padding: 1px 6px;
+  line-height: 1.4;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.12s var(--ease-smooth), background 0.12s var(--ease-smooth), border-color 0.12s var(--ease-smooth);
+}
+
+.platform-reset:hover {
+  color: var(--text-primary);
+  background: var(--bg-acrylic-hover);
+  border-color: var(--border-highlight);
+}
+
+.platform-reset:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 1px;
+}
+
+.platform-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  padding: 2px 8px 4px;
+}
+
+.platform-chip {
+  width: 100%;
+  min-width: 0;
+  height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: background 0.15s cubic-bezier(0.16, 1, 0.3, 1),
+              color 0.15s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1),
+              opacity 0.15s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.platform-chip:hover {
+  background: var(--bg-acrylic-hover);
+  color: var(--text-primary);
+}
+
+.platform-chip:active {
+  transform: scale(0.94);
+}
+
+.platform-chip:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 1px;
+}
+
+.platform-chip-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 16px;
+}
+
+.platform-chip svg {
+  width: 16px !important;
+  height: 16px !important;
+  flex-shrink: 0;
+}
+
+.platform-chip-count {
+  font-size: 10px;
+  line-height: 1.2;
+  font-weight: 510;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.platform-chip.active {
+  background: var(--bg-nav-active);
+  color: var(--text-primary);
+  border: 1px solid var(--border-nav-active);
+  box-shadow: var(--shadow-nav-active);
+}
+
+.platform-chip.active .platform-chip-count {
+  color: var(--color-nav-active);
+}
+
+.platform-chip:not(.active) {
+  opacity: 0.45;
+}
+
+.platform-chip:not(.active):hover {
+  opacity: 1;
+  color: var(--text-primary);
+}
+
+/* 折叠态：标题与计数隐藏，5 格收成 2 列迷你矩阵 */
+.sidebar.collapsed .platform-head {
+  justify-content: center;
+  padding-right: 0;
+}
+
+.sidebar.collapsed .platform-summary,
+.sidebar.collapsed .platform-reset {
+  display: none !important;
+}
+
+.sidebar.collapsed .platform-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+  width: 44px;
+  margin: 0 auto;
+  padding: 2px 0 4px;
+}
+
+.sidebar.collapsed .platform-chip {
+  height: 28px;
+}
+
+.sidebar.collapsed .platform-chip-count {
   display: none !important;
 }

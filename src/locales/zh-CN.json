@@ -25,6 +25,9 @@
       "platforms": "设备平台",
       "system": "偏好与系统"
     },
+    "platforms_show_all": "全部",
+    "platforms_other": "其他",
+    "platforms_counts_hint": "按当前页面内容统计",
     "items": {
       "home": "精选发现",
       "trends": "趋势榜单",

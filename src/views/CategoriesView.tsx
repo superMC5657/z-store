@@ -23,7 +23,9 @@ import {
   ViewShell,
 } from './ViewShell';
 
-interface CategoriesViewProps extends ViewAppActions, RequiredPlatformReset {}
+interface CategoriesViewProps extends ViewAppActions, RequiredPlatformReset {
+  platformResolvedOtherIds?: ReadonlySet<string>;
+}
 
 const CATEGORY_DEFINITIONS = [
   { id: 'dev', Icon: Code2, nameKey: 'categories.cat_dev_name' as const, descKey: 'categories.cat_dev_desc' as const, color: '#5865f2' },
@@ -40,6 +42,7 @@ const CATEGORY_DEFINITIONS = [
 
 export const CategoriesView: React.FC<CategoriesViewProps> = ({
   apps,
+  platformResolvedOtherIds,
   installedIds,
   installingIds,
   favoriteIds,
@@ -52,6 +55,11 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
 }) => {
   const { t } = useTranslation();
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const isPending = (a: { id: string; platforms?: string[] }): boolean => {
+    if (a.platforms && a.platforms.length > 0) return false;
+    if (!platformResolvedOtherIds) return false;
+    return !platformResolvedOtherIds.has(a.id.toLowerCase());
+  };
 
   // 对传入的 `apps` 属性进行单维度分类过滤；
   // 调用方（App）已按全局设备平台选择进行了预过滤。本视图绝不自行做二次平台过滤。
@@ -173,6 +181,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                 key={app.id}
                 app={app}
                 eager={index < 6}
+                platformPending={isPending(app)}
                 isInstalled={installedIds.has(app.id)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}

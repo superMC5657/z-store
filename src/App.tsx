@@ -19,13 +19,25 @@ import { AppDetail, AppDetailViewModel, AppSummary, InstalledApp, OAuthUser, Upd
 import { api, DEFAULT_SETTINGS } from './services/api';
 import { preloadIcons, invalidateIconCache, isAvatarUrl } from './components/AppIcon';
 import { zlogInfo, zlogWarn } from './lib/z-log';
-import { PLATFORM_IDS, matchPlatformSet, normalizePlatform, togglePlatformSet, type PlatformId } from './lib/platformFilter';
+import { PLATFORM_IDS, PENDING_SETTLE_MS, isPlatformPending, matchPlatformSetWithPending, normalizePlatform, resolvePendingPlatformsLite, togglePlatformSet, type PlatformId } from './lib/platformFilter';
+import {
+  DETAIL_PLATFORMS_HEAL_EVENT,
+  appSummaryFromDetail,
+  detailHealKeysFor,
+  evictTrendEnrichCachesForDetail,
+  upsertTrendEnrichFromDetail,
+  type DetailPlatformsHealPayload,
+} from './services/trends';
 import { useToasts } from './useToasts';
 import { useAppSettings } from './useAppSettings';
 import { useTranslation } from 'react-i18next';
 import './i18n';
 
-export const PLATFORM_FILTER_STORAGE_KEY = 'zstore:platform-filter:v1';
+export const PLATFORM_FILTER_STORAGE_KEY = 'zstore:platform-filter:v2';
+/** 5-ID 旧世界的遗留键：仅用于一次性升级读取，绝不回写。 */
+const LEGACY_PLATFORM_FILTER_STORAGE_KEY = 'zstore:platform-filter:v1';
+/** 旧世界 5 端 ID：遗留全选（= 展示全部意图）升级为 6 端全选，避免静默隐藏类库。 */
+const LEGACY_OS_PLATFORM_IDS: readonly string[] = ['windows', 'macos', 'linux', 'ios', 'android'];
 
 /**
  * 单图标升级时仅替换对应 id 的对象，其余复用原引用；
@@ -78,13 +90,33 @@ export function parseSelectedPlatforms(raw: string | null | undefined): Set<Plat
  * 首次渲染时读取持久化的平台选择。保证绝不抛错：
  * 存储缺失、值损坏或存储抛错均产生全选集合；
  * 存储为有效的空数组则产生空集合。
+ *
+ * v1 → v2 一次性升级：v2 缺席时读取遗留 v1 键。任何遗留 v1 集合一律补上虚拟 other
+ * （发现性默认，与新用户全 6 端一致；用户可自行取消勾选）。
+ * v2 集合原样沿用，绝不触碰。
  */
 export function loadSelectedPlatforms(): Set<PlatformId> {
+  const full = new Set<PlatformId>(PLATFORM_IDS);
   try {
-    if (typeof window === 'undefined' || !window.localStorage) return new Set<PlatformId>(PLATFORM_IDS);
-    return parseSelectedPlatforms(window.localStorage.getItem(PLATFORM_FILTER_STORAGE_KEY));
+    if (typeof window === 'undefined' || !window.localStorage) return full;
+    const current = window.localStorage.getItem(PLATFORM_FILTER_STORAGE_KEY);
+    if (current !== null) return parseSelectedPlatforms(current);
+    const legacy = window.localStorage.getItem(LEGACY_PLATFORM_FILTER_STORAGE_KEY);
+    if (!legacy) return full;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(legacy);
+    } catch {
+      return full;
+    }
+    if (!Array.isArray(parsed)) return full;
+    const migrated = parseSelectedPlatforms(JSON.stringify(parsed));
+    // 旧世界 5 端 ID 全集即“展示全部”意图；子集亦补 other，保证类库默认可见。
+    void LEGACY_OS_PLATFORM_IDS;
+    migrated.add('other');
+    return migrated;
   } catch {
-    return new Set<PlatformId>(PLATFORM_IDS);
+    return full;
   }
 }
 
@@ -224,9 +256,15 @@ export const App: React.FC = () => {
   // FR-6.2 关注（Watch）
   const [watchedIds, setWatchedIds] = useState<Set<string>>(new Set());
   const [watchNotifications, setWatchNotifications] = useState<WatchUpdatedPayload[]>([]);
-  // 任务 3（设备平台全局过滤）：App 级别多选平台状态，默认选中全部 5 种 PLATFORM_IDS，
+  // 任务 3（设备平台全局过滤）：App 级别多选平台状态，默认选中全部 6 种 PLATFORM_IDS（含虚拟 other），
   // 仅持久化至 localStorage——刻意不接入 api.getSettings()/UserDataBackup（仅为本地界面偏好，非备份数据）。
   const [selectedPlatforms, setSelectedPlatforms] = useState<Set<PlatformId>>(() => loadSelectedPlatforms());
+  // 平台待确认追踪：summary 为空但详情尚未落定的行保持 pending（不展示 Other、不计入 other 桶、不过滤），
+  // 详情取回仍为空才记入已确认 other（展示徽标、计入统计、参与过滤）。后端一律 `[]`，other 纯前端虚拟。
+  const [platformResolvedOtherIds, setPlatformResolvedOtherIds] = useState<Set<string>>(() => new Set<string>());
+  const platformBackfillInflightRef = useRef<Set<string>>(new Set());
+  const platformResolvedOtherRef = useRef<Set<string>>(new Set());
+  platformResolvedOtherRef.current = platformResolvedOtherIds;
   // FR-7 OAuth 登录态（详情弹窗标星门控）
   const [oauthUser, setOAuthUser] = useState<OAuthUser | null>(null);
   const appDetailMemoryCache = useRef<Map<string, AppDetail>>(new Map());
@@ -263,7 +301,7 @@ export const App: React.FC = () => {
     api.getDetectedInstalledAppIds().then((ids) => setDetectedAppIds(new Set(ids))).catch(() => {});
     api.getFavorites().then((favs) => setFavoriteIds(new Set(favs)));
     api.getUpdateRules().then(setUpdateRules);
-    api.getRecentlyViewedApps().then((recents) => setRecentlyViewedApps(recents.filter((a) => matchPlatformSet(a, selectedPlatforms)))).catch(() => {});
+    api.getRecentlyViewedApps().then((recents) => setRecentlyViewedApps(recents.filter((a) => matchPlatformSetWithPending(a, selectedPlatforms, platformResolvedOtherIds)))).catch(() => {});
     api.registerDeepLinkScheme().catch(() => {});
 
     // 加载持久化设置
@@ -536,6 +574,132 @@ export const App: React.FC = () => {
     }
   };
 
+  // 平台懒回填（三态）：首绘 pending 行不展示 Other 徽标、不计入 other 桶、恒可见；
+  // 对可见行（前 20）经共享 `resolvePendingPlatformsLite`（分批 5）走 getPlatformsLite 轻量通道
+  // 补 deduced platforms（单次 releases/latest 条件请求，无 README/图标探测/checksum 开销）；
+  // 轻量取回仍为空（且非 stale 离线缓存）才记为已确认 other（单次落定更新），
+  // 详情不可达或 stale 一律保持 pending 交由 settle 超时兜底，不报错。后端一律 `[]`，other 纯前端虚拟。
+  // seq 过期则整批丢弃，绝不阻塞列表首绘。
+  const lazyBackfillPlatforms = useCallback((summaries: AppSummary[], seq: number) => {
+    const resolved = platformResolvedOtherRef.current;
+    const inflight = platformBackfillInflightRef.current;
+    const targets = summaries.filter((s) => {
+      if (s.platforms && s.platforms.length > 0) return false;
+      const key = s.id.toLowerCase();
+      if (resolved.has(key) || inflight.has(key)) return false;
+      return true;
+    }).slice(0, 20);
+    if (targets.length === 0) return;
+    for (const t of targets) inflight.add(t.id.toLowerCase());
+    void (async () => {
+      try {
+        const { patched, confirmedEmpty } = await resolvePendingPlatformsLite(
+          targets.map((s) => ({ key: s.id.toLowerCase(), liteId: s.id })),
+          (liteId) => api.getPlatformsLite(liteId),
+          () => seq !== searchSeqRef.current,
+        );
+        if (seq !== searchSeqRef.current) return;
+        if (patched.size > 0) {
+          setApps((prev) => {
+            let changed = false;
+            const next = prev.map((a) => {
+              const p = patched.get(a.id.toLowerCase());
+              if (p && (!a.platforms || a.platforms.length === 0)) {
+                changed = true;
+                return { ...a, platforms: p };
+              }
+              return a;
+            });
+            return changed ? next : prev;
+          });
+          setRecentlyViewedApps((prev) => {
+            let changed = false;
+            const next = prev.map((a) => {
+              const p = patched.get(a.id.toLowerCase());
+              if (p && (!a.platforms || a.platforms.length === 0)) {
+                changed = true;
+                return { ...a, platforms: p };
+              }
+              return a;
+            });
+            return changed ? next : prev;
+          });
+        }
+        if (confirmedEmpty.length > 0) {
+          setPlatformResolvedOtherIds((prev) => {
+            let changed = false;
+            const next = new Set(prev);
+            for (const k of confirmedEmpty) {
+              if (!next.has(k)) {
+                next.add(k);
+                changed = true;
+              }
+            }
+            return changed ? next : prev;
+          });
+        }
+      } finally {
+        for (const t of targets) inflight.delete(t.id.toLowerCase());
+      }
+    })();
+  }, []);
+
+  // 首绘回填：本地收录（含初始全量/搜索/目录同步）的 pending 行同样走轻量确认，
+  // 首绘不闪 Other，落定后单次更新。重复调用经在途/已确认集合去重。
+  useEffect(() => {
+    if (apps.length === 0) return;
+    lazyBackfillPlatforms(apps, searchSeqRef.current);
+  }, [apps, lazyBackfillPlatforms]);
+
+  // 主列表 pending settle 超时（Home/分类/收藏共用，与 Trends 榜单同口径）：
+  // lite 失败/stale 的 pending 行至多等待 PENDING_SETTLE_MS 后降级为已确认 Other
+  // （徽标 + 计数 + 可过滤），而非无限 shimmer。超时前恒可见，落定后走正常 Other 过滤。
+  // 治愈（具真实平台）的行永不被确认；定时器随列表/回填变化重置，落稳后一次触发。
+  useEffect(() => {
+    if (apps.length === 0 && recentlyViewedApps.length === 0) return;
+    const pendingSnapshot: string[] = [];
+    const seen = new Set<string>();
+    for (const s of [...apps, ...recentlyViewedApps]) {
+      if (s.platforms && s.platforms.length > 0) continue;
+      const key = (s.id || '').trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      if (platformResolvedOtherIds.has(key)) continue;
+      pendingSnapshot.push(key);
+    }
+    if (pendingSnapshot.length === 0) return;
+    const timer = setTimeout(() => {
+      const stillPending: string[] = [];
+      const currentById = new Map<string, AppSummary>();
+      for (const s of [...appsRef.current, ...recentsRef.current]) {
+        const k = (s.id || '').trim().toLowerCase();
+        if (k && !currentById.has(k)) currentById.set(k, s);
+      }
+      const resolved = platformResolvedOtherRef.current;
+      for (const key of pendingSnapshot) {
+        const cur = currentById.get(key);
+        if (cur?.platforms && cur.platforms.length > 0) continue;
+        if (resolved.has(key)) continue;
+        stillPending.push(key);
+      }
+      if (stillPending.length === 0) return;
+      setPlatformResolvedOtherIds((prev) => {
+        const next = new Set(prev);
+        let changed = false;
+        for (const k of stillPending) {
+          if (!next.has(k)) {
+            next.add(k);
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    }, PENDING_SETTLE_MS);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [apps, recentlyViewedApps, platformResolvedOtherIds]);
+
   // 在线搜索提交逻辑（按回车或点击“在线搜索”按钮，仅在本地无结果时调用一次）
   const handleSearchSubmit = async (queryToSubmit?: string) => {
     const q = (queryToSubmit !== undefined ? queryToSubmit : searchQuery).trim();
@@ -576,6 +740,7 @@ export const App: React.FC = () => {
         setOnlineSearchPerformed(true);
         if (onlineResults && onlineResults.length > 0) {
           setApps(onlineResults);
+          lazyBackfillPlatforms(onlineResults, seq);
           showToast(t('search.online_success', '已找到在线应用'), 'success');
         } else {
           // 调不到或无结果就保持本地结果+提示，不报错
@@ -642,6 +807,10 @@ export const App: React.FC = () => {
     }
 
     const patchedIcon = detail.icon?.trim() && !isAvatarUrl(detail.icon) ? detail.icon.trim() : undefined;
+    // stale 离线缓存不具权威：平台相关一律保持 pending（不确认、不治愈、不碰榜单缓存）
+    const isStaleDetail = Boolean(detail.is_stale);
+    const detailPlatforms = !isStaleDetail && detail.platforms && detail.platforms.length > 0 ? detail.platforms : undefined;
+    const detailConfirmedEmpty = !isStaleDetail && !detailPlatforms;
 
     const patchSummary = (app: AppSummary): AppSummary => {
       const isTarget =
@@ -649,11 +818,16 @@ export const App: React.FC = () => {
         (detail.id && app.id.toLowerCase() === detail.id.toLowerCase());
       if (!isTarget) return app;
       const nextIcon = patchedIcon ? patchedIcon : app.icon;
+      // stale 详情不碰平台：列表保持 pending，避免离线快照误治愈/误确认
+      const nextPlatforms = detailPlatforms && (!app.platforms || app.platforms.length === 0)
+        ? detailPlatforms
+        : app.platforms;
       if (
         app.stars === detail.stars &&
         app.forks === detail.forks &&
         app.latest_version === detail.latest_version &&
-        app.icon === nextIcon
+        app.icon === nextIcon &&
+        app.platforms === nextPlatforms
       ) {
         return app;
       }
@@ -663,6 +837,7 @@ export const App: React.FC = () => {
         forks: detail.forks,
         latest_version: detail.latest_version,
         icon: nextIcon,
+        platforms: nextPlatforms,
       };
     };
 
@@ -677,6 +852,57 @@ export const App: React.FC = () => {
     };
     setApps(patchList);
     setRecentlyViewedApps(patchList);
+    // 详情已取回仍为空（非 stale）：记为已确认 other，徽标/统计/过滤一次落定
+    if (detailConfirmedEmpty) {
+      const keys = new Set<string>([idClean, detail.id.toLowerCase()]);
+      setPlatformResolvedOtherIds((prev) => {
+        let changed = false;
+        const next = new Set(prev);
+        for (const k of keys) {
+          if (!next.has(k)) {
+            next.add(k);
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    }
+    // 详情带回真实平台（非 stale）：解除已确认 other、驱逐榜单 stale [] 缓存、
+    // 并向 TrendsView 推送治愈（列表 patch 覆盖不到未收录行，此处补齐）。
+    // VoiceStudio 类 bug 的治愈路径：行内 Other → OS 图标，过滤/计数同步跟进。
+    if (detailPlatforms) {
+      const healKeys = detailHealKeysFor(idClean, detail.owner, detail.repo);
+      // 兼容 detail.id 与 idClean 不一致时的双键
+      const extraKeys = new Set<string>([idClean, detail.id.toLowerCase()]);
+      for (const k of extraKeys) {
+        if (k && !healKeys.includes(k)) healKeys.push(k);
+      }
+      setPlatformResolvedOtherIds((prev) => {
+        let hit = false;
+        for (const k of healKeys) {
+          if (prev.has(k)) {
+            hit = true;
+            break;
+          }
+        }
+        if (!hit) return prev;
+        const next = new Set(prev);
+        for (const k of healKeys) next.delete(k);
+        return next;
+      });
+      evictTrendEnrichCachesForDetail(idClean, detail.owner, detail.repo);
+      upsertTrendEnrichFromDetail(detail);
+      try {
+        const payload: DetailPlatformsHealPayload = {
+          keys: healKeys,
+          platforms: [...detailPlatforms],
+          summary: appSummaryFromDetail(detail),
+        };
+        window.dispatchEvent(new CustomEvent(DETAIL_PLATFORMS_HEAL_EVENT, { detail: payload }));
+      } catch {
+        // 事件派发失败不影响列表已落定的治愈
+      }
+    }
 
     if (patchedIcon) {
       invalidateIconCache(idClean);
@@ -777,7 +1003,7 @@ export const App: React.FC = () => {
           forge: 'github',
           forge_host: 'github.com',
           homepage: null,
-          platforms: ['windows'],
+          platforms: [],
           isLoading: true,
           isRefreshing: forceRefresh,
         };
@@ -1200,14 +1426,16 @@ export const App: React.FC = () => {
 
 
   // 任务 3：以平台优先派生数据供给 精选/趋势/分类 视图（使用同名 apps 属性）。
+  // 待确认行恒可见（不看 Other 勾选），落定后再走 matchPlatformSet。
   const platformFilteredApps = useMemo(
-    () => apps.filter((a) => matchPlatformSet(a, selectedPlatforms)),
-    [apps, selectedPlatforms]
+    () => apps.filter((a) => matchPlatformSetWithPending(a, selectedPlatforms, platformResolvedOtherIds)),
+    [apps, selectedPlatforms, platformResolvedOtherIds]
   );
 
   // 任务 4（设备平台全局过滤）：侧栏分组的各平台应用计数，
   // 基于全量 `apps` 数组（而非已过滤数组）计算，以便准确呈现“有多少应用支持该设备”。
-  // 一次 reduce 扫完 5 端：缺 platforms 视作仅 Windows，大小写归一，同应用去重后各端 +1（与 5×filter 语义一致）。
+  // 一次扫完 6 项：已确认 other 才计入虚拟 other 桶，待确认行暂不计数（首绘不闪 Other=23，
+  // 落定后单次更新），大小写归一，同应用去重后各桶 +1（与 6×filter 语义一致）。
   const platformCounts = useMemo(() => {
     const counts = {} as Record<PlatformId, number>;
     for (const id of PLATFORM_IDS) {
@@ -1215,9 +1443,14 @@ export const App: React.FC = () => {
     }
     const known = new Set<string>(PLATFORM_IDS as readonly string[]);
     for (const a of apps) {
-      const actual = !a.platforms || a.platforms.length === 0 ? ['windows'] : a.platforms;
+      if (!a.platforms || a.platforms.length === 0) {
+        // 待确认：暂不计入任何桶；已确认 other：仅计 other 桶
+        if (isPlatformPending(a, platformResolvedOtherIds)) continue;
+        counts['other'] += 1;
+        continue;
+      }
       const seen = new Set<string>();
-      for (const p of actual) {
+      for (const p of a.platforms) {
         const n = normalizePlatform(p);
         if (known.has(n) && !seen.has(n)) {
           seen.add(n);
@@ -1226,7 +1459,7 @@ export const App: React.FC = () => {
       }
     }
     return counts;
-  }, [apps]);
+  }, [apps, platformResolvedOtherIds]);
 
   // 目录 id（小写）→ AppSummary 索引，供已安装/更新列表 O(1) 查表，避免每行 apps.find 全扫
   const appsById = useMemo(() => {
@@ -1241,20 +1474,28 @@ export const App: React.FC = () => {
   const filteredInstalledApps = useMemo(() => {
     return installedApps.filter((inst) => {
       const catalogEntry = appsById.get(inst.app_id.toLowerCase());
-      return !catalogEntry || matchPlatformSet(catalogEntry, selectedPlatforms);
+      return !catalogEntry || matchPlatformSetWithPending(catalogEntry, selectedPlatforms, platformResolvedOtherIds);
     });
-  }, [installedApps, appsById, selectedPlatforms]);
+  }, [installedApps, appsById, selectedPlatforms, platformResolvedOtherIds]);
 
   const filteredUpdates = useMemo(() => {
     return updates.filter((u) => {
       const catalogEntry = appsById.get(u.app_id.toLowerCase());
-      return !catalogEntry || matchPlatformSet(catalogEntry, selectedPlatforms);
+      return !catalogEntry || matchPlatformSetWithPending(catalogEntry, selectedPlatforms, platformResolvedOtherIds);
     });
-  }, [updates, appsById, selectedPlatforms]);
+  }, [updates, appsById, selectedPlatforms, platformResolvedOtherIds]);
 
   const handleResetPlatformFilter = useCallback(() => {
     setSelectedPlatforms(new Set<PlatformId>(PLATFORM_IDS));
   }, []);
+
+  // 趋势榜单平台分布（TrendsView 上报其榜单行口径）：趋势页侧栏计数切到该口径，
+  // 其余页面沿用收录库口径。null = 尚未上报（首绘沿用收录库，避免闪 0）。
+  const [trendsPlatformCounts, setTrendsPlatformCounts] = useState<Record<PlatformId, number> | null>(null);
+  const handleTrendsPlatformCounts = useCallback((counts: Record<PlatformId, number>) => {
+    setTrendsPlatformCounts(counts);
+  }, []);
+  const sidebarPlatformCounts = currentView === 'trends' && trendsPlatformCounts ? trendsPlatformCounts : platformCounts;
 
   const installedIds = useMemo(() => {    const set = new Set<string>();
     for (const a of installedApps) {
@@ -1329,7 +1570,8 @@ export const App: React.FC = () => {
           isCollapsed={isSidebarCollapsed}
           selectedPlatforms={selectedPlatforms}
           onTogglePlatform={handleTogglePlatform}
-          platformCounts={platformCounts}
+          onResetPlatforms={handleResetPlatformFilter}
+          platformCounts={sidebarPlatformCounts}
         />
 
         {/* 主内容显示区域 */}
@@ -1371,6 +1613,7 @@ export const App: React.FC = () => {
             ) : (
               <HomeView
                 apps={platformFilteredApps}
+                platformResolvedOtherIds={platformResolvedOtherIds}
                 installedIds={installedIds}
                 installingIds={installingAppIds}
                 favoriteIds={favoriteIds}
@@ -1391,6 +1634,10 @@ export const App: React.FC = () => {
           {currentView === 'trends' && (
             <TrendsView
               apps={platformFilteredApps}
+              allApps={apps}
+              selectedPlatforms={selectedPlatforms}
+              platformResolvedOtherIds={platformResolvedOtherIds}
+              onDisplayPlatformCounts={handleTrendsPlatformCounts}
               favoriteIds={favoriteIds}
               installedIds={installedIds}
               installingIds={installingAppIds}
@@ -1404,6 +1651,7 @@ export const App: React.FC = () => {
           {currentView === 'categories' && (
             <CategoriesView
               apps={platformFilteredApps}
+              platformResolvedOtherIds={platformResolvedOtherIds}
               installedIds={installedIds}
               installingIds={installingAppIds}
               favoriteIds={favoriteIds}
@@ -1419,6 +1667,7 @@ export const App: React.FC = () => {
           {currentView === 'favorites' && (
             <FavoritesView
               apps={platformFilteredApps}
+              platformResolvedOtherIds={platformResolvedOtherIds}
               favoriteIds={favoriteIds}
               watchedIds={watchedIds}
               installedIds={installedIds}
@@ -1525,6 +1774,7 @@ export const App: React.FC = () => {
           isWatched={watchedIds.has(selectedApp.id)}
           isInstallingGlobal={installingAppIds.has(selectedApp.id)}
           isUninstallingGlobal={uninstallingAppIds.has(selectedApp.id)}
+          platformPending={isPlatformPending(selectedApp, platformResolvedOtherIds)}
           oauthUser={oauthUser}
           onClose={() => {
             activeDetailIdRef.current = null;

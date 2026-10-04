@@ -5,7 +5,7 @@
  *   发现与探索（首个）→ 应用资产 → 偏好与系统（末尾）。
  * 采用弹性顺序断言，确保在「偏好与系统」上方插入新的「设备平台」分组后依然通过。
  *
- * 第二部分（多选新规范测试）：要求「设备平台」分组包含 5 个具备复选框语义的子项。
+ * 第二部分（多选新规范测试）：要求「设备平台」分组包含 6 个具备复选框语义的子项。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
@@ -68,14 +68,15 @@ const EXPECTED_PLATFORMS: Array<{ id: string; label: string }> = [
   { id: 'linux', label: 'Linux' },
   { id: 'ios', label: 'iOS' },
   { id: 'android', label: 'Android' },
+  { id: 'other', label: '其他' },
 ];
 
 describe('Sidebar: 设备平台 multi-select group', () => {
-  it('renders the 设备平台 group with 5 checkbox items, labels and counts', () => {
+  it('renders the 设备平台 group with 6 checkbox items, labels and counts', () => {
     renderSidebar({
-      selectedPlatforms: new Set(['windows', 'android', 'macos', 'linux', 'ios']),
+      selectedPlatforms: new Set(['windows', 'android', 'macos', 'linux', 'ios', 'other']),
       onTogglePlatform: () => {},
-      platformCounts: { windows: 12, android: 7, macos: 5, linux: 9, ios: 3 },
+      platformCounts: { windows: 12, android: 7, macos: 5, linux: 9, ios: 3, other: 4 },
     });
     expect(screen.getByText('设备平台')).toBeTruthy();
     for (const { id, label } of EXPECTED_PLATFORMS) {
@@ -158,7 +159,7 @@ describe('Sidebar: Decision B select-nothing (empty is valid, never falls back t
       selectedPlatforms: parseSelectedPlatformArray([]),
       onTogglePlatform: () => {},
     });
-    expect(screen.getAllByRole('checkbox')).toHaveLength(5);
+    expect(screen.getAllByRole('checkbox')).toHaveLength(6);
     for (const { label } of EXPECTED_PLATFORMS) {
       expect(
         screen.getByRole('checkbox', { name: new RegExp(label) }).getAttribute('aria-checked'),
@@ -171,7 +172,7 @@ describe('Sidebar: Decision B select-nothing (empty is valid, never falls back t
       selectedPlatforms: parseSelectedPlatformArray(['amigaos']),
       onTogglePlatform: () => {},
     });
-    expect(screen.getAllByRole('checkbox')).toHaveLength(5);
+    expect(screen.getAllByRole('checkbox')).toHaveLength(6);
     for (const { label } of EXPECTED_PLATFORMS) {
       expect(
         screen.getByRole('checkbox', { name: new RegExp(label) }).getAttribute('aria-checked'),

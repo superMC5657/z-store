@@ -48,6 +48,18 @@ export interface ReadmeVariantsResult {
   variants: ReadmeVariant[];
 }
 
+/**
+ * 平台轻量回填结果（Rust `get_platforms_lite`，见 `PlatformsLiteResult`）。
+ * `platforms` 为空表示未知（unknown）；`is_stale` 为 true 表示降级数据，
+ * 调用方必须视为 pending/待 backfill，永不确认 Other。
+ */
+export interface PlatformsLiteResult {
+  id: string;
+  platforms: string[];
+  from_cache?: boolean;
+  is_stale?: boolean | null;
+}
+
 export interface AppIconCycleResult {
   url: string;
   level: number;
@@ -108,6 +120,7 @@ export const CMD = {
   searchOnline: 'search_apps_online',
   enrichTrendRepos: 'enrich_trend_repos',
   getAppDetails: 'get_app_details',
+  getPlatformsLite: 'get_platforms_lite',
   getInstalledApps: 'get_installed_apps',
   installApp: 'install_app',
   downloadAsset: 'download_asset',
@@ -244,6 +257,29 @@ export const tauriApi = {
 
   async getAppDetails(id: string, forceRefresh = false): Promise<AppDetail> {
     return tauriInvoke<AppDetail>(CMD.getAppDetails, { id, forceRefresh });
+  },
+
+  /**
+   * 平台轻量回填：列表懒回填专用（Rust `get_platforms_lite`）。
+   * 仅 `releases/latest` 单次条件请求 + deduce，无 README/图标探测/checksum 开销；
+   * miss 代价为一次 RTT（304 时零 body），而非全量详情的多路请求。
+   * - `platforms` 为空表示未知，永不 stamp `["other"]`/`["windows"]`；
+   * - `is_stale` 为 true 时不具权威，调用方必须视为 pending，永不确认 Other。
+   * 永不抛错：非 Tauri / 未知坐标 / 离线一律回退 stale 空（pending），
+   * 调用方据此保持 shimmer 并等待详情治愈或 settle 超时，而非误确认 Other。
+   */
+  async getPlatformsLite(id: string): Promise<PlatformsLiteResult> {
+    try {
+      const res = await tauriInvoke<PlatformsLiteResult>(CMD.getPlatformsLite, { id });
+      if (!res || !Array.isArray((res as PlatformsLiteResult).platforms)) {
+        zlogWarn(`get_platforms_lite returned invalid shape for id=${id}, treating as stale pending`);
+        return { id, platforms: [], is_stale: true };
+      }
+      return res;
+    } catch (err) {
+      zlogWarn(`get_platforms_lite is not available or failed: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
+      return { id, platforms: [], is_stale: true };
+    }
   },
 
   async getReadmeVariants(appId: string): Promise<ReadmeVariantsResult> {

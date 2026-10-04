@@ -141,6 +141,7 @@ impl CatalogService {
             }
         }
 
+        let mut synthesized_empty_failure = false;
         let (release_resp, new_cache) = match release_outcome {
             EtagGetOutcome::NotModified => {
                 // 304 Not Modified 但本地缺乏完整 cached_detail 时回退走 payload_json 恢复
@@ -155,7 +156,6 @@ impl CatalogService {
             EtagGetOutcome::Fresh { text, etag } => {
                 let parsed: GitHubReleaseResponse = serde_json::from_str(&text)
                     .map_err(|e| format!("解析 GitHub Release 失败: {}", e))?;
-
                 let cache_tuple = etag.map(|et| (et, text));
                 (parsed, cache_tuple)
             }
@@ -175,6 +175,11 @@ impl CatalogService {
                         .map_err(|e| format!("解析离线缓存失败: {}", e))?;
                     (parsed, None)
                 } else {
+                    // P0：无任何本地缓存时的合成空详情（401/限流/离线）。
+                    // 资产为空 -> 下游 deduce 得 platforms: []。
+                    // 必须以 is_stale=true 区分于成功空（见文末 detail 构造），
+                    // 调用方据此跳过持久化，前端据此视为 pending 而非确认 Other。
+                    synthesized_empty_failure = true;
                     let fallback_ver = catalog_item
                         .as_ref()
                         .map(|i| i.default_version.clone())
@@ -537,7 +542,15 @@ impl CatalogService {
             forge: Some("github".to_string()),
             forge_host: Some("github.com".to_string()),
             cached_at: Some(super::http::now_secs()),
-            is_stale: None,
+            // P0：合成空失败（401/限流/离线且无任何缓存）以 stale 区分于成功空。
+            // 成功 deduce 路径（releases/platforms 推导、排序、ios 并集）保持不变；
+            // 仅此处标记，前端 stale-empty 视为 pending/待 backfill，永不确认 Other，
+            // 调用方（commands/catalog）据此跳过 SQLite 持久化。
+            is_stale: if synthesized_empty_failure {
+                Some(true)
+            } else {
+                None
+            },
             homepage: latest_homepage,
             platforms: final_platforms,
         };

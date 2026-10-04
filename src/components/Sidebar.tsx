@@ -17,6 +17,8 @@ interface SidebarProps {
   selectedPlatforms?: Set<PlatformId>;
   /** 仅负责触发切换回调——切换运算逻辑统筹于 lib/platformFilter。 */
   onTogglePlatform?: (id: PlatformId) => void;
+  /** 一键恢复全选（ sidebar 头部「全部」按钮用；未传入时回退为逐个补选）。 */
+  onResetPlatforms?: () => void;
   /** 可选的各平台应用数量统计；由上层作为属性传入，本组件不自行计算。 */
   platformCounts?: Record<PlatformId, number>;
 }
@@ -55,6 +57,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isCollapsed = false,
   selectedPlatforms = new Set<PlatformId>(PLATFORM_IDS),
   onTogglePlatform = () => {},
+  onResetPlatforms,
   platformCounts,
 }) => {
   const [oauthUser, setOauthUser] = useState<OAuthUser | null>(null);
@@ -78,6 +81,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
     };
   }, []);
   const { t } = useTranslation();
+  const selectedCount = PLATFORM_IDS.filter((id) => selectedPlatforms.has(id)).length;
+  const isAllPlatforms = selectedCount === PLATFORM_IDS.length;
+  const handleResetPlatforms = () => {
+    if (onResetPlatforms) {
+      onResetPlatforms();
+      return;
+    }
+    // 兜底：逐个补选未选中的平台（过滤运算仍在 lib/platformFilter 侧）。
+    for (const id of PLATFORM_IDS) {
+      if (!selectedPlatforms.has(id)) onTogglePlatform(id);
+    }
+  };
   const navItems: NavItemConfig[] = [
     // 发现与探索
     {
@@ -184,32 +199,50 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           {group.id === 'platforms' ? (
             <>
-              <div className="nav-group-title">{t(group.i18nKey)}</div>
-              {PLATFORM_IDS.map((platformId) => {
-                const isChecked = selectedPlatforms.has(platformId);
-                const count = platformCounts?.[platformId];
-                const label = PLATFORM_META[platformId].label;
-                return (
+              <div className="platform-head" title={t('nav.platforms_counts_hint')}>
+                <div className="nav-group-title">{t(group.i18nKey)}</div>
+                <span className="platform-summary" aria-hidden="true">
+                  {selectedCount}/{PLATFORM_IDS.length}
+                </span>
+                {!isAllPlatforms && (
                   <button
-                    key={platformId}
-                    role="checkbox"
-                    aria-checked={isChecked}
-                    data-platform-id={platformId}
-                    className={`nav-item platform-item ${isChecked ? 'active' : ''}`}
-                    onClick={() => onTogglePlatform(platformId)}
-                    title={isCollapsed ? label : undefined}
+                    type="button"
+                    className="platform-reset"
+                    onClick={handleResetPlatforms}
+                    title={t('nav.platforms_show_all')}
                   >
-                    <span className="nav-icon">
-                      <PlatformIcon platform={platformId} />
-                    </span>
-                    <span className="nav-label">{label}</span>
-
-                    {typeof count === 'number' && (
-                      <span className="nav-badge">{count}</span>
-                    )}
+                    {t('nav.platforms_show_all')}
                   </button>
-                );
-              })}
+                )}
+              </div>
+              <div className="platform-grid" role="group" aria-label={t(group.i18nKey)}>
+                {PLATFORM_IDS.map((platformId) => {
+                  const isChecked = selectedPlatforms.has(platformId);
+                  const count = platformCounts?.[platformId];
+                  // OS 名是专有名词无需翻译；虚拟 other 经 i18n 取“其他 / Other”。
+                  const label = platformId === 'other' ? t('nav.platforms_other') : PLATFORM_META[platformId].label;
+                  return (
+                    <button
+                      key={platformId}
+                      type="button"
+                      role="checkbox"
+                      aria-checked={isChecked}
+                      aria-label={typeof count === 'number' ? `${label} ${count}` : label}
+                      data-platform-id={platformId}
+                      className={`platform-chip ${isChecked ? 'active' : ''}`}
+                      onClick={() => onTogglePlatform(platformId)}
+                      title={isCollapsed ? label : typeof count === 'number' ? `${label} · ${count}` : label}
+                    >
+                      <span className="platform-chip-icon">
+                        <PlatformIcon platform={platformId} />
+                      </span>
+                      {typeof count === 'number' && (
+                        <span className="platform-chip-count">{count}</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             </>
           ) : (
             <>

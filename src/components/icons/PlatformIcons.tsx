@@ -98,6 +98,32 @@ const IosIcon: React.FC<IconProps> = ({ size = 14, className, style }) => (
   </svg>
 );
 
+/**
+ * OtherIcon — 虚拟“其他 / 非应用”（类库）桶图标。
+ * 选用代码尖括号而非 OS 徽标：与 Linux/Android/iOS 同一线性笔触家族
+ * （24 视框 / 描边 1.5 / 圆端点），且不与侧栏既有字形（房子、九宫格、
+ * 箱子、刷新、星形、齿轮）撞车。未知平台回退亦用此中性图标，
+ * 不再冒充 Windows。
+ */
+const OtherIcon: React.FC<IconProps> = ({ size = 14, className, style }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    style={style}
+    aria-label="Other"
+  >
+    <polyline points="16 18 22 12 16 6" />
+    <polyline points="8 6 2 12 8 18" />
+  </svg>
+);
+
 export const GitHubIcon: React.FC<IconProps> = ({ size = 14, className, style }) => (
   <svg
     width={size}
@@ -174,7 +200,9 @@ export const PlatformIcon: React.FC<{ platform: string; size?: number; className
   if (p === 'linux') return <LinuxIcon size={size} className={className} style={style} />;
   if (p === 'android') return <AndroidIcon size={size} className={className} style={style} />;
   if (p === 'ios') return <IosIcon size={size} className={className} style={style} />;
-  return <WindowsIcon size={size} className={className} style={style} />;
+  if (p === 'other') return <OtherIcon size={size} className={className} style={style} />;
+  // 未知平台不再冒充 Windows，统一回退中性图标。
+  return <OtherIcon size={size} className={className} style={style} />;
 };
 
 export const ForgeIcon: React.FC<{ forge: string; size?: number; className?: string; style?: React.CSSProperties }> = ({

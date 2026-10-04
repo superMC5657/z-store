@@ -55,8 +55,8 @@ import {
 import type { PlatformId } from './platformFilter';
 
 describe('platformFilter: multi-select set semantics', () => {
-  it('exposes the five known platform ids', () => {
-    expect(PLATFORM_IDS).toEqual(['windows', 'macos', 'linux', 'ios', 'android']);
+  it('exposes the five OS ids plus the virtual other bucket', () => {
+    expect(PLATFORM_IDS).toEqual(['windows', 'macos', 'linux', 'ios', 'android', 'other']);
   });
 
   it('normalizePlatform lowercases ids', () => {
@@ -70,11 +70,16 @@ describe('platformFilter: multi-select set semantics', () => {
     expect(matchPlatformSet({ platforms: ['linux'] }, new Set(['windows']))).toBe(false);
   });
 
-  it('empty/missing-platforms app matches windows only', () => {
-    expect(matchPlatformSet({}, new Set(['windows']))).toBe(true);
-    expect(matchPlatformSet({ platforms: [] }, new Set(['windows']))).toBe(true);
-    expect(matchPlatformSet({}, new Set(['linux']))).toBe(false);
+  it('empty/missing-platforms app matches the virtual other bucket only', () => {
+    expect(matchPlatformSet({}, new Set(['other']))).toBe(true);
+    expect(matchPlatformSet({ platforms: [] }, new Set(['other']))).toBe(true);
+    expect(matchPlatformSet({}, new Set(['windows']))).toBe(false);
+    expect(matchPlatformSet({ platforms: [] }, new Set(['windows']))).toBe(false);
+    expect(matchPlatformSet({}, new Set(['linux', 'ios']))).toBe(false);
     expect(matchPlatformSet({ platforms: [] }, new Set(['linux', 'ios']))).toBe(false);
+    // 具名 OS 应用永不落入 other 桶
+    expect(matchPlatformSet({ platforms: ['windows'] }, new Set(['other']))).toBe(false);
+    expect(matchPlatformSet({ platforms: ['ios'] }, new Set(['other']))).toBe(false);
   });
 
   it('discards unknown ids at set-construction (matches known ids only)', () => {
@@ -87,6 +92,7 @@ describe('platformFilter: multi-select set semantics', () => {
     const all = new Set(PLATFORM_IDS);
     expect(matchPlatformSet({ platforms: ['ios'] }, all)).toBe(true);
     expect(matchPlatformSet({}, all)).toBe(true);
+    expect(matchPlatformSet({ platforms: [] }, all)).toBe(true);
     expect(matchPlatformSet({ platforms: ['android', 'linux'] }, all)).toBe(true);
   });
 
@@ -108,7 +114,7 @@ describe('platformFilter: multi-select set semantics', () => {
     );
   });
 
-  it('toggle chain can empty all 5 then re-add (empty matches nothing)', () => {
+  it('toggle chain can empty all 6 then re-add (empty matches nothing)', () => {
     let current: Set<PlatformId> = new Set(PLATFORM_IDS);
     for (const id of PLATFORM_IDS) {
       current = togglePlatformSet(current, id);

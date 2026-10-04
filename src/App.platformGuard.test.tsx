@@ -77,10 +77,10 @@ function checkedIds(): string[] {
 }
 
 describe('platform allow-empty (real App + Sidebar path)', () => {
-  it('sequential deselect of all 5 reaches the empty set and persists []', async () => {
+  it('sequential deselect of all 6 reaches the empty set and persists []', async () => {
     render(<App />);
-    expect(await screen.findAllByRole('checkbox')).toHaveLength(5);
-    for (let i = 0; i < 5; i += 1) {
+    expect(await screen.findAllByRole('checkbox')).toHaveLength(6);
+    for (let i = 0; i < 6; i += 1) {
       const current = screen.getAllByRole('checkbox');
       const target = current[i];
       if (target) fireEvent.click(target);
@@ -92,7 +92,7 @@ describe('platform allow-empty (real App + Sidebar path)', () => {
   it('rechecking from empty re-adds the platform', async () => {
     window.localStorage.setItem(PLATFORM_FILTER_STORAGE_KEY, JSON.stringify([]));
     render(<App />);
-    expect(await screen.findAllByRole('checkbox')).toHaveLength(5);
+    expect(await screen.findAllByRole('checkbox')).toHaveLength(6);
     expect(checkedIds()).toEqual([]);
     fireEvent.click(screen.getByRole('checkbox', { name: /Linux/ }));
     expect(checkedIds()).toEqual(['linux']);
@@ -102,14 +102,14 @@ describe('platform allow-empty (real App + Sidebar path)', () => {
   it('reload with stored [] restores [] (no full-set fallback)', async () => {
     window.localStorage.setItem(PLATFORM_FILTER_STORAGE_KEY, JSON.stringify([]));
     render(<App />);
-    expect(await screen.findAllByRole('checkbox')).toHaveLength(5);
+    expect(await screen.findAllByRole('checkbox')).toHaveLength(6);
     expect(checkedIds()).toEqual([]);
   });
 
   it('same-tick double toggle applies sequentially against fresh state', async () => {
     window.localStorage.setItem(PLATFORM_FILTER_STORAGE_KEY, JSON.stringify(['windows', 'linux']));
     render(<App />);
-    expect(await screen.findAllByRole('checkbox')).toHaveLength(5);
+    expect(await screen.findAllByRole('checkbox')).toHaveLength(6);
     expect(checkedIds()).toEqual(['linux', 'windows']);
     // 两次点击之间无中间渲染刷新：两次派发都必须链接在最新状态上，
     // 而非依赖共享的渲染闭包快照。
@@ -125,7 +125,7 @@ describe('platform allow-empty (real App + Sidebar path)', () => {
   it('toggling off the last platform commits the empty set and the view shows the empty-filter state, not the full list', async () => {
     window.localStorage.setItem(PLATFORM_FILTER_STORAGE_KEY, JSON.stringify(['linux']));
     render(<App />);
-    expect(await screen.findAllByRole('checkbox')).toHaveLength(5);
+    expect(await screen.findAllByRole('checkbox')).toHaveLength(6);
     expect(checkedIds()).toEqual(['linux']);
     fireEvent.click(screen.getByRole('checkbox', { name: /Linux/ }));
     // 取消勾选最后一项 -> 选择变为由空 Set 组成的有效状态 ...

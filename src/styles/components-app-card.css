@@ -265,6 +265,21 @@
   border-color: rgba(245, 158, 11, 0.25);
 }
 
+/* 平台待确认占位：同尺寸骨架避免布局跳动，低透明脉冲提示正在确认 */
+.app-tag-platforms-pending {
+  min-width: 52px;
+  justify-content: center;
+}
+
+.app-tag-platforms-pending > span[aria-hidden='true'] {
+  animation: platform-pending-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes platform-pending-pulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+
 @media (max-width: 1024px) {
   .app-card-header {
     flex-basis: 240px;

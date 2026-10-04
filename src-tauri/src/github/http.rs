@@ -155,9 +155,12 @@ pub(crate) fn new_log_ctx() -> (String, String) {
     (crate::z_log::new_req_id(), crate::z_log::new_session_id())
 }
 
-/// H10：兜底平台列表。
+/// H10：兜底平台列表（已废弃：未知仓库返回空，由前端 virtual-Other 规则接管）。
+/// 保留空实现仅防外部误用；"other" 永不过 IPC、永不进入 installer 匹配。
+#[allow(dead_code)]
+#[deprecated(note = "unknown repos return []; frontend virtual-Other takes over")]
 pub(crate) fn fallback_platforms() -> Vec<String> {
-    vec!["windows".to_string()]
+    Vec::new()
 }
 
 /// H10：分类元信息结构体。
@@ -457,7 +460,7 @@ pub(crate) async fn fallback_summary(
         forge: Some("github".to_string()),
         forge_host: Some("github.com".to_string()),
         homepage,
-        platforms: fallback_platforms(),
+        platforms: Vec::new(),
     }
 }
 
@@ -583,6 +586,8 @@ mod tests {
         )
         .await;
         assert_eq!(summary_none.icon, "");
+        // 未知仓库不再兜底 ["windows"]：直接返回 []，由前端 virtual-Other 接管。
+        assert!(summary_none.platforms.is_empty());
 
         // 当 confirmed_icon 存在时，无论是 probe=true 还是 probe=false 均优先使用 confirmed_icon
         let custom_uri = "data:image/png;base64,testdata";
@@ -605,5 +610,33 @@ mod tests {
         )
         .await;
         assert_eq!(summary_confirmed.icon, custom_uri);
+        // platforms 同样不再兜底 ["windows"]：未知仓库一律 []。
+        assert!(summary_confirmed.platforms.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_fallback_summary_platforms_empty_no_windows_stamp() {
+        let client = reqwest::Client::new();
+        let summary = fallback_summary(
+            &client,
+            "unknown/repo".to_string(),
+            "repo".to_string(),
+            "unknown".to_string(),
+            "repo".to_string(),
+            "Unknown repo".to_string(),
+            None,
+            0,
+            0,
+            "MIT".to_string(),
+            &[],
+            None,
+            false,
+            None,
+            None,
+        )
+        .await;
+        assert!(summary.platforms.is_empty());
+        assert!(!summary.platforms.contains(&"windows".to_string()));
+        assert!(!summary.platforms.contains(&"other".to_string()));
     }
 }

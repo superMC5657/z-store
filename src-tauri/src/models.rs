@@ -75,6 +75,10 @@ pub struct AppDetail {
     pub forge_host: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cached_at: Option<i64>,
+    /// P0 stale 契约：`Some(true)` = 瞬时失败降级（401/限流/离线复用旧行，或无缓存合成空）。
+    /// 前端 backfill 必须将 `stale + releases/platforms 双空` 视为 pending/失败待重试，
+    /// 永不确认 Other；`Ok(stale)` 形状为 IPC 兼容保留。成功 deduce 空（真实零发布）
+    /// 保持 `None`，与失败空可区分。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub is_stale: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -99,6 +103,21 @@ pub struct SyncCatalogResult {
     pub updated: bool,
     pub count: usize,
     pub message: String,
+}
+
+/// 平台轻量回填结果（`get_platforms_lite`）：仅 `releases/latest` 单次条件请求推导，
+/// 无 README/图标探测/checksum 开销。
+/// - `platforms` 为空表示未知（unknown），永不 stamp `["other"]`/`["windows"]`，
+///   `other` 仍为纯前端虚拟概念，永不过 IPC；
+/// - `is_stale == Some(true)` 为瞬时失败降级（401/限流/离线复用旧行，或无缓存合成空），
+///   前端必须视为 pending/待 backfill，永不确认 Other；成功空（真实零发布）保持 `None`。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlatformsLiteResult {
+    pub id: String,
+    pub platforms: Vec<String>,
+    pub from_cache: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_stale: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

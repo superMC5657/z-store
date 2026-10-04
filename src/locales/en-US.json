@@ -25,6 +25,9 @@
       "platforms": "Platforms",
       "system": "System & Settings"
     },
+    "platforms_show_all": "All",
+    "platforms_other": "Other",
+    "platforms_counts_hint": "Counts reflect the current view",
     "items": {
       "home": "Featured",
       "trends": "Trending",

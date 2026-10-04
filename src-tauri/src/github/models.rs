@@ -52,11 +52,7 @@ impl CatalogItem {
                 String::new()
             };
 
-        let effective_platforms = if self.platforms.is_empty() {
-            super::http::fallback_platforms()
-        } else {
-            self.platforms.clone()
-        };
+        let effective_platforms = self.platforms.clone();
 
         AppSummary {
             id: self.id.clone(),
@@ -142,4 +138,54 @@ pub struct AppRepoCoordinates {
     pub description: String,
     pub icon: String,
     pub icon_bg: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn dummy_item(platforms: Vec<String>) -> CatalogItem {
+        CatalogItem {
+            id: "unknown/repo".to_string(),
+            name: "repo".to_string(),
+            owner: "unknown".to_string(),
+            repo: "repo".to_string(),
+            icon: String::new(),
+            icon_bg: String::new(),
+            description: String::new(),
+            description_en: None,
+            category: "dev".to_string(),
+            category_name: "开发工具".to_string(),
+            aliases: vec![],
+            default_version: "v1.0.0".to_string(),
+            license: "MIT".to_string(),
+            stars: 0,
+            forks: 0,
+            is_verified: false,
+            homepage: None,
+            identifiers: HashMap::new(),
+            install_dirs: vec![],
+            search_subdirs: vec![],
+            publishers: vec![],
+            platforms,
+        }
+    }
+
+    #[test]
+    fn test_to_summary_empty_platforms_passthrough_no_fallback() {
+        // 空 platforms 直接透传 []，不再兜底 ["windows"]；"other" 永不进 IPC。
+        let item = dummy_item(Vec::new());
+        let summary = item.to_summary();
+        assert!(summary.platforms.is_empty());
+        assert!(!summary.platforms.contains(&"windows".to_string()));
+        assert!(!summary.platforms.contains(&"other".to_string()));
+    }
+
+    #[test]
+    fn test_to_summary_nonempty_platforms_preserved() {
+        let item = dummy_item(vec!["linux".to_string()]);
+        let summary = item.to_summary();
+        assert_eq!(summary.platforms, vec!["linux".to_string()]);
+    }
 }

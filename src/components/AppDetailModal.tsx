@@ -39,6 +39,8 @@ interface AppDetailModalProps {
   isWatched?: boolean;
   isInstallingGlobal?: boolean;
   isUninstallingGlobal?: boolean;
+  /** 待确认态（summary 为空且详情尚未落定）：pending-empty 展示骨架占位，已确认-empty 才展示 Other。缺席时沿用旧语义（isLoading 即 pending）。 */
+  platformPending?: boolean;
   oauthUser?: OAuthUser | null;
   onClose: () => void;
   onInstall: (id: string, assetName?: string, customInstallDir?: string) => Promise<any>;
@@ -71,6 +73,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   isWatched = false,
   isInstallingGlobal = false,
   isUninstallingGlobal = false,
+  platformPending,
   oauthUser = null,
   onClose,
   onInstall,
@@ -667,22 +670,62 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               <span className="modal-tag">★ {((app.stars || 0) / 1000).toFixed(1)}k</span>
               <span className="modal-tag">{app.license}</span>
               <span className="modal-tag">{displayCategory}</span>
-              {app.platforms && app.platforms.length > 0 && (
-                <span
-                  className="modal-tag"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                  title={`支持设备: ${app.platforms.map((p) => PLATFORM_META[p.toLowerCase() as PlatformId]?.label || p).join(', ')}`}
-                >
-                  <Monitor size={12} />
-                  <span>支持端:</span>
-                  {app.platforms.map((p) => (
-                    <span key={p} style={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
-                      <PlatformIcon platform={p} size={11} />
-                      <span>{PLATFORM_META[p.toLowerCase() as PlatformId]?.label || p}</span>
+              {(() => {
+                const hasModalPlatforms = !!app.platforms && app.platforms.length > 0;
+                // 传入 platformPending 即启用待确认语义：pending-empty 骨架占位，已确认-empty 才 Other；
+                // 缺席时沿用旧语义（isLoading 即 pending），旧调用方零变化。
+                const isModalPending = platformPending ?? Boolean(app.isLoading);
+                const showModalPendingPlaceholder = !hasModalPlatforms && isModalPending;
+                if (hasModalPlatforms) {
+                  return (
+                    <span
+                      className="modal-tag"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                      title={`支持设备: ${app.platforms!.map((p) => PLATFORM_META[p.toLowerCase() as PlatformId]?.label || p).join(', ')}`}
+                    >
+                      <Monitor size={12} />
+                      <span>支持端:</span>
+                      {app.platforms!.map((p) => (
+                        <span key={p} style={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
+                          <PlatformIcon platform={p} size={11} />
+                          <span>{PLATFORM_META[p.toLowerCase() as PlatformId]?.label || p}</span>
+                        </span>
+                      ))}
                     </span>
-                  ))}
-                </span>
-              )}
+                  );
+                }
+                if (showModalPendingPlaceholder) {
+                  return (
+                    <span
+                      className="modal-tag"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', opacity: 0.6 }}
+                      title={t('app.supported_devices', { defaultValue: '支持设备' })}
+                      aria-label={t('app.supported_devices', { defaultValue: '支持设备' })}
+                    >
+                      <Monitor size={12} />
+                      <span>支持端:</span>
+                      <span
+                        aria-hidden="true"
+                        style={{ width: '34px', height: '10px', borderRadius: '3px', background: 'var(--border-subtle)', display: 'inline-block' }}
+                      />
+                    </span>
+                  );
+                }
+                return (
+                  <span
+                    className="modal-tag"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    title={`${t('app.supported_devices', { defaultValue: '支持设备' })}: ${t('nav.platforms_other')}`}
+                  >
+                    <Monitor size={12} />
+                    <span>支持端:</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
+                      <PlatformIcon platform="other" size={11} />
+                      <span>{t('nav.platforms_other')}</span>
+                    </span>
+                  </span>
+                );
+              })()}
               {app.forge && app.forge !== 'github' && (
                 <span
                   className="modal-tag"

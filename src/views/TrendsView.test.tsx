@@ -798,3 +798,111 @@ describe('TrendsView 未收录行 enrich：成功升 AppCard，失败留小行',
     expect(container.querySelector('.app-card .app-desc')).toBeNull();
   });
 });
+
+describe('TrendsView 平台过滤与榜单口径计数', () => {
+  (globalThis as Record<string, unknown>)['IS_REACT_ACT_ENVIRONMENT'] = true;
+
+  type EnrichFn = (repos: { owner: string; repo: string }[]) => Promise<(AppSummary | null)[]>;
+  let enrichSpy: MockInstance<EnrichFn>;
+  let settingsSpy: MockInstance<() => Promise<Record<string, string>>>;
+  let openUrlSpy: MockInstance<(url: string) => Promise<void>>;
+
+  beforeEach(async () => {
+    await i18n.changeLanguage('zh-CN');
+    settingsSpy = vi.spyOn(tauriApi, 'getSettings').mockResolvedValue({});
+    openUrlSpy = vi.spyOn(tauriApi, 'openUrl').mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    enrichSpy?.mockRestore();
+    settingsSpy.mockRestore();
+    openUrlSpy.mockRestore();
+    cleanup();
+  });
+
+  function renderBoard(extraProps?: {
+    apps?: AppSummary[];
+    allApps?: AppSummary[];
+    selectedPlatforms?: ReadonlySet<string>;
+    onDisplayPlatformCounts?: (counts: Record<string, number>) => void;
+  }) {
+    const catalogApps = extraProps?.apps ?? [makeApp({ id: 'other/app', name: 'Other' })];
+    return render(
+      <TrendsView
+        apps={catalogApps}
+        allApps={extraProps?.allApps}
+        selectedPlatforms={extraProps?.selectedPlatforms}
+        onDisplayPlatformCounts={extraProps?.onDisplayPlatformCounts}
+        favoriteIds={new Set<string>()}
+        installedIds={new Set<string>()}
+        installingIds={new Set<string>()}
+        onOpenDetail={() => {}}
+        onQuickInstall={() => {}}
+        onToggleFavorite={() => {}}
+        onResetPlatformFilter={() => {}}
+      />,
+    );
+  }
+
+  it('取消 Other 隐藏全部裸远端行并进入筛选为空态（而非完整列表）', async () => {
+    trendingHtml = trendingHtmlFixture();
+    enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockRejectedValue(new Error('offline'));
+    const { container } = renderBoard({
+      selectedPlatforms: new Set(['windows', 'macos', 'linux', 'ios', 'android']),
+    });
+    // 榜单加载后：无可见行，且渲染筛选为空引导（带重置入口）
+    await screen.findByText('当前设备筛选下暂无上榜应用');
+    expect(container.querySelectorAll('.trend-uncataloged-row')).toHaveLength(0);
+    expect(container.querySelector('.app-card')).toBeNull();
+    expect(container.querySelector('.filter-empty-reset')).toBeTruthy();
+  });
+
+  it('不传 selectedPlatforms 时不过滤（旧行为：3 个裸行保留）', async () => {
+    trendingHtml = trendingHtmlFixture();
+    enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockRejectedValue(new Error('offline'));
+    const { container } = renderBoard();
+    await screen.findByText('acme/atlas');
+    await waitFor(() => {
+      expect(container.querySelectorAll('.trend-uncataloged-row')).toHaveLength(3);
+    });
+    expect(container.querySelector('.filter-empty-reset')).toBeNull();
+  });
+
+  it('收录命中行按其平台过滤：windows 收录在仅 ios+other 下直接消失（不降级为小行）', async () => {
+    trendingHtml = trendingHtmlFixture();
+    enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockRejectedValue(new Error('offline'));
+    const atlas = makeApp({ id: 'acme/atlas', name: 'Atlas', platforms: ['windows'] });
+    const { container } = renderBoard({
+      apps: [atlas],
+      allApps: [atlas],
+      selectedPlatforms: new Set(['ios', 'other']),
+    });
+    await screen.findByText('acme/beacon');
+    // atlas 行彻底消失；beacon/comet 以 other 身份保留为小行
+    expect(container.textContent).not.toContain('Atlas');
+    expect(container.querySelectorAll('.trend-uncataloged-row')).toHaveLength(2);
+  });
+
+  it('上报榜单分布：enrich 回填 [] 即计 other（windows 桶为 0）', async () => {
+    trendingHtml = trendingHtmlFixture();
+    enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockImplementation(async (repos) =>
+      repos.map((r) => makeEnrichedApp({ id: `${r.owner}/${r.repo}`, platforms: [] })),
+    );
+    const onDisplayPlatformCounts = vi.fn();
+    renderBoard({ onDisplayPlatformCounts });
+    // enrich 卡片出现后，最终上报口径为 other 3、其余 0
+    await screen.findByText('acme/atlas enriched desc');
+    await waitFor(() => {
+      const calls = onDisplayPlatformCounts.mock.calls;
+      const last = calls[calls.length - 1]?.[0];
+      expect(last).toEqual({
+        windows: 0,
+        macos: 0,
+        linux: 0,
+        ios: 0,
+        android: 0,
+        other: 3,
+      });
+    });
+  });
+});
