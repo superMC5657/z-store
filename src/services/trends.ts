@@ -153,7 +153,21 @@ export function withTrendsProxy(url: string, _opts: FetchTrendsOptions = {}): st
 
 function errorStatusOf(err: unknown): number | undefined {
   const s = (err as { status?: unknown })?.status;
-  return typeof s === 'number' ? s : undefined;
+  if (typeof s === 'number') return s;
+  // Rust invoke 拒绝值为纯字符串（`.status` 经序列化丢失），从错误串回解析
+  // `upstream status {code}`，直透调用下 errorKind 映射保持不变（见 api.fetchTrendsText）。
+  return errorStatusFromMessage(err);
+}
+
+/** 从错误串回解析 HTTP 状态（`upstream status {code}` / `... status {code}`）。 */
+function errorStatusFromMessage(err: unknown): number | undefined {
+  const msg = String(
+    (err as { message?: unknown })?.message ?? (typeof err === 'string' ? err : '') ?? '',
+  );
+  const m = /status\s+(\d{3})/i.exec(msg);
+  if (!m) return undefined;
+  const n = Number(m[1]);
+  return Number.isFinite(n) ? n : undefined;
 }
 
 /** 将未知异常映射为 TrendsErrorKind（附带 HTTP status 时优先按 status 判定）。 */
@@ -168,7 +182,7 @@ export function classifyTrendsError(err: unknown, status?: number): TrendsErrorK
   return 'unavailable';
 }
 
-type TimeBoardId = 'daily' | 'weekly' | 'monthly';
+export type TimeBoardId = 'daily' | 'weekly' | 'monthly';
 
 // ---------------------------------------------------------------------------
 // 时间榜主源：github.com/trending HTML 抓取（一榜一查询，无降级链）。
@@ -183,6 +197,51 @@ export const TRENDING_SINCE: Record<TimeBoardId, 'daily' | 'weekly' | 'monthly'>
   weekly: 'weekly',
   monthly: 'monthly',
 };
+
+/**
+ * 榜单路由/展示 SSOT：6 榜全集 + gain 文案口径 + 陈旧榜回落，trends.ts 与
+ * TrendsView 共用（收敛原先两处级联：此处 `in TRENDING_SINCE` 检查 + switch，
+ * 视图侧 `BOARD_TO_GAIN_KEY` 映射 + `BOARD_IDS.includes` 回落）。
+ */
+
+/** 当前 6 榜全集（常青/分类榜已下线，不在此列）。 */
+export const TREND_BOARD_IDS: readonly TrendBoardId[] = [
+  'daily',
+  'weekly',
+  'monthly',
+  'new',
+  'rising',
+  'healthy',
+];
+
+export type TrendGainKey = 'today' | 'week' | 'month';
+
+/** 榜单 → gain 文案口径（today/week/month），一处维护。 */
+export const BOARD_GAIN_KEY: Record<TrendBoardId, TrendGainKey> = {
+  daily: 'today',
+  weekly: 'week',
+  monthly: 'month',
+  new: 'week',
+  rising: 'week',
+  healthy: 'week',
+};
+
+/** gain 文案口径查询（BOARD_GAIN_KEY 的唯一出口）。 */
+export function boardGainKey(board: TrendBoardId): TrendGainKey {
+  return BOARD_GAIN_KEY[board];
+}
+
+/** 时间榜判定（TRENDING_SINCE 单一映射的唯一出口，替代散写的 `in` 检查）。 */
+export function isTimeBoard(board: string): board is TimeBoardId {
+  return board in TRENDING_SINCE;
+}
+
+/** 陈旧榜回落：非当前 6 榜（如已下线的 'top' / 'category' 残留）一律回落 'weekly'。 */
+export function resolveTrendBoard(board: string): TrendBoardId {
+  return (TREND_BOARD_IDS as readonly string[]).includes(board)
+    ? (board as TrendBoardId)
+    : 'weekly';
+}
 
 /** 构造 trending 抓取 URL（language 走 `/trending/<lang>` 路径段）。 */
 export function buildTrendingUrl(board: TimeBoardId, opts: FetchTrendsOptions = {}): string {
@@ -465,6 +524,32 @@ export function filterNewReposFallback(repos: TrendRepo[]): TrendRepo[] {
 // 5 分钟缓存仅在成功（非空）时写入；各榜缓存键独立，互不复用。
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// 四榜单抓取的统一包装：try/取数/z-log 落盘/按契约返回，仅此一处。
+// 各榜把“取数（含缓存检查、排序）”装进 load 闭包；空 → empty，抛错 → error。
+// 成功日志口径：`[trends] board=<b> source=<s> ok count=<n>`；失败走同源 error 行。
+// ---------------------------------------------------------------------------
+
+async function runBoardFetch(
+  board: TrendBoardId,
+  source: string,
+  load: () => Promise<TrendRepo[]>,
+): Promise<TrendsResult> {
+  try {
+    const repos = await load();
+    if (repos.length === 0) return { repos: [], status: 'empty' };
+    zlogInfo(`[trends] board=${board} source=${source} ok count=${repos.length}`);
+    return { repos, status: 'ok' };
+  } catch (err) {
+    const errorKind = classifyTrendsError(err);
+    zlogWarn(
+      `[trends] board=${board} source=${source} error kind=${errorKind} ` +
+        `status=${errorStatusOf(err) ?? '-'} msg=${String((err as { message?: unknown })?.message ?? err)}`,
+    );
+    return { repos: [], status: 'error', errorKind };
+  }
+}
+
 async function fetchTimeBoardResult(board: TimeBoardId, opts: FetchTrendsOptions): Promise<TrendsResult> {
   const key = buildTrendsCacheKey(board, opts);
   if (!opts.forceRefresh) {
@@ -474,22 +559,10 @@ async function fetchTimeBoardResult(board: TimeBoardId, opts: FetchTrendsOptions
 
   // 单一主源：trending HTML。失败按 errorKind 返回，绝不降级、不伪造。
   // 日志经 z-log 落盘（F12 不可用，console 不可见）：board + source + count/kind。
-  try {
-    const repos = await fetchTrendingRepos(board, opts);
-    if (repos.length > 0) {
-      writeTrendsCache(key, repos);
-      zlogInfo(`[trends] board=${board} source=trending-html ok count=${repos.length}`);
-      return { repos, status: 'ok' };
-    }
-    return { repos: [], status: 'empty' };
-  } catch (err) {
-    const errorKind = classifyTrendsError(err);
-    zlogWarn(
-      `[trends] board=${board} source=trending-html error kind=${errorKind} ` +
-        `status=${errorStatusOf(err) ?? '-'} msg=${String((err as { message?: unknown })?.message ?? err)}`,
-    );
-    return { repos: [], status: 'error', errorKind };
-  }
+  // 成功（非空）才写缓存；空/失败不写。
+  const result = await runBoardFetch(board, 'trending-html', () => fetchTrendingRepos(board, opts));
+  if (result.status === 'ok') writeTrendsCache(key, result.repos);
+  return result;
 }
 
 async function fetchNewBoardResult(opts: FetchTrendsOptions): Promise<TrendsResult> {
@@ -500,22 +573,9 @@ async function fetchNewBoardResult(opts: FetchTrendsOptions): Promise<TrendsResu
   }
 
   // new 榜单一远端源：GitHub search（created 6mo 窗口）。失败/空按契约返回。
-  try {
-    const fresh = await fetchGitHubNewRepos();
-    if (fresh.length > 0) {
-      writeTrendsCache(key, fresh);
-      zlogInfo(`[trends] board=new source=github-search ok count=${fresh.length}`);
-      return { repos: fresh, status: 'ok' };
-    }
-    return { repos: [], status: 'empty' };
-  } catch (err) {
-    const errorKind = classifyTrendsError(err);
-    zlogWarn(
-      `[trends] board=new source=github-search error kind=${errorKind} ` +
-        `status=${errorStatusOf(err) ?? '-'} msg=${String((err as { message?: unknown })?.message ?? err)}`,
-    );
-    return { repos: [], status: 'error', errorKind };
-  }
+  const result = await runBoardFetch('new', 'github-search', () => fetchGitHubNewRepos());
+  if (result.status === 'ok') writeTrendsCache(key, result.repos);
+  return result;
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -602,39 +662,30 @@ async function fetchDoforceShared(forceRefresh = false): Promise<TrendRepo[]> {
 
 async function fetchRisingBoardResult(opts: FetchTrendsOptions): Promise<TrendsResult> {
   // rising 取 doforce 共享快照（12h/单飞），按 change 降序；榜单自身不再另设缓存。
-  try {
+  return runBoardFetch('rising', 'doforce', async () => {
     const repos = await fetchDoforceShared(opts.forceRefresh);
-    if (repos.length === 0) return { repos: [], status: 'empty' };
-    const ranked = [...repos].sort((a, b) => (b.starsGained ?? 0) - (a.starsGained ?? 0));
-    zlogInfo(`[trends] board=rising source=doforce ok count=${ranked.length}`);
-    return { repos: ranked, status: 'ok' };
-  } catch (err) {
-    const errorKind = classifyTrendsError(err);
-    zlogWarn(
-      `[trends] board=rising source=doforce error kind=${errorKind} ` +
-        `status=${errorStatusOf(err) ?? '-'} msg=${String((err as { message?: unknown })?.message ?? err)}`,
-    );
-    return { repos: [], status: 'error', errorKind };
-  }
+    if (repos.length === 0) return [];
+    return [...repos].sort((a, b) => (b.starsGained ?? 0) - (a.starsGained ?? 0));
+  });
 }
 
 async function fetchHealthyBoardResult(opts: FetchTrendsOptions): Promise<TrendsResult> {
   // healthy 取 doforce 共享快照（12h/单飞），按 healthyScore 代理分降序；榜单自身不再另设缓存。
-  try {
+  return runBoardFetch('healthy', 'doforce', async () => {
     const repos = await fetchDoforceShared(opts.forceRefresh);
-    if (repos.length === 0) return { repos: [], status: 'empty' };
-    const ranked = sortByHealthyScore(repos);
-    zlogInfo(`[trends] board=healthy source=doforce ok count=${ranked.length}`);
-    return { repos: ranked, status: 'ok' };
-  } catch (err) {
-    const errorKind = classifyTrendsError(err);
-    zlogWarn(
-      `[trends] board=healthy source=doforce error kind=${errorKind} ` +
-        `status=${errorStatusOf(err) ?? '-'} msg=${String((err as { message?: unknown })?.message ?? err)}`,
-    );
-    return { repos: [], status: 'error', errorKind };
-  }
+    if (repos.length === 0) return [];
+    return sortByHealthyScore(repos);
+  });
 }
+
+/**
+ * 非时间榜分发表：new/rising/healthy 各自一源（替代 switch 级联，与 isTimeBoard 配对）。
+ */
+const STATIC_BOARD_FETCHERS: Record<string, (opts: FetchTrendsOptions) => Promise<TrendsResult>> = {
+  new: fetchNewBoardResult,
+  rising: fetchRisingBoardResult,
+  healthy: fetchHealthyBoardResult,
+};
 
 /**
  * 统一趋势抓取入口（Result 契约，UI lane 依赖，保持 STABLE）：
@@ -650,20 +701,13 @@ export async function fetchTrendsResult(
   board: TrendBoardId,
   opts: FetchTrendsOptions = {},
 ): Promise<TrendsResult> {
-  // 时间榜路由走 TRENDING_SINCE 单一映射（替代 switch 三分支）。
-  if (board in TRENDING_SINCE) {
-    return fetchTimeBoardResult(board as TimeBoardId, opts);
+  // 时间榜路由走 TRENDING_SINCE 单一映射（isTimeBoard 唯一出口）；其余走静态分发表。
+  if (isTimeBoard(board)) {
+    return fetchTimeBoardResult(board, opts);
   }
-  switch (board) {
-    case 'new':
-      return fetchNewBoardResult(opts);
-    case 'rising':
-      return fetchRisingBoardResult(opts);
-    case 'healthy':
-      return fetchHealthyBoardResult(opts);
-    default:
-      throw new Error(`[trends] unknown board: ${String(board)}`);
-  }
+  const fetcher = STATIC_BOARD_FETCHERS[board];
+  if (fetcher) return fetcher(opts);
+  throw new Error(`[trends] unknown board: ${String(board)}`);
 }
 
 /**

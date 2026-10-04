@@ -15,9 +15,13 @@ import {
   resolvePlatformReset,
 } from './ViewShell';
 import {
+  boardGainKey,
   fetchTrendsResult,
   formatStars,
   matchCatalogApp,
+  normalizeProxyPrefix,
+  resolveTrendBoard,
+  TREND_BOARD_IDS,
   type TrendBoardId,
   type TrendRepo,
   type TrendsErrorKind,
@@ -45,18 +49,6 @@ type DisplayTrendItem =
   | { type: 'catalog'; app: AppSummary; rank: number; gain?: number }
   | { type: 'uncataloged'; repo: TrendRepo; rank: number; gain?: number };
 
-/** 常青 / 分类榜已下线：6 榜为全集。Exclude 写法让本文件在后端摘掉 'top' / 'category' 前后均可编译。 */
-type ActiveBoardId = Exclude<TrendBoardId, 'top' | 'category'>;
-
-const BOARD_IDS: ActiveBoardId[] = [
-  'daily',
-  'weekly',
-  'monthly',
-  'new',
-  'rising',
-  'healthy',
-];
-
 /** 错误种类 → 描述文案键一处映射，避免渲染处散落四分支。 */
 type TrendsErrorDescKey =
   | 'trends.error_network'
@@ -70,20 +62,6 @@ const ERROR_DESC_KEY: Record<TrendsErrorKind, TrendsErrorDescKey> = {
   'rate-limited': 'trends.error_rate_limited',
   unavailable: 'trends.error_unavailable',
 };
-
-/** 单一榜单分发映射：gain 文案口径（today/week/month）一处维护，避免分散三元分支。 */
-const BOARD_TO_GAIN_KEY: Record<ActiveBoardId, 'today' | 'week' | 'month'> = {
-  daily: 'today',
-  weekly: 'week',
-  monthly: 'month',
-  new: 'week',
-  rising: 'week',
-  healthy: 'week',
-};
-
-function boardToGainKey(board: ActiveBoardId): 'today' | 'week' | 'month' {
-  return BOARD_TO_GAIN_KEY[board];
-}
 
 /** 读取后端 `starsGained`：缺失或非正数返回 undefined（不渲染徽标）。 */
 function getStarsGained(repo: TrendRepo): number | undefined {
@@ -113,12 +91,10 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   const [proxyPrefix, setProxyPrefix] = useState<string | undefined>(undefined);
   const [proxyReady, setProxyReady] = useState(false);
 
-  // 陈旧榜兜底：board 状态若非当前 6 榜之一（如已下线的 'top' / 'category' 残留），回落到 'weekly'。
-  const activeBoard: ActiveBoardId = BOARD_IDS.includes(board as ActiveBoardId)
-    ? (board as ActiveBoardId)
-    : 'weekly';
+  // 陈旧榜兜底经 trends SSOT 回落（如已下线的 'top' / 'category' 残留 → 'weekly'）。
+  const activeBoard: TrendBoardId = resolveTrendBoard(board);
 
-  const gainKey = boardToGainKey(activeBoard);
+  const gainKey = boardGainKey(activeBoard);
   const isLoading = trendResult === null;
   // 仅 status==='error' 才展示错误文案； genuine empty（status==='empty'）绝不走错误面板。
   const errorKind: TrendsErrorKind | undefined =
@@ -130,9 +106,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       .getSettings()
       .then((s) => {
         if (cancelled) return;
-        const raw = s?.active_mirror?.trim();
-        // 'direct'/空 = 官方直连；其余（'ghproxy' 哨兵或自定义 URL）透传，service 内归一化。
-        setProxyPrefix(raw && raw !== 'direct' ? raw : undefined);
+        // 经 trends SSOT 归一化（'direct'/空 → 直连；其余透传，抓取恒直连忽略）。
+        setProxyPrefix(normalizeProxyPrefix(s?.active_mirror));
         setProxyReady(true);
       })
       .catch(() => {
@@ -229,7 +204,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
           <SegmentedControl<TrendBoardId>
             value={activeBoard}
             onChange={(next) => setBoard(next)}
-            options={BOARD_IDS.map((id) => ({
+            options={TREND_BOARD_IDS.map((id) => ({
               value: id,
               label: t(`trends.board_${id}`),
               title: t(`trends.board_${id}_desc`),

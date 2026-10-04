@@ -69,18 +69,18 @@
   color: #f87171;
 }
 
-/* 涨星徽标：浅绿底，与星数标签区分但不抢色 */
+/* 涨星徽标：灰底 + 金色涨星数，与星标/排名一致 */
 .app-tag.trend-gain {
-  background: rgba(16, 185, 129, 0.12);
-  color: #059669;
-  border-color: rgba(16, 185, 129, 0.28);
+  background: var(--bg-acrylic-hover);
+  color: #eab308;
+  border-color: var(--border-subtle);
   font-weight: 600;
 }
 
 [data-theme="dark"] .app-tag.trend-gain {
-  background: rgba(16, 185, 129, 0.14);
-  color: #34d399;
-  border-color: rgba(52, 211, 153, 0.3);
+  background: var(--bg-acrylic-hover);
+  color: #eab308;
+  border-color: var(--border-subtle);
 }
 
 /* 未收录行：主次信息收紧，保持与 AppCard 行同高 */

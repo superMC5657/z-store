@@ -322,11 +322,11 @@ export const tauriApi = {
   },
 
   /**
-   * 趋势榜单 HTTP 直取：Tauri 下经 Rust 命令（10s 超时、无 CORS 概念）；
+   * 趋势榜单 HTTP 直取：Tauri 下经 Rust 命令直透（10s 超时、无 CORS 概念）；
    * 纯 web 开发（`window.__TAURI_INTERNALS__` 缺席）回退为 plain fetch。
-   * Rust 侧把 HTTP 状态码写进错误串（`upstream status {code}`），此处提取引擎盖
-   * 为 `.status`，保持 trends `classifyTrendsError` 映射不变；超时/网络标记
-   * 由错误串原文透传（`request timeout` / `network error`）。
+   * Rust 侧把 HTTP 状态码写进错误串（`upstream status {code}`），`trends` 的
+   * `classifyTrendsError` 直接从错误串回解析状态码，此处不再重包装透传；
+   * 超时/网络标记由错误串原文透传（`request timeout` / `network error`）。
    */
   async fetchTrendsText(url: string): Promise<string> {
     if (!isTauri) {
@@ -340,18 +340,7 @@ export const tauriApi = {
       }
       return res.text();
     }
-    try {
-      return await tauriInvoke<string>(CMD.fetchTrendsText, { url });
-    } catch (err) {
-      const raw = err instanceof Error ? err.message : String(err ?? '');
-      const message = raw || 'trends text request failed';
-      const next = new Error(message);
-      const m = /status\s+(\d{3})/i.exec(message);
-      if (m) {
-        (next as Error & { status?: number }).status = Number(m[1]);
-      }
-      throw next;
-    }
+    return tauriInvoke<string>(CMD.fetchTrendsText, { url });
   },
 
   async getSettings(): Promise<Record<string, string>> {
