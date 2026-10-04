@@ -20,11 +20,10 @@ export type {
   TrendsStatus,
 } from '../types';
 
-export const CACHE_TTL_MS = 5 * 60 * 1000; // 5 分钟内存缓存（仅成功结果写入；rising/healthy 除外，见下）
+export const CACHE_TTL_MS = 5 * 60 * 1000; // 默认内存缓存（new 榜；daily/weekly/monthly 见 trendsBoardTtlMs；仅成功结果写入；rising/healthy 除外，见下）
 /**
  * doforce 源数据共享缓存 TTL：12h。
- * 日榜粒度数据日内几乎不变，长缓存 + 两榜共享把远端命中压到最低；
- * 其余榜单保持 5 分钟。
+ * 日榜粒度数据日内几乎不变，长缓存 + 两榜共享把远端命中压到最低。
  */
 export const DOFORCE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 /** 429 单次重试的最大等待：60s；超过即直接 error，不再等待。 */
@@ -42,10 +41,17 @@ export function buildTrendsCacheKey(board: TrendBoardId, opts: FetchTrendsOption
   return `${board}|${opts.language ?? ''}|${opts.category ?? ''}`;
 }
 
-function readTrendsCache(key: string): TrendRepo[] | undefined {
+/** 按榜缓存 TTL：daily 1h，weekly/monthly 12h，其余回落 CACHE_TTL_MS（new 榜 5 分钟）。 */
+export function trendsBoardTtlMs(board: string): number {
+  if (board === 'daily') return 60 * 60 * 1000;
+  if (board === 'weekly' || board === 'monthly') return 12 * 60 * 60 * 1000;
+  return CACHE_TTL_MS;
+}
+
+function readTrendsCache(key: string, board: string): TrendRepo[] | undefined {
   const hit = trendsCache.get(key);
   if (!hit) return undefined;
-  if (Date.now() - hit.timestamp < CACHE_TTL_MS) return hit.data;
+  if (Date.now() - hit.timestamp < trendsBoardTtlMs(board)) return hit.data;
   trendsCache.delete(key);
   return undefined;
 }
@@ -68,11 +74,72 @@ function readDoforceShared(): TrendRepo[] | undefined {
   return undefined;
 }
 
-/** 仅供测试与榜单切换时使用：清空趋势内存缓存（含 doforce 共享缓存与在途请求）。 */
+/** 仅供测试与榜单切换时使用：清空趋势内存缓存（含 doforce 共享缓存与在途请求、enrich 12h 缓存）。 */
 export function clearTrendsCache(): void {
   trendsCache.clear();
   doforceSharedCache = undefined;
   doforceInflight = undefined;
+  trendEnrichCache.clear();
+}
+
+// ---------------------------------------------------------------------------
+// 未收录行 enrichment：逐仓复用搜索 enrichment（Rust `enrich_trend_repos` →
+// `fetch_online_repo` → `fallback_summary`），前端 12h 记忆（与 doforce 快照同 TTL）。
+// 各榜榜单 TTL 不变（时间/new 5 分钟、rising/healthy 共享 doforce 12h 快照），
+// 此处只缓存“坐标 → AppSummary”的派生结果。失败项缺席，调用方保留旧小行。
+// ---------------------------------------------------------------------------
+
+/** enrich 派生缓存 TTL：12h（坐标元数据日内几乎不变，与 DOFORCE 快照同口径）。 */
+export const TREND_ENRICH_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+
+const trendEnrichCache = new Map<string, { timestamp: number; data: AppSummary }>();
+
+function trendEnrichKey(owner: string, repo: string): string {
+  return `${owner.trim().toLowerCase()}/${repo.trim().toLowerCase()}`;
+}
+
+/**
+ * Enrich 未收录 TrendRepo → AppSummary（Map 键为小写 `owner/repo`）。
+ * 缓存命中直接返回；缺失批量走 Rust 命令；失败/空项缺席（调用方保留旧小行，榜单永不因此变空）。
+ * 本函数永不抛错：传输层异常一律吞为“全部缺席”。
+ */
+export async function enrichTrendRepos(repos: TrendRepo[]): Promise<Map<string, AppSummary>> {
+  const out = new Map<string, AppSummary>();
+  const missing: TrendRepo[] = [];
+  const seen = new Set<string>();
+  const now = Date.now();
+  for (const r of repos) {
+    const key = trendEnrichKey(r.owner, r.repo);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const hit = trendEnrichCache.get(key);
+    if (hit) {
+      if (now - hit.timestamp < TREND_ENRICH_CACHE_TTL_MS) {
+        out.set(key, hit.data);
+        continue;
+      }
+      trendEnrichCache.delete(key);
+    }
+    missing.push(r);
+  }
+  if (missing.length === 0) return out;
+  let summaries: (AppSummary | null)[];
+  try {
+    summaries = await tauriApi.enrichTrendRepos(
+      missing.map((r) => ({ owner: r.owner, repo: r.repo })),
+    );
+  } catch {
+    return out;
+  }
+  const at = Date.now();
+  missing.forEach((r, i) => {
+    const s = summaries[i];
+    if (!s) return;
+    const key = trendEnrichKey(r.owner, r.repo);
+    trendEnrichCache.set(key, { timestamp: at, data: s });
+    out.set(key, s);
+  });
+  return out;
 }
 
 /**
@@ -291,6 +358,9 @@ function mapTrendingArticle(articleHtml: string): TrendRepo | null {
     const path = m[1].split('?')[0].split('#')[0];
     const segs = path.split('/').filter((s) => s.trim() !== '');
     if (segs.length === 2 && /^[A-Za-z0-9_.-]+$/.test(segs[0]) && /^[A-Za-z0-9_.-]+$/.test(segs[1])) {
+      // 非仓库两段链直接跳过：/sponsors/xxx（赞助页）及 topics/settings 等保留路由。
+      const first = segs[0].toLowerCase();
+      if (first === 'sponsors' || first === 'topics' || first === 'settings' || first === 'marketplace' || first === 'explore' || first === 'collections' || first === 'events' || first === 'notifications') continue;
       owner = segs[0];
       repo = segs[1];
       break;
@@ -553,7 +623,7 @@ async function runBoardFetch(
 async function fetchTimeBoardResult(board: TimeBoardId, opts: FetchTrendsOptions): Promise<TrendsResult> {
   const key = buildTrendsCacheKey(board, opts);
   if (!opts.forceRefresh) {
-    const hit = readTrendsCache(key);
+    const hit = readTrendsCache(key, board);
     if (hit) return { repos: hit, status: 'ok' };
   }
 
@@ -568,7 +638,7 @@ async function fetchTimeBoardResult(board: TimeBoardId, opts: FetchTrendsOptions
 async function fetchNewBoardResult(opts: FetchTrendsOptions): Promise<TrendsResult> {
   const key = buildTrendsCacheKey('new', opts);
   if (!opts.forceRefresh) {
-    const hit = readTrendsCache(key);
+    const hit = readTrendsCache(key, 'new');
     if (hit) return { repos: hit, status: 'ok' };
   }
 
@@ -694,7 +764,7 @@ const STATIC_BOARD_FETCHERS: Record<string, (opts: FetchTrendsOptions) => Promis
  * healthy → doforce 公开 API（按 forks + change 代理分降序）；
  * new → GitHub search（created 6mo 窗口）。
  * 一榜一源、无降级链：主源失败即 error、有空即 empty；成功（非空）才写缓存
- * （5 分钟按榜；rising/healthy 共用 doforce 12h 共享快照 + 单飞请求）。
+ * （日榜 1h；周/月榜 12h；新榜 5 分钟；rising/healthy 共用 doforce 12h 共享快照 + 单飞请求）。
  * Cache key = board + language + category (written on success only).
  */
 export async function fetchTrendsResult(

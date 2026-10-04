@@ -16,6 +16,7 @@ import {
 } from './ViewShell';
 import {
   boardGainKey,
+  enrichTrendRepos,
   fetchTrendsResult,
   formatStars,
   matchCatalogApp,
@@ -143,6 +144,10 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     };
   }, [activeBoard, proxyPrefix, proxyReady, retryCount]);
 
+  // 未收录行 enrichment 结果（键为小写 owner/repo）：命中即完整 AppCard，
+  // 缺席（加载中/失败）即旧小行占位，榜单永不因此变空。
+  const [enrichedApps, setEnrichedApps] = useState<Record<string, AppSummary>>({});
+
   const handleRetry = () => setRetryCount((c) => c + 1);
 
   // 与本地 catalog 预过滤后的 apps 交叉匹配：有则完整卡片，无则名 + 星数。
@@ -180,6 +185,37 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
 
     return items;
   }, [trendResult, apps]);
+
+  // 未收录行 enrichment：逐仓复用搜索 enrichment（Rust 侧并发 5、上限 20、单仓 10s），
+  // 成功合并为完整卡片；失败/无命中保持旧小行（enrichTrendRepos 缺席即不写）。
+  useEffect(() => {
+    if (trendResult?.status !== 'ok') return;
+    const missing = new Map<string, TrendRepo>();
+    for (const item of displayItems) {
+      if (item.type !== 'uncataloged') continue;
+      const key = item.repo.id.toLowerCase();
+      if (!enrichedApps[key] && !missing.has(key)) missing.set(key, item.repo);
+    }
+    if (missing.size === 0) return;
+    let cancelled = false;
+    void enrichTrendRepos([...missing.values()]).then((found) => {
+      if (cancelled || found.size === 0) return;
+      setEnrichedApps((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        for (const [key, app] of found) {
+          if (next[key] !== app) {
+            next[key] = app;
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [trendResult, displayItems, enrichedApps]);
 
   const gainTextFor = (gain?: number): string | undefined => {
     if (!gain || gain <= 0) return undefined;
@@ -259,6 +295,37 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                   onOpenDetail={onOpenDetail}
                   onQuickInstall={onQuickInstall}
                   onToggleFavorite={onToggleFavorite}
+                />
+              );
+            }
+
+            // 未收录行：enrich 命中即完整 AppCard（搜索式外观 + 涨星徽标），
+            // 右按钮直开 GitHub（不调安装链）；缺席（加载中/失败）即旧小行占位。
+            const enriched = enrichedApps[item.repo.id.toLowerCase()];
+            if (enriched) {
+              const hasDesc =
+                enriched.description?.trim() || enriched.description_en?.trim();
+              const displayApp = hasDesc
+                ? enriched
+                : { ...enriched, description: t('trends.no_desc') };
+              return (
+                <AppCard
+                  key={`uncataloged-${item.repo.id || item.repo.name}-${index}`}
+                  app={displayApp}
+                  rank={item.rank}
+                  className="fluent-list-row"
+                  eager={index < 6}
+                  trendGain={item.gain}
+                  trendGainText={gainTextFor(item.gain)}
+                  isInstalled={false}
+                  isInstalling={false}
+                  isFavorite={false}
+                  onOpenDetail={onOpenDetail}
+                  onQuickInstall={() => {
+                    if (item.repo.url) {
+                      void tauriApi.openUrl(item.repo.url);
+                    }
+                  }}
                 />
               );
             }

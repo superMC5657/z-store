@@ -431,6 +431,135 @@ pub async fn search_apps_online(
     Ok(filtered_results)
 }
 
+/// 趋势未收录行 enrichment 入参：待查仓库坐标（与 TrendRepo.owner/repo 对齐）。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TrendEnrichRequest {
+    pub owner: String,
+    pub repo: String,
+}
+
+/// 趋势未收录行 enrichment：批量复用搜索单仓直查
+/// （`fetch_online_repo` → `fallback_summary`，图标 initials 回退/分类猜测/platforms 兜底全沿用）。
+/// 配额/鉴权沿用既有链路（`resolve_active_github_token` + 内层 `notify_rate_limit`）。
+/// - 并发上限 5（`buffered` 保序，返回与入参一一对齐）；单仓 `api_timeout_or(10s)` 熔断；
+/// - 单仓失败落 `None`（前端保留旧小行，榜单永不因此变空）；入参上限 20（单榜页量级）。
+/// - 无后台慢探 emit：enrich 结果由 TrendsView 本地持有，`search-icon-ready` 订阅方
+///   （App.tsx 世代门控）无对应 search_id，emit 无人消费；慢探由
+///   `fallback_summary(probe=true)` 在单仓超时内同步完成，命中经下方批量 enrich 落库。
+#[tauri::command]
+pub async fn enrich_trend_repos(
+    state: State<'_, AppState>,
+    repos: Vec<TrendEnrichRequest>,
+) -> crate::AppResult<Vec<Option<AppSummary>>> {
+    use futures_util::StreamExt;
+    let enrich_start = std::time::Instant::now();
+    let targets: Vec<(String, String, String)> = repos
+        .into_iter()
+        .take(20)
+        .map(|r| {
+            let owner = r.owner.trim().to_string();
+            let repo = r.repo.trim().to_string();
+            let id = format!("{}/{}", owner.to_lowercase(), repo.to_lowercase());
+            (id, owner, repo)
+        })
+        .collect();
+    let requested = targets.len();
+    if targets.is_empty() {
+        return Ok(Vec::new());
+    }
+    let token = super::resolve_active_github_token(&state);
+    let timeout_each = api_timeout_or(std::time::Duration::from_secs(10));
+    // `State` 非 Copy：取共享引用供 FnMut 闭包多次捕获（`&CatalogService: Copy + Send`）。
+    let catalog = &state.catalog;    // 短锁预解析确认图标（同步无 await，锁即取即放），fetch 内零查询零直连。
+    let pre_confirmed: Vec<Option<String>> = if let Ok(db) = state.db() {
+        targets
+            .iter()
+            .map(|(id, owner, repo)| {
+                crate::github::http::resolve_confirmed_icon_from_db(&db, id, owner, repo)
+            })
+            .collect()
+    } else {
+        targets.iter().map(|_| None).collect()
+    };
+    let mut results: Vec<Option<AppSummary>> = futures_util::stream::iter(
+        targets
+            .into_iter()
+            .zip(pre_confirmed)
+            .map(|((id, owner, repo), pre)| {
+                let token = token.clone();
+                async move {
+                    if owner.is_empty() || repo.is_empty() {
+                        return None;
+                    }
+                    match tokio::time::timeout(
+                        timeout_each,
+                        catalog.fetch_online_repo(&owner, &repo, token.as_deref(), pre),
+                    )
+                    .await
+                    {
+                        Ok(Ok(item)) => Some(item),
+                        Ok(Err(e)) => {
+                            log::debug!(
+                                "trend enrich miss id={} reason={}",
+                                id,
+                                crate::log_support::short_reason(&e)
+                            );
+                            None
+                        }
+                        Err(_) => {
+                            log::debug!("trend enrich timeout id={}", id);
+                            None
+                        }
+                    }
+                }
+            }),
+    )
+    .buffered(5)
+    .collect()
+    .await;
+
+    // Top1+2 收敛：循环外一次取 db 锁复用，读解析 + 写包事务化（与 search_apps_online 同形）。
+    if let Ok(db) = state.db() {
+        let mut pending: Vec<crate::db::AppIconCycle> = Vec::new();
+        for item in results.iter_mut().flatten() {
+            if let Some(ci) = crate::github::http::resolve_confirmed_icon_from_db(
+                &db,
+                &item.id,
+                &item.owner,
+                &item.repo,
+            ) {
+                item.icon = ci;
+            } else if !item.icon.trim().is_empty() {
+                let mut cycle = crate::db::AppIconCycle::new(&item.id, &item.owner, &item.repo);
+                cycle.is_cataloged = false;
+                if item.icon.contains("simpleicons.org") {
+                    cycle.level = 2;
+                    cycle.l2_url = item.icon.clone();
+                } else {
+                    cycle.level = 4;
+                    cycle.l4_url = item.icon.clone();
+                }
+                cycle.selected_url = item.icon.clone();
+                cycle.updated_at = crate::now_secs();
+                pending.push(cycle);
+            }
+        }
+        if !pending.is_empty() && db.upsert_icon_cycles_batch(&pending).is_err() {
+            for c in &pending {
+                let _ = db.upsert_icon_cycle(c);
+            }
+        }
+    }
+
+    log::info!(
+        "trend enrich done requested={} hits={} elapsed_ms={}",
+        requested,
+        results.iter().filter(|r| r.is_some()).count(),
+        enrich_start.elapsed().as_millis()
+    );
+    Ok(results)
+}
+
 #[tauri::command]
 pub fn get_category_apps(
     state: State<'_, AppState>,

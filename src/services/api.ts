@@ -106,6 +106,7 @@ export function normalizeIconCycle(raw: AppIconCycleResult | null | undefined): 
 export const CMD = {
   search: 'search_apps',
   searchOnline: 'search_apps_online',
+  enrichTrendRepos: 'enrich_trend_repos',
   getAppDetails: 'get_app_details',
   getInstalledApps: 'get_installed_apps',
   installApp: 'install_app',
@@ -214,6 +215,23 @@ export const tauriApi = {
     } catch (err) {
       zlogWarn(`search_apps_online is not available or failed: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
       return [];
+    }
+  },
+
+  /**
+   * 趋势未收录行 enrichment：批量复用搜索单仓直查（Rust `enrich_trend_repos`）。
+   * 返回与入参对齐的 `(AppSummary | null)[]`；失败项为 null（调用方保留旧小行）。
+   * 非 Tauri / 调用失败一律回退全 null，绝不抛错阻塞榜单渲染。
+   */
+  async enrichTrendRepos(repos: { owner: string; repo: string }[]): Promise<(AppSummary | null)[]> {
+    const fallback = repos.map(() => null);
+    try {
+      const res = await tauriInvoke<(AppSummary | null)[]>(CMD.enrichTrendRepos, { repos });
+      if (!Array.isArray(res)) return fallback;
+      return repos.map((_, i) => res[i] ?? null);
+    } catch (err) {
+      zlogWarn(`enrich_trend_repos is not available or failed: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
+      return fallback;
     }
   },
 

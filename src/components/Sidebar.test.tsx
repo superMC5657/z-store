@@ -53,8 +53,8 @@ describe('baseline: Sidebar nav groups (Sidebar.tsx slices)', () => {
       .filter((l): l is string => l !== null && l !== '登录 GitHub');
     expect(labels.slice(0, 6)).toEqual([
       '精选发现',
-      '趋势榜单',
       '分类浏览',
+      '趋势榜单',
       '已安装应用',
       '更新中心',
       '我的收藏',
@@ -204,8 +204,8 @@ describe('Sidebar: Decision B select-nothing (empty is valid, never falls back t
       .filter((l): l is string => l !== null && l !== '登录 GitHub');
     expect(labels.slice(0, 6)).toEqual([
       'Featured',
-      'Trending',
       'Categories',
+      'Trending',
       'Installed',
       'Updates',
       'Favorites',

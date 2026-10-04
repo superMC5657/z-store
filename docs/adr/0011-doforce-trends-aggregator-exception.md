@@ -35,3 +35,15 @@
 - 风险：第三方聚合源可用性不受控（`gittrend.io` 已有持续 429 后摘除的先例）；
   doforce 若失效，两榜如实展示错误面板 + 重试，不做静默 fallback。
 - 信任边界：doforce 数据仅用于榜单展示，不进入安装/校验链，无凭据随行。
+
+## 补充（2026-10-04）：未收录行 enrichment 复用搜索链路
+
+- 趋势榜单中不在收录库的仓库，展示时经新 Rust 命令 `enrich_trend_repos`
+  批量补齐为搜索式 `AppSummary`（`fetch_online_repo` → `fallback_summary` 口径：
+  空图标 initials 回退、分类猜测、`platforms=["windows"]` 兜底、`verified=false`）。
+- 非新例外：复用既有搜索链路与配额/鉴权（`resolve_active_github_token` +
+  `notify_rate_limit`），无新增 host、无 `ForgeProvider` 旁路；并发上限 5、
+  单仓 10s 熔断、入参上限 20，单仓失败落 `None`（前端保留旧小行，榜单永不因此变空）。
+- 前端 12h 记忆（与 doforce 快照同 TTL）；各榜榜单 TTL 不变。
+  右按钮直开 GitHub，不调安装链；卡片主点击走详情（目录外坐标经
+  `external_synth` 解析，既有回退路径）。

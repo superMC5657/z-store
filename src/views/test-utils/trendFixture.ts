@@ -1,4 +1,4 @@
-import type { TrendRepo } from '../../types';
+import type { AppSummary, TrendRepo } from '../../types';
 
 /**
  * 趋势榜单测试夹具。
@@ -122,4 +122,34 @@ export function doforceEdgeFixture(): Record<string, unknown>[] {
 
 export function repoIds(repos: TrendRepo[]): string[] {
   return repos.map((r) => r.id);
+}
+
+/**
+ * enrich 成功夹具：模拟 `enrich_trend_repos` 返回的搜索式 AppSummary
+ *（`fallback_summary` 口径：verified=false、无安装承诺、platforms 兜底 windows）。
+ */
+export function makeEnrichedApp(overrides: Partial<AppSummary> & { id: string }): AppSummary {
+  const [owner = 'acme', ...rest] = overrides.id.split('/');
+  const repo = rest.join('/') || overrides.id;
+  return {
+    name: repo,
+    owner,
+    repo,
+    icon: '',
+    icon_bg: 'linear-gradient(135deg, #475569, #334155)',
+    description: `${overrides.id} enriched desc`,
+    stars: 1500,
+    forks: 200,
+    license: 'MIT',
+    latest_version: 'latest',
+    category: 'dev',
+    category_name: '开发工具',
+    is_verified: false,
+    forge: 'github',
+    forge_host: 'github.com',
+    homepage: null,
+    platforms: ['windows'],
+    ...overrides,
+    id: overrides.id,
+  };
 }

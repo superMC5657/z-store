@@ -300,7 +300,8 @@
     "empty_desc": "No cataloged apps match the selected platforms. Expand selections or restore all platforms to see rankings.",
     "empty_filter_title": "No projects under these filters",
     "empty_filter_desc": "No projects match this language or category for the selected platforms. Try other filters or boards.",
-    "reset_device_filter": "Reset Platform Filter"
+    "reset_device_filter": "Reset Platform Filter",
+    "no_desc": "No description"
   },
   "updates": {
     "title": "App Updates ({{count}})",

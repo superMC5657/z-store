@@ -20,6 +20,10 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MockInstance } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import i18n from '../i18n';
+import type { AppSummary } from '../types';
+import { TrendsView } from './TrendsView';
 import * as trendsModule from '../services/trends';
 import {
   buildDoforceUrl,
@@ -42,6 +46,7 @@ import {
   DOFORCE_URL,
   GITHUB_SEARCH_TIMEOUT_MS,
   doforceRetryDelayMs,
+  enrichTrendRepos,
   growthRatio,
   healthyScore,
   matchCatalogApp,
@@ -51,8 +56,10 @@ import {
   parseTrendingHtml,
   rankByGrowthRatio,
   sortByHealthyScore,
+  trendsBoardTtlMs,
   TRENDING_SINCE,
   TRENDING_TIMEOUT_MS,
+  TREND_ENRICH_CACHE_TTL_MS,
   withTrendsProxy,
 } from '../services/trends';
 import {
@@ -60,6 +67,7 @@ import {
   doforceEdgeFixture,
   doforceFixture,
   ghItemOf,
+  makeEnrichedApp,
   makeTrendRepo,
   repoIds,
   trendingHtmlFixture,
@@ -168,6 +176,13 @@ describe('P0: 旧加权公式与 dead 数据源已彻底删除', () => {
     expect(TRENDING_TIMEOUT_MS).toBe(10_000);
     expect(DOFORCE_TIMEOUT_MS).toBe(10_000);
     expect(GITHUB_SEARCH_TIMEOUT_MS).toBe(10_000);
+  });
+
+  it('按榜 TTL：日榜 1h，周/月榜 12h，新榜回落 5 分钟', () => {
+    expect(trendsBoardTtlMs('daily')).toBe(60 * 60 * 1000);
+    expect(trendsBoardTtlMs('weekly')).toBe(12 * 60 * 60 * 1000);
+    expect(trendsBoardTtlMs('monthly')).toBe(12 * 60 * 60 * 1000);
+    expect(trendsBoardTtlMs('new')).toBe(CACHE_TTL_MS);
   });
 
   it('TRENDING_SINCE 一榜一参 + DOFORCE_URL 稳定', () => {
@@ -648,5 +663,138 @@ describe('tauriApi.fetchTrendsText web 回退（纯 web 开发，isTauri 为 fal
     await expect(tauriApi.fetchTrendsText('https://trend.doforce.dpdns.org/repo')).resolves.toBe(
       'hello',
     );
+  });
+});
+
+describe('enrichTrendRepos service：逐仓 12h 记忆，失败项缺席', () => {
+  type EnrichFn = (repos: { owner: string; repo: string }[]) => Promise<(AppSummary | null)[]>;
+  let enrichSpy: MockInstance<EnrichFn>;
+
+  afterEach(() => {
+    enrichSpy?.mockRestore();
+  });
+
+  function mockEnrichOk() {
+    enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockImplementation(async (repos) =>
+      repos.map((r) => makeEnrichedApp({ id: `${r.owner}/${r.repo}` })),
+    );
+  }
+
+  it('enrich 缓存 TTL 12h（与 doforce 快照同口径，榜单 TTL 不变）', () => {
+    expect(TREND_ENRICH_CACHE_TTL_MS).toBe(12 * 60 * 60 * 1000);
+  });
+
+  it('命中走记忆：同坐标二次调用不再触达后端', async () => {
+    mockEnrichOk();
+    const repos = [
+      makeTrendRepo({ id: 'acme/atlas', stars: 12000 }),
+      makeTrendRepo({ id: 'acme/beacon', stars: 1500 }),
+    ];
+    const first = await enrichTrendRepos(repos);
+    expect(first.get('acme/atlas')?.description).toBe('acme/atlas enriched desc');
+    expect(first.get('acme/beacon')?.stars).toBe(1500);
+    expect(enrichSpy).toHaveBeenCalledTimes(1);
+    // 大小写坐标归一命中同一缓存条目
+    const second = await enrichTrendRepos([
+      makeTrendRepo({ id: 'ACME/ATLAS', stars: 12000 }),
+    ]);
+    expect(second.get('acme/atlas')?.id).toBe('acme/atlas');
+    expect(enrichSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('null 项不进缓存：下次重试再次请求后端', async () => {
+    enrichSpy = vi
+      .spyOn(tauriApi, 'enrichTrendRepos')
+      .mockResolvedValueOnce([null])
+      .mockImplementation(async (repos) =>
+        repos.map((r) => makeEnrichedApp({ id: `${r.owner}/${r.repo}` })),
+      );
+    const repos = [makeTrendRepo({ id: 'acme/atlas', stars: 12000 })];
+    expect((await enrichTrendRepos(repos)).size).toBe(0);
+    expect(enrichSpy).toHaveBeenCalledTimes(1);
+    const retry = await enrichTrendRepos(repos);
+    expect(retry.get('acme/atlas')?.id).toBe('acme/atlas');
+    expect(enrichSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('TrendsView 未收录行 enrich：成功升 AppCard，失败留小行', () => {
+  (globalThis as Record<string, unknown>)['IS_REACT_ACT_ENVIRONMENT'] = true;
+
+  type EnrichFn = (repos: { owner: string; repo: string }[]) => Promise<(AppSummary | null)[]>;
+  let enrichSpy: MockInstance<EnrichFn>;
+  let settingsSpy: MockInstance<() => Promise<Record<string, string>>>;
+  let openUrlSpy: MockInstance<(url: string) => Promise<void>>;
+
+  beforeEach(async () => {
+    await i18n.changeLanguage('zh-CN');
+    settingsSpy = vi.spyOn(tauriApi, 'getSettings').mockResolvedValue({});
+    openUrlSpy = vi.spyOn(tauriApi, 'openUrl').mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    enrichSpy?.mockRestore();
+    settingsSpy.mockRestore();
+    openUrlSpy.mockRestore();
+    cleanup();
+  });
+
+  /** apps 非空但与榜单零交集 → 全部走未收录分支（apps 为空会直接走空态）。 */
+  function renderUncatalogedBoard() {
+    const onQuickInstall = vi.fn();
+    const utils = render(
+      <TrendsView
+        apps={[makeApp({ id: 'other/app', name: 'Other' })]}
+        favoriteIds={new Set<string>()}
+        installedIds={new Set<string>()}
+        installingIds={new Set<string>()}
+        onOpenDetail={() => {}}
+        onQuickInstall={onQuickInstall}
+        onToggleFavorite={() => {}}
+        onResetPlatformFilter={() => {}}
+      />,
+    );
+    return { ...utils, onQuickInstall };
+  }
+
+  it('enrich 成功渲染 AppCard 行：描述 + 涨星徽标；右按钮直开 GitHub 且不走安装链', async () => {
+    trendingHtml = trendingHtmlFixture();
+    enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockImplementation(async (repos) =>
+      repos.map((r) => makeEnrichedApp({ id: `${r.owner}/${r.repo}` })),
+    );
+    const { container, onQuickInstall } = renderUncatalogedBoard();
+
+    // enrich 后完整卡片：搜索式描述 + 涨星徽标（atlas 增量 1234 → 本周 +1.2k）
+    const descEl = await screen.findByText('acme/atlas enriched desc');
+    const card = descEl.closest('.app-card');
+    expect(card).toBeTruthy();
+    expect(card?.querySelector('.trend-gain')?.textContent).toBe('本周 +1.2k');
+    // 无伪造 verified 徽标（enrich 口径 verified=false）
+    expect(card?.querySelector('.app-tag-star')?.textContent).toContain('1.5k');
+
+    // 右按钮（安装位）直开 GitHub，不调用父级安装链
+    const actionBtn = card?.querySelector('.btn-install');
+    expect(actionBtn).toBeTruthy();
+    fireEvent.click(actionBtn!);
+    expect(openUrlSpy).toHaveBeenCalledWith('https://github.com/acme/atlas');
+    expect(onQuickInstall).not.toHaveBeenCalled();
+    expect(container.querySelector('.trend-uncataloged-row')).toBeNull();
+  });
+
+  it('enrich 失败保留旧小行，榜单永不因此变空', async () => {
+    trendingHtml = trendingHtmlFixture();
+    enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockRejectedValue(new Error('offline'));
+    const { container } = renderUncatalogedBoard();
+
+    // 加载期小行占位先出现
+    await screen.findByText('acme/atlas');
+    // enrich 拒绝后仍为 3 个小行，无完整卡片
+    await waitFor(() => {
+      expect(enrichSpy).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(container.querySelectorAll('.trend-uncataloged-row')).toHaveLength(3);
+    });
+    expect(container.querySelector('.app-card .app-desc')).toBeNull();
   });
 });
