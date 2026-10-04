@@ -345,8 +345,9 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
     return releases[0];
   }, [releases, selectedAssetName, currentOs, currentArch]);
 
-  // 主按钮分流：宿主原生可装（Windows 下 msi/exe/便携 zip）走安装，其余走应用内仅下载（进度条 + 落盘，不调用安装）
-  const canInstallPrimary = Boolean(primaryAsset && isInstallableAssetKind(primaryAsset.kind, currentOs));
+  // 主按钮分流：宿主原生可装（Windows 下 msi/exe/便携 zip，本平台 tar.gz）走安装，其余走应用内仅下载（进度条 + 落盘，不调用安装）
+  // tar 类便携包额外传入资产 os 做本平台门控：跨平台 tar 返回 false => 只显示下载按钮
+  const canInstallPrimary = Boolean(primaryAsset && isInstallableAssetKind(primaryAsset.kind, currentOs, primaryAsset.os));
 
   // 应用内仅下载：复用安装通道的下载进度事件，完成后保留文件路径供“打开所在文件夹”
   const handleDownloadPrimary = async () => {
@@ -397,8 +398,9 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
     try {
       setIsInstalling(true);
       let customInstallDir: string | undefined = undefined;
-      // 如果目标是免安装便携版 (PortableZip)，调用系统原生文件夹选择器让用户自主指定安装/解压位置
-      if (primaryAsset?.kind === 'portable_zip') {
+      // 如果目标是免安装便携版 (PortableZip / PortableTarball)，调用系统原生文件夹选择器让用户自主指定安装/解压位置
+      const portableKind = (primaryAsset?.kind || '').toLowerCase();
+      if (portableKind === 'portable_zip' || portableKind === 'portable_tarball') {
         const picked = await api.selectFolder();
         if (!picked) {
           // 用户主动取消了文件夹选择，优雅中止安装

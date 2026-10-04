@@ -38,6 +38,114 @@ fn test_classify_asset() {
 }
 
 #[test]
+fn test_classify_tarball_binary() {
+    // 二进制 tarball 统一归类为 PortableTarball（源码过滤由 detail 层负责）。
+    let (kind, os, arch) = InstallerEngine::classify_asset("pi-darwin-arm64.tar.gz");
+    assert_eq!(kind, AssetKind::PortableTarball);
+    assert_eq!(os, "macos");
+    assert_eq!(arch, "aarch64");
+
+    let (kind, os, arch) = InstallerEngine::classify_asset("pi-linux-x64.tar.gz");
+    assert_eq!(kind, AssetKind::PortableTarball);
+    assert_eq!(os, "linux");
+    assert_eq!(arch, "x86_64");
+
+    let (kind, os, _) = InstallerEngine::classify_asset("tool-windows-x64.tar.gz");
+    assert_eq!(kind, AssetKind::PortableTarball);
+    assert_eq!(os, "windows");
+
+    let (kind, os, _) = InstallerEngine::classify_asset("tool-win64.tar.gz");
+    assert_eq!(kind, AssetKind::PortableTarball);
+    assert_eq!(os, "windows");
+
+    // 扩展后缀覆盖：.tgz / .tar / .tar.xz 走 tar 分支；
+    // .tar.bz2 executor 不支持 bzip2（与 .7z 一致归 Other，不可装）。
+    for name in [
+        "pi-linux-x64.tgz",
+        "pi-linux-x64.tar",
+        "pi-linux-x64.tar.xz",
+    ] {
+        let (kind, os, _) = InstallerEngine::classify_asset(name);
+        assert_eq!(kind, AssetKind::PortableTarball, "tar ext must map: {}", name);
+        assert_eq!(os, "linux", "tar os must be linux: {}", name);
+    }
+    assert_eq!(
+        InstallerEngine::classify_asset("pi-linux-x64.tar.bz2").0,
+        AssetKind::Other,
+        ".tar.bz2 must map to Other (bzip2 unsupported)"
+    );
+
+    // .7z 保持 Other，不受 tar 分支影响
+    assert_eq!(
+        InstallerEngine::classify_asset("tool-linux-x64.7z").0,
+        AssetKind::Other
+    );
+}
+
+#[test]
+fn test_tarball_score_bottom_and_no_cross_os_fallback() {
+    use crate::models::ReleaseAsset;
+    let target_os = selector::current_target_os();
+    let target_arch = selector::current_target_arch();
+
+    fn mk(os: &str, arch: &str, kind: &str, name: &str) -> ReleaseAsset {
+        ReleaseAsset {
+            name: name.to_string(),
+            download_url: "https://example.com/download".to_string(),
+            size_bytes: 20_000_000,
+            sha256: None,
+            os: os.to_string(),
+            arch: arch.to_string(),
+            kind: kind.to_string(),
+        }
+    }
+
+    // 同 OS/Arch 下 tarball 垫底：portable_zip(+10) > portable_tarball(+5)
+    let zip = mk(target_os, target_arch, "portable_zip", "app.tar.zip");
+    let tar = mk(
+        target_os,
+        target_arch,
+        "portable_tarball",
+        "app.tar.gz",
+    );
+    let zip_score = selector::score_asset(&zip);
+    let tar_score = selector::score_asset(&tar);
+    assert!(
+        zip_score > tar_score,
+        "portable_zip({}) must outrank portable_tarball({})",
+        zip_score,
+        tar_score
+    );
+    assert_eq!(
+        zip_score - tar_score,
+        selector::SCORE_ASSET_KIND_PORTABLE - selector::SCORE_ASSET_KIND_TARBALL
+    );
+    // `compressed_tarball` 别名已删除：未知 kind 不加分，tarball 仅 `portable_tarball` 生效。
+    let tar_unknown_kind = mk(
+        target_os,
+        target_arch,
+        "compressed_tarball",
+        "app.tar.gz",
+    );
+    assert!(
+        selector::score_asset(&tar_unknown_kind) < tar_score,
+        "removed alias compressed_tarball must not score as tarball"
+    );
+
+    // 仅本平台可安装：跨 OS tar 绝不回退
+    #[cfg(target_os = "windows")]
+    let foreign_os = "linux";
+    #[cfg(target_os = "macos")]
+    let foreign_os = "linux";
+    #[cfg(target_os = "linux")]
+    let foreign_os = "windows";
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    let foreign_os = "never-matching-os-xyz";
+    let foreign_tar = vec![mk(foreign_os, target_arch, "portable_tarball", "pi-foreign.tar.gz")];
+    assert!(select_best_asset(&foreign_tar).is_none());
+}
+
+#[test]
 fn test_classify_7z_never_portable() {
     // P1-4：产品决策 —— 放弃对 `.7z` 的便携版支持声明，不增加 7z 依赖。
     // 任何 `.7z` 文件名均不得分类为 PortableZip（解压器仅能解开 zip::ZipArchive）。

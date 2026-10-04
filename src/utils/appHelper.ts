@@ -157,26 +157,41 @@ export function isProductAssetName(name: string): boolean {
 
 /**
  * 宿主原生可安装的资产类型（与后端 execute_installation_inner 的平台分发对齐）：
- * - windows: msi / setup_exe / portable_zip（便携解压纳入管理）
- * - macos: dmg / pkg / portable_zip
- * - linux: deb / rpm / appimage / portable_zip
+ * - windows: msi / setup_exe
+ * - macos: dmg / pkg
+ * - linux: deb / rpm / appimage
+ * - portable_zip / portable_tarball（二进制 tar.gz，便携解压纳入管理）：仅本平台可安装，
+ *   要求资产 os 与宿主一致或为通用 all（大小写不敏感），缺 os 时 fail-closed 仅下载。
+ *   跨平台仅下载，与后端 select_best_asset 一致。
  * 其余（apk / tarball / other 等）后端只会跳过，前端应提供下载而非安装。
  */
-export function isInstallableAssetKind(kind: string, hostOs: string): boolean {
+export function isInstallableAssetKind(kind: string, hostOs: string, assetOs?: string): boolean {
   const k = (kind || '').toLowerCase();
   const os = (hostOs || '').toLowerCase();
-  if (k === 'portable_zip') return true;
+  if (k === 'portable_zip' || k === 'portable_tarball') {
+    if (assetOs === undefined || assetOs === null) return false;
+    const aOs = String(assetOs).toLowerCase();
+    if (!aOs) return false;
+    return aOs === os || aOs === 'all';
+  }
   if (os === 'windows') return k === 'msi' || k === 'setup_exe';
   if (os === 'macos') return k === 'dmg' || k === 'pkg';
   if (os === 'linux') return k === 'deb' || k === 'rpm' || k === 'appimage';
   return false;
 }
 
-/** 资产类型档位分（与后端 SCORE_ASSET_KIND_* 对齐，跨平台 portable_zip 恒为末档）。 */
+/** 便携包类型档位单映射（与后端 SCORE_ASSET_KIND_* 对齐，tar +5 < zip +10 < 原生，垫底）。 */
+const PORTABLE_KIND_TIER_SCORE: Record<string, number> = {
+  portable_tarball: 5,
+  portable_zip: 10,
+};
+
+/** 资产类型档位分（便携档与宿主无关走单映射，原生档按宿主分发）。 */
 function assetKindTierScore(kind: string, hostOs: string): number {
   const k = (kind || '').toLowerCase();
   const os = (hostOs || '').toLowerCase();
-  if (k === 'portable_zip') return 10;
+  const portableTier = PORTABLE_KIND_TIER_SCORE[k];
+  if (portableTier !== undefined) return portableTier;
   if (os === 'windows') {
     if (k === 'msi') return 20;
     if (k === 'setup_exe') return 15;
@@ -207,7 +222,7 @@ interface AssetRelevance {
  * 资产相对宿主的相关度打分（与后端 score_asset 权重对齐）：
  * 系统匹配 +100 / 通用 +30 / 系统失配 -100；
  * 架构一致 +50 / 通用 +25 / x86_64 宿主兼容 x86 +10 / 失配 -50；
- * 类型档位 +20/+15/+12/+10。
+ * 类型档位 +20/+15/+12/+10，tar 便携包 +5 垫底（有原生包永远选原生）。
  */
 function scoreAssetRelevance(a: AssetRelevance, hostOs: string, hostArch: string): number {
   const os = (hostOs || '').toLowerCase();

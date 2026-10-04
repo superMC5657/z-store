@@ -1,21 +1,22 @@
-use super::AssetKind;
+use super::{contains_word, AssetKind};
 
 pub fn classify_asset(filename: &str) -> (AssetKind, &'static str, &'static str) {
     let name_lower = filename.to_lowercase();
+    let n = name_lower.as_str();
 
-    let arch = if name_lower.contains("arm64") || name_lower.contains("aarch64") {
+    let arch = if contains_word(n, "arm64") || contains_word(n, "aarch64") {
         "aarch64"
-    } else if name_lower.contains("x86_64")
-        || name_lower.contains("x64")
-        || name_lower.contains("amd64")
-        || name_lower.contains("win64")
+    } else if contains_word(n, "x86_64")
+        || contains_word(n, "x64")
+        || contains_word(n, "amd64")
+        || contains_word(n, "win64")
     {
         "x86_64"
-    } else if name_lower.contains("x86")
-        || name_lower.contains("i686")
-        || name_lower.contains("i386")
-        || name_lower.contains("win32")
-        || name_lower.contains("ia32")
+    } else if contains_word(n, "x86")
+        || contains_word(n, "i686")
+        || contains_word(n, "i386")
+        || contains_word(n, "win32")
+        || contains_word(n, "ia32")
     {
         "x86"
     } else {
@@ -33,8 +34,8 @@ pub fn classify_asset(filename: &str) -> (AssetKind, &'static str, &'static str)
     {
         (AssetKind::SetupExe, "windows", arch)
     } else if (name_lower.contains("portable")
-        || name_lower.contains("win")
-        || name_lower.contains("windows"))
+        || contains_word(n, "win")
+        || contains_word(n, "windows"))
         && name_lower.ends_with(".zip")
     {
         (AssetKind::PortableZip, "windows", arch)
@@ -51,13 +52,13 @@ pub fn classify_asset(filename: &str) -> (AssetKind, &'static str, &'static str)
     } else if name_lower.ends_with(".apk") {
         (AssetKind::Apk, "android", "arm64-v8a")
     } else if name_lower.ends_with(".zip") {
-        let zip_os = if name_lower.contains("darwin")
-            || name_lower.contains("macos")
-            || name_lower.contains("osx")
-            || name_lower.contains("mac")
+        let zip_os = if contains_word(n, "darwin")
+            || contains_word(n, "macos")
+            || contains_word(n, "osx")
+            || contains_word(n, "mac")
         {
             "macos"
-        } else if name_lower.contains("linux") {
+        } else if contains_word(n, "linux") {
             "linux"
         } else {
             "windows"
@@ -67,17 +68,31 @@ pub fn classify_asset(filename: &str) -> (AssetKind, &'static str, &'static str)
         // P1-4：移除 `.7z` 文件的便携版识别声明 —— 解压器仅支持
         // `zip::ZipArchive`，因此 `.7z` 按照下文 `.tar.gz` 的既有惯例归类为 Other（不支持）。不额外引入 7z 依赖。
         (AssetKind::Other, "all", "universal")
-    } else if name_lower.ends_with(".tar.gz") || name_lower.ends_with(".tar.xz") {
-        let tar_os = if name_lower.contains("darwin")
-            || name_lower.contains("macos")
-            || name_lower.contains("osx")
-            || name_lower.contains("mac")
+    } else if name_lower.ends_with(".tar.bz2") {
+        // executor 仅支持 gzip/xz/plain（无 bzip2 依赖），`.tar.bz2` 必败，
+        // 与 `.7z` 一致归类为 Other（不可装），不引入新依赖。
+        (AssetKind::Other, "all", "universal")
+    } else if name_lower.ends_with(".tar.gz")
+        || name_lower.ends_with(".tar.xz")
+        || name_lower.ends_with(".tgz")
+        || name_lower.ends_with(".tar")
+    {
+        let tar_os = if contains_word(n, "darwin")
+            || contains_word(n, "macos")
+            || contains_word(n, "osx")
+            || contains_word(n, "mac")
         {
             "macos"
+        } else if contains_word(n, "windows")
+            || contains_word(n, "win64")
+            || contains_word(n, "win32")
+            || contains_word(n, "win")
+        {
+            "windows"
         } else {
             "linux"
         };
-        (AssetKind::Other, tar_os, arch)
+        (AssetKind::PortableTarball, tar_os, arch)
     } else {
         (AssetKind::Other, "all", "universal")
     }
@@ -97,6 +112,7 @@ pub const SCORE_ASSET_KIND_PRIMARY: i32 = 20;
 pub const SCORE_ASSET_KIND_SECONDARY: i32 = 15;
 pub const SCORE_ASSET_KIND_TERTIARY: i32 = 12;
 pub const SCORE_ASSET_KIND_PORTABLE: i32 = 10;
+pub const SCORE_ASSET_KIND_TARBALL: i32 = 5;
 
 /// 获取当前系统平台标识字符串（windows / macos / linux / all）。
 pub fn current_target_os() -> &'static str {
@@ -158,28 +174,25 @@ pub fn score_asset(a: &crate::models::ReleaseAsset) -> i32 {
         score += PENALTY_ASSET_ARCH_MISMATCH;
     }
 
-    #[cfg(target_os = "windows")]
+    // kind 加成收敛为单处 `kind.as_str()` 映射（各目标 OS 的 primary/secondary
+    // arm 经 cfg 门控，行为与原三处分支逐平台一致；`compressed_tarball` 别名已删除）。
     match a.kind.as_str() {
+        #[cfg(target_os = "windows")]
         "msi" => score += SCORE_ASSET_KIND_PRIMARY,
+        #[cfg(target_os = "windows")]
         "setup_exe" => score += SCORE_ASSET_KIND_SECONDARY,
-        "portable_zip" => score += SCORE_ASSET_KIND_PORTABLE,
-        _ => {}
-    }
-
-    #[cfg(target_os = "macos")]
-    match a.kind.as_str() {
+        #[cfg(target_os = "macos")]
         "dmg" => score += SCORE_ASSET_KIND_PRIMARY,
+        #[cfg(target_os = "macos")]
         "pkg" => score += SCORE_ASSET_KIND_SECONDARY,
-        "portable_zip" => score += SCORE_ASSET_KIND_PORTABLE,
-        _ => {}
-    }
-
-    #[cfg(target_os = "linux")]
-    match a.kind.as_str() {
+        #[cfg(target_os = "linux")]
         "appimage" => score += SCORE_ASSET_KIND_PRIMARY,
+        #[cfg(target_os = "linux")]
         "deb" => score += SCORE_ASSET_KIND_SECONDARY,
+        #[cfg(target_os = "linux")]
         "rpm" => score += SCORE_ASSET_KIND_TERTIARY,
         "portable_zip" => score += SCORE_ASSET_KIND_PORTABLE,
+        "portable_tarball" => score += SCORE_ASSET_KIND_TARBALL,
         _ => {}
     }
 

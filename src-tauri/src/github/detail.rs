@@ -432,23 +432,15 @@ impl CatalogService {
             }
 
             let (kind, os, arch) = InstallerEngine::classify_asset(&asset.name);
-            let kind_str = match kind {
-                crate::installer::AssetKind::Msi => "msi",
-                crate::installer::AssetKind::SetupExe => "setup_exe",
-                crate::installer::AssetKind::PortableZip => "portable_zip",
-                crate::installer::AssetKind::Deb => "deb",
-                crate::installer::AssetKind::Rpm => "rpm",
-                crate::installer::AssetKind::AppImage => "appimage",
-                crate::installer::AssetKind::Dmg => "dmg",
-                crate::installer::AssetKind::Pkg => "pkg",
-                crate::installer::AssetKind::Apk => "apk",
-                crate::installer::AssetKind::Other => {
-                    if asset.name.to_lowercase().ends_with(".msix") {
-                        "setup_exe"
-                    } else {
-                        "other"
-                    }
+            // kind 映射收敛为 `installer::AssetKind::as_str()` 单一实现；
+            // 仅 `.msix` 保留 setup_exe 兼容（classify 归 Other）。
+            let kind_str = match &kind {
+                crate::installer::AssetKind::Other
+                    if asset.name.to_lowercase().ends_with(".msix") =>
+                {
+                    "setup_exe"
                 }
+                _ => kind.as_str(),
             };
 
             let matched_sha256 = checksums.get(&asset.name).cloned();
@@ -783,13 +775,46 @@ pub fn is_excluded_signature_or_text(name_lower: &str) -> bool {
 
 /// 判断是否为源码包（源码归档或含源码标记的包，不可作为安装包）
 pub fn is_source_package(name_lower: &str) -> bool {
-    // 源码归档扩展名（.tar.gz/.tar.xz/.tgz 等在 GitHub Release 常为源码打包，且安装引擎不执行 tar 解压）
+    // tar 系归档：后缀命中后加二进制豁免 —— 含源码标记仍为 true；
+    // 否则同时含 OS 词 + Arch 词则视为二进制分发包（false，放行）。
     if name_lower.ends_with(".tar.gz")
         || name_lower.ends_with(".tar.xz")
         || name_lower.ends_with(".tar.bz2")
         || name_lower.ends_with(".tgz")
         || name_lower.ends_with(".tar")
     {
+        if name_lower.contains("source")
+            || name_lower.contains("sources")
+            || name_lower.contains("-src.")
+            || name_lower.contains("_src.")
+            || name_lower.contains(".src.")
+            || name_lower.contains("src-")
+            || name_lower.contains("-source.")
+            || name_lower.contains("_source.")
+        {
+            return true;
+        }
+        // 整词边界匹配：`win` 不得误命中 `darwin`/`twin`/`drawing`，
+        // `x86` 不得与 `x86_64` 子串重叠；os+arch 双命中才视为二进制分发包（false，放行）。
+        let has_os = crate::installer::contains_word(name_lower, "darwin")
+            || crate::installer::contains_word(name_lower, "macos")
+            || crate::installer::contains_word(name_lower, "osx")
+            || crate::installer::contains_word(name_lower, "linux")
+            || crate::installer::contains_word(name_lower, "windows")
+            || crate::installer::contains_word(name_lower, "win");
+        let has_arch = crate::installer::contains_word(name_lower, "arm64")
+            || crate::installer::contains_word(name_lower, "aarch64")
+            || crate::installer::contains_word(name_lower, "x64")
+            || crate::installer::contains_word(name_lower, "x86_64")
+            || crate::installer::contains_word(name_lower, "amd64")
+            || crate::installer::contains_word(name_lower, "armv7")
+            || crate::installer::contains_word(name_lower, "armhf")
+            || crate::installer::contains_word(name_lower, "i386")
+            || crate::installer::contains_word(name_lower, "i686")
+            || crate::installer::contains_word(name_lower, "x86");
+        if has_os && has_arch {
+            return false;
+        }
         return true;
     }
     // 包含 source/sources 命名标记
@@ -837,6 +862,7 @@ pub fn is_valid_installer_asset(name: &str, size_bytes: u64) -> bool {
         | crate::installer::AssetKind::Rpm
         | crate::installer::AssetKind::Apk => true,
         crate::installer::AssetKind::PortableZip => true,
+        crate::installer::AssetKind::PortableTarball => true,
         crate::installer::AssetKind::Other => {
             // msix 扩展名特殊兼容支持
             lower.ends_with(".msix")
@@ -937,6 +963,10 @@ mod detail_fast_path_tests {
         assert!(!is_valid_installer_asset("app-source.zip", 25_000_000));
         assert!(!is_valid_installer_asset("app-src.zip", 25_000_000));
         assert!(!is_valid_installer_asset("src.zip", 25_000_000));
+        // 3b. 二进制 tarball 放行，源码标记 tarball 继续过滤
+        assert!(is_valid_installer_asset("pi-darwin-arm64.tar.gz", 25_000_000));
+        assert!(is_valid_installer_asset("pi-linux-x64.tar.gz", 25_000_000));
+        assert!(!is_valid_installer_asset("pi-1.0.2-source.tar.gz", 25_000_000));
 
         // 4. 认可的主流二进制安装包
         assert!(is_valid_installer_asset("RustDesk-1.2.6-Setup.exe", 20_000_000));
@@ -949,6 +979,8 @@ mod detail_fast_path_tests {
         assert!(is_valid_installer_asset("rustdesk-1.2.6.rpm", 30_000_000));
         assert!(is_valid_installer_asset("app-release.apk", 15_000_000));
         assert!(is_valid_installer_asset("app-windows-x64.zip", 15_000_000));
+        assert!(is_valid_installer_asset("pi-windows-x64.tar.gz", 15_000_000));
+        assert!(is_valid_installer_asset("pi-linux-x64.tar.xz", 15_000_000));
     }
 
     #[test]

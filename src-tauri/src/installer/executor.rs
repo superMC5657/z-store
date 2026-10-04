@@ -231,6 +231,9 @@ async fn execute_installation_inner(
         AssetKind::PortableZip => {
             portable::install_portable_zip(installer_path, app_id, custom_portable_dir)
         }
+        AssetKind::PortableTarball => {
+            portable::install_portable_tarball(installer_path, app_id, custom_portable_dir)
+        }
         AssetKind::Dmg => run_on_target!(
             macos => macos::install_dmg(installer_path).await,
             skip => "非 macOS 平台跳过 DMG 挂载与解构安装", installer_path

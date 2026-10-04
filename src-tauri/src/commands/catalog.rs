@@ -28,20 +28,28 @@ pub struct SearchIconReadyPayload {
 
 /// 通过 `installer::classify_asset` 的操作系统标签，从 Release 产物中推导支持的平台列表。
 ///
-/// 对每个产物文件名进行分类并收集其 OS 标签（有序且去重；
-/// `"all"` 标签代表无法明确分类，予以跳过）。
+/// 与 `github::detail::platforms_from_assets` 对齐（不再分叉）：
+/// 源码包 / <=1MB 占位包 / 校验签名元数据先经 `is_valid_installer_asset` 过滤；
+/// `.msix` 归 windows；结果按 windows/macos/linux/ios/android 排序。
 /// 若推导结果为空，则明确返回空向量 —— 此处特意不设置
 /// 回退到 `["windows"]` 的兜底，确保仅限 Linux 或包含 Android 的发布版本绝不会被错误标记。
 /// 前端 `matchPlatformSet` 如何处理缺失/空列表由前端规则决定。
 fn platforms_from_assets(assets: &[crate::models::ReleaseAsset]) -> Vec<String> {
     let mut set = std::collections::BTreeSet::new();
     for a in assets {
+        if !crate::github::detail::is_valid_installer_asset(&a.name, a.size_bytes) {
+            continue;
+        }
         let (_, os, _) = crate::installer::classify_asset(&a.name);
         if os != "all" {
             set.insert(os.to_string());
+        } else if a.name.to_lowercase().ends_with(".msix") {
+            set.insert("windows".to_string());
         }
     }
-    set.into_iter().collect()
+    let mut plats: Vec<String> = set.into_iter().collect();
+    crate::github::detail::sort_platforms(&mut plats);
+    plats
 }
 
 /// H8：隐藏规则 id 集合（本地收敛 `search_apps` / `get_category_apps` 重复块）。
@@ -1071,7 +1079,8 @@ mod catalog_platform_tests {
         ReleaseAsset {
             name: name.to_string(),
             download_url: String::new(),
-            size_bytes: 0,
+            // is_valid 过滤要求 >1MB：默认给足体积，仅占位/签名类用例显式覆写。
+            size_bytes: 20_000_000,
             sha256: None,
             os: String::new(),
             arch: String::new(),

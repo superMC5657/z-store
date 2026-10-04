@@ -100,25 +100,5 @@ pub trait ForgeProvider: Send + Sync {
     ) -> Result<Vec<ForgeRepoInfo>, String>;
 }
 
-/// forge 本地 `AssetKind -> &str` 收敛点（不碰 `installer/mod.rs`）。
-/// 语义与各 provider 内旧 `match kind { ... }` 完全一致。
-pub trait AssetKindExt {
-    fn as_str(&self) -> &'static str;
-}
-
-impl AssetKindExt for crate::installer::AssetKind {
-    fn as_str(&self) -> &'static str {
-        match self {
-            crate::installer::AssetKind::Msi => "msi",
-            crate::installer::AssetKind::SetupExe => "setup_exe",
-            crate::installer::AssetKind::PortableZip => "portable_zip",
-            crate::installer::AssetKind::Deb => "deb",
-            crate::installer::AssetKind::Rpm => "rpm",
-            crate::installer::AssetKind::AppImage => "appimage",
-            crate::installer::AssetKind::Dmg => "dmg",
-            crate::installer::AssetKind::Pkg => "pkg",
-            crate::installer::AssetKind::Apk => "apk",
-            crate::installer::AssetKind::Other => "other",
-        }
-    }
-}
+// 注：forge 本地 `AssetKind -> &str` 已收敛至 `installer::AssetKind::as_str()`
+// （见 `installer/mod.rs`），此处不再保留重复映射。

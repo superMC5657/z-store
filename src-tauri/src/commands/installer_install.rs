@@ -58,7 +58,8 @@ pub async fn install_app(
 
     // 智能解析真实安装路径，避免存入临时安装包路径
     let mut real_install_path = match kind {
-        crate::installer::AssetKind::PortableZip => {
+        crate::installer::AssetKind::PortableZip
+        | crate::installer::AssetKind::PortableTarball => {
             let app_dir = crate::installer::dirs_or_fallback_with_base(
                 &prep.detail.id,
                 effective_portable_dir.as_deref(),
@@ -79,7 +80,10 @@ pub async fn install_app(
     };
 
     // 针对外部向导安装，若未立即捕获路径，进行短暂重试嗅探 (最多 5 次，每次 500ms)
-    if real_install_path.is_empty() && kind != crate::installer::AssetKind::PortableZip {
+    if real_install_path.is_empty()
+        && kind != crate::installer::AssetKind::PortableZip
+        && kind != crate::installer::AssetKind::PortableTarball
+    {
         for _ in 0..5 {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             if let Some(p) = crate::scanner::AppScanner::resolve_installed_app_path(
