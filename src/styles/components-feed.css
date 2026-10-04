@@ -1,0 +1,99 @@
+/* components-feed.css · 发现页推荐 feed（策略切换 / 骨架 / 续刷） */
+
+.feed-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 12px 0;
+  flex-wrap: wrap;
+}
+
+.feed-strategy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+}
+
+.feed-strategy-btn {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  font-weight: 560;
+  padding: 5px 12px;
+  border-radius: calc(var(--radius-md) - 2px);
+  cursor: pointer;
+  transition: background 0.15s var(--ease-smooth), color 0.15s var(--ease-smooth);
+}
+
+.feed-strategy-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-acrylic-hover);
+}
+
+.feed-strategy-btn.is-active {
+  color: var(--text-on-brand, #fff);
+  background: var(--brand-primary);
+}
+
+.feed-shuffle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-xs);
+  padding: 5px 12px;
+  border-radius: var(--radius-md);
+}
+
+.feed-sentinel {
+  width: 100%;
+  height: 2px;
+}
+
+.feed-more-row {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0 24px 0;
+}
+
+.feed-end {
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: var(--font-xs);
+  padding: 8px 0 28px 0;
+}
+
+.feed-skeleton-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+}
+
+.feed-skeleton-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.feed-skeleton-lines {
+  flex: 1;
+  min-width: 0;
+}
+
+.feed-skeleton-line-main {
+  height: 12px;
+  width: 38%;
+  margin-bottom: 8px;
+}
+
+.feed-skeleton-line-sub {
+  height: 10px;
+  width: 78%;
+}

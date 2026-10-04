@@ -12,6 +12,95 @@ pub const SEARCH_SCORE_ALIAS_CONTAINS: i32 = 35;
 pub const SEARCH_SCORE_OWNER_OR_REPO_CONTAINS: i32 = 30;
 pub const SEARCH_SCORE_DESC_CONTAINS: i32 = 15;
 
+/// 发现页 Feed 推荐策略（可插拔，hero 置顶留给前端，后端不 hardcode 具体 id）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FeedStrategy {
+    /// 纯 stars 降序（确定性默认，供分类/趋势/搜索空态沿用）。
+    StarsOnly,
+    /// 默认：stars 降序 + seeded 轻扰动（打散头部垄断）。
+    #[default]
+    Balanced,
+    /// 预留：新鲜优先（当前无 updated_at 字段，回退为 stars 降序，待目录补时间戳后接线）。
+    FreshFirst,
+}
+
+/// Feed 轻扰动参数：hash(seed+id) % MOD * WEIGHT 叠加到 stars 上。
+/// MOD=32, WEIGHT=16 → bonus 0..496，仅打散 stars 相近的头部，不颠覆大差距排序。
+pub const FEED_JITTER_MOD: u64 = 32;
+pub const FEED_JITTER_WEIGHT: u64 = 16;
+
+/// FNV-1a 64 确定性哈希（std 默认 SipHash 随机种子跨进程不稳定，此处必须确定性）。
+fn fnv1a64_with_seed(id: &str, seed: u64) -> u64 {
+    const OFFSET: u64 = 0xcbf29ce484222325;
+    const PRIME: u64 = 0x100000001b3;
+    let mut h = OFFSET ^ seed;
+    for b in id.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(PRIME);
+    }
+    // 最终雪崩强化低位区分度
+    h ^= h >> 33;
+    h = h.wrapping_mul(0xff51afd7ed558ccd);
+    h ^= h >> 33;
+    h
+}
+
+/// 纯函数：给定 id+seed 的轻扰动 bonus（0..(MOD*WEIGHT)，MOD=32/WEIGHT=16 时为 0..496）。
+pub fn feed_jitter(id: &str, seed: u64) -> u64 {
+    (fnv1a64_with_seed(id, seed) % FEED_JITTER_MOD) * FEED_JITTER_WEIGHT
+}
+
+/// 纯函数：Feed 排序（可插拔策略）。输入为已过滤的 summaries，不做 hidden 过滤。
+/// - None seed → 纯 stars 降序（确定性，向后兼容）；
+/// - Some(seed) + Balanced → effective = stars + jitter，effective 降序，tie 按 id 升序；
+/// - StarsOnly → 忽略 seed，纯 stars 降序；
+/// - FreshFirst → 预留，当前回退 stars 降序。
+pub fn rank_feed_with_strategy(
+    mut items: Vec<AppSummary>,
+    seed: Option<u64>,
+    strategy: FeedStrategy,
+) -> Vec<AppSummary> {
+    match strategy {
+        FeedStrategy::StarsOnly => {
+            items.sort_by(|a, b| b.stars.cmp(&a.stars).then_with(|| a.id.cmp(&b.id)));
+        }
+        FeedStrategy::Balanced => {
+            if let Some(s) = seed {
+                items.sort_by(|a, b| {
+                    let ea = a.stars.saturating_add(feed_jitter(&a.id, s));
+                    let eb = b.stars.saturating_add(feed_jitter(&b.id, s));
+                    eb.cmp(&ea).then_with(|| a.id.cmp(&b.id))
+                });
+            } else {
+                items.sort_by(|a, b| b.stars.cmp(&a.stars).then_with(|| a.id.cmp(&b.id)));
+            }
+        }
+        FeedStrategy::FreshFirst => {
+            // TODO: 目录补 updated_at/published_at 后接线；当前回退 stars 降序。
+            items.sort_by(|a, b| b.stars.cmp(&a.stars).then_with(|| a.id.cmp(&b.id)));
+        }
+    }
+    items
+}
+
+/// 纯函数：默认 Balanced 的便捷包装（发现页直接用）。
+pub fn rank_feed(items: Vec<AppSummary>, seed: Option<u64>) -> Vec<AppSummary> {
+    rank_feed_with_strategy(items, seed, FeedStrategy::Balanced)
+}
+
+/// 纯函数：分页切片（供 get_home_feed / search_apps 分页复用，边界守好）。
+/// 返回 (page_items, total, has_more)，has_more = (offset+limit) < total（saturating）。
+pub fn paginate_feed<T: Clone>(items: &[T], limit: usize, offset: usize) -> (Vec<T>, usize, bool) {
+    let total = items.len();
+    if offset >= total {
+        return (Vec::new(), total, false);
+    }
+    let end = offset.saturating_add(limit).min(total);
+    let page = items[offset..end].to_vec();
+    let has_more = offset.saturating_add(limit) < total;
+    (page, total, has_more)
+}
+
 /// P3-3: 当 `url` 为官方默认软件源时返回 true（空字符串同样由调用方视为默认源，并在发起同步前进行解析）。
 fn is_default_catalog_source(url: &str) -> bool {
     let trimmed = url.trim();
@@ -339,6 +428,31 @@ impl CatalogService {
             let mut sorted = matched;
             sorted.sort_by_key(|b| std::cmp::Reverse(b.stars));
             Some(sorted)
+        }
+    }
+
+    /// 分页包装：None=全量（向后兼容，分类/趋势/搜索空态沿用 stars 降序默认），Some 时切 slice（越界守好）。
+    /// 注意：hidden 过滤在 command 层做，此处仅对全量 search 结果切片，空查询/非空打分逻辑与 `search_apps` 一致。
+    pub fn search_apps_paged(
+        &self,
+        query: &str,
+        limit: Option<usize>,
+        offset: Option<usize>,
+    ) -> Vec<AppSummary> {
+        let full = self.search_apps(query);
+        match (limit, offset) {
+            (None, None) => full,
+            _ => {
+                let off = offset.unwrap_or(0);
+                if off >= full.len() {
+                    return Vec::new();
+                }
+                let end = match limit {
+                    Some(l) => off.saturating_add(l).min(full.len()),
+                    None => full.len(),
+                };
+                full[off..end].to_vec()
+            }
         }
     }
 

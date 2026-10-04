@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import {
@@ -10,6 +10,7 @@ import {
   Clock,
   Trash2,
   Package,
+  Shuffle,
 } from 'lucide-react';
 import { AppCard } from '../components/AppCard';
 import { AppIcon } from '../components/AppIcon';
@@ -22,6 +23,84 @@ import {
   resolvePlatformReset,
 } from './ViewShell';
 import { getAppDisplayName, getAppDescription, getCategoryLabel } from '../utils/appHelper';
+/**
+ * B3-G12 收敛：View 层经 services/api 的 tauriApi 拿后端 feed。
+ * 用命名空间导入 + 运行时守卫（而非具名直引），避免 App 系测试对
+ * services/api 的局部 mock 缺少新导出时炸掉整个 HomeView 模块。
+ */
+import * as apiModule from '../services/api';
+import { rankFeed, resolveHero, type FeedStrategy } from '../services/feed';
+
+type HomeFeedPage = {
+  items: AppSummary[];
+  total: number;
+  has_more: boolean;
+};
+
+const apiMod = apiModule as unknown as {
+  tauriApi?: {
+    getHomeFeed?: (limit: number, offset: number, seed?: number, strategy?: string) => Promise<HomeFeedPage>;
+  };
+  isTauri?: boolean;
+};
+
+/**
+ * 安全读取 api 模块字段：App 系测试用局部 mock 替换了 services/api 且只提供
+ * `api`/`DEFAULT_SETTINGS`，直接点取缺失导出会同步抛错——此处一律 try/catch
+ * 吞掉并视为“后端不可用”，走本地 rankFeed 兜底。
+ */
+function readIsTauriFlag(): boolean | undefined {
+  try {
+    return apiMod.isTauri;
+  } catch {
+    return undefined;
+  }
+}
+
+function readHomeFeedFn():
+  | ((limit: number, offset: number, seed?: number, strategy?: string) => Promise<HomeFeedPage>)
+  | undefined {
+  try {
+    const t = apiMod.tauriApi;
+    if (t && typeof t.getHomeFeed === 'function') return t.getHomeFeed.bind(t);
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** 是否可走后端 feed：优先 api 模块标记，缺失时看 TAURI 桥是否存在。 */
+function canUseHomeFeedBackend(): boolean {
+  const flag = readIsTauriFlag();
+  if (flag === true) return true;
+  if (flag === false) return false;
+  try {
+    return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+  } catch {
+    return false;
+  }
+}
+
+/** 后端优先取一页；命令不存在/模块被 mock 掉时抛错，调用方回退本地。 */
+async function fetchHomeFeedPage(limit: number, offset: number, seed: number, strategy?: string): Promise<HomeFeedPage> {
+  const fn = readHomeFeedFn();
+  if (typeof fn !== 'function') throw new Error('home feed backend unavailable');
+  const raw = (await fn(limit, offset, seed, strategy)) as unknown as {
+    items?: unknown;
+    total?: unknown;
+    has_more?: unknown;
+    hasMore?: unknown;
+  };
+  const items = Array.isArray(raw?.items) ? (raw.items as AppSummary[]) : [];
+  const total = typeof raw?.total === 'number' && Number.isFinite(raw.total) ? raw.total : items.length;
+  const more = (raw?.has_more ?? raw?.hasMore) as unknown;
+  return { items, total, has_more: more === true };
+}
+
+/** Feed 每次续刷的页大小：首屏 20，触底再 +20。 */
+export const HOME_FEED_PAGE = 20;
+/** 首页 1 次请求补偿 hero(1)+featured(4)，保证首屏 feed 能填满 20。 */
+const FIRST_PAGE_LIMIT = HOME_FEED_PAGE + 5;
 
 interface HomeViewProps extends ViewAppActions, PlatformResetOption {
   /**
@@ -34,7 +113,13 @@ interface HomeViewProps extends ViewAppActions, PlatformResetOption {
   searchQuery?: string;
   onNavigateTrends: () => void;
   onClearRecentViews?: () => void;
+  /** 推荐策略（默认 balanced），变化时 feed 从头重置。 */
+  initialStrategy?: FeedStrategy;
+  /** 确定性种子（默认 7），“换一批”即 +1，保证同 seed 同顺序。 */
+  initialSeed?: number;
 }
+
+const STRATEGIES: FeedStrategy[] = ['balanced', 'stars', 'fresh'];
 
 export const HomeView: React.FC<HomeViewProps> = ({
   apps,
@@ -52,6 +137,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onNavigateTrends,
   onClearRecentViews,
   onResetPlatformFilter,
+  initialStrategy = 'balanced',
+  initialSeed = 7,
 }) => {
   const { t, i18n } = useTranslation();
   const isSearching = Boolean(searchQuery && searchQuery.trim().length > 0);
@@ -59,6 +146,152 @@ export const HomeView: React.FC<HomeViewProps> = ({
     if (a.platforms && a.platforms.length > 0) return false;
     if (!platformResolvedOtherIds) return false;
     return !platformResolvedOtherIds.has(a.id.toLowerCase());
+  };
+
+  // ---- feed 状态：策略/种子/可见数 -----------------------------------------
+  const [strategy, setStrategy] = useState<FeedStrategy>(initialStrategy);
+  const [seed, setSeed] = useState<number>(initialSeed);
+  const [visibleCount, setVisibleCount] = useState(HOME_FEED_PAGE);
+
+  // 后端分页状态：成功即走后端 order，失败（命令不存在/非 Tauri）即本地 fallback。
+  const [backendItems, setBackendItems] = useState<AppSummary[]>([]);
+  const [backendHasMore, setBackendHasMore] = useState(false);
+  const [backendTotal, setBackendTotal] = useState<number | null>(null);
+  const [backendActive, setBackendActive] = useState(false);
+  const [backendLoading, setBackendLoading] = useState(false);
+
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const loadingRef = useRef(false);
+  loadingRef.current = backendLoading;
+  const seedRef = useRef(seed);
+  seedRef.current = seed;
+  const strategyRef = useRef(strategy);
+  strategyRef.current = strategy;
+  const backendItemsRef = useRef(backendItems);
+  backendItemsRef.current = backendItems;
+
+  // apps/strategy/seed 变化 → 可见数回到首屏 20。
+  useEffect(() => {
+    setVisibleCount(HOME_FEED_PAGE);
+  }, [apps, strategy, seed]);
+
+  // ---- 本地推荐池（唯一过滤入口仍是 apps=platformFilteredApps） --------------
+  // hero 保留 rustdesk fallback 语义；hero 不参与打散，由调用方拼回。
+  const heroApp = useMemo(() => resolveHero(apps), [apps]);
+  const heroDisplayName = heroApp ? getAppDisplayName(heroApp) : '';
+  const heroDisplayDesc = heroApp ? getAppDescription(heroApp, i18n.language) : '';
+  const heroCategoryName = heroApp ? getCategoryLabel(heroApp.category, heroApp.category_name, t) : '';
+
+  const nonHeroApps = useMemo(
+    () => (heroApp ? apps.filter((a) => a.id !== heroApp.id) : apps),
+    [apps, heroApp],
+  );
+  const rankedRest = useMemo(
+    () => rankFeed(nonHeroApps, seed, strategy),
+    [nonHeroApps, seed, strategy],
+  );
+  const featuredApps = useMemo(() => rankedRest.slice(0, 4), [rankedRest]);
+  const feedPool = useMemo(() => rankedRest.slice(4), [rankedRest]);
+  // 本地兜底分页：只渲染 slice(0, visibleCount)，绝不全量 .map。
+  const visibleLocal = useMemo(() => feedPool.slice(0, visibleCount), [feedPool, visibleCount]);
+
+  // ---- 后端优先：get_home_feed 分页 ----------------------------------------
+  // 平台过滤仍以 apps 为准：后端条目先交集平台集合、再排除已展示的 hero/featured，
+  // 全选时零过滤，与本地池完全一致；窄筛选时以后端 has_more 为准继续翻页。
+  useEffect(() => {
+    if (!canUseHomeFeedBackend()) return;
+    let cancelled = false;
+    setBackendLoading(true);
+    setBackendHasMore(false);
+    fetchHomeFeedPage(FIRST_PAGE_LIMIT, 0, seedRef.current, strategyRef.current)
+      .then((res) => {
+        if (cancelled) return;
+        setBackendItems(res.items);
+        setBackendTotal(res.total);
+        setBackendHasMore(res.has_more);
+        setBackendActive(true);
+        setBackendLoading(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // 命令不存在（后端 lane 未就绪）→ 静默回退本地 rankFeed。
+        setBackendActive(false);
+        setBackendLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [strategy, seed]);
+
+  const platformIdSet = useMemo(
+    () => new Set(apps.map((a) => a.id.toLowerCase())),
+    [apps],
+  );
+  const displayedIds = useMemo(() => {
+    const set = new Set<string>();
+    if (heroApp) set.add(heroApp.id.toLowerCase());
+    for (const f of featuredApps) set.add(f.id.toLowerCase());
+    return set;
+  }, [heroApp, featuredApps]);
+
+  const backendFeed = useMemo(
+    () =>
+      backendItems.filter(
+        (s) => platformIdSet.has(s.id.toLowerCase()) && !displayedIds.has(s.id.toLowerCase()),
+      ),
+    [backendItems, platformIdSet, displayedIds],
+  );
+
+  const useBackendList = backendActive && backendFeed.length > 0;
+  const displayedFeed = useBackendList ? backendFeed.slice(0, visibleCount) : visibleLocal;
+  const hasMore = useBackendList ? backendHasMore : visibleLocal.length < feedPool.length;
+
+  const loadMoreRef = useRef<() => void>(() => {});
+  const handleLoadMore = useCallback(() => {
+    if (loadingRef.current) return;
+    setVisibleCount((c) => c + HOME_FEED_PAGE);
+    // 后端已就绪且还有下一页 → 增量拉取；失败则保持本地列表不变。
+    if (canUseHomeFeedBackend() && backendActive && backendHasMore) {
+      const offset = backendItemsRef.current.length;
+      setBackendLoading(true);
+      loadingRef.current = true;
+      fetchHomeFeedPage(HOME_FEED_PAGE, offset, seedRef.current, strategyRef.current)
+        .then((res) => {
+          setBackendItems((prev) => [...prev, ...res.items]);
+          if (typeof res.total === 'number') setBackendTotal(res.total);
+          setBackendHasMore(res.has_more);
+          setBackendLoading(false);
+        })
+        .catch(() => {
+          setBackendLoading(false);
+        });
+    }
+  }, [backendActive, backendHasMore]);
+  loadMoreRef.current = handleLoadMore;
+
+  // 底部哨兵：进入视口自动 +20；无 IntersectionObserver（测试/旧环境）时靠“加载更多”按钮兜底。
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    if (!hasMore) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) loadMoreRef.current();
+      },
+      { rootMargin: '320px 0px' },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasMore, useBackendList, displayedFeed.length]);
+
+  const handleShuffle = useCallback(() => {
+    setSeed((s) => (Number.isFinite(s) ? Math.floor(s) + 1 : 7));
+  }, []);
+
+  const strategyLabel = (s: FeedStrategy): string => {
+    if (s === 'stars') return t('home.feed_stars', '最热');
+    if (s === 'fresh') return t('home.feed_fresh', '新发现');
+    return t('home.feed_balanced', '推荐');
   };
 
   if (apps.length === 0) {
@@ -77,18 +310,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
       </ViewShell>
     );
   }
-
-  // `apps` 传入时已完成预过滤：置顶优先展示 rustdesk，但仅限在当前结果集内；
-  // 当 rustdesk 被过滤掉时，由结果集中的首个应用接替置顶。
-  const heroApp = apps.find((a) => a.id === 'rustdesk') || apps[0];
-  const heroDisplayName = heroApp ? getAppDisplayName(heroApp) : '';
-  const heroDisplayDesc = heroApp ? getAppDescription(heroApp, i18n.language) : '';
-  const heroCategoryName = heroApp ? getCategoryLabel(heroApp.category, heroApp.category_name, t) : '';
-
-  // 排除已在官方置顶推荐（Hero Banner）中展示的应用，避免在下方精选列表中重复推荐
-  const nonHeroApps = heroApp ? apps.filter((a) => a.id !== heroApp.id) : apps;
-  const featuredApps = nonHeroApps.slice(0, 4);
-  const remainingApps = nonHeroApps.slice(4);
 
   return (
     <ViewShell viewClass="home-view">
@@ -111,7 +332,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             </div>
 
             <h2 className="hero-title">
-              {heroApp.id === 'rustdesk/rustdesk' || heroApp.id === 'rustdesk'
+              {heroApp.id === 'rustdesk/rustdesk'
                 ? `${heroDisplayName} · ${t('home.rustdesk_subtitle')}`
                 : `${heroDisplayName} · ${heroCategoryName}`}
             </h2>
@@ -130,7 +351,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               </span>
               <span className="app-tag app-tag-license">{heroApp.license} {t('home.license_suffix')}</span>
               <span className="app-tag">{heroCategoryName}</span>
-              {(heroApp.id === 'rustdesk/rustdesk' || heroApp.id === 'rustdesk') && (
+              {heroApp.id === 'rustdesk/rustdesk' && (
                 <span className="app-tag">{t('home.rustdesk_tag')}</span>
               )}
             </div>
@@ -241,7 +462,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </div>
       )}
 
-      {/* 经典精选开源列表 */}
+      {/* 经典精选开源列表：推荐池前 4（hero 已排除） */}
       {featuredApps.length > 0 && (
         <>
           <div className="section-header">
@@ -271,8 +492,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </>
       )}
 
-      {/* 全部精选开源收录列表 */}
-      {remainingApps.length > 0 && (
+      {/* 推荐 feed：首屏 20，触底自动 +20；只渲染 slice(0, visibleCount) */}
+      {(feedPool.length > 0 || displayedFeed.length > 0) && (
         <>
           <div className="section-header" style={{ marginTop: '28px' }}>
             <h3 className="section-title">
@@ -280,8 +501,34 @@ export const HomeView: React.FC<HomeViewProps> = ({
               <span>{t('home.all_featured')}</span>
             </h3>
           </div>
-          <div className="app-grid">
-            {remainingApps.map((app) => (
+
+          <div className="feed-toolbar">
+            <div className="feed-strategy" role="group" aria-label={t('home.feed_strategy', '推荐策略')}>
+              {STRATEGIES.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  className={`feed-strategy-btn${strategy === s ? ' is-active' : ''}`}
+                  aria-pressed={strategy === s}
+                  onClick={() => setStrategy(s)}
+                >
+                  {strategyLabel(s)}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="btn-fluent btn-secondary feed-shuffle-btn"
+              onClick={handleShuffle}
+              title={t('home.feed_shuffle_hint', '换一批推荐')}
+            >
+              <Shuffle size={13} />
+              <span>{t('home.feed_shuffle', '换一批')}</span>
+            </button>
+          </div>
+
+          <div className="app-grid" data-testid="home-feed-grid">
+            {displayedFeed.map((app) => (
               <AppCard
                 key={app.id}
                 app={app}
@@ -297,6 +544,47 @@ export const HomeView: React.FC<HomeViewProps> = ({
               />
             ))}
           </div>
+
+          {backendLoading && (
+            <div className="app-grid" data-testid="feed-skeleton" aria-hidden="true">
+              {[0, 1, 2, 3].map((i) => (
+                <div key={i} className="app-card feed-skeleton-card">
+                  <div className="skeleton-box feed-skeleton-icon" />
+                  <div className="feed-skeleton-lines">
+                    <div className="skeleton-box feed-skeleton-line-main" />
+                    <div className="skeleton-box feed-skeleton-line-sub" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* 底部哨兵：进入视口自动续刷，不可用时靠下方按钮兜底 */}
+          <div ref={sentinelRef} data-testid="feed-sentinel" className="feed-sentinel" aria-hidden="true" />
+
+          {hasMore ? (
+            <div className="feed-more-row">
+              <button
+                type="button"
+                data-testid="feed-load-more"
+                className="btn-fluent btn-secondary"
+                onClick={handleLoadMore}
+                disabled={backendLoading}
+              >
+                {backendLoading
+                  ? t('home.feed_loading', '正在加载…')
+                  : t('home.feed_load_more', '加载更多')}
+              </button>
+            </div>
+          ) : (
+            displayedFeed.length > 0 && (
+              <div data-testid="feed-end" className="feed-end">
+                {useBackendList && backendTotal !== null
+                  ? t('home.feed_end_backend', `到底了 · 后端共 ${backendTotal} 个`)
+                  : t('home.feed_end', `到底了 · 共 ${feedPool.length} 个推荐`)}
+              </div>
+            )
+          )}
         </>
       )}
     </ViewShell>
