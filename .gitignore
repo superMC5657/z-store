@@ -22,6 +22,9 @@ dist-ssr
 *.sln
 *.sw?
 
+# TypeScript incremental build info
+*.tsbuildinfo
+
 # Rust / Tauri
 src-tauri/target
 src-tauri/gen/schemas
