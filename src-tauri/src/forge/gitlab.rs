@@ -190,18 +190,20 @@ impl ForgeProvider for GitLabProvider {
         host: &str,
         query: &str,
         token: Option<&str>,
+        page: Option<u32>,
+        per_page: Option<u32>,
     ) -> Result<Vec<ForgeRepoInfo>, String> {
         let net_conf = &crate::config::get_project_config().network;
-        let page_size = crate::config::get_project_config()
-            .limits
-            .online_search_page_size;
+        let limits = &crate::config::get_project_config().limits;
+        let eff_per_page = limits.clamp_online_search_per_page(per_page);
+        let eff_page = crate::config::LimitsConfig::normalize_online_search_page(page);
         let client = new_api_client(net_conf.api_timeout_seconds)?;
         let headers = api_headers(JSON_ACCEPT_VALUE, token, AuthScheme::Bearer);
 
         let encoded_q = urlencoding::encode(query);
         let url = format!(
-            "https://{}/api/v4/projects?search={}&per_page={}",
-            host, encoded_q, page_size
+            "https://{}/api/v4/projects?search={}&per_page={}&page={}",
+            host, encoded_q, eff_per_page, eff_page
         );
         let span = HttpSpan::start(&url);
         span.log_search_start("search");

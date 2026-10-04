@@ -29,7 +29,7 @@ import { getAppDisplayName, getAppDescription, getCategoryLabel } from '../utils
  * services/api 的局部 mock 缺少新导出时炸掉整个 HomeView 模块。
  */
 import * as apiModule from '../services/api';
-import { rankFeed, resolveHero, type FeedStrategy } from '../services/feed';
+import { rankFeed, resolveHero, sliceFeed, type FeedStrategy } from '../services/feed';
 
 type HomeFeedPage = {
   items: AppSummary[];
@@ -117,6 +117,14 @@ interface HomeViewProps extends ViewAppActions, PlatformResetOption {
   initialStrategy?: FeedStrategy;
   /** 确定性种子（默认 7），“换一批”即 +1，保证同 seed 同顺序。 */
   initialSeed?: number;
+  /** 搜索在线结果集标记：true 表示当前 apps 来自在线搜索（本地为 0 后调在线第 1 页）。 */
+  isOnlineResults?: boolean;
+  /** 在线搜索是否还有下一页（后端满页/has_more 时为 true，到底后为 false）。 */
+  onlineHasMore?: boolean;
+  /** 在线下一页加载中（禁用重复触发，与后端 loading 同等对待）。 */
+  isLoadingOnlineMore?: boolean;
+  /** 在线结果触底回调：App 负责 page+1 并拼接到 apps，失败/限流由 App toast。 */
+  onOnlineLoadMore?: () => void;
 }
 
 const STRATEGIES: FeedStrategy[] = ['balanced', 'stars', 'fresh'];
@@ -139,6 +147,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onResetPlatformFilter,
   initialStrategy = 'balanced',
   initialSeed = 7,
+  isOnlineResults = false,
+  onlineHasMore = false,
+  isLoadingOnlineMore = false,
+  onOnlineLoadMore,
 }) => {
   const { t, i18n } = useTranslation();
   const isSearching = Boolean(searchQuery && searchQuery.trim().length > 0);
@@ -162,7 +174,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const loadingRef = useRef(false);
-  loadingRef.current = backendLoading;
+  loadingRef.current = backendLoading || isLoadingOnlineMore;
   const seedRef = useRef(seed);
   seedRef.current = seed;
   const strategyRef = useRef(strategy);
@@ -170,30 +182,73 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const backendItemsRef = useRef(backendItems);
   backendItemsRef.current = backendItems;
 
-  // apps/strategy/seed 变化 → 可见数回到首屏 20。
+  // apps/strategy/seed/query 变化 → 可见数回到首屏 20；
+  // 但在线翻页是“追加”（prev 为新数组前缀）时保持可见数，避免 page+1 刚拼进来就被重置回 20。
+  const prevAppsRef = useRef<AppSummary[]>([]);
+  const prevQueryRef = useRef<string>(searchQuery);
+  const prevStrategySeedRef = useRef<string>(`${initialStrategy}|${initialSeed}`);
   useEffect(() => {
-    setVisibleCount(HOME_FEED_PAGE);
-  }, [apps, strategy, seed]);
+    const prevApps = prevAppsRef.current;
+    const curTag = `${strategy}|${seed}`;
+    const prevTag = prevStrategySeedRef.current;
+    let shouldReset = true;
+    if (
+      prevTag === curTag &&
+      prevQueryRef.current === searchQuery &&
+      prevApps.length > 0 &&
+      apps.length > prevApps.length
+    ) {
+      const isAppend = prevApps.every((a, i) => apps[i]?.id === a.id);
+      if (isAppend) shouldReset = false;
+    }
+    if (shouldReset) setVisibleCount(HOME_FEED_PAGE);
+    prevAppsRef.current = apps;
+    prevQueryRef.current = searchQuery;
+    prevStrategySeedRef.current = curTag;
+  }, [apps, searchQuery, strategy, seed]);
 
   // ---- 本地推荐池（唯一过滤入口仍是 apps=platformFilteredApps） --------------
-  // hero 保留 rustdesk fallback 语义；hero 不参与打散，由调用方拼回。
-  const heroApp = useMemo(() => resolveHero(apps), [apps]);
+  // 搜索态保序：搜索结果按入参原序（后端 search_apps 打分顺序）直接分页，
+  // 跳过 resolveHero/rankFeed/featured 切分；非搜索态（发现）保持 hero+featured+rankFeed 不变。
+  // isSearching 沿用现有 searchQuery 派生（App 已透传 searchQuery/isOnlineResults，无需新增 prop）。
+  const heroApp = useMemo(
+    () => (isSearching ? undefined : resolveHero(apps)),
+    [apps, isSearching],
+  );
   const heroDisplayName = heroApp ? getAppDisplayName(heroApp) : '';
   const heroDisplayDesc = heroApp ? getAppDescription(heroApp, i18n.language) : '';
   const heroCategoryName = heroApp ? getCategoryLabel(heroApp.category, heroApp.category_name, t) : '';
 
   const nonHeroApps = useMemo(
-    () => (heroApp ? apps.filter((a) => a.id !== heroApp.id) : apps),
-    [apps, heroApp],
+    () => {
+      if (isSearching) return apps;
+      return heroApp ? apps.filter((a) => a.id !== heroApp.id) : apps;
+    },
+    [apps, heroApp, isSearching],
   );
   const rankedRest = useMemo(
-    () => rankFeed(nonHeroApps, seed, strategy),
-    [nonHeroApps, seed, strategy],
+    () => {
+      // 搜索态：按入参原序直接返回，不重排（sliceFeed 只做切片）。
+      if (isSearching) return apps;
+      return rankFeed(nonHeroApps, seed, strategy);
+    },
+    [nonHeroApps, seed, strategy, isSearching, apps],
   );
-  const featuredApps = useMemo(() => rankedRest.slice(0, 4), [rankedRest]);
-  const feedPool = useMemo(() => rankedRest.slice(4), [rankedRest]);
+  // 本地排序口径不动：发现态 rankFeed 打分 + sliceFeed 分页（首屏 20，触底 +20）；
+  // 搜索态 featured 为空、feedPool 即原序 apps，visibleLocal=首屏 20 切片。
+  const featuredApps = useMemo(
+    () => (isSearching ? [] : sliceFeed(rankedRest, 0, 4)),
+    [rankedRest, isSearching],
+  );
+  const feedPool = useMemo(
+    () => {
+      if (isSearching) return apps;
+      return sliceFeed(rankedRest, 4, Math.max(0, rankedRest.length - 4));
+    },
+    [rankedRest, isSearching, apps],
+  );
   // 本地兜底分页：只渲染 slice(0, visibleCount)，绝不全量 .map。
-  const visibleLocal = useMemo(() => feedPool.slice(0, visibleCount), [feedPool, visibleCount]);
+  const visibleLocal = useMemo(() => sliceFeed(feedPool, 0, visibleCount), [feedPool, visibleCount]);
 
   // ---- 后端优先：get_home_feed 分页 ----------------------------------------
   // 平台过滤仍以 apps 为准：后端条目先交集平台集合、再排除已展示的 hero/featured，
@@ -242,16 +297,21 @@ export const HomeView: React.FC<HomeViewProps> = ({
     [backendItems, platformIdSet, displayedIds],
   );
 
-  const useBackendList = backendActive && backendFeed.length > 0;
-  const displayedFeed = useBackendList ? backendFeed.slice(0, visibleCount) : visibleLocal;
-  const hasMore = useBackendList ? backendHasMore : visibleLocal.length < feedPool.length;
+  // 搜索态保序：按入参原序 sliceFeed 切片分页（不重排）；后端 feed 仅在非搜索态启用，避免搜索结果被后端 order 污染。
+  const useBackendList = !isSearching && backendActive && backendFeed.length > 0;
+  const displayedFeed = useBackendList ? sliceFeed(backendFeed, 0, visibleCount) : visibleLocal;
+  const localHasMore = useBackendList ? backendHasMore : visibleLocal.length < feedPool.length;
+  // 在线结果集：本地 slice 已到底但后端还有下一页时，哨兵保持存活，触底即 page+1。
+  const onlineActive = isSearching && isOnlineResults && onlineHasMore;
+  const hasMore = localHasMore || onlineActive;
 
   const loadMoreRef = useRef<() => void>(() => {});
   const handleLoadMore = useCallback(() => {
     if (loadingRef.current) return;
+    if (isLoadingOnlineMore) return;
     setVisibleCount((c) => c + HOME_FEED_PAGE);
-    // 后端已就绪且还有下一页 → 增量拉取；失败则保持本地列表不变。
-    if (canUseHomeFeedBackend() && backendActive && backendHasMore) {
+    // 非搜索态：后端已就绪且还有下一页 → 增量拉取；失败则保持本地列表不变。
+    if (!isSearching && canUseHomeFeedBackend() && backendActive && backendHasMore) {
       const offset = backendItemsRef.current.length;
       setBackendLoading(true);
       loadingRef.current = true;
@@ -266,10 +326,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
           setBackendLoading(false);
         });
     }
-  }, [backendActive, backendHasMore]);
+    // 搜索在线结果集：滚动到底且后端满页/has_more 时自动要下一页（page+1），由 App 拼接到 apps。
+    if (isSearching && isOnlineResults && onlineHasMore && onOnlineLoadMore) {
+      onOnlineLoadMore();
+    }
+  }, [backendActive, backendHasMore, isSearching, isOnlineResults, onlineHasMore, onOnlineLoadMore, isLoadingOnlineMore]);
   loadMoreRef.current = handleLoadMore;
 
-  // 底部哨兵：进入视口自动 +20；无 IntersectionObserver（测试/旧环境）时靠“加载更多”按钮兜底。
+  // 底部哨兵：进入视口自动 +20（搜索态同样首屏 20+哨兵+20）；无 IntersectionObserver（测试/旧环境）时靠“加载更多”按钮兜底。
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || typeof IntersectionObserver === 'undefined') return;
@@ -282,7 +346,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [hasMore, useBackendList, displayedFeed.length]);
+  }, [hasMore, useBackendList, displayedFeed.length, onlineActive, isOnlineResults]);
 
   const handleShuffle = useCallback(() => {
     setSeed((s) => (Number.isFinite(s) ? Math.floor(s) + 1 : 7));
@@ -545,7 +609,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             ))}
           </div>
 
-          {backendLoading && (
+          {(backendLoading || isLoadingOnlineMore) && (
             <div className="app-grid" data-testid="feed-skeleton" aria-hidden="true">
               {[0, 1, 2, 3].map((i) => (
                 <div key={i} className="app-card feed-skeleton-card">
@@ -569,9 +633,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 data-testid="feed-load-more"
                 className="btn-fluent btn-secondary"
                 onClick={handleLoadMore}
-                disabled={backendLoading}
+                disabled={backendLoading || isLoadingOnlineMore}
               >
-                {backendLoading
+                {backendLoading || isLoadingOnlineMore
                   ? t('home.feed_loading', '正在加载…')
                   : t('home.feed_load_more', '加载更多')}
               </button>

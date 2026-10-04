@@ -50,14 +50,19 @@ impl CatalogService {
         query: &str,
         token: Option<&str>,
         pre_confirmed_for_direct: Option<String>,
+        page: Option<u32>,
+        per_page: Option<u32>,
     ) -> Result<Vec<AppSummary>, String> {
         let q = query.trim();
         if q.is_empty() {
             return Ok(Vec::new());
         }
 
-        // 检查是否直接输入了 owner/repo 格式
+        // 检查是否直接输入了 owner/repo 格式（直查单条只回第 1 页，page>1 回空，与 mock 同语义）
         if q.contains('/') && !q.contains(' ') {
+            if crate::config::LimitsConfig::normalize_online_search_page(page) > 1 {
+                return Ok(Vec::new());
+            }
             let parts: Vec<&str> = q.split('/').collect();
             if parts.len() == 2 {
                 let owner = parts[0];
@@ -78,11 +83,13 @@ impl CatalogService {
 
         let per_page = crate::config::get_project_config()
             .limits
-            .online_search_page_size;
+            .clamp_online_search_per_page(per_page);
+        let eff_page = crate::config::LimitsConfig::normalize_online_search_page(page);
         let url = format!(
-            "https://api.github.com/search/repositories?q={}+in:name,description&sort=stars&order=desc&per_page={}",
+            "https://api.github.com/search/repositories?q={}+in:name,description&sort=stars&order=desc&per_page={}&page={}",
             urlencoding::encode(q),
-            per_page
+            per_page,
+            eff_page
         );
 
         let safe_url = crate::log_support::sanitize_url(&url);

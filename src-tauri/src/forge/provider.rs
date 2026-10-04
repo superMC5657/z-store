@@ -97,6 +97,8 @@ pub trait ForgeProvider: Send + Sync {
         host: &str,
         query: &str,
         token: Option<&str>,
+        page: Option<u32>,
+        per_page: Option<u32>,
     ) -> Result<Vec<ForgeRepoInfo>, String>;
 }
 

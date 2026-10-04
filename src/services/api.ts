@@ -239,6 +239,12 @@ async function tauriInvoke<T>(cmd: TauriCommand, args: Record<string, unknown> =
   throw new Error('Not in Tauri environment');
 }
 
+/**
+ * 在线搜索默认页大小：与后端 `LimitsConfig::online_search_page_size` 对齐（None 即 12）。
+ * 前端翻页时显式透传，后端统一钳制 1-50；直查单条仍只回 1 条（page>1 回空）。
+ */
+export const ONLINE_SEARCH_PER_PAGE = 12;
+
 export const tauriApi = {
   async searchApps(query: string, limit?: number, offset?: number): Promise<AppSummary[]> {
     const args: Record<string, unknown> = { query };
@@ -263,13 +269,17 @@ export const tauriApi = {
     return normalizeHomeFeed(raw);
   },
 
-  async searchAppsOnline(query: string, searchId?: string): Promise<AppSummary[]> {
+  async searchAppsOnline(
+    query: string,
+    searchId?: string,
+    page?: number,
+    perPage?: number,
+  ): Promise<AppSummary[]> {
     try {
-      return await tauriInvoke<AppSummary[]>(CMD.searchOnline, {
-        query,
-        searchId,
-        search_id: searchId,
-      });
+      const args: Record<string, unknown> = { query, search_id: searchId };
+      if (page !== undefined && page !== null) args.page = page;
+      if (perPage !== undefined && perPage !== null) args.per_page = perPage;
+      return await tauriInvoke<AppSummary[]>(CMD.searchOnline, args);
     } catch (err) {
       zlogWarn(`search_apps_online is not available or failed: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
       return [];

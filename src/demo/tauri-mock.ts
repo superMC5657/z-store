@@ -493,8 +493,9 @@ function argNum(a: InvokeArgs, ...keys: string[]): number | undefined {
 }
 
 /**
- * demo 侧确定性抖动（与 src/services/feed.ts rankFeed/balanced 同形、解耦实现：
- * mock 层不做运行时 import，避免拉起 api.ts 破坏 install 时序）。
+ * demo 侧确定性抖动（canonical 见 src/services/feed.ts：与 `hashSeeded01/balanced` 同形、
+ * 同量级、同 seed 语义；允许 FNV 位宽实现不同。mock 层不做运行时 import，
+ * 避免拉起 api.ts 破坏 install 时序，故此处解耦实现）。
  */
 function demoSeeded01(id: string, seed: number): number {
   const safeSeed = Number.isFinite(seed) ? Math.floor(seed) >>> 0 : 0;
@@ -513,6 +514,7 @@ function demoSeeded01(id: string, seed: number): number {
 }
 
 function rankSummariesForFeed(seed: number, strategy?: unknown): AppSummary[] {
+  // canonical balanced：log1p(stars) + (jitter01-0.5)*0.3（半幅 0.15，与 feed.ts / 后端 feed_score 同形同量级）。
   const safeSeed = Number.isFinite(seed) ? Math.floor(seed) : 0;
   const normalized = String(strategy ?? 'balanced').trim().toLowerCase();
   const active = normalized === 'stars' ? 'stars' : normalized === 'fresh' ? 'fresh' : 'balanced';
@@ -612,8 +614,31 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       const items = ranked.slice(offset, offset + limit);
       return { items, total: ranked.length, has_more: offset + items.length < ranked.length };
     }
-    case 'search_apps_online':
-      return [];
+    case 'search_apps_online': {
+      // 后端契约：search_apps_online(query, search_id?, page?=1, per_page?=12，钳制 1-50)，
+      // 直查单条仍只回 1 条（page>1 回空）。demo 用本地 catalog 同形分页模拟远端翻页。
+      const qRaw = argStr(a, 'query').trim();
+      if (!qRaw) return [];
+      const rawPer = argNum(a, 'per_page', 'perPage', 'per-page');
+      const rawPage = argNum(a, 'page');
+      const perPage =
+        rawPer === undefined ? 12 : Math.min(50, Math.max(1, Math.floor(rawPer)));
+      const page =
+        rawPage === undefined || !Number.isFinite(rawPage) || Math.floor(rawPage) < 1
+          ? 1
+          : Math.floor(rawPage);
+      // 直查：owner/repo 精确命中只回 1 条，不受 per_page 影响。
+      if (qRaw.includes('/')) {
+        const exact = findSummary(qRaw);
+        if (exact) return page === 1 ? [exact] : [];
+      }
+      const q = qRaw.toLowerCase();
+      const matched = summaries.filter((s) =>
+        `${s.id} ${s.name} ${s.description} ${s.description_en ?? ''} ${s.owner} ${s.repo} ${s.category_name}`.toLowerCase().includes(q),
+      );
+      const start = (page - 1) * perPage;
+      return matched.slice(start, start + perPage);
+    }
     case 'enrich_trend_repos': {
       const repos = Array.isArray(a['repos']) ? (a['repos'] as Array<{ owner?: string; repo?: string }>) : [];
       return repos.map((r) => {

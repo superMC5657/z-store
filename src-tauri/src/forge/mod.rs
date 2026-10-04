@@ -78,26 +78,28 @@ impl ForgeRegistry {
         host: Option<&str>,
         query: &str,
         token: Option<&str>,
+        page: Option<u32>,
+        per_page: Option<u32>,
     ) -> Result<Vec<ForgeRepoInfo>, String> {
         match forge {
             ForgeType::GitHub => {
                 GitHubProvider
-                    .search_repos("github.com", query, token)
+                    .search_repos("github.com", query, token, page, per_page)
                     .await
             }
             ForgeType::Codeberg => {
                 GiteaProvider::new(ForgeType::Codeberg)
-                    .search_repos(host.unwrap_or("codeberg.org"), query, token)
+                    .search_repos(host.unwrap_or("codeberg.org"), query, token, page, per_page)
                     .await
             }
             ForgeType::Gitea => {
                 GiteaProvider::new(ForgeType::Gitea)
-                    .search_repos(host.unwrap_or("gitea.com"), query, token)
+                    .search_repos(host.unwrap_or("gitea.com"), query, token, page, per_page)
                     .await
             }
             ForgeType::GitLab => {
                 GitLabProvider
-                    .search_repos(host.unwrap_or("gitlab.com"), query, token)
+                    .search_repos(host.unwrap_or("gitlab.com"), query, token, page, per_page)
                     .await
             }
         }
