@@ -66,10 +66,42 @@ fn hidden_rule_ids(state: &AppState) -> std::collections::HashSet<String> {
     }
 }
 
+/// 发现页卡片摘要（复用 `AppSummary` 形状，前端按 `AppSummary` 解析）。
+pub type CatalogItemSummary = AppSummary;
+
+/// 发现页分页载荷（serde 默认 snake_case，前端按 `{ limit, offset, seed }` invoke('get_home_feed')）。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct FeedPage {
+    pub items: Vec<CatalogItemSummary>,
+    pub total: usize,
+    pub has_more: bool,
+}
+
+/// 分页切片（Option 版，供 `search_apps` 向后兼容：None=全量，Some 切 slice，越界守好）。
+fn slice_paged<T: Clone>(items: Vec<T>, limit: Option<usize>, offset: Option<usize>) -> Vec<T> {
+    match (limit, offset) {
+        (None, None) => items,
+        _ => {
+            let off = offset.unwrap_or(0);
+            if off >= items.len() {
+                return Vec::new();
+            }
+            let end = match limit {
+                Some(l) => off.saturating_add(l).min(items.len()),
+                None => items.len(),
+            };
+            items[off..end].to_vec()
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn search_apps(
     state: State<'_, AppState>,
     query: String,
+    limit: Option<usize>,
+    offset: Option<usize>,
 ) -> crate::AppResult<Vec<AppSummary>> {
     let search_start = std::time::Instant::now();
     let hidden_ids: std::collections::HashSet<String> = hidden_rule_ids(&state);
@@ -83,16 +115,51 @@ pub async fn search_apps(
             .filter(|a| !hidden_ids.contains(&a.id))
             .collect()
     };
+    // 向后兼容分页：None=全量（分类/趋势/搜索空态沿用 stars 降序默认），Some 时切 slice。
+    // 空查询 stars 降序、非空线性打分逻辑在 `CatalogService::search_apps` 内保持不变，此处仅切片。
+    let total = filtered.len();
+    let paged = slice_paged(filtered, limit, offset);
 
     log::info!(
-        "search done sid={} query='{}' hits={} elapsed_ms={}",
+        "search done sid={} query='{}' hits={} total={} elapsed_ms={}",
         crate::z_log::new_session_id(),
         crate::log_support::short_reason(&query),
-        filtered.len(),
+        paged.len(),
+        total,
         search_start.elapsed().as_millis()
     );
 
-    Ok(filtered)
+    Ok(paged)
+}
+
+/// 发现页 Feed：hidden 过滤 → `rank_feed(seed)` → 分页切片。
+/// - `total`=过滤后总量，`has_more`=(offset+limit)<total（saturating，边界守好）；
+/// - `seed`=None 时纯 stars 降序（确定性），Some(seed) 时轻扰动打散头部垄断；
+/// - hero 置顶留给前端，后端不 hardcode 具体 id；
+/// - 前端按 `invoke('get_home_feed', { limit, offset, seed })` 调用（`seed` 可省略/传 null）。
+#[tauri::command]
+pub fn get_home_feed(
+    state: State<'_, AppState>,
+    limit: usize,
+    offset: usize,
+    seed: Option<u64>,
+) -> Result<FeedPage, String> {
+    let hidden_ids: std::collections::HashSet<String> = hidden_rule_ids(&state);
+    let all = state.catalog.get_all_summaries();
+    let filtered: Vec<AppSummary> = if hidden_ids.is_empty() {
+        all
+    } else {
+        all.into_iter()
+            .filter(|a| !hidden_ids.contains(&a.id))
+            .collect()
+    };
+    let ranked = crate::github::catalog::rank_feed(filtered, seed);
+    let (items, total, has_more) = crate::github::catalog::paginate_feed(&ranked, limit, offset);
+    Ok(FeedPage {
+        items,
+        total,
+        has_more,
+    })
 }
 
 #[tauri::command]

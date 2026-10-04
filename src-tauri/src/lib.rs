@@ -517,6 +517,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::search_apps,
+            commands::get_home_feed,
             commands::search_apps_online,
             commands::enrich_trend_repos,
             commands::get_category_apps,

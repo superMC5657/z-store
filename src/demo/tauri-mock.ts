@@ -483,6 +483,47 @@ function argStr(a: InvokeArgs, ...keys: string[]): string {
   return '';
 }
 
+function argNum(a: InvokeArgs, ...keys: string[]): number | undefined {
+  for (const k of keys) {
+    const v = a[k];
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+    if (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v))) return Number(v);
+  }
+  return undefined;
+}
+
+/**
+ * demo 侧确定性抖动（与 src/services/feed.ts rankFeed/balanced 同形、解耦实现：
+ * mock 层不做运行时 import，避免拉起 api.ts 破坏 install 时序）。
+ */
+function demoSeeded01(id: string, seed: number): number {
+  const safeSeed = Number.isFinite(seed) ? Math.floor(seed) >>> 0 : 0;
+  let h = (0x811c9dc5 ^ safeSeed) >>> 0;
+  const s = String(id).toLowerCase();
+  for (let i = 0; i < s.length; i += 1) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  h ^= h >>> 15;
+  h = Math.imul(h, 0x2c1b3c6d);
+  h ^= h >>> 12;
+  h = Math.imul(h, 0x297a2d39);
+  h ^= h >>> 15;
+  return (h >>> 0) / 4294967296;
+}
+
+function rankSummariesForFeed(seed: number): AppSummary[] {
+  const safeSeed = Number.isFinite(seed) ? Math.floor(seed) : 0;
+  return summaries
+    .map((s, index) => {
+      const stars = Number.isFinite(s.stars) && s.stars > 0 ? s.stars : 0;
+      const score = Math.log1p(stars) + (demoSeeded01(s.id, safeSeed) - 0.5) * 0.3;
+      return { s, index, score };
+    })
+    .sort((a, b) => (b.score !== a.score ? b.score - a.score : a.index - b.index))
+    .map((x) => x.s);
+}
+
 async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
   // Event plugin channel (listen/emit/unlisten) — backing for all on* subscriptions.
   if (cmd === 'plugin:event|listen') {
@@ -542,10 +583,28 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
     // -- search ------------------------------------------------------------
     case 'search_apps': {
       const q = argStr(a, 'query').trim().toLowerCase();
-      if (!q) return summaries;
-      return summaries.filter((s) =>
-        `${s.id} ${s.name} ${s.description} ${s.description_en ?? ''} ${s.owner} ${s.repo} ${s.category_name}`.toLowerCase().includes(q),
-      );
+      const matched = !q
+        ? [...summaries]
+        : summaries.filter((s) =>
+            `${s.id} ${s.name} ${s.description} ${s.description_en ?? ''} ${s.owner} ${s.repo} ${s.category_name}`.toLowerCase().includes(q),
+          );
+      // 后端契约：search_apps 可选 limit/offset（不传即全量，保持老行为）。
+      const limit = argNum(a, 'limit');
+      const offset = argNum(a, 'offset');
+      if (limit === undefined && offset === undefined) return matched;
+      const start = Math.max(0, Math.floor(offset ?? 0));
+      const len = limit === undefined ? matched.length - start : Math.max(0, Math.floor(limit));
+      return matched.slice(start, start + len);
+    }
+    case 'get_home_feed': {
+      // 后端契约：get_home_feed(limit, offset, seed?) -> { items, total, has_more }。
+      // demo 按 balanced 同形排序后分页：换 seed 即换一批，行为与本地 rankFeed 对齐。
+      const limit = Math.min(100, Math.max(1, Math.floor(argNum(a, 'limit') ?? 20)));
+      const offset = Math.max(0, Math.floor(argNum(a, 'offset') ?? 0));
+      const seed = Math.floor(argNum(a, 'seed') ?? 0);
+      const ranked = rankSummariesForFeed(seed);
+      const items = ranked.slice(offset, offset + limit);
+      return { items, total: ranked.length, has_more: offset + items.length < ranked.length };
     }
     case 'search_apps_online':
       return [];

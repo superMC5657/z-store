@@ -38,6 +38,31 @@ export interface SearchIconReadyPayload {
   level: number;
 }
 
+/**
+ * 发现页 feed 后端分页契约（Rust `get_home_feed` 返回）：
+ * `{ items, total, has_more }`。容忍后端/ mock 误写 camelCase（`hasMore`），
+ * 统一经 `normalizeHomeFeed` 收敛为 snake_case 只读视图。
+ */
+export interface HomeFeedResult {
+  items: AppSummary[];
+  total: number;
+  has_more: boolean;
+}
+
+type HomeFeedRaw = {
+  items?: AppSummary[];
+  total?: number;
+  has_more?: boolean;
+  hasMore?: boolean;
+} | null | undefined;
+
+export function normalizeHomeFeed(raw: HomeFeedRaw): HomeFeedResult {
+  const items = Array.isArray(raw?.items) ? (raw as { items: AppSummary[] }).items : [];
+  const total = typeof raw?.total === 'number' && Number.isFinite(raw.total) ? raw.total : items.length;
+  const hasMore = (raw?.has_more ?? (raw as { hasMore?: unknown })?.hasMore) as unknown;
+  return { items, total, has_more: hasMore === true };
+}
+
 export interface ReadmeVariant {
   lang: 'zh-CN' | 'en-US';
   path: string;
@@ -127,6 +152,7 @@ export const CMD = {
   toggleFavorite: 'toggle_favorite',
   getCategoryApps: 'get_category_apps',
   getCatalogCount: 'get_catalog_count',
+  getHomeFeed: 'get_home_feed',
   scanAndMatchLocalApps: 'scan_and_match_local_apps',
   importMatchedApps: 'import_matched_apps',
   getDetectedInstalledAppIds: 'get_detected_installed_app_ids',
@@ -201,8 +227,25 @@ async function tauriInvoke<T>(cmd: TauriCommand, args: Record<string, unknown> =
 }
 
 export const tauriApi = {
-  async searchApps(query: string): Promise<AppSummary[]> {
-    return tauriInvoke<AppSummary[]>(CMD.search, { query });
+  async searchApps(query: string, limit?: number, offset?: number): Promise<AppSummary[]> {
+    const args: Record<string, unknown> = { query };
+    // 后端契约：search_apps 支持可选 limit/offset；老后端忽略多余参数，老调用方不传即全量。
+    if (limit !== undefined && limit !== null) args.limit = limit;
+    if (offset !== undefined && offset !== null) args.offset = offset;
+    return tauriInvoke<AppSummary[]>(CMD.search, args);
+  },
+
+  /**
+   * 发现页推荐 feed（后端契约，与 Rust 侧对齐）：
+   * `get_home_feed(limit: usize, offset: usize, seed?: u64) -> { items, total, has_more }`。
+   * 后端 lane 并行中、命令可能暂不存在——调用方（HomeView）必须 try/catch，
+   * 失败时回退本地 `rankFeed + slice`。此处不吞错，直接透传。
+   */
+  async getHomeFeed(limit: number, offset: number, seed?: number): Promise<HomeFeedResult> {
+    const args: Record<string, unknown> = { limit, offset };
+    if (seed !== undefined && seed !== null) args.seed = seed;
+    const raw = await tauriInvoke<HomeFeedRaw>(CMD.getHomeFeed, args);
+    return normalizeHomeFeed(raw);
   },
 
   async searchAppsOnline(query: string, searchId?: string): Promise<AppSummary[]> {
