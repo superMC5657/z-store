@@ -199,25 +199,44 @@ export const HomeView: React.FC<HomeViewProps> = ({
   }, [apps, searchQuery, strategy, seed]);
 
   // ---- 本地推荐池（唯一过滤入口仍是 apps=platformFilteredApps） --------------
-  // hero 保留 rustdesk fallback 语义；hero 不参与打散，由调用方拼回。
-  const heroApp = useMemo(() => resolveHero(apps), [apps]);
+  // 搜索态保序：搜索结果按入参原序（后端 search_apps 打分顺序）直接分页，
+  // 跳过 resolveHero/rankFeed/featured 切分；非搜索态（发现）保持 hero+featured+rankFeed 不变。
+  // isSearching 沿用现有 searchQuery 派生（App 已透传 searchQuery/isOnlineResults，无需新增 prop）。
+  const heroApp = useMemo(
+    () => (isSearching ? undefined : resolveHero(apps)),
+    [apps, isSearching],
+  );
   const heroDisplayName = heroApp ? getAppDisplayName(heroApp) : '';
   const heroDisplayDesc = heroApp ? getAppDescription(heroApp, i18n.language) : '';
   const heroCategoryName = heroApp ? getCategoryLabel(heroApp.category, heroApp.category_name, t) : '';
 
   const nonHeroApps = useMemo(
-    () => (heroApp ? apps.filter((a) => a.id !== heroApp.id) : apps),
-    [apps, heroApp],
+    () => {
+      if (isSearching) return apps;
+      return heroApp ? apps.filter((a) => a.id !== heroApp.id) : apps;
+    },
+    [apps, heroApp, isSearching],
   );
   const rankedRest = useMemo(
-    () => rankFeed(nonHeroApps, seed, strategy),
-    [nonHeroApps, seed, strategy],
+    () => {
+      // 搜索态：按入参原序直接返回，不重排（sliceFeed 只做切片）。
+      if (isSearching) return apps;
+      return rankFeed(nonHeroApps, seed, strategy);
+    },
+    [nonHeroApps, seed, strategy, isSearching, apps],
   );
-  // 本地排序口径不动：rankFeed 打分 + sliceFeed 分页（首屏 20，触底 +20）。
-  const featuredApps = useMemo(() => sliceFeed(rankedRest, 0, 4), [rankedRest]);
+  // 本地排序口径不动：发现态 rankFeed 打分 + sliceFeed 分页（首屏 20，触底 +20）；
+  // 搜索态 featured 为空、feedPool 即原序 apps，visibleLocal=首屏 20 切片。
+  const featuredApps = useMemo(
+    () => (isSearching ? [] : sliceFeed(rankedRest, 0, 4)),
+    [rankedRest, isSearching],
+  );
   const feedPool = useMemo(
-    () => sliceFeed(rankedRest, 4, Math.max(0, rankedRest.length - 4)),
-    [rankedRest],
+    () => {
+      if (isSearching) return apps;
+      return sliceFeed(rankedRest, 4, Math.max(0, rankedRest.length - 4));
+    },
+    [rankedRest, isSearching, apps],
   );
   // 本地兜底分页：只渲染 slice(0, visibleCount)，绝不全量 .map。
   const visibleLocal = useMemo(() => sliceFeed(feedPool, 0, visibleCount), [feedPool, visibleCount]);
@@ -269,7 +288,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
     [backendItems, platformIdSet, displayedIds],
   );
 
-  // 搜索态走本地 rankFeed/sliceFeed：后端 feed 仅在非搜索态启用，避免搜索结果被后端 order 污染。
+  // 搜索态保序：按入参原序 sliceFeed 切片分页（不重排）；后端 feed 仅在非搜索态启用，避免搜索结果被后端 order 污染。
   const useBackendList = !isSearching && backendActive && backendFeed.length > 0;
   const displayedFeed = useBackendList ? sliceFeed(backendFeed, 0, visibleCount) : visibleLocal;
   const localHasMore = useBackendList ? backendHasMore : visibleLocal.length < feedPool.length;
