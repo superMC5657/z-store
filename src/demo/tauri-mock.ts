@@ -493,8 +493,9 @@ function argNum(a: InvokeArgs, ...keys: string[]): number | undefined {
 }
 
 /**
- * demo 侧确定性抖动（与 src/services/feed.ts rankFeed/balanced 同形、解耦实现：
- * mock 层不做运行时 import，避免拉起 api.ts 破坏 install 时序）。
+ * demo 侧确定性抖动（canonical 见 src/services/feed.ts：与 `hashSeeded01/balanced` 同形、
+ * 同量级、同 seed 语义；允许 FNV 位宽实现不同。mock 层不做运行时 import，
+ * 避免拉起 api.ts 破坏 install 时序，故此处解耦实现）。
  */
 function demoSeeded01(id: string, seed: number): number {
   const safeSeed = Number.isFinite(seed) ? Math.floor(seed) >>> 0 : 0;
@@ -513,6 +514,7 @@ function demoSeeded01(id: string, seed: number): number {
 }
 
 function rankSummariesForFeed(seed: number): AppSummary[] {
+  // canonical balanced：log1p(stars) + (jitter01-0.5)*0.3（半幅 0.15，与 feed.ts / 后端 feed_score 同形同量级）。
   const safeSeed = Number.isFinite(seed) ? Math.floor(seed) : 0;
   return summaries
     .map((s, index) => {
