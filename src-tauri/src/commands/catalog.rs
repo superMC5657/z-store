@@ -132,17 +132,20 @@ pub async fn search_apps(
     Ok(paged)
 }
 
-/// 发现页 Feed：hidden 过滤 → `rank_feed(seed)` → 分页切片。
+/// 发现页 Feed：hidden 过滤 → `rank_feed_with_strategy(strategy)` → 分页切片。
 /// - `total`=过滤后总量，`has_more`=(offset+limit)<total（saturating，边界守好）；
-/// - `seed`=None 时纯 stars 降序（确定性），Some(seed) 时轻扰动打散头部垄断；
+/// - `seed`=None 时纯 stars 降序（确定性），Some(seed)+balanced 时轻扰动打散头部垄断；
+/// - `strategy`=None/非法时回退 balanced（大小写不敏感，前端原样透传、后端归一小写）；
 /// - hero 置顶留给前端，后端不 hardcode 具体 id；
-/// - 前端按 `invoke('get_home_feed', { limit, offset, seed })` 调用（`seed` 可省略/传 null）。
+/// - 前端按 `invoke('get_home_feed', { limit, offset, seed, strategy })` 调用
+///  （`seed`/`strategy` 可省略/传 null）。
 #[tauri::command]
 pub fn get_home_feed(
     state: State<'_, AppState>,
     limit: usize,
     offset: usize,
     seed: Option<u64>,
+    strategy: Option<String>,
 ) -> Result<FeedPage, String> {
     let hidden_ids: std::collections::HashSet<String> = hidden_rule_ids(&state);
     let all = state.catalog.get_all_summaries();
@@ -153,7 +156,16 @@ pub fn get_home_feed(
             .filter(|a| !hidden_ids.contains(&a.id))
             .collect()
     };
-    let ranked = crate::github::catalog::rank_feed(filtered, seed);
+    let ranked = {
+        let normalized = strategy.as_deref().unwrap_or("balanced").trim().to_lowercase();
+        let parsed = match normalized.as_str() {
+            "stars" => crate::github::catalog::FeedStrategy::StarsOnly,
+            "fresh" => crate::github::catalog::FeedStrategy::FreshFirst,
+            "balanced" => crate::github::catalog::FeedStrategy::Balanced,
+            _ => crate::github::catalog::FeedStrategy::Balanced,
+        };
+        crate::github::catalog::rank_feed_with_strategy(filtered, seed, parsed)
+    };
     let (items, total, has_more) = crate::github::catalog::paginate_feed(&ranked, limit, offset);
     Ok(FeedPage {
         items,

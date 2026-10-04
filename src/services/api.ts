@@ -237,13 +237,15 @@ export const tauriApi = {
 
   /**
    * 发现页推荐 feed（后端契约，与 Rust 侧对齐）：
-   * `get_home_feed(limit: usize, offset: usize, seed?: u64) -> { items, total, has_more }`。
+   * `get_home_feed(limit: usize, offset: usize, seed?: u64, strategy?: String) -> { items, total, has_more }`。
+   * `strategy` 为 "stars"|"balanced"|"fresh"（缺省 balanced，前端原样透传、后端归一小写+非法回退 balanced）。
    * 后端 lane 并行中、命令可能暂不存在——调用方（HomeView）必须 try/catch，
    * 失败时回退本地 `rankFeed + slice`。此处不吞错，直接透传。
    */
-  async getHomeFeed(limit: number, offset: number, seed?: number): Promise<HomeFeedResult> {
+  async getHomeFeed(limit: number, offset: number, seed?: number, strategy?: string): Promise<HomeFeedResult> {
     const args: Record<string, unknown> = { limit, offset };
     if (seed !== undefined && seed !== null) args.seed = seed;
+    if (strategy !== undefined && strategy !== null) args.strategy = strategy;
     const raw = await tauriInvoke<HomeFeedRaw>(CMD.getHomeFeed, args);
     return normalizeHomeFeed(raw);
   },

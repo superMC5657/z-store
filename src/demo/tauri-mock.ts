@@ -512,12 +512,17 @@ function demoSeeded01(id: string, seed: number): number {
   return (h >>> 0) / 4294967296;
 }
 
-function rankSummariesForFeed(seed: number): AppSummary[] {
+function rankSummariesForFeed(seed: number, strategy?: unknown): AppSummary[] {
   const safeSeed = Number.isFinite(seed) ? Math.floor(seed) : 0;
+  const normalized = String(strategy ?? 'balanced').trim().toLowerCase();
+  const active = normalized === 'stars' ? 'stars' : normalized === 'fresh' ? 'fresh' : 'balanced';
   return summaries
     .map((s, index) => {
       const stars = Number.isFinite(s.stars) && s.stars > 0 ? s.stars : 0;
-      const score = Math.log1p(stars) + (demoSeeded01(s.id, safeSeed) - 0.5) * 0.3;
+      const base = Math.log1p(stars);
+      const jitter = demoSeeded01(s.id, safeSeed);
+      const score =
+        active === 'stars' ? base : active === 'fresh' ? jitter * 10 + base * 0.05 : base + (jitter - 0.5) * 0.3;
       return { s, index, score };
     })
     .sort((a, b) => (b.score !== a.score ? b.score - a.score : a.index - b.index))
@@ -597,12 +602,13 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return matched.slice(start, start + len);
     }
     case 'get_home_feed': {
-      // 后端契约：get_home_feed(limit, offset, seed?) -> { items, total, has_more }。
-      // demo 按 balanced 同形排序后分页：换 seed 即换一批，行为与本地 rankFeed 对齐。
+      // 后端契约：get_home_feed(limit, offset, seed?, strategy?) -> { items, total, has_more }。
+      // demo 按 feed.ts 同语义三策略排序后分页：stars 纯星数、balanced 轻扰动、fresh 抖动主导；
+      // strategy 缺省/非法回退 balanced，换 seed 即换一批，行为与本地 rankFeed 对齐。
       const limit = Math.min(100, Math.max(1, Math.floor(argNum(a, 'limit') ?? 20)));
       const offset = Math.max(0, Math.floor(argNum(a, 'offset') ?? 0));
       const seed = Math.floor(argNum(a, 'seed') ?? 0);
-      const ranked = rankSummariesForFeed(seed);
+      const ranked = rankSummariesForFeed(seed, a['strategy']);
       const items = ranked.slice(offset, offset + limit);
       return { items, total: ranked.length, has_more: offset + items.length < ranked.length };
     }

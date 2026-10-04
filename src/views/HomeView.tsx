@@ -39,7 +39,7 @@ type HomeFeedPage = {
 
 const apiMod = apiModule as unknown as {
   tauriApi?: {
-    getHomeFeed?: (limit: number, offset: number, seed?: number) => Promise<HomeFeedPage>;
+    getHomeFeed?: (limit: number, offset: number, seed?: number, strategy?: string) => Promise<HomeFeedPage>;
   };
   isTauri?: boolean;
 };
@@ -58,7 +58,7 @@ function readIsTauriFlag(): boolean | undefined {
 }
 
 function readHomeFeedFn():
-  | ((limit: number, offset: number, seed?: number) => Promise<HomeFeedPage>)
+  | ((limit: number, offset: number, seed?: number, strategy?: string) => Promise<HomeFeedPage>)
   | undefined {
   try {
     const t = apiMod.tauriApi;
@@ -82,10 +82,10 @@ function canUseHomeFeedBackend(): boolean {
 }
 
 /** 后端优先取一页；命令不存在/模块被 mock 掉时抛错，调用方回退本地。 */
-async function fetchHomeFeedPage(limit: number, offset: number, seed: number): Promise<HomeFeedPage> {
+async function fetchHomeFeedPage(limit: number, offset: number, seed: number, strategy?: string): Promise<HomeFeedPage> {
   const fn = readHomeFeedFn();
   if (typeof fn !== 'function') throw new Error('home feed backend unavailable');
-  const raw = (await fn(limit, offset, seed)) as unknown as {
+  const raw = (await fn(limit, offset, seed, strategy)) as unknown as {
     items?: unknown;
     total?: unknown;
     has_more?: unknown;
@@ -158,6 +158,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
   loadingRef.current = backendLoading;
   const seedRef = useRef(seed);
   seedRef.current = seed;
+  const strategyRef = useRef(strategy);
+  strategyRef.current = strategy;
   const backendItemsRef = useRef(backendItems);
   backendItemsRef.current = backendItems;
 
@@ -194,7 +196,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
     let cancelled = false;
     setBackendLoading(true);
     setBackendHasMore(false);
-    fetchHomeFeedPage(FIRST_PAGE_LIMIT, 0, seedRef.current)
+    fetchHomeFeedPage(FIRST_PAGE_LIMIT, 0, seedRef.current, strategyRef.current)
       .then((res) => {
         if (cancelled) return;
         setBackendItems(res.items);
@@ -246,7 +248,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
       const offset = backendItemsRef.current.length;
       setBackendLoading(true);
       loadingRef.current = true;
-      fetchHomeFeedPage(HOME_FEED_PAGE, offset, seedRef.current)
+      fetchHomeFeedPage(HOME_FEED_PAGE, offset, seedRef.current, strategyRef.current)
         .then((res) => {
           setBackendItems((prev) => [...prev, ...res.items]);
           if (typeof res.total === 'number') setBackendTotal(res.total);
