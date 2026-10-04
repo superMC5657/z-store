@@ -1,4 +1,4 @@
-/* components-trends.css · 趋势榜单：榜单切换 + 筛选 + 涨星徽标 */
+/* components-trends.css · 趋势榜单：榜单切换 + 涨星徽标 */
 
 .trends-view .trends-header {
   flex-wrap: wrap;
@@ -34,37 +34,6 @@
   width: max-content;
 }
 
-.trends-filters {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-}
-
-.trends-filter {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--font-sm);
-  color: var(--text-secondary);
-  white-space: nowrap;
-}
-
-.trends-filter-label {
-  color: var(--text-tertiary);
-  font-size: var(--font-sm);
-}
-
-.trends-select {
-  height: 28px;
-  min-width: 128px;
-  font-size: var(--font-sm);
-  padding: 0 8px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-
 .trends-meta {
   display: flex;
   align-items: baseline;
@@ -91,23 +60,13 @@
   flex-shrink: 0;
 }
 
-/* 常青离线快照徽标：明确标注本地快照，避免伪装成远端榜 */
-.trends-snapshot-badge {
-  font-size: var(--font-xs);
-  font-weight: 600;
-  color: #b45309;
-  background: rgba(245, 158, 11, 0.12);
-  border: 1px solid rgba(245, 158, 11, 0.32);
-  border-radius: var(--radius-sm);
-  padding: 1px 8px;
-  white-space: nowrap;
-  flex-shrink: 0;
+/* 错误面板：复用 FilterEmptyState 结构，仅图标染警示色以区分真正的空状态 */
+.trends-error .empty-state-icon {
+  color: #dc2626;
 }
 
-[data-theme="dark"] .trends-snapshot-badge {
-  color: #fbbf24;
-  background: rgba(245, 158, 11, 0.14);
-  border-color: rgba(251, 191, 36, 0.32);
+[data-theme="dark"] .trends-error .empty-state-icon {
+  color: #f87171;
 }
 
 /* 涨星徽标：浅绿底，与星数标签区分但不抢色 */
@@ -137,12 +96,6 @@
   margin-left: auto;
 }
 
-@media (max-width: 1024px) {
-  .trends-filters {
-    margin-left: 0;
-  }
-}
-
 @media (max-width: 720px) {
   .trends-toolbar {
     flex-direction: column;
@@ -151,20 +104,6 @@
 
   .trends-boards {
     width: 100%;
-  }
-
-  .trends-filters {
-    width: 100%;
-    margin-left: 0;
-  }
-
-  .trends-filter {
-    flex: 1 1 auto;
-  }
-
-  .trends-select {
-    flex: 1 1 auto;
-    min-width: 0;
   }
 
   .trends-board-desc {

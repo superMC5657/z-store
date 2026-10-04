@@ -536,6 +536,7 @@ pub fn run() {
             commands::get_favorites,
             commands::toggle_favorite,
             commands::test_proxy,
+            commands::fetch_trends_text,
             commands::get_catalog_count,
             commands::scan_and_match_local_apps,
             commands::import_matched_apps,

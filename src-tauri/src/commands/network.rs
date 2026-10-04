@@ -51,3 +51,126 @@ pub fn switch_mirror(state: State<'_, AppState>, mirror_id: String) -> crate::Ap
     }
     Ok(ok)
 }
+
+/// 趋势榜单 HTTP 直取白名单：仅 trends 三主源，防 SSRF。
+/// gittrend.io 已摘除（个人实例持续 429，对用户已死）；rising/healthy 改走 doforce。
+const TRENDS_TEXT_HOSTS: [&str; 3] = ["github.com", "trend.doforce.dpdns.org", "api.github.com"];
+
+fn check_trends_text_url(raw: &str) -> Result<reqwest::Url, String> {
+    let url = reqwest::Url::parse(raw).map_err(|_| "trends: bad url".to_string())?;
+    if url.scheme() != "https" {
+        return Err("trends: only https allowed".to_string());
+    }
+    let ok = url
+        .host_str()
+        .map(|h| TRENDS_TEXT_HOSTS.contains(&h.to_ascii_lowercase().as_str()))
+        .unwrap_or(false);
+    if !ok {
+        return Err("trends: host not allowlisted".to_string());
+    }
+    Ok(url)
+}
+
+/// 趋势榜单 HTTP 直取（绕过 WebView CORS；Rust 侧无 CORS 概念）。
+/// 10s 超时；成功返回 body 文本。错误串内含可机读标记供前端映射：
+/// `upstream status {code}`（HTTP 状态）、`request timeout`（超时）、
+/// `network error`（连接/DNS 等）。完整 URL 永不回显（query 可能含参）。
+#[tauri::command]
+pub async fn fetch_trends_text(url: String) -> Result<String, String> {
+    let sid = crate::z_log::new_session_id();
+    let req = crate::z_log::new_req_id();
+    let parsed = check_trends_text_url(&url).map_err(|e| {
+        log::warn!("trends text rejected sid={} req={} reason={}", sid, req, e);
+        e
+    })?;
+    // 最小记录：host + path，不记 query（调用方当前无秘密参数，仍保持最小）。
+    let host = parsed.host_str().unwrap_or("?").to_string();
+    let path = parsed.path().to_string();
+    log::debug!("trends text fetch start sid={} req={} host='{}' path='{}'", sid, req, host, path);
+    let start = std::time::Instant::now();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .user_agent(crate::forge::http::BROWSER_UA_VALUE)
+        .build()
+        .map_err(|e| format!("trends: client build failed: {}", e))?;
+    let resp = client.get(parsed).send().await.map_err(|e| {
+        let elapsed_ms = start.elapsed().as_millis();
+        if e.is_timeout() {
+            log::warn!(
+                "trends text timeout sid={} req={} host='{}' elapsed_ms={} reason={}",
+                sid,
+                req,
+                host,
+                elapsed_ms,
+                crate::log_support::http_err_reason(&e)
+            );
+            return format!("trends: request timeout: {}", crate::log_support::http_err_reason(&e));
+        }
+        log::warn!(
+            "trends text network fail sid={} req={} host='{}' elapsed_ms={} reason={}",
+            sid,
+            req,
+            host,
+            elapsed_ms,
+            crate::log_support::http_err_reason(&e)
+        );
+        format!("trends: network error: {}", crate::log_support::http_err_reason(&e))
+    })?;
+    let status = resp.status();
+    if !status.is_success() {
+        log::warn!(
+            "trends text upstream sid={} req={} host='{}' status={} elapsed_ms={}",
+            sid,
+            req,
+            host,
+            status.as_u16(),
+            start.elapsed().as_millis()
+        );
+        return Err(format!("trends: upstream status {}", status.as_u16()));
+    }
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| {
+            log::warn!(
+                "trends text read fail sid={} req={} host='{}' elapsed_ms={} reason={}",
+                sid,
+                req,
+                host,
+                start.elapsed().as_millis(),
+                crate::log_support::short_reason(&e.to_string())
+            );
+            format!("trends: read body failed: {}", crate::log_support::short_reason(&e.to_string()))
+        })?;
+    log::debug!(
+        "trends text ok sid={} req={} host='{}' bytes={} elapsed_ms={}",
+        sid,
+        req,
+        host,
+        body.len(),
+        start.elapsed().as_millis()
+    );
+    Ok(body)
+}
+
+#[cfg(test)]
+mod trends_text_tests {
+    use super::check_trends_text_url;
+
+    #[test]
+    fn allowlist_accepts_trends_origins() {
+        assert!(check_trends_text_url("https://github.com/trending?since=daily").is_ok());
+        assert!(check_trends_text_url("https://trend.doforce.dpdns.org/repo").is_ok());
+        assert!(check_trends_text_url("https://api.github.com/search/repositories?q=x").is_ok());
+    }
+
+    #[test]
+    fn allowlist_rejects_non_https_unknown_and_spoofed_hosts() {
+        assert!(check_trends_text_url("http://github.com/trending").is_err());
+        assert!(check_trends_text_url("https://evil.example.com/x").is_err());
+        assert!(check_trends_text_url("https://github.com.evil.example.com/").is_err());
+        assert!(check_trends_text_url("https://apigithub.com/").is_err());
+        assert!(check_trends_text_url("https://gittrend.io/api/trending").is_err());
+        assert!(check_trends_text_url("not a url").is_err());
+    }
+}

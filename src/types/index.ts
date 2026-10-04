@@ -360,9 +360,7 @@ export type TrendBoardId =
   | 'monthly'
   | 'new'
   | 'rising'
-  | 'category'
-  | 'healthy'
-  | 'top';
+  | 'healthy';
 
 export interface TrendRepo {
   id: string;
@@ -371,9 +369,10 @@ export interface TrendRepo {
   repo: string;
   stars: number;
   /**
-   * 本周期新增星数。仅当上游明确提供速度口径（OSSInsight current_period_growth
-   * 等）时为 defined；缺失/不可解析时一律为 undefined，绝不回退为总 stars。
-   * UI 契约：仅在 defined 时渲染 +N 徽标，undefined 一律不渲染。
+   * 本周期新增星数。仅当上游明确提供速度口径（trending 页增量文本、
+   * doforce change 等）时为 defined；缺失/不可解析时一律为 undefined，
+   * 绝不回退为总 stars。UI 契约：仅在 defined 时渲染 +N 徽标，
+   * undefined 一律不渲染。
    */
   starsGained?: number;
   forks?: number;
@@ -387,9 +386,21 @@ export interface FetchTrendsOptions {
   category?: string;
   forceRefresh?: boolean;
   /**
-   * 本地精选库快照（可选）：传入时 `fetchTrends('category')` 会在 service 内
-   * 先 enrichWithCatalogCategory 再按 category 过滤，保证 category 参数在
-   * service 层即被兑现，而非仅 UI 过滤。
+   * GitHub 加速代理前缀（保留字段，仅为契约稳定；趋势流量恒直连，本字段被忽略）。
+   * gh-proxy 保留给应用下载（Rust 侧）；trends 皆为小 JSON/HTML，始终直连。
+   * UI 仍可传入既有值，无需改动调用方。
    */
-  catalogApps?: AppSummary[];
+  proxyPrefix?: string;
+}
+
+// 趋势抓取结果契约（UI 空态/错误 lane 依赖，保持 STABLE）。
+// status: 'ok' = 有数据；'empty' = 远端合法空结果；'error' = 失败（见 errorKind）。
+export type TrendsStatus = 'ok' | 'empty' | 'error';
+
+export type TrendsErrorKind = 'network' | 'timeout' | 'rate-limited' | 'unavailable';
+
+export interface TrendsResult {
+  repos: TrendRepo[];
+  status: TrendsStatus;
+  errorKind?: TrendsErrorKind;
 }

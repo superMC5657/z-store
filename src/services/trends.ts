@@ -1,11 +1,39 @@
-import type { AppSummary, FetchTrendsOptions, TrendBoardId, TrendRepo } from '../types';
+import type {
+  AppSummary,
+  FetchTrendsOptions,
+  TrendBoardId,
+  TrendRepo,
+  TrendsErrorKind,
+  TrendsResult,
+} from '../types';
+import { tauriApi } from './api';
+import { zlogInfo, zlogWarn } from '../lib/z-log';
 
 // UI 兼容：榜单契约类型定义以 `../types` 为 SSOT，此处原样 re-export，
 // 因此从 `services/trends` 或 `types` 导入均可。
-export type { FetchTrendsOptions, TrendBoardId, TrendRepo } from '../types';
+export type {
+  FetchTrendsOptions,
+  TrendBoardId,
+  TrendRepo,
+  TrendsErrorKind,
+  TrendsResult,
+  TrendsStatus,
+} from '../types';
 
-export const CACHE_TTL_MS = 5 * 60 * 1000; // 5 分钟内存缓存
-const FETCH_TIMEOUT_MS = 5000; // 远端请求统一 5s 熔断
+export const CACHE_TTL_MS = 5 * 60 * 1000; // 5 分钟内存缓存（仅成功结果写入；rising/healthy 除外，见下）
+/**
+ * doforce 源数据共享缓存 TTL：12h。
+ * 日榜粒度数据日内几乎不变，长缓存 + 两榜共享把远端命中压到最低；
+ * 其余榜单保持 5 分钟。
+ */
+export const DOFORCE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+/** 429 单次重试的最大等待：60s；超过即直接 error，不再等待。 */
+export const DOFORCE_RETRY_MAX_WAIT_MS = 60_000;
+/** 429 错误串无 Retry-After 可用时的默认等待（Rust 侧当前仅回传状态码）。 */
+export const DOFORCE_RETRY_DEFAULT_WAIT_MS = 5_000;
+export const TRENDING_TIMEOUT_MS = 10_000; // github.com/trending HTML 抓取 10s 熔断
+export const DOFORCE_TIMEOUT_MS = 10_000; // doforce API 10s 熔断（Rust 侧执行）
+export const GITHUB_SEARCH_TIMEOUT_MS = 10_000; // GitHub Search 主源 10s 熔断
 
 const trendsCache = new Map<string, { timestamp: number; data: TrendRepo[] }>();
 
@@ -26,9 +54,25 @@ function writeTrendsCache(key: string, data: TrendRepo[]): void {
   trendsCache.set(key, { timestamp: Date.now(), data });
 }
 
-/** 仅供测试与榜单切换时使用：清空趋势内存缓存。 */
+/** doforce 源数据共享缓存（rising/healthy 共用原始快照，各榜自行排序）。 */
+let doforceSharedCache: { timestamp: number; data: TrendRepo[] } | undefined;
+/** doforce 在途共享 Promise（并发的 rising/healthy 复用同一请求，防 2 连击）。 */
+let doforceInflight: Promise<TrendRepo[]> | undefined;
+
+function readDoforceShared(): TrendRepo[] | undefined {
+  if (!doforceSharedCache) return undefined;
+  if (Date.now() - doforceSharedCache.timestamp < DOFORCE_CACHE_TTL_MS) {
+    return doforceSharedCache.data;
+  }
+  doforceSharedCache = undefined;
+  return undefined;
+}
+
+/** 仅供测试与榜单切换时使用：清空趋势内存缓存（含 doforce 共享缓存与在途请求）。 */
 export function clearTrendsCache(): void {
   trendsCache.clear();
+  doforceSharedCache = undefined;
+  doforceInflight = undefined;
 }
 
 /**
@@ -71,171 +115,259 @@ export function matchCatalogApp(trend: TrendRepo, catalogApps: AppSummary[]): Ap
   });
 }
 
-async function fetchWithTimeout(url: string, timeoutMs = FETCH_TIMEOUT_MS, init: RequestInit = {}): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
+// ---------------------------------------------------------------------------
+// Trends traffic is ALWAYS direct: no gh-proxy prefix is applied to any URL.
+//
+// Policy (user decision): proxy is reserved for app downloads (rewritten on
+// the Rust side). Trends payloads are small JSON/HTML and fetch direct.
+// `opts.proxyPrefix` is accepted but IGNORED (kept in FetchTrendsOptions only
+// for contract stability — the UI still passes it); `withTrendsProxy` below
+// is the single choke point and is now the identity function.
+// ---------------------------------------------------------------------------
+
+/** Normalize a proxy prefix: empty/direct -> undefined; ghproxy -> default; http(s) kept. */
+export function normalizeProxyPrefix(raw?: string): string | undefined {
+  if (raw == null) return undefined;
+  const t = String(raw).trim();
+  if (!t || t === 'direct') return undefined;
+  if (t === 'ghproxy') return 'https://gh-proxy.com';
+  if (/^https?:\/\//i.test(t)) return t.replace(/\/+$/, '');
+  return undefined;
 }
 
-type OSSInsightPeriod = 'past_24_hours' | 'past_week' | 'past_month';
-
 /**
- * Board → OSSInsight period 单一映射（SSOT）。
- * 时间榜一榜一查询；`top` 为纯离线榜，不使用此映射、不做任何远端请求，
- * 与 `monthly`（past_month 速度榜）彻底区分。
+ * @deprecated Identity: trends traffic is always direct, no prefix is applied.
+ * Kept (still called by every trends URL builder) so callers need no changes
+ * if the policy is ever revisited — fix here once, not at every call site.
  */
-export const BOARD_TO_PERIOD: Record<'daily' | 'weekly' | 'monthly', OSSInsightPeriod> = {
-  daily: 'past_24_hours',
-  weekly: 'past_week',
-  monthly: 'past_month',
+export function withTrendsProxy(url: string, _opts: FetchTrendsOptions = {}): string {
+  void _opts;
+  return url;
+}
+
+// ---------------------------------------------------------------------------
+// 错误分类（UI lane 依赖，保持 STABLE）。
+// 403/429 → rate-limited；Abort → timeout；TypeError/Failed to fetch → network；
+// 其余 HTTP/未知 → unavailable。
+// ---------------------------------------------------------------------------
+
+function errorStatusOf(err: unknown): number | undefined {
+  const s = (err as { status?: unknown })?.status;
+  return typeof s === 'number' ? s : undefined;
+}
+
+/** 将未知异常映射为 TrendsErrorKind（附带 HTTP status 时优先按 status 判定）。 */
+export function classifyTrendsError(err: unknown, status?: number): TrendsErrorKind {
+  const s = status ?? errorStatusOf(err);
+  if (s === 403 || s === 429) return 'rate-limited';
+  const name = (err as { name?: unknown })?.name;
+  const msg = String((err as { message?: unknown })?.message ?? err ?? '');
+  if (name === 'AbortError' || /abort|timeout|timed out/i.test(msg)) return 'timeout';
+  if (err instanceof TypeError || /failed to fetch|network|load failed/i.test(msg)) return 'network';
+  if (/rate.?limit/i.test(msg)) return 'rate-limited';
+  return 'unavailable';
+}
+
+type TimeBoardId = 'daily' | 'weekly' | 'monthly';
+
+// ---------------------------------------------------------------------------
+// 时间榜主源：github.com/trending HTML 抓取（一榜一查询，无降级链）。
+// URL 形如 `https://github.com/trending[/<language>]?since=daily|weekly|monthly`。
+// 解析规则见 parseTrendingHtml / mapTrendingArticle。
+// github.com/trending 恒走直连（trends 流量永不套用代理，见上）。
+// ---------------------------------------------------------------------------
+
+/** Board → trending `?since=` 参数的单一映射（SSOT）。 */
+export const TRENDING_SINCE: Record<TimeBoardId, 'daily' | 'weekly' | 'monthly'> = {
+  daily: 'daily',
+  weekly: 'weekly',
+  monthly: 'monthly',
 };
 
-function mapOSSInsightRow(r: Record<string, unknown>): TrendRepo | null {
-  const rawName = String(r.repo_name ?? r.name ?? '').trim();
+/** 构造 trending 抓取 URL（language 走 `/trending/<lang>` 路径段）。 */
+export function buildTrendingUrl(board: TimeBoardId, opts: FetchTrendsOptions = {}): string {
+  const since = TRENDING_SINCE[board];
+  const lang = opts.language?.trim();
+  const raw =
+    lang && lang.toLowerCase() !== 'all'
+      ? `https://github.com/trending/${encodeURIComponent(lang)}?since=${since}`
+      : `https://github.com/trending?since=${since}`;
+  return withTrendsProxy(raw, opts);
+}
+
+/**
+ * 解析紧凑数字："1,234" / "12.3k" / "1.2M" / "56"。
+ * 非数字返回 undefined（调用方自行回退，绝不伪造）。
+ */
+export function parseCompactNumber(raw: string): number | undefined {
+  const t = raw.trim().replace(/,/g, '');
+  const m = t.match(/^([\d.]+)\s*([kKmM]?)$/);
+  if (!m) return undefined;
+  const n = Number(m[1]);
+  if (!Number.isFinite(n)) return undefined;
+  const unit = m[2].toLowerCase();
+  const mult = unit === 'k' ? 1000 : unit === 'm' ? 1_000_000 : 1;
+  return Math.round(n * mult);
+}
+
+function stripHtmlTags(html: string): string {
+  return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * 解析单个 `article.Box-row`：
+ * - 仓库身份：首个恰为两段路径的 `a[href="/owner/repo"]`
+ *   （`/owner/repo/stargazers` 等三段链接一律跳过）；
+ * - 增量：`([\d,]+) stars (today|this week|this month)` 文本
+ *   （含单数 "1 star today"），解析为 starsGained（真实数字）；
+ * - 总量：stargazers/forks 链接文本（k/m 缩写展开）；缺失时 stars 回退 0
+ *  （TrendRepo.stars 为必填 number）、forks 保持 undefined。
+ */
+function mapTrendingArticle(articleHtml: string): TrendRepo | null {
+  const linkRe = /<a\b[^>]*\bhref="(\/[^"]+)"[^>]*>/gi;
   let owner = '';
   let repo = '';
-  if (rawName.includes('/')) {
-    const parts = rawName.split('/');
-    owner = parts[0];
-    repo = parts.slice(1).join('/');
-  } else {
-    owner = String(r.owner ?? '');
-    repo = String(r.repo ?? rawName);
+  let m: RegExpExecArray | null;
+  while ((m = linkRe.exec(articleHtml)) !== null) {
+    const path = m[1].split('?')[0].split('#')[0];
+    const segs = path.split('/').filter((s) => s.trim() !== '');
+    if (segs.length === 2 && /^[A-Za-z0-9_.-]+$/.test(segs[0]) && /^[A-Za-z0-9_.-]+$/.test(segs[1])) {
+      owner = segs[0];
+      repo = segs[1];
+      break;
+    }
   }
-  const fullName = owner && repo ? `${owner}/${repo}` : rawName || repo;
-  if (!fullName) return null;
-  // stars = 仓库总星数；starsGained = 本周期新增。
-  // UI 契约：仅当 starsGained 为 defined 才渲染 +N 徽标；上游缺失时必须为
-  // undefined，绝不回退为总 stars（否则会把存量误标为增量，属 P1 误导徽章）。
-  const stars = Number(r.stars ?? r.star_count ?? r.stars_count ?? 0);
-  const gainedRaw = r.current_period_growth ?? r.stars_gained ?? r.growth;
+  if (!owner || !repo) return null;
+  const fullName = `${owner}/${repo}`;
+  const text = stripHtmlTags(articleHtml);
+  const gainMatch = text.match(/([\d,]+)\s+stars?\s+(today|this\s+week|this\s+month)/i);
   let starsGained: number | undefined;
-  if (gainedRaw == null || gainedRaw === '') {
-    starsGained = undefined;
-  } else {
-    const n = Number(gainedRaw);
+  if (gainMatch) {
+    const n = Number(gainMatch[1].replace(/,/g, ''));
     starsGained = Number.isFinite(n) ? n : undefined;
   }
-  const forksRaw = r.forks ?? r.fork_count;
+  const totalFor = (kind: 'stargazers' | 'forks'): number | undefined => {
+    const re = new RegExp(`href="[^"]*/${kind}"[^>]*>([\\s\\S]*?)<\\/a>`, 'i');
+    const hit = articleHtml.match(re);
+    if (!hit) return undefined;
+    return parseCompactNumber(stripHtmlTags(hit[1]));
+  };
+  const stars = totalFor('stargazers') ?? 0;
+  const forks = totalFor('forks');
+  const descMatch = articleHtml.match(/<p\b[^>]*>([\s\S]*?)<\/p>/i);
+  const descText = descMatch ? stripHtmlTags(descMatch[1]) : '';
   return {
     id: fullName,
     name: fullName,
     owner,
     repo,
-    stars: Number.isFinite(stars) ? stars : 0,
+    stars,
+    // 增量来自页面真实文本；缺失即 undefined，UI 仅 defined 渲染 +N。
     starsGained,
-    forks: forksRaw == null || forksRaw === '' ? undefined : Number(forksRaw),
-    description: r.description ? String(r.description) : undefined,
-    url: fullName ? `https://github.com/${fullName}` : undefined,
+    forks,
+    description: descText ? descText : undefined,
+    url: `https://github.com/${fullName}`,
+  };
+}
+
+/** 解析 trending 整页：抽取全部 `article.Box-row` 并按 fullName 去重。 */
+export function parseTrendingHtml(html: string): TrendRepo[] {
+  const articleRe = /<article\b[^>]*class="[^"]*Box-row[^"]*"[^>]*>([\s\S]*?)<\/article>/gi;
+  const repos: TrendRepo[] = [];
+  const seen = new Set<string>();
+  let m: RegExpExecArray | null;
+  while ((m = articleRe.exec(html)) !== null) {
+    const r = mapTrendingArticle(m[1]);
+    if (!r) continue;
+    const key = r.id.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    repos.push(r);
+  }
+  return repos;
+}
+
+/**
+ * daily/weekly/monthly 主源：trending HTML（Rust 侧抓取，10s 超时，无 CORS 概念）。
+ * 失败抛错（上层映射 errorKind），空页返回 []。
+ */
+export async function fetchTrendingRepos(
+  board: TimeBoardId,
+  opts: FetchTrendsOptions = {},
+): Promise<TrendRepo[]> {
+  const url = buildTrendingUrl(board, opts);
+  const html = await tauriApi.fetchTrendsText(url);
+  return parseTrendingHtml(html);
+}
+// ---------------------------------------------------------------------------
+// rising / healthy primary: doforce public API (no key).
+// URL: https://trend.doforce.dpdns.org/repo (200 JSON array).
+// Item shape: {"repo":"/owner/name","desc","lang","stars","forks","change",...}
+// where `change` is the real period stars gained (same semantics as the
+// trending daily increment). Single-flight shared fetch + 12h shared cache
+// (see below); rising sorts by change desc, healthy by (forks + change).
+// ---------------------------------------------------------------------------
+
+export const DOFORCE_URL = 'https://trend.doforce.dpdns.org/repo';
+
+/** Build the doforce request URL (always direct). */
+export function buildDoforceUrl(opts: FetchTrendsOptions = {}): string {
+  return withTrendsProxy(DOFORCE_URL, opts);
+}
+
+function numOrUndefined(v: unknown): number | undefined {
+  if (v == null || v === '') return undefined;
+  const n = typeof v === 'string' ? Number(v.trim().replace(/,/g, '')) : Number(v);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/**
+ * Map a doforce item. `repo` carries a leading slash ("/owner/name") which is
+ * stripped; `desc` -> description (`lang` dropped: TrendRepo has no language
+ * field and nothing consumes it). starsGained = change (real gained stars);
+ * missing/non-numeric change -> undefined, never faked from totals.
+ */
+function mapDoforceItem(item: Record<string, unknown>): TrendRepo | null {
+  const rawRepo = String(item.repo ?? item.full_name ?? item.fullName ?? '').trim().replace(/^\/+/, '');
+  if (!rawRepo.includes('/')) return null;
+  const [owner, ...rest] = rawRepo.split('/');
+  const repo = rest.join('/').trim();
+  const cleanOwner = owner.trim();
+  if (!cleanOwner || !repo) return null;
+  const id = `${cleanOwner}/${repo}`;
+  const change = numOrUndefined(item.change);
+  const stars = Number(item.stars ?? 0);
+  const forks = numOrUndefined(item.forks);
+  const description = item.desc ?? item.description;
+  return {
+    id,
+    name: id,
+    owner: cleanOwner,
+    repo,
+    stars: Number.isFinite(stars) ? stars : 0,
+    starsGained: change,
+    forks,
+    description: description ? String(description) : undefined,
+    url: `https://github.com/${id}`,
   };
 }
 
 /**
- * 时间榜共用源：OSSInsight 趋势仓库（免 key 公开 API）。
- * daily → past_24_hours，weekly → past_week，monthly → past_month，
- * 一榜一查询，不存在“同一快照多公式复算”。
+ * doforce primary (fetched Rust-side, 10s timeout, no CORS concept).
+ * Accepts a bare array or an `{items|data|repos}` envelope; throws on failure,
+ * returns [] when empty.
  */
-export async function fetchOSSInsightRepos(
-  period: OSSInsightPeriod,
-  language?: string,
-  timeoutMs = FETCH_TIMEOUT_MS,
-): Promise<TrendRepo[]> {
-  let url = `https://api.ossinsight.io/v1/trends/repos/?period=${period}`;
-  if (language) url += `&language=${encodeURIComponent(language)}`;
-
-  const res = await fetchWithTimeout(url, timeoutMs);
-  if (!res.ok) {
-    throw new Error(`OSSInsight returned status ${res.status}`);
-  }
-  const json = await res.json();
-  if (json?.data_quality?.status === 'unavailable') {
+export async function fetchDoforceRepos(): Promise<TrendRepo[]> {
+  const url = buildDoforceUrl({});
+  const text = await tauriApi.fetchTrendsText(url);
+  const json: unknown = JSON.parse(text);
+  const items = Array.isArray(json) ? json : ((json as Record<string, unknown>)?.items ?? (json as Record<string, unknown>)?.data ?? (json as Record<string, unknown>)?.repos);
+  if (!Array.isArray(items) || items.length === 0) {
     return [];
   }
-  const rows = json?.data?.rows;
-  if (!Array.isArray(rows) || rows.length === 0) {
-    return [];
-  }
-
-  return rows
-    .map((r: Record<string, unknown>) => mapOSSInsightRow(r))
-    .filter((item): item is TrendRepo => item !== null && Boolean(item.name));
-}
-
-const GITHUB_REPO_REGEX = /https?:\/\/(?:www\.)?github\.com\/([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)/i;
-const IGNORED_GITHUB_SEGMENTS = new Set([
-  'features',
-  'pricing',
-  'about',
-  'security',
-  'topics',
-  'trending',
-  'collections',
-  'events',
-  'blog',
-  'readme',
-  'site',
-  'status',
-]);
-
-type TimeBoardId = 'daily' | 'weekly' | 'monthly';
-
-/**
- * 时间榜降级源：Hacker News (Algolia) 近期含 github 链接的热门 story（免 key）。
- * HN points 既非总 stars 亦非精确增量，此处同时写入 stars/starsGained 仅作榜内排序代理，
- * 已在字段层面诚实标注，不冒充精确口径。
- */
-export async function fetchHNRepos(board: TimeBoardId, timeoutMs = FETCH_TIMEOUT_MS): Promise<TrendRepo[]> {
-  const timeDelta = board === 'daily' ? 86400 : board === 'weekly' ? 7 * 86400 : 30 * 86400;
-  const since = Math.floor(Date.now() / 1000) - timeDelta;
-  const url = `https://hn.algolia.com/api/v1/search?tags=story&query=github.com&numericFilters=created_at_i>${since}&hitsPerPage=50`;
-
-  const res = await fetchWithTimeout(url, timeoutMs);
-  if (!res.ok) {
-    throw new Error(`HN Algolia returned status ${res.status}`);
-  }
-  const json = await res.json();
-  const hits = json?.hits;
-  if (!Array.isArray(hits) || hits.length === 0) {
-    return [];
-  }
-
-  const seen = new Set<string>();
-  const repos: TrendRepo[] = [];
-
-  for (const h of hits) {
-    const storyUrl = String(h.url || '');
-    const match = storyUrl.match(GITHUB_REPO_REGEX);
-    if (!match) continue;
-
-    const owner = match[1];
-    const repo = match[2].replace(/\.git$/i, '');
-    if (IGNORED_GITHUB_SEGMENTS.has(owner.toLowerCase()) || IGNORED_GITHUB_SEGMENTS.has(repo.toLowerCase())) {
-      continue;
-    }
-
-    const fullName = `${owner}/${repo}`;
-    const lower = fullName.toLowerCase();
-    if (seen.has(lower)) continue;
-    seen.add(lower);
-
-    const points = Number(h.points ?? 0);
-    repos.push({
-      id: fullName,
-      name: fullName,
-      owner,
-      repo,
-      stars: Number.isFinite(points) ? points : 0,
-      starsGained: Number.isFinite(points) ? points : 0,
-      description: h.title ? String(h.title) : undefined,
-      url: `https://github.com/${fullName}`,
-    });
-  }
-
-  return repos;
+  return items
+    .map((it: Record<string, unknown>) => mapDoforceItem(it))
+    .filter((item): item is TrendRepo => item !== null);
 }
 
 function mapGitHubSearchItem(item: Record<string, unknown>): TrendRepo | null {
@@ -261,23 +393,19 @@ function mapGitHubSearchItem(item: Record<string, unknown>): TrendRepo | null {
 }
 
 /**
- * new 榜首选源：GitHub code search（created:>6个月，免 key 可用但配额极严）。
- * 触发限流/离线/空结果时抛错或返回 []，由上层切换到客户端兜底。
+ * new 榜主源：GitHub Search（created:>6个月，免 key 可用但配额极严）。
+ * Rust 侧抓取，10s 超时；失败/空由上层按 error/empty 契约返回。
  */
-export async function fetchGitHubNewRepos(timeoutMs = FETCH_TIMEOUT_MS): Promise<TrendRepo[]> {
+export async function fetchGitHubNewRepos(): Promise<TrendRepo[]> {
   const since = new Date(Date.now() - 182 * 24 * 3600 * 1000).toISOString().slice(0, 10);
-  const url =
+  const url = withTrendsProxy(
     `https://api.github.com/search/repositories` +
-    `?q=${encodeURIComponent(`created:>${since}`)}&sort=stars&order=desc&per_page=20`;
+      `?q=${encodeURIComponent(`created:>${since}`)}&sort=stars&order=desc&per_page=20`,
+  );
 
-  const res = await fetchWithTimeout(url, timeoutMs, {
-    headers: { Accept: 'application/vnd.github+json' },
-  });
-  if (!res.ok) {
-    throw new Error(`GitHub search returned status ${res.status}`);
-  }
-  const json = await res.json();
-  const items = json?.items;
+  const text = await tauriApi.fetchTrendsText(url);
+  const json: unknown = JSON.parse(text);
+  const items = (json as Record<string, unknown>)?.items;
   if (!Array.isArray(items) || items.length === 0) {
     return [];
   }
@@ -287,56 +415,43 @@ export async function fetchGitHubNewRepos(timeoutMs = FETCH_TIMEOUT_MS): Promise
 }
 
 // ---------------------------------------------------------------------------
-// 纯函数排序/过滤：一榜一口径。
-//
-// 说明（防 S2 重复指责）：rising / healthy / category / new-fallback 均为
-// weekly 速度快照之上的客户端视图（client views），并非独立上游数据源；
-// 它们各自定义了互不相同的纯排序/过滤口径，因此 5 种榜单顺序必然分叉。
-// monthly（past_month 速度，按 starsGained 排序）与 top（纯离线，按 stars
-// 排序）则是另外两条独立口径，互不共享远端查询。
+// 纯函数排序/过滤。rising / healthy 由各自主源快照排序（见各 fetch*Result）；
+// 下列 ranker 为 retained 纯工具（healthyScore 仍被 healthy 榜连线）。
 // ---------------------------------------------------------------------------
 
-/** rising 榜口径：增速比 = starsGained / max(1, stars - starsGained)。 */
+/** 增速比 = starsGained / max(1, stars - starsGained)。 */
 export function growthRatio(repo: TrendRepo): number {
   const gained = repo.starsGained ?? 0;
   return gained / Math.max(1, repo.stars - gained);
 }
 
-/** rising 榜：按增速比降序。 */
+/** 按增速比降序（纯函数）。 */
 export function rankByGrowthRatio(repos: TrendRepo[]): TrendRepo[] {
   return [...repos].sort((a, b) => growthRatio(b) - growthRatio(a));
 }
 
-/** top 榜口径：只按总 stars 降序，不掺任何增量权重。 */
-export function sortByStarsTotal(repos: TrendRepo[]): TrendRepo[] {
-  return [...repos].sort((a, b) => b.stars - a.stars);
-}
-
 /**
  * healthy 榜代理分 = (forks ?? 0) + (starsGained ?? 0)。
- *
- * 局限性（已文档化，不冒充精确口径）：真正的“发布新鲜度”需要逐仓调
- * GitHub releases API 取 latest published_at，属于 N+1 高配额消耗，
- * 此处仅用 forks（协作体量）+ starsGained（近期热度）作活跃代理。
+ * healthy 榜连线此函数（starsGained 即 doforce change）。
  */
 export function healthyScore(repo: TrendRepo): number {
   return (repo.forks ?? 0) + (repo.starsGained ?? 0);
 }
 
-/** healthy 榜：按代理分降序。 */
+/** 按 healthy 代理分降序（纯函数，healthy 榜连线）。 */
 export function sortByHealthyScore(repos: TrendRepo[]): TrendRepo[] {
   return [...repos].sort((a, b) => healthyScore(b) - healthyScore(a));
 }
 
-/** new 榜客户端兜底阈值：GitHub search 不可用时复用 weekly 快照并按此过滤。 */
+/** new 榜客户端兜底阈值（显式调用，非隐式 fallback）。 */
 export const NEW_FALLBACK_MAX_STARS = 2000;
 export const NEW_FALLBACK_MAX_FORKS = 500;
 
 /**
- * new 榜客户端兜底视图（纯函数，weekly 快照之上的启发式，非独立上游）：
+ * new 榜客户端兜底视图（纯函数，显式调用，非隐式 fallback）：
  * `stars<2000 && forks<500` 启发式近似“新仓”，组内按 starsGained 降序
- *（缺失按 0，不回退总量）。调用方如需使用须显式调用并标注降级来源；
- * `fetchTrends('new')` 远端失败时直接返回 []，不再隐式复用。
+ *（缺失按 0，不回退总量）。
+ * `fetchTrends('new')` 远端失败时直接返回 error，不再隐式复用。
  */
 export function filterNewReposFallback(repos: TrendRepo[]): TrendRepo[] {
   return repos
@@ -344,208 +459,218 @@ export function filterNewReposFallback(repos: TrendRepo[]): TrendRepo[] {
     .sort((a, b) => (b.starsGained ?? 0) - (a.starsGained ?? 0));
 }
 
-/**
- * category 榜：按本地精选收录库类目分组、组内按 starsGained 降序。
- * 远端行本身不带类目，调用方需先经 `enrichWithCatalogCategory` 补类目；
- * 传入 `category` 时只保留该组（大小写不敏感）。
- */
-export function sortByCategoryGroup(repos: TrendRepo[], category?: string): TrendRepo[] {
-  const want = category?.trim().toLowerCase();
-  const list = want ? repos.filter((r) => (r.category ?? '').toLowerCase() === want) : [...repos];
-  const byGained = (a: TrendRepo, b: TrendRepo) => (b.starsGained ?? 0) - (a.starsGained ?? 0);
-  if (want) return list.sort(byGained);
-  return list.sort((a, b) => {
-    const ca = (a.category ?? '').toLowerCase();
-    const cb = (b.category ?? '').toLowerCase();
-    if (ca !== cb) return ca < cb ? -1 : 1;
-    return byGained(a, b);
-  });
-}
-
-/** 用本地精选收录库的类目为远端榜单行补 `category`（category 榜分组依据）。 */
-export function enrichWithCatalogCategory(repos: TrendRepo[], catalogApps: AppSummary[]): TrendRepo[] {
-  return repos.map((r) => {
-    if (r.category) return r;
-    const matched = matchCatalogApp(r, catalogApps);
-    return matched ? { ...r, category: matched.category } : r;
-  });
-}
-
-/**
- * top 榜离线路径（无 fetch，SSOT）：本地精选收录库快照只按总 stars 降序。
- * 本地 catalog 无周期增量，starsGained 一律 undefined（UI 不渲染 +N）。
- * 首屏/离线秒开走此函数；`fetchTrends('top')` 零远端请求（见下），与
- * monthly（past_month 远端速度榜）彻底区分。
- */
-export function trendReposFromCatalog(apps: AppSummary[]): TrendRepo[] {
-  return apps
-    .map((app) => ({
-      id: app.id,
-      name: `${app.owner}/${app.repo}`,
-      owner: app.owner,
-      repo: app.repo,
-      stars: app.stars,
-      starsGained: undefined as number | undefined,
-      forks: app.forks,
-      description: app.description,
-      url: `https://github.com/${app.owner}/${app.repo}`,
-      category: app.category,
-    }))
-    .sort((a, b) => b.stars - a.stars);
-}
-
 // ---------------------------------------------------------------------------
-// 统一入口：一榜一源。远端为空一律返回 []，绝不回退本地加权排序（P0）。
+// 统一入口：严格一榜一源，无任何榜单内降级链。
+// 主源失败 → {status:'error', errorKind}；合法空 → {status:'empty'}。
+// 5 分钟缓存仅在成功（非空）时写入；各榜缓存键独立，互不复用。
 // ---------------------------------------------------------------------------
 
-async function fetchTimeBoard(board: TimeBoardId, opts: FetchTrendsOptions): Promise<TrendRepo[]> {
+async function fetchTimeBoardResult(board: TimeBoardId, opts: FetchTrendsOptions): Promise<TrendsResult> {
   const key = buildTrendsCacheKey(board, opts);
   if (!opts.forceRefresh) {
     const hit = readTrendsCache(key);
-    if (hit) return hit;
+    if (hit) return { repos: hit, status: 'ok' };
   }
 
-  const ossPeriod: OSSInsightPeriod = BOARD_TO_PERIOD[board];
-
+  // 单一主源：trending HTML。失败按 errorKind 返回，绝不降级、不伪造。
+  // 日志经 z-log 落盘（F12 不可用，console 不可见）：board + source + count/kind。
   try {
-    const ossRepos = await fetchOSSInsightRepos(ossPeriod, opts.language);
-    if (ossRepos.length > 0) {
-      // monthly 为 past_month 速度榜：显式按 starsGained 降序（缺失按 0），
-      // 与 top（纯离线按 stars 排序）彻底区分；daily/weekly 保留远端速度顺序。
-      const ordered =
-        board === 'monthly'
-          ? [...ossRepos].sort((a, b) => (b.starsGained ?? 0) - (a.starsGained ?? 0))
-          : ossRepos;
-      writeTrendsCache(key, ordered);
-      return ordered;
+    const repos = await fetchTrendingRepos(board, opts);
+    if (repos.length > 0) {
+      writeTrendsCache(key, repos);
+      zlogInfo(`[trends] board=${board} source=trending-html ok count=${repos.length}`);
+      return { repos, status: 'ok' };
     }
-  } catch {
-    // 忽略异常，继续降级 HN
+    return { repos: [], status: 'empty' };
+  } catch (err) {
+    const errorKind = classifyTrendsError(err);
+    zlogWarn(
+      `[trends] board=${board} source=trending-html error kind=${errorKind} ` +
+        `status=${errorStatusOf(err) ?? '-'} msg=${String((err as { message?: unknown })?.message ?? err)}`,
+    );
+    return { repos: [], status: 'error', errorKind };
   }
-
-  try {
-    const hnRepos = await fetchHNRepos(board);
-    if (hnRepos.length > 0) {
-      const ordered =
-        board === 'monthly'
-          ? [...hnRepos].sort((a, b) => (b.starsGained ?? 0) - (a.starsGained ?? 0))
-          : hnRepos;
-      writeTrendsCache(key, ordered);
-      return ordered;
-    }
-  } catch {
-    // 忽略异常，返回空数组（上层按空态处理，不做本地加权假榜）
-  }
-
-  return [];
 }
 
-async function fetchNewBoard(opts: FetchTrendsOptions): Promise<TrendRepo[]> {
+async function fetchNewBoardResult(opts: FetchTrendsOptions): Promise<TrendsResult> {
   const key = buildTrendsCacheKey('new', opts);
   if (!opts.forceRefresh) {
     const hit = readTrendsCache(key);
-    if (hit) return hit;
+    if (hit) return { repos: hit, status: 'ok' };
   }
 
-  // new 榜单一远端源：GitHub search。remote-empty => []（P3），不再隐式复用
-  // weekly 快照；如调用方需要降级视图，须显式调用 filterNewReposFallback(weekly)。
+  // new 榜单一远端源：GitHub search（created 6mo 窗口）。失败/空按契约返回。
   try {
     const fresh = await fetchGitHubNewRepos();
     if (fresh.length > 0) {
       writeTrendsCache(key, fresh);
-      return fresh;
+      zlogInfo(`[trends] board=new source=github-search ok count=${fresh.length}`);
+      return { repos: fresh, status: 'ok' };
     }
-    return [];
-  } catch {
-    return [];
+    return { repos: [], status: 'empty' };
+  } catch (err) {
+    const errorKind = classifyTrendsError(err);
+    zlogWarn(
+      `[trends] board=new source=github-search error kind=${errorKind} ` +
+        `status=${errorStatusOf(err) ?? '-'} msg=${String((err as { message?: unknown })?.message ?? err)}`,
+    );
+    return { repos: [], status: 'error', errorKind };
   }
 }
 
-async function fetchRisingBoard(opts: FetchTrendsOptions): Promise<TrendRepo[]> {
-  const key = buildTrendsCacheKey('rising', opts);
-  if (!opts.forceRefresh) {
-    const hit = readTrendsCache(key);
-    if (hit) return hit;
-  }
-  const weekly = await fetchTimeBoard('weekly', opts);
-  if (weekly.length === 0) return [];
-  const ranked = rankByGrowthRatio(weekly);
-  writeTrendsCache(key, ranked);
-  return ranked;
-}
-
-async function fetchCategoryBoard(opts: FetchTrendsOptions): Promise<TrendRepo[]> {
-  const key = buildTrendsCacheKey('category', opts);
-  if (!opts.forceRefresh) {
-    const hit = readTrendsCache(key);
-    if (hit) return hit;
-  }
-  const weekly = await fetchTimeBoard('weekly', opts);
-  if (weekly.length === 0) return [];
-  // category 过滤在 service 内完成（非 UI-only）：远端行默认无 category，
-  // 若调用方经 opts.catalogApps 传入本地精选库，则先 enrich 再分组过滤；
-  // 未传入时仍按 opts.category 做大小写不敏感过滤（无类目行将被滤除）。
-  const base = opts.catalogApps ? enrichWithCatalogCategory(weekly, opts.catalogApps) : weekly;
-  const grouped = sortByCategoryGroup(base, opts.category);
-  if (grouped.length > 0) {
-    writeTrendsCache(key, grouped);
-  }
-  return grouped;
-}
-
-async function fetchHealthyBoard(opts: FetchTrendsOptions): Promise<TrendRepo[]> {
-  const key = buildTrendsCacheKey('healthy', opts);
-  if (!opts.forceRefresh) {
-    const hit = readTrendsCache(key);
-    if (hit) return hit;
-  }
-  const weekly = await fetchTimeBoard('weekly', opts);
-  if (weekly.length === 0) return [];
-  const ranked = sortByHealthyScore(weekly);
-  writeTrendsCache(key, ranked);
-  return ranked;
-}
-
-// (fetchTopBoard 已删除：top 为纯离线榜，零远端请求，见 fetchTrends 'top' 分支。)
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * 统一趋势抓取入口，一榜一源：
- * daily/weekly → OSSInsight 对应 period 速度顺序（失败降级 HN）；
- * monthly → OSSInsight past_month 并显式按 starsGained 降序（速度榜）；
- * new → GitHub search，失败/空一律返回 []（不再隐式复用 weekly）；
- * rising/category/healthy → weekly 快照之上的客户端视图
- *   （增速比 / 类目分组 / 活跃代理，非独立上游）；
- * top → 纯离线榜：零远端请求，返回 []；UI 首屏/离线请直接调用
- *   trendReposFromCatalog(apps)（按总 stars 排序，starsGained 恒为 undefined）。
- *
- * 远端为空一律返回 []，绝不回退本地加权排序。
- * 缓存键 = board + language + category；category 过滤在 service 内完成。
+ * 解析 Retry-After 等待毫秒数：纯秒数或 HTTP-date。
+ * 返回 undefined 表示无可用值；HTTP-date 已过期返回 0（立即重试）。
  */
-export async function fetchTrends(board: TrendBoardId, opts: FetchTrendsOptions = {}): Promise<TrendRepo[]> {
-  // 时间榜路由同样走 BOARD_TO_PERIOD 单一映射（替代 switch 三分支）。
-  if (board in BOARD_TO_PERIOD) {
-    return fetchTimeBoard(board as TimeBoardId, opts);
+export function parseRetryAfterMs(raw: string | undefined): number | undefined {
+  if (raw == null) return undefined;
+  const t = raw.trim();
+  if (t === '') return undefined;
+  if (/^\d+$/.test(t)) {
+    const ms = Number(t) * 1000;
+    return Number.isFinite(ms) ? ms : undefined;
+  }
+  const at = Date.parse(t);
+  if (!Number.isNaN(at)) return Math.max(0, at - Date.now());
+  return undefined;
+}
+
+/**
+ * 从错误串提取 Retry-After 值并换算等待毫秒。
+ * Rust 侧当前仅回传状态码（`upstream status 429`），header 值不可见时返回
+ * 默认等待；若未来后端把 header 值写入错误串（如 `retry-after: 30`），
+ * 此处按秒数/HTTP-date 兑现，上限 60s（超限返回 undefined = 直接 error）。
+ */
+export function doforceRetryDelayMs(err: unknown): number | undefined {
+  const msg = String((err as { message?: unknown })?.message ?? err ?? '');
+  const m = msg.match(/retry-after\s*[:=]\s*([^\s,;]+(?:\s+[^\s,;]+)*)/i);
+  const wait = parseRetryAfterMs(m?.[1]) ?? DOFORCE_RETRY_DEFAULT_WAIT_MS;
+  if (wait > DOFORCE_RETRY_MAX_WAIT_MS) return undefined;
+  return wait;
+}
+
+/**
+ * doforce 单次重试抓取：429 且等待可接受时恰好再试一次并如实落盘；
+ * 仍 429/其他失败直接抛给上层（error/empty 契约不变）。
+ */
+async function fetchDoforceWithRetry(): Promise<TrendRepo[]> {
+  try {
+    return await fetchDoforceRepos();
+  } catch (err) {
+    if (classifyTrendsError(err) !== 'rate-limited') throw err;
+    const wait = doforceRetryDelayMs(err);
+    if (wait === undefined) throw err;
+    zlogWarn(`[trends] doforce 429 single retry after ${wait}ms`);
+    await sleep(wait);
+    return fetchDoforceRepos();
+  }
+}
+
+/**
+ * doforce 单飞共享抓取：并发的 rising/healthy 复用同一在途 Promise；
+ * 成功（非空）写入 12h 共享缓存；空结果不缓存。forceRefresh 强制重抓。
+ */
+async function fetchDoforceShared(forceRefresh = false): Promise<TrendRepo[]> {
+  if (!forceRefresh) {
+    const hit = readDoforceShared();
+    if (hit) {
+      zlogInfo('[trends] doforce shared-cache hit');
+      return hit;
+    }
+    if (doforceInflight) {
+      zlogInfo('[trends] doforce single-flight shared-hit');
+      return doforceInflight;
+    }
+  }
+  const slot: { current?: Promise<TrendRepo[]> } = {};
+  slot.current = (async (): Promise<TrendRepo[]> => {
+    try {
+      const repos = await fetchDoforceWithRetry();
+      if (repos.length > 0) {
+        doforceSharedCache = { timestamp: Date.now(), data: repos };
+      }
+      return repos;
+    } finally {
+      if (doforceInflight === slot.current) doforceInflight = undefined;
+    }
+  })();
+  doforceInflight = slot.current;
+  return slot.current;
+}
+
+async function fetchRisingBoardResult(opts: FetchTrendsOptions): Promise<TrendsResult> {
+  // rising 取 doforce 共享快照（12h/单飞），按 change 降序；榜单自身不再另设缓存。
+  try {
+    const repos = await fetchDoforceShared(opts.forceRefresh);
+    if (repos.length === 0) return { repos: [], status: 'empty' };
+    const ranked = [...repos].sort((a, b) => (b.starsGained ?? 0) - (a.starsGained ?? 0));
+    zlogInfo(`[trends] board=rising source=doforce ok count=${ranked.length}`);
+    return { repos: ranked, status: 'ok' };
+  } catch (err) {
+    const errorKind = classifyTrendsError(err);
+    zlogWarn(
+      `[trends] board=rising source=doforce error kind=${errorKind} ` +
+        `status=${errorStatusOf(err) ?? '-'} msg=${String((err as { message?: unknown })?.message ?? err)}`,
+    );
+    return { repos: [], status: 'error', errorKind };
+  }
+}
+
+async function fetchHealthyBoardResult(opts: FetchTrendsOptions): Promise<TrendsResult> {
+  // healthy 取 doforce 共享快照（12h/单飞），按 healthyScore 代理分降序；榜单自身不再另设缓存。
+  try {
+    const repos = await fetchDoforceShared(opts.forceRefresh);
+    if (repos.length === 0) return { repos: [], status: 'empty' };
+    const ranked = sortByHealthyScore(repos);
+    zlogInfo(`[trends] board=healthy source=doforce ok count=${ranked.length}`);
+    return { repos: ranked, status: 'ok' };
+  } catch (err) {
+    const errorKind = classifyTrendsError(err);
+    zlogWarn(
+      `[trends] board=healthy source=doforce error kind=${errorKind} ` +
+        `status=${errorStatusOf(err) ?? '-'} msg=${String((err as { message?: unknown })?.message ?? err)}`,
+    );
+    return { repos: [], status: 'error', errorKind };
+  }
+}
+
+/**
+ * 统一趋势抓取入口（Result 契约，UI lane 依赖，保持 STABLE）：
+ * daily/weekly/monthly → github.com/trending HTML（?since=daily|weekly|monthly）；
+ * rising → doforce 公开 API（按 change 降序）；
+ * healthy → doforce 公开 API（按 forks + change 代理分降序）；
+ * new → GitHub search（created 6mo 窗口）。
+ * 一榜一源、无降级链：主源失败即 error、有空即 empty；成功（非空）才写缓存
+ * （5 分钟按榜；rising/healthy 共用 doforce 12h 共享快照 + 单飞请求）。
+ * Cache key = board + language + category (written on success only).
+ */
+export async function fetchTrendsResult(
+  board: TrendBoardId,
+  opts: FetchTrendsOptions = {},
+): Promise<TrendsResult> {
+  // 时间榜路由走 TRENDING_SINCE 单一映射（替代 switch 三分支）。
+  if (board in TRENDING_SINCE) {
+    return fetchTimeBoardResult(board as TimeBoardId, opts);
   }
   switch (board) {
     case 'new':
-      return fetchNewBoard(opts);
+      return fetchNewBoardResult(opts);
     case 'rising':
-      return fetchRisingBoard(opts);
-    case 'category':
-      return fetchCategoryBoard(opts);
+      return fetchRisingBoardResult(opts);
     case 'healthy':
-      return fetchHealthyBoard(opts);
-    case 'top': {
-      // 纯离线榜：零 fetch，与 monthly 的 past_month 远端查询彻底区分。
-      // 命中缓存则返回缓存（对称），否则返回 []，由 UI 切本地快照。
-      const key = buildTrendsCacheKey('top', opts);
-      if (!opts.forceRefresh) {
-        const hit = readTrendsCache(key);
-        if (hit) return hit;
-      }
-      return [];
-    }
+      return fetchHealthyBoardResult(opts);
     default:
       throw new Error(`[trends] unknown board: ${String(board)}`);
   }
+}
+
+/**
+ * 兼容入口：签名保持不变，内部委托 fetchTrendsResult，仅返回 repos。
+ * 需要状态/错误细分的调用方请使用 fetchTrendsResult。
+ */
+export async function fetchTrends(board: TrendBoardId, opts: FetchTrendsOptions = {}): Promise<TrendRepo[]> {
+  const result = await fetchTrendsResult(board, opts);
+  return result.repos;
 }

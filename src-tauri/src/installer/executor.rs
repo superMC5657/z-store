@@ -105,11 +105,13 @@ pub fn sniff_setup_kind_from_file(path: &Path) -> SetupKind {
 }
 
 /// 安装器类型 ⇒ 静默参数映射（纯函数，可单元测试）。
-/// 未知类型返回空（调用方走交互式回退，绝不猜测）。
+/// 与 MSI 行为对齐：setup_exe 无 NSIS/Inno 引擎可调用，exe 本体即安装器，
+/// 一律返回空（不带静默参数直接拉起），由其自带向导控制流程（可见进度、可取消），
+/// 调用方 `.wait()` 等待完成。嗅探/分类逻辑不动，仅参数变化。
 pub fn silent_args_for_setup_kind(kind: &SetupKind) -> Vec<String> {
     match kind {
-        SetupKind::Nsis => vec!["/S".to_string()],
-        SetupKind::Inno => vec!["/VERYSILENT".to_string(), "/NORESTART".to_string()],
+        SetupKind::Nsis => Vec::new(),
+        SetupKind::Inno => Vec::new(),
         SetupKind::Unknown => Vec::new(),
     }
 }

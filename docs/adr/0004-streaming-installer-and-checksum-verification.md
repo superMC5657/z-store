@@ -21,6 +21,7 @@
    - **Windows MSI**: 执行 `msiexec.exe /i <file> /qn` 静默安装，失败降级唤起向导；静默与向导两次调起均带 `MSIFASTINSTALL=7` 环境变量，跳过系统还原点创建（高频安装场景下每个还原点动辄十几秒），仅作用于本次拉起的进程，不改系统全局策略。
    - 安装成功后固定等待 800ms 让系统落盘（注册表/文件写入，仅安装侧；卸载侧等待不变），再嗅探安装路径；外部向导异步落盘导致的路径晚到，由既有的 5×500ms 重试循环兜底。
    - **Windows Setup EXE**: 自动探测 NSIS (`/S`) 或 InnoSetup (`/VERYSILENT /NORESTART`) 参数。
+      - *2026-10-04 修订（setup_exe 交互式默认）*：与 MSI 行为对齐——setup_exe 无 NSIS/Inno 引擎可调用（exe 本体即安装器），Nsis/Inno/Unknown 一律返回空参数、不带静默开关直接拉起，由其自带向导控制流程（可见进度、可取消），调用方 `.wait()` 等待完成；退出码 1602/1/2 仍映射为用户取消（MSI 静默重试逻辑不动）。嗅探/分类逻辑与 App 层确认弹窗均保持不变。
    - **便携版 ZIP**: 自动安全解包至 `%LOCALAPPDATA%\Programs\z-store-apps\<app_id>\`，利用 PowerShell COM 组件自动在桌面建立快捷方式，并写入数据库以便后续无残留清理。
    - **macOS DMG**: 执行 `hdiutil attach -nobrowse -readonly` 挂载 -> 探测卷内 `.app` 目录 -> 拷贝至 `/Applications`（无写权限时降级为 `~/Applications`）-> 强制调用 `hdiutil detach -force` 卸载释放卷。
    - **macOS PKG**: 优先通过 `installer -pkg <path> -target CurrentUserHomeDirectory` 或唤起系统 `open` 安装向导。

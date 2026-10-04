@@ -1,219 +1,586 @@
 /**
- * 趋势数据层测试（P1/P2/P3 + Standards 修复后）。
+ * 趋势数据层测试（严格一榜一源）。
  *
- * 覆盖八榜契约 `fetchTrends(board, opts)`：
- * daily/weekly → OSSInsight 对应 period 速度顺序（HN 降级）；
- * monthly → OSSInsight past_month 并显式按 starsGained 降序（速度榜）；
- * top → 纯离线榜：fetchTrends 零远端请求返回 []，UI 用 trendReposFromCatalog；
- * new → GitHub search，失败/空一律返回 []（不再隐式复用 weekly）；
- * rising/category/healthy → weekly 快照之上的客户端视图
- *  （增速比 / 类目分组 / 活跃代理，非独立上游），new-fallback 为同族纯函数。
+ * 每榜单一主源，无任何榜单内降级链，失败按 TrendsResult 错误契约返回
+ * （UI lane 依赖，保持 STABLE）：
+ * daily/weekly/monthly → github.com/trending HTML（?since=daily|weekly|monthly），
+ *   增量取页面真实文本 `N stars today|this week|this month`；
+ * rising/healthy → doforce 公开 API（单飞共享一次抓取 + 12h 共享缓存；
+ *   rising 按 change，healthy 按 forks + change 各自排序）；
+ * new → GitHub search（created 6mo 窗口，starsGained 恒为 undefined）。
+ * 已删除：OSSInsight、HN Algolia、时间榜 GitHub-Search 兜底。
  *
  * 核心断言：
- * - 上游缺失增量 => starsGained 为 undefined（绝不回退总量），UI 仅 defined 渲染 +N；
- * - 5 种纯函数排序互不相同；monthly 与 top 口径彻底区分（past_month vs 零fetch）。
- * - 远端为空一律返回 []，绝不回退本地加权排序。
+ * - rising/healthy 单飞共享：并发与随后调用只产生一次远端抓取；
+ *   时间榜永不触碰 api.github.com；ossinsight/hn 永不出现）；
+ * - 429 恰好重试一次（Retry-After 秒数/HTTP-date，上限 60s），仍败则 error；
+ * - 解析规则：单数/逗号/缺 span/三段链接跳过/k 缩写；
+ * - errorKind 映射（403/429→rate-limited，Abort→timeout，TypeError→network）；
+ * - 成功（非空）才写 5 分钟缓存；`fetchTrends` 签名兼容。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { MockInstance } from 'vitest';
 import * as trendsModule from '../services/trends';
 import {
+  buildDoforceUrl,
+  buildTrendingUrl,
   buildTrendsCacheKey,
   CACHE_TTL_MS,
+  classifyTrendsError,
   clearTrendsCache,
-  enrichWithCatalogCategory,
+  fetchGitHubNewRepos,
+  fetchDoforceRepos,
+  fetchTrendingRepos,
   fetchTrends,
+  fetchTrendsResult,
   filterNewReposFallback,
   formatStars,
+  DOFORCE_CACHE_TTL_MS,
+  DOFORCE_RETRY_DEFAULT_WAIT_MS,
+  DOFORCE_RETRY_MAX_WAIT_MS,
+  DOFORCE_TIMEOUT_MS,
+  DOFORCE_URL,
+  GITHUB_SEARCH_TIMEOUT_MS,
+  doforceRetryDelayMs,
   growthRatio,
   healthyScore,
   matchCatalogApp,
+  normalizeProxyPrefix,
+  parseCompactNumber,
+  parseRetryAfterMs,
+  parseTrendingHtml,
   rankByGrowthRatio,
-  sortByCategoryGroup,
   sortByHealthyScore,
-  sortByStarsTotal,
-  trendReposFromCatalog,
+  TRENDING_SINCE,
+  TRENDING_TIMEOUT_MS,
+  withTrendsProxy,
 } from '../services/trends';
-import type { TrendRepo } from '../services/trends';
-import { boardFixture, makeTrendRepo, ossRowOf, repoIds } from './test-utils/trendFixture';
+import {
+  boardFixture,
+  doforceEdgeFixture,
+  doforceFixture,
+  ghItemOf,
+  makeTrendRepo,
+  repoIds,
+  trendingHtmlFixture,
+} from './test-utils/trendFixture';
 import { makeApp } from './test-utils/filterFixture';
+import { tauriApi } from '../services/api';
+import { zlogInfo, zlogWarn } from '../lib/z-log';
 
-let fetchMock: ReturnType<typeof vi.fn>;
-let requestedPeriods: (string | undefined)[];
-let hnHits: unknown[];
+vi.mock('../lib/z-log', () => ({
+  zlogInfo: vi.fn(),
+  zlogWarn: vi.fn(),
+  zlogError: vi.fn(),
+}));
+
+let trendSpy: MockInstance<(url: string) => Promise<string>>;
+let rawFetchMock: ReturnType<typeof vi.fn>;
+let requestedUrls: string[];
+let trendingHtml: string | Error;
+let trendingStatus: number | null;
+let doforceItems: unknown[] | Error;
+let doforceStatus: number | null;
 let ghItems: unknown[] | Error;
-let ossRows: Record<string, unknown>[] | Error;
+let ghHttpStatus: number | null;
 
-function ossOk(rows: unknown[]) {
-  return { ok: true, json: async () => ({ data: { rows }, data_quality: { status: 'available' } }) };
+/** 模拟 Rust 命令失败形态：message 含 status 并附带 .status（与 wrapper 输出一致）。 */
+function httpErr(status: number): Error {
+  const err = new Error(`trends: upstream status ${status}`) as Error & { status: number };
+  err.status = status;
+  return err;
+}
+
+function abortError() {
+  const err = new Error('The operation was aborted.');
+  err.name = 'AbortError';
+  return err;
 }
 
 beforeEach(() => {
   clearTrendsCache();
-  requestedPeriods = [];
-  hnHits = [];
+  requestedUrls = [];
+  trendingHtml = '';
+  trendingStatus = null;
+  doforceItems = [];
+  doforceStatus = null;
   ghItems = [];
-  ossRows = [];
-  fetchMock = vi.fn(async (url: string) => {
+  ghHttpStatus = null;
+  rawFetchMock = vi.fn(async () => {
+    throw new Error('raw fetch must not be used by trends');
+  });
+  vi.stubGlobal('fetch', rawFetchMock);
+  trendSpy = vi.spyOn(tauriApi, 'fetchTrendsText').mockImplementation(async (url: string) => {
     const u = String(url);
-    if (u.includes('api.ossinsight.io')) {
-      if (ossRows instanceof Error) throw ossRows;
-      requestedPeriods.push(u.match(/period=([^&]+)/)?.[1]);
-      return ossOk(ossRows);
+    requestedUrls.push(u);
+    if (u.includes('trend.doforce.dpdns.org')) {
+      if (doforceItems instanceof Error) throw doforceItems;
+      if (doforceStatus != null) throw httpErr(doforceStatus);
+      return JSON.stringify({ items: doforceItems });
     }
-    if (u.includes('hn.algolia.com')) {
-      return { ok: true, json: async () => ({ hits: hnHits }) };
+    if (u.includes('github.com/trending')) {
+      if (trendingHtml instanceof Error) throw trendingHtml;
+      if (trendingStatus != null) throw httpErr(trendingStatus);
+      return trendingHtml;
     }
     if (u.includes('api.github.com')) {
       if (ghItems instanceof Error) throw ghItems;
-      return { ok: true, json: async () => ({ items: ghItems }) };
+      if (ghHttpStatus != null) throw httpErr(ghHttpStatus);
+      return JSON.stringify({ items: ghItems });
     }
     throw new Error(`unexpected url: ${u}`);
   });
-  vi.stubGlobal('fetch', fetchMock);
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  trendSpy.mockRestore();
 });
 
-describe('P0: 旧加权公式与 period 兼容层已彻底删除', () => {
-  it('不再导出 sortAppsLocally', () => {
-    expect('sortAppsLocally' in trendsModule).toBe(false);
+function trendingUrls() {
+  return requestedUrls.filter((u) => u.includes('github.com/trending'));
+}
+
+function doforceUrls() {
+  return requestedUrls.filter((u) => u.includes('trend.doforce.dpdns.org'));
+}
+
+function gitHubApiUrls() {
+  return requestedUrls.filter((u) => u.includes('api.github.com'));
+}
+
+describe('P0: 旧加权公式与 dead 数据源已彻底删除', () => {
+  it('不再导出 sortAppsLocally / OSSInsight / HN / GitHub 窗口兜底', () => {
+    for (const name of [
+      'sortAppsLocally',
+      'fetchOSSInsightRepos',
+      'fetchHNRepos',
+      'fetchGitHubWindowRepos',
+      'buildGitHubWindowQuery',
+      'BOARD_TO_PERIOD',
+    ]) {
+      expect(name in trendsModule, name).toBe(false);
+    }
   });
 
-  it('CACHE_TTL_MS 保持 5 分钟', () => {
+  it('CACHE_TTL_MS 保持 5 分钟，主源熔断均为 10s', () => {
     expect(CACHE_TTL_MS).toBe(5 * 60 * 1000);
+    expect(TRENDING_TIMEOUT_MS).toBe(10_000);
+    expect(DOFORCE_TIMEOUT_MS).toBe(10_000);
+    expect(GITHUB_SEARCH_TIMEOUT_MS).toBe(10_000);
   });
 
-  it('旧 TrendPeriod 取值不再是合法 board（无兼容层，直接抛错）', async () => {
+  it('TRENDING_SINCE 一榜一参 + DOFORCE_URL 稳定', () => {
+    expect(TRENDING_SINCE).toEqual({ daily: 'daily', weekly: 'weekly', monthly: 'monthly' });
+    expect(DOFORCE_URL).toBe('https://trend.doforce.dpdns.org/repo');
+    expect(buildDoforceUrl()).toBe('https://trend.doforce.dpdns.org/repo');
+  });
+
+  it('非法 board（旧 period / 已下线榜单）直接抛错', async () => {
     await expect(fetchTrends('day' as never)).rejects.toThrow(/unknown board/);
-    await expect(fetchTrends('week' as never)).rejects.toThrow(/unknown board/);
+    await expect(fetchTrendsResult('week' as never)).rejects.toThrow(/unknown board/);
     await expect(fetchTrends('all' as never)).rejects.toThrow(/unknown board/);
+    await expect(fetchTrends('top' as never)).rejects.toThrow(/unknown board/);
+    await expect(fetchTrendsResult('top' as never)).rejects.toThrow(/unknown board/);
+    await expect(fetchTrends('category' as never)).rejects.toThrow(/unknown board/);
+    await expect(fetchTrendsResult('category' as never)).rejects.toThrow(/unknown board/);
+    expect(trendSpy).not.toHaveBeenCalled();
   });
 
   it('缓存键 = board + language + category', () => {
     expect(buildTrendsCacheKey('weekly')).toBe('weekly||');
     expect(buildTrendsCacheKey('weekly', { language: 'Python' })).toBe('weekly|Python|');
-    expect(buildTrendsCacheKey('category', { category: 'media' })).toBe('category||media');
+    expect(buildTrendsCacheKey('healthy', { category: 'media' })).toBe('healthy||media');
     expect(buildTrendsCacheKey('weekly', { language: 'Go', category: 'dev' })).toBe('weekly|Go|dev');
   });
 });
 
-describe('daily/weekly/monthly：一榜一 period + HN 降级', () => {
-  it('各时间榜命中各自 OSSInsight period，且 starsGained 取 current_period_growth', async () => {
-    ossRows = boardFixture().map(ossRowOf);
-    const weekly = await fetchTrends('weekly');
-    expect(requestedPeriods).toEqual(['past_week']);
-    expect(repoIds(weekly)).toEqual(['acme/atlas', 'acme/dune', 'acme/beacon', 'acme/comet']);
-    // 远端顺序原样保留（源端已按增量排好，不做本地二次加权）
-    const dune = weekly.find((r) => r.id === 'acme/dune')!;
-    expect(dune.stars).toBe(9000);
-    expect(dune.starsGained).toBe(2500);
-    expect(dune.forks).toBe(100);
-    expect(dune.url).toBe('https://github.com/acme/dune');
-
-    const daily = await fetchTrends('daily', { forceRefresh: true });
-    expect(requestedPeriods.at(-1)).toBe('past_24_hours');
-    expect(daily.length).toBe(4);
-
-    const monthly = await fetchTrends('monthly', { forceRefresh: true });
-    expect(requestedPeriods.at(-1)).toBe('past_month');
-    expect(monthly.length).toBe(4);
-  });
-
-  it('monthly 按 starsGained 降序显式重排（速度榜，与 top 总星榜区分）', async () => {
-    // 远端故意乱序：monthly 必须按增量重排为 dune > beacon > comet > atlas
-    const shuffled = [boardFixture()[0], boardFixture()[3], boardFixture()[1], boardFixture()[2]];
-    ossRows = shuffled.map(ossRowOf);
-    const monthly = await fetchTrends('monthly');
-    expect(requestedPeriods).toEqual(['past_month']);
-    expect(monthly.map((r) => r.starsGained)).toEqual([2500, 1400, 380, 120]);
-    expect(repoIds(monthly)).toEqual(['acme/dune', 'acme/beacon', 'acme/comet', 'acme/atlas']);
-  });
-
-  it('P1：上游缺失增量 => starsGained 为 undefined（绝不回退总量）', async () => {
-    ossRows = [
-      { repo_name: 'acme/nogrowth', stars: 9876, description: 'no growth field' },
-      { repo_name: 'acme/emptygrowth', stars: 500, current_period_growth: '', description: 'empty' },
-      { repo_name: 'acme/badgrowth', stars: 500, current_period_growth: 'not-a-number' },
-    ];
-    const repos = await fetchTrends('weekly');
-    expect(repos).toHaveLength(3);
-    for (const r of repos) {
-      expect(r.starsGained).toBeUndefined();
+describe('时间榜主源：trending HTML 一榜一 URL', () => {
+  it('daily/weekly/monthly 命中各自 ?since= 参数', async () => {
+    trendingHtml = trendingHtmlFixture();
+    for (const board of ['daily', 'weekly', 'monthly'] as const) {
+      const res = await fetchTrendsResult(board, { forceRefresh: true });
+      expect(res.status).toBe('ok');
+      expect(repoIds(res.repos)).toHaveLength(3);
     }
-    expect(repos[0].stars).toBe(9876);
-    // UI 契约：仅 defined 才渲染 +N，undefined 一律不渲染（此处不断言 UI，只锁定数据层）。
+    expect(trendingUrls()).toEqual([
+      'https://github.com/trending?since=daily',
+      'https://github.com/trending?since=weekly',
+      'https://github.com/trending?since=monthly',
+    ]);
+    expect(buildTrendingUrl('daily')).toBe('https://github.com/trending?since=daily');
   });
 
-  it('language 透传为 OSSInsight 查询参数', async () => {
-    ossRows = boardFixture().map(ossRowOf);
+  it('language 走 /trending/<lang> 路径段（all/空不追加）', async () => {
+    trendingHtml = trendingHtmlFixture();
     await fetchTrends('weekly', { language: 'Python' });
-    const url = String(fetchMock.mock.calls[0][0]);
-    expect(url).toContain('language=Python');
+    expect(trendingUrls()[0]).toBe('https://github.com/trending/Python?since=weekly');
+    expect(buildTrendingUrl('weekly', { language: 'all' })).toBe(
+      'https://github.com/trending?since=weekly',
+    );
   });
 
-  it('请求携带 AbortSignal（5s 熔断）', async () => {
-    ossRows = boardFixture().map(ossRowOf);
-    await fetchTrends('weekly');
-    const init = fetchMock.mock.calls[0][1] as RequestInit | undefined;
-    expect(init?.signal).toBeInstanceOf(AbortSignal);
+  it('解析规则：增量/总量/身份/缺失口径', async () => {
+    expect(parseTrendingHtml('')).toEqual([]);
+    const parsed = parseTrendingHtml(trendingHtmlFixture());
+    const [atlas, beacon, comet] = parsed;
+    // atlas：逗号增量 + 总量 + 描述
+    expect(atlas.id).toBe('acme/atlas');
+    expect(atlas.starsGained).toBe(1234);
+    expect(atlas.stars).toBe(12000);
+    expect(atlas.forks).toBe(400);
+    expect(atlas.description).toBe('Atlas desc');
+    expect(atlas.url).toBe('https://github.com/acme/atlas');
+    // beacon：单数 "1 star today" + 缺 forks 链接
+    expect(beacon.starsGained).toBe(1);
+    expect(beacon.stars).toBe(1500);
+    expect(beacon.forks).toBeUndefined();
+    // comet：三段 /stargazers 链接在前仍正确取身份；无增量 span；k 缩写；无描述
+    expect(comet.id).toBe('acme/comet');
+    expect(comet.starsGained).toBeUndefined();
+    expect(comet.stars).toBe(1200);
+    expect(comet.forks).toBe(60);
+    expect(comet.description).toBeUndefined();
   });
 
-  it('OSSInsight 异常时降级 HN，并按 GITHUB_REPO_REGEX 解析/去重/过滤', async () => {
-    ossRows = new Error('oss down');
-    hnHits = [
-      { url: 'https://github.com/acme/dune', points: 42, title: 'Dune story' },
-      { url: 'https://github.com/acme/dune', points: 42, title: 'Dune dup' },
-      { url: 'https://github.com/trending/python', points: 99, title: 'ignored segment' },
-      { url: 'https://example.com/not-a-repo', points: 10, title: 'noise' },
-    ];
-    const repos = await fetchTrends('weekly');
-    expect(fetchMock.mock.calls.some(([u]) => String(u).includes('hn.algolia.com'))).toBe(true);
-    expect(repoIds(repos)).toEqual(['acme/dune']);
-    expect(repos[0].stars).toBe(42);
-    expect(repos[0].starsGained).toBe(42);
+  it('fetchTrendingRepos 直接可用（有代理也恒直连）', async () => {
+    trendingHtml = trendingHtmlFixture();
+    const repos = await fetchTrendingRepos('daily', { proxyPrefix: 'https://gh-proxy.com' });
+    expect(repoIds(repos)).toHaveLength(3);
+    expect(trendingUrls()[0].startsWith('https://gh-proxy.com')).toBe(false);
+    expect(trendingUrls()[0]).toBe('https://github.com/trending?since=daily');
   });
 
-  it('远端全空（OSSInsight 空行 + HN 空 hits）返回 []，不做本地加权假榜', async () => {
-    ossRows = [];
-    hnHits = [];
-    await expect(fetchTrends('daily')).resolves.toEqual([]);
-    await expect(fetchTrends('weekly')).resolves.toEqual([]);
-    await expect(fetchTrends('monthly')).resolves.toEqual([]);
+  it('parseCompactNumber：逗号/k/m/非法', () => {
+    expect(parseCompactNumber('1,234')).toBe(1234);
+    expect(parseCompactNumber('1.2k')).toBe(1200);
+    expect(parseCompactNumber('2M')).toBe(2_000_000);
+    expect(parseCompactNumber('56')).toBe(56);
+    expect(parseCompactNumber('n/a')).toBeUndefined();
   });
 
-  it('同 board+lang 走缓存，不同 language 重新请求，forceRefresh 强制刷新', async () => {
-    ossRows = boardFixture().map(ossRowOf);
+  it('经 Rust 命令抓取，不再使用 WebView raw fetch', async () => {
+    trendingHtml = trendingHtmlFixture();
+    doforceItems = doforceFixture();
+    await fetchTrendsResult('daily');
+    await fetchTrendsResult('rising', { forceRefresh: true });
+    expect(trendSpy).toHaveBeenCalled();
+    expect(rawFetchMock).not.toHaveBeenCalled();
+  });
+
+  it('空页 => empty；HTTP 500 => error/unavailable（经 z-log 落盘）', async () => {
+    trendingHtml = '<div class="Box"></div>';
+    await expect(fetchTrendsResult('daily')).resolves.toEqual({ repos: [], status: 'empty' });
+    trendingStatus = 500;
+    vi.mocked(zlogWarn).mockClear();
+    await expect(fetchTrendsResult('weekly', { forceRefresh: true })).resolves.toEqual({
+      repos: [],
+      status: 'error',
+      errorKind: 'unavailable',
+    });
+    const warns = vi.mocked(zlogWarn).mock.calls.map(([m]) => String(m));
+    expect(warns.some((m) => m.includes('board=weekly') && m.includes('unavailable'))).toBe(true);
+  });
+
+  it('成功经 z-log 记录 board/source/count', async () => {
+    trendingHtml = trendingHtmlFixture();
+    vi.mocked(zlogInfo).mockClear();
+    await fetchTrendsResult('daily');
+    const infos = vi.mocked(zlogInfo).mock.calls.map(([m]) => String(m));
+    expect(
+      infos.some((m) => m.includes('board=daily') && m.includes('trending-html') && m.includes('count=3')),
+    ).toBe(true);
+  });
+
+  it('Abort => timeout；TypeError => network', async () => {
+    trendingHtml = abortError() as unknown as string;
+    await expect(fetchTrendsResult('daily', { forceRefresh: true })).resolves.toMatchObject({
+      status: 'error',
+      errorKind: 'timeout',
+    });
+    trendingHtml = new TypeError('Failed to fetch') as unknown as string;
+    await expect(fetchTrendsResult('daily', { forceRefresh: true })).resolves.toMatchObject({
+      status: 'error',
+      errorKind: 'network',
+    });
+  });
+
+  it('时间榜永不触碰 api.github.com；ossinsight/hn 永不出现', async () => {
+    trendingHtml = trendingHtmlFixture();
+    for (const board of ['daily', 'weekly', 'monthly'] as const) {
+      await fetchTrendsResult(board, { forceRefresh: true });
+    }
+    expect(gitHubApiUrls()).toHaveLength(0);
+    expect(doforceUrls()).toHaveLength(0);
+    expect(requestedUrls.some((u) => u.includes('ossinsight'))).toBe(false);
+    expect(requestedUrls.some((u) => u.includes('algolia'))).toBe(false);
+  });
+
+  it('成功写入缓存（同 key 复用，forceRefresh 穿透）', async () => {
+    trendingHtml = trendingHtmlFixture();
     await fetchTrends('weekly', { language: 'Python' });
     await fetchTrends('weekly', { language: 'Python' });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    await fetchTrends('weekly', { language: 'Go' });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    await fetchTrends('weekly', { language: 'Go', forceRefresh: true });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(trendingUrls()).toHaveLength(1);
+    await fetchTrends('weekly', { language: 'Python', forceRefresh: true });
+    expect(trendingUrls()).toHaveLength(2);
+  });
+
+  it('错误不写入缓存（重试重新请求）', async () => {
+    trendingStatus = 500;
+    await fetchTrendsResult('weekly');
+    await fetchTrendsResult('weekly');
+    expect(trendingUrls()).toHaveLength(2);
   });
 });
 
-describe('各榜单返回互不相同的排序（取代旧 Top3 固定顺序）', () => {
-  it('纯函数：top / rising / healthy / new兜底 / category 全部分叉', () => {
-    const fixture = boardFixture();
-    const top = repoIds(sortByStarsTotal(fixture));
-    const rising = repoIds(rankByGrowthRatio(fixture));
-    const healthy = repoIds(sortByHealthyScore(fixture));
-    const fresh = repoIds(filterNewReposFallback(fixture));
-    const grouped = repoIds(sortByCategoryGroup(fixture));
-
-    expect(top).toEqual(['acme/atlas', 'acme/dune', 'acme/beacon', 'acme/comet']);
-    expect(rising).toEqual(['acme/comet', 'acme/beacon', 'acme/dune', 'acme/atlas']);
-    expect(healthy).toEqual(['acme/dune', 'acme/beacon', 'acme/atlas', 'acme/comet']);
-    expect(fresh).toEqual(['acme/beacon', 'acme/comet']);
-    expect(grouped).toEqual(['acme/dune', 'acme/atlas', 'acme/beacon', 'acme/comet']);
-
-    const orders = new Set([top, rising, healthy, fresh, grouped].map((o) => o.join(',')));
-    expect(orders.size).toBe(5);
+describe('rising/healthy：doforce 单飞共享（一次抓取，两榜各排）', () => {
+  it('rising 按 change 降序，starsGained 取真实值', async () => {
+    doforceItems = doforceFixture();
+    const res = await fetchTrendsResult('rising');
+    expect(res.status).toBe('ok');
+    expect(repoIds(res.repos)).toEqual(['acme/dune', 'acme/beacon', 'acme/atlas']);
+    expect(res.repos.map((r) => r.starsGained)).toEqual([2500, 1400, 300]);
+    expect(doforceUrls()).toEqual(['https://trend.doforce.dpdns.org/repo']);
+    expect(trendingUrls()).toHaveLength(0);
   });
 
+  it('healthy 按 forks + change 排序（与 rising 分叉），starsGained 亦为 change', async () => {
+    doforceItems = doforceFixture();
+    const res = await fetchTrendsResult('healthy');
+    expect(res.status).toBe('ok');
+    expect(repoIds(res.repos)).toEqual(['acme/atlas', 'acme/dune', 'acme/beacon']);
+    expect(res.repos.map((r) => r.starsGained)).toEqual([300, 2500, 1400]);
+  });
+
+  it('边缘条目：缺 change => undefined；字符串数字与前导斜杠被正确处理', async () => {
+    doforceItems = doforceEdgeFixture();
+    const res = await fetchTrendsResult('rising');
+    expect(res.status).toBe('ok');
+    const byId = Object.fromEntries(res.repos.map((r) => [r.id, r]));
+    // 缺 change：starsGained undefined（绝不回退总量），排最后
+    expect(byId['acme/ghost'].starsGained).toBeUndefined();
+    expect(byId['acme/ghost'].stars).toBe(50);
+    expect(repoIds(res.repos)).toEqual(['acme/str', 'acme/ghost']);
+    // 字符串数字 change 正确处理；url 回退拼接
+    expect(byId['acme/str'].starsGained).toBe(1234);
+    expect(byId['acme/str'].url).toBe('https://github.com/acme/str');
+  });
+
+  it('两榜单飞共享：并发 + 随后调用只产生一次远端抓取', async () => {
+    doforceItems = doforceFixture();
+    const [rising, healthy] = await Promise.all([
+      fetchTrendsResult('rising'),
+      fetchTrendsResult('healthy'),
+    ]);
+    expect(rising.status).toBe('ok');
+    expect(healthy.status).toBe('ok');
+    expect(repoIds(rising.repos)).toEqual(['acme/dune', 'acme/beacon', 'acme/atlas']);
+    expect(repoIds(healthy.repos)).toEqual(['acme/atlas', 'acme/dune', 'acme/beacon']);
+    expect(doforceUrls()).toHaveLength(1);
+    // 随后调用命中 12h 共享缓存，不再抓取
+    await fetchTrendsResult('rising');
+    await fetchTrendsResult('healthy');
+    expect(doforceUrls()).toHaveLength(1);
+    expect(trendingUrls()).toHaveLength(0);
+    expect(gitHubApiUrls()).toHaveLength(0);
+  });
+
+  it('doforce 持续 429：恰好重试一次后 error/rate-limited', async () => {
+    vi.useFakeTimers();
+    try {
+      doforceStatus = 429;
+      const pending = fetchTrendsResult('rising', { forceRefresh: true });
+      await vi.advanceTimersByTimeAsync(DOFORCE_RETRY_DEFAULT_WAIT_MS);
+      await expect(pending).resolves.toMatchObject({
+        status: 'error',
+        errorKind: 'rate-limited',
+      });
+      expect(doforceUrls()).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('429 附带 Retry-After 时按其等待后重试（一次即成功）', async () => {
+    vi.useFakeTimers();
+    try {
+      let calls = 0;
+      trendSpy.mockImplementation(async (url: string) => {
+        requestedUrls.push(String(url));
+        calls += 1;
+        if (calls === 1) {
+          const err = new Error('trends: upstream status 429, retry-after: 1') as Error & {
+            status: number;
+          };
+          err.status = 429;
+          throw err;
+        }
+        return JSON.stringify({ items: doforceFixture() });
+      });
+      const pending = fetchTrendsResult('rising', { forceRefresh: true });
+      await vi.advanceTimersByTimeAsync(1000);
+      const res = await pending;
+      expect(res.status).toBe('ok');
+      expect(repoIds(res.repos)[0]).toBe('acme/dune');
+      expect(doforceUrls()).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('Retry-After 超 60s 上限直接 error（不等不重试）', async () => {
+    const err = new Error('trends: upstream status 429, retry-after: 3600') as Error & {
+      status: number;
+    };
+    err.status = 429;
+    doforceItems = err;
+    const res = await fetchTrendsResult('rising', { forceRefresh: true });
+    expect(res).toMatchObject({ status: 'error', errorKind: 'rate-limited' });
+    expect(doforceUrls()).toHaveLength(1);
+  });
+
+  it('parseRetryAfterMs：秒数/HTTP-date/非法', () => {
+    expect(parseRetryAfterMs('30')).toBe(30_000);
+    expect(parseRetryAfterMs('0')).toBe(0);
+    expect(parseRetryAfterMs('nope')).toBeUndefined();
+    expect(parseRetryAfterMs(undefined)).toBeUndefined();
+    const future = new Date(Date.now() + 20_000).toUTCString();
+    const ms = parseRetryAfterMs(future);
+    expect(ms).toBeGreaterThan(0);
+    expect(ms).toBeLessThanOrEqual(20_000);
+  });
+
+  it('doforceRetryDelayMs：默认等待与上限', () => {
+    expect(DOFORCE_CACHE_TTL_MS).toBe(12 * 60 * 60 * 1000);
+    expect(DOFORCE_RETRY_MAX_WAIT_MS).toBe(60_000);
+    const plain429 = new Error('trends: upstream status 429') as Error & { status: number };
+    plain429.status = 429;
+    expect(doforceRetryDelayMs(plain429)).toBe(DOFORCE_RETRY_DEFAULT_WAIT_MS);
+    const over = new Error('trends: upstream status 429, retry-after: 3600') as Error & {
+      status: number;
+    };
+    over.status = 429;
+    expect(doforceRetryDelayMs(over)).toBeUndefined();
+  });
+
+  it('doforce 空源 => empty（空结果不进共享缓存）', async () => {
+    doforceItems = [];
+    await expect(fetchTrendsResult('healthy', { forceRefresh: true })).resolves.toEqual({
+      repos: [],
+      status: 'empty',
+    });
+    await expect(fetchTrendsResult('rising', { forceRefresh: true })).resolves.toEqual({
+      repos: [],
+      status: 'empty',
+    });
+    expect(doforceUrls()).toHaveLength(2);
+  });
+
+  it('fetchDoforceRepos 直接可用（恒直连）', async () => {
+    doforceItems = doforceFixture();
+    const repos = await fetchDoforceRepos();
+    expect(repos).toHaveLength(3);
+    expect(doforceUrls()[0]).toBe('https://trend.doforce.dpdns.org/repo');
+  });
+});
+
+describe('代理策略：趋势流量恒直连（proxyPrefix 被忽略，仅保留兼容）', () => {
+  it('normalizeProxyPrefix：direct/空 => undefined，ghproxy => 默认前缀', () => {
+    expect(normalizeProxyPrefix(undefined)).toBeUndefined();
+    expect(normalizeProxyPrefix('')).toBeUndefined();
+    expect(normalizeProxyPrefix('direct')).toBeUndefined();
+    expect(normalizeProxyPrefix('ghproxy')).toBe('https://gh-proxy.com');
+    expect(normalizeProxyPrefix('https://gh-proxy.com/')).toBe('https://gh-proxy.com');
+  });
+
+  it('代理已设置时所有趋势 URL 仍直连（proxyPrefix 被忽略）', async () => {
+    trendingHtml = trendingHtmlFixture();
+    doforceItems = doforceFixture();
+    ghItems = [];
+    const proxy = 'https://gh-proxy.com';
+    await fetchTrendsResult('daily', { proxyPrefix: proxy });
+    await fetchTrendsResult('rising', { proxyPrefix: proxy, forceRefresh: true });
+    await fetchTrendsResult('new', { proxyPrefix: proxy, forceRefresh: true });
+    expect(trendingUrls()).toEqual(['https://github.com/trending?since=daily']);
+    expect(doforceUrls()).toEqual(['https://trend.doforce.dpdns.org/repo']);
+    expect(gitHubApiUrls()[0].startsWith('https://api.github.com/')).toBe(true);
+    for (const u of requestedUrls) {
+      expect(u.startsWith(proxy)).toBe(false);
+    }
+    // withTrendsProxy 为恒等函数（@deprecated，仅保留兼容）
+    expect(withTrendsProxy('https://github.com/trending?since=daily', { proxyPrefix: proxy })).toBe(
+      'https://github.com/trending?since=daily',
+    );
+    expect(withTrendsProxy('https://trend.doforce.dpdns.org/repo', { proxyPrefix: proxy })).toBe(
+      'https://trend.doforce.dpdns.org/repo',
+    );
+    expect(
+      withTrendsProxy('https://api.github.com/search/repositories?q=x', { proxyPrefix: proxy }),
+    ).toBe('https://api.github.com/search/repositories?q=x');
+  });
+
+  it('未设置代理时保持官方直连', async () => {
+    trendingHtml = trendingHtmlFixture();
+    await fetchTrends('weekly');
+    for (const u of requestedUrls) {
+      expect(u.startsWith('https://gh-proxy.com')).toBe(false);
+    }
+    expect(withTrendsProxy('https://github.com/trending?since=daily', {})).toBe(
+      'https://github.com/trending?since=daily',
+    );
+  });
+});
+
+describe('错误契约 classifyTrendsError（UI lane 依赖）', () => {
+  it('403/429→rate-limited，Abort→timeout，TypeError→network', () => {
+    expect(classifyTrendsError(new Error('x'), 403)).toBe('rate-limited');
+    expect(classifyTrendsError(new Error('x'), 429)).toBe('rate-limited');
+    expect(classifyTrendsError(abortError())).toBe('timeout');
+    expect(classifyTrendsError(new TypeError('Failed to fetch'))).toBe('network');
+    expect(classifyTrendsError(new Error('boom'), 500)).toBe('unavailable');
+  });
+});
+
+describe('new 榜：GitHub search（created 6mo）保持不变', () => {
+  const ghItem = ghItemOf({
+    ...makeTrendRepo({ id: 'acme/nova', stars: 320 }),
+    forks: 12,
+    description: 'fresh repo',
+  });
+
+  it('可用时按 created:> 取新仓（starsGained 为 undefined）', async () => {
+    ghItems = [ghItem];
+    const res = await fetchTrendsResult('new');
+    expect(res.status).toBe('ok');
+    const url = gitHubApiUrls()[0];
+    expect(url).toContain('api.github.com');
+    expect(decodeURIComponent(url)).toContain('created:>');
+    expect(repoIds(res.repos)).toEqual(['acme/nova']);
+    expect(res.repos[0].starsGained).toBeUndefined();
+  });
+
+  it('限流 => error/rate-limited；空 => empty', async () => {
+    ghHttpStatus = 403;
+    await expect(fetchTrendsResult('new')).resolves.toMatchObject({
+      status: 'error',
+      errorKind: 'rate-limited',
+    });
+    ghHttpStatus = null;
+    ghItems = [];
+    await expect(fetchTrendsResult('new', { forceRefresh: true })).resolves.toEqual({
+      repos: [],
+      status: 'empty',
+    });
+  });
+
+  it('fetchGitHubNewRepos 直接可用', async () => {
+    ghItems = [ghItem];
+    const repos = await fetchGitHubNewRepos();
+    expect(repoIds(repos)).toEqual(['acme/nova']);
+  });
+});
+
+describe('保留的纯函数与兼容入口', () => {
   it('增速比公式 = starsGained / max(1, stars - starsGained)', () => {
     const [atlas, dune, beacon, comet] = boardFixture();
     expect(growthRatio(comet)).toBeCloseTo(380 / 20);
@@ -223,141 +590,24 @@ describe('各榜单返回互不相同的排序（取代旧 Top3 固定顺序）'
     expect(healthyScore(dune)).toBe(100 + 2500);
   });
 
-  it('fetchTrends rising/healthy 派生自 weekly 快照但顺序不同', async () => {
-    ossRows = boardFixture().map(ossRowOf);
-    const rising = await fetchTrends('rising');
-    // 派生榜复用 weekly 缓存：rising 后再取 healthy 不触发第二次 weekly 远端请求
-    const healthy = await fetchTrends('healthy');
-    expect(repoIds(rising)).toEqual(['acme/comet', 'acme/beacon', 'acme/dune', 'acme/atlas']);
-    expect(repoIds(healthy)).toEqual(['acme/dune', 'acme/beacon', 'acme/atlas', 'acme/comet']);
-    expect(requestedPeriods).toEqual(['past_week']);
-    // forceRefresh 向下穿透到底层 weekly 快照
-    await fetchTrends('healthy', { forceRefresh: true });
-    expect(requestedPeriods).toEqual(['past_week', 'past_week']);
+  it('纯函数：rising / healthy / new兜底排序分叉', () => {
+    const fixture = boardFixture();
+    const rising = repoIds(rankByGrowthRatio(fixture));
+    const healthy = repoIds(sortByHealthyScore(fixture));
+    const fresh = repoIds(filterNewReposFallback(fixture));
+    expect(rising).toEqual(['acme/comet', 'acme/beacon', 'acme/dune', 'acme/atlas']);
+    expect(healthy).toEqual(['acme/dune', 'acme/beacon', 'acme/atlas', 'acme/comet']);
+    expect(fresh).toEqual(['acme/beacon', 'acme/comet']);
+    const orders = new Set([rising, healthy, fresh].map((o) => o.join(',')));
+    expect(orders.size).toBe(3);
   });
 
-  it('fetchTrends top 为纯离线榜：零远端请求，返回 []（与 monthly 彻底区分）', async () => {
-    ossRows = boardFixture().map(ossRowOf);
-    const callsBefore = fetchMock.mock.calls.length;
-    const top = await fetchTrends('top');
-    expect(top).toEqual([]);
-    // 零 fetch：monthly 会命中 past_month，top 不得触发任何请求
-    expect(fetchMock.mock.calls.length).toBe(callsBefore);
-    expect(requestedPeriods).toEqual([]);
+  it('fetchTrends 保持签名兼容（委托 Result，仅返回 repos）', async () => {
+    trendingHtml = trendingHtmlFixture();
+    const repos = await fetchTrends('weekly');
+    expect(repoIds(repos)).toHaveLength(3);
   });
 
-  it('top 远端为空返回 []（HN points 不是 stars，不做降级污染口径）', async () => {
-    ossRows = [];
-    await expect(fetchTrends('top')).resolves.toEqual([]);
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-});
-
-describe('new 榜：GitHub search 首选，失败/空一律返回 []（P3，不再隐式复用 weekly）', () => {
-  const ghItem = {
-    full_name: 'acme/nova',
-    stargazers_count: 320,
-    forks_count: 12,
-    description: 'fresh repo',
-    html_url: 'https://github.com/acme/nova',
-  };
-
-  it('GitHub search 可用时按 created:>6mo 取新仓（无增量口径，starsGained 为 undefined）', async () => {
-    ghItems = [ghItem];
-    const repos = await fetchTrends('new');
-    expect(fetchMock.mock.calls.some(([u]) => String(u).includes('api.github.com'))).toBe(true);
-    expect(repoIds(repos)).toEqual(['acme/nova']);
-    expect(repos[0].stars).toBe(320);
-    // P1：GitHub search 不提供周期增量，缺失即 undefined，绝不回退总量
-    expect(repos[0].starsGained).toBeUndefined();
-    expect(repos[0].forks).toBe(12);
-  });
-
-  it('GitHub 限流/异常时返回 []（不再隐式复用 weekly；显式降级请调用 filterNewReposFallback）', async () => {
-    ghItems = new Error('rate limited');
-    ossRows = boardFixture().map(ossRowOf);
-    const repos = await fetchTrends('new');
-    expect(repos).toEqual([]);
-  });
-
-  it('GitHub 返回空 items 同样返回 []（remote-empty=>[]）', async () => {
-    ghItems = [];
-    ossRows = boardFixture().map(ossRowOf);
-    const repos = await fetchTrends('new');
-    expect(repos).toEqual([]);
-  });
-
-  it('filterNewReposFallback 仍为可用纯函数（显式客户端视图，非隐式 fallback）', async () => {
-    const fallback = filterNewReposFallback(boardFixture());
-    expect(repoIds(fallback)).toEqual(['acme/beacon', 'acme/comet']);
-  });
-});
-
-describe('category 榜：本地类目分组 + 组内按 starsGained', () => {
-  const catalog = [
-    makeApp({ id: 'acme/atlas', name: 'Atlas', owner: 'acme', repo: 'atlas', category: 'dev', stars: 12000 }),
-    makeApp({ id: 'acme/dune', name: 'Dune', owner: 'acme', repo: 'dune', category: 'dev', stars: 9000 }),
-    makeApp({ id: 'acme/beacon', name: 'Beacon', owner: 'acme', repo: 'beacon', category: 'media', stars: 1500 }),
-    makeApp({ id: 'acme/comet', name: 'Comet', owner: 'acme', repo: 'comet', category: 'media', stars: 400 }),
-  ];
-
-  it('enrichWithCatalogCategory 经 matchCatalogApp 补齐类目', () => {
-    const bare: TrendRepo[] = boardFixture().map(({ category: _omit, ...r }) => ({ ...r }));
-    expect(bare.every((r) => r.category === undefined)).toBe(true);
-    const enriched = enrichWithCatalogCategory(bare, catalog);
-    expect(enriched.map((r) => r.category)).toEqual(['dev', 'dev', 'media', 'media']);
-    expect(matchCatalogApp(enriched[0], catalog)?.id).toBe('acme/atlas');
-  });
-
-  it('组内按 starsGained 降序；按 category 过滤大小写不敏感', () => {
-    const enriched = enrichWithCatalogCategory(
-      boardFixture().map(({ category: _omit, ...r }) => ({ ...r })),
-      catalog,
-    );
-    expect(repoIds(sortByCategoryGroup(enriched))).toEqual([
-      'acme/dune',
-      'acme/atlas',
-      'acme/beacon',
-      'acme/comet',
-    ]);
-    expect(repoIds(sortByCategoryGroup(enriched, 'media'))).toEqual(['acme/beacon', 'acme/comet']);
-    expect(repoIds(sortByCategoryGroup(enriched, 'Media'))).toEqual(['acme/beacon', 'acme/comet']);
-  });
-
-  it('fetchTrends category 在 service 内兑现 category 过滤（含 catalogApps enrich）', async () => {
-    ossRows = boardFixture().map((r) => {
-      const { category: _omit, ...bare } = ossRowOf(r);
-      return bare;
-    });
-    // 不传 catalogApps：远端行无类目，按 category 过滤恒得 []（不在 UI 补救）
-    const withoutEnrich = await fetchTrends('category', { category: 'media' });
-    expect(withoutEnrich).toEqual([]);
-    // 传入 catalogApps：service 内 enrich 后再过滤，兑现 media 分组
-    const withEnrich = await fetchTrends('category', { category: 'media', catalogApps: catalog, forceRefresh: true });
-    expect(repoIds(withEnrich)).toEqual(['acme/beacon', 'acme/comet']);
-  });
-});
-
-describe('top 离线路径：本地快照零 fetch 只按总星排序（starsGained 恒为 undefined）', () => {
-  it('trendReposFromCatalog 不触发任何网络请求', async () => {
-    const apps = [
-      makeApp({ id: 'b', name: 'B', owner: 'acme', repo: 'b', stars: 100, forks: 10 }),
-      makeApp({ id: 'a', name: 'A', owner: 'acme', repo: 'a', stars: 5000, forks: 300 }),
-      makeApp({ id: 'c', name: 'C', owner: 'acme', repo: 'c', stars: 900, forks: 20 }),
-    ];
-    const repos = trendReposFromCatalog(apps);
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(repos.map((r) => r.stars)).toEqual([5000, 900, 100]);
-    expect(repos[0].category).toBe('system');
-    expect(repos[0].url).toBe('https://github.com/acme/a');
-    // P1：本地 catalog 无速度口径，starsGained 一律 undefined（UI 不渲染 +N）
-    for (const r of repos) {
-      expect(r.starsGained).toBeUndefined();
-    }
-  });
-});
-
-describe('保留的展示工具函数', () => {
   it('formatStars 与 AppCard 规范对齐', () => {
     expect(formatStars(999)).toBe('999');
     expect(formatStars(1500)).toBe('1.5k');
@@ -368,5 +618,35 @@ describe('保留的展示工具函数', () => {
     expect(r.owner).toBe('acme');
     expect(r.repo).toBe('nova');
     expect(r.url).toBe('https://github.com/acme/nova');
+  });
+
+  it('matchCatalogApp：按 id 命中、未知返回 undefined', () => {
+    const catalog = [
+      makeApp({ id: 'acme/atlas', name: 'Atlas', owner: 'acme', repo: 'atlas', category: 'dev' }),
+    ];
+    const [atlas] = boardFixture();
+    expect(matchCatalogApp(atlas, catalog)?.id).toBe('acme/atlas');
+    expect(matchCatalogApp(makeTrendRepo({ id: 'unknown/void', stars: 1 }), catalog)).toBeUndefined();
+  });
+});
+
+describe('tauriApi.fetchTrendsText web 回退（纯 web 开发，isTauri 为 false）', () => {
+  it('!ok 附加 status；200 返回文本', async () => {
+    trendSpy.mockRestore();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (String(url).includes('boom')) {
+          return { ok: false, status: 429, text: async () => '' };
+        }
+        return { ok: true, status: 200, text: async () => 'hello' };
+      }),
+    );
+    await expect(tauriApi.fetchTrendsText('https://trend.doforce.dpdns.org/boom')).rejects.toMatchObject({
+      status: 429,
+    });
+    await expect(tauriApi.fetchTrendsText('https://trend.doforce.dpdns.org/repo')).resolves.toBe(
+      'hello',
+    );
   });
 });

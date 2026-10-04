@@ -305,18 +305,19 @@ fn test_sniff_unknown_fixture() {
 
 #[test]
 fn test_silent_args_mapping() {
-    assert_eq!(
-        executor::silent_args_for_setup_kind(&executor::SetupKind::Nsis),
-        vec!["/S".to_string()]
-    );
-    assert_eq!(
-        executor::silent_args_for_setup_kind(&executor::SetupKind::Inno),
-        vec!["/VERYSILENT".to_string(), "/NORESTART".to_string()]
-    );
-    assert!(
-        executor::silent_args_for_setup_kind(&executor::SetupKind::Unknown).is_empty(),
-        "unknown type must never guess flags (interactive fallback)"
-    );
+    // 与 MSI 行为对齐：setup_exe 一律交互式（无静默参数），由其自带向导控制流程；
+    // 嗅探/分类不动，仅参数为空。未知类型保持原有不断言（交互式回退）。
+    for kind in [
+        executor::SetupKind::Nsis,
+        executor::SetupKind::Inno,
+        executor::SetupKind::Unknown,
+    ] {
+        assert!(
+            executor::silent_args_for_setup_kind(&kind).is_empty(),
+            "setup_exe must launch interactive (no silent flags), got kind={:?}",
+            kind
+        );
+    }
 }
 
 // --- 审查项 3.3-4：跨平台跳过是非成功信号，绝不能视为 Ok 安装完成 ---

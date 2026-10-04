@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import '../styles/components-trends.css';
-import { TrendingUp } from 'lucide-react';
+import { TrendingUp, WifiOff } from 'lucide-react';
 import { AppSummary } from '../types';
 import { AppCard, getRankBadgeColor } from '../components/AppCard';
 import { SegmentedControl } from '../components/SegmentedControl';
@@ -15,26 +15,20 @@ import {
   resolvePlatformReset,
 } from './ViewShell';
 import {
-  enrichWithCatalogCategory,
-  fetchTrends,
+  fetchTrendsResult,
   formatStars,
   matchCatalogApp,
-  sortByCategoryGroup,
-  trendReposFromCatalog,
   type TrendBoardId,
   type TrendRepo,
+  type TrendsErrorKind,
+  type TrendsResult,
 } from '../services/trends';
 
 /**
- * 趋势榜单一榜一源：直接调 `fetchTrends(board, { language })`，
- * 排序口径以后端 ranker 为准，前端不再做 fork/star 加权复算。
- *
- * 仅有的两处客户端分组（后端已预留）：
- * - category 榜：远端行默认无类目，经 `enrichWithCatalogCategory`
- *   用本地收录库补类目后，再用 `sortByCategoryGroup` 做最终分组；
- * - top 榜离线：远端为空时用 `trendReposFromCatalog(apps)` 本地快照
- *  （只按总星排序，不伪造涨星徽标）。
- * 其余榜远端为空一律走空状态，绝不回退本地加权假榜。
+ * 趋势榜单一榜一源：调 `fetchTrendsResult(board, { proxyPrefix })`，
+ * 排序口径以后端 ranker 为准，前端不再做 fork/star 加权复算；
+ * gh-proxy 前缀来自设置库 `active_mirror`（见下），service 内归一化。
+ * 远端为空一律走空状态，绝不回退本地加权假榜。
  */
 
 interface TrendsViewProps
@@ -51,58 +45,43 @@ type DisplayTrendItem =
   | { type: 'catalog'; app: AppSummary; rank: number; gain?: number }
   | { type: 'uncataloged'; repo: TrendRepo; rank: number; gain?: number };
 
-const BOARD_IDS: TrendBoardId[] = [
+/** 常青 / 分类榜已下线：6 榜为全集。Exclude 写法让本文件在后端摘掉 'top' / 'category' 前后均可编译。 */
+type ActiveBoardId = Exclude<TrendBoardId, 'top' | 'category'>;
+
+const BOARD_IDS: ActiveBoardId[] = [
   'daily',
   'weekly',
   'monthly',
   'new',
   'rising',
-  'category',
   'healthy',
-  'top',
 ];
 
-const CATEGORY_IDS = [
-  'dev',
-  'media',
-  'office',
-  'security',
-  'graphics',
-  'network',
-  'system',
-  'reading',
-  'ops',
-  'games',
-];
+/** 错误种类 → 描述文案键一处映射，避免渲染处散落四分支。 */
+type TrendsErrorDescKey =
+  | 'trends.error_network'
+  | 'trends.error_timeout'
+  | 'trends.error_rate_limited'
+  | 'trends.error_unavailable';
 
-const LANGUAGE_OPTIONS = [
-  'TypeScript',
-  'JavaScript',
-  'Python',
-  'Rust',
-  'Go',
-  'Java',
-  'C++',
-  'Swift',
-  'Kotlin',
-  'Dart',
-];
-
-const ALL = 'all';
+const ERROR_DESC_KEY: Record<TrendsErrorKind, TrendsErrorDescKey> = {
+  network: 'trends.error_network',
+  timeout: 'trends.error_timeout',
+  'rate-limited': 'trends.error_rate_limited',
+  unavailable: 'trends.error_unavailable',
+};
 
 /** 单一榜单分发映射：gain 文案口径（today/week/month）一处维护，避免分散三元分支。 */
-const BOARD_TO_GAIN_KEY: Record<TrendBoardId, 'today' | 'week' | 'month'> = {
+const BOARD_TO_GAIN_KEY: Record<ActiveBoardId, 'today' | 'week' | 'month'> = {
   daily: 'today',
   weekly: 'week',
   monthly: 'month',
   new: 'week',
   rising: 'week',
-  category: 'week',
   healthy: 'week',
-  top: 'week',
 };
 
-function boardToGainKey(board: TrendBoardId): 'today' | 'week' | 'month' {
+function boardToGainKey(board: ActiveBoardId): 'today' | 'week' | 'month' {
   return BOARD_TO_GAIN_KEY[board];
 }
 
@@ -125,78 +104,80 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
 }) => {
   const { t } = useTranslation();
   const [board, setBoard] = useState<TrendBoardId>('weekly');
-  const [language, setLanguage] = useState<string>(ALL);
-  const [category, setCategory] = useState<string>(ALL);
-  // null = 加载中；[] = 远端为空（走空状态，绝不做本地加权假榜）。
-  const [remoteTrends, setRemoteTrends] = useState<TrendRepo[] | null>(null);
+  // null = 加载中；非 null 按 status 分流：error → 错误面板，empty/ok → 列表或空状态。
+  const [trendResult, setTrendResult] = useState<TrendsResult | null>(null);
+  // 重试计数：递增即重触发抓取 effect。
+  const [retryCount, setRetryCount] = useState(0);
+  // gh-proxy 前缀：`active_mirror` 持久化在 Rust 侧设置库，前端经 getSettings 异步读；
+  // 就绪前不抓取，避免先直连闪一次再带代理重抓。
+  const [proxyPrefix, setProxyPrefix] = useState<string | undefined>(undefined);
+  const [proxyReady, setProxyReady] = useState(false);
 
-  const gainKey = boardToGainKey(board);
-  const isLoading = remoteTrends === null;
+  // 陈旧榜兜底：board 状态若非当前 6 榜之一（如已下线的 'top' / 'category' 残留），回落到 'weekly'。
+  const activeBoard: ActiveBoardId = BOARD_IDS.includes(board as ActiveBoardId)
+    ? (board as ActiveBoardId)
+    : 'weekly';
 
-  // 一榜一源：category 榜透传 category（后端按 board+language+category 建缓存槽），
-  // 其余榜只传 language；board/language/category 任一变化均触发重抓。
+  const gainKey = boardToGainKey(activeBoard);
+  const isLoading = trendResult === null;
+  // 仅 status==='error' 才展示错误文案； genuine empty（status==='empty'）绝不走错误面板。
+  const errorKind: TrendsErrorKind | undefined =
+    trendResult?.status === 'error' ? (trendResult.errorKind ?? 'unavailable') : undefined;
+
   useEffect(() => {
-    let isMounted = true;
-    setRemoteTrends(null);
-
-    const opts: { language?: string; category?: string } = {};
-    if (language !== ALL) opts.language = language;
-    if (board === 'category' && category !== ALL) opts.category = category;
-    fetchTrends(board, opts)
-      .then((data) => {
-        if (!isMounted) return;
-        setRemoteTrends(data ?? []);
+    let cancelled = false;
+    tauriApi
+      .getSettings()
+      .then((s) => {
+        if (cancelled) return;
+        const raw = s?.active_mirror?.trim();
+        // 'direct'/空 = 官方直连；其余（'ghproxy' 哨兵或自定义 URL）透传，service 内归一化。
+        setProxyPrefix(raw && raw !== 'direct' ? raw : undefined);
+        setProxyReady(true);
       })
       .catch(() => {
+        // 非 Tauri 环境（浏览器预览/单测）无设置库：直连。
+        if (cancelled) return;
+        setProxyPrefix(undefined);
+        setProxyReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 一榜一源：board / 代理 / 重试任一变化均触发重抓。
+  useEffect(() => {
+    if (!proxyReady) return;
+    let isMounted = true;
+    setTrendResult(null);
+
+    fetchTrendsResult(activeBoard, proxyPrefix ? { proxyPrefix } : {})
+      .then((res) => {
         if (!isMounted) return;
-        setRemoteTrends([]);
+        setTrendResult(res);
+      })
+      .catch(() => {
+        // service 按契约应总 resolve；此处兜底未知异常，归为 unavailable。
+        if (!isMounted) return;
+        setTrendResult({ repos: [], status: 'error', errorKind: 'unavailable' });
       });
 
     return () => {
       isMounted = false;
     };
-  }, [board, language, category]);
+  }, [activeBoard, proxyPrefix, proxyReady, retryCount]);
+
+  const handleRetry = () => setRetryCount((c) => c + 1);
 
   // 与本地 catalog 预过滤后的 apps 交叉匹配：有则完整卡片，无则名 + 星数。
+  // catalog 匹配（matchCatalogApp）保留——下掉的只是分类榜单，不是收录对照展示。
   const displayItems = useMemo<DisplayTrendItem[]>(() => {
-    if (remoteTrends === null) return [];
+    if (trendResult === null || trendResult.status === 'error') return [];
 
-    let repos = remoteTrends;
+    const repos = trendResult.repos;
 
-    if (board === 'category') {
-      const enriched = enrichWithCatalogCategory(repos, apps);
-      const grouped = sortByCategoryGroup(
-        enriched,
-        category === ALL ? undefined : category,
-      );
-      // 未能补齐类目的远端行沉底（保持相对顺序），避免无名分组抢占榜首。
-      repos = [
-        ...grouped.filter((r) => r.category),
-        ...grouped.filter((r) => !r.category),
-      ];
-    }
-
-    if (repos.length === 0) {
-      // top 榜离线快照：只按总星排序，不伪造涨星徽标（gain 故意留空）。
-      if (board === 'top' && apps.length > 0) {
-        return trendReposFromCatalog(apps).map((repo, index) => {
-          const matched = matchCatalogApp(repo, apps);
-          if (matched) {
-            return {
-              type: 'catalog' as const,
-              app: matched,
-              rank: index + 1,
-            };
-          }
-          return {
-            type: 'uncataloged' as const,
-            repo,
-            rank: index + 1,
-          };
-        });
-      }
-      return [];
-    }
+    if (repos.length === 0) return [];
 
     const matchedAppIds = new Set<string>();
     const items: DisplayTrendItem[] = [];
@@ -214,8 +195,6 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
         });
         return;
       }
-      // 分类榜指定分类时：未收录且无类目的仓库直接略过。
-      if (board === 'category' && category !== ALL && !trend.category) return;
       items.push({
         type: 'uncataloged',
         repo: trend,
@@ -225,7 +204,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     });
 
     return items;
-  }, [remoteTrends, apps, board, category]);
+  }, [trendResult, apps]);
 
   const gainTextFor = (gain?: number): string | undefined => {
     if (!gain || gain <= 0) return undefined;
@@ -234,18 +213,6 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     if (gainKey === 'month') return t('trends.stars_gained_month', { count });
     return t('trends.stars_gained_week', { count });
   };
-
-  const isFilteredEmpty =
-    displayItems.length === 0 &&
-    apps.length > 0 &&
-    (board === 'category' || language !== ALL);
-
-  // top 榜离线快照标记：远端为空但本地有快照时显式标注，避免伪装成远端榜。
-  const isTopSnapshot =
-    board === 'top' &&
-    remoteTrends !== null &&
-    remoteTrends.length === 0 &&
-    displayItems.length > 0;
 
   return (
     <ViewShell viewClass="trends-view">
@@ -260,7 +227,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       <div className="trends-toolbar">
         <div className="trends-boards" role="tablist" aria-label={t('trends.title')}>
           <SegmentedControl<TrendBoardId>
-            value={board}
+            value={activeBoard}
             onChange={(next) => setBoard(next)}
             options={BOARD_IDS.map((id) => ({
               value: id,
@@ -269,51 +236,10 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
             }))}
           />
         </div>
-        <div className="trends-filters">
-          <label className="trends-filter">
-            <span className="trends-filter-label">{t('trends.filter_language')}</span>
-            <select
-              className="fluent-input trends-select"
-              value={language}
-              onChange={(e) => setLanguage(e.target.value)}
-              aria-label={t('trends.filter_language')}
-            >
-              <option value={ALL}>{t('trends.filter_language_all')}</option>
-              {LANGUAGE_OPTIONS.map((lang) => (
-                <option key={lang} value={lang}>
-                  {lang}
-                </option>
-              ))}
-            </select>
-          </label>
-          {board === 'category' && (
-            <label className="trends-filter">
-              <span className="trends-filter-label">{t('trends.filter_category')}</span>
-              <select
-                className="fluent-input trends-select"
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                aria-label={t('trends.filter_category')}
-              >
-                <option value={ALL}>{t('trends.filter_category_all')}</option>
-                {CATEGORY_IDS.map((id) => (
-                  <option key={id} value={id}>
-                    {t(`categories.cat_${id}_name`, { defaultValue: id })}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-        </div>
       </div>
 
       <div className="trends-meta">
-        <span className="trends-board-desc">{t(`trends.board_${board}_desc`)}</span>
-        {isTopSnapshot && (
-          <span className="trends-snapshot-badge" title={t('trends.top_snapshot_desc')}>
-            {t('trends.top_snapshot_badge')}
-          </span>
-        )}
+        <span className="trends-board-desc">{t(`trends.board_${activeBoard}_desc`)}</span>
         {displayItems.length > 0 && (
           <span className="trends-count">
             {t('trends.results_count', { count: displayItems.length })}
@@ -322,12 +248,21 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       </div>
 
       <div className="fluent-list-container">
-        {isLoading ? null : apps.length === 0 || displayItems.length === 0 ? (
+        {isLoading ? null : errorKind ? (
+          <FilterEmptyState
+            className="trends-empty trends-error"
+            icon={<WifiOff size={40} strokeWidth={1.5} />}
+            title={t('trends.error_title')}
+            description={t(ERROR_DESC_KEY[errorKind])}
+            resetLabel={t('trends.retry')}
+            onReset={handleRetry}
+          />
+        ) : apps.length === 0 || displayItems.length === 0 ? (
           <FilterEmptyState
             className="trends-empty"
             icon={<TrendingUp size={40} strokeWidth={1.5} />}
-            title={t(isFilteredEmpty ? 'trends.empty_filter_title' : 'trends.empty_title')}
-            description={t(isFilteredEmpty ? 'trends.empty_filter_desc' : 'trends.empty_desc')}
+            title={t('trends.empty_title')}
+            description={t('trends.empty_desc')}
             resetLabel={t('trends.reset_device_filter')}
             onReset={resolvePlatformReset(onResetPlatformFilter)}
           />

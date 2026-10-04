@@ -71,25 +71,17 @@ pub async fn install_setup_exe(
     app_id: &str,
 ) -> Result<InstallOutcome, String> {
     use std::time::Duration;
-    // Finding 3.3-3：嗅探安装器类型并传递静默参数（NSIS ⇒ /S，
-    // Inno Setup ⇒ /VERYSILENT /NORESTART；未知类型 ⇒ 交互式回退，绝不猜测）。
+    // 与 MSI 行为对齐：setup_exe 无 NSIS/Inno 引擎可调用（exe 本体即安装器），
+    // 不带任何静默参数直接拉起，由其自带向导控制流程（可见进度、可取消），
+    // 调用方 `.wait()` 等待用户完成或取消；退出码 1602/1/2 仍映射为用户取消。
     let setup_kind = sniff_setup_kind_from_file(installer_path);
     let silent_args = silent_args_for_setup_kind(&setup_kind);
-    if silent_args.is_empty() {
-        log::info!(
-            "install setup sniff sid={} kind=unknown, interactive fallback id={}",
-            crate::z_log::new_session_id(),
-            app_id
-        );
-    } else {
-        log::info!(
-            "install setup sniff sid={} kind={:?} args={:?} id={}",
-            crate::z_log::new_session_id(),
-            setup_kind,
-            silent_args,
-            app_id
-        );
-    }
+    log::info!(
+        "install setup interactive sid={} kind={:?} id={}",
+        crate::z_log::new_session_id(),
+        setup_kind,
+        app_id
+    );
     let mut child = tokio::process::Command::new(installer_path)
         .args(&silent_args)
         .spawn()

@@ -119,6 +119,7 @@ export const CMD = {
   getMirrorStatus: 'get_mirror_status',
   switchMirror: 'switch_mirror',
   testProxy: 'test_proxy',
+  fetchTrendsText: 'fetch_trends_text',
   getSettings: 'get_settings',
   saveSetting: 'save_setting',
   getFavorites: 'get_favorites',
@@ -318,6 +319,39 @@ export const tauriApi = {
 
   async testProxy(proxyUrl?: string): Promise<ProxyTestResult> {
     return tauriInvoke<ProxyTestResult>(CMD.testProxy, { proxyUrl: proxyUrl || null });
+  },
+
+  /**
+   * 趋势榜单 HTTP 直取：Tauri 下经 Rust 命令（10s 超时、无 CORS 概念）；
+   * 纯 web 开发（`window.__TAURI_INTERNALS__` 缺席）回退为 plain fetch。
+   * Rust 侧把 HTTP 状态码写进错误串（`upstream status {code}`），此处提取引擎盖
+   * 为 `.status`，保持 trends `classifyTrendsError` 映射不变；超时/网络标记
+   * 由错误串原文透传（`request timeout` / `network error`）。
+   */
+  async fetchTrendsText(url: string): Promise<string> {
+    if (!isTauri) {
+      const res = await fetch(url);
+      if (!res.ok) {
+        const err = new Error(`trends text returned status ${res.status}`) as Error & {
+          status: number;
+        };
+        err.status = res.status;
+        throw err;
+      }
+      return res.text();
+    }
+    try {
+      return await tauriInvoke<string>(CMD.fetchTrendsText, { url });
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : String(err ?? '');
+      const message = raw || 'trends text request failed';
+      const next = new Error(message);
+      const m = /status\s+(\d{3})/i.exec(message);
+      if (m) {
+        (next as Error & { status?: number }).status = Number(m[1]);
+      }
+      throw next;
+    }
   },
 
   async getSettings(): Promise<Record<string, string>> {
