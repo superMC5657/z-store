@@ -89,7 +89,7 @@
 - **配置中枢**: 单一基线配置源（`src-tauri/config.toml`），结合编译期内置兜底与外部重载机制
 - **网络与下载**: `reqwest` 共享 Client（`json` / `stream` / `socks` 特性）+ `tokio` 异步流式下载 + ETag 条件缓存 + 并发镜像测速管道；自动继承系统代理与 TUN 模式
 - **桌面开发配置**: `pnpm tauri dev`（基于 `src-tauri/tauri.conf.json` 配置本地安全策略）
-- **安装引擎**: Windows MSI (`/qn`)、Setup EXE (`/S` / `/VERYSILENT`)、便携版 ZIP 自动解压与快捷方式生成（仅支持 `.zip`，不支持 `.7z`）、macOS (DMG/PKG) 及 Linux (deb/rpm/AppImage) 管道；Unix 卸载走 argv 直调，不经 `sh -c`
+- **安装引擎**: Windows MSI (`/qn`)、Setup EXE (`/S` / `/VERYSILENT`)、便携版 ZIP/tarball 自动解压与快捷方式生成（便携 ZIP/tarball（.zip + 二进制 .tar.gz/.tgz/.tar.xz/.tar，os+arch命中可装、仅本平台、tar权重+5垫底、剥顶层+chmod兜底；.7z/.tar.bz2只下载））、macOS (DMG/PKG) 及 Linux (deb/rpm/AppImage) 管道；Unix 卸载走 argv 直调，不经 `sh -c`
 
 ---
 
@@ -107,7 +107,7 @@
 | **ADR-0008: 出站代理与设置重构** | 出站代理 + OAuth 加固 + 设置 5 组 | **100% 已交付** | 系统代理透明捕获、OAuth 三级 Client ID、独立状态机、设置 5 组规范 ([ADR-0008](docs/adr/0008-outbound-proxy-oauth-hardening-and-settings-restructure.md)) |
 | **ADR-0009: 清单解耦与多端体系** | 独立生态仓库 + 多端 Identifiers | **100% 已交付** | 解耦至 `superMC5657/z-store-catalog`、原生多端标识符结构、设备与分类双维筛选、单一配置源 ([ADR-0009](docs/adr/0009-catalog-manifest-repository-decoupling.md)) |
 | **ADR-0010: 规范应用标识** | canonical id 全链路统一 | **100% 已交付** | 小写 `owner/repo` 全局唯一标识、入口统一归一化、纯粹单键索引 ([ADR-0010](docs/adr/0010-canonical-app-identifier.md)) |
-| **合并审查 28 项整改 (4938964)** | 安全加固与测试台补齐 | **100% 已交付** | 深链安装二次确认、便携卸载目录白名单、semver 版本比较、去 `.7z` 宣称；前后端自动化测试全量通过（计数以 `cargo test` / `pnpm test` 实际运行结果为准） |
+| **合并审查 28 项整改 (4938964)** | 安全加固与测试台补齐 | **100% 已交付** | 深链安装二次确认、便携卸载目录白名单、semver 版本比较、去 `.7z` 宣称、tar.gz大修：二进制tarball可展示可装、`.tar.bz2`/`.7z`只下载；前后端自动化测试全量通过（计数以 `cargo test` / `pnpm test` 实际运行结果为准） |
 | **M1: 体验扩展与 PWA** | 移动适配与网页发现站 | **推进中** | Web/PWA 发现站规划、Android Shizuku 免 Root 安装预研 |
 
 ---
