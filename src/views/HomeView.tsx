@@ -323,7 +323,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             </div>
 
             <h2 className="hero-title">
-              {heroApp.id === 'rustdesk/rustdesk' || heroApp.id === 'rustdesk'
+              {heroApp.id === 'rustdesk/rustdesk'
                 ? `${heroDisplayName} · ${t('home.rustdesk_subtitle')}`
                 : `${heroDisplayName} · ${heroCategoryName}`}
             </h2>
@@ -342,7 +342,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               </span>
               <span className="app-tag app-tag-license">{heroApp.license} {t('home.license_suffix')}</span>
               <span className="app-tag">{heroCategoryName}</span>
-              {(heroApp.id === 'rustdesk/rustdesk' || heroApp.id === 'rustdesk') && (
+              {heroApp.id === 'rustdesk/rustdesk' && (
                 <span className="app-tag">{t('home.rustdesk_tag')}</span>
               )}
             </div>

@@ -25,7 +25,7 @@ afterEach(() => {
 });
 
 // 规范测试数据：rustdesk:windows, 仅iosApp:ios, 无platformsApp:undefined。
-const RUSTDESK = makeApp({ id: 'rustdesk', name: 'RustDesk', platforms: ['windows'], stars: 90000 });
+const RUSTDESK = makeApp({ id: 'rustdesk/rustdesk', name: 'RustDesk', platforms: ['windows'], stars: 90000 });
 const IOS_APP = makeApp({ id: 'ios-only-app', name: '仅iosApp', platforms: ['ios'], stars: 5000 });
 const NO_PLATFORMS_APP = makeApp({ id: 'no-platforms-app', name: '无platformsApp', stars: 3000 });
 // platforms 刻意省略 (undefined) — 按过滤语义视作仅限 windows。
@@ -140,7 +140,7 @@ describe('task5: filter-empty state with .filter-empty-reset', () => {
   it('ios-only selection → hero is the filtered first app, never rustdesk', () => {
     const filtered = filterApps(BASE_FIXTURE, ['ios']);
     expect(filtered.length).toBeGreaterThan(0);
-    expect(filtered.some((a) => a.id === 'rustdesk')).toBe(false);
+    expect(filtered.some((a) => a.id === 'rustdesk/rustdesk')).toBe(false);
     const { container } = renderHomeView(filtered);
     const heroTitle = container.querySelector('.hero-banner .hero-title');
     expect(heroTitle?.textContent).toContain(filtered[0].name);
