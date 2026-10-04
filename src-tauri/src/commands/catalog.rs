@@ -162,21 +162,32 @@ pub fn get_home_feed(
     })
 }
 
+/// 在线搜索（可翻页）：`page`/`per_page` 均为 None=老行为（第 1 页 12 条）。
+/// - `per_page` 默认复用 `limits.online_search_page_size`，钳制 1-50；
+/// - `page` 默认 1（0 归一为 1）；`owner/repo` 直查短路只回第 1 页 1 条，page>1 回空（与 mock 同语义）。
 #[tauri::command]
 pub async fn search_apps_online(
     app_handle: AppHandle,
     state: State<'_, AppState>,
     query: String,
     search_id: Option<String>,
+    page: Option<u32>,
+    per_page: Option<u32>,
 ) -> crate::AppResult<Vec<AppSummary>> {
     // Wave2：单次 search_apps 只记一行 INFO `search done`（行为链 sid 关联）；
     // 内层 github/search 的同名 debug 已移除，此处为唯一 `search done`。
     let search_start = std::time::Instant::now();
     let current_gen = SEARCH_GEN.fetch_add(1, Ordering::SeqCst) + 1;
     let actual_search_id = search_id.unwrap_or_else(|| current_gen.to_string());
+    // 直查单条只回第 1 页：page>1 直接回空（与 mock/前端翻页契约对齐，避免翻页重复首条）。
+    let eff_page = crate::config::LimitsConfig::normalize_online_search_page(page);
     // 1. 优先检查是否为多源 (Codeberg, Gitea, 自建源) 仓库 URL 或 short syntax
     if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&query) {
         if coord.forge != crate::forge::ForgeType::GitHub {
+            // 直查单条：page>1 回空（mock 同语义）。
+            if eff_page > 1 {
+                return Ok(Vec::new());
+            }
             let host_token = if let Ok(db) = state.db() {
                 db.get_host_token(&coord.host).ok().flatten()
             } else {
@@ -247,6 +258,10 @@ pub async fn search_apps_online(
             || query.starts_with("gh:")
             || query.starts_with("github:")
         {
+            // 直查单条：page>1 回空（mock 同语义）。
+            if eff_page > 1 {
+                return Ok(Vec::new());
+            }
             let token = super::resolve_active_github_token(&state);
             // Top1（`Send` 安全）：短锁预解析 owned 确认图标（同步无 `await`，锁即取即放），
             // 传 owned `String` 跨 `await`（`Send`），`fetch` 内零查询零直连；传不进（锁失败）则 `None` 回退兜底不 panic。
@@ -329,11 +344,11 @@ pub async fn search_apps_online(
     };
     let mut results = state
         .catalog
-        .search_github_online(&query, token.as_deref(), pre_for_direct)
+        .search_github_online(&query, token.as_deref(), pre_for_direct, page, per_page)
         .await?;
 
     // Top1+2：循环外一次取 `db` 锁复用（单临界区同步无 `await`），读解析 + 写包事务化。
-    // 事务边界：`BEGIN IMMEDIATE` → N 条 `upsert_icon_cycle` → `COMMIT`（12 条逐条提交变 1 提交），
+    // 事务边界：`BEGIN IMMEDIATE` → N 条 `upsert_icon_cycle` → `COMMIT`（N=当页条数逐条提交变 1 提交），
     // 失败整体 `ROLLBACK` 并回退逐条（保持 `let _ =` 吞错 + 下次重试语义）。
     if let Ok(db) = state.db() {
         let mut pending: Vec<crate::db::AppIconCycle> = Vec::new();
@@ -367,13 +382,17 @@ pub async fn search_apps_online(
         }
     }
 
+    // 后台图标补探量随分页 `per_page` 伸缩：None=老行为 12 条，其余为钳制后 1-50。
+    let probe_cap = crate::config::get_project_config()
+        .limits
+        .clamp_online_search_per_page(per_page);
     let candidates: Vec<(String, String, String)> = results
         .iter()
         .filter(|item| {
             state.catalog.get_catalog_item(&item.id).is_none()
                 && !item.icon.contains("simpleicons.org")
         })
-        .take(12)
+        .take(probe_cap)
         .map(|item| (item.id.to_lowercase(), item.owner.clone(), item.repo.clone()))
         .collect();
 

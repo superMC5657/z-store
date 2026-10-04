@@ -97,6 +97,31 @@ fn default_online_search_page_size() -> usize {
     12
 }
 
+/// 在线搜索分页钳制边界：前后端统一钳制 1-50。
+pub const ONLINE_SEARCH_PER_PAGE_MIN: usize = 1;
+pub const ONLINE_SEARCH_PER_PAGE_MAX: usize = 50;
+
+impl LimitsConfig {
+    /// 在线搜索 `per_page` 归一化：None=默认 `online_search_page_size`，其余钳制 1-50。
+    pub fn clamp_online_search_per_page(&self, per_page: Option<u32>) -> usize {
+        match per_page {
+            None => self.online_search_page_size.max(ONLINE_SEARCH_PER_PAGE_MIN),
+            Some(n) => (n as usize).clamp(
+                ONLINE_SEARCH_PER_PAGE_MIN,
+                ONLINE_SEARCH_PER_PAGE_MAX,
+            ),
+        }
+    }
+
+    /// 在线搜索 `page` 归一化：None/0=第 1 页，其余保持原值（下限 1）。
+    pub fn normalize_online_search_page(page: Option<u32>) -> u32 {
+        match page {
+            None | Some(0) => 1,
+            Some(n) => n,
+        }
+    }
+}
+
 impl Default for LimitsConfig {
     fn default() -> Self {
         Self {

@@ -237,6 +237,8 @@ pub async fn search_forge_repos(
     forge: String,
     host: Option<String>,
     query: String,
+    page: Option<u32>,
+    per_page: Option<u32>,
 ) -> crate::AppResult<Vec<crate::forge::ForgeRepoInfo>> {
     let forge_type = match forge.to_lowercase().as_str() {
         "codeberg" => crate::forge::ForgeType::Codeberg,
@@ -256,6 +258,8 @@ pub async fn search_forge_repos(
         Some(target_host),
         &query,
         token.as_deref(),
+        page,
+        per_page,
     )
     .await?)
 }

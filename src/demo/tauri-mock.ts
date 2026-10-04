@@ -606,8 +606,31 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       const items = ranked.slice(offset, offset + limit);
       return { items, total: ranked.length, has_more: offset + items.length < ranked.length };
     }
-    case 'search_apps_online':
-      return [];
+    case 'search_apps_online': {
+      // 后端契约：search_apps_online(query, search_id?, page?=1, per_page?=12，钳制 1-50)，
+      // 直查单条仍只回 1 条（page>1 回空）。demo 用本地 catalog 同形分页模拟远端翻页。
+      const qRaw = argStr(a, 'query').trim();
+      if (!qRaw) return [];
+      const rawPer = argNum(a, 'per_page', 'perPage', 'per-page');
+      const rawPage = argNum(a, 'page');
+      const perPage =
+        rawPer === undefined ? 12 : Math.min(50, Math.max(1, Math.floor(rawPer)));
+      const page =
+        rawPage === undefined || !Number.isFinite(rawPage) || Math.floor(rawPage) < 1
+          ? 1
+          : Math.floor(rawPage);
+      // 直查：owner/repo 精确命中只回 1 条，不受 per_page 影响。
+      if (qRaw.includes('/')) {
+        const exact = findSummary(qRaw);
+        if (exact) return page === 1 ? [exact] : [];
+      }
+      const q = qRaw.toLowerCase();
+      const matched = summaries.filter((s) =>
+        `${s.id} ${s.name} ${s.description} ${s.description_en ?? ''} ${s.owner} ${s.repo} ${s.category_name}`.toLowerCase().includes(q),
+      );
+      const start = (page - 1) * perPage;
+      return matched.slice(start, start + perPage);
+    }
     case 'enrich_trend_repos': {
       const repos = Array.isArray(a['repos']) ? (a['repos'] as Array<{ owner?: string; repo?: string }>) : [];
       return repos.map((r) => {
