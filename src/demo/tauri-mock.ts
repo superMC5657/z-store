@@ -531,6 +531,159 @@ function rankSummariesForFeed(seed: number, strategy?: unknown): AppSummary[] {
     .map((x) => x.s);
 }
 
+// ---------------------------------------------------------------------------
+// Trends demo fixtures (offline, deterministic, catalog-backed).
+// `fetch_trends_text` routes by URL host; every repo comes from `summaries`
+// (bundled catalog.json) so `enrich_trend_repos` exact-matches all of them.
+// ---------------------------------------------------------------------------
+
+/** Escape text for embedding in demo trending HTML. */
+function escapeTrendHtml(raw: string): string {
+  return raw
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * Keep href identity segments inside the `parseTrendingHtml` charset
+ * (`[A-Za-z0-9_.-]` per segment) so two-segment `a[href="/owner/repo"]`
+ * matching never breaks. No-op on the bundled catalog (all 360 coords
+ * already clean), hence enrich keys stay exact.
+ */
+function demoTrendPathSegment(seg: string): string {
+  return seg.replace(/[^A-Za-z0-9_.-]+/g, '-') || 'repo';
+}
+
+/** Board -> trending `?since=` increment suffix, shared by parse + render (single source, no repeated switch). */
+const DEMO_TREND_SINCE_SUFFIX = { daily: 'today', weekly: 'this week', monthly: 'this month' } as const;
+
+type DemoTrendSince = keyof typeof DEMO_TREND_SINCE_SUFFIX;
+
+/** `?since=` of a trending URL -> daily|weekly|monthly (default daily). */
+function demoTrendingSince(url: string): DemoTrendSince {
+  const token = /[?&]since=(daily|weekly|monthly)/i.exec(url)?.[1]?.toLowerCase();
+  return token === 'weekly' || token === 'monthly' ? token : 'daily';
+}
+
+/** Top-N summaries under any rank (shared by the three fixture builders). */
+function topNSummaries(sortFn: (a: AppSummary, b: AppSummary) => number, n = 20): AppSummary[] {
+  return [...summaries].sort(sortFn).slice(0, n);
+}
+
+// Trending increment ("gain") = the N rendered in `N stars today|this week|this
+// month`. Distinct from doforce `change` (payload field mapped to starsGained).
+// Fold stars into a 0..899 band, floor at +50 so the copy never shows 0, plus
+// the rank index for per-row spread: range [50, 968].
+const DEMO_TRENDING_GAIN_MOD = 900;
+const DEMO_TRENDING_GAIN_FLOOR = 50;
+
+/** Deterministic pseudo gain in [50, 968], never 0. */
+function demoTrendingGain(stars: number, idx: number): number {
+  const base = Number.isFinite(stars) && stars > 0 ? Math.floor(stars) : 0;
+  return (base % DEMO_TRENDING_GAIN_MOD) + DEMO_TRENDING_GAIN_FLOOR + idx;
+}
+
+/**
+ * Offline github.com/trending HTML: top-20 summaries by stars (desc), one
+ * `article.Box-row` per repo with a two-segment identity link, `<p>`
+ * description, stargazers/forks totals and a `<span>` increment matching the
+ * `parseTrendingHtml` grammar (`N stars today|this week|this month`).
+ */
+function buildDemoTrendingHtml(url: string): string {
+  const gainSuffix = DEMO_TREND_SINCE_SUFFIX[demoTrendingSince(url)];
+  const top = topNSummaries((x, y) => y.stars - x.stars || x.id.localeCompare(y.id));
+  const articles = top.map((s, idx) => {
+    const path = `${demoTrendPathSegment(s.owner)}/${demoTrendPathSegment(s.repo)}`;
+    const gain = demoTrendingGain(s.stars, idx);
+    const desc = escapeTrendHtml(s.description || s.description_en || s.name);
+    const name = escapeTrendHtml(s.repo);
+    return [
+      '<article class="Box-row">',
+      `<h2 class="h3 lh-condensed"><a href="/${path}">${name}</a></h2>`,
+      `<p class="col-9 color-fg-muted my-1 pr-4">${desc}</p>`,
+      '<div class="f6 color-fg-muted mt-2">',
+      `<a class="muted-link d-inline-block mr-3" href="/${path}/stargazers">${s.stars}</a>`,
+      `<a class="muted-link d-inline-block mr-3" href="/${path}/forks">${s.forks}</a>`,
+      `<span class="d-inline-block float-sm-right">${gain} stars ${gainSuffix}</span>`,
+      '</div>',
+      '</article>',
+    ].join('\n');
+  });
+  return `<div class="Box">\n${articles.join('\n')}\n</div>`;
+}
+
+/**
+ * Offline doforce JSON: top-20 summaries by (forks + stars) as a bare array
+ * of `{repo, desc, lang, stars, forks, change}` (`change` = doforce increment
+ * field, mapped to TrendRepo.starsGained — not the trending HTML `gain` copy).
+ *
+ * Divergence mechanism: `change` strictly decreases in forks-ascending rank
+ * (rank step 80 beats jitter band 53), so rising (change desc) is exactly the
+ * forks-ascending order, while healthy (forks + change desc) pits a rising
+ * forks term against a falling change term and lands elsewhere. Verified
+ * divergent on the bundled catalog (rising head AFFiNE/Ventoy vs healthy head
+ * vscode/react-native). Boundary: with all-equal forks, healthyScore degrades
+ * to const + change and must coincide with rising — inherent to the
+ * forks + change definition, not to this fixture.
+ */
+const DEMO_DOFORCE_CHANGE_BASE = 120;
+const DEMO_DOFORCE_CHANGE_RANK_STEP = 80;
+const DEMO_DOFORCE_CHANGE_JITTER_MAX = 53;
+const DEMO_DOFORCE_JITTER_SEED = 20261005;
+
+function buildDemoDoforceJson(): string {
+  const pool = topNSummaries(
+    (x, y) => y.forks + y.stars - (x.forks + x.stars) || x.id.localeCompare(y.id),
+  );
+  const byForksAsc = [...pool].sort((x, y) => x.forks - y.forks || x.id.localeCompare(y.id));
+  const forkRank = new Map<AppSummary, number>(byForksAsc.map((s, rank) => [s, rank]));
+  const items = pool.map((s) => ({
+    repo: `/${s.owner}/${s.repo}`,
+    desc: s.description,
+    lang: s.category_name ?? s.category ?? 'TypeScript',
+    stars: s.stars,
+    forks: s.forks,
+    change:
+      DEMO_DOFORCE_CHANGE_BASE +
+      (pool.length - 1 - (forkRank.get(s) ?? 0)) * DEMO_DOFORCE_CHANGE_RANK_STEP +
+      Math.floor(demoSeeded01(s.id, DEMO_DOFORCE_JITTER_SEED) * DEMO_DOFORCE_CHANGE_JITTER_MAX),
+  }));
+  return JSON.stringify(items);
+}
+
+/**
+ * Offline GitHub Search JSON: 20 summaries picked by deterministic id hash
+ * (a different slice than the stars/forks-ranked boards above) as
+ * `{items: [{full_name, stargazers_count, forks_count, description, html_url}]}`.
+ */
+// Hash seed selecting the new-board slice; any fixed constant works.
+const DEMO_NEW_BOARD_HASH_SEED = 987654321;
+
+function buildDemoGitHubSearchJson(): string {
+  const picked = topNSummaries(
+    (x, y) =>
+      demoSeeded01(x.id, DEMO_NEW_BOARD_HASH_SEED) - demoSeeded01(y.id, DEMO_NEW_BOARD_HASH_SEED),
+  );
+  const items = picked.map((s) => ({
+    full_name: `${s.owner}/${s.repo}`,
+    stargazers_count: s.stars,
+    forks_count: s.forks,
+    description: s.description,
+    html_url: `https://github.com/${s.owner}/${s.repo}`,
+  }));
+  return JSON.stringify({ items });
+}
+
+/** Offline router for `fetch_trends_text`: catalog-backed fixtures by URL; unknown URLs keep the legacy `''`. */
+function demoTrendsTextForUrl(url: string): string {
+  if (url.includes('github.com/trending')) return buildDemoTrendingHtml(url);
+  if (url.includes('trend.doforce.dpdns.org')) return buildDemoDoforceJson();
+  if (url.includes('api.github.com/search')) return buildDemoGitHubSearchJson();
+  return '';
+}
+
 async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
   // Event plugin channel (listen/emit/unlisten) — backing for all on* subscriptions.
   if (cmd === 'plugin:event|listen') {
@@ -946,8 +1099,11 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       const result: ProxyTestResult = { success: true, latency_ms: 80, message: 'demo' };
       return result;
     }
-    case 'fetch_trends_text':
-      return '';
+    case 'fetch_trends_text': {
+      // Offline deterministic fixtures by URL host (catalog-backed, so every
+      // repo enriches). Unknown URLs keep the legacy '' and never throw.
+      return demoTrendsTextForUrl(argStr(a, 'url'));
+    }
     case 'scan_and_match_local_apps':
       return [];
     case 'import_matched_apps':
