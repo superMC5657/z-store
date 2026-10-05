@@ -76,12 +76,22 @@ impl AppScanner {
                 }
 
                 // 3. 安装路径或图标主程序匹配（基于 catalog 配置的 executables 与 install_dirs）
+                // 平台隔离：Windows 取 windows 标识，Linux 取 linux 标识（此前写死 windows 导致
+                // catalog.json 中 Motrix linux=["motrix"] 被忽略；Windows 行为不变）。
                 if !s_loc.is_empty() || !s_icon.is_empty() {
                     let mut path_matched = s_loc.contains(&c_repo) || s_icon.contains(&c_repo);
                     if !path_matched {
-                        for exe in &cat.get_identifiers("windows") {
+                        for exe in &cat.get_native_identifiers() {
                             let exe_lower = exe.to_lowercase();
-                            if s_icon.contains(&exe_lower) || s_loc.contains(&exe_lower) {
+                            // Linux 裸名需同时兼容 `motrix` 与 `motrix.exe` 两种落盘形态
+                            let exe_stripped = exe_lower
+                                .strip_suffix(".exe")
+                                .unwrap_or(&exe_lower);
+                            if s_icon.contains(&exe_lower)
+                                || s_loc.contains(&exe_lower)
+                                || s_icon.contains(exe_stripped)
+                                || s_loc.contains(exe_stripped)
+                            {
                                 path_matched = true;
                                 break;
                             }

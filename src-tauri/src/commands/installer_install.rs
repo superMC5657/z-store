@@ -97,6 +97,73 @@ pub async fn install_app(
         }
     }
 
+    // Linux deb/rpm：dpkg -L / desktop Exec / which 回填（pkexec dpkg -i 后
+    // resolve 仍可能因包名与 repo 名不一致而为空，如 Motrix 包名 `motrix` vs repo `Motrix`）。
+    // Windows 编译时整块消除，行为不变。
+    #[cfg(target_os = "linux")]
+    {
+        let is_sys_pkg = matches!(
+            kind,
+            crate::installer::AssetKind::Deb | crate::installer::AssetKind::Rpm
+        );
+        if real_install_path.is_empty() && is_sys_pkg {
+            // 候选包名：catalog linux 标识优先，其次 repo/id/名称派生小写
+            let mut pkg_names: Vec<String> = Vec::new();
+            if let Some(cat) = state.catalog.get_catalog_item(&prep.detail.id) {
+                for id in cat.get_native_identifiers() {
+                    let t = id.trim().to_lowercase();
+                    if !t.is_empty() && !pkg_names.contains(&t) {
+                        pkg_names.push(t);
+                    }
+                }
+            }
+            for cand in [
+                prep.detail.repo.clone(),
+                prep.detail
+                    .id
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(&prep.detail.id)
+                    .to_string(),
+                prep.detail.name.clone(),
+            ] {
+                let t = cand.trim().to_lowercase();
+                if t.len() >= 2 && !t.contains(' ') && !pkg_names.contains(&t) {
+                    pkg_names.push(t);
+                }
+            }
+            // 候选二进制名：linux 标识 + 包名 + repo 小写
+            let mut bin_names: Vec<String> = pkg_names.clone();
+            if let Some(cat) = state.catalog.get_catalog_item(&prep.detail.id) {
+                for id in cat.get_native_identifiers() {
+                    if !bin_names.contains(&id) {
+                        bin_names.push(id);
+                    }
+                }
+            }
+            if let Some(found) =
+                crate::installer::executor::linux::resolve_deb_installed_path(
+                    &pkg_names,
+                    &bin_names,
+                )
+            {
+                real_install_path = found;
+            } else if let Some(found) =
+                crate::installer::executor::linux::resolve_desktop_installed_path(&bin_names)
+            {
+                real_install_path = found;
+            } else {
+                // 最后兜底：PATH/which 直查
+                for name in &bin_names {
+                    if let Some(found) = crate::scanner::AppScanner::which_binary(name) {
+                        real_install_path = found;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     let resolved_uninst =
         resolve_uninstaller_command(&prep.detail.name, &prep.detail.id, &real_install_path, None);
 
