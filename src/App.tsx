@@ -999,7 +999,16 @@ export const App: React.FC = () => {
       });
       return changed ? next : prev;
     };
+    // 双键（idClean + detail.id，大小写不敏感）：与 patchSummary 同目标口径，兼容两者不一致
+    const patchIconBoth = (prev: AppSummary[], icon: string): AppSummary[] => {
+      const keyA = idClean.toLowerCase();
+      const keyB = (detail.id || '').toLowerCase() || keyA;
+      const once = patchAppIconList(prev, keyA, icon);
+      return keyB === keyA ? once : patchAppIconList(once, keyB, icon);
+    };
     setApps(patchList);
+    // 在线段与本地段上下分段展示：详情回填必须直接落盘 onlineApps，不依赖 icon-changed 事件
+    setOnlineApps(patchList);
     setRecentlyViewedApps(patchList);
     // 详情已取回仍为空（非 stale）：记为已确认 other，徽标/统计/过滤一次落定
     if (detailConfirmedEmpty) {
@@ -1060,6 +1069,22 @@ export const App: React.FC = () => {
           detail: { appId: idClean, icon: patchedIcon },
         })
       );
+    } else {
+      // detail.icon 为空/avatar（如 oh-my-pi）：详情弹窗靠 getAppIconCycle 特供照常显示，
+      // 但列表三段此前零 dispatch，在线段永不更新 → 此处用 iconCycle.url 直接回填落盘，不依赖事件。
+      // （后端 iconCycle.selected_url 经 getAppIconCycle 收敛为前端 AppIconCycleResult.url；非 avatar 才用。）
+      void api.getAppIconCycle(idClean).then((cycle) => {
+        const url = cycle?.url?.trim();
+        if (!url || isAvatarUrl(url)) return;
+        const keyA = idClean.toLowerCase();
+        invalidateIconCache(keyA);
+        preloadIcons([{ id: keyA, icon: url }]);
+        setApps((prev) => patchIconBoth(prev, url));
+        setOnlineApps((prev) => patchIconBoth(prev, url));
+        setRecentlyViewedApps((prev) => patchIconBoth(prev, url));
+      }).catch(() => {
+        // 取不到轮换图标则保持占位，不阻塞
+      });
     }
   }, []);
 
@@ -1099,6 +1124,7 @@ export const App: React.FC = () => {
     // 2. 内存未命中或主动刷新：若弹窗已打开则保持现有视图无感刷新，否则展示基础卡片信息
     const existing =
       appsRef.current.find((a) => a.id.toLowerCase() === idClean) ||
+      onlineAppsRef.current.find((a) => a.id.toLowerCase() === idClean) ||
       recentsRef.current.find((a) => a.id.toLowerCase() === idClean);
 
     const selectedSnapshot = selectedAppRef.current;
