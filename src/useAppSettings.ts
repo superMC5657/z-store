@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { AppSettings } from './types';
 import { api, DEFAULT_SETTINGS } from './services/api';
 import i18n, { getSystemLanguage } from './i18n';
+import { appZoomFactor, fontScaleFor } from './utils/density';
 
 /**
  * 应用级外观表现与持久化设置 Hook。
@@ -12,32 +13,16 @@ export function useAppSettings() {
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
 
-  const FONT_SCALE_MAP: Record<string, string> = {
-    '12': '0.86',
-    '14': '1',
-    '16': '1.14',
-    '18': '1.28',
-    '20': '1.43',
-    small: '0.86',
-    standard: '1',
-    medium: '1.14',
-    large: '1.28',
-  };
-
   const applyFontSize = (sizeKey: string) => {
     document.documentElement.setAttribute('data-font-size', sizeKey);
-    const scale = FONT_SCALE_MAP[sizeKey] || '1';
-    document.documentElement.style.setProperty('--font-scale', scale);
+    document.documentElement.style.setProperty('--font-scale', fontScaleFor(sizeKey));
   };
 
   const applyUiZoom = (scaleStr: string) => {
-    const factor = Number(scaleStr) / 100;
-    document.documentElement.style.zoom = `${factor}`;
+    // --app-zoom var only; never root zoom nor native zoom.
+    const factor = appZoomFactor(scaleStr);
+    if (factor === null) return;
     document.documentElement.style.setProperty('--app-zoom', `${factor}`);
-
-    import('@tauri-apps/api/webview')
-      .then(({ getCurrentWebview }) => getCurrentWebview().setZoom(factor))
-      .catch(() => {});
   };
 
   // 将持久化设置快照合并入 AppSettings 并应用主题 / 字号 / 缩放（导入备份后复用同一路径）

@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import './i18n';
 import './styles/fluent.css';
 import { initZLog } from './lib/z-log';
+import { appZoomFactor, fontScaleFor } from './utils/density';
 
 void initZLog();
 
@@ -20,25 +21,12 @@ async function bootstrap(): Promise<void> {
     // so first paint already uses demo density. Desktop defaults untouched.
     try {
       const display = resolveDemoDisplayDefaults();
-      const factor = Number(display.ui_scale) / 100;
-      if (Number.isFinite(factor) && factor > 0) {
-        document.documentElement.style.zoom = `${factor}`;
-        document.documentElement.style.setProperty('--app-zoom', `${factor}`);
+      const demoFactor = appZoomFactor(display.ui_scale);
+      if (demoFactor !== null) {
+        document.documentElement.style.setProperty('--app-zoom', `${demoFactor}`);
       }
       document.documentElement.setAttribute('data-font-size', display.font_size);
-      // Mirrors FONT_SCALE_MAP in useAppSettings (demo layer only, never edited there).
-      const fontScale: Record<string, string> = {
-        '12': '0.86',
-        '14': '1',
-        '16': '1.14',
-        '18': '1.28',
-        '20': '1.43',
-        small: '0.86',
-        standard: '1',
-        medium: '1.14',
-        large: '1.28',
-      };
-      document.documentElement.style.setProperty('--font-scale', fontScale[display.font_size] ?? '1');
+      document.documentElement.style.setProperty('--font-scale', fontScaleFor(display.font_size));
     } catch {
       // pre-apply is best-effort; App applies the same values via get_settings
     }

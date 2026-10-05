@@ -72,11 +72,21 @@ code, kbd, samp, pre {
   white-space: nowrap;
 }
 
+#root {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 /* 应用主窗口容器（反 L 形布局骨架） */
 .app-window {
-  width: calc(100vw / var(--app-zoom, 1));
-  height: calc(100vh / var(--app-zoom, 1));
-  min-height: calc(100vh / var(--app-zoom, 1));
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  /* inner-element density; % container => no vw recalc */
+  zoom: var(--app-zoom, 1);
   background: var(--bg-canvas);
   display: flex;
   flex-direction: column;
