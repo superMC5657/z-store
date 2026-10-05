@@ -532,10 +532,65 @@ function rankSummariesForFeed(seed: number, strategy?: unknown): AppSummary[] {
 }
 
 // ---------------------------------------------------------------------------
-// Trends demo fixtures (offline, deterministic, catalog-backed).
-// `fetch_trends_text` routes by URL host; every repo comes from `summaries`
-// (bundled catalog.json) so `enrich_trend_repos` exact-matches all of them.
+// Trends demo fixtures (offline, deterministic, EXTERNAL hot list).
+// `fetch_trends_text` routes by URL host; all three sources read from
+// DEMO_EXTERNAL_TRENDS below — never from `summaries`/catalog.
 // ---------------------------------------------------------------------------
+// HARD RULES (trends-demo-v2, oracle C):
+// 1. Catalog (`summaries`, catalog.json) MUST NOT source any board — boards
+//    would otherwise mirror Discover (v1 overlapped 15-18/20 and was rejected).
+//    Catalog is consulted ONLY by `enrich_trend_repos` (exact-hit passthrough).
+// 2. Uncataloged rows render via synthetic fallback with is_verified=false;
+//    the card distinguishes "not cataloged" by that flag, never by heuristics.
+// 3. Board order uses ONLY change (rising) / forks+change aka healthyScore
+//    (healthy); no stars weighting anywhere in trends fixtures.
+// ---------------------------------------------------------------------------
+
+/**
+ * One row of the hardcoded external hot list. change/gain were derived once
+ * (change = 2400 - slot*95 + (slot*37 % 41), strictly decreasing down the
+ * table; gain = 180 + ((slot*613 + 97) % 1500)) and are now frozen literals,
+ * so fixtures stay byte-stable with zero catalog input.
+ */
+interface DemoExternalTrend {
+  owner: string;
+  repo: string;
+  desc: string;
+  lang: string;
+  stars: number;
+  forks: number;
+  change: number;
+  gain: number;
+  cat: string;
+  catn: string;
+}
+
+const DEMO_EXTERNAL_TRENDS: readonly DemoExternalTrend[] = [
+  { owner: 'facebook', repo: 'react', desc: 'The library for web and native user interfaces.', lang: 'JavaScript', stars: 229000, forks: 48200, change: 2400, gain: 277, cat: 'dev', catn: '开发工具' },
+  { owner: 'vuejs', repo: 'vue', desc: 'A progressive, incrementally-adoptable JavaScript framework.', lang: 'JavaScript', stars: 207000, forks: 34800, change: 2342, gain: 890, cat: 'dev', catn: '开发工具' },
+  { owner: 'tensorflow', repo: 'tensorflow', desc: 'An open source machine learning framework for everyone.', lang: 'C++', stars: 187000, forks: 75000, change: 2243, gain: 1503, cat: 'ai', catn: 'AI 工具' },
+  { owner: 'Significant-Gravitas', repo: 'AutoGPT', desc: 'An experimental open-source attempt to make GPT-4 fully autonomous.', lang: 'Python', stars: 178000, forks: 47000, change: 2144, gain: 616, cat: 'ai', catn: 'AI 工具' },
+  { owner: 'microsoft', repo: 'vscode', desc: 'Visual Studio Code.', lang: 'TypeScript', stars: 177000, forks: 31000, change: 2045, gain: 1229, cat: 'dev', catn: '开发工具' },
+  { owner: 'ollama', repo: 'ollama', desc: 'Get up and running with large language models.', lang: 'Go', stars: 135000, forks: 11000, change: 1946, gain: 342, cat: 'ai', catn: 'AI 工具' },
+  { owner: 'vercel', repo: 'next.js', desc: 'The React Framework for the Web.', lang: 'TypeScript', stars: 129000, forks: 29600, change: 1847, gain: 955, cat: 'dev', catn: '开发工具' },
+  { owner: 'golang', repo: 'go', desc: 'The Go programming language.', lang: 'Go', stars: 129000, forks: 18000, change: 1748, gain: 1568, cat: 'dev', catn: '开发工具' },
+  { owner: 'n8n-io', repo: 'n8n', desc: 'Fair-code workflow automation for technical teams.', lang: 'TypeScript', stars: 118000, forks: 32000, change: 1649, gain: 681, cat: 'dev', catn: '开发工具' },
+  { owner: 'kubernetes', repo: 'kubernetes', desc: 'Production-grade container scheduling and management.', lang: 'Go', stars: 116000, forks: 43000, change: 1550, gain: 1294, cat: 'dev', catn: '开发工具' },
+  { owner: 'microsoft', repo: 'TypeScript', desc: 'TypeScript is a superset of JavaScript that compiles to clean JavaScript output.', lang: 'TypeScript', stars: 105000, forks: 13300, change: 1451, gain: 407, cat: 'dev', catn: '开发工具' },
+  { owner: 'langchain-ai', repo: 'langchain', desc: 'Build context-aware reasoning applications with LLMs.', lang: 'Python', stars: 105000, forks: 17000, change: 1393, gain: 1020, cat: 'ai', catn: 'AI 工具' },
+  { owner: 'rust-lang', repo: 'rust', desc: 'Empowering everyone to build reliable and efficient software.', lang: 'Rust', stars: 102000, forks: 13400, change: 1294, gain: 1633, cat: 'dev', catn: '开发工具' },
+  { owner: 'excalidraw', repo: 'excalidraw', desc: 'Virtual whiteboard for sketching hand-drawn like diagrams.', lang: 'TypeScript', stars: 100000, forks: 11000, change: 1195, gain: 746, cat: 'dev', catn: '开发工具' },
+  { owner: 'shadcn-ui', repo: 'ui', desc: 'Beautifully designed copy-paste React components.', lang: 'TypeScript', stars: 95000, forks: 7000, change: 1096, gain: 1359, cat: 'dev', catn: '开发工具' },
+  { owner: 'oven-sh', repo: 'bun', desc: 'Incredibly fast JavaScript runtime, bundler, test runner, and package manager.', lang: 'Zig', stars: 92000, forks: 4000, change: 997, gain: 472, cat: 'dev', catn: '开发工具' },
+  { owner: 'tauri-apps', repo: 'tauri', desc: 'Build smaller, faster, and more secure desktop and mobile applications.', lang: 'Rust', stars: 91000, forks: 3000, change: 898, gain: 1085, cat: 'dev', catn: '开发工具' },
+  { owner: 'pytorch', repo: 'pytorch', desc: 'Tensors and dynamic neural networks in Python with strong GPU acceleration.', lang: 'C++', stars: 90000, forks: 25000, change: 799, gain: 198, cat: 'ai', catn: 'AI 工具' },
+  { owner: 'sveltejs', repo: 'svelte', desc: 'Cybernetically enhanced web apps.', lang: 'JavaScript', stars: 84000, forks: 4300, change: 700, gain: 811, cat: 'dev', catn: '开发工具' },
+  { owner: 'comfyanonymous', repo: 'ComfyUI', desc: 'A powerful and modular diffusion-model GUI with a graph interface.', lang: 'Python', stars: 83000, forks: 9000, change: 601, gain: 1424, cat: 'ai', catn: 'AI 工具' },
+  { owner: 'ggerganov', repo: 'llama.cpp', desc: 'LLM inference in C/C++.', lang: 'C++', stars: 82000, forks: 12000, change: 502, gain: 537, cat: 'ai', catn: 'AI 工具' },
+  { owner: 'openai', repo: 'whisper', desc: 'Robust speech recognition via large-scale weak supervision.', lang: 'Python', stars: 78000, forks: 20000, change: 444, gain: 1150, cat: 'ai', catn: 'AI 工具' },
+  { owner: 'immich-app', repo: 'immich', desc: 'High performance self-hosted photo and video management solution.', lang: 'TypeScript', stars: 70000, forks: 4000, change: 345, gain: 263, cat: 'dev', catn: '开发工具' },
+  { owner: 'astral-sh', repo: 'uv', desc: 'An extremely fast Python package and project manager, written in Rust.', lang: 'Rust', stars: 55000, forks: 3000, change: 246, gain: 876, cat: 'dev', catn: '开发工具' },
+];
 
 /** Escape text for embedding in demo trending HTML. */
 function escapeTrendHtml(raw: string): string {
@@ -567,46 +622,71 @@ function demoTrendingSince(url: string): DemoTrendSince {
   return token === 'weekly' || token === 'monthly' ? token : 'daily';
 }
 
-/** Top-N summaries under any rank (shared by the three fixture builders). */
-function topNSummaries(sortFn: (a: AppSummary, b: AppSummary) => number, n = 20): AppSummary[] {
-  return [...summaries].sort(sortFn).slice(0, n);
-}
-
-// Trending increment ("gain") = the N rendered in `N stars today|this week|this
-// month`. Distinct from doforce `change` (payload field mapped to starsGained).
-// Fold stars into a 0..899 band, floor at +50 so the copy never shows 0, plus
-// the rank index for per-row spread: range [50, 968].
-const DEMO_TRENDING_GAIN_MOD = 900;
-const DEMO_TRENDING_GAIN_FLOOR = 50;
-
-/** Deterministic pseudo gain in [50, 968], never 0. */
-function demoTrendingGain(stars: number, idx: number): number {
-  const base = Number.isFinite(stars) && stars > 0 ? Math.floor(stars) : 0;
-  return (base % DEMO_TRENDING_GAIN_MOD) + DEMO_TRENDING_GAIN_FLOOR + idx;
+/** Card gradient for synthetic fallback by category (dev slate, ai violet). */
+function demoFallbackGradient(cat: string): string {
+  if (cat === 'ai') return 'linear-gradient(135deg, #7c3aed, #4c1d95)';
+  return 'linear-gradient(135deg, #475569, #334155)';
 }
 
 /**
- * Offline github.com/trending HTML: top-20 summaries by stars (desc), one
+ * Synthetic enrich fallback for external coords missing from catalog.
+ * Mirrors `fallback_summary` shape, but grants platforms ['windows'] so demo
+ * cards render immediately. DEMO ONLY — production treats empty platforms as
+ * pending ([]待确认) and never fabricates them; this drift is intentional for
+ * the offline embed.
+ */
+function demoExternalFallback(t: DemoExternalTrend): AppSummary {
+  return {
+    id: `${t.owner}/${t.repo}`.toLowerCase(),
+    name: t.repo,
+    description_en: t.desc,
+    owner: t.owner,
+    repo: t.repo,
+    icon: '',
+    icon_bg: demoFallbackGradient(t.cat),
+    description: t.desc,
+    stars: t.stars,
+    forks: t.forks,
+    license: 'MIT',
+    latest_version: 'latest',
+    category: t.cat,
+    category_name: t.catn,
+    is_verified: false,
+    forge: 'github',
+    forge_host: 'github.com',
+    homepage: null,
+    platforms: ['windows'],
+  };
+}
+
+/** Table lookup by coord (case-insensitive), shared by enrich fallback. */
+function findExternalTrend(owner: string, repo: string): DemoExternalTrend | undefined {
+  const o = owner.toLowerCase();
+  const r = repo.toLowerCase();
+  return DEMO_EXTERNAL_TRENDS.find((t) => t.owner.toLowerCase() === o && t.repo.toLowerCase() === r);
+}
+
+/**
+ * Offline github.com/trending HTML: DEMO_EXTERNAL_TRENDS[0, 20), one
  * `article.Box-row` per repo with a two-segment identity link, `<p>`
  * description, stargazers/forks totals and a `<span>` increment matching the
  * `parseTrendingHtml` grammar (`N stars today|this week|this month`).
  */
 function buildDemoTrendingHtml(url: string): string {
   const gainSuffix = DEMO_TREND_SINCE_SUFFIX[demoTrendingSince(url)];
-  const top = topNSummaries((x, y) => y.stars - x.stars || x.id.localeCompare(y.id));
-  const articles = top.map((s, idx) => {
-    const path = `${demoTrendPathSegment(s.owner)}/${demoTrendPathSegment(s.repo)}`;
-    const gain = demoTrendingGain(s.stars, idx);
-    const desc = escapeTrendHtml(s.description || s.description_en || s.name);
-    const name = escapeTrendHtml(s.repo);
+  const top = DEMO_EXTERNAL_TRENDS.slice(0, 20);
+  const articles = top.map((t) => {
+    const path = `${demoTrendPathSegment(t.owner)}/${demoTrendPathSegment(t.repo)}`;
+    const desc = escapeTrendHtml(t.desc);
+    const name = escapeTrendHtml(t.repo);
     return [
       '<article class="Box-row">',
       `<h2 class="h3 lh-condensed"><a href="/${path}">${name}</a></h2>`,
       `<p class="col-9 color-fg-muted my-1 pr-4">${desc}</p>`,
       '<div class="f6 color-fg-muted mt-2">',
-      `<a class="muted-link d-inline-block mr-3" href="/${path}/stargazers">${s.stars}</a>`,
-      `<a class="muted-link d-inline-block mr-3" href="/${path}/forks">${s.forks}</a>`,
-      `<span class="d-inline-block float-sm-right">${gain} stars ${gainSuffix}</span>`,
+      `<a class="muted-link d-inline-block mr-3" href="/${path}/stargazers">${t.stars}</a>`,
+      `<a class="muted-link d-inline-block mr-3" href="/${path}/forks">${t.forks}</a>`,
+      `<span class="d-inline-block float-sm-right">${t.gain} stars ${gainSuffix}</span>`,
       '</div>',
       '</article>',
     ].join('\n');
@@ -615,68 +695,40 @@ function buildDemoTrendingHtml(url: string): string {
 }
 
 /**
- * Offline doforce JSON: top-20 summaries by (forks + stars) as a bare array
- * of `{repo, desc, lang, stars, forks, change}` (`change` = doforce increment
- * field, mapped to TrendRepo.starsGained — not the trending HTML `gain` copy).
- *
- * Divergence mechanism: `change` strictly decreases in forks-ascending rank
- * (rank step 80 beats jitter band 53), so rising (change desc) is exactly the
- * forks-ascending order, while healthy (forks + change desc) pits a rising
- * forks term against a falling change term and lands elsewhere. Verified
- * divergent on the bundled catalog (rising head AFFiNE/Ventoy vs healthy head
- * vscode/react-native). Boundary: with all-equal forks, healthyScore degrades
- * to const + change and must coincide with rising — inherent to the
- * forks + change definition, not to this fixture.
+ * Offline doforce JSON: DEMO_EXTERNAL_TRENDS[2, 22) as a bare array of
+ * `{repo, desc, lang, stars, forks, change}`. `change` is frozen strictly
+ * decreasing down the table, so rising (change desc) reproduces table order
+ * while healthy (forks + change desc) scrambles on the non-monotone forks.
  */
-const DEMO_DOFORCE_CHANGE_BASE = 120;
-const DEMO_DOFORCE_CHANGE_RANK_STEP = 80;
-const DEMO_DOFORCE_CHANGE_JITTER_MAX = 53;
-const DEMO_DOFORCE_JITTER_SEED = 20261005;
-
 function buildDemoDoforceJson(): string {
-  const pool = topNSummaries(
-    (x, y) => y.forks + y.stars - (x.forks + x.stars) || x.id.localeCompare(y.id),
-  );
-  const byForksAsc = [...pool].sort((x, y) => x.forks - y.forks || x.id.localeCompare(y.id));
-  const forkRank = new Map<AppSummary, number>(byForksAsc.map((s, rank) => [s, rank]));
-  const items = pool.map((s) => ({
-    repo: `/${s.owner}/${s.repo}`,
-    desc: s.description,
-    lang: s.category_name ?? s.category ?? 'TypeScript',
-    stars: s.stars,
-    forks: s.forks,
-    change:
-      DEMO_DOFORCE_CHANGE_BASE +
-      (pool.length - 1 - (forkRank.get(s) ?? 0)) * DEMO_DOFORCE_CHANGE_RANK_STEP +
-      Math.floor(demoSeeded01(s.id, DEMO_DOFORCE_JITTER_SEED) * DEMO_DOFORCE_CHANGE_JITTER_MAX),
+  const items = DEMO_EXTERNAL_TRENDS.slice(2, 22).map((t) => ({
+    repo: `/${t.owner}/${t.repo}`,
+    desc: t.desc,
+    lang: t.lang,
+    stars: t.stars,
+    forks: t.forks,
+    change: t.change,
   }));
   return JSON.stringify(items);
 }
 
 /**
- * Offline GitHub Search JSON: 20 summaries picked by deterministic id hash
- * (a different slice than the stars/forks-ranked boards above) as
+ * Offline GitHub Search JSON: DEMO_EXTERNAL_TRENDS[4, 24) as
  * `{items: [{full_name, stargazers_count, forks_count, description, html_url}]}`.
+ * Staggered windows (0/2/4) give the boards variety while sharing one source.
  */
-// Hash seed selecting the new-board slice; any fixed constant works.
-const DEMO_NEW_BOARD_HASH_SEED = 987654321;
-
 function buildDemoGitHubSearchJson(): string {
-  const picked = topNSummaries(
-    (x, y) =>
-      demoSeeded01(x.id, DEMO_NEW_BOARD_HASH_SEED) - demoSeeded01(y.id, DEMO_NEW_BOARD_HASH_SEED),
-  );
-  const items = picked.map((s) => ({
-    full_name: `${s.owner}/${s.repo}`,
-    stargazers_count: s.stars,
-    forks_count: s.forks,
-    description: s.description,
-    html_url: `https://github.com/${s.owner}/${s.repo}`,
+  const items = DEMO_EXTERNAL_TRENDS.slice(4, 24).map((t) => ({
+    full_name: `${t.owner}/${t.repo}`,
+    stargazers_count: t.stars,
+    forks_count: t.forks,
+    description: t.desc,
+    html_url: `https://github.com/${t.owner}/${t.repo}`,
   }));
   return JSON.stringify({ items });
 }
 
-/** Offline router for `fetch_trends_text`: catalog-backed fixtures by URL; unknown URLs keep the legacy `''`. */
+/** Offline router for `fetch_trends_text`: external-table fixtures by URL; unknown URLs keep the legacy `''`. */
 function demoTrendsTextForUrl(url: string): string {
   if (url.includes('github.com/trending')) return buildDemoTrendingHtml(url);
   if (url.includes('trend.doforce.dpdns.org')) return buildDemoDoforceJson();
@@ -793,12 +845,34 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return matched.slice(start, start + perPage);
     }
     case 'enrich_trend_repos': {
+      // Catalog exact hit passes through untouched (real verified state).
+      // Otherwise the external hot-list coord resolves to a synthetic fallback —
+      // enrich never returns null for a well-formed coord in the demo.
+      // DEMO ONLY: fallback grants platforms so cards render (production keeps [] pending).
       const repos = Array.isArray(a['repos']) ? (a['repos'] as Array<{ owner?: string; repo?: string }>) : [];
       return repos.map((r) => {
-        const owner = String(r?.owner ?? '').toLowerCase();
-        const repo = String(r?.repo ?? '').toLowerCase();
+        const owner = String(r?.owner ?? '').trim();
+        const repo = String(r?.repo ?? '').trim();
         if (!owner || !repo) return null;
-        return summaries.find((s) => s.owner.toLowerCase() === owner && s.repo.toLowerCase() === repo) ?? null;
+        const o = owner.toLowerCase();
+        const ro = repo.toLowerCase();
+        const hit =
+          summaries.find((s) => s.owner.toLowerCase() === o && s.repo.toLowerCase() === ro) ?? null;
+        if (hit) return hit;
+        const ext = findExternalTrend(o, ro);
+        if (ext) return demoExternalFallback(ext);
+        return demoExternalFallback({
+          owner,
+          repo,
+          desc: `${owner}/${repo}`,
+          lang: 'TypeScript',
+          stars: 0,
+          forks: 0,
+          change: 0,
+          gain: 0,
+          cat: 'dev',
+          catn: '开发工具',
+        });
       });
     }
     case 'get_platforms_lite': {
