@@ -9,16 +9,14 @@ import type { AppSummary } from '../types';
  * View 侧只消费谓词与 hook，不再内联重复形状。
  */
 
-/** 单条应用是否命中查询（名称 / 别名 / owner / repo / 描述 / 分类）。 */
+/** 单条应用是否命中查询（名称 / owner / repo / 分类）。 */
 export function matchesAppText(app: AppSummary, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
   return (
     app.name.toLowerCase().includes(q) ||
-    (app.description_en && app.description_en.toLowerCase().includes(q)) ||
     app.owner.toLowerCase().includes(q) ||
     app.repo.toLowerCase().includes(q) ||
-    app.description.toLowerCase().includes(q) ||
     app.category_name.toLowerCase().includes(q)
   );
 }

@@ -10,7 +10,6 @@ pub const SEARCH_SCORE_PREFIX_MATCH: i32 = 60;
 pub const SEARCH_SCORE_NAME_CONTAINS: i32 = 40;
 pub const SEARCH_SCORE_ALIAS_CONTAINS: i32 = 35;
 pub const SEARCH_SCORE_OWNER_OR_REPO_CONTAINS: i32 = 30;
-pub const SEARCH_SCORE_DESC_CONTAINS: i32 = 15;
 
 /// 发现页 Feed 推荐策略（可插拔，hero 置顶留给前端，后端不 hardcode 具体 id）。
 /// 打分口径以前端 `src/services/feed.ts` 为 canonical（同形同量级，跨层可比）：
@@ -412,7 +411,6 @@ impl CatalogService {
 
             let name_lower = item.name.to_lowercase();
             let id_lower = item.id.to_lowercase();
-            let desc_lower = item.description.to_lowercase();
             let owner_lower = item.owner.to_lowercase();
             let repo_lower = item.repo.to_lowercase();
 
@@ -426,8 +424,6 @@ impl CatalogService {
                 score += SEARCH_SCORE_OWNER_OR_REPO_CONTAINS;
             } else if item.aliases.iter().any(|a| a.to_lowercase().contains(&q)) {
                 score += SEARCH_SCORE_ALIAS_CONTAINS;
-            } else if desc_lower.contains(&q) {
-                score += SEARCH_SCORE_DESC_CONTAINS;
             }
 
             if score > 0 {
