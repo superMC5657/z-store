@@ -42,22 +42,70 @@ pub(crate) async fn get_with_etag(
         safe_url
     );
     let start = std::time::Instant::now();
-    let res = match client.get(&url).headers(headers).send().await {
-        Ok(r) => r,
-        Err(e) => {
-            log::warn!(
-                "http get dev etag failed tag={} sid={} req={} host={} reason={} elapsed_ms={}",
-                log_tag,
-                sid,
-                req_id,
-                host,
-                crate::log_support::short_reason(&e.to_string()),
-                start.elapsed().as_millis()
-            );
-            return EtagGetOutcome::Failed;
+    // 有限重试：仅传输错误(is_timeout/is_connect)+429/5xx，最多 2 次，
+    // 退避 200ms -> 800ms；401/404/304 直接返回；限流上报逻辑不变（每轮响应照常上报）。
+    const RETRY_BACKOFF_MS: [u64; 2] = [200, 800];
+    let mut attempt: usize = 0;
+    let res = loop {
+        match client.get(&url).headers(headers.clone()).send().await {
+            Ok(r) => {
+                crate::notify_rate_limit("github.com", r.headers());
+                let status = r.status();
+                let retryable_status =
+                    status.as_u16() == 429 || status.is_server_error();
+                if retryable_status && attempt < RETRY_BACKOFF_MS.len() {
+                    log::debug!(
+                        "http get dev etag retry tag={} sid={} req={} url='{}' status={} attempt={} next_backoff_ms={}",
+                        log_tag,
+                        sid,
+                        req_id,
+                        safe_url,
+                        status.as_u16(),
+                        attempt + 1,
+                        RETRY_BACKOFF_MS[attempt]
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(
+                        RETRY_BACKOFF_MS[attempt],
+                    ))
+                    .await;
+                    attempt += 1;
+                    continue;
+                }
+                break r;
+            }
+            Err(e) => {
+                let retryable_err = e.is_timeout() || e.is_connect();
+                if retryable_err && attempt < RETRY_BACKOFF_MS.len() {
+                    log::debug!(
+                        "http get dev etag retry tag={} sid={} req={} host={} reason={} attempt={} next_backoff_ms={}",
+                        log_tag,
+                        sid,
+                        req_id,
+                        host,
+                        crate::log_support::short_reason(&e.to_string()),
+                        attempt + 1,
+                        RETRY_BACKOFF_MS[attempt]
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(
+                        RETRY_BACKOFF_MS[attempt],
+                    ))
+                    .await;
+                    attempt += 1;
+                    continue;
+                }
+                log::warn!(
+                    "http get dev etag failed tag={} sid={} req={} host={} reason={} elapsed_ms={}",
+                    log_tag,
+                    sid,
+                    req_id,
+                    host,
+                    crate::log_support::short_reason(&e.to_string()),
+                    start.elapsed().as_millis()
+                );
+                return EtagGetOutcome::Failed;
+            }
         }
     };
-    crate::notify_rate_limit("github.com", res.headers());
     let status = res.status();
     log::debug!(
         "http resp dev etag tag={} sid={} req={} url='{}' status={} elapsed_ms={}",

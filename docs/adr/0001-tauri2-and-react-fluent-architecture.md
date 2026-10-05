@@ -14,3 +14,5 @@ Z-Store 是一款定位于开源世界的跨平台桌面应用商店，首期重
 2. 前端选用 **React 19 + TypeScript + Vite 6**，采用纯原生 CSS Tokens 深度复刻 **Fluent Design System 2.0**（Windows 11 视觉规范），放弃引入冗余的第三方商业 UI 库，实现高通透亚克力毛玻璃、高光描边、深浅双模与丝滑微动效。
 3. 遵循 ADR-0005 确立的自适应双模图标与无边框贴靠窗口。
 4. 建立统一的 **Fluent 2 矢量功能图标体系**，全站所有功能按钮、导航菜单、设备平台标识及状态反馈均采用轻量线性矢量图标（`lucide-react` 与统一单色 SVG）配合 `currentColor` 动态着色，结合纯 CSS 微动效与状态指示原点，保障高质感统一的系统级视觉语言。
+
+> 注（2026-10-05）：Fluent 仅指 `lucide-react` 矢量图标体系，不含 Acrylic/品牌蓝，以 `CONTEXT.md` D4 为准。

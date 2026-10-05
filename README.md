@@ -36,7 +36,9 @@
 ### 1. 🌐 解耦清单同步与按需详情获取
 - **离线秒开与种子兜底**：客户端启动优先读取本地 `catalog.json` 种子清单，保证零网络延迟立即可用。
 - **一键动态同步**：设置中心支持随时“立即同步收录库”，增量拉取独立生态仓库最新清单，支持配置自定义同步源与加速前缀。
-- **TTL 智能缓存与 ETag 续期**：统一基线缓存 TTL（默认 30 分钟），过期后触发 ETag 304 条件请求，零配额消耗延长缓存新鲜度。
+- **TTL 智能缓存与 ETag 续期**：统一基线缓存 TTL（默认 30 分钟），过期后触发 ETag 304 条件请求，零配额消耗延长缓存新鲜度；该 TTL 仅约束详情浏览，更新发现（更新中心/关注动态）每次走 ETag 轻量探查，不受其约束。
+- **发现流分页与搜索翻页**：发现 Feed 首屏 20、触底续 20 无限滑（`has_more=(offset+limit)<total`）；在线搜索默认 `per_page=12`、钳制 1–50，满页即 `hasMore` 续拉下一页。
+- **首页排序锁定**：首页固定 `balanced + seed 7`，无排序切换工具条。
 
 ### 2. 🦊 多托管平台与多设备平台双维筛选
 - **多托管源抽象**：`ForgeProvider` 统一抽象层原生支持 **GitHub**、**Codeberg**、**GitLab**、**Forgejo** 与自建 **Gitea** 实例（[ADR-0006](docs/adr/0006-multi-forge-ecosystem-support.md)），跨平台统一仓库标识（`gh:`、`cb:`、`gl:`、`gitea:`），支持独立主机 PAT 与速率管理。
@@ -50,7 +52,7 @@
 ### 4. 🛡️ 细粒度版本控制与安全防御
 - **版本控制中枢**：更新列表中可针对特定应用选择“跳过此版本”或“锁定当前版本（禁止自动更新）”，避免破坏性升级；版本新旧比较遵循 semver 语义。
 - **黑名单管理**：支持从推荐与搜索列表中隐藏不感兴趣的应用仓库。
-- **SHA-256 完整性校验**：下载后强制流式计算 SHA-256 并与官方清单比对，不符立即阻断。
+- **SHA-256 完整性校验**：下载后强制流式计算 SHA-256 并与官方清单比对，不符立即阻断；本地已存在且哈希命中即零网络跳过（未命中/无期望哈希才重下覆盖，而非必重下）。
 - **便携卸载隔离**：`remove_dir_all` 仅允许删除 Z-Store 自建的隔离目录，共享目录只做安全清理。
 
 ### 5. 🌟 开发者全景生态与 GitHub Star 同步
@@ -58,10 +60,11 @@
 - **GitHub OAuth 登录**：Device Flow 免应用密钥登录，Client ID 遵循单一配置源（`src-tauri/config.toml`），支持在设置项中自定义覆盖。采用 `classify_device_poll` 明确区分 `Expired` 与 `Denied` 状态。
 - **GitHub Star 导入**：登录后一键拉取个人 Star 列表中所有具备可用构建资产的开源项目。
 - **本地足迹追踪**：自动记录并持久化搜索历史与最近浏览应用，支持一键快捷回访。
+- **趋势榜单直取**：经共享 Client 直取（`tokio` 10s 超时，截断 2MB 防爆内存），仅允许 `github.com` / `trend.doforce.dpdns.org` / `api.github.com` 三 host 白名单；doforce 429 仅按 `Retry-After` 再试一次（上限 60s，缺省等 5s）。
 
 ### 6. 🔄 检查更新流式推流与实时感知
-- **实时推流动效**：更新检查基于并发管道流式拉取，后端通过 `zstore://update-check-progress` 逐项推流，前端呈现丝滑进度条与更新项逐项跳出微动效。
-- **轻量版本嗅探**：更新检查仅拉取版本号与 Release 说明，结合 ETag 304 极速响应，不下载大体积 README 或非必要元数据。
+- **实时推流动效**：更新检查基于并发管道流式拉取（`buffer_unordered(6)`，主路径与关注通知两处），后端通过 `zstore://update-check-progress` 逐项推流，前端呈现丝滑进度条与更新项逐项跳出微动效。
+- **轻量版本嗅探**：更新检查仅拉取版本号与 Release 说明，结合 ETag 304 极速响应，不下载大体积 README 或非必要元数据；与详情 30 分钟 TTL 解耦，每次 ETag 轻探查（304 零配额延长保鲜）。
 
 ### 7. 🔗 系统级协议与状态指示
 - **深层链接唤起**：注册 `zstore://` URL Scheme，支持浏览器与外部命令行直接唤起客户端直达详情、安装或搜索；安装类深链必须经过显式确认对话框，用户点确认后才开始安装。
@@ -87,7 +90,7 @@
 - **前端界面**: React 19 + TypeScript 5.7 (strict) + Vite 6 + 原生 Fluent 2.0 CSS + Fluent 矢量图标体系 (`lucide-react`)
 - **本地数据库**: 嵌入式 SQLite (`rusqlite` bundled，WAL 模式，维护 14 张核心表：新增 `icon_cache_meta` 与 `app_icon_cycles`，图标缓存来源与轮换状态分流）
 - **配置中枢**: 单一基线配置源（`src-tauri/config.toml`），结合编译期内置兜底与外部重载机制
-- **网络与下载**: `reqwest` 共享 Client（`json` / `stream` / `socks` 特性）+ `tokio` 异步流式下载 + ETag 条件缓存 + 并发镜像测速管道；自动继承系统代理与 TUN 模式
+- **网络与下载**: API / 图标双池物理隔离复用单例（均 `connect_timeout 5s`、`keepalive 60s`、`pool 20/idle 90s`；图标 CDN 通道恒丢 token，绝不携带认证头）+ `tokio` 异步流式下载 + ETag 条件缓存 + 有限重试（仅 GET 传输错误与 429/5xx，最多 2 次按 200ms→800ms 退避，401/404/304 永不重试）+ 并发镜像测速管道；图标先 HEAD 判类型长度、再 Range 取前 32KB 验 magic（300B 最小阈值卡掉 LFS 指针，`buffered(3)` 并发）；自动继承系统代理与 TUN 模式
 - **桌面开发配置**: `pnpm tauri dev`（基于 `src-tauri/tauri.conf.json` 配置本地安全策略）
 - **安装引擎**: Windows MSI (`/qn`)、Setup EXE (`/S` / `/VERYSILENT`)、便携版 ZIP/tarball 自动解压与快捷方式生成（便携 ZIP/tarball（.zip + 二进制 .tar.gz/.tgz/.tar.xz/.tar，os+arch命中可装、仅本平台、tar权重+5垫底、剥顶层+chmod兜底；.7z/.tar.bz2只下载））、macOS (DMG/PKG) 及 Linux (deb/rpm/AppImage) 管道；Unix 卸载走 argv 直调，不经 `sh -c`
 

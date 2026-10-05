@@ -87,6 +87,10 @@ fn build_shared_http_client() -> reqwest::Client {
         std::time::Duration::from_secs(config::get_project_config().network.api_timeout_seconds);
     reqwest::Client::builder()
         .timeout(api_timeout)
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .tcp_keepalive(std::time::Duration::from_secs(60))
+        .pool_max_idle_per_host(20)
+        .pool_idle_timeout(std::time::Duration::from_secs(90))
         .user_agent(crate::forge::http::USER_AGENT_VALUE)
         .build()
         .unwrap_or_else(|_| reqwest::Client::new())

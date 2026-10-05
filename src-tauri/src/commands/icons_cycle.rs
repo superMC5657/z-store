@@ -64,6 +64,15 @@ pub(crate) fn read_valid_image_file(path: &std::path::Path) -> Option<Vec<u8>> {
         .filter(|b| !b.is_empty() && super::is_valid_image(b))
 }
 
+/// 最高频缓存读的 blocking 卸载：仅最高频 1-2 处经此异步入口（spawn_blocking），
+/// 其余同步路径（read_level_cache_file / load_split_cached_bytes / 落盘写等）保持不动。
+async fn read_valid_image_file_async(path: std::path::PathBuf) -> Option<Vec<u8>> {
+    tokio::task::spawn_blocking(move || read_valid_image_file(&path))
+        .await
+        .ok()
+        .flatten()
+}
+
 /// 指定级别缓存文件读取（非收录 `stem_l{level}.{ext}` 方案）：存在且有效才返回字节。
 pub(crate) fn read_level_cache_file(
     icons_dir: &std::path::Path,
@@ -303,6 +312,7 @@ async fn probe_git_trees(
         size: Option<u64>,
     }
 
+    // 首命中即停：命中直接返回，不补拉剩余分支；保持顺序逐分支试探，不做并发竞速。
     for branch in branches {
         let tree_url = format!(
             "https://api.github.com/repos/{}/{}/git/trees/{}?recursive=1",
@@ -689,7 +699,10 @@ pub async fn get_app_icon_cycle(
             .to_string();
 
         if !cycle.cache_file.is_empty() {
-            if let Some(bytes) = read_valid_image_file(&icons_dir.join(&cycle.cache_file)) {
+            // 最高频读：经 spawn_blocking 卸载，避免阻塞 async 运行时。
+            if let Some(bytes) =
+                read_valid_image_file_async(icons_dir.join(&cycle.cache_file)).await
+            {
                 return Ok(IconCycleResult {
                     url: super::bytes_to_data_uri(&bytes),
                     remote_url,
@@ -761,7 +774,8 @@ pub async fn get_app_icon_cycle(
             let stem = super::get_icon_stem(&canonical_id, &default_url);
             let inferred_ext = super::infer_icon_ext_from_url(&default_url).unwrap_or("png");
             let filename = crate::db::icon_cycle::catalog_filename(&stem, inferred_ext);
-            if let Some(bytes) = read_valid_image_file(&icons_dir.join(&filename)) {
+            // 最高频读其二：首屏收录图标恢复路径，同样经 spawn_blocking 卸载；其余同步读不动。
+            if let Some(bytes) = read_valid_image_file_async(icons_dir.join(&filename)).await {
                 return Ok(IconCycleResult {
                     url: super::bytes_to_data_uri(&bytes),
                     remote_url: default_url,

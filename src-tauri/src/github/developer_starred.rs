@@ -198,7 +198,22 @@ impl CatalogService {
 
         // 第二遍：live 轻量探测（`releases/latest` 单请求/库），预算上限
         // STARRED_RELEASE_ENRICH_LIMIT；失败/限流/404 保留旧行为（false + 日志）。
-        let mut budget = STARRED_RELEASE_ENRICH_LIMIT;
+        // 并发 buffered(4)：预先按预算截断需探测下标，并发取回后按 index 回填 resolved。
+        let needy: Vec<usize> = pending
+            .iter()
+            .enumerate()
+            .filter_map(|(i, p)| {
+                if resolved[i].is_none() && !p.full_name.trim().is_empty() {
+                    Some(i)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let live: Vec<usize> = needy
+            .into_iter()
+            .take(STARRED_RELEASE_ENRICH_LIMIT)
+            .collect();
         for (i, p) in pending.iter().enumerate() {
             if resolved[i].is_some() {
                 continue;
@@ -207,55 +222,73 @@ impl CatalogService {
                 resolved[i] = Some((false, None));
                 continue;
             }
-            if budget == 0 {
+            if !live.contains(&i) {
                 log::debug!(
                     "starred release skip over budget full_name='{}'",
                     p.full_name
                 );
                 resolved[i] = Some((false, None));
-                continue;
             }
-            budget -= 1;
-            let key = Self::starred_release_endpoint(&p.full_name);
-            let cached_etag = release_cache.get(&key).and_then(|(e, _)| e.clone());
-            match Self::get_with_etag(
-                &client,
-                &key,
-                api_base,
-                &headers,
-                cached_etag.as_deref(),
-                "starred-release",
-            )
-            .await
-            {
-                EtagGetOutcome::Fresh { text, etag } => match Self::parse_release_tag(&text) {
-                    Some(tag) => {
-                        if let Some(et) = etag {
-                            release_cache.insert(key, (Some(et), Some(text)));
+        }
+        if !live.is_empty() {
+            use futures_util::StreamExt as _;
+            let api_base_owned = api_base.map(|s| s.to_string());
+            let fetches = live.into_iter().map(|idx| {
+                let client = client.clone();
+                let headers = headers.clone();
+                let api_base_owned = api_base_owned.clone();
+                let key = Self::starred_release_endpoint(&pending[idx].full_name);
+                let full_name = pending[idx].full_name.clone();
+                let cached_etag =
+                    release_cache.get(&key).and_then(|(e, _)| e.clone());
+                async move {
+                    let outcome = Self::get_with_etag(
+                        &client,
+                        &key,
+                        api_base_owned.as_deref(),
+                        &headers,
+                        cached_etag.as_deref(),
+                        "starred-release",
+                    )
+                    .await;
+                    (idx, key, full_name, outcome)
+                }
+            });
+            let outcomes: Vec<(usize, String, String, EtagGetOutcome)> =
+                futures_util::stream::iter(fetches).buffered(4).collect().await;
+            for (i, key, full_name, outcome) in outcomes {
+                match outcome {
+                    EtagGetOutcome::Fresh { text, etag } => {
+                        match Self::parse_release_tag(&text) {
+                            Some(tag) => {
+                                if let Some(et) = etag {
+                                    release_cache.insert(key, (Some(et), Some(text)));
+                                }
+                                resolved[i] = Some((true, Some(tag)));
+                            }
+                            None => {
+                                log::debug!("starred release no tag full_name='{}'", full_name);
+                                resolved[i] = Some((false, None));
+                            }
                         }
-                        resolved[i] = Some((true, Some(tag)));
                     }
-                    None => {
-                        log::debug!("starred release no tag full_name='{}'", p.full_name);
+                    EtagGetOutcome::NotModified => {
+                        let tag = release_cache
+                            .get(&key)
+                            .and_then(|(_, pl)| pl.as_ref())
+                            .and_then(|pl| Self::parse_release_tag(pl));
+                        resolved[i] = Some(match tag {
+                            Some(t) => (true, Some(t)),
+                            None => (false, None),
+                        });
+                    }
+                    EtagGetOutcome::Failed | EtagGetOutcome::Unauthorized => {
+                        log::debug!(
+                            "starred release check failed full_name='{}' keep has_releases=false",
+                            full_name
+                        );
                         resolved[i] = Some((false, None));
                     }
-                },
-                EtagGetOutcome::NotModified => {
-                    let tag = release_cache
-                        .get(&key)
-                        .and_then(|(_, pl)| pl.as_ref())
-                        .and_then(|pl| Self::parse_release_tag(pl));
-                    resolved[i] = Some(match tag {
-                        Some(t) => (true, Some(t)),
-                        None => (false, None),
-                    });
-                }
-                EtagGetOutcome::Failed | EtagGetOutcome::Unauthorized => {
-                    log::debug!(
-                        "starred release check failed full_name='{}' keep has_releases=false",
-                        p.full_name
-                    );
-                    resolved[i] = Some((false, None));
                 }
             }
         }

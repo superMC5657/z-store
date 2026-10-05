@@ -88,34 +88,55 @@ pub async fn fetch_trends_text(url: String) -> Result<String, String> {
     let path = parsed.path().to_string();
     log::debug!("trends text fetch start sid={} req={} host='{}' path='{}'", sid, req, host, path);
     let start = std::time::Instant::now();
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .user_agent(crate::forge::http::BROWSER_UA_VALUE)
-        .build()
-        .map_err(|e| format!("trends: client build failed: {}", e))?;
-    let resp = client.get(parsed).send().await.map_err(|e| {
-        let elapsed_ms = start.elapsed().as_millis();
-        if e.is_timeout() {
+    // 复用共享 Client（避免每次新建连接池）；10s 语义由外层 timeout 保留。
+    let client = crate::shared_http_client();
+    let send_fut = client
+        .get(parsed)
+        .header("User-Agent", crate::forge::http::BROWSER_UA_VALUE)
+        .send();
+    let resp = match tokio::time::timeout(std::time::Duration::from_secs(10), send_fut).await {
+        Err(_) => {
+            let elapsed_ms = start.elapsed().as_millis();
             log::warn!(
-                "trends text timeout sid={} req={} host='{}' elapsed_ms={} reason={}",
+                "trends text timeout sid={} req={} host='{}' elapsed_ms={} reason=timeout",
+                sid,
+                req,
+                host,
+                elapsed_ms
+            );
+            return Err("trends: request timeout: timeout".to_string());
+        }
+        Ok(Err(e)) => {
+            let elapsed_ms = start.elapsed().as_millis();
+            if e.is_timeout() {
+                log::warn!(
+                    "trends text timeout sid={} req={} host='{}' elapsed_ms={} reason={}",
+                    sid,
+                    req,
+                    host,
+                    elapsed_ms,
+                    crate::log_support::http_err_reason(&e)
+                );
+                return Err(format!(
+                    "trends: request timeout: {}",
+                    crate::log_support::http_err_reason(&e)
+                ));
+            }
+            log::warn!(
+                "trends text network fail sid={} req={} host='{}' elapsed_ms={} reason={}",
                 sid,
                 req,
                 host,
                 elapsed_ms,
                 crate::log_support::http_err_reason(&e)
             );
-            return format!("trends: request timeout: {}", crate::log_support::http_err_reason(&e));
+            return Err(format!(
+                "trends: network error: {}",
+                crate::log_support::http_err_reason(&e)
+            ));
         }
-        log::warn!(
-            "trends text network fail sid={} req={} host='{}' elapsed_ms={} reason={}",
-            sid,
-            req,
-            host,
-            elapsed_ms,
-            crate::log_support::http_err_reason(&e)
-        );
-        format!("trends: network error: {}", crate::log_support::http_err_reason(&e))
-    })?;
+        Ok(Ok(resp)) => resp,
+    };
     let status = resp.status();
     if !status.is_success() {
         log::warn!(
@@ -128,8 +149,8 @@ pub async fn fetch_trends_text(url: String) -> Result<String, String> {
         );
         return Err(format!("trends: upstream status {}", status.as_u16()));
     }
-    let body = resp
-        .text()
+    let bytes = resp
+        .bytes()
         .await
         .map_err(|e| {
             log::warn!(
@@ -142,6 +163,30 @@ pub async fn fetch_trends_text(url: String) -> Result<String, String> {
             );
             format!("trends: read body failed: {}", crate::log_support::short_reason(&e.to_string()))
         })?;
+    // 限长 2MB：防超大 body 撑内存；超长按上游异常回错误标记（不回显 URL）。
+    const MAX_TRENDS_BYTES: usize = 2 * 1024 * 1024;
+    if bytes.len() > MAX_TRENDS_BYTES {
+        log::warn!(
+            "trends text upstream too large sid={} req={} host='{}' bytes={} elapsed_ms={}",
+            sid,
+            req,
+            host,
+            bytes.len(),
+            start.elapsed().as_millis()
+        );
+        return Err("trends: upstream too large".to_string());
+    }
+    let body = String::from_utf8(bytes.to_vec()).map_err(|e| {
+        log::warn!(
+            "trends text decode fail sid={} req={} host='{}' elapsed_ms={} reason={}",
+            sid,
+            req,
+            host,
+            start.elapsed().as_millis(),
+            crate::log_support::short_reason(&e.to_string())
+        );
+        format!("trends: read body failed: {}", crate::log_support::short_reason(&e.to_string()))
+    })?;
     log::debug!(
         "trends text ok sid={} req={} host='{}' bytes={} elapsed_ms={}",
         sid,

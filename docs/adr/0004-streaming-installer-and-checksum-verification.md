@@ -27,3 +27,5 @@
    - **macOS PKG**: 优先通过 `installer -pkg <path> -target CurrentUserHomeDirectory` 或唤起系统 `open` 安装向导。
    - **Linux AppImage**: 执行 `chmod +x` 赋予可执行权限后直接启动，无需提权。
    - **Linux DEB / RPM**: 通过系统标准 `pkexec dpkg -i` / `pkexec rpm -i` 触发 PolicyKit 图形化提权交互，向用户清晰告知授权意图。
+
+> 注（2026-10-05）：hash-skip ≠ 本次下载校验通过。`should_skip_download` 仅当本地存在且大小>0、期望哈希非空、本地 SHA-256 与期望一致时命中；`SkipDone::finish` 零网络直接返回并补发终态事件（`verified`/`completed_unverified`）+ `download skipped`（info），不得误读为“本次传输通过校验”。

@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, USER_AGENT};
 
 /// forge 内复用的 UA / Accept 常量：避免 9 处 client+header 重复手写。
@@ -50,22 +52,39 @@ fn build_client(
     timeout_secs: u64,
     redirect_limit: Option<usize>,
 ) -> Result<reqwest::Client, String> {
-    let mut builder =
-        reqwest::Client::builder().timeout(std::time::Duration::from_secs(timeout_secs));
+    let mut builder = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(timeout_secs))
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .tcp_keepalive(std::time::Duration::from_secs(60))
+        .pool_max_idle_per_host(20)
+        .pool_idle_timeout(std::time::Duration::from_secs(90));
     if let Some(limit) = redirect_limit {
         builder = builder.redirect(reqwest::redirect::Policy::limited(limit));
     }
     builder.build().map_err(|e| e.to_string())
 }
 
+static SHARED_API: OnceLock<reqwest::Client> = OnceLock::new();
+static SHARED_ICON: OnceLock<reqwest::Client> = OnceLock::new();
+
 /// 复用 timeout 取参的 Client 构造：调用方传入 `api_timeout_seconds` 即可。
+/// 单例复用（API 池）：首次 `timeout_secs` 生效，后续复用同一连接池。
 pub fn new_api_client(timeout_secs: u64) -> Result<reqwest::Client, String> {
-    build_client(timeout_secs, None)
+    Ok(SHARED_API
+        .get_or_init(|| {
+            build_client(timeout_secs, None).unwrap_or_else(|_| reqwest::Client::new())
+        })
+        .clone())
 }
 
 /// 图标/CDN 专用 Client：同 timeout 语义 + `redirect limited(10)`，绝不与 API client 混用。
+/// 单例复用（图标池，与 API 池物理隔离）。
 pub fn new_icon_client(timeout_secs: u64) -> Result<reqwest::Client, String> {
-    build_client(timeout_secs, Some(10))
+    Ok(SHARED_ICON
+        .get_or_init(|| {
+            build_client(timeout_secs, Some(10)).unwrap_or_else(|_| reqwest::Client::new())
+        })
+        .clone())
 }
 
 fn headers_with_ua(ua: &str, accept: &str, token: Option<&str>, scheme: AuthScheme) -> HeaderMap {

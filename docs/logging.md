@@ -119,6 +119,8 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
 | 换 token/刷新/轮询失败 `commands/oauth.rs` | warn | `oauth poll failed reason=…` / `oauth refresh failed reason=…` / `oauth device start failed reason=…` |
 | 镜像切换 `mirror.rs::set_active_mirror` | info | `mirror switch id=… proxy='…'`（代理只记脱敏展示值） |
 | 测速结果 `commands/network.rs::test_proxy`（调用方记） | info/warn | `proxy test ok latency_ms=210` / `proxy test failed latency_ms=9999 reason=…`（不记被测 URL） |
+| 下载命中跳过 `installer/downloader.rs::SkipDone::finish` | info | `download skipped sid=… req=… id=… host=… file=… bytes=… elapsed_ms=…`（零网络，`should_skip_download` 命中：本地存在且大小>0 且 SHA-256 与期望一致） |
+| 趋势文本拒绝/失败 `commands/network.rs::fetch_trends_text` | warn | `trends text rejected sid=… req=… reason=…` / `trends text timeout …` / `trends text network fail …` / `trends text upstream … status=…` / `trends text read fail …` / `trends text upstream too large …` / `trends text decode fail …`（只记 host，不记 query/URL） |
 
 ### 第二层：debug（release 不可见）
 
@@ -128,6 +130,7 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
 | 关注挂起 `commands/updates.rs::notify_watched_updates` | `watch deferred id=… reason=daily-throttle\|baseline-init\|…首行…` |
 | device 取消 `commands/oauth.rs` | `oauth device denied`（正常流程，不记 token/user_code） |
 | 拉取层正常请求 `github/*`、`forge/*` | `http fetch … / http forge …`（成功/304 一律 debug；失败 warn，错误上浮到命令层记一次） |
+| 趋势文本起止 `commands/network.rs::fetch_trends_text` | `trends text fetch start sid=… req=… host='…' path='…'` / `trends text ok sid=… req=… host='…' bytes=… elapsed_ms=…`（成功/开始一律 debug；失败 warn 见第一层） |
 
 ### 第三层：禁止（零打点）
 

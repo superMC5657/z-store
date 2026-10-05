@@ -60,3 +60,13 @@
    - 界面采用 Linear 风格的去彩单色体系：黑白灰画布、hairline 微边框、6/8px 圆角、510/590 字重与系统级深浅色自适应（Fluent 仅指 `lucide-react` 矢量图标体系，不要求 Acrylic/品牌蓝）。
    - 采用统一的线性矢量图标体系（统一由 `lucide-react` 14px/stroke 1.5 及单色矢量 SVG 驱动并适配 `currentColor`），状态反馈采用标准 CSS 微动效（如旋转 `.icon-spin`）与高亮状态指示原点（`.status-dot`），消除视觉割裂；基底保持单色，星级收藏（金 `#eab308`）、榜单排名（金/银/铜）与告警/错误等状态色为例外点缀，图标本体仍为单色 `currentColor`。
    - 侧栏底部常驻账号入口胶囊（`Account Capsule`），未登录显示登录入口，已登录呈现头像与用户名，点击直达设置中心账号卡片（`#settings-account`）。
+5. **D5 双池复用 (Dual-Pool Client Reuse)**:
+   - API 与图标下载使用物理隔离的复用单例 Client，均配置 connect_timeout 5s、keepalive 60s、pool 20/idle 90s；图标 CDN 通道恒丢 token，绝不携带认证头。
+6. **D6 有限并发 (Bounded Concurrency)**:
+   - 明星榜 `buffered(4)`、图标 `buffered(3)`、更新检查 `buffer_unordered(6)`（主路径与关注通知两处，见 `updates.rs:316,440`），首命中即停并按原顺序回填结果。
+7. **D7 有限重试 (Limited Retry)**:
+   - 仅 GET 可重试，仅覆盖传输错误与 429/5xx，最多重试 2 次并按 200ms→800ms 退避；401/404/304 永不重试。
+8. **D8 首包验图与跳过 (First-Bytes Verify & Skip)**:
+   - 图标先 HEAD 判类型长度，再 Range 取前 32KB 验 magic，失败回退全量 GET，并以 300B 最小阈值卡掉 LFS 指针文件；下载前 SHA-256 命中即零网络跳过，ETag 收敛至统一 helper，force 模式跳过 DB 读取。
+9. **D9 趋势与首页 (Trending & Home)**:
+   - 趋势复用共享 Client，经 tokio 10s 超时并截断 2MB 防爆内存；首页固定 balanced 排序与 seed 7，不提供策略切换工具条（用户已确认不要）。

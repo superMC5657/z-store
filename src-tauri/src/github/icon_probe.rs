@@ -400,27 +400,31 @@ pub(crate) fn dedup_slugs(owner: &str, repo: &str) -> Vec<String> {
 }
 
 /// 快路径：SimpleIcons 品牌库（免鉴权），每 slug 超时经配置（未设置回退 1500ms），命中即返。
-/// 并发策略：`join_all` 同时起探（去重后通常 ≤2 个），按原 slug 顺序回填取首个命中。
+/// 并发 buffered(3) 验图，按 slug 顺序取首个有效，语义与逐个串行一致（去重后通常 ≤2 个）。
 pub(crate) async fn probe_simple_icons(
     client: &reqwest::Client,
     owner: &str,
     repo: &str,
 ) -> Option<ProbedIcon> {
+    use futures_util::StreamExt as _;
     let slugs = dedup_slugs(owner, repo);
     if slugs.is_empty() {
         return None;
     }
     let timeout = simple_icon_timeout();
-    let probes = slugs.iter().map(|slug| {
-        let cdn = format!("https://cdn.simpleicons.org/{slug}");
-        async move {
-            let hit = verify_image(client, &cdn, timeout).await;
-            (cdn, hit)
-        }
-    });
-    // join_all 保持入参顺序，遍历即“顺序回填”，首个命中返回。
-    let results = futures_util::future::join_all(probes).await;
-    for (cdn, hit) in results {
+    let checks: Vec<(String, Option<(usize, String)>)> = futures_util::stream::iter(
+        slugs.into_iter().map(|slug| {
+            let cdn = format!("https://cdn.simpleicons.org/{slug}");
+            async move {
+                let hit = verify_image(client, &cdn, timeout).await;
+                (cdn, hit)
+            }
+        }),
+    )
+    .buffered(3)
+    .collect()
+    .await;
+    for (cdn, hit) in checks {
         if let Some((_, ctype)) = hit {
             if ctype.contains("svg") || ctype.starts_with("image/") {
                 return Some(ProbedIcon {
