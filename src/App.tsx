@@ -225,8 +225,10 @@ export const App: React.FC = () => {
   const currentSearchIdRef = useRef<string>('');
   const [isSearchingOnline, setIsSearchingOnline] = useState(false);
   const [onlineSearchPerformed, setOnlineSearchPerformed] = useState(false);
-  // 在线搜索翻页状态：本地为 0 后调在线第 1 页，触底且满页/has_more 时 page+1 拼接到 apps。
+  // 在线搜索翻页状态：提交即在线调第 1 页，触底且满页/has_more 时 page+1 追加到在线段。
+  // 上下分段：apps 永远是本地结果，在线结果单独存 onlineApps（HomeView 本地在上、在线在下两段展示）。
   const [isOnlineResultSet, setIsOnlineResultSet] = useState(false);
+  const [onlineApps, setOnlineApps] = useState<AppSummary[]>([]);
   const [, setOnlinePage] = useState(1);
   const [onlineHasMore, setOnlineHasMore] = useState(false);
   const [isLoadingOnlineMore, setIsLoadingOnlineMore] = useState(false);
@@ -235,6 +237,8 @@ export const App: React.FC = () => {
   const isOnlineResultSetRef = useRef(false);
   const onlineQueryRef = useRef('');
   const isLoadingOnlineMoreRef = useRef(false);
+  const onlineAppsRef = useRef<AppSummary[]>([]);
+  onlineAppsRef.current = onlineApps;
   const [apps, setApps] = useState<AppSummary[]>([]);
   const [installedApps, setInstalledApps] = useState<InstalledApp[]>([]);
   const [installingAppIds, setInstallingAppIds] = useState<Set<string>>(new Set());
@@ -344,6 +348,7 @@ export const App: React.FC = () => {
       if (icon && isAvatarUrl(icon)) return;
       const targetId = appId.toLowerCase();
       setApps((prevApps) => patchAppIconList(prevApps, targetId, icon));
+      setOnlineApps((prev) => patchAppIconList(prev, targetId, icon));
       setRecentlyViewedApps((prevRecents) => patchAppIconList(prevRecents, targetId, icon));
     };
     window.addEventListener('zstore:icon-changed', handleIconChanged);
@@ -361,6 +366,7 @@ export const App: React.FC = () => {
         preloadIcons([{ id: targetId, icon: payload.icon }]);
 
         setApps((prevApps) => patchAppIconList(prevApps, targetId, payload.icon));
+        setOnlineApps((prev) => patchAppIconList(prev, targetId, payload.icon));
         setRecentlyViewedApps((prevRecents) => patchAppIconList(prevRecents, targetId, payload.icon));
       })
       .then((unlisten) => {
@@ -569,11 +575,24 @@ export const App: React.FC = () => {
 
   // 搜索逻辑（本地内存搜索，防抖触发）
   const handleSearchChange = async (q: string) => {
+    const trimmed = q.trim();
+    // 同词且已是该词的在线结果集 → 保持在线结果，不回退本地。
+    // （TitleBar 回车会连调 onSearchChange + onSearchSubmit；此处若清掉在线态，
+    // 提交侧的同词去重守卫将失效，导致重复在线请求。）
+    if (
+      trimmed &&
+      trimmed === searchQuery.trim() &&
+      trimmed === onlineQueryRef.current &&
+      isOnlineResultSetRef.current
+    ) {
+      return;
+    }
     setSearchQuery(q);
     setOnlineSearchPerformed(false);
     // 新搜索词切回本地结果集：清掉上一轮在线翻页状态，搜索态回到首屏 20（HomeView 负责）。
     setIsOnlineResultSet(false);
     isOnlineResultSetRef.current = false;
+    setOnlineApps([]);
     setOnlineHasMore(false);
     onlineHasMoreRef.current = false;
     setOnlinePage(1);
@@ -632,6 +651,19 @@ export const App: React.FC = () => {
             });
             return changed ? next : prev;
           });
+          // 在线段同口径回填：卡片共用同一 pending 语义，在线段不闪 Other。
+          setOnlineApps((prev) => {
+            let changed = false;
+            const next = prev.map((a) => {
+              const p = patched.get(a.id.toLowerCase());
+              if (p && (!a.platforms || a.platforms.length === 0)) {
+                changed = true;
+                return { ...a, platforms: p };
+              }
+              return a;
+            });
+            return changed ? next : prev;
+          });
           setRecentlyViewedApps((prev) => {
             let changed = false;
             const next = prev.map((a) => {
@@ -676,10 +708,10 @@ export const App: React.FC = () => {
   // （徽标 + 计数 + 可过滤），而非无限 shimmer。超时前恒可见，落定后走正常 Other 过滤。
   // 治愈（具真实平台）的行永不被确认；定时器随列表/回填变化重置，落稳后一次触发。
   useEffect(() => {
-    if (apps.length === 0 && recentlyViewedApps.length === 0) return;
+    if (apps.length === 0 && onlineApps.length === 0 && recentlyViewedApps.length === 0) return;
     const pendingSnapshot: string[] = [];
     const seen = new Set<string>();
-    for (const s of [...apps, ...recentlyViewedApps]) {
+    for (const s of [...apps, ...onlineApps, ...recentlyViewedApps]) {
       if (s.platforms && s.platforms.length > 0) continue;
       const key = (s.id || '').trim().toLowerCase();
       if (!key || seen.has(key)) continue;
@@ -691,7 +723,7 @@ export const App: React.FC = () => {
     const timer = setTimeout(() => {
       const stillPending: string[] = [];
       const currentById = new Map<string, AppSummary>();
-      for (const s of [...appsRef.current, ...recentsRef.current]) {
+      for (const s of [...appsRef.current, ...onlineAppsRef.current, ...recentsRef.current]) {
         const k = (s.id || '').trim().toLowerCase();
         if (k && !currentById.has(k)) currentById.set(k, s);
       }
@@ -718,46 +750,54 @@ export const App: React.FC = () => {
     return () => {
       clearTimeout(timer);
     };
-  }, [apps, recentlyViewedApps, platformResolvedOtherIds]);
+  }, [apps, onlineApps, recentlyViewedApps, platformResolvedOtherIds]);
 
-  // 在线搜索提交逻辑（按回车或点击“在线搜索”按钮，仅在本地无结果时调用一次）
+  // 在线搜索提交逻辑（按回车或点击“在线搜索”按钮：即使本地有结果也发起在线搜索）
   const handleSearchSubmit = async (queryToSubmit?: string) => {
     const q = (queryToSubmit !== undefined ? queryToSubmit : searchQuery).trim();
     if (!q) return;
 
-    // 若本地已有匹配结果，按契约不发起在线搜索
-    if (q === searchQuery.trim() && apps.length > 0) {
+    // 同词且已是该词的在线结果集 → 直接返回，避免重复请求；
+    // 本地结果集（isOnlineResultSet 为 false）则必须允许转在线。
+    if (
+      q === searchQuery.trim() &&
+      q === onlineQueryRef.current &&
+      isOnlineResultSetRef.current
+    ) {
       return;
     }
 
     const seq = ++searchSeqRef.current;
 
-    // 若本地搜索尚未完成或搜索词变更，先查一次本地
-    let localResults = (q === searchQuery.trim()) ? apps : null;
-    if (localResults === null) {
+    // 若本地搜索尚未完成或搜索词变更，先查一次本地并展示（异词先本地后在线）
+    if (q !== searchQuery.trim()) {
       setSearchQuery(q);
       setOnlineSearchPerformed(false);
       setIsOnlineResultSet(false);
       isOnlineResultSetRef.current = false;
+      setOnlineApps([]);
       setOnlineHasMore(false);
       onlineHasMoreRef.current = false;
       setOnlinePage(1);
       onlinePageRef.current = 1;
       onlineQueryRef.current = '';
       try {
-        localResults = await api.searchApps(q);
+        const freshLocal = await api.searchApps(q);
         if (guardFreshSearch(seq)) return;
-        setApps(localResults);
+        setApps(freshLocal);
         if (currentView !== 'home' && currentView !== 'trends' && currentView !== 'categories') {
           setCurrentView('home');
         }
       } catch (err) {
-        if (guardFreshSearch(seq, err, 'searchApps error', () => { localResults = []; })) return;
+        // 本地失败不阻塞：照常转在线（apps 保持原样，在线无结果/失败则提示）。
+        if (guardFreshSearch(seq, err, 'searchApps error')) return;
       }
     }
 
-    // 仅在本地无结果时调用在线搜索（第 1 页，per_page 与后端默认 12 对齐）
-    if (localResults!.length === 0) {
+    // 提交即在线：不再以本地零结果为 gate（第 1 页，per_page 与后端默认 12 对齐）；
+    // 上下分段：本地结果保留在 apps，在线结果单独存 onlineApps（HomeView 本地在上、在线在下）。
+    // 在线无结果/失败则保持本地结果 + 提示（内部分支处理）。
+    {
       setIsSearchingOnline(true);
       const searchId = `search-${seq}-${Date.now()}`;
       currentSearchIdRef.current = searchId;
@@ -766,7 +806,16 @@ export const App: React.FC = () => {
         if (guardFreshSearch(seq)) return;
         setOnlineSearchPerformed(true);
         if (onlineResults && onlineResults.length > 0) {
-          setApps(onlineResults);
+          // 同词在线集去重（按 id 小写）：后端偶发重复时在线段不出现重复卡片。
+          const seen = new Set<string>();
+          const deduped: AppSummary[] = [];
+          for (const m of onlineResults) {
+            const k = (m.id || '').toLowerCase();
+            if (!k || seen.has(k)) continue;
+            seen.add(k);
+            deduped.push(m);
+          }
+          setOnlineApps(deduped);
           lazyBackfillPlatforms(onlineResults, seq);
           setIsOnlineResultSet(true);
           isOnlineResultSetRef.current = true;
@@ -779,6 +828,7 @@ export const App: React.FC = () => {
           onlineHasMoreRef.current = hasMore;
           showToast(t('search.online_success', '已找到在线应用'), 'success');
         } else {
+          setOnlineApps([]);
           setIsOnlineResultSet(false);
           isOnlineResultSetRef.current = false;
           setOnlineHasMore(false);
@@ -789,6 +839,7 @@ export const App: React.FC = () => {
       } catch (err) {
         if (guardFreshSearch(seq, err, 'searchAppsOnline error', () => {
           setOnlineSearchPerformed(true);
+          setOnlineApps([]);
           setIsOnlineResultSet(false);
           isOnlineResultSetRef.current = false;
           setOnlineHasMore(false);
@@ -803,7 +854,7 @@ export const App: React.FC = () => {
     }
   };
 
-  // 在线结果触底翻页：后端满页/has_more 时自动要下一页（page+1），拼接到 apps；
+  // 在线结果触底翻页：后端满页/has_more 时自动要下一页（page+1），追加到在线段；
   // 限流/失败 toast 与首屏保持原样（info 级，不抛错阻塞列表）。
   const handleOnlineLoadMore = useCallback(async () => {
     if (isLoadingOnlineMoreRef.current || isSearchingOnline) return;
@@ -823,11 +874,19 @@ export const App: React.FC = () => {
       );
       if (seq !== searchSeqRef.current) return;
       if (more && more.length > 0) {
-        setApps((prev) => {
-          const seen = new Set(prev.map((a) => a.id.toLowerCase()));
-          const fresh = more.filter((m) => !seen.has(m.id.toLowerCase()));
+        // 按 id 去重后追加到在线段（跳过在线段已有项；本地段不动）。
+        setOnlineApps((prev) => {
+          const seen = new Set(prev.map((a) => (a.id || '').toLowerCase()));
+          const fresh: AppSummary[] = [];
+          for (const m of more) {
+            const k = (m.id || '').toLowerCase();
+            if (!k || seen.has(k)) continue;
+            seen.add(k);
+            fresh.push(m);
+          }
           return fresh.length > 0 ? [...prev, ...fresh] : prev;
         });
+        lazyBackfillPlatforms(more, seq);
         const hasMore = more.length >= ONLINE_SEARCH_PER_PAGE;
         setOnlinePage(nextPage);
         onlinePageRef.current = nextPage;
@@ -847,7 +906,7 @@ export const App: React.FC = () => {
         isLoadingOnlineMoreRef.current = false;
       }
     }
-  }, [isSearchingOnline, searchQuery, showToast, t]);
+  }, [isSearchingOnline, searchQuery, showToast, t, lazyBackfillPlatforms]);
 
   const loadRecentViews = useCallback(async () => {
     try {
@@ -1521,6 +1580,11 @@ export const App: React.FC = () => {
     () => apps.filter((a) => matchPlatformSetWithPending(a, selectedPlatforms, platformResolvedOtherIds)),
     [apps, selectedPlatforms, platformResolvedOtherIds]
   );
+  // 搜索在线段同口径平台过滤：与本地段一致，待确认恒可见，落定后走正常过滤。
+  const platformFilteredOnlineApps = useMemo(
+    () => onlineApps.filter((a) => matchPlatformSetWithPending(a, selectedPlatforms, platformResolvedOtherIds)),
+    [onlineApps, selectedPlatforms, platformResolvedOtherIds]
+  );
 
   // 任务 4（设备平台全局过滤）：侧栏分组的各平台应用计数，
   // 基于全量 `apps` 数组（而非已过滤数组）计算，以便准确呈现“有多少应用支持该设备”。
@@ -1667,7 +1731,9 @@ export const App: React.FC = () => {
         {/* 主内容显示区域 */}
         <main className="content-area">
           {currentView === 'home' && (
-            searchQuery.trim() && apps.length === 0 ? (
+            // 搜索双段空态：本地段与在线段都为空时才走整页空态（保留在线搜索入口）；
+            // 任一段有结果即进 HomeView 上下分段展示（本地在上、在线在下）。
+            searchQuery.trim() && platformFilteredApps.length === 0 && platformFilteredOnlineApps.length === 0 ? (
               <div className="search-empty-state" style={{ marginTop: '40px', textAlign: 'center' }}>
                 <EmptyState
                   icon={<Search size={40} strokeWidth={1.5} />}
@@ -1718,6 +1784,9 @@ export const App: React.FC = () => {
                 onClearRecentViews={handleClearRecentViews}
                 onResetPlatformFilter={handleResetPlatformFilter}
                 isOnlineResults={isOnlineResultSet}
+                onlineApps={platformFilteredOnlineApps}
+                isSearchingOnline={isSearchingOnline}
+                onlineSearchPerformed={onlineSearchPerformed}
                 onlineHasMore={onlineHasMore}
                 isLoadingOnlineMore={isLoadingOnlineMore}
                 onOnlineLoadMore={handleOnlineLoadMore}

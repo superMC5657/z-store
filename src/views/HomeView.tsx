@@ -10,6 +10,7 @@ import {
   Clock,
   Trash2,
   Package,
+  Globe,
 } from 'lucide-react';
 import { AppCard } from '../components/AppCard';
 import { AppIcon } from '../components/AppIcon';
@@ -115,8 +116,18 @@ interface HomeViewProps extends ViewAppActions, PlatformResetOption {
   searchQuery?: string;
   onNavigateTrends: () => void;
   onClearRecentViews?: () => void;
-  /** 搜索在线结果集标记：true 表示当前 apps 来自在线搜索（本地为 0 后调在线第 1 页）。 */
+  /** 推荐策略（默认 balanced），变化时 feed 从头重置。 */
+  initialStrategy?: FeedStrategy;
+  /** 确定性种子（默认 7），“换一批”即 +1，保证同 seed 同顺序。 */
+  initialSeed?: number;
+  /** 搜索在线结果集标记：true 表示当前查询的在线段有结果（apps 本身永远是本地结果）。 */
   isOnlineResults?: boolean;
+  /** 搜索在线段（App 已做平台过滤，保序）：搜索态渲染在本地段下方，复用同一 AppCard。 */
+  onlineApps?: AppSummary[];
+  /** 正在在线搜索（在线段展示加载提示，首屏与翻页共用）。 */
+  isSearchingOnline?: boolean;
+  /** 已发起过在线搜索（在线段空时区分“还没搜”与“搜过无结果”）。 */
+  onlineSearchPerformed?: boolean;
   /** 在线搜索是否还有下一页（后端满页/has_more 时为 true，到底后为 false）。 */
   onlineHasMore?: boolean;
   /** 在线下一页加载中（禁用重复触发，与后端 loading 同等对待）。 */
@@ -142,6 +153,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onClearRecentViews,
   onResetPlatformFilter,
   isOnlineResults = false,
+  onlineApps = [],
+  isSearchingOnline = false,
+  onlineSearchPerformed = false,
   onlineHasMore = false,
   isLoadingOnlineMore = false,
   onOnlineLoadMore,
@@ -334,7 +348,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
     return () => observer.disconnect();
   }, [hasMore, useBackendList, displayedFeed.length, onlineActive, isOnlineResults]);
 
-  if (apps.length === 0) {
+  // 非搜索态筛选为空才走平台空态；搜索态本地为空但在线有结果时仍进双段展示，
+  // 本地段给轻量空提示（两段都空时 App 侧整页空态已拦截，此处兜底同样进双段）。
+  // 合并取舍：lane 的 handleShuffle/strategyLabel 未保留——HEAD 已固定策略并砍掉切换工具条，
+  // 此处无 setSeed、无调用方，保留即编译不过；固定 balanced + seed=7 口径不变。
+  if (apps.length === 0 && !isSearching) {
     // 筛选为空：全局设备平台筛选排除了所有应用。
     // 专属文案与重置按钮——绝不复用搜索页的 `owner/repo` 引导文案。
     return (
@@ -532,8 +550,125 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </>
       )}
 
+      {/* 搜索态上下分段：本地在上、在线在下，分组头标明来源和数量，列表复用同一 AppCard */}
+      {isSearching && (
+        <>
+          <div className="section-header" data-testid="search-local-section">
+            <h3 className="section-title">
+              <Package size={16} />
+              <span>{t('search.local_results', `本地结果 (${apps.length})`)}</span>
+            </h3>
+          </div>
+          {displayedFeed.length > 0 ? (
+            <div className="app-grid" data-testid="search-local-grid">
+              {displayedFeed.map((app) => (
+                <AppCard
+                  key={app.id}
+                  app={app}
+                  platformPending={isPending(app)}
+                  isInstalled={installedIds.has(app.id)}
+                  isInstalling={installingIds?.has(app.id)}
+                  isFavorite={favoriteIds.has(app.id)}
+                  isWatched={watchedIds?.has(app.id)}
+                  onOpenDetail={onOpenDetail}
+                  onQuickInstall={onQuickInstall}
+                  onToggleFavorite={onToggleFavorite}
+                  onToggleWatch={onToggleWatch}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="feed-end" data-testid="search-local-empty">
+              {t('search.local_empty', '本地没有找到匹配应用')}
+            </div>
+          )}
+          {localHasMore && (
+            <div className="feed-more-row">
+              <button
+                type="button"
+                data-testid="search-local-load-more"
+                className="btn-fluent btn-secondary"
+                onClick={() => setVisibleCount((c) => c + HOME_FEED_PAGE)}
+              >
+                {t('search.local_load_more', '加载更多本地结果')}
+              </button>
+            </div>
+          )}
+
+          <div className="section-header" style={{ marginTop: '28px' }} data-testid="search-online-section">
+            <h3 className="section-title">
+              <Globe size={16} />
+              <span>{t('search.online_results', `在线结果 (${onlineApps.length})`)}</span>
+            </h3>
+          </div>
+          {onlineApps.length > 0 ? (
+            <div className="app-grid" data-testid="search-online-grid">
+              {onlineApps.map((app) => (
+                <AppCard
+                  key={app.id}
+                  app={app}
+                  platformPending={isPending(app)}
+                  isInstalled={installedIds.has(app.id)}
+                  isInstalling={installingIds?.has(app.id)}
+                  isFavorite={favoriteIds.has(app.id)}
+                  isWatched={watchedIds?.has(app.id)}
+                  onOpenDetail={onOpenDetail}
+                  onQuickInstall={onQuickInstall}
+                  onToggleFavorite={onToggleFavorite}
+                  onToggleWatch={onToggleWatch}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="feed-end" data-testid="search-online-empty">
+              {isSearchingOnline
+                ? t('search.online_searching', '正在在线搜索…')
+                : onlineSearchPerformed
+                  ? t('search.online_empty', '没有找到相关在线应用，已保留本地结果')
+                  : t('search.online_prompt', '按回车发起在线搜索，在这里看云端结果')}
+            </div>
+          )}
+          {(isSearchingOnline || isLoadingOnlineMore) && (
+            <div className="app-grid" data-testid="feed-skeleton" aria-hidden="true">
+              {[0, 1, 2, 3].map((i) => (
+                <div key={i} className="app-card feed-skeleton-card">
+                  <div className="skeleton-box feed-skeleton-icon" />
+                  <div className="feed-skeleton-lines">
+                    <div className="skeleton-box feed-skeleton-line-main" />
+                    <div className="skeleton-box feed-skeleton-line-sub" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* 在线段底部哨兵：触底自动 page+1 追加到在线段；不可用时靠下方按钮兜底 */}
+          <div ref={sentinelRef} data-testid="feed-sentinel" className="feed-sentinel" aria-hidden="true" />
+          {onlineActive ? (
+            <div className="feed-more-row">
+              <button
+                type="button"
+                data-testid="feed-load-more"
+                className="btn-fluent btn-secondary"
+                onClick={handleLoadMore}
+                disabled={isLoadingOnlineMore}
+              >
+                {isLoadingOnlineMore
+                  ? t('home.feed_loading', '正在加载…')
+                  : t('search.online_load_more', '加载更多在线结果')}
+              </button>
+            </div>
+          ) : (
+            onlineApps.length > 0 && !onlineHasMore && (
+              <div data-testid="feed-end" className="feed-end">
+                {t('search.online_end', `到底了 · 在线共 ${onlineApps.length} 个`)}
+              </div>
+            )
+          )}
+        </>
+      )}
+
       {/* 推荐 feed：首屏 20，触底自动 +20；只渲染 slice(0, visibleCount) */}
-      {(feedPool.length > 0 || displayedFeed.length > 0) && (
+      {!isSearching && (feedPool.length > 0 || displayedFeed.length > 0) && (
         <>
           <div className="section-header" style={{ marginTop: '28px' }}>
             <h3 className="section-title">
