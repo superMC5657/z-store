@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TitleBar } from './components/TitleBar';
+import { ResizeHandles } from './components/ResizeHandles';
 import { Sidebar } from './components/Sidebar';
 import { ToastContainer } from './components/Toast';
 import { AppDetailModal } from './components/AppDetailModal';
@@ -1725,6 +1726,8 @@ export const App: React.FC = () => {
 
   return (
     <div className="app-window">
+      {/* Frameless all-edge resize zones (Tauri-only, no-op in browser demo) */}
+      <ResizeHandles />
       {/* 顶部标题栏 */}
       <TitleBar
         searchQuery={searchQuery}
