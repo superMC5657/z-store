@@ -79,6 +79,42 @@ pub fn get_installed_apps(state: State<'_, AppState>) -> Result<Vec<InstalledApp
     Ok(apps)
 }
 
+/// Linux 启动 + 落盘回填共享体（launch 4b-1 desktop / 4b-2 PATH 共用，
+/// 收敛 spawn + save 回填两块 near-identical 重复）。
+/// `found` 为已解析的落盘路径；文件不存在返回 Ok(false)（调用方继续下一候选），
+/// 启动成功回填数据库并返回 Ok(true)，spawn 失败返回 Err（`origin` 写入错误上下文）。
+#[cfg(target_os = "linux")]
+fn spawn_and_backfill(
+    state: &State<'_, AppState>,
+    installed: &Option<InstalledApp>,
+    target_path: &str,
+    found: &str,
+    origin: &str,
+) -> Result<bool, String> {
+    let exe_path = std::path::PathBuf::from(found);
+    if !exe_path.is_file() {
+        return Ok(false);
+    }
+    let parent = exe_path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    std::process::Command::new(&exe_path)
+        .current_dir(&parent)
+        .spawn()
+        .map_err(|e| format!("通过 {} 启动失败 ({}): {}", origin, found, e))?;
+    // 记录路径为空或过期时同步回填，加速下次启动
+    if let Some(mut updated) = installed.clone() {
+        if target_path != found {
+            if let Ok(db) = state.db() {
+                updated.install_path = found.to_string();
+                let _ = db.save_installed_app(&updated);
+            }
+        }
+    }
+    Ok(true)
+}
+
 pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
     let app_id = super::require_app_id(&app_id)?;
     let installed_app_opt = {
@@ -279,55 +315,21 @@ pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, St
     // 如 Motrix `/usr/bin/motrix -> /etc/alternatives/motrix`）。Windows 编译时消除。
     #[cfg(target_os = "linux")]
     {
-        // 候选裸名：catalog linux 标识优先，其次 app 名/id 派生
-        let mut bare_names: Vec<String> = Vec::new();
-        if let Some(cat) = state.catalog.get_catalog_item(&app_id) {
-            for id in cat.get_native_identifiers() {
-                let t = id.trim().to_string();
-                if !t.is_empty() && !bare_names.contains(&t) {
-                    bare_names.push(t.clone());
-                }
-                let lower = t.to_lowercase();
-                if !lower.is_empty() && !bare_names.contains(&lower) {
-                    bare_names.push(lower);
-                }
-            }
-        }
-        for cand in [&app_name, &app_id] {
-            for part in cand.split(['/', '-', ' ', '_']) {
-                let t = part.trim().to_lowercase();
-                if t.len() >= 3 && !bare_names.contains(&t) {
-                    bare_names.push(t);
-                }
-            }
-            let full = cand.trim().to_lowercase();
-            if !full.is_empty() && !bare_names.contains(&full) {
-                bare_names.push(full);
-            }
-        }
-        // 4b-1. desktop Exec 解析
-        if let Some(found) =
-            crate::installer::executor::linux::resolve_desktop_installed_path(&bare_names)
+        // 候选裸名共享派生（与 installer_install / scanner dpkg 共用
+        // `AppScanner::linux_candidate_names`，收敛重复）。
+        let catalog_ids = state
+            .catalog
+            .get_catalog_item(&app_id)
+            .map(|cat| cat.get_native_identifiers())
+            .unwrap_or_default();
+        let (_, bare_names) = crate::scanner::AppScanner::linux_candidate_names(
+            &catalog_ids,
+            &[app_name.clone(), app_id.clone()],
+        );
+        // 4b-1. desktop Exec 解析（全仓唯一 walker，见 scanner）
+        if let Some(found) = crate::scanner::AppScanner::resolve_linux_via_desktop(&bare_names)
         {
-            let exe_path = std::path::PathBuf::from(&found);
-            if exe_path.is_file() {
-                let parent = exe_path
-                    .parent()
-                    .map(|p| p.to_path_buf())
-                    .unwrap_or_else(|| std::path::PathBuf::from("."));
-                std::process::Command::new(&exe_path)
-                    .current_dir(&parent)
-                    .spawn()
-                    .map_err(|e| format!("通过桌面文件启动失败 ({}): {}", found, e))?;
-                // 记录路径为空时同步回填，加速下次启动
-                if let Some(mut updated) = installed_app_opt.clone() {
-                    if target_path != found {
-                        if let Ok(db) = state.db() {
-                            updated.install_path = found;
-                            let _ = db.save_installed_app(&updated);
-                        }
-                    }
-                }
+            if spawn_and_backfill(&state, &installed_app_opt, &target_path, &found, "桌面文件")? {
                 return Ok(true);
             }
         }
@@ -337,24 +339,7 @@ pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, St
                 continue;
             }
             if let Some(found) = crate::scanner::AppScanner::which_binary(name) {
-                let exe_path = std::path::PathBuf::from(&found);
-                if exe_path.is_file() {
-                    let parent = exe_path
-                        .parent()
-                        .map(|p| p.to_path_buf())
-                        .unwrap_or_else(|| std::path::PathBuf::from("."));
-                    std::process::Command::new(&exe_path)
-                        .current_dir(&parent)
-                        .spawn()
-                        .map_err(|e| format!("通过 PATH 启动失败 ({}): {}", found, e))?;
-                    if let Some(mut updated) = installed_app_opt.clone() {
-                        if target_path != found {
-                            if let Ok(db) = state.db() {
-                                updated.install_path = found;
-                                let _ = db.save_installed_app(&updated);
-                            }
-                        }
-                    }
+                if spawn_and_backfill(&state, &installed_app_opt, &target_path, &found, "PATH")? {
                     return Ok(true);
                 }
             }

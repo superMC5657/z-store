@@ -31,7 +31,7 @@ pub fn dpkg_list_argv(pkg: &str) -> Vec<String> {
     ]
 }
 
-/// `rpm -ql <pkg>` 查询 argv 纯函数（rpm 回填用；供单测锁定）。
+/// `rpm -ql <pkg>` 查询 argv 纯函数（rpm 回填用；供单测锁定；经 `resolve_rpm_installed_path` 接线）。
 pub fn rpm_list_argv(pkg: &str) -> Vec<String> {
     vec![
         "rpm".to_string(),
@@ -40,28 +40,14 @@ pub fn rpm_list_argv(pkg: &str) -> Vec<String> {
     ]
 }
 
-/// 解析 `.desktop` Exec 行为二进制（去 `%U/%F` 等字段码、引号、`env VAR=..` 前缀）。
-/// 纯函数，跨平台可单测；真实实现收敛于 `scanner::AppScanner::parse_desktop_exec_binary`，
-/// 此处保留轻量转发，避免 installer ↔ scanner 循环依赖感知扩散。
-pub fn parse_desktop_exec_binary(exec_line: &str) -> Option<String> {
-    crate::scanner::AppScanner::parse_desktop_exec_binary(exec_line)
-}
-
-/// `strip` 语义别名：去掉 Exec 行的参数与字段码，仅保留二进制部分（供调用方日志/诊断用）。
-pub fn strip_desktop_exec_args(exec_line: &str) -> String {
-    parse_desktop_exec_binary(exec_line).unwrap_or_else(|| exec_line.trim().to_string())
-}
-
-/// 从包文件列表输出中挑选可执行文件（纯函数，可单测；`dpkg -L` / `rpm -ql` 共用）。
-pub fn pick_executable_from_file_list(output: &str, candidates: &[String]) -> Option<String> {
-    crate::scanner::AppScanner::pick_executable_from_package_list(output, candidates)
-}
-
-/// deb 安装后回填：对候选包名执行 `dpkg -L` 并挑选可执行文件；失败返回 None（调用方继续走
-/// which/desktop 嗅探）。仅 Linux 编译；非 Linux 返回 None 且不执行任何进程。
-pub fn resolve_deb_installed_path(
+/// 包文件列表查询通用体（`dpkg -L` / `rpm -ql` 共用，列表 argv 构造器注入；
+/// 挑选 + 规范化收敛于 `scanner::AppScanner::pick_and_canonicalize_package_path`）。
+/// 对候选包名逐个执行列表命令并精准挑选；失败返回 None（调用方继续走 which/desktop 嗅探）。
+/// 仅 Linux 执行进程；非 Linux 返回 None 且不执行任何进程。
+fn resolve_via_pkg_manager(
     package_names: &[String],
     candidates: &[String],
+    list_argv: fn(&str) -> Vec<String>,
 ) -> Option<String> {
     #[cfg(target_os = "linux")]
     {
@@ -70,116 +56,45 @@ pub fn resolve_deb_installed_path(
             if p.is_empty() {
                 continue;
             }
-            let argv = dpkg_list_argv(p);
+            let argv = list_argv(p);
             let (prog, args) = argv.split_first()?;
             let output = std::process::Command::new(prog).args(args).output().ok()?;
             if !output.status.success() {
                 continue;
             }
             let text = String::from_utf8_lossy(&output.stdout).to_string();
-            if let Some(picked) = pick_executable_from_file_list(&text, candidates) {
-                let path = Path::new(&picked);
-                if path.is_file() {
-                    let resolved =
-                        std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-                    return Some(resolved.to_string_lossy().to_string());
-                }
+            if let Some(found) =
+                crate::scanner::AppScanner::pick_and_canonicalize_package_path(&text, candidates)
+            {
+                return Some(found);
             }
         }
         None
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = (package_names, candidates);
+        let _ = (package_names, candidates, list_argv);
         None
     }
 }
 
-/// desktop 文件回填：扫描系统 `.desktop` 的 `Exec=` 并解析为落盘路径。
-/// 仅 Linux 编译；非 Linux 返回 None。
-pub fn resolve_desktop_installed_path(bare_names: &[String]) -> Option<String> {
-    #[cfg(target_os = "linux")]
-    {
-        use std::path::PathBuf;
-        let mut dirs: Vec<PathBuf> = vec![
-            PathBuf::from("/usr/share/applications"),
-            PathBuf::from("/usr/local/share/applications"),
-        ];
-        if let Ok(home) = std::env::var("HOME") {
-            dirs.push(PathBuf::from(home).join(".local/share/applications"));
-        }
-        // 先按文件名精准命中
-        for dir in &dirs {
-            for name in bare_names {
-                let n = name.trim().to_lowercase();
-                if n.is_empty() {
-                    continue;
-                }
-                let p = dir.join(format!("{}.desktop", n));
-                if p.is_file() {
-                    if let Ok(content) = std::fs::read_to_string(&p) {
-                        for line in content.lines() {
-                            let t = line.trim();
-                            if t.starts_with("Exec=") {
-                                if let Some(bin) = parse_desktop_exec_binary(t) {
-                                    if let Some(r) =
-                                        crate::scanner::AppScanner::resolve_binary_via_path(
-                                            &bin,
-                                        )
-                                    {
-                                        return Some(r);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        // 文件名未命中时遍历匹配 Name=/Exec 含 token 的文件
-        for dir in &dirs {
-            let Ok(entries) = std::fs::read_dir(dir) else {
-                continue;
-            };
-            for entry in entries.flatten() {
-                let p = entry.path();
-                if !p.is_file()
-                    || p.extension().is_none_or(|e| !e.eq_ignore_ascii_case("desktop"))
-                {
-                    continue;
-                }
-                let Ok(content) = std::fs::read_to_string(&p) else {
-                    continue;
-                };
-                let lower = content.to_lowercase();
-                let hit = bare_names.iter().any(|n| {
-                    let nl = n.trim().to_lowercase();
-                    !nl.is_empty() && lower.contains(&nl)
-                });
-                if !hit {
-                    continue;
-                }
-                for line in content.lines() {
-                    let t = line.trim();
-                    if t.starts_with("Exec=") {
-                        if let Some(bin) = parse_desktop_exec_binary(t) {
-                            if let Some(r) =
-                                crate::scanner::AppScanner::resolve_binary_via_path(&bin)
-                            {
-                                return Some(r);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        None
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = bare_names;
-        None
-    }
+/// deb 安装后回填：对候选包名执行 `dpkg -L` 并精准挑选可执行文件；失败返回 None
+/// （调用方继续走 which/desktop 嗅探）。仅 Linux 编译；非 Linux 返回 None 且不执行任何进程。
+pub fn resolve_deb_installed_path(
+    package_names: &[String],
+    candidates: &[String],
+) -> Option<String> {
+    resolve_via_pkg_manager(package_names, candidates, dpkg_list_argv)
+}
+
+/// rpm 安装后回填：对候选包名执行 `rpm -ql` 并精准挑选可执行文件；失败返回 None。
+/// 与 deb 共用查询通用体（`rpm_list_argv` 在此接线，消零调用）。
+/// 仅 Linux 编译；非 Linux 返回 None 且不执行任何进程。
+pub fn resolve_rpm_installed_path(
+    package_names: &[String],
+    candidates: &[String],
+) -> Option<String> {
+    resolve_via_pkg_manager(package_names, candidates, rpm_list_argv)
 }
 
 /// AppImage 赋权 argv 纯函数。

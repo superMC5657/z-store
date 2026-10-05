@@ -1,6 +1,42 @@
 use super::{AppScanner, ScanConfig};
 use std::path::{Path, PathBuf};
 
+/// 候选名通用停用词（`resolve_installed_app_path` token 过滤与 `linux_candidate_names`
+/// 切分过滤同源共用；防 `app` / `tool` / `test` 等通用词误命中 `/usr/bin/test`、
+/// `apport-gtk.desktop` 同类误配）。
+const CANDIDATE_STOP_WORDS: &[&str] = &[
+    "microsoft",
+    "google",
+    "apple",
+    "the",
+    "for",
+    "windows",
+    "desktop",
+    "community",
+    "edition",
+    "open",
+    "source",
+    "client",
+    "official",
+    "project",
+    "player",
+    "editor",
+    "launcher",
+    "viewer",
+    "manager",
+    "tool",
+    "tools",
+    "app",
+    "studio",
+    "suite",
+    "media",
+    "system",
+    "helper",
+    "service",
+    "test",
+    "tests",
+];
+
 impl AppScanner {
     /// 智能探测应用程序的主可执行文件物理路径（确保返回的一定是磁盘上真实存在的文件）
     pub fn resolve_executable_path<C: Into<ScanConfig>>(
@@ -172,36 +208,7 @@ impl AppScanner {
         let repo_base = repo_str.rsplit('/').next().unwrap_or(repo_str);
         let mut config = ScanConfig::from(repo_base);
 
-        const STOP_WORDS: &[&str] = &[
-            "microsoft",
-            "google",
-            "apple",
-            "the",
-            "for",
-            "windows",
-            "desktop",
-            "community",
-            "edition",
-            "open",
-            "source",
-            "client",
-            "official",
-            "project",
-            "player",
-            "editor",
-            "launcher",
-            "viewer",
-            "manager",
-            "tool",
-            "tools",
-            "app",
-            "studio",
-            "suite",
-            "media",
-            "system",
-            "helper",
-            "service",
-        ];
+        const STOP_WORDS: &[&str] = CANDIDATE_STOP_WORDS;
 
         let mut tokens = vec![
             app_name.trim().to_lowercase(),
@@ -604,7 +611,8 @@ impl AppScanner {
     }
 
     /// 将二进制（绝对路径或裸命令）解析为磁盘真实路径：
-    /// 绝对路径要求 `is_file`；裸命令按 `PATH` 逐目录查找（含可执行位校验）。
+    /// 绝对路径要求 `is_file` 且（Unix 上）有执行位；裸命令按 `PATH` 逐目录查找（含可执行位校验）。
+    /// 无执行位一律返回 None（禁无条件放行，防误命中数据文件；赋权/提权由调用方显式处理）。
     /// 纯文件系统函数，Linux/Windows 均可调用（Windows 上退化为 is_file 检查）。
     pub fn resolve_binary_via_path(bin: &str) -> Option<String> {
         let b = bin.trim().trim_matches('"').trim_matches('\'');
@@ -616,11 +624,11 @@ impl AppScanner {
             if p.is_file() {
                 #[cfg(unix)]
                 {
-                    if Self::has_exec_permission(p) || p.extension().is_some() {
+                    // 必须有执行位才放行（无执行位返回 None，防误命中数据文件）
+                    if Self::has_exec_permission(p) {
                         return Some(p.to_string_lossy().to_string());
                     }
-                    // 即使无执行位，只要是文件也返回（调用方 chmod +x 兜底）
-                    return Some(p.to_string_lossy().to_string());
+                    return None;
                 }
                 #[cfg(not(unix))]
                 {
@@ -636,7 +644,12 @@ impl AppScanner {
         None
     }
 
-    /// 在 `PATH` 中查找裸命令（含 `/usr/bin`、`/usr/local/bin` 兜底）。
+    /// 在 `PATH` 中查找裸命令。
+    /// PATH 在 GUI/服务进程中可能稀疏，显式补齐标准绑定目录（FHS/XDG）：
+    /// `/usr/local/bin`（本地编译）、`/usr/bin`、`/bin`（与 `/usr/bin` 符号链接兼容）、
+    /// `~/.local/bin`（XDG 用户级）。
+    /// 注：`/opt/bin` 非标准 FHS 路径，已删（`/opt/<Name>` 由 `resolve_linux_system_binary` 专管）。
+    /// Unix 上必须有执行位才放行（无执行位返回 None；符号链接经 metadata 跟随目标判定）。
     pub fn which_binary(name: &str) -> Option<String> {
         let n = name.trim();
         if n.is_empty() || n.contains('/') || n.contains('\\') {
@@ -655,7 +668,7 @@ impl AppScanner {
                 }
             }
         }
-        for extra in ["/usr/local/bin", "/usr/bin", "/bin", "/opt/bin"] {
+        for extra in ["/usr/local/bin", "/usr/bin", "/bin"] {
             let p = PathBuf::from(extra);
             if !dirs.contains(&p) {
                 dirs.push(p);
@@ -670,27 +683,29 @@ impl AppScanner {
         }
         for d in dirs {
             let cand = d.join(n);
-            if cand.is_file() {
-                #[cfg(unix)]
-                {
-                    if Self::has_exec_permission(&cand) {
-                        return Some(cand.to_string_lossy().to_string());
-                    }
-                    // PATH 中的符号链接（如 /usr/bin/motrix -> /etc/alternatives/motrix）
-                    // 元数据跟随目标，若目标可执行则命中；无执行位也放行由调用方处理
+            if !cand.is_file() {
+                continue;
+            }
+            #[cfg(unix)]
+            {
+                // 必须有执行位才放行（无执行位继续下一目录，防误命中数据文件；
+                // 符号链接经 metadata 跟随目标判定）。
+                if Self::has_exec_permission(&cand) {
                     return Some(cand.to_string_lossy().to_string());
                 }
-                #[cfg(not(unix))]
-                {
-                    return Some(cand.to_string_lossy().to_string());
-                }
+                continue;
+            }
+            #[cfg(not(unix))]
+            {
+                return Some(cand.to_string_lossy().to_string());
             }
         }
         None
     }
 
-    /// 从 `dpkg -L` 输出中挑选可执行文件（纯函数，可单测）：
-    /// 优先命中候选裸名（`/usr/bin/<cand>` 或以 `/<cand>` 结尾），否则取首个可执行形态路径。
+    /// 从包文件列表输出中挑选可执行文件（纯函数，可单测；`dpkg -L` / `rpm -ql` 共用）：
+    /// 仅按候选裸名精准匹配（`/usr/bin/<cand>` 或以 `/<cand>` 结尾，大小写不敏感，`.exe` 退化裸名），
+    /// 匹配不上返回 None（禁首个文件盲 fallback，防误命中无关二进制）。
     /// 目录项（如 `/opt/Motrix`，其后必有以 `该行 + "/"` 开头的内容行）一律跳过，
     /// 避免 basename 恰好等于候选名（如 Motrix 目录 vs motrix 二进制）时误命中目录。
     pub fn pick_executable_from_package_list(
@@ -709,7 +724,6 @@ impl AppScanner {
             let prefix = format!("{}/", line);
             lines.iter().any(|other| *other != line && other.starts_with(&prefix))
         };
-        let mut fallback: Option<String> = None;
         for line in &lines {
             if is_parent_dir(line) {
                 continue;
@@ -736,38 +750,117 @@ impl AppScanner {
             if hit {
                 return Some(line.to_string());
             }
-            // 回退：/usr/bin 或 /opt 下首个无扩展名文件
-            if fallback.is_none()
-                && (line.starts_with("/usr/bin/")
-                    || line.starts_with("/usr/local/bin/")
-                    || line.starts_with("/opt/"))
-                && !line.rsplit('/').next().unwrap_or("").contains('.')
-            {
-                fallback = Some(line.to_string());
+        }
+        // 精准匹配失败即返回 None（禁盲 fallback）
+        None
+    }
+
+    /// Linux 候选名派生共享 helper（installer_install 包名/二进制回填、installer_query 4b 兜底、
+    /// scanner `resolve_linux_via_dpkg` / `resolve_linux_system_binary` 四处复用，收敛重复派生）。
+    /// 输入原生标识（catalog linux 标识或 `target_executables`）与名称部件（repo/id/name 或 tokens），
+    /// 返回 `(pkg_names, bin_names)`：pkg 全小写去重（`dpkg -L` / `rpm -ql` 包名用，
+    /// 含空格/路径分隔符的长名不入 pkg，防占位挤掉有效包名），
+    /// bin 保留原大小写 + 小写（which/desktop 精准匹配用）。
+    /// `.exe` 后缀自动退化出裸名（Linux 落盘多为无扩展名）。
+    /// 纯函数，跨平台可单测。
+    pub fn linux_candidate_names(
+        native_ids: &[String],
+        name_parts: &[String],
+    ) -> (Vec<String>, Vec<String>) {
+        let mut pkg: Vec<String> = Vec::new();
+        let mut bin: Vec<String> = Vec::new();
+        for id in native_ids {
+            let t = id.trim();
+            if t.is_empty() {
+                continue;
+            }
+            let lower = t.to_lowercase();
+            if !pkg.contains(&lower) {
+                pkg.push(lower.clone());
+            }
+            if !bin.contains(&t.to_string()) {
+                bin.push(t.to_string());
+            }
+            if !bin.contains(&lower) {
+                bin.push(lower.clone());
+            }
+            // `.exe` → 裸名退化（如 `motrix.exe` → `motrix`）
+            if let Some(bare) = lower.strip_suffix(".exe") {
+                if bare.len() >= 2 && !pkg.iter().any(|s| s == bare) {
+                    pkg.push(bare.to_string());
+                }
+                if !bare.is_empty() && !bin.iter().any(|s| s == bare) {
+                    bin.push(bare.to_string());
+                }
             }
         }
-        fallback
+        for part in name_parts {
+            let p = part.trim();
+            if p.is_empty() {
+                continue;
+            }
+            // 全名小写：bin 照收（含空格长名，调用方 which 时跳过含空格项）；
+            // pkg 仅收无空格/无路径分隔符项（`dpkg -L` 包名语义）。
+            // 全名同样过停用词（防单字通用名如 `App` 直驱 `apport-gtk.desktop` 误配；
+            // catalog 原生标识不受此限，真实应用仍可经标识命中）。
+            let full = p.to_lowercase();
+            if full.len() >= 2 && !CANDIDATE_STOP_WORDS.contains(&full.as_str()) {
+                if !bin.contains(&full) {
+                    bin.push(full.clone());
+                }
+                if !full.contains(' ') && !full.contains('/') && !pkg.contains(&full) {
+                    pkg.push(full);
+                }
+            }
+            // 切分 token（按 `/ - _` 空格，`owner/repo` 末段天然覆盖，无需单列）：
+            // 与 `resolve_installed_app_path` 同规则：len>=3、非纯数字、非停用词
+            // （防切分复活通用词，如 `non-existent-app-999` → `app` 误命中 `apport-gtk.desktop`）。
+            for tok in p.split(['/', '-', ' ', '_']) {
+                let t = tok.trim().to_lowercase();
+                if t.len() >= 3
+                    && !t.chars().all(|c| c.is_ascii_digit())
+                    && !CANDIDATE_STOP_WORDS.contains(&t.as_str())
+                {
+                    if !pkg.contains(&t) {
+                        pkg.push(t.clone());
+                    }
+                    if !bin.contains(&t) {
+                        bin.push(t);
+                    }
+                }
+            }
+        }
+        (pkg, bin)
+    }
+
+    /// 包文件列表输出 → 精准挑选 → 落盘规范化（deb/rpm 回填与 scanner dpkg 嗅探三处复用，
+    /// 收敛 `pick → is_file → canonicalize` 重复）。
+    /// 挑选失败或落盘不存在返回 None（调用方继续走 which/desktop 嗅探）。
+    pub fn pick_and_canonicalize_package_path(
+        pkg_output: &str,
+        candidates: &[String],
+    ) -> Option<String> {
+        let picked = Self::pick_executable_from_package_list(pkg_output, candidates)?;
+        let p = Path::new(&picked);
+        if !p.is_file() {
+            return None;
+        }
+        // 跟随 alternatives 符号链接（如 motrix 经 /etc/alternatives 跳转）
+        let resolved = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+        if resolved.is_file() {
+            return Some(resolved.to_string_lossy().to_string());
+        }
+        Some(picked)
     }
 
     /// Linux 系统级二进制嗅探：PATH/which → /usr/bin/<token> → /opt/<Name>/* → desktop Exec。
     /// 仅在 linux 编译，Windows 行为不受影响。
     #[cfg(target_os = "linux")]
     pub fn resolve_linux_system_binary(config: &ScanConfig) -> Option<String> {
-        // 候选裸名：target_executables 去 .exe 后 + install_dirs 小写
-        let mut bare: Vec<String> = Vec::new();
-        for e in &config.target_executables {
-            let lower = e.to_lowercase();
-            let stripped = lower.strip_suffix(".exe").unwrap_or(&lower).to_string();
-            if !stripped.is_empty() && !bare.contains(&stripped) {
-                bare.push(stripped);
-            }
-        }
-        for d in &config.install_dirs {
-            let lower = d.to_lowercase();
-            if lower.len() >= 2 && !bare.contains(&lower) {
-                bare.push(lower);
-            }
-        }
+        // 候选裸名共享派生（与 installer_install / installer_query / via_dpkg 共用 helper）：
+        // `target_executables`（原生大小写 + 小写 + `.exe` 退化裸名）+ `install_dirs` 切分 token。
+        let (_, bare) =
+            Self::linux_candidate_names(&config.target_executables, &config.install_dirs);
         // 1. PATH / which（含 /usr/bin/motrix 符号链接链）
         for name in &bare {
             // 跳过明显非命令的 token（含空格/路径分隔符）
@@ -847,19 +940,21 @@ impl AppScanner {
                 }
             }
         }
-        // 4. desktop Exec 解析（/usr/share/applications + ~/.local/share/applications）
-        if let Some(found) = Self::resolve_linux_via_desktop(&bare, config) {
+        // 4. desktop Exec 解析（/usr/share/applications 系统级 + /usr/local/share 本地编译 +
+        // ~/.local/share XDG 用户级，见 `resolve_linux_via_desktop` 注释）
+        if let Some(found) = Self::resolve_linux_via_desktop(&bare) {
             return Some(found);
         }
         None
     }
 
     /// Linux desktop 文件嗅探：文件名/Name 与 token 匹配 → 解析 Exec → 落盘路径。
+    /// 全仓唯一的 desktop walker（installer 回填与系统嗅探共用，收敛 executor 侧重复实现）。
+    /// 桌面目录：`/usr/share/applications`（发行版包，如 motrix.deb 落盘处，commit 主语义）
+    /// + `/usr/local/share/applications`（FHS 本地编译安装）+ `~/.local/share/applications`
+    /// （XDG 用户级，如 `pip --user` / 手动安装）。
     #[cfg(target_os = "linux")]
-    pub fn resolve_linux_via_desktop(
-        bare_tokens: &[String],
-        config: &ScanConfig,
-    ) -> Option<String> {
+    pub fn resolve_linux_via_desktop(bare_tokens: &[String]) -> Option<String> {
         let mut desktop_dirs: Vec<PathBuf> = vec![
             PathBuf::from("/usr/share/applications"),
             PathBuf::from("/usr/local/share/applications"),
@@ -911,15 +1006,16 @@ impl AppScanner {
                 }
             }
         }
-        // 同步检查 config.target_executables 对应的 desktop 名（如 vlc.desktop）
-        for exe in &config.target_executables {
-            let base = exe
-                .to_lowercase()
-                .strip_suffix(".exe")
-                .unwrap_or(&exe.to_lowercase())
-                .to_string();
+        // 同步检查裸名对应的 desktop 名（如 vlc → vlc.desktop；原 config.target_executables
+        // 派生已由 `linux_candidate_names` 并入 bare，此处直接按 bare 补齐精确文件名，避免漏检）
+        for base in bare_tokens {
+            let b = base.to_lowercase();
+            let stem = b.strip_suffix(".exe").unwrap_or(&b);
+            if stem.is_empty() || stem.contains(' ') || stem.contains('/') {
+                continue;
+            }
             for dir in &desktop_dirs {
-                let p = dir.join(format!("{}.desktop", base));
+                let p = dir.join(format!("{}.desktop", stem));
                 if p.is_file() && !candidate_files.contains(&p) {
                     candidate_files.push(p);
                 }
@@ -944,35 +1040,17 @@ impl AppScanner {
         None
     }
 
-    /// Linux dpkg 回退：对候选包名执行 `dpkg -L` 并挑选可执行文件。
+    /// Linux dpkg 回退：对候选包名执行 `dpkg -L` 并精准挑选可执行文件。
+    /// 包名/候选名共享派生（`linux_candidate_names`），挑选 + 规范化共用
+    /// `pick_and_canonicalize_package_path`（与 executor deb/rpm 回填同一函数）。
     #[cfg(target_os = "linux")]
     pub fn resolve_linux_via_dpkg(
         tokens: &[String],
         config: &ScanConfig,
     ) -> Option<String> {
-        use std::collections::HashSet;
-        // 候选包名：小写去重，最多 6 个（防进程放量）
-        let mut pkgs: Vec<String> = Vec::new();
-        let mut seen = HashSet::new();
-        for t in tokens {
-            let lower = t.to_lowercase();
-            if lower.len() >= 3
-                && !lower.contains(' ')
-                && !lower.contains('/')
-                && seen.insert(lower.clone())
-            {
-                pkgs.push(lower);
-            }
-            if pkgs.len() >= 6 {
-                break;
-            }
-        }
-        let mut cands: Vec<String> = config.target_executables.clone();
-        for t in tokens {
-            if !cands.contains(t) {
-                cands.push(t.clone());
-            }
-        }
+        // 候选包名共享派生（包名最多 6 个，防进程放量；原语义保留）
+        let (mut pkgs, cands) = Self::linux_candidate_names(&config.target_executables, tokens);
+        pkgs.truncate(6);
         for pkg in pkgs {
             let out = std::process::Command::new("dpkg")
                 .args(["-L", &pkg])
@@ -984,17 +1062,8 @@ impl AppScanner {
                 continue;
             }
             let text = String::from_utf8_lossy(&output.stdout).to_string();
-            if let Some(picked) = Self::pick_executable_from_package_list(&text, &cands) {
-                let p = Path::new(&picked);
-                if p.is_file() {
-                    // 跟随 alternatives 符号链接（如 motrix 经 /etc/alternatives 跳转）
-                    let resolved =
-                        std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
-                    if resolved.is_file() {
-                        return Some(resolved.to_string_lossy().to_string());
-                    }
-                    return Some(picked);
-                }
+            if let Some(picked) = Self::pick_and_canonicalize_package_path(&text, &cands) {
+                return Some(picked);
             }
         }
         None

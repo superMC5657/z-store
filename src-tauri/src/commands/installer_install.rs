@@ -97,8 +97,9 @@ pub async fn install_app(
         }
     }
 
-    // Linux deb/rpm：dpkg -L / desktop Exec / which 回填（pkexec dpkg -i 后
+    // Linux deb/rpm：包管理器列表 / desktop Exec / which 回填（pkexec 安装后
     // resolve 仍可能因包名与 repo 名不一致而为空，如 Motrix 包名 `motrix` vs repo `Motrix`）。
+    // deb 走 `dpkg -L`，rpm 走 `rpm -ql`（`rpm_list_argv` 经 `resolve_rpm_installed_path` 接线）。
     // Windows 编译时整块消除，行为不变。
     #[cfg(target_os = "linux")]
     {
@@ -107,54 +108,47 @@ pub async fn install_app(
             crate::installer::AssetKind::Deb | crate::installer::AssetKind::Rpm
         );
         if real_install_path.is_empty() && is_sys_pkg {
-            // 候选包名：catalog linux 标识优先，其次 repo/id/名称派生小写
-            let mut pkg_names: Vec<String> = Vec::new();
-            if let Some(cat) = state.catalog.get_catalog_item(&prep.detail.id) {
-                for id in cat.get_native_identifiers() {
-                    let t = id.trim().to_lowercase();
-                    if !t.is_empty() && !pkg_names.contains(&t) {
-                        pkg_names.push(t);
-                    }
+            // 候选包名/二进制名共享派生（与 installer_query 4b / scanner dpkg 共用
+            // `AppScanner::linux_candidate_names`，收敛重复）。
+            let catalog_ids = state
+                .catalog
+                .get_catalog_item(&prep.detail.id)
+                .map(|cat| cat.get_native_identifiers())
+                .unwrap_or_default();
+            let (pkg_names, bin_names) =
+                crate::scanner::AppScanner::linux_candidate_names(
+                    &catalog_ids,
+                    &[
+                        prep.detail.repo.clone(),
+                        prep.detail.id.clone(),
+                        prep.detail.name.clone(),
+                    ],
+                );
+            // 系统包回填：先包管理器列表（deb/rpm 按 kind 分流），再 desktop Exec，最后 PATH/which。
+            let sys_found = match kind {
+                crate::installer::AssetKind::Rpm => {
+                    crate::installer::executor::linux::resolve_rpm_installed_path(
+                        &pkg_names,
+                        &bin_names,
+                    )
                 }
-            }
-            for cand in [
-                prep.detail.repo.clone(),
-                prep.detail
-                    .id
-                    .rsplit('/')
-                    .next()
-                    .unwrap_or(&prep.detail.id)
-                    .to_string(),
-                prep.detail.name.clone(),
-            ] {
-                let t = cand.trim().to_lowercase();
-                if t.len() >= 2 && !t.contains(' ') && !pkg_names.contains(&t) {
-                    pkg_names.push(t);
-                }
-            }
-            // 候选二进制名：linux 标识 + 包名 + repo 小写
-            let mut bin_names: Vec<String> = pkg_names.clone();
-            if let Some(cat) = state.catalog.get_catalog_item(&prep.detail.id) {
-                for id in cat.get_native_identifiers() {
-                    if !bin_names.contains(&id) {
-                        bin_names.push(id);
-                    }
-                }
-            }
-            if let Some(found) =
-                crate::installer::executor::linux::resolve_deb_installed_path(
+                _ => crate::installer::executor::linux::resolve_deb_installed_path(
                     &pkg_names,
                     &bin_names,
-                )
-            {
+                ),
+            };
+            if let Some(found) = sys_found {
                 real_install_path = found;
             } else if let Some(found) =
-                crate::installer::executor::linux::resolve_desktop_installed_path(&bin_names)
+                crate::scanner::AppScanner::resolve_linux_via_desktop(&bin_names)
             {
                 real_install_path = found;
             } else {
-                // 最后兜底：PATH/which 直查
+                // 最后兜底：PATH/which 直查（含空格/路径分隔符的长名跳过）
                 for name in &bin_names {
+                    if name.contains(' ') || name.contains('/') || name.contains('\\') {
+                        continue;
+                    }
                     if let Some(found) = crate::scanner::AppScanner::which_binary(name) {
                         real_install_path = found;
                         break;

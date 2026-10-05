@@ -169,14 +169,15 @@ impl AppScanner {
         }
     }
 
-    /// Linux 目录内裸名可执行文件扫描：优先命中配置名（含去 `.exe` 后的裸名），
-    /// 其次取首个非安装器类的可执行位文件。供 `find_exe_in_directory` linux 回退调用。
+    /// Linux 目录内裸名可执行文件扫描：仅按配置名（含去 `.exe` 后的裸名）精准命中，
+    /// 且须有执行位；无命中即返回 None（禁首个文件兜底，防误启动无关二进制）。
+    /// 供 `find_exe_in_directory` linux 回退调用。
     #[cfg(target_os = "linux")]
     pub fn find_linux_executable_in_directory(
         dir: &Path,
         config: &ScanConfig,
     ) -> Option<String> {
-        // 5a. 配置名（含裸名形式）精准命中
+        // 5a. 配置名（含裸名形式）精准命中（大小写不敏感，且须有执行位）
         let mut wanted: Vec<String> = Vec::new();
         for name in &config.target_executables {
             let lower = name.to_lowercase();
@@ -186,8 +187,6 @@ impl AppScanner {
             }
         }
         if let Ok(entries) = std::fs::read_dir(dir) {
-            // 先做精准名匹配（大小写不敏感）
-            let mut fallback: Option<String> = None;
             for entry in entries.flatten() {
                 let p = entry.path();
                 if !p.is_file() || Self::is_installer_or_cache_path(&p) {
@@ -201,23 +200,6 @@ impl AppScanner {
                 if wanted.iter().any(|w| *w == fname) && Self::has_exec_permission(&p) {
                     return Some(p.to_string_lossy().to_string());
                 }
-                // 候选回退：首个可执行位、无扩展名或非 .so/.pak 资源文件
-                if fallback.is_none()
-                    && Self::has_exec_permission(&p)
-                    && p.extension().is_none()
-                {
-                    let fl = fname.clone();
-                    if !fl.starts_with("unins")
-                        && !fl.starts_with("uninstall")
-                        && !fl.contains("setup")
-                        && !fl.contains("installer")
-                    {
-                        fallback = Some(p.to_string_lossy().to_string());
-                    }
-                }
-            }
-            if let Some(f) = fallback {
-                return Some(f);
             }
         }
         None
