@@ -6,6 +6,31 @@ use crate::models::{AppDetail, ReleaseAsset};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, IF_NONE_MATCH};
 use std::collections::HashMap;
 
+/// P0-4 瘦身：repo/readme ETag 预读收敛为单 helper（force 时跳过 DB，保持 force 语义；
+/// 冷启动 DB 无行亦为 None）。release 的调用方传入缓存不在此读 DB，三处调用指
+/// repo 预读 + readme 预读（+ release 调用方同模式，见 commands/catalog）。
+fn cached_etag_payload(url: &str, is_force_like: bool) -> (Option<String>, Option<String>) {
+    if is_force_like {
+        return (None, None);
+    }
+    if let Some(db) = super::http::open_db_opt() {
+        let et = db.get_etag(url).ok().flatten();
+        let pl = db.get_cached_payload(url).ok().flatten();
+        (et, pl)
+    } else {
+        (None, None)
+    }
+}
+
+fn parse_repo_payload(payload: Option<&String>) -> Option<GitHubRepoResponse> {
+    payload.and_then(|pl| serde_json::from_str::<GitHubRepoResponse>(pl).ok())
+}
+
+fn parse_release_payload(payload: &str, err_ctx: &str) -> Result<GitHubReleaseResponse, String> {
+    serde_json::from_str::<GitHubReleaseResponse>(payload)
+        .map_err(|e| format!("{}: {}", err_ctx, e))
+}
+
 impl CatalogService {
     pub async fn fetch_app_detail(
         &self,
@@ -34,7 +59,6 @@ impl CatalogService {
             }
         }
 
-        let api_timeout = super::http::api_timeout();
         let release_url = format!(
             "https://api.github.com/repos/{}/{}/releases/latest",
             owner, repo
@@ -43,15 +67,20 @@ impl CatalogService {
         let (req_id, sid) = super::http::new_log_ctx();
         // 首屏快速路径 (1)：release ∥ repo 并发发射。repo 仅需 owner/repo，
         // 与 release 响应无任何依赖，故两个原始请求同时在途，重叠 TLS 握手与首字节等待。
-        // ETag/401/限流语义保持不变（ETag 经 get_with_etag 只挂 release，repo 照例无 IF_NONE_MATCH）。
+        // P0-4：repo 同样经 get_with_etag 走 SQLite ETag 缓存（304 命中直接用缓存 payload），
+        // 与 release 一致零配额；401/限流语义保持不变。
         // H9：release 复用已有 get_with_etag（304/200/ETag 与 developer_* 共用实现）。
-        let repo_headers_raw = base_headers.clone();
-        let repo_url_raw = repo_url.clone();
+        // P0-4：force 语义保持——调用方 force 时传入全 None，此时跳过 DB 预读，
+        // 冷启动同样全 None（DB 无行，预读亦为 None），语义一致。
+        let is_force_like =
+            cached_etag.is_none() && cached_payload.is_none() && cached_detail.is_none();
+        let (repo_etag, repo_payload) = cached_etag_payload(&repo_url, is_force_like);
         // H7/HttpSpan：repo 并发请求收敛为 forge HttpSpan（log_search_* 分支），
-        // ETag 经 get_with_etag 只挂 release、repo 照例无 IF_NONE_MATCH 语义不变。
-        let repo_span = crate::forge::http::HttpSpan::start(&repo_url_raw);
+        // P0-4：repo 经 get_with_etag 挂 IF_NONE_MATCH，304 时用 SQLite payload 恢复。
+        // 瘦身：复用 &repo_url（去 repo_url_raw 克隆），&base_headers 借用无额外 clone。
+        let repo_span = crate::forge::http::HttpSpan::start(&repo_url);
         repo_span.log_search_start("repo");
-        let (release_outcome, repo_raw) = tokio::join!(
+        let (release_outcome, repo_outcome) = tokio::join!(
             Self::get_with_etag(
                 client,
                 &release_url,
@@ -60,40 +89,47 @@ impl CatalogService {
                 cached_etag.as_deref(),
                 "detail-release",
             ),
-            async {
-                let req = client.get(&repo_url_raw).headers(repo_headers_raw).send();
-                match tokio::time::timeout(api_timeout, req).await {
-                    Ok(Ok(r)) => Some(r),
-                    Ok(Err(e)) => {
-                        repo_span.log_search_fail("repo", &e.to_string());
-                        None
-                    }
-                    Err(_) => {
-                        repo_span.log_search_fail("repo", "timeout");
-                        None
-                    }
-                }
-            }
+            Self::get_with_etag(
+                client,
+                &repo_url,
+                None,
+                &base_headers,
+                repo_etag.as_deref(),
+                "detail-repo",
+            )
         );
-        // repo 原始响应的 401/限流处理与日志（与原 repo_task 内逻辑一致，仅提前到与 release 同批返回后处理）。
+        // repo ETag 响应的 401/限流处理与日志（get_with_etag 已做限流上报，此处补 HttpSpan + 401 通知）。
         // H7：401 经 crate::check_auth_expired 统一通知 + warn；日志经 HttpSpan 统一收敛。
-        let repo_info: Option<GitHubRepoResponse> = match repo_raw {
-            Some(res) => {
-                repo_span.notify(&res, "github.com");
-                crate::check_auth_expired(
-                    res.status().as_u16(),
-                    &format!("op=detail-repo id={}", id),
-                );
-                let status = res.status().as_u16();
-                repo_span.log_search_done("repo", status);
-                if res.status().is_success() {
-                    res.json::<GitHubRepoResponse>().await.ok()
-                } else {
-                    None
+        // P0-4：Fresh 落库 api_etag_cache；304/失败时用 SQLite payload 恢复，避免每次全量。
+        // 瘦身：NotModified/Unauthorized/Failed 回退解析合并，日志分支内部分发，语义不变。
+        let repo_info: Option<GitHubRepoResponse> = match repo_outcome {
+            EtagGetOutcome::Fresh { text, etag } => {
+                repo_span.log_search_done("repo", 200);
+                if let Some(et) = etag {
+                    if let Some(db) = super::http::open_db_opt() {
+                        let _ = db.save_etag(&repo_url, &et, &text, super::http::now_secs());
+                    }
                 }
+                serde_json::from_str::<GitHubRepoResponse>(&text).ok()
             }
-            // 失败已在并发 future 内经 log_search_fail 落盘，此处不再重复 warn。
-            None => None,
+            other => {
+                match &other {
+                    EtagGetOutcome::NotModified => {
+                        repo_span.log_search_done("repo", 304);
+                    }
+                    EtagGetOutcome::Unauthorized => {
+                        repo_span.log_search_done("repo", 401);
+                        crate::check_auth_expired(
+                            401,
+                            &format!("op=detail-repo id={}", id),
+                        );
+                    }
+                    _ => {
+                        repo_span.log_search_fail("repo", "fetch failed");
+                    }
+                }
+                parse_repo_payload(repo_payload.as_ref())
+            }
         };
 
         // H7：release 401 统一经 crate::check_auth_expired 通知；H9 的 get_with_etag 已做限流上报。
@@ -145,9 +181,9 @@ impl CatalogService {
         let (release_resp, new_cache) = match release_outcome {
             EtagGetOutcome::NotModified => {
                 // 304 Not Modified 但本地缺乏完整 cached_detail 时回退走 payload_json 恢复
+                // 瘦身：payload 解析经 parse_release_payload 收敛（与 Failed 分支同 helper，err 上下文不变）。
                 if let Some(ref payload) = cached_payload {
-                    let parsed: GitHubReleaseResponse = serde_json::from_str(payload)
-                        .map_err(|e| format!("解析本地 ETag 缓存失败: {}", e))?;
+                    let parsed = parse_release_payload(payload, "解析本地 ETag 缓存失败")?;
                     (parsed, None)
                 } else {
                     return Err("304 响应但本地未找到缓存数据".to_string());
@@ -171,8 +207,7 @@ impl CatalogService {
                     return Ok((existing, None));
                 }
                 if let Some(ref payload) = cached_payload {
-                    let parsed: GitHubReleaseResponse = serde_json::from_str(payload)
-                        .map_err(|e| format!("解析离线缓存失败: {}", e))?;
+                    let parsed = parse_release_payload(payload, "解析离线缓存失败")?;
                     (parsed, None)
                 } else {
                     // P0：无任何本地缓存时的合成空详情（401/限流/离线）。
@@ -215,77 +250,86 @@ impl CatalogService {
         // 首屏快速路径 (2)：保持 join(release,repo) 后，
         // readme + probe_repo_logo + checksums 三路 join 并发。
         // checksum 为 opportunistic，失败/超时置空不阻塞；probe 无 token 直接跳过不计时。
+        // P0-4：README 经 get_with_etag 走 SQLite ETag 缓存（304 命中直接用缓存 payload），
+        // 不再每次全量；限流/401 经 get_with_etag 内统一上报，此处补 401 通知。
         let readme_url = format!("https://api.github.com/repos/{}/{}/readme", owner, repo);
-        let mut readme_headers = headers.clone();
-        readme_headers.remove(IF_NONE_MATCH);
+        // 瘦身：base_headers 各派生只 clone 一次，后续经 &复用（release/repo/probe 共用 &base_headers，
+        // readme 独占 &readme_headers，checksum 独占 &headers），避免双 clone。
+        let mut readme_headers = base_headers.clone();
         readme_headers.insert(
             ACCEPT,
             HeaderValue::from_static("application/vnd.github.v3.raw"),
         );
+        // P0-4：README ETag 预读（force 时跳过，保持 force 语义；冷启动预读为 None）。
+        let (readme_etag, readme_payload) = cached_etag_payload(&readme_url, is_force_like);
+        // 瘦身：去 default_readme_clone 中间克隆，分支按需 clone &default_readme，避免双 clone。
         let default_readme = format!("# {}\n\n{}", name, desc);
-        let default_readme_clone = default_readme.clone();
         // 显式克隆 sid/req/id 供 async 块内日志使用（不碰 thread-local，不改并发）。
         let readme_id = id.to_string();
-        let readme_sid = sid.clone();
-        let readme_req = req_id.clone();
         let readme_fut = async {
             // 版本未发生变动且已有 README 缓存，不重复发网络请求拉取
             if !version_changed && has_cached_readme {
-                if let Some(r) = cached_readme {
-                    return r;
+                if let Some(ref r) = cached_readme {
+                    return r.clone();
                 }
             }
-            log::debug!(
-                "http get readme id={} sid={} req={} url='{}'",
-                readme_id,
-                readme_sid,
-                readme_req,
-                crate::log_support::sanitize_url(&readme_url)
-            );
-            let start_readme = std::time::Instant::now();
-            let req = client.get(&readme_url).headers(readme_headers).send();
-            match tokio::time::timeout(api_timeout, req).await {
-                Ok(Ok(res)) => {
-                    crate::notify_rate_limit("github.com", res.headers());
-                    crate::check_auth_expired(
-                        res.status().as_u16(),
-                        &format!("op=detail-readme id={}", readme_id),
-                    );
-                    let status = res.status().as_u16();
-                    log::debug!(
-                        "http resp readme id={} sid={} req={} url='{}' status={} elapsed_ms={}",
-                        readme_id,
-                        readme_sid,
-                        readme_req,
-                        crate::log_support::sanitize_url(&readme_url),
-                        status,
-                        start_readme.elapsed().as_millis()
-                    );
-                    log::info!(
-                        "http resp readme id={} sid={} req={} host={} status={} elapsed_ms={}",
-                        readme_id,
-                        readme_sid,
-                        readme_req,
-                        crate::log_support::host_of(&readme_url),
-                        status,
-                        start_readme.elapsed().as_millis()
-                    );
-                    if res.status().is_success() {
-                        res.text().await.unwrap_or(default_readme_clone)
+            match Self::get_with_etag(
+                client,
+                &readme_url,
+                None,
+                &readme_headers,
+                readme_etag.as_deref(),
+                "detail-readme",
+            )
+            .await
+            {
+                EtagGetOutcome::Fresh { text, etag } => {
+                    if let Some(et) = etag {
+                        if let Some(db) = super::http::open_db_opt() {
+                            let _ = db.save_etag(
+                                &readme_url,
+                                &et,
+                                &text,
+                                super::http::now_secs(),
+                            );
+                        }
+                    }
+                    if text.is_empty() {
+                        default_readme.clone()
                     } else {
-                        default_readme_clone
+                        text
                     }
                 }
-                _ => {
-                    log::warn!(
-                        "http resp readme failed id={} sid={} req={} host={} elapsed_ms={}",
-                        readme_id,
-                        readme_sid,
-                        readme_req,
-                        crate::log_support::host_of(&readme_url),
-                        start_readme.elapsed().as_millis()
+                EtagGetOutcome::NotModified => {
+                    if let Some(pl) = readme_payload.as_ref() {
+                        if pl.is_empty() {
+                            default_readme.clone()
+                        } else {
+                            pl.clone()
+                        }
+                    } else if let Some(ref r) = cached_readme {
+                        r.clone()
+                    } else {
+                        default_readme.clone()
+                    }
+                }
+                EtagGetOutcome::Unauthorized => {
+                    crate::check_auth_expired(
+                        401,
+                        &format!("op=detail-readme id={}", readme_id),
                     );
-                    default_readme_clone
+                    if let Some(ref r) = cached_readme {
+                        r.clone()
+                    } else {
+                        default_readme.clone()
+                    }
+                }
+                EtagGetOutcome::Failed => {
+                    if let Some(ref r) = cached_readme {
+                        r.clone()
+                    } else {
+                        default_readme.clone()
+                    }
                 }
             }
         };

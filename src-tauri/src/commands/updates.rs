@@ -249,8 +249,10 @@ pub async fn check_for_updates(
         }),
     );
 
-    // 限制并发度为 3，兼顾并发检查速度与 GitHub API 稳定性
+    // P0-4：并发度 3 → 6，兼顾并发检查速度与 GitHub API 稳定性
     // 关键体验优化：只要某款应用检测出有新版本，立即通过事件单项推流，实现“检测出一项跳出一项”的流畅反馈
+    // emit 顺序语义：zstore://update-item-found/progress 为无序发射，前端按 app_id 去重/累计，不依赖顺序；
+    // zstore://update-check-finished 在 collect 完成后统一发射，保持终态语义。
     let check_stream = stream::iter(eligible_apps)
         .map(|app| {
             let app_handle = app_handle.clone();
@@ -311,7 +313,7 @@ pub async fn check_for_updates(
                 found_item
             }
         })
-        .buffer_unordered(3);
+        .buffer_unordered(6);
 
     let results: Vec<Option<UpdateItem>> = check_stream.collect().await;
     let updates: Vec<UpdateItem> = results.into_iter().flatten().collect();
@@ -363,62 +365,81 @@ async fn notify_watched_updates(
     };
     let now = crate::now_secs();
 
-    for w in watched {
-        if let Some(rule) = rules_map.get(&w.app_id) {
-            if rule.is_frozen || rule.is_hidden {
-                continue;
-            }
-        }
-        let (latest, _) =
-            match fetch_app_latest_version_lightweight(state, &w.app_id, force_refresh).await {
-                Ok(res) => res,
-                Err(e) => {
-                    log::debug!(
-                        "watch deferred id={} reason={}",
-                        w.app_id,
-                        crate::log_support::short_reason(&e)
-                    );
-                    continue;
+    // P0-4：关注通知路径由串行 for 改为并发 buffer_unordered(6)，
+    // 每项经 GLOBAL_WATCH_TX 无序发送，前端按 app_id 去重，不依赖顺序；
+    // frozen/hidden 过滤、baseline 静默、daily 24h 节流语义保持不变。
+    // 瘦身：frequency 按引用复用（is_daily 预计算，Copy 无每项 String clone）；
+    // 终端用 for_each 替代 collect::<Vec<()>>，零 Vec 分配。
+    let is_daily = frequency.as_str() == "daily";
+    stream::iter(watched)
+        .map(|w| {
+            let skip_by_rule = matches!(
+                rules_map.get(&w.app_id),
+                Some(rule) if rule.is_frozen || rule.is_hidden
+            );
+            async move {
+                if skip_by_rule {
+                    return;
                 }
-            };
-        let latest = latest.trim().to_string();
-        if latest.is_empty() {
-            continue;
-        }
-        let Some(base) = w.last_notified_version.clone() else {
-            // 首次关注：静默建立基线
-            if let Ok(db) = state.db() {
-                let _ = db.init_watch_baseline(&w.app_id, &latest);
-            }
-            log::debug!("watch deferred id={} reason=baseline-init", w.app_id);
-            continue;
-        };
-        if !is_version_newer(&base, &latest) {
-            continue;
-        }
-        if frequency == "daily" {
-            let last_at = state
-                .db
-                .lock()
-                .ok()
-                .and_then(|db| db.get_watch_last_notified_at(&w.app_id).ok().flatten());
-            if let Some(t) = last_at {
-                if now.saturating_sub(t) < DAILY_NOTIFY_INTERVAL_SECONDS {
-                    log::debug!("watch deferred id={} reason=daily-throttle", w.app_id);
-                    continue;
+                let (latest, _) = match fetch_app_latest_version_lightweight(
+                    state,
+                    &w.app_id,
+                    force_refresh,
+                )
+                .await
+                {
+                    Ok(res) => res,
+                    Err(e) => {
+                        log::debug!(
+                            "watch deferred id={} reason={}",
+                            w.app_id,
+                            crate::log_support::short_reason(&e)
+                        );
+                        return;
+                    }
+                };
+                let latest = latest.trim().to_string();
+                if latest.is_empty() {
+                    return;
+                }
+                let Some(base) = w.last_notified_version.clone() else {
+                    // 首次关注：静默建立基线
+                    if let Ok(db) = state.db() {
+                        let _ = db.init_watch_baseline(&w.app_id, &latest);
+                    }
+                    log::debug!("watch deferred id={} reason=baseline-init", w.app_id);
+                    return;
+                };
+                if !is_version_newer(&base, &latest) {
+                    return;
+                }
+                if is_daily {
+                    let last_at = state
+                        .db
+                        .lock()
+                        .ok()
+                        .and_then(|db| db.get_watch_last_notified_at(&w.app_id).ok().flatten());
+                    if let Some(t) = last_at {
+                        if now.saturating_sub(t) < DAILY_NOTIFY_INTERVAL_SECONDS {
+                            log::debug!("watch deferred id={} reason=daily-throttle", w.app_id);
+                            return;
+                        }
+                    }
+                }
+                if let Ok(db) = state.db() {
+                    let _ = db.set_watch_notified(&w.app_id, &latest, now);
+                }
+                if let Some(tx) = crate::GLOBAL_WATCH_TX.get() {
+                    let _ = tx.send(WatchUpdatedPayload {
+                        app_id: w.app_id.clone(),
+                        version: latest,
+                    });
                 }
             }
-        }
-        if let Ok(db) = state.db() {
-            let _ = db.set_watch_notified(&w.app_id, &latest, now);
-        }
-        if let Some(tx) = crate::GLOBAL_WATCH_TX.get() {
-            let _ = tx.send(WatchUpdatedPayload {
-                app_id: w.app_id.clone(),
-                version: latest,
-            });
-        }
-    }
+        })
+        .buffer_unordered(6)
+        .for_each(|_| async {})
+        .await;
 }
 
 #[tauri::command]

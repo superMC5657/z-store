@@ -161,6 +161,11 @@ describe('task5: filter-empty state with .filter-empty-reset', () => {
     });
     expect(container.textContent).toContain('经典精选开源软件');
     expect(container.textContent).toContain('全部精选开源收录');
+    // 伪排序工具条已砍掉：feed grid 保留，toolbar/shuffle 不再渲染
+    expect(container.querySelector('[data-testid="home-feed-grid"]')).toBeTruthy();
+    expect(container.querySelector('.feed-toolbar')).toBeNull();
+    expect(container.querySelector('.feed-shuffle-btn')).toBeNull();
+    expect(container.querySelector('.feed-strategy')).toBeNull();
   });
 
   it('empty prop → dedicated filter-empty state, NOT the search owner/repo copy', () => {

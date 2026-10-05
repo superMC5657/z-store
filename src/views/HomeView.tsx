@@ -10,7 +10,6 @@ import {
   Clock,
   Trash2,
   Package,
-  Shuffle,
 } from 'lucide-react';
 import { AppCard } from '../components/AppCard';
 import { AppIcon } from '../components/AppIcon';
@@ -101,6 +100,9 @@ async function fetchHomeFeedPage(limit: number, offset: number, seed: number, st
 export const HOME_FEED_PAGE = 20;
 /** 首页 1 次请求补偿 hero(1)+featured(4)，保证首屏 feed 能填满 20。 */
 const FIRST_PAGE_LIMIT = HOME_FEED_PAGE + 5;
+/** 发现 Feed 固定策略：balanced + 固定种子，不再对外暴露切换。 */
+const FIXED_FEED_STRATEGY: FeedStrategy = 'balanced';
+const FIXED_FEED_SEED = 7;
 
 interface HomeViewProps extends ViewAppActions, PlatformResetOption {
   /**
@@ -113,10 +115,6 @@ interface HomeViewProps extends ViewAppActions, PlatformResetOption {
   searchQuery?: string;
   onNavigateTrends: () => void;
   onClearRecentViews?: () => void;
-  /** 推荐策略（默认 balanced），变化时 feed 从头重置。 */
-  initialStrategy?: FeedStrategy;
-  /** 确定性种子（默认 7），“换一批”即 +1，保证同 seed 同顺序。 */
-  initialSeed?: number;
   /** 搜索在线结果集标记：true 表示当前 apps 来自在线搜索（本地为 0 后调在线第 1 页）。 */
   isOnlineResults?: boolean;
   /** 在线搜索是否还有下一页（后端满页/has_more 时为 true，到底后为 false）。 */
@@ -126,8 +124,6 @@ interface HomeViewProps extends ViewAppActions, PlatformResetOption {
   /** 在线结果触底回调：App 负责 page+1 并拼接到 apps，失败/限流由 App toast。 */
   onOnlineLoadMore?: () => void;
 }
-
-const STRATEGIES: FeedStrategy[] = ['balanced', 'stars', 'fresh'];
 
 export const HomeView: React.FC<HomeViewProps> = ({
   apps,
@@ -145,8 +141,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onNavigateTrends,
   onClearRecentViews,
   onResetPlatformFilter,
-  initialStrategy = 'balanced',
-  initialSeed = 7,
   isOnlineResults = false,
   onlineHasMore = false,
   isLoadingOnlineMore = false,
@@ -160,9 +154,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
     return !platformResolvedOtherIds.has(a.id.toLowerCase());
   };
 
-  // ---- feed 状态：策略/种子/可见数 -----------------------------------------
-  const [strategy, setStrategy] = useState<FeedStrategy>(initialStrategy);
-  const [seed, setSeed] = useState<number>(initialSeed);
+  // ---- feed 状态：固定策略/种子 + 可见数 -------------------------------------
+  // 伪排序工具条已砍掉：统一用 balanced + 固定 seed，不再对外暴露切换。
+  const strategy = FIXED_FEED_STRATEGY;
+  const seed = FIXED_FEED_SEED;
   const [visibleCount, setVisibleCount] = useState(HOME_FEED_PAGE);
 
   // 后端分页状态：成功即走后端 order，失败（命令不存在/非 Tauri）即本地 fallback。
@@ -175,25 +170,17 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const loadingRef = useRef(false);
   loadingRef.current = backendLoading || isLoadingOnlineMore;
-  const seedRef = useRef(seed);
-  seedRef.current = seed;
-  const strategyRef = useRef(strategy);
-  strategyRef.current = strategy;
   const backendItemsRef = useRef(backendItems);
   backendItemsRef.current = backendItems;
 
-  // apps/strategy/seed/query 变化 → 可见数回到首屏 20；
+  // apps/query 变化 → 可见数回到首屏 20；
   // 但在线翻页是“追加”（prev 为新数组前缀）时保持可见数，避免 page+1 刚拼进来就被重置回 20。
   const prevAppsRef = useRef<AppSummary[]>([]);
   const prevQueryRef = useRef<string>(searchQuery);
-  const prevStrategySeedRef = useRef<string>(`${initialStrategy}|${initialSeed}`);
   useEffect(() => {
     const prevApps = prevAppsRef.current;
-    const curTag = `${strategy}|${seed}`;
-    const prevTag = prevStrategySeedRef.current;
     let shouldReset = true;
     if (
-      prevTag === curTag &&
       prevQueryRef.current === searchQuery &&
       prevApps.length > 0 &&
       apps.length > prevApps.length
@@ -204,8 +191,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
     if (shouldReset) setVisibleCount(HOME_FEED_PAGE);
     prevAppsRef.current = apps;
     prevQueryRef.current = searchQuery;
-    prevStrategySeedRef.current = curTag;
-  }, [apps, searchQuery, strategy, seed]);
+  }, [apps, searchQuery]);
 
   // ---- 本地推荐池（唯一过滤入口仍是 apps=platformFilteredApps） --------------
   // 搜索态保序：搜索结果按入参原序（后端 search_apps 打分顺序）直接分页，
@@ -258,7 +244,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
     let cancelled = false;
     setBackendLoading(true);
     setBackendHasMore(false);
-    fetchHomeFeedPage(FIRST_PAGE_LIMIT, 0, seedRef.current, strategyRef.current)
+    fetchHomeFeedPage(FIRST_PAGE_LIMIT, 0, seed, strategy)
       .then((res) => {
         if (cancelled) return;
         setBackendItems(res.items);
@@ -276,7 +262,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [strategy, seed]);
+  }, []);
 
   const platformIdSet = useMemo(
     () => new Set(apps.map((a) => a.id.toLowerCase())),
@@ -315,7 +301,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
       const offset = backendItemsRef.current.length;
       setBackendLoading(true);
       loadingRef.current = true;
-      fetchHomeFeedPage(HOME_FEED_PAGE, offset, seedRef.current, strategyRef.current)
+      fetchHomeFeedPage(HOME_FEED_PAGE, offset, seed, strategy)
         .then((res) => {
           setBackendItems((prev) => [...prev, ...res.items]);
           if (typeof res.total === 'number') setBackendTotal(res.total);
@@ -347,16 +333,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
     observer.observe(el);
     return () => observer.disconnect();
   }, [hasMore, useBackendList, displayedFeed.length, onlineActive, isOnlineResults]);
-
-  const handleShuffle = useCallback(() => {
-    setSeed((s) => (Number.isFinite(s) ? Math.floor(s) + 1 : 7));
-  }, []);
-
-  const strategyLabel = (s: FeedStrategy): string => {
-    if (s === 'stars') return t('home.feed_stars', '最热');
-    if (s === 'fresh') return t('home.feed_fresh', '新发现');
-    return t('home.feed_balanced', '推荐');
-  };
 
   if (apps.length === 0) {
     // 筛选为空：全局设备平台筛选排除了所有应用。
@@ -564,31 +540,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
               <Package size={16} />
               <span>{t('home.all_featured')}</span>
             </h3>
-          </div>
-
-          <div className="feed-toolbar">
-            <div className="feed-strategy" role="group" aria-label={t('home.feed_strategy', '推荐策略')}>
-              {STRATEGIES.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  className={`feed-strategy-btn${strategy === s ? ' is-active' : ''}`}
-                  aria-pressed={strategy === s}
-                  onClick={() => setStrategy(s)}
-                >
-                  {strategyLabel(s)}
-                </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              className="btn-fluent btn-secondary feed-shuffle-btn"
-              onClick={handleShuffle}
-              title={t('home.feed_shuffle_hint', '换一批推荐')}
-            >
-              <Shuffle size={13} />
-              <span>{t('home.feed_shuffle', '换一批')}</span>
-            </button>
           </div>
 
           <div className="app-grid" data-testid="home-feed-grid">

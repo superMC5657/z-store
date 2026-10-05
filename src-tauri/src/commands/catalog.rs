@@ -1,5 +1,6 @@
 use crate::models::{AppDetail, AppSummary, SyncCatalogResult};
 use crate::AppState;
+use futures_util::StreamExt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -24,6 +25,54 @@ pub struct SearchIconReadyPayload {
     pub app_id: String,
     pub icon: String,
     pub level: i32,
+}
+
+/// 快/慢图标探测结果落库 + 前端 emit（`upsert_icon_cycle` + `zstore://search-icon-ready`）。
+/// - `level=2`：快路径 SimpleIcons，写 `l2_url`；`level=3`：慢路径 Trees，写 `l3_url`；
+/// - 世代比对防串词：落库前 + emit 前双检查 `SEARCH_GEN == expected_gen`，
+///   用户在此期间触发新搜索则抛弃过时探测结果（与原快/慢两路内联语义一致）。
+/// - 单条显式事务边界（单语句隐式事务显式化，仍 1 提交，emit 不延迟）；
+///   失败 `ROLLBACK` 返回 Err，上层 `let _ =` 吞错由吞错语义改为内部吞错、下次补探重试。
+async fn save_and_emit(
+    handle: &AppHandle,
+    id: &str,
+    owner: &str,
+    repo: &str,
+    sid: &str,
+    url: &str,
+    level: i32,
+    expected_gen: u64,
+) {
+    if SEARCH_GEN.load(Ordering::SeqCst) != expected_gen {
+        return;
+    }
+    let state = handle.state::<AppState>();
+    if let Ok(db) = state.db() {
+        let mut cycle = crate::db::AppIconCycle::new(id, owner, repo);
+        cycle.is_cataloged = false;
+        cycle.level = level;
+        if level == 2 {
+            cycle.l2_url = url.to_owned();
+        } else if level == 3 {
+            cycle.l3_url = url.to_owned();
+        }
+        cycle.selected_url = url.to_owned();
+        cycle.updated_at = crate::now_secs();
+        let _ = db.with_immediate_transaction(|| {
+            db.upsert_icon_cycle(&cycle)?;
+            Ok(())
+        });
+    }
+    if SEARCH_GEN.load(Ordering::SeqCst) != expected_gen {
+        return;
+    }
+    let payload = SearchIconReadyPayload {
+        search_id: sid.to_owned(),
+        app_id: id.to_owned(),
+        icon: url.to_owned(),
+        level,
+    };
+    let _ = handle.emit("zstore://search-icon-ready", &payload);
 }
 
 /// 通过 `installer::classify_asset` 的操作系统标签，从 Release 产物中推导支持的平台列表。
@@ -444,101 +493,59 @@ pub async fn search_apps_online(
                 .as_deref()
                 .filter(|t| !t.trim().is_empty())
                 .map(|t| crate::github::http::token_headers(Some(t)));
-            for (id, owner, repo) in candidates {
-                let handle = handle.clone();
-                let client = client.clone();
-                let sid = sid.clone();
-                let slow_headers = slow_headers.clone();
-                tokio::spawn(async move {
-                    // 快慢分离：快路径 SimpleIcons（repo+owner 去重单循环，每 slug 超时与
-                    // 外层兜底均经 api_timeout_seconds 统一配置，未设置时回退 1500ms/8000ms 历史值），
-                    // 快命中立即落库并 emit，不等慢路径。
-                    let fast_url = tokio::time::timeout(
-                        api_timeout_or(std::time::Duration::from_millis(8000)),
-                        crate::github::icon_probe::probe_simple_icons(&client, &owner, &repo),
-                    )
-                    .await
-                    .ok()
-                    .flatten()
-                    .map(|h| h.url)
-                    .unwrap_or_default();
+            // P0-2 有界并发：双层无界 spawn 合并为单层 buffer_unordered(8)，
+            // 快慢各一次 emit 语义不变（快命中即返不等慢，慢仅快未命中且有 token 时跑）。
+            let batch = futures_util::stream::iter(candidates.into_iter().map(
+                |(id, owner, repo)| {
+                    let handle = handle.clone();
+                    let client = client.clone();
+                    let sid = sid.clone();
+                    let slow_headers = slow_headers.clone();
+                    async move {
+                        // 快慢分离：快路径 SimpleIcons（repo+owner 去重单循环，每 slug 超时与
+                        // 外层兜底均经 api_timeout_seconds 统一配置，未设置时回退 1500ms/8000ms 历史值），
+                        // 快命中立即落库并 emit，不等慢路径。
+                        let fast_url = tokio::time::timeout(
+                            api_timeout_or(std::time::Duration::from_millis(8000)),
+                            crate::github::icon_probe::probe_simple_icons(
+                                &client, &owner, &repo,
+                            ),
+                        )
+                        .await
+                        .ok()
+                        .flatten()
+                        .map(|h| h.url)
+                        .unwrap_or_default();
 
-                    if !fast_url.trim().is_empty() {
-                        // 世代比对防串词：若用户在此期间触发了新搜索，抛弃过时探测结果
-                        if SEARCH_GEN.load(Ordering::SeqCst) != current_gen {
+                        if !fast_url.trim().is_empty() {
+                            // 世代比对防串词见 `save_and_emit`（落库前 + emit 前双检查）。
+                            save_and_emit(
+                                &handle, &id, &owner, &repo, &sid, &fast_url, 2, current_gen,
+                            )
+                            .await;
                             return;
                         }
 
-                        let state = handle.state::<AppState>();
-                        if let Ok(db) = state.db() {
-                            let mut cycle = crate::db::AppIconCycle::new(&id, &owner, &repo);
-                            cycle.is_cataloged = false;
-                            cycle.level = 2;
-                            cycle.l2_url = fast_url.clone();
-                            cycle.selected_url = fast_url.clone();
-                            cycle.updated_at = crate::now_secs();
-                            // Top2：单条显式事务边界（单语句隐式事务显式化，仍 1 提交，快 emit 不延迟）；
-                            // 失败 `ROLLBACK` 返回 Err，上层 `let _ =` 吞错下次补探重试。
-                            let _ = db.with_immediate_transaction(|| {
-                                db.upsert_icon_cycle(&cycle)?;
-                                Ok(())
-                            });
-                        }
-
-                        if SEARCH_GEN.load(Ordering::SeqCst) != current_gen {
-                            return;
-                        }
-
-                        let payload = SearchIconReadyPayload {
-                            search_id: sid.clone(),
-                            app_id: id.clone(),
-                            icon: fast_url.clone(),
-                            level: 2,
-                        };
-                        let _ = handle.emit("zstore://search-icon-ready", &payload);
-                        return;
-                    }
-
-                    // 慢路径：快未命中且有 token 才跑 Trees（内部 12s）；超时只弃慢不弃快。
-                    if let Some(hdrs) = slow_headers.as_ref() {
-                        if let Some(hit) =
-                            crate::github::icon_probe::probe_trees(&client, hdrs, &owner, &repo, "main")
-                                .await
-                        {
-                            if SEARCH_GEN.load(Ordering::SeqCst) != current_gen {
-                                return;
+                        // 慢路径：快未命中且有 token 才跑 Trees（内部 12s）；超时只弃慢不弃快。
+                        if let Some(hdrs) = slow_headers.as_ref() {
+                            if let Some(hit) = crate::github::icon_probe::probe_trees(
+                                &client, hdrs, &owner, &repo, "main",
+                            )
+                            .await
+                            {
+                                save_and_emit(
+                                    &handle, &id, &owner, &repo, &sid, &hit.url, 3, current_gen,
+                                )
+                                .await;
                             }
-
-                            let state = handle.state::<AppState>();
-                            if let Ok(db) = state.db() {
-                                let mut cycle = crate::db::AppIconCycle::new(&id, &owner, &repo);
-                                cycle.is_cataloged = false;
-                                cycle.level = 3;
-                                cycle.l3_url = hit.url.clone();
-                                cycle.selected_url = hit.url.clone();
-                                cycle.updated_at = crate::now_secs();
-                                // Top2：单条显式事务边界（同快路径，仍 1 提交，慢 emit 不延迟）。
-                                let _ = db.with_immediate_transaction(|| {
-                                    db.upsert_icon_cycle(&cycle)?;
-                                    Ok(())
-                                });
-                            }
-
-                            if SEARCH_GEN.load(Ordering::SeqCst) != current_gen {
-                                return;
-                            }
-
-                            let payload = SearchIconReadyPayload {
-                                search_id: sid.clone(),
-                                app_id: id.clone(),
-                                icon: hit.url.clone(),
-                                level: 3,
-                            };
-                            let _ = handle.emit("zstore://search-icon-ready", &payload);
                         }
                     }
-                });
-            }
+                },
+            ))
+            .buffer_unordered(8)
+            .for_each(|()| async {});
+            // 整批 15s 总超时：超时即降级结束（剩余候选直接丢弃，不炸不重试）。
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(15), batch).await;
         });
     }
 
