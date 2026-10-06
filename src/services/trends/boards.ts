@@ -7,14 +7,18 @@ import type {
 import { tauriApi } from '../api';
 import { zlogInfo, zlogWarn } from '../../lib/z-log';
 import {
+  buildDoforceCacheKey,
   buildTrendsCacheKey,
+  getDbTrendCache,
   getDoforceInflight,
   readDoforceShared,
   readTrendsCache,
+  saveDbTrendCache,
   setDoforceInflight,
   writeDoforceShared,
   writeTrendsCache,
 } from './cache';
+import { hydrateTrendEnrichCache } from './enrich';
 import {
   classifyTrendsError,
   doforceRetryDelayMs,
@@ -168,28 +172,52 @@ async function runBoardFetch(
   }
 }
 
-async function fetchTimeBoardResult(board: TimeBoardId, opts: FetchTrendsOptions): Promise<TrendsResult> {
-  const key = buildTrendsCacheKey(board, opts);
+async function fetchBoardWithL2(
+  board: TrendBoardId,
+  key: string,
+  load: () => Promise<TrendsResult>,
+  opts: FetchTrendsOptions = {},
+): Promise<TrendsResult> {
   if (!opts.forceRefresh) {
     const hit = readTrendsCache(key, board);
     if (hit) return { repos: hit, status: 'ok' };
+
+    const dbHit = await getDbTrendCache(key, board);
+    if (dbHit && dbHit.length > 0) {
+      const enrich = (dbHit as { enrich?: Record<string, import('../../types').AppSummary> }).enrich;
+      if (enrich) hydrateTrendEnrichCache(enrich);
+      writeTrendsCache(key, dbHit);
+      zlogInfo(`[trends] board=${board} L2-cache hit count=${dbHit.length}`);
+      return { repos: dbHit, status: 'ok' };
+    }
   }
 
-  const result = await runBoardFetch(board, 'trending-html', () => fetchTrendingRepos(board, opts));
-  if (result.status === 'ok') writeTrendsCache(key, result.repos);
+  const result = await load();
+  if (result.status === 'ok') {
+    writeTrendsCache(key, result.repos);
+    await saveDbTrendCache(key, board, result.repos);
+  }
   return result;
+}
+
+async function fetchTimeBoardResult(board: TimeBoardId, opts: FetchTrendsOptions): Promise<TrendsResult> {
+  const key = buildTrendsCacheKey(board, opts);
+  return fetchBoardWithL2(
+    board,
+    key,
+    () => runBoardFetch(board, 'trending-html', () => fetchTrendingRepos(board, opts)),
+    opts,
+  );
 }
 
 async function fetchNewBoardResult(opts: FetchTrendsOptions): Promise<TrendsResult> {
   const key = buildTrendsCacheKey('new', opts);
-  if (!opts.forceRefresh) {
-    const hit = readTrendsCache(key, 'new');
-    if (hit) return { repos: hit, status: 'ok' };
-  }
-
-  const result = await runBoardFetch('new', 'github-search', () => fetchGitHubNewRepos());
-  if (result.status === 'ok') writeTrendsCache(key, result.repos);
-  return result;
+  return fetchBoardWithL2(
+    'new',
+    key,
+    () => runBoardFetch('new', 'github-search', () => fetchGitHubNewRepos()),
+    opts,
+  );
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -207,7 +235,9 @@ async function fetchDoforceWithRetry(): Promise<TrendRepo[]> {
   }
 }
 
-async function fetchDoforceShared(forceRefresh = false): Promise<TrendRepo[]> {
+async function fetchDoforceShared(opts: FetchTrendsOptions = {}): Promise<TrendRepo[]> {
+  const forceRefresh = opts.forceRefresh;
+  const key = buildDoforceCacheKey(opts);
   if (!forceRefresh) {
     const hit = readDoforceShared();
     if (hit) {
@@ -223,9 +253,21 @@ async function fetchDoforceShared(forceRefresh = false): Promise<TrendRepo[]> {
   const slot: { current?: Promise<TrendRepo[]> } = {};
   slot.current = (async (): Promise<TrendRepo[]> => {
     try {
+      if (!forceRefresh) {
+        const dbHit = await getDbTrendCache(key, 'doforce');
+        if (dbHit && dbHit.length > 0) {
+          const enrich = (dbHit as { enrich?: Record<string, import('../../types').AppSummary> }).enrich;
+          if (enrich) hydrateTrendEnrichCache(enrich);
+          writeDoforceShared(dbHit);
+          zlogInfo(`[trends] doforce L2-cache hit count=${dbHit.length}`);
+          return dbHit;
+        }
+      }
+
       const repos = await fetchDoforceWithRetry();
       if (repos.length > 0) {
         writeDoforceShared(repos);
+        await saveDbTrendCache(key, 'doforce', repos);
       }
       return repos;
     } finally {
@@ -238,7 +280,7 @@ async function fetchDoforceShared(forceRefresh = false): Promise<TrendRepo[]> {
 
 async function fetchRisingBoardResult(opts: FetchTrendsOptions): Promise<TrendsResult> {
   return runBoardFetch('rising', 'doforce', async () => {
-    const repos = await fetchDoforceShared(opts.forceRefresh);
+    const repos = await fetchDoforceShared(opts);
     if (repos.length === 0) return [];
     return [...repos].sort((a, b) => (b.starsGained ?? 0) - (a.starsGained ?? 0));
   });
@@ -246,7 +288,7 @@ async function fetchRisingBoardResult(opts: FetchTrendsOptions): Promise<TrendsR
 
 async function fetchHealthyBoardResult(opts: FetchTrendsOptions): Promise<TrendsResult> {
   return runBoardFetch('healthy', 'doforce', async () => {
-    const repos = await fetchDoforceShared(opts.forceRefresh);
+    const repos = await fetchDoforceShared(opts);
     if (repos.length === 0) return [];
     return sortByHealthyScore(repos);
   });

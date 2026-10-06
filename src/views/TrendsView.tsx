@@ -16,10 +16,14 @@ import {
   resolvePlatformReset,
 } from './ViewShell';
 import {
+  buildDoforceCacheKey,
+  buildTrendsCacheKey,
   DETAIL_PLATFORMS_HEAL_EVENT,
   enrichTrendRepos,
   formatStars,
   matchCatalogApp,
+  saveDbTrendCache,
+  snapshotTrendEnrichCache,
   TREND_BOARD_IDS,
   type DetailPlatformsHealPayload,
   type TrendBoardId,
@@ -121,7 +125,9 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
 
   // 未收录行 enrichment 结果（键为小写 owner/repo）：命中即完整 AppCard，
   // 缺席（加载中/失败）即旧小行占位，榜单永不因此变空。
-  const [enrichedApps, setEnrichedApps] = useState<Record<string, AppSummary>>({});
+  const [enrichedApps, setEnrichedApps] = useState<Record<string, AppSummary>>(() =>
+    snapshotTrendEnrichCache(),
+  );
   // 未收录行榜单内已确认 Other（lite 空非 stale 落定 + settle 超时兜底）：
   // App 级 lazyBackfill 只补 apps/recents，此处补 enrichedApps 覆盖不到的缺口；
   // 与全局 platformResolvedOtherIds 取并集判定 pending，详情治愈时同步移除。
@@ -281,6 +287,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     let cancelled = false;
     void enrichTrendRepos([...missing.values()]).then((found) => {
       if (cancelled || found.size === 0) return;
+      let hasNewWithPlatforms = false;
       setEnrichedApps((prev) => {
         let changed = false;
         const next = { ...prev };
@@ -293,15 +300,26 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
           if (next[key] !== app) {
             next[key] = app;
             changed = true;
+            if (!incomingEmpty && !prevHasPlatforms) {
+              hasNewWithPlatforms = true;
+            }
           }
         }
         return changed ? next : prev;
       });
+      // enrich useEffect落定后若有新增具平台条目则saveDbTrendCache重存同榜key（fire-and-forget，刷新cached_at即刷新12h窗口）
+      if (hasNewWithPlatforms && trendResult.repos.length > 0) {
+        const isDoforceBoard = activeBoard === 'rising' || activeBoard === 'healthy';
+        const cacheKey = isDoforceBoard ? buildDoforceCacheKey() : buildTrendsCacheKey(activeBoard);
+        const cacheBoard = isDoforceBoard ? 'doforce' : activeBoard;
+        const enrichSnapshot = snapshotTrendEnrichCache(trendResult.repos);
+        void saveDbTrendCache(cacheKey, cacheBoard, trendResult.repos, enrichSnapshot);
+      }
     });
     return () => {
       cancelled = true;
     };
-  }, [trendResult, displayItems, enrichedApps]);
+  }, [trendResult, displayItems, enrichedApps, activeBoard]);
 
   // 详情治愈即时补齐：App 侧详情成功带回真实平台后派发事件，
   // 此处将摘要 upsert 进 enrichedApps，未收录行一次落定为 OS 图标（无需等下次 enrich）。

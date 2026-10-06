@@ -15,6 +15,70 @@ export function clearTrendEnrichCache(): void {
 }
 
 /**
+ * 从 DB L2 缓存向内存 `trendEnrichCache` 回填（hydrate）：
+ * - 复用 hasPlatforms 语义：仅 platforms.length > 0 的条目才存入内存，pending / 空 platforms 绝不进缓存；
+ * - 约束：不存 dataURI（若 icon 是 data: 开头则跳过）；
+ * - 键统一转为小写 `owner/repo`。
+ */
+export function hydrateTrendEnrichCache(
+  map?: Record<string, AppSummary> | Map<string, AppSummary> | null,
+): void {
+  if (!map) return;
+  const entries = map instanceof Map ? map.entries() : Object.entries(map);
+  const now = Date.now();
+  for (const [rawKey, summary] of entries) {
+    if (!summary || typeof summary !== 'object') continue;
+    if (!Array.isArray(summary.platforms) || summary.platforms.length === 0) continue;
+    if (typeof summary.icon === 'string' && summary.icon.startsWith('data:')) continue;
+    const key = rawKey.trim().toLowerCase();
+    if (!key) continue;
+    trendEnrichCache.set(key, { timestamp: now, data: summary });
+    if (summary.owner && summary.repo) {
+      const coordKey = trendEnrichKey(summary.owner, summary.repo);
+      if (coordKey !== key) {
+        trendEnrichCache.set(coordKey, { timestamp: now, data: summary });
+      }
+    }
+  }
+}
+
+/**
+ * 将内存中的有效 `trendEnrichCache` 转为可存入 L2 DB 的快照（Record<小写owner/repo, AppSummary>）：
+ * - 可选传入 repos：若传入则仅提取属于这些 repos 的条目，否则提取全部；
+ * - 仅提取未过期且具真实平台（platforms.length > 0）的条目；
+ * - 约束：跳过 dataURI / pending 空平台。
+ */
+export function snapshotTrendEnrichCache(repos?: TrendRepo[]): Record<string, AppSummary> {
+  const now = Date.now();
+  const out: Record<string, AppSummary> = {};
+  if (repos && repos.length > 0) {
+    for (const r of repos) {
+      const coordKey = r.owner && r.repo ? trendEnrichKey(r.owner, r.repo) : '';
+      const idKey = r.id ? r.id.trim().toLowerCase() : '';
+      const hit =
+        (coordKey ? trendEnrichCache.get(coordKey) : undefined) ??
+        (idKey ? trendEnrichCache.get(idKey) : undefined);
+      if (!hit) continue;
+      if (now - hit.timestamp >= TREND_ENRICH_CACHE_TTL_MS) continue;
+      if (!Array.isArray(hit.data.platforms) || hit.data.platforms.length === 0) continue;
+      if (typeof hit.data.icon === 'string' && hit.data.icon.startsWith('data:')) continue;
+      const targetKey = coordKey || idKey;
+      if (targetKey) {
+        out[targetKey] = hit.data;
+      }
+    }
+    return out;
+  }
+  for (const [key, hit] of trendEnrichCache.entries()) {
+    if (now - hit.timestamp >= TREND_ENRICH_CACHE_TTL_MS) continue;
+    if (!Array.isArray(hit.data.platforms) || hit.data.platforms.length === 0) continue;
+    if (typeof hit.data.icon === 'string' && hit.data.icon.startsWith('data:')) continue;
+    out[key] = hit.data;
+  }
+  return out;
+}
+
+/**
  * Enrich 未收录 TrendRepo → AppSummary（Map 键为小写 `owner/repo`）。
  * 缓存命中直接返回；缺失批量走 Rust 命令；失败/空项缺席（调用方保留旧小行，榜单永不因此变空）。
  * 本函数永不抛错：传输层异常一律吞为“全部缺席”。

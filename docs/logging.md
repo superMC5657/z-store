@@ -73,7 +73,7 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
 ## 8. 禁 sqlite 声明
 
 - 日志**只进 LogDir**，禁止写入业务 SQLite（`z_store.db`：已安装记录 / 设置 / 令牌 /
-  更新规则 / 足迹等 14 张核心表（含 `icon_cache_meta` / `app_icon_cycles` 图标缓存分流两表），与日志物理隔离）。
+  更新规则 / 足迹等 15 张核心表（含 `trend_board_cache` / `search_result_cache` 趋势搜索L2缓存与 `icon_cache_meta` / `app_icon_cycles` 图标缓存分流两表），与日志物理隔离）。
 - panic hook 仅记 `log::error!` 落盘，不写 DB、不上报。
 - 磁盘库（`z_store.db`）打不开回退内存库时记一条 `error`
  （`src-tauri/src/lib.rs::run` 约 L331–L336，

@@ -53,7 +53,7 @@
    - 应用深度详情与构建资产通过 `ForgeProvider` 抽象层按需直连各代码源官方 REST API 获取，不设中心化聚合后端；
    - 本地 SQLite (`z_store.db`) 维护基于单一配置源（`src-tauri/config.toml`）的 TTL 缓存（默认 30 分钟），配合 HTTP ETag 304 条件请求实现零配额消耗延长缓存时效；该 TTL 仅约束详情浏览，更新检查（更新中心/关注动态）独立于 TTL、每次经 ETag 轻量探查；离线或请求失败时平滑回退本地持久化数据（详见 ADR-0007）。
    - 网络层自动继承操作系统代理与环境变量（Windows 下启动时自探测注册表且 https 优先，支持 Clash / v2ray / TUN 模式透明截获），与针对 Release 大文件下载的加速镜像节点正交可叠加。
-   - 所有已安装记录、用户设置、主机令牌（PAT）、更新规则、关注应用与本地足迹均保存在客户端本地嵌入式 SQLite 中（14 张核心表，见 `src-tauri/src/db/schema.rs`；其中 `icon_cache_meta` 追踪收录应用图标缓存来源，`app_icon_cycles` 追踪图标轮换状态，两表分流）。
+   - 所有已安装记录、用户设置、主机令牌（PAT）、更新规则、关注应用与本地足迹均保存在客户端本地嵌入式 SQLite 中（15 张核心表，见 `src-tauri/src/db/schema.rs`；其中 `icon_cache_meta` 追踪收录应用图标缓存来源，`app_icon_cycles` 追踪图标轮换状态，两表分流；`trend_board_cache`/`search_result_cache` 为趋势榜与搜索结果L2缓存）。
 3. **D3 零信任完整性防篡改 (Zero-Trust Anti-Tampering)**:
     - 所有下载的二进制安装包强制流式计算 SHA-256 哈希值并与官方校验清单比对，哈希不符立即强行阻断并销毁临时文件（详见 ADR-0004）。
 4. **D4 Linear 去彩单色界面 (Monochrome Design System)**:

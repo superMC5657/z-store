@@ -13,3 +13,6 @@ The skills speak in terms of five canonical triage roles. This file maps those r
 When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the corresponding label string from this table.
 
 Edit the right-hand column to match whatever vocabulary you actually use.
+
+> **说明**：本地 `.scratch` Markdown tracker 不使用 GitHub labels，以 `Status:` 字段流转，本表仅用于 skill 提及角色时的词汇映射。
+

@@ -88,7 +88,7 @@
 
 - **桌面底座**: Tauri 2.2 + Rust 1.77+
 - **前端界面**: React 19 + TypeScript 5.7 (strict) + Vite 6 + 原生 Fluent 2.0 CSS + Fluent 矢量图标体系 (`lucide-react`)
-- **本地数据库**: 嵌入式 SQLite (`rusqlite` bundled，WAL 模式，维护 14 张核心表：新增 `icon_cache_meta` 与 `app_icon_cycles`，图标缓存来源与轮换状态分流）
+- **本地数据库**: 嵌入式 SQLite (`rusqlite` bundled，WAL 模式，维护 15 张核心表：含 `trend_board_cache` 与 `search_result_cache`（趋势榜与搜索结果L2缓存），`icon_cache_meta` 与 `app_icon_cycles`，图标缓存来源与轮换状态分流）
 - **配置中枢**: 单一基线配置源（`src-tauri/config.toml`），结合编译期内置兜底与外部重载机制
 - **网络与下载**: API / 图标双池物理隔离复用单例（均 `connect_timeout 5s`、`keepalive 60s`、`pool 20/idle 90s`；图标 CDN 通道恒丢 token，绝不携带认证头）+ `tokio` 异步流式下载 + ETag 条件缓存 + 有限重试（仅 GET 传输错误与 429/5xx，最多 2 次按 200ms→800ms 退避，401/404/304 永不重试）+ 并发镜像测速管道；图标先 HEAD 判类型长度、再 Range 取前 32KB 验 magic（300B 最小阈值卡掉 LFS 指针，`buffered(3)` 并发）；自动继承系统代理与 TUN 模式
 - **桌面开发配置**: `pnpm tauri dev`（基于 `src-tauri/tauri.conf.json` 配置本地安全策略）
@@ -161,6 +161,9 @@ pnpm tauri build
 - [ADR-0008: 出站代理与 OAuth 加固及设置中心重构](docs/adr/0008-outbound-proxy-oauth-hardening-and-settings-restructure.md)
 - [ADR-0009: 独立生态清单仓库与客户端运行时引擎解耦](docs/adr/0009-catalog-manifest-repository-decoupling.md)
 - [ADR-0010: 规范应用标识（Canonical App Identifier）](docs/adr/0010-canonical-app-identifier.md)
+- [ADR-0011: doforce趋势聚合源例外](docs/adr/0011-doforce-trends-aggregator-exception.md)
+- [ADR-0012: 网络性能P0双池并发跳过](docs/adr/0012-network-perf-p0-pooling-concurrency-skip.md)
+- [ADR-0013: Feed契约](docs/adr/0013-feed-contract.md)
 - [协作规范与 Agent 指南](AGENTS.md)
 
 ---
