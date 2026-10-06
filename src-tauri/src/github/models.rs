@@ -35,6 +35,26 @@ pub struct CatalogItem {
 }
 
 impl CatalogItem {
+    /// 当前编译目标对应的平台键（与 catalog.json identifiers 的键对齐）。
+    pub fn current_platform_key() -> &'static str {
+        #[cfg(target_os = "windows")]
+        {
+            "windows"
+        }
+        #[cfg(target_os = "linux")]
+        {
+            "linux"
+        }
+        #[cfg(target_os = "macos")]
+        {
+            "macos"
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+        {
+            "windows"
+        }
+    }
+
     /// 获取指定平台原生标识符列表（如 windows / linux / macos / android / ios）
     pub fn get_identifiers(&self, platform: &str) -> Vec<String> {
         self.identifiers
@@ -42,6 +62,36 @@ impl CatalogItem {
             .filter(|list| !list.is_empty())
             .cloned()
             .unwrap_or_default()
+    }
+
+    /// 获取当前平台原生标识符列表（Windows 行为与 `get_identifiers("windows")` 完全一致；
+    /// Linux 下优先取 `linux`，为空时把 `windows` 的 `.exe` 退化为裸名，避免 deb 应用嗅探恒空）。
+    pub fn get_native_identifiers(&self) -> Vec<String> {
+        let key = Self::current_platform_key();
+        let native = self.get_identifiers(key);
+        if !native.is_empty() {
+            return native;
+        }
+        // 非 Windows 回退：windows 标识去扩展名后仍可用于 PATH/desktop 匹配。
+        // Windows 自身直接返回空（保持原有 exe_candidates(repo) 兜底语义不变）。
+        if cfg!(target_os = "linux") {
+            let win = self.get_identifiers("windows");
+            if !win.is_empty() {
+                return win
+                    .into_iter()
+                    .map(|s| {
+                        let t = s.trim().to_string();
+                        if t.to_lowercase().ends_with(".exe") {
+                            t[..t.len() - 4].to_string()
+                        } else {
+                            t
+                        }
+                    })
+                    .filter(|s| !s.is_empty())
+                    .collect();
+            }
+        }
+        Vec::new()
     }
 
     pub fn to_summary(&self) -> AppSummary {

@@ -79,6 +79,42 @@ pub fn get_installed_apps(state: State<'_, AppState>) -> Result<Vec<InstalledApp
     Ok(apps)
 }
 
+/// Linux 启动 + 落盘回填共享体（launch 4b-1 desktop / 4b-2 PATH 共用，
+/// 收敛 spawn + save 回填两块 near-identical 重复）。
+/// `found` 为已解析的落盘路径；文件不存在返回 Ok(false)（调用方继续下一候选），
+/// 启动成功回填数据库并返回 Ok(true)，spawn 失败返回 Err（`origin` 写入错误上下文）。
+#[cfg(target_os = "linux")]
+fn spawn_and_backfill(
+    state: &State<'_, AppState>,
+    installed: &Option<InstalledApp>,
+    target_path: &str,
+    found: &str,
+    origin: &str,
+) -> Result<bool, String> {
+    let exe_path = std::path::PathBuf::from(found);
+    if !exe_path.is_file() {
+        return Ok(false);
+    }
+    let parent = exe_path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    std::process::Command::new(&exe_path)
+        .current_dir(&parent)
+        .spawn()
+        .map_err(|e| format!("通过 {} 启动失败 ({}): {}", origin, found, e))?;
+    // 记录路径为空或过期时同步回填，加速下次启动
+    if let Some(mut updated) = installed.clone() {
+        if target_path != found {
+            if let Ok(db) = state.db() {
+                updated.install_path = found.to_string();
+                let _ = db.save_installed_app(&updated);
+            }
+        }
+    }
+    Ok(true)
+}
+
 pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
     let app_id = super::require_app_id(&app_id)?;
     let installed_app_opt = {
@@ -165,18 +201,22 @@ pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, St
             } else {
                 #[cfg(target_os = "linux")]
                 {
-                    let _ = std::process::Command::new("chmod")
-                        .arg("+x")
-                        .arg(path_obj)
-                        .status();
-                    let parent = path_obj
-                        .parent()
-                        .unwrap_or_else(|| std::path::Path::new("."));
-                    std::process::Command::new(path_obj)
-                        .current_dir(parent)
-                        .spawn()
-                        .map_err(|e| format!("启动 Linux 应用程序失败: {}", e))?;
-                    return Ok(true);
+                    // .desktop 交给 4b 的 Exec 解析直启，此处不直接 chmod/spawn（避免把桌面文件当二进制执行）。
+                    let is_desktop = ext.eq_ignore_ascii_case("desktop");
+                    if !is_desktop {
+                        let _ = std::process::Command::new("chmod")
+                            .arg("+x")
+                            .arg(path_obj)
+                            .status();
+                        let parent = path_obj
+                            .parent()
+                            .unwrap_or_else(|| std::path::Path::new("."));
+                        std::process::Command::new(path_obj)
+                            .current_dir(parent)
+                            .spawn()
+                            .map_err(|e| format!("启动 Linux 应用程序失败: {}", e))?;
+                        return Ok(true);
+                    }
                 }
             }
         }
@@ -212,7 +252,8 @@ pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, St
                 .map_err(|e| format!("启动应用程序失败: {}", e))?;
 
             // 如果该应用已被添加管理，自动将探测到的真实物理路径写回数据库，加速下次启动
-            if let Some(mut updated) = installed_app_opt {
+            // clone 保留所有权，供后续 Linux 4b 兜底继续回填（Windows 行为不变）。
+            if let Some(mut updated) = installed_app_opt.clone() {
                 if target_path != exe_str {
                     if let Ok(db) = state.db() {
                         updated.install_path = exe_str;
@@ -267,6 +308,74 @@ pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, St
                     .map_err(|e| format!("通过快捷方式启动失败: {}", e))?;
                 return Ok(true);
             }
+        }
+    }
+
+    // 4b. Linux：desktop Exec / PATH 兜底（deb 应用记录路径为空或符号链接失效时，
+    // 如 Motrix `/usr/bin/motrix -> /etc/alternatives/motrix`）。Windows 编译时消除。
+    #[cfg(target_os = "linux")]
+    {
+        // 候选裸名共享派生（与 installer_install / scanner dpkg 共用
+        // `AppScanner::linux_candidate_names`，收敛重复）。
+        let catalog_ids = state
+            .catalog
+            .get_catalog_item(&app_id)
+            .map(|cat| cat.get_native_identifiers())
+            .unwrap_or_default();
+        let (_, bare_names) = crate::scanner::AppScanner::linux_candidate_names(
+            &catalog_ids,
+            &[app_name.clone(), app_id.clone()],
+        );
+        // 4b-1. desktop Exec 解析（全仓唯一 walker，见 scanner）
+        if let Some(found) = crate::scanner::AppScanner::resolve_linux_via_desktop(&bare_names)
+        {
+            if spawn_and_backfill(&state, &installed_app_opt, &target_path, &found, "桌面文件")? {
+                return Ok(true);
+            }
+        }
+        // 4b-2. PATH/which 直启（桌面文件缺失但二进制在 PATH 中时）
+        for name in &bare_names {
+            if name.contains(' ') || name.contains('/') {
+                continue;
+            }
+            if let Some(found) = crate::scanner::AppScanner::which_binary(name) {
+                if spawn_and_backfill(&state, &installed_app_opt, &target_path, &found, "PATH")? {
+                    return Ok(true);
+                }
+            }
+        }
+    }
+
+    // 诊断增强：Linux 下记录路径为空时给出可排查的候选路径（which/desktop），
+    // 替代原来的单一“无”字，避免 Motrix 类已安装应用无从下手。
+    #[cfg(target_os = "linux")]
+    {
+        if target_path.is_empty() {
+            let mut hints: Vec<String> = Vec::new();
+            for cand in [&app_name, &app_id] {
+                let base = cand
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(cand)
+                    .trim()
+                    .to_lowercase();
+                if base.len() >= 2 {
+                    let p = std::path::PathBuf::from("/usr/bin").join(&base);
+                    if p.is_file() {
+                        hints.push(p.to_string_lossy().to_string());
+                    }
+                }
+            }
+            let hint_text = if hints.is_empty() {
+                "（已尝试 PATH/which、/usr/bin/<名称>、/opt/<名称>/* 与 *.desktop Exec，均未命中）"
+                    .to_string()
+            } else {
+                format!("（发现候选: {}，但嗅探未通过校验）", hints.join(", "))
+            };
+            return Err(format!(
+                "未能定位到该软件的可执行程序。\n记录路径: 无 {}\n应用: {} ({})\n建议检查软件是否已被重命名或迁移，或重新扫描添加。",
+                hint_text, app_name, app_id
+            ));
         }
     }
 

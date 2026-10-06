@@ -22,6 +22,81 @@ pub fn rpm_install_argv(path: &Path) -> Vec<String> {
     ]
 }
 
+/// `dpkg -L <pkg>` 查询 argv 纯函数（deb 安装后回填落盘路径用；供单测锁定）。
+pub fn dpkg_list_argv(pkg: &str) -> Vec<String> {
+    vec![
+        "dpkg".to_string(),
+        "-L".to_string(),
+        pkg.trim().to_string(),
+    ]
+}
+
+/// `rpm -ql <pkg>` 查询 argv 纯函数（rpm 回填用；供单测锁定；经 `resolve_rpm_installed_path` 接线）。
+pub fn rpm_list_argv(pkg: &str) -> Vec<String> {
+    vec![
+        "rpm".to_string(),
+        "-ql".to_string(),
+        pkg.trim().to_string(),
+    ]
+}
+
+/// 包文件列表查询通用体（`dpkg -L` / `rpm -ql` 共用，列表 argv 构造器注入；
+/// 挑选 + 规范化收敛于 `scanner::AppScanner::pick_and_canonicalize_package_path`）。
+/// 对候选包名逐个执行列表命令并精准挑选；失败返回 None（调用方继续走 which/desktop 嗅探）。
+/// 仅 Linux 执行进程；非 Linux 返回 None 且不执行任何进程。
+fn resolve_via_pkg_manager(
+    package_names: &[String],
+    candidates: &[String],
+    list_argv: fn(&str) -> Vec<String>,
+) -> Option<String> {
+    #[cfg(target_os = "linux")]
+    {
+        for pkg in package_names {
+            let p = pkg.trim();
+            if p.is_empty() {
+                continue;
+            }
+            let argv = list_argv(p);
+            let (prog, args) = argv.split_first()?;
+            let output = std::process::Command::new(prog).args(args).output().ok()?;
+            if !output.status.success() {
+                continue;
+            }
+            let text = String::from_utf8_lossy(&output.stdout).to_string();
+            if let Some(found) =
+                crate::scanner::AppScanner::pick_and_canonicalize_package_path(&text, candidates)
+            {
+                return Some(found);
+            }
+        }
+        None
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (package_names, candidates, list_argv);
+        None
+    }
+}
+
+/// deb 安装后回填：对候选包名执行 `dpkg -L` 并精准挑选可执行文件；失败返回 None
+/// （调用方继续走 which/desktop 嗅探）。仅 Linux 编译；非 Linux 返回 None 且不执行任何进程。
+pub fn resolve_deb_installed_path(
+    package_names: &[String],
+    candidates: &[String],
+) -> Option<String> {
+    resolve_via_pkg_manager(package_names, candidates, dpkg_list_argv)
+}
+
+/// rpm 安装后回填：对候选包名执行 `rpm -ql` 并精准挑选可执行文件；失败返回 None。
+/// 与 deb 共用查询通用体（`rpm_list_argv` 在此接线，消零调用）。
+/// 仅 Linux 编译；非 Linux 返回 None 且不执行任何进程。
+pub fn resolve_rpm_installed_path(
+    package_names: &[String],
+    candidates: &[String],
+) -> Option<String> {
+    resolve_via_pkg_manager(package_names, candidates, rpm_list_argv)
+}
+
 /// AppImage 赋权 argv 纯函数。
 pub fn appimage_chmod_argv(path: &Path) -> Vec<String> {
     vec![

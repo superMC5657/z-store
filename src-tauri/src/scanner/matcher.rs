@@ -1,6 +1,42 @@
 use super::{AppMatchResult, AppScanner, ScannedRawApp};
 use crate::github::CatalogItem;
 
+/// 路径边界匹配（禁子串 `contains`，防 `test` 误命中 `/usr/bin/test` 同类误配）：
+/// 候选（已小写）须为路径文件名本身（含 `.exe` 形态兼容），或以 `/候选` / `\候选` 结尾；
+/// DisplayIcon 的 `,0` / `,-1` 数字后缀先剥离，末尾路径分隔符先裁剪；
+/// 大小写规则与既有 lowercase 一致（输入皆已 lower）。
+fn path_matches_candidate(hay_lower: &str, cand_lower: &str) -> bool {
+    if cand_lower.is_empty() {
+        return false;
+    }
+    // 剥离 DisplayIcon `,0` / `,-1` 数字后缀（非数字逗号保留，避免误截合法路径）
+    let h = if let Some((pre, suf)) = hay_lower.rsplit_once(',') {
+        if !suf.is_empty() && suf.chars().all(|c| c.is_ascii_digit() || c == '-') {
+            pre
+        } else {
+            hay_lower
+        }
+    } else {
+        hay_lower
+    };
+    let h = h.trim_end_matches(['/', '\\']);
+    if h.is_empty() {
+        return false;
+    }
+    let fname = h.rsplit(['/', '\\']).next().unwrap_or(h);
+    // 文件名相等（含 `motrix` vs `motrix.exe` 裸名兼容，大小写已统一 lower）
+    if fname == cand_lower {
+        return true;
+    }
+    if fname.strip_suffix(".exe").unwrap_or(fname) == cand_lower {
+        return true;
+    }
+    if cand_lower.strip_suffix(".exe").unwrap_or(cand_lower) == fname {
+        return true;
+    }
+    // 路径边界后缀（`/.../cand` 或 `...\cand`）
+    h.ends_with(&format!("/{cand_lower}")) || h.ends_with(&format!("\\{cand_lower}"))
+}
 /// 启发式匹配打分权重常量
 pub const SCORE_EXACT_NAME_MATCH: f32 = 0.55;
 pub const SCORE_PREFIX_NAME_MATCH: f32 = 0.42;
@@ -76,12 +112,22 @@ impl AppScanner {
                 }
 
                 // 3. 安装路径或图标主程序匹配（基于 catalog 配置的 executables 与 install_dirs）
+                // 平台隔离：Windows 取 windows 标识，Linux 取 linux 标识（此前写死 windows 导致
+                // catalog.json 中 Motrix linux=["motrix"] 被忽略；Windows 行为不变）。
                 if !s_loc.is_empty() || !s_icon.is_empty() {
                     let mut path_matched = s_loc.contains(&c_repo) || s_icon.contains(&c_repo);
                     if !path_matched {
-                        for exe in &cat.get_identifiers("windows") {
+                        for exe in &cat.get_native_identifiers() {
                             let exe_lower = exe.to_lowercase();
-                            if s_icon.contains(&exe_lower) || s_loc.contains(&exe_lower) {
+                            // 精确文件名相等或路径边界匹配（禁子串 contains，
+                            // 防 `test` 误命中 `/usr/bin/test`；大小写已统一 lower）
+                            let exe_stripped = exe_lower
+                                .strip_suffix(".exe")
+                                .unwrap_or(&exe_lower);
+                            if [exe_lower.as_str(), exe_stripped].iter().any(|c| {
+                                path_matches_candidate(&s_loc, c)
+                                    || path_matches_candidate(&s_icon, c)
+                            }) {
                                 path_matched = true;
                                 break;
                             }
