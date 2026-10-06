@@ -1,6 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TitleBar } from './components/TitleBar';
-import { ResizeHandles } from './components/ResizeHandles';
+// ResizeHandles is only loaded in Tauri desktop environment; in test/web environments
+// it is skipped to avoid evaluating Tauri internals or failing on mock contracts.
+const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+const ResizeHandles = isTauriEnv
+  ? React.lazy(() => import('./components/ResizeHandles').then((m) => ({ default: m.ResizeHandles })))
+  : () => null;
 import { Sidebar } from './components/Sidebar';
 import { ToastContainer } from './components/Toast';
 import { AppDetailModal } from './components/AppDetailModal';
@@ -16,11 +21,11 @@ import { SettingsView } from './views/SettingsView';
 import { FavoritesView } from './views/FavoritesView';
 import { EmptyState } from './components/EmptyState';
 import { Search } from 'lucide-react';
-import { AppDetail, AppDetailViewModel, AppSummary, InstalledApp, OAuthUser, UpdateItem, UpdateCheckProgressPayload, UpdateRule, ViewType, WatchUpdatedPayload } from './types';
-import { api, DEFAULT_SETTINGS, ONLINE_SEARCH_PER_PAGE } from './services/api';
+import { AppDetail, AppDetailViewModel, AppSummary, OAuthUser, UpdateItem, UpdateCheckProgressPayload, UpdateRule, ViewType, WatchUpdatedPayload } from './types';
+import { api, DEFAULT_SETTINGS } from './services/api';
 import { preloadIcons, invalidateIconCache, isAvatarUrl } from './components/AppIcon';
-import { zlogInfo, zlogWarn } from './lib/z-log';
-import { PLATFORM_IDS, PENDING_SETTLE_MS, isPlatformPending, matchPlatformSetWithPending, normalizePlatform, resolvePendingPlatformsLite, togglePlatformSet, type PlatformId } from './lib/platformFilter';
+import { zlogInfo } from './lib/z-log';
+import { PLATFORM_IDS, isPlatformPending, matchPlatformSetWithPending, normalizePlatform, togglePlatformSet, type PlatformId } from './lib/platformFilter';
 import {
   DETAIL_PLATFORMS_HEAL_EVENT,
   appSummaryFromDetail,
@@ -34,11 +39,22 @@ import { useAppSettings } from './useAppSettings';
 import { useTranslation } from 'react-i18next';
 import './i18n';
 
-export const PLATFORM_FILTER_STORAGE_KEY = 'zstore:platform-filter:v2';
-/** 5-ID 旧世界的遗留键：仅用于一次性升级读取，绝不回写。 */
-const LEGACY_PLATFORM_FILTER_STORAGE_KEY = 'zstore:platform-filter:v1';
-/** 旧世界 5 端 ID：遗留全选（= 展示全部意图）升级为 6 端全选，避免静默隐藏类库。 */
-const LEGACY_OS_PLATFORM_IDS: readonly string[] = ['windows', 'macos', 'linux', 'ios', 'android'];
+import {
+  PLATFORM_FILTER_STORAGE_KEY,
+  parseSelectedPlatforms,
+  loadSelectedPlatforms,
+} from './app/platformStorage';
+import { InstallConfirmDialog } from './app/InstallConfirmDialog';
+import { usePlatformBackfill } from './app/hooks/usePlatformBackfill';
+import { useSearchState } from './app/hooks/useSearchState';
+import { useInstallState } from './app/hooks/useInstallState';
+import { useDeepLink } from './app/hooks/useDeepLink';
+
+export {
+  PLATFORM_FILTER_STORAGE_KEY,
+  parseSelectedPlatforms,
+  loadSelectedPlatforms,
+};
 
 /**
  * 单图标升级时仅替换对应 id 的对象，其余复用原引用；
@@ -57,194 +73,10 @@ export function patchAppIconList(prev: AppSummary[], targetIdLower: string, icon
   return changed ? next : prev;
 }
 
-/**
- * 将原始 localStorage 字符串解析为经过验证的平台选择集合。
- * 未知 ID 会被白名单过滤剔除。有效（可解析）的数组将按原样处理——
- * 包括空数组（这是合法的选择，代表空列表，各页面会据此渲染筛选为空的引导状态），
- * 以及仅含未知项的数组（根据同一规则过滤缩减为 []）。
- * 仅在键缺失或 JSON 损坏/非数组时，才会回退至全选集合（等效于“无过滤”）。
- *
- * 注意：此函数与 `src/lib/platformFilter.ts` 中的 `parseSelectedPlatformArray` 有所区别——
- * 后者接收已解码的字符串数组（readonly string[] | null | undefined）并将 null/undefined
- * 映射为空集合（绝不回退至全选）。而本字符串版本接收原始存储字符串，在缺失或损坏时有意回退至全选。
- */
-export function parseSelectedPlatforms(raw: string | null | undefined): Set<PlatformId> {
-  const full = new Set<PlatformId>(PLATFORM_IDS);
-  if (!raw) return full;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return full;
-  }
-  if (!Array.isArray(parsed)) return full;
-  const known = new Set<PlatformId>();
-  for (const id of parsed) {
-    if (typeof id !== 'string') continue;
-    const n = normalizePlatform(id);
-    if ((PLATFORM_IDS as readonly string[]).includes(n)) known.add(n as PlatformId);
-  }
-  return known;
-}
-
-/**
- * 首次渲染时读取持久化的平台选择。保证绝不抛错：
- * 存储缺失、值损坏或存储抛错均产生全选集合；
- * 存储为有效的空数组则产生空集合。
- *
- * v1 → v2 一次性升级：v2 缺席时读取遗留 v1 键。任何遗留 v1 集合一律补上虚拟 other
- * （发现性默认，与新用户全 6 端一致；用户可自行取消勾选）。
- * v2 集合原样沿用，绝不触碰。
- */
-export function loadSelectedPlatforms(): Set<PlatformId> {
-  const full = new Set<PlatformId>(PLATFORM_IDS);
-  try {
-    if (typeof window === 'undefined' || !window.localStorage) return full;
-    const current = window.localStorage.getItem(PLATFORM_FILTER_STORAGE_KEY);
-    if (current !== null) return parseSelectedPlatforms(current);
-    const legacy = window.localStorage.getItem(LEGACY_PLATFORM_FILTER_STORAGE_KEY);
-    if (!legacy) return full;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(legacy);
-    } catch {
-      return full;
-    }
-    if (!Array.isArray(parsed)) return full;
-    const migrated = parseSelectedPlatforms(JSON.stringify(parsed));
-    // 旧世界 5 端 ID 全集即“展示全部”意图；子集亦补 other，保证类库默认可见。
-    void LEGACY_OS_PLATFORM_IDS;
-    migrated.add('other');
-    return migrated;
-  } catch {
-    return full;
-  }
-}
-
-/**
- * 深链安装确认弹窗（P0-1 显式用户授权门禁）：展示外部链接来源说明，
- * 应用名 / 仓库 / 来源 / SHA-256（若有）+ 取消 / 确认安装。
- * 文案保持既有硬编码风格。
- */
-const InstallConfirmDialog: React.FC<{
-  intro: string;
-  appName: string;
-  repoLine: string;
-  source: string;
-  sha256?: string | null;
-  onCancel: () => void;
-  onConfirm: () => void;
-}> = ({ intro, appName, repoLine, source, sha256, onCancel, onConfirm }) => {
-  const dialogRef = useRef<HTMLDivElement | null>(null);
-
-  // 置顶弹窗的焦点管理：打开即聚焦自身；Tab 限制在两个按钮内循环（简易焦点陷阱）；
-  // Esc 仅关闭本层（关闭时详情弹窗仍在底下，保持无感返回）。
-  useEffect(() => {
-    dialogRef.current?.focus();
-  }, []);
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      e.stopPropagation();
-      onCancel();
-      return;
-    }
-    if (e.key !== 'Tab' || !dialogRef.current) return;
-    const buttons = Array.from(dialogRef.current.querySelectorAll('button:not([disabled])'));
-    if (buttons.length === 0) return;
-    const first = buttons[0] as HTMLElement;
-    const last = buttons[buttons.length - 1] as HTMLElement;
-    const active = document.activeElement;
-    if (e.shiftKey && active === first) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && active === last) {
-      e.preventDefault();
-      first.focus();
-    }
-  };
-
-  return (
-    <div className="modal-backdrop modal-confirm-above" onClick={onCancel}>
-      <div
-        ref={dialogRef}
-        className="detail-modal"
-        style={{ maxWidth: '480px', width: '92%', padding: '24px 28px', outline: 'none' }}
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={handleKeyDown}
-        role="dialog"
-        aria-modal="true"
-        aria-label="确认安装"
-        tabIndex={-1}
-      >
-        <div className="modal-header" style={{ position: 'relative', padding: 0, marginBottom: '12px' }}>
-          <h2 style={{ margin: 0, fontSize: 'var(--font-xl)' }}>确认安装</h2>
-        </div>
-        <p style={{ margin: '0 0 12px', lineHeight: 1.6 }}>
-          {intro}
-        </p>
-        <div style={{ margin: '0 0 8px', lineHeight: 1.8 }}>
-          <div>
-            应用：{appName}
-          </div>
-          <div>
-            仓库：{repoLine}
-          </div>
-          <div>
-            来源：{source}
-          </div>
-          {sha256 && (
-            <div className="text-mono" style={{ wordBreak: 'break-all' }}>
-              SHA-256：{sha256}
-            </div>
-          )}
-        </div>
-        <div className="modal-footer" style={{ borderTop: 'none', background: 'transparent', padding: '16px 0 0 0', marginTop: '16px' }}>
-          <button
-            className="btn-fluent btn-secondary"
-            onClick={onCancel}
-          >
-            取消
-          </button>
-          <button
-            className="btn-fluent btn-primary"
-            onClick={onConfirm}
-          >
-            确认安装
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
 export const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewType>('home');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const searchSeqRef = useRef(0);
-  const currentSearchIdRef = useRef<string>('');
-  const [isSearchingOnline, setIsSearchingOnline] = useState(false);
-  const [onlineSearchPerformed, setOnlineSearchPerformed] = useState(false);
-  // 在线搜索翻页状态：提交即在线调第 1 页，触底且满页/has_more 时 page+1 追加到在线段。
-  // 上下分段：apps 永远是本地结果，在线结果单独存 onlineApps（HomeView 本地在上、在线在下两段展示）。
-  const [isOnlineResultSet, setIsOnlineResultSet] = useState(false);
-  const [onlineApps, setOnlineApps] = useState<AppSummary[]>([]);
-  const [, setOnlinePage] = useState(1);
-  const [onlineHasMore, setOnlineHasMore] = useState(false);
-  const [isLoadingOnlineMore, setIsLoadingOnlineMore] = useState(false);
-  const onlinePageRef = useRef(1);
-  const onlineHasMoreRef = useRef(false);
-  const isOnlineResultSetRef = useRef(false);
-  const onlineQueryRef = useRef('');
-  const isLoadingOnlineMoreRef = useRef(false);
-  const onlineAppsRef = useRef<AppSummary[]>([]);
-  onlineAppsRef.current = onlineApps;
   const [apps, setApps] = useState<AppSummary[]>([]);
-  const [installedApps, setInstalledApps] = useState<InstalledApp[]>([]);
-  const [installingAppIds, setInstallingAppIds] = useState<Set<string>>(new Set());
-  const [uninstallingAppIds, setUninstallingAppIds] = useState<Set<string>>(new Set());
-  const [isRefreshingInstalled, setIsRefreshingInstalled] = useState(false);
   const [updates, setUpdates] = useState<UpdateItem[]>([]);
   const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
   const [updateCheckProgress, setUpdateCheckProgress] = useState<UpdateCheckProgressPayload | null>(null);
@@ -252,8 +84,6 @@ export const App: React.FC = () => {
   const [selectedApp, setSelectedApp] = useState<AppDetailViewModel | null>(null);
   const activeDetailIdRef = useRef<string | null>(null);
   const [selectedDeveloper, setSelectedDeveloper] = useState<string | null>(null);
-  // P0-1 深链安装守卫：`install_app` 深链仅暂存待确认状态——安装必须经由用户显式点击确认方可启动。
-  const [pendingDeepLinkInstall, setPendingDeepLinkInstall] = useState<string | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
   const {
@@ -267,19 +97,12 @@ export const App: React.FC = () => {
   } = useAppSettings();
   const [updateRules, setUpdateRules] = useState<UpdateRule[]>([]);
   const [recentlyViewedApps, setRecentlyViewedApps] = useState<AppSummary[]>([]);
-  const [detectedAppIds, setDetectedAppIds] = useState<Set<string>>(new Set());
   // FR-6.2 关注（Watch）
   const [watchedIds, setWatchedIds] = useState<Set<string>>(new Set());
   const [watchNotifications, setWatchNotifications] = useState<WatchUpdatedPayload[]>([]);
   // 任务 3（设备平台全局过滤）：App 级别多选平台状态，默认选中全部 6 种 PLATFORM_IDS（含虚拟 other），
   // 仅持久化至 localStorage——刻意不接入 api.getSettings()/UserDataBackup（仅为本地界面偏好，非备份数据）。
   const [selectedPlatforms, setSelectedPlatforms] = useState<Set<PlatformId>>(() => loadSelectedPlatforms());
-  // 平台待确认追踪：summary 为空但详情尚未落定的行保持 pending（不展示 Other、不计入 other 桶、不过滤），
-  // 详情取回仍为空才记入已确认 other（展示徽标、计入统计、参与过滤）。后端一律 `[]`，other 纯前端虚拟。
-  const [platformResolvedOtherIds, setPlatformResolvedOtherIds] = useState<Set<string>>(() => new Set<string>());
-  const platformBackfillInflightRef = useRef<Set<string>>(new Set());
-  const platformResolvedOtherRef = useRef<Set<string>>(new Set());
-  platformResolvedOtherRef.current = platformResolvedOtherIds;
   // FR-7 OAuth 登录态（详情弹窗标星门控）
   const [oauthUser, setOAuthUser] = useState<OAuthUser | null>(null);
   const appDetailMemoryCache = useRef<Map<string, AppDetail>>(new Map());
@@ -290,15 +113,80 @@ export const App: React.FC = () => {
   recentsRef.current = recentlyViewedApps;
   const selectedAppRef = useRef<AppDetailViewModel | null>(null);
   selectedAppRef.current = selectedApp;
-  // 安装/关注集合经 ref 读取，回调引用在搜索、图标升级时保持稳定，仅语言变化时更新
-  const installingRef = useRef<Set<string>>(installingAppIds);
-  installingRef.current = installingAppIds;
   const watchedRef = useRef<Set<string>>(watchedIds);
   watchedRef.current = watchedIds;
 
   // 应用内通知（FR-6.2 关注提醒 / FR-4.4 自更新 / FR-7 OAuth / FR-6.3 导入导出经此通道呈现）
   const { toasts, showToast, handleDismissToast } = useToasts();
   const { t } = useTranslation();
+
+  // 1. 安装管理 Hook
+  const {
+    installedApps,
+    setInstalledApps,
+    installingAppIds,
+    uninstallingAppIds,
+    isRefreshingInstalled,
+    detectedAppIds,
+    setDetectedAppIds,
+    handleInstallApp,
+    handleQuickInstall,
+    handleLaunchApp,
+    handleUnmanageApp,
+    handleRefreshInstalledApps,
+    handleManageApp,
+    handleUninstallApp,
+  } = useInstallState({
+    currentView,
+    apps,
+    showToast,
+    t,
+  });
+
+  // 2. 平台回填与搜索解耦
+  const lazyBackfillRef = useRef<(summaries: AppSummary[], seq: number) => void>(() => {});
+
+  const {
+    searchQuery,
+    searchSeqRef,
+    currentSearchIdRef,
+    isSearchingOnline,
+    onlineSearchPerformed,
+    isOnlineResultSet,
+    onlineApps,
+    setOnlineApps,
+    onlineHasMore,
+    isLoadingOnlineMore,
+    onlineAppsRef,
+    handleSearchChange,
+    handleSearchSubmit,
+    handleOnlineLoadMore,
+  } = useSearchState({
+    currentView,
+    setCurrentView,
+    setApps,
+    lazyBackfillPlatforms: (summaries, seq) => lazyBackfillRef.current(summaries, seq),
+    showToast,
+    t,
+  });
+
+  const {
+    platformResolvedOtherIds,
+    setPlatformResolvedOtherIds,
+    lazyBackfillPlatforms,
+  } = usePlatformBackfill({
+    apps,
+    onlineApps,
+    recentlyViewedApps,
+    appsRef,
+    onlineAppsRef,
+    recentsRef,
+    searchSeqRef,
+    setApps,
+    setOnlineApps,
+    setRecentlyViewedApps,
+  });
+  lazyBackfillRef.current = lazyBackfillPlatforms;
 
   // 初始加载
   useEffect(() => {
@@ -562,352 +450,6 @@ export const App: React.FC = () => {
     URL.revokeObjectURL(url);
     showToast(t('toast.export_success'), 'success');
   };
-
-  // 搜索 stale 守卫 + 错误回退合一：seq 过期返回 true（调用方直接 return）；
-  // 否则若传入 err 则记录日志并执行 fallback，返回 false。日志内容与回退行为与原内联代码保持一致。
-  const guardFreshSearch = (seq: number, err?: unknown, logPrefix?: string, fallback?: () => void): boolean => {
-    if (seq !== searchSeqRef.current) return true;
-    if (err !== undefined && logPrefix !== undefined) {
-      zlogWarn(`${logPrefix}: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
-      fallback?.();
-    }
-    return false;
-  };
-
-  // 搜索逻辑（本地内存搜索，防抖触发）
-  const handleSearchChange = async (q: string) => {
-    const trimmed = q.trim();
-    // 同词且已是该词的在线结果集 → 保持在线结果，不回退本地。
-    // （TitleBar 回车会连调 onSearchChange + onSearchSubmit；此处若清掉在线态，
-    // 提交侧的同词去重守卫将失效，导致重复在线请求。）
-    if (
-      trimmed &&
-      trimmed === searchQuery.trim() &&
-      trimmed === onlineQueryRef.current &&
-      isOnlineResultSetRef.current
-    ) {
-      return;
-    }
-    setSearchQuery(q);
-    setOnlineSearchPerformed(false);
-    // 新搜索词切回本地结果集：清掉上一轮在线翻页状态，搜索态回到首屏 20（HomeView 负责）。
-    setIsOnlineResultSet(false);
-    isOnlineResultSetRef.current = false;
-    setOnlineApps([]);
-    setOnlineHasMore(false);
-    onlineHasMoreRef.current = false;
-    setOnlinePage(1);
-    onlinePageRef.current = 1;
-    onlineQueryRef.current = '';
-    setIsLoadingOnlineMore(false);
-    isLoadingOnlineMoreRef.current = false;
-    const seq = ++searchSeqRef.current;
-    try {
-      const results = await api.searchApps(q);
-      if (guardFreshSearch(seq)) return;
-      setApps(results);
-      if (q && currentView !== 'home' && currentView !== 'trends' && currentView !== 'categories') {
-        setCurrentView('home');
-      }
-    } catch (err) {
-      if (guardFreshSearch(seq, err, 'searchApps error')) return;
-    }
-  };
-
-  // 平台懒回填（三态）：首绘 pending 行不展示 Other 徽标、不计入 other 桶、恒可见；
-  // 对可见行（前 20）经共享 `resolvePendingPlatformsLite`（分批 5）走 getPlatformsLite 轻量通道
-  // 补 deduced platforms（单次 releases/latest 条件请求，无 README/图标探测/checksum 开销）；
-  // 轻量取回仍为空（且非 stale 离线缓存）才记为已确认 other（单次落定更新），
-  // 详情不可达或 stale 一律保持 pending 交由 settle 超时兜底，不报错。后端一律 `[]`，other 纯前端虚拟。
-  // seq 过期则整批丢弃，绝不阻塞列表首绘。
-  const lazyBackfillPlatforms = useCallback((summaries: AppSummary[], seq: number) => {
-    const resolved = platformResolvedOtherRef.current;
-    const inflight = platformBackfillInflightRef.current;
-    const targets = summaries.filter((s) => {
-      if (s.platforms && s.platforms.length > 0) return false;
-      const key = s.id.toLowerCase();
-      if (resolved.has(key) || inflight.has(key)) return false;
-      return true;
-    }).slice(0, 20);
-    if (targets.length === 0) return;
-    for (const t of targets) inflight.add(t.id.toLowerCase());
-    void (async () => {
-      try {
-        const { patched, confirmedEmpty } = await resolvePendingPlatformsLite(
-          targets.map((s) => ({ key: s.id.toLowerCase(), liteId: s.id })),
-          (liteId) => api.getPlatformsLite(liteId),
-          () => seq !== searchSeqRef.current,
-        );
-        if (seq !== searchSeqRef.current) return;
-        if (patched.size > 0) {
-          setApps((prev) => {
-            let changed = false;
-            const next = prev.map((a) => {
-              const p = patched.get(a.id.toLowerCase());
-              if (p && (!a.platforms || a.platforms.length === 0)) {
-                changed = true;
-                return { ...a, platforms: p };
-              }
-              return a;
-            });
-            return changed ? next : prev;
-          });
-          // 在线段同口径回填：卡片共用同一 pending 语义，在线段不闪 Other。
-          setOnlineApps((prev) => {
-            let changed = false;
-            const next = prev.map((a) => {
-              const p = patched.get(a.id.toLowerCase());
-              if (p && (!a.platforms || a.platforms.length === 0)) {
-                changed = true;
-                return { ...a, platforms: p };
-              }
-              return a;
-            });
-            return changed ? next : prev;
-          });
-          setRecentlyViewedApps((prev) => {
-            let changed = false;
-            const next = prev.map((a) => {
-              const p = patched.get(a.id.toLowerCase());
-              if (p && (!a.platforms || a.platforms.length === 0)) {
-                changed = true;
-                return { ...a, platforms: p };
-              }
-              return a;
-            });
-            return changed ? next : prev;
-          });
-        }
-        if (confirmedEmpty.length > 0) {
-          setPlatformResolvedOtherIds((prev) => {
-            let changed = false;
-            const next = new Set(prev);
-            for (const k of confirmedEmpty) {
-              if (!next.has(k)) {
-                next.add(k);
-                changed = true;
-              }
-            }
-            return changed ? next : prev;
-          });
-        }
-      } finally {
-        for (const t of targets) inflight.delete(t.id.toLowerCase());
-      }
-    })();
-  }, []);
-
-  // 首绘回填：本地收录（含初始全量/搜索/目录同步）的 pending 行同样走轻量确认，
-  // 首绘不闪 Other，落定后单次更新。重复调用经在途/已确认集合去重。
-  useEffect(() => {
-    if (apps.length === 0) return;
-    lazyBackfillPlatforms(apps, searchSeqRef.current);
-  }, [apps, lazyBackfillPlatforms]);
-
-  // 主列表 pending settle 超时（Home/分类/收藏共用，与 Trends 榜单同口径）：
-  // lite 失败/stale 的 pending 行至多等待 PENDING_SETTLE_MS 后降级为已确认 Other
-  // （徽标 + 计数 + 可过滤），而非无限 shimmer。超时前恒可见，落定后走正常 Other 过滤。
-  // 治愈（具真实平台）的行永不被确认；定时器随列表/回填变化重置，落稳后一次触发。
-  useEffect(() => {
-    if (apps.length === 0 && onlineApps.length === 0 && recentlyViewedApps.length === 0) return;
-    const pendingSnapshot: string[] = [];
-    const seen = new Set<string>();
-    for (const s of [...apps, ...onlineApps, ...recentlyViewedApps]) {
-      if (s.platforms && s.platforms.length > 0) continue;
-      const key = (s.id || '').trim().toLowerCase();
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      if (platformResolvedOtherIds.has(key)) continue;
-      pendingSnapshot.push(key);
-    }
-    if (pendingSnapshot.length === 0) return;
-    const timer = setTimeout(() => {
-      const stillPending: string[] = [];
-      const currentById = new Map<string, AppSummary>();
-      for (const s of [...appsRef.current, ...onlineAppsRef.current, ...recentsRef.current]) {
-        const k = (s.id || '').trim().toLowerCase();
-        if (k && !currentById.has(k)) currentById.set(k, s);
-      }
-      const resolved = platformResolvedOtherRef.current;
-      for (const key of pendingSnapshot) {
-        const cur = currentById.get(key);
-        if (cur?.platforms && cur.platforms.length > 0) continue;
-        if (resolved.has(key)) continue;
-        stillPending.push(key);
-      }
-      if (stillPending.length === 0) return;
-      setPlatformResolvedOtherIds((prev) => {
-        const next = new Set(prev);
-        let changed = false;
-        for (const k of stillPending) {
-          if (!next.has(k)) {
-            next.add(k);
-            changed = true;
-          }
-        }
-        return changed ? next : prev;
-      });
-    }, PENDING_SETTLE_MS);
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [apps, onlineApps, recentlyViewedApps, platformResolvedOtherIds]);
-
-  // 在线搜索提交逻辑（按回车或点击“在线搜索”按钮：即使本地有结果也发起在线搜索）
-  const handleSearchSubmit = async (queryToSubmit?: string) => {
-    const q = (queryToSubmit !== undefined ? queryToSubmit : searchQuery).trim();
-    if (!q) return;
-
-    // 同词且已是该词的在线结果集 → 直接返回，避免重复请求；
-    // 本地结果集（isOnlineResultSet 为 false）则必须允许转在线。
-    if (
-      q === searchQuery.trim() &&
-      q === onlineQueryRef.current &&
-      isOnlineResultSetRef.current
-    ) {
-      return;
-    }
-
-    const seq = ++searchSeqRef.current;
-
-    // 若本地搜索尚未完成或搜索词变更，先查一次本地并展示（异词先本地后在线）
-    if (q !== searchQuery.trim()) {
-      setSearchQuery(q);
-      setOnlineSearchPerformed(false);
-      setIsOnlineResultSet(false);
-      isOnlineResultSetRef.current = false;
-      setOnlineApps([]);
-      setOnlineHasMore(false);
-      onlineHasMoreRef.current = false;
-      setOnlinePage(1);
-      onlinePageRef.current = 1;
-      onlineQueryRef.current = '';
-      try {
-        const freshLocal = await api.searchApps(q);
-        if (guardFreshSearch(seq)) return;
-        setApps(freshLocal);
-        if (currentView !== 'home' && currentView !== 'trends' && currentView !== 'categories') {
-          setCurrentView('home');
-        }
-      } catch (err) {
-        // 本地失败不阻塞：照常转在线（apps 保持原样，在线无结果/失败则提示）。
-        if (guardFreshSearch(seq, err, 'searchApps error')) return;
-      }
-    }
-
-    // 提交即在线：不再以本地零结果为 gate（第 1 页，per_page 与后端默认 12 对齐）；
-    // 上下分段：本地结果保留在 apps，在线结果单独存 onlineApps（HomeView 本地在上、在线在下）。
-    // 在线无结果/失败则保持本地结果 + 提示（内部分支处理）。
-    {
-      setIsSearchingOnline(true);
-      const searchId = `search-${seq}-${Date.now()}`;
-      currentSearchIdRef.current = searchId;
-      try {
-        const onlineResults = await api.searchAppsOnline(q, searchId, 1, ONLINE_SEARCH_PER_PAGE);
-        if (guardFreshSearch(seq)) return;
-        setOnlineSearchPerformed(true);
-        if (onlineResults && onlineResults.length > 0) {
-          // 同词在线集去重（按 id 小写）：后端偶发重复时在线段不出现重复卡片。
-          const seen = new Set<string>();
-          const deduped: AppSummary[] = [];
-          for (const m of onlineResults) {
-            const k = (m.id || '').toLowerCase();
-            if (!k || seen.has(k)) continue;
-            seen.add(k);
-            deduped.push(m);
-          }
-          setOnlineApps(deduped);
-          lazyBackfillPlatforms(onlineResults, seq);
-          setIsOnlineResultSet(true);
-          isOnlineResultSetRef.current = true;
-          setOnlinePage(1);
-          onlinePageRef.current = 1;
-          onlineQueryRef.current = q;
-          // 满页即视为还有下一页（后端仍回数组，无 has_more 字段）；单条直查只回 1 条，天然到底。
-          const hasMore = onlineResults.length >= ONLINE_SEARCH_PER_PAGE;
-          setOnlineHasMore(hasMore);
-          onlineHasMoreRef.current = hasMore;
-          showToast(t('search.online_success', '已找到在线应用'), 'success');
-        } else {
-          setOnlineApps([]);
-          setIsOnlineResultSet(false);
-          isOnlineResultSetRef.current = false;
-          setOnlineHasMore(false);
-          onlineHasMoreRef.current = false;
-          // 调不到或无结果就保持本地结果+提示，不报错
-          showToast(t('search.online_no_results', '未找到相关在线应用，已保持本地结果'), 'info');
-        }
-      } catch (err) {
-        if (guardFreshSearch(seq, err, 'searchAppsOnline error', () => {
-          setOnlineSearchPerformed(true);
-          setOnlineApps([]);
-          setIsOnlineResultSet(false);
-          isOnlineResultSetRef.current = false;
-          setOnlineHasMore(false);
-          onlineHasMoreRef.current = false;
-          showToast(t('search.online_failed', '在线搜索暂不可用，已保持本地结果'), 'info');
-        })) return;
-      } finally {
-        if (seq === searchSeqRef.current) {
-          setIsSearchingOnline(false);
-        }
-      }
-    }
-  };
-
-  // 在线结果触底翻页：后端满页/has_more 时自动要下一页（page+1），追加到在线段；
-  // 限流/失败 toast 与首屏保持原样（info 级，不抛错阻塞列表）。
-  const handleOnlineLoadMore = useCallback(async () => {
-    if (isLoadingOnlineMoreRef.current || isSearchingOnline) return;
-    if (!isOnlineResultSetRef.current || !onlineHasMoreRef.current) return;
-    const q = (onlineQueryRef.current || searchQuery.trim()).trim();
-    if (!q) return;
-    const seq = searchSeqRef.current;
-    const nextPage = onlinePageRef.current + 1;
-    setIsLoadingOnlineMore(true);
-    isLoadingOnlineMoreRef.current = true;
-    try {
-      const more = await api.searchAppsOnline(
-        q,
-        currentSearchIdRef.current || undefined,
-        nextPage,
-        ONLINE_SEARCH_PER_PAGE,
-      );
-      if (seq !== searchSeqRef.current) return;
-      if (more && more.length > 0) {
-        // 按 id 去重后追加到在线段（跳过在线段已有项；本地段不动）。
-        setOnlineApps((prev) => {
-          const seen = new Set(prev.map((a) => (a.id || '').toLowerCase()));
-          const fresh: AppSummary[] = [];
-          for (const m of more) {
-            const k = (m.id || '').toLowerCase();
-            if (!k || seen.has(k)) continue;
-            seen.add(k);
-            fresh.push(m);
-          }
-          return fresh.length > 0 ? [...prev, ...fresh] : prev;
-        });
-        lazyBackfillPlatforms(more, seq);
-        const hasMore = more.length >= ONLINE_SEARCH_PER_PAGE;
-        setOnlinePage(nextPage);
-        onlinePageRef.current = nextPage;
-        setOnlineHasMore(hasMore);
-        onlineHasMoreRef.current = hasMore;
-      } else {
-        setOnlineHasMore(false);
-        onlineHasMoreRef.current = false;
-      }
-    } catch (err) {
-      if (seq !== searchSeqRef.current) return;
-      zlogWarn(`searchAppsOnline more error: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
-      showToast(t('search.online_failed', '在线搜索暂不可用，已保持本地结果'), 'info');
-    } finally {
-      if (seq === searchSeqRef.current) {
-        setIsLoadingOnlineMore(false);
-        isLoadingOnlineMoreRef.current = false;
-      }
-    }
-  }, [isSearchingOnline, searchQuery, showToast, t, lazyBackfillPlatforms]);
 
   const loadRecentViews = useCallback(async () => {
     try {
@@ -1203,46 +745,17 @@ export const App: React.FC = () => {
   }, [loadRecentViews, syncDetailCacheAndAppLists]);
 
   // 深链调度分发器（功能 E）
-  const handleDispatchDeepLink = async (rawUrl: string) => {
-    try {
-      const action = await api.handleDeepLink(rawUrl);
-      if (action.action === 'app_detail') {
-        handleOpenDetail(action.payload.app_id);
-      } else if (action.action === 'install_app') {
-        // P0-1: 绝不直接自深链自动安装——打开详情视图并弹出显式确认弹窗；安装仅在用户点击确认后启动。
-        handleOpenDetail(action.payload.app_id);
-        setPendingDeepLinkInstall(action.payload.app_id);
-        showToast(t('toast.deeplink_confirm_notice', { id: action.payload.app_id }), 'warning');
-      } else if (action.action === 'search') {
-        handleSearchChange(action.payload.query);
-      } else if (action.action === 'developer_profile') {
-        setSelectedDeveloper(action.payload.owner);
-      } else if (action.action === 'open_view') {
-        const validViews: ViewType[] = ['home', 'trends', 'categories', 'installed', 'updates', 'favorites', 'settings'];
-        if (validViews.includes(action.payload.view as ViewType)) {
-          setCurrentView(action.payload.view as ViewType);
-        }
-      }
-      showToast(t('toast.deeplink_responded', { url: rawUrl }), 'info');
-    } catch (e) {
-      showToast(String(e), 'error');
-    }
-  };
-
-  useEffect(() => {
-    (window as any).dispatchZStoreDeepLink = handleDispatchDeepLink;
-
-    // 检查 CLI 参数是否带有唤起协议 (如外部双击链接拉起新进程)
-    api.getCliDeepLink().then((cliLink) => {
-      if (cliLink) {
-        handleDispatchDeepLink(cliLink);
-      }
-    }).catch(() => {});
-
-    return () => {
-      delete (window as any).dispatchZStoreDeepLink;
-    };
-  }, []);
+  const {
+    pendingDeepLinkInstall,
+    setPendingDeepLinkInstall,
+  } = useDeepLink({
+    handleOpenDetail,
+    handleSearchChange,
+    setSelectedDeveloper,
+    setCurrentView,
+    showToast,
+    t,
+  });
 
   // Toggle Watch (FR-6.2: 关注 / 取消关注，后端未就绪时 Toast 提示且不崩溃)
   // useCallback + ref 稳定引用：搜索键入/图标升级时不连带卡片重渲染，仅选中态变化的那张经 isWatched 重渲染
@@ -1301,134 +814,6 @@ export const App: React.FC = () => {
   const handleTogglePlatform = useCallback((id: PlatformId) => {
     setSelectedPlatforms((prev) => togglePlatformSet(prev, id));
   }, []);
-
-  // 安装应用（稳定回调：经 ref 读 installing，搜索键入/图标升级时引用不变）
-  const handleInstallApp = useCallback(async (id: string, assetName?: string, customInstallDir?: string): Promise<void> => {
-    if (installingRef.current.has(id)) return;
-    zlogInfo(`click install id=${id} asset=${assetName || 'auto'}`);
-    setInstallingAppIds((prev) => new Set(prev).add(id));
-    try {
-      const installed = await api.installApp(id, assetName, customInstallDir);
-      setInstalledApps((prev) => [...prev.filter((a) => a.app_id.toLowerCase() !== id.toLowerCase()), installed]);
-      setDetectedAppIds((prev) => new Set(prev).add(id).add(id.toLowerCase()));
-      showToast(t('toast.install_success', { name: installed.app_name }), 'success');
-    } catch (err) {
-      const errStr = String(err);
-      if (errStr.includes('取消') || errStr.includes('中止') || errStr.includes('1602')) {
-        showToast(t('toast.install_cancelled', { error: errStr }), 'info');
-      } else {
-        showToast(t('toast.install_failed', { error: errStr }), 'error');
-      }
-      throw err;
-    } finally {
-      setInstallingAppIds((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
-    }
-  }, [showToast, t]);
-
-  // 快捷安装（稳定回调，供 memo 卡片复用）
-  const handleQuickInstall = useCallback(async (id: string) => {
-    await handleInstallApp(id);
-  }, [handleInstallApp]);
-
-  // 启动应用
-  const handleLaunchApp = async (id: string) => {
-    zlogInfo(`click launch id=${id}`);
-    const app = installedApps.find((a) => a.app_id === id);
-    const appName = app ? app.app_name : id;
-    try {
-      await api.launchApp(id);
-      showToast(t('toast.launch_success', { name: appName }), 'success');
-    } catch (err) {
-      showToast(t('toast.launch_failed', { error: String(err) }), 'error');
-    }
-  };
-
-  // 取消管理应用（从 Z-Store 列表中移除，保留本地文件完好）
-  const handleUnmanageApp = async (id: string) => {
-    const app = installedApps.find((a) => a.app_id === id);
-    const appName = app?.app_name || id;
-    await api.unmanageApp(id);
-    setInstalledApps((prev) => prev.filter((a) => a.app_id !== id));
-    showToast(t('toast.unmanage_success', { name: appName }), 'info');
-  };
-
-  // 刷新已安装应用列表（幽灵应用自愈清理 + 重新扫描探测应用）
-  const handleRefreshInstalledApps = async () => {
-    setIsRefreshingInstalled(true);
-    try {
-      const [freshInstalled, freshDetected] = await Promise.all([
-        api.getInstalledApps(),
-        api.getDetectedInstalledAppIds(true),
-      ]);
-      setInstalledApps(freshInstalled);
-      setDetectedAppIds(new Set(freshDetected.map((id) => id.toLowerCase())));
-      showToast(t('toast.refresh_installed_success'), 'success');
-    } catch (err) {
-      showToast(t('toast.refresh_installed_failed', { error: String(err) }), 'error');
-    } finally {
-      setIsRefreshingInstalled(false);
-    }
-  };
-
-  // 当用户切换至「已安装应用」视图时，自动触发后台校验与幽灵应用自愈清理
-  useEffect(() => {
-    if (currentView === 'installed') {
-      api.getInstalledApps().then(setInstalledApps).catch(() => undefined);
-    }
-  }, [currentView]);
-
-  // 将探测到的应用纳入 Z-Store 管理
-  const handleManageApp = async (id: string) => {
-    try {
-      await api.importSingleApp(id);
-      const updatedList = await api.getInstalledApps();
-      setInstalledApps(updatedList);
-      setDetectedAppIds((prev) => new Set([...prev, id]));
-      showToast(t('toast.import_success'), 'success');
-    } catch {
-      /* 导入静默失败；列表保持不变 */
-    }
-  };
-
-  // 卸载应用（触发官方卸载器 -> 等待完成 -> 校验移除 -> 从列表删除）
-  const handleUninstallApp = async (id: string) => {
-    if (uninstallingAppIds.has(id)) return;
-    zlogInfo(`click uninstall id=${id}`);
-    const app = installedApps.find((a) => a.app_id.toLowerCase() === id.toLowerCase());
-    const appName = app?.app_name || apps.find((a) => a.id.toLowerCase() === id.toLowerCase())?.name || id;
-
-    setUninstallingAppIds((prev) => new Set(prev).add(id));
-    try {
-      await api.uninstallApp(id);
-      // 1. 精准增量从本地管理列表中移除
-      setInstalledApps((prev) => prev.filter((a) => a.app_id.toLowerCase() !== id.toLowerCase()));
-      // 2. 精准增量从系统探测列表中剔除（纯内存 O(1) 更新，完全无需触发全盘重扫）
-      setDetectedAppIds((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        next.delete(id.toLowerCase());
-        return next;
-      });
-      showToast(t('toast.uninstall_success', { name: appName }), 'success');
-    } catch (err) {
-      const errStr = String(err);
-      if (errStr.includes('取消') || errStr.includes('中止') || errStr.includes('保留') || errStr.includes('1602')) {
-        showToast(t('toast.uninstall_cancelled'), 'info');
-      } else {
-        showToast(t('toast.uninstall_failed', { error: errStr }), 'error');
-      }
-    } finally {
-      setUninstallingAppIds((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
-    }
-  };
 
   // 应用单项更新
   const handleApplyUpdate = async (id: string) => {
@@ -1727,7 +1112,9 @@ export const App: React.FC = () => {
   return (
     <div className="app-window">
       {/* Frameless all-edge resize zones (Tauri-only, no-op in browser demo) */}
-      <ResizeHandles />
+      <React.Suspense fallback={null}>
+        <ResizeHandles />
+      </React.Suspense>
       {/* 顶部标题栏 */}
       <TitleBar
         searchQuery={searchQuery}

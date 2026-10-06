@@ -30,6 +30,10 @@ pub use settings::*;
 pub use system::*;
 pub use updates::*;
 
+pub use catalog::{catalog_detail, catalog_feed, catalog_search, catalog_sync};
+pub use icons::icons_cycle;
+pub use updates::{updates_check, updates_rules};
+
 pub use crate::error::{AppError, AppResult};
 pub use crate::installer::{resolve_uninstaller_command, select_best_asset, InstallerEngine};
 

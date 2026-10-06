@@ -6,6 +6,7 @@ import { TrendingUp, WifiOff } from 'lucide-react';
 import { AppSummary } from '../types';
 import { AppCard, getRankBadgeColor } from '../components/AppCard';
 import { SegmentedControl } from '../components/SegmentedControl';
+import { useTrendBoard } from './TrendsView/useTrendBoard';
 import { tauriApi } from '../services/api';
 import {
   FilterEmptyState,
@@ -15,20 +16,15 @@ import {
   resolvePlatformReset,
 } from './ViewShell';
 import {
-  boardGainKey,
   DETAIL_PLATFORMS_HEAL_EVENT,
   enrichTrendRepos,
-  fetchTrendsResult,
   formatStars,
   matchCatalogApp,
-  normalizeProxyPrefix,
-  resolveTrendBoard,
   TREND_BOARD_IDS,
   type DetailPlatformsHealPayload,
   type TrendBoardId,
   type TrendRepo,
   type TrendsErrorKind,
-  type TrendsResult,
 } from '../services/trends';
 import {
   PENDING_SETTLE_MS,
@@ -113,67 +109,15 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   onDisplayPlatformCounts,
 }) => {
   const { t } = useTranslation();
-  const [board, setBoard] = useState<TrendBoardId>('weekly');
-  // null = 加载中；非 null 按 status 分流：error → 错误面板，empty/ok → 列表或空状态。
-  const [trendResult, setTrendResult] = useState<TrendsResult | null>(null);
-  // 重试计数：递增即重触发抓取 effect。
-  const [retryCount, setRetryCount] = useState(0);
-  // gh-proxy 前缀：`active_mirror` 持久化在 Rust 侧设置库，前端经 getSettings 异步读；
-  // 就绪前不抓取，避免先直连闪一次再带代理重抓。
-  const [proxyPrefix, setProxyPrefix] = useState<string | undefined>(undefined);
-  const [proxyReady, setProxyReady] = useState(false);
-
-  // 陈旧榜兜底经 trends SSOT 回落（如已下线的 'top' / 'category' 残留 → 'weekly'）。
-  const activeBoard: TrendBoardId = resolveTrendBoard(board);
-
-  const gainKey = boardGainKey(activeBoard);
-  const isLoading = trendResult === null;
-  // 仅 status==='error' 才展示错误文案； genuine empty（status==='empty'）绝不走错误面板。
-  const errorKind: TrendsErrorKind | undefined =
-    trendResult?.status === 'error' ? (trendResult.errorKind ?? 'unavailable') : undefined;
-
-  useEffect(() => {
-    let cancelled = false;
-    tauriApi
-      .getSettings()
-      .then((s) => {
-        if (cancelled) return;
-        // 经 trends SSOT 归一化（'direct'/空 → 直连；其余透传，抓取恒直连忽略）。
-        setProxyPrefix(normalizeProxyPrefix(s?.active_mirror));
-        setProxyReady(true);
-      })
-      .catch(() => {
-        // 非 Tauri 环境（浏览器预览/单测）无设置库：直连。
-        if (cancelled) return;
-        setProxyPrefix(undefined);
-        setProxyReady(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // 一榜一源：board / 代理 / 重试任一变化均触发重抓。
-  useEffect(() => {
-    if (!proxyReady) return;
-    let isMounted = true;
-    setTrendResult(null);
-
-    fetchTrendsResult(activeBoard, proxyPrefix ? { proxyPrefix } : {})
-      .then((res) => {
-        if (!isMounted) return;
-        setTrendResult(res);
-      })
-      .catch(() => {
-        // service 按契约应总 resolve；此处兜底未知异常，归为 unavailable。
-        if (!isMounted) return;
-        setTrendResult({ repos: [], status: 'error', errorKind: 'unavailable' });
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [activeBoard, proxyPrefix, proxyReady, retryCount]);
+  const {
+    setBoard,
+    activeBoard,
+    trendResult,
+    gainKey,
+    isLoading,
+    errorKind,
+    handleRetry,
+  } = useTrendBoard('weekly');
 
   // 未收录行 enrichment 结果（键为小写 owner/repo）：命中即完整 AppCard，
   // 缺席（加载中/失败）即旧小行占位，榜单永不因此变空。
@@ -202,8 +146,6 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     for (const k of trendConfirmedOtherIds) out.add(k);
     return out;
   }, [platformResolvedOtherIds, trendConfirmedOtherIds]);
-
-  const handleRetry = () => setRetryCount((c) => c + 1);
 
   // 与本地 catalog 预过滤后的 apps 交叉匹配：有则完整卡片，无则名 + 星数。
   // catalog 匹配（matchCatalogApp）保留——下掉的只是分类榜单，不是收录对照展示。

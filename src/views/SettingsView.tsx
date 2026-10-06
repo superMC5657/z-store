@@ -1,31 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
-import {
-  Settings,
-  Sun,
-  Moon,
-  Laptop,
-  RotateCcw,
-  Shield,
-  FolderOpen,
-  Globe,
-  Zap,
-  RefreshCw,
-  ChevronUp,
-  ChevronDown,
-  Check,
-  Download,
-  Languages,
-  Sliders,
-} from 'lucide-react';
+import { Settings } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { AppSettings } from '../types';
 import { tauriApi } from '../services/api';
 import { ViewShell } from './ViewShell';
-import { ClientUpdateRow } from '../components/ClientUpdateRow';
-import { OAuthAccountCard } from '../components/OAuthAccountCard';
-import { DataBackupRow } from '../components/DataBackupRow';
-import { SegmentedControl } from '../components/SegmentedControl';
+import { AppearanceSection } from './SettingsView/sections/AppearanceSection';
+import { UpdatesRulesSection } from './SettingsView/sections/UpdatesRulesSection';
+import { StorageSection } from './SettingsView/sections/StorageSection';
+import { NetworkDataSection } from './SettingsView/sections/NetworkDataSection';
+import { DataManagementSection } from './SettingsView/sections/DataManagementSection';
 
 interface SettingsViewProps {
   onSelectMirror: (id: string) => void;
@@ -261,514 +245,69 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </h3>
       </div>
 
-      <div className="settings-group">
-        <div className="settings-group-title">
-          <Sliders size={15} strokeWidth={1.5} />
-          <span>{t('settings.appearance', { defaultValue: '外观与个性化' })}</span>
-        </div>
-        <div className={`settings-row ${highlightRow === 'theme' ? 'row-highlight' : ''}`}>
-          <div className="settings-row-info">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 510 }}>{t('settings.theme_mode')}</span>
-              {activeNotice?.key === 'theme' && (
-                <span className="setting-applied-badge"><Check size={11} strokeWidth={1.5} style={{ color: 'currentColor' }} /><span>{activeNotice.text}</span></span>
-              )}
-            </div>
-          </div>
-          <SegmentedControl
-            value={currentTheme}
-            onChange={handleSelectTheme}
-            options={[
-              {
-                value: 'light',
-                label: (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                    <Sun size={13} strokeWidth={1.5} />
-                    <span>{t('settings.theme_light')}</span>
-                  </span>
-                ),
-              },
-              {
-                value: 'dark',
-                label: (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                    <Moon size={13} strokeWidth={1.5} />
-                    <span>{t('settings.theme_dark')}</span>
-                  </span>
-                ),
-              },
-              {
-                value: 'system',
-                label: (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                    <Laptop size={13} strokeWidth={1.5} />
-                    <span>{t('settings.theme_system')}</span>
-                  </span>
-                ),
-              },
-            ]}
-          />
-        </div>
+      <AppearanceSection
+        currentTheme={currentTheme}
+        language={settings.language}
+        uiScale={settings.ui_scale}
+        fontSize={settings.font_size}
+        highlightRow={highlightRow}
+        activeNotice={activeNotice}
+        onSelectTheme={handleSelectTheme}
+        onSelectLanguage={handleSelectLanguage}
+        onSelectUiScale={handleSelectUiScale}
+        onSelectFontSize={handleSelectFontSize}
+      />
 
-        <div className={`settings-row ${highlightRow === 'language' ? 'row-highlight' : ''}`}>
-          <div className="settings-row-info">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 510 }}>{t('settings.language_title')}</span>
-              {activeNotice?.key === 'language' && (
-                <span className="setting-applied-badge"><Check size={11} strokeWidth={1.5} style={{ color: 'currentColor' }} /><span>{activeNotice.text}</span></span>
-              )}
-            </div>
-          </div>
-          <SegmentedControl
-            value={settings.language}
-            onChange={handleSelectLanguage}
-            options={[
-              {
-                value: 'zh-CN',
-                label: (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                    <Languages size={13} strokeWidth={1.5} />
-                    <span>简体中文</span>
-                  </span>
-                ),
-              },
-              {
-                value: 'en-US',
-                label: (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                    <Globe size={13} strokeWidth={1.5} />
-                    <span>English</span>
-                  </span>
-                ),
-              },
-            ]}
-          />
-        </div>
+      <UpdatesRulesSection
+        updateFrequency={settings.update_frequency}
+        watchNotifyFrequency={settings.watch_notify_frequency}
+        updateRulesCount={updateRulesCount}
+        highlightRow={highlightRow}
+        activeNotice={activeNotice}
+        onSelectUpdateFrequency={handleSelectUpdateFrequency}
+        onSelectWatchFrequency={handleSelectWatchFrequency}
+        onOpenRules={onOpenRules}
+      />
 
-        <div className={`settings-row ${highlightRow === 'ui_scale' ? 'row-highlight' : ''}`}>
-          <div className="settings-row-info">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 510 }}>{t('settings.ui_scale')}</span>
-              {activeNotice?.key === 'ui_scale' && (
-                <span className="setting-applied-badge"><Check size={11} strokeWidth={1.5} style={{ color: 'currentColor' }} /><span>{activeNotice.text}</span></span>
-              )}
-            </div>
-          </div>
-          <SegmentedControl
-            value={settings.ui_scale}
-            onChange={handleSelectUiScale}
-            options={(['90', '100', '110', '125'] as const).map((scale) => ({
-              value: scale,
-              label: `${scale}%`,
-            }))}
-          />
-        </div>
+      <StorageSection
+        downloadDir={settings.download_dir}
+        portableDir={settings.portable_dir}
+        highlightRow={highlightRow}
+        activeNotice={activeNotice}
+        onUpdateSetting={onUpdateSetting}
+        triggerChangeFeedback={triggerChangeFeedback}
+      />
 
-        <div className={`settings-row ${highlightRow === 'font_size' ? 'row-highlight' : ''}`}>
-          <div className="settings-row-info">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 510 }}>{t('settings.font_size')}</span>
-              {activeNotice?.key === 'font_size' && (
-                <span className="setting-applied-badge"><Check size={11} strokeWidth={1.5} style={{ color: 'currentColor' }} /><span>{activeNotice.text}</span></span>
-              )}
-            </div>
-          </div>
-          <SegmentedControl
-            value={
-              settings.font_size === 'standard'
-                ? '14'
-                : settings.font_size === 'small'
-                ? '12'
-                : settings.font_size
-            }
-            onChange={(val) => {
-              const opt = [
-                { id: '12', label: '12px' },
-                { id: '14', label: '14px' },
-                { id: '16', label: '16px' },
-                { id: '18', label: '18px' },
-                { id: '20', label: '20px' },
-              ].find((f) => f.id === val);
-              handleSelectFontSize(val, opt?.label || `${val}px`);
-            }}
-            options={[
-              { value: '12', label: '12px' },
-              { value: '14', label: '14px' },
-              { value: '16', label: '16px' },
-              { value: '18', label: '18px' },
-              { value: '20', label: '20px' },
-            ]}
-          />
-        </div>
-      </div>
+      <NetworkDataSection
+        proxyInput={proxyInput}
+        setProxyInput={setProxyInput}
+        isTestingProxy={isTestingProxy}
+        proxyTestResult={proxyTestResult}
+        proxySavedFeedback={proxySavedFeedback}
+        highlightRow={highlightRow}
+        activeNotice={activeNotice}
+        handleTestProxy={handleTestProxy}
+        handleSaveProxy={handleSaveProxy}
+        catalogSourceUrl={catalogSourceUrl}
+        setCatalogSourceUrl={setCatalogSourceUrl}
+        setCatalogUrlSaved={setCatalogUrlSaved}
+        isSyncingCatalog={isSyncingCatalog}
+        syncFeedback={syncFeedback}
+        showAdvancedSource={showAdvancedSource}
+        setShowAdvancedSource={setShowAdvancedSource}
+        isCatalogSourceConfirming={isCatalogSourceConfirming}
+        setIsCatalogSourceConfirming={setIsCatalogSourceConfirming}
+        handleSyncCatalog={handleSyncCatalog}
+        handleSaveCatalogSource={handleSaveCatalogSource}
+        catalogUrlSaved={catalogUrlSaved}
+      />
 
-      <div className="settings-group">
-        <div className="settings-group-title">
-          <RefreshCw size={15} strokeWidth={1.5} />
-          <span>{t('settings.updates_rules', { defaultValue: '更新与规则' })}</span>
-        </div>
-        <div className={`settings-row ${highlightRow === 'update_frequency' ? 'row-highlight' : ''}`}>
-          <div className="settings-row-info">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 510 }}>{t('settings.update_frequency')}</span>
-              {activeNotice?.key === 'update_frequency' && (
-                <span className="setting-applied-badge"><Check size={11} strokeWidth={1.5} style={{ color: 'currentColor' }} /><span>{activeNotice.text}</span></span>
-              )}
-            </div>
-          </div>
-          <SegmentedControl
-            value={settings.update_frequency}
-            onChange={(val) => {
-              const opt = [
-                { id: 'startup', label: t('settings.freq_startup') },
-                { id: 'manual', label: t('settings.freq_manual') },
-              ].find((u) => u.id === val);
-              handleSelectUpdateFrequency(val, opt?.label || val);
-            }}
-            options={[
-              { value: 'startup', label: t('settings.freq_startup') },
-              { value: 'manual', label: t('settings.freq_manual') },
-            ]}
-          />
-        </div>
-
-        <ClientUpdateRow />
-
-        <div className={`settings-row ${highlightRow === 'watch_notify_frequency' ? 'row-highlight' : ''}`}>
-          <div className="settings-row-info">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 510 }}>{t('settings.watch_notify_frequency')}</span>
-              {activeNotice?.key === 'watch_notify_frequency' && (
-                <span className="setting-applied-badge"><Check size={11} strokeWidth={1.5} style={{ color: 'currentColor' }} /><span>{activeNotice.text}</span></span>
-              )}
-            </div>
-          </div>
-          <SegmentedControl
-            value={settings.watch_notify_frequency}
-            onChange={(val) => {
-              const opt = [
-                { id: 'startup', label: t('settings.watch_startup') },
-                { id: 'daily', label: t('settings.watch_daily') },
-              ].find((o) => o.id === val);
-              handleSelectWatchFrequency(val as 'startup' | 'daily', opt?.label || val);
-            }}
-            options={[
-              { value: 'startup', label: t('settings.watch_startup') },
-              { value: 'daily', label: t('settings.watch_daily') },
-            ]}
-          />
-        </div>
-
-        <div className="settings-row" style={{ alignItems: 'center' }}>
-          <div className="settings-row-info">
-            <span style={{ fontWeight: 510 }}>{t('settings.rules_title')}</span>
-          </div>
-          <button
-            type="button"
-            className="btn-fluent btn-secondary"
-            onClick={onOpenRules}
-            style={{ fontSize: 'var(--font-sm)', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}
-          >
-            <Shield size={13} strokeWidth={1.5} />
-            <span>{t('settings.rules_btn')}</span>
-            {updateRulesCount > 0 && (
-              <span
-                style={{
-                  fontSize: 'var(--font-xs)',
-                  padding: '1px 7px',
-                  borderRadius: 'var(--radius-pill)',
-                  background: 'var(--brand-primary)',
-                  color: '#ffffff',
-                  fontWeight: 510,
-                }}
-              >
-                {updateRulesCount}
-              </span>
-            )}
-          </button>
-        </div>
-      </div>
-
-      <div className="settings-group">
-        <div className="settings-group-title">
-          <FolderOpen size={15} strokeWidth={1.5} />
-          <span>{t('settings.storage_paths', { defaultValue: '存储与安装' })}</span>
-        </div>
-        <div className={`settings-row ${highlightRow === 'download_dir' ? 'row-highlight' : ''}`}>
-          <div className="settings-row-info">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 510 }}>{t('settings.download_dir')}</span>
-              {activeNotice?.key === 'download_dir' && (
-                <span className="setting-applied-badge"><Check size={11} strokeWidth={1.5} style={{ color: 'currentColor' }} /><span>{activeNotice.text}</span></span>
-              )}
-            </div>
-          </div>
-          <div className="settings-input-group">
-            <input
-              type="text"
-              className={`settings-input ${highlightRow === 'download_dir' ? 'input-highlight' : ''}`}
-              value={settings.download_dir || '~/Downloads'}
-              onChange={(e) => onUpdateSetting('download_dir', e.target.value)}
-              placeholder="~/Downloads"
-            />
-            <button
-              type="button"
-              className="btn-fluent btn-secondary"
-              onClick={async () => {
-                try {
-                  const picked = await tauriApi.selectFolder(settings.download_dir, t('settings.select_download_dir'));
-                  if (picked) {
-                    onUpdateSetting('download_dir', picked);
-                    triggerChangeFeedback('download_dir', t('settings.download_dir'));
-                  }
-                } catch {
-                  /* 用户取消了文件夹选择器 */
-                }
-              }}
-            >
-              <FolderOpen size={13} strokeWidth={1.5} />
-              <span>{t('settings.browse')}</span>
-            </button>
-          </div>
-        </div>
-
-        <div className={`settings-row ${highlightRow === 'portable_dir' ? 'row-highlight' : ''}`}>
-          <div className="settings-row-info">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 510 }}>{t('settings.portable_dir')}</span>
-              {activeNotice?.key === 'portable_dir' && (
-                <span className="setting-applied-badge"><Check size={11} strokeWidth={1.5} style={{ color: 'currentColor' }} /><span>{activeNotice.text}</span></span>
-              )}
-            </div>
-          </div>
-          <div className="settings-input-group">
-            <input
-              type="text"
-              className={`settings-input ${highlightRow === 'portable_dir' ? 'input-highlight' : ''}`}
-              value={settings.portable_dir || '%LOCALAPPDATA%\\Programs\\z-store-apps'}
-              onChange={(e) => onUpdateSetting('portable_dir', e.target.value)}
-              placeholder="%LOCALAPPDATA%\Programs\z-store-apps"
-            />
-            <button
-              type="button"
-              className="btn-fluent btn-secondary"
-              onClick={async () => {
-                try {
-                  const picked = await tauriApi.selectFolder(settings.portable_dir, t('settings.select_portable_dir'));
-                  if (picked) {
-                    onUpdateSetting('portable_dir', picked);
-                    triggerChangeFeedback('portable_dir', t('settings.portable_dir'));
-                  }
-                } catch {
-                  /* 用户取消了文件夹选择器 */
-                }
-              }}
-            >
-              <FolderOpen size={13} strokeWidth={1.5} />
-              <span>{t('settings.browse')}</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="settings-group">
-        <div className="settings-group-title">
-          <Globe size={15} strokeWidth={1.5} />
-          <span>{t('settings.network_data', { defaultValue: '网络与数据' })}</span>
-        </div>
-        <div id="settings-account">
-          <OAuthAccountCard />
-        </div>
-
-        <div className={`settings-row ${highlightRow === 'proxy' ? 'row-highlight' : ''}`}>
-          <div className="settings-row-info">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-              <span style={{ fontWeight: 510 }}>{t('settings.proxy_title')}</span>
-              {proxyTestResult && (
-                <span
-                  style={{
-                    fontSize: 'var(--font-sm)',
-                    fontWeight: 510,
-                    color: !proxyTestResult.success ? '#ef4444' : proxyTestResult.latency_ms < 400 ? '#10b981' : proxyTestResult.latency_ms < 1000 ? '#f59e0b' : '#ea580c',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  <span className={`status-dot ${!proxyTestResult.success ? 'status-dot-error' : proxyTestResult.latency_ms < 400 ? 'status-dot-success' : proxyTestResult.latency_ms < 1000 ? 'status-dot-warning' : 'status-dot-error'}`} />
-                  <span>{proxyTestResult.text}</span>
-                </span>
-              )}
-              {proxySavedFeedback && (
-                <span style={{ fontSize: 'var(--font-sm)', color: '#10b981', fontWeight: 500 }}>
-                  {proxySavedFeedback}
-                </span>
-              )}
-              {activeNotice?.key === 'proxy' && (
-                <span className="setting-applied-badge"><Check size={11} strokeWidth={1.5} style={{ color: 'currentColor' }} /><span>{activeNotice.text}</span></span>
-              )}
-            </div>
-          </div>
-
-          <div className="settings-input-group" style={{ maxWidth: '460px' }}>
-            <input
-              type="text"
-              className={`settings-input ${highlightRow === 'proxy' ? 'input-highlight' : ''}`}
-              value={proxyInput}
-              onChange={(e) => setProxyInput(e.target.value)}
-              placeholder={t('settings.proxy_placeholder')}
-            />
-            <button
-              type="button"
-              className="btn-fluent btn-secondary"
-              onClick={handleTestProxy}
-              disabled={isTestingProxy}
-            >
-              {isTestingProxy ? <RotateCcw size={12} className="icon-spin" /> : <Zap size={12} />}
-              <span>{isTestingProxy ? t('settings.testing_speed') : t('settings.test_speed')}</span>
-            </button>
-            <button
-              type="button"
-              className="btn-fluent btn-secondary"
-              onClick={handleSaveProxy}
-            >
-              {t('settings.save_proxy')}
-            </button>
-          </div>
-        </div>
-
-        <div className={`settings-row ${highlightRow === 'catalog_source' || highlightRow === 'catalog_sync' ? 'row-highlight' : ''}`} style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-            <div className="settings-row-info">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontWeight: 510 }}>{t('settings.catalog_sync_title')}</span>
-                {(activeNotice?.key === 'catalog_source' || activeNotice?.key === 'catalog_sync') && (
-                  <span className="setting-applied-badge"><Check size={11} strokeWidth={1.5} style={{ color: 'currentColor' }} /><span>{activeNotice.text}</span></span>
-                )}
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <button
-                type="button"
-                className="btn-fluent btn-secondary"
-                style={{ fontSize: 'var(--font-sm)', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
-                onClick={() => setShowAdvancedSource(!showAdvancedSource)}
-              >
-                {showAdvancedSource ? <ChevronUp size={14} strokeWidth={1.5} /> : <ChevronDown size={14} strokeWidth={1.5} />}
-                <span>{showAdvancedSource ? t('settings.catalog_collapse_btn') : t('settings.catalog_custom_btn')}</span>
-              </button>
-              <button
-                type="button"
-                className="btn-fluent btn-primary"
-                onClick={handleSyncCatalog}
-                disabled={isSyncingCatalog}
-                style={{ fontSize: 'var(--font-sm)', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
-              >
-                {isSyncingCatalog ? <RotateCcw size={14} strokeWidth={1.5} className="icon-spin" /> : <RefreshCw size={14} strokeWidth={1.5} />}
-                <span>{isSyncingCatalog ? t('settings.catalog_syncing') : t('settings.catalog_sync_now')}</span>
-              </button>
-            </div>
-          </div>
-
-          {showAdvancedSource && (
-            <div
-              style={{
-                display: 'flex',
-                gap: '8px',
-                alignItems: 'center',
-                padding: '8px 12px',
-                borderRadius: 'var(--radius-sm)',
-                background: 'var(--bg-acrylic-thin)',
-                border: '1px solid var(--border-color)',
-              }}
-            >
-              <input
-                type="text"
-                className="settings-input"
-                value={catalogSourceUrl}
-                onChange={(e) => {
-                  setCatalogSourceUrl(e.target.value);
-                  setCatalogUrlSaved(false);
-                  setIsCatalogSourceConfirming(false);
-                }}
-                placeholder="https://.../catalog.json"
-              />
-              {isCatalogSourceConfirming ? (
-                <>
-                  <button
-                    type="button"
-                    className="btn-fluent"
-                    style={{ fontSize: 'var(--font-sm)', padding: '0 12px', height: '32px', display: 'flex', alignItems: 'center', gap: '4px', background: '#ef4444', color: '#fff', fontWeight: 510, whiteSpace: 'nowrap' }}
-                    onClick={handleSaveCatalogSource}
-                  >
-                    <span>{t('settings.catalog_confirm_switch')}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-fluent btn-secondary"
-                    style={{ fontSize: 'var(--font-sm)', padding: '0 12px', height: '32px', whiteSpace: 'nowrap' }}
-                    onClick={() => setIsCatalogSourceConfirming(false)}
-                  >
-                    <span>{t('common.cancel')}</span>
-                  </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  className="btn-fluent btn-secondary"
-                  style={{ fontSize: 'var(--font-sm)', padding: '0 14px', height: '32px', display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' }}
-                  onClick={handleSaveCatalogSource}
-                >
-                  {catalogUrlSaved && <Check size={12} />}
-                  <span>{catalogUrlSaved ? t('common.save') : t('settings.catalog_save_btn')}</span>
-                </button>
-              )}
-            </div>
-          )}
-          {isCatalogSourceConfirming && (
-            <span style={{ fontSize: 'var(--font-sm)', color: '#ef4444', fontWeight: 510 }}>
-              {t('settings.catalog_warn_custom')}
-            </span>
-          )}
-
-          {syncFeedback && (
-            <span style={{ fontSize: 'var(--font-sm)', color: syncFeedback.includes('失败') ? '#ef4444' : '#10b981' }}>
-              {syncFeedback}
-            </span>
-          )}
-        </div>
-      </div>
-
-      <div className="settings-group">
-        <div className="settings-group-title">
-          <Download size={15} strokeWidth={1.5} />
-          <span>{t('settings.data_management', { defaultValue: '数据管理与迁移' })}</span>
-        </div>
-        <div className={`settings-row ${highlightRow === 'export' ? 'row-highlight' : ''}`}>
-          <div className="settings-row-info">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 510 }}>{t('settings.export_apps')}</span>
-              {activeNotice?.key === 'export' && (
-                <span className="setting-applied-badge"><Check size={11} strokeWidth={1.5} style={{ color: 'currentColor' }} /><span>{activeNotice.text}</span></span>
-              )}
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button
-              className="btn-fluent btn-secondary"
-              onClick={handleExportJson}
-              style={{ fontSize: 'var(--font-sm)', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
-              disabled={installedCount === 0}
-            >
-              <Download size={13} strokeWidth={1.5} />
-              <span>{t('settings.export_btn')}</span>
-            </button>
-          </div>
-        </div>
-
-        <DataBackupRow />
-      </div>
+      <DataManagementSection
+        installedCount={installedCount}
+        highlightRow={highlightRow}
+        activeNotice={activeNotice}
+        handleExportJson={handleExportJson}
+      />
     </ViewShell>
   );
 };
