@@ -76,7 +76,7 @@ describe('browserLockdown', () => {
       expect(isBlockedShortcut({ key: 'z', ctrlKey: true, metaKey: false, shiftKey: false, altKey: false })).toBe(false);
       expect(isBlockedShortcut({ key: 'y', ctrlKey: true, metaKey: false, shiftKey: false, altKey: false })).toBe(false);
 
-      // Tab, Enter, Space
+      // Tab、Enter、Space 必须放行
       expect(isBlockedShortcut({ key: 'Tab', ctrlKey: false, metaKey: false, shiftKey: false, altKey: false })).toBe(false);
       expect(isBlockedShortcut({ key: 'Enter', ctrlKey: false, metaKey: false, shiftKey: false, altKey: false })).toBe(false);
       expect(isBlockedShortcut({ key: ' ', ctrlKey: false, metaKey: false, shiftKey: false, altKey: false })).toBe(false);

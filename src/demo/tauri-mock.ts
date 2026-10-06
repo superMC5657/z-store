@@ -1,23 +1,21 @@
 /**
- * Live-demo Tauri mock (`/live-demo` embed).
+ * Live-demo Tauri mock（`/live-demo` 嵌入页）。
  *
- * Browser-only stand-in for the Tauri IPC layer. Installed BEFORE `App` mounts
- * (see `src/main.tsx` demo branch) so that `services/api.ts` evaluates
- * `isTauri === true` and all `tauriApi` calls flow through `invoke`.
+ * 仅用于浏览器的 Tauri IPC 层替代实现。在 `App` 挂载前安装
+ * （参见 `src/main.tsx` 的 demo 分支），以确保 `services/api.ts` 计算出
+ * `isTauri === true`，并且所有 `tauriApi` 调用均通过 `invoke` 执行。
  *
- * Scope: views-touched commands only (see `demoInvoke` switch). Everything else
- * falls back to shape-safe defaults (`[]` for list-returning commands, `null`
- * otherwise) with a warn-once, so unmocked surfaces fail soft instead of
- * crashing the embed.
+ * 作用域：仅覆盖视图层涉及的命令（参见 `demoInvoke` 的 switch）。其他所有命令
+ * 均回退至符合数据结构的默认安全值（返回列表的命令返回 `[]`，其余返回 `null`），
+ * 并附带单次告警，从而使未 mock 的界面软失败而非导致嵌入页崩溃。
  *
- * Fixtures are typed against `src/types` (+ `services/api` result types via
- * `import type`, erased at runtime to avoid pulling `api.ts` before install);
- * backend drift surfaces as `tsc` errors.
+ * 数据桩（Fixtures）严格基于 `src/types` 定义类型（并通过 `import type`
+ * 引入 `services/api` 返回值类型，运行时抹除以避免在安装前引入 `api.ts`）；
+ * 后端类型偏离将在 `tsc` 检查时暴露为错误。
  *
- * Guard: auto-installs only when `import.meta.env.VITE_DEMO` is set, so the
- * normal Tauri build (which never sets it and only dynamically imports this
- * module inside a dead branch) excludes it from execution — and keeps the
- * 360-entry `catalog.json` out of the desktop bundle.
+ * 守卫：仅在设置了 `import.meta.env.VITE_DEMO` 时自动安装，因此常规 Tauri 构建
+ * （从不设置该环境变量且仅在死代码分支中动态导入本模块）不会执行该模块——同时
+ * 避免将包含 360 个条目的 `catalog.json` 打包进桌面端 bundle。
  */
 import type {
   AppDetail,
@@ -41,7 +39,7 @@ import type { AppIconCycleResult, ReadmeVariantsResult } from '../services/api';
 import catalogRaw from '../../catalog.json';
 
 // ---------------------------------------------------------------------------
-// Catalog fixtures (bundled catalog.json)
+// 软件目录测试桩（随附打包的 catalog.json）
 // ---------------------------------------------------------------------------
 
 interface CatalogRaw {
@@ -165,7 +163,7 @@ function toDetail(s: AppSummary): AppDetail {
   };
 }
 
-// Static demo values (installed / mirrors / updates)
+// 静态 Demo 数据（已安装应用 / 镜像源 / 更新）
 function summaryToInstalled(s: AppSummary, version?: string): InstalledApp {
   return {
     app_id: s.id,
@@ -216,22 +214,22 @@ function buildDemoUpdates(installed: InstalledApp[]): UpdateItem[] {
 }
 
 // ---------------------------------------------------------------------------
-// Demo display defaults (embed-only): UI scale 0.9 + 12px font.
-// Desktop defaults (DEFAULT_SETTINGS in services/api.ts: ui_scale '100' /
-// font_size '14') are NEVER touched — this lives entirely in the demo layer.
-// URL override (read live at invoke/bootstrap time, highest precedence):
-//   ?scale=0.9 | ?scale=90 | ?ui_scale=90   and   ?font=12 | ?font=12px | ?font_size=12
+// Demo 默认显示配置（仅限嵌入页）：UI 缩放 0.9 + 12px 字号。
+// 桌面端默认配置（services/api.ts 中的 DEFAULT_SETTINGS：ui_scale '100' /
+// font_size '14'）绝不会被修改——该逻辑完全独立于 Demo 层。
+// URL 参数覆盖（在 invoke/bootstrap 时实时读取，优先级最高）：
+//   ?scale=0.9 | ?scale=90 | ?ui_scale=90   以及   ?font=12 | ?font=12px | ?font_size=12
 // ---------------------------------------------------------------------------
 
 const DEMO_UI_SCALE: AppSettings['ui_scale'] = '90';
 const DEMO_FONT_SIZE: AppSettings['font_size'] = '12';
 
-// Greppable build marker: plain string literal (values baked in) so it
-// survives minification verbatim — verify with grep for
-// `zstore:demo:display-defaults` / `ui_scale=90` / `font_size=12`.
-// Exposed on window in installDemoMock so tree-shaking keeps it.
-// NOTE: keep in sync with DEMO_UI_SCALE / DEMO_FONT_SIZE above —
-// installDemoMock throws if they ever drift apart.
+// 可用于 grep 检查的构建标记：普通字符串字面量（固定硬编码数值），
+// 以便代码压缩后仍能原样保留——可通过 grep 搜索
+// `zstore:demo:display-defaults` / `ui_scale=90` / `font_size=12` 进行验证。
+// 在 installDemoMock 中挂载到 window，避免被 tree-shaking 移除。
+// 注意：必须与上方的 DEMO_UI_SCALE / DEMO_FONT_SIZE 保持同步——
+// 若两者不一致，installDemoMock 将抛出异常。
 const DEMO_DISPLAY_DEFAULTS_MARKER = 'zstore:demo:display-defaults:ui_scale=90:font_size=12';
 
 const ALLOWED_UI_SCALES: ReadonlySet<string> = new Set(['90', '100', '110', '125']);
@@ -265,7 +263,7 @@ function normalizeDemoFontSize(raw: string | null | undefined): AppSettings['fon
   return null;
 }
 
-/** Effective demo display defaults: hardcoded 90/12 < saved sliders < URL params. */
+/** 生效的 Demo 显示默认值：硬编码 90/12 < 已保存滑块值 < URL 参数。 */
 export function resolveDemoDisplayDefaults(): {
   ui_scale: AppSettings['ui_scale'];
   font_size: AppSettings['font_size'];
@@ -280,7 +278,7 @@ export function resolveDemoDisplayDefaults(): {
       font_size = demoSettingsSaved['font_size'] as AppSettings['font_size'];
     }
   } catch {
-    // keep hardcoded defaults
+    // 保持硬编码默认值
   }
   try {
     const params = new URLSearchParams(window.location.search);
@@ -289,13 +287,13 @@ export function resolveDemoDisplayDefaults(): {
     const urlFont = normalizeDemoFontSize(params.get('font') ?? params.get('font_size') ?? params.get('fontSize'));
     if (urlFont) font_size = urlFont;
   } catch {
-    // non-browser / malformed URL — keep defaults
+    // 非浏览器环境 / 畸变 URL——保持默认值
   }
   return { ui_scale, font_size };
 }
 
 // ---------------------------------------------------------------------------
-// localStorage-backed demo state (search/history, favorites/watch/star)
+// 基于 localStorage 持久化的 Demo 状态（搜索/历史记录、收藏/关注/星标）
 // ---------------------------------------------------------------------------
 
 const LS = {
@@ -322,7 +320,7 @@ function lsSet(key: string, value: unknown): void {
   try {
     window.localStorage.setItem(key, JSON.stringify(value));
   } catch {
-    // private mode / quota — keep in-memory state
+    // 无痕模式 / 配额超出——保留内存中的状态
   }
 }
 
@@ -331,7 +329,7 @@ function lsStringArray(key: string): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
 }
 
-// In-memory working state (hydrated from localStorage at install)
+// 内存工作状态（安装时从 localStorage 注水还原）
 let favSet = new Set<string>();
 let watchSet = new Set<string>();
 let starSet = new Set<string>();
@@ -379,7 +377,7 @@ function hydrate(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Minimal __TAURI_INTERNALS__ event system (invoke/listen/emit)
+// 最小化 __TAURI_INTERNALS__ 事件系统（invoke/listen/emit）
 // ---------------------------------------------------------------------------
 
 const demoCallbacks = new Map<number, (data: unknown) => void>();
@@ -394,7 +392,7 @@ function demoTransformCallback(cb?: (data: unknown) => void, once = false): numb
     try {
       cb?.(data);
     } catch {
-      // listener errors must not break the mock
+      // 监听器抛错不得破坏 mock
     }
   });
   return id;
@@ -432,7 +430,7 @@ function emitDemoEvent(event: string, payload: unknown): void {
 const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 // ---------------------------------------------------------------------------
-// Warn-once + shape-safe fallback
+// 单次告警 + 数据结构安全回退
 // ---------------------------------------------------------------------------
 
 const warned = new Set<string>();
@@ -463,7 +461,7 @@ const LIST_FALLBACK = new Set([
 ]);
 
 // ---------------------------------------------------------------------------
-// Invoke router (views-touched commands)
+// Invoke 路由分发器（视图层涉及的命令）
 // ---------------------------------------------------------------------------
 
 type InvokeArgs = Record<string, unknown>;
@@ -532,25 +530,25 @@ function rankSummariesForFeed(seed: number, strategy?: unknown): AppSummary[] {
 }
 
 // ---------------------------------------------------------------------------
-// Trends demo fixtures (offline, deterministic, EXTERNAL hot list).
-// `fetch_trends_text` routes by URL host; all three sources read from
-// DEMO_EXTERNAL_TRENDS below — never from `summaries`/catalog.
+// 趋势榜 Demo 数据桩（离线、确定性、外部热门榜单）。
+// `fetch_trends_text` 根据 URL host 进行路由；全部三个数据源均读取自
+// 下方的 DEMO_EXTERNAL_TRENDS——绝不读取 `summaries`/目录。
 // ---------------------------------------------------------------------------
-// HARD RULES (trends-demo-v2, oracle C):
-// 1. Catalog (`summaries`, catalog.json) MUST NOT source any board — boards
-//    would otherwise mirror Discover (v1 overlapped 15-18/20 and was rejected).
-//    Catalog is consulted ONLY by `enrich_trend_repos` (exact-hit passthrough).
-// 2. Uncataloged rows render via synthetic fallback with is_verified=false;
-//    the card distinguishes "not cataloged" by that flag, never by heuristics.
-// 3. Board order uses ONLY change (rising) / forks+change aka healthyScore
-//    (healthy); no stars weighting anywhere in trends fixtures.
+// 硬性规则（trends-demo-v2, oracle C）：
+// 1. 软件目录（`summaries`、catalog.json）绝不能作为任何榜单的数据来源——否则
+//    榜单将沦为发现页的翻版（v1 版本重合度达 15-18/20 已被驳回）。
+//    目录仅在 `enrich_trend_repos` 中被查询（用于精确命中的透传）。
+// 2. 未收录行通过合成回退数据渲染，且 is_verified=false；
+//    卡片完全依据该标记区分“未收录”，绝不使用启发式规则推断。
+// 3. 榜单排序仅依据 change（飙升榜）/ forks+change 即 healthyScore
+//    （健康榜）；趋势测试桩中绝不对 stars 进行加权。
 // ---------------------------------------------------------------------------
 
 /**
- * One row of the hardcoded external hot list. change/gain were derived once
- * (change = 2400 - slot*95 + (slot*37 % 41), strictly decreasing down the
- * table; gain = 180 + ((slot*613 + 97) % 1500)) and are now frozen literals,
- * so fixtures stay byte-stable with zero catalog input.
+ * 硬编码外部热门榜单的单行数据。change/gain 经一次性计算生成
+ * （change = 2400 - slot*95 + (slot*37 % 41)，沿表格严格递减；
+ * gain = 180 + ((slot*613 + 97) % 1500)），现已固化为字面量常量，
+ * 从而确保数据桩在完全脱离目录输入的情况下保持字节级稳定。
  */
 interface DemoExternalTrend {
   owner: string;
@@ -592,7 +590,7 @@ const DEMO_EXTERNAL_TRENDS: readonly DemoExternalTrend[] = [
   { owner: 'astral-sh', repo: 'uv', desc: 'An extremely fast Python package and project manager, written in Rust.', lang: 'Rust', stars: 55000, forks: 3000, change: 246, gain: 876, cat: 'dev', catn: '开发工具' },
 ];
 
-/** Escape text for embedding in demo trending HTML. */
+/** 转义文本以便嵌入 Demo 趋势 HTML 中。 */
 function escapeTrendHtml(raw: string): string {
   return raw
     .replace(/&/g, '&amp;')
@@ -602,38 +600,37 @@ function escapeTrendHtml(raw: string): string {
 }
 
 /**
- * Keep href identity segments inside the `parseTrendingHtml` charset
- * (`[A-Za-z0-9_.-]` per segment) so two-segment `a[href="/owner/repo"]`
- * matching never breaks. No-op on the bundled catalog (all 360 coords
- * already clean), hence enrich keys stay exact.
+ * 将 href 标识片段约束在 `parseTrendingHtml` 字符集
+ * （每段限 `[A-Za-z0-9_.-]`）之内，确保两段式 `a[href="/owner/repo"]`
+ * 匹配永不中断。对随附打包的目录为无操作（360 个坐标本身均已合规），
+ * 因此 enrich 的匹配键保持精确。
  */
 function demoTrendPathSegment(seg: string): string {
   return seg.replace(/[^A-Za-z0-9_.-]+/g, '-') || 'repo';
 }
 
-/** Board -> trending `?since=` increment suffix, shared by parse + render (single source, no repeated switch). */
+/** 榜单 -> 趋势 `?since=` 增量后缀，解析与渲染共用（单一数据源，避免重复 switch）。 */
 const DEMO_TREND_SINCE_SUFFIX = { daily: 'today', weekly: 'this week', monthly: 'this month' } as const;
 
 type DemoTrendSince = keyof typeof DEMO_TREND_SINCE_SUFFIX;
 
-/** `?since=` of a trending URL -> daily|weekly|monthly (default daily). */
+/** 趋势 URL 的 `?since=` 参数 -> daily|weekly|monthly（默认为 daily）。 */
 function demoTrendingSince(url: string): DemoTrendSince {
   const token = /[?&]since=(daily|weekly|monthly)/i.exec(url)?.[1]?.toLowerCase();
   return token === 'weekly' || token === 'monthly' ? token : 'daily';
 }
 
-/** Card gradient for synthetic fallback by category (dev slate, ai violet). */
+/** 按分类为合成回退卡片提供渐变背景（dev 为板岩灰，ai 为紫罗兰）。 */
 function demoFallbackGradient(cat: string): string {
   if (cat === 'ai') return 'linear-gradient(135deg, #7c3aed, #4c1d95)';
   return 'linear-gradient(135deg, #475569, #334155)';
 }
 
 /**
- * Synthetic enrich fallback for external coords missing from catalog.
- * Mirrors `fallback_summary` shape, but grants platforms ['windows'] so demo
- * cards render immediately. DEMO ONLY — production treats empty platforms as
- * pending ([]待确认) and never fabricates them; this drift is intentional for
- * the offline embed.
+ * 目录中缺失的外部坐标的合成 enrich 回退数据。
+ * 对齐 `fallback_summary` 结构，但赋予 platforms ['windows'] 以便 Demo
+ * 卡片可立即渲染。仅限 Demo 环境——生产环境将空 platforms 视为待确认
+ * （[]待确认）且绝不伪造数据；在离线嵌入页中该差异为有意设计。
  */
 function demoExternalFallback(t: DemoExternalTrend): AppSummary {
   return {
@@ -659,7 +656,7 @@ function demoExternalFallback(t: DemoExternalTrend): AppSummary {
   };
 }
 
-/** Table lookup by coord (case-insensitive), shared by enrich fallback. */
+/** 按坐标查表（不区分大小写），由 enrich 回退逻辑共用。 */
 function findExternalTrend(owner: string, repo: string): DemoExternalTrend | undefined {
   const o = owner.toLowerCase();
   const r = repo.toLowerCase();
@@ -667,10 +664,10 @@ function findExternalTrend(owner: string, repo: string): DemoExternalTrend | und
 }
 
 /**
- * Offline github.com/trending HTML: DEMO_EXTERNAL_TRENDS[0, 20), one
- * `article.Box-row` per repo with a two-segment identity link, `<p>`
- * description, stargazers/forks totals and a `<span>` increment matching the
- * `parseTrendingHtml` grammar (`N stars today|this week|this month`).
+ * 离线 github.com/trending HTML：取 DEMO_EXTERNAL_TRENDS[0, 20)，每个
+ * 仓库对应一个 `article.Box-row`，包含两段式唯一标识链接、`<p>`
+ * 描述、stargazers/forks 总数以及符合 `parseTrendingHtml`
+ * 语法规则的 `<span>` 增量（`N stars today|this week|this month`）。
  */
 function buildDemoTrendingHtml(url: string): string {
   const gainSuffix = DEMO_TREND_SINCE_SUFFIX[demoTrendingSince(url)];
@@ -695,10 +692,10 @@ function buildDemoTrendingHtml(url: string): string {
 }
 
 /**
- * Offline doforce JSON: DEMO_EXTERNAL_TRENDS[2, 22) as a bare array of
- * `{repo, desc, lang, stars, forks, change}`. `change` is frozen strictly
- * decreasing down the table, so rising (change desc) reproduces table order
- * while healthy (forks + change desc) scrambles on the non-monotone forks.
+ * 离线 doforce JSON：取 DEMO_EXTERNAL_TRENDS[2, 22) 作为纯数组，结构为
+ * `{repo, desc, lang, stars, forks, change}`。`change` 严格沿表格向下
+ * 递减冻结，因此飙升榜（按 change 降序）还原表格原始顺序，
+ * 而健康榜（按 forks + change 降序）则因非单调的 forks 打乱重排。
  */
 function buildDemoDoforceJson(): string {
   const items = DEMO_EXTERNAL_TRENDS.slice(2, 22).map((t) => ({
@@ -713,9 +710,9 @@ function buildDemoDoforceJson(): string {
 }
 
 /**
- * Offline GitHub Search JSON: DEMO_EXTERNAL_TRENDS[4, 24) as
- * `{items: [{full_name, stargazers_count, forks_count, description, html_url}]}`.
- * Staggered windows (0/2/4) give the boards variety while sharing one source.
+ * 离线 GitHub Search JSON：取 DEMO_EXTERNAL_TRENDS[4, 24) 结构为
+ * `{items: [{full_name, stargazers_count, forks_count, description, html_url}]}`。
+ * 错开的切片窗口（0/2/4）在共享单一数据源的同时为各榜单带来差异性。
  */
 function buildDemoGitHubSearchJson(): string {
   const items = DEMO_EXTERNAL_TRENDS.slice(4, 24).map((t) => ({
@@ -728,7 +725,7 @@ function buildDemoGitHubSearchJson(): string {
   return JSON.stringify({ items });
 }
 
-/** Offline router for `fetch_trends_text`: external-table fixtures by URL; unknown URLs keep the legacy `''`. */
+/** `fetch_trends_text` 的离线路由：根据 URL 返回外部表格数据桩；未知 URL 保持旧有的 `''`。 */
 function demoTrendsTextForUrl(url: string): string {
   if (url.includes('github.com/trending')) return buildDemoTrendingHtml(url);
   if (url.includes('trend.doforce.dpdns.org')) return buildDemoDoforceJson();
@@ -737,7 +734,7 @@ function demoTrendsTextForUrl(url: string): string {
 }
 
 async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
-  // Event plugin channel (listen/emit/unlisten) — backing for all on* subscriptions.
+  // 事件插件通道（listen/emit/unlisten）——支撑所有 on* 订阅的基础设施。
   if (cmd === 'plugin:event|listen') {
     const a = asRecord(args);
     const event = argStr(a, 'event');
@@ -764,12 +761,12 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
     return null;
   }
 
-  // Silent no-op stubs for desktop-only plugins (log/updater/window/webview/app/dialog).
+  // 仅限桌面端插件的静默空操作存根（log/updater/window/webview/app/dialog）。
   if (cmd.startsWith('plugin:log|')) {
     return null;
   }
   if (cmd === 'plugin:updater|check') {
-    return null; // demo client is always "latest"
+    return null; // Demo 客户端始终视为“最新版本”
   }
   if (cmd.startsWith('plugin:window|')) {
     if (cmd.includes('is_maximized')) return false;
@@ -792,7 +789,7 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
   const a = asRecord(args);
 
   switch (cmd) {
-    // -- search ------------------------------------------------------------
+    // -- 搜索 ------------------------------------------------------------
     case 'search_apps': {
       const q = argStr(a, 'query').trim().toLowerCase();
       const matched = !q
@@ -845,10 +842,10 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return matched.slice(start, start + perPage);
     }
     case 'enrich_trend_repos': {
-      // Catalog exact hit passes through untouched (real verified state).
-      // Otherwise the external hot-list coord resolves to a synthetic fallback —
-      // enrich never returns null for a well-formed coord in the demo.
-      // DEMO ONLY: fallback grants platforms so cards render (production keeps [] pending).
+      // 目录精确命中则原样透传（真实的验证状态）。
+      // 否则外部热门榜单坐标解析为合成回退数据——
+      // 在 Demo 中对于格式正确的坐标，enrich 绝不返回 null。
+      // 仅限 Demo 环境：回退数据赋予 platforms 以便卡片渲染（生产环境保持 [] 待确认）。
       const repos = Array.isArray(a['repos']) ? (a['repos'] as Array<{ owner?: string; repo?: string }>) : [];
       return repos.map((r) => {
         const owner = String(r?.owner ?? '').trim();
@@ -890,7 +887,7 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return { id, platforms: [], is_stale: true, from_cache: false };
     }
 
-    // -- catalog / details / icons / readme --------------------------------
+    // -- 目录 / 详情 / 图标 / readme --------------------------------
     case 'get_app_details': {
       const id = argStr(a, 'id', 'appId', 'app_id');
       const hit = findSummary(id);
@@ -937,7 +934,7 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return findSummary(appId)?.icon ?? '';
     }
 
-    // -- install lifecycle (fake progress via emit timer) -------------------
+    // -- 安装生命周期（通过 emit 定时器模拟进度） -------------------
     case 'install_app': {
       const appId = argStr(a, 'appId', 'app_id', 'id');
       const hit = findSummary(appId);
@@ -1001,19 +998,19 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return true;
     case 'open_url': {
       const url = argStr(a, 'url').trim();
-      // Best-effort real open via the native opener captured before lockdown hijack.
+      // 尽力而为：通过在环境锁定劫持前捕获的原生 opener 打开真实外部网页。
       try {
         const native = (window as unknown as { __ZSTORE_DEMO_NATIVE_OPEN__?: typeof window.open }).__ZSTORE_DEMO_NATIVE_OPEN__;
         if (url && /^https?:\/\//i.test(url) && typeof native === 'function') {
           native.call(window, url, '_blank', 'noopener,noreferrer');
         }
       } catch {
-        // no-op in sandbox
+        // 沙箱环境中执行空操作
       }
       return null;
     }
 
-    // -- favorites / watch / star (localStorage Sets) -----------------------
+    // -- 收藏 / 关注 / 星标（localStorage Sets） -----------------------
     case 'get_favorites':
       return summaries.filter((s) => favSet.has(s.id.toLowerCase())).map((s) => s.id);
     case 'toggle_favorite': {
@@ -1060,7 +1057,7 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return starSet.has(id);
     }
 
-    // -- search history / recent views (localStorage) ------------------------
+    // -- 搜索历史 / 最近浏览（localStorage） ------------------------
     case 'record_search_query': {
       const q = argStr(a, 'query').trim();
       if (q) {
@@ -1102,7 +1099,7 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       lsSet(LS.recentViews, recentIds);
       return null;
 
-    // -- static demo values ---------------------------------------------------
+    // -- 静态 Demo 数据 ---------------------------------------------------
     case 'get_installed_apps':
       return [...installedApps];
     case 'get_category_apps': {
@@ -1119,9 +1116,9 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
     case 'check_for_updates':
       return buildDemoUpdates(installedApps);
 
-    // -- startup-critical minimal stubs (fail soft, keep App rendering) -------
-    // Demo display defaults: first-run get_settings returns embed density
-    // (ui_scale 90 / font_size 12, URL-aware) instead of desktop 100/14.
+    // -- 启动关键的最小化存根（软失败，保持 App 正常渲染） -------
+    // Demo 显示默认配置：初次运行 get_settings 返回嵌入页显示密度
+    // （ui_scale 90 / font_size 12，支持 URL 感知）而非桌面端的 100/14。
     case 'get_settings': {
       const display = resolveDemoDisplayDefaults();
       return { ui_scale: display.ui_scale, font_size: display.font_size };
@@ -1174,8 +1171,8 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return result;
     }
     case 'fetch_trends_text': {
-      // Offline deterministic fixtures by URL host (catalog-backed, so every
-      // repo enriches). Unknown URLs keep the legacy '' and never throw.
+      // 根据 URL host 返回离线确定性测试桩（基于目录支持，确保每个仓库
+      // 均能 enrich）。未知 URL 保持旧有的 '' 且永不抛出异常。
       return demoTrendsTextForUrl(argStr(a, 'url'));
     }
     case 'scan_and_match_local_apps':
@@ -1242,7 +1239,7 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
 }
 
 // ---------------------------------------------------------------------------
-// Installer (idempotent, must run BEFORE services/api evaluates isTauri)
+// 安装器（幂等，必须在 services/api 计算 isTauri 之前运行）
 // ---------------------------------------------------------------------------
 
 export function installDemoMock(): void {
@@ -1250,14 +1247,14 @@ export function installDemoMock(): void {
   const w = window as unknown as Record<string, unknown>;
   if (w['__ZSTORE_DEMO_MOCK__']) return;
 
-  // Capture the native opener before browserLockdown hijacks window.open,
-  // so demo `open_url` can still pop real tabs for external links.
+  // 在 browserLockdown 劫持 window.open 之前捕获原生 opener，
+  // 从而使 Demo 的 `open_url` 仍可为外部链接打开真实的标签页。
   try {
     if (typeof w['__ZSTORE_DEMO_NATIVE_OPEN__'] !== 'function' && typeof window.open === 'function') {
       w['__ZSTORE_DEMO_NATIVE_OPEN__'] = window.open.bind(window);
     }
   } catch {
-    // ignore
+    // 忽略异常
   }
 
   hydrate();
@@ -1295,20 +1292,20 @@ export function installDemoMock(): void {
   try {
     w['__ZSTORE_DEMO_DISPLAY_DEFAULTS__'] = DEMO_DISPLAY_DEFAULTS_MARKER;
   } catch {
-    // ignore — marker is best-effort for build greppability
+    // 忽略异常——标记仅用于方便构建后 grep 检索，属于尽力而为（best-effort）
   }
   w['__ZSTORE_DEMO_MOCK__'] = true;
 }
 
-// Auto-install on import when built with VITE_DEMO (covers the static-import
-// ordering path: mock evaluates before services/api, so isTauri sees it).
-// The main.tsx demo branch ALSO calls installDemoMock() explicitly after a
-// dynamic import — both paths are idempotent.
+// 使用 VITE_DEMO 构建时在模块导入阶段自动安装（覆盖静态导入顺序路径：
+// mock 在 services/api 之前求值，以便 isTauri 能够感知）。
+// main.tsx 中的 demo 分支在动态导入后同样会显式调用 installDemoMock()——
+// 两条路径均具备幂等性。
 if (typeof window !== 'undefined') {
   try {
     const flag = (import.meta as unknown as { env?: Record<string, unknown> }).env?.['VITE_DEMO'];
     if (flag) installDemoMock();
   } catch {
-    // never break module evaluation
+    // 绝不阻断模块求值流程
   }
 }

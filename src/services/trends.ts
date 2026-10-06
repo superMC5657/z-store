@@ -281,16 +281,15 @@ export function matchCatalogApp(trend: TrendRepo, catalogApps: AppSummary[]): Ap
 }
 
 // ---------------------------------------------------------------------------
-// Trends traffic is ALWAYS direct: no gh-proxy prefix is applied to any URL.
+// Trends 流量始终直连：任何 URL 均不添加 gh-proxy 前缀。
 //
-// Policy (user decision): proxy is reserved for app downloads (rewritten on
-// the Rust side). Trends payloads are small JSON/HTML and fetch direct.
-// `opts.proxyPrefix` is accepted but IGNORED (kept in FetchTrendsOptions only
-// for contract stability — the UI still passes it); `withTrendsProxy` below
-// is the single choke point and is now the identity function.
+// 策略（用户决策）：proxy 仅预留给应用下载（在 Rust 侧重写）。
+// Trends 负载均为较小的 JSON/HTML，直接请求直连。
+// `opts.proxyPrefix` 会被接收但被忽略（仅在 FetchTrendsOptions 中保留以维持契约稳定性——UI 仍会传入）；
+// 下方的 `withTrendsProxy` 是唯一的单一控制点，当前为恒等函数。
 // ---------------------------------------------------------------------------
 
-/** Normalize a proxy prefix: empty/direct -> undefined; ghproxy -> default; http(s) kept. */
+/** 规范化 proxy 前缀：empty/direct -> undefined；ghproxy -> 默认值；保留 http(s)。 */
 export function normalizeProxyPrefix(raw?: string): string | undefined {
   if (raw == null) return undefined;
   const t = String(raw).trim();
@@ -301,9 +300,9 @@ export function normalizeProxyPrefix(raw?: string): string | undefined {
 }
 
 /**
- * @deprecated Identity: trends traffic is always direct, no prefix is applied.
- * Kept (still called by every trends URL builder) so callers need no changes
- * if the policy is ever revisited — fix here once, not at every call site.
+ * @deprecated 恒等函数：trends 流量始终直连，不应用任何前缀。
+ * 保留此函数（仍被各 trends URL 构建器调用），以便后续若重新调整策略时调用方无需改动——
+ * 仅需在此处统一修改一次，而无需改动每个调用点。
  */
 export function withTrendsProxy(url: string, _opts: FetchTrendsOptions = {}): string {
   void _opts;
@@ -527,17 +526,17 @@ export async function fetchTrendingRepos(
   return parseTrendingHtml(html);
 }
 // ---------------------------------------------------------------------------
-// rising / healthy primary: doforce public API (no key).
-// URL: https://trend.doforce.dpdns.org/repo (200 JSON array).
-// Item shape: {"repo":"/owner/name","desc","lang","stars","forks","change",...}
-// where `change` is the real period stars gained (same semantics as the
-// trending daily increment). Single-flight shared fetch + 12h shared cache
-// (see below); rising sorts by change desc, healthy by (forks + change).
+// rising / healthy 主源：doforce 公开 API（免 key）。
+// URL: https://trend.doforce.dpdns.org/repo (200 JSON 数组)。
+// 数据项结构: {"repo":"/owner/name","desc","lang","stars","forks","change",...}
+// 其中 `change` 为对应周期的真实 star 增量（与 trending 日增量语义一致）。
+// 单飞共享请求 + 12h 共享缓存（见下文）；
+// rising 按 change 降序排序，healthy 按 (forks + change) 排序。
 // ---------------------------------------------------------------------------
 
 export const DOFORCE_URL = 'https://trend.doforce.dpdns.org/repo';
 
-/** Build the doforce request URL (always direct). */
+/** 构建 doforce 请求 URL（始终直连）。 */
 export function buildDoforceUrl(opts: FetchTrendsOptions = {}): string {
   return withTrendsProxy(DOFORCE_URL, opts);
 }
@@ -549,10 +548,10 @@ function numOrUndefined(v: unknown): number | undefined {
 }
 
 /**
- * Map a doforce item. `repo` carries a leading slash ("/owner/name") which is
- * stripped; `desc` -> description (`lang` dropped: TrendRepo has no language
- * field and nothing consumes it). starsGained = change (real gained stars);
- * missing/non-numeric change -> undefined, never faked from totals.
+ * 映射 doforce 数据项。`repo` 带有前导斜杠（"/owner/name"）需去除；
+ * `desc` -> description（丢弃 `lang`：TrendRepo 无 language 字段且无下游消费）。
+ * starsGained = change（真实新增 stars）；
+ * 缺失或非数字的 change -> undefined，绝不从总量中伪造。
  */
 function mapDoforceItem(item: Record<string, unknown>): TrendRepo | null {
   const rawRepo = String(item.repo ?? item.full_name ?? item.fullName ?? '').trim().replace(/^\/+/, '');
@@ -580,9 +579,8 @@ function mapDoforceItem(item: Record<string, unknown>): TrendRepo | null {
 }
 
 /**
- * doforce primary (fetched Rust-side, 10s timeout, no CORS concept).
- * Accepts a bare array or an `{items|data|repos}` envelope; throws on failure,
- * returns [] when empty.
+ * doforce 主源（Rust 侧抓取，10s 超时，无 CORS 限制）。
+ * 支持纯数组或 `{items|data|repos}` 包装结构；失败时抛错，为空时返回 []。
  */
 export async function fetchDoforceRepos(): Promise<TrendRepo[]> {
   const url = buildDoforceUrl({});
@@ -863,7 +861,7 @@ const STATIC_BOARD_FETCHERS: Record<string, (opts: FetchTrendsOptions) => Promis
  * new → GitHub search（created 6mo 窗口）。
  * 一榜一源、无降级链：主源失败即 error、有空即 empty；成功（非空）才写缓存
  * （日榜 1h；周/月榜 12h；新榜 5 分钟；rising/healthy 共用 doforce 12h 共享快照 + 单飞请求）。
- * Cache key = board + language + category (written on success only).
+ * 缓存键 = board + language + category（仅成功时写入）。
  */
 export async function fetchTrendsResult(
   board: TrendBoardId,

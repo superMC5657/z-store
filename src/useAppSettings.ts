@@ -19,7 +19,7 @@ export function useAppSettings() {
   };
 
   const applyUiZoom = (scaleStr: string) => {
-    // --app-zoom var only; never root zoom nor native zoom.
+    // 仅设置 --app-zoom 变量；绝不修改根节点缩放或原生缩放。
     const factor = appZoomFactor(scaleStr);
     if (factor === null) return;
     document.documentElement.style.setProperty('--app-zoom', `${factor}`);

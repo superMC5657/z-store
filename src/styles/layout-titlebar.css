@@ -1,4 +1,4 @@
-/* layout-titlebar.css · Linear Design System Toolbar */
+/* layout-titlebar.css · Linear 设计系统工具栏 */
 /* 顶部标题栏 - 瘦身 40px 精简工具条（反 L 顶部横梁） */
 .titlebar {
   -webkit-app-region: drag;
@@ -284,12 +284,12 @@
   color: #ffffff;
 }
 
-/* ---- Frameless resize affordances (Ubuntu Wayland/X11 all-edge resize) ---- */
-/* Eight invisible zones owned by `ResizeHandles.tsx`, positioned inside
-   `.app-window` (position: relative). Transparent with no borders/shadows;
-   hit-test above content/titlebar, below flyouts/modals/dropdowns. The
-   titlebar keeps move-only drag; win-controls/search islands keep working —
-   handles own only the extreme 8px edges / 12px corners. */
+/* ---- 无边框缩放支持（Ubuntu Wayland/X11 全边缘大小调整） ---- */
+/* 由 `ResizeHandles.tsx` 占用的 8 个不可见区域，位于
+   `.app-window` (position: relative) 内部。完全透明且无边框/阴影；
+   命中测试位于内容区/标题栏之上、浮层/弹窗/下拉菜单之下。
+   标题栏保持仅移动拖拽；窗口控制区/搜索框隔离区保持正常可用 ——
+   手柄仅占据最外层 8px 边缘与 12px 角落。 */
 .resize-handle {
   position: absolute;
   z-index: 30;
