@@ -373,6 +373,8 @@ export interface TrendRepo {
    * doforce change 等）时为 defined；缺失/不可解析时一律为 undefined，
    * 绝不回退为总 stars。UI 契约：仅在 defined 时渲染 +N 徽标，
    * undefined 一律不渲染。
+   * 排序契约（P1-C2）：`compareStarsGainedDesc` 中 undefined 恒沉底，
+   * 双 defined 比大小，tie 按 id 升序（见 `services/trends/parse.ts`）。
    */
   starsGained?: number;
   forks?: number;
@@ -389,6 +391,8 @@ export interface FetchTrendsOptions {
    * GitHub 加速代理前缀（保留字段，仅为契约稳定；趋势流量恒直连，本字段被忽略）。
    * gh-proxy 保留给应用下载（Rust 侧）；trends 皆为小 JSON/HTML，始终直连。
    * UI 仍可传入既有值，无需改动调用方。
+   * P1-C3：`language`/`category` 参与缓存键时一律归一 `trim().toLowerCase()`
+   * （见 `services/trends/cache.ts`），读写同源（见 `services/trends/boards.ts`）。
    */
   proxyPrefix?: string;
 }

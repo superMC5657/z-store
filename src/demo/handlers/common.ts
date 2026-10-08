@@ -30,24 +30,41 @@ export function argNum(a: InvokeArgs, ...keys: string[]): number | undefined {
 export const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 /**
- * demo 侧确定性抖动（canonical 见 src/services/feed.ts：与 `hashSeeded01/balanced` 同形、
- * 同量级、同 seed 语义；允许 FNV 位宽实现不同。mock 层不做运行时 import，
- * 避免拉起 api.ts 破坏 install 时序，故此处解耦实现）。
+ * @deprecated 32 位 mock 抖动已对齐 64 位 canonical（见 `src/services/feed.ts#hashSeeded01`），
+ * 仅保留供 demo 旧调用；新代码请用 `hashSeeded01`。Phase2 最小对齐：只换哈希实现，
+ * 不改调用方与打分形状（balanced 半幅 0.15 等），不扩大 blast radius。
+ * 与 canonical 同形：FNV-1a 64 + seed 起步 + UTF-8 字节迭代 + `>>33` 雪崩，除数 2^64；
+ * id 先 `toLowerCase`，与后端 `to_lowercase + as_bytes` 对齐。此处解耦实现，不 import feed.ts。
  */
 export function demoSeeded01(id: string, seed: number): number {
-  const safeSeed = Number.isFinite(seed) ? Math.floor(seed) >>> 0 : 0;
-  let h = (0x811c9dc5 ^ safeSeed) >>> 0;
-  const s = String(id).toLowerCase();
-  for (let i = 0; i < s.length; i += 1) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
+  const MASK64 = (1n << 64n) - 1n;
+  const OFFSET64 = 0xcbf29ce484222325n;
+  const PRIME64 = 0x100000001b3n;
+  const AVALANCHE_MUL = 0xff51afd7ed558ccdn;
+  const DIV_2P64 = 18446744073709551616;
+  const rawSeed = Number.isFinite(seed) ? Math.floor(seed) : 0;
+  let seed64: bigint;
+  try {
+    seed64 = BigInt.asUintN(64, BigInt(rawSeed));
+  } catch {
+    seed64 = 0n;
   }
-  h ^= h >>> 15;
-  h = Math.imul(h, 0x2c1b3c6d);
-  h ^= h >>> 12;
-  h = Math.imul(h, 0x297a2d39);
-  h ^= h >>> 15;
-  return (h >>> 0) / 4294967296;
+  let h = (OFFSET64 ^ seed64) & MASK64;
+  const s = String(id).toLowerCase();
+  let bytes: ArrayLike<number>;
+  try {
+    bytes = new TextEncoder().encode(s);
+  } catch {
+    bytes = Array.from(s, (ch) => ch.charCodeAt(0) & 0xff);
+  }
+  for (let i = 0; i < bytes.length; i += 1) {
+    h ^= BigInt(bytes[i] as number);
+    h = (h * PRIME64) & MASK64;
+  }
+  h ^= h >> 33n;
+  h = (h * AVALANCHE_MUL) & MASK64;
+  h ^= h >> 33n;
+  return Number(h) / DIV_2P64;
 }
 
 export function rankSummariesForFeed(seed: number, strategy?: unknown): AppSummary[] {

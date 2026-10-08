@@ -644,3 +644,161 @@ fn test_history_prune_limit_n_plus_one() {
     assert_eq!(db.get_recently_viewed_app_ids().unwrap().len(), 1);
 }
 
+#[test]
+fn test_trend_board_cache_roundtrip_passthrough() {
+    let db = fixtures::test_db();
+    // 空 key 拒绝：不触库，直接 None
+    assert!(db.get_trend_board_cache("   ").unwrap().is_none());
+    assert!(db
+        .get_trend_board_cache("trends:daily:v1")
+        .unwrap()
+        .is_none());
+
+    // 透存往返：原样写入、原样读出（后端不判 TTL，落库即命中）
+    let payload = r#"{"board":"daily","items":[{"id":"rustdesk/rustdesk"}]}"#;
+    db.save_trend_board_cache("  trends:daily:v1  ", "daily", payload)
+        .unwrap();
+    let (got, cached_at) = db
+        .get_trend_board_cache("trends:daily:v1")
+        .unwrap()
+        .expect("saved payload hits without TTL check");
+    assert_eq!(got, payload);
+    assert!(cached_at > 0 && cached_at <= now_secs());
+    let stored_bytes: i64 = db
+        .conn
+        .query_row(
+            "SELECT payload_bytes FROM trend_board_cache WHERE cache_key = ?1",
+            ["trends:daily:v1"],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(stored_bytes, payload.len() as i64);
+
+    // key 不做大小写归一：不同大小写视为不同 key
+    assert!(db
+        .get_trend_board_cache("TRENDS:DAILY:V1")
+        .unwrap()
+        .is_none());
+
+    // 全列 UPSERT 覆盖
+    let v2 = r#"{"board":"weekly","items":[]}"#;
+    db.save_trend_board_cache("trends:daily:v1", "weekly", v2)
+        .unwrap();
+    let (got2, _) = db
+        .get_trend_board_cache("trends:daily:v1")
+        .unwrap()
+        .unwrap();
+    assert_eq!(got2, v2);
+
+    // 空 payload 拒绝：不覆盖已有行
+    db.save_trend_board_cache("trends:daily:v1", "daily", "")
+        .unwrap();
+    let (got3, _) = db
+        .get_trend_board_cache("trends:daily:v1")
+        .unwrap()
+        .unwrap();
+    assert_eq!(got3, v2);
+
+    // 空 key/board 静默跳过
+    db.save_trend_board_cache("   ", "daily", payload).unwrap();
+    db.save_trend_board_cache("trends:empty-board", "  ", payload)
+        .unwrap();
+    assert!(db.get_trend_board_cache("   ").unwrap().is_none());
+    assert!(db
+        .get_trend_board_cache("trends:empty-board")
+        .unwrap()
+        .is_none());
+}
+
+#[test]
+fn test_trend_board_cache_payload_too_large_rejected() {
+    let db = fixtures::test_db();
+    let big = "x".repeat(cache::TREND_BOARD_CACHE_MAX_BYTES + 1);
+    let err = db
+        .save_trend_board_cache("trends:oversize", "daily", &big)
+        .unwrap_err();
+    match err {
+        rusqlite::Error::ToSqlConversionFailure(inner) => {
+            assert!(
+                inner.to_string().contains("trend_board_payload_too_large"),
+                "oversize error must carry marker, got: {inner}"
+            );
+        }
+        other => panic!("oversize save must fail with ToSqlConversionFailure, got: {other}"),
+    }
+    // 超限拒绝不落库
+    assert!(db
+        .get_trend_board_cache("trends:oversize")
+        .unwrap()
+        .is_none());
+
+    // 边界：恰为上限字节数允许落库
+    let edge = "y".repeat(cache::TREND_BOARD_CACHE_MAX_BYTES);
+    db.save_trend_board_cache("trends:edge", "daily", &edge)
+        .unwrap();
+    assert_eq!(
+        db.get_trend_board_cache("trends:edge")
+            .unwrap()
+            .unwrap()
+            .0
+            .len(),
+        cache::TREND_BOARD_CACHE_MAX_BYTES
+    );
+}
+
+#[test]
+fn test_trend_board_cache_prune_two_tiers_and_idempotent_schema() {
+    let db = fixtures::test_db();
+    let now = now_secs();
+    let seed = |key: &str, board: &str, cached_at: i64| {
+        db.conn
+            .execute(
+                "INSERT INTO trend_board_cache (cache_key, board, payload_json, payload_bytes, cached_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![key, board, "{\"items\":[]}", 12i64, cached_at],
+            )
+            .unwrap();
+    };
+    // daily 挡：过期线 3600s
+    seed("t:daily-stale", "daily", now - 3700);
+    seed("t:daily-fresh", "daily", now - 100);
+    seed("t:daily-future", "daily", now + 3600);
+    // 其余挡：过期线 43200s
+    seed("t:weekly-stale", "weekly", now - 43300);
+    seed("t:weekly-fresh", "weekly", now - 100);
+    seed("t:weekly-future", "rising", now + 100_000);
+
+    let deleted = db.prune_expired_trend_board_cache(now).unwrap();
+    assert_eq!(deleted, 2);
+    assert!(db.get_trend_board_cache("t:daily-stale").unwrap().is_none());
+    assert!(db
+        .get_trend_board_cache("t:weekly-stale")
+        .unwrap()
+        .is_none());
+    for key in [
+        "t:daily-fresh",
+        "t:daily-future",
+        "t:weekly-fresh",
+        "t:weekly-future",
+    ] {
+        assert!(
+            db.get_trend_board_cache(key).unwrap().is_some(),
+            "{key} must survive prune"
+        );
+    }
+
+    // 幂等建表：重复执行 schema 不报错、不丢已保留行
+    db.init_schema().unwrap();
+    db.init_schema().unwrap();
+    for key in [
+        "t:daily-fresh",
+        "t:daily-future",
+        "t:weekly-fresh",
+        "t:weekly-future",
+    ] {
+        assert!(
+            db.get_trend_board_cache(key).unwrap().is_some(),
+            "{key} must survive re-init"
+        );
+    }
+}
+

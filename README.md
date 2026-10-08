@@ -60,7 +60,7 @@
 - **GitHub OAuth 登录**：Device Flow 免应用密钥登录，Client ID 遵循单一配置源（`src-tauri/config.toml`），支持在设置项中自定义覆盖。采用 `classify_device_poll` 明确区分 `Expired` 与 `Denied` 状态。
 - **GitHub Star 导入**：登录后一键拉取个人 Star 列表中所有具备可用构建资产的开源项目。
 - **本地足迹追踪**：自动记录并持久化搜索历史与最近浏览应用，支持一键快捷回访。
-- **趋势榜单直取**：经共享 Client 直取（`tokio` 10s 超时，截断 2MB 防爆内存），仅允许 `github.com` / `trend.doforce.dpdns.org` / `api.github.com` 三 host 白名单；doforce 429 仅按 `Retry-After` 再试一次（上限 60s，缺省等 5s）。
+- **趋势榜单直取**：经共享 Client 直取（`tokio` 10s 超时，截断 2MB 防爆内存），仅允许 `github.com` / `trend.doforce.dpdns.org` / `api.github.com` 三 host 白名单；doforce 429 透传 `retry-after` + `retry_after_ms` 后按值再试一次（上限 60s，缺省等 5s）；enrich 分片 20/片×2 片=40 上限（详见 ADR-0014）。
 
 ### 6. 🔄 检查更新流式推流与实时感知
 - **实时推流动效**：更新检查基于并发管道流式拉取（`buffer_unordered(6)`，主路径与关注通知两处），后端通过 `zstore://update-check-progress` 逐项推流，前端呈现丝滑进度条与更新项逐项跳出微动效。
@@ -88,7 +88,7 @@
 
 - **桌面底座**: Tauri 2.2 + Rust 1.77+
 - **前端界面**: React 19 + TypeScript 5.7 (strict) + Vite 6 + 原生 Fluent 2.0 CSS + Fluent 矢量图标体系 (`lucide-react`)
-- **本地数据库**: 嵌入式 SQLite (`rusqlite` bundled，WAL 模式，维护 15 张核心表：含 `trend_board_cache` 与 `search_result_cache`（趋势榜与搜索结果L2缓存），`icon_cache_meta` 与 `app_icon_cycles`，图标缓存来源与轮换状态分流）
+- **本地数据库**: 嵌入式 SQLite (`rusqlite` bundled，WAL 模式，维护 14 张核心表：含 `trend_board_cache`（趋势榜 L2 缓存，后端命令 `get/save_trend_board_cache` 已补齐），`icon_cache_meta` 与 `app_icon_cycles`，图标缓存来源与轮换状态分流）
 - **配置中枢**: 单一基线配置源（`src-tauri/config.toml`），结合编译期内置兜底与外部重载机制
 - **网络与下载**: API / 图标双池物理隔离复用单例（均 `connect_timeout 5s`、`keepalive 60s`、`pool 20/idle 90s`；图标 CDN 通道恒丢 token，绝不携带认证头）+ `tokio` 异步流式下载 + ETag 条件缓存 + 有限重试（仅 GET 传输错误与 429/5xx，最多 2 次按 200ms→800ms 退避，401/404/304 永不重试）+ 并发镜像测速管道；图标先 HEAD 判类型长度、再 Range 取前 32KB 验 magic（300B 最小阈值卡掉 LFS 指针，`buffered(3)` 并发）；自动继承系统代理与 TUN 模式
 - **桌面开发配置**: `pnpm tauri dev`（基于 `src-tauri/tauri.conf.json` 配置本地安全策略）
@@ -164,6 +164,7 @@ pnpm tauri build
 - [ADR-0011: doforce趋势聚合源例外](docs/adr/0011-doforce-trends-aggregator-exception.md)
 - [ADR-0012: 网络性能P0双池并发跳过](docs/adr/0012-network-perf-p0-pooling-concurrency-skip.md)
 - [ADR-0013: Feed契约](docs/adr/0013-feed-contract.md)
+- [ADR-0014: 趋势榜 L2 与治理收口](docs/adr/0014-trends-l2-and-governance.md)
 - [协作规范与 Agent 指南](AGENTS.md)
 
 ---

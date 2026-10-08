@@ -117,6 +117,17 @@ impl Database {
 
             -- FR-6.2 默认通知频率：daily（仅缺失时填充）
             INSERT OR IGNORE INTO user_settings (key, value) VALUES ('watch_notify_frequency', 'daily');
+
+            -- Phase1A 趋势榜缓存（纯透存，后端不判 TTL；board 列供双档清扫区分 daily/其余）
+            CREATE TABLE IF NOT EXISTS trend_board_cache (
+                cache_key TEXT PRIMARY KEY,
+                board TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                payload_bytes INTEGER DEFAULT 0,
+                cached_at INTEGER
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_trend_board_cache_board ON trend_board_cache(board);
             "#,
         )?;
         Ok(())

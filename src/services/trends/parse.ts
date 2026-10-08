@@ -222,9 +222,33 @@ export function growthRatio(repo: TrendRepo): number {
   return gained / Math.max(1, repo.stars - gained);
 }
 
-/** 按增速比降序（纯函数）。 */
+/**
+ * P1正确性（C2 排序沉底）：starsGained 降序比较器（SSOT）。
+ * - undefined 恒沉底（缺增量绝不冒充 0 参与排名）；
+ * - 双 defined 按数值降序；
+ * - tie 按 id 升序（确定性，与后端 ranker 同口径）。
+ */
+export function compareStarsGainedDesc(a: TrendRepo, b: TrendRepo): number {
+  const ag = a.starsGained;
+  const bg = b.starsGained;
+  const aUndef = ag === undefined;
+  const bUndef = bg === undefined;
+  if (aUndef && bUndef) {
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  }
+  if (aUndef) return 1;
+  if (bUndef) return -1;
+  if (bg !== ag) return (bg as number) - (ag as number);
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/** 按增速比降序（纯函数，tie 按 id 升序）。 */
 export function rankByGrowthRatio(repos: TrendRepo[]): TrendRepo[] {
-  return [...repos].sort((a, b) => growthRatio(b) - growthRatio(a));
+  return [...repos].sort((a, b) => {
+    const diff = growthRatio(b) - growthRatio(a);
+    if (diff !== 0) return diff;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
 }
 
 /**
@@ -235,9 +259,13 @@ export function healthyScore(repo: TrendRepo): number {
   return (repo.forks ?? 0) + (repo.starsGained ?? 0);
 }
 
-/** 按 healthy 代理分降序（纯函数，healthy 榜连线）。 */
+/** 按 healthy 代理分降序（纯函数，healthy 榜连线；tie 按 id 升序）。 */
 export function sortByHealthyScore(repos: TrendRepo[]): TrendRepo[] {
-  return [...repos].sort((a, b) => healthyScore(b) - healthyScore(a));
+  return [...repos].sort((a, b) => {
+    const diff = healthyScore(b) - healthyScore(a);
+    if (diff !== 0) return diff;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
 }
 
 /** new 榜客户端兜底阈值（显式调用，非隐式 fallback）。 */
@@ -247,13 +275,13 @@ export const NEW_FALLBACK_MAX_FORKS = 500;
 /**
  * new 榜客户端兜底视图（纯函数，显式调用，非隐式 fallback）：
  * `stars<2000 && forks<500` 启发式近似“新仓”，组内按 starsGained 降序
- *（缺失按 0，不回退总量）。
+ *（C2：undefined 恒沉底，tie 按 id 升序；缺失绝不回退总量）。
  * `fetchTrends('new')` 远端失败时直接返回 error，不再隐式复用。
  */
 export function filterNewReposFallback(repos: TrendRepo[]): TrendRepo[] {
   return repos
     .filter((r) => r.stars < NEW_FALLBACK_MAX_STARS && (r.forks ?? 0) < NEW_FALLBACK_MAX_FORKS)
-    .sort((a, b) => (b.starsGained ?? 0) - (a.starsGained ?? 0));
+    .sort(compareStarsGainedDesc);
 }
 
 /**
@@ -278,9 +306,18 @@ export function parseRetryAfterMs(raw: string | undefined): number | undefined {
  * Rust 侧当前仅回传状态码（`upstream status 429`），header 值不可见时返回
  * 默认等待；若未来后端把 header 值写入错误串（如 `retry-after: 30`），
  * 此处按秒数/HTTP-date 兑现，上限 60s（超限返回 undefined = 直接 error）。
+ * Phase2治理：BE 429 分支透传 `retry_after_ms={毫秒}`（见 commands/network.rs），
+ * 此处优先按毫秒直值兑现（无需 ×1000），兼容 `retry-after-ms` 连字符形。
  */
 export function doforceRetryDelayMs(err: unknown): number | undefined {
   const msg = String((err as { message?: unknown })?.message ?? err ?? '');
+  const msDirect = msg.match(/retry[_-]after[_-]ms\s*[:=]\s*(\d+)/i)?.[1];
+  if (msDirect !== undefined) {
+    const ms = Number(msDirect);
+    if (!Number.isFinite(ms) || ms < 0) return DOFORCE_RETRY_DEFAULT_WAIT_MS;
+    if (ms > DOFORCE_RETRY_MAX_WAIT_MS) return undefined;
+    return ms;
+  }
   const m = msg.match(/retry-after\s*[:=]\s*([^\s,;]+(?:\s+[^\s,;]+)*)/i);
   const wait = parseRetryAfterMs(m?.[1]) ?? DOFORCE_RETRY_DEFAULT_WAIT_MS;
   if (wait > DOFORCE_RETRY_MAX_WAIT_MS) return undefined;

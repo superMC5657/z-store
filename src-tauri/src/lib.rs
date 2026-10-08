@@ -401,6 +401,11 @@ pub fn run() {
         })
         .expect("failed to init database");
 
+    // Phase1A 趋势榜缓存：启动后 best-effort 清扫过期快照（吞错，不阻塞启动）。
+    {
+        let _ = db.prune_expired_trend_board_cache(now_secs());
+    }
+
     let saved_token = db
         .get_setting(crate::oauth::SETTING_OAUTH_TOKEN)
         .ok()
@@ -544,6 +549,8 @@ pub fn run() {
             commands::toggle_favorite,
             commands::test_proxy,
             commands::fetch_trends_text,
+            commands::get_trend_board_cache,
+            commands::save_trend_board_cache,
             commands::get_catalog_count,
             commands::scan_and_match_local_apps,
             commands::import_matched_apps,

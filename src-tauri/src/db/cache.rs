@@ -175,3 +175,74 @@ impl Database {
         Ok(())
     }
 }
+
+/// Phase1A 趋势榜缓存上限：单条 payload 至多 512 KiB，超限拒绝落库。
+pub const TREND_BOARD_CACHE_MAX_BYTES: usize = 512 * 1024;
+
+impl Database {
+    /// 获取趋势榜缓存（纯透存：命中即返，不判 TTL；key 仅 trim，不做大小写归一）。
+    pub fn get_trend_board_cache(&self, cache_key: &str) -> Result<Option<(String, i64)>> {
+        let key = clean(cache_key);
+        if key.is_empty() {
+            return Ok(None);
+        }
+        let mut stmt = self.conn.prepare(
+            "SELECT payload_json, cached_at FROM trend_board_cache WHERE cache_key = ?1 LIMIT 1",
+        )?;
+        let mut rows = stmt.query(params![key])?;
+        if let Some(row) = rows.next()? {
+            let payload: String = row.get(0)?;
+            let cached_at: i64 = row.get(1)?;
+            Ok(Some((payload, cached_at)))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// 保存趋势榜缓存（全列 UPSERT 覆盖；空 key/board/payload 静默跳过，超限拒绝并报错）。
+    pub fn save_trend_board_cache(
+        &self,
+        cache_key: &str,
+        board: &str,
+        payload: &str,
+    ) -> Result<()> {
+        let key = clean(cache_key);
+        let board_clean = clean(board);
+        if key.is_empty() || board_clean.is_empty() || payload.is_empty() {
+            return Ok(());
+        }
+        if payload.len() > TREND_BOARD_CACHE_MAX_BYTES {
+            return Err(rusqlite::Error::ToSqlConversionFailure(Box::new(
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "trend_board_payload_too_large",
+                ),
+            )));
+        }
+        let now = now_secs();
+        self.exec_upsert(
+            r#"
+            INSERT INTO trend_board_cache (cache_key, board, payload_json, payload_bytes, cached_at)
+            VALUES (?1, ?2, ?3, ?4, ?5)
+            ON CONFLICT(cache_key) DO UPDATE SET
+                board = excluded.board,
+                payload_json = excluded.payload_json,
+                payload_bytes = excluded.payload_bytes,
+                cached_at = excluded.cached_at;
+            "#,
+            params![key, board_clean, payload, payload.len() as i64, now],
+        )?;
+        Ok(())
+    }
+
+    /// 双档清扫：`daily` 挡过期 3600s，其余挡 43200s；未来时间戳天然保留（早于阈值比较恒为假）。
+    pub fn prune_expired_trend_board_cache(&self, now: i64) -> Result<usize> {
+        let daily_cutoff = now.saturating_sub(3600);
+        let other_cutoff = now.saturating_sub(43200);
+        let deleted = self.conn.execute(
+            "DELETE FROM trend_board_cache WHERE (board = 'daily' AND cached_at <= ?1) OR (board <> 'daily' AND cached_at <= ?2)",
+            params![daily_cutoff, other_cutoff],
+        )?;
+        Ok(deleted)
+    }
+}

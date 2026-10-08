@@ -139,6 +139,56 @@ pub async fn fetch_trends_text(url: String) -> Result<String, String> {
     };
     let status = resp.status();
     if !status.is_success() {
+        // Phase2治理：429 透传 Retry-After（FE doforceRetryDelayMs 按秒/HTTP-date 或 retry_after_ms 毫秒兑现）。
+        // 限流日志不占单飞槽计数：此处仅打日志，无额外状态/槽位占用，调用方单飞槽语义不变。
+        if status.as_u16() == 429 {
+            let raw_retry_after = resp
+                .headers()
+                .get(reqwest::header::RETRY_AFTER)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            let retry_after_ms_opt: Option<u64> = raw_retry_after.parse::<u64>().ok().map(|s| s.saturating_mul(1000));
+            match (raw_retry_after.is_empty(), retry_after_ms_opt) {
+                (true, _) => {
+                    log::warn!(
+                        "trends text rate-limited sid={} req={} host='{}' status=429 elapsed_ms={}",
+                        sid,
+                        req,
+                        host,
+                        start.elapsed().as_millis()
+                    );
+                    return Err("trends: upstream status 429".to_string());
+                }
+                (false, Some(ms)) => {
+                    log::warn!(
+                        "trends text rate-limited sid={} req={} host='{}' status=429 retry_after='{}' retry_after_ms={} elapsed_ms={}",
+                        sid,
+                        req,
+                        host,
+                        raw_retry_after,
+                        ms,
+                        start.elapsed().as_millis()
+                    );
+                    return Err(format!(
+                        "trends: upstream status 429 retry-after: {} retry_after_ms={}",
+                        raw_retry_after, ms
+                    ));
+                }
+                (false, None) => {
+                    log::warn!(
+                        "trends text rate-limited sid={} req={} host='{}' status=429 retry_after='{}' elapsed_ms={}",
+                        sid,
+                        req,
+                        host,
+                        raw_retry_after,
+                        start.elapsed().as_millis()
+                    );
+                    return Err(format!("trends: upstream status 429 retry-after: {}", raw_retry_after));
+                }
+            }
+        }
         log::warn!(
             "trends text upstream sid={} req={} host='{}' status={} elapsed_ms={}",
             sid,

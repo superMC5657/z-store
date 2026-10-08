@@ -1,6 +1,10 @@
 import type { AppSummary, FetchTrendsOptions, TrendBoardId, TrendRepo } from '../../types';
 import { isTauri, tauriInvoke } from '../api/client';
-import { clearTrendEnrichCache, hydrateTrendEnrichCache } from './enrich';
+import {
+  clearTrendEnrichCache,
+  hydrateTrendEnrichCache,
+  snapshotTrendEnrichCache,
+} from './enrich';
 
 export const CACHE_TTL_MS = 5 * 60 * 1000; // 默认内存缓存（new 榜；daily/weekly/monthly 见 trendsBoardTtlMs；仅成功结果写入；rising/healthy 除外，见下）
 /**
@@ -18,10 +22,67 @@ export const TRENDING_TIMEOUT_MS = 10_000; // github.com/trending HTML 抓取 10
 export const DOFORCE_TIMEOUT_MS = 10_000; // doforce API 10s 熔断（Rust 侧执行）
 export const GITHUB_SEARCH_TIMEOUT_MS = 10_000; // GitHub Search 主源 10s 熔断
 
+/** Phase2治理：内存有界——trendsCache 至多 200 条，写时 FIFO 删最旧。 */
+export const TRENDS_CACHE_MAX_ENTRIES = 200;
+/** Phase2治理：FE 写盘前 UTF-8 预检上限 256KB（BE 512KiB 硬拒绝保持，见 db/cache.rs）。 */
+export const TREND_DB_PAYLOAD_MAX_BYTES = 256 * 1024;
+/** Phase2治理：L2 读错峰抖动上限 30s（按 key 稳定哈希，只扣减不延长）。 */
+export const TREND_L2_JITTER_MAX_MS = 30_000;
+
 const trendsCache = new Map<string, { timestamp: number; data: TrendRepo[] }>();
 
-/** 缓存键 = board + language + category（P1 要求，统一口径）。 */
+/**
+ * Phase2治理：L2 读 key 稳定抖动 0-30s（FNV-1a 32 哈希 % 30000，与后端无关，纯前端错峰）。
+ * 同一 key 同一抖动值，重启/切榜稳定，避免多榜同时过期齐刷远端。
+ */
+export function trendL2JitterMs(key: string): number {
+  let h = 2166136261 >>> 0;
+  const s = String(key ?? '');
+  for (let i = 0; i < s.length; i += 1) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0) % TREND_L2_JITTER_MAX_MS;
+}
+
+/**
+ * Phase2治理：L2 有效 TTL = ttl - min(jitter, ttl/4)，只扣减不延长。
+ * 短 TTL 加帽 ttl/4，避免抖动吞掉大部分保鲜窗；长 TTL（12h）即扣 jitter 全值。
+ */
+export function trendL2EffectiveTtlMs(ttlMs: number, key: string): number {
+  const jitter = trendL2JitterMs(key);
+  const cap = Math.floor(ttlMs / 4);
+  return ttlMs - Math.min(jitter, cap);
+}
+
+/** Phase2治理：FE 写盘前 UTF-8 字节预检（TextEncoder 主路，异常回退近似）。 */
+export function utf8ByteLength(s: string): number {
+  try {
+    return new TextEncoder().encode(s).length;
+  } catch {
+    try {
+      // Node/测试环境回退
+      const buf = (globalThis as unknown as { Buffer?: { byteLength(x: string, e: string): number } }).Buffer;
+      if (buf) return buf.byteLength(s, 'utf8');
+    } catch {
+      // 忽略回退异常，走近似
+    }
+    return s.length;
+  }
+}
+
+/** 缓存键 = board + language + category（P1 要求，统一口径；C3：三段归一 trim().toLowerCase()，读写同源）。 */
 export function buildTrendsCacheKey(board: TrendBoardId, opts: FetchTrendsOptions = {}): string {
+  const language = (opts.language ?? '').trim().toLowerCase();
+  const category = (opts.category ?? '').trim().toLowerCase();
+  return `${board}|${language}|${category}`;
+}
+
+/**
+ * 旧 key 兼容（C3 归一前形态：拼接不定大小写/空格，老库 orphan 行仍躺在旧 key 下）。
+ * 读侧在新 key miss 后试旧 key 一次并迁移到新 key；新写入一律用归一 key，key 形态不动。
+ */
+export function buildLegacyTrendsCacheKey(board: TrendBoardId, opts: FetchTrendsOptions = {}): string {
   return `${board}|${opts.language ?? ''}|${opts.category ?? ''}`;
 }
 
@@ -35,16 +96,58 @@ export function trendsBoardTtlMs(board: string): number {
 export function readTrendsCache(key: string, board: string): TrendRepo[] | undefined {
   const hit = trendsCache.get(key);
   if (!hit) return undefined;
-  if (Date.now() - hit.timestamp < trendsBoardTtlMs(board)) return hit.data;
+  // Phase2治理时钟钳制：elapsed<0（系统时钟回拨/未来戳）按过期处理，不返回 stale。
+  const elapsed = Date.now() - hit.timestamp;
+  if (elapsed < 0) {
+    trendsCache.delete(key);
+    return undefined;
+  }
+  if (elapsed < trendsBoardTtlMs(board)) return hit.data;
   trendsCache.delete(key);
   return undefined;
 }
 
 export function writeTrendsCache(key: string, data: TrendRepo[]): void {
+  // 刷新写序：已存在先删再插，使其成为最新；新插入触发 FIFO 裁剪时删最旧。
+  if (trendsCache.has(key)) trendsCache.delete(key);
   trendsCache.set(key, { timestamp: Date.now(), data });
+  // Phase2治理内存有界：写时 FIFO 删最旧，保证 ≤200 条。
+  while (trendsCache.size > TRENDS_CACHE_MAX_ENTRIES) {
+    const oldest = trendsCache.keys().next().value as string | undefined;
+    if (oldest === undefined) break;
+    if (oldest === key) break;
+    trendsCache.delete(oldest);
+  }
+}
+
+/**
+ * Phase2治理：切榜顺手 sweep 过期（fetchTrendsResult 入口调用，不加 setInterval timer）。
+ * trendsCache 按 key 首段 board 取对应 TTL 判定；doforce 单槽按 12h 判定；elapsed<0 按过期。
+ */
+export function sweepExpiredTrendsCache(): void {
+  const now = Date.now();
+  for (const [k, v] of trendsCache) {
+    const board = k.split('|')[0] ?? '';
+    const elapsed = now - v.timestamp;
+    if (elapsed < 0 || elapsed >= trendsBoardTtlMs(board)) trendsCache.delete(k);
+  }
+  if (doforceSharedCache) {
+    const elapsed = now - doforceSharedCache.timestamp;
+    if (elapsed < 0 || elapsed >= DOFORCE_CACHE_TTL_MS) doforceSharedCache = undefined;
+  }
 }
 
 export function buildDoforceCacheKey(opts: FetchTrendsOptions = {}): string {
+  // C3：归一 trim().toLowerCase()，与 buildTrendsCacheKey 同口径，读写同源（见 boards.ts:204/214/240）。
+  const language = (opts.language ?? '').trim().toLowerCase();
+  const category = (opts.category ?? '').trim().toLowerCase();
+  return `doforce|${language}|${category}`;
+}
+
+/**
+ * 旧 doforce key 兼容（归一前 `||` 形态，读侧 miss 后试一次并迁移；新写入一律归一 key）。
+ */
+export function buildLegacyDoforceCacheKey(opts: FetchTrendsOptions = {}): string {
   const language = opts.language || '';
   const category = opts.category || '';
   return `doforce|${language}|${category}`;
@@ -58,7 +161,9 @@ export const CMD_SAVE_TREND_BOARD_CACHE = 'save_trend_board_cache';
 /**
  * 榜单持久化信封 v1：
  * 包装榜单裸仓列表与对应的坐标 enrich 派生摘要。
- * enrich 键为小写 `owner/repo`，仅收录具真实平台且无 dataURI 的有效条目。
+ * enrich 键为小写 `owner/repo`，收录具真实平台与 pending 空平台条目（SWR 首屏直展，Other 待确认语义）；
+ * 仅禁 dataURI（图标 data: 开头一律不进盘）。
+ * 新鲜度复用落库 `cached_at` + 12h 有效 TTL（扣 key 稳定抖动），读侧 elapsed<0 按过期。
  */
 export interface TrendCacheEnvelopeV1 {
   v: 1;
@@ -76,8 +181,11 @@ interface DbTrendBoardCacheRow {
  * - 双形状解析：
  *   1) 纯数组 Array → 旧格式兼容，直接返回 TrendRepo[]；
  *   2) { v: 1, repos, enrich } 信封 → 新格式，repos 必须非空数组，enrich 逐项守卫后调 hydrateTrendEnrichCache 载入内存，并返回 repos；
- * - 命中且未过期（cached_at*1000 + TREND_DB_TTL_MS > now）返回解析后的 TrendRepo[]；
+ * - 命中且未过期返回解析后的 TrendRepo[]；过期判定含 Phase2 错峰抖动（见下）；
  * - 命令未就绪 / DB 损坏 / 反序列化失败 / 已过期一律降级返回 undefined（视为 miss 走网络）。
+ * Phase2治理：
+ * - 时钟钳制 elapsed<0 按过期；
+ * - L2 读 key 稳定抖动 0-30s 错峰，只扣减不延长（有效 TTL = 12h - min(jitter, 12h/4)）。
  */
 export async function getDbTrendCache(key: string, _board?: string): Promise<TrendRepo[] | undefined> {
   if (!isTauri) return undefined;
@@ -95,7 +203,9 @@ export async function getDbTrendCache(key: string, _board?: string): Promise<Tre
       return undefined;
     }
 
-    if (Date.now() - cachedAtSec * 1000 >= TREND_DB_TTL_MS) {
+    const elapsedMs = Date.now() - cachedAtSec * 1000;
+    if (elapsedMs < 0) return undefined;
+    if (elapsedMs >= trendL2EffectiveTtlMs(TREND_DB_TTL_MS, key)) {
       return undefined;
     }
 
@@ -116,7 +226,8 @@ export async function getDbTrendCache(key: string, _board?: string): Promise<Tre
         return undefined;
       }
 
-      // enrich 逐项守卫：id/owner/repo/icon 为 string 才收，过滤 dataURI 与空 platforms
+      // enrich 逐项守卫：id/owner/repo 非空即保留（无 token 时慢探不跑，enrich 常无图标，
+      // 重启直展要求 pending 允许 icon 空）；仅禁 dataURI；platforms 仅要求为数组。
       const guardedEnrich: Record<string, AppSummary> = {};
       if (envelope.enrich && typeof envelope.enrich === 'object') {
         for (const [rawKey, item] of Object.entries(envelope.enrich)) {
@@ -129,11 +240,11 @@ export async function getDbTrendCache(key: string, _board?: string): Promise<Tre
             candidate.owner.trim() !== '' &&
             typeof candidate.repo === 'string' &&
             candidate.repo.trim() !== '' &&
-            typeof candidate.icon === 'string' &&
-            candidate.icon.trim() !== '' &&
-            !candidate.icon.startsWith('data:') &&
-            Array.isArray(candidate.platforms) &&
-            candidate.platforms.length > 0
+            !(
+              typeof candidate.icon === 'string' &&
+              candidate.icon.startsWith('data:')
+            ) &&
+            Array.isArray(candidate.platforms)
           ) {
             guardedEnrich[rawKey.trim().toLowerCase()] = item as AppSummary;
           }
@@ -157,6 +268,10 @@ export async function getDbTrendCache(key: string, _board?: string): Promise<Tre
 /**
  * 写 DB L2 持久化缓存（fire-and-forget，不阻塞主流程，异常安全）。
  * - 第 4 参 enrich 可选：无参保持旧数组 JSON 写入；有参且合法时写入 { v: 1, repos, enrich } 信封。
+ * - SWR 富信封：pending 空平台随信封落盘（首屏直展 pending 卡，Other 待确认语义）；仅禁 dataURI。
+ * - Phase2治理字节上限：FE utf8ByteLength 预检 256KB；超限降级裸榜（去 enrich 重串），仍超限放弃写盘。
+ *   BE 512KiB 硬拒绝保持（见 db/cache.rs TREND_BOARD_CACHE_MAX_BYTES），FE 预检避免无谓 invoke。
+ * - 空榜/错误不污染 L2：repos 为空直接返回不写盘（调用方仅 ok 非空才调）。
  */
 export async function saveDbTrendCache(
   key: string,
@@ -171,7 +286,12 @@ export async function saveDbTrendCache(
       const sanitizedEnrich: Record<string, AppSummary> = {};
       for (const [k, summary] of Object.entries(enrich)) {
         if (!summary || typeof summary !== 'object') continue;
-        if (!Array.isArray(summary.platforms) || summary.platforms.length === 0) continue;
+        // 准入只看三件套：id/owner/repo 非空必填（有/无图标一视同仁，icon 空也保留）；仅禁 dataURI。
+        const s = summary as Partial<AppSummary>;
+        if (typeof s.id !== 'string' || s.id.trim() === '') continue;
+        if (typeof s.owner !== 'string' || s.owner.trim() === '') continue;
+        if (typeof s.repo !== 'string' || s.repo.trim() === '') continue;
+        if (!Array.isArray(summary.platforms)) continue;
         if (typeof summary.icon === 'string' && summary.icon.startsWith('data:')) continue;
         const cleanKey = k.trim().toLowerCase();
         if (cleanKey) {
@@ -184,8 +304,14 @@ export async function saveDbTrendCache(
         enrich: sanitizedEnrich,
       };
       payloadJson = JSON.stringify(envelope);
+      if (utf8ByteLength(payloadJson) > TREND_DB_PAYLOAD_MAX_BYTES) {
+        const bare = JSON.stringify(repos);
+        if (utf8ByteLength(bare) > TREND_DB_PAYLOAD_MAX_BYTES) return;
+        payloadJson = bare;
+      }
     } else {
       payloadJson = JSON.stringify(repos);
+      if (utf8ByteLength(payloadJson) > TREND_DB_PAYLOAD_MAX_BYTES) return;
     }
 
     await tauriInvoke(CMD_SAVE_TREND_BOARD_CACHE, {
@@ -200,14 +326,77 @@ export async function saveDbTrendCache(
   }
 }
 
-/** doforce 源数据共享缓存（rising/healthy 共用原始快照，各榜自行排序）。 */
+/** 榜单 repos 对应的 L2 enrich 键全集（坐标键 + id 键，小写），供合并时过滤仍属本榜的条目。 */
+function wantedEnrichKeys(repos: TrendRepo[]): Set<string> {
+  const out = new Set<string>();
+  for (const r of repos) {
+    if (r.owner && r.repo) {
+      out.add(`${r.owner.trim().toLowerCase()}/${r.repo.trim().toLowerCase()}`);
+    }
+    if (r.id) out.add(r.id.trim().toLowerCase());
+  }
+  return out;
+}
+
+/**
+ * 榜单写盘合并口（先读后写，防裸覆盖富）：
+ * - 内存快照（含 pending）与 L2 新鲜富信封中仍属本榜的条目合并；冲突时内存新值优先，
+ *   但内存 pending 永不覆盖 L2 已具平台值；
+ * - 合并后有富条目即存富信封，否则存裸数组；空榜直接返回不写盘。
+ * boards 主体落盘与 TrendsView 写透统一走此口，关闭前丢失/裸存覆盖即被堵住。
+ */
+export async function saveBoardCacheMerged(
+  key: string,
+  board: string,
+  repos: TrendRepo[],
+): Promise<void> {
+  if (!isTauri || !Array.isArray(repos) || repos.length === 0) return;
+  const wanted = wantedEnrichKeys(repos);
+  const merged: Record<string, AppSummary> = { ...snapshotTrendEnrichCache(repos) };
+  try {
+    const prev = await getDbTrendCache(key, board);
+    const prevEnrich = (prev as { enrich?: Record<string, AppSummary> } | undefined)?.enrich;
+    if (prevEnrich) {
+      for (const [k, v] of Object.entries(prevEnrich)) {
+        if (!wanted.has(k)) continue;
+        const cur = merged[k];
+        if (!cur) {
+          merged[k] = v;
+          continue;
+        }
+        const curHas = Array.isArray(cur.platforms) && cur.platforms.length > 0;
+        const prevHas = Array.isArray(v.platforms) && v.platforms.length > 0;
+        if (!curHas && prevHas) merged[k] = v;
+      }
+    }
+  } catch {
+    // 读旧失败即按内存快照落盘，不阻塞
+  }
+  if (Object.keys(merged).length > 0) {
+    await saveDbTrendCache(key, board, repos, merged);
+  } else {
+    await saveDbTrendCache(key, board, repos);
+  }
+}
+
+/**
+ * doforce 源数据共享缓存（rising/healthy 共用原始快照，各榜自行排序）。
+ * Phase2治理内存有界：单槽有界，仅保留最新一份快照（O(1)，不随榜/筛选膨胀）；
+ * 切榜 sweep 见 sweepExpiredTrendsCache，不加 timer。
+ */
 let doforceSharedCache: { timestamp: number; data: TrendRepo[] } | undefined;
 /** doforce 在途共享 Promise（并发的 rising/healthy 复用同一请求，防 2 连击）。 */
 let doforceInflight: Promise<TrendRepo[]> | undefined;
 
 export function readDoforceShared(): TrendRepo[] | undefined {
   if (!doforceSharedCache) return undefined;
-  if (Date.now() - doforceSharedCache.timestamp < DOFORCE_CACHE_TTL_MS) {
+  // Phase2治理时钟钳制：elapsed<0 按过期。
+  const elapsed = Date.now() - doforceSharedCache.timestamp;
+  if (elapsed < 0) {
+    doforceSharedCache = undefined;
+    return undefined;
+  }
+  if (elapsed < DOFORCE_CACHE_TTL_MS) {
     return doforceSharedCache.data;
   }
   doforceSharedCache = undefined;

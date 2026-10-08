@@ -8,19 +8,28 @@ import { tauriApi } from '../api';
 import { zlogInfo, zlogWarn } from '../../lib/z-log';
 import {
   buildDoforceCacheKey,
+  buildLegacyDoforceCacheKey,
+  buildLegacyTrendsCacheKey,
   buildTrendsCacheKey,
   getDbTrendCache,
   getDoforceInflight,
   readDoforceShared,
   readTrendsCache,
+  saveBoardCacheMerged,
   saveDbTrendCache,
   setDoforceInflight,
+  sweepExpiredTrendsCache,
   writeDoforceShared,
   writeTrendsCache,
 } from './cache';
-import { hydrateTrendEnrichCache } from './enrich';
+import {
+  hydrateTrendEnrichCache,
+  snapshotTrendEnrichCache,
+  sweepExpiredTrendEnrichCache,
+} from './enrich';
 import {
   classifyTrendsError,
+  compareStarsGainedDesc,
   doforceRetryDelayMs,
   errorStatusOf,
   mapDoforceItem,
@@ -172,6 +181,40 @@ async function runBoardFetch(
   }
 }
 
+/**
+ * L2 读（含旧 key 兼容）：新 key miss 后试归一前旧 key 一次并迁移到新 key。
+ * 迁移内容为同 payload 富信封（hydrate 已由 getDbTrendCache 完成），L1 按新 key 写，L2 补存新 key。
+ */
+async function getDbTrendCacheWithLegacyKey(
+  newKey: string,
+  board: string,
+  legacyKey: string,
+): Promise<TrendRepo[] | undefined> {
+  const hit = await getDbTrendCache(newKey, board);
+  if (hit && hit.length > 0) return hit;
+  if (!legacyKey || legacyKey === newKey) return hit ?? undefined;
+  const legacyHit = await getDbTrendCache(legacyKey, board);
+  if (!legacyHit || legacyHit.length === 0) return hit ?? undefined;
+  const enrich = (legacyHit as { enrich?: Record<string, import('../../types').AppSummary> }).enrich;
+  const memSnap = snapshotTrendEnrichCache(legacyHit);
+  const toMigrate = Object.keys(memSnap).length > 0 ? memSnap : enrich;
+  writeTrendsCache(newKey, legacyHit);
+  // 迁移写盘：富信封优先（读路径内 await，丢了下次再迁）。
+  await saveDbTrendCache(newKey, board, legacyHit, toMigrate);
+  zlogInfo(`[trends] board=${board} L2-key migrated legacy=>new reposCount=${legacyHit.length}`);
+  return legacyHit;
+}
+
+function l2HitLog(board: string, key: string, dbHit: TrendRepo[]): void {
+  const enrich = (dbHit as { enrich?: Record<string, unknown> }).enrich;
+  const hasEnrich = !!enrich && typeof enrich === 'object';
+  const enrichCount = hasEnrich ? Object.keys(enrich as Record<string, unknown>).length : 0;
+  zlogInfo(
+    `[trends] board=${board} L2-cache hit key=${key} hasEnrich=${hasEnrich} ` +
+      `enrichCount=${enrichCount} reposCount=${dbHit.length}`,
+  );
+}
+
 async function fetchBoardWithL2(
   board: TrendBoardId,
   key: string,
@@ -182,12 +225,12 @@ async function fetchBoardWithL2(
     const hit = readTrendsCache(key, board);
     if (hit) return { repos: hit, status: 'ok' };
 
-    const dbHit = await getDbTrendCache(key, board);
+    const dbHit = await getDbTrendCacheWithLegacyKey(key, board, buildLegacyTrendsCacheKey(board, opts));
     if (dbHit && dbHit.length > 0) {
       const enrich = (dbHit as { enrich?: Record<string, import('../../types').AppSummary> }).enrich;
       if (enrich) hydrateTrendEnrichCache(enrich);
       writeTrendsCache(key, dbHit);
-      zlogInfo(`[trends] board=${board} L2-cache hit count=${dbHit.length}`);
+      l2HitLog(board, key, dbHit);
       return { repos: dbHit, status: 'ok' };
     }
   }
@@ -195,7 +238,8 @@ async function fetchBoardWithL2(
   const result = await load();
   if (result.status === 'ok') {
     writeTrendsCache(key, result.repos);
-    await saveDbTrendCache(key, board, result.repos);
+    // SWR 合并写盘：先读后写，主体裸存不得覆盖已有富信封；空榜/错误不污染 L2。
+    await saveBoardCacheMerged(key, board, result.repos);
   }
   return result;
 }
@@ -254,12 +298,28 @@ async function fetchDoforceShared(opts: FetchTrendsOptions = {}): Promise<TrendR
   slot.current = (async (): Promise<TrendRepo[]> => {
     try {
       if (!forceRefresh) {
-        const dbHit = await getDbTrendCache(key, 'doforce');
+        let dbHit = await getDbTrendCache(key, 'doforce');
+        if ((!dbHit || dbHit.length === 0) && buildLegacyDoforceCacheKey(opts) !== key) {
+          const legacyHit = await getDbTrendCache(buildLegacyDoforceCacheKey(opts), 'doforce');
+          if (legacyHit && legacyHit.length > 0) {
+            const enrich = (legacyHit as { enrich?: Record<string, import('../../types').AppSummary> }).enrich;
+            const memSnap = snapshotTrendEnrichCache(legacyHit);
+            const toMigrate = Object.keys(memSnap).length > 0 ? memSnap : enrich;
+            await saveDbTrendCache(key, 'doforce', legacyHit, toMigrate);
+            zlogInfo(`[trends] board=doforce L2-key migrated legacy=>new reposCount=${legacyHit.length}`);
+            dbHit = legacyHit;
+          }
+        }
         if (dbHit && dbHit.length > 0) {
           const enrich = (dbHit as { enrich?: Record<string, import('../../types').AppSummary> }).enrich;
           if (enrich) hydrateTrendEnrichCache(enrich);
           writeDoforceShared(dbHit);
-          zlogInfo(`[trends] doforce L2-cache hit count=${dbHit.length}`);
+          const hasEnrich = !!enrich && typeof enrich === 'object';
+          const enrichCount = hasEnrich ? Object.keys(enrich as Record<string, unknown>).length : 0;
+          zlogInfo(
+            `[trends] board=doforce L2-cache hit key=${key} hasEnrich=${hasEnrich} ` +
+              `enrichCount=${enrichCount} reposCount=${dbHit.length}`,
+          );
           return dbHit;
         }
       }
@@ -267,7 +327,8 @@ async function fetchDoforceShared(opts: FetchTrendsOptions = {}): Promise<TrendR
       const repos = await fetchDoforceWithRetry();
       if (repos.length > 0) {
         writeDoforceShared(repos);
-        await saveDbTrendCache(key, 'doforce', repos);
+        // SWR 合并写盘：裸存不得覆盖已有富信封。
+        await saveBoardCacheMerged(key, 'doforce', repos);
       }
       return repos;
     } finally {
@@ -282,7 +343,8 @@ async function fetchRisingBoardResult(opts: FetchTrendsOptions): Promise<TrendsR
   return runBoardFetch('rising', 'doforce', async () => {
     const repos = await fetchDoforceShared(opts);
     if (repos.length === 0) return [];
-    return [...repos].sort((a, b) => (b.starsGained ?? 0) - (a.starsGained ?? 0));
+    // C2：undefined 恒沉底、tie 按 id 升序（compareStarsGainedDesc SSOT）。
+    return [...repos].sort(compareStarsGainedDesc);
   });
 }
 
@@ -304,6 +366,9 @@ export async function fetchTrendsResult(
   board: TrendBoardId,
   opts: FetchTrendsOptions = {},
 ): Promise<TrendsResult> {
+  // Phase2治理：切榜顺手 sweep 过期（L1 trendsCache/doforce 单槽 + enrich 12h），不加 setInterval timer。
+  sweepExpiredTrendsCache();
+  sweepExpiredTrendEnrichCache();
   if (isTimeBoard(board)) {
     return fetchTimeBoardResult(board, opts);
   }

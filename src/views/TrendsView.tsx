@@ -22,7 +22,7 @@ import {
   enrichTrendRepos,
   formatStars,
   matchCatalogApp,
-  saveDbTrendCache,
+  saveBoardCacheMerged,
   snapshotTrendEnrichCache,
   TREND_BOARD_IDS,
   type DetailPlatformsHealPayload,
@@ -121,6 +121,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     isLoading,
     errorKind,
     handleRetry,
+    trendFetchOpts,
   } = useTrendBoard('weekly');
 
   // 未收录行 enrichment 结果（键为小写 owner/repo）：命中即完整 AppCard，
@@ -272,7 +273,37 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     onDisplayPlatformCounts?.(displayPlatformCounts);
   }, [displayPlatformCounts, onDisplayPlatformCounts]);
 
-  // 未收录行 enrichment：逐仓复用搜索 enrichment（Rust 侧并发 5、上限 20、单仓 10s），
+  // SWR 旧富卡直展：L2 富信封（含 pending 空平台卡）命中后 boards 已 hydrate 进内存，
+  // 此处同步合并进 enrichedApps 先展旧富卡（含 pending 的 Other 待确认语义），不闪裸行；
+  // 后台 enrich effect 再 revalidate 缺席项，找到具平台再覆盖写透；永不用空值覆盖已具平台值。
+  // 富/裸以 enriched 存在为准，不用 icon 判定（有/无图标一视同仁）；图标回填只做升级（空不覆盖实）。
+  useEffect(() => {
+    if (trendResult?.status !== 'ok' || trendResult.repos.length === 0) return;
+    const snap = snapshotTrendEnrichCache(trendResult.repos);
+    if (Object.keys(snap).length === 0) return;
+    setEnrichedApps((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const [k, v] of Object.entries(snap)) {
+        const cur = next[k];
+        if (!cur) {
+          next[k] = v;
+          changed = true;
+          continue;
+        }
+        const curHas = !!cur.platforms && cur.platforms.length > 0;
+        const incHas = !!v.platforms && v.platforms.length > 0;
+        if (!curHas && incHas) {
+          next[k] =
+            v.icon.trim() === '' && cur.icon.trim() !== '' ? { ...v, icon: cur.icon } : v;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [trendResult]);
+
+  // 未收录行 enrichment：逐仓复用搜索 enrichment（Rust 侧并发 5、分片 20/片×2 片=40 上限、单仓 10s），
   // 成功合并为完整卡片；失败/无命中保持旧小行（enrichTrendRepos 缺席即不写）。
   // 详情已治愈的行不被空回填覆盖（空 pending 永不覆盖具真实平台的已治愈值，单次落定）。
   useEffect(() => {
@@ -285,9 +316,10 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     }
     if (missing.size === 0) return;
     let cancelled = false;
-    void enrichTrendRepos([...missing.values()]).then((found) => {
+    // 写透时机：enrich 完成即同步 await 写透一次（关闭前 fire-and-forget 易丢，见下卸载 flush）。
+    void enrichTrendRepos([...missing.values()]).then(async (found) => {
       if (cancelled || found.size === 0) return;
-      let hasNewWithPlatforms = false;
+      let hasNewEnrich = false;
       setEnrichedApps((prev) => {
         let changed = false;
         const next = { ...prev };
@@ -297,29 +329,72 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
           const prevHasPlatforms = !!prevApp?.platforms && prevApp.platforms.length > 0;
           // 详情治愈优先：已具真实平台的行不被空 enrich 回填覆盖，避免治愈后回闪 pending/Other
           if (incomingEmpty && prevHasPlatforms) continue;
-          if (next[key] !== app) {
-            next[key] = app;
+          // 图标回填只做升级：入项无图标但旧项有真实图标时保留旧图标（有/无图标一视同仁进富卡）
+          const mergedApp =
+            app.icon.trim() === '' &&
+            prevApp &&
+            typeof prevApp.icon === 'string' &&
+            prevApp.icon.trim() !== ''
+              ? { ...app, icon: prevApp.icon }
+              : app;
+          if (next[key] !== mergedApp) {
+            next[key] = mergedApp;
             changed = true;
-            if (!incomingEmpty && !prevHasPlatforms) {
-              hasNewWithPlatforms = true;
+            if (!prevHasPlatforms) {
+              hasNewEnrich = true;
             }
           }
         }
         return changed ? next : prev;
       });
-      // enrich useEffect落定后若有新增具平台条目则saveDbTrendCache重存同榜key（fire-and-forget，刷新cached_at即刷新12h窗口）
-      if (hasNewWithPlatforms && trendResult.repos.length > 0) {
+      // enrich 落定后写透同榜 key（await 落稳再返回，刷新 cached_at 即刷新 12h 窗口）：
+      // SWR 富信封含 pending 直展，具平台与 pending 新项均可写透升级 L2（合并写盘防裸覆盖）；
+      // P1-C3 读写同源：写透 key 与 boards 读路径同源（同 board + 同 trendFetchOpts），
+      // 杜绝丢 opts 导致读写分叉；settle 兜底的 Other 只进内存 trendConfirmedOtherIds，
+      // 永不进 snapshot 写透（snapshot 仅读内存 enrich 缓存，确认集合不在盘内）。
+      if (hasNewEnrich && trendResult.repos.length > 0) {
         const isDoforceBoard = activeBoard === 'rising' || activeBoard === 'healthy';
-        const cacheKey = isDoforceBoard ? buildDoforceCacheKey() : buildTrendsCacheKey(activeBoard);
+        const cacheKey = isDoforceBoard
+          ? buildDoforceCacheKey(trendFetchOpts)
+          : buildTrendsCacheKey(activeBoard, trendFetchOpts);
         const cacheBoard = isDoforceBoard ? 'doforce' : activeBoard;
-        const enrichSnapshot = snapshotTrendEnrichCache(trendResult.repos);
-        void saveDbTrendCache(cacheKey, cacheBoard, trendResult.repos, enrichSnapshot);
+        await saveBoardCacheMerged(cacheKey, cacheBoard, trendResult.repos);
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [trendResult, displayItems, enrichedApps, activeBoard]);
+  }, [trendResult, displayItems, enrichedApps, activeBoard, trendFetchOpts]);
+
+  // 卸载前再刷一次：关闭/切走时 enrich 可能刚落定，同步 flush 当前榜快照兜底（有富条目才写，防裸覆盖）。
+  const writeThroughRef = useRef({
+    cacheKey: '',
+    cacheBoard: '' as TrendBoardId | 'doforce',
+    repos: [] as TrendRepo[],
+  });
+  if (trendResult?.status === 'ok' && trendResult.repos.length > 0) {
+    const isDoforceBoard = activeBoard === 'rising' || activeBoard === 'healthy';
+    writeThroughRef.current = {
+      cacheKey: isDoforceBoard
+        ? buildDoforceCacheKey(trendFetchOpts)
+        : buildTrendsCacheKey(activeBoard, trendFetchOpts),
+      cacheBoard: isDoforceBoard ? 'doforce' : activeBoard,
+      repos: trendResult.repos,
+    };
+  }
+  useEffect(() => {
+    const flush = (): void => {
+      const { cacheKey, cacheBoard, repos } = writeThroughRef.current;
+      if (!cacheKey || repos.length === 0) return;
+      if (Object.keys(snapshotTrendEnrichCache(repos)).length === 0) return;
+      void saveBoardCacheMerged(cacheKey, cacheBoard, repos);
+    };
+    window.addEventListener('pagehide', flush);
+    return () => {
+      flush();
+      window.removeEventListener('pagehide', flush);
+    };
+  }, []);
 
   // 详情治愈即时补齐：App 侧详情成功带回真实平台后派发事件，
   // 此处将摘要 upsert 进 enrichedApps，未收录行一次落定为 OS 图标（无需等下次 enrich）。
@@ -346,7 +421,14 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
           if (keySet.has(k.toLowerCase())) {
             const cur = prev[k];
             if (!cur.platforms || cur.platforms.length === 0) {
-              next[k] = { ...payload.summary, platforms: [...payload.platforms] };
+              // 图标回填只做升级：治愈摘要无图标但旧 pending 有真实图标时保留旧图标
+              const keepIcon =
+                payload.summary.icon.trim() === '' && cur.icon.trim() !== '';
+              next[k] = {
+                ...payload.summary,
+                platforms: [...payload.platforms],
+                ...(keepIcon ? { icon: cur.icon } : null),
+              };
               changed = true;
             }
           }

@@ -57,8 +57,10 @@ describe('trends L2 persistence cache', () => {
   it('buildDoforceCacheKey builds filter-aware key', () => {
     expect(buildDoforceCacheKey()).toBe('doforce||');
     expect(buildDoforceCacheKey({})).toBe('doforce||');
+    // C3 key归一：language/category 统一 trim().toLowerCase()，读写同源
     expect(buildDoforceCacheKey({ language: 'rust' })).toBe('doforce|rust|');
-    expect(buildDoforceCacheKey({ language: 'rust', category: 'cli' })).toBe('doforce|rust|cli');
+    expect(buildDoforceCacheKey({ language: ' Rust ', category: ' CLI ' })).toBe('doforce|rust|cli');
+    expect(buildDoforceCacheKey({ language: 'Rust', category: 'CLI' })).toBe('doforce|rust|cli');
     expect(DOFORCE_SHARED_CACHE_KEY).toBe('doforce||');
   });
 

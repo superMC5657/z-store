@@ -12,6 +12,7 @@ pub mod oauth;
 pub mod scanner;
 pub mod settings;
 pub mod system;
+pub mod trends_cache;
 pub mod updates;
 
 #[cfg(test)]
@@ -28,6 +29,7 @@ pub use oauth::*;
 pub use scanner::*;
 pub use settings::*;
 pub use system::*;
+pub use trends_cache::*;
 pub use updates::*;
 
 pub use catalog::{catalog_detail, catalog_feed, catalog_search, catalog_sync};

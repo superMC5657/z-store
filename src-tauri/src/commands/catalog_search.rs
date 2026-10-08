@@ -483,7 +483,8 @@ pub struct TrendEnrichRequest {
 /// （`fetch_online_repo` → `fallback_summary`，图标 initials 回退/分类猜测沿用，platforms 未知置空 []）。
 /// 配额/鉴权沿用既有链路（`resolve_active_github_token` + 内层 `notify_rate_limit`）。
 /// - 并发上限 5（`buffered` 保序，返回与入参一一对齐）；单仓 `api_timeout_or(10s)` 熔断；
-/// - 单仓失败落 `None`（前端保留旧小行，榜单永不因此变空）；入参上限 20（单榜页量级）。
+/// - 单仓失败落 `None`（前端保留旧小行，榜单永不因此变空）；
+///   入参上限 40（Phase2分片：FE 分片串行 20/片×2 片，上限 40；BE 侧 take(40) 截断，buffered(5) 不变）。
 /// - 无后台慢探 emit：enrich 结果由 TrendsView 本地持有，`search-icon-ready` 订阅方
 ///   （App.tsx 世代门控）无对应 search_id，emit 无人消费；慢探由
 ///   `fallback_summary(probe=true)` 在单仓超时内同步完成，命中经下方批量 enrich 落库。
@@ -494,9 +495,10 @@ pub async fn enrich_trend_repos(
 ) -> crate::AppResult<Vec<Option<AppSummary>>> {
     use futures_util::StreamExt;
     let enrich_start = std::time::Instant::now();
+    // Phase2分片：FE 已按 20/片×2 片串行（上限 40），此处 take(40) 为兜底截断，不静默吃超量。
     let targets: Vec<(String, String, String)> = repos
         .into_iter()
-        .take(20)
+        .take(40)
         .map(|r| {
             let owner = r.owner.trim().to_string();
             let repo = r.repo.trim().to_string();

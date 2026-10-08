@@ -73,7 +73,7 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
 ## 8. 禁 sqlite 声明
 
 - 日志**只进 LogDir**，禁止写入业务 SQLite（`z_store.db`：已安装记录 / 设置 / 令牌 /
-  更新规则 / 足迹等 15 张核心表（含 `trend_board_cache` / `search_result_cache` 趋势搜索L2缓存与 `icon_cache_meta` / `app_icon_cycles` 图标缓存分流两表），与日志物理隔离）。
+  更新规则 / 足迹等 14 张核心表（含 `trend_board_cache` 趋势榜 L2 缓存与 `icon_cache_meta` / `app_icon_cycles` 图标缓存分流两表），与日志物理隔离）。
 - panic hook 仅记 `log::error!` 落盘，不写 DB、不上报。
 - 磁盘库（`z_store.db`）打不开回退内存库时记一条 `error`
  （`src-tauri/src/lib.rs::run` 约 L331–L336，
@@ -120,7 +120,7 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
 | 镜像切换 `mirror.rs::set_active_mirror` | info | `mirror switch id=… proxy='…'`（代理只记脱敏展示值） |
 | 测速结果 `commands/network.rs::test_proxy`（调用方记） | info/warn | `proxy test ok latency_ms=210` / `proxy test failed latency_ms=9999 reason=…`（不记被测 URL） |
 | 下载命中跳过 `installer/downloader.rs::SkipDone::finish` | info | `download skipped sid=… req=… id=… host=… file=… bytes=… elapsed_ms=…`（零网络，`should_skip_download` 命中：本地存在且大小>0 且 SHA-256 与期望一致） |
-| 趋势文本拒绝/失败 `commands/network.rs::fetch_trends_text` | warn | `trends text rejected sid=… req=… reason=…` / `trends text timeout …` / `trends text network fail …` / `trends text upstream … status=…` / `trends text read fail …` / `trends text upstream too large …` / `trends text decode fail …`（只记 host，不记 query/URL） |
+| 趋势文本拒绝/失败 `commands/network.rs::fetch_trends_text` | warn | `trends text rejected sid=… req=… reason=…` / `trends text timeout …` / `trends text network fail …` / `trends text upstream … status=…` / `trends text rate-limited … status=429 retry_after='…' retry_after_ms=…` / `trends text read fail …` / `trends text upstream too large …` / `trends text decode fail …`（只记 host，不记 query/URL；429 不占单飞槽计数） |
 
 ### 第二层：debug（release 不可见）
 
@@ -165,6 +165,6 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
 - `src-tauri/src/oauth/device_flow.rs`、`star.rs`：轮询 debug、401/403 warn。
 - `src-tauri/src/commands/scanner.rs`：扫描起止 info。
 - `src-tauri/src/mirror.rs`：切换 info（`set_active_mirror`）。
-- `src-tauri/src/commands/network.rs`：测速 info/warn、ping debug。
+- `src-tauri/src/commands/network.rs`：测速 info/warn、ping debug；趋势文本拒绝/限流/上游 warn、起止 debug。
 
 行号以当前代码为准，例如：`rg -n "download start|download done|oauth login ok" src-tauri/src`。

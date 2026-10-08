@@ -1,17 +1,71 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
 import { tauriApi } from '../../services/api';
 import {
   boardGainKey,
   fetchTrendsResult,
   normalizeProxyPrefix,
   resolveTrendBoard,
+  type FetchTrendsOptions,
   type TrendBoardId,
   type TrendsErrorKind,
   type TrendsResult,
 } from '../../services/trends';
 
+/**
+ * 趋势榜选项卡记忆键：localStorage 单一来源（同步读写，首绘即恢复，无闪切）。
+ * 信封 `{ board }` 预留 language/category 扩展位；读兼容裸字符串/JSON 字符串旧写。
+ */
+export const TREND_BOARD_STORAGE_KEY = 'zstore.trends.opts';
+
+/** 同步读上次选中的榜单：缺失/损坏/非法一律回落 'weekly'（经 SSOT resolve）。 */
+export function loadPersistedTrendBoard(): TrendBoardId | undefined {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return undefined;
+    const raw = window.localStorage.getItem(TREND_BOARD_STORAGE_KEY);
+    if (!raw) return undefined;
+    let candidate: unknown = raw;
+    try {
+      candidate = JSON.parse(raw);
+    } catch {
+      candidate = raw;
+    }
+    if (typeof candidate === 'string') {
+      return candidate ? resolveTrendBoard(candidate) : undefined;
+    }
+    if (candidate && typeof candidate === 'object') {
+      const b = (candidate as { board?: unknown }).board;
+      if (typeof b === 'string' && b) return resolveTrendBoard(b);
+      return undefined;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** 同步写当前榜单（切换时调用；写失败静默忽略，不影响榜单展示）。 */
+export function persistTrendBoard(board: TrendBoardId): void {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    window.localStorage.setItem(
+      TREND_BOARD_STORAGE_KEY,
+      JSON.stringify({ board: resolveTrendBoard(board) }),
+    );
+  } catch {
+    // 配额/隐私模式写失败：本次会话仍可用内存态，忽略。
+  }
+}
+
 export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
-  const [board, setBoard] = useState<TrendBoardId>(initialBoard);
+  // 选项卡记忆：localStorage 同步读（首绘即正确榜，无闪切）。
+  // 未选用 Rust 设置表通道：getSettings 为异步，首屏前无法同步注水，
+  // 会先闪 weekly 再跳榜；localStorage 即单一来源。
+  const [board, setBoardState] = useState<TrendBoardId>(() => {
+    const persisted = loadPersistedTrendBoard();
+    if (persisted !== undefined) return persisted;
+    return resolveTrendBoard(initialBoard);
+  });
   // null = 加载中；非 null 按 status 分流：error → 错误面板，empty/ok → 列表或空状态。
   const [trendResult, setTrendResult] = useState<TrendsResult | null>(null);
   // 重试计数：递增即重触发抓取 effect。
@@ -29,6 +83,14 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
   // 仅 status==='error' 才展示错误文案； genuine empty（status==='empty'）绝不走错误面板。
   const errorKind: TrendsErrorKind | undefined =
     trendResult?.status === 'error' ? (trendResult.errorKind ?? 'unavailable') : undefined;
+
+  // P1-C3 读写同源：抓取所用的 opts 即缓存键所用的 opts（与 boards.ts:204/214/240 同源）。
+  // 当前仅含 proxyPrefix（builders 忽略该字段，仅 language/category 参与键）；后续若接入
+  // language/category 筛选，此处一并透传即可保证 L1/L2 读写同 key。
+  const trendFetchOpts: FetchTrendsOptions = useMemo(
+    () => (proxyPrefix ? { proxyPrefix } : {}),
+    [proxyPrefix],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -57,7 +119,7 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
     let isMounted = true;
     setTrendResult(null);
 
-    fetchTrendsResult(activeBoard, proxyPrefix ? { proxyPrefix } : {})
+    fetchTrendsResult(activeBoard, trendFetchOpts)
       .then((res) => {
         if (!isMounted) return;
         setTrendResult(res);
@@ -71,9 +133,26 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
     return () => {
       isMounted = false;
     };
-  }, [activeBoard, proxyPrefix, proxyReady, retryCount]);
+  }, [activeBoard, proxyReady, retryCount, trendFetchOpts]);
 
   const handleRetry = () => setRetryCount((c) => c + 1);
+
+  // 切换即同步写盘（与榜单内容无关；非法值经 SSOT 回落 weekly）。
+  const setBoard: Dispatch<SetStateAction<TrendBoardId>> = useCallback((next) => {
+    if (typeof next === 'function') {
+      setBoardState((prev) => {
+        const resolved = resolveTrendBoard(
+          (next as (p: TrendBoardId) => TrendBoardId)(prev),
+        );
+        persistTrendBoard(resolved);
+        return resolved;
+      });
+      return;
+    }
+    const resolved = resolveTrendBoard(next);
+    persistTrendBoard(resolved);
+    setBoardState(resolved);
+  }, []);
 
   return {
     board,
@@ -85,5 +164,6 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
     isLoading,
     errorKind,
     handleRetry,
+    trendFetchOpts,
   };
 }

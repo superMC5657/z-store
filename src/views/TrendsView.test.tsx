@@ -73,6 +73,11 @@ import {
   trendingHtmlFixture,
 } from './test-utils/trendFixture';
 import { makeApp } from './test-utils/filterFixture';
+import {
+  loadPersistedTrendBoard,
+  persistTrendBoard,
+  TREND_BOARD_STORAGE_KEY,
+} from './TrendsView/useTrendBoard';
 import { tauriApi } from '../services/api';
 import { zlogInfo, zlogWarn } from '../lib/z-log';
 
@@ -204,9 +209,13 @@ describe('P0: 旧加权公式与 dead 数据源已彻底删除', () => {
 
   it('缓存键 = board + language + category', () => {
     expect(buildTrendsCacheKey('weekly')).toBe('weekly||');
-    expect(buildTrendsCacheKey('weekly', { language: 'Python' })).toBe('weekly|Python|');
+    // C3 key归一：language/category 统一 trim().toLowerCase()
+    expect(buildTrendsCacheKey('weekly', { language: 'Python' })).toBe('weekly|python|');
     expect(buildTrendsCacheKey('healthy', { category: 'media' })).toBe('healthy||media');
-    expect(buildTrendsCacheKey('weekly', { language: 'Go', category: 'dev' })).toBe('weekly|Go|dev');
+    expect(buildTrendsCacheKey('weekly', { language: 'Go', category: 'dev' })).toBe('weekly|go|dev');
+    expect(buildTrendsCacheKey('weekly', { language: ' Python ', category: ' Media ' })).toBe(
+      'weekly|python|media',
+    );
   });
 });
 
@@ -903,6 +912,114 @@ describe('TrendsView 平台过滤与榜单口径计数', () => {
         android: 0,
         other: 3,
       });
+    });
+  });
+});
+
+describe('TrendsView 榜单选项卡记忆（zstore.trends.opts）', () => {
+  (globalThis as Record<string, unknown>)['IS_REACT_ACT_ENVIRONMENT'] = true;
+
+  type EnrichFn = (repos: { owner: string; repo: string }[]) => Promise<(AppSummary | null)[]>;
+  let enrichSpy: MockInstance<EnrichFn>;
+  let settingsSpy: MockInstance<() => Promise<Record<string, string>>>;
+
+  beforeEach(async () => {
+    await i18n.changeLanguage('zh-CN');
+    window.localStorage.clear();
+    settingsSpy = vi.spyOn(tauriApi, 'getSettings').mockResolvedValue({});
+  });
+
+  afterEach(() => {
+    enrichSpy?.mockRestore();
+    settingsSpy.mockRestore();
+    window.localStorage.clear();
+    cleanup();
+  });
+
+  function renderBoard() {
+    return render(
+      <TrendsView
+        apps={[makeApp({ id: 'other/app', name: 'Other' })]}
+        favoriteIds={new Set<string>()}
+        installedIds={new Set<string>()}
+        installingIds={new Set<string>()}
+        onOpenDetail={() => {}}
+        onQuickInstall={() => {}}
+        onToggleFavorite={() => {}}
+        onResetPlatformFilter={() => {}}
+      />,
+    );
+  }
+
+  function activeTabLabel(container: HTMLElement): string | null {
+    return container.querySelector('[role="tab"].active')?.textContent ?? null;
+  }
+
+  it('load/persist 单元：缺失→undefined，信封往返，非法/损坏→weekly', () => {
+    expect(loadPersistedTrendBoard()).toBeUndefined();
+    window.localStorage.setItem(TREND_BOARD_STORAGE_KEY, JSON.stringify({ board: 'monthly' }));
+    expect(loadPersistedTrendBoard()).toBe('monthly');
+    // 已下线残留榜回落 weekly（SSOT resolve）
+    window.localStorage.setItem(TREND_BOARD_STORAGE_KEY, JSON.stringify({ board: 'top' }));
+    expect(loadPersistedTrendBoard()).toBe('weekly');
+    window.localStorage.setItem(TREND_BOARD_STORAGE_KEY, JSON.stringify({ board: 'category' }));
+    expect(loadPersistedTrendBoard()).toBe('weekly');
+    // 裸字符串 / JSON 字符串兼容
+    window.localStorage.setItem(TREND_BOARD_STORAGE_KEY, 'rising');
+    expect(loadPersistedTrendBoard()).toBe('rising');
+    window.localStorage.setItem(TREND_BOARD_STORAGE_KEY, '"healthy"');
+    expect(loadPersistedTrendBoard()).toBe('healthy');
+    // 损坏载荷回落 weekly（不抛错）
+    window.localStorage.setItem(TREND_BOARD_STORAGE_KEY, '{bad');
+    expect(loadPersistedTrendBoard()).toBe('weekly');
+    persistTrendBoard('monthly');
+    expect(window.localStorage.getItem(TREND_BOARD_STORAGE_KEY)).toBe(
+      JSON.stringify({ board: 'monthly' }),
+    );
+  });
+
+  it('跨 reload 恢复：切 monthly→重挂仍是 monthly 且首抓 monthly（走 L1→L2→网络，非 force）', async () => {
+    trendingHtml = trendingHtmlFixture();
+    enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockRejectedValue(new Error('offline'));
+    const first = renderBoard();
+    await screen.findByText('acme/atlas');
+    // 6 榜顺序 daily/weekly/monthly/new/rising/healthy → monthly 下标 2
+    const tabs = first.container.querySelectorAll('[role="tab"]');
+    expect(tabs).toHaveLength(6);
+    fireEvent.click(tabs[2]);
+    expect(window.localStorage.getItem(TREND_BOARD_STORAGE_KEY)).toBe(
+      JSON.stringify({ board: 'monthly' }),
+    );
+    await waitFor(() => {
+      expect(
+        requestedUrls.some((u) => u.includes('github.com/trending') && u.includes('since=monthly')),
+      ).toBe(true);
+    });
+    // 模拟重启：卸载 + 清内存 L1（localStorage 保留，上限 12h 的 L2 由缓存层判定）
+    first.unmount();
+    cleanup();
+    clearTrendsCache();
+    requestedUrls.length = 0;
+    const second = renderBoard();
+    // 首绘即 monthly（同步恢复，无闪切）：active tab 直接为月趋势
+    expect(activeTabLabel(second.container)).toBe('月趋势');
+    await screen.findByText('acme/atlas');
+    // 重启首抓走现有 L1→L2→网络路径：L1 已清、单测无 L2，即正常触发一次 monthly 抓取
+    await waitFor(() => {
+      expect(requestedUrls.some((u) => u.includes('since=monthly'))).toBe(true);
+    });
+    expect(requestedUrls.some((u) => u.includes('since=weekly'))).toBe(false);
+  });
+
+  it('非法值回落 weekly：残留 top 直接展周榜', async () => {
+    trendingHtml = trendingHtmlFixture();
+    enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockRejectedValue(new Error('offline'));
+    window.localStorage.setItem(TREND_BOARD_STORAGE_KEY, JSON.stringify({ board: 'top' }));
+    const { container } = renderBoard();
+    expect(activeTabLabel(container)).toBe('周趋势');
+    await screen.findByText('acme/atlas');
+    await waitFor(() => {
+      expect(requestedUrls.some((u) => u.includes('since=weekly'))).toBe(true);
     });
   });
 });

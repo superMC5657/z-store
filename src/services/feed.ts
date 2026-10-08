@@ -28,22 +28,49 @@ export function resolveHero(apps: AppSummary[]): AppSummary | undefined {
   return apps.find((a) => a.id === 'rustdesk/rustdesk') ?? apps[0];
 }
 
-/** FNV-1a + seed 混合：同一 (id, seed) 必得同一抖动，换 seed 即换一批。 */
+/**
+ * FNV-1a 64 + seed 混合：同一 (id, seed) 必得同一抖动，换 seed 即换一批。
+ *
+ * 前后端映射（后端哈希不动，前端向后端对齐）：
+ * - 后端 canonical：`src-tauri/src/github/catalog_feed_score.rs::fnv1a64_with_seed`
+ *   `h = OFFSET(0xcbf29ce484222325) ^ seed` 起步，按 UTF-8 字节 `h ^= b; h *= PRIME(0x100000001b3)`
+ *  （wrapping‐mod 2^64），雪崩 `h ^= h>>33; h *= 0xff51afd7ed558ccd; h ^= h>>33`；
+ * - 本函数用 BigInt 复刻上述 64 位语义（含 `>>33` 雪崩与除数 `2^64`），id 先 `toLowerCase`
+ *   再按 UTF-8 字节迭代，与后端 `to_lowercase + as_bytes` 对齐；
+ * - 后端 `feed_jitter01 = h / 2^64`，此处同除 `18446744073709551616.0`（`Number(h)` 与 Rust `h as f64`
+ *   同为最近 f64 舍入，跨层可比）；
+ * - 打分表见下方 `feedScorers`，与后端 `feed_score` 同形同量级（Balanced ±0.15 / Fresh jitter*10）。
+ */
 export function hashSeeded01(id: string, seed: number): number {
-  const safeSeed = Number.isFinite(seed) ? Math.floor(seed) >>> 0 : 0;
-  let h = (0x811c9dc5 ^ safeSeed) >>> 0;
-  const s = String(id).toLowerCase();
-  for (let i = 0; i < s.length; i += 1) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
+  const MASK64 = (1n << 64n) - 1n;
+  const OFFSET64 = 0xcbf29ce484222325n;
+  const PRIME64 = 0x100000001b3n;
+  const AVALANCHE_MUL = 0xff51afd7ed558ccdn;
+  const DIV_2P64 = 18446744073709551616;
+  const rawSeed = Number.isFinite(seed) ? Math.floor(seed) : 0;
+  let seed64: bigint;
+  try {
+    seed64 = BigInt.asUintN(64, BigInt(rawSeed));
+  } catch {
+    seed64 = 0n;
   }
-  // 雪崩收尾，打散低位聚集
-  h ^= h >>> 15;
-  h = Math.imul(h, 0x2c1b3c6d);
-  h ^= h >>> 12;
-  h = Math.imul(h, 0x297a2d39);
-  h ^= h >>> 15;
-  return (h >>> 0) / 4294967296;
+  let h = (OFFSET64 ^ seed64) & MASK64;
+  const s = String(id).toLowerCase();
+  let bytes: ArrayLike<number>;
+  try {
+    bytes = new TextEncoder().encode(s);
+  } catch {
+    bytes = Array.from(s, (ch) => ch.charCodeAt(0) & 0xff);
+  }
+  for (let i = 0; i < bytes.length; i += 1) {
+    h ^= BigInt(bytes[i] as number);
+    h = (h * PRIME64) & MASK64;
+  }
+  // 最终雪崩强化低位区分度（与后端同式：>>33 一次乘法两次移位）。
+  h ^= h >> 33n;
+  h = (h * AVALANCHE_MUL) & MASK64;
+  h ^= h >> 33n;
+  return Number(h) / DIV_2P64;
 }
 
 function starsBase(app: AppSummary): number {
@@ -66,7 +93,8 @@ export const feedScorers: Record<FeedStrategy, FeedScorer> = {
 /**
  * 推荐排序（纯函数，不改入参顺序，返回新数组）：
  * - 默认 `balanced`：星数降序为主，seed 只做轻扰动；
- * - 同分时保持入参相对顺序（稳定排序），空数组返回空数组。
+ * - 同分时按 id 升序（与后端 `rank_feed_with_strategy` 的 `then_with(id)` 对齐，保证跨层确定性）；
+ * - 空数组返回空数组。
  */
 export function rankFeed(
   apps: AppSummary[],
@@ -78,8 +106,11 @@ export function rankFeed(
   const active = scorer ?? feedScorers[strategy] ?? feedScorers.balanced;
   const safeSeed = Number.isFinite(seed) ? Math.floor(seed) : 0;
   return apps
-    .map((app, index) => ({ app, index, score: active(app, hashSeeded01(app.id, safeSeed)) }))
-    .sort((a, b) => (b.score !== a.score ? b.score - a.score : a.index - b.index))
+    .map((app) => ({ app, score: active(app, hashSeeded01(app.id, safeSeed)) }))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.app.id < b.app.id ? -1 : a.app.id > b.app.id ? 1 : 0;
+    })
     .map((x) => x.app);
 }
 
