@@ -1023,3 +1023,89 @@ describe('TrendsView 榜单选项卡记忆（zstore.trends.opts）', () => {
     });
   });
 });
+
+describe('TrendsView 榜单刷新按钮（forceRefresh 直抓）', () => {
+  (globalThis as Record<string, unknown>)['IS_REACT_ACT_ENVIRONMENT'] = true;
+
+  type EnrichFn = (repos: { owner: string; repo: string }[]) => Promise<(AppSummary | null)[]>;
+  let enrichSpy: MockInstance<EnrichFn>;
+  let settingsSpy: MockInstance<() => Promise<Record<string, string>>>;
+
+  beforeEach(async () => {
+    await i18n.changeLanguage('zh-CN');
+    window.localStorage.clear();
+    settingsSpy = vi.spyOn(tauriApi, 'getSettings').mockResolvedValue({});
+  });
+
+  afterEach(() => {
+    enrichSpy?.mockRestore();
+    settingsSpy.mockRestore();
+    window.localStorage.clear();
+    cleanup();
+  });
+
+  function renderBoard() {
+    return render(
+      <TrendsView
+        apps={[makeApp({ id: 'other/app', name: 'Other' })]}
+        favoriteIds={new Set<string>()}
+        installedIds={new Set<string>()}
+        installingIds={new Set<string>()}
+        onOpenDetail={() => {}}
+        onQuickInstall={() => {}}
+        onToggleFavorite={() => {}}
+        onResetPlatformFilter={() => {}}
+      />,
+    );
+  }
+
+  it('点击触发 forceRefresh 直抓：旧榜保留、无缓存命中日志', async () => {
+    trendingHtml = trendingHtmlFixture();
+    enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockRejectedValue(new Error('offline'));
+    vi.mocked(zlogInfo).mockClear();
+    const { container } = renderBoard();
+    await screen.findByText('acme/atlas');
+    const btn = screen.getByTestId('trends-refresh') as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+
+    // 首抓走完后清零：只观察刷新这次抓取。
+    vi.mocked(zlogInfo).mockClear();
+    const before = requestedUrls.length;
+    expect(before).toBeGreaterThan(0);
+
+    // 卡住刷新那次网络返回，断言 loading 态（禁用 + 转圈 + 旧榜仍在）。
+    let release!: (v: string) => void;
+    trendSpy.mockImplementationOnce(async (url: string) => {
+      requestedUrls.push(String(url));
+      return new Promise<string>((resolve) => {
+        release = resolve;
+      });
+    });
+    fireEvent.click(btn);
+    expect(btn.disabled).toBe(true);
+    expect(container.querySelector('.trends-refresh-spin')).toBeTruthy();
+    expect(screen.getByText('acme/atlas')).toBeTruthy();
+
+    release(trendingHtml as string);
+    await waitFor(() => {
+      expect((screen.getByTestId('trends-refresh') as HTMLButtonElement).disabled).toBe(false);
+    });
+    // 直抓穿透 L1：同 key 仍产生一次新的网络请求。
+    expect(requestedUrls.length).toBe(before + 1);
+    expect(screen.getByText('acme/atlas')).toBeTruthy();
+    const infos = vi.mocked(zlogInfo).mock.calls.map(([m]) => String(m));
+    expect(infos.some((m) => m.toLowerCase().includes('cache hit'))).toBe(false);
+  });
+
+  it('刷新失败走现有 error lane（不弹框，按钮恢复可用）', async () => {
+    trendingHtml = trendingHtmlFixture();
+    enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockRejectedValue(new Error('offline'));
+    renderBoard();
+    await screen.findByText('acme/atlas');
+    // 后续抓取一律 500：刷新穿透缓存必中失败。
+    trendingStatus = 500;
+    fireEvent.click(screen.getByTestId('trends-refresh'));
+    await screen.findByText('榜单加载失败');
+    expect((screen.getByTestId('trends-refresh') as HTMLButtonElement).disabled).toBe(false);
+  });
+});

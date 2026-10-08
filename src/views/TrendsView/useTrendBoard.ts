@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { tauriApi } from '../../services/api';
 import {
@@ -74,6 +74,9 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
   // 就绪前不抓取，避免先直连闪一次再带代理重抓。
   const [proxyPrefix, setProxyPrefix] = useState<string | undefined>(undefined);
   const [proxyReady, setProxyReady] = useState(false);
+  // 手动刷新态：与首载 isLoading 分离，刷新期间保留旧榜（SWR  stale 展），仅按钮转圈 + 禁用。
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const refreshSeqRef = useRef(0);
 
   // 陈旧榜兜底经 trends SSOT 回落（如已下线的 'top' / 'category' 残留 → 'weekly'）。
   const activeBoard: TrendBoardId = resolveTrendBoard(board);
@@ -137,6 +140,37 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
 
   const handleRetry = () => setRetryCount((c) => c + 1);
 
+  // 手动刷新：沿用 trendFetchOpts 同源 key 仅叠加 forceRefresh，直抓链路跳过 L1/L2，
+  // 成功经 boards 内 SWR 写透落盘；失败沿错误契约进现有 error lane（不弹框）。
+  // 不经过 retryCount effect（避免双抓），旧榜在刷新期间保留展示；切榜/并发以 seq 守卫丢弃过期落定。
+  const activeBoardRef = useRef(activeBoard);
+  activeBoardRef.current = activeBoard;
+  const trendFetchOptsRef = useRef(trendFetchOpts);
+  trendFetchOptsRef.current = trendFetchOpts;
+  const handleRefresh = useCallback(() => {
+    if (!proxyReady) return;
+    const seq = refreshSeqRef.current + 1;
+    refreshSeqRef.current = seq;
+    const boardAtClick = activeBoardRef.current;
+    const optsAtClick = trendFetchOptsRef.current;
+    setIsRefreshing(true);
+    fetchTrendsResult(boardAtClick, { ...optsAtClick, forceRefresh: true })
+      .then((res) => {
+        if (seq !== refreshSeqRef.current) return;
+        if (activeBoardRef.current !== boardAtClick) return;
+        setTrendResult(res);
+      })
+      .catch(() => {
+        // service 按契约应总 resolve；此处兜底未知异常，归为 unavailable。
+        if (seq !== refreshSeqRef.current) return;
+        if (activeBoardRef.current !== boardAtClick) return;
+        setTrendResult({ repos: [], status: 'error', errorKind: 'unavailable' });
+      })
+      .finally(() => {
+        if (seq === refreshSeqRef.current) setIsRefreshing(false);
+      });
+  }, [proxyReady]);
+
   // 切换即同步写盘（与榜单内容无关；非法值经 SSOT 回落 weekly）。
   const setBoard: Dispatch<SetStateAction<TrendBoardId>> = useCallback((next) => {
     if (typeof next === 'function') {
@@ -164,6 +198,8 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
     isLoading,
     errorKind,
     handleRetry,
+    isRefreshing,
+    handleRefresh,
     trendFetchOpts,
   };
 }

@@ -36,7 +36,7 @@
 
 .trends-meta {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   margin: 2px 0 8px;
@@ -50,6 +50,16 @@
   overflow: hidden;
   text-overflow: ellipsis;
   letter-spacing: -0.011em;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.trends-meta-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 .trends-count {
@@ -58,6 +68,62 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   flex-shrink: 0;
+}
+
+/* 刷新按钮：与分段 tab 同高 28px，图标描边风 + hover 染金色涨星徽标色 */
+.trends-refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.15s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1),
+              background 0.15s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.trends-refresh-btn:hover:not(:disabled) {
+  color: #eab308;
+  border-color: rgba(234, 179, 8, 0.45);
+  background: var(--bg-acrylic-hover);
+}
+
+.trends-refresh-btn:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.trends-refresh-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.trends-refresh-btn:focus-visible {
+  outline: 2px solid rgba(234, 179, 8, 0.6);
+  outline-offset: 1px;
+}
+
+.trends-refresh-spin {
+  animation: trends-refresh-spin 0.8s linear infinite;
+}
+
+@keyframes trends-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trends-refresh-spin {
+    animation: none;
+  }
 }
 
 /* 错误面板：复用 FilterEmptyState 结构，仅图标染警示色以区分真正的空状态 */
@@ -108,6 +174,15 @@
 
   .trends-board-desc {
     white-space: normal;
+  }
+
+  /* 移动端 meta 行保持单行：描述截断让位，右侧计数 + 刷新不挤占 tabs 行 */
+  .trends-meta {
+    flex-wrap: nowrap;
+  }
+
+  .trends-meta-right {
+    margin-left: auto;
   }
 
   .trend-uncataloged-row .trend-uncataloged-side .app-tags {

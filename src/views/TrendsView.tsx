@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import '../styles/components-trends.css';
-import { TrendingUp, WifiOff } from 'lucide-react';
+import { RefreshCw, TrendingUp, WifiOff } from 'lucide-react';
 import { AppSummary } from '../types';
 import { AppCard, getRankBadgeColor } from '../components/AppCard';
 import { SegmentedControl } from '../components/SegmentedControl';
@@ -121,6 +121,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     isLoading,
     errorKind,
     handleRetry,
+    isRefreshing,
+    handleRefresh,
     trendFetchOpts,
   } = useTrendBoard('weekly');
 
@@ -637,11 +639,28 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
 
       <div className="trends-meta">
         <span className="trends-board-desc">{t(`trends.board_${activeBoard}_desc`)}</span>
-        {displayItems.length > 0 && (
-          <span className="trends-count">
-            {t('trends.results_count', { count: displayItems.length })}
-          </span>
-        )}
+        <span className="trends-meta-right">
+          {displayItems.length > 0 && (
+            <span className="trends-count">
+              {t('trends.results_count', { count: displayItems.length })}
+            </span>
+          )}
+          <button
+            type="button"
+            className="trends-refresh-btn"
+            data-testid="trends-refresh"
+            onClick={handleRefresh}
+            disabled={isLoading || isRefreshing}
+            aria-label={t('trends.refresh', { defaultValue: '刷新' })}
+            title={t('trends.refresh', { defaultValue: '刷新' })}
+          >
+            <RefreshCw
+              size={14}
+              aria-hidden="true"
+              className={isRefreshing ? 'trends-refresh-spin' : ''}
+            />
+          </button>
+        </span>
       </div>
 
       <div className="fluent-list-container">

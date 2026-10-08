@@ -299,6 +299,8 @@
     "error_rate_limited": "Too many requests — the API rate limit was hit. Try again later.",
     "error_unavailable": "The rankings service is temporarily unavailable. Try again later.",
     "retry": "Retry",
+    "refresh": "Refresh",
+    "refreshing": "Refreshing",
     "empty_title": "No Ranked Apps Under Current Filter",
     "empty_desc": "No cataloged apps match the selected platforms. Expand selections or restore all platforms to see rankings.",
     "empty_filter_title": "No projects under these filters",
