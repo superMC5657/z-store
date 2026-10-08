@@ -200,7 +200,7 @@ pub async fn get_platforms_lite(
                     });
                 }
             }
-            return Err("304 响应但本地未找到缓存数据".into());
+            Err("304 响应但本地未找到缓存数据".into())
         }
         EtagGetOutcome::Fresh { text, etag } => {
             let parsed: crate::github::models::GitHubReleaseResponse =

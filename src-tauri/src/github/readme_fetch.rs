@@ -291,6 +291,7 @@ async fn list_root_paths(
 
 /// 取单个 README 文本：`contents/{path}?ref=` + raw Accept（与 `detail.rs` 一致），
 /// 失败再试 `raw.githubusercontent.com`。测试覆写 `api_base` 时跳过直连回退。
+#[allow(clippy::too_many_arguments)]
 async fn fetch_readme_text(
     client: &reqwest::Client,
     headers: &reqwest::header::HeaderMap,

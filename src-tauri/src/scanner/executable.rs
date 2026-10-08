@@ -573,7 +573,7 @@ impl AppScanner {
                 idx += 1;
             }
         } else {
-            while idx < tokens.len() && tokens[idx].contains('=') && tokens[idx].contains('/') == false
+            while idx < tokens.len() && tokens[idx].contains('=') && !tokens[idx].contains('/')
             {
                 // 形如 `FOO=bar` 的前导环境赋值（不含路径分隔符才跳过，避免误伤 `/opt/x`）
                 // 若首个 token 本身就是绝对路径则不跳过

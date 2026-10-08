@@ -33,6 +33,7 @@ pub struct SearchIconReadyPayload {
 ///   用户在此期间触发新搜索则抛弃过时探测结果（与原快/慢两路内联语义一致）。
 /// - 单条显式事务边界（单语句隐式事务显式化，仍 1 提交，emit 不延迟）；
 ///   失败 `ROLLBACK` 返回 Err，上层 `let _ =` 吞错由吞错语义改为内部吞错、下次补探重试。
+#[allow(clippy::too_many_arguments)]
 async fn save_and_emit(
     handle: &AppHandle,
     id: &str,
