@@ -28,11 +28,14 @@ import { zlogInfo } from './lib/z-log';
 import { PLATFORM_IDS, isPlatformPending, matchPlatformSetWithPending, normalizePlatform, togglePlatformSet, type PlatformId } from './lib/platformFilter';
 import {
   DETAIL_PLATFORMS_HEAL_EVENT,
+  DETAIL_RICHCARD_HEAL_EVENT,
   appSummaryFromDetail,
   detailHealKeysFor,
   evictTrendEnrichCachesForDetail,
   upsertTrendEnrichFromDetail,
+  upsertTrendEnrichRichcard,
   type DetailPlatformsHealPayload,
+  type DetailRichcardHealPayload,
 } from './services/trends';
 import { useToasts } from './useToasts';
 import { useAppSettings } from './useAppSettings';
@@ -514,12 +517,23 @@ export const App: React.FC = () => {
       const nextPlatforms = detailPlatforms && (!app.platforms || app.platforms.length === 0)
         ? detailPlatforms
         : app.platforms;
+      // 富卡全字段回填：同值即保持原引用（避免无谓全网格重渲染），异值即取详情新值
+      const nextDescriptionEn = detail.description_en;
+      const nextHomepage = detail.homepage;
       if (
         app.stars === detail.stars &&
         app.forks === detail.forks &&
         app.latest_version === detail.latest_version &&
         app.icon === nextIcon &&
-        app.platforms === nextPlatforms
+        app.platforms === nextPlatforms &&
+        app.description === detail.description &&
+        (app.description_en ?? undefined) === (nextDescriptionEn ?? undefined) &&
+        app.license === detail.license &&
+        app.category === detail.category &&
+        app.category_name === detail.category_name &&
+        app.is_verified === detail.is_verified &&
+        (app.homepage ?? null) === (nextHomepage ?? null) &&
+        app.name === detail.name
       ) {
         return app;
       }
@@ -530,6 +544,14 @@ export const App: React.FC = () => {
         latest_version: detail.latest_version,
         icon: nextIcon,
         platforms: nextPlatforms,
+        description: detail.description,
+        description_en: nextDescriptionEn,
+        license: detail.license,
+        category: detail.category,
+        category_name: detail.category_name,
+        is_verified: detail.is_verified,
+        homepage: nextHomepage,
+        name: detail.name,
       };
     };
 
@@ -604,6 +626,39 @@ export const App: React.FC = () => {
         // 事件派发失败不影响列表已落定的治愈
       }
     }
+    // 富卡全字段治愈（与平台治愈并行，不改平台语义）：非 stale 即用内存旧值 diff→upsert，
+    // dirty 非空或已确认 other 即派发富卡事件（含 platforms 仅非空才带）；旧事件与 icon 通道不动。
+    if (!isStaleDetail) {
+      try {
+        const prevLookup = (k: string): AppSummary | undefined => {
+          const lk = k.trim().toLowerCase();
+          if (!lk) return undefined;
+          return (
+            appsRef.current.find((a) => a.id.toLowerCase() === lk) ??
+            onlineAppsRef.current.find((a) => a.id.toLowerCase() === lk) ??
+            recentsRef.current.find((a) => a.id.toLowerCase() === lk)
+          );
+        };
+        const healed = upsertTrendEnrichRichcard(detail, prevLookup);
+        if (healed && (healed.dirtyFields.length > 0 || detailConfirmedEmpty)) {
+          const richKeys = detailHealKeysFor(idClean, detail.owner, detail.repo);
+          const extraKeys = new Set<string>([idClean, detail.id.toLowerCase()]);
+          for (const k of extraKeys) {
+            if (k && !richKeys.includes(k)) richKeys.push(k);
+          }
+          const payload: DetailRichcardHealPayload = {
+            keys: richKeys,
+            summary: healed.summary,
+            dirtyFields: healed.dirtyFields,
+            ...(detailPlatforms ? { platforms: [...detailPlatforms] } : null),
+            ...(detailConfirmedEmpty ? { confirmedOther: true } : null),
+          };
+          window.dispatchEvent(new CustomEvent(DETAIL_RICHCARD_HEAL_EVENT, { detail: payload }));
+        }
+      } catch {
+        // 富卡治愈失败不影响列表已落定的值
+      }
+    }
 
     if (patchedIcon) {
       invalidateIconCache(idClean);
@@ -617,14 +672,29 @@ export const App: React.FC = () => {
       // 但列表三段此前零 dispatch，在线段永不更新 → 此处用 iconCycle.url 直接回填落盘，不依赖事件。
       // （后端 iconCycle.selected_url 经 getAppIconCycle 收敛为前端 AppIconCycleResult.url；非 avatar 才用。）
       void api.getAppIconCycle(idClean).then((cycle) => {
-        const url = cycle?.url?.trim();
-        if (!url || isAvatarUrl(url)) return;
+        // 双落盘口径：url=data: 即时态（IPC临时、永不进盘），remote_url/remoteUrl=可持久化 URL；
+        // 落盘/回填/dispatch 一律用 persistUrl（remote优先，url非data:才兜底，否则空即 L5/空不发）。
+        const remote = typeof (cycle?.remote_url ?? cycle?.remoteUrl) === 'string'
+          ? String(cycle?.remote_url ?? cycle?.remoteUrl).trim()
+          : '';
+        const fallbackUrl = typeof cycle?.url === 'string' ? cycle.url.trim() : '';
+        const persistUrl = remote !== '' ? remote : (!fallbackUrl.startsWith('data:') ? fallbackUrl : '');
+        if (!persistUrl || isAvatarUrl(persistUrl)) return;
         const keyA = idClean.toLowerCase();
+        // 预热文件：触发 Rust getOrFetchIcon 落盘副作用（icons/* 二进制 + catalog/cycle 行），失败不阻塞
+        void api.getOrFetchIcon(idClean, persistUrl).catch(() => {});
         invalidateIconCache(keyA);
-        preloadIcons([{ id: keyA, icon: url }]);
-        setApps((prev) => patchIconBoth(prev, url));
-        setOnlineApps((prev) => patchIconBoth(prev, url));
-        setRecentlyViewedApps((prev) => patchIconBoth(prev, url));
+        preloadIcons([{ id: keyA, icon: persistUrl }]);
+        setApps((prev) => patchIconBoth(prev, persistUrl));
+        setOnlineApps((prev) => patchIconBoth(prev, persistUrl));
+        setRecentlyViewedApps((prev) => patchIconBoth(prev, persistUrl));
+        // 趋势内存级同步（单通道复用 `zstore:icon-changed` 监听，不直接碰 enrich L2，data: 禁入由 L2 侧保证）；
+        // 此分支仅在 patchedIcon 为空时进入，与上分支 dispatch 天然互斥，不重复。
+        window.dispatchEvent(
+          new CustomEvent('zstore:icon-changed', {
+            detail: { appId: idClean, icon: persistUrl },
+          })
+        );
       }).catch(() => {
         // 取不到轮换图标则保持占位，不阻塞
       });

@@ -359,9 +359,39 @@ export async function saveDbTrendCache(
         if (utf8ByteLength(slimJson) <= TREND_DB_PAYLOAD_MAX_BYTES) {
           payloadJson = slimJson;
         } else {
-          const bare = JSON.stringify(repos);
-          if (utf8ByteLength(bare) > TREND_DB_PAYLOAD_MAX_BYTES) return;
-          payloadJson = bare;
+          // 仍超则富卡长文本截断：description(_en) 各截 500 字符，homepage 截 500
+          const truncated: Record<string, AppSummary> = {};
+          for (const [k, s] of Object.entries(sanitizedEnrich)) {
+            const c: AppSummary = { ...s };
+            if (typeof c.description === 'string' && c.description.length > 500) {
+              c.description = c.description.slice(0, 500);
+            }
+            if (typeof c.description_en === 'string' && c.description_en.length > 500) {
+              c.description_en = c.description_en.slice(0, 500);
+            }
+            if (typeof c.homepage === 'string' && c.homepage.length > 500) {
+              c.homepage = c.homepage.slice(0, 500);
+            }
+            truncated[k] = c;
+          }
+          const truncJson = JSON.stringify({ v: 1, repos, enrich: truncated } as TrendCacheEnvelopeV1);
+          if (utf8ByteLength(truncJson) <= TREND_DB_PAYLOAD_MAX_BYTES) {
+            payloadJson = truncJson;
+          } else {
+            // 仍超则丢 pending 空平台条（具平台优先），最后才降裸榜
+            const concrete: Record<string, AppSummary> = {};
+            for (const [k, s] of Object.entries(truncated)) {
+              if (Array.isArray(s.platforms) && s.platforms.length > 0) concrete[k] = s;
+            }
+            const concreteJson = JSON.stringify({ v: 1, repos, enrich: concrete } as TrendCacheEnvelopeV1);
+            if (utf8ByteLength(concreteJson) <= TREND_DB_PAYLOAD_MAX_BYTES) {
+              payloadJson = concreteJson;
+            } else {
+              const bare = JSON.stringify(repos);
+              if (utf8ByteLength(bare) > TREND_DB_PAYLOAD_MAX_BYTES) return;
+              payloadJson = bare;
+            }
+          }
         }
       }
     } else {

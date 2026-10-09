@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   User,
   Bug,
@@ -8,8 +8,8 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AppDetailViewModel, OAuthUser, ReleaseAsset } from '../../types';
-import { api, type AppIconCycleResult } from '../../services/api';
-import { AppIcon, invalidateIconCache } from '../AppIcon';
+import { api, normalizeIconCycle, type AppIconCycleResult } from '../../services/api';
+import { AppIcon, invalidateIconCache, isAvatarUrl } from '../AppIcon';
 import { notifyToast } from '../../utils/notify';
 import { VerifiedBadge } from '../VerifiedBadge';
 import { formatBytes } from '../../utils/appHelper';
@@ -58,6 +58,8 @@ export const Header: React.FC<HeaderProps> = ({
   // 图标轮换态（T3 刷新图标）
   const [iconCycle, setIconCycle] = useState<AppIconCycleResult | null>(null);
   const [isCyclingIcon, setIsCyclingIcon] = useState(false);
+  // 初次展示同步去重：同一 id+url 只 dispatch 一次，避免重复事件刷榜
+  const iconSyncDispatchedRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     let isMounted = true;
@@ -69,6 +71,30 @@ export const Header: React.FC<HeaderProps> = ({
       .then((data) => {
         if (isMounted && data) {
           setIconCycle(data);
+          // 初次展示跟随+双落盘：iconCycle.url 是 data: 即时展示（IPC临时），
+          // 落盘一律用 remote_url（normalizeIconCycle 收敛，remote_url优先、camel兜底）；
+          // data: 永不进盘，内存态短暂用 data: 由 AppIcon iconOverride 直显，榜单跟随用 persistUrl。
+          // isCataloged 不阻止；L5/fallback 空（persistUrl ''）不 dispatch，避免把实图标清掉。
+          const normalized = normalizeIconCycle(data);
+          const remote = typeof normalized?.remoteUrl === 'string' ? normalized.remoteUrl.trim() : '';
+          const fallbackUrl = typeof data.url === 'string' ? data.url.trim() : '';
+          const persistUrl =
+            remote !== '' ? remote : (!fallbackUrl.startsWith('data:') ? fallbackUrl : '');
+          const curIcon = typeof app.icon === 'string' ? app.icon.trim() : '';
+          if (persistUrl !== '' && !isAvatarUrl(persistUrl) && persistUrl !== curIcon) {
+            const dedupKey = `${String(app.id).trim().toLowerCase()}::${persistUrl}`;
+            if (!iconSyncDispatchedRef.current.has(dedupKey)) {
+              iconSyncDispatchedRef.current.add(dedupKey);
+              // 预热文件：触发 Rust getOrFetchIcon 落盘副作用（icons/* 二进制 + catalog/cycle 行），失败不阻塞
+              void api.getOrFetchIcon(app.id, persistUrl).catch(() => {});
+              invalidateIconCache(app.id);
+              window.dispatchEvent(
+                new CustomEvent('zstore:icon-changed', {
+                  detail: { appId: app.id, icon: persistUrl },
+                })
+              );
+            }
+          }
         }
       })
       .catch(() => {

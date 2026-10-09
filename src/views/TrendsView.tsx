@@ -19,6 +19,7 @@ import {
   buildDoforceCacheKey,
   buildTrendsCacheKey,
   DETAIL_PLATFORMS_HEAL_EVENT,
+  DETAIL_RICHCARD_HEAL_EVENT,
   enrichTrendRepos,
   formatStars,
   hydrateTrendEnrichCache,
@@ -30,6 +31,7 @@ import {
   unmarkTrendConfirmedOthers,
   TREND_BOARD_IDS,
   type DetailPlatformsHealPayload,
+  type DetailRichcardHealPayload,
   type TrendBoardId,
   type TrendRepo,
   type TrendsErrorKind,
@@ -44,6 +46,7 @@ import {
   type PlatformId,
 } from '../lib/platformFilter';
 import { zlogInfo } from '../lib/z-log';
+import { isAvatarUrl } from '../components/AppIcon';
 
 /**
  * 趋势榜单一榜一源：调 `fetchTrendsResult(board, { proxyPrefix })`，
@@ -153,6 +156,21 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   trendConfirmedRef.current = trendConfirmedOtherIds;
   const platformResolvedOtherIdsRef = useRef(platformResolvedOtherIds);
   platformResolvedOtherIdsRef.current = platformResolvedOtherIds;
+  // 富卡写透节流：Map<cacheKey, timer> 800ms debounce，聚合连击为一次落盘；
+  // 卸载/切榜时由 pagehide flush 刷掉 pending（见下）。
+  const boardWriteTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const scheduleBoardWriteThrough = (key: string): void => {
+    const timers = boardWriteTimersRef.current;
+    const pending = timers.get(key);
+    if (pending) clearTimeout(pending);
+    const timer = setTimeout(() => {
+      timers.delete(key);
+      const { cacheKey, cacheBoard, repos } = writeThroughRef.current;
+      if (!cacheKey || repos.length === 0) return;
+      void saveBoardCacheMerged(cacheKey, cacheBoard, repos);
+    }, 800);
+    timers.set(key, timer);
+  };
 
   // 全局已确认 ∪ 榜单内已确认：pending 判定的唯一口径（未传入全局集合时不启用）。
   const trendCombinedConfirmed = useMemo(() => {
@@ -443,6 +461,9 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   }
   useEffect(() => {
     const flush = (): void => {
+      // 先刷掉富卡节流 pending（清定时器后立即落盘一次，避免关闭丢失）
+      for (const timer of boardWriteTimersRef.current.values()) clearTimeout(timer);
+      boardWriteTimersRef.current.clear();
       const { cacheKey, cacheBoard, repos } = writeThroughRef.current;
       if (!cacheKey || repos.length === 0) return;
       if (Object.keys(snapshotTrendEnrichCache(repos)).length === 0) return;
@@ -489,6 +510,21 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                 ...(keepIcon ? { icon: cur.icon } : null),
               };
               changed = true;
+            } else {
+              // 图标升级（不觸平台逻辑）：已具平台的行仅跟随详情实际展示图标，
+              // incoming 非空非 avatar 且与旧不同即覆盖，空不覆盖实。
+              const incomingIcon =
+                typeof payload.summary.icon === 'string' ? payload.summary.icon.trim() : '';
+              if (incomingIcon !== '' && !isAvatarUrl(incomingIcon) && cur.icon !== incomingIcon) {
+                const incomingBg =
+                  typeof payload.summary.icon_bg === 'string' ? payload.summary.icon_bg : '';
+                next[k] = {
+                  ...cur,
+                  icon: incomingIcon,
+                  ...(incomingBg.trim() !== '' ? { icon_bg: payload.summary.icon_bg } : null),
+                };
+                changed = true;
+              }
             }
           }
         }
@@ -520,6 +556,183 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     window.addEventListener(DETAIL_PLATFORMS_HEAL_EVENT, handler);
     return () => {
       window.removeEventListener(DETAIL_PLATFORMS_HEAL_EVENT, handler);
+    };
+  }, [trendResult]);
+
+  // 图标单通道内存同步：详情实际展示图标（iconCycle 解析）经 `zstore:icon-changed`
+  // 即时跟随外侧趋势榜同一应用。incoming 非空非 avatar 且与旧不同即覆盖，
+  // 允许 `data:` 进内存态做即时展示（AppIcon 即时解码）。
+  // 空不覆盖实；大小写归一，同时匹配坐标键与 `enriched.id` 小写别名。
+  // 重启可恢复：rawIcon 为可持久化 URL（非 data:）时，对本次命中条目 hydrate 快照
+  // {…cur, icon:rawIcon} 并经 writeThroughRef 同榜 key 写透 L2；data: 只进内存、跳过落盘
+  // （data: 永不进盘由 hydrate/snapshot 四道 continue 保证，此处亦主动跳过）。
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ appId: string; icon: string }>).detail;
+      if (!detail) return;
+      const rawIcon = typeof detail.icon === 'string' ? detail.icon.trim() : '';
+      const appIdNorm = String(detail.appId ?? '').trim().toLowerCase();
+      if (!appIdNorm || rawIcon === '' || isAvatarUrl(rawIcon)) return;
+      setEnrichedApps((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        for (const k of Object.keys(prev)) {
+          const cur = prev[k];
+          const alias = String(cur?.id ?? '').trim().toLowerCase();
+          if (k.toLowerCase() === appIdNorm || (alias !== '' && alias === appIdNorm)) {
+            if (cur.icon !== rawIcon) {
+              next[k] = { ...cur, icon: rawIcon };
+              changed = true;
+            }
+          }
+        }
+        return changed ? next : prev;
+      });
+      // URL 落盘分支：仅 remote URL（非 data:）可进 L2，data: 只做内存即时展示
+      if (rawIcon.startsWith('data:')) return;
+      try {
+        const latest = enrichedAppsRef.current;
+        const toHydrate: Record<string, AppSummary> = {};
+        for (const k of Object.keys(latest)) {
+          const cur = latest[k];
+          if (!cur) continue;
+          const alias = String(cur.id ?? '').trim().toLowerCase();
+          if (k.toLowerCase() === appIdNorm || (alias !== '' && alias === appIdNorm)) {
+            if (cur.icon !== rawIcon) {
+              toHydrate[k] = { ...cur, icon: rawIcon };
+            }
+          }
+        }
+        if (Object.keys(toHydrate).length === 0) return;
+        hydrateTrendEnrichCache(toHydrate);
+        const { cacheKey, cacheBoard, repos } = writeThroughRef.current;
+        if (!cacheKey || repos.length === 0) return;
+        void saveBoardCacheMerged(cacheKey, cacheBoard, repos);
+      } catch {
+        // 落盘失败不影响内存即时展示
+      }
+    };
+    window.addEventListener('zstore:icon-changed', handler);
+    return () => {
+      window.removeEventListener('zstore:icon-changed', handler);
+    };
+  }, []);
+
+  // 富卡全字段治愈：App 侧详情 diff→upsert 后派发，此处字段级 merge 进 enrichedApps。
+  // - platforms 沿旧：仅旧空且 incoming 非空才补，空永不覆盖实（不觸平台确认/settle 逻辑）；
+  // - icon/icon_bg 不动（归 icon 通道）；
+  // - 其余 dirty 字段直接覆盖；dirty 为空跳写盘；
+  // - 跨榜过滤：仅处理仍属本榜的行（repoKeys），无关治愈自然无变化；
+  // - 落盘：hydrate 后包一层 scheduleBoardWriteThrough 节流写透（data: 禁入由 hydrate 保证）。
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const payload = (e as CustomEvent<DetailRichcardHealPayload>).detail;
+      if (!payload || !payload.summary || typeof payload.summary !== 'object') return;
+      if (!Array.isArray(payload.keys) || payload.keys.length === 0) return;
+      if (!Array.isArray(payload.dirtyFields) || payload.dirtyFields.length === 0) return;
+      const keys = payload.keys.map((k) => String(k).trim().toLowerCase()).filter((k) => k.length > 0);
+      if (keys.length === 0) return;
+      const keySet = new Set(keys);
+      const dirtySet = new Set(payload.dirtyFields.filter((f) => typeof f === 'string'));
+      dirtySet.delete('icon');
+      dirtySet.delete('icon_bg');
+      dirtySet.delete('platforms');
+      if (dirtySet.size === 0 && (!payload.platforms || payload.platforms.length === 0)) return;
+      const repoKeys = new Set<string>();
+      for (const r of trendResult?.repos ?? []) {
+        if (r.id) repoKeys.add(r.id.trim().toLowerCase());
+        if (r.owner && r.repo) repoKeys.add(`${r.owner.trim().toLowerCase()}/${r.repo.trim().toLowerCase()}`);
+      }
+      const hitKeys = keys.filter((k) => repoKeys.has(k));
+      if (hitKeys.length === 0) {
+        // 非本榜治愈：已有条目经别名命中亦可跟随（防 id/坐标不一致漏治愈），否则直接返回
+        let aliasHit = false;
+        for (const k of Object.keys(enrichedAppsRef.current)) {
+          if (!keySet.has(k.toLowerCase())) continue;
+          aliasHit = true;
+          break;
+        }
+        if (!aliasHit) return;
+      }
+      setEnrichedApps((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        for (const k of Object.keys(prev)) {
+          const cur = prev[k];
+          const alias = String(cur?.id ?? '').trim().toLowerCase();
+          if (!keySet.has(k.toLowerCase()) && (alias === '' || !keySet.has(alias))) continue;
+          // 跨榜过滤：坐标键与别名均非本榜行则跳过
+          if (!repoKeys.has(k.toLowerCase()) && (alias === '' || !repoKeys.has(alias))) continue;
+          const patched: AppSummary = { ...cur };
+          let rowChanged = false;
+          // platforms 沿旧：仅旧空且 incoming 非空才补
+          if ((!patched.platforms || patched.platforms.length === 0) && payload.platforms && payload.platforms.length > 0) {
+            patched.platforms = [...payload.platforms];
+            rowChanged = true;
+          }
+          for (const f of dirtySet) {
+            const incoming = (payload.summary as unknown as Record<string, unknown>)[f];
+            if (incoming === undefined) continue;
+            if ((patched as unknown as Record<string, unknown>)[f] !== incoming) {
+              (patched as unknown as Record<string, unknown>)[f] = incoming as unknown;
+              rowChanged = true;
+            }
+          }
+          if (rowChanged) {
+            next[k] = patched;
+            changed = true;
+          }
+        }
+        // 预 enrich 富卡：榜单已知但 enrich 尚未落定的行直接创建条目（icon 归 icon 通道，此处不带 icon）
+        for (const k of hitKeys) {
+          if (!next[k]) {
+            const { icon: _dropIcon, icon_bg: _dropBg, platforms: _dropPlats, ...rest } = payload.summary as unknown as AppSummary & Record<string, unknown>;
+            void _dropIcon;
+            void _dropBg;
+            void _dropPlats;
+            next[k] = {
+              ...(rest as unknown as AppSummary),
+              icon: '',
+              icon_bg: 'linear-gradient(135deg, #475569, #334155)',
+              platforms: payload.platforms && payload.platforms.length > 0 ? [...payload.platforms] : [],
+            };
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+      // L2 写透：命中条目 hydrate 快照 + 节流落盘（dirty 空已提前返回，此处必有写盘量）
+      try {
+        const latest = enrichedAppsRef.current;
+        const toHydrate: Record<string, AppSummary> = {};
+        for (const k of Object.keys(latest)) {
+          const cur = latest[k];
+          if (!cur) continue;
+          const alias = String(cur.id ?? '').trim().toLowerCase();
+          if (!keySet.has(k.toLowerCase()) && (alias === '' || !keySet.has(alias))) continue;
+          if (!repoKeys.has(k.toLowerCase()) && (alias === '' || !repoKeys.has(alias))) continue;
+          toHydrate[k] = cur;
+        }
+        // 刚创建的行（hydrate 时 ref 尚未更新）一并带上
+        for (const k of hitKeys) {
+          if (!toHydrate[k]) {
+            const created = { ...payload.summary, platforms: payload.platforms && payload.platforms.length > 0 ? [...payload.platforms] : [] } as AppSummary;
+            if (typeof created.icon === 'string' && created.icon.startsWith('data:')) continue;
+            toHydrate[k] = created;
+          }
+        }
+        if (Object.keys(toHydrate).length === 0) return;
+        hydrateTrendEnrichCache(toHydrate);
+        const { cacheKey } = writeThroughRef.current;
+        if (!cacheKey) return;
+        scheduleBoardWriteThrough(cacheKey);
+      } catch {
+        // 落盘失败不影响内存 merge
+      }
+    };
+    window.addEventListener(DETAIL_RICHCARD_HEAL_EVENT, handler);
+    return () => {
+      window.removeEventListener(DETAIL_RICHCARD_HEAL_EVENT, handler);
     };
   }, [trendResult]);
 

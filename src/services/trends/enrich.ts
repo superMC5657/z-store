@@ -461,6 +461,240 @@ export function upsertTrendEnrichFromDetail(detail: AppDetail): void {
 }
 
 /**
+ * 富卡全字段更新检测：比较 prev（内存旧值）与 next（详情派生摘要），返回脏字段名。
+ * - string 系 trim 比对，空 next 不覆盖实（不脏）；
+ * - homepage '' 归一 null 后比对，next 为空不脏；
+ * - latest_version 原样比对（不 trim），'latest'/'...' 占位不脏；
+ * - stars/forks Number 比对（减少亦脏）；
+ * - is_verified 布尔全量比对；
+ * - platforms 排除在 dirty 外（平台通道另行治愈）；
+ * - description/description_en 取 detail 非空优先（空不脏）；
+ * - license 新值恰为 "OpenSource" 且 forge 非 github 时不脏（占位）；
+ * - category 占位名单 external/dev/system/'' 不覆盖实（不脏）；
+ * - name 过滤 '加载中...' 占位（不脏）；
+ * - icon/icon_bg 剔除出 dirty（归 icon 通道）。
+ */
+const RICH_CATEGORY_PLACEHOLDERS = new Set(['', 'external', 'dev', 'system']);
+const RICH_VERSION_PLACEHOLDERS = new Set(['latest', '...']);
+
+function richStr(v: unknown): string {
+  return typeof v === 'string' ? v.trim() : '';
+}
+
+function isAvatarLike(url: unknown): boolean {
+  if (typeof url !== 'string' || url.trim() === '') return false;
+  const u = url.trim().toLowerCase();
+  return (
+    u.includes('avatars.githubusercontent.com') ||
+    u.includes('identicons.github.com') ||
+    (u.startsWith('https://github.com/') && u.endsWith('.png') && !u.includes('/raw/'))
+  );
+}
+
+export function diffRichSummary(prev: AppSummary, next: AppSummary): string[] {
+  const dirty: string[] = [];
+  if (!prev || !next || typeof prev !== 'object' || typeof next !== 'object') return dirty;
+  // name：过滤 '加载中...' 占位，空不覆盖实
+  {
+    const a = richStr(prev.name);
+    const b = richStr(next.name);
+    if (b !== '' && b !== '加载中...' && a !== b) dirty.push('name');
+  }
+  // description / description_en：detail 非空优先
+  for (const f of ['description', 'description_en'] as const) {
+    const a = richStr((prev as unknown as Record<string, unknown>)[f]);
+    const b = richStr((next as unknown as Record<string, unknown>)[f]);
+    if (b !== '' && a !== b) dirty.push(f);
+  }
+  // stars / forks：Number 比对，减少亦脏
+  for (const f of ['stars', 'forks'] as const) {
+    if (Number((prev as unknown as Record<string, unknown>)[f]) !== Number((next as unknown as Record<string, unknown>)[f])) {
+      dirty.push(f);
+    }
+  }
+  // license：新值恰为 "OpenSource" 且 forge 非 github 则不脏
+  {
+    const a = richStr(prev.license);
+    const b = richStr(next.license);
+    if (b !== '' && a !== b) {
+      const forge = richStr(next.forge).toLowerCase();
+      if (!(b === 'OpenSource' && forge !== 'github')) dirty.push('license');
+    }
+  }
+  // latest_version：原样比对，'latest'/'...' 占位不脏
+  {
+    const a = prev.latest_version as unknown;
+    const b = next.latest_version as unknown;
+    if (a !== b && !RICH_VERSION_PLACEHOLDERS.has(b as string)) dirty.push('latest_version');
+  }
+  // category：占位名单不覆盖实
+  {
+    const a = richStr(prev.category);
+    const b = richStr(next.category);
+    if (b !== '' && !RICH_CATEGORY_PLACEHOLDERS.has(b.toLowerCase()) && a !== b) {
+      dirty.push('category');
+    }
+  }
+  // 其余 string 系 trim 比对，空不覆盖实
+  for (const f of ['category_name', 'forge', 'forge_host', 'owner', 'repo'] as const) {
+    const a = richStr((prev as unknown as Record<string, unknown>)[f]);
+    const b = richStr((next as unknown as Record<string, unknown>)[f]);
+    if (b !== '' && a !== b) dirty.push(f);
+  }
+  // is_verified：布尔全量
+  if (Boolean(prev.is_verified) !== Boolean(next.is_verified)) dirty.push('is_verified');
+  // homepage：'' 归一 null，next 为空不脏
+  {
+    const norm = (v: unknown): string | null => {
+      if (v === null || v === undefined) return null;
+      if (typeof v !== 'string') return null;
+      const t = v.trim();
+      return t === '' ? null : t;
+    };
+    const a = norm(prev.homepage);
+    const b = norm(next.homepage);
+    if (b !== null && a !== b) dirty.push('homepage');
+  }
+  return dirty;
+}
+
+/**
+ * 富卡治愈跨组件通道（App → TrendsView，与平台治愈并行）。
+ * 详情成功返回（非 stale）时，App 经 diff→upsert 落 enrich 后派发此事件，
+ * TrendsView 做字段级 merge 并节流写透 L2（重启可恢复全字段）。
+ */
+export const DETAIL_RICHCARD_HEAL_EVENT = 'zstore:detail-richcard-healed';
+
+export interface DetailRichcardHealPayload {
+  /** 全小写匹配键：id / owner-repo 等（与平台治愈同口径）。 */
+  keys: string[];
+  /** upsert 后的完整摘要（空已回填旧值，data:/avatar 已剥离）。 */
+  summary: AppSummary;
+  /** 脏字段名（见 diffRichSummary，icon/platforms 永不在内）。 */
+  dirtyFields: string[];
+  /** 仅详情具真实平台时携带（TrendsView 据此补平台，不觸平台确认逻辑）。 */
+  platforms?: string[];
+  /** 详情非 stale 且平台为空时为 true（已确认 other，落定用）。 */
+  confirmedOther?: boolean;
+}
+
+function emptyRichBaseline(): AppSummary {
+  return {
+    id: '',
+    name: '',
+    owner: '',
+    repo: '',
+    icon: '',
+    icon_bg: '',
+    description: '',
+    stars: 0,
+    forks: 0,
+    license: '',
+    latest_version: '',
+    category: '',
+    category_name: '',
+    is_verified: false,
+    forge: '',
+    forge_host: '',
+    homepage: null,
+    platforms: [],
+  };
+}
+
+/**
+ * 富卡治愈写入 enrich 长缓存（平台治愈的姊妹入口，处理全字段）：
+ * - stale 详情整单丢弃，返回 null；
+ * - icon data: 剥成 ''，avatar 剥离保留旧（无旧则 ''），空图标保留旧；
+ * - 其余 string 空/占位不覆盖实（name '加载中...'、category 占位、license OpenSource 非 github、
+ *   latest_version 占位、homepage 空均保留旧）；
+ * - 平台空不覆盖已具平台值（pending 永不覆盖具平台）；
+ * - put 后返回 { summary, dirtyFields }（无旧值时以空基线求 dirty；put 本体守卫不动）。
+ */
+export function upsertTrendEnrichRichcard(
+  detail: AppDetail,
+  prevLookup?: (key: string) => AppSummary | undefined,
+): { summary: AppSummary; dirtyFields: string[] } | null {
+  if (!detail || typeof detail !== 'object') return null;
+  if (detail.is_stale) return null;
+  if (typeof detail.id !== 'string' || detail.id.trim() === '') return null;
+  const keys = detailHealKeysFor(detail.id, detail.owner, detail.repo);
+  if (keys.length === 0) return null;
+  // 内存旧值：优先内部 enrich 实态，调用方列表快照兜底
+  let prev: AppSummary | undefined;
+  for (const k of keys) {
+    const hit = trendEnrichCache.get(k)?.data;
+    if (hit) {
+      prev = hit;
+      break;
+    }
+  }
+  if (!prev && typeof prevLookup === 'function') {
+    for (const k of keys) {
+      try {
+        const hit = prevLookup(k);
+        if (hit) {
+          prev = hit;
+          break;
+        }
+      } catch {
+        // 查找失败继续下键
+      }
+    }
+  }
+  const merged = appSummaryFromDetail(detail);
+  // icon：data: 剥成 ''；avatar 剥离保留旧；空保留旧（put 入口亦有合并，此处先行保证 diff 准确）
+  const incomingIcon = richStr(merged.icon);
+  const prevIcon = prev ? richStr(prev.icon) : '';
+  const prevIconUsable = prevIcon !== '' && !prevIcon.startsWith('data:') && !isAvatarLike(prevIcon);
+  if (incomingIcon === '' || incomingIcon.startsWith('data:') || isAvatarLike(incomingIcon)) {
+    merged.icon = prevIconUsable && prev ? prev.icon : '';
+  }
+  if (prev) {
+    // 空/占位不覆盖实
+    if (richStr(merged.name) === '' || richStr(merged.name) === '加载中...') merged.name = prev.name;
+    for (const f of ['description', 'description_en'] as const) {
+      if (richStr((merged as unknown as Record<string, unknown>)[f]) === '') {
+        (merged as unknown as Record<string, unknown>)[f] = (prev as unknown as Record<string, unknown>)[f];
+      }
+    }
+    if (richStr(merged.license) === '') {
+      merged.license = prev.license;
+    } else if (richStr(merged.license) === 'OpenSource' && richStr(merged.forge).toLowerCase() !== 'github' && richStr(prev.license) !== '') {
+      merged.license = prev.license;
+    }
+    if (richStr(merged.latest_version) === '' || RICH_VERSION_PLACEHOLDERS.has(merged.latest_version as string)) {
+      merged.latest_version = prev.latest_version;
+    }
+    const mc = richStr(merged.category);
+    if (mc === '' || RICH_CATEGORY_PLACEHOLDERS.has(mc.toLowerCase())) {
+      if (richStr(prev.category) !== '' && !RICH_CATEGORY_PLACEHOLDERS.has(richStr(prev.category).toLowerCase())) {
+        merged.category = prev.category;
+      } else if (mc === '') {
+        merged.category = prev.category;
+      }
+    }
+    for (const f of ['category_name', 'forge', 'forge_host', 'owner', 'repo'] as const) {
+      if (richStr((merged as unknown as Record<string, unknown>)[f]) === '') {
+        (merged as unknown as Record<string, unknown>)[f] = (prev as unknown as Record<string, unknown>)[f];
+      }
+    }
+    if (merged.homepage === null || (typeof merged.homepage === 'string' && merged.homepage.trim() === '')) {
+      merged.homepage = prev.homepage;
+    }
+    // 平台空不覆盖已具平台值
+    if ((!merged.platforms || merged.platforms.length === 0) && prev.platforms && prev.platforms.length > 0) {
+      merged.platforms = [...prev.platforms];
+    }
+  }
+  const at = Date.now();
+  for (const k of keys) {
+    putTrendEnrichCache(k, { timestamp: at, data: merged });
+  }
+  const dirtyFields = prev ? diffRichSummary(prev, merged) : diffRichSummary(emptyRichBaseline(), merged);
+  return { summary: merged, dirtyFields };
+}
+
+/**
  * 格式化星数显示（与 AppCard 规范对齐）。
  * SSOT：全仓唯一 `formatStars` 实现，其余文件禁止本地复刻，一律从此处导入。
  */

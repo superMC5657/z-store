@@ -144,10 +144,10 @@ describe('Phase2治理：字节上限 + dataURI 永不进 payload', () => {
     expect(utf8ByteLength('中文')).toBeGreaterThan(2);
   });
 
-  it('超限降级裸榜：enrich 超限但裸榜可存时去 enrich 落库', async () => {
+  it('超限分级降级：先截长文本，仍超才丢 pending，最后降裸榜', async () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
     const invokeSpy = vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValue(undefined);
-    // 裸榜小，但 enrich 巨大（300KB 单条）→ 信封超限 → 降级裸榜
+    // 裸榜小，但单条 enrich 描述巨大（300KB）→ 信封超限 → 长文本截断后落富信封
     const repos = [makeTrendRepo({ id: 'acme/small' })];
     const huge = makeEnrichedApp({ id: 'acme/huge' });
     (huge as unknown as Record<string, unknown>).description = 'y'.repeat(300 * 1024);
@@ -155,8 +155,32 @@ describe('Phase2治理：字节上限 + dataURI 永不进 payload', () => {
     expect(invokeSpy).toHaveBeenCalledTimes(1);
     const args = invokeSpy.mock.calls[0]?.[1] as { payload_json: string };
     const parsed: unknown = JSON.parse(args.payload_json);
-    // 降级后为裸数组，不含 enrich
-    expect(Array.isArray(parsed)).toBe(true);
+    // 截断后为富信封，描述截至 500 字符
+    expect(Array.isArray(parsed)).toBe(false);
+    const envelope = parsed as { v: number; enrich: Record<string, { description: string }> };
+    expect(envelope.v).toBe(1);
+    expect(envelope.enrich['acme/huge']?.description).toHaveLength(500);
+  });
+
+  it('超限降级裸榜：截断+丢 pending 仍超限时去 enrich 落库', async () => {
+    vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
+    const invokeSpy = vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValue(undefined);
+    // 裸榜小，但 pending 富卡名称巨大（不可截断字段）→ 截断无效 → 丢 pending 后富信封可存
+    const repos = [makeTrendRepo({ id: 'acme/small' })];
+    const hugePending = makeEnrichedApp({ id: 'acme/huge', platforms: [] });
+    (hugePending as unknown as Record<string, unknown>).name = 'n'.repeat(300 * 1024);
+    const good = makeEnrichedApp({ id: 'acme/good', platforms: ['windows'] });
+    await saveDbTrendCache('weekly||', 'weekly', repos, {
+      'acme/huge': hugePending,
+      'acme/good': good,
+    });
+    expect(invokeSpy).toHaveBeenCalledTimes(1);
+    const args = invokeSpy.mock.calls[0]?.[1] as { payload_json: string };
+    const parsed: unknown = JSON.parse(args.payload_json);
+    expect(Array.isArray(parsed)).toBe(false);
+    const envelope = parsed as { v: number; enrich: Record<string, unknown> };
+    expect(envelope.enrich['acme/good']).toBeDefined();
+    expect(envelope.enrich['acme/huge']).toBeUndefined();
   });
 
   it('仍超限放弃写盘：裸榜本身超 256KB 时不 invoke', async () => {
