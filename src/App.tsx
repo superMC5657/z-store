@@ -828,7 +828,7 @@ export const App: React.FC = () => {
         setOnlineApps((prev) => patchIconBoth(prev, persistUrl));
         setRecentlyViewedApps((prev) => patchIconBoth(prev, persistUrl));
         setFavoriteExtraApps((prev) => patchIconBoth(prev, persistUrl));
-        // 趋势内存级同步（单通道复用 `zstore:icon-changed` 监听，不直接碰 enrich L2，data: 禁入由 L2 侧保证）；
+        // 趋势内存级同步（单通道复用 `zstore:icon-changed` 监听，不直接碰榜缓存二级落盘 enrich，data: 禁入由二级侧保证）；
         // 此分支仅在 patchedIcon 为空时进入，与上分支 dispatch 天然互斥，不重复。
         window.dispatchEvent(
           new CustomEvent('zstore:icon-changed', {

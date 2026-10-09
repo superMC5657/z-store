@@ -208,7 +208,7 @@ pub(crate) async fn fetch_anon_probe_bytes(
         .ok()
 }
 
-/// 品牌库 Simple Icons 探测 (L2)
+/// 品牌库 Simple Icons 探测（图标L2=品牌库）
 async fn probe_simple_icons(client: &reqwest::Client, owner: &str, repo: &str) -> String {
     let mut slugs = crate::github::icon_probe::derive_slugs(repo);
     for s in crate::github::icon_probe::derive_slugs(owner) {
@@ -250,7 +250,7 @@ async fn probe_simple_icons(client: &reqwest::Client, owner: &str, repo: &str) -
     String::new()
 }
 
-/// 翻全家 Git Trees 评分探测 (L3)
+/// 翻全家 Git Trees 评分探测（图标L3=仓库）
 /// 有 token 才跑，无 token 则跳过返回空
 async fn probe_git_trees(
     client: &reqwest::Client,
@@ -328,7 +328,8 @@ async fn probe_git_trees(
     String::new()
 }
 
-/// README 图标探测 (L4)
+/// README 图标探测。
+/// L4=README现场扒
 async fn probe_readme(
     client: &reqwest::Client,
     state: &AppState,
@@ -386,7 +387,8 @@ async fn probe_readme(
     String::new()
 }
 
-/// 填充补全 1..4 各级可用 URL
+/// 填充补全 1..4 各级可用 URL。
+/// L4=README现场扒
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn ensure_cycle_levels(
     cycle: &mut crate::db::AppIconCycle,
@@ -400,7 +402,7 @@ pub(crate) async fn ensure_cycle_levels(
 ) {
     let client = crate::commands::icons::icon_http_client();
 
-    // L1: 仅收录应用官方源填 L1；未收录应用保持为空
+    // 图标L1=官方：仅收录应用官方源填图标L1（l1_url）；未收录应用保持为空
     if is_cataloged && cycle.l1_url.trim().is_empty() {
         if let Some(item) = catalog_item {
             let u = item.icon.trim();
@@ -410,11 +412,11 @@ pub(crate) async fn ensure_cycle_levels(
         }
     }
 
-    // L2: 品牌库 Simple Icons
+    // 图标L2=品牌库：品牌库 Simple Icons
     let need_l2 = cycle.l2_url.trim().is_empty();
-    // L3: 翻全家 Git Trees (有 token 才跑)
+    // 图标L3=仓库：翻全家 Git Trees (有 token 才跑)
     let need_l3 = token.is_some() && cycle.l3_url.trim().is_empty();
-    // L4: README
+    // L4=README现场扒
     let need_l4 = cycle.l4_url.trim().is_empty();
 
     let (probed_l2, probed_l3, probed_l4) = tokio::join!(
@@ -535,7 +537,7 @@ mod tests {
         assert_eq!(next_cycle_level(4, &cycle), 5);
         assert_eq!(next_cycle_level(5, &cycle), 1);
 
-        // 仅 L1 有效：1 -> 5 -> 1
+        // 仅图标L1=官方有效：1 -> 5 -> 1
         cycle.l4_url = "".to_string();
         assert_eq!(next_cycle_level(1, &cycle), 5);
         assert_eq!(next_cycle_level(5, &cycle), 1);

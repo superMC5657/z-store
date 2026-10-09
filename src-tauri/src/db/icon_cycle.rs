@@ -304,7 +304,8 @@ pub fn set_level(db: &Database, app_id: &str, level: i32) -> Result<()> {
 // l2/l3/l4 槽位认领、级别推进、详情页图标层级决策 —— 各调用方只做薄委托，
 // 不再各自重写分支。纯决策，无 fs/网络/AppState 依赖；零行为变更。
 
-/// 级别→来源映射（原 commands::icons_cycle::source_for_level，本体已搬入此处）。
+/// 级别→来源映射。
+/// L4=README现场扒
 pub fn source_for_level(level: i32) -> &'static str {
     match level {
         1 => "official",
@@ -315,7 +316,7 @@ pub fn source_for_level(level: i32) -> &'static str {
     }
 }
 
-/// 级别→是否兜底映射（L1 官方直出非兜底，其余皆兜底）。
+/// 级别→是否兜底映射（图标L1=官方直出非兜底，其余皆兜底）。
 pub fn is_fallback_for_level(level: i32) -> bool {
     level > 1
 }
@@ -400,8 +401,9 @@ pub fn cycle_filename(stem: &str, level: i32, ext: &str) -> String {
     format!("{}_l{}.{}", stem, level, ext)
 }
 
-/// 非收录 url 槽位认领（原 get_or_fetch_icon 内联分支）：命中既有 l2/l3/l4 返回其级别，
-/// 否则写入首个空槽；全满则沿用当前合法级别，兜底 L2。不写 l1_url。
+/// 非收录 url 槽位认领：命中既有 l2/l3/l4 返回其级别，
+/// 否则写入首个空槽；全满则沿用当前合法级别。不写 l1_url。
+/// M2=落盘已确认
 pub fn claim_cycle_url_slot(cycle: &mut AppIconCycle, url_trimmed: &str) -> i32 {
     if cycle.l2_url.trim() == url_trimmed {
         2
@@ -439,7 +441,7 @@ pub fn seal_cycle_selection(
 }
 
 /// 在线单仓直查的 cycle 行构造（原 github::search::fetch_online_repo 内联）：
-/// 非收录、L2 即确认图标；图标为空时返回 None（调用方跳过 upsert）。
+/// 非收录、图标L2=品牌库即确认图标；图标为空时返回 None（调用方跳过 upsert）。
 pub fn record_online_icon(
     app_id: &str,
     owner: &str,

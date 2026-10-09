@@ -180,10 +180,7 @@ async function runBoardFetch(
   }
 }
 
-/**
- * L2 读（含旧 key 兼容）：新 key miss 后试归一前旧 key 一次并迁移到新 key。
- * 迁移内容为同 payload 富信封（hydrate 已由 getDbTrendCache 完成），L1 按新 key 写，L2 补存新 key。
- */
+/** 榜缓存二级落盘读。 */
 async function getDbTrendCacheWithLegacyKey(
   newKey: string,
   board: string,
@@ -198,7 +195,7 @@ async function getDbTrendCacheWithLegacyKey(
   const memSnap = snapshotTrendEnrichCache(legacyHit);
   const toMigrate = Object.keys(memSnap).length > 0 ? memSnap : enrich;
   writeTrendsCache(newKey, legacyHit);
-  // 迁移写盘：富信封优先（读路径内 await，丢了下次再迁）。
+  // 榜缓存二级落盘
   await saveDbTrendCache(newKey, board, legacyHit, toMigrate);
   zlogInfo(`[trends] board=${board} L2-key migrated legacy=>new reposCount=${legacyHit.length}`);
   return legacyHit;
@@ -237,7 +234,7 @@ async function fetchBoardWithL2(
   const result = await load();
   if (result.status === 'ok') {
     writeTrendsCache(key, result.repos);
-    // SWR 合并写盘：先读后写，主体裸存不得覆盖已有富信封；空榜/错误不污染 L2。
+    // 榜缓存二级落盘
     await saveBoardCacheMerged(key, board, result.repos);
   }
   return result;
@@ -315,7 +312,7 @@ async function fetchDoforceShared(opts: FetchTrendsOptions = {}): Promise<TrendR
       const repos = await fetchDoforceWithRetry();
       if (repos.length > 0) {
         writeDoforceShared(repos);
-        // SWR 合并写盘：裸存不得覆盖已有富信封。
+        // 榜缓存二级落盘
         await saveBoardCacheMerged(key, 'doforce', repos);
       }
       return repos;
@@ -354,7 +351,7 @@ export async function fetchTrendsResult(
   board: TrendBoardId,
   opts: FetchTrendsOptions = {},
 ): Promise<TrendsResult> {
-  // Phase2治理：切榜顺手 sweep 过期（L1 trendsCache/doforce 单槽 + enrich 12h），不加 setInterval timer。
+  // 切榜 sweep 过期。
   sweepExpiredTrendsCache();
   sweepExpiredTrendEnrichCache();
   if (isTimeBoard(board)) {

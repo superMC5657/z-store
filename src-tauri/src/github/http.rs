@@ -381,6 +381,7 @@ pub(crate) fn is_avatar_icon_url(url: &str) -> bool {
 /// 则返回已确认的图标（本地缓存文件有效时优先返回 dataURI 语义，
 /// 缓存缺失/不可读时回退到可用 remote_url；后台补探只写 selected_url 不写 cache_file，
 /// 此处不再因 cache_file 为空而返回 None，否则重复搜索首屏恒为 ''），否则返回 None。
+/// M2=落盘已确认
 /// B3-G11 SSOT：标识解析经 `RepositoryUrlParser` + `canonical_app_id`，大小写回退收进
 /// `forge::coord::lookup_case_insensitive`（db 查询侧），此处不再手写 `to_lowercase` 多段回退。
 pub(crate) fn resolve_confirmed_icon_from_db(
@@ -424,8 +425,8 @@ pub(crate) fn open_db_opt() -> Option<crate::db::Database> {
 }
 
 /// H10：目录外仓库 `AppSummary` 兜底构造。
-/// 图标：若 probe 为 true，先快后慢——快路径 SimpleIcons（免鉴权，repo+owner 去重单循环，
-/// 每 slug ≤1500ms，命中即返），慢路径 Trees（有 token 才跑，保持 12s）；绝不调 users API、不拼 avatar_url；
+/// 图标：若 probe 为 true，先快后慢——快路径 SimpleIcons（图标L2=品牌库；免鉴权，repo+owner 去重单循环，
+/// 每 slug ≤1500ms，命中即返），慢路径 Trees（图标L3=仓库；有 token 才跑，保持 12s）；绝不调 users API、不拼 avatar_url；
 /// 若 probe 为 false，图标置空（首屏快返，等后台补探 emit）。
 /// 分类：移植 catalog guessCategory 关键词表，按 topics+description 判定。
 #[allow(clippy::too_many_arguments)]

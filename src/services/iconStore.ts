@@ -1,26 +1,5 @@
-/**
- * P1 统一图标方案：前端唯一写入口（只做前端，不碰 `src-tauri`）。
- * P2 趋势流式化：Trend 接 `board_gen` 门控（与 Search `search_id` 门控同构，
- * 任一为空即放行、双非空不等即丢弃；后端 `BOARD_GEN` 落库前+emit前双检查独立防串，
- * 前端只看 `board` 字符串，`gen` 透传比对当双方均提供时才生效）。
- *
- * 后端 P0 双发旧 `zstore://search-icon-ready{search_id,app_id,icon,level}` +
- * 新 `zstore://icon-ready{key,id,icon,level,context{kind,search_id?,board?,gen?}}`
- *（`key`=小写 `owner/repo`，`level`: 2=simple / 3=trees / 4=confirmed）。
- * 本模块是前端唯一的图标写透收口，唯一写入口 {@link applyHit}：
- *  1. 归一 key+id 别名双写（`trendEnrichKey` 小写 + `AppIcon:appIdToIconMap`
- *     双写语义：原值与小写各记一键，此处统一归一小写去重后逐别名写透）。
- *  2. 世代门控：Search 看 `search_id===currentSearchId`（与 `App.tsx` 旧语义一致：
- *     双非空且不等即丢弃）；Trend 看 `board===activeBoard` + 可选 `gen` 透传比对
- *    （`board/boardGen/getBoardGen`，P2 接线；任一为空即放行，首屏兼容）。
- *  3. 写透守卫：avatar 丢弃、`data:` 只进内存不落盘、`''` 不覆盖已有实图、
- *     `level` 单调升级（低不顶高）。
- *  4. 仅 `remote(http)` 才 `patch state + preloadIcons([{id,icon}])`
- *     走 `get_or_fetch_icon` 落盘；`data:` 只 patch 内存态不 preload。
- *
- * 调用方（`App.tsx` 搜索回调只传 `search_id` 门控；`TrendsView` 趋势回调只传
- * `board` 门控）只做新旧载荷适配 + React 列表 `patch` 注入，
- * `invalidateIconCache` 先失效再 `preload` 的时机由店内保证。
+/** 前端图标唯一写入口。
+ * M2=落盘已确认
  */
 import { invalidateIconCache, isAvatarUrl, preloadIcons } from '../components/AppIcon';
 import type { AppSummary } from '../types';
@@ -153,7 +132,7 @@ export function mergeStickyIcon(
   return incoming;
 }
 
-/** `level` 单调记忆（别名共享最大值，低不顶高）+ 已有实图记忆（`''` 守卫回退）。 */
+/** `level` 单调记忆（别名共享最大值，低不顶高）+ 图标内存缓冲已有实图记忆（`''` 守卫回退）。 */
 const iconLevelById = new Map<string, number>();
 const iconById = new Map<string, string>();
 
@@ -339,7 +318,7 @@ export function __resetIconStoreForTests(): void {
 }
 
 /**
- * P2 趋势流式缓冲读口：`icon-ready` 先到、`enrich` 后到竞态时，
+ * P2 趋势流式缓冲读口（图标内存缓冲读口，经 `iconById`）：`icon-ready` 先到、`enrich` 后到竞态时，
  * `enrich` 组装（service `enrichTrendRepos` + `TrendsView` 合并）经此取缓冲实图，
  * 空壳不覆盖缓冲实图（无空覆实；`avatar` 永不进缓冲由 `applyHit` 保证，
  * 此处再判空串即可）。

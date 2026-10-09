@@ -4,11 +4,11 @@ import { getBufferedIcon, mergeStickyIcon } from '../iconStore';
 
 /** enrich 派生缓存 TTL：12h（坐标元数据日内几乎不变，与 DOFORCE 快照同口径）。 */
 export const TREND_ENRICH_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
-/** Phase2治理内存有界：trendEnrichCache 至多 500 条，经单一 put 入口 FIFO 裁剪。 */
+/** trendEnrichCache 至多 500 条。 */
 export const TREND_ENRICH_CACHE_MAX_ENTRIES = 500;
-/** Phase2治理分片：FE 分片串行 20/片 × 2 片 = 40 上限（BE buffered(5) 不变，见 catalog_search.rs）。 */
+/** 分片 20/片×2 片=40 上限。 */
 export const TREND_ENRICH_SHARD_SIZE = 20;
-/** Phase2治理分片：单次 enrich 最多 40 仓，超 40 留占位不置空榜。 */
+/** 单次 enrich 最多 40 仓。 */
 export const TREND_ENRICH_MAX_TOTAL = 40;
 
 /**
@@ -82,8 +82,7 @@ export function unmarkTrendConfirmedOthers(keys: readonly string[]): void {
  * - 派生口径：内存 enrich 条目存在时，以条目状态为准——具平台一律不是 Other
  *   （到场即驱逐，残留标记同步清除）；空平台 + 新鲜（12h 内，非 stale）即 Other；
  *   空平台 + stale 即非 Other（到期重验，不再由旧标记直展）；
- * - 兼容口径：无内存条目时回退独立标记集（L2 落盘 confirmedOther 的 legacy 输入，
- *   信封版本不变）；有时钟回拨/过期即清并返回 false。
+ * - 无内存条目时回退独立标记集。
  */
 export function isTrendConfirmedOtherFresh(key: string): boolean {
   const k = key.trim().toLowerCase();
@@ -109,12 +108,11 @@ export function isTrendConfirmedOtherFresh(key: string): boolean {
 }
 
 /**
- * 已确认 Other 快照（供 L2 写盘与视图免验，derive wins）：
+ * 已确认 Other 快照：
  * - 派生优先：新鲜（12h 内）空平台 enrich 条目一律视为 Other（运行时派生，
  *   不再依赖是否曾被单独标记）；具平台键一律排除（禁 pending 覆盖具平台，
  *   升级后不再视同 Other）；stale 空平台条目排除（到期重验）；
- * - 兼容输入：独立标记集中仍新鲜且非具平台的键一并返回（L2 落盘 confirmedOther
- *   的 legacy 输入，信封版本不变；过期/回拨即清）；
+ * - 独立标记集新鲜键一并返回；
  * - 可选传入 repos 时仅返回仍属本榜的键（坐标键 + id 键，小写）。
  */
 export function snapshotTrendConfirmedOthers(repos?: TrendRepo[]): string[] {
@@ -152,9 +150,9 @@ export function snapshotTrendConfirmedOthers(repos?: TrendRepo[]): string[] {
 }
 
 /**
- * L2 确认标记回填（hydrate）：
+ * 确认标记回填：
  * - 仅收非空小写键；已具平台键跳过（禁 pending 覆盖具平台）；
- * - 时间戳一律取 now（与 enrich hydrate 同口径，L2 12h 窗口由 cached_at 把关，此处只保新鲜）。
+ * - 时间戳取 now。
  */
 export function hydrateTrendConfirmedOtherCache(keys?: readonly string[] | null): void {
   if (!keys) return;
@@ -190,18 +188,14 @@ const trendEnrichCache = new Map<string, { timestamp: number; data: AppSummary }
  * 旧图标非空 + 回填图标空 → 沿用旧图标；其余一律采用回填值（含新图标覆盖旧图标）。
  * put 入口与回填 out 组装共用，保证内存与本次返回值一致。
  *
- * P2 趋势流式化：图标合并走 `services/iconStore`（`mergeStickyIcon` + `getBufferedIcon`），
- * 平台逻辑保留——`SHARD20` 只管 platforms 回填不管图标：
- * 后端首屏 `probe=false` 空壳（图标空）+ 后台 `icon-ready` 流式逐张到达，
- * 先到图标缓存在 store（`applyHit` 的 `iconById`），后到空壳经此处取缓冲补齐，
- * 空永不覆盖实（无空覆实回归）。
+ * 图标合并走 iconStore 缓冲。
  *
  * @deprecated P1 已收敛至 `services/iconStore.mergeStickyIcon`，此处仅转调；
  *   SHARD/平台逻辑与趋势等齐语义一律不动。
  */
 function stickyIconFor(cur: AppSummary | undefined, incoming: AppSummary): AppSummary {
   const merged = mergeStickyIcon(cur, incoming);
-  // P2 竞态补齐：`icon-ready` 先到（缓冲有实图）、`enrich` 空壳后到时，
+  // 竞态补齐。
   // 合并与入库一并沿用缓冲实图（内存与本次返回值一致）。
   if (typeof merged.icon === 'string' && merged.icon.trim() === '') {
     const coordKey =
@@ -220,10 +214,7 @@ function stickyIconFor(cur: AppSummary | undefined, incoming: AppSummary): AppSu
 }
 
 /**
- * Phase2治理单一 put 入口：trendEnrichCache 唯一写入口，写时 FIFO 裁剪至 500 条。
- * 调用方禁止直调 trendEnrichCache.set，一律经此入口，保证内存有界。
- * 图标回填只做升级不做准入：已有真实图标（非空）不被空图标覆盖；
- * 有/无图标一视同仁进富卡，首字母兜底在渲染侧生成，不影响持久化。
+ * trendEnrichCache 唯一写入口。
  */
 function putTrendEnrichCache(key: string, entry: { timestamp: number; data: AppSummary }): void {
   const k = key.trim().toLowerCase();
@@ -247,8 +238,7 @@ function putTrendEnrichCache(key: string, entry: { timestamp: number; data: AppS
 }
 
 /**
- * Phase2治理：切榜顺手 sweep 过期（fetchTrendsResult 入口调用，不加 setInterval timer）。
- * elapsed<0（时钟回拨）按过期。
+ * 切榜 sweep 过期。
  */
 export function sweepExpiredTrendEnrichCache(): void {
   const now = Date.now();
@@ -269,7 +259,7 @@ export function clearTrendEnrichCache(): void {
 }
 
 /**
- * 从 DB L2 缓存向内存 `trendEnrichCache` 回填（hydrate）：
+ * 向内存 `trendEnrichCache` 回填：
  * - SWR 直展：具真实平台与 pending 空平台均可入内存（pending 卡首屏直展，Other 待确认语义）；
  * - 准入只看三件套：id/owner/repo 非空必填（有/无图标一视同仁，icon 空也保留）；
  * - 约束：不存 dataURI（若 icon 是 data: 开头则跳过）；
@@ -312,7 +302,7 @@ export function hydrateTrendEnrichCache(
 }
 
 /**
- * 将内存中的有效 `trendEnrichCache` 转为可存入 L2 DB 的快照（Record<小写owner/repo, AppSummary>）：
+ * 内存快照：
  * - 可选传入 repos：若传入则仅提取属于这些 repos 的条目，否则提取全部；
  * - 仅提取未过期条目（elapsed<0 按过期；elapsed>=12h 按过期），具真实平台与 pending 空平台均收录（SWR 直展）；
  * - 约束：跳过 dataURI（pending 空平台保留，Other 待确认语义）。
@@ -412,7 +402,7 @@ export async function enrichTrendRepos(repos: TrendRepo[]): Promise<Map<string, 
       if (!s) return;
       if (!Array.isArray(s.platforms)) return;
       if (typeof s.icon === 'string' && s.icon.startsWith('data:')) {
-        // data: URI 永不进内存/L2，但本次仍可返回占位由调用方保留旧小行。
+        // data: 永不进内存。
         const key = trendEnrichKey(r.owner, r.repo);
         out.set(key, s);
         return;
@@ -653,7 +643,7 @@ export function diffRichSummary(prev: AppSummary, next: AppSummary): string[] {
 /**
  * 富卡治愈跨组件通道（App → TrendsView，与平台治愈并行）。
  * 详情成功返回（非 stale）时，App 经 diff→upsert 落 enrich 后派发此事件，
- * TrendsView 做字段级 merge 并节流写透 L2（重启可恢复全字段）。
+ * TrendsView 字段级 merge 写透。
  */
 export const DETAIL_RICHCARD_HEAL_EVENT = 'zstore:detail-richcard-healed';
 

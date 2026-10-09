@@ -1,23 +1,11 @@
 import type { AppSummary } from '../../types';
 import { TREND_DB_PAYLOAD_MAX_BYTES, utf8ByteLength } from '../trends/cache';
 
-/**
- * 搜索 L1 列表缓存（含平台+图标，纯前端内存）：
- * - 独立 Map，不共用 trendsCache 实例（防 key 串、TTL 串）；
- * - key=`search|normQuery|page|perPage`（normQuery=trim 小写连续空白压单空格，空串拒绝写）；
- * - value=`{at, ids, rows}`（rows 为当次页 rows，非累计；pending 空平台可存列表）；
- * - TTL 30min；空结果不存（与 saveDbTrendCache 空榜不污染 L2 同思想，二选一写死为“不存”）；
- * - 上限 50 条 FIFO（写时删最旧，不加 timer）；
- * - sweep 由 handleSearchSubmit/handleOnlineLoadMore 入口顺手调用
- *  （抄 services/trends/boards.ts:357 fetchTrendsResult，不加 setInterval timer）；
- * - 字节预检复用 services/trends/cache.ts utf8ByteLength + 256KB 阈值思想
- *  （TREND_DB_PAYLOAD_MAX_BYTES），超限放弃写。
- * - 不碰 L2（board='search' 灰度另议），不碰 iconStore/AppIcon/TrendsView。
- */
+/** 搜缓存。 */
 
-/** 搜索 L1 列表 TTL：30min（非空结果）。 */
+/** 搜缓存 TTL 30min。 */
 export const SEARCH_LIST_TTL_MS = 30 * 60 * 1000;
-/** 搜索 L1 内存有界：至多 50 条，写时 FIFO 删最旧。 */
+/** 搜缓存至多 50 条。 */
 export const SEARCH_LIST_MAX_ENTRIES = 50;
 
 export interface SearchListCacheEntry {
@@ -50,7 +38,7 @@ function sanitizePerPage(perPage: number): number {
   return Number.isFinite(perPage) ? Math.max(1, Math.floor(perPage)) : 1;
 }
 
-/** 读 L1：命中且未过期返回 rows；过期/时钟回拨按 miss（删键返回 undefined，调用方保留旧列表）。 */
+/** 读搜缓存。 */
 export function readSearchListCache(
   query: string,
   page: number,
@@ -74,10 +62,7 @@ export function readSearchListCache(
   return hit.rows;
 }
 
-/**
- * 写 L1：仅当次页 rows（非累计）；空 norm/空 rows 拒绝写（空结果不存，二选一写死）；
- * 写前 JSON 字节预检超 256KB 放弃写；刷新写序 + FIFO 裁剪至 50 条。
- */
+/** 写搜缓存。 */
 export function writeSearchListCache(
   query: string,
   page: number,
@@ -88,7 +73,7 @@ export function writeSearchListCache(
   if (!norm) return;
   if (!Array.isArray(rows) || rows.length === 0) return;
   const key = buildSearchListCacheKey(query, sanitizePage(page), sanitizePerPage(perPage));
-  // 字节预检（抄 saveDbTrendCache FE 预检思想）：超限放弃写，不抛错。
+  // 字节预检超限放弃写。
   try {
     const payloadJson = JSON.stringify(rows);
     if (utf8ByteLength(payloadJson) > TREND_DB_PAYLOAD_MAX_BYTES) return;
@@ -114,10 +99,7 @@ export function writeSearchListCache(
   }
 }
 
-/**
- * 切搜/翻页顺手 sweep 过期（handleSearchSubmit/handleOnlineLoadMore 入口调用，不加 timer）。
- * elapsed<0（时钟回拨）按过期。
- */
+/** sweep 过期。 */
 export function sweepExpiredSearchListCache(): void {
   const now = Date.now();
   for (const [k, v] of searchListCache) {
@@ -126,7 +108,7 @@ export function sweepExpiredSearchListCache(): void {
   }
 }
 
-/** 仅供测试：清空搜索 L1。 */
+/** 清空搜缓存。 */
 export function clearSearchListCache(): void {
   searchListCache.clear();
 }

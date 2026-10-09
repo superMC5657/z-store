@@ -14,9 +14,9 @@ export const CACHE_TTL_MS = 5 * 60 * 1000; // 默认内存缓存回落（未知�
  * 日榜粒度数据日内几乎不变，长缓存 + 两榜共享把远端命中压到最低。
  */
 export const DOFORCE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
-/** DB L2 持久化缓存默认 TTL：12h（daily 见 trendDbTtlMs 取 1h；其余榜按 12h 复用，与后端 prune 双档一致）。 */
+/** 榜缓存二级落盘默认 TTL：12h。 */
 export const TREND_DB_TTL_MS = 12 * 60 * 60 * 1000;
-/** DB L2 daily 榜 TTL：1h（与后端 prune_expired_trend_board_cache daily 3600s 对齐）。 */
+/** 榜缓存二级落盘 daily 榜 TTL：1h。 */
 export const TREND_DB_DAILY_TTL_MS = 60 * 60 * 1000;
 /** 429 单次重试的最大等待：60s；超过即直接 error，不再等待。 */
 export const DOFORCE_RETRY_MAX_WAIT_MS = 60_000;
@@ -26,18 +26,17 @@ export const TRENDING_TIMEOUT_MS = 10_000; // github.com/trending HTML 抓取 10
 export const DOFORCE_TIMEOUT_MS = 10_000; // doforce API 10s 熔断（Rust 侧执行）
 export const GITHUB_SEARCH_TIMEOUT_MS = 10_000; // GitHub Search 主源 10s 熔断
 
-/** Phase2治理：内存有界——trendsCache 至多 200 条，写时 FIFO 删最旧。 */
+/** 榜缓存一级内存至多 200 条，写时 FIFO 删最旧。 */
 export const TRENDS_CACHE_MAX_ENTRIES = 200;
-/** Phase2治理：FE 写盘前 UTF-8 预检上限 256KB（BE 512KiB 硬拒绝保持，见 db/cache.rs）。 */
+/** 写盘前 UTF-8 预检上限 256KB。 */
 export const TREND_DB_PAYLOAD_MAX_BYTES = 256 * 1024;
-/** Phase2治理：L2 读错峰抖动上限 30s（按 key 稳定哈希，只扣减不延长）。 */
+/** 榜缓存二级落盘读错峰抖动上限 30s。 */
 export const TREND_L2_JITTER_MAX_MS = 30_000;
 
 const trendsCache = new Map<string, { timestamp: number; data: TrendRepo[] }>();
 
 /**
- * Phase2治理：L2 读 key 稳定抖动 0-30s（FNV-1a 32 哈希 % 30000，与后端无关，纯前端错峰）。
- * 同一 key 同一抖动值，重启/切榜稳定，避免多榜同时过期齐刷远端。
+ * 榜缓存二级落盘读抖动 0-30s。
  */
 export function trendL2JitterMs(key: string): number {
   let h = 2166136261 >>> 0;
@@ -50,8 +49,7 @@ export function trendL2JitterMs(key: string): number {
 }
 
 /**
- * Phase2治理：L2 有效 TTL = ttl - min(jitter, ttl/4)，只扣减不延长。
- * 短 TTL 加帽 ttl/4，避免抖动吞掉大部分保鲜窗；长 TTL（12h）即扣 jitter 全值。
+ * 榜缓存二级落盘有效 TTL=ttl-min(jitter,ttl/4)。
  */
 export function trendL2EffectiveTtlMs(ttlMs: number, key: string): number {
   const jitter = trendL2JitterMs(key);
@@ -59,7 +57,7 @@ export function trendL2EffectiveTtlMs(ttlMs: number, key: string): number {
   return ttlMs - Math.min(jitter, cap);
 }
 
-/** Phase2治理：FE 写盘前 UTF-8 字节预检（TextEncoder 主路，异常回退近似）。 */
+/** 写盘前 UTF-8 字节预检。 */
 export function utf8ByteLength(s: string): number {
   try {
     return new TextEncoder().encode(s).length;
@@ -82,21 +80,18 @@ export function buildTrendsCacheKey(board: TrendBoardId, opts: FetchTrendsOption
   return `${board}|${language}|${category}`;
 }
 
-/**
- * 旧 key 兼容（C3 归一前形态：拼接不定大小写/空格，老库 orphan 行仍躺在旧 key 下）。
- * 读侧在新 key miss 后试旧 key 一次并迁移到新 key；新写入一律用归一 key，key 形态不动。
- */
+/** 旧 key 兼容读一次。 */
 export function buildLegacyTrendsCacheKey(board: TrendBoardId, opts: FetchTrendsOptions = {}): string {
   return `${board}|${opts.language ?? ''}|${opts.category ?? ''}`;
 }
 
-/** 按榜 L2 TTL 基准：daily 1h，其余榜 12h（与后端 prune 双档 daily 3600s / 其余 43200s 一致；doforce 等非 daily 一律 12h）。 */
+/** 榜缓存二级落盘 TTL 基准：daily 1h，其余 12h。 */
 export function trendDbTtlMs(board: string): number {
   if (board === 'daily') return TREND_DB_DAILY_TTL_MS;
   return TREND_DB_TTL_MS;
 }
 
-/** 按榜缓存 TTL：daily 1h，weekly/monthly/new 12h，其余回落 CACHE_TTL_MS（未知榜 5 分钟）。 */
+/** 榜缓存 TTL：daily 1h，weekly/monthly/new 12h，其余 5min。 */
 export function trendsBoardTtlMs(board: string): number {
   if (board === 'daily') return 60 * 60 * 1000;
   if (board === 'weekly' || board === 'monthly' || board === 'new') return 12 * 60 * 60 * 1000;
@@ -121,7 +116,7 @@ export function writeTrendsCache(key: string, data: TrendRepo[]): void {
   // 刷新写序：已存在先删再插，使其成为最新；新插入触发 FIFO 裁剪时删最旧。
   if (trendsCache.has(key)) trendsCache.delete(key);
   trendsCache.set(key, { timestamp: Date.now(), data });
-  // Phase2治理内存有界：写时 FIFO 删最旧，保证 ≤200 条。
+  // 写时 FIFO 删最旧。
   while (trendsCache.size > TRENDS_CACHE_MAX_ENTRIES) {
     const oldest = trendsCache.keys().next().value as string | undefined;
     if (oldest === undefined) break;
@@ -131,8 +126,7 @@ export function writeTrendsCache(key: string, data: TrendRepo[]): void {
 }
 
 /**
- * Phase2治理：切榜顺手 sweep 过期（fetchTrendsResult 入口调用，不加 setInterval timer）。
- * trendsCache 按 key 首段 board 取对应 TTL 判定；doforce 单槽按 12h 判定；elapsed<0 按过期。
+ * 切榜 sweep 过期。
  */
 export function sweepExpiredTrendsCache(): void {
   const now = Date.now();
@@ -148,7 +142,7 @@ export function sweepExpiredTrendsCache(): void {
 }
 
 export function buildDoforceCacheKey(opts: FetchTrendsOptions = {}): string {
-  // C3：归一 trim().toLowerCase()，与 buildTrendsCacheKey 同口径，读写同源（见 boards.ts:204/214/240）。
+  // 归一 trim().toLowerCase()。
   const language = (opts.language ?? '').trim().toLowerCase();
   const category = (opts.category ?? '').trim().toLowerCase();
   return `doforce|${language}|${category}`;
@@ -164,10 +158,8 @@ export const CMD_SAVE_TREND_BOARD_CACHE = 'save_trend_board_cache';
  * 包装榜单裸仓列表与对应的坐标 enrich 派生摘要。
  * enrich 键为小写 `owner/repo`，收录具真实平台与 pending 空平台条目（SWR 首屏直展，Other 待确认语义）；
  * 仅禁 dataURI（图标 data: 开头一律不进盘）。
- * confirmedOther 为已确认 Other 键集（小写）：settle 兜底 / lite 空非 stale 确认后与 enrich 同 key 落盘，
- * 重挂免验直展 Other 卡；具平台到达即移除（可覆盖升级），按榜窗口由 cached_at + 按榜 TTL 把关（daily 1h，其余 12h），到期重验。
- * 不改表结构：仅 payload_json 信封内新增可选字段，旧盘无此字段即视为空（向后兼容）。
- * 新鲜度复用落库 `cached_at` + 按榜有效 TTL（daily 1h，其余 12h，扣 key 稳定抖动），读侧 elapsed<0 按过期。
+ * confirmedOther 为已确认 Other 键集。
+ * 新鲜度复用 `cached_at` + 按榜 TTL。
  */
 export interface TrendCacheEnvelopeV1 {
   v: 1;
@@ -182,7 +174,7 @@ interface DbTrendBoardCacheRow {
 }
 
 /**
- * 读 DB L2 持久化缓存：
+ * 榜缓存二级落盘读：
  * - 双形状解析：
  *   1) 纯数组 Array → 旧格式兼容，直接返回 TrendRepo[]；
  *   2) { v: 1, repos, enrich } 信封 → 新格式，repos 必须非空数组，enrich 逐项守卫后调 hydrateTrendEnrichCache 载入内存，并返回 repos；
@@ -190,7 +182,7 @@ interface DbTrendBoardCacheRow {
  * - 命令未就绪 / DB 损坏 / 反序列化失败 / 已过期一律降级返回 undefined（视为 miss 走网络）。
  * Phase2治理：
  * - 时钟钳制 elapsed<0 按过期；
- * - L2 读 key 稳定抖动 0-30s 错峰，只扣减不延长（有效 TTL = 按榜 TTL - min(jitter, TTL/4)，daily 1h / 其余 12h）。
+ * - 读抖动 0-30s，只扣减不延长。
  */
 export async function getDbTrendCache(key: string, board?: string): Promise<TrendRepo[] | undefined> {
   if (!isTauri) return undefined;
@@ -295,7 +287,7 @@ export async function getDbTrendCache(key: string, board?: string): Promise<Tren
 }
 
 /**
- * 写 DB L2 持久化缓存（fire-and-forget，不阻塞主流程，异常安全）。
+ * 榜缓存二级落盘写。
  * - 第 4 参 enrich 可选：无参保持旧数组 JSON 写入；有参且合法时写入 { v: 1, repos, enrich } 信封。
  * - 第 5 参 confirmedOther 可选：已确认 Other 键集（小写），与 enrich 同 key 落盘（data 仍禁由 enrich 守卫保证）；
  *   具平台键调用方已过滤，此处再做一次去重归一；为空即省略字段（旧盘兼容）。
@@ -304,7 +296,7 @@ export async function getDbTrendCache(key: string, board?: string): Promise<Tren
  *   具平台到达即移除（可覆盖升级），按榜窗口（daily 1h，其余 12h）由 cached_at + 按榜 TTL 把关，到期重验。
  * - Phase2治理字节上限：FE utf8ByteLength 预检 256KB；超限先丢 confirmed 再降级裸榜，仍超限放弃写盘。
  *   BE 512KiB 硬拒绝保持（见 db/cache.rs TREND_BOARD_CACHE_MAX_BYTES），FE 预检避免无谓 invoke。
- * - 空榜/错误不污染 L2：repos 为空直接返回不写盘（调用方仅 ok 非空才调）。
+ * - 空榜不写盘。
  */
 export async function saveDbTrendCache(
   key: string,
@@ -411,7 +403,7 @@ export async function saveDbTrendCache(
   }
 }
 
-/** 榜单 repos 对应的 L2 enrich 键全集（坐标键 + id 键，小写），供合并时过滤仍属本榜的条目。 */
+/** 榜单 enrich 键全集。 */
 function wantedEnrichKeys(repos: TrendRepo[]): Set<string> {
   const out = new Set<string>();
   for (const r of repos) {
@@ -424,11 +416,8 @@ function wantedEnrichKeys(repos: TrendRepo[]): Set<string> {
 }
 
 /**
- * 榜单写盘合并口（先读后写，防裸覆盖富）：
- * - 内存快照（含 pending）与 L2 新鲜富信封中仍属本榜的条目合并；冲突时内存新值优先，
- *   但内存 pending 永不覆盖 L2 已具平台值；
- * - 已确认 Other 同 key 合并：内存新鲜确认 + L2 仍属本榜确认取并集，具平台键一律剔除
- *   （可覆盖升级），过期由 TTL 把关（到期重验）；
+ * 榜单写盘合并口（先读后写，防裸覆盖富）。
+ * - 已确认 Other 同 key 合并。
  * - 合并后有富条目即存富信封（含确认集），否则存裸数组；空榜直接返回不写盘。
  * boards 主体落盘与 TrendsView 写透统一走此口，关闭前丢失/裸存覆盖即被堵住。
  */
@@ -458,8 +447,7 @@ export async function saveBoardCacheMerged(
         if (!curHas && prevHas) merged[k] = v;
       }
     }
-    // L2 确认集已由 getDbTrendCache hydrate 进内存，snapshot 已含旧值；此处再读附带字段兜底
-    // （hydrate 失败/并发时仍能合并仍属本榜的旧确认，防确认丢失致每次重拉）。
+    // 确认集合并。
     const prevConfirmed = (prev as { confirmedOther?: unknown } | undefined)?.confirmedOther;
     if (Array.isArray(prevConfirmed)) {
       const seen = new Set(mergedConfirmed);
@@ -496,9 +484,7 @@ export async function saveBoardCacheMerged(
 }
 
 /**
- * doforce 源数据共享缓存（rising/healthy 共用原始快照，各榜自行排序）。
- * Phase2治理内存有界：单槽有界，仅保留最新一份快照（O(1)，不随榜/筛选膨胀）；
- * 切榜 sweep 见 sweepExpiredTrendsCache，不加 timer。
+ * doforce 共享缓存单槽。
  */
 let doforceSharedCache: { timestamp: number; data: TrendRepo[] } | undefined;
 /** doforce 在途共享 Promise（并发的 rising/healthy 复用同一请求，防 2 连击）。 */
@@ -506,7 +492,7 @@ let doforceInflight: Promise<TrendRepo[]> | undefined;
 
 export function readDoforceShared(): TrendRepo[] | undefined {
   if (!doforceSharedCache) return undefined;
-  // Phase2治理时钟钳制：elapsed<0 按过期。
+  // elapsed<0 按过期。
   const elapsed = Date.now() - doforceSharedCache.timestamp;
   if (elapsed < 0) {
     doforceSharedCache = undefined;
@@ -531,7 +517,7 @@ export function setDoforceInflight(p: Promise<TrendRepo[]> | undefined): void {
   doforceInflight = p;
 }
 
-/** 仅供测试与榜单切换时使用：清空趋势内存缓存（含 doforce 共享缓存与在途请求、enrich 12h 缓存）。 */
+/** 清空榜缓存。 */
 export function clearTrendsCache(): void {
   trendsCache.clear();
   doforceSharedCache = undefined;

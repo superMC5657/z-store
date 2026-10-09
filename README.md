@@ -88,7 +88,7 @@
 
 - **桌面底座**: Tauri 2.2 + Rust 1.77+
 - **前端界面**: React 19 + TypeScript 5.7 (strict) + Vite 6 + 原生 Fluent 2.0 CSS + Fluent 矢量图标体系 (`lucide-react`)
-- **本地数据库**: 嵌入式 SQLite (`rusqlite` bundled，WAL 模式，维护 14 张核心表：含 `trend_board_cache`（趋势榜 L2 缓存，后端命令 `get/save_trend_board_cache` 已补齐），`icon_cache_meta` 与 `app_icon_cycles`，图标缓存来源与轮换状态分流）
+- **本地数据库**: 嵌入式 SQLite (`rusqlite` bundled，WAL 模式，维护 14 张核心表：含 `trend_board_cache`（榜缓存二级落盘，后端命令 `get/save_trend_board_cache` 已补齐），`icon_cache_meta` 与 `app_icon_cycles`，图标缓存来源与轮换状态分流）
 - **配置中枢**: 单一基线配置源（`src-tauri/config.toml`），结合编译期内置兜底与外部重载机制
 - **网络与下载**: API / 图标双池物理隔离复用单例（均 `connect_timeout 5s`、`keepalive 60s`、`pool 20/idle 90s`；图标 CDN 通道恒丢 token，绝不携带认证头）+ `tokio` 异步流式下载 + ETag 条件缓存 + 有限重试（仅 GET 传输错误与 429/5xx，最多 2 次按 200ms→800ms 退避，401/404/304 永不重试）+ 并发镜像测速管道；图标先 HEAD 判类型长度、再 Range 取前 32KB 验 magic（300B 最小阈值卡掉 LFS 指针，`buffered(3)` 并发）；自动继承系统代理与 TUN 模式
 - **桌面开发配置**: `pnpm tauri dev`（基于 `src-tauri/tauri.conf.json` 配置本地安全策略）

@@ -18,7 +18,6 @@ import {
   type PlatformsLiteResult,
   type ReadmeVariant,
   type ReadmeVariantsResult,
-  type SearchIconReadyPayload,
 } from '../api';
 import { isTauri, tauriInvoke } from './client';
 
@@ -82,33 +81,20 @@ export async function enrichTrendRepos(
 }
 
 /**
- * 新旧双事件订阅（P1 前端切新事件，旧事件保留一版兼容）：
- * - 旧 `zstore://search-icon-ready{search_id,app_id,icon,level}`（P0 兼容）；
- * - 新 `zstore://icon-ready{key,id,icon,level,context}`（P1 统一收口，
- *   `services/iconStore.applyHit` 做新旧适配）。
- * 双订阅同一回调，新事件失败不影响旧订阅。
+ * 只听新统一事件 `zstore://icon-ready{key,id,icon,level,context}`（P1 统一收口）：
+ * 后端只发新事件，前端只订阅新事件。
+ * 世代门控走 `services/iconStore.applyHit`（读 `context.search_id` vs `currentSearchId`，
+ * 与旧顶层 `search_id` 语义一致），调用方只做新旧载荷适配 + React 列表 `patch` 注入。
  */
-export type SearchIconUpgradePayload = SearchIconReadyPayload | IconReadyPayload;
+export type SearchIconUpgradePayload = IconReadyPayload;
 
 export async function onSearchIconUpgraded(
   callback: (payload: SearchIconUpgradePayload) => void,
 ): Promise<() => void> {
   if (!isTauri) return () => {};
-  const unOld = await listen<SearchIconReadyPayload>('zstore://search-icon-ready', (e) => {
+  return listen<IconReadyPayload>('zstore://icon-ready', (e) => {
     callback(e.payload);
   });
-  let unNew: (() => void) | null = null;
-  try {
-    unNew = await listen<IconReadyPayload>('zstore://icon-ready', (e) => {
-      callback(e.payload);
-    });
-  } catch {
-    return unOld;
-  }
-  return () => {
-    unOld();
-    if (unNew) unNew();
-  };
 }
 
 export async function getAppDetails(id: string, forceRefresh = false): Promise<AppDetail> {

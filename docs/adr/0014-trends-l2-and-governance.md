@@ -18,10 +18,10 @@
 
 ## 3. TTL / 抖动 / 清扫双档
 
-- L1 分档（`trendsBoardTtlMs`）：daily 1h，weekly/monthly/new 12h，其余 5min（`CACHE_TTL_MS`）；doforce 共享 12h；enrich 12h；L2 双档（`trendDbTtlMs` + `TREND_DB_TTL_MS`/`TREND_DB_DAILY_TTL_MS`）：daily 1h，其余 12h。
-- L2 有效 TTL = 基线 - min(key 稳定抖动 0-30s, 基线/4)，只扣减不延长；`elapsed<0`（时钟回拨/未来戳）一律按过期。
-- 清扫双档（`prune_expired_trend_board_cache`）：daily 挡 3600s，其余挡 43200s，与 L2 双档对齐（非仅扫描阈值），未来戳保留；启动时 best-effort 调一次，无 timer。前端切榜顺手 `sweepExpiredTrendsCache + sweepExpiredTrendEnrichCache`（`fetchTrendsResult` 入口），不加 `setInterval`。
-- 2026-10-09 修订（PM确认）: new归入12h档，L2按daily 1h/其余12h双档。
+- 榜缓存一级内存分档（榜 L1，`trendsBoardTtlMs`）：daily 1h，weekly/monthly/new 12h，其余 5min（`CACHE_TTL_MS`）；doforce 共享 12h；enrich 12h；榜缓存二级落盘双档（榜 L2，`trendDbTtlMs` + `TREND_DB_TTL_MS`/`TREND_DB_DAILY_TTL_MS`）：daily 1h，其余 12h。
+- 榜缓存二级落盘有效 TTL = 基线 - min(key 稳定抖动 0-30s, 基线/4)，只扣减不延长；`elapsed<0`（时钟回拨/未来戳）一律按过期。
+- 清扫双档（`prune_expired_trend_board_cache`）：daily 挡 3600s，其余挡 43200s，与榜缓存二级落盘双档对齐（非仅扫描阈值），未来戳保留；启动时 best-effort 调一次，无 timer。前端切榜顺手 `sweepExpiredTrendsCache + sweepExpiredTrendEnrichCache`（`fetchTrendsResult` 入口），不加 `setInterval`。
+- 2026-10-09 修订（PM确认）: new归入12h档，榜缓存二级落盘按daily 1h/其余12h双档。
 
 ## 4. 内存有界
 

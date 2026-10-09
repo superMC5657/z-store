@@ -1,7 +1,7 @@
 use crate::models::AppSummary;
 use crate::AppState;
 use std::sync::atomic::{AtomicU64, Ordering};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Manager, State};
 
 static SEARCH_GEN: AtomicU64 = AtomicU64::new(0);
 
@@ -24,25 +24,11 @@ pub(crate) fn api_timeout_or(fallback: std::time::Duration) -> std::time::Durati
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct SearchIconReadyPayload {
-    pub search_id: String,
-    pub app_id: String,
-    pub icon: String,
-    pub level: i32,
-}
-
-/// 快/慢图标探测结果落库 + 前端 emit（`upsert_icon_cycle` + 双发事件）。
-/// - 旧 `zstore://search-icon-ready` 继续发（P0 前端兼容）；
-/// - 同时新发统一 `zstore://icon-ready{key,id,icon,level,context}`
-///  （`key`=小写 `owner/repo`，`level`: 2=simple / 3=trees / 4=confirmed），
-///   前端 P1 切新事件后下线旧事件。
-/// - `level=2`：快路径 SimpleIcons，写 `l2_url`；`level=3`：慢路径 Trees，写 `l3_url`；
-/// - 世代比对防串词：落库前 + emit 前双检查 `SEARCH_GEN == expected_gen`，
-///   用户在此期间触发新搜索则抛弃过时探测结果（与原快/慢两路内联语义一致）。
-/// - `level=2`：快路径 SimpleIcons，写 `l2_url`；`level=3`：慢路径 Trees，写 `l3_url`；
-/// - 世代比对防串词：落库前 + emit 前双检查 `SEARCH_GEN == expected_gen`，
-///   用户在此期间触发新搜索则抛弃过时探测结果（与原快/慢两路内联语义一致）。
+/// 快/慢图标探测结果落库 + 前端 emit（`upsert_icon_cycle` + 单发新事件）。
+/// M2=落盘已确认
+/// - 只发统一 `zstore://icon-ready{key,id,icon,level,context}`；
+/// - `level=2`写 `l2_url`；`level=3`写 `l3_url`；
+/// - 世代比对防串词：落库前 + emit 前双检查 `SEARCH_GEN == expected_gen`。
 /// - 单条显式事务边界（单语句隐式事务显式化，仍 1 提交，emit 不延迟）；
 ///   失败 `ROLLBACK` 返回 Err，上层 `let _ =` 吞错由吞错语义改为内部吞错、下次补探重试。
 #[allow(clippy::too_many_arguments)]
@@ -79,14 +65,7 @@ async fn save_and_emit(
     if SEARCH_GEN.load(Ordering::SeqCst) != expected_gen {
         return;
     }
-    let payload = SearchIconReadyPayload {
-        search_id: sid.to_owned(),
-        app_id: id.to_owned(),
-        icon: url.to_owned(),
-        level,
-    };
-    let _ = handle.emit("zstore://search-icon-ready", &payload);
-    // P0 双发：新统一事件（载荷 schema 归 core 所有，见 `github::icon_fetch`）。
+    // 单发：新统一事件（载荷 schema 归 core 所有，见 `github::icon_fetch`）。
     let ready = crate::github::icon_fetch::IconReadyPayload {
         key: crate::github::icon_fetch::icon_key(owner, repo),
         id: id.to_owned(),
@@ -101,8 +80,7 @@ async fn save_and_emit(
 }
 
 /// 趋势图标命中落库 + 前端 emit（P2 流式，类比 `save_and_emit` 搜索链）：
-/// - 只发新统一 `zstore://icon-ready{key,id,icon,level,context=Trend{board,gen}}`
-///   （旧 `zstore://search-icon-ready` 为搜索专用，趋势不发，前端 P1 切新事件后趋势只走新事件）；
+/// - 只发统一 `zstore://icon-ready{key,id,icon,level,context=Trend{board,gen}}`；
 /// - `level=2` 快路径 SimpleIcons 写 `l2_url`；`level=3` 慢路径 Trees 写 `l3_url`；
 /// - 世代比对防串榜：落库前 + emit 前双检查 `BOARD_GEN == expected_gen`，
 ///   用户在此期间切榜/重拉则抛弃过时探测结果（与搜索 `SEARCH_GEN` 双检查同语义）；
@@ -194,8 +172,8 @@ pub(crate) fn hidden_rule_ids(state: &AppState) -> std::collections::HashSet<Str
     }
 }
 
-/// 未收录卡片回填（`search_apps_online` / `enrich_trend_repos` 双调用点收敛，循环体同形合一）：
-/// 确认图标覆盖 → 待写 icon_cycle（L2/L4+selected）构建 → 详情缓存 platforms join（空保持 []）。
+/// 未收录卡片回填：确认图标覆盖 → 待写 icon_cycle 构建 → 详情缓存 platforms join。
+/// M2=落盘已确认
 /// 返回 `Some(cycle)` 时由调用方收进 `pending` 批量落库；无事可写返回 `None`。
 /// 纯同步无 `await`（调用方单临界区内复用 db 锁，批量 upsert 仍在调用点）。
 fn backfill_uncataloged_card(
@@ -215,6 +193,7 @@ fn backfill_uncataloged_card(
             cycle.level = 2;
             cycle.l2_url = item.icon.clone();
         } else {
+            // M2=落盘已确认
             cycle.level = 4;
             cycle.l4_url = item.icon.clone();
         }
@@ -433,6 +412,7 @@ pub async fn search_apps_online(
                             cycle.level = 2;
                             cycle.l2_url = item.icon.clone();
                         } else {
+                            // M2=落盘已确认
                             cycle.level = 4;
                             cycle.l4_url = item.icon.clone();
                         }
@@ -890,7 +870,7 @@ mod tests {
 
     #[test]
     fn backfill_uncataloged_card_keeps_twin_loop_semantics() {
-        // 双调用点抽取回归：空图标无 pending 且保持原样 / L2 pending 构建 /
+        // 双调用点抽取回归：空图标无 pending 且保持原样 / 图标L2=品牌库 pending 构建 /
         // 确认图标（selected 回退）直接覆盖且无 pending。
         let db = crate::db::Database::open_in_memory().unwrap();
         let mut empty = sample_summary("o/r", "o", "r", "");

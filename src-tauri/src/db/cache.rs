@@ -214,11 +214,11 @@ impl Database {
     }
 }
 
-/// Phase1A 趋势榜缓存上限：单条 payload 至多 512 KiB，超限拒绝落库。
+/// 榜缓存二级落盘单条至多 512 KiB，超限拒绝。
 pub const TREND_BOARD_CACHE_MAX_BYTES: usize = 512 * 1024;
 
 impl Database {
-    /// 获取趋势榜缓存（纯透存：命中即返，不判 TTL；key 仅 trim，不做大小写归一）。
+    /// 榜缓存二级落盘读。
     pub fn get_trend_board_cache(&self, cache_key: &str) -> Result<Option<(String, i64)>> {
         let key = clean(cache_key);
         if key.is_empty() {
@@ -237,7 +237,7 @@ impl Database {
         }
     }
 
-    /// 保存趋势榜缓存（全列 UPSERT 覆盖；空 key/board/payload 静默跳过，超限拒绝并报错）。
+    /// 榜缓存二级落盘写。
     pub fn save_trend_board_cache(
         &self,
         cache_key: &str,
@@ -273,7 +273,7 @@ impl Database {
         Ok(())
     }
 
-    /// 双档清扫：`daily` 挡过期 3600s，其余挡 43200s；未来时间戳天然保留（早于阈值比较恒为假）。
+    /// 榜缓存二级落盘清扫。
     pub fn prune_expired_trend_board_cache(&self, now: i64) -> Result<usize> {
         let daily_cutoff = now.saturating_sub(3600);
         let other_cutoff = now.saturating_sub(43200);

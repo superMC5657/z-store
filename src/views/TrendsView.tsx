@@ -149,7 +149,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   );
   const trendLiteInflightRef = useRef<Set<string>>(new Set());
   const trendBoardSeqRef = useRef(0);
-  // L2 新鲜富卡免验集：SWR-fill 时内存快照已有的键（L2 新鲜期内直接展，不调 lite）；
+  // 榜缓存二级新鲜富卡免验集：SWR-fill 时内存快照已有的键（二级新鲜期内直接展，不调 lite）；
   // 后续 enrich 新取回的键不在集内，缺席/过期仍走 lite 补验（到期再验）。
   const swrTrustedRef = useRef<Set<string>>(new Set());
   const enrichedAppsRef = useRef(enrichedApps);
@@ -159,6 +159,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   const platformResolvedOtherIdsRef = useRef(platformResolvedOtherIds);
   platformResolvedOtherIdsRef.current = platformResolvedOtherIds;
   // 富卡写透节流：Map<cacheKey, timer> 800ms debounce，聚合连击为一次落盘；
+  // 注：此 boardWriteTimers 为榜写盘 debounce（富卡/enrich 落盘节流），非 sweep timer（切榜顺手 sweep 不加 timer）。
   // 卸载/切榜时由 pagehide flush 刷掉 pending（见下）。
   const boardWriteTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const scheduleBoardWriteThrough = (key: string): void => {
@@ -303,13 +304,13 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     onDisplayPlatformCounts?.(displayPlatformCounts);
   }, [displayPlatformCounts, onDisplayPlatformCounts]);
 
-  // SWR 旧富卡直展：L2 富信封（含 pending 空平台卡）命中后 boards 已 hydrate 进内存，
+  // SWR 旧富卡直展：榜缓存二级富信封命中后 boards 已 hydrate 进内存，
   // 此处同步合并进 enrichedApps 先展旧富卡（含 pending 的 Other 待确认语义），不闪裸行；
   // 后台 enrich effect 再 revalidate 缺席项，找到具平台再覆盖写透；永不用空值覆盖已具平台值。
   // 富/裸以 enriched 存在为准，不用 icon 判定（有/无图标一视同仁）；图标回填只做升级（空不覆盖实）。
   // 可信集分两档：仅具真实平台（platforms.length>0）进可信免验；pending 空平台首屏仍展旧卡，
   // 但后台走 lite 补验（回来 patch 不闪裸）。新鲜度 12h／data: 禁入／小写归一由 snapshot 保证，此处不动。
-  // 已确认 Other 同信封落盘：L2 确认集已 hydrate 进内存，此处同步并入榜单内已确认集合，
+  // 榜缓存二级落盘
   // 重挂免验直展 Other 卡（零 lite）；具平台升级由 put 自动移除确认，到期由 12h TTL 重验。
   useEffect(() => {
     if (trendResult?.status !== 'ok' || trendResult.repos.length === 0) {
@@ -322,7 +323,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
         .filter(([, v]) => !!v.platforms && v.platforms.length > 0)
         .map(([k]) => k),
     );
-    // L2 已确认直展：仍属本榜的新鲜确认键一次并入本地，其他榜确认不串扰。
+    // 榜缓存二级落盘
     const l2Confirmed = snapshotTrendConfirmedOthers(trendResult.repos);
     if (l2Confirmed.length > 0) {
       setTrendConfirmedOtherIds((prev) => {
@@ -364,8 +365,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
 
   // 未收录行 enrichment：逐仓复用搜索 enrichment（Rust 侧并发 5、分片 20/片×2 片=40 上限、单仓 10s），
   // 成功合并为完整卡片；失败/无命中保持旧小行（enrichTrendRepos 缺席即不写，缺席即展裸行/旧缓存，不等齐）。
-  // P2 趋势流式化：`SHARD20` 只管 platforms 回填不管图标——图标合并走 `iconStore`：
-  // 后端首屏 `probe=false` 空壳（图标空）+ 后台 `icon-ready` 流式逐张到达经 `applyHit`
+  // 图标合并走 iconStore。
+  // 后台 `icon-ready` 经 `applyHit`
   // patch 富卡（见下订阅 effect）；此处 `enrich` 回填仅做平台逻辑（详情治愈优先、
   // 空 pending 永不覆盖具平台），图标只做升级（空不覆实 + 缓冲补齐），无空覆实回归。
   // 详情已治愈的行不被空回填覆盖（空 pending 永不覆盖具真实平台的已治愈值，单次落定）。
@@ -394,7 +395,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
           // 详情治愈优先：已具真实平台的行不被空 enrich 回填覆盖，避免治愈后回闪 pending/Other
           if (incomingEmpty && prevHasPlatforms) continue;
           // 图标回填只做升级：入项无图标但旧项有真实图标时保留旧图标（有/无图标一视同仁进富卡）；
-          // P2 流式竞态补齐：`icon-ready` 先到（store 缓冲有实图）、`enrich` 空壳后到时取缓冲补齐，
+          // 竞态补齐。
           // 空壳不覆盖缓冲实图（SHARD 只管平台，图标走 store）。
           let mergedApp = app;
           const prevHasRealIcon =
@@ -439,7 +440,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
         });
       }
       // enrich 落定后写透同榜 key（await 落稳再返回，刷新 cached_at 即刷新 12h 窗口）：
-      // SWR 富信封含 pending 直展，具平台与 pending 新项均可写透升级 L2（合并写盘防裸覆盖）；
+      // SWR 富信封含 pending 直展，具平台与 pending 新项均可写透升级榜缓存二级；
       // P1-C3 读写同源：写透 key 与 boards 读路径同源（同 board + 同 trendFetchOpts），
       // 杜绝丢 opts 导致读写分叉；已确认 Other 经确认集同 key 写透（见 lite/settle），
       // 此处 saveBoardCacheMerged 自动携带内存确认快照（具平台键已剔除）。
@@ -490,13 +491,13 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     };
   }, []);
 
-  // P2 趋势流式图标订阅：后端首屏 `probe=false` 空壳快返（缺席即展裸行/旧缓存，不等齐），
-  // 后台 `fetch_icons_stream(Trend)` 逐张 `zstore://icon-ready` 到达经 `iconStore.applyHit`
+  // 趋势流式图标订阅。
+  // 后台 `icon-ready` 经 `applyHit`
   // 接上 `board` 门控（与搜索 `search_id` 门控同构：双非空不等即丢弃，任一为空即放行；
   // 后端 `BOARD_GEN` 落库前+emit前双检查独立防串串榜）逐个补齐富卡图标。
   // `SHARD20` 只管 platforms 回填不管图标：此处只 patch 图标（空不覆实/level 单调/avatar 丢弃
   // 均由店内保证），平台逻辑不动；`data:` 只进内存不落盘（hydrate 内跳过），`remote` 才
-  // hydrate + 节流写透 L2（重启可恢复）。
+  // hydrate + 节流写透榜缓存二级。
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | null = null;
@@ -677,7 +678,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   // L5（rawIcon ''）放行内存清零（icon 置 ''、icon_bg 保留），只走徽章分支，空不进盘；
   // 大小写归一，同时匹配坐标键与 `enriched.id` 小写别名。
   // 重启可恢复：rawIcon 为可持久化 URL（非 data:）时，对本次命中条目 hydrate 快照
-  // {…cur, icon:rawIcon} 并经 writeThroughRef 同榜 key 写透 L2；data:/空只进内存、跳过落盘
+  // 榜缓存二级落盘
   // （data: 永不进盘由 hydrate/snapshot 四道 continue 保证，此处亦主动跳过）。
   useEffect(() => {
     const handler = (e: Event) => {
@@ -703,7 +704,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       });
       // L5 清零只做内存（icon 已置 ''，徽章分支直显），空不进盘：跳过 hydrate/写透
       if (rawIcon === '') return;
-      // URL 落盘分支：仅 remote URL（非 data:）可进 L2，data: 只做内存即时展示
+      // 榜缓存二级落盘
       if (rawIcon.startsWith('data:')) return;
       try {
         const latest = enrichedAppsRef.current;
@@ -833,7 +834,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
         }
         return changed ? next : prev;
       });
-      // L2 写透：命中条目 hydrate 快照 + 节流落盘（dirty 空已提前返回，此处必有写盘量）
+      // 榜缓存二级落盘
       try {
         const latest = enrichedAppsRef.current;
         const toHydrate: Record<string, AppSummary> = {};
@@ -881,10 +882,10 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
 
   // 未收录行 lite 确认（App lazyBackfill 的榜单侧补齐，经共享 helper 分批 5/上限 20/seq 守卫）：
   // enrich 落定为空（fallback []）的行按 App 同口径走 getPlatformsLite 轻量通道：
-  // 非空非 stale 即 patch enrichedApps 治愈并同步 merge 内存快照 + await 写透 L2（下次直展具平台）；
-  // 空非 stale 即记入榜单内已确认 Other 并与 enrich 同 key 写透 L2（重挂免验直展 Other 卡，零 lite）；
+  // 非空非 stale 即 patch enrichedApps 治愈并同步 merge 内存快照 + await 写透榜缓存二级；
+  // 空非 stale 即记入榜单内已确认 Other 并与 enrich 同 key 写透榜缓存二级，重挂免验直展 Other 卡，零 lite）；
   // stale/失败保持 pending 交给 settle 超时（不覆盖具平台）。enrich 合并与此处 patch 均永不以后续空值覆盖已治愈的真实平台。
-  // 可信分三档：具真实平台（platforms.length>0）＋ 已确认 Other（L2 确认集新鲜）＋L2 新鲜（12h／禁 data:／小写归一由 snapshot 保证）
+  // 可信分三档：具真实平台（platforms.length>0）＋ 已确认 Other（榜缓存二级确认集新鲜）＋榜缓存二级新鲜
   // 即免验直接展；pending 空平台首屏先展旧卡，后台仍走 lite 补验，回来 patch 不闪裸（只 patch、不删卡）。
   // 只有 enrich 缺席（裸行交 enrich effect）、用户点详情/刷新才走其他通道。详情页 get_platforms_lite
   // 30m TTL/ETag 保持原样，趋势页不再每次直调（确认的 Other 随富卡存 12h，到期再验）。
@@ -1003,7 +1004,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
             for (const k of patched.keys()) next.delete(k);
             return next;
           });
-          // L2 落定回写：pending 经 lite 补到具平台后立即升级内存快照并写透存盘替代 pending，
+          // 榜缓存二级落盘
           // 下次重挂直展具平台（零 lite）。stale/失败不进 patched，保持 pending 等 15s 兜底；
           // data: 禁入、key 小写归一由 hydrate/合并写盘保证，此处不改表结构。
           try {
@@ -1035,7 +1036,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
           }
         }
         if (confirmedEmpty.length > 0) {
-          // 空非 stale 即已确认 Other：本地 + 内存标记 + 与 enrich 同 key 写透 L2（data 仍禁），
+          // 空非 stale 即已确认 Other：本地 + 内存标记 + 与 enrich 同 key 写透榜缓存二级，
           // 重挂免验直展 Other 卡；具平台到达可覆盖升级（上分支已清），12h 到期重验。
           const aliasConfirmed: string[] = [];
           {
@@ -1088,7 +1089,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
             }
             return changed ? next : prev;
           });
-          // 确认写透：同榜 key hydrate + saveBoardCacheMerged 落盘（与正常 enrich 同 key，data 仍禁由快照保证）。
+          // 榜缓存二级落盘
           if (aliasConfirmed.length > 0 && trendResult.repos.length > 0) {
             try {
               const isDoforceBoard = activeBoard === 'rising' || activeBoard === 'healthy';
@@ -1114,7 +1115,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   // 至多等待 TREND_PENDING_SETTLE_MS 后降级为已确认 Other（徽标 + 计数 + 可过滤），
   // 而非无限 shimmer。超时前仍恒可见（不看 Other 勾选），落定后走正常 Other 过滤。
   // 治愈（具真实平台）的行永不被 settle 确认；定时器随榜单/回填变化重置，落稳后一次触发。
-  // 已确认 Other 与 enrich 同 key 写透 L2（data 仍禁）：裸行合成最小摘要 hydrate，空 enrich 剥 data: 后 hydrate，
+  // 已确认 Other 与 enrich 同 key 写透榜缓存二级：裸行合成最小摘要 hydrate，空 enrich 剥 data: 后 hydrate，
   // 重挂免验直展 Other 卡；具平台到达可覆盖升级，12h 到期重验；pending 永不覆盖具平台。
   useEffect(() => {
     if (platformResolvedOtherIds === undefined) return;

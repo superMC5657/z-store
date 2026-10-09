@@ -16,10 +16,13 @@
 //!     （`catalog_search::save_and_emit`）负责，core 只做探测与调度，不触 DB；
 //!   - `cfg.simple_timeout_ms / trees_timeout_secs / enable_readme / compat_collect`
 //!     为配置预留，P0 仅透传/日志，README 探针不开（`enable_readme=false`）。
-//! - 事件双发：调用方 `emit` 回调继续发旧 `zstore://search-icon-ready`，同时用本模块
-//!   的 [`IconReadyPayload`] 新发 `zstore://icon-ready{key,id,icon,level,context}`
-//!  （`key`=小写 `owner/repo`，`level`: 2=simple / 3=trees / 4=confirmed）；
-//!   前端 P1 切新事件，P0 双发保证兼容。
+//!     L4=README现场扒默认关。
+//!     M2=落盘已确认不受此开关影响。
+
+
+//! - 事件：调用方 `emit` 回调用本模块的 [`IconReadyPayload`]
+//!   发 `zstore://icon-ready{key,id,icon,level,context}`
+//!  （`key`=小写 `owner/repo`，`level`: 2/3本core emit，4为M2落盘已确认）。
 
 use futures_util::StreamExt;
 use tauri::{AppHandle, Emitter};
@@ -53,12 +56,12 @@ pub enum IconFetchCtx {
 }
 
 /// 新统一图标就绪事件载荷（`zstore://icon-ready`）。
-/// `level`: 2=simple（SimpleIcons 快路径）/ 3=trees（Git Trees 慢路径）/ 4=confirmed（确认图标）。
+/// `level`: 2/3探测命中，4为M2落盘已确认。
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct IconReadyPayload {
     /// 小写 `owner/repo`（见 [`icon_key`]）。
     pub key: String,
-    /// 小写 `owner/repo`（与旧 `search-icon-ready.app_id` 同值）。
+    /// 小写 `owner/repo`。
     pub id: String,
     pub icon: String,
     pub level: i32,
@@ -90,8 +93,8 @@ pub fn emit_icon_ready(handle: &AppHandle, payload: &IconReadyPayload) {
 /// - `jobs`：待补探任务（含 `ctx`，世代防串由 `emit` 回调按 `ctx.gen` 执行）；空直接返回。
 /// - `token`：慢路径 Trees 鉴权；无 token 只走快路径（与改前一致）。
 /// - `cfg`：`limits.icon_fetch`（P0 生效 `pool` + `total_timeout_secs`，其余预留）。
-/// - `emit`：命中回调（落库 + 双发事件 + 世代双检查均在回调内，core 不触 DB）。
-///   签名 `(handle, job, url, level)`，`level` 2=simple / 3=trees。
+/// - `emit`：命中回调（落库 + 发事件 + 世代双检查均在回调内，core 不触 DB）。
+///   签名 `(handle, job, url, level)`，`level` 2/3；4只由调用方回填，不经本core探测。
 pub async fn fetch_icons_stream<F, Fut>(
     handle: AppHandle,
     jobs: Vec<IconFetchJob>,
@@ -113,7 +116,7 @@ pub async fn fetch_icons_stream<F, Fut>(
         cfg.enable_readme,
         cfg.compat_collect
     );
-    // P0：`enable_readme=false` 固定跳过 README 探针（字段预留，P1 接线）。
+    // L4=README现场扒默认关。
     let client = crate::commands::icon_http_client();
     // 慢路径鉴权头：有 token 才跑 Trees，无 token 只走快路径（与改前一致）。
     let slow_headers = token
@@ -191,7 +194,7 @@ pub async fn fetch_icons_stream<F, Fut>(
     .buffer_unordered(pool)
     .for_each(|()| async {});
     // 整批总超时：超时即降级结束（剩余任务直接丢弃，不炸不重试）。
-    // 伸缩语义见上（选型：按 probe_cap 伸缩总量；README 仍默认关不动，`enable_readme` 仅日志透传）。
+    // L4=README现场扒默认关。
     let batches = jobs_len.div_ceil(pool).max(1) as u64;
     let scaled_secs = batches.saturating_mul(timeout_each.as_secs().max(1));
     let total = std::time::Duration::from_secs(cfg.total_timeout_secs.max(1).max(scaled_secs));
