@@ -388,6 +388,45 @@ fn trees_timeout() -> std::time::Duration {
     api_timeout_or(std::time::Duration::from_secs(12))
 }
 
+/// Trees 分支回退唯一定义（搜索/趋势/详情共用）：`main` 优先，`master` 兜底。
+/// 动态分支解析（[`resolve_probe_branches`]）以此为回退基线，保证 ZCode 类老仓（默认 `master`）仍可命中。
+pub(crate) const FALLBACK_PROBE_BRANCHES: [&str; 2] = ["main", "master"];
+
+/// 动态分支解析共用（搜索 `icon_fetch` + 详情 `icons_cycle_probe::probe_git_trees` + 匿名兜底共用，
+/// 不另起第三套）：先 GET `repos/{owner}/{repo}` 取 `default_branch`（5s 超时，失败静默降级），
+/// 再补 `main`/`master` 去重，最多 3 分支（抄 `icons_cycle_probe.rs:281-300` 语义）。
+pub(crate) async fn resolve_probe_branches(
+    client: &reqwest::Client,
+    headers: &HeaderMap,
+    owner: &str,
+    repo: &str,
+) -> Vec<String> {
+    let mut branches: Vec<String> = Vec::with_capacity(3);
+    let repo_api = format!("https://api.github.com/repos/{}/{}", owner, repo);
+    if let Ok(Ok(resp)) = tokio::time::timeout(
+        api_timeout_or(std::time::Duration::from_secs(5)),
+        client.get(&repo_api).headers(headers.clone()).send(),
+    )
+    .await
+    {
+        if let Ok(v) = resp.json::<serde_json::Value>().await {
+            if let Some(b) = v.get("default_branch").and_then(|x| x.as_str()) {
+                let b = b.trim();
+                if !b.is_empty() {
+                    branches.push(b.to_string());
+                }
+            }
+        }
+    }
+    for fallback in FALLBACK_PROBE_BRANCHES {
+        if !branches.iter().any(|b| b == fallback) {
+            branches.push(fallback.to_string());
+        }
+    }
+    branches.truncate(3);
+    branches
+}
+
 /// repo+owner 去重 slug 单循环（旧行为）：先 repo 后 owner，去重后逐个试探。
 pub(crate) fn dedup_slugs(owner: &str, repo: &str) -> Vec<String> {
     let mut out = derive_slugs(repo);

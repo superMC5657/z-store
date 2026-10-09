@@ -27,7 +27,13 @@ use tauri::{AppHandle, Emitter};
 /// 慢路径 Trees 分支回退顺序：先 main 后 master（ZCode 类老仓默认分支仍为 master，
 /// 只查 main 会零命中零 emit，首屏恒为 initials）。顺序即优先级，main 优先。
 /// （P0 从 `catalog_search` 搬入 core，此处为唯一定义处。）
-pub(crate) const SEARCH_PROBE_BRANCHES: [&str; 2] = ["main", "master"];
+/// 搜索对齐趋势：实际探测分支由 [`crate::github::icon_probe::resolve_probe_branches`]
+/// 动态解析（先 GET repos 取 `default_branch` 5s 超时，再补 main/master，最多3分支，
+/// 与 `commands::icons_cycle_probe::probe_git_trees:281-300` 同源共用）；
+/// 本常量仅为回退基线 + 存量单测断言保留（值与 `icon_probe::FALLBACK_PROBE_BRANCHES` 同源）。
+#[allow(dead_code)]
+pub(crate) const SEARCH_PROBE_BRANCHES: [&str; 2] =
+    crate::github::icon_probe::FALLBACK_PROBE_BRANCHES;
 
 /// 单个图标补探任务：`id` 为小写 `owner/repo`（与原 `candidates` 构造一致）。
 #[derive(Debug, Clone)]
@@ -118,6 +124,13 @@ pub async fn fetch_icons_stream<F, Fut>(
     // P3 搜索与趋势共用收敛，与趋势 buffered(5) 对齐），
     // 快慢各一次 emit 语义不变（快命中即返不等慢，慢仅快未命中且有 token 时跑）。
     let pool = cfg.pool.max(1);
+    // 搜索对齐趋势：整批总量按 probe_cap（jobs.len）伸缩（选型二选一：伸缩总量；
+    // 单家语义抄 `catalog_search.rs:620` 趋势老路 `timeout_each 10s`，经 pool=5 分摊；
+    // total = max(cfg.total_timeout_secs, ceil(jobs/pool) * timeout_each)，pool 保持 5）。
+    let jobs_len = jobs.len();
+    let timeout_each = crate::commands::catalog_search::api_timeout_or(
+        std::time::Duration::from_secs(10),
+    );
     let batch = futures_util::stream::iter(jobs.into_iter().map(|job| {
         let handle = handle.clone();
         let client = client.clone();
@@ -145,10 +158,17 @@ pub async fn fetch_icons_stream<F, Fut>(
             }
 
             // 慢路径：快未命中且有 token 才跑 Trees（内部 12s）；超时只弃慢不弃快。
+            // 搜索对齐趋势：分支动态解析（先 GET repos 取 default_branch 5s 超时，
+            // 再补 main/master，最多3分支），复用 `icon_probe::resolve_probe_branches`
+            //（与 `icons_cycle_probe::probe_git_trees:281-300` 同源，不另起第三套）；
             // 默认分支兼容：main 未命中回退 master（ZCode 类老仓默认分支为 master）。
             if let Some(hdrs) = slow_headers.as_ref() {
+                let branches = crate::github::icon_probe::resolve_probe_branches(
+                    &client, hdrs, &job.owner, &job.repo,
+                )
+                .await;
                 let mut hit = None;
-                for branch in SEARCH_PROBE_BRANCHES {
+                for branch in &branches {
                     if let Some(h) = crate::github::icon_probe::probe_trees(
                         &client,
                         hdrs,
@@ -171,7 +191,10 @@ pub async fn fetch_icons_stream<F, Fut>(
     .buffer_unordered(pool)
     .for_each(|()| async {});
     // 整批总超时：超时即降级结束（剩余任务直接丢弃，不炸不重试）。
-    let total = std::time::Duration::from_secs(cfg.total_timeout_secs.max(1));
+    // 伸缩语义见上（选型：按 probe_cap 伸缩总量；README 仍默认关不动，`enable_readme` 仅日志透传）。
+    let batches = jobs_len.div_ceil(pool).max(1) as u64;
+    let scaled_secs = batches.saturating_mul(timeout_each.as_secs().max(1));
+    let total = std::time::Duration::from_secs(cfg.total_timeout_secs.max(1).max(scaled_secs));
     let _ = tokio::time::timeout(total, batch).await;
 }
 

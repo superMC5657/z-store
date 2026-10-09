@@ -2,6 +2,13 @@ import { useCallback, useRef, useState } from 'react';
 import type { TFunction } from 'i18next';
 import type { AppSummary, ViewType } from '../../types';
 import { api, ONLINE_SEARCH_PER_PAGE } from '../../services/api';
+import { getBufferedIcon, mergeStickyIcon } from '../../services/iconStore';
+import { hydrateTrendEnrichCache } from '../../services/trends/enrich';
+import {
+  readSearchListCache,
+  sweepExpiredSearchListCache,
+  writeSearchListCache,
+} from '../../services/search/searchListCache';
 import { zlogWarn } from '../../lib/z-log';
 
 export interface UseSearchStateParams {
@@ -11,6 +18,65 @@ export interface UseSearchStateParams {
   lazyBackfillPlatforms: (summaries: AppSummary[], seq: number) => void;
   showToast: (msg: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
   t: TFunction;
+}
+
+/**
+ * 在线段图标回填组装（search L1 命中与网络新 hits 共用分支）：
+ * 按 id 小写去重；组装前经 mergeStickyIcon 合旧列表（旧实+新空则沿旧，
+ * 防 icon-ready 先到、空壳后到覆盖）；仍空再经 getBufferedIcon 回填 store 缓冲实图。
+ * 形态抄 handleSearchSubmit 首屏分支，与 TrendsView 合并同语义；不碰 iconStore 合并守卫。
+ */
+function assembleOnlineRowsWithIcons(prev: AppSummary[], incoming: AppSummary[]): AppSummary[] {
+  const prevById = new Map<string, AppSummary>();
+  for (const p of prev ?? []) {
+    const pk = (p?.id || '').trim().toLowerCase();
+    if (pk && !prevById.has(pk)) prevById.set(pk, p);
+  }
+  const seen = new Set<string>();
+  const deduped: AppSummary[] = [];
+  for (const m of incoming ?? []) {
+    const k = (m.id || '').toLowerCase();
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    let item = mergeStickyIcon(prevById.get(k), m);
+    if (typeof item.icon === 'string' && item.icon.trim() === '') {
+      const coordKey =
+        item.owner && item.repo
+          ? `${item.owner.trim().toLowerCase()}/${item.repo.trim().toLowerCase()}`
+          : '';
+      const idKey = typeof item.id === 'string' ? item.id.trim().toLowerCase() : '';
+      const buffered =
+        (coordKey ? getBufferedIcon(coordKey) : undefined) ??
+        (idKey ? getBufferedIcon(idKey) : undefined);
+      if (buffered && buffered.trim() !== '') {
+        item = { ...item, icon: buffered };
+      }
+    }
+    deduped.push(item);
+  }
+  return deduped;
+}
+
+/**
+ * enrich 单向共享：仅具平台 summary 经 hydrate 进共享 trendEnrichCache
+ * （复用现有 hydrate 入口，不改 enrich.ts 逻辑；put 为内部写入口，此处经 hydrate 同效）。
+ * pending 空平台只活当次列表，不进共享（防 stale [] 锁死榜单行）。
+ */
+function shareConcreteToTrendEnrich(rows: AppSummary[]): void {
+  const concrete: Record<string, AppSummary> = {};
+  for (const s of rows ?? []) {
+    if (!s || typeof s !== 'object') continue;
+    if (!Array.isArray(s.platforms) || s.platforms.length === 0) continue;
+    if (typeof s.id !== 'string' || s.id.trim() === '') continue;
+    if (typeof s.owner !== 'string' || s.owner.trim() === '') continue;
+    if (typeof s.repo !== 'string' || s.repo.trim() === '') continue;
+    const key = s.id.trim().toLowerCase();
+    if (!key || concrete[key]) continue;
+    concrete[key] = s;
+  }
+  if (Object.keys(concrete).length > 0) {
+    hydrateTrendEnrichCache(concrete);
+  }
 }
 
 export function useSearchState({
@@ -69,9 +135,11 @@ export function useSearchState({
     setSearchQuery(q);
     setOnlineSearchPerformed(false);
     // 新搜索词切回本地结果集：清掉上一轮在线翻页状态，搜索态回到首屏 20（HomeView 负责）。
+    // SWR 语义（抄 services/trends/cache.ts:readTrendsCache：miss 返回 undefined 调用方保留旧榜）：
+    // 此处不清 onlineApps，保留旧在线列表直到新 hits>0 再替换，迟到 icon-ready patch
+    // 落在非空 prev 上可落定，不再因重搜清空致空 prev 永久丢。
     setIsOnlineResultSet(false);
     isOnlineResultSetRef.current = false;
-    setOnlineApps([]);
     setOnlineHasMore(false);
     onlineHasMoreRef.current = false;
     setOnlinePage(1);
@@ -96,6 +164,8 @@ export function useSearchState({
   const handleSearchSubmit = async (queryToSubmit?: string) => {
     const q = (queryToSubmit !== undefined ? queryToSubmit : searchQuery).trim();
     if (!q) return;
+    // 搜索 L1 顺手 sweep 过期（抄 services/trends/boards.ts:357 fetchTrendsResult，不加 timer）。
+    sweepExpiredSearchListCache();
 
     // 同词且已是该词的在线结果集 → 直接返回，避免重复请求；
     // 本地结果集（isOnlineResultSet 为 false）则必须允许转在线。
@@ -110,12 +180,13 @@ export function useSearchState({
     const seq = ++searchSeqRef.current;
 
     // 若本地搜索尚未完成或搜索词变更，先查一次本地并展示（异词先本地后在线）
+    // SWR 语义（同上，抄 readTrendsCache）：异词先本地阶段不清 onlineApps，
+    // 旧在线列表直展到新 hits>0 再替换，迟到 patch 不再打在空 prev 上永久丢。
     if (q !== searchQuery.trim()) {
       setSearchQuery(q);
       setOnlineSearchPerformed(false);
       setIsOnlineResultSet(false);
       isOnlineResultSetRef.current = false;
-      setOnlineApps([]);
       setOnlineHasMore(false);
       onlineHasMoreRef.current = false;
       setOnlinePage(1);
@@ -137,6 +208,29 @@ export function useSearchState({
     // 提交即在线：不再以本地零结果为 gate（第 1 页，per_page 与后端默认 12 对齐）；
     // 上下分段：本地结果保留在 apps，在线结果单独存 onlineApps（HomeView 本地在上、在线在下）。
     // 在线无结果/失败则保持本地结果 + 提示（内部分支处理）。
+    // 搜索 L1 SWR：提交前先读 L1，命中即经图标回填分支直展旧 rows，
+    // 后台仍 searchAppsOnline revalidate（沿用 searchSeqRef/guardFreshSearch 防串）；
+    // 换词冷启动的 pending 平台每次重查（lazyBackfill 照常跑，不跳过）。
+    let hadL1Hit = false;
+    const l1Cached = readSearchListCache(q, 1, ONLINE_SEARCH_PER_PAGE);
+    if (l1Cached && l1Cached.length > 0) {
+      const assembledCached = assembleOnlineRowsWithIcons(onlineAppsRef.current ?? [], l1Cached);
+      if (assembledCached.length > 0) {
+        hadL1Hit = true;
+        setOnlineApps(assembledCached);
+        setOnlineSearchPerformed(true);
+        setIsOnlineResultSet(true);
+        isOnlineResultSetRef.current = true;
+        setOnlinePage(1);
+        onlinePageRef.current = 1;
+        onlineQueryRef.current = q;
+        // 满页即视为还有下一页（与网络分支同口径；单条直查只回 1 条，天然到底）。
+        const cachedHasMore = l1Cached.length >= ONLINE_SEARCH_PER_PAGE;
+        setOnlineHasMore(cachedHasMore);
+        onlineHasMoreRef.current = cachedHasMore;
+        lazyBackfillPlatforms(l1Cached, seq);
+      }
+    }
     {
       setIsSearchingOnline(true);
       const searchId = `search-${seq}-${Date.now()}`;
@@ -146,15 +240,8 @@ export function useSearchState({
         if (guardFreshSearch(seq)) return;
         setOnlineSearchPerformed(true);
         if (onlineResults && onlineResults.length > 0) {
-          // 同词在线集去重（按 id 小写）：后端偶发重复时在线段不出现重复卡片。
-          const seen = new Set<string>();
-          const deduped: AppSummary[] = [];
-          for (const m of onlineResults) {
-            const k = (m.id || '').toLowerCase();
-            if (!k || seen.has(k)) continue;
-            seen.add(k);
-            deduped.push(m);
-          }
+          // 同词在线集去重 + 图标回填（与 L1 命中组装同分支，见 assembleOnlineRowsWithIcons）。
+          const deduped = assembleOnlineRowsWithIcons(onlineAppsRef.current ?? [], onlineResults);
           setOnlineApps(deduped);
           lazyBackfillPlatforms(onlineResults, seq);
           setIsOnlineResultSet(true);
@@ -166,8 +253,13 @@ export function useSearchState({
           const hasMore = onlineResults.length >= ONLINE_SEARCH_PER_PAGE;
           setOnlineHasMore(hasMore);
           onlineHasMoreRef.current = hasMore;
+          // 新 hits>0 写 L1（仅当次 rows；pending 空平台可存列表但不进共享 enrich）。
+          writeSearchListCache(q, 1, ONLINE_SEARCH_PER_PAGE, deduped);
+          shareConcreteToTrendEnrich(deduped);
           showToast(t('search.online_success', '已找到在线应用'), 'success');
         } else {
+          // SWR 保留：L1 已直展时 revalidate 空/失败不清空，保留旧 rows。
+          if (hadL1Hit) return;
           setOnlineApps([]);
           setIsOnlineResultSet(false);
           isOnlineResultSetRef.current = false;
@@ -178,6 +270,8 @@ export function useSearchState({
         }
       } catch (err) {
         if (guardFreshSearch(seq, err, 'searchAppsOnline error', () => {
+          // SWR 保留：L1 已直展时后台失败不清空，保留旧 rows。
+          if (hadL1Hit) return;
           setOnlineSearchPerformed(true);
           setOnlineApps([]);
           setIsOnlineResultSet(false);
@@ -196,13 +290,45 @@ export function useSearchState({
 
   // 在线结果触底翻页：后端满页/has_more 时自动要下一页（page+1），追加到在线段；
   // 限流/失败 toast 与首屏保持原样（info 级，不抛错阻塞列表）。
+  // 翻页 L1：入口顺手 sweep；命中即经图标回填分支直展追加并跳过网络（翻页不串由 key page 保证）。
   const handleOnlineLoadMore = useCallback(async () => {
     if (isLoadingOnlineMoreRef.current || isSearchingOnline) return;
     if (!isOnlineResultSetRef.current || !onlineHasMoreRef.current) return;
     const q = (onlineQueryRef.current || searchQuery.trim()).trim();
     if (!q) return;
+    // 翻页顺手 sweep 过期（抄 services/trends/boards.ts:357，不加 timer）。
+    sweepExpiredSearchListCache();
     const seq = searchSeqRef.current;
     const nextPage = onlinePageRef.current + 1;
+    const cachedMore = readSearchListCache(q, nextPage, ONLINE_SEARCH_PER_PAGE);
+    if (cachedMore && cachedMore.length > 0) {
+      // 命中组装同样走回填分支：与旧在线段 sticky 合并 + 缓冲回填，再去重追加。
+      const fresh = assembleOnlineRowsWithIcons(onlineAppsRef.current ?? [], cachedMore).filter(
+        (item) => {
+          const k = (item.id || '').toLowerCase();
+          return k && !(onlineAppsRef.current ?? []).some((a) => (a.id || '').toLowerCase() === k);
+        },
+      );
+      // 二次守卫：过滤基于 ref 快照，set 内再按最新 prev 去重一次，防并发追加串页。
+      setOnlineApps((prev) => {
+        const seen = new Set(prev.map((a) => (a.id || '').toLowerCase()));
+        const toAppend: AppSummary[] = [];
+        for (const m of fresh) {
+          const k = (m.id || '').toLowerCase();
+          if (!k || seen.has(k)) continue;
+          seen.add(k);
+          toAppend.push(m);
+        }
+        return toAppend.length > 0 ? [...prev, ...toAppend] : prev;
+      });
+      lazyBackfillPlatforms(cachedMore, seq);
+      const cachedHasMore = cachedMore.length >= ONLINE_SEARCH_PER_PAGE;
+      setOnlinePage(nextPage);
+      onlinePageRef.current = nextPage;
+      setOnlineHasMore(cachedHasMore);
+      onlineHasMoreRef.current = cachedHasMore;
+      return;
+    }
     setIsLoadingOnlineMore(true);
     isLoadingOnlineMoreRef.current = true;
     try {
@@ -232,6 +358,9 @@ export function useSearchState({
         onlinePageRef.current = nextPage;
         setOnlineHasMore(hasMore);
         onlineHasMoreRef.current = hasMore;
+        // 新 hits>0 写 L1（仅当次 rows；pending 空平台可存列表但不进共享 enrich）。
+        writeSearchListCache(q, nextPage, ONLINE_SEARCH_PER_PAGE, more);
+        shareConcreteToTrendEnrich(more);
       } else {
         setOnlineHasMore(false);
         onlineHasMoreRef.current = false;

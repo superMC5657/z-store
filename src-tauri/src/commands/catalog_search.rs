@@ -505,14 +505,34 @@ pub async fn search_apps_online(
     let probe_cap = crate::config::get_project_config()
         .limits
         .clamp_online_search_per_page(per_page);
+    // 搜索对齐趋势：已确认（`selected_url` 非空非 avatar）不进 jobs，
+    // 复用 `http::resolve_confirmed_icon_from_db` + `icon_fetch::icon_key`，
+    // 抄趋势 `filter pre.is_none()` 语义，省重复探。
+    let pre_confirmed: Vec<Option<String>> = if let Ok(db) = state.db() {
+        results
+            .iter()
+            .map(|item| {
+                crate::github::http::resolve_confirmed_icon_from_db(
+                    &db,
+                    &crate::github::icon_fetch::icon_key(&item.owner, &item.repo),
+                    &item.owner,
+                    &item.repo,
+                )
+            })
+            .collect()
+    } else {
+        results.iter().map(|_| None).collect()
+    };
     let candidates: Vec<(String, String, String)> = results
         .iter()
-        .filter(|item| {
+        .zip(pre_confirmed.iter())
+        .filter(|(item, pre)| {
             state.catalog.get_catalog_item(&item.id).is_none()
                 && !item.icon.contains("simpleicons.org")
+                && pre.is_none()
         })
         .take(probe_cap)
-        .map(|item| (item.id.to_lowercase(), item.owner.clone(), item.repo.clone()))
+        .map(|(item, _)| (item.id.to_lowercase(), item.owner.clone(), item.repo.clone()))
         .collect();
 
     log::info!(

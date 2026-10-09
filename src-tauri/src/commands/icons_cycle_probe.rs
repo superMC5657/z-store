@@ -177,22 +177,15 @@ pub(crate) async fn fetch_anon_probe_bytes(
     owner: &str,
     repo: &str,
 ) -> Option<Vec<u8>> {
-    let mut branches: Vec<String> = Vec::with_capacity(2);
-    let repo_api = format!("https://api.github.com/repos/{}/{}", owner, repo);
-    if let Ok(resp) = client
-        .get(&repo_api)
-        .header("User-Agent", crate::forge::http::BROWSER_UA_VALUE)
-        .send()
-        .await
-    {
-        if let Ok(v) = resp.json::<serde_json::Value>().await {
-            if let Some(b) = v.get("default_branch").and_then(|x| x.as_str()) {
-                branches.push(b.to_string());
-            }
-        }
-    }
-    branches.push("main".to_string());
-    branches.push("master".to_string());
+    // 分支获取复用共用 `icon_probe::resolve_probe_branches`（匿名 UA 头，无 token），
+    // 与 `probe_git_trees` 同源，避免第三套 main/master 硬编码。
+    let mut anon_hdrs = reqwest::header::HeaderMap::new();
+    anon_hdrs.insert(
+        reqwest::header::USER_AGENT,
+        reqwest::header::HeaderValue::from_static(crate::forge::http::BROWSER_UA_VALUE),
+    );
+    let branches =
+        crate::github::icon_probe::resolve_probe_branches(client, &anon_hdrs, owner, repo).await;
     let mut probed_url: Option<String> = None;
     for b in branches {
         if let Some(p) =
@@ -278,26 +271,10 @@ async fn probe_git_trees(
         reqwest::header::HeaderValue::from_static(crate::forge::http::BROWSER_UA_VALUE),
     );
 
-    let mut branches: Vec<String> = Vec::with_capacity(3);
-    let repo_api = format!("https://api.github.com/repos/{}/{}", owner, repo);
-    if let Ok(Ok(resp)) = tokio::time::timeout(
-        api_timeout_or(std::time::Duration::from_secs(5)),
-        client.get(&repo_api).headers(hdrs.clone()).send(),
-    )
-    .await
-    {
-        if let Ok(v) = resp.json::<serde_json::Value>().await {
-            if let Some(b) = v.get("default_branch").and_then(|x| x.as_str()) {
-                branches.push(b.to_string());
-            }
-        }
-    }
-    if !branches.iter().any(|b| b == "main") {
-        branches.push("main".to_string());
-    }
-    if !branches.iter().any(|b| b == "master") {
-        branches.push("master".to_string());
-    }
+    // 分支获取复用共用 `icon_probe::resolve_probe_branches`
+    //（先 GET repos 取 default_branch 5s 超时，再补 main/master，最多3分支，与搜索共源）。
+    let branches =
+        crate::github::icon_probe::resolve_probe_branches(client, &hdrs, owner, repo).await;
 
     #[derive(Debug, Deserialize)]
     struct GitTree {
