@@ -46,19 +46,27 @@ export async function searchAppsOnline(
   searchId?: string,
   page?: number,
   perPage?: number,
-): Promise<AppSummary[]> {
+): Promise<{ rows: AppSummary[]; sid: string }> {
   try {
     const args: Record<string, unknown> = { query, search_id: searchId };
     if (page !== undefined && page !== null) args.page = page;
     if (perPage !== undefined && perPage !== null) args.per_page = perPage;
-    return await tauriInvoke<AppSummary[]>(CMD.searchOnline, args);
+    const res = await tauriInvoke<AppSummary[] | { rows: AppSummary[]; sid: string }>(
+      CMD.searchOnline,
+      args,
+    );
+    if (Array.isArray(res)) return { rows: res, sid: '' };
+    return {
+      rows: Array.isArray(res.rows) ? res.rows : [],
+      sid: typeof res.sid === 'string' ? res.sid : '',
+    };
   } catch (err) {
     zlogWarn(
       `search_apps_online is not available or failed: ${
         err instanceof Error ? err.stack ?? err.message : String(err)
       }`,
     );
-    return [];
+    return { rows: [], sid: '' };
   }
 }
 

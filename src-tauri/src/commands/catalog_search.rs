@@ -11,6 +11,14 @@ static SEARCH_GEN: AtomicU64 = AtomicU64::new(0);
 /// 用户切榜后旧榜在途探测结果直接抛弃（与搜索防串词同语义）。
 static BOARD_GEN: AtomicU64 = AtomicU64::new(0);
 
+/// 在线搜索回包：行 + 后端拍板的 search_id 回声。
+/// 前端以此 sid 为准做图标门控（以后端为准，后端说什么前端认什么）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct OnlineSearchResult {
+    pub rows: Vec<AppSummary>,
+    pub sid: String,
+}
+
 /// ADR-0008：网络超时统一经 `get_project_config().network.api_timeout_seconds` 获取；
 /// 配置为 0（未设置）时回退到调用方传入的历史硬编码值，行为保持不变。
 pub(crate) fn api_timeout_or(fallback: std::time::Duration) -> std::time::Duration {
@@ -292,7 +300,7 @@ pub async fn search_apps_online(
     search_id: Option<String>,
     page: Option<u32>,
     per_page: Option<u32>,
-) -> crate::AppResult<Vec<AppSummary>> {
+) -> crate::AppResult<OnlineSearchResult> {
     // Wave2：单次 search_apps 只记一行 INFO `search done`（行为链 sid 关联）；
     // 内层 github/search 的同名 debug 已移除，此处为唯一 `search done`。
     let search_start = std::time::Instant::now();
@@ -305,7 +313,7 @@ pub async fn search_apps_online(
         if coord.forge != crate::forge::ForgeType::GitHub {
             // 直查单条：page>1 回空（mock 同语义）。
             if eff_page > 1 {
-                return Ok(Vec::new());
+                return Ok(OnlineSearchResult { rows: Vec::new(), sid: actual_search_id.clone() });
             }
             let host_token = if let Ok(db) = state.db() {
                 db.get_host_token(&coord.host).ok().flatten()
@@ -345,7 +353,7 @@ pub async fn search_apps_online(
                 } else {
                     String::new()
                 };
-                return Ok(vec![AppSummary {
+                return Ok(OnlineSearchResult { rows: vec![AppSummary {
                     id: app_id,
                     name: repo_info.name,
                     description_en: repo_info.description.clone(),
@@ -370,7 +378,7 @@ pub async fn search_apps_online(
                     forge_host: Some(coord.host),
                     homepage: repo_info.homepage.clone(),
                     platforms,
-                }]);
+                }], sid: actual_search_id.clone() });
             }
         } else if query.contains('/')
             || query.starts_with("https://")
@@ -379,7 +387,7 @@ pub async fn search_apps_online(
         {
             // 直查单条：page>1 回空（mock 同语义）。
             if eff_page > 1 {
-                return Ok(Vec::new());
+                return Ok(OnlineSearchResult { rows: Vec::new(), sid: actual_search_id.clone() });
             }
             let token = crate::commands::resolve_active_github_token(&state);
             // Top1（`Send` 安全）：短锁预解析 owned 确认图标（同步无 `await`，锁即取即放），
@@ -428,7 +436,7 @@ pub async fn search_apps_online(
                     crate::log_support::short_reason(&query),
                     search_start.elapsed().as_millis()
                 );
-                return Ok(vec![item]);
+                return Ok(OnlineSearchResult { rows: vec![item], sid: actual_search_id.clone() });
             }
         }
     }
@@ -557,7 +565,7 @@ pub async fn search_apps_online(
         ));
     }
 
-    Ok(filtered_results)
+    Ok(OnlineSearchResult { rows: filtered_results, sid: actual_search_id.clone() })
 }
 
 /// 趋势未收录行 enrichment 入参：待查仓库坐标（与 TrendRepo.owner/repo 对齐）。

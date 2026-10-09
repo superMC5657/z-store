@@ -229,8 +229,11 @@ export function useSearchState({
       const searchId = `search-${seq}-${Date.now()}`;
       currentSearchIdRef.current = searchId;
       try {
-        const onlineResults = await api.searchAppsOnline(q, searchId, 1, ONLINE_SEARCH_PER_PAGE);
+        const pageRes = await api.searchAppsOnline(q, searchId, 1, ONLINE_SEARCH_PER_PAGE);
         if (guardFreshSearch(seq)) return;
+        const onlineResults = pageRes.rows;
+        // 以后端回声为准：后端说什么前端认什么，参数丢失时也能对上门。
+        if (pageRes.sid) currentSearchIdRef.current = pageRes.sid;
         setOnlineSearchPerformed(true);
         if (onlineResults && onlineResults.length > 0) {
           // 同词在线集去重 + 图标回填。
@@ -325,13 +328,15 @@ export function useSearchState({
     setIsLoadingOnlineMore(true);
     isLoadingOnlineMoreRef.current = true;
     try {
-      const more = await api.searchAppsOnline(
+      const moreRes = await api.searchAppsOnline(
         q,
         currentSearchIdRef.current || undefined,
         nextPage,
         ONLINE_SEARCH_PER_PAGE,
       );
       if (seq !== searchSeqRef.current) return;
+      const more = moreRes.rows;
+      if (moreRes.sid) currentSearchIdRef.current = moreRes.sid;
       if (more && more.length > 0) {
         // 按 id 去重后追加到在线段（跳过在线段已有项；本地段不动）。
         setOnlineApps((prev) => {
