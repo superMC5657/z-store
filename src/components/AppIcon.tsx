@@ -164,6 +164,12 @@ export const AppIcon: React.FC<AppIconProps> = ({
               });
           }
         } else {
+          // L5 清零（url ''）：清掉该 appId 的内存缓存并置空展示，
+          // 否则后续 effect 的 `!activeIcon` 分支回读旧缓存致 L5 仍显旧图。
+          iconDataCache.delete(appId);
+          iconDataCache.delete(appId.toLowerCase());
+          iconDataCache.delete(eventAppId);
+          iconDataCache.delete(eventAppId.toLowerCase());
           setDisplaySrc('');
           setHasError(false);
         }
@@ -181,12 +187,8 @@ export const AppIcon: React.FC<AppIconProps> = ({
   useEffect(() => {
     setHasError(false);
     if (!activeIcon) {
-      const rawCached = appId ? (iconDataCache.get(appId) || iconDataCache.get(appId.toLowerCase())) : undefined;
-      const cached = rawCached && !isAvatarUrl(rawCached) ? rawCached : undefined;
-      if (cached) {
-        setDisplaySrc(cached);
-        return;
-      }
+      // 无图标（L5 首字母徽章态）直接置空走徽章分支：禁止回读 appId 缓存，
+      // 否则 L5 清零后仍显旧图（首漆的缓存直显由上首 useState 初始化承担）。
       setDisplaySrc('');
       return;
     }
@@ -276,6 +278,10 @@ export const AppIcon: React.FC<AppIconProps> = ({
   };
 
   const isImageActive = isUrl && !hasError;
+  // 可渲染判定必须看 displaySrc 本体：activeIcon 为旧 URL 而 displaySrc 被 L5 清空/
+  // 解析失败置 '' 时，若仍按 activeIcon 渲染 <img src=""> 即永久裂图（hasError 永不置位）。
+  const isDisplaySrcRenderable = displaySrc.trim() !== '' && isRemoteIcon(displaySrc);
+  const showImg = isImageActive && isDisplaySrcRenderable;
 
   const containerStyle: React.CSSProperties = {
     background: isImageActive ? (style?.background ?? 'transparent') : iconBg,
@@ -290,7 +296,7 @@ export const AppIcon: React.FC<AppIconProps> = ({
 
   return (
     <div className={`app-icon-container ${className}`} style={containerStyle}>
-      {isUrl && !hasError ? (
+      {showImg ? (
         <img
           src={displaySrc}
           alt={name}
@@ -307,7 +313,7 @@ export const AppIcon: React.FC<AppIconProps> = ({
             opacity: 1,
           }}
         />
-      ) : (isUrl && hasError) || !activeIcon || (iconOverride !== undefined && !isUrl) ? (
+      ) : (isUrl && hasError) || !activeIcon || (isUrl && !isDisplaySrcRenderable) || (iconOverride !== undefined && !isUrl) ? (
         <span
           className="app-icon-fallback-badge"
           style={{

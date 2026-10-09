@@ -34,6 +34,29 @@ fn parse_release_payload(payload: &str, err_ctx: &str) -> Result<GitHubReleaseRe
         .map_err(|e| format!("{}: {}", err_ctx, e))
 }
 
+/// B1：详情简介占位判断（未收录仓 external_synth / search 回退占位）。
+/// 空白视为占位（前端渲染兜底）；命中任一已知占位子串即视为占位。
+/// 已收录仓人工精校简介优先，调用方需以 `catalog_item.is_none()` 门控后再回填。
+fn is_placeholder_description(s: &str) -> bool {
+    let t = s.trim();
+    if t.is_empty() {
+        return true;
+    }
+    const PLACEHOLDERS: &[&str] = &[
+        "GitHub 社区开源项目",
+        "开源软件项目",
+        "跨平台开源项目",
+        "暂无简介",
+        "暂无描述",
+        "No description available",
+    ];
+    if PLACEHOLDERS.iter().any(|p| t.contains(p)) {
+        return true;
+    }
+    // 英文占位大小写不敏感兜底
+    t.to_lowercase().contains("no description available")
+}
+
 impl CatalogService {
     pub async fn fetch_app_detail(
         &self,
@@ -548,15 +571,44 @@ impl CatalogService {
             crate::db::icon_cycle::pick_detail_icon(&icon, probed_url, extracted_logo)
         };
 
+        // B1：趋势榜详情简介丢弃根治——未收录仓 external_synth 占位回填 GitHub 真简介。
+        // 已收录仓（catalog_item.is_some()）人工精校简介优先，不覆盖 desc / description_en。
+        // 仅当 catalog 未命中且 desc 为占位、repo_info.description 有非空真值时替换；
+        // description_en 缺失或占位时同理用 repo 真值回填。
+        let base_description_en = catalog_item.as_ref().and_then(|i| i.description_en.clone());
+        let repo_real_desc: Option<String> = repo_info
+            .as_ref()
+            .and_then(|r| r.description.clone())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .filter(|s| !is_placeholder_description(s));
+        let effective_desc: String =
+            if catalog_item.is_none() && is_placeholder_description(&desc) {
+                match repo_real_desc.clone() {
+                    Some(real) => real,
+                    None => desc,
+                }
+            } else {
+                desc
+            };
+        let effective_description_en: Option<String> = if catalog_item.is_none() {
+            match base_description_en {
+                Some(ref e) if !is_placeholder_description(e) => Some(e.clone()),
+                base => repo_real_desc.or(base),
+            }
+        } else {
+            base_description_en
+        };
+
         let detail = AppDetail {
             id: id.to_string(),
             name,
-            description_en: catalog_item.as_ref().and_then(|i| i.description_en.clone()),
+            description_en: effective_description_en,
             owner,
             repo,
             icon: final_icon,
             icon_bg,
-            description: desc,
+            description: effective_desc,
             stars: latest_stars,
             forks: latest_forks,
             license: latest_license,

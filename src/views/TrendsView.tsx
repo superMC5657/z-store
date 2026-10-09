@@ -22,6 +22,7 @@ import {
   DETAIL_RICHCARD_HEAL_EVENT,
   enrichTrendRepos,
   formatStars,
+  isPlaceholderDescription,
   hydrateTrendEnrichCache,
   markTrendConfirmedOthers,
   matchCatalogApp,
@@ -560,11 +561,12 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   }, [trendResult]);
 
   // 图标单通道内存同步：详情实际展示图标（iconCycle 解析）经 `zstore:icon-changed`
-  // 即时跟随外侧趋势榜同一应用。incoming 非空非 avatar 且与旧不同即覆盖，
+  // 即时跟随外侧趋势榜同一应用。incoming 非 avatar 且与旧不同即覆盖，
   // 允许 `data:` 进内存态做即时展示（AppIcon 即时解码）。
-  // 空不覆盖实；大小写归一，同时匹配坐标键与 `enriched.id` 小写别名。
+  // L5（rawIcon ''）放行内存清零（icon 置 ''、icon_bg 保留），只走徽章分支，空不进盘；
+  // 大小写归一，同时匹配坐标键与 `enriched.id` 小写别名。
   // 重启可恢复：rawIcon 为可持久化 URL（非 data:）时，对本次命中条目 hydrate 快照
-  // {…cur, icon:rawIcon} 并经 writeThroughRef 同榜 key 写透 L2；data: 只进内存、跳过落盘
+  // {…cur, icon:rawIcon} 并经 writeThroughRef 同榜 key 写透 L2；data:/空只进内存、跳过落盘
   // （data: 永不进盘由 hydrate/snapshot 四道 continue 保证，此处亦主动跳过）。
   useEffect(() => {
     const handler = (e: Event) => {
@@ -572,7 +574,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       if (!detail) return;
       const rawIcon = typeof detail.icon === 'string' ? detail.icon.trim() : '';
       const appIdNorm = String(detail.appId ?? '').trim().toLowerCase();
-      if (!appIdNorm || rawIcon === '' || isAvatarUrl(rawIcon)) return;
+      if (!appIdNorm || isAvatarUrl(rawIcon)) return;
       setEnrichedApps((prev) => {
         let changed = false;
         const next = { ...prev };
@@ -588,6 +590,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
         }
         return changed ? next : prev;
       });
+      // L5 清零只做内存（icon 已置 ''，徽章分支直显），空不进盘：跳过 hydrate/写透
+      if (rawIcon === '') return;
       // URL 落盘分支：仅 remote URL（非 data:）可进 L2，data: 只做内存即时展示
       if (rawIcon.startsWith('data:')) return;
       try {
@@ -673,6 +677,14 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
           for (const f of dirtySet) {
             const incoming = (payload.summary as unknown as Record<string, unknown>)[f];
             if (incoming === undefined) continue;
+            // 占位简介兜底：即使 dirty 误带占位也不覆盖实值（展示兜底只留渲染侧）
+            if (
+              (f === 'description' || f === 'description_en') &&
+              typeof incoming === 'string' &&
+              isPlaceholderDescription(incoming)
+            ) {
+              continue;
+            }
             if ((patched as unknown as Record<string, unknown>)[f] !== incoming) {
               (patched as unknown as Record<string, unknown>)[f] = incoming as unknown;
               rowChanged = true;
@@ -683,15 +695,24 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
             changed = true;
           }
         }
-        // 预 enrich 富卡：榜单已知但 enrich 尚未落定的行直接创建条目（icon 归 icon 通道，此处不带 icon）
+        // 预 enrich 富卡：榜单已知但 enrich 尚未落定的行直接创建条目（icon 归 icon 通道，此处不带 icon；占位简介剥离）
         for (const k of hitKeys) {
           if (!next[k]) {
             const { icon: _dropIcon, icon_bg: _dropBg, platforms: _dropPlats, ...rest } = payload.summary as unknown as AppSummary & Record<string, unknown>;
             void _dropIcon;
             void _dropBg;
             void _dropPlats;
+            const restSummary = rest as unknown as AppSummary;
             next[k] = {
-              ...(rest as unknown as AppSummary),
+              ...restSummary,
+              description:
+                typeof restSummary.description === 'string' && isPlaceholderDescription(restSummary.description)
+                  ? ''
+                  : restSummary.description,
+              description_en:
+                typeof restSummary.description_en === 'string' && isPlaceholderDescription(restSummary.description_en)
+                  ? ''
+                  : restSummary.description_en,
               icon: '',
               icon_bg: 'linear-gradient(135deg, #475569, #334155)',
               platforms: payload.platforms && payload.platforms.length > 0 ? [...payload.platforms] : [],
@@ -713,11 +734,17 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
           if (!repoKeys.has(k.toLowerCase()) && (alias === '' || !repoKeys.has(alias))) continue;
           toHydrate[k] = cur;
         }
-        // 刚创建的行（hydrate 时 ref 尚未更新）一并带上
+        // 刚创建的行（hydrate 时 ref 尚未更新）一并带上（占位简介剥离，不进盘）
         for (const k of hitKeys) {
           if (!toHydrate[k]) {
             const created = { ...payload.summary, platforms: payload.platforms && payload.platforms.length > 0 ? [...payload.platforms] : [] } as AppSummary;
             if (typeof created.icon === 'string' && created.icon.startsWith('data:')) continue;
+            if (typeof created.description === 'string' && isPlaceholderDescription(created.description)) {
+              created.description = '';
+            }
+            if (typeof created.description_en === 'string' && isPlaceholderDescription(created.description_en)) {
+              created.description_en = '';
+            }
             toHydrate[k] = created;
           }
         }

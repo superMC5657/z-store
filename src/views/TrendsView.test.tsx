@@ -1273,3 +1273,93 @@ describe('TrendsView L2可信分档：具平台免验，pending后台补验', ()
     });
   });
 });
+
+describe('TrendsView L5 清零：详情切到首字母徽章后榜单行跟随徽章（不裂图）', () => {
+  (globalThis as Record<string, unknown>)['IS_REACT_ACT_ENVIRONMENT'] = true;
+
+  type EnrichFn = (repos: { owner: string; repo: string }[]) => Promise<(AppSummary | null)[]>;
+  let enrichSpy: MockInstance<EnrichFn>;
+  let settingsSpy: MockInstance<() => Promise<Record<string, string>>>;
+  let openUrlSpy: MockInstance<(url: string) => Promise<void>>;
+  let fetchIconSpy: MockInstance<(appId: string | undefined, remoteUrl: string) => Promise<string>>;
+
+  beforeEach(async () => {
+    await i18n.changeLanguage('zh-CN');
+    window.localStorage.clear();
+    clearTrendsCache();
+    clearTrendEnrichCache();
+    vi.restoreAllMocks();
+    // 恢复顶层 fetchTrendsText mock（被 restoreAllMocks 清掉后重建）。
+    trendSpy = vi.spyOn(tauriApi, 'fetchTrendsText').mockImplementation(async (url: string) => {
+      const u = String(url);
+      requestedUrls.push(u);
+      if (u.includes('github.com/trending')) {
+        if (trendingHtml instanceof Error) throw trendingHtml;
+        if (trendingStatus != null) throw httpErr(trendingStatus);
+        return trendingHtml;
+      }
+      throw new Error(`unexpected url: ${u}`);
+    });
+    settingsSpy = vi.spyOn(tauriApi, 'getSettings').mockResolvedValue({});
+    openUrlSpy = vi.spyOn(tauriApi, 'openUrl').mockResolvedValue(undefined);
+    fetchIconSpy = vi
+      .spyOn(tauriApi, 'getOrFetchIcon')
+      .mockImplementation(async () => 'data:image/png;base64,AAA');
+  });
+
+  afterEach(() => {
+    enrichSpy?.mockRestore();
+    settingsSpy.mockRestore();
+    openUrlSpy.mockRestore();
+    fetchIconSpy.mockRestore();
+    cleanup();
+    clearTrendsCache();
+    clearTrendEnrichCache();
+    window.localStorage.clear();
+  });
+
+  it('L5 事件把 enriched icon 置空，行内渲染首字母徽章且无裂图 img', async () => {
+    trendingHtml = trendingHtmlFixture();
+    enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockImplementation(async (repos) =>
+      repos.map((r) =>
+        makeEnrichedApp({
+          id: `${r.owner}/${r.repo}`,
+          icon: 'https://example.com/icons/atlas.png',
+          platforms: ['windows'],
+        }),
+      ),
+    );
+    const { container } = render(
+      <TrendsView
+        apps={[makeApp({ id: 'other/app', name: 'Other' })]}
+        favoriteIds={new Set<string>()}
+        installedIds={new Set<string>()}
+        installingIds={new Set<string>()}
+        onOpenDetail={() => {}}
+        onQuickInstall={() => {}}
+        onToggleFavorite={() => {}}
+        onResetPlatformFilter={() => {}}
+      />,
+    );
+    const descEl = await screen.findByText('acme/atlas enriched desc');
+    const card = descEl.closest('.app-card') as HTMLElement;
+    expect(card).toBeTruthy();
+    // 初态有图：远端 URL 经 getOrFetchIcon 解析为 data: 直显
+    await waitFor(() => {
+      expect(card.querySelector('img.app-icon-image')).toBeTruthy();
+    });
+
+    // L5：详情切到首字母徽章 dispatch icon ''（handleCycleIcon 原样透传）
+    window.dispatchEvent(
+      new CustomEvent('zstore:icon-changed', { detail: { appId: 'acme/atlas', icon: '' } }),
+    );
+
+    // 行内跟随徽章：无 img（杜绝 <img src=""> 裂图），首字母徽章出现
+    await waitFor(() => {
+      expect(card.querySelector('.app-icon-fallback-badge')).toBeTruthy();
+    });
+    expect(card.querySelector('img.app-icon-image')).toBeNull();
+    expect(card.querySelector('img[src=""]')).toBeNull();
+    expect(container.querySelector('img[src=""]')).toBeNull();
+  });
+});

@@ -415,17 +415,23 @@ export function detailHealKeysFor(id: string, owner: string, repo: string): stri
   return [...out].filter((k) => k.length > 0);
 }
 
-/** 由详情构造榜单可用的摘要（仅平台治愈场景，调用方保证 platforms 非空且非 stale）。 */
+/** 由详情构造榜单可用的摘要（仅平台治愈场景，调用方保证 platforms 非空且非 stale）。
+ * Rust 合成占位简介（未收录 external_synth 等）只剥占位→''，不动其它字段。 */
 export function appSummaryFromDetail(detail: AppDetail): AppSummary {
+  const description = isPlaceholderDescription(detail.description) ? '' : detail.description;
+  const descriptionEn =
+    typeof detail.description_en === 'string' && isPlaceholderDescription(detail.description_en)
+      ? ''
+      : detail.description_en;
   return {
     id: detail.id,
     name: detail.name,
-    description_en: detail.description_en,
+    description_en: descriptionEn,
     owner: detail.owner,
     repo: detail.repo,
     icon: detail.icon,
     icon_bg: detail.icon_bg,
-    description: detail.description,
+    description,
     stars: detail.stars,
     forks: detail.forks,
     license: detail.license,
@@ -476,6 +482,23 @@ export function upsertTrendEnrichFromDetail(detail: AppDetail): void {
  */
 const RICH_CATEGORY_PLACEHOLDERS = new Set(['', 'external', 'dev', 'system']);
 const RICH_VERSION_PLACEHOLDERS = new Set(['latest', '...']);
+/**
+ * 富卡简介占位名单：Rust 合成回退（未收录 external_synth / 在线搜索空描述）
+ * 与前端展示兜底的默认文案，diff/merge/patch 一律视为空（不脏、不覆盖、不进盘）；
+ * 展示兜底只留在渲染侧（TrendsView displayApp 的 no_desc 逻辑）。
+ */
+const RICH_DESCRIPTION_PLACEHOLDERS = new Set([
+  'GitHub 社区开源项目',
+  '开源软件项目',
+  '跨平台开源项目',
+  '暂无简介',
+  'No description',
+]);
+
+export function isPlaceholderDescription(v: unknown): boolean {
+  if (typeof v !== 'string') return false;
+  return RICH_DESCRIPTION_PLACEHOLDERS.has(v.trim());
+}
 
 function richStr(v: unknown): string {
   return typeof v === 'string' ? v.trim() : '';
@@ -500,11 +523,11 @@ export function diffRichSummary(prev: AppSummary, next: AppSummary): string[] {
     const b = richStr(next.name);
     if (b !== '' && b !== '加载中...' && a !== b) dirty.push('name');
   }
-  // description / description_en：detail 非空优先
+  // description / description_en：detail 非空优先，占位文案视为空（不脏）
   for (const f of ['description', 'description_en'] as const) {
     const a = richStr((prev as unknown as Record<string, unknown>)[f]);
     const b = richStr((next as unknown as Record<string, unknown>)[f]);
-    if (b !== '' && a !== b) dirty.push(f);
+    if (b !== '' && !isPlaceholderDescription(b) && a !== b) dirty.push(f);
   }
   // stars / forks：Number 比对，减少亦脏
   for (const f of ['stars', 'forks'] as const) {
@@ -653,7 +676,8 @@ export function upsertTrendEnrichRichcard(
     // 空/占位不覆盖实
     if (richStr(merged.name) === '' || richStr(merged.name) === '加载中...') merged.name = prev.name;
     for (const f of ['description', 'description_en'] as const) {
-      if (richStr((merged as unknown as Record<string, unknown>)[f]) === '') {
+      const bv = richStr((merged as unknown as Record<string, unknown>)[f]);
+      if (bv === '' || isPlaceholderDescription(bv)) {
         (merged as unknown as Record<string, unknown>)[f] = (prev as unknown as Record<string, unknown>)[f];
       }
     }

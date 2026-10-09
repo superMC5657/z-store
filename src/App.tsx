@@ -32,6 +32,8 @@ import {
   appSummaryFromDetail,
   detailHealKeysFor,
   evictTrendEnrichCachesForDetail,
+  isPlaceholderDescription,
+  snapshotTrendEnrichCache,
   upsertTrendEnrichFromDetail,
   upsertTrendEnrichRichcard,
   type DetailPlatformsHealPayload,
@@ -476,26 +478,82 @@ export const App: React.FC = () => {
   // 同步详情快照缓存与卡片列表数据（消除后台条件探查与主动刷新之间的重复逻辑）
   // 列表 patch 仅在目标命中且字段确变时生成新对象并返回新数组，否则原引用返回，避免无谓全网格重渲染
   const syncDetailCacheAndAppLists = useCallback((idClean: string, detail: AppDetail, isBackgroundSilent = false) => {
-    appDetailMemoryCache.current.set(idClean, detail);
+    // F1：后端占位简介不污染内存快照——先算富卡兜底，落盘即存治愈值，
+    // 后续 handleOpenDetail 命中缓存直接展现实简介，不再闪占位。
+    const pickRealDescription = (v: unknown): string | undefined => {
+      if (typeof v !== 'string') return undefined;
+      const t = v.trim();
+      if (t === '' || isPlaceholderDescription(t)) return undefined;
+      return v;
+    };
+    let enrichDesc: string | undefined;
+    let enrichDescEn: string | undefined;
+    try {
+      const snap = snapshotTrendEnrichCache();
+      const lookupKeys: string[] = [idClean, (detail.id || '').toLowerCase()];
+      if (detail.owner && detail.repo) {
+        lookupKeys.push(`${detail.owner}/${detail.repo}`.toLowerCase());
+      }
+      for (const k of lookupKeys) {
+        if (!k) continue;
+        const hit = snap[k];
+        if (!hit) continue;
+        if (enrichDesc === undefined) {
+          const cand = pickRealDescription(hit.description);
+          if (cand !== undefined) enrichDesc = cand;
+        }
+        if (enrichDescEn === undefined) {
+          const candEn = pickRealDescription(hit.description_en);
+          if (candEn !== undefined) enrichDescEn = candEn;
+        }
+        if (enrichDesc !== undefined && enrichDescEn !== undefined) break;
+      }
+    } catch {
+      // 快照读取失败即无富卡兜底，沿用 prev/空逻辑
+    }
+    const detailDescIsPlaceholder = isPlaceholderDescription(detail.description);
+    const detailDescEnIsPlaceholder =
+      typeof detail.description_en === 'string' && isPlaceholderDescription(detail.description_en);
+
+    // 内存快照存治愈值：占位即用富卡非占位兜底，无富卡即存 ''（渲染侧走现有空逻辑，不存占位文案）。
+    const detailForCache: AppDetail =
+      detailDescIsPlaceholder || detailDescEnIsPlaceholder
+        ? {
+            ...detail,
+            description: detailDescIsPlaceholder ? (enrichDesc ?? '') : detail.description,
+            description_en: detailDescEnIsPlaceholder ? (enrichDescEn ?? '') : detail.description_en,
+          }
+        : detail;
+    appDetailMemoryCache.current.set(idClean, detailForCache);
     if (detail.id.toLowerCase() !== idClean) {
-      appDetailMemoryCache.current.set(detail.id.toLowerCase(), detail);
+      appDetailMemoryCache.current.set(detail.id.toLowerCase(), detailForCache);
     }
     if (detail.owner && detail.repo) {
       const repoLower = `${detail.owner}/${detail.repo}`.toLowerCase();
-      appDetailMemoryCache.current.set(repoLower, detail);
-      appDetailMemoryCache.current.set(`github.com/${repoLower}`, detail);
+      appDetailMemoryCache.current.set(repoLower, detailForCache);
+      appDetailMemoryCache.current.set(`github.com/${repoLower}`, detailForCache);
     }
 
     if (activeDetailIdRef.current?.toLowerCase() === detail.id.toLowerCase() || activeDetailIdRef.current?.toLowerCase() === idClean) {
       setSelectedApp((prev) => {
-        if (!prev) return { ...detail, isLoading: false, isRefreshing: false };
+        let nextDesc = detail.description;
+        let nextDescEn = detail.description_en;
+        if (detailDescIsPlaceholder) {
+          nextDesc = enrichDesc ?? pickRealDescription(prev?.description) ?? '';
+        }
+        if (detailDescEnIsPlaceholder) {
+          nextDescEn = enrichDescEn ?? pickRealDescription(prev?.description_en) ?? '';
+        }
+        if (!prev) return { ...detail, description: nextDesc, description_en: nextDescEn, isLoading: false, isRefreshing: false };
         if (
           !isBackgroundSilent ||
           prev.latest_version !== detail.latest_version ||
           prev.releases.length !== detail.releases.length ||
-          prev.stars !== detail.stars
+          prev.stars !== detail.stars ||
+          detailDescIsPlaceholder ||
+          detailDescEnIsPlaceholder
         ) {
-          return { ...detail, isLoading: false, isRefreshing: false };
+          return { ...detail, description: nextDesc, description_en: nextDescEn, isLoading: false, isRefreshing: false };
         }
         return prev;
       });
@@ -517,8 +575,16 @@ export const App: React.FC = () => {
       const nextPlatforms = detailPlatforms && (!app.platforms || app.platforms.length === 0)
         ? detailPlatforms
         : app.platforms;
-      // 富卡全字段回填：同值即保持原引用（避免无谓全网格重渲染），异值即取详情新值
-      const nextDescriptionEn = detail.description_en;
+      // 富卡全字段回填：同值即保持原引用（避免无谓全网格重渲染），异值即取详情新值；
+      // Rust 合成占位简介视为空（保留列表实值，不污染三列表）
+      const nextDescription = isPlaceholderDescription(detail.description)
+        ? app.description
+        : detail.description;
+      const nextDescriptionEnRaw = detail.description_en;
+      const nextDescriptionEn =
+        typeof nextDescriptionEnRaw === 'string' && isPlaceholderDescription(nextDescriptionEnRaw)
+          ? app.description_en
+          : nextDescriptionEnRaw;
       const nextHomepage = detail.homepage;
       if (
         app.stars === detail.stars &&
@@ -526,7 +592,7 @@ export const App: React.FC = () => {
         app.latest_version === detail.latest_version &&
         app.icon === nextIcon &&
         app.platforms === nextPlatforms &&
-        app.description === detail.description &&
+        app.description === nextDescription &&
         (app.description_en ?? undefined) === (nextDescriptionEn ?? undefined) &&
         app.license === detail.license &&
         app.category === detail.category &&
@@ -544,7 +610,7 @@ export const App: React.FC = () => {
         latest_version: detail.latest_version,
         icon: nextIcon,
         platforms: nextPlatforms,
-        description: detail.description,
+        description: nextDescription,
         description_en: nextDescriptionEn,
         license: detail.license,
         category: detail.category,
@@ -711,8 +777,49 @@ export const App: React.FC = () => {
     if (!forceRefresh) {
       const cached = appDetailMemoryCache.current.get(idClean);
       if (cached) {
+        // F1：缓存快照若为后端占位（旧缓存或富卡后到），即用富卡非占位治愈后再展，避免弹窗闪占位；
+        // 富卡为空/占位则保持缓存原值（空走现有渲染逻辑，不引入新文案）。
+        let cachedForShow = cached;
+        if (isPlaceholderDescription(cached.description) || (typeof cached.description_en === 'string' && isPlaceholderDescription(cached.description_en))) {
+          try {
+            const snap = snapshotTrendEnrichCache();
+            const cKeys: string[] = [idClean, (cached.id || '').toLowerCase()];
+            if (cached.owner && cached.repo) cKeys.push(`${cached.owner}/${cached.repo}`.toLowerCase());
+            for (const k of cKeys) {
+              if (!k) continue;
+              const hit = snap[k];
+              if (!hit) continue;
+              const useDesc =
+                isPlaceholderDescription(cachedForShow.description) &&
+                typeof hit.description === 'string' &&
+                hit.description.trim() !== '' &&
+                !isPlaceholderDescription(hit.description)
+                  ? hit.description
+                  : cachedForShow.description;
+              const useDescEn =
+                typeof cachedForShow.description_en === 'string' &&
+                isPlaceholderDescription(cachedForShow.description_en) &&
+                typeof hit.description_en === 'string' &&
+                hit.description_en.trim() !== '' &&
+                !isPlaceholderDescription(hit.description_en)
+                  ? hit.description_en
+                  : cachedForShow.description_en;
+              if (useDesc !== cachedForShow.description || useDescEn !== cachedForShow.description_en) {
+                cachedForShow = { ...cachedForShow, description: useDesc, description_en: useDescEn };
+              }
+              if (
+                !isPlaceholderDescription(cachedForShow.description) &&
+                (typeof cachedForShow.description_en !== 'string' || !isPlaceholderDescription(cachedForShow.description_en))
+              ) {
+                break;
+              }
+            }
+          } catch {
+            // 快照失败则直接展示缓存
+          }
+        }
         // 先以 0ms 瞬间展示内存快照，避免骨架屏闪烁
-        setSelectedApp({ ...cached, isLoading: false, isRefreshing: false, loadError: undefined });
+        setSelectedApp({ ...cachedForShow, isLoading: false, isRefreshing: false, loadError: undefined });
         api.recordAppView(id).then(loadRecentViews).catch(() => {});
 
         // 后台静默发起 ETag 条件探查：版本未变（304）后端毫秒级短路，版本变化则静默平滑更新
@@ -740,6 +847,46 @@ export const App: React.FC = () => {
       onlineAppsRef.current.find((a) => a.id.toLowerCase() === idClean) ||
       recentsRef.current.find((a) => a.id.toLowerCase() === idClean);
 
+    // F1：富卡真简介并入——existing 只覆盖三列表，未收录趋势行在此缺席；
+    // 经 snapshotTrendEnrichCache() 取富卡非占位 description 作为初始值，
+    // 避免 loading 阶段（“正在获取应用元数据...”）与后端占位覆盖弹窗。
+    // 富卡为空/占位时保持现有逻辑（loading 文案或空简介渲染），不引入新占位文案。
+    const pickRealDesc = (v: unknown): string | undefined => {
+      if (typeof v !== 'string') return undefined;
+      const t = v.trim();
+      if (t === '' || isPlaceholderDescription(t)) return undefined;
+      return v;
+    };
+    let enrichInitialDesc: string | undefined;
+    let enrichInitialDescEn: string | undefined;
+    try {
+      const snap = snapshotTrendEnrichCache();
+      const enrichKeys: string[] = [idClean];
+      if (existing?.owner && existing?.repo) {
+        enrichKeys.push(`${existing.owner}/${existing.repo}`.toLowerCase());
+      }
+      if (existing?.id) {
+        const eid = existing.id.toLowerCase();
+        if (!enrichKeys.includes(eid)) enrichKeys.push(eid);
+      }
+      for (const k of enrichKeys) {
+        if (!k) continue;
+        const hit = snap[k];
+        if (!hit) continue;
+        if (enrichInitialDesc === undefined) {
+          const cand = pickRealDesc(hit.description);
+          if (cand !== undefined) enrichInitialDesc = cand;
+        }
+        if (enrichInitialDescEn === undefined) {
+          const candEn = pickRealDesc(hit.description_en);
+          if (candEn !== undefined) enrichInitialDescEn = candEn;
+        }
+        if (enrichInitialDesc !== undefined && enrichInitialDescEn !== undefined) break;
+      }
+    } catch {
+      // 快照失败即无富卡兜底，保持原有初始逻辑
+    }
+
     const selectedSnapshot = selectedAppRef.current;
     const initialDetail: AppDetailViewModel = selectedSnapshot && selectedSnapshot.id.toLowerCase() === idClean && forceRefresh
       ? { ...selectedSnapshot, isLoading: false, isRefreshing: true, loadError: undefined }
@@ -747,12 +894,12 @@ export const App: React.FC = () => {
       ? {
           id: existing.id,
           name: existing.name,
-          description_en: existing.description_en,
+          description_en: pickRealDesc(existing.description_en) ?? enrichInitialDescEn ?? '',
           owner: existing.owner,
           repo: existing.repo,
           icon: existing.icon,
           icon_bg: existing.icon_bg,
-          description: existing.description,
+          description: pickRealDesc(existing.description) ?? enrichInitialDesc ?? '',
           stars: existing.stars,
           forks: existing.forks,
           license: existing.license,
@@ -777,7 +924,8 @@ export const App: React.FC = () => {
           repo: id,
           icon: '📦',
           icon_bg: 'linear-gradient(135deg, #475569, #334155)',
-          description: '正在获取应用元数据...',
+          description: enrichInitialDesc ?? '正在获取应用元数据...',
+          description_en: enrichInitialDescEn,
           stars: 0,
           forks: 0,
           license: '...',
