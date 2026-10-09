@@ -53,7 +53,7 @@
    - 应用深度详情与构建资产通过 `ForgeProvider` 抽象层按需直连各代码源官方 REST API 获取，不设中心化聚合后端；
    - 本地 SQLite (`z_store.db`) 维护基于单一配置源（`src-tauri/config.toml`）的 TTL 缓存（默认 30 分钟），配合 HTTP ETag 304 条件请求实现零配额消耗延长缓存时效；该 TTL 仅约束详情浏览，更新检查（更新中心/关注动态）独立于 TTL、每次经 ETag 轻量探查；离线或请求失败时平滑回退本地持久化数据（详见 ADR-0007）。
    - 网络层自动继承操作系统代理与环境变量（Windows 下启动时自探测注册表且 https 优先，支持 Clash / v2ray / TUN 模式透明截获），与针对 Release 大文件下载的加速镜像节点正交可叠加。
-   - 所有已安装记录、用户设置、主机令牌（PAT）、更新规则、关注应用与本地足迹均保存在客户端本地嵌入式 SQLite 中（14 张核心表，见 `src-tauri/src/db/schema.rs`；其中 `icon_cache_meta` 追踪收录应用图标缓存来源，`app_icon_cycles` 追踪图标轮换状态，两表分流；`trend_board_cache` 为趋势榜 L2 缓存，后端命令 `get/save_trend_board_cache` 已补齐，前端沿用同 key 直接命中；L2 有效 TTL=12h-抖动，清扫按 daily 1h/其余 12h 双档）。
+   - 所有已安装记录、用户设置、主机令牌（PAT）、更新规则、关注应用与本地足迹均保存在客户端本地嵌入式 SQLite 中（14 张核心表，见 `src-tauri/src/db/schema.rs`；其中 `icon_cache_meta` 追踪收录应用图标缓存来源，`app_icon_cycles` 追踪图标轮换状态，两表分流；`trend_board_cache` 为趋势榜 L2 缓存，后端命令 `get/save_trend_board_cache` 已补齐，前端沿用同 key 直接命中；L2按榜双档 daily 1h/其余12h，有效TTL=基线-min(抖动0-30s,基线/4)，清扫双档对齐）。
 3. **D3 零信任完整性防篡改 (Zero-Trust Anti-Tampering)**:
     - 所有下载的二进制安装包强制流式计算 SHA-256 哈希值并与官方校验清单比对，哈希不符立即强行阻断并销毁临时文件（详见 ADR-0004）。
 4. **D4 Linear 去彩单色界面 (Monochrome Design System)**:
@@ -69,4 +69,4 @@
 8. **D8 首包验图与跳过 (First-Bytes Verify & Skip)**:
    - 图标先 HEAD 判类型长度，再 Range 取前 32KB 验 magic，失败回退全量 GET，并以 300B 最小阈值卡掉 LFS 指针文件；下载前 SHA-256 命中即零网络跳过，ETag 收敛至统一 helper，force 模式跳过 DB 读取。
 9. **D9 趋势与首页 (Trending & Home)**:
-   - 趋势复用共享 Client，经 tokio 10s 超时并截断 2MB 防爆内存；L1 分档（daily 1h/weekly-monthly 12h/其余 5min）+ L2 统一 12h（有效 TTL 扣 key 稳定抖动 0-30s）；内存 200/500/单槽有界、切榜 sweep 无 timer；写盘 FE 256KB 预检降级裸榜、BE 512KiB 硬拒绝；enrich 分片 20/片×2 片=40 上限；429 透传 `retry_after_ms` 单次重试（详见 ADR-0014）。首页固定 balanced 排序与 seed 7，不提供策略切换工具条（用户已确认不要）。
+   - 趋势复用共享 Client，经 tokio 10s 超时并截断 2MB 防爆内存；L1 分档（daily 1h/weekly-monthly-new 12h/其余 5min）+ L2 双档（daily 1h/其余 12h，有效 TTL 扣抖动）；内存 200/500/单槽有界、切榜 sweep 无 timer；写盘 FE 256KB 预检降级裸榜、BE 512KiB 硬拒绝；enrich 分片 20/片×2 片=40 上限；429 透传 `retry_after_ms` 单次重试（详见 ADR-0014）。首页固定 balanced 排序与 seed 7，不提供策略切换工具条（用户已确认不要）。

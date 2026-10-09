@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as clientModule from '../api/client';
 import {
-  buildLegacyDoforceCacheKey,
   buildLegacyTrendsCacheKey,
   clearTrendsCache,
   getDbTrendCache,
@@ -224,28 +223,6 @@ describe('SWR 旧富卡直展：pending 落盘后重挂直展富卡', () => {
     expect(savedKeys).toContain('weekly|python|');
     // 富卡随迁进内存，直展
     expect(snapshotTrendEnrichCache(res.repos)['acme/atlas']?.platforms).toEqual(['windows']);
-  });
-
-  it('旧 doforce key 兼容：rising 经 legacy 命中不走网络', async () => {
-    vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
-    const legacyKey = buildLegacyDoforceCacheKey({ language: 'Rust' });
-    expect(legacyKey).toBe('doforce|Rust|');
-    const repos = [makeTrendRepo({ id: 'acme/atlas', stars: 12000, starsGained: 300 })];
-    const richEnvelope = JSON.stringify({ v: 1, repos, enrich: {} });
-    const nowSec = Math.floor(Date.now() / 1000);
-    const networkSpy = vi.spyOn(tauriApi, 'fetchTrendsText');
-    vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
-      if (cmd === 'get_trend_board_cache') {
-        const k = (args as { cache_key: string }).cache_key;
-        if (k === legacyKey) return { payload_json: richEnvelope, cached_at: nowSec - 60 };
-        return null;
-      }
-      return undefined;
-    });
-    const res = await fetchTrendsResult('rising', { language: 'Rust' });
-    expect(res.status).toBe('ok');
-    expect(res.repos).toHaveLength(1);
-    expect(networkSpy).not.toHaveBeenCalled();
   });
 });
 

@@ -8,7 +8,6 @@ import { tauriApi } from '../api';
 import { zlogInfo, zlogWarn } from '../../lib/z-log';
 import {
   buildDoforceCacheKey,
-  buildLegacyDoforceCacheKey,
   buildLegacyTrendsCacheKey,
   buildTrendsCacheKey,
   getDbTrendCache,
@@ -298,18 +297,7 @@ async function fetchDoforceShared(opts: FetchTrendsOptions = {}): Promise<TrendR
   slot.current = (async (): Promise<TrendRepo[]> => {
     try {
       if (!forceRefresh) {
-        let dbHit = await getDbTrendCache(key, 'doforce');
-        if ((!dbHit || dbHit.length === 0) && buildLegacyDoforceCacheKey(opts) !== key) {
-          const legacyHit = await getDbTrendCache(buildLegacyDoforceCacheKey(opts), 'doforce');
-          if (legacyHit && legacyHit.length > 0) {
-            const enrich = (legacyHit as { enrich?: Record<string, import('../../types').AppSummary> }).enrich;
-            const memSnap = snapshotTrendEnrichCache(legacyHit);
-            const toMigrate = Object.keys(memSnap).length > 0 ? memSnap : enrich;
-            await saveDbTrendCache(key, 'doforce', legacyHit, toMigrate);
-            zlogInfo(`[trends] board=doforce L2-key migrated legacy=>new reposCount=${legacyHit.length}`);
-            dbHit = legacyHit;
-          }
-        }
+        const dbHit = await getDbTrendCache(key, 'doforce');
         if (dbHit && dbHit.length > 0) {
           const enrich = (dbHit as { enrich?: Record<string, import('../../types').AppSummary> }).enrich;
           if (enrich) hydrateTrendEnrichCache(enrich);

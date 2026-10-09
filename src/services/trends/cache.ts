@@ -154,15 +154,6 @@ export function buildDoforceCacheKey(opts: FetchTrendsOptions = {}): string {
   return `doforce|${language}|${category}`;
 }
 
-/**
- * 旧 doforce key 兼容（归一前 `||` 形态，读侧 miss 后试一次并迁移；新写入一律归一 key）。
- */
-export function buildLegacyDoforceCacheKey(opts: FetchTrendsOptions = {}): string {
-  const language = opts.language || '';
-  const category = opts.category || '';
-  return `doforce|${language}|${category}`;
-}
-
 export const DOFORCE_SHARED_CACHE_KEY = buildDoforceCacheKey();
 
 export const CMD_GET_TREND_BOARD_CACHE = 'get_trend_board_cache';

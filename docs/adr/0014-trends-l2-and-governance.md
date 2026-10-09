@@ -18,9 +18,10 @@
 
 ## 3. TTL / 抖动 / 清扫双档
 
-- L1 分档（`trendsBoardTtlMs`）：daily 1h，weekly/monthly 12h，其余 5min；doforce 共享 12h；enrich 12h；L2 统一 12h。
-- L2 有效 TTL = 12h - min(key 稳定抖动 0-30s, TTL/4)，只扣减不延长；`elapsed<0`（时钟回拨/未来戳）一律按过期。
-- 清扫双档（`prune_expired_trend_board_cache`）：daily 挡 3600s，其余挡 43200s，未来戳保留；启动时 best-effort 调一次，无 timer。前端切榜顺手 `sweepExpiredTrendsCache + sweepExpiredTrendEnrichCache`（`fetchTrendsResult` 入口），不加 `setInterval`。
+- L1 分档（`trendsBoardTtlMs`）：daily 1h，weekly/monthly/new 12h，其余 5min（`CACHE_TTL_MS`）；doforce 共享 12h；enrich 12h；L2 双档（`trendDbTtlMs` + `TREND_DB_TTL_MS`/`TREND_DB_DAILY_TTL_MS`）：daily 1h，其余 12h。
+- L2 有效 TTL = 基线 - min(key 稳定抖动 0-30s, 基线/4)，只扣减不延长；`elapsed<0`（时钟回拨/未来戳）一律按过期。
+- 清扫双档（`prune_expired_trend_board_cache`）：daily 挡 3600s，其余挡 43200s，与 L2 双档对齐（非仅扫描阈值），未来戳保留；启动时 best-effort 调一次，无 timer。前端切榜顺手 `sweepExpiredTrendsCache + sweepExpiredTrendEnrichCache`（`fetchTrendsResult` 入口），不加 `setInterval`。
+- 2026-10-09 修订（PM确认）: new归入12h档，L2按daily 1h/其余12h双档。
 
 ## 4. 内存有界
 
@@ -40,3 +41,11 @@
 
 - BE 429 分支透传 `Retry-After`：纯秒数追加 `retry-after: {s} retry_after_ms={ms}`，日期串透传原串，无头保持旧串；限流日志不占单飞槽计数。
 - FE `doforceRetryDelayMs` 优先兑现 `retry_after_ms` 毫秒直值，否则按 `retry-after` 秒数/HTTP-date，上限 60s（超限直接 error），缺省 5s；`fetchDoforceWithRetry` 恰好重试一次。
+
+## 8. 需求收口（2026-10-09 PM确认）
+
+- recents 治愈：`history.rs` `heal_recent_summary`/`cached_detail_summary` + `App.tsx` recents heal，富卡非占位简介治愈占位行。已接受为正式需求。
+- 详情占位守卫：`detail_fetch.rs` `is_placeholder_description`/`repo_real_description_from_etag` + `App.tsx` `snapshotTrendEnrichCache`/`handleOpenDetail`/`syncDetailCache`，占位不覆盖。已接受为正式需求。
+- 富卡全量同步 confirmedOther：`cache.ts` `TrendCacheEnvelopeV1 confirmedOther` + `enrich.ts` pending-vs-concrete merge/settle/lite。已接受为正式需求。
+- 图标门控：`Header.tsx`/`catalog_detail.rs`/`AppIcon.tsx` uncataloged-only cycle + recents fallback + warmup。已接受为正式需求。
+- 交互 chrome：`TrendsView` refresh 按钮 + `useTrendBoard forceRefresh` + localStorage tab memory + locales + 卡片对齐 CSS。已接受为正式需求。
