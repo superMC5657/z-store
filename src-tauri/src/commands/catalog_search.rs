@@ -6,6 +6,10 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 static SEARCH_GEN: AtomicU64 = AtomicU64::new(0);
 
+/// 慢路径 Trees 分支回退顺序：先 main 后 master（ZCode 类老仓默认分支仍为 master，
+/// 只查 main 会零命中零 emit，首屏恒为 initials）。顺序即优先级，main 优先。
+pub(crate) const SEARCH_PROBE_BRANCHES: [&str; 2] = ["main", "master"];
+
 /// ADR-0008：网络超时统一经 `get_project_config().network.api_timeout_seconds` 获取；
 /// 配置为 0（未设置）时回退到调用方传入的历史硬编码值，行为保持不变。
 pub(crate) fn api_timeout_or(fallback: std::time::Duration) -> std::time::Duration {
@@ -87,6 +91,61 @@ pub(crate) fn hidden_rule_ids(state: &AppState) -> std::collections::HashSet<Str
             .collect()
     } else {
         std::collections::HashSet::new()
+    }
+}
+
+/// 未收录卡片回填（`search_apps_online` / `enrich_trend_repos` 双调用点收敛，循环体同形合一）：
+/// 确认图标覆盖 → 待写 icon_cycle（L2/L4+selected）构建 → 详情缓存 platforms join（空保持 []）。
+/// 返回 `Some(cycle)` 时由调用方收进 `pending` 批量落库；无事可写返回 `None`。
+/// 纯同步无 `await`（调用方单临界区内复用 db 锁，批量 upsert 仍在调用点）。
+fn backfill_uncataloged_card(
+    db: &crate::db::Database,
+    item: &mut AppSummary,
+    ttl_seconds: i64,
+) -> Option<crate::db::AppIconCycle> {
+    let pending = if let Some(ci) =
+        crate::github::http::resolve_confirmed_icon_from_db(db, &item.id, &item.owner, &item.repo)
+    {
+        item.icon = ci;
+        None
+    } else if !item.icon.trim().is_empty() {
+        let mut cycle = crate::db::AppIconCycle::new(&item.id, &item.owner, &item.repo);
+        cycle.is_cataloged = false;
+        if item.icon.contains("simpleicons.org") {
+            cycle.level = 2;
+            cycle.l2_url = item.icon.clone();
+        } else {
+            cycle.level = 4;
+            cycle.l4_url = item.icon.clone();
+        }
+        cycle.selected_url = item.icon.clone();
+        cycle.updated_at = crate::now_secs();
+        Some(cycle)
+    } else {
+        None
+    };
+    // Option A：repeat-search 平台回填——TTL 内详情缓存命中且 platforms 非空时直接 join；
+    // 缺失/过期/空平台一律保持 []（不 stamp ["other"]/["windows"]），由既有 lazyBackfill 兜底。
+    if let Ok(Some(cached)) = db.get_cached_app_detail(&item.id, Some(ttl_seconds)) {
+        if !cached.platforms.is_empty() {
+            item.platforms = cached.platforms;
+        }
+    }
+    pending
+}
+
+/// icon_cycle 待写批量落库（`search_apps_online` / `enrich_trend_repos` 双调用点收敛）：
+/// 事务边界：`BEGIN IMMEDIATE` → N 条 `upsert_icon_cycles_batch` → `COMMIT`；
+/// 失败整体 `ROLLBACK` 并回退逐条（保持 `let _ =` 吞错 + 下次重试语义）。
+/// 空 pending 直接跳过；纯同步无 `await`（调用方单临界区内复用 db 锁）。
+fn flush_icon_cycle_pending(db: &crate::db::Database, pending: &[crate::db::AppIconCycle]) {
+    if pending.is_empty() {
+        return;
+    }
+    if db.upsert_icon_cycles_batch(pending).is_err() {
+        for c in pending {
+            let _ = db.upsert_icon_cycle(c);
+        }
     }
 }
 
@@ -335,40 +394,11 @@ pub async fn search_apps_online(
         let ttl_seconds = db.get_detail_cache_ttl_minutes() * 60;
         let mut pending: Vec<crate::db::AppIconCycle> = Vec::new();
         for item in &mut results {
-            if let Some(ci) = crate::github::http::resolve_confirmed_icon_from_db(
-                &db,
-                &item.id,
-                &item.owner,
-                &item.repo,
-            ) {
-                item.icon = ci;
-            } else if !item.icon.trim().is_empty() {
-                let mut cycle = crate::db::AppIconCycle::new(&item.id, &item.owner, &item.repo);
-                cycle.is_cataloged = false;
-                if item.icon.contains("simpleicons.org") {
-                    cycle.level = 2;
-                    cycle.l2_url = item.icon.clone();
-                } else {
-                    cycle.level = 4;
-                    cycle.l4_url = item.icon.clone();
-                }
-                cycle.selected_url = item.icon.clone();
-                cycle.updated_at = crate::now_secs();
+            if let Some(cycle) = backfill_uncataloged_card(&db, item, ttl_seconds) {
                 pending.push(cycle);
             }
-            // Option A：repeat-search 平台回填——TTL 内详情缓存命中且 platforms 非空时直接 join；
-            // 缺失/过期/空平台一律保持 []（不 stamp ["other"]/["windows"]），由既有 lazyBackfill 兜底。
-            if let Ok(Some(cached)) = db.get_cached_app_detail(&item.id, Some(ttl_seconds)) {
-                if !cached.platforms.is_empty() {
-                    item.platforms = cached.platforms;
-                }
-            }
         }
-        if !pending.is_empty() && db.upsert_icon_cycles_batch(&pending).is_err() {
-            for c in &pending {
-                let _ = db.upsert_icon_cycle(c);
-            }
-        }
+        flush_icon_cycle_pending(&db, &pending);
     }
 
     // 后台图标补探量随分页 `per_page` 伸缩：None=老行为 12 条，其余为钳制后 1-50。
@@ -447,12 +477,20 @@ pub async fn search_apps_online(
                         }
 
                         // 慢路径：快未命中且有 token 才跑 Trees（内部 12s）；超时只弃慢不弃快。
+                        // 默认分支兼容：main 未命中回退 master（ZCode 类老仓默认分支为 master）。
                         if let Some(hdrs) = slow_headers.as_ref() {
-                            if let Some(hit) = crate::github::icon_probe::probe_trees(
-                                &client, hdrs, &owner, &repo, "main",
-                            )
-                            .await
-                            {
+                            let mut hit = None;
+                            for branch in SEARCH_PROBE_BRANCHES {
+                                if let Some(h) = crate::github::icon_probe::probe_trees(
+                                    &client, hdrs, &owner, &repo, branch,
+                                )
+                                .await
+                                {
+                                    hit = Some(h);
+                                    break;
+                                }
+                            }
+                            if let Some(hit) = hit {
                                 save_and_emit(
                                     &handle, &id, &owner, &repo, &sid, &hit.url, 3, current_gen,
                                 )
@@ -566,39 +604,11 @@ pub async fn enrich_trend_repos(
         let ttl_seconds = db.get_detail_cache_ttl_minutes() * 60;
         let mut pending: Vec<crate::db::AppIconCycle> = Vec::new();
         for item in results.iter_mut().flatten() {
-            if let Some(ci) = crate::github::http::resolve_confirmed_icon_from_db(
-                &db,
-                &item.id,
-                &item.owner,
-                &item.repo,
-            ) {
-                item.icon = ci;
-            } else if !item.icon.trim().is_empty() {
-                let mut cycle = crate::db::AppIconCycle::new(&item.id, &item.owner, &item.repo);
-                cycle.is_cataloged = false;
-                if item.icon.contains("simpleicons.org") {
-                    cycle.level = 2;
-                    cycle.l2_url = item.icon.clone();
-                } else {
-                    cycle.level = 4;
-                    cycle.l4_url = item.icon.clone();
-                }
-                cycle.selected_url = item.icon.clone();
-                cycle.updated_at = crate::now_secs();
+            if let Some(cycle) = backfill_uncataloged_card(&db, item, ttl_seconds) {
                 pending.push(cycle);
             }
-            // 与 search_apps_online 同形：TTL 内详情缓存命中且 platforms 非空时 join；空保持 []。
-            if let Ok(Some(cached)) = db.get_cached_app_detail(&item.id, Some(ttl_seconds)) {
-                if !cached.platforms.is_empty() {
-                    item.platforms = cached.platforms;
-                }
-            }
         }
-        if !pending.is_empty() && db.upsert_icon_cycles_batch(&pending).is_err() {
-            for c in &pending {
-                let _ = db.upsert_icon_cycle(c);
-            }
-        }
+        flush_icon_cycle_pending(&db, &pending);
     }
 
     log::info!(
@@ -608,4 +618,73 @@ pub async fn enrich_trend_repos(
         enrich_start.elapsed().as_millis()
     );
     Ok(results)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn search_slow_falls_back_to_master() {
+        // 回归：慢路径 Trees 必须覆盖 master（ZCode 类老仓默认分支），顺序 main 优先。
+        // 覆盖移除 master 即零命中零 emit（首屏恒 initials），此断言锁住回退顺序。
+        assert_eq!(SEARCH_PROBE_BRANCHES, ["main", "master"]);
+        assert!(SEARCH_PROBE_BRANCHES.contains(&"master"));
+    }
+
+    fn sample_summary(id: &str, owner: &str, repo: &str, icon: &str) -> AppSummary {
+        AppSummary {
+            id: id.to_string(),
+            name: "Demo".to_string(),
+            description_en: None,
+            owner: owner.to_string(),
+            repo: repo.to_string(),
+            icon: icon.to_string(),
+            icon_bg: String::new(),
+            description: String::new(),
+            stars: 0,
+            forks: 0,
+            license: String::new(),
+            latest_version: "latest".to_string(),
+            category: "external".to_string(),
+            category_name: String::new(),
+            is_verified: false,
+            is_installed: None,
+            has_update: None,
+            installed_version: None,
+            forge: None,
+            forge_host: None,
+            homepage: None,
+            platforms: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn backfill_uncataloged_card_keeps_twin_loop_semantics() {
+        // 双调用点抽取回归：空图标无 pending 且保持原样 / L2 pending 构建 /
+        // 确认图标（selected 回退）直接覆盖且无 pending。
+        let db = crate::db::Database::open_in_memory().unwrap();
+        let mut empty = sample_summary("o/r", "o", "r", "");
+        assert!(backfill_uncataloged_card(&db, &mut empty, 1800).is_none());
+        assert!(empty.icon.is_empty());
+        assert!(empty.platforms.is_empty());
+
+        let mut l2 = sample_summary("s/i", "s", "i", "https://cdn.simpleicons.org/i");
+        let c = backfill_uncataloged_card(&db, &mut l2, 1800).expect("l2 pending");
+        assert_eq!(c.level, 2);
+        assert_eq!(c.l2_url, "https://cdn.simpleicons.org/i");
+        assert_eq!(c.selected_url, "https://cdn.simpleicons.org/i");
+        assert_eq!(l2.icon, "https://cdn.simpleicons.org/i");
+
+        let mut cycle = crate::db::AppIconCycle::new("c/r", "c", "r");
+        cycle.is_cataloged = false;
+        cycle.level = 4;
+        cycle.l4_url = "https://example.com/c.png".to_string();
+        cycle.selected_url = "https://example.com/c.png".to_string();
+        cycle.updated_at = crate::now_secs();
+        db.upsert_icon_cycle(&cycle).unwrap();
+        let mut confirmed = sample_summary("c/r", "c", "r", "");
+        assert!(backfill_uncataloged_card(&db, &mut confirmed, 1800).is_none());
+        assert_eq!(confirmed.icon, "https://example.com/c.png");
+    }
 }

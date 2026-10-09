@@ -377,8 +377,10 @@ pub(crate) fn is_avatar_icon_url(url: &str) -> bool {
         || u.contains("github.com/identicons/")
 }
 
-/// 若 app_icon_cycles 有该 app 且 selected_url 非空且本地缓存文件存在，
-/// 则返回已确认的图标（优先返回 dataURI 语义，不可读时回退到可用 remote_url），否则返回 None。
+/// 若 app_icon_cycles 有该 app 且 selected_url 非空，
+/// 则返回已确认的图标（本地缓存文件有效时优先返回 dataURI 语义，
+/// 缓存缺失/不可读时回退到可用 remote_url；后台补探只写 selected_url 不写 cache_file，
+/// 此处不再因 cache_file 为空而返回 None，否则重复搜索首屏恒为 ''），否则返回 None。
 /// B3-G11 SSOT：标识解析经 `RepositoryUrlParser` + `canonical_app_id`，大小写回退收进
 /// `forge::coord::lookup_case_insensitive`（db 查询侧），此处不再手写 `to_lowercase` 多段回退。
 pub(crate) fn resolve_confirmed_icon_from_db(
@@ -396,19 +398,13 @@ pub(crate) fn resolve_confirmed_icon_from_db(
     }
 
     let cache_file = cycle.cache_file.trim();
-    if cache_file.is_empty() {
-        return None;
-    }
-
-    let icons_dir = crate::get_app_data_dir().join("icons");
-    let cache_path = icons_dir.join(cache_file);
-    if !cache_path.is_file() {
-        return None;
-    }
-
-    if let Ok(bytes) = std::fs::read(&cache_path) {
-        if !bytes.is_empty() && crate::commands::is_valid_image(&bytes) {
-            return Some(crate::commands::bytes_to_data_uri(&bytes));
+    if !cache_file.is_empty() {
+        let icons_dir = crate::get_app_data_dir().join("icons");
+        let cache_path = icons_dir.join(cache_file);
+        if let Ok(bytes) = std::fs::read(&cache_path) {
+            if !bytes.is_empty() && crate::commands::is_valid_image(&bytes) {
+                return Some(crate::commands::bytes_to_data_uri(&bytes));
+            }
         }
     }
 
@@ -565,7 +561,8 @@ mod tests {
         db.upsert_icon_cycle(&empty_cycle).unwrap();
         assert_eq!(resolve_confirmed_icon_from_db(&db, app_id, owner, repo), None);
 
-        // 3. 有记录且 selected_url 非空，但 cache_file 在磁盘上不存在
+        // 3. 有记录且 selected_url 非空，但 cache_file 在磁盘上不存在：
+        //    回退 remote_url（后台补探只写 selected_url，重复搜索首屏不再恒为 ''）。
         let cycle_missing_file = crate::db::AppIconCycle {
             app_id: app_id.to_string(),
             owner: owner.to_string(),
@@ -576,7 +573,10 @@ mod tests {
             ..Default::default()
         };
         db.upsert_icon_cycle(&cycle_missing_file).unwrap();
-        assert_eq!(resolve_confirmed_icon_from_db(&db, app_id, owner, repo), None);
+        assert_eq!(
+            resolve_confirmed_icon_from_db(&db, app_id, owner, repo),
+            Some("https://example.com/icon.png".to_string())
+        );
 
         // 4. 有记录且 cache_file 存在并为有效图片：返回 dataURI
         let icons_dir = crate::get_app_data_dir().join("icons");
@@ -608,6 +608,28 @@ mod tests {
 
         // 6. 清理测试文件
         let _ = std::fs::remove_file(&test_file_path);
+    }
+
+    #[test]
+    fn search_resolve_falls_back_to_selected_url() {
+        // 回归：后台补探只写 selected_url（cache_file 为空）时，
+        // 重复搜索首屏必须回退 remote_url 而非 None（不再恒为 ''）。
+        let db = crate::db::Database::open_in_memory().unwrap();
+        let app_id = "fallbackowner/fallbackrepo";
+        let cycle = crate::db::AppIconCycle {
+            app_id: app_id.to_string(),
+            owner: "fallbackowner".to_string(),
+            repo: "fallbackrepo".to_string(),
+            level: 2,
+            selected_url: "https://cdn.simpleicons.org/fallbackrepo".to_string(),
+            cache_file: String::new(),
+            ..Default::default()
+        };
+        db.upsert_icon_cycle(&cycle).unwrap();
+        assert_eq!(
+            resolve_confirmed_icon_from_db(&db, app_id, "fallbackowner", "fallbackrepo"),
+            Some("https://cdn.simpleicons.org/fallbackrepo".to_string())
+        );
     }
 
     #[tokio::test]
