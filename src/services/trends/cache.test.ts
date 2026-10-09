@@ -8,6 +8,7 @@ import {
   getDbTrendCache,
   readTrendsCache,
   saveDbTrendCache,
+  trendDbTtlMs,
   writeTrendsCache,
 } from './cache';
 import { fetchTrendsResult } from './boards';
@@ -82,33 +83,43 @@ describe('trends L2 persistence cache', () => {
     expect(await getDbTrendCache('weekly||', 'weekly')).toBeUndefined();
   });
 
-  it('getDbTrendCache respects 12h TTL (TREND_DB_TTL_MS) across all boards', async () => {
+  it('getDbTrendCache respects per-board L2 TTL (daily 1h, others 12h)', async () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
     const nowSec = Math.floor(Date.now() / 1000);
     expect(TREND_DB_TTL_MS).toBe(12 * 60 * 60 * 1000);
+    expect(trendDbTtlMs('daily')).toBe(60 * 60 * 1000);
+    expect(trendDbTtlMs('weekly')).toBe(TREND_DB_TTL_MS);
+    expect(trendDbTtlMs('new')).toBe(TREND_DB_TTL_MS);
 
-    // daily cached 2h ago (>1h memory L1 TTL, but <12h DB TTL) is fresh in DB
-    vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValueOnce({
-      payload_json: JSON.stringify([mockRepo]),
-      cached_at: nowSec - 2 * 3600,
-    });
-    const freshDaily = await getDbTrendCache('daily||', 'daily');
-    expect(freshDaily).toEqual([mockRepo]);
-
-    // new cached 30m ago (>5m memory L1 TTL, but <12h DB TTL) is fresh in DB
+    // daily cached 30m ago (<1h DB TTL) is fresh in DB
     vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValueOnce({
       payload_json: JSON.stringify([mockRepo]),
       cached_at: nowSec - 1800,
     });
+    const freshDaily = await getDbTrendCache('daily||', 'daily');
+    expect(freshDaily).toEqual([mockRepo]);
+
+    // daily cached 2h ago (>1h DB TTL, <12h) is expired in DB
+    vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValueOnce({
+      payload_json: JSON.stringify([mockRepo]),
+      cached_at: nowSec - 2 * 3600,
+    });
+    expect(await getDbTrendCache('daily||', 'daily')).toBeUndefined();
+
+    // new cached 2h ago (<12h DB TTL) is fresh in DB
+    vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValueOnce({
+      payload_json: JSON.stringify([mockRepo]),
+      cached_at: nowSec - 2 * 3600,
+    });
     const freshNew = await getDbTrendCache('new||', 'new');
     expect(freshNew).toEqual([mockRepo]);
 
-    // cached_at exceeding 12h returns undefined (expired)
+    // weekly cached_at exceeding 12h returns undefined (expired)
     vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValueOnce({
       payload_json: JSON.stringify([mockRepo]),
-      cached_at: nowSec - (12 * 3600 + 1),
+      cached_at: nowSec - (12 * 3600 + 60),
     });
-    const expired = await getDbTrendCache('daily||', 'daily');
+    const expired = await getDbTrendCache('weekly||', 'weekly');
     expect(expired).toBeUndefined();
   });
 

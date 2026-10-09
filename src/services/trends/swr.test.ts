@@ -77,7 +77,7 @@ describe('SWR 旧富卡直展：pending 落盘后重挂直展富卡', () => {
     expect(networkSpy).not.toHaveBeenCalled();
   });
 
-  it('L2 过期后才重抓网络（cached_at 超 12h 按 miss）', async () => {
+  it('L2 过期后才重抓网络（weekly cached_at 超 12h 按 miss；daily 按 1h）', async () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
     const repos = [makeTrendRepo({ id: 'acme/atlas', stars: 12000 })];
     const pending = makeEnrichedApp({ id: 'acme/atlas', platforms: [] });

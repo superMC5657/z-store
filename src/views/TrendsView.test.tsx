@@ -16,7 +16,7 @@
  * - 429 恰好重试一次（Retry-After 秒数/HTTP-date，上限 60s），仍败则 error；
  * - 解析规则：单数/逗号/缺 span/三段链接跳过/k 缩写；
  * - errorKind 映射（403/429→rate-limited，Abort→timeout，TypeError→network）；
- * - 成功（非空）才写 5 分钟缓存；`fetchTrends` 签名兼容。
+ * - 成功（非空）才写按榜 TTL 缓存（daily 1h，weekly/monthly/new 12h，未知榜回落 5 分钟）；`fetchTrends` 签名兼容。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MockInstance } from 'vitest';
@@ -185,11 +185,11 @@ describe('P0: 旧加权公式与 dead 数据源已彻底删除', () => {
     expect(GITHUB_SEARCH_TIMEOUT_MS).toBe(10_000);
   });
 
-  it('按榜 TTL：日榜 1h，周/月榜 12h，新榜回落 5 分钟', () => {
+  it('按榜 TTL：日榜 1h，周/月/新榜 12h，未知榜回落 5 分钟', () => {
     expect(trendsBoardTtlMs('daily')).toBe(60 * 60 * 1000);
     expect(trendsBoardTtlMs('weekly')).toBe(12 * 60 * 60 * 1000);
     expect(trendsBoardTtlMs('monthly')).toBe(12 * 60 * 60 * 1000);
-    expect(trendsBoardTtlMs('new')).toBe(CACHE_TTL_MS);
+    expect(trendsBoardTtlMs('new')).toBe(12 * 60 * 60 * 1000);
   });
 
   it('TRENDING_SINCE 一榜一参 + DOFORCE_URL 稳定', () => {
@@ -997,7 +997,7 @@ describe('TrendsView 榜单选项卡记忆（zstore.trends.opts）', () => {
         requestedUrls.some((u) => u.includes('github.com/trending') && u.includes('since=monthly')),
       ).toBe(true);
     });
-    // 模拟重启：卸载 + 清内存 L1（localStorage 保留，上限 12h 的 L2 由缓存层判定）
+    // 模拟重启：卸载 + 清内存 L1（localStorage 保留，按榜 TTL 的 L2 由缓存层判定，monthly 12h）
     first.unmount();
     cleanup();
     clearTrendsCache();

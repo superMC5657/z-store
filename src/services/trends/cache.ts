@@ -8,14 +8,16 @@ import {
   snapshotTrendEnrichCache,
 } from './enrich';
 
-export const CACHE_TTL_MS = 5 * 60 * 1000; // 默认内存缓存（new 榜；daily/weekly/monthly 见 trendsBoardTtlMs；仅成功结果写入；rising/healthy 除外，见下）
+export const CACHE_TTL_MS = 5 * 60 * 1000; // 默认内存缓存回落（未知榜；daily/weekly/monthly/new 均为显式分档见 trendsBoardTtlMs；仅成功结果写入；rising/healthy 除外，见下）
 /**
  * doforce 源数据共享缓存 TTL：12h。
  * 日榜粒度数据日内几乎不变，长缓存 + 两榜共享把远端命中压到最低。
  */
 export const DOFORCE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
-/** DB L2 持久化缓存统一 TTL：12h（所有榜单按 12h 复用）。 */
+/** DB L2 持久化缓存默认 TTL：12h（daily 见 trendDbTtlMs 取 1h；其余榜按 12h 复用，与后端 prune 双档一致）。 */
 export const TREND_DB_TTL_MS = 12 * 60 * 60 * 1000;
+/** DB L2 daily 榜 TTL：1h（与后端 prune_expired_trend_board_cache daily 3600s 对齐）。 */
+export const TREND_DB_DAILY_TTL_MS = 60 * 60 * 1000;
 /** 429 单次重试的最大等待：60s；超过即直接 error，不再等待。 */
 export const DOFORCE_RETRY_MAX_WAIT_MS = 60_000;
 /** 429 错误串无 Retry-After 可用时的默认等待（Rust 侧当前仅回传状态码）。 */
@@ -88,10 +90,16 @@ export function buildLegacyTrendsCacheKey(board: TrendBoardId, opts: FetchTrends
   return `${board}|${opts.language ?? ''}|${opts.category ?? ''}`;
 }
 
-/** 按榜缓存 TTL：daily 1h，weekly/monthly 12h，其余回落 CACHE_TTL_MS（new 榜 5 分钟）。 */
+/** 按榜 L2 TTL 基准：daily 1h，其余榜 12h（与后端 prune 双档 daily 3600s / 其余 43200s 一致；doforce 等非 daily 一律 12h）。 */
+export function trendDbTtlMs(board: string): number {
+  if (board === 'daily') return TREND_DB_DAILY_TTL_MS;
+  return TREND_DB_TTL_MS;
+}
+
+/** 按榜缓存 TTL：daily 1h，weekly/monthly/new 12h，其余回落 CACHE_TTL_MS（未知榜 5 分钟）。 */
 export function trendsBoardTtlMs(board: string): number {
   if (board === 'daily') return 60 * 60 * 1000;
-  if (board === 'weekly' || board === 'monthly') return 12 * 60 * 60 * 1000;
+  if (board === 'weekly' || board === 'monthly' || board === 'new') return 12 * 60 * 60 * 1000;
   return CACHE_TTL_MS;
 }
 
@@ -166,9 +174,9 @@ export const CMD_SAVE_TREND_BOARD_CACHE = 'save_trend_board_cache';
  * enrich 键为小写 `owner/repo`，收录具真实平台与 pending 空平台条目（SWR 首屏直展，Other 待确认语义）；
  * 仅禁 dataURI（图标 data: 开头一律不进盘）。
  * confirmedOther 为已确认 Other 键集（小写）：settle 兜底 / lite 空非 stale 确认后与 enrich 同 key 落盘，
- * 重挂免验直展 Other 卡；具平台到达即移除（可覆盖升级），12h 窗口由 cached_at + 内存 TTL 把关，到期重验。
+ * 重挂免验直展 Other 卡；具平台到达即移除（可覆盖升级），按榜窗口由 cached_at + 按榜 TTL 把关（daily 1h，其余 12h），到期重验。
  * 不改表结构：仅 payload_json 信封内新增可选字段，旧盘无此字段即视为空（向后兼容）。
- * 新鲜度复用落库 `cached_at` + 12h 有效 TTL（扣 key 稳定抖动），读侧 elapsed<0 按过期。
+ * 新鲜度复用落库 `cached_at` + 按榜有效 TTL（daily 1h，其余 12h，扣 key 稳定抖动），读侧 elapsed<0 按过期。
  */
 export interface TrendCacheEnvelopeV1 {
   v: 1;
@@ -191,9 +199,9 @@ interface DbTrendBoardCacheRow {
  * - 命令未就绪 / DB 损坏 / 反序列化失败 / 已过期一律降级返回 undefined（视为 miss 走网络）。
  * Phase2治理：
  * - 时钟钳制 elapsed<0 按过期；
- * - L2 读 key 稳定抖动 0-30s 错峰，只扣减不延长（有效 TTL = 12h - min(jitter, 12h/4)）。
+ * - L2 读 key 稳定抖动 0-30s 错峰，只扣减不延长（有效 TTL = 按榜 TTL - min(jitter, TTL/4)，daily 1h / 其余 12h）。
  */
-export async function getDbTrendCache(key: string, _board?: string): Promise<TrendRepo[] | undefined> {
+export async function getDbTrendCache(key: string, board?: string): Promise<TrendRepo[] | undefined> {
   if (!isTauri) return undefined;
   try {
     const row = await tauriInvoke<DbTrendBoardCacheRow | null>(CMD_GET_TREND_BOARD_CACHE, {
@@ -211,7 +219,8 @@ export async function getDbTrendCache(key: string, _board?: string): Promise<Tre
 
     const elapsedMs = Date.now() - cachedAtSec * 1000;
     if (elapsedMs < 0) return undefined;
-    if (elapsedMs >= trendL2EffectiveTtlMs(TREND_DB_TTL_MS, key)) {
+    const resolvedBoard = board ?? key.split('|')[0] ?? '';
+    if (elapsedMs >= trendL2EffectiveTtlMs(trendDbTtlMs(resolvedBoard), key)) {
       return undefined;
     }
 
@@ -301,7 +310,7 @@ export async function getDbTrendCache(key: string, _board?: string): Promise<Tre
  *   具平台键调用方已过滤，此处再做一次去重归一；为空即省略字段（旧盘兼容）。
  * - SWR 富信封：pending 空平台随信封落盘（首屏直展 pending 卡，Other 待确认语义）；仅禁 dataURI。
  * - 已确认 Other 同信封落盘：settle 兜底 / lite 空非 stale 确认后按正常 enrich 同 key 写透，重挂免验直展 Other 卡；
- *   具平台到达即移除（可覆盖升级），12h 窗口由 cached_at + 内存 TTL 把关，到期重验。
+ *   具平台到达即移除（可覆盖升级），按榜窗口（daily 1h，其余 12h）由 cached_at + 按榜 TTL 把关，到期重验。
  * - Phase2治理字节上限：FE utf8ByteLength 预检 256KB；超限先丢 confirmed 再降级裸榜，仍超限放弃写盘。
  *   BE 512KiB 硬拒绝保持（见 db/cache.rs TREND_BOARD_CACHE_MAX_BYTES），FE 预检避免无谓 invoke。
  * - 空榜/错误不污染 L2：repos 为空直接返回不写盘（调用方仅 ok 非空才调）。
