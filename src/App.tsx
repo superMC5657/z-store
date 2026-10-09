@@ -78,7 +78,7 @@ export const App: React.FC = () => {
   const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
   const [updateCheckProgress, setUpdateCheckProgress] = useState<UpdateCheckProgressPayload | null>(null);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
-  // 收藏未收录占位行（left-join：`favoriteIds ∖ apps` 经详情回退合成，仅收藏页消费，
+  // 收藏/关注未收录占位行（left-join：`(favoriteIds∪watchedIds) ∖ apps` 经详情回退合成，仅收藏页消费，
   // 不进 `apps`/计数/其它视图；`platforms: []` 即 pending 恒可见，平台三态不动）。
   const [favoriteExtraApps, setFavoriteExtraApps] = useState<AppSummary[]>([]);
   const favoriteExtraAppsRef = useRef<AppSummary[]>([]);
@@ -1291,7 +1291,7 @@ export const App: React.FC = () => {
     () => onlineApps.filter((a) => matchPlatformSetWithPending(a, selectedPlatforms, platformResolvedOtherIds)),
     [onlineApps, selectedPlatforms, platformResolvedOtherIds]
   );
-  // 收藏页 left-join 供给：收录段（已平台过滤）+ 未收录占位段（同口径平台过滤后并入，
+  // 收藏页 left-join 供给：收录段（已平台过滤）+ 未收录占位段（收藏/关注 union 合成，同口径平台过滤后并入，
   // 小写去重防双显）。其它视图仍用 `platformFilteredApps`，计数仍基于全量 `apps`。
   const favoritesViewApps = useMemo(() => {
     if (favoriteExtraApps.length === 0) return platformFilteredApps;
@@ -1351,13 +1351,13 @@ export const App: React.FC = () => {
     return map;
   }, [apps]);
 
-  // 收藏 left-join：`favoriteIds ∖ apps` 经 `getAppDetails`（后端
+  // 收藏/关注 left-join：`(favoriteIds∪watchedIds) ∖ apps` 经 `getAppDetails`（后端
   // `get_cached_app_detail_fallback` 回退）合成占位行，未收录也能展示。
   // 归一大小写 + 双键（原值保留供展示层精确命中，小写建索引去重）；
   // 合成行 `is_cataloged=false/category=external`，`platforms: []` 即 pending，
   // 平台三态/徽标逻辑一律不动。失败即最小占位，行必展示；收录到达即驱逐。
   useEffect(() => {
-    if (favoriteIds.size === 0) {
+    if (favoriteIds.size === 0 && watchedIds.size === 0) {
       if (favoriteExtraAppsRef.current.length > 0) setFavoriteExtraApps([]);
       return;
     }
@@ -1384,7 +1384,9 @@ export const App: React.FC = () => {
       const k = (e.id || '').toLowerCase();
       if (k) baseLowerSet.add(k);
     }
-    const missing = findMissingFavoriteIds(favoriteIds, catalogLower, baseLowerSet).filter(
+    // 收藏+关注 union 求缺：任一集合未收录即合成（共用同一占位 helpers/去重/inflight 口径）。
+    const unionIds = new Set<string>([...favoriteIds, ...watchedIds]);
+    const missing = findMissingFavoriteIds(unionIds, catalogLower, baseLowerSet).filter(
       (id) => !favoriteExtraInflightRef.current.has(id.toLowerCase()),
     );
     if (missing.length === 0) return;
@@ -1452,7 +1454,7 @@ export const App: React.FC = () => {
       // 同步注销本轮 inflight，保证 apps 到达后的下一轮能重算 missing
       for (const id of missing) favoriteExtraInflightRef.current.delete(id.toLowerCase());
     };
-  }, [favoriteIds, apps]);
+  }, [favoriteIds, watchedIds, apps]);
 
   const filteredInstalledApps = useMemo(() => {
     return installedApps.filter((inst) => {

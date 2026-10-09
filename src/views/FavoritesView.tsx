@@ -59,8 +59,14 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
     const k = (id || '').toLowerCase();
     if (k) favoriteIdsLower.add(k);
   }
+  // 关注同口径小写归一（与收藏分支 57-62 一致）；计数仍用 `watchedSet.size` 全集。
+  const watchedIdsLower = new Set<string>();
+  for (const id of watchedSet) {
+    const k = (id || '').toLowerCase();
+    if (k) watchedIdsLower.add(k);
+  }
   const favoriteApps = apps.filter((a) => favoriteIdsLower.has((a.id || '').toLowerCase()) && matchesSearch(a));
-  const watchedApps = apps.filter((a) => watchedSet.has(a.id) && matchesSearch(a));
+  const watchedApps = apps.filter((a) => watchedIdsLower.has((a.id || '').toLowerCase()) && matchesSearch(a));
 
   const handleSyncStarred = async () => {
     setIsSyncing(true);
@@ -183,7 +189,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 isInstalled={installedIds.has(app.id)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={true}
-                isWatched={watchedSet.has(app.id)}
+                isWatched={watchedIdsLower.has((app.id || '').toLowerCase())}
                 showCatalogBadge={true}
                 onOpenDetail={onOpenDetail}
                 onQuickInstall={onQuickInstall}
@@ -361,7 +367,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                       isInstalled={installedIds.has(app.id)}
                       isInstalling={installingIds?.has(app.id)}
                       isFavorite={favoriteIdsLower.has((app.id || '').toLowerCase())}
-                      isWatched={watchedSet.has(app.id)}
+                      isWatched={watchedIdsLower.has((app.id || '').toLowerCase())}
                       onOpenDetail={onOpenDetail}
                       onQuickInstall={onQuickInstall}
                       onToggleFavorite={onToggleFavorite}
