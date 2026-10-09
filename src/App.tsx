@@ -459,7 +459,54 @@ export const App: React.FC = () => {
   const loadRecentViews = useCallback(async () => {
     try {
       const recents = await api.getRecentlyViewedApps();
-      setRecentlyViewedApps(recents);
+      // 趋势富卡治愈：后端 history 对未收录行原样拷贝占位简介，此处用富卡非占位值一次治愈
+      // （首刷新增行 + 旧占位行；后到的 load 不再覆盖 sync 的治愈值；无富卡保持原值走现有空渲染）。
+      try {
+        const snap = snapshotTrendEnrichCache();
+        if (Object.keys(snap).length === 0) {
+          setRecentlyViewedApps(recents);
+          return;
+        }
+        const pickReal = (v: unknown): string | undefined => {
+          if (typeof v !== 'string') return undefined;
+          const t = v.trim();
+          if (t === '' || isPlaceholderDescription(t)) return undefined;
+          return v;
+        };
+        const healed = recents.map((r) => {
+          const needDesc =
+            typeof r.description !== 'string' || r.description.trim() === '' || isPlaceholderDescription(r.description);
+          const needDescEn =
+            typeof r.description_en === 'string' &&
+            (r.description_en.trim() === '' || isPlaceholderDescription(r.description_en));
+          if (!needDesc && !needDescEn) return r;
+          const keys: string[] = [(r.id || '').toLowerCase()];
+          if (r.owner && r.repo) keys.push(`${r.owner}/${r.repo}`.toLowerCase());
+          let enrichDesc: string | undefined;
+          let enrichDescEn: string | undefined;
+          for (const k of keys) {
+            if (!k) continue;
+            const hit = snap[k];
+            if (!hit) continue;
+            if (needDesc && enrichDesc === undefined) {
+              const cand = pickReal(hit.description);
+              if (cand !== undefined) enrichDesc = cand;
+            }
+            if (needDescEn && enrichDescEn === undefined) {
+              const candEn = pickReal(hit.description_en);
+              if (candEn !== undefined) enrichDescEn = candEn;
+            }
+            if ((!needDesc || enrichDesc !== undefined) && (!needDescEn || enrichDescEn !== undefined)) break;
+          }
+          let next = r;
+          if (needDesc && enrichDesc !== undefined) next = { ...next, description: enrichDesc };
+          if (needDescEn && enrichDescEn !== undefined) next = { ...next, description_en: enrichDescEn };
+          return next;
+        });
+        setRecentlyViewedApps(healed);
+      } catch {
+        setRecentlyViewedApps(recents);
+      }
     } catch {
       // 忽略错误
     }
@@ -576,14 +623,15 @@ export const App: React.FC = () => {
         ? detailPlatforms
         : app.platforms;
       // 富卡全字段回填：同值即保持原引用（避免无谓全网格重渲染），异值即取详情新值；
-      // Rust 合成占位简介视为空（保留列表实值，不污染三列表）
+      // Rust 合成占位简介视为空（保留列表实值，不污染三列表）；
+      // 趋势富卡兜底：detail 占位且富卡有实值时优先用富卡，治愈已在 recents 的旧占位行；无富卡仍保留旧值（空/占位走现有空渲染）。
       const nextDescription = isPlaceholderDescription(detail.description)
-        ? app.description
+        ? (enrichDesc ?? app.description)
         : detail.description;
       const nextDescriptionEnRaw = detail.description_en;
       const nextDescriptionEn =
         typeof nextDescriptionEnRaw === 'string' && isPlaceholderDescription(nextDescriptionEnRaw)
-          ? app.description_en
+          ? (enrichDescEn ?? app.description_en)
           : nextDescriptionEnRaw;
       const nextHomepage = detail.homepage;
       if (
@@ -946,7 +994,8 @@ export const App: React.FC = () => {
 
     // 0ms 同步打开弹窗或切换刷新态，主界面无任何阻塞感
     setSelectedApp(initialDetail);
-    api.recordAppView(id).then(loadRecentViews).catch(() => {});
+    // 浏览记录先落盘不阻塞详情；recents 刷新延后到详情同步之后，避免后到的后端占位快照覆盖富卡治愈值（load 内自带富卡治愈）。
+    void api.recordAppView(id).catch(() => {});
 
     try {
       const fullDetail = await api.getAppDetails(id, forceRefresh);
@@ -960,6 +1009,7 @@ export const App: React.FC = () => {
         );
       }
     }
+    await loadRecentViews();
   }, [loadRecentViews, syncDetailCacheAndAppLists]);
 
   // 深链调度分发器（功能 E）

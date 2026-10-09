@@ -37,7 +37,7 @@ fn parse_release_payload(payload: &str, err_ctx: &str) -> Result<GitHubReleaseRe
 /// B1：详情简介占位判断（未收录仓 external_synth / search 回退占位）。
 /// 空白视为占位（前端渲染兜底）；命中任一已知占位子串即视为占位。
 /// 已收录仓人工精校简介优先，调用方需以 `catalog_item.is_none()` 门控后再回填。
-fn is_placeholder_description(s: &str) -> bool {
+pub(crate) fn is_placeholder_description(s: &str) -> bool {
     let t = s.trim();
     if t.is_empty() {
         return true;
@@ -55,6 +55,52 @@ fn is_placeholder_description(s: &str) -> bool {
     }
     // 英文占位大小写不敏感兜底
     t.to_lowercase().contains("no description available")
+}
+
+/// 最近浏览简介占位后端根治共用：从 SQLite ETag 缓存读 repo 真简介（同步读，不触网）。
+/// - key 为 `https://api.github.com/repos/{owner}/{repo}`（原值 + 小写各试一次）；
+/// - payload 按 `GitHubRepoResponse.description` 解析，trim 后空或仍占位视为无真值；
+/// - 调用方需以 `catalog_item.is_none()` 门控（已收录仓人工精校优先，不覆盖）。
+pub(crate) fn repo_real_description_from_etag(
+    db: &crate::db::Database,
+    owner: &str,
+    repo: &str,
+) -> Option<String> {
+    let owner = owner.trim();
+    let repo = repo.trim();
+    if owner.is_empty() || repo.is_empty() {
+        return None;
+    }
+    let raw = format!("https://api.github.com/repos/{}/{}", owner, repo);
+    let lowered = format!(
+        "https://api.github.com/repos/{}/{}",
+        owner.to_lowercase(),
+        repo.to_lowercase()
+    );
+    let mut urls = vec![raw];
+    if !urls.contains(&lowered) {
+        urls.push(lowered);
+    }
+    for url in urls {
+        let payload = match db.get_cached_payload(&url) {
+            Ok(Some(p)) => p,
+            _ => continue,
+        };
+        let desc_opt = serde_json::from_str::<serde_json::Value>(&payload)
+            .ok()
+            .and_then(|v| {
+                v.get("description")
+                    .and_then(|d| d.as_str())
+                    .map(|s| s.to_string())
+            })
+            .map(|s: String| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .filter(|s| !is_placeholder_description(s));
+        if let Some(real) = desc_opt {
+            return Some(real);
+        }
+    }
+    None
 }
 
 impl CatalogService {
@@ -893,5 +939,45 @@ mod tests {
         let (effective, mirror) = CatalogService::rewrite_checksum_url_with_fallback(cb);
         assert!(!mirror);
         assert_eq!(effective, cb);
+    }
+
+    #[test]
+    fn test_is_placeholder_description_covers_known_cases() {
+        assert!(super::is_placeholder_description(""));
+        assert!(super::is_placeholder_description("   "));
+        assert!(super::is_placeholder_description("GitHub 社区开源项目"));
+        assert!(super::is_placeholder_description("跨平台开源项目（extra）"));
+        assert!(!super::is_placeholder_description("Real repo description"));
+        assert!(!super::is_placeholder_description("树莓派工具"));
+    }
+
+    #[test]
+    fn test_repo_real_description_from_etag_filters_placeholder() {
+        let db = crate::db::Database::open_in_memory().unwrap();
+        // 无行时为 None
+        assert!(super::repo_real_description_from_etag(&db, "o", "r").is_none());
+        // 真值命中
+        db.save_etag(
+            "https://api.github.com/repos/o/r",
+            "e1",
+            r#"{"description": "Real desc"}"#,
+            crate::github::http::now_secs(),
+        )
+        .unwrap();
+        assert_eq!(
+            super::repo_real_description_from_etag(&db, "o", "r").as_deref(),
+            Some("Real desc")
+        );
+        // 占位 payload 视为无真值
+        db.save_etag(
+            "https://api.github.com/repos/p/q",
+            "e2",
+            r#"{"description": "GitHub 社区开源项目"}"#,
+            crate::github::http::now_secs(),
+        )
+        .unwrap();
+        assert!(super::repo_real_description_from_etag(&db, "p", "q").is_none());
+        // 空 owner/repo 直接 None
+        assert!(super::repo_real_description_from_etag(&db, "", "r").is_none());
     }
 }

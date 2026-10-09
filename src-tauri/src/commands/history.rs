@@ -55,7 +55,11 @@ pub fn get_recently_viewed_apps(state: State<'_, AppState>) -> crate::AppResult<
 
     for id in ids {
         if let Some(item) = catalog_items.iter().find(|i| i.id == id) {
-            result.push(item.to_summary());
+            let mut summary = item.to_summary();
+            // 最近浏览简介占位根治：收录行占位（理论上不应出现）同样回填/置空，
+            // 非占位人工简介原样保留。
+            heal_recent_summary(&db, &mut summary);
+            result.push(summary);
             continue;
         }
         // 未收录：view_history 存全量 id，catalog 拼不出；回退 DB 详情缓存
@@ -99,7 +103,10 @@ fn cached_detail_summary(db: &crate::db::Database, id: &str) -> Option<AppSummar
     }
     for key in keys {
         if let Ok(Some(detail)) = db.get_cached_app_detail_fallback(&key) {
-            return Some(detail_to_summary(&detail));
+            let mut summary = detail_to_summary(&detail);
+            // 最近浏览简介占位根治：占位回填 ETag repo 真值，无真值置空（前端走“暂无简介”）。
+            heal_recent_summary(db, &mut summary);
+            return Some(summary);
         }
     }
     None
@@ -142,6 +149,43 @@ fn detail_to_summary(detail: &crate::models::AppDetail) -> AppSummary {
         forge_host: detail.forge_host.clone(),
         homepage: detail.homepage.clone(),
         platforms: detail.platforms.clone(),
+    }
+}
+
+/// 最近浏览简介占位后端根治：summary 占位简介回填 repo 真值，无真值置空。
+/// - 占位判定复用 `detail_fetch::is_placeholder_description`（含空串与已知占位子串）；
+/// - 真值来源为 SQLite ETag repo payload 同步读（不触网），命中非占位真值即回填；
+/// - 无真值时占位转 `""`/`Some("")`，前端走“暂无简介”渲染而不显示占位文案；
+///   `""` 仍被前端 `needDesc` 视为待治愈，可由富卡 enrich 快照二次治愈；
+/// - 非占位（已收录人工简介等）原样保留。
+fn heal_recent_summary(db: &crate::db::Database, summary: &mut AppSummary) {
+    let need_desc = crate::github::detail::detail_fetch::is_placeholder_description(
+        &summary.description,
+    );
+    let need_en = summary
+        .description_en
+        .as_deref()
+        .map(crate::github::detail::detail_fetch::is_placeholder_description)
+        .unwrap_or(false);
+    if !need_desc && !need_en {
+        return;
+    }
+    let real = crate::github::detail::detail_fetch::repo_real_description_from_etag(
+        db,
+        &summary.owner,
+        &summary.repo,
+    );
+    if need_desc {
+        match real.clone() {
+            Some(r) => summary.description = r,
+            None => summary.description = String::new(),
+        }
+    }
+    if need_en {
+        match real {
+            Some(r) => summary.description_en = Some(r),
+            None => summary.description_en = Some(String::new()),
+        }
     }
 }
 
@@ -374,5 +418,77 @@ mod recent_uncataloged_tests {
         assert_eq!(summary.owner, "oh-my-pi");
         // 无任何缓存的 id 直接跳过（不合成占位）
         assert!(super::cached_detail_summary(&db, "ghost/nobody").is_none());
+    }
+
+    fn placeholder_detail(id: &str) -> AppDetail {
+        let mut d = uncataloged_detail(id, "https://example.com/icon.png");
+        d.description = "GitHub 社区开源项目".to_string();
+        d.description_en = Some("GitHub 社区开源项目".to_string());
+        d
+    }
+
+    #[test]
+    fn test_placeholder_summary_blanked_when_no_repo_real() {
+        // 无 ETag repo 真值时，占位必须转空（前端走“暂无简介”而不显示占位文案）。
+        let db = Database::open_in_memory().expect("内存数据库应当可用");
+        db.save_cached_app_detail("demo/placeholder", &placeholder_detail("demo/placeholder"))
+            .unwrap();
+        let summary = super::cached_detail_summary(&db, "demo/placeholder")
+            .expect("占位详情应当回退命中");
+        assert_eq!(summary.description, "", "占位中文简介应当置空");
+        assert_eq!(
+            summary.description_en.as_deref(),
+            Some(""),
+            "占位英文简介应当置空为 Some(\"\")（保留前端 enrich 治愈机会）"
+        );
+    }
+
+    #[test]
+    fn test_placeholder_summary_backfilled_from_etag_repo_real() {
+        // ETag 有 repo 真值时，占位应当回填真值而非置空。
+        let db = Database::open_in_memory().expect("内存数据库应当可用");
+        db.save_cached_app_detail("demo/placeholder", &placeholder_detail("demo/placeholder"))
+            .unwrap();
+        db.save_etag(
+            "https://api.github.com/repos/oh-my-pi/oh-my-pi",
+            "etag-demo",
+            r#"{"description": "Real repo description"}"#,
+            crate::now_secs(),
+        )
+        .unwrap();
+        // detail 行 owner/repo 为 oh-my-pi/oh-my-pi（见 uncataloged_detail），
+        // id 键 demo/placeholder 经 fallback 命中同一行后按 owner/repo 查 ETag。
+        let summary = super::cached_detail_summary(&db, "demo/placeholder")
+            .expect("占位详情应当回退命中");
+        assert_eq!(summary.description, "Real repo description");
+        assert_eq!(
+            summary.description_en.as_deref(),
+            Some("Real repo description")
+        );
+    }
+
+    #[test]
+    fn test_non_placeholder_description_preserved() {
+        // 非占位人工简介不得被覆盖。
+        let db = Database::open_in_memory().expect("内存数据库应当可用");
+        db.save_cached_app_detail(
+            "oh-my-pi/oh-my-pi",
+            &uncataloged_detail("oh-my-pi/oh-my-pi", "https://example.com/icon.png"),
+        )
+        .unwrap();
+        db.save_etag(
+            "https://api.github.com/repos/oh-my-pi/oh-my-pi",
+            "etag-demo",
+            r#"{"description": "Real repo description"}"#,
+            crate::now_secs(),
+        )
+        .unwrap();
+        let summary = super::cached_detail_summary(&db, "oh-my-pi/oh-my-pi")
+            .expect("非占位详情应当回退命中");
+        assert_eq!(summary.description, "树莓派工具", "人工简介优先，不覆盖");
+        assert_eq!(
+            summary.description_en.as_deref(),
+            Some("Raspberry Pi tool")
+        );
     }
 }

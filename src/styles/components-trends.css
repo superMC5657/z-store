@@ -156,10 +156,29 @@
   max-width: none;
 }
 
+/* 趋势榜 AppCard 行（已收录 catalog + 未收录 enrich 成功）：无 eye/bookmark，
+   header 由 300px 收窄到 228px，吃掉两图标位（2×24 按钮 + 2×10 间隙 + 2×2 边距 = 72），
+   简介（.app-desc）左移顶到 eye 位。:not 排除裸占位小行（无简介、标题已 flex:1 撑满）。
+   HomeView 最近浏览等其他 .app-card 不在 .trends-view 内，保持 300px 对齐不变。
+   简介仍走 base 的 flex:1 + min-width:0 + ellipsis 消化挤压，此处不动。 */
+.trends-view .app-card-header:not(.trend-uncataloged-main) {
+  flex: 0 0 228px;
+  min-width: 0;
+  max-width: 60%;
+}
+
 .trend-uncataloged-row .trend-uncataloged-side {
   margin-top: 0;
   border-top: none;
   margin-left: auto;
+}
+
+@media (max-width: 1024px) {
+  .trends-view .app-card-header:not(.trend-uncataloged-main) {
+    flex-basis: 168px;
+    max-width: 60%;
+    min-width: 0;
+  }
 }
 
 @media (max-width: 720px) {
@@ -187,5 +206,13 @@
 
   .trend-uncataloged-row .trend-uncataloged-side .app-tags {
     flex-wrap: nowrap;
+  }
+
+  /* 720px 以下简介隐藏（base .app-desc display:none）：趋势行 header 跟随 base
+     切回 flex:1 撑满，不断裂；高特异度覆盖默认的 228px 窄头。 */
+  .trends-view .app-card-header:not(.trend-uncataloged-main) {
+    flex: 1 1 auto;
+    max-width: none;
+    min-width: 0;
   }
 }

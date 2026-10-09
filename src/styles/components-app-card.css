@@ -50,9 +50,14 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  flex: 0 1 300px;
-  min-width: 180px;
-  max-width: 360px;
+  /* 固定 300px：各行图标 / 标题 / eye / bookmark 列纵向对齐。
+     之前是 flex:0 1 300px（允许收缩），每行按简介长度 + 右侧标签宽度分摊到不同的收缩量，
+     eye/bookmark 横坐标逐行漂移——简介最长（常为第一行）的那行收缩最多，看上去间隙最大。
+     现在收缩统一由中间简介（flex:1 / min-width:0 / ellipsis）消化；
+     窄屏由 max-width 百分比与下方断点兜底，各行同步伸缩、不断裂。 */
+  flex: 0 0 300px;
+  min-width: 0;
+  max-width: 60%;
   position: relative;
 }
 
@@ -181,6 +186,12 @@
   color: #eab308;
 }
 
+/* 头部 eye/bookmark 固定 24px：不参与任何伸缩，与固定宽 header 配合，
+   两列在各行之间严格对齐（单个按钮缺席时剩余按钮仍贴右沿，无需占位）。 */
+.app-card-header .btn-fav-card {
+  flex: 0 0 24px;
+}
+
 .app-desc {
   flex: 1 1 auto;
   font-size: var(--font-sm);
@@ -283,8 +294,8 @@
 @media (max-width: 1024px) {
   .app-card-header {
     flex-basis: 240px;
-    max-width: 280px;
-    min-width: 160px;
+    max-width: 60%;
+    min-width: 0;
   }
 }
 

@@ -610,6 +610,43 @@ pub async fn get_app_details_impl(
                         req_id
                     );
                 } else {
+                    // 落盘前占位根治：未收录仓 detail 占位简介若能从 ETag repo 真值回填则替换，
+                    // 避免占位永久落盘导致 recents 永远吐占位；已收录仓人工精校优先直接跳过。
+                    // （fetch 侧 B1 已用 fresh repo_info 治愈，此处补 repo 401/失败但 ETag 仍有旧真值的缺口；同步读不触网。）
+                    if state.catalog.get_catalog_item(&clean_id).is_none() {
+                        let need_desc =
+                            crate::github::detail::detail_fetch::is_placeholder_description(
+                                &detail.description,
+                            );
+                        let need_en = detail
+                            .description_en
+                            .as_deref()
+                            .map(
+                                crate::github::detail::detail_fetch::is_placeholder_description,
+                            )
+                            .unwrap_or(false);
+                        let need_en_missing = detail
+                            .description_en
+                            .as_ref()
+                            .map(|s| s.trim().is_empty())
+                            .unwrap_or(true);
+                        if need_desc || need_en || need_en_missing {
+                            if let Some(real) =
+                                crate::github::detail::detail_fetch::repo_real_description_from_etag(
+                                    &db,
+                                    &detail.owner,
+                                    &detail.repo,
+                                )
+                            {
+                                if need_desc {
+                                    detail.description = real.clone();
+                                }
+                                if need_en || need_en_missing {
+                                    detail.description_en = Some(real);
+                                }
+                            }
+                        }
+                    }
                     // Top2：详情 + 图标原子落库（2 提交变 1 提交），失败回滚并回退逐条，不改 TTL/ETag。
                     let icon_trimmed = detail.icon.trim();
                     let is_avatar = crate::commands::is_avatar_url(icon_trimmed)
