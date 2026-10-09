@@ -6,6 +6,7 @@ pub mod developer_starred;
 #[cfg(test)]
 mod developer_starred_tests;
 pub mod http;
+pub mod icon_fetch;
 pub mod icon_probe;
 pub mod markdown;
 pub mod models;

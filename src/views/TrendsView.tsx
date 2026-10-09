@@ -48,6 +48,7 @@ import {
 } from '../lib/platformFilter';
 import { zlogInfo } from '../lib/z-log';
 import { isAvatarUrl } from '../components/AppIcon';
+import { applyHit, getBufferedIcon } from '../services/iconStore';
 
 /**
  * 趋势榜单一榜一源：调 `fetchTrendsResult(board, { proxyPrefix })`，
@@ -362,7 +363,11 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   }, [trendResult]);
 
   // 未收录行 enrichment：逐仓复用搜索 enrichment（Rust 侧并发 5、分片 20/片×2 片=40 上限、单仓 10s），
-  // 成功合并为完整卡片；失败/无命中保持旧小行（enrichTrendRepos 缺席即不写）。
+  // 成功合并为完整卡片；失败/无命中保持旧小行（enrichTrendRepos 缺席即不写，缺席即展裸行/旧缓存，不等齐）。
+  // P2 趋势流式化：`SHARD20` 只管 platforms 回填不管图标——图标合并走 `iconStore`：
+  // 后端首屏 `probe=false` 空壳（图标空）+ 后台 `icon-ready` 流式逐张到达经 `applyHit`
+  // patch 富卡（见下订阅 effect）；此处 `enrich` 回填仅做平台逻辑（详情治愈优先、
+  // 空 pending 永不覆盖具平台），图标只做升级（空不覆实 + 缓冲补齐），无空覆实回归。
   // 详情已治愈的行不被空回填覆盖（空 pending 永不覆盖具真实平台的已治愈值，单次落定）。
   useEffect(() => {
     if (trendResult?.status !== 'ok') return;
@@ -388,14 +393,22 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
           const prevHasPlatforms = !!prevApp?.platforms && prevApp.platforms.length > 0;
           // 详情治愈优先：已具真实平台的行不被空 enrich 回填覆盖，避免治愈后回闪 pending/Other
           if (incomingEmpty && prevHasPlatforms) continue;
-          // 图标回填只做升级：入项无图标但旧项有真实图标时保留旧图标（有/无图标一视同仁进富卡）
-          const mergedApp =
-            app.icon.trim() === '' &&
-            prevApp &&
+          // 图标回填只做升级：入项无图标但旧项有真实图标时保留旧图标（有/无图标一视同仁进富卡）；
+          // P2 流式竞态补齐：`icon-ready` 先到（store 缓冲有实图）、`enrich` 空壳后到时取缓冲补齐，
+          // 空壳不覆盖缓冲实图（SHARD 只管平台，图标走 store）。
+          let mergedApp = app;
+          const prevHasRealIcon =
+            !!prevApp &&
             typeof prevApp.icon === 'string' &&
-            prevApp.icon.trim() !== ''
-              ? { ...app, icon: prevApp.icon }
-              : app;
+            prevApp.icon.trim() !== '';
+          if (app.icon.trim() === '' && prevHasRealIcon) {
+            mergedApp = { ...app, icon: (prevApp as AppSummary).icon };
+          } else if (app.icon.trim() === '') {
+            const buffered = getBufferedIcon(key);
+            if (buffered && buffered.trim() !== '') {
+              mergedApp = { ...app, icon: buffered };
+            }
+          }
           if (next[key] !== mergedApp) {
             next[key] = mergedApp;
             changed = true;
@@ -476,6 +489,104 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       window.removeEventListener('pagehide', flush);
     };
   }, []);
+
+  // P2 趋势流式图标订阅：后端首屏 `probe=false` 空壳快返（缺席即展裸行/旧缓存，不等齐），
+  // 后台 `fetch_icons_stream(Trend)` 逐张 `zstore://icon-ready` 到达经 `iconStore.applyHit`
+  // 接上 `board` 门控（与搜索 `search_id` 门控同构：双非空不等即丢弃，任一为空即放行；
+  // 后端 `BOARD_GEN` 落库前+emit前双检查独立防串串榜）逐个补齐富卡图标。
+  // `SHARD20` 只管 platforms 回填不管图标：此处只 patch 图标（空不覆实/level 单调/avatar 丢弃
+  // 均由店内保证），平台逻辑不动；`data:` 只进内存不落盘（hydrate 内跳过），`remote` 才
+  // hydrate + 节流写透 L2（重启可恢复）。
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+    void tauriApi
+      .onSearchIconUpgraded((payload) => {
+        if (cancelled) return;
+        const raw = (payload ?? {}) as unknown as Record<string, unknown>;
+        const ctx = (raw['context'] ?? null) as {
+          kind: string;
+          search_id?: string;
+          board?: string;
+          gen?: number;
+        } | null;
+        const kind =
+          ctx && typeof ctx.kind === 'string' ? ctx.kind.trim().toLowerCase() : '';
+        // 趋势只消费新统一事件的 `trend` 上下文；搜索（旧事件无 context/`search`）交 App 处理。
+        if (kind !== 'trend') return;
+        const asStr = (v: unknown): string | undefined =>
+          typeof v === 'string' ? v : undefined;
+        const res = applyHit({
+          key: asStr(raw['key']),
+          id: asStr(raw['id']) ?? asStr(raw['app_id']),
+          app_id: asStr(raw['app_id']),
+          icon: asStr(raw['icon']),
+          level: typeof raw['level'] === 'number' ? (raw['level'] as number) : undefined,
+          context: ctx,
+          board: activeBoard,
+          getCurrentIcon: (tid) => {
+            const lk = tid.toLowerCase();
+            return enrichedAppsRef.current[lk]?.icon;
+          },
+          patch: (tid, icon) => {
+            setEnrichedApps((prev) => {
+              let changed = false;
+              const next = { ...prev };
+              for (const k of Object.keys(prev)) {
+                const cur = prev[k];
+                const alias = String(cur?.id ?? '').trim().toLowerCase();
+                if (k.toLowerCase() === tid || (alias !== '' && alias === tid)) {
+                  if (cur.icon !== icon) {
+                    next[k] = { ...cur, icon };
+                    changed = true;
+                  }
+                }
+              }
+              return changed ? next : prev;
+            });
+          },
+        });
+        if (!res.accepted || !res.icon) return;
+        // 图标落盘：已 patch 条目 hydrate 快照 + 节流写透同榜 key（`data:` 禁入由 hydrate 保证）。
+        try {
+          const targets = res.targets ?? [];
+          if (targets.length === 0) return;
+          const latest = enrichedAppsRef.current;
+          const toHydrate: Record<string, AppSummary> = {};
+          for (const t of targets) {
+            for (const k of Object.keys(latest)) {
+              const cur = latest[k];
+              if (!cur) continue;
+              const alias = String(cur.id ?? '').trim().toLowerCase();
+              if (k.toLowerCase() === t || (alias !== '' && alias === t)) {
+                toHydrate[k] = { ...cur, icon: res.icon };
+              }
+            }
+          }
+          if (Object.keys(toHydrate).length === 0) return;
+          hydrateTrendEnrichCache(toHydrate);
+          const { cacheKey } = writeThroughRef.current;
+          if (!cacheKey) return;
+          scheduleBoardWriteThrough(cacheKey);
+        } catch {
+          // 落盘失败不影响内存即时补齐
+        }
+      })
+      .then((u) => {
+        if (cancelled) {
+          u();
+          return;
+        }
+        unlisten = u;
+      })
+      .catch(() => {
+        // 非 Tauri 环境（单测/浏览器预览）无事件总线：静默跳过，enrich 等齐路照旧
+      });
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
+  }, [activeBoard]);
 
   // 详情治愈即时补齐：App 侧详情成功带回真实平台后派发事件，
   // 此处将摘要 upsert 进 enrichedApps，未收录行一次落定为 OS 图标（无需等下次 enrich）。

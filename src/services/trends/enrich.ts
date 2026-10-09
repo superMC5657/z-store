@@ -1,5 +1,6 @@
 import type { AppDetail, AppSummary, TrendRepo } from '../../types';
 import { tauriApi } from '../api';
+import { getBufferedIcon, mergeStickyIcon } from '../iconStore';
 
 /** enrich 派生缓存 TTL：12h（坐标元数据日内几乎不变，与 DOFORCE 快照同口径）。 */
 export const TREND_ENRICH_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
@@ -188,14 +189,34 @@ const trendEnrichCache = new Map<string, { timestamp: number; data: AppSummary }
  * icon 粘性 supersede-only 合并（per-field 新鲜度的 icon 半区）：
  * 旧图标非空 + 回填图标空 → 沿用旧图标；其余一律采用回填值（含新图标覆盖旧图标）。
  * put 入口与回填 out 组装共用，保证内存与本次返回值一致。
+ *
+ * P2 趋势流式化：图标合并走 `services/iconStore`（`mergeStickyIcon` + `getBufferedIcon`），
+ * 平台逻辑保留——`SHARD20` 只管 platforms 回填不管图标：
+ * 后端首屏 `probe=false` 空壳（图标空）+ 后台 `icon-ready` 流式逐张到达，
+ * 先到图标缓存在 store（`applyHit` 的 `iconById`），后到空壳经此处取缓冲补齐，
+ * 空永不覆盖实（无空覆实回归）。
+ *
+ * @deprecated P1 已收敛至 `services/iconStore.mergeStickyIcon`，此处仅转调；
+ *   SHARD/平台逻辑与趋势等齐语义一律不动。
  */
 function stickyIconFor(cur: AppSummary | undefined, incoming: AppSummary): AppSummary {
-  const curIcon = cur && typeof cur.icon === 'string' ? cur.icon : '';
-  const incomingIcon = typeof incoming.icon === 'string' ? incoming.icon : '';
-  if (cur && curIcon.trim() !== '' && incomingIcon.trim() === '') {
-    return { ...incoming, icon: cur.icon };
+  const merged = mergeStickyIcon(cur, incoming);
+  // P2 竞态补齐：`icon-ready` 先到（缓冲有实图）、`enrich` 空壳后到时，
+  // 合并与入库一并沿用缓冲实图（内存与本次返回值一致）。
+  if (typeof merged.icon === 'string' && merged.icon.trim() === '') {
+    const coordKey =
+      incoming.owner && incoming.repo
+        ? `${incoming.owner.trim().toLowerCase()}/${incoming.repo.trim().toLowerCase()}`
+        : '';
+    const idKey = typeof incoming.id === 'string' ? incoming.id.trim().toLowerCase() : '';
+    const buffered =
+      (coordKey ? getBufferedIcon(coordKey) : undefined) ??
+      (idKey ? getBufferedIcon(idKey) : undefined);
+    if (buffered && buffered.trim() !== '') {
+      return { ...merged, icon: buffered };
+    }
   }
-  return incoming;
+  return merged;
 }
 
 /**

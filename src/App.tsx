@@ -23,6 +23,8 @@ import { EmptyState } from './components/EmptyState';
 import { Search } from 'lucide-react';
 import { AppDetail, AppDetailViewModel, AppSummary, OAuthUser, UpdateItem, UpdateCheckProgressPayload, UpdateRule, ViewType, WatchUpdatedPayload } from './types';
 import { api, DEFAULT_SETTINGS } from './services/api';
+import { applyHit, patchAppIconList } from './services/iconStore';
+export { patchAppIconList };
 import { preloadIcons, invalidateIconCache, isAvatarUrl } from './components/AppIcon';
 import { zlogInfo } from './lib/z-log';
 import { PLATFORM_IDS, isPlatformPending, matchPlatformSetWithPending, normalizePlatform, togglePlatformSet, type PlatformId } from './lib/platformFilter';
@@ -67,23 +69,6 @@ export {
   parseSelectedPlatforms,
   loadSelectedPlatforms,
 };
-
-/**
- * 单图标升级时仅替换对应 id 的对象，其余复用原引用；
- * 若目标不存在或图标已一致则直接返回原数组引用，避免全网格重渲染闪烁。
- */
-export function patchAppIconList(prev: AppSummary[], targetIdLower: string, icon: string): AppSummary[] {
-  let changed = false;
-  const next = prev.map((a) => {
-    if (a.id.toLowerCase() === targetIdLower) {
-      if (a.icon === icon) return a;
-      changed = true;
-      return { ...a, icon };
-    }
-    return a;
-  });
-  return changed ? next : prev;
-}
 
 export const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewType>('home');
@@ -264,19 +249,42 @@ export const App: React.FC = () => {
     let unlistenSearchIcons: (() => void) | null = null;
     api
       .onSearchIconUpgraded((payload) => {
-        if (!payload || !payload.app_id || !payload.icon || isAvatarUrl(payload.icon)) return;
-        if (payload.search_id && currentSearchIdRef.current && payload.search_id !== currentSearchIdRef.current) {
-          return;
-        }
-
-        const targetId = payload.app_id.toLowerCase();
-        invalidateIconCache(targetId);
-        preloadIcons([{ id: targetId, icon: payload.icon }]);
-
-        setApps((prevApps) => patchAppIconList(prevApps, targetId, payload.icon));
-        setOnlineApps((prev) => patchAppIconList(prev, targetId, payload.icon));
-        setRecentlyViewedApps((prevRecents) => patchAppIconList(prevRecents, targetId, payload.icon));
-        setFavoriteExtraApps((prevExtras) => patchAppIconList(prevExtras, targetId, payload.icon));
+        // P1：回调体委托 `services/iconStore.applyHit`（世代门控 + 写透守卫 +
+        // 别名双写 + `invalidate→preload` 时机均在店内；此处仅做新旧载荷适配
+        // 与 React 四列表 `patch` 注入，`search_id` 门控语义与旧内联一致）。
+        const raw = (payload ?? {}) as unknown as Record<string, unknown>;
+        const asStr = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
+        const ctx = (raw['context'] ?? null) as {
+          kind: string;
+          search_id?: string;
+          board?: string;
+          gen?: number;
+        } | null;
+        applyHit({
+          key: asStr(raw['key']),
+          id: asStr(raw['id']) ?? asStr(raw['app_id']),
+          app_id: asStr(raw['app_id']),
+          icon: asStr(raw['icon']),
+          level: typeof raw['level'] === 'number' ? (raw['level'] as number) : undefined,
+          context: ctx,
+          search_id: asStr(raw['search_id']),
+          currentSearchId: currentSearchIdRef.current,
+          getCurrentIcon: (tid) => {
+            const lk = tid.toLowerCase();
+            return (
+              appsRef.current.find((a) => a.id.toLowerCase() === lk)?.icon ??
+              onlineAppsRef.current.find((a) => a.id.toLowerCase() === lk)?.icon ??
+              recentsRef.current.find((a) => a.id.toLowerCase() === lk)?.icon ??
+              favoriteExtraAppsRef.current.find((a) => a.id.toLowerCase() === lk)?.icon
+            );
+          },
+          patch: (tid, icon) => {
+            setApps((prevApps) => patchAppIconList(prevApps, tid, icon));
+            setOnlineApps((prev) => patchAppIconList(prev, tid, icon));
+            setRecentlyViewedApps((prevRecents) => patchAppIconList(prevRecents, tid, icon));
+            setFavoriteExtraApps((prevExtras) => patchAppIconList(prevExtras, tid, icon));
+          },
+        });
       })
       .then((unlisten) => {
         unlistenSearchIcons = unlisten;

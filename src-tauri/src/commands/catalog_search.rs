@@ -1,14 +1,15 @@
 use crate::models::AppSummary;
 use crate::AppState;
-use futures_util::StreamExt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 static SEARCH_GEN: AtomicU64 = AtomicU64::new(0);
 
-/// 慢路径 Trees 分支回退顺序：先 main 后 master（ZCode 类老仓默认分支仍为 master，
-/// 只查 main 会零命中零 emit，首屏恒为 initials）。顺序即优先级，main 优先。
-pub(crate) const SEARCH_PROBE_BRANCHES: [&str; 2] = ["main", "master"];
+/// P2 趋势流式世代：`enrich_trend_repos` 每次调用 +1（切榜/重拉/分片重拉均+1，
+/// 类比 `SEARCH_GEN` 每次 `search_apps_online` +1）。
+/// 后台 `fetch_icons_stream(Trend{board,gen})` 的落库前 + emit 前双检查用，
+/// 用户切榜后旧榜在途探测结果直接抛弃（与搜索防串词同语义）。
+static BOARD_GEN: AtomicU64 = AtomicU64::new(0);
 
 /// ADR-0008：网络超时统一经 `get_project_config().network.api_timeout_seconds` 获取；
 /// 配置为 0（未设置）时回退到调用方传入的历史硬编码值，行为保持不变。
@@ -31,7 +32,14 @@ pub struct SearchIconReadyPayload {
     pub level: i32,
 }
 
-/// 快/慢图标探测结果落库 + 前端 emit（`upsert_icon_cycle` + `zstore://search-icon-ready`）。
+/// 快/慢图标探测结果落库 + 前端 emit（`upsert_icon_cycle` + 双发事件）。
+/// - 旧 `zstore://search-icon-ready` 继续发（P0 前端兼容）；
+/// - 同时新发统一 `zstore://icon-ready{key,id,icon,level,context}`
+///  （`key`=小写 `owner/repo`，`level`: 2=simple / 3=trees / 4=confirmed），
+///   前端 P1 切新事件后下线旧事件。
+/// - `level=2`：快路径 SimpleIcons，写 `l2_url`；`level=3`：慢路径 Trees，写 `l3_url`；
+/// - 世代比对防串词：落库前 + emit 前双检查 `SEARCH_GEN == expected_gen`，
+///   用户在此期间触发新搜索则抛弃过时探测结果（与原快/慢两路内联语义一致）。
 /// - `level=2`：快路径 SimpleIcons，写 `l2_url`；`level=3`：慢路径 Trees，写 `l3_url`；
 /// - 世代比对防串词：落库前 + emit 前双检查 `SEARCH_GEN == expected_gen`，
 ///   用户在此期间触发新搜索则抛弃过时探测结果（与原快/慢两路内联语义一致）。
@@ -78,6 +86,98 @@ async fn save_and_emit(
         level,
     };
     let _ = handle.emit("zstore://search-icon-ready", &payload);
+    // P0 双发：新统一事件（载荷 schema 归 core 所有，见 `github::icon_fetch`）。
+    let ready = crate::github::icon_fetch::IconReadyPayload {
+        key: crate::github::icon_fetch::icon_key(owner, repo),
+        id: id.to_owned(),
+        icon: url.to_owned(),
+        level,
+        context: crate::github::icon_fetch::IconFetchCtx::Search {
+            search_id: sid.to_owned(),
+            gen: expected_gen,
+        },
+    };
+    crate::github::icon_fetch::emit_icon_ready(handle, &ready);
+}
+
+/// 趋势图标命中落库 + 前端 emit（P2 流式，类比 `save_and_emit` 搜索链）：
+/// - 只发新统一 `zstore://icon-ready{key,id,icon,level,context=Trend{board,gen}}`
+///   （旧 `zstore://search-icon-ready` 为搜索专用，趋势不发，前端 P1 切新事件后趋势只走新事件）；
+/// - `level=2` 快路径 SimpleIcons 写 `l2_url`；`level=3` 慢路径 Trees 写 `l3_url`；
+/// - 世代比对防串榜：落库前 + emit 前双检查 `BOARD_GEN == expected_gen`，
+///   用户在此期间切榜/重拉则抛弃过时探测结果（与搜索 `SEARCH_GEN` 双检查同语义）；
+/// - 单条显式事务边界（与搜索同形，失败 `ROLLBACK` 返回，内部吞错下次补探重试）。
+async fn save_and_emit_trend(
+    handle: &AppHandle,
+    id: &str,
+    owner: &str,
+    repo: &str,
+    board: &str,
+    url: &str,
+    level: i32,
+    expected_gen: u64,
+) {
+    if BOARD_GEN.load(Ordering::SeqCst) != expected_gen {
+        return;
+    }
+    let state = handle.state::<AppState>();
+    if let Ok(db) = state.db() {
+        let mut cycle = crate::db::AppIconCycle::new(id, owner, repo);
+        cycle.is_cataloged = false;
+        cycle.level = level;
+        if level == 2 {
+            cycle.l2_url = url.to_owned();
+        } else if level == 3 {
+            cycle.l3_url = url.to_owned();
+        }
+        cycle.selected_url = url.to_owned();
+        cycle.updated_at = crate::now_secs();
+        let _ = db.with_immediate_transaction(|| {
+            db.upsert_icon_cycle(&cycle)?;
+            Ok(())
+        });
+    }
+    if BOARD_GEN.load(Ordering::SeqCst) != expected_gen {
+        return;
+    }
+    let ready = crate::github::icon_fetch::IconReadyPayload {
+        key: crate::github::icon_fetch::icon_key(owner, repo),
+        id: id.to_owned(),
+        icon: url.to_owned(),
+        level,
+        context: crate::github::icon_fetch::IconFetchCtx::Trend {
+            board: board.to_owned(),
+            gen: expected_gen,
+        },
+    };
+    crate::github::icon_fetch::emit_icon_ready(handle, &ready);
+}
+
+/// `github::icon_fetch::fetch_icons_stream` 的命中回调（P0 只接 Search，P2 接 Trend）。
+/// 世代防串由 `save_and_emit` / `save_and_emit_trend` 内落库前 + emit 前双检查执行。
+async fn emit_icon_job(
+    handle: AppHandle,
+    job: crate::github::icon_fetch::IconFetchJob,
+    url: String,
+    level: i32,
+) {
+    match job.ctx {
+        crate::github::icon_fetch::IconFetchCtx::Search {
+            ref search_id,
+            gen,
+        } => {
+            save_and_emit(
+                &handle, &job.id, &job.owner, &job.repo, search_id, &url, level, gen,
+            )
+            .await;
+        }
+        crate::github::icon_fetch::IconFetchCtx::Trend { ref board, gen } => {
+            save_and_emit_trend(
+                &handle, &job.id, &job.owner, &job.repo, board, &url, level, gen,
+            )
+            .await;
+        }
+    }
 }
 
 /// H8：隐藏规则 id 集合（本地收敛 `search_apps` / `get_category_apps` 重复块）。
@@ -436,75 +536,25 @@ pub async fn search_apps_online(
         let handle = app_handle.clone();
         let sid = actual_search_id.clone();
         let bg_token = token.clone();
-        tokio::spawn(async move {
-            let client = crate::commands::icon_http_client();
-            // 慢路径鉴权头：有 token 才跑 Trees，无 token 只走快路径。
-            let slow_headers = bg_token
-                .as_deref()
-                .filter(|t| !t.trim().is_empty())
-                .map(|t| crate::github::http::token_headers(Some(t)));
-            // P0-2 有界并发：双层无界 spawn 合并为单层 buffer_unordered(8)，
-            // 快慢各一次 emit 语义不变（快命中即返不等慢，慢仅快未命中且有 token 时跑）。
-            let batch = futures_util::stream::iter(candidates.into_iter().map(
-                |(id, owner, repo)| {
-                    let handle = handle.clone();
-                    let client = client.clone();
-                    let sid = sid.clone();
-                    let slow_headers = slow_headers.clone();
-                    async move {
-                        // 快慢分离：快路径 SimpleIcons（repo+owner 去重单循环，每 slug 超时与
-                        // 外层兜底均经 api_timeout_seconds 统一配置，未设置时回退 1500ms/8000ms 历史值），
-                        // 快命中立即落库并 emit，不等慢路径。
-                        let fast_url = tokio::time::timeout(
-                            api_timeout_or(std::time::Duration::from_millis(8000)),
-                            crate::github::icon_probe::probe_simple_icons(
-                                &client, &owner, &repo,
-                            ),
-                        )
-                        .await
-                        .ok()
-                        .flatten()
-                        .map(|h| h.url)
-                        .unwrap_or_default();
-
-                        if !fast_url.trim().is_empty() {
-                            // 世代比对防串词见 `save_and_emit`（落库前 + emit 前双检查）。
-                            save_and_emit(
-                                &handle, &id, &owner, &repo, &sid, &fast_url, 2, current_gen,
-                            )
-                            .await;
-                            return;
-                        }
-
-                        // 慢路径：快未命中且有 token 才跑 Trees（内部 12s）；超时只弃慢不弃快。
-                        // 默认分支兼容：main 未命中回退 master（ZCode 类老仓默认分支为 master）。
-                        if let Some(hdrs) = slow_headers.as_ref() {
-                            let mut hit = None;
-                            for branch in SEARCH_PROBE_BRANCHES {
-                                if let Some(h) = crate::github::icon_probe::probe_trees(
-                                    &client, hdrs, &owner, &repo, branch,
-                                )
-                                .await
-                                {
-                                    hit = Some(h);
-                                    break;
-                                }
-                            }
-                            if let Some(hit) = hit {
-                                save_and_emit(
-                                    &handle, &id, &owner, &repo, &sid, &hit.url, 3, current_gen,
-                                )
-                                .await;
-                            }
-                        }
-                    }
+        // P0：快慢探 stream 已抽入 `github::icon_fetch::fetch_icons_stream`，
+        // 行为与原内联一致（pool=5 buffer_unordered、快命中即返不等慢、
+        // 慢仅快未命中且有 token 时跑 main→master、整批 15s 熔断、逐张到达 emit）。
+        let jobs: Vec<crate::github::icon_fetch::IconFetchJob> = candidates
+            .into_iter()
+            .map(|(id, owner, repo)| crate::github::icon_fetch::IconFetchJob {
+                id,
+                owner,
+                repo,
+                ctx: crate::github::icon_fetch::IconFetchCtx::Search {
+                    search_id: sid.clone(),
+                    gen: current_gen,
                 },
-            ))
-            .buffer_unordered(8)
-            .for_each(|()| async {});
-            // 整批 15s 总超时：超时即降级结束（剩余候选直接丢弃，不炸不重试）。
-            let _ = tokio::time::timeout(std::time::Duration::from_secs(15), batch).await;
-        });
+            })
+            .collect();
+        let cfg = crate::config::get_project_config().limits.icon_fetch;
+        tokio::spawn(crate::github::icon_fetch::fetch_icons_stream(
+            handle, jobs, bg_token, cfg, emit_icon_job,
+        ));
     }
 
     Ok(filtered_results)
@@ -523,16 +573,34 @@ pub struct TrendEnrichRequest {
 /// - 并发上限 5（`buffered` 保序，返回与入参一一对齐）；单仓 `api_timeout_or(10s)` 熔断；
 /// - 单仓失败落 `None`（前端保留旧小行，榜单永不因此变空）；
 ///   入参上限 40（Phase2分片：FE 分片串行 20/片×2 片，上限 40；BE 侧 take(40) 截断，buffered(5) 不变）。
-/// - 无后台慢探 emit：enrich 结果由 TrendsView 本地持有，`search-icon-ready` 订阅方
-///   （App.tsx 世代门控）无对应 search_id，emit 无人消费；慢探由
-///   `fallback_summary(probe=true)` 在单仓超时内同步完成，命中经下方批量 enrich 落库。
+/// - P2 趋势流式化：首屏 `fallback_summary(probe=false)` 空壳快返（图标置空，
+///   确认图标仍经 `pre_confirmed` 短锁回填，platforms 经详情缓存 join 照旧），
+///   另起 `tokio::spawn(fetch_icons_stream(ctx=Trend{board,board_gen}))` 流式
+///   `emit_icon_ready` 逐张到达补齐（弱网首屏先出裸行/初始富卡，图标逐个补齐，
+///   空永不覆盖实由前端 `iconStore.applyHit` + 后端 `BOARD_GEN` 双检查保证）；
+/// - 世代：每次调用 `BOARD_GEN+1`（切榜/重拉/分片重拉均+1，类比 `SEARCH_GEN`），
+///   落库前 + emit 前双检查（见 `save_and_emit_trend`）；
+/// - 逃生门：`IconFetchConfig.compat_collect=true`（默认）时保持老
+///   `buffered+collect` 等齐路（`probe=true` 内联慢探同步完成，行为与改前一致），
+///   仅 `compat_collect=false` 时走新流式路。
 #[tauri::command]
 pub async fn enrich_trend_repos(
+    app_handle: AppHandle,
     state: State<'_, AppState>,
     repos: Vec<TrendEnrichRequest>,
+    board: Option<String>,
 ) -> crate::AppResult<Vec<Option<AppSummary>>> {
     use futures_util::StreamExt;
     let enrich_start = std::time::Instant::now();
+    // P2 世代：每次调用 +1（切榜/重拉均触发新调用，类比 SEARCH_GEN）。
+    let current_gen = BOARD_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    let board_name = board.unwrap_or_default().trim().to_lowercase();
+    let cfg_icon = crate::config::get_project_config().limits.icon_fetch;
+    // 逃生门：compat_collect=true 保持老等齐路（与改前逐行一致，含内联慢探）。
+    if cfg_icon.compat_collect {
+        return enrich_trend_repos_buffered(state, repos, enrich_start).await;
+    }
+    // P2 流式路：首屏 probe=false 空壳快返 + 后台 fetch_icons_stream。
     // Phase2分片：FE 已按 20/片×2 片串行（上限 40），此处 take(40) 为兜底截断，不静默吃超量。
     let targets: Vec<(String, String, String)> = repos
         .into_iter()
@@ -551,7 +619,144 @@ pub async fn enrich_trend_repos(
     let token = crate::commands::resolve_active_github_token(&state);
     let timeout_each = api_timeout_or(std::time::Duration::from_secs(10));
     // `State` 非 Copy：取共享引用供 FnMut 闭包多次捕获（`&CatalogService: Copy + Send`）。
-    let catalog = &state.catalog;    // 短锁预解析确认图标（同步无 await，锁即取即放），fetch 内零查询零直连。
+    let catalog = &state.catalog;
+    // 短锁预解析确认图标（同步无 await，锁即取即放），fetch 内零查询零直连。
+    let pre_confirmed: Vec<Option<String>> = if let Ok(db) = state.db() {
+        targets
+            .iter()
+            .map(|(id, owner, repo)| {
+                crate::github::http::resolve_confirmed_icon_from_db(&db, id, owner, repo)
+            })
+            .collect()
+    } else {
+        targets.iter().map(|_| None).collect()
+    };
+    // P2 首屏：`probe=false` 等价——`pre` 恒为 `Some`（确认实图或空串），
+    // `fetch_online_repo` 内 `fallback_summary(probe=true)` 见 `Some` 即直接采用、
+    // 跳过 SimpleIcons/Trees 内联慢探，只剩 GitHub 元数据 fetch（描述/星数保留，
+    // 图标置空等后台流式补齐）。确认图标仍直接回填，platforms 经下方 join 照旧。
+    let pre_fast: Vec<Option<String>> = pre_confirmed
+        .iter()
+        .map(|p| Some(p.clone().unwrap_or_default()))
+        .collect();
+    let mut results: Vec<Option<AppSummary>> = futures_util::stream::iter(
+        targets
+            .clone()
+            .into_iter()
+            .zip(pre_fast)
+            .map(|((id, owner, repo), pre)| {
+                let token = token.clone();
+                async move {
+                    if owner.is_empty() || repo.is_empty() {
+                        return None;
+                    }
+                    match tokio::time::timeout(
+                        timeout_each,
+                        catalog.fetch_online_repo(&owner, &repo, token.as_deref(), pre),
+                    )
+                    .await
+                    {
+                        Ok(Ok(item)) => Some(item),
+                        Ok(Err(e)) => {
+                            log::debug!(
+                                "trend enrich miss id={} reason={}",
+                                id,
+                                crate::log_support::short_reason(&e)
+                            );
+                            None
+                        }
+                        Err(_) => {
+                            log::debug!("trend enrich timeout id={}", id);
+                            None
+                        }
+                    }
+                }
+            }),
+    )
+    .buffered(5)
+    .collect()
+    .await;
+
+    // Top1+2 收敛：循环外一次取 db 锁复用，读解析 + 写包事务化（与 search_apps_online 同形）。
+    // 快返壳图标为空，此处基本无 pending（确认图标已直接回填），platforms 经详情缓存 join 照旧。
+    if let Ok(db) = state.db() {
+        let ttl_seconds = db.get_detail_cache_ttl_minutes() * 60;
+        let mut pending: Vec<crate::db::AppIconCycle> = Vec::new();
+        for item in results.iter_mut().flatten() {
+            if let Some(cycle) = backfill_uncataloged_card(&db, item, ttl_seconds) {
+                pending.push(cycle);
+            }
+        }
+        flush_icon_cycle_pending(&db, &pending);
+    }
+
+    // P2 后台流式：无确认图标的仓全部入 `fetch_icons_stream(Trend)`，
+    // 快命中即返不等慢、逐张到达 `emit_icon_ready`（含 GitHub 失败的裸行仓，
+    // 前端缓冲等 enrich 重试/详情治愈时合并，空永不覆盖实）。
+    let jobs: Vec<crate::github::icon_fetch::IconFetchJob> = targets
+        .into_iter()
+        .zip(pre_confirmed)
+        .filter(|(_, pre)| pre.is_none())
+        .map(|((id, owner, repo), _)| crate::github::icon_fetch::IconFetchJob {
+            id,
+            owner,
+            repo,
+            ctx: crate::github::icon_fetch::IconFetchCtx::Trend {
+                board: board_name.clone(),
+                gen: current_gen,
+            },
+        })
+        .collect();
+    if !jobs.is_empty() {
+        let handle = app_handle.clone();
+        let bg_token = token.clone();
+        tokio::spawn(crate::github::icon_fetch::fetch_icons_stream(
+            handle,
+            jobs,
+            bg_token,
+            cfg_icon,
+            emit_icon_job,
+        ));
+    }
+
+    log::info!(
+        "trend enrich done requested={} hits={} elapsed_ms={} streamed_gen={}",
+        requested,
+        results.iter().filter(|r| r.is_some()).count(),
+        enrich_start.elapsed().as_millis(),
+        current_gen,
+    );
+    Ok(results)
+}
+
+/// P2 逃生门：`compat_collect=true` 时的老 `buffered+collect` 等齐路（与改前逐行一致）。
+/// `probe=true` 内联慢探在单仓超时内同步完成，命中经批量 enrich 落库；无后台 emit。
+async fn enrich_trend_repos_buffered(
+    state: State<'_, AppState>,
+    repos: Vec<TrendEnrichRequest>,
+    enrich_start: std::time::Instant,
+) -> crate::AppResult<Vec<Option<AppSummary>>> {
+    use futures_util::StreamExt;
+    // Phase2分片：FE 已按 20/片×2 片串行（上限 40），此处 take(40) 为兜底截断，不静默吃超量。
+    let targets: Vec<(String, String, String)> = repos
+        .into_iter()
+        .take(40)
+        .map(|r| {
+            let owner = r.owner.trim().to_string();
+            let repo = r.repo.trim().to_string();
+            let id = format!("{}/{}", owner.to_lowercase(), repo.to_lowercase());
+            (id, owner, repo)
+        })
+        .collect();
+    let requested = targets.len();
+    if targets.is_empty() {
+        return Ok(Vec::new());
+    }
+    let token = crate::commands::resolve_active_github_token(&state);
+    let timeout_each = api_timeout_or(std::time::Duration::from_secs(10));
+    // `State` 非 Copy：取共享引用供 FnMut 闭包多次捕获（`&CatalogService: Copy + Send`）。
+    let catalog = &state.catalog;
+    // 短锁预解析确认图标（同步无 await，锁即取即放），fetch 内零查询零直连。
     let pre_confirmed: Vec<Option<String>> = if let Ok(db) = state.db() {
         targets
             .iter()
@@ -628,8 +833,12 @@ mod tests {
     fn search_slow_falls_back_to_master() {
         // 回归：慢路径 Trees 必须覆盖 master（ZCode 类老仓默认分支），顺序 main 优先。
         // 覆盖移除 master 即零命中零 emit（首屏恒 initials），此断言锁住回退顺序。
-        assert_eq!(SEARCH_PROBE_BRANCHES, ["main", "master"]);
-        assert!(SEARCH_PROBE_BRANCHES.contains(&"master"));
+        // P0：分支顺序收归 `github::icon_fetch` core，此处直引 core 常量断言。
+        assert_eq!(
+            crate::github::icon_fetch::SEARCH_PROBE_BRANCHES,
+            ["main", "master"]
+        );
+        assert!(crate::github::icon_fetch::SEARCH_PROBE_BRANCHES.contains(&"master"));
     }
 
     fn sample_summary(id: &str, owner: &str, repo: &str, icon: &str) -> AppSummary {
