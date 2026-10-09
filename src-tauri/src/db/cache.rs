@@ -129,6 +129,44 @@ impl Database {
         })
     }
 
+    /// 图标轮换写侧补齐：`cycle_app_icon` 选中态落库后同步 `detail_json.icon`，
+    /// 使不 join 轮换表的读者与 `history::apply_confirmed_icon` 读侧一致。
+    /// - 无详情行则跳过不建行（返回 `Ok(false)`）；
+    /// - 仅重写 `detail_json.icon`，`cached_at` 保持不动（不延长 TTL：
+    ///   轮换是本地用户偏好而非远端新鲜抓取，touch 会把偏好误导为新鲜度、
+    ///   推迟下次 ETag 条件校验并污染 stale 语义）；
+    /// - 调用方保证传入已归一化的 remote_url（`data:` 永不进盘；avatar/空已按既有规则置空）。
+    pub fn sync_detail_icon(&self, app_id: &str, new_icon: &str) -> Result<bool> {
+        let clean_id = clean(app_id);
+        if clean_id.is_empty() {
+            return Ok(false);
+        }
+        let existing: Option<String> = self.query_scalar_opt(
+            "SELECT detail_json FROM app_details_cache WHERE app_id = ?1",
+            params![clean_id],
+        )?;
+        let Some(json_str) = existing else {
+            return Ok(false);
+        };
+        let mut v: serde_json::Value = serde_json::from_str(&json_str)
+            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+        let Some(obj) = v.as_object_mut() else {
+            return Ok(false);
+        };
+        obj.insert(
+            "icon".to_string(),
+            serde_json::Value::String(new_icon.to_string()),
+        );
+        let new_json = serde_json::to_string(&v)
+            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+        // 注意：只碰 detail_json，cached_at 不动（见上）。
+        let rows = self.exec_upsert(
+            "UPDATE app_details_cache SET detail_json = ?1 WHERE app_id = ?2",
+            params![new_json, clean_id],
+        )?;
+        Ok(rows > 0)
+    }
+
     /// 测试专用：清空详情缓存（生产路径只增量写入，从不全清）。
     #[cfg(test)]
     pub fn clear_app_details_cache(&self) -> Result<()> {

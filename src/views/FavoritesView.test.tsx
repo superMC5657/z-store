@@ -8,6 +8,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { FavoritesView } from './FavoritesView';
+import { AppCard } from '../components/AppCard';
 import { api } from '../services/api';
 import { makeApp } from './test-utils/filterFixture';
 
@@ -64,5 +65,54 @@ describe('P2-7: batch install survives a single item failure', () => {
 
     // 必须展示包含失败数量的错误汇总提示。
     await waitFor(() => expect(screen.getByText(/1\/2.*失败|失败.*1\/2/)).not.toBeNull());
+  });
+});
+
+describe('favorites catalog badge (display-only, data join untouched)', () => {
+  const baseLocal = {
+    installedIds: new Set<string>(),
+    installingIds: new Set<string>(),
+    onOpenDetail: () => {},
+    onQuickInstall: async () => {},
+    onToggleFavorite: () => {},
+  };
+
+  it('已收录行走收录蓝 pill，未收录（external）行走弱化描边徽标', () => {
+    const cataloged = makeApp({ id: 'owner/app-a', name: 'AppA', category: 'system' });
+    const external = makeApp({ id: 'owner/app-x', name: 'AppX', category: 'external' });
+    const { container } = render(
+      <FavoritesView
+        apps={[cataloged, external]}
+        favoriteIds={new Set(['owner/app-a', 'owner/app-x'])}
+        {...baseLocal}
+      />,
+    );
+    const catalogedBadge = container.querySelector('.app-tag-cataloged');
+    const uncatalogedBadge = container.querySelector('.app-tag-uncataloged');
+    expect(catalogedBadge?.textContent).toContain('已收录');
+    expect(uncatalogedBadge?.textContent).toContain('未收录');
+  });
+
+  it('显式 is_cataloged 标记优先于 category（占位行口径）', () => {
+    const forcedIn = makeApp({ id: 'owner/app-y', name: 'AppY', category: 'external', is_cataloged: true });
+    const forcedOut = makeApp({ id: 'owner/app-z', name: 'AppZ', category: 'system', is_cataloged: false });
+    const { container } = render(
+      <FavoritesView
+        apps={[forcedIn, forcedOut]}
+        favoriteIds={new Set(['owner/app-y', 'owner/app-z'])}
+        {...baseLocal}
+      />,
+    );
+    expect(container.querySelectorAll('.app-tag-cataloged')).toHaveLength(1);
+    expect(container.querySelectorAll('.app-tag-uncataloged')).toHaveLength(1);
+  });
+
+  it('不传 showCatalogBadge 时零徽标（其它页面外观零变化）', () => {
+    const app = makeApp({ id: 'owner/app-a', name: 'AppA', category: 'system' });
+    const { container } = render(
+      <AppCard app={app} isInstalled={false} onOpenDetail={() => {}} onQuickInstall={() => {}} />,
+    );
+    expect(container.querySelector('.app-tag-cataloged')).toBeNull();
+    expect(container.querySelector('.app-tag-uncataloged')).toBeNull();
   });
 });

@@ -59,6 +59,9 @@ pub fn get_recently_viewed_apps(state: State<'_, AppState>) -> crate::AppResult<
             // 最近浏览简介占位根治：收录行占位（理论上不应出现）同样回填/置空，
             // 非占位人工简介原样保留。
             heal_recent_summary(&db, &mut summary);
+            // 详情换图标持久：收录分支同样 join app_icon_cycles 确认图标覆盖，
+            // 与 catalog_search backfill 同语义（Some 才覆盖，None 保持静态）。
+            apply_confirmed_icon(&db, &mut summary);
             result.push(summary);
             continue;
         }
@@ -106,6 +109,9 @@ fn cached_detail_summary(db: &crate::db::Database, id: &str) -> Option<AppSummar
             let mut summary = detail_to_summary(&detail);
             // 最近浏览简介占位根治：占位回填 ETag repo 真值，无真值置空（前端走“暂无简介”）。
             heal_recent_summary(db, &mut summary);
+            // 详情换图标持久：未收录分支 join app_icon_cycles 确认图标覆盖，
+            // 与 catalog_search backfill 同语义（Some 才覆盖，None 保持 detail.icon）。
+            apply_confirmed_icon(db, &mut summary);
             return Some(summary);
         }
     }
@@ -149,6 +155,21 @@ fn detail_to_summary(detail: &crate::models::AppDetail) -> AppSummary {
         forge_host: detail.forge_host.clone(),
         homepage: detail.homepage.clone(),
         platforms: detail.platforms.clone(),
+    }
+}
+
+/// 详情换图标在最近浏览持久（读侧 join）：`app_icon_cycles.selected_url` 确认图标覆盖
+/// summary.icon，与 `catalog_search::backfill_uncataloged_card` 同语义（Some 才覆盖，
+/// None 保持调用方原值；avatar/空 selected 由 resolve 侧过滤，此处不二次判定）。
+/// 收录/未收录双分支共用（catalog 静态 / detail.icon 均为旧值，需同等覆盖）。
+fn apply_confirmed_icon(db: &crate::db::Database, summary: &mut AppSummary) {
+    if let Some(ci) = crate::github::http::resolve_confirmed_icon_from_db(
+        db,
+        &summary.id,
+        &summary.owner,
+        &summary.repo,
+    ) {
+        summary.icon = ci;
     }
 }
 

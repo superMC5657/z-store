@@ -276,6 +276,27 @@
   border-color: rgba(245, 158, 11, 0.25);
 }
 
+/* 收录态徽标（收藏列表经 showCatalogBadge 按需点亮，其它页面零变化）：
+   已收录复用收录蓝 pill（与 forge 源徽标同色），未收录为弱化描边，
+   同为 .app-tag 字号/行高，min-width 定宽避免布局跳动。 */
+.app-tag-cataloged {
+  background: var(--brand-subtle);
+  color: var(--brand-primary);
+  border-color: var(--border-nav-active);
+  font-weight: 600;
+  min-width: 48px;
+  justify-content: center;
+}
+
+.app-tag-uncataloged {
+  background: transparent;
+  color: var(--text-tertiary);
+  border-color: var(--border-subtle);
+  font-weight: 500;
+  min-width: 48px;
+  justify-content: center;
+}
+
 /* 平台待确认占位：同尺寸骨架避免布局跳动，低透明脉冲提示正在确认 */
 .app-tag-platforms-pending {
   min-width: 52px;

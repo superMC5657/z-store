@@ -173,7 +173,9 @@
     "fav_active": "已加入应用内收藏（存入本地数据库 · 点击取消）",
     "fav_inactive": "应用内收藏（保存至本机数据库）",
     "supported_devices": "支持设备",
-    "code_source": "代码源"
+    "code_source": "代码源",
+    "cataloged_badge": "已收录",
+    "uncataloged_badge": "未收录"
   },
   "categories": {
     "title": "按主题领域浏览",

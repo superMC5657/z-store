@@ -6,7 +6,7 @@ import { AppIcon } from './AppIcon';
 import { VerifiedBadge } from './VerifiedBadge';
 import { PlatformIcon, ForgeIcon } from './icons/PlatformIcons';
 import { PLATFORM_META, type PlatformId } from '../lib/platformFilter';
-import { getAppDisplayName, getAppDescription, getCategoryLabel } from '../utils/appHelper';
+import { getAppDisplayName, getAppDescription, getCategoryLabel, isAppCataloged } from '../utils/appHelper';
 import { formatStars } from '../services/trends';
 
 interface AppCardProps {
@@ -28,6 +28,11 @@ interface AppCardProps {
   className?: string;
   /** 首屏卡片传入 true（图标 eager），其余默认 lazy，避免全网格抢加载。 */
   eager?: boolean;
+  /**
+   * 收录态徽标（收藏列表传入 true）：已收录走收录蓝 pill，未收录走弱化描边，
+   * 定宽 48px 保持布局稳定。不传则不渲染，其它页面外观零变化。
+   */
+  showCatalogBadge?: boolean;
   onOpenDetail: (id: string) => void;
   onQuickInstall: (id: string) => void;
   onToggleFavorite?: (id: string) => void;
@@ -91,6 +96,7 @@ function areAppCardPropsEqual(prev: AppCardProps, next: AppCardProps): boolean {
     prev.trendGainText === next.trendGainText &&
     prev.className === next.className &&
     (prev.eager ?? false) === (next.eager ?? false) &&
+    (prev.showCatalogBadge ?? false) === (next.showCatalogBadge ?? false) &&
     prev.onOpenDetail === next.onOpenDetail &&
     prev.onQuickInstall === next.onQuickInstall &&
     prev.onToggleFavorite === next.onToggleFavorite &&
@@ -111,6 +117,7 @@ export const AppCard: React.FC<AppCardProps> = memo(({
   trendGainText,
   className,
   eager = false,
+  showCatalogBadge = false,
   onOpenDetail,
   onQuickInstall,
   onToggleFavorite,
@@ -217,6 +224,24 @@ export const AppCard: React.FC<AppCardProps> = memo(({
             </svg>
             <span>{formatStars(app.stars)}</span>
           </span>
+          {showCatalogBadge &&
+            (isAppCataloged(app) ? (
+              <span
+                className="app-tag app-tag-cataloged"
+                title={t('app.verified_badge')}
+                aria-label={t('app.cataloged_badge')}
+              >
+                <span>{t('app.cataloged_badge')}</span>
+              </span>
+            ) : (
+              <span
+                className="app-tag app-tag-uncataloged"
+                title={t('app.uncataloged_badge')}
+                aria-label={t('app.uncataloged_badge')}
+              >
+                <span>{t('app.uncataloged_badge')}</span>
+              </span>
+            ))}
           {typeof trendGain === 'number' && trendGain > 0 && trendGainText && (
             <span className="app-tag trend-gain" title={trendGainText}>
               {trendGainText}

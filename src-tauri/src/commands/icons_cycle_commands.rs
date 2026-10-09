@@ -6,6 +6,37 @@ use super::icons_cycle_probe::{
 use crate::AppState;
 use tauri::State;
 
+/// 写侧同步归一化：返回 `Some(new_icon)` 表示需同步 `detail_json.icon`，`None` 表示跳过。
+/// - 空 selected（L5）→ `Some("")`（显式清空，前端降级首字母徽章）；
+/// - avatar → `Some("")`（与 `history::detail_to_summary` 置空口径一致，
+///   经 `github::http::is_avatar_icon_url` 判定，避免 avatar 污染非 join 读者）；
+/// - `data:` → `None`（永不进盘；调用方应传 remote_url，此处兜底）。
+fn detail_icon_for_selected(selected_url: &str) -> Option<String> {
+    let t = selected_url.trim();
+    if t.starts_with("data:") {
+        return None;
+    }
+    if t.is_empty() {
+        return Some(String::new());
+    }
+    if crate::github::http::is_avatar_icon_url(t) {
+        return Some(String::new());
+    }
+    Some(t.to_string())
+}
+
+/// 写侧补齐：cycle 落库后同步 `detail_json.icon`（有详情行才 UPDATE，无行跳过不建行；
+/// `cached_at` 不动，见 `Database::sync_detail_icon`）。保持 `let _ =` 吞错语义。
+fn sync_detail_icon_best_effort(
+    db: &crate::db::Database,
+    canonical_id: &str,
+    selected_url: &str,
+) {
+    if let Some(new_icon) = detail_icon_for_selected(selected_url) {
+        let _ = db.sync_detail_icon(canonical_id, &new_icon);
+    }
+}
+
 /// 循环切换应用图标 (L1..=L5)
 #[tauri::command]
 pub async fn cycle_app_icon(
@@ -83,6 +114,7 @@ pub async fn cycle_app_icon(
         cycle.updated_at = crate::now_secs();
         if let Ok(db) = state.db() {
             let _ = db.upsert_icon_cycle(&cycle);
+            sync_detail_icon_best_effort(&db, &canonical_id, "");
         }
 
         return Ok(IconCycleResult {
@@ -173,6 +205,7 @@ pub async fn cycle_app_icon(
     crate::db::icon_cycle::seal_cycle_selection(&mut cycle, next_level, &target_url, final_filename);
     if let Some(db) = db_opt.as_ref() {
         let _ = db.upsert_icon_cycle(&cycle);
+        sync_detail_icon_best_effort(db, &canonical_id, &cycle.selected_url);
     }
 
     let data_uri = crate::commands::icons::bytes_to_data_uri(&bytes);

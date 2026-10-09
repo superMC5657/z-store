@@ -173,7 +173,9 @@
     "fav_active": "In Favorites (Saved in local DB · Click to remove)",
     "fav_inactive": "Add to Favorites (Saved in local DB)",
     "supported_devices": "Supported Devices",
-    "code_source": "Code Host"
+    "code_source": "Code Host",
+    "cataloged_badge": "Cataloged",
+    "uncataloged_badge": "Uncataloged"
   },
   "categories": {
     "title": "Browse by Category",

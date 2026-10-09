@@ -14,6 +14,15 @@ export interface AppSummary {
   category: string;
   category_name: string;
   is_verified: boolean;
+  /**
+   * 展示层容错：数据层为 `favoriteIds ∖ apps` 补占位行时携带的收录标记
+   * （后端 snake_case，前端 camelCase 兼容）。缺席时展示层按
+   * `category !== 'external'` 兜底（与详情页 Header 同口径）。
+   * 仅展示层读取，绝不参与数据源 join。
+   */
+  is_cataloged?: boolean;
+  /** @deprecated 前端兼容别名，读取请经 `isAppCataloged` 收敛。 */
+  isCataloged?: boolean;
   is_installed?: boolean;
   has_update?: boolean;
   installed_version?: string;

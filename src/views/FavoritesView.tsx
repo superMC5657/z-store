@@ -52,7 +52,14 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   // FR-6.1: 收藏 / 关注搜索框（按名称 / 别名 / 仓库坐标过滤，见 useViewFilter.matchesAppText）
   const matchesSearch = (a: AppSummary) => matchesAppText(a, searchText);
 
-  const favoriteApps = apps.filter((a) => favoriteIds.has(a.id) && matchesSearch(a));
+  // 收藏 left-join 消费侧：`apps` 已由 App 补齐未收录占位行，此处仅做归一大小写 inner 过滤
+  // （双键：原值 + 小写均命中，兼容后端/目录大小写不一致）；计数仍用 `favoriteIds.size` 全集。
+  const favoriteIdsLower = new Set<string>();
+  for (const id of favoriteIds) {
+    const k = (id || '').toLowerCase();
+    if (k) favoriteIdsLower.add(k);
+  }
+  const favoriteApps = apps.filter((a) => favoriteIdsLower.has((a.id || '').toLowerCase()) && matchesSearch(a));
   const watchedApps = apps.filter((a) => watchedSet.has(a.id) && matchesSearch(a));
 
   const handleSyncStarred = async () => {
@@ -75,7 +82,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   const handleAddAllToFavorites = () => {
     if (!syncResult) return;
     for (const app of syncResult.catalog_matches) {
-      if (!favoriteIds.has(app.id)) {
+      if (!favoriteIdsLower.has((app.id || '').toLowerCase())) {
         onToggleFavorite(app.id);
       }
     }
@@ -177,6 +184,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={true}
                 isWatched={watchedSet.has(app.id)}
+                showCatalogBadge={true}
                 onOpenDetail={onOpenDetail}
                 onQuickInstall={onQuickInstall}
                 onToggleFavorite={onToggleFavorite}
@@ -212,7 +220,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 platformPending={isPending(app)}
                 isInstalled={installedIds.has(app.id)}
                 isInstalling={installingIds?.has(app.id)}
-                isFavorite={favoriteIds.has(app.id)}
+                isFavorite={favoriteIdsLower.has((app.id || '').toLowerCase())}
                 isWatched={true}
                 onOpenDetail={onOpenDetail}
                 onQuickInstall={onQuickInstall}
@@ -352,7 +360,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                       platformPending={isPending(app)}
                       isInstalled={installedIds.has(app.id)}
                       isInstalling={installingIds?.has(app.id)}
-                      isFavorite={favoriteIds.has(app.id)}
+                      isFavorite={favoriteIdsLower.has((app.id || '').toLowerCase())}
                       isWatched={watchedSet.has(app.id)}
                       onOpenDetail={onOpenDetail}
                       onQuickInstall={onQuickInstall}
