@@ -31,6 +31,7 @@ import {
   buildTrendsCacheKey,
   CACHE_TTL_MS,
   classifyTrendsError,
+  clearTrendEnrichCache,
   clearTrendsCache,
   fetchGitHubNewRepos,
   fetchDoforceRepos,
@@ -49,6 +50,7 @@ import {
   enrichTrendRepos,
   growthRatio,
   healthyScore,
+  hydrateTrendEnrichCache,
   matchCatalogApp,
   normalizeProxyPrefix,
   parseCompactNumber,
@@ -1107,5 +1109,167 @@ describe('TrendsView 榜单刷新按钮（forceRefresh 直抓）', () => {
     fireEvent.click(screen.getByTestId('trends-refresh'));
     await screen.findByText('榜单加载失败');
     expect((screen.getByTestId('trends-refresh') as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+describe('TrendsView L2可信分档：具平台免验，pending后台补验', () => {
+  (globalThis as Record<string, unknown>)['IS_REACT_ACT_ENVIRONMENT'] = true;
+
+  type EnrichFn = (repos: { owner: string; repo: string }[]) => Promise<(AppSummary | null)[]>;
+  type LiteFn = (id: string) => Promise<{ id: string; platforms: string[]; is_stale: boolean }>;
+  let enrichSpy: MockInstance<EnrichFn>;
+  let liteSpy: MockInstance<LiteFn>;
+  let settingsSpy: MockInstance<() => Promise<Record<string, string>>>;
+  let openUrlSpy: MockInstance<(url: string) => Promise<void>>;
+
+  beforeEach(async () => {
+    await i18n.changeLanguage('zh-CN');
+    window.localStorage.clear();
+    clearTrendsCache();
+    clearTrendEnrichCache();
+    vi.restoreAllMocks();
+    // 恢复顶层 fetchTrendsText mock（被 restoreAllMocks 清掉后重建，避免 unexpected url）。
+    trendSpy = vi.spyOn(tauriApi, 'fetchTrendsText').mockImplementation(async (url: string) => {
+      const u = String(url);
+      requestedUrls.push(u);
+      if (u.includes('github.com/trending')) {
+        if (trendingHtml instanceof Error) throw trendingHtml;
+        if (trendingStatus != null) throw httpErr(trendingStatus);
+        return trendingHtml;
+      }
+      throw new Error(`unexpected url: ${u}`);
+    });
+    settingsSpy = vi.spyOn(tauriApi, 'getSettings').mockResolvedValue({});
+    openUrlSpy = vi.spyOn(tauriApi, 'openUrl').mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    enrichSpy?.mockRestore();
+    liteSpy?.mockRestore();
+    settingsSpy.mockRestore();
+    openUrlSpy.mockRestore();
+    cleanup();
+    clearTrendsCache();
+    clearTrendEnrichCache();
+    window.localStorage.clear();
+  });
+
+  function renderLiteBoard() {
+    return render(
+      <TrendsView
+        apps={[makeApp({ id: 'other/app', name: 'Other' })]}
+        platformResolvedOtherIds={new Set<string>()}
+        favoriteIds={new Set<string>()}
+        installedIds={new Set<string>()}
+        installingIds={new Set<string>()}
+        onOpenDetail={() => {}}
+        onQuickInstall={() => {}}
+        onToggleFavorite={() => {}}
+        onResetPlatformFilter={() => {}}
+      />,
+    );
+  }
+
+  it('L2全具平台零lite：三仓新鲜具平台直展富卡，后台零补验', async () => {
+    // L2 新鲜富信封：三仓均为具真实平台（与 trendingHtmlFixture 三仓同坐标）。
+    hydrateTrendEnrichCache({
+      'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'] }),
+      'acme/beacon': makeEnrichedApp({ id: 'acme/beacon', platforms: ['macos'] }),
+      'acme/comet': makeEnrichedApp({ id: 'acme/comet', platforms: ['linux'] }),
+    });
+    trendingHtml = trendingHtmlFixture();
+    vi.mocked(zlogInfo).mockClear();
+    enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockImplementation(async (repos) =>
+      repos.map((r) => makeEnrichedApp({ id: `${r.owner}/${r.repo}` })),
+    );
+    liteSpy = vi
+      .spyOn(tauriApi, 'getPlatformsLite')
+      .mockImplementation(async (id: string) => ({ id, platforms: ['windows'], is_stale: false }));
+    const { container } = renderLiteBoard();
+
+    // 首屏直展三富卡，无裸行占位。
+    await screen.findByText('acme/atlas enriched desc');
+    await waitFor(() => {
+      expect(container.querySelectorAll('.trend-uncataloged-row')).toHaveLength(0);
+    });
+    expect(container.querySelectorAll('.app-card').length).toBeGreaterThanOrEqual(3);
+    // 后台 effect flush 窗口内仍零请求：enrich 无缺席不拉，lite 全具平台免验。
+    await new Promise((r) => setTimeout(r, 50));
+    expect(enrichSpy).not.toHaveBeenCalled();
+    expect(liteSpy).not.toHaveBeenCalled();
+    // 免验取证单行日志：每次决策记录 board/可信 concrete/pending/跳过/目标（无 DevTools 可查）。
+    await waitFor(() => {
+      const infos = vi.mocked(zlogInfo).mock.calls.map(([m]) => String(m));
+      expect(
+        infos.some(
+          (m) =>
+            m.includes('[trends] lite-skip') &&
+            m.includes('board=weekly') &&
+            m.includes('trustedConcrete=3') &&
+            m.includes('trustedPending=0') &&
+            m.includes('skipped=3') &&
+            m.includes('targets=0'),
+        ),
+      ).toBe(true);
+    });
+  });
+
+  it('含pending则仅pending补验：首屏展旧卡不闪裸，回来patch仍无裸行', async () => {
+    // L2 新鲜混合：atlas 具平台免验，beacon/comet pending 首屏展旧卡、后台补验。
+    hydrateTrendEnrichCache({
+      'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'] }),
+      'acme/beacon': makeEnrichedApp({ id: 'acme/beacon', platforms: [] }),
+      'acme/comet': makeEnrichedApp({ id: 'acme/comet', platforms: [] }),
+    });
+    trendingHtml = trendingHtmlFixture();
+    vi.mocked(zlogInfo).mockClear();
+    enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockImplementation(async (repos) =>
+      repos.map((r) => makeEnrichedApp({ id: `${r.owner}/${r.repo}` })),
+    );
+    liteSpy = vi.spyOn(tauriApi, 'getPlatformsLite').mockImplementation(async (id: string) => {
+      const k = String(id).trim().toLowerCase();
+      // beacon 治愈为具平台，comet 确认为空 Other（空非 stale）。
+      if (k === 'acme/beacon') return { id, platforms: ['macos'], is_stale: false };
+      return { id, platforms: [], is_stale: false };
+    });
+    const { container } = renderLiteBoard();
+
+    // 首屏先展旧卡（含 pending 富卡），不闪裸行。
+    await screen.findByText('acme/atlas enriched desc');
+    await screen.findByText('acme/beacon enriched desc');
+    await waitFor(() => {
+      expect(container.querySelectorAll('.trend-uncataloged-row')).toHaveLength(0);
+    });
+    // enrich 无缺席不拉；lite 仅补 pending。
+    await waitFor(() => {
+      expect(liteSpy.mock.calls.length).toBeGreaterThan(0);
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(enrichSpy).not.toHaveBeenCalled();
+    const calledIds = liteSpy.mock.calls.map(([id]) => String(id).trim().toLowerCase());
+    expect(calledIds).toHaveLength(2);
+    expect(calledIds).toContain('acme/beacon');
+    expect(calledIds).toContain('acme/comet');
+    expect(calledIds.some((id) => id === 'acme/atlas')).toBe(false);
+    // 回来即 patch 不闪裸：仍零裸行，富卡描述保留。
+    await waitFor(() => {
+      expect(container.querySelectorAll('.trend-uncataloged-row')).toHaveLength(0);
+    });
+    expect(screen.getByText('acme/beacon enriched desc')).toBeTruthy();
+    // 免验取证单行日志：混合档仅 pending 补验（atlas 免验，beacon/comet 为目标）。
+    await waitFor(() => {
+      const infos = vi.mocked(zlogInfo).mock.calls.map(([m]) => String(m));
+      expect(
+        infos.some(
+          (m) =>
+            m.includes('[trends] lite-skip') &&
+            m.includes('board=weekly') &&
+            m.includes('trustedConcrete=1') &&
+            m.includes('trustedPending=2') &&
+            m.includes('skipped=1') &&
+            m.includes('targets=2'),
+        ),
+      ).toBe(true);
+    });
   });
 });

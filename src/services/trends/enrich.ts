@@ -10,6 +10,150 @@ export const TREND_ENRICH_SHARD_SIZE = 20;
 /** Phase2治理分片：单次 enrich 最多 40 仓，超 40 留占位不置空榜。 */
 export const TREND_ENRICH_MAX_TOTAL = 40;
 
+/**
+ * 已确认 Other 标记 TTL：12h（与 enrich 同口径，到期重验）。
+ * settle 兜底 / lite 空非 stale 确认的 Other 经此集合记忆，具平台到达即覆盖升级（put 具平台自动移除），
+ * pending 空平台永不覆盖已具平台值（mark 前检查 enrich 已具平台则跳过）。
+ */
+export const TREND_CONFIRMED_OTHER_TTL_MS = TREND_ENRICH_CACHE_TTL_MS;
+/** 已确认 Other 标记内存有界：至多 500 条，FIFO 裁剪（与 enrich 同口径）。 */
+export const TREND_CONFIRMED_OTHER_MAX_ENTRIES = 500;
+
+const trendConfirmedOtherCache = new Map<string, number>();
+
+function putTrendConfirmedOtherEntry(key: string, timestamp: number): void {
+  const k = key.trim().toLowerCase();
+  if (!k) return;
+  if (trendConfirmedOtherCache.has(k)) trendConfirmedOtherCache.delete(k);
+  trendConfirmedOtherCache.set(k, timestamp);
+  while (trendConfirmedOtherCache.size > TREND_CONFIRMED_OTHER_MAX_ENTRIES) {
+    const oldest = trendConfirmedOtherCache.keys().next().value as string | undefined;
+    if (oldest === undefined) break;
+    if (oldest === k) break;
+    trendConfirmedOtherCache.delete(oldest);
+  }
+}
+
+/** 标记单键为已确认 Other（已具平台则跳过，禁 pending 覆盖具平台）。 */
+export function markTrendConfirmedOther(key: string): void {
+  const k = key.trim().toLowerCase();
+  if (!k) return;
+  const cur = trendEnrichCache.get(k);
+  if (cur && cur.data.platforms && cur.data.platforms.length > 0) return;
+  putTrendConfirmedOtherEntry(k, Date.now());
+}
+
+/** 批量标记已确认 Other（空键/已具平台逐项跳过）。 */
+export function markTrendConfirmedOthers(keys: readonly string[]): void {
+  if (!keys) return;
+  for (const raw of keys) {
+    if (typeof raw !== 'string') continue;
+    markTrendConfirmedOther(raw);
+  }
+}
+
+/** 移除单键已确认标记（具平台升级覆盖时调用；put 具平台已自动移除，此处供显式别名清理）。 */
+export function unmarkTrendConfirmedOther(key: string): void {
+  const k = key.trim().toLowerCase();
+  if (!k) return;
+  trendConfirmedOtherCache.delete(k);
+}
+
+/** 批量移除已确认标记。 */
+export function unmarkTrendConfirmedOthers(keys: readonly string[]): void {
+  if (!keys) return;
+  for (const raw of keys) {
+    if (typeof raw !== 'string') continue;
+    const k = raw.trim().toLowerCase();
+    if (!k) continue;
+    trendConfirmedOtherCache.delete(k);
+  }
+}
+
+/** 单键已确认是否新鲜（12h 内；过期即清并返回 false，时钟回拨按过期）。 */
+export function isTrendConfirmedOtherFresh(key: string): boolean {
+  const k = key.trim().toLowerCase();
+  if (!k) return false;
+  const ts = trendConfirmedOtherCache.get(k);
+  if (ts === undefined) return false;
+  const elapsed = Date.now() - ts;
+  if (elapsed < 0 || elapsed >= TREND_CONFIRMED_OTHER_TTL_MS) {
+    trendConfirmedOtherCache.delete(k);
+    return false;
+  }
+  const cur = trendEnrichCache.get(k);
+  if (cur && cur.data.platforms && cur.data.platforms.length > 0) {
+    trendConfirmedOtherCache.delete(k);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * 已确认 Other 快照（供 L2 写盘与视图免验）：
+ * - 仅返回新鲜条目（过期/回拨即清，具平台已升级即清）；
+ * - 可选传入 repos 时仅返回仍属本榜的键（坐标键 + id 键，小写）；
+ * - 具平台键一律排除（禁 pending 覆盖具平台，升级后不再视同 Other）。
+ */
+export function snapshotTrendConfirmedOthers(repos?: TrendRepo[]): string[] {
+  const now = Date.now();
+  const fresh: string[] = [];
+  for (const [k, ts] of trendConfirmedOtherCache) {
+    const elapsed = now - ts;
+    if (elapsed < 0 || elapsed >= TREND_CONFIRMED_OTHER_TTL_MS) {
+      trendConfirmedOtherCache.delete(k);
+      continue;
+    }
+    const cur = trendEnrichCache.get(k);
+    if (cur && cur.data.platforms && cur.data.platforms.length > 0) {
+      trendConfirmedOtherCache.delete(k);
+      continue;
+    }
+    fresh.push(k);
+  }
+  if (!repos || repos.length === 0) return fresh;
+  const wanted = new Set<string>();
+  for (const r of repos) {
+    if (r.owner && r.repo) {
+      wanted.add(`${r.owner.trim().toLowerCase()}/${r.repo.trim().toLowerCase()}`);
+    }
+    if (r.id) wanted.add(r.id.trim().toLowerCase());
+  }
+  return fresh.filter((k) => wanted.has(k));
+}
+
+/**
+ * L2 确认标记回填（hydrate）：
+ * - 仅收非空小写键；已具平台键跳过（禁 pending 覆盖具平台）；
+ * - 时间戳一律取 now（与 enrich hydrate 同口径，L2 12h 窗口由 cached_at 把关，此处只保新鲜）。
+ */
+export function hydrateTrendConfirmedOtherCache(keys?: readonly string[] | null): void {
+  if (!keys) return;
+  const now = Date.now();
+  for (const raw of keys) {
+    if (typeof raw !== 'string') continue;
+    const k = raw.trim().toLowerCase();
+    if (!k) continue;
+    const cur = trendEnrichCache.get(k);
+    if (cur && cur.data.platforms && cur.data.platforms.length > 0) continue;
+    putTrendConfirmedOtherEntry(k, now);
+  }
+}
+
+/** 仅供测试/榜单切换：清空已确认 Other 标记。 */
+export function clearTrendConfirmedOtherCache(): void {
+  trendConfirmedOtherCache.clear();
+}
+
+/** 切榜顺手 sweep 已确认过期（与 enrich 同入口调用，不加 timer）。 */
+export function sweepExpiredTrendConfirmedOtherCache(): void {
+  const now = Date.now();
+  for (const [k, ts] of trendConfirmedOtherCache) {
+    const elapsed = now - ts;
+    if (elapsed < 0 || elapsed >= TREND_CONFIRMED_OTHER_TTL_MS) trendConfirmedOtherCache.delete(k);
+  }
+}
+
 const trendEnrichCache = new Map<string, { timestamp: number; data: AppSummary }>();
 
 /**
@@ -30,6 +174,10 @@ function putTrendEnrichCache(key: string, entry: { timestamp: number; data: AppS
   }
   if (trendEnrichCache.has(k)) trendEnrichCache.delete(k);
   trendEnrichCache.set(k, { timestamp: entry.timestamp, data });
+  // 具平台到达即覆盖升级： concrete 入库同步移除已确认 Other 标记（pending 永不覆盖具平台的另一半）。
+  if (data.platforms && data.platforms.length > 0) {
+    trendConfirmedOtherCache.delete(k);
+  }
   while (trendEnrichCache.size > TREND_ENRICH_CACHE_MAX_ENTRIES) {
     const oldest = trendEnrichCache.keys().next().value as string | undefined;
     if (oldest === undefined) break;
@@ -48,6 +196,7 @@ export function sweepExpiredTrendEnrichCache(): void {
     const elapsed = now - v.timestamp;
     if (elapsed < 0 || elapsed >= TREND_ENRICH_CACHE_TTL_MS) trendEnrichCache.delete(k);
   }
+  sweepExpiredTrendConfirmedOtherCache();
 }
 
 function trendEnrichKey(owner: string, repo: string): string {
@@ -56,6 +205,7 @@ function trendEnrichKey(owner: string, repo: string): string {
 
 export function clearTrendEnrichCache(): void {
   trendEnrichCache.clear();
+  trendConfirmedOtherCache.clear();
 }
 
 /**

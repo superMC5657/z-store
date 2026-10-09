@@ -21,9 +21,13 @@ import {
   DETAIL_PLATFORMS_HEAL_EVENT,
   enrichTrendRepos,
   formatStars,
+  hydrateTrendEnrichCache,
+  markTrendConfirmedOthers,
   matchCatalogApp,
   saveBoardCacheMerged,
+  snapshotTrendConfirmedOthers,
   snapshotTrendEnrichCache,
+  unmarkTrendConfirmedOthers,
   TREND_BOARD_IDS,
   type DetailPlatformsHealPayload,
   type TrendBoardId,
@@ -39,6 +43,7 @@ import {
   resolvePendingPlatformsLite,
   type PlatformId,
 } from '../lib/platformFilter';
+import { zlogInfo } from '../lib/z-log';
 
 /**
  * 趋势榜单一榜一源：调 `fetchTrendsResult(board, { proxyPrefix })`，
@@ -139,6 +144,9 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   );
   const trendLiteInflightRef = useRef<Set<string>>(new Set());
   const trendBoardSeqRef = useRef(0);
+  // L2 新鲜富卡免验集：SWR-fill 时内存快照已有的键（L2 新鲜期内直接展，不调 lite）；
+  // 后续 enrich 新取回的键不在集内，缺席/过期仍走 lite 补验（到期再验）。
+  const swrTrustedRef = useRef<Set<string>>(new Set());
   const enrichedAppsRef = useRef(enrichedApps);
   enrichedAppsRef.current = enrichedApps;
   const trendConfirmedRef = useRef(trendConfirmedOtherIds);
@@ -279,10 +287,39 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   // 此处同步合并进 enrichedApps 先展旧富卡（含 pending 的 Other 待确认语义），不闪裸行；
   // 后台 enrich effect 再 revalidate 缺席项，找到具平台再覆盖写透；永不用空值覆盖已具平台值。
   // 富/裸以 enriched 存在为准，不用 icon 判定（有/无图标一视同仁）；图标回填只做升级（空不覆盖实）。
+  // 可信集分两档：仅具真实平台（platforms.length>0）进可信免验；pending 空平台首屏仍展旧卡，
+  // 但后台走 lite 补验（回来 patch 不闪裸）。新鲜度 12h／data: 禁入／小写归一由 snapshot 保证，此处不动。
+  // 已确认 Other 同信封落盘：L2 确认集已 hydrate 进内存，此处同步并入榜单内已确认集合，
+  // 重挂免验直展 Other 卡（零 lite）；具平台升级由 put 自动移除确认，到期由 12h TTL 重验。
   useEffect(() => {
-    if (trendResult?.status !== 'ok' || trendResult.repos.length === 0) return;
+    if (trendResult?.status !== 'ok' || trendResult.repos.length === 0) {
+      swrTrustedRef.current = new Set();
+      return;
+    }
     const snap = snapshotTrendEnrichCache(trendResult.repos);
-    if (Object.keys(snap).length === 0) return;
+    swrTrustedRef.current = new Set(
+      Object.entries(snap)
+        .filter(([, v]) => !!v.platforms && v.platforms.length > 0)
+        .map(([k]) => k),
+    );
+    // L2 已确认直展：仍属本榜的新鲜确认键一次并入本地，其他榜确认不串扰。
+    const l2Confirmed = snapshotTrendConfirmedOthers(trendResult.repos);
+    if (l2Confirmed.length > 0) {
+      setTrendConfirmedOtherIds((prev) => {
+        let changed = false;
+        const next = new Set(prev);
+        for (const k of l2Confirmed) {
+          const nk = String(k).trim().toLowerCase();
+          if (!nk || next.has(nk)) continue;
+          // 已具平台不并入（禁 pending 覆盖具平台，升级后不再视同 Other）
+          const cur = snap[nk];
+          if (cur?.platforms && cur.platforms.length > 0) continue;
+          next.add(nk);
+          changed = true;
+        }
+        return changed ? next : prev;
+      });
+    }
     setEnrichedApps((prev) => {
       let changed = false;
       const next = { ...prev };
@@ -322,6 +359,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     void enrichTrendRepos([...missing.values()]).then(async (found) => {
       if (cancelled || found.size === 0) return;
       let hasNewEnrich = false;
+      const concreteKeys: string[] = [];
       setEnrichedApps((prev) => {
         let changed = false;
         const next = { ...prev };
@@ -346,14 +384,33 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
               hasNewEnrich = true;
             }
           }
+          if (!incomingEmpty) concreteKeys.push(key);
         }
         return changed ? next : prev;
       });
+      // 具平台到达可覆盖升级：enrich 具平台即移出已确认（本地 + 内存标记，put 侧已自动移除同键）；
+      // 空 pending 永不覆盖已具平台（上分支已跳过），此处只做确认移除。
+      if (concreteKeys.length > 0) {
+        unmarkTrendConfirmedOthers(concreteKeys);
+        setTrendConfirmedOtherIds((prev) => {
+          let hit = false;
+          for (const k of concreteKeys) {
+            if (prev.has(k)) {
+              hit = true;
+              break;
+            }
+          }
+          if (!hit) return prev;
+          const next = new Set(prev);
+          for (const k of concreteKeys) next.delete(k);
+          return next;
+        });
+      }
       // enrich 落定后写透同榜 key（await 落稳再返回，刷新 cached_at 即刷新 12h 窗口）：
       // SWR 富信封含 pending 直展，具平台与 pending 新项均可写透升级 L2（合并写盘防裸覆盖）；
       // P1-C3 读写同源：写透 key 与 boards 读路径同源（同 board + 同 trendFetchOpts），
-      // 杜绝丢 opts 导致读写分叉；settle 兜底的 Other 只进内存 trendConfirmedOtherIds，
-      // 永不进 snapshot 写透（snapshot 仅读内存 enrich 缓存，确认集合不在盘内）。
+      // 杜绝丢 opts 导致读写分叉；已确认 Other 经确认集同 key 写透（见 lite/settle），
+      // 此处 saveBoardCacheMerged 自动携带内存确认快照（具平台键已剔除）。
       if (hasNewEnrich && trendResult.repos.length > 0) {
         const isDoforceBoard = activeBoard === 'rising' || activeBoard === 'healthy';
         const cacheKey = isDoforceBoard
@@ -457,6 +514,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
         for (const k of keys) next.delete(k);
         return next;
       });
+      // 具平台升级同步清内存确认标记（App 侧 upsert 已清同键，此处补清别名，防确认残留致 Other 误展）。
+      unmarkTrendConfirmedOthers(keys);
     };
     window.addEventListener(DETAIL_PLATFORMS_HEAL_EVENT, handler);
     return () => {
@@ -471,13 +530,36 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
 
   // 未收录行 lite 确认（App lazyBackfill 的榜单侧补齐，经共享 helper 分批 5/上限 20/seq 守卫）：
   // enrich 落定为空（fallback []）的行按 App 同口径走 getPlatformsLite 轻量通道：
-  // 非空非 stale 即 patch enrichedApps 治愈，空非 stale 即记入榜单内已确认 Other；
-  // stale/失败保持 pending 交给 settle 超时。enrich 合并与此处 patch 均永不以后续空值覆盖已治愈的真实平台。
+  // 非空非 stale 即 patch enrichedApps 治愈并同步 merge 内存快照 + await 写透 L2（下次直展具平台）；
+  // 空非 stale 即记入榜单内已确认 Other 并与 enrich 同 key 写透 L2（重挂免验直展 Other 卡，零 lite）；
+  // stale/失败保持 pending 交给 settle 超时（不覆盖具平台）。enrich 合并与此处 patch 均永不以后续空值覆盖已治愈的真实平台。
+  // 可信分三档：具真实平台（platforms.length>0）＋ 已确认 Other（L2 确认集新鲜）＋L2 新鲜（12h／禁 data:／小写归一由 snapshot 保证）
+  // 即免验直接展；pending 空平台首屏先展旧卡，后台仍走 lite 补验，回来 patch 不闪裸（只 patch、不删卡）。
+  // 只有 enrich 缺席（裸行交 enrich effect）、用户点详情/刷新才走其他通道。详情页 get_platforms_lite
+  // 30m TTL/ETag 保持原样，趋势页不再每次直调（确认的 Other 随富卡存 12h，到期再验）。
   useEffect(() => {
     if (trendResult?.status !== 'ok') return;
     if (platformResolvedOtherIds === undefined) return;
     const seq = trendBoardSeqRef.current;
     const inflight = trendLiteInflightRef.current;
+    const trusted = swrTrustedRef.current;
+    let freshSnap: Record<string, AppSummary> | null = null;
+    // 两档中的具平台档：pending 空平台直接 false（永不免验，后台必补验）。
+    const isFreshConcreteTrusted = (k: string): boolean => {
+      if (!trusted.has(k)) return false;
+      if (!freshSnap) {
+        const boardRepos: TrendRepo[] = [];
+        for (const item of rawDisplayItems) {
+          if (item.type !== 'uncataloged') continue;
+          boardRepos.push(item.repo);
+        }
+        freshSnap = snapshotTrendEnrichCache(boardRepos);
+      }
+      const hit = freshSnap[k];
+      // 具平台才免验；pending 空平台永不免验（首屏展旧卡，后台补验）。
+      if (!hit?.platforms || hit.platforms.length === 0) return false;
+      return true;
+    };
     const targets: Array<{ key: string; liteId: string }> = [];
     for (const item of rawDisplayItems) {
       if (item.type !== 'uncataloged') continue;
@@ -493,11 +575,34 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
         continue;
       }
       if (inflight.has(key)) continue;
+      // 两档：具平台已在上分支跳过（永不走 lite，防 patch 循环；stale 具平台交 enrich 重拉）；
+      // 此处仅剩 pending，永不免验——首屏展旧卡，后台必补验（键及 id 别名双查，防 id 与坐标不一致漏验/误验）。
+      if (isFreshConcreteTrusted(key) || (enrichedKey !== '' && isFreshConcreteTrusted(enrichedKey))) continue;
       const liteId = (enriched.id || '').trim() || (item.repo.id || '').trim();
       if (!liteId) continue;
       targets.push({ key, liteId });
       if (targets.length >= 20) break;
     }
+    // 免验取证单行日志：每次决策记录 board/可信 concrete/pending/跳过/目标数，便于无 DevTools 取证；只读计数，不改分支逻辑。
+    const trustedConcrete = trusted.size;
+    let trustedPending = 0;
+    let uncatalogedTotal = 0;
+    for (const item of rawDisplayItems) {
+      if (item.type !== 'uncataloged') continue;
+      const k = (item.repo.id || '').trim().toLowerCase();
+      if (!k) continue;
+      uncatalogedTotal += 1;
+      const en = enrichedApps[k];
+      if (!en) continue;
+      if (en.platforms && en.platforms.length > 0) continue;
+      const enKey = (en.id || '').trim().toLowerCase();
+      if (trendCombinedConfirmed.has(k) || (enKey !== '' && trendCombinedConfirmed.has(enKey))) continue;
+      trustedPending += 1;
+    }
+    const skipped = uncatalogedTotal - targets.length;
+    zlogInfo(
+      `[trends] lite-skip board=${activeBoard} trustedConcrete=${trustedConcrete} trustedPending=${trustedPending} skipped=${skipped} targets=${targets.length}`,
+    );
     if (targets.length === 0) return;
     for (const t of targets) inflight.add(t.key);
     void (async () => {
@@ -509,6 +614,19 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
         );
         if (seq !== trendBoardSeqRef.current) return;
         if (patched.size > 0) {
+          // 具平台升级先清确认（本地 + 内存标记，防确认残留；hydrate 具平台侧亦会自动移除同键）。
+          {
+            const aliasKeys: string[] = [];
+            const latestForAlias = enrichedAppsRef.current;
+            for (const k of patched.keys()) {
+              const nk = String(k).trim().toLowerCase();
+              if (!nk) continue;
+              aliasKeys.push(nk);
+              const curAlias = (latestForAlias[nk]?.id || '').trim().toLowerCase();
+              if (curAlias !== '' && curAlias !== nk) aliasKeys.push(curAlias);
+            }
+            if (aliasKeys.length > 0) unmarkTrendConfirmedOthers(aliasKeys);
+          }
           setEnrichedApps((prev) => {
             let changed = false;
             const next = { ...prev };
@@ -534,12 +652,84 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
             for (const k of patched.keys()) next.delete(k);
             return next;
           });
+          // L2 落定回写：pending 经 lite 补到具平台后立即升级内存快照并写透存盘替代 pending，
+          // 下次重挂直展具平台（零 lite）。stale/失败不进 patched，保持 pending 等 15s 兜底；
+          // data: 禁入、key 小写归一由 hydrate/合并写盘保证，此处不改表结构。
+          try {
+            const toHydrate: Record<string, AppSummary> = {};
+            const latest = enrichedAppsRef.current;
+            for (const [k, plats] of patched) {
+              const normKey = String(k).trim().toLowerCase();
+              if (!normKey) continue;
+              const cur = latest[normKey];
+              if (!cur) continue;
+              if (cur.platforms && cur.platforms.length > 0) continue;
+              const icon =
+                typeof cur.icon === 'string' && cur.icon.startsWith('data:') ? '' : cur.icon;
+              toHydrate[normKey] = { ...cur, icon, platforms: [...plats] };
+            }
+            if (Object.keys(toHydrate).length > 0) {
+              hydrateTrendEnrichCache(toHydrate);
+              if (trendResult.repos.length > 0) {
+                const isDoforceBoard = activeBoard === 'rising' || activeBoard === 'healthy';
+                const cacheKey = isDoforceBoard
+                  ? buildDoforceCacheKey(trendFetchOpts)
+                  : buildTrendsCacheKey(activeBoard, trendFetchOpts);
+                const cacheBoard = isDoforceBoard ? 'doforce' : activeBoard;
+                await saveBoardCacheMerged(cacheKey, cacheBoard, trendResult.repos);
+              }
+            }
+          } catch {
+            // 写透失败不影响内存落定，pending 语义不变
+          }
         }
         if (confirmedEmpty.length > 0) {
+          // 空非 stale 即已确认 Other：本地 + 内存标记 + 与 enrich 同 key 写透 L2（data 仍禁），
+          // 重挂免验直展 Other 卡；具平台到达可覆盖升级（上分支已清），12h 到期重验。
+          const aliasConfirmed: string[] = [];
+          {
+            const latest = enrichedAppsRef.current;
+            for (const raw of confirmedEmpty) {
+              const k = String(raw).trim().toLowerCase();
+              if (!k) continue;
+              const cur = latest[k];
+              // 竞态：lite 回来前已被治愈为具平台则跳过（禁 pending 覆盖具平台）
+              if (cur?.platforms && cur.platforms.length > 0) continue;
+              aliasConfirmed.push(k);
+              const alias = ((cur?.id || '') as string).trim().toLowerCase();
+              if (alias !== '' && alias !== k) {
+                const aliasCur = latest[alias];
+                if (!(aliasCur?.platforms && aliasCur.platforms.length > 0)) {
+                  aliasConfirmed.push(alias);
+                }
+              }
+            }
+          }
+          if (aliasConfirmed.length > 0) {
+            markTrendConfirmedOthers(aliasConfirmed);
+            // data: 兜底：确认项图标为 data: 时剥为空后再 hydrate，保证快照可收录（仍禁 data: 入盘）。
+            try {
+              const toHydrate: Record<string, AppSummary> = {};
+              const latest = enrichedAppsRef.current;
+              for (const k of aliasConfirmed) {
+                const cur = latest[k];
+                if (!cur) continue;
+                if (cur.platforms && cur.platforms.length > 0) continue;
+                if (typeof cur.icon === 'string' && cur.icon.startsWith('data:')) {
+                  toHydrate[k] = { ...cur, icon: '' };
+                }
+              }
+              if (Object.keys(toHydrate).length > 0) {
+                hydrateTrendEnrichCache(toHydrate);
+              }
+            } catch {
+              // 剥离失败不影响确认标记
+            }
+          }
           setTrendConfirmedOtherIds((prev) => {
             let changed = false;
             const next = new Set(prev);
-            for (const k of confirmedEmpty) {
+            for (const k of aliasConfirmed) {
               if (!next.has(k)) {
                 next.add(k);
                 changed = true;
@@ -547,25 +737,45 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
             }
             return changed ? next : prev;
           });
+          // 确认写透：同榜 key hydrate + saveBoardCacheMerged 落盘（与正常 enrich 同 key，data 仍禁由快照保证）。
+          if (aliasConfirmed.length > 0 && trendResult.repos.length > 0) {
+            try {
+              const isDoforceBoard = activeBoard === 'rising' || activeBoard === 'healthy';
+              const cacheKey = isDoforceBoard
+                ? buildDoforceCacheKey(trendFetchOpts)
+                : buildTrendsCacheKey(activeBoard, trendFetchOpts);
+              const cacheBoard = isDoforceBoard ? 'doforce' : activeBoard;
+              await saveBoardCacheMerged(cacheKey, cacheBoard, trendResult.repos);
+            } catch {
+              // 写透失败不影响内存落定
+            }
+          }
+          // 兼容旧变量名：已用 aliasConfirmed（含别名）落定，confirmedEmpty 仅作输入
+          void confirmedEmpty;
         }
       } finally {
         for (const t of targets) inflight.delete(t.key);
       }
     })();
-  }, [trendResult, rawDisplayItems, enrichedApps, platformResolvedOtherIds, trendCombinedConfirmed]);
+  }, [trendResult, rawDisplayItems, enrichedApps, platformResolvedOtherIds, trendCombinedConfirmed, activeBoard, trendFetchOpts]);
 
   // pending settle 超时：enrich 空 + 一次 lite 仍未治愈（或 lite stale/失败/裸行）
   // 至多等待 TREND_PENDING_SETTLE_MS 后降级为已确认 Other（徽标 + 计数 + 可过滤），
   // 而非无限 shimmer。超时前仍恒可见（不看 Other 勾选），落定后走正常 Other 过滤。
   // 治愈（具真实平台）的行永不被 settle 确认；定时器随榜单/回填变化重置，落稳后一次触发。
+  // 已确认 Other 与 enrich 同 key 写透 L2（data 仍禁）：裸行合成最小摘要 hydrate，空 enrich 剥 data: 后 hydrate，
+  // 重挂免验直展 Other 卡；具平台到达可覆盖升级，12h 到期重验；pending 永不覆盖具平台。
   useEffect(() => {
     if (platformResolvedOtherIds === undefined) return;
     if (trendResult?.status !== 'ok') return;
     const pendingSnapshot: string[] = [];
+    // 兜底合成用仓库快照（裸行无摘要时按此合成最小 AppSummary 落盘，同 enrich 键）。
+    const repoByKey = new Map<string, TrendRepo>();
     for (const item of rawDisplayItems) {
       if (item.type !== 'uncataloged') continue;
       const key = (item.repo.id || '').trim().toLowerCase();
       if (!key) continue;
+      if (!repoByKey.has(key)) repoByKey.set(key, item.repo);
       const enriched = enrichedApps[key];
       if (enriched?.platforms && enriched.platforms.length > 0) continue;
       const enrichedKey = ((enriched?.id || '') as string).trim().toLowerCase();
@@ -588,22 +798,101 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
         stillPending.push(key);
       }
       if (stillPending.length === 0) return;
+      // 同 key hydrate：空 enrich 剥 data:，裸行合成最小 Other 摘要（data 仍禁，具平台不合成）。
+      const toHydrate: Record<string, AppSummary> = {};
+      const aliasKeys: string[] = [];
+      for (const key of stillPending) {
+        const cur = enrichedAppsRef.current[key];
+        if (cur?.platforms && cur.platforms.length > 0) continue;
+        if (cur) {
+          const curKey = ((cur.id || '') as string).trim().toLowerCase();
+          aliasKeys.push(key);
+          if (curKey !== '' && curKey !== key) aliasKeys.push(curKey);
+          if (typeof cur.icon === 'string' && cur.icon.startsWith('data:')) {
+            toHydrate[key] = { ...cur, icon: '' };
+          } else if (!toHydrate[key]) {
+            // 空 enrich 已在内存，仍需保证快照可收录：无 data: 即直接复用（hydrate 刷新 12h 窗口）。
+            toHydrate[key] = cur;
+          }
+          continue;
+        }
+        const repo = repoByKey.get(key) ?? trendResult.repos.find((r) => (r.id || '').trim().toLowerCase() === key);
+        if (!repo) continue;
+        if (!repo.id || !repo.owner || !repo.repo) continue;
+        aliasKeys.push(key);
+        const shortName = (repo.repo || repo.name || repo.id).trim() || repo.id;
+        toHydrate[key] = {
+          id: repo.id,
+          name: shortName,
+          owner: repo.owner,
+          repo: repo.repo,
+          icon: '',
+          icon_bg: 'linear-gradient(135deg, #475569, #334155)',
+          description: repo.description ?? '',
+          stars: typeof repo.stars === 'number' ? repo.stars : 0,
+          forks: typeof repo.forks === 'number' ? repo.forks : 0,
+          license: '',
+          latest_version: 'latest',
+          category: repo.category ?? 'dev',
+          category_name: '',
+          is_verified: false,
+          forge: 'github',
+          forge_host: 'github.com',
+          homepage: null,
+          platforms: [],
+        };
+      }
+      if (aliasKeys.length === 0) return;
+      try {
+        if (Object.keys(toHydrate).length > 0) {
+          hydrateTrendEnrichCache(toHydrate);
+        }
+        markTrendConfirmedOthers(aliasKeys);
+      } catch {
+        // 标记失败仍尝试本地落定
+      }
       setTrendConfirmedOtherIds((prev) => {
         const next = new Set(prev);
         let changed = false;
-        for (const k of stillPending) {
-          if (!next.has(k)) {
-            next.add(k);
-            changed = true;
-          }
+        for (const k of aliasKeys) {
+          const nk = String(k).trim().toLowerCase();
+          if (!nk || next.has(nk)) continue;
+          next.add(nk);
+          changed = true;
         }
         return changed ? next : prev;
       });
+      // 本地直展裸合成卡：enrichedApps 缺席的键一次并入（具平台不覆盖，已有不重写）。
+      if (Object.keys(toHydrate).length > 0) {
+        setEnrichedApps((prev) => {
+          let changed = false;
+          const next = { ...prev };
+          for (const [k, v] of Object.entries(toHydrate)) {
+            if (next[k]) continue;
+            next[k] = v;
+            changed = true;
+          }
+          return changed ? next : prev;
+        });
+      }
+      // 确认写透：同榜 key saveBoardCacheMerged 落盘（含确认集），重挂零 lite 直展 Other 卡。
+      if (trendResult.repos.length > 0) {
+        try {
+          const isDoforceBoard = activeBoard === 'rising' || activeBoard === 'healthy';
+          const cacheKey = isDoforceBoard
+            ? buildDoforceCacheKey(trendFetchOpts)
+            : buildTrendsCacheKey(activeBoard, trendFetchOpts);
+          const cacheBoard = isDoforceBoard ? 'doforce' : activeBoard;
+          void saveBoardCacheMerged(cacheKey, cacheBoard, trendResult.repos);
+        } catch {
+          // 写透失败不影响内存落定
+        }
+      }
     }, TREND_PENDING_SETTLE_MS);
     return () => {
       clearTimeout(timer);
     };
-  }, [trendResult, rawDisplayItems, enrichedApps, platformResolvedOtherIds, trendCombinedConfirmed]);
+  }, [trendResult, rawDisplayItems, enrichedApps, platformResolvedOtherIds, trendCombinedConfirmed, activeBoard, trendFetchOpts]);
 
   const gainTextFor = (gain?: number): string | undefined => {
     if (!gain || gain <= 0) return undefined;
