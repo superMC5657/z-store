@@ -56,9 +56,93 @@ pub fn get_recently_viewed_apps(state: State<'_, AppState>) -> crate::AppResult<
     for id in ids {
         if let Some(item) = catalog_items.iter().find(|i| i.id == id) {
             result.push(item.to_summary());
+            continue;
+        }
+        // 未收录：view_history 存全量 id，catalog 拼不出；回退 DB 详情缓存
+        // （收录/未收录同走 save_detail_with_icon 落全量 detail_json），保持原顺序；
+        // 单条失败跳过不整单丢；仍无命中则跳过（不合成占位，避免污染过滤/计数，
+        // 趋势 L2 仍是未收录首展来源）。
+        if let Some(summary) = cached_detail_summary(&db, &id) {
+            result.push(summary);
         }
     }
     Ok(result)
+}
+
+/// 未收录近期行的 DB 详情回退：fallback 版查询（TTL 外/离线仍可显，stale 由前端离线徽标呈现），
+/// 多键按序试：id 原值 → canonical → 小写 → 去 forge 前缀的 owner/repo（原值/小写）→
+/// github.com/ 前缀（原值/小写）；db 层签名不动，此处只做键展开。
+fn cached_detail_summary(db: &crate::db::Database, id: &str) -> Option<AppSummary> {
+    let trimmed = id.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let mut keys: Vec<String> = Vec::new();
+    let mut push_unique = |k: String| {
+        if !k.trim().is_empty() && !keys.contains(&k) {
+            keys.push(k);
+        }
+    };
+    push_unique(trimmed.to_string());
+    if let Some(canon) = crate::forge::canonical_app_id(trimmed) {
+        push_unique(canon);
+    }
+    push_unique(trimmed.to_lowercase());
+    if let Some(coord) = crate::forge::RepositoryUrlParser::parse(trimmed) {
+        if !coord.owner.is_empty() && !coord.repo.is_empty() {
+            let bare = format!("{}/{}", coord.owner, coord.repo);
+            push_unique(bare.clone());
+            push_unique(bare.to_lowercase());
+            push_unique(format!("github.com/{}", bare));
+            push_unique(format!("github.com/{}", bare.to_lowercase()));
+        }
+    }
+    for key in keys {
+        if let Ok(Some(detail)) = db.get_cached_app_detail_fallback(&key) {
+            return Some(detail_to_summary(&detail));
+        }
+    }
+    None
+}
+
+/// AppDetail → AppSummary（字段与前端 AppSummary 对齐；icon 遇 avatar 置空，
+/// data: 理论上不出 DB，此处一并置空兜底）。
+fn detail_to_summary(detail: &crate::models::AppDetail) -> AppSummary {
+    let icon_trimmed = detail.icon.trim();
+    // 与前端 isAvatarUrl 同口径（含 github.com 直链 png 形态，见 catalog_detail 落库侧）。
+    let is_avatar = crate::commands::is_avatar_url(icon_trimmed)
+        || (icon_trimmed.starts_with("https://github.com/")
+            && icon_trimmed.to_lowercase().ends_with(".png")
+            && !icon_trimmed.contains("/raw/"));
+    let icon = if icon_trimmed.is_empty() || icon_trimmed.starts_with("data:") || is_avatar {
+        String::new()
+    } else {
+        detail.icon.clone()
+    };
+    AppSummary {
+        id: detail.id.clone(),
+        name: detail.name.clone(),
+        description_en: detail.description_en.clone(),
+        owner: detail.owner.clone(),
+        repo: detail.repo.clone(),
+        icon,
+        icon_bg: detail.icon_bg.clone(),
+        description: detail.description.clone(),
+        stars: detail.stars,
+        forks: detail.forks,
+        license: detail.license.clone(),
+        latest_version: detail.latest_version.clone(),
+        category: detail.category.clone(),
+        category_name: detail.category_name.clone(),
+        is_verified: detail.is_verified,
+        is_installed: None,
+        has_update: None,
+        installed_version: None,
+        forge: detail.forge.clone(),
+        forge_host: detail.forge_host.clone(),
+        homepage: detail.homepage.clone(),
+        platforms: detail.platforms.clone(),
+    }
 }
 
 #[tauri::command]
@@ -214,5 +298,81 @@ mod import_restore_tests {
                 .any(|w| w.app_id == "rustdesk/rustdesk"),
             "关注表应当包含已安装应用"
         );
+    }
+}
+
+#[cfg(test)]
+mod recent_uncataloged_tests {
+    use crate::db::Database;
+    use crate::models::AppDetail;
+
+    fn uncataloged_detail(id: &str, icon: &str) -> AppDetail {
+        AppDetail {
+            id: id.to_string(),
+            name: "Oh My Pi".to_string(),
+            description_en: Some("Raspberry Pi tool".to_string()),
+            owner: "oh-my-pi".to_string(),
+            repo: "oh-my-pi".to_string(),
+            icon: icon.to_string(),
+            icon_bg: "linear-gradient(135deg, #475569, #334155)".to_string(),
+            description: "树莓派工具".to_string(),
+            stars: 123,
+            forks: 45,
+            license: "MIT".to_string(),
+            latest_version: "v2.0.0".to_string(),
+            changelog: String::new(),
+            is_verified: false,
+            readme_markdown: String::new(),
+            readme_variants: None,
+            releases: vec![],
+            category: "external".to_string(),
+            category_name: "跨平台开源".to_string(),
+            forge: Some("github".to_string()),
+            forge_host: Some("github.com".to_string()),
+            cached_at: None,
+            is_stale: None,
+            homepage: Some("https://example.com".to_string()),
+            platforms: vec!["windows".to_string()],
+        }
+    }
+
+    #[test]
+    fn test_uncataloged_detail_falls_back_to_summary() {
+        let db = Database::open_in_memory().expect("内存数据库应当可用");
+        db.save_cached_app_detail(
+            "oh-my-pi/oh-my-pi",
+            &uncataloged_detail("oh-my-pi/oh-my-pi", "https://example.com/icon.png"),
+        )
+        .unwrap();
+        db.record_app_view("oh-my-pi/oh-my-pi").unwrap();
+        let ids = db.get_recently_viewed_app_ids().unwrap();
+        assert!(ids.contains(&"oh-my-pi/oh-my-pi".to_string()));
+        let summary =
+            super::cached_detail_summary(&db, "oh-my-pi/oh-my-pi").expect("未收录详情应当回退命中");
+        assert_eq!(summary.id, "oh-my-pi/oh-my-pi");
+        assert_eq!(summary.name, "Oh My Pi");
+        assert_eq!(summary.icon, "https://example.com/icon.png");
+        assert_eq!(summary.platforms, vec!["windows".to_string()]);
+        assert_eq!(summary.homepage.as_deref(), Some("https://example.com"));
+    }
+
+    #[test]
+    fn test_avatar_icon_blanked_and_case_alias_hit() {
+        let db = Database::open_in_memory().expect("内存数据库应当可用");
+        db.save_cached_app_detail(
+            "oh-my-pi/oh-my-pi",
+            &uncataloged_detail(
+                "oh-my-pi/oh-my-pi",
+                "https://avatars.githubusercontent.com/u/123?v=4",
+            ),
+        )
+        .unwrap();
+        // 大小写变体经回退键命中同一行
+        let summary = super::cached_detail_summary(&db, "Oh-My-Pi/Oh-My-Pi")
+            .expect("大小写变体应当回退命中");
+        assert_eq!(summary.icon, "", "avatar 应当置空");
+        assert_eq!(summary.owner, "oh-my-pi");
+        // 无任何缓存的 id 直接跳过（不合成占位）
+        assert!(super::cached_detail_summary(&db, "ghost/nobody").is_none());
     }
 }

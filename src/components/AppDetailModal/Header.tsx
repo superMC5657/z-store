@@ -58,18 +58,23 @@ export const Header: React.FC<HeaderProps> = ({
   // 图标轮换态（T3 刷新图标）
   const [iconCycle, setIconCycle] = useState<AppIconCycleResult | null>(null);
   const [isCyclingIcon, setIsCyclingIcon] = useState(false);
+  // 轮换口径就绪：首轮 getAppIconCycle 落定前按钮不渲染（防 loading 期闪出）；
+  // 成功/失败均置 true，失败回退 category 兜底口径（与此前一致）。
+  const [isIconCycleReady, setIsIconCycleReady] = useState(false);
   // 初次展示同步去重：同一 id+url 只 dispatch 一次，避免重复事件刷榜
   const iconSyncDispatchedRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     let isMounted = true;
     setIconCycle(null);
+    setIsIconCycleReady(false);
     if (!isTauri || !app.id) return;
 
     api
       .getAppIconCycle(app.id)
       .then((data) => {
-        if (isMounted && data) {
+        if (!isMounted) return;
+        if (data) {
           setIconCycle(data);
           // 初次展示跟随+双落盘：iconCycle.url 是 data: 即时展示（IPC临时），
           // 落盘一律用 remote_url（normalizeIconCycle 收敛，remote_url优先、camel兜底）；
@@ -96,9 +101,11 @@ export const Header: React.FC<HeaderProps> = ({
             }
           }
         }
+        setIsIconCycleReady(true);
       })
       .catch(() => {
-        // 降级不崩
+        // 降级不崩；口径仍置就绪，按钮按 category 兜底显隐（与此前一致）
+        if (isMounted) setIsIconCycleReady(true);
       });
 
     return () => {
@@ -379,6 +386,7 @@ export const Header: React.FC<HeaderProps> = ({
             isCyclingIcon={isCyclingIcon}
             nextLevelTitle={nextLevelTitle}
             onCycleIcon={handleCycleIcon}
+            isCycleReady={isIconCycleReady}
           />
         </div>
         {displayDesc && (
