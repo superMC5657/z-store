@@ -281,11 +281,38 @@ impl CatalogService {
                 if let Some(ref payload) = cached_payload {
                     let parsed = parse_release_payload(payload, "解析离线缓存失败")?;
                     (parsed, None)
+                } else if repo_info.is_some() {
+                    // repo 已 200 即证明在线/仓库存在：releases/latest 单点 Failed
+                    //（404 无 Release /403/限流/无 token）不视为离线，以 fresh 空行返回
+                    //（synthesized_empty_failure=false → 文末 is_stale=None，
+                    // releases/platforms 双空），下游 should_skip_persist 放行落盘灭黄。
+                    // 只有 repo 也失败/401/离线（repo_info=None）才保持 Some(true) 穿透。
+                    log::debug!(
+                        "detail release empty but repo ok id={} sid={} req={} reason=release_failed_repo_ok_fresh_empty",
+                        id,
+                        sid,
+                        req_id
+                    );
+                    let fallback_ver = catalog_item
+                        .as_ref()
+                        .map(|i| i.default_version.clone())
+                        .unwrap_or_else(|| "v1.0.0".to_string());
+                    (
+                        GitHubReleaseResponse {
+                            tag_name: fallback_ver,
+                            body: Some(String::new()),
+                            assets: Vec::new(),
+                        },
+                        None,
+                    )
                 } else {
-                    // P0：无任何本地缓存时的合成空详情（401/限流/离线）。
+                    // P0：无任何本地缓存 + repo 亦失败/401/离线（repo_info=None）时的合成空详情。
                     // 资产为空 -> 下游 deduce 得 platforms: []。
                     // 必须以 is_stale=true 区分于成功空（见文末 detail 构造），
                     // 调用方据此跳过持久化，前端据此视为 pending 而非确认 Other。
+                    // 对比：远端 200 已问到、仅 is_valid_installer_asset 全过滤致双空
+                    // （真空，如 diagram-design v1.0.0 仅源码包/HTML）不走此分支，
+                    // 文末保持 is_stale=None，前端确认 Other 灭黄标。
                     synthesized_empty_failure = true;
                     let fallback_ver = catalog_item
                         .as_ref()
@@ -691,6 +718,11 @@ impl CatalogService {
             // 成功 deduce 路径（releases/platforms 推导、排序、ios 并集）保持不变；
             // 仅此处标记，前端 stale-empty 视为 pending/待 backfill，永不确认 Other，
             // 调用方（commands/catalog）据此跳过 SQLite 持久化。
+            // 真空契约：远端 200 已问到（repo/release 任一 Fresh 即走成功路径）、
+            // 仅 is_valid_installer_asset 全过滤致 releases/platforms 双空时，
+            // synthesized_empty_failure 为 false，此处保持 None（与失败空可区分）；
+            // 前端双空+None 视为确认真空（virtual-Other）灭黄标。
+            // 仅网络/401/限流/解析失败才标 Some(true)。
             is_stale: if synthesized_empty_failure {
                 Some(true)
             } else {

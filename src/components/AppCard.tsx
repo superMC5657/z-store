@@ -238,7 +238,7 @@ export const AppCard: React.FC<AppCardProps> = memo(({
             <span
               className="app-tag app-tag-platforms"
               title={hasPlatforms ? `${supportedDevicesLabel}: ${app.platforms!.map((p) => PLATFORM_META[p.toLowerCase() as PlatformId]?.label || p).join(', ')}` : `${supportedDevicesLabel}: ${otherLabel}`}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 6px', cursor: 'default' }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 6px', cursor: 'default', minWidth: '52px', justifyContent: 'center' }}
             >
               {hasPlatforms ? (
                 app.platforms!.map((p) => (

@@ -28,6 +28,14 @@ pub(crate) fn platforms_from_assets(assets: &[ReleaseAsset]) -> Vec<String> {
     plats
 }
 
+/// 落库门（真空语义）：仅 stale 穿透/合成空失败（`is_stale==Some(true)`）跳过持久化；
+/// fresh（含 200 真空双空）一律落盘——真空以 fresh 空行落盘（`is_stale=None`，
+/// `cached_at=now`），下次 TTL 内命中直接复用，前端灭黄标。
+/// 401/离线仍黄（skip 保持旧行），200 真空不黄（persist fresh 空行）。
+pub(crate) fn should_skip_persist(is_stale: Option<bool>) -> bool {
+    is_stale == Some(true)
+}
+
 #[tauri::command]
 pub async fn get_app_details(
     state: State<'_, AppState>,
@@ -543,7 +551,15 @@ pub async fn get_app_details_impl(
 
     match fetch_result {
         Ok((mut detail, to_cache)) => {
-            let cache_type = if to_cache.is_none() { "304" } else { "miss" };
+            // 日志诚实区分：真 304（to_cache=None + 非 stale）vs stale/failed 合成空或穿透
+            //（to_cache=None + is_stale==Some(true)），避免 stale 误标为 304 误导下次诊断。
+            let cache_type = if to_cache.is_some() {
+                "miss"
+            } else if detail.is_stale == Some(true) {
+                "stale/failed"
+            } else {
+                "304"
+            };
             log::debug!(
                 "fetch app detail done id={} url='{}' cache={} elapsed_ms={}",
                 clean_id,
@@ -563,6 +579,9 @@ pub async fn get_app_details_impl(
                 // 远端返回 304 Not Modified（to_cache 为 None 且非 stale 穿透）
                 // 仅刷新 cached_at 时间戳，零配额消耗延长保鲜期。
                 // P0：stale 穿透（401/离线复用旧详情）不得 touch，避免把过期 stale 洗成 fresh。
+                // 真空延保：fresh 真空经 304 恢复（payload 解析双空、is_stale=None）同样
+                // 走此 touch 延保；经 200（to_cache=Some）则走上方的 save_etag，并由下方
+                // 落盘分支以 fresh 空行落盘（cached_at=now），下次 TTL 内不再变黄。
                 if let Ok(db) = state.db() {
                     let _ = db.touch_cached_app_detail(&clean_id, now);
                 }
@@ -572,10 +591,13 @@ pub async fn get_app_details_impl(
             // P0-1（inherit-then-recompute）：远端产物为空但本地已有资产时先继承，
             // 继承后若 releases 非空而 platforms 仍空则重算 deduce，
             // 使 assets-without-platforms 不可能成立。
-            // P0-2（never-poison）：合成空失败（releases+platforms 双空）或 stale 穿透
+            // P0-2（never-poison）：仅 stale 穿透/合成空失败（is_stale==Some(true)）
             // 永不落库——有旧行则保持旧行（连 cached_at 都不刷新），无旧行则不建行；
             // 返回的 detail 保持 Ok 形状（IPC 兼容），但 is_stale=true 供前端视为
             // pending/待 backfill，永不确认 Other。空平台不 stamp ["other"]/["windows"]。
+            // 真空落盘：fresh 双空（200 已问到，仅全过滤致 releases/platforms 双空、
+            // is_stale 非 true）为远端确认无有效安装包，以 fresh 空行落盘
+            // （is_stale=None，cached_at=now），下次 TTL 内命中直接复用，前端灭黄标。
             let start_db = std::time::Instant::now();
             log::debug!("db_save start id={} sid={} req={}", clean_id, sid, req_id);
             if let Ok(db) = state.db() {
@@ -591,25 +613,19 @@ pub async fn get_app_details_impl(
                 if !detail.releases.is_empty() && detail.platforms.is_empty() {
                     detail.platforms = platforms_from_assets(&detail.releases);
                 }
-                // stale 穿透：保持旧行不动（含 cached_at），直接返回。
-                if detail.is_stale == Some(true) {
+                // stale 穿透（含合成空失败）：保持旧行不动（含 cached_at），直接返回。
+                // fresh（含 200 真空双空）一律落盘，判定见 should_skip_persist。
+                if should_skip_persist(detail.is_stale) {
                     log::debug!(
                         "db_save skip id={} sid={} req={} reason=stale_passthrough_keep_prior",
                         clean_id,
                         sid,
                         req_id
                     );
-                } else if detail.releases.is_empty() && detail.platforms.is_empty() {
-                    // 双空（合成失败或真实零发布）：不建行、不覆盖旧行。
-                    // 合成失败经 detail.rs 已标 stale；真实零发布保持 None，
-                    // 前端双空+stale 视为 pending，双空+非 stale 视为真实空（virtual-Other）。
-                    log::debug!(
-                        "db_save skip id={} sid={} req={} reason=empty_empty_keep_prior",
-                        clean_id,
-                        sid,
-                        req_id
-                    );
                 } else {
+                    // fresh 双空（200 已问到、is_stale 非 true、releases/platforms 双空）
+                    // 为远端确认真空：同样落盘 fresh 空行（is_stale=None，cached_at=now），
+                    // 下次 TTL 内命中直接复用，前端灭黄标（virtual-Other）。
                     // 落盘前占位根治：未收录仓 detail 占位简介若能从 ETag repo 真值回填则替换，
                     // 避免占位永久落盘导致 recents 永远吐占位；已收录仓人工精校优先直接跳过。
                     // （fetch 侧 B1 已用 fresh repo_info 治愈，此处补 repo 401/失败但 ETag 仍有旧真值的缺口；同步读不触网。）
@@ -795,6 +811,15 @@ mod catalog_platform_tests {
     fn empty_assets_yield_explicit_empty_vec() {
         let plats = platforms_from_assets(&[]);
         assert!(plats.is_empty());
+    }
+
+    #[test]
+    fn persist_gate_only_stale_skips_fresh_true_empty_persists() {
+        // 401/离线/合成空失败（stale）→ 跳过落库，保持旧行（仍黄，待 backfill）。
+        assert!(super::should_skip_persist(Some(true)));
+        // 200 真空（fresh，非 stale，双空）→ 落盘 fresh 空行（灭黄标）。
+        assert!(!super::should_skip_persist(None));
+        assert!(!super::should_skip_persist(Some(false)));
     }
 
     #[test]
