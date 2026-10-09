@@ -41,6 +41,9 @@
 | **流式更新检查** | `Streaming Update Check` | 更新中心采用并发管道流式检测，实时发射 `zstore://update-check-progress` 推流事件，驱动逐项跳出微动效。 | 批量更新、后台检测 |
 | **统一配置中枢** | `Unified Project Config` | `src-tauri/config.toml` 作为项目超参与默认配置的单一配置源 (SSOT)，结合编译期宏内置兜底与运行期动态重载。 | 配置文件、硬编码常量 |
 | **规范应用标识** | `Canonical App Id` | 全系统唯一应用标识，统一为小写 `owner/repo`（GitHub）或 `forge[:host]:owner/repo`（多源）；id 即仓库坐标本身。入站标识（命令/深链/导入）一律经 `canonical_app_id()` 归一化，目录检索仅按 id 唯一匹配。详见 ADR-0010。 | 随机 UUID、应用别名 ID |
+| **统一图标获取** | `IconFetch` | 后端统一图标补探核心（`github/icon_fetch.rs:fetch_icons_stream`），搜索后台已接入、趋势默认未接入；仅负责探测与调度，不触 DB。 | 图标管道、补图核心 |
+| **图标就绪事件** | `icon-ready` | 后端逐张发射的新统一事件 `zstore://icon-ready{key,id,icon,level,context}`，与旧 `zstore://search-icon-ready` 双发兼容；前端统一由 `iconStore.applyHit` 收口。 | 图标推送、icon 事件 |
+| **搜索列表缓存** | `Search List Cache` | 搜索页纯前端内存 L1（`services/search/searchListCache.ts`），key=`search\|归一query\|page\|perPage`，TTL 30min、空不存、上限 50 条 FIFO；不碰 L2 与趋势榜缓存。 | 搜索缓存、结果缓存 |
 
 ---
 
@@ -63,10 +66,17 @@
 5. **D5 双池复用 (Dual-Pool Client Reuse)**:
    - API 与图标下载使用物理隔离的复用单例 Client，均配置 connect_timeout 5s、keepalive 60s、pool 20/idle 90s；图标 CDN 通道恒丢 token，绝不携带认证头。
 6. **D6 有限并发 (Bounded Concurrency)**:
-   - 明星榜 `buffered(4)`、图标 `buffered(3)`、更新检查 `buffer_unordered(6)`（主路径与关注通知两处，见 `updates.rs:316,440`），首命中即停并按原顺序回填结果。
+   - 明星榜 `buffered(4)`、更新检查 `buffer_unordered(6)`（主路径与关注通知两处，见 `updates.rs:316,440`），首命中即停并按原顺序回填结果；SimpleIcons 快路径逐 slug 验图 `buffered(3)` 保留（见 `github/icon_probe.rs:463`）。
+    - 统一图标补探 `IconFetch` 有界池 `pool=5`（见 `config.rs:IconFetchConfig`）：搜索后台走该核心逐张 `emit` 流式补齐；趋势默认仍走老 `buffered(5)` 等齐路（`compat_collect=true`，P2 流式默认不可达，详见 ADR-0015）。
 7. **D7 有限重试 (Limited Retry)**:
    - 仅 GET 可重试，仅覆盖传输错误与 429/5xx，最多重试 2 次并按 200ms→800ms 退避；401/404/304 永不重试。
 8. **D8 首包验图与跳过 (First-Bytes Verify & Skip)**:
    - 图标先 HEAD 判类型长度，再 Range 取前 32KB 验 magic，失败回退全量 GET，并以 300B 最小阈值卡掉 LFS 指针文件；下载前 SHA-256 命中即零网络跳过，ETag 收敛至统一 helper，force 模式跳过 DB 读取。
 9. **D9 趋势与首页 (Trending & Home)**:
-   - 趋势复用共享 Client，经 tokio 10s 超时并截断 2MB 防爆内存；L1 分档（daily 1h/weekly-monthly-new 12h/其余 5min）+ L2 双档（daily 1h/其余 12h，有效 TTL 扣抖动）；内存 200/500/单槽有界、切榜 sweep 无 timer；写盘 FE 256KB 预检降级裸榜、BE 512KiB 硬拒绝；enrich 分片 20/片×2 片=40 上限；429 透传 `retry_after_ms` 单次重试（详见 ADR-0014）。首页固定 balanced 排序与 seed 7，不提供策略切换工具条（用户已确认不要）。
+   - 趋势复用共享 Client，经 tokio 10s 超时并截断 2MB 防爆内存；L1 分档（daily 1h/weekly-monthly-new 12h/其余 5min）+ L2 双档（daily 1h/其余 12h，有效 TTL 扣抖动）；内存 200/500/单槽有界、切榜 sweep 无 timer；写盘 FE 256KB 预检降级裸榜、BE 512KiB 硬拒绝；enrich 分片 20/片×2 片=40 上限；429 透传 `retry_after_ms` 单次重试（详见 ADR-0014）；P2 趋势流式（首屏空壳快返 + 后台 `fetch_icons_stream(ctx=Trend)` 逐张补齐）已合入但默认不可达，`compat_collect=true` 时走老 `buffered(5)` 等齐路（详见 ADR-0015）。首页固定 balanced 排序与 seed 7，不提供策略切换工具条（用户已确认不要）。
+10. **D10 统一图标获取 (Unified Icon Fetch)**:
+    - 后端统一核心为 `github/icon_fetch.rs:fetch_icons_stream`，搜索后台已接入该核心逐张补齐。
+    - 前端图标写入口唯一收口于 `services/iconStore.ts:applyHit`，新旧双事件统一在此收口。
+    - 搜索列表 L1 为 `services/search/searchListCache.ts` 纯前端内存缓存，不碰 L2 与趋势榜缓存。
+    - 图标就绪事件双发：新 `zstore://icon-ready` 与旧 `zstore://search-icon-ready` 并存兼容。
+    - 详情仍走最强探测（动态分支 + README L4），不受统一核心约束。
