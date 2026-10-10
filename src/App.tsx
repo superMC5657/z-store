@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { TitleBar } from './components/TitleBar';
 // ResizeHandles is only loaded in Tauri desktop environment; in test/web environments
 // it is skipped to avoid evaluating Tauri internals or failing on mock contracts.
@@ -21,29 +21,9 @@ import { SettingsView } from './views/SettingsView';
 import { FavoritesView } from './views/FavoritesView';
 import { EmptyState } from './components/EmptyState';
 import { Search } from 'lucide-react';
-import { AppDetail, AppDetailViewModel, AppSummary, OAuthUser, UpdateItem, UpdateCheckProgressPayload, UpdateRule, ViewType, WatchUpdatedPayload } from './types';
-import { api, DEFAULT_SETTINGS } from './services/api';
-import { applyHit, patchAppIconList } from './services/iconStore';
-import { preloadIcons, invalidateIconCache, isAvatarUrl } from './components/AppIcon';
-import { zlogInfo } from './lib/z-log';
-import { PLATFORM_IDS, isPlatformPending, matchPlatformSetWithPending, normalizePlatform, togglePlatformSet, type PlatformId } from './lib/platformFilter';
-import {
-  DETAIL_PLATFORMS_HEAL_EVENT,
-  DETAIL_RICHCARD_HEAL_EVENT,
-  appSummaryFromDetail,
-  detailHealKeysFor,
-  evictTrendEnrichCachesForDetail,
-  isPlaceholderDescription,
-  snapshotTrendEnrichCache,
-  upsertTrendEnrichFromDetail,
-  upsertTrendEnrichRichcard,
-  type DetailPlatformsHealPayload,
-  type DetailRichcardHealPayload,
-} from './services/trends';
-import { useToasts } from './useToasts';
-import { useAppSettings } from './useAppSettings';
-import { useTranslation } from 'react-i18next';
-import './i18n';
+import { AppDetailViewModel, AppSummary, OAuthUser, UpdateItem, UpdateCheckProgressPayload, UpdateRule, ViewType, WatchUpdatedPayload } from './types';
+import { api } from './services/api';
+import { isPlatformPending, togglePlatformSet, type PlatformId } from './lib/platformFilter';
 
 import {
   PLATFORM_FILTER_STORAGE_KEY,
@@ -52,16 +32,18 @@ import {
 } from './app/platformStorage';
 import { InstallConfirmDialog } from './app/InstallConfirmDialog';
 import { usePlatformBackfill } from './app/hooks/usePlatformBackfill';
-import {
-  favoriteSummaryFromDetail,
-  findMissingFavoriteIds,
-  makeFavoritePlaceholderSummary,
-  needsFavoriteIconWarm,
-  pickFavoritePersistIconUrl,
-} from './app/favoritesUncataloged';
-import { adoptEchoInWindow, useSearchState } from './app/hooks/useSearchState';
+import { useSearchState } from './app/hooks/useSearchState';
 import { useInstallState } from './app/hooks/useInstallState';
 import { useDeepLink } from './app/hooks/useDeepLink';
+import { useDetailCacheSync } from './app/hooks/useDetailCacheSync';
+import { useFavoritesExtra } from './app/hooks/useFavoritesExtra';
+import { useAppSubscriptions } from './app/hooks/useAppSubscriptions';
+import { useAppSelectors } from './app/selectors';
+import { useUpdateActions } from './app/hooks/useUpdateActions';
+import { useToasts } from './useToasts';
+import { useAppSettings } from './useAppSettings';
+import { useTranslation } from 'react-i18next';
+import './i18n';
 
 export {
   PLATFORM_FILTER_STORAGE_KEY,
@@ -77,14 +59,7 @@ export const App: React.FC = () => {
   const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
   const [updateCheckProgress, setUpdateCheckProgress] = useState<UpdateCheckProgressPayload | null>(null);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
-  // 收藏/关注未收录占位行（left-join：`(favoriteIds∪watchedIds) ∖ apps` 经详情回退合成，仅收藏页消费，
-  // 不进 `apps`/计数/其它视图；`platforms: []` 即 pending 恒可见，平台三态不动）。
-  const [favoriteExtraApps, setFavoriteExtraApps] = useState<AppSummary[]>([]);
-  const favoriteExtraAppsRef = useRef<AppSummary[]>([]);
-  favoriteExtraAppsRef.current = favoriteExtraApps;
-  const favoriteExtraInflightRef = useRef<Set<string>>(new Set());
   const [selectedApp, setSelectedApp] = useState<AppDetailViewModel | null>(null);
-  const activeDetailIdRef = useRef<string | null>(null);
   const [selectedDeveloper, setSelectedDeveloper] = useState<string | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
@@ -107,14 +82,11 @@ export const App: React.FC = () => {
   const [selectedPlatforms, setSelectedPlatforms] = useState<Set<PlatformId>>(() => loadSelectedPlatforms());
   // FR-7 OAuth 登录态（详情弹窗标星门控）
   const [oauthUser, setOAuthUser] = useState<OAuthUser | null>(null);
-  const appDetailMemoryCache = useRef<Map<string, AppDetail>>(new Map());
   // 卡片 memo 稳定回调支撑：经 ref 读取最新列表/详情，避免 handleOpenDetail 依赖 apps 而每搜必变
   const appsRef = useRef<AppSummary[]>([]);
   appsRef.current = apps;
   const recentsRef = useRef<AppSummary[]>([]);
   recentsRef.current = recentlyViewedApps;
-  const selectedAppRef = useRef<AppDetailViewModel | null>(null);
-  selectedAppRef.current = selectedApp;
   const watchedRef = useRef<Set<string>>(watchedIds);
   watchedRef.current = watchedIds;
 
@@ -190,119 +162,130 @@ export const App: React.FC = () => {
   });
   lazyBackfillRef.current = lazyBackfillPlatforms;
 
-  // 初始加载
-  useEffect(() => {
-    // 初始数据拉取
-    api.searchApps('').then((loadedApps) => {
-      setApps(loadedApps);
-      // 预解码热门应用图标，若本地配置目录已缓存则秒读，未缓存则后台下载并缓存
-      preloadIcons(
-        loadedApps
-          .slice(0, 30)
-          .map((a) => ({ id: a.id, owner: a.owner, repo: a.repo, icon: a.icon }))
-      );
-    });
-    api.getInstalledApps().then(setInstalledApps);
-    api.getDetectedInstalledAppIds().then((ids) => setDetectedAppIds(new Set(ids))).catch(() => {});
-    api.getFavorites().then((favs) => setFavoriteIds(new Set(favs)));
-    api.getUpdateRules().then(setUpdateRules);
-    api.getRecentlyViewedApps().then((recents) => setRecentlyViewedApps(recents.filter((a) => matchPlatformSetWithPending(a, selectedPlatforms, platformResolvedOtherIds)))).catch(() => {});
-    api.registerDeepLinkScheme().catch(() => {});
+  // 3. 收藏/关注未收录占位行 left-join（仅收藏页消费，不进 apps/计数/其它视图）
+  const {
+    favoriteExtraApps,
+    setFavoriteExtraApps,
+    favoriteExtraAppsRef,
+  } = useFavoritesExtra({ favoriteIds, watchedIds, apps });
 
-    // 加载持久化设置
-    api.getSettings().then((persisted) => {
-      applyPersistedSettings(persisted);
-      // P2-6: 仅启动时自动检查更新——`daily`（每日）更新频率选项目前在“设置”中刻意禁用（未开发功能，暂无调度器），
-      // 因此此处仅对 `startup`（启动时）触发自动检查；`daily`/`manual` 用户可通过“更新中心”标签页手动检查。
-      if ((persisted.update_frequency || DEFAULT_SETTINGS.update_frequency) === 'startup') {
-        api.checkForUpdates(false).then(setUpdates).catch(() => {});
-      }
-    });
+  // 4. 详情快照缓存与卡片列表同步（内存 0ms 秒开 + ETag 后台探查 + 富卡/平台治愈）
+  const {
+    activeDetailIdRef,
+    handleOpenDetail,
+  } = useDetailCacheSync({
+    selectedApp,
+    appsRef,
+    onlineAppsRef,
+    recentsRef,
+    setApps,
+    setOnlineApps,
+    setRecentlyViewedApps,
+    setFavoriteExtraApps,
+    setSelectedApp,
+    setPlatformResolvedOtherIds,
+  });
 
-    const handleCatalogSynced = () => {
-      api.searchApps('').then((updatedApps) => {
-        setApps(updatedApps);
-        preloadIcons(
-          updatedApps
-            .slice(0, 30)
-            .filter((a) => a.icon)
-            .map((a) => ({ id: a.id, owner: a.owner, repo: a.repo, icon: a.icon }))
-        );
-      });
-    };
-    window.addEventListener('zstore:catalog-synced', handleCatalogSynced);
+  // 深链调度分发器（功能 E）
+  const {
+    pendingDeepLinkInstall,
+    setPendingDeepLinkInstall,
+  } = useDeepLink({
+    handleOpenDetail,
+    handleSearchChange,
+    setSelectedDeveloper,
+    setCurrentView,
+    showToast,
+    t,
+  });
 
-    const handleIconChanged = (e: Event) => {
-      const customEvent = e as CustomEvent<{ appId: string; icon: string }>;
-      const { appId, icon } = customEvent.detail || {};
-      if (!appId) return;
-      if (icon && isAvatarUrl(icon)) return;
-      const targetId = appId.toLowerCase();
-      setApps((prevApps) => patchAppIconList(prevApps, targetId, icon));
-      setOnlineApps((prev) => patchAppIconList(prev, targetId, icon));
-      setRecentlyViewedApps((prevRecents) => patchAppIconList(prevRecents, targetId, icon));
-      setFavoriteExtraApps((prevExtras) => patchAppIconList(prevExtras, targetId, icon));
-    };
-    window.addEventListener('zstore:icon-changed', handleIconChanged);
+  // 5. 应用级订阅总线（初始拉取/catalog-synced/icon-changed/icon-ready +
+  // 关注/更新流/OAuth + 更新中心切签检查 + 视图切换日志）
+  useAppSubscriptions({
+    setApps,
+    setOnlineApps,
+    setRecentlyViewedApps,
+    setFavoriteExtraApps,
+    setInstalledApps,
+    setDetectedAppIds,
+    setFavoriteIds,
+    setUpdateRules,
+    setWatchedIds,
+    setWatchNotifications,
+    setUpdates,
+    setOAuthUser,
+    setIsCheckingUpdates,
+    setUpdateCheckProgress,
+    appsRef,
+    onlineAppsRef,
+    recentsRef,
+    favoriteExtraAppsRef,
+    currentSearchIdRef,
+    selectedPlatforms,
+    platformResolvedOtherIds,
+    applyPersistedSettings,
+    showToast,
+    t,
+    currentView,
+    updatesCount: updates.length,
+  });
 
-    let unlistenSearchIcons: (() => void) | null = null;
-    api
-      .onSearchIconUpgraded((payload) => {
-        // 回调体委托 `services/iconStore.applyHit`（世代门控 + 写透守卫 +
-        // 别名双写 + `invalidate→preload` 时机均在店内；此处仅做载荷适配
-        // 与 React 四列表 `patch` 注入，`via`透传，`level`纯L单调）。
-        const raw = (payload ?? {}) as unknown as Record<string, unknown>;
-        const asStr = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
-        const ctx = (raw['context'] ?? null) as {
-          kind: string;
-          search_id?: string;
-          board?: string;
-          gen?: number;
-        } | null;
-        // 回声为唯一真源：窗内（期望空）首个搜索回声即立期望；已立期望后异 sid 由店内门控判 stale。
-        const incomingKind = (ctx && typeof ctx.kind === 'string' ? ctx.kind : '').trim().toLowerCase();
-        const incomingSid =
-          (ctx && typeof ctx.search_id === 'string' && ctx.search_id
-            ? ctx.search_id
-            : asStr(raw['search_id'])) ?? '';
-        adoptEchoInWindow(currentSearchIdRef, incomingKind, incomingSid);
-        applyHit({
-          key: asStr(raw['key']),
-          id: asStr(raw['id']) ?? asStr(raw['app_id']),
-          app_id: asStr(raw['app_id']),
-          icon: asStr(raw['icon']),
-          level: typeof raw['level'] === 'number' ? (raw['level'] as number) : undefined,
-          via: asStr(raw['via']),
-          context: ctx,
-          search_id: asStr(raw['search_id']),
-          currentSearchId: currentSearchIdRef.current,
-          getCurrentIcon: (tid) => {
-            const lk = tid.toLowerCase();
-            return (
-              appsRef.current.find((a) => a.id.toLowerCase() === lk)?.icon ??
-              onlineAppsRef.current.find((a) => a.id.toLowerCase() === lk)?.icon ??
-              recentsRef.current.find((a) => a.id.toLowerCase() === lk)?.icon ??
-              favoriteExtraAppsRef.current.find((a) => a.id.toLowerCase() === lk)?.icon
-            );
-          },
-          patch: (tid, icon) => {
-            setApps((prevApps) => patchAppIconList(prevApps, tid, icon));
-            setOnlineApps((prev) => patchAppIconList(prev, tid, icon));
-            setRecentlyViewedApps((prevRecents) => patchAppIconList(prevRecents, tid, icon));
-            setFavoriteExtraApps((prevExtras) => patchAppIconList(prevExtras, tid, icon));
-          },
-        });
-      })
-      .then((unlisten) => {
-        unlistenSearchIcons = unlisten;
-      });
+  // 6. 派生选择器（平台过滤/计数/收藏 left-join 供给/已安装-更新过滤/深链确认解析）
+  const {
+    platformFilteredApps,
+    platformFilteredOnlineApps,
+    favoritesViewApps,
+    filteredInstalledApps,
+    filteredUpdates,
+    handleResetPlatformFilter,
+    handleTrendsPlatformCounts,
+    sidebarPlatformCounts,
+    installedIds,
+    managedIds,
+    pendingDeepLinkDetail,
+    pendingDeepLinkSummary,
+    pendingDeepLinkSha256,
+  } = useAppSelectors({
+    apps,
+    onlineApps,
+    favoriteExtraApps,
+    installedApps,
+    detectedAppIds,
+    updates,
+    selectedPlatforms,
+    setSelectedPlatforms,
+    platformResolvedOtherIds,
+    selectedApp,
+    recentlyViewedApps,
+    currentView,
+    pendingDeepLinkInstall,
+  });
 
-    return () => {
-      window.removeEventListener('zstore:catalog-synced', handleCatalogSynced);
-      window.removeEventListener('zstore:icon-changed', handleIconChanged);
-      if (unlistenSearchIcons) unlistenSearchIcons();
-    };
-  }, []);
+  // 7. 更新规则动作簇（单项更新/忽略/跳过/锁定/隐藏/规则管理/批量升级/手动检查）
+  const {
+    handleApplyUpdate,
+    handleIgnoreUpdate,
+    handleSkipVersion,
+    handleFreezeVersion,
+    handleHideApp,
+    handleRemoveRule,
+    handleClearRuleSkip,
+    handleToggleRuleFrozen,
+    handleToggleRuleHidden,
+    handleBatchUpdateAll,
+    handleCheckUpdates,
+  } = useUpdateActions({
+    updates,
+    setUpdates,
+    setInstalledApps,
+    setUpdateRules,
+    setApps,
+    setIsCheckingUpdates,
+    setUpdateCheckProgress,
+    searchQuery,
+    showToast,
+    t,
+  });
 
   // 任务 3：平台选择变更时将其回写至 localStorage。
   useEffect(() => {
@@ -312,156 +295,6 @@ export const App: React.FC = () => {
       // 忽略：无痕模式/配额满/存储抛错时保持内存选择状态
     }
   }, [selectedPlatforms]);
-
-  // FR-6.2: 加载关注列表 + 订阅 `zstore://watch-updated` 应用内提醒
-  useEffect(() => {
-    let isMounted = true;
-    let unlistenFn: (() => void) | null = null;
-    api.getWatchedApps().then((ids) => {
-      if (isMounted) setWatchedIds(new Set(ids));
-    }).catch(() => {});
-    api.onWatchUpdated((payload) => {
-      if (!isMounted) return;
-      const label = payload.app_name || payload.app_id;
-      showToast(t('toast.watch_update_released', { name: label, version: payload.version }), 'info');
-      setWatchNotifications((prev) => {
-        const next = prev.filter((n) => n.app_id !== payload.app_id);
-        return [...next, payload];
-      });
-    }).then((unlisten) => {
-      if (isMounted) {
-        unlistenFn = unlisten;
-      } else {
-        unlisten();
-      }
-    }).catch(() => {});
-    return () => {
-      isMounted = false;
-      if (unlistenFn) unlistenFn();
-    };
-  }, []);
-
-  // 订阅更新项逐条跳出事件与流式进度通知（检测出一项立即跳出一项）
-  useEffect(() => {
-    let isMounted = true;
-    let unlistenItem: (() => void) | null = null;
-    let unlistenProgress: (() => void) | null = null;
-    let unlistenFinished: (() => void) | null = null;
-
-    api.onUpdateItemFound((item) => {
-      if (!isMounted) return;
-      setUpdates((prev) => {
-        const idx = prev.findIndex((u) => u.app_id.toLowerCase() === item.app_id.toLowerCase());
-        if (idx >= 0) {
-          const next = [...prev];
-          next[idx] = item;
-          return next;
-        }
-        return [...prev, item];
-      });
-    }).then((unlisten) => {
-      if (isMounted) unlistenItem = unlisten;
-      else unlisten();
-    }).catch(() => {});
-
-    api.onUpdateCheckProgress((payload) => {
-      if (!isMounted) return;
-      setUpdateCheckProgress(payload);
-    }).then((unlisten) => {
-      if (isMounted) unlistenProgress = unlisten;
-      else unlisten();
-    }).catch(() => {});
-
-    api.onUpdateCheckFinished(() => {
-      if (!isMounted) return;
-      setIsCheckingUpdates(false);
-      setUpdateCheckProgress(null);
-    }).then((unlisten) => {
-      if (isMounted) unlistenFinished = unlisten;
-      else unlisten();
-    }).catch(() => {});
-
-    return () => {
-      isMounted = false;
-      if (unlistenItem) unlistenItem();
-      if (unlistenProgress) unlistenProgress();
-      if (unlistenFinished) unlistenFinished();
-    };
-  }, []);
-
-  // FR-7 / FR-6.3-manual: OAuth 登录态 + 备份导入刷新
-  useEffect(() => {
-    let isMounted = true;
-    const loadOAuthUser = () => {
-      api.getOAuthUser().then((u) => {
-        if (isMounted) setOAuthUser(u);
-      }).catch(() => {
-        if (isMounted) setOAuthUser(null);
-      });
-    };
-    loadOAuthUser();
-    const handleOAuthChanged = () => loadOAuthUser();
-    let unlistenExpired: (() => void) | undefined;
-    api.onOAuthExpired(() => {
-      if (isMounted) {
-        showToast(t('toast.github_auth_expired'), 'warning');
-        loadOAuthUser();
-        window.dispatchEvent(new CustomEvent('zstore:oauth-changed'));
-      }
-    }).then((un) => {
-      unlistenExpired = un;
-    }).catch(() => {});
-
-    const handleDataImported = async () => {
-      try {
-        const [persisted, favs, watched] = await Promise.all([
-          api.getSettings(),
-          api.getFavorites(),
-          api.getWatchedApps().catch(() => [] as string[]),
-        ]);
-        if (!isMounted) return;
-        applyPersistedSettings(persisted);
-        setFavoriteIds(new Set(favs));
-        setWatchedIds(new Set(watched));
-      } catch {
-        // 忽略：后端未就绪时保持现状
-      }
-    };
-    window.addEventListener('zstore:oauth-changed', handleOAuthChanged);
-    window.addEventListener('zstore:data-imported', handleDataImported);
-    return () => {
-      isMounted = false;
-      if (unlistenExpired) unlistenExpired();
-      window.removeEventListener('zstore:oauth-changed', handleOAuthChanged);
-      window.removeEventListener('zstore:data-imported', handleDataImported);
-    };
-  }, []);
-
-  // 仅在用户主动进入“更新中心”标签页时才执行轻量检查（30 秒防抖冷却，避免频繁切标签重复消耗配额）
-  const lastTabUpdateCheckRef = useRef<number>(0);
-  useEffect(() => {
-    if (currentView === 'updates' && updates.length === 0) {
-      const now = Date.now();
-      if (now - lastTabUpdateCheckRef.current > 30_000) {
-        lastTabUpdateCheckRef.current = now;
-        api.checkForUpdates(false).then(setUpdates).catch(() => {});
-      }
-    }
-  }, [currentView, updates.length]);
-
-  const isFirstViewRender = useRef(true);
-  const prevViewRef = useRef<ViewType>('home');
-  useEffect(() => {
-    if (isFirstViewRender.current) {
-      isFirstViewRender.current = false;
-      prevViewRef.current = currentView;
-      return;
-    }
-    // Wave2：视图切换永带 from + params（杜绝裸 switch），sid 由 z-log 自动关联行为链。
-    const from = prevViewRef.current;
-    prevViewRef.current = currentView;
-    zlogInfo(`switch view='${currentView}' from='${from}' params={}`);
-  }, [currentView]);
 
   // 导出软件资产 JSON 备份
   const handleExportAppsJson = () => {
@@ -486,62 +319,6 @@ export const App: React.FC = () => {
     showToast(t('toast.export_success'), 'success');
   };
 
-  const loadRecentViews = useCallback(async () => {
-    try {
-      const recents = await api.getRecentlyViewedApps();
-      // 趋势富卡治愈：后端 history 对未收录行原样拷贝占位简介，此处用富卡非占位值一次治愈
-      // （首刷新增行 + 旧占位行；后到的 load 不再覆盖 sync 的治愈值；无富卡保持原值走现有空渲染）。
-      try {
-        const snap = snapshotTrendEnrichCache();
-        if (Object.keys(snap).length === 0) {
-          setRecentlyViewedApps(recents);
-          return;
-        }
-        const pickReal = (v: unknown): string | undefined => {
-          if (typeof v !== 'string') return undefined;
-          const t = v.trim();
-          if (t === '' || isPlaceholderDescription(t)) return undefined;
-          return v;
-        };
-        const healed = recents.map((r) => {
-          const needDesc =
-            typeof r.description !== 'string' || r.description.trim() === '' || isPlaceholderDescription(r.description);
-          const needDescEn =
-            typeof r.description_en === 'string' &&
-            (r.description_en.trim() === '' || isPlaceholderDescription(r.description_en));
-          if (!needDesc && !needDescEn) return r;
-          const keys: string[] = [(r.id || '').toLowerCase()];
-          if (r.owner && r.repo) keys.push(`${r.owner}/${r.repo}`.toLowerCase());
-          let enrichDesc: string | undefined;
-          let enrichDescEn: string | undefined;
-          for (const k of keys) {
-            if (!k) continue;
-            const hit = snap[k];
-            if (!hit) continue;
-            if (needDesc && enrichDesc === undefined) {
-              const cand = pickReal(hit.description);
-              if (cand !== undefined) enrichDesc = cand;
-            }
-            if (needDescEn && enrichDescEn === undefined) {
-              const candEn = pickReal(hit.description_en);
-              if (candEn !== undefined) enrichDescEn = candEn;
-            }
-            if ((!needDesc || enrichDesc !== undefined) && (!needDescEn || enrichDescEn !== undefined)) break;
-          }
-          let next = r;
-          if (needDesc && enrichDesc !== undefined) next = { ...next, description: enrichDesc };
-          if (needDescEn && enrichDescEn !== undefined) next = { ...next, description_en: enrichDescEn };
-          return next;
-        });
-        setRecentlyViewedApps(healed);
-      } catch {
-        setRecentlyViewedApps(recents);
-      }
-    } catch {
-      // 忽略错误
-    }
-  }, []);
-
   const handleClearRecentViews = async () => {
     try {
       await api.clearViewHistory();
@@ -551,512 +328,6 @@ export const App: React.FC = () => {
       // 忽略错误
     }
   };
-
-  // 同步详情快照缓存与卡片列表数据（消除后台条件探查与主动刷新之间的重复逻辑）
-  // 列表 patch 仅在目标命中且字段确变时生成新对象并返回新数组，否则原引用返回，避免无谓全网格重渲染
-  const syncDetailCacheAndAppLists = useCallback((idClean: string, detail: AppDetail, isBackgroundSilent = false) => {
-    // F1：后端占位简介不污染内存快照——先算富卡兜底，落盘即存治愈值，
-    // 后续 handleOpenDetail 命中缓存直接展现实简介，不再闪占位。
-    const pickRealDescription = (v: unknown): string | undefined => {
-      if (typeof v !== 'string') return undefined;
-      const t = v.trim();
-      if (t === '' || isPlaceholderDescription(t)) return undefined;
-      return v;
-    };
-    let enrichDesc: string | undefined;
-    let enrichDescEn: string | undefined;
-    try {
-      const snap = snapshotTrendEnrichCache();
-      const lookupKeys: string[] = [idClean, (detail.id || '').toLowerCase()];
-      if (detail.owner && detail.repo) {
-        lookupKeys.push(`${detail.owner}/${detail.repo}`.toLowerCase());
-      }
-      for (const k of lookupKeys) {
-        if (!k) continue;
-        const hit = snap[k];
-        if (!hit) continue;
-        if (enrichDesc === undefined) {
-          const cand = pickRealDescription(hit.description);
-          if (cand !== undefined) enrichDesc = cand;
-        }
-        if (enrichDescEn === undefined) {
-          const candEn = pickRealDescription(hit.description_en);
-          if (candEn !== undefined) enrichDescEn = candEn;
-        }
-        if (enrichDesc !== undefined && enrichDescEn !== undefined) break;
-      }
-    } catch {
-      // 快照读取失败即无富卡兜底，沿用 prev/空逻辑
-    }
-    const detailDescIsPlaceholder = isPlaceholderDescription(detail.description);
-    const detailDescEnIsPlaceholder =
-      typeof detail.description_en === 'string' && isPlaceholderDescription(detail.description_en);
-
-    // 内存快照存治愈值：占位即用富卡非占位兜底，无富卡即存 ''（渲染侧走现有空逻辑，不存占位文案）。
-    const detailForCache: AppDetail =
-      detailDescIsPlaceholder || detailDescEnIsPlaceholder
-        ? {
-            ...detail,
-            description: detailDescIsPlaceholder ? (enrichDesc ?? '') : detail.description,
-            description_en: detailDescEnIsPlaceholder ? (enrichDescEn ?? '') : detail.description_en,
-          }
-        : detail;
-    appDetailMemoryCache.current.set(idClean, detailForCache);
-    if (detail.id.toLowerCase() !== idClean) {
-      appDetailMemoryCache.current.set(detail.id.toLowerCase(), detailForCache);
-    }
-    if (detail.owner && detail.repo) {
-      const repoLower = `${detail.owner}/${detail.repo}`.toLowerCase();
-      appDetailMemoryCache.current.set(repoLower, detailForCache);
-      appDetailMemoryCache.current.set(`github.com/${repoLower}`, detailForCache);
-    }
-
-    if (activeDetailIdRef.current?.toLowerCase() === detail.id.toLowerCase() || activeDetailIdRef.current?.toLowerCase() === idClean) {
-      setSelectedApp((prev) => {
-        let nextDesc = detail.description;
-        let nextDescEn = detail.description_en;
-        if (detailDescIsPlaceholder) {
-          nextDesc = enrichDesc ?? pickRealDescription(prev?.description) ?? '';
-        }
-        if (detailDescEnIsPlaceholder) {
-          nextDescEn = enrichDescEn ?? pickRealDescription(prev?.description_en) ?? '';
-        }
-        if (!prev) return { ...detail, description: nextDesc, description_en: nextDescEn, isLoading: false, isRefreshing: false };
-        if (
-          !isBackgroundSilent ||
-          prev.latest_version !== detail.latest_version ||
-          prev.releases.length !== detail.releases.length ||
-          prev.stars !== detail.stars ||
-          detailDescIsPlaceholder ||
-          detailDescEnIsPlaceholder
-        ) {
-          return { ...detail, description: nextDesc, description_en: nextDescEn, isLoading: false, isRefreshing: false };
-        }
-        return prev;
-      });
-    }
-
-    const patchedIcon = detail.icon?.trim() && !isAvatarUrl(detail.icon) ? detail.icon.trim() : undefined;
-    // stale 离线缓存不具权威：平台相关一律保持 pending（不确认、不治愈、不碰榜单缓存）
-    const isStaleDetail = Boolean(detail.is_stale);
-    const detailPlatforms = !isStaleDetail && detail.platforms && detail.platforms.length > 0 ? detail.platforms : undefined;
-    const detailConfirmedEmpty = !isStaleDetail && !detailPlatforms;
-
-    const patchSummary = (app: AppSummary): AppSummary => {
-      const isTarget =
-        app.id.toLowerCase() === idClean ||
-        (detail.id && app.id.toLowerCase() === detail.id.toLowerCase());
-      if (!isTarget) return app;
-      const nextIcon = patchedIcon ? patchedIcon : app.icon;
-      // stale 详情不碰平台：列表保持 pending，避免离线快照误治愈/误确认
-      const nextPlatforms = detailPlatforms && (!app.platforms || app.platforms.length === 0)
-        ? detailPlatforms
-        : app.platforms;
-      // 富卡全字段回填：同值即保持原引用（避免无谓全网格重渲染），异值即取详情新值；
-      // Rust 合成占位简介视为空（保留列表实值，不污染三列表）；
-      // 趋势富卡兜底：detail 占位且富卡有实值时优先用富卡，治愈已在 recents 的旧占位行；无富卡仍保留旧值（空/占位走现有空渲染）。
-      const nextDescription = isPlaceholderDescription(detail.description)
-        ? (enrichDesc ?? app.description)
-        : detail.description;
-      const nextDescriptionEnRaw = detail.description_en;
-      const nextDescriptionEn =
-        typeof nextDescriptionEnRaw === 'string' && isPlaceholderDescription(nextDescriptionEnRaw)
-          ? (enrichDescEn ?? app.description_en)
-          : nextDescriptionEnRaw;
-      const nextHomepage = detail.homepage;
-      if (
-        app.stars === detail.stars &&
-        app.forks === detail.forks &&
-        app.latest_version === detail.latest_version &&
-        app.icon === nextIcon &&
-        app.platforms === nextPlatforms &&
-        app.description === nextDescription &&
-        (app.description_en ?? undefined) === (nextDescriptionEn ?? undefined) &&
-        app.license === detail.license &&
-        app.category === detail.category &&
-        app.category_name === detail.category_name &&
-        app.is_verified === detail.is_verified &&
-        (app.homepage ?? null) === (nextHomepage ?? null) &&
-        app.name === detail.name
-      ) {
-        return app;
-      }
-      return {
-        ...app,
-        stars: detail.stars,
-        forks: detail.forks,
-        latest_version: detail.latest_version,
-        icon: nextIcon,
-        platforms: nextPlatforms,
-        description: nextDescription,
-        description_en: nextDescriptionEn,
-        license: detail.license,
-        category: detail.category,
-        category_name: detail.category_name,
-        is_verified: detail.is_verified,
-        homepage: nextHomepage,
-        name: detail.name,
-      };
-    };
-
-    const patchList = (prev: AppSummary[]): AppSummary[] => {
-      let changed = false;
-      const next = prev.map((app) => {
-        const patched = patchSummary(app);
-        if (patched !== app) changed = true;
-        return patched;
-      });
-      return changed ? next : prev;
-    };
-    // 双键（idClean + detail.id，大小写不敏感）：与 patchSummary 同目标口径，覆盖两者不一致
-    const patchIconBoth = (prev: AppSummary[], icon: string): AppSummary[] => {
-      const keyA = idClean.toLowerCase();
-      const keyB = (detail.id || '').toLowerCase() || keyA;
-      const once = patchAppIconList(prev, keyA, icon);
-      return keyB === keyA ? once : patchAppIconList(once, keyB, icon);
-    };
-    setApps(patchList);
-    // 在线段与本地段上下分段展示：详情回填必须直接落盘 onlineApps，不依赖 icon-changed 事件
-    setOnlineApps(patchList);
-    setRecentlyViewedApps(patchList);
-    // 收藏占位行同步治愈：`favoriteIds ∖ apps` 合成行也在详情回填口径内（标记保持不动）
-    setFavoriteExtraApps(patchList);
-    // 详情已取回仍为空（非 stale）：记为已确认 other，徽标/统计/过滤一次落定
-    if (detailConfirmedEmpty) {
-      const keys = new Set<string>([idClean, detail.id.toLowerCase()]);
-      setPlatformResolvedOtherIds((prev) => {
-        let changed = false;
-        const next = new Set(prev);
-        for (const k of keys) {
-          if (!next.has(k)) {
-            next.add(k);
-            changed = true;
-          }
-        }
-        return changed ? next : prev;
-      });
-    }
-    // 详情带回真实平台（非 stale）：解除已确认 other、驱逐榜单 stale [] 缓存、
-    // 并向 TrendsView 推送治愈（列表 patch 覆盖不到未收录行，此处补齐）。
-    // VoiceStudio 类 bug 的治愈路径：行内 Other → OS 图标，过滤/计数同步跟进。
-    if (detailPlatforms) {
-      const healKeys = detailHealKeysFor(idClean, detail.owner, detail.repo);
-      // detail.id 与 idClean 不一致时的双键兜底
-      const extraKeys = new Set<string>([idClean, detail.id.toLowerCase()]);
-      for (const k of extraKeys) {
-        if (k && !healKeys.includes(k)) healKeys.push(k);
-      }
-      setPlatformResolvedOtherIds((prev) => {
-        let hit = false;
-        for (const k of healKeys) {
-          if (prev.has(k)) {
-            hit = true;
-            break;
-          }
-        }
-        if (!hit) return prev;
-        const next = new Set(prev);
-        for (const k of healKeys) next.delete(k);
-        return next;
-      });
-      evictTrendEnrichCachesForDetail(idClean, detail.owner, detail.repo);
-      upsertTrendEnrichFromDetail(detail);
-      try {
-        const payload: DetailPlatformsHealPayload = {
-          keys: healKeys,
-          platforms: [...detailPlatforms],
-          summary: appSummaryFromDetail(detail),
-        };
-        window.dispatchEvent(new CustomEvent(DETAIL_PLATFORMS_HEAL_EVENT, { detail: payload }));
-      } catch {
-        // 事件派发失败不影响列表已落定的治愈
-      }
-    }
-    // 富卡全字段治愈（与平台治愈并行，不改平台语义）：非 stale 即用内存旧值 diff→upsert，
-    // dirty 非空或已确认 other 即派发富卡事件（含 platforms 仅非空才带）；旧事件与 icon 通道不动。
-    if (!isStaleDetail) {
-      try {
-        const prevLookup = (k: string): AppSummary | undefined => {
-          const lk = k.trim().toLowerCase();
-          if (!lk) return undefined;
-          return (
-            appsRef.current.find((a) => a.id.toLowerCase() === lk) ??
-            onlineAppsRef.current.find((a) => a.id.toLowerCase() === lk) ??
-            recentsRef.current.find((a) => a.id.toLowerCase() === lk)
-          );
-        };
-        const healed = upsertTrendEnrichRichcard(detail, prevLookup);
-        if (healed && (healed.dirtyFields.length > 0 || detailConfirmedEmpty)) {
-          const richKeys = detailHealKeysFor(idClean, detail.owner, detail.repo);
-          const extraKeys = new Set<string>([idClean, detail.id.toLowerCase()]);
-          for (const k of extraKeys) {
-            if (k && !richKeys.includes(k)) richKeys.push(k);
-          }
-          const payload: DetailRichcardHealPayload = {
-            keys: richKeys,
-            summary: healed.summary,
-            dirtyFields: healed.dirtyFields,
-            ...(detailPlatforms ? { platforms: [...detailPlatforms] } : null),
-            ...(detailConfirmedEmpty ? { confirmedOther: true } : null),
-          };
-          window.dispatchEvent(new CustomEvent(DETAIL_RICHCARD_HEAL_EVENT, { detail: payload }));
-        }
-      } catch {
-        // 富卡治愈失败不影响列表已落定的值
-      }
-    }
-
-    if (patchedIcon) {
-      invalidateIconCache(idClean);
-      window.dispatchEvent(
-        new CustomEvent('zstore:icon-changed', {
-          detail: { appId: idClean, icon: patchedIcon },
-        })
-      );
-    } else {
-      // detail.icon 为空/avatar（如 oh-my-pi）：详情弹窗靠 getAppIconCycle 特供照常显示，
-      // 但列表三段此前零 dispatch，在线段永不更新 → 此处用 iconCycle.url 直接回填落盘，不依赖事件。
-      // （后端 iconCycle.selected_url 经 getAppIconCycle 收敛为前端 AppIconCycleResult.url；非 avatar 才用。）
-      void api.getAppIconCycle(idClean).then((cycle) => {
-        // 双落盘口径：url=data: 即时态（IPC临时、永不进盘），remote_url/remoteUrl=可持久化 URL；
-        // 落盘/回填/dispatch 一律用 persistUrl（remote优先，url非data:才兜底，否则空即 L5/空不发）。
-        const remote = typeof (cycle?.remote_url ?? cycle?.remoteUrl) === 'string'
-          ? String(cycle?.remote_url ?? cycle?.remoteUrl).trim()
-          : '';
-        const fallbackUrl = typeof cycle?.url === 'string' ? cycle.url.trim() : '';
-        const persistUrl = remote !== '' ? remote : (!fallbackUrl.startsWith('data:') ? fallbackUrl : '');
-        if (!persistUrl || isAvatarUrl(persistUrl)) return;
-        const keyA = idClean.toLowerCase();
-        // 预热文件：触发 Rust getOrFetchIcon 落盘副作用（icons/* 二进制 + catalog/cycle 行），失败不阻塞
-        void api.getOrFetchIcon(idClean, persistUrl).catch(() => {});
-        invalidateIconCache(keyA);
-        preloadIcons([{ id: keyA, icon: persistUrl }]);
-        setApps((prev) => patchIconBoth(prev, persistUrl));
-        setOnlineApps((prev) => patchIconBoth(prev, persistUrl));
-        setRecentlyViewedApps((prev) => patchIconBoth(prev, persistUrl));
-        setFavoriteExtraApps((prev) => patchIconBoth(prev, persistUrl));
-        // 趋势内存级同步（单通道复用 `zstore:icon-changed` 监听，不直接碰榜缓存二级落盘 enrich，data: 禁入由二级侧保证）；
-        // 此分支仅在 patchedIcon 为空时进入，与上分支 dispatch 天然互斥，不重复。
-        window.dispatchEvent(
-          new CustomEvent('zstore:icon-changed', {
-            detail: { appId: idClean, icon: persistUrl },
-          })
-        );
-      }).catch(() => {
-        // 取不到轮换图标则保持占位，不阻塞
-      });
-    }
-  }, []);
-
-  // 打开应用详情弹窗（优先内存/数据库 0ms 瞬间秒开，且一个仓库生命周期内只拉取一次）
-  // 经 useCallback + ref 稳定：搜索键入改 apps 时回调引用不变，memo 卡片不跟风重渲染
-  const handleOpenDetail = useCallback(async (id: string, forceRefresh = false) => {
-    const idClean = id.trim().toLowerCase();
-    activeDetailIdRef.current = id;
-
-    // 1. 若非主动强制刷新，优先检查前端内存级快照缓存，实现绝对零延迟 0ms 打开，无任何骨架屏闪烁
-    if (!forceRefresh) {
-      const cached = appDetailMemoryCache.current.get(idClean);
-      if (cached) {
-        // F1：缓存快照若为后端占位（旧缓存或富卡后到），即用富卡非占位治愈后再展，避免弹窗闪占位；
-        // 富卡为空/占位则保持缓存原值（空走现有渲染逻辑，不引入新文案）。
-        let cachedForShow = cached;
-        if (isPlaceholderDescription(cached.description) || (typeof cached.description_en === 'string' && isPlaceholderDescription(cached.description_en))) {
-          try {
-            const snap = snapshotTrendEnrichCache();
-            const cKeys: string[] = [idClean, (cached.id || '').toLowerCase()];
-            if (cached.owner && cached.repo) cKeys.push(`${cached.owner}/${cached.repo}`.toLowerCase());
-            for (const k of cKeys) {
-              if (!k) continue;
-              const hit = snap[k];
-              if (!hit) continue;
-              const useDesc =
-                isPlaceholderDescription(cachedForShow.description) &&
-                typeof hit.description === 'string' &&
-                hit.description.trim() !== '' &&
-                !isPlaceholderDescription(hit.description)
-                  ? hit.description
-                  : cachedForShow.description;
-              const useDescEn =
-                typeof cachedForShow.description_en === 'string' &&
-                isPlaceholderDescription(cachedForShow.description_en) &&
-                typeof hit.description_en === 'string' &&
-                hit.description_en.trim() !== '' &&
-                !isPlaceholderDescription(hit.description_en)
-                  ? hit.description_en
-                  : cachedForShow.description_en;
-              if (useDesc !== cachedForShow.description || useDescEn !== cachedForShow.description_en) {
-                cachedForShow = { ...cachedForShow, description: useDesc, description_en: useDescEn };
-              }
-              if (
-                !isPlaceholderDescription(cachedForShow.description) &&
-                (typeof cachedForShow.description_en !== 'string' || !isPlaceholderDescription(cachedForShow.description_en))
-              ) {
-                break;
-              }
-            }
-          } catch {
-            // 快照失败则直接展示缓存
-          }
-        }
-        // 先以 0ms 瞬间展示内存快照，避免骨架屏闪烁
-        setSelectedApp({ ...cachedForShow, isLoading: false, isRefreshing: false, loadError: undefined });
-        api.recordAppView(id).then(loadRecentViews).catch(() => {});
-
-        // 后台静默发起 ETag 条件探查：版本未变（304）后端毫秒级短路，版本变化则静默平滑更新
-        api.getAppDetails(id, false).then((updatedDetail) => {
-          syncDetailCacheAndAppLists(idClean, updatedDetail, true);
-        }).catch(() => {
-          // 静默忽略后台探查异常，保留已展示的快照
-        });
-        return;
-      }
-    } else {
-      // 强制刷新：清理内存快照中的旧引用，确保直接穿透
-      appDetailMemoryCache.current.delete(idClean);
-      const selectedSnapshot = selectedAppRef.current;
-      if (selectedSnapshot && selectedSnapshot.owner && selectedSnapshot.repo) {
-        const repoLower = `${selectedSnapshot.owner}/${selectedSnapshot.repo}`.toLowerCase();
-        appDetailMemoryCache.current.delete(repoLower);
-        appDetailMemoryCache.current.delete(`github.com/${repoLower}`);
-      }
-    }
-
-    // 2. 内存未命中或主动刷新：若弹窗已打开则保持现有视图无感刷新，否则展示基础卡片信息
-    const existing =
-      appsRef.current.find((a) => a.id.toLowerCase() === idClean) ||
-      onlineAppsRef.current.find((a) => a.id.toLowerCase() === idClean) ||
-      recentsRef.current.find((a) => a.id.toLowerCase() === idClean);
-
-    // F1：富卡真简介并入——existing 只覆盖三列表，未收录趋势行在此缺席；
-    // 经 snapshotTrendEnrichCache() 取富卡非占位 description 作为初始值，
-    // 避免 loading 阶段（“正在获取应用元数据...”）与后端占位覆盖弹窗。
-    // 富卡为空/占位时保持现有逻辑（loading 文案或空简介渲染），不引入新占位文案。
-    const pickRealDesc = (v: unknown): string | undefined => {
-      if (typeof v !== 'string') return undefined;
-      const t = v.trim();
-      if (t === '' || isPlaceholderDescription(t)) return undefined;
-      return v;
-    };
-    let enrichInitialDesc: string | undefined;
-    let enrichInitialDescEn: string | undefined;
-    try {
-      const snap = snapshotTrendEnrichCache();
-      const enrichKeys: string[] = [idClean];
-      if (existing?.owner && existing?.repo) {
-        enrichKeys.push(`${existing.owner}/${existing.repo}`.toLowerCase());
-      }
-      if (existing?.id) {
-        const eid = existing.id.toLowerCase();
-        if (!enrichKeys.includes(eid)) enrichKeys.push(eid);
-      }
-      for (const k of enrichKeys) {
-        if (!k) continue;
-        const hit = snap[k];
-        if (!hit) continue;
-        if (enrichInitialDesc === undefined) {
-          const cand = pickRealDesc(hit.description);
-          if (cand !== undefined) enrichInitialDesc = cand;
-        }
-        if (enrichInitialDescEn === undefined) {
-          const candEn = pickRealDesc(hit.description_en);
-          if (candEn !== undefined) enrichInitialDescEn = candEn;
-        }
-        if (enrichInitialDesc !== undefined && enrichInitialDescEn !== undefined) break;
-      }
-    } catch {
-      // 快照失败即无富卡兜底，保持原有初始逻辑
-    }
-
-    const selectedSnapshot = selectedAppRef.current;
-    const initialDetail: AppDetailViewModel = selectedSnapshot && selectedSnapshot.id.toLowerCase() === idClean && forceRefresh
-      ? { ...selectedSnapshot, isLoading: false, isRefreshing: true, loadError: undefined }
-      : existing
-      ? {
-          id: existing.id,
-          name: existing.name,
-          description_en: pickRealDesc(existing.description_en) ?? enrichInitialDescEn ?? '',
-          owner: existing.owner,
-          repo: existing.repo,
-          icon: existing.icon,
-          icon_bg: existing.icon_bg,
-          description: pickRealDesc(existing.description) ?? enrichInitialDesc ?? '',
-          stars: existing.stars,
-          forks: existing.forks,
-          license: existing.license,
-          latest_version: existing.latest_version,
-          changelog: '',
-          is_verified: existing.is_verified,
-          readme_markdown: '',
-          releases: [],
-          category: existing.category,
-          category_name: existing.category_name,
-          forge: existing.forge,
-          forge_host: existing.forge_host,
-          homepage: existing.homepage,
-          platforms: existing.platforms,
-          isLoading: true,
-          isRefreshing: forceRefresh,
-        }
-      : {
-          id,
-          name: id,
-          owner: '加载中...',
-          repo: id,
-          icon: '📦',
-          icon_bg: 'linear-gradient(135deg, #475569, #334155)',
-          description: enrichInitialDesc ?? '正在获取应用元数据...',
-          description_en: enrichInitialDescEn,
-          stars: 0,
-          forks: 0,
-          license: '...',
-          latest_version: '...',
-          changelog: '',
-          is_verified: false,
-          readme_markdown: '',
-          releases: [],
-          category: 'system',
-          category_name: '应用',
-          forge: 'github',
-          forge_host: 'github.com',
-          homepage: null,
-          platforms: [],
-          isLoading: true,
-          isRefreshing: forceRefresh,
-        };
-
-    // 0ms 同步打开弹窗或切换刷新态，主界面无任何阻塞感
-    setSelectedApp(initialDetail);
-    // 浏览记录先落盘不阻塞详情；recents 刷新延后到详情同步之后，避免后到的后端占位快照覆盖富卡治愈值（load 内自带富卡治愈）。
-    void api.recordAppView(id).catch(() => {});
-
-    try {
-      const fullDetail = await api.getAppDetails(id, forceRefresh);
-      syncDetailCacheAndAppLists(idClean, fullDetail, false);
-    } catch (e) {
-      if (activeDetailIdRef.current === id) {
-        setSelectedApp((prev) =>
-          prev
-            ? { ...prev, isLoading: false, isRefreshing: false, loadError: String(e) }
-            : null
-        );
-      }
-    }
-    await loadRecentViews();
-  }, [loadRecentViews, syncDetailCacheAndAppLists]);
-
-  // 深链调度分发器（功能 E）
-  const {
-    pendingDeepLinkInstall,
-    setPendingDeepLinkInstall,
-  } = useDeepLink({
-    handleOpenDetail,
-    handleSearchChange,
-    setSelectedDeveloper,
-    setCurrentView,
-    showToast,
-    t,
-  });
 
   // Toggle Watch (FR-6.2: 关注 / 取消关注，后端未就绪时 Toast 提示且不崩溃)
   // useCallback + ref 稳定引用：搜索键入/图标升级时不连带卡片重渲染，仅选中态变化的那张经 isWatched 重渲染
@@ -1116,149 +387,6 @@ export const App: React.FC = () => {
     setSelectedPlatforms((prev) => togglePlatformSet(prev, id));
   }, []);
 
-  // 应用单项更新
-  const handleApplyUpdate = async (id: string) => {
-    try {
-      const updatedApp = await api.installApp(id);
-      setInstalledApps((prev) => [...prev.filter((a) => a.app_id !== id), updatedApp]);
-      setUpdates((prev) => prev.filter((u) => u.app_id !== id));
-      showToast(t('toast.update_success', { name: updatedApp.app_name || id }), 'success');
-    } catch (err) {
-      showToast(t('toast.update_failed', { error: String(err) }), 'error');
-    }
-  };
-
-  // 忽略单项更新（FR-4.4）
-  const handleIgnoreUpdate = async (id: string) => {
-    const target = updates.find((u) => u.app_id === id);
-    await api.setAppSkipVersion(id, target?.latest_version ?? null);
-    setUpdates((prev) => prev.filter((u) => u.app_id !== id));
-    const rules = await api.getUpdateRules();
-    setUpdateRules(rules);
-    showToast(t('toast.skip_update', { id }), 'info');
-  };
-
-  // 跳过指定版本（功能 C）
-  const handleSkipVersion = async (id: string, version: string) => {
-    await api.setAppSkipVersion(id, version);
-    setUpdates((prev) => prev.filter((u) => u.app_id !== id));
-    const rules = await api.getUpdateRules();
-    setUpdateRules(rules);
-    showToast(t('toast.skip_version', { id, version }), 'info');
-  };
-
-  // 锁定当前版本（功能 C）
-  const handleFreezeVersion = async (id: string) => {
-    await api.setAppFrozen(id, true);
-    setUpdates((prev) => prev.filter((u) => u.app_id !== id));
-    const rules = await api.getUpdateRules();
-    setUpdateRules(rules);
-    showToast(t('toast.lock_version', { id }), 'info');
-  };
-
-  // 隐藏应用（功能 C）
-  const handleHideApp = async (id: string) => {
-    await api.setAppHidden(id, true);
-    setUpdates((prev) => prev.filter((u) => u.app_id !== id));
-    const rules = await api.getUpdateRules();
-    setUpdateRules(rules);
-    const catalogApps = await api.searchApps(searchQuery);
-    setApps(catalogApps);
-    showToast(t('toast.hide_app', { id }), 'info');
-  };
-
-  // 移除规则（功能 C）
-  const handleRemoveRule = async (appId: string) => {
-    await api.removeUpdateRule(appId);
-    const rules = await api.getUpdateRules();
-    setUpdateRules(rules);
-    const freshUpdates = await api.checkForUpdates();
-    setUpdates(freshUpdates);
-    const catalogApps = await api.searchApps(searchQuery);
-    setApps(catalogApps);
-    showToast(t('toast.clear_rules', { id: appId }), 'success');
-  };
-
-  // 清除跳过版本规则
-  const handleClearRuleSkip = async (appId: string) => {
-    await api.setAppSkipVersion(appId, null);
-    const rules = await api.getUpdateRules();
-    setUpdateRules(rules);
-    const freshUpdates = await api.checkForUpdates();
-    setUpdates(freshUpdates);
-    showToast(t('toast.restore_rules', { id: appId }), 'success');
-  };
-
-  // 切换版本锁定状态
-  const handleToggleRuleFrozen = async (appId: string, isFrozen: boolean) => {
-    await api.setAppFrozen(appId, isFrozen);
-    const rules = await api.getUpdateRules();
-    setUpdateRules(rules);
-    const freshUpdates = await api.checkForUpdates();
-    setUpdates(freshUpdates);
-    showToast(isFrozen ? t('toast.rule_locked', { id: appId }) : t('toast.rule_unlocked', { id: appId }), 'info');
-  };
-
-  // 切换应用隐藏状态
-  const handleToggleRuleHidden = async (appId: string, isHidden: boolean) => {
-    await api.setAppHidden(appId, isHidden);
-    const rules = await api.getUpdateRules();
-    setUpdateRules(rules);
-    const freshUpdates = await api.checkForUpdates();
-    setUpdates(freshUpdates);
-    const catalogApps = await api.searchApps(searchQuery);
-    setApps(catalogApps);
-    showToast(isHidden ? t('toast.rule_hidden', { id: appId }) : t('toast.rule_unhidden', { id: appId }), 'info');
-  };
-
-  // 批量升级
-  const handleBatchUpdateAll = async () => {
-    showToast(t('toast.batch_update_starting'), 'info');
-    let successCount = 0;
-    let failCount = 0;
-    const remainingUpdates: UpdateItem[] = [];
-
-    for (const u of updates) {
-      try {
-        const updatedApp = await api.installApp(u.app_id);
-        setInstalledApps((prev) => [...prev.filter((a) => a.app_id !== u.app_id), updatedApp]);
-        successCount++;
-      } catch {
-        failCount++;
-        remainingUpdates.push(u);
-      }
-    }
-
-    setUpdates(remainingUpdates);
-    if (failCount === 0) {
-      showToast(t('toast.batch_update_success', { count: successCount }), 'success');
-    } else {
-      showToast(t('toast.batch_update_partial', { success: successCount, fail: failCount }), 'warning');
-    }
-  };
-
-  // 手动触发检查更新
-  const handleCheckUpdates = async () => {
-    showToast(t('toast.checking_updates'), 'info');
-    setIsCheckingUpdates(true);
-    setUpdates([]); // 清空旧列表，使最新检测出来的项目逐个跳出
-    setUpdateCheckProgress({ checked: 0, total: 0, app_id: '', app_name: '' });
-    try {
-      const freshUpdates = await api.checkForUpdates(true);
-      setUpdates(freshUpdates);
-      if (freshUpdates.length === 0) {
-        showToast(t('toast.all_latest'), 'success');
-      } else {
-        showToast(t('toast.updates_found', { count: freshUpdates.length }), 'info');
-      }
-    } catch (e) {
-      showToast(t('toast.check_failed', { error: String(e) }), 'error');
-    } finally {
-      setIsCheckingUpdates(false);
-      setUpdateCheckProgress(null);
-    }
-  };
-
   // 扫描系统已安装的开源应用（FR-5.3）
   const handleScanSystemApps = () => {
     setIsImportModalOpen(true);
@@ -1285,247 +413,6 @@ export const App: React.FC = () => {
   const handleSelectMirror = async (mirrorId: string) => {
     await api.switchMirror(mirrorId);
   };
-
-
-  // 任务 3：以平台优先派生数据供给 精选/趋势/分类 视图（使用同名 apps 属性）。
-  // 待确认行恒可见（不看 Other 勾选），落定后再走 matchPlatformSet。
-  const platformFilteredApps = useMemo(
-    () => apps.filter((a) => matchPlatformSetWithPending(a, selectedPlatforms, platformResolvedOtherIds)),
-    [apps, selectedPlatforms, platformResolvedOtherIds]
-  );
-  // 搜索在线段同口径平台过滤：与本地段一致，待确认恒可见，落定后走正常过滤。
-  const platformFilteredOnlineApps = useMemo(
-    () => onlineApps.filter((a) => matchPlatformSetWithPending(a, selectedPlatforms, platformResolvedOtherIds)),
-    [onlineApps, selectedPlatforms, platformResolvedOtherIds]
-  );
-  // 收藏页 left-join 供给：收录段（已平台过滤）+ 未收录占位段（收藏/关注 union 合成，同口径平台过滤后并入，
-  // 小写去重防双显）。其它视图仍用 `platformFilteredApps`，计数仍基于全量 `apps`。
-  const favoritesViewApps = useMemo(() => {
-    if (favoriteExtraApps.length === 0) return platformFilteredApps;
-    const filteredExtras = favoriteExtraApps.filter((a) =>
-      matchPlatformSetWithPending(a, selectedPlatforms, platformResolvedOtherIds),
-    );
-    if (filteredExtras.length === 0) return platformFilteredApps;
-    const baseLower = new Set<string>();
-    for (const a of platformFilteredApps) {
-      const k = (a.id || '').toLowerCase();
-      if (k) baseLower.add(k);
-    }
-    const deduped = filteredExtras.filter((e) => {
-      const k = (e.id || '').toLowerCase();
-      return k && !baseLower.has(k);
-    });
-    if (deduped.length === 0) return platformFilteredApps;
-    return [...platformFilteredApps, ...deduped];
-  }, [platformFilteredApps, favoriteExtraApps, selectedPlatforms, platformResolvedOtherIds]);
-
-  // 任务 4（设备平台全局过滤）：侧栏分组的各平台应用计数，
-  // 基于全量 `apps` 数组（而非已过滤数组）计算，以便准确呈现“有多少应用支持该设备”。
-  // 一次扫完 6 项：已确认 other 才计入虚拟 other 桶，待确认行暂不计数（首绘不闪 Other=23，
-  // 落定后单次更新），大小写归一，同应用去重后各桶 +1（与 6×filter 语义一致）。
-  const platformCounts = useMemo(() => {
-    const counts = {} as Record<PlatformId, number>;
-    for (const id of PLATFORM_IDS) {
-      counts[id] = 0;
-    }
-    const known = new Set<string>(PLATFORM_IDS as readonly string[]);
-    for (const a of apps) {
-      if (!a.platforms || a.platforms.length === 0) {
-        // 待确认：暂不计入任何桶；已确认 other：仅计 other 桶
-        if (isPlatformPending(a, platformResolvedOtherIds)) continue;
-        counts['other'] += 1;
-        continue;
-      }
-      const seen = new Set<string>();
-      for (const p of a.platforms) {
-        const n = normalizePlatform(p);
-        if (known.has(n) && !seen.has(n)) {
-          seen.add(n);
-          counts[n as PlatformId] += 1;
-        }
-      }
-    }
-    return counts;
-  }, [apps, platformResolvedOtherIds]);
-
-  // 目录 id（小写）→ AppSummary 索引，供已安装/更新列表 O(1) 查表，避免每行 apps.find 全扫
-  const appsById = useMemo(() => {
-    const map = new Map<string, AppSummary>();
-    for (const a of apps) {
-      const key = a.id.toLowerCase();
-      if (!map.has(key)) map.set(key, a);
-    }
-    return map;
-  }, [apps]);
-
-  // 收藏/关注 left-join：`(favoriteIds∪watchedIds) ∖ apps` 经 `getAppDetails`（后端
-  // `get_cached_app_detail_fallback` 回退）合成占位行，未收录也能展示。
-  // 归一大小写 + 双键（原值保留供展示层精确命中，小写建索引去重）；
-  // 合成行 `is_cataloged=false/category=external`，`platforms: []` 即 pending，
-  // 平台三态/徽标逻辑一律不动。失败即最小占位，行必展示；收录到达即驱逐。
-  useEffect(() => {
-    if (favoriteIds.size === 0 && watchedIds.size === 0) {
-      if (favoriteExtraAppsRef.current.length > 0) setFavoriteExtraApps([]);
-      return;
-    }
-    const catalogLower = new Set<string>();
-    for (const a of apps) {
-      const k = (a.id || '').toLowerCase();
-      if (k) catalogLower.add(k);
-    }
-    const current = favoriteExtraAppsRef.current;
-    const currentLower = new Set<string>();
-    for (const e of current) {
-      const k = (e.id || '').toLowerCase();
-      if (k) currentLower.add(k);
-    }
-    // 收录到达即驱逐（大小写归一），避免与目录行双显
-    let pruned: AppSummary[] | null = null;
-    if (current.length > 0 && catalogLower.size > 0) {
-      pruned = current.filter((e) => !catalogLower.has((e.id || '').toLowerCase()));
-      if (pruned.length !== current.length) setFavoriteExtraApps(pruned);
-    }
-    const baseLower = pruned ?? current;
-    const baseLowerSet = new Set<string>();
-    for (const e of baseLower) {
-      const k = (e.id || '').toLowerCase();
-      if (k) baseLowerSet.add(k);
-    }
-    // 收藏+关注 union 求缺：任一集合未收录即合成（共用同一占位 helpers/去重/inflight 口径）。
-    const unionIds = new Set<string>([...favoriteIds, ...watchedIds]);
-    const missing = findMissingFavoriteIds(unionIds, catalogLower, baseLowerSet).filter(
-      (id) => !favoriteExtraInflightRef.current.has(id.toLowerCase()),
-    );
-    if (missing.length === 0) return;
-    for (const id of missing) favoriteExtraInflightRef.current.add(id.toLowerCase());
-    let cancelled = false;
-    void (async () => {
-      try {
-        // 并发拉取、逐个落地：避免串行 6 倍等待；单个落盘经函数式去重，首个原值保留。
-        // 图标先占位后热替（不阻塞首屏）：落盘后经 `getAppIconCycle`（前端侧
-        // `resolve_confirmed_icon_from_db` 同源读 `app_icon_cycles` + 后端回填）
-        // 查轮换，命中即 `setFavoriteExtraApps` 逐个热替；已有合法远端仅文件预热。
-        await Promise.all(
-          missing.map(async (favId) => {
-            let summary: AppSummary;
-            try {
-              const detail = await api.getAppDetails(favId);
-              summary = favoriteSummaryFromDetail(detail);
-            } catch {
-              summary = makeFavoritePlaceholderSummary(favId);
-            }
-            if (cancelled) return;
-            const k = (summary.id || '').toLowerCase();
-            if (!k) return;
-            // 若期间收录到达则跳过（由驱逐逻辑收敛，不双显）
-            if (catalogLower.has(k)) return;
-            setFavoriteExtraApps((prev) => {
-              const lower = k;
-              for (const e of prev) {
-                if ((e.id || '').toLowerCase() === lower) return prev;
-              }
-              return [...prev, summary];
-            });
-            void (async () => {
-              try {
-                const currentIcon = (summary.icon || '').trim();
-                if (!needsFavoriteIconWarm(currentIcon)) {
-                  // 详情已带合法远端：仅文件预热（`preloadIcons` 去重/inflight 复用搜索同通道）
-                  preloadIcons([{ id: summary.id, icon: currentIcon }]);
-                  void api.getOrFetchIcon(summary.id, currentIcon).catch(() => {});
-                  return;
-                }
-                // 空/avatar/非远端：查轮换（同步读库命中即返，无则后端补探回填）
-                const cycle = await api.getAppIconCycle(favId);
-                const persistUrl = pickFavoritePersistIconUrl(cycle);
-                if (!persistUrl) return;
-                if (cancelled) return;
-                // 预热文件：触发 Rust getOrFetchIcon 落盘副作用，失败不阻塞
-                void api.getOrFetchIcon(summary.id, persistUrl).catch(() => {});
-                invalidateIconCache(k);
-                preloadIcons([{ id: summary.id, icon: persistUrl }]);
-                setFavoriteExtraApps((prev) => patchAppIconList(prev, k, persistUrl));
-              } catch {
-                // 取不到轮换图标则保持占位，不阻塞
-              }
-            })();
-          }),
-        );
-      } finally {
-        // 取消/完成均注销 inflight，避免泄漏导致后续 missing=0 自锁
-        for (const id of missing) favoriteExtraInflightRef.current.delete(id.toLowerCase());
-      }
-    })();
-    return () => {
-      cancelled = true;
-      // 同步注销本轮 inflight，保证 apps 到达后的下一轮能重算 missing
-      for (const id of missing) favoriteExtraInflightRef.current.delete(id.toLowerCase());
-    };
-  }, [favoriteIds, watchedIds, apps]);
-
-  const filteredInstalledApps = useMemo(() => {
-    return installedApps.filter((inst) => {
-      const catalogEntry = appsById.get(inst.app_id.toLowerCase());
-      return !catalogEntry || matchPlatformSetWithPending(catalogEntry, selectedPlatforms, platformResolvedOtherIds);
-    });
-  }, [installedApps, appsById, selectedPlatforms, platformResolvedOtherIds]);
-
-  const filteredUpdates = useMemo(() => {
-    return updates.filter((u) => {
-      const catalogEntry = appsById.get(u.app_id.toLowerCase());
-      return !catalogEntry || matchPlatformSetWithPending(catalogEntry, selectedPlatforms, platformResolvedOtherIds);
-    });
-  }, [updates, appsById, selectedPlatforms, platformResolvedOtherIds]);
-
-  const handleResetPlatformFilter = useCallback(() => {
-    setSelectedPlatforms(new Set<PlatformId>(PLATFORM_IDS));
-  }, []);
-
-  // 趋势榜单平台分布（TrendsView 上报其榜单行口径）：趋势页侧栏计数切到该口径，
-  // 其余页面沿用收录库口径。null = 尚未上报（首绘沿用收录库，避免闪 0）。
-  const [trendsPlatformCounts, setTrendsPlatformCounts] = useState<Record<PlatformId, number> | null>(null);
-  const handleTrendsPlatformCounts = useCallback((counts: Record<PlatformId, number>) => {
-    setTrendsPlatformCounts(counts);
-  }, []);
-  const sidebarPlatformCounts = currentView === 'trends' && trendsPlatformCounts ? trendsPlatformCounts : platformCounts;
-
-  const installedIds = useMemo(() => {    const set = new Set<string>();
-    for (const a of installedApps) {
-      set.add(a.app_id);
-      set.add(a.app_id.toLowerCase());
-    }
-    for (const id of detectedAppIds) {
-      set.add(id);
-      set.add(id.toLowerCase());
-    }
-    return set;
-  }, [installedApps, detectedAppIds]);
-
-  const managedIds = useMemo(() => {
-    const set = new Set<string>();
-    for (const a of installedApps) {
-      set.add(a.app_id);
-      set.add(a.app_id.toLowerCase());
-    }
-    return set;
-  }, [installedApps]);
-
-  // P0-1 深链安装确认弹窗：呈现应用名称、仓库/来源以及 SHA-256（优先使用已加载详情，兜底使用列表快照）。
-  const pendingDeepLinkDetail =
-    pendingDeepLinkInstall !== null &&
-    selectedApp !== null &&
-    selectedApp.id.toLowerCase() === pendingDeepLinkInstall.toLowerCase() &&
-    !selectedApp.isLoading
-      ? selectedApp
-      : null;
-  const pendingDeepLinkSummary =
-    pendingDeepLinkDetail ??
-    (pendingDeepLinkInstall !== null
-      ? appsById.get(pendingDeepLinkInstall.toLowerCase()) ??
-        recentlyViewedApps.find((a) => a.id.toLowerCase() === pendingDeepLinkInstall.toLowerCase()) ??
-        null
-      : null);
-  const pendingDeepLinkSha256 = pendingDeepLinkDetail?.releases.find((r) => r.sha256)?.sha256;
 
   // 跳转设置页 GitHub 账号区（侧栏登录胶囊入口）
   const handleOpenAccountSettings = () => {
