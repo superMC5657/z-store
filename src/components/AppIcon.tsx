@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
+import { clearBufferedIcon, isAvatarIconUrl as isAvatarIconStore } from '../services/iconStore';
 
 export interface AppIconProps {
   icon: string;
@@ -62,15 +63,11 @@ export function isRemoteIcon(icon: string | undefined | null): boolean {
   );
 }
 
-// 判定是否为作者头像（统一过滤，不再使用作者头像当仓库 Logo，无专属图走 L5 徽章）
+// 判定是否为作者头像（薄委托：口径唯一见 `services/iconStore.isAvatarIconUrl`，
+// 本函数仅为存量调用点兼容保留，不自立规则；无专属图走 L5 徽章）。
+// C1 读透：组件展示/缓存键控的 avatar 判定一律经此处（即店内口径），不内联第二套。
 export function isAvatarUrl(url: string | undefined | null): boolean {
-  if (!url) return false;
-  const u = url.trim().toLowerCase();
-  return (
-    u.includes('avatars.githubusercontent.com') ||
-    u.includes('identicons.github.com') ||
-    (u.startsWith('https://github.com/') && u.endsWith('.png') && !u.includes('/raw/'))
-  );
+  return isAvatarIconStore(url);
 }
 
 export function preloadIcons(items: (string | { id?: string; icon: string })[]) {
@@ -115,6 +112,11 @@ export const AppIcon: React.FC<AppIconProps> = ({
   iconOverride,
   loading = 'lazy',
 }) => {
+  // C1 读透适配（薄）：avatar 口径经 `isAvatarUrl`→店内 SSOT，不自立规则；
+  // level 单调由店内 `applyHit` 保证，此处不判 level；列表空壳补齐经上游
+  // `assembleOnlineRowsWithIcons`/`stickyIconFor`（`getBufferedIcon` 唯一口），
+  // 本组件只按 `icon` prop 展示（空即徽章，不在此回读缓冲，避免 L5 复活旧图，
+  // 见 `HomeView.search-icon` 回归线：空 prop 恒徽章）。
   const rawActiveIcon = iconOverride !== undefined ? iconOverride : icon;
   const activeIcon = isAvatarUrl(rawActiveIcon) ? '' : rawActiveIcon;
   const isDataUri = Boolean(activeIcon && activeIcon.startsWith('data:'));
@@ -165,11 +167,19 @@ export const AppIcon: React.FC<AppIconProps> = ({
           }
         } else {
           // L5 清零（url ''）：清掉该 appId 的内存缓存并置空展示，
-          // 否则后续 effect 的 `!activeIcon` 分支回读旧缓存致 L5 仍显旧图。
+          // 否则后续 effect 的 `!effectiveIcon` 分支回读旧缓存致 L5 仍显旧图。
+          // 店内缓冲亦经 `clearBufferedIcon` 显式清（L5 唯一允许的空覆盖实例外），
+          // 否则列表重组装经 `getBufferedIcon` 会复活旧图。
           iconDataCache.delete(appId);
           iconDataCache.delete(appId.toLowerCase());
           iconDataCache.delete(eventAppId);
           iconDataCache.delete(eventAppId.toLowerCase());
+          try {
+            clearBufferedIcon(appId);
+            clearBufferedIcon(eventAppId);
+          } catch {
+            // 缓存清理失败不阻塞展示置空
+          }
           setDisplaySrc('');
           setHasError(false);
         }

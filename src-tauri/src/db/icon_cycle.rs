@@ -299,10 +299,16 @@ pub fn set_level(db: &Database, app_id: &str, level: i32) -> Result<()> {
     db.set_icon_cycle_level(app_id, level)
 }
 
-// --- 图标轮换决策 SSOT（Shotgun Surgery 收敛落点） ---
+// --- 图标轮换决策 SSOT（Shotgun Surgery 收敛落点，C1 持久化唯一深口） ---
 // cataloged vs 非 cataloged 分流、owner/repo 解析（RepoRef）、文件名方案、
 // l2/l3/l4 槽位认领、级别推进、详情页图标层级决策 —— 各调用方只做薄委托，
 // 不再各自重写分支。纯决策，无 fs/网络/AppState 依赖；零行为变更。
+// 缝：probe-vs-persist——本文件永不做网络探测（无 client/token/probe 调用）；
+// 探测一律在 `github::icon_fetch` 深核，持久化（`catalog_filename` vs
+// `cycle_filename` + `icons/` 落盘 + 镜像改写） stays behind 适配器
+// （见 `commands::icons_cycle_probe`）。Curated Catalog 永不分支，例外仅
+// L1 填充（`ensure_cycle_levels`）与文件名分流（`catalog_filename` vs `cycle_filename`）。
+// ADR-0010：key 一律小写 `owner/repo`（`icon_key`/`canonical_app_id` 同值，见下）。
 
 /// 级别→来源映射。
 /// L4=README现场扒
@@ -323,6 +329,9 @@ pub fn is_fallback_for_level(level: i32) -> bool {
 
 /// 入站应用标识解析 SSOT：`RepositoryUrlParser::parse` 优先，`split_once('/')` 回退。
 /// 返回 `(canonical 小写 id, 原大小写 owner/repo)`；与原 resolve_app_coord 分支逐一对齐。
+/// ADR-0010：`canonical` 即 `forge::canonical_app_id` 的 GitHub 形态
+/// （小写 `owner/repo`），与 `github::icon_fetch::icon_key(owner, repo)` 同值；
+/// 事件 `key/id`、DB 主键、前端归一键一律用此值，不透传脏 id。
 pub fn resolve_icon_coord(app_id: &str) -> Result<(String, RepoRef), String> {
     let trimmed = app_id.trim();
     if trimmed.is_empty() {
@@ -392,13 +401,22 @@ pub fn owner_repo_for_new_cycle(lookup_id: &str) -> (String, String) {
     }
 }
 /// 收录应用缓存文件名：`{stem}.{ext}`（走 icon_cache_meta 表）。
+/// 非收录与收录的文件名分流为例外允许的 Catalog 分支（见模块缝注）；其余逻辑永不分支 Catalog。
 pub fn catalog_filename(stem: &str, ext: &str) -> String {
     format!("{}.{}", stem, ext)
 }
 
 /// 非收录应用缓存文件名：`{stem}_l{level}.{ext}`（走 app_icon_cycles 表，级别隔离）。
+/// 与 `catalog_filename` 的分流为唯一允许的 Catalog 分支；level 纯L 2/3/4（非收录永无 L1）。
 pub fn cycle_filename(stem: &str, level: i32, ext: &str) -> String {
     format!("{}_l{}.{}", stem, level, ext)
+}
+
+/// 规范图标 key（ADR-0010）：小写 `owner/repo`，与
+/// `github::icon_fetch::icon_key(owner, repo)` 同值。DB 主键/事件 key/前端归一键
+/// 统一经此（或 `resolve_icon_coord` 的 canonical），不手写 `to_lowercase` 散装拼接。
+pub fn canonical_icon_key(owner: &str, repo: &str) -> String {
+    format!("{}/{}", owner.to_lowercase(), repo.to_lowercase())
 }
 
 /// 非收录 url 槽位认领：命中既有 l2/l3/l4 返回其级别，

@@ -1,10 +1,49 @@
-/** 前端图标唯一写入口。
- * level纯L单调（via正交）；M1=内存（iconStore/searchListCache/enrich经getBufferedIcon/applyHit唯一口）；
- * M2=DB（via=m2首屏直填，不走emit）。
+/** 前端图标唯一写入口（C1 深核前端件）。
+ * level纯L单调（1=L1官方/2=L2品牌库/3=L3仓库/4=L4 README，via正交live|m2）；
+ * M1=内存（iconStore/searchListCache/enrich经getBufferedIcon/applyHit唯一口）；
+ * M2=DB（via=m2首屏直填，不走emit）；`data:`永不落盘只进M1内存。
+ * 缝：`applyHit` 为唯一写口；`AppIcon`/`useSearchState.assembleOnlineRowsWithIcons`/
+ * `enrich.stickyIconFor` 为读透适配（经 `getBufferedIcon`/`applyHit`，不自立
+ * avatar/empty/level 规则）；四列表写透（apps/onlineApps/recentlyViewedApps/
+ * favoriteExtraApps）经 `patch` 注入（见 `createFourListPatch`）。
  */
-import { invalidateIconCache, isAvatarUrl, preloadIcons } from '../components/AppIcon';
+import { invalidateIconCache, preloadIcons } from '../components/AppIcon';
 import type { AppSummary } from '../types';
 import { normalizeId, normalizeIdSet } from './normalizeId';
+
+/**
+ * 头像 URL 判定 SSOT（前端唯一口径，与后端 `is_avatar_url`/`is_avatar_icon_url` 同规则）：
+ * 头像永不进缓冲、永不落盘、永不覆盖实图。`AppIcon.isAvatarUrl` 与
+ * `enrich.isAvatarLike` 均为本函数的薄委托，禁止各自内联重复形状。
+ */
+export function isAvatarIconUrl(url: string | undefined | null): boolean {
+  if (!url) return false;
+  const u = url.trim().toLowerCase();
+  return (
+    u.includes('avatars.githubusercontent.com') ||
+    u.includes('identicons.github.com') ||
+    u.includes('github.com/identicons/') ||
+    (u.startsWith('https://github.com/') && u.endsWith('.png') && !u.includes('/raw/'))
+  );
+}
+
+/** 空图标判定 SSOT（读透适配统一用此件，不各自 `trim()===''` 散写）。 */
+export function isEmptyIcon(icon: unknown): boolean {
+  return typeof icon !== 'string' || icon.trim() === '';
+}
+
+/** 纯L合法性：1..5 为合法 level（1官方/2品牌库/3仓库/4 README/5空徽章）；
+ * 其余视为缺省（放行但不推进记忆）。L5 为显式空（cycle 切空），参与单调
+ * （L2→L5 接受、L5→L2 判 stale，见 `HomeView.search-icon` 回归线）。 */
+export function isPureLevel(level: unknown): level is number {
+  return (
+    typeof level === 'number' &&
+    Number.isFinite(level) &&
+    Number.isInteger(level) &&
+    level >= 1 &&
+    level <= 5
+  );
+}
 
 /** 图标事件上下文（后端 `icon_fetch::IconFetchCtx` 的前端镜像）。 */
 export interface IconHitContext {
@@ -194,8 +233,8 @@ export function applyHit(args: ApplyHitArgs): ApplyHitResult {
     return { accepted: false, targets, reason: keep ? 'empty-keeps-real' : 'empty-noop' };
   }
   const icon = rawIcon;
-  // 写透守卫：avatar 一律丢弃（不推进 `level` 记忆）。
-  if (isAvatarUrl(icon)) return { accepted: false, targets, icon, reason: 'avatar-dropped' };
+  // 写透守卫：avatar 一律丢弃（不推进 `level` 记忆）。口径唯一见 `isAvatarIconUrl`。
+  if (isAvatarIconUrl(icon)) return { accepted: false, targets, icon, reason: 'avatar-dropped' };
 
   // 世代门控：过期判断只此一处（搜索走 `search_id`，榜单走 `board`+`gen`）。
   // 内联门控三段：incoming 取 `context` 回落顶层，expected 即时取值回落静态值，双非空不等即过期任一为空即放行。
@@ -254,18 +293,20 @@ export function applyHit(args: ApplyHitArgs): ApplyHitResult {
   if (stale) return { accepted: false, targets, icon, reason: stale };
 
   // `level`纯L单调升级：低不顶高，via正交不参与比较（live L2/L3 不因 via 丢）。缺省即放行且不推进记忆。
+  // 仅 1..4（1官方/2品牌库/3仓库/4 README）参与记忆；非法值视为缺省。
   const level =
     typeof args.level === 'number' && Number.isFinite(args.level) ? args.level : undefined;
-  if (level !== undefined) {
+  const pureLevel = isPureLevel(level) ? (level as number) : undefined;
+  if (pureLevel !== undefined) {
     let currentMax: number | undefined;
     for (const t of targets) {
       const s = iconLevelById.get(t);
       if (s !== undefined && (currentMax === undefined || s > currentMax)) currentMax = s;
     }
-    if (currentMax !== undefined && level < currentMax) {
-      return { accepted: false, targets, icon, level, reason: 'level-stale' };
+    if (currentMax !== undefined && pureLevel < currentMax) {
+      return { accepted: false, targets, icon, level: pureLevel, reason: 'level-stale' };
     }
-    const next = currentMax === undefined ? level : Math.max(currentMax, level);
+    const next = currentMax === undefined ? pureLevel : Math.max(currentMax, pureLevel);
     for (const t of targets) iconLevelById.set(t, next);
   }
 
@@ -294,7 +335,7 @@ export function applyHit(args: ApplyHitArgs): ApplyHitResult {
       accepted: true,
       targets,
       icon,
-      level,
+      level: pureLevel,
       persisted: false,
       reason: icon.startsWith('data:') ? 'data-memory-only' : 'm2-memory-only',
     };
@@ -302,7 +343,7 @@ export function applyHit(args: ApplyHitArgs): ApplyHitResult {
 
   // 仅 `remote(http)` 才 `patch state + preloadIcons` 走 `get_or_fetch_icon` 落盘。
   if (!isRemoteHttpIconUrl(icon)) {
-    return { accepted: false, targets, icon, level, reason: 'non-remote-dropped' };
+    return { accepted: false, targets, icon, level: pureLevel, reason: 'non-remote-dropped' };
   }
   for (const t of targets) {
     try {
@@ -327,7 +368,7 @@ export function applyHit(args: ApplyHitArgs): ApplyHitResult {
     }
   }
   for (const t of targets) iconById.set(t, icon);
-  return { accepted: true, targets, icon, level, persisted: true };
+  return { accepted: true, targets, icon, level: pureLevel, persisted: true };
 }
 
 /** 仅供测试：清空 `level`/图标记忆。 */
@@ -352,4 +393,51 @@ export function getBufferedIcon(key: string): string | undefined {
 export function __getIconStoreLevel(id: string): number | undefined {
   if (typeof id !== 'string') return undefined;
   return iconLevelById.get(normalizeId(id));
+}
+
+/** L5 显式清零例外：用户手动切到空徽章时清掉该键缓冲（含 level 记忆），
+ * 否则后续 `assemble/sticky` 经缓冲回读会复活旧图。此为唯一允许的空覆盖实，
+ * 与 `applyHit` 空永不覆盖（被动空壳保护）正交。 */
+export function clearBufferedIcon(key: string): void {
+  const k = normalizeId(key);
+  if (!k) return;
+  iconById.delete(k);
+  iconLevelById.delete(k);
+}
+
+/**
+ * 四列表写透补丁工厂（`applyHit.patch` 注入用，App 侧 `setApps/setOnlineApps/
+ * setRecentlyViewedApps/setFavoriteExtraApps` 四件套）：
+ * 返回 `(targetIdLower, icon) => void`，内部分发 `patchAppIconList` 写透四列表，
+ * 单列表失败不阻塞其余。与 `App.tsx` 现内联四连 `patch` 同语义，收敛至此一处，
+ * 调用方可渐进替换（C1 只提供工厂，不改 `App.tsx` 壳）。
+ */
+export function createFourListPatch(setters: {
+  setApps: (f: (prev: AppSummary[]) => AppSummary[]) => void;
+  setOnlineApps: (f: (prev: AppSummary[]) => AppSummary[]) => void;
+  setRecentlyViewedApps: (f: (prev: AppSummary[]) => AppSummary[]) => void;
+  setFavoriteExtraApps: (f: (prev: AppSummary[]) => AppSummary[]) => void;
+}): (targetIdLower: string, icon: string) => void {
+  return (targetIdLower: string, icon: string) => {
+    try {
+      setters.setApps((prev) => patchAppIconList(prev, targetIdLower, icon));
+    } catch {
+      // 单列表失败不阻塞其余
+    }
+    try {
+      setters.setOnlineApps((prev) => patchAppIconList(prev, targetIdLower, icon));
+    } catch {
+      // 同上
+    }
+    try {
+      setters.setRecentlyViewedApps((prev) => patchAppIconList(prev, targetIdLower, icon));
+    } catch {
+      // 同上
+    }
+    try {
+      setters.setFavoriteExtraApps((prev) => patchAppIconList(prev, targetIdLower, icon));
+    } catch {
+      // 同上
+    }
+  };
 }

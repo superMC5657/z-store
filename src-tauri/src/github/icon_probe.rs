@@ -1,7 +1,15 @@
-//! 图标探测（与 z-store-catalog 同源逻辑）：
+//! 图标探测原语 SSOT（与 z-store-catalog 同源逻辑）：
 //! 品牌库 Simple Icons → 翻全家 Git Trees 全库评分。
 //! 调用方找不到缓存时按此逻辑派生替代图标 URL；本模块只负责“找 URL 并验字节”，
 //! 缓存读写仍由调用方（`commands::icons` / `github::detail`）负责。
+//!
+//! C1 深核分工：本文件为探针原语层（`derive_slugs`/`score_candidate`/
+//! `verify_image`+`fetch_range_head`/`probe_simple_icons`/`probe_trees`/
+//! `resolve_probe_branches`，`buffered(3)`+首包验图+caps），调度与 L2→L3 编排
+//! 在 `github::icon_fetch` 深核（`probe_single_live`/`fetch_icons_stream`）。
+//! `icons_cycle_probe` 的串行 naive 探已删，一律经深核直调本原语；本模块永不触 DB/fs。
+//! D5/D6/D8：双池复用（调用方给 client，CDN 恒丢 token）+ `buffered(3)` 有界 +
+//! 首包验图与跳过（HEAD→Range 首 32KB→magic→300B）。
 
 use reqwest::header::HeaderMap;
 use serde::Deserialize;

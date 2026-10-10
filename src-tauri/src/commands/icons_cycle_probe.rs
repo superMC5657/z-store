@@ -1,6 +1,12 @@
 use crate::AppState;
 use serde::{Deserialize, Serialize};
 
+/// 图标 C1 深核适配层（薄）：探测经 `github::icon_fetch` 深核直调
+/// `icon_probe` 原语（L2/L3-live），持久化经 `db::icon_cycle` SSOT + `icons/` 落盘；
+/// L1=官方填充 + L4=README 现场扒分居本适配器（详情链专属，不受流式核约束）。
+/// 已删：串行 naive `probe_simple_icons`/`probe_git_trees` 重复拷贝、
+/// `SEARCH_PROBE_BRANCHES` 第三套分支硬编码、匿名分支循环浪费——一律经深核。
+
 /// ADR-0008：网络超时统一经 `get_project_config().network.api_timeout_seconds` 获取；
 /// 配置为 0（未设置）时回退到调用方传入的历史硬编码值，行为保持不变。
 pub(crate) fn api_timeout_or(fallback: std::time::Duration) -> std::time::Duration {
@@ -168,8 +174,9 @@ pub(crate) fn load_or_new_cycle(
 }
 
 /// 匿名兜底探测唯一落点（原 get_or_fetch_icon 直取失败分支，语义逐行对齐）：
-/// 无 token，只跑免鉴权级（Simple Icons），跳过 Trees 以保护匿名配额；
-/// 先拿确切默认分支（匿名一次调用，失败则退化 main/master 双试），命中即下载返回字节。
+/// 无 token，只跑免鉴权级（Simple Icons L2），跳过 Trees 以保护匿名配额；
+/// 经 `icon_fetch::probe_anon_simple` 深核单调（无分支循环浪费），命中即下载返回字节。
+/// L4 不进匿名兜底（需网络详情链专属）；avatar 由调用链后端 `resolve_confirmed` 过滤。
 pub(crate) async fn fetch_anon_probe_bytes(
     client: &reqwest::Client,
     state: &AppState,
@@ -177,159 +184,21 @@ pub(crate) async fn fetch_anon_probe_bytes(
     owner: &str,
     repo: &str,
 ) -> Option<Vec<u8>> {
-    // 分支获取复用共用 `icon_probe::resolve_probe_branches`（匿名 UA 头，无 token），
-    // 与 `probe_git_trees` 同源，避免第三套 main/master 硬编码。
-    let mut anon_hdrs = reqwest::header::HeaderMap::new();
-    anon_hdrs.insert(
-        reqwest::header::USER_AGENT,
-        reqwest::header::HeaderValue::from_static(crate::forge::http::BROWSER_UA_VALUE),
+    let probed_url = crate::github::icon_fetch::probe_anon_simple(client, owner, repo).await?;
+    log::debug!(
+        "icon probe fallback hit app_id='{}' source=simple-icons url='{}'",
+        app_id_label,
+        crate::log_support::sanitize_url(&probed_url)
     );
-    let branches =
-        crate::github::icon_probe::resolve_probe_branches(client, &anon_hdrs, owner, repo).await;
-    let mut probed_url: Option<String> = None;
-    for b in branches {
-        if let Some(p) =
-            crate::github::icon_probe::probe_repo_logo(client, None, owner, repo, &b).await
-        {
-            log::debug!(
-                "icon probe fallback hit app_id='{}' source={} url='{}'",
-                app_id_label,
-                p.source,
-                crate::log_support::sanitize_url(&p.url)
-            );
-            probed_url = Some(p.url);
-            break;
-        }
-    }
-    let purl = probed_url?;
-    let probe_mirror = mirror_url_for(state, &purl);
-    crate::commands::icons::download_icon_bytes(client, probe_mirror.as_deref(), &purl)
+    let probe_mirror = mirror_url_for(state, &probed_url);
+    crate::commands::icons::download_icon_bytes(client, probe_mirror.as_deref(), &probed_url)
         .await
         .ok()
 }
 
-/// 品牌库 Simple Icons 探测（图标L2=品牌库）
-async fn probe_simple_icons(client: &reqwest::Client, owner: &str, repo: &str) -> String {
-    let mut slugs = crate::github::icon_probe::derive_slugs(repo);
-    for s in crate::github::icon_probe::derive_slugs(owner) {
-        if !slugs.contains(&s) {
-            slugs.push(s);
-        }
-    }
-    if slugs.is_empty() {
-        return String::new();
-    }
-
-    const BROWSER_UA: &str = crate::forge::http::BROWSER_UA_VALUE;
-    let probe_timeout = api_timeout_or(std::time::Duration::from_secs(5));
-
-    for slug in slugs {
-        let cdn = format!("https://cdn.simpleicons.org/{}", slug);
-        let req = client.get(&cdn).header("User-Agent", BROWSER_UA).send();
-        if let Ok(Ok(resp)) = tokio::time::timeout(probe_timeout, req).await {
-            if resp.status().is_success() {
-                let ctype = resp
-                    .headers()
-                    .get(reqwest::header::CONTENT_TYPE)
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or("")
-                    .to_string();
-                if ctype.contains("svg")
-                    || ctype.starts_with("image/")
-                    || ctype.contains("octet-stream")
-                {
-                    if let Ok(bytes) = resp.bytes().await {
-                        if bytes.len() >= 300 {
-                            return cdn;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    String::new()
-}
-
-/// 翻全家 Git Trees 评分探测（图标L3=仓库）
-/// 有 token 才跑，无 token 则跳过返回空
-async fn probe_git_trees(
-    client: &reqwest::Client,
-    token: Option<&str>,
-    owner: &str,
-    repo: &str,
-) -> String {
-    let Some(tok) = token.filter(|t| !t.trim().is_empty()) else {
-        return String::new();
-    };
-
-    let mut hdrs = reqwest::header::HeaderMap::new();
-    if let Ok(v) = reqwest::header::HeaderValue::from_str(&format!("Bearer {}", tok.trim())) {
-        hdrs.insert(reqwest::header::AUTHORIZATION, v);
-    }
-    hdrs.insert(
-        reqwest::header::USER_AGENT,
-        reqwest::header::HeaderValue::from_static(crate::forge::http::BROWSER_UA_VALUE),
-    );
-
-    // 分支获取复用共用 `icon_probe::resolve_probe_branches`
-    //（先 GET repos 取 default_branch 5s 超时，再补 main/master，最多3分支，与搜索共源）。
-    let branches =
-        crate::github::icon_probe::resolve_probe_branches(client, &hdrs, owner, repo).await;
-
-    #[derive(Debug, Deserialize)]
-    struct GitTree {
-        tree: Vec<GitTreeNode>,
-    }
-    #[derive(Debug, Deserialize)]
-    struct GitTreeNode {
-        path: Option<String>,
-        #[serde(rename = "type")]
-        node_type: Option<String>,
-        size: Option<u64>,
-    }
-
-    // 首命中即停：命中直接返回，不补拉剩余分支；保持顺序逐分支试探，不做并发竞速。
-    for branch in branches {
-        let tree_url = format!(
-            "https://api.github.com/repos/{}/{}/git/trees/{}?recursive=1",
-            owner, repo, branch
-        );
-        let req = client.get(&tree_url).headers(hdrs.clone()).send();
-        if let Ok(Ok(resp)) = tokio::time::timeout(api_timeout_or(std::time::Duration::from_secs(12)), req).await {
-            if resp.status().is_success() {
-                if let Ok(tree) = resp.json::<GitTree>().await {
-                    let mut best: Option<(i32, u64, String)> = None;
-                    for node in tree.tree.iter().filter(|n| {
-                        n.node_type.as_deref() == Some("blob") && n.path.is_some()
-                    }) {
-                        let p = node.path.as_deref().unwrap_or("");
-                        let s = crate::github::icon_probe::score_candidate(p, node.size, repo);
-                        if s > 0 && node.size.is_none_or(|z| z >= 300) {
-                            let cand = (s, node.size.unwrap_or(0), p.to_string());
-                            if best.as_ref().is_none_or(|b| cand.0 > b.0 || (cand.0 == b.0 && cand.1 > b.1)) {
-                                best = Some(cand);
-                            }
-                        }
-                    }
-                    if let Some((_, _, path)) = best {
-                        return format!(
-                            "https://raw.githubusercontent.com/{}/{}/{}/{}",
-                            owner,
-                            repo,
-                            branch,
-                            path.trim_start_matches('/')
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    String::new()
-}
-
-/// README 图标探测。
-/// L4=README现场扒
+/// README 图标探测（L4 详情链专属适配器，不受流式核约束，需网络）。
+/// L4=README现场扒：先读本地详情缓存 `readme_markdown`，再远端拉取；
+/// 与 L2/L3-live 正交（L2/L3 经深核，L4 经此处）。
 async fn probe_readme(
     client: &reqwest::Client,
     state: &AppState,
@@ -387,8 +256,12 @@ async fn probe_readme(
     String::new()
 }
 
-/// 填充补全 1..4 各级可用 URL。
-/// L4=README现场扒
+/// 填充补全 1..4 各级可用 URL（详情/cycle 适配器，薄）：
+/// - L1=官方：仅收录应用官方源填 `l1_url`（Curated Catalog 例外之 L1 填充）；
+///   未收录永不填 L1（UI cycle 非收录 only）。
+/// - L2/L3-live：经 `icon_fetch` 深核（`probe_l2_simple`/`probe_l3_trees`，
+///   `buffered(3)`+验图+caps），不另写 naive 探；L3 无 token 直接跳过。
+/// - L4=README现场扒：经本文件 `probe_readme`（详情链专属，需网络）。
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn ensure_cycle_levels(
     cycle: &mut crate::db::AppIconCycle,
@@ -412,24 +285,38 @@ pub(crate) async fn ensure_cycle_levels(
         }
     }
 
-    // 图标L2=品牌库：品牌库 Simple Icons
+    // 图标L2=品牌库：品牌库 Simple Icons（深核）
     let need_l2 = cycle.l2_url.trim().is_empty();
-    // 图标L3=仓库：翻全家 Git Trees (有 token 才跑)
-    let need_l3 = token.is_some() && cycle.l3_url.trim().is_empty();
+    // 图标L3=仓库：翻全家 Git Trees (有 token 才跑，深核)
+    let need_l3 = token.filter(|t| !t.trim().is_empty()).is_some()
+        && cycle.l3_url.trim().is_empty();
     // L4=README现场扒
     let need_l4 = cycle.l4_url.trim().is_empty();
+    // L3 鉴权头与流式核同源（`token_headers`，Token 方案；旧 cycle Bearer 已收敛）。
+    let slow_headers = token
+        .filter(|t| !t.trim().is_empty())
+        .map(|t| crate::github::http::token_headers(Some(t)));
 
     let (probed_l2, probed_l3, probed_l4) = tokio::join!(
         async {
             if need_l2 {
-                probe_simple_icons(&client, owner, repo).await
+                crate::github::icon_fetch::probe_l2_simple(&client, owner, repo)
+                    .await
+                    .unwrap_or_default()
             } else {
                 String::new()
             }
         },
         async {
             if need_l3 {
-                probe_git_trees(&client, token, owner, repo).await
+                crate::github::icon_fetch::probe_l3_trees(
+                    &client,
+                    slow_headers.as_ref(),
+                    owner,
+                    repo,
+                )
+                .await
+                .unwrap_or_default()
             } else {
                 String::new()
             }

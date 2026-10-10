@@ -241,6 +241,7 @@ pub(crate) fn get_icon_cache_path(app_id: &str, remote_url: &str) -> std::path::
 }
 
 /// H2：图标拉取专用 HTTP 客户端（超时 + 有限重定向，委托 `forge::http` SSOT，与 API client 隔离）。
+/// D5 双池复用：本 client 与 API client 物理隔离；图标 CDN 通道恒丢 token（见深核 `probe_l2_simple`）。
 pub(crate) fn icon_http_client() -> reqwest::Client {
     let secs = crate::config::get_project_config()
         .network
@@ -248,7 +249,10 @@ pub(crate) fn icon_http_client() -> reqwest::Client {
     crate::forge::http::new_icon_client(secs).unwrap_or_default()
 }
 
-/// 图标下载与校验通用 helper（支持镜像重写、超时重试、格式与非空校验）。
+/// 图标下载与校验通用 helper（薄适配器，下载缝 stays behind）：
+/// 支持镜像重写（avatar 永不走镜像，见 `icons_cycle_probe::mirror_url_for`）、
+/// 超时重试、格式与非空校验。只做单 URL 拉取与验图，不做 L2/L3 探
+/// （探测在 `github::icon_fetch` 深核）；`get_or_fetch_icon` 与 cycle 恢复路径共用此件。
 pub async fn download_icon_bytes(
     client: &reqwest::Client,
     mirror_url: Option<&str>,
@@ -363,6 +367,11 @@ pub async fn download_icon_bytes(
     Err(format!("拉取远程图标失败 ({}): {}", url_trimmed, last_err))
 }
 
+/// C1 薄适配器：`get_or_fetch_icon` 只做缓存读→远端拉→两表分流落盘，
+/// 探测只经深核匿名兜底（`icons_cycle::fetch_anon_probe_bytes`→`icon_fetch::probe_anon_simple`），
+/// 不内联第二套探。缝：`catalog_filename` vs `cycle_filename` 文件名分流 +
+/// 镜像改写 stays behind（见 `icons_cycle_probe`）；level 纯L，via 正交由上游事件表达，
+/// 本命令返回 `data:` 永不进盘语义由前端 `applyHit` 守卫（`data:` 只进 M1 内存）。
 #[tauri::command]
 pub async fn get_or_fetch_icon(
     state: State<'_, AppState>,

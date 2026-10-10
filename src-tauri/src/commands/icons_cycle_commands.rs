@@ -6,6 +6,12 @@ use super::icons_cycle_probe::{
 use crate::AppState;
 use tauri::State;
 
+/// C1 薄适配器：L1–L5 UI 轮换仅非收录应用可切（收录恒 L1，不切换）；
+/// 探测经 `ensure_cycle_levels`（L2/L3-live 走 `icon_fetch` 深核，L4 走 `probe_readme`，
+/// L1 仅收录官方填充），持久化经 `db::icon_cycle` SSOT（`catalog_filename` vs
+/// `cycle_filename` 分流），下载经 `icons::download_icon_bytes`。
+/// 本文件不写第二套探/第二套文件名规则，只做编排。
+
 /// 写侧同步归一化：返回 `Some(new_icon)` 表示需同步 `detail_json.icon`，`None` 表示跳过。
 /// - 空 selected（L5）→ `Some("")`（显式清空，前端降级首字母徽章）；
 /// - avatar → `Some("")`（与 `history::detail_to_summary` 置空口径一致，

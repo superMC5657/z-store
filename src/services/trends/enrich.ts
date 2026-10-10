@@ -1,6 +1,6 @@
 import type { AppDetail, AppSummary, TrendRepo } from '../../types';
 import { tauriApi } from '../api';
-import { getBufferedIcon, mergeStickyIcon } from '../iconStore';
+import { getBufferedIcon, isAvatarIconUrl, mergeStickyIcon } from '../iconStore';
 import { normalizeId, normalizeIdSet } from '../normalizeId';
 
 /** enrich 派生缓存 TTL：12h（坐标元数据日内几乎不变，与 DOFORCE 快照同口径）。 */
@@ -214,8 +214,9 @@ export function sweepExpiredTrendConfirmedOtherCache(): void {
 const trendEnrichCache = new Map<string, { timestamp: number; data: AppSummary }>();
 
 /**
- * icon 粘性合并：旧图标非空 + 回填空则沿用旧值，其余采用回填值。
+ * icon 粘性合并（C1 读透适配，薄）：旧图标非空 + 回填空则沿用旧值，其余采用回填值。
  * M1内存回读：空图标沿用 iconStore 缓冲实图，保证内存与本次返回值一致。
+ * avatar/empty/level 一律经店内 SSOT，此处不自立规则（avatar 剥离见 `isAvatarLike`→店内）。
  */
 function stickyIconFor(cur: AppSummary | undefined, incoming: AppSummary): AppSummary {
   const merged = mergeStickyIcon(cur, incoming);
@@ -621,13 +622,8 @@ function richStr(v: unknown): string {
 }
 
 function isAvatarLike(url: unknown): boolean {
-  if (typeof url !== 'string' || url.trim() === '') return false;
-  const u = normalizeId(url);
-  return (
-    u.includes('avatars.githubusercontent.com') ||
-    u.includes('identicons.github.com') ||
-    (u.startsWith('https://github.com/') && u.endsWith('.png') && !u.includes('/raw/'))
-  );
+  // 薄委托：口径唯一见 `services/iconStore.isAvatarIconUrl`，此处不自立规则。
+  return isAvatarIconUrl(typeof url === 'string' ? url : null);
 }
 
 export function diffRichSummary(prev: AppSummary, next: AppSummary): string[] {

@@ -1,19 +1,32 @@
-//! 统一图标补探核心（后端抽 core，不碰前端）。
+//! 统一图标补探深核（后端 probe+schedule 唯一深模块，只做探测与调度，永不触 DB/fs）。
 //!
 //! - 归口原 `commands::catalog_search::search_apps_online` 内联的后台快慢探
 //!   （`spawn + stream::iter().buffer_unordered(pool).for_each + save_and_emit`），
 //!   对外伪接口等价于 `fetch_icons_stream(jobs, token, cfg, emit)`，其中
 //!   `jobs=[{id,owner,repo,ctx}]`，`ctx=Search{search_id,gen} | Trend{board,gen}`。
-//! - 行为：并发池 `cfg.pool`（默认 5，与趋势 `buffered(5)` 对齐）；
+//! - 行为：并发池 `cfg.pool`（默认 5，与趋势 `buffered(5)` 对齐，D6）；
 //!   快路径 SimpleIcons / 慢路径 Trees 超时经
 //!   `network.api_timeout_seconds` 统一配置，未设置回退 1500ms/12s 历史值；
 //!   快路径外层兜底 `api_timeout_or(8000ms)`、慢路径分支顺序 main→master、
 //!   整批 `cfg.total_timeout_secs`（默认 15s）按页伸缩，均与原内联语义相同；
 //!   世代防串（`SEARCH_GEN` 落库前 + emit 前双检查）由调用方 `emit` 回调
 //!   （`catalog_search::save_and_emit`）负责，core 只做探测与调度，不触 DB。
+//! - 单仓深核 `probe_single_live`（L2→L3）为流式与详情 cycle 共用的唯一探核：
+//!   `fetch_icons_stream` 逐 job 调它；`icons_cycle_probe::ensure_cycle_levels` 的
+//!   L2/L3 与 `fetch_anon_probe_bytes` 的匿名兜底亦经它（或其 L2/L3 拆分件），
+//!   不再各写一套串行 naive 探。L4=README 与 L1=官方填充分居详情/cycle 适配器，
+//!   不进本核。
 //! - M2=DB落盘命中零网络，由调用方在进 core 前短锁预解析，不经本 core 探测。
 //!   L4=README需网络，详情链专属，不受本核心约束，本 core 不探 README。
 //!   level纯L(2=L2品牌库,3=L3仓库)；缓存正交用via(live|m2)表M2，pool=5/total伸缩。
+//! - 缝：probe-vs-persist——core 永不触 DB/fs（无 `Database`/`std::fs` 引用）；
+//!   `icons/` 落盘（`catalog_filename` vs `cycle_filename`）与镜像改写 stays behind
+//!  （见 `commands::icons_cycle_probe` 适配器）。`compat_collect` buffered 趋势
+//!   等齐路为 legacy 适配器（见 `commands::catalog_search::enrich_trend_repos_buffered`），
+//!   本核不删它、不依赖它。
+//! - D5/D6/D8：双池复用（icon client 隔离，CDN 恒丢 token）+ 有界池 5 +
+//!   首包验图与跳过（HEAD→Range 首 32KB→magic→300B，见 `icon_probe::verify_image`）。
+//!   Curated Catalog 永不分支：仅 L1 填充 + 文件名分流为例外（见 cycle 适配器）。
 
 
 //! - 事件：调用方 `emit` 回调用本模块的 [`IconReadyPayload`]
@@ -30,7 +43,10 @@ use tauri::{AppHandle, Emitter};
 /// 动态解析（先 GET repos 取 `default_branch` 5s 超时，再补 main/master，最多3分支，
 /// 与 `commands::icons_cycle_probe::probe_git_trees` 同源共用）；
 /// 本常量仅为回退基线 + 存量单测断言保留（值与 `icon_probe::FALLBACK_PROBE_BRANCHES` 同源）。
+/// 缝：新代码一律用 `icon_probe::FALLBACK_PROBE_BRANCHES`；本别名仅为
+/// `commands::catalog_search` 存量断言的 legacy 适配，勿在新探路中引用。
 #[allow(dead_code)]
+#[deprecated(note = "legacy alias; use icon_probe::FALLBACK_PROBE_BRANCHES")]
 pub(crate) const SEARCH_PROBE_BRANCHES: [&str; 2] =
     crate::github::icon_probe::FALLBACK_PROBE_BRANCHES;
 
@@ -74,7 +90,9 @@ fn default_icon_via() -> String {
     "live".to_string()
 }
 
-/// 统一事件 key：小写 `owner/repo`。
+/// 统一事件 key：小写 `owner/repo`（ADR-0010 `canonical_app_id` 的 GitHub 形态）。
+/// 入站标识一律先经 `forge::canonical_app_id` 归一化，再拆 owner/repo 进本函数；
+/// 本函数只做小写拼接，不做解析（解析 SSOT 在 `forge::RepositoryUrlParser`）。
 pub fn icon_key(owner: &str, repo: &str) -> String {
     format!("{}/{}", owner.to_lowercase(), repo.to_lowercase())
 }
@@ -99,6 +117,82 @@ pub fn icon_ready_payload(
 /// 新发统一事件 `zstore://icon-ready`（吞错，与旧事件 emit 语义一致）。
 pub fn emit_icon_ready(handle: &AppHandle, payload: &IconReadyPayload) {
     let _ = handle.emit("zstore://icon-ready", payload);
+}
+
+/// L2 单探深核（品牌库 SimpleIcons，免鉴权）：`icon_probe::probe_simple_icons`
+/// 的超时外层薄包（外层兜底 8000ms 经 `api_timeout_seconds`，内层每 slug 1500ms
+/// 经同配置）。命中返 URL，未命中返 `None`。cycle 适配器 L2 直调此件，不另写串行 naive 探。
+pub(crate) async fn probe_l2_simple(
+    client: &reqwest::Client,
+    owner: &str,
+    repo: &str,
+) -> Option<String> {
+    tokio::time::timeout(
+        crate::commands::catalog_search::api_timeout_or(std::time::Duration::from_millis(8000)),
+        crate::github::icon_probe::probe_simple_icons(client, owner, repo),
+    )
+    .await
+    .ok()
+    .flatten()
+    .map(|h| h.url)
+    .filter(|u| !u.trim().is_empty())
+}
+
+/// L3 单探深核（仓库 Git Trees，需鉴权头）：动态分支解析
+/// （先 GET repos 取 `default_branch` 5s 超时，再补 main/master，最多3分支）后
+/// 逐分支 `probe_trees`，首命中即停。无 headers（匿名）直接 `None`
+/// （保护匿名配额，与流式“无 token 只走快路径”同语义）。
+/// cycle 适配器 L3 直调此件，不另写串行 naive 探。
+pub(crate) async fn probe_l3_trees(
+    client: &reqwest::Client,
+    slow_headers: Option<&reqwest::header::HeaderMap>,
+    owner: &str,
+    repo: &str,
+) -> Option<String> {
+    let hdrs = slow_headers?;
+    let branches =
+        crate::github::icon_probe::resolve_probe_branches(client, hdrs, owner, repo).await;
+    for branch in &branches {
+        if let Some(h) =
+            crate::github::icon_probe::probe_trees(client, hdrs, owner, repo, branch).await
+        {
+            if !h.url.trim().is_empty() {
+                return Some(h.url);
+            }
+        }
+    }
+    None
+}
+
+/// 匿名单探深核（无 token 免鉴权级）：只跑 L2，不跑 Trees（保护匿名配额），
+/// 不做分支循环（`probe_repo_logo(None)` 本就忽略分支，循环属重复浪费，已删）。
+/// `get_or_fetch_icon` 直取失败兜底与 `fetch_anon_probe_bytes` 经此件，不另起第三套。
+pub(crate) async fn probe_anon_simple(
+    client: &reqwest::Client,
+    owner: &str,
+    repo: &str,
+) -> Option<String> {
+    probe_l2_simple(client, owner, repo).await
+}
+
+/// 单仓 live 探测深核（L2→L3，快命中即返不等慢）：
+/// 流式 `fetch_icons_stream` 逐 job 调此件；cycle 适配器需一次性拿 (url, level)
+/// 时亦调此件。`slow_headers=None`（匿名/无 token）只探 L2。
+/// 返回 `(url, level)`（level 纯L 2/3，via 一律 live 由调用方填）；未命中 `None`。
+/// core 只探测不触 DB/fs。
+pub(crate) async fn probe_single_live(
+    client: &reqwest::Client,
+    slow_headers: Option<&reqwest::header::HeaderMap>,
+    owner: &str,
+    repo: &str,
+) -> Option<(String, i32)> {
+    if let Some(url) = probe_l2_simple(client, owner, repo).await {
+        return Some((url, 2));
+    }
+    if let Some(url) = probe_l3_trees(client, slow_headers, owner, repo).await {
+        return Some((url, 3));
+    }
+    None
 }
 
 /// 后台图标补探 stream（见模块文档）。
@@ -149,54 +243,12 @@ pub async fn fetch_icons_stream<F, Fut>(
         let slow_headers = slow_headers.clone();
         let emit = emit.clone();
         async move {
-            // 快慢分离：快路径 SimpleIcons（repo+owner 去重单循环，每 slug 超时与
-            // 外层兜底均经 api_timeout_seconds 统一配置，未设置时回退 1500ms/8000ms 历史值），
-            // 快命中立即回调并 emit，不等慢路径。
-            let fast_url = tokio::time::timeout(
-                crate::commands::catalog_search::api_timeout_or(std::time::Duration::from_millis(
-                    8000,
-                )),
-                crate::github::icon_probe::probe_simple_icons(&client, &job.owner, &job.repo),
-            )
-            .await
-            .ok()
-            .flatten()
-            .map(|h| h.url)
-            .unwrap_or_default();
-
-            if !fast_url.trim().is_empty() {
-                emit(handle, job, fast_url, 2, "live".to_string()).await;
-                return;
-            }
-
-            // 慢路径：快未命中且有 token 才跑 Trees；超时只弃慢不弃快。
-            // 分支动态解析（先 GET repos 取 default_branch 5s 超时，
-            // 再补 main/master，最多3分支），复用 `icon_probe::resolve_probe_branches`
-            //（与 `icons_cycle_probe::probe_git_trees` 同源）；
-            // main 未命中回退 master（ZCode 类老仓默认分支为 master）。
-            if let Some(hdrs) = slow_headers.as_ref() {
-                let branches = crate::github::icon_probe::resolve_probe_branches(
-                    &client, hdrs, &job.owner, &job.repo,
-                )
-                .await;
-                let mut hit = None;
-                for branch in &branches {
-                    if let Some(h) = crate::github::icon_probe::probe_trees(
-                        &client,
-                        hdrs,
-                        &job.owner,
-                        &job.repo,
-                        branch,
-                    )
-                    .await
-                    {
-                        hit = Some(h);
-                        break;
-                    }
-                }
-                if let Some(hit) = hit {
-                    emit(handle, job, hit.url, 3, "live".to_string()).await;
-                }
+            // 快慢分离深核单调：经 `probe_single_live`（L2→L3，快命中即返不等慢，
+            // 慢仅快未命中且有 token 时跑）。超时/分支语义见该函数，不在此内联第二套。
+            if let Some((url, level)) =
+                probe_single_live(&client, slow_headers.as_ref(), &job.owner, &job.repo).await
+            {
+                emit(handle, job, url, level, "live".to_string()).await;
             }
         }
     }))
@@ -256,7 +308,15 @@ mod tests {
     #[test]
     fn search_icon_branches_keep_master_fallback() {
         // 回归：慢路径 Trees 必须覆盖 master（ZCode 类老仓默认分支），顺序 main 优先。
-        assert_eq!(SEARCH_PROBE_BRANCHES, ["main", "master"]);
-        assert!(SEARCH_PROBE_BRANCHES.contains(&"master"));
+        // 新代码用 `icon_probe::FALLBACK_PROBE_BRANCHES`；此处经 legacy 别名断言以
+        // 兼容 `catalog_search` 存量断言（C4 域，C1 不碰该文件，故别名暂留）。
+        #[allow(deprecated)]
+        let branches = SEARCH_PROBE_BRANCHES;
+        assert_eq!(branches, ["main", "master"]);
+        assert!(branches.contains(&"master"));
+        assert_eq!(
+            crate::github::icon_probe::FALLBACK_PROBE_BRANCHES,
+            ["main", "master"]
+        );
     }
 }
