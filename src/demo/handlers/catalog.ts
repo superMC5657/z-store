@@ -54,9 +54,13 @@ export function handleGetHomeFeed(a: InvokeArgs): {
   return { items, total: ranked.length, has_more: offset + items.length < ranked.length };
 }
 
-export function handleSearchAppsOnline(a: InvokeArgs): AppSummary[] {
+export function handleSearchAppsOnline(a: InvokeArgs): { rows: AppSummary[]; sid: string } {
+  // Mock 回声：直透前端 `search_id` 为 `sid`（与 Rust `OnlineSearchResult` 同形收敛；
+  // 无 id（legacy 调用）则 `sid=''` 保持窗开，永不伪造。调用方经 `searchAppsOnline`
+  // 归一器收敛，无需改调用点）。
+  const sid = argStr(a, 'search_id', 'searchId', 'search-id');
   const qRaw = argStr(a, 'query').trim();
-  if (!qRaw) return [];
+  if (!qRaw) return { rows: [], sid };
   const rawPer = argNum(a, 'per_page', 'perPage', 'per-page');
   const rawPage = argNum(a, 'page');
   const perPage = rawPer === undefined ? 12 : Math.min(50, Math.max(1, Math.floor(rawPer)));
@@ -66,7 +70,7 @@ export function handleSearchAppsOnline(a: InvokeArgs): AppSummary[] {
       : Math.floor(rawPage);
   if (qRaw.includes('/')) {
     const exact = findSummary(qRaw);
-    if (exact) return page === 1 ? [exact] : [];
+    if (exact) return { rows: page === 1 ? [exact] : [], sid };
   }
   const q = qRaw.toLowerCase();
   const matched = summaries.filter((s) =>
@@ -75,7 +79,7 @@ export function handleSearchAppsOnline(a: InvokeArgs): AppSummary[] {
       .includes(q),
   );
   const start = (page - 1) * perPage;
-  return matched.slice(start, start + perPage);
+  return { rows: matched.slice(start, start + perPage), sid };
 }
 
 export function handleEnrichTrendRepos(a: InvokeArgs): (AppSummary | null)[] {
