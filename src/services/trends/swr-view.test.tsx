@@ -9,11 +9,12 @@ import { clearTrendsCache } from './cache';
 import {
   clearTrendEnrichCache,
   hydrateTrendEnrichCache,
+  markTrendConfirmedOthers,
   snapshotTrendConfirmedOthers,
   snapshotTrendEnrichCache,
 } from './enrich';
 
-describe('SWR 组件直展：重挂首屏即见富 pending 卡，不闪裸行', () => {
+describe('SWR 组件直展：重挂首屏即见已确认 Other 富卡，不闪裸行', () => {
   (globalThis as Record<string, unknown>)['IS_REACT_ACT_ENVIRONMENT'] = true;
 
   beforeEach(async () => {
@@ -32,8 +33,9 @@ describe('SWR 组件直展：重挂首屏即见富 pending 卡，不闪裸行', 
     vi.restoreAllMocks();
   });
 
-  it('预 hydrate pending 后挂载直展 AppCard，无裸行占位', async () => {
-    // 重启前 L2 富信封：三仓均为 pending（Other 待确认语义）
+  it('预 hydrate 已确认 Other 后挂载直展 AppCard，无裸行占位', async () => {
+    // 重启前 L2 富信封：三仓均为已确认 Other（先 mark 后 hydrate，未确认 pending 永不进内存）
+    markTrendConfirmedOthers(['acme/atlas', 'acme/beacon', 'acme/comet']);
     hydrateTrendEnrichCache({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [] }),
       'acme/beacon': makeEnrichedApp({ id: 'acme/beacon', platforms: [] }),
@@ -57,7 +59,7 @@ describe('SWR 组件直展：重挂首屏即见富 pending 卡，不闪裸行', 
         onResetPlatformFilter={() => {}}
       />,
     );
-    // 首屏直展：pending 富卡描述出现，且无裸行占位闪烁
+    // 首屏直展：已确认 Other 富卡描述出现，且无裸行占位闪烁
     await screen.findByText('acme/atlas enriched desc');
     await waitFor(() => {
       expect(container.querySelectorAll('.trend-uncataloged-row')).toHaveLength(0);
@@ -152,9 +154,9 @@ describe('平台随富卡缓存：L2 新鲜免验，过期才补验', () => {
     expect(liteSpy).not.toHaveBeenCalled();
   });
 
-  it('L2混合仅pending补验：具平台零调用，r1/r3/r5/r7/r9各一次，首屏无裸行', async () => {
-    // L2 富信封：偶下标具平台（免验）、奇下标 pending（后台补验），均为新鲜 hydrate；
-    // 首屏两档均展旧卡、无裸行。
+  it('L2混合：具平台直展，pending 经 enrich+lite 落定（首屏裸行占位，落定后富卡）', async () => {
+    // L2 富信封：偶下标具平台（直展免验）、奇下标未确认 pending（永不进内存，首屏裸行占位）；
+    // 奇下标经后台 enrich 取回 pending，再走 lite 补验落定，不闪空。
     const bulk: Record<string, ReturnType<typeof makeEnrichedApp>> = {};
     for (let i = 0; i < 11; i += 1) {
       bulk[`acme/r${i}`] =
@@ -167,30 +169,34 @@ describe('平台随富卡缓存：L2 新鲜免验，过期才补验', () => {
       if (String(url).includes('github.com/trending')) return elevenRowsHtml();
       throw new Error(`unexpected url: ${url}`);
     });
-    const enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos');
+    // 后台 enrich 取回奇下标 pending（只活当次 out，不进内存），再由 lite 确认
+    const enrichSpy = vi
+      .spyOn(tauriApi, 'enrichTrendRepos')
+      .mockImplementation(async (rs) =>
+        rs.map((r) => makeEnrichedApp({ id: `${r.owner}/${r.repo}`, platforms: [], icon: '' })),
+      );
     const liteSpy = vi
       .spyOn(tauriApi, 'getPlatformsLite')
       .mockImplementation(async (id: string) => ({ id, platforms: [], is_stale: false }));
     const { container } = renderBoard();
 
-    // 首屏先展旧卡（含 pending 富卡），无裸行占位
+    // 首屏：偶下标具平台直展富卡；奇下标未确认 pending 无旧卡，裸行占位（恒可见，不断榜）
     await screen.findByText('acme/r0 enriched desc');
+    // 后台 enrich 拉回缺席项（奇下标 pending）
+    await waitFor(() => {
+      expect(enrichSpy).toHaveBeenCalled();
+    });
+    // lite 仅补奇下标 5 仓（具平台与已确认免验）
+    await waitFor(() => {
+      expect(liteSpy).toHaveBeenCalledTimes(5);
+    });
+    const calledIds = liteSpy.mock.calls.map(([id]) => String(id).trim().toLowerCase()).sort();
+    expect(calledIds).toEqual(['acme/r1', 'acme/r3', 'acme/r5', 'acme/r7', 'acme/r9']);
+    // 回来落定（空非 stale 确认为 Other）后富卡齐展，不闪裸
     await waitFor(() => {
       expect(container.querySelectorAll('.trend-uncataloged-row')).toHaveLength(0);
     });
     expect(container.querySelectorAll('.app-card').length).toBeGreaterThanOrEqual(11);
-    // enrich 无缺席不拉；lite 仅补 pending 5 仓
-    await waitFor(() => {
-      expect(liteSpy).toHaveBeenCalledTimes(5);
-    });
-    await new Promise((r) => setTimeout(r, 50));
-    expect(enrichSpy).not.toHaveBeenCalled();
-    const calledIds = liteSpy.mock.calls.map(([id]) => String(id).trim().toLowerCase()).sort();
-    expect(calledIds).toEqual(['acme/r1', 'acme/r3', 'acme/r5', 'acme/r7', 'acme/r9']);
-    // 回来落定（空非 stale 确认为 Other）不闪裸
-    await waitFor(() => {
-      expect(container.querySelectorAll('.trend-uncataloged-row')).toHaveLength(0);
-    });
   });
 
   it('L2 过期后才补验：网络重拉 + enrich 落定后调 getPlatformsLite', async () => {

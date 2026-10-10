@@ -80,7 +80,7 @@ export function buildTrendsCacheKey(board: TrendBoardId, opts: FetchTrendsOption
   return `${board}|${language}|${category}`;
 }
 
-/** 旧 key 兼容读一次。 */
+/** 无归一 key 读一次（大小写/空格原样）。 */
 export function buildLegacyTrendsCacheKey(board: TrendBoardId, opts: FetchTrendsOptions = {}): string {
   return `${board}|${opts.language ?? ''}|${opts.category ?? ''}`;
 }
@@ -101,7 +101,7 @@ export function trendsBoardTtlMs(board: string): number {
 export function readTrendsCache(key: string, board: string): TrendRepo[] | undefined {
   const hit = trendsCache.get(key);
   if (!hit) return undefined;
-  // Phase2治理时钟钳制：elapsed<0（系统时钟回拨/未来戳）按过期处理，不返回 stale。
+  // 时钟钳制：elapsed<0（系统时钟回拨/未来戳）按过期处理，不返回 stale。
   const elapsed = Date.now() - hit.timestamp;
   if (elapsed < 0) {
     trendsCache.delete(key);
@@ -156,7 +156,7 @@ export const CMD_SAVE_TREND_BOARD_CACHE = 'save_trend_board_cache';
 /**
  * 榜单持久化信封 v1：
  * 包装榜单裸仓列表与对应的坐标 enrich 派生摘要。
- * enrich 键为小写 `owner/repo`，收录具真实平台与 pending 空平台条目（SWR 首屏直展，Other 待确认语义）；
+ * enrich 键为小写 `owner/repo`，收录具真实平台与 pending 空平台条目（首屏直展，Other 待确认语义）；
  * 仅禁 dataURI（图标 data: 开头一律不进盘）。
  * confirmedOther 为已确认 Other 键集。
  * 新鲜度复用 `cached_at` + 按榜 TTL。
@@ -176,11 +176,12 @@ interface DbTrendBoardCacheRow {
 /**
  * 榜缓存二级落盘读：
  * - 双形状解析：
- *   1) 纯数组 Array → 旧格式兼容，直接返回 TrendRepo[]；
- *   2) { v: 1, repos, enrich } 信封 → 新格式，repos 必须非空数组，enrich 逐项守卫后调 hydrateTrendEnrichCache 载入内存，并返回 repos；
- * - 命中且未过期返回解析后的 TrendRepo[]；过期判定含 Phase2 错峰抖动（见下）；
+ *   1) 纯数组 Array → 裸榜数组，直接返回 TrendRepo[]；
+ *   2) { v: 1, repos, enrich, confirmedOther } 信封 → 新格式，repos 必须非空数组，
+ *      enrich 逐项守卫后调 hydrateTrendEnrichCache 载入内存，并返回 repos；
+ * - 命中且未过期返回解析后的 TrendRepo[]；过期判定含错峰抖动（见下）；
+ * - 回填顺序：先 hydrate 确认集，再 hydrate enrich（pending 仅已确认键进内存，未确认 pending 丢弃）；
  * - 命令未就绪 / DB 损坏 / 反序列化失败 / 已过期一律降级返回 undefined（视为 miss 走网络）。
- * Phase2治理：
  * - 时钟钳制 elapsed<0 按过期；
  * - 读抖动 0-30s，只扣减不延长。
  */
@@ -209,7 +210,7 @@ export async function getDbTrendCache(key: string, board?: string): Promise<Tren
 
     const parsed: unknown = JSON.parse(payloadStr);
 
-    // 形状 1: Array → 旧格式兼容（裸榜数组）
+    // 形状 1: Array → 裸榜数组
     if (Array.isArray(parsed)) {
       if (parsed.length === 0) {
         return undefined;
@@ -224,8 +225,27 @@ export async function getDbTrendCache(key: string, board?: string): Promise<Tren
         return undefined;
       }
 
+      // 已确认 Other 先回填：与 enrich 同 key 落盘；仅收非空小写键并 hydrate 进内存
+      // （具平台键由 hydrate 侧跳过，到期由 TTL 重验；读盘永不触发写盘）。
+      const rawConfirmed = (envelope as { confirmedOther?: unknown }).confirmedOther;
+      let guardedConfirmed: string[] = [];
+      if (Array.isArray(rawConfirmed)) {
+        const seen = new Set<string>();
+        for (const raw of rawConfirmed) {
+          if (typeof raw !== 'string') continue;
+          const k = raw.trim().toLowerCase();
+          if (!k || seen.has(k)) continue;
+          seen.add(k);
+          guardedConfirmed.push(k);
+        }
+        if (guardedConfirmed.length > 0) {
+          hydrateTrendConfirmedOtherCache(guardedConfirmed);
+        }
+      }
+
       // enrich 逐项守卫：id/owner/repo 非空即保留（无 token 时慢探不跑，enrich 常无图标，
       // 重启直展要求 pending 允许 icon 空）；仅禁 dataURI；platforms 仅要求为数组。
+      // pending 进内存与否由 hydrate 侧按确认集裁决（已确认 pending 进，未确认丢弃）。
       const guardedEnrich: Record<string, AppSummary> = {};
       if (envelope.enrich && typeof envelope.enrich === 'object') {
         for (const [rawKey, item] of Object.entries(envelope.enrich)) {
@@ -250,23 +270,6 @@ export async function getDbTrendCache(key: string, board?: string): Promise<Tren
       }
 
       hydrateTrendEnrichCache(guardedEnrich);
-      // 已确认 Other 回填：与 enrich 同 key 落盘，data 禁入已由 enrich 守卫保证；
-      // 此处仅收非空小写键并 hydrate 进内存（具平台键由 hydrate 侧跳过，到期由 TTL 重验）。
-      const rawConfirmed = (envelope as { confirmedOther?: unknown }).confirmedOther;
-      let guardedConfirmed: string[] = [];
-      if (Array.isArray(rawConfirmed)) {
-        const seen = new Set<string>();
-        for (const raw of rawConfirmed) {
-          if (typeof raw !== 'string') continue;
-          const k = raw.trim().toLowerCase();
-          if (!k || seen.has(k)) continue;
-          seen.add(k);
-          guardedConfirmed.push(k);
-        }
-        if (guardedConfirmed.length > 0) {
-          hydrateTrendConfirmedOtherCache(guardedConfirmed);
-        }
-      }
       const repos = envelope.repos as TrendRepo[] & {
         enrich?: Record<string, AppSummary>;
         confirmedOther?: string[];
@@ -290,11 +293,11 @@ export async function getDbTrendCache(key: string, board?: string): Promise<Tren
  * 榜缓存二级落盘写。
  * - 第 4 参 enrich 可选：无参保持旧数组 JSON 写入；有参且合法时写入 { v: 1, repos, enrich } 信封。
  * - 第 5 参 confirmedOther 可选：已确认 Other 键集（小写），与 enrich 同 key 落盘（data 仍禁由 enrich 守卫保证）；
- *   具平台键调用方已过滤，此处再做一次去重归一；为空即省略字段（旧盘兼容）。
- * - SWR 富信封：pending 空平台随信封落盘（首屏直展 pending 卡，Other 待确认语义）；仅禁 dataURI。
+ *   具平台键调用方已过滤，此处再做一次去重归一；为空即省略字段。
+ * - 富信封：pending 空平台随信封落盘（首屏直展 pending 卡，Other 待确认语义）；仅禁 dataURI。
  * - 已确认 Other 同信封落盘：settle 兜底 / lite 空非 stale 确认后按正常 enrich 同 key 写透，重挂免验直展 Other 卡；
  *   具平台到达即移除（可覆盖升级），按榜窗口（daily 1h，其余 12h）由 cached_at + 按榜 TTL 把关，到期重验。
- * - Phase2治理字节上限：FE utf8ByteLength 预检 256KB；超限先丢 confirmed 再降级裸榜，仍超限放弃写盘。
+ * - 字节上限：FE utf8ByteLength 预检 256KB；超限先丢 confirmed 再降级裸榜，仍超限放弃写盘。
  *   BE 512KiB 硬拒绝保持（见 db/cache.rs TREND_BOARD_CACHE_MAX_BYTES），FE 预检避免无谓 invoke。
  * - 空榜不写盘。
  */
@@ -417,9 +420,12 @@ function wantedEnrichKeys(repos: TrendRepo[]): Set<string> {
 
 /**
  * 榜单写盘合并口（先读后写，防裸覆盖富）。
- * - 已确认 Other 同 key 合并。
- * - 合并后有富条目即存富信封（含确认集），否则存裸数组；空榜直接返回不写盘。
+ * - 已确认 Other 同 key 合并：内存确认 + 旧盘确认取并集（仍属本榜），具平台键剔除；
+ * - 旧盘富条目合并：具平台恒保留；pending 仅确认键保留，未确认 pending 永不回写；
+ * - 合并后有富条目或有确认集即存富信封（含确认集），否则存裸数组；空榜直接返回不写盘。
  * boards 主体落盘与 TrendsView 写透统一走此口，关闭前丢失/裸存覆盖即被堵住。
+ * - 现状：写透节流由调用方 debounce（TrendsView scheduleBoardWriteThrough 800ms）保持；
+ *   读路径 hydrate/sweep 不触发写放大，仅显式变化（mark/unmark/具平台驱逐 emit）触发写透。
  */
 export async function saveBoardCacheMerged(
   key: string,
@@ -433,21 +439,7 @@ export async function saveBoardCacheMerged(
   let mergedConfirmed: string[] = snapshotTrendConfirmedOthers(repos).filter((k) => wanted.has(k));
   try {
     const prev = await getDbTrendCache(key, board);
-    const prevEnrich = (prev as { enrich?: Record<string, AppSummary> } | undefined)?.enrich;
-    if (prevEnrich) {
-      for (const [k, v] of Object.entries(prevEnrich)) {
-        if (!wanted.has(k)) continue;
-        const cur = merged[k];
-        if (!cur) {
-          merged[k] = v;
-          continue;
-        }
-        const curHas = Array.isArray(cur.platforms) && cur.platforms.length > 0;
-        const prevHas = Array.isArray(v.platforms) && v.platforms.length > 0;
-        if (!curHas && prevHas) merged[k] = v;
-      }
-    }
-    // 确认集合并。
+    // 确认集合并优先：旧盘确认先并入，后续旧富条目以全集过滤（未确认 pending 永不回写）。
     const prevConfirmed = (prev as { confirmedOther?: unknown } | undefined)?.confirmedOther;
     if (Array.isArray(prevConfirmed)) {
       const seen = new Set(mergedConfirmed);
@@ -457,6 +449,22 @@ export async function saveBoardCacheMerged(
         if (!k || !wanted.has(k) || seen.has(k)) continue;
         mergedConfirmed.push(k);
         seen.add(k);
+      }
+    }
+    const prevEnrich = (prev as { enrich?: Record<string, AppSummary> } | undefined)?.enrich;
+    if (prevEnrich) {
+      const confirmedSet = new Set(mergedConfirmed);
+      for (const [k, v] of Object.entries(prevEnrich)) {
+        if (!wanted.has(k)) continue;
+        const prevHas = Array.isArray(v.platforms) && v.platforms.length > 0;
+        if (!prevHas && !confirmedSet.has(k)) continue;
+        const cur = merged[k];
+        if (!cur) {
+          merged[k] = v;
+          continue;
+        }
+        const curHas = Array.isArray(cur.platforms) && cur.platforms.length > 0;
+        if (!curHas && prevHas) merged[k] = v;
       }
     }
   } catch {
@@ -470,7 +478,7 @@ export async function saveBoardCacheMerged(
       return true;
     });
   }
-  if (Object.keys(merged).length > 0) {
+  if (Object.keys(merged).length > 0 || mergedConfirmed.length > 0) {
     await saveDbTrendCache(
       key,
       board,

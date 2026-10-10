@@ -29,6 +29,7 @@ import {
   saveBoardCacheMerged,
   snapshotTrendConfirmedOthers,
   snapshotTrendEnrichCache,
+  subscribeTrendConfirmedOtherChanges,
   unmarkTrendConfirmedOthers,
   TREND_BOARD_IDS,
   type DetailPlatformsHealPayload,
@@ -129,6 +130,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     trendResult,
     gainKey,
     isLoading,
+    boardReady,
     errorKind,
     handleRetry,
     isRefreshing,
@@ -144,9 +146,12 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   // 未收录行榜单内已确认 Other（lite 空非 stale 落定 + settle 超时兜底）：
   // App 级 lazyBackfill 只补 apps/recents，此处补 enrichedApps 覆盖不到的缺口；
   // 与全局 platformResolvedOtherIds 取并集判定 pending，详情治愈时同步移除。
+  // 现状：初值置空由下 SWR 合并补齐；重启同 key 命中不回 pending；未就绪展裸行不拦榜。
   const [trendConfirmedOtherIds, setTrendConfirmedOtherIds] = useState<Set<string>>(
     () => new Set<string>(),
   );
+  // 现状：当前 trendResult 的 SWR 合并是否已完成（快照与 hydrate 一致即升级富卡，不拦裸行）。
+  const [swrSyncedResult, setSwrSyncedResult] = useState<unknown>(null);
   const trendLiteInflightRef = useRef<Set<string>>(new Set());
   const trendBoardSeqRef = useRef(0);
   // 榜缓存二级新鲜富卡免验集：SWR-fill 时内存快照已有的键（二级新鲜期内直接展，不调 lite）；
@@ -361,6 +366,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       }
       return changed ? next : prev;
     });
+    // 现状：SWR 合并完成即记同步（快照与 hydrate 一致即原地升级富卡，不拦裸行）。
+    setSwrSyncedResult(trendResult);
   }, [trendResult]);
 
   // 未收录行 enrichment：逐仓复用搜索 enrichment（Rust 侧并发 5、分片 20/片×2 片=40 上限、单仓 10s），
@@ -491,12 +498,20 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     };
   }, []);
 
+  // 已确认变更写透联动：mark/unmark（lite 确认、settle 兜底、详情治愈、具平台升级）触发后，
+  // 节流写透同榜 key（含确认集，重挂免验）；读路径 hydrate/sweep 不触发，无读放大。
+  useEffect(() => {
+    return subscribeTrendConfirmedOtherChanges(() => {
+      const { cacheKey } = writeThroughRef.current;
+      if (!cacheKey) return;
+      scheduleBoardWriteThrough(cacheKey);
+    });
+  }, []);
+
   // 趋势流式图标订阅。
-  // 后台 `icon-ready` 经 `applyHit`
-  // 接上 `board` 门控（与搜索 `search_id` 门控同构：双非空不等即丢弃，任一为空即放行；
-  // 后端 `BOARD_GEN` 落库前+emit前双检查独立防串串榜）逐个补齐富卡图标。
-  // `SHARD20` 只管 platforms 回填不管图标：此处只 patch 图标（空不覆实/level 单调/avatar 丢弃
-  // 均由店内保证），平台逻辑不动；`data:` 只进内存不落盘（hydrate 内跳过），`remote` 才
+  // 后台 `icon-ready` 经 `applyHit` 接上 `board` 门控逐个补齐富卡图标。
+  // 此处只 patch 图标（空不覆实/`level`纯L单调/avatar 丢弃均由店内保证），
+  // 平台逻辑不动；`data:`/`via=m2`只进M1内存不落盘（hydrate 内跳过），`remote`才
   // hydrate + 节流写透榜缓存二级。
   useEffect(() => {
     let cancelled = false;
@@ -513,7 +528,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
         } | null;
         const kind =
           ctx && typeof ctx.kind === 'string' ? ctx.kind.trim().toLowerCase() : '';
-        // 趋势只消费新统一事件的 `trend` 上下文；搜索（旧事件无 context/`search`）交 App 处理。
+        // 趋势只消费 `trend` 上下文；搜索（`search`）交 App 处理。
         if (kind !== 'trend') return;
         const asStr = (v: unknown): string | undefined =>
           typeof v === 'string' ? v : undefined;
@@ -523,6 +538,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
           app_id: asStr(raw['app_id']),
           icon: asStr(raw['icon']),
           level: typeof raw['level'] === 'number' ? (raw['level'] as number) : undefined,
+          via: asStr(raw['via']),
           context: ctx,
           board: activeBoard,
           getCurrentIcon: (tid) => {
@@ -1059,7 +1075,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
           }
           if (aliasConfirmed.length > 0) {
             markTrendConfirmedOthers(aliasConfirmed);
-            // data: 兜底：确认项图标为 data: 时剥为空后再 hydrate，保证快照可收录（仍禁 data: 入盘）。
+            // 已确认摘要进内存：先 mark 后 hydrate（已确认 pending 方可进内存，随榜缓存同 key 落盘）；
+            // data: 剥空后 hydrate（仍禁 data: 入盘），具平台不合成。
             try {
               const toHydrate: Record<string, AppSummary> = {};
               const latest = enrichedAppsRef.current;
@@ -1067,9 +1084,10 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                 const cur = latest[k];
                 if (!cur) continue;
                 if (cur.platforms && cur.platforms.length > 0) continue;
-                if (typeof cur.icon === 'string' && cur.icon.startsWith('data:')) {
-                  toHydrate[k] = { ...cur, icon: '' };
-                }
+                toHydrate[k] =
+                  typeof cur.icon === 'string' && cur.icon.startsWith('data:')
+                    ? { ...cur, icon: '' }
+                    : cur;
               }
               if (Object.keys(toHydrate).length > 0) {
                 hydrateTrendEnrichCache(toHydrate);
@@ -1196,10 +1214,11 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       }
       if (aliasKeys.length === 0) return;
       try {
+        // 先 mark 再 hydrate：已确认 pending 方可进内存（未确认 pending 永不进内存/落库）。
+        markTrendConfirmedOthers(aliasKeys);
         if (Object.keys(toHydrate).length > 0) {
           hydrateTrendEnrichCache(toHydrate);
         }
-        markTrendConfirmedOthers(aliasKeys);
       } catch {
         // 标记失败仍尝试本地落定
       }
@@ -1253,6 +1272,15 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     if (gainKey === 'month') return t('trends.stars_gained_month', { count });
     return t('trends.stars_gained_week', { count });
   };
+
+  // 现状：未就绪不再拦整榜，board repos 直接展裸行（与下裸行同形），富卡到即原地升级。
+  // 门信号仅用于升级判定，不阻塞裸行直展。
+  const isUpgradePending =
+    !boardReady ||
+    (trendResult?.status === 'ok' &&
+      trendResult.repos.length > 0 &&
+      swrSyncedResult !== trendResult);
+  void isUpgradePending;
 
   return (
     <ViewShell viewClass="trends-view">

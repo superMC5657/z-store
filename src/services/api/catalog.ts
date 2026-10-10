@@ -89,10 +89,10 @@ export async function enrichTrendRepos(
 }
 
 /**
- * 只听新统一事件 `zstore://icon-ready{key,id,icon,level,context}`（P1 统一收口）：
- * 后端只发新事件，前端只订阅新事件。
- * 世代门控走 `services/iconStore.applyHit`（读 `context.search_id` vs `currentSearchId`，
- * 与旧顶层 `search_id` 语义一致），调用方只做新旧载荷适配 + React 列表 `patch` 注入。
+ * 只听统一事件 `zstore://icon-ready{key,id,icon,level,via,context}`：
+ * 前端只订阅此事件（`via`透传，M2首屏直填不走emit）。
+ * 世代门控走 `services/iconStore.applyHit`（读 `context.search_id` vs `currentSearchId`），
+ * `level`纯L单调，调用方只做载荷适配 + React 列表 `patch` 注入。
  */
 export type SearchIconUpgradePayload = IconReadyPayload;
 

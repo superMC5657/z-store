@@ -3,7 +3,7 @@
 - 状态：Accepted
 - 日期：2026-10-08
 - 关联：ADR-0011（doforce 例外）、ADR-0010（小写 canonical）
-- 前置：Phase1A（Rust L2）+ Phase1B（前端正确性）+ Phase2（治理）已合入；`.scratch/feature-trends-board/issues/01-06` 为设计提案，主干以本 ADR 为准。
+- 前置：主干以本 ADR 为准；`.scratch/feature-trends-board/issues/01-06` 为设计提案。
 
 ## 1. 表结构（14 张，无 `search_result_cache`）
 

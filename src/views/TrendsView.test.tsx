@@ -790,6 +790,9 @@ describe('TrendsView 未收录行 enrich：成功升 AppCard，失败留小行',
     expect(openUrlSpy).toHaveBeenCalledWith('https://github.com/acme/atlas');
     expect(onQuickInstall).not.toHaveBeenCalled();
     expect(container.querySelector('.trend-uncataloged-row')).toBeNull();
+    // 现状：裸行直展升级富卡，全程无骨架空号。
+    expect(screen.queryByTestId('trends-skeleton')).toBeNull();
+    expect(container.querySelector('.trends-skeleton')).toBeNull();
   });
 
   it('enrich 失败保留旧小行，榜单永不因此变空', async () => {
@@ -797,9 +800,9 @@ describe('TrendsView 未收录行 enrich：成功升 AppCard，失败留小行',
     enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockRejectedValue(new Error('offline'));
     const { container } = renderUncatalogedBoard();
 
-    // 加载期小行占位先出现
+    // 现状：board 落定即展裸行有名（排名+仓库名+星），裸行即逃生。
     await screen.findByText('acme/atlas');
-    // enrich 拒绝后仍为 3 个小行，无完整卡片
+    // enrich 拒绝后仍为 3 个小行，无完整卡片，全程无骨架空号。
     await waitFor(() => {
       expect(enrichSpy).toHaveBeenCalled();
     });
@@ -807,6 +810,8 @@ describe('TrendsView 未收录行 enrich：成功升 AppCard，失败留小行',
       expect(container.querySelectorAll('.trend-uncataloged-row')).toHaveLength(3);
     });
     expect(container.querySelector('.app-card .app-desc')).toBeNull();
+    expect(screen.queryByTestId('trends-skeleton')).toBeNull();
+    expect(container.querySelector('.trends-skeleton')).toBeNull();
   });
 });
 
@@ -1214,8 +1219,10 @@ describe('TrendsView L2可信分档：具平台免验，pending后台补验', ()
     });
   });
 
-  it('含pending则仅pending补验：首屏展旧卡不闪裸，回来patch仍无裸行', async () => {
-    // L2 新鲜混合：atlas 具平台免验，beacon/comet pending 首屏展旧卡、后台补验。
+  it('含pending则仅pending补验：具平台直展，pending 经 enrich+lite 落定', async () => {
+    // L2 新鲜混合：atlas 具平台直展免验；beacon/comet 未确认 pending 永不进内存，
+    // 首屏裸行占位，后台 enrich 取回 pending 再走 lite 补验
+    //（beacon 治愈为具平台，comet 确认为空 Other），落定后富卡齐展。
     hydrateTrendEnrichCache({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'] }),
       'acme/beacon': makeEnrichedApp({ id: 'acme/beacon', platforms: [] }),
@@ -1224,7 +1231,7 @@ describe('TrendsView L2可信分档：具平台免验，pending后台补验', ()
     trendingHtml = trendingHtmlFixture();
     vi.mocked(zlogInfo).mockClear();
     enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockImplementation(async (repos) =>
-      repos.map((r) => makeEnrichedApp({ id: `${r.owner}/${r.repo}` })),
+      repos.map((r) => makeEnrichedApp({ id: `${r.owner}/${r.repo}`, platforms: [] })),
     );
     liteSpy = vi.spyOn(tauriApi, 'getPlatformsLite').mockImplementation(async (id: string) => {
       const k = String(id).trim().toLowerCase();
@@ -1234,24 +1241,22 @@ describe('TrendsView L2可信分档：具平台免验，pending后台补验', ()
     });
     const { container } = renderLiteBoard();
 
-    // 首屏先展旧卡（含 pending 富卡），不闪裸行。
+    // 首屏：atlas 直展富卡；beacon/comet 未确认 pending 无旧卡，裸行占位（恒可见，不断榜）。
     await screen.findByText('acme/atlas enriched desc');
-    await screen.findByText('acme/beacon enriched desc');
+    // 后台 enrich 拉回缺席项；lite 仅补 beacon/comet。
     await waitFor(() => {
-      expect(container.querySelectorAll('.trend-uncataloged-row')).toHaveLength(0);
+      expect(enrichSpy).toHaveBeenCalled();
     });
-    // enrich 无缺席不拉；lite 仅补 pending。
     await waitFor(() => {
       expect(liteSpy.mock.calls.length).toBeGreaterThan(0);
     });
     await new Promise((r) => setTimeout(r, 50));
-    expect(enrichSpy).not.toHaveBeenCalled();
     const calledIds = liteSpy.mock.calls.map(([id]) => String(id).trim().toLowerCase());
     expect(calledIds).toHaveLength(2);
     expect(calledIds).toContain('acme/beacon');
     expect(calledIds).toContain('acme/comet');
     expect(calledIds.some((id) => id === 'acme/atlas')).toBe(false);
-    // 回来即 patch 不闪裸：仍零裸行，富卡描述保留。
+    // 回来即 patch/确认后富卡齐展，不闪裸：仍零裸行，富卡描述保留。
     await waitFor(() => {
       expect(container.querySelectorAll('.trend-uncataloged-row')).toHaveLength(0);
     });

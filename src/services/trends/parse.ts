@@ -306,8 +306,8 @@ export function parseRetryAfterMs(raw: string | undefined): number | undefined {
  * Rust 侧当前仅回传状态码（`upstream status 429`），header 值不可见时返回
  * 默认等待；若未来后端把 header 值写入错误串（如 `retry-after: 30`），
  * 此处按秒数/HTTP-date 兑现，上限 60s（超限返回 undefined = 直接 error）。
- * Phase2治理：BE 429 分支透传 `retry_after_ms={毫秒}`（见 commands/network.rs），
- * 此处优先按毫秒直值兑现（无需 ×1000），兼容 `retry-after-ms` 连字符形。
+ * BE 429 分支透传 `retry_after_ms={毫秒}`（见 commands/network.rs），
+ * 此处优先按毫秒直值兑现（无需 ×1000），亦认 `retry-after-ms` 连字符形。
  */
 export function doforceRetryDelayMs(err: unknown): number | undefined {
   const msg = String((err as { message?: unknown })?.message ?? err ?? '');

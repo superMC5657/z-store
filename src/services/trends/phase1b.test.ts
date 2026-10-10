@@ -13,6 +13,7 @@ import {
 } from './parse';
 import {
   hydrateTrendEnrichCache,
+  markTrendConfirmedOther,
   matchCatalogApp,
   snapshotTrendEnrichCache,
   clearTrendEnrichCache,
@@ -111,7 +112,7 @@ describe('Phase1B C3：key 归一读写一致', () => {
   });
 });
 
-describe('Phase1B C5（SWR）：pending 空平台进盘直展，data: URI 永不进 payload', () => {
+describe('Phase1B C5（SWR）：已确认 pending 进盘直展，未确认永不进盘，data: URI 永不进 payload', () => {
   beforeEach(() => {
     clearTrendsCache();
     vi.restoreAllMocks();
@@ -122,10 +123,12 @@ describe('Phase1B C5（SWR）：pending 空平台进盘直展，data: URI 永不
     vi.restoreAllMocks();
   });
 
-  it('hydrate/snapshot 守卫：pending 空平台进缓存直展，data: URI 永不进', () => {
+  it('hydrate/snapshot 守卫：已确认 pending 进缓存直展，未确认跳过，data: URI 永不进', () => {
     const empty = makeEnrichedApp({ id: 'acme/empty', platforms: [] });
     const dataUri = makeEnrichedApp({ id: 'acme/img', platforms: ['windows'], icon: 'data:image/png;base64,xxx' });
     const good = makeEnrichedApp({ id: 'acme/good', platforms: ['windows'], icon: 'https://x/icon.png' });
+    // 已确认 pending 方可进内存（先 mark 后 hydrate）
+    markTrendConfirmedOther('acme/empty');
     hydrateTrendEnrichCache({
       'acme/empty': empty,
       'acme/img': dataUri,
@@ -133,10 +136,14 @@ describe('Phase1B C5（SWR）：pending 空平台进盘直展，data: URI 永不
     });
     const snap = snapshotTrendEnrichCache();
     expect(snap['acme/good']).toBeDefined();
-    // SWR：pending 空平台保留进盘，首屏直展 pending 卡（Other 待确认语义）
+    // SWR：已确认 pending 保留进盘，首屏直展 Other 卡
     expect(snap['acme/empty']).toBeDefined();
     expect(snap['acme/empty']?.platforms).toEqual([]);
     expect(snap['acme/img']).toBeUndefined();
+    // 未确认 pending 永不进内存
+    clearTrendEnrichCache();
+    hydrateTrendEnrichCache({ 'acme/empty': empty });
+    expect(snapshotTrendEnrichCache()).not.toHaveProperty('acme/empty');
   });
 
   it('saveDbTrendCache 消毒：pending 进盘，data: URI 兜底不进 L2', async () => {

@@ -67,17 +67,18 @@
    - API 与图标下载使用物理隔离的复用单例 Client，均配置 connect_timeout 5s、keepalive 60s、pool 20/idle 90s；图标 CDN 通道恒丢 token，绝不携带认证头。
 6. **D6 有限并发 (Bounded Concurrency)**:
    - 明星榜 `buffered(4)`、更新检查 `buffer_unordered(6)`（主路径与关注通知两处，见 `updates.rs:316,440`），首命中即停并按原顺序回填结果；SimpleIcons 快路径逐 slug 验图 `buffered(3)` 保留（见 `github/icon_probe.rs:463`）。
-    - 统一图标补探 `IconFetch` 有界池 `pool=5`（见 `config.rs:IconFetchConfig`）：搜索后台走该核心逐张 `emit` 流式补齐；趋势默认仍走老 `buffered(5)` 等齐路（`compat_collect=true`，P2 流式默认不可达，详见 ADR-0015）。
+    - 统一图标补探 `IconFetch` 有界池 `pool=5`（见 `config.rs:IconFetchConfig`）：搜索后台走该核心逐张 `emit` 流式补齐；趋势走 `buffered(5)` 等齐路（`compat_collect=true`，详见 ADR-0015）。
 7. **D7 有限重试 (Limited Retry)**:
    - 仅 GET 可重试，仅覆盖传输错误与 429/5xx，最多重试 2 次并按 200ms→800ms 退避；401/404/304 永不重试。
 8. **D8 首包验图与跳过 (First-Bytes Verify & Skip)**:
    - 图标先 HEAD 判类型长度，再 Range 取前 32KB 验 magic，失败回退全量 GET，并以 300B 最小阈值卡掉 LFS 指针文件；下载前 SHA-256 命中即零网络跳过，ETag 收敛至统一 helper，force 模式跳过 DB 读取。
 9. **D9 趋势与首页 (Trending & Home)**:
-   - 趋势复用共享 Client，经 tokio 10s 超时并截断 2MB 防爆内存；榜缓存一级内存分档（榜 L1，daily 1h/weekly-monthly-new 12h/其余 5min）+ 榜缓存二级落盘双档（榜 L2，daily 1h/其余 12h，有效 TTL 扣抖动）；内存 200/500/单槽有界、切榜 sweep 无 timer；写盘 FE 256KB 预检降级裸榜、BE 512KiB 硬拒绝；enrich 分片 20/片×2 片=40 上限；429 透传 `retry_after_ms` 单次重试（详见 ADR-0014）；P2 趋势流式（首屏空壳快返 + 后台 `fetch_icons_stream(ctx=Trend)` 逐张补齐）已合入但默认不可达，`compat_collect=true` 时走老 `buffered(5)` 等齐路（详见 ADR-0015）。首页固定 balanced 排序与 seed 7，不提供策略切换工具条（用户已确认不要）。
+   - 趋势复用共享 Client，经 tokio 10s 超时并截断 2MB 防爆内存；榜缓存一级内存分档（榜 L1，daily 1h/weekly-monthly-new 12h/其余 5min）+ 榜缓存二级落盘双档（榜 L2，daily 1h/其余 12h，有效 TTL 扣抖动）；内存 200/500/单槽有界、切榜 sweep 无 timer；写盘 FE 256KB 预检降级裸榜、BE 512KiB 硬拒绝；enrich 分片 20/片×2 片=40 上限；429 透传 `retry_after_ms` 单次重试（详见 ADR-0014）；趋势走 `buffered(5)` 等齐路（`compat_collect=true`，详见 ADR-0015）。首页固定 balanced 排序与 seed 7，不提供策略切换工具条（用户已确认不要）。
 10. **D10 统一图标获取 (Unified Icon Fetch)**:
     - 后端统一核心为 `github/icon_fetch.rs:fetch_icons_stream`，搜索后台已接入该核心逐张补齐。
-    - 前端图标写入口唯一收口于 `services/iconStore.ts:applyHit`，新旧双事件统一在此收口。
+    - 前端图标写入口唯一收口于 `services/iconStore.ts:applyHit`。
     - 搜缓存为 `services/search/searchListCache.ts` 纯前端内存缓存，不碰榜缓存二级落盘与趋势榜缓存。
-    - 图标就绪事件：只发 `zstore://icon-ready`，前后端同一事件。
+    - 图标就绪事件：只发 `zstore://icon-ready`，前后端同一事件，载荷 `{key,id,icon,level,via,context}`。
     - 详情仍走最强探测（动态分支 + 图标 L4=README，需网络），不受统一核心约束。
-    - 图标：L1官方 / L2品牌库 / L3仓库 / L4 README / M1内存 / M2落盘已确认，搜索只走 M。
+    - level纯L(1=L1官方,2=L2品牌库,3=L3仓库,4=L4 README)；缓存只用M(M1=前端内存，M2=DB落盘)，
+      经 `via`=live|m2 正交表达（core探测一律live，DB回填走m2不占level）；level:4=L4。

@@ -47,11 +47,10 @@ pub async fn get_app_details(
 
 /// 平台轻量回填（`get_platforms_lite`）：列表平台懒回填专用通道。
 ///
-/// 动机：`lazyBackfillPlatforms` 仅需 deduced platforms，但此前复用全量
-/// `get_app_details`（releases + repo + README + 图标探测 + checksum，miss 时秒级），
+/// `lazyBackfillPlatforms` 仅需 deduced platforms，
 /// 此处仅做单次 `releases/latest` ETag 条件请求 + `platforms_from_assets` 推导。
 ///
-/// 语义与 `get_app_details_impl` 对齐（行为不变，仅做减法）：
+/// 语义与 `get_app_details_impl` 对齐（仅做减法）：
 /// - TTL 内详情缓存命中（`get_detail_cache_ttl_minutes()*60`）直接复用已 deduce 的
 ///   platforms，`from_cache=true`；
 /// - miss 时仅 GET `releases/latest`（`get_with_etag` 复用 304/200/ETag 与限流上报），
@@ -327,7 +326,7 @@ fn deduce_lite_platforms(
 
 /// P0 stale 契约：瞬时失败（401/限流/离线）永不污染 SQLite。
 /// - 合成空（无缓存失败）以 `is_stale=true` 返回，调用方跳过落库，无旧行则不建行；
-/// - stale 穿透（复用旧行）保持旧行不动（含 `cached_at` 不刷新），`Ok(stale)` 形状为 IPC 兼容保留；
+/// - stale 穿透（复用旧行）保持旧行不动（含 `cached_at` 不刷新），`Ok(stale)` 形状为 IPC 保留；
 /// - 前端必须将 `stale + releases/platforms 双空` 视为 pending/待 backfill，永不确认 Other。
 pub async fn get_app_details_impl(
     state: &AppState,
@@ -494,7 +493,7 @@ pub async fn get_app_details_impl(
         let coords = match state.catalog.get_repo_coordinates(&clean_id) {
             Ok(c) => c,
             Err(e) => {
-                // P0：未知坐标降级同样标 stale，Ok(stale) 形状 IPC 兼容，前端 stale-empty 视为 pending。
+                // P0：未知坐标降级同样标 stale，Ok(stale) 形状 IPC 保留，前端 stale-empty 视为 pending。
                 if let Ok(db) = state.db() {
                     if let Ok(Some(mut fallback)) = db.get_cached_app_detail_fallback(&clean_id) {
                         fallback.id = clean_id.clone();
@@ -593,7 +592,7 @@ pub async fn get_app_details_impl(
             // 使 assets-without-platforms 不可能成立。
             // P0-2（never-poison）：仅 stale 穿透/合成空失败（is_stale==Some(true)）
             // 永不落库——有旧行则保持旧行（连 cached_at 都不刷新），无旧行则不建行；
-            // 返回的 detail 保持 Ok 形状（IPC 兼容），但 is_stale=true 供前端视为
+            // 返回的 detail 保持 Ok 形状，但 is_stale=true 供前端视为
             // pending/待 backfill，永不确认 Other。空平台不 stamp ["other"]/["windows"]。
             // 真空落盘：fresh 双空（200 已问到，仅全过滤致 releases/platforms 双空、
             // is_stale 非 true）为远端确认无有效安装包，以 fresh 空行落盘
@@ -729,7 +728,7 @@ pub async fn get_app_details_impl(
                 crate::log_support::short_reason(&err)
             );
             // 网络或限额异常时，优雅降级返回已存储的历史缓存。
-            // P0：Ok(stale) 形状为 IPC 兼容保留；is_stale=true 供前端视为 pending，
+            // P0：Ok(stale) 形状为 IPC 保留；is_stale=true 供前端视为 pending，
             // stale-empty（双空）不得确认 Other，由 backfill 重试。
             if let Ok(db) = state.db() {
                 if let Ok(Some(mut fallback_detail)) = db.get_cached_app_detail_fallback(&clean_id)

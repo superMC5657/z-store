@@ -24,7 +24,6 @@ import { Search } from 'lucide-react';
 import { AppDetail, AppDetailViewModel, AppSummary, OAuthUser, UpdateItem, UpdateCheckProgressPayload, UpdateRule, ViewType, WatchUpdatedPayload } from './types';
 import { api, DEFAULT_SETTINGS } from './services/api';
 import { applyHit, patchAppIconList } from './services/iconStore';
-export { patchAppIconList };
 import { preloadIcons, invalidateIconCache, isAvatarUrl } from './components/AppIcon';
 import { zlogInfo } from './lib/z-log';
 import { PLATFORM_IDS, isPlatformPending, matchPlatformSetWithPending, normalizePlatform, togglePlatformSet, type PlatformId } from './lib/platformFilter';
@@ -249,9 +248,9 @@ export const App: React.FC = () => {
     let unlistenSearchIcons: (() => void) | null = null;
     api
       .onSearchIconUpgraded((payload) => {
-        // P1：回调体委托 `services/iconStore.applyHit`（世代门控 + 写透守卫 +
-        // 别名双写 + `invalidate→preload` 时机均在店内；此处仅做新旧载荷适配
-        // 与 React 四列表 `patch` 注入，`search_id` 门控语义与旧内联一致）。
+        // 回调体委托 `services/iconStore.applyHit`（世代门控 + 写透守卫 +
+        // 别名双写 + `invalidate→preload` 时机均在店内；此处仅做载荷适配
+        // 与 React 四列表 `patch` 注入，`via`透传，`level`纯L单调）。
         const raw = (payload ?? {}) as unknown as Record<string, unknown>;
         const asStr = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
         const ctx = (raw['context'] ?? null) as {
@@ -260,12 +259,26 @@ export const App: React.FC = () => {
           board?: string;
           gen?: number;
         } | null;
+        // 回声为唯一真源：窗内（期望空）首个搜索回声即立期望；已立期望后异 sid 由店内门控判 stale。
+        const incomingKind = (ctx && typeof ctx.kind === 'string' ? ctx.kind : '').trim().toLowerCase();
+        const incomingSid =
+          (ctx && typeof ctx.search_id === 'string' && ctx.search_id
+            ? ctx.search_id
+            : asStr(raw['search_id'])) ?? '';
+        if (
+          (incomingKind === '' || incomingKind === 'search') &&
+          incomingSid !== '' &&
+          currentSearchIdRef.current === ''
+        ) {
+          currentSearchIdRef.current = incomingSid;
+        }
         applyHit({
           key: asStr(raw['key']),
           id: asStr(raw['id']) ?? asStr(raw['app_id']),
           app_id: asStr(raw['app_id']),
           icon: asStr(raw['icon']),
           level: typeof raw['level'] === 'number' ? (raw['level'] as number) : undefined,
+          via: asStr(raw['via']),
           context: ctx,
           search_id: asStr(raw['search_id']),
           currentSearchId: currentSearchIdRef.current,
@@ -701,7 +714,7 @@ export const App: React.FC = () => {
       });
       return changed ? next : prev;
     };
-    // 双键（idClean + detail.id，大小写不敏感）：与 patchSummary 同目标口径，兼容两者不一致
+    // 双键（idClean + detail.id，大小写不敏感）：与 patchSummary 同目标口径，覆盖两者不一致
     const patchIconBoth = (prev: AppSummary[], icon: string): AppSummary[] => {
       const keyA = idClean.toLowerCase();
       const keyB = (detail.id || '').toLowerCase() || keyA;
@@ -734,7 +747,7 @@ export const App: React.FC = () => {
     // VoiceStudio 类 bug 的治愈路径：行内 Other → OS 图标，过滤/计数同步跟进。
     if (detailPlatforms) {
       const healKeys = detailHealKeysFor(idClean, detail.owner, detail.repo);
-      // 兼容 detail.id 与 idClean 不一致时的双键
+      // detail.id 与 idClean 不一致时的双键兜底
       const extraKeys = new Set<string>([idClean, detail.id.toLowerCase()]);
       for (const k of extraKeys) {
         if (k && !healKeys.includes(k)) healKeys.push(k);

@@ -6,6 +6,7 @@ import {
   fetchTrendsResult,
   normalizeProxyPrefix,
   resolveTrendBoard,
+  subscribeBoardHydrated,
   type FetchTrendsOptions,
   type TrendBoardId,
   type TrendsErrorKind,
@@ -77,6 +78,9 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
   // 手动刷新态：与首载 isLoading 分离，刷新期间保留旧榜（SWR  stale 展），仅按钮转圈 + 禁用。
   const [isRefreshing, setIsRefreshing] = useState(false);
   const refreshSeqRef = useRef(0);
+  // 现状：读盘→hydrate→就绪顺序，hydrate 完成后置就绪（View 裸行直展不拦榜，仅供升级判定）。
+  // L2 命中由 boards 透出信号置位；L1/网络由下抓取 await 后置位（fetch 内 hydrate 已完成）。
+  const [boardReady, setBoardReady] = useState(false);
 
   // 陈旧榜兜底经 trends SSOT 回落（如已下线的 'top' / 'category' 残留 → 'weekly'）。
   const activeBoard: TrendBoardId = resolveTrendBoard(board);
@@ -118,19 +122,30 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
 
   // 一榜一源：board / 代理 / 重试任一变化均触发重抓。
   useEffect(() => {
+    return subscribeBoardHydrated(() => {
+      setBoardReady(true);
+    });
+  }, []);
+
+  useEffect(() => {
     if (!proxyReady) return;
     let isMounted = true;
     setTrendResult(null);
+    // 现状：读盘前未就绪，View 裸行直展不拦榜（门信号仅供升级判定）。
+    setBoardReady(false);
 
     fetchTrendsResult(activeBoard, trendFetchOpts)
       .then((res) => {
         if (!isMounted) return;
         setTrendResult(res);
+        // 现状：await 后 hydrate 已完成（L2 读盘→hydrate 在 fetch 内），就绪供升级判定用。
+        setBoardReady(true);
       })
       .catch(() => {
         // service 按契约应总 resolve；此处兜底未知异常，归为 unavailable。
         if (!isMounted) return;
         setTrendResult({ repos: [], status: 'error', errorKind: 'unavailable' });
+        setBoardReady(true);
       });
 
     return () => {
@@ -196,6 +211,7 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
     setTrendResult,
     gainKey,
     isLoading,
+    boardReady,
     errorKind,
     handleRetry,
     isRefreshing,

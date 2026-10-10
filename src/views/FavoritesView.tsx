@@ -53,7 +53,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   const matchesSearch = (a: AppSummary) => matchesAppText(a, searchText);
 
   // 收藏 left-join 消费侧：`apps` 已由 App 补齐未收录占位行，此处仅做归一大小写 inner 过滤
-  // （双键：原值 + 小写均命中，兼容后端/目录大小写不一致）；计数仍用 `favoriteIds.size` 全集。
+  // （双键：原值 + 小写均命中）；计数仍用 `favoriteIds.size` 全集。
   const favoriteIdsLower = new Set<string>();
   for (const id of favoriteIds) {
     const k = (id || '').toLowerCase();

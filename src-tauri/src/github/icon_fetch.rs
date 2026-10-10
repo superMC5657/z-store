@@ -1,38 +1,34 @@
-//! 统一图标补探核心（P0，后端抽 core，不碰前端）。
+//! 统一图标补探核心（后端抽 core，不碰前端）。
 //!
 //! - 归口原 `commands::catalog_search::search_apps_online` 内联的后台快慢探
-//!  （`spawn + stream::iter().buffer_unordered(8).for_each + save_and_emit`），
+//!  （`spawn + stream::iter().buffer_unordered(pool).for_each + save_and_emit`），
 //!   对外伪接口等价于 `fetch_icons_stream(jobs, token, cfg, emit)`，其中
 //!   `jobs=[{id,owner,repo,ctx}]`，`ctx=Search{search_id,gen} | Trend{board,gen}`。
-//! - P0 只接 `Search`；`Trend` 变体仅做类型预留（P1 接线趋势等齐路之前无调用方）。
-//! - P0 行为与改前一致（P3 收敛并发池到 5，见 `config::IconFetchConfig::pool`）：
-//!   - 并发池 `cfg.pool`（默认 5，与趋势 `buffered(5)` 对齐）；
-//!   - 快路径 SimpleIcons / 慢路径 Trees 超时沿用
-//!     `icon_probe::{simple_icon_timeout, trees_timeout}`（经
-//!     `network.api_timeout_seconds` 统一配置，未设置回退 1500ms/12s 历史值）；
-//!   - 快路径外层兜底 `api_timeout_or(8000ms)`、慢路径分支顺序 main→master、
-//!     整批 `cfg.total_timeout_secs`（默认 15s）熔断，均与原内联语义相同；
-//!   - 世代防串（`SEARCH_GEN` 落库前 + emit 前双检查）由调用方 `emit` 回调
-//!     （`catalog_search::save_and_emit`）负责，core 只做探测与调度，不触 DB；
-//!   - `cfg.simple_timeout_ms / trees_timeout_secs / enable_readme / compat_collect`
-//!     为配置预留，P0 仅透传/日志，README 探针不开（`enable_readme=false`）。
-//!     L4=README现场扒默认关。
-//!     M2=落盘已确认不受此开关影响。
+//! - 行为：并发池 `cfg.pool`（默认 5，与趋势 `buffered(5)` 对齐）；
+//!   快路径 SimpleIcons / 慢路径 Trees 超时经
+//!   `network.api_timeout_seconds` 统一配置，未设置回退 1500ms/12s 历史值；
+//!   快路径外层兜底 `api_timeout_or(8000ms)`、慢路径分支顺序 main→master、
+//!   整批 `cfg.total_timeout_secs`（默认 15s）按页伸缩，均与原内联语义相同；
+//!   世代防串（`SEARCH_GEN` 落库前 + emit 前双检查）由调用方 `emit` 回调
+//!   （`catalog_search::save_and_emit`）负责，core 只做探测与调度，不触 DB。
+//! - M2=DB落盘命中零网络，由调用方在进 core 前短锁预解析，不经本 core 探测。
+//!   L4=README需网络，详情链专属，不受本核心约束，本 core 不探 README。
+//!   level纯L(2=L2品牌库,3=L3仓库)；缓存正交用via(live|m2)表M2，pool=5/total伸缩。
 
 
 //! - 事件：调用方 `emit` 回调用本模块的 [`IconReadyPayload`]
-//!   发 `zstore://icon-ready{key,id,icon,level,context}`
-//!  （`key`=小写 `owner/repo`，`level`: 2/3本core emit，4为M2落盘已确认）。
+//!   发 `zstore://icon-ready{key,id,icon,level,via,context}`
+//!  （`key`=小写 `owner/repo`，`level`纯L: 2/3本core emit live，L4不经core；
+//!   `via`=live|m2，M2落盘由调用方回填走via=m2）。
 
 use futures_util::StreamExt;
 use tauri::{AppHandle, Emitter};
 
 /// 慢路径 Trees 分支回退顺序：先 main 后 master（ZCode 类老仓默认分支仍为 master，
 /// 只查 main 会零命中零 emit，首屏恒为 initials）。顺序即优先级，main 优先。
-/// （P0 从 `catalog_search` 搬入 core，此处为唯一定义处。）
 /// 搜索对齐趋势：实际探测分支由 [`crate::github::icon_probe::resolve_probe_branches`]
 /// 动态解析（先 GET repos 取 `default_branch` 5s 超时，再补 main/master，最多3分支，
-/// 与 `commands::icons_cycle_probe::probe_git_trees:281-300` 同源共用）；
+/// 与 `commands::icons_cycle_probe::probe_git_trees` 同源共用）；
 /// 本常量仅为回退基线 + 存量单测断言保留（值与 `icon_probe::FALLBACK_PROBE_BRANCHES` 同源）。
 #[allow(dead_code)]
 pub(crate) const SEARCH_PROBE_BRANCHES: [&str; 2] =
@@ -47,7 +43,7 @@ pub struct IconFetchJob {
     pub ctx: IconFetchCtx,
 }
 
-/// 补探上下文：P0 只接 `Search`；`Trend` 预留给趋势等齐路（P1 接线）。
+/// 补探上下文：搜索 `Search` 与趋势 `Trend` 共用（世代防串由调用方按 `gen` 执行）。
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum IconFetchCtx {
@@ -56,7 +52,9 @@ pub enum IconFetchCtx {
 }
 
 /// 新统一图标就绪事件载荷（`zstore://icon-ready`）。
-/// `level`: 2/3探测命中，4为M2落盘已确认。
+/// `level`纯L(i32)：2=L2品牌库，3=L3仓库，4=L4 README（本core只发2/3 live，L4不经core）；
+/// `via`=live|m2：live=远端探测，m2=DB落盘回填（M1为前端内存，与本载荷正交）。
+/// level拒字符串，缓存只用via/M。
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct IconReadyPayload {
     /// 小写 `owner/repo`（见 [`icon_key`]）。
@@ -65,7 +63,15 @@ pub struct IconReadyPayload {
     pub id: String,
     pub icon: String,
     pub level: i32,
+    /// live|m2（见模块文档）。
+    #[serde(default = "default_icon_via")]
+    pub via: String,
     pub context: IconFetchCtx,
+}
+
+/// `via`缺省（旧载荷兼容）按live计。
+fn default_icon_via() -> String {
+    "live".to_string()
 }
 
 /// 统一事件 key：小写 `owner/repo`。
@@ -73,13 +79,19 @@ pub fn icon_key(owner: &str, repo: &str) -> String {
     format!("{}/{}", owner.to_lowercase(), repo.to_lowercase())
 }
 
-/// 由任务 + 探测结果构建新统一事件载荷。
-pub fn icon_ready_payload(job: &IconFetchJob, url: &str, level: i32) -> IconReadyPayload {
+/// 由任务 + 探测结果构建新统一事件载荷（`via`=live|m2，core探测一律live）。
+pub fn icon_ready_payload(
+    job: &IconFetchJob,
+    url: &str,
+    level: i32,
+    via: &str,
+) -> IconReadyPayload {
     IconReadyPayload {
         key: icon_key(&job.owner, &job.repo),
         id: job.id.clone(),
         icon: url.to_owned(),
         level,
+        via: via.to_owned(),
         context: job.ctx.clone(),
     }
 }
@@ -89,12 +101,13 @@ pub fn emit_icon_ready(handle: &AppHandle, payload: &IconReadyPayload) {
     let _ = handle.emit("zstore://icon-ready", payload);
 }
 
-/// 后台图标补探 stream（P0 等价原 `catalog_search` 内联语义，见模块文档）。
+/// 后台图标补探 stream（见模块文档）。
 /// - `jobs`：待补探任务（含 `ctx`，世代防串由 `emit` 回调按 `ctx.gen` 执行）；空直接返回。
-/// - `token`：慢路径 Trees 鉴权；无 token 只走快路径（与改前一致）。
-/// - `cfg`：`limits.icon_fetch`（P0 生效 `pool` + `total_timeout_secs`，其余预留）。
+/// - `token`：慢路径 Trees 鉴权；无 token 只走快路径。
+/// - `cfg`：`limits.icon_fetch`（`pool=5`，总量按页伸缩）。
 /// - `emit`：命中回调（落库 + 发事件 + 世代双检查均在回调内，core 不触 DB）。
-///   签名 `(handle, job, url, level)`，`level` 2/3；4只由调用方回填，不经本core探测。
+///   签名 `(handle, job, url, level, via)`，`level`纯L 2/3 live；L4不经本core探测，
+///   M2回填走via=m2由调用方直发不经core。
 pub async fn fetch_icons_stream<F, Fut>(
     handle: AppHandle,
     jobs: Vec<IconFetchJob>,
@@ -102,34 +115,30 @@ pub async fn fetch_icons_stream<F, Fut>(
     cfg: crate::config::IconFetchConfig,
     emit: F,
 ) where
-    F: Fn(AppHandle, IconFetchJob, String, i32) -> Fut + Clone + Send + 'static,
+    F: Fn(AppHandle, IconFetchJob, String, i32, String) -> Fut + Clone + Send + 'static,
     Fut: std::future::Future<Output = ()> + Send,
 {
     if jobs.is_empty() {
         return;
     }
     log::debug!(
-        "icon fetch start jobs={} pool={} total_timeout_secs={} enable_readme={} compat_collect={}",
+        "icon fetch start jobs={} pool={} total_timeout_secs={}",
         jobs.len(),
         cfg.pool,
         cfg.total_timeout_secs,
-        cfg.enable_readme,
-        cfg.compat_collect
     );
-    // L4=README现场扒默认关。
+    // L4=README需网络，详情链专属，不受本核心约束，本 core 不探 README。
     let client = crate::commands::icon_http_client();
-    // 慢路径鉴权头：有 token 才跑 Trees，无 token 只走快路径（与改前一致）。
+    // 慢路径鉴权头：有 token 才跑 Trees，无 token 只走快路径。
     let slow_headers = token
         .as_deref()
         .filter(|t| !t.trim().is_empty())
         .map(|t| crate::github::http::token_headers(Some(t)));
-    // P0-2 有界并发：双层无界 spawn 合并为单层 buffer_unordered(pool)（默认 5，
-    // P3 搜索与趋势共用收敛，与趋势 buffered(5) 对齐），
-    // 快慢各一次 emit 语义不变（快命中即返不等慢，慢仅快未命中且有 token 时跑）。
+    // 有界并发：单层 buffer_unordered(pool)（默认 5，与趋势 buffered(5) 对齐），
+    // 快慢各一次 emit（快命中即返不等慢，慢仅快未命中且有 token 时跑）。
     let pool = cfg.pool.max(1);
-    // 搜索对齐趋势：整批总量按 probe_cap（jobs.len）伸缩（选型二选一：伸缩总量；
-    // 单家语义抄 `catalog_search.rs:620` 趋势老路 `timeout_each 10s`，经 pool=5 分摊；
-    // total = max(cfg.total_timeout_secs, ceil(jobs/pool) * timeout_each)，pool 保持 5）。
+    // 整批总量按 jobs 伸缩：
+    // total = max(cfg.total_timeout_secs, ceil(jobs/pool) * timeout_each)，pool 保持 5。
     let jobs_len = jobs.len();
     let timeout_each = crate::commands::catalog_search::api_timeout_or(
         std::time::Duration::from_secs(10),
@@ -156,15 +165,15 @@ pub async fn fetch_icons_stream<F, Fut>(
             .unwrap_or_default();
 
             if !fast_url.trim().is_empty() {
-                emit(handle, job, fast_url, 2).await;
+                emit(handle, job, fast_url, 2, "live".to_string()).await;
                 return;
             }
 
-            // 慢路径：快未命中且有 token 才跑 Trees（内部 12s）；超时只弃慢不弃快。
-            // 搜索对齐趋势：分支动态解析（先 GET repos 取 default_branch 5s 超时，
+            // 慢路径：快未命中且有 token 才跑 Trees；超时只弃慢不弃快。
+            // 分支动态解析（先 GET repos 取 default_branch 5s 超时，
             // 再补 main/master，最多3分支），复用 `icon_probe::resolve_probe_branches`
-            //（与 `icons_cycle_probe::probe_git_trees:281-300` 同源，不另起第三套）；
-            // 默认分支兼容：main 未命中回退 master（ZCode 类老仓默认分支为 master）。
+            //（与 `icons_cycle_probe::probe_git_trees` 同源）；
+            // main 未命中回退 master（ZCode 类老仓默认分支为 master）。
             if let Some(hdrs) = slow_headers.as_ref() {
                 let branches = crate::github::icon_probe::resolve_probe_branches(
                     &client, hdrs, &job.owner, &job.repo,
@@ -186,7 +195,7 @@ pub async fn fetch_icons_stream<F, Fut>(
                     }
                 }
                 if let Some(hit) = hit {
-                    emit(handle, job, hit.url, 3).await;
+                    emit(handle, job, hit.url, 3, "live".to_string()).await;
                 }
             }
         }
@@ -194,7 +203,6 @@ pub async fn fetch_icons_stream<F, Fut>(
     .buffer_unordered(pool)
     .for_each(|()| async {});
     // 整批总超时：超时即降级结束（剩余任务直接丢弃，不炸不重试）。
-    // L4=README现场扒默认关。
     let batches = jobs_len.div_ceil(pool).max(1) as u64;
     let scaled_secs = batches.saturating_mul(timeout_each.as_secs().max(1));
     let total = std::time::Duration::from_secs(cfg.total_timeout_secs.max(1).max(scaled_secs));
@@ -213,8 +221,7 @@ mod tests {
 
     #[test]
     fn search_icon_ready_payload_shape() {
-        // 新统一事件形状：`{key,id,icon,level,context}`，key=小写 owner/repo，
-        // context 透传任务 ctx（P0 为 Search）。
+        // 新统一事件形状：`{key,id,icon,level,via,context}`，key=小写 owner/repo，level纯L，via=live|m2。
         let job = IconFetchJob {
             id: "o/r".to_string(),
             owner: "O".to_string(),
@@ -224,17 +231,18 @@ mod tests {
                 gen: 7,
             },
         };
-        let p = icon_ready_payload(&job, "https://cdn.simpleicons.org/r", 2);
+        let p = icon_ready_payload(&job, "https://cdn.simpleicons.org/r", 2, "live");
         assert_eq!(p.key, "o/r");
         assert_eq!(p.id, "o/r");
         assert_eq!(p.level, 2);
+        assert_eq!(p.via, "live");
         let v = serde_json::to_value(&p).unwrap();
-        for f in ["key", "id", "icon", "level", "context"] {
+        for f in ["key", "id", "icon", "level", "via", "context"] {
             assert!(v.get(f).is_some(), "missing field {f}");
         }
         assert_eq!(v["context"]["kind"], "search");
         assert_eq!(v["context"]["search_id"], "7");
-        // Trend 变体预留可序列化（P0 无调用方，仅锁形状）。
+        // Trend 变体可序列化（锁形状）。
         let t = IconFetchCtx::Trend {
             board: "daily".to_string(),
             gen: 1,

@@ -10,13 +10,14 @@ import {
 import {
   clearTrendEnrichCache,
   hydrateTrendEnrichCache,
+  markTrendConfirmedOther,
   snapshotTrendEnrichCache,
 } from './enrich';
 import { fetchTrendsResult } from './boards';
 import { tauriApi } from '../api';
 import { makeTrendRepo, makeEnrichedApp } from '../../views/test-utils/trendFixture';
 
-describe('SWR 旧富卡直展：pending 落盘后重挂直展富卡', () => {
+describe('SWR 旧富卡直展：已确认 Other 落盘后重挂直展富卡', () => {
   beforeEach(() => {
     clearTrendsCache();
     clearTrendEnrichCache();
@@ -29,12 +30,12 @@ describe('SWR 旧富卡直展：pending 落盘后重挂直展富卡', () => {
     vi.restoreAllMocks();
   });
 
-  it('空平台 enrich 落盘后重挂直展富 pending 卡（不闪裸行，无需网络）', async () => {
+  it('已确认 Other 落盘后重挂直展 Other 富卡（确认集随信封，不闪裸行，无需网络）', async () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
     const repos = [makeTrendRepo({ id: 'acme/atlas', stars: 12000 })];
     const pending = makeEnrichedApp({ id: 'acme/atlas', platforms: [], icon: 'https://x/atlas.png' });
 
-    // 落盘：富信封含 pending
+    // 落盘：富信封含已确认 pending（未确认 pending 永不落盘，此处随确认集落盘）
     const saved: string[] = [];
     const saveSpy = vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
       if (cmd === 'save_trend_board_cache') {
@@ -42,16 +43,18 @@ describe('SWR 旧富卡直展：pending 落盘后重挂直展富卡', () => {
       }
       return undefined;
     });
-    await saveDbTrendCache('weekly||', 'weekly', repos, { 'acme/atlas': pending });
+    await saveDbTrendCache('weekly||', 'weekly', repos, { 'acme/atlas': pending }, ['acme/atlas']);
     expect(saveSpy).toHaveBeenCalledTimes(1);
     const payload = JSON.parse(saved[0] as string) as {
       v: number;
       repos: unknown[];
       enrich: Record<string, { platforms: string[] }>;
+      confirmedOther: string[];
     };
     expect(payload.v).toBe(1);
     expect(payload.enrich['acme/atlas']).toBeDefined();
     expect(payload.enrich['acme/atlas']?.platforms).toEqual([]);
+    expect(payload.confirmedOther).toContain('acme/atlas');
     saveSpy.mockRestore();
 
     // 重挂：清内存模拟重启，L2 新鲜命中
@@ -69,7 +72,7 @@ describe('SWR 旧富卡直展：pending 落盘后重挂直展富卡', () => {
     const res = await fetchTrendsResult('weekly');
     expect(res.status).toBe('ok');
     expect(res.repos).toHaveLength(1);
-    // L2 富信封已 hydrate 进内存：快照直展 pending 富卡，无需网络
+    // L2 富信封已 hydrate 进内存：确认集先回填，pending 随确认进内存，快照直展 Other 富卡，无需网络
     const snap = snapshotTrendEnrichCache(res.repos);
     expect(snap['acme/atlas']).toBeDefined();
     expect(snap['acme/atlas']?.platforms).toEqual([]);
@@ -127,7 +130,7 @@ describe('SWR 旧富卡直展：pending 落盘后重挂直展富卡', () => {
     expect(snap['acme/atlas']?.platforms).toEqual(['windows']);
   });
 
-  it('无图标 pending 重挂仍富卡（icon 空即保留，仅禁 data:）', async () => {
+  it('无图标已确认 Other 重挂仍富卡（icon 空即保留，仅禁 data:）', async () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
     const repos = [makeTrendRepo({ id: 'acme/noicon', stars: 500 })];
     // 无 token 时慢探不跑，enrich 常无图标（icon 空串）
@@ -139,12 +142,14 @@ describe('SWR 旧富卡直展：pending 落盘后重挂直展富卡', () => {
       }
       return undefined;
     });
-    await saveDbTrendCache('weekly||', 'weekly', repos, { 'acme/noicon': pendingNoIcon });
+    await saveDbTrendCache('weekly||', 'weekly', repos, { 'acme/noicon': pendingNoIcon }, [
+      'acme/noicon',
+    ]);
     expect(saveSpy).toHaveBeenCalledTimes(1);
     expect(JSON.parse(saved[0] as string).enrich['acme/noicon']).toBeDefined();
     saveSpy.mockRestore();
 
-    // 重挂：读盘守卫放行无图标 pending，直展富卡
+    // 重挂：读盘先回填确认集，已确认 pending 直展富卡
     clearTrendEnrichCache();
     const nowSec = Math.floor(Date.now() / 1000);
     const networkSpy = vi.spyOn(tauriApi, 'fetchTrendsText');
@@ -258,10 +263,16 @@ describe('富卡落盘图标一视同仁：有/无图标重挂都直展富卡', 
       }
       return undefined;
     });
-    await saveDbTrendCache('weekly||', 'weekly', repos, {
-      'acme/real': realIcon,
-      'acme/bare': emptyIcon,
-    });
+    await saveDbTrendCache(
+      'weekly||',
+      'weekly',
+      repos,
+      {
+        'acme/real': realIcon,
+        'acme/bare': emptyIcon,
+      },
+      ['acme/bare'],
+    );
     expect(saveSpy).toHaveBeenCalledTimes(1);
     const payload = JSON.parse(saved[0] as string) as {
       v: number;
@@ -292,7 +303,8 @@ describe('富卡落盘图标一视同仁：有/无图标重挂都直展富卡', 
   });
 
   it('图标回填只做升级：空图标不覆盖已有真实图标，平台照常治愈', async () => {
-    // 内存已有 pending 富卡（真实图标）；旧数据回填空图标 pending → 真实图标保留
+    // 内存已有已确认 Other 富卡（真实图标）；旧数据回填空图标 → 真实图标保留
+    markTrendConfirmedOther('acme/atlas');
     hydrateTrendEnrichCache({
       'acme/atlas': makeEnrichedApp({
         id: 'acme/atlas',
@@ -307,8 +319,9 @@ describe('富卡落盘图标一视同仁：有/无图标重挂都直展富卡', 
     expect(kept?.platforms).toEqual([]);
     expect(kept?.icon).toBe('https://simpleicons.org/icons/rust.svg');
 
-    // 反向：空图标在先，真实图标回填即升级
+    // 反向：空图标在先（先确认后回填），真实图标回填即升级
     clearTrendEnrichCache();
+    markTrendConfirmedOther('acme/atlas');
     hydrateTrendEnrichCache({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [], icon: '' }),
     });
@@ -326,6 +339,7 @@ describe('富卡落盘图标一视同仁：有/无图标重挂都直展富卡', 
 
   it('详情治愈 data: 图标不进内存，已有真实图标不受降级', async () => {
     const { upsertTrendEnrichFromDetail } = await import('./enrich');
+    markTrendConfirmedOther('acme/atlas');
     hydrateTrendEnrichCache({
       'acme/atlas': makeEnrichedApp({
         id: 'acme/atlas',

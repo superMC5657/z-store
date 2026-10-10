@@ -21,7 +21,7 @@ export interface UseSearchStateParams {
 }
 
 /** 在线段图标回填组装。
- * 搜缓存
+ * M1内存回读：搜索列表缓存命中行经 `getBufferedIcon` 唯一口回读拼装，空壳不覆盖缓冲实图。
  */
 function assembleOnlineRowsWithIcons(prev: AppSummary[], incoming: AppSummary[]): AppSummary[] {
   const prevById = new Map<string, AppSummary>();
@@ -42,6 +42,7 @@ function assembleOnlineRowsWithIcons(prev: AppSummary[], incoming: AppSummary[])
           ? `${item.owner.trim().toLowerCase()}/${item.repo.trim().toLowerCase()}`
           : '';
       const idKey = typeof item.id === 'string' ? item.id.trim().toLowerCase() : '';
+      // M1内存回读经 `getBufferedIcon` 唯一口。
       const buffered =
         (coordKey ? getBufferedIcon(coordKey) : undefined) ??
         (idKey ? getBufferedIcon(idKey) : undefined);
@@ -128,8 +129,7 @@ export function useSearchState({
     setSearchQuery(q);
     setOnlineSearchPerformed(false);
     // 新搜索词切回本地结果集：清掉上一轮在线翻页状态，搜索态回到首屏 20（HomeView 负责）。
-    // SWR 语义：miss 保留旧列表。
-    // 此处不清 onlineApps，保留旧在线列表直到新 hits>0 再替换，迟到 icon-ready patch
+    // 保留旧列表：miss 时不清 onlineApps，保留旧在线列表直到新 hits>0 再替换，迟到 icon-ready patch
     // 落在非空 prev 上可落定，不再因重搜清空致空 prev 永久丢。
     setIsOnlineResultSet(false);
     isOnlineResultSetRef.current = false;
@@ -157,7 +157,7 @@ export function useSearchState({
   const handleSearchSubmit = async (queryToSubmit?: string) => {
     const q = (queryToSubmit !== undefined ? queryToSubmit : searchQuery).trim();
     if (!q) return;
-    // 搜缓存 sweep 过期。
+    // 搜索列表缓存 sweep 过期。
     sweepExpiredSearchListCache();
 
     // 同词且已是该词的在线结果集 → 直接返回，避免重复请求；
@@ -173,7 +173,7 @@ export function useSearchState({
     const seq = ++searchSeqRef.current;
 
     // 若本地搜索尚未完成或搜索词变更，先查一次本地并展示（异词先本地后在线）
-    // SWR 语义：异词先本地阶段不清 onlineApps，
+    // 异词先本地阶段不清 onlineApps，
     // 旧在线列表直展到新 hits>0 再替换，迟到 patch 不再打在空 prev 上永久丢。
     if (q !== searchQuery.trim()) {
       setSearchQuery(q);
@@ -201,11 +201,11 @@ export function useSearchState({
     // 提交即在线：不再以本地零结果为 gate（第 1 页，per_page 与后端默认 12 对齐）；
     // 上下分段：本地结果保留在 apps，在线结果单独存 onlineApps（HomeView 本地在上、在线在下）。
     // 在线无结果/失败则保持本地结果 + 提示（内部分支处理）。
-    // 搜缓存 SWR：提交前先读搜缓存，
+    // 搜索列表缓存：提交前先读搜索列表缓存，
     // 后台仍 searchAppsOnline revalidate（沿用 searchSeqRef/guardFreshSearch 防串）；
     // 换词冷启动的 pending 平台每次重查（lazyBackfill 照常跑，不跳过）。
     let hadCacheHit = false;
-    const listCached = readSearchListCache(q, 1, ONLINE_SEARCH_PER_PAGE);
+    const listCached = readSearchListCache({ query: q, page: 1, perPage: ONLINE_SEARCH_PER_PAGE });
     if (listCached && listCached.length > 0) {
       const assembledCached = assembleOnlineRowsWithIcons(onlineAppsRef.current ?? [], listCached);
       if (assembledCached.length > 0) {
@@ -227,13 +227,15 @@ export function useSearchState({
     {
       setIsSearchingOnline(true);
       const searchId = `search-${seq}-${Date.now()}`;
-      currentSearchIdRef.current = searchId;
+      // 回声窗：先清空期望（门控任一空即放行），窗内直播按回声 sid 收，不以请求串号判 stale；
+      // 首个回声到达即立期望（下行回声见下，直播首事件见 App 侧），之后异 sid 才丢。
+      currentSearchIdRef.current = '';
       try {
         const pageRes = await api.searchAppsOnline(q, searchId, 1, ONLINE_SEARCH_PER_PAGE);
         if (guardFreshSearch(seq)) return;
         const onlineResults = pageRes.rows;
-        // 以后端回声为准：后端说什么前端认什么，参数丢失时也能对上门。
-        if (pageRes.sid) currentSearchIdRef.current = pageRes.sid;
+        // 以后端回声为唯一真源；无回声（兼容旧回包）回落请求串号。
+        currentSearchIdRef.current = pageRes.sid || searchId;
         setOnlineSearchPerformed(true);
         if (onlineResults && onlineResults.length > 0) {
           // 同词在线集去重 + 图标回填。
@@ -249,12 +251,12 @@ export function useSearchState({
           const hasMore = onlineResults.length >= ONLINE_SEARCH_PER_PAGE;
           setOnlineHasMore(hasMore);
           onlineHasMoreRef.current = hasMore;
-          // 搜缓存
-          writeSearchListCache(q, 1, ONLINE_SEARCH_PER_PAGE, deduped);
+          // 搜索列表缓存
+          writeSearchListCache({ query: q, page: 1, perPage: ONLINE_SEARCH_PER_PAGE }, deduped);
           shareConcreteToTrendEnrich(deduped);
           showToast(t('search.online_success', '已找到在线应用'), 'success');
         } else {
-          // SWR 保留：已直展时不清空。
+          // 保留旧列表：已直展时不清空。
           if (hadCacheHit) return;
           setOnlineApps([]);
           setIsOnlineResultSet(false);
@@ -266,7 +268,7 @@ export function useSearchState({
         }
       } catch (err) {
         if (guardFreshSearch(seq, err, 'searchAppsOnline error', () => {
-          // SWR 保留：后台失败不清空。
+          // 保留旧列表：后台失败不清空。
           if (hadCacheHit) return;
           setOnlineSearchPerformed(true);
           setOnlineApps([]);
@@ -286,17 +288,17 @@ export function useSearchState({
 
   // 在线结果触底翻页：后端满页/has_more 时自动要下一页（page+1），追加到在线段；
   // 限流/失败 toast 与首屏保持原样（info 级，不抛错阻塞列表）。
-  // 搜缓存翻页。
+  // 搜索列表缓存翻页。
   const handleOnlineLoadMore = useCallback(async () => {
     if (isLoadingOnlineMoreRef.current || isSearchingOnline) return;
     if (!isOnlineResultSetRef.current || !onlineHasMoreRef.current) return;
     const q = (onlineQueryRef.current || searchQuery.trim()).trim();
     if (!q) return;
-    // 搜缓存 sweep 过期。
+    // 搜索列表缓存 sweep 过期。
     sweepExpiredSearchListCache();
     const seq = searchSeqRef.current;
     const nextPage = onlinePageRef.current + 1;
-    const cachedMore = readSearchListCache(q, nextPage, ONLINE_SEARCH_PER_PAGE);
+    const cachedMore = readSearchListCache({ query: q, page: nextPage, perPage: ONLINE_SEARCH_PER_PAGE });
     if (cachedMore && cachedMore.length > 0) {
       // 命中组装同样走回填分支：与旧在线段 sticky 合并 + 缓冲回填，再去重追加。
       const fresh = assembleOnlineRowsWithIcons(onlineAppsRef.current ?? [], cachedMore).filter(
@@ -356,8 +358,8 @@ export function useSearchState({
         onlinePageRef.current = nextPage;
         setOnlineHasMore(hasMore);
         onlineHasMoreRef.current = hasMore;
-        // 搜缓存
-        writeSearchListCache(q, nextPage, ONLINE_SEARCH_PER_PAGE, more);
+        // 搜索列表缓存
+        writeSearchListCache({ query: q, page: nextPage, perPage: ONLINE_SEARCH_PER_PAGE }, more);
         shareConcreteToTrendEnrich(more);
       } else {
         setOnlineHasMore(false);

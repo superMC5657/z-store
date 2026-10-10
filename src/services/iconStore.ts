@@ -1,10 +1,12 @@
 /** 前端图标唯一写入口。
- * M2=落盘已确认
+ * level纯L单调（via正交）；M1=内存（iconStore/searchListCache/enrich经getBufferedIcon/applyHit唯一口）；
+ * M2=DB（via=m2首屏直填，不走emit）。
  */
 import { invalidateIconCache, isAvatarUrl, preloadIcons } from '../components/AppIcon';
 import type { AppSummary } from '../types';
+import { normalizeId, normalizeIdSet } from './normalizeId';
 
-/** 新统一事件上下文（后端 `icon_fetch::IconFetchCtx` 的前端镜像）。 */
+/** 图标事件上下文（后端 `icon_fetch::IconFetchCtx` 的前端镜像）。 */
 export interface IconHitContext {
   kind: 'search' | 'trend' | string;
   search_id?: string;
@@ -12,43 +14,45 @@ export interface IconHitContext {
   gen?: number;
 }
 
-/** 新旧双事件的并集命中（新字段 + 旧 `search-icon-ready` 兼容字段）。 */
+/** 图标命中（`key/id/app_id` 别名 + `icon/level/via/context`）。 */
 export interface IconHit {
-  /** 新事件 `key`（小写 `owner/repo`）。 */
+  /** `key`（小写 `owner/repo`）。 */
   key?: string | null;
-  /** 新事件 `id`（小写 `owner/repo`，与旧 `app_id` 同值）。 */
+  /** `id`（小写 `owner/repo`，与 `app_id` 同值）。 */
   id?: string | null;
-  /** 旧事件兼容：`search-icon-ready.app_id`。 */
+  /** 别名：`app_id`（与 `id` 同值）。 */
   app_id?: string | null;
   icon?: string | null;
+  /** `level`纯L（2=L2品牌库，3=L3仓库；单调记忆，via正交）。 */
   level?: number | null;
+  /** 缓存正交：`live|m2`（M2首屏直填不走emit）。 */
+  via?: string | null;
   context?: IconHitContext | null;
-  /** 旧事件兼容：顶层 `search_id`（新事件走 `context.search_id`）。 */
+  /** 顶层 `search_id`（`context` 缺席时回落用）。 */
   search_id?: string | null;
 }
 
-/** 新统一事件载荷（`zstore://icon-ready`，供 `catalog.ts` 订阅打型）。 */
+/** 事件载荷（`zstore://icon-ready`，供 `catalog.ts` 订阅打型）。 */
 export interface IconReadyPayload {
   key: string;
   id: string;
   icon: string;
   level: number;
+  /** 缓存正交：`live|m2`（M2首屏直填不走emit）。 */
+  via?: string;
   context: IconHitContext;
 }
 
 export interface ApplyHitArgs extends IconHit {
   /**
-   * Search 世代门控：当前搜索 id（字符串或取值函数，与
-   * `useSearchState.currentSearchIdRef.current` 同源）。
-   * 双非空且与命中 `search_id` 不等即丢弃；任一为空即放行（首屏兼容）。
+   * Search 世代门控期望值：当前搜索 id（字符串或取值函数）。
+   * 双非空且与命中 `search_id` 不等即丢弃；任一为空即放行。
    */
   currentSearchId?: string | (() => string | undefined) | null;
   getCurrentSearchId?: () => string | undefined;
   /**
-   * Trend 门控（P2 接线，切榜防串，与 Search `search_id` 门控同构）：
-   * 榜单 id / 榜单世代 / 取榜单世代函数。任一为空即放行（首屏兼容，
-   * 后端 `board=""` 未传板名时前端放行，后端 `BOARD_GEN` 双检查独立防串）；
-   * 双非空且不等即丢弃（切榜后旧榜在途图标不再 patch 新榜）。
+   * Trend 世代门控期望值：榜单 id / 榜单世代 / 取榜单世代函数。
+   * `board` 双非空不等即丢弃，任一为空即放行；`gen` 仅双方均为数字时比对。
    */
   board?: string | null;
   boardGen?: number | null;
@@ -64,7 +68,7 @@ export interface ApplyHitResult {
   targets?: string[];
   icon?: string;
   level?: number;
-  /** `true`=走了 `preloadIcons→get_or_fetch_icon` 落盘；`false`=`data:` 纯内存。 */
+  /** `true`=走了 `preloadIcons→get_or_fetch_icon` 落盘；`false`=M1纯内存（`data:`/`via=m2`）。 */
   persisted?: boolean;
   reason?: string;
 }
@@ -72,7 +76,7 @@ export interface ApplyHitResult {
 /**
  * 单图标升级时仅替换对应 id 的对象，其余复用原引用；
  * 若目标不存在或图标已一致则直接返回原数组引用，避免全网格重渲染闪烁。
- *（唯一实现处：`App.tsx` 经此处重导出，测试沿 `../App` 导入不动。）
+ *（唯一实现处：调用方经 `services/iconStore` 直引。）
  */
 export function patchAppIconList(
   prev: AppSummary[],
@@ -92,21 +96,10 @@ export function patchAppIconList(
 }
 
 /**
- * 归一 key+id 别名（`enrich.ts:trendEnrichKey` + `AppIcon:appIdToIconMap` 口径）：
- * 取 `key/id/app_id` 去空 → `trim().toLowerCase()` → 去重。
+ * 归一 key+id 别名：取 `key/id/app_id` 去空 → 归一去重保序。
  */
 export function resolveIconTargets(hit: Pick<IconHit, 'key' | 'id' | 'app_id'>): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  const raws: unknown[] = [hit?.key, hit?.id, hit?.app_id];
-  for (const raw of raws) {
-    if (typeof raw !== 'string') continue;
-    const k = raw.trim().toLowerCase();
-    if (!k || seen.has(k)) continue;
-    seen.add(k);
-    out.push(k);
-  }
-  return out;
+  return normalizeIdSet([hit?.key, hit?.id, hit?.app_id]);
 }
 
 /** 仅 `http(s)` 才算可落盘远端（`data:` 另行内存通道，其余一律丢弃）。 */
@@ -132,7 +125,7 @@ export function mergeStickyIcon(
   return incoming;
 }
 
-/** `level` 单调记忆（别名共享最大值，低不顶高）+ 图标内存缓冲已有实图记忆（`''` 守卫回退）。 */
+/** `level`纯L单调记忆（别名共享最大值，低不顶高，via正交）+ 图标M1内存缓冲已有实图记忆（`''` 守卫回退）。 */
 const iconLevelById = new Map<string, number>();
 const iconById = new Map<string, string>();
 
@@ -143,7 +136,7 @@ function resolveCurrentSearchId(args: ApplyHitArgs): string {
       if (typeof v === 'string' && v) return v;
     }
   } catch {
-    // 取值失败按空处理（放行，首屏兼容）
+    // 取值失败按空处理（放行）
   }
   const c = args.currentSearchId;
   try {
@@ -174,7 +167,92 @@ function hasExistingRealIcon(targets: string[], getCurrentIcon?: ApplyHitArgs['g
 }
 
 /**
- * 唯一写入口：新旧双事件统一收口。
+ * 世代门控快照：`search_id`（搜索）/`board`+`gen`（榜单）三段。
+ * 双非空不等即过期，任一为空即放行。
+ */
+export interface GenerationGate {
+  search_id?: string | null;
+  board?: string | null;
+  gen?: number | null;
+}
+
+/** 命中携带的门控：`search_id` 取 `context` 回落顶层，`board`/`gen` 取 `context`。 */
+function resolveIncomingGate(args: ApplyHitArgs): GenerationGate {
+  const ctx = args.context ?? null;
+  const search_id =
+    ctx && typeof ctx.search_id === 'string' && ctx.search_id
+      ? ctx.search_id
+      : typeof args.search_id === 'string'
+        ? args.search_id
+        : '';
+  const board = ctx && typeof ctx.board === 'string' ? ctx.board : '';
+  const gen =
+    ctx && typeof ctx.gen === 'number' && Number.isFinite(ctx.gen) ? ctx.gen : undefined;
+  return { search_id, board, gen };
+}
+
+/** 当前态期望门控：搜索 id 即时取值，榜单世代经取值函数回落静态值。 */
+function resolveExpectedGate(args: ApplyHitArgs, incomingBoard: string): GenerationGate {
+  let gen: number | undefined;
+  try {
+    if (typeof args.getBoardGen === 'function') {
+      const key = normalizeId(args.board) || normalizeId(incomingBoard) || undefined;
+      const v = args.getBoardGen(key);
+      if (typeof v === 'number' && Number.isFinite(v)) gen = v;
+    }
+  } catch {
+    // 取值失败按空处理（放行）
+  }
+  if (
+    gen === undefined &&
+    typeof args.boardGen === 'number' &&
+    Number.isFinite(args.boardGen)
+  ) {
+    gen = args.boardGen;
+  }
+  return {
+    search_id: resolveCurrentSearchId(args),
+    board: typeof args.board === 'string' ? args.board : '',
+    gen,
+  };
+}
+
+/**
+ * 唯一过期判断：返回丢弃原因，放行返回 `undefined`。
+ * `kind` 缺省按搜索走扁平 `search_id`；未知 `kind` 直接放行。
+ * 搜索门任一空即放行：回声窗内期望空，首刷直播按回声 sid 收；
+ * 期望立定后双非空不等才判 `stale-search-id`（旧串号丢）。
+ */
+function gateStaleReason(
+  kind: string,
+  incoming: GenerationGate,
+  expected: GenerationGate,
+): string | undefined {
+  if (kind === '' || kind === 'search') {
+    const a = typeof incoming.search_id === 'string' ? incoming.search_id : '';
+    const b = typeof expected.search_id === 'string' ? expected.search_id : '';
+    if (a && b && a !== b) return 'stale-search-id';
+    return undefined;
+  }
+  if (kind === 'trend') {
+    const ib = normalizeId(incoming.board);
+    const eb = normalizeId(expected.board);
+    if (ib && eb && ib !== eb) return 'stale-board';
+    if (
+      incoming.gen !== undefined &&
+      expected.gen !== undefined &&
+      incoming.gen !== expected.gen
+    ) {
+      return 'stale-board-gen';
+    }
+    return undefined;
+  }
+  return undefined;
+}
+
+/**
+ * 唯一写入口：`icon-ready` 统一收口（M1内存唯一口，经 `getBufferedIcon` 回读）。
+ * `level`纯L单调；`data:`/`via=m2`只进M1内存不落盘；M2首屏直填不走emit。
  * 时机：`invalidateIconCache` 先失效 → `preloadIcons` → `patch` 写透四列表。
  */
 export function applyHit(args: ApplyHitArgs): ApplyHitResult {
@@ -193,56 +271,15 @@ export function applyHit(args: ApplyHitArgs): ApplyHitResult {
   // 写透守卫：avatar 一律丢弃（不推进 `level` 记忆）。
   if (isAvatarUrl(icon)) return { accepted: false, targets, icon, reason: 'avatar-dropped' };
 
-  // 世代门控：P1 只接 Search。`kind` 缺省（旧事件无 context）按 Search 走扁平 `search_id`。
+  // 世代门控：过期判断只此一处（搜索走 `search_id`，榜单走 `board`+`gen`）。
   const ctx = args.context ?? null;
   const kind = ctx && typeof ctx.kind === 'string' ? ctx.kind.trim().toLowerCase() : '';
-  if (kind === '' || kind === 'search') {
-    const incomingSearchId =
-      ctx && typeof ctx.search_id === 'string' && ctx.search_id
-        ? ctx.search_id
-        : typeof args.search_id === 'string'
-          ? args.search_id
-          : '';
-    const current = resolveCurrentSearchId(args);
-    if (incomingSearchId && current && incomingSearchId !== current) {
-      return { accepted: false, targets, icon, reason: 'stale-search-id' };
-    }
-  } else if (kind === 'trend') {
-    // P2 趋势门控：`board` 字符串为主（与搜索 `search_id` 同构，双非空不等即丢弃，
-    // 任一为空即放行——后端未传板名 `board=""` 时前端放行，后端 `BOARD_GEN` 双检查独立防串）；
-    // `gen` 透传比对仅当双方均提供数字时才生效（前端当前只传 `board` 字符串，
-    // `boardGen/getBoardGen` 缺省即放行，首屏兼容）。
-    const incomingBoard =
-      ctx && typeof ctx.board === 'string' ? ctx.board.trim().toLowerCase() : '';
-    const expectedBoard =
-      typeof args.board === 'string' ? args.board.trim().toLowerCase() : '';
-    if (incomingBoard && expectedBoard && incomingBoard !== expectedBoard) {
-      return { accepted: false, targets, icon, reason: 'stale-board' };
-    }
-    let expectedGen: number | undefined;
-    try {
-      if (typeof args.getBoardGen === 'function') {
-        const v = args.getBoardGen(expectedBoard || incomingBoard || undefined);
-        if (typeof v === 'number' && Number.isFinite(v)) expectedGen = v;
-      }
-    } catch {
-      // 取值失败按空处理（放行，首屏兼容）
-    }
-    if (
-      expectedGen === undefined &&
-      typeof args.boardGen === 'number' &&
-      Number.isFinite(args.boardGen)
-    ) {
-      expectedGen = args.boardGen;
-    }
-    const incomingGen =
-      ctx && typeof ctx.gen === 'number' && Number.isFinite(ctx.gen) ? ctx.gen : undefined;
-    if (incomingGen !== undefined && expectedGen !== undefined && incomingGen !== expectedGen) {
-      return { accepted: false, targets, icon, level: undefined, reason: 'stale-board-gen' };
-    }
-  }
+  const incoming = resolveIncomingGate(args);
+  const expected = resolveExpectedGate(args, typeof incoming.board === 'string' ? incoming.board : '');
+  const stale = gateStaleReason(kind, incoming, expected);
+  if (stale) return { accepted: false, targets, icon, reason: stale };
 
-  // `level` 单调升级：低不顶高。缺省（旧兼容）即放行且不推进记忆。
+  // `level`纯L单调升级：低不顶高，via正交不参与比较（live L2/L3 不因 via 丢）。缺省即放行且不推进记忆。
   const level =
     typeof args.level === 'number' && Number.isFinite(args.level) ? args.level : undefined;
   if (level !== undefined) {
@@ -258,8 +295,9 @@ export function applyHit(args: ApplyHitArgs): ApplyHitResult {
     for (const t of targets) iconLevelById.set(t, next);
   }
 
-  // `data:` 只进内存不落盘：失效 + patch 内存态，跳过 `preloadIcons`（其本身亦跳 `data:`，此处显式保证）。
-  if (icon.startsWith('data:')) {
+  // `data:`/`via=m2`只进M1内存不落盘：失效 + patch 内存态，跳过 `preloadIcons`。
+  const via = typeof args.via === 'string' ? args.via.trim().toLowerCase() : '';
+  if (icon.startsWith('data:') || via === 'm2') {
     for (const t of targets) {
       try {
         invalidateIconCache(t);
@@ -278,7 +316,14 @@ export function applyHit(args: ApplyHitArgs): ApplyHitResult {
         }
       }
     }
-    return { accepted: true, targets, icon, level, persisted: false, reason: 'data-memory-only' };
+    return {
+      accepted: true,
+      targets,
+      icon,
+      level,
+      persisted: false,
+      reason: icon.startsWith('data:') ? 'data-memory-only' : 'm2-memory-only',
+    };
   }
 
   // 仅 `remote(http)` 才 `patch state + preloadIcons` 走 `get_or_fetch_icon` 落盘。
@@ -318,14 +363,12 @@ export function __resetIconStoreForTests(): void {
 }
 
 /**
- * P2 趋势流式缓冲读口（图标内存缓冲读口，经 `iconById`）：`icon-ready` 先到、`enrich` 后到竞态时，
- * `enrich` 组装（service `enrichTrendRepos` + `TrendsView` 合并）经此取缓冲实图，
- * 空壳不覆盖缓冲实图（无空覆实；`avatar` 永不进缓冲由 `applyHit` 保证，
- * 此处再判空串即可）。
+ * M1内存缓冲读口（经 `iconById`，`applyHit`唯一写口）：`icon-ready` 先到、
+ * `enrich` 后到竞态时，`enrich` 组装经此取缓冲实图，空壳不覆盖缓冲实图。
+ * `data:`/`via=m2`只走此内存态；M2首屏直填不走emit。
  */
 export function getBufferedIcon(key: string): string | undefined {
-  if (typeof key !== 'string') return undefined;
-  const k = key.trim().toLowerCase();
+  const k = normalizeId(key);
   if (!k) return undefined;
   const v = iconById.get(k);
   return typeof v === 'string' && v.trim() !== '' ? v : undefined;
@@ -334,5 +377,5 @@ export function getBufferedIcon(key: string): string | undefined {
 /** 仅供测试：读取别名已记忆 `level`。 */
 export function __getIconStoreLevel(id: string): number | undefined {
   if (typeof id !== 'string') return undefined;
-  return iconLevelById.get(id.trim().toLowerCase());
+  return iconLevelById.get(normalizeId(id));
 }

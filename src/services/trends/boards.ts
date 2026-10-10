@@ -22,6 +22,7 @@ import {
   writeTrendsCache,
 } from './cache';
 import {
+  hydrateTrendConfirmedOtherCache,
   hydrateTrendEnrichCache,
   snapshotTrendEnrichCache,
   sweepExpiredTrendEnrichCache,
@@ -180,6 +181,31 @@ async function runBoardFetch(
   }
 }
 
+export type BoardHydratedListener = (board: string, key: string) => void;
+const boardHydratedListeners = new Set<BoardHydratedListener>();
+
+/**
+ * L2 hydrate完成订阅（首屏门就绪信号透出点；现状：读盘→hydrate→就绪顺序）。
+ * 仅 L2 命中 hydrate 后触发；L1/网络路径由调用方 await 后置就绪，不经此通道。
+ */
+export function subscribeBoardHydrated(fn: BoardHydratedListener): () => void {
+  boardHydratedListeners.add(fn);
+  return () => {
+    boardHydratedListeners.delete(fn);
+  };
+}
+
+function emitBoardHydrated(board: string, key: string): void {
+  if (boardHydratedListeners.size === 0) return;
+  for (const fn of [...boardHydratedListeners]) {
+    try {
+      fn(board, key);
+    } catch {
+      // 订阅失败不影响榜单返回
+    }
+  }
+}
+
 /** 榜缓存二级落盘读。 */
 async function getDbTrendCacheWithLegacyKey(
   newKey: string,
@@ -195,8 +221,17 @@ async function getDbTrendCacheWithLegacyKey(
   const memSnap = snapshotTrendEnrichCache(legacyHit);
   const toMigrate = Object.keys(memSnap).length > 0 ? memSnap : enrich;
   writeTrendsCache(newKey, legacyHit);
-  // 榜缓存二级落盘
-  await saveDbTrendCache(newKey, board, legacyHit, toMigrate);
+  // 榜缓存二级落盘：确认集同 key 回迁（旧盘确认不丢；未确认 pending 由合并口过滤，不回写）。
+  const legacyConfirmed = (legacyHit as { confirmedOther?: unknown }).confirmedOther;
+  await saveDbTrendCache(
+    newKey,
+    board,
+    legacyHit,
+    toMigrate,
+    Array.isArray(legacyConfirmed)
+      ? legacyConfirmed.filter((k): k is string => typeof k === 'string')
+      : undefined,
+  );
   zlogInfo(`[trends] board=${board} L2-key migrated legacy=>new reposCount=${legacyHit.length}`);
   return legacyHit;
 }
@@ -225,8 +260,13 @@ async function fetchBoardWithL2(
     if (dbHit && dbHit.length > 0) {
       const enrich = (dbHit as { enrich?: Record<string, import('../../types').AppSummary> }).enrich;
       if (enrich) hydrateTrendEnrichCache(enrich);
+      // 已确认 Other 同 key 回填（读时 hydrate；getDb 内已按先确认后 enrich 顺序回填，此处幂等补齐）。
+      const confirmed = (dbHit as { confirmedOther?: unknown }).confirmedOther;
+      if (Array.isArray(confirmed)) hydrateTrendConfirmedOtherCache(confirmed);
       writeTrendsCache(key, dbHit);
       l2HitLog(board, key, dbHit);
+      // 现状：读盘→hydrate→就绪顺序，hydrate 完成后透出就绪信号（首屏门订阅）。
+      emitBoardHydrated(board, key);
       return { repos: dbHit, status: 'ok' };
     }
   }
@@ -298,6 +338,8 @@ async function fetchDoforceShared(opts: FetchTrendsOptions = {}): Promise<TrendR
         if (dbHit && dbHit.length > 0) {
           const enrich = (dbHit as { enrich?: Record<string, import('../../types').AppSummary> }).enrich;
           if (enrich) hydrateTrendEnrichCache(enrich);
+          const confirmed = (dbHit as { confirmedOther?: unknown }).confirmedOther;
+          if (Array.isArray(confirmed)) hydrateTrendConfirmedOtherCache(confirmed);
           writeDoforceShared(dbHit);
           const hasEnrich = !!enrich && typeof enrich === 'object';
           const enrichCount = hasEnrich ? Object.keys(enrich as Record<string, unknown>).length : 0;
@@ -305,6 +347,8 @@ async function fetchDoforceShared(opts: FetchTrendsOptions = {}): Promise<TrendR
             `[trends] board=doforce L2-cache hit key=${key} hasEnrich=${hasEnrich} ` +
               `enrichCount=${enrichCount} reposCount=${dbHit.length}`,
           );
+          // 现状：读盘→hydrate→就绪顺序，hydrate 完成后透出就绪信号（首屏门订阅）。
+          emitBoardHydrated('doforce', key);
           return dbHit;
         }
       }

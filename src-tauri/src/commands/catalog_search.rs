@@ -5,7 +5,7 @@ use tauri::{AppHandle, Manager, State};
 
 static SEARCH_GEN: AtomicU64 = AtomicU64::new(0);
 
-/// P2 趋势流式世代：`enrich_trend_repos` 每次调用 +1（切榜/重拉/分片重拉均+1，
+/// 趋势流式世代：`enrich_trend_repos` 每次流式调用 +1（切榜/重拉/分片重拉均+1，
 /// 类比 `SEARCH_GEN` 每次 `search_apps_online` +1）。
 /// 后台 `fetch_icons_stream(Trend{board,gen})` 的落库前 + emit 前双检查用，
 /// 用户切榜后旧榜在途探测结果直接抛弃（与搜索防串词同语义）。
@@ -33,12 +33,11 @@ pub(crate) fn api_timeout_or(fallback: std::time::Duration) -> std::time::Durati
 }
 
 /// 快/慢图标探测结果落库 + 前端 emit（`upsert_icon_cycle` + 单发新事件）。
-/// M2=落盘已确认
-/// - 只发统一 `zstore://icon-ready{key,id,icon,level,context}`；
-/// - `level=2`写 `l2_url`；`level=3`写 `l3_url`；
+/// level纯L：`level=2`写 `l2_url`，`level=3`写 `l3_url`；via=live|m2，远端探测走live，DB落盘回填走m2。
+/// - 只发统一 `zstore://icon-ready{key,id,icon,level,via,context}`；
 /// - 世代比对防串词：落库前 + emit 前双检查 `SEARCH_GEN == expected_gen`。
 /// - 单条显式事务边界（单语句隐式事务显式化，仍 1 提交，emit 不延迟）；
-///   失败 `ROLLBACK` 返回 Err，上层 `let _ =` 吞错由吞错语义改为内部吞错、下次补探重试。
+///   失败 `ROLLBACK` 返回 Err，内部吞错下次补探重试。
 #[allow(clippy::too_many_arguments)]
 async fn save_and_emit(
     handle: &AppHandle,
@@ -48,6 +47,7 @@ async fn save_and_emit(
     sid: &str,
     url: &str,
     level: i32,
+    via: &str,
     expected_gen: u64,
 ) {
     if SEARCH_GEN.load(Ordering::SeqCst) != expected_gen {
@@ -79,6 +79,7 @@ async fn save_and_emit(
         id: id.to_owned(),
         icon: url.to_owned(),
         level,
+        via: via.to_owned(),
         context: crate::github::icon_fetch::IconFetchCtx::Search {
             search_id: sid.to_owned(),
             gen: expected_gen,
@@ -87,9 +88,10 @@ async fn save_and_emit(
     crate::github::icon_fetch::emit_icon_ready(handle, &ready);
 }
 
-/// 趋势图标命中落库 + 前端 emit（P2 流式，类比 `save_and_emit` 搜索链）：
-/// - 只发统一 `zstore://icon-ready{key,id,icon,level,context=Trend{board,gen}}`；
-/// - `level=2` 快路径 SimpleIcons 写 `l2_url`；`level=3` 慢路径 Trees 写 `l3_url`；
+/// 趋势图标命中落库 + 前端 emit（流式，类比 `save_and_emit` 搜索链）：
+/// - 只发统一 `zstore://icon-ready{key,id,icon,level,via,context=Trend{board,gen}}`；
+/// - level纯L：`level=2` 快路径 SimpleIcons 写 `l2_url`；`level=3` 慢路径 Trees 写 `l3_url`；
+///   via=live|m2，远端探测走live，DB落盘回填走m2；
 /// - 世代比对防串榜：落库前 + emit 前双检查 `BOARD_GEN == expected_gen`，
 ///   用户在此期间切榜/重拉则抛弃过时探测结果（与搜索 `SEARCH_GEN` 双检查同语义）；
 /// - 单条显式事务边界（与搜索同形，失败 `ROLLBACK` 返回，内部吞错下次补探重试）。
@@ -101,6 +103,7 @@ async fn save_and_emit_trend(
     board: &str,
     url: &str,
     level: i32,
+    via: &str,
     expected_gen: u64,
 ) {
     if BOARD_GEN.load(Ordering::SeqCst) != expected_gen {
@@ -131,6 +134,7 @@ async fn save_and_emit_trend(
         id: id.to_owned(),
         icon: url.to_owned(),
         level,
+        via: via.to_owned(),
         context: crate::github::icon_fetch::IconFetchCtx::Trend {
             board: board.to_owned(),
             gen: expected_gen,
@@ -139,13 +143,15 @@ async fn save_and_emit_trend(
     crate::github::icon_fetch::emit_icon_ready(handle, &ready);
 }
 
-/// `github::icon_fetch::fetch_icons_stream` 的命中回调（P0 只接 Search，P2 接 Trend）。
+/// `github::icon_fetch::fetch_icons_stream` 的命中回调（搜索接 Search，趋势接 Trend）。
 /// 世代防串由 `save_and_emit` / `save_and_emit_trend` 内落库前 + emit 前双检查执行。
+/// `via`=live|m2 透传（core探测一律live，M2回填走m2不占level）。
 async fn emit_icon_job(
     handle: AppHandle,
     job: crate::github::icon_fetch::IconFetchJob,
     url: String,
     level: i32,
+    via: String,
 ) {
     match job.ctx {
         crate::github::icon_fetch::IconFetchCtx::Search {
@@ -153,13 +159,13 @@ async fn emit_icon_job(
             gen,
         } => {
             save_and_emit(
-                &handle, &job.id, &job.owner, &job.repo, search_id, &url, level, gen,
+                &handle, &job.id, &job.owner, &job.repo, search_id, &url, level, &via, gen,
             )
             .await;
         }
         crate::github::icon_fetch::IconFetchCtx::Trend { ref board, gen } => {
             save_and_emit_trend(
-                &handle, &job.id, &job.owner, &job.repo, board, &url, level, gen,
+                &handle, &job.id, &job.owner, &job.repo, board, &url, level, &via, gen,
             )
             .await;
         }
@@ -181,7 +187,8 @@ pub(crate) fn hidden_rule_ids(state: &AppState) -> std::collections::HashSet<Str
 }
 
 /// 未收录卡片回填：确认图标覆盖 → 待写 icon_cycle 构建 → 详情缓存 platforms join。
-/// M2=落盘已确认
+/// level纯L，via正交：DB落盘命中为M2回填走via=m2不占level；远端只标L2/L3 live。
+/// `simpleicons.org` 标 level 2 写 `l2_url`，其余标 level 3 写 `l3_url`。
 /// 返回 `Some(cycle)` 时由调用方收进 `pending` 批量落库；无事可写返回 `None`。
 /// 纯同步无 `await`（调用方单临界区内复用 db 锁，批量 upsert 仍在调用点）。
 fn backfill_uncataloged_card(
@@ -201,9 +208,8 @@ fn backfill_uncataloged_card(
             cycle.level = 2;
             cycle.l2_url = item.icon.clone();
         } else {
-            // M2=落盘已确认
-            cycle.level = 4;
-            cycle.l4_url = item.icon.clone();
+            cycle.level = 3;
+            cycle.l3_url = item.icon.clone();
         }
         cycle.selected_url = item.icon.clone();
         cycle.updated_at = crate::now_secs();
@@ -236,7 +242,7 @@ fn flush_icon_cycle_pending(db: &crate::db::Database, pending: &[crate::db::AppI
     }
 }
 
-/// 分页切片（Option 版，供 `search_apps` 向后兼容：None=全量，Some 切 slice，越界守好）。
+/// 分页切片（None=全量，Some 切 slice，越界守好）。
 fn slice_paged<T: Clone>(items: Vec<T>, limit: Option<usize>, offset: Option<usize>) -> Vec<T> {
     match (limit, offset) {
         (None, None) => items,
@@ -273,7 +279,7 @@ pub async fn search_apps(
             .filter(|a| !hidden_ids.contains(&a.id))
             .collect()
     };
-    // 向后兼容分页：None=全量（分类/趋势/搜索空态沿用 stars 降序默认），Some 时切 slice。
+    // 分页：None=全量（分类/趋势/搜索空态沿用 stars 降序默认），Some 时切 slice。
     // 空查询 stars 降序、非空线性打分逻辑在 `CatalogService::search_apps` 内保持不变，此处仅切片。
     let total = filtered.len();
     let paged = slice_paged(filtered, limit, offset);
@@ -414,15 +420,15 @@ pub async fn search_apps_online(
                     ) {
                         item.icon = ci;
                     } else if !item.icon.trim().is_empty() {
+                        // 远端只标 L2/L3 live。
                         let mut cycle = crate::db::AppIconCycle::new(&item.id, &item.owner, &item.repo);
                         cycle.is_cataloged = false;
                         if item.icon.contains("simpleicons.org") {
                             cycle.level = 2;
                             cycle.l2_url = item.icon.clone();
                         } else {
-                            // M2=落盘已确认
-                            cycle.level = 4;
-                            cycle.l4_url = item.icon.clone();
+                            cycle.level = 3;
+                            cycle.l3_url = item.icon.clone();
                         }
                         cycle.selected_url = item.icon.clone();
                         cycle.updated_at = crate::now_secs();
@@ -544,9 +550,9 @@ pub async fn search_apps_online(
         let handle = app_handle.clone();
         let sid = actual_search_id.clone();
         let bg_token = token.clone();
-        // P0：快慢探 stream 已抽入 `github::icon_fetch::fetch_icons_stream`，
-        // 行为与原内联一致（pool=5 buffer_unordered、快命中即返不等慢、
-        // 慢仅快未命中且有 token 时跑 main→master、整批 15s 熔断、逐张到达 emit）。
+        // 搜索固定走新流式路（`compat_collect` 仅门控趋势等齐路，见 ADR-0015 §7）：
+        // pool=5 buffer_unordered、快命中即返不等慢、慢仅快未命中且有 token 时跑、
+        // 整批总量按页伸缩、逐张到达 emit。
         let jobs: Vec<crate::github::icon_fetch::IconFetchJob> = candidates
             .into_iter()
             .map(|(id, owner, repo)| crate::github::icon_fetch::IconFetchJob {
@@ -580,16 +586,16 @@ pub struct TrendEnrichRequest {
 /// 配额/鉴权沿用既有链路（`resolve_active_github_token` + 内层 `notify_rate_limit`）。
 /// - 并发上限 5（`buffered` 保序，返回与入参一一对齐）；单仓 `api_timeout_or(10s)` 熔断；
 /// - 单仓失败落 `None`（前端保留旧小行，榜单永不因此变空）；
-///   入参上限 40（Phase2分片：FE 分片串行 20/片×2 片，上限 40；BE 侧 take(40) 截断，buffered(5) 不变）。
-/// - P2 趋势流式化：首屏 `fallback_summary(probe=false)` 空壳快返（图标置空，
+///   入参上限 40（FE 分片串行 20/片×2 片，上限 40；BE 侧 take(40) 截断，buffered(5) 不变）。
+/// - 趋势流式：首屏 `fallback_summary(probe=false)` 空壳快返（图标置空，
 ///   确认图标仍经 `pre_confirmed` 短锁回填，platforms 经详情缓存 join 照旧），
 ///   另起 `tokio::spawn(fetch_icons_stream(ctx=Trend{board,board_gen}))` 流式
 ///   `emit_icon_ready` 逐张到达补齐（弱网首屏先出裸行/初始富卡，图标逐个补齐，
 ///   空永不覆盖实由前端 `iconStore.applyHit` + 后端 `BOARD_GEN` 双检查保证）；
-/// - 世代：每次调用 `BOARD_GEN+1`（切榜/重拉/分片重拉均+1，类比 `SEARCH_GEN`），
+/// - 世代：每次流式调用 `BOARD_GEN+1`（切榜/重拉/分片重拉均+1，类比 `SEARCH_GEN`），
 ///   落库前 + emit 前双检查（见 `save_and_emit_trend`）；
-/// - 逃生门：`IconFetchConfig.compat_collect=true`（默认）时保持老
-///   `buffered+collect` 等齐路（`probe=true` 内联慢探同步完成，行为与改前一致），
+/// - 逃生门：`IconFetchConfig.compat_collect=true`（默认）时保持
+///   `buffered+collect` 等齐路（`probe=true` 内联慢探同步完成），
 ///   仅 `compat_collect=false` 时走新流式路。
 #[tauri::command]
 pub async fn enrich_trend_repos(
@@ -600,16 +606,16 @@ pub async fn enrich_trend_repos(
 ) -> crate::AppResult<Vec<Option<AppSummary>>> {
     use futures_util::StreamExt;
     let enrich_start = std::time::Instant::now();
-    // P2 世代：每次调用 +1（切榜/重拉均触发新调用，类比 SEARCH_GEN）。
-    let current_gen = BOARD_GEN.fetch_add(1, Ordering::SeqCst) + 1;
     let board_name = board.unwrap_or_default().trim().to_lowercase();
     let cfg_icon = crate::config::get_project_config().limits.icon_fetch;
-    // 逃生门：compat_collect=true 保持老等齐路（与改前逐行一致，含内联慢探）。
+    // 逃生门：compat_collect=true 保持老等齐路（含内联慢探）。
     if cfg_icon.compat_collect {
         return enrich_trend_repos_buffered(state, repos, enrich_start).await;
     }
-    // P2 流式路：首屏 probe=false 空壳快返 + 后台 fetch_icons_stream。
-    // Phase2分片：FE 已按 20/片×2 片串行（上限 40），此处 take(40) 为兜底截断，不静默吃超量。
+    // 世代：流式路每次调用 +1（切榜/重拉均触发新调用，类比 SEARCH_GEN）。
+    let current_gen = BOARD_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    // 流式路：首屏 probe=false 空壳快返 + 后台 fetch_icons_stream。
+    // FE 已按 20/片×2 片串行（上限 40），此处 take(40) 为兜底截断，不静默吃超量。
     let targets: Vec<(String, String, String)> = repos
         .into_iter()
         .take(40)
@@ -639,7 +645,7 @@ pub async fn enrich_trend_repos(
     } else {
         targets.iter().map(|_| None).collect()
     };
-    // P2 首屏：`probe=false` 等价——`pre` 恒为 `Some`（确认实图或空串），
+    // 首屏：`probe=false` 等价——`pre` 恒为 `Some`（确认实图或空串），
     // `fetch_online_repo` 内 `fallback_summary(probe=true)` 见 `Some` 即直接采用、
     // 跳过 SimpleIcons/Trees 内联慢探，只剩 GitHub 元数据 fetch（描述/星数保留，
     // 图标置空等后台流式补齐）。确认图标仍直接回填，platforms 经下方 join 照旧。
@@ -698,7 +704,7 @@ pub async fn enrich_trend_repos(
         flush_icon_cycle_pending(&db, &pending);
     }
 
-    // P2 后台流式：无确认图标的仓全部入 `fetch_icons_stream(Trend)`，
+    // 后台流式：无确认图标的仓全部入 `fetch_icons_stream(Trend)`，
     // 快命中即返不等慢、逐张到达 `emit_icon_ready`（含 GitHub 失败的裸行仓，
     // 前端缓冲等 enrich 重试/详情治愈时合并，空永不覆盖实）。
     let jobs: Vec<crate::github::icon_fetch::IconFetchJob> = targets
@@ -737,7 +743,7 @@ pub async fn enrich_trend_repos(
     Ok(results)
 }
 
-/// P2 逃生门：`compat_collect=true` 时的老 `buffered+collect` 等齐路（与改前逐行一致）。
+/// 逃生门：`compat_collect=true` 时的 `buffered+collect` 等齐路。
 /// `probe=true` 内联慢探在单仓超时内同步完成，命中经批量 enrich 落库；无后台 emit。
 async fn enrich_trend_repos_buffered(
     state: State<'_, AppState>,
@@ -745,7 +751,7 @@ async fn enrich_trend_repos_buffered(
     enrich_start: std::time::Instant,
 ) -> crate::AppResult<Vec<Option<AppSummary>>> {
     use futures_util::StreamExt;
-    // Phase2分片：FE 已按 20/片×2 片串行（上限 40），此处 take(40) 为兜底截断，不静默吃超量。
+    // FE 已按 20/片×2 片串行（上限 40），此处 take(40) 为兜底截断，不静默吃超量。
     let targets: Vec<(String, String, String)> = repos
         .into_iter()
         .take(40)
@@ -839,9 +845,8 @@ mod tests {
 
     #[test]
     fn search_slow_falls_back_to_master() {
-        // 回归：慢路径 Trees 必须覆盖 master（ZCode 类老仓默认分支），顺序 main 优先。
-        // 覆盖移除 master 即零命中零 emit（首屏恒 initials），此断言锁住回退顺序。
-        // P0：分支顺序收归 `github::icon_fetch` core，此处直引 core 常量断言。
+        // 慢路径 Trees 覆盖 master（ZCode 类老仓默认分支），顺序 main 优先。
+        // 分支顺序收归 `github::icon_fetch` core，此处直引 core 常量断言。
         assert_eq!(
             crate::github::icon_fetch::SEARCH_PROBE_BRANCHES,
             ["main", "master"]
@@ -878,8 +883,8 @@ mod tests {
 
     #[test]
     fn backfill_uncataloged_card_keeps_twin_loop_semantics() {
-        // 双调用点抽取回归：空图标无 pending 且保持原样 / 图标L2=品牌库 pending 构建 /
-        // 确认图标（selected 回退）直接覆盖且无 pending。
+        // 空图标无 pending 且保持原样 / L2品牌库 pending 构建 /
+        // 非品牌库远端只标 L3 live / DB 命中直接覆盖且无 pending（M2回填走via=m2不占level）。
         let db = crate::db::Database::open_in_memory().unwrap();
         let mut empty = sample_summary("o/r", "o", "r", "");
         assert!(backfill_uncataloged_card(&db, &mut empty, 1800).is_none());
@@ -893,10 +898,17 @@ mod tests {
         assert_eq!(c.selected_url, "https://cdn.simpleicons.org/i");
         assert_eq!(l2.icon, "https://cdn.simpleicons.org/i");
 
+        let mut l3 = sample_summary("t/r", "t", "r", "https://raw.githubusercontent.com/t/r/main/icon.png");
+        let c3 = backfill_uncataloged_card(&db, &mut l3, 1800).expect("l3 pending");
+        assert_eq!(c3.level, 3);
+        assert_eq!(c3.l3_url, "https://raw.githubusercontent.com/t/r/main/icon.png");
+        assert!(c3.l4_url.is_empty());
+        assert_eq!(c3.selected_url, "https://raw.githubusercontent.com/t/r/main/icon.png");
+
         let mut cycle = crate::db::AppIconCycle::new("c/r", "c", "r");
         cycle.is_cataloged = false;
-        cycle.level = 4;
-        cycle.l4_url = "https://example.com/c.png".to_string();
+        cycle.level = 2;
+        cycle.l2_url = "https://example.com/c.png".to_string();
         cycle.selected_url = "https://example.com/c.png".to_string();
         cycle.updated_at = crate::now_secs();
         db.upsert_icon_cycle(&cycle).unwrap();

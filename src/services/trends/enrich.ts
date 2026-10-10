@@ -50,6 +50,7 @@ export function markTrendConfirmedOther(key: string): void {
   const cur = trendEnrichCache.get(k);
   if (cur && hasConcretePlatforms(cur.data.platforms)) return;
   putTrendConfirmedOtherEntry(k, Date.now());
+  emitTrendConfirmedOtherChanged('mark', [k]);
 }
 
 /** 批量标记已确认 Other（空键/已具平台逐项跳过）。 */
@@ -65,7 +66,8 @@ export function markTrendConfirmedOthers(keys: readonly string[]): void {
 export function unmarkTrendConfirmedOther(key: string): void {
   const k = key.trim().toLowerCase();
   if (!k) return;
-  trendConfirmedOtherCache.delete(k);
+  const removed = trendConfirmedOtherCache.delete(k);
+  if (removed) emitTrendConfirmedOtherChanged('unmark', [k]);
 }
 
 /** 批量移除已确认标记。 */
@@ -78,23 +80,61 @@ export function unmarkTrendConfirmedOthers(keys: readonly string[]): void {
 }
 
 /**
- * 单键是否为已确认 Other（运行时派生优先，derive wins）：
- * - 派生口径：内存 enrich 条目存在时，以条目状态为准——具平台一律不是 Other
- *   （到场即驱逐，残留标记同步清除）；空平台 + 新鲜（12h 内，非 stale）即 Other；
- *   空平台 + stale 即非 Other（到期重验，不再由旧标记直展）；
- * - 无内存条目时回退独立标记集。
+ * 已确认 Other 变更订阅（榜缓存写透联动钩子）：
+ * - 仅显式 mark/unmark（含具平台驱逐删标记）触发；读路径 hydrate/sweep/过期清理不触发（读不写盘）；
+ * - 订阅方（如 TrendsView）据此节流写透同榜 key；pending 语义不动（未确认 pending 永不进内存/落库）。
+ */
+export type TrendConfirmedOtherChangeKind = 'mark' | 'unmark';
+export type TrendConfirmedOtherListener = (
+  kind: TrendConfirmedOtherChangeKind,
+  keys: readonly string[],
+) => void;
+const trendConfirmedOtherListeners = new Set<TrendConfirmedOtherListener>();
+
+export function subscribeTrendConfirmedOtherChanges(fn: TrendConfirmedOtherListener): () => void {
+  trendConfirmedOtherListeners.add(fn);
+  return () => {
+    trendConfirmedOtherListeners.delete(fn);
+  };
+}
+
+function emitTrendConfirmedOtherChanged(
+  kind: TrendConfirmedOtherChangeKind,
+  keys: readonly string[],
+): void {
+  if (trendConfirmedOtherListeners.size === 0) return;
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of keys) {
+    if (typeof raw !== 'string') continue;
+    const k = raw.trim().toLowerCase();
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    normalized.push(k);
+  }
+  if (normalized.length === 0) return;
+  for (const fn of [...trendConfirmedOtherListeners]) {
+    try {
+      fn(kind, normalized);
+    } catch {
+      // 订阅失败不影响标记本身
+    }
+  }
+}
+
+/**
+ * pending 当次有效永不缓存；Other 共享需确认（lite/详情确认标记）。
+ * 现状：具平台驱逐删标记走与 mark/unmark 同一 emit，触发写透（内存与盘所见即所得）；
+ * TTL 过期清理为读路径，不 emit（不写放大）。
  */
 export function isTrendConfirmedOtherFresh(key: string): boolean {
   const k = key.trim().toLowerCase();
   if (!k) return false;
   const cur = trendEnrichCache.get(k);
-  if (cur) {
-    if (hasConcretePlatforms(cur.data.platforms)) {
-      if (trendConfirmedOtherCache.has(k)) trendConfirmedOtherCache.delete(k);
-      return false;
+  if (cur && hasConcretePlatforms(cur.data.platforms)) {
+    if (trendConfirmedOtherCache.delete(k)) {
+      emitTrendConfirmedOtherChanged('unmark', [k]);
     }
-    const elapsed = Date.now() - cur.timestamp;
-    if (elapsed >= 0 && elapsed < TREND_ENRICH_CACHE_TTL_MS) return true;
     return false;
   }
   const ts = trendConfirmedOtherCache.get(k);
@@ -108,22 +148,14 @@ export function isTrendConfirmedOtherFresh(key: string): boolean {
 }
 
 /**
- * 已确认 Other 快照：
- * - 派生优先：新鲜（12h 内）空平台 enrich 条目一律视为 Other（运行时派生，
- *   不再依赖是否曾被单独标记）；具平台键一律排除（禁 pending 覆盖具平台，
- *   升级后不再视同 Other）；stale 空平台条目排除（到期重验）；
- * - 独立标记集新鲜键一并返回；
- * - 可选传入 repos 时仅返回仍属本榜的键（坐标键 + id 键，小写）。
+ * pending 当次有效永不缓存；Other 共享需确认（lite/详情确认标记）。
+ * 可选传入 repos 时仅返回仍属本榜的键（坐标键 + id 键，小写）。
+ * 现状：具平台驱逐删标记走与 mark/unmark 同一 emit，触发写透；过期清理不 emit。
  */
 export function snapshotTrendConfirmedOthers(repos?: TrendRepo[]): string[] {
   const now = Date.now();
   const fresh = new Set<string>();
-  for (const [k, hit] of trendEnrichCache) {
-    const elapsed = now - hit.timestamp;
-    if (elapsed < 0 || elapsed >= TREND_ENRICH_CACHE_TTL_MS) continue;
-    if (hasConcretePlatforms(hit.data.platforms)) continue;
-    fresh.add(k);
-  }
+  const evicted: string[] = [];
   for (const [k, ts] of trendConfirmedOtherCache) {
     const elapsed = now - ts;
     if (elapsed < 0 || elapsed >= TREND_CONFIRMED_OTHER_TTL_MS) {
@@ -133,9 +165,13 @@ export function snapshotTrendConfirmedOthers(repos?: TrendRepo[]): string[] {
     const cur = trendEnrichCache.get(k);
     if (cur && hasConcretePlatforms(cur.data.platforms)) {
       trendConfirmedOtherCache.delete(k);
+      evicted.push(k);
       continue;
     }
     fresh.add(k);
+  }
+  if (evicted.length > 0) {
+    emitTrendConfirmedOtherChanged('unmark', evicted);
   }
   const out = [...fresh];
   if (!repos || repos.length === 0) return out;
@@ -181,22 +217,16 @@ export function sweepExpiredTrendConfirmedOtherCache(): void {
   }
 }
 
+/** M1内存：trendEnrichCache（仅具平台坐标元数据 12h/500 FIFO；pending 空平台永不进内存）。 */
 const trendEnrichCache = new Map<string, { timestamp: number; data: AppSummary }>();
 
 /**
- * icon 粘性 supersede-only 合并（per-field 新鲜度的 icon 半区）：
- * 旧图标非空 + 回填图标空 → 沿用旧图标；其余一律采用回填值（含新图标覆盖旧图标）。
- * put 入口与回填 out 组装共用，保证内存与本次返回值一致。
- *
- * 图标合并走 iconStore 缓冲。
- *
- * @deprecated P1 已收敛至 `services/iconStore.mergeStickyIcon`，此处仅转调；
- *   SHARD/平台逻辑与趋势等齐语义一律不动。
+ * icon 粘性合并：旧图标非空 + 回填空则沿用旧值，其余采用回填值。
+ * M1内存回读：空图标沿用 iconStore 缓冲实图，保证内存与本次返回值一致。
  */
 function stickyIconFor(cur: AppSummary | undefined, incoming: AppSummary): AppSummary {
   const merged = mergeStickyIcon(cur, incoming);
-  // 竞态补齐。
-  // 合并与入库一并沿用缓冲实图（内存与本次返回值一致）。
+  // M1内存回读经 `getBufferedIcon` 唯一口。
   if (typeof merged.icon === 'string' && merged.icon.trim() === '') {
     const coordKey =
       incoming.owner && incoming.repo
@@ -215,19 +245,30 @@ function stickyIconFor(cur: AppSummary | undefined, incoming: AppSummary): AppSu
 
 /**
  * trendEnrichCache 唯一写入口。
+ * - 具平台恒进缓存（12h/500 FIFO）；sticky/icon 合并仅对具平台执行；
+ * - pending 空平台仅已确认键进内存（已确认 Other 随榜缓存同 key 落盘，重挂直展 Other 卡）；
+ *   未确认 pending 入口直接 return（不进内存、不落库，只活当次 out 渲染）；
+ * - 禁 pending 覆盖具平台：内存已有具平台值时 pending 回填直接丢弃；
+ * - 详情具平台治愈（upsertTrendEnrichFromDetail / upsertTrendEnrichRichcard）为唯一回填口。
  */
 function putTrendEnrichCache(key: string, entry: { timestamp: number; data: AppSummary }): void {
   const k = key.trim().toLowerCase();
   if (!k) return;
+  const incomingConcrete = hasConcretePlatforms(entry.data.platforms);
   const cur = trendEnrichCache.get(k);
+  if (cur && hasConcretePlatforms(cur.data.platforms) && !incomingConcrete) return;
+  if (!incomingConcrete && !trendConfirmedOtherCache.has(k)) return;
   // 图标回填只做升级不做准入（stickyIconFor）：已有真实图标（非空）不被空图标覆盖；
   // 有/无图标一视同仁进富卡，首字母兜底在渲染侧生成，不影响持久化。
   const data = stickyIconFor(cur?.data, entry.data);
   if (trendEnrichCache.has(k)) trendEnrichCache.delete(k);
   trendEnrichCache.set(k, { timestamp: entry.timestamp, data });
   // 具平台到达即覆盖升级： concrete 入库同步移除已确认 Other 标记（pending 永不覆盖具平台的另一半）。
+  // 现状：驱逐删标记走与 mark/unmark 同一 emit，触发写透（调用方不另行写透，不双写）。
   if (hasConcretePlatforms(data.platforms)) {
-    trendConfirmedOtherCache.delete(k);
+    if (trendConfirmedOtherCache.delete(k)) {
+      emitTrendConfirmedOtherChanged('unmark', [k]);
+    }
   }
   while (trendEnrichCache.size > TREND_ENRICH_CACHE_MAX_ENTRIES) {
     const oldest = trendEnrichCache.keys().next().value as string | undefined;
@@ -260,10 +301,12 @@ export function clearTrendEnrichCache(): void {
 
 /**
  * 向内存 `trendEnrichCache` 回填：
- * - SWR 直展：具真实平台与 pending 空平台均可入内存（pending 卡首屏直展，Other 待确认语义）；
+ * - 具平台恒进缓存（12h/500 FIFO），后续靠应用详情刷新治愈（upsert from detail）；
+ * - pending 空平台仅已确认键进内存（调用方先 mark；读盘时先 hydrate 确认集再 hydrate enrich）；
+ *   未确认 pending 直接跳过（永不进内存/落库，只活当次 out 渲染）；
+ * - 禁 pending 覆盖具平台（put 入口守卫）；
  * - 准入只看三件套：id/owner/repo 非空必填（有/无图标一视同仁，icon 空也保留）；
  * - 约束：不存 dataURI（若 icon 是 data: 开头则跳过）；
- * - 不用旧 pending 覆盖内存中已具平台值（详情治愈/新值优先；图标合并在 put 入口统一升级）。
  * - 键统一转为小写 `owner/repo`。
  */
 export function hydrateTrendEnrichCache(
@@ -278,23 +321,14 @@ export function hydrateTrendEnrichCache(
     if (typeof summary.owner !== 'string' || summary.owner.trim() === '') continue;
     if (typeof summary.repo !== 'string' || summary.repo.trim() === '') continue;
     if (!Array.isArray(summary.platforms)) continue;
-    if (typeof summary.icon === 'string' && summary.icon.startsWith('data:')) continue;
     const key = rawKey.trim().toLowerCase();
     if (!key) continue;
-    const cur = trendEnrichCache.get(key);
-    if (cur && hasConcretePlatforms(cur.data.platforms)) {
-      const incomingEmpty = !hasConcretePlatforms(summary.platforms);
-      if (incomingEmpty) continue;
-    }
+    if (!hasConcretePlatforms(summary.platforms) && !trendConfirmedOtherCache.has(key)) continue;
+    if (typeof summary.icon === 'string' && summary.icon.startsWith('data:')) continue;
     putTrendEnrichCache(key, { timestamp: now, data: summary });
     if (summary.owner && summary.repo) {
       const coordKey = trendEnrichKey(summary.owner, summary.repo);
       if (coordKey !== key) {
-        const curCoord = trendEnrichCache.get(coordKey);
-        if (curCoord && hasConcretePlatforms(curCoord.data.platforms)) {
-          const incomingEmpty = !hasConcretePlatforms(summary.platforms);
-          if (incomingEmpty) continue;
-        }
         putTrendEnrichCache(coordKey, { timestamp: now, data: summary });
       }
     }
@@ -304,23 +338,29 @@ export function hydrateTrendEnrichCache(
 /**
  * 内存快照：
  * - 可选传入 repos：若传入则仅提取属于这些 repos 的条目，否则提取全部；
- * - 仅提取未过期条目（elapsed<0 按过期；elapsed>=12h 按过期），具真实平台与 pending 空平台均收录（SWR 直展）；
- * - 约束：跳过 dataURI（pending 空平台保留，Other 待确认语义）。
+ * - 仅提取未过期条目（elapsed<0 按过期；elapsed>=12h 按过期）；
+ * - 具平台恒收录；pending 仅收录已确认新鲜键（Other 直展），未确认 pending 一律跳过（永不持久化）；
+ * - 约束：跳过 dataURI。
  */
 export function snapshotTrendEnrichCache(repos?: TrendRepo[]): Record<string, AppSummary> {
   const now = Date.now();
   const out: Record<string, AppSummary> = {};
+  const confirmed = new Set(snapshotTrendConfirmedOthers());
   if (repos && repos.length > 0) {
     for (const r of repos) {
       const coordKey = r.owner && r.repo ? trendEnrichKey(r.owner, r.repo) : '';
       const idKey = r.id ? r.id.trim().toLowerCase() : '';
-      const hit =
-        (coordKey ? trendEnrichCache.get(coordKey) : undefined) ??
-        (idKey ? trendEnrichCache.get(idKey) : undefined);
+      const coordHit = coordKey ? trendEnrichCache.get(coordKey) : undefined;
+      const idHit = idKey ? trendEnrichCache.get(idKey) : undefined;
+      const hit = coordHit ?? idHit;
       if (!hit) continue;
+      const storedKey = coordHit ? coordKey : idKey;
       const elapsed = now - hit.timestamp;
       if (elapsed < 0 || elapsed >= TREND_ENRICH_CACHE_TTL_MS) continue;
-      if (!Array.isArray(hit.data.platforms)) continue;
+      if (!hasConcretePlatforms(hit.data.platforms)) {
+        const targetKey = coordKey || idKey;
+        if (!confirmed.has(storedKey) && (!targetKey || !confirmed.has(targetKey))) continue;
+      }
       if (typeof hit.data.icon === 'string' && hit.data.icon.startsWith('data:')) continue;
       const targetKey = coordKey || idKey;
       if (targetKey) {
@@ -332,7 +372,7 @@ export function snapshotTrendEnrichCache(repos?: TrendRepo[]): Record<string, Ap
   for (const [key, hit] of trendEnrichCache.entries()) {
     const elapsed = now - hit.timestamp;
     if (elapsed < 0 || elapsed >= TREND_ENRICH_CACHE_TTL_MS) continue;
-    if (!Array.isArray(hit.data.platforms)) continue;
+    if (!hasConcretePlatforms(hit.data.platforms) && !confirmed.has(key)) continue;
     if (typeof hit.data.icon === 'string' && hit.data.icon.startsWith('data:')) continue;
     out[key] = hit.data;
   }
@@ -341,22 +381,23 @@ export function snapshotTrendEnrichCache(repos?: TrendRepo[]): Record<string, Ap
 
 /**
  * Enrich 未收录 TrendRepo → AppSummary（Map 键为小写 `owner/repo`）。
- * 缓存命中直接返回；缺失批量走 Rust 命令；失败/空项缺席（调用方保留旧小行，榜单永不因此变空）。
+ * 具平台缓存命中直接返回；已确认 pending 新鲜命中即直展（免验不重拉）；
+ * 未确认 pending 永不命中（视为缺席，删后重拉，不直接返）；
+ * 缺失批量走 Rust 命令；失败/空项缺席（调用方保留旧小行，榜单永不因此变空）。
  * 本函数永不抛错：传输层异常一律吞为“全部缺席”。
  *
  * 平台语义：`fallback_summary` 恒为 `[]`（后端不打标，other 纯前端虚拟），
- * 空 platforms 为“待确认 pending”：本次返回并进 12h 内存（SWR 首屏直展 pending 卡），
- * 后续具平台值到达即覆盖治愈；调用方与 hydrate 永不用空值覆盖已具平台值，
- * 避免 stale [] 锁死榜单行（VoiceStudio 类 bug）。
+ * 空 platforms 为 pending：未确认 pending 只活当次 out 渲染，永不进内存/落库（不进 trendEnrichCache）；
+ * 已确认 pending 新鲜命中即直展（重挂免验，不重拉），stale 到期重拉；
+ * 只有具平台才进 12h 内存（12h/500 FIFO）；后续靠应用详情刷新治愈（upsert from detail）。
  *
- * Phase2治理分片：FE 分片串行 20/片 × 2 片 = 40 上限（BE take(40)+buffered(5) 保序不变）；
+ * 分片：FE 分片串行 20/片 × 2 片 = 40 上限（BE take(40)+buffered(5) 保序不变）；
  * 超 40 的仓留占位（out 缺席，调用方保留旧小行），榜单永不置空；单片失败仅该片缺席，继续下片。
  *
  * per-field 新鲜度（本函数读路径）：
  * - icon 粘性 supersede-only：永不过期，只被非空新图标替换（stickyIconFor，put 与 out 同语义）；
  * - summary/desc 12h：到期重拉，但旧条目保留供图标合并（快照/sweep 仍视其过期）；
- * - platforms 沿详情等价新鲜度：pending 空平台永不覆盖具平台值，具平台到达即覆盖治愈，
- *   空非 stale 由 lite/详情确认链裁决（本函数不另设平台 TTL）。
+ * - platforms：pending 永不覆盖具平台值，具平台到达即覆盖治愈（详情治愈回填唯一写口）。
  */
 export async function enrichTrendRepos(repos: TrendRepo[]): Promise<Map<string, AppSummary>> {
   const out = new Map<string, AppSummary>();
@@ -369,18 +410,36 @@ export async function enrichTrendRepos(repos: TrendRepo[]): Promise<Map<string, 
     seen.add(key);
     const hit = trendEnrichCache.get(key);
     if (hit) {
-      const elapsed = now - hit.timestamp;
-      // 时钟钳制：elapsed<0 按过期
-      if (elapsed < 0) {
-        trendEnrichCache.delete(key);
-      } else if (elapsed < TREND_ENRICH_CACHE_TTL_MS) {
-        out.set(key, hit.data);
-        continue;
+      if (!hasConcretePlatforms(hit.data.platforms)) {
+        // 已确认 pending 新鲜命中即直展（重挂免验，不重拉）；stale/未确认删后重拉，不直接返。
+        let confirmedHit = false;
+        if (isTrendConfirmedOtherFresh(key)) {
+          const elapsed = now - hit.timestamp;
+          if (elapsed >= 0 && elapsed < TREND_ENRICH_CACHE_TTL_MS) {
+            out.set(key, hit.data);
+            confirmedHit = true;
+          }
+        }
+        if (!confirmedHit) {
+          trendEnrichCache.delete(key);
+        } else {
+          continue;
+        }
       } else {
-        // summary/desc 12h 到期 → 重拉；旧条目保留供图标粘性合并，
-        // 重拉成功即刷新时间戳，失败则下次再验（不删旧图标）。
+        const elapsed = now - hit.timestamp;
+        // 时钟钳制：elapsed<0 按过期
+        if (elapsed < 0) {
+          trendEnrichCache.delete(key);
+        } else if (elapsed < TREND_ENRICH_CACHE_TTL_MS) {
+          out.set(key, hit.data);
+          continue;
+        } else {
+          // summary/desc 12h 到期 → 重拉；旧条目保留供图标粘性合并，
+          // 重拉成功即刷新时间戳，失败则下次再验（不删旧图标）。
+        }
       }
     }
+    // pending 视为缺席：已删旧值，本次走重拉。
     missing.push(r);
   }
   if (missing.length === 0) return out;
@@ -408,15 +467,14 @@ export async function enrichTrendRepos(repos: TrendRepo[]): Promise<Map<string, 
         return;
       }
       const key = trendEnrichKey(r.owner, r.repo);
-      // SWR：具平台与 pending 均进 12h 内存（首屏直展）；内存已有具平台值时不被 pending 覆盖。
-      const cur = trendEnrichCache.get(key);
-      if (cur && hasConcretePlatforms(cur.data.platforms)) {
-        const incomingEmpty = !hasConcretePlatforms(s.platforms);
-        if (incomingEmpty) {
-          out.set(key, s);
-          return;
-        }
+      // pending 当次有效永不缓存：只 set 当次 out，不 put 进 cache；具平台才 put。
+      if (!hasConcretePlatforms(s.platforms)) {
+        const cur = trendEnrichCache.get(key);
+        s = stickyIconFor(cur?.data, s);
+        out.set(key, s);
+        return;
       }
+      const cur = trendEnrichCache.get(key);
       // icon 粘性 supersede-only：旧图标非空 + 回填空 → out 与入库一并沿用旧图标。
       s = stickyIconFor(cur?.data, s);
       putTrendEnrichCache(key, { timestamp: at, data: s });
@@ -506,7 +564,8 @@ export function appSummaryFromDetail(detail: AppDetail): AppSummary {
 }
 
 /**
- * 详情治愈写入 enrich 长缓存：仅非空平台写入（空不写，保持 pending），
+ * 详情治愈写入 enrich 长缓存（详情具平台治愈唯一写口之一）：
+ * pending 当次有效永不缓存，具平台 12h/500 FIFO；仅非空平台写入（空不写），
  * 后续同坐标 enrich 直接命中治愈值，不再回退 `[]`。
  * 图标回填只做升级不做准入：详情弹窗特供的 data: 内联大图不进内存
  * （快照恒禁 data:，存了也落不了盘）；空图标不覆盖已有真实图标（put 入口合并）。
@@ -684,12 +743,13 @@ function emptyRichBaseline(): AppSummary {
 }
 
 /**
- * 富卡治愈写入 enrich 长缓存（平台治愈的姊妹入口，处理全字段）：
+ * 富卡治愈写入 enrich 长缓存（详情具平台治愈唯一写口之一，处理全字段）：
+ * pending 当次有效永不缓存（put 入口守卫空平台直接丢弃），具平台 12h/500 FIFO；
  * - stale 详情整单丢弃，返回 null；
  * - icon data: 剥成 ''，avatar 剥离保留旧（无旧则 ''），空图标保留旧；
  * - 其余 string 空/占位不覆盖实（name '加载中...'、category 占位、license OpenSource 非 github、
  *   latest_version 占位、homepage 空均保留旧）；
- * - 平台空不覆盖已具平台值（pending 永不覆盖具平台）；
+ * - 平台空不覆盖已具平台值；
  * - put 后返回 { summary, dirtyFields }（无旧值时以空基线求 dirty；put 本体守卫不动）。
  */
 export function upsertTrendEnrichRichcard(

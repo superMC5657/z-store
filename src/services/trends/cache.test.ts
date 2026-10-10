@@ -7,10 +7,20 @@ import {
   clearTrendsCache,
   getDbTrendCache,
   readTrendsCache,
+  saveBoardCacheMerged,
   saveDbTrendCache,
   trendDbTtlMs,
   writeTrendsCache,
 } from './cache';
+import {
+  clearTrendEnrichCache,
+  hydrateTrendConfirmedOtherCache,
+  hydrateTrendEnrichCache,
+  markTrendConfirmedOthers,
+  snapshotTrendConfirmedOthers,
+  snapshotTrendEnrichCache,
+} from './enrich';
+import { makeEnrichedApp, makeTrendRepo } from '../../views/test-utils/trendFixture';
 import { fetchTrendsResult } from './boards';
 import type { TrendRepo } from '../../types';
 import { tauriApi } from '../api';
@@ -170,6 +180,142 @@ describe('trends L2 persistence cache', () => {
     expect(invokeSpy).not.toHaveBeenCalled();
 
     await expect(saveDbTrendCache('weekly||', 'weekly', [mockRepo])).resolves.toBeUndefined();
+  });
+
+  describe('已确认 Other 写透→重读恢复（Other-persist）', () => {
+    function mockL2() {
+      const store = new Map<string, { payload_json: string; cached_at: number }>();
+      vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
+        if (cmd === 'get_trend_board_cache') {
+          const k = (args as { cache_key: string }).cache_key;
+          return store.get(k) ?? null;
+        }
+        if (cmd === 'save_trend_board_cache') {
+          const k = (args as { cache_key: string }).cache_key;
+          const payload = (args as { payload_json: string }).payload_json;
+          store.set(k, { payload_json: payload, cached_at: Math.floor(Date.now() / 1000) });
+          return undefined;
+        }
+        return undefined;
+      });
+      return store;
+    }
+
+    it('mark 后合并写透：确认集随信封落盘，重读恢复确认', async () => {
+      vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
+      const store = mockL2();
+      const repos = [makeTrendRepo({ id: 'acme/atlas' }), makeTrendRepo({ id: 'acme/beacon' })];
+      markTrendConfirmedOthers(['acme/atlas', 'acme/beacon']);
+      hydrateTrendEnrichCache({
+        'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [] }),
+        'acme/beacon': makeEnrichedApp({ id: 'acme/beacon', platforms: [] }),
+      });
+      await saveBoardCacheMerged('weekly||', 'weekly', repos);
+      expect(store.size).toBe(1);
+      const payload = JSON.parse(store.get('weekly||')?.payload_json as string) as {
+        v: number;
+        enrich: Record<string, { platforms: string[] }>;
+        confirmedOther: string[];
+      };
+      expect(payload.v).toBe(1);
+      expect(payload.enrich['acme/atlas']?.platforms).toEqual([]);
+      expect(payload.confirmedOther).toContain('acme/atlas');
+      expect(payload.confirmedOther).toContain('acme/beacon');
+
+      // 重读恢复：确认集 hydrate 进内存
+      clearTrendEnrichCache();
+      expect(snapshotTrendConfirmedOthers()).toEqual([]);
+      const reread = await getDbTrendCache('weekly||', 'weekly');
+      expect(reread).toHaveLength(2);
+      expect(snapshotTrendConfirmedOthers()).toContain('acme/atlas');
+      expect(snapshotTrendConfirmedOthers()).toContain('acme/beacon');
+      expect(snapshotTrendEnrichCache(reread ?? [])['acme/atlas']?.platforms).toEqual([]);
+    });
+
+    it('重启等价：清空内存后同 key 命中，不联网重搜', async () => {
+      vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
+      mockL2();
+      const repos = [makeTrendRepo({ id: 'acme/atlas' })];
+      markTrendConfirmedOthers(['acme/atlas']);
+      hydrateTrendEnrichCache({
+        'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [] }),
+      });
+      await saveBoardCacheMerged('weekly||', 'weekly', repos);
+
+      // 重启等价：清空全部内存（含 L1/确认/enrich），保 L2 存盘
+      clearTrendsCache();
+      clearTrendEnrichCache();
+      const networkSpy = vi.spyOn(tauriApi, 'fetchTrendsText');
+      const res = await fetchTrendsResult('weekly');
+      expect(res.status).toBe('ok');
+      expect(res.repos).toHaveLength(1);
+      expect(networkSpy).not.toHaveBeenCalled();
+      // 同 key 命中不回 pending：确认集已恢复
+      expect(snapshotTrendConfirmedOthers()).toContain('acme/atlas');
+    });
+
+    it('未确认 pending 永不落盘：旧盘残留 pending 无确认则丢弃', async () => {
+      vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
+      const store = mockL2();
+      const nowSec = Math.floor(Date.now() / 1000);
+      const repos = [makeTrendRepo({ id: 'acme/atlas' })];
+      const stalePending = makeEnrichedApp({ id: 'acme/atlas', platforms: [] });
+      vi.spyOn(clientModule, 'tauriInvoke').mockImplementationOnce(async () => ({
+        payload_json: JSON.stringify({ v: 1, repos, enrich: { 'acme/atlas': stalePending } }),
+        cached_at: nowSec - 60,
+      }));
+      // 旧盘读：无确认集，pending 丢弃不进内存
+      const hit = await getDbTrendCache('weekly||', 'weekly');
+      expect(hit).toHaveLength(1);
+      expect(snapshotTrendEnrichCache(hit ?? [])).not.toHaveProperty('acme/atlas');
+      expect(snapshotTrendConfirmedOthers()).not.toContain('acme/atlas');
+
+      // 恢复常规 L2 mock 后再合并写透：残留 pending 不回写
+      vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
+        if (cmd === 'get_trend_board_cache') {
+          const k = (args as { cache_key: string }).cache_key;
+          return store.get(k) ?? null;
+        }
+        if (cmd === 'save_trend_board_cache') {
+          const k = (args as { cache_key: string }).cache_key;
+          const payload = (args as { payload_json: string }).payload_json;
+          store.set(k, { payload_json: payload, cached_at: Math.floor(Date.now() / 1000) });
+          return undefined;
+        }
+        return undefined;
+      });
+      await saveBoardCacheMerged('weekly||', 'weekly', repos);
+      const payload = JSON.parse(store.get('weekly||')?.payload_json as string) as {
+        enrich?: Record<string, unknown>;
+        confirmedOther?: string[];
+      };
+      expect(payload.enrich?.['acme/atlas']).toBeUndefined();
+      expect(payload.confirmedOther ?? []).not.toContain('acme/atlas');
+    });
+
+    it('具平台升级覆盖：确认后 concrete 到达，确认移除且富卡保留', async () => {
+      vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
+      const store = mockL2();
+      const repos = [makeTrendRepo({ id: 'acme/atlas' })];
+      markTrendConfirmedOthers(['acme/atlas']);
+      hydrateTrendEnrichCache({
+        'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'] }),
+      });
+      // put 具平台自动移除确认
+      expect(snapshotTrendConfirmedOthers()).not.toContain('acme/atlas');
+      await saveBoardCacheMerged('weekly||', 'weekly', repos);
+      const payload = JSON.parse(store.get('weekly||')?.payload_json as string) as {
+        enrich: Record<string, { platforms: string[] }>;
+        confirmedOther?: string[];
+      };
+      expect(payload.enrich['acme/atlas']?.platforms).toEqual(['windows']);
+      expect(payload.confirmedOther ?? []).not.toContain('acme/atlas');
+    });
+
+    it('读侧 hydrate 确认集可独立恢复（无内存条目时 L2 标记仍有效）', async () => {
+      hydrateTrendConfirmedOtherCache(['acme/ghost']);
+      expect(snapshotTrendConfirmedOthers()).toContain('acme/ghost');
+    });
   });
 
   describe('L1 -> L2 -> Network integration in boards', () => {

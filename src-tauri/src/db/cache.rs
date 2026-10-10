@@ -110,10 +110,9 @@ impl Database {
         Ok(())
     }
 
-    /// 详情 + 图标原子落库（Top1+2：原 2 提交 → 1 提交）：
-    /// 事务边界：`BEGIN IMMEDIATE` → `save_cached_app_detail` + 可选 `upsert_icon_cycle` → `COMMIT`，
-    /// 失败整体 `ROLLBACK` 返回 Err，调用方保持 `let _ =` 吞错并可回退逐条（见 commands/catalog 调用处）。
-    /// 不改 TTL/ETag 逻辑（`cached_at` 仍取 `now_secs()`，与原单条一致）。
+    /// 详情 + 图标原子落库（单提交）：
+    /// 事务内先写详情再写可选图标行，失败整体回滚，调用方保持 `let _ =` 吞错并可回退逐条。
+    /// 不改 TTL/ETag 逻辑（`cached_at` 仍取 `now_secs()`）。
     pub fn save_detail_with_icon(
         &self,
         app_id: &str,
@@ -129,12 +128,10 @@ impl Database {
         })
     }
 
-    /// 图标轮换写侧补齐：`cycle_app_icon` 选中态落库后同步 `detail_json.icon`，
-    /// 使不 join 轮换表的读者与 `history::apply_confirmed_icon` 读侧一致。
+    /// 图标轮换写侧补齐：`cycle_app_icon` 选中态落库后同步 `detail_json.icon`
+    ///（读侧经轮换表 join 读确认图标，此处保持一致）。
     /// - 无详情行则跳过不建行（返回 `Ok(false)`）；
-    /// - 仅重写 `detail_json.icon`，`cached_at` 保持不动（不延长 TTL：
-    ///   轮换是本地用户偏好而非远端新鲜抓取，touch 会把偏好误导为新鲜度、
-    ///   推迟下次 ETag 条件校验并污染 stale 语义）；
+    /// - 仅重写 `detail_json.icon`，`cached_at` 保持不动（轮换是本地用户偏好，不延长 TTL）；
     /// - 调用方保证传入已归一化的 remote_url（`data:` 永不进盘；avatar/空已按既有规则置空）。
     pub fn sync_detail_icon(&self, app_id: &str, new_icon: &str) -> Result<bool> {
         let clean_id = clean(app_id);

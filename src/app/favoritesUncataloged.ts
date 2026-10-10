@@ -2,6 +2,7 @@ import type { AppDetail, AppSummary } from '../types';
 import { appSummaryFromDetail } from '../services/trends';
 import { isAvatarUrl, isRemoteIcon } from '../components/AppIcon';
 import { normalizeIconCycle, type AppIconCycleResult } from '../services/api';
+import { normalizeId } from '../services/normalizeId';
 
 /**
  * 收藏未收录行 left-join 合成（数据层唯一口径，展示层只读标记）。
@@ -141,8 +142,8 @@ export function findMissingFavoriteIds(
   for (const raw of favoriteIds) {
     const id = trimId(raw);
     if (!id) continue;
-    const key = id.toLowerCase();
-    if (seen.has(key)) continue;
+    const key = normalizeId(id);
+    if (!key || seen.has(key)) continue;
     seen.add(key);
     if (catalogLower.has(key)) continue;
     if (extraLower?.has(key)) continue;

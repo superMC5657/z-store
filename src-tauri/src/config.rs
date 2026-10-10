@@ -85,40 +85,26 @@ pub struct LimitsConfig {
     pub view_history_limit: usize,
     #[serde(default = "default_online_search_page_size")]
     pub online_search_page_size: usize,
-    /// 统一图标补探配置（P0 预留：仅 `pool` + `total_timeout_secs` 生效，
-    /// 其余字段 P1/P3 接线；缺表时整体回退默认）。
+    /// 统一图标补探配置（搜索与趋势共用收敛，与趋势 `buffered(5)` 对齐）。
     #[serde(default)]
     pub icon_fetch: IconFetchConfig,
 }
 
 /// 统一图标补探配置（`limits.icon_fetch`）。
-/// P3 默认：`pool=5 / simple_timeout_ms=1500 / trees_timeout_secs=12 /
-/// total_timeout_secs=15 / enable_readme=false / compat_collect=true`。
-/// （搜索与趋势共用收敛，趋势 `buffered(5)` 对齐）。
+/// 默认：`pool=5 / total_timeout_secs=15 / compat_collect=true`。
+/// 快慢超时经 `network.api_timeout_seconds` 统一配置；整批总量按页伸缩。
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct IconFetchConfig {
     #[serde(default = "default_icon_fetch_pool")]
     pub pool: usize,
-    #[serde(default = "default_icon_fetch_simple_timeout_ms")]
-    pub simple_timeout_ms: u64,
-    #[serde(default = "default_icon_fetch_trees_timeout_secs")]
-    pub trees_timeout_secs: u64,
     #[serde(default = "default_icon_fetch_total_timeout_secs")]
     pub total_timeout_secs: u64,
-    #[serde(default)]
-    pub enable_readme: bool,
     #[serde(default = "default_icon_fetch_compat_collect")]
     pub compat_collect: bool,
 }
 
 fn default_icon_fetch_pool() -> usize {
     5
-}
-fn default_icon_fetch_simple_timeout_ms() -> u64 {
-    1500
-}
-fn default_icon_fetch_trees_timeout_secs() -> u64 {
-    12
 }
 fn default_icon_fetch_total_timeout_secs() -> u64 {
     15
@@ -131,10 +117,7 @@ impl Default for IconFetchConfig {
     fn default() -> Self {
         Self {
             pool: default_icon_fetch_pool(),
-            simple_timeout_ms: default_icon_fetch_simple_timeout_ms(),
-            trees_timeout_secs: default_icon_fetch_trees_timeout_secs(),
             total_timeout_secs: default_icon_fetch_total_timeout_secs(),
-            enable_readme: false,
             compat_collect: default_icon_fetch_compat_collect(),
         }
     }
@@ -317,10 +300,7 @@ mod tests {
         assert_eq!(conf.limits.view_history_limit, 30);
         assert_eq!(conf.limits.online_search_page_size, 12);
         assert_eq!(conf.limits.icon_fetch.pool, 5);
-        assert_eq!(conf.limits.icon_fetch.simple_timeout_ms, 1500);
-        assert_eq!(conf.limits.icon_fetch.trees_timeout_secs, 12);
         assert_eq!(conf.limits.icon_fetch.total_timeout_secs, 15);
-        assert!(!conf.limits.icon_fetch.enable_readme);
         assert!(conf.limits.icon_fetch.compat_collect);
         assert!(!conf.oauth.default_client_id.is_empty());
         assert_eq!(conf.catalog.local_path, "../catalog.json");
