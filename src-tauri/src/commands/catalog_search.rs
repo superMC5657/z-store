@@ -110,6 +110,7 @@ async fn save_and_emit(
 /// - 世代比对防串榜：落库前 + emit 前双检查 `BOARD_GEN == expected_gen`，
 ///   用户在此期间切榜/重拉则抛弃过时探测结果（与搜索 `SEARCH_GEN` 双检查同语义）；
 /// - 单条显式事务边界（与搜索同形，失败 `ROLLBACK` 返回，内部吞错下次补探重试）。
+#[allow(clippy::too_many_arguments)]
 async fn save_and_emit_trend(
     handle: &AppHandle,
     id: &str,

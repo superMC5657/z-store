@@ -1,7 +1,7 @@
 //! 统一图标补探核心（后端抽 core，不碰前端）。
 //!
 //! - 归口原 `commands::catalog_search::search_apps_online` 内联的后台快慢探
-//!  （`spawn + stream::iter().buffer_unordered(pool).for_each + save_and_emit`），
+//!   （`spawn + stream::iter().buffer_unordered(pool).for_each + save_and_emit`），
 //!   对外伪接口等价于 `fetch_icons_stream(jobs, token, cfg, emit)`，其中
 //!   `jobs=[{id,owner,repo,ctx}]`，`ctx=Search{search_id,gen} | Trend{board,gen}`。
 //! - 行为：并发池 `cfg.pool`（默认 5，与趋势 `buffered(5)` 对齐）；
@@ -18,7 +18,7 @@
 
 //! - 事件：调用方 `emit` 回调用本模块的 [`IconReadyPayload`]
 //!   发 `zstore://icon-ready{key,id,icon,level,via,context}`
-//!  （`key`=小写 `owner/repo`，`level`纯L: 2/3本core emit live，L4不经core；
+//!   （`key`=小写 `owner/repo`，`level`纯L: 2/3本core emit live，L4不经core；
 //!   `via`=live|m2，M2落盘由调用方回填走via=m2）。
 
 use futures_util::StreamExt;
