@@ -19,7 +19,7 @@ pub(crate) fn hide_ghost_apps(apps: Vec<InstalledApp>, ghost_ids: &[String]) -> 
         .collect()
 }
 
-/// P0-2 便携版卸载安全门禁：仅允许在 Z-Store 自身创建的专用隔离目录内执行 `remove_dir_all`
+/// P0-2 便携版卸载安全门禁：仅允许在 ZStore 自身创建的专用隔离目录内执行 `remove_dir_all`
 /// （即 `dirs_or_fallback(app_id)`）。
 /// 两个路径均首先进行规范化（消除符号链接、大小写和路径前缀差异）；
 /// 逐级路径组件 `starts_with` 比较可防止同级前缀混淆（例如 `app` 与 `app2`）。
@@ -114,7 +114,7 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result
         }
     };
 
-    // 1. 便携版清理：remove_dir_all 仅允许在 Z-Store 自建隔离目录内 (P0-2)
+    // 1. 便携版清理：remove_dir_all 仅允许在 ZStore 自建隔离目录内 (P0-2)
     if app.install_method == "portable_zip" {
         cleanup_portable_path(
             std::path::Path::new(&app.install_path),
@@ -138,7 +138,7 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result
             .await?;
         } else {
             return Err(format!(
-                "未在系统中检测到 {} 的官方卸载程序。如需从 Z-Store 中移除管理记录，请在卡片更多操作中选择「从列表移除」",
+                "未在系统中检测到 {} 的官方卸载程序。如需从 ZStore 中移除管理记录，请在卡片更多操作中选择「从列表移除」",
                 app.app_name
             ));
         }

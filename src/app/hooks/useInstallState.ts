@@ -72,7 +72,7 @@ export function useInstallState({
     }
   };
 
-  // 取消管理应用（从 Z-Store 列表中移除，保留本地文件完好）
+  // 取消管理应用（从 ZStore 列表中移除，保留本地文件完好）
   const handleUnmanageApp = async (id: string) => {
     const app = installedApps.find((a) => a.app_id === id);
     const appName = app?.app_name || id;
@@ -106,7 +106,7 @@ export function useInstallState({
     }
   }, [currentView]);
 
-  // 将探测到的应用纳入 Z-Store 管理
+  // 将探测到的应用纳入 ZStore 管理
   const handleManageApp = async (id: string) => {
     try {
       await api.importSingleApp(id);

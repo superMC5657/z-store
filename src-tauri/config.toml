@@ -1,4 +1,4 @@
-# Z-Store 项目基线全局配置 (Project Baseline Configuration)
+# ZStore 项目基线全局配置 (Project Baseline Configuration)
 
 [cache]
 # 应用详情本地缓存生存时效 (TTL)，单位：分钟

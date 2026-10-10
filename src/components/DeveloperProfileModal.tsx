@@ -217,7 +217,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
               <span>开源项目矩阵 ({profile?.repos.length || 0})</span>
             </h4>
             <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-tertiary)' }}>
-              标记「已收录」的项目可直接在 Z-Store 中一键安装与接管更新
+              标记「已收录」的项目可直接在 ZStore 中一键安装与接管更新
             </span>
           </div>
 
@@ -261,7 +261,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                               fontWeight: 510,
                             }}
                           >
-                            ✓ Z-Store 已收录
+                            ✓ ZStore 已收录
                           </span>
                         )}
                         {repo.latest_release_tag && (

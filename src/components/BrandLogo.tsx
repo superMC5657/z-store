@@ -24,7 +24,7 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
         justifyContent: 'center',
         flexShrink: 0,
       }}
-      title={`Z-Store (${isDark ? '暗夜模式' : '明亮模式'})`}
+      title={`ZStore (${isDark ? '暗夜模式' : '明亮模式'})`}
     >
       {isDark ? (
         // 深色模式：暗夜实底（#08090A）+ 高光描边与紫蓝极光双环

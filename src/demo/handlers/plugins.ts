@@ -51,7 +51,7 @@ export function handlePluginCommand(cmd: string, a: InvokeArgs): { handled: bool
     cmd.startsWith('plugin:opener|')
   ) {
     if (cmd === 'plugin:app|version' || cmd === 'plugin:app|get_version') return { handled: true, result: '0.5.0-demo' };
-    if (cmd === 'plugin:app|name' || cmd === 'plugin:app|get_name') return { handled: true, result: 'Z-Store Demo' };
+    if (cmd === 'plugin:app|name' || cmd === 'plugin:app|get_name') return { handled: true, result: 'ZStore Demo' };
     return { handled: true, result: null };
   }
 

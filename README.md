@@ -1,8 +1,8 @@
-# Z-Store
+# ZStore
 
 > 基于 GitHub / Multi-Forge Releases 的跨平台开源应用商店 · 深度融合 Windows 11 Fluent Design 2.0
 
-![Z-Store License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)
+![ZStore License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)
 ![Tauri](https://img.shields.io/badge/Tauri-2.2-blue?logo=tauri)
 ![React](https://img.shields.io/badge/React-19-61dafb?logo=react)
 ![Rust](https://img.shields.io/badge/Rust-1.77+-orange?logo=rust)
@@ -12,7 +12,7 @@
 
 ## 🌟 项目定位与基石原则 (Core Principles)
 
-**Z-Store 致力于成为开源世界的系统级应用商店**，把 GitHub 及主流开源托管平台的 Releases 转化为人人可用、一键安装、自动更新的跨平台现代化应用商店。
+**ZStore 致力于成为开源世界的系统级应用商店**，把 GitHub 及主流开源托管平台的 Releases 转化为人人可用、一键安装、自动更新的跨平台现代化应用商店。
 
 本项目严格遵循四大基石原则：
 
@@ -53,7 +53,7 @@
 - **版本控制中枢**：更新列表中可针对特定应用选择“跳过此版本”或“锁定当前版本（禁止自动更新）”，避免破坏性升级；版本新旧比较遵循 semver 语义。
 - **黑名单管理**：支持从推荐与搜索列表中隐藏不感兴趣的应用仓库。
 - **SHA-256 完整性校验**：下载后强制流式计算 SHA-256 并与官方清单比对，不符立即阻断；本地已存在且哈希命中即零网络跳过（未命中/无期望哈希才重下覆盖，而非必重下）。
-- **便携卸载隔离**：`remove_dir_all` 仅允许删除 Z-Store 自建的隔离目录，共享目录只做安全清理。
+- **便携卸载隔离**：`remove_dir_all` 仅允许删除 ZStore 自建的隔离目录，共享目录只做安全清理。
 
 ### 5. 🌟 开发者全景生态与 GitHub Star 同步
 - **开发者主页**：点击作者一键查看其名下所有的开源项目、开源许可协议与最新发布历史。

@@ -208,7 +208,7 @@ export const Header: React.FC<HeaderProps> = ({
     const host = app.forge_host || 'github.com';
     const title = encodeURIComponent(`【反馈】${displayName} ${app.latest_version}`);
     const body = encodeURIComponent(
-      `## 环境\n- Z-Store 客户端版本：桌面端\n- 应用版本：${app.latest_version}\n- 系统：${navigator.platform}\n\n## 问题描述\n\n## 复现步骤\n1. \n2. \n`
+      `## 环境\n- ZStore 客户端版本：桌面端\n- 应用版本：${app.latest_version}\n- 系统：${navigator.platform}\n\n## 问题描述\n\n## 复现步骤\n1. \n2. \n`
     );
     api.openUrl(`https://${host}/${app.owner}/${app.repo}/issues/new?title=${title}&body=${body}`);
   };

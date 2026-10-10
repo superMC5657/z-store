@@ -220,7 +220,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
         )}
         <div className="app-brand-badge" data-tauri-drag-region>
           <BrandLogo theme={theme} size={22} />
-          <span data-tauri-drag-region>Z-Store</span>
+          <span data-tauri-drag-region>ZStore</span>
         </div>
       </div>
 

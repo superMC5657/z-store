@@ -277,7 +277,7 @@ pub async fn add_repo_to_star_list(
         None => {
             let create_mutation = r#"
                 mutation {
-                  createUserList(input: { name: "z-store-list", description: "Z-Store 标星应用清单 (Star List)" }) {
+                  createUserList(input: { name: "z-store-list", description: "ZStore 标星应用清单 (Star List)" }) {
                     list {
                       id
                       name

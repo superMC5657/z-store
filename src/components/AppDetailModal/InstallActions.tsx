@@ -289,7 +289,7 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
                   type="button"
                   className="btn-fluent btn-secondary"
                   onClick={onAction}
-                  title="通过 Z-Store 重新下载安装最新版本或覆盖安装"
+                  title="通过 ZStore 重新下载安装最新版本或覆盖安装"
                 >
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                     <RotateCcw size={13} />

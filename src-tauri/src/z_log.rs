@@ -193,7 +193,7 @@ pub fn resolve_level(default: log::LevelFilter) -> log::LevelFilter {
 pub fn log_session_start() {
     let sid = new_session_id();
     log::info!(
-        "=== Z-Store v{} started sid={} (os={} arch={} pid={}) ===",
+        "=== ZStore v{} started sid={} (os={} arch={} pid={}) ===",
         env!("CARGO_PKG_VERSION"),
         sid,
         std::env::consts::OS,

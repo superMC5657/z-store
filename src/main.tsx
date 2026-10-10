@@ -47,7 +47,7 @@ async function bootstrap(): Promise<void> {
     import('./App'),
   ]);
 
-  // Z-Store 仅以 Tauri 桌面端形态运行；浏览器直接打开时给出明确提示，不做模拟降级
+  // ZStore 仅以 Tauri 桌面端形态运行；浏览器直接打开时给出明确提示，不做模拟降级
   if (!isTauri) {
     ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
       <div
@@ -62,7 +62,7 @@ async function bootstrap(): Promise<void> {
           color: 'var(--text-primary, #ffffff)',
         }}
       >
-        <h1 style={{ fontSize: 'calc(20px * var(--font-scale))', margin: 0 }}>Z-Store 需要在桌面端运行</h1>
+        <h1 style={{ fontSize: 'calc(20px * var(--font-scale))', margin: 0 }}>ZStore 需要在桌面端运行</h1>
         <p style={{ opacity: 0.7, margin: 0 }}>
           当前浏览器环境无法访问系统 API，请通过 Tauri 桌面应用启动（pnpm tauri dev）。
         </p>

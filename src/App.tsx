@@ -470,7 +470,7 @@ export const App: React.FC = () => {
       return;
     }
     const data = {
-      app: 'Z-Store',
+      app: 'ZStore',
       exported_at: new Date().toISOString(),
       installed_count: installedApps.length,
       apps: installedApps,

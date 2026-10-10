@@ -13,7 +13,7 @@ pub fn handle_deep_link(url: String) -> crate::AppResult<DeepLinkAction> {
             "deeplink parse failed reason={}",
             crate::log_support::short_reason(&url)
         );
-        crate::AppError::new(format!("无法识别的 Z-Store 深度链接: {}", url))
+        crate::AppError::new(format!("无法识别的 ZStore 深度链接: {}", url))
     })
 }
 
