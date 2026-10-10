@@ -13,3 +13,4 @@ export * from './trends/cache';
 export * from './trends/parse';
 export * from './trends/enrich';
 export * from './trends/boards';
+export * from './trends/board';

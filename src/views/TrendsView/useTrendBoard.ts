@@ -12,6 +12,7 @@ import {
   type TrendsErrorKind,
   type TrendsResult,
 } from '../../services/trends';
+import { subscribeBoardReady } from '../../services/trends/board';
 
 /**
  * 趋势榜选项卡记忆键：localStorage 单一来源（同步读写，首绘即恢复，无闪切）。
@@ -78,8 +79,10 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
   // 手动刷新态：与首载 isLoading 分离，刷新期间保留旧榜（SWR  stale 展），仅按钮转圈 + 禁用。
   const [isRefreshing, setIsRefreshing] = useState(false);
   const refreshSeqRef = useRef(0);
-  // 现状：读盘→hydrate→就绪顺序，hydrate 完成后置就绪（View 裸行直展不拦榜，仅供升级判定）。
-  // L2 命中由 boards 透出信号置位；L1/网络由下抓取 await 后置位（fetch 内 hydrate 已完成）。
+  // 首屏门：裸行直展不拦榜，仅富卡升级参考此门。
+  // C2 对称就绪：boards 内 L1/L2/网络三路径统一 emit boardHydrated，
+  // 此处经 board 模块唯一订阅置位；抓取 await 后的直接置位保留作幂等兜底
+  // （关闭原 L2-only emit vs L1/网络直接置位的双通道不对称）。
   const [boardReady, setBoardReady] = useState(false);
 
   // 陈旧榜兜底经 trends SSOT 回落（如已下线的 'top' / 'category' 残留 → 'weekly'）。
@@ -121,10 +124,19 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
   }, []);
 
   // 一榜一源：board / 代理 / 重试任一变化均触发重抓。
+  // C2：经 board 模块统一订阅（L1/L2/网络三路径统一 emit 后的唯一出口）。
   useEffect(() => {
-    return subscribeBoardHydrated(() => {
+    const unsubBoard = subscribeBoardReady(() => {
       setBoardReady(true);
     });
+    // 兼容旧通道：保留直接订阅（同一 emit 源，双订幂等，不双写）。
+    const unsubLegacy = subscribeBoardHydrated(() => {
+      setBoardReady(true);
+    });
+    return () => {
+      unsubBoard();
+      unsubLegacy();
+    };
   }, []);
 
   useEffect(() => {
@@ -138,7 +150,7 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
       .then((res) => {
         if (!isMounted) return;
         setTrendResult(res);
-        // 现状：await 后 hydrate 已完成（L2 读盘→hydrate 在 fetch 内），就绪供升级判定用。
+        // 幂等兜底：boards 内三路径已统一 emit（订阅置位），此处直接置位防事件竞态漏置。
         setBoardReady(true);
       })
       .catch(() => {

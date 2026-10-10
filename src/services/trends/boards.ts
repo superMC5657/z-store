@@ -254,7 +254,12 @@ async function fetchBoardWithL2(
 ): Promise<TrendsResult> {
   if (!opts.forceRefresh) {
     const hit = readTrendsCache(key, board);
-    if (hit) return { repos: hit, status: 'ok', stale: false };
+    if (hit) {
+      // C2 对称就绪：L1 命中亦透出 hydrate 就绪信号（原仅 L2 透出，
+      // useTrendBoard L1/网络走直接置位造成双通道不对称；现三路径统一 emit）。
+      emitBoardHydrated(board, key);
+      return { repos: hit, status: 'ok', stale: false };
+    }
 
     const dbHit = await getDbTrendCacheWithLegacyKey(key, board, buildLegacyTrendsCacheKey(board, opts));
     if (dbHit && dbHit.length > 0) {
@@ -276,6 +281,8 @@ async function fetchBoardWithL2(
     writeTrendsCache(key, result.repos);
     // 榜缓存二级落盘
     await saveBoardCacheMerged(key, board, result.repos);
+    // C2 对称就绪：网络成功亦透出就绪（与 L1/L2 同通道，hook 不再依赖直接置位）。
+    emitBoardHydrated(board, key);
   }
   return result;
 }
@@ -322,6 +329,8 @@ async function fetchDoforceShared(opts: FetchTrendsOptions = {}): Promise<TrendR
     const hit = readDoforceShared();
     if (hit) {
       zlogInfo('[trends] doforce shared-cache hit');
+      // C2 对称就绪：共享槽命中亦透出（与 L2/网络同通道）。
+      emitBoardHydrated('doforce', key);
       return hit;
     }
     const inflight = getDoforceInflight();
@@ -358,6 +367,8 @@ async function fetchDoforceShared(opts: FetchTrendsOptions = {}): Promise<TrendR
         writeDoforceShared(repos);
         // 榜缓存二级落盘
         await saveBoardCacheMerged(key, 'doforce', repos);
+        // C2 对称就绪：doforce 网络成功亦透出（rising/healthy 共享槽同信号）。
+        emitBoardHydrated('doforce', key);
       }
       return repos;
     } finally {
