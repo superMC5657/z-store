@@ -2,7 +2,7 @@ import React from 'react';
 import { AlertTriangle, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AppDetailViewModel } from '../../types';
-import { useDetailReadme } from '../useDetailReadme';
+import { useDetailReadme } from './useDetailReadme';
 
 export interface ReadmeSectionProps {
   app: AppDetailViewModel;

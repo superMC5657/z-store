@@ -15,7 +15,7 @@ import { VerifiedBadge } from '../VerifiedBadge';
 import { formatBytes } from '../../utils/appHelper';
 import { PlatformIcon, ForgeIcon } from '../icons/PlatformIcons';
 import { PLATFORM_META, type PlatformId } from '../../lib/platformFilter';
-import { useDetailStarVerify } from '../useDetailStarVerify';
+import { useDetailStarVerify } from './useDetailStarVerify';
 import { IconLevelBadge, ICON_LEVEL_NAMES } from './IconLevelBadge';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;

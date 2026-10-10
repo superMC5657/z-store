@@ -372,3 +372,5 @@ export { AssetList } from './AssetList';
 export { InstallActions } from './InstallActions';
 export { ReadmeSection } from './ReadmeSection';
 export { IconLevelBadge } from './IconLevelBadge';
+export { useDetailReadme } from './useDetailReadme';
+export { useDetailStarVerify } from './useDetailStarVerify';
