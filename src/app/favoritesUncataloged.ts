@@ -1,6 +1,6 @@
 import type { AppDetail, AppSummary } from '../types';
 import { appSummaryFromDetail } from '../services/trends';
-import { isAvatarUrl, isRemoteIcon } from '../components/AppIcon';
+import { isRemoteIcon } from '../components/AppIcon';
 import { normalizeIconCycle, type AppIconCycleResult } from '../services/api';
 import { normalizeId } from '../services/normalizeId';
 
@@ -102,8 +102,8 @@ export function favoriteSummaryFromDetail(detail: AppDetail): AppSummary {
  * 即前端侧 `resolve_confirmed_icon_from_db` 同源 + 后端 ensure/download 回填）。
  *
  * `pickFavoritePersistIconUrl`：轮换结果取可落盘持久化 URL——`remote_url` 优先，
- * `url` 非 `data:` 才兜底（`data:` 即时态永不进盘）；avatar/非远端一律置空走首字母
- * （`AppIcon.isAvatarUrl/isRemoteIcon` 同规则，与 `App.tsx` 详情回填分支一致）。
+ * `url` 非 `data:` 才兜底（`data:` 即时态永不进盘）；非远端置空走首字母
+ *（`isRemoteIcon` 同规则）。
  */
 export function pickFavoritePersistIconUrl(
   cycle: AppIconCycleResult | null | undefined,
@@ -112,19 +112,19 @@ export function pickFavoritePersistIconUrl(
   const remote = (normalized?.remoteUrl ?? '').trim();
   const fallback = (normalized?.url ?? '').trim();
   const persist = remote !== '' ? remote : (!fallback.startsWith('data:') ? fallback : '');
-  if (!persist || isAvatarUrl(persist) || !isRemoteIcon(persist)) return '';
+  if(!persist||!isRemoteIcon(persist))return'';
   return persist;
 }
 
 /**
- * 摘要图标是否缺图标预热：空/avatar/非远端（首字母占位态）即需经
+ * 摘要图标是否缺图标预热：空/非远端（首字母占位态）即需经
  * `getAppIconCycle` 查轮换；已有合法远端仅需文件预热
  * （`preloadIcons`/`getOrFetchIcon`，与搜索首屏预热同通道）。
  */
 export function needsFavoriteIconWarm(icon: unknown): boolean {
   if (typeof icon !== 'string') return true;
   const value = icon.trim();
-  if (!value || isAvatarUrl(value) || !isRemoteIcon(value)) return true;
+  if(!value||!isRemoteIcon(value))return true;
   return false;
 }
 

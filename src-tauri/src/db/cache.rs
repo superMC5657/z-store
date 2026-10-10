@@ -132,7 +132,7 @@ impl Database {
     ///（读侧经轮换表 join 读确认图标，此处保持一致）。
     /// - 无详情行则跳过不建行（返回 `Ok(false)`）；
     /// - 仅重写 `detail_json.icon`，`cached_at` 保持不动（轮换是本地用户偏好，不延长 TTL）；
-    /// - 调用方保证传入已归一化的 remote_url（`data:` 永不进盘；avatar/空已按既有规则置空）。
+    /// - 调用方保证传入已归一化的 remote_url（`data:` 永不进盘）。
     pub fn sync_detail_icon(&self, app_id: &str, new_icon: &str) -> Result<bool> {
         let clean_id = clean(app_id);
         if clean_id.is_empty() {

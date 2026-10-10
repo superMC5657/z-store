@@ -118,16 +118,10 @@ fn cached_detail_summary(db: &crate::db::Database, id: &str) -> Option<AppSummar
     None
 }
 
-/// AppDetail → AppSummary（字段与前端 AppSummary 对齐；icon 遇 avatar 置空，
-/// data: 理论上不出 DB，此处一并置空兜底）。
+/// AppDetail → AppSummary（字段与前端 AppSummary 对齐；`data:` 置空兜底）。
 fn detail_to_summary(detail: &crate::models::AppDetail) -> AppSummary {
     let icon_trimmed = detail.icon.trim();
-    // 与前端 isAvatarUrl 同口径（含 github.com 直链 png 形态，见 catalog_detail 落库侧）。
-    let is_avatar = crate::commands::is_avatar_url(icon_trimmed)
-        || (icon_trimmed.starts_with("https://github.com/")
-            && icon_trimmed.to_lowercase().ends_with(".png")
-            && !icon_trimmed.contains("/raw/"));
-    let icon = if icon_trimmed.is_empty() || icon_trimmed.starts_with("data:") || is_avatar {
+    let icon = if icon_trimmed.is_empty() || icon_trimmed.starts_with("data:") {
         String::new()
     } else {
         detail.icon.clone()
@@ -160,7 +154,7 @@ fn detail_to_summary(detail: &crate::models::AppDetail) -> AppSummary {
 
 /// 详情换图标在最近浏览持久（读侧 join）：`app_icon_cycles.selected_url` 确认图标覆盖
 /// summary.icon，与 `catalog_search::backfill_uncataloged_card` 同语义（Some 才覆盖，
-/// None 保持调用方原值；avatar/空 selected 由 resolve 侧过滤，此处不二次判定）。
+/// None 保持调用方原值，此处不二次判定）。
 /// 收录/未收录双分支共用（catalog 静态 / detail.icon 均为旧值，需同等覆盖）。
 fn apply_confirmed_icon(db: &crate::db::Database, summary: &mut AppSummary) {
     if let Some(ci) = crate::github::http::resolve_confirmed_icon_from_db(
@@ -422,7 +416,7 @@ mod recent_uncataloged_tests {
     }
 
     #[test]
-    fn test_avatar_icon_blanked_and_case_alias_hit() {
+    fn test_uncataloged_icon_and_case_alias_hit() {
         let db = Database::open_in_memory().expect("内存数据库应当可用");
         db.save_cached_app_detail(
             "oh-my-pi/oh-my-pi",
@@ -435,7 +429,9 @@ mod recent_uncataloged_tests {
         // 大小写变体经回退键命中同一行
         let summary = super::cached_detail_summary(&db, "Oh-My-Pi/Oh-My-Pi")
             .expect("大小写变体应当回退命中");
-        assert_eq!(summary.icon, "", "avatar 应当置空");
+        assert_eq!(
+            summary.icon, "https://avatars.githubusercontent.com/u/123?v=4",
+        );
         assert_eq!(summary.owner, "oh-my-pi");
         // 无任何缓存的 id 直接跳过（不合成占位）
         assert!(super::cached_detail_summary(&db, "ghost/nobody").is_none());

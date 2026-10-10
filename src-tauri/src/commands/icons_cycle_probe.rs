@@ -43,12 +43,9 @@ pub(crate) fn resolve_app_coord(app_id: &str) -> Result<(String, String, String)
     Ok((canon, repo.owner, repo.repo))
 }
 
-/// 镜像改写唯一落点：头像 URL 永不走镜像；改写无变化时返回 None（调用方直连）。
-/// 收敛原散落在 get_or_fetch_icon / cycle_app_icon / get_app_icon_cycle 的 5 处同形分支。
+/// 镜像改写唯一落点：统一走镜像改写逻辑；
+/// 改写无变化时返回 None（调用方直连）。
 pub(crate) fn mirror_url_for(state: &AppState, url: &str) -> Option<String> {
-    if crate::commands::icons::is_avatar_url(url) {
-        return None;
-    }
     state.mirror.lock().ok().and_then(|m| {
         let rewritten = m.rewrite_download_url(url);
         if rewritten != url {
@@ -78,7 +75,15 @@ pub(crate) async fn read_valid_image_file_async(path: std::path::PathBuf) -> Opt
         .flatten()
 }
 
+/// 落盘扩展名全集（读侧兜底 + 写侧残留清理用）：`infer` 白名单 + `mime_to_ext` 实产出
+///（覆盖历史残留，避免暂定后缀纠正后旧文件常驻或重复下载）。
+pub(crate) const KNOWN_ICON_EXTS: &[&str] = &[
+    "png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "avif", "apng", "bmp",
+];
+
 /// 指定级别缓存文件读取（非收录 `stem_l{level}.{ext}` 方案）：存在且有效才返回字节。
+/// 先试 `inferred_ext`（快路径），miss 时遍历 [`KNOWN_ICON_EXTS`] 兜底，避免无后缀 URL
+///（暂定 `png`）实际落盘为 `jpg` 后永远 miss 重复下载。
 pub(crate) fn read_level_cache_file(
     icons_dir: &std::path::Path,
     stem: &str,
@@ -86,12 +91,26 @@ pub(crate) fn read_level_cache_file(
     inferred_ext: &str,
 ) -> Option<Vec<u8>> {
     let fname = crate::db::icon_cycle::cycle_filename(stem, level, inferred_ext);
-    read_valid_image_file(&icons_dir.join(fname))
+    if let Some(b) = read_valid_image_file(&icons_dir.join(fname)) {
+        return Some(b);
+    }
+    for ext in KNOWN_ICON_EXTS {
+        if *ext == inferred_ext {
+            continue;
+        }
+        let alt = crate::db::icon_cycle::cycle_filename(stem, level, ext);
+        if let Some(b) = read_valid_image_file(&icons_dir.join(alt)) {
+            return Some(b);
+        }
+    }
+    None
 }
 
 /// 两表分流缓存读取唯一落点（原 get_or_fetch_icon 内联分支，语义逐行对齐）：
 /// 收录查 icon_cache_meta（要求文件非空 + meta URL 相等）；非收录查传入 cycle
 ///（要求 cache_file 非空 + selected_url 相点）。`noncatalog_cycle=None` 视为未命中。
+/// 收录侧先试 `inferred_ext` 快路径，miss 时遍历 [`KNOWN_ICON_EXTS`] 兜底（meta URL 相等
+/// 才算命中），避免暂定后缀与实际落盘不一致时每次 miss 重复下载。
 pub(crate) fn load_split_cached_bytes(
     icons_dir: &std::path::Path,
     db: &crate::db::Database,
@@ -102,14 +121,25 @@ pub(crate) fn load_split_cached_bytes(
     noncatalog_cycle: Option<&crate::db::AppIconCycle>,
 ) -> Option<Vec<u8>> {
     if is_cataloged {
-        let filename = crate::db::icon_cycle::catalog_filename(stem, inferred_ext);
-        let cache_file = icons_dir.join(&filename);
-        if cache_file.is_file() {
-            if let Ok(meta) = std::fs::metadata(&cache_file) {
-                if meta.len() > 0 {
-                    if let Ok(Some(recorded_url)) = db.get_icon_cache_url(&filename) {
-                        if recorded_url.trim() == url_trimmed {
-                            return read_valid_image_file(&cache_file);
+        let mut candidates: Vec<String> = Vec::with_capacity(KNOWN_ICON_EXTS.len() + 1);
+        candidates.push(crate::db::icon_cycle::catalog_filename(stem, inferred_ext));
+        for ext in KNOWN_ICON_EXTS {
+            if *ext == inferred_ext {
+                continue;
+            }
+            candidates.push(crate::db::icon_cycle::catalog_filename(stem, ext));
+        }
+        for filename in candidates {
+            let cache_file = icons_dir.join(&filename);
+            if cache_file.is_file() {
+                if let Ok(meta) = std::fs::metadata(&cache_file) {
+                    if meta.len() > 0 {
+                        if let Ok(Some(recorded_url)) = db.get_icon_cache_url(&filename) {
+                            if recorded_url.trim() == url_trimmed {
+                                if let Some(b) = read_valid_image_file(&cache_file) {
+                                    return Some(b);
+                                }
+                            }
                         }
                     }
                 }
@@ -126,8 +156,28 @@ pub(crate) fn load_split_cached_bytes(
     }
 }
 
+/// 同 stem 同 level 的旧后缀残留清理（非收录 `stem_l{level}.*`）：保留 `keep_filename`，
+/// 其余 [`KNOWN_ICON_EXTS`] 变体存在即删，避免 `png` 暂定→`jpg` 纠正后双文件常驻。
+pub(crate) fn cleanup_stale_cycle_variants(
+    icons_dir: &std::path::Path,
+    stem: &str,
+    level: i32,
+    keep_filename: &str,
+) {
+    for ext in KNOWN_ICON_EXTS {
+        let alt = crate::db::icon_cycle::cycle_filename(stem, level, ext);
+        if alt != keep_filename {
+            let p = icons_dir.join(&alt);
+            if p.is_file() {
+                let _ = std::fs::remove_file(&p);
+            }
+        }
+    }
+}
+
 /// 收录应用落盘唯一落点（原 get_or_fetch_icon 收录分支）：`stem.real_ext` 落盘，
 /// 陈旧 inferred 后缀文件清理 + icon_cache_meta 同步（改名时删旧键），返回最终文件名。
+/// 全量清理同 stem 的其余 [`KNOWN_ICON_EXTS`] 变体文件 + 对应旧 meta 键。
 pub(crate) fn persist_catalog_icon(
     icons_dir: &std::path::Path,
     db_opt: Option<&crate::db::Database>,
@@ -147,10 +197,27 @@ pub(crate) fn persist_catalog_icon(
             let _ = std::fs::remove_file(&initial_cache_file);
         }
     }
+    // 全量残留清理：同 stem 其他后缀变体一并删除（存在即删），防历史双文件常驻。
+    for ext in KNOWN_ICON_EXTS {
+        let alt = crate::db::icon_cycle::catalog_filename(stem, ext);
+        if alt != final_filename && alt != initial_filename {
+            let p = icons_dir.join(&alt);
+            if p.is_file() {
+                let _ = std::fs::remove_file(&p);
+            }
+        }
+    }
 
     if let Some(db) = db_opt {
         if initial_filename != final_filename {
             let _ = db.delete_icon_cache_url(&initial_filename);
+        }
+        // 同步清理其余变体的旧 meta 键（存在即删，保持单 stem 单键）。
+        for ext in KNOWN_ICON_EXTS {
+            let alt = crate::db::icon_cycle::catalog_filename(stem, ext);
+            if alt != final_filename && alt != initial_filename {
+                let _ = db.delete_icon_cache_url(&alt);
+            }
         }
         let _ = db.save_icon_cache_url(&final_filename, url_trimmed);
     }
@@ -176,7 +243,7 @@ pub(crate) fn load_or_new_cycle(
 /// 匿名兜底探测唯一落点（原 get_or_fetch_icon 直取失败分支，语义逐行对齐）：
 /// 无 token，只跑免鉴权级（Simple Icons L2），跳过 Trees 以保护匿名配额；
 /// 经 `icon_fetch::probe_anon_simple` 深核单调（无分支循环浪费），命中即下载返回字节。
-/// L4 不进匿名兜底（需网络详情链专属）；avatar 由调用链后端 `resolve_confirmed` 过滤。
+/// L4 不进匿名兜底（需网络详情链专属）。
 pub(crate) async fn fetch_anon_probe_bytes(
     client: &reqwest::Client,
     state: &AppState,

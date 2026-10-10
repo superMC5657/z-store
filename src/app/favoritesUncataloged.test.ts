@@ -2,8 +2,8 @@
  * 收藏占位行图标热替口径测试（`favoriteIds ∖ apps` 合成行与搜索/最近同一套规则）。
  *
  * - `pickFavoritePersistIconUrl`：remote 优先 / url 非 data: 兜底 / data: 永不进盘 /
- *   avatar 与非远端置空走首字母（`AppIcon` 同规则）。
- * - `needsFavoriteIconWarm`：空/avatar/非远端需查轮换，合法远端仅文件预热。
+ *   非远端置空走首字母（`AppIcon` 同规则）。
+ * - `needsFavoriteIconWarm`：空/非远端需查轮换，合法远端仅文件预热。
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -42,20 +42,20 @@ describe('pickFavoritePersistIconUrl', () => {
     ).toBe('');
   });
 
-  it('avatar 按 AppIcon 同规则置空（remote/avatar 均过滤）', () => {
+  it('https 远端落盘展示', () => {
     expect(
       pickFavoritePersistIconUrl({
         url: 'https://avatars.githubusercontent.com/u/123?v=4',
         level: 2,
         remote_url: 'https://avatars.githubusercontent.com/u/123?v=4',
       }),
-    ).toBe('');
+    ).toBe('https://avatars.githubusercontent.com/u/123?v=4');
     expect(
       pickFavoritePersistIconUrl({
         url: 'https://avatars.githubusercontent.com/u/123?v=4',
         level: 2,
       }),
-    ).toBe('');
+    ).toBe('https://avatars.githubusercontent.com/u/123?v=4');
   });
 
   it('非远端（纯标识/相对路径）置空走首字母', () => {
@@ -87,8 +87,8 @@ describe('needsFavoriteIconWarm', () => {
     expect(needsFavoriteIconWarm(null)).toBe(true);
   });
 
-  it('avatar/非远端需查轮换', () => {
-    expect(needsFavoriteIconWarm('https://avatars.githubusercontent.com/u/1?v=4')).toBe(true);
+  it('远端仅文件预热，非远端需查轮换', () => {
+    expect(needsFavoriteIconWarm('https://avatars.githubusercontent.com/u/1?v=4')).toBe(false);
     expect(needsFavoriteIconWarm('not-a-url')).toBe(true);
   });
 

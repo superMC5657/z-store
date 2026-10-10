@@ -406,7 +406,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
 
   // 趋势流式图标订阅。
   // 后台 `icon-ready` 经 `applyHit` 接上 `board` 门控逐个补齐富卡图标。
-  // 此处只 patch 图标（空不覆实/`level`纯L单调/avatar 丢弃均由店内保证），
+  // 此处只 patch 图标（空值规则由店内保证），
   // 平台逻辑不动；`data:`/`via=m2`只进M1内存不落盘，`remote`才 hydrate + 节流写透榜缓存二级。
   // C2：hydrate/写透经 board seam（hydrateBoardEnrich + scheduleBoardPersist）。
   useEffect(() => {
@@ -503,7 +503,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
 
   // 治愈总线统一订阅：3 路 window 事件（detail-platforms / detail-richcard / icon-changed）
   // 经 board 同一归一 upsert 路径进镜像（normalizeHealKeys + boardRepoKeys 过滤跨榜）。
-  // C2：关闭原三处 addEventListener 散写；key 归一 lower-trim 同源；avatar 过滤由 bus 把关。
+  // C2：关闭原三处 addEventListener 散写；key 归一 lower-trim 同源。
   useEffect(() => {
     return subscribeTrendHealBus({
       onPlatformsHeal: (payload: DetailPlatformsHealPayload, keys: string[]) => {

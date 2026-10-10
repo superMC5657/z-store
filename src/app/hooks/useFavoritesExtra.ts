@@ -106,7 +106,7 @@ export function useFavoritesExtra({ favoriteIds, watchedIds, apps }: UseFavorite
                   void api.getOrFetchIcon(summary.id, currentIcon).catch(() => {});
                   return;
                 }
-                // 空/avatar/非远端：查轮换（同步读库命中即返，无则后端补探回填）
+                // 无可用远端：查轮换（同步读库命中即返，无则后端补探回填）
                 const cycle = await api.getAppIconCycle(favId);
                 const persistUrl = pickFavoritePersistIconUrl(cycle);
                 if (!persistUrl) return;

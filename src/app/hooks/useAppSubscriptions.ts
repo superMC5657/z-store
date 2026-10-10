@@ -12,7 +12,7 @@ import type {
 } from '../../types';
 import { api, DEFAULT_SETTINGS } from '../../services/api';
 import { applyHit, patchAppIconList } from '../../services/iconStore';
-import { preloadIcons, isAvatarUrl } from '../../components/AppIcon';
+import { preloadIcons } from '../../components/AppIcon';
 import { matchPlatformSetWithPending, type PlatformId } from '../../lib/platformFilter';
 import { zlogInfo } from '../../lib/z-log';
 import { adoptEchoInWindow } from './useSearchState';
@@ -182,7 +182,6 @@ export function useAppSubscriptions({
       const customEvent = e as CustomEvent<{ appId: string; icon: string }>;
       const { appId, icon } = customEvent.detail || {};
       if (!appId) return;
-      if (icon && isAvatarUrl(icon)) return;
       const targetId = appId.toLowerCase();
       setApps((prevApps) => patchAppIconList(prevApps, targetId, icon));
       setOnlineApps((prev) => patchAppIconList(prev, targetId, icon));

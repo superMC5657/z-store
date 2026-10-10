@@ -1,6 +1,6 @@
 import type { AppDetail, AppSummary, TrendRepo } from '../../types';
 import { tauriApi } from '../api';
-import { getBufferedIcon, isAvatarIconUrl, mergeStickyIcon } from '../iconStore';
+import { getBufferedIcon, mergeStickyIcon } from '../iconStore';
 import { normalizeId, normalizeIdSet } from '../normalizeId';
 
 /** enrich 派生缓存 TTL：12h（坐标元数据日内几乎不变，与 DOFORCE 快照同口径）。 */
@@ -216,7 +216,7 @@ const trendEnrichCache = new Map<string, { timestamp: number; data: AppSummary }
 /**
  * icon 粘性合并（C1 读透适配，薄）：旧图标非空 + 回填空则沿用旧值，其余采用回填值。
  * M1内存回读：空图标沿用 iconStore 缓冲实图，保证内存与本次返回值一致。
- * avatar/empty/level 一律经店内 SSOT，此处不自立规则（avatar 剥离见 `isAvatarLike`→店内）。
+ * 空值一律经店内 SSOT，此处不自立规则。
  */
 function stickyIconFor(cur: AppSummary | undefined, incoming: AppSummary): AppSummary {
   const merged = mergeStickyIcon(cur, incoming);
@@ -621,11 +621,6 @@ function richStr(v: unknown): string {
   return typeof v === 'string' ? v.trim() : '';
 }
 
-function isAvatarLike(url: unknown): boolean {
-  // 薄委托：口径唯一见 `services/iconStore.isAvatarIconUrl`，此处不自立规则。
-  return isAvatarIconUrl(typeof url === 'string' ? url : null);
-}
-
 export function diffRichSummary(prev: AppSummary, next: AppSummary): string[] {
   const dirty: string[] = [];
   if (!prev || !next || typeof prev !== 'object' || typeof next !== 'object') return dirty;
@@ -703,7 +698,7 @@ export const DETAIL_RICHCARD_HEAL_EVENT = 'zstore:detail-richcard-healed';
 export interface DetailRichcardHealPayload {
   /** 全小写匹配键：id / owner-repo 等（与平台治愈同口径）。 */
   keys: string[];
-  /** upsert 后的完整摘要（空已回填旧值，data:/avatar 已剥离）。 */
+  /** upsert 后的完整摘要（空已回填旧值，data: 已剥离）。 */
   summary: AppSummary;
   /** 脏字段名（见 diffRichSummary，icon/platforms 永不在内）。 */
   dirtyFields: string[];
@@ -740,7 +735,7 @@ function emptyRichBaseline(): AppSummary {
  * 富卡治愈写入 enrich 长缓存（详情具平台治愈唯一写口之一，处理全字段）：
  * pending 当次有效永不缓存（put 入口守卫空平台直接丢弃），具平台 12h/500 FIFO；
  * - stale 详情整单丢弃，返回 null；
- * - icon data: 剥成 ''，avatar 剥离保留旧（无旧则 ''），空图标保留旧；
+ * - icon data: 剥成 ''，空图标保留旧；
  * - 其余 string 空/占位不覆盖实（name '加载中...'、category 占位、license OpenSource 非 github、
  *   latest_version 占位、homepage 空均保留旧）；
  * - 平台空不覆盖已具平台值；
@@ -778,11 +773,11 @@ export function upsertTrendEnrichRichcard(
     }
   }
   const merged = appSummaryFromDetail(detail);
-  // icon：data: 剥成 ''；avatar 剥离保留旧；空保留旧（put 入口亦有合并，此处先行保证 diff 准确）
+  // icon：data: 剥成 ''；空保留旧（put 入口亦有合并，此处先行保证 diff 准确）
   const incomingIcon = richStr(merged.icon);
   const prevIcon = prev ? richStr(prev.icon) : '';
-  const prevIconUsable = prevIcon !== '' && !prevIcon.startsWith('data:') && !isAvatarLike(prevIcon);
-  if (incomingIcon === '' || incomingIcon.startsWith('data:') || isAvatarLike(incomingIcon)) {
+  const prevIconUsable=prevIcon!==''&&!prevIcon.startsWith('data:');
+  if(incomingIcon===''||incomingIcon.startsWith('data:')) {
     merged.icon = prevIconUsable && prev ? prev.icon : '';
   }
   if (prev) {

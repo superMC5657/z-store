@@ -38,30 +38,16 @@ export const IconLevelBadge: React.FC<IconLevelBadgeProps> = ({
   return (
     <button
       type="button"
-      className="modal-icon-cycle-btn"
+      className={`modal-icon-cycle-btn${isCyclingIcon ? ' is-cycling' : ''}`}
       onClick={onCycleIcon}
       disabled={isCyclingIcon}
       title={nextLevelTitle}
       aria-label={nextLevelTitle}
-      style={{
-        width: 20,
-        height: 20,
-        borderRadius: '50%',
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'var(--bg-card, #1e293b)',
-        border: '1px solid var(--border-color, rgba(255, 255, 255, 0.2))',
-        color: 'var(--text-secondary, #94a3b8)',
-        cursor: isCyclingIcon ? 'not-allowed' : 'pointer',
-        padding: 0,
-        flexShrink: 0,
-        transition: 'all 0.15s ease',
-        opacity: isCyclingIcon ? 0.6 : 1,
-      }}
+      aria-busy={isCyclingIcon || undefined}
     >
       <RefreshCw
         size={11}
+        strokeWidth={1.5}
         className={isCyclingIcon ? 'icon-spin' : ''}
       />
     </button>

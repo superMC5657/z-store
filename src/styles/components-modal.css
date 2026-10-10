@@ -113,6 +113,62 @@
   transform: scale(0.97);
 }
 
+.modal-header-btn:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 1px;
+}
+
+.modal-header-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* 图标档位切换小圆钮：与下方 modal-tag pill 同一套浅底 + 浅描边 + 深色图标，
+ * 亮色不再兜底深蓝底，暗色沿用 token 自动协调。尺寸位置与交互逻辑保持不变。 */
+.modal-icon-cycle-btn {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
+  background: var(--bg-acrylic-hover);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.12s var(--ease-smooth), color 0.12s var(--ease-smooth),
+    border-color 0.12s var(--ease-smooth), transform 0.12s var(--ease-smooth);
+}
+
+.modal-icon-cycle-btn:hover:not(:disabled) {
+  background: var(--btn-secondary-hover);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+.modal-icon-cycle-btn:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+.modal-icon-cycle-btn:disabled,
+.modal-icon-cycle-btn.is-cycling {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.modal-icon-cycle-btn:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-icon-cycle-btn {
+    transition: none;
+  }
+}
+
 .modal-app-icon {
   width: 48px;
   height: 48px;

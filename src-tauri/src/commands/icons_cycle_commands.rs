@@ -1,6 +1,7 @@
 use super::icons_cycle_probe::{
-    ensure_cycle_levels, first_available_level, is_fallback_for_level, load_split_cached_bytes,
-    mirror_url_for, next_cycle_level, persist_catalog_icon, read_level_cache_file,
+    KNOWN_ICON_EXTS, cleanup_stale_cycle_variants, ensure_cycle_levels,
+    first_available_level, is_fallback_for_level, load_split_cached_bytes, mirror_url_for,
+    next_cycle_level, persist_catalog_icon, read_level_cache_file,
     read_valid_image_file_async, resolve_app_coord, source_for_level, IconCycleResult,
 };
 use crate::AppState;
@@ -14,8 +15,6 @@ use tauri::State;
 
 /// 写侧同步归一化：返回 `Some(new_icon)` 表示需同步 `detail_json.icon`，`None` 表示跳过。
 /// - 空 selected（L5）→ `Some("")`（显式清空，前端降级首字母徽章）；
-/// - avatar → `Some("")`（与 `history::detail_to_summary` 置空口径一致，
-///   经 `github::http::is_avatar_icon_url` 判定，避免 avatar 污染非 join 读者）；
 /// - `data:` → `None`（永不进盘；调用方应传 remote_url，此处兜底）。
 fn detail_icon_for_selected(selected_url: &str) -> Option<String> {
     let t = selected_url.trim();
@@ -23,9 +22,6 @@ fn detail_icon_for_selected(selected_url: &str) -> Option<String> {
         return None;
     }
     if t.is_empty() {
-        return Some(String::new());
-    }
-    if crate::github::http::is_avatar_icon_url(t) {
         return Some(String::new());
     }
     Some(t.to_string())
@@ -202,9 +198,11 @@ pub async fn cycle_app_icon(
         )
     } else {
         // 非收录应用：只走 app_icon_cycles，文件名为 stem_l{level}.ext 隔离
+        // 真实 ext 落盘，同 level 旧后缀残留同步清理。
         let fname = crate::db::icon_cycle::cycle_filename(&stem, next_level, real_ext);
         let fpath = icons_dir.join(&fname);
         let _ = std::fs::write(&fpath, &bytes);
+        cleanup_stale_cycle_variants(&icons_dir, &stem, next_level, &fname);
         fname
     };
 
@@ -292,16 +290,24 @@ pub async fn get_app_icon_cycle(
                 let mime = crate::commands::icons::detect_image_mime(&bytes);
                 let real_ext = crate::commands::icons::mime_to_ext(mime);
                 let stem = crate::commands::icons::get_icon_stem(&canonical_id, &remote_url);
+                // 真实 ext 落盘，绝不产生无扩展名文件。
+                let inferred_for_persist =
+                    crate::commands::icons::infer_icon_ext_from_url(&remote_url)
+                        .unwrap_or("png");
                 let filename = if is_cataloged {
-                    let fn_cat = crate::db::icon_cycle::catalog_filename(&stem, real_ext);
-                    let _ = std::fs::write(icons_dir.join(&fn_cat), &bytes);
-                    if let Ok(db) = state.db() {
-                        let _ = db.save_icon_cache_url(&fn_cat, &remote_url);
-                    }
-                    fn_cat
+                    persist_catalog_icon(
+                        &icons_dir,
+                        state.db().ok().as_deref(),
+                        &stem,
+                        real_ext,
+                        inferred_for_persist,
+                        &remote_url,
+                        &bytes,
+                    )
                 } else {
                     let fn_non = crate::db::icon_cycle::cycle_filename(&stem, lvl, real_ext);
                     let _ = std::fs::write(icons_dir.join(&fn_non), &bytes);
+                    cleanup_stale_cycle_variants(&icons_dir, &stem, lvl, &fn_non);
                     fn_non
                 };
 
@@ -344,7 +350,25 @@ pub async fn get_app_icon_cycle(
             let inferred_ext = crate::commands::icons::infer_icon_ext_from_url(&default_url).unwrap_or("png");
             let filename = crate::db::icon_cycle::catalog_filename(&stem, inferred_ext);
             // 最高频读其二：首屏收录图标恢复路径，同样经 spawn_blocking 卸载；其余同步读不动。
-            if let Some(bytes) = read_valid_image_file_async(icons_dir.join(&filename)).await {
+            // 无后缀兜底：inferred miss 时遍历其余后缀变体，避免误判无缓存。
+            let mut hit_bytes =
+                read_valid_image_file_async(icons_dir.join(&filename)).await;
+            if hit_bytes.is_none() {
+                for ext in KNOWN_ICON_EXTS {
+                    if *ext == inferred_ext {
+                        continue;
+                    }
+                    let alt =
+                        crate::db::icon_cycle::catalog_filename(&stem, ext);
+                    if let Some(b) =
+                        read_valid_image_file_async(icons_dir.join(&alt)).await
+                    {
+                        hit_bytes = Some(b);
+                        break;
+                    }
+                }
+            }
+            if let Some(bytes) = hit_bytes {
                 return Ok(IconCycleResult {
                     url: crate::commands::icons::bytes_to_data_uri(&bytes),
                     remote_url: default_url,
@@ -411,6 +435,7 @@ pub async fn get_app_icon_cycle(
                 let real_ext = crate::commands::icons::mime_to_ext(mime);
                 let fn_non = crate::db::icon_cycle::cycle_filename(&stem, lvl, real_ext);
                 let _ = std::fs::write(icons_dir.join(&fn_non), &bytes);
+                cleanup_stale_cycle_variants(&icons_dir, &stem, lvl, &fn_non);
                 crate::db::icon_cycle::seal_cycle_selection(
                     &mut temp_cycle,
                     lvl,

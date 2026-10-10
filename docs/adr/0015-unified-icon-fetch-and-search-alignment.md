@@ -37,7 +37,7 @@
 ## 5. 列表与坐标共享裁决
 
 - 搜索列表不共用趋势坐标；搜索 L1 只活搜索页。
-- 图标/坐标层共享：前端图标写入口唯一收口 `services/iconStore.ts:applyHit`（空永不覆盖实、`avatar` 永不进缓冲、搜索 `search_id` / 趋势 `board` 世代门控）。
+- 图标/坐标层共享：前端图标写入口唯一收口 `services/iconStore.ts:applyHit`（空永不覆盖实、搜索 `search_id` / 趋势 `board` 世代门控）。
 - enrich 单向共享：仅具平台 summary 经 `hydrate` 进共享 `trendEnrichCache`；pending 空平台只活当次列表，不进共享。
 
 ## 6. Compat 逃生门

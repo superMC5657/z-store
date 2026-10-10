@@ -383,10 +383,8 @@ pub async fn get_app_details_impl(
                 // Top2：详情 + 图标原子落库（2 提交变 1 提交），事务边界见 `save_detail_with_icon`；
                 // 失败整体回滚并回退逐条，保持 `let _ =` 吞错 + 下次重试语义，不改 TTL/ETag。
                 let icon_trimmed = detail.icon.trim();
-                let is_avatar = crate::commands::is_avatar_url(icon_trimmed)
-                    || (icon_trimmed.starts_with("https://github.com/") && icon_trimmed.ends_with(".png") && !icon_trimmed.contains("/raw/"));
                 let pending_cycle: Option<crate::db::AppIconCycle> =
-                    if !icon_trimmed.is_empty() && !is_avatar {
+                    if !icon_trimmed.is_empty() {
                         let mut cycle = db
                             .get_icon_cycle(&clean_id)
                             .ok()
@@ -603,10 +601,8 @@ pub async fn get_app_details_impl(
                     }
                     // Top2：详情 + 图标原子落库（2 提交变 1 提交），失败回滚并回退逐条，不改 TTL/ETag。
                     let icon_trimmed = detail.icon.trim();
-                    let is_avatar = crate::commands::is_avatar_url(icon_trimmed)
-                        || (icon_trimmed.starts_with("https://github.com/") && icon_trimmed.ends_with(".png") && !icon_trimmed.contains("/raw/"));
                     let pending_cycle: Option<crate::db::AppIconCycle> =
-                        if !icon_trimmed.is_empty() && !is_avatar {
+                        if !icon_trimmed.is_empty() {
                             let level = if icon_trimmed.contains("simpleicons.org") {
                                 2
                             } else if icon_trimmed.contains("/blob/") || icon_trimmed.to_lowercase().contains("readme") {

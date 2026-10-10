@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
-import { clearBufferedIcon, isAvatarIconUrl as isAvatarIconStore } from '../services/iconStore';
+import { clearBufferedIcon } from '../services/iconStore';
 
 export interface AppIconProps {
   icon: string;
@@ -63,19 +63,12 @@ export function isRemoteIcon(icon: string | undefined | null): boolean {
   );
 }
 
-// 判定是否为作者头像（薄委托：口径唯一见 `services/iconStore.isAvatarIconUrl`，
-// 本函数仅为存量调用点兼容保留，不自立规则；无专属图走 L5 徽章）。
-// C1 读透：组件展示/缓存键控的 avatar 判定一律经此处（即店内口径），不内联第二套。
-export function isAvatarUrl(url: string | undefined | null): boolean {
-  return isAvatarIconStore(url);
-}
-
 export function preloadIcons(items: (string | { id?: string; icon: string })[]) {
   if (typeof window === 'undefined') return;
   items.forEach((item) => {
     const icon = typeof item === 'string' ? item : item.icon;
     const id = typeof item === 'string' ? undefined : item.id;
-    if (!icon || isAvatarUrl(icon) || iconDataCache.has(icon) || icon.startsWith('data:')) return;
+    if(!icon||iconDataCache.has(icon)||icon.startsWith('data:'))return;
     if (!isRemoteIcon(icon)) return;
 
     if (!iconPendingPromises.has(icon)) {
@@ -112,22 +105,21 @@ export const AppIcon: React.FC<AppIconProps> = ({
   iconOverride,
   loading = 'lazy',
 }) => {
-  // C1 读透适配（薄）：avatar 口径经 `isAvatarUrl`→店内 SSOT，不自立规则；
-  // level 单调由店内 `applyHit` 保证，此处不判 level；列表空壳补齐经上游
+  // C1 读透适配（薄）：level 单调由店内 `applyHit` 保证，此处不判 level；列表空壳补齐经上游
   // `assembleOnlineRowsWithIcons`/`stickyIconFor`（`getBufferedIcon` 唯一口），
   // 本组件只按 `icon` prop 展示（空即徽章，不在此回读缓冲，避免 L5 复活旧图，
   // 见 `HomeView.search-icon` 回归线：空 prop 恒徽章）。
   const rawActiveIcon = iconOverride !== undefined ? iconOverride : icon;
-  const activeIcon = isAvatarUrl(rawActiveIcon) ? '' : rawActiveIcon;
+  const activeIcon=rawActiveIcon;
   const isDataUri = Boolean(activeIcon && activeIcon.startsWith('data:'));
   const [displaySrc, setDisplaySrc] = useState<string>(() => {
     const rawCached = appId ? (iconDataCache.get(appId) || iconDataCache.get(appId.toLowerCase())) : '';
-    const cachedAppIcon = isAvatarUrl(rawCached) ? '' : rawCached;
+    const cachedAppIcon=rawCached||'';
     if (!activeIcon) return cachedAppIcon || '';
     if (isDataUri) return activeIcon;
     if (iconOverride !== undefined) return activeIcon;
     const fromCache = iconDataCache.get(activeIcon);
-    const validCache = fromCache && !isAvatarUrl(fromCache) ? fromCache : '';
+    const validCache=fromCache||'';
     return validCache || cachedAppIcon || activeIcon;
   });
   const [hasError, setHasError] = useState(false);
@@ -140,7 +132,7 @@ export const AppIcon: React.FC<AppIconProps> = ({
       const eventAppId = customEvent.detail?.appId;
       if (eventAppId && eventAppId.toLowerCase() === appId.toLowerCase()) {
         const newIcon = customEvent.detail.icon || '';
-        if (newIcon && !isAvatarUrl(newIcon)) {
+        if(newIcon) {
           if (newIcon.startsWith('data:')) {
             iconDataCache.set(appId, newIcon);
             iconDataCache.set(appId.toLowerCase(), newIcon);

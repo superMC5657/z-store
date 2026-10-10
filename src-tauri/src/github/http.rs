@@ -370,14 +370,7 @@ pub(crate) fn guess_category(
     }
 }
 
-pub(crate) fn is_avatar_icon_url(url: &str) -> bool {
-    let u = url.trim();
-    crate::commands::is_avatar_url(u)
-        || (u.starts_with("https://github.com/") && u.ends_with(".png") && !u.contains("/raw/"))
-        || u.contains("github.com/identicons/")
-}
-
-/// DB落盘命中零网络（M2）：`app_icon_cycles` 有该 app 且 `selected_url` 非空非头像时，
+/// DB落盘命中零网络（M2）：`app_icon_cycles` 有该 app 且 `selected_url` 非空时，
 /// 缓存文件有效（`cache_file` 非空且落盘文件存在且为合法图片）返回 dataURI（M2）；
 /// 无有效文件时 level 1-3 回退 `selected_url` 远端，level 4 返回 None（4=L4 README需网络，此处不给）。
 /// level纯L(1=L1官方,2=L2品牌库,3=L3仓库,4=L4 README)；缓存正交用M(M1前端内存，M2=DB落盘)。
@@ -393,7 +386,7 @@ pub(crate) fn resolve_confirmed_icon_from_db(
     let cycle = crate::forge::coord::lookup_case_insensitive(db, app_id, &repo_ref)?;
 
     let selected = cycle.selected_url.trim();
-    if selected.is_empty() || is_avatar_icon_url(selected) {
+    if selected.is_empty() {
         return None;
     }
 
@@ -431,7 +424,7 @@ pub(crate) fn open_db_opt() -> Option<crate::db::Database> {
 
 /// H10：目录外仓库 `AppSummary` 兜底构造。
 /// 图标：若 probe 为 true，先快后慢——快路径 SimpleIcons（图标L2=品牌库；免鉴权，repo+owner 去重单循环，
-/// 每 slug ≤1500ms，命中即返），慢路径 Trees（图标L3=仓库；有 token 才跑，保持 12s）；绝不调 users API、不拼 avatar_url；
+/// 每 slug ≤1500ms，命中即返），慢路径 Trees（图标L3=仓库；有 token 才跑，保持 12s）；图标探测不调 users API、不拼用户画像 avatar_url（见 OAuth/Sidebar，与图标无关）；
 /// 若 probe 为 false，图标置空（首屏快返，等后台补探 emit）。
 /// 分类：移植 catalog guessCategory 关键词表，按 topics+description 判定。
 #[allow(clippy::too_many_arguments)]

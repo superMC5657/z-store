@@ -498,7 +498,7 @@ pub async fn search_apps_online(
     let probe_cap = crate::config::get_project_config()
         .limits
         .clamp_online_search_per_page(per_page);
-    // 搜索对齐趋势：已确认（`selected_url` 非空非 avatar）不进 jobs，
+    // 搜索对齐趋势：已确认（`selected_url` 非空）不进 jobs，
     // 复用 `http::resolve_confirmed_icon_from_db` + `icon_fetch::icon_key`，
     // 抄趋势 `filter pre.is_none()` 语义，省重复探。
     let pre_confirmed: Vec<Option<String>> = if let Ok(db) = state.db() {

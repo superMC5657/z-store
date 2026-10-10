@@ -2,7 +2,7 @@ import { useCallback, useRef } from 'react';
 import type { AppDetail, AppDetailViewModel, AppSummary } from '../../types';
 import { api } from '../../services/api';
 import { patchAppIconList } from '../../services/iconStore';
-import { preloadIcons, invalidateIconCache, isAvatarUrl } from '../../components/AppIcon';
+import { preloadIcons, invalidateIconCache } from '../../components/AppIcon';
 import {
   DETAIL_PLATFORMS_HEAL_EVENT,
   DETAIL_RICHCARD_HEAL_EVENT,
@@ -190,7 +190,7 @@ export function useDetailCacheSync({
       });
     }
 
-    const patchedIcon = detail.icon?.trim() && !isAvatarUrl(detail.icon) ? detail.icon.trim() : undefined;
+    const patchedIcon = detail.icon?.trim()?detail.icon.trim():undefined;
     // stale 离线缓存不具权威：平台相关一律保持 pending（不确认、不治愈、不碰榜单缓存）
     const isStaleDetail = Boolean(detail.is_stale);
     const detailPlatforms = !isStaleDetail && detail.platforms && detail.platforms.length > 0 ? detail.platforms : undefined;
@@ -368,9 +368,7 @@ export function useDetailCacheSync({
         })
       );
     } else {
-      // detail.icon 为空/avatar（如 oh-my-pi）：详情弹窗靠 getAppIconCycle 特供照常显示，
-      // 但列表三段此前零 dispatch，在线段永不更新 → 此处用 iconCycle.url 直接回填落盘，不依赖事件。
-      // （后端 iconCycle.selected_url 经 getAppIconCycle 收敛为前端 AppIconCycleResult.url；非 avatar 才用。）
+      // detail.icon 为空：详情弹窗靠 getAppIconCycle 照常显示，列表三段用 iconCycle.url 直接回填落盘。
       void api.getAppIconCycle(idClean).then((cycle) => {
         // 双落盘口径：url=data: 即时态（IPC临时、永不进盘），remote_url/remoteUrl=可持久化 URL；
         // 落盘/回填/dispatch 一律用 persistUrl（remote优先，url非data:才兜底，否则空即 L5/空不发）。
@@ -379,7 +377,7 @@ export function useDetailCacheSync({
           : '';
         const fallbackUrl = typeof cycle?.url === 'string' ? cycle.url.trim() : '';
         const persistUrl = remote !== '' ? remote : (!fallbackUrl.startsWith('data:') ? fallbackUrl : '');
-        if (!persistUrl || isAvatarUrl(persistUrl)) return;
+        if(!persistUrl)return;
         const keyA = idClean.toLowerCase();
         // 预热文件：触发 Rust getOrFetchIcon 落盘副作用（icons/* 二进制 + catalog/cycle 行），失败不阻塞
         void api.getOrFetchIcon(idClean, persistUrl).catch(() => {});

@@ -9,7 +9,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { AppDetailViewModel, OAuthUser, ReleaseAsset } from '../../types';
 import { api, normalizeIconCycle, type AppIconCycleResult } from '../../services/api';
-import { AppIcon, invalidateIconCache, isAvatarUrl } from '../AppIcon';
+import { AppIcon, invalidateIconCache } from '../AppIcon';
 import { notifyToast } from '../../utils/notify';
 import { VerifiedBadge } from '../VerifiedBadge';
 import { formatBytes } from '../../utils/appHelper';
@@ -86,7 +86,7 @@ export const Header: React.FC<HeaderProps> = ({
           const persistUrl =
             remote !== '' ? remote : (!fallbackUrl.startsWith('data:') ? fallbackUrl : '');
           const curIcon = typeof app.icon === 'string' ? app.icon.trim() : '';
-          if (persistUrl !== '' && !isAvatarUrl(persistUrl) && persistUrl !== curIcon) {
+          if(persistUrl!==''&&persistUrl!==curIcon) {
             const dedupKey = `${String(app.id).trim().toLowerCase()}::${persistUrl}`;
             if (!iconSyncDispatchedRef.current.has(dedupKey)) {
               iconSyncDispatchedRef.current.add(dedupKey);

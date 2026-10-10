@@ -222,11 +222,6 @@ fn test_base64_encode_and_icon_cache_path() {
     let p5 = get_icon_cache_path("localsend", "https://localsend.org/app-logo");
     assert!(p5.to_string_lossy().ends_with("localsend.png"));
 
-    // 头像 URL 判断
-    assert!(is_avatar_url("https://avatars.githubusercontent.com/u/71480370?s=200&v=4"));
-    assert!(is_avatar_url("https://identicons.github.com/user.png"));
-    assert!(!is_avatar_url("https://github.com/rustdesk.png"));
-
     // hash 回退：app_id 为空，URL 带有 .svg 后缀
     let p6_url = "https://example.com/custom-icon.svg";
     let p6 = get_icon_cache_path("", p6_url);

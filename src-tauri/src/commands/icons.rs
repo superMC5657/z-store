@@ -105,7 +105,10 @@ const MIME_EXT_TABLE: &[(&str, &str)] = &[
 ];
 
 pub(crate) fn mime_to_ext(mime: &str) -> &'static str {
-    let clean = mime.trim().to_ascii_lowercase();
+    // Content-Type 可能带参数（如 `image/jpeg; charset=utf-8`），先截断 `;` 再归一化；
+    // 真实字节嗅探出的纯 mime 保持原行为不变。
+    let base = mime.split(';').next().unwrap_or(mime);
+    let clean = base.trim().to_ascii_lowercase();
     if clean == "image/apng" {
         return "png";
     }
@@ -179,11 +182,6 @@ pub(crate) fn sanitize_icon_segment(s: &str) -> String {
         .collect()
 }
 
-pub(crate) fn is_avatar_url(url: &str) -> bool {
-    let u = url.trim();
-    u.contains("avatars.githubusercontent.com") || u.contains("identicons.github.com")
-}
-
 /// B3-G11 标识解析 SSOT：统一经 `RepositoryUrlParser::parse` 取 owner/repo，不手写 split_once。
 pub(crate) fn get_icon_stem(app_id: &str, remote_url: &str) -> String {
     match crate::forge::RepositoryUrlParser::parse(app_id) {
@@ -250,8 +248,7 @@ pub(crate) fn icon_http_client() -> reqwest::Client {
 }
 
 /// 图标下载与校验通用 helper（薄适配器，下载缝 stays behind）：
-/// 支持镜像重写（avatar 永不走镜像，见 `icons_cycle_probe::mirror_url_for`）、
-/// 超时重试、格式与非空校验。只做单 URL 拉取与验图，不做 L2/L3 探
+/// 支持镜像重写、超时重试、格式与非空校验。只做单 URL 拉取与验图，不做 L2/L3 探
 /// （探测在 `github::icon_fetch` 深核）；`get_or_fetch_icon` 与 cycle 恢复路径共用此件。
 pub async fn download_icon_bytes(
     client: &reqwest::Client,
@@ -298,24 +295,60 @@ pub async fn download_icon_bytes(
             Ok(resp) => {
                 let status = resp.status().as_u16();
                 if resp.status().is_success() {
+                    // Content-Type 判定：仅做交叉验证与日志，真实 ext 一律以字节嗅探为准
+                    //（无后缀 URL 靠 sniff 定 jpg/png，不信任 URL 后缀与 header 声称）。
+                    let ctype = resp
+                        .headers()
+                        .get(reqwest::header::CONTENT_TYPE)
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("")
+                        .to_string();
+                    let ctype_log = if ctype.trim().is_empty() {
+                        "-".to_string()
+                    } else {
+                        ctype.trim().to_string()
+                    };
                     if let Ok(bytes) = resp.bytes().await {
                         if !bytes.is_empty() && is_valid_image(&bytes) {
+                            let sniff_mime = detect_image_mime(&bytes);
+                            let sniff_ext = mime_to_ext(sniff_mime);
+                            // header 声称 image/* 但与 sniff 不一致时仅告警，仍信任真实字节。
+                            let ctype_lower = ctype.to_ascii_lowercase();
+                            if ctype_lower.starts_with("image/") {
+                                let claimed_ext = mime_to_ext(&ctype);
+                                if claimed_ext != sniff_ext {
+                                    log::warn!(
+                                        "http resp icon ctype mismatch sid={} req={} url='{}' content_type='{}' sniff_mime={} real_ext={}",
+                                        icon_sid,
+                                        icon_req,
+                                        safe_url,
+                                        ctype_log,
+                                        sniff_mime,
+                                        sniff_ext
+                                    );
+                                }
+                            }
                             log::debug!(
-                                "http resp icon ok sid={} req={} url='{}' status={} bytes={} elapsed_ms={}",
+                                "http resp icon ok sid={} req={} url='{}' status={} bytes={} content_type='{}' sniff_mime={} elapsed_ms={}",
                                 icon_sid,
                                 icon_req,
                                 safe_url,
                                 status,
                                 bytes.len(),
+                                ctype_log,
+                                sniff_mime,
                                 start_icon.elapsed().as_millis()
                             );
                             log::info!(
-                                "http resp icon ok sid={} req={} host={} status={} bytes={} raw_url='{}' effective_url='{}' mirror={} elapsed_ms={}",
+                                "http resp icon ok sid={} req={} host={} status={} bytes={} content_type='{}' sniff_mime={} real_ext={} raw_url='{}' effective_url='{}' mirror={} elapsed_ms={}",
                                 icon_sid,
                                 icon_req,
                                 icon_host,
                                 status,
                                 bytes.len(),
+                                ctype_log,
+                                sniff_mime,
+                                sniff_ext,
                                 raw_icon_url,
                                 safe_url,
                                 is_mirror,
@@ -323,9 +356,14 @@ pub async fn download_icon_bytes(
                             );
                             return Ok(bytes.to_vec());
                         } else if bytes.is_empty() {
-                            last_err = "响应内容为空".to_string();
+                            last_err =
+                                format!("响应内容为空(content-type={})", ctype_log);
                         } else {
-                            last_err = "响应内容不是有效图片格式".to_string();
+                            // sniff 失败即拒收：即使 header 声称 image/* 也不信任（真实字节为准）。
+                            last_err = format!(
+                                "响应内容不是有效图片格式(content-type={})",
+                                ctype_log
+                            );
                         }
                     } else {
                         last_err = "读取响应内容失败".to_string();
@@ -372,6 +410,7 @@ pub async fn download_icon_bytes(
 /// 不内联第二套探。缝：`catalog_filename` vs `cycle_filename` 文件名分流 +
 /// 镜像改写 stays behind（见 `icons_cycle_probe`）；level 纯L，via 正交由上游事件表达，
 /// 本命令返回 `data:` 永不进盘语义由前端 `applyHit` 守卫（`data:` 只进 M1 内存）。
+/// 全链：infer（URL 后缀暂定 ext）→sniff（内容纠正 real_ext）→双表分流落盘（收录走 meta，非收录走 cycle）。
 #[tauri::command]
 pub async fn get_or_fetch_icon(
     state: State<'_, AppState>,
@@ -393,6 +432,7 @@ pub async fn get_or_fetch_icon(
     }
 
     let stem = get_icon_stem(app_id.as_deref().unwrap_or(""), url_trimmed);
+    // 无后缀暂定 png：落盘以 sniff real_ext 纠正 + 清旧变体（见 persist_*）。
     let inferred_ext = infer_icon_ext_from_url(url_trimmed).unwrap_or("png");
 
     let is_cataloged = app_id.as_deref().is_some_and(|id| {
@@ -489,6 +529,13 @@ pub async fn get_or_fetch_icon(
                     filename.clone(),
                 );
                 let _ = db.upsert_icon_cycle(&cycle);
+                // 同 level 旧后缀残留清理，避免纠正后双文件常驻。
+                icons_cycle::cleanup_stale_cycle_variants(
+                    &icons_dir,
+                    &stem,
+                    actual_level,
+                    &filename,
+                );
 
                 filename
             } else {
@@ -500,6 +547,10 @@ pub async fn get_or_fetch_icon(
 
         let final_cache_file = icons_dir.join(&final_filename);
         let _ = std::fs::write(&final_cache_file, &bytes);
+        // 无 DB 行（匿名 id 为空）时仍需清理同 level 旧后缀残留，落盘恒为 {stem}_l{level}.{real_ext}。
+        if app_id.as_deref().map(str::trim).unwrap_or("").is_empty() {
+            icons_cycle::cleanup_stale_cycle_variants(&icons_dir, &stem, 2, &final_filename);
+        }
     }
 
     Ok(bytes_to_data_uri(&bytes))

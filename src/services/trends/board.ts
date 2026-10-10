@@ -59,7 +59,6 @@ import {
 } from '../../lib/platformFilter';
 import { zlogInfo } from '../../lib/z-log';
 import { getBufferedIcon } from '../iconStore';
-import { isAvatarUrl } from '../../components/AppIcon';
 
 /** 单一抓取入口（fetch→L1→L2-hydrate→enrich-merge→saveBoardCacheMerged，boards 原样透出）。 */
 export const fetchTrendsResultSeam = fetchTrendsResultInner;
@@ -760,7 +759,7 @@ export function boardRepoKeys(repos: readonly TrendRepo[] | undefined): Set<stri
 
 /**
  * 平台治愈镜像合并（原 DETAIL_PLATFORMS_HEAL handler 逐行搬运）：
- * 空 pending 行被具平台值替换并保留旧真实图标；已具平台行仅跟随非空非 avatar 图标；
+ * 空 pending 行被具平台值替换并保留旧真实图标；已具平台行仅跟随非空图标；
  * 预 enrich 行（榜单已知但镜像缺席）直接创建；命中键同步移出已确认。
  */
 export function applyPlatformsHealToMirror(
@@ -786,7 +785,7 @@ export function applyPlatformsHealToMirror(
       changed = true;
     } else {
       const incomingIcon = typeof summary.icon === 'string' ? summary.icon.trim() : '';
-      if (incomingIcon !== '' && !isAvatarUrl(incomingIcon) && cur.icon !== incomingIcon) {
+      if (incomingIcon !== '' && cur.icon !== incomingIcon) {
         const incomingBg = typeof summary.icon_bg === 'string' ? summary.icon_bg : '';
         next[k] = {
           ...cur,
@@ -982,7 +981,7 @@ export function persistRichcardHeal(
 
 /**
  * 图标变更镜像合并（原 zstore:icon-changed handler 逐行搬运）：
- * incoming 非 avatar 且与旧不同即覆盖；L5（''）放行内存清零；
+ * incoming 与旧不同即覆盖；L5（''）放行内存清零；
  * 大小写归一，同时匹配坐标键与 enriched.id 小写别名。
  */
 export function applyIconChangedToMirror(
@@ -1051,7 +1050,7 @@ export interface TrendHealBusHandlers {
 /**
  * 治愈总线统一订阅：3 路 window 事件经同一归一路径分发。
  * 调用方只订一次，不再三处 addEventListener 散写；
- * key 归一（lower-trim 去空） + avatar 过滤在此统一把关。
+ * key 归一（lower-trim 去空）。
  */
 export function subscribeTrendHealBus(handlers: TrendHealBusHandlers): () => void {
   const onPlatforms = (e: Event): void => {
@@ -1076,7 +1075,7 @@ export function subscribeTrendHealBus(handlers: TrendHealBusHandlers): () => voi
     if (!detail) return;
     const rawIcon = typeof detail.icon === 'string' ? detail.icon.trim() : '';
     const appIdNorm = String(detail.appId ?? '').trim().toLowerCase();
-    if (!appIdNorm || isAvatarUrl(rawIcon)) return;
+    if(!appIdNorm)return;
     handlers.onIconChanged?.(appIdNorm, rawIcon);
   };
   window.addEventListener(DETAIL_PLATFORMS_HEAL_EVENT, onPlatforms);

@@ -3,29 +3,12 @@
  * M1=内存（iconStore/searchListCache/enrich经getBufferedIcon/applyHit唯一口）；
  * M2=DB（via=m2首屏直填，不走emit）；`data:`永不落盘只进M1内存。
  * 缝：`applyHit` 为唯一写口；`AppIcon`/`useSearchState.assembleOnlineRowsWithIcons`/
- * `enrich.stickyIconFor` 为读透适配（经 `getBufferedIcon`/`applyHit`，不自立
- * avatar/empty/level 规则）；四列表写透（apps/onlineApps/recentlyViewedApps/
+ * `enrich.stickyIconFor` 为读透适配（经 `getBufferedIcon`/`applyHit`，不自立空值规则）；四列表写透（apps/onlineApps/recentlyViewedApps/
  * favoriteExtraApps）经 `patch` 注入（见 `createFourListPatch`）。
  */
 import { invalidateIconCache, preloadIcons } from '../components/AppIcon';
 import type { AppSummary } from '../types';
 import { normalizeId, normalizeIdSet } from './normalizeId';
-
-/**
- * 头像 URL 判定 SSOT（前端唯一口径，与后端 `is_avatar_url`/`is_avatar_icon_url` 同规则）：
- * 头像永不进缓冲、永不落盘、永不覆盖实图。`AppIcon.isAvatarUrl` 与
- * `enrich.isAvatarLike` 均为本函数的薄委托，禁止各自内联重复形状。
- */
-export function isAvatarIconUrl(url: string | undefined | null): boolean {
-  if (!url) return false;
-  const u = url.trim().toLowerCase();
-  return (
-    u.includes('avatars.githubusercontent.com') ||
-    u.includes('identicons.github.com') ||
-    u.includes('github.com/identicons/') ||
-    (u.startsWith('https://github.com/') && u.endsWith('.png') && !u.includes('/raw/'))
-  );
-}
 
 /** 空图标判定 SSOT（读透适配统一用此件，不各自 `trim()===''` 散写）。 */
 export function isEmptyIcon(icon: unknown): boolean {
@@ -233,8 +216,6 @@ export function applyHit(args: ApplyHitArgs): ApplyHitResult {
     return { accepted: false, targets, reason: keep ? 'empty-keeps-real' : 'empty-noop' };
   }
   const icon = rawIcon;
-  // 写透守卫：avatar 一律丢弃（不推进 `level` 记忆）。口径唯一见 `isAvatarIconUrl`。
-  if (isAvatarIconUrl(icon)) return { accepted: false, targets, icon, reason: 'avatar-dropped' };
 
   // 世代门控：过期判断只此一处（搜索走 `search_id`，榜单走 `board`+`gen`）。
   // 内联门控三段：incoming 取 `context` 回落顶层，expected 即时取值回落静态值，双非空不等即过期任一为空即放行。
