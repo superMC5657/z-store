@@ -416,4 +416,9 @@ export interface TrendsResult {
   repos: TrendRepo[];
   status: TrendsStatus;
   errorKind?: TrendsErrorKind;
+  /**
+   * 新鲜度标记：`true` = 陈旧降级（stale 缓存兜底，调用方可据此区分真零与失败空）；
+   * `false`/`undefined` = 新鲜（网络/L1/L2 新鲜命中）。空态文案/设计不动，仅供调用方区分。
+   */
+  stale?: boolean;
 }

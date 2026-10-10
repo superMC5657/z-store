@@ -59,7 +59,7 @@ import {
   needsFavoriteIconWarm,
   pickFavoritePersistIconUrl,
 } from './app/favoritesUncataloged';
-import { useSearchState } from './app/hooks/useSearchState';
+import { adoptEchoInWindow, useSearchState } from './app/hooks/useSearchState';
 import { useInstallState } from './app/hooks/useInstallState';
 import { useDeepLink } from './app/hooks/useDeepLink';
 
@@ -265,13 +265,7 @@ export const App: React.FC = () => {
           (ctx && typeof ctx.search_id === 'string' && ctx.search_id
             ? ctx.search_id
             : asStr(raw['search_id'])) ?? '';
-        if (
-          (incomingKind === '' || incomingKind === 'search') &&
-          incomingSid !== '' &&
-          currentSearchIdRef.current === ''
-        ) {
-          currentSearchIdRef.current = incomingSid;
-        }
+        adoptEchoInWindow(currentSearchIdRef, incomingKind, incomingSid);
         applyHit({
           key: asStr(raw['key']),
           id: asStr(raw['id']) ?? asStr(raw['app_id']),

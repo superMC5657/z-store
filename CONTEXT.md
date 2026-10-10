@@ -44,6 +44,10 @@
 | **统一图标获取** | `IconFetch` | 后端统一图标补探核心（`github/icon_fetch.rs:fetch_icons_stream`），搜索后台已接入、趋势默认未接入；仅负责探测与调度，不触 DB。 | 图标管道、补图核心 |
 | **图标就绪事件** | `icon-ready` | 后端逐张发射的统一事件 `zstore://icon-ready{key,id,icon,level,context}`；前端统一由 `iconStore.applyHit` 收口。 | 图标推送、icon 事件 |
 | **搜索列表缓存** | `Search List Cache` | 搜索页纯前端内存搜缓存（搜缓存=搜索 L1，`services/search/searchListCache.ts`），key=`search\|归一query\|page\|perPage`，TTL 30min、空不存、上限 50 条 FIFO；不碰榜缓存二级落盘与趋势榜缓存。 | 搜索缓存、结果缓存 |
+| **榜就绪门信号** | `boardReady` | 内部实现标识（已收编，仅限趋势榜视图域）：`useTrendBoard` 内 hydrate 就绪门信号（`useTrendBoard.ts:83`，读盘→hydrate 完成后置位），仅供富卡升级判定、不阻塞裸行直展；对应 ADR-0014 榜 L2 落盘语义。 | 就绪态、加载完成 |
+| **SWR 同步快照** | `swrSyncedResult` | 内部实现标识（已收编，仅限趋势榜视图域）：`TrendsView` 内当前榜单 SWR 合并完成快照（`TrendsView.tsx:154`，快照与 hydrate 一致即原地升级富卡、不拦裸行）；对应 SWR 旧富卡直展。 | 同步结果、合并态 |
+| **升级待定判定** | `isUpgradePending` | 内部实现标识（已收编，仅限趋势榜视图域）：`TrendsView` 内富卡升级待定判定（`TrendsView.tsx:1278`，现状 `void` 未消费），未就绪或快照不一致即待定，仅门控升级、不阻塞裸行直展；内部视图态，非用户-facing。 | 待升级、pending 态 |
+| **绘制同步回归线** | `paint-sync` | 测试专用 lane 名，非用户-facing 概念：驱逐写透/裸行直展回归（内存与盘所见即所得，见 `paint-sync.test.ts:2`、`TrendsView.paintSync.test.tsx:2`），仅测试命名。 | 首屏测试、渲染同步 |
 
 ---
 

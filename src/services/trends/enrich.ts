@@ -1,6 +1,7 @@
 import type { AppDetail, AppSummary, TrendRepo } from '../../types';
 import { tauriApi } from '../api';
 import { getBufferedIcon, mergeStickyIcon } from '../iconStore';
+import { normalizeId, normalizeIdSet } from '../normalizeId';
 
 /** enrich 派生缓存 TTL：12h（坐标元数据日内几乎不变，与 DOFORCE 快照同口径）。 */
 export const TREND_ENRICH_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
@@ -31,7 +32,7 @@ function hasConcretePlatforms(platforms: unknown): boolean {
 const trendConfirmedOtherCache = new Map<string, number>();
 
 function putTrendConfirmedOtherEntry(key: string, timestamp: number): void {
-  const k = key.trim().toLowerCase();
+  const k = normalizeId(key);
   if (!k) return;
   if (trendConfirmedOtherCache.has(k)) trendConfirmedOtherCache.delete(k);
   trendConfirmedOtherCache.set(k, timestamp);
@@ -45,7 +46,7 @@ function putTrendConfirmedOtherEntry(key: string, timestamp: number): void {
 
 /** 标记单键为已确认 Other（已具平台则跳过，禁 pending 覆盖具平台）。 */
 export function markTrendConfirmedOther(key: string): void {
-  const k = key.trim().toLowerCase();
+  const k = normalizeId(key);
   if (!k) return;
   const cur = trendEnrichCache.get(k);
   if (cur && hasConcretePlatforms(cur.data.platforms)) return;
@@ -64,7 +65,7 @@ export function markTrendConfirmedOthers(keys: readonly string[]): void {
 
 /** 移除单键已确认标记（具平台升级覆盖时调用；put 具平台已自动移除，此处供显式别名清理）。 */
 export function unmarkTrendConfirmedOther(key: string): void {
-  const k = key.trim().toLowerCase();
+  const k = normalizeId(key);
   if (!k) return;
   const removed = trendConfirmedOtherCache.delete(k);
   if (removed) emitTrendConfirmedOtherChanged('unmark', [k]);
@@ -103,15 +104,7 @@ function emitTrendConfirmedOtherChanged(
   keys: readonly string[],
 ): void {
   if (trendConfirmedOtherListeners.size === 0) return;
-  const normalized: string[] = [];
-  const seen = new Set<string>();
-  for (const raw of keys) {
-    if (typeof raw !== 'string') continue;
-    const k = raw.trim().toLowerCase();
-    if (!k || seen.has(k)) continue;
-    seen.add(k);
-    normalized.push(k);
-  }
+  const normalized: string[] = normalizeIdSet(keys);
   if (normalized.length === 0) return;
   for (const fn of [...trendConfirmedOtherListeners]) {
     try {
@@ -128,7 +121,7 @@ function emitTrendConfirmedOtherChanged(
  * TTL 过期清理为读路径，不 emit（不写放大）。
  */
 export function isTrendConfirmedOtherFresh(key: string): boolean {
-  const k = key.trim().toLowerCase();
+  const k = normalizeId(key);
   if (!k) return false;
   const cur = trendEnrichCache.get(k);
   if (cur && hasConcretePlatforms(cur.data.platforms)) {
@@ -178,9 +171,9 @@ export function snapshotTrendConfirmedOthers(repos?: TrendRepo[]): string[] {
   const wanted = new Set<string>();
   for (const r of repos) {
     if (r.owner && r.repo) {
-      wanted.add(`${r.owner.trim().toLowerCase()}/${r.repo.trim().toLowerCase()}`);
+      wanted.add(`${normalizeId(r.owner)}/${normalizeId(r.repo)}`);
     }
-    if (r.id) wanted.add(r.id.trim().toLowerCase());
+    if (r.id) wanted.add(normalizeId(r.id));
   }
   return out.filter((k) => wanted.has(k));
 }
@@ -195,7 +188,7 @@ export function hydrateTrendConfirmedOtherCache(keys?: readonly string[] | null)
   const now = Date.now();
   for (const raw of keys) {
     if (typeof raw !== 'string') continue;
-    const k = raw.trim().toLowerCase();
+    const k = normalizeId(raw);
     if (!k) continue;
     const cur = trendEnrichCache.get(k);
     if (cur && hasConcretePlatforms(cur.data.platforms)) continue;
@@ -230,9 +223,9 @@ function stickyIconFor(cur: AppSummary | undefined, incoming: AppSummary): AppSu
   if (typeof merged.icon === 'string' && merged.icon.trim() === '') {
     const coordKey =
       incoming.owner && incoming.repo
-        ? `${incoming.owner.trim().toLowerCase()}/${incoming.repo.trim().toLowerCase()}`
+        ? `${normalizeId(incoming.owner)}/${normalizeId(incoming.repo)}`
         : '';
-    const idKey = typeof incoming.id === 'string' ? incoming.id.trim().toLowerCase() : '';
+    const idKey = typeof incoming.id === 'string' ? normalizeId(incoming.id) : '';
     const buffered =
       (coordKey ? getBufferedIcon(coordKey) : undefined) ??
       (idKey ? getBufferedIcon(idKey) : undefined);
@@ -252,8 +245,10 @@ function stickyIconFor(cur: AppSummary | undefined, incoming: AppSummary): AppSu
  * - 详情具平台治愈（upsertTrendEnrichFromDetail / upsertTrendEnrichRichcard）为唯一回填口。
  */
 function putTrendEnrichCache(key: string, entry: { timestamp: number; data: AppSummary }): void {
-  const k = key.trim().toLowerCase();
+  const k = normalizeId(key);
   if (!k) return;
+  // is_stale 透出：stale 条目永不进内存（调用方可据 TrendsResult.stale 区分真零与失败空）。
+  if ((entry.data as unknown as { is_stale?: unknown }).is_stale === true) return;
   const incomingConcrete = hasConcretePlatforms(entry.data.platforms);
   const cur = trendEnrichCache.get(k);
   if (cur && hasConcretePlatforms(cur.data.platforms) && !incomingConcrete) return;
@@ -291,7 +286,7 @@ export function sweepExpiredTrendEnrichCache(): void {
 }
 
 function trendEnrichKey(owner: string, repo: string): string {
-  return `${owner.trim().toLowerCase()}/${repo.trim().toLowerCase()}`;
+  return `${normalizeId(owner)}/${normalizeId(repo)}`;
 }
 
 export function clearTrendEnrichCache(): void {
@@ -317,11 +312,12 @@ export function hydrateTrendEnrichCache(
   const now = Date.now();
   for (const [rawKey, summary] of entries) {
     if (!summary || typeof summary !== 'object') continue;
+    if ((summary as unknown as { is_stale?: unknown }).is_stale === true) continue;
     if (typeof summary.id !== 'string' || summary.id.trim() === '') continue;
     if (typeof summary.owner !== 'string' || summary.owner.trim() === '') continue;
     if (typeof summary.repo !== 'string' || summary.repo.trim() === '') continue;
     if (!Array.isArray(summary.platforms)) continue;
-    const key = rawKey.trim().toLowerCase();
+    const key = normalizeId(rawKey);
     if (!key) continue;
     if (!hasConcretePlatforms(summary.platforms) && !trendConfirmedOtherCache.has(key)) continue;
     if (typeof summary.icon === 'string' && summary.icon.startsWith('data:')) continue;
@@ -349,11 +345,12 @@ export function snapshotTrendEnrichCache(repos?: TrendRepo[]): Record<string, Ap
   if (repos && repos.length > 0) {
     for (const r of repos) {
       const coordKey = r.owner && r.repo ? trendEnrichKey(r.owner, r.repo) : '';
-      const idKey = r.id ? r.id.trim().toLowerCase() : '';
+      const idKey = r.id ? normalizeId(r.id) : '';
       const coordHit = coordKey ? trendEnrichCache.get(coordKey) : undefined;
       const idHit = idKey ? trendEnrichCache.get(idKey) : undefined;
       const hit = coordHit ?? idHit;
       if (!hit) continue;
+      if ((hit.data as unknown as { is_stale?: unknown }).is_stale === true) continue;
       const storedKey = coordHit ? coordKey : idKey;
       const elapsed = now - hit.timestamp;
       if (elapsed < 0 || elapsed >= TREND_ENRICH_CACHE_TTL_MS) continue;
@@ -372,6 +369,7 @@ export function snapshotTrendEnrichCache(repos?: TrendRepo[]): Record<string, Ap
   for (const [key, hit] of trendEnrichCache.entries()) {
     const elapsed = now - hit.timestamp;
     if (elapsed < 0 || elapsed >= TREND_ENRICH_CACHE_TTL_MS) continue;
+    if ((hit.data as unknown as { is_stale?: unknown }).is_stale === true) continue;
     if (!hasConcretePlatforms(hit.data.platforms) && !confirmed.has(key)) continue;
     if (typeof hit.data.icon === 'string' && hit.data.icon.startsWith('data:')) continue;
     out[key] = hit.data;
@@ -506,7 +504,7 @@ export function buildTrendEnrichKey(owner: string, repo: string): string {
 
 /** 按归一键驱逐单条 enrich 缓存（详情治愈前先清 stale []，避免旧快照覆盖）。 */
 export function evictTrendEnrichCacheByKey(key: string): void {
-  const k = key.trim().toLowerCase();
+  const k = normalizeId(key);
   if (!k) return;
   trendEnrichCache.delete(k);
 }
@@ -519,7 +517,7 @@ export function evictTrendEnrichCache(owner: string, repo: string): void {
 /** 详情治愈的缓存驱逐全集：id / owner-repo / github 前缀一并清除。 */
 export function evictTrendEnrichCachesForDetail(id: string, owner: string, repo: string): void {
   const keys = new Set<string>();
-  if (id) keys.add(id.trim().toLowerCase());
+  if (id) keys.add(normalizeId(id));
   if (owner && repo) keys.add(trendEnrichKey(owner, repo));
   for (const k of keys) evictTrendEnrichCacheByKey(k);
 }
@@ -527,7 +525,7 @@ export function evictTrendEnrichCachesForDetail(id: string, owner: string, repo:
 /** 详情治愈的匹配键全集（App 派发、TrendsView 命中同一口径）。 */
 export function detailHealKeysFor(id: string, owner: string, repo: string): string[] {
   const out = new Set<string>();
-  if (id) out.add(id.trim().toLowerCase());
+  if (id) out.add(normalizeId(id));
   if (owner && repo) out.add(trendEnrichKey(owner, repo));
   return [...out].filter((k) => k.length > 0);
 }
@@ -624,7 +622,7 @@ function richStr(v: unknown): string {
 
 function isAvatarLike(url: unknown): boolean {
   if (typeof url !== 'string' || url.trim() === '') return false;
-  const u = url.trim().toLowerCase();
+  const u = normalizeId(url);
   return (
     u.includes('avatars.githubusercontent.com') ||
     u.includes('identicons.github.com') ||
@@ -858,16 +856,16 @@ export function formatStars(count: number): string {
  * 绝不互命中，避免错绑卡片与平台误判）。
  */
 export function matchCatalogApp(trend: TrendRepo, catalogApps: AppSummary[]): AppSummary | undefined {
-  const tId = (trend.id || '').trim().toLowerCase();
-  const tOwner = (trend.owner || '').trim().toLowerCase();
-  const tRepo = (trend.repo || '').trim().toLowerCase();
+  const tId = normalizeId(trend.id);
+  const tOwner = normalizeId(trend.owner);
+  const tRepo = normalizeId(trend.repo);
 
   const tFullName = tOwner && tRepo ? `${tOwner}/${tRepo}` : '';
 
   return catalogApps.find((app) => {
-    const aId = (app.id || '').trim().toLowerCase();
-    const aOwner = (app.owner || '').trim().toLowerCase();
-    const aRepo = (app.repo || '').trim().toLowerCase();
+    const aId = normalizeId(app.id);
+    const aOwner = normalizeId(app.owner);
+    const aRepo = normalizeId(app.repo);
     const aFullName = aOwner && aRepo ? `${aOwner}/${aRepo}` : '';
 
     // 1. canonical id 全等

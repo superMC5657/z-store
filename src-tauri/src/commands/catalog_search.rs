@@ -9,7 +9,15 @@ static SEARCH_GEN: AtomicU64 = AtomicU64::new(0);
 /// 类比 `SEARCH_GEN` 每次 `search_apps_online` +1）。
 /// 后台 `fetch_icons_stream(Trend{board,gen})` 的落库前 + emit 前双检查用，
 /// 用户切榜后旧榜在途探测结果直接抛弃（与搜索防串词同语义）。
+/// 豁免：`compat_collect=true` 的 buffered 等齐路永不 bump——该路无后台流式、
+/// 无 `save_and_emit_trend` 世代检查，`BOARD_GEN` 与其无关。
 static BOARD_GEN: AtomicU64 = AtomicU64::new(0);
+
+/// 流式世代分配：每次流式调用恰好 +1。唯一调用点为 `enrich_trend_repos` 流式路；
+/// buffered 等齐路（`enrich_trend_repos_buffered`）必须永不调用本函数。
+fn next_board_gen() -> u64 {
+    BOARD_GEN.fetch_add(1, Ordering::SeqCst) + 1
+}
 
 /// 在线搜索回包：行 + 后端拍板的 search_id 回声。
 /// 前端以此 sid 为准做图标门控（以后端为准，后端说什么前端认什么）。
@@ -21,15 +29,22 @@ pub struct OnlineSearchResult {
 
 /// ADR-0008：网络超时统一经 `get_project_config().network.api_timeout_seconds` 获取；
 /// 配置为 0（未设置）时回退到调用方传入的历史硬编码值，行为保持不变。
-pub(crate) fn api_timeout_or(fallback: std::time::Duration) -> std::time::Duration {
-    let secs = crate::config::get_project_config()
-        .network
-        .api_timeout_seconds;
+/// 纯函数内核（可单测）：`secs>0` 用配置秒数，`0` 用 `fallback`。
+pub(crate) fn api_timeout_from(secs: u64, fallback: std::time::Duration) -> std::time::Duration {
     if secs > 0 {
         std::time::Duration::from_secs(secs)
     } else {
         fallback
     }
+}
+
+pub(crate) fn api_timeout_or(fallback: std::time::Duration) -> std::time::Duration {
+    api_timeout_from(
+        crate::config::get_project_config()
+            .network
+            .api_timeout_seconds,
+        fallback,
+    )
 }
 
 /// 快/慢图标探测结果落库 + 前端 emit（`upsert_icon_cycle` + 单发新事件）。
@@ -594,6 +609,7 @@ pub struct TrendEnrichRequest {
 ///   空永不覆盖实由前端 `iconStore.applyHit` + 后端 `BOARD_GEN` 双检查保证）；
 /// - 世代：每次流式调用 `BOARD_GEN+1`（切榜/重拉/分片重拉均+1，类比 `SEARCH_GEN`），
 ///   落库前 + emit 前双检查（见 `save_and_emit_trend`）；
+///   buffered 等齐路（`compat_collect=true`）无后台流式、无世代检查，豁免 bump；
 /// - 逃生门：`IconFetchConfig.compat_collect=true`（默认）时保持
 ///   `buffered+collect` 等齐路（`probe=true` 内联慢探同步完成），
 ///   仅 `compat_collect=false` 时走新流式路。
@@ -609,11 +625,12 @@ pub async fn enrich_trend_repos(
     let board_name = board.unwrap_or_default().trim().to_lowercase();
     let cfg_icon = crate::config::get_project_config().limits.icon_fetch;
     // 逃生门：compat_collect=true 保持老等齐路（含内联慢探）。
+    // 该路无后台流式、无世代检查，豁免 BOARD_GEN bump（bump 仅属流式路）。
     if cfg_icon.compat_collect {
         return enrich_trend_repos_buffered(state, repos, enrich_start).await;
     }
     // 世代：流式路每次调用 +1（切榜/重拉均触发新调用，类比 SEARCH_GEN）。
-    let current_gen = BOARD_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    let current_gen = next_board_gen();
     // 流式路：首屏 probe=false 空壳快返 + 后台 fetch_icons_stream。
     // FE 已按 20/片×2 片串行（上限 40），此处 take(40) 为兜底截断，不静默吃超量。
     let targets: Vec<(String, String, String)> = repos
@@ -915,5 +932,40 @@ mod tests {
         let mut confirmed = sample_summary("c/r", "c", "r", "");
         assert!(backfill_uncataloged_card(&db, &mut confirmed, 1800).is_none());
         assert_eq!(confirmed.icon, "https://example.com/c.png");
+    }
+
+    #[test]
+    fn trend_streaming_gen_bumps_exactly_once_per_call() {
+        // 回归：流式路每次调用恰好 BOARD_GEN+1（经 next_board_gen 唯一调用点）。
+        // buffered 等齐路永不调用 next_board_gen（见 enrich_trend_repos 逃生门注释），
+        // 故此处连续两次调用必须严格 +1/+1。
+        let a = super::next_board_gen();
+        let b = super::next_board_gen();
+        assert_eq!(b, a + 1);
+    }
+
+    #[test]
+    fn trend_buffered_default_path_needs_no_board_gen() {
+        // 契约：默认 compat_collect=true 走 buffered 等齐路，该路无后台流式、
+        // 无 save_and_emit_trend 世代检查，故与 BOARD_GEN 无关（豁免 bump）。
+        assert!(crate::config::IconFetchConfig::default().compat_collect);
+    }
+
+    #[test]
+    fn api_timeout_from_prefers_config_falls_back_to_history() {
+        // ADR-0008：已配秒数优先；0（未设置）回退调用方历史硬编码值。
+        // 快慢超时统一经 network.api_timeout_seconds（IconFetchConfig 瘦身后无独立超时键）。
+        assert_eq!(
+            super::api_timeout_from(12, std::time::Duration::from_secs(10)),
+            std::time::Duration::from_secs(12)
+        );
+        assert_eq!(
+            super::api_timeout_from(0, std::time::Duration::from_secs(10)),
+            std::time::Duration::from_secs(10)
+        );
+        assert_eq!(
+            super::api_timeout_from(0, std::time::Duration::from_millis(1500)),
+            std::time::Duration::from_millis(1500)
+        );
     }
 }

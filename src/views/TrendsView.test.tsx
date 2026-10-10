@@ -296,13 +296,14 @@ describe('时间榜主源：trending HTML 一榜一 URL', () => {
 
   it('空页 => empty；HTTP 500 => error/unavailable（经 z-log 落盘）', async () => {
     trendingHtml = '<div class="Box"></div>';
-    await expect(fetchTrendsResult('daily')).resolves.toEqual({ repos: [], status: 'empty' });
+    await expect(fetchTrendsResult('daily')).resolves.toEqual({ repos: [], status: 'empty', stale: false });
     trendingStatus = 500;
     vi.mocked(zlogWarn).mockClear();
     await expect(fetchTrendsResult('weekly', { forceRefresh: true })).resolves.toEqual({
       repos: [],
       status: 'error',
       errorKind: 'unavailable',
+      stale: false,
     });
     const warns = vi.mocked(zlogWarn).mock.calls.map(([m]) => String(m));
     expect(warns.some((m) => m.includes('board=weekly') && m.includes('unavailable'))).toBe(true);
@@ -494,10 +495,12 @@ describe('rising/healthy：doforce 单飞共享（一次抓取，两榜各排）
     await expect(fetchTrendsResult('healthy', { forceRefresh: true })).resolves.toEqual({
       repos: [],
       status: 'empty',
+      stale: false,
     });
     await expect(fetchTrendsResult('rising', { forceRefresh: true })).resolves.toEqual({
       repos: [],
       status: 'empty',
+      stale: false,
     });
     expect(doforceUrls()).toHaveLength(2);
   });
@@ -596,6 +599,7 @@ describe('new 榜：GitHub search（created 6mo）保持不变', () => {
     await expect(fetchTrendsResult('new', { forceRefresh: true })).resolves.toEqual({
       repos: [],
       status: 'empty',
+      stale: false,
     });
   });
 

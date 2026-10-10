@@ -1,5 +1,6 @@
 import type { AppSummary, FetchTrendsOptions, TrendBoardId, TrendRepo } from '../../types';
 import { isTauri, tauriInvoke } from '../api/client';
+import { normalizeId, normalizeIdSet } from '../normalizeId';
 import {
   clearTrendEnrichCache,
   hydrateTrendConfirmedOtherCache,
@@ -75,8 +76,8 @@ export function utf8ByteLength(s: string): number {
 
 /** 缓存键 = board + language + category（P1 要求，统一口径；C3：三段归一 trim().toLowerCase()，读写同源）。 */
 export function buildTrendsCacheKey(board: TrendBoardId, opts: FetchTrendsOptions = {}): string {
-  const language = (opts.language ?? '').trim().toLowerCase();
-  const category = (opts.category ?? '').trim().toLowerCase();
+  const language = normalizeId(opts.language);
+  const category = normalizeId(opts.category);
   return `${board}|${language}|${category}`;
 }
 
@@ -143,8 +144,8 @@ export function sweepExpiredTrendsCache(): void {
 
 export function buildDoforceCacheKey(opts: FetchTrendsOptions = {}): string {
   // 归一 trim().toLowerCase()。
-  const language = (opts.language ?? '').trim().toLowerCase();
-  const category = (opts.category ?? '').trim().toLowerCase();
+  const language = normalizeId(opts.language);
+  const category = normalizeId(opts.category);
   return `doforce|${language}|${category}`;
 }
 
@@ -230,14 +231,7 @@ export async function getDbTrendCache(key: string, board?: string): Promise<Tren
       const rawConfirmed = (envelope as { confirmedOther?: unknown }).confirmedOther;
       let guardedConfirmed: string[] = [];
       if (Array.isArray(rawConfirmed)) {
-        const seen = new Set<string>();
-        for (const raw of rawConfirmed) {
-          if (typeof raw !== 'string') continue;
-          const k = raw.trim().toLowerCase();
-          if (!k || seen.has(k)) continue;
-          seen.add(k);
-          guardedConfirmed.push(k);
-        }
+        guardedConfirmed = normalizeIdSet(rawConfirmed);
         if (guardedConfirmed.length > 0) {
           hydrateTrendConfirmedOtherCache(guardedConfirmed);
         }
@@ -264,7 +258,7 @@ export async function getDbTrendCache(key: string, board?: string): Promise<Tren
             ) &&
             Array.isArray(candidate.platforms)
           ) {
-            guardedEnrich[rawKey.trim().toLowerCase()] = item as AppSummary;
+            guardedEnrich[normalizeId(rawKey)] = item as AppSummary;
           }
         }
       }
@@ -322,7 +316,7 @@ export async function saveDbTrendCache(
         if (typeof s.repo !== 'string' || s.repo.trim() === '') continue;
         if (!Array.isArray(summary.platforms)) continue;
         if (typeof summary.icon === 'string' && summary.icon.startsWith('data:')) continue;
-        const cleanKey = k.trim().toLowerCase();
+        const cleanKey = normalizeId(k);
         if (cleanKey) {
           sanitizedEnrich[cleanKey] = summary;
         }
@@ -333,15 +327,7 @@ export async function saveDbTrendCache(
         enrich: sanitizedEnrich,
       };
       if (confirmedOther !== undefined) {
-        const seen = new Set<string>();
-        const cleanConfirmed: string[] = [];
-        for (const raw of confirmedOther) {
-          if (typeof raw !== 'string') continue;
-          const k = raw.trim().toLowerCase();
-          if (!k || seen.has(k)) continue;
-          seen.add(k);
-          cleanConfirmed.push(k);
-        }
+        const cleanConfirmed: string[] = normalizeIdSet(confirmedOther);
         if (cleanConfirmed.length > 0) {
           envelope.confirmedOther = cleanConfirmed;
         }
@@ -411,9 +397,9 @@ function wantedEnrichKeys(repos: TrendRepo[]): Set<string> {
   const out = new Set<string>();
   for (const r of repos) {
     if (r.owner && r.repo) {
-      out.add(`${r.owner.trim().toLowerCase()}/${r.repo.trim().toLowerCase()}`);
+      out.add(`${normalizeId(r.owner)}/${normalizeId(r.repo)}`);
     }
-    if (r.id) out.add(r.id.trim().toLowerCase());
+    if (r.id) out.add(normalizeId(r.id));
   }
   return out;
 }
@@ -445,7 +431,7 @@ export async function saveBoardCacheMerged(
       const seen = new Set(mergedConfirmed);
       for (const raw of prevConfirmed) {
         if (typeof raw !== 'string') continue;
-        const k = raw.trim().toLowerCase();
+        const k = normalizeId(raw);
         if (!k || !wanted.has(k) || seen.has(k)) continue;
         mergedConfirmed.push(k);
         seen.add(k);

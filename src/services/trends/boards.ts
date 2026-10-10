@@ -168,16 +168,16 @@ async function runBoardFetch(
 ): Promise<TrendsResult> {
   try {
     const repos = await load();
-    if (repos.length === 0) return { repos: [], status: 'empty' };
+    if (repos.length === 0) return { repos: [], status: 'empty', stale: false };
     zlogInfo(`[trends] board=${board} source=${source} ok count=${repos.length}`);
-    return { repos, status: 'ok' };
+    return { repos, status: 'ok', stale: false };
   } catch (err) {
     const errorKind = classifyTrendsError(err);
     zlogWarn(
       `[trends] board=${board} source=${source} error kind=${errorKind} ` +
         `status=${errorStatusOf(err) ?? '-'} msg=${String((err as { message?: unknown })?.message ?? err)}`,
     );
-    return { repos: [], status: 'error', errorKind };
+    return { repos: [], status: 'error', errorKind, stale: false };
   }
 }
 
@@ -254,7 +254,7 @@ async function fetchBoardWithL2(
 ): Promise<TrendsResult> {
   if (!opts.forceRefresh) {
     const hit = readTrendsCache(key, board);
-    if (hit) return { repos: hit, status: 'ok' };
+    if (hit) return { repos: hit, status: 'ok', stale: false };
 
     const dbHit = await getDbTrendCacheWithLegacyKey(key, board, buildLegacyTrendsCacheKey(board, opts));
     if (dbHit && dbHit.length > 0) {
@@ -267,7 +267,7 @@ async function fetchBoardWithL2(
       l2HitLog(board, key, dbHit);
       // 现状：读盘→hydrate→就绪顺序，hydrate 完成后透出就绪信号（首屏门订阅）。
       emitBoardHydrated(board, key);
-      return { repos: dbHit, status: 'ok' };
+      return { repos: dbHit, status: 'ok', stale: false };
     }
   }
 

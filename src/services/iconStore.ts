@@ -85,7 +85,7 @@ export function patchAppIconList(
 ): AppSummary[] {
   let changed = false;
   const next = prev.map((a) => {
-    if (a.id.toLowerCase() === targetIdLower) {
+    if (normalizeId(a.id) === targetIdLower) {
       if (a.icon === icon) return a;
       changed = true;
       return { ...a, icon };
@@ -176,80 +176,6 @@ export interface GenerationGate {
   gen?: number | null;
 }
 
-/** 命中携带的门控：`search_id` 取 `context` 回落顶层，`board`/`gen` 取 `context`。 */
-function resolveIncomingGate(args: ApplyHitArgs): GenerationGate {
-  const ctx = args.context ?? null;
-  const search_id =
-    ctx && typeof ctx.search_id === 'string' && ctx.search_id
-      ? ctx.search_id
-      : typeof args.search_id === 'string'
-        ? args.search_id
-        : '';
-  const board = ctx && typeof ctx.board === 'string' ? ctx.board : '';
-  const gen =
-    ctx && typeof ctx.gen === 'number' && Number.isFinite(ctx.gen) ? ctx.gen : undefined;
-  return { search_id, board, gen };
-}
-
-/** 当前态期望门控：搜索 id 即时取值，榜单世代经取值函数回落静态值。 */
-function resolveExpectedGate(args: ApplyHitArgs, incomingBoard: string): GenerationGate {
-  let gen: number | undefined;
-  try {
-    if (typeof args.getBoardGen === 'function') {
-      const key = normalizeId(args.board) || normalizeId(incomingBoard) || undefined;
-      const v = args.getBoardGen(key);
-      if (typeof v === 'number' && Number.isFinite(v)) gen = v;
-    }
-  } catch {
-    // 取值失败按空处理（放行）
-  }
-  if (
-    gen === undefined &&
-    typeof args.boardGen === 'number' &&
-    Number.isFinite(args.boardGen)
-  ) {
-    gen = args.boardGen;
-  }
-  return {
-    search_id: resolveCurrentSearchId(args),
-    board: typeof args.board === 'string' ? args.board : '',
-    gen,
-  };
-}
-
-/**
- * 唯一过期判断：返回丢弃原因，放行返回 `undefined`。
- * `kind` 缺省按搜索走扁平 `search_id`；未知 `kind` 直接放行。
- * 搜索门任一空即放行：回声窗内期望空，首刷直播按回声 sid 收；
- * 期望立定后双非空不等才判 `stale-search-id`（旧串号丢）。
- */
-function gateStaleReason(
-  kind: string,
-  incoming: GenerationGate,
-  expected: GenerationGate,
-): string | undefined {
-  if (kind === '' || kind === 'search') {
-    const a = typeof incoming.search_id === 'string' ? incoming.search_id : '';
-    const b = typeof expected.search_id === 'string' ? expected.search_id : '';
-    if (a && b && a !== b) return 'stale-search-id';
-    return undefined;
-  }
-  if (kind === 'trend') {
-    const ib = normalizeId(incoming.board);
-    const eb = normalizeId(expected.board);
-    if (ib && eb && ib !== eb) return 'stale-board';
-    if (
-      incoming.gen !== undefined &&
-      expected.gen !== undefined &&
-      incoming.gen !== expected.gen
-    ) {
-      return 'stale-board-gen';
-    }
-    return undefined;
-  }
-  return undefined;
-}
-
 /**
  * 唯一写入口：`icon-ready` 统一收口（M1内存唯一口，经 `getBufferedIcon` 回读）。
  * `level`纯L单调；`data:`/`via=m2`只进M1内存不落盘；M2首屏直填不走emit。
@@ -272,11 +198,59 @@ export function applyHit(args: ApplyHitArgs): ApplyHitResult {
   if (isAvatarUrl(icon)) return { accepted: false, targets, icon, reason: 'avatar-dropped' };
 
   // 世代门控：过期判断只此一处（搜索走 `search_id`，榜单走 `board`+`gen`）。
+  // 内联门控三段：incoming 取 `context` 回落顶层，expected 即时取值回落静态值，双非空不等即过期任一为空即放行。
   const ctx = args.context ?? null;
   const kind = ctx && typeof ctx.kind === 'string' ? ctx.kind.trim().toLowerCase() : '';
-  const incoming = resolveIncomingGate(args);
-  const expected = resolveExpectedGate(args, typeof incoming.board === 'string' ? incoming.board : '');
-  const stale = gateStaleReason(kind, incoming, expected);
+  const incoming: GenerationGate = {
+    search_id:
+      ctx && typeof ctx.search_id === 'string' && ctx.search_id
+        ? ctx.search_id
+        : typeof args.search_id === 'string'
+          ? args.search_id
+          : '',
+    board: ctx && typeof ctx.board === 'string' ? ctx.board : '',
+    gen: ctx && typeof ctx.gen === 'number' && Number.isFinite(ctx.gen) ? ctx.gen : undefined,
+  };
+  const incomingBoard = typeof incoming.board === 'string' ? incoming.board : '';
+  let expectedGen: number | undefined;
+  try {
+    if (typeof args.getBoardGen === 'function') {
+      const key = normalizeId(args.board) || normalizeId(incomingBoard) || undefined;
+      const v = args.getBoardGen(key);
+      if (typeof v === 'number' && Number.isFinite(v)) expectedGen = v;
+    }
+  } catch {
+    // 取值失败按空处理（放行）
+  }
+  if (
+    expectedGen === undefined &&
+    typeof args.boardGen === 'number' &&
+    Number.isFinite(args.boardGen)
+  ) {
+    expectedGen = args.boardGen;
+  }
+  const expected: GenerationGate = {
+    search_id: resolveCurrentSearchId(args),
+    board: typeof args.board === 'string' ? args.board : '',
+    gen: expectedGen,
+  };
+  let stale: string | undefined;
+  if (kind === '' || kind === 'search') {
+    const a = typeof incoming.search_id === 'string' ? incoming.search_id : '';
+    const b = typeof expected.search_id === 'string' ? expected.search_id : '';
+    if (a && b && a !== b) stale = 'stale-search-id';
+  } else if (kind === 'trend') {
+    const ib = normalizeId(incoming.board);
+    const eb = normalizeId(expected.board);
+    if (ib && eb && ib !== eb) stale = 'stale-board';
+    else if (
+      incoming.gen !== undefined &&
+      expected.gen !== undefined &&
+      incoming.gen !== expected.gen
+    ) {
+      stale = 'stale-board-gen';
+    }
+  }
   if (stale) return { accepted: false, targets, icon, reason: stale };
 
   // `level`纯L单调升级：低不顶高，via正交不参与比较（live L2/L3 不因 via 丢）。缺省即放行且不推进记忆。

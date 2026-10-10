@@ -20,6 +20,40 @@ export interface UseSearchStateParams {
   t: TFunction;
 }
 
+/**
+ * 回声窗协议纯函数（可单测，`HomeView.search-icon.test.tsx` 三 CTS 锁定）：
+ * 回声为唯一真源，永不回落请求串号。
+ * - `settlePageEcho`：首刷落定；有 sid 即立期望，无 sid（legacy）保持窗开（`''`），
+ *   不回落请求串号（防请求-ref 制复活 + 不锁死后续 sid 升级）。
+ * - `settleMoreEcho`：翻页落定；seq 失配（旧页/旧次迟到）直接丢不覆盖；
+ *   seq 对上但无 sid 不覆盖（保持旧期望）；有 sid 落定后以最新为准。
+ * - `adoptEchoInWindow`：窗内（期望空）首个搜索回声即立期望（与 `App.tsx` 同语义）；
+ *   已立期望后异 sid 由店内门控判 stale，此处不覆盖（窗内只采首个）。
+ */
+export function settlePageEcho(ref: { current: string }, sid: string): void {
+  if (sid) ref.current = sid;
+}
+
+export function settleMoreEcho(
+  ref: { current: string },
+  seq: number,
+  curSeq: number,
+  sid: string,
+): boolean {
+  if (seq !== curSeq) return false;
+  if (sid) ref.current = sid;
+  return true;
+}
+
+export function adoptEchoInWindow(ref: { current: string }, kind: string, sid: string): boolean {
+  const k = (kind || '').trim().toLowerCase();
+  if ((k === '' || k === 'search') && sid !== '' && ref.current === '') {
+    ref.current = sid;
+    return true;
+  }
+  return false;
+}
+
 /** 在线段图标回填组装。
  * M1内存回读：搜索列表缓存命中行经 `getBufferedIcon` 唯一口回读拼装，空壳不覆盖缓冲实图。
  */
@@ -234,8 +268,8 @@ export function useSearchState({
         const pageRes = await api.searchAppsOnline(q, searchId, 1, ONLINE_SEARCH_PER_PAGE);
         if (guardFreshSearch(seq)) return;
         const onlineResults = pageRes.rows;
-        // 以后端回声为唯一真源；无回声（兼容旧回包）回落请求串号。
-        currentSearchIdRef.current = pageRes.sid || searchId;
+        // 以后端回声为唯一真源；无回声（legacy）保持窗开，不回落请求串号。
+        settlePageEcho(currentSearchIdRef, pageRes.sid || '');
         setOnlineSearchPerformed(true);
         if (onlineResults && onlineResults.length > 0) {
           // 同词在线集去重 + 图标回填。
@@ -336,9 +370,8 @@ export function useSearchState({
         nextPage,
         ONLINE_SEARCH_PER_PAGE,
       );
-      if (seq !== searchSeqRef.current) return;
+      if (!settleMoreEcho(currentSearchIdRef, seq, searchSeqRef.current, moreRes.sid || '')) return;
       const more = moreRes.rows;
-      if (moreRes.sid) currentSearchIdRef.current = moreRes.sid;
       if (more && more.length > 0) {
         // 按 id 去重后追加到在线段（跳过在线段已有项；本地段不动）。
         setOnlineApps((prev) => {

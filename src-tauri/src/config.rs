@@ -318,4 +318,37 @@ mod tests {
         assert_eq!(conf.network.api_timeout_seconds, 12);
         assert_eq!(conf.limits.search_history_limit, 20);
     }
+
+    #[test]
+    fn old_icon_fetch_payload_with_removed_keys_still_loads() {
+        // IconFetchConfig 瘦身：simple_timeout_ms / trees_timeout_secs / enable_readme
+        // 已删除（存活 pool / total_timeout_secs / compat_collect）。
+        // 旧配置负载必须仍能解析（未知键忽略），存活字段生效；
+        // 有效快慢超时走 network.api_timeout_seconds（见 catalog_search::api_timeout_or）。
+        let old_payload = r#"
+            [network]
+            api_timeout_seconds = 12
+            [limits.icon_fetch]
+            pool = 5
+            total_timeout_secs = 15
+            compat_collect = true
+            simple_timeout_ms = 1500
+            trees_timeout_secs = 12
+            enable_readme = true
+        "#;
+        let conf: ProjectConfig =
+            toml::from_str(old_payload).expect("old payload with removed keys must parse");
+        assert_eq!(conf.limits.icon_fetch.pool, 5);
+        assert_eq!(conf.limits.icon_fetch.total_timeout_secs, 15);
+        assert!(conf.limits.icon_fetch.compat_collect);
+        assert_eq!(conf.network.api_timeout_seconds, 12);
+        // 有效超时等于文档化回退语义：已配 12s 优先（0 才回退历史硬编码，见 api_timeout_from 单测）。
+        assert_eq!(
+            crate::commands::catalog_search::api_timeout_from(
+                conf.network.api_timeout_seconds,
+                std::time::Duration::from_secs(10),
+            ),
+            std::time::Duration::from_secs(12)
+        );
+    }
 }

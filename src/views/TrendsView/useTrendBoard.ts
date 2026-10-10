@@ -144,7 +144,7 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
       .catch(() => {
         // service 按契约应总 resolve；此处兜底未知异常，归为 unavailable。
         if (!isMounted) return;
-        setTrendResult({ repos: [], status: 'error', errorKind: 'unavailable' });
+        setTrendResult({ repos: [], status: 'error', errorKind: 'unavailable', stale: false });
         setBoardReady(true);
       });
 
@@ -179,7 +179,7 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
         // service 按契约应总 resolve；此处兜底未知异常，归为 unavailable。
         if (seq !== refreshSeqRef.current) return;
         if (activeBoardRef.current !== boardAtClick) return;
-        setTrendResult({ repos: [], status: 'error', errorKind: 'unavailable' });
+        setTrendResult({ repos: [], status: 'error', errorKind: 'unavailable', stale: false });
       })
       .finally(() => {
         if (seq === refreshSeqRef.current) setIsRefreshing(false);

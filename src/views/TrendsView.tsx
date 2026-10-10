@@ -130,7 +130,6 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     trendResult,
     gainKey,
     isLoading,
-    boardReady,
     errorKind,
     handleRetry,
     isRefreshing,
@@ -150,8 +149,6 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   const [trendConfirmedOtherIds, setTrendConfirmedOtherIds] = useState<Set<string>>(
     () => new Set<string>(),
   );
-  // 现状：当前 trendResult 的 SWR 合并是否已完成（快照与 hydrate 一致即升级富卡，不拦裸行）。
-  const [swrSyncedResult, setSwrSyncedResult] = useState<unknown>(null);
   const trendLiteInflightRef = useRef<Set<string>>(new Set());
   const trendBoardSeqRef = useRef(0);
   // 榜缓存二级新鲜富卡免验集：SWR-fill 时内存快照已有的键（二级新鲜期内直接展，不调 lite）；
@@ -366,8 +363,6 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       }
       return changed ? next : prev;
     });
-    // 现状：SWR 合并完成即记同步（快照与 hydrate 一致即原地升级富卡，不拦裸行）。
-    setSwrSyncedResult(trendResult);
   }, [trendResult]);
 
   // 未收录行 enrichment：逐仓复用搜索 enrichment（Rust 侧并发 5、分片 20/片×2 片=40 上限、单仓 10s），
@@ -1272,15 +1267,6 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     if (gainKey === 'month') return t('trends.stars_gained_month', { count });
     return t('trends.stars_gained_week', { count });
   };
-
-  // 现状：未就绪不再拦整榜，board repos 直接展裸行（与下裸行同形），富卡到即原地升级。
-  // 门信号仅用于升级判定，不阻塞裸行直展。
-  const isUpgradePending =
-    !boardReady ||
-    (trendResult?.status === 'ok' &&
-      trendResult.repos.length > 0 &&
-      swrSyncedResult !== trendResult);
-  void isUpgradePending;
 
   return (
     <ViewShell viewClass="trends-view">

@@ -269,3 +269,16 @@ describe('已确认变更订阅（写透联动钩子）', () => {
     expect(events).toHaveLength(2);
   });
 });
+
+describe('is_stale 透出：stale 条目永不进内存/快照（真零与失败空可区分）', () => {
+  it('hydrate stale 直接跳过（快照无条目）', () => {
+    markTrendConfirmedOther('acme/atlas');
+    hydrateTrendEnrichCache({
+      'acme/atlas': {
+        ...makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'] }),
+        is_stale: true,
+      } as unknown as ReturnType<typeof makeEnrichedApp>,
+    });
+    expect(snapshotTrendEnrichCache()).not.toHaveProperty('acme/atlas');
+  });
+});

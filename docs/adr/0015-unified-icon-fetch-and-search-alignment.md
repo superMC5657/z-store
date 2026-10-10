@@ -42,7 +42,9 @@
 
 ## 6. Compat 逃生门
 
-- `compat_collect=true`（默认）时趋势走 `buffered+collect` 等齐路；搜索固定走新流式路，`compat_collect` 仅门控趋势。
+- `compat_collect=true`（默认，见 `config.rs:IconFetchConfig`）时趋势走 `buffered+collect` 等齐路（`commands/catalog_search.rs:enrich_trend_repos_buffered`）；搜索固定走新流式路，`compat_collect` 仅门控趋势——搜索后台无条件 `tokio::spawn(fetch_icons_stream)`（见 `commands/catalog_search.rs:568,583-586`），不受该开关影响；开关检查只存在于趋势 `enrich_trend_repos` 入口（见 `commands/catalog_search.rs:627-630`）。
+- 已删除 `simple_timeout_ms=1500 / trees_timeout_secs=12 / enable_readme` 三字段（`IconFetchConfig` 仅保留 `pool/total_timeout_secs/compat_collect`，见 `config.rs:97-104`）；快慢超时统一经 `network.api_timeout_seconds` 配置（见 `commands/catalog_search.rs:api_timeout_or:30-47`），未设置时回退 1500ms/12s 历史值（见 `github/icon_probe.rs:384-389`）。
+- L4→None / 非品牌远端→L3 重标：无有效缓存文件时 `level=4`（L4 README，需网络）返回 None，不作 M2 回填（见 `github/http.rs:resolve_confirmed_icon_from_db:413-417`）；未收录卡片非 `simpleicons.org` 远端图标改标 `level=3` 写 `l3_url`（不再标 `level=4/l4_url`，见 `commands/catalog_search.rs:backfill_uncataloged_card:222-228` 与搜索单仓同形 `:438-447`）。
 
 ## 7. 与 ADR-0014 第 6 节关系声明
 
