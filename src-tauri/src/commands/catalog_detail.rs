@@ -1,32 +1,6 @@
-use crate::models::{AppDetail, PlatformsLiteResult, ReadmeVariantsResponse, ReleaseAsset};
+use crate::models::{AppDetail, PlatformsLiteResult, ReadmeVariantsResponse};
 use crate::AppState;
 use tauri::State;
-
-/// 通过 `installer::classify_asset` 的操作系统标签，从 Release 产物中推导支持的平台列表。
-///
-/// 与 `github::detail::platforms_from_assets` 对齐（不再分叉）：
-/// 源码包 / <=1MB 占位包 / 校验签名元数据先经 `is_valid_installer_asset` 过滤；
-/// `.msix` 归 windows；结果按 windows/macos/linux/ios/android 排序。
-/// 若推导结果为空，则明确返回空向量 —— 此处特意不设置
-/// 回退到 `["windows"]` 的兜底，确保仅限 Linux 或包含 Android 的发布版本绝不会被错误标记。
-/// 前端 `matchPlatformSet` 如何处理缺失/空列表由前端规则决定。
-pub(crate) fn platforms_from_assets(assets: &[ReleaseAsset]) -> Vec<String> {
-    let mut set = std::collections::BTreeSet::new();
-    for a in assets {
-        if !crate::github::detail::is_valid_installer_asset(&a.name, a.size_bytes) {
-            continue;
-        }
-        let (_, os, _) = crate::installer::classify_asset(&a.name);
-        if os != "all" {
-            set.insert(os.to_string());
-        } else if a.name.to_lowercase().ends_with(".msix") {
-            set.insert("windows".to_string());
-        }
-    }
-    let mut plats: Vec<String> = set.into_iter().collect();
-    crate::github::detail::sort_platforms(&mut plats);
-    plats
-}
 
 /// 落库门（真空语义）：仅 stale 穿透/合成空失败（`is_stale==Some(true)`）跳过持久化；
 /// fresh（含 200 真空双空）一律落盘——真空以 fresh 空行落盘（`is_stale=None`，
@@ -116,7 +90,7 @@ pub async fn get_platforms_lite(
             );
             return Ok(PlatformsLiteResult {
                 id: clean_id,
-                platforms: platforms_from_assets(&release_info.assets),
+                platforms: crate::github::detail_assets::platforms_from_assets(&release_info.assets),
                 from_cache: false,
                 is_stale: None,
             });
@@ -184,7 +158,9 @@ pub async fn get_platforms_lite(
                     serde_json::from_str(payload).map_err(|e| {
                         format!("解析本地 ETag 缓存失败: {}", e)
                     })?;
-                let platforms = deduce_lite_platforms(&state, &clean_id, &parsed.assets);
+                let platforms = state
+                    .catalog
+                    .deduce_lite_platforms(&clean_id, &parsed.assets);
                 log::debug!(
                     "get_platforms_lite id={} from=cache:304 elapsed_ms={}",
                     clean_id,
@@ -219,7 +195,9 @@ pub async fn get_platforms_lite(
                     let _ = db.save_etag(&release_endpoint, et, &text, crate::now_secs());
                 }
             }
-            let platforms = deduce_lite_platforms(&state, &clean_id, &parsed.assets);
+            let platforms = state
+                .catalog
+                .deduce_lite_platforms(&clean_id, &parsed.assets);
             log::debug!(
                 "get_platforms_lite id={} from=miss elapsed_ms={}",
                 clean_id,
@@ -255,7 +233,9 @@ pub async fn get_platforms_lite(
                 if let Ok(parsed) =
                     serde_json::from_str::<crate::github::models::GitHubReleaseResponse>(payload)
                 {
-                    let platforms = deduce_lite_platforms(&state, &clean_id, &parsed.assets);
+                    let platforms = state
+                        .catalog
+                        .deduce_lite_platforms(&clean_id, &parsed.assets);
                     return Ok(PlatformsLiteResult {
                         id: clean_id,
                         platforms,
@@ -278,49 +258,6 @@ pub async fn get_platforms_lite(
                 is_stale: Some(true),
             })
         }
-    }
-}
-
-/// 轻量 deduce：GitHub release 原始资产 → 最小 `ReleaseAsset` 投影 →
-/// 复用既有 `platforms_from_assets`（`is_valid_installer_asset` 过滤 + `classify_asset`
-/// OS 推导），再叠加收录库 ios 并集（与 `get_app_details_impl` 终态 platforms 一致，
-/// 排序 ORDER 复用 `sort_platforms` SSOT）。空推导明确返回空向量，不做任何兜底。
-fn deduce_lite_platforms(
-    state: &AppState,
-    clean_id: &str,
-    assets: &[crate::github::models::GitHubAssetResponse],
-) -> Vec<String> {
-    let lite: Vec<ReleaseAsset> = assets
-        .iter()
-        .map(|a| ReleaseAsset {
-            name: a.name.clone(),
-            download_url: String::new(),
-            size_bytes: a.size,
-            sha256: None,
-            os: String::new(),
-            arch: String::new(),
-            kind: String::new(),
-        })
-        .collect();
-    let deduced = platforms_from_assets(&lite);
-    if deduced.is_empty() {
-        return Vec::new();
-    }
-    if let Some(item) = state.catalog.get_catalog_item(clean_id) {
-        let mut set = std::collections::BTreeSet::new();
-        for p in &deduced {
-            set.insert(p.clone());
-        }
-        for p in &item.platforms {
-            if p == "ios" {
-                set.insert(p.clone());
-            }
-        }
-        let mut list: Vec<String> = set.into_iter().collect();
-        crate::github::detail::sort_platforms(&mut list);
-        list
-    } else {
-        deduced
     }
 }
 
@@ -398,7 +335,8 @@ pub async fn get_app_details_impl(
                 crate::forge::ForgeRegistry::fetch_latest_release(&coord, host_token.as_deref())
             )?;
             let now = crate::now_secs();
-            let platforms = platforms_from_assets(&release_info.assets);
+            let platforms =
+                crate::github::detail_assets::platforms_from_assets(&release_info.assets);
             let detail = AppDetail {
                 id: clean_id.clone(),
                 name: repo_info.name.clone(),
@@ -607,10 +545,11 @@ pub async fn get_app_details_impl(
                         }
                     }
                 }
-                // 继承后重算：deduce 已在 detail.rs 完成，此处仅补继承带来的缺口；
+                // 继承后重算：deduce 已在域内完成，此处仅补继承带来的缺口；
                 // 成功 deduce 路径本身不动，排序 ORDER 与过滤规则沿用 SSOT。
                 if !detail.releases.is_empty() && detail.platforms.is_empty() {
-                    detail.platforms = platforms_from_assets(&detail.releases);
+                    detail.platforms =
+                        crate::github::detail_assets::platforms_from_assets(&detail.releases);
                 }
                 // stale 穿透（含合成空失败）：保持旧行不动（含 cached_at），直接返回。
                 // fresh（含 200 真空双空）一律落盘，判定见 should_skip_persist。
@@ -630,14 +569,14 @@ pub async fn get_app_details_impl(
                     // （fetch 侧 B1 已用 fresh repo_info 治愈，此处补 repo 401/失败但 ETag 仍有旧真值的缺口；同步读不触网。）
                     if state.catalog.get_catalog_item(&clean_id).is_none() {
                         let need_desc =
-                            crate::github::detail::detail_fetch::is_placeholder_description(
+                            crate::github::detail_fetch::is_placeholder_description(
                                 &detail.description,
                             );
                         let need_en = detail
                             .description_en
                             .as_deref()
                             .map(
-                                crate::github::detail::detail_fetch::is_placeholder_description,
+                                crate::github::detail_fetch::is_placeholder_description,
                             )
                             .unwrap_or(false);
                         let need_en_missing = detail
@@ -647,7 +586,7 @@ pub async fn get_app_details_impl(
                             .unwrap_or(true);
                         if need_desc || need_en || need_en_missing {
                             if let Some(real) =
-                                crate::github::detail::detail_fetch::repo_real_description_from_etag(
+                                crate::github::detail_fetch::repo_real_description_from_etag(
                                     &db,
                                     &detail.owner,
                                     &detail.repo,
@@ -766,7 +705,7 @@ pub async fn get_readme_variants(
 
 #[cfg(test)]
 mod catalog_platform_tests {
-    use super::platforms_from_assets;
+    use crate::github::detail_assets::platforms_from_assets;
     use crate::models::ReleaseAsset;
 
     fn asset(name: &str) -> ReleaseAsset {

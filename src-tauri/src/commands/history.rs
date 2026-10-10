@@ -180,18 +180,18 @@ fn apply_confirmed_icon(db: &crate::db::Database, summary: &mut AppSummary) {
 ///   `""` 仍被前端 `needDesc` 视为待治愈，可由富卡 enrich 快照二次治愈；
 /// - 非占位（已收录人工简介等）原样保留。
 fn heal_recent_summary(db: &crate::db::Database, summary: &mut AppSummary) {
-    let need_desc = crate::github::detail::detail_fetch::is_placeholder_description(
+    let need_desc = crate::github::detail_fetch::is_placeholder_description(
         &summary.description,
     );
     let need_en = summary
         .description_en
         .as_deref()
-        .map(crate::github::detail::detail_fetch::is_placeholder_description)
+        .map(crate::github::detail_fetch::is_placeholder_description)
         .unwrap_or(false);
     if !need_desc && !need_en {
         return;
     }
-    let real = crate::github::detail::detail_fetch::repo_real_description_from_etag(
+    let real = crate::github::detail_fetch::repo_real_description_from_etag(
         db,
         &summary.owner,
         &summary.repo,

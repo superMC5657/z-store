@@ -157,6 +157,61 @@ pub fn sort_platforms(platforms: &mut [String]) {
     });
 }
 
+/// ios 并集 + 排序 SSOT（detail/fetch + lite 共用唯一真相源）：
+/// deduced 为空直接返回空（永不 stamp `["other"]`/`["windows"]`）；
+/// 非空时并入收录库的 `ios`（仅 ios，前端 virtual-Other 之外唯一允许的收录侧并集），再按 ORDER 排序。
+pub fn with_ios_union(deduced: Vec<String>, catalog_platforms: &[String]) -> Vec<String> {
+    if deduced.is_empty() {
+        return Vec::new();
+    }
+    let mut set = std::collections::BTreeSet::new();
+    for p in &deduced {
+        set.insert(p.clone());
+    }
+    for p in catalog_platforms {
+        if p == "ios" {
+            set.insert(p.clone());
+        }
+    }
+    let mut list: Vec<String> = set.into_iter().collect();
+    sort_platforms(&mut list);
+    list
+}
+
+/// deduce + ios 并集一步完成（releases 已为最小 `ReleaseAsset` 投影时用）。
+/// `catalog_platforms=None` 时等价于纯 `platforms_from_assets`。
+pub fn platforms_with_ios_union(
+    releases: &[ReleaseAsset],
+    catalog_platforms: Option<&[String]>,
+) -> Vec<String> {
+    let deduced = platforms_from_assets(releases);
+    match catalog_platforms {
+        Some(cp) => with_ios_union(deduced, cp),
+        None => deduced,
+    }
+}
+
+/// GitHub 原始资产 → 最小 `ReleaseAsset` 投影 → deduce + ios 并集（lite 通道 SSOT）。
+/// 空推导明确返回空向量，不做任何兜底；排序 ORDER 复用 `sort_platforms`。
+pub(crate) fn lite_platforms_for_github_assets(
+    assets: &[crate::github::models::GitHubAssetResponse],
+    catalog_platforms: Option<&[String]>,
+) -> Vec<String> {
+    let lite: Vec<ReleaseAsset> = assets
+        .iter()
+        .map(|a| ReleaseAsset {
+            name: a.name.clone(),
+            download_url: String::new(),
+            size_bytes: a.size,
+            sha256: None,
+            os: String::new(),
+            arch: String::new(),
+            kind: String::new(),
+        })
+        .collect();
+    platforms_with_ios_union(&lite, catalog_platforms)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

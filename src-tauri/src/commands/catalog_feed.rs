@@ -40,16 +40,11 @@ pub fn get_home_feed(
             .collect()
     };
     let ranked = {
-        let normalized = strategy.as_deref().unwrap_or("balanced").trim().to_lowercase();
-        let parsed = match normalized.as_str() {
-            "stars" => crate::github::catalog::FeedStrategy::StarsOnly,
-            "fresh" => crate::github::catalog::FeedStrategy::FreshFirst,
-            "balanced" => crate::github::catalog::FeedStrategy::Balanced,
-            _ => crate::github::catalog::FeedStrategy::Balanced,
-        };
-        crate::github::catalog::rank_feed_with_strategy(filtered, seed, parsed)
+        let parsed = crate::github::catalog_feed_score::parse_feed_strategy(strategy.as_deref());
+        crate::github::catalog_feed_score::rank_feed_with_strategy(filtered, seed, parsed)
     };
-    let (items, total, has_more) = crate::github::catalog::paginate_feed(&ranked, limit, offset);
+    let (items, total, has_more) =
+        crate::github::catalog_feed_score::paginate_feed(&ranked, limit, offset);
     Ok(FeedPage {
         items,
         total,

@@ -32,7 +32,6 @@ pub use system::*;
 pub use trends_cache::*;
 pub use updates::*;
 
-pub use catalog::{catalog_detail, catalog_feed, catalog_search, catalog_sync};
 pub use icons::icons_cycle;
 pub use updates::{updates_check, updates_rules};
 

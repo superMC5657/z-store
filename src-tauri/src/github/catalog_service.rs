@@ -332,29 +332,18 @@ impl CatalogService {
         }
     }
 
-    /// 分页包装：None=全量（向后兼容，分类/趋势/搜索空态沿用 stars 降序默认），Some 时切 slice（越界守好）。
-    /// 注意：hidden 过滤在 command 层做，此处仅对全量 search 结果切片，空查询/非空打分逻辑与 `search_apps` 一致。
-    pub fn search_apps_paged(
+    /// 轻量 deduce（`get_platforms_lite` 通道 SSOT）：GitHub release 原始资产 → deduce + 收录库 ios 并集 + 排序。
+    /// 空推导明确返回空向量，不做任何兜底；`platforms/valid-asset/sort` 真相源在 `detail_assets`。
+    pub(crate) fn deduce_lite_platforms(
         &self,
-        query: &str,
-        limit: Option<usize>,
-        offset: Option<usize>,
-    ) -> Vec<AppSummary> {
-        let full = self.search_apps(query);
-        match (limit, offset) {
-            (None, None) => full,
-            _ => {
-                let off = offset.unwrap_or(0);
-                if off >= full.len() {
-                    return Vec::new();
-                }
-                let end = match limit {
-                    Some(l) => off.saturating_add(l).min(full.len()),
-                    None => full.len(),
-                };
-                full[off..end].to_vec()
-            }
-        }
+        id: &str,
+        assets: &[crate::github::models::GitHubAssetResponse],
+    ) -> Vec<String> {
+        let catalog_platforms = self.get_catalog_item(id).map(|i| i.platforms);
+        crate::github::detail_assets::lite_platforms_for_github_assets(
+            assets,
+            catalog_platforms.as_deref(),
+        )
     }
 
     /// 解析仓库坐标：收录库内按 canonical id 精确命中；

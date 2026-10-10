@@ -258,24 +258,6 @@ fn flush_icon_cycle_pending(db: &crate::db::Database, pending: &[crate::db::AppI
     }
 }
 
-/// 分页切片（None=全量，Some 切 slice，越界守好）。
-fn slice_paged<T: Clone>(items: Vec<T>, limit: Option<usize>, offset: Option<usize>) -> Vec<T> {
-    match (limit, offset) {
-        (None, None) => items,
-        _ => {
-            let off = offset.unwrap_or(0);
-            if off >= items.len() {
-                return Vec::new();
-            }
-            let end = match limit {
-                Some(l) => off.saturating_add(l).min(items.len()),
-                None => items.len(),
-            };
-            items[off..end].to_vec()
-        }
-    }
-}
-
 #[tauri::command]
 pub async fn search_apps(
     state: State<'_, AppState>,
@@ -295,10 +277,10 @@ pub async fn search_apps(
             .filter(|a| !hidden_ids.contains(&a.id))
             .collect()
     };
-    // 分页：None=全量（分类/趋势/搜索空态沿用 stars 降序默认），Some 时切 slice。
+    // 分页经 `catalog_feed_score::paginate_optional`（域内 SSOT）：None=全量，Some 切 slice。
     // 空查询 stars 降序、非空线性打分逻辑在 `CatalogService::search_apps` 内保持不变，此处仅切片。
     let total = filtered.len();
-    let paged = slice_paged(filtered, limit, offset);
+    let paged = crate::github::catalog_feed_score::paginate_optional(filtered, limit, offset);
 
     log::info!(
         "search done sid={} query='{}' hits={} total={} elapsed_ms={}",
@@ -352,7 +334,8 @@ pub async fn search_apps_online(
                 .await;
                 let (latest_ver, platforms) = match release_res {
                     Ok(r) => {
-                        let plats = super::catalog_detail::platforms_from_assets(&r.assets);
+                        let plats =
+                            crate::github::detail_assets::platforms_from_assets(&r.assets);
                         (r.tag_name, plats)
                     }
                     Err(_) => ("latest".to_string(), Vec::new()),

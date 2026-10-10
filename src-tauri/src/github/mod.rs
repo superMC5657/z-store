@@ -1,5 +1,7 @@
-pub mod catalog;
-pub mod detail;
+pub mod catalog_feed_score;
+pub mod catalog_service;
+pub mod detail_assets;
+pub mod detail_fetch;
 pub mod developer_endpoints;
 pub mod developer_profile;
 pub mod developer_starred;

@@ -1,6 +1,4 @@
-use super::detail_assets::{
-    deduce_platforms, is_valid_installer_asset, platforms_from_assets, sort_platforms,
-};
+use super::detail_assets::is_valid_installer_asset;
 use crate::github::developer_profile::EtagGetOutcome;
 use crate::github::models::{GitHubAssetResponse, GitHubReleaseResponse, GitHubRepoResponse};
 use crate::github::CatalogService;
@@ -218,25 +216,12 @@ impl CatalogService {
                 if !existing.releases.is_empty() && !existing.readme_markdown.trim().is_empty() {
                     let mut detail = existing.clone();
                     detail.releases.retain(|r| is_valid_installer_asset(&r.name, r.size_bytes));
-                    let deduced = platforms_from_assets(&detail.releases);
-                    detail.platforms = if deduced.is_empty() {
-                        Vec::new()
-                    } else if let Some(ref item) = catalog_item {
-                        let mut set = std::collections::BTreeSet::new();
-                        for p in &deduced {
-                            set.insert(p.clone());
-                        }
-                        for p in &item.platforms {
-                            if p == "ios" {
-                                set.insert(p.clone());
-                            }
-                        }
-                        let mut list: Vec<String> = set.into_iter().collect();
-                        sort_platforms(&mut list);
-                        list
-                    } else {
-                        deduced
-                    };
+                    // deduce + ios 并集 + 排序收敛至 `detail_assets` SSOT（与成功路径同形）。
+                    detail.platforms =
+                        super::detail_assets::platforms_with_ios_union(
+                            &detail.releases,
+                            catalog_item.as_ref().map(|i| i.platforms.as_slice()),
+                        );
                     if let Some(ref item) = catalog_item {
                         if item.description_en.is_some() {
                             detail.description_en = item.description_en.clone();
@@ -612,25 +597,11 @@ impl CatalogService {
         releases.sort_by_key(|b| std::cmp::Reverse(crate::installer::score_asset(b)));
 
         // 从经校验的有效发布资产中推断平台；无有效安装包则置空，避免虚假发布
-        let deduced_platforms = platforms_from_assets(&releases);
-        let final_platforms = if deduced_platforms.is_empty() {
-            Vec::new()
-        } else if let Some(ref item) = catalog_item {
-            let mut set = std::collections::BTreeSet::new();
-            for p in &deduced_platforms {
-                set.insert(p.clone());
-            }
-            for p in &item.platforms {
-                if p == "ios" {
-                    set.insert(p.clone());
-                }
-            }
-            let mut list: Vec<String> = set.into_iter().collect();
-            sort_platforms(&mut list);
-            list
-        } else {
-            deduced_platforms
-        };
+        // deduce + ios 并集 + 排序收敛至 `detail_assets` SSOT（与 304 快径同形）。
+        let final_platforms = super::detail_assets::platforms_with_ios_union(
+            &releases,
+            catalog_item.as_ref().map(|i| i.platforms.as_slice()),
+        );
 
         // 图标层级决策收敛至 db::icon_cycle::pick_detail_icon（收录官方 → 品牌库 → Trees → README → 空）：
         // 1. 已具备已知独立官方图标则保持，避免被误覆盖；
@@ -919,21 +890,6 @@ impl CatalogService {
         let wrapped = crate::mirror::wrap_gh_proxy(raw_url);
         let changed = wrapped != raw_url;
         (wrapped, changed)
-    }
-
-    /// 判断资产是否为可安装的有效二进制发布包（对齐 catalog 仓 checkBinary 规则）
-    pub fn is_valid_installer_asset(name: &str, size_bytes: u64) -> bool {
-        is_valid_installer_asset(name, size_bytes)
-    }
-
-    /// 从发布资产列表中推断平台（带安装包校验规则过滤）
-    pub fn platforms_from_assets(assets: &[ReleaseAsset]) -> Vec<String> {
-        platforms_from_assets(assets)
-    }
-
-    /// deduce 别名（兼容调用规范）
-    pub fn deduce_platforms(assets: &[ReleaseAsset]) -> Vec<String> {
-        deduce_platforms(assets)
     }
 }
 
