@@ -8,14 +8,12 @@ import { tauriApi } from '../api';
 import { zlogInfo, zlogWarn } from '../../lib/z-log';
 import {
   buildDoforceCacheKey,
-  buildLegacyTrendsCacheKey,
   buildTrendsCacheKey,
   getDbTrendCache,
   getDoforceInflight,
   readDoforceShared,
   readTrendsCache,
   saveBoardCacheMerged,
-  saveDbTrendCache,
   setDoforceInflight,
   sweepExpiredTrendsCache,
   writeDoforceShared,
@@ -24,7 +22,6 @@ import {
 import {
   hydrateTrendConfirmedOtherCache,
   hydrateTrendEnrichCache,
-  snapshotTrendEnrichCache,
   sweepExpiredTrendEnrichCache,
 } from './enrich';
 import {
@@ -208,38 +205,6 @@ function emitBoardHydrated(board: string, key: string): void {
   }
 }
 
-/** 榜缓存二级落盘读（内部 seam，单调用点：fetchBoardWithL2）。
- * legacy key 回迁保留：cutover 未验证，存量盘旧 key 仍需一次回迁（见 swr.test.ts）；
- * 新代码一律经 board.resolveBoardCacheKey 读写同源，不自算 key。 */
-async function getDbTrendCacheWithLegacyKey(
-  newKey: string,
-  board: string,
-  legacyKey: string,
-): Promise<TrendRepo[] | undefined> {
-  const hit = await getDbTrendCache(newKey, board);
-  if (hit && hit.length > 0) return hit;
-  if (!legacyKey || legacyKey === newKey) return hit ?? undefined;
-  const legacyHit = await getDbTrendCache(legacyKey, board);
-  if (!legacyHit || legacyHit.length === 0) return hit ?? undefined;
-  const enrich = (legacyHit as { enrich?: Record<string, import('../../types').AppSummary> }).enrich;
-  const memSnap = snapshotTrendEnrichCache(legacyHit);
-  const toMigrate = Object.keys(memSnap).length > 0 ? memSnap : enrich;
-  writeTrendsCache(newKey, legacyHit);
-  // 榜缓存二级落盘：确认集同 key 回迁（旧盘确认不丢；未确认 pending 由合并口过滤，不回写）。
-  const legacyConfirmed = (legacyHit as { confirmedOther?: unknown }).confirmedOther;
-  await saveDbTrendCache(
-    newKey,
-    board,
-    legacyHit,
-    toMigrate,
-    Array.isArray(legacyConfirmed)
-      ? legacyConfirmed.filter((k): k is string => typeof k === 'string')
-      : undefined,
-  );
-  zlogInfo(`[trends] board=${board} L2-key migrated legacy=>new reposCount=${legacyHit.length}`);
-  return legacyHit;
-}
-
 function l2HitLog(board: string, key: string, dbHit: TrendRepo[]): void {
   const enrich = (dbHit as { enrich?: Record<string, unknown> }).enrich;
   const hasEnrich = !!enrich && typeof enrich === 'object';
@@ -265,7 +230,7 @@ async function fetchBoardWithL2(
       return { repos: hit, status: 'ok', stale: false };
     }
 
-    const dbHit = await getDbTrendCacheWithLegacyKey(key, board, buildLegacyTrendsCacheKey(board, opts));
+    const dbHit = await getDbTrendCache(key, board);
     if (dbHit && dbHit.length > 0) {
       const enrich = (dbHit as { enrich?: Record<string, import('../../types').AppSummary> }).enrich;
       if (enrich) hydrateTrendEnrichCache(enrich);

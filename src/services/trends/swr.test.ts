@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as clientModule from '../api/client';
 import {
-  buildLegacyTrendsCacheKey,
+  buildTrendsCacheKey,
   clearTrendsCache,
   getDbTrendCache,
   saveBoardCacheMerged,
@@ -194,10 +194,10 @@ describe('SWR 旧富卡直展：已确认 Other 落盘后重挂直展富卡', ()
     expect(payload.enrich['acme/atlas']?.platforms).toEqual(['windows']);
   });
 
-  it('旧 key 迁移命中：新 key miss 后试旧 key 一次并回迁', async () => {
+  it('归一 key 直命中：大小写/空格归一后单次读盘命中，无 legacy 回迁', async () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
-    const legacyKey = buildLegacyTrendsCacheKey('weekly', { language: ' Python ' });
-    expect(legacyKey).toBe('weekly| Python |');
+    const newKey = buildTrendsCacheKey('weekly', { language: ' Python ' });
+    expect(newKey).toBe('weekly|python|');
     const repos = [makeTrendRepo({ id: 'acme/atlas', stars: 12000 })];
     const rich = makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'], icon: 'https://x/a.png' });
     const richEnvelope = JSON.stringify({ v: 1, repos, enrich: { 'acme/atlas': rich } });
@@ -209,7 +209,7 @@ describe('SWR 旧富卡直展：已确认 Other 落盘后重挂直展富卡', ()
       if (cmd === 'get_trend_board_cache') {
         const k = (args as { cache_key: string }).cache_key;
         seenKeys.push(k);
-        if (k === legacyKey) return { payload_json: richEnvelope, cached_at: nowSec - 60 };
+        if (k === newKey) return { payload_json: richEnvelope, cached_at: nowSec - 60 };
         return null;
       }
       if (cmd === 'save_trend_board_cache') {
@@ -221,12 +221,11 @@ describe('SWR 旧富卡直展：已确认 Other 落盘后重挂直展富卡', ()
     expect(res.status).toBe('ok');
     expect(res.repos).toHaveLength(1);
     expect(networkSpy).not.toHaveBeenCalled();
-    // 新 key 首试 + 旧 key 一次
-    expect(seenKeys[0]).toBe('weekly|python|');
-    expect(seenKeys).toContain(legacyKey);
-    // 回迁新 key
-    expect(savedKeys).toContain('weekly|python|');
-    // 富卡随迁进内存，直展
+    // 归一 key 单次直读命中，不再试旧 key
+    expect(seenKeys).toEqual([newKey]);
+    // 读命中不触发回迁写
+    expect(savedKeys).toEqual([]);
+    // 富卡进内存，直展
     expect(snapshotTrendEnrichCache(res.repos)['acme/atlas']?.platforms).toEqual(['windows']);
   });
 });

@@ -13,9 +13,8 @@
  *   信封/hydrate/快照经 `persistBoardNow`/`hydrateBoardEnrich`/`snapshotBoard*`，
  *   View 层禁止直调 cache/enrich 底层（`build*CacheKey`/`getDb*`/`hydrate*`/`mark/unmark*`）。
  *   底层导出仅供 slice 内部 + 白盒单测，保留兼容不删除。
- * - L2 legacy key 迁移（`buildLegacyTrendsCacheKey` + boards 内回迁）保留：
- *   cutover 未验证（swr.test.ts 旧 key 迁移用例仍守护），删除会丢存量盘数据，
- *   故收为内部单调用点，不对外扩散（待 cutover 确认后另案删除）。
+ * - L2 legacy key 已 cutover（ica3-9）：归一 key 读写同源，旧非归一 key 不再回迁，
+ *   存量旧 key 按 miss 重抓（用户已确认可接受）。
  * - 所有持久化收口于本模块 seam 之后：
  *   `persistBoardNow` / `scheduleBoardPersist` / `flushBoardPersist` /
  *   `noteBoardReposForPersist` / `subscribeBoardPersistOnConfirmedChange`。
