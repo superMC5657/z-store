@@ -421,8 +421,16 @@ impl CatalogService {
                 );
                 return HashMap::new();
             }
-            Self::extract_checksums_map(&release_resp.assets, client, &headers, id, &sid, &req_id)
-                .await
+            Self::extract_checksums_map(
+                &release_resp.assets,
+                client,
+                &headers,
+                id,
+                &sid,
+                &req_id,
+                crate::mirror::opportunistic_rewrite,
+            )
+            .await
         };
         // 三路并发：readme 文本、图标探测、校验和抓取同时在途，超时各自内部收敛。
         let (raw_readme, probed_hit, checksums) =
@@ -663,6 +671,11 @@ impl CatalogService {
         Ok((detail, new_cache))
     }
 
+    /// Checksum Manifest〈校验清单〉拉取 adapter（fetch→verify 契约的 fetch 侧；
+    /// 服务 ADR-0004，不重开）：opportunistic 抓取（3s 硬超时，失败置空不阻塞），
+    /// 镜像改写器由调用方经 adapter 注入（默认 `mirror::opportunistic_rewrite`），
+    /// 命中表供流式校验 implementation（`persist_stream_to_file` Tampered 销毁）消费；
+    /// 缺失时给空表，下游 `completed_unverified` 语义不变。
     async fn extract_checksums_map(
         assets: &[GitHubAssetResponse],
         client: &reqwest::Client,
@@ -670,6 +683,7 @@ impl CatalogService {
         app_id: &str,
         sid: &str,
         req_id: &str,
+        rewrite: fn(&str) -> (String, bool),
     ) -> HashMap<String, String> {
         let start = std::time::Instant::now();
         log::debug!(
@@ -717,10 +731,9 @@ impl CatalogService {
         // 仅记文件名 + 字节数 + 脱敏 URL/host，永不记 body/hash 值。
         let file_name = asset.name.clone();
         let file_bytes = asset.size;
-        // 镜像改写（等价 MirrorManager::rewrite_download_url 语义）：CatalogService 够不到
-        // AppState 中的 MirrorManager，故用 gh-proxy 前缀兜底加速 GitHub 官方小文件。
-        let (effective_url, is_mirror) =
-            Self::rewrite_checksum_url_with_fallback(&asset.browser_download_url);
+        // 镜像改写（单一 interface 的 opportunistic 上下文）：改写器由调用方经 adapter
+        // 注入；`CatalogService` 够不到 AppState 的 MirrorManager，不再自立第三份 duplicate。
+        let (effective_url, is_mirror) = rewrite(&asset.browser_download_url);
         let safe_url = crate::log_support::sanitize_url(&asset.browser_download_url);
         let safe_effective = crate::log_support::sanitize_url(&effective_url);
         let host = crate::log_support::host_of(&effective_url);
@@ -836,18 +849,6 @@ impl CatalogService {
         }
         (true, "generic")
     }
-
-    /// checksum 下载地址镜像改写（`MirrorManager::rewrite_download_url` 的无状态等价实现）。
-    /// `CatalogService` 够不到 `AppState` 中的 `MirrorManager`，故对 GitHub 官方小文件
-    /// 直接套用 `gh-proxy` 前缀兜底；非 GitHub 域保持直连。
-    pub(crate) fn rewrite_checksum_url_with_fallback(raw_url: &str) -> (String, bool) {
-        if !crate::mirror::is_github_domain(raw_url) {
-            return (raw_url.to_string(), false);
-        }
-        let wrapped = crate::mirror::wrap_gh_proxy(raw_url);
-        let changed = wrapped != raw_url;
-        (wrapped, changed)
-    }
 }
 
 #[cfg(test)]
@@ -873,17 +874,30 @@ mod tests {
         assert!(ok);
     }
 
-    #[test]
-    fn test_checksum_mirror_fallback_rewrites_github_only() {
-        let raw = "https://github.com/o/r/releases/download/v1/f.sha256";
-        let (effective, mirror) = CatalogService::rewrite_checksum_url_with_fallback(raw);
-        assert!(mirror);
-        assert!(effective.starts_with("https://gh-proxy.com/https://github.com"));
-        // 非 GitHub 域保持直连。
-        let cb = "https://codeberg.org/attachments/f.sha256";
-        let (effective, mirror) = CatalogService::rewrite_checksum_url_with_fallback(cb);
-        assert!(!mirror);
-        assert_eq!(effective, cb);
+    #[tokio::test]
+    async fn test_checksum_manifest_fetch_via_unified_interface_degrades_to_empty() {
+        // 删除测试（replace-don't-layer）：第三份改写删除后，校验拉取经统一 interface
+        //（adapter 注入 `mirror::opportunistic_rewrite`，直接/回退同形）仍被尝试且
+        // opportunistic 置空——不可达 hostile 对端时返回空表，不阻塞详情、不 panic。
+        // 旧 `rewrite_checksum_url_with_fallback` 单测随旁路删，不迁移。
+        let assets = vec![crate::github::models::GitHubAssetResponse {
+            name: "x.sha256".to_string(),
+            size: 100,
+            browser_download_url: "http://127.0.0.1:9/x.sha256".to_string(),
+        }];
+        let client = reqwest::Client::new();
+        let headers = reqwest::header::HeaderMap::new();
+        let map = CatalogService::extract_checksums_map(
+            &assets,
+            &client,
+            &headers,
+            "t/t",
+            "sid",
+            "req",
+            crate::mirror::opportunistic_rewrite,
+        )
+        .await;
+        assert!(map.is_empty());
     }
 
     #[test]

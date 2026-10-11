@@ -53,6 +53,29 @@ pub fn should_skip_download(local_len: u64, local_hash: &str, expected_sha256: &
         && crate::verify_sha256_str(local_hash, expected_sha256)
 }
 
+/// fetch→verify 契约终态判定（唯一真相源；服务 ADR-0004，不重开）：
+/// manifest 拉取为 adapter（`extract_checksums_map`，缺失时给空表→期望哈希缺席），
+/// 流式校验为 implementation（`persist_stream_to_file`，不符以 Tampered 中断并删文件，
+/// 销毁语义保留）；能执行到终态说明已通过官方校验或上游未提供期望值。
+/// 期望哈希非空 → `verified`；缺失/空白 → `completed_unverified`
+/// （`extract_checksums_map` 缺失时语义不变，禁止虚假声明"已通过官方校验"）。
+/// `SkipDone::finish` 与下载终态分支共用，文案逐字收敛。
+pub fn verify_terminal_state(
+    expected_sha256: Option<&str>,
+    actual_hash: &str,
+) -> (String, String) {
+    match expected_sha256 {
+        Some(expected) if !expected.trim().is_empty() => (
+            "verified".to_string(),
+            format!("已通过官方 SHA-256 完整性校验: {actual_hash}"),
+        ),
+        _ => (
+            "completed_unverified".to_string(),
+            format!("上游未提供官方校验清单，已记录本地计算 SHA-256: {actual_hash}"),
+        ),
+    }
+}
+
 /// 已下载命中的终态收尾上下文：补发与正常成功一致的终态事件
 /// （`verified`/`completed_unverified`）并直接返回，不发起/不消费网络 body。
 pub struct SkipDone<'a> {
@@ -71,19 +94,8 @@ pub struct SkipDone<'a> {
 
 impl<'a> SkipDone<'a> {
     pub fn finish(self) -> Result<(PathBuf, String), String> {
-        let (verified_state, verified_msg) = match self.expected {
-            Some(expected) if !expected.trim().is_empty() => (
-                "verified".to_string(),
-                format!("已通过官方 SHA-256 完整性校验: {}", self.hash),
-            ),
-            _ => (
-                "completed_unverified".to_string(),
-                format!(
-                    "上游未提供官方校验清单，已记录本地计算 SHA-256: {}",
-                    self.hash
-                ),
-            ),
-        };
+        let (verified_state, verified_msg) =
+            verify_terminal_state(self.expected, &self.hash);
         DownloadProgressPayload::emit_event(
             self.app_handle,
             self.task_id,
@@ -285,5 +297,22 @@ mod tests {
         // 期望哈希为空 → 重下（无期望哈希一律不跳过）。
         assert!(!should_skip_download(len, &good, ""));
         assert!(!should_skip_download(len, &good, "  "));
+    }
+
+    #[test]
+    fn verify_terminal_state_without_manifest_is_completed_unverified() {
+        // fetch→verify 契约终态：manifest 缺失（`extract_checksums_map` 给空表 →
+        // 期望哈希缺席）时 `completed_unverified` 语义不变，不得虚假声明已校验。
+        let (state, msg) = verify_terminal_state(None, "abc123");
+        assert_eq!(state, "completed_unverified");
+        assert!(msg.contains("abc123"));
+        let (state, _) = verify_terminal_state(Some(""), "abc123");
+        assert_eq!(state, "completed_unverified");
+        let (state, _) = verify_terminal_state(Some("   "), "abc123");
+        assert_eq!(state, "completed_unverified");
+        // 期望哈希在场 → verified（`SkipDone`/下载终态同形）。
+        let (state, msg) = verify_terminal_state(Some("ABC123"), "abc123");
+        assert_eq!(state, "verified");
+        assert!(msg.contains("abc123"));
     }
 }

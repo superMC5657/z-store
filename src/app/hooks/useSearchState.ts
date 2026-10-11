@@ -3,7 +3,6 @@ import type { TFunction } from 'i18next';
 import type { AppSummary, ViewType } from '../../types';
 import { api, ONLINE_SEARCH_PER_PAGE } from '../../services/api';
 import { getBufferedIcon, isEmptyIcon, mergeStickyIcon } from '../../services/iconStore';
-import { hydrateTrendEnrichCache } from '../../services/trends/enrich';
 import {
   readSearchListCache,
   sweepExpiredSearchListCache,
@@ -89,24 +88,6 @@ function assembleOnlineRowsWithIcons(prev: AppSummary[], incoming: AppSummary[])
     deduped.push(item);
   }
   return deduped;
-}
-
-/** enrich 单向共享：仅具平台进共享。 */
-function shareConcreteToTrendEnrich(rows: AppSummary[]): void {
-  const concrete: Record<string, AppSummary> = {};
-  for (const s of rows ?? []) {
-    if (!s || typeof s !== 'object') continue;
-    if (!Array.isArray(s.platforms) || s.platforms.length === 0) continue;
-    if (typeof s.id !== 'string' || s.id.trim() === '') continue;
-    if (typeof s.owner !== 'string' || s.owner.trim() === '') continue;
-    if (typeof s.repo !== 'string' || s.repo.trim() === '') continue;
-    const key = s.id.trim().toLowerCase();
-    if (!key || concrete[key]) continue;
-    concrete[key] = s;
-  }
-  if (Object.keys(concrete).length > 0) {
-    hydrateTrendEnrichCache(concrete);
-  }
 }
 
 export function useSearchState({
@@ -287,9 +268,8 @@ export function useSearchState({
           const hasMore = onlineResults.length >= ONLINE_SEARCH_PER_PAGE;
           setOnlineHasMore(hasMore);
           onlineHasMoreRef.current = hasMore;
-          // 搜索列表缓存
+          // 搜索列表缓存（薄：只存行，不掺排名/平台判定）
           writeSearchListCache({ query: q, page: 1, perPage: ONLINE_SEARCH_PER_PAGE }, deduped);
-          shareConcreteToTrendEnrich(deduped);
           showToast(t('search.online_success', '已找到在线应用'), 'success');
         } else {
           // 保留旧列表：已直展时不清空。
@@ -393,9 +373,8 @@ export function useSearchState({
         onlinePageRef.current = nextPage;
         setOnlineHasMore(hasMore);
         onlineHasMoreRef.current = hasMore;
-        // 搜索列表缓存
+        // 搜索列表缓存（薄：只存行，不掺排名/平台判定）
         writeSearchListCache({ query: q, page: nextPage, perPage: ONLINE_SEARCH_PER_PAGE }, more);
-        shareConcreteToTrendEnrich(more);
       } else {
         setOnlineHasMore(false);
         onlineHasMoreRef.current = false;

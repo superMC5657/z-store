@@ -1,3 +1,15 @@
+//! 下载加速代理（Mirror Download Proxy）镜像改写唯一落点。
+//!
+//! 单一 `rewrite(url)` interface，两种调用上下文（票 13 收敛点；服务 ADR-0004，不重开）：
+//! - 有状态安装下载：调用方持有 AppState 的 `&MirrorManager`，经
+//!   [`MirrorManager::rewrite_download_url`]（用户配置代理；默认直连返回原值）；
+//! - opportunistic 小文件拉取（Checksum Manifest〈校验清单〉）：`CatalogService`
+//!   够不到 AppState，调用方经 adapter 注入改写后 URL，默认注入即
+//!   [`opportunistic_rewrite`]（GitHub 域 gh-proxy 兜底，非 GitHub 域直连）。
+//!
+//! 底层前缀原语唯一（`wrap_gh_proxy` + `prefix_with_base`），两处上下文皆经此，
+//! checksum 第三份 `wrap` duplicate 已删除（见 `github::detail_fetch`）。
+
 use crate::models::MirrorNodeStatus;
 use std::time::Instant;
 
@@ -9,15 +21,33 @@ pub fn is_github_domain(raw_url: &str) -> bool {
         || raw_url.contains("github-releases")
 }
 
+/// 底层前缀原语（唯一）：`base` 去尾斜杠后当前缀拼接；已套前缀返回原值。
+fn prefix_with_base(base: &str, raw_url: &str) -> String {
+    let base = base.trim_end_matches('/');
+    if raw_url.starts_with(base) {
+        return raw_url.to_string();
+    }
+    format!("{base}/{raw_url}")
+}
+
 pub fn wrap_gh_proxy(raw_url: &str) -> String {
     if !is_github_domain(raw_url) {
         return raw_url.to_string();
     }
-    let base = DEFAULT_GH_PROXY.trim_end_matches('/');
-    if raw_url.starts_with(base) {
-        return raw_url.to_string();
+    prefix_with_base(DEFAULT_GH_PROXY, raw_url)
+}
+
+/// opportunistic 小文件拉取上下文的改写（单一 interface 的无状态侧）：
+/// GitHub 域 gh-proxy 前缀兜底加速，非 GitHub 域直连。
+/// 返回 `(effective_url, is_mirror)`（`is_mirror` 供日志）；`CatalogService`
+/// 侧默认经 adapter 注入本函数，不再自立 duplicate。
+pub fn opportunistic_rewrite(raw_url: &str) -> (String, bool) {
+    if !is_github_domain(raw_url) {
+        return (raw_url.to_string(), false);
     }
-    format!("{}/{}", base, raw_url)
+    let wrapped = wrap_gh_proxy(raw_url);
+    let changed = wrapped != raw_url;
+    (wrapped, changed)
 }
 
 pub struct MirrorManager {
@@ -90,6 +120,8 @@ impl MirrorManager {
         true
     }
 
+    /// 有状态安装下载上下文的改写（单一 interface 的有状态侧）：
+    /// 用户配置代理时套前缀，默认直连返回原值；底层经唯一前缀原语。
     pub fn rewrite_download_url(&self, raw_url: &str) -> String {
         let proxy = match &self.custom_proxy {
             Some(p) if !p.trim().is_empty() && p.trim() != "direct" => p.trim(),
@@ -104,11 +136,7 @@ impl MirrorManager {
             return raw_url.to_string();
         }
 
-        let base = proxy.trim_end_matches('/');
-        if raw_url.starts_with(base) {
-            return raw_url.to_string();
-        }
-        format!("{}/{}", base, raw_url)
+        prefix_with_base(proxy, raw_url)
     }
 
     /// H2：测速专用 HTTP 客户端（短超时 + 浏览器 UA）。
@@ -245,6 +273,27 @@ mod tests {
         let cb_url = "https://codeberg.org/attachments/a1b2c3d4-installer.exe";
         mm.set_active_mirror("https://gh-proxy.com");
         assert_eq!(mm.rewrite_download_url(cb_url), cb_url);
+    }
+
+    #[test]
+    fn test_opportunistic_rewrite_direct_and_fallback() {
+        // 新 seam 测试（replace-don't-layer）：第三份 duplicate 删除后，
+        // 校验拉取经统一 interface 仍走直接/回退（旧单测随旁路删，不迁移）。
+        // GitHub 域 → gh-proxy 回退。
+        let raw = "https://github.com/o/r/releases/download/v1/f.sha256";
+        let (effective, mirror) = opportunistic_rewrite(raw);
+        assert!(mirror);
+        assert!(effective.starts_with("https://gh-proxy.com/https://github.com"));
+        // 非 GitHub 域 → 直接。
+        let cb = "https://codeberg.org/attachments/f.sha256";
+        let (effective, mirror) = opportunistic_rewrite(cb);
+        assert!(!mirror);
+        assert_eq!(effective, cb);
+        // 已套前缀 → 原值直通（不二次包裹）。
+        let wrapped = format!("{DEFAULT_GH_PROXY}/https://github.com/o/r/releases/download/v1/f.sha256");
+        let (effective, mirror) = opportunistic_rewrite(&wrapped);
+        assert!(!mirror);
+        assert_eq!(effective, wrapped);
     }
 
     #[test]

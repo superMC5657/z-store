@@ -1,5 +1,6 @@
 import type { AppSummary } from '../../types';
 import { summaries } from '../fixtures';
+import { rankFeed, type FeedStrategy } from '../../services/feed';
 
 export type InvokeArgs = Record<string, unknown>;
 
@@ -31,8 +32,7 @@ export const delay = (ms: number): Promise<void> => new Promise((r) => setTimeou
 
 /**
  * @deprecated 32 位 mock 抖动已对齐 64 位 canonical（见 `src/services/feed.ts#hashSeeded01`），
- * 仅保留供 demo 旧调用；新代码请用 `hashSeeded01`。Phase2 最小对齐：只换哈希实现，
- * 不改调用方与打分形状（balanced 半幅 0.15 等），不扩大 blast radius。
+ * 仅保留供单测锁定哈希一致性；打分/排序已收敛至 `rankFeed` 唯一口，新代码请用 `hashSeeded01`/`rankFeed`。
  * 与 canonical 同形：FNV-1a 64 + seed 起步 + UTF-8 字节迭代 + `>>33` 雪崩，除数 2^64；
  * id 先 `toLowerCase`，与后端 `to_lowercase + as_bytes` 对齐。此处解耦实现，不 import feed.ts。
  */
@@ -68,19 +68,11 @@ export function demoSeeded01(id: string, seed: number): number {
 }
 
 export function rankSummariesForFeed(seed: number, strategy?: unknown): AppSummary[] {
-  // canonical balanced：log1p(stars) + (jitter01-0.5)*0.3（半幅 0.15，与 feed.ts / 后端 feed_score 同形同量级）。
+  // 收敛一处：打分/排序经 `services/feed.ts rankFeed` 唯一口（后端 `rank_feed` 为准；
+  // demo/搜索本地路径保持确定性：同 seed 同序，tie 按 id 升序）。
   const safeSeed = Number.isFinite(seed) ? Math.floor(seed) : 0;
   const normalized = String(strategy ?? 'balanced').trim().toLowerCase();
-  const active = normalized === 'stars' ? 'stars' : normalized === 'fresh' ? 'fresh' : 'balanced';
-  return summaries
-    .map((s, index) => {
-      const stars = Number.isFinite(s.stars) && s.stars > 0 ? s.stars : 0;
-      const base = Math.log1p(stars);
-      const jitter = demoSeeded01(s.id, safeSeed);
-      const score =
-        active === 'stars' ? base : active === 'fresh' ? jitter * 10 + base * 0.05 : base + (jitter - 0.5) * 0.3;
-      return { s, index, score };
-    })
-    .sort((a, b) => (b.score !== a.score ? b.score - a.score : a.index - b.index))
-    .map((x) => x.s);
+  const active: FeedStrategy =
+    normalized === 'stars' ? 'stars' : normalized === 'fresh' ? 'fresh' : 'balanced';
+  return rankFeed(summaries, safeSeed, active);
 }

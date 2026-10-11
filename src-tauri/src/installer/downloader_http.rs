@@ -1,5 +1,6 @@
 use super::downloader_progress::{
-    persist_stream_to_file, sha256_of_file, should_skip_download, PersistError, SkipDone,
+    persist_stream_to_file, sha256_of_file, should_skip_download, verify_terminal_state,
+    PersistError, SkipDone,
 };
 use crate::log_support::{file_base, http_err_reason, sanitize_url, short_reason};
 use crate::models::DownloadProgressPayload;
@@ -359,19 +360,9 @@ pub async fn download_with_progress(
 
     // 零信任哈希终态判定：不符已在落盘时以 Tampered 中断并删文件，
     // 能执行到此处说明已通过官方校验或上游未提供期望值，此处只做终态分支，不再重复比对。
-    let (verified_state, verified_msg) = match expected_sha256 {
-        Some(expected) if !expected.trim().is_empty() => (
-            "verified".to_string(),
-            format!("已通过官方 SHA-256 完整性校验: {}", actual_hash),
-        ),
-        _ => (
-            "completed_unverified".to_string(),
-            format!(
-                "上游未提供官方校验清单，已记录本地计算 SHA-256: {}",
-                actual_hash
-            ),
-        ),
-    };
+    // 收敛：与 `SkipDone::finish` 同一 fetch→verify 契约终态（`verify_terminal_state`）。
+    let (verified_state, verified_msg) =
+        verify_terminal_state(expected_sha256, &actual_hash);
 
     DownloadProgressPayload::emit_event(
         app_handle,
