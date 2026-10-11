@@ -30,8 +30,10 @@ pub async fn get_app_details(
 /// - miss 时仅 GET `releases/latest`（`get_with_etag` 复用 304/200/ETag 与限流上报），
 ///   无 repo、无 README、无图标探测、无 checksum；`detail_json` 仅 TTL 命中时复用，
 ///   网络路径只解析 release assets；
-/// - 304 命中经 payload 恢复 deduce 并 `touch_cached_app_detail` 延长保鲜期
-///  （`from_cache=true`，与详情 304 短路同形）；
+/// - 304-touch/save/回退决议收归 `github::release_fetch` shallow adapter
+///   （与 Streaming Update Check〈流式更新检查〉同一 interface，原逐字重复分支已删除）：
+///   304 命中经 payload 恢复 deduce 并 `touch_cached_app_detail` 延长保鲜期
+///   （`from_cache=true`，与详情 304 短路同形）；
 /// - stale 穿透（401/离线复用旧行）标 `is_stale=true` 且不 touch（与详情一致，
 ///   避免把过期 stale 洗成 fresh）；
 /// - 空 platforms 明确返回空向量，不 stamp `["other"]`/`["windows"]`；
@@ -146,118 +148,98 @@ pub async fn get_platforms_lite(
         crate::check_auth_expired(401, &format!("op=platforms-lite id={}", clean_id));
     }
 
-    match outcome {
-        EtagGetOutcome::NotModified => {
-            // 304：版本未变。仅刷新 cached_at 延长保鲜期（UPDATE 无行即空操作），
-            // platforms 经 ETag payload 恢复 deduce；payload 缺失时回退过期详情行。
-            if let Ok(db) = state.db() {
-                let _ = db.touch_cached_app_detail(&clean_id, crate::now_secs());
+    // 收敛：304-touch/save/回退分支收归 `github::release_fetch` shallow adapter
+    //（与 Streaming Update Check〈流式更新检查〉同一 interface；原逐字重复分支已删除）。
+    // ADR-0007 豁免对照分支（consult_ttl = true 侧）：本通道入口已先走 Cache TTL 快径
+    // （见上）；更新检查通道无此分支，每次直探。语义见模块注释。
+    // 现行语义保留：304 payload 腐坏报硬错"解析本地 ETag 缓存失败"（更新检查侧 tolerant 跳过）。
+    // Fresh 无需回退源，避免无谓 DB 读（现行 hot 路径语义）。
+    let stale_row: Option<crate::models::AppDetail> = match &outcome {
+        EtagGetOutcome::Fresh { .. } => None,
+        _ => state
+            .db()
+            .ok()
+            .and_then(|db| db.get_cached_app_detail_fallback(&clean_id).ok().flatten()),
+    };
+    match crate::github::release_fetch::decide_shallow_release(
+        &outcome,
+        cached_payload.as_deref(),
+        stale_row.as_ref(),
+        None,
+    ) {
+        Ok(rel) => {
+            if rel.touch {
+                if let Ok(db) = state.db() {
+                    let _ = db.touch_cached_app_detail(&clean_id, crate::now_secs());
+                }
             }
-            if let Some(ref payload) = cached_payload {
-                let parsed: crate::github::models::GitHubReleaseResponse =
-                    serde_json::from_str(payload).map_err(|e| {
-                        format!("解析本地 ETag 缓存失败: {}", e)
-                    })?;
-                let platforms = state
-                    .catalog
-                    .deduce_lite_platforms(&clean_id, &parsed.assets);
+            if let Some((et, text)) = rel.cache_to_save {
+                if let Ok(db) = state.db() {
+                    let _ = db.save_etag(&release_endpoint, &et, &text, crate::now_secs());
+                }
+            }
+            let platforms = match rel.row_platforms {
+                // 旧行穿透：直接采用已 deduce platforms，不重推导（现行语义）。
+                Some(p) => p,
+                None => state.catalog.deduce_lite_platforms(&clean_id, &rel.assets),
+            };
+            // 日志诚实区分：旧分支各臂 from= 文案原样保留（304-行/离线-payload 穿透本无日志）。
+            let from_label: Option<&str> = match (&rel.source, rel.touch) {
+                (crate::github::release_fetch::ShallowSource::Fresh, _) => Some("miss"),
+                (crate::github::release_fetch::ShallowSource::Payload, true) => {
+                    Some("cache:304")
+                }
+                (crate::github::release_fetch::ShallowSource::StaleRow, false) => {
+                    Some("cache:stale")
+                }
+                _ => None,
+            };
+            if let Some(from) = from_label {
                 log::debug!(
-                    "get_platforms_lite id={} from=cache:304 elapsed_ms={}",
+                    "get_platforms_lite id={} from={} elapsed_ms={}",
                     clean_id,
+                    from,
                     start.elapsed().as_millis()
                 );
-                return Ok(PlatformsLiteResult {
-                    id: clean_id,
-                    platforms,
-                    from_cache: true,
-                    is_stale: None,
-                });
             }
-            if let Ok(db) = state.db() {
-                if let Ok(Some(fallback)) = db.get_cached_app_detail_fallback(&clean_id) {
-                    return Ok(PlatformsLiteResult {
-                        id: clean_id,
-                        platforms: fallback.platforms,
-                        from_cache: true,
-                        is_stale: fallback.is_stale,
-                    });
-                }
-            }
-            Err("304 响应但本地未找到缓存数据".into())
-        }
-        EtagGetOutcome::Fresh { text, etag } => {
-            let parsed: crate::github::models::GitHubReleaseResponse =
-                serde_json::from_str(&text)
-                    .map_err(|e| format!("解析 GitHub Release 失败: {}", e))?;
-            // 远端 200：刷新 ETag 缓存表（有 etag 才存，与详情 to_cache 语义一致）。
-            if let Some(ref et) = etag {
-                if let Ok(db) = state.db() {
-                    let _ = db.save_etag(&release_endpoint, et, &text, crate::now_secs());
-                }
-            }
-            let platforms = state
-                .catalog
-                .deduce_lite_platforms(&clean_id, &parsed.assets);
-            log::debug!(
-                "get_platforms_lite id={} from=miss elapsed_ms={}",
-                clean_id,
-                start.elapsed().as_millis()
-            );
             Ok(PlatformsLiteResult {
                 id: clean_id,
                 platforms,
-                from_cache: false,
-                is_stale: None,
+                from_cache: !matches!(
+                    rel.source,
+                    crate::github::release_fetch::ShallowSource::Fresh
+                ),
+                is_stale: rel.stale,
             })
         }
-        EtagGetOutcome::Unauthorized | EtagGetOutcome::Failed => {
-            // 离线/限流/401：stale 穿透复用旧行（不 touch，保持旧行不动），
-            // 标记 is_stale=true 供前端视为 pending，永不确认 Other。
+        Err(crate::github::release_fetch::ShallowError::Parse(e)) => Err(e.into()),
+        Err(crate::github::release_fetch::ShallowError::PayloadCorrupt(e)) => {
+            // 现行语义：304 进臂时已 touch 延保（UPDATE 无行即空操作），硬错前补上。
             if let Ok(db) = state.db() {
-                if let Ok(Some(fallback)) = db.get_cached_app_detail_fallback(&clean_id) {
-                    log::debug!(
-                        "get_platforms_lite id={} from=cache:stale elapsed_ms={}",
-                        clean_id,
-                        start.elapsed().as_millis()
-                    );
-                    return Ok(PlatformsLiteResult {
-                        id: clean_id,
-                        platforms: fallback.platforms,
-                        from_cache: true,
-                        is_stale: Some(true),
-                    });
-                }
+                let _ = db.touch_cached_app_detail(&clean_id, crate::now_secs());
             }
-            // 有 ETag payload 则离线恢复 deduce（与详情 Failed+payload 恢复同形，视为成功）。
-            if let Some(ref payload) = cached_payload {
-                if let Ok(parsed) =
-                    serde_json::from_str::<crate::github::models::GitHubReleaseResponse>(payload)
-                {
-                    let platforms = state
-                        .catalog
-                        .deduce_lite_platforms(&clean_id, &parsed.assets);
-                    return Ok(PlatformsLiteResult {
-                        id: clean_id,
-                        platforms,
-                        from_cache: true,
-                        is_stale: None,
-                    });
-                }
-            }
-            // P0 合成空失败：无任何缓存时以 stale 区分于成功空（与详情同形），
-            // 前端 stale-empty 视为 pending，不确认 Other；本命令永不落库。
-            log::debug!(
-                "get_platforms_lite id={} from=empty:stale elapsed_ms={}",
-                clean_id,
-                start.elapsed().as_millis()
-            );
-            Ok(PlatformsLiteResult {
-                id: clean_id,
-                platforms: Vec::new(),
-                from_cache: false,
-                is_stale: Some(true),
-            })
+            Err(e.into())
         }
+        Err(crate::github::release_fetch::ShallowError::Miss(miss)) => match miss {
+            crate::github::release_fetch::ShallowMiss::NotModifiedWithoutCache => {
+                Err("304 响应但本地未找到缓存数据".into())
+            }
+            crate::github::release_fetch::ShallowMiss::OfflineWithoutCache => {
+                // P0 合成空失败：无任何缓存时以 stale 区分于成功空（与详情同形），
+                // 前端 stale-empty 视为 pending，不确认 Other；本命令永不落库。
+                log::debug!(
+                    "get_platforms_lite id={} from=empty:stale elapsed_ms={}",
+                    clean_id,
+                    start.elapsed().as_millis()
+                );
+                Ok(PlatformsLiteResult {
+                    id: clean_id,
+                    platforms: Vec::new(),
+                    from_cache: false,
+                    is_stale: Some(true),
+                })
+            }
+        },
     }
 }
 

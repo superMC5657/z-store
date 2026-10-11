@@ -31,7 +31,8 @@
  *   BE 薄透传。
  */
 
-import type { AppSummary, FetchTrendsOptions, TrendBoardId, TrendRepo } from '../../types';
+import type { AppSummary, FetchTrendsOptions, TrendBoardId, TrendRepo, TrendsResult } from '../../types';
+import React from 'react';
 import {
   buildDoforceCacheKey,
   buildTrendsCacheKey,
@@ -54,9 +55,16 @@ import { fetchTrendsResult as fetchTrendsResultInner } from './boards';
 import { subscribeBoardHydrated as subscribeBoardHydratedInner } from './boards';
 import {
   PENDING_SETTLE_MS,
-  resolvePendingPlatformsLite,
+  createInflightGuard,
+  createSeqGuard,
+  runLiteBatch,
+  scheduleSettleConfirm,
+  unionConfirmedSets,
+  type InflightGuard,
+  type LiteFetch,
   type PendingLiteTarget,
-} from '../../lib/platformFilter';
+  type SeqGuard,
+} from '../pendingLifecycle';
 import { zlogInfo } from '../../lib/z-log';
 import { getBufferedIcon } from '../iconStore';
 
@@ -450,15 +458,13 @@ export function logLiteSkip(
   );
 }
 
-/** lite 通道批量确认（分批 5，上限 20，seq 守卫由调用方传入 shouldAbort）。 */
+/** lite 通道批量确认（分批 5，上限 20，seq 守卫由调用方传入 shouldAbort；经深模块同一口）。 */
 export async function verifyPendingLite(
   targets: readonly PendingLiteTarget[],
-  fetchLite: (
-    liteId: string,
-  ) => Promise<{ platforms?: readonly string[] | null; is_stale?: boolean | null } | null | undefined>,
+  fetchLite: LiteFetch,
   shouldAbort?: () => boolean,
 ): Promise<{ patched: Map<string, string[]>; confirmedEmpty: string[] }> {
-  return resolvePendingPlatformsLite(targets, fetchLite, shouldAbort);
+  return runLiteBatch(targets, fetchLite, shouldAbort);
 }
 
 /** lite patched 合并进镜像：空永不覆盖已具平台（调用方已跳过，此处再守一次）。 */
@@ -1136,4 +1142,185 @@ export function hydrateBoardEnrich(map: Record<string, AppSummary>): void {
 /** 当前持久化榜键（供节流调度读取；快照经 noteBoardReposForPersist 同步）。 */
 export function getBoardPersistKey(): string {
   return boardPersistRef.cacheKey;
+}
+
+/* ------------------------------------------------------------------ */
+/* I. 趋势 pending 生命周期 hook（View 侧唯一编排出口，ticket 11）      */
+/* ------------------------------------------------------------------ */
+
+export interface TrendPendingLifecycleParams {
+  trendResult: TrendsResult | null;
+  rawItems: readonly DisplayTrendItemLiteExt[];
+  enrichedApps: Record<string, AppSummary>;
+  activeBoard: TrendBoardId;
+  trendFetchOpts: FetchTrendsOptions;
+  /** 全局已确认集合；缺席时沿用旧语义（lite/settle 不启用，裸行视同 other）。 */
+  globalConfirmed?: ReadonlySet<string>;
+  /** 榜单内已确认集合（View 持有，hook 只读 + 经 setter 落定）。 */
+  localConfirmed: ReadonlySet<string>;
+  setEnrichedApps: React.Dispatch<React.SetStateAction<Record<string, AppSummary>>>;
+  setTrendConfirmedOtherIds: React.Dispatch<React.SetStateAction<Set<string>>>;
+  fetchLite: LiteFetch;
+}
+
+/**
+ * 趋势 pending 生命周期编排（lite 补验 + settle 超时 + 确认集并集）：
+ * View 侧只调此 hook，不再自持 inflight/seq/trusted/ref 镜像与两段 effect
+ * （原 TrendsView lite/settle 重实现已删，语义逐行对齐）。
+ * - inflight/seq 守卫与 15s settle 定时归深模块；合并/写透仍走本 board seam；
+ * - 返回 `combinedConfirmed`（全局 ∪ 榜单内）供过滤/计数/徽标统一口径。
+ */
+export function useTrendPendingLifecycle(
+  params: TrendPendingLifecycleParams,
+): { combinedConfirmed: Set<string> } {
+  const {
+    trendResult,
+    rawItems,
+    enrichedApps,
+    activeBoard,
+    trendFetchOpts,
+    globalConfirmed,
+    localConfirmed,
+    setEnrichedApps,
+    setTrendConfirmedOtherIds,
+    fetchLite,
+  } = params;
+  const inflightGuardRef = React.useRef<InflightGuard | null>(null);
+  if (!inflightGuardRef.current) inflightGuardRef.current = createInflightGuard();
+  const boardSeqRef = React.useRef(0);
+  const seqGuardRef = React.useRef<SeqGuard | null>(null);
+  if (!seqGuardRef.current) seqGuardRef.current = createSeqGuard(() => boardSeqRef.current);
+  const enrichedAppsRef = React.useRef(enrichedApps);
+  enrichedAppsRef.current = enrichedApps;
+  const globalConfirmedRef = React.useRef(globalConfirmed);
+  globalConfirmedRef.current = globalConfirmed;
+  const localConfirmedRef = React.useRef(localConfirmed);
+  localConfirmedRef.current = localConfirmed;
+  const fetchLiteRef = React.useRef(fetchLite);
+  fetchLiteRef.current = fetchLite;
+
+  // 全局已确认 ∪ 榜单内已确认：pending 判定的唯一口径（未传入全局集合时不启用）。
+  const combinedConfirmed = React.useMemo(
+    () => unionConfirmedSets(globalConfirmed, localConfirmed),
+    [globalConfirmed, localConfirmed],
+  );
+
+  // 榜缓存二级新鲜富卡免验集：SWR-fill 时内存快照已有的具平台键（二级新鲜期内直接展，不调 lite）；
+  // 后续 enrich 新取回的键不在集内，缺席/过期仍走 lite 补验（到期再验）。
+  const trusted = React.useMemo(() => {
+    if (trendResult?.status !== 'ok' || trendResult.repos.length === 0) return new Set<string>();
+    return buildSwrFill(trendResult.repos).trustedConcrete;
+  }, [trendResult]);
+
+  // 榜单切换即递增 lite 序列：旧榜在途 lite 落定不再写入，避免跨榜串扰。
+  React.useEffect(() => {
+    boardSeqRef.current += 1;
+  }, [activeBoard, trendResult]);
+
+  // 未收录行 lite 确认（App lazyBackfill 的榜单侧补齐，分批 5/上限 20/seq 守卫）：
+  // enrich 落定为空的行按 App 同口径走 getPlatformsLite 轻量通道：
+  // 非空非 stale 即 patch 治愈并经 board seam 写透；空非 stale 即确认 Other 并写透，重挂免验；
+  // stale/失败保持 pending 交给 settle 超时（不覆盖具平台）。
+  React.useEffect(() => {
+    if (trendResult?.status !== 'ok') return;
+    if (globalConfirmed === undefined) return;
+    const guard = seqGuardRef.current;
+    const inflight = inflightGuardRef.current;
+    if (!guard || !inflight) return;
+    const seq = guard.capture();
+    const sel = selectLiteTargets({
+      rawItems,
+      enrichedApps,
+      combinedConfirmed,
+      inflight: inflight.snapshot(),
+      trusted,
+    });
+    logLiteSkip(activeBoard, sel);
+    const { targets } = sel;
+    if (targets.length === 0) return;
+    const claimed = new Set(inflight.take(targets.map((t) => t.key)));
+    const runTargets = targets.filter((t) => claimed.has(t.key));
+    if (runTargets.length === 0) return;
+    void (async () => {
+      try {
+        const { patched, confirmedEmpty } = await verifyPendingLite(
+          runTargets,
+          (liteId) => fetchLiteRef.current(liteId),
+          () => guard.isStale(seq),
+        );
+        if (guard.isStale(seq)) return;
+        if (patched.size > 0) {
+          // 具平台升级先清确认（本地 + board 内存标记，防确认残留；hydrate 具平台侧亦会自动移除同键）。
+          {
+            const aliasKeys = collectUnmarkAliasKeys(patched.keys(), enrichedAppsRef.current);
+            if (aliasKeys.length > 0) unmarkConcreteKeys(aliasKeys);
+          }
+          setEnrichedApps((prev) => mergeLitePatchedMirror(prev, patched));
+          setTrendConfirmedOtherIds((prev) => removeConfirmedForConcrete(prev, [...patched.keys()]));
+          // 经 board seam 持久化（hydrate + 同榜 key 写透；stale/失败不进 patched，保持 pending）。
+          try {
+            await persistLitePatched(patched, enrichedAppsRef.current);
+          } catch {
+            // 写透失败不影响内存落定，pending 语义不变
+          }
+        }
+        if (confirmedEmpty.length > 0) {
+          // 空非 stale 即已确认 Other：经 board seam（本地 + 内存标记 + hydrate + 写透）。
+          const aliasConfirmed = await confirmLiteEmpty(confirmedEmpty, enrichedAppsRef.current);
+          if (aliasConfirmed.length > 0) {
+            setTrendConfirmedOtherIds((prev) => addConfirmedMirror(prev, aliasConfirmed));
+          }
+        }
+      } finally {
+        inflight.release(runTargets.map((t) => t.key));
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trendResult, rawItems, enrichedApps, globalConfirmed, combinedConfirmed, activeBoard, trendFetchOpts]);
+
+  // pending settle 超时：enrich 空 + 一次 lite 仍未治愈（或 lite stale/失败/裸行）
+  // 至多等待 15s 后降级为已确认 Other（徽标 + 计数 + 可过滤），而非无限 shimmer。
+  // 超时前仍恒可见（不看 Other 勾选），落定后走正常 Other 过滤。定时归深模块所有。
+  React.useEffect(() => {
+    if (globalConfirmed === undefined) return;
+    if (trendResult?.status !== 'ok') return;
+    const { pendingKeys, repoByKey } = collectSettlePending(rawItems, enrichedApps, combinedConfirmed);
+    if (pendingKeys.length === 0) return;
+    const repos = trendResult.repos;
+    return scheduleSettleConfirm({
+      keys: pendingKeys,
+      recheck: (snapshot) =>
+        filterStillPending(
+          snapshot,
+          enrichedAppsRef.current,
+          globalConfirmedRef.current,
+          localConfirmedRef.current,
+        ),
+      onConfirm: (stillPending) => {
+        const { toHydrate, aliasKeys } = buildSettleHydration(
+          stillPending,
+          enrichedAppsRef.current,
+          repoByKey,
+          repos,
+        );
+        if (aliasKeys.length === 0) return;
+        // 先 mark 再 hydrate：已确认 pending 方可进 board 内存（未确认 pending 永不进内存/落库）。
+        commitSettleConfirmed(aliasKeys, toHydrate);
+        setTrendConfirmedOtherIds((prev) =>
+          addConfirmedMirror(
+            prev,
+            aliasKeys.map((k) => String(k).trim().toLowerCase()).filter((k) => k.length > 0),
+          ),
+        );
+        // 本地直展裸合成卡：镜像缺席的键一次并入（具平台不覆盖，已有不重写）。
+        if (Object.keys(toHydrate).length > 0) {
+          setEnrichedApps((prev) => mergeSettleSyntheticMirror(prev, toHydrate));
+        }
+        // 确认写透：经 board seam 同榜 key 落盘（含确认集），重挂零 lite 直展 Other 卡。
+        persistSettleConfirmed();
+      },
+    });
+  }, [trendResult, rawItems, enrichedApps, globalConfirmed, combinedConfirmed, activeBoard, trendFetchOpts]);
+
+  return { combinedConfirmed };
 }

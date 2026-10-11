@@ -27,53 +27,43 @@ import {
   type TrendsErrorKind,
 } from '../services/trends';
 import {
-  addConfirmedMirror,
   applyPlatformsHealToMirror,
   applyRichcardHealToMirror,
   boardRepoKeys,
-  buildSettleHydration,
   buildSwrFill,
   cleanupPlatformsHealConfirmed,
   collectMissingEnrichRepos,
-  collectSettlePending,
-  collectUnmarkAliasKeys,
-  commitSettleConfirmed,
-  confirmLiteEmpty,
-  filterStillPending,
   flushBoardPersist,
   getBoardPersistKey,
   hydrateBoardEnrich,
   isEnrichUpgradeAllowed,
   isUpgradePending,
-  logLiteSkip,
   mergeEnrichFoundMirror,
-  mergeLitePatchedMirror,
-  mergeSettleSyntheticMirror,
   mergeSwrConfirmedMirror,
   mergeSwrEnrichedMirror,
   noteBoardReposForPersist,
   persistBoardNow,
-  persistLitePatched,
   persistRichcardHeal,
-  persistSettleConfirmed,
   removeConfirmedForConcrete,
   resolveBoardCacheKey,
   scheduleBoardPersist,
-  selectLiteTargets,
   snapshotBoardEnrich,
   subscribeBoardPersistOnConfirmedChange,
   subscribeTrendHealBus,
   swrSyncedResult,
   unmarkConcreteKeys,
   unmarkPlatformsHealKeys,
-  verifyPendingLite,
+  useTrendPendingLifecycle,
 } from '../services/trends/board';
 import {
   PENDING_SETTLE_MS,
+  isEnrichedRowPending,
+  isPendingFor,
+  matchSelectedWithPending,
+} from '../app/selectors';
+import {
   PLATFORM_IDS,
-  isPlatformPending,
   matchPlatformSet,
-  matchPlatformSetWithPending,
   type PlatformId,
 } from '../lib/platformFilter';
 import { applyHit } from '../services/iconStore';
@@ -183,27 +173,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   const [trendConfirmedOtherIds, setTrendConfirmedOtherIds] = useState<Set<string>>(
     () => new Set<string>(),
   );
-  const trendLiteInflightRef = useRef<Set<string>>(new Set());
-  const trendBoardSeqRef = useRef(0);
-  // 榜缓存二级新鲜富卡免验集：SWR-fill 时内存快照已有的键（二级新鲜期内直接展，不调 lite）；
-  // 后续 enrich 新取回的键不在集内，缺席/过期仍走 lite 补验（到期再验）。
-  const swrTrustedRef = useRef<Set<string>>(new Set());
   const enrichedAppsRef = useRef(enrichedApps);
   enrichedAppsRef.current = enrichedApps;
-  const trendConfirmedRef = useRef(trendConfirmedOtherIds);
-  trendConfirmedRef.current = trendConfirmedOtherIds;
-  const platformResolvedOtherIdsRef = useRef(platformResolvedOtherIds);
-  platformResolvedOtherIdsRef.current = platformResolvedOtherIds;
-
-  // 全局已确认 ∪ 榜单内已确认：pending 判定的唯一口径（未传入全局集合时不启用）。
-  const trendCombinedConfirmed = useMemo(() => {
-    const out = new Set<string>();
-    if (platformResolvedOtherIds) {
-      for (const k of platformResolvedOtherIds) out.add(k);
-    }
-    for (const k of trendConfirmedOtherIds) out.add(k);
-    return out;
-  }, [platformResolvedOtherIds, trendConfirmedOtherIds]);
 
   // 与本地 catalog 预过滤后的 apps 交叉匹配：有则完整卡片，无则名 + 星数。
   // catalog 匹配（matchCatalogApp）保留——下掉的只是分类榜单，不是收录对照展示。
@@ -243,6 +214,22 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     return items;
   }, [trendResult, matchingBase]);
 
+  // 双维 pending 生命周期编排（lite 补验 + settle 超时 + 确认集并集，ticket 11）：
+  // View 不再自持 inflight/seq/trusted/ref 镜像与两段 effect，经 board 唯一 hook 编排；
+  // 返回的 `combinedConfirmed`（全局 ∪ 榜单内）为过滤/计数/徽标统一口径。
+  const { combinedConfirmed } = useTrendPendingLifecycle({
+    trendResult,
+    rawItems: rawDisplayItems,
+    enrichedApps,
+    activeBoard,
+    trendFetchOpts,
+    globalConfirmed: platformResolvedOtherIds,
+    localConfirmed: trendConfirmedOtherIds,
+    setEnrichedApps,
+    setTrendConfirmedOtherIds,
+    fetchLite: (liteId) => tauriApi.getPlatformsLite(liteId),
+  });
+
   // 全局设备平台过滤接入榜单行（含未收录行）：catalog 命中按收录 platforms 判定，
   // 待确认行恒可见（不看 Other 勾选），落定后再走 matchPlatformSet；
   // enrich 命中且具真实平台按其判定；enrich 空（`fallback_summary` 恒 `[]`）一律视为 pending：
@@ -257,7 +244,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     const withPending = platformResolvedOtherIds !== undefined;
     return rawDisplayItems.filter((item) => {
       if (item.type === 'catalog') {
-        if (withPending) return matchPlatformSetWithPending(item.app, selectedPlatforms, platformResolvedOtherIds);
+        if (withPending) return matchSelectedWithPending(item.app, selectedPlatforms, platformResolvedOtherIds);
         return matchPlatformSet(item.app, selectedPlatforms);
       }
       const key = item.repo.id.toLowerCase();
@@ -266,23 +253,11 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
         if (enriched) return matchPlatformSet(enriched, selectedPlatforms);
         return selectedPlatforms.has('other');
       }
-      // pending 语义：未落定恒可见（含裸行）；已确认 Other 后走正常 Other 过滤
-      if (!enriched) {
-        const confirmed = trendCombinedConfirmed.has(key);
-        if (!confirmed) return true;
-        return matchPlatformSet({ platforms: [] }, selectedPlatforms);
-      }
-      if (enriched.platforms && enriched.platforms.length > 0) {
-        return matchPlatformSet(enriched, selectedPlatforms);
-      }
-      // enrich 空：已确认 other 才走正常过滤，否则 pending 恒可见
-      const enrichedKey = (enriched.id || '').trim().toLowerCase();
-      const confirmed =
-        trendCombinedConfirmed.has(key) || (enrichedKey !== '' && trendCombinedConfirmed.has(enrichedKey));
-      if (!confirmed) return true;
-      return matchPlatformSet(enriched, selectedPlatforms);
+      // pending 语义：未落定恒可见（含裸行）；已确认 Other 后走正常 Other 过滤（统一接口判定）。
+      if (isEnrichedRowPending(key, enriched, combinedConfirmed)) return true;
+      return matchPlatformSet(enriched ?? { platforms: [] }, selectedPlatforms);
     });
-  }, [rawDisplayItems, selectedPlatforms, enrichedApps, platformResolvedOtherIds, trendCombinedConfirmed]);
+  }, [rawDisplayItems, selectedPlatforms, enrichedApps, platformResolvedOtherIds, combinedConfirmed]);
 
   // 榜单平台分布（已过滤口径：计数跟随当前可见行，取消勾选即收缩；与过滤判定同语义）。
   // 待确认行暂不计数：裸 TrendRepo（enrich 未落定）、catalog pending 行、enrich 空 pending 行均排除在外，
@@ -298,17 +273,10 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     };
     const isPendingItem = (item: DisplayTrendItem): boolean => {
       if (!withPending) return false;
-      if (item.type === 'catalog') return isPlatformPending(item.app, platformResolvedOtherIds);
-      // 未收录行：enrich 缺席且未确认即 pending；enrich 空 + 未确认即 pending（不计 Other，防闪）；
-      // enrich 空/裸行 + 已确认（全局 ∪ 榜单内）即已落定，按其 platforms 计数；具真实平台即已落定。
+      if (item.type === 'catalog') return isPendingFor(item.app, platformResolvedOtherIds);
+      // 未收录行 pending 口径与过滤判定同源（统一接口）。
       const key = item.repo.id.toLowerCase();
-      const enriched = enrichedApps[key];
-      if (!enriched) return !trendCombinedConfirmed.has(key);
-      if (enriched.platforms && enriched.platforms.length > 0) return false;
-      const enrichedKey = (enriched.id || '').trim().toLowerCase();
-      const confirmed =
-        trendCombinedConfirmed.has(key) || (enrichedKey !== '' && trendCombinedConfirmed.has(enrichedKey));
-      return !confirmed;
+      return isEnrichedRowPending(key, enrichedApps[key], combinedConfirmed);
     };
     for (const id of PLATFORM_IDS) {
       const singleton = new Set<string>([id]);
@@ -318,7 +286,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       }
     }
     return counts;
-  }, [displayItems, enrichedApps, platformResolvedOtherIds, trendCombinedConfirmed]);
+  }, [displayItems, enrichedApps, platformResolvedOtherIds, combinedConfirmed]);
 
   useEffect(() => {
     onDisplayPlatformCounts?.(displayPlatformCounts);
@@ -330,11 +298,9 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   // C2：合并逻辑收口 board（buildSwrFill + merge*Mirror），View 只做 load/refresh + 镜像持有。
   useEffect(() => {
     if (trendResult?.status !== 'ok' || trendResult.repos.length === 0) {
-      swrTrustedRef.current = new Set();
       return;
     }
-    const { snap, trustedConcrete, l2Confirmed } = buildSwrFill(trendResult.repos);
-    swrTrustedRef.current = trustedConcrete;
+    const { snap, l2Confirmed } = buildSwrFill(trendResult.repos);
     if (l2Confirmed.length > 0) {
       setTrendConfirmedOtherIds((prev) => mergeSwrConfirmedMirror(prev, l2Confirmed, snap));
     }
@@ -522,119 +488,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     });
   }, [trendResult]);
 
-  // 榜单切换即递增 lite 序列：旧榜在途 lite 落定不再写入，避免跨榜串扰。
-  useEffect(() => {
-    trendBoardSeqRef.current += 1;
-  }, [activeBoard, trendResult]);
-
-  // 未收录行 lite 确认（App lazyBackfill 的榜单侧补齐，经 board 统一 helper 分批 5/上限 20/seq 守卫）：
-  // enrich 落定为空的行按 App 同口径走 getPlatformsLite 轻量通道：
-  // 非空非 stale 即 patch 治愈并经 board seam 写透；空非 stale 即确认 Other 并写透，重挂免验；
-  // stale/失败保持 pending 交给 settle 超时（不覆盖具平台）。
-  // C2：目标选择 + 合并 + 持久化收口 board（selectLiteTargets/verifyPendingLite/merge*/persist*）。
-  useEffect(() => {
-    if (trendResult?.status !== 'ok') return;
-    if (platformResolvedOtherIds === undefined) return;
-    const seq = trendBoardSeqRef.current;
-    const inflight = trendLiteInflightRef.current;
-    const trusted = swrTrustedRef.current;
-    const sel = selectLiteTargets({
-      rawItems: rawDisplayItems,
-      enrichedApps,
-      combinedConfirmed: trendCombinedConfirmed,
-      inflight,
-      trusted,
-    });
-    logLiteSkip(activeBoard, sel);
-    const { targets } = sel;
-    if (targets.length === 0) return;
-    for (const t of targets) inflight.add(t.key);
-    void (async () => {
-      try {
-        const { patched, confirmedEmpty } = await verifyPendingLite(
-          targets,
-          (liteId) => tauriApi.getPlatformsLite(liteId),
-          () => seq !== trendBoardSeqRef.current,
-        );
-        if (seq !== trendBoardSeqRef.current) return;
-        if (patched.size > 0) {
-          // 具平台升级先清确认（本地 + board 内存标记，防确认残留；hydrate 具平台侧亦会自动移除同键）。
-          {
-            const aliasKeys = collectUnmarkAliasKeys(patched.keys(), enrichedAppsRef.current);
-            if (aliasKeys.length > 0) unmarkConcreteKeys(aliasKeys);
-          }
-          setEnrichedApps((prev) => mergeLitePatchedMirror(prev, patched));
-          setTrendConfirmedOtherIds((prev) => removeConfirmedForConcrete(prev, [...patched.keys()]));
-          // 经 board seam 持久化（hydrate + 同榜 key 写透；stale/失败不进 patched，保持 pending）。
-          try {
-            await persistLitePatched(patched, enrichedAppsRef.current);
-          } catch {
-            // 写透失败不影响内存落定，pending 语义不变
-          }
-        }
-        if (confirmedEmpty.length > 0) {
-          // 空非 stale 即已确认 Other：经 board seam（本地 + 内存标记 + hydrate + 写透）。
-          const aliasConfirmed = await confirmLiteEmpty(confirmedEmpty, enrichedAppsRef.current);
-          if (aliasConfirmed.length > 0) {
-            setTrendConfirmedOtherIds((prev) => addConfirmedMirror(prev, aliasConfirmed));
-          }
-          // 兼容旧变量名：已用 aliasConfirmed（含别名）落定，confirmedEmpty 仅作输入
-          void confirmedEmpty;
-        }
-      } finally {
-        for (const t of targets) inflight.delete(t.key);
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trendResult, rawDisplayItems, enrichedApps, platformResolvedOtherIds, trendCombinedConfirmed, activeBoard, trendFetchOpts]);
-
-  // pending settle 超时：enrich 空 + 一次 lite 仍未治愈（或 lite stale/失败/裸行）
-  // 至多等待 TREND_PENDING_SETTLE_MS 后降级为已确认 Other（徽标 + 计数 + 可过滤），
-  // 而非无限 shimmer。超时前仍恒可见（不看 Other 勾选），落定后走正常 Other 过滤。
-  // C2：收集 + 合成 + 提交收口 board（collect/filter/build/commit/merge/persist）。
-  useEffect(() => {
-    if (platformResolvedOtherIds === undefined) return;
-    if (trendResult?.status !== 'ok') return;
-    const { pendingKeys, repoByKey } = collectSettlePending(
-      rawDisplayItems,
-      enrichedApps,
-      trendCombinedConfirmed,
-    );
-    if (pendingKeys.length === 0) return;
-    const timer = setTimeout(() => {
-      const stillPending = filterStillPending(
-        pendingKeys,
-        enrichedAppsRef.current,
-        platformResolvedOtherIdsRef.current,
-        trendConfirmedRef.current,
-      );
-      if (stillPending.length === 0) return;
-      const { toHydrate, aliasKeys } = buildSettleHydration(
-        stillPending,
-        enrichedAppsRef.current,
-        repoByKey,
-        trendResult.repos,
-      );
-      if (aliasKeys.length === 0) return;
-      // 先 mark 再 hydrate：已确认 pending 方可进 board 内存（未确认 pending 永不进内存/落库）。
-      commitSettleConfirmed(aliasKeys, toHydrate);
-      setTrendConfirmedOtherIds((prev) =>
-        addConfirmedMirror(
-          prev,
-          aliasKeys.map((k) => String(k).trim().toLowerCase()).filter((k) => k.length > 0),
-        ),
-      );
-      // 本地直展裸合成卡：镜像缺席的键一次并入（具平台不覆盖，已有不重写）。
-      if (Object.keys(toHydrate).length > 0) {
-        setEnrichedApps((prev) => mergeSettleSyntheticMirror(prev, toHydrate));
-      }
-      // 确认写透：经 board seam 同榜 key 落盘（含确认集），重挂零 lite 直展 Other 卡。
-      persistSettleConfirmed();
-    }, TREND_PENDING_SETTLE_MS);
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [trendResult, rawDisplayItems, enrichedApps, platformResolvedOtherIds, trendCombinedConfirmed, activeBoard, trendFetchOpts]);
+  // 榜单 pending 生命周期（lite 补验 + settle 超时）经 board 唯一 hook 编排，
+  // 此处不再自持 seq/inflight effect（重实现已删，见 `useTrendPendingLifecycle`）。
 
   const gainTextFor = (gain?: number): string | undefined => {
     if (!gain || gain <= 0) return undefined;
@@ -718,9 +573,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
         ) : (
           displayItems.map((item, index) => {
             if (item.type === 'catalog') {
-              const catalogPending = platformResolvedOtherIds !== undefined
-                ? isPlatformPending(item.app, platformResolvedOtherIds)
-                : false;
+              // 待确认恒可见（统一接口；缺席追踪集合时恒非 pending，沿用旧语义）。
+              const catalogPending = isPendingFor(item.app, platformResolvedOtherIds);
               return (
                 <AppCard
                   key={item.app.id}
@@ -753,15 +607,11 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                 ? enriched
                 : { ...enriched, description: t('trends.no_desc') };
               const hasPlatforms = !!enriched.platforms && enriched.platforms.length > 0;
-              const enrichedKey = (enriched.id || '').trim().toLowerCase();
               const repoKey = item.repo.id.toLowerCase();
-              const enrichedConfirmed = hasPlatforms
-                ? true
-                : platformResolvedOtherIds === undefined
-                  ? true
-                  : trendCombinedConfirmed.has(repoKey) ||
-                    (enrichedKey !== '' && trendCombinedConfirmed.has(enrichedKey));
-              const enrichedPending = !hasPlatforms && !enrichedConfirmed;
+              // 未收录行 pending 口径与过滤判定同源（统一接口；缺席追踪集合时恒落定，沿用旧语义）。
+              const enrichedPending = platformResolvedOtherIds !== undefined
+                ? !hasPlatforms && isEnrichedRowPending(repoKey, enriched, combinedConfirmed)
+                : false;
               return (
                 <AppCard
                   key={`uncataloged-${item.repo.id || item.repo.name}-${index}`}

@@ -24,6 +24,7 @@ import {
 } from './ViewShell';
 import type { FeedStrategy } from '../services/feed';
 import { useHomeFeed, HOME_FEED_PAGE } from './HomeView/useHomeFeed';
+import { isPendingFor } from '../app/selectors';
 export { HOME_FEED_PAGE };
 
 interface HomeViewProps extends ViewAppActions, PlatformResetOption {
@@ -83,11 +84,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
 }) => {
   const { t } = useTranslation();
   const isSearching = Boolean(searchQuery && searchQuery.trim().length > 0);
-  const isPending = (a: AppSummary): boolean => {
-    if (a.platforms && a.platforms.length > 0) return false;
-    if (!platformResolvedOtherIds) return false;
-    return !platformResolvedOtherIds.has(a.id.toLowerCase());
-  };
+  // pending 徽标口径统一经选择器接口（ticket 11；本地不再自立 lambda）。
 
   // ---- feed 状态与分页 Hook -------------------------------------
   const {
@@ -273,7 +270,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               <AppCard
                 key={app.id}
                 app={app}
-                platformPending={isPending(app)}
+                platformPending={isPendingFor(app, platformResolvedOtherIds)}
                 isInstalled={installedIds.has(app.id)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}
@@ -303,7 +300,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 key={app.id}
                 app={app}
                 eager
-                platformPending={isPending(app)}
+                platformPending={isPendingFor(app, platformResolvedOtherIds)}
                 isInstalled={installedIds.has(app.id)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}
@@ -333,7 +330,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <AppCard
                   key={app.id}
                   app={app}
-                  platformPending={isPending(app)}
+                  platformPending={isPendingFor(app, platformResolvedOtherIds)}
                   isInstalled={installedIds.has(app.id)}
                   isInstalling={installingIds?.has(app.id)}
                   isFavorite={favoriteIds.has(app.id)}
@@ -375,7 +372,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <AppCard
                   key={app.id}
                   app={app}
-                  platformPending={isPending(app)}
+                  platformPending={isPendingFor(app, platformResolvedOtherIds)}
                   isInstalled={installedIds.has(app.id)}
                   isInstalling={installingIds?.has(app.id)}
                   isFavorite={favoriteIds.has(app.id)}
@@ -450,7 +447,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               <AppCard
                 key={app.id}
                 app={app}
-                platformPending={isPending(app)}
+                platformPending={isPendingFor(app, platformResolvedOtherIds)}
                 isInstalled={installedIds.has(app.id)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}

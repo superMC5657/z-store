@@ -22,6 +22,7 @@ import {
   ViewAppActions,
   ViewShell,
 } from './ViewShell';
+import { isPendingFor } from '../app/selectors';
 
 interface CategoriesViewProps extends ViewAppActions, RequiredPlatformReset {
   platformResolvedOtherIds?: ReadonlySet<string>;
@@ -55,11 +56,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
 }) => {
   const { t } = useTranslation();
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const isPending = (a: { id: string; platforms?: string[] }): boolean => {
-    if (a.platforms && a.platforms.length > 0) return false;
-    if (!platformResolvedOtherIds) return false;
-    return !platformResolvedOtherIds.has(a.id.toLowerCase());
-  };
+  // pending 徽标口径统一经选择器接口（ticket 11；本地不再自立 lambda）。
 
   // 对传入的 `apps` 属性进行单维度分类过滤；
   // 调用方（App）已按全局设备平台选择进行了预过滤。本视图绝不自行做二次平台过滤。
@@ -181,7 +178,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                 key={app.id}
                 app={app}
                 eager={index < 6}
-                platformPending={isPending(app)}
+                platformPending={isPendingFor(app, platformResolvedOtherIds)}
                 isInstalled={installedIds.has(app.id)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}

@@ -8,11 +8,22 @@ import type {
 } from '../types';
 import {
   PLATFORM_IDS,
-  isPlatformPending,
-  matchPlatformSetWithPending,
   normalizePlatform,
   type PlatformId,
 } from '../lib/platformFilter';
+import {
+  isPendingFor,
+  matchSelectedWithPending,
+} from '../services/pendingLifecycle';
+// 统一 pending 接口外观（ticket 11）：视图经本选择器接口消费 pending 语义，
+// 不直引 `lib/platformFilter`（lib 降为深模块内部 seam）。
+export {
+  isPendingFor,
+  matchSelectedWithPending,
+  unionConfirmedSets,
+  isEnrichedRowPending,
+  PENDING_SETTLE_MS,
+} from '../services/pendingLifecycle';
 
 export interface UseAppSelectorsParams {
   apps: AppSummary[];
@@ -45,7 +56,7 @@ export function selectPlatformFilteredApps(
   selectedPlatforms: Set<PlatformId>,
   platformResolvedOtherIds: Set<string>,
 ): AppSummary[] {
-  return apps.filter((a) => matchPlatformSetWithPending(a, selectedPlatforms, platformResolvedOtherIds));
+  return apps.filter((a) => matchSelectedWithPending(a, selectedPlatforms, platformResolvedOtherIds));
 }
 
 export function selectFavoritesViewApps(
@@ -56,7 +67,7 @@ export function selectFavoritesViewApps(
 ): AppSummary[] {
   if (favoriteExtraApps.length === 0) return platformFilteredApps;
   const filteredExtras = favoriteExtraApps.filter((a) =>
-    matchPlatformSetWithPending(a, selectedPlatforms, platformResolvedOtherIds),
+    matchSelectedWithPending(a, selectedPlatforms, platformResolvedOtherIds),
   );
   if (filteredExtras.length === 0) return platformFilteredApps;
   const baseLower = new Set<string>();
@@ -84,7 +95,7 @@ export function selectPlatformCounts(
   for (const a of apps) {
     if (!a.platforms || a.platforms.length === 0) {
       // 待确认：暂不计入任何桶；已确认 other：仅计 other 桶
-      if (isPlatformPending(a, platformResolvedOtherIds)) continue;
+      if (isPendingFor(a, platformResolvedOtherIds)) continue;
       counts['other'] += 1;
       continue;
     }
@@ -179,14 +190,14 @@ export function useAppSelectors({
   const filteredInstalledApps = useMemo(() => {
     return installedApps.filter((inst) => {
       const catalogEntry = appsById.get(inst.app_id.toLowerCase());
-      return !catalogEntry || matchPlatformSetWithPending(catalogEntry, selectedPlatforms, platformResolvedOtherIds);
+      return !catalogEntry || matchSelectedWithPending(catalogEntry, selectedPlatforms, platformResolvedOtherIds);
     });
   }, [installedApps, appsById, selectedPlatforms, platformResolvedOtherIds]);
 
   const filteredUpdates = useMemo(() => {
     return updates.filter((u) => {
       const catalogEntry = appsById.get(u.app_id.toLowerCase());
-      return !catalogEntry || matchPlatformSetWithPending(catalogEntry, selectedPlatforms, platformResolvedOtherIds);
+      return !catalogEntry || matchSelectedWithPending(catalogEntry, selectedPlatforms, platformResolvedOtherIds);
     });
   }, [updates, appsById, selectedPlatforms, platformResolvedOtherIds]);
 

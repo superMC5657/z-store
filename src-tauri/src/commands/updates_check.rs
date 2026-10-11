@@ -81,68 +81,84 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
     )
     .await;
 
-    match outcome {
-        crate::github::http::EtagGetOutcome::NotModified => {
-            // 304 Not Modified：远端 Release 完全未更新，零配额消耗
-            let now = crate::now_secs();
-            if let Ok(db) = state.db() {
-                let _ = db.touch_cached_app_detail(&clean_id, now);
-            }
-            // 304 三源合一：payload → 本地详情缓存 → 收录库默认版本，单条 debug 收敛。
-            let resolved_304: Option<(String, String)> = (|| {
-                if let Some(ref payload) = cached_payload {
-                    if let Ok(parsed) = serde_json::from_str::<
-                        crate::github::models::GitHubReleaseResponse,
-                    >(payload)
-                    {
-                        return Some((parsed.tag_name, parsed.body.unwrap_or_default()));
-                    }
-                }
+    if matches!(
+        outcome,
+        crate::github::http::EtagGetOutcome::Unauthorized
+    ) {
+        crate::check_auth_expired(401, &format!("op=check_updates app={}", clean_id));
+    }
+
+    // 收敛：轻量决议经 `github::release_fetch` shallow adapter（与 `get_platforms_lite`
+    // 同一 interface；原 304-touch/save/回退内联分支已删除）。
+    // ADR-0007 豁免对照分支（consult_ttl = false 侧）：此处故意不读详情 Cache TTL
+    // （缓存生存时效），每次直探 ETag；TTL 快径仅 `get_platforms_lite` 有。语义见模块注释。
+    // 失败路径不做 ETag payload 恢复（现行语义）：仅 304 时传入 payload。
+    // Fresh 无需回退源，避免无谓 DB 读（现行 hot 路径语义）。
+    let decide_payload = match &outcome {
+        crate::github::http::EtagGetOutcome::NotModified => cached_payload.as_deref(),
+        _ => None,
+    };
+    let (stale_row, catalog_default) = match &outcome {
+        crate::github::http::EtagGetOutcome::Fresh { .. } => (None, None),
+        _ => {
+            let row = state
+                .db()
+                .ok()
+                .and_then(|db| db.get_cached_app_detail_fallback(&clean_id).ok().flatten());
+            let cat = state
+                .catalog
+                .get_catalog_item(&clean_id)
+                .map(|c| c.default_version);
+            (row, cat)
+        }
+    };
+    let mut resolution = crate::github::release_fetch::decide_shallow_release(
+        &outcome,
+        decide_payload,
+        stale_row.as_ref(),
+        catalog_default.as_deref(),
+    );
+    // 现行 tolerant 语义：304 payload 腐坏时跳过 payload 继续沿行/收录库回退
+    //（`get_platforms_lite`-304 对同错报硬错，见模块注释）。
+    if matches!(
+        resolution,
+        Err(crate::github::release_fetch::ShallowError::PayloadCorrupt(_))
+    ) {
+        resolution = crate::github::release_fetch::decide_shallow_release(
+            &outcome,
+            None,
+            stale_row.as_ref(),
+            catalog_default.as_deref(),
+        );
+    }
+    match resolution {
+        Ok(rel) => {
+            // 304 一律 touch 延保（decide 置位）；Fresh/穿透不 touch。
+            if rel.touch {
                 if let Ok(db) = state.db() {
-                    if let Ok(Some(fallback)) = db.get_cached_app_detail_fallback(&clean_id) {
-                        return Some((fallback.latest_version, fallback.changelog));
-                    }
+                    let _ = db.touch_cached_app_detail(&clean_id, crate::now_secs());
                 }
-                state
-                    .catalog
-                    .get_catalog_item(&clean_id)
-                    .map(|cat| (cat.default_version, String::new()))
-            })();
-            if let Some((ver, body)) = resolved_304 {
-                return Ok((ver, body));
             }
+            if let Some((etag_val, payload_text)) = rel.cache_to_save {
+                if let Ok(db) = state.db() {
+                    let _ = db.save_etag(&ep, &etag_val, &payload_text, crate::now_secs());
+                }
+            }
+            Ok((rel.tag, rel.body))
+        }
+        Err(crate::github::release_fetch::ShallowError::Parse(e)) => Err(e),
+        // 防御：tolerant 重试已去 payload，理论不可达；文案与 304 缺缓存一致。
+        Err(crate::github::release_fetch::ShallowError::PayloadCorrupt(_)) => {
             Err("304 响应但未能提取到有效版本信息".to_string())
         }
-        crate::github::http::EtagGetOutcome::Fresh { text: payload_text, etag: new_etag } => {
-            let parsed: crate::github::models::GitHubReleaseResponse =
-                serde_json::from_str(&payload_text)
-                    .map_err(|e| format!("解析 GitHub Release 失败: {}", e))?;
-
-            let now = crate::now_secs();
-
-            if let Ok(db) = state.db() {
-                if let Some(etag_val) = new_etag {
-                    let _ = db.save_etag(&ep, &etag_val, &payload_text, now);
-                }
+        Err(crate::github::release_fetch::ShallowError::Miss(miss)) => match miss {
+            crate::github::release_fetch::ShallowMiss::NotModifiedWithoutCache => {
+                Err("304 响应但未能提取到有效版本信息".to_string())
             }
-
-            Ok((parsed.tag_name, parsed.body.unwrap_or_default()))
-        }
-        _ => {
-            if matches!(outcome, crate::github::http::EtagGetOutcome::Unauthorized) {
-                crate::check_auth_expired(401, &format!("op=check_updates app={}", clean_id));
+            crate::github::release_fetch::ShallowMiss::OfflineWithoutCache => {
+                Err("检查更新网络不可达且无本地缓存".to_string())
             }
-            // 网络故障、超时或被 403 限流，优雅降级：读取本地已有缓存或 catalog
-            if let Ok(db) = state.db() {
-                if let Ok(Some(fallback)) = db.get_cached_app_detail_fallback(&clean_id) {
-                    return Ok((fallback.latest_version, fallback.changelog));
-                }
-            }
-            if let Some(cat) = state.catalog.get_catalog_item(&clean_id) {
-                return Ok((cat.default_version, String::new()));
-            }
-            Err("检查更新网络不可达且无本地缓存".to_string())
-        }
+        },
     }
 }
 

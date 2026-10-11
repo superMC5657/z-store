@@ -1,6 +1,6 @@
 use super::detail_assets::is_valid_installer_asset;
 use crate::github::developer_profile::EtagGetOutcome;
-use crate::github::models::{GitHubAssetResponse, GitHubReleaseResponse, GitHubRepoResponse};
+use crate::github::models::{GitHubAssetResponse, GitHubRepoResponse};
 use crate::github::CatalogService;
 use crate::installer::InstallerEngine;
 use crate::models::{AppDetail, ReleaseAsset};
@@ -25,11 +25,6 @@ fn cached_etag_payload(url: &str, is_force_like: bool) -> (Option<String>, Optio
 
 fn parse_repo_payload(payload: Option<&String>) -> Option<GitHubRepoResponse> {
     payload.and_then(|pl| serde_json::from_str::<GitHubRepoResponse>(pl).ok())
-}
-
-fn parse_release_payload(payload: &str, err_ctx: &str) -> Result<GitHubReleaseResponse, String> {
-    serde_json::from_str::<GitHubReleaseResponse>(payload)
-        .map_err(|e| format!("{}: {}", err_ctx, e))
 }
 
 /// B1：详情简介占位判断（未收录仓 external_synth / search 回退占位）。
@@ -234,91 +229,53 @@ impl CatalogService {
             }
         }
 
-        let mut synthesized_empty_failure = false;
-        let (release_resp, new_cache) = match release_outcome {
-            EtagGetOutcome::NotModified => {
-                // 304 Not Modified 但本地缺乏完整 cached_detail 时回退走 payload_json 恢复
-                // 瘦身：payload 解析经 parse_release_payload 收敛（与 Failed 分支同 helper，err 上下文不变）。
-                if let Some(ref payload) = cached_payload {
-                    let parsed = parse_release_payload(payload, "解析本地 ETag 缓存失败")?;
-                    (parsed, None)
-                } else {
-                    return Err("304 响应但本地未找到缓存数据".to_string());
-                }
+        // 收敛：release 决议经 `github::release_fetch` deep adapter（与 shallow 同一模块；
+        // repo/README/Checksum Manifest〈校验清单〉/平台推导仍在本函数继续，图标段不动）。
+        let synthesized_empty_failure: bool;
+        let (release_resp, new_cache) = match super::release_fetch::decide_detail_release(
+            super::release_fetch::DetailReleaseInput {
+                outcome: &release_outcome,
+                cached_payload: cached_payload.as_deref(),
+                cached_detail: cached_detail.as_ref(),
+                catalog_default_version: catalog_item
+                    .as_ref()
+                    .map(|i| i.default_version.as_str()),
+                catalog_description_en: catalog_item
+                    .as_ref()
+                    .and_then(|i| i.description_en.as_deref()),
+                repo_ok: repo_info.is_some(),
+                is_auth_unauthorized,
+            },
+        )? {
+            super::release_fetch::DetailReleaseDecision::ReuseStale(existing) => {
+                // 离线或网络异常回退：若有 cached_detail 直接使用（stale 穿透，不 touch 不落库）。
+                return Ok((*existing, None));
             }
-            EtagGetOutcome::Fresh { text, etag } => {
-                let parsed: GitHubReleaseResponse = serde_json::from_str(&text)
-                    .map_err(|e| format!("解析 GitHub Release 失败: {}", e))?;
-                let cache_tuple = etag.map(|et| (et, text));
-                (parsed, cache_tuple)
-            }
-            EtagGetOutcome::Unauthorized | EtagGetOutcome::Failed => {
-                // 离线或网络异常回退：若有 cached_detail 直接使用
-                if let Some(mut existing) = cached_detail {
-                    if let Some(ref item) = catalog_item {
-                        if item.description_en.is_some() {
-                            existing.description_en = item.description_en.clone();
-                        }
-                    }
-                    existing.is_stale = Some(true);
-                    return Ok((existing, None));
-                }
-                if let Some(ref payload) = cached_payload {
-                    let parsed = parse_release_payload(payload, "解析离线缓存失败")?;
-                    (parsed, None)
-                } else if repo_info.is_some() {
-                    // repo 已 200 即证明在线/仓库存在：releases/latest 单点 Failed
-                    //（404 无 Release /403/限流/无 token）不视为离线，以 fresh 空行返回
-                    //（synthesized_empty_failure=false → 文末 is_stale=None，
-                    // releases/platforms 双空），下游 should_skip_persist 放行落盘灭黄。
-                    // 只有 repo 也失败/401/离线（repo_info=None）才保持 Some(true) 穿透。
-                    log::debug!(
-                        "detail release empty but repo ok id={} sid={} req={} reason=release_failed_repo_ok_fresh_empty",
-                        id,
-                        sid,
-                        req_id
-                    );
-                    let fallback_ver = catalog_item
-                        .as_ref()
-                        .map(|i| i.default_version.clone())
-                        .unwrap_or_else(|| "v1.0.0".to_string());
-                    (
-                        GitHubReleaseResponse {
-                            tag_name: fallback_ver,
-                            body: Some(String::new()),
-                            assets: Vec::new(),
-                        },
-                        None,
-                    )
-                } else {
-                    // P0：无任何本地缓存 + repo 亦失败/401/离线（repo_info=None）时的合成空详情。
-                    // 资产为空 -> 下游 deduce 得 platforms: []。
-                    // 必须以 is_stale=true 区分于成功空（见文末 detail 构造），
-                    // 调用方据此跳过持久化，前端据此视为 pending 而非确认 Other。
-                    // 对比：远端 200 已问到、仅 is_valid_installer_asset 全过滤致双空
-                    // （真空，如 diagram-design v1.0.0 仅源码包/HTML）不走此分支，
-                    // 文末保持 is_stale=None，前端确认 Other 灭黄标。
-                    synthesized_empty_failure = true;
-                    let fallback_ver = catalog_item
-                        .as_ref()
-                        .map(|i| i.default_version.clone())
-                        .unwrap_or_else(|| "v1.0.0".to_string());
-                    let fallback_body = if is_auth_unauthorized {
-                        "GitHub 登录凭据已失效 (401)，暂无法同步最新 Release 发布产物。请重新登录授权。".to_string()
-                    } else {
-                        "离线模式，暂无法直连获取 GitHub Release 变更日志。".to_string()
-                    };
-                    (
-                        GitHubReleaseResponse {
-                            tag_name: fallback_ver,
-                            body: Some(fallback_body),
-                            assets: Vec::new(),
-                        },
-                        None,
-                    )
-                }
+            super::release_fetch::DetailReleaseDecision::Proceed {
+                release,
+                cache_to_save,
+                synthesized_empty_failure: syn,
+            } => {
+                synthesized_empty_failure = syn;
+                (release, cache_to_save)
             }
         };
+        // 诊断保留：releases/latest 单点 Failed 但 repo 存活时的 fresh 空行（旧分支内联日志搬迁，
+        // 谓词与旧臂完全一致：失败 outcome + 无旧行 + 无 payload + repo 存活）。
+        if matches!(
+            release_outcome,
+            EtagGetOutcome::Unauthorized | EtagGetOutcome::Failed
+        ) && cached_detail.is_none()
+            && cached_payload.is_none()
+            && repo_info.is_some()
+        {
+            log::debug!(
+                "detail release empty but repo ok id={} sid={} req={} reason=release_failed_repo_ok_fresh_empty",
+                id,
+                sid,
+                req_id
+            );
+        }
 
         // 判断版本是否变化以及是否已有缓存的 README
         let version_changed = cached_detail

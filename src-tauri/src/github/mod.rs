@@ -13,6 +13,7 @@ pub mod icon_probe;
 pub mod markdown;
 pub mod models;
 pub mod readme_variants;
+pub mod release_fetch;
 pub mod search;
 
 #[cfg(test)]

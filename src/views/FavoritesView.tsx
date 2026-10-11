@@ -9,6 +9,7 @@ import { AppSummary, OAuthUser, StarredSyncResult } from '../types';
 import { tauriApi } from '../services/api';
 import { ViewAppActions, ViewShell } from './ViewShell';
 import { matchesAppText } from './useViewFilter';
+import { isPendingFor } from '../app/selectors';
 
 interface FavoritesViewProps extends ViewAppActions {
   platformResolvedOtherIds?: ReadonlySet<string>;
@@ -43,11 +44,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   }, [oauthUser?.login]);
 
   const watchedSet = watchedIds || new Set<string>();
-  const isPending = (a: AppSummary): boolean => {
-    if (a.platforms && a.platforms.length > 0) return false;
-    if (!platformResolvedOtherIds) return false;
-    return !platformResolvedOtherIds.has(a.id.toLowerCase());
-  };
+  // pending 徽标口径统一经选择器接口（ticket 11；本地不再自立 lambda）。
 
   // FR-6.1: 收藏 / 关注搜索框（按名称 / 别名 / 仓库坐标过滤，见 useViewFilter.matchesAppText）
   const matchesSearch = (a: AppSummary) => matchesAppText(a, searchText);
@@ -185,7 +182,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 key={app.id}
                 app={app}
                 eager={index < 6}
-                platformPending={isPending(app)}
+                platformPending={isPendingFor(app, platformResolvedOtherIds)}
                 isInstalled={installedIds.has(app.id)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={true}
@@ -223,7 +220,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 key={app.id}
                 app={app}
                 eager={index < 6}
-                platformPending={isPending(app)}
+                platformPending={isPendingFor(app, platformResolvedOtherIds)}
                 isInstalled={installedIds.has(app.id)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIdsLower.has((app.id || '').toLowerCase())}
@@ -363,7 +360,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                       key={app.id}
                       app={app}
                       eager={index < 6}
-                      platformPending={isPending(app)}
+                      platformPending={isPendingFor(app, platformResolvedOtherIds)}
                       isInstalled={installedIds.has(app.id)}
                       isInstalling={installingIds?.has(app.id)}
                       isFavorite={favoriteIdsLower.has((app.id || '').toLowerCase())}

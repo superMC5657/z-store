@@ -23,7 +23,8 @@ import { EmptyState } from './components/EmptyState';
 import { Search } from 'lucide-react';
 import { AppDetailViewModel, AppSummary, OAuthUser, UpdateItem, UpdateCheckProgressPayload, UpdateRule, ViewType, WatchUpdatedPayload } from './types';
 import { api } from './services/api';
-import { isPlatformPending, togglePlatformSet, type PlatformId } from './lib/platformFilter';
+import { togglePlatformSet, type PlatformId } from './lib/platformFilter';
+import { isPendingFor } from './app/selectors';
 
 import {
   PLATFORM_FILTER_STORAGE_KEY,
@@ -666,7 +667,7 @@ export const App: React.FC = () => {
           isWatched={watchedIds.has(selectedApp.id)}
           isInstallingGlobal={installingAppIds.has(selectedApp.id)}
           isUninstallingGlobal={uninstallingAppIds.has(selectedApp.id)}
-          platformPending={isPlatformPending(selectedApp, platformResolvedOtherIds)}
+          platformPending={isPendingFor(selectedApp, platformResolvedOtherIds)}
           oauthUser={oauthUser}
           onClose={() => {
             activeDetailIdRef.current = null;
