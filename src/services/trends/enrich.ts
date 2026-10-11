@@ -580,21 +580,34 @@ export function upsertTrendEnrichFromDetail(detail: AppDetail): void {
 const RICH_CATEGORY_PLACEHOLDERS = new Set(['', 'external', 'dev', 'system']);
 const RICH_VERSION_PLACEHOLDERS = new Set(['latest', '...']);
 /**
- * 富卡简介占位名单：Rust 合成回退（未收录 external_synth / 在线搜索空描述）
- * 与前端展示兜底的默认文案，diff/merge/patch 一律视为空（不脏、不覆盖、不进盘）；
+ * 富卡简介占位名单：前端单源（diff/merge/patch 三处消费均经 `isPlaceholderDescription`，
+ * 不再各立名单），以后端为准与之同形。
+ * 后端真相源 `src-tauri/src/github/detail_fetch.rs::is_placeholder_description`：
+ * 空白视为占位 + 已知占位子串 contains + 英文占位大小写不敏感兜底。
+ * - 条目与后端对齐（未收录 external_synth / 在线搜索空描述 / 展示兜底），另保留
+ *   en-US 展示兜底 'No description'（后端为其超集 'No description available' 的子串，
+ *   显式保留以锁旧行为，见 richcard.test.ts）；
+ * - 唯一有意差异：空串前端返回 false（调用方 `b !== ''` 分支已先处理空；后端视空为占位）。
+ *   空在三处消费点均先被过滤，行为同形（同上测试锁定）。
  * 展示兜底只留在渲染侧（TrendsView displayApp 的 no_desc 逻辑）。
  */
-const RICH_DESCRIPTION_PLACEHOLDERS = new Set([
+const RICH_DESCRIPTION_PLACEHOLDERS: readonly string[] = [
   'GitHub 社区开源项目',
   '开源软件项目',
   '跨平台开源项目',
   '暂无简介',
+  '暂无描述',
+  'No description available',
   'No description',
-]);
+];
 
 export function isPlaceholderDescription(v: unknown): boolean {
   if (typeof v !== 'string') return false;
-  return RICH_DESCRIPTION_PLACEHOLDERS.has(v.trim());
+  const t = v.trim();
+  if (t === '') return false;
+  if (RICH_DESCRIPTION_PLACEHOLDERS.some((p) => t.includes(p))) return true;
+  // 英文占位大小写不敏感兜底（与后端同形）。
+  return t.toLowerCase().includes('no description available');
 }
 
 function richStr(v: unknown): string {

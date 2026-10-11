@@ -40,11 +40,11 @@ pub fn wrap_gh_proxy(raw_url: &str) -> String {
 /// opportunistic 小文件拉取上下文的改写（单一 interface 的无状态侧）：
 /// GitHub 域 gh-proxy 前缀兜底加速，非 GitHub 域直连。
 /// 返回 `(effective_url, is_mirror)`（`is_mirror` 供日志）；`CatalogService`
-/// 侧默认经 adapter 注入本函数，不再自立 duplicate。
+/// 侧详情 checksum 缝唯一调用点直调本函数（fn 指针注入参数已收敛删除，见
+/// `github::detail_fetch::fetch_checksum_table`），不再自立 duplicate。
+/// ica3-5：域判定收敛至 `wrap_gh_proxy` 单口（非 GitHub 直连 + 已套前缀直通皆由
+/// 底层原语判定，此处只比对是否改写），语义与原双分支完全一致。
 pub fn opportunistic_rewrite(raw_url: &str) -> (String, bool) {
-    if !is_github_domain(raw_url) {
-        return (raw_url.to_string(), false);
-    }
     let wrapped = wrap_gh_proxy(raw_url);
     let changed = wrapped != raw_url;
     (wrapped, changed)

@@ -154,6 +154,7 @@ pub async fn get_platforms_lite(
     // （见上）；更新检查通道无此分支，每次直探。语义见模块注释。
     // 现行语义保留：304 payload 腐坏报硬错"解析本地 ETag 缓存失败"（更新检查侧 tolerant 跳过）。
     // Fresh 无需回退源，避免无谓 DB 读（现行 hot 路径语义）。
+    // ica3-5：touch/save 双效应经 `apply_release_cache_effects` 单口执行（调用侧 2 行重复收敛）。
     let stale_row: Option<crate::models::AppDetail> = match &outcome {
         EtagGetOutcome::Fresh { .. } => None,
         _ => state
@@ -168,15 +169,15 @@ pub async fn get_platforms_lite(
         None,
     ) {
         Ok(rel) => {
-            if rel.touch {
-                if let Ok(db) = state.db() {
-                    let _ = db.touch_cached_app_detail(&clean_id, crate::now_secs());
-                }
-            }
-            if let Some((et, text)) = rel.cache_to_save {
-                if let Ok(db) = state.db() {
-                    let _ = db.save_etag(&release_endpoint, &et, &text, crate::now_secs());
-                }
+            if let Ok(db) = state.db() {
+                crate::github::release_fetch::apply_release_cache_effects(
+                    &db,
+                    &release_endpoint,
+                    &clean_id,
+                    rel.touch,
+                    rel.cache_to_save,
+                    crate::now_secs(),
+                );
             }
             let platforms = match rel.row_platforms {
                 // 旧行穿透：直接采用已 deduce platforms，不重推导（现行语义）。
@@ -487,21 +488,23 @@ pub async fn get_app_details_impl(
             let now = crate::now_secs();
             detail.cached_at = Some(now);
 
-            if let Some((etag, payload)) = to_cache {
-                // 远端返回 200 OK，更新 ETag 缓存表
-                if let Ok(db) = state.db() {
-                    let _ = db.save_etag(&release_endpoint, &etag, &payload, now);
-                }
-            } else if detail.is_stale != Some(true) {
-                // 远端返回 304 Not Modified（to_cache 为 None 且非 stale 穿透）
-                // 仅刷新 cached_at 时间戳，零配额消耗延长保鲜期。
-                // P0：stale 穿透（401/离线复用旧详情）不得 touch，避免把过期 stale 洗成 fresh。
-                // 真空延保：fresh 真空经 304 恢复（payload 解析双空、is_stale=None）同样
-                // 走此 touch 延保；经 200（to_cache=Some）则走上方的 save_etag，并由下方
-                // 落盘分支以 fresh 空行落盘（cached_at=now），下次 TTL 内不再变黄。
-                if let Ok(db) = state.db() {
-                    let _ = db.touch_cached_app_detail(&clean_id, now);
-                }
+            // ica3-5：release ETag 副作用经 `release_fetch::apply_release_cache_effects` 单口执行
+            //（与 lite 双径同形合一；touch 侧 stale 守卫保留：stale 穿透永不 touch，
+            // 避免把过期 stale 洗成 fresh）。
+            // 语义对照：to_cache=Some 为远端 200（落库 ETag 键）；to_cache=None + 非 stale
+            // 为远端 304（仅 touch 延保，零配额；fresh 真空经 304 恢复同样走此延保，
+            // 经 200 则走 save 并由下方落盘分支以 fresh 空行落盘，下次 TTL 内不再变黄）。
+            if let Ok(db) = state.db() {
+                let touch_on_304 =
+                    to_cache.is_none() && detail.is_stale != Some(true);
+                crate::github::release_fetch::apply_release_cache_effects(
+                    &db,
+                    &release_endpoint,
+                    &clean_id,
+                    touch_on_304,
+                    to_cache,
+                    now,
+                );
             }
 
             // 存入 SQLite 本地持久化缓存。

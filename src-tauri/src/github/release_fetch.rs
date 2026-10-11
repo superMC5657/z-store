@@ -22,8 +22,8 @@
 //!   两侧经同一 shallow adapter 决议（单测同 interface），豁免由分支形状保证。
 //!
 //! effect 归属：本模块为纯决议（无网络、无 DB），只返回 touch/save 意图；
-//! 调用方各用 2 行执行——304 命中恢复一律 touch 延保，stale 穿透永不 touch
-//! （避免把过期 stale 洗成 fresh），Fresh 带 ETag 则 `save_etag`。
+//! 调用方经 `apply_release_cache_effects` 单口执行——304 命中恢复一律 touch 延保，
+//! stale 穿透传 touch=false 永不 touch（避免把过期 stale 洗成 fresh），Fresh 带 ETag 则 `save_etag`。
 //! 失败路径是否恢复 ETag payload 由调用方传入决定：更新检查传入 None（不恢复，
 //! 现行语义），平台 lite 传入预读 payload；差异见各调用方注释。
 
@@ -325,6 +325,33 @@ pub(crate) fn decide_detail_release(
     }
 }
 
+// ---------------------------------------------------------------------------
+// ica3-5: release touch/save/stale 效应收敛（shallow + deep 调用点同一 interface）
+// ---------------------------------------------------------------------------
+
+/// release ETag 副作用唯一执行口（纯决议 `decide_*` 与 effect 正交，本函数只做 DB 写）：
+/// - `touch` 为 true 时刷新详情 `cached_at` 延保（304 命中恢复；stale 穿透调用方传 false，
+///   守卫表达式与调用点同行，永不把过期 stale 洗成 fresh）；
+/// - `cache_to_save` 为 Some 时落库 `api_etag_cache` 条件请求键（Fresh 带 ETag）；
+/// - `let _ =` 吞错 + 下次重试语义与原调用点一致；`now_secs` 由调用方传入（单测可定死）。
+/// 调用点（`commands::catalog_detail` lite + detail 双径）一律经此，不再各写 touch/save 两行；
+/// `commands::updates_check` 历史内联分支语义相同，待后续同形迁移（见该文件注释，不在本 scope 改动）。
+pub(crate) fn apply_release_cache_effects(
+    db: &crate::db::Database,
+    release_endpoint: &str,
+    app_id: &str,
+    touch: bool,
+    cache_to_save: Option<(String, String)>,
+    now_secs: i64,
+) {
+    if touch {
+        let _ = db.touch_cached_app_detail(app_id, now_secs);
+    }
+    if let Some((etag, payload)) = cache_to_save {
+        let _ = db.save_etag(release_endpoint, &etag, &payload, now_secs);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -528,6 +555,29 @@ mod tests {
     }
 
     // ---- deep ----
+
+    #[test]
+    fn apply_release_cache_effects_saves_etag_and_touches_without_error() {
+        // ica3-5：touch/save 双效应单口执行（无行 touch 为空操作不炸；save 落库 ETag 键）。
+        let db = crate::db::Database::open_in_memory().unwrap();
+        let ep = "https://api.github.com/repos/o/r/releases/latest";
+        super::apply_release_cache_effects(
+            &db,
+            ep,
+            "o/r",
+            true,
+            Some(("W/\"e\"".to_string(), "{\"tag_name\":\"v1\"}".to_string())),
+            1700000000,
+        );
+        assert_eq!(db.get_etag(ep).unwrap().as_deref(), Some("W/\"e\""));
+        assert_eq!(
+            db.get_cached_payload(ep).unwrap().as_deref(),
+            Some("{\"tag_name\":\"v1\"}")
+        );
+        // 全空调用同样不炸（stale 穿透 touch=false + 无落库形状）。
+        super::apply_release_cache_effects(&db, ep, "o/r", false, None, 1700000000);
+        assert_eq!(db.get_etag(ep).unwrap().as_deref(), Some("W/\"e\""));
+    }
 
     #[test]
     fn deep_not_modified_restores_payload_or_errors() {

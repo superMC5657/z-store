@@ -145,10 +145,8 @@ pub fn platforms_from_assets(assets: &[ReleaseAsset]) -> Vec<String> {
     plats
 }
 
-/// 别名 deduce_platforms / platforms_from_assets 对齐
-pub fn deduce_platforms(assets: &[ReleaseAsset]) -> Vec<String> {
-    platforms_from_assets(assets)
-}
+/// 别名 deduce_platforms 已内联收敛至 `platforms_from_assets` 单口（ica3-5：
+/// 薄投影不再单立函数，调用方一律用 `platforms_from_assets`；历史别名删除不保留）。
 
 pub fn sort_platforms(platforms: &mut [String]) {
     const ORDER: &[&str] = &["windows", "macos", "linux", "ios", "android"];
@@ -189,6 +187,26 @@ pub fn platforms_with_ios_union(
         Some(cp) => with_ios_union(deduced, cp),
         None => deduced,
     }
+}
+
+/// checksum 文件名平台相关性判定（ica3-5：自 `detail_fetch::CatalogService`
+/// 关联函数内联收敛至此，与 installer 资产过滤同模块 single source；入参须为小写文件名）。
+/// Windows 相关（msi/exe/zip/setup/portable/win）或通用命名时返回 true；
+/// 携带 linux/mac/dmg/appimage/deb/rpm/aarch64/arm64/darwin 任一提示词时返回 false 及命中的提示词。
+pub fn checksum_asset_platform_eligible(lower_name: &str) -> (bool, &'static str) {
+    const WIN_HINTS: &[&str] = &["msi", "exe", "zip", "setup", "portable", "win"];
+    if WIN_HINTS.iter().any(|h| lower_name.contains(*h)) {
+        return (true, "windows_relevant");
+    }
+    const NON_WIN_HINTS: &[&str] = &[
+        "linux", "mac", "dmg", "appimage", "deb", "rpm", "aarch64", "arm64", "darwin",
+    ];
+    for hint in NON_WIN_HINTS {
+        if lower_name.contains(*hint) {
+            return (false, hint);
+        }
+    }
+    (true, "generic")
 }
 
 /// GitHub 原始资产 → 最小 `ReleaseAsset` 投影 → deduce + ios 并集（lite 通道 SSOT）。
@@ -319,6 +337,22 @@ mod tests {
 
         let plats = platforms_from_assets(&mixed);
         assert_eq!(plats, vec!["windows".to_string(), "macos".to_string(), "linux".to_string()]);
-        assert_eq!(deduce_platforms(&mixed), plats);
+    }
+
+    #[test]
+    fn test_checksum_platform_filter_skips_linux_aarch64_only() {
+        // ica3-5：断言自 `detail_fetch` 随函数搬迁至此（单源覆盖，不两处重复测）。
+        // FreeCAD 案：Linux-aarch64-only 的 checksum 文件必须跳过，不产生请求。
+        let (ok, _) = checksum_asset_platform_eligible("freecad-linux-aarch64.sha256");
+        assert!(!ok);
+        let (ok, _) = checksum_asset_platform_eligible("app-1.0-linux.tar.gz.sha256");
+        assert!(!ok);
+        // Windows 相关与通用命名允许请求。
+        let (ok, reason) = checksum_asset_platform_eligible("rustdesk-1.2.6-windows-msi.sha256");
+        assert!(ok, "{}", reason);
+        let (ok, reason) = checksum_asset_platform_eligible("checksums-sha256.txt");
+        assert!(ok, "{}", reason);
+        let (ok, _) = checksum_asset_platform_eligible("SHA256SUMS");
+        assert!(ok);
     }
 }
