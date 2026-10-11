@@ -79,7 +79,7 @@ import {
   type SeqGuard,
 } from '../../lib/platformFilter';
 import { zlogInfo } from '../../lib/z-log';
-import { patchIconMirror, stickyIconFor } from '../iconStore';
+import { stickyIconFor } from '../iconStore';
 
 /**
  * 单一抓取入口（board 为唯一 deep module 的对外抓取口）。
@@ -1004,25 +1004,6 @@ export function persistRichcardHeal(
   } catch {
     // 落盘失败不影响内存 merge
   }
-}
-
-/**
- * 图标变更镜像合并 adapter（薄透传，待删）：
- * 实现已内聚至图标深 module（`services/iconStore.patchIconMirror` 单 interface，
- * `normalizeId` 归一 + 坐标/id 双别名，遵 ADR-0010；L5 `''` 放行清零）。
- * 此处仅委托，不自立合并 locality（`depth` 在店内）。生产路径经读侧扇出
- * （`subscribeIconWrites`，店内 `applyHit` 受理后通知，见 `TrendsView` 订阅）跟进镜像，
- * 不再直调此函数；保留导出仅兼容未迁移的单测/旧调用（`one adapter=hypothetical seam`，
- * `deletion test`：删此透传则旧单测编译失败、生产行为不变，证其零 `leverage`，待迁移后删除）。
- * 图标持久化（`hydrate` + 写透）已收口 `TrendsView.onSearchIconUpgraded` 经 board seam
- * （`hydrateBoardEnrich` + `scheduleBoardPersist`），旧 `persistIconChanged` 测试专用 adapter 已删除。
- */
-export function applyIconChangedToMirror(
-  prev: Record<string, AppSummary>,
-  appIdNorm: string,
-  rawIcon: string,
-): Record<string, AppSummary> {
-  return patchIconMirror(prev, appIdNorm, rawIcon);
 }
 
 export interface TrendHealBusHandlers {

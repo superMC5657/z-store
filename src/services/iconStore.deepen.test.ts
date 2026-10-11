@@ -4,7 +4,7 @@
  * module/interface/depth/seam/adapter/leverage/locality 口径：
  * - module：`services/iconStore` 为唯一深 module；`AppIcon`/`enrich`/`board` 无图标 locality。
  * - interface：写唯一经 `applyHit`，读侧经 `subscribeIconWrites` 扇出；`stickyIconFor`/
- *   `patchIconMirror` 为内部 seam 的收敛实现（`enrich`/`board` 薄委托）。
+ *   `patchIconMirror` 为内部 seam 的收敛实现。
  * - 领域词：`IconFetch` → `icon-ready` → `applyHit`；`Search List Cache` 组装经缓冲回读。
  * - 合规：`normalizeId` 归一遵 ADR-0010；level 纯L + `via` 正交遵 ADR-0015；展示分层遵 ADR-0005。
  */
@@ -19,7 +19,6 @@ import {
   stickyIconFor,
   subscribeIconWrites,
 } from './iconStore';
-import { applyIconChangedToMirror } from './trends/board';
 
 const REAL = 'https://cdn.simpleicons.org/r';
 
@@ -87,14 +86,11 @@ describe('ica3-1: deepen icon-write seam behind single interface', () => {
     expect(stickyIconFor(undefined, incomingBare).icon).toBe(REAL);
   });
 
-  it('patchIconMirror 单 interface：board 透传同语义（含 L5 清零与别名）', () => {
+  it('patchIconMirror 单 interface（含 L5 清零与别名）', () => {
     const prev: Record<string, never> = {
       'o/r': { id: 'o/r', icon: REAL } as never,
     } as never as Record<string, never>;
     const viaStore = patchIconMirror(prev as never, 'o/r', '');
     expect((viaStore as Record<string, { icon: string }>)['o/r'].icon).toBe('');
-    const viaBoard = applyIconChangedToMirror(prev as never, 'o/r', '');
-    expect((viaBoard as Record<string, { icon: string }>)['o/r'].icon).toBe('');
-    expect(viaBoard).toEqual(viaStore);
   });
 });

@@ -7,7 +7,7 @@
  * 写口，`clearBufferedIcon` 又只清内存不通知列表/镜像 → 永久 stale。
  *
  * 本文件只用已存在 API：`applyHit`（显式 patch）+ 纯函数
- * `patchAppIconList` / `applyIconChangedToMirror`（生产订阅者同逻辑）。
+ * `patchAppIconList` / `patchIconMirror`（生产订阅者同逻辑）。
  */
 import { describe, expect, it, beforeEach } from 'vitest';
 import {
@@ -15,10 +15,10 @@ import {
   __resetIconWriteSubscribersForTests,
   applyHit,
   patchAppIconList,
+  patchIconMirror,
   getBufferedIcon,
   subscribeIconWrites,
 } from './iconStore';
-import { applyIconChangedToMirror } from './trends/board';
 
 const REAL_ICON = 'https://cdn.simpleicons.org/r';
 
@@ -27,7 +27,7 @@ let mirror: Record<string, any>;
 
 function testPatch(tid: string, icon: string): void {
   list = patchAppIconList(list as never[], tid, icon) as never as any[];
-  mirror = applyIconChangedToMirror(mirror, tid, icon);
+  mirror = patchIconMirror(mirror, tid, icon);
 }
 
 beforeEach(() => {

@@ -28,7 +28,6 @@ import {
 } from '../services/trends';
 import {
   applyPlatformsHealToMirror,
-  applyIconChangedToMirror,
   applyRichcardHealToMirror,
   boardRepoKeys,
   buildSwrFill,
@@ -67,7 +66,7 @@ import {
   matchPlatformSet,
   type PlatformId,
 } from '../lib/platformFilter';
-import { applyHit, subscribeIconWrites } from '../services/iconStore';
+import { applyHit, patchIconMirror, subscribeIconWrites } from '../services/iconStore';
 
 /**
  * 趋势榜单一榜一源：调 `fetchTrendsResult(board, { proxyPrefix })`，
@@ -494,13 +493,13 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
 
   // 图标写扇出订阅（读侧）：店内唯一写口受理后镜像跟进——覆盖无 patch 的本地写
   // （如详情轮转切 L5 只调 `applyHit` 不带 patch，榜单行经此清徽章）。
-  // 纯内存合并（`applyIconChangedToMirror` 同语义；`''`/`data:` 不 hydrate/写透，
+  // 纯内存合并（`patchIconMirror` 单 interface；`''`/`data:` 不 hydrate/写透，
   // 与 `persistIconChanged` 同规则）；持久化源为 cycle 行/detail_json，remount 重衍生。
   // 卸载即退订。
   useEffect(() => {
     return subscribeIconWrites(({ targets, icon }) => {
       for (const t of targets) {
-        setEnrichedApps((prev) => applyIconChangedToMirror(prev, t, icon));
+        setEnrichedApps((prev) => patchIconMirror(prev, t, icon));
       }
     });
   }, []);

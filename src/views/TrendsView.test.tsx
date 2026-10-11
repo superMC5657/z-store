@@ -81,7 +81,7 @@ import {
   TREND_BOARD_STORAGE_KEY,
 } from './TrendsView/useTrendBoard';
 import { tauriApi } from '../services/api';
-import { applyIconChangedToMirror } from '../services/trends/board';
+import { patchIconMirror } from '../services/iconStore';
 import { zlogInfo, zlogWarn } from '../lib/z-log';
 
 vi.mock('../lib/z-log', () => ({
@@ -1379,7 +1379,7 @@ describe('09 收敛：icon-changed 窗口总线已删，图标唯一经 icon-rea
         platforms: ['windows'],
       }),
     };
-    const next = applyIconChangedToMirror(prev, 'acme/atlas', '');
+    const next = patchIconMirror(prev, 'acme/atlas', '');
     expect(next['acme/atlas'].icon).toBe('');
   });
 });
