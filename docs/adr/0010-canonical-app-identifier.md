@@ -53,3 +53,18 @@ DB 查询统一 `LOWER(app_id)`、详情缓存 `app_id + repo_key` 双键镜像�
   自校验（id 必须与坐标一致）；检索逻辑大幅简化（单一匹配路径）。
 - 中性：非 GitHub 源收录清单条目为未来扩展，届时 `id` 采用 `forge:owner/repo`
   形态，归一化链路无需变更。
+
+## 修订注（2026-10-11，票 14；maintainer 决议：修订本 ADR，不重开）
+
+- **深链入站强制归一化**：`DeepLinkParser::parse` 对 `app`/`install`/裸 id 三路由
+  统一经 `forge::canonical_app_id()` 归一（实现为 `canonical_lookup_id`）——
+  可解析直取 canonical（如大小写/完整 URL 形态收敛），不可解析回退小写、
+  解析层不断路由；执行层 `require_app_id` 仍拒绝未知标识，分层不混淆。
+  此前深链原文透传为与本 ADR 第 5 条（入站归一化系统边界契约）的唯一例外，
+  现予收紧，边界契约闭环。
+- **三键合一**：`canonical_app_id`/`canonical_icon_key`/`icon_key` 收敛为前者
+  唯一实现（`(owner, repo)` 经 `canonical_app_id_from_parts`；`icon_key` 为薄
+  委托，未使用的 `canonical_icon_key` 已删除）；DB 主键/事件 key/前端归一键全同。
+- **深 join 模块**：未收录 join（`(favorite∪watched)∖精选收录库`）与 scanner
+  模糊评分收拢为深 join 模块（exact 规范查 vs heuristic fuzzy），为本 ADR
+  归一化链路的收敛实现，不新增决策。

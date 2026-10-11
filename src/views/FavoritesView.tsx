@@ -10,6 +10,7 @@ import { tauriApi } from '../services/api';
 import { ViewAppActions, ViewShell } from './ViewShell';
 import { matchesAppText } from './useViewFilter';
 import { isPendingFor } from '../app/selectors';
+import { buildLowerIdSet } from '../app/favoritesUncataloged';
 
 interface FavoritesViewProps extends ViewAppActions {
   platformResolvedOtherIds?: ReadonlySet<string>;
@@ -50,18 +51,10 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   const matchesSearch = (a: AppSummary) => matchesAppText(a, searchText);
 
   // 收藏 left-join 消费侧：`apps` 已由 App 补齐未收录占位行，此处仅做归一大小写 inner 过滤
-  // （双键：原值 + 小写均命中）；计数仍用 `favoriteIds.size` 全集。
-  const favoriteIdsLower = new Set<string>();
-  for (const id of favoriteIds) {
-    const k = (id || '').toLowerCase();
-    if (k) favoriteIdsLower.add(k);
-  }
-  // 关注同口径小写归一（与收藏分支 57-62 一致）；计数仍用 `watchedSet.size` 全集。
-  const watchedIdsLower = new Set<string>();
-  for (const id of watchedSet) {
-    const k = (id || '').toLowerCase();
-    if (k) watchedIdsLower.add(k);
-  }
+  // （双键：原值 + 小写均命中；键构造经深 join 模块唯一口径）；计数仍用 `favoriteIds.size` 全集。
+  const favoriteIdsLower = buildLowerIdSet(favoriteIds);
+  // 关注同口径小写归一（与收藏分支一致）；计数仍用 `watchedSet.size` 全集。
+  const watchedIdsLower = buildLowerIdSet(watchedSet);
   const favoriteApps = apps.filter((a) => favoriteIdsLower.has((a.id || '').toLowerCase()) && matchesSearch(a));
   const watchedApps = apps.filter((a) => watchedIdsLower.has((a.id || '').toLowerCase()) && matchesSearch(a));
 

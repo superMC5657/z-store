@@ -308,7 +308,8 @@ pub fn set_level(db: &Database, app_id: &str, level: i32) -> Result<()> {
 // `cycle_filename` + `icons/` 落盘 + 镜像改写） stays behind 适配器
 // （见 `commands::icons_cycle_probe`）。Curated Catalog 永不分支，例外仅
 // L1 填充（`ensure_cycle_levels`）与文件名分流（`catalog_filename` vs `cycle_filename`）。
-// ADR-0010：key 一律小写 `owner/repo`（`icon_key`/`canonical_app_id` 同值，见下）。
+// ADR-0010：key 一律小写 `owner/repo`（三键合一：唯一实现见
+// `forge::canonical_app_id_from_parts`，`icon_key` 为其薄委托）。
 
 /// 级别→来源映射。
 /// L4=README现场扒
@@ -330,7 +331,8 @@ pub fn is_fallback_for_level(level: i32) -> bool {
 /// 入站应用标识解析 SSOT：`RepositoryUrlParser::parse` 优先，`split_once('/')` 回退。
 /// 返回 `(canonical 小写 id, 原大小写 owner/repo)`；与原 resolve_app_coord 分支逐一对齐。
 /// ADR-0010：`canonical` 即 `forge::canonical_app_id` 的 GitHub 形态
-/// （小写 `owner/repo`），与 `github::icon_fetch::icon_key(owner, repo)` 同值；
+/// （小写 `owner/repo`），与统一事件 key（三键合一，见
+/// `forge::canonical_app_id_from_parts`）同值；
 /// 事件 `key/id`、DB 主键、前端归一键一律用此值，不透传脏 id。
 pub fn resolve_icon_coord(app_id: &str) -> Result<(String, RepoRef), String> {
     let trimmed = app_id.trim();
@@ -410,13 +412,6 @@ pub fn catalog_filename(stem: &str, ext: &str) -> String {
 /// 与 `catalog_filename` 的分流为唯一允许的 Catalog 分支；level 纯L 2/3/4（非收录永无 L1）。
 pub fn cycle_filename(stem: &str, level: i32, ext: &str) -> String {
     format!("{}_l{}.{}", stem, level, ext)
-}
-
-/// 规范图标 key（ADR-0010）：小写 `owner/repo`，与
-/// `github::icon_fetch::icon_key(owner, repo)` 同值。DB 主键/事件 key/前端归一键
-/// 统一经此（或 `resolve_icon_coord` 的 canonical），不手写 `to_lowercase` 散装拼接。
-pub fn canonical_icon_key(owner: &str, repo: &str) -> String {
-    format!("{}/{}", owner.to_lowercase(), repo.to_lowercase())
 }
 
 /// 非收录 url 槽位认领：命中既有 l2/l3/l4 返回其级别，

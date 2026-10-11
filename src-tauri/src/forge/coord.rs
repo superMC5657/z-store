@@ -67,6 +67,25 @@ pub fn canonical_app_id(input: &str) -> Option<String> {
     RepositoryUrlParser::parse(trimmed).map(|coord| coord.to_app_id().to_lowercase())
 }
 
+/// 三键合一（票 14）：`(owner, repo)` → canonical 唯一真相源。
+/// `canonical_app_id`（单串全形态解析）、`icon_key`（事件 key）、
+/// `canonical_icon_key`（DB 主键，已删并至此）三者同值——后两者现为本函数的
+/// 薄委托；DB 主键/事件 key/前端归一键全同。
+/// total 函数永不失败：可解析直取 canonical，不可解析回退小写拼接
+/// （与旧双键逐字同值；调用方传入已 trim 干净坐标时恒走解析分支）。
+pub fn canonical_app_id_from_parts(owner: &str, repo: &str) -> String {
+    let raw = format!("{}/{}", owner.trim(), repo.trim());
+    canonical_app_id(&raw).unwrap_or_else(|| raw.to_lowercase())
+}
+
+/// 入站键归一（total，票 14）：`canonical_app_id` 可解析直取 canonical，
+/// 不可解析回退 `trim().to_lowercase()`（与 ADR-0010"原样小写兜底"同形）。
+/// 深链解析层与存量 id 比对层用；执行层拒绝语义仍在 `require_app_id`，分层不混淆。
+pub fn canonical_lookup_id(raw: &str) -> String {
+    let trimmed = raw.trim();
+    canonical_app_id(trimmed).unwrap_or_else(|| trimmed.to_lowercase())
+}
+
 pub struct RepositoryUrlParser;
 
 impl RepositoryUrlParser {
@@ -302,4 +321,55 @@ pub fn lookup_case_insensitive(
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_canonical_app_id_from_parts_is_total_and_canonical() {
+        // 常规坐标：解析分支，与旧双键逐字同值。
+        assert_eq!(canonical_app_id_from_parts("rustdesk", "rustdesk"), "rustdesk/rustdesk");
+        assert_eq!(
+            canonical_app_id_from_parts("SuperMC5657", "Z-Store"),
+            "supermc5657/z-store"
+        );
+        // 前后空白被归一（旧散装拼接做不到，统一后 DB/事件键全同）。
+        assert_eq!(canonical_app_id_from_parts("  O  ", "  R  "), "o/r");
+        // 不可解析回退小写拼接（total 永不失败）。
+        assert_eq!(canonical_app_id_from_parts("", ""), "/");
+        assert_eq!(canonical_app_id_from_parts("o", "r r"), "o/r r");
+    }
+
+    #[test]
+    fn test_three_keys_unified_db_event_keys_identical() {
+        // 三键合一：`canonical_app_id` / `icon_key`（事件 key）/
+        // `resolve_icon_coord` canonical（DB 主键）全同。
+        let joined = canonical_app_id_from_parts("SuperMC5657", "Z-Store");
+        assert_eq!(
+            crate::forge::canonical_app_id("SuperMC5657/Z-Store").as_deref(),
+            Some(joined.as_str())
+        );
+        assert_eq!(crate::github::icon_fetch::icon_key("SuperMC5657", "Z-Store"), joined);
+        assert_eq!(
+            crate::db::icon_cycle::resolve_icon_coord("SuperMC5657/Z-Store")
+                .unwrap()
+                .0,
+            joined
+        );
+    }
+
+    #[test]
+    fn test_canonical_lookup_id_parse_or_lowercase_fallback() {
+        assert_eq!(canonical_lookup_id("RustDesk/RustDesk"), "rustdesk/rustdesk");
+        assert_eq!(
+            canonical_lookup_id("https://github.com/RustDesk/RustDesk"),
+            "rustdesk/rustdesk"
+        );
+        assert_eq!(canonical_lookup_id("codeberg:FreeTubeApp/FreeTube"), "codeberg:freetubeapp/freetube");
+        // 不可解析回退小写（深链解析层不断路由；执行层 `require_app_id` 再拒绝）。
+        assert_eq!(canonical_lookup_id("rustdesk"), "rustdesk");
+        assert_eq!(canonical_lookup_id("  "), "");
+    }
 }

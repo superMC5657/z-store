@@ -1,5 +1,6 @@
 pub mod display_icon;
 pub mod executable;
+pub mod join;
 pub mod lnk_target;
 pub mod matcher;
 pub mod registry;

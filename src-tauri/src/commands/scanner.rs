@@ -15,17 +15,18 @@ pub fn scan_and_match_local_apps(
 
     let installed_ids: std::collections::HashSet<String> = {
         let db = state.db()?;
-        db.get_installed_apps()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|a| a.app_id)
-            .collect()
+        // 深 join 模块 exact 侧：建集时一次归一（canonical 数据零行为变更，
+        // 存量大小写漂移行被治愈，接 ADR-0010 修订）。
+        crate::scanner::join::canonical_id_set(
+            db.get_installed_apps().unwrap_or_default().into_iter().map(|a| a.app_id),
+        )
     };
 
-    let matches = crate::scanner::AppScanner::match_apps(&scanned, &catalog_items);
+    // 深 join 模块 fuzzy 侧：启发式评分唯一入口（与 `match_apps` 同语义）。
+    let matches = crate::scanner::join::join_fuzzy(&scanned, &catalog_items);
     let unmanaged_matches = matches
         .into_iter()
-        .filter(|m| !installed_ids.contains(&m.catalog_id))
+        .filter(|m| !crate::scanner::join::is_managed_id(&m.catalog_id, &installed_ids))
         .collect();
     let unmanaged: Vec<crate::scanner::AppMatchResult> = unmanaged_matches;
 

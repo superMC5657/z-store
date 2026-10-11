@@ -11,6 +11,7 @@ import { FavoritesView } from './FavoritesView';
 import { AppCard } from '../components/AppCard';
 import { api } from '../services/api';
 import { makeApp } from './test-utils/filterFixture';
+import { makeFavoritePlaceholderSummary } from '../app/favoritesUncataloged';
 
 afterEach(() => {
   cleanup();
@@ -114,5 +115,41 @@ describe('favorites catalog badge (display-only, data join untouched)', () => {
     );
     expect(container.querySelector('.app-tag-cataloged')).toBeNull();
     expect(container.querySelector('.app-tag-uncataloged')).toBeNull();
+  });
+});
+
+describe('ticket 14 deletion tests: rows kept and counts from full sets without useFavoritesExtra', () => {
+  const baseLocal = {
+    installedIds: new Set<string>(),
+    installingIds: new Set<string>(),
+    onOpenDetail: () => {},
+    onQuickInstall: async () => {},
+    onToggleFavorite: () => {},
+  };
+
+  it('未收录占位行照常渲染（行不消失），tab 计数用全集（含无行 id）', () => {
+    const cataloged = makeApp({ id: 'owner/app-a', name: 'AppA', category: 'system', platforms: ['windows'] });
+    const extra = makeFavoritePlaceholderSummary('Unknown/App');
+    const { container } = render(
+      <FavoritesView
+        apps={[cataloged, extra]}
+        favoriteIds={new Set(['owner/app-a', 'Unknown/App', 'ghost/app'])}
+        {...baseLocal}
+      />,
+    );
+    // 行：已 join 的两行渲染（ghost/app 无行，由 join 模块在 App 层补齐，此处不断言）。
+    expect(container.textContent).toContain('AppA');
+    expect(container.textContent).toContain('未收录');
+    // 计数：全集 3（含无行的 ghost/app），不随行数缩水。
+    expect(screen.getByText('本地收藏 (3)')).not.toBeNull();
+  });
+
+  it('取消收藏即行消失（缺席 id 不成行）', () => {
+    const cataloged = makeApp({ id: 'owner/app-a', name: 'AppA', category: 'system', platforms: ['windows'] });
+    const { container } = render(
+      <FavoritesView apps={[cataloged]} favoriteIds={new Set(['owner/app-a'])} {...baseLocal} />,
+    );
+    expect(container.textContent).toContain('AppA');
+    expect(screen.getByText('本地收藏 (1)')).not.toBeNull();
   });
 });

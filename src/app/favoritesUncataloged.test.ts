@@ -6,9 +6,17 @@
  * - `needsFavoriteIconWarm`：空/非远端需查轮换，合法远端仅文件预热。
  */
 import { describe, expect, it } from 'vitest';
+import type { AppSummary } from '../types';
+import { PLATFORM_IDS } from '../lib/platformFilter';
 import {
+  buildLowerIdSet,
+  favoriteSummaryFromDetail,
+  findMissingFavoriteIds,
+  makeFavoritePlaceholderSummary,
   needsFavoriteIconWarm,
+  parseFavoriteOwnerRepo,
   pickFavoritePersistIconUrl,
+  selectFavoritesViewApps,
 } from './favoritesUncataloged';
 
 describe('pickFavoritePersistIconUrl', () => {
@@ -95,5 +103,98 @@ describe('needsFavoriteIconWarm', () => {
   it('合法远端仅文件预热（不需查轮换）', () => {
     expect(needsFavoriteIconWarm('https://cdn.simpleicons.org/foo')).toBe(false);
     expect(needsFavoriteIconWarm('https://cdn.example.com/a.svg')).toBe(false);
+  });
+});
+
+/**
+ * 票 14 删除测试：`useFavoritesExtra` 文件删除后，未收录 join 语义经深 join
+ * 新模块保持——行不消失（exact 合并去重 + heuristic 占位合成）与计数保留
+ * （调用方全集计数，本模块不参与计数）。
+ */
+function row(id: string, platforms: string[] = []): AppSummary {
+  return { id, platforms } as AppSummary;
+}
+
+describe('uncataloged join keeps rows and full-set counts (ticket 14 deletion tests)', () => {
+  it('findMissingFavoriteIds: union∖catalog 精确差集，大小写归一、保序、保留原值', () => {
+    const missing = findMissingFavoriteIds(
+      ['RustDesk/RustDesk', 'unknown/app', 'UNKNOWN/APP', '  ', 'videolan/vlc'],
+      new Set(['rustdesk/rustdesk', 'videolan/vlc']),
+    );
+    expect(missing).toEqual(['unknown/app']);
+  });
+
+  it('findMissingFavoriteIds: 已有占位行不再重复合成', () => {
+    const missing = findMissingFavoriteIds(
+      ['unknown/app'],
+      new Set<string>(),
+      new Set(['unknown/app']),
+    );
+    expect(missing).toEqual([]);
+  });
+
+  it('selectFavoritesViewApps: 占位段并入且与收录段去重（行不消失）', () => {
+    const base = [row('owner/app-a', ['windows'])];
+    const extras = [row('owner/app-x'), row('owner/app-a', ['windows'])];
+    const merged = selectFavoritesViewApps(
+      base,
+      extras,
+      new Set(PLATFORM_IDS),
+      new Set<string>(),
+    );
+    expect(merged.map((a) => a.id).sort()).toEqual(['owner/app-a', 'owner/app-x']);
+  });
+
+  it('selectFavoritesViewApps: 无占位段时原数组透传', () => {
+    const base = [row('owner/app-a', ['windows'])];
+    expect(selectFavoritesViewApps(base, [], new Set(PLATFORM_IDS), new Set<string>())).toBe(base);
+  });
+
+  it('占位合成行恒为 external + platforms []（pending 恒可见，不参与计数）', () => {
+    const placeholder = makeFavoritePlaceholderSummary('Unknown/App');
+    expect(placeholder.owner).toBe('Unknown');
+    expect(placeholder.repo).toBe('App');
+    expect(placeholder.category).toBe('external');
+    expect(placeholder.platforms).toEqual([]);
+    expect(placeholder.is_cataloged).toBe(false);
+  });
+
+  it('详情派生行保留实分类、空分类兜底 external', () => {
+    const detail = {
+      id: 'o/r',
+      name: 'r',
+      owner: 'o',
+      repo: 'r',
+      icon: '',
+      icon_bg: '',
+      description: '',
+      stars: 0,
+      forks: 0,
+      license: '',
+      latest_version: 'v1',
+      changelog: '',
+      is_verified: false,
+      readme_markdown: '',
+      releases: [],
+      category: 'system',
+      category_name: '开发工具',
+    };
+    const kept = favoriteSummaryFromDetail(detail as never);
+    expect(kept.category).toBe('system');
+    const fallback = favoriteSummaryFromDetail({ ...detail, category: '', category_name: '' } as never);
+    expect(fallback.category).toBe('external');
+    expect(fallback.is_cataloged).toBe(false);
+  });
+
+  it('buildLowerIdSet 与 join 键口径一致（去空/小写/去重）', () => {
+    expect([...buildLowerIdSet(['A/B', 'a/b', '', '  ', null])]).toEqual(['a/b']);
+  });
+
+  it('parseFavoriteOwnerRepo 启发式推导展示用 owner/repo', () => {
+    expect(parseFavoriteOwnerRepo('https://github.com/RustDesk/RustDesk')).toEqual({
+      owner: 'RustDesk',
+      repo: 'RustDesk',
+    });
+    expect(parseFavoriteOwnerRepo('gh:owner/repo')).toEqual({ owner: 'owner', repo: 'repo' });
   });
 });

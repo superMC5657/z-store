@@ -83,11 +83,12 @@ fn default_icon_via() -> String {
     "live".to_string()
 }
 
-/// 统一事件 key：小写 `owner/repo`（ADR-0010 `canonical_app_id` 的 GitHub 形态）。
+/// 统一事件 key：小写 `owner/repo`（三键合一薄委托，唯一实现见
+/// [`crate::forge::canonical_app_id_from_parts`]；DB 主键/事件 key/前端归一键全同）。
 /// 入站标识一律先经 `forge::canonical_app_id` 归一化，再拆 owner/repo 进本函数；
-/// 本函数只做小写拼接，不做解析（解析 SSOT 在 `forge::RepositoryUrlParser`）。
+/// 本函数只做归一拼接，不做解析（解析 SSOT 在 `forge::RepositoryUrlParser`）。
 pub fn icon_key(owner: &str, repo: &str) -> String {
-    format!("{}/{}", owner.to_lowercase(), repo.to_lowercase())
+    crate::forge::canonical_app_id_from_parts(owner, repo)
 }
 
 /// 由任务 + 探测结果构建新统一事件载荷（`via`=live|m2，core探测一律live）。

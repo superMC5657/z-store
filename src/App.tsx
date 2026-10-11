@@ -37,7 +37,7 @@ import { useSearchState } from './app/hooks/useSearchState';
 import { useInstallState } from './app/hooks/useInstallState';
 import { useDeepLink } from './app/hooks/useDeepLink';
 import { useDetailCacheSync } from './app/hooks/useDetailCacheSync';
-import { useFavoritesExtra } from './app/hooks/useFavoritesExtra';
+import { useUncatalogedJoin } from './app/favoritesUncataloged';
 import { useAppSubscriptions } from './app/hooks/useAppSubscriptions';
 import { useAppSelectors } from './app/selectors';
 import { useUpdateActions } from './app/hooks/useUpdateActions';
@@ -163,12 +163,13 @@ export const App: React.FC = () => {
   });
   lazyBackfillRef.current = lazyBackfillPlatforms;
 
-  // 3. 收藏/关注未收录占位行 left-join（仅收藏页消费，不进 apps/计数/其它视图）
+  // 3. 收藏/关注未收录占位行 left-join（深 join 模块 `useUncatalogedJoin`，
+  // 原 `useFavoritesExtra` 已删除并内迁；仅收藏页消费，不进 apps/计数/其它视图）
   const {
     favoriteExtraApps,
     setFavoriteExtraApps,
     favoriteExtraAppsRef,
-  } = useFavoritesExtra({ favoriteIds, watchedIds, apps });
+  } = useUncatalogedJoin({ favoriteIds, watchedIds, apps });
 
   // 4. 详情快照缓存与卡片列表同步（内存 0ms 秒开 + ETag 后台探查 + 富卡/平台治愈）
   const {

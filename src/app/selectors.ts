@@ -15,6 +15,8 @@ import {
   isPendingFor,
   matchSelectedWithPending,
 } from '../services/pendingLifecycle';
+// 收藏页 left-join 合并器收归深 join 模块（`app/favoritesUncataloged`），此处薄消费。
+import { selectFavoritesViewApps } from './favoritesUncataloged';
 // 统一 pending 接口外观（ticket 11）：视图经本选择器接口消费 pending 语义，
 // 不直引 `lib/platformFilter`（lib 降为深模块内部 seam）。
 export {
@@ -57,30 +59,6 @@ export function selectPlatformFilteredApps(
   platformResolvedOtherIds: Set<string>,
 ): AppSummary[] {
   return apps.filter((a) => matchSelectedWithPending(a, selectedPlatforms, platformResolvedOtherIds));
-}
-
-export function selectFavoritesViewApps(
-  platformFilteredApps: AppSummary[],
-  favoriteExtraApps: AppSummary[],
-  selectedPlatforms: Set<PlatformId>,
-  platformResolvedOtherIds: Set<string>,
-): AppSummary[] {
-  if (favoriteExtraApps.length === 0) return platformFilteredApps;
-  const filteredExtras = favoriteExtraApps.filter((a) =>
-    matchSelectedWithPending(a, selectedPlatforms, platformResolvedOtherIds),
-  );
-  if (filteredExtras.length === 0) return platformFilteredApps;
-  const baseLower = new Set<string>();
-  for (const a of platformFilteredApps) {
-    const k = (a.id || '').toLowerCase();
-    if (k) baseLower.add(k);
-  }
-  const deduped = filteredExtras.filter((e) => {
-    const k = (e.id || '').toLowerCase();
-    return k && !baseLower.has(k);
-  });
-  if (deduped.length === 0) return platformFilteredApps;
-  return [...platformFilteredApps, ...deduped];
 }
 
 export function selectPlatformCounts(
