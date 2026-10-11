@@ -21,7 +21,7 @@
 //!   level纯L(2=L2品牌库,3=L3仓库)；缓存正交用via(live|m2)表M2，pool=5/total伸缩。
 //! - 缝：probe-vs-persist——core 永不触 DB/fs（无 `Database`/`std::fs` 引用）；
 //!   `icons/` 落盘（`catalog_filename` vs `cycle_filename`）与镜像改写 stays behind
-//!  （见 `commands::icons_cycle_probe` 适配器）。`compat_collect` buffered 趋势
+//!   （见 `commands::icons_cycle_probe` 适配器）。`compat_collect` buffered 趋势
 //!   等齐路为 legacy 适配器（见 `commands::catalog_search::enrich_trend_repos_buffered`），
 //!   本核不删它、不依赖它。
 //! - D5/D6/D8：双池复用（icon client 隔离，CDN 恒丢 token）+ 有界池 5 +
@@ -37,18 +37,11 @@
 use futures_util::StreamExt;
 use tauri::{AppHandle, Emitter};
 
-/// 慢路径 Trees 分支回退顺序：先 main 后 master（ZCode 类老仓默认分支仍为 master，
-/// 只查 main 会零命中零 emit，首屏恒为 initials）。顺序即优先级，main 优先。
-/// 搜索对齐趋势：实际探测分支由 [`crate::github::icon_probe::resolve_probe_branches`]
-/// 动态解析（先 GET repos 取 `default_branch` 5s 超时，再补 main/master，最多3分支，
-/// 与 `commands::icons_cycle_probe::probe_git_trees` 同源共用）；
-/// 本常量仅为回退基线 + 存量单测断言保留（值与 `icon_probe::FALLBACK_PROBE_BRANCHES` 同源）。
-/// 缝：新代码一律用 `icon_probe::FALLBACK_PROBE_BRANCHES`；本别名仅为
-/// `commands::catalog_search` 存量断言的 legacy 适配，勿在新探路中引用。
-#[allow(dead_code)]
-#[deprecated(note = "legacy alias; use icon_probe::FALLBACK_PROBE_BRANCHES")]
-pub(crate) const SEARCH_PROBE_BRANCHES: [&str; 2] =
-    crate::github::icon_probe::FALLBACK_PROBE_BRANCHES;
+// 慢路径 Trees 分支回退顺序唯一定义见 [`crate::github::icon_probe::FALLBACK_PROBE_BRANCHES`]：
+// 先 main 后 master（ZCode 类老仓默认分支仍为 master，只查 main 会零命中零 emit，首屏恒为 initials）。
+// 实际探测分支由 [`crate::github::icon_probe::resolve_probe_branches`]
+// 动态解析（先 GET repos 取 `default_branch` 5s 超时，再补 main/master，最多3分支，
+// 与 `commands::icons_cycle_probe::probe_git_trees` 同源共用）；新代码一律用该动态解析，勿硬编码分支。
 
 /// 单个图标补探任务：`id` 为小写 `owner/repo`（与原 `candidates` 构造一致）。
 #[derive(Debug, Clone)]
@@ -128,7 +121,7 @@ pub(crate) async fn probe_l2_simple(
     repo: &str,
 ) -> Option<String> {
     tokio::time::timeout(
-        crate::commands::catalog_search::api_timeout_or(std::time::Duration::from_millis(8000)),
+        crate::config::api_timeout_or(std::time::Duration::from_millis(8000)),
         crate::github::icon_probe::probe_simple_icons(client, owner, repo),
     )
     .await
@@ -234,7 +227,7 @@ pub async fn fetch_icons_stream<F, Fut>(
     // 整批总量按 jobs 伸缩：
     // total = max(cfg.total_timeout_secs, ceil(jobs/pool) * timeout_each)，pool 保持 5。
     let jobs_len = jobs.len();
-    let timeout_each = crate::commands::catalog_search::api_timeout_or(
+    let timeout_each = crate::config::api_timeout_or(
         std::time::Duration::from_secs(10),
     );
     let batch = futures_util::stream::iter(jobs.into_iter().map(|job| {
@@ -308,15 +301,9 @@ mod tests {
     #[test]
     fn search_icon_branches_keep_master_fallback() {
         // 回归：慢路径 Trees 必须覆盖 master（ZCode 类老仓默认分支），顺序 main 优先。
-        // 新代码用 `icon_probe::FALLBACK_PROBE_BRANCHES`；此处经 legacy 别名断言以
-        // 兼容 `catalog_search` 存量断言（C4 域，C1 不碰该文件，故别名暂留）。
-        #[allow(deprecated)]
-        let branches = SEARCH_PROBE_BRANCHES;
+        // 唯一定义见 `icon_probe::FALLBACK_PROBE_BRANCHES`（动态解析回退基线）。
+        let branches = crate::github::icon_probe::FALLBACK_PROBE_BRANCHES;
         assert_eq!(branches, ["main", "master"]);
         assert!(branches.contains(&"master"));
-        assert_eq!(
-            crate::github::icon_probe::FALLBACK_PROBE_BRANCHES,
-            ["main", "master"]
-        );
     }
 }

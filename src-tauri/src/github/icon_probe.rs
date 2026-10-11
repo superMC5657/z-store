@@ -378,22 +378,12 @@ struct GitTreeNode {
 /// 命中返回权威 URL，未命中返回 `None`。
 /// 快慢分离超时：快路径 SimpleIcons 每 slug 1500ms（免鉴权），慢路径 Trees 12s（需鉴权）。
 /// 两者均经 `api_timeout_seconds` 统一配置，未设置（0）时回退上述历史值，行为保持不变。
-/// ADR-0008：网络超时统一经 `get_project_config().network.api_timeout_seconds` 获取。
-fn api_timeout_or(fallback: std::time::Duration) -> std::time::Duration {
-    let secs = crate::config::get_project_config()
-        .network
-        .api_timeout_seconds;
-    if secs > 0 {
-        std::time::Duration::from_secs(secs)
-    } else {
-        fallback
-    }
-}
+/// ADR-0008：网络超时统一经 `config::api_timeout_or` 单一来源（统一配置中枢同一键）。
 pub(crate) fn simple_icon_timeout() -> std::time::Duration {
-    api_timeout_or(std::time::Duration::from_millis(1500))
+    crate::config::api_timeout_or(std::time::Duration::from_millis(1500))
 }
 fn trees_timeout() -> std::time::Duration {
-    api_timeout_or(std::time::Duration::from_secs(12))
+    crate::config::api_timeout_or(std::time::Duration::from_secs(12))
 }
 
 /// Trees 分支回退唯一定义（搜索/趋势/详情共用）：`main` 优先，`master` 兜底。
@@ -412,7 +402,7 @@ pub(crate) async fn resolve_probe_branches(
     let mut branches: Vec<String> = Vec::with_capacity(3);
     let repo_api = format!("https://api.github.com/repos/{}/{}", owner, repo);
     if let Ok(Ok(resp)) = tokio::time::timeout(
-        api_timeout_or(std::time::Duration::from_secs(5)),
+        crate::config::api_timeout_or(std::time::Duration::from_secs(5)),
         client.get(&repo_api).headers(headers.clone()).send(),
     )
     .await

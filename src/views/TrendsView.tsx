@@ -28,7 +28,6 @@ import {
 } from '../services/trends';
 import {
   addConfirmedMirror,
-  applyIconChangedToMirror,
   applyPlatformsHealToMirror,
   applyRichcardHealToMirror,
   boardRepoKeys,
@@ -54,7 +53,6 @@ import {
   mergeSwrEnrichedMirror,
   noteBoardReposForPersist,
   persistBoardNow,
-  persistIconChanged,
   persistLitePatched,
   persistRichcardHeal,
   persistSettleConfirmed,
@@ -501,9 +499,10 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     };
   }, [activeBoard]);
 
-  // 治愈总线统一订阅：3 路 window 事件（detail-platforms / detail-richcard / icon-changed）
+  // 治愈总线统一订阅：2 路 window 事件（detail-platforms / detail-richcard）
   // 经 board 同一归一 upsert 路径进镜像（normalizeHealKeys + boardRepoKeys 过滤跨榜）。
-  // C2：关闭原三处 addEventListener 散写；key 归一 lower-trim 同源。
+  // 图标经 `icon-ready → applyHit` 唯一写口逐个补齐（见上流式订阅），不走窗口总线。
+  // C2：关闭原散写；key 归一 lower-trim 同源。
   useEffect(() => {
     return subscribeTrendHealBus({
       onPlatformsHeal: (payload: DetailPlatformsHealPayload, keys: string[]) => {
@@ -519,10 +518,6 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
         const repoKeys = boardRepoKeys(trendResult?.repos);
         setEnrichedApps((prev) => applyRichcardHealToMirror(prev, payload, repoKeys));
         persistRichcardHeal(enrichedAppsRef.current, payload, repoKeys);
-      },
-      onIconChanged: (appIdNorm: string, rawIcon: string) => {
-        setEnrichedApps((prev) => applyIconChangedToMirror(prev, appIdNorm, rawIcon));
-        persistIconChanged(enrichedAppsRef.current, appIdNorm, rawIcon);
       },
     });
   }, [trendResult]);

@@ -9,7 +9,8 @@ import {
 import { useTranslation } from 'react-i18next';
 import { AppDetailViewModel, OAuthUser, ReleaseAsset } from '../../types';
 import { api, normalizeIconCycle, type AppIconCycleResult } from '../../services/api';
-import { AppIcon, invalidateIconCache } from '../AppIcon';
+import { AppIcon } from '../AppIcon';
+import { applyHit, clearBufferedIcon } from '../../services/iconStore';
 import { notifyToast } from '../../utils/notify';
 import { VerifiedBadge } from '../VerifiedBadge';
 import { formatBytes } from '../../utils/appHelper';
@@ -90,14 +91,14 @@ export const Header: React.FC<HeaderProps> = ({
             const dedupKey = `${String(app.id).trim().toLowerCase()}::${persistUrl}`;
             if (!iconSyncDispatchedRef.current.has(dedupKey)) {
               iconSyncDispatchedRef.current.add(dedupKey);
-              // 预热文件：触发 Rust getOrFetchIcon 落盘副作用（icons/* 二进制 + catalog/cycle 行），失败不阻塞
-              void api.getOrFetchIcon(app.id, persistUrl).catch(() => {});
-              invalidateIconCache(app.id);
-              window.dispatchEvent(
-                new CustomEvent('zstore:icon-changed', {
-                  detail: { appId: app.id, icon: persistUrl },
-                })
-              );
+              // 初次展示跟随经店内唯一写口（M1 缓冲 + 文件预热；列表写透由详情同步侧持有 setters 完成，
+              // 此处只做缓冲预热，不自发 IPC 预热、不走窗口总线）。
+              applyHit({
+                key: app.id,
+                id: app.id,
+                icon: persistUrl,
+                level: typeof data.level === 'number' ? data.level : undefined,
+              });
             }
           }
         }
@@ -142,12 +143,23 @@ export const Header: React.FC<HeaderProps> = ({
       const res = await api.cycleAppIcon(app.id);
       if (res) {
         setIconCycle(res);
-        invalidateIconCache(app.id);
-        window.dispatchEvent(
-          new CustomEvent('zstore:icon-changed', {
-            detail: { appId: app.id, icon: res.url },
-          })
-        );
+        // 轮转跟随经店内写口：L5 空（url ''）显式清缓冲（唯一允许的空覆盖），其实图经唯一写口缓冲预热；
+        // 即时换图由 iconOverride 本地态直显，不走窗口总线。
+        const cycledUrl = typeof res.url === 'string' ? res.url.trim() : '';
+        if (cycledUrl === '') {
+          try {
+            clearBufferedIcon(app.id);
+          } catch {
+            // 清理失败不阻塞提示
+          }
+        } else {
+          applyHit({
+            key: app.id,
+            id: app.id,
+            icon: res.remote_url && res.remote_url.trim() !== '' ? res.remote_url : cycledUrl,
+            level: typeof res.level === 'number' ? res.level : undefined,
+          });
+        }
         const total = res.total_levels ?? res.totalLevels ?? 5;
         const name = ICON_LEVEL_NAMES[res.level] || '';
         notifyToast(`图标已切换为 L${res.level}${name} (${res.level}/${total})`, 'success');

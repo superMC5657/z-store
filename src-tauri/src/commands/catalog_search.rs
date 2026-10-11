@@ -27,25 +27,8 @@ pub struct OnlineSearchResult {
     pub sid: String,
 }
 
-/// ADR-0008：网络超时统一经 `get_project_config().network.api_timeout_seconds` 获取；
-/// 配置为 0（未设置）时回退到调用方传入的历史硬编码值，行为保持不变。
-/// 纯函数内核（可单测）：`secs>0` 用配置秒数，`0` 用 `fallback`。
-pub(crate) fn api_timeout_from(secs: u64, fallback: std::time::Duration) -> std::time::Duration {
-    if secs > 0 {
-        std::time::Duration::from_secs(secs)
-    } else {
-        fallback
-    }
-}
-
-pub(crate) fn api_timeout_or(fallback: std::time::Duration) -> std::time::Duration {
-    api_timeout_from(
-        crate::config::get_project_config()
-            .network
-            .api_timeout_seconds,
-        fallback,
-    )
-}
+// ADR-0008：网络超时统一经 `config::api_timeout_or/from` 单一来源（统一配置中枢同一键）；
+// 本模块不再自立 helper，一律直调 `crate::config`。
 
 /// 快/慢图标探测结果落库 + 前端 emit（`upsert_icon_cycle` + 单发新事件）。
 /// level纯L：`level=2`写 `l2_url`，`level=3`写 `l3_url`；via=live|m2，远端探测走live，DB落盘回填走m2。
@@ -632,7 +615,7 @@ pub async fn enrich_trend_repos(
         return Ok(Vec::new());
     }
     let token = crate::commands::resolve_active_github_token(&state);
-    let timeout_each = api_timeout_or(std::time::Duration::from_secs(10));
+    let timeout_each = crate::config::api_timeout_or(std::time::Duration::from_secs(10));
     // `State` 非 Copy：取共享引用供 FnMut 闭包多次捕获（`&CatalogService: Copy + Send`）。
     let catalog = &state.catalog;
     // 短锁预解析确认图标（同步无 await，锁即取即放），fetch 内零查询零直连。
@@ -768,7 +751,7 @@ async fn enrich_trend_repos_buffered(
         return Ok(Vec::new());
     }
     let token = crate::commands::resolve_active_github_token(&state);
-    let timeout_each = api_timeout_or(std::time::Duration::from_secs(10));
+    let timeout_each = crate::config::api_timeout_or(std::time::Duration::from_secs(10));
     // `State` 非 Copy：取共享引用供 FnMut 闭包多次捕获（`&CatalogService: Copy + Send`）。
     let catalog = &state.catalog;
     // 短锁预解析确认图标（同步无 await，锁即取即放），fetch 内零查询零直连。
@@ -847,12 +830,12 @@ mod tests {
     #[test]
     fn search_slow_falls_back_to_master() {
         // 慢路径 Trees 覆盖 master（ZCode 类老仓默认分支），顺序 main 优先。
-        // 分支顺序收归 `github::icon_fetch` core，此处直引 core 常量断言。
+        // 分支顺序唯一定义见 `github::icon_probe::FALLBACK_PROBE_BRANCHES`（动态解析回退基线）。
         assert_eq!(
-            crate::github::icon_fetch::SEARCH_PROBE_BRANCHES,
+            crate::github::icon_probe::FALLBACK_PROBE_BRANCHES,
             ["main", "master"]
         );
-        assert!(crate::github::icon_fetch::SEARCH_PROBE_BRANCHES.contains(&"master"));
+        assert!(crate::github::icon_probe::FALLBACK_PROBE_BRANCHES.contains(&"master"));
     }
 
     fn sample_summary(id: &str, owner: &str, repo: &str, icon: &str) -> AppSummary {
@@ -933,23 +916,5 @@ mod tests {
         // 契约：默认 compat_collect=true 走 buffered 等齐路，该路无后台流式、
         // 无 save_and_emit_trend 世代检查，故与 BOARD_GEN 无关（豁免 bump）。
         assert!(crate::config::IconFetchConfig::default().compat_collect);
-    }
-
-    #[test]
-    fn api_timeout_from_prefers_config_falls_back_to_history() {
-        // ADR-0008：已配秒数优先；0（未设置）回退调用方历史硬编码值。
-        // 快慢超时统一经 network.api_timeout_seconds（IconFetchConfig 瘦身后无独立超时键）。
-        assert_eq!(
-            super::api_timeout_from(12, std::time::Duration::from_secs(10)),
-            std::time::Duration::from_secs(12)
-        );
-        assert_eq!(
-            super::api_timeout_from(0, std::time::Duration::from_secs(10)),
-            std::time::Duration::from_secs(10)
-        );
-        assert_eq!(
-            super::api_timeout_from(0, std::time::Duration::from_millis(1500)),
-            std::time::Duration::from_millis(1500)
-        );
     }
 }

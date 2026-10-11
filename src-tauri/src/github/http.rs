@@ -423,9 +423,10 @@ pub(crate) fn open_db_opt() -> Option<crate::db::Database> {
 }
 
 /// H10：目录外仓库 `AppSummary` 兜底构造。
-/// 图标：若 probe 为 true，先快后慢——快路径 SimpleIcons（图标L2=品牌库；免鉴权，repo+owner 去重单循环，
-/// 每 slug ≤1500ms，命中即返），慢路径 Trees（图标L3=仓库；有 token 才跑，保持 12s）；图标探测不调 users API、不拼用户画像 avatar_url（见 OAuth/Sidebar，与图标无关）；
-/// 若 probe 为 false，图标置空（首屏快返，等后台补探 emit）。
+/// 图标：若 probe 为 true，经统一同步适配器 `icon_fetch::probe_single_live`（L2→L3，
+/// 动态分支 `resolve_probe_branches` main→master，与流式核同源，不自立第三套分支硬编码）；
+/// 图标探测不调 users API、不拼用户画像 avatar_url（见 OAuth/Sidebar，与图标无关）；
+/// 若 probe 为 false，图标置空（首屏快返，等后台 `fetch_icons_stream` emit）。
 /// 分类：移植 catalog guessCategory 关键词表，按 topics+description 判定。
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn fallback_summary(
@@ -463,20 +464,15 @@ pub(crate) async fn fallback_summary(
     let icon = if let Some(ci) = confirmed {
         ci
     } else if probe {
-        // 先快后慢：快路径无 token 也可跑，慢路径有 token 才跑。
-        if let Some(hit) =
-            crate::github::icon_probe::probe_simple_icons(client, &owner, &repo).await
-        {
-            hit.url
-        } else if let Some(tok) = token.filter(|t| !t.trim().is_empty()) {
-            let hdrs = token_headers(Some(tok));
-            crate::github::icon_probe::probe_trees(client, &hdrs, &owner, &repo, "main")
-                .await
-                .map(|h| h.url)
-                .unwrap_or_default()
-        } else {
-            String::new()
-        }
+        // 同步适配器唯一口：`probe_single_live`（L2→L3，动态分支 main→master 与流式核同源）。
+        // 无 token 只探 L2（保护匿名配额），有 token 才含 Trees，与旧先快后慢同语义，不另起内联探。
+        let hdrs_opt = token
+            .filter(|t| !t.trim().is_empty())
+            .map(|tok| token_headers(Some(tok)));
+        crate::github::icon_fetch::probe_single_live(client, hdrs_opt.as_ref(), &owner, &repo)
+            .await
+            .map(|(url, _level)| url)
+            .unwrap_or_default()
     } else {
         String::new()
     };

@@ -81,6 +81,7 @@ import {
   TREND_BOARD_STORAGE_KEY,
 } from './TrendsView/useTrendBoard';
 import { tauriApi } from '../services/api';
+import { applyIconChangedToMirror } from '../services/trends/board';
 import { zlogInfo, zlogWarn } from '../lib/z-log';
 
 vi.mock('../lib/z-log', () => ({
@@ -1283,7 +1284,7 @@ describe('TrendsView L2可信分档：具平台免验，pending后台补验', ()
   });
 });
 
-describe('TrendsView L5 清零：详情切到首字母徽章后榜单行跟随徽章（不裂图）', () => {
+describe('09 收敛：icon-changed 窗口总线已删，图标唯一经 icon-ready → applyHit', () => {
   (globalThis as Record<string, unknown>)['IS_REACT_ACT_ENVIRONMENT'] = true;
 
   type EnrichFn = (repos: { owner: string; repo: string }[]) => Promise<(AppSummary | null)[]>;
@@ -1327,7 +1328,7 @@ describe('TrendsView L5 清零：详情切到首字母徽章后榜单行跟随�
     window.localStorage.clear();
   });
 
-  it('L5 事件把 enriched icon 置空，行内渲染首字母徽章且无裂图 img', async () => {
+  it('删除回归：dispatch icon-changed 不再影响行内图标（总线已删，旧事件零效果）', async () => {
     trendingHtml = trendingHtmlFixture();
     enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockImplementation(async (repos) =>
       repos.map((r) =>
@@ -1353,22 +1354,32 @@ describe('TrendsView L5 清零：详情切到首字母徽章后榜单行跟随�
     const descEl = await screen.findByText('acme/atlas enriched desc');
     const card = descEl.closest('.app-card') as HTMLElement;
     expect(card).toBeTruthy();
-    // 初态有图：远端 URL 经 getOrFetchIcon 解析为 data: 直显
+    // 初态有图：远端 URL 直显（店内写口预热后台进行，不阻塞首绘）
     await waitFor(() => {
       expect(card.querySelector('img.app-icon-image')).toBeTruthy();
     });
 
-    // L5：详情切到首字母徽章 dispatch icon ''（handleCycleIcon 原样透传）
+    // 旧总线事件已无订阅：dispatch 后行内图标保持不动（不跟随、不裂图）
     window.dispatchEvent(
       new CustomEvent('zstore:icon-changed', { detail: { appId: 'acme/atlas', icon: '' } }),
     );
 
-    // 行内跟随徽章：无 img（杜绝 <img src=""> 裂图），首字母徽章出现
-    await waitFor(() => {
-      expect(card.querySelector('.app-icon-fallback-badge')).toBeTruthy();
-    });
-    expect(card.querySelector('img.app-icon-image')).toBeNull();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(card.querySelector('img.app-icon-image')).toBeTruthy();
+    expect(card.querySelector('.app-icon-fallback-badge')).toBeNull();
     expect(card.querySelector('img[src=""]')).toBeNull();
     expect(container.querySelector('img[src=""]')).toBeNull();
+  });
+
+  it('L5 清零语义收口 board 纯函数（与 applyHit 空守卫同口径，不复活旧图）', async () => {
+    const prev: Record<string, AppSummary> = {
+      'acme/atlas': makeEnrichedApp({
+        id: 'acme/atlas',
+        icon: 'https://example.com/icons/atlas.png',
+        platforms: ['windows'],
+      }),
+    };
+    const next = applyIconChangedToMirror(prev, 'acme/atlas', '');
+    expect(next['acme/atlas'].icon).toBe('');
   });
 });

@@ -199,7 +199,7 @@ export const App: React.FC = () => {
     t,
   });
 
-  // 5. 应用级订阅总线（初始拉取/catalog-synced/icon-changed/icon-ready +
+  // 5. 应用级订阅总线（初始拉取/catalog-synced/icon-ready +
   // 关注/更新流/OAuth + 更新中心切签检查 + 视图切换日志）
   useAppSubscriptions({
     setApps,

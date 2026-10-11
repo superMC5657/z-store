@@ -15,8 +15,8 @@
  *   全部收口于此（原 TrendsView.tsx:317-366 / 375-461 / 903-1125 / 1133-1261
  *   逐行搬运，语义零差），View 只做 load/refresh + render/filter/count。
  * - 治愈总线收口：`normalizeHealKeys` + `subscribeTrendHealBus`，
- *   3 路 window 事件（detail-platforms / detail-richcard / icon-changed）
- *   经同一归一 upsert 路径进镜像，不再三处散写。
+ *   2 路 window 事件（detail-platforms / detail-richcard）
+ *   经同一归一 upsert 路径进镜像，不再散写（图标走 `icon-ready → applyHit` 唯一写口，不走窗口总线）。
  * - 首绘门：裸行先展不拦榜，仅升级受门控
  *  （`boardReady` + `swrSyncedResult` + `isUpgradePending`，见下）。
  *
@@ -733,7 +733,7 @@ export function persistSettleConfirmed(): void {
 }
 
 /* ------------------------------------------------------------------ */
-/* F. 治愈总线（3 路 window 事件 → 同一归一 upsert）                    */
+/* F. 治愈总线（2 路 window 事件 → 同一归一 upsert；图标经 icon-ready 走店内写口） */
 /* ------------------------------------------------------------------ */
 
 /** 治愈键归一（lower-trim 去空，与 enrich 键同源）。 */
@@ -980,7 +980,7 @@ export function persistRichcardHeal(
 }
 
 /**
- * 图标变更镜像合并（原 zstore:icon-changed handler 逐行搬运）：
+ * 图标变更镜像合并（09 收敛后仅供单测/图标 `applyHit` 补齐路径复用，不再挂窗口总线）：
  * incoming 与旧不同即覆盖；L5（''）放行内存清零；
  * 大小写归一，同时匹配坐标键与 enriched.id 小写别名。
  */
@@ -1044,12 +1044,11 @@ export interface TrendHealBusHandlers {
     payload: DetailRichcardHealPayload,
     keys: string[],
   ) => void;
-  onIconChanged?: (appIdNorm: string, rawIcon: string) => void;
 }
 
 /**
- * 治愈总线统一订阅：3 路 window 事件经同一归一路径分发。
- * 调用方只订一次，不再三处 addEventListener 散写；
+ * 治愈总线统一订阅：2 路 window 事件经同一归一路径分发（图标经 `icon-ready → applyHit`，不走总线）。
+ * 调用方只订一次，不再散写；
  * key 归一（lower-trim 去空）。
  */
 export function subscribeTrendHealBus(handlers: TrendHealBusHandlers): () => void {
@@ -1070,21 +1069,11 @@ export function subscribeTrendHealBus(handlers: TrendHealBusHandlers): () => voi
     if (keys.length === 0) return;
     handlers.onRichcardHeal?.(payload, keys);
   };
-  const onIcon = (e: Event): void => {
-    const detail = (e as CustomEvent<{ appId: string; icon: string }>).detail;
-    if (!detail) return;
-    const rawIcon = typeof detail.icon === 'string' ? detail.icon.trim() : '';
-    const appIdNorm = String(detail.appId ?? '').trim().toLowerCase();
-    if(!appIdNorm)return;
-    handlers.onIconChanged?.(appIdNorm, rawIcon);
-  };
   window.addEventListener(DETAIL_PLATFORMS_HEAL_EVENT, onPlatforms);
   window.addEventListener(DETAIL_RICHCARD_HEAL_EVENT, onRichcard);
-  window.addEventListener('zstore:icon-changed', onIcon);
   return () => {
     window.removeEventListener(DETAIL_PLATFORMS_HEAL_EVENT, onPlatforms);
     window.removeEventListener(DETAIL_RICHCARD_HEAL_EVENT, onRichcard);
-    window.removeEventListener('zstore:icon-changed', onIcon);
   };
 }
 

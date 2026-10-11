@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
-import { clearBufferedIcon } from '../services/iconStore';
 
 export interface AppIconProps {
   icon: string;
@@ -105,159 +104,34 @@ export const AppIcon: React.FC<AppIconProps> = ({
   iconOverride,
   loading = 'lazy',
 }) => {
+  // `appId` 仅为调用方 key 透传（店内 `applyHit` 别名归一用），本组件不凭它回读/请求。
+  void appId;
   // C1 读透适配（薄）：level 单调由店内 `applyHit` 保证，此处不判 level；列表空壳补齐经上游
   // `assembleOnlineRowsWithIcons`/`stickyIconFor`（`getBufferedIcon` 唯一口），
-  // 本组件只按 `icon` prop 展示（空即徽章，不在此回读缓冲，避免 L5 复活旧图，
-  // 见 `HomeView.search-icon` 回归线：空 prop 恒徽章）。
+  // 本组件只按 `icon` prop 展示（空即徽章）——写口唯一在店内 `applyHit`（`invalidate→preload→patch`），
+  // 此处不自发 IPC、不订阅窗口总线（`zstore:icon-changed` 已删，见 09 收敛）。
   const rawActiveIcon = iconOverride !== undefined ? iconOverride : icon;
   const activeIcon=rawActiveIcon;
   const isDataUri = Boolean(activeIcon && activeIcon.startsWith('data:'));
-  const [displaySrc, setDisplaySrc] = useState<string>(() => {
-    const rawCached = appId ? (iconDataCache.get(appId) || iconDataCache.get(appId.toLowerCase())) : '';
-    const cachedAppIcon=rawCached||'';
-    if (!activeIcon) return cachedAppIcon || '';
+  const [hasError, setHasError] = useState(false);
+  // 只读展示：同 URL 的 data URI 缓存命中即直显（preload 落盘后的内存态），否则直显 prop；
+  // 空 prop 恒徽章（不回读 appId 旧缓存，防 L5 清零后复活旧图）。
+  const displaySrc = (() => {
+    if (!activeIcon) return '';
     if (isDataUri) return activeIcon;
     if (iconOverride !== undefined) return activeIcon;
     const fromCache = iconDataCache.get(activeIcon);
-    const validCache=fromCache||'';
-    return validCache || cachedAppIcon || activeIcon;
-  });
-  const [hasError, setHasError] = useState(false);
-
-  // 监听即时图标变更事件（零 IPC 总线），直接更新展示
-  useEffect(() => {
-    if (!appId) return;
-    const handleCustomChange = (e: Event) => {
-      const customEvent = e as CustomEvent<{ appId: string; icon: string }>;
-      const eventAppId = customEvent.detail?.appId;
-      if (eventAppId && eventAppId.toLowerCase() === appId.toLowerCase()) {
-        const newIcon = customEvent.detail.icon || '';
-        if(newIcon) {
-          if (newIcon.startsWith('data:')) {
-            iconDataCache.set(appId, newIcon);
-            iconDataCache.set(appId.toLowerCase(), newIcon);
-            iconDataCache.set(eventAppId, newIcon);
-            iconDataCache.set(eventAppId.toLowerCase(), newIcon);
-            setDisplaySrc(newIcon);
-            setHasError(false);
-          } else {
-            api
-              .getOrFetchIcon(appId, newIcon)
-              .then((dataUri) => {
-                iconDataCache.set(appId, dataUri);
-                iconDataCache.set(appId.toLowerCase(), dataUri);
-                iconDataCache.set(eventAppId, dataUri);
-                iconDataCache.set(eventAppId.toLowerCase(), dataUri);
-                iconDataCache.set(newIcon, dataUri);
-                setDisplaySrc(dataUri);
-                setHasError(false);
-              })
-              .catch(() => {
-                setDisplaySrc(newIcon);
-                setHasError(false);
-              });
-          }
-        } else {
-          // L5 清零（url ''）：清掉该 appId 的内存缓存并置空展示，
-          // 否则后续 effect 的 `!effectiveIcon` 分支回读旧缓存致 L5 仍显旧图。
-          // 店内缓冲亦经 `clearBufferedIcon` 显式清（L5 唯一允许的空覆盖实例外），
-          // 否则列表重组装经 `getBufferedIcon` 会复活旧图。
-          iconDataCache.delete(appId);
-          iconDataCache.delete(appId.toLowerCase());
-          iconDataCache.delete(eventAppId);
-          iconDataCache.delete(eventAppId.toLowerCase());
-          try {
-            clearBufferedIcon(appId);
-            clearBufferedIcon(eventAppId);
-          } catch {
-            // 缓存清理失败不阻塞展示置空
-          }
-          setDisplaySrc('');
-          setHasError(false);
-        }
-      }
-    };
-    window.addEventListener('zstore:icon-changed', handleCustomChange);
-    return () => {
-      window.removeEventListener('zstore:icon-changed', handleCustomChange);
-    };
-  }, [appId]);
+    if (fromCache) return fromCache;
+    return activeIcon;
+  })();
 
   // 判断是否为网络图片 URL（复用模块级唯一谓词，禁止内联重复形状）
   const isUrl = isRemoteIcon(activeIcon);
 
+  // prop 切换即重置错误态（展示走渲染期直算，无 IPC 副作用）。
   useEffect(() => {
     setHasError(false);
-    if (!activeIcon) {
-      // 无图标（L5 首字母徽章态）直接置空走徽章分支：禁止回读 appId 缓存，
-      // 否则 L5 清零后仍显旧图（首漆的缓存直显由上首 useState 初始化承担）。
-      setDisplaySrc('');
-      return;
-    }
-    if (!isUrl || isDataUri) {
-      setDisplaySrc(activeIcon);
-      return;
-    }
-
-    // 详情页临时覆盖展示：仅改当前组件实例展示，不回写全局缓存，列表不动
-    if (iconOverride !== undefined) {
-      let isMounted = true;
-      api
-        .getOrFetchIcon(appId, activeIcon)
-        .then((dataUri) => {
-          if (isMounted) {
-            setDisplaySrc(dataUri);
-            setHasError(false);
-          }
-        })
-        .catch(() => {
-          if (isMounted) {
-            setDisplaySrc(activeIcon);
-          }
-        });
-      return () => {
-        isMounted = false;
-      };
-    }
-
-    if (iconDataCache.has(activeIcon)) {
-      setDisplaySrc(iconDataCache.get(activeIcon)!);
-      return;
-    }
-
-    let isMounted = true;
-    let promise = iconPendingPromises.get(activeIcon);
-    if (!promise) {
-      promise = api.getOrFetchIcon(appId, activeIcon);
-      iconPendingPromises.set(activeIcon, promise);
-    }
-
-    promise
-      .then((dataUri) => {
-        iconDataCache.set(activeIcon, dataUri);
-        if (appId) {
-          appIdToIconMap.set(appId, activeIcon);
-          appIdToIconMap.set(appId.toLowerCase(), activeIcon);
-          iconDataCache.set(appId, dataUri);
-          iconDataCache.set(appId.toLowerCase(), dataUri);
-        }
-        iconPendingPromises.delete(activeIcon);
-        if (isMounted) {
-          setDisplaySrc(dataUri);
-          setHasError(false);
-        }
-      })
-      .catch(() => {
-        iconPendingPromises.delete(activeIcon);
-        if (isMounted) {
-          setDisplaySrc(activeIcon);
-        }
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [activeIcon, appId, isUrl, isDataUri, iconOverride]);
+  }, [activeIcon]);
 
   const handleError = () => {
     // 若图片加载失败（网络不可达或链接失效），平滑降级为首字母徽章

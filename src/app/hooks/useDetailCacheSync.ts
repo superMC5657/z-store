@@ -1,8 +1,7 @@
 import { useCallback, useRef } from 'react';
 import type { AppDetail, AppDetailViewModel, AppSummary } from '../../types';
 import { api } from '../../services/api';
-import { patchAppIconList } from '../../services/iconStore';
-import { preloadIcons, invalidateIconCache } from '../../components/AppIcon';
+import { applyHit, clearBufferedIcon, patchAppIconList } from '../../services/iconStore';
 import {
   DETAIL_PLATFORMS_HEAL_EVENT,
   DETAIL_RICHCARD_HEAL_EVENT,
@@ -36,7 +35,7 @@ export interface UseDetailCacheSyncParams {
  * - 内存快照 0ms 秒开 + 后台 ETag 条件探查静默更新；
  * - 后端占位简介永不污染内存快照/列表（富卡非占位兜底，无富卡即存 ''/保留旧值）；
  * - stale 离线详情不碰平台（不确认、不治愈、不碰榜单缓存）；
- * - 图标回填走 `zstore:icon-changed` 单通道 + iconCycle 双落盘口径（data: 永不进盘）。
+ * - 图标回填唯一经店内 `applyHit`（`invalidate→preload→patch` 写透四列表，不走窗口总线；data: 永不进盘）。
  */
 function pickRealDescription(v: unknown): string | undefined {
   if (typeof v !== 'string') return undefined;
@@ -263,14 +262,15 @@ export function useDetailCacheSync({
       return changed ? next : prev;
     };
     // 双键（idClean + detail.id，大小写不敏感）：与 patchSummary 同目标口径，覆盖两者不一致
-    const patchIconBoth = (prev: AppSummary[], icon: string): AppSummary[] => {
-      const keyA = idClean.toLowerCase();
-      const keyB = (detail.id || '').toLowerCase() || keyA;
-      const once = patchAppIconList(prev, keyA, icon);
-      return keyB === keyA ? once : patchAppIconList(once, keyB, icon);
+    // 图标写口唯一经店内 `applyHit`（写透四列表 + 文件预热 + M1 缓冲，不走窗口总线）。
+    const iconPatch = (tid: string, icon: string): void => {
+      setApps((prev) => patchAppIconList(prev, tid, icon));
+      setOnlineApps((prev) => patchAppIconList(prev, tid, icon));
+      setRecentlyViewedApps((prev) => patchAppIconList(prev, tid, icon));
+      setFavoriteExtraApps((prev) => patchAppIconList(prev, tid, icon));
     };
     setApps(patchList);
-    // 在线段与本地段上下分段展示：详情回填必须直接落盘 onlineApps，不依赖 icon-changed 事件
+    // 在线段与本地段上下分段展示：详情回填直接落盘 onlineApps（店内 `applyHit` 写透，不走窗口总线）
     setOnlineApps(patchList);
     setRecentlyViewedApps(patchList);
     // 收藏占位行同步治愈：`favoriteIds ∖ apps` 合成行也在详情回填口径内（标记保持不动）
@@ -361,39 +361,29 @@ export function useDetailCacheSync({
     }
 
     if (patchedIcon) {
-      invalidateIconCache(idClean);
-      window.dispatchEvent(
-        new CustomEvent('zstore:icon-changed', {
-          detail: { appId: idClean, icon: patchedIcon },
-        })
-      );
+      // 详情实图：经店内唯一写口（buffer + 文件预热 + 四列表写透）。
+      applyHit({ key: idClean, id: idClean, icon: patchedIcon, patch: iconPatch });
     } else {
-      // detail.icon 为空：详情弹窗靠 getAppIconCycle 照常显示，列表三段用 iconCycle.url 直接回填落盘。
+      // detail.icon 为空：详情弹窗靠 Header 轮换态照常显示，列表三段用 iconCycle.url 经店内写口回填落盘。
       void api.getAppIconCycle(idClean).then((cycle) => {
         // 双落盘口径：url=data: 即时态（IPC临时、永不进盘），remote_url/remoteUrl=可持久化 URL；
-        // 落盘/回填/dispatch 一律用 persistUrl（remote优先，url非data:才兜底，否则空即 L5/空不发）。
+        // 落盘/回填一律用 persistUrl（remote优先，url非data:才兜底，否则空即 L5/空不发）。
         const remote = typeof (cycle?.remote_url ?? cycle?.remoteUrl) === 'string'
           ? String(cycle?.remote_url ?? cycle?.remoteUrl).trim()
           : '';
         const fallbackUrl = typeof cycle?.url === 'string' ? cycle.url.trim() : '';
         const persistUrl = remote !== '' ? remote : (!fallbackUrl.startsWith('data:') ? fallbackUrl : '');
-        if(!persistUrl)return;
-        const keyA = idClean.toLowerCase();
-        // 预热文件：触发 Rust getOrFetchIcon 落盘副作用（icons/* 二进制 + catalog/cycle 行），失败不阻塞
-        void api.getOrFetchIcon(idClean, persistUrl).catch(() => {});
-        invalidateIconCache(keyA);
-        preloadIcons([{ id: keyA, icon: persistUrl }]);
-        setApps((prev) => patchIconBoth(prev, persistUrl));
-        setOnlineApps((prev) => patchIconBoth(prev, persistUrl));
-        setRecentlyViewedApps((prev) => patchIconBoth(prev, persistUrl));
-        setFavoriteExtraApps((prev) => patchIconBoth(prev, persistUrl));
-        // 趋势内存级同步（单通道复用 `zstore:icon-changed` 监听，不直接碰榜缓存二级落盘 enrich，data: 禁入由二级侧保证）；
-        // 此分支仅在 patchedIcon 为空时进入，与上分支 dispatch 天然互斥，不重复。
-        window.dispatchEvent(
-          new CustomEvent('zstore:icon-changed', {
-            detail: { appId: idClean, icon: persistUrl },
-          })
-        );
+        if(!persistUrl){
+          // L5/空：显式清店内缓冲（唯一允许的空覆盖），列表保持占位 badge，不复活旧图。
+          try {
+            clearBufferedIcon(idClean);
+          } catch {
+            // 缓存清理失败不阻塞
+          }
+          return;
+        }
+        const cycleLevel = typeof cycle?.level === 'number' ? cycle.level : undefined;
+        applyHit({ key: idClean, id: idClean, icon: persistUrl, level: cycleLevel, patch: iconPatch });
       }).catch(() => {
         // 取不到轮换图标则保持占位，不阻塞
       });

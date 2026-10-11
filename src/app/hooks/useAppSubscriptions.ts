@@ -90,8 +90,8 @@ function trackSubscription(ctx: MountCtx, promise: Promise<() => void>): void {
  * 应用级订阅总线（C3 自 App.tsx 抽出，原 L193-305 + L316-438，以及
  * 更新中心切签检查 L440-450 与视图切换日志 L452-464）。
  *
- * - 初始拉取 + `zstore:catalog-synced` + `zstore:icon-changed` +
- *   `onSearchIconUpgraded`（回声窗内首个回声立期望，`applyHit`  sole 写）；
+ * - 初始拉取 + `zstore:catalog-synced` +
+ *   `onSearchIconUpgraded`（回声窗内首个回声立期望，`applyHit` sole 写）；
  * - 关注加载 + `onWatchUpdated` 应用内提醒；
  * - 更新流：`onUpdateItemFound` 逐条跳出 + `onUpdateCheckProgress` +
  *   `onUpdateCheckFinished`；
@@ -178,18 +178,6 @@ export function useAppSubscriptions({
     };
     window.addEventListener('zstore:catalog-synced', handleCatalogSynced);
 
-    const handleIconChanged = (e: Event) => {
-      const customEvent = e as CustomEvent<{ appId: string; icon: string }>;
-      const { appId, icon } = customEvent.detail || {};
-      if (!appId) return;
-      const targetId = appId.toLowerCase();
-      setApps((prevApps) => patchAppIconList(prevApps, targetId, icon));
-      setOnlineApps((prev) => patchAppIconList(prev, targetId, icon));
-      setRecentlyViewedApps((prevRecents) => patchAppIconList(prevRecents, targetId, icon));
-      setFavoriteExtraApps((prevExtras) => patchAppIconList(prevExtras, targetId, icon));
-    };
-    window.addEventListener('zstore:icon-changed', handleIconChanged);
-
     let unlistenSearchIcons: (() => void) | null = null;
     api
       .onSearchIconUpgraded((payload) => {
@@ -244,7 +232,6 @@ export function useAppSubscriptions({
 
     return () => {
       window.removeEventListener('zstore:catalog-synced', handleCatalogSynced);
-      window.removeEventListener('zstore:icon-changed', handleIconChanged);
       if (unlistenSearchIcons) unlistenSearchIcons();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -98,7 +98,7 @@ export function favoriteSummaryFromDetail(detail: AppDetail): AppSummary {
 }
 
 /**
- * 收藏占位行图标热替口径（与搜索/最近同一套：`getAppIconCycle` 读 `app_icon_cycles`
+ * 收藏占位行图标热替口径（与搜索/最近同一套：店内 `applyHit` 唯一写口读 `app_icon_cycles`
  * 即前端侧 `resolve_confirmed_icon_from_db` 同源 + 后端 ensure/download 回填）。
  *
  * `pickFavoritePersistIconUrl`：轮换结果取可落盘持久化 URL——`remote_url` 优先，
@@ -117,9 +117,8 @@ export function pickFavoritePersistIconUrl(
 }
 
 /**
- * 摘要图标是否缺图标预热：空/非远端（首字母占位态）即需经
- * `getAppIconCycle` 查轮换；已有合法远端仅需文件预热
- * （`preloadIcons`/`getOrFetchIcon`，与搜索首屏预热同通道）。
+ * 摘要图标是否缺图标预热：空/非远端（首字母占位态）即需经店内写口查轮换回填；
+ * 已有合法远端仅需店内写口做 M1 缓冲 + 文件预热（与搜索首屏预热同通道）。
  */
 export function needsFavoriteIconWarm(icon: unknown): boolean {
   if (typeof icon !== 'string') return true;

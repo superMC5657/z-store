@@ -1,24 +1,15 @@
 use crate::AppState;
 use serde::{Deserialize, Serialize};
 
-/// 图标 C1 深核适配层（薄）：探测经 `github::icon_fetch` 深核直调
-/// `icon_probe` 原语（L2/L3-live），持久化经 `db::icon_cycle` SSOT + `icons/` 落盘；
-/// L1=官方填充 + L4=README 现场扒分居本适配器（详情链专属，不受流式核约束）。
-/// 已删：串行 naive `probe_simple_icons`/`probe_git_trees` 重复拷贝、
-/// `SEARCH_PROBE_BRANCHES` 第三套分支硬编码、匿名分支循环浪费——一律经深核。
+// 图标 C1 深核适配层（薄）：探测经 `github::icon_fetch` 深核直调
+// `icon_probe` 原语（L2/L3-live），持久化经 `db::icon_cycle` SSOT + `icons/` 落盘；
+// L1=官方填充 + L4=README 现场扒分居本适配器（详情链专属，不受流式核约束）。
+// 已删：串行 naive `probe_simple_icons`/`probe_git_trees` 重复拷贝、
+// `SEARCH_PROBE_BRANCHES` 第三套分支硬编码、匿名分支循环浪费——一律经深核。
 
-/// ADR-0008：网络超时统一经 `get_project_config().network.api_timeout_seconds` 获取；
-/// 配置为 0（未设置）时回退到调用方传入的历史硬编码值，行为保持不变。
-pub(crate) fn api_timeout_or(fallback: std::time::Duration) -> std::time::Duration {
-    let secs = crate::config::get_project_config()
-        .network
-        .api_timeout_seconds;
-    if secs > 0 {
-        std::time::Duration::from_secs(secs)
-    } else {
-        fallback
-    }
-}
+// ADR-0008：网络超时统一经 `config::api_timeout_or` 单一来源（统一配置中枢同一键）；
+// 配置为 0（未设置）时回退到调用方传入的历史硬编码值，行为保持不变。
+pub(crate) use crate::config::api_timeout_or;
 
 /// 图标轮换返回结构
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AppSummary } from '../../types';
 import { api } from '../../services/api';
-import { patchAppIconList } from '../../services/iconStore';
-import { preloadIcons, invalidateIconCache } from '../../components/AppIcon';
+import { applyHit, patchAppIconList } from '../../services/iconStore';
 import {
   favoriteSummaryFromDetail,
   findMissingFavoriteIds,
@@ -101,21 +100,25 @@ export function useFavoritesExtra({ favoriteIds, watchedIds, apps }: UseFavorite
               try {
                 const currentIcon = (summary.icon || '').trim();
                 if (!needsFavoriteIconWarm(currentIcon)) {
-                  // 详情已带合法远端：仅文件预热（`preloadIcons` 去重/inflight 复用搜索同通道）
-                  preloadIcons([{ id: summary.id, icon: currentIcon }]);
-                  void api.getOrFetchIcon(summary.id, currentIcon).catch(() => {});
+                  // 详情已带合法远端：经店内唯一写口做 M1 缓冲 + 文件预热（与搜索同通道，不直调 IPC）。
+                  applyHit({ key: summary.id, id: summary.id, icon: currentIcon });
                   return;
                 }
-                // 无可用远端：查轮换（同步读库命中即返，无则后端补探回填）
+                // 无可用远端：查轮换（同步读库命中即返，无则后端补探回填），命中经店内写口热替占位行。
                 const cycle = await api.getAppIconCycle(favId);
                 const persistUrl = pickFavoritePersistIconUrl(cycle);
                 if (!persistUrl) return;
                 if (cancelled) return;
-                // 预热文件：触发 Rust getOrFetchIcon 落盘副作用，失败不阻塞
-                void api.getOrFetchIcon(summary.id, persistUrl).catch(() => {});
-                invalidateIconCache(k);
-                preloadIcons([{ id: summary.id, icon: persistUrl }]);
-                setFavoriteExtraApps((prev) => patchAppIconList(prev, k, persistUrl));
+                const cycleLevel = typeof cycle?.level === 'number' ? cycle.level : undefined;
+                applyHit({
+                  key: summary.id,
+                  id: summary.id,
+                  icon: persistUrl,
+                  level: cycleLevel,
+                  patch: (tid, icon) => {
+                    setFavoriteExtraApps((prev) => patchAppIconList(prev, tid, icon));
+                  },
+                });
               } catch {
                 // 取不到轮换图标则保持占位，不阻塞
               }

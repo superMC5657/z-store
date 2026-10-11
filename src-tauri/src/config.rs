@@ -283,6 +283,22 @@ pub fn get_project_config() -> &'static ProjectConfig {
     })
 }
 
+/// ADR-0008：网络超时统一 helper 单一来源（统一配置中枢同一键）。
+/// `secs>0` 用配置秒数，`0`（未设置）回退调用方历史硬编码值，行为保持不变。
+/// 纯函数内核（可单测）；三处旧 `api_timeout_or/from` 已收敛至此，调用方一律经此。
+pub(crate) fn api_timeout_from(secs: u64, fallback: std::time::Duration) -> std::time::Duration {
+    if secs > 0 {
+        std::time::Duration::from_secs(secs)
+    } else {
+        fallback
+    }
+}
+
+/// 有效超时：读统一配置中枢 `network.api_timeout_seconds`，0 回退 `fallback`。
+pub(crate) fn api_timeout_or(fallback: std::time::Duration) -> std::time::Duration {
+    api_timeout_from(get_project_config().network.api_timeout_seconds, fallback)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -324,7 +340,7 @@ mod tests {
         // IconFetchConfig 瘦身：simple_timeout_ms / trees_timeout_secs / enable_readme
         // 已删除（存活 pool / total_timeout_secs / compat_collect）。
         // 旧配置负载必须仍能解析（未知键忽略），存活字段生效；
-        // 有效快慢超时走 network.api_timeout_seconds（见 catalog_search::api_timeout_or）。
+        // 有效快慢超时走 network.api_timeout_seconds（见 config::api_timeout_or）。
         let old_payload = r#"
             [network]
             api_timeout_seconds = 12
@@ -344,11 +360,29 @@ mod tests {
         assert_eq!(conf.network.api_timeout_seconds, 12);
         // 有效超时等于文档化回退语义：已配 12s 优先（0 才回退历史硬编码，见 api_timeout_from 单测）。
         assert_eq!(
-            crate::commands::catalog_search::api_timeout_from(
+            crate::config::api_timeout_from(
                 conf.network.api_timeout_seconds,
                 std::time::Duration::from_secs(10),
             ),
             std::time::Duration::from_secs(12)
+        );
+    }
+
+    #[test]
+    fn api_timeout_from_prefers_config_falls_back_to_history() {
+        // ADR-0008 单一来源：已配秒数优先；0（未设置）回退调用方历史硬编码值。
+        // 快慢超时统一经 network.api_timeout_seconds（IconFetchConfig 瘦身后无独立超时键）。
+        assert_eq!(
+            super::api_timeout_from(12, std::time::Duration::from_secs(10)),
+            std::time::Duration::from_secs(12)
+        );
+        assert_eq!(
+            super::api_timeout_from(0, std::time::Duration::from_secs(10)),
+            std::time::Duration::from_secs(10)
+        );
+        assert_eq!(
+            super::api_timeout_from(0, std::time::Duration::from_millis(1500)),
+            std::time::Duration::from_millis(1500)
         );
     }
 }
