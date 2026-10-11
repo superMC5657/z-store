@@ -33,7 +33,6 @@ import {
   mapGitHubSearchItem,
   parseTrendingHtml,
   sortByHealthyScore,
-  withTrendsProxy,
 } from './parse';
 
 export type TimeBoardId = 'daily' | 'weekly' | 'monthly';
@@ -84,7 +83,7 @@ export function resolveTrendBoard(board: string): TrendBoardId {
     : 'weekly';
 }
 
-/** 构造 trending 抓取 URL（language 走 `/trending/<lang>` 路径段）。 */
+/** 构造 trending 抓取 URL（language 走 `/trending/<lang>` 路径段，始终直连）。 */
 export function buildTrendingUrl(board: TimeBoardId, opts: FetchTrendsOptions = {}): string {
   const since = TRENDING_SINCE[board];
   const lang = opts.language?.trim();
@@ -92,7 +91,7 @@ export function buildTrendingUrl(board: TimeBoardId, opts: FetchTrendsOptions = 
     lang && lang.toLowerCase() !== 'all'
       ? `https://github.com/trending/${encodeURIComponent(lang)}?since=${since}`
       : `https://github.com/trending?since=${since}`;
-  return withTrendsProxy(raw, opts);
+  return raw;
 }
 
 /**
@@ -110,9 +109,9 @@ export async function fetchTrendingRepos(
 
 export const DOFORCE_URL = 'https://trend.doforce.dpdns.org/repo';
 
-/** 构建 doforce 请求 URL（始终直连）。 */
-export function buildDoforceUrl(opts: FetchTrendsOptions = {}): string {
-  return withTrendsProxy(DOFORCE_URL, opts);
+/** 构建 doforce 请求 URL（始终直连，单一出口）。 */
+export function buildDoforceUrl(): string {
+  return DOFORCE_URL;
 }
 
 /**
@@ -120,7 +119,7 @@ export function buildDoforceUrl(opts: FetchTrendsOptions = {}): string {
  * 支持纯数组或 `{items|data|repos}` 包装结构；失败时抛错，为空时返回 []。
  */
 export async function fetchDoforceRepos(): Promise<TrendRepo[]> {
-  const url = buildDoforceUrl({});
+  const url = buildDoforceUrl();
   const text = await tauriApi.fetchTrendsText(url);
   const json: unknown = JSON.parse(text);
   const items = Array.isArray(json)
@@ -142,10 +141,9 @@ export async function fetchDoforceRepos(): Promise<TrendRepo[]> {
  */
 export async function fetchGitHubNewRepos(): Promise<TrendRepo[]> {
   const since = new Date(Date.now() - 182 * 24 * 3600 * 1000).toISOString().slice(0, 10);
-  const url = withTrendsProxy(
+  const url =
     `https://api.github.com/search/repositories` +
-      `?q=${encodeURIComponent(`created:>${since}`)}&sort=stars&order=desc&per_page=20`,
-  );
+    `?q=${encodeURIComponent(`created:>${since}`)}&sort=stars&order=desc&per_page=20`;
 
   const text = await tauriApi.fetchTrendsText(url);
   const json: unknown = JSON.parse(text);

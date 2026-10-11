@@ -62,7 +62,6 @@ import {
   TRENDING_SINCE,
   TRENDING_TIMEOUT_MS,
   TREND_ENRICH_CACHE_TTL_MS,
-  withTrendsProxy,
 } from '../services/trends';
 import {
   boardFixture,
@@ -514,7 +513,7 @@ describe('rising/healthy：doforce 单飞共享（一次抓取，两榜各排）
   });
 });
 
-describe('代理策略：趋势流量恒直连（proxyPrefix 被忽略，仅保留兼容）', () => {
+describe('代理策略：趋势流量恒直连（proxyPrefix 被忽略）', () => {
   it('normalizeProxyPrefix：direct/空 => undefined，ghproxy => 默认前缀', () => {
     expect(normalizeProxyPrefix(undefined)).toBeUndefined();
     expect(normalizeProxyPrefix('')).toBeUndefined();
@@ -537,16 +536,6 @@ describe('代理策略：趋势流量恒直连（proxyPrefix 被忽略，仅保�
     for (const u of requestedUrls) {
       expect(u.startsWith(proxy)).toBe(false);
     }
-    // withTrendsProxy 为恒等函数（@deprecated，仅保留兼容）
-    expect(withTrendsProxy('https://github.com/trending?since=daily', { proxyPrefix: proxy })).toBe(
-      'https://github.com/trending?since=daily',
-    );
-    expect(withTrendsProxy('https://trend.doforce.dpdns.org/repo', { proxyPrefix: proxy })).toBe(
-      'https://trend.doforce.dpdns.org/repo',
-    );
-    expect(
-      withTrendsProxy('https://api.github.com/search/repositories?q=x', { proxyPrefix: proxy }),
-    ).toBe('https://api.github.com/search/repositories?q=x');
   });
 
   it('未设置代理时保持官方直连', async () => {
@@ -555,9 +544,6 @@ describe('代理策略：趋势流量恒直连（proxyPrefix 被忽略，仅保�
     for (const u of requestedUrls) {
       expect(u.startsWith('https://gh-proxy.com')).toBe(false);
     }
-    expect(withTrendsProxy('https://github.com/trending?since=daily', {})).toBe(
-      'https://github.com/trending?since=daily',
-    );
   });
 });
 

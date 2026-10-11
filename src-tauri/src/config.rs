@@ -91,7 +91,7 @@ pub struct LimitsConfig {
 }
 
 /// 统一图标补探配置（`limits.icon_fetch`）。
-/// 默认：`pool=5 / total_timeout_secs=15 / compat_collect=true`。
+/// 默认：`pool=5 / total_timeout_secs=15`。
 /// 快慢超时经 `network.api_timeout_seconds` 统一配置；整批总量按页伸缩。
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct IconFetchConfig {
@@ -99,8 +99,6 @@ pub struct IconFetchConfig {
     pub pool: usize,
     #[serde(default = "default_icon_fetch_total_timeout_secs")]
     pub total_timeout_secs: u64,
-    #[serde(default = "default_icon_fetch_compat_collect")]
-    pub compat_collect: bool,
 }
 
 fn default_icon_fetch_pool() -> usize {
@@ -109,16 +107,12 @@ fn default_icon_fetch_pool() -> usize {
 fn default_icon_fetch_total_timeout_secs() -> u64 {
     15
 }
-fn default_icon_fetch_compat_collect() -> bool {
-    true
-}
 
 impl Default for IconFetchConfig {
     fn default() -> Self {
         Self {
             pool: default_icon_fetch_pool(),
             total_timeout_secs: default_icon_fetch_total_timeout_secs(),
-            compat_collect: default_icon_fetch_compat_collect(),
         }
     }
 }
@@ -317,7 +311,6 @@ mod tests {
         assert_eq!(conf.limits.online_search_page_size, 12);
         assert_eq!(conf.limits.icon_fetch.pool, 5);
         assert_eq!(conf.limits.icon_fetch.total_timeout_secs, 15);
-        assert!(conf.limits.icon_fetch.compat_collect);
         assert!(!conf.oauth.default_client_id.is_empty());
         assert_eq!(conf.catalog.local_path, "../catalog.json");
         assert!(!conf.catalog.default_source_url.is_empty());
@@ -337,8 +330,7 @@ mod tests {
 
     #[test]
     fn old_icon_fetch_payload_with_removed_keys_still_loads() {
-        // IconFetchConfig 瘦身：simple_timeout_ms / trees_timeout_secs / enable_readme
-        // 已删除（存活 pool / total_timeout_secs / compat_collect）。
+        // IconFetchConfig 瘦身：旧超时键 / 旧开关键已删除（存活 pool / total_timeout_secs）。
         // 旧配置负载必须仍能解析（未知键忽略），存活字段生效；
         // 有效快慢超时走 network.api_timeout_seconds（见 config::api_timeout_or）。
         let old_payload = r#"
@@ -347,7 +339,6 @@ mod tests {
             [limits.icon_fetch]
             pool = 5
             total_timeout_secs = 15
-            compat_collect = true
             simple_timeout_ms = 1500
             trees_timeout_secs = 12
             enable_readme = true
@@ -356,7 +347,6 @@ mod tests {
             toml::from_str(old_payload).expect("old payload with removed keys must parse");
         assert_eq!(conf.limits.icon_fetch.pool, 5);
         assert_eq!(conf.limits.icon_fetch.total_timeout_secs, 15);
-        assert!(conf.limits.icon_fetch.compat_collect);
         assert_eq!(conf.network.api_timeout_seconds, 12);
         // 有效超时等于文档化回退语义：已配 12s 优先（0 才回退历史硬编码，见 api_timeout_from 单测）。
         assert_eq!(

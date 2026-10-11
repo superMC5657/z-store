@@ -1,4 +1,4 @@
-import type { FetchTrendsOptions, TrendRepo, TrendsErrorKind } from '../../types';
+import type { TrendRepo, TrendsErrorKind } from '../../types';
 import { DOFORCE_RETRY_DEFAULT_WAIT_MS, DOFORCE_RETRY_MAX_WAIT_MS } from './cache';
 
 /** 规范化 proxy 前缀：empty/direct -> undefined；ghproxy -> 默认值；保留 http(s)。 */
@@ -9,16 +9,6 @@ export function normalizeProxyPrefix(raw?: string): string | undefined {
   if (t === 'ghproxy') return 'https://gh-proxy.com';
   if (/^https?:\/\//i.test(t)) return t.replace(/\/+$/, '');
   return undefined;
-}
-
-/**
- * @deprecated 恒等函数：trends 流量始终直连，不应用任何前缀。
- * 保留此函数（仍被各 trends URL 构建器调用），以便后续若重新调整策略时调用方无需改动——
- * 仅需在此处统一修改一次，而无需改动每个调用点。
- */
-export function withTrendsProxy(url: string, _opts: FetchTrendsOptions = {}): string {
-  void _opts;
-  return url;
 }
 
 export function errorStatusOf(err: unknown): number | undefined {

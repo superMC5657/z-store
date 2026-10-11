@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 // `SEARCH_PROBE_BRANCHES` 第三套分支硬编码、匿名分支循环浪费——一律经深核。
 // 已收敛：`persist_catalog_icon`/`cleanup_stale_cycle_variants` 降为缝内私有，
 // 命令层不再直调双持久化/mirror 两段式/L5 散字面量（probe-vs-persist 缝合一）。
-// `compat_collect` buffered 趋势等齐路为 legacy 内部兼容口（见 `catalog_search`），
-// 本适配器不依赖它、不为它分支。
+// 趋势 enrich 已切流式直路（见 `catalog_search::enrich_trend_repos`），
+// 本适配器不为旧等齐路分支。
 
 // ADR-0008：网络超时统一经 `config::api_timeout_or` 单一来源（统一配置中枢同一键）；
 // 配置为 0（未设置）时回退到调用方传入的历史硬编码值，行为保持不变。

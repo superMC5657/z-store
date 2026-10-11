@@ -5,16 +5,13 @@ use tauri::{AppHandle, Manager, State};
 
 static SEARCH_GEN: AtomicU64 = AtomicU64::new(0);
 
-/// 趋势流式世代：`enrich_trend_repos` 每次流式调用 +1（切榜/重拉/分片重拉均+1，
+/// 趋势流式世代：`enrich_trend_repos` 每次调用 +1（切榜/重拉/分片重拉均+1，
 /// 类比 `SEARCH_GEN` 每次 `search_apps_online` +1）。
 /// 后台 `fetch_icons_stream(Trend{board,gen})` 的落库前 + emit 前双检查用，
 /// 用户切榜后旧榜在途探测结果直接抛弃（与搜索防串词同语义）。
-/// 豁免：`compat_collect=true` 的 buffered 等齐路永不 bump——该路无后台流式、
-/// 无 emit 世代检查，`BOARD_GEN` 与其无关。
 static BOARD_GEN: AtomicU64 = AtomicU64::new(0);
 
-/// 流式世代分配：每次流式调用恰好 +1。唯一调用点为 `enrich_trend_repos` 流式路；
-/// buffered 等齐路（`enrich_trend_repos_buffered`）必须永不调用本函数。
+/// 流式世代分配：每次调用恰好 +1。唯一调用点为 `enrich_trend_repos`。
 fn next_board_gen() -> u64 {
     BOARD_GEN.fetch_add(1, Ordering::SeqCst) + 1
 }
@@ -459,7 +456,7 @@ pub async fn search_apps_online(
         let handle = app_handle.clone();
         let sid = actual_search_id.clone();
         let bg_token = token.clone();
-        // 搜索固定走新流式路（`compat_collect` 仅门控趋势等齐路，见 ADR-0015 §7）：
+        // 搜索与趋势统一走流式路（见 ADR-0015 §7）：
         // pool=5 buffer_unordered、快命中即返不等慢、慢仅快未命中且有 token 时跑、
         // 整批总量按页伸缩、逐张到达 emit。
         let jobs: Vec<crate::github::icon_fetch::IconFetchJob> = candidates
@@ -490,10 +487,8 @@ pub struct TrendEnrichRequest {
     pub repo: String,
 }
 
-/// 趋势 enrich 目标整形（双管线共用形状）：take(40) 兜底截断 + trim + 小写 id。
+/// 趋势 enrich 目标整形：take(40) 兜底截断 + trim + 小写 id。
 /// FE 已按 20/片×2 片串行（上限 40），此处截断不静默吃超量。
-/// compat 等齐路（`enrich_trend_repos_buffered`，ADR-0015 legacy adapter）保留自有内联拷贝，
-/// 此处仅供流式路调用——legacy 路行为逐字节冻结，行为不变。
 fn enrich_targets(repos: Vec<TrendEnrichRequest>) -> Vec<(String, String, String)> {
     repos
         .into_iter()
@@ -507,9 +502,8 @@ fn enrich_targets(repos: Vec<TrendEnrichRequest>) -> Vec<(String, String, String
         .collect()
 }
 
-/// 趋势 enrich 确认图标短锁预解析（双管线共用形状）：同步无 `await`，锁即取即放；
+/// 趋势 enrich 确认图标短锁预解析：同步无 `await`，锁即取即放；
 /// fetch 内零查询零直连。`db=None`（锁失败）时全 `None`，回退兜底不 panic。
-/// compat 等齐路保留自有内联拷贝，此处仅供流式路调用。
 fn enrich_pre_confirmed(
     db: Option<&crate::db::Database>,
     targets: &[(String, String, String)],
@@ -525,11 +519,10 @@ fn enrich_pre_confirmed(
     }
 }
 
-/// 趋势 enrich 单仓批量直查（双管线共用形状）：并发上限 5（`buffered` 保序，
+/// 趋势 enrich 单仓批量直查：并发上限 5（`buffered` 保序，
 /// 返回与入参一一对齐）；单仓 `api_timeout_or(10s)` 熔断；单仓失败落 `None`
 /// （前端保留旧小行，榜单永不因此变空）。
-/// `jobs` 为 (target, pre) 配对——流式路传 `Some` 包裹的快返等价 pre；
-/// compat 等齐路保留自有内联拷贝，此处仅供流式路调用。
+/// `jobs` 为 (target, pre) 配对——传 `Some` 包裹的快返等价 pre。
 async fn fetch_enrich_batch(
     catalog: &crate::github::CatalogService,
     token: Option<String>,
@@ -581,12 +574,8 @@ async fn fetch_enrich_batch(
 ///   另起 `tokio::spawn(fetch_icons_stream(ctx=Trend{board,board_gen}))` 流式
 ///   `emit_icon_ready` 逐张到达补齐（弱网首屏先出裸行/初始富卡，图标逐个补齐，
 ///   空永不覆盖实由前端 `iconStore.applyHit` + 后端 `BOARD_GEN` 双检查保证）；
-/// - 世代：每次流式调用 `BOARD_GEN+1`（切榜/重拉/分片重拉均+1，类比 `SEARCH_GEN`），
-///   落库前 + emit 前双检查（见唯一 `save_and_emit`，计数器经 `ctx` 选择）；
-///   buffered 等齐路（`compat_collect=true`）无后台流式、无世代检查，豁免 bump；
-/// - 逃生门：`IconFetchConfig.compat_collect=true`（默认）时保持
-///   `buffered+collect` 等齐路（`probe=true` 内联慢探同步完成），
-///   仅 `compat_collect=false` 时走新流式路。
+/// - 世代：每次调用 `BOARD_GEN+1`（切榜/重拉/分片重拉均+1，类比 `SEARCH_GEN`），
+///   落库前 + emit 前双检查（见唯一 `save_and_emit`，计数器经 `ctx` 选择）。
 #[tauri::command]
 pub async fn enrich_trend_repos(
     app_handle: AppHandle,
@@ -597,15 +586,9 @@ pub async fn enrich_trend_repos(
     let enrich_start = std::time::Instant::now();
     let board_name = board.unwrap_or_default().trim().to_lowercase();
     let cfg_icon = crate::config::get_project_config().limits.icon_fetch;
-    // 逃生门：compat_collect=true 保持老等齐路（含内联慢探）。
-    // 该路无后台流式、无世代检查，豁免 BOARD_GEN bump（bump 仅属流式路）。
-    if cfg_icon.compat_collect {
-        return enrich_trend_repos_buffered(state, repos, enrich_start).await;
-    }
-    // 世代：流式路每次调用 +1（切榜/重拉均触发新调用，类比 SEARCH_GEN）。
+    // 世代：每次调用 +1（切榜/重拉均触发新调用，类比 SEARCH_GEN）。
     let current_gen = next_board_gen();
-    // 流式路：首屏 probe=false 空壳快返 + 后台 fetch_icons_stream。
-    // 目标整形/确认预解析/批量直查经双管线共用 helper（见上；compat 路冻结自有拷贝）。
+    // 首屏 probe=false 空壳快返 + 后台 fetch_icons_stream。
     let targets = enrich_targets(repos);
     let requested = targets.len();
     if targets.is_empty() {
@@ -678,102 +661,6 @@ pub async fn enrich_trend_repos(
         results.iter().filter(|r| r.is_some()).count(),
         enrich_start.elapsed().as_millis(),
         current_gen,
-    );
-    Ok(results)
-}
-
-/// 逃生门：`compat_collect=true` 时的 `buffered+collect` 等齐路。
-/// `probe=true` 内联慢探在单仓超时内同步完成，命中经批量 enrich 落库；无后台 emit。
-async fn enrich_trend_repos_buffered(
-    state: State<'_, AppState>,
-    repos: Vec<TrendEnrichRequest>,
-    enrich_start: std::time::Instant,
-) -> crate::AppResult<Vec<Option<AppSummary>>> {
-    use futures_util::StreamExt;
-    // FE 已按 20/片×2 片串行（上限 40），此处 take(40) 为兜底截断，不静默吃超量。
-    let targets: Vec<(String, String, String)> = repos
-        .into_iter()
-        .take(40)
-        .map(|r| {
-            let owner = r.owner.trim().to_string();
-            let repo = r.repo.trim().to_string();
-            let id = format!("{}/{}", owner.to_lowercase(), repo.to_lowercase());
-            (id, owner, repo)
-        })
-        .collect();
-    let requested = targets.len();
-    if targets.is_empty() {
-        return Ok(Vec::new());
-    }
-    let token = crate::commands::resolve_active_github_token(&state);
-    let timeout_each = crate::config::api_timeout_or(std::time::Duration::from_secs(10));
-    // `State` 非 Copy：取共享引用供 FnMut 闭包多次捕获（`&CatalogService: Copy + Send`）。
-    let catalog = &state.catalog;
-    // 短锁预解析确认图标（同步无 await，锁即取即放），fetch 内零查询零直连。
-    let pre_confirmed: Vec<Option<String>> = if let Ok(db) = state.db() {
-        targets
-            .iter()
-            .map(|(id, owner, repo)| {
-                crate::github::http::resolve_confirmed_icon_from_db(&db, id, owner, repo)
-            })
-            .collect()
-    } else {
-        targets.iter().map(|_| None).collect()
-    };
-    let mut results: Vec<Option<AppSummary>> = futures_util::stream::iter(
-        targets
-            .into_iter()
-            .zip(pre_confirmed)
-            .map(|((id, owner, repo), pre)| {
-                let token = token.clone();
-                async move {
-                    if owner.is_empty() || repo.is_empty() {
-                        return None;
-                    }
-                    match tokio::time::timeout(
-                        timeout_each,
-                        catalog.fetch_online_repo(&owner, &repo, token.as_deref(), pre),
-                    )
-                    .await
-                    {
-                        Ok(Ok(item)) => Some(item),
-                        Ok(Err(e)) => {
-                            log::debug!(
-                                "trend enrich miss id={} reason={}",
-                                id,
-                                crate::log_support::short_reason(&e)
-                            );
-                            None
-                        }
-                        Err(_) => {
-                            log::debug!("trend enrich timeout id={}", id);
-                            None
-                        }
-                    }
-                }
-            }),
-    )
-    .buffered(5)
-    .collect()
-    .await;
-
-    // Top1+2 收敛：循环外一次取 db 锁复用，读解析 + 写包事务化（与 search_apps_online 同形）。
-    if let Ok(db) = state.db() {
-        let ttl_seconds = db.get_detail_cache_ttl_minutes() * 60;
-        let mut pending: Vec<crate::db::AppIconCycle> = Vec::new();
-        for item in results.iter_mut().flatten() {
-            if let Some(cycle) = backfill_uncataloged_card(&db, item, ttl_seconds) {
-                pending.push(cycle);
-            }
-        }
-        flush_icon_cycle_pending(&db, &pending);
-    }
-
-    log::info!(
-        "trend enrich done requested={} hits={} elapsed_ms={}",
-        requested,
-        results.iter().filter(|r| r.is_some()).count(),
-        enrich_start.elapsed().as_millis()
     );
     Ok(results)
 }
@@ -858,19 +745,21 @@ mod tests {
 
     #[test]
     fn trend_streaming_gen_bumps_exactly_once_per_call() {
-        // 回归：流式路每次调用恰好 BOARD_GEN+1（经 next_board_gen 唯一调用点）。
-        // buffered 等齐路永不调用 next_board_gen（见 enrich_trend_repos 逃生门注释），
-        // 故此处连续两次调用必须严格 +1/+1。
+        // 回归：每次调用恰好 BOARD_GEN+1（经 next_board_gen 唯一调用点，
+        // 唯一调用方为 `enrich_trend_repos` 流式直路）。
+        // 连续两次调用必须严格 +1/+1。
         let a = super::next_board_gen();
         let b = super::next_board_gen();
         assert_eq!(b, a + 1);
     }
 
     #[test]
-    fn trend_buffered_default_path_needs_no_board_gen() {
-        // 契约：默认 compat_collect=true 走 buffered 等齐路，该路无后台流式、
-        // 无 emit 世代检查，故与 BOARD_GEN 无关（豁免 bump）。
-        assert!(crate::config::IconFetchConfig::default().compat_collect);
+    fn trend_icon_fetch_config_is_streaming_only() {
+        // 契约：流式 cutover 后无 compat 等齐路，`IconFetchConfig` 仅保留
+        // pool / total_timeout_secs（默认 5 / 15），不再有 compat 开关。
+        let cfg = crate::config::IconFetchConfig::default();
+        assert_eq!(cfg.pool, 5);
+        assert_eq!(cfg.total_timeout_secs, 15);
     }
 
     #[test]
