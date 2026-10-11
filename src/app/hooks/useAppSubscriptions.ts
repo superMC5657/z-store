@@ -13,7 +13,7 @@ import type {
 import { api, DEFAULT_SETTINGS } from '../../services/api';
 import { applyHit, patchAppIconList } from '../../services/iconStore';
 import { preloadIcons } from '../../components/AppIcon';
-import { matchSelectedWithPending } from '../selectors';
+import { matchPlatformSetWithPending } from '../../lib/platformFilter';
 import { type PlatformId } from '../../lib/platformFilter';
 import { zlogInfo } from '../../lib/z-log';
 import { adoptEchoInWindow } from './useSearchState';
@@ -153,7 +153,7 @@ export function useAppSubscriptions({
     api.getDetectedInstalledAppIds().then((ids) => setDetectedAppIds(new Set(ids))).catch(() => {});
     api.getFavorites().then((favs) => setFavoriteIds(new Set(favs)));
     api.getUpdateRules().then(setUpdateRules);
-    api.getRecentlyViewedApps().then((recents) => setRecentlyViewedApps(recents.filter((a) => matchSelectedWithPending(a, initialFilter.selectedPlatforms, initialFilter.platformResolvedOtherIds)))).catch(() => {});
+    api.getRecentlyViewedApps().then((recents) => setRecentlyViewedApps(recents.filter((a) => matchPlatformSetWithPending(a, initialFilter.selectedPlatforms, initialFilter.platformResolvedOtherIds)))).catch(() => {});
     api.registerDeepLinkScheme().catch(() => {});
 
     // 加载持久化设置

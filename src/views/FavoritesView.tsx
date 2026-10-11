@@ -9,7 +9,7 @@ import { AppSummary, OAuthUser, StarredSyncResult } from '../types';
 import { tauriApi } from '../services/api';
 import { ViewAppActions, ViewShell } from './ViewShell';
 import { matchesAppText } from './useViewFilter';
-import { isPendingFor } from '../app/selectors';
+import { isPlatformPending } from '../lib/platformFilter';
 import { normalizeId, normalizeIdLowerSet } from '../services/normalizeId';
 
 interface FavoritesViewProps extends ViewAppActions {
@@ -175,7 +175,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 key={app.id}
                 app={app}
                 eager={index < 6}
-                platformPending={isPendingFor(app, platformResolvedOtherIds)}
+                platformPending={isPlatformPending(app, platformResolvedOtherIds)}
                 isInstalled={installedIds.has(app.id)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={true}
@@ -213,7 +213,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 key={app.id}
                 app={app}
                 eager={index < 6}
-                platformPending={isPendingFor(app, platformResolvedOtherIds)}
+                platformPending={isPlatformPending(app, platformResolvedOtherIds)}
                 isInstalled={installedIds.has(app.id)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIdsLower.has(normalizeId(app.id))}
@@ -353,7 +353,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                       key={app.id}
                       app={app}
                       eager={index < 6}
-                      platformPending={isPendingFor(app, platformResolvedOtherIds)}
+                      platformPending={isPlatformPending(app, platformResolvedOtherIds)}
                       isInstalled={installedIds.has(app.id)}
                       isInstalling={installingIds?.has(app.id)}
                       isFavorite={favoriteIdsLower.has(normalizeId(app.id))}

@@ -24,8 +24,8 @@ import { Search } from 'lucide-react';
 import { AppDetailViewModel, AppSummary, OAuthUser, UpdateItem, UpdateCheckProgressPayload, UpdateRule, ViewType, WatchUpdatedPayload } from './types';
 import { api } from './services/api';
 import { togglePlatformSet, type PlatformId } from './lib/platformFilter';
-import { isPendingFor } from './app/selectors';
-import { createFourListPatch, subscribeIconWrites } from './services/iconStore';
+import { isPlatformPending } from './lib/platformFilter';
+import { patchAppIconList, subscribeIconWrites } from './services/iconStore';
 
 import {
   PLATFORM_FILTER_STORAGE_KEY,
@@ -207,18 +207,27 @@ export const App: React.FC = () => {
   // 图标写扇出订阅：店内唯一写口受理后四列表跟进（无 patch 的本地写如详情轮转亦经此落定；
   // patch 幂等，显式 patch 与扇出重复落定无闪烁；卸载即退订）。
   useEffect(() => {
-    const patchFour = createFourListPatch({
-      setApps,
-      setOnlineApps,
-      setRecentlyViewedApps,
-      setFavoriteExtraApps,
-    });
     return subscribeIconWrites(({ targets, icon }) => {
       for (const t of targets) {
         try {
-          patchFour(t, icon);
+          setApps((prev) => patchAppIconList(prev, t, icon));
         } catch {
-          // 单别名失败不阻塞其余
+          // 单列表失败不阻塞其余
+        }
+        try {
+          setOnlineApps((prev) => patchAppIconList(prev, t, icon));
+        } catch {
+          // 同上
+        }
+        try {
+          setRecentlyViewedApps((prev) => patchAppIconList(prev, t, icon));
+        } catch {
+          // 同上
+        }
+        try {
+          setFavoriteExtraApps((prev) => patchAppIconList(prev, t, icon));
+        } catch {
+          // 同上
         }
       }
     });
@@ -689,7 +698,7 @@ export const App: React.FC = () => {
           isWatched={watchedIds.has(selectedApp.id)}
           isInstallingGlobal={installingAppIds.has(selectedApp.id)}
           isUninstallingGlobal={uninstallingAppIds.has(selectedApp.id)}
-          platformPending={isPendingFor(selectedApp, platformResolvedOtherIds)}
+          platformPending={isPlatformPending(selectedApp, platformResolvedOtherIds)}
           oauthUser={oauthUser}
           onClose={() => {
             activeDetailIdRef.current = null;

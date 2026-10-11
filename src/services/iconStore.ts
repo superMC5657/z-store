@@ -13,8 +13,8 @@
  * `patchIconMirror`（趋势镜像合并）与 `iconDataCache`（`get_or_fetch_icon` 落盘预热内存态）均为内部 seam，
  * 对外不新增写口。`enrich.stickyIconFor`/`board.applyIconChangedToMirror` 的重复 locality 已删除，
  * 调用方经本 module 直引（`adapter` 薄委托保留一版以兼容未迁移的 View，见 `board.ts`）。
- * adapter/leverage/locality：`createFourListPatch` 为单调用点 adapter（`leverage=1`，
- * `one adapter=hypothetical seam`），暂留作兼容（`App.tsx` 外未迁移前不删，见下）；`AppIcon` 的
+ * adapter/leverage/locality：旧四列表工厂 adapter 已删（ica3-11，`App.tsx`
+ * 经 `patchAppIconList` + `subscribeIconWrites` 内联四连直写，不经工厂中转）；`AppIcon` 的
  * `appIdToIconMap` 并行 locality 已删（以店内 `iconById` 为单一别名源）；`isRemoteIcon` 留在
  * `AppIcon`（展示判定，与店内 `isRemoteHttpIconUrl` 落盘门控正交，非重复）。
  * 领域词：`IconFetch`（后端 `fetch_icons_stream`）→ `icon-ready`（`zstore://icon-ready`）→
@@ -657,44 +657,4 @@ export function clearBufferedIcon(key: string): void {
     // 失效失败不阻塞扇出
   }
   notifyIconWrites([k], '', 5);
-}
-
-/**
- * 四列表写透补丁工厂（`applyHit.patch` 注入用，App 侧 `setApps/setOnlineApps/
- * setRecentlyViewedApps/setFavoriteExtraApps` 四件套）：
- * 返回 `(targetIdLower, icon) => void`，内部分发 `patchAppIconList` 写透四列表，
- * 单列表失败不阻塞其余。与 `App.tsx` 现内联四连 `patch` 同语义，收敛至此一处。
- * adapter 备注（`one adapter=hypothetical seam`）：当前仅 `App.tsx` 单调用点
- * （`leverage=1`），理想应由读侧扇出（`subscribeIconWrites`）替代显式 `patch` 注入；
- * 外部调用方未迁移前暂留作兼容，不新增调用点（`deletion test`：删此文件则四列表写透消失，
- * 证其仍为透传 adapter，待迁移后删除）。
- */
-export function createFourListPatch(setters: {
-  setApps: (f: (prev: AppSummary[]) => AppSummary[]) => void;
-  setOnlineApps: (f: (prev: AppSummary[]) => AppSummary[]) => void;
-  setRecentlyViewedApps: (f: (prev: AppSummary[]) => AppSummary[]) => void;
-  setFavoriteExtraApps: (f: (prev: AppSummary[]) => AppSummary[]) => void;
-}): (targetIdLower: string, icon: string) => void {
-  return (targetIdLower: string, icon: string) => {
-    try {
-      setters.setApps((prev) => patchAppIconList(prev, targetIdLower, icon));
-    } catch {
-      // 单列表失败不阻塞其余
-    }
-    try {
-      setters.setOnlineApps((prev) => patchAppIconList(prev, targetIdLower, icon));
-    } catch {
-      // 同上
-    }
-    try {
-      setters.setRecentlyViewedApps((prev) => patchAppIconList(prev, targetIdLower, icon));
-    } catch {
-      // 同上
-    }
-    try {
-      setters.setFavoriteExtraApps((prev) => patchAppIconList(prev, targetIdLower, icon));
-    } catch {
-      // 同上
-    }
-  };
 }

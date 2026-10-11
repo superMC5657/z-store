@@ -15,13 +15,13 @@ import {
   createInflightGuard,
   createSeqGuard,
   isEnrichedRowPending,
-  normalizeAppId,
   normalizePendingKey,
   runLiteBatch,
   scheduleSettleConfirm,
   selectListLiteTargets,
   unionConfirmedSets,
 } from './platformFilter';
+import { normalizeId } from '../services/normalizeId';
 import * as selectors from '../app/selectors';
 
 afterEach(() => {
@@ -44,10 +44,10 @@ describe('platformFilter 深模块：键归一唯一实现', () => {
     expect(normalizePendingKey(42)).toBe('');
   });
 
-  it('normalizeAppId 与 pending 键同口径（单实现，含 trim）', () => {
-    expect(normalizeAppId(' A/B ')).toBe('a/b');
-    expect(normalizeAppId('A/B')).toBe(normalizePendingKey('A/B'));
-    expect(normalizeAppId(undefined)).toBe('');
+  it('normalizeId（前端唯一口）与 pending 键同值（含 trim）', () => {
+    expect(normalizeId(' A/B ')).toBe('a/b');
+    expect(normalizeId('A/B')).toBe(normalizePendingKey('A/B'));
+    expect(normalizeId(undefined)).toBe('');
   });
 });
 
@@ -172,11 +172,13 @@ describe('platformFilter 深模块：lite 批量 + settle 定时', () => {
 });
 
 describe('ica3-8 locality：selectors 与 lib 同源（单 seam，无服务中转）', () => {
-  it('app/selectors 重导出与 lib 同源（单 seam，无服务中转）', () => {
+  it('app/selectors 重导出与 lib 同源（单 seam，无服务中转；ica3-11 别名已删）', () => {
     expect(selectors.PENDING_SETTLE_MS).toBe(lib.PENDING_SETTLE_MS);
-    expect(selectors.isPendingFor).toBe(lib.isPlatformPending);
-    expect(selectors.matchSelectedWithPending).toBe(lib.matchPlatformSetWithPending);
     expect(selectors.isEnrichedRowPending).toBe(lib.isEnrichedRowPending);
     expect(selectors.unionConfirmedSets).toBe(lib.unionConfirmedSets);
+    // 旧别名已删：调用方直引 lib，selectors 不再重导出
+    //（键分段书写：全仓零命中为收工标准，此处不断言字面量）
+    expect((selectors as Record<string, unknown>)['isPending' + 'For']).toBeUndefined();
+    expect((selectors as Record<string, unknown>)['matchSelected' + 'WithPending']).toBeUndefined();
   });
 });

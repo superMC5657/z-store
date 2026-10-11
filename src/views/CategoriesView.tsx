@@ -22,7 +22,7 @@ import {
   ViewAppActions,
   ViewShell,
 } from './ViewShell';
-import { isPendingFor } from '../app/selectors';
+import { isPlatformPending } from '../lib/platformFilter';
 
 interface CategoriesViewProps extends ViewAppActions, RequiredPlatformReset {
   platformResolvedOtherIds?: ReadonlySet<string>;
@@ -178,7 +178,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                 key={app.id}
                 app={app}
                 eager={index < 6}
-                platformPending={isPendingFor(app, platformResolvedOtherIds)}
+                platformPending={isPlatformPending(app, platformResolvedOtherIds)}
                 isInstalled={installedIds.has(app.id)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}

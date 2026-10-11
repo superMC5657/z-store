@@ -57,14 +57,11 @@ export function isPlatformEmpty(app: PendingRow): boolean {
   return !app.platforms || app.platforms.length === 0;
 }
 
-/** pending 键归一（lower-trim；空串表示无效，调用方自行跳过）。全模块键归一唯一实现。 */
+/** pending 键归一（lower-trim；空串表示无效，调用方自行跳过）。全模块键归一唯一实现。
+ * 应用 id 归一请直用 `services/normalizeId`（后端 canonical 为准，与本键同值；ica3-11
+ * 已删本模块旧应用 id 双口，本模块内键一律经此）。 */
 export function normalizePendingKey(id: unknown): string {
   return typeof id === 'string' ? id.trim().toLowerCase() : '';
-}
-
-/** 小写归一的应用 id（缺失返回空串；与 pending 键同口径，经唯一实现）。 */
-export function normalizeAppId(id: unknown): string {
-  return normalizePendingKey(id);
 }
 
 /**
@@ -80,7 +77,7 @@ export function isPlatformPending(
 ): boolean {
   if (!isPlatformEmpty(app)) return false;
   if (!resolvedOtherIds) return false;
-  const key = normalizeAppId(app.id);
+  const key = normalizePendingKey(app.id);
   if (!key) return true;
   return !resolvedOtherIds.has(key);
 }
@@ -92,7 +89,7 @@ export function isConfirmedOther(
 ): boolean {
   if (!isPlatformEmpty(app)) return false;
   if (!resolvedOtherIds) return true;
-  const key = normalizeAppId(app.id);
+  const key = normalizePendingKey(app.id);
   if (!key) return false;
   return resolvedOtherIds.has(key);
 }

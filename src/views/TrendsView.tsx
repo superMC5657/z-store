@@ -58,12 +58,12 @@ import {
 import {
   PENDING_SETTLE_MS,
   isEnrichedRowPending,
-  isPendingFor,
-  matchSelectedWithPending,
 } from '../app/selectors';
 import {
   PLATFORM_IDS,
+  isPlatformPending,
   matchPlatformSet,
+  matchPlatformSetWithPending,
   type PlatformId,
 } from '../lib/platformFilter';
 import { applyHit, patchIconMirror, subscribeIconWrites } from '../services/iconStore';
@@ -244,7 +244,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     const withPending = platformResolvedOtherIds !== undefined;
     return rawDisplayItems.filter((item) => {
       if (item.type === 'catalog') {
-        if (withPending) return matchSelectedWithPending(item.app, selectedPlatforms, platformResolvedOtherIds);
+        if (withPending) return matchPlatformSetWithPending(item.app, selectedPlatforms, platformResolvedOtherIds);
         return matchPlatformSet(item.app, selectedPlatforms);
       }
       const key = item.repo.id.toLowerCase();
@@ -273,7 +273,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     };
     const isPendingItem = (item: DisplayTrendItem): boolean => {
       if (!withPending) return false;
-      if (item.type === 'catalog') return isPendingFor(item.app, platformResolvedOtherIds);
+      if (item.type === 'catalog') return isPlatformPending(item.app, platformResolvedOtherIds);
       // 未收录行 pending 口径与过滤判定同源（统一接口）。
       const key = item.repo.id.toLowerCase();
       return isEnrichedRowPending(key, enrichedApps[key], combinedConfirmed);
@@ -587,7 +587,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
           displayItems.map((item, index) => {
             if (item.type === 'catalog') {
               // 待确认恒可见（统一接口；缺席追踪集合时恒非 pending，沿用旧语义）。
-              const catalogPending = isPendingFor(item.app, platformResolvedOtherIds);
+              const catalogPending = isPlatformPending(item.app, platformResolvedOtherIds);
               return (
                 <AppCard
                   key={item.app.id}

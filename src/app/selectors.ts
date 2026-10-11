@@ -8,20 +8,19 @@ import type {
 } from '../types';
 import {
   PLATFORM_IDS,
-  isPlatformPending as isPendingFor,
-  matchPlatformSetWithPending as matchSelectedWithPending,
+  isPlatformPending,
+  matchPlatformSetWithPending,
   normalizePlatform,
   type PlatformId,
 } from '../lib/platformFilter';
 import { normalizeId } from '../services/normalizeId';
 // pending 语义唯一深模块为 `lib/platformFilter`（ica3-3）：本选择器直接消费 lib，
-// 对外兼容重导出与 lib 同源（单 seam，供未迁移视图经本口消费；新代码请直引 lib）。
+// 对外仅保留 PENDING_SETTLE_MS/isEnrichedRowPending/unionConfirmedSets 三件重导出
+// （ica3-11：旧 pending 别名已删，调用方直引 lib）。
 export {
   PENDING_SETTLE_MS,
   isEnrichedRowPending,
   unionConfirmedSets,
-  isPlatformPending as isPendingFor,
-  matchPlatformSetWithPending as matchSelectedWithPending,
 } from '../lib/platformFilter';
 
 export interface UseAppSelectorsParams {
@@ -59,7 +58,7 @@ export function selectPlatformFilteredApps(
   selectedPlatforms: Set<PlatformId>,
   platformResolvedOtherIds: Set<string>,
 ): AppSummary[] {
-  return apps.filter((a) => matchSelectedWithPending(a, selectedPlatforms, platformResolvedOtherIds));
+  return apps.filter((a) => matchPlatformSetWithPending(a, selectedPlatforms, platformResolvedOtherIds));
 }
 
 export function selectPlatformCounts(
@@ -74,7 +73,7 @@ export function selectPlatformCounts(
   for (const a of apps) {
     if (!a.platforms || a.platforms.length === 0) {
       // 待确认：暂不计入任何桶；已确认 other：仅计 other 桶
-      if (isPendingFor(a, platformResolvedOtherIds)) continue;
+      if (isPlatformPending(a, platformResolvedOtherIds)) continue;
       counts['other'] += 1;
       continue;
     }
@@ -138,7 +137,7 @@ export function selectFavoritesViewApps(
 ): AppSummary[] {
   if (favoriteExtraApps.length === 0) return platformFilteredApps;
   const filteredExtras = favoriteExtraApps.filter((a) =>
-    matchSelectedWithPending(a, selectedPlatforms, platformResolvedOtherIds),
+    matchPlatformSetWithPending(a, selectedPlatforms, platformResolvedOtherIds),
   );
   if (filteredExtras.length === 0) return platformFilteredApps;
   const baseLower = new Set<string>();
@@ -202,14 +201,14 @@ export function useAppSelectors({
   const filteredInstalledApps = useMemo(() => {
     return installedApps.filter((inst) => {
       const catalogEntry = appsById.get(normalizeId(inst.app_id));
-      return !catalogEntry || matchSelectedWithPending(catalogEntry, selectedPlatforms, platformResolvedOtherIds);
+      return !catalogEntry || matchPlatformSetWithPending(catalogEntry, selectedPlatforms, platformResolvedOtherIds);
     });
   }, [installedApps, appsById, selectedPlatforms, platformResolvedOtherIds]);
 
   const filteredUpdates = useMemo(() => {
     return updates.filter((u) => {
       const catalogEntry = appsById.get(normalizeId(u.app_id));
-      return !catalogEntry || matchSelectedWithPending(catalogEntry, selectedPlatforms, platformResolvedOtherIds);
+      return !catalogEntry || matchPlatformSetWithPending(catalogEntry, selectedPlatforms, platformResolvedOtherIds);
     });
   }, [updates, appsById, selectedPlatforms, platformResolvedOtherIds]);
 
