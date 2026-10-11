@@ -8,24 +8,22 @@ import type {
 } from '../types';
 import {
   PLATFORM_IDS,
+  isPlatformPending as isPendingFor,
+  matchPlatformSetWithPending as matchSelectedWithPending,
   normalizePlatform,
   type PlatformId,
 } from '../lib/platformFilter';
-import {
-  isPendingFor,
-  matchSelectedWithPending,
-} from '../services/pendingLifecycle';
 // 收藏页 left-join 合并器收归深 join 模块（`app/favoritesUncataloged`），此处薄消费。
 import { selectFavoritesViewApps } from './favoritesUncataloged';
-// 统一 pending 接口外观（ticket 11）：视图经本选择器接口消费 pending 语义，
-// 不直引 `lib/platformFilter`（lib 降为深模块内部 seam）。
+// pending 语义唯一深模块为 `lib/platformFilter`（ica3-3）：本选择器直接消费 lib，
+// 对外兼容重导出与 lib 同源（单 seam，供未迁移视图经本口消费；新代码请直引 lib）。
 export {
-  isPendingFor,
-  matchSelectedWithPending,
-  unionConfirmedSets,
-  isEnrichedRowPending,
   PENDING_SETTLE_MS,
-} from '../services/pendingLifecycle';
+  isEnrichedRowPending,
+  unionConfirmedSets,
+  isPlatformPending as isPendingFor,
+  matchPlatformSetWithPending as matchSelectedWithPending,
+} from '../lib/platformFilter';
 
 export interface UseAppSelectorsParams {
   apps: AppSummary[];

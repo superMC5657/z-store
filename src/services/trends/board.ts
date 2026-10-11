@@ -77,7 +77,7 @@ import {
   type LiteFetch,
   type PendingLiteTarget,
   type SeqGuard,
-} from '../pendingLifecycle';
+} from '../../lib/platformFilter';
 import { zlogInfo } from '../../lib/z-log';
 import { patchIconMirror, stickyIconFor } from '../iconStore';
 
