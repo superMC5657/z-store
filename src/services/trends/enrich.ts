@@ -1,6 +1,6 @@
 import type { AppDetail, AppSummary, TrendRepo } from '../../types';
 import { tauriApi } from '../api';
-import { getBufferedIcon, mergeStickyIcon } from '../iconStore';
+import { stickyIconFor } from '../iconStore';
 import { normalizeId, normalizeIdSet } from '../normalizeId';
 
 /** enrich 派生缓存 TTL：12h（坐标元数据日内几乎不变，与 DOFORCE 快照同口径）。 */
@@ -212,30 +212,6 @@ export function sweepExpiredTrendConfirmedOtherCache(): void {
 
 /** M1内存：trendEnrichCache（仅具平台坐标元数据 12h/500 FIFO；pending 空平台永不进内存）。 */
 const trendEnrichCache = new Map<string, { timestamp: number; data: AppSummary }>();
-
-/**
- * icon 粘性合并（C1 读透适配，薄）：旧图标非空 + 回填空则沿用旧值，其余采用回填值。
- * M1内存回读：空图标沿用 iconStore 缓冲实图，保证内存与本次返回值一致。
- * 空值一律经店内 SSOT，此处不自立规则。
- */
-function stickyIconFor(cur: AppSummary | undefined, incoming: AppSummary): AppSummary {
-  const merged = mergeStickyIcon(cur, incoming);
-  // M1内存回读经 `getBufferedIcon` 唯一口。
-  if (typeof merged.icon === 'string' && merged.icon.trim() === '') {
-    const coordKey =
-      incoming.owner && incoming.repo
-        ? `${normalizeId(incoming.owner)}/${normalizeId(incoming.repo)}`
-        : '';
-    const idKey = typeof incoming.id === 'string' ? normalizeId(incoming.id) : '';
-    const buffered =
-      (coordKey ? getBufferedIcon(coordKey) : undefined) ??
-      (idKey ? getBufferedIcon(idKey) : undefined);
-    if (buffered && buffered.trim() !== '') {
-      return { ...merged, icon: buffered };
-    }
-  }
-  return merged;
-}
 
 /**
  * trendEnrichCache 唯一写入口。

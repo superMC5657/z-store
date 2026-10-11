@@ -1,18 +1,36 @@
-/** 前端图标唯一写入口（C1 深核前端件）。
- * level纯L单调（1=L1官方/2=L2品牌库/3=L3仓库/4=L4 README，via正交live|m2）；
- * M1=内存（iconStore/searchListCache/enrich经getBufferedIcon/applyHit唯一口）；
- * M2=DB（via=m2首屏直填，不走emit）；`data:`永不落盘只进M1内存。
- * 缝：`applyHit` 为唯一写口；`AppIcon`/`useSearchState.assembleOnlineRowsWithIcons`/
- * `enrich.stickyIconFor` 为读透适配（经 `getBufferedIcon`/`applyHit`，不自立空值规则）；四列表写透（apps/onlineApps/recentlyViewedApps/
- * favoriteExtraApps）经 `patch` 注入（见 `createFourListPatch`）。
+/** 前端图标深 module（deep module，`IconFetch` 前端收口）。
+ * module：`services/iconStore` 为图标写唯一深 module；`AppIcon`/`Search List Cache`/
+ * `trends/enrich`/`trends/board` 不再自立图标 locality，并行 mem-cache 均已内聚为本 module 内部 seam。
+ * interface：唯一对外写 interface 为 `applyHit`（`icon-ready` 统一收口）+ 读侧扇出
+ * `subscribeIconWrites`（读侧只合并、不再调写口，不复活窗口总线）；读口 `getBufferedIcon`/
+ * `getCachedIconDataUri` 为展示/组装用只读 interface；`stickyIconFor`/`patchIconMirror`/
+ * `patchAppIconList` 为erna组装/镜像用的纯合并 interface（内部 seam 的收敛实现，调用方直引、不自立规则）。
+ * depth：`applyHit` 内聚 generation gate（`search_id`/`board`+`gen`）+ L-monotone（纯L 1..5，
+ * 低不顶高，`via` 正交）+ `via`（`live|m2`，`data:`/`m2` 只进 M1 内存不落盘）+ L5 badge
+ *（`icon:'' + level:5` 唯一允许的空覆盖，经 fan-out）+ fan-out（`notifyIconWrites`）。
+ * 一次 `IconFetch` 命中经 `icon-ready` 只跳本 module 单 interface，不再跨 `store→cache→enrich→board mirror` 四跳。
+ * seam：`applyHit` 为唯一写 seam；`stickyIconFor`（`mergeStickyIcon` + M1 缓冲回读）与
+ * `patchIconMirror`（趋势镜像合并）与 `iconDataCache`（`get_or_fetch_icon` 落盘预热内存态）均为内部 seam，
+ * 对外不新增写口。`enrich.stickyIconFor`/`board.applyIconChangedToMirror` 的重复 locality 已删除，
+ * 调用方经本 module 直引（`adapter` 薄委托保留一版以兼容未迁移的 View，见 `board.ts`）。
+ * adapter/leverage/locality：`createFourListPatch` 为单调用点 adapter（`leverage=1`，
+ * `one adapter=hypothetical seam`），暂留作兼容（`App.tsx` 外未迁移前不删，见下）；`AppIcon` 的
+ * `appIdToIconMap` 并行 locality 已删（以店内 `iconById` 为单一别名源）；`isRemoteIcon` 留在
+ * `AppIcon`（展示判定，与店内 `isRemoteHttpIconUrl` 落盘门控正交，非重复）。
+ * 领域词：`IconFetch`（后端 `fetch_icons_stream`）→ `icon-ready`（`zstore://icon-ready`）→
+ * 本 module `applyHit`；`Search List Cache`（`searchListCache.ts` 纯前端内存）经 `getBufferedIcon` 回读，
+ * 不另立图标规则。`boardReady`/`swrSyncedResult`/`isUpgradePending` 仍为趋势视图内部态，不进本 module。
+ * 合规：level 纯L + `via` 正交 + M1/M2 划分遵 ADR-0015；`normalizeId` 归一遵 ADR-0010；
+ * 展示图标分层（品牌母版/桌面外壳/运行时矢量）遵 ADR-0005，本 module 只碰运行时列表图标 URL，不碰品牌资产。
  * L5 显式徽章（用户切空，`icon:'' + level:5`）为唯一允许的空覆盖：经 `applyHit`
  * 清记忆 + `patch('')` + 读侧扇出；被动空壳（无 level 5）仍直接丢弃。
  * 读侧扇出（`subscribeIconWrites`）：`applyHit` 受理后通知订阅者（App 四列表/趋势镜像），
- * 写口仍唯一，不复活窗口总线。
+ * 写口仍唯一，不复活窗口总线。`clearBufferedIcon` 亦经同一扇出（直接清零亦通知，防富卡 stale，
+ * 见 `ecb83e1` 语义；`applyBadgeHit` 内走批量单事件，直接调用走单键事件）。
  */
-import { invalidateIconCache, preloadIcons } from '../components/AppIcon';
 import type { AppSummary } from '../types';
 import { normalizeId, normalizeIdSet } from './normalizeId';
+import { tauriInvoke } from './api/client';
 
 /** 空图标判定 SSOT（读透适配统一用此件，不各自 `trim()===''` 散写）。 */
 export function isEmptyIcon(icon: unknown): boolean {
@@ -172,8 +190,9 @@ export function isRemoteHttpIconUrl(icon: unknown): boolean {
 }
 
 /**
- * icon 粘性 supersede-only 合并（`enrich.ts` 图标半区的收敛实现）：
+ * icon 粘性 supersede-only 合并（内部 seam 的收敛实现，原 `enrich.stickyIconFor` 的下半）：
  * 旧图标非空 + 回填图标空 → 沿用旧图标；其余一律采用回填值。
+ * 空值经 `isEmptyIcon` SSOT，不自立 `trim()===''` 规则。
  */
 export function mergeStickyIcon(
   cur: AppSummary | undefined,
@@ -181,15 +200,76 @@ export function mergeStickyIcon(
 ): AppSummary {
   const curIcon = cur && typeof cur.icon === 'string' ? cur.icon : '';
   const incomingIcon = typeof incoming.icon === 'string' ? incoming.icon : '';
-  if (cur && curIcon.trim() !== '' && incomingIcon.trim() === '') {
+  if (cur && !isEmptyIcon(curIcon) && isEmptyIcon(incomingIcon)) {
     return { ...incoming, icon: cur.icon };
   }
   return incoming;
 }
 
+/**
+ * icon 粘性 + M1 缓冲回读（内部 seam 的收敛实现，原 `enrich.stickyIconFor` 全量上移）：
+ * 先 `mergeStickyIcon`（旧实 + 回填空 → 沿用旧），再空壳经 `getBufferedIcon` 唯一口
+ * 回读缓冲实图（坐标键 + id 键双查，`normalizeId` 归一，遵 ADR-0010）。
+ * 调用方（`enrich.put`/`assembleOnlineRowsWithIcons`）直引此 interface，不自立空值/缓冲规则；
+ * `Search List Cache` 命中行组装亦经此口，空壳不覆盖缓冲实图。
+ */
+export function stickyIconFor(cur: AppSummary | undefined, incoming: AppSummary): AppSummary {
+  const merged = mergeStickyIcon(cur, incoming);
+  if (!isEmptyIcon(merged.icon)) return merged;
+  const coordKey =
+    incoming.owner && incoming.repo
+      ? `${normalizeId(incoming.owner)}/${normalizeId(incoming.repo)}`
+      : '';
+  const idKey = typeof incoming.id === 'string' ? normalizeId(incoming.id) : '';
+  const buffered =
+    (coordKey ? getBufferedIcon(coordKey) : undefined) ??
+    (idKey ? getBufferedIcon(idKey) : undefined);
+  if (buffered && !isEmptyIcon(buffered)) {
+    return { ...merged, icon: buffered };
+  }
+  return merged;
+}
+
+/**
+ * 趋势镜像图标合并（内部 seam 的收敛实现，原 `board.applyIconChangedToMirror` 全量下移）：
+ * incoming 与旧不同即覆盖；L5（`''`）放行内存清零；大小写归一，同时匹配坐标键与
+ * `enriched.id` 小写别名（`normalizeId`，遵 ADR-0010）。`board.ts` 仅留薄 adapter 委托，
+ * 待 View 迁移至 `subscribeIconWrites` 后删除（`one adapter=hypothetical seam`）。
+ */
+export function patchIconMirror(
+  prev: Record<string, AppSummary>,
+  appIdNorm: string,
+  rawIcon: string,
+): Record<string, AppSummary> {
+  if (!appIdNorm) return prev;
+  const norm = normalizeId(appIdNorm);
+  if (!norm) return prev;
+  let changed = false;
+  const next = { ...prev };
+  for (const k of Object.keys(prev)) {
+    const cur = prev[k];
+    const alias = normalizeId((cur as AppSummary | undefined)?.id);
+    if (normalizeId(k) === norm || (alias !== '' && alias === norm)) {
+      if (cur.icon !== rawIcon) {
+        next[k] = { ...cur, icon: rawIcon };
+        changed = true;
+      }
+    }
+  }
+  return changed ? next : prev;
+}
+
 /** `level`纯L单调记忆（别名共享最大值，低不顶高，via正交）+ 图标M1内存缓冲已有实图记忆（`''` 守卫回退）。 */
 const iconLevelById = new Map<string, number>();
 const iconById = new Map<string, string>();
+
+/**
+ * 图标展示数据内存态（原 `AppIcon.iconDataCache` 上移为本 module 内部 seam）：
+ * `get_or_fetch_icon` 落盘后的 `data:` 直显态，`key` 为远端 URL 或归一 id（小写）。
+ * 别名源唯一是店内 `iconById`（`normalizeId`），不再另立 `appIdToIconMap` 并行 locality。
+ */
+const iconDataCache = new Map<string, string>();
+const iconPendingPromises = new Map<string, Promise<string>>();
 
 function resolveCurrentSearchId(args: ApplyHitArgs): string {
   try {
@@ -239,6 +319,100 @@ export interface GenerationGate {
 }
 
 /**
+ * 展示数据失效（内部 seam，原 `AppIcon.invalidateIconCache` 上移）：
+ * 删 `iconDataCache`/`pending` 中该键及其关联 URL/别名态。以店内 `iconById` 为唯一别名源
+ * （`normalizeId`，遵 ADR-0010），不再维护并行 `appIdToIconMap`。
+ * `AppIcon` 侧仅留薄 adapter 委托（兼容 `useAppSubscriptions` 等未迁移调用方）。
+ */
+export function invalidateIconCache(key?: string): void {
+  if (!key) {
+    iconDataCache.clear();
+    iconPendingPromises.clear();
+    return;
+  }
+  const norm = normalizeId(key);
+  const candidates = new Set<string>([key, norm]);
+  // id→URL 别名经店内 `iconById` 单源回查（无并行 map）。
+  const mappedUrl = norm ? iconById.get(norm) : undefined;
+  if (typeof mappedUrl === 'string' && mappedUrl) {
+    candidates.add(mappedUrl);
+    candidates.add(normalizeId(mappedUrl));
+  }
+  // URL→id 反查：同 URL 的别名 data 态一并失效。
+  if (norm) {
+    for (const [id, url] of iconById.entries()) {
+      if (normalizeId(url) === norm || url === key) {
+        candidates.add(id);
+        candidates.add(normalizeId(id));
+      }
+    }
+  }
+  for (const c of candidates) {
+    if (!c) continue;
+    iconDataCache.delete(c);
+    iconPendingPromises.delete(c);
+  }
+}
+
+/**
+ * 展示数据读口（内部 seam，`AppIcon` 展示经此唯一口读 `data:` 直显态）：
+ * 命中即直显（`preload` 落盘后的内存态），否则回落 prop 直显；空 prop 恒徽章。
+ */
+export function getCachedIconDataUri(key: string): string | undefined {
+  if (typeof key !== 'string' || key === '') return undefined;
+  return iconDataCache.get(key) ?? (normalizeId(key) ? iconDataCache.get(normalizeId(key)) : undefined);
+}
+
+/**
+ * 远端预热（内部 seam，原 `AppIcon.preloadIcons` 上移）：
+ * 仅远端（`http(s)`/`data:` 兼容展示判定由调用方保证，此处复用店内落盘门控）走
+ * `get_or_fetch_icon` 落盘；`data:` 永不预热；同 URL 去重（`pending` 单飞）。
+ * `M1` 纯内存（`data:`/`via=m2`）路径不经此（`applyHit` 内跳过）。
+ * 非 Tauri（单测/jsdom/浏览器预览）直接返回（展示回落 URL 直显，不抛错、不产生未处理拒绝）。
+ */
+export function preloadIcons(items: (string | { id?: string; icon: string })[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (!('__TAURI_INTERNALS__' in window)) return;
+  } catch {
+    return;
+  }
+  for (const item of items) {
+    const icon = typeof item === 'string' ? item : item.icon;
+    const id = typeof item === 'string' ? undefined : item.id;
+    if (!icon || iconDataCache.has(icon) || icon.startsWith('data:')) continue;
+    if (!isRemoteHttpIconUrl(icon) && !icon.includes('.png') && !icon.includes('.svg') && !icon.includes('.jpg') && !icon.includes('.webp') && !icon.includes('.ico')) continue;
+    if (!iconPendingPromises.has(icon)) {
+      const p = tauriInvoke<string>('get_or_fetch_icon', { appId: id ?? null, remoteUrl: icon })
+        .then((dataUri) => {
+          iconDataCache.set(icon, dataUri);
+          if (id) {
+            iconDataCache.set(id, dataUri);
+            const nid = normalizeId(id);
+            if (nid) iconDataCache.set(nid, dataUri);
+          }
+          iconPendingPromises.delete(icon);
+          return dataUri;
+        })
+        .catch(() => {
+          // 预热失败静默吞掉（展示回落 URL 直显，不产生未处理拒绝；调用方后台重预热）。
+          iconPendingPromises.delete(icon);
+          return '';
+        });
+      iconPendingPromises.set(icon, p);
+      // 挂载空 catch 防未处理拒绝（上已吞错，此处再兜底一次）。
+      void p.catch(() => undefined);
+    }
+  }
+}
+
+/** 仅供测试：清空展示数据内存态（防跨文件泄漏）。 */
+export function __resetIconDataCacheForTests(): void {
+  iconDataCache.clear();
+  iconPendingPromises.clear();
+}
+
+/**
  * 唯一写入口：`icon-ready` 统一收口（M1内存唯一口，经 `getBufferedIcon` 回读）。
  * `level`纯L单调；`data:`/`via=m2`只进M1内存不落盘；M2首屏直填不走emit。
  * L5 显式徽章（`icon:'' + level:5`，用户切空意图）为唯一允许的空覆盖：
@@ -248,8 +422,8 @@ export interface GenerationGate {
  */
 /**
  * L5 显式徽章写（`applyHit` 内唯一空覆盖分支）：清图标+level 记忆
- * （`clearBufferedIcon` 同语义，cycle-back 可重接受 L2..L4，不复活旧图）、
- * `invalidate` AppIcon 内存、`patch('')` 写透、读侧扇出。无网络副作用。
+ * （`deleteBufferedIcon` 同语义，cycle-back 可重接受 L2..L4，不复活旧图）、
+ * `invalidate` 展示数据、`patch('')` 写透、读侧扇出。无网络副作用。
  */
 function applyBadgeHit(
   targets: string[],
@@ -261,7 +435,7 @@ function applyBadgeHit(
     } catch {
       // 缓存失效失败不阻塞内存写透
     }
-    clearBufferedIcon(t);
+    deleteBufferedIcon(t);
   }
   if (typeof patch === 'function') {
     for (const t of targets) {
@@ -432,10 +606,12 @@ export function applyHit(args: ApplyHitArgs): ApplyHitResult {
   return { accepted: true, targets, icon, level: pureLevel, persisted: true };
 }
 
-/** 仅供测试：清空 `level`/图标记忆。 */
+/** 仅供测试：清空 `level`/图标记忆（含展示数据态）。 */
 export function __resetIconStoreForTests(): void {
   iconLevelById.clear();
   iconById.clear();
+  iconDataCache.clear();
+  iconPendingPromises.clear();
 }
 
 /**
@@ -456,23 +632,42 @@ export function __getIconStoreLevel(id: string): number | undefined {
   return iconLevelById.get(normalizeId(id));
 }
 
-/** L5 显式清零：用户手动切到空徽章时清掉该键缓冲（含 level 记忆），
- * 否则后续 `assemble/sticky` 经缓冲回读会复活旧图。`applyHit` 的 L5 分支
- * 经此做记忆清理（再补 `patch('')` + 读侧扇出）；直接调用方仅剩不需扇出的
- * 特殊路径，常规 L5 一律走 `applyHit({ icon:'', level:5 })`。 */
-export function clearBufferedIcon(key: string): void {
+/** 内部：删缓冲 + level 记忆（不扇出，供 `applyBadgeHit` 批量单事件用）。 */
+function deleteBufferedIcon(key: string): void {
   const k = normalizeId(key);
   if (!k) return;
   iconById.delete(k);
   iconLevelById.delete(k);
 }
 
+/** L5 显式清零：用户手动切到空徽章时清掉该键缓冲（含 level 记忆），
+ * 否则后续 `assemble/sticky` 经缓冲回读会复活旧图。常规 L5 一律走
+ * `applyHit({ icon:'', level:5 })`（批量扇出）；直接调此亦经同一读侧扇出
+ * （单键 `''/5` 事件，`ecb83e1` 语义：清零必须通知列表/镜像，防富卡 stale）。
+ * 订阅回调只做读侧合并，不得再调写口（防递归）。 */
+export function clearBufferedIcon(key: string): void {
+  const k = normalizeId(key);
+  if (!k) return;
+  const had = iconById.has(k) || iconLevelById.has(k);
+  void had;
+  deleteBufferedIcon(k);
+  try {
+    invalidateIconCache(k);
+  } catch {
+    // 失效失败不阻塞扇出
+  }
+  notifyIconWrites([k], '', 5);
+}
+
 /**
  * 四列表写透补丁工厂（`applyHit.patch` 注入用，App 侧 `setApps/setOnlineApps/
  * setRecentlyViewedApps/setFavoriteExtraApps` 四件套）：
  * 返回 `(targetIdLower, icon) => void`，内部分发 `patchAppIconList` 写透四列表，
- * 单列表失败不阻塞其余。与 `App.tsx` 现内联四连 `patch` 同语义，收敛至此一处，
- * 调用方可渐进替换（C1 只提供工厂，不改 `App.tsx` 壳）。
+ * 单列表失败不阻塞其余。与 `App.tsx` 现内联四连 `patch` 同语义，收敛至此一处。
+ * adapter 备注（`one adapter=hypothetical seam`）：当前仅 `App.tsx` 单调用点
+ * （`leverage=1`），理想应由读侧扇出（`subscribeIconWrites`）替代显式 `patch` 注入；
+ * 外部调用方未迁移前暂留作兼容，不新增调用点（`deletion test`：删此文件则四列表写透消失，
+ * 证其仍为透传 adapter，待迁移后删除）。
  */
 export function createFourListPatch(setters: {
   setApps: (f: (prev: AppSummary[]) => AppSummary[]) => void;

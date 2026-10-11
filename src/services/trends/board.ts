@@ -66,7 +66,7 @@ import {
   type SeqGuard,
 } from '../pendingLifecycle';
 import { zlogInfo } from '../../lib/z-log';
-import { getBufferedIcon } from '../iconStore';
+import { patchIconMirror, stickyIconFor } from '../iconStore';
 
 /** 单一抓取入口（fetch→L1→L2-hydrate→enrich-merge→saveBoardCacheMerged，boards 原样透出）。 */
 export const fetchTrendsResultSeam = fetchTrendsResultInner;
@@ -191,8 +191,8 @@ export function buildSwrFill(repos: TrendRepo[]): SwrFill {
 }
 
 /**
- * SWR 富卡合并进镜像：缺席新增；旧 pending + 新具平台才覆盖（图标空不覆实）。
- * 富/裸以 enriched 存在为准，不用 icon 判定。
+ * SWR 富卡合并进镜像：缺席新增；旧 pending + 新具平台才覆盖（图标经店内 `stickyIconFor` 单 interface 合并，空不覆实 + 缓冲回读）。
+ * 富/裸以 enriched 存在为准，不用 icon 判定。图标 `depth` 在深 module，本函数只做平台准入，不自立图标 locality。
  */
 export function mergeSwrEnrichedMirror(
   prev: Record<string, AppSummary>,
@@ -210,7 +210,7 @@ export function mergeSwrEnrichedMirror(
     const curHas = !!cur.platforms && cur.platforms.length > 0;
     const incHas = !!v.platforms && v.platforms.length > 0;
     if (!curHas && incHas) {
-      next[k] = v.icon.trim() === '' && cur.icon.trim() !== '' ? { ...v, icon: cur.icon } : v;
+      next[k] = stickyIconFor(cur, v);
       changed = true;
     }
   }
@@ -268,7 +268,8 @@ export interface EnrichMergeResult {
 /**
  * enrich 回填合并进镜像：
  * - 详情治愈优先：已具真实平台的行不被空 enrich 回填覆盖；
- * - 图标回填只做升级：入项无图标但旧项有真实图标时保留旧图标，否则经缓冲补齐；
+ * - 图标经店内 `stickyIconFor` 单 interface 合并（旧实 + 回填空 → 沿用旧，空壳经 M1 缓冲回读）；
+ *   本函数只做平台准入，不自立图标 `trim()===''`/`getBufferedIcon` locality（`depth` 在深 module）；
  * - 空壳不覆盖缓冲实图；具平台键同步收集供确认移除。
  */
 export function mergeEnrichFoundMirror(
@@ -284,17 +285,8 @@ export function mergeEnrichFoundMirror(
     const incomingEmpty = !app.platforms || app.platforms.length === 0;
     const prevHasPlatforms = !!prevApp?.platforms && prevApp.platforms.length > 0;
     if (incomingEmpty && prevHasPlatforms) continue;
-    let mergedApp = app;
-    const prevHasRealIcon =
-      !!prevApp && typeof prevApp.icon === 'string' && prevApp.icon.trim() !== '';
-    if (app.icon.trim() === '' && prevHasRealIcon) {
-      mergedApp = { ...app, icon: (prevApp as AppSummary).icon };
-    } else if (app.icon.trim() === '') {
-      const buffered = getBufferedIcon(key);
-      if (buffered && buffered.trim() !== '') {
-        mergedApp = { ...app, icon: buffered };
-      }
-    }
+    // 图标单 interface：`undefined` 旧值亦经缓冲回读（与旧 `getBufferedIcon(key)` 同语义）。
+    const mergedApp = stickyIconFor(prevApp, app);
     if (next[key] !== mergedApp) {
       next[key] = mergedApp;
       changed = true;
@@ -986,59 +978,22 @@ export function persistRichcardHeal(
 }
 
 /**
- * 图标变更镜像合并（09 收敛后仅供单测/图标 `applyHit` 补齐路径复用，不再挂窗口总线）：
- * incoming 与旧不同即覆盖；L5（''）放行内存清零；
- * 大小写归一，同时匹配坐标键与 enriched.id 小写别名。
+ * 图标变更镜像合并 adapter（薄透传，待删）：
+ * 实现已内聚至图标深 module（`services/iconStore.patchIconMirror` 单 interface，
+ * `normalizeId` 归一 + 坐标/id 双别名，遵 ADR-0010；L5 `''` 放行清零）。
+ * 此处仅委托，不自立合并 locality（`depth` 在店内）。生产路径经读侧扇出
+ * （`subscribeIconWrites`，店内 `applyHit` 受理后通知，见 `TrendsView` 订阅）跟进镜像，
+ * 不再直调此函数；保留导出仅兼容未迁移的单测/旧调用（`one adapter=hypothetical seam`，
+ * `deletion test`：删此透传则旧单测编译失败、生产行为不变，证其零 `leverage`，待迁移后删除）。
+ * 图标持久化（`hydrate` + 写透）已收口 `TrendsView.onSearchIconUpgraded` 经 board seam
+ * （`hydrateBoardEnrich` + `scheduleBoardPersist`），旧 `persistIconChanged` 测试专用 adapter 已删除。
  */
 export function applyIconChangedToMirror(
   prev: Record<string, AppSummary>,
   appIdNorm: string,
   rawIcon: string,
 ): Record<string, AppSummary> {
-  if (!appIdNorm) return prev;
-  let changed = false;
-  const next = { ...prev };
-  for (const k of Object.keys(prev)) {
-    const cur = prev[k];
-    const alias = String(cur?.id ?? '').trim().toLowerCase();
-    if (k.toLowerCase() === appIdNorm || (alias !== '' && alias === appIdNorm)) {
-      if (cur.icon !== rawIcon) {
-        next[k] = { ...cur, icon: rawIcon };
-        changed = true;
-      }
-    }
-  }
-  return changed ? next : prev;
-}
-
-/** 图标变更持久化：L5 清零与 data: 只做内存，跳过 hydrate/写透；否则 hydrate + 直接写透。 */
-export function persistIconChanged(
-  latest: Record<string, AppSummary>,
-  appIdNorm: string,
-  rawIcon: string,
-): void {
-  if (rawIcon === '') return;
-  if (rawIcon.startsWith('data:')) return;
-  try {
-    const toHydrate: Record<string, AppSummary> = {};
-    for (const k of Object.keys(latest)) {
-      const cur = latest[k];
-      if (!cur) continue;
-      const alias = String(cur.id ?? '').trim().toLowerCase();
-      if (k.toLowerCase() === appIdNorm || (alias !== '' && alias === appIdNorm)) {
-        if (cur.icon !== rawIcon) {
-          toHydrate[k] = { ...cur, icon: rawIcon };
-        }
-      }
-    }
-    if (Object.keys(toHydrate).length === 0) return;
-    hydrateTrendEnrichCache(toHydrate);
-    const { cacheKey, cacheBoard, repos } = boardPersistRef;
-    if (!cacheKey || repos.length === 0) return;
-    void saveBoardCacheMerged(cacheKey, cacheBoard, repos);
-  } catch {
-    // 落盘失败不影响内存即时展示
-  }
+  return patchIconMirror(prev, appIdNorm, rawIcon);
 }
 
 export interface TrendHealBusHandlers {

@@ -1,5 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { api } from '../services/api';
+import {
+  getCachedIconDataUri,
+  invalidateIconCache as invalidateStoreCache,
+  preloadIcons as preloadStoreIcons,
+  subscribeIconWrites,
+} from '../services/iconStore';
+import { normalizeId } from '../services/normalizeId';
 
 export interface AppIconProps {
   icon: string;
@@ -14,40 +20,25 @@ export interface AppIconProps {
   loading?: 'eager' | 'lazy';
 }
 
-// 模块级内存缓存，避免页面切页重新计算与读取
-const iconDataCache = new Map<string, string>();
-const iconPendingPromises = new Map<string, Promise<string>>();
-const appIdToIconMap = new Map<string, string>();
-
 /**
- * 失效或清空图标内存缓存。
- * 若提供 key（appId 或 icon URL），则移除该 key 及其对应映射的缓存；若不提供 key，则清空全部内存缓存。
+ * 展示数据失效 adapter（薄透传）：实现已内聚至图标深 module（`services/iconStore` 内部 seam），
+ * 此处仅委托（兼容 `useAppSubscriptions` 等未迁移调用方）。`deletion test`：删本文件透传，
+ * 展示预热/失效仍经店内可用，证此处无 locality。
  */
 export function invalidateIconCache(key?: string): void {
-  if (key) {
-    iconDataCache.delete(key);
-    iconPendingPromises.delete(key);
-    const mappedIcon = appIdToIconMap.get(key);
-    if (mappedIcon) {
-      iconDataCache.delete(mappedIcon);
-      iconPendingPromises.delete(mappedIcon);
-      appIdToIconMap.delete(key);
-    }
-    for (const [id, url] of appIdToIconMap.entries()) {
-      if (url === key) {
-        iconDataCache.delete(id);
-        iconPendingPromises.delete(id);
-        appIdToIconMap.delete(id);
-      }
-    }
-  } else {
-    iconDataCache.clear();
-    iconPendingPromises.clear();
-    appIdToIconMap.clear();
-  }
+  invalidateStoreCache(key);
+}
+
+/**
+ * 远端预热 adapter（薄透传）：实现已内聚至图标深 module，此处仅委托。
+ * 调用方（首屏 30 项预热）逐步迁往店内直引，此透传待迁移后删除。
+ */
+export function preloadIcons(items: (string | { id?: string; icon: string })[]) {
+  preloadStoreIcons(items);
 }
 
 // 唯一的远端图标判定谓词：调用方（preloadIcons 与组件本体）必须复用此函数，禁止各自内联重复形状
+// 备注：此为展示判定（含 `.png/.svg` 后缀直显），与店内 `isRemoteHttpIconUrl` 落盘门控正交（仅 `http(s)` 落盘），非重复 locality。
 export function isRemoteIcon(icon: string | undefined | null): boolean {
   if (!icon) return false;
   return (
@@ -62,37 +53,6 @@ export function isRemoteIcon(icon: string | undefined | null): boolean {
   );
 }
 
-export function preloadIcons(items: (string | { id?: string; icon: string })[]) {
-  if (typeof window === 'undefined') return;
-  items.forEach((item) => {
-    const icon = typeof item === 'string' ? item : item.icon;
-    const id = typeof item === 'string' ? undefined : item.id;
-    if(!icon||iconDataCache.has(icon)||icon.startsWith('data:'))return;
-    if (!isRemoteIcon(icon)) return;
-
-    if (!iconPendingPromises.has(icon)) {
-      const p = api
-        .getOrFetchIcon(id, icon)
-        .then((dataUri) => {
-          iconDataCache.set(icon, dataUri);
-          if (id) {
-            appIdToIconMap.set(id, icon);
-            appIdToIconMap.set(id.toLowerCase(), icon);
-            iconDataCache.set(id, dataUri);
-            iconDataCache.set(id.toLowerCase(), dataUri);
-          }
-          iconPendingPromises.delete(icon);
-          return dataUri;
-        })
-        .catch((err) => {
-          iconPendingPromises.delete(icon);
-          throw err;
-        });
-      iconPendingPromises.set(icon, p);
-    }
-  });
-}
-
 export const AppIcon: React.FC<AppIconProps> = ({
   icon,
   name,
@@ -104,23 +64,47 @@ export const AppIcon: React.FC<AppIconProps> = ({
   iconOverride,
   loading = 'lazy',
 }) => {
-  // `appId` 仅为调用方 key 透传（店内 `applyHit` 别名归一用），本组件不凭它回读/请求。
-  void appId;
+  // 图标深 module 订阅（读侧）：店内 `applyHit` 唯一写口受理后经 `subscribeIconWrites` 扇出，
+  // 本组件经 `appId` 归一（`normalizeId`，遵 ADR-0010）跟进同键写——覆盖父 prop 迟到/stale 情形
+  // （如详情轮转切 L5 只调 `applyHit` 不带 patch，父列表经 App 侧扇出跟进，本组件经此跟进单卡）。
+  // 空（`''`/L5）恒覆盖旧 prop（防复活旧图）；实图覆盖空/旧 prop（迟到 `icon-ready` 先展）。
+  // `iconOverride`（详情轮转即时态）优先于一切，不被扇出覆盖。
+  const appIdNorm = typeof appId === 'string' ? normalizeId(appId) : '';
+  const [storeIcon, setStoreIcon] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    setStoreIcon(undefined);
+  }, [appIdNorm]);
+  useEffect(() => {
+    if (!appIdNorm) return;
+    return subscribeIconWrites(({ targets, icon: nextIcon }) => {
+      if (targets.includes(appIdNorm)) {
+        setStoreIcon(nextIcon);
+      } else {
+        // 别名归一兜底：`key/id/app_id` 三别名已在店内归一为 targets，跨别名（坐标 vs id）已覆盖；
+        // 此处不再自立别名表（原 `appIdToIconMap` 并行 locality 已删）。
+      }
+    });
+  }, [appIdNorm]);
+  // M1 缓冲不进展示组件：空 prop 恒徽章（防 L5 清零后复活旧图，见 `HomeView.search-icon` 回归线）；
+  // 缓冲回读只在列表组装侧（`assembleOnlineRowsWithIcons`/`stickyIconFor` 经 `getBufferedIcon` 唯一口），
+  // 本组件只跟进扇出（迟到 `icon-ready` 经 `storeIcon` 覆盖 stale prop），挂载时不回读旧缓冲。
   // C1 读透适配（薄）：level 单调由店内 `applyHit` 保证，此处不判 level；列表空壳补齐经上游
-  // `assembleOnlineRowsWithIcons`/`stickyIconFor`（`getBufferedIcon` 唯一口），
-  // 本组件只按 `icon` prop 展示（空即徽章）——写口唯一在店内 `applyHit`（`invalidate→preload→patch`），
+  // `assembleOnlineRowsWithIcons`/`stickyIconFor`（店内唯一口），
+  // 本组件只按 resolved 图标展示（空即徽章）——写口唯一在店内 `applyHit`（`invalidate→preload→patch`），
   // 此处不自发 IPC、不订阅窗口总线（`zstore:icon-changed` 已删，见 09 收敛）。
-  const rawActiveIcon = iconOverride !== undefined ? iconOverride : icon;
+  const rawActiveIcon =
+    iconOverride !== undefined ? iconOverride : (storeIcon !== undefined ? storeIcon : icon);
   const activeIcon=rawActiveIcon;
   const isDataUri = Boolean(activeIcon && activeIcon.startsWith('data:'));
   const [hasError, setHasError] = useState(false);
-  // 只读展示：同 URL 的 data URI 缓存命中即直显（preload 落盘后的内存态），否则直显 prop；
-  // 空 prop 恒徽章（不回读 appId 旧缓存，防 L5 清零后复活旧图）。
+  // 只读展示：同 URL 的 data URI 缓存命中即直显（店内 `getCachedIconDataUri` 唯一口，
+  // `preload` 落盘后的内存态；原组件内 `iconDataCache` 并行 locality 已删），否则直显 prop；
+  // L5 清零（`storeIcon === ''`）恒徽章（不回读旧缓存，防复活旧图）。
   const displaySrc = (() => {
     if (!activeIcon) return '';
     if (isDataUri) return activeIcon;
     if (iconOverride !== undefined) return activeIcon;
-    const fromCache = iconDataCache.get(activeIcon);
+    const fromCache = getCachedIconDataUri(activeIcon);
     if (fromCache) return fromCache;
     return activeIcon;
   })();
