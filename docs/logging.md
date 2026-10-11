@@ -38,11 +38,12 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
 
 ## 4. 前端直透与脱敏
 
-入口 `main.tsx` 最早调用 `initZLog()`。
-- DEV 环境自动执行 `attachConsole()` 桥接；
-- 各级别方法（`zlogInfo / zlogWarn / zlogError / zlogDebug`）即时异步落盘；
-- 失败吞错，不影响任何业务逻辑。
-- `flush()` 有意为 no-op（直透无缓冲，保留仅为调用方兼容，无需手动调用）；初始化幂等由 `isInitialized` 守卫（非 `inited`）。
+入口 `main.tsx` 最早调用 `initZLog()`（见 `src/main.tsx`）。
+- 实际导出只有 `zlogInfo / zlogWarn / zlogError` + `initZLog`（见 `src/lib/z-log.ts:62-86`）：**无 `zlogDebug` 导出**，无 `flush()` 导出；
+- 各级别方法即时异步落盘（`@tauri-apps/plugin-log` 的 `info / warn / error` 直写，失败吞错，不影响业务）；
+- 每行自动加 `[sid=…]` 前缀（`meta.sid` 未传时取前端 sid，见 `withPrefix`）+ 可选 `[req=…]`，同一行 1s 内重复去重一行（`DEDUP_WINDOW_MS=1000`，见 `src/lib/z-log.ts:48-59`，仅影响日志送达、不影响业务）；
+- DEV 环境自动执行 `attachConsole()` 桥接；`window.onerror` / `unhandledrejection` 经 `redact` 后直透 `error()`；
+- 初始化幂等由内部 `isInitialized` 变量守卫（**未导出**，非公共 API）。
 
 ## 5. 脱敏（redact）
 
@@ -52,13 +53,13 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
   panic hook 入参先脱敏再记 `error`。
 - 前端同规则轻量脱敏（`redact()`）：`zlogInfo / zlogWarn / zlogError / zlogDebug` 与 `onerror / unhandledrejection` 直透路径均先脱敏，避免密钥落盘。
 
-## 6. 保留与清理（prune 14d / 25MB，只碰 *.log，含 *.log.bak）
+## 6. 保留与清理（prune 14d / 25MB，只碰 *.log（含 *.log.bak），以 `src-tauri/src/z_log.rs:379-440` 为准）
 
-`z_log::prune` 在 `setup` 中对 `app_log_dir` 执行：
+`z_log::prune` 在 `setup` 中对 `app_log_dir` 执行（`KEEP_DAYS = 14` 见 `z_log.rs:11`，`MAX_TOTAL_BYTES = 25MB` 见 `z_log.rs:13`；单文件 5MB 见 `MAX_SINGLE_FILE_BYTES`（`z_log.rs:16`），轮转保留 5 个见 `ROTATION_KEEP_COUNT`（`z_log.rs:18`），`KeepSome(5)`）：
 
 - `KEEP_DAYS = 14`：mtime 超 14 天删；
 - `MAX_TOTAL_BYTES = 25MB`：超量按 mtime 最旧先删；
-- **只碰 `*.log`（含 `*.log.bak` / `*.bak`）**（按扩展名 `log` / `bak` 大小写不敏感判定）：`.zip` 导出包、`.txt`、
+- **只碰日志文件**（见 `z_log.rs:395-405`：文件名小写以后缀 `.log` / `.log.bak` 判定，或扩展名 `log` / `bak` 大小写不敏感判定）：`.zip` 导出包、`.txt`、
   业务 SQLite（`z_store.db` 在 AppDataDir，与 LogDir 分离）一律不动。
 
 ## 7. 导出命令
@@ -73,7 +74,7 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
 ## 8. 禁 sqlite 声明
 
 - 日志**只进 LogDir**，禁止写入业务 SQLite（`z_store.db`：已安装记录 / 设置 / 令牌 /
-  更新规则 / 足迹等 14 张核心表（含 `trend_board_cache` 榜缓存二级落盘与 `icon_cache_meta` / `app_icon_cycles` 图标缓存分流两表），与日志物理隔离）。
+  更新规则 / 足迹等 14 张核心表（见 `src-tauri/src/db/schema.rs:8-131`，含 `trend_board_cache` 榜缓存二级落盘与 `icon_cache_meta` / `app_icon_cycles` 图标缓存分流两表），与日志物理隔离）。
 - panic hook 仅记 `log::error!` 落盘，不写 DB、不上报。
 - 磁盘库（`z_store.db`）打不开回退内存库时记一条 `error`
  （`src-tauri/src/lib.rs::run` 约 L331–L336，

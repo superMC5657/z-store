@@ -60,7 +60,8 @@
    - 应用深度详情与构建资产通过 `ForgeProvider` 抽象层按需直连各代码源官方 REST API 获取，不设中心化聚合后端；
    - 本地 SQLite (`z_store.db`) 维护基于单一配置源（`src-tauri/config.toml`）的 TTL 缓存（默认 30 分钟），配合 HTTP ETag 304 条件请求实现零配额消耗延长缓存时效；该 TTL 仅约束详情浏览，更新检查（更新中心/关注动态）独立于 TTL、每次经 ETag 轻量探查；离线或请求失败时平滑回退本地持久化数据（详见 ADR-0007）。
    - 网络层自动继承操作系统代理与环境变量（Windows 下启动时自探测注册表且 https 优先，支持 Clash / v2ray / TUN 模式透明截获），与针对 Release 大文件下载的加速镜像节点正交可叠加。
-   - 所有已安装记录、用户设置、主机令牌（PAT）、更新规则、关注应用与本地足迹均保存在客户端本地嵌入式 SQLite 中（14 张核心表，见 `src-tauri/src/db/schema.rs`；其中 `icon_cache_meta` 追踪收录应用图标缓存来源，`app_icon_cycles` 追踪图标轮换状态，两表分流；`trend_board_cache` 为趋势榜 L2 缓存，后端命令 `get/save_trend_board_cache` 已补齐，前端沿用同 key 直接命中；L2按榜双档 daily 1h/其余12h，有效TTL=基线-min(抖动0-30s,基线/4)，清扫双档对齐）。
+   - 所有已安装记录、用户设置、主机令牌（PAT）、更新规则、关注应用与本地足迹均保存在客户端本地嵌入式 SQLite 中（14 张核心表，见 `src-tauri/src/db/schema.rs:8-131`：`installed_apps` / `api_etag_cache` / `app_details_cache` / `user_settings` / `user_favorites` / `update_rules` / `search_history` / `view_history` / `host_tokens` / `watched_apps` / `user_stars` / `icon_cache_meta` / `app_icon_cycles` / `trend_board_cache`；无 `search_result_cache` 表，见 ADR-0014 §1；其中 `icon_cache_meta` 追踪收录应用图标缓存来源，`app_icon_cycles` 追踪图标轮换状态，两表分流；`trend_board_cache` 为趋势榜 L2 缓存，后端命令 `get/save_trend_board_cache` 已补齐（见 `src-tauri/src/commands/trends_cache.rs`），前端沿用同 key 直接命中；L2按榜双档 daily 1h/其余12h（见 `src/services/trends/cache.ts:18-21`），有效TTL=基线-min(抖动0-30s,基线/4)（见 `src/services/trends/cache.ts:53-62`），清扫双档对齐；后端写盘硬上限 512KiB（见 `src-tauri/src/db/cache.rs:215,249`），前端写前 256KB 预检降级裸榜（见 `src/services/trends/cache.ts:32-33,336`））。
+   - 后端 `src-tauri/src/lib.rs:527-602` 共注册 74 个 commands（含 `zlog_get_dir` / `zlog_export_bundle`）；前端 IPC 唯一出口为 `src/services/api.ts:119-190` CMD 表 + `src/services/api/client.ts:1-10`（`tauriInvoke` / `isTauri`），视图层禁止直调 `invoke`（见 `src/views/noDirectInvoke.test.ts`）；前端无 router，用 `useState` 视图机（`ViewType` 7 种：`home|trends|categories|favorites|installed|updates|settings`，见 `src/types/index.ts:143`；`App.tsx:57`）。
 3. **D3 零信任完整性防篡改 (Zero-Trust Anti-Tampering)**:
     - 所有下载的二进制安装包强制流式计算 SHA-256 哈希值并与官方校验清单比对，哈希不符立即强行阻断并销毁临时文件（详见 ADR-0004）。
 4. **D4 Linear 去彩单色界面 (Monochrome Design System)**:
@@ -77,12 +78,13 @@
 8. **D8 首包验图与跳过 (First-Bytes Verify & Skip)**:
    - 图标先 HEAD 判类型长度，再 Range 取前 32KB 验 magic，失败回退全量 GET，并以 300B 最小阈值卡掉 LFS 指针文件；下载前 SHA-256 命中即零网络跳过，ETag 收敛至统一 helper，force 模式跳过 DB 读取。
 9. **D9 趋势与首页 (Trending & Home)**:
-   - 趋势复用共享 Client，经 tokio 10s 超时并截断 2MB 防爆内存；榜缓存一级内存分档（榜 L1，daily 1h/weekly-monthly-new 12h/其余 5min）+ 榜缓存二级落盘双档（榜 L2，daily 1h/其余 12h，有效 TTL 扣抖动）；内存 200/500/单槽有界、切榜 sweep 无 timer；写盘 FE 256KB 预检降级裸榜、BE 512KiB 硬拒绝；enrich 分片 20/片×2 片=40 上限；429 透传 `retry_after_ms` 单次重试（详见 ADR-0014）；趋势走 `buffered(5)` 等齐路（`compat_collect=true`，详见 ADR-0015）。首页固定 balanced 排序与 seed 7，不提供策略切换工具条（用户已确认不要）。
+   - 趋势复用共享 Client（见 `src-tauri/src/lib.rs:85-97`），经 tokio 10s 超时并截断 2MB 防爆内存；榜缓存一级内存分档（榜 L1，daily 1h/weekly-monthly-new 12h/其余 5min）+ 榜缓存二级落盘双档（榜 L2，daily 1h/其余 12h，见 `src/services/trends/cache.ts:18-21`；有效 TTL 扣抖动，见 `src/services/trends/cache.ts:53-62`）；内存 200 有界（见 `src/services/trends/cache.ts:31`）、切榜 sweep 无 timer；写盘 FE 256KB 预检降级裸榜（见 `src/services/trends/cache.ts:32-33`）、BE 512KiB 硬拒绝（见 `src-tauri/src/db/cache.rs:215,249`）；enrich 分片 20/片×2 片=40 上限；429 透传 `retry_after_ms` 单次重试（上限 60s 缺省 5s，见 `src/services/trends/cache.ts:23-26`；详见 ADR-0014）；趋势走 `buffered(5)` 等齐路（`compat_collect=true`，见 `src-tauri/src/config.rs:94-113`，详见 ADR-0015）。首页固定 balanced 排序与 seed 7，不提供策略切换工具条（用户已确认不要）。
 10. **D10 统一图标获取 (Unified Icon Fetch)**:
-    - 后端统一核心为 `github/icon_fetch.rs:fetch_icons_stream`，搜索后台已接入该核心逐张补齐。
-    - 前端图标写入口唯一收口于 `services/iconStore.ts:applyHit`。
-    - 搜缓存为 `services/search/searchListCache.ts` 纯前端内存缓存，不碰榜缓存二级落盘与趋势榜缓存。
-    - 图标就绪事件：只发 `zstore://icon-ready`，前后端同一事件，载荷 `{key,id,icon,level,via,context}`。
+    - 后端统一核心为 `src-tauri/src/github/icon_fetch.rs:199 fetch_icons_stream`，搜索后台已接入该核心逐张补齐。
+    - 前端图标写入口唯一收口于 `src/services/iconStore.ts:279 applyHit`。
+    - 搜缓存为 `src/services/search/searchListCache.ts` 纯前端内存缓存（key=`search|归一query|page|perPage`，见 `buildSearchListCacheKey`；TTL 30min 见 `SEARCH_LIST_TTL_MS`、上限 50 条 FIFO 见 `SEARCH_LIST_MAX_ENTRIES`），不碰榜缓存二级落盘与趋势榜缓存。
+    - 图标就绪事件：只发 `zstore://icon-ready`（见 `src-tauri/src/github/icon_fetch.rs:112-113 emit_icon_ready`），前后端同一事件，载荷 `{key,id,icon,level,via,context}`。
     - 详情仍走最强探测（动态分支 + 图标 L4=README，需网络），不受统一核心约束。
     - level纯L(1=L1官方,2=L2品牌库,3=L3仓库,4=L4 README)；缓存只用M(M1=前端内存，M2=DB落盘)，
       经 `via`=live|m2 正交表达（core探测一律live，DB回填走m2不占level）；level:4=L4。
+    - 榜就绪门 `boardReady` 见 `src/views/TrendsView/useTrendBoard.ts:86`，SWR 快照 `swrSyncedResult` / 判定 `isUpgradePending` 见 `src/views/TrendsView.tsx:314-325`（仅门控富卡升级，不阻塞裸行直展）。

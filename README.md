@@ -86,12 +86,13 @@
 
 ## 🛠️ 架构与技术栈
 
-- **桌面底座**: Tauri 2.2 + Rust 1.77+
-- **前端界面**: React 19 + TypeScript 5.7 (strict) + Vite 6 + 原生 Fluent 2.0 CSS + Fluent 矢量图标体系 (`lucide-react`)
-- **本地数据库**: 嵌入式 SQLite (`rusqlite` bundled，WAL 模式，维护 14 张核心表：含 `trend_board_cache`（榜缓存二级落盘，后端命令 `get/save_trend_board_cache` 已补齐），`icon_cache_meta` 与 `app_icon_cycles`，图标缓存来源与轮换状态分流）
+- **桌面底座**: Tauri 2（`@tauri-apps/api ^2.2.0` / CLI `^2.2.0`，见 `package.json:18,29`；后端 `tauri = "2"`，见 `src-tauri/Cargo.toml:17`；三处版本 `0.6.1` 对齐 `package.json:4` / `src-tauri/Cargo.toml:3` / `src-tauri/tauri.conf.json:4`，由 `scripts/bump-version.mjs` 同步）+ Rust（`edition 2021`，见 `src-tauri/Cargo.toml:6`；仓库内未 pin 工具链版本）
+- **前端界面**: React 19（`^19.0.0`，见 `package.json:24-25`）+ TypeScript 5.7 (strict)（`^5.7.3`，见 `package.json:36`）+ Vite 6（`^6.2.0`，见 `package.json:37`；`vite.config.ts:13-31` 固定 `1420` + HMR `1421`）+ `i18next ^26.4.2`（见 `package.json:21`）+ `pnpm 10.33.0`（见 `package.json:6`）+ `vitest ^3.2.4`（见 `package.json:38`）+ 原生 Fluent 2.0 CSS + Fluent 矢量图标体系 (`lucide-react`)
+- **本地数据库**: 嵌入式 SQLite (`rusqlite 0.32 bundled`，见 `src-tauri/Cargo.toml:26`；WAL 模式，维护 14 张核心表，见 `src-tauri/src/db/schema.rs:8-131`：`installed_apps` / `api_etag_cache` / `app_details_cache` / `user_settings` / `user_favorites` / `update_rules` / `search_history` / `view_history` / `host_tokens` / `watched_apps` / `user_stars` / `icon_cache_meta` / `app_icon_cycles` / `trend_board_cache`；无 `search_result_cache` 表，见 ADR-0014 §1：含 `trend_board_cache`（榜缓存二级落盘，后端命令 `get/save_trend_board_cache` 已补齐，见 `src-tauri/src/commands/trends_cache.rs`），`icon_cache_meta` 与 `app_icon_cycles`，图标缓存来源与轮换状态分流）
 - **配置中枢**: 单一基线配置源（`src-tauri/config.toml`），结合编译期内置兜底与外部重载机制
-- **网络与下载**: API / 图标双池物理隔离复用单例（均 `connect_timeout 5s`、`keepalive 60s`、`pool 20/idle 90s`；图标 CDN 通道恒丢 token，绝不携带认证头）+ `tokio` 异步流式下载 + ETag 条件缓存 + 有限重试（仅 GET 传输错误与 429/5xx，最多 2 次按 200ms→800ms 退避，401/404/304 永不重试）+ 并发镜像测速管道；图标先 HEAD 判类型长度、再 Range 取前 32KB 验 magic（300B 最小阈值卡掉 LFS 指针，`buffered(3)` 并发）；自动继承系统代理与 TUN 模式
-- **桌面开发配置**: `pnpm tauri dev`（基于 `src-tauri/tauri.conf.json` 配置本地安全策略）
+- **网络与下载**: API / 图标双池物理隔离复用单例（均 `connect_timeout 5s`、`keepalive 60s`、`pool 20/idle 90s`，见 `src-tauri/src/lib.rs:85-97`；图标 CDN 通道恒丢 token，绝不携带认证头）+ `tokio full`（见 `src-tauri/Cargo.toml:23`）异步流式下载 + `reqwest 0.12`（见 `src-tauri/Cargo.toml:24`）+ ETag 条件缓存 + 有限重试（仅 GET 传输错误与 429/5xx，最多 2 次按 200ms→800ms 退避，401/404/304 永不重试）+ 并发镜像测速管道；图标先 HEAD 判类型长度、再 Range 取前 32KB 验 magic（300B 最小阈值卡掉 LFS 指针，`buffered(3)` 并发）；自动继承系统代理与 TUN 模式（Windows 启动自探测注册表，见 `src-tauri/src/lib.rs:262-284`）
+- **桌面开发配置**: `pnpm tauri dev`（基于 `src-tauri/tauri.conf.json` 配置本地安全策略：无边框 `decorations:false` / `1280x860`，见 `tauri.conf.json:16-29`；CSP，见 `tauri.conf.json:30-33`；NSIS `currentUser`，见 `tauri.conf.json:48-54`；updater 双 endpoint，见 `tauri.conf.json:58-64`）
+- **IPC 出口**: 前端唯一出口 `src/services/api.ts:119-190` CMD 表 + `src/services/api/client.ts:1-10`（`tauriInvoke` / `isTauri`）；视图层禁止直调 `invoke`（见 `src/views/noDirectInvoke.test.ts`）；后端 `src-tauri/src/lib.rs:527-602` 注册 74 个 commands（含 `zlog_get_dir` / `zlog_export_bundle`）
 - **安装引擎**: Windows MSI (`/qn`)、Setup EXE (`/S` / `/VERYSILENT`)、便携版 ZIP/tarball 自动解压与快捷方式生成（便携 ZIP/tarball（.zip + 二进制 .tar.gz/.tgz/.tar.xz/.tar，os+arch命中可装、仅本平台、tar权重+5垫底、剥顶层+chmod兜底；.7z/.tar.bz2只下载））、macOS (DMG/PKG) 及 Linux (deb/rpm/AppImage) 管道；Unix 卸载走 argv 直调，不经 `sh -c`
 
 ---
@@ -111,7 +112,7 @@
 | **ADR-0009: 清单解耦与多端体系** | 独立生态仓库 + 多端 Identifiers | **100% 已交付** | 解耦至 `superMC5657/z-store-catalog`、原生多端标识符结构、设备与分类双维筛选、单一配置源 ([ADR-0009](docs/adr/0009-catalog-manifest-repository-decoupling.md)) |
 | **ADR-0010: 规范应用标识** | canonical id 全链路统一 | **100% 已交付** | 小写 `owner/repo` 全局唯一标识、入口统一归一化、纯粹单键索引 ([ADR-0010](docs/adr/0010-canonical-app-identifier.md)) |
 | **合并审查 28 项整改 (4938964)** | 安全加固与测试台补齐 | **100% 已交付** | 深链安装二次确认、便携卸载目录白名单、semver 版本比较、去 `.7z` 宣称、tar.gz大修：二进制tarball可展示可装、`.tar.bz2`/`.7z`只下载；前后端自动化测试全量通过（计数以 `cargo test` / `pnpm test` 实际运行结果为准） |
-| **M1: 体验扩展与 PWA** | 移动适配与网页发现站 | **推进中** | Web/PWA 发现站规划、Android Shizuku 免 Root 安装预研 |
+| **M1: 体验扩展与 PWA** | 移动适配与网页发现站 | **规划中（未启动）** | Web/PWA 发现站规划、Android Shizuku 免 Root 安装预研；仓库内暂无 PWA 痕迹（无 `vite-plugin-pwa` / `manifest.webmanifest` / service-worker，以代码为准），详见 ADR-0016 |
 
 ---
 
@@ -165,6 +166,8 @@ pnpm tauri build
 - [ADR-0012: 网络性能P0双池并发跳过](docs/adr/0012-network-perf-p0-pooling-concurrency-skip.md)
 - [ADR-0013: Feed契约](docs/adr/0013-feed-contract.md)
 - [ADR-0014: 趋势榜 L2 与治理收口](docs/adr/0014-trends-l2-and-governance.md)
+- [ADR-0015: 统一图标获取与搜索对齐](docs/adr/0015-unified-icon-fetch-and-search-alignment.md)
+- [ADR-0016: 文档追齐代码差异与决策](docs/adr/0016-doc-sync-code-reality.md)
 - [协作规范与 Agent 指南](AGENTS.md)
 
 ---
