@@ -10,7 +10,7 @@ import {
   selectListLiteTargets,
   type InflightGuard,
   type SeqGuard,
-} from '../../services/pendingLifecycle';
+} from '../../lib/platformFilter';
 
 export interface UsePlatformBackfillParams {
   apps: AppSummary[];
