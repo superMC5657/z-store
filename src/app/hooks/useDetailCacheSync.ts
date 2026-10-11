@@ -1,7 +1,7 @@
 import { useCallback, useRef } from 'react';
 import type { AppDetail, AppDetailViewModel, AppSummary } from '../../types';
 import { api } from '../../services/api';
-import { applyHit, clearBufferedIcon, patchAppIconList } from '../../services/iconStore';
+import { applyHit, patchAppIconList } from '../../services/iconStore';
 import {
   DETAIL_PLATFORMS_HEAL_EVENT,
   DETAIL_RICHCARD_HEAL_EVENT,
@@ -374,11 +374,11 @@ export function useDetailCacheSync({
         const fallbackUrl = typeof cycle?.url === 'string' ? cycle.url.trim() : '';
         const persistUrl = remote !== '' ? remote : (!fallbackUrl.startsWith('data:') ? fallbackUrl : '');
         if(!persistUrl){
-          // L5/空：显式清店内缓冲（唯一允许的空覆盖），列表保持占位 badge，不复活旧图。
-          try {
-            clearBufferedIcon(idClean);
-          } catch {
-            // 缓存清理失败不阻塞
+          // L5/空：显式徽章走唯一写口（`level:5` 显式才扇出列表/镜像；
+          // cycle 空但非 L5 时按下 `applyHit` 空守卫自然丢弃，保持占位）。
+          const emptyLevel = typeof cycle?.level === 'number' && cycle.level === 5 ? 5 : undefined;
+          if (emptyLevel === 5) {
+            applyHit({ key: idClean, id: idClean, icon: '', level: 5, patch: iconPatch });
           }
           return;
         }

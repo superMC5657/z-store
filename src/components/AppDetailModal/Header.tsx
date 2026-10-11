@@ -10,7 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { AppDetailViewModel, OAuthUser, ReleaseAsset } from '../../types';
 import { api, normalizeIconCycle, type AppIconCycleResult } from '../../services/api';
 import { AppIcon } from '../AppIcon';
-import { applyHit, clearBufferedIcon } from '../../services/iconStore';
+import { applyHit } from '../../services/iconStore';
 import { notifyToast } from '../../utils/notify';
 import { VerifiedBadge } from '../VerifiedBadge';
 import { formatBytes } from '../../utils/appHelper';
@@ -143,15 +143,11 @@ export const Header: React.FC<HeaderProps> = ({
       const res = await api.cycleAppIcon(app.id);
       if (res) {
         setIconCycle(res);
-        // 轮转跟随经店内写口：L5 空（url ''）显式清缓冲（唯一允许的空覆盖），其实图经唯一写口缓冲预热；
-        // 即时换图由 iconOverride 本地态直显，不走窗口总线。
+        // 轮转跟随经店内写口：L5 空（url ''）走显式徽章写（清记忆 + 列表/镜像扇出）；
+        // 实图经唯一写口缓冲预热；即时换图由 iconOverride 本地态直显，不走窗口总线。
         const cycledUrl = typeof res.url === 'string' ? res.url.trim() : '';
         if (cycledUrl === '') {
-          try {
-            clearBufferedIcon(app.id);
-          } catch {
-            // 清理失败不阻塞提示
-          }
+          applyHit({ key: app.id, id: app.id, icon: '', level: 5 });
         } else {
           applyHit({
             key: app.id,

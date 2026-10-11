@@ -302,11 +302,25 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
                   return;
                 }
                 // 无可用远端：查轮换（同步读库命中即返，无则后端补探回填），命中经店内写口热替占位行。
+                // L5 显式徽章（cycle.level===5）经唯一写口扇出占位行跟进；取不到轮换则保持占位。
                 const cycle = await api.getAppIconCycle(favId);
                 const persistUrl = pickFavoritePersistIconUrl(cycle);
-                if (!persistUrl) return;
-                if (cancelled) return;
                 const cycleLevel = typeof cycle?.level === 'number' ? cycle.level : undefined;
+                if (!persistUrl) {
+                  if (cycleLevel === 5 && !cancelled) {
+                    applyHit({
+                      key: summary.id,
+                      id: summary.id,
+                      icon: '',
+                      level: 5,
+                      patch: (tid, icon) => {
+                        setFavoriteExtraApps((prev) => patchAppIconList(prev, tid, icon));
+                      },
+                    });
+                  }
+                  return;
+                }
+                if (cancelled) return;
                 applyHit({
                   key: summary.id,
                   id: summary.id,

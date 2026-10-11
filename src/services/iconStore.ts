@@ -5,6 +5,10 @@
  * 缝：`applyHit` 为唯一写口；`AppIcon`/`useSearchState.assembleOnlineRowsWithIcons`/
  * `enrich.stickyIconFor` 为读透适配（经 `getBufferedIcon`/`applyHit`，不自立空值规则）；四列表写透（apps/onlineApps/recentlyViewedApps/
  * favoriteExtraApps）经 `patch` 注入（见 `createFourListPatch`）。
+ * L5 显式徽章（用户切空，`icon:'' + level:5`）为唯一允许的空覆盖：经 `applyHit`
+ * 清记忆 + `patch('')` + 读侧扇出；被动空壳（无 level 5）仍直接丢弃。
+ * 读侧扇出（`subscribeIconWrites`）：`applyHit` 受理后通知订阅者（App 四列表/趋势镜像），
+ * 写口仍唯一，不复活窗口总线。
  */
 import { invalidateIconCache, preloadIcons } from '../components/AppIcon';
 import type { AppSummary } from '../types';
@@ -118,6 +122,42 @@ export function patchAppIconList(
 }
 
 /**
+ * 读侧扇出订阅：`applyHit` 受理写入后通知订阅者（App 四列表写透/趋势镜像跟进）。
+ * 写口仍唯一是 `applyHit`；订阅回调只做读侧合并，不得再调 `applyHit`（防递归）。
+ * 窗口总线不复活：订阅表常驻店内模块，卸载即退订。
+ */
+export interface IconWriteEvent {
+  targets: string[];
+  icon: string;
+  level?: number;
+}
+export type IconWriteSubscriber = (hit: IconWriteEvent) => void;
+const iconWriteSubscribers = new Set<IconWriteSubscriber>();
+
+export function subscribeIconWrites(fn: IconWriteSubscriber): () => void {
+  iconWriteSubscribers.add(fn);
+  return () => {
+    iconWriteSubscribers.delete(fn);
+  };
+}
+
+function notifyIconWrites(targets: string[], icon: string, level?: number): void {
+  if (iconWriteSubscribers.size === 0) return;
+  for (const fn of [...iconWriteSubscribers]) {
+    try {
+      fn({ targets, icon, level });
+    } catch {
+      // 单订阅失败不阻塞其余订阅
+    }
+  }
+}
+
+/** 仅供测试：清空读侧订阅（防跨文件泄漏）。 */
+export function __resetIconWriteSubscribersForTests(): void {
+  iconWriteSubscribers.clear();
+}
+
+/**
  * 归一 key+id 别名：取 `key/id/app_id` 去空 → 归一去重保序。
  */
 export function resolveIconTargets(hit: Pick<IconHit, 'key' | 'id' | 'app_id'>): string[] {
@@ -201,8 +241,41 @@ export interface GenerationGate {
 /**
  * 唯一写入口：`icon-ready` 统一收口（M1内存唯一口，经 `getBufferedIcon` 回读）。
  * `level`纯L单调；`data:`/`via=m2`只进M1内存不落盘；M2首屏直填不走emit。
- * 时机：`invalidateIconCache` 先失效 → `preloadIcons` → `patch` 写透四列表。
+ * L5 显式徽章（`icon:'' + level:5`，用户切空意图）为唯一允许的空覆盖：
+ * 清图标+level 记忆（cycle-back 可重接受 L2..L4）+ `invalidate` + `patch('')` + 读侧扇出；
+ * 其余空图标一律丢弃（被动空壳保护）。
+ * 时机：`invalidateIconCache` 先失效 → `preloadIcons` → `patch` 写透四列表 → 读侧扇出。
  */
+/**
+ * L5 显式徽章写（`applyHit` 内唯一空覆盖分支）：清图标+level 记忆
+ * （`clearBufferedIcon` 同语义，cycle-back 可重接受 L2..L4，不复活旧图）、
+ * `invalidate` AppIcon 内存、`patch('')` 写透、读侧扇出。无网络副作用。
+ */
+function applyBadgeHit(
+  targets: string[],
+  patch?: ApplyHitArgs['patch'],
+): ApplyHitResult {
+  for (const t of targets) {
+    try {
+      invalidateIconCache(t);
+    } catch {
+      // 缓存失效失败不阻塞内存写透
+    }
+    clearBufferedIcon(t);
+  }
+  if (typeof patch === 'function') {
+    for (const t of targets) {
+      try {
+        patch(t, '');
+      } catch {
+        // 单别名 patch 失败不阻塞其余别名
+      }
+    }
+  }
+  notifyIconWrites(targets, '', 5);
+  return { accepted: true, targets, icon: '', level: 5, persisted: false, reason: 'level5-badge' };
+}
+
 export function applyHit(args: ApplyHitArgs): ApplyHitResult {
   if (!args || typeof args !== 'object') return { accepted: false, reason: 'empty-hit' };
 
@@ -210,6 +283,11 @@ export function applyHit(args: ApplyHitArgs): ApplyHitResult {
   if (targets.length === 0) return { accepted: false, reason: 'missing-target' };
 
   const rawIcon = typeof args.icon === 'string' ? args.icon.trim() : '';
+  // L5 显式徽章优先：用户切空意图（`icon:'' + level:5`）走唯一写口扇出，
+  // 不受被动空壳守卫拦截；其余空图标永不覆盖已有实图，直接丢弃。
+  if (rawIcon === '' && typeof args.level === 'number' && args.level === 5) {
+    return applyBadgeHit(targets, args.patch);
+  }
   // `''` 永不覆盖已有实图；无实图时亦为无操作，直接丢弃。
   if (rawIcon === '') {
     const keep = hasExistingRealIcon(targets, args.getCurrentIcon);
@@ -312,6 +390,7 @@ export function applyHit(args: ApplyHitArgs): ApplyHitResult {
         }
       }
     }
+    notifyIconWrites(targets, icon, pureLevel);
     return {
       accepted: true,
       targets,
@@ -349,6 +428,7 @@ export function applyHit(args: ApplyHitArgs): ApplyHitResult {
     }
   }
   for (const t of targets) iconById.set(t, icon);
+  notifyIconWrites(targets, icon, pureLevel);
   return { accepted: true, targets, icon, level: pureLevel, persisted: true };
 }
 
@@ -376,9 +456,10 @@ export function __getIconStoreLevel(id: string): number | undefined {
   return iconLevelById.get(normalizeId(id));
 }
 
-/** L5 显式清零例外：用户手动切到空徽章时清掉该键缓冲（含 level 记忆），
- * 否则后续 `assemble/sticky` 经缓冲回读会复活旧图。此为唯一允许的空覆盖实，
- * 与 `applyHit` 空永不覆盖（被动空壳保护）正交。 */
+/** L5 显式清零：用户手动切到空徽章时清掉该键缓冲（含 level 记忆），
+ * 否则后续 `assemble/sticky` 经缓冲回读会复活旧图。`applyHit` 的 L5 分支
+ * 经此做记忆清理（再补 `patch('')` + 读侧扇出）；直接调用方仅剩不需扇出的
+ * 特殊路径，常规 L5 一律走 `applyHit({ icon:'', level:5 })`。 */
 export function clearBufferedIcon(key: string): void {
   const k = normalizeId(key);
   if (!k) return;

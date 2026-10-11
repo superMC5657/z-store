@@ -25,6 +25,7 @@ import { AppDetailViewModel, AppSummary, OAuthUser, UpdateItem, UpdateCheckProgr
 import { api } from './services/api';
 import { togglePlatformSet, type PlatformId } from './lib/platformFilter';
 import { isPendingFor } from './app/selectors';
+import { createFourListPatch, subscribeIconWrites } from './services/iconStore';
 
 import {
   PLATFORM_FILTER_STORAGE_KEY,
@@ -203,6 +204,26 @@ export const App: React.FC = () => {
 
   // 5. 应用级订阅总线（初始拉取/catalog-synced/icon-ready +
   // 关注/更新流/OAuth + 更新中心切签检查 + 视图切换日志）
+  // 图标写扇出订阅：店内唯一写口受理后四列表跟进（无 patch 的本地写如详情轮转亦经此落定；
+  // patch 幂等，显式 patch 与扇出重复落定无闪烁；卸载即退订）。
+  useEffect(() => {
+    const patchFour = createFourListPatch({
+      setApps,
+      setOnlineApps,
+      setRecentlyViewedApps,
+      setFavoriteExtraApps,
+    });
+    return subscribeIconWrites(({ targets, icon }) => {
+      for (const t of targets) {
+        try {
+          patchFour(t, icon);
+        } catch {
+          // 单别名失败不阻塞其余
+        }
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useAppSubscriptions({
     setApps,
     setOnlineApps,
