@@ -11,8 +11,8 @@
  * 一次 `IconFetch` 命中经 `icon-ready` 只跳本 module 单 interface，不再跨 `store→cache→enrich→board mirror` 四跳。
  * seam：`applyHit` 为唯一写 seam；`stickyIconFor`（`mergeStickyIcon` + M1 缓冲回读）与
  * `patchIconMirror`（趋势镜像合并）与 `iconDataCache`（`get_or_fetch_icon` 落盘预热内存态）均为内部 seam，
- * 对外不新增写口。`enrich.stickyIconFor`/`board.applyIconChangedToMirror` 的重复 locality 已删除，
- * 调用方经本 module 直引（`adapter` 薄委托保留一版以兼容未迁移的 View，见 `board.ts`）。
+ * 对外不新增写口。`enrich.stickyIconFor` 与旧 board 镜像透传的重复 locality 已删除，
+ * 调用方经本 module 直引，无保留的薄委托。
  * adapter/leverage/locality：旧四列表工厂 adapter 已删（ica3-11，`App.tsx`
  * 经 `patchAppIconList` + `subscribeIconWrites` 内联四连直写，不经工厂中转）；`AppIcon` 的
  * `appIdToIconMap` 并行 locality 已删（以店内 `iconById` 为单一别名源）；`isRemoteIcon` 留在
@@ -231,10 +231,9 @@ export function stickyIconFor(cur: AppSummary | undefined, incoming: AppSummary)
 }
 
 /**
- * 趋势镜像图标合并（内部 seam 的收敛实现，原 `board.applyIconChangedToMirror` 全量下移）：
+ * 趋势镜像图标合并（内部 seam 的收敛实现，旧 board 镜像透传已删，逻辑全量收归本 module）：
  * incoming 与旧不同即覆盖；L5（`''`）放行内存清零；大小写归一，同时匹配坐标键与
- * `enriched.id` 小写别名（`normalizeId`，遵 ADR-0010）。`board.ts` 仅留薄 adapter 委托，
- * 待 View 迁移至 `subscribeIconWrites` 后删除（`one adapter=hypothetical seam`）。
+ * `enriched.id` 小写别名（`normalizeId`，遵 ADR-0010）。调用方直调本函数，无 board 侧委托。
  */
 export function patchIconMirror(
   prev: Record<string, AppSummary>,
