@@ -4,20 +4,23 @@
  * - `pickFavoritePersistIconUrl`：remote 优先 / url 非 data: 兜底 / data: 永不进盘 /
  *   非远端置空走首字母（`AppIcon` 同规则）。
  * - `needsFavoriteIconWarm`：空/非远端需查轮换，合法远端仅文件预热。
+ *
+ * ica3-6：`buildLowerIdSet` / `findMissingFavoriteIds` 薄 wrapper 已删并至
+ * `services/normalizeId` 单口（`normalizeId` / `normalizeIdLowerSet`），
+ * `selectFavoritesViewApps` 合并器已收归 `app/selectors`；本文件改调统一口。
  */
 import { describe, expect, it } from 'vitest';
 import type { AppSummary } from '../types';
 import { PLATFORM_IDS } from '../lib/platformFilter';
+import { normalizeId, normalizeIdLowerSet } from '../services/normalizeId';
 import {
-  buildLowerIdSet,
   favoriteSummaryFromDetail,
-  findMissingFavoriteIds,
   makeFavoritePlaceholderSummary,
   needsFavoriteIconWarm,
   parseFavoriteOwnerRepo,
   pickFavoritePersistIconUrl,
-  selectFavoritesViewApps,
 } from './favoritesUncataloged';
+import { selectFavoritesViewApps } from './selectors';
 
 describe('pickFavoritePersistIconUrl', () => {
   it('remote_url 优先于 url', () => {
@@ -110,22 +113,45 @@ describe('needsFavoriteIconWarm', () => {
  * 票 14 删除测试：`useFavoritesExtra` 文件删除后，未收录 join 语义经深 join
  * 新模块保持——行不消失（exact 合并去重 + heuristic 占位合成）与计数保留
  * （调用方全集计数，本模块不参与计数）。
+ *
+ * ica3-6：薄 wrapper 删除后同语义改调统一口（`normalizeId` 单口 + 选择器合并器）。
  */
 function row(id: string, platforms: string[] = []): AppSummary {
   return { id, platforms } as AppSummary;
 }
 
+/** ica3-6 内联口径：与深 join 内部 `findMissingIds` 同语义（`normalizeId` 去重保序）。 */
+function missingViaUnifiedMouth(
+  favoriteIds: Iterable<string>,
+  catalogLower: ReadonlySet<string>,
+  extraLower?: ReadonlySet<string>,
+): string[] {
+  const seen = new Set<string>();
+  const missing: string[] = [];
+  for (const raw of favoriteIds) {
+    const id = typeof raw === 'string' ? raw.trim() : '';
+    if (!id) continue;
+    const key = normalizeId(id);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    if (catalogLower.has(key)) continue;
+    if (extraLower?.has(key)) continue;
+    missing.push(id);
+  }
+  return missing;
+}
+
 describe('uncataloged join keeps rows and full-set counts (ticket 14 deletion tests)', () => {
-  it('findMissingFavoriteIds: union∖catalog 精确差集，大小写归一、保序、保留原值', () => {
-    const missing = findMissingFavoriteIds(
+  it('union∖catalog 精确差集经统一口，大小写归一、保序、保留原值', () => {
+    const missing = missingViaUnifiedMouth(
       ['RustDesk/RustDesk', 'unknown/app', 'UNKNOWN/APP', '  ', 'videolan/vlc'],
       new Set(['rustdesk/rustdesk', 'videolan/vlc']),
     );
     expect(missing).toEqual(['unknown/app']);
   });
 
-  it('findMissingFavoriteIds: 已有占位行不再重复合成', () => {
-    const missing = findMissingFavoriteIds(
+  it('已有占位行不再重复合成（统一口）', () => {
+    const missing = missingViaUnifiedMouth(
       ['unknown/app'],
       new Set<string>(),
       new Set(['unknown/app']),
@@ -142,7 +168,7 @@ describe('uncataloged join keeps rows and full-set counts (ticket 14 deletion te
       new Set(PLATFORM_IDS),
       new Set<string>(),
     );
-    expect(merged.map((a) => a.id).sort()).toEqual(['owner/app-a', 'owner/app-x']);
+    expect(merged.map((a: AppSummary) => a.id).sort()).toEqual(['owner/app-a', 'owner/app-x']);
   });
 
   it('selectFavoritesViewApps: 无占位段时原数组透传', () => {
@@ -186,8 +212,8 @@ describe('uncataloged join keeps rows and full-set counts (ticket 14 deletion te
     expect(fallback.is_cataloged).toBe(false);
   });
 
-  it('buildLowerIdSet 与 join 键口径一致（去空/小写/去重）', () => {
-    expect([...buildLowerIdSet(['A/B', 'a/b', '', '  ', null])]).toEqual(['a/b']);
+  it('normalizeIdLowerSet 与 join 键口径一致（去空/小写/去重）', () => {
+    expect([...normalizeIdLowerSet(['A/B', 'a/b', '', '  ', null])]).toEqual(['a/b']);
   });
 
   it('parseFavoriteOwnerRepo 启发式推导展示用 owner/repo', () => {

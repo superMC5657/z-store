@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { marked } from 'marked';
 import { api, type ReadmeVariant } from '../../services/api';
 import { sanitizeHtml } from '../../utils/sanitize';
+import { normalizeId } from '../../services/normalizeId';
 
 // GitHub Markdown 块级引用 Alerts 预处理器（支持 [!NOTE], [!TIP], [!IMPORTANT], [!WARNING], [!CAUTION]）
 export function preprocessGitHubAlerts(markdown: string): string {
@@ -47,7 +48,7 @@ const readmeVariantsCache = new Map<string, ReadmeVariantsCacheEntry>();
 
 export function clearReadmeVariantsCache(appId?: string): void {
   if (appId) {
-    const key = appId.trim().toLowerCase();
+    const key = normalizeId(appId);
     readmeVariantsCache.delete(key);
   } else {
     readmeVariantsCache.clear();
@@ -55,7 +56,7 @@ export function clearReadmeVariantsCache(appId?: string): void {
 }
 
 function readmeCacheKey(appId: string): string {
-  return appId.trim().toLowerCase();
+  return normalizeId(appId);
 }
 
 function normalizeReadmeVariants(input: unknown): ReadmeVariant[] {

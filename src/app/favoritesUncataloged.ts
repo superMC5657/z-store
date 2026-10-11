@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AppDetail, AppSummary } from '../types';
-import type { PlatformId } from '../lib/platformFilter';
-import { matchSelectedWithPending } from '../services/pendingLifecycle';
 import type { AppIconCycleResult } from '../services/api';
 import { api, normalizeIconCycle } from '../services/api';
 import { applyHit, patchAppIconList } from '../services/iconStore';
@@ -18,8 +16,8 @@ import { normalizeId } from '../services/normalizeId';
  * `matchPlatformSetWithPending`（平台三态逻辑不动：占位 `platforms: []`
  * 即 pending 恒可见，落定后走正常 Other 过滤）。
  *
- * - 归一大小写：join/去重一律按 `id.toLowerCase()`，原始 id 保留原值
- *   供 `FavoritesView` 精确 `has` 命中（双键：原值 + 小写在调用方分别建索引）。
+ * - 归一大小写：join/去重一律经前端唯一口 `normalizeId`（`trim().toLowerCase()`），
+ *   原始 id 保留原值供 `FavoritesView` 精确 `has` 命中（双键：原值 + 小写在调用方分别建索引）。
  * - 详情优先：`api.getAppDetails(id)`（后端经 `get_cached_app_detail_fallback`
  *   回退，TTL 外/离线仍可显）→ `appSummaryFromDetail`（`detail_to_summary`
  *   前端同构）；失败才用最小占位，保证行必展示。
@@ -28,24 +26,23 @@ import { normalizeId } from '../services/normalizeId';
  *   `isAppCataloged` 打标用，不参与 join/过滤/计数。
  *
  * 深 join 模块（票 14）：未收录 join（`(favorite∪watched)∖精选收录库`）唯一深模块，
- * 两种行为——exact（规范键精确查：`findMissingFavoriteIds` 小写精确差集 +
- * `selectFavoritesViewApps` 收录段合并去重）vs heuristic（外部启发式：
- * `parseFavoriteOwnerRepo` 末两段推导 + 占位合成行展示兜底）；effect 侧
- * `useUncatalogedJoin`（原 `useFavoritesExtra` 内迁改名，原文件删除）与
- * 合并器 `selectFavoritesViewApps`（原 `selectors` 内迁）皆收归于此，
- * 调用方（`App`/`selectors`）只做薄消费。行消失（收录到达驱逐/取消收藏）与
+ * 两种行为——exact（规范键精确查：归一精确差集 + 收录段合并去重）vs heuristic
+ * （外部启发式：`parseFavoriteOwnerRepo` 末两段推导 + 占位合成行展示兜底）；
+ * effect 侧 `useUncatalogedJoin`（原 `useFavoritesExtra` 内迁改名，原文件删除）收归于此，
+ * 合并器已收归 `app/selectors`（ica3-6：`selectFavoritesViewApps` 薄透传删除，调用方
+ * 经选择器消费；本模块不再导出合并器）。行消失（收录到达驱逐/取消收藏）与
  * 计数保留（全集计数）语义不变，见删除测试。
+ *
+ * ica3-6：`trimId` / `buildLowerIdSet` / `findMissingFavoriteIds` 薄 wrapper 已删，
+ * 键归一律经 `normalizeId` 单口（含 Set 口径 `normalizeIdLowerSet`）；`parseFavoriteOwnerRepo`
+ * 为展示用启发式（保留原大小写，仅 trim），非 canonical，不经归一。
  */
 
 export const FAVORITE_EXTERNAL_CATEGORY = 'external';
 export const FAVORITE_EXTERNAL_CATEGORY_NAME = '跨平台开源';
 
-function trimId(id: unknown): string {
-  return typeof id === 'string' ? id.trim() : '';
-}
-
 export function parseFavoriteOwnerRepo(id: string): { owner: string; repo: string } {
-  const clean = trimId(id);
+  const clean = typeof id === 'string' ? id.trim() : '';
   // 兼容 `owner/repo`、`github.com/owner/repo`、`https://.../owner/repo`、`gh:owner/repo` 等直查形态；
   // 取末两段为 owner/repo，取不到则 repo 回落 id 本身（保证可搜索、可展示）。
   const noScheme = clean.replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//, '').replace(/^(gh|github):/i, '');
@@ -63,7 +60,7 @@ export function parseFavoriteOwnerRepo(id: string): { owner: string; repo: strin
 
 /** 最小占位行：无详情缓存/离线失败时仍保证收藏行必展示（pending 恒可见）。 */
 export function makeFavoritePlaceholderSummary(favId: string): AppSummary {
-  const id = trimId(favId);
+  const id = typeof favId === 'string' ? favId.trim() : '';
   const { owner, repo } = parseFavoriteOwnerRepo(id);
   const name = repo || id;
   return {
@@ -142,10 +139,11 @@ export function needsFavoriteIconWarm(icon: unknown): boolean {
 }
 
 /**
- * 求 `favoriteIds ∖ (catalog ∪ extra)`（大小写归一，按小写去重保序）。
+ * 求 `favoriteIds ∖ (catalog ∪ extra)`（大小写归一，按小写去重保序，ica3-6 后为内部实现）。
  * 返回原始 favId（保留原大小写供展示层精确命中），调用方按小写建双键索引。
+ * 键口径一律 `normalizeId` 单口。
  */
-export function findMissingFavoriteIds(
+function findMissingIds(
   favoriteIds: Iterable<string>,
   catalogLower: ReadonlySet<string>,
   extraLower?: ReadonlySet<string>,
@@ -153,7 +151,7 @@ export function findMissingFavoriteIds(
   const seen = new Set<string>();
   const missing: string[] = [];
   for (const raw of favoriteIds) {
-    const id = trimId(raw);
+    const id = typeof raw === 'string' ? raw.trim() : '';
     if (!id) continue;
     const key = normalizeId(id);
     if (!key || seen.has(key)) continue;
@@ -163,47 +161,6 @@ export function findMissingFavoriteIds(
     missing.push(id);
   }
   return missing;
-}
-
-/**
- * 规范小写 id 集（join 键唯一构造口）：去空 + 小写，供展示层/选择器建双键索引。
- * 与 `findMissingFavoriteIds` 的键口径一致（`normalizeId`），不参与计数。
- */
-export function buildLowerIdSet(ids: Iterable<unknown>): Set<string> {
-  const out = new Set<string>();
-  for (const raw of ids) {
-    const k = normalizeId(raw);
-    if (k) out.add(k);
-  }
-  return out;
-}
-
-/**
- * 收藏页 left-join 合并器（原 `selectors.selectFavoritesViewApps` 内迁，语义逐字一致）：
- * 收录段（已平台过滤）+ 未收录占位段（同口径平台过滤后并入，小写去重防双显）。
- */
-export function selectFavoritesViewApps(
-  platformFilteredApps: AppSummary[],
-  favoriteExtraApps: AppSummary[],
-  selectedPlatforms: Set<PlatformId>,
-  platformResolvedOtherIds: Set<string>,
-): AppSummary[] {
-  if (favoriteExtraApps.length === 0) return platformFilteredApps;
-  const filteredExtras = favoriteExtraApps.filter((a) =>
-    matchSelectedWithPending(a, selectedPlatforms, platformResolvedOtherIds),
-  );
-  if (filteredExtras.length === 0) return platformFilteredApps;
-  const baseLower = new Set<string>();
-  for (const a of platformFilteredApps) {
-    const k = (a.id || '').toLowerCase();
-    if (k) baseLower.add(k);
-  }
-  const deduped = filteredExtras.filter((e) => {
-    const k = (e.id || '').toLowerCase();
-    return k && !baseLower.has(k);
-  });
-  if (deduped.length === 0) return platformFilteredApps;
-  return [...platformFilteredApps, ...deduped];
 }
 
 export interface UseUncatalogedJoinParams {
@@ -237,34 +194,34 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
     }
     const catalogLower = new Set<string>();
     for (const a of apps) {
-      const k = (a.id || '').toLowerCase();
+      const k = normalizeId(a.id);
       if (k) catalogLower.add(k);
     }
     const current = favoriteExtraAppsRef.current;
     const currentLower = new Set<string>();
     for (const e of current) {
-      const k = (e.id || '').toLowerCase();
+      const k = normalizeId(e.id);
       if (k) currentLower.add(k);
     }
     // 收录到达即驱逐（大小写归一），避免与目录行双显
     let pruned: AppSummary[] | null = null;
     if (current.length > 0 && catalogLower.size > 0) {
-      pruned = current.filter((e) => !catalogLower.has((e.id || '').toLowerCase()));
+      pruned = current.filter((e) => !catalogLower.has(normalizeId(e.id)));
       if (pruned.length !== current.length) setFavoriteExtraApps(pruned);
     }
     const baseLower = pruned ?? current;
     const baseLowerSet = new Set<string>();
     for (const e of baseLower) {
-      const k = (e.id || '').toLowerCase();
+      const k = normalizeId(e.id);
       if (k) baseLowerSet.add(k);
     }
     // 收藏+关注 union 求缺：任一集合未收录即合成（共用同一占位 helpers/去重/inflight 口径）。
     const unionIds = new Set<string>([...favoriteIds, ...watchedIds]);
-    const missing = findMissingFavoriteIds(unionIds, catalogLower, baseLowerSet).filter(
-      (id) => !favoriteExtraInflightRef.current.has(id.toLowerCase()),
+    const missing = findMissingIds(unionIds, catalogLower, baseLowerSet).filter(
+      (id) => !favoriteExtraInflightRef.current.has(normalizeId(id)),
     );
     if (missing.length === 0) return;
-    for (const id of missing) favoriteExtraInflightRef.current.add(id.toLowerCase());
+    for (const id of missing) favoriteExtraInflightRef.current.add(normalizeId(id));
     let cancelled = false;
     void (async () => {
       try {
@@ -282,14 +239,14 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
               summary = makeFavoritePlaceholderSummary(favId);
             }
             if (cancelled) return;
-            const k = (summary.id || '').toLowerCase();
+            const k = normalizeId(summary.id);
             if (!k) return;
             // 若期间收录到达则跳过（由驱逐逻辑收敛，不双显）
             if (catalogLower.has(k)) return;
             setFavoriteExtraApps((prev) => {
               const lower = k;
               for (const e of prev) {
-                if ((e.id || '').toLowerCase() === lower) return prev;
+                if (normalizeId(e.id) === lower) return prev;
               }
               return [...prev, summary];
             });
@@ -338,13 +295,13 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
         );
       } finally {
         // 取消/完成均注销 inflight，避免泄漏导致后续 missing=0 自锁
-        for (const id of missing) favoriteExtraInflightRef.current.delete(id.toLowerCase());
+        for (const id of missing) favoriteExtraInflightRef.current.delete(normalizeId(id));
       }
     })();
     return () => {
       cancelled = true;
       // 同步注销本轮 inflight，保证 apps 到达后的下一轮能重算 missing
-      for (const id of missing) favoriteExtraInflightRef.current.delete(id.toLowerCase());
+      for (const id of missing) favoriteExtraInflightRef.current.delete(normalizeId(id));
     };
   }, [favoriteIds, watchedIds, apps]);
 

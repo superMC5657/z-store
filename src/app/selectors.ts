@@ -13,8 +13,7 @@ import {
   normalizePlatform,
   type PlatformId,
 } from '../lib/platformFilter';
-// 收藏页 left-join 合并器收归深 join 模块（`app/favoritesUncataloged`），此处薄消费。
-import { selectFavoritesViewApps } from './favoritesUncataloged';
+import { normalizeId } from '../services/normalizeId';
 // pending 语义唯一深模块为 `lib/platformFilter`（ica3-3）：本选择器直接消费 lib，
 // 对外兼容重导出与 lib 同源（单 seam，供未迁移视图经本口消费；新代码请直引 lib）。
 export {
@@ -49,6 +48,10 @@ export interface UseAppSelectorsParams {
  * - 收藏页 left-join 供给（收录段 + 未收录占位段，小写去重）；
  * - 已安装/更新列表经 `appsById` O(1) 查表，未收录行保持可见；
  * - P0-1 深链确认弹窗的详情/摘要/SHA-256 解析。
+ *
+ * ica3-6：`selectFavoritesViewApps` 薄透传已删（原经 `app/favoritesUncataloged`
+ * 中转），合并器收归本选择器，键归一律经前端唯一口 `normalizeId`，
+ * 平台语义仍经 `lib/platformFilter` 单口（不回退）。
  */
 
 export function selectPlatformFilteredApps(
@@ -90,7 +93,8 @@ export function selectPlatformCounts(
 export function buildAppsById(apps: AppSummary[]): Map<string, AppSummary> {
   const map = new Map<string, AppSummary>();
   for (const a of apps) {
-    const key = a.id.toLowerCase();
+    const key = normalizeId(a.id);
+    if (!key) continue;
     if (!map.has(key)) map.set(key, a);
   }
   return map;
@@ -100,11 +104,13 @@ export function buildInstalledIds(installedApps: InstalledApp[], detectedAppIds:
   const set = new Set<string>();
   for (const a of installedApps) {
     set.add(a.app_id);
-    set.add(a.app_id.toLowerCase());
+    const n = normalizeId(a.app_id);
+    if (n) set.add(n);
   }
   for (const id of detectedAppIds) {
     set.add(id);
-    set.add(id.toLowerCase());
+    const n = normalizeId(id);
+    if (n) set.add(n);
   }
   return set;
 }
@@ -113,9 +119,39 @@ export function buildManagedIds(installedApps: InstalledApp[]): Set<string> {
   const set = new Set<string>();
   for (const a of installedApps) {
     set.add(a.app_id);
-    set.add(a.app_id.toLowerCase());
+    const n = normalizeId(a.app_id);
+    if (n) set.add(n);
   }
   return set;
+}
+
+/**
+ * 收藏页 left-join 合并器（ica3-6 自 `app/favoritesUncataloged` 收归本选择器，
+ * 语义逐字一致，键归一改调 `normalizeId` 单口）：
+ * 收录段（已平台过滤）+ 未收录占位段（同口径平台过滤后并入，小写去重防双显）。
+ */
+export function selectFavoritesViewApps(
+  platformFilteredApps: AppSummary[],
+  favoriteExtraApps: AppSummary[],
+  selectedPlatforms: Set<PlatformId>,
+  platformResolvedOtherIds: Set<string>,
+): AppSummary[] {
+  if (favoriteExtraApps.length === 0) return platformFilteredApps;
+  const filteredExtras = favoriteExtraApps.filter((a) =>
+    matchSelectedWithPending(a, selectedPlatforms, platformResolvedOtherIds),
+  );
+  if (filteredExtras.length === 0) return platformFilteredApps;
+  const baseLower = new Set<string>();
+  for (const a of platformFilteredApps) {
+    const k = normalizeId(a.id);
+    if (k) baseLower.add(k);
+  }
+  const deduped = filteredExtras.filter((e) => {
+    const k = normalizeId(e.id);
+    return k !== '' && !baseLower.has(k);
+  });
+  if (deduped.length === 0) return platformFilteredApps;
+  return [...platformFilteredApps, ...deduped];
 }
 
 export function useAppSelectors({
@@ -165,14 +201,14 @@ export function useAppSelectors({
 
   const filteredInstalledApps = useMemo(() => {
     return installedApps.filter((inst) => {
-      const catalogEntry = appsById.get(inst.app_id.toLowerCase());
+      const catalogEntry = appsById.get(normalizeId(inst.app_id));
       return !catalogEntry || matchSelectedWithPending(catalogEntry, selectedPlatforms, platformResolvedOtherIds);
     });
   }, [installedApps, appsById, selectedPlatforms, platformResolvedOtherIds]);
 
   const filteredUpdates = useMemo(() => {
     return updates.filter((u) => {
-      const catalogEntry = appsById.get(u.app_id.toLowerCase());
+      const catalogEntry = appsById.get(normalizeId(u.app_id));
       return !catalogEntry || matchSelectedWithPending(catalogEntry, selectedPlatforms, platformResolvedOtherIds);
     });
   }, [updates, appsById, selectedPlatforms, platformResolvedOtherIds]);
@@ -197,15 +233,15 @@ export function useAppSelectors({
   const pendingDeepLinkDetail =
     pendingDeepLinkInstall !== null &&
     selectedApp !== null &&
-    selectedApp.id.toLowerCase() === pendingDeepLinkInstall.toLowerCase() &&
+    normalizeId(selectedApp.id) === normalizeId(pendingDeepLinkInstall) &&
     !selectedApp.isLoading
       ? selectedApp
       : null;
   const pendingDeepLinkSummary =
     pendingDeepLinkDetail ??
     (pendingDeepLinkInstall !== null
-      ? appsById.get(pendingDeepLinkInstall.toLowerCase()) ??
-        recentlyViewedApps.find((a) => a.id.toLowerCase() === pendingDeepLinkInstall.toLowerCase()) ??
+      ? appsById.get(normalizeId(pendingDeepLinkInstall)) ??
+        recentlyViewedApps.find((a) => normalizeId(a.id) === normalizeId(pendingDeepLinkInstall)) ??
         null
       : null);
   const pendingDeepLinkSha256 = pendingDeepLinkDetail?.releases.find((r) => r.sha256)?.sha256;

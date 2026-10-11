@@ -1,3 +1,11 @@
+//! Canonical App Id 后端唯一源（ADR-0010）。
+//!
+//! - 全形态 canonical（小写 `owner/repo` / `forge[:host]:owner/repo`）解析 SSOT 为
+//!   `RepositoryUrlParser::parse`；`canonical_app_id` / `canonical_lookup_id` /
+//!   `canonical_app_id_from_parts` 皆经它收敛，不另立 normalizer（`icon_key`
+//!   事件 key 与 `resolve_icon_coord` DB 主键为其薄委托，三键同值）。
+//! - 前端归一单口为 `src/services/normalizeId.ts`（`normalizeId`）；前后端键全同，
+//!   大小写漂移行经 canonical 治愈（票 14）。
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

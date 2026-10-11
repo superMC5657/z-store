@@ -10,7 +10,7 @@ import { tauriApi } from '../services/api';
 import { ViewAppActions, ViewShell } from './ViewShell';
 import { matchesAppText } from './useViewFilter';
 import { isPendingFor } from '../app/selectors';
-import { buildLowerIdSet } from '../app/favoritesUncataloged';
+import { normalizeId, normalizeIdLowerSet } from '../services/normalizeId';
 
 interface FavoritesViewProps extends ViewAppActions {
   platformResolvedOtherIds?: ReadonlySet<string>;
@@ -51,12 +51,12 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   const matchesSearch = (a: AppSummary) => matchesAppText(a, searchText);
 
   // 收藏 left-join 消费侧：`apps` 已由 App 补齐未收录占位行，此处仅做归一大小写 inner 过滤
-  // （双键：原值 + 小写均命中；键构造经深 join 模块唯一口径）；计数仍用 `favoriteIds.size` 全集。
-  const favoriteIdsLower = buildLowerIdSet(favoriteIds);
+  // （双键：原值 + 小写均命中；键构造经前端唯一口 `normalizeId`）；计数仍用 `favoriteIds.size` 全集。
+  const favoriteIdsLower = normalizeIdLowerSet(favoriteIds);
   // 关注同口径小写归一（与收藏分支一致）；计数仍用 `watchedSet.size` 全集。
-  const watchedIdsLower = buildLowerIdSet(watchedSet);
-  const favoriteApps = apps.filter((a) => favoriteIdsLower.has((a.id || '').toLowerCase()) && matchesSearch(a));
-  const watchedApps = apps.filter((a) => watchedIdsLower.has((a.id || '').toLowerCase()) && matchesSearch(a));
+  const watchedIdsLower = normalizeIdLowerSet(watchedSet);
+  const favoriteApps = apps.filter((a) => favoriteIdsLower.has(normalizeId(a.id)) && matchesSearch(a));
+  const watchedApps = apps.filter((a) => watchedIdsLower.has(normalizeId(a.id)) && matchesSearch(a));
 
   const handleSyncStarred = async () => {
     setIsSyncing(true);
@@ -78,7 +78,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   const handleAddAllToFavorites = () => {
     if (!syncResult) return;
     for (const app of syncResult.catalog_matches) {
-      if (!favoriteIdsLower.has((app.id || '').toLowerCase())) {
+      if (!favoriteIdsLower.has(normalizeId(app.id))) {
         onToggleFavorite(app.id);
       }
     }
@@ -179,7 +179,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 isInstalled={installedIds.has(app.id)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={true}
-                isWatched={watchedIdsLower.has((app.id || '').toLowerCase())}
+                isWatched={watchedIdsLower.has(normalizeId(app.id))}
                 showCatalogBadge={true}
                 onOpenDetail={onOpenDetail}
                 onQuickInstall={onQuickInstall}
@@ -216,7 +216,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 platformPending={isPendingFor(app, platformResolvedOtherIds)}
                 isInstalled={installedIds.has(app.id)}
                 isInstalling={installingIds?.has(app.id)}
-                isFavorite={favoriteIdsLower.has((app.id || '').toLowerCase())}
+                isFavorite={favoriteIdsLower.has(normalizeId(app.id))}
                 isWatched={true}
                 onOpenDetail={onOpenDetail}
                 onQuickInstall={onQuickInstall}
@@ -356,8 +356,8 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                       platformPending={isPendingFor(app, platformResolvedOtherIds)}
                       isInstalled={installedIds.has(app.id)}
                       isInstalling={installingIds?.has(app.id)}
-                      isFavorite={favoriteIdsLower.has((app.id || '').toLowerCase())}
-                      isWatched={watchedIdsLower.has((app.id || '').toLowerCase())}
+                      isFavorite={favoriteIdsLower.has(normalizeId(app.id))}
+                      isWatched={watchedIdsLower.has(normalizeId(app.id))}
                       onOpenDetail={onOpenDetail}
                       onQuickInstall={onQuickInstall}
                       onToggleFavorite={onToggleFavorite}
