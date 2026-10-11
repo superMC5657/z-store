@@ -405,12 +405,14 @@ pub async fn download_icon_bytes(
     Err(format!("拉取远程图标失败 ({}): {}", url_trimmed, last_err))
 }
 
-/// C1 薄适配器：`get_or_fetch_icon` 只做缓存读→远端拉→两表分流落盘，
+/// C1 薄适配器：`get_or_fetch_icon` 只做缓存读→远端拉→单一写入路径，
 /// 探测只经深核匿名兜底（`icons_cycle::fetch_anon_probe_bytes`→`icon_fetch::probe_anon_simple`），
-/// 不内联第二套探。缝：`catalog_filename` vs `cycle_filename` 文件名分流 +
-/// 镜像改写 stays behind（见 `icons_cycle_probe`）；level 纯L，via 正交由上游事件表达，
+/// 不内联第二套探。缝：文件名分流 + 镜像改写收敛在 `icons_cycle_probe`
+///（`persist_icon_bytes` + `download_via_mirror`，ADR-0002 mirror 只改下载 URL）；
+/// level 纯L，via 正交由上游事件表达，
 /// 本命令返回 `data:` 永不进盘语义由前端 `applyHit` 守卫（`data:` 只进 M1 内存）。
-/// 全链：infer（URL 后缀暂定 ext）→sniff（内容纠正 real_ext）→双表分流落盘（收录走 meta，非收录走 cycle）。
+/// 全链：infer（URL 后缀暂定 ext）→sniff（内容纠正 real_ext）→单一写入路径
+///（收录走 meta，非收录走 cycle 行 + `_l{level}` 隔离）。
 #[tauri::command]
 pub async fn get_or_fetch_icon(
     state: State<'_, AppState>,
@@ -462,11 +464,10 @@ pub async fn get_or_fetch_icon(
         }
     }
 
-    // 2. 本地缓存找不到或已过期，才去外部链接拉取
+    // 2. 本地缓存找不到或已过期，才去外部链接拉取（mirror 只改下载 URL，经单一落点）
     let client = icon_http_client();
-    let mirror_url = icons_cycle::mirror_url_for(&state, url_trimmed);
 
-    let fetched_bytes = download_icon_bytes(&client, mirror_url.as_deref(), url_trimmed)
+    let fetched_bytes = icons_cycle::download_via_mirror(&state, &client, url_trimmed)
         .await
         .ok();
 
@@ -493,63 +494,71 @@ pub async fn get_or_fetch_icon(
         }
     };
 
-    // 3. 两表分流落盘（收敛至共享 helper；语义与原内联分支一致）：
+    // 3. 单一写入路径（catalog vs cycle 分流收敛在缝内；语义与原内联分支一致）：
     // icon_cache_meta 只写收录应用；非收录走 app_icon_cycles（文件复用 icons/ 目录，文件名带 _l{level} 后缀隔离）。
-    let mime = detect_image_mime(&bytes);
-    let real_ext = mime_to_ext(mime);
     let db_opt = state.db().ok();
 
     if is_cataloged {
-        icons_cycle::persist_catalog_icon(
+        icons_cycle::persist_icon_bytes(
             &icons_dir,
             db_opt.as_deref(),
             &stem,
-            real_ext,
-            inferred_ext,
+            1,
+            true,
             url_trimmed,
             &bytes,
         );
     } else {
         let clean_id = app_id.as_deref().map(str::trim).unwrap_or("");
-        let final_filename = if !clean_id.is_empty() {
+        if !clean_id.is_empty() {
             if let Some(ref db) = db_opt {
                 let mut cycle = icons_cycle::load_or_new_cycle(db, clean_id);
                 cycle.is_cataloged = false;
 
-                // url 写入首个空的 l2/l3/l4，不写 l1_url
+                // url 写入首个空的 l2/l3/l4，不写 l1_url（level 纯L 2/3/4）。
                 let actual_level =
                     crate::db::icon_cycle::claim_cycle_url_slot(&mut cycle, url_trimmed);
 
-                let filename =
-                    crate::db::icon_cycle::cycle_filename(&stem, actual_level, real_ext);
+                // 单一写入（sniff 纠正 + 残留清理在内），返回最终文件名后固化行。
+                let filename = icons_cycle::persist_icon_bytes(
+                    &icons_dir,
+                    db_opt.as_deref(),
+                    &stem,
+                    actual_level,
+                    false,
+                    url_trimmed,
+                    &bytes,
+                );
                 crate::db::icon_cycle::seal_cycle_selection(
                     &mut cycle,
                     actual_level,
                     url_trimmed,
-                    filename.clone(),
+                    filename,
                 );
                 let _ = db.upsert_icon_cycle(&cycle);
-                // 同 level 旧后缀残留清理，避免纠正后双文件常驻。
-                icons_cycle::cleanup_stale_cycle_variants(
-                    &icons_dir,
-                    &stem,
-                    actual_level,
-                    &filename,
-                );
-
-                filename
             } else {
-                crate::db::icon_cycle::cycle_filename(&stem, 2, real_ext)
+                // 无 DB（锁失败）：仍经单一路径落盘（level=2 兜底，行下次重试）。
+                let _ = icons_cycle::persist_icon_bytes(
+                    &icons_dir,
+                    None,
+                    &stem,
+                    2,
+                    false,
+                    url_trimmed,
+                    &bytes,
+                );
             }
         } else {
-            crate::db::icon_cycle::cycle_filename(&stem, 2, real_ext)
-        };
-
-        let final_cache_file = icons_dir.join(&final_filename);
-        let _ = std::fs::write(&final_cache_file, &bytes);
-        // 无 DB 行（匿名 id 为空）时仍需清理同 level 旧后缀残留，落盘恒为 {stem}_l{level}.{real_ext}。
-        if app_id.as_deref().map(str::trim).unwrap_or("").is_empty() {
-            icons_cycle::cleanup_stale_cycle_variants(&icons_dir, &stem, 2, &final_filename);
+            // 匿名 id 为空：单一路径落盘恒为 {stem}_l2.{real_ext}（残留清理在内）。
+            let _ = icons_cycle::persist_icon_bytes(
+                &icons_dir,
+                None,
+                &stem,
+                2,
+                false,
+                url_trimmed,
+                &bytes,
+            );
         }
     }
 

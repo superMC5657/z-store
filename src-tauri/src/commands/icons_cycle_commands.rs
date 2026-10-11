@@ -1,43 +1,19 @@
 use super::icons_cycle_probe::{
-    KNOWN_ICON_EXTS, cleanup_stale_cycle_variants, ensure_cycle_levels,
-    first_available_level, is_fallback_for_level, load_split_cached_bytes, mirror_url_for,
-    next_cycle_level, persist_catalog_icon, read_level_cache_file,
-    read_valid_image_file_async, resolve_app_coord, source_for_level, IconCycleResult,
+    KNOWN_ICON_EXTS, download_via_mirror, empty_cycle_result, ensure_cycle_levels,
+    first_available_level, is_fallback_for_level, load_split_cached_bytes, next_cycle_level,
+    persist_icon_bytes, read_level_cache_file, read_valid_image_file_async, resolve_app_coord,
+    source_for_level, IconCycleResult,
 };
 use crate::AppState;
 use tauri::State;
 
 // C1 薄适配器：L1–L5 UI 轮换仅非收录应用可切（收录恒 L1，不切换）；
 // 探测经 `ensure_cycle_levels`（L2/L3-live 走 `icon_fetch` 深核，L4 走 `probe_readme`，
-// L1 仅收录官方填充），持久化经 `db::icon_cycle` SSOT（`catalog_filename` vs
-// `cycle_filename` 分流），下载经 `icons::download_icon_bytes`。
+// L1 仅收录官方填充），持久化经单一写入路径 `persist_icon_bytes`
+//（`catalog vs cycle` 文件名分流收敛在内），下载经 `download_via_mirror`
+//（ADR-0002：mirror 只改下载 URL），L5 空选经 `seal_empty_selection` +
+// `empty_cycle_result`，detail 同步内联（`data:` 永不进盘，`""` 显式清空）。
 // 本文件不写第二套探/第二套文件名规则，只做编排。
-
-/// 写侧同步归一化：返回 `Some(new_icon)` 表示需同步 `detail_json.icon`，`None` 表示跳过。
-/// - 空 selected（L5）→ `Some("")`（显式清空，前端降级首字母徽章）；
-/// - `data:` → `None`（永不进盘；调用方应传 remote_url，此处兜底）。
-fn detail_icon_for_selected(selected_url: &str) -> Option<String> {
-    let t = selected_url.trim();
-    if t.starts_with("data:") {
-        return None;
-    }
-    if t.is_empty() {
-        return Some(String::new());
-    }
-    Some(t.to_string())
-}
-
-/// 写侧补齐：cycle 落库后同步 `detail_json.icon`（有详情行才 UPDATE，无行跳过不建行；
-/// `cached_at` 不动，见 `Database::sync_detail_icon`）。保持 `let _ =` 吞错语义。
-fn sync_detail_icon_best_effort(
-    db: &crate::db::Database,
-    canonical_id: &str,
-    selected_url: &str,
-) {
-    if let Some(new_icon) = detail_icon_for_selected(selected_url) {
-        let _ = db.sync_detail_icon(canonical_id, &new_icon);
-    }
-}
 
 /// 循环切换应用图标 (L1..=L5)
 #[tauri::command]
@@ -108,26 +84,16 @@ pub async fn cycle_app_icon(
     // 计算下一个推进级别
     let next_level = next_cycle_level(cycle.level, &cycle);
 
-    // Level 5: 空（始终可用，直接置空，无需下载）
+    // Level 5: 空（始终可用，直接置空，无需下载；L5 "" 收敛在缝内）
     if next_level == 5 {
-        cycle.level = 5;
-        cycle.selected_url = String::new();
-        cycle.cache_file = String::new();
-        cycle.updated_at = crate::now_secs();
+        crate::db::icon_cycle::seal_empty_selection(&mut cycle);
         if let Ok(db) = state.db() {
             let _ = db.upsert_icon_cycle(&cycle);
-            sync_detail_icon_best_effort(&db, &canonical_id, "");
+            // 写侧同步内联（原 sync_detail_icon_best_effort）：L5 显式清空 ""，有行才 UPDATE。
+            let _ = db.sync_detail_icon(&canonical_id, "");
         }
 
-        return Ok(IconCycleResult {
-            url: String::new(),
-            remote_url: String::new(),
-            level: 5,
-            source: "none".to_string(),
-            is_fallback: true,
-            total_levels: 5,
-            is_cataloged: false,
-        });
+        return Ok(empty_cycle_result(false));
     }
 
     // Level 1..=4: 必须下载成功方可推进 level（下载失败不推进 level）
@@ -142,7 +108,6 @@ pub async fn cycle_app_icon(
 
     let stem = crate::commands::icons::get_icon_stem(&canonical_id, &target_url);
     let client = crate::commands::icons::icon_http_client();
-    let mirror_url = mirror_url_for(&state, &target_url);
 
     // 检查本地是否已存在缓存文件（收录走两表分流读取；非收录按 stem_l{level}.{ext} 匹配）
     let inferred_ext = crate::commands::icons::infer_icon_ext_from_url(&target_url).unwrap_or("png");
@@ -163,8 +128,8 @@ pub async fn cycle_app_icon(
     let bytes = match cached_bytes {
         Some(b) => b,
         None => {
-            // 从远端下载；若失败，不推进 level，直接返回 Err
-            match crate::commands::icons::download_icon_bytes(&client, mirror_url.as_deref(), &target_url).await {
+            // 从远端下载（mirror 只改下载 URL，经单一落点）；若失败，不推进 level，直接返回 Err
+            match download_via_mirror(&state, &client, &target_url).await {
                 Ok(b) => b,
                 Err(e) => {
                     log::warn!(
@@ -180,36 +145,26 @@ pub async fn cycle_app_icon(
         }
     };
 
-    let mime = crate::commands::icons::detect_image_mime(&bytes);
-    let real_ext = crate::commands::icons::mime_to_ext(mime);
-
-    // 两表分流持久化（文件名方案收敛至共享 helper；收录分支不可达，已收敛为 canonical 落盘语义）
+    // 单一写入路径（catalog vs cycle 文件名分流收敛在缝内，不在命令层双分支）。
     let db_opt = state.db().ok();
-    let final_filename = if is_cataloged {
-        // 收录应用：写 icon_cache_meta，文件名为 stem.ext
-        persist_catalog_icon(
-            &icons_dir,
-            db_opt.as_deref(),
-            &stem,
-            real_ext,
-            inferred_ext,
-            &target_url,
-            &bytes,
-        )
-    } else {
-        // 非收录应用：只走 app_icon_cycles，文件名为 stem_l{level}.ext 隔离
-        // 真实 ext 落盘，同 level 旧后缀残留同步清理。
-        let fname = crate::db::icon_cycle::cycle_filename(&stem, next_level, real_ext);
-        let fpath = icons_dir.join(&fname);
-        let _ = std::fs::write(&fpath, &bytes);
-        cleanup_stale_cycle_variants(&icons_dir, &stem, next_level, &fname);
-        fname
-    };
+    let final_filename = persist_icon_bytes(
+        &icons_dir,
+        db_opt.as_deref(),
+        &stem,
+        next_level,
+        is_cataloged,
+        &target_url,
+        &bytes,
+    );
 
     crate::db::icon_cycle::seal_cycle_selection(&mut cycle, next_level, &target_url, final_filename);
     if let Some(db) = db_opt.as_ref() {
         let _ = db.upsert_icon_cycle(&cycle);
-        sync_detail_icon_best_effort(db, &canonical_id, &cycle.selected_url);
+        // 写侧同步内联（原 thin helper）：`data:` 永不进盘，有行才 UPDATE，cached_at 不动。
+        let sel = cycle.selected_url.trim();
+        if !sel.starts_with("data:") {
+            let _ = db.sync_detail_icon(&canonical_id, sel);
+        }
     }
 
     let data_uri = crate::commands::icons::bytes_to_data_uri(&bytes);
@@ -243,15 +198,7 @@ pub async fn get_app_icon_cycle(
 
     if let Some(cycle) = existing {
         if cycle.level == 5 {
-            return Ok(IconCycleResult {
-                url: String::new(),
-                remote_url: String::new(),
-                level: 5,
-                source: "none".to_string(),
-                is_fallback: true,
-                total_levels: 5,
-                is_cataloged,
-            });
+            return Ok(empty_cycle_result(is_cataloged));
         }
 
         let lvl = if !cycle.is_cataloged && cycle.level == 1 {
@@ -282,34 +229,21 @@ pub async fn get_app_icon_cycle(
             }
         }
 
-        // 文件缺失但有 remote_url 时尝试恢复
+        // 文件缺失但有 remote_url 时尝试恢复（单一写入 + 单一下载落点）
         if !remote_url.is_empty() {
             let client = crate::commands::icons::icon_http_client();
-            let mirror_url = mirror_url_for(&state, &remote_url);
-            if let Ok(bytes) = crate::commands::icons::download_icon_bytes(&client, mirror_url.as_deref(), &remote_url).await {
-                let mime = crate::commands::icons::detect_image_mime(&bytes);
-                let real_ext = crate::commands::icons::mime_to_ext(mime);
+            if let Ok(bytes) = download_via_mirror(&state, &client, &remote_url).await {
                 let stem = crate::commands::icons::get_icon_stem(&canonical_id, &remote_url);
-                // 真实 ext 落盘，绝不产生无扩展名文件。
-                let inferred_for_persist =
-                    crate::commands::icons::infer_icon_ext_from_url(&remote_url)
-                        .unwrap_or("png");
-                let filename = if is_cataloged {
-                    persist_catalog_icon(
-                        &icons_dir,
-                        state.db().ok().as_deref(),
-                        &stem,
-                        real_ext,
-                        inferred_for_persist,
-                        &remote_url,
-                        &bytes,
-                    )
-                } else {
-                    let fn_non = crate::db::icon_cycle::cycle_filename(&stem, lvl, real_ext);
-                    let _ = std::fs::write(icons_dir.join(&fn_non), &bytes);
-                    cleanup_stale_cycle_variants(&icons_dir, &stem, lvl, &fn_non);
-                    fn_non
-                };
+                // 真实 ext 落盘，绝不产生无扩展名文件（分流收敛在缝内）。
+                let filename = persist_icon_bytes(
+                    &icons_dir,
+                    state.db().ok().as_deref(),
+                    &stem,
+                    lvl,
+                    is_cataloged,
+                    &remote_url,
+                    &bytes,
+                );
 
                 if let Ok(db) = state.db() {
                     let _ = db.set_icon_cycle_selected(&canonical_id, lvl, &remote_url, &filename);
@@ -426,16 +360,20 @@ pub async fn get_app_icon_cycle(
             });
         }
 
-        // 文件缺失但有 remote_url 时尝试恢复
+        // 文件缺失但有 remote_url 时尝试恢复（单一写入 + 单一下载落点）
         if !remote_url.is_empty() {
             let client = crate::commands::icons::icon_http_client();
-            let mirror_url = mirror_url_for(&state, &remote_url);
-            if let Ok(bytes) = crate::commands::icons::download_icon_bytes(&client, mirror_url.as_deref(), &remote_url).await {
-                let mime = crate::commands::icons::detect_image_mime(&bytes);
-                let real_ext = crate::commands::icons::mime_to_ext(mime);
-                let fn_non = crate::db::icon_cycle::cycle_filename(&stem, lvl, real_ext);
-                let _ = std::fs::write(icons_dir.join(&fn_non), &bytes);
-                cleanup_stale_cycle_variants(&icons_dir, &stem, lvl, &fn_non);
+            if let Ok(bytes) = download_via_mirror(&state, &client, &remote_url).await {
+                let stem = crate::commands::icons::get_icon_stem(&canonical_id, &remote_url);
+                let fn_non = persist_icon_bytes(
+                    &icons_dir,
+                    state.db().ok().as_deref(),
+                    &stem,
+                    lvl,
+                    false,
+                    &remote_url,
+                    &bytes,
+                );
                 crate::db::icon_cycle::seal_cycle_selection(
                     &mut temp_cycle,
                     lvl,
@@ -468,15 +406,7 @@ pub async fn get_app_icon_cycle(
             is_cataloged: false,
         })
     } else {
-        // 无有效则走 L5 首字母徽章逻辑
-        Ok(IconCycleResult {
-            url: String::new(),
-            remote_url: String::new(),
-            level: 5,
-            source: "none".to_string(),
-            is_fallback: true,
-            total_levels: 5,
-            is_cataloged: false,
-        })
+        // 无有效则走 L5 首字母徽章逻辑（空态统一构造）
+        Ok(empty_cycle_result(false))
     }
 }

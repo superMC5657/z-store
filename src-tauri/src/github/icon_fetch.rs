@@ -1,14 +1,15 @@
-//! 统一图标补探深核（后端 probe+schedule 唯一深模块，只做探测与调度，永不触 DB/fs）。
+//! 统一图标补探深核（后端 probe 唯一深模块，只做探测与调度，永不触 DB/fs）。
 //!
 //! - 归口原 `commands::catalog_search::search_apps_online` 内联的后台快慢探
 //!   （`spawn + stream::iter().buffer_unordered(pool).for_each + save_and_emit`），
 //!   对外伪接口等价于 `fetch_icons_stream(jobs, token, cfg, emit)`，其中
 //!   `jobs=[{id,owner,repo,ctx}]`，`ctx=Search{search_id,gen} | Trend{board,gen}`。
-//! - 行为：并发池 `cfg.pool`（默认 5，与趋势 `buffered(5)` 对齐，D6）；
+//! - 行为：并发池 `cfg.pool`（默认 5，与趋势 `buffered(5)` 对齐，D6，ADR-0015）；
 //!   快路径 SimpleIcons / 慢路径 Trees 超时经
 //!   `network.api_timeout_seconds` 统一配置，未设置回退 1500ms/12s 历史值；
 //!   快路径外层兜底 `api_timeout_or(8000ms)`、慢路径分支顺序 main→master、
-//!   整批 `cfg.total_timeout_secs`（默认 15s）按页伸缩，均与原内联语义相同；
+//!   整批 `cfg.total_timeout_secs`（默认 15s）按页伸缩（经缝内纯函数
+//!   `scaled_total_timeout`），均与原内联语义相同；
 //!   世代防串（`SEARCH_GEN` 落库前 + emit 前双检查）由调用方 `emit` 回调
 //!   （`catalog_search::save_and_emit`）负责，core 只做探测与调度，不触 DB。
 //! - 单仓深核 `probe_single_live`（L2→L3）为流式与详情 cycle 共用的唯一探核：
@@ -19,14 +20,19 @@
 //! - M2=DB落盘命中零网络，由调用方在进 core 前短锁预解析，不经本 core 探测。
 //!   L4=README需网络，详情链专属，不受本核心约束，本 core 不探 README。
 //!   level纯L(2=L2品牌库,3=L3仓库)；缓存正交用via(live|m2)表M2，pool=5/total伸缩。
-//! - 缝：probe-vs-persist——core 永不触 DB/fs（无 `Database`/`std::fs` 引用）；
-//!   `icons/` 落盘（`catalog_filename` vs `cycle_filename`）与镜像改写 stays behind
-//!   （见 `commands::icons_cycle_probe` 适配器）。`compat_collect` buffered 趋势
-//!   等齐路为 legacy 适配器（见 `commands::catalog_search::enrich_trend_repos_buffered`），
-//!   本核不删它、不依赖它。
+//! - 缝：probe-vs-persist——core 永不触 DB/fs（无 `Database`/`std::fs` 引用，
+//!   纯探 + 调度）；持久化单一写入路径收为内部缝
+//!   `commands::icons_cycle_probe::persist_icon_bytes`（`catalog vs cycle` 分流 +
+//!   `icons/` 落盘 + meta 同步），下载经 `download_via_mirror`（ADR-0002 mirror
+//!   只改下载 URL），L5 空选经 `seal_empty_selection + empty_cycle_result`。
+//!   `compat_collect` buffered 趋势等齐路为 legacy 内部兼容口
+//!   （见 `commands::catalog_search::enrich_trend_repos_buffered`，行为冻结），
+//!   本核不删它、不依赖它、不为它分支（搜索固定走新流式路，见 ADR-0015 §6）。
 //! - D5/D6/D8：双池复用（icon client 隔离，CDN 恒丢 token）+ 有界池 5 +
 //!   首包验图与跳过（HEAD→Range 首 32KB→magic→300B，见 `icon_probe::verify_image`）。
 //!   Curated Catalog 永不分支：仅 L1 填充 + 文件名分流为例外（见 cycle 适配器）。
+//! - ADR-0010：key 一律小写 `owner/repo`（三键合一，见 `icon_key`）；
+//!   ADR-0015：只发 `zstore://icon-ready{key,id,icon,level,via,context}`，level 纯L，via=live|m2。
 
 
 //! - 事件：调用方 `emit` 回调用本模块的 [`IconReadyPayload`]
@@ -189,6 +195,22 @@ pub(crate) async fn probe_single_live(
     None
 }
 
+/// 整批总量纯决策（可单测，无网络/DB/fs）：
+///
+/// `total = max(cfg_total, ceil(jobs/pool) * timeout_each)`，pool 保持 5（ADR-0015）。
+/// 调用方 `fetch_icons_stream` 唯一调用点，不在命令层散算（probe-vs-persist 缝收敛）。
+pub(crate) fn scaled_total_timeout(
+    jobs_len: usize,
+    pool: usize,
+    timeout_each: std::time::Duration,
+    cfg_total_secs: u64,
+) -> std::time::Duration {
+    let pool = pool.max(1);
+    let batches = jobs_len.div_ceil(pool).max(1) as u64;
+    let scaled_secs = batches.saturating_mul(timeout_each.as_secs().max(1));
+    std::time::Duration::from_secs(cfg_total_secs.max(1).max(scaled_secs))
+}
+
 /// 后台图标补探 stream（见模块文档）。
 /// - `jobs`：待补探任务（含 `ctx`，世代防串由 `emit` 回调按 `ctx.gen` 执行）；空直接返回。
 /// - `token`：慢路径 Trees 鉴权；无 token 只走快路径。
@@ -225,8 +247,7 @@ pub async fn fetch_icons_stream<F, Fut>(
     // 有界并发：单层 buffer_unordered(pool)（默认 5，与趋势 buffered(5) 对齐），
     // 快慢各一次 emit（快命中即返不等慢，慢仅快未命中且有 token 时跑）。
     let pool = cfg.pool.max(1);
-    // 整批总量按 jobs 伸缩：
-    // total = max(cfg.total_timeout_secs, ceil(jobs/pool) * timeout_each)，pool 保持 5。
+    // 整批总量按 jobs 伸缩（纯决策收敛在缝内，pool 保持 5）：
     let jobs_len = jobs.len();
     let timeout_each = crate::config::api_timeout_or(
         std::time::Duration::from_secs(10),
@@ -249,9 +270,7 @@ pub async fn fetch_icons_stream<F, Fut>(
     .buffer_unordered(pool)
     .for_each(|()| async {});
     // 整批总超时：超时即降级结束（剩余任务直接丢弃，不炸不重试）。
-    let batches = jobs_len.div_ceil(pool).max(1) as u64;
-    let scaled_secs = batches.saturating_mul(timeout_each.as_secs().max(1));
-    let total = std::time::Duration::from_secs(cfg.total_timeout_secs.max(1).max(scaled_secs));
+    let total = scaled_total_timeout(jobs_len, pool, timeout_each, cfg.total_timeout_secs);
     let _ = tokio::time::timeout(total, batch).await;
 }
 
@@ -306,5 +325,28 @@ mod tests {
         let branches = crate::github::icon_probe::FALLBACK_PROBE_BRANCHES;
         assert_eq!(branches, ["main", "master"]);
         assert!(branches.contains(&"master"));
+    }
+
+    #[test]
+    fn scaled_total_timeout_stretches_with_pages() {
+        // 整批总量纯决策：total = max(cfg, ceil(jobs/pool) * each)，pool 保持 5（ADR-0015）。
+        // 单页不拉长（cfg 15s 优先），多页按批伸缩，pool=0 兜底 1。
+        let each = std::time::Duration::from_secs(10);
+        assert_eq!(
+            scaled_total_timeout(5, 5, each, 15),
+            std::time::Duration::from_secs(15)
+        );
+        assert_eq!(
+            scaled_total_timeout(12, 5, each, 15),
+            std::time::Duration::from_secs(30)
+        );
+        assert_eq!(
+            scaled_total_timeout(0, 5, each, 15),
+            std::time::Duration::from_secs(15)
+        );
+        assert_eq!(
+            scaled_total_timeout(5, 0, each, 15),
+            std::time::Duration::from_secs(50)
+        );
     }
 }

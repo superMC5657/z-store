@@ -6,10 +6,14 @@
 //! C1 深核分工：本文件为探针原语层（`derive_slugs`/`score_candidate`/
 //! `verify_image`+`fetch_range_head`/`probe_simple_icons`/`probe_trees`/
 //! `resolve_probe_branches`，`buffered(3)`+首包验图+caps），调度与 L2→L3 编排
-//! 在 `github::icon_fetch` 深核（`probe_single_live`/`fetch_icons_stream`）。
-//! `icons_cycle_probe` 的串行 naive 探已删，一律经深核直调本原语；本模块永不触 DB/fs。
+//! 在 `github::icon_fetch` 深核（`probe_single_live`/`fetch_icons_stream` +
+//! `scaled_total_timeout` 纯决策）。`icons_cycle_probe` 的串行 naive 探已删，
+//! 一律经深核直调本原语；本模块永不触 DB/fs（无 `Database`/`std::fs` 引用，
+//! probe-vs-persist 缝纯侧），持久化单一路径在 `icons_cycle_probe::persist_icon_bytes`。
 //! D5/D6/D8：双池复用（调用方给 client，CDN 恒丢 token）+ `buffered(3)` 有界 +
 //! 首包验图与跳过（HEAD→Range 首 32KB→magic→300B）。
+//! level 纯L（2=L2品牌库，3=L3仓库），via=live|m2 正交（本层只产 live URL，
+//! M2 回填由调用方经 via=m2 直发）；key 小写 owner/repo（ADR-0010）。
 
 use reqwest::header::HeaderMap;
 use serde::Deserialize;

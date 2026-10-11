@@ -304,9 +304,11 @@ pub fn set_level(db: &Database, app_id: &str, level: i32) -> Result<()> {
 // l2/l3/l4 槽位认领、级别推进、详情页图标层级决策 —— 各调用方只做薄委托，
 // 不再各自重写分支。纯决策，无 fs/网络/AppState 依赖；零行为变更。
 // 缝：probe-vs-persist——本文件永不做网络探测（无 client/token/probe 调用）；
-// 探测一律在 `github::icon_fetch` 深核，持久化（`catalog_filename` vs
-// `cycle_filename` + `icons/` 落盘 + 镜像改写） stays behind 适配器
-// （见 `commands::icons_cycle_probe`）。Curated Catalog 永不分支，例外仅
+// 探测一律在 `github::icon_fetch` 深核（`probe_single_live`/`fetch_icons_stream` 纯探，
+// 永不触 DB/fs）；持久化单一写入路径在 `commands::icons_cycle_probe::persist_icon_bytes`
+//（`catalog_filename` vs `cycle_filename` 分流收敛在内 + `icons/` 落盘 + meta 同步，
+// mirror 仅改下载 URL 经 `download_via_mirror`，L5 空选经 `seal_empty_selection`）。
+// Curated Catalog 永不分支，例外仅
 // L1 填充（`ensure_cycle_levels`）与文件名分流（`catalog_filename` vs `cycle_filename`）。
 // ADR-0010：key 一律小写 `owner/repo`（三键合一：唯一实现见
 // `forge::canonical_app_id_from_parts`，`icon_key` 为其薄委托）。
@@ -414,6 +416,18 @@ pub fn cycle_filename(stem: &str, level: i32, ext: &str) -> String {
     format!("{}_l{}.{}", stem, level, ext)
 }
 
+/// 持久化文件名统一派生（写侧单一分支点）：收录走 `catalog_filename`，非收录走
+/// `cycle_filename(level)`。读侧仍经两表分流 helpers；写侧一律经
+/// `commands::icons_cycle_probe::persist_icon_bytes` 间接，不在命令层散写
+/// `if is_cataloged` 双分支（probe-vs-persist 缝收敛，level 纯L，via 正交）。
+pub fn persist_filename(stem: &str, level: i32, is_cataloged: bool, ext: &str) -> String {
+    if is_cataloged {
+        catalog_filename(stem, ext)
+    } else {
+        cycle_filename(stem, level, ext)
+    }
+}
+
 /// 非收录 url 槽位认领：命中既有 l2/l3/l4 返回其级别，
 /// 否则写入首个空槽；全满则沿用当前合法级别。不写 l1_url。
 /// M2=落盘已确认
@@ -451,6 +465,13 @@ pub fn seal_cycle_selection(
     cycle.selected_url = selected_url.to_string();
     cycle.cache_file = cache_file;
     cycle.updated_at = crate::now_secs();
+}
+
+/// L5 空选固化（首字母徽章，level 纯L=5）：level=5 + selected/cache 双空 + updated_at 推进。
+/// cycle 命令层 L5 一律经此，不手写 `""` 散赋值（L5 `""` 泄漏收敛在缝内）；
+/// 写侧 `detail_json.icon` 显式清空（`""`）由调用方内联直写，不经薄 helper。
+pub fn seal_empty_selection(cycle: &mut AppIconCycle) {
+    seal_cycle_selection(cycle, 5, "", String::new());
 }
 
 /// 在线单仓直查的 cycle 行构造（原 github::search::fetch_online_repo 内联）：

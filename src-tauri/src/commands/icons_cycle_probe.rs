@@ -2,10 +2,17 @@ use crate::AppState;
 use serde::{Deserialize, Serialize};
 
 // 图标 C1 深核适配层（薄）：探测经 `github::icon_fetch` 深核直调
-// `icon_probe` 原语（L2/L3-live），持久化经 `db::icon_cycle` SSOT + `icons/` 落盘；
-// L1=官方填充 + L4=README 现场扒分居本适配器（详情链专属，不受流式核约束）。
+// `icon_probe` 原语（L2/L3-live 纯探，不碰 DB/fs），持久化经单一写入路径
+// `persist_icon_bytes`（`catalog vs cycle` 文件名分流收敛在内 + `icons/` 落盘 +
+// `icon_cache_meta` 同步），下载经 `download_via_mirror`（ADR-0002：mirror 只改
+// 下载 URL，API/登录仍直连）；L1=官方填充 + L4=README 现场扒分居本适配器
+//（详情链专属，不受流式核约束），L5 空选经 `empty_cycle_result` + `seal_empty_selection`。
 // 已删：串行 naive `probe_simple_icons`/`probe_git_trees` 重复拷贝、
 // `SEARCH_PROBE_BRANCHES` 第三套分支硬编码、匿名分支循环浪费——一律经深核。
+// 已收敛：`persist_catalog_icon`/`cleanup_stale_cycle_variants` 降为缝内私有，
+// 命令层不再直调双持久化/mirror 两段式/L5 散字面量（probe-vs-persist 缝合一）。
+// `compat_collect` buffered 趋势等齐路为 legacy 内部兼容口（见 `catalog_search`），
+// 本适配器不依赖它、不为它分支。
 
 // ADR-0008：网络超时统一经 `config::api_timeout_or` 单一来源（统一配置中枢同一键）；
 // 配置为 0（未设置）时回退到调用方传入的历史硬编码值，行为保持不变。
@@ -36,6 +43,7 @@ pub(crate) fn resolve_app_coord(app_id: &str) -> Result<(String, String, String)
 
 /// 镜像改写唯一落点：统一走镜像改写逻辑；
 /// 改写无变化时返回 None（调用方直连）。
+/// ADR-0002：仅改下载 URL（本下载通道专用），API 与登录直接走系统网络通道。
 pub(crate) fn mirror_url_for(state: &AppState, url: &str) -> Option<String> {
     state.mirror.lock().ok().and_then(|m| {
         let rewritten = m.rewrite_download_url(url);
@@ -45,6 +53,33 @@ pub(crate) fn mirror_url_for(state: &AppState, url: &str) -> Option<String> {
             None
         }
     })
+}
+
+/// 下载唯一落点（mirror rewrite 重复收敛点，ADR-0002）：
+/// `mirror_url_for` 改写 + `icons::download_icon_bytes` 拉取二合一。
+/// 命令层不再手写两段式（改写 + 拉取），一律经此（API/登录仍直连，mirror 仅本通道）。
+pub(crate) async fn download_via_mirror(
+    state: &AppState,
+    client: &reqwest::Client,
+    url: &str,
+) -> Result<Vec<u8>, String> {
+    let mirror = mirror_url_for(state, url);
+    crate::commands::icons::download_icon_bytes(client, mirror.as_deref(), url).await
+}
+
+/// L5 空态返回统一构造（首字母徽章，level 纯L=5）：
+/// `url/remote=""` + source=none + fallback=true。命令层 L5 三处散字面量收敛至此；
+/// `is_cataloged` 原样透传（收录恒 L1 不会进此，签名保留防串）。
+pub(crate) fn empty_cycle_result(is_cataloged: bool) -> IconCycleResult {
+    IconCycleResult {
+        url: String::new(),
+        remote_url: String::new(),
+        level: 5,
+        source: "none".to_string(),
+        is_fallback: true,
+        total_levels: 5,
+        is_cataloged,
+    }
 }
 
 /// 有效图片文件读取唯一落点：存在 + 可读 + 非空 + 合法图片才返回字节。
@@ -147,9 +182,10 @@ pub(crate) fn load_split_cached_bytes(
     }
 }
 
-/// 同 stem 同 level 的旧后缀残留清理（非收录 `stem_l{level}.*`）：保留 `keep_filename`，
-/// 其余 [`KNOWN_ICON_EXTS`] 变体存在即删，避免 `png` 暂定→`jpg` 纠正后双文件常驻。
-pub(crate) fn cleanup_stale_cycle_variants(
+/// 同 stem 同 level 的旧后缀残留清理（非收录 `stem_l{level}.*`，缝内私有）：
+/// 保留 `keep_filename`，其余 [`KNOWN_ICON_EXTS`] 变体存在即删，
+/// 避免 `png` 暂定→`jpg` 纠正后双文件常驻。命令层不再直调，一律经 `persist_icon_bytes`。
+fn cleanup_stale_cycle_variants(
     icons_dir: &std::path::Path,
     stem: &str,
     level: i32,
@@ -166,10 +202,11 @@ pub(crate) fn cleanup_stale_cycle_variants(
     }
 }
 
-/// 收录应用落盘唯一落点（原 get_or_fetch_icon 收录分支）：`stem.real_ext` 落盘，
-/// 陈旧 inferred 后缀文件清理 + icon_cache_meta 同步（改名时删旧键），返回最终文件名。
-/// 全量清理同 stem 的其余 [`KNOWN_ICON_EXTS`] 变体文件 + 对应旧 meta 键。
-pub(crate) fn persist_catalog_icon(
+/// 收录应用落盘唯一落点（缝内私有，原 get_or_fetch_icon 收录分支）：
+/// `stem.real_ext` 落盘，陈旧 inferred 后缀文件清理 + icon_cache_meta 同步（改名时删旧键），
+/// 返回最终文件名。全量清理同 stem 的其余 [`KNOWN_ICON_EXTS`] 变体文件 + 对应旧 meta 键。
+/// 对外只经 `persist_icon_bytes`（单一写入路径），命令层不直调。
+fn persist_catalog_icon(
     icons_dir: &std::path::Path,
     db_opt: Option<&crate::db::Database>,
     stem: &str,
@@ -215,6 +252,45 @@ pub(crate) fn persist_catalog_icon(
     final_filename
 }
 
+/// 写侧单一写入路径（probe-vs-persist 缝收敛点，cycle 持久化合一）：
+/// `icons/` 落盘 + `icon_cache_meta` 同步二合一，`catalog vs cycle` 文件名分流收敛在内。
+/// - 收录：`{stem}.{real_ext}` + 全量旧后缀清理 + meta 单键同步（经缝内 `persist_catalog_icon`）；
+/// - 非收录：`{stem}_l{level}.{real_ext}` + 同 level 旧后缀清理（经缝内 `cleanup_...`）。
+/// `real_ext` 经字节嗅探纠正（`detect_image_mime/mime_to_ext`），`inferred` 仅作旧键清理用；
+/// 调用方随后经 `seal_cycle_selection + upsert/set_selected` 固化行（`let _` 吞错）。
+/// ADR-0010：stem 经 canonical id 派生（调用方 `get_icon_stem` 已归一）；level 纯L，via 正交。
+pub(crate) fn persist_icon_bytes(
+    icons_dir: &std::path::Path,
+    db_opt: Option<&crate::db::Database>,
+    stem: &str,
+    level: i32,
+    is_cataloged: bool,
+    url_trimmed: &str,
+    bytes: &[u8],
+) -> String {
+    let real_ext = crate::commands::icons::mime_to_ext(crate::commands::icons::detect_image_mime(
+        bytes,
+    ));
+    let inferred_ext =
+        crate::commands::icons::infer_icon_ext_from_url(url_trimmed).unwrap_or("png");
+    if is_cataloged {
+        persist_catalog_icon(
+            icons_dir,
+            db_opt,
+            stem,
+            real_ext,
+            inferred_ext,
+            url_trimmed,
+            bytes,
+        )
+    } else {
+        let fname = crate::db::icon_cycle::cycle_filename(stem, level, real_ext);
+        let _ = std::fs::write(icons_dir.join(&fname), bytes);
+        cleanup_stale_cycle_variants(icons_dir, stem, level, &fname);
+        fname
+    }
+}
+
 /// 非收录 cycle 行加载-or-新建唯一落点（get_or_fetch 直取路径用）。
 /// `lookup_id` 保持调用方原始 trim 形态（与原内联 `db.get_icon_cycle(clean_id)` 键一致）；
 /// 新建行 owner/repo 经 owner_repo_for_new_cycle 推导（与原内联逐字对齐）。
@@ -248,10 +324,7 @@ pub(crate) async fn fetch_anon_probe_bytes(
         app_id_label,
         crate::log_support::sanitize_url(&probed_url)
     );
-    let probe_mirror = mirror_url_for(state, &probed_url);
-    crate::commands::icons::download_icon_bytes(client, probe_mirror.as_deref(), &probed_url)
-        .await
-        .ok()
+    download_via_mirror(state, client, &probed_url).await.ok()
 }
 
 /// README 图标探测（L4 详情链专属适配器，不受流式核约束，需网络）。
