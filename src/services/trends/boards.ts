@@ -185,8 +185,10 @@ export type BoardHydratedListener = (board: string, key: string) => void;
 const boardHydratedListeners = new Set<BoardHydratedListener>();
 
 /**
- * L2 hydrate完成订阅（首屏门就绪信号透出点；现状：读盘→hydrate→就绪顺序）。
- * 仅 L2 命中 hydrate 后触发；L1/网络路径由调用方 await 后置就绪，不经此通道。
+ * board 就绪订阅的内部实现（单 emit 源 `emitBoardHydrated` 的订阅口）。
+ * ica3-2：View 侧唯一对外口为 `board.subscribeBoardReady`，此处仅供 slice 内部 +
+ * 白盒单测直订；View 禁止直调（useTrendBoard 已合一为单订阅）。
+ * L1/L2/网络三路径统一 emit（对称就绪），TTL/契约不变。
  */
 export function subscribeBoardHydrated(fn: BoardHydratedListener): () => void {
   boardHydratedListeners.add(fn);
@@ -206,7 +208,9 @@ function emitBoardHydrated(board: string, key: string): void {
   }
 }
 
-/** 榜缓存二级落盘读。 */
+/** 榜缓存二级落盘读（内部 seam，单调用点：fetchBoardWithL2）。
+ * legacy key 回迁保留：cutover 未验证，存量盘旧 key 仍需一次回迁（见 swr.test.ts）；
+ * 新代码一律经 board.resolveBoardCacheKey 读写同源，不自算 key。 */
 async function getDbTrendCacheWithLegacyKey(
   newKey: string,
   board: string,
@@ -407,6 +411,7 @@ export async function fetchTrendsResult(
   opts: FetchTrendsOptions = {},
 ): Promise<TrendsResult> {
   // 切榜 sweep 过期。
+  // ica3-2：本函数为 slice 内部实现；View 侧唯一对外口为 board.fetchTrendsResultSeam。
   sweepExpiredTrendsCache();
   sweepExpiredTrendEnrichCache();
   if (isTimeBoard(board)) {

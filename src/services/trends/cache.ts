@@ -74,14 +74,17 @@ export function utf8ByteLength(s: string): number {
   }
 }
 
-/** 缓存键 = board + language + category（P1 要求，统一口径；C3：三段归一 trim().toLowerCase()，读写同源）。 */
+/** 缓存键 = board + language + category（P1 要求，统一口径；C3：三段归一 trim().toLowerCase()，读写同源）。
+ * ica3-2：View 侧唯一出口为 board.resolveBoardCacheKey，不直调此 builder。 */
 export function buildTrendsCacheKey(board: TrendBoardId, opts: FetchTrendsOptions = {}): string {
   const language = normalizeId(opts.language);
   const category = normalizeId(opts.category);
   return `${board}|${language}|${category}`;
 }
 
-/** 无归一 key 读一次（大小写/空格原样）。 */
+/** 无归一 key 读一次（大小写/空格原样）。
+ * @deprecated 内部 seam：仅供 boards 内 L2 legacy 回迁单调用点 + 白盒单测；
+ * 新代码一律经 board.resolveBoardCacheKey（归一 key），cutover 确认后另案删除。 */
 export function buildLegacyTrendsCacheKey(board: TrendBoardId, opts: FetchTrendsOptions = {}): string {
   return `${board}|${opts.language ?? ''}|${opts.category ?? ''}`;
 }

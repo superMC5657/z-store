@@ -1,11 +1,21 @@
 /**
- * C2 趋势榜单模块（trend-board vertical slice，唯一入口）。
+ * C2 趋势榜单模块（trend-board vertical slice，唯一入口；ica3-2 deep module）。
  *
  * boards.ts + cache.ts + enrich.ts 在此收口为单一模块：
  *   fetch → L1 → L2-hydrate → enrich-merge → saveBoardCacheMerged
  *
- * - 唯一对外抓取入口仍为 `fetchTrendsResult(board, opts)`（boards.ts 原样透出，
+ * - 唯一对外抓取入口为本模块 `fetchTrendsResultSeam(board, opts)`（boards 内实现，
  *   L1/L2/网络三路径现均 emit boardHydrated，关闭 L2-only 不对称）。
+ *   View/hook 一律经此口，不直调 `boards.fetchTrendsResult`。
+ * - 唯一就绪订阅为本模块 `subscribeBoardReady`（单 emit 源唯一出口，不双订）。
+ * - key/TTL/envelope/hydrate/snapshot 一律收为内部 seams：
+ *   key 经 `resolveBoardCacheKey`（读写同源），TTL 语义不变（ADR-0007/ADR-0014），
+ *   信封/hydrate/快照经 `persistBoardNow`/`hydrateBoardEnrich`/`snapshotBoard*`，
+ *   View 层禁止直调 cache/enrich 底层（`build*CacheKey`/`getDb*`/`hydrate*`/`mark/unmark*`）。
+ *   底层导出仅供 slice 内部 + 白盒单测，保留兼容不删除。
+ * - L2 legacy key 迁移（`buildLegacyTrendsCacheKey` + boards 内回迁）保留：
+ *   cutover 未验证（swr.test.ts 旧 key 迁移用例仍守护），删除会丢存量盘数据，
+ *   故收为内部单调用点，不对外扩散（待 cutover 确认后另案删除）。
  * - 所有持久化收口于本模块 seam 之后：
  *   `persistBoardNow` / `scheduleBoardPersist` / `flushBoardPersist` /
  *   `noteBoardReposForPersist` / `subscribeBoardPersistOnConfirmedChange`。
@@ -52,7 +62,10 @@ import {
   type DetailRichcardHealPayload,
 } from './enrich';
 import { fetchTrendsResult as fetchTrendsResultInner } from './boards';
-import { subscribeBoardHydrated as subscribeBoardHydratedInner } from './boards';
+import {
+  subscribeBoardHydrated as subscribeBoardHydratedInner,
+  type BoardHydratedListener,
+} from './boards';
 import {
   PENDING_SETTLE_MS,
   createInflightGuard,
@@ -68,12 +81,28 @@ import {
 import { zlogInfo } from '../../lib/z-log';
 import { patchIconMirror, stickyIconFor } from '../iconStore';
 
-/** 单一抓取入口（fetch→L1→L2-hydrate→enrich-merge→saveBoardCacheMerged，boards 原样透出）。 */
-export const fetchTrendsResultSeam = fetchTrendsResultInner;
+/**
+ * 单一抓取入口（board 为唯一 deep module 的对外抓取口）。
+ * fetch→L1→L2-hydrate→enrich-merge→saveBoardCacheMerged 全链路经 boards 内部实现，
+ * 本包装为 View/hook 唯一对外 interface（不直调 `boards.fetchTrendsResult`）。
+ * 保留 `fetchTrendsResultSeam` 命名以避 `services/trends` 星导出重名冲突；
+ * TTL/错误契约不变（ADR-0007/ADR-0013/ADR-0014）。
+ */
+export function fetchTrendsResultSeam(
+  ...args: Parameters<typeof fetchTrendsResultInner>
+): ReturnType<typeof fetchTrendsResultInner> {
+  return fetchTrendsResultInner(...args);
+}
 export type { PendingLiteTarget };
 
-/** 统一 boardReady 订阅（L1/L2/网络三路径在 boards 内统一 emit 后的唯一出口）。 */
-export const subscribeBoardReady = subscribeBoardHydratedInner;
+/**
+ * 唯一 boardReady 订阅（单 emit 源 `emitBoardHydrated` 的唯一出口）。
+ * L1/L2/网络三路径在 boards 内统一 emit，本包装为唯一对外 interface。
+ * View 侧只订此口，不再双订 `subscribeBoardHydrated`（见 useTrendBoard）。
+ */
+export function subscribeBoardReady(fn: BoardHydratedListener): () => void {
+  return subscribeBoardHydratedInner(fn);
+}
 
 /** settle 超时与主列表同值（TrendsView 重导出保持兼容）。 */
 export const TREND_BOARD_SETTLE_MS = PENDING_SETTLE_MS;

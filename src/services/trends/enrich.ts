@@ -142,6 +142,7 @@ export function isTrendConfirmedOtherFresh(key: string): boolean {
 
 /**
  * pending 当次有效永不缓存；Other 共享需确认（lite/详情确认标记）。
+ * ica3-2：View 侧唯一出口为 board.snapshotBoardConfirmed，不直调此函数。
  * 可选传入 repos 时仅返回仍属本榜的键（坐标键 + id 键，小写）。
  * 现状：具平台驱逐删标记走与 mark/unmark 同一 emit，触发写透；过期清理不 emit。
  */
@@ -272,7 +273,9 @@ export function clearTrendEnrichCache(): void {
 }
 
 /**
- * 向内存 `trendEnrichCache` 回填：
+ * 向内存 `trendEnrichCache` 回填（slice 内部写口）。
+ * ica3-2：View 侧唯一出口为 board.hydrateBoardEnrich，不直调此函数；
+ * 图标合并经 `stickyIconFor` 单口（ica3-1 基线，保持）。
  * - 具平台恒进缓存（12h/500 FIFO），后续靠应用详情刷新治愈（upsert from detail）；
  * - pending 空平台仅已确认键进内存（调用方先 mark；读盘时先 hydrate 确认集再 hydrate enrich）；
  *   未确认 pending 直接跳过（永不进内存/落库，只活当次 out 渲染）；
@@ -309,7 +312,8 @@ export function hydrateTrendEnrichCache(
 }
 
 /**
- * 内存快照：
+ * 内存快照（slice 内部读口）。
+ * ica3-2：View 侧唯一出口为 board.snapshotBoardEnrich / snapshotBoardConfirmed，不直调此函数。
  * - 可选传入 repos：若传入则仅提取属于这些 repos 的条目，否则提取全部；
  * - 仅提取未过期条目（elapsed<0 按过期；elapsed>=12h 按过期）；
  * - 具平台恒收录；pending 仅收录已确认新鲜键（Other 直展），未确认 pending 一律跳过（永不持久化）；

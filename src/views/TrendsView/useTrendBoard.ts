@@ -3,16 +3,17 @@ import type { Dispatch, SetStateAction } from 'react';
 import { tauriApi } from '../../services/api';
 import {
   boardGainKey,
-  fetchTrendsResult,
   normalizeProxyPrefix,
   resolveTrendBoard,
-  subscribeBoardHydrated,
   type FetchTrendsOptions,
   type TrendBoardId,
   type TrendsErrorKind,
   type TrendsResult,
 } from '../../services/trends';
-import { subscribeBoardReady } from '../../services/trends/board';
+import {
+  fetchTrendsResultSeam as fetchTrendsResult,
+  subscribeBoardReady,
+} from '../../services/trends/board';
 
 /**
  * 趋势榜选项卡记忆键：localStorage 单一来源（同步读写，首绘即恢复，无闪切）。
@@ -80,9 +81,8 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const refreshSeqRef = useRef(0);
   // 首屏门：裸行直展不拦榜，仅富卡升级参考此门。
-  // C2 对称就绪：boards 内 L1/L2/网络三路径统一 emit boardHydrated，
-  // 此处经 board 模块唯一订阅置位；抓取 await 后的直接置位保留作幂等兜底
-  // （关闭原 L2-only emit vs L1/网络直接置位的双通道不对称）。
+  // ica3-2：board 为唯一 deep module，单 emit 源单订阅（L1/L2/网络三路径统一 emit）；
+  // 抓取 await 后的直接置位保留作幂等兜底（防事件竞态漏置，非第二通道）。
   const [boardReady, setBoardReady] = useState(false);
 
   // 陈旧榜兜底经 trends SSOT 回落（如已下线的 'top' / 'category' 残留 → 'weekly'）。
@@ -124,19 +124,11 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
   }, []);
 
   // 一榜一源：board / 代理 / 重试任一变化均触发重抓。
-  // C2：经 board 模块统一订阅（L1/L2/网络三路径统一 emit 后的唯一出口）。
+  // ica3-2：经 board 唯一订阅（单 emit 源单订阅合一，不双订）。
   useEffect(() => {
-    const unsubBoard = subscribeBoardReady(() => {
+    return subscribeBoardReady(() => {
       setBoardReady(true);
     });
-    // 兼容旧通道：保留直接订阅（同一 emit 源，双订幂等，不双写）。
-    const unsubLegacy = subscribeBoardHydrated(() => {
-      setBoardReady(true);
-    });
-    return () => {
-      unsubBoard();
-      unsubLegacy();
-    };
   }, []);
 
   useEffect(() => {
