@@ -1,4 +1,6 @@
-use std::path::{Path, PathBuf};
+#[cfg(target_os = "windows")]
+use std::path::Path;
+use std::path::PathBuf;
 
 /// 获取当前系统用户的主目录（跨平台：Windows: USERPROFILE / HOMEDRIVE+HOMEPATH；Unix: HOME）
 pub fn user_home_dir() -> Option<PathBuf> {
@@ -190,6 +192,8 @@ pub fn resolve_uninstaller_command(
     install_path: &str,
     existing_command: Option<&str>,
 ) -> Option<String> {
+    #[cfg(not(target_os = "windows"))]
+    let _ = (app_name, app_id, install_path);
     // 1. 如果已有明确且有效的卸载指令（非向导提示文案）
     if let Some(cmd) = existing_command {
         let trimmed = cmd.trim();

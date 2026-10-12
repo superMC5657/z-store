@@ -147,7 +147,6 @@ pub fn platforms_from_assets(assets: &[ReleaseAsset]) -> Vec<String> {
 
 /// 别名 deduce_platforms 已内联收敛至 `platforms_from_assets` 单口（ica3-5：
 /// 薄投影不再单立函数，调用方一律用 `platforms_from_assets`；历史别名删除不保留）。
-
 pub fn sort_platforms(platforms: &mut [String]) {
     const ORDER: &[&str] = &["windows", "macos", "linux", "ios", "android"];
     platforms.sort_by_key(|p| {

@@ -256,6 +256,7 @@ fn persist_catalog_icon(
 /// `icons/` 落盘 + `icon_cache_meta` 同步二合一，`catalog vs cycle` 文件名分流收敛在内。
 /// - 收录：`{stem}.{real_ext}` + 全量旧后缀清理 + meta 单键同步（经缝内 `persist_catalog_icon`）；
 /// - 非收录：`{stem}_l{level}.{real_ext}` + 同 level 旧后缀清理（经缝内 `cleanup_...`）。
+///
 /// `real_ext` 经字节嗅探纠正（`detect_image_mime/mime_to_ext`），`inferred` 仅作旧键清理用；
 /// 调用方随后经 `seal_cycle_selection + upsert/set_selected` 固化行（`let _` 吞错）。
 /// ADR-0010：stem 经 canonical id 派生（调用方 `get_icon_stem` 已归一）；level 纯L，via 正交。

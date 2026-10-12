@@ -51,6 +51,8 @@ pub fn install_portable_zip(
     if let Some(ref exe) = main_exe {
         crate::installer::paths::create_desktop_shortcut(app_id, exe);
     }
+    #[cfg(not(target_os = "windows"))]
+    let _ = &main_exe;
 
     Ok(InstallOutcome::Installed(format!(
         "已解压至便携目录: {:?}",
@@ -231,6 +233,8 @@ pub fn install_portable_tarball(
     if let Some(ref exe) = main_exe {
         crate::installer::paths::create_desktop_shortcut(app_id, exe);
     }
+    #[cfg(not(target_os = "windows"))]
+    let _ = &main_exe;
 
     Ok(InstallOutcome::Installed(format!(
         "已解压至便携目录: {:?}",

@@ -197,7 +197,7 @@ impl AppScanner {
                     .unwrap_or_default()
                     .to_string_lossy()
                     .to_lowercase();
-                if wanted.iter().any(|w| *w == fname) && Self::has_exec_permission(&p) {
+                if wanted.contains(&fname) && Self::has_exec_permission(&p) {
                     return Some(p.to_string_lossy().to_string());
                 }
             }

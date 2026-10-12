@@ -951,8 +951,8 @@ impl AppScanner {
     /// Linux desktop 文件嗅探：文件名/Name 与 token 匹配 → 解析 Exec → 落盘路径。
     /// 全仓唯一的 desktop walker（installer 回填与系统嗅探共用，收敛 executor 侧重复实现）。
     /// 桌面目录：`/usr/share/applications`（发行版包，如 motrix.deb 落盘处，commit 主语义）
-    /// + `/usr/local/share/applications`（FHS 本地编译安装）+ `~/.local/share/applications`
-    /// （XDG 用户级，如 `pip --user` / 手动安装）。
+    ///   + `/usr/local/share/applications`（FHS 本地编译安装）+ `~/.local/share/applications`
+    ///   （XDG 用户级，如 `pip --user` / 手动安装）。
     #[cfg(target_os = "linux")]
     pub fn resolve_linux_via_desktop(bare_tokens: &[String]) -> Option<String> {
         let mut desktop_dirs: Vec<PathBuf> = vec![
@@ -1116,6 +1116,8 @@ impl AppScanner {
         app_id: &str,
         install_path: &str,
     ) -> Option<i64> {
+        #[cfg(not(target_os = "windows"))]
+        let _ = (app_name, app_id);
         #[cfg(target_os = "windows")]
         {
             use winreg::enums::*;

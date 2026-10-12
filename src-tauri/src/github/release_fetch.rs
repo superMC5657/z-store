@@ -334,6 +334,7 @@ pub(crate) fn decide_detail_release(
 ///   守卫表达式与调用点同行，永不把过期 stale 洗成 fresh）；
 /// - `cache_to_save` 为 Some 时落库 `api_etag_cache` 条件请求键（Fresh 带 ETag）；
 /// - `let _ =` 吞错 + 下次重试语义与原调用点一致；`now_secs` 由调用方传入（单测可定死）。
+///
 /// 调用点（`commands::catalog_detail` lite + detail 双径）一律经此，不再各写 touch/save 两行；
 /// `commands::updates_check` 历史内联分支语义相同，待后续同形迁移（见该文件注释，不在本 scope 改动）。
 pub(crate) fn apply_release_cache_effects(

@@ -1,4 +1,6 @@
-use super::{AppScanner, ScannedRawApp};
+use super::AppScanner;
+#[cfg(target_os = "windows")]
+use super::ScannedRawApp;
 
 /// 解析注册表中的 InstallDate 字符串（常见格式 YYYYMMDD 或 YYYY-MM-DD / YYYY/MM/DD）转换为 Unix 秒时间戳
 pub fn parse_install_date_to_unix(s: &str) -> Option<i64> {

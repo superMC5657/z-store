@@ -119,10 +119,11 @@ pub fn open_desktop_path(path: &std::path::Path, select_file: bool) -> Result<bo
                 .spawn()
                 .map_err(|e| format!("无法打开目录: {}", e))?;
         }
-        return Ok(true);
+        Ok(true)
     }
     #[cfg(target_os = "linux")]
     {
+        let _ = select_file;
         let dir = if path.is_file() {
             path.parent().unwrap_or(path)
         } else {
@@ -132,7 +133,7 @@ pub fn open_desktop_path(path: &std::path::Path, select_file: bool) -> Result<bo
             .arg(dir)
             .spawn()
             .map_err(|e| format!("无法打开目录: {}", e))?;
-        return Ok(true);
+        Ok(true)
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {

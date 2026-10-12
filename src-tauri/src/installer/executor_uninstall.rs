@@ -275,6 +275,7 @@ async fn execute_uninstallation_inner(
 
     #[cfg(not(target_os = "windows"))]
     {
+        let _ = (main_install_path, app_name);
         let (exe, args) = parse_uninstaller_command(uninstaller_cmd);
         if exe.trim().is_empty() {
             return Err("卸载命令为空，已拒绝执行".to_string());
