@@ -157,9 +157,19 @@ fn test_select_best_asset_arch_priority() {
         },
     ];
 
-    let selected = select_best_asset(&assets).unwrap();
+    let selected = select_best_asset(&assets);
     #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
-    assert_eq!(selected.name, "rustdesk-1.4.9-x86_64.msi");
+    {
+        let selected = selected.unwrap();
+        assert_eq!(selected.name, "rustdesk-1.4.9-x86_64.msi");
+    }
+    #[cfg(not(all(target_os = "windows", target_arch = "x86_64")))]
+    {
+        assert!(
+            selected.is_none(),
+            "windows-only assets must never be selected on other platforms"
+        );
+    }
 }
 
 #[test]

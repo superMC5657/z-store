@@ -364,13 +364,21 @@ fn test_resolve_lnk_target_fixture() {
 
     if fixture_path.exists() {
         let resolved = AppScanner::resolve_lnk_target(&fixture_path);
-        assert!(resolved.is_some(), "should resolve sample_cmd.lnk target");
-        let target = resolved.unwrap();
-        assert!(
-            target.to_string_lossy().to_lowercase().ends_with("cmd.exe"),
-            "target should end with cmd.exe, got: {:?}",
-            target
-        );
+        #[cfg(target_os = "windows")]
+        {
+            assert!(resolved.is_some(), "should resolve sample_cmd.lnk target");
+            let target = resolved.unwrap();
+            assert!(
+                target.to_string_lossy().to_lowercase().ends_with("cmd.exe"),
+                "target should end with cmd.exe, got: {:?}",
+                target
+            );
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            // Windows 快捷方式目标在 Linux 上不可能存在：解析必须优雅返回 None，绝不 panic。
+            assert!(resolved.is_none());
+        }
     }
 }
 
