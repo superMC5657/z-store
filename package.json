@@ -1,7 +1,7 @@
 {
   "name": "z-store",
   "private": true,
-  "version": "0.6.1",
+  "version": "0.6.2",
   "type": "module",
   "packageManager": "pnpm@10.33.0",
   "scripts": {
@@ -12,6 +12,7 @@
     "build:demo": "vite build --config vite.demo.config.ts",
     "test": "vitest run",
     "tauri": "tauri",
+    "build:linux": "APPIMAGE_EXTRACT_AND_RUN=1 tauri build --bundles deb,appimage",
     "clean": "rm -rf dist && rm -rf src-tauri/target"
   },
   "dependencies": {
