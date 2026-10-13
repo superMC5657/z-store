@@ -484,9 +484,7 @@ pub async fn get_or_fetch_icon(
         if let Some(bytes) = icons_cycle::load_split_cached_bytes(
             &icons_dir,
             &db,
-            &stem,
-            inferred_ext,
-            url_trimmed,
+            &icons_cycle::IconRef::new(url_trimmed, inferred_ext, &stem, 0),
             is_cataloged,
             noncatalog_cycle.as_ref(),
         ) {
@@ -532,10 +530,8 @@ pub async fn get_or_fetch_icon(
         icons_cycle::persist_icon_bytes(
             &icons_dir,
             db_opt.as_deref(),
-            &stem,
-            1,
+            &icons_cycle::IconRef::new(url_trimmed, inferred_ext, &stem, 1),
             true,
-            url_trimmed,
             &bytes,
         );
     } else {
@@ -553,10 +549,8 @@ pub async fn get_or_fetch_icon(
                 let filename = icons_cycle::persist_icon_bytes(
                     &icons_dir,
                     db_opt.as_deref(),
-                    &stem,
-                    actual_level,
+                    &icons_cycle::IconRef::new(url_trimmed, inferred_ext, &stem, actual_level),
                     false,
-                    url_trimmed,
                     &bytes,
                 );
                 crate::db::icon_cycle::seal_cycle_selection(
@@ -571,10 +565,8 @@ pub async fn get_or_fetch_icon(
                 let _ = icons_cycle::persist_icon_bytes(
                     &icons_dir,
                     None,
-                    &stem,
-                    2,
+                    &icons_cycle::IconRef::new(url_trimmed, inferred_ext, &stem, 2),
                     false,
-                    url_trimmed,
                     &bytes,
                 );
             }
@@ -583,10 +575,8 @@ pub async fn get_or_fetch_icon(
             let _ = icons_cycle::persist_icon_bytes(
                 &icons_dir,
                 None,
-                &stem,
-                2,
+                &icons_cycle::IconRef::new(url_trimmed, inferred_ext, &stem, 2),
                 false,
-                url_trimmed,
                 &bytes,
             );
         }

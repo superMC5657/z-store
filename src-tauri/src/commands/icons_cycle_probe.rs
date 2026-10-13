@@ -107,20 +107,44 @@ pub(crate) const KNOWN_ICON_EXTS: &[&str] = &[
     "png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "avif", "apng", "bmp",
 ];
 
+/// 图标 persist/read 坐标束（S4 纯重构）：将 `persist_*` / `read_*` / hash 候选路径上
+/// 散装 travelling 的 `(url, ext, stem/level)` 收为单一域类型，参数顺序写错即编译错。
+/// - `url`：即既往 `url_trimmed`（调用方保证已 trim，类型 `&str` 不变，无归一化）；
+/// - `ext`：即既往 `inferred_ext`（URL 后缀暂定，类型 `&str` 不变；写侧 sniff 纠正的
+///   `real_ext` 仍在缝内由字节派生，不进本束）；
+/// - `stem`：即既往老名 `stem`（兼容读用，类型 `&str` 不变；新写 hash 单轨不再产生老名）；
+/// - `level`：即既往 `level`（纯L，类型 `i32` 不变；收录读/写侧忽略，签名保留防串）。
+///
+/// 零行为变更：仅打包传参，不改匹配/评分/TTL/格式/schema/命令 IPC。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct IconRef<'a> {
+    pub url: &'a str,
+    pub ext: &'a str,
+    pub stem: &'a str,
+    pub level: i32,
+}
+
+impl<'a> IconRef<'a> {
+    pub(crate) fn new(url: &'a str, ext: &'a str, stem: &'a str, level: i32) -> Self {
+        Self { url, ext, stem, level }
+    }
+}
+
 /// hash 候选文件名唯一构造（FINAL 双探：`inferred` 快路径 + `KNOWN` 全后缀兜底，sniff 纠正场景）：
 /// `read_level_cache_file` 与 `load_split_cached_bytes`（收录 hash 双探）共用，不另起第二套。
 /// 空 url 返回空 Vec（调用方跳过新名双探，仅走老名兼容读）。
-fn hash_icon_candidate_filenames(url_trimmed: &str, inferred_ext: &str) -> Vec<String> {
-    let url = url_trimmed.trim();
+/// 仅用 `icon.url` + `icon.ext`（`stem/level` 忽略，签名保留防串）。
+fn hash_icon_candidate_filenames(icon: &IconRef<'_>) -> Vec<String> {
+    let url = icon.url.trim();
     if url.is_empty() {
         return Vec::new();
     }
     let full = crate::sha256_digest_hex(url.as_bytes());
     let hash_stem = &full[..16.min(full.len())];
     let mut out: Vec<String> = Vec::with_capacity(KNOWN_ICON_EXTS.len() + 1);
-    out.push(format!("{}.{}", hash_stem, inferred_ext));
+    out.push(format!("{}.{}", hash_stem, icon.ext));
     for ext in KNOWN_ICON_EXTS {
-        if *ext == inferred_ext {
+        if *ext == icon.ext {
             continue;
         }
         out.push(format!("{}.{}", hash_stem, ext));
@@ -129,19 +153,19 @@ fn hash_icon_candidate_filenames(url_trimmed: &str, inferred_ext: &str) -> Vec<S
 }
 
 /// 指定级别缓存文件读取（FINAL 双探：先 hash 新名，后老 `stem_l{level}` 兼容）：
-/// - 新名：`sha256(url)[0:16].{ext}`（`url_trimmed` 必传，空 url 直接走老名兼容）；
-/// - 老名：`{stem}_l{level}.{ext}`（`inferred` 快路径 + `KNOWN` 兜底）；
+/// - 新名：`sha256(url)[0:16].{ext}`（`icon.url` 必传，空 url 直接走老名兼容）；
+/// - 老名：`{stem}_l{level}.{ext}`（`icon.ext` 快路径 + `KNOWN` 兜底）；
 /// - 命中要求：存在 + 合法图 + 文件 7 天新鲜（`is_icon_file_fresh`）；图标通道禁用 ETag，不查表。
 /// L1–L4 备选 Logo 必落盘；README 正文图永不进此（调用方不传正文 URL）。
 pub(crate) fn read_level_cache_file(
     icons_dir: &std::path::Path,
-    stem: &str,
-    level: i32,
-    inferred_ext: &str,
-    url_trimmed: &str,
+    icon: &IconRef<'_>,
 ) -> Option<Vec<u8>> {
+    let stem = icon.stem;
+    let level = icon.level;
+    let inferred_ext = icon.ext;
     // 1. 新名双探：hash stem + inferred 快路径 + 全后缀兜底（sniff 纠正场景）。
-    for fname in hash_icon_candidate_filenames(url_trimmed, inferred_ext) {
+    for fname in hash_icon_candidate_filenames(icon) {
         let p = icons_dir.join(&fname);
         if crate::commands::icons::is_icon_file_fresh(&p) {
             if let Some(b) = read_valid_image_file(&p) {
@@ -185,16 +209,17 @@ pub(crate) fn read_level_cache_file(
 pub(crate) fn load_split_cached_bytes(
     icons_dir: &std::path::Path,
     db: &crate::db::Database,
-    stem: &str,
-    inferred_ext: &str,
-    url_trimmed: &str,
+    icon: &IconRef<'_>,
     is_cataloged: bool,
     noncatalog_cycle: Option<&crate::db::AppIconCycle>,
 ) -> Option<Vec<u8>> {
+    let stem = icon.stem;
+    let inferred_ext = icon.ext;
+    let url_trimmed = icon.url;
     let now = crate::now_secs();
     if is_cataloged {
         // 新名优先：hash(url).{inferred + KNOWN 兜底}，每候选验 “文件新鲜 + DB 记录 URL 相等 + DB 7 天有效”。
-        for filename in hash_icon_candidate_filenames(url_trimmed, inferred_ext) {
+        for filename in hash_icon_candidate_filenames(icon) {
             let cache_file = icons_dir.join(&filename);
             if !crate::commands::icons::is_icon_file_fresh(&cache_file) {
                 continue;
@@ -245,9 +270,8 @@ pub(crate) fn load_split_cached_bytes(
             if !url_trimmed.trim().is_empty() {
                 let inferred = crate::commands::icons::infer_icon_ext_from_url(url_trimmed)
                     .unwrap_or("png");
-                if let Some(b) =
-                    read_level_cache_file(icons_dir, stem, cycle.level.max(2), inferred, url_trimmed)
-                {
+                let fallback = IconRef::new(url_trimmed, inferred, stem, cycle.level.max(2));
+                if let Some(b) = read_level_cache_file(icons_dir, &fallback) {
                     return Some(b);
                 }
             }
@@ -292,14 +316,16 @@ fn cleanup_stale_cycle_variants(
 /// `hash(url).{real_ext}` 落盘 + `icon_cache_meta[hash名]` 同步（改名时删旧 inferred-hash 键），
 /// 返回最终 hash 文件名。全量清理同 hash 其余变体 + 对应旧 meta 键。
 /// 老 stem 名文件不删（兼容读，由配额 LRU 收敛）；对外只经 `persist_icon_bytes`。
+/// 取 `icon.url` + `icon.ext`（inferred，仅旧键清理用；`stem/level` 忽略）。
 fn persist_catalog_icon(
     icons_dir: &std::path::Path,
     db_opt: Option<&crate::db::Database>,
-    url_trimmed: &str,
+    icon: &IconRef<'_>,
     real_ext: &str,
-    inferred_ext: &str,
     bytes: &[u8],
 ) -> String {
+    let url_trimmed = icon.url;
+    let inferred_ext = icon.ext;
     let final_filename =
         crate::db::icon_cycle::hash_icon_filename(url_trimmed, real_ext);
     if final_filename.is_empty() {
@@ -346,8 +372,8 @@ fn persist_catalog_icon(
 
 /// 写侧单一写入路径（FINAL hash 单轨，probe-vs-persist 缝收敛点）：
 /// `icons/` 落盘 + `icon_cache_meta` 同步二合一，收录/非收录统一为 `hash(url).{real_ext}`。
-/// - `real_ext` 经字节嗅探纠正（`detect_image_mime/mime_to_ext`），`inferred` 仅作旧键清理用；
-/// - `stem/level/is_cataloged` 仅为签名兼容保留（老名不再产生；`level` 仍由调用方经
+/// - `real_ext` 经字节嗅探纠正（`detect_image_mime/mime_to_ext`），`icon.ext`（inferred）仅作旧键清理用；
+/// - `icon.stem/icon.level` 仅为签名兼容保留（老名不再产生；`level` 仍由调用方经
 ///   `seal_cycle_selection + upsert/set_selected` 固化行，文件名不再带 `_l{level}`）；
 /// - L1–L4 备选 Logo 必落盘（L4 仅 cycle 头部备选 Logo；正文图永不进此）；
 /// - 图标通道禁用 ETag：此处永不读写 `api_etag_cache`；
@@ -357,26 +383,16 @@ fn persist_catalog_icon(
 pub(crate) fn persist_icon_bytes(
     icons_dir: &std::path::Path,
     db_opt: Option<&crate::db::Database>,
-    _stem: &str,
-    _level: i32,
+    icon: &IconRef<'_>,
     is_cataloged: bool,
-    url_trimmed: &str,
     bytes: &[u8],
 ) -> String {
+    let url_trimmed = icon.url;
     let real_ext = crate::commands::icons::mime_to_ext(crate::commands::icons::detect_image_mime(
         bytes,
     ));
-    let inferred_ext =
-        crate::commands::icons::infer_icon_ext_from_url(url_trimmed).unwrap_or("png");
     if is_cataloged {
-        persist_catalog_icon(
-            icons_dir,
-            db_opt,
-            url_trimmed,
-            real_ext,
-            inferred_ext,
-            bytes,
-        )
+        persist_catalog_icon(icons_dir, db_opt, icon, real_ext, bytes)
     } else {
         let fname = crate::db::icon_cycle::hash_icon_filename(url_trimmed, real_ext);
         if fname.is_empty() {
@@ -796,9 +812,13 @@ mod tests {
     #[test]
     fn test_hash_candidate_helper_single_source() {
         // S3a 去重：hash 双探唯一构造，`read_level_cache_file` 与 `load_split_cached_bytes` 共用。
-        assert!(hash_icon_candidate_filenames("", "png").is_empty());
-        assert!(hash_icon_candidate_filenames("   ", "png").is_empty());
-        let c = hash_icon_candidate_filenames("https://example.com/a.png", "png");
+        // 仅 `url/ext` 参与，`stem/level` 忽略（传空/0）。
+        let empty = IconRef::new("", "png", "", 0);
+        assert!(hash_icon_candidate_filenames(&empty).is_empty());
+        let blank = IconRef::new("   ", "png", "", 0);
+        assert!(hash_icon_candidate_filenames(&blank).is_empty());
+        let a_png = IconRef::new("https://example.com/a.png", "png", "", 0);
+        let c = hash_icon_candidate_filenames(&a_png);
         // inferred ∈ KNOWN 时总数即 KNOWN 全集（首位 inferred + 其余兜底，无重复）。
         assert_eq!(c.len(), KNOWN_ICON_EXTS.len());
         assert!(c[0].ends_with(".png"));
@@ -807,12 +827,11 @@ mod tests {
         for f in &c {
             assert!(seen.insert(f.clone()), "duplicate candidate {f}");
         }
-        let c2 = hash_icon_candidate_filenames("https://example.com/a.png", "svg");
+        let a_svg = IconRef::new("https://example.com/a.png", "svg", "", 0);
+        let c2 = hash_icon_candidate_filenames(&a_svg);
         assert!(c2[0].ends_with(".svg"));
         // 同 url 同 inferred 稳定（读/写双探一致）。
-        assert_eq!(
-            c,
-            hash_icon_candidate_filenames("  https://example.com/a.png  ", "png")
-        );
+        let a_png_padded = IconRef::new("  https://example.com/a.png  ", "png", "", 0);
+        assert_eq!(c, hash_icon_candidate_filenames(&a_png_padded));
     }
 }

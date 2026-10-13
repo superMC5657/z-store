@@ -2,7 +2,7 @@ use super::icons_cycle_probe::{
     KNOWN_ICON_EXTS, download_via_mirror, empty_cycle_result, ensure_cycle_levels,
     first_available_level, is_fallback_for_level, load_split_cached_bytes, next_cycle_level,
     persist_icon_bytes, read_level_cache_file, read_valid_image_file_async, resolve_app_coord,
-    source_for_level, IconCycleResult,
+    source_for_level, IconCycleResult, IconRef,
 };
 use crate::AppState;
 use tauri::State;
@@ -124,8 +124,9 @@ pub async fn cycle_app_icon(
 
     // 检查本地是否已存在缓存文件（FINAL 双探：hash 新名优先，老 stem 兼容；7 天 TTL，0 请求命中）。
     let inferred_ext = crate::commands::icons::infer_icon_ext_from_url(&target_url).unwrap_or("png");
+    let icon = IconRef::new(&target_url, inferred_ext, &stem, next_level);
     let mut cached_bytes = if !is_cataloged {
-        read_level_cache_file(&icons_dir, &stem, next_level, inferred_ext, &target_url)
+        read_level_cache_file(&icons_dir, &icon)
     } else {
         None
     };
@@ -133,7 +134,7 @@ pub async fn cycle_app_icon(
         if let Ok(db) = state.db() {
             if is_cataloged {
                 cached_bytes =
-                    load_split_cached_bytes(&icons_dir, &db, &stem, inferred_ext, &target_url, true, None);
+                    load_split_cached_bytes(&icons_dir, &db, &icon, true, None);
             }
         }
     }
@@ -163,10 +164,8 @@ pub async fn cycle_app_icon(
     let final_filename = persist_icon_bytes(
         &icons_dir,
         db_opt.as_deref(),
-        &stem,
-        next_level,
+        &icon,
         is_cataloged,
-        &target_url,
         &bytes,
     );
 
@@ -249,13 +248,13 @@ pub async fn get_app_icon_cycle(
             if let Ok(bytes) = download_via_mirror(&state, &client, &remote_url).await {
                 let stem = crate::commands::icons::get_icon_stem(&canonical_id, &remote_url);
                 // 真实 ext 落盘，绝不产生无扩展名文件（分流收敛在缝内）。
+                let inferred_ext = crate::commands::icons::infer_icon_ext_from_url(&remote_url).unwrap_or("png");
+                let icon = IconRef::new(&remote_url, inferred_ext, &stem, lvl);
                 let filename = persist_icon_bytes(
                     &icons_dir,
                     state.db().ok().as_deref(),
-                    &stem,
-                    lvl,
+                    &icon,
                     is_cataloged,
-                    &remote_url,
                     &bytes,
                 );
 
@@ -394,7 +393,8 @@ pub async fn get_app_icon_cycle(
         let remote_url = temp_cycle.url_for_level(lvl).unwrap_or("").trim().to_string();
         let stem = crate::commands::icons::get_icon_stem(&canonical_id, &remote_url);
         let inferred_ext = crate::commands::icons::infer_icon_ext_from_url(&remote_url).unwrap_or("png");
-        if let Some(bytes) = read_level_cache_file(&icons_dir, &stem, lvl, inferred_ext, &remote_url) {
+        let icon = IconRef::new(&remote_url, inferred_ext, &stem, lvl);
+        if let Some(bytes) = read_level_cache_file(&icons_dir, &icon) {
             // 文件命中亦固化选中态（selected+level+文件三件套），下次 existing 直命中 N=0。
             // 文件名反查：hash 优先，老名兼容（与 read 双探同序）。
             let mut hit_fname = String::new();
@@ -448,13 +448,12 @@ pub async fn get_app_icon_cycle(
             let client = crate::commands::icons::icon_http_client();
             if let Ok(bytes) = download_via_mirror(&state, &client, &remote_url).await {
                 let stem = crate::commands::icons::get_icon_stem(&canonical_id, &remote_url);
+                let icon = IconRef::new(&remote_url, inferred_ext, &stem, lvl);
                 let fn_non = persist_icon_bytes(
                     &icons_dir,
                     state.db().ok().as_deref(),
-                    &stem,
-                    lvl,
+                    &icon,
                     false,
-                    &remote_url,
                     &bytes,
                 );
                 crate::db::icon_cycle::seal_cycle_selection(
