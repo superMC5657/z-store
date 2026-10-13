@@ -531,6 +531,27 @@ impl AppScanner {
     // Linux 桌面文件 / PATH / dpkg 解析（纯函数跨平台可测，文件系统嗅探仅 linux 生效）
     // ========================================================================
 
+    /// 是否为 Flatpak shell 包装器（`flatpak run <appid>` 无本地二进制）：
+    /// 首个空白分隔 token 的 basename（大小写不敏感）是否为 `flatpak`
+    ///（含 `/usr/bin/flatpak` 路径形态；`env VAR=..` 剥离后的残留 token 同样适用）。
+    /// Exec 行首与 env 前缀剥离后两处调用点共用，防 which 到 `/usr/bin/flatpak` 全量误报。
+    /// 纯函数，跨平台可单测。
+    pub fn is_flatpak_shell_wrapper(exec: &str) -> bool {
+        let trimmed = exec.trim();
+        if trimmed.is_empty() {
+            return false;
+        }
+        let first = trimmed.split_whitespace().next().unwrap_or("");
+        let first = first.trim_matches('"').trim_matches('\'');
+        if first.is_empty() {
+            return false;
+        }
+        let lower = first.to_lowercase();
+        let base = lower.rsplit('/').next().unwrap_or(&lower);
+        let base = base.rsplit('\\').next().unwrap_or(base);
+        base == "flatpak"
+    }
+
     /// 解析 `.desktop` Exec 值为可执行二进制（去 `%U/%F` 等字段码、引号、`env VAR=..` 前缀）。
     /// 纯函数，跨平台可单测。返回裸命令或绝对路径字符串（不校验存在性）。
     pub fn parse_desktop_exec_binary(exec_line: &str) -> Option<String> {
@@ -545,17 +566,8 @@ impl AppScanner {
         }
         // P0 止血：`flatpak run <appid>` 包装器无本地二进制，禁解析为 `flatpak`
         //（否则 which 到 /usr/bin/flatpak 造成全量误报）。大小写不敏感。
-        {
-            let lower_rest = rest.to_lowercase();
-            let first_two: Vec<&str> = lower_rest.split_whitespace().take(2).collect();
-            if first_two.first().is_some_and(|f| {
-                *f == "flatpak" || f.ends_with("/flatpak")
-            }) {
-                return None;
-            }
-            if lower_rest.starts_with("flatpak ") || lower_rest.starts_with("flatpak\t") {
-                return None;
-            }
+        if Self::is_flatpak_shell_wrapper(rest) {
+            return None;
         }
         // tokenize：尊重单双引号
         let mut tokens: Vec<String> = Vec::new();
@@ -610,12 +622,8 @@ impl AppScanner {
                 continue;
             }
             // P0 止血：env 前缀后的 `flatpak run` 同样拒识（防 `env .. flatpak run` 绕过）。
-            {
-                let tl = t.to_lowercase();
-                let base = tl.rsplit('/').next().unwrap_or(&tl);
-                if base == "flatpak" {
-                    return None;
-                }
+            if Self::is_flatpak_shell_wrapper(t) {
+                return None;
             }
             if t.starts_with('%') {
                 idx += 1;
@@ -896,7 +904,9 @@ impl AppScanner {
     /// `~/.local/share/flatpak/exports/share/applications`、
     /// `$XDG_DATA_DIRS` 展开（`:` 分隔 + `/applications` 后缀，缺省为
     /// `/usr/local/share:/usr/share`）。
-    /// 纯环境函数，跨平台可调用（Windows 上返回对应路径列表但调用方不使用）。
+    /// 不存在/非目录项已过滤（CI/容器缺 snap/flatpak 路径时避免无效遍历）；
+    /// 调用方在单次扫描内复用同一列表（桌面文件常变，不做跨调用缓存）。
+    /// 纯环境函数，跨平台可调用（Windows 上调用方不使用）。
     pub fn linux_desktop_dirs() -> Vec<PathBuf> {
         let mut dirs: Vec<PathBuf> = vec![
             PathBuf::from("/usr/share/applications"),
@@ -942,15 +952,22 @@ impl AppScanner {
         }
         let mut out: Vec<PathBuf> = Vec::new();
         for d in dirs {
-            if !out.contains(&d) {
-                out.push(d);
+            if out.contains(&d) {
+                continue;
             }
+            // 仅保留现存目录（过滤缺失 snap/flatpak 等路径，避免无效遍历；
+            // 调用方 read_dir 失败仍会跳过，双层兜底）。
+            if !d.is_dir() {
+                continue;
+            }
+            out.push(d);
         }
         out
     }
 
     /// desktop stem 是否与任一 token 归一化精确相等（P0 止血：禁 `contains`，
     /// 防 `app` 误命中 `apport-gtk.desktop`；`len<5` 短 token 天然精确相等）。
+    #[cfg(target_os = "linux")]
     fn desktop_stem_matches_exact(stem: &str, bare_tokens: &[String]) -> bool {
         let norm_stem = Self::normalize_fs_token(stem);
         if norm_stem.is_empty() {
@@ -971,6 +988,7 @@ impl AppScanner {
     }
 
     /// Exec 二进制 basename 是否与任一 token 精确相等（小写精确，归一化兜底）。
+    #[cfg(target_os = "linux")]
     fn exec_basename_matches_exact(bin: &str, bare_tokens: &[String]) -> bool {
         let base = bin.rsplit('/').next().unwrap_or(bin).to_lowercase();
         let base = base.trim().to_string();
@@ -991,8 +1009,12 @@ impl AppScanner {
         false
     }
 
-    /// `/opt` 子目录是否与 token 匹配：归一化后比对；`len<5` 短 token 要求精确相等，
-    /// 长 token 允许任一方向 `contains`（兼容 `/opt/Clash Verge` vs `clash-verge-rev`）。
+    /// `/opt` 子目录是否与 token 匹配：归一化后比对；`len<5` 短 token 要求精确相等。
+    /// 长 token 允许目录名包含 token（兼容带后缀的长目录名）；反向（token 包含目录名）
+    /// 仅当目录名等于 token 的完整分段（按 `/ - _` 空格 `.` 切分）时成立——
+    /// P0：禁纯子串反向 `contains`，防 `/opt/go` 误命中长 token（如 `golang`）。
+    /// 仅 Linux 嗅探调用（与调用方同 cfg，防 Windows 侧 dead_code 告警）。
+    #[cfg(target_os = "linux")]
     fn opt_dir_matches(norm_dir: &str, token: &str) -> bool {
         if norm_dir.is_empty() {
             return false;
@@ -1001,13 +1023,24 @@ impl AppScanner {
         if norm_tok.is_empty() {
             return false;
         }
-        if token.len() < 5 {
-            norm_dir == norm_tok
-        } else {
-            norm_dir == norm_tok
-                || norm_dir.contains(&norm_tok)
-                || norm_tok.contains(norm_dir)
+        if norm_dir == norm_tok {
+            return true;
         }
+        if token.len() < 5 {
+            return false;
+        }
+        if norm_dir.contains(&norm_tok) {
+            return true;
+        }
+        // 反向仅认完整分段相等（如 token `clash-verge-rev` 的分段 `verge` 可命中
+        // 目录 `verge`，但目录 `go` 不得因 `golang` 含子串 `go` 而命中）。
+        for seg in token.split(['/', '\\', '-', ' ', '_', '.']) {
+            let norm_seg = Self::normalize_fs_token(seg);
+            if !norm_seg.is_empty() && norm_seg == norm_dir {
+                return true;
+            }
+        }
+        false
     }
 
     /// Linux 系统级二进制嗅探：PATH/which → /usr/bin/<token> → /opt/<Name>/* → AppImage → desktop Exec。
@@ -1463,7 +1496,9 @@ impl AppScanner {
         use std::collections::HashSet;
         let mut out: Vec<super::ScannedRawApp> = Vec::new();
         let mut seen: HashSet<String> = HashSet::new();
-        for dir in Self::linux_desktop_dirs() {
+        // 单次扫描内复用同一目录列表（不再逐项重算；跨调用不缓存，桌面文件常变）。
+        let desktop_dirs = Self::linux_desktop_dirs();
+        for dir in desktop_dirs {
             let Ok(entries) = std::fs::read_dir(&dir) else {
                 continue;
             };
