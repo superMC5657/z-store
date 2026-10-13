@@ -10,8 +10,10 @@ use super::{ensure_no_proxy_env, host_of_url};
 
 /// 归一化代理 URL（纯函数，可单元测试）。
 /// 接受 `host:port`（含 `user:pass@host:port` 鉴权形态）或自带 scheme；
-/// `http/https/socks5(h)/socks4(a)` 保留原值，其余补 `http://`；
-/// 无法解析返回 `None`（调用方不设置，保持直连）。
+/// 仅 `http://`、`https://`、`socks5://`、`socks5h://`、`socks4://`、`socks4a://`
+/// （大小写不敏感，必须带 `://`）保留原值，其余含 `:` 的补 `http://`；
+/// 无 scheme、无 `:` 的裸词（含 `socks4` 前缀但缺 `://` 的垃圾输入）一律拒绝，
+/// 返回 `None`（调用方不设置，保持直连，避免 junk 字符串污染代理环境）。
 pub fn normalize_proxy_url(raw: &str) -> Option<String> {
     let addr = raw.trim();
     if addr.is_empty() {
@@ -24,7 +26,6 @@ pub fn normalize_proxy_url(raw: &str) -> Option<String> {
         || lower.starts_with("socks5h://")
         || lower.starts_with("socks4://")
         || lower.starts_with("socks4a://")
-        || lower.starts_with("socks4")
     {
         Some(addr.to_string())
     } else if addr.contains(':') {
@@ -293,5 +294,19 @@ mod tests {
         assert_eq!(normalize_proxy_url(""), None);
         assert_eq!(normalize_proxy_url("   "), None);
         assert_eq!(normalize_proxy_url("notaproxy"), None);
+        // `socks4` 裸前缀无 `://` 一律拒绝（曾误判为合法 scheme 导致 junk 进代理 env）。
+        assert_eq!(normalize_proxy_url("socks4"), None);
+        assert_eq!(normalize_proxy_url("socks4junk"), None);
+        assert_eq!(normalize_proxy_url("socks4proxy"), None);
+        assert_eq!(normalize_proxy_url("  socks4junk  "), None);
+        // 带 `://` 的合法 socks4(a) 仍保留原值。
+        assert_eq!(
+            normalize_proxy_url("socks4://127.0.0.1:7890"),
+            Some("socks4://127.0.0.1:7890".to_string())
+        );
+        assert_eq!(
+            normalize_proxy_url("socks4a://127.0.0.1:7890"),
+            Some("socks4a://127.0.0.1:7890".to_string())
+        );
     }
 }

@@ -376,8 +376,9 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   // 后台 `icon-ready` 经 `applyHit` 接上 `board` 门控逐个补齐富卡图标。
   // 此处只 patch 图标（空值规则由店内保证），
   // 平台逻辑不动；`data:`/`via=m2`只进M1内存不落盘，`remote`才 hydrate + 节流写透榜缓存二级。
-  // 双订阅正交门控：此处不做 kind 硬过滤，search/trend 经店内 `applyHit` 世代门控
-  // （search_id/board+gen）正交判定；图标按 app 归一全局共享，跨 kind 照收。
+  // 双门控正交（勿删其一）：`kind` 门控做榜/搜隔离（本订阅只收 `trend`，search 交 App 处理）；
+  // `applyHit` 内 `search_id/board+gen` 门控做同榜新鲜度判定（双非空不等即 stale，任一为空即放行）。
+  // 前者防跨榜串写（空 board/gen 在店内一律放行，无 kind 硬过滤即串榜），后者防同榜过期回放；两者不可互相替代。
   // C2：hydrate/写透经 board seam（hydrateBoardEnrich + scheduleBoardPersist）。
   useEffect(() => {
     let cancelled = false;
@@ -392,6 +393,11 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
           board?: string;
           gen?: number;
         } | null;
+        const kind =
+          ctx && typeof ctx.kind === 'string' ? ctx.kind.trim().toLowerCase() : '';
+        // 榜隔离：趋势只消费 `trend` 上下文；搜索（`search`）交 App 处理。
+        // 空 kind 亦拒绝——店内世代门控任一为空即放行，此处必须严格，否则空 search_id/board/gen 的搜索命中会串写榜单行。
+        if (kind !== 'trend') return;
         const asStr = (v: unknown): string | undefined =>
           typeof v === 'string' ? v : undefined;
         const res = applyHit({
