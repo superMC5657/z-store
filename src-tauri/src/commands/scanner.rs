@@ -208,3 +208,59 @@ pub fn import_single_app(state: State<'_, AppState>, app_id: String) -> crate::A
 
     Ok(true)
 }
+
+/// 调试用探测结果：安装路径 + 命中源（`which` / `snap` / `opt` / `appimage` /
+/// `desktop` / `dpkg` / `portable` / `fallback`，未命中时均为 `None`）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DetectedDebugInfo {
+    pub path: Option<String>,
+    pub source: Option<String>,
+}
+
+/// 调试命令：返回指定 `app_id` 的探测路径与命中源（标记 which/desktop/dpkg/snap/opt
+/// 哪路命中），供 Ubuntu 误报/漏扫排查。未收录时仍按 `app_id` 自派生尝试探测。
+#[tauri::command]
+pub fn get_detected_debug(
+    state: State<'_, AppState>,
+    app_id: String,
+) -> crate::AppResult<DetectedDebugInfo> {
+    let app_id = super::require_app_id(&app_id)?;
+    let (name, repo) = match state.catalog.get_catalog_item(&app_id) {
+        Some(cat) => (cat.name.clone(), cat.repo.clone()),
+        None => {
+            let base = app_id.rsplit('/').next().unwrap_or(&app_id).to_string();
+            (base.clone(), base)
+        }
+    };
+    #[cfg(target_os = "linux")]
+    {
+        match crate::scanner::AppScanner::resolve_installed_app_path_with_source(
+            &name,
+            &app_id,
+            Some(&repo),
+        ) {
+            Some((path, source)) => Ok(DetectedDebugInfo {
+                path: Some(path),
+                source: Some(source),
+            }),
+            None => Ok(DetectedDebugInfo {
+                path: None,
+                source: None,
+            }),
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (&name, &repo);
+        match crate::scanner::AppScanner::resolve_installed_app_path(&name, &app_id, Some(&repo)) {
+            Some(path) => Ok(DetectedDebugInfo {
+                path: Some(path),
+                source: Some("windows".to_string()),
+            }),
+            None => Ok(DetectedDebugInfo {
+                path: None,
+                source: None,
+            }),
+        }
+    }
+}

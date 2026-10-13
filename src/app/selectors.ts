@@ -125,6 +125,29 @@ export function buildManagedIds(installedApps: InstalledApp[]): Set<string> {
 }
 
 /**
+ * P0 已纳管 vs 仅检测到：组件统一经此判态，消灭发现页误报“已安装”。
+ * - isManaged：已纳入 ZStore 管理（绿色已安装，来源 installedApps）。
+ * - isDetectedOnly：在 union（installed+detected）中但不在 managed 中（灰色检测到·点击纳管）。
+ * 大小写归一经 `normalizeId` 单口；raw 直命中优先，归一兜底。
+ */
+export function isManaged(id: string, managedIds: Set<string>): boolean {
+  if (!id || managedIds.size === 0) return false;
+  if (managedIds.has(id)) return true;
+  const n = normalizeId(id);
+  if (n && managedIds.has(n)) return true;
+  return false;
+}
+
+export function isDetectedOnly(id: string, installedIds: Set<string>, managedIds: Set<string>): boolean {
+  if (!id) return false;
+  if (isManaged(id, managedIds)) return false;
+  if (installedIds.has(id)) return true;
+  const n = normalizeId(id);
+  if (n && installedIds.has(n)) return true;
+  return false;
+}
+
+/**
  * 收藏页 left-join 合并器（ica3-6 自 `app/favoritesUncataloged` 收归本选择器，
  * 语义逐字一致，键归一改调 `normalizeId` 单口）：
  * 收录段（已平台过滤）+ 未收录占位段（同口径平台过滤后并入，小写去重防双显）。

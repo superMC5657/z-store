@@ -25,6 +25,7 @@ import {
 import type { FeedStrategy } from '../services/feed';
 import { useHomeFeed, HOME_FEED_PAGE } from './HomeView/useHomeFeed';
 import { isPlatformPending } from '../lib/platformFilter';
+import { isManaged as selectIsManaged, isDetectedOnly as selectIsDetectedOnly } from '../app/selectors';
 export { HOME_FEED_PAGE };
 
 interface HomeViewProps extends ViewAppActions, PlatformResetOption {
@@ -64,10 +65,12 @@ export const HomeView: React.FC<HomeViewProps> = ({
   installedIds,
   installingIds,
   favoriteIds,
+  managedIds,
   recentlyViewedApps = [],
   searchQuery = '',
   onOpenDetail,
   onQuickInstall,
+  onManageApp,
   onToggleFavorite,
   watchedIds,
   onToggleWatch,
@@ -272,11 +275,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 app={app}
                 platformPending={isPlatformPending(app, platformResolvedOtherIds)}
                 isInstalled={installedIds.has(app.id)}
+                isManaged={managedIds ? selectIsManaged(app.id, managedIds) : undefined}
+                isDetectedOnly={managedIds ? selectIsDetectedOnly(app.id, installedIds, managedIds) : undefined}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}
                 isWatched={watchedIds?.has(app.id)}
                 onOpenDetail={onOpenDetail}
                 onQuickInstall={onQuickInstall}
+                onManageApp={onManageApp}
                 onToggleFavorite={onToggleFavorite}
                 onToggleWatch={onToggleWatch}
               />
@@ -302,11 +308,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 eager
                 platformPending={isPlatformPending(app, platformResolvedOtherIds)}
                 isInstalled={installedIds.has(app.id)}
+                isManaged={managedIds ? selectIsManaged(app.id, managedIds) : undefined}
+                isDetectedOnly={managedIds ? selectIsDetectedOnly(app.id, installedIds, managedIds) : undefined}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}
                 isWatched={watchedIds?.has(app.id)}
                 onOpenDetail={onOpenDetail}
                 onQuickInstall={onQuickInstall}
+                onManageApp={onManageApp}
                 onToggleFavorite={onToggleFavorite}
                 onToggleWatch={onToggleWatch}
               />
@@ -332,11 +341,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   app={app}
                   platformPending={isPlatformPending(app, platformResolvedOtherIds)}
                   isInstalled={installedIds.has(app.id)}
+                  isManaged={managedIds ? selectIsManaged(app.id, managedIds) : undefined}
+                  isDetectedOnly={managedIds ? selectIsDetectedOnly(app.id, installedIds, managedIds) : undefined}
                   isInstalling={installingIds?.has(app.id)}
                   isFavorite={favoriteIds.has(app.id)}
                   isWatched={watchedIds?.has(app.id)}
                   onOpenDetail={onOpenDetail}
                   onQuickInstall={onQuickInstall}
+                  onManageApp={onManageApp}
                   onToggleFavorite={onToggleFavorite}
                   onToggleWatch={onToggleWatch}
                 />
@@ -374,11 +386,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   app={app}
                   platformPending={isPlatformPending(app, platformResolvedOtherIds)}
                   isInstalled={installedIds.has(app.id)}
+                  isManaged={managedIds ? selectIsManaged(app.id, managedIds) : undefined}
+                  isDetectedOnly={managedIds ? selectIsDetectedOnly(app.id, installedIds, managedIds) : undefined}
                   isInstalling={installingIds?.has(app.id)}
                   isFavorite={favoriteIds.has(app.id)}
                   isWatched={watchedIds?.has(app.id)}
                   onOpenDetail={onOpenDetail}
                   onQuickInstall={onQuickInstall}
+                  onManageApp={onManageApp}
                   onToggleFavorite={onToggleFavorite}
                   onToggleWatch={onToggleWatch}
                 />
@@ -449,11 +464,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 app={app}
                 platformPending={isPlatformPending(app, platformResolvedOtherIds)}
                 isInstalled={installedIds.has(app.id)}
+                isManaged={managedIds ? selectIsManaged(app.id, managedIds) : undefined}
+                isDetectedOnly={managedIds ? selectIsDetectedOnly(app.id, installedIds, managedIds) : undefined}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}
                 isWatched={watchedIds?.has(app.id)}
                 onOpenDetail={onOpenDetail}
                 onQuickInstall={onQuickInstall}
+                onManageApp={onManageApp}
                 onToggleFavorite={onToggleFavorite}
                 onToggleWatch={onToggleWatch}
               />

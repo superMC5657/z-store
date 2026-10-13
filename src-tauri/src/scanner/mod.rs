@@ -20,9 +20,13 @@ impl AppScanner {
         {
             Self::scan_windows_registry()
         }
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(target_os = "linux")]
         {
-            // 非 Windows 平台（预留 Linux/macOS）
+            Self::scan_linux_desktop()
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+        {
+            // 预留 macOS 等平台
             Vec::new()
         }
     }

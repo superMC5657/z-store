@@ -87,6 +87,17 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
 }) => {
   const { t } = useTranslation();
   const [isManaging, setIsManaging] = useState(false);
+  // P0 已纳管 vs 仅检测到：managed 绿已安装；detected 灰检测到·点击纳管，点击调 handleManageApp/importSingleApp。
+  const isDetectedOnly = isInstalled && !isManaged;
+  const handleClickManage = async () => {
+    if (isManaging || !onManageApp) return;
+    setIsManaging(true);
+    try {
+      await onManageApp(app.id);
+    } finally {
+      setIsManaging(false);
+    }
+  };
 
   return (
     <div className="install-action-bar">
@@ -105,7 +116,7 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
                 ? '已安装'
                 : isManaged
                 ? '已安装就绪'
-                : '本地已安装'
+                : '检测到本地安装，点击纳入管理'
               : selectedAssetName
               ? canInstallPrimary
                 ? `已选安装包 · ${primaryAsset?.os || ''} ${primaryAsset?.arch || ''}`
@@ -114,6 +125,11 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
               ? `推荐版本 · ${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch}`
               : `下载版本 · ${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch}`
           }
+          onClick={isDetectedOnly && !isExploreMode ? handleClickManage : undefined}
+          role={isDetectedOnly && !isExploreMode ? 'button' : undefined}
+          tabIndex={isDetectedOnly && !isExploreMode ? 0 : undefined}
+          onKeyDown={isDetectedOnly && !isExploreMode ? (e) => { if (e.key === 'Enter' || e.key === ' ') handleClickManage(); } : undefined}
+          style={isDetectedOnly && !isExploreMode ? { cursor: 'pointer', color: 'var(--text-secondary)' } : undefined}
         >
           {app.isLoading && hasNoReleases
             ? '正在获取最新发布版本...'
@@ -126,7 +142,7 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
               ? '已安装'
               : isManaged
               ? '已安装就绪'
-              : '本地已安装'
+              : (isManaging ? '纳管中...' : '检测到·点击纳管')
             : selectedAssetName
             ? canInstallPrimary
               ? `已选安装包 · ${primaryAsset?.os || ''} ${primaryAsset?.arch || ''}`
@@ -266,15 +282,7 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
                       borderColor: 'var(--border-nav-active)',
                     }}
                     disabled={isManaging}
-                    onClick={async () => {
-                      if (isManaging) return;
-                      setIsManaging(true);
-                      try {
-                        await onManageApp(app.id);
-                      } finally {
-                        setIsManaging(false);
-                      }
-                    }}
+                    onClick={handleClickManage}
                     title="加入管理：将本地已安装应用加入列表，支持版本检测与快捷更新"
                   >
                     {isManaging ? '正在添加...' : (

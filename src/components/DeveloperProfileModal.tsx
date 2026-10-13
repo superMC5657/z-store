@@ -3,6 +3,7 @@ import { Package, Users, Building2, MapPin, Link, FolderOpen, Star, GitFork, Cod
 import { DeveloperProfile } from '../types';
 import { api } from '../services/api';
 import { EmptyState } from './EmptyState';
+import { isManaged as selectIsManaged, isDetectedOnly as selectIsDetectedOnly } from '../app/selectors';
 
 interface DeveloperProfileModalProps {
   developer: string;
@@ -11,6 +12,10 @@ interface DeveloperProfileModalProps {
   onOpenAppDetail: (appId: string) => void;
   onInstallApp: (appId: string) => Promise<void>;
   installedIds?: Set<string>;
+  /** 已纳管集合（缺席时回退 union 语义，保持旧调用兼容）。 */
+  managedIds?: Set<string>;
+  /** 仅检测到时点击纳管（调 handleManageApp/importSingleApp）。缺席时回退为打开详情。 */
+  onManageApp?: (appId: string) => void | Promise<void>;
 }
 
 export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
@@ -20,11 +25,14 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
   onOpenAppDetail,
   onInstallApp,
   installedIds,
+  managedIds,
+  onManageApp,
 }) => {
   const [profile, setProfile] = useState<DeveloperProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [installingId, setInstallingId] = useState<string | null>(null);
+  const [managingId, setManagingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen || !developer) return;
@@ -72,6 +80,18 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
       await onInstallApp(appId);
     } finally {
       setInstallingId(null);
+    }
+  };
+
+  const handleManage = async (appId: string) => {
+    if (!onManageApp || managingId === appId) return;
+    try {
+      setManagingId(appId);
+      await onManageApp(appId);
+    } catch {
+      /* 导入静默失败；列表保持不变 */
+    } finally {
+      setManagingId(null);
     }
   };
 
@@ -233,6 +253,15 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {profile.repos.map((repo) => {
                 const isInstalling = installingId === repo.id;
+                const isManagingRow = managingId === repo.id;
+                // P0 已纳管 vs 仅检测到：managed 绿已安装，detected 灰检测到·点击纳管；
+                // 缺席 managedIds 时回退 union 语义（installedIds 即已安装），保持旧调用兼容。
+                const managed = managedIds ? selectIsManaged(repo.id, managedIds) : (installedIds?.has(repo.id) ?? false);
+                const detectedOnly = managedIds
+                  ? selectIsDetectedOnly(repo.id, installedIds ?? new Set<string>(), managedIds)
+                  : false;
+                const showManaged = managed && !detectedOnly;
+                const showDetected = detectedOnly && !managed;
 
                 return (
                   <div
@@ -308,7 +337,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                           >
                             查看详情
                           </button>
-                          {installedIds?.has(repo.id) ? (
+                          {showManaged ? (
                             <button
                               className="btn-fluent btn-install btn-installed"
                               style={{ fontSize: 'var(--font-sm)', padding: '5px 12px' }}
@@ -319,6 +348,23 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                               title="已就绪 · 点击查看与管理"
                             >
                               ✓ 已安装
+                            </button>
+                          ) : showDetected ? (
+                            <button
+                              className="btn-fluent btn-install"
+                              style={{ fontSize: 'var(--font-sm)', padding: '6px 14px', fontWeight: 510, background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', borderColor: 'var(--border-subtle)' }}
+                              disabled={isManagingRow}
+                              onClick={() => {
+                                if (onManageApp) {
+                                  void handleManage(repo.id);
+                                } else {
+                                  onClose();
+                                  onOpenAppDetail(repo.id);
+                                }
+                              }}
+                              title="检测到本地安装，点击纳入管理"
+                            >
+                              {isManagingRow ? '纳管中...' : '检测到·点击纳管'}
                             </button>
                           ) : (
                             <button

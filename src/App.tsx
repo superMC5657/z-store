@@ -533,12 +533,14 @@ export const App: React.FC = () => {
                 platformResolvedOtherIds={platformResolvedOtherIds}
                 installedIds={installedIds}
                 installingIds={installingAppIds}
+                managedIds={managedIds}
                 favoriteIds={favoriteIds}
                 watchedIds={watchedIds}
                 recentlyViewedApps={searchQuery.trim() ? [] : recentlyViewedApps}
                 searchQuery={searchQuery}
                 onOpenDetail={handleOpenDetail}
                 onQuickInstall={handleQuickInstall}
+                onManageApp={handleManageApp}
                 onToggleFavorite={handleToggleFavorite}
                 onToggleWatch={handleToggleWatch}
                 onNavigateTrends={() => setCurrentView('trends')}
@@ -565,8 +567,10 @@ export const App: React.FC = () => {
               favoriteIds={favoriteIds}
               installedIds={installedIds}
               installingIds={installingAppIds}
+              managedIds={managedIds}
               onOpenDetail={handleOpenDetail}
               onQuickInstall={handleQuickInstall}
+              onManageApp={handleManageApp}
               onToggleFavorite={handleToggleFavorite}
               onResetPlatformFilter={handleResetPlatformFilter}
             />
@@ -578,10 +582,12 @@ export const App: React.FC = () => {
               platformResolvedOtherIds={platformResolvedOtherIds}
               installedIds={installedIds}
               installingIds={installingAppIds}
+              managedIds={managedIds}
               favoriteIds={favoriteIds}
               watchedIds={watchedIds}
               onOpenDetail={handleOpenDetail}
               onQuickInstall={handleQuickInstall}
+              onManageApp={handleManageApp}
               onToggleFavorite={handleToggleFavorite}
               onToggleWatch={handleToggleWatch}
               onResetPlatformFilter={handleResetPlatformFilter}
@@ -596,9 +602,11 @@ export const App: React.FC = () => {
               watchedIds={watchedIds}
               installedIds={installedIds}
               installingIds={installingAppIds}
+              managedIds={managedIds}
               oauthUser={oauthUser}
               onOpenDetail={handleOpenDetail}
               onQuickInstall={handleQuickInstall}
+              onManageApp={handleManageApp}
               onToggleFavorite={handleToggleFavorite}
               onToggleWatch={handleToggleWatch}
             />
@@ -726,6 +734,8 @@ export const App: React.FC = () => {
         onOpenAppDetail={(id) => handleOpenDetail(id)}
         onInstallApp={handleInstallApp}
         installedIds={installedIds}
+        managedIds={managedIds}
+        onManageApp={handleManageApp}
       />
 
       {/* 系统已安装应用导入弹窗（FR-5.3） */}

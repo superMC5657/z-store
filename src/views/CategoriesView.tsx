@@ -23,6 +23,7 @@ import {
   ViewShell,
 } from './ViewShell';
 import { isPlatformPending } from '../lib/platformFilter';
+import { isManaged as selectIsManaged, isDetectedOnly as selectIsDetectedOnly } from '../app/selectors';
 
 interface CategoriesViewProps extends ViewAppActions, RequiredPlatformReset {
   platformResolvedOtherIds?: ReadonlySet<string>;
@@ -47,9 +48,11 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   installedIds,
   installingIds,
   favoriteIds,
+  managedIds,
   watchedIds,
   onOpenDetail,
   onQuickInstall,
+  onManageApp,
   onToggleFavorite,
   onToggleWatch,
   onResetPlatformFilter,
@@ -180,11 +183,14 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                 eager={index < 6}
                 platformPending={isPlatformPending(app, platformResolvedOtherIds)}
                 isInstalled={installedIds.has(app.id)}
+                isManaged={managedIds ? selectIsManaged(app.id, managedIds) : undefined}
+                isDetectedOnly={managedIds ? selectIsDetectedOnly(app.id, installedIds, managedIds) : undefined}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}
                 isWatched={watchedIds?.has(app.id)}
                 onOpenDetail={onOpenDetail}
                 onQuickInstall={onQuickInstall}
+                onManageApp={onManageApp}
                 onToggleFavorite={onToggleFavorite}
                 onToggleWatch={onToggleWatch}
               />
