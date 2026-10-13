@@ -46,8 +46,75 @@ pub(crate) fn derive_slugs(repo: &str) -> Vec<String> {
     out
 }
 
+/// README 正文图判别 SSOT（ADR-0015 §3 单一探源，供 `score_candidate` 负分 +
+/// `icon_fetch::is_body_image_url` 共用）：
+/// - 关键词见 [`BODY_IMAGE_KEYWORDS`] + `shields.io` 域名（badge CDN，trees 路径永不出现但 URL 侧需判）；
+/// - 口径为 path-segment 精确匹配：取 URL/path 最后一段文件名，去扩展名 + 剥 query/fragment 后小写全等
+///   （或复数 `+s` 全等），非 substring。`preview-logo.png` / `demo-icon.svg` /
+///   `discover.png`（含 `cover` 子串）/ `badger.png`（含 `badge` 子串）等含关键词的合法 Logo 不判为正文；
+/// - 合法 Logo 优先：文件名含 `logo`/`icon` 直接放行（README L4 提取口径同源），避免误杀；
+/// - 仅 README-body 上下文调用（detail.icon 过滤 + trees 评分负分），L2/L3 权威直出不经此。
+pub(crate) const BODY_IMAGE_KEYWORDS: &[&str] = &[
+    "screenshot",
+    "preview",
+    "banner",
+    "badge",
+    "demo",
+    "diagram",
+    "architecture",
+    "cover",
+    "workflow",
+    "license",
+];
+
+/// README 正文图判别唯一实现（见 [`BODY_IMAGE_KEYWORDS`] 文档）：
+/// `shields.io` 域名直接判真；其余取最后 path segment 文件名 stem 精确匹配（+复数），
+/// 含 `logo`/`icon` 的合法 Logo 一律放行。
+pub(crate) fn is_readme_body_image(path_or_url: &str) -> bool {
+    let lower_full = path_or_url.to_ascii_lowercase();
+    if lower_full.contains("shields.io") {
+        return true;
+    }
+    let trimmed = path_or_url.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    // 剥 query/fragment。
+    let no_frag = trimmed.split(['#', '?']).next().unwrap_or(trimmed);
+    // 去 scheme://host，保留 path（无 scheme 时整串即 path）。
+    let path = if let Some(idx) = no_frag.find("://") {
+        let after = &no_frag[idx + 3..];
+        after.find('/').map(|i| &after[i + 1..]).unwrap_or("")
+    } else {
+        no_frag
+    };
+    let filename = path.rsplit('/').next().unwrap_or(path).trim();
+    if filename.is_empty() {
+        return false;
+    }
+    // 去扩展名（最后一个 '.' 后缀），小写。
+    let stem = filename
+        .rsplit_once('.')
+        .map(|(s, _)| s)
+        .unwrap_or(filename)
+        .to_ascii_lowercase();
+    let stem = stem.trim();
+    if stem.is_empty() {
+        return false;
+    }
+    // 合法 Logo 优先放行（与 README L4 提取的 logo/icon 口径同源）。
+    if stem.contains("logo") || stem.contains("icon") {
+        return false;
+    }
+    BODY_IMAGE_KEYWORDS.iter().any(|k| {
+        *k == stem || (stem.len() == k.len() + 1 && stem.strip_suffix('s') == Some(*k))
+    })
+}
+
 /// 启发式评分（与 catalog-shared `scoreIconCandidate` 同规则）。
 /// 非 png/svg/ico 直接 -100；命中正分才会被采用。
+/// 正文图负分经 [`is_readme_body_image`] 单一探源（README-body 上下文 path-segment 精确匹配，
+/// 合法 Logo 含关键词不罚分），不另维护第二套 substring 表。
 pub(crate) fn score_candidate(file_path: &str, size: Option<u64>, repo: &str) -> i32 {
     let lower = file_path.to_lowercase();
     let ext = lower.rsplit('.').next().unwrap_or("");
@@ -66,15 +133,7 @@ pub(crate) fn score_candidate(file_path: &str, size: Option<u64>, repo: &str) ->
     {
         return -100;
     }
-    if lower.contains("screenshot")
-        || lower.contains("preview")
-        || lower.contains("banner")
-        || lower.contains("badge")
-        || lower.contains("demo")
-        || lower.contains("diagram")
-        || lower.contains("architecture")
-        || lower.contains("cover")
-    {
+    if is_readme_body_image(file_path) {
         return -50;
     }
     if lower.contains("aprilfools") || lower.contains("xmas") || lower.contains("christmas") {
@@ -621,6 +680,72 @@ mod tests {
         assert_eq!(
             raw_url("o", "r", "main", "/a/b.png"),
             "https://raw.githubusercontent.com/o/r/main/a/b.png"
+        );
+    }
+
+    #[test]
+    fn test_is_readme_body_image_path_segment() {
+        // 正文图（排除）：文件名 stem 精确匹配（+复数）或 shields.io 域名。
+        let body_true = [
+            "https://raw.githubusercontent.com/o/r/main/docs/screenshot.png",
+            "https://raw.githubusercontent.com/o/r/main/assets/preview.png",
+            "https://raw.githubusercontent.com/o/r/main/assets/banner.svg",
+            "https://img.shields.io/badge/build-passing-brightgreen",
+            "https://raw.githubusercontent.com/o/r/main/docs/demo.gif",
+            "assets/diagram.svg",
+            "docs/architecture.png",
+            "https://raw.githubusercontent.com/o/r/main/assets/cover.png",
+            "https://github.com/o/r/actions/workflows/ci.yml/badge.svg",
+            "assets/license.svg",
+            "docs/screenshots.png",
+            "assets/badges.svg",
+            "assets/workflow.svg",
+        ];
+        for u in body_true {
+            assert!(is_readme_body_image(u), "expected body image: {u}");
+        }
+        // trees 评分侧：png/svg/ico 文件形态的正文图吃 -50（与上表同源，取子集复核）。
+        for p in [
+            "docs/screenshot.png",
+            "assets/preview.png",
+            "assets/banner.svg",
+            "assets/diagram.svg",
+            "docs/architecture.png",
+            "assets/cover.png",
+            "assets/license.svg",
+            "docs/screenshots.png",
+        ] {
+            assert_eq!(
+                score_candidate(p, Some(5000), "demo"),
+                -50,
+                "score_candidate should penalize body file: {p}"
+            );
+        }
+
+        // 合法 Logo（保留）：含关键词子串但 stem 非精确匹配，或 logo/icon 优先放行。
+        let logo_false = [
+            "https://raw.githubusercontent.com/o/r/main/assets/preview-logo.png",
+            "https://raw.githubusercontent.com/o/r/main/assets/demo-icon.svg",
+            "https://cdn.simpleicons.org/rust",
+            "https://raw.githubusercontent.com/o/r/main/assets/logo.png",
+            "https://raw.githubusercontent.com/o/r/main/res/icon.png",
+            "https://raw.githubusercontent.com/o/r/main/assets/discover.png",
+            "https://raw.githubusercontent.com/o/r/main/assets/badger.png",
+            "https://raw.githubusercontent.com/o/r/main/assets/demonstration.svg",
+            "https://raw.githubusercontent.com/o/r/main/assets/app-preview.png",
+            "https://raw.githubusercontent.com/o/r/main/assets/my-screenshot-logo.png",
+        ];
+        for u in logo_false {
+            assert!(!is_readme_body_image(u), "expected legit logo kept: {u}");
+        }
+        // 合法 Logo 在 trees 评分侧不吃 -50（以 preview-logo / discover 为代表）。
+        assert_ne!(
+            score_candidate("assets/preview-logo.png", Some(5000), "demo"),
+            -50
+        );
+        assert_ne!(
+            score_candidate("assets/discover.png", Some(5000), "demo"),
+            -50
         );
     }
 }

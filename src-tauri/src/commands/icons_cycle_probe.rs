@@ -107,6 +107,27 @@ pub(crate) const KNOWN_ICON_EXTS: &[&str] = &[
     "png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "avif", "apng", "bmp",
 ];
 
+/// hash 候选文件名唯一构造（FINAL 双探：`inferred` 快路径 + `KNOWN` 全后缀兜底，sniff 纠正场景）：
+/// `read_level_cache_file` 与 `load_split_cached_bytes`（收录 hash 双探）共用，不另起第二套。
+/// 空 url 返回空 Vec（调用方跳过新名双探，仅走老名兼容读）。
+fn hash_icon_candidate_filenames(url_trimmed: &str, inferred_ext: &str) -> Vec<String> {
+    let url = url_trimmed.trim();
+    if url.is_empty() {
+        return Vec::new();
+    }
+    let full = crate::sha256_digest_hex(url.as_bytes());
+    let hash_stem = &full[..16.min(full.len())];
+    let mut out: Vec<String> = Vec::with_capacity(KNOWN_ICON_EXTS.len() + 1);
+    out.push(format!("{}.{}", hash_stem, inferred_ext));
+    for ext in KNOWN_ICON_EXTS {
+        if *ext == inferred_ext {
+            continue;
+        }
+        out.push(format!("{}.{}", hash_stem, ext));
+    }
+    out
+}
+
 /// 指定级别缓存文件读取（FINAL 双探：先 hash 新名，后老 `stem_l{level}` 兼容）：
 /// - 新名：`sha256(url)[0:16].{ext}`（`url_trimmed` 必传，空 url 直接走老名兼容）；
 /// - 老名：`{stem}_l{level}.{ext}`（`inferred` 快路径 + `KNOWN` 兜底）；
@@ -120,26 +141,11 @@ pub(crate) fn read_level_cache_file(
     url_trimmed: &str,
 ) -> Option<Vec<u8>> {
     // 1. 新名双探：hash stem + inferred 快路径 + 全后缀兜底（sniff 纠正场景）。
-    let url = url_trimmed.trim();
-    if !url.is_empty() {
-        let hash_stem = {
-            let full = crate::sha256_digest_hex(url.as_bytes());
-            full[..16.min(full.len())].to_string()
-        };
-        let mut hash_candidates: Vec<String> = Vec::with_capacity(KNOWN_ICON_EXTS.len() + 1);
-        hash_candidates.push(format!("{}.{}", hash_stem, inferred_ext));
-        for ext in KNOWN_ICON_EXTS {
-            if *ext == inferred_ext {
-                continue;
-            }
-            hash_candidates.push(format!("{}.{}", hash_stem, ext));
-        }
-        for fname in hash_candidates {
-            let p = icons_dir.join(&fname);
-            if crate::commands::icons::is_icon_file_fresh(&p) {
-                if let Some(b) = read_valid_image_file(&p) {
-                    return Some(b);
-                }
+    for fname in hash_icon_candidate_filenames(url_trimmed, inferred_ext) {
+        let p = icons_dir.join(&fname);
+        if crate::commands::icons::is_icon_file_fresh(&p) {
+            if let Some(b) = read_valid_image_file(&p) {
+                return Some(b);
             }
         }
     }
@@ -200,33 +206,19 @@ pub(crate) fn load_split_cached_bytes(
     let now = crate::now_secs();
     if is_cataloged {
         // 新名优先：hash(url).{inferred + KNOWN 兜底}，每候选验 “文件新鲜 + DB 记录 URL 相等 + DB 7 天有效”。
-        let url = url_trimmed.trim();
-        if !url.is_empty() {
-            let full = crate::sha256_digest_hex(url.as_bytes());
-            let hash_stem = &full[..16.min(full.len())];
-            let mut hash_candidates: Vec<String> =
-                Vec::with_capacity(KNOWN_ICON_EXTS.len() + 1);
-            hash_candidates.push(format!("{}.{}", hash_stem, inferred_ext));
-            for ext in KNOWN_ICON_EXTS {
-                if *ext == inferred_ext {
-                    continue;
-                }
-                hash_candidates.push(format!("{}.{}", hash_stem, ext));
+        for filename in hash_icon_candidate_filenames(url_trimmed, inferred_ext) {
+            let cache_file = icons_dir.join(&filename);
+            if !crate::commands::icons::is_icon_file_fresh(&cache_file) {
+                continue;
             }
-            for filename in hash_candidates {
-                let cache_file = icons_dir.join(&filename);
-                if !crate::commands::icons::is_icon_file_fresh(&cache_file) {
-                    continue;
-                }
-                if let Ok(Some((recorded_url, at))) =
-                    crate::db::icon_cycle::get_icon_cache_record(db, &filename)
+            if let Ok(Some((recorded_url, at))) =
+                crate::db::icon_cycle::get_icon_cache_record(db, &filename)
+            {
+                if recorded_url.trim() == url_trimmed
+                    && crate::db::icon_cycle::is_icon_fresh(at, now)
                 {
-                    if recorded_url.trim() == url_trimmed
-                        && crate::db::icon_cycle::is_icon_fresh(at, now)
-                    {
-                        if let Some(b) = read_valid_image_file(&cache_file) {
-                            return Some(b);
-                        }
+                    if let Some(b) = read_valid_image_file(&cache_file) {
+                        return Some(b);
                     }
                 }
             }
@@ -822,5 +814,28 @@ mod tests {
         assert!(!non_cat_res.is_cataloged);
         assert_eq!(non_cat_res.level, 2);
         assert_eq!(non_cat_res.cache_file, "custom_unknown_l2.png");
+    }
+
+    #[test]
+    fn test_hash_candidate_helper_single_source() {
+        // S3a 去重：hash 双探唯一构造，`read_level_cache_file` 与 `load_split_cached_bytes` 共用。
+        assert!(hash_icon_candidate_filenames("", "png").is_empty());
+        assert!(hash_icon_candidate_filenames("   ", "png").is_empty());
+        let c = hash_icon_candidate_filenames("https://example.com/a.png", "png");
+        // inferred ∈ KNOWN 时总数即 KNOWN 全集（首位 inferred + 其余兜底，无重复）。
+        assert_eq!(c.len(), KNOWN_ICON_EXTS.len());
+        assert!(c[0].ends_with(".png"));
+        // inferred 首位 + 全后缀兜底无重复。
+        let mut seen = std::collections::HashSet::new();
+        for f in &c {
+            assert!(seen.insert(f.clone()), "duplicate candidate {f}");
+        }
+        let c2 = hash_icon_candidate_filenames("https://example.com/a.png", "svg");
+        assert!(c2[0].ends_with(".svg"));
+        // 同 url 同 inferred 稳定（读/写双探一致）。
+        assert_eq!(
+            c,
+            hash_icon_candidate_filenames("  https://example.com/a.png  ", "png")
+        );
     }
 }

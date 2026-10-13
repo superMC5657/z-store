@@ -92,8 +92,10 @@ fn default_icon_via() -> String {
 /// FINAL Logo 口径（只做 Logo，不管正文插图）：
 /// - `level_for_detail_icon`: 详情 `icon` → cycle 级别（2=simpleicons 字典，4=README 头部备选 Logo，3=仓库树）；
 ///   L4 仅 cycle 命中的头部备选 Logo（`/blob/` 或 `readme` 关键字），正文图永不经此（见下）；
-/// - `is_body_image_url`: 正文大图判别（screenshot/preview/banner/badge/demo/diagram/architecture/cover），
-///   命中即视为正文图，调用方跳过落库（不存、不计、不预热），与 `icon_probe::score_candidate` 负分表同源。
+/// - `is_body_image_url`: 正文大图判别薄委托，唯一实现见
+///   [`crate::github::icon_probe::is_readme_body_image`]（ADR-0015 §3 单一探源，
+///   README-body 上下文 path-segment 精确匹配；`preview-logo.png` 等合法 Logo 不判为正文），
+///   命中即视为正文图，调用方跳过落库（不存、不计、不预热）。
 pub(crate) fn level_for_detail_icon(icon_trimmed: &str) -> i32 {
     if icon_trimmed.contains("simpleicons.org") {
         2
@@ -105,10 +107,7 @@ pub(crate) fn level_for_detail_icon(icon_trimmed: &str) -> i32 {
 }
 
 pub(crate) fn is_body_image_url(url: &str) -> bool {
-    let lower = url.to_ascii_lowercase();
-    ["screenshot", "preview", "banner", "badge", "shields.io", "demo", "diagram", "architecture", "cover", "workflow", "license"]
-        .iter()
-        .any(|k| lower.contains(k))
+    crate::github::icon_probe::is_readme_body_image(url)
 }
 
 /// 统一事件 key：小写 `owner/repo`（三键合一薄委托，唯一实现见
@@ -370,5 +369,40 @@ mod tests {
             scaled_total_timeout(5, 0, each, 15),
             std::time::Duration::from_secs(50)
         );
+    }
+
+    #[test]
+    fn body_image_url_delegates_to_single_probe_source() {
+        // ADR-0015 §3 单一探源：`is_body_image_url` 为 `icon_probe::is_readme_body_image` 薄委托，
+        // path-segment 精确匹配；含关键词的合法 Logo 不得判为正文（detail.icon 不丢 logo）。
+        let body = [
+            "https://raw.githubusercontent.com/o/r/main/docs/screenshot.png",
+            "https://raw.githubusercontent.com/o/r/main/assets/preview.png",
+            "https://img.shields.io/badge/x-y-green",
+            "https://raw.githubusercontent.com/o/r/main/assets/banner.svg?sanitize=true",
+            "https://raw.githubusercontent.com/o/r/main/docs/cover.png#frag",
+        ];
+        for u in body {
+            assert!(is_body_image_url(u), "expected body: {u}");
+            assert!(
+                crate::github::icon_probe::is_readme_body_image(u),
+                "single source must agree: {u}"
+            );
+        }
+        let logos = [
+            "https://raw.githubusercontent.com/o/r/main/assets/preview-logo.png",
+            "https://raw.githubusercontent.com/o/r/main/assets/demo-icon.svg",
+            "https://cdn.simpleicons.org/foo",
+            "https://raw.githubusercontent.com/o/r/main/assets/logo.png",
+            "https://raw.githubusercontent.com/o/r/main/assets/discover.png",
+            "https://raw.githubusercontent.com/o/r/main/assets/badger-icon.png",
+        ];
+        for u in logos {
+            assert!(!is_body_image_url(u), "expected legit logo kept: {u}");
+            assert!(
+                !crate::github::icon_probe::is_readme_body_image(u),
+                "single source must agree: {u}"
+            );
+        }
     }
 }
