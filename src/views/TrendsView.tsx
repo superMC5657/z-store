@@ -57,9 +57,10 @@ import {
 } from '../services/trends/board';
 import {
   PENDING_SETTLE_MS,
-  isDetectedOnly as selectIsDetectedOnly,
   isEnrichedRowPending,
-  isManaged as selectIsManaged,
+  isInstalledUnion as selectIsInstalledUnion,
+  selectIsDetectedOnlyOpt,
+  selectIsManagedOpt,
 } from '../app/selectors';
 import {
   PLATFORM_IDS,
@@ -606,9 +607,9 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                   eager={index < 6}
                   trendGain={item.gain}
                   trendGainText={gainTextFor(item.gain)}
-                  isInstalled={installedIds?.has(item.app.id) ?? false}
-                  isManaged={managedIds ? selectIsManaged(item.app.id, managedIds) : undefined}
-                  isDetectedOnly={managedIds && installedIds ? selectIsDetectedOnly(item.app.id, installedIds, managedIds) : undefined}
+                  isInstalled={selectIsInstalledUnion(item.app.id, installedIds)}
+                  isManaged={selectIsManagedOpt(item.app.id, managedIds)}
+                  isDetectedOnly={selectIsDetectedOnlyOpt(item.app.id, installedIds, managedIds)}
                   isInstalling={installingIds?.has(item.app.id) ?? false}
                   isFavorite={favoriteIds?.has(item.app.id) ?? false}
                   onOpenDetail={onOpenDetail}
@@ -646,9 +647,10 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                   eager={index < 6}
                   trendGain={item.gain}
                   trendGainText={gainTextFor(item.gain)}
-                  isInstalled={installedIds?.has(displayApp.id) ?? false}
-                  isManaged={managedIds ? selectIsManaged(displayApp.id, managedIds) : undefined}
-                  isDetectedOnly={managedIds && installedIds ? selectIsDetectedOnly(displayApp.id, installedIds, managedIds) : undefined}
+                  // 未收录 enrich 行安装态走真实 union 检查（归一 ID），禁止回退硬编码 false。
+                  isInstalled={selectIsInstalledUnion(displayApp.id, installedIds)}
+                  isManaged={selectIsManagedOpt(displayApp.id, managedIds)}
+                  isDetectedOnly={selectIsDetectedOnlyOpt(displayApp.id, installedIds, managedIds)}
                   isInstalling={false}
                   isFavorite={false}
                   onOpenDetail={onOpenDetail}

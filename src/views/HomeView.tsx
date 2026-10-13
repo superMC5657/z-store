@@ -25,7 +25,7 @@ import {
 import type { FeedStrategy } from '../services/feed';
 import { useHomeFeed, HOME_FEED_PAGE } from './HomeView/useHomeFeed';
 import { isPlatformPending } from '../lib/platformFilter';
-import { isManaged as selectIsManaged, isDetectedOnly as selectIsDetectedOnly } from '../app/selectors';
+import { isInstalledUnion as selectIsInstalledUnion, selectIsDetectedOnlyOpt, selectIsManagedOpt } from '../app/selectors';
 export { HOME_FEED_PAGE };
 
 interface HomeViewProps extends ViewAppActions, PlatformResetOption {
@@ -185,7 +185,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             {/* 操作按钮组 */}
             <div className="hero-actions">
               <button
-                className={`btn-fluent ${installedIds.has(heroApp.id) ? 'btn-secondary' : 'btn-primary'}`}
+                className={`btn-fluent ${selectIsInstalledUnion(heroApp.id, installedIds) ? 'btn-secondary' : 'btn-primary'}`}
                 style={{ padding: '8px 20px', fontSize: 'var(--font-base)', fontWeight: 510, display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                 disabled={installingIds?.has(heroApp.id)}
                 onClick={(e) => {
@@ -198,7 +198,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                     <span className="spinner-icon" style={{ width: '12px', height: '12px', borderWidth: '1.5px' }} />
                     <span>{t('app.installing')}</span>
                   </span>
-                ) : installedIds.has(heroApp.id) ? (
+                ) : selectIsInstalledUnion(heroApp.id, installedIds) ? (
                   <>
                     <Play size={14} />
                     <span>{t('home.ready_open')}</span>
@@ -274,9 +274,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 key={app.id}
                 app={app}
                 platformPending={isPlatformPending(app, platformResolvedOtherIds)}
-                isInstalled={installedIds.has(app.id)}
-                isManaged={managedIds ? selectIsManaged(app.id, managedIds) : undefined}
-                isDetectedOnly={managedIds ? selectIsDetectedOnly(app.id, installedIds, managedIds) : undefined}
+                isInstalled={selectIsInstalledUnion(app.id, installedIds)}
+                isManaged={selectIsManagedOpt(app.id, managedIds)}
+                isDetectedOnly={selectIsDetectedOnlyOpt(app.id, installedIds, managedIds)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}
                 isWatched={watchedIds?.has(app.id)}
@@ -307,9 +307,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 app={app}
                 eager
                 platformPending={isPlatformPending(app, platformResolvedOtherIds)}
-                isInstalled={installedIds.has(app.id)}
-                isManaged={managedIds ? selectIsManaged(app.id, managedIds) : undefined}
-                isDetectedOnly={managedIds ? selectIsDetectedOnly(app.id, installedIds, managedIds) : undefined}
+                isInstalled={selectIsInstalledUnion(app.id, installedIds)}
+                isManaged={selectIsManagedOpt(app.id, managedIds)}
+                isDetectedOnly={selectIsDetectedOnlyOpt(app.id, installedIds, managedIds)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}
                 isWatched={watchedIds?.has(app.id)}
@@ -340,9 +340,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   key={app.id}
                   app={app}
                   platformPending={isPlatformPending(app, platformResolvedOtherIds)}
-                  isInstalled={installedIds.has(app.id)}
-                  isManaged={managedIds ? selectIsManaged(app.id, managedIds) : undefined}
-                  isDetectedOnly={managedIds ? selectIsDetectedOnly(app.id, installedIds, managedIds) : undefined}
+                  isInstalled={selectIsInstalledUnion(app.id, installedIds)}
+                  isManaged={selectIsManagedOpt(app.id, managedIds)}
+                  isDetectedOnly={selectIsDetectedOnlyOpt(app.id, installedIds, managedIds)}
                   isInstalling={installingIds?.has(app.id)}
                   isFavorite={favoriteIds.has(app.id)}
                   isWatched={watchedIds?.has(app.id)}
@@ -385,9 +385,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   key={app.id}
                   app={app}
                   platformPending={isPlatformPending(app, platformResolvedOtherIds)}
-                  isInstalled={installedIds.has(app.id)}
-                  isManaged={managedIds ? selectIsManaged(app.id, managedIds) : undefined}
-                  isDetectedOnly={managedIds ? selectIsDetectedOnly(app.id, installedIds, managedIds) : undefined}
+                  isInstalled={selectIsInstalledUnion(app.id, installedIds)}
+                  isManaged={selectIsManagedOpt(app.id, managedIds)}
+                  isDetectedOnly={selectIsDetectedOnlyOpt(app.id, installedIds, managedIds)}
                   isInstalling={installingIds?.has(app.id)}
                   isFavorite={favoriteIds.has(app.id)}
                   isWatched={watchedIds?.has(app.id)}
@@ -463,9 +463,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 key={app.id}
                 app={app}
                 platformPending={isPlatformPending(app, platformResolvedOtherIds)}
-                isInstalled={installedIds.has(app.id)}
-                isManaged={managedIds ? selectIsManaged(app.id, managedIds) : undefined}
-                isDetectedOnly={managedIds ? selectIsDetectedOnly(app.id, installedIds, managedIds) : undefined}
+                isInstalled={selectIsInstalledUnion(app.id, installedIds)}
+                isManaged={selectIsManagedOpt(app.id, managedIds)}
+                isDetectedOnly={selectIsDetectedOnlyOpt(app.id, installedIds, managedIds)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}
                 isWatched={watchedIds?.has(app.id)}

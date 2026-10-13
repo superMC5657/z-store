@@ -41,6 +41,7 @@ import { useDetailCacheSync } from './app/hooks/useDetailCacheSync';
 import { useUncatalogedJoin } from './app/favoritesUncataloged';
 import { useAppSubscriptions } from './app/hooks/useAppSubscriptions';
 import { useAppSelectors } from './app/selectors';
+import { isInstalledUnion as selectIsInstalledUnion, isManaged as selectIsManaged } from './app/selectors';
 import { useUpdateActions } from './app/hooks/useUpdateActions';
 import { useToasts } from './useToasts';
 import { useAppSettings } from './useAppSettings';
@@ -274,6 +275,7 @@ export const App: React.FC = () => {
     sidebarPlatformCounts,
     installedIds,
     managedIds,
+    managedLoaded,
     pendingDeepLinkDetail,
     pendingDeepLinkSummary,
     pendingDeepLinkSha256,
@@ -533,7 +535,7 @@ export const App: React.FC = () => {
                 platformResolvedOtherIds={platformResolvedOtherIds}
                 installedIds={installedIds}
                 installingIds={installingAppIds}
-                managedIds={managedIds}
+                managedIds={managedLoaded ? managedIds : null}
                 favoriteIds={favoriteIds}
                 watchedIds={watchedIds}
                 recentlyViewedApps={searchQuery.trim() ? [] : recentlyViewedApps}
@@ -567,7 +569,7 @@ export const App: React.FC = () => {
               favoriteIds={favoriteIds}
               installedIds={installedIds}
               installingIds={installingAppIds}
-              managedIds={managedIds}
+              managedIds={managedLoaded ? managedIds : null}
               onOpenDetail={handleOpenDetail}
               onQuickInstall={handleQuickInstall}
               onManageApp={handleManageApp}
@@ -582,7 +584,7 @@ export const App: React.FC = () => {
               platformResolvedOtherIds={platformResolvedOtherIds}
               installedIds={installedIds}
               installingIds={installingAppIds}
-              managedIds={managedIds}
+              managedIds={managedLoaded ? managedIds : null}
               favoriteIds={favoriteIds}
               watchedIds={watchedIds}
               onOpenDetail={handleOpenDetail}
@@ -602,7 +604,7 @@ export const App: React.FC = () => {
               watchedIds={watchedIds}
               installedIds={installedIds}
               installingIds={installingAppIds}
-              managedIds={managedIds}
+              managedIds={managedLoaded ? managedIds : null}
               oauthUser={oauthUser}
               onOpenDetail={handleOpenDetail}
               onQuickInstall={handleQuickInstall}
@@ -699,8 +701,8 @@ export const App: React.FC = () => {
       {selectedApp && (
         <AppDetailModal
           app={selectedApp}
-          isInstalled={installedIds.has(selectedApp.id)}
-          isManaged={managedIds.has(selectedApp.id)}
+          isInstalled={selectIsInstalledUnion(selectedApp.id, installedIds)}
+          isManaged={managedLoaded ? selectIsManaged(selectedApp.id, managedIds) : null}
           isExploreMode={currentView === 'home' || currentView === 'trends' || currentView === 'categories'}
           isFavorite={favoriteIds.has(selectedApp.id)}
           isWatched={watchedIds.has(selectedApp.id)}
@@ -734,7 +736,7 @@ export const App: React.FC = () => {
         onOpenAppDetail={(id) => handleOpenDetail(id)}
         onInstallApp={handleInstallApp}
         installedIds={installedIds}
-        managedIds={managedIds}
+        managedIds={managedLoaded ? managedIds : null}
         onManageApp={handleManageApp}
       />
 

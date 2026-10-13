@@ -11,7 +11,7 @@ import { ViewAppActions, ViewShell } from './ViewShell';
 import { matchesAppText } from './useViewFilter';
 import { isPlatformPending } from '../lib/platformFilter';
 import { normalizeId, normalizeIdLowerSet } from '../services/normalizeId';
-import { isManaged as selectIsManaged, isDetectedOnly as selectIsDetectedOnly } from '../app/selectors';
+import { isInstalledUnion as selectIsInstalledUnion, selectIsDetectedOnlyOpt, selectIsManagedOpt } from '../app/selectors';
 
 interface FavoritesViewProps extends ViewAppActions {
   platformResolvedOtherIds?: ReadonlySet<string>;
@@ -179,9 +179,9 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 app={app}
                 eager={index < 6}
                 platformPending={isPlatformPending(app, platformResolvedOtherIds)}
-                isInstalled={installedIds.has(app.id)}
-                isManaged={managedIds ? selectIsManaged(app.id, managedIds) : undefined}
-                isDetectedOnly={managedIds ? selectIsDetectedOnly(app.id, installedIds, managedIds) : undefined}
+                isInstalled={selectIsInstalledUnion(app.id, installedIds)}
+                isManaged={selectIsManagedOpt(app.id, managedIds)}
+                isDetectedOnly={selectIsDetectedOnlyOpt(app.id, installedIds, managedIds)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={true}
                 isWatched={watchedIdsLower.has(normalizeId(app.id))}
@@ -220,9 +220,9 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 app={app}
                 eager={index < 6}
                 platformPending={isPlatformPending(app, platformResolvedOtherIds)}
-                isInstalled={installedIds.has(app.id)}
-                isManaged={managedIds ? selectIsManaged(app.id, managedIds) : undefined}
-                isDetectedOnly={managedIds ? selectIsDetectedOnly(app.id, installedIds, managedIds) : undefined}
+                isInstalled={selectIsInstalledUnion(app.id, installedIds)}
+                isManaged={selectIsManagedOpt(app.id, managedIds)}
+                isDetectedOnly={selectIsDetectedOnlyOpt(app.id, installedIds, managedIds)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIdsLower.has(normalizeId(app.id))}
                 isWatched={true}
@@ -363,9 +363,9 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                       app={app}
                       eager={index < 6}
                       platformPending={isPlatformPending(app, platformResolvedOtherIds)}
-                      isInstalled={installedIds.has(app.id)}
-                      isManaged={managedIds ? selectIsManaged(app.id, managedIds) : undefined}
-                      isDetectedOnly={managedIds ? selectIsDetectedOnly(app.id, installedIds, managedIds) : undefined}
+                      isInstalled={selectIsInstalledUnion(app.id, installedIds)}
+                      isManaged={selectIsManagedOpt(app.id, managedIds)}
+                      isDetectedOnly={selectIsDetectedOnlyOpt(app.id, installedIds, managedIds)}
                       isInstalling={installingIds?.has(app.id)}
                       isFavorite={favoriteIdsLower.has(normalizeId(app.id))}
                       isWatched={watchedIdsLower.has(normalizeId(app.id))}

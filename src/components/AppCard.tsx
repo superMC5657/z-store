@@ -13,10 +13,16 @@ interface AppCardProps {
   app: AppSummary;
   /** union 口径（已纳管 + 仅检测到），保持历史语义供旧调用方兼容。 */
   isInstalled: boolean;
-  /** 已纳管（绿色已安装）。缺席时回退为 isInstalled，保持旧调用方零变化。 */
-  isManaged?: boolean;
-  /** 仅检测到未纳管（灰色检测到·点击纳管）。缺席时按 isInstalled && !managed 派生。 */
-  isDetectedOnly?: boolean;
+  /**
+   * 已纳管（绿色已安装）。缺席（undefined）时回退为 isInstalled，保持旧调用方零变化；
+   * 显式 `null` = managed 列表尚未加载（未知）：union 命中时渲染中性占位，永不闪灰（P1）。
+   */
+  isManaged?: boolean | null;
+  /**
+   * 仅检测到未纳管（灰色检测到·点击纳管）。缺席时按 isInstalled && !managed 派生；
+   * `null` 视为缺席（未知态由 isManaged===null 统一门控）。
+   */
+  isDetectedOnly?: boolean | null;
   isInstalling?: boolean;
   isFavorite?: boolean;
   isWatched?: boolean;
@@ -90,10 +96,14 @@ function isAppVisualEqual(prev: AppSummary, next: AppSummary): boolean {
 }
 
 function areAppCardPropsEqual(prev: AppCardProps, next: AppCardProps): boolean {
+  // managed 三态比较：null（未知）与 boolean/缺席严格区分，未知→已知必重渲染（消灭占位残留）；
+  // 缺席（undefined）仍回退 isInstalled，保持旧调用零变化。
+  const managedKey = (v: boolean | null | undefined, installed: boolean): string =>
+    v === null ? 'unknown' : String(v ?? installed);
   return (
     isAppVisualEqual(prev.app, next.app) &&
     prev.isInstalled === next.isInstalled &&
-    (prev.isManaged ?? prev.isInstalled) === (next.isManaged ?? next.isInstalled) &&
+    managedKey(prev.isManaged, prev.isInstalled) === managedKey(next.isManaged, next.isInstalled) &&
     (prev.isDetectedOnly ?? (prev.isInstalled && !(prev.isManaged ?? prev.isInstalled))) ===
       (next.isDetectedOnly ?? (next.isInstalled && !(next.isManaged ?? next.isInstalled))) &&
     (prev.isInstalling ?? false) === (next.isInstalling ?? false) &&
@@ -140,10 +150,13 @@ export const AppCard: React.FC<AppCardProps> = memo(({
   const { t, i18n } = useTranslation();
   // P0 已纳管 vs 仅检测到：managed 绿已安装，detected 灰检测到·点击纳管。
   // 旧调用方仅传 isInstalled（union）时回退为 managed，保持零变化；新调用方传 isManaged/managedIds 派生后即消灭误报。
+  // P1 三态：isManaged===null（managed 未加载）+ union 命中 = 未知，渲染中性占位，永不闪灰；
+  // union 未命中即确定未安装（Get），无需占位。
   const managed = isManaged ?? isInstalled;
   const detectedOnly = isDetectedOnly ?? (isInstalled && !managed);
-  const showManaged = managed && !detectedOnly;
-  const showDetected = detectedOnly && !managed;
+  const showUnknown = isInstalled && isManaged === null;
+  const showManaged = !showUnknown && managed && !detectedOnly;
+  const showDetected = !showUnknown && detectedOnly && !managed;
   const [isManaging, setIsManaging] = useState(false);
   const displayName = getAppDisplayName(app);
   const displayDesc = getAppDescription(app, i18n.language);
@@ -320,9 +333,11 @@ export const AppCard: React.FC<AppCardProps> = memo(({
 
         <button
           className={`btn-install ${showManaged ? 'btn-installed' : ''}`}
-          disabled={showDetailOnly ? false : (isInstalling || isManaging)}
+          data-badge={showUnknown ? 'unknown' : showManaged ? 'managed' : showDetected ? 'detected' : 'none'}
+          disabled={showUnknown ? true : showDetailOnly ? false : (isInstalling || isManaging)}
           onClick={(e) => {
             e.stopPropagation();
+            if (showUnknown) return;
             if (showDetailOnly) {
               onOpenDetail(app.id);
             } else if (showDetected) {
@@ -341,7 +356,9 @@ export const AppCard: React.FC<AppCardProps> = memo(({
             }
           }}
           title={
-            showDetailOnly
+            showUnknown
+              ? t('app.loading', { defaultValue: '加载中' })
+              : showDetailOnly
               ? detailLabel
               : isInstalling
                 ? t('app.installing_app', { name: displayName })
@@ -352,7 +369,9 @@ export const AppCard: React.FC<AppCardProps> = memo(({
                     : t('app.get_app', { name: displayName })
           }
           aria-label={
-            showDetailOnly
+            showUnknown
+              ? t('app.loading', { defaultValue: '加载中' })
+              : showDetailOnly
               ? detailLabel
               : isInstalling
                 ? t('app.installing_app', { name: displayName })
@@ -370,7 +389,16 @@ export const AppCard: React.FC<AppCardProps> = memo(({
                 : undefined
           }
         >
-          {showDetailOnly ? (
+          {/* P1 未知态中性占位（单色骨架，不可交互）：managed 未加载前永不闪灰 */}
+          {showUnknown ? (
+            <span role="status" aria-label={t('app.loading', { defaultValue: '加载中' })} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', opacity: 0.65, cursor: 'default' }}>
+              <span
+                aria-hidden="true"
+                className="skeleton-box"
+                style={{ width: '46px', height: '10px', borderRadius: '3px', display: 'inline-block' }}
+              />
+            </span>
+          ) : showDetailOnly ? (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />

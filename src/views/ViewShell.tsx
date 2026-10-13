@@ -40,8 +40,8 @@ export interface ViewAppActions {
   installingIds?: Set<string>;
   favoriteIds: Set<string>;
   watchedIds?: Set<string>;
-  /** 已纳管集合（union 子集，供 isManaged/isDetectedOnly 派生；缺席时卡片回退 union 语义）。 */
-  managedIds?: Set<string>;
+  /** 已纳管集合（union 子集，供 isManaged/isDetectedOnly 派生；缺席时卡片回退 union 语义；显式 null = managed 未加载，union 命中行占位，P1）。 */
+  managedIds?: Set<string> | null;
   onOpenDetail: (id: string) => void;
   onQuickInstall: (id: string) => void;
   /** 仅检测到时点击纳管（调 handleManageApp/importSingleApp）。缺席时回退为打开详情。 */

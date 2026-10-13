@@ -3,7 +3,7 @@ import { Package, Users, Building2, MapPin, Link, FolderOpen, Star, GitFork, Cod
 import { DeveloperProfile } from '../types';
 import { api } from '../services/api';
 import { EmptyState } from './EmptyState';
-import { isManaged as selectIsManaged, isDetectedOnly as selectIsDetectedOnly } from '../app/selectors';
+import { isInstalledUnion, selectIsDetectedOnlyOpt, selectIsManagedOpt } from '../app/selectors';
 
 interface DeveloperProfileModalProps {
   developer: string;
@@ -12,8 +12,11 @@ interface DeveloperProfileModalProps {
   onOpenAppDetail: (appId: string) => void;
   onInstallApp: (appId: string) => Promise<void>;
   installedIds?: Set<string>;
-  /** 已纳管集合（缺席时回退 union 语义，保持旧调用兼容）。 */
-  managedIds?: Set<string>;
+  /**
+   * 已纳管集合（缺席时回退 union 语义，保持旧调用兼容；显式 `null` = managed 未加载，
+   * union 命中行渲染中性占位，永不闪灰，P1）。
+   */
+  managedIds?: Set<string> | null;
   /** 仅检测到时点击纳管（调 handleManageApp/importSingleApp）。缺席时回退为打开详情。 */
   onManageApp?: (appId: string) => void | Promise<void>;
 }
@@ -256,12 +259,15 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                 const isManagingRow = managingId === repo.id;
                 // P0 已纳管 vs 仅检测到：managed 绿已安装，detected 灰检测到·点击纳管；
                 // 缺席 managedIds 时回退 union 语义（installedIds 即已安装），保持旧调用兼容。
-                const managed = managedIds ? selectIsManaged(repo.id, managedIds) : (installedIds?.has(repo.id) ?? false);
-                const detectedOnly = managedIds
-                  ? selectIsDetectedOnly(repo.id, installedIds ?? new Set<string>(), managedIds)
-                  : false;
-                const showManaged = managed && !detectedOnly;
-                const showDetected = detectedOnly && !managed;
+                // 判态统一经共享选择器（归一 ID，大小写变体一致）；managedIds===null（未加载）
+                // + union 命中 = 未知，中性占位永不闪灰（P1）。
+                const installed = isInstalledUnion(repo.id, installedIds);
+                const managed = selectIsManagedOpt(repo.id, managedIds);
+                const detectedOnly = selectIsDetectedOnlyOpt(repo.id, installedIds, managedIds);
+                const isUnknownRow = installed && managed === null;
+                const managedEff = managed === undefined ? installed : managed === true;
+                const showManaged = !isUnknownRow && managedEff && detectedOnly !== true;
+                const showDetected = !isUnknownRow && detectedOnly === true && !managedEff;
 
                 return (
                   <div
@@ -337,9 +343,26 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                           >
                             查看详情
                           </button>
-                          {showManaged ? (
+                          {isUnknownRow ? (
+                            // P1 未知态中性占位（单色骨架，不可交互），永不闪灰
+                            <button
+                              className="btn-fluent btn-secondary"
+                              data-badge="unknown"
+                              style={{ fontSize: 'var(--font-sm)', padding: '6px 14px', opacity: 0.65, cursor: 'default' }}
+                              disabled
+                              title="正在确认安装状态…"
+                              aria-label="正在确认安装状态…"
+                            >
+                              <span
+                                aria-hidden="true"
+                                className="skeleton-box"
+                                style={{ width: '52px', height: '11px', borderRadius: '3px', display: 'inline-block' }}
+                              />
+                            </button>
+                          ) : showManaged ? (
                             <button
                               className="btn-fluent btn-install btn-installed"
+                              data-badge="managed"
                               style={{ fontSize: 'var(--font-sm)', padding: '5px 12px' }}
                               onClick={() => {
                                 onClose();
@@ -352,6 +375,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                           ) : showDetected ? (
                             <button
                               className="btn-fluent btn-install"
+                              data-badge="detected"
                               style={{ fontSize: 'var(--font-sm)', padding: '6px 14px', fontWeight: 510, background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', borderColor: 'var(--border-subtle)' }}
                               disabled={isManagingRow}
                               onClick={() => {

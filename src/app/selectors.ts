@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   AppDetailViewModel,
   AppSummary,
@@ -148,6 +148,72 @@ export function isDetectedOnly(id: string, installedIds: Set<string>, managedIds
 }
 
 /**
+ * union 已安装（含仅检测到）归一判定：调用方禁止再手写 `installedIds.has(id)` raw 直查
+ * （大小写变体 ID 下与 managed 判态分叉，B3a）。raw 直命中优先，归一兜底；
+ * 集合缺席（null/undefined）即未安装。
+ */
+export function isInstalledUnion(id: string, installedIds: Set<string> | null | undefined): boolean {
+  if (!id || !installedIds || installedIds.size === 0) return false;
+  if (installedIds.has(id)) return true;
+  const n = normalizeId(id);
+  if (n && installedIds.has(n)) return true;
+  return false;
+}
+
+/**
+ * managed 三态（P1 冷启闪烁修复）：`null` = managed 列表尚未加载（未知），
+ * `undefined` = 调用方未提供 managed 信息（旧调用兼容，卡片回退 union 语义）。
+ * 未知态调用方渲染中性占位，永不闪灰。
+ */
+export function selectIsManagedOpt(
+  id: string,
+  managedIds: Set<string> | null | undefined,
+): boolean | null | undefined {
+  if (managedIds === undefined) return undefined;
+  if (managedIds === null) return null;
+  return isManaged(id, managedIds);
+}
+
+/**
+ * detectedOnly 三态：与 `selectIsManagedOpt` 同口径。managed 未知且 union 命中
+ * 即未知（null，占位）；union 未命中即确定未检测到（false，无需占位）。
+ */
+export function selectIsDetectedOnlyOpt(
+  id: string,
+  installedIds: Set<string> | null | undefined,
+  managedIds: Set<string> | null | undefined,
+): boolean | null | undefined {
+  if (managedIds === undefined) return undefined;
+  if (managedIds === null) return isInstalledUnion(id, installedIds) ? null : false;
+  return isDetectedOnly(id, installedIds ?? new Set<string>(), managedIds);
+}
+
+/** 徽标四态（单测与文档口径，组件三布尔 props 为其展开形态）。 */
+export type BadgeState = 'managed' | 'detected' | 'none' | 'unknown';
+
+export function selectBadgeState(
+  id: string,
+  installedIds: Set<string> | null | undefined,
+  managedIds: Set<string> | null | undefined,
+): BadgeState {
+  if (!id) return 'none';
+  if (managedIds === undefined) return isInstalledUnion(id, installedIds) ? 'managed' : 'none';
+  if (managedIds === null) return isInstalledUnion(id, installedIds) ? 'unknown' : 'none';
+  if (isManaged(id, managedIds)) return 'managed';
+  if (isDetectedOnly(id, installedIds ?? new Set<string>(), managedIds)) return 'detected';
+  return 'none';
+}
+
+/**
+ * 布尔口径 detected 归一（InstallActions 等仅持有 booleans 的末端使用）：
+ * 调用方 booleans 须经上方归一选择器得出；末端禁止再手写 `isInstalled && !isManaged`
+ * 派生（大小写变体 ID 下与选择器分叉，B3a）。`isManaged === null`（未知）恒非 detected。
+ */
+export function resolveDetectedOnly(isInstalled: boolean, isManaged: boolean | null): boolean {
+  return isInstalled && isManaged === false;
+}
+
+/**
  * 收藏页 left-join 合并器（ica3-6 自 `app/favoritesUncataloged` 收归本选择器，
  * 语义逐字一致，键归一改调 `normalizeId` 单口）：
  * 收录段（已平台过滤）+ 未收录占位段（同口径平台过滤后并入，小写去重防双显）。
@@ -251,6 +317,22 @@ export function useAppSelectors({
 
   const managedIds = useMemo(() => buildManagedIds(installedApps), [installedApps]);
 
+  // managed 加载三态（P1 冷启 green→gray→green 闪烁修复）：`installedApps` 初始 `[]`
+  // 与“已加载但为空”引用不同（订阅层 `.then(setInstalledApps)` 恒产生新引用，
+  // IPC 反序列化无复用），引用变化即 managed 已加载；其它重渲染引用不变即仍未知。
+  // 加载失败无写入时 union 为空恒走 'none'（全 Get），故失败态自然降级；8s 超时兜底
+  // 防 installed 失败 + detected 成功时占位永久悬挂（此时 union 命中才占位）。
+  const initialInstalledRef = useRef(installedApps);
+  const [managedLoaded, setManagedLoaded] = useState(false);
+  useEffect(() => {
+    if (installedApps !== initialInstalledRef.current) setManagedLoaded(true);
+  }, [installedApps]);
+  useEffect(() => {
+    if (managedLoaded) return;
+    const t = setTimeout(() => setManagedLoaded(true), 8000);
+    return () => clearTimeout(t);
+  }, [managedLoaded]);
+
   // P0-1 深链安装确认弹窗：呈现应用名称、仓库/来源以及 SHA-256（优先使用已加载详情，兜底使用列表快照）。
   const pendingDeepLinkDetail =
     pendingDeepLinkInstall !== null &&
@@ -281,6 +363,7 @@ export function useAppSelectors({
     sidebarPlatformCounts,
     installedIds,
     managedIds,
+    managedLoaded,
     pendingDeepLinkDetail,
     pendingDeepLinkSummary,
     pendingDeepLinkSha256,

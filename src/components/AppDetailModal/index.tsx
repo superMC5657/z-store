@@ -15,7 +15,8 @@ const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 export interface AppDetailModalProps {
   app: AppDetailViewModel;
   isInstalled: boolean;
-  isManaged?: boolean;
+  /** 已纳管。显式 `null` = managed 未加载（未知），透传 InstallActions 渲染中性占位（P1）。 */
+  isManaged?: boolean | null;
   isExploreMode?: boolean;
   isFavorite?: boolean;
   isWatched?: boolean;

@@ -11,6 +11,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { AppDetailViewModel, DownloadAssetResult, DownloadProgressPayload, ReleaseAsset } from '../../types';
 import { InlineConfirmButton } from '../InlineConfirmButton';
+import { resolveDetectedOnly } from '../../app/selectors';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -32,7 +33,14 @@ export interface InstallActionsProps {
   onToggleShowAllAssets: () => void;
   isInstalled: boolean;
   isExploreMode: boolean;
-  isManaged: boolean;
+  /** 已纳管。显式 `null` = managed 列表尚未加载（未知）：中性占位，永不闪灰（P1）。 */
+  isManaged: boolean | null;
+  /**
+   * 仅检测到未纳管（归一选择器得出，由 App→AppDetailModal 透传；缺席时经共享
+   * `resolveDetectedOnly` 归一派生，禁止本地手写 `&&`，B3a）。
+   * `null` 视为缺席（未知态由 isManaged===null 统一门控）。
+   */
+  isDetectedOnly?: boolean | null;
   isUninstallingGlobal: boolean;
   downloadedFile: DownloadAssetResult | null;
   isRevealingFolder: boolean;
@@ -69,6 +77,7 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
   isInstalled,
   isExploreMode,
   isManaged,
+  isDetectedOnly: isDetectedOnlyProp,
   isUninstallingGlobal,
   downloadedFile,
   isRevealingFolder,
@@ -88,7 +97,12 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
   const { t } = useTranslation();
   const [isManaging, setIsManaging] = useState(false);
   // P0 已纳管 vs 仅检测到：managed 绿已安装；detected 灰检测到·点击纳管，点击调 handleManageApp/importSingleApp。
-  const isDetectedOnly = isInstalled && !isManaged;
+  // 判态收口共享选择器：调用方 booleans 经归一选择器得出，末端经 `resolveDetectedOnly`
+  // 归一派生（本地不再手写 `isInstalled && !isManaged`，大小写变体 ID 下曾与选择器分叉，B3a）。
+  // P1 三态：isManaged===null（未知）+ 已安装 = 未知，中性占位，永不闪灰。
+  const isUnknown = isInstalled && isManaged === null;
+  const isDetectedOnly = isDetectedOnlyProp ?? resolveDetectedOnly(isInstalled, isManaged);
+  const statusClickable = isDetectedOnly && !isExploreMode && !isUnknown;
   const handleClickManage = async () => {
     if (isManaging || !onManageApp) return;
     setIsManaging(true);
@@ -99,58 +113,77 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
     }
   };
 
+  const statusTitle =
+    app.isLoading && hasNoReleases
+      ? '正在获取最新发布版本...'
+      : hasNoReleases && isAuthExpired
+      ? 'GitHub 登录凭据已失效 · 请重新登录'
+      : hasNoReleases
+      ? '暂无匹配的安装包'
+      : isInstalled
+      ? isExploreMode
+        ? '已安装'
+        : isUnknown
+        ? '正在确认安装状态…'
+        : isManaged
+        ? '已安装就绪'
+        : '检测到本地安装，点击纳入管理'
+      : selectedAssetName
+      ? canInstallPrimary
+        ? `已选安装包 · ${primaryAsset?.os || ''} ${primaryAsset?.arch || ''}`
+        : `已选文件 · ${primaryAsset?.os || ''} ${primaryAsset?.arch || ''}（仅下载）`
+      : canInstallPrimary
+      ? `推荐版本 · ${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch}`
+      : `下载版本 · ${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch}`;
+  const statusText =
+    app.isLoading && hasNoReleases
+      ? '正在获取最新发布版本...'
+      : hasNoReleases && isAuthExpired
+      ? 'GitHub 登录凭据已失效 · 请重新登录'
+      : hasNoReleases
+      ? '暂无匹配的安装包'
+      : isInstalled
+      ? isExploreMode
+        ? '已安装'
+        : isUnknown
+        ? '正在确认安装状态…'
+        : isManaged
+        ? '已安装就绪'
+        : (isManaging ? '纳管中...' : '检测到·点击纳管')
+      : selectedAssetName
+      ? canInstallPrimary
+        ? `已选安装包 · ${primaryAsset?.os || ''} ${primaryAsset?.arch || ''}`
+        : `已选文件 · ${primaryAsset?.os || ''} ${primaryAsset?.arch || ''}（仅下载）`
+      : canInstallPrimary
+      ? `推荐版本 · ${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch}`
+      : `下载版本 · ${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch}`;
+  const statusBadge = isUnknown ? 'unknown' : isDetectedOnly && !isExploreMode ? 'detected' : isInstalled && isManaged ? 'managed' : 'none';
+
   return (
     <div className="install-action-bar">
       <div className="install-action-left">
-        <div
-          className="install-asset-label"
-          title={
-            app.isLoading && hasNoReleases
-              ? '正在获取最新发布版本...'
-              : hasNoReleases && isAuthExpired
-              ? 'GitHub 登录凭据已失效 · 请重新登录'
-              : hasNoReleases
-              ? '暂无匹配的安装包'
-              : isInstalled
-              ? isExploreMode
-                ? '已安装'
-                : isManaged
-                ? '已安装就绪'
-                : '检测到本地安装，点击纳入管理'
-              : selectedAssetName
-              ? canInstallPrimary
-                ? `已选安装包 · ${primaryAsset?.os || ''} ${primaryAsset?.arch || ''}`
-                : `已选文件 · ${primaryAsset?.os || ''} ${primaryAsset?.arch || ''}（仅下载）`
-              : canInstallPrimary
-              ? `推荐版本 · ${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch}`
-              : `下载版本 · ${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch}`
-          }
-          onClick={isDetectedOnly && !isExploreMode ? handleClickManage : undefined}
-          role={isDetectedOnly && !isExploreMode ? 'button' : undefined}
-          tabIndex={isDetectedOnly && !isExploreMode ? 0 : undefined}
-          onKeyDown={isDetectedOnly && !isExploreMode ? (e) => { if (e.key === 'Enter' || e.key === ' ') handleClickManage(); } : undefined}
-          style={isDetectedOnly && !isExploreMode ? { cursor: 'pointer', color: 'var(--text-secondary)' } : undefined}
-        >
-          {app.isLoading && hasNoReleases
-            ? '正在获取最新发布版本...'
-            : hasNoReleases && isAuthExpired
-            ? 'GitHub 登录凭据已失效 · 请重新登录'
-            : hasNoReleases
-            ? '暂无匹配的安装包'
-            : isInstalled
-            ? isExploreMode
-              ? '已安装'
-              : isManaged
-              ? '已安装就绪'
-              : (isManaging ? '纳管中...' : '检测到·点击纳管')
-            : selectedAssetName
-            ? canInstallPrimary
-              ? `已选安装包 · ${primaryAsset?.os || ''} ${primaryAsset?.arch || ''}`
-              : `已选文件 · ${primaryAsset?.os || ''} ${primaryAsset?.arch || ''}（仅下载）`
-            : canInstallPrimary
-            ? `推荐版本 · ${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch}`
-            : `下载版本 · ${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch}`}
-        </div>
+        {statusClickable ? (
+          // 可点击态用原生 button（键盘可达，免费 a11y；视觉与原 div 一致，D4 单色）。
+          <button
+            type="button"
+            className="install-asset-label"
+            data-badge={statusBadge}
+            title={statusTitle}
+            onClick={() => void handleClickManage()}
+            disabled={isManaging}
+            style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', textAlign: 'left', cursor: 'pointer', color: 'var(--text-secondary)' }}
+          >
+            {statusText}
+          </button>
+        ) : (
+          <div
+            className="install-asset-label"
+            data-badge={statusBadge}
+            title={statusTitle}
+          >
+            {statusText}
+          </div>
+        )}
         <div
           className="install-asset-name"
           title={primaryAsset ? primaryAsset.name : `${displayName} 最新发布包`}
@@ -270,6 +303,23 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
                   </InlineConfirmButton>
                 )}
               </>
+            ) : isUnknown ? (
+              // P1 未知态中性占位（单色骨架，不可交互）：managed 未加载前永不闪灰
+              <button
+                type="button"
+                className="btn-fluent btn-secondary"
+                disabled
+                data-badge="unknown"
+                title="正在确认安装状态…"
+                aria-label="正在确认安装状态…"
+                style={{ opacity: 0.65, cursor: 'default' }}
+              >
+                <span
+                  aria-hidden="true"
+                  className="skeleton-box"
+                  style={{ width: '64px', height: '12px', borderRadius: '3px', display: 'inline-block' }}
+                />
+              </button>
             ) : !isManaged ? (
               <>
                 {onManageApp && (
@@ -349,9 +399,9 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
             <button
               type="button"
               className="btn-fluent btn-primary"
-              disabled={isUninstallingGlobal}
+              disabled={isUninstallingGlobal || isUnknown}
               onClick={() => onLaunch(app.id)}
-              style={{ fontWeight: 510, display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+              style={{ fontWeight: 510, display: isUnknown ? 'none' : 'inline-flex', alignItems: 'center', gap: '5px' }}
             >
               <Play size={13} strokeWidth={1.5} />
               <span>{t('app.launch')}</span>
