@@ -372,6 +372,8 @@ export function useDetailCacheSync({
       // 卡有 http 实图 + M1 命中即跳过 getAppIconCycle（省 IPC，所见即存）：
       // 列表已有转正 http 直接画，缓冲已有实图首绘即对；仅双空才走 cycle 兜底。
       // data: 不触发此处（已分流，Header 经 iconOverride 即时看）。
+      // 安全说明：每次进详情 Header 必挂载并无条件调 getAppIconCycle（Header.tsx），
+      // 同一结果经店内唯一写口扇出到四列表，故此处跳过只是省掉重复 IPC，不丢加载。
       const bufferedHit = getBufferedIcon(idClean);
       if (typeof bufferedHit === 'string' && bufferedHit.trim() !== '') {
         return;
