@@ -17,14 +17,8 @@ pub async fn download_with_progress(
 ) -> Result<(PathBuf, String), String> {
     let net_conf = &crate::config::get_project_config().network;
     // 下载器独立 Client：直建，超时全部取 config；系统代理经 proxy 统一收敛，
-    // 镜像 host 靠 no_proxy 直连（不另起 Client）。
-    let dl_outer_host = crate::log_support::host_of(download_url);
-    let dl_extra: Vec<String> =
-        if dl_outer_host.is_empty() || dl_outer_host == "unknown" {
-            Vec::new()
-        } else {
-            vec![dl_outer_host]
-        };
+    // 镜像 host 靠 per-client no_proxy 直连（不另起 Client，不写全局 env）。
+    let dl_extra: Vec<String> = crate::proxy::proxy_hosts_for(download_url);
     let dl_builder = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) ZStore/0.1.0")
         .connect_timeout(std::time::Duration::from_secs(net_conf.connect_timeout_seconds))

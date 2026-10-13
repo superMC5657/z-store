@@ -42,6 +42,15 @@ pub fn host_of_url(url: &str) -> Option<String> {
     }
 }
 
+/// host→`extra_hosts` 收敛 helper（S3b 单一来源）：URL host 转 per-client `no_proxy` extra。
+/// 空/`unknown`/解析失败返回空 `Vec`（调用方直连），无全局副作用。
+pub fn proxy_hosts_for(url: &str) -> Vec<String> {
+    match host_of_url(url) {
+        Some(h) => vec![h],
+        None => Vec::new(),
+    }
+}
+
 fn get_env_non_empty(keys: &[&str]) -> Option<String> {
     for k in keys {
         if let Ok(v) = std::env::var(k) {
@@ -100,6 +109,8 @@ pub fn merged_no_proxy(extra_hosts: &[String]) -> Option<NoProxy> {
 
 /// 确保 `NO_PROXY`/`no_proxy` 环境包含默认豁免 + `extra_hosts`。
 /// 只做追加合并，不删除用户原有条目；已包含时跳过寫操作。
+/// 仅启动期系统预热调用（Linux GNOME / Windows 注册表），请求路径
+/// （`apply_proxy`/镜像切换）永不调用，无全局副作用。
 pub fn ensure_no_proxy_env(extra_hosts: &[String]) {
     let merged = merged_no_proxy_string(extra_hosts);
     if merged.trim().is_empty() {
@@ -127,7 +138,9 @@ pub fn ensure_no_proxy_env(extra_hosts: &[String]) {
 
 /// 统一代理挂载（`Proxy::from_env` + `.no_proxy()` 语义）。
 ///
-/// - 先 [`ensure_no_proxy_env`]（默认豁免落 env，兼顾未走本函数的旧 Client 系统匹配器）；
+/// - 仅 per-client `NoProxy` 生效（默认豁免 + `extra_hosts`），永不写进程全局
+///   `NO_PROXY`/`no_proxy`（镜像切换/Client 构建无全局副作用；启动期系统预热
+///   才经 [`ensure_no_proxy_env`] 落 env）；
 /// - 再显式读取 `HTTP_PROXY/http_proxy`（回退 `ALL_PROXY/all_proxy`）与
 ///   `HTTPS_PROXY/https_proxy`（回退 `ALL_PROXY/all_proxy`），与 hyper-util
 ///   `Matcher::from_system` 在 Linux 的 env 语义一致；
@@ -135,7 +148,6 @@ pub fn ensure_no_proxy_env(extra_hosts: &[String]) {
 ///   非法代理 URL 记 warn 后跳过该 scheme（保持该 scheme 直连，不污染全局）。
 /// - 无任何代理 env 时原样返回 `builder`（保留默认 `auto_sys_proxy`）。
 pub fn apply_proxy(builder: ClientBuilder, extra_hosts: &[String]) -> ClientBuilder {
-    ensure_no_proxy_env(extra_hosts);
     let merged = merged_no_proxy_string(extra_hosts);
     // `NoProxy::from_string` 恒 Some；沿用 `Option<NoProxy>` 以匹配 `Proxy::no_proxy` 签名。
     let no_proxy = NoProxy::from_string(&merged);
@@ -209,5 +221,15 @@ mod tests {
         assert_eq!(h.as_deref(), Some("gh-proxy.com"));
         assert!(host_of_url("not a url :::").is_some() || host_of_url("not a url :::").is_none());
         assert_eq!(host_of_url(""), None);
+    }
+
+    #[test]
+    fn test_proxy_hosts_for_single_source() {
+        assert_eq!(
+            proxy_hosts_for("https://gh-proxy.com/https://github.com/o/r"),
+            vec!["gh-proxy.com".to_string()]
+        );
+        assert!(proxy_hosts_for("").is_empty());
+        assert!(proxy_hosts_for("   ").is_empty());
     }
 }

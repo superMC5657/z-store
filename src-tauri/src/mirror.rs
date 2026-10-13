@@ -115,15 +115,10 @@ impl MirrorManager {
             return true; // 状态未改变，幂等跳过，避免重复刷日志
         }
         self.custom_proxy = new_proxy;
-        // 镜像 host 直连豁免：追加进 NO_PROXY（只增不删，不覆盖用户原值），
-        // 后续新建 Client 经 proxy::apply_proxy 自动直连；已建单例不受影响
-        //（下载器按请求 extra 直连，见 downloader）。
-        if let Some(ref p) = self.custom_proxy {
-            let h = crate::log_support::host_of(p);
-            if !h.is_empty() && h != "unknown" {
-                crate::proxy::ensure_no_proxy_env(&[h]);
-            }
-        }
+        // 镜像 host 直连豁免：仅 per-client `no_proxy`（调用方经 `proxy_hosts_for` +
+        // `apply_proxy` 透传），永不写进程全局 `NO_PROXY`/`no_proxy`；下载加速代理
+        // 仅改写下载 URL 前缀，gh-proxy.com / trend host 等 API 端点始终直连
+        //（见 proxy 默认豁免）。
         let proxy_display = self.custom_proxy.as_deref().unwrap_or("direct");
         log::info!("mirror switch id={} proxy='{}'", id, proxy_display);
         true
@@ -180,15 +175,8 @@ impl MirrorManager {
             None => "https://github.com".to_string(),
         };
 
-        // 被测镜像 host 直连豁免：靠 no_proxy 覆盖，不另起 Client。
-        let extra_hosts = {
-            let h = crate::log_support::host_of(&test_url);
-            if h.is_empty() || h == "unknown" {
-                Vec::new()
-            } else {
-                vec![h]
-            }
-        };
+        // 被测镜像 host 直连豁免：靠 per-client no_proxy 覆盖，不另起 Client。
+        let extra_hosts = crate::proxy::proxy_hosts_for(&test_url);
         let client = Self::ping_client(timeout_ms, &extra_hosts);
 
         let safe_test_url = crate::log_support::sanitize_url(&test_url);

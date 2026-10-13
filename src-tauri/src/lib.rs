@@ -289,6 +289,7 @@ fn init_windows_system_proxy() {
 /// 解析 Windows 注册表 `ProxyServer` 值（纯函数，可单元测试）。
 /// 接受三种形态：`host:port`、`scheme://host:port`、多协议
 /// （`http=..;https=..;socks=..`，优先取 https 条目）。
+/// scheme 必须带 `://`（裸 `socks4` 前缀无 `://` 一律拒绝，与 Linux 同严格口径）；
 /// 返回归一化的代理 URL；无法解析返回 None（调用方不设置环境变量，
 /// 保持直连，避免一条坏代理拖累所有请求）。
 #[cfg(target_os = "windows")]
@@ -344,7 +345,8 @@ fn normalize_windows_proxy_server(raw: &str) -> Option<String> {
         || lower.starts_with("https://")
         || lower.starts_with("socks5://")
         || lower.starts_with("socks5h://")
-        || lower.starts_with("socks4")
+        || lower.starts_with("socks4://")
+        || lower.starts_with("socks4a://")
     {
         Some(addr.to_string())
     } else if addr.contains(':') {
@@ -384,6 +386,20 @@ mod proxy_tests {
         assert_eq!(normalize_windows_proxy_server("   "), None);
         assert_eq!(normalize_windows_proxy_server("notaproxy"), None);
         assert_eq!(normalize_windows_proxy_server("http=;https="), None);
+        // `socks4` 裸前缀无 `://` 一律拒绝（与 Linux `normalize_proxy_url` 同严格口径）。
+        assert_eq!(normalize_windows_proxy_server("socks4"), None);
+        assert_eq!(normalize_windows_proxy_server("socks4junk"), None);
+        assert_eq!(normalize_windows_proxy_server("socks4proxy"), None);
+        assert_eq!(normalize_windows_proxy_server("  socks4junk  "), None);
+        // 带 `://` 的合法 socks4(a) 仍保留原值。
+        assert_eq!(
+            normalize_windows_proxy_server("socks4://127.0.0.1:7890"),
+            Some("socks4://127.0.0.1:7890".to_string())
+        );
+        assert_eq!(
+            normalize_windows_proxy_server("socks4a://127.0.0.1:7890"),
+            Some("socks4a://127.0.0.1:7890".to_string())
+        );
     }
 }
 
