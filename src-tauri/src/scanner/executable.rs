@@ -35,6 +35,11 @@ const CANDIDATE_STOP_WORDS: &[&str] = &[
     "service",
     "test",
     "tests",
+    "terminal",
+    "code",
+    "react",
+    "native",
+    "gui",
 ];
 
 impl AppScanner {
@@ -538,6 +543,20 @@ impl AppScanner {
         if let Some(stripped) = rest.strip_prefix("Exec=") {
             rest = stripped.trim();
         }
+        // P0 止血：`flatpak run <appid>` 包装器无本地二进制，禁解析为 `flatpak`
+        //（否则 which 到 /usr/bin/flatpak 造成全量误报）。大小写不敏感。
+        {
+            let lower_rest = rest.to_lowercase();
+            let first_two: Vec<&str> = lower_rest.split_whitespace().take(2).collect();
+            if first_two.first().is_some_and(|f| {
+                *f == "flatpak" || f.ends_with("/flatpak")
+            }) {
+                return None;
+            }
+            if lower_rest.starts_with("flatpak ") || lower_rest.starts_with("flatpak\t") {
+                return None;
+            }
+        }
         // tokenize：尊重单双引号
         let mut tokens: Vec<String> = Vec::new();
         let mut cur = String::new();
@@ -589,6 +608,14 @@ impl AppScanner {
             if t.is_empty() {
                 idx += 1;
                 continue;
+            }
+            // P0 止血：env 前缀后的 `flatpak run` 同样拒识（防 `env .. flatpak run` 绕过）。
+            {
+                let tl = t.to_lowercase();
+                let base = tl.rsplit('/').next().unwrap_or(&tl);
+                if base == "flatpak" {
+                    return None;
+                }
             }
             if t.starts_with('%') {
                 idx += 1;
@@ -647,7 +674,7 @@ impl AppScanner {
     /// 在 `PATH` 中查找裸命令。
     /// PATH 在 GUI/服务进程中可能稀疏，显式补齐标准绑定目录（FHS/XDG）：
     /// `/usr/local/bin`（本地编译）、`/usr/bin`、`/bin`（与 `/usr/bin` 符号链接兼容）、
-    /// `~/.local/bin`（XDG 用户级）。
+    /// `/snap/bin`（snap 应用，如 vlc snap 落盘处）、`~/.local/bin`（XDG 用户级）。
     /// 注：`/opt/bin` 非标准 FHS 路径，已删（`/opt/<Name>` 由 `resolve_linux_system_binary` 专管）。
     /// Unix 上必须有执行位才放行（无执行位返回 None；符号链接经 metadata 跟随目标判定）。
     pub fn which_binary(name: &str) -> Option<String> {
@@ -668,7 +695,7 @@ impl AppScanner {
                 }
             }
         }
-        for extra in ["/usr/local/bin", "/usr/bin", "/bin"] {
+        for extra in ["/usr/local/bin", "/usr/bin", "/bin", "/snap/bin"] {
             let p = PathBuf::from(extra);
             if !dirs.contains(&p) {
                 dirs.push(p);
@@ -853,16 +880,160 @@ impl AppScanner {
         Some(picked)
     }
 
-    /// Linux 系统级二进制嗅探：PATH/which → /usr/bin/<token> → /opt/<Name>/* → desktop Exec。
+    /// 文件名/目录名归一化：小写去空格/`-`/`_`后比对（P0 止血 + P1 `/opt/Clash Verge`
+    /// 带空格目录兼容共用；纯函数，跨平台可单测）。
+    pub fn normalize_fs_token(s: &str) -> String {
+        s.to_lowercase()
+            .chars()
+            .filter(|c| *c != ' ' && *c != '-' && *c != '_')
+            .collect()
+    }
+
+    /// Linux desktop 搜索目录（7 类去重）：
+    /// `/usr/share/applications`、`/usr/local/share/applications`、
+    /// `~/.local/share/applications`、` /var/lib/snapd/desktop/applications`、
+    /// `/var/lib/flatpak/exports/share/applications`、
+    /// `~/.local/share/flatpak/exports/share/applications`、
+    /// `$XDG_DATA_DIRS` 展开（`:` 分隔 + `/applications` 后缀，缺省为
+    /// `/usr/local/share:/usr/share`）。
+    /// 纯环境函数，跨平台可调用（Windows 上返回对应路径列表但调用方不使用）。
+    pub fn linux_desktop_dirs() -> Vec<PathBuf> {
+        let mut dirs: Vec<PathBuf> = vec![
+            PathBuf::from("/usr/share/applications"),
+            PathBuf::from("/usr/local/share/applications"),
+        ];
+        if let Ok(home) = std::env::var("HOME") {
+            let h = PathBuf::from(&home);
+            dirs.push(h.join(".local/share/applications"));
+            dirs.push(
+                h.join(".local/share/flatpak/exports/share/applications"),
+            );
+        }
+        dirs.push(PathBuf::from("/var/lib/snapd/desktop/applications"));
+        dirs.push(PathBuf::from(
+            "/var/lib/flatpak/exports/share/applications",
+        ));
+        match std::env::var("XDG_DATA_DIRS") {
+            Ok(xdg) => {
+                for part in xdg.split(':') {
+                    let t = part.trim().trim_end_matches('/');
+                    if t.is_empty() {
+                        continue;
+                    }
+                    // 若条目已以 /applications 结尾则直接采用，否则拼接后缀。
+                    let p = if t.ends_with("applications") {
+                        PathBuf::from(t)
+                    } else {
+                        PathBuf::from(t).join("applications")
+                    };
+                    if !dirs.contains(&p) {
+                        dirs.push(p);
+                    }
+                }
+            }
+            Err(_) => {
+                for d in ["/usr/local/share", "/usr/share"] {
+                    let p = PathBuf::from(d).join("applications");
+                    if !dirs.contains(&p) {
+                        dirs.push(p);
+                    }
+                }
+            }
+        }
+        let mut out: Vec<PathBuf> = Vec::new();
+        for d in dirs {
+            if !out.contains(&d) {
+                out.push(d);
+            }
+        }
+        out
+    }
+
+    /// desktop stem 是否与任一 token 归一化精确相等（P0 止血：禁 `contains`，
+    /// 防 `app` 误命中 `apport-gtk.desktop`；`len<5` 短 token 天然精确相等）。
+    fn desktop_stem_matches_exact(stem: &str, bare_tokens: &[String]) -> bool {
+        let norm_stem = Self::normalize_fs_token(stem);
+        if norm_stem.is_empty() {
+            return false;
+        }
+        for t in bare_tokens {
+            let tl = t.to_lowercase();
+            let base = tl.strip_suffix(".exe").unwrap_or(&tl);
+            if base.is_empty() || base.contains(' ') || base.contains('/') {
+                continue;
+            }
+            // 裸名并入保持，但命中必须 basename 精确 == token（归一化后精确相等）。
+            if Self::normalize_fs_token(base) == norm_stem {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Exec 二进制 basename 是否与任一 token 精确相等（小写精确，归一化兜底）。
+    fn exec_basename_matches_exact(bin: &str, bare_tokens: &[String]) -> bool {
+        let base = bin.rsplit('/').next().unwrap_or(bin).to_lowercase();
+        let base = base.trim().to_string();
+        if base.is_empty() {
+            return false;
+        }
+        let norm_base = Self::normalize_fs_token(&base);
+        for t in bare_tokens {
+            let tl = t.to_lowercase();
+            let stripped = tl.strip_suffix(".exe").unwrap_or(&tl);
+            if stripped.is_empty() || stripped.contains(' ') || stripped.contains('/') {
+                continue;
+            }
+            if base == *stripped || norm_base == Self::normalize_fs_token(stripped) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// `/opt` 子目录是否与 token 匹配：归一化后比对；`len<5` 短 token 要求精确相等，
+    /// 长 token 允许任一方向 `contains`（兼容 `/opt/Clash Verge` vs `clash-verge-rev`）。
+    fn opt_dir_matches(norm_dir: &str, token: &str) -> bool {
+        if norm_dir.is_empty() {
+            return false;
+        }
+        let norm_tok = Self::normalize_fs_token(token);
+        if norm_tok.is_empty() {
+            return false;
+        }
+        if token.len() < 5 {
+            norm_dir == norm_tok
+        } else {
+            norm_dir == norm_tok
+                || norm_dir.contains(&norm_tok)
+                || norm_tok.contains(norm_dir)
+        }
+    }
+
+    /// Linux 系统级二进制嗅探：PATH/which → /usr/bin/<token> → /opt/<Name>/* → AppImage → desktop Exec。
     /// 仅在 linux 编译，Windows 行为不受影响。
     #[cfg(target_os = "linux")]
     pub fn resolve_linux_system_binary(config: &ScanConfig) -> Option<String> {
+        Self::resolve_linux_system_binary_with_source(config).map(|(p, _)| p)
+    }
+
+    /// 同上，附命中源（`which` / `snap` / `opt` / `appimage` / `desktop`，供调试命令标记）。
+    #[cfg(target_os = "linux")]
+    pub fn resolve_linux_system_binary_with_source(
+        config: &ScanConfig,
+    ) -> Option<(String, &'static str)> {
         // 候选裸名共享派生（与 installer_install / installer_query / via_dpkg 共用 helper）：
         // `target_executables`（原生大小写 + 小写 + `.exe` 退化裸名）+ `install_dirs` 切分 token。
         let (_, bare) =
             Self::linux_candidate_names(&config.target_executables, &config.install_dirs);
-        // 1. PATH / which（含 /usr/bin/motrix 符号链接链）
-        for name in &bare {
+        // P0 补充：长 token 优先（防 `clash-verge-rev` 派生的短片段 `rev` 先命中
+        // `/usr/bin/rev`，而正确二进制 `/usr/bin/clash-verge` 被淹没）。
+        let mut ordered = bare.clone();
+        ordered.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
+        // 1. PATH / which（含 /usr/bin/motrix 符号链接链；/snap/bin 已并入 which 搜索）。
+        // P0：裸名并入保持，但 which 命中天然 basename 精确 == token（`which_binary` 按文件名
+        // 精确 join，不做 contains）。
+        for name in &ordered {
             // 跳过明显非命令的 token（含空格/路径分隔符）
             if name.contains(' ') || name.contains('/') || name.contains('\\') {
                 continue;
@@ -871,14 +1042,22 @@ impl AppScanner {
                 // 跟随符号链接确认最终目标存在
                 let p = Path::new(&found);
                 let resolved = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
-                if resolved.is_file() {
-                    return Some(resolved.to_string_lossy().to_string());
-                }
-                return Some(found);
+                let out = if resolved.is_file() {
+                    resolved.to_string_lossy().to_string()
+                } else {
+                    found.clone()
+                };
+                // snap 落盘（/snap/bin/*）单独标记来源。
+                let src: &'static str = if out.starts_with("/snap/") || found.starts_with("/snap/") {
+                    "snap"
+                } else {
+                    "which"
+                };
+                return Some((out, src));
             }
         }
-        // 2. /usr/bin/<token> 直接探测（PATH 缺失时的兜底）
-        for name in &bare {
+        // 2. /usr/bin/<token> 直接探测（PATH 缺失时的兜底，精确 join，长优先）
+        for name in &ordered {
             if name.contains(' ') || name.contains('/') {
                 continue;
             }
@@ -886,17 +1065,85 @@ impl AppScanner {
             if cand.is_file() {
                 let resolved =
                     std::fs::canonicalize(&cand).unwrap_or_else(|_| cand.clone());
-                return Some(resolved.to_string_lossy().to_string());
+                return Some((resolved.to_string_lossy().to_string(), "which"));
             }
             let cand_local = PathBuf::from("/usr/local/bin").join(name);
             if cand_local.is_file() {
-                return Some(cand_local.to_string_lossy().to_string());
+                return Some((cand_local.to_string_lossy().to_string(), "which"));
             }
         }
-        // 3. /opt/<Name>/* 目录嗅探（Motrix 落盘 /opt/Motrix/motrix）
+        // 3. /opt 目录嗅探：read_dir 枚举 + 归一化比对（兼容 `/opt/Clash Verge` 带空格），
+        // 命中目录再 `find_exe_in_directory` 精准提取。
+        if let Some(found) = Self::resolve_linux_via_opt(&bare, config) {
+            return Some((found, "opt"));
+        }
+        // 3b. AppImage：~/Applications、~/AppImages、/opt/appimages/*.AppImage 按 basename==token。
+        if let Some(found) = Self::resolve_linux_via_appimage(&bare) {
+            return Some((found, "appimage"));
+        }
+        // 4. desktop Exec 解析（7 目录，见 `linux_desktop_dirs`）
+        if let Some(found) = Self::resolve_linux_via_desktop(&bare) {
+            return Some((found, "desktop"));
+        }
+        None
+    }
+
+    /// P1：`/opt` read_dir 枚举 + 归一化比对（解决 `/opt/Clash Verge` 带空格问题）。
+    /// 仅 linux 生效。先枚举匹配目录，再 `find_exe_in_directory`；直连旧路径作为回退保留。
+    #[cfg(target_os = "linux")]
+    pub fn resolve_linux_via_opt(
+        bare_tokens: &[String],
+        config: &ScanConfig,
+    ) -> Option<String> {
+        // 归一化 token 集合：bare + install_dirs 末段。
+        let mut norm_tokens: Vec<(String, String)> = Vec::new();
+        for t in bare_tokens
+            .iter()
+            .chain(config.install_dirs.iter())
+        {
+            let last = t.rsplit(['/', '\\']).next().unwrap_or(t);
+            if last.trim().is_empty() {
+                continue;
+            }
+            norm_tokens.push((t.clone(), Self::normalize_fs_token(last)));
+        }
+        // 枚举 /opt 一级子目录做归一化匹配。
+        if let Ok(entries) = std::fs::read_dir("/opt") {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if !p.is_dir() || Self::is_installer_or_cache_path(&p) {
+                    continue;
+                }
+                let dirname = p
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                let norm_dir = Self::normalize_fs_token(&dirname);
+                let hit = norm_tokens
+                    .iter()
+                    .any(|(raw, _)| Self::opt_dir_matches(&norm_dir, raw));
+                if !hit {
+                    continue;
+                }
+                if let Some(found) = Self::find_exe_in_directory(&p, config) {
+                    return Some(found);
+                }
+                // find 兜底：目录下直接按裸名查找（basename 精确 == token）。
+                for name in bare_tokens {
+                    if name.contains(' ') || name.contains('/') {
+                        continue;
+                    }
+                    let cand = p.join(name);
+                    if cand.is_file() {
+                        return Some(cand.to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
+        // 回退：旧直连路径（/opt/<variant>）保留，防枚举权限失败时漏检。
         let mut opt_roots: Vec<PathBuf> = Vec::new();
         for d in &config.install_dirs {
-            // install_dirs 可能含 Windows 风格 `VideoLAN\VLC`，取末段
             let last = d.rsplit(['/', '\\']).next().unwrap_or(d);
             for variant in [last.to_string(), last.to_lowercase(), d.clone()] {
                 for root in [
@@ -909,8 +1156,7 @@ impl AppScanner {
                 }
             }
         }
-        // 额外：/opt 下首字母大写变体（如 Motrix）
-        for name in bare.clone() {
+        for name in bare_tokens {
             if name.len() < 3 {
                 continue;
             }
@@ -928,8 +1174,7 @@ impl AppScanner {
                 if let Some(found) = Self::find_exe_in_directory(&root, config) {
                     return Some(found);
                 }
-                // find 兜底：root 下直接按裸名查找
-                for name in &bare {
+                for name in bare_tokens {
                     if name.contains(' ') || name.contains('/') {
                         continue;
                     }
@@ -940,29 +1185,69 @@ impl AppScanner {
                 }
             }
         }
-        // 4. desktop Exec 解析（/usr/share/applications 系统级 + /usr/local/share 本地编译 +
-        // ~/.local/share XDG 用户级，见 `resolve_linux_via_desktop` 注释）
-        if let Some(found) = Self::resolve_linux_via_desktop(&bare) {
-            return Some(found);
+        None
+    }
+
+    /// P1：AppImage 嗅探（`~/Applications`、`~/AppImages`、`/opt/appimages/*.AppImage`
+    /// 按 basename 精确 == token）。仅 linux 生效。
+    #[cfg(target_os = "linux")]
+    pub fn resolve_linux_via_appimage(bare_tokens: &[String]) -> Option<String> {
+        let mut dirs: Vec<PathBuf> = Vec::new();
+        if let Ok(home) = std::env::var("HOME") {
+            let h = PathBuf::from(&home);
+            dirs.push(h.join("Applications"));
+            dirs.push(h.join("AppImages"));
+        }
+        dirs.push(PathBuf::from("/opt/appimages"));
+        dirs.push(PathBuf::from("/opt/AppImages"));
+        for dir in dirs {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if !p.is_file() {
+                    continue;
+                }
+                let fname = p
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                if !fname.to_lowercase().ends_with(".appimage") {
+                    continue;
+                }
+                let stem = fname
+                    .rsplit_once('.')
+                    .map(|(s, _)| s)
+                    .unwrap_or(&fname);
+                let stem_lower = stem.to_lowercase();
+                let norm_stem = Self::normalize_fs_token(stem);
+                let hit = bare_tokens.iter().any(|t| {
+                    let tl = t.to_lowercase();
+                    let base = tl.strip_suffix(".exe").unwrap_or(&tl);
+                    if base.is_empty() || base.contains(' ') || base.contains('/') {
+                        return false;
+                    }
+                    stem_lower == *base || norm_stem == Self::normalize_fs_token(base)
+                });
+                if hit {
+                    return Some(p.to_string_lossy().to_string());
+                }
+            }
         }
         None
     }
 
-    /// Linux desktop 文件嗅探：文件名/Name 与 token 匹配 → 解析 Exec → 落盘路径。
+    /// Linux desktop 文件嗅探：仅认 filename stem 归一化 == token 或 Exec 二进制
+    /// basename == token（P0 止血：砍掉 desktop Name `contains` 匹配与 stem `contains`
+    /// 匹配，防 `app` 误命中 `apport-gtk.desktop`）。
     /// 全仓唯一的 desktop walker（installer 回填与系统嗅探共用，收敛 executor 侧重复实现）。
-    /// 桌面目录：`/usr/share/applications`（发行版包，如 motrix.deb 落盘处，commit 主语义）、
-    /// `/usr/local/share/applications`（FHS 本地编译安装）、`~/.local/share/applications`
-    /// （XDG 用户级，如 `pip --user` / 手动安装）。
+    /// 桌面目录见 [`Self::linux_desktop_dirs`]（7 类）。
     #[cfg(target_os = "linux")]
     pub fn resolve_linux_via_desktop(bare_tokens: &[String]) -> Option<String> {
-        let mut desktop_dirs: Vec<PathBuf> = vec![
-            PathBuf::from("/usr/share/applications"),
-            PathBuf::from("/usr/local/share/applications"),
-        ];
-        if let Ok(home) = std::env::var("HOME") {
-            desktop_dirs.push(PathBuf::from(home).join(".local/share/applications"));
-        }
-        // 收集候选 desktop 文件：文件名含 token 或 Name=/Exec 含 token
+        let desktop_dirs = Self::linux_desktop_dirs();
+        // 收集候选 desktop 文件：stem 归一化精确 == token，或 Exec basename 精确 == token。
         let mut candidate_files: Vec<PathBuf> = Vec::new();
         for dir in &desktop_dirs {
             let Ok(entries) = std::fs::read_dir(dir) else {
@@ -982,25 +1267,28 @@ impl AppScanner {
                     .to_string_lossy()
                     .to_lowercase();
                 let stem = fname.strip_suffix(".desktop").unwrap_or(&fname).to_string();
-                let matched = bare_tokens.iter().any(|t| {
-                    let tl = t.to_lowercase();
-                    stem == tl || stem.contains(&tl) || tl.contains(&stem)
-                });
-                if matched {
+                // ① filename stem 归一化 == token（精确，无 contains）。
+                if Self::desktop_stem_matches_exact(&stem, bare_tokens) {
                     candidate_files.push(p);
                     continue;
                 }
-                // 文件名未命中时读 Name= 再判定（避免全量解析开销过大，仅读首 4KB）
+                // ② Exec 二进制 basename == token（需读文件解析 Exec；flatpak 包装器
+                // 经 `parse_desktop_exec_binary` 返回 None 自动排除）。
                 if let Ok(content) = std::fs::read_to_string(&p) {
-                    let name_line = content
-                        .lines()
-                        .find(|l| l.trim_start().starts_with("Name="))
-                        .unwrap_or("")
-                        .to_lowercase();
-                    if bare_tokens.iter().any(|t| {
-                        let tl = t.to_lowercase();
-                        name_line.contains(&tl) || tl.contains(&stem)
-                    }) {
+                    let mut exec_hit = false;
+                    for line in content.lines() {
+                        let trimmed = line.trim();
+                        if !trimmed.starts_with("Exec=") {
+                            continue;
+                        }
+                        if let Some(bin) = Self::parse_desktop_exec_binary(trimmed) {
+                            if Self::exec_basename_matches_exact(&bin, bare_tokens) {
+                                exec_hit = true;
+                                break;
+                            }
+                        }
+                    }
+                    if exec_hit {
                         candidate_files.push(p);
                     }
                 }
@@ -1043,14 +1331,23 @@ impl AppScanner {
     /// Linux dpkg 回退：对候选包名执行 `dpkg -L` 并精准挑选可执行文件。
     /// 包名/候选名共享派生（`linux_candidate_names`），挑选 + 规范化共用
     /// `pick_and_canonicalize_package_path`（与 executor deb/rpm 回填同一函数）。
+    /// P1：候选包名试全 `identifiers.linux + repo_base`（经 `linux_candidate_names`
+    /// 全量派生，不再 `truncate(6)`）。
     #[cfg(target_os = "linux")]
     pub fn resolve_linux_via_dpkg(
         tokens: &[String],
         config: &ScanConfig,
     ) -> Option<String> {
-        // 候选包名共享派生（包名最多 6 个，防进程放量；原语义保留）
-        let (mut pkgs, cands) = Self::linux_candidate_names(&config.target_executables, tokens);
-        pkgs.truncate(6);
+        Self::resolve_linux_via_dpkg_with_source(tokens, config).map(|(p, _)| p)
+    }
+
+    /// 同上，附命中源（恒为 `dpkg`）。
+    #[cfg(target_os = "linux")]
+    pub fn resolve_linux_via_dpkg_with_source(
+        tokens: &[String],
+        config: &ScanConfig,
+    ) -> Option<(String, &'static str)> {
+        let (pkgs, cands) = Self::linux_candidate_names(&config.target_executables, tokens);
         for pkg in pkgs {
             let out = std::process::Command::new("dpkg")
                 .args(["-L", &pkg])
@@ -1063,10 +1360,235 @@ impl AppScanner {
             }
             let text = String::from_utf8_lossy(&output.stdout).to_string();
             if let Some(picked) = Self::pick_and_canonicalize_package_path(&text, &cands) {
-                return Some(picked);
+                return Some((picked, "dpkg"));
             }
         }
         None
+    }
+
+    /// 调试用：返回安装路径 + 命中源（`which` / `snap` / `opt` / `appimage` /
+    /// `desktop` / `dpkg` / `portable`），供 `get_detected_debug` 命令标记哪路命中。
+    /// 仅 linux 生效；非 linux 返回 None。
+    #[cfg(target_os = "linux")]
+    pub fn resolve_installed_app_path_with_source(
+        app_name: &str,
+        app_id: &str,
+        repo: Option<&str>,
+    ) -> Option<(String, String)> {
+        let repo_str = repo.unwrap_or(app_id);
+        let repo_base = repo_str.rsplit('/').next().unwrap_or(repo_str);
+        let mut config = ScanConfig::from(repo_base);
+        // token 派生与 `resolve_installed_app_path` 同规则（含新增停用词）。
+        let mut tokens = vec![
+            app_name.trim().to_lowercase(),
+            app_id.trim().to_lowercase(),
+            repo_str.trim().to_lowercase(),
+        ];
+        for part in app_name.split_whitespace() {
+            let p_lower = part.trim().to_lowercase();
+            if p_lower.len() >= 3
+                && !p_lower.chars().all(|c| c.is_ascii_digit())
+                && !CANDIDATE_STOP_WORDS.contains(&p_lower.as_str())
+            {
+                tokens.push(p_lower);
+            }
+        }
+        for part in app_id.split(['-', '/']) {
+            let p_lower = part.trim().to_lowercase();
+            if p_lower.len() >= 3
+                && !p_lower.chars().all(|c| c.is_ascii_digit())
+                && !CANDIDATE_STOP_WORDS.contains(&p_lower.as_str())
+            {
+                tokens.push(p_lower);
+            }
+        }
+        if let Some((first, _)) = app_name.rsplit_once(' ') {
+            let f_lower = first.trim().to_lowercase();
+            if f_lower.len() >= 3
+                && !f_lower.chars().all(|c| c.is_ascii_digit())
+                && !CANDIDATE_STOP_WORDS.contains(&f_lower.as_str())
+            {
+                tokens.push(f_lower);
+            }
+        }
+        if let Some((first, _)) = app_id.rsplit_once('-') {
+            let f_lower = first.trim().to_lowercase();
+            if f_lower.len() >= 3
+                && !f_lower.chars().all(|c| c.is_ascii_digit())
+                && !CANDIDATE_STOP_WORDS.contains(&f_lower.as_str())
+            {
+                tokens.push(f_lower);
+            }
+        }
+        tokens.retain(|t| {
+            !t.is_empty()
+                && t.len() >= 3
+                && !t.chars().all(|c| c.is_ascii_digit())
+                && !CANDIDATE_STOP_WORDS.contains(&t.as_str())
+        });
+        for t in &tokens {
+            if !config.install_dirs.contains(t) {
+                config.install_dirs.push(t.clone());
+            }
+            let exe_name = format!("{}.exe", t);
+            if !config.target_executables.contains(&exe_name) {
+                config.target_executables.push(exe_name);
+            }
+            if !config.target_executables.contains(t) {
+                config.target_executables.push(t.clone());
+            }
+        }
+        let portable_dir = crate::installer::dirs_or_fallback_with_base(app_id, None);
+        if portable_dir.is_dir() {
+            if let Some(exe) = Self::find_exe_in_directory(&portable_dir, &config) {
+                return Some((exe, "portable".to_string()));
+            }
+        }
+        if let Some((found, src)) = Self::resolve_linux_system_binary_with_source(&config) {
+            return Some((found, src.to_string()));
+        }
+        if let Some((found, src)) = Self::resolve_linux_via_dpkg_with_source(&tokens, &config) {
+            return Some((found, src.to_string()));
+        }
+        Self::resolve_executable_path(None, None, config)
+            .map(|p| (p, "fallback".to_string()))
+    }
+
+    /// Linux 系统应用枚举：遍历 [`Self::linux_desktop_dirs`] 下 `*.desktop` 转
+    /// `ScannedRawApp`（`Name=`→display_name，`Version=`→display_version，
+    /// `Exec` 解析落盘→install_location）。跳过 `Hidden=true` / `NoDisplay=true` /
+    /// 非 `Application` 类型。仅 linux 生效。
+    #[cfg(target_os = "linux")]
+    pub fn scan_linux_desktop() -> Vec<super::ScannedRawApp> {
+        use std::collections::HashSet;
+        let mut out: Vec<super::ScannedRawApp> = Vec::new();
+        let mut seen: HashSet<String> = HashSet::new();
+        for dir in Self::linux_desktop_dirs() {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if !p.is_file() {
+                    continue;
+                }
+                if p.extension().is_none_or(|e| !e.eq_ignore_ascii_case("desktop")) {
+                    continue;
+                }
+                let Ok(content) = std::fs::read_to_string(&p) else {
+                    continue;
+                };
+                let mut name: Option<String> = None;
+                let mut version = String::new();
+                let mut type_val = String::new();
+                let mut hidden = false;
+                let mut nodisplay = false;
+                let mut exec_bin: Option<String> = None;
+                let mut try_exec: Option<String> = None;
+                let mut icon_val: Option<String> = None;
+                for line in content.lines() {
+                    let t = line.trim();
+                    if t.is_empty() || t.starts_with('#') || t.starts_with('[') {
+                        continue;
+                    }
+                    if let Some(v) = t.strip_prefix("Name=") {
+                        if name.is_none() {
+                            let s = v.trim().to_string();
+                            if !s.is_empty() {
+                                name = Some(s);
+                            }
+                        }
+                    } else if let Some(v) = t.strip_prefix("Version=") {
+                        if version.is_empty() {
+                            version = v.trim().to_string();
+                        }
+                    } else if let Some(v) = t.strip_prefix("Type=") {
+                        if type_val.is_empty() {
+                            type_val = v.trim().to_string();
+                        }
+                    } else if let Some(v) = t.strip_prefix("Hidden=") {
+                        hidden = v.trim().eq_ignore_ascii_case("true");
+                    } else if let Some(v) = t.strip_prefix("NoDisplay=") {
+                        nodisplay = v.trim().eq_ignore_ascii_case("true");
+                    } else if let Some(v) = t.strip_prefix("TryExec=") {
+                        if try_exec.is_none() {
+                            let s = v.trim().to_string();
+                            if !s.is_empty() {
+                                try_exec = Some(s);
+                            }
+                        }
+                    } else if t.starts_with("Exec=") {
+                        if exec_bin.is_none() {
+                            if let Some(bin) = Self::parse_desktop_exec_binary(t) {
+                                exec_bin = Some(bin);
+                            }
+                        }
+                    } else if let Some(v) = t.strip_prefix("Icon=") {
+                        if icon_val.is_none() {
+                            let s = v.trim().to_string();
+                            if !s.is_empty() {
+                                icon_val = Some(s);
+                            }
+                        }
+                    }
+                }
+                if hidden || nodisplay {
+                    continue;
+                }
+                if !type_val.is_empty() && !type_val.eq_ignore_ascii_case("Application") {
+                    continue;
+                }
+                let display_name = match name {
+                    Some(n) => n,
+                    None => p
+                        .file_stem()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string(),
+                };
+                if display_name.trim().is_empty() {
+                    continue;
+                }
+                // Exec/TryExec 落盘解析（flatpak 包装器已在 parse 层拒识）。
+                let mut install_location: Option<String> = None;
+                if let Some(bin) = exec_bin.as_deref() {
+                    if let Some(resolved) = Self::resolve_binary_via_path(bin) {
+                        install_location = Some(resolved);
+                    }
+                }
+                if install_location.is_none() {
+                    if let Some(te) = try_exec.as_deref() {
+                        if let Some(resolved) = Self::resolve_binary_via_path(te) {
+                            install_location = Some(resolved);
+                        }
+                    }
+                }
+                let dedup_key = format!(
+                    "{}::{}",
+                    display_name.to_lowercase(),
+                    install_location.clone().unwrap_or_default().to_lowercase()
+                );
+                if seen.contains(&dedup_key) {
+                    continue;
+                }
+                seen.insert(dedup_key);
+                // Icon 仅保留绝对路径形态（图标主题名不充当可执行路径）。
+                let display_icon = match icon_val {
+                    Some(ic) if ic.starts_with('/') => Some(ic),
+                    _ => install_location.clone(),
+                };
+                out.push(super::ScannedRawApp {
+                    display_name,
+                    display_version: version,
+                    publisher: None,
+                    install_location,
+                    display_icon,
+                    uninstall_string: None,
+                    installed_at: None,
+                });
+            }
+        }
+        out
     }
 
     /// 检测本地文件路径对应的主程序或安装目录的文件系统创建/修改时间戳

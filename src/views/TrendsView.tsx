@@ -57,7 +57,9 @@ import {
 } from '../services/trends/board';
 import {
   PENDING_SETTLE_MS,
+  isDetectedOnly as selectIsDetectedOnly,
   isEnrichedRowPending,
+  isManaged as selectIsManaged,
 } from '../app/selectors';
 import {
   PLATFORM_IDS,
@@ -136,8 +138,10 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   favoriteIds,
   installedIds,
   installingIds,
+  managedIds,
   onOpenDetail,
   onQuickInstall,
+  onManageApp,
   onToggleFavorite,
   onResetPlatformFilter,
   allApps,
@@ -599,10 +603,13 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                   trendGain={item.gain}
                   trendGainText={gainTextFor(item.gain)}
                   isInstalled={installedIds?.has(item.app.id) ?? false}
+                  isManaged={managedIds ? selectIsManaged(item.app.id, managedIds) : undefined}
+                  isDetectedOnly={managedIds && installedIds ? selectIsDetectedOnly(item.app.id, installedIds, managedIds) : undefined}
                   isInstalling={installingIds?.has(item.app.id) ?? false}
                   isFavorite={favoriteIds?.has(item.app.id) ?? false}
                   onOpenDetail={onOpenDetail}
                   onQuickInstall={onQuickInstall}
+                  onManageApp={onManageApp}
                   onToggleFavorite={onToggleFavorite}
                 />
               );
@@ -635,10 +642,13 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                   eager={index < 6}
                   trendGain={item.gain}
                   trendGainText={gainTextFor(item.gain)}
-                  isInstalled={false}
+                  isInstalled={installedIds?.has(displayApp.id) ?? false}
+                  isManaged={managedIds ? selectIsManaged(displayApp.id, managedIds) : undefined}
+                  isDetectedOnly={managedIds && installedIds ? selectIsDetectedOnly(displayApp.id, installedIds, managedIds) : undefined}
                   isInstalling={false}
                   isFavorite={false}
                   onOpenDetail={onOpenDetail}
+                  onManageApp={onManageApp}
                   onQuickInstall={() => {
                     if (item.repo.url) {
                       void tauriApi.openUrl(item.repo.url);

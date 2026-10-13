@@ -555,6 +555,7 @@ pub fn run() {
             commands::scan_and_match_local_apps,
             commands::import_matched_apps,
             commands::get_detected_installed_app_ids,
+            commands::get_detected_debug,
             commands::import_single_app,
             commands::launch_app,
             commands::get_update_rules,

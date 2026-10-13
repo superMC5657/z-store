@@ -240,7 +240,8 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   };
 
   const handleAction = async () => {
-    if (isInstalled) {
+    // P0 已纳管 vs 仅检测到：仅已纳管走启动；仅检测到走覆盖/重装（安装通道），避免误把纳管点击当启动。
+    if (isInstalled && isManaged) {
       onLaunch(app.id);
       return;
     }

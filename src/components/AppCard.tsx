@@ -1,4 +1,4 @@
-import React, { memo } from 'react';
+import React, { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { AppSummary } from '../types';
@@ -11,7 +11,12 @@ import { formatStars } from '../services/trends';
 
 interface AppCardProps {
   app: AppSummary;
+  /** union 口径（已纳管 + 仅检测到），保持历史语义供旧调用方兼容。 */
   isInstalled: boolean;
+  /** 已纳管（绿色已安装）。缺席时回退为 isInstalled，保持旧调用方零变化。 */
+  isManaged?: boolean;
+  /** 仅检测到未纳管（灰色检测到·点击纳管）。缺席时按 isInstalled && !managed 派生。 */
+  isDetectedOnly?: boolean;
   isInstalling?: boolean;
   isFavorite?: boolean;
   isWatched?: boolean;
@@ -35,6 +40,8 @@ interface AppCardProps {
   showCatalogBadge?: boolean;
   onOpenDetail: (id: string) => void;
   onQuickInstall: (id: string) => void;
+  /** 仅检测到时点击纳管（调 handleManageApp/importSingleApp）。缺席时回退为打开详情。 */
+  onManageApp?: (id: string) => void | Promise<void>;
   onToggleFavorite?: (id: string) => void;
   onToggleWatch?: (id: string) => void;
 }
@@ -86,6 +93,9 @@ function areAppCardPropsEqual(prev: AppCardProps, next: AppCardProps): boolean {
   return (
     isAppVisualEqual(prev.app, next.app) &&
     prev.isInstalled === next.isInstalled &&
+    (prev.isManaged ?? prev.isInstalled) === (next.isManaged ?? next.isInstalled) &&
+    (prev.isDetectedOnly ?? (prev.isInstalled && !(prev.isManaged ?? prev.isInstalled))) ===
+      (next.isDetectedOnly ?? (next.isInstalled && !(next.isManaged ?? next.isInstalled))) &&
     (prev.isInstalling ?? false) === (next.isInstalling ?? false) &&
     (prev.isFavorite ?? false) === (next.isFavorite ?? false) &&
     (prev.isWatched ?? false) === (next.isWatched ?? false) &&
@@ -99,6 +109,7 @@ function areAppCardPropsEqual(prev: AppCardProps, next: AppCardProps): boolean {
     (prev.showCatalogBadge ?? false) === (next.showCatalogBadge ?? false) &&
     prev.onOpenDetail === next.onOpenDetail &&
     prev.onQuickInstall === next.onQuickInstall &&
+    prev.onManageApp === next.onManageApp &&
     prev.onToggleFavorite === next.onToggleFavorite &&
     prev.onToggleWatch === next.onToggleWatch
   );
@@ -107,6 +118,8 @@ function areAppCardPropsEqual(prev: AppCardProps, next: AppCardProps): boolean {
 export const AppCard: React.FC<AppCardProps> = memo(({
   app,
   isInstalled,
+  isManaged,
+  isDetectedOnly,
   isInstalling = false,
   isFavorite = false,
   isWatched = false,
@@ -120,10 +133,18 @@ export const AppCard: React.FC<AppCardProps> = memo(({
   showCatalogBadge = false,
   onOpenDetail,
   onQuickInstall,
+  onManageApp,
   onToggleFavorite,
   onToggleWatch,
 }) => {
   const { t, i18n } = useTranslation();
+  // P0 已纳管 vs 仅检测到：managed 绿已安装，detected 灰检测到·点击纳管。
+  // 旧调用方仅传 isInstalled（union）时回退为 managed，保持零变化；新调用方传 isManaged/managedIds 派生后即消灭误报。
+  const managed = isManaged ?? isInstalled;
+  const detectedOnly = isDetectedOnly ?? (isInstalled && !managed);
+  const showManaged = managed && !detectedOnly;
+  const showDetected = detectedOnly && !managed;
+  const [isManaging, setIsManaging] = useState(false);
   const displayName = getAppDisplayName(app);
   const displayDesc = getAppDescription(app, i18n.language);
   const displayCategory = getCategoryLabel(app.category, app.category_name, t);
@@ -298,11 +319,22 @@ export const AppCard: React.FC<AppCardProps> = memo(({
         </div>
 
         <button
-          className={`btn-install ${isInstalled ? 'btn-installed' : ''}`}
-          disabled={showDetailOnly ? false : isInstalling}
+          className={`btn-install ${showManaged ? 'btn-installed' : ''}`}
+          disabled={showDetailOnly ? false : (isInstalling || isManaging)}
           onClick={(e) => {
             e.stopPropagation();
-            if (isInstalled || showDetailOnly) {
+            if (showDetailOnly) {
+              onOpenDetail(app.id);
+            } else if (showDetected) {
+              // 仅检测到：点击纳管（调 handleManageApp/importSingleApp），无回调时回退详情
+              if (onManageApp) {
+                if (isManaging) return;
+                setIsManaging(true);
+                Promise.resolve(onManageApp(app.id)).catch(() => undefined).finally(() => setIsManaging(false));
+              } else {
+                onOpenDetail(app.id);
+              }
+            } else if (showManaged) {
               onOpenDetail(app.id);
             } else if (!isInstalling) {
               onQuickInstall(app.id);
@@ -313,20 +345,30 @@ export const AppCard: React.FC<AppCardProps> = memo(({
               ? detailLabel
               : isInstalling
                 ? t('app.installing_app', { name: displayName })
-                : isInstalled
-                  ? t('app.installed_details', { name: displayName })
-                  : t('app.get_app', { name: displayName })
+                : showDetected
+                  ? t('app.detected_manage_tip', { defaultValue: '检测到本地安装，点击纳入管理', name: displayName })
+                  : showManaged
+                    ? t('app.installed_details', { name: displayName })
+                    : t('app.get_app', { name: displayName })
           }
           aria-label={
             showDetailOnly
               ? detailLabel
               : isInstalling
                 ? t('app.installing_app', { name: displayName })
-                : isInstalled
-                  ? t('app.installed_details', { name: displayName })
-                  : t('app.get_app', { name: displayName })
+                : showDetected
+                  ? t('app.detected_manage_tip', { defaultValue: '检测到本地安装，点击纳入管理', name: displayName })
+                  : showManaged
+                    ? t('app.installed_details', { name: displayName })
+                    : t('app.get_app', { name: displayName })
           }
-          style={!showDetailOnly && isInstalling ? { opacity: 0.8, cursor: 'not-allowed' } : undefined}
+          style={
+            showDetected
+              ? { background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', borderColor: 'var(--border-subtle)' }
+              : !showDetailOnly && isInstalling
+                ? { opacity: 0.8, cursor: 'not-allowed' }
+                : undefined
+          }
         >
           {showDetailOnly ? (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
@@ -341,7 +383,16 @@ export const AppCard: React.FC<AppCardProps> = memo(({
               <span className="spinner-icon" style={{ width: '10px', height: '10px', borderWidth: '1.5px' }} />
               <span>{t('app.installing')}</span>
             </span>
-          ) : isInstalled ? (
+          ) : showDetected ? (
+            <>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="16" />
+                <line x1="8" y1="12" x2="16" y2="12" />
+              </svg>
+              <span>{isManaging ? t('app.managing', { defaultValue: '纳管中...' }) : t('app.detected_manage', { defaultValue: '检测到·点击纳管' })}</span>
+            </>
+          ) : showManaged ? (
             <>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="20 6 9 17 4 12" />

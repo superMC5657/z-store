@@ -112,7 +112,8 @@ export function useInstallState({
       await api.importSingleApp(id);
       const updatedList = await api.getInstalledApps();
       setInstalledApps(updatedList);
-      setDetectedAppIds((prev) => new Set([...prev, id]));
+      // P0 纳管后 detected 集合保持含该 id（大小写双写，与安装/刷新口径一致，避免误报抖动）
+      setDetectedAppIds((prev) => new Set(prev).add(id).add(id.toLowerCase()));
       showToast(t('toast.import_success'), 'success');
     } catch {
       /* 导入静默失败；列表保持不变 */
