@@ -92,7 +92,8 @@ function trackSubscription(ctx: MountCtx, promise: Promise<() => void>): void {
  * 更新中心切签检查 L440-450 与视图切换日志 L452-464）。
  *
  * - 初始拉取 + `zstore:catalog-synced` +
- *   `onSearchIconUpgraded`（回声窗内首个回声立期望，`applyHit` sole 写）；
+ *   `onSearchIconUpgraded`（回声窗内首个回声立期望，`applyHit` sole 写；双订阅正交门控，
+ *   此处不做 kind 硬过滤，search/trend 经店内世代门控正交判定，图标全局共享）；
  * - 关注加载 + `onWatchUpdated` 应用内提醒；
  * - 更新流：`onUpdateItemFound` 逐条跳出 + `onUpdateCheckProgress` +
  *   `onUpdateCheckFinished`；

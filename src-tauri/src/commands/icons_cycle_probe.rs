@@ -107,36 +107,87 @@ pub(crate) const KNOWN_ICON_EXTS: &[&str] = &[
     "png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "avif", "apng", "bmp",
 ];
 
-/// 指定级别缓存文件读取（非收录 `stem_l{level}.{ext}` 方案）：存在且有效才返回字节。
-/// 先试 `inferred_ext`（快路径），miss 时遍历 [`KNOWN_ICON_EXTS`] 兜底，避免无后缀 URL
-///（暂定 `png`）实际落盘为 `jpg` 后永远 miss 重复下载。
+/// 指定级别缓存文件读取（FINAL 双探：先 hash 新名，后老 `stem_l{level}` 兼容）：
+/// - 新名：`sha256(url)[0:16].{ext}`（`url_trimmed` 必传，空 url 直接走老名兼容）；
+/// - 老名：`{stem}_l{level}.{ext}`（`inferred` 快路径 + `KNOWN` 兜底）；
+/// - 命中要求：存在 + 合法图 + 文件 7 天新鲜（`is_icon_file_fresh`）；图标通道禁用 ETag，不查表。
+/// L1–L4 备选 Logo 必落盘；README 正文图永不进此（调用方不传正文 URL）。
 pub(crate) fn read_level_cache_file(
     icons_dir: &std::path::Path,
     stem: &str,
     level: i32,
     inferred_ext: &str,
+    url_trimmed: &str,
 ) -> Option<Vec<u8>> {
+    // 1. 新名双探：hash stem + inferred 快路径 + 全后缀兜底（sniff 纠正场景）。
+    let url = url_trimmed.trim();
+    if !url.is_empty() {
+        let hash_stem = {
+            let full = crate::sha256_digest_hex(url.as_bytes());
+            full[..16.min(full.len())].to_string()
+        };
+        let mut hash_candidates: Vec<String> = Vec::with_capacity(KNOWN_ICON_EXTS.len() + 1);
+        hash_candidates.push(format!("{}.{}", hash_stem, inferred_ext));
+        for ext in KNOWN_ICON_EXTS {
+            if *ext == inferred_ext {
+                continue;
+            }
+            hash_candidates.push(format!("{}.{}", hash_stem, ext));
+        }
+        for fname in hash_candidates {
+            let p = icons_dir.join(&fname);
+            if crate::commands::icons::is_icon_file_fresh(&p) {
+                if let Some(b) = read_valid_image_file(&p) {
+                    return Some(b);
+                }
+            }
+        }
+    }
+    // 2. 老名兼容：stem_l{level} 快路径 + 全后缀兜底（同样卡 7 天新鲜度）。
     let fname = crate::db::icon_cycle::cycle_filename(stem, level, inferred_ext);
-    if let Some(b) = read_valid_image_file(&icons_dir.join(fname)) {
-        return Some(b);
+    {
+        let p = icons_dir.join(&fname);
+        if crate::commands::icons::is_icon_file_fresh(&p) {
+            if let Some(b) = read_valid_image_file(&p) {
+                return Some(b);
+            }
+        }
     }
     for ext in KNOWN_ICON_EXTS {
         if *ext == inferred_ext {
             continue;
         }
         let alt = crate::db::icon_cycle::cycle_filename(stem, level, ext);
-        if let Some(b) = read_valid_image_file(&icons_dir.join(alt)) {
-            return Some(b);
+        let p = icons_dir.join(&alt);
+        if crate::commands::icons::is_icon_file_fresh(&p) {
+            if let Some(b) = read_valid_image_file(&p) {
+                return Some(b);
+            }
         }
     }
     None
 }
 
-/// 两表分流缓存读取唯一落点（原 get_or_fetch_icon 内联分支，语义逐行对齐）：
-/// 收录查 icon_cache_meta（要求文件非空 + meta URL 相等）；非收录查传入 cycle
-///（要求 cache_file 非空 + selected_url 相点）。`noncatalog_cycle=None` 视为未命中。
-/// 收录侧先试 `inferred_ext` 快路径，miss 时遍历 [`KNOWN_ICON_EXTS`] 兜底（meta URL 相等
-/// 才算命中），避免暂定后缀与实际落盘不一致时每次 miss 重复下载。
+/// 老签名兼容（测试/回滚线）：无 URL 时仅走老名兼容读（新名双探跳过）。
+/// 生产一律用 5 参版本（带 url 双探 hash）。
+#[allow(dead_code)]
+pub(crate) fn read_level_cache_file_legacy(
+    icons_dir: &std::path::Path,
+    stem: &str,
+    level: i32,
+    inferred_ext: &str,
+) -> Option<Vec<u8>> {
+    read_level_cache_file(icons_dir, stem, level, inferred_ext, "")
+}
+
+/// 两表分流缓存读取唯一落点（FINAL：hash 双探 + 7 天 TTL + ETag 禁用）：
+/// - 收录查 `icon_cache_meta`（要求：文件存在 + 合法图 + 文件 7 天新鲜 + meta URL 相等 + meta 7 天有效）；
+///   新名 `hash(url).{ext}` 优先（含全后缀兜底），miss 再试老 `stem.{ext}` 全后缀（兼容读）；
+/// - 非收录查传入 cycle（要求：`cache_file` 非空 + `selected_url` 相等 + 文件 7 天新鲜 + 行 7 天有效
+///   `is_icon_fresh(updated_at)`；`cache_file` 本身已是最终名，新老兼容天然成立，另附 hash 双探兜底）；
+/// - `noncatalog_cycle=None` 视为未命中；TTL 外一律视为未命中（调用方后台重下 1 次，前台不闪）。
+/// - 图标通道禁用 ETag 查表：此处永不读 `api_etag_cache`，命中即 0 请求；ETag 仅详情/平台通道用。
+/// - L1–L4 备选 Logo 必落盘命中；README 正文图永不进此（调用方不传正文 URL，不计不预热）。
 pub(crate) fn load_split_cached_bytes(
     icons_dir: &std::path::Path,
     db: &crate::db::Database,
@@ -146,7 +197,41 @@ pub(crate) fn load_split_cached_bytes(
     is_cataloged: bool,
     noncatalog_cycle: Option<&crate::db::AppIconCycle>,
 ) -> Option<Vec<u8>> {
+    let now = crate::now_secs();
     if is_cataloged {
+        // 新名优先：hash(url).{inferred + KNOWN 兜底}，每候选验 “文件新鲜 + DB 记录 URL 相等 + DB 7 天有效”。
+        let url = url_trimmed.trim();
+        if !url.is_empty() {
+            let full = crate::sha256_digest_hex(url.as_bytes());
+            let hash_stem = &full[..16.min(full.len())];
+            let mut hash_candidates: Vec<String> =
+                Vec::with_capacity(KNOWN_ICON_EXTS.len() + 1);
+            hash_candidates.push(format!("{}.{}", hash_stem, inferred_ext));
+            for ext in KNOWN_ICON_EXTS {
+                if *ext == inferred_ext {
+                    continue;
+                }
+                hash_candidates.push(format!("{}.{}", hash_stem, ext));
+            }
+            for filename in hash_candidates {
+                let cache_file = icons_dir.join(&filename);
+                if !crate::commands::icons::is_icon_file_fresh(&cache_file) {
+                    continue;
+                }
+                if let Ok(Some((recorded_url, at))) =
+                    crate::db::icon_cycle::get_icon_cache_record(db, &filename)
+                {
+                    if recorded_url.trim() == url_trimmed
+                        && crate::db::icon_cycle::is_icon_fresh(at, now)
+                    {
+                        if let Some(b) = read_valid_image_file(&cache_file) {
+                            return Some(b);
+                        }
+                    }
+                }
+            }
+        }
+        // 老名兼容：stem.{inferred + KNOWN}，同口径验新鲜度 + DB 有效。
         let mut candidates: Vec<String> = Vec::with_capacity(KNOWN_ICON_EXTS.len() + 1);
         candidates.push(crate::db::icon_cycle::catalog_filename(stem, inferred_ext));
         for ext in KNOWN_ICON_EXTS {
@@ -157,77 +242,114 @@ pub(crate) fn load_split_cached_bytes(
         }
         for filename in candidates {
             let cache_file = icons_dir.join(&filename);
-            if cache_file.is_file() {
-                if let Ok(meta) = std::fs::metadata(&cache_file) {
-                    if meta.len() > 0 {
-                        if let Ok(Some(recorded_url)) = db.get_icon_cache_url(&filename) {
-                            if recorded_url.trim() == url_trimmed {
-                                if let Some(b) = read_valid_image_file(&cache_file) {
-                                    return Some(b);
-                                }
-                            }
-                        }
+            if !crate::commands::icons::is_icon_file_fresh(&cache_file) {
+                continue;
+            }
+            if let Ok(Some((recorded_url, at))) =
+                crate::db::icon_cycle::get_icon_cache_record(db, &filename)
+            {
+                if recorded_url.trim() == url_trimmed
+                    && crate::db::icon_cycle::is_icon_fresh(at, now)
+                {
+                    if let Some(b) = read_valid_image_file(&cache_file) {
+                        return Some(b);
                     }
                 }
             }
         }
         None
     } else if let Some(cycle) = noncatalog_cycle {
-        if !cycle.cache_file.is_empty() && cycle.selected_url.trim() == url_trimmed {
-            return read_valid_image_file(&icons_dir.join(&cycle.cache_file));
+        // DB 有效：行 7 天内 + selected_url 相等；文件有效：存在 + 合法 + 7 天新鲜。
+        if cycle.cache_file.is_empty() || cycle.selected_url.trim() != url_trimmed {
+            // cache_file 为空但 l URLs 有值时，尝试 hash/老名兜底（迁移期双探，避免重下）。
+            if !url_trimmed.trim().is_empty() {
+                let inferred = crate::commands::icons::infer_icon_ext_from_url(url_trimmed)
+                    .unwrap_or("png");
+                if let Some(b) =
+                    read_level_cache_file(icons_dir, stem, cycle.level.max(2), inferred, url_trimmed)
+                {
+                    return Some(b);
+                }
+            }
+            return None;
         }
-        None
+        if !crate::db::icon_cycle::is_icon_fresh(cycle.updated_at, now) {
+            return None;
+        }
+        let p = icons_dir.join(&cycle.cache_file);
+        if !crate::commands::icons::is_icon_file_fresh(&p) {
+            return None;
+        }
+        read_valid_image_file(&p)
     } else {
         None
     }
 }
 
-/// 同 stem 同 level 的旧后缀残留清理（非收录 `stem_l{level}.*`，缝内私有）：
-/// 保留 `keep_filename`，其余 [`KNOWN_ICON_EXTS`] 变体存在即删，
-/// 避免 `png` 暂定→`jpg` 纠正后双文件常驻。命令层不再直调，一律经 `persist_icon_bytes`。
+/// 同 hash 同 ext 的旧后缀残留清理（缝内私有）：保留 `keep_filename`，
+/// 同 hash 其余 [`KNOWN_ICON_EXTS`] 变体存在即删（sniff 纠正场景 `png→jpg` 防双文件）。
+/// 老 stem 名残留不由此清（读兼容期保留，由配额 LRU 统一收敛），命令层不再直调。
 fn cleanup_stale_cycle_variants(
     icons_dir: &std::path::Path,
-    stem: &str,
-    level: i32,
     keep_filename: &str,
 ) {
-    for ext in KNOWN_ICON_EXTS {
-        let alt = crate::db::icon_cycle::cycle_filename(stem, level, ext);
-        if alt != keep_filename {
-            let p = icons_dir.join(&alt);
-            if p.is_file() {
-                let _ = std::fs::remove_file(&p);
+    // keep 为 hash 名时：同 hash 不同 ext 变体即删。
+    if let Some(dot) = keep_filename.rfind('.') {
+        let keep_stem = &keep_filename[..dot];
+        for ext in KNOWN_ICON_EXTS {
+            let alt = format!("{}.{}", keep_stem, ext);
+            if alt != keep_filename {
+                let p = icons_dir.join(&alt);
+                if p.is_file() {
+                    let _ = std::fs::remove_file(&p);
+                }
             }
         }
     }
 }
 
-/// 收录应用落盘唯一落点（缝内私有，原 get_or_fetch_icon 收录分支）：
-/// `stem.real_ext` 落盘，陈旧 inferred 后缀文件清理 + icon_cache_meta 同步（改名时删旧键），
-/// 返回最终文件名。全量清理同 stem 的其余 [`KNOWN_ICON_EXTS`] 变体文件 + 对应旧 meta 键。
-/// 对外只经 `persist_icon_bytes`（单一写入路径），命令层不直调。
+/// 老 stem 同 level 残留清理（兼容期 best-effort，缝内私有）：
+/// 新 hash 落盘后，同 `stem_l{level}.*` 老文件若与新文件字节一致可留，否则由 LRU 收敛，此处不删
+///（避免误删仍被老行引用的兼容文件）。
+#[allow(dead_code)]
+fn cleanup_legacy_stem_variants(
+    _icons_dir: &std::path::Path,
+    _stem: &str,
+    _level: i32,
+) {
+}
+
+/// 收录应用落盘唯一落点（FINAL hash 单轨）：
+/// `hash(url).{real_ext}` 落盘 + `icon_cache_meta[hash名]` 同步（改名时删旧 inferred-hash 键），
+/// 返回最终 hash 文件名。全量清理同 hash 其余变体 + 对应旧 meta 键。
+/// 老 stem 名文件不删（兼容读，由配额 LRU 收敛）；对外只经 `persist_icon_bytes`。
 fn persist_catalog_icon(
     icons_dir: &std::path::Path,
     db_opt: Option<&crate::db::Database>,
-    stem: &str,
+    url_trimmed: &str,
     real_ext: &str,
     inferred_ext: &str,
-    url_trimmed: &str,
     bytes: &[u8],
 ) -> String {
-    let final_filename = crate::db::icon_cycle::catalog_filename(stem, real_ext);
+    let final_filename =
+        crate::db::icon_cycle::hash_icon_filename(url_trimmed, real_ext);
+    if final_filename.is_empty() {
+        return String::new();
+    }
     let _ = std::fs::write(icons_dir.join(&final_filename), bytes);
 
-    let initial_filename = crate::db::icon_cycle::catalog_filename(stem, inferred_ext);
+    // 同 hash 不同 ext 残留（inferred-hash 与其他变体）存在即删 + 旧 meta 键同步清。
+    let full = crate::sha256_digest_hex(url_trimmed.trim().as_bytes());
+    let hash_stem = &full[..16.min(full.len())];
+    let initial_filename = format!("{}.{}", hash_stem, inferred_ext);
     if initial_filename != final_filename {
-        let initial_cache_file = icons_dir.join(&initial_filename);
-        if initial_cache_file.exists() {
-            let _ = std::fs::remove_file(&initial_cache_file);
+        let p = icons_dir.join(&initial_filename);
+        if p.is_file() {
+            let _ = std::fs::remove_file(&p);
         }
     }
-    // 全量残留清理：同 stem 其他后缀变体一并删除（存在即删），防历史双文件常驻。
     for ext in KNOWN_ICON_EXTS {
-        let alt = crate::db::icon_cycle::catalog_filename(stem, ext);
+        let alt = format!("{}.{}", hash_stem, ext);
         if alt != final_filename && alt != initial_filename {
             let p = icons_dir.join(&alt);
             if p.is_file() {
@@ -240,31 +362,34 @@ fn persist_catalog_icon(
         if initial_filename != final_filename {
             let _ = db.delete_icon_cache_url(&initial_filename);
         }
-        // 同步清理其余变体的旧 meta 键（存在即删，保持单 stem 单键）。
         for ext in KNOWN_ICON_EXTS {
-            let alt = crate::db::icon_cycle::catalog_filename(stem, ext);
+            let alt = format!("{}.{}", hash_stem, ext);
             if alt != final_filename && alt != initial_filename {
                 let _ = db.delete_icon_cache_url(&alt);
             }
         }
         let _ = db.save_icon_cache_url(&final_filename, url_trimmed);
     }
+    // 配额 LRU（只清文件不删 DB URL，见下）。
+    enforce_icon_quota_lru(icons_dir);
     final_filename
 }
 
-/// 写侧单一写入路径（probe-vs-persist 缝收敛点，cycle 持久化合一）：
-/// `icons/` 落盘 + `icon_cache_meta` 同步二合一，`catalog vs cycle` 文件名分流收敛在内。
-/// - 收录：`{stem}.{real_ext}` + 全量旧后缀清理 + meta 单键同步（经缝内 `persist_catalog_icon`）；
-/// - 非收录：`{stem}_l{level}.{real_ext}` + 同 level 旧后缀清理（经缝内 `cleanup_...`）。
-///
-/// `real_ext` 经字节嗅探纠正（`detect_image_mime/mime_to_ext`），`inferred` 仅作旧键清理用；
+/// 写侧单一写入路径（FINAL hash 单轨，probe-vs-persist 缝收敛点）：
+/// `icons/` 落盘 + `icon_cache_meta` 同步二合一，收录/非收录统一为 `hash(url).{real_ext}`。
+/// - `real_ext` 经字节嗅探纠正（`detect_image_mime/mime_to_ext`），`inferred` 仅作旧键清理用；
+/// - `stem/level/is_cataloged` 仅为签名兼容保留（老名不再产生；`level` 仍由调用方经
+///   `seal_cycle_selection + upsert/set_selected` 固化行，文件名不再带 `_l{level}`）；
+/// - L1–L4 备选 Logo 必落盘（L4 仅 cycle 头部备选 Logo；正文图永不进此）；
+/// - 图标通道禁用 ETag：此处永不读写 `api_etag_cache`；
+/// - 写后触发配额 LRU（只清文件不删 DB URL，见 `enforce_icon_quota_lru`）。
 /// 调用方随后经 `seal_cycle_selection + upsert/set_selected` 固化行（`let _` 吞错）。
-/// ADR-0010：stem 经 canonical id 派生（调用方 `get_icon_stem` 已归一）；level 纯L，via 正交。
+/// ADR-0010：key 经 canonical id 派生；level 纯L，via 正交。
 pub(crate) fn persist_icon_bytes(
     icons_dir: &std::path::Path,
     db_opt: Option<&crate::db::Database>,
-    stem: &str,
-    level: i32,
+    _stem: &str,
+    _level: i32,
     is_cataloged: bool,
     url_trimmed: &str,
     bytes: &[u8],
@@ -278,17 +403,67 @@ pub(crate) fn persist_icon_bytes(
         persist_catalog_icon(
             icons_dir,
             db_opt,
-            stem,
+            url_trimmed,
             real_ext,
             inferred_ext,
-            url_trimmed,
             bytes,
         )
     } else {
-        let fname = crate::db::icon_cycle::cycle_filename(stem, level, real_ext);
+        let fname = crate::db::icon_cycle::hash_icon_filename(url_trimmed, real_ext);
+        if fname.is_empty() {
+            return String::new();
+        }
         let _ = std::fs::write(icons_dir.join(&fname), bytes);
-        cleanup_stale_cycle_variants(icons_dir, stem, level, &fname);
+        cleanup_stale_cycle_variants(icons_dir, &fname);
+        enforce_icon_quota_lru(icons_dir);
         fname
+    }
+}
+
+/// 配额 LRU（图标盘配额唯一落点，FINAL 口径：只清文件不删 DB URL）：
+/// - 按文件 mtime 最旧优先淘汰，直至文件数/总字节双水位线下；
+/// - 永不调用 `delete_icon_cache_url/delete_icon_cycle`（DB URL 保留，文件缺失下次经 URL 重下恢复，
+///   避免配额淘汰导致“有 URL 无文件”变“无 URL 无文件”丢失自愈能力）；
+/// - 全部 best-effort（`let _` 吞错），失败不阻塞写侧；`icons/` 不存在直接返回。
+/// 水位：最多 2000 文件 / 500 MiB（kubenav/GNS3 探针量级下永不触发，属保险绳）。
+pub(crate) fn enforce_icon_quota_lru(icons_dir: &std::path::Path) {
+    const MAX_FILES: usize = 2000;
+    const MAX_BYTES: u64 = 500 * 1024 * 1024;
+    let Ok(rd) = std::fs::read_dir(icons_dir) else {
+        return;
+    };
+    let mut entries: Vec<(std::path::PathBuf, u64, std::time::SystemTime)> = Vec::new();
+    let mut total_bytes: u64 = 0;
+    for ent in rd.flatten() {
+        let p = ent.path();
+        if !p.is_file() {
+            continue;
+        }
+        // 仅管图标后缀（含无后缀历史残留亦管，避免漏网撑盘）。
+        let meta = match std::fs::metadata(&p) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        let len = meta.len();
+        let mtime = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
+        total_bytes = total_bytes.saturating_add(len);
+        entries.push((p, len, mtime));
+    }
+    if entries.len() <= MAX_FILES && total_bytes <= MAX_BYTES {
+        return;
+    }
+    entries.sort_by(|a, b| a.2.cmp(&b.2));
+    let mut files = entries.len();
+    let mut bytes = total_bytes;
+    for (p, len, _) in entries {
+        if files <= MAX_FILES && bytes <= MAX_BYTES {
+            break;
+        }
+        // 只删文件，绝不删 DB（icon_cache_meta / app_icon_cycles 原样保留）。
+        if std::fs::remove_file(&p).is_ok() {
+            files = files.saturating_sub(1);
+            bytes = bytes.saturating_sub(len);
+        }
     }
 }
 

@@ -376,6 +376,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   // 后台 `icon-ready` 经 `applyHit` 接上 `board` 门控逐个补齐富卡图标。
   // 此处只 patch 图标（空值规则由店内保证），
   // 平台逻辑不动；`data:`/`via=m2`只进M1内存不落盘，`remote`才 hydrate + 节流写透榜缓存二级。
+  // 双订阅正交门控：此处不做 kind 硬过滤，search/trend 经店内 `applyHit` 世代门控
+  // （search_id/board+gen）正交判定；图标按 app 归一全局共享，跨 kind 照收。
   // C2：hydrate/写透经 board seam（hydrateBoardEnrich + scheduleBoardPersist）。
   useEffect(() => {
     let cancelled = false;
@@ -390,10 +392,6 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
           board?: string;
           gen?: number;
         } | null;
-        const kind =
-          ctx && typeof ctx.kind === 'string' ? ctx.kind.trim().toLowerCase() : '';
-        // 趋势只消费 `trend` 上下文；搜索（`search`）交 App 处理。
-        if (kind !== 'trend') return;
         const asStr = (v: unknown): string | undefined =>
           typeof v === 'string' ? v : undefined;
         const res = applyHit({

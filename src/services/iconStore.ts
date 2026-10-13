@@ -269,6 +269,16 @@ const iconById = new Map<string, string>();
  */
 const iconDataCache = new Map<string, string>();
 const iconPendingPromises = new Map<string, Promise<string>>();
+/** 落盘成功标记（L1–L4 Logo `preload` 成功即 `persisted=true`，`data:`/`m2` 永不置位）。URL 与 id 别名同置。 */
+const iconPersistedKeys = new Set<string>();
+/** 同 tick 合并队列：`url → ids`（`preloadIcons` 只入队，排空时按 URL 单次下载）。 */
+const iconPreloadQueue = new Map<string, Set<string>>();
+/** 在途别名扇出：`url → ids`（同 URL 共用 Promise，成功时一并写 `iconDataCache`）。 */
+const iconPendingAliases = new Map<string, Set<string>>();
+/** 失败退避：`url → 可重试时间戳`（失败即 `delete` pending + 退避 30s，期内跳过）。 */
+const iconPreloadBackoffUntil = new Map<string, number>();
+let iconPreloadScheduled = false;
+const ICON_PRELOAD_BACKOFF_MS = 30_000;
 
 function resolveCurrentSearchId(args: ApplyHitArgs): string {
   try {
@@ -319,7 +329,7 @@ export interface GenerationGate {
 
 /**
  * 展示数据失效（内部 seam，原 `AppIcon.invalidateIconCache` 上移）：
- * 删 `iconDataCache`/`pending` 中该键及其关联 URL/别名态。以店内 `iconById` 为唯一别名源
+ * 删 `iconDataCache`/`pending`/`队列`/`persisted` 中该键及其关联 URL/别名态。以店内 `iconById` 为唯一别名源
  * （`normalizeId`，遵 ADR-0010），不再维护并行 `appIdToIconMap`。
  * `AppIcon` 侧仅留薄 adapter 委托（兼容 `useAppSubscriptions` 等未迁移调用方）。
  */
@@ -327,6 +337,10 @@ export function invalidateIconCache(key?: string): void {
   if (!key) {
     iconDataCache.clear();
     iconPendingPromises.clear();
+    iconPendingAliases.clear();
+    iconPreloadQueue.clear();
+    iconPersistedKeys.clear();
+    iconPreloadScheduled = false;
     return;
   }
   const norm = normalizeId(key);
@@ -350,6 +364,9 @@ export function invalidateIconCache(key?: string): void {
     if (!c) continue;
     iconDataCache.delete(c);
     iconPendingPromises.delete(c);
+    iconPendingAliases.delete(c);
+    iconPreloadQueue.delete(c);
+    iconPersistedKeys.delete(c);
   }
 }
 
@@ -364,51 +381,295 @@ export function getCachedIconDataUri(key: string): string | undefined {
 
 /**
  * 远端预热（内部 seam，原 `AppIcon.preloadIcons` 上移）：
+ * 队列 + 单飞 + 批量排空：同 tick 多次调用合并为 `Set<url>`，同 URL 共用 Promise；
  * 仅远端（`http(s)`/`data:` 兼容展示判定由调用方保证，此处复用店内落盘门控）走
- * `get_or_fetch_icon` 落盘；`data:` 永不预热；同 URL 去重（`pending` 单飞）。
+ * `get_or_fetch_icon` 落盘；`data:` 永不预热；退避期内跳过。
  * `M1` 纯内存（`data:`/`via=m2`）路径不经此（`applyHit` 内跳过）。
- * 非 Tauri（单测/jsdom/浏览器预览）直接返回（展示回落 URL 直显，不抛错、不产生未处理拒绝）。
+ * 成功置 `persisted=true` + 写 `iconDataCache`（URL + id 别名扇出）；
+ * 失败 `delete` pending + 退避 30s（展示回落 URL 直显，不抛错、不产生未处理拒绝）。
+ * 非 Tauri（单测/jsdom/浏览器预览）只收队不清耗（展示回落 URL 直显，不抛错）。
  */
 export function preloadIcons(items: (string | { id?: string; icon: string })[]): void {
-  if (typeof window === 'undefined') return;
-  try {
-    if (!('__TAURI_INTERNALS__' in window)) return;
-  } catch {
-    return;
-  }
+  if (!items || items.length === 0) return;
   for (const item of items) {
     const icon = typeof item === 'string' ? item : item.icon;
     const id = typeof item === 'string' ? undefined : item.id;
-    if (!icon || iconDataCache.has(icon) || icon.startsWith('data:')) continue;
+    if (typeof icon !== 'string' || icon === '') continue;
+    if (icon.startsWith('data:')) continue;
     if (!isRemoteHttpIconUrl(icon) && !icon.includes('.png') && !icon.includes('.svg') && !icon.includes('.jpg') && !icon.includes('.webp') && !icon.includes('.ico')) continue;
-    if (!iconPendingPromises.has(icon)) {
-      const p = tauriInvoke<string>('get_or_fetch_icon', { appId: id ?? null, remoteUrl: icon })
-        .then((dataUri) => {
-          iconDataCache.set(icon, dataUri);
-          if (id) {
-            iconDataCache.set(id, dataUri);
-            const nid = normalizeId(id);
-            if (nid) iconDataCache.set(nid, dataUri);
-          }
-          iconPendingPromises.delete(icon);
-          return dataUri;
-        })
-        .catch(() => {
-          // 预热失败静默吞掉（展示回落 URL 直显，不产生未处理拒绝；调用方后台重预热）。
-          iconPendingPromises.delete(icon);
-          return '';
-        });
-      iconPendingPromises.set(icon, p);
-      // 挂载空 catch 防未处理拒绝（上已吞错，此处再兜底一次）。
-      void p.catch(() => undefined);
+    // 已落盘：直接扇出 id 别名（同 URL 多别名一次即全），不重复入队。
+    const cached = iconDataCache.get(icon);
+    if (typeof cached === 'string' && cached !== '') {
+      if (typeof id === 'string' && id !== '') {
+        if (!iconDataCache.has(id)) iconDataCache.set(id, cached);
+        const nid = normalizeId(id);
+        if (nid && !iconDataCache.has(nid)) iconDataCache.set(nid, cached);
+        iconPersistedKeys.add(icon);
+        iconPersistedKeys.add(id);
+        if (nid) iconPersistedKeys.add(nid);
+      }
+      continue;
+    }
+    // 退避期内跳过（失败退避，不雪崩）。
+    const backoffUntil = iconPreloadBackoffUntil.get(icon);
+    if (typeof backoffUntil === 'number' && backoffUntil > Date.now()) continue;
+    // 在途单飞：同 URL 共用 Promise，仅合并别名扇出表。
+    if (iconPendingPromises.has(icon)) {
+      if (typeof id === 'string' && id !== '') {
+        let aliases = iconPendingAliases.get(icon);
+        if (!aliases) {
+          aliases = new Set<string>();
+          iconPendingAliases.set(icon, aliases);
+        }
+        aliases.add(id);
+        const nid = normalizeId(id);
+        if (nid) aliases.add(nid);
+      }
+      continue;
+    }
+    // 同 tick 合并：同 URL 合并 `Set<url>`，ids 并集合并。
+    let queued = iconPreloadQueue.get(icon);
+    if (!queued) {
+      queued = new Set<string>();
+      iconPreloadQueue.set(icon, queued);
+    }
+    if (typeof id === 'string' && id !== '') {
+      queued.add(id);
+      const nid = normalizeId(id);
+      if (nid) queued.add(nid);
     }
   }
+  schedulePreloadDrain();
+}
+
+function isTauriAvailable(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return '__TAURI_INTERNALS__' in window;
+  } catch {
+    return false;
+  }
+}
+
+function schedulePreloadDrain(): void {
+  if (iconPreloadScheduled) return;
+  if (iconPreloadQueue.size === 0) return;
+  iconPreloadScheduled = true;
+  const run = (): void => {
+    drainIconPreloadQueue();
+  };
+  try {
+    if (typeof queueMicrotask === 'function') {
+      queueMicrotask(run);
+      return;
+    }
+  } catch {
+    // 回落定时器
+  }
+  setTimeout(run, 0);
+}
+
+/** 批量排空：快照队列后逐 URL 单次 `get_or_fetch_icon`（单飞由 `pending` 保证）。 */
+function drainIconPreloadQueue(): void {
+  iconPreloadScheduled = false;
+  if (iconPreloadQueue.size === 0) return;
+  if (!isTauriAvailable()) {
+    // 非 Tauri 只收队（单测/jsdom 不产生 IPC/拒绝，展示回落 URL 直显）。
+    iconPreloadQueue.clear();
+    return;
+  }
+  const batch = [...iconPreloadQueue.entries()];
+  iconPreloadQueue.clear();
+  for (const [url, ids] of batch) {
+    if (!url) continue;
+    if (iconDataCache.has(url)) {
+      // 并发已落盘：仅扇出别名。
+      const cached = iconDataCache.get(url);
+      if (typeof cached === 'string' && cached !== '') {
+        for (const id of ids) {
+          if (id && !iconDataCache.has(id)) iconDataCache.set(id, cached);
+          iconPersistedKeys.add(url);
+          if (id) iconPersistedKeys.add(id);
+        }
+      }
+      continue;
+    }
+    if (iconPendingPromises.has(url)) {
+      // 并发已在途：合并别名后共用 Promise。
+      let aliases = iconPendingAliases.get(url);
+      if (!aliases) {
+        aliases = new Set<string>();
+        iconPendingAliases.set(url, aliases);
+      }
+      for (const id of ids) if (id) aliases.add(id);
+      continue;
+    }
+    const backoffUntil = iconPreloadBackoffUntil.get(url);
+    if (typeof backoffUntil === 'number' && backoffUntil > Date.now()) continue;
+    startIconFetch(url, ids);
+  }
+}
+
+function startIconFetch(url: string, ids: Set<string>): void {
+  const aliasSet = new Set<string>(ids);
+  iconPendingAliases.set(url, aliasSet);
+  // 多别名同 URL 取首个非空 id 透传后端（其余经成功扇出写缓存）。
+  let firstId: string | null = null;
+  for (const id of aliasSet) {
+    if (id) {
+      firstId = id;
+      break;
+    }
+  }
+  const p = tauriInvoke<string>('get_or_fetch_icon', { appId: firstId, remoteUrl: url })
+    .then((dataUri) => {
+      iconDataCache.set(url, dataUri);
+      iconPersistedKeys.add(url);
+      const aliases = iconPendingAliases.get(url) ?? aliasSet;
+      for (const id of aliases) {
+        if (!id) continue;
+        iconDataCache.set(id, dataUri);
+        iconPersistedKeys.add(id);
+        const nid = normalizeId(id);
+        if (nid) {
+          iconDataCache.set(nid, dataUri);
+          iconPersistedKeys.add(nid);
+        }
+      }
+      iconPendingPromises.delete(url);
+      iconPendingAliases.delete(url);
+      iconPreloadBackoffUntil.delete(url);
+      return dataUri;
+    })
+    .catch(() => {
+      // 预热失败静默吞掉（展示回落 URL 直显，不产生未处理拒绝；退避后可后台重预热）。
+      iconPendingPromises.delete(url);
+      iconPendingAliases.delete(url);
+      iconPreloadBackoffUntil.set(url, Date.now() + ICON_PRELOAD_BACKOFF_MS);
+      return '';
+    });
+  iconPendingPromises.set(url, p);
+  // 挂载空 catch 防未处理拒绝（上已吞错，此处再兜底一次）。
+  void p.catch(() => undefined);
+}
+
+/** 落盘成功标记读口（`preload` 成功即 `persisted=true`，`data:`/`m2` 永不置位）。 */
+export function isIconPersisted(key: string): boolean {
+  if (typeof key !== 'string' || key === '') return false;
+  if (iconPersistedKeys.has(key)) return true;
+  const nid = normalizeId(key);
+  return nid !== '' && iconPersistedKeys.has(nid);
+}
+
+/**
+ * 空壳批量预热（`assemble`/搜索/榜单首屏用）：调用方把一屏行一次传入，
+ * 本函数收集其中远端 `http` 图标后**一次**调 `preloadIcons`（内部队列再合并去重），
+ * `patch` 仍由调用方逐行内存合并（此处不碰行状态，只做预热收集）。
+ */
+export function preloadIconsForRows(
+  rows: ReadonlyArray<string | { id?: unknown; icon?: unknown }>,
+): void {
+  if (!rows || rows.length === 0) return;
+  const collected: (string | { id?: string; icon: string })[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const icon = typeof row === 'string' ? row : (row as { icon?: unknown })?.icon;
+    const rawId = typeof row === 'string' ? undefined : (row as { id?: unknown })?.id;
+    if (typeof icon !== 'string' || icon === '' || icon.startsWith('data:')) continue;
+    if (!isRemoteHttpIconUrl(icon)) continue;
+    if (iconDataCache.has(icon)) continue;
+    if (seen.has(icon)) {
+      // 同批同 URL 仍收集别名（`preloadIcons` 内再合并，此处保留 id 扇出）。
+    } else {
+      seen.add(icon);
+    }
+    const id = typeof rawId === 'string' ? rawId : undefined;
+    collected.push(id ? { id, icon } : icon);
+  }
+  if (collected.length > 0) preloadIcons(collected);
+}
+
+/**
+ * 空壳批量收集 + 粘性组装（供 `assembleOnlineRowsWithIcons` 类调用方迁移用）：
+ * 逐行 `mergeStickyIcon` + `getBufferedIcon` 回读（空壳不覆盖缓冲实图），
+ * 行内远端 `http` 图标**批量收集一次** `preloadIcons`；`patch`/行合并仍逐行内存进行。
+ * 本函数不改行引用语义（未命中缓冲即原样返回该行引用）。
+ */
+export function hydrateShellRowsWithBufferedIcons<T extends { id?: unknown; owner?: unknown; repo?: unknown; icon?: unknown }>(
+  prevById: ReadonlyMap<string, T> | undefined,
+  incoming: ReadonlyArray<T>,
+): T[] {
+  if (!incoming || incoming.length === 0) return [];
+  const out: T[] = [];
+  const toPreload: (string | { id?: string; icon: string })[] = [];
+  for (const row of incoming) {
+    const key = typeof row?.id === 'string' ? normalizeId(row.id) : '';
+    const cur = key && prevById ? prevById.get(key) : undefined;
+    // 粘性沿用旧实图（`mergeStickyIcon` 收敛实现直用，避免重复空规则）。
+    let item = row;
+    if (cur) {
+      const curIcon = typeof (cur as { icon?: unknown }).icon === 'string' ? ((cur as { icon?: unknown }).icon as string) : '';
+      const incomingIcon = typeof row?.icon === 'string' ? (row.icon as string) : '';
+      if (!isEmptyIcon(curIcon) && isEmptyIcon(incomingIcon)) {
+        item = { ...(row as object), icon: (cur as { icon?: unknown }).icon } as T;
+      }
+    }
+    const itemIcon = typeof (item as { icon?: unknown }).icon === 'string' ? (((item as { icon?: unknown }).icon as string)) : '';
+    if (isEmptyIcon(itemIcon)) {
+      const owner = typeof (item as { owner?: unknown }).owner === 'string' ? (((item as { owner?: unknown }).owner as string)) : '';
+      const repo = typeof (item as { repo?: unknown }).repo === 'string' ? (((item as { repo?: unknown }).repo as string)) : '';
+      const coordKey = owner && repo ? `${normalizeId(owner)}/${normalizeId(repo)}` : '';
+      const idKey = typeof (item as { id?: unknown }).id === 'string' ? normalizeId((item as { id?: string }).id as string) : '';
+      const buffered =
+        (coordKey ? getBufferedIcon(coordKey) : undefined) ??
+        (idKey ? getBufferedIcon(idKey) : undefined);
+      if (buffered && !isEmptyIcon(buffered)) {
+        item = { ...(item as object), icon: buffered } as T;
+      }
+    }
+    out.push(item);
+    // 批量收集：行内已有远端实图即纳入一次预热（空壳无图不收集）。
+    const finalIcon = typeof (item as { icon?: unknown }).icon === 'string' ? (((item as { icon?: unknown }).icon as string)) : '';
+    if (typeof finalIcon === 'string' && finalIcon !== '' && !finalIcon.startsWith('data:') && isRemoteHttpIconUrl(finalIcon) && !iconDataCache.has(finalIcon)) {
+      const rid = typeof (item as { id?: unknown }).id === 'string' ? ((item as { id?: string }).id as string) : undefined;
+      toPreload.push(rid ? { id: rid, icon: finalIcon } : finalIcon);
+    }
+  }
+  if (toPreload.length > 0) preloadIcons(toPreload);
+  return out;
+}
+
+/** 仅供测试：同步排空队列并等待在途（kubenav 首见 http 即单次下载断言用）。 */
+export function __flushIconPreloadsForTests(): Promise<void> {
+  drainIconPreloadQueue();
+  if (iconPendingPromises.size === 0) return Promise.resolve();
+  return Promise.allSettled([...iconPendingPromises.values()]).then(() => undefined);
+}
+
+/** 仅供测试：队列 + 在途总数（同 tick 合并断言用）。 */
+export function __getIconPreloadQueueSizeForTests(): number {
+  return iconPreloadQueue.size + iconPendingPromises.size;
+}
+
+/** 仅供测试：读落盘标记。 */
+export function __isIconPersistedForTests(key: string): boolean {
+  return isIconPersisted(key);
+}
+
+/** 仅供测试：读退避状态。 */
+export function __getIconPreloadBackoffForTests(url: string): number | undefined {
+  return iconPreloadBackoffUntil.get(url);
 }
 
 /** 仅供测试：清空展示数据内存态（防跨文件泄漏）。 */
 export function __resetIconDataCacheForTests(): void {
   iconDataCache.clear();
   iconPendingPromises.clear();
+  iconPendingAliases.clear();
+  iconPreloadQueue.clear();
+  iconPersistedKeys.clear();
+  iconPreloadBackoffUntil.clear();
+  iconPreloadScheduled = false;
 }
 
 /**
@@ -468,10 +729,9 @@ export function applyHit(args: ApplyHitArgs): ApplyHitResult {
   }
   const icon = rawIcon;
 
-  // 世代门控：过期判断只此一处（搜索走 `search_id`，榜单走 `board`+`gen`）。
-  // 内联门控三段：incoming 取 `context` 回落顶层，expected 即时取值回落静态值，双非空不等即过期任一为空即放行。
+  // 世代门控：过期判断只此一处，正交三维（`search_id`/`board`/`gen` 各自双非空不等即过期，任一为空即放行，不看 `kind`）。
+  // incoming 取 `context` 回落顶层，expected 即时取值回落静态值。
   const ctx = args.context ?? null;
-  const kind = ctx && typeof ctx.kind === 'string' ? ctx.kind.trim().toLowerCase() : '';
   const incoming: GenerationGate = {
     search_id:
       ctx && typeof ctx.search_id === 'string' && ctx.search_id
@@ -506,15 +766,18 @@ export function applyHit(args: ApplyHitArgs): ApplyHitResult {
     gen: expectedGen,
   };
   let stale: string | undefined;
-  if (kind === '' || kind === 'search') {
+  {
     const a = typeof incoming.search_id === 'string' ? incoming.search_id : '';
     const b = typeof expected.search_id === 'string' ? expected.search_id : '';
     if (a && b && a !== b) stale = 'stale-search-id';
-  } else if (kind === 'trend') {
+  }
+  if (!stale) {
     const ib = normalizeId(incoming.board);
     const eb = normalizeId(expected.board);
     if (ib && eb && ib !== eb) stale = 'stale-board';
-    else if (
+  }
+  if (!stale) {
+    if (
       incoming.gen !== undefined &&
       expected.gen !== undefined &&
       incoming.gen !== expected.gen
@@ -524,11 +787,14 @@ export function applyHit(args: ApplyHitArgs): ApplyHitResult {
   }
   if (stale) return { accepted: false, targets, icon, reason: stale };
 
-  // `level`纯L单调升级：低不顶高，via正交不参与比较（live L2/L3 不因 via 丢）。缺省即放行且不推进记忆。
-  // 仅 1..4（1官方/2品牌库/3仓库/4 README）参与记忆；非法值视为缺省。
+  // `level`纯L单调：低不顶高，via正交不参与比较。缺省即放行且不推进记忆。
+  // 仅 1..5 合法（`isPureLevel`）；`data:`/`via=m2` 只进 M1 内存，不推进 `level` 记忆（只做 stale 判定，不写）。
   const level =
     typeof args.level === 'number' && Number.isFinite(args.level) ? args.level : undefined;
   const pureLevel = isPureLevel(level) ? (level as number) : undefined;
+  const via = typeof args.via === 'string' ? args.via.trim().toLowerCase() : '';
+  const isMemoryOnly = icon.startsWith('data:') || via === 'm2';
+  let nextLevel: number | undefined;
   if (pureLevel !== undefined) {
     let currentMax: number | undefined;
     for (const t of targets) {
@@ -538,13 +804,12 @@ export function applyHit(args: ApplyHitArgs): ApplyHitResult {
     if (currentMax !== undefined && pureLevel < currentMax) {
       return { accepted: false, targets, icon, level: pureLevel, reason: 'level-stale' };
     }
-    const next = currentMax === undefined ? pureLevel : Math.max(currentMax, pureLevel);
-    for (const t of targets) iconLevelById.set(t, next);
+    nextLevel = currentMax === undefined ? pureLevel : Math.max(currentMax, pureLevel);
+    // `data:`/`m2` 不推进：此处只算出 `nextLevel`，落盘路径才写记忆。
   }
 
-  // `data:`/`via=m2`只进M1内存不落盘：失效 + patch 内存态，跳过 `preloadIcons`。
-  const via = typeof args.via === 'string' ? args.via.trim().toLowerCase() : '';
-  if (icon.startsWith('data:') || via === 'm2') {
+  // `data:`/`via=m2`只进M1内存不落盘：失效 + patch 内存态，跳过 `preloadIcons`，不推进 `level` 记忆。
+  if (isMemoryOnly) {
     for (const t of targets) {
       try {
         invalidateIconCache(t);
@@ -575,8 +840,13 @@ export function applyHit(args: ApplyHitArgs): ApplyHitResult {
   }
 
   // 仅 `remote(http)` 才 `patch state + preloadIcons` 走 `get_or_fetch_icon` 落盘。
+  // 批量收集一次 `preload`（同 URL 多别名一次入队），`patch` 仍逐个别名内存写透。
   if (!isRemoteHttpIconUrl(icon)) {
     return { accepted: false, targets, icon, level: pureLevel, reason: 'non-remote-dropped' };
+  }
+  // 落盘路径才推进 `level` 记忆（`data:`/`m2` 已提前返回不推进）。
+  if (nextLevel !== undefined) {
+    for (const t of targets) iconLevelById.set(t, nextLevel);
   }
   for (const t of targets) {
     try {
@@ -611,6 +881,11 @@ export function __resetIconStoreForTests(): void {
   iconById.clear();
   iconDataCache.clear();
   iconPendingPromises.clear();
+  iconPendingAliases.clear();
+  iconPreloadQueue.clear();
+  iconPersistedKeys.clear();
+  iconPreloadBackoffUntil.clear();
+  iconPreloadScheduled = false;
 }
 
 /**

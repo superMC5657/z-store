@@ -356,10 +356,13 @@ export function useSearchState({
       const more = moreRes.rows;
       if (more && more.length > 0) {
         // 按 id 去重后追加到在线段（跳过在线段已有项；本地段不动）。
+        // 图标回填与首屏同口径：经 `assembleOnlineRowsWithIcons` 粘性合并 + M1 缓冲回读，
+        // 空壳不覆盖缓冲实图；卡有 http 实图首绘即对（跳过双 IPC 取图链，按批直展）。
+        const assembledMore = assembleOnlineRowsWithIcons(onlineAppsRef.current ?? [], more);
         setOnlineApps((prev) => {
           const seen = new Set(prev.map((a) => (a.id || '').toLowerCase()));
           const fresh: AppSummary[] = [];
-          for (const m of more) {
+          for (const m of assembledMore) {
             const k = (m.id || '').toLowerCase();
             if (!k || seen.has(k)) continue;
             seen.add(k);

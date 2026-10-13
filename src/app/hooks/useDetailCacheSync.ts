@@ -1,7 +1,7 @@
 import { useCallback, useRef } from 'react';
 import type { AppDetail, AppDetailViewModel, AppSummary } from '../../types';
 import { api } from '../../services/api';
-import { applyHit, patchAppIconList } from '../../services/iconStore';
+import { applyHit, getBufferedIcon, patchAppIconList } from '../../services/iconStore';
 import {
   DETAIL_PLATFORMS_HEAL_EVENT,
   DETAIL_RICHCARD_HEAL_EVENT,
@@ -189,7 +189,11 @@ export function useDetailCacheSync({
       });
     }
 
-    const patchedIcon = detail.icon?.trim()?detail.icon.trim():undefined;
+    const rawDetailIcon = typeof detail.icon === 'string' ? detail.icon.trim() : '';
+    // patchedIcon 先分流 data:：data: 仅即时看（Header 经 iconOverride 直显），永不进 patch/applyHit/盘；
+    // 列表回填只用转正 http，data:/空一律按缺席走 cycle 兜底（L5 显式空除外，经 cycle level 5 显式写）。
+    const patchedIcon =
+      rawDetailIcon !== '' && !rawDetailIcon.startsWith('data:') ? rawDetailIcon : undefined;
     // stale 离线缓存不具权威：平台相关一律保持 pending（不确认、不治愈、不碰榜单缓存）
     const isStaleDetail = Boolean(detail.is_stale);
     const detailPlatforms = !isStaleDetail && detail.platforms && detail.platforms.length > 0 ? detail.platforms : undefined;
@@ -362,8 +366,26 @@ export function useDetailCacheSync({
 
     if (patchedIcon) {
       // 详情实图：经店内唯一写口（buffer + 文件预热 + 四列表写透）。
+      // patchedIcon 已剥 data:（上分流），此处恒为转正 http，直送安全。
       applyHit({ key: idClean, id: idClean, icon: patchedIcon, patch: iconPatch });
     } else {
+      // 卡有 http 实图 + M1 命中即跳过 getAppIconCycle（省 IPC，所见即存）：
+      // 列表已有转正 http 直接画，缓冲已有实图首绘即对；仅双空才走 cycle 兜底。
+      // data: 不触发此处（已分流，Header 经 iconOverride 即时看）。
+      const bufferedHit = getBufferedIcon(idClean);
+      if (typeof bufferedHit === 'string' && bufferedHit.trim() !== '') {
+        return;
+      }
+      const cardIcon =
+        appsRef.current.find((a) => a.id.toLowerCase() === idClean)?.icon ??
+        onlineAppsRef.current.find((a) => a.id.toLowerCase() === idClean)?.icon ??
+        recentsRef.current.find((a) => a.id.toLowerCase() === idClean)?.icon;
+      if (
+        typeof cardIcon === 'string' &&
+        (cardIcon.trim().startsWith('http://') || cardIcon.trim().startsWith('https://'))
+      ) {
+        return;
+      }
       // detail.icon 为空：详情弹窗靠 Header 轮换态照常显示，列表三段用 iconCycle.url 经店内写口回填落盘。
       void api.getAppIconCycle(idClean).then((cycle) => {
         // 双落盘口径：url=data: 即时态（IPC临时、永不进盘），remote_url/remoteUrl=可持久化 URL；

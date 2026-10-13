@@ -183,6 +183,7 @@ pub(crate) fn sanitize_icon_segment(s: &str) -> String {
 }
 
 /// B3-G11 标识解析 SSOT：统一经 `RepositoryUrlParser::parse` 取 owner/repo，不手写 split_once。
+/// FINAL：老命名 stem 仅兼容读；新写一律 `hash_icon_filename(url, real_ext)`（见下）。
 pub(crate) fn get_icon_stem(app_id: &str, remote_url: &str) -> String {
     match crate::forge::RepositoryUrlParser::parse(app_id) {
         Some(coord) if !coord.owner.is_empty() && !coord.repo.is_empty() => {
@@ -225,11 +226,38 @@ fn fallback_icon_stem(app_id: &str, remote_url: &str) -> String {
     }
 }
 
+/// FINAL hash 文件名（写侧唯一新名）：`sha256(url_trimmed)[0:16].{real_ext}`。
+/// L1–L4 备选 Logo 必落 `icons/`（L4 仅 cycle 命中的头部备选 Logo，正文图永不进此）；
+/// `real_ext` 为 sniff 纠正后的真实后缀（见 `persist_icon_bytes`），与 URL 后缀无关。
+/// 老 `stem[_l{level}].{ext}` 仅读侧双探兼容（见 probe），写侧永不产生老名。
+/// 薄委托：唯一实现见 `db::icon_cycle::hash_icon_filename`（probe 经此调用，保持单源）。
+#[allow(dead_code)]
+pub(crate) fn hash_icon_filename(url_trimmed: &str, real_ext: &str) -> String {
+    crate::db::icon_cycle::hash_icon_filename(url_trimmed, real_ext)
+}
+
+/// 图标文件 7 天新鲜度（文件 mtime 口径，与 DB `cached_at/updated_at` 双检其一即命中）：
+/// 存在 + 合法图 + mtime 在 7 天内即新鲜；mtime 不可读视为过期（后台重下1次，前台不闪）。
+/// 图标通道禁用 ETag 查表：命中即 0 请求直接读盘，不发 `If-None-Match`。
+pub(crate) fn is_icon_file_fresh(path: &std::path::Path) -> bool {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return false;
+    };
+    let Ok(mtime) = meta.modified() else {
+        return false;
+    };
+    let Ok(elapsed) = std::time::SystemTime::now().duration_since(mtime) else {
+        return false;
+    };
+    elapsed.as_secs() < (crate::db::icon_cycle::ICON_TTL_SECS as u64)
+}
+
 /// 图标缓存路径：canonical id 解析出 owner/repo 命名空间时使用 `{owner}_{repo}.{ext}`，
 /// 否则以消毒后的 id 命名；id 完全不可用时回退 remote_url 哈希。
 /// 后缀根据 remote_url 路径推断；若无有效后缀，暂定 png，下载后按内容纠正。
 /// 仅测试调用（`commands::tests`），生产代码无调用（生产内联 stem+推断后缀逻辑）；
 /// 删除会破坏测试编译，故保留签名（回滚线），非 test 构建下允许死代码，保持 `cargo check` 零警告。
+/// FINAL：生产写侧已切 hash（`hash_icon_filename`），此老路径仅兼容读/测试回滚线。
 #[allow(dead_code)]
 pub(crate) fn get_icon_cache_path(app_id: &str, remote_url: &str) -> std::path::PathBuf {
     let icons_dir = crate::get_app_data_dir().join("icons");
@@ -240,6 +268,8 @@ pub(crate) fn get_icon_cache_path(app_id: &str, remote_url: &str) -> std::path::
 
 /// H2：图标拉取专用 HTTP 客户端（超时 + 有限重定向，委托 `forge::http` SSOT，与 API client 隔离）。
 /// D5 双池复用：本 client 与 API client 物理隔离；图标 CDN 通道恒丢 token（见深核 `probe_l2_simple`）。
+/// FINAL：图标通道禁用 ETag 查表——本下载永不挂 `If-None-Match`，命中靠“文件存在+DB有效（7天）”0 请求短路，
+/// 过期后台重下 1 次（见 probe `load_split_cached_bytes`）；ETag 仅详情/平台通道用。
 pub(crate) fn icon_http_client() -> reqwest::Client {
     let secs = crate::config::get_project_config()
         .network

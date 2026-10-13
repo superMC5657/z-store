@@ -361,7 +361,8 @@ pub fn resolve_icon_coord(app_id: &str) -> Result<(String, RepoRef), String> {
     Err(format!("无法识别的应用标识: {}", trimmed))
 }
 
-/// 获取周期记录中首个有效 URL 对应的级别（收录应用 1..=4，非收录应用 2..=4）。
+/// 获取周期记录中首个有效 URL 对应的级别（收录 1..=4，非收录 2..=4 跳 L1）。
+/// FINAL 锁死：收录恒 L1 禁切（调用方 cycle 直接返回）；非收录 `level==1` 视为脏数据跳过不动。
 pub fn first_available_level(cycle: &AppIconCycle) -> Option<i32> {
     let start = if cycle.is_cataloged { 1 } else { 2 };
     for lvl in start..=4 {
@@ -404,28 +405,71 @@ pub fn owner_repo_for_new_cycle(lookup_id: &str) -> (String, String) {
             .unwrap_or_default(),
     }
 }
-/// 收录应用缓存文件名：`{stem}.{ext}`（走 icon_cache_meta 表）。
+/// 收录应用缓存文件名（老命名，仅兼容读）：`{stem}.{ext}`（走 icon_cache_meta 表）。
 /// 非收录与收录的文件名分流为例外允许的 Catalog 分支（见模块缝注）；其余逻辑永不分支 Catalog。
+/// FINAL：新写一律 `hash_icon_filename(url, ext)`（sha256(url)[0:16]+sniff ext），老 stem 名仅双探兼容读。
 pub fn catalog_filename(stem: &str, ext: &str) -> String {
     format!("{}.{}", stem, ext)
 }
 
-/// 非收录应用缓存文件名：`{stem}_l{level}.{ext}`（走 app_icon_cycles 表，级别隔离）。
+/// 非收录应用缓存文件名（老命名，仅兼容读）：`{stem}_l{level}.{ext}`（走 app_icon_cycles 表，级别隔离）。
 /// 与 `catalog_filename` 的分流为唯一允许的 Catalog 分支；level 纯L 2/3/4（非收录永无 L1）。
+/// FINAL：新写一律 hash，老 `stem_l{level}` 仅兼容读（见 probe 双探）。
 pub fn cycle_filename(stem: &str, level: i32, ext: &str) -> String {
     format!("{}_l{}.{}", stem, level, ext)
 }
 
-/// 持久化文件名统一派生（写侧单一分支点）：收录走 `catalog_filename`，非收录走
-/// `cycle_filename(level)`。读侧仍经两表分流 helpers；写侧一律经
+/// FINAL Logo 口径：图标 TTL 7 天（文件存在+DB有效即命中0请求，过期后台重下1次，前台不闪）。
+/// 详情 TTL 60min 见 `commands::catalog_detail::detail_ttl_secs`；图标 ETag 禁用（仅详情用）。
+pub const ICON_TTL_SECS: i64 = 7 * 24 * 60 * 60;
+
+/// 详情 TTL 新默认 60min（老 30 迁移见 `commands::catalog_detail::detail_ttl_secs`，platforms_lite 同值）。
+#[allow(dead_code)]
+pub const DETAIL_TTL_MINUTES_DEFAULT: i64 = 60;
+
+/// hash 文件名 SSOT（写侧唯一新名）：`sha256(url_trimmed)[0:16].{ext}`。
+/// - `url` 为 cycle/详情命中的备选 Logo 真地址（L1–L4；README 正文图永不进此）；
+/// - `ext` 为 sniff 纠正后的 `real_ext`（`mime_to_ext(detect(...))`），调用方保证小写无点；
+/// - 空 url 返回空串（调用方跳过落盘）。
+/// 读侧双探：先试 hash 名（含 `KNOWN` 全后缀兜底），miss 再试老 stem 名（见 probe）。
+pub fn hash_icon_filename(url_trimmed: &str, ext: &str) -> String {
+    let u = url_trimmed.trim();
+    if u.is_empty() {
+        return String::new();
+    }
+    let full = crate::sha256_digest_hex(u.as_bytes());
+    let stem = &full[..16.min(full.len())];
+    let clean_ext = ext.trim().trim_start_matches('.').to_ascii_lowercase();
+    let clean_ext = if clean_ext.is_empty() { "png".to_string() } else { clean_ext };
+    format!("{}.{}", stem, clean_ext)
+}
+
+/// 图标 DB 有效性：`cached_at/updated_at` 在 7 天内即有效（含未来时钟漂移宽容）。
+pub fn is_icon_fresh(cached_at: i64, now: i64) -> bool {
+    cached_at > 0 && now.saturating_sub(cached_at) < ICON_TTL_SECS
+}
+
+/// 持久化文件名统一派生（写侧单一分支点）：FINAL 一律 hash（`hash_icon_filename(url, ext)`），
+/// `stem/level/is_cataloged` 仅为老调用签名兼容保留（不再参与新名派生，老名仅读侧兼容）。
+/// 读侧仍经两表分流 helpers；写侧一律经
 /// `commands::icons_cycle_probe::persist_icon_bytes` 间接，不在命令层散写
 /// `if is_cataloged` 双分支（probe-vs-persist 缝收敛，level 纯L，via 正交）。
-pub fn persist_filename(stem: &str, level: i32, is_cataloged: bool, ext: &str) -> String {
-    if is_cataloged {
-        catalog_filename(stem, ext)
-    } else {
-        cycle_filename(stem, level, ext)
-    }
+/// L4 仅 cycle 命中的备选 Logo 经此落盘；README 正文图永不进此（不计不预热）。
+pub fn persist_filename(
+    _stem: &str,
+    _level: i32,
+    _is_cataloged: bool,
+    _ext: &str,
+) -> String {
+    // 老分支已收敛为 hash：调用方应直接经 `persist_icon_bytes(url, bytes)` 派生；
+    // 此函数保留签名防编译断裂，返回空由调用方忽略（回滚线）。
+    String::new()
+}
+
+/// hash 写侧派生（新轨）：`hash_icon_filename(url, ext)` 薄委托，供 probe/命令层统一调用。
+#[allow(dead_code)]
+pub fn persist_hash_filename(url_trimmed: &str, ext: &str) -> String {
+    hash_icon_filename(url_trimmed, ext)
 }
 
 /// 非收录 url 槽位认领：命中既有 l2/l3/l4 返回其级别，
@@ -470,8 +514,34 @@ pub fn seal_cycle_selection(
 /// L5 空选固化（首字母徽章，level 纯L=5）：level=5 + selected/cache 双空 + updated_at 推进。
 /// cycle 命令层 L5 一律经此，不手写 `""` 散赋值（L5 `""` 泄漏收敛在缝内）；
 /// 写侧 `detail_json.icon` 显式清空（`""`）由调用方内联直写，不经薄 helper。
+/// FINAL：L5 清对应选中态（selected/cache 双空），`l1..l4` 备选 URL 保留供重选，
+/// 旧糊图防诈尸由调用方删旧 `cache_file` 文件 + `sync_detail_icon("")` 保证（见 cycle 命令层）。
 pub fn seal_empty_selection(cycle: &mut AppIconCycle) {
     seal_cycle_selection(cycle, 5, "", String::new());
+}
+
+/// icon_cache_meta 读侧 TTL 感知记录（图标通道 ETag 禁用后的 DB 有效性唯一依据）：
+/// 返回 `(remote_url, cached_at)`；无行即 `None`（调用方视为未命中，后台重下1次）。
+/// 配额 LRU 只清文件不删 DB URL，故此键 bedding 永不因 LRU 消失（文件缺失可经 URL 重下恢复）。
+pub fn get_icon_cache_record(
+    db: &Database,
+    cache_key: &str,
+) -> Result<Option<(String, i64)>> {
+    let cleaned = clean(cache_key);
+    if cleaned.is_empty() {
+        return Ok(None);
+    }
+    let mut stmt = db.conn.prepare(
+        "SELECT remote_url, cached_at FROM icon_cache_meta WHERE cache_key = ?1 LIMIT 1",
+    )?;
+    let mut rows = stmt.query(params![cleaned])?;
+    if let Some(row) = rows.next()? {
+        let url: String = row.get(0)?;
+        let at: i64 = row.get(1)?;
+        Ok(Some((url, at)))
+    } else {
+        Ok(None)
+    }
 }
 
 /// 在线单仓直查的 cycle 行构造（原 github::search::fetch_online_repo 内联）：

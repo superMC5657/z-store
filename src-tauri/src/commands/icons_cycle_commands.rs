@@ -8,12 +8,14 @@ use crate::AppState;
 use tauri::State;
 
 // C1 薄适配器：L1–L5 UI 轮换仅非收录应用可切（收录恒 L1，不切换）；
-// 探测经 `ensure_cycle_levels`（L2/L3-live 走 `icon_fetch` 深核，L4 走 `probe_readme`，
-// L1 仅收录官方填充），持久化经单一写入路径 `persist_icon_bytes`
-//（`catalog vs cycle` 文件名分流收敛在内），下载经 `download_via_mirror`
+// 探测经 `ensure_cycle_levels`（L2/L3-live 走 `icon_fetch` 深核，L4 走 `probe_readme` 头部备选 Logo，
+// 正文图永不进链），持久化经单一写入路径 `persist_icon_bytes`（FINAL hash 单轨
+// `sha256(url)[0:16]+sniff ext`，读双探写新名，老 `stem[_l{level}]` 兼容读），下载经 `download_via_mirror`
 //（ADR-0002：mirror 只改下载 URL），L5 空选经 `seal_empty_selection` +
-// `empty_cycle_result`，detail 同步内联（`data:` 永不进盘，`""` 显式清空）。
-// 本文件不写第二套探/第二套文件名规则，只做编排。
+// `empty_cycle_result`（清选中态 + 删旧文件 + `sync_detail_icon("")` 防诈尸），detail 同步内联
+//（`data:` 永不进盘，`""` 显式清空）。
+// 手动选择持久化三件套：`selected_url + level + icons 文件` 同 tick 落库（kubenav/GNS3 首次 N=1 之后 N=0）。
+// 本文件不写第二套探/第二套文件名规则，只做编排；图标通道禁用 ETag（命中 0 请求，7 天 TTL）。
 
 /// 循环切换应用图标 (L1..=L5)
 #[tauri::command]
@@ -81,16 +83,21 @@ pub async fn cycle_app_icon(
         }
     };
 
-    // 计算下一个推进级别
+    // 计算下一个推进级别（非收录跳 L1：next 绝不落 1，见 `next_cycle_level`；收录恒 L1 已早返）
     let next_level = next_cycle_level(cycle.level, &cycle);
 
-    // Level 5: 空（始终可用，直接置空，无需下载；L5 "" 收敛在缝内）
+    // Level 5: 空（始终可用，直接置空，无需下载；L5 "" 收敛在缝内；清对应旧文件防诈尸）
     if next_level == 5 {
+        let old_file = cycle.cache_file.clone();
         crate::db::icon_cycle::seal_empty_selection(&mut cycle);
         if let Ok(db) = state.db() {
             let _ = db.upsert_icon_cycle(&cycle);
             // 写侧同步内联（原 sync_detail_icon_best_effort）：L5 显式清空 ""，有行才 UPDATE。
             let _ = db.sync_detail_icon(&canonical_id, "");
+        }
+        // L5 清对应文件：旧糊图删盘（DB URL 保留在 l2..l4 备选中供重选，删盘不删 URL）。
+        if !old_file.trim().is_empty() {
+            let _ = std::fs::remove_file(icons_dir.join(old_file.trim()));
         }
 
         return Ok(empty_cycle_result(false));
@@ -106,13 +113,19 @@ pub async fn cycle_app_icon(
         return Err("目标级别无有效图标链接".into());
     }
 
+    // 手动选择持久化前先固化探测到的备选 URLs（N=1→0：即使本次下载失败，l2..l4 已落库下次 0 探）。
+    // best-effort upsert，不阻塞下载（`let _` 吞错，下次重试）。
+    if let Ok(db) = state.db() {
+        let _ = db.upsert_icon_cycle(&cycle);
+    }
+
     let stem = crate::commands::icons::get_icon_stem(&canonical_id, &target_url);
     let client = crate::commands::icons::icon_http_client();
 
-    // 检查本地是否已存在缓存文件（收录走两表分流读取；非收录按 stem_l{level}.{ext} 匹配）
+    // 检查本地是否已存在缓存文件（FINAL 双探：hash 新名优先，老 stem 兼容；7 天 TTL，0 请求命中）。
     let inferred_ext = crate::commands::icons::infer_icon_ext_from_url(&target_url).unwrap_or("png");
     let mut cached_bytes = if !is_cataloged {
-        read_level_cache_file(&icons_dir, &stem, next_level, inferred_ext)
+        read_level_cache_file(&icons_dir, &stem, next_level, inferred_ext, &target_url)
     } else {
         None
     };
@@ -145,7 +158,7 @@ pub async fn cycle_app_icon(
         }
     };
 
-    // 单一写入路径（catalog vs cycle 文件名分流收敛在缝内，不在命令层双分支）。
+    // 单一写入路径（FINAL hash 单轨，不在命令层双分支；`data:` 永不进盘由下 sync 守卫）。
     let db_opt = state.db().ok();
     let final_filename = persist_icon_bytes(
         &icons_dir,
@@ -157,6 +170,7 @@ pub async fn cycle_app_icon(
         &bytes,
     );
 
+    // 手动选择持久化三件套：selected_url + level + icons 文件同 tick 落库（关掉重进还在）。
     crate::db::icon_cycle::seal_cycle_selection(&mut cycle, next_level, &target_url, final_filename);
     if let Some(db) = db_opt.as_ref() {
         let _ = db.upsert_icon_cycle(&cycle);
@@ -282,23 +296,55 @@ pub async fn get_app_icon_cycle(
         if !default_url.is_empty() {
             let stem = crate::commands::icons::get_icon_stem(&canonical_id, &default_url);
             let inferred_ext = crate::commands::icons::infer_icon_ext_from_url(&default_url).unwrap_or("png");
-            let filename = crate::db::icon_cycle::catalog_filename(&stem, inferred_ext);
-            // 最高频读其二：首屏收录图标恢复路径，同样经 spawn_blocking 卸载；其余同步读不动。
-            // 无后缀兜底：inferred miss 时遍历其余后缀变体，避免误判无缓存。
-            let mut hit_bytes =
-                read_valid_image_file_async(icons_dir.join(&filename)).await;
-            if hit_bytes.is_none() {
+            // FINAL 双探：hash 新名优先（含全后缀兜底 + 7 天新鲜度），miss 再试老 stem 名。
+            let mut hash_candidates: Vec<String> = Vec::new();
+            {
+                let full = crate::sha256_digest_hex(default_url.trim().as_bytes());
+                let hs = &full[..16.min(full.len())];
+                hash_candidates.push(format!("{}.{}", hs, inferred_ext));
                 for ext in KNOWN_ICON_EXTS {
                     if *ext == inferred_ext {
                         continue;
                     }
-                    let alt =
-                        crate::db::icon_cycle::catalog_filename(&stem, ext);
-                    if let Some(b) =
-                        read_valid_image_file_async(icons_dir.join(&alt)).await
-                    {
-                        hit_bytes = Some(b);
-                        break;
+                    hash_candidates.push(format!("{}.{}", hs, ext));
+                }
+            }
+            // 最高频读其二：首屏收录图标恢复路径，同样经 spawn_blocking 卸载；其余同步读不动。
+            // 无后缀兜底：inferred miss 时遍历其余后缀变体，避免误判无缓存。
+            let mut hit_bytes: Option<Vec<u8>> = None;
+            for fname in hash_candidates {
+                let p = icons_dir.join(&fname);
+                if !crate::commands::icons::is_icon_file_fresh(&p) {
+                    continue;
+                }
+                if let Some(b) = read_valid_image_file_async(p).await {
+                    hit_bytes = Some(b);
+                    break;
+                }
+            }
+            if hit_bytes.is_none() {
+                let filename = crate::db::icon_cycle::catalog_filename(&stem, inferred_ext);
+                let p = icons_dir.join(&filename);
+                if crate::commands::icons::is_icon_file_fresh(&p) {
+                    hit_bytes = read_valid_image_file_async(p).await;
+                }
+                if hit_bytes.is_none() {
+                    for ext in KNOWN_ICON_EXTS {
+                        if *ext == inferred_ext {
+                            continue;
+                        }
+                        let alt =
+                            crate::db::icon_cycle::catalog_filename(&stem, ext);
+                        let ap = icons_dir.join(&alt);
+                        if !crate::commands::icons::is_icon_file_fresh(&ap) {
+                            continue;
+                        }
+                        if let Some(b) =
+                            read_valid_image_file_async(ap).await
+                        {
+                            hit_bytes = Some(b);
+                            break;
+                        }
                     }
                 }
             }
@@ -348,7 +394,44 @@ pub async fn get_app_icon_cycle(
         let remote_url = temp_cycle.url_for_level(lvl).unwrap_or("").trim().to_string();
         let stem = crate::commands::icons::get_icon_stem(&canonical_id, &remote_url);
         let inferred_ext = crate::commands::icons::infer_icon_ext_from_url(&remote_url).unwrap_or("png");
-        if let Some(bytes) = read_level_cache_file(&icons_dir, &stem, lvl, inferred_ext) {
+        if let Some(bytes) = read_level_cache_file(&icons_dir, &stem, lvl, inferred_ext, &remote_url) {
+            // 文件命中亦固化选中态（selected+level+文件三件套），下次 existing 直命中 N=0。
+            // 文件名反查：hash 优先，老名兼容（与 read 双探同序）。
+            let mut hit_fname = String::new();
+            if !remote_url.trim().is_empty() {
+                let full = crate::sha256_digest_hex(remote_url.trim().as_bytes());
+                let hs = &full[..16.min(full.len())];
+                let mut cands: Vec<String> = vec![format!("{}.{}", hs, inferred_ext)];
+                for ext in KNOWN_ICON_EXTS {
+                    if *ext == inferred_ext {
+                        continue;
+                    }
+                    cands.push(format!("{}.{}", hs, ext));
+                }
+                cands.push(crate::db::icon_cycle::cycle_filename(&stem, lvl, inferred_ext));
+                for ext in KNOWN_ICON_EXTS {
+                    if *ext == inferred_ext {
+                        continue;
+                    }
+                    cands.push(crate::db::icon_cycle::cycle_filename(&stem, lvl, ext));
+                }
+                for c in cands {
+                    let p = icons_dir.join(&c);
+                    if crate::commands::icons::is_icon_file_fresh(&p) && p.is_file() {
+                        hit_fname = c;
+                        break;
+                    }
+                }
+            }
+            crate::db::icon_cycle::seal_cycle_selection(
+                &mut temp_cycle,
+                lvl,
+                &remote_url,
+                hit_fname,
+            );
+            if let Ok(db) = state.db() {
+                let _ = db.upsert_icon_cycle(&temp_cycle);
+            }
             return Ok(IconCycleResult {
                 url: crate::commands::icons::bytes_to_data_uri(&bytes),
                 remote_url,
@@ -396,6 +479,14 @@ pub async fn get_app_icon_cycle(
             }
         }
 
+        // 下载失败/无文件：仍落库探测到的 l2..l4（下次 0 探，仅剩下载 1 次），不丢备选。
+        {
+            // 非收录 level 永不落 1（first_available 已保证 lvl>=2）。
+            temp_cycle.level = lvl;
+            if let Ok(db) = state.db() {
+                let _ = db.upsert_icon_cycle(&temp_cycle);
+            }
+        }
         Ok(IconCycleResult {
             url: String::new(),
             remote_url,

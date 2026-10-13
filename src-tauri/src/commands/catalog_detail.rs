@@ -10,6 +10,25 @@ pub(crate) fn should_skip_persist(is_stale: Option<bool>) -> bool {
     is_stale == Some(true)
 }
 
+/// FINAL 详情 TTL（分钟→秒）：新默认 60min，`platforms_lite` 同值同源。
+/// - `0`（每次实时校验）原样透传 0；
+/// - 老库残留 `30` 迁移为 `60`（30→60min 口径变更，一次性兼容）；
+/// - 其余有效挡位 `10/60/360/1440` 原样透传；非法值回退 60。
+/// 图标 TTL 另见 `db::icon_cycle::ICON_TTL_SECS`（7 天，图标通道禁用 ETag）。
+pub(crate) fn detail_ttl_secs(db: &crate::db::Database) -> i64 {
+    let m = db.get_detail_cache_ttl_minutes();
+    if m <= 0 {
+        return 0;
+    }
+    if m == 30 {
+        return 60 * 60;
+    }
+    if [10, 60, 360, 1440].contains(&m) {
+        return m * 60;
+    }
+    60 * 60
+}
+
 #[tauri::command]
 pub async fn get_app_details(
     state: State<'_, AppState>,
@@ -52,10 +71,10 @@ pub async fn get_platforms_lite(
     let start = std::time::Instant::now();
 
     // 1. TTL 内详情缓存命中：零网络开销复用已 deduce 的 platforms。
-    // TTL 口径与 get_app_details_impl 缓存链一致（分钟*60）；stale 标记原样透传
-    // （持久化行正常为 None，透传仅为防御性一致）。
+    // TTL 口径与 get_app_details_impl 缓存链一致（FINAL 60min，见 `detail_ttl_secs`）；stale 标记原样透传
+    // （持久化行正常为 None，透传仅为防御性一致）。图标 ETag 禁用不影响此通道（详情 ETag 仍用）。
     if let Ok(db) = state.db() {
-        let ttl_seconds = db.get_detail_cache_ttl_minutes() * 60;
+        let ttl_seconds = detail_ttl_secs(&db);
         if let Ok(Some(cached)) = db.get_cached_app_detail(&clean_id, Some(ttl_seconds)) {
             log::debug!(
                 "get_platforms_lite id={} from=cache:db elapsed_ms={}",
@@ -272,10 +291,10 @@ pub async fn get_app_details_impl(
     // 单次临界区完成 TTL + 缓存读取 + verified 标记解析，避免同请求内多次加/解锁；
     // 注意：锁守卫不得跨越 await（Tauri 命令 Future 需 Send），故查询收拢于单闭包内。
     // 后续优化方向：r2d2 连接池（当前仍用全局 Mutex<Database>，见 ADR-0003；无 schema 变更）。
-    // 非法/缺失 TTL 挡位由 db 层回退默认 30 分钟（ADR-0007 有效集 {0,10,30,60,360,1440}）。
+    // FINAL 详情 TTL 60min（老 30 迁移，见 `detail_ttl_secs`；platforms_lite 同值）。
     if !is_force {
         let cached: Option<AppDetail> = state.db().ok().and_then(|db| {
-            let ttl_seconds = db.get_detail_cache_ttl_minutes() * 60;
+            let ttl_seconds = detail_ttl_secs(&db);
             let detail = db
                 .get_cached_app_detail(&clean_id, Some(ttl_seconds))
                 .ok()
@@ -585,16 +604,15 @@ pub async fn get_app_details_impl(
                         }
                     }
                     // Top2：详情 + 图标原子落库（2 提交变 1 提交），失败回滚并回退逐条，不改 TTL/ETag。
+                    // FINAL Logo 口径：`detail.icon` 必为 L1–L4 备选 Logo（官方/探测/README 头部），
+                    // README 正文图永不进 `detail.icon`（见 detail_fetch 头部 40 行 Logo 提取），此处不存正文。
                     let icon_trimmed = detail.icon.trim();
                     let pending_cycle: Option<crate::db::AppIconCycle> =
-                        if !icon_trimmed.is_empty() {
-                            let level = if icon_trimmed.contains("simpleicons.org") {
-                                2
-                            } else if icon_trimmed.contains("/blob/") || icon_trimmed.to_lowercase().contains("readme") {
-                                4
-                            } else {
-                                3
-                            };
+                        if !icon_trimmed.is_empty()
+                            && !crate::github::icon_fetch::is_body_image_url(icon_trimmed)
+                        {
+                            let level =
+                                crate::github::icon_fetch::level_for_detail_icon(icon_trimmed);
 
                             let mut cycle = db
                                 .get_icon_cycle(&clean_id)

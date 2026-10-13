@@ -65,6 +65,13 @@ export const Header: React.FC<HeaderProps> = ({
   // 初次展示同步去重：同一 id+url 只 dispatch 一次，避免重复事件刷榜
   const iconSyncDispatchedRef = useRef<Set<string>>(new Set());
 
+  // 图标写透 patch（与 useDetailCacheSync:266 iconPatch 同效）：
+  // Header 不直持四列表 setters，显式 patch 声明与 App 侧 `subscribeIconWrites` 扇出幂等，
+  // 实际四列表落定经扇出完成；此处传 patch 保证 `applyHit→patch→扇出` 同 tick 可观测（L2/L3/L4/L5 即默认）。
+  const iconPatch = (_tid: string, _icon: string): void => {
+    // 无直写：四列表经 App 扇出 `patchAppIconList` 落定（与 266 同体同效，幂等）。
+  };
+
   useEffect(() => {
     let isMounted = true;
     setIconCycle(null);
@@ -93,11 +100,13 @@ export const Header: React.FC<HeaderProps> = ({
               iconSyncDispatchedRef.current.add(dedupKey);
               // 初次展示跟随经店内唯一写口（M1 缓冲 + 文件预热；列表写透由详情同步侧持有 setters 完成，
               // 此处只做缓冲预热，不自发 IPC 预热、不走窗口总线）。
+              // data: 永不直送（persistUrl 已剥 data:，空即 L5/空不发）；patch 与 266 同体（经扇出落定）。
               applyHit({
                 key: app.id,
                 id: app.id,
                 icon: persistUrl,
                 level: typeof data.level === 'number' ? data.level : undefined,
+                patch: iconPatch,
               });
             }
           }
@@ -131,30 +140,61 @@ export const Header: React.FC<HeaderProps> = ({
     if (iconCycle.level === 5 || iconCycle.is_fallback || iconCycle.isFallback) {
       return iconCycle.url || '';
     }
-    return iconCycle.url;
+    // 收录首开冷返回 {url:"", remote_url:L1实图, level:1}：空 url override 会压住
+    // AppIcon 的 app.icon/buffered 真图导致首帧 MU 徽章。取 persistUrl 口径
+    //（remote_url 优先、非 data: url 兜底）：空即 undefined 不覆盖，仅 L5 显式 ""。
+    const rawUrl = typeof iconCycle.url === 'string' ? iconCycle.url.trim() : '';
+    if (rawUrl !== '') return iconCycle.url;
+    const remoteRaw =
+      typeof (iconCycle.remote_url ?? iconCycle.remoteUrl) === 'string'
+        ? String(iconCycle.remote_url ?? iconCycle.remoteUrl).trim()
+        : '';
+    const persistUrl =
+      remoteRaw !== '' ? remoteRaw : (!rawUrl.startsWith('data:') ? rawUrl : '');
+    // url=="" 且 persistUrl 有实图时返回 undefined，让 AppIcon 回落 app.icon 直显 http；
+    // persistUrl 为空同样不覆盖（回落缓冲/父 prop）。
+    if (persistUrl !== '') return undefined;
+    return undefined;
   }, [iconCycle]);
 
   const handleCycleIcon = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    // 收录恒 L1 禁切：收录应用不给切（与 L1 官方锁定同语义）。
     if (isCyclingIcon || !isTauri || !app.id || isCataloged) return;
     setIsCyclingIcon(true);
     try {
       const res = await api.cycleAppIcon(app.id);
       if (res) {
+        // 未收录手动定 Logo：选中即默认——setIconCycle+applyHit+patch 同 tick 即时响应；
+        // L2/L3/L4 实图转正 http 才写透，L5 空（url ''）走显式徽章写，data: 仅经 iconOverride 即时看。
         setIconCycle(res);
         // 轮转跟随经店内写口：L5 空（url ''）走显式徽章写（清记忆 + 列表/镜像扇出）；
         // 实图经唯一写口缓冲预热；即时换图由 iconOverride 本地态直显，不走窗口总线。
-        const cycledUrl = typeof res.url === 'string' ? res.url.trim() : '';
-        if (cycledUrl === '') {
-          applyHit({ key: app.id, id: app.id, icon: '', level: 5 });
-        } else {
+        // data: 永不直送 applyHit，只做 iconOverride（persistUrl 为空即不发）。
+        const rawCycledUrl = typeof res.url === 'string' ? res.url.trim() : '';
+        const remoteRaw =
+          typeof (res.remote_url ?? res.remoteUrl) === 'string'
+            ? String(res.remote_url ?? res.remoteUrl).trim()
+            : '';
+        const persistUrl =
+          remoteRaw !== ''
+            ? remoteRaw
+            : !rawCycledUrl.startsWith('data:') && rawCycledUrl !== ''
+              ? rawCycledUrl
+              : '';
+        if (rawCycledUrl === '') {
+          applyHit({ key: app.id, id: app.id, icon: '', level: 5, patch: iconPatch });
+        } else if (persistUrl !== '') {
           applyHit({
             key: app.id,
             id: app.id,
-            icon: res.remote_url && res.remote_url.trim() !== '' ? res.remote_url : cycledUrl,
+            icon: persistUrl,
             level: typeof res.level === 'number' ? res.level : undefined,
+            patch: iconPatch,
           });
+        } else {
+          // data: 仅即时看：已 setIconCycle（iconOverride 直显），此处不调 applyHit、不进盘。
         }
         const total = res.total_levels ?? res.totalLevels ?? 5;
         const name = ICON_LEVEL_NAMES[res.level] || '';

@@ -89,6 +89,28 @@ fn default_icon_via() -> String {
     "live".to_string()
 }
 
+/// FINAL Logo 口径（只做 Logo，不管正文插图）：
+/// - `level_for_detail_icon`: 详情 `icon` → cycle 级别（2=simpleicons 字典，4=README 头部备选 Logo，3=仓库树）；
+///   L4 仅 cycle 命中的头部备选 Logo（`/blob/` 或 `readme` 关键字），正文图永不经此（见下）；
+/// - `is_body_image_url`: 正文大图判别（screenshot/preview/banner/badge/demo/diagram/architecture/cover），
+///   命中即视为正文图，调用方跳过落库（不存、不计、不预热），与 `icon_probe::score_candidate` 负分表同源。
+pub(crate) fn level_for_detail_icon(icon_trimmed: &str) -> i32 {
+    if icon_trimmed.contains("simpleicons.org") {
+        2
+    } else if icon_trimmed.contains("/blob/") || icon_trimmed.to_lowercase().contains("readme") {
+        4
+    } else {
+        3
+    }
+}
+
+pub(crate) fn is_body_image_url(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    ["screenshot", "preview", "banner", "badge", "shields.io", "demo", "diagram", "architecture", "cover", "workflow", "license"]
+        .iter()
+        .any(|k| lower.contains(k))
+}
+
 /// 统一事件 key：小写 `owner/repo`（三键合一薄委托，唯一实现见
 /// [`crate::forge::canonical_app_id_from_parts`]；DB 主键/事件 key/前端归一键全同）。
 /// 入站标识一律先经 `forge::canonical_app_id` 归一化，再拆 owner/repo 进本函数；
