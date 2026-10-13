@@ -423,8 +423,8 @@ pub fn cycle_filename(stem: &str, level: i32, ext: &str) -> String {
 /// 详情 TTL 60min 见 `commands::catalog_detail::detail_ttl_secs`；图标 ETag 禁用（仅详情用）。
 pub const ICON_TTL_SECS: i64 = 7 * 24 * 60 * 60;
 
-/// 详情 TTL 新默认 60min（老 30 迁移见 `commands::catalog_detail::detail_ttl_secs`，platforms_lite 同值）。
-#[allow(dead_code)]
+/// 详情 TTL 新默认 60min（老 30 迁移见 `commands::catalog_detail::detail_ttl_secs`，platforms_lite 同值；
+/// 单一来源：`detail_ttl_secs` 的默认/回退分支经此常量派生）。
 pub const DETAIL_TTL_MINUTES_DEFAULT: i64 = 60;
 
 /// hash 文件名 SSOT（写侧唯一新名）：`sha256(url_trimmed)[0:16].{ext}`。
@@ -447,23 +447,6 @@ pub fn hash_icon_filename(url_trimmed: &str, ext: &str) -> String {
 /// 图标 DB 有效性：`cached_at/updated_at` 在 7 天内即有效（含未来时钟漂移宽容）。
 pub fn is_icon_fresh(cached_at: i64, now: i64) -> bool {
     cached_at > 0 && now.saturating_sub(cached_at) < ICON_TTL_SECS
-}
-
-/// 持久化文件名统一派生（写侧单一分支点）：FINAL 一律 hash（`hash_icon_filename(url, ext)`），
-/// `stem/level/is_cataloged` 仅为老调用签名兼容保留（不再参与新名派生，老名仅读侧兼容）。
-/// 读侧仍经两表分流 helpers；写侧一律经
-/// `commands::icons_cycle_probe::persist_icon_bytes` 间接，不在命令层散写
-/// `if is_cataloged` 双分支（probe-vs-persist 缝收敛，level 纯L，via 正交）。
-/// L4 仅 cycle 命中的备选 Logo 经此落盘；README 正文图永不进此（不计不预热）。
-pub fn persist_filename(
-    _stem: &str,
-    _level: i32,
-    _is_cataloged: bool,
-    _ext: &str,
-) -> String {
-    // 老分支已收敛为 hash：调用方应直接经 `persist_icon_bytes(url, bytes)` 派生；
-    // 此函数保留签名防编译断裂，返回空由调用方忽略（回滚线）。
-    String::new()
 }
 
 /// hash 写侧派生（新轨）：`hash_icon_filename(url, ext)` 薄委托，供 probe/命令层统一调用。

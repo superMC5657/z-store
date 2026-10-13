@@ -3,7 +3,7 @@
 [cache]
 # 应用详情本地缓存生存时效 (TTL)，单位：分钟
 # 在保鲜期内直接 0ms 读取本地 SQLite；过期后自动发起 ETag 条件协商
-detail_ttl_minutes = 30
+detail_ttl_minutes = 60
 
 [network]
 # HTTP 连接超时（秒）

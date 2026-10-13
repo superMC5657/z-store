@@ -174,18 +174,6 @@ pub(crate) fn read_level_cache_file(
     None
 }
 
-/// 老签名兼容（测试/回滚线）：无 URL 时仅走老名兼容读（新名双探跳过）。
-/// 生产一律用 5 参版本（带 url 双探 hash）。
-#[allow(dead_code)]
-pub(crate) fn read_level_cache_file_legacy(
-    icons_dir: &std::path::Path,
-    stem: &str,
-    level: i32,
-    inferred_ext: &str,
-) -> Option<Vec<u8>> {
-    read_level_cache_file(icons_dir, stem, level, inferred_ext, "")
-}
-
 /// 两表分流缓存读取唯一落点（FINAL：hash 双探 + 7 天 TTL + ETag 禁用）：
 /// - 收录查 `icon_cache_meta`（要求：文件存在 + 合法图 + 文件 7 天新鲜 + meta URL 相等 + meta 7 天有效）；
 ///   新名 `hash(url).{ext}` 优先（含全后缀兜底），miss 再试老 `stem.{ext}` 全后缀（兼容读）；
@@ -298,17 +286,6 @@ fn cleanup_stale_cycle_variants(
             }
         }
     }
-}
-
-/// 老 stem 同 level 残留清理（兼容期 best-effort，缝内私有）：
-/// 新 hash 落盘后，同 `stem_l{level}.*` 老文件若与新文件字节一致可留，否则由 LRU 收敛，此处不删
-///（避免误删仍被老行引用的兼容文件）。
-#[allow(dead_code)]
-fn cleanup_legacy_stem_variants(
-    _icons_dir: &std::path::Path,
-    _stem: &str,
-    _level: i32,
-) {
 }
 
 /// 收录应用落盘唯一落点（FINAL hash 单轨）：

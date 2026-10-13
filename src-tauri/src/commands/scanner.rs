@@ -219,6 +219,8 @@ pub struct DetectedDebugInfo {
 
 /// 调试命令：返回指定 `app_id` 的探测路径与命中源（标记 which/desktop/dpkg/snap/opt
 /// 哪路命中），供 Ubuntu 误报/漏扫排查。未收录时仍按 `app_id` 自派生尝试探测。
+/// 前端暂无调用方（设置页/日志 bundle 均无合适接线点，UI 接线已 deferred）：
+/// 排查时经 IPC 直调 `get_detected_debug`（args: `{ appId }`），返回 `{ path, source }`（未命中时均为 `None`）。
 #[tauri::command]
 pub fn get_detected_debug(
     state: State<'_, AppState>,

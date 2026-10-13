@@ -71,8 +71,8 @@ impl Database {
                 updated_at INTEGER NOT NULL
             );
 
-            -- ADR-0007 默认挡位：应用详情缓存保鲜期 30 分钟（仅缺失时填充，不覆盖用户已存值）
-            INSERT OR IGNORE INTO user_settings (key, value) VALUES ('detail_cache_ttl_minutes', '30');
+            -- ADR-0007 默认挡位：应用详情缓存保鲜期 60 分钟（仅缺失时填充，不覆盖用户已存值；老库残留 30 经 detail_ttl_secs 按 60 生效）
+            INSERT OR IGNORE INTO user_settings (key, value) VALUES ('detail_cache_ttl_minutes', '60');
 
             -- FR-6.2 关注订阅表：daily 频率下 last_notified_at 保证每应用每天至多通知一次
             CREATE TABLE IF NOT EXISTS watched_apps (

@@ -24,7 +24,7 @@ pub struct CacheConfig {
 }
 
 fn default_detail_ttl_minutes() -> i64 {
-    30
+    60
 }
 
 impl Default for CacheConfig {
@@ -300,7 +300,7 @@ mod tests {
     #[test]
     fn test_embedded_config_parses_successfully() {
         let conf = ProjectConfig::default();
-        assert_eq!(conf.cache.detail_ttl_minutes, 30);
+        assert_eq!(conf.cache.detail_ttl_minutes, 60);
         assert_eq!(conf.network.connect_timeout_seconds, 15);
         assert_eq!(conf.network.download_timeout_seconds, 300);
         assert_eq!(conf.network.chunk_timeout_seconds, 30);
@@ -323,7 +323,7 @@ mod tests {
     #[test]
     fn test_get_project_config_returns_reference() {
         let conf = get_project_config();
-        assert_eq!(conf.cache.detail_ttl_minutes, 30);
+        assert_eq!(conf.cache.detail_ttl_minutes, 60);
         assert_eq!(conf.network.api_timeout_seconds, 12);
         assert_eq!(conf.limits.search_history_limit, 20);
     }

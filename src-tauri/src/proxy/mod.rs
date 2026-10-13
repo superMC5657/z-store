@@ -102,11 +102,6 @@ pub fn merged_no_proxy_string(extra_hosts: &[String]) -> String {
     out.join(",")
 }
 
-/// 合并后的 `NoProxy`（恒 `Some`，默认豁免永不为空）。
-pub fn merged_no_proxy(extra_hosts: &[String]) -> Option<NoProxy> {
-    NoProxy::from_string(&merged_no_proxy_string(extra_hosts))
-}
-
 /// 确保 `NO_PROXY`/`no_proxy` 环境包含默认豁免 + `extra_hosts`。
 /// 只做追加合并，不删除用户原有条目；已包含时跳过寫操作。
 /// 仅启动期系统预热调用（Linux GNOME / Windows 注册表），请求路径

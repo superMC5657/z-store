@@ -278,7 +278,7 @@ const iconPendingAliases = new Map<string, Set<string>>();
 /** 失败退避：`url → 可重试时间戳`（失败即 `delete` pending + 退避 30s，期内跳过）。 */
 const iconPreloadBackoffUntil = new Map<string, number>();
 let iconPreloadScheduled = false;
-const ICON_PRELOAD_BACKOFF_MS = 30_000;
+const ICON_PRELOAD_BACKOFF_MS = 30_000; // stale-while-revalidate guard for batch preload: failures back off 30s while the UI keeps showing the stale URL.
 
 function resolveCurrentSearchId(args: ApplyHitArgs): string {
   try {

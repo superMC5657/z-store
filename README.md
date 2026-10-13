@@ -20,7 +20,7 @@
 - **D2 零服务器成本与解耦清单同步 (Serverless & Decoupled Manifest Sync)**:
   - 基于独立的开源清单仓库（[superMC5657/z-store-catalog](https://github.com/superMC5657/z-store-catalog)）增量同步精选应用元数据，客户端本地预置 `catalog.json` 离线种子兜底，保障断网或首发秒开（详见 [ADR-0009](docs/adr/0009-catalog-manifest-repository-decoupling.md)）；
   - 客户端通过 `ForgeProvider` 抽象层**按需直连**托管平台官方 REST API 获取深度详情与构建资产，无需中心化专有后端；
-  - 本地 SQLite 持久化结合统一配置源（`src-tauri/config.toml`）的 TTL 缓存（默认 30 分钟）与 **HTTP ETag 304 条件重新验证**，实现零 API 配额消耗延长时效与离线平滑降级（详见 [ADR-0007](docs/adr/0007-open-manifest-catalog-and-configurable-ttl-cache.md)）。
+  - 本地 SQLite 持久化结合统一配置源（`src-tauri/config.toml`）的 TTL 缓存（默认 60 分钟）与 **HTTP ETag 304 条件重新验证**，实现零 API 配额消耗延长时效与离线平滑降级（详见 [ADR-0007](docs/adr/0007-open-manifest-catalog-and-configurable-ttl-cache.md)）。
 - **D3 零信任完整性防篡改 (Zero-Trust Anti-Tampering)**:
   - 默认利用高可用加速镜像代理大文件下载；
   - 下载后**强制流式计算 SHA-256 哈希**并与官方清单比对，哈希不符立即强行阻断并销毁临时文件，防御供应链投毒（详见 [ADR-0004](docs/adr/0004-streaming-installer-and-checksum-verification.md)）。
@@ -36,7 +36,7 @@
 ### 1. 🌐 解耦清单同步与按需详情获取
 - **离线秒开与种子兜底**：客户端启动优先读取本地 `catalog.json` 种子清单，保证零网络延迟立即可用。
 - **一键动态同步**：设置中心支持随时“立即同步收录库”，增量拉取独立生态仓库最新清单，支持配置自定义同步源与加速前缀。
-- **TTL 智能缓存与 ETag 续期**：统一基线缓存 TTL（默认 30 分钟），过期后触发 ETag 304 条件请求，零配额消耗延长缓存新鲜度；该 TTL 仅约束详情浏览，更新发现（更新中心/关注动态）每次走 ETag 轻量探查，不受其约束。
+- **TTL 智能缓存与 ETag 续期**：统一基线缓存 TTL（默认 60 分钟），过期后触发 ETag 304 条件请求，零配额消耗延长缓存新鲜度；该 TTL 仅约束详情浏览，更新发现（更新中心/关注动态）每次走 ETag 轻量探查，不受其约束。
 - **发现流分页与搜索翻页**：发现 Feed 首屏 20、触底续 20 无限滑（`has_more=(offset+limit)<total`）；在线搜索默认 `per_page=12`、钳制 1–50，满页即 `hasMore` 续拉下一页。
 - **首页排序锁定**：首页固定 `balanced + seed 7`，无排序切换工具条。
 
@@ -64,7 +64,7 @@
 
 ### 6. 🔄 检查更新流式推流与实时感知
 - **实时推流动效**：更新检查基于并发管道流式拉取（`buffer_unordered(6)`，主路径与关注通知两处），后端通过 `zstore://update-check-progress` 逐项推流，前端呈现丝滑进度条与更新项逐项跳出微动效。
-- **轻量版本嗅探**：更新检查仅拉取版本号与 Release 说明，结合 ETag 304 极速响应，不下载大体积 README 或非必要元数据；与详情 30 分钟 TTL 解耦，每次 ETag 轻探查（304 零配额延长保鲜）。
+- **轻量版本嗅探**：更新检查仅拉取版本号与 Release 说明，结合 ETag 304 极速响应，不下载大体积 README 或非必要元数据；与详情 60 分钟 TTL 解耦，每次 ETag 轻探查（304 零配额延长保鲜）。
 
 ### 7. 🔗 系统级协议与状态指示
 - **深层链接唤起**：注册 `zstore://` URL Scheme，支持浏览器与外部命令行直接唤起客户端直达详情、安装或搜索；安装类深链必须经过显式确认对话框，用户点确认后才开始安装。
@@ -107,7 +107,7 @@
 | **Feature C: 版本控制与验签** | 跳过/锁定版本 | **100% 已交付** | SQLite 版本规则表、SHA-256 流式校验 ([ADR-0004](docs/adr/0004-streaming-installer-and-checksum-verification.md)) |
 | **Feature D: 开发者生态** | 开发者全景与 Star 仓库同步 | **100% 已交付** | 开发者主页、GitHub Star 导入、搜索/浏览历史持久化 |
 | **Feature E: 协议唤起与多端** | `zstore://` 路由与多端管道 | **100% 已交付** | URL Scheme 深度链接、API 配额药丸胶囊、类 Unix 安装管道 |
-| **ADR-0007: 开放清单与缓存** | 开放清单同步 + 固定基线 TTL | **100% 已交付** | 远程 Manifest 仓库动态拉取、统一 30 分钟基线 TTL、ETag 304 零配额续期 |
+| **ADR-0007: 开放清单与缓存** | 开放清单同步 + 固定基线 TTL | **100% 已交付** | 远程 Manifest 仓库动态拉取、统一 60 分钟基线 TTL、ETag 304 零配额续期 |
 | **ADR-0008: 出站代理与设置重构** | 出站代理 + OAuth 加固 + 设置 5 组 | **100% 已交付** | 系统代理透明捕获、OAuth 三级 Client ID、独立状态机、设置 5 组规范 ([ADR-0008](docs/adr/0008-outbound-proxy-oauth-hardening-and-settings-restructure.md)) |
 | **ADR-0009: 清单解耦与多端体系** | 独立生态仓库 + 多端 Identifiers | **100% 已交付** | 解耦至 `superMC5657/z-store-catalog`、原生多端标识符结构、设备与分类双维筛选、单一配置源 ([ADR-0009](docs/adr/0009-catalog-manifest-repository-decoupling.md)) |
 | **ADR-0010: 规范应用标识** | canonical id 全链路统一 | **100% 已交付** | 小写 `owner/repo` 全局唯一标识、入口统一归一化、纯粹单键索引 ([ADR-0010](docs/adr/0010-canonical-app-identifier.md)) |
