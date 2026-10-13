@@ -10,6 +10,7 @@ pub mod log_support;
 pub mod mirror;
 pub mod models;
 pub mod oauth;
+pub mod proxy;
 pub mod scanner;
 pub mod z_log;
 
@@ -85,13 +86,15 @@ static SHARED_HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 fn build_shared_http_client() -> reqwest::Client {
     let api_timeout =
         std::time::Duration::from_secs(config::get_project_config().network.api_timeout_seconds);
-    reqwest::Client::builder()
+    let builder = reqwest::Client::builder()
         .timeout(api_timeout)
         .connect_timeout(std::time::Duration::from_secs(5))
         .tcp_keepalive(std::time::Duration::from_secs(60))
         .pool_max_idle_per_host(20)
         .pool_idle_timeout(std::time::Duration::from_secs(90))
-        .user_agent(crate::forge::http::USER_AGENT_VALUE)
+        .user_agent(crate::forge::http::USER_AGENT_VALUE);
+    let builder = crate::proxy::apply_proxy(builder, &[]);
+    builder
         .build()
         .unwrap_or_else(|_| reqwest::Client::new())
 }
@@ -389,6 +392,8 @@ pub fn run() {
     z_log::install_panic_hook();
     #[cfg(target_os = "windows")]
     init_windows_system_proxy();
+    #[cfg(target_os = "linux")]
+    crate::proxy::linux::init_linux_system_proxy();
 
     let db_dir = get_app_data_dir();
     let _ = std::fs::create_dir_all(&db_dir);
