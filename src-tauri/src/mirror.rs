@@ -115,6 +115,15 @@ impl MirrorManager {
             return true; // 状态未改变，幂等跳过，避免重复刷日志
         }
         self.custom_proxy = new_proxy;
+        // 镜像 host 直连豁免：追加进 NO_PROXY（只增不删，不覆盖用户原值），
+        // 后续新建 Client 经 proxy::apply_proxy 自动直连；已建单例不受影响
+        //（下载器按请求 extra 直连，见 downloader）。
+        if let Some(ref p) = self.custom_proxy {
+            let h = crate::log_support::host_of(p);
+            if !h.is_empty() && h != "unknown" {
+                crate::proxy::ensure_no_proxy_env(&[h]);
+            }
+        }
         let proxy_display = self.custom_proxy.as_deref().unwrap_or("direct");
         log::info!("mirror switch id={} proxy='{}'", id, proxy_display);
         true
@@ -140,18 +149,18 @@ impl MirrorManager {
     }
 
     /// H2：测速专用 HTTP 客户端（短超时 + 浏览器 UA）。
-    fn ping_client(timeout_ms: u64) -> reqwest::Client {
-        reqwest::Client::builder()
+    /// `extra_hosts` 追加进 `no_proxy`（被测镜像 host 直连，不另起 Client）。
+    fn ping_client(timeout_ms: u64, extra_hosts: &[String]) -> reqwest::Client {
+        let builder = reqwest::Client::builder()
             .timeout(std::time::Duration::from_millis(timeout_ms))
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
-            .build()
-            .unwrap_or_default()
+            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36");
+        let builder = crate::proxy::apply_proxy(builder, extra_hosts);
+        builder.build().unwrap_or_default()
     }
 
     /// 单击测速：快速探测指定代理地址（或官方直连）的网络握手时延
     pub async fn test_proxy_latency(proxy_url: Option<&str>) -> (bool, u32, String) {
         let timeout_ms = crate::config::get_project_config().network.ping_timeout_ms;
-        let client = Self::ping_client(timeout_ms);
 
         let clean_url = proxy_url
             .map(|s| s.trim())
@@ -170,6 +179,17 @@ impl MirrorManager {
             }
             None => "https://github.com".to_string(),
         };
+
+        // 被测镜像 host 直连豁免：靠 no_proxy 覆盖，不另起 Client。
+        let extra_hosts = {
+            let h = crate::log_support::host_of(&test_url);
+            if h.is_empty() || h == "unknown" {
+                Vec::new()
+            } else {
+                vec![h]
+            }
+        };
+        let client = Self::ping_client(timeout_ms, &extra_hosts);
 
         let safe_test_url = crate::log_support::sanitize_url(&test_url);
         let req_id = crate::z_log::new_req_id();

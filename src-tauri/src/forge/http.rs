@@ -61,6 +61,7 @@ fn build_client(
     if let Some(limit) = redirect_limit {
         builder = builder.redirect(reqwest::redirect::Policy::limited(limit));
     }
+    let builder = crate::proxy::apply_proxy(builder, &[]);
     builder.build().map_err(|e| e.to_string())
 }
 
