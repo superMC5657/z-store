@@ -284,8 +284,9 @@ pub const ASSET_CACHE_MAX_FILES: usize = 2000;
 pub const ASSET_CACHE_MAX_BYTES: u64 = 500 * 1024 * 1024;
 
 /// 读取当前生效的图片缓存配额（文件数，字节数）。
-/// 优先使用数据库设置，缺省回退 config.toml 基线。
-fn asset_quota_limits(db: &Database) -> (u64, u64) {
+/// 经 `get_asset_cache_max_*`（内用 `get_or_config`，DB 设置优先、缺省回退 config 基线）取值；
+/// 此处常量回退仅为防御性兜底（config 基线本身为 0 的极端情形）。图标侧共用此口径。
+pub(crate) fn asset_quota_limits(db: &Database) -> (u64, u64) {
     let files = db.get_asset_cache_max_files() as u64;
     let bytes = db.get_asset_cache_max_mb().saturating_mul(1024 * 1024);
     let files = if files > 0 {
@@ -382,41 +383,10 @@ pub fn asset_local_path(hash: &str, ext: &str) -> String {
     format!("cache/assets/{}/{}.{}", dir, h, final_ext)
 }
 
-/// 从地址后缀或内容类型推断文件扩展名。
+/// 地址后缀或内容类型推断文件扩展名薄委托（唯一实现见共享嗅探模块）：
+/// 未知回退 `png`（三套实现 2:1 多数口径，原 db 独有 `bin` 回退已归一）。
 fn infer_asset_ext(canonical_url: &str, content_type: &str) -> String {
-    let mut base = canonical_url.trim();
-    if let Some(end) = base.find(['?', '#']) {
-        base = &base[..end];
-    }
-    if let Some(slash) = base.rfind('/') {
-        let tail = &base[slash + 1..];
-        if let Some(dot) = tail.rfind('.') {
-            let cand = tail[dot + 1..].to_ascii_lowercase();
-            match cand.as_str() {
-                "png" | "jpg" | "gif" | "webp" | "svg" | "ico" | "avif" | "bmp" => {
-                    return cand;
-                }
-                "jpeg" => return "jpg".to_string(),
-                _ => {}
-            }
-        }
-    }
-    let ct = content_type
-        .trim()
-        .to_ascii_lowercase();
-    let ct = ct.split(';').next().unwrap_or("").trim();
-    match ct {
-        "image/png" => "png",
-        "image/jpeg" | "image/jpg" => "jpg",
-        "image/gif" => "gif",
-        "image/webp" => "webp",
-        "image/svg+xml" => "svg",
-        "image/x-icon" | "image/vnd.microsoft.icon" => "ico",
-        "image/avif" => "avif",
-        "image/bmp" => "bmp",
-        _ => "bin",
-    }
-    .to_string()
+    crate::github::image_sniff::infer_asset_ext(canonical_url, content_type)
 }
 
 impl Database {
@@ -537,27 +507,6 @@ impl Database {
         })
     }
 
-    /// 统计缓存条目与占用。
-    pub fn asset_usage_stats(&self) -> Result<AssetUsageStats> {
-        let mut stmt = self.conn.prepare(
-            "SELECT COUNT(*), COALESCE(SUM(size), 0), COALESCE(SUM(hits), 0) FROM asset_cache",
-        )?;
-        let mut rows = stmt.query([])?;
-        if let Some(row) = rows.next()? {
-            Ok(AssetUsageStats {
-                total_entries: row.get(0)?,
-                total_bytes: row.get(1)?,
-                total_hits: row.get(2)?,
-            })
-        } else {
-            Ok(AssetUsageStats {
-                total_entries: 0,
-                total_bytes: 0,
-                total_hits: 0,
-            })
-        }
-    }
-
     /// 条件请求命中刷新：更新使用时间与过期时间并计数。
     pub fn refresh_asset_revalidated(&self, hash: &str, expires_at: i64) -> Result<()> {
         let h = clean(hash).to_string();
@@ -662,44 +611,94 @@ impl Database {
     /// 清空通用图片磁盘缓存：删除配额目录下全部文件并清空图片缓存表。
     /// 仅处理传入目录与图片缓存两表，不触碰图标目录与详情缓存。
     pub fn clear_asset_cache(&self, assets_dir: &std::path::Path) -> Result<usize> {
-        let scanned = scan_asset_files(assets_dir);
+        self.clear_dir_common(
+            assets_dir,
+            &["DELETE FROM asset_cache", "DELETE FROM asset_refs"],
+        )
+    }
+
+    /// 统计口径（asset/icon 统一为 DB+FS，见 `asset_usage_stats_in`）：
+    /// 条目/字节取 DB 聚合与 FS 扫描的较大值（覆盖孤儿文件与已删文件残留行），
+    /// 命中数取 DB 累计。默认扫描标准配额目录。
+    pub fn asset_usage_stats(&self) -> Result<AssetUsageStats> {
+        let dir = crate::get_app_data_dir().join("cache").join("assets");
+        self.asset_usage_stats_in(&dir)
+    }
+
+    /// `asset_usage_stats` 的目录参数化形态（单测用临时目录锁定数字）。
+    pub fn asset_usage_stats_in(&self, assets_dir: &std::path::Path) -> Result<AssetUsageStats> {
+        let mut stmt = self.conn.prepare(
+            "SELECT COUNT(*), COALESCE(SUM(size), 0), COALESCE(SUM(hits), 0) FROM asset_cache",
+        )?;
+        let mut rows = stmt.query([])?;
+        let (db_entries, db_bytes, db_hits): (i64, i64, i64) =
+            if let Some(row) = rows.next()? {
+                (row.get(0)?, row.get(1)?, row.get(2)?)
+            } else {
+                (0, 0, 0)
+            };
+        let (fs_entries, fs_bytes) = fs_totals(assets_dir);
+        Ok(AssetUsageStats {
+            total_entries: db_entries.max(fs_entries),
+            total_bytes: db_bytes.max(fs_bytes),
+            total_hits: db_hits,
+        })
+    }
+
+    /// 统计图标磁盘缓存占用（DB+FS 口径，与 asset 对齐）：
+    /// 条目取 `icon_cache_meta` 行数与 FS 文件数的较大值，字节取 FS 真值
+    ///（meta 无 size 列），命中数恒 0（无 hits 列，显式 0 不伪造）。
+    pub fn icon_usage_stats(&self, icons_dir: &std::path::Path) -> Result<AssetUsageStats> {
+        let db_entries: i64 = self
+            .query_scalar_opt("SELECT COUNT(*) FROM icon_cache_meta", [])?
+            .unwrap_or(0);
+        let (fs_entries, fs_bytes) = fs_totals(icons_dir);
+        Ok(AssetUsageStats {
+            total_entries: db_entries.max(fs_entries),
+            total_bytes: fs_bytes,
+            total_hits: 0,
+        })
+    }
+
+    /// 清理公共落点（目录 + 表语句参数化）：删目录下全部文件后顺序执行给定 SQL。
+    /// 调用方传入常量 SQL（DELETE/UPDATE），本函数不拼接表名，无注入面。
+    fn clear_dir_common(
+        &self,
+        dir: &std::path::Path,
+        statements: &[&str],
+    ) -> Result<usize> {
+        let scanned = scan_asset_files(dir);
         let mut removed: usize = 0;
         for (path, _, _) in scanned {
             if std::fs::remove_file(&path).is_ok() {
                 removed += 1;
             }
         }
-        self.exec_upsert("DELETE FROM asset_cache", [])?;
-        self.exec_upsert("DELETE FROM asset_refs", [])?;
+        for sql in statements {
+            self.exec_upsert(sql, [])?;
+        }
         Ok(removed)
-    }
-
-    /// 统计图标磁盘缓存占用：扫描图标目录文件数与总字节。
-    pub fn icon_usage_stats(&self, icons_dir: &std::path::Path) -> Result<AssetUsageStats> {
-        let scanned = scan_asset_files(icons_dir);
-        let total_entries = scanned.len() as i64;
-        let total_bytes: i64 = scanned.iter().map(|(_, len, _)| *len as i64).sum();
-        Ok(AssetUsageStats {
-            total_entries,
-            total_bytes,
-            total_hits: 0,
-        })
     }
 
     /// 清空图标磁盘缓存：删除图标目录下全部文件并清空图标索引。
     /// 仅处理图标目录与图标两表，保留轮换级别地址，清空文件指向。
     pub fn clear_icon_cache(&self, icons_dir: &std::path::Path) -> Result<usize> {
-        let scanned = scan_asset_files(icons_dir);
-        let mut removed: usize = 0;
-        for (path, _, _) in scanned {
-            if std::fs::remove_file(&path).is_ok() {
-                removed += 1;
-            }
-        }
-        self.exec_upsert("DELETE FROM icon_cache_meta", [])?;
-        let _ = self.exec_upsert("UPDATE app_icon_cycles SET cache_file = ''", []);
-        Ok(removed)
+        self.clear_dir_common(
+            icons_dir,
+            &[
+                "DELETE FROM icon_cache_meta",
+                "UPDATE app_icon_cycles SET cache_file = ''",
+            ],
+        )
     }
+}
+
+/// 目录文件数与总字节（统计口径的 FS 侧，DB+FS 取大者）。
+fn fs_totals(dir: &std::path::Path) -> (i64, i64) {
+    let scanned = scan_asset_files(dir);
+    let entries = scanned.len() as i64;
+    let bytes: i64 = scanned.iter().map(|(_, len, _)| *len as i64).sum();
+    (entries, bytes)
 }
 
 /// 递归扫描配额目录下全部文件。
@@ -754,4 +753,77 @@ fn asset_abs_candidates(
         out.push(via_app_dir);
     }
     out
+}
+
+#[cfg(test)]
+mod cache_quota_tests {
+    use super::*;
+
+    fn write_sized(path: &std::path::Path, len: usize) {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(path, vec![7u8; len]).unwrap();
+    }
+
+    #[test]
+    fn stats_take_max_of_db_and_fs() {
+        let db = Database::open_in_memory().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let assets = dir.path().join("assets");
+        // FS 侧：2 文件共 20 字节；DB 侧：1 行 100 字节 / hits=3（残留行更大）。
+        write_sized(&assets.join("ab").join("x.png"), 10);
+        write_sized(&assets.join("cd").join("y.png"), 10);
+        let expires = crate::now_secs() + 3600;
+        db.save_asset("https://example.com/stale.png", "image/png", 100, None, None, expires)
+            .unwrap();
+        // save_asset 内 enforce 用默认目录，不影响临时目录断言。
+        let stats = db.asset_usage_stats_in(&assets).unwrap();
+        assert_eq!(stats.total_entries, 2);
+        assert_eq!(stats.total_bytes, 100);
+        // hits 取 DB 累计；touch 后 +1。
+        let rec = db.get_asset("https://example.com/stale.png").unwrap().unwrap();
+        db.touch_asset(&rec.hash, "o/r").unwrap();
+        let stats2 = db.asset_usage_stats_in(&assets).unwrap();
+        assert_eq!(stats2.total_hits, stats.total_hits + 1);
+    }
+
+    #[test]
+    fn icon_stats_cover_db_rows_and_fs_files() {
+        let db = Database::open_in_memory().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let icons = dir.path().join("icons");
+        // FS 侧 1 文件 10 字节；DB 侧 2 行 → 条目取大者 2，字节取 FS 真值。
+        write_sized(&icons.join("a.png"), 10);
+        db.save_icon_cache_url("a.png", "https://example.com/a.png").unwrap();
+        db.save_icon_cache_url("b.png", "https://example.com/b.png").unwrap();
+        let stats = db.icon_usage_stats(&icons).unwrap();
+        assert_eq!(stats.total_entries, 2);
+        assert_eq!(stats.total_bytes, 10);
+        assert_eq!(stats.total_hits, 0);
+    }
+
+    #[test]
+    fn clear_dir_common_clears_files_and_tables() {
+        let db = Database::open_in_memory().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let assets = dir.path().join("assets");
+        write_sized(&assets.join("x.png"), 5);
+        write_sized(&assets.join("sub").join("y.png"), 5);
+        let expires = crate::now_secs() + 3600;
+        db.save_asset("https://example.com/a.png", "image/png", 5, None, None, expires)
+            .unwrap();
+        let removed = db.clear_asset_cache(&assets).unwrap();
+        assert_eq!(removed, 2);
+        assert!(scan_asset_files(&assets).is_empty());
+        assert!(db.get_asset("https://example.com/a.png").unwrap().is_none());
+
+        let icons = dir.path().join("icons");
+        write_sized(&icons.join("i.png"), 5);
+        db.save_icon_cache_url("i.png", "https://example.com/i.png").unwrap();
+        let removed = db.clear_icon_cache(&icons).unwrap();
+        assert_eq!(removed, 1);
+        assert!(scan_asset_files(&icons).is_empty());
+        assert!(db.get_icon_cache_url("i.png").unwrap().is_none());
+    }
 }

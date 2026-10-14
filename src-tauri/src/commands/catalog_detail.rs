@@ -10,20 +10,18 @@ pub(crate) fn should_skip_persist(is_stale: Option<bool>) -> bool {
     is_stale == Some(true)
 }
 
-/// FINAL 详情 TTL（分钟→秒）：新默认 60min（见 `db::icon_cycle::DETAIL_TTL_MINUTES_DEFAULT`），`platforms_lite` 同值同源。
+/// FINAL 详情 TTL（分钟→秒）：分钟数经 `get_detail_cache_ttl_minutes`
+///（内用 `get_or_config`，DB 设置优先、挡位归一、缺省回退 config 基线）已归一，
+/// 此处仅做单位换算。
 /// - `0`（每次实时校验）原样透传 0；
-/// - 其余有效挡位 `10/默认/360/1440` 原样透传；非法值回退默认。
+/// - 其余一律 `m * 60`（挡位合法性由 DB 层保证，不做二次钳制）。
 /// 图标 TTL 另见 `db::icon_cycle::ICON_TTL_SECS`（7 天，图标通道禁用 ETag）。
 pub(crate) fn detail_ttl_secs(db: &crate::db::Database) -> i64 {
-    use crate::db::icon_cycle::DETAIL_TTL_MINUTES_DEFAULT;
     let m = db.get_detail_cache_ttl_minutes();
     if m <= 0 {
         return 0;
     }
-    if [10, DETAIL_TTL_MINUTES_DEFAULT, 360, 1440].contains(&m) {
-        return m * 60;
-    }
-    DETAIL_TTL_MINUTES_DEFAULT * 60
+    m * 60
 }
 
 #[tauri::command]

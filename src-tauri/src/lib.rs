@@ -340,20 +340,9 @@ fn normalize_windows_proxy_server(raw: &str) -> Option<String> {
     if addr.is_empty() {
         return None;
     }
-    let lower = addr.to_ascii_lowercase();
-    if lower.starts_with("http://")
-        || lower.starts_with("https://")
-        || lower.starts_with("socks5://")
-        || lower.starts_with("socks5h://")
-        || lower.starts_with("socks4://")
-        || lower.starts_with("socks4a://")
-    {
-        Some(addr.to_string())
-    } else if addr.contains(':') {
-        Some(format!("http://{}", addr))
-    } else {
-        None
-    }
+    // 单地址归一委托共享落点（`proxy::normalize_single_proxy_addr`，与 Linux 同口径）；
+    // `;` 多协议拆解保留在本函数（https 优先 → http → 其他 → 裸地址）。
+    crate::proxy::normalize_single_proxy_addr(addr)
 }
 
 #[cfg(all(test, target_os = "windows"))]

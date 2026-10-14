@@ -1,5 +1,5 @@
 use super::{
-    clean, normalize_asset_cache_max_files, normalize_asset_cache_max_mb,
+    clean, get_or_config, normalize_asset_cache_max_files, normalize_asset_cache_max_mb,
     normalize_detail_cache_ttl, normalize_strict_errors, Database,
 };
 use rusqlite::{params, Result};
@@ -43,34 +43,34 @@ impl Database {
     /// 缺省回退 config.toml 项目基线配置（默认 30 分钟）。
     /// 返回 0 表示每次打开均需向远端条件校验（见 get_cached_app_detail 的 ttl == 0 分支）。
     pub fn get_detail_cache_ttl_minutes(&self) -> i64 {
-        self.get_setting("detail_cache_ttl_minutes")
-            .ok()
-            .flatten()
-            .and_then(|v| clean(&v).parse::<i64>().ok())
-            .map(normalize_detail_cache_ttl)
-            .unwrap_or_else(|| crate::config::get_project_config().cache.detail_ttl_minutes)
+        get_or_config(
+            self.get_setting("detail_cache_ttl_minutes").ok().flatten(),
+            |s| clean(s).parse::<i64>().ok(),
+            normalize_detail_cache_ttl,
+            || crate::config::get_project_config().cache.detail_ttl_minutes,
+        )
     }
 
     /// 读取通用图片磁盘缓存配额上限（兆字节）。
     /// 优先从数据库设置读取，缺省回退 config.toml 项目基线配置。
     pub fn get_asset_cache_max_mb(&self) -> u64 {
-        self.get_setting("asset_cache_max_mb")
-            .ok()
-            .flatten()
-            .and_then(|v| clean(&v).parse::<u64>().ok())
-            .map(normalize_asset_cache_max_mb)
-            .unwrap_or_else(|| crate::config::get_project_config().cache.asset_max_mb)
+        get_or_config(
+            self.get_setting("asset_cache_max_mb").ok().flatten(),
+            |s| clean(s).parse::<u64>().ok(),
+            normalize_asset_cache_max_mb,
+            || crate::config::get_project_config().cache.asset_max_mb,
+        )
     }
 
     /// 读取通用图片磁盘缓存配额上限（文件数）。
     /// 优先从数据库设置读取，缺省回退 config.toml 项目基线配置。
     pub fn get_asset_cache_max_files(&self) -> usize {
-        self.get_setting("asset_cache_max_files")
-            .ok()
-            .flatten()
-            .and_then(|v| clean(&v).parse::<usize>().ok())
-            .map(normalize_asset_cache_max_files)
-            .unwrap_or_else(|| crate::config::get_project_config().cache.asset_max_files)
+        get_or_config(
+            self.get_setting("asset_cache_max_files").ok().flatten(),
+            |s| clean(s).parse::<usize>().ok(),
+            normalize_asset_cache_max_files,
+            || crate::config::get_project_config().cache.asset_max_files,
+        )
     }
 
     /// 读取运行错误策略。

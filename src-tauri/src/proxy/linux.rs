@@ -8,31 +8,10 @@
 
 use super::{ensure_no_proxy_env, host_of_url};
 
-/// 归一化代理 URL（纯函数，可单元测试）。
-/// 接受 `host:port`（含 `user:pass@host:port` 鉴权形态）或自带 scheme；
-/// 仅 `http://`、`https://`、`socks5://`、`socks5h://`、`socks4://`、`socks4a://`
-/// （大小写不敏感，必须带 `://`）保留原值，其余含 `:` 的补 `http://`；
-/// 无 scheme、无 `:` 的裸词（含 `socks4` 前缀但缺 `://` 的垃圾输入）一律拒绝，
-/// 返回 `None`（调用方不设置，保持直连，避免 junk 字符串污染代理环境）。
+/// 归一化代理 URL（纯函数，可单元测试）：单地址形态委托共享
+/// [`super::normalize_single_proxy_addr`]，`host:port` 补 `http://`、非法裸词拒绝。
 pub fn normalize_proxy_url(raw: &str) -> Option<String> {
-    let addr = raw.trim();
-    if addr.is_empty() {
-        return None;
-    }
-    let lower = addr.to_ascii_lowercase();
-    if lower.starts_with("http://")
-        || lower.starts_with("https://")
-        || lower.starts_with("socks5://")
-        || lower.starts_with("socks5h://")
-        || lower.starts_with("socks4://")
-        || lower.starts_with("socks4a://")
-    {
-        Some(addr.to_string())
-    } else if addr.contains(':') {
-        Some(format!("http://{}", addr))
-    } else {
-        None
-    }
+    super::normalize_single_proxy_addr(raw)
 }
 
 fn gsettings_get(schema: &str, key: &str) -> Option<String> {

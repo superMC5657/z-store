@@ -198,7 +198,8 @@ fn test_base64_encode_and_hash_icon_filename() {
     assert_eq!(infer_icon_ext_from_url("https://example.com/app.webp"), Some("webp"));
     assert_eq!(infer_icon_ext_from_url("https://example.com/app.gif"), Some("gif"));
     assert_eq!(infer_icon_ext_from_url("https://example.com/app.avif"), Some("avif"));
-    assert_eq!(infer_icon_ext_from_url("https://example.com/app.apng"), Some("apng"));
+    // apng 归一为 png（多数口径：仅旧 icons 保留独立 apng → 归一，见 image_sniff）。
+    assert_eq!(infer_icon_ext_from_url("https://example.com/app.apng"), Some("png"));
     assert_eq!(infer_icon_ext_from_url("https://example.com/app.bmp"), Some("bmp"));
     assert_eq!(infer_icon_ext_from_url("https://example.com/no-ext-logo"), None);
     assert_eq!(infer_icon_ext_from_url("https://example.com/file.exe"), None);

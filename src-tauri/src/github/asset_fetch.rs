@@ -6,8 +6,6 @@ use futures_util::StreamExt;
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
-/// 镜像前缀：哈希前剥离，保证同一资源只存一份。
-const MIRROR_PREFIX: &str = "https://gh-proxy.com/";
 /// 磁盘缓存有效期（秒）：30 天，命中且未过期直接复用。
 const ASSET_TTL_SECS: u64 = 30 * 24 * 60 * 60;
 /// 单文件上限：5MB，超限丢弃并回退原地址。
@@ -23,42 +21,21 @@ fn is_dynamic_asset_url(url: &str) -> bool {
         || lower.contains("workflow")
 }
 
-/// 去镜像前缀后的规范地址：同一资源的缓存键来源。
+/// 去镜像前缀后的规范地址薄委托：同一资源的缓存键来源。
+/// 唯一实现为 `db::cache::canonical_asset_url`（循环剥离嵌套代理包装，
+/// 单层 `gh-proxy.com` 前缀为其特例，旧单测保持通过）。
 pub fn normalize_asset_url(url: &str) -> String {
-    let trimmed = url.trim();
-    if let Some(rest) = trimmed.strip_prefix(MIRROR_PREFIX) {
-        rest.to_string()
-    } else {
-        trimmed.to_string()
-    }
+    crate::db::cache::canonical_asset_url(url)
 }
 
-/// 地址 path 末段扩展名：无点返回 None。
+/// 地址 path 末段扩展名薄委托（唯一实现见共享嗅探模块）。
 fn url_path_ext(url: &str) -> Option<String> {
-    let path = if let Ok(parsed) = reqwest::Url::parse(url) {
-        parsed.path().to_string()
-    } else {
-        let no_hash = url.split('#').next().unwrap_or(url);
-        no_hash.split('?').next().unwrap_or(no_hash).to_string()
-    };
-    let segment = path.rsplit('/').next().unwrap_or("");
-    let dot = segment.rfind('.')?;
-    let ext = segment[dot + 1..].trim().to_ascii_lowercase();
-    if ext.is_empty() {
-        return None;
-    }
-    Some(ext)
+    crate::github::image_sniff::url_path_ext(url)
 }
 
-/// 扩展名白名单：无后缀放行到下载时验证，有后缀仅白名单通过。
+/// 扩展名白名单薄委托：无后缀放行到下载时验证，有后缀仅白名单通过。
 fn url_ext_allowed(url: &str) -> bool {
-    match url_path_ext(url) {
-        None => true,
-        Some(ext) => matches!(
-            ext.as_str(),
-            "png" | "jpg" | "jpeg" | "webp" | "gif" | "svg" | "avif" | "ico"
-        ),
-    }
+    crate::github::image_sniff::url_ext_allowed(url)
 }
 
 /// 响应 content-type 是否为图片。
@@ -82,90 +59,19 @@ pub fn should_cache_asset(url: &str) -> bool {
     url_ext_allowed(trimmed)
 }
 
-/// 字节魔数嗅探 MIME：PNG/GIF/JPEG/ICO/WEBP/AVIF/SVG 分支。
+/// 字节魔数嗅探薄委托（唯一实现见共享模块，含 bmp）。
 fn sniff_asset_mime(bytes: &[u8]) -> Option<&'static str> {
-    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-        return Some("image/png");
-    }
-    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
-        return Some("image/gif");
-    }
-    if bytes.starts_with(b"\xff\xd8\xff") {
-        return Some("image/jpeg");
-    }
-    if bytes.starts_with(b"\x00\x00\x01\x00") {
-        return Some("image/x-icon");
-    }
-    if bytes.starts_with(b"RIFF") && bytes.len() > 12 && &bytes[8..12] == b"WEBP" {
-        return Some("image/webp");
-    }
-    if bytes.len() >= 12
-        && &bytes[4..8] == b"ftyp"
-        && (&bytes[8..12] == b"avif" || &bytes[8..12] == b"avis")
-    {
-        return Some("image/avif");
-    }
-    let trimmed = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
-    let trimmed = match trimmed.iter().position(|&b| !b.is_ascii_whitespace()) {
-        Some(idx) => &trimmed[idx..],
-        None => trimmed,
-    };
-    if trimmed.starts_with(b"<?xml") || trimmed.starts_with(b"<svg") {
-        return Some("image/svg+xml");
-    }
-    None
+    crate::github::image_sniff::sniff_image_mime(bytes)
 }
 
-/// 受支持的图片字节校验：魔数可识别且 MIME 在白名单内。
+/// 受支持的图片字节校验薄委托（含 bmp，多数口径）。
 fn is_supported_image_bytes(bytes: &[u8]) -> bool {
-    if bytes.is_empty() {
-        return false;
-    }
-    matches!(
-        sniff_asset_mime(bytes),
-        Some(
-            "image/png"
-                | "image/jpeg"
-                | "image/gif"
-                | "image/webp"
-                | "image/svg+xml"
-                | "image/avif"
-                | "image/x-icon"
-        )
-    )
+    crate::github::image_sniff::is_supported_image_bytes(bytes)
 }
 
-/// 嗅探 MIME 对应的落盘扩展名。
-fn ext_for_sniffed(mime: &str) -> &'static str {
-    let base = mime.split(';').next().unwrap_or(mime);
-    match base.trim().to_ascii_lowercase().as_str() {
-        "image/png" => "png",
-        "image/jpeg" => "jpg",
-        "image/gif" => "gif",
-        "image/webp" => "webp",
-        "image/svg+xml" => "svg",
-        "image/avif" => "avif",
-        "image/x-icon" => "ico",
-        _ => "png",
-    }
-}
-
-/// 落盘扩展名：魔数优先，缺失时从 content-type 推断。
+/// 落盘扩展名薄委托：魔数优先，缺失时从 content-type 推断。
 fn resolve_asset_ext(fresh: &DownloadedAsset) -> &'static str {
-    if let Some(mime) = sniff_asset_mime(&fresh.bytes) {
-        return ext_for_sniffed(mime);
-    }
-    let base = fresh
-        .content_type
-        .split(';')
-        .next()
-        .unwrap_or("")
-        .trim()
-        .to_ascii_lowercase();
-    if base.starts_with("image/") {
-        return ext_for_sniffed(base.as_str());
-    }
-    "png"
+    crate::github::image_sniff::resolve_ext(&fresh.bytes, &fresh.content_type)
 }
 
 /// 缓存键：规范地址的 sha256 前 16 位。
@@ -182,9 +88,9 @@ fn shard_dir(stem: &str) -> std::path::PathBuf {
         .join(&stem[..2.min(stem.len())])
 }
 
-/// 分片内按 stem 查找已落盘文件（扩展名以嗅探结果为准，逐扩展名试探）。
+/// 分片内按 stem 查找已落盘文件（扩展名以嗅探结果为准，逐扩展名试探，含 bmp）。
 fn find_cached_file(dir: &std::path::Path, stem: &str) -> Option<std::path::PathBuf> {
-    for ext in ["png", "jpg", "gif", "webp", "svg", "avif", "ico"] {
+    for ext in ["png", "jpg", "gif", "webp", "svg", "avif", "ico", "bmp"] {
         let p = dir.join(format!("{}.{}", stem, ext));
         if p.is_file() {
             return Some(p);
@@ -259,6 +165,18 @@ enum ConditionalResult {
     Fresh(DownloadedAsset),
 }
 
+/// 共享新鲜命中确认（同步）：文件新鲜即 touch 并返回路径字符串，否则 `None`。
+/// `get_cached_asset_url`（同步）与 `fetch_asset_inner` 的无记录/无校验器分支共用；
+/// 有校验器分支仍走条件请求。同步无网络 IO，`markdown` 同步调用链保持同步（不改异步）。
+/// 与 `find_cached_file`（按 stem 找文件）区分：本函数只做新鲜度门控。
+fn find_cached(path: &std::path::Path) -> Option<String> {
+    if is_file_fresh(path) {
+        touch_path(path);
+        return Some(path.to_string_lossy().to_string());
+    }
+    None
+}
+
 /// 同步缓存命中查询：命中未过期返回本地路径并 touch，否则返回原地址（不下载）。
 pub fn get_cached_asset_url(url: &str) -> String {
     let trimmed = url.trim();
@@ -269,9 +187,8 @@ pub fn get_cached_asset_url(url: &str) -> String {
     let stem = cache_stem(&normalized);
     let dir = shard_dir(&stem);
     if let Some(path) = find_cached_file(&dir, &stem) {
-        if is_file_fresh(&path) {
-            touch_path(&path);
-            return path.to_string_lossy().to_string();
+        if let Some(hit) = find_cached(&path) {
+            return hit;
         }
     }
     trimmed.to_string()
@@ -326,14 +243,15 @@ async fn fetch_asset_inner(trimmed: &str, normalized: &str, stem: &str, app: &st
         .and_then(|d| d.get_asset(normalized).ok().flatten());
     let now = crate::now_secs();
     if let (Some(path), Some(rec)) = (existing.clone(), record.clone()) {
-        if rec.expires_at > now && is_file_fresh(&path) {
-            touch_path(&path);
-            if !app.is_empty() {
-                if let Some(d) = open_asset_db() {
-                    let _ = d.touch_asset(&rec.hash, app);
+        if rec.expires_at > now {
+            if let Some(hit) = find_cached(&path) {
+                if !app.is_empty() {
+                    if let Some(d) = open_asset_db() {
+                        let _ = d.touch_asset(&rec.hash, app);
+                    }
                 }
+                return hit;
             }
-            return path.to_string_lossy().to_string();
         }
         if has_validators(&rec) {
             let etag = rec.etag.clone();
@@ -367,18 +285,18 @@ async fn fetch_asset_inner(trimmed: &str, normalized: &str, stem: &str, app: &st
                 }
             }
         } else if is_file_fresh(&path) {
-            touch_path(&path);
-            if !app.is_empty() {
-                if let Some(d) = open_asset_db() {
-                    let _ = d.touch_asset(&rec.hash, app);
+            if let Some(hit) = find_cached(&path) {
+                if !app.is_empty() {
+                    if let Some(d) = open_asset_db() {
+                        let _ = d.touch_asset(&rec.hash, app);
+                    }
                 }
+                return hit;
             }
-            return path.to_string_lossy().to_string();
         }
     } else if let Some(path) = existing.clone() {
-        if is_file_fresh(&path) {
-            touch_path(&path);
-            return path.to_string_lossy().to_string();
+        if let Some(hit) = find_cached(&path) {
+            return hit;
         }
     }
     let fetched = match fetch_remote_asset(normalized, None, None).await {
@@ -610,7 +528,9 @@ mod tests {
         assert!(should_cache_asset(
             "https://raw.githubusercontent.com/o/r/main/a.avif"
         ));
-        assert!(!should_cache_asset("https://example.com/a.bmp"));
+        // bmp 纳入白名单（多数口径：icons 与 db 含、旧 asset 缺 → 含，见 image_sniff）。
+        assert!(should_cache_asset("https://example.com/a.bmp"));
+        assert!(should_cache_asset("https://example.com/a.apng"));
         assert!(!should_cache_asset("https://example.com/a.mp4"));
         assert!(should_cache_asset("https://example.com/noext"));
         assert!(should_cache_asset(
@@ -624,7 +544,8 @@ mod tests {
         assert!(is_supported_image_bytes(b"\x89PNG\r\n\x1a\nxxxxxxxx"));
         assert!(is_supported_image_bytes(b"\xff\xd8\xff\x00\x11"));
         assert!(is_supported_image_bytes(b"<svg></svg>"));
-        assert!(!is_supported_image_bytes(b"BM12345678"));
+        // bmp 纳入支持（多数口径，见 image_sniff::bmp_supported_everywhere）。
+        assert!(is_supported_image_bytes(b"BM12345678"));
         assert!(!is_supported_image_bytes(
             b"<!DOCTYPE html><html>404</html>"
         ));

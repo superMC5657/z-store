@@ -11,6 +11,7 @@ mod developer_starred_tests;
 pub mod http;
 pub mod icon_fetch;
 pub mod icon_probe;
+pub mod image_sniff;
 pub mod markdown;
 pub mod models;
 pub mod readme_variants;

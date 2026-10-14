@@ -287,8 +287,8 @@ fn persist_catalog_icon(
         }
         let _ = db.save_icon_cache_url(&final_filename, url_trimmed);
     }
-    // 配额 LRU（只清文件不删 DB URL，见下）。
-    enforce_icon_quota_lru(icons_dir);
+    // 配额 LRU（只清文件不删 DB URL，见下；水位与 asset 同源，经 db_opt 读 DB 配额）。
+    enforce_icon_quota_lru(db_opt, icons_dir);
     final_filename
 }
 
@@ -320,20 +320,30 @@ pub(crate) fn persist_icon_bytes(
         }
         let _ = std::fs::write(icons_dir.join(&fname), bytes);
         cleanup_stale_cycle_variants(icons_dir, &fname);
-        enforce_icon_quota_lru(icons_dir);
+        enforce_icon_quota_lru(db_opt, icons_dir);
         fname
     }
 }
 
 /// 配额 LRU（图标盘配额唯一落点，FINAL 口径：只清文件不删 DB URL）：
+/// - 配额水位与 asset 通道同源（`db::cache::asset_quota_limits`，DB 设置优先，缺省 2000 文件 / 500 MiB，
+///   常量只在 `db::cache` 一处定义）；无 DB 时回退共享常量；
 /// - 按文件 mtime 最旧优先淘汰，直至文件数/总字节双水位线下；
 /// - 永不调用 `delete_icon_cache_url/delete_icon_cycle`（DB URL 保留，文件缺失下次经 URL 重下恢复，
 ///   避免配额淘汰导致“有 URL 无文件”变“无 URL 无文件”丢失自愈能力）；
 /// - 全部 best-effort（`let _` 吞错），失败不阻塞写侧；`icons/` 不存在直接返回。
-/// 水位：最多 2000 文件 / 500 MiB（kubenav/GNS3 探针量级下永不触发，属保险绳）。
-pub(crate) fn enforce_icon_quota_lru(icons_dir: &std::path::Path) {
-    const MAX_FILES: usize = 2000;
-    const MAX_BYTES: u64 = 500 * 1024 * 1024;
+pub(crate) fn enforce_icon_quota_lru(
+    db_opt: Option<&crate::db::Database>,
+    icons_dir: &std::path::Path,
+) {
+    let (max_files, max_bytes) = match db_opt {
+        Some(db) => crate::db::cache::asset_quota_limits(db),
+        None => (
+            crate::db::cache::ASSET_CACHE_MAX_FILES as u64,
+            crate::db::cache::ASSET_CACHE_MAX_BYTES,
+        ),
+    };
+    let max_files = max_files as usize;
     let Ok(rd) = std::fs::read_dir(icons_dir) else {
         return;
     };
@@ -354,14 +364,14 @@ pub(crate) fn enforce_icon_quota_lru(icons_dir: &std::path::Path) {
         total_bytes = total_bytes.saturating_add(len);
         entries.push((p, len, mtime));
     }
-    if entries.len() <= MAX_FILES && total_bytes <= MAX_BYTES {
+    if entries.len() <= max_files && total_bytes <= max_bytes {
         return;
     }
     entries.sort_by(|a, b| a.2.cmp(&b.2));
     let mut files = entries.len();
     let mut bytes = total_bytes;
     for (p, len, _) in entries {
-        if files <= MAX_FILES && bytes <= MAX_BYTES {
+        if files <= max_files && bytes <= max_bytes {
             break;
         }
         // 只删文件，绝不删 DB（icon_cache_meta / app_icon_cycles 原样保留）。

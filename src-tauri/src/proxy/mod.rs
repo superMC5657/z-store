@@ -32,6 +32,33 @@ pub fn default_no_proxy_entries() -> Vec<String> {
     ]
 }
 
+/// 单地址代理归一（Windows 注册表 `;` 多协议解析与 Linux GNOME 共用落点）：
+/// 接受 `host:port`（含 `user:pass@host:port` 鉴权形态）或自带 scheme；
+/// 仅 `http://`、`https://`、`socks5://`、`socks5h://`、`socks4://`、`socks4a://`
+/// （大小写不敏感，必须带 `://`）保留原值，其余含 `:` 的补 `http://`；
+/// 无 scheme、无 `:` 的裸词（含 `socks4` 前缀但缺 `://` 的垃圾输入）一律拒绝，
+/// 返回 `None`（调用方不设置，保持直连，避免 junk 字符串污染代理环境）。
+pub fn normalize_single_proxy_addr(raw: &str) -> Option<String> {
+    let addr = raw.trim();
+    if addr.is_empty() {
+        return None;
+    }
+    let lower = addr.to_ascii_lowercase();
+    if lower.starts_with("http://")
+        || lower.starts_with("https://")
+        || lower.starts_with("socks5://")
+        || lower.starts_with("socks5h://")
+        || lower.starts_with("socks4://")
+        || lower.starts_with("socks4a://")
+    {
+        Some(addr.to_string())
+    } else if addr.contains(':') {
+        Some(format!("http://{}", addr))
+    } else {
+        None
+    }
+}
+
 /// 取 URL 的 host（小写），失败返回 `None`（不回显完整 URL/query）。
 pub fn host_of_url(url: &str) -> Option<String> {
     let h = crate::log_support::host_of(url);
@@ -226,5 +253,29 @@ mod tests {
         );
         assert!(proxy_hosts_for("").is_empty());
         assert!(proxy_hosts_for("   ").is_empty());
+    }
+
+    #[test]
+    fn test_normalize_single_proxy_addr_shared() {
+        // 单地址归一共享落点：Windows `;` 解析与 Linux GNOME 共用，口径一致。
+        assert_eq!(
+            normalize_single_proxy_addr("127.0.0.1:7890"),
+            Some("http://127.0.0.1:7890".to_string())
+        );
+        assert_eq!(
+            normalize_single_proxy_addr("socks5h://127.0.0.1:7890"),
+            Some("socks5h://127.0.0.1:7890".to_string())
+        );
+        assert_eq!(
+            normalize_single_proxy_addr("user:pass@127.0.0.1:7890"),
+            Some("http://user:pass@127.0.0.1:7890".to_string())
+        );
+        assert_eq!(normalize_single_proxy_addr(""), None);
+        assert_eq!(normalize_single_proxy_addr("notaproxy"), None);
+        assert_eq!(normalize_single_proxy_addr("socks4junk"), None);
+        assert_eq!(
+            normalize_single_proxy_addr("socks4a://127.0.0.1:7890"),
+            Some("socks4a://127.0.0.1:7890".to_string())
+        );
     }
 }

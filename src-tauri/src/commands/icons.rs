@@ -31,50 +31,10 @@ pub(crate) fn base64_encode(data: &[u8]) -> String {
     result
 }
 
-/// B1-G10：图标魔数单一对照表——所有字节前缀魔数只在此一处定义。
-/// `detect_image_mime` 与 `is_valid_image` 均经由 [`sniff_image_mime`] 同调，消除双实现漂移。
-const MAGIC_PREFIXES: &[(&[u8], &str)] = &[
-    (b"\x89PNG\r\n\x1a\n", "image/png"),
-    (b"GIF87a", "image/gif"),
-    (b"GIF89a", "image/gif"),
-    (b"\xff\xd8\xff", "image/jpeg"),
-    (b"\x00\x00\x01\x00", "image/x-icon"),
-    (b"BM", "image/bmp"),
-];
-
-/// 由 [`MAGIC_PREFIXES`] 及容器/文本分支嗅探 MIME；未知返回 `None`（由调用方决定回退）。
-/// - WEBP：`RIFF....WEBP`（偏移 8 处 4 字节，需 len > 12，保持历史阈值）；
-/// - AVIF：`....ftypavif/avis`（偏移 4/8，需 len >= 12）；
-/// - SVG：去 UTF-8 BOM + 跳过前导 ASCII 空白后，以 `<?xml` / `<svg` 开头。
-fn sniff_image_mime(bytes: &[u8]) -> Option<&'static str> {
-    for &(magic, mime) in MAGIC_PREFIXES {
-        if bytes.starts_with(magic) {
-            return Some(mime);
-        }
-    }
-    if bytes.starts_with(b"RIFF") && bytes.len() > 12 && &bytes[8..12] == b"WEBP" {
-        return Some("image/webp");
-    }
-    if bytes.len() >= 12
-        && &bytes[4..8] == b"ftyp"
-        && (&bytes[8..12] == b"avif" || &bytes[8..12] == b"avis")
-    {
-        return Some("image/avif");
-    }
-    // SVG 可能带有 UTF-8 BOM (\xef\xbb\xbf) 或前导空白/换行
-    let trimmed = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
-    let trimmed = match trimmed.iter().position(|&b| !b.is_ascii_whitespace()) {
-        Some(idx) => &trimmed[idx..],
-        None => trimmed,
-    };
-    if trimmed.starts_with(b"<?xml") || trimmed.starts_with(b"<svg") {
-        return Some("image/svg+xml");
-    }
-    None
-}
-
+/// 图片嗅探薄委托：唯一实现见 `crate::github::image_sniff`（魔数/白名单/推断合一）。
+/// 本文件仅保留 base64 与 data-uri 组装，嗅探类调用一律经共享模块。
 pub(crate) fn detect_image_mime(bytes: &[u8]) -> &'static str {
-    sniff_image_mime(bytes).unwrap_or("image/png")
+    crate::github::image_sniff::detect_image_mime(bytes)
 }
 
 pub(crate) fn bytes_to_data_uri(bytes: &[u8]) -> String {
@@ -84,71 +44,17 @@ pub(crate) fn bytes_to_data_uri(bytes: &[u8]) -> String {
 }
 
 pub fn is_valid_image(bytes: &[u8]) -> bool {
-    if bytes.is_empty() {
-        return false;
-    }
-    sniff_image_mime(bytes).is_some()
+    crate::github::image_sniff::is_valid_image(bytes)
 }
 
-/// mime 到扩展名的单一对照表（规范对）。`mime_to_ext` 由此派生；
-/// 别名（`image/apng`→`png`、`image/vnd.microsoft.icon`→`ico`）为显式分支。
-const MIME_EXT_TABLE: &[(&str, &str)] = &[
-    ("image/png", "png"),
-    ("image/jpeg", "jpg"),
-    ("image/gif", "gif"),
-    ("image/webp", "webp"),
-    ("image/x-icon", "ico"),
-    ("image/svg+xml", "svg"),
-    ("image/avif", "avif"),
-    ("image/bmp", "bmp"),
-];
-
+/// mime 到扩展名薄委托（唯一实现见共享模块；`image/apng → png` 归一）。
 pub(crate) fn mime_to_ext(mime: &str) -> &'static str {
-    // Content-Type 可能带参数（如 `image/jpeg; charset=utf-8`），先截断 `;` 再归一化。
-    let base = mime.split(';').next().unwrap_or(mime);
-    let clean = base.trim().to_ascii_lowercase();
-    if clean == "image/apng" {
-        return "png";
-    }
-    if clean == "image/vnd.microsoft.icon" {
-        return "ico";
-    }
-    for (m, e) in MIME_EXT_TABLE {
-        if clean.as_str() == *m {
-            return e;
-        }
-    }
-    "png"
+    crate::github::image_sniff::mime_to_ext(mime)
 }
 
+/// URL 后缀推断薄委托（`apng → png` 归一，见共享模块多数口径）。
 pub(crate) fn infer_icon_ext_from_url(remote_url: &str) -> Option<&'static str> {
-    let raw = remote_url.trim();
-    if raw.is_empty() {
-        return None;
-    }
-    let path = if let Ok(parsed) = reqwest::Url::parse(raw) {
-        parsed.path().to_string()
-    } else {
-        let no_hash = raw.split('#').next().unwrap_or(raw);
-        let no_query = no_hash.split('?').next().unwrap_or(no_hash);
-        no_query.to_string()
-    };
-
-    let segment = path.rsplit('/').next()?;
-    let dot_idx = segment.rfind('.')?;
-    let ext = &segment[dot_idx + 1..];
-    match ext.to_ascii_lowercase().as_str() {
-        "png" => Some("png"),
-        "jpg" | "jpeg" => Some("jpg"),
-        "gif" => Some("gif"),
-        "webp" => Some("webp"),
-        "svg" => Some("svg"),
-        "ico" => Some("ico"),
-        "avif" => Some("avif"),
-        "apng" => Some("apng"),
-        "bmp" => Some("bmp"),
-        _ => None,
-    }
+    crate::github::image_sniff::infer_ext_from_url(remote_url)
 }
 
 /// 图标文件 7 天新鲜度（文件 mtime 口径，与 DB `cached_at/updated_at` 双检其一即命中）：

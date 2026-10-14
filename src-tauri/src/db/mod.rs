@@ -136,6 +136,27 @@ pub(crate) fn clean(s: &str) -> &str {
     s.trim()
 }
 
+/// 配置回退泛型（DB 设置优先，解析/归一化失败回退基线）：
+/// - `stored`：`get_setting(key).ok().flatten()` 结果；
+/// - `parse`：文本解析（如 `str::parse`，失败进回退）；
+/// - `normalize`：有效值清洗（如挡位钳制）；
+/// - `fallback`：config.toml 基线闭包。
+/// settings 三 getter、配额水位、详情 TTL 秒换算共用此形状，不再各自手写回退链。
+pub(crate) fn get_or_config<T>(
+    stored: Option<String>,
+    parse: impl FnOnce(&str) -> Option<T>,
+    normalize: impl FnOnce(T) -> T,
+    fallback: impl FnOnce() -> T,
+) -> T {
+    stored
+        .as_deref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .and_then(parse)
+        .map(normalize)
+        .unwrap_or_else(fallback)
+}
+
 /// 历史裁剪表白名单（防 SQL 注入：表名/排序列仅允许白名单常量，limit 为整数格式化）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ValidatedTable {
