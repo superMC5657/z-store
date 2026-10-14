@@ -425,6 +425,8 @@ pub fn run() {
     // Phase1A 趋势榜缓存：启动后 best-effort 清扫过期快照（吞错，不阻塞启动）。
     {
         let _ = db.prune_expired_trend_board_cache(now_secs());
+        let assets_dir = db_dir.join("cache").join("assets");
+        let _ = db.enforce_asset_quota_lru(&assets_dir);
     }
 
     let saved_token = db

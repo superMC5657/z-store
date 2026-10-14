@@ -283,6 +283,11 @@ impl Database {
     }
 }
 
+/// 图片磁盘缓存配额上限：2000 文件。
+pub const ASSET_CACHE_MAX_FILES: usize = 2000;
+/// 图片磁盘缓存配额上限：500MB。
+pub const ASSET_CACHE_MAX_BYTES: u64 = 500 * 1024 * 1024;
+
 /// 图片磁盘缓存记录。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AssetCacheRecord {
@@ -483,6 +488,14 @@ impl Database {
             ],
         )?;
         let saved = self.get_asset(&raw)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        if let Ok(stats) = self.asset_usage_stats() {
+            if stats.total_entries as usize > ASSET_CACHE_MAX_FILES
+                || stats.total_bytes as u64 > ASSET_CACHE_MAX_BYTES
+            {
+                let dir = crate::get_app_data_dir().join("cache").join("assets");
+                let _ = self.enforce_asset_quota_lru(&dir);
+            }
+        }
         Ok(saved)
     }
 
@@ -531,4 +544,158 @@ impl Database {
             })
         }
     }
+
+    /// 条件请求命中刷新：更新使用时间与过期时间并计数。
+    pub fn refresh_asset_revalidated(&self, hash: &str, expires_at: i64) -> Result<()> {
+        let h = clean(hash).to_string();
+        if h.is_empty() {
+            return Ok(());
+        }
+        let now = now_secs();
+        self.exec_upsert(
+            "UPDATE asset_cache SET last_used = ?1, expires_at = ?2, hits = hits + 1 WHERE hash = ?3",
+            params![now, expires_at, h],
+        )?;
+        Ok(())
+    }
+
+    /// 配额淘汰：按使用时间最旧优先删除直至文件数与总字节双水位线下。
+    pub fn enforce_asset_quota_lru(&self, assets_dir: &std::path::Path) -> Result<usize> {
+        let rows: Vec<(String, String, i64, i64)> = {
+            let mut stmt = self.conn.prepare(
+                "SELECT hash, local_path, size, last_used FROM asset_cache ORDER BY last_used ASC",
+            )?;
+            let mapped = stmt.query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?, row.get::<_, i64>(3)?))
+            })?;
+            let mut out = Vec::new();
+            for r in mapped {
+                out.push(r?);
+            }
+            out
+        };
+        let mut db_count = rows.len() as u64;
+        let mut db_bytes: u64 = rows.iter().map(|(_, _, s, _)| (*s).max(0) as u64).sum();
+        let mut scanned = scan_asset_files(assets_dir);
+        let mut fs_count = scanned.len() as u64;
+        let mut fs_bytes: u64 = scanned.iter().map(|(_, len, _)| *len).sum();
+        if db_count <= ASSET_CACHE_MAX_FILES as u64
+            && db_bytes <= ASSET_CACHE_MAX_BYTES
+            && fs_count <= ASSET_CACHE_MAX_FILES as u64
+            && fs_bytes <= ASSET_CACHE_MAX_BYTES
+        {
+            return Ok(0);
+        }
+        let mut removed: usize = 0;
+        let mut remaining_hashes: std::collections::HashSet<String> =
+            rows.iter().map(|(h, _, _, _)| h.clone()).collect();
+        for (hash, local_path, size, _) in &rows {
+            if db_count <= ASSET_CACHE_MAX_FILES as u64
+                && db_bytes <= ASSET_CACHE_MAX_BYTES
+                && fs_count <= ASSET_CACHE_MAX_FILES as u64
+                && fs_bytes <= ASSET_CACHE_MAX_BYTES
+            {
+                break;
+            }
+            let mut freed_fs: u64 = 0;
+            for cand in asset_abs_candidates(assets_dir, local_path) {
+                if let Ok(meta) = std::fs::metadata(&cand) {
+                    if meta.is_file() {
+                        let len = meta.len();
+                        if std::fs::remove_file(&cand).is_ok() {
+                            freed_fs = freed_fs.saturating_add(len);
+                            scanned.retain(|(p, _, _)| p != &cand);
+                        }
+                    }
+                }
+            }
+            let _ = self.conn.execute("DELETE FROM asset_cache WHERE hash = ?1", params![hash]);
+            let _ = self
+                .conn
+                .execute("DELETE FROM asset_refs WHERE hash = ?1", params![hash]);
+            db_count = db_count.saturating_sub(1);
+            db_bytes = db_bytes.saturating_sub((*size).max(0) as u64);
+            fs_count = fs_count.saturating_sub(if freed_fs > 0 { 1 } else { 0 });
+            fs_bytes = fs_bytes.saturating_sub(freed_fs);
+            remaining_hashes.remove(hash);
+            removed += 1;
+        }
+        if fs_count <= ASSET_CACHE_MAX_FILES as u64 && fs_bytes <= ASSET_CACHE_MAX_BYTES {
+            return Ok(removed);
+        }
+        scanned.sort_by(|a, b| a.2.cmp(&b.2));
+        for (path, len, _) in scanned {
+            if fs_count <= ASSET_CACHE_MAX_FILES as u64 && fs_bytes <= ASSET_CACHE_MAX_BYTES {
+                break;
+            }
+            let stem = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or_default()
+                .to_string();
+            if remaining_hashes.contains(&stem) {
+                continue;
+            }
+            if std::fs::remove_file(&path).is_ok() {
+                fs_count = fs_count.saturating_sub(1);
+                fs_bytes = fs_bytes.saturating_sub(len);
+                removed += 1;
+            }
+        }
+        Ok(removed)
+    }
+}
+
+/// 递归扫描配额目录下全部文件。
+fn scan_asset_files(
+    dir: &std::path::Path,
+) -> Vec<(std::path::PathBuf, u64, std::time::SystemTime)> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(current) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&current) else {
+            continue;
+        };
+        for ent in rd.flatten() {
+            let p = ent.path();
+            if p.is_dir() {
+                stack.push(p);
+                continue;
+            }
+            if !p.is_file() {
+                continue;
+            }
+            let Ok(meta) = std::fs::metadata(&p) else {
+                continue;
+            };
+            let mtime = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
+            out.push((p, meta.len(), mtime));
+        }
+    }
+    out
+}
+
+/// 解析缓存行对应的磁盘候选路径。
+fn asset_abs_candidates(
+    assets_dir: &std::path::Path,
+    local_path: &str,
+) -> Vec<std::path::PathBuf> {
+    let trimmed = local_path.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    let rel = std::path::Path::new(trimmed);
+    if rel.is_absolute() {
+        return vec![rel.to_path_buf()];
+    }
+    let stripped = trimmed
+        .strip_prefix("cache/assets/")
+        .or_else(|| trimmed.strip_prefix("cache/assets"))
+        .unwrap_or(trimmed);
+    let mut out = vec![assets_dir.join(stripped)];
+    let via_app_dir = crate::get_app_data_dir().join(trimmed);
+    if via_app_dir != out[0] {
+        out.push(via_app_dir);
+    }
+    out
 }
