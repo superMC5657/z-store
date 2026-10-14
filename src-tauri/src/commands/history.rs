@@ -314,7 +314,7 @@ mod import_restore_tests {
         }"#;
         let plan = crate::oauth::parse_import_payload(json).expect("合法导入 JSON 应当成功");
 
-        // 与 `import_user_data` 修复后的循环同语义：仅归一化校验，不查已安装表。
+        // 与 `import_user_data` 循环同语义：仅归一化校验，不查已安装表。
         let mut favorites_added = 0usize;
         for id in &plan.favorites {
             let id = crate::forge::canonical_app_id(id).expect("合法标识应当归一化成功");

@@ -93,7 +93,6 @@ export async function oauthDeviceStart(): Promise<OAuthDeviceStartResult> {
 }
 
 export async function oauthDevicePoll(deviceCode: string): Promise<OAuthPollResult> {
-  // IPC 参数名与后端形参对齐（后端 oauth_device_poll 的 device_code；授权终态原样透传 `authorized`）。
   const raw = await tauriInvoke<{ status: string; message?: string }>(CMD.oauthDevicePoll, {
     device_code: deviceCode,
   });

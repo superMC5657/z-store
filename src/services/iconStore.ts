@@ -511,7 +511,6 @@ function startIconFetch(url: string, ids: Set<string>): void {
       break;
     }
   }
-  // IPC 参数名与后端形参对齐（后端 get_or_fetch_icon 的 app_id/remote_url）。
   const p = tauriInvoke<string>('get_or_fetch_icon', { app_id: firstId, remote_url: url })
     .then((dataUri) => {
       iconDataCache.set(url, dataUri);

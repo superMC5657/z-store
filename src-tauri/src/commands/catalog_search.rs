@@ -212,8 +212,7 @@ pub async fn search_apps_online(
     page: Option<u32>,
     per_page: Option<u32>,
 ) -> crate::AppResult<OnlineSearchResult> {
-    // Wave2：单次 search_apps 只记一行 INFO `search done`（行为链 sid 关联）；
-    // 内层 github/search 的同名 debug 已移除，此处为唯一 `search done`。
+    // 单次 search_apps 只记一行 INFO `search done`（行为链 sid 关联），此处为唯一 INFO。
     let search_start = std::time::Instant::now();
     let current_gen = SEARCH_GEN.fetch_add(1, Ordering::SeqCst) + 1;
     let actual_search_id = search_id.unwrap_or_else(|| current_gen.to_string());

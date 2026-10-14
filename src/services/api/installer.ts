@@ -57,7 +57,6 @@ export async function launchApp(appId: string): Promise<boolean> {
 }
 
 export async function checkForUpdates(forceRefresh = false): Promise<UpdateItem[]> {
-  // IPC 参数名与后端形参对齐（后端 check_for_updates 的 force_refresh）。
   return tauriInvoke<UpdateItem[]>(CMD.checkForUpdates, { force_refresh: forceRefresh });
 }
 

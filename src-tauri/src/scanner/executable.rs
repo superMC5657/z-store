@@ -1364,8 +1364,7 @@ impl AppScanner {
     /// Linux dpkg 回退：对候选包名执行 `dpkg -L` 并精准挑选可执行文件。
     /// 包名/候选名共享派生（`linux_candidate_names`），挑选 + 规范化共用
     /// `pick_and_canonicalize_package_path`（与 executor deb/rpm 回填同一函数）。
-    /// P1：候选包名试全 `identifiers.linux + repo_base`（经 `linux_candidate_names`
-    /// 全量派生，不再 `truncate(6)`）。
+    /// 候选包名试全 `identifiers.linux + repo_base`（经 `linux_candidate_names` 全量派生）。
     #[cfg(target_os = "linux")]
     pub fn resolve_linux_via_dpkg(
         tokens: &[String],
@@ -1400,7 +1399,7 @@ impl AppScanner {
     }
 
     /// 调试用：返回安装路径 + 命中源（`which` / `snap` / `opt` / `appimage` /
-    /// `desktop` / `dpkg` / `portable`），供 `get_detected_debug` 命令标记哪路命中。
+    /// `desktop` / `dpkg` / `portable`）。
     /// 仅 linux 生效；非 linux 返回 None。
     #[cfg(target_os = "linux")]
     pub fn resolve_installed_app_path_with_source(

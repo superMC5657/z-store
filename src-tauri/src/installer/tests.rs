@@ -120,7 +120,7 @@ fn test_tarball_score_bottom_and_no_cross_os_fallback() {
         zip_score - tar_score,
         selector::SCORE_ASSET_KIND_PORTABLE - selector::SCORE_ASSET_KIND_TARBALL
     );
-    // `compressed_tarball` 别名已删除：未知 kind 不加分，tarball 仅 `portable_tarball` 生效。
+    // 未知 kind 不加分，tarball 仅 `portable_tarball` 生效。
     let tar_unknown_kind = mk(
         target_os,
         target_arch,
@@ -316,7 +316,7 @@ fn test_uninstaller_payload_backtick_stays_inert_argv() {
 
 #[test]
 fn test_uninstaller_payload_argv_spawn_never_executes_injected_command() {
-    // 与修复后的 Unix 路径对称：解析 -> argv spawn（绝不使用 `sh -c`）。
+    // 与 Unix 路径对称：解析 -> argv spawn（绝不使用 `sh -c`）。
     // 注入的 `touch` 绝不得运行；虚假 exe 必须被拒绝。
     let dir = std::env::temp_dir().join("zstore_uninstall_pwn_test");
     let _ = std::fs::create_dir_all(&dir);
