@@ -48,6 +48,8 @@ function resolveRelativeAssetUrl(url: string, baseUrl?: string): string {
   if (
     trimmed.startsWith('http://') ||
     trimmed.startsWith('https://') ||
+    trimmed.startsWith('asset:') ||
+    trimmed.startsWith('tauri:') ||
     trimmed.startsWith('//') ||
     trimmed.startsWith('data:') ||
     trimmed.startsWith('#') ||

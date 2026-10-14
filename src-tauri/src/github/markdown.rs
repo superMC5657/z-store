@@ -137,13 +137,23 @@ impl CatalogService {
         format!("{}{}", MIRROR_PREFIX, raw_url)
     }
 
+    /// README 图片地址解析：镜像改写后对可缓存候选命中本地磁盘缓存。
+    fn resolve_readme_image_url(url: &str, owner: &str, repo: &str) -> String {
+        let cleaned = Self::clean_image_url(url, owner, repo);
+        if super::asset_fetch::should_cache_asset(&cleaned) {
+            super::asset_fetch::get_cached_asset_url(&cleaned)
+        } else {
+            cleaned
+        }
+    }
+
     pub fn rewrite_readme_images(raw_markdown: &str, owner: &str, repo: &str) -> String {
         // 1. 重写 Markdown 语法图片: ![alt](url) 或 ![alt](url "title")
         let md_replaced = MD_IMG_RE.replace_all(raw_markdown, |caps: &regex::Captures| {
             let alt = &caps[1];
             let url = &caps[3];
             let title = caps.get(5).map(|m| m.as_str()).unwrap_or("");
-            let rewritten_url = Self::clean_image_url(url, owner, repo);
+            let rewritten_url = Self::resolve_readme_image_url(url, owner, repo);
             if title.is_empty() {
                 format!("![{}]({})", alt, rewritten_url)
             } else {
@@ -172,7 +182,7 @@ impl CatalogService {
                     && !url.starts_with('#')
                     && !url.starts_with("mailto:"));
             if is_img {
-                let rewritten_url = Self::clean_image_url(url, owner, repo);
+                let rewritten_url = Self::resolve_readme_image_url(url, owner, repo);
                 format!("{}{}{}", prefix_part, rewritten_url, suffix_part)
             } else {
                 format!("{}{}{}", prefix_part, url, suffix_part)
@@ -184,7 +194,7 @@ impl CatalogService {
             let before = &caps[1];
             let url = &caps[2];
             let after = &caps[3];
-            let rewritten_url = Self::clean_image_url(url, owner, repo);
+            let rewritten_url = Self::resolve_readme_image_url(url, owner, repo);
             format!(r#"<img {}src="{}"{}>"#, before, rewritten_url, after)
         });
 
@@ -201,7 +211,7 @@ impl CatalogService {
                         if parts.is_empty() {
                             candidate.to_string()
                         } else {
-                            let cleaned = Self::clean_image_url(parts[0], owner, repo);
+                            let cleaned = Self::resolve_readme_image_url(parts[0], owner, repo);
                             if parts.len() > 1 {
                                 format!("{} {}", cleaned, parts[1..].join(" "))
                             } else {

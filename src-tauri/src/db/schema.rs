@@ -128,6 +128,32 @@ impl Database {
             );
 
             CREATE INDEX IF NOT EXISTS idx_trend_board_cache_board ON trend_board_cache(board);
+
+            CREATE TABLE IF NOT EXISTS asset_cache (
+                url TEXT PRIMARY KEY,
+                hash TEXT NOT NULL,
+                local_path TEXT NOT NULL,
+                content_type TEXT NOT NULL DEFAULT '',
+                size INTEGER NOT NULL DEFAULT 0,
+                etag TEXT,
+                last_modified TEXT,
+                last_used INTEGER NOT NULL,
+                expires_at INTEGER NOT NULL DEFAULT 0,
+                hits INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_asset_cache_last_used ON asset_cache(last_used);
+
+            CREATE INDEX IF NOT EXISTS idx_asset_cache_expires_at ON asset_cache(expires_at);
+
+            CREATE INDEX IF NOT EXISTS idx_asset_cache_hash ON asset_cache(hash);
+
+            CREATE TABLE IF NOT EXISTS asset_refs (
+                hash TEXT NOT NULL,
+                app_id TEXT NOT NULL,
+                last_seen INTEGER NOT NULL,
+                PRIMARY KEY (hash, app_id)
+            );
             "#,
         )?;
         Ok(())

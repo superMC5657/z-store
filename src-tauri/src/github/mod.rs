@@ -1,3 +1,4 @@
+pub mod asset_fetch;
 pub mod catalog_feed_score;
 pub mod catalog_service;
 pub mod detail_assets;

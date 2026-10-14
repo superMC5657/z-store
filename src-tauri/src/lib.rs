@@ -554,6 +554,7 @@ pub fn run() {
             commands::get_app_details,
             commands::get_platforms_lite,
             commands::get_readme_variants,
+            commands::get_asset_cache_url,
             commands::get_installed_apps,
             commands::install_app,
             commands::download_asset,

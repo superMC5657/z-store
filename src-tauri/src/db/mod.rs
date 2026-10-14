@@ -8,6 +8,7 @@ pub mod settings;
 pub mod tokens;
 pub mod watch;
 
+pub use cache::{AssetCacheRecord, AssetUsageStats};
 pub use icon_cycle::AppIconCycle;
 
 #[cfg(test)]

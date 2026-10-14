@@ -1,0 +1,364 @@
+//! 通用图片磁盘缓存下载网关（P0）。
+//!
+//! 可缓存图片的本地落盘查询与下载入口：命中返回本地路径，未命中下载后返回本地路径，失败回退原地址。
+
+use futures_util::StreamExt;
+
+/// 镜像前缀：哈希前剥离，保证同一资源只存一份。
+const MIRROR_PREFIX: &str = "https://gh-proxy.com/";
+/// 磁盘缓存有效期（秒）：30 天，命中且未过期直接复用。
+const ASSET_TTL_SECS: u64 = 30 * 24 * 60 * 60;
+/// 单文件上限：5MB，超限丢弃并回退原地址。
+const MAX_ASSET_BYTES: usize = 5 * 1024 * 1024;
+
+/// 动态徽章域名：命中直接返回原地址，不下载。
+fn is_dynamic_asset_url(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    lower.contains("shields.io")
+        || lower.contains("shields")
+        || lower.contains("camo")
+        || lower.contains("badge")
+        || lower.contains("workflow")
+}
+
+/// 去镜像前缀后的规范地址：同一资源的缓存键来源。
+pub fn normalize_asset_url(url: &str) -> String {
+    let trimmed = url.trim();
+    if let Some(rest) = trimmed.strip_prefix(MIRROR_PREFIX) {
+        rest.to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// 地址 path 段扩展名白名单：png/jpg/jpeg/webp/gif/svg/avif/ico。
+fn url_ext_allowed(url: &str) -> bool {
+    let path = if let Ok(parsed) = reqwest::Url::parse(url) {
+        parsed.path().to_string()
+    } else {
+        let no_hash = url.split('#').next().unwrap_or(url);
+        no_hash.split('?').next().unwrap_or(no_hash).to_string()
+    };
+    let Some(segment) = path.rsplit('/').next() else {
+        return false;
+    };
+    let Some(dot) = segment.rfind('.') else {
+        return false;
+    };
+    matches!(
+        segment[dot + 1..].to_ascii_lowercase().as_str(),
+        "png" | "jpg" | "jpeg" | "webp" | "gif" | "svg" | "avif" | "ico"
+    )
+}
+
+/// 是否为可缓存候选：http(s) + 非动态 + 扩展名白名单。
+pub fn should_cache_asset(url: &str) -> bool {
+    let trimmed = url.trim();
+    if trimmed.is_empty() || trimmed.starts_with("data:") || trimmed.starts_with("asset://") {
+        return false;
+    }
+    if !(trimmed.starts_with("http://") || trimmed.starts_with("https://")) {
+        return false;
+    }
+    if is_dynamic_asset_url(trimmed) {
+        return false;
+    }
+    url_ext_allowed(trimmed)
+}
+
+/// 字节魔数嗅探 MIME：PNG/GIF/JPEG/ICO/WEBP/AVIF/SVG 分支。
+fn sniff_asset_mime(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Some("image/png");
+    }
+    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        return Some("image/gif");
+    }
+    if bytes.starts_with(b"\xff\xd8\xff") {
+        return Some("image/jpeg");
+    }
+    if bytes.starts_with(b"\x00\x00\x01\x00") {
+        return Some("image/x-icon");
+    }
+    if bytes.starts_with(b"RIFF") && bytes.len() > 12 && &bytes[8..12] == b"WEBP" {
+        return Some("image/webp");
+    }
+    if bytes.len() >= 12
+        && &bytes[4..8] == b"ftyp"
+        && (&bytes[8..12] == b"avif" || &bytes[8..12] == b"avis")
+    {
+        return Some("image/avif");
+    }
+    let trimmed = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
+    let trimmed = match trimmed.iter().position(|&b| !b.is_ascii_whitespace()) {
+        Some(idx) => &trimmed[idx..],
+        None => trimmed,
+    };
+    if trimmed.starts_with(b"<?xml") || trimmed.starts_with(b"<svg") {
+        return Some("image/svg+xml");
+    }
+    None
+}
+
+/// 受支持的图片字节校验：魔数可识别且 MIME 在白名单内。
+fn is_supported_image_bytes(bytes: &[u8]) -> bool {
+    if bytes.is_empty() {
+        return false;
+    }
+    matches!(
+        sniff_asset_mime(bytes),
+        Some(
+            "image/png"
+                | "image/jpeg"
+                | "image/gif"
+                | "image/webp"
+                | "image/svg+xml"
+                | "image/avif"
+                | "image/x-icon"
+        )
+    )
+}
+
+/// 嗅探 MIME 对应的落盘扩展名。
+fn ext_for_sniffed(mime: &str) -> &'static str {
+    match mime {
+        "image/png" => "png",
+        "image/jpeg" => "jpg",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        "image/svg+xml" => "svg",
+        "image/avif" => "avif",
+        "image/x-icon" => "ico",
+        _ => "png",
+    }
+}
+
+/// 缓存键：规范地址的 sha256 前 16 位。
+fn cache_stem(normalized: &str) -> String {
+    let full = crate::sha256_digest_hex(normalized.as_bytes());
+    full[..16.min(full.len())].to_string()
+}
+
+/// 分片目录：`cache/assets/<前2位>/`。
+fn shard_dir(stem: &str) -> std::path::PathBuf {
+    crate::get_app_data_dir()
+        .join("cache")
+        .join("assets")
+        .join(&stem[..2.min(stem.len())])
+}
+
+/// 分片内按 stem 查找已落盘文件（扩展名以嗅探结果为准，逐扩展名试探）。
+fn find_cached_file(dir: &std::path::Path, stem: &str) -> Option<std::path::PathBuf> {
+    for ext in ["png", "jpg", "gif", "webp", "svg", "avif", "ico"] {
+        let p = dir.join(format!("{}.{}", stem, ext));
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    None
+}
+
+/// 文件新鲜度：mtime 在有效期内即命中。
+fn is_file_fresh(path: &std::path::Path) -> bool {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return false;
+    };
+    let Ok(mtime) = meta.modified() else {
+        return false;
+    };
+    let Ok(elapsed) = std::time::SystemTime::now().duration_since(mtime) else {
+        return false;
+    };
+    elapsed.as_secs() < ASSET_TTL_SECS
+}
+
+/// 命中 touch：刷新 mtime 延长保鲜期。
+fn touch_path(path: &std::path::Path) {
+    if let Ok(f) = std::fs::OpenOptions::new().write(true).open(path) {
+        let _ = f.set_modified(std::time::SystemTime::now());
+    }
+}
+
+/// 同步缓存命中查询：命中未过期返回本地路径并 touch，否则返回原地址（不下载）。
+pub fn get_cached_asset_url(url: &str) -> String {
+    let trimmed = url.trim();
+    if !should_cache_asset(trimmed) {
+        return trimmed.to_string();
+    }
+    let normalized = normalize_asset_url(trimmed);
+    let stem = cache_stem(&normalized);
+    let dir = shard_dir(&stem);
+    if let Some(path) = find_cached_file(&dir, &stem) {
+        if is_file_fresh(&path) {
+            touch_path(&path);
+            return path.to_string_lossy().to_string();
+        }
+    }
+    trimmed.to_string()
+}
+
+/// 下载网关：本地路径或原地址。
+///
+/// 规范化去镜像前缀算键，命中未过期返回本地路径并 touch；
+/// 未命中经隔离客户端无 token 下载，白名单加魔数校验，5MB 截断丢弃，
+/// 经临时文件原子落盘；动态地址与失败一律回退原地址。
+pub async fn get_asset_url(url: &str, app_id: &str) -> String {
+    let trimmed = url.trim();
+    if !should_cache_asset(trimmed) {
+        return trimmed.to_string();
+    }
+    let normalized = normalize_asset_url(trimmed);
+    let stem = cache_stem(&normalized);
+    let dir = shard_dir(&stem);
+    if let Some(path) = find_cached_file(&dir, &stem) {
+        if is_file_fresh(&path) {
+            touch_path(&path);
+            return path.to_string_lossy().to_string();
+        }
+    }
+
+    let app = app_id.trim();
+    let bytes = match download_asset_bytes(&normalized).await {
+        Ok(b) => b,
+        Err(reason) => {
+            log::debug!(
+                "asset cache download failed app={} reason={}",
+                app,
+                crate::log_support::short_reason(&reason)
+            );
+            return trimmed.to_string();
+        }
+    };
+    if !is_supported_image_bytes(&bytes) {
+        return trimmed.to_string();
+    }
+    let mime = sniff_asset_mime(&bytes).unwrap_or("image/png");
+    let ext = ext_for_sniffed(mime);
+    let final_path = dir.join(format!("{}.{}", stem, ext));
+    if persist_asset_bytes(&bytes, &final_path, &stem).is_err() {
+        return trimmed.to_string();
+    }
+    log::debug!(
+        "asset cache stored app={} bytes={} ext={}",
+        app,
+        bytes.len(),
+        ext
+    );
+    final_path.to_string_lossy().to_string()
+}
+
+/// 隔离下载：图标池客户端，无 token，5MB 截断丢弃。
+async fn download_asset_bytes(download_url: &str) -> Result<Vec<u8>, String> {
+    let secs = crate::config::get_project_config()
+        .network
+        .api_timeout_seconds;
+    let client = crate::forge::http::new_icon_client(secs).unwrap_or_else(|_| reqwest::Client::new());
+    let resp = client
+        .get(download_url)
+        .headers(crate::forge::http::icon_headers())
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    if let Some(len) = resp.content_length() {
+        if len > MAX_ASSET_BYTES as u64 {
+            return Err("asset too large".to_string());
+        }
+    }
+    let mut buf = Vec::new();
+    let mut stream = resp.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let c = chunk.map_err(|e| e.to_string())?;
+        if buf.len() + c.len() > MAX_ASSET_BYTES {
+            return Err("asset too large".to_string());
+        }
+        buf.extend_from_slice(&c);
+    }
+    if buf.is_empty() {
+        return Err("empty body".to_string());
+    }
+    Ok(buf)
+}
+
+/// 原子落盘：先写临时文件再 rename 入分片目录。
+fn persist_asset_bytes(
+    bytes: &[u8],
+    final_path: &std::path::Path,
+    stem: &str,
+) -> Result<(), String> {
+    let tmp_dir = crate::get_app_data_dir().join("cache").join("tmp");
+    std::fs::create_dir_all(&tmp_dir).map_err(|e| e.to_string())?;
+    if let Some(parent) = final_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let tmp_path = tmp_dir.join(format!("{}.part", stem));
+    std::fs::write(&tmp_path, bytes).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp_path, final_path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp_path);
+        e.to_string()
+    })?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_strips_mirror_prefix() {
+        assert_eq!(
+            normalize_asset_url("https://gh-proxy.com/https://raw.githubusercontent.com/o/r/main/a.png"),
+            "https://raw.githubusercontent.com/o/r/main/a.png"
+        );
+        assert_eq!(
+            normalize_asset_url("https://example.com/a.png"),
+            "https://example.com/a.png"
+        );
+    }
+
+    #[test]
+    fn dynamic_urls_are_not_candidates() {
+        assert!(!should_cache_asset("https://img.shields.io/badge/x-y-green"));
+        assert!(!should_cache_asset(
+            "https://camo.githubusercontent.com/abc"
+        ));
+        assert!(!should_cache_asset("https://example.com/badge.svg"));
+        assert!(!should_cache_asset(
+            "https://github.com/o/r/actions/workflows/ci.yml/badge.svg"
+        ));
+    }
+
+    #[test]
+    fn whitelist_gates_candidates() {
+        assert!(should_cache_asset("https://example.com/a.png"));
+        assert!(should_cache_asset(
+            "https://raw.githubusercontent.com/o/r/main/a.avif"
+        ));
+        assert!(!should_cache_asset("https://example.com/a.bmp"));
+        assert!(!should_cache_asset("https://example.com/noext"));
+        assert!(!should_cache_asset("data:image/png;base64,xx"));
+    }
+
+    #[test]
+    fn magic_accepts_whitelist_rejects_html() {
+        assert!(is_supported_image_bytes(b"\x89PNG\r\n\x1a\nxxxxxxxx"));
+        assert!(is_supported_image_bytes(b"\xff\xd8\xff\x00\x11"));
+        assert!(is_supported_image_bytes(b"<svg></svg>"));
+        assert!(!is_supported_image_bytes(b"BM12345678"));
+        assert!(!is_supported_image_bytes(
+            b"<!DOCTYPE html><html>404</html>"
+        ));
+        assert!(!is_supported_image_bytes(b""));
+    }
+
+    #[test]
+    fn cache_stem_is_stable_and_sharded() {
+        let a = cache_stem("https://example.com/a.png");
+        let b = cache_stem("https://example.com/a.png");
+        assert_eq!(a, b);
+        assert_eq!(a.len(), 16);
+        assert!(shard_dir(&a).ends_with(&a[..2]));
+    }
+}

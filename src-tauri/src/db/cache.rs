@@ -1,6 +1,7 @@
 use super::{clean, now_secs, Database};
 use crate::models::AppDetail;
 use rusqlite::{params, Result};
+use serde::{Deserialize, Serialize};
 
 impl Database {
     pub fn get_etag(&self, endpoint_url: &str) -> Result<Option<String>> {
@@ -279,5 +280,255 @@ impl Database {
             params![daily_cutoff, other_cutoff],
         )?;
         Ok(deleted)
+    }
+}
+
+/// 图片磁盘缓存记录。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssetCacheRecord {
+    pub url: String,
+    pub hash: String,
+    pub local_path: String,
+    pub content_type: String,
+    pub size: i64,
+    pub etag: Option<String>,
+    pub last_modified: Option<String>,
+    pub last_used: i64,
+    pub expires_at: i64,
+    pub hits: i64,
+}
+
+/// 图片缓存用量统计。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssetUsageStats {
+    pub total_entries: i64,
+    pub total_bytes: i64,
+    pub total_hits: i64,
+}
+
+/// 去除代理包装，还原待哈希的原始地址。
+pub fn canonical_asset_url(url: &str) -> String {
+    let mut current = url.trim().to_string();
+    loop {
+        let Some(scheme_pos) = current.find("://") else {
+            break;
+        };
+        let after_scheme = &current[scheme_pos + 3..];
+        let Some(slash_pos) = after_scheme.find('/') else {
+            break;
+        };
+        let remainder = &after_scheme[slash_pos + 1..];
+        if remainder.starts_with("http://") || remainder.starts_with("https://") {
+            current = remainder.to_string();
+        } else {
+            break;
+        }
+    }
+    current
+}
+
+/// 计算地址对应的缓存哈希。
+pub fn asset_hash_for_url(url: &str) -> String {
+    let canonical = canonical_asset_url(url);
+    if canonical.is_empty() {
+        return String::new();
+    }
+    let full = crate::sha256_digest_hex(canonical.as_bytes());
+    full[..16.min(full.len())].to_string()
+}
+
+/// 拼接哈希对应的磁盘相对路径。
+pub fn asset_local_path(hash: &str, ext: &str) -> String {
+    let h = hash.trim();
+    if h.len() < 2 {
+        return String::new();
+    }
+    let dir = &h[..2];
+    let filtered: String = ext
+        .trim()
+        .trim_start_matches('.')
+        .to_ascii_lowercase()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect();
+    let truncated = if filtered.len() > 10 {
+        filtered[..10].to_string()
+    } else {
+        filtered
+    };
+    let final_ext = if truncated.is_empty() {
+        "bin".to_string()
+    } else {
+        truncated
+    };
+    format!("cache/assets/{}/{}.{}", dir, h, final_ext)
+}
+
+/// 从地址后缀或内容类型推断文件扩展名。
+fn infer_asset_ext(canonical_url: &str, content_type: &str) -> String {
+    let mut base = canonical_url.trim();
+    if let Some(end) = base.find(['?', '#']) {
+        base = &base[..end];
+    }
+    if let Some(slash) = base.rfind('/') {
+        let tail = &base[slash + 1..];
+        if let Some(dot) = tail.rfind('.') {
+            let cand = tail[dot + 1..].to_ascii_lowercase();
+            match cand.as_str() {
+                "png" | "jpg" | "gif" | "webp" | "svg" | "ico" | "avif" | "bmp" => {
+                    return cand;
+                }
+                "jpeg" => return "jpg".to_string(),
+                _ => {}
+            }
+        }
+    }
+    let ct = content_type
+        .trim()
+        .to_ascii_lowercase();
+    let ct = ct.split(';').next().unwrap_or("").trim();
+    match ct {
+        "image/png" => "png",
+        "image/jpeg" | "image/jpg" => "jpg",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        "image/svg+xml" => "svg",
+        "image/x-icon" | "image/vnd.microsoft.icon" => "ico",
+        "image/avif" => "avif",
+        "image/bmp" => "bmp",
+        _ => "bin",
+    }
+    .to_string()
+}
+
+impl Database {
+    /// 按原始地址读取缓存记录。
+    pub fn get_asset(&self, url: &str) -> Result<Option<AssetCacheRecord>> {
+        let key = clean(url);
+        if key.is_empty() {
+            return Ok(None);
+        }
+        let mut stmt = self.conn.prepare(
+            "SELECT url, hash, local_path, content_type, size, etag, last_modified, last_used, expires_at, hits
+             FROM asset_cache WHERE url = ?1 LIMIT 1",
+        )?;
+        let mut rows = stmt.query(params![key])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(AssetCacheRecord {
+                url: row.get(0)?,
+                hash: row.get(1)?,
+                local_path: row.get(2)?,
+                content_type: row.get(3)?,
+                size: row.get(4)?,
+                etag: row.get(5)?,
+                last_modified: row.get(6)?,
+                last_used: row.get(7)?,
+                expires_at: row.get(8)?,
+                hits: row.get(9)?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// 写入或更新缓存记录，返回落库后的完整行。
+    pub fn save_asset(
+        &self,
+        url: &str,
+        content_type: &str,
+        size: i64,
+        etag: Option<&str>,
+        last_modified: Option<&str>,
+        expires_at: i64,
+    ) -> Result<AssetCacheRecord> {
+        let raw = clean(url).to_string();
+        if raw.is_empty() {
+            return Err(rusqlite::Error::ToSqlConversionFailure(Box::new(
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, "asset_url_empty"),
+            )));
+        }
+        let canonical = canonical_asset_url(&raw);
+        let hash = asset_hash_for_url(&raw);
+        let ext = infer_asset_ext(&canonical, content_type);
+        let local_path = asset_local_path(&hash, &ext);
+        let content_type_clean = clean(content_type).to_string();
+        let size_clean = size.max(0);
+        let etag_clean = etag.map(|s| s.trim()).filter(|s| !s.is_empty());
+        let last_modified_clean = last_modified.map(|s| s.trim()).filter(|s| !s.is_empty());
+        let now = now_secs();
+        self.exec_upsert(
+            r#"
+            INSERT INTO asset_cache (url, hash, local_path, content_type, size, etag, last_modified, last_used, expires_at, hits)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0)
+            ON CONFLICT(url) DO UPDATE SET
+                hash = excluded.hash,
+                local_path = excluded.local_path,
+                content_type = excluded.content_type,
+                size = excluded.size,
+                etag = excluded.etag,
+                last_modified = excluded.last_modified,
+                last_used = excluded.last_used,
+                expires_at = excluded.expires_at;
+            "#,
+            params![
+                raw,
+                hash,
+                local_path,
+                content_type_clean,
+                size_clean,
+                etag_clean,
+                last_modified_clean,
+                now,
+                expires_at,
+            ],
+        )?;
+        let saved = self.get_asset(&raw)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        Ok(saved)
+    }
+
+    /// 刷新缓存命中状态并记录引用关系。
+    pub fn touch_asset(&self, hash: &str, app_id: &str) -> Result<()> {
+        let h = clean(hash).to_string();
+        let a = clean(app_id).to_string();
+        if h.is_empty() || a.is_empty() {
+            return Ok(());
+        }
+        self.with_immediate_transaction(|| {
+            let now = now_secs();
+            self.exec_upsert(
+                "UPDATE asset_cache SET last_used = ?1, hits = hits + 1 WHERE hash = ?2",
+                params![now, h],
+            )?;
+            self.exec_upsert(
+                r#"
+                INSERT INTO asset_refs (hash, app_id, last_seen)
+                VALUES (?1, ?2, ?3)
+                ON CONFLICT(hash, app_id) DO UPDATE SET last_seen = excluded.last_seen;
+                "#,
+                params![h, a, now],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// 统计缓存条目与占用。
+    pub fn asset_usage_stats(&self) -> Result<AssetUsageStats> {
+        let mut stmt = self.conn.prepare(
+            "SELECT COUNT(*), COALESCE(SUM(size), 0), COALESCE(SUM(hits), 0) FROM asset_cache",
+        )?;
+        let mut rows = stmt.query([])?;
+        if let Some(row) = rows.next()? {
+            Ok(AssetUsageStats {
+                total_entries: row.get(0)?,
+                total_bytes: row.get(1)?,
+                total_hits: row.get(2)?,
+            })
+        } else {
+            Ok(AssetUsageStats {
+                total_entries: 0,
+                total_bytes: 0,
+                total_hits: 0,
+            })
+        }
     }
 }

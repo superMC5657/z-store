@@ -144,6 +144,17 @@ export async function getReadmeVariants(appId: string): Promise<ReadmeVariantsRe
   }
 }
 
+// 图片磁盘缓存查询：返回 asset 本地路径或原 https，失败时回退原链。
+export async function getAssetCacheUrl(url: string, appId: string): Promise<string> {
+  try {
+    const res = await tauriInvoke<string>(CMD.getAssetCacheUrl, { app_id: appId, url });
+    if (typeof res === 'string' && res) return res;
+    return url;
+  } catch {
+    return url;
+  }
+}
+
 export async function getCategoryApps(category: string): Promise<AppSummary[]> {
   return tauriInvoke<AppSummary[]>(CMD.getCategoryApps, { category });
 }

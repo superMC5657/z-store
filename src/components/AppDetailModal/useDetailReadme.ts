@@ -215,8 +215,8 @@ export function useDetailReadme(opts: {
     };
   }, [owner, repo, forgeHost]);
 
-  // 避免高频下载进度事件重绘时重复同步解析庞大的 Markdown 文档阻塞渲染主线程，并执行严格 AST 级 XSS 净化与基准路径补全
-  const readmeHtml = useMemo(() => {
+  // 净化后的基准 HTML（同步首屏），本地缓存命中后再升级为替换版
+  const baseReadmeHtml = useMemo(() => {
     if (!activeMarkdown) return '';
     const preprocessed = preprocessGitHubAlerts(activeMarkdown);
     const rawParsed = marked.parse(preprocessed, {
@@ -226,6 +226,55 @@ export function useDetailReadme(opts: {
     }) as string;
     return sanitizeHtml(rawParsed, { rawBaseUrl, repoBaseUrl });
   }, [activeMarkdown, rawBaseUrl, repoBaseUrl]);
+
+  // 图片本地缓存替换：逐个解析 img src，命中 asset 本地路径则替换，失败或动态图保留原链
+  const [resolvedReadmeHtml, setResolvedReadmeHtml] = useState(baseReadmeHtml);
+  useEffect(() => {
+    setResolvedReadmeHtml(baseReadmeHtml);
+    if (!baseReadmeHtml || !appId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const doc = new DOMParser().parseFromString(baseReadmeHtml, 'text/html');
+        const imgs = Array.from(doc.querySelectorAll('img[src]'));
+        if (imgs.length === 0) return;
+        await Promise.all(
+          imgs.map(async (img) => {
+            const src = img.getAttribute('src') || '';
+            if (!src || !/^https?:\/\//i.test(src)) return;
+            const lowerSrc = src.toLowerCase();
+            if (lowerSrc.endsWith('.gif') || lowerSrc.includes('.gif?')) return;
+            let cached: string;
+            try {
+              cached = await api.getAssetCacheUrl(src, appId);
+            } catch {
+              return;
+            }
+            if (!cached || cached === src) return;
+            const lowerCached = cached.toLowerCase();
+            if (
+              lowerCached.startsWith('asset:') ||
+              lowerCached.startsWith('tauri:') ||
+              lowerCached.includes('asset.localhost')
+            ) {
+              img.setAttribute('src', cached);
+            }
+          }),
+        );
+        if (!cancelled) {
+          const next = doc.body.innerHTML;
+          setResolvedReadmeHtml((prev) => (prev === next ? prev : next));
+        }
+      } catch {
+        if (!cancelled) setResolvedReadmeHtml(baseReadmeHtml);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [baseReadmeHtml, appId]);
+
+  const readmeHtml = resolvedReadmeHtml;
 
   const setReadmeLang = (lang: ReadmeLang) => {
     hasUserSelectedRef.current = true;

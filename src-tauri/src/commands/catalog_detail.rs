@@ -682,6 +682,16 @@ pub async fn get_app_details_impl(
     }
 }
 
+/// 通用图片磁盘缓存查询：已缓存返回本地路径，未命中下载后返回本地路径，失败回退原地址。
+#[tauri::command]
+pub async fn get_asset_cache_url(
+    url: String,
+    app_id: Option<String>,
+) -> crate::AppResult<String> {
+    let app = app_id.unwrap_or_default();
+    Ok(crate::github::asset_fetch::get_asset_url(&url, &app).await)
+}
+
 #[tauri::command]
 pub async fn get_readme_variants(
     state: State<'_, AppState>,
