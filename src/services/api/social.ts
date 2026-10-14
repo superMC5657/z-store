@@ -93,8 +93,9 @@ export async function oauthDeviceStart(): Promise<OAuthDeviceStartResult> {
 }
 
 export async function oauthDevicePoll(deviceCode: string): Promise<OAuthPollResult> {
+  // IPC 参数名与后端形参对齐（后端 oauth_device_poll 的 device_code）。
   const raw = await tauriInvoke<{ status: string; message?: string }>(CMD.oauthDevicePoll, {
-    deviceCode,
+    device_code: deviceCode,
   });
   const status =
     raw.status === 'authorized'

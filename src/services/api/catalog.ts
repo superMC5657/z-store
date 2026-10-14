@@ -110,7 +110,8 @@ export async function onSearchIconUpgraded(
 }
 
 export async function getAppDetails(id: string, forceRefresh = false): Promise<AppDetail> {
-  return tauriInvoke<AppDetail>(CMD.getAppDetails, { id, forceRefresh });
+  // IPC 参数名与后端形参对齐（后端 get_app_details 的 force_refresh）。
+  return tauriInvoke<AppDetail>(CMD.getAppDetails, { id, force_refresh: forceRefresh });
 }
 
 export async function getPlatformsLite(id: string): Promise<PlatformsLiteResult> {
@@ -204,7 +205,8 @@ export async function importMatchedApps(apps: ImportAppRequest[]): Promise<numbe
 }
 
 export async function getDetectedInstalledAppIds(forceRefresh = false): Promise<string[]> {
-  return tauriInvoke<string[]>(CMD.getDetectedInstalledAppIds, { forceRefresh });
+  // IPC 参数名与后端形参对齐（后端 get_detected_installed_app_ids 的 force_refresh）。
+  return tauriInvoke<string[]>(CMD.getDetectedInstalledAppIds, { force_refresh: forceRefresh });
 }
 
 export async function importSingleApp(appId: string): Promise<boolean> {
@@ -252,7 +254,8 @@ export async function syncCatalog(force?: boolean): Promise<SyncCatalogResult> {
 }
 
 export async function getOrFetchIcon(appId: string | undefined, remoteUrl: string): Promise<string> {
-  return tauriInvoke<string>(CMD.getOrFetchIcon, { appId: appId ?? null, remoteUrl });
+  // IPC 参数名与后端形参对齐（后端 get_or_fetch_icon 的 app_id/remote_url）。
+  return tauriInvoke<string>(CMD.getOrFetchIcon, { app_id: appId ?? null, remote_url: remoteUrl });
 }
 
 export async function cycleAppIcon(appId: string): Promise<AppIconCycleResult> {
