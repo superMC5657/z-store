@@ -485,7 +485,10 @@ pub(crate) async fn ensure_cycle_levels(
     catalog_item: Option<&crate::github::CatalogItem>,
     token: Option<&str>,
 ) {
-    let client = crate::commands::icons::icon_http_client();
+    let client = crate::forge::http::new_icon_client(
+        crate::config::get_project_config().network.api_timeout_seconds,
+    )
+    .unwrap_or_default();
 
     // 图标L1=官方：仅收录应用官方源填图标L1（l1_url）；未收录应用保持为空
     if is_cataloged && cycle.l1_url.trim().is_empty() {

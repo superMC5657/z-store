@@ -291,20 +291,14 @@ pub fn get_project_config() -> &'static ProjectConfig {
     })
 }
 
-/// ADR-0008：网络超时统一 helper 单一来源（统一配置中枢同一键）。
-/// `secs>0` 用配置秒数，`0`（未设置）回退调用方传入的兜底值。
-/// 纯函数内核（可单测）；调用方一律经此。
-pub(crate) fn api_timeout_from(secs: u64, fallback: std::time::Duration) -> std::time::Duration {
+/// 有效超时：读统一配置中枢 `network.api_timeout_seconds`，0 回退 `fallback`。
+pub(crate) fn api_timeout_or(fallback: std::time::Duration) -> std::time::Duration {
+    let secs = get_project_config().network.api_timeout_seconds;
     if secs > 0 {
         std::time::Duration::from_secs(secs)
     } else {
         fallback
     }
-}
-
-/// 有效超时：读统一配置中枢 `network.api_timeout_seconds`，0 回退 `fallback`。
-pub(crate) fn api_timeout_or(fallback: std::time::Duration) -> std::time::Duration {
-    api_timeout_from(get_project_config().network.api_timeout_seconds, fallback)
 }
 
 #[cfg(test)]
@@ -345,20 +339,14 @@ mod tests {
     }
 
     #[test]
-    fn api_timeout_from_prefers_config_falls_back_to_history() {
-        // ADR-0008 单一来源：已配秒数优先；0（未设置）回退调用方历史硬编码值。
-        // 快慢超时统一经 network.api_timeout_seconds。
+    fn api_timeout_or_returns_configured_secs() {
+        // 返回统一配置中枢 `network.api_timeout_seconds` 对应的超时。
+        let expected =
+            std::time::Duration::from_secs(get_project_config().network.api_timeout_seconds);
+        assert_eq!(super::api_timeout_or(std::time::Duration::from_secs(10)), expected);
         assert_eq!(
-            super::api_timeout_from(12, std::time::Duration::from_secs(10)),
-            std::time::Duration::from_secs(12)
-        );
-        assert_eq!(
-            super::api_timeout_from(0, std::time::Duration::from_secs(10)),
-            std::time::Duration::from_secs(10)
-        );
-        assert_eq!(
-            super::api_timeout_from(0, std::time::Duration::from_millis(1500)),
-            std::time::Duration::from_millis(1500)
+            super::api_timeout_or(std::time::Duration::from_millis(1500)),
+            expected
         );
     }
 

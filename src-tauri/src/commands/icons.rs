@@ -90,9 +90,8 @@ pub fn is_valid_image(bytes: &[u8]) -> bool {
     sniff_image_mime(bytes).is_some()
 }
 
-/// mime<->ext 单一对照表（规范对）。`mime_to_ext` / `ext_to_mime` 均由此派生；
-/// 别名（`image/apng`→`png`、`image/vnd.microsoft.icon`→`ico`、
-/// `apng`→`image/apng`、`jpeg`→`image/jpeg`）为显式分支。
+/// mime 到扩展名的单一对照表（规范对）。`mime_to_ext` 由此派生；
+/// 别名（`image/apng`→`png`、`image/vnd.microsoft.icon`→`ico`）为显式分支。
 const MIME_EXT_TABLE: &[(&str, &str)] = &[
     ("image/png", "png"),
     ("image/jpeg", "jpg"),
@@ -122,26 +121,6 @@ pub(crate) fn mime_to_ext(mime: &str) -> &'static str {
     "png"
 }
 
-/// 仅测试调用（`commands::tests`），生产代码无调用；非 test 构建下允许死代码，保持 `cargo check` 零警告。
-#[allow(dead_code)]
-pub(crate) fn ext_to_mime(ext: &str) -> &'static str {
-    let clean = ext.trim().trim_start_matches('.').to_ascii_lowercase();
-    if clean == "apng" {
-        return "image/apng";
-    }
-    if clean == "jpeg" {
-        return "image/jpeg";
-    }
-    for (m, e) in MIME_EXT_TABLE {
-        if clean.as_str() == *e {
-            return m;
-        }
-    }
-    "image/png"
-}
-
-/// 从 remote_url path 中提取真实扩展名（去掉 query/fragment，转小写，仅允许 png/jpg/jpeg/gif/webp/svg/ico/avif/apng/bmp，jpeg 统一为 jpg）。
-/// 无有效扩展名时返回 None。
 pub(crate) fn infer_icon_ext_from_url(remote_url: &str) -> Option<&'static str> {
     let raw = remote_url.trim();
     if raw.is_empty() {
@@ -186,17 +165,6 @@ pub(crate) fn is_icon_file_fresh(path: &std::path::Path) -> bool {
         return false;
     };
     elapsed.as_secs() < (crate::db::icon_cycle::ICON_TTL_SECS as u64)
-}
-
-/// H2：图标拉取专用 HTTP 客户端（超时 + 有限重定向，委托 `forge::http` SSOT，与 API client 隔离）。
-/// D5 双池复用：本 client 与 API client 物理隔离；图标 CDN 通道恒丢 token（见深核 `probe_l2_simple`）。
-/// FINAL：图标通道禁用 ETag 查表——本下载永不挂 `If-None-Match`，命中靠“文件存在+DB有效（7天）”0 请求短路，
-/// 过期后台重下 1 次（见 probe `load_split_cached_bytes`）；ETag 仅详情/平台通道用。
-pub(crate) fn icon_http_client() -> reqwest::Client {
-    let secs = crate::config::get_project_config()
-        .network
-        .api_timeout_seconds;
-    crate::forge::http::new_icon_client(secs).unwrap_or_default()
 }
 
 /// 图标下载与校验通用 helper（薄适配器，下载缝 stays behind）：
@@ -414,7 +382,10 @@ pub async fn get_or_fetch_icon(
     }
 
     // 2. 本地缓存找不到或已过期，才去外部链接拉取（mirror 只改下载 URL，经单一落点）
-    let client = icon_http_client();
+    let client = crate::forge::http::new_icon_client(
+        crate::config::get_project_config().network.api_timeout_seconds,
+    )
+    .unwrap_or_default();
 
     let fetched_bytes = icons_cycle::download_via_mirror(&state, &client, url_trimmed)
         .await

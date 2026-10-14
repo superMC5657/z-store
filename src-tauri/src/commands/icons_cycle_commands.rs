@@ -119,7 +119,10 @@ pub async fn cycle_app_icon(
         let _ = db.upsert_icon_cycle(&cycle);
     }
 
-    let client = crate::commands::icons::icon_http_client();
+    let client = crate::forge::http::new_icon_client(
+        crate::config::get_project_config().network.api_timeout_seconds,
+    )
+    .unwrap_or_default();
 
     // 检查本地是否已存在缓存文件（hash 候选 + 7 天 TTL，0 请求命中）。
     let inferred_ext = crate::commands::icons::infer_icon_ext_from_url(&target_url).unwrap_or("png");
@@ -243,7 +246,10 @@ pub async fn get_app_icon_cycle(
 
         // 文件缺失但有 remote_url 时尝试恢复（单一写入 + 单一下载落点）
         if !remote_url.is_empty() {
-            let client = crate::commands::icons::icon_http_client();
+            let client = crate::forge::http::new_icon_client(
+        crate::config::get_project_config().network.api_timeout_seconds,
+    )
+    .unwrap_or_default();
             if let Ok(bytes) = download_via_mirror(&state, &client, &remote_url).await {
                 // 真实 ext 落盘，绝不产生无扩展名文件（分流收敛在缝内）。
                 let inferred_ext = crate::commands::icons::infer_icon_ext_from_url(&remote_url).unwrap_or("png");
@@ -407,7 +413,10 @@ pub async fn get_app_icon_cycle(
 
         // 文件缺失但有 remote_url 时尝试恢复（单一写入 + 单一下载落点）
         if !remote_url.is_empty() {
-            let client = crate::commands::icons::icon_http_client();
+            let client = crate::forge::http::new_icon_client(
+        crate::config::get_project_config().network.api_timeout_seconds,
+    )
+    .unwrap_or_default();
             if let Ok(bytes) = download_via_mirror(&state, &client, &remote_url).await {
                 let icon = IconRef::new(&remote_url, inferred_ext);
                 let fn_non = persist_icon_bytes(

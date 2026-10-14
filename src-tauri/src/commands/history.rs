@@ -105,7 +105,7 @@ fn cached_detail_summary(db: &crate::db::Database, id: &str) -> Option<AppSummar
         }
     }
     for key in keys {
-        if let Ok(Some(detail)) = db.get_cached_app_detail_fallback(&key) {
+        if let Ok(Some(detail)) = db.get_cached_app_detail(&key, None) {
             let mut summary = detail_to_summary(&detail);
             // 最近浏览简介占位根治：占位回填 ETag repo 真值，无真值置空（前端走“暂无简介”）。
             heal_recent_summary(db, &mut summary);

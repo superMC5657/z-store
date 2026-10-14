@@ -24,7 +24,7 @@ pub struct OnlineSearchResult {
     pub sid: String,
 }
 
-// ADR-0008：网络超时统一经 `config::api_timeout_or/from` 单一来源（统一配置中枢同一键）；
+// 网络超时统一经 `config::api_timeout_or` 单一来源（统一配置中枢同一键）；
 // 本模块一律直调 `crate::config`。
 
 /// emit 世代通道选择（纯选择器，可单测）：`ctx` 决定查哪一个全局世代计数器 + 期望 gen。

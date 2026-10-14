@@ -76,11 +76,6 @@ impl Database {
         Ok(None)
     }
 
-    /// 即使缓存过期，也返回已存储的详情副本（用于离线弱网或 GitHub API 故障时的降级呈现）
-    pub fn get_cached_app_detail_fallback(&self, app_id: &str) -> Result<Option<AppDetail>> {
-        self.get_cached_app_detail(app_id, None)
-    }
-
     /// 当远端返回 304 Not Modified 时，快速刷新 cached_at 时间戳，零开销延长保鲜期
     pub fn touch_cached_app_detail(&self, app_id: &str, new_cached_at: i64) -> Result<()> {
         self.exec_upsert(

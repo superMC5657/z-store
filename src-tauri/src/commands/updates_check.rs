@@ -46,7 +46,7 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
         Ok(c) => c,
         Err(_) => {
             if let Ok(db) = state.db() {
-                if let Ok(Some(fallback)) = db.get_cached_app_detail_fallback(&clean_id) {
+                if let Ok(Some(fallback)) = db.get_cached_app_detail(&clean_id, None) {
                     return Ok((fallback.latest_version, fallback.changelog));
                 }
             }
@@ -104,7 +104,7 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
             let row = state
                 .db()
                 .ok()
-                .and_then(|db| db.get_cached_app_detail_fallback(&clean_id).ok().flatten());
+                .and_then(|db| db.get_cached_app_detail(&clean_id, None).ok().flatten());
             let cat = state
                 .catalog
                 .get_catalog_item(&clean_id)

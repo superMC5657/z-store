@@ -120,7 +120,7 @@ pub async fn get_platforms_lite(
     let (release_endpoint, cached_etag, cached_payload) = {
         if let Err(e) = state.catalog.get_repo_coordinates(&clean_id) {
             if let Ok(db) = state.db() {
-                if let Ok(Some(fallback)) = db.get_cached_app_detail_fallback(&clean_id) {
+                if let Ok(Some(fallback)) = db.get_cached_app_detail(&clean_id, None) {
                     log::debug!(
                         "get_platforms_lite id={} from=cache:stale reason=unknown_coords elapsed_ms={}",
                         clean_id,
@@ -176,7 +176,7 @@ pub async fn get_platforms_lite(
         _ => state
             .db()
             .ok()
-            .and_then(|db| db.get_cached_app_detail_fallback(&clean_id).ok().flatten()),
+            .and_then(|db| db.get_cached_app_detail(&clean_id, None).ok().flatten()),
     };
     match crate::github::release_fetch::decide_shallow_release(
         &outcome,
@@ -430,7 +430,7 @@ pub async fn get_app_details_impl(
             Err(e) => {
                 // 未知坐标降级同样标 stale，Ok(stale) 形状 IPC 保留，前端 stale-empty 视为 pending。
                 if let Ok(db) = state.db() {
-                    if let Ok(Some(mut fallback)) = db.get_cached_app_detail_fallback(&clean_id) {
+                    if let Ok(Some(mut fallback)) = db.get_cached_app_detail(&clean_id, None) {
                         fallback.id = clean_id.clone();
                         fallback.is_stale = Some(true);
                         log::debug!(
@@ -459,7 +459,7 @@ pub async fn get_app_details_impl(
         let cached_detail = if is_force {
             None
         } else {
-            db.get_cached_app_detail_fallback(&clean_id).ok().flatten()
+            db.get_cached_app_detail(&clean_id, None).ok().flatten()
         };
         (ep, etag, payload, token, cached_detail)
     };
@@ -537,7 +537,7 @@ pub async fn get_app_details_impl(
             log::debug!("db_save start id={} sid={} req={}", clean_id, sid, req_id);
             if let Ok(db) = state.db() {
                 if detail.releases.is_empty() {
-                    if let Ok(Some(old)) = db.get_cached_app_detail_fallback(&clean_id) {
+                    if let Ok(Some(old)) = db.get_cached_app_detail(&clean_id, None) {
                         if !old.releases.is_empty() {
                             detail.releases = old.releases.clone();
                         }
@@ -665,7 +665,7 @@ pub async fn get_app_details_impl(
             // Ok(stale) 形状为 IPC 保留；is_stale=true 供前端视为 pending，
             // stale-empty（双空）不得确认 Other，由 backfill 重试。
             if let Ok(db) = state.db() {
-                if let Ok(Some(mut fallback_detail)) = db.get_cached_app_detail_fallback(&clean_id)
+                if let Ok(Some(mut fallback_detail)) = db.get_cached_app_detail(&clean_id, None)
                 {
                     fallback_detail.id = clean_id.clone();
                     fallback_detail.is_stale = Some(true);

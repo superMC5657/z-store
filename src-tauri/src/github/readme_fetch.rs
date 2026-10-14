@@ -145,7 +145,7 @@ fn persist_readme_variants_silent(
             repo.trim().to_lowercase()
         )
     });
-    let Ok(Some(mut detail)) = db.get_cached_app_detail_fallback(&key) else {
+    let Ok(Some(mut detail)) = db.get_cached_app_detail(&key, None) else {
         return;
     };
     detail.readme_variants = Some(variants.to_vec());

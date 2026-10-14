@@ -207,9 +207,6 @@ fn test_base64_encode_and_hash_icon_filename() {
     assert_eq!(mime_to_ext("image/x-icon"), "ico");
     assert_eq!(mime_to_ext("image/jpeg"), "jpg");
     assert_eq!(mime_to_ext("image/png"), "png");
-    assert_eq!(ext_to_mime("svg"), "image/svg+xml");
-    assert_eq!(ext_to_mime("ico"), "image/x-icon");
-    assert_eq!(ext_to_mime("jpg"), "image/jpeg");
 
     // hash 文件名：`sha256(url)[0:16].{ext}`，ext 按 URL 推断（无后缀暂定 png）
     let h1_url = "https://github.com/rustdesk.png";

@@ -246,7 +246,10 @@ pub async fn fetch_icons_stream<F, Fut>(
         cfg.total_timeout_secs,
     );
     // L4=README需网络，详情链专属，不受本核心约束，本 core 不探 README。
-    let client = crate::commands::icon_http_client();
+    let client = crate::forge::http::new_icon_client(
+        crate::config::get_project_config().network.api_timeout_seconds,
+    )
+    .unwrap_or_default();
     // 慢路径鉴权头：有 token 才跑 Trees，无 token 只走快路径。
     let slow_headers = token
         .as_deref()

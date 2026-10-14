@@ -284,9 +284,9 @@ fn test_app_details_cache_crud() {
         .get_cached_app_detail("rustdesk/rustdesk", Some(0))
         .unwrap()
         .is_none());
-    // 即使过期，兜底回退查询依然能获取到缓存副本
+    // 不传 TTL 时返回已存储副本
     let fallback = db
-        .get_cached_app_detail_fallback("rustdesk/rustdesk")
+        .get_cached_app_detail("rustdesk/rustdesk", None)
         .unwrap()
         .expect("fallback hit");
     assert_eq!(fallback.name, "RustDesk");
