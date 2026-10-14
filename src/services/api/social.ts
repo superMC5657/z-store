@@ -93,8 +93,11 @@ export async function oauthDeviceStart(): Promise<OAuthDeviceStartResult> {
 }
 
 export async function oauthDevicePoll(deviceCode: string): Promise<OAuthPollResult> {
+  if (!deviceCode || !deviceCode.trim()) {
+    throw new Error('设备验证码缺失，请取消后重新点击登录');
+  }
   const raw = await tauriInvoke<{ status: string; message?: string }>(CMD.oauthDevicePoll, {
-    device_code: deviceCode,
+    deviceCode,
   });
   const status =
     raw.status === 'authorized' ||

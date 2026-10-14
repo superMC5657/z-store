@@ -109,7 +109,7 @@ export async function onSearchIconUpgraded(
 }
 
 export async function getAppDetails(id: string, forceRefresh = false): Promise<AppDetail> {
-  return tauriInvoke<AppDetail>(CMD.getAppDetails, { id, force_refresh: forceRefresh });
+  return tauriInvoke<AppDetail>(CMD.getAppDetails, { id, forceRefresh });
 }
 
 export async function getPlatformsLite(id: string): Promise<PlatformsLiteResult> {
@@ -134,7 +134,7 @@ export async function getReadmeVariants(appId: string): Promise<ReadmeVariantsRe
   try {
     const raw = await tauriInvoke<ReadmeVariantsResult | ReadmeVariant[] | null>(
       CMD.getReadmeVariants,
-      { appId, app_id: appId },
+      { appId },
     );
     if (!raw) return { variants: [] };
     if (Array.isArray(raw)) return { variants: raw };
@@ -150,7 +150,7 @@ export async function getReadmeVariants(appId: string): Promise<ReadmeVariantsRe
 // 图片磁盘缓存查询：返回 asset 本地路径或原 https，失败时回退原链。
 export async function getAssetCacheUrl(url: string, appId: string): Promise<string> {
   try {
-    const res = await tauriInvoke<string>(CMD.getAssetCacheUrl, { app_id: appId, url });
+    const res = await tauriInvoke<string>(CMD.getAssetCacheUrl, { appId, url });
     if (typeof res === 'string' && res) return res;
     return url;
   } catch {
@@ -203,7 +203,7 @@ export async function importMatchedApps(apps: ImportAppRequest[]): Promise<numbe
 }
 
 export async function getDetectedInstalledAppIds(forceRefresh = false): Promise<string[]> {
-  return tauriInvoke<string[]>(CMD.getDetectedInstalledAppIds, { force_refresh: forceRefresh });
+  return tauriInvoke<string[]>(CMD.getDetectedInstalledAppIds, { forceRefresh });
 }
 
 export async function importSingleApp(appId: string): Promise<boolean> {
@@ -251,18 +251,17 @@ export async function syncCatalog(force?: boolean): Promise<SyncCatalogResult> {
 }
 
 export async function getOrFetchIcon(appId: string | undefined, remoteUrl: string): Promise<string> {
-  return tauriInvoke<string>(CMD.getOrFetchIcon, { app_id: appId ?? null, remote_url: remoteUrl });
+  return tauriInvoke<string>(CMD.getOrFetchIcon, { appId: appId ?? null, remoteUrl });
 }
 
 export async function cycleAppIcon(appId: string): Promise<AppIconCycleResult> {
-  return tauriInvoke<AppIconCycleResult>(CMD.cycleAppIcon, { appId, app_id: appId });
+  return tauriInvoke<AppIconCycleResult>(CMD.cycleAppIcon, { appId });
 }
 
 export async function getAppIconCycle(appId: string): Promise<AppIconCycleResult | null> {
   try {
     return await tauriInvoke<AppIconCycleResult | null>(CMD.getAppIconCycle, {
       appId,
-      app_id: appId,
     });
   } catch {
     return null;

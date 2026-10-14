@@ -114,6 +114,7 @@
     "poll_error": "授权轮询异常，请重试",
     "network_retry": "网络波动，自动重试中 ({{count}})：{{error}}",
     "network_failed": "网络多次失败，已停止轮询；用户码仍在有效期内，可检查网络后取消重来",
+    "invoke_error": "调用失败，已停止轮询：{{error}}",
     "login_success": "GitHub 账号登录成功",
     "logged_out": "已退出 GitHub 账号",
     "copy_failed": "复制失败，请手动选中用户码",

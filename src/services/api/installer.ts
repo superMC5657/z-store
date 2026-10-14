@@ -57,7 +57,7 @@ export async function launchApp(appId: string): Promise<boolean> {
 }
 
 export async function checkForUpdates(forceRefresh = false): Promise<UpdateItem[]> {
-  return tauriInvoke<UpdateItem[]>(CMD.checkForUpdates, { force_refresh: forceRefresh });
+  return tauriInvoke<UpdateItem[]>(CMD.checkForUpdates, { forceRefresh });
 }
 
 export async function onUpdateItemFound(callback: (item: UpdateItem) => void): Promise<() => void> {

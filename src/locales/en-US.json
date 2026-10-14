@@ -114,6 +114,7 @@
     "poll_error": "Authorization polling error, please try again",
     "network_retry": "Network fluctuation, retrying ({{count}}): {{error}}",
     "network_failed": "Multiple network failures, stopped polling. Code is still valid; check network and retry.",
+    "invoke_error": "Invoke failed, polling stopped: {{error}}",
     "login_success": "Successfully signed in to GitHub",
     "logged_out": "Signed out of GitHub account",
     "copy_failed": "Failed to copy, please select code manually",

@@ -85,6 +85,13 @@ export const OAuthAccountCard: React.FC = () => {
           schedulePoll(deviceCode, deadline, intervalMs);
         }
       } catch (e) {
+        const detail = String(e);
+        // 参数/调用错误与网络抖动要区分：前者停轮询并展示完整错误，后者才重试。
+        if (detail.includes('invalid args')) {
+          stopPolling();
+          setError(t('oauth.invoke_error', { error: detail }));
+          return;
+        }
         // 轮询只是查状态，网络抖动不断会话：提示后继续下一轮；
         // 连续多次失败才停，且保留用户码展示，用户可检查网络后重来。
         pollFailRef.current += 1;
@@ -93,7 +100,7 @@ export const OAuthAccountCard: React.FC = () => {
           setError(t('oauth.network_failed'));
           return;
         }
-        setError(t('oauth.network_retry', { count: pollFailRef.current, error: String(e).slice(0, 80) }));
+        setError(t('oauth.network_retry', { count: pollFailRef.current, error: detail }));
         schedulePoll(deviceCode, deadline, intervalMs);
       }
     }, intervalMs);

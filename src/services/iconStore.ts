@@ -519,7 +519,7 @@ function startIconFetch(url: string, ids: Set<string>): void {
       break;
     }
   }
-  const p = tauriInvoke<string>('get_or_fetch_icon', { app_id: firstId, remote_url: url })
+  const p = tauriInvoke<string>('get_or_fetch_icon', { appId: firstId, remoteUrl: url })
     .then((dataUri) => {
       iconDataCache.set(url, dataUri);
       iconPersistedKeys.add(url);
