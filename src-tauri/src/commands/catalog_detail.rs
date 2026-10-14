@@ -692,6 +692,23 @@ pub async fn get_asset_cache_url(
     Ok(crate::github::asset_fetch::get_asset_url(&url, &app).await)
 }
 
+/// 查询通用图片磁盘缓存占用：返回条目数与总字节。
+#[tauri::command]
+pub fn get_asset_cache_stats(
+    state: State<'_, AppState>,
+) -> crate::AppResult<crate::db::AssetUsageStats> {
+    let db = state.db()?;
+    Ok(db.asset_usage_stats()?)
+}
+
+/// 清空通用图片磁盘缓存：仅删除配额目录文件与图片缓存两表。
+#[tauri::command]
+pub fn clear_asset_cache(state: State<'_, AppState>) -> crate::AppResult<usize> {
+    let db = state.db()?;
+    let assets_dir = crate::get_app_data_dir().join("cache").join("assets");
+    Ok(db.clear_asset_cache(&assets_dir)?)
+}
+
 #[tauri::command]
 pub async fn get_readme_variants(
     state: State<'_, AppState>,

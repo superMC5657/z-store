@@ -288,6 +288,24 @@ pub const ASSET_CACHE_MAX_FILES: usize = 2000;
 /// 图片磁盘缓存配额上限：500MB。
 pub const ASSET_CACHE_MAX_BYTES: u64 = 500 * 1024 * 1024;
 
+/// 读取当前生效的图片缓存配额（文件数，字节数）。
+/// 优先使用数据库设置，缺省回退 config.toml 基线。
+fn asset_quota_limits(db: &Database) -> (u64, u64) {
+    let files = db.get_asset_cache_max_files() as u64;
+    let bytes = db.get_asset_cache_max_mb().saturating_mul(1024 * 1024);
+    let files = if files > 0 {
+        files
+    } else {
+        ASSET_CACHE_MAX_FILES as u64
+    };
+    let bytes = if bytes > 0 {
+        bytes
+    } else {
+        ASSET_CACHE_MAX_BYTES
+    };
+    (files, bytes)
+}
+
 /// 图片磁盘缓存记录。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AssetCacheRecord {
@@ -488,9 +506,9 @@ impl Database {
             ],
         )?;
         let saved = self.get_asset(&raw)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        let (max_files, max_bytes) = asset_quota_limits(self);
         if let Ok(stats) = self.asset_usage_stats() {
-            if stats.total_entries as usize > ASSET_CACHE_MAX_FILES
-                || stats.total_bytes as u64 > ASSET_CACHE_MAX_BYTES
+            if stats.total_entries as u64 > max_files || stats.total_bytes as u64 > max_bytes
             {
                 let dir = crate::get_app_data_dir().join("cache").join("assets");
                 let _ = self.enforce_asset_quota_lru(&dir);
@@ -561,6 +579,7 @@ impl Database {
 
     /// 配额淘汰：按使用时间最旧优先删除直至文件数与总字节双水位线下。
     pub fn enforce_asset_quota_lru(&self, assets_dir: &std::path::Path) -> Result<usize> {
+        let (max_files, max_bytes) = asset_quota_limits(self);
         let rows: Vec<(String, String, i64, i64)> = {
             let mut stmt = self.conn.prepare(
                 "SELECT hash, local_path, size, last_used FROM asset_cache ORDER BY last_used ASC",
@@ -579,10 +598,10 @@ impl Database {
         let mut scanned = scan_asset_files(assets_dir);
         let mut fs_count = scanned.len() as u64;
         let mut fs_bytes: u64 = scanned.iter().map(|(_, len, _)| *len).sum();
-        if db_count <= ASSET_CACHE_MAX_FILES as u64
-            && db_bytes <= ASSET_CACHE_MAX_BYTES
-            && fs_count <= ASSET_CACHE_MAX_FILES as u64
-            && fs_bytes <= ASSET_CACHE_MAX_BYTES
+        if db_count <= max_files
+            && db_bytes <= max_bytes
+            && fs_count <= max_files
+            && fs_bytes <= max_bytes
         {
             return Ok(0);
         }
@@ -590,10 +609,10 @@ impl Database {
         let mut remaining_hashes: std::collections::HashSet<String> =
             rows.iter().map(|(h, _, _, _)| h.clone()).collect();
         for (hash, local_path, size, _) in &rows {
-            if db_count <= ASSET_CACHE_MAX_FILES as u64
-                && db_bytes <= ASSET_CACHE_MAX_BYTES
-                && fs_count <= ASSET_CACHE_MAX_FILES as u64
-                && fs_bytes <= ASSET_CACHE_MAX_BYTES
+            if db_count <= max_files
+                && db_bytes <= max_bytes
+                && fs_count <= max_files
+                && fs_bytes <= max_bytes
             {
                 break;
             }
@@ -620,12 +639,12 @@ impl Database {
             remaining_hashes.remove(hash);
             removed += 1;
         }
-        if fs_count <= ASSET_CACHE_MAX_FILES as u64 && fs_bytes <= ASSET_CACHE_MAX_BYTES {
+        if fs_count <= max_files && fs_bytes <= max_bytes {
             return Ok(removed);
         }
         scanned.sort_by(|a, b| a.2.cmp(&b.2));
         for (path, len, _) in scanned {
-            if fs_count <= ASSET_CACHE_MAX_FILES as u64 && fs_bytes <= ASSET_CACHE_MAX_BYTES {
+            if fs_count <= max_files && fs_bytes <= max_bytes {
                 break;
             }
             let stem = path
@@ -642,6 +661,48 @@ impl Database {
                 removed += 1;
             }
         }
+        Ok(removed)
+    }
+
+    /// 清空通用图片磁盘缓存：删除配额目录下全部文件并清空图片缓存表。
+    /// 仅处理传入目录与图片缓存两表，不触碰图标目录与详情缓存。
+    pub fn clear_asset_cache(&self, assets_dir: &std::path::Path) -> Result<usize> {
+        let scanned = scan_asset_files(assets_dir);
+        let mut removed: usize = 0;
+        for (path, _, _) in scanned {
+            if std::fs::remove_file(&path).is_ok() {
+                removed += 1;
+            }
+        }
+        self.exec_upsert("DELETE FROM asset_cache", [])?;
+        self.exec_upsert("DELETE FROM asset_refs", [])?;
+        Ok(removed)
+    }
+
+    /// 统计图标磁盘缓存占用：扫描图标目录文件数与总字节。
+    pub fn icon_usage_stats(&self, icons_dir: &std::path::Path) -> Result<AssetUsageStats> {
+        let scanned = scan_asset_files(icons_dir);
+        let total_entries = scanned.len() as i64;
+        let total_bytes: i64 = scanned.iter().map(|(_, len, _)| *len as i64).sum();
+        Ok(AssetUsageStats {
+            total_entries,
+            total_bytes,
+            total_hits: 0,
+        })
+    }
+
+    /// 清空图标磁盘缓存：删除图标目录下全部文件并清空图标索引。
+    /// 仅处理图标目录与图标两表，保留轮换级别地址，清空文件指向。
+    pub fn clear_icon_cache(&self, icons_dir: &std::path::Path) -> Result<usize> {
+        let scanned = scan_asset_files(icons_dir);
+        let mut removed: usize = 0;
+        for (path, _, _) in scanned {
+            if std::fs::remove_file(&path).is_ok() {
+                removed += 1;
+            }
+        }
+        self.exec_upsert("DELETE FROM icon_cache_meta", [])?;
+        let _ = self.exec_upsert("UPDATE app_icon_cycles SET cache_file = ''", []);
         Ok(removed)
     }
 }

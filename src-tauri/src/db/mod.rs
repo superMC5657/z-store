@@ -28,6 +28,34 @@ pub fn default_detail_cache_ttl_minutes() -> i64 {
 /// ADR-0007：TTL 有效挡位（分钟）：0=每次实时校验，10/60/360/1440。
 pub const DETAIL_CACHE_TTL_VALID_MINUTES: [i64; 5] = [0, 10, 60, 360, 1440];
 
+/// 通用图片磁盘缓存配额默认值（兆字节，优先读取 config.toml）。
+pub fn default_asset_cache_max_mb() -> u64 {
+    crate::config::get_project_config().cache.asset_max_mb
+}
+
+/// 通用图片磁盘缓存配额默认值（文件数，优先读取 config.toml）。
+pub fn default_asset_cache_max_files() -> usize {
+    crate::config::get_project_config().cache.asset_max_files
+}
+
+/// 将任意输入归一化到图片缓存配额有效值；非法值回退 config.toml 默认值。
+pub fn normalize_asset_cache_max_mb(mb: u64) -> u64 {
+    if mb > 0 {
+        mb
+    } else {
+        default_asset_cache_max_mb()
+    }
+}
+
+/// 将任意输入归一化到图片缓存配额有效值；非法值回退 config.toml 默认值。
+pub fn normalize_asset_cache_max_files(files: usize) -> usize {
+    if files > 0 {
+        files
+    } else {
+        default_asset_cache_max_files()
+    }
+}
+
 /// FR-6.2：关注通知频率默认值（每天至多通知一次）。
 pub const WATCH_NOTIFY_FREQUENCY_DEFAULT: &str = "daily";
 /// FR-6.2：关注通知频率有效值：`startup`（每次启动检查即通知）/`daily`。
@@ -61,6 +89,18 @@ pub fn normalize_setting_value(key: &str, value: &str) -> String {
             .parse::<i64>()
             .map(normalize_detail_cache_ttl)
             .unwrap_or_else(|_| default_detail_cache_ttl_minutes())
+            .to_string()
+    } else if key == "asset_cache_max_mb" {
+        clean(value)
+            .parse::<u64>()
+            .map(normalize_asset_cache_max_mb)
+            .unwrap_or_else(|_| default_asset_cache_max_mb())
+            .to_string()
+    } else if key == "asset_cache_max_files" {
+        clean(value)
+            .parse::<usize>()
+            .map(normalize_asset_cache_max_files)
+            .unwrap_or_else(|_| default_asset_cache_max_files())
             .to_string()
     } else if key == "watch_notify_frequency" {
         normalize_watch_notify_frequency(value)

@@ -22,6 +22,14 @@ fn get_default_settings() -> HashMap<String, String> {
         cfg.cache.detail_ttl_minutes.to_string(),
     );
     map.insert(
+        "asset_cache_max_mb".to_string(),
+        cfg.cache.asset_max_mb.to_string(),
+    );
+    map.insert(
+        "asset_cache_max_files".to_string(),
+        cfg.cache.asset_max_files.to_string(),
+    );
+    map.insert(
         "catalog_source_url".to_string(),
         cfg.catalog.default_source_url.clone(),
     );

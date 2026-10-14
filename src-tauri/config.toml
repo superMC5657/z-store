@@ -4,6 +4,10 @@
 # 应用详情本地缓存生存时效 (TTL)，单位：分钟
 # 在保鲜期内直接 0ms 读取本地 SQLite；过期后自动发起 ETag 条件协商
 detail_ttl_minutes = 60
+# 通用图片磁盘缓存配额上限（兆字节）
+asset_max_mb = 500
+# 通用图片磁盘缓存配额上限（文件数）
+asset_max_files = 2000
 
 [network]
 # HTTP 连接超时（秒）

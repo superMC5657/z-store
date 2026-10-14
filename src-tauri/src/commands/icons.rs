@@ -506,6 +506,24 @@ pub async fn get_or_fetch_icon(
     Ok(bytes_to_data_uri(&bytes))
 }
 
+/// 查询图标磁盘缓存占用：返回文件数与总字节。
+#[tauri::command]
+pub fn get_icon_cache_stats(
+    state: State<'_, AppState>,
+) -> crate::AppResult<crate::db::AssetUsageStats> {
+    let db = state.db()?;
+    let icons_dir = crate::get_app_data_dir().join("icons");
+    Ok(db.icon_usage_stats(&icons_dir)?)
+}
+
+/// 清空图标磁盘缓存：仅删除图标目录文件与图标索引。
+#[tauri::command]
+pub fn clear_icon_cache(state: State<'_, AppState>) -> crate::AppResult<usize> {
+    let db = state.db()?;
+    let icons_dir = crate::get_app_data_dir().join("icons");
+    Ok(db.clear_icon_cache(&icons_dir)?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

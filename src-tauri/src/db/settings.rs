@@ -1,4 +1,7 @@
-use super::{clean, normalize_detail_cache_ttl, Database};
+use super::{
+    clean, normalize_asset_cache_max_files, normalize_asset_cache_max_mb,
+    normalize_detail_cache_ttl, Database,
+};
 use rusqlite::{params, Result};
 use std::collections::HashMap;
 
@@ -46,5 +49,27 @@ impl Database {
             .and_then(|v| clean(&v).parse::<i64>().ok())
             .map(normalize_detail_cache_ttl)
             .unwrap_or_else(|| crate::config::get_project_config().cache.detail_ttl_minutes)
+    }
+
+    /// 读取通用图片磁盘缓存配额上限（兆字节）。
+    /// 优先从数据库设置读取，缺省回退 config.toml 项目基线配置。
+    pub fn get_asset_cache_max_mb(&self) -> u64 {
+        self.get_setting("asset_cache_max_mb")
+            .ok()
+            .flatten()
+            .and_then(|v| clean(&v).parse::<u64>().ok())
+            .map(normalize_asset_cache_max_mb)
+            .unwrap_or_else(|| crate::config::get_project_config().cache.asset_max_mb)
+    }
+
+    /// 读取通用图片磁盘缓存配额上限（文件数）。
+    /// 优先从数据库设置读取，缺省回退 config.toml 项目基线配置。
+    pub fn get_asset_cache_max_files(&self) -> usize {
+        self.get_setting("asset_cache_max_files")
+            .ok()
+            .flatten()
+            .and_then(|v| clean(&v).parse::<usize>().ok())
+            .map(normalize_asset_cache_max_files)
+            .unwrap_or_else(|| crate::config::get_project_config().cache.asset_max_files)
     }
 }

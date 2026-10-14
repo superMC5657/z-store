@@ -5,6 +5,7 @@ import type {
   AppDetail,
   AppMatchResult,
   AppSummary,
+  CacheUsageStats,
   ForgeRepoInfo,
   ImportAppRequest,
   SyncCatalogResult,
@@ -153,6 +154,34 @@ export async function getAssetCacheUrl(url: string, appId: string): Promise<stri
   } catch {
     return url;
   }
+}
+
+// 查询通用图片磁盘缓存占用。
+export async function getAssetCacheStats(): Promise<CacheUsageStats | null> {
+  try {
+    return await tauriInvoke<CacheUsageStats>(CMD.getAssetCacheStats);
+  } catch {
+    return null;
+  }
+}
+
+// 清空通用图片磁盘缓存，返回已删除文件数。
+export async function clearAssetCache(): Promise<number> {
+  return tauriInvoke<number>(CMD.clearAssetCache);
+}
+
+// 查询图标磁盘缓存占用。
+export async function getIconCacheStats(): Promise<CacheUsageStats | null> {
+  try {
+    return await tauriInvoke<CacheUsageStats>(CMD.getIconCacheStats);
+  } catch {
+    return null;
+  }
+}
+
+// 清空图标磁盘缓存，返回已删除文件数。
+export async function clearIconCache(): Promise<number> {
+  return tauriInvoke<number>(CMD.clearIconCache);
 }
 
 export async function getCategoryApps(category: string): Promise<AppSummary[]> {

@@ -325,6 +325,13 @@ export interface StarAppResult {
   warning?: string | null;
 }
 
+// 磁盘缓存占用统计（图标与通用图片共用形状）。
+export interface CacheUsageStats {
+  total_entries: number;
+  total_bytes: number;
+  total_hits: number;
+}
+
 // FR-6.3-manual: 用户数据手动导出 / 导入（纯文件同步，M2 服务端同步为远期规划）
 // P1-8: 备份覆盖除 github_token 之外的全部设置项。github_token（PAT 凭据）
 // 出于安全考虑被刻意排除：永不写入备份文件，导入侧白名单同样拒绝该键。

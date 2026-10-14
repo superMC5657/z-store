@@ -21,16 +21,30 @@ pub struct ProjectConfig {
 pub struct CacheConfig {
     #[serde(default = "default_detail_ttl_minutes")]
     pub detail_ttl_minutes: i64,
+    #[serde(default = "default_asset_max_mb")]
+    pub asset_max_mb: u64,
+    #[serde(default = "default_asset_max_files")]
+    pub asset_max_files: usize,
 }
 
 fn default_detail_ttl_minutes() -> i64 {
     60
 }
 
+fn default_asset_max_mb() -> u64 {
+    500
+}
+
+fn default_asset_max_files() -> usize {
+    2000
+}
+
 impl Default for CacheConfig {
     fn default() -> Self {
         Self {
             detail_ttl_minutes: default_detail_ttl_minutes(),
+            asset_max_mb: default_asset_max_mb(),
+            asset_max_files: default_asset_max_files(),
         }
     }
 }
@@ -301,6 +315,8 @@ mod tests {
     fn test_embedded_config_parses_successfully() {
         let conf = ProjectConfig::default();
         assert_eq!(conf.cache.detail_ttl_minutes, 60);
+        assert_eq!(conf.cache.asset_max_mb, 500);
+        assert_eq!(conf.cache.asset_max_files, 2000);
         assert_eq!(conf.network.connect_timeout_seconds, 15);
         assert_eq!(conf.network.download_timeout_seconds, 300);
         assert_eq!(conf.network.chunk_timeout_seconds, 30);

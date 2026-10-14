@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FolderOpen, Check } from 'lucide-react';
+import { FolderOpen, Check, Trash2 } from 'lucide-react';
 import { tauriApi } from '../../../services/api';
-import type { AppSettings } from '../../../types';
+import type { AppSettings, CacheUsageStats } from '../../../types';
 
 export interface StorageSectionProps {
   downloadDir: string;
@@ -11,6 +11,22 @@ export interface StorageSectionProps {
   activeNotice: { key: string; text: string } | null;
   onUpdateSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
   triggerChangeFeedback: (key: string, text: string) => void;
+}
+
+// 字节数格式化为可读大小。
+function formatCacheBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return '--';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
+// 缓存占用文本：条目数与总大小。
+function formatCacheStats(stats: CacheUsageStats | null, loading: boolean): string {
+  if (loading) return '--';
+  if (!stats) return '--';
+  return `${stats.total_entries} 项 · ${formatCacheBytes(stats.total_bytes)}`;
 }
 
 export const StorageSection: React.FC<StorageSectionProps> = ({
@@ -22,6 +38,53 @@ export const StorageSection: React.FC<StorageSectionProps> = ({
   triggerChangeFeedback,
 }) => {
   const { t } = useTranslation();
+  const [iconStats, setIconStats] = useState<CacheUsageStats | null>(null);
+  const [assetStats, setAssetStats] = useState<CacheUsageStats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [clearingKey, setClearingKey] = useState<string | null>(null);
+
+  // 加载图标与通用图片缓存占用。
+  const refreshCacheStats = useCallback(async () => {
+    setStatsLoading(true);
+    try {
+      const [icons, assets] = await Promise.all([
+        tauriApi.getIconCacheStats(),
+        tauriApi.getAssetCacheStats(),
+      ]);
+      setIconStats(icons);
+      setAssetStats(assets);
+    } finally {
+      setStatsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshCacheStats();
+  }, [refreshCacheStats]);
+
+  // 清空图标缓存并刷新占用。
+  const handleClearIcons = async () => {
+    setClearingKey('icons');
+    try {
+      await tauriApi.clearIconCache();
+      await refreshCacheStats();
+      triggerChangeFeedback('icon_cache', t('settings.cache_cleared', { defaultValue: '缓存已清空' }));
+    } finally {
+      setClearingKey(null);
+    }
+  };
+
+  // 清空通用图片缓存并刷新占用。
+  const handleClearAssets = async () => {
+    setClearingKey('assets');
+    try {
+      await tauriApi.clearAssetCache();
+      await refreshCacheStats();
+      triggerChangeFeedback('asset_cache', t('settings.cache_cleared', { defaultValue: '缓存已清空' }));
+    } finally {
+      setClearingKey(null);
+    }
+  };
 
   return (
     <div className="settings-group">
@@ -107,6 +170,64 @@ export const StorageSection: React.FC<StorageSectionProps> = ({
           >
             <FolderOpen size={13} strokeWidth={1.5} />
             <span>{t('settings.browse')}</span>
+          </button>
+        </div>
+      </div>
+
+      <div className={`settings-row ${highlightRow === 'icon_cache' ? 'row-highlight' : ''}`}>
+        <div className="settings-row-info">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontWeight: 510 }}>{t('settings.icon_cache', { defaultValue: '图标缓存' })}</span>
+            <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>
+              {formatCacheStats(iconStats, statsLoading)}
+            </span>
+            {activeNotice?.key === 'icon_cache' && (
+              <span className="setting-applied-badge">
+                <Check size={11} strokeWidth={1.5} style={{ color: 'currentColor' }} />
+                <span>{activeNotice.text}</span>
+              </span>
+            )}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            type="button"
+            className="btn-fluent btn-secondary"
+            onClick={handleClearIcons}
+            disabled={clearingKey !== null || statsLoading}
+            style={{ fontSize: 'var(--font-sm)', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            <Trash2 size={13} strokeWidth={1.5} />
+            <span>{t('settings.clear_cache', { defaultValue: '清理' })}</span>
+          </button>
+        </div>
+      </div>
+
+      <div className={`settings-row ${highlightRow === 'asset_cache' ? 'row-highlight' : ''}`}>
+        <div className="settings-row-info">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontWeight: 510 }}>{t('settings.asset_cache', { defaultValue: '通用图片缓存' })}</span>
+            <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>
+              {formatCacheStats(assetStats, statsLoading)}
+            </span>
+            {activeNotice?.key === 'asset_cache' && (
+              <span className="setting-applied-badge">
+                <Check size={11} strokeWidth={1.5} style={{ color: 'currentColor' }} />
+                <span>{activeNotice.text}</span>
+              </span>
+            )}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            type="button"
+            className="btn-fluent btn-secondary"
+            onClick={handleClearAssets}
+            disabled={clearingKey !== null || statsLoading}
+            style={{ fontSize: 'var(--font-sm)', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            <Trash2 size={13} strokeWidth={1.5} />
+            <span>{t('settings.clear_cache', { defaultValue: '清理' })}</span>
           </button>
         </div>
       </div>
