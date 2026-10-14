@@ -38,11 +38,10 @@ export async function getHomeFeed(
   if (seed !== undefined && seed !== null) args.seed = seed;
   if (strategy !== undefined && strategy !== null) args.strategy = strategy;
   const raw = await tauriInvoke<HomeFeedRaw>(CMD.getHomeFeed, args);
-  // 发现页 feed 分页归一：容忍后端/ mock 误写 camelCase（`hasMore`），收敛为 snake_case 只读视图。
+  // 发现页 feed 分页视图：后端返回 snake_case。
   const items = Array.isArray(raw?.items) ? (raw as { items: AppSummary[] }).items : [];
   const total = typeof raw?.total === 'number' && Number.isFinite(raw.total) ? raw.total : items.length;
-  const hasMore = (raw?.has_more ?? (raw as { hasMore?: unknown })?.hasMore) as unknown;
-  return { items, total, has_more: hasMore === true };
+  return { items, total, has_more: raw?.has_more === true };
 }
 
 export async function searchAppsOnline(

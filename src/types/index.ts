@@ -303,7 +303,7 @@ export interface OAuthDeviceStartResult {
   interval: number;
 }
 
-export type OAuthPollStatus = 'pending' | 'complete' | 'expired' | 'denied' | 'error';
+export type OAuthPollStatus = 'pending' | 'authorized' | 'expired' | 'denied' | 'error';
 
 export interface OAuthPollResult {
   status: OAuthPollStatus;

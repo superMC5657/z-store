@@ -56,11 +56,10 @@ export async function fetchHomeFeedPage(limit: number, offset: number, seed: num
     items?: unknown;
     total?: unknown;
     has_more?: unknown;
-    hasMore?: unknown;
   };
   const items = Array.isArray(raw?.items) ? (raw.items as AppSummary[]) : [];
   const total = typeof raw?.total === 'number' && Number.isFinite(raw.total) ? raw.total : items.length;
-  const more = (raw?.has_more ?? raw?.hasMore) as unknown;
+  const more = raw?.has_more as unknown;
   return { items, total, has_more: more === true };
 }
 

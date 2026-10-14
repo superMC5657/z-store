@@ -66,7 +66,7 @@ export const OAuthAccountCard: React.FC = () => {
       try {
         const res = await api.oauthDevicePoll(deviceCode);
         pollFailRef.current = 0;
-        if (res.status === 'complete') {
+        if (res.status === 'authorized') {
           stopPolling();
           setSession(null);
           setError(null);

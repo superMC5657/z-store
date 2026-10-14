@@ -9,8 +9,7 @@ export { isTauri, tauriInvoke };
 
 /**
  * 发现页 feed 后端分页契约（Rust `get_home_feed` 返回）：
- * `{ items, total, has_more }`。容忍后端/ mock 误写 camelCase（`hasMore`），
- * 调用方收敛为 snake_case 只读视图（见 `catalog.getHomeFeed`）。
+ * `{ items, total, has_more }`。
  */
 export interface HomeFeedResult {
   items: AppSummary[];
@@ -22,7 +21,6 @@ export type HomeFeedRaw = {
   items?: AppSummary[];
   total?: number;
   has_more?: boolean;
-  hasMore?: boolean;
 } | null | undefined;
 
 export interface ReadmeVariant {
