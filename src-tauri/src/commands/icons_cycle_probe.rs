@@ -754,4 +754,43 @@ mod tests {
         let a_png_padded = IconRef::new("  https://example.com/a.png  ", "png");
         assert_eq!(c, hash_icon_candidate_filenames(&a_png_padded));
     }
+
+    #[test]
+    fn test_l5_empty_selection_keeps_cached_file() {
+        // L5 切空态：旧缓存文件保留不删（配额 LRU 按 mtime 淘汰），
+        // 行 level=5 且 selected/cache 双空，l2..l4 备选保留供重选。
+        // 与命令层 L5 分支同构（seal + upsert，不删文件）。
+        let db = crate::db::Database::open_in_memory().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let icons_dir = dir.path();
+        let cache_file = "abc123_l2.png";
+        std::fs::write(icons_dir.join(cache_file), b"\x89PNG\r\n\x1a\n12345678").unwrap();
+
+        let mut cycle = crate::db::AppIconCycle {
+            app_id: "o/r".to_string(),
+            owner: "o".to_string(),
+            repo: "r".to_string(),
+            is_cataloged: false,
+            level: 2,
+            l2_url: "https://example.com/2.png".to_string(),
+            selected_url: "https://example.com/2.png".to_string(),
+            cache_file: cache_file.to_string(),
+            updated_at: crate::now_secs(),
+            ..Default::default()
+        };
+        db.upsert_icon_cycle(&cycle).unwrap();
+
+        crate::db::icon_cycle::seal_empty_selection(&mut cycle);
+        db.upsert_icon_cycle(&cycle).unwrap();
+
+        assert!(
+            icons_dir.join(cache_file).is_file(),
+            "L5 must keep the old cached file for quota LRU"
+        );
+        let row = db.get_icon_cycle("o/r").unwrap().expect("cycle exists");
+        assert_eq!(row.level, 5);
+        assert!(row.selected_url.is_empty());
+        assert!(row.cache_file.is_empty());
+        assert_eq!(row.l2_url, "https://example.com/2.png");
+    }
 }

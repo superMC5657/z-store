@@ -12,7 +12,7 @@ use tauri::State;
 // 正文图永不进链），持久化经单一写入路径 `write_icon_file`（hash 单轨
 // `sha256(url)[0:16]+sniff ext`），下载经 `download_icon_bytes_direct`，
 // L5 空选经 `seal_empty_selection` +
-// `empty_cycle_result`（清选中态 + 删旧文件 + `sync_detail_icon("")` 防诈尸），detail 同步内联
+// `empty_cycle_result`（清选中态 + `sync_detail_icon("")`），detail 同步内联
 //（`data:` 永不进盘，`""` 显式清空）。
 // 手动选择持久化三件套：`selected_url + level + icons 文件` 同 tick 落库（kubenav/GNS3 首次 N=1 之后 N=0）。
 // 本文件只做编排，不写探测与文件名规则；图标通道禁用 ETag（命中 0 请求，7 天 TTL）。
@@ -86,18 +86,14 @@ pub async fn request_app_icon_cycle(
     // 计算下一个推进级别（非收录跳 L1：next 绝不落 1，见 `next_cycle_level`；收录恒 L1 已早返）
     let next_level = next_cycle_level(cycle.level, &cycle);
 
-    // Level 5: 空（始终可用，直接置空，无需下载；L5 "" 收敛在缝内；清对应旧文件防诈尸）
+    // Level 5: 空（始终可用，直接置空，无需下载；L5 "" 收敛在缝内）。
+    // 旧缓存文件保留不删，配额 LRU 按 mtime 淘汰。
     if next_level == 5 {
-        let old_file = cycle.cache_file.clone();
         crate::db::icon_cycle::seal_empty_selection(&mut cycle);
         if let Ok(db) = state.db() {
             let _ = db.upsert_icon_cycle(&cycle);
             // 写侧同步内联（原 sync_detail_icon_best_effort）：L5 显式清空 ""，有行才 UPDATE。
             let _ = db.sync_detail_icon(&canonical_id, "");
-        }
-        // L5 清对应文件：旧糊图删盘（DB URL 保留在 l2..l4 备选中供重选，删盘不删 URL）。
-        if !old_file.trim().is_empty() {
-            let _ = std::fs::remove_file(icons_dir.join(old_file.trim()));
         }
 
         return Ok(empty_cycle_result(false));

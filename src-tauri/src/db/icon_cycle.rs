@@ -485,7 +485,7 @@ pub fn seal_cycle_selection(
 /// cycle 命令层 L5 一律经此，不手写 `""` 散赋值（L5 `""` 泄漏收敛在缝内）；
 /// 写侧 `detail_json.icon` 显式清空（`""`）由调用方内联直写，不经薄 helper。
 /// FINAL：L5 清对应选中态（selected/cache 双空），`l1..l4` 备选 URL 保留供重选，
-/// 旧糊图防诈尸由调用方删旧 `cache_file` 文件 + `sync_detail_icon("")` 保证（见 cycle 命令层）。
+/// 旧缓存文件保留不删（配额 LRU 按 mtime 淘汰）；`sync_detail_icon("")` 由调用方保证（见 cycle 命令层）。
 pub fn seal_empty_selection(cycle: &mut AppIconCycle) {
     seal_cycle_selection(cycle, 5, "", String::new());
 }
