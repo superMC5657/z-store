@@ -16,7 +16,7 @@ import { AppSummary, InstalledApp, UpdateRule } from '../types';
 import { AppIcon } from '../components/AppIcon';
 import { EmptyState } from '../components/EmptyState';
 import { ViewShell } from './ViewShell';
-import { formatAppDate, resolveInstalledIconInfo, resolveInstalledAppName } from '../utils/appHelper';
+import { formatAppDate, resolveAppIconInfo, resolveInstalledAppName } from '../utils/appHelper';
 
 interface InstalledViewProps {
   installedApps: InstalledApp[];
@@ -186,7 +186,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
             const isFrozen = Boolean(rule?.is_frozen);
             const isHidden = Boolean(rule?.is_hidden);
             const isMenuOpen = activeMenuId === app.app_id;
-            const iconInfo = resolveInstalledIconInfo(app, apps);
+            const iconInfo = resolveAppIconInfo(app.app_id, apps, app.icon, app.icon_bg);
             const appDisplayName = resolveInstalledAppName(app, apps);
 
             return (

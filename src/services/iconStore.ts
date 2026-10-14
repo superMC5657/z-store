@@ -543,93 +543,7 @@ function startIconFetch(url: string, ids: Set<string>): void {
   void p.catch(() => undefined);
 }
 
-/** 落盘成功标记读口（`preload` 成功即 `persisted=true`，`data:`/`m2` 永不置位）。 */
-export function isIconPersisted(key: string): boolean {
-  if (typeof key !== 'string' || key === '') return false;
-  if (iconPersistedKeys.has(key)) return true;
-  const nid = normalizeId(key);
-  return nid !== '' && iconPersistedKeys.has(nid);
-}
-
-/**
- * 空壳批量预热（`assemble`/搜索/榜单首屏用）：调用方把一屏行一次传入，
- * 本函数收集其中远端 `http` 图标后**一次**调 `preloadIcons`（内部队列再合并去重），
- * `patch` 仍由调用方逐行内存合并（此处不碰行状态，只做预热收集）。
- */
-export function preloadIconsForRows(
-  rows: ReadonlyArray<string | { id?: unknown; icon?: unknown }>,
-): void {
-  if (!rows || rows.length === 0) return;
-  const collected: (string | { id?: string; icon: string })[] = [];
-  const seen = new Set<string>();
-  for (const row of rows) {
-    const icon = typeof row === 'string' ? row : (row as { icon?: unknown })?.icon;
-    const rawId = typeof row === 'string' ? undefined : (row as { id?: unknown })?.id;
-    if (typeof icon !== 'string' || icon === '' || icon.startsWith('data:')) continue;
-    if (!isRemoteHttpIconUrl(icon)) continue;
-    if (iconDataCache.has(icon)) continue;
-    if (seen.has(icon)) {
-      // 同批同 URL 仍收集别名（`preloadIcons` 内再合并，此处保留 id 扇出）。
-    } else {
-      seen.add(icon);
-    }
-    const id = typeof rawId === 'string' ? rawId : undefined;
-    collected.push(id ? { id, icon } : icon);
-  }
-  if (collected.length > 0) preloadIcons(collected);
-}
-
-/**
- * 空壳批量收集 + 粘性组装（供 `assembleOnlineRowsWithIcons` 类调用方迁移用）：
- * 逐行 `mergeStickyIcon` + `getBufferedIcon` 回读（空壳不覆盖缓冲实图），
- * 行内远端 `http` 图标**批量收集一次** `preloadIcons`；`patch`/行合并仍逐行内存进行。
- * 本函数不改行引用语义（未命中缓冲即原样返回该行引用）。
- */
-export function hydrateShellRowsWithBufferedIcons<T extends { id?: unknown; owner?: unknown; repo?: unknown; icon?: unknown }>(
-  prevById: ReadonlyMap<string, T> | undefined,
-  incoming: ReadonlyArray<T>,
-): T[] {
-  if (!incoming || incoming.length === 0) return [];
-  const out: T[] = [];
-  const toPreload: (string | { id?: string; icon: string })[] = [];
-  for (const row of incoming) {
-    const key = typeof row?.id === 'string' ? normalizeId(row.id) : '';
-    const cur = key && prevById ? prevById.get(key) : undefined;
-    // 粘性沿用旧实图（`mergeStickyIcon` 收敛实现直用，避免重复空规则）。
-    let item = row;
-    if (cur) {
-      const curIcon = typeof (cur as { icon?: unknown }).icon === 'string' ? ((cur as { icon?: unknown }).icon as string) : '';
-      const incomingIcon = typeof row?.icon === 'string' ? (row.icon as string) : '';
-      if (!isEmptyIcon(curIcon) && isEmptyIcon(incomingIcon)) {
-        item = { ...(row as object), icon: (cur as { icon?: unknown }).icon } as T;
-      }
-    }
-    const itemIcon = typeof (item as { icon?: unknown }).icon === 'string' ? (((item as { icon?: unknown }).icon as string)) : '';
-    if (isEmptyIcon(itemIcon)) {
-      const owner = typeof (item as { owner?: unknown }).owner === 'string' ? (((item as { owner?: unknown }).owner as string)) : '';
-      const repo = typeof (item as { repo?: unknown }).repo === 'string' ? (((item as { repo?: unknown }).repo as string)) : '';
-      const coordKey = owner && repo ? `${normalizeId(owner)}/${normalizeId(repo)}` : '';
-      const idKey = typeof (item as { id?: unknown }).id === 'string' ? normalizeId((item as { id?: string }).id as string) : '';
-      const buffered =
-        (coordKey ? getBufferedIcon(coordKey) : undefined) ??
-        (idKey ? getBufferedIcon(idKey) : undefined);
-      if (buffered && !isEmptyIcon(buffered)) {
-        item = { ...(item as object), icon: buffered } as T;
-      }
-    }
-    out.push(item);
-    // 批量收集：行内已有远端实图即纳入一次预热（空壳无图不收集）。
-    const finalIcon = typeof (item as { icon?: unknown }).icon === 'string' ? (((item as { icon?: unknown }).icon as string)) : '';
-    if (typeof finalIcon === 'string' && finalIcon !== '' && !finalIcon.startsWith('data:') && isRemoteHttpIconUrl(finalIcon) && !iconDataCache.has(finalIcon)) {
-      const rid = typeof (item as { id?: unknown }).id === 'string' ? ((item as { id?: string }).id as string) : undefined;
-      toPreload.push(rid ? { id: rid, icon: finalIcon } : finalIcon);
-    }
-  }
-  if (toPreload.length > 0) preloadIcons(toPreload);
-  return out;
-}
-
-/** 仅供测试：同步排空队列并等待在途（kubenav 首见 http 即单次下载断言用）。 */
+/** 仅供测试：同步排空队列并等待在途（首见 http 即单次下载断言用）。 */
 export function __flushIconPreloadsForTests(): Promise<void> {
   drainIconPreloadQueue();
   if (iconPendingPromises.size === 0) return Promise.resolve();
@@ -639,11 +553,6 @@ export function __flushIconPreloadsForTests(): Promise<void> {
 /** 仅供测试：队列 + 在途总数（同 tick 合并断言用）。 */
 export function __getIconPreloadQueueSizeForTests(): number {
   return iconPreloadQueue.size + iconPendingPromises.size;
-}
-
-/** 仅供测试：读落盘标记。 */
-export function __isIconPersistedForTests(key: string): boolean {
-  return isIconPersisted(key);
 }
 
 /** 仅供测试：读退避状态。 */

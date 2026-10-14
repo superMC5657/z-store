@@ -24,16 +24,6 @@ export function resolveAppIconInfo(
 }
 
 /**
- * 解析已安装应用图标信息（快捷包装）
- */
-export function resolveInstalledIconInfo(
-  app: InstalledApp,
-  apps: AppSummary[] = []
-): IconInfo {
-  return resolveAppIconInfo(app.app_id, apps, app.icon, app.icon_bg);
-}
-
-/**
  * 解析已安装应用的展示名称：
  * 优先匹配收录库中的名称，未匹配则回退到原生 app_name。
  */
@@ -43,7 +33,7 @@ export function resolveInstalledAppName(
 ): string {
   const catalogApp = apps.find((a) => a.id === app.app_id);
   if (catalogApp) {
-    return getAppDisplayName(catalogApp);
+    return catalogApp.name;
   }
   return app.app_name;
 }
@@ -68,13 +58,6 @@ export function formatBytes(bytes?: number): string {
   const sizes = ['B', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i] || 'MB'}`;
-}
-
-/**
- * 获取应用展示名称：直接返回英文原名 name。
- */
-export function getAppDisplayName(app: { name: string }): string {
-  return app.name;
 }
 
 /**

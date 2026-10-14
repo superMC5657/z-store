@@ -16,7 +16,7 @@
  * - 429 恰好重试一次（Retry-After 秒数/HTTP-date，上限 60s），仍败则 error；
  * - 解析规则：单数/逗号/缺 span/三段链接跳过/k 缩写；
  * - errorKind 映射（403/429→rate-limited，Abort→timeout，TypeError→network）；
- * - 成功（非空）才写按榜 TTL 缓存（daily 1h，weekly/monthly/new 12h，未知榜回落 5 分钟）；`fetchTrends` 签名兼容。
+ * - 成功（非空）才写按榜 TTL 缓存（daily 1h，weekly/monthly/new 12h，未知榜回落 5 分钟）。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MockInstance } from 'vitest';
@@ -52,11 +52,11 @@ import {
   fetchGitHubNewRepos,
   fetchDoforceRepos,
   fetchTrendingRepos,
-  fetchTrends,
   fetchTrendsResult,
   resolveTrendBoard,
   TRENDING_SINCE,
 } from '../services/trends/boards';
+import { fetchTrendsResultSeam } from '../services/trends/board';
 import {
   classifyTrendsError,
   doforceRetryDelayMs,
@@ -206,12 +206,12 @@ describe('P0: 旧加权公式与 dead 数据源已彻底删除', () => {
   });
 
   it('非法 board（旧 period / 已下线榜单）直接抛错', async () => {
-    await expect(fetchTrends('day' as never)).rejects.toThrow(/unknown board/);
+    await expect(fetchTrendsResultSeam('day' as never)).rejects.toThrow(/unknown board/);
     await expect(fetchTrendsResult('week' as never)).rejects.toThrow(/unknown board/);
-    await expect(fetchTrends('all' as never)).rejects.toThrow(/unknown board/);
-    await expect(fetchTrends('top' as never)).rejects.toThrow(/unknown board/);
+    await expect(fetchTrendsResultSeam('all' as never)).rejects.toThrow(/unknown board/);
+    await expect(fetchTrendsResultSeam('top' as never)).rejects.toThrow(/unknown board/);
     await expect(fetchTrendsResult('top' as never)).rejects.toThrow(/unknown board/);
-    await expect(fetchTrends('category' as never)).rejects.toThrow(/unknown board/);
+    await expect(fetchTrendsResultSeam('category' as never)).rejects.toThrow(/unknown board/);
     await expect(fetchTrendsResult('category' as never)).rejects.toThrow(/unknown board/);
     expect(trendSpy).not.toHaveBeenCalled();
   });
@@ -246,7 +246,7 @@ describe('时间榜主源：trending HTML 一榜一 URL', () => {
 
   it('language 走 /trending/<lang> 路径段（all/空不追加）', async () => {
     trendingHtml = trendingHtmlFixture();
-    await fetchTrends('weekly', { language: 'Python' });
+    await fetchTrendsResultSeam('weekly', { language: 'Python' });
     expect(trendingUrls()[0]).toBe('https://github.com/trending/Python?since=weekly');
     expect(buildTrendingUrl('weekly', { language: 'all' })).toBe(
       'https://github.com/trending?since=weekly',
@@ -352,10 +352,10 @@ describe('时间榜主源：trending HTML 一榜一 URL', () => {
 
   it('成功写入缓存（同 key 复用，forceRefresh 穿透）', async () => {
     trendingHtml = trendingHtmlFixture();
-    await fetchTrends('weekly', { language: 'Python' });
-    await fetchTrends('weekly', { language: 'Python' });
+    await fetchTrendsResultSeam('weekly', { language: 'Python' });
+    await fetchTrendsResultSeam('weekly', { language: 'Python' });
     expect(trendingUrls()).toHaveLength(1);
-    await fetchTrends('weekly', { language: 'Python', forceRefresh: true });
+    await fetchTrendsResultSeam('weekly', { language: 'Python', forceRefresh: true });
     expect(trendingUrls()).toHaveLength(2);
   });
 
@@ -547,7 +547,7 @@ describe('代理策略：趋势流量恒直连（proxyPrefix 被忽略）', () =
 
   it('未设置代理时保持官方直连', async () => {
     trendingHtml = trendingHtmlFixture();
-    await fetchTrends('weekly');
+    await fetchTrendsResultSeam('weekly');
     for (const u of requestedUrls) {
       expect(u.startsWith('https://gh-proxy.com')).toBe(false);
     }
@@ -626,9 +626,9 @@ describe('保留的纯函数与兼容入口', () => {
     expect(orders.size).toBe(3);
   });
 
-  it('fetchTrends 保持签名兼容（委托 Result，仅返回 repos）', async () => {
+  it('抓取入口经 board 缝返回 repos', async () => {
     trendingHtml = trendingHtmlFixture();
-    const repos = await fetchTrends('weekly');
+    const { repos } = await fetchTrendsResultSeam('weekly');
     expect(repoIds(repos)).toHaveLength(3);
   });
 

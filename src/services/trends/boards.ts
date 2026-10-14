@@ -384,8 +384,3 @@ export async function fetchTrendsResult(
   if (fetcher) return fetcher(opts);
   throw new Error(`[trends] unknown board: ${String(board)}`);
 }
-
-export async function fetchTrends(board: TrendBoardId, opts: FetchTrendsOptions = {}): Promise<TrendRepo[]> {
-  const result = await fetchTrendsResult(board, opts);
-  return result.repos;
-}

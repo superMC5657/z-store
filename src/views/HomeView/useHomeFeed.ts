@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { AppSummary } from '../../types';
 import * as apiModule from '../../services/api';
 import { rankFeed, resolveHero, sliceFeed, type FeedStrategy } from '../../services/feed';
-import { getAppDisplayName, getAppDescription, getCategoryLabel } from '../../utils/appHelper';
+import { getAppDescription, getCategoryLabel } from '../../utils/appHelper';
 
 export type HomeFeedPage = {
   items: AppSummary[];
@@ -127,7 +127,7 @@ export function useHomeFeed({
     () => (isSearching ? undefined : resolveHero(apps)),
     [apps, isSearching],
   );
-  const heroDisplayName = heroApp ? getAppDisplayName(heroApp) : '';
+  const heroDisplayName = heroApp ? heroApp.name : '';
   const heroDisplayDesc = heroApp ? getAppDescription(heroApp, i18n.language) : '';
   const heroCategoryName = heroApp ? getCategoryLabel(heroApp.category, heroApp.category_name, t) : '';
 

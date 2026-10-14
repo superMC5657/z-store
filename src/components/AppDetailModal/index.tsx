@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import '../../i18n';
 import { AppDetailViewModel, DownloadAssetResult, DownloadProgressPayload, OAuthUser, ReleaseAsset } from '../../types';
 import { api } from '../../services/api';
-import { getAppDisplayName, getAppDescription, getCategoryLabel, isInstallableAssetKind, isProductAssetName, sortAssetsByRelevance } from '../../utils/appHelper';
+import { getAppDescription, getCategoryLabel, isInstallableAssetKind, isProductAssetName, sortAssetsByRelevance } from '../../utils/appHelper';
 import { detectHostArch, detectHostOs } from '../hostEnv';
 import { Header } from './Header';
 import { InstallActions } from './InstallActions';
@@ -64,7 +64,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   onRefresh,
 }) => {
   const { t, i18n } = useTranslation();
-  const displayName = getAppDisplayName(app);
+  const displayName = app.name;
   const displayDesc = getAppDescription(app, i18n.language);
   const displayCategory = getCategoryLabel(app.category, app.category_name, t);
 

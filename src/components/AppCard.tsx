@@ -6,7 +6,7 @@ import { AppIcon } from './AppIcon';
 import { VerifiedBadge } from './VerifiedBadge';
 import { PlatformIcon, ForgeIcon } from './icons/PlatformIcons';
 import { PLATFORM_META, type PlatformId } from '../lib/platformFilter';
-import { getAppDisplayName, getAppDescription, getCategoryLabel, isAppCataloged } from '../utils/appHelper';
+import { getAppDescription, getCategoryLabel, isAppCataloged } from '../utils/appHelper';
 import { formatStars } from '../services/trends/enrich';
 
 interface AppCardProps {
@@ -154,7 +154,7 @@ export const AppCard: React.FC<AppCardProps> = memo(({
   const showManaged = !showUnknown && managed && !detectedOnly;
   const showDetected = !showUnknown && detectedOnly && !managed;
   const [isManaging, setIsManaging] = useState(false);
-  const displayName = getAppDisplayName(app);
+  const displayName = app.name;
   const displayDesc = getAppDescription(app, i18n.language);
   const displayCategory = getCategoryLabel(app.category, app.category_name, t);
   // 平台徽标三态：有平台展示 OS 图标；已确认 other 展示 Other 徽标；
