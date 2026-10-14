@@ -371,7 +371,7 @@ fn test_select_best_asset_fail_closed_no_cross_os_fallback() {
 
 #[test]
 fn test_uninstall_unix_path_never_shells_command_string() {
-    // P0-3：Unix 卸载路径绝不能将来自数据库的命令字符串直接传给 `sh -c`；
+    // Unix 卸载路径绝不能将来自数据库的命令字符串直接传给 `sh -c`；
     // 必须通过 parse_uninstaller_command 解析出的 argv 参数列表进行调用。
     let src = include_str!("executor.rs");
     assert!(
@@ -414,7 +414,7 @@ fn test_sniff_unknown_fixture() {
 #[test]
 fn test_silent_args_mapping() {
     // 与 MSI 行为对齐：setup_exe 一律交互式（无静默参数），由其自带向导控制流程；
-    // 嗅探/分类不动，仅参数为空。未知类型保持原有不断言（交互式回退）。
+    // 嗅探/分类不动，仅参数为空。未知类型不断言（交互式回退）。
     for kind in [
         executor::SetupKind::Nsis,
         executor::SetupKind::Inno,

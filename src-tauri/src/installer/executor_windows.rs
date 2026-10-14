@@ -109,7 +109,7 @@ pub async fn install_setup_exe(
     }
 }
 
-/// Windows 通用回退安装体（原 `_` 分支内联 cfg(windows) 纯移动）。
+/// Windows 通用回退安装体（`_` 分支，cfg(windows) 门控）。
 #[cfg(target_os = "windows")]
 pub async fn install_fallback_default(installer_path: &Path) -> Result<InstallOutcome, String> {
     let status = tokio::process::Command::new("cmd.exe")

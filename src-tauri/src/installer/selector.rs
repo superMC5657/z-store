@@ -174,8 +174,8 @@ pub fn score_asset(a: &crate::models::ReleaseAsset) -> i32 {
         score += PENALTY_ASSET_ARCH_MISMATCH;
     }
 
-    // kind 加成收敛为单处 `kind.as_str()` 映射（各目标 OS 的 primary/secondary
-    // arm 经 cfg 门控，行为与原三处分支逐平台一致；`compressed_tarball` 别名已删除）。
+    // kind 加成为单处 `kind.as_str()` 映射（各目标 OS 的 primary/secondary
+    // arm 经 cfg 门控；平台不支持 kind 落默认 arm）。
     match a.kind.as_str() {
         #[cfg(target_os = "windows")]
         "msi" => score += SCORE_ASSET_KIND_PRIMARY,

@@ -25,7 +25,6 @@ import {
   sweepExpiredTrendEnrichCache,
 } from './enrich';
 import { doforceRetryDelayMs } from './parse';
-import { demoSeeded01 } from '../../demo/handlers/common';
 import { hashSeeded01 } from '../feed';
 import { tauriApi } from '../api';
 import type { TrendRepo } from '../../types';
@@ -290,11 +289,9 @@ describe('Phase2治理：429 retry_after_ms 透传', () => {
   });
 });
 
-describe('Phase2治理：demo 32 位 mock 已 deprecated 并对齐 64 位', () => {
-  it('demoSeeded01 与 hashSeeded01 同值（含大小写归一）', () => {
-    expect(demoSeeded01('a/b', 0)).toBe(hashSeeded01('a/b', 0));
-    expect(demoSeeded01('rustdesk/rustdesk', 0)).toBe(hashSeeded01('rustdesk/rustdesk', 0));
-    expect(demoSeeded01('ACME/ATLAS', 42)).toBe(hashSeeded01('acme/atlas', 42));
-    expect(demoSeeded01('acme/atlas', 0)).toBe(0.19098578839770444);
+describe('Phase2治理：hashSeeded01 canonical 数值锁定', () => {
+  it('hashSeeded01 含大小写归一', () => {
+    expect(hashSeeded01('a/b', 0)).toBe(hashSeeded01('A/B', 0));
+    expect(hashSeeded01('acme/atlas', 0)).toBe(0.19098578839770444);
   });
 });

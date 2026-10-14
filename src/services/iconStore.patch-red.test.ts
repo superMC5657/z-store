@@ -10,7 +10,7 @@ describe('patchAppIconList 归一一致', () => {
     const prev = [{ id: ' O/R ', name: 'x', owner: 'o', repo: 'r', icon: '', icon_bg: '', description: '', stars: 0, forks: 0, license: '', latest_version: '', category: '', category_name: '', is_verified: false, forge: '', forge_host: '', homepage: null, platforms: [] } as any];
     let patched: any = prev;
     const res = applyHit({
-      key: 'o/r', id: 'o/r', icon: 'https://cdn.simpleicons.org/r', level: 2, via: 'm2',
+      id: 'o/r', icon: 'https://cdn.simpleicons.org/r', level: 2, via: 'm2',
       context: { kind: 'search', search_id: 's1' } as any,
       currentSearchId: 's1',
       getCurrentIcon: () => '',
@@ -26,7 +26,7 @@ describe('patchAppIconList 归一一致', () => {
     const prev = [{ id: 'o/r', icon: '' } as any];
     let patched: any = prev;
     const res = applyHit({
-      key: 'o/r', id: 'o/r', icon: 'https://cdn.simpleicons.org/r', level: 2, via: 'm2',
+      id: 'o/r', icon: 'https://cdn.simpleicons.org/r', level: 2, via: 'm2',
       context: { kind: 'search', search_id: 's1' } as any,
       currentSearchId: 's1',
       getCurrentIcon: () => '',

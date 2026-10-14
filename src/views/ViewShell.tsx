@@ -3,12 +3,12 @@ import { EmptyState } from '../components/EmptyState';
 import type { AppSummary } from '../types';
 
 /**
- * B3-G12 前端收敛：各 View 共享的壳与平台筛选空状态。
+ * 各 View 共享的壳与平台筛选空状态。
  *
- * 收敛前各 View 重复的内容：
+ * 提供：
  * - 外层 `<div className="*-view view-entrance">` 壳
- * - `broadcastPlatformReset` 兜底（HomeView / TrendsView 各自内联一份）
- * - `.filter-empty-reset` 空状态按钮（Home / Categories / Trends 文案各写一份）
+ * - `broadcastPlatformReset` 兜底
+ * - `.filter-empty-reset` 空状态按钮
  *
  * 约束：后端字段不动；此处只收敛前端展示层。`viewClass` 保持各 View
  * 原有的 CSS 类名不变，已有测试的选择器（`.filter-empty-reset` 等）不受影响。
@@ -22,7 +22,6 @@ export const PLATFORM_RESET_EVENT = 'zstore:reset-platform-filter';
  * 清理持久化存储（App 的 `loadSelectedPlatforms` 在缺少键时会回退至全选集合），
  * 并向所有监听器广播重置意图。键名字符串与 App.PLATFORM_FILTER_STORAGE_KEY 一致；
  * 此处保持字面量以避免 view 与 App 之间的循环引用。
- * 注意连字符：`zstore:` 无横杠（历史 `z-store:` 写法已修正统一）。
  */
 export function broadcastPlatformReset(): void {
   try {
@@ -40,7 +39,7 @@ export interface ViewAppActions {
   installingIds?: Set<string>;
   favoriteIds: Set<string>;
   watchedIds?: Set<string>;
-  /** 已纳管集合（union 子集，供 isManaged/isDetectedOnly 派生；缺席时卡片回退 union 语义；显式 null = managed 未加载，union 命中行占位，P1）。 */
+  /** 已纳管集合（供 isManaged/isDetectedOnly 派生；显式 null = managed 未加载，union 命中行占位，P1）。 */
   managedIds?: Set<string> | null;
   onOpenDetail: (id: string) => void;
   onQuickInstall: (id: string) => void;

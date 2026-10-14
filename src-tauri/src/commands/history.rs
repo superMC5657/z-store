@@ -66,7 +66,7 @@ pub fn get_recently_viewed_apps(state: State<'_, AppState>) -> crate::AppResult<
             continue;
         }
         // 未收录：view_history 存全量 id，catalog 拼不出；回退 DB 详情缓存
-        // （收录/未收录同走 save_detail_with_icon 落全量 detail_json），保持原顺序；
+        // （收录/未收录同走 save_detail_with_icon 落全量 detail_json）；
         // 单条失败跳过不整单丢；仍无命中则跳过（不合成占位，避免污染过滤/计数，
         // 趋势 L2 仍是未收录首展来源）。
         if let Some(summary) = cached_detail_summary(&db, &id) {
@@ -234,7 +234,7 @@ pub fn get_watched_apps(state: State<'_, AppState>) -> crate::AppResult<Vec<Watc
 
 // ---------- FR-6.3 手动跨设备同步（导入侧；导出由前端经现有 getters 组装） ----------
 
-/// 合并式导入用户数据：只增不删；已安装应用对应条目跳过计数；
+/// 合并式导入用户数据：只增不删；
 /// 设置项仅接受白名单（主题/语言/缓存保鲜期/关注频率）。
 #[tauri::command]
 pub fn import_user_data(
@@ -244,22 +244,11 @@ pub fn import_user_data(
     let plan = crate::oauth::parse_import_payload(&json)?;
     let db = state.db()?;
 
-    let installed: std::collections::HashSet<String> = db
-        .get_installed_apps()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|a| a.app_id)
-        .collect();
-
     let mut favorites_added = 0usize;
     let mut watched_added = 0usize;
     let mut settings_applied = 0usize;
-    let mut installed_skipped = 0usize;
 
-    // 收藏/关注与安装态正交：同机恢复也必须合入；已安装跳过仅保留给安装态导入。
-    // `installed`/`installed_skipped` 形状冻结，供安装态导入复用，此处仅显式取用以避免未使用告警。
-    let _ = &installed;
-    let _ = &mut installed_skipped;
+    // 收藏/关注与安装态正交：同机恢复也必须合入。
     for id in &plan.favorites {
         let id = super::require_app_id(id)?;
         if db.add_favorite(&id).map_err(|e| e.to_string())? {
@@ -283,7 +272,6 @@ pub fn import_user_data(
         favorites_added,
         watched_added,
         settings_applied,
-        installed_skipped,
     })
 }
 

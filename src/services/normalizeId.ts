@@ -5,8 +5,7 @@
  *   `src-tauri/src/forge/coord.rs`（`RepositoryUrlParser` / `canonical_app_id` /
  *   `canonical_lookup_id` / `canonical_app_id_from_parts`）；前端不另立解析器。
  * - 前端散装 `trim().toLowerCase()` / `(x || '').toLowerCase()` 一律经此，不另立
- *   normalizer（`buildLowerIdSet` 等薄 wrapper 已删并至此；`platformFilter` pending
- *   键语义仍归 `lib/platformFilter`，键归一与其同值）。
+ *   normalizer（`platformFilter` pending 键语义归 `lib/platformFilter`，键归一与其同值）。
  */
 /** id 归一：`trim().toLowerCase()`，非字符串按空处理。 */
 export function normalizeId(id: unknown): string {
@@ -29,7 +28,7 @@ export function normalizeIdSet(ids: Iterable<unknown>): string[] {
 
 /**
  * 归一 id 集（Set 口径，`normalizeIdSet` 的 Set 形态）。
- * 去空 + 小写去重；原 `buildLowerIdSet` 薄 wrapper 已删并至此，调用方一律经此建索引。
+ * 去空 + 小写去重；调用方一律经此建索引。
  */
 export function normalizeIdLowerSet(ids: Iterable<unknown>): Set<string> {
   const out = new Set<string>();

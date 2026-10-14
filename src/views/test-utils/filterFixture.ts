@@ -2,7 +2,7 @@ import type { AppSummary } from '../../types';
 import { matchPlatformSet } from '../../lib/platformFilter';
 
 /**
- * B3-G12 前端收敛：各 View 测试共用的应用夹具。
+ * 各 View 测试共用的应用夹具。
  *
  * 收敛前 Home / Categories / Trends / Favorites 的测试文件各自内联
  * `makeApp` 与平台交集数据（rustdesk:windows、仅 ios、platforms 缺省），

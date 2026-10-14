@@ -1,5 +1,5 @@
 /**
- * ica3-1 回归：图标深 module 单 interface（`ecb83e1` 语义不丢）。
+ * 图标深 module 单 interface 回归。
  *
  * module/interface/depth/seam/adapter/leverage/locality 口径：
  * - module：`services/iconStore` 为唯一深 module；`AppIcon`/`enrich`/`board` 无图标 locality。
@@ -27,16 +27,16 @@ beforeEach(() => {
   __resetIconWriteSubscribersForTests();
 });
 
-describe('ica3-1: deepen icon-write seam behind single interface', () => {
+describe('deepen icon-write seam behind single interface', () => {
   it('L5 空 payload 经 applyHit 扇出（patch + 订阅双到，不复活旧图）', () => {
     const seen: { targets: string[]; icon: string; level?: number }[] = [];
     const unsub = subscribeIconWrites((h) => seen.push(h));
     try {
-      const seed = applyHit({ key: 'o/r', id: 'o/r', icon: REAL, level: 2, via: 'm2', patch: () => {} });
+      const seed = applyHit({ id: 'o/r', icon: REAL, level: 2, via: 'm2', patch: () => {} });
       expect(seed.accepted).toBe(true);
       expect(getBufferedIcon('o/r')).toBe(REAL);
       seen.length = 0;
-      const res = applyHit({ key: 'o/r', id: 'o/r', icon: '', level: 5, patch: () => {} });
+      const res = applyHit({ id: 'o/r', icon: '', level: 5, patch: () => {} });
       expect(res.accepted).toBe(true);
       expect(res.reason).toBe('level5-badge');
       expect(getBufferedIcon('o/r')).toBeUndefined();
@@ -46,11 +46,11 @@ describe('ica3-1: deepen icon-write seam behind single interface', () => {
     }
   });
 
-  it('clearBufferedIcon 直接清零亦通知（防富卡 stale，ecb83e1 语义）', () => {
+  it('clearBufferedIcon 直接清零亦通知（防富卡 stale）', () => {
     const seen: { targets: string[]; icon: string; level?: number }[] = [];
     const unsub = subscribeIconWrites((h) => seen.push(h));
     try {
-      const seed = applyHit({ key: 'o/r', id: 'o/r', icon: REAL, level: 2, via: 'm2' });
+      const seed = applyHit({ id: 'o/r', icon: REAL, level: 2, via: 'm2' });
       expect(seed.accepted).toBe(true);
       seen.length = 0;
       clearBufferedIcon('o/r');
@@ -65,9 +65,9 @@ describe('ica3-1: deepen icon-write seam behind single interface', () => {
     const seen: unknown[] = [];
     const unsub = subscribeIconWrites((h) => seen.push(h));
     try {
-      applyHit({ key: 'o/r', id: 'o/r', icon: REAL, level: 2, via: 'm2' });
+      applyHit({ id: 'o/r', icon: REAL, level: 2, via: 'm2' });
       seen.length = 0;
-      const res = applyHit({ key: 'o/r', id: 'o/r', icon: '' });
+      const res = applyHit({ id: 'o/r', icon: '' });
       expect(res.accepted).toBe(false);
       expect(getBufferedIcon('o/r')).toBe(REAL);
       expect(seen).toHaveLength(0);
@@ -77,7 +77,7 @@ describe('ica3-1: deepen icon-write seam behind single interface', () => {
   });
 
   it('stickyIconFor 单 interface：旧实 + 回填空沿用旧，空壳经缓冲回读', () => {
-    applyHit({ key: 'o/r', id: 'o/r', icon: REAL, level: 2, via: 'm2' });
+    applyHit({ id: 'o/r', icon: REAL, level: 2, via: 'm2' });
     const cur = { id: 'o/r', owner: 'o', repo: 'r', icon: REAL } as never as import('../types').AppSummary;
     const incomingEmpty = { id: 'o/r', owner: 'o', repo: 'r', icon: '' } as never as import('../types').AppSummary;
     expect(stickyIconFor(cur, incomingEmpty).icon).toBe(REAL);

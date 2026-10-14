@@ -5,7 +5,7 @@
 //!   `canonical_app_id_from_parts` 皆经它收敛，不另立 normalizer（`icon_key`
 //!   事件 key 与 `resolve_icon_coord` DB 主键为其薄委托，三键同值）。
 //! - 前端归一单口为 `src/services/normalizeId.ts`（`normalizeId`）；前后端键全同，
-//!   大小写漂移行经 canonical 治愈（票 14）。
+//!   大小写漂移行经 canonical 治愈。
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -66,7 +66,7 @@ impl UniversalRepoCoord {
 /// ADR-0010：入站应用标识归一化为 canonical 形态
 /// （小写 `owner/repo`，或带 forge 前缀的 `forge[:host]:owner/repo`）。
 /// 支持完整仓库 URL、forge 前缀短语法（含 `gh/cb/gt/gl` 别名）与裸 owner/repo；
-/// 无法解析的未知标识返回 `None`，由调用方显式拒绝，不再透传脏 id。
+/// 无法解析的未知标识返回 `None`，由调用方显式拒绝，不透传脏 id。
 pub fn canonical_app_id(input: &str) -> Option<String> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
@@ -75,18 +75,18 @@ pub fn canonical_app_id(input: &str) -> Option<String> {
     RepositoryUrlParser::parse(trimmed).map(|coord| coord.to_app_id().to_lowercase())
 }
 
-/// 三键合一（票 14）：`(owner, repo)` → canonical 唯一真相源。
-/// `canonical_app_id`（单串全形态解析）、`icon_key`（事件 key）、
-/// `canonical_icon_key`（DB 主键，已删并至此）三者同值——后两者现为本函数的
-/// 薄委托；DB 主键/事件 key/前端归一键全同。
+/// `(owner, repo)` → canonical 唯一真相源。
+/// `canonical_app_id`（单串全形态解析）、`icon_key`（事件 id）、
+/// `resolve_icon_coord` canonical（DB 主键）三者同值——后两者为本函数的
+/// 薄委托；DB 主键/事件 id/前端归一键全同。
 /// total 函数永不失败：可解析直取 canonical，不可解析回退小写拼接
-/// （与旧双键逐字同值；调用方传入已 trim 干净坐标时恒走解析分支）。
+///（调用方传入已 trim 干净坐标时恒走解析分支）。
 pub fn canonical_app_id_from_parts(owner: &str, repo: &str) -> String {
     let raw = format!("{}/{}", owner.trim(), repo.trim());
     canonical_app_id(&raw).unwrap_or_else(|| raw.to_lowercase())
 }
 
-/// 入站键归一（total，票 14）：`canonical_app_id` 可解析直取 canonical，
+/// 入站键归一（total）：`canonical_app_id` 可解析直取 canonical，
 /// 不可解析回退 `trim().to_lowercase()`（与 ADR-0010"原样小写兜底"同形）。
 /// 深链解析层与存量 id 比对层用；执行层拒绝语义仍在 `require_app_id`，分层不混淆。
 pub fn canonical_lookup_id(raw: &str) -> String {
@@ -258,7 +258,7 @@ impl RepoRef {
         self.owner.is_empty() || self.repo.is_empty()
     }
 
-    /// 唯一的大小写归一落点：`lookup_case_insensitive` 内不再手写 `to_lowercase`。
+    /// 唯一的大小写归一落点：`lookup_case_insensitive` 内不手写 `to_lowercase`。
     pub fn lowercased(&self) -> Self {
         Self {
             owner: self.owner.to_lowercase(),
@@ -286,8 +286,8 @@ fn app_id_lookup_keys(app_id: &str) -> Vec<String> {
     keys
 }
 
-/// `owner/repo` 维度候选键（顺序即查询顺序，去重）：解析器推导原值 → 其小写 →
-/// 调用方传入原值 → 其小写。解析器推导优先（SSOT），传入值仅在与推导不一致时补试。
+/// `owner/repo` 维度候选键（顺序即查询顺序，去重）：解析器推导原值 → 其小写。
+/// 解析器推导为唯一真相源（上游已有 `canonical_app_id` 守卫）。
 fn repo_lookup_keys(app_id: &str, fallback: &RepoRef) -> Vec<RepoRef> {
     let clean_id = app_id.trim();
     let eff = match RepositoryUrlParser::parse(clean_id) {
@@ -304,11 +304,6 @@ fn repo_lookup_keys(app_id: &str, fallback: &RepoRef) -> Vec<RepoRef> {
     };
     push_unique(eff.clone(), &mut keys);
     push_unique(eff.lowercased(), &mut keys);
-    // 解析器与传入值不一致时，补试传入值（兼容调用方传入与 app_id 不一致的旧数据）。
-    if *fallback != eff {
-        push_unique(fallback.clone(), &mut keys);
-        push_unique(fallback.lowercased(), &mut keys);
-    }
     keys
 }
 
@@ -337,13 +332,13 @@ mod tests {
 
     #[test]
     fn test_canonical_app_id_from_parts_is_total_and_canonical() {
-        // 常规坐标：解析分支，与旧双键逐字同值。
+        // 常规坐标：解析分支。
         assert_eq!(canonical_app_id_from_parts("rustdesk", "rustdesk"), "rustdesk/rustdesk");
         assert_eq!(
             canonical_app_id_from_parts("SuperMC5657", "Z-Store"),
             "supermc5657/z-store"
         );
-        // 前后空白被归一（旧散装拼接做不到，统一后 DB/事件键全同）。
+        // 前后空白被归一（DB/事件键全同）。
         assert_eq!(canonical_app_id_from_parts("  O  ", "  R  "), "o/r");
         // 不可解析回退小写拼接（total 永不失败）。
         assert_eq!(canonical_app_id_from_parts("", ""), "/");
@@ -352,7 +347,7 @@ mod tests {
 
     #[test]
     fn test_three_keys_unified_db_event_keys_identical() {
-        // 三键合一：`canonical_app_id` / `icon_key`（事件 key）/
+        // `canonical_app_id` / `icon_key`（事件 id）/
         // `resolve_icon_coord` canonical（DB 主键）全同。
         let joined = canonical_app_id_from_parts("SuperMC5657", "Z-Store");
         assert_eq!(

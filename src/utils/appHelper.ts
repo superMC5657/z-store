@@ -108,18 +108,16 @@ export function getCategoryLabel(
 
 /**
  * 收录态判定（展示层唯一口径，与详情页 Header 一致）：
- * 显式 `is_cataloged` / `isCataloged` 标记优先（数据层占位行携带），
+ * 显式 `is_cataloged` 标记优先（数据层占位行携带），
  * 缺席时按 `category !== 'external'` 兜底；空分类视为未收录。
  * 仅展示层读取，绝不参与数据源 join。
  */
 export function isAppCataloged(app: {
   category?: string | null;
   is_cataloged?: unknown;
-  isCataloged?: unknown;
 }): boolean {
-  const raw = app as { is_cataloged?: unknown; isCataloged?: unknown };
+  const raw = app as { is_cataloged?: unknown };
   if (typeof raw.is_cataloged === 'boolean') return raw.is_cataloged;
-  if (typeof raw.isCataloged === 'boolean') return raw.isCataloged;
   const cat = typeof app.category === 'string' ? app.category.trim().toLowerCase() : '';
   if (!cat) return false;
   return cat !== 'external';

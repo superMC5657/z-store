@@ -61,11 +61,11 @@ interface HomeViewProps extends ViewAppActions, PlatformResetOption {
 
 export const HomeView: React.FC<HomeViewProps> = ({
   apps,
-  platformResolvedOtherIds,
+  platformResolvedOtherIds = new Set<string>(),
   installedIds,
   installingIds,
   favoriteIds,
-  managedIds,
+  managedIds = null,
   recentlyViewedApps = [],
   searchQuery = '',
   onOpenDetail,
@@ -87,7 +87,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
 }) => {
   const { t } = useTranslation();
   const isSearching = Boolean(searchQuery && searchQuery.trim().length > 0);
-  // pending 徽标口径统一经选择器接口（ticket 11；本地不再自立 lambda）。
+  // pending 徽标口径统一经选择器接口。
 
   // ---- feed 状态与分页 Hook -------------------------------------
   const {
@@ -118,8 +118,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
   // 非搜索态筛选为空才走平台空态；搜索态本地为空但在线有结果时仍进双段展示，
   // 本地段给轻量空提示（两段都空时 App 侧整页空态已拦截，此处兜底同样进双段）。
-  // 合并取舍：lane 的 handleShuffle/strategyLabel 未保留——HEAD 已固定策略并砍掉切换工具条，
-  // 此处无 setSeed、无调用方，保留即编译不过；固定 balanced + seed=7 口径不变。
+  // 首页固定 balanced 排序与 seed 7，无策略切换工具条。
   if (apps.length === 0 && !isSearching) {
     // 筛选为空：全局设备平台筛选排除了所有应用。
     // 专属文案与重置按钮——绝不复用搜索页的 `owner/repo` 引导文案。

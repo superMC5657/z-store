@@ -145,8 +145,7 @@ pub fn platforms_from_assets(assets: &[ReleaseAsset]) -> Vec<String> {
     plats
 }
 
-/// 别名 deduce_platforms 已内联收敛至 `platforms_from_assets` 单口（ica3-5：
-/// 薄投影不再单立函数，调用方一律用 `platforms_from_assets`；历史别名删除不保留）。
+/// 平台排序 SSOT（deduce 结果统一经此排序）。
 pub fn sort_platforms(platforms: &mut [String]) {
     const ORDER: &[&str] = &["windows", "macos", "linux", "ios", "android"];
     platforms.sort_by_key(|p| {
@@ -188,8 +187,7 @@ pub fn platforms_with_ios_union(
     }
 }
 
-/// checksum 文件名平台相关性判定（ica3-5：自 `detail_fetch::CatalogService`
-/// 关联函数内联收敛至此，与 installer 资产过滤同模块 single source；入参须为小写文件名）。
+/// checksum 文件名平台相关性判定（与 installer 资产过滤同模块 single source；入参须为小写文件名）。
 /// Windows 相关（msi/exe/zip/setup/portable/win）或通用命名时返回 true；
 /// 携带 linux/mac/dmg/appimage/deb/rpm/aarch64/arm64/darwin 任一提示词时返回 false 及命中的提示词。
 pub fn checksum_asset_platform_eligible(lower_name: &str) -> (bool, &'static str) {
@@ -340,7 +338,7 @@ mod tests {
 
     #[test]
     fn test_checksum_platform_filter_skips_linux_aarch64_only() {
-        // ica3-5：断言自 `detail_fetch` 随函数搬迁至此（单源覆盖，不两处重复测）。
+        // 单源覆盖，不两处重复测。
         // FreeCAD 案：Linux-aarch64-only 的 checksum 文件必须跳过，不产生请求。
         let (ok, _) = checksum_asset_platform_eligible("freecad-linux-aarch64.sha256");
         assert!(!ok);

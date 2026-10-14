@@ -1,5 +1,5 @@
 /**
- * 徽标一致性锁定（review findings B3a/b/c）：
+ * 徽标一致性锁定：
  * 同一 id（大小写变体）下卡片（AppCard）与弹窗（InstallActions）判态必须一致，
  * 均经共享选择器归一得出；未知态双方均占位、永不闪灰；可点击状态文本为原生 button。
  */
@@ -26,7 +26,7 @@ afterEach(() => {
 
 const APP_ID = 'Acme/Atlas';
 
-function cardProps(installedIds: Set<string>, managedIds: Set<string> | null | undefined) {
+function cardProps(installedIds: Set<string>, managedIds: Set<string> | null) {
   return {
     isInstalled: isInstalledUnion(APP_ID, installedIds),
     isManaged: selectIsManagedOpt(APP_ID, managedIds),
@@ -34,12 +34,13 @@ function cardProps(installedIds: Set<string>, managedIds: Set<string> | null | u
   };
 }
 
-function renderCard(installedIds: Set<string>, managedIds: Set<string> | null | undefined) {
+function renderCard(installedIds: Set<string>, managedIds: Set<string> | null) {
   const app = makeApp({ id: APP_ID, name: 'Atlas', platforms: ['windows'] });
   return render(
     <AppCard
       app={app}
       {...cardProps(installedIds, managedIds)}
+      platformPending={false}
       onOpenDetail={() => {}}
       onQuickInstall={() => {}}
       onManageApp={() => {}}
@@ -76,7 +77,7 @@ function detailFixture(): AppDetailViewModel {
 
 function renderModalStatus(
     installedIds: Set<string>,
-    managedIds: Set<string> | null | undefined,
+    managedIds: Set<string> | null,
     omitDetectedProp = false,
   ) {
   const onManageApp = vi.fn(async () => undefined);
@@ -99,7 +100,7 @@ function renderModalStatus(
     onToggleShowAllAssets: () => {},
     isInstalled: isInstalledUnion(APP_ID, installedIds),
     isExploreMode: false,
-    isManaged: selectIsManagedOpt(APP_ID, managedIds) as boolean | null,
+    isManaged: selectIsManagedOpt(APP_ID, managedIds),
     isUninstallingGlobal: false,
     downloadedFile: null,
     isRevealingFolder: false,

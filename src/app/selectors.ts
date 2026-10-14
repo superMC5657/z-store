@@ -14,9 +14,8 @@ import {
   type PlatformId,
 } from '../lib/platformFilter';
 import { normalizeId } from '../services/normalizeId';
-// pending 语义唯一深模块为 `lib/platformFilter`（ica3-3）：本选择器直接消费 lib，
-// 对外仅保留 PENDING_SETTLE_MS/isEnrichedRowPending/unionConfirmedSets 三件重导出
-// （ica3-11：旧 pending 别名已删，调用方直引 lib）。
+// pending 语义唯一深模块为 `lib/platformFilter`：本选择器直接消费 lib，
+// 对外仅保留 PENDING_SETTLE_MS/isEnrichedRowPending/unionConfirmedSets 三件重导出。
 export {
   PENDING_SETTLE_MS,
   isEnrichedRowPending,
@@ -40,17 +39,13 @@ export interface UseAppSelectorsParams {
 }
 
 /**
- * 派生选择器（C3 自 App.tsx 抽出，原 L1290-1536）。
+ * 派生选择器。
  *
- * - 任务 3：平台优先派生（待确认恒可见，落定后走 matchPlatformSet）；
- * - 任务 4：侧栏计数基于全量 `apps`（已确认 other 才计 other 桶，待确认不计数）；
+ * - 平台优先派生（待确认恒可见，落定后走 matchPlatformSet）；
+ * - 侧栏计数基于全量 `apps`（已确认 other 才计 other 桶，待确认不计数）；
  * - 收藏页 left-join 供给（收录段 + 未收录占位段，小写去重）；
  * - 已安装/更新列表经 `appsById` O(1) 查表，未收录行保持可见；
- * - P0-1 深链确认弹窗的详情/摘要/SHA-256 解析。
- *
- * ica3-6：`selectFavoritesViewApps` 薄透传已删（原经 `app/favoritesUncataloged`
- * 中转），合并器收归本选择器，键归一律经前端唯一口 `normalizeId`，
- * 平台语义仍经 `lib/platformFilter` 单口（不回退）。
+ * - 深链确认弹窗的详情/摘要/SHA-256 解析。
  */
 
 export function selectPlatformFilteredApps(
@@ -149,7 +144,7 @@ export function isDetectedOnly(id: string, installedIds: Set<string>, managedIds
 
 /**
  * union 已安装（含仅检测到）归一判定：调用方禁止再手写 `installedIds.has(id)` raw 直查
- * （大小写变体 ID 下与 managed 判态分叉，B3a）。raw 直命中优先，归一兜底；
+ * （大小写变体 ID 下与 managed 判态分叉）。raw 直命中优先，归一兜底；
  * 集合缺席（null/undefined）即未安装。
  */
 export function isInstalledUnion(id: string, installedIds: Set<string> | null | undefined): boolean {
@@ -162,14 +157,12 @@ export function isInstalledUnion(id: string, installedIds: Set<string> | null | 
 
 /**
  * managed 三态（P1 冷启闪烁修复）：`null` = managed 列表尚未加载（未知），
- * `undefined` = 调用方未提供 managed 信息（旧调用兼容，卡片回退 union 语义）。
- * 未知态调用方渲染中性占位，永不闪灰。
+ * `Set<string>` = 已知集合。未知态调用方渲染中性占位，永不闪灰。
  */
 export function selectIsManagedOpt(
   id: string,
-  managedIds: Set<string> | null | undefined,
-): boolean | null | undefined {
-  if (managedIds === undefined) return undefined;
+  managedIds: Set<string> | null,
+): boolean | null {
   if (managedIds === null) return null;
   return isManaged(id, managedIds);
 }
@@ -181,9 +174,8 @@ export function selectIsManagedOpt(
 export function selectIsDetectedOnlyOpt(
   id: string,
   installedIds: Set<string> | null | undefined,
-  managedIds: Set<string> | null | undefined,
-): boolean | null | undefined {
-  if (managedIds === undefined) return undefined;
+  managedIds: Set<string> | null,
+): boolean | null {
   if (managedIds === null) return isInstalledUnion(id, installedIds) ? null : false;
   return isDetectedOnly(id, installedIds ?? new Set<string>(), managedIds);
 }
@@ -194,10 +186,9 @@ export type BadgeState = 'managed' | 'detected' | 'none' | 'unknown';
 export function selectBadgeState(
   id: string,
   installedIds: Set<string> | null | undefined,
-  managedIds: Set<string> | null | undefined,
+  managedIds: Set<string> | null,
 ): BadgeState {
   if (!id) return 'none';
-  if (managedIds === undefined) return isInstalledUnion(id, installedIds) ? 'managed' : 'none';
   if (managedIds === null) return isInstalledUnion(id, installedIds) ? 'unknown' : 'none';
   if (isManaged(id, managedIds)) return 'managed';
   if (isDetectedOnly(id, installedIds ?? new Set<string>(), managedIds)) return 'detected';
@@ -207,15 +198,14 @@ export function selectBadgeState(
 /**
  * 布尔口径 detected 归一（InstallActions 等仅持有 booleans 的末端使用）：
  * 调用方 booleans 须经上方归一选择器得出；末端禁止再手写 `isInstalled && !isManaged`
- * 派生（大小写变体 ID 下与选择器分叉，B3a）。`isManaged === null`（未知）恒非 detected。
+ * 派生（大小写变体 ID 下与选择器分叉）。`isManaged === null`（未知）恒非 detected。
  */
 export function resolveDetectedOnly(isInstalled: boolean, isManaged: boolean | null): boolean {
   return isInstalled && isManaged === false;
 }
 
 /**
- * 收藏页 left-join 合并器（ica3-6 自 `app/favoritesUncataloged` 收归本选择器，
- * 语义逐字一致，键归一改调 `normalizeId` 单口）：
+ * 收藏页 left-join 合并器：
  * 收录段（已平台过滤）+ 未收录占位段（同口径平台过滤后并入，小写去重防双显）。
  */
 export function selectFavoritesViewApps(
@@ -333,7 +323,7 @@ export function useAppSelectors({
     return () => clearTimeout(t);
   }, [managedLoaded]);
 
-  // P0-1 深链安装确认弹窗：呈现应用名称、仓库/来源以及 SHA-256（优先使用已加载详情，兜底使用列表快照）。
+  // 深链安装确认弹窗：呈现应用名称、仓库/来源以及 SHA-256（优先使用已加载详情，兜底使用列表快照）。
   const pendingDeepLinkDetail =
     pendingDeepLinkInstall !== null &&
     selectedApp !== null &&

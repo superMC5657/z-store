@@ -2,11 +2,9 @@ import { useMemo, useState } from 'react';
 import type { AppSummary } from '../types';
 
 /**
- * B3-G12 前端收敛：各 View 共用的文本过滤逻辑。
+ * 各 View 共用的文本过滤逻辑。
  *
- * 收敛前 FavoritesView 内联的 `matchesSearch`（按名称 / 别名 /
- * 仓库坐标过滤）与其他 View 的即席过滤各自为政；统一收敛到此模块，
- * View 侧只消费谓词与 hook，不再内联重复形状。
+ * View 侧只消费谓词与 hook，不内联重复过滤形状。
  */
 
 /** 单条应用是否命中查询（名称 / owner / repo / 分类）。 */

@@ -13,10 +13,10 @@ interface DeveloperProfileModalProps {
   onInstallApp: (appId: string) => Promise<void>;
   installedIds?: Set<string>;
   /**
-   * 已纳管集合（缺席时回退 union 语义，保持旧调用兼容；显式 `null` = managed 未加载，
+   * 已纳管集合（必传；显式 `null` = managed 未加载，
    * union 命中行渲染中性占位，永不闪灰，P1）。
    */
-  managedIds?: Set<string> | null;
+  managedIds: Set<string> | null;
   /** 仅检测到时点击纳管（调 handleManageApp/importSingleApp）。缺席时回退为打开详情。 */
   onManageApp?: (appId: string) => void | Promise<void>;
 }
@@ -258,16 +258,14 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                 const isInstalling = installingId === repo.id;
                 const isManagingRow = managingId === repo.id;
                 // P0 已纳管 vs 仅检测到：managed 绿已安装，detected 灰检测到·点击纳管；
-                // 缺席 managedIds 时回退 union 语义（installedIds 即已安装），保持旧调用兼容。
                 // 判态统一经共享选择器（归一 ID，大小写变体一致）；managedIds===null（未加载）
                 // + union 命中 = 未知，中性占位永不闪灰（P1）。
                 const installed = isInstalledUnion(repo.id, installedIds);
                 const managed = selectIsManagedOpt(repo.id, managedIds);
                 const detectedOnly = selectIsDetectedOnlyOpt(repo.id, installedIds, managedIds);
                 const isUnknownRow = installed && managed === null;
-                const managedEff = managed === undefined ? installed : managed === true;
-                const showManaged = !isUnknownRow && managedEff && detectedOnly !== true;
-                const showDetected = !isUnknownRow && detectedOnly === true && !managedEff;
+                const showManaged = !isUnknownRow && managed === true && detectedOnly !== true;
+                const showDetected = !isUnknownRow && detectedOnly === true && !managed;
 
                 return (
                   <div

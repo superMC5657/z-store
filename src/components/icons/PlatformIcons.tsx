@@ -102,8 +102,7 @@ const IosIcon: React.FC<IconProps> = ({ size = 14, className, style }) => (
  * OtherIcon — 虚拟“其他 / 非应用”（类库）桶图标。
  * 选用代码尖括号而非 OS 徽标：与 Linux/Android/iOS 同一线性笔触家族
  * （24 视框 / 描边 1.5 / 圆端点），且不与侧栏既有字形（房子、九宫格、
- * 箱子、刷新、星形、齿轮）撞车。未知平台回退亦用此中性图标，
- * 不再冒充 Windows。
+ * 箱子、刷新、星形、齿轮）撞车。未知平台回退亦用此中性图标。
  */
 const OtherIcon: React.FC<IconProps> = ({ size = 14, className, style }) => (
   <svg
@@ -201,7 +200,7 @@ export const PlatformIcon: React.FC<{ platform: string; size?: number; className
   if (p === 'android') return <AndroidIcon size={size} className={className} style={style} />;
   if (p === 'ios') return <IosIcon size={size} className={className} style={style} />;
   if (p === 'other') return <OtherIcon size={size} className={className} style={style} />;
-  // 未知平台不再冒充 Windows，统一回退中性图标。
+  // 未知平台统一回退中性图标。
   return <OtherIcon size={size} className={className} style={style} />;
 };
 

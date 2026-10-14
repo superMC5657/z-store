@@ -20,7 +20,7 @@ export function useDeepLink({
   showToast,
   t,
 }: UseDeepLinkParams) {
-  // P0-1 深链安装守卫：`install_app` 深链仅暂存待确认状态——安装必须经由用户显式点击确认方可启动。
+  // 深链安装守卫：`install_app` 深链仅暂存待确认状态——安装必须经由用户显式点击确认方可启动。
   const [pendingDeepLinkInstall, setPendingDeepLinkInstall] = useState<string | null>(null);
 
   // 深链调度分发器（功能 E）
@@ -30,7 +30,7 @@ export function useDeepLink({
       if (action.action === 'app_detail') {
         handleOpenDetail(action.payload.app_id);
       } else if (action.action === 'install_app') {
-        // P0-1: 绝不直接自深链自动安装——打开详情视图并弹出显式确认弹窗；安装仅在用户点击确认后启动。
+        // 绝不直接自深链自动安装——打开详情视图并弹出显式确认弹窗；安装仅在用户点击确认后启动。
         handleOpenDetail(action.payload.app_id);
         setPendingDeepLinkInstall(action.payload.app_id);
         showToast(t('toast.deeplink_confirm_notice', { id: action.payload.app_id }), 'warning');

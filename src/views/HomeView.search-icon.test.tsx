@@ -70,7 +70,6 @@ function applyNewIconReady(
 ): { next: SearchRow[]; accepted: boolean; reason?: string; persisted?: boolean } {
   let next = prev;
   const res = applyHit({
-    key: payload.key,
     id: payload.id,
     icon: payload.icon,
     level: payload.level,
@@ -104,7 +103,6 @@ describe('icon-ready backfill', () => {
     const { next, accepted } = applyNewIconReady(
       prev,
       {
-        key: 'o/r',
         id: 'o/r',
         icon: 'https://cdn.simpleicons.org/r',
         level: 2,
@@ -129,7 +127,6 @@ describe('icon-ready backfill', () => {
     const l2 = applyNewIconReady(
       prev,
       {
-        key: 'o/r',
         id: 'o/r',
         icon: 'https://cdn.simpleicons.org/r',
         level: 2,
@@ -144,7 +141,6 @@ describe('icon-ready backfill', () => {
     const l3 = applyNewIconReady(
       l2.next,
       {
-        key: 'o/r',
         id: 'o/r',
         icon: 'https://raw.githubusercontent.com/o/r/main/icon.png',
         level: 3,
@@ -164,7 +160,6 @@ describe('icon-ready backfill', () => {
     const { next, accepted, reason } = applyNewIconReady(
       prev,
       {
-        key: 'o/r',
         id: 'o/r',
         icon: 'https://cdn.simpleicons.org/r',
         level: 2,
@@ -185,7 +180,6 @@ describe('icon-ready backfill', () => {
     const { next, accepted, reason, persisted } = applyNewIconReady(
       prev,
       {
-        key: 'o/r',
         id: 'o/r',
         icon: 'https://cdn.simpleicons.org/r',
         level: 2,
@@ -207,7 +201,6 @@ describe('icon-ready backfill', () => {
     const first = applyNewIconReady(
       prev,
       {
-        key: 'o/r',
         id: 'o/r',
         icon: 'https://cdn.simpleicons.org/r2',
         level: 2,
@@ -220,7 +213,6 @@ describe('icon-ready backfill', () => {
     const second = applyNewIconReady(
       first.next,
       {
-        key: 'o/r',
         id: 'o/r',
         icon: 'https://cdn.example.com/r4.png',
         level: 4,
@@ -234,7 +226,6 @@ describe('icon-ready backfill', () => {
     const stale = applyNewIconReady(
       second.next,
       {
-        key: 'o/r',
         id: 'o/r',
         icon: 'https://cdn.simpleicons.org/r2-again',
         level: 2,
@@ -263,7 +254,6 @@ describe('echo-window interleavings (fix-11 hardening)', () => {
     const aLive = applyNewIconReady(
       prev,
       {
-        key: 'o/r',
         id: 'o/r',
         icon: 'https://cdn.simpleicons.org/r-a2',
         level: 2,
@@ -281,7 +271,6 @@ describe('echo-window interleavings (fix-11 hardening)', () => {
     const bL2 = applyNewIconReady(
       aLive.next,
       {
-        key: 'o/r',
         id: 'o/r',
         icon: bL2Icon,
         level: 2,
@@ -298,7 +287,6 @@ describe('echo-window interleavings (fix-11 hardening)', () => {
     const bL5 = applyNewIconReady(
       bL2.next,
       {
-        key: 'o/r',
         id: 'o/r',
         icon: bL5Icon,
         level: 5,
@@ -314,7 +302,6 @@ describe('echo-window interleavings (fix-11 hardening)', () => {
     const bDown = applyNewIconReady(
       bL5.next,
       {
-        key: 'o/r',
         id: 'o/r',
         icon: 'https://cdn.simpleicons.org/r-b2-again',
         level: 2,
@@ -331,7 +318,6 @@ describe('echo-window interleavings (fix-11 hardening)', () => {
     const aHigh = applyNewIconReady(
       bL5.next,
       {
-        key: 'o/r',
         id: 'o/r',
         icon: 'https://cdn.example.com/r-a5.png',
         level: 9,
@@ -364,7 +350,6 @@ describe('echo-window interleavings (fix-11 hardening)', () => {
     const s1Late = applyNewIconReady(
       prev,
       {
-        key: 'o/r-page',
         id: 'o/r-page',
         icon: 'https://cdn.simpleicons.org/r-s1',
         level: 2,
@@ -380,7 +365,6 @@ describe('echo-window interleavings (fix-11 hardening)', () => {
     const s2Live = applyNewIconReady(
       s1Late.next,
       {
-        key: 'o/r-page',
         id: 'o/r-page',
         icon: s2LiveIcon,
         level: 2,
@@ -405,7 +389,6 @@ describe('echo-window interleavings (fix-11 hardening)', () => {
     const wS1 = applyNewIconReady(
       wPrev,
       {
-        key: 'o/r-win',
         id: 'o/r-win',
         icon: 'https://cdn.simpleicons.org/r-ws1',
         level: 2,
@@ -419,7 +402,6 @@ describe('echo-window interleavings (fix-11 hardening)', () => {
     const wS2 = applyNewIconReady(
       wS1.next,
       {
-        key: 'o/r-win',
         id: 'o/r-win',
         icon: 'https://cdn.simpleicons.org/r-ws2',
         level: 2,
@@ -432,10 +414,10 @@ describe('echo-window interleavings (fix-11 hardening)', () => {
     expect(wS2.next[0].icon).toBe('https://cdn.simpleicons.org/r-ws2');
   });
 
-  it('3. 无 sid 兜底：legacy 无 sid 不回落请求串号，当次窗 live 照收，跨次按 sid 消歧，有 sid 到即升级', () => {
+  it('3. 无 sid 不落定期望：当次窗 live 照收，跨次按 sid 消歧，有 sid 到即升级', () => {
     const ref = { current: '' };
     const requestId = 'search-1-legacy-req';
-    // legacy 回包无 sid：窗保持开，永不回落请求串号（echo-as-truth）。
+    // 回包无 sid：窗保持开（''），永不回落请求串号（echo-as-truth）。
     settlePageEcho(ref, '');
     expect(ref.current).toBe('');
     expect(ref.current).not.toBe(requestId);
@@ -446,7 +428,6 @@ describe('echo-window interleavings (fix-11 hardening)', () => {
     const noSid = applyNewIconReady(
       prev,
       {
-        key: 'o/r-nosid-1',
         id: 'o/r-nosid-1',
         icon: noSidIcon,
         level: 2,
@@ -474,7 +455,6 @@ describe('echo-window interleavings (fix-11 hardening)', () => {
     const sameSid = applyNewIconReady(
       cur,
       {
-        key: 'o/r-nosid-2',
         id: 'o/r-nosid-2',
         icon: 'https://cdn.simpleicons.org/r-cur',
         level: 2,
@@ -487,7 +467,6 @@ describe('echo-window interleavings (fix-11 hardening)', () => {
     const oldSid = applyNewIconReady(
       [{ id: 'o/r-nosid-3', icon: '' }],
       {
-        key: 'o/r-nosid-3',
         id: 'o/r-nosid-3',
         icon: 'https://cdn.simpleicons.org/r-old',
         level: 2,
@@ -501,7 +480,6 @@ describe('echo-window interleavings (fix-11 hardening)', () => {
     const noSidAfter = applyNewIconReady(
       [{ id: 'o/r-nosid-4', icon: '' }],
       {
-        key: 'o/r-nosid-4',
         id: 'o/r-nosid-4',
         icon: 'https://cdn.simpleicons.org/r-after',
         level: 2,

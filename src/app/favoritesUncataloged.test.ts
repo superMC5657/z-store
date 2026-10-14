@@ -4,10 +4,6 @@
  * - `pickFavoritePersistIconUrl`：remote 优先 / url 非 data: 兜底 / data: 永不进盘 /
  *   非远端置空走首字母（`AppIcon` 同规则）。
  * - `needsFavoriteIconWarm`：空/非远端需查轮换，合法远端仅文件预热。
- *
- * ica3-6：`buildLowerIdSet` / `findMissingFavoriteIds` 薄 wrapper 已删并至
- * `services/normalizeId` 单口（`normalizeId` / `normalizeIdLowerSet`），
- * `selectFavoritesViewApps` 合并器已收归 `app/selectors`；本文件改调统一口。
  */
 import { describe, expect, it } from 'vitest';
 import type { AppSummary } from '../types';
@@ -79,13 +75,12 @@ describe('pickFavoritePersistIconUrl', () => {
     expect(pickFavoritePersistIconUrl(undefined)).toBe('');
   });
 
-  it('camelCase 兼容别名 remoteUrl 同样优先', () => {
+  it('remote_url 单轨：无 remote_url 时 url 非 data: 兜底', () => {
     expect(
       pickFavoritePersistIconUrl({
-        url: '',
+        url: 'https://cdn.example.com/tree.png',
         level: 3,
-        remoteUrl: 'https://cdn.example.com/tree.png',
-      } as never),
+      }),
     ).toBe('https://cdn.example.com/tree.png');
   });
 });
@@ -110,17 +105,14 @@ describe('needsFavoriteIconWarm', () => {
 });
 
 /**
- * 票 14 删除测试：`useFavoritesExtra` 文件删除后，未收录 join 语义经深 join
- * 新模块保持——行不消失（exact 合并去重 + heuristic 占位合成）与计数保留
+ * 未收录 join 语义锁定：行不消失（exact 合并去重 + heuristic 占位合成）与计数保留
  * （调用方全集计数，本模块不参与计数）。
- *
- * ica3-6：薄 wrapper 删除后同语义改调统一口（`normalizeId` 单口 + 选择器合并器）。
  */
 function row(id: string, platforms: string[] = []): AppSummary {
   return { id, platforms } as AppSummary;
 }
 
-/** ica3-6 内联口径：与深 join 内部 `findMissingIds` 同语义（`normalizeId` 去重保序）。 */
+/** join 内部 `findMissingIds` 同语义（`normalizeId` 去重保序）。 */
 function missingViaUnifiedMouth(
   favoriteIds: Iterable<string>,
   catalogLower: ReadonlySet<string>,
@@ -141,7 +133,7 @@ function missingViaUnifiedMouth(
   return missing;
 }
 
-describe('uncataloged join keeps rows and full-set counts (ticket 14 deletion tests)', () => {
+describe('uncataloged join keeps rows and full-set counts', () => {
   it('union∖catalog 精确差集经统一口，大小写归一、保序、保留原值', () => {
     const missing = missingViaUnifiedMouth(
       ['RustDesk/RustDesk', 'unknown/app', 'UNKNOWN/APP', '  ', 'videolan/vlc'],

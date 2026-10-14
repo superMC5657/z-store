@@ -98,7 +98,7 @@ pub fn sanitize_url(url: &str) -> String {
         if k.starts_with("x-amz-") || k.starts_with("x-goog-") || k.starts_with("x-ms-") {
             return true;
         }
-        // 短键收敛为分隔符分词匹配：`design` / `monkey` / `author` / `bypass` 不触发，
+        // 短键用分隔符分词匹配：`design` / `monkey` / `author` / `bypass` 不触发，
         // 而 `auth-token` / `client_key` / `my_sig` 照常脱敏。
         for part in k.split(['_', '-', '.', ':', '[', ']']) {
             if matches!(part, "sig" | "key" | "auth" | "pass") {

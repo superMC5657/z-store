@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-// ADR-0010 修订（票 14，2026-10-11）：深链入站强制经 `canonical_app_id()` 归一化——
+// ADR-0010 修订：深链入站强制经 `canonical_app_id()` 归一化——
 // `app`/`install`/裸 id 三路由统一走 `forge::canonical_lookup_id`
 //（可解析直取 canonical，不可解析回退小写不断路由；执行层 `require_app_id`
 // 仍拒绝未知标识，分层不混淆）。详见 ADR-0010 修订注。
@@ -255,7 +255,7 @@ mod tests {
 
     #[test]
     fn test_parse_app_id_normalizes_canonical() {
-        // ADR-0010 修订：深链入站强制归一化（大小写/URL 形态收敛为 canonical；
+        // ADR-0010 修订：深链入站强制归一化（大小写/URL 形态归一为 canonical；
         // 不可解析回退小写，解析层不断路由）。
         let mixed = DeepLinkParser::parse("zstore://app/RustDesk/RustDesk").unwrap();
         assert_eq!(

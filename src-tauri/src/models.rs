@@ -301,7 +301,6 @@ pub struct ImportUserDataResult {
     pub favorites_added: usize,
     pub watched_added: usize,
     pub settings_applied: usize,
-    pub installed_skipped: usize,
 }
 
 pub use crate::deeplink::DeepLinkAction;

@@ -37,7 +37,7 @@ export interface InstallActionsProps {
   isManaged: boolean | null;
   /**
    * 仅检测到未纳管（归一选择器得出，由 App→AppDetailModal 透传；缺席时经共享
-   * `resolveDetectedOnly` 归一派生，禁止本地手写 `&&`，B3a）。
+   * `resolveDetectedOnly` 归一派生，禁止本地手写 `&&`）。
    * `null` 视为缺席（未知态由 isManaged===null 统一门控）。
    */
   isDetectedOnly?: boolean | null;
@@ -98,7 +98,7 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
   const [isManaging, setIsManaging] = useState(false);
   // P0 已纳管 vs 仅检测到：managed 绿已安装；detected 灰检测到·点击纳管，点击调 handleManageApp/importSingleApp。
   // 判态收口共享选择器：调用方 booleans 经归一选择器得出，末端经 `resolveDetectedOnly`
-  // 归一派生（本地不再手写 `isInstalled && !isManaged`，大小写变体 ID 下曾与选择器分叉，B3a）。
+  // 归一派生（末端禁止本地手写 `isInstalled && !isManaged`，与选择器分叉）。
   // P1 三态：isManaged===null（未知）+ 已安装 = 未知，中性占位，永不闪灰。
   const isUnknown = isInstalled && isManaged === null;
   const isDetectedOnly = isDetectedOnlyProp ?? resolveDetectedOnly(isInstalled, isManaged);
@@ -163,7 +163,7 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
     <div className="install-action-bar">
       <div className="install-action-left">
         {statusClickable ? (
-          // 可点击态用原生 button（键盘可达，免费 a11y；视觉与原 div 一致，D4 单色）。
+          // 可点击态用原生 button（键盘可达，免费 a11y；视觉与容器一致，D4 单色）。
           <button
             type="button"
             className="install-asset-label"

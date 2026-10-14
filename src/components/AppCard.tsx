@@ -7,27 +7,25 @@ import { VerifiedBadge } from './VerifiedBadge';
 import { PlatformIcon, ForgeIcon } from './icons/PlatformIcons';
 import { PLATFORM_META, type PlatformId } from '../lib/platformFilter';
 import { getAppDisplayName, getAppDescription, getCategoryLabel, isAppCataloged } from '../utils/appHelper';
-import { formatStars } from '../services/trends';
+import { formatStars } from '../services/trends/enrich';
 
 interface AppCardProps {
   app: AppSummary;
-  /** union 口径（已纳管 + 仅检测到），保持历史语义供旧调用方兼容。 */
   isInstalled: boolean;
   /**
-   * 已纳管（绿色已安装）。缺席（undefined）时回退为 isInstalled，保持旧调用方零变化；
-   * 显式 `null` = managed 列表尚未加载（未知）：union 命中时渲染中性占位，永不闪灰（P1）。
+   * 已纳管（绿色已安装）。三态：`true`/`false` = 已知，
+   * `null` = managed 列表尚未加载（未知）：union 命中时渲染中性占位，永不闪灰（P1）。
    */
-  isManaged?: boolean | null;
+  isManaged: boolean | null;
   /**
-   * 仅检测到未纳管（灰色检测到·点击纳管）。缺席时按 isInstalled && !managed 派生；
-   * `null` 视为缺席（未知态由 isManaged===null 统一门控）。
+   * 仅检测到未纳管（灰色检测到·点击纳管）。`null` = 未知态（由 isManaged===null 统一门控）。
    */
   isDetectedOnly?: boolean | null;
   isInstalling?: boolean;
   isFavorite?: boolean;
   isWatched?: boolean;
   /** 待确认态（summary 为空且详情尚未落定）：此时不渲染 Other 徽标，改以占位保持布局稳定。 */
-  platformPending?: boolean;
+  platformPending: boolean;
   /** 趋势榜单名次（1-based）。不传则不渲染名次，精选页外观零变化。 */
   rank?: number;
   /** 名次颜色覆盖；默认按金银铜规则着色。 */
@@ -96,20 +94,19 @@ function isAppVisualEqual(prev: AppSummary, next: AppSummary): boolean {
 }
 
 function areAppCardPropsEqual(prev: AppCardProps, next: AppCardProps): boolean {
-  // managed 三态比较：null（未知）与 boolean/缺席严格区分，未知→已知必重渲染（消灭占位残留）；
-  // 缺席（undefined）仍回退 isInstalled，保持旧调用零变化。
-  const managedKey = (v: boolean | null | undefined, installed: boolean): string =>
-    v === null ? 'unknown' : String(v ?? installed);
+  // managed 三态比较：null（未知）与 boolean 严格区分，未知→已知必重渲染（消灭占位残留）。
+  const managedKey = (v: boolean | null): string =>
+    v === null ? 'unknown' : String(v);
   return (
     isAppVisualEqual(prev.app, next.app) &&
     prev.isInstalled === next.isInstalled &&
-    managedKey(prev.isManaged, prev.isInstalled) === managedKey(next.isManaged, next.isInstalled) &&
-    (prev.isDetectedOnly ?? (prev.isInstalled && !(prev.isManaged ?? prev.isInstalled))) ===
-      (next.isDetectedOnly ?? (next.isInstalled && !(next.isManaged ?? next.isInstalled))) &&
+    managedKey(prev.isManaged) === managedKey(next.isManaged) &&
+    (prev.isDetectedOnly ?? (prev.isInstalled && !prev.isManaged)) ===
+      (next.isDetectedOnly ?? (next.isInstalled && !next.isManaged)) &&
     (prev.isInstalling ?? false) === (next.isInstalling ?? false) &&
     (prev.isFavorite ?? false) === (next.isFavorite ?? false) &&
     (prev.isWatched ?? false) === (next.isWatched ?? false) &&
-    (prev.platformPending ?? false) === (next.platformPending ?? false) &&
+    (prev.platformPending) === (next.platformPending) &&
     prev.rank === next.rank &&
     prev.rankColor === next.rankColor &&
     prev.trendGain === next.trendGain &&
@@ -133,7 +130,7 @@ export const AppCard: React.FC<AppCardProps> = memo(({
   isInstalling = false,
   isFavorite = false,
   isWatched = false,
-  platformPending = false,
+  platformPending,
   rank,
   rankColor,
   trendGain,
@@ -149,10 +146,9 @@ export const AppCard: React.FC<AppCardProps> = memo(({
 }) => {
   const { t, i18n } = useTranslation();
   // P0 已纳管 vs 仅检测到：managed 绿已安装，detected 灰检测到·点击纳管。
-  // 旧调用方仅传 isInstalled（union）时回退为 managed，保持零变化；新调用方传 isManaged/managedIds 派生后即消灭误报。
   // P1 三态：isManaged===null（managed 未加载）+ union 命中 = 未知，渲染中性占位，永不闪灰；
   // union 未命中即确定未安装（Get），无需占位。
-  const managed = isManaged ?? isInstalled;
+  const managed = isManaged;
   const detectedOnly = isDetectedOnly ?? (isInstalled && !managed);
   const showUnknown = isInstalled && isManaged === null;
   const showManaged = !showUnknown && managed && !detectedOnly;

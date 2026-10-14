@@ -24,7 +24,6 @@ vi.mock('../services/api', () => ({
       favorites_added: 0,
       watched_added: 0,
       settings_applied: true,
-      installed_skipped: 0,
     }),
   },
 }));

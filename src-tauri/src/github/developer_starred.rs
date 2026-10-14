@@ -26,8 +26,8 @@ impl CatalogService {
     /// - 缓存优先：`release_cache`（key = `starred_release_endpoint`，与
     ///   `api_etag_cache.endpoint_url` 同键）命中且 payload 可解析出 tag 时零网络直接认定；
     /// - 配额护栏：每轮 live `releases/latest` 探测不超过 `STARRED_RELEASE_ENRICH_LIMIT`，
-    ///   超限仓库保留旧行为（`has_releases: false`），不发请求；
-    /// - 失败/限流/404 时保留旧行为（false + 日志），不抛错；
+    ///   超限仓库 `has_releases: false`（安装状态未知），不发请求；
+    /// - 失败/限流/404 时 `has_releases: false` + 日志，不抛错；
     /// - 200 命中且带 ETag 时回填 `release_cache` 供调用方 `save_etag` 持久化，复同步零配额。
     pub async fn sync_starred_repos_with_cache(
         &self,
@@ -197,7 +197,7 @@ impl CatalogService {
         }
 
         // 第二遍：live 轻量探测（`releases/latest` 单请求/库），预算上限
-        // STARRED_RELEASE_ENRICH_LIMIT；失败/限流/404 保留旧行为（false + 日志）。
+        // STARRED_RELEASE_ENRICH_LIMIT；失败/限流/404 记 false + 日志。
         // 并发 buffered(4)：预先按预算截断需探测下标，并发取回后按 index 回填 resolved。
         let needy: Vec<usize> = pending
             .iter()

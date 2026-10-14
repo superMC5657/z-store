@@ -519,7 +519,7 @@ pub fn run() {
                                     }
                                 }
                                 Err(e) => {
-                                    // 旧持久化缺字段无法解析：清理过期快照，用户需重新登录。
+                                    // 无法解析的损坏快照直接清理，避免坏行永久残留。
                                     log::warn!(
                                         "oauth user snapshot invalid reason={} action=clear-and-relogin",
                                         crate::log_support::short_reason(&e.to_string())

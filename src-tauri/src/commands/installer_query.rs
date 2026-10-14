@@ -346,8 +346,7 @@ pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, St
         }
     }
 
-    // 诊断增强：Linux 下记录路径为空时给出可排查的候选路径（which/desktop），
-    // 替代原来的单一“无”字，避免 Motrix 类已安装应用无从下手。
+    // 诊断增强：Linux 下记录路径为空时给出可排查的候选路径（which/desktop）。
     #[cfg(target_os = "linux")]
     {
         if target_path.is_empty() {

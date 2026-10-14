@@ -5,10 +5,6 @@ import {
 } from '../lib/platformFilter';
 
 export const PLATFORM_FILTER_STORAGE_KEY = 'zstore:platform-filter:v2';
-/** 5-ID 旧世界的遗留键：仅用于一次性升级读取，绝不回写。 */
-export const LEGACY_PLATFORM_FILTER_STORAGE_KEY = 'zstore:platform-filter:v1';
-/** 旧世界 5 端 ID：遗留全选（= 展示全部意图）升级为 6 端全选，避免静默隐藏类库。 */
-export const LEGACY_OS_PLATFORM_IDS: readonly string[] = ['windows', 'macos', 'linux', 'ios', 'android'];
 
 /**
  * 将原始 localStorage 字符串解析为经过验证的平台选择集合。
@@ -44,10 +40,6 @@ export function parseSelectedPlatforms(raw: string | null | undefined): Set<Plat
  * 首次渲染时读取持久化的平台选择。保证绝不抛错：
  * 存储缺失、值损坏或存储抛错均产生全选集合；
  * 存储为有效的空数组则产生空集合。
- *
- * v1 → v2 一次性升级：v2 缺席时读取遗留 v1 键。任何遗留 v1 集合一律补上虚拟 other
- * （发现性默认，与新用户全 6 端一致；用户可自行取消勾选）。
- * v2 集合原样沿用，绝不触碰。
  */
 export function loadSelectedPlatforms(): Set<PlatformId> {
   const full = new Set<PlatformId>(PLATFORM_IDS);
@@ -55,20 +47,7 @@ export function loadSelectedPlatforms(): Set<PlatformId> {
     if (typeof window === 'undefined' || !window.localStorage) return full;
     const current = window.localStorage.getItem(PLATFORM_FILTER_STORAGE_KEY);
     if (current !== null) return parseSelectedPlatforms(current);
-    const legacy = window.localStorage.getItem(LEGACY_PLATFORM_FILTER_STORAGE_KEY);
-    if (!legacy) return full;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(legacy);
-    } catch {
-      return full;
-    }
-    if (!Array.isArray(parsed)) return full;
-    const migrated = parseSelectedPlatforms(JSON.stringify(parsed));
-    // 旧世界 5 端 ID 全集即“展示全部”意图；子集亦补 other，保证类库默认可见。
-    void LEGACY_OS_PLATFORM_IDS;
-    migrated.add('other');
-    return migrated;
+    return full;
   } catch {
     return full;
   }

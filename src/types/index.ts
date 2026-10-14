@@ -15,14 +15,11 @@ export interface AppSummary {
   category_name: string;
   is_verified: boolean;
   /**
-   * 展示层容错：数据层为 `favoriteIds ∖ apps` 补占位行时携带的收录标记
-   * （后端 snake_case，前端 camelCase 兼容）。缺席时展示层按
-   * `category !== 'external'` 兜底（与详情页 Header 同口径）。
+   * 展示层容错：数据层为 `favoriteIds ∖ apps` 补占位行时携带的收录标记。
+   * 缺席时展示层按 `category !== 'external'` 兜底（与详情页 Header 同口径）。
    * 仅展示层读取，绝不参与数据源 join。
    */
   is_cataloged?: boolean;
-  /** @deprecated 前端兼容别名，读取请经 `isAppCataloged` 收敛。 */
-  isCataloged?: boolean;
   is_installed?: boolean;
   has_update?: boolean;
   installed_version?: string;
@@ -357,7 +354,6 @@ export interface ImportUserDataCounts {
   favorites_added: number;
   watched_added: number;
   settings_applied: boolean;
-  installed_skipped: number;
 }
 
 // 趋势榜单数据层契约（SSOT）。
@@ -400,7 +396,7 @@ export interface FetchTrendsOptions {
    * GitHub 加速代理前缀（保留字段，仅为契约稳定；趋势流量恒直连，本字段被忽略）。
    * gh-proxy 保留给应用下载（Rust 侧）；trends 皆为小 JSON/HTML，始终直连。
    * UI 仍可传入既有值，无需改动调用方。
-   * P1-C3：`language`/`category` 参与缓存键时一律归一 `trim().toLowerCase()`
+   * `language`/`category` 参与缓存键时一律归一 `trim().toLowerCase()`
    * （见 `services/trends/cache.ts`），读写同源（见 `services/trends/boards.ts`）。
    */
   proxyPrefix?: string;

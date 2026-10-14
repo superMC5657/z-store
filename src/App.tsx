@@ -165,8 +165,8 @@ export const App: React.FC = () => {
   });
   lazyBackfillRef.current = lazyBackfillPlatforms;
 
-  // 3. 收藏/关注未收录占位行 left-join（深 join 模块 `useUncatalogedJoin`，
-  // 原 `useFavoritesExtra` 已删除并内迁；仅收藏页消费，不进 apps/计数/其它视图）
+  // 3. 收藏/关注未收录占位行 left-join（深 join 模块 `useUncatalogedJoin`；
+  // 仅收藏页消费，不进 apps/计数/其它视图）
   const {
     favoriteExtraApps,
     setFavoriteExtraApps,
@@ -671,7 +671,7 @@ export const App: React.FC = () => {
         </main>
       </div>
 
-      {/* P0-1 深度链接安装确认弹窗（显式用户授权门禁） */}
+      {/* 深度链接安装确认弹窗（显式用户授权门禁） */}
       {pendingDeepLinkInstall !== null && (
         <InstallConfirmDialog
           intro="外部链接请求安装以下应用，请确认后再继续："

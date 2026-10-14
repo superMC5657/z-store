@@ -97,9 +97,9 @@ pub(crate) fn now_secs() -> i64 {
 
 impl From<&CatalogItem> for ScanConfig {
     fn from(cat: &CatalogItem) -> Self {
-        // Windows：保持原有语义（windows 标识为空才用 repo 派生 .exe）。
+        // Windows：windows 标识为空才用 repo 派生 .exe。
         // Linux：优先取 linux 原生标识（catalog.json 如 motrix），为空才回退；
-        // 为兼容存量单测（.exe 夹具）额外并入 .exe 派生，不改变 Windows 行为。
+        // 为兼容存量单测（.exe 夹具）额外并入 .exe 派生。
         #[cfg(target_os = "windows")]
         let mut target_executables = cat.get_identifiers("windows");
         #[cfg(not(target_os = "windows"))]

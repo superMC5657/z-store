@@ -20,12 +20,12 @@ interface FavoritesViewProps extends ViewAppActions {
 
 export const FavoritesView: React.FC<FavoritesViewProps> = ({
   apps,
-  platformResolvedOtherIds,
+  platformResolvedOtherIds = new Set<string>(),
   favoriteIds,
   watchedIds,
   installedIds,
   installingIds,
-  managedIds,
+  managedIds = null,
   oauthUser,
   onOpenDetail,
   onQuickInstall,
@@ -48,7 +48,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   }, [oauthUser?.login]);
 
   const watchedSet = watchedIds || new Set<string>();
-  // pending 徽标口径统一经选择器接口（ticket 11；本地不再自立 lambda）。
+  // pending 徽标口径统一经选择器接口。
 
   // FR-6.1: 收藏 / 关注搜索框（按名称 / 别名 / 仓库坐标过滤，见 useViewFilter.matchesAppText）
   const matchesSearch = (a: AppSummary) => matchesAppText(a, searchText);

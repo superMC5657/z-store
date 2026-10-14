@@ -34,8 +34,8 @@ impl AppScanner {
             return Some(path);
         }
         // Linux：接受无扩展名的绝对路径可执行文件（如 /usr/bin/motrix、/opt/Motrix/motrix）。
-        // Windows 语义不变（非 exe/lnk 一律 None）；此处用 cfg! 保持 Windows 编译产物与旧逻辑一致，
-        // 且仅接受 Unix 绝对路径，避免把 `C:\App\*.dll` 误判（存量单测在 Linux 主机上仍须通过）。
+        // Windows 非 exe/lnk 一律 None；此处用 cfg! 区分，
+        // 且仅接受 Unix 绝对路径，避免把 `C:\App\*.dll` 误判。
         if cfg!(target_os = "linux") {
             let s = unquoted.trim();
             if s.starts_with('/') && !s.contains(',') {

@@ -44,11 +44,11 @@ const CATEGORY_DEFINITIONS = [
 
 export const CategoriesView: React.FC<CategoriesViewProps> = ({
   apps,
-  platformResolvedOtherIds,
+  platformResolvedOtherIds = new Set<string>(),
   installedIds,
   installingIds,
   favoriteIds,
-  managedIds,
+  managedIds = null,
   watchedIds,
   onOpenDetail,
   onQuickInstall,
@@ -59,7 +59,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
 }) => {
   const { t } = useTranslation();
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  // pending 徽标口径统一经选择器接口（ticket 11；本地不再自立 lambda）。
+  // pending 徽标口径统一经选择器接口。
 
   // 对传入的 `apps` 属性进行单维度分类过滤；
   // 调用方（App）已按全局设备平台选择进行了预过滤。本视图绝不自行做二次平台过滤。

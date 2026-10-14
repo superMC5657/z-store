@@ -91,6 +91,7 @@ describe('star characterization (real AppDetailModal path)', () => {
       <AppDetailModal
         app={fixtureApp()}
         isInstalled={false}
+        platformPending={false}
         oauthUser={fixtureUser()}
         onClose={() => {}}
         onInstall={async () => {}}

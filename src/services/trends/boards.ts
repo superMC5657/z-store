@@ -44,7 +44,7 @@ export const TRENDING_SINCE: Record<TimeBoardId, 'daily' | 'weekly' | 'monthly'>
   monthly: 'monthly',
 };
 
-/** 当前 6 榜全集（常青/分类榜已下线，不在此列）。 */
+/** 当前合法 6 榜全集。 */
 export const TREND_BOARD_IDS: readonly TrendBoardId[] = [
   'daily',
   'weekly',
@@ -76,11 +76,12 @@ export function isTimeBoard(board: string): board is TimeBoardId {
   return board in TRENDING_SINCE;
 }
 
-/** 陈旧榜回落：非当前 6 榜（如已下线的 'top' / 'category' 残留）一律回落 'weekly'。 */
-export function resolveTrendBoard(board: string): TrendBoardId {
-  return (TREND_BOARD_IDS as readonly string[]).includes(board)
-    ? (board as TrendBoardId)
-    : 'weekly';
+/** 榜单名校验：仅接受当前合法 6 榜；非法输入返回 undefined（调用方拒绝）。 */
+export function resolveTrendBoard(board: string): TrendBoardId | undefined {
+  if (!(TREND_BOARD_IDS as readonly string[]).includes(board)) {
+    return undefined;
+  }
+  return board as TrendBoardId;
 }
 
 /** 构造 trending 抓取 URL（language 走 `/trending/<lang>` 路径段，始终直连）。 */
@@ -181,7 +182,7 @@ const boardHydratedListeners = new Set<BoardHydratedListener>();
 
 /**
  * board 就绪订阅的内部实现（单 emit 源 `emitBoardHydrated` 的订阅口）。
- * ica3-2：View 侧唯一对外口为 `board.subscribeBoardReady`，此处仅供 slice 内部 +
+ * View 侧唯一对外口为 `board.subscribeBoardReady`，此处仅供 slice 内部 +
  * 白盒单测直订；View 禁止直调（useTrendBoard 已合一为单订阅）。
  * L1/L2/网络三路径统一 emit（对称就绪），TTL/契约不变。
  */
@@ -222,8 +223,7 @@ async function fetchBoardWithL2(
   if (!opts.forceRefresh) {
     const hit = readTrendsCache(key, board);
     if (hit) {
-      // C2 对称就绪：L1 命中亦透出 hydrate 就绪信号（原仅 L2 透出，
-      // useTrendBoard L1/网络走直接置位造成双通道不对称；现三路径统一 emit）。
+      // L1 命中亦透出 hydrate 就绪信号（三路径统一 emit）。
       emitBoardHydrated(board, key);
       return { repos: hit, status: 'ok', stale: false };
     }
@@ -248,7 +248,7 @@ async function fetchBoardWithL2(
     writeTrendsCache(key, result.repos);
     // 榜缓存二级落盘
     await saveBoardCacheMerged(key, board, result.repos);
-    // C2 对称就绪：网络成功亦透出就绪（与 L1/L2 同通道，hook 不再依赖直接置位）。
+    // 网络成功亦透出就绪（与 L1/L2 同通道，hook 不依赖直接置位）。
     emitBoardHydrated(board, key);
   }
   return result;
@@ -296,7 +296,7 @@ async function fetchDoforceShared(opts: FetchTrendsOptions = {}): Promise<TrendR
     const hit = readDoforceShared();
     if (hit) {
       zlogInfo('[trends] doforce shared-cache hit');
-      // C2 对称就绪：共享槽命中亦透出（与 L2/网络同通道）。
+      // 共享槽命中亦透出（与 L2/网络同通道）。
       emitBoardHydrated('doforce', key);
       return hit;
     }
@@ -334,7 +334,7 @@ async function fetchDoforceShared(opts: FetchTrendsOptions = {}): Promise<TrendR
         writeDoforceShared(repos);
         // 榜缓存二级落盘
         await saveBoardCacheMerged(key, 'doforce', repos);
-        // C2 对称就绪：doforce 网络成功亦透出（rising/healthy 共享槽同信号）。
+        // doforce 网络成功亦透出（rising/healthy 共享槽同信号）。
         emitBoardHydrated('doforce', key);
       }
       return repos;
@@ -350,7 +350,7 @@ async function fetchRisingBoardResult(opts: FetchTrendsOptions): Promise<TrendsR
   return runBoardFetch('rising', 'doforce', async () => {
     const repos = await fetchDoforceShared(opts);
     if (repos.length === 0) return [];
-    // C2：undefined 恒沉底、tie 按 id 升序（compareStarsGainedDesc SSOT）。
+    // undefined 恒沉底、tie 按 id 升序（compareStarsGainedDesc SSOT）。
     return [...repos].sort(compareStarsGainedDesc);
   });
 }
@@ -374,7 +374,7 @@ export async function fetchTrendsResult(
   opts: FetchTrendsOptions = {},
 ): Promise<TrendsResult> {
   // 切榜 sweep 过期。
-  // ica3-2：本函数为 slice 内部实现；View 侧唯一对外口为 board.fetchTrendsResultSeam。
+  // 本函数为 slice 内部实现；View 侧唯一对外口为 board.fetchTrendsResultSeam。
   sweepExpiredTrendsCache();
   sweepExpiredTrendEnrichCache();
   if (isTimeBoard(board)) {

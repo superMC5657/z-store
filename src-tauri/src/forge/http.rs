@@ -19,7 +19,7 @@ pub enum AuthScheme {
 }
 
 /// 表驱动 API 预设：Accept + UA 成对收敛，调用方只选预设不手写字面量。
-/// - `GithubApi`：GitHub v3 Accept + ZStore UA（`detail`/`search` 旧行为经 `AuthScheme` 区分 `token`/`Bearer`）；
+/// - `GithubApi`：GitHub v3 Accept + ZStore UA（`token`/`Bearer` 经 `AuthScheme` 区分）；
 /// - `JsonApi`：通用 `application/json` + ZStore UA（`device_flow` / Gitea / GitLab）；
 /// - `IconCdn`：`image/*` Accept + 浏览器 UA（SimpleIcons/CDN/raw 图标，绝不携带 token，与 API client 隔离）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

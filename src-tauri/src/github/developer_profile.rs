@@ -31,19 +31,19 @@ impl CatalogService {
         developer: &str,
         token: Option<&str>,
     ) -> Result<DeveloperProfile, String> {
-        // 后向兼容入口：无缓存上下文时走条件请求新路径（etag 为 None 即普通 GET）。
+        // 无缓存上下文的入口：etag 为 None 即普通 GET。
         // 持有 DB 的调用方应使用 fetch_developer_profile_with_cache，并经
-        // db.get_etag/save_etag 持久化（镜像 commands/catalog.rs 的 ETag 调用模式）。
+        // db.get_etag/save_etag 持久化（与 commands/catalog.rs 的 ETag 调用模式一致）。
         let (profile, _, _) = self
             .fetch_developer_profile_with_cache(developer, token, (None, None), (None, None), None)
             .await?;
         Ok(profile)
     }
 
-    /// ETag 感知的开发者画像拉取（镜像 `fetch_app_detail` 的调用模式）：
+    /// ETag 感知的开发者画像拉取（与 `fetch_app_detail` 调用模式一致）：
     /// 调用方经 SQLite `api_etag_cache` 取出 `(etag, payload)` 传入 → 本函数发送
     /// `If-None-Match` → 304 时用 payload 恢复 → 200 时返回新 `(etag, payload)`
-    /// 供调用方 `save_etag` 持久化。失败/限流时沿用旧降级（catalog 兜底 + 日志）。
+    /// 供调用方 `save_etag` 持久化。失败/限流时降级 catalog 兜底 + 日志。
     pub async fn fetch_developer_profile_with_cache(
         &self,
         developer: &str,

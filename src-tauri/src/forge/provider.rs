@@ -39,7 +39,7 @@ impl ForgeRepoInfo {
     }
 }
 
-/// 三家 `classify_asset + as_str` 闭包逐字相同段的唯一收敛点。
+/// 三家 `classify_asset + as_str` 共用映射的唯一落点。
 /// 调用方保留合法差异：GitLab permalink/latest 回退与 `direct_asset_url` 回退、
 /// Gitea `assets: Option` 的 `unwrap_or_default`，此处只做 `(name, url, size)` -> `ReleaseAsset` 纯映射。
 pub(crate) fn parse_assets(
@@ -102,5 +102,5 @@ pub trait ForgeProvider: Send + Sync {
     ) -> Result<Vec<ForgeRepoInfo>, String>;
 }
 
-// 注：forge 本地 `AssetKind -> &str` 已收敛至 `installer::AssetKind::as_str()`
-// （见 `installer/mod.rs`），此处不再保留重复映射。
+// forge 本地 `AssetKind -> &str` 由 `installer::AssetKind::as_str()` 表驱动
+// （见 `installer/mod.rs`）。

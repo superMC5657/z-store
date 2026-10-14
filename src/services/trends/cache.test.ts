@@ -57,7 +57,7 @@ describe('trends L2 persistence cache', () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
     const nowSec = Math.floor(Date.now() / 1000);
     vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValueOnce({
-      payload_json: JSON.stringify([mockRepo]),
+      payload_json: JSON.stringify({ v: 1, repos: [mockRepo], enrich: {} }),
       cached_at: nowSec - 60, // 1 min ago
     });
 
@@ -103,7 +103,7 @@ describe('trends L2 persistence cache', () => {
 
     // daily cached 30m ago (<1h DB TTL) is fresh in DB
     vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValueOnce({
-      payload_json: JSON.stringify([mockRepo]),
+      payload_json: JSON.stringify({ v: 1, repos: [mockRepo], enrich: {} }),
       cached_at: nowSec - 1800,
     });
     const freshDaily = await getDbTrendCache('daily||', 'daily');
@@ -111,14 +111,14 @@ describe('trends L2 persistence cache', () => {
 
     // daily cached 2h ago (>1h DB TTL, <12h) is expired in DB
     vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValueOnce({
-      payload_json: JSON.stringify([mockRepo]),
+      payload_json: JSON.stringify({ v: 1, repos: [mockRepo], enrich: {} }),
       cached_at: nowSec - 2 * 3600,
     });
     expect(await getDbTrendCache('daily||', 'daily')).toBeUndefined();
 
     // new cached 2h ago (<12h DB TTL) is fresh in DB
     vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValueOnce({
-      payload_json: JSON.stringify([mockRepo]),
+      payload_json: JSON.stringify({ v: 1, repos: [mockRepo], enrich: {} }),
       cached_at: nowSec - 2 * 3600,
     });
     const freshNew = await getDbTrendCache('new||', 'new');
@@ -126,7 +126,7 @@ describe('trends L2 persistence cache', () => {
 
     // weekly cached_at exceeding 12h returns undefined (expired)
     vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValueOnce({
-      payload_json: JSON.stringify([mockRepo]),
+      payload_json: JSON.stringify({ v: 1, repos: [mockRepo], enrich: {} }),
       cached_at: nowSec - (12 * 3600 + 60),
     });
     const expired = await getDbTrendCache('weekly||', 'weekly');
@@ -167,8 +167,8 @@ describe('trends L2 persistence cache', () => {
       cache_key: 'weekly||',
       cacheKey: 'weekly||',
       board: 'weekly',
-      payload_json: JSON.stringify([mockRepo]),
-      payloadJson: JSON.stringify([mockRepo]),
+      payload_json: JSON.stringify({ v: 1, repos: [mockRepo], enrich: {} }),
+      payloadJson: JSON.stringify({ v: 1, repos: [mockRepo], enrich: {} }),
     });
   });
 
@@ -327,7 +327,7 @@ describe('trends L2 persistence cache', () => {
       vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd) => {
         if (cmd === 'get_trend_board_cache') {
           return {
-            payload_json: JSON.stringify([mockRepo]),
+            payload_json: JSON.stringify({ v: 1, repos: [mockRepo], enrich: {} }),
             cached_at: nowSec - 10,
           };
         }
@@ -394,7 +394,7 @@ describe('trends L2 persistence cache', () => {
         if (cmd === 'get_trend_board_cache') {
           expect((args as { cache_key?: string }).cache_key).toBe(expectedKey);
           return {
-            payload_json: JSON.stringify([mockRepo]),
+            payload_json: JSON.stringify({ v: 1, repos: [mockRepo], enrich: {} }),
             cached_at: nowSec - 100,
           };
         }

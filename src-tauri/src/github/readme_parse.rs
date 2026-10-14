@@ -48,7 +48,7 @@ pub fn classify_readme_lang(file_name: &str) -> Option<&'static str> {
         None => Some("en-US"),
         Some("zh-cn") | Some("zh_cn") | Some("zh") | Some("cn") => Some("zh-CN"),
         Some("en-us") | Some("en_us") | Some("en") | Some("us") => Some("en-US"),
-        // 正则已收敛后缀集合，兜底仍归 en-US，避免新增语言时炸流程。
+        // 后缀集合白名单匹配，兜底归 en-US，避免新增语言时炸流程。
         _ => Some("en-US"),
     }
 }
@@ -155,21 +155,5 @@ mod tests {
         let out = select_readme_candidates(&single);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0], ("en-US".to_string(), "README.md".to_string()));
-    }
-
-    #[test]
-    fn test_app_detail_readme_variants_serde_backward_compat() {
-        // 旧 detail_json（无 readme_variants 字段）必须可解析为 None，不炸 304/缓存命中路径。
-        let legacy = serde_json::json!({
-            "id": "o/r", "name": "r", "owner": "o", "repo": "r",
-            "icon": "", "icon_bg": "", "description": "", "stars": 0u64,
-            "forks": 0u64, "license": "MIT", "latest_version": "v1",
-            "changelog": "", "is_verified": false, "readme_markdown": "# r",
-            "releases": [], "category": "dev", "category_name": "开发工具",
-            "platforms": []
-        });
-        let detail: crate::models::AppDetail =
-            serde_json::from_value(legacy).expect("legacy detail must parse");
-        assert!(detail.readme_variants.is_none());
     }
 }

@@ -58,8 +58,8 @@ pub fn should_skip_download(local_len: u64, local_hash: &str, expected_sha256: &
 /// 流式校验为 implementation（`persist_stream_to_file`，不符以 Tampered 中断并删文件，
 /// 销毁语义保留）；能执行到终态说明已通过官方校验或上游未提供期望值。
 /// 期望哈希非空 → `verified`；缺失/空白 → `completed_unverified`
-/// （`extract_checksums_map` 缺失时语义不变，禁止虚假声明"已通过官方校验"）。
-/// `SkipDone::finish` 与下载终态分支共用，文案逐字收敛。
+///（`extract_checksums_map` 缺失时同语义，禁止虚假声明"已通过官方校验"）。
+/// `SkipDone::finish` 与下载终态分支共用同一文案。
 pub fn verify_terminal_state(
     expected_sha256: Option<&str>,
     actual_hash: &str,
@@ -302,7 +302,7 @@ mod tests {
     #[test]
     fn verify_terminal_state_without_manifest_is_completed_unverified() {
         // fetch→verify 契约终态：manifest 缺失（`extract_checksums_map` 给空表 →
-        // 期望哈希缺席）时 `completed_unverified` 语义不变，不得虚假声明已校验。
+        // 期望哈希缺席）时归 `completed_unverified`，不得虚假声明已校验。
         let (state, msg) = verify_terminal_state(None, "abc123");
         assert_eq!(state, "completed_unverified");
         assert!(msg.contains("abc123"));
@@ -310,7 +310,7 @@ mod tests {
         assert_eq!(state, "completed_unverified");
         let (state, _) = verify_terminal_state(Some("   "), "abc123");
         assert_eq!(state, "completed_unverified");
-        // 期望哈希在场 → verified（`SkipDone`/下载终态同形）。
+        // 期望哈希在场 → verified（`SkipDone`/下载终态一致）。
         let (state, msg) = verify_terminal_state(Some("ABC123"), "abc123");
         assert_eq!(state, "verified");
         assert!(msg.contains("abc123"));

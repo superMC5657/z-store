@@ -25,10 +25,10 @@ pub struct OnlineSearchResult {
 }
 
 // ADR-0008：网络超时统一经 `config::api_timeout_or/from` 单一来源（统一配置中枢同一键）；
-// 本模块不再自立 helper，一律直调 `crate::config`。
+// 本模块一律直调 `crate::config`。
 
 /// emit 世代通道选择（纯选择器，可单测）：`ctx` 决定查哪一个全局世代计数器 + 期望 gen。
-/// SEARCH_GEN/BOARD_GEN 降为 `ctx` 参数——搜索与趋势不再双写两套落库/emit，只差此一选择。
+/// 搜索与趋势共用同一套落库/emit，仅世代计数器不同。
 fn emit_gen_lane(
     ctx: &crate::github::icon_fetch::IconFetchCtx,
 ) -> (&'static AtomicU64, u64) {
@@ -40,7 +40,7 @@ fn emit_gen_lane(
 
 /// 图标命中落库 + 前端 emit 唯一实现（`upsert_icon_cycle` + 单发新事件，搜索/趋势同源）。
 /// level纯L：`level=2`写 `l2_url`，`level=3`写 `l3_url`；via=live|m2，远端探测走live，DB落盘回填走m2。
-/// - 只发统一 `zstore://icon-ready{key,id,icon,level,via,context}`（`context` 原样透传 `job.ctx`，
+/// - 只发统一 `zstore://icon-ready{id,icon,level,via,context}`（`context` 原样透传 `job.ctx`，
 ///   载荷经 core `icon_fetch::icon_ready_payload` 构建）；
 /// - 世代比对防串：落库前 + emit 前双检查 `emit_gen_lane(ctx)`（搜索查 SEARCH_GEN，
 ///   趋势查 BOARD_GEN；切榜/重搜抛弃过时在途结果，同语义）；
@@ -613,7 +613,7 @@ pub async fn enrich_trend_repos(
     let mut results: Vec<Option<AppSummary>> =
         fetch_enrich_batch(catalog, token.clone(), timeout_each, batch_jobs).await;
 
-    // Top1+2 收敛：循环外一次取 db 锁复用，读解析 + 写包事务化（与 search_apps_online 同形）。
+    // 循环外一次取 db 锁复用，读解析 + 写包事务化（与 search_apps_online 同一模式）。
     // 快返壳图标为空，此处基本无 pending（确认图标已直接回填），platforms 经详情缓存 join 照旧。
     if let Ok(db) = state.db() {
         let ttl_seconds = db.get_detail_cache_ttl_minutes() * 60;
@@ -754,15 +754,6 @@ mod tests {
     }
 
     #[test]
-    fn trend_icon_fetch_config_is_streaming_only() {
-        // 契约：流式 cutover 后无 compat 等齐路，`IconFetchConfig` 仅保留
-        // pool / total_timeout_secs（默认 5 / 15），不再有 compat 开关。
-        let cfg = crate::config::IconFetchConfig::default();
-        assert_eq!(cfg.pool, 5);
-        assert_eq!(cfg.total_timeout_secs, 15);
-    }
-
-    #[test]
     fn emit_gen_lane_selects_counter_by_ctx() {
         // 同一 emit 口：Search 查 SEARCH_GEN，Trend 查 BOARD_GEN；期望 gen 原样回显。
         // 删除 `save_and_emit_trend` 后趋势落库/emit 前双检查仍查 BOARD_GEN（行为一致）。
@@ -785,8 +776,7 @@ mod tests {
 
     #[test]
     fn emit_payload_carries_ctx_through_single_interface() {
-        // 删除 `save_and_emit_trend` 后趋势 emit 行为一致：同一载荷构建口，
-        // Trend 上下文原样透传（key 小写归一，level/via 透传，仅全局量差异消失）。
+        // 同一载荷构建口，Trend 上下文原样透传（id 小写归一，level/via 透传）。
         let job = crate::github::icon_fetch::IconFetchJob {
             id: "o/r".to_string(),
             owner: "O".to_string(),
@@ -802,7 +792,6 @@ mod tests {
             2,
             "live",
         );
-        assert_eq!(p.key, "o/r");
         assert_eq!(p.id, "o/r");
         assert_eq!(p.level, 2);
         assert_eq!(p.via, "live");

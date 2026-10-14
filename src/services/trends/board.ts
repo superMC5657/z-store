@@ -1,31 +1,29 @@
 /**
- * C2 趋势榜单模块（trend-board vertical slice，唯一入口；ica3-2 deep module）。
+ * 趋势榜单模块（trend-board vertical slice，唯一入口）。
  *
  * boards.ts + cache.ts + enrich.ts 在此收口为单一模块：
  *   fetch → L1 → L2-hydrate → enrich-merge → saveBoardCacheMerged
  *
  * - 唯一对外抓取入口为本模块 `fetchTrendsResultSeam(board, opts)`（boards 内实现，
- *   L1/L2/网络三路径现均 emit boardHydrated，关闭 L2-only 不对称）。
+ *   L1/L2/网络三路径现均 emit boardHydrated）。
  *   View/hook 一律经此口，不直调 `boards.fetchTrendsResult`。
  * - 唯一就绪订阅为本模块 `subscribeBoardReady`（单 emit 源唯一出口，不双订）。
  * - key/TTL/envelope/hydrate/snapshot 一律收为内部 seams：
  *   key 经 `resolveBoardCacheKey`（读写同源），TTL 语义不变（ADR-0007/ADR-0014），
  *   信封/hydrate/快照经 `persistBoardNow`/`hydrateBoardEnrich`/`snapshotBoard*`，
  *   View 层禁止直调 cache/enrich 底层（`build*CacheKey`/`getDb*`/`hydrate*`/`mark/unmark*`）。
- *   底层导出仅供 slice 内部 + 白盒单测，保留兼容不删除。
- * - L2 legacy key 已 cutover（ica3-9）：归一 key 读写同源，旧非归一 key 不再回迁，
- *   存量旧 key 按 miss 重抓（用户已确认可接受）。
+ *   底层导出仅供 slice 内部 + 白盒单测。
+ * - L2 归一 key 读写同源，旧非归一 key 按 miss 重抓。
  * - 所有持久化收口于本模块 seam 之后：
  *   `persistBoardNow` / `scheduleBoardPersist` / `flushBoardPersist` /
  *   `noteBoardReposForPersist` / `subscribeBoardPersistOnConfirmedChange`。
  *   View 层禁止直调 `saveBoardCacheMerged` / `hydrate*` / `mark/unmark*`，
  *   仅持有 `enrichedApps` 镜像 + 本模块纯合并函数。
  * - SWR-fill / enrich-merge / lite-verify / settle-timeout 四段 helper
- *   全部收口于此（原 TrendsView.tsx:317-366 / 375-461 / 903-1125 / 1133-1261
- *   逐行搬运，语义零差），View 只做 load/refresh + render/filter/count。
+ *   全部收口于此，View 只做 load/refresh + render/filter/count。
  * - 治愈总线收口：`normalizeHealKeys` + `subscribeTrendHealBus`，
  *   2 路 window 事件（detail-platforms / detail-richcard）
- *   经同一归一 upsert 路径进镜像，不再散写（图标走 `icon-ready → applyHit` 唯一写口，不走窗口总线）。
+ *   经同一归一 upsert 路径进镜像（图标走 `icon-ready → applyHit` 唯一写口，不走窗口总线）。
  * - 首绘门：裸行先展不拦榜，仅升级受门控
  *  （`boardReady` + `swrSyncedResult` + `isUpgradePending`，见下）。
  *
@@ -97,7 +95,7 @@ export type { PendingLiteTarget };
 /**
  * 唯一 boardReady 订阅（单 emit 源 `emitBoardHydrated` 的唯一出口）。
  * L1/L2/网络三路径在 boards 内统一 emit，本包装为唯一对外 interface。
- * View 侧只订此口，不再双订 `subscribeBoardHydrated`（见 useTrendBoard）。
+ * View 侧只订此口，不双订 `subscribeBoardHydrated`（见 useTrendBoard）。
  */
 export function subscribeBoardReady(fn: BoardHydratedListener): () => void {
   return subscribeBoardHydratedInner(fn);
@@ -149,7 +147,7 @@ export async function persistBoardNow(
 
 /**
  * 富卡写透节流：800ms debounce，聚合连击为一次落盘。
- * （原 TrendsView scheduleBoardWriteThrough 逐行搬运；timer 归模块，不归 View。）
+ * （timer 归模块，不归 View。）
  */
 export function scheduleBoardPersist(cacheKey: string): void {
   if (!cacheKey) return;
@@ -166,7 +164,7 @@ export function scheduleBoardPersist(cacheKey: string): void {
 
 /**
  * 卸载/切榜 flush：先清节流 pending 再落盘一次（有富条目才写，防裸覆盖）。
- * （原 TrendsView pagehide flush 逐行搬运。）
+ * 
  */
 export function flushBoardPersist(): void {
   for (const timer of boardPersistTimers.values()) clearTimeout(timer);
@@ -179,7 +177,7 @@ export function flushBoardPersist(): void {
 
 /**
  * 已确认变更写透联动：mark/unmark（含具平台驱逐删标记）触发后节流写透同榜 key。
- * 读路径 hydrate/sweep 不触发，无读放大。（原 TrendsView 订阅逐行搬运。）
+ * 读路径 hydrate/sweep 不触发，无读放大。
  */
 export function subscribeBoardPersistOnConfirmedChange(): () => void {
   return subscribeTrendConfirmedOtherChanges(() => {
@@ -197,7 +195,7 @@ export function __resetBoardPersistForTest(): void {
 }
 
 /* ------------------------------------------------------------------ */
-/* B. SWR-fill（原 TrendsView 317-366 逐行搬运）                        */
+/* B. SWR-fill                        */
 /* ------------------------------------------------------------------ */
 
 export interface SwrFill {
@@ -266,7 +264,7 @@ export function mergeSwrConfirmedMirror(
 }
 
 /* ------------------------------------------------------------------ */
-/* C. enrich-merge（原 TrendsView 375-461 逐行搬运）                    */
+/* C. enrich-merge                    */
 /* ------------------------------------------------------------------ */
 
 export type DisplayTrendItemLite =
@@ -369,7 +367,7 @@ export function collectUnmarkAliasKeys(
 }
 
 /* ------------------------------------------------------------------ */
-/* D. lite-verify（原 TrendsView 903-1125 逐行搬运）                    */
+/* D. lite-verify                    */
 /* ------------------------------------------------------------------ */
 
 export interface LiteSelectInput {
@@ -599,7 +597,7 @@ export function addConfirmedMirror(prev: Set<string>, keys: readonly string[]): 
 }
 
 /* ------------------------------------------------------------------ */
-/* E. settle-timeout（原 TrendsView 1133-1261 逐行搬运）                */
+/* E. settle-timeout                */
 /* ------------------------------------------------------------------ */
 
 export interface SettleCollect {
@@ -784,7 +782,7 @@ export function boardRepoKeys(repos: readonly TrendRepo[] | undefined): Set<stri
 }
 
 /**
- * 平台治愈镜像合并（原 DETAIL_PLATFORMS_HEAL handler 逐行搬运）：
+ * 平台治愈镜像合并：
  * 空 pending 行被具平台值替换并保留旧真实图标；已具平台行仅跟随非空图标；
  * 预 enrich 行（榜单已知但镜像缺席）直接创建；命中键同步移出已确认。
  */
@@ -856,7 +854,7 @@ export function unmarkPlatformsHealKeys(keys: readonly string[]): void {
 }
 
 /**
- * 富卡治愈镜像合并（原 DETAIL_RICHCARD_HEAL handler 逐行搬运）：
+ * 富卡治愈镜像合并：
  * platforms 沿旧（仅旧空且 incoming 非空才补）；icon/icon_bg 不动归 icon 通道；
  * 其余 dirty 直接覆盖（占位简介即使误带也不覆盖实值）；预 enrich 行创建时剥占位。
  */
@@ -1018,7 +1016,7 @@ export interface TrendHealBusHandlers {
 
 /**
  * 治愈总线统一订阅：2 路 window 事件经同一归一路径分发（图标经 `icon-ready → applyHit`，不走总线）。
- * 调用方只订一次，不再散写；
+ * 调用方只订一次；
  * key 归一（lower-trim 去空）。
  */
 export function subscribeTrendHealBus(handlers: TrendHealBusHandlers): () => void {
@@ -1109,7 +1107,7 @@ export function getBoardPersistKey(): string {
 }
 
 /* ------------------------------------------------------------------ */
-/* I. 趋势 pending 生命周期 hook（View 侧唯一编排出口，ticket 11）      */
+/* I. 趋势 pending 生命周期 hook（View 侧唯一编排出口）                 */
 /* ------------------------------------------------------------------ */
 
 export interface TrendPendingLifecycleParams {
@@ -1118,7 +1116,7 @@ export interface TrendPendingLifecycleParams {
   enrichedApps: Record<string, AppSummary>;
   activeBoard: TrendBoardId;
   trendFetchOpts: FetchTrendsOptions;
-  /** 全局已确认集合；缺席时沿用旧语义（lite/settle 不启用，裸行视同 other）。 */
+  /** 全局已确认集合；缺席时 lite/settle 不启用（调用方传空集合即启用）。 */
   globalConfirmed?: ReadonlySet<string>;
   /** 榜单内已确认集合（View 持有，hook 只读 + 经 setter 落定）。 */
   localConfirmed: ReadonlySet<string>;
@@ -1129,8 +1127,7 @@ export interface TrendPendingLifecycleParams {
 
 /**
  * 趋势 pending 生命周期编排（lite 补验 + settle 超时 + 确认集并集）：
- * View 侧只调此 hook，不再自持 inflight/seq/trusted/ref 镜像与两段 effect
- * （原 TrendsView lite/settle 重实现已删，语义逐行对齐）。
+ * View 侧只调此 hook，不自持 inflight/seq/trusted/ref 镜像与两段 effect。
  * - inflight/seq 守卫与 15s settle 定时归深模块；合并/写透仍走本 board seam；
  * - 返回 `combinedConfirmed`（全局 ∪ 榜单内）供过滤/计数/徽标统一口径。
  */

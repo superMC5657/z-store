@@ -69,6 +69,5 @@ export function handleImportUserData(): ImportUserDataCounts {
     favorites_added: 0,
     watched_added: 0,
     settings_applied: false,
-    installed_skipped: 0,
   };
 }

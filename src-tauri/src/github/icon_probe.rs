@@ -114,7 +114,7 @@ pub(crate) fn is_readme_body_image(path_or_url: &str) -> bool {
 /// 启发式评分（与 catalog-shared `scoreIconCandidate` 同规则）。
 /// 非 png/svg/ico 直接 -100；命中正分才会被采用。
 /// 正文图负分经 [`is_readme_body_image`] 单一探源（README-body 上下文 path-segment 精确匹配，
-/// 合法 Logo 含关键词不罚分），不另维护第二套 substring 表。
+/// 合法 Logo 含关键词不罚分），substring 表仅此一套。
 pub(crate) fn score_candidate(file_path: &str, size: Option<u64>, repo: &str) -> i32 {
     let lower = file_path.to_lowercase();
     let ext = lower.rsplit('.').next().unwrap_or("");
@@ -413,7 +413,7 @@ async fn fetch_range_head(
     }
     let head = &first[..first.len().min(1024)];
     // `magic_is_image` 内已含 octet-stream 严格分支：明确 image/* 无已知 magic 时放行
-    //（如渐进式 jpeg 变体），保持旧行为兼容。
+    //（如渐进式 jpeg 变体）。
     if !magic_is_image(head, &ctype) {
         return None;
     }
@@ -488,7 +488,7 @@ pub(crate) async fn resolve_probe_branches(
     branches
 }
 
-/// repo+owner 去重 slug 单循环（旧行为）：先 repo 后 owner，去重后逐个试探。
+/// repo+owner 去重 slug 单循环：先 repo 后 owner，去重后逐个试探。
 pub(crate) fn dedup_slugs(owner: &str, repo: &str) -> Vec<String> {
     let mut out = derive_slugs(repo);
     for s in derive_slugs(owner) {

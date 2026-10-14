@@ -3,11 +3,11 @@
 //! 领域术语：ETag Cache（条件请求缓存）、Cache TTL（缓存生存时效）、
 //! Streaming Update Check（流式更新检查）、Checksum Manifest（校验清单）。
 //!
-//! 本模块收敛三份逐字重复的 ETag 304-touch/save/回退分支，对外仅暴露两个 adapter：
+//! 本模块收敛 shallow/deep 两个 adapter，对外仅暴露：
 //! - shallow（轻量）：tag + body 投影（附 assets 最小投影，仅供平台推导），
 //!   供 Streaming Update Check（流式更新检查）与 `get_platforms_lite` 共用；
 //!   无 repo、无 README、无 Checksum Manifest（校验清单）开销——
-//!   仅单次 `releases/latest` 条件请求，更新检查结果与原来一致。
+//!   仅单次 `releases/latest` 条件请求。
 //! - deep（详情）：完整 release 决议（含落库元组与 stale 复用），供 `fetch_app_detail`；
 //!   调用方继续 repo + README + Checksum Manifest（校验清单）抓取与平台推导。
 //!
@@ -81,7 +81,7 @@ pub(crate) enum ShallowMiss {
     OfflineWithoutCache,
 }
 
-/// shallow adapter 错误：解析串已在模块内包装为现行文案（三处旧分支逐字收敛）。
+/// shallow adapter 错误：解析串已在模块内包装为现行文案。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ShallowError {
     /// 远端 200 payload 解析失败（"解析 GitHub Release 失败: ..."）。
@@ -220,7 +220,7 @@ pub(crate) struct DetailReleaseInput<'a> {
     pub cached_payload: Option<&'a str>,
     pub cached_detail: Option<&'a AppDetail>,
     pub catalog_default_version: Option<&'a str>,
-    /// 收录库人工精校简介（无收录项或无字段时为 None；与旧分支 `is_some` 门控同形）。
+    /// 收录库人工精校简介（无收录项或无字段时为 None；`is_some` 门控）。
     pub catalog_description_en: Option<&'a str>,
     /// repo 并发请求是否成功（`repo_info.is_some()`）：决定失败时走 fresh 空行还是 stale 合成空。
     pub repo_ok: bool,
@@ -241,7 +241,7 @@ pub(crate) enum DetailReleaseDecision {
     ReuseStale(Box<AppDetail>),
 }
 
-/// deep adapter 入口（纯函数；`fetch_app_detail` 的 release 段逐字搬迁，语义不变）。
+/// deep adapter 入口（纯函数，供 `fetch_app_detail` 的 release 段）。
 /// repo/README/Checksum Manifest（校验清单）/平台推导仍由调用方继续。
 pub(crate) fn decide_detail_release(
     input: DetailReleaseInput<'_>,
@@ -326,17 +326,16 @@ pub(crate) fn decide_detail_release(
 }
 
 // ---------------------------------------------------------------------------
-// ica3-5: release touch/save/stale 效应收敛（shallow + deep 调用点同一 interface）
+// release touch/save/stale 效应收敛（shallow + deep 调用点同一 interface）
 // ---------------------------------------------------------------------------
 
 /// release ETag 副作用唯一执行口（纯决议 `decide_*` 与 effect 正交，本函数只做 DB 写）：
 /// - `touch` 为 true 时刷新详情 `cached_at` 延保（304 命中恢复；stale 穿透调用方传 false，
 ///   守卫表达式与调用点同行，永不把过期 stale 洗成 fresh）；
 /// - `cache_to_save` 为 Some 时落库 `api_etag_cache` 条件请求键（Fresh 带 ETag）；
-/// - `let _ =` 吞错 + 下次重试语义与原调用点一致；`now_secs` 由调用方传入（单测可定死）。
+/// - `let _ =` 吞错 + 下次重试语义；`now_secs` 由调用方传入（单测可定死）。
 ///
-/// 调用点（`commands::catalog_detail` lite + detail 双径）一律经此，不再各写 touch/save 两行；
-/// `commands::updates_check` 历史内联分支语义相同，待后续同形迁移（见该文件注释，不在本 scope 改动）。
+/// 调用点（`commands::catalog_detail` lite + detail 双径、`commands::updates_check`）一律经此。
 pub(crate) fn apply_release_cache_effects(
     db: &crate::db::Database,
     release_endpoint: &str,
@@ -559,7 +558,7 @@ mod tests {
 
     #[test]
     fn apply_release_cache_effects_saves_etag_and_touches_without_error() {
-        // ica3-5：touch/save 双效应单口执行（无行 touch 为空操作不炸；save 落库 ETag 键）。
+        // touch/save 双效应单口执行（无行 touch 为空操作不炸；save 落库 ETag 键）。
         let db = crate::db::Database::open_in_memory().unwrap();
         let ep = "https://api.github.com/repos/o/r/releases/latest";
         super::apply_release_cache_effects(

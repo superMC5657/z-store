@@ -173,7 +173,7 @@ fn test_select_best_asset_arch_priority() {
 }
 
 #[test]
-fn test_base64_encode_and_icon_cache_path() {
+fn test_base64_encode_and_hash_icon_filename() {
     assert_eq!(base64_encode(b""), "");
     assert_eq!(base64_encode(b"f"), "Zg==");
     assert_eq!(base64_encode(b"fo"), "Zm8=");
@@ -211,70 +211,35 @@ fn test_base64_encode_and_icon_cache_path() {
     assert_eq!(ext_to_mime("ico"), "image/x-icon");
     assert_eq!(ext_to_mime("jpg"), "image/jpeg");
 
-    // canonical id（owner/repo）优先解析为 {owner}_{repo}.{ext} 唯一命名空间
-    let p1 = get_icon_cache_path("rustdesk/rustdesk", "https://github.com/rustdesk.png");
-    assert!(p1.to_string_lossy().ends_with("rustdesk_rustdesk.png"));
-
-    let p2 = get_icon_cache_path(
-        "microsoft/terminal",
-        "https://raw.githubusercontent.com/microsoft/terminal/main/res/terminal.svg?v=1#anchor",
-    );
-    assert!(p2.to_string_lossy().ends_with("microsoft_terminal.svg"));
-
-    let p3 = get_icon_cache_path("alacritty/alacritty", "https://alacritty.org/assets/logo.jpeg");
-    assert!(p3.to_string_lossy().ends_with("alacritty_alacritty.jpg"));
-
-    // 无法解析为仓库坐标的 id：消毒后按 URL 后缀命名
-    let p4 = get_icon_cache_path("localsend", "https://localsend.org/favicon.ico");
-    assert!(p4.to_string_lossy().ends_with("localsend.ico"));
+    // hash 文件名：`sha256(url)[0:16].{ext}`，ext 按 URL 推断（无后缀暂定 png）
+    let h1_url = "https://github.com/rustdesk.png";
+    let h1 = crate::db::icon_cycle::hash_icon_filename(h1_url, "png");
+    assert_eq!(h1, format!("{}.png", &crate::sha256_digest_hex(h1_url.trim().as_bytes())[..16]));
 
     // 无后缀 URL：暂定 png，下载后按内容纠正
-    let p5 = get_icon_cache_path("localsend", "https://localsend.org/app-logo");
-    assert!(p5.to_string_lossy().ends_with("localsend.png"));
-
-    // hash 回退：app_id 为空，URL 带有 .svg 后缀
-    let p6_url = "https://example.com/custom-icon.svg";
-    let p6 = get_icon_cache_path("", p6_url);
-    let h6 = &crate::sha256_digest_hex(p6_url.as_bytes())[..16];
-    assert!(p6.to_string_lossy().ends_with(&format!("{}.svg", h6)));
-
-    // hash 回退：app_id 消毒后为空且 URL 无后缀，默认 .png
-    let p7_url = "https://example.com/avatar";
-    let p7 = get_icon_cache_path("###", p7_url);
-    let h7 = &crate::sha256_digest_hex(p7_url.as_bytes())[..16];
-    assert!(p7.to_string_lossy().ends_with(&format!("{}.png", h7)));
+    let h2_url = "https://localsend.org/app-logo";
+    let h2 = crate::db::icon_cycle::hash_icon_filename(h2_url, "png");
+    assert_eq!(h2, format!("{}.png", &crate::sha256_digest_hex(h2_url.trim().as_bytes())[..16]));
 }
 
 #[test]
-fn test_icon_cache_compat_and_rename_simulation() {
-    let tmp = tempfile::tempdir().unwrap();
-    let icons_dir = tmp.path().join("icons");
-    std::fs::create_dir_all(&icons_dir).unwrap();
-
-    let stem = get_icon_stem("demo/app", "https://example.com/logo.svg");
-    assert_eq!(stem, "demo_app");
-
-    // 推断扩展名
-    let inferred_ext = infer_icon_ext_from_url("https://example.com/logo.svg").unwrap_or("png");
-    assert_eq!(inferred_ext, "svg");
-
-    // 内容校核与扩展名纠正流程：
-    // 若推断扩展名与真实内容不一致（例如 URL 暂定 png，但实际内容为 svg），
-    // 直接以真实扩展名写入最终文件，并清理推断不符的文件
-    let initial_file = icons_dir.join(format!("{}.png", stem));
-    std::fs::write(&initial_file, b"temporary placeholder").unwrap();
-
-    let content = b"<svg xmlns=\"http://www.w3.org/2000/svg\"><circle/></svg>";
-    let mime = detect_image_mime(content);
-    let real_ext = mime_to_ext(mime);
-    assert_eq!(real_ext, "svg");
-
-    let final_file = icons_dir.join(format!("{}.{}", stem, real_ext));
-    std::fs::write(&final_file, content).unwrap();
-    if final_file != initial_file && initial_file.exists() {
-        let _ = std::fs::remove_file(&initial_file);
+fn test_should_refetch_oauth_user_predicate() {
+    use crate::oauth::OAuthUser;
+    fn user(has_list_scope: bool, is_expired: bool) -> OAuthUser {
+        OAuthUser {
+            login: "u".to_string(),
+            avatar_url: "https://github.com/u.png".to_string(),
+            has_list_scope,
+            is_expired,
+        }
     }
-
-    assert!(final_file.exists());
-    assert!(!initial_file.exists());
+    // 快照缺失 → 有令牌时补拉（有效 token 返回正常用户，无效 token 走失败分支即未登录）
+    assert!(oauth::should_refetch_oauth_user(None));
+    // 未标记 scope 的快照 → 补拉
+    assert!(oauth::should_refetch_oauth_user(Some(&user(false, false))));
+    // 过期快照原样返回 → 不补拉
+    assert!(!oauth::should_refetch_oauth_user(Some(&user(true, true))));
+    assert!(!oauth::should_refetch_oauth_user(Some(&user(false, true))));
+    // 已标记 scope 的有效快照 → 不补拉
+    assert!(!oauth::should_refetch_oauth_user(Some(&user(true, false))));
 }

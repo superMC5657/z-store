@@ -23,46 +23,53 @@ import type { MockInstance } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import i18n from '../i18n';
 import type { AppSummary } from '../types';
+import * as boardsModule from '../services/trends/boards';
+import { DOFORCE_URL } from '../services/trends/boards';
 import { TrendsView } from './TrendsView';
-import * as trendsModule from '../services/trends';
+import {
+  CACHE_TTL_MS,
+  DOFORCE_CACHE_TTL_MS,
+  DOFORCE_RETRY_DEFAULT_WAIT_MS,
+  DOFORCE_RETRY_MAX_WAIT_MS,
+  DOFORCE_TIMEOUT_MS,
+  GITHUB_SEARCH_TIMEOUT_MS,
+  TRENDING_TIMEOUT_MS,
+  buildTrendsCacheKey,
+  clearTrendsCache,
+  trendsBoardTtlMs,
+} from '../services/trends/cache';
+import {
+  TREND_ENRICH_CACHE_TTL_MS,
+  clearTrendEnrichCache,
+  enrichTrendRepos,
+  formatStars,
+  hydrateTrendEnrichCache,
+  matchCatalogApp,
+} from '../services/trends/enrich';
 import {
   buildDoforceUrl,
   buildTrendingUrl,
-  buildTrendsCacheKey,
-  CACHE_TTL_MS,
-  classifyTrendsError,
-  clearTrendEnrichCache,
-  clearTrendsCache,
   fetchGitHubNewRepos,
   fetchDoforceRepos,
   fetchTrendingRepos,
   fetchTrends,
   fetchTrendsResult,
-  filterNewReposFallback,
-  formatStars,
-  DOFORCE_CACHE_TTL_MS,
-  DOFORCE_RETRY_DEFAULT_WAIT_MS,
-  DOFORCE_RETRY_MAX_WAIT_MS,
-  DOFORCE_TIMEOUT_MS,
-  DOFORCE_URL,
-  GITHUB_SEARCH_TIMEOUT_MS,
+  resolveTrendBoard,
+  TRENDING_SINCE,
+} from '../services/trends/boards';
+import {
+  classifyTrendsError,
   doforceRetryDelayMs,
-  enrichTrendRepos,
+  filterNewReposFallback,
   growthRatio,
   healthyScore,
-  hydrateTrendEnrichCache,
-  matchCatalogApp,
   normalizeProxyPrefix,
   parseCompactNumber,
   parseRetryAfterMs,
   parseTrendingHtml,
   rankByGrowthRatio,
   sortByHealthyScore,
-  trendsBoardTtlMs,
-  TRENDING_SINCE,
-  TRENDING_TIMEOUT_MS,
-  TREND_ENRICH_CACHE_TTL_MS,
-} from '../services/trends';
+} from '../services/trends/parse';
 import {
   boardFixture,
   doforceEdgeFixture,
@@ -174,7 +181,7 @@ describe('P0: 旧加权公式与 dead 数据源已彻底删除', () => {
       'buildGitHubWindowQuery',
       'BOARD_TO_PERIOD',
     ]) {
-      expect(name in trendsModule, name).toBe(false);
+      expect(name in boardsModule, name).toBe(false);
     }
   });
 
@@ -851,20 +858,20 @@ describe('TrendsView 平台过滤与榜单口径计数', () => {
     );
   }
 
-  it('取消 Other 隐藏全部裸远端行并进入筛选为空态（而非完整列表）', async () => {
+  it('取消 Other：裸远端行待确认恒可见（pending 不看 Other 勾选）', async () => {
     trendingHtml = trendingHtmlFixture();
     enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockRejectedValue(new Error('offline'));
     const { container } = renderBoard({
       selectedPlatforms: new Set(['windows', 'macos', 'linux', 'ios', 'android']),
     });
-    // 榜单加载后：无可见行，且渲染筛选为空引导（带重置入口）
-    await screen.findByText('当前设备筛选下暂无上榜应用');
-    expect(container.querySelectorAll('.trend-uncataloged-row')).toHaveLength(0);
-    expect(container.querySelector('.app-card')).toBeNull();
-    expect(container.querySelector('.filter-empty-reset')).toBeTruthy();
+    // 榜单加载后：裸行未确认 Other 前 pending 恒可见
+    await screen.findByText('acme/atlas');
+    await waitFor(() => {
+      expect(container.querySelectorAll('.trend-uncataloged-row')).toHaveLength(3);
+    });
   });
 
-  it('不传 selectedPlatforms 时不过滤（旧行为：3 个裸行保留）', async () => {
+  it('不传 selectedPlatforms 时不过滤（3 个裸行保留）', async () => {
     trendingHtml = trendingHtmlFixture();
     enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockRejectedValue(new Error('offline'));
     const { container } = renderBoard();
@@ -890,14 +897,14 @@ describe('TrendsView 平台过滤与榜单口径计数', () => {
     expect(container.querySelectorAll('.trend-uncataloged-row')).toHaveLength(2);
   });
 
-  it('上报榜单分布：enrich 回填 [] 即计 other（windows 桶为 0）', async () => {
+  it('上报榜单分布：enrich 回填 [] 即 pending 不计数（全部桶为 0）', async () => {
     trendingHtml = trendingHtmlFixture();
     enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockImplementation(async (repos) =>
       repos.map((r) => makeEnrichedApp({ id: `${r.owner}/${r.repo}`, platforms: [] })),
     );
     const onDisplayPlatformCounts = vi.fn();
     renderBoard({ onDisplayPlatformCounts });
-    // enrich 卡片出现后，最终上报口径为 other 3、其余 0
+    // enrich 卡片出现后：pending 空平台行不进任何桶（确认/settle 落定后才计入 other）
     await screen.findByText('acme/atlas enriched desc');
     await waitFor(() => {
       const calls = onDisplayPlatformCounts.mock.calls;
@@ -908,7 +915,7 @@ describe('TrendsView 平台过滤与榜单口径计数', () => {
         linux: 0,
         ios: 0,
         android: 0,
-        other: 3,
+        other: 0,
       });
     });
   });
@@ -953,27 +960,53 @@ describe('TrendsView 榜单选项卡记忆（zstore.trends.opts）', () => {
     return container.querySelector('[role="tab"].active')?.textContent ?? null;
   }
 
-  it('load/persist 单元：缺失→undefined，信封往返，非法/损坏→weekly', () => {
+  it('load/persist 单元：缺失→undefined，信封往返，非法/损坏→undefined', () => {
     expect(loadPersistedTrendBoard()).toBeUndefined();
     window.localStorage.setItem(TREND_BOARD_STORAGE_KEY, JSON.stringify({ board: 'monthly' }));
     expect(loadPersistedTrendBoard()).toBe('monthly');
-    // 已下线残留榜回落 weekly（SSOT resolve）
+    // 信封内非法榜名 → undefined（视为损坏）
     window.localStorage.setItem(TREND_BOARD_STORAGE_KEY, JSON.stringify({ board: 'top' }));
-    expect(loadPersistedTrendBoard()).toBe('weekly');
+    expect(loadPersistedTrendBoard()).toBeUndefined();
     window.localStorage.setItem(TREND_BOARD_STORAGE_KEY, JSON.stringify({ board: 'category' }));
-    expect(loadPersistedTrendBoard()).toBe('weekly');
-    // 裸字符串 / JSON 字符串兼容
+    expect(loadPersistedTrendBoard()).toBeUndefined();
+    // 裸字符串（非 JSON）→ undefined（不回兼容）
     window.localStorage.setItem(TREND_BOARD_STORAGE_KEY, 'rising');
-    expect(loadPersistedTrendBoard()).toBe('rising');
+    expect(loadPersistedTrendBoard()).toBeUndefined();
+    // JSON-string 形 '"weekly"'：parse 一层后按 board 名接受
+    window.localStorage.setItem(TREND_BOARD_STORAGE_KEY, '"weekly"');
+    expect(loadPersistedTrendBoard()).toBe('weekly');
     window.localStorage.setItem(TREND_BOARD_STORAGE_KEY, '"healthy"');
     expect(loadPersistedTrendBoard()).toBe('healthy');
-    // 损坏载荷回落 weekly（不抛错）
+    // JSON-string 非法榜名 → undefined
+    window.localStorage.setItem(TREND_BOARD_STORAGE_KEY, '"top"');
+    expect(loadPersistedTrendBoard()).toBeUndefined();
+    window.localStorage.setItem(TREND_BOARD_STORAGE_KEY, '"category"');
+    expect(loadPersistedTrendBoard()).toBeUndefined();
+    // 裸数组等非信封一律拒绝
+    window.localStorage.setItem(TREND_BOARD_STORAGE_KEY, '[]');
+    expect(loadPersistedTrendBoard()).toBeUndefined();
+    window.localStorage.setItem(TREND_BOARD_STORAGE_KEY, '["weekly"]');
+    expect(loadPersistedTrendBoard()).toBeUndefined();
+    // 损坏载荷 → undefined（不抛错）
     window.localStorage.setItem(TREND_BOARD_STORAGE_KEY, '{bad');
-    expect(loadPersistedTrendBoard()).toBe('weekly');
+    expect(loadPersistedTrendBoard()).toBeUndefined();
     persistTrendBoard('monthly');
     expect(window.localStorage.getItem(TREND_BOARD_STORAGE_KEY)).toBe(
       JSON.stringify({ board: 'monthly' }),
     );
+  });
+
+  it('resolveTrendBoard 非法输入返回 undefined（不抛错）：top/category/垃圾值', () => {
+    expect(resolveTrendBoard('top')).toBeUndefined();
+    expect(resolveTrendBoard('category')).toBeUndefined();
+    expect(resolveTrendBoard('day')).toBeUndefined();
+    expect(resolveTrendBoard('')).toBeUndefined();
+    expect(resolveTrendBoard('WEEKLY')).toBeUndefined();
+    expect(resolveTrendBoard('{"board":"weekly"}')).toBeUndefined();
+    // 合法 6 榜直通
+    for (const b of ['daily', 'weekly', 'monthly', 'new', 'rising', 'healthy'] as const) {
+      expect(resolveTrendBoard(b)).toBe(b);
+    }
   });
 
   it('跨 reload 恢复：切 monthly→重挂仍是 monthly 且首抓 monthly（走 L1→L2→网络，非 force）', async () => {
@@ -1009,7 +1042,7 @@ describe('TrendsView 榜单选项卡记忆（zstore.trends.opts）', () => {
     expect(requestedUrls.some((u) => u.includes('since=weekly'))).toBe(false);
   });
 
-  it('非法值回落 weekly：残留 top 直接展周榜', async () => {
+  it('信封内非法值归一 weekly：残留 top 直接展周榜', async () => {
     trendingHtml = trendingHtmlFixture();
     enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockRejectedValue(new Error('offline'));
     window.localStorage.setItem(TREND_BOARD_STORAGE_KEY, JSON.stringify({ board: 'top' }));
@@ -1019,6 +1052,43 @@ describe('TrendsView 榜单选项卡记忆（zstore.trends.opts）', () => {
     await waitFor(() => {
       expect(requestedUrls.some((u) => u.includes('since=weekly'))).toBe(true);
     });
+  });
+
+  it('非法残留 category/垃圾值/损坏载荷一律回落 weekly（不白屏）', async () => {
+    trendingHtml = trendingHtmlFixture();
+    enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockRejectedValue(new Error('offline'));
+    for (const payload of [
+      JSON.stringify({ board: 'category' }),
+      JSON.stringify({ board: 'nope' }),
+      '"top"',
+      '["weekly"]',
+      '{bad',
+    ]) {
+      window.localStorage.setItem(TREND_BOARD_STORAGE_KEY, payload);
+      // load 侧一律 undefined（不抛错），边界回落 weekly 由 hook 保证
+      expect(loadPersistedTrendBoard()).toBeUndefined();
+      const { container, unmount } = renderBoard();
+      // 首绘即周榜，无白屏抛错
+      expect(activeTabLabel(container)).toBe('周趋势');
+      await screen.findByText('acme/atlas');
+      await waitFor(() => {
+        expect(requestedUrls.some((u) => u.includes('since=weekly'))).toBe(true);
+      });
+      unmount();
+      cleanup();
+      clearTrendsCache();
+      requestedUrls.length = 0;
+    }
+  });
+
+  it('JSON-string 合法值恢复对应榜：weekly 首绘即周榜', async () => {
+    trendingHtml = trendingHtmlFixture();
+    enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockRejectedValue(new Error('offline'));
+    window.localStorage.setItem(TREND_BOARD_STORAGE_KEY, '"weekly"');
+    expect(loadPersistedTrendBoard()).toBe('weekly');
+    const { container } = renderBoard();
+    expect(activeTabLabel(container)).toBe('周趋势');
+    await screen.findByText('acme/atlas');
   });
 });
 
@@ -1270,7 +1340,7 @@ describe('TrendsView L2可信分档：具平台免验，pending后台补验', ()
   });
 });
 
-describe('09 收敛：icon-changed 窗口总线已删，图标唯一经 icon-ready → applyHit', () => {
+describe('图标唯一通道：icon-ready → applyHit（无窗口总线）', () => {
   (globalThis as Record<string, unknown>)['IS_REACT_ACT_ENVIRONMENT'] = true;
 
   type EnrichFn = (repos: { owner: string; repo: string }[]) => Promise<(AppSummary | null)[]>;
@@ -1314,7 +1384,7 @@ describe('09 收敛：icon-changed 窗口总线已删，图标唯一经 icon-rea
     window.localStorage.clear();
   });
 
-  it('删除回归：dispatch icon-changed 不再影响行内图标（总线已删，旧事件零效果）', async () => {
+  it('dispatch icon-changed 对行内图标零效果（图标唯一经 icon-ready 通道）', async () => {
     trendingHtml = trendingHtmlFixture();
     enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockImplementation(async (repos) =>
       repos.map((r) =>

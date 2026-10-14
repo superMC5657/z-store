@@ -142,7 +142,7 @@ export function isTrendConfirmedOtherFresh(key: string): boolean {
 
 /**
  * pending 当次有效永不缓存；Other 共享需确认（lite/详情确认标记）。
- * ica3-2：View 侧唯一出口为 board.snapshotBoardConfirmed，不直调此函数。
+ * View 侧唯一出口为 board.snapshotBoardConfirmed，不直调此函数。
  * 可选传入 repos 时仅返回仍属本榜的键（坐标键 + id 键，小写）。
  * 现状：具平台驱逐删标记走与 mark/unmark 同一 emit，触发写透；过期清理不 emit。
  */
@@ -274,8 +274,8 @@ export function clearTrendEnrichCache(): void {
 
 /**
  * 向内存 `trendEnrichCache` 回填（slice 内部写口）。
- * ica3-2：View 侧唯一出口为 board.hydrateBoardEnrich，不直调此函数；
- * 图标合并经 `stickyIconFor` 单口（ica3-1 基线，保持）。
+ * View 侧唯一出口为 board.hydrateBoardEnrich，不直调此函数；
+ * 图标合并经 `stickyIconFor` 单口。
  * - 具平台恒进缓存（12h/500 FIFO），后续靠应用详情刷新治愈（upsert from detail）；
  * - pending 空平台仅已确认键进内存（调用方先 mark；读盘时先 hydrate 确认集再 hydrate enrich）；
  *   未确认 pending 直接跳过（永不进内存/落库，只活当次 out 渲染）；
@@ -313,7 +313,7 @@ export function hydrateTrendEnrichCache(
 
 /**
  * 内存快照（slice 内部读口）。
- * ica3-2：View 侧唯一出口为 board.snapshotBoardEnrich / snapshotBoardConfirmed，不直调此函数。
+ * View 侧唯一出口为 board.snapshotBoardEnrich / snapshotBoardConfirmed，不直调此函数。
  * - 可选传入 repos：若传入则仅提取属于这些 repos 的条目，否则提取全部；
  * - 仅提取未过期条目（elapsed<0 按过期；elapsed>=12h 按过期）；
  * - 具平台恒收录；pending 仅收录已确认新鲜键（Other 直展），未确认 pending 一律跳过（永不持久化）；
@@ -418,7 +418,7 @@ export async function enrichTrendRepos(repos: TrendRepo[]): Promise<Map<string, 
         }
       }
     }
-    // pending 视为缺席：已删旧值，本次走重拉。
+    // pending 视为缺席：本次走重拉。
     missing.push(r);
   }
   if (missing.length === 0) return out;
@@ -545,7 +545,7 @@ export function appSummaryFromDetail(detail: AppDetail): AppSummary {
 /**
  * 详情治愈写入 enrich 长缓存（详情具平台治愈唯一写口之一）：
  * pending 当次有效永不缓存，具平台 12h/500 FIFO；仅非空平台写入（空不写），
- * 后续同坐标 enrich 直接命中治愈值，不再回退 `[]`。
+ * 后续同坐标 enrich 直接命中治愈值，不回退 `[]`。
  * 图标回填只做升级不做准入：详情弹窗特供的 data: 内联大图不进内存
  * （快照恒禁 data:，存了也落不了盘）；空图标不覆盖已有真实图标（put 入口合并）。
  * stale 详情一律不调用（调用方把关）。
@@ -581,12 +581,12 @@ const RICH_CATEGORY_PLACEHOLDERS = new Set(['', 'external', 'dev', 'system']);
 const RICH_VERSION_PLACEHOLDERS = new Set(['latest', '...']);
 /**
  * 富卡简介占位名单：前端单源（diff/merge/patch 三处消费均经 `isPlaceholderDescription`，
- * 不再各立名单），以后端为准与之同形。
+ * 名单单源），以后端为准与之同形。
  * 后端真相源 `src-tauri/src/github/detail_fetch.rs::is_placeholder_description`：
  * 空白视为占位 + 已知占位子串 contains + 英文占位大小写不敏感兜底。
  * - 条目与后端对齐（未收录 external_synth / 在线搜索空描述 / 展示兜底），另保留
  *   en-US 展示兜底 'No description'（后端为其超集 'No description available' 的子串，
- *   显式保留以锁旧行为，见 richcard.test.ts）；
+ *   显式保留，见 richcard.test.ts）；
  * - 唯一有意差异：空串前端返回 false（调用方 `b !== ''` 分支已先处理空；后端视空为占位）。
  *   空在三处消费点均先被过滤，行为同形（同上测试锁定）。
  * 展示兜底只留在渲染侧（TrendsView displayApp 的 no_desc 逻辑）。

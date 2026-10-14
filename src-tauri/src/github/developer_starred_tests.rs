@@ -66,7 +66,7 @@ mod tests {
             .unwrap();
         assert!(r1.has_releases);
         assert_eq!(r1.latest_release_tag.as_deref(), Some("v9.9.9"));
-        // API 请求失败 (404) 时保持原有行为：返回 false 且无 tag，不触发 panic。
+        // API 请求失败 (404) 时：返回 false 且无 tag，不触发 panic。
         let r2 = result
             .other_repos
             .iter()
@@ -252,7 +252,7 @@ mod tests {
             release_hits.load(Ordering::SeqCst) <= super::STARRED_RELEASE_ENRICH_LIMIT,
             "quota guard: release lookups capped at STARRED_RELEASE_ENRICH_LIMIT"
         );
-        // 超出上限的仓库保持原有行为（false，安装状态未知），不再发起网络请求。
+        // 超出上限的仓库 has_releases=false（安装状态未知），不发起网络请求。
         let enriched = result.other_repos.iter().filter(|r| r.has_releases).count();
         assert!(enriched <= super::STARRED_RELEASE_ENRICH_LIMIT);
     }

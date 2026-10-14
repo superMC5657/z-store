@@ -11,8 +11,11 @@ import type {
   WatchUpdatedPayload,
 } from '../../types';
 import { api, DEFAULT_SETTINGS } from '../../services/api';
-import { applyHit, patchAppIconList } from '../../services/iconStore';
-import { preloadIcons } from '../../components/AppIcon';
+import {
+  applyHit,
+  patchAppIconList,
+  preloadIcons,
+} from '../../services/iconStore';
 import { matchPlatformSetWithPending } from '../../lib/platformFilter';
 import { type PlatformId } from '../../lib/platformFilter';
 import { zlogInfo } from '../../lib/z-log';
@@ -127,8 +130,8 @@ export function useAppSubscriptions({
   currentView,
   updatesCount,
 }: UseAppSubscriptionsParams) {
-  // 首挂载过滤快照：初始 recents 过滤沿用挂载时刻的选择（与原 [] effect
-  // 闭包语义一致——启动时全选 + 空已确认集，恒为恒等过滤）。
+  // 首挂载过滤快照：初始 recents 过滤沿用挂载时刻的选择
+  // （启动时全选 + 空已确认集，恒为恒等过滤）。
   const initialFilterRef = useRef({ selectedPlatforms, platformResolvedOtherIds });
   const applyPersistedSettingsRef = useRef(applyPersistedSettings);
   applyPersistedSettingsRef.current = applyPersistedSettings;
@@ -202,14 +205,11 @@ export function useAppSubscriptions({
             : asStr(raw['search_id'])) ?? '';
         adoptEchoInWindow(currentSearchIdRef, incomingKind, incomingSid);
         applyHit({
-          key: asStr(raw['key']),
-          id: asStr(raw['id']) ?? asStr(raw['app_id']),
-          app_id: asStr(raw['app_id']),
+          id: asStr(raw['id']),
           icon: asStr(raw['icon']),
           level: typeof raw['level'] === 'number' ? (raw['level'] as number) : undefined,
           via: asStr(raw['via']),
           context: ctx,
-          search_id: asStr(raw['search_id']),
           currentSearchId: currentSearchIdRef.current,
           getCurrentIcon: (tid) => {
             const lk = tid.toLowerCase();

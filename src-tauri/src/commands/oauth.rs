@@ -116,7 +116,19 @@ pub async fn oauth_device_poll(
     }
 }
 
-/// 当前 OAuth 登录用户；未登录返回 null。
+/// 快照缺失或未标记权限范围时需实时补拉（纯谓词，可单元测试）。
+/// `is_expired` 快照原样返回（前端处理重登），`has_list_scope` 快照直接返回；
+/// 其余情况（无快照/损坏快照/未标记 scope）有令牌则补拉一次。
+pub(crate) fn should_refetch_oauth_user(stored: Option<&crate::oauth::OAuthUser>) -> bool {
+    match stored {
+        None => true,
+        Some(u) if u.is_expired => false,
+        Some(u) if u.has_list_scope => false,
+        _ => true,
+    }
+}
+
+/// 当前 OAuth 登录用户；未登录或快照无效返回 null（过期快照原样返回，`is_expired` 供前端处理重登）。
 #[tauri::command]
 pub async fn get_oauth_user(
     state: State<'_, AppState>,
@@ -131,32 +143,13 @@ pub async fn get_oauth_user(
                 .flatten()
         })
         .filter(|s| !s.trim().is_empty());
-    let stored: Option<crate::oauth::OAuthUser> = match raw_stored {
-        Some(json) => match serde_json::from_str::<crate::oauth::OAuthUser>(&json) {
-            Ok(u) => Some(u),
-            Err(e) => {
-                // 旧持久化缺字段无法解析：视为过期快照，清理后提示需重新登录。
-                log::warn!(
-                    "oauth user snapshot invalid reason={} action=clear-and-relogin",
-                    crate::log_support::short_reason(&e.to_string())
-                );
-                if let Ok(db) = state.db() {
-                    let _ = db.remove_setting(crate::oauth::SETTING_OAUTH_USER);
-                }
-                None
-            }
-        },
-        None => None,
-    };
-    if let Some(ref u) = stored {
-        if u.is_expired {
-            return Ok(stored);
-        }
-        if u.has_list_scope {
-            return Ok(stored);
-        }
+    // 标准 `OAuthUser` 反序列化：快照缺失或字段不完整视为无快照。
+    let stored: Option<crate::oauth::OAuthUser> =
+        raw_stored.and_then(|json| serde_json::from_str::<crate::oauth::OAuthUser>(&json).ok());
+    if !should_refetch_oauth_user(stored.as_ref()) {
+        return Ok(stored);
     }
-    // 有令牌但缺用户快照或旧版快照未标记权限范围时实时补拉一次
+    // 有令牌但缺用户快照或快照未标记权限范围时实时补拉一次
     let token = resolve_write_token(&state);
     let is_oauth = state
         .db

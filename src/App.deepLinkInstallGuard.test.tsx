@@ -1,5 +1,5 @@
 /**
- * P0-1 深度链接静默安装 RCE 防护测试（真实 <App/> 链路）。
+ * 深度链接静默安装 RCE 防护测试（真实 <App/> 链路）。
  *
  * `zstore://install/<owner>/<repo>` 绝对不允许自行触发安装：
  * 它必须打开应用详情视图并弹出显式确认弹窗，
@@ -127,7 +127,7 @@ function dispatchDeepLink(url: string): void {
   (fn as (url: string) => Promise<void>)(url);
 }
 
-describe('P0-1 deeplink install guard (real App path)', () => {
+describe('deeplink install guard (real App path)', () => {
   it('install_app deeplink never auto-installs: it opens detail + confirm dialog, install starts only on confirm click', async () => {
     hooks.handleDeepLinkImpl.mockResolvedValueOnce({
       action: 'install_app',

@@ -74,9 +74,8 @@ export function utf8ByteLength(s: string): number {
   }
 }
 
-/** 缓存键 = board + language + category（P1 要求，统一口径；C3：三段归一 trim().toLowerCase()，读写同源）。
- * ica3-2：View 侧唯一出口为 board.resolveBoardCacheKey，不直调此 builder。
- * ica3-9：L2 legacy key 已 cutover，旧非归一 key 不再回迁（存量旧 key 按 miss 重抓）。 */
+/** 缓存键 = board + language + category（P1 要求，统一口径；三段归一 trim().toLowerCase()，读写同源）。
+ *  View 侧唯一出口为 board.resolveBoardCacheKey，不直调此 builder。 */
 export function buildTrendsCacheKey(board: TrendBoardId, opts: FetchTrendsOptions = {}): string {
   const language = normalizeId(opts.language);
   const category = normalizeId(opts.category);
@@ -173,10 +172,9 @@ interface DbTrendBoardCacheRow {
 
 /**
  * 榜缓存二级落盘读：
- * - 双形状解析：
- *   1) 纯数组 Array → 裸榜数组，直接返回 TrendRepo[]；
- *   2) { v: 1, repos, enrich, confirmedOther } 信封 → 新格式，repos 必须非空数组，
- *      enrich 逐项守卫后调 hydrateTrendEnrichCache 载入内存，并返回 repos；
+ * - 解析 `{ v: 1, repos, enrich, confirmedOther }` 信封（唯一形状），repos 必须非空数组，
+ *   enrich 逐项守卫后调 hydrateTrendEnrichCache 载入内存，并返回 repos；
+ *   其余载荷（含旧纯数组 JSON）视为 miss 走网络；
  * - 命中且未过期返回解析后的 TrendRepo[]；过期判定含错峰抖动（见下）；
  * - 回填顺序：先 hydrate 确认集，再 hydrate enrich（pending 仅已确认键进内存，未确认 pending 丢弃）；
  * - 命令未就绪 / DB 损坏 / 反序列化失败 / 已过期一律降级返回 undefined（视为 miss 走网络）。
@@ -208,15 +206,7 @@ export async function getDbTrendCache(key: string, board?: string): Promise<Tren
 
     const parsed: unknown = JSON.parse(payloadStr);
 
-    // 形状 1: Array → 裸榜数组
-    if (Array.isArray(parsed)) {
-      if (parsed.length === 0) {
-        return undefined;
-      }
-      return parsed as TrendRepo[];
-    }
-
-    // 形状 2: v === 1 信封
+    // v === 1 信封（唯一形状）
     if (parsed && typeof parsed === 'object' && (parsed as { v?: unknown }).v === 1) {
       const envelope = parsed as TrendCacheEnvelopeV1;
       if (!Array.isArray(envelope.repos) || envelope.repos.length === 0) {
@@ -281,14 +271,15 @@ export async function getDbTrendCache(key: string, board?: string): Promise<Tren
 }
 
 /**
- * 榜缓存二级落盘写。
- * - 第 4 参 enrich 可选：无参保持旧数组 JSON 写入；有参且合法时写入 { v: 1, repos, enrich } 信封。
- * - 第 5 参 confirmedOther 可选：已确认 Other 键集（小写），与 enrich 同 key 落盘（data 仍禁由 enrich 守卫保证）；
+ * 榜缓存二级落盘写：统一 `{ v: 1, repos, enrich, confirmedOther? }` 信封落盘。
+ * - enrich 可选：缺省按空对象写入信封；
+ * - confirmedOther 可选：已确认 Other 键集（小写），与 enrich 同 key 落盘（data 仍禁由 enrich 守卫保证）；
  *   具平台键调用方已过滤，此处再做一次去重归一；为空即省略字段。
  * - 富信封：pending 空平台随信封落盘（首屏直展 pending 卡，Other 待确认语义）；仅禁 dataURI。
  * - 已确认 Other 同信封落盘：settle 兜底 / lite 空非 stale 确认后按正常 enrich 同 key 写透，重挂免验直展 Other 卡；
  *   具平台到达即移除（可覆盖升级），按榜窗口（daily 1h，其余 12h）由 cached_at + 按榜 TTL 把关，到期重验。
- * - 字节上限：FE utf8ByteLength 预检 256KB；超限先丢 confirmed 再降级裸榜，仍超限放弃写盘。
+ * - 字节上限：FE utf8ByteLength 预检 256KB；超限先丢 confirmed，再富卡长文本截断，
+ *   最后丢 pending 空平台条，仍超限放弃写盘。
  *   BE 512KiB 硬拒绝保持（见 db/cache.rs TREND_BOARD_CACHE_MAX_BYTES），FE 预检避免无谓 invoke。
  * - 空榜不写盘。
  */
@@ -301,80 +292,64 @@ export async function saveDbTrendCache(
 ): Promise<void> {
   if (!isTauri || !Array.isArray(repos) || repos.length === 0) return;
   try {
-    let payloadJson: string;
-    if (enrich !== undefined) {
-      const sanitizedEnrich: Record<string, AppSummary> = {};
-      for (const [k, summary] of Object.entries(enrich)) {
-        if (!summary || typeof summary !== 'object') continue;
-        // 准入只看三件套：id/owner/repo 非空必填（有/无图标一视同仁，icon 空也保留）；仅禁 dataURI。
-        const s = summary as Partial<AppSummary>;
-        if (typeof s.id !== 'string' || s.id.trim() === '') continue;
-        if (typeof s.owner !== 'string' || s.owner.trim() === '') continue;
-        if (typeof s.repo !== 'string' || s.repo.trim() === '') continue;
-        if (!Array.isArray(summary.platforms)) continue;
-        if (typeof summary.icon === 'string' && summary.icon.startsWith('data:')) continue;
-        const cleanKey = normalizeId(k);
-        if (cleanKey) {
-          sanitizedEnrich[cleanKey] = summary;
-        }
+    const sanitizedEnrich: Record<string, AppSummary> = {};
+    for (const [k, summary] of Object.entries(enrich ?? {})) {
+      if (!summary || typeof summary !== 'object') continue;
+      // 准入只看三件套：id/owner/repo 非空必填（有/无图标一视同仁，icon 空也保留）；仅禁 dataURI。
+      const s = summary as Partial<AppSummary>;
+      if (typeof s.id !== 'string' || s.id.trim() === '') continue;
+      if (typeof s.owner !== 'string' || s.owner.trim() === '') continue;
+      if (typeof s.repo !== 'string' || s.repo.trim() === '') continue;
+      if (!Array.isArray(summary.platforms)) continue;
+      if (typeof summary.icon === 'string' && summary.icon.startsWith('data:')) continue;
+      const cleanKey = normalizeId(k);
+      if (cleanKey) {
+        sanitizedEnrich[cleanKey] = summary;
       }
-      const envelope: TrendCacheEnvelopeV1 = {
-        v: 1,
-        repos,
-        enrich: sanitizedEnrich,
-      };
-      if (confirmedOther !== undefined) {
-        const cleanConfirmed: string[] = normalizeIdSet(confirmedOther);
-        if (cleanConfirmed.length > 0) {
-          envelope.confirmedOther = cleanConfirmed;
-        }
+    }
+    const envelope: TrendCacheEnvelopeV1 = {
+      v: 1,
+      repos,
+      enrich: sanitizedEnrich,
+    };
+    if (confirmedOther !== undefined) {
+      const cleanConfirmed: string[] = normalizeIdSet(confirmedOther);
+      if (cleanConfirmed.length > 0) {
+        envelope.confirmedOther = cleanConfirmed;
       }
-      payloadJson = JSON.stringify(envelope);
+    }
+    let payloadJson = JSON.stringify(envelope);
+    if (utf8ByteLength(payloadJson) > TREND_DB_PAYLOAD_MAX_BYTES) {
+      // 超限先丢 confirmed（enrich 富卡优先）
+      const slim: TrendCacheEnvelopeV1 = { v: 1, repos, enrich: sanitizedEnrich };
+      payloadJson = JSON.stringify(slim);
       if (utf8ByteLength(payloadJson) > TREND_DB_PAYLOAD_MAX_BYTES) {
-        // 超限先丢 confirmed（enrich 富卡优先），再试裸榜
-        const slim: TrendCacheEnvelopeV1 = { v: 1, repos, enrich: sanitizedEnrich };
-        const slimJson = JSON.stringify(slim);
-        if (utf8ByteLength(slimJson) <= TREND_DB_PAYLOAD_MAX_BYTES) {
-          payloadJson = slimJson;
-        } else {
-          // 仍超则富卡长文本截断：description(_en) 各截 500 字符，homepage 截 500
-          const truncated: Record<string, AppSummary> = {};
-          for (const [k, s] of Object.entries(sanitizedEnrich)) {
-            const c: AppSummary = { ...s };
-            if (typeof c.description === 'string' && c.description.length > 500) {
-              c.description = c.description.slice(0, 500);
-            }
-            if (typeof c.description_en === 'string' && c.description_en.length > 500) {
-              c.description_en = c.description_en.slice(0, 500);
-            }
-            if (typeof c.homepage === 'string' && c.homepage.length > 500) {
-              c.homepage = c.homepage.slice(0, 500);
-            }
-            truncated[k] = c;
+        // 富卡长文本截断：description(_en) 各截 500 字符，homepage 截 500
+        const truncated: Record<string, AppSummary> = {};
+        for (const [k, s] of Object.entries(sanitizedEnrich)) {
+          const c: AppSummary = { ...s };
+          if (typeof c.description === 'string' && c.description.length > 500) {
+            c.description = c.description.slice(0, 500);
           }
-          const truncJson = JSON.stringify({ v: 1, repos, enrich: truncated } as TrendCacheEnvelopeV1);
-          if (utf8ByteLength(truncJson) <= TREND_DB_PAYLOAD_MAX_BYTES) {
-            payloadJson = truncJson;
-          } else {
-            // 仍超则丢 pending 空平台条（具平台优先），最后才降裸榜
-            const concrete: Record<string, AppSummary> = {};
-            for (const [k, s] of Object.entries(truncated)) {
-              if (Array.isArray(s.platforms) && s.platforms.length > 0) concrete[k] = s;
-            }
-            const concreteJson = JSON.stringify({ v: 1, repos, enrich: concrete } as TrendCacheEnvelopeV1);
-            if (utf8ByteLength(concreteJson) <= TREND_DB_PAYLOAD_MAX_BYTES) {
-              payloadJson = concreteJson;
-            } else {
-              const bare = JSON.stringify(repos);
-              if (utf8ByteLength(bare) > TREND_DB_PAYLOAD_MAX_BYTES) return;
-              payloadJson = bare;
-            }
+          if (typeof c.description_en === 'string' && c.description_en.length > 500) {
+            c.description_en = c.description_en.slice(0, 500);
           }
+          if (typeof c.homepage === 'string' && c.homepage.length > 500) {
+            c.homepage = c.homepage.slice(0, 500);
+          }
+          truncated[k] = c;
+        }
+        payloadJson = JSON.stringify({ v: 1, repos, enrich: truncated } as TrendCacheEnvelopeV1);
+        if (utf8ByteLength(payloadJson) > TREND_DB_PAYLOAD_MAX_BYTES) {
+          // 丢 pending 空平台条（具平台优先）
+          const concrete: Record<string, AppSummary> = {};
+          for (const [k, s] of Object.entries(truncated)) {
+            if (Array.isArray(s.platforms) && s.platforms.length > 0) concrete[k] = s;
+          }
+          payloadJson = JSON.stringify({ v: 1, repos, enrich: concrete } as TrendCacheEnvelopeV1);
+          if (utf8ByteLength(payloadJson) > TREND_DB_PAYLOAD_MAX_BYTES) return;
         }
       }
-    } else {
-      payloadJson = JSON.stringify(repos);
-      if (utf8ByteLength(payloadJson) > TREND_DB_PAYLOAD_MAX_BYTES) return;
     }
 
     await tauriInvoke(CMD_SAVE_TREND_BOARD_CACHE, {

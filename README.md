@@ -36,7 +36,7 @@
 ### 1. 🌐 解耦清单同步与按需详情获取
 - **离线秒开与种子兜底**：客户端启动优先读取本地 `catalog.json` 种子清单，保证零网络延迟立即可用。
 - **一键动态同步**：设置中心支持随时“立即同步收录库”，增量拉取独立生态仓库最新清单，支持配置自定义同步源与加速前缀。
-- **TTL 智能缓存与 ETag 续期**：统一基线缓存 TTL（默认 60 分钟），过期后触发 ETag 304 条件请求，零配额消耗延长缓存新鲜度；该 TTL 仅约束详情浏览，更新发现（更新中心/关注动态）每次走 ETag 轻量探查，不受其约束。
+- **TTL 智能缓存与 ETag 续期**：详情缓存 TTL 基线 60 分钟（合法挡位 `[0, 10, 60, 360, 1440]`，非法值归一化回退 60），过期后触发 ETag 304 条件请求，零配额消耗延长缓存新鲜度；该 TTL 仅约束详情浏览，更新发现（更新中心/关注动态）每次走 ETag 轻量探查，不受其约束。
 - **发现流分页与搜索翻页**：发现 Feed 首屏 20、触底续 20 无限滑（`has_more=(offset+limit)<total`）；在线搜索默认 `per_page=12`、钳制 1–50，满页即 `hasMore` 续拉下一页。
 - **首页排序锁定**：首页固定 `balanced + seed 7`，无排序切换工具条。
 
@@ -86,33 +86,14 @@
 
 ## 🛠️ 架构与技术栈
 
-- **桌面底座**: Tauri 2（`@tauri-apps/api ^2.2.0` / CLI `^2.2.0`，见 `package.json:18,29`；后端 `tauri = "2"`，见 `src-tauri/Cargo.toml:17`；三处版本 `0.6.1` 对齐 `package.json:4` / `src-tauri/Cargo.toml:3` / `src-tauri/tauri.conf.json:4`，由 `scripts/bump-version.mjs` 同步）+ Rust（`edition 2021`，见 `src-tauri/Cargo.toml:6`；仓库内未 pin 工具链版本）
-- **前端界面**: React 19（`^19.0.0`，见 `package.json:24-25`）+ TypeScript 5.7 (strict)（`^5.7.3`，见 `package.json:36`）+ Vite 6（`^6.2.0`，见 `package.json:37`；`vite.config.ts:13-31` 固定 `1420` + HMR `1421`）+ `i18next ^26.4.2`（见 `package.json:21`）+ `pnpm 10.33.0`（见 `package.json:6`）+ `vitest ^3.2.4`（见 `package.json:38`）+ 原生 Fluent 2.0 CSS + Fluent 矢量图标体系 (`lucide-react`)
-- **本地数据库**: 嵌入式 SQLite (`rusqlite 0.32 bundled`，见 `src-tauri/Cargo.toml:26`；WAL 模式，维护 14 张核心表，见 `src-tauri/src/db/schema.rs:8-131`：`installed_apps` / `api_etag_cache` / `app_details_cache` / `user_settings` / `user_favorites` / `update_rules` / `search_history` / `view_history` / `host_tokens` / `watched_apps` / `user_stars` / `icon_cache_meta` / `app_icon_cycles` / `trend_board_cache`；无 `search_result_cache` 表，见 ADR-0014 §1：含 `trend_board_cache`（榜缓存二级落盘，后端命令 `get/save_trend_board_cache` 已补齐，见 `src-tauri/src/commands/trends_cache.rs`），`icon_cache_meta` 与 `app_icon_cycles`，图标缓存来源与轮换状态分流）
+- **桌面底座**: Tauri 2（`@tauri-apps/api ^2.2.0` / CLI `^2.2.0`，见 `package.json:19,30`；后端 `tauri = "2"`，见 `src-tauri/Cargo.toml:16`；三处版本 `0.6.2` 对齐 `package.json:4` / `src-tauri/Cargo.toml:3` / `src-tauri/tauri.conf.json:4`，由 `scripts/bump-version.mjs` 同步）+ Rust（`edition 2021`，见 `src-tauri/Cargo.toml:6`；仓库内未 pin 工具链版本）
+- **前端界面**: React 19（`^19.0.0`，见 `package.json:25`）+ TypeScript 5.7 (strict)（`^5.7.3`，见 `package.json:37`）+ Vite 6（`^6.2.0`，见 `package.json:38`；`vite.config.ts:13-22` 固定 `1420` + HMR `1421`）+ `i18next ^26.4.2`（见 `package.json:22`）+ `pnpm 10.33.0`（见 `package.json:6`）+ `vitest ^3.2.4`（见 `package.json:39`）+ 原生 Fluent 2.0 CSS + Fluent 矢量图标体系 (`lucide-react`)
+- **本地数据库**: 嵌入式 SQLite (`rusqlite 0.32 bundled`，见 `src-tauri/Cargo.toml:26`；WAL 模式，维护 14 张核心表，见 `src-tauri/src/db/schema.rs:8-130`：`installed_apps` / `api_etag_cache` / `app_details_cache` / `user_settings` / `user_favorites` / `update_rules` / `search_history` / `view_history` / `host_tokens` / `watched_apps` / `user_stars` / `icon_cache_meta` / `app_icon_cycles` / `trend_board_cache`，含 `trend_board_cache`（榜缓存二级落盘，后端命令 `get/save_trend_board_cache`，见 `src-tauri/src/commands/trends_cache.rs`）与 `icon_cache_meta` / `app_icon_cycles`（图标缓存来源与轮换状态分流））
 - **配置中枢**: 单一基线配置源（`src-tauri/config.toml`），结合编译期内置兜底与外部重载机制
-- **网络与下载**: API / 图标双池物理隔离复用单例（均 `connect_timeout 5s`、`keepalive 60s`、`pool 20/idle 90s`，见 `src-tauri/src/lib.rs:85-97`；图标 CDN 通道恒丢 token，绝不携带认证头）+ `tokio full`（见 `src-tauri/Cargo.toml:23`）异步流式下载 + `reqwest 0.12`（见 `src-tauri/Cargo.toml:24`）+ ETag 条件缓存 + 有限重试（仅 GET 传输错误与 429/5xx，最多 2 次按 200ms→800ms 退避，401/404/304 永不重试）+ 并发镜像测速管道；图标先 HEAD 判类型长度、再 Range 取前 32KB 验 magic（300B 最小阈值卡掉 LFS 指针，`buffered(3)` 并发）；自动继承系统代理与 TUN 模式（Windows 启动自探测注册表，见 `src-tauri/src/lib.rs:262-284`）
-- **桌面开发配置**: `pnpm tauri dev`（基于 `src-tauri/tauri.conf.json` 配置本地安全策略：无边框 `decorations:false` / `1280x860`，见 `tauri.conf.json:16-29`；CSP，见 `tauri.conf.json:30-33`；NSIS `currentUser`，见 `tauri.conf.json:48-54`；updater 双 endpoint，见 `tauri.conf.json:58-64`）
-- **IPC 出口**: 前端唯一出口 `src/services/api.ts:119-190` CMD 表 + `src/services/api/client.ts:1-10`（`tauriInvoke` / `isTauri`）；视图层禁止直调 `invoke`（见 `src/views/noDirectInvoke.test.ts`）；后端 `src-tauri/src/lib.rs:527-602` 注册 74 个 commands（含 `zlog_get_dir` / `zlog_export_bundle`）
+- **网络与下载**: API / 图标双池物理隔离复用单例（均 `connect_timeout 5s`、`keepalive 60s`、`pool 20/idle 90s`，见 `src-tauri/src/lib.rs:86-100`；图标 CDN 通道恒丢 token，绝不携带认证头）+ `tokio full`（见 `src-tauri/Cargo.toml:24`）异步流式下载 + `reqwest 0.12`（见 `src-tauri/Cargo.toml:25`）+ ETag 条件缓存 + 有限重试（仅 GET 传输错误与 429/5xx，最多 2 次按 200ms→800ms 退避，401/404/304 永不重试）+ 并发镜像测速管道；图标先 HEAD 判类型长度、再 Range 取前 32KB 验 magic（300B 最小阈值卡掉 LFS 指针，`buffered(3)` 并发）；自动继承系统代理与 TUN 模式（Windows 启动自探测注册表，见 `src-tauri/src/lib.rs:266-287`）
+- **桌面开发配置**: `pnpm tauri dev`（基于 `src-tauri/tauri.conf.json` 配置本地安全策略：无边框 `decorations:false` / `1280x860`，见 `tauri.conf.json:18-23`；CSP，见 `tauri.conf.json:31-34`；NSIS `currentUser`，见 `tauri.conf.json:48-54`；updater 双 endpoint，见 `tauri.conf.json:57-63`）
+- **IPC 出口**: 前端唯一出口 `src/services/api.ts:100-171` CMD 表 + `src/services/api/client.ts:1-8`（`tauriInvoke` / `isTauri`）；视图层禁止直调 `invoke`（见 `src/views/noDirectInvoke.test.ts`）；后端 `src-tauri/src/lib.rs:538-614` 注册 75 个 commands（含 `zlog_get_dir` / `zlog_export_bundle`）
 - **安装引擎**: Windows MSI (`/qn`)、Setup EXE (`/S` / `/VERYSILENT`)、便携版 ZIP/tarball 自动解压与快捷方式生成（便携 ZIP/tarball（.zip + 二进制 .tar.gz/.tgz/.tar.xz/.tar，os+arch命中可装、仅本平台、tar权重+5垫底、剥顶层+chmod兜底；.7z/.tar.bz2只下载））、macOS (DMG/PKG) 及 Linux (deb/rpm/AppImage) 管道；Unix 卸载走 argv 直调，不经 `sh -c`
-
----
-
-## 📊 开发里程碑与功能交付现状
-
-| 阶段 / 功能模块 | 规划定位 | 当前状态 | 核心成果与支撑规范 |
-|---|---|---|---|
-| **M0: 核心基座与 MVP** | 基础架构与 Windows 端闭环 | **100% 已交付** | 纯客户端直连、Fluent 2 亚克力界面、国内镜像加速管道 |
-| **Feature A: 多代码托管平台** | Codeberg / Forgejo / Gitea | **100% 已交付** | `ForgeProvider` 抽象、多主机 Token 隔离 ([ADR-0006](docs/adr/0006-multi-forge-ecosystem-support.md)) |
-| **Feature B: 存量应用管理** | 扫描已装软件并接管更新 | **100% 已交付** | Windows 注册表扫描器、启发式倒排打分匹配引擎 |
-| **Feature C: 版本控制与验签** | 跳过/锁定版本 | **100% 已交付** | SQLite 版本规则表、SHA-256 流式校验 ([ADR-0004](docs/adr/0004-streaming-installer-and-checksum-verification.md)) |
-| **Feature D: 开发者生态** | 开发者全景与 Star 仓库同步 | **100% 已交付** | 开发者主页、GitHub Star 导入、搜索/浏览历史持久化 |
-| **Feature E: 协议唤起与多端** | `zstore://` 路由与多端管道 | **100% 已交付** | URL Scheme 深度链接、API 配额药丸胶囊、类 Unix 安装管道 |
-| **ADR-0007: 开放清单与缓存** | 开放清单同步 + 固定基线 TTL | **100% 已交付** | 远程 Manifest 仓库动态拉取、统一 60 分钟基线 TTL、ETag 304 零配额续期 |
-| **ADR-0008: 出站代理与设置重构** | 出站代理 + OAuth 加固 + 设置 5 组 | **100% 已交付** | 系统代理透明捕获、OAuth 三级 Client ID、独立状态机、设置 5 组规范 ([ADR-0008](docs/adr/0008-outbound-proxy-oauth-hardening-and-settings-restructure.md)) |
-| **ADR-0009: 清单解耦与多端体系** | 独立生态仓库 + 多端 Identifiers | **100% 已交付** | 解耦至 `superMC5657/z-store-catalog`、原生多端标识符结构、设备与分类双维筛选、单一配置源 ([ADR-0009](docs/adr/0009-catalog-manifest-repository-decoupling.md)) |
-| **ADR-0010: 规范应用标识** | canonical id 全链路统一 | **100% 已交付** | 小写 `owner/repo` 全局唯一标识、入口统一归一化、纯粹单键索引 ([ADR-0010](docs/adr/0010-canonical-app-identifier.md)) |
-| **合并审查 28 项整改 (4938964)** | 安全加固与测试台补齐 | **100% 已交付** | 深链安装二次确认、便携卸载目录白名单、semver 版本比较、去 `.7z` 宣称、tar.gz大修：二进制tarball可展示可装、`.tar.bz2`/`.7z`只下载；前后端自动化测试全量通过（计数以 `cargo test` / `pnpm test` 实际运行结果为准） |
-| **M1: 体验扩展与 PWA** | 移动适配与网页发现站 | **规划中（未启动）** | Web/PWA 发现站规划、Android Shizuku 免 Root 安装预研；仓库内暂无 PWA 痕迹（无 `vite-plugin-pwa` / `manifest.webmanifest` / service-worker，以代码为准），详见 ADR-0016 |
 
 ---
 
@@ -129,7 +110,7 @@
 # 1. 安装前端依赖
 pnpm install
 
-# 2. 运行自动化测试与前端类型检查（通过计数以实际运行输出为准）
+# 2. 运行自动化测试与前端类型检查（基线：cargo test 218 passed / 3 ignored；pnpm test 430 passed / 45 files）
 cargo test
 pnpm test
 pnpm build

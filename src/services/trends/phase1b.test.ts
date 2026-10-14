@@ -55,7 +55,7 @@ describe('Phase1B C1：match 需 owner 佐证，跨 owner 永不命中', () => {
   });
 });
 
-describe('Phase1B C2：undefined 恒沉底，tie 按 id 升序', () => {
+describe('排序：undefined 恒沉底，tie 按 id 升序', () => {
   it('compareStarsGainedDesc：undefined 恒沉底', () => {
     const undef = makeTrendRepo({ id: 'acme/ghost', stars: 100000, starsGained: undefined });
     const tiny = makeTrendRepo({ id: 'acme/tiny', stars: 10, starsGained: 1 });
@@ -90,7 +90,7 @@ describe('Phase1B C2：undefined 恒沉底，tie 按 id 升序', () => {
   });
 });
 
-describe('Phase1B C3：key 归一读写一致', () => {
+describe('key 归一读写一致', () => {
   it('language/category 归一 trim().toLowerCase()', () => {
     expect(buildTrendsCacheKey('weekly', { language: 'Python' })).toBe('weekly|python|');
     expect(buildTrendsCacheKey('weekly', { language: ' Python ', category: ' Media ' })).toBe(

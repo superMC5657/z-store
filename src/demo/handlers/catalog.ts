@@ -55,13 +55,11 @@ export function handleGetHomeFeed(a: InvokeArgs): {
 }
 
 export function handleSearchAppsOnline(a: InvokeArgs): { rows: AppSummary[]; sid: string } {
-  // Mock 回声：直透前端 `search_id` 为 `sid`（与 Rust `OnlineSearchResult` 同形收敛；
-  // 无 id（legacy 调用）则 `sid=''` 保持窗开，永不伪造。调用方经 `searchAppsOnline`
-  // 归一器收敛，无需改调用点）。
-  const sid = argStr(a, 'search_id', 'searchId', 'search-id');
+  // Mock 回声：直透前端 `search_id` 为 `sid`（与 Rust `OnlineSearchResult` 同形收敛）。
+  const sid = argStr(a, 'search_id');
   const qRaw = argStr(a, 'query').trim();
   if (!qRaw) return { rows: [], sid };
-  const rawPer = argNum(a, 'per_page', 'perPage', 'per-page');
+  const rawPer = argNum(a, 'per_page');
   const rawPage = argNum(a, 'page');
   const perPage = rawPer === undefined ? 12 : Math.min(50, Math.max(1, Math.floor(rawPer)));
   const page =

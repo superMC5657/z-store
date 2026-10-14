@@ -73,7 +73,7 @@ impl CatalogItem {
             return native;
         }
         // 非 Windows 回退：windows 标识去扩展名后仍可用于 PATH/desktop 匹配。
-        // Windows 自身直接返回空（保持原有 exe_candidates(repo) 兜底语义不变）。
+        // Windows 自身直接返回空（exe_candidates(repo) 兜底语义）。
         if cfg!(target_os = "linux") {
             let win = self.get_identifiers("windows");
             if !win.is_empty() {
@@ -224,7 +224,7 @@ mod tests {
 
     #[test]
     fn test_to_summary_empty_platforms_passthrough_no_fallback() {
-        // 空 platforms 直接透传 []，不再兜底 ["windows"]；"other" 永不进 IPC。
+        // 空 platforms 直接透传 []；"other" 永不进 IPC。
         let item = dummy_item(Vec::new());
         let summary = item.to_summary();
         assert!(summary.platforms.is_empty());

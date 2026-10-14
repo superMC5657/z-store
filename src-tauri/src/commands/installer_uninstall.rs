@@ -19,7 +19,7 @@ pub(crate) fn hide_ghost_apps(apps: Vec<InstalledApp>, ghost_ids: &[String]) -> 
         .collect()
 }
 
-/// P0-2 便携版卸载安全门禁：仅允许在 ZStore 自身创建的专用隔离目录内执行 `remove_dir_all`
+/// 便携版卸载安全门禁：仅允许在 ZStore 自身创建的专用隔离目录内执行 `remove_dir_all`
 /// （即 `dirs_or_fallback(app_id)`）。
 /// 两个路径均首先进行规范化（消除符号链接、大小写和路径前缀差异）；
 /// 逐级路径组件 `starts_with` 比较可防止同级前缀混淆（例如 `app` 与 `app2`）。
@@ -50,7 +50,7 @@ pub(crate) fn is_owned_portable_dir(
     }
 }
 
-/// P0-2 安全清理：属于自有专属目录 -> 执行 `remove_dir_all`；共享目录（如“下载”或 D:\Tools）
+/// 安全清理：属于自有专属目录 -> 执行 `remove_dir_all`；共享目录（如“下载”或 D:\Tools）
 /// -> 仅删除清单记录的单一文件，或拒绝整目录删除。
 pub(crate) fn cleanup_portable_path(install_path: &std::path::Path, owned_dir: &std::path::Path) {
     let dir = if install_path.is_file() {
@@ -114,7 +114,7 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result
         }
     };
 
-    // 1. 便携版清理：remove_dir_all 仅允许在 ZStore 自建隔离目录内 (P0-2)
+    // 1. 便携版清理：remove_dir_all 仅允许在 ZStore 自建隔离目录内
     if app.install_method == "portable_zip" {
         cleanup_portable_path(
             std::path::Path::new(&app.install_path),
@@ -201,7 +201,7 @@ mod portable_uninstall_safety_tests {
 
     #[test]
     fn uninstall_shared_dir_survives() {
-        // P0-2 红色警戒用例：解压到共享目录（如 Downloads 或 D:\Tools）的应用
+        // 安全用例：解压到共享目录（如 Downloads 或 D:\Tools）的应用
         // 绝不能对共享目录触发 remove_dir_all 递归删除。
         let base = std::env::temp_dir().join(format!("zstore-red-shared-{}", std::process::id()));
         let shared = base.join("shared");

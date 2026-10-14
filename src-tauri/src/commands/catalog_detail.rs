@@ -12,7 +12,6 @@ pub(crate) fn should_skip_persist(is_stale: Option<bool>) -> bool {
 
 /// FINAL 详情 TTL（分钟→秒）：新默认 60min（见 `db::icon_cycle::DETAIL_TTL_MINUTES_DEFAULT`），`platforms_lite` 同值同源。
 /// - `0`（每次实时校验）原样透传 0；
-/// - 老库残留 `30` 迁移为默认（30→60min 口径变更，一次性兼容）；
 /// - 其余有效挡位 `10/默认/360/1440` 原样透传；非法值回退默认。
 /// 图标 TTL 另见 `db::icon_cycle::ICON_TTL_SECS`（7 天，图标通道禁用 ETag）。
 pub(crate) fn detail_ttl_secs(db: &crate::db::Database) -> i64 {
@@ -20,9 +19,6 @@ pub(crate) fn detail_ttl_secs(db: &crate::db::Database) -> i64 {
     let m = db.get_detail_cache_ttl_minutes();
     if m <= 0 {
         return 0;
-    }
-    if m == 30 {
-        return DETAIL_TTL_MINUTES_DEFAULT * 60;
     }
     if [10, DETAIL_TTL_MINUTES_DEFAULT, 360, 1440].contains(&m) {
         return m * 60;
@@ -51,7 +47,7 @@ pub async fn get_app_details(
 ///   无 repo、无 README、无图标探测、无 checksum；`detail_json` 仅 TTL 命中时复用，
 ///   网络路径只解析 release assets；
 /// - 304-touch/save/回退决议收归 `github::release_fetch` shallow adapter
-///   （与 Streaming Update Check〈流式更新检查〉同一 interface，原逐字重复分支已删除）：
+///   （与 Streaming Update Check〈流式更新检查〉同一 interface）：
 ///   304 命中经 payload 恢复 deduce 并 `touch_cached_app_detail` 延长保鲜期
 ///   （`from_cache=true`，与详情 304 短路同形）；
 /// - stale 穿透（401/离线复用旧行）标 `is_stale=true` 且不 touch（与详情一致，
@@ -169,12 +165,12 @@ pub async fn get_platforms_lite(
     }
 
     // 收敛：304-touch/save/回退分支收归 `github::release_fetch` shallow adapter
-    //（与 Streaming Update Check〈流式更新检查〉同一 interface；原逐字重复分支已删除）。
+    //（与 Streaming Update Check〈流式更新检查〉同一 interface）。
     // ADR-0007 豁免对照分支（consult_ttl = true 侧）：本通道入口已先走 Cache TTL 快径
     // （见上）；更新检查通道无此分支，每次直探。语义见模块注释。
-    // 现行语义保留：304 payload 腐坏报硬错"解析本地 ETag 缓存失败"（更新检查侧 tolerant 跳过）。
-    // Fresh 无需回退源，避免无谓 DB 读（现行 hot 路径语义）。
-    // ica3-5：touch/save 双效应经 `apply_release_cache_effects` 单口执行（调用侧 2 行重复收敛）。
+    // 304 payload 腐坏报硬错"解析本地 ETag 缓存失败"（更新检查侧 tolerant 跳过）。
+    // Fresh 无需回退源，避免无谓 DB 读。
+    // touch/save 双效应经 `apply_release_cache_effects` 单口执行。
     let stale_row: Option<crate::models::AppDetail> = match &outcome {
         EtagGetOutcome::Fresh { .. } => None,
         _ => state
@@ -200,11 +196,11 @@ pub async fn get_platforms_lite(
                 );
             }
             let platforms = match rel.row_platforms {
-                // 旧行穿透：直接采用已 deduce platforms，不重推导（现行语义）。
+                // 旧行穿透：直接采用已 deduce platforms，不重推导。
                 Some(p) => p,
                 None => state.catalog.deduce_lite_platforms(&clean_id, &rel.assets),
             };
-            // 日志诚实区分：旧分支各臂 from= 文案原样保留（304-行/离线-payload 穿透本无日志）。
+            // 日志 from= 文案：304-行/离线-payload 穿透本无日志，仅 miss/304/stale 三臂标注。
             let from_label: Option<&str> = match (&rel.source, rel.touch) {
                 (crate::github::release_fetch::ShallowSource::Fresh, _) => Some("miss"),
                 (crate::github::release_fetch::ShallowSource::Payload, true) => {
@@ -235,7 +231,7 @@ pub async fn get_platforms_lite(
         }
         Err(crate::github::release_fetch::ShallowError::Parse(e)) => Err(e.into()),
         Err(crate::github::release_fetch::ShallowError::PayloadCorrupt(e)) => {
-            // 现行语义：304 进臂时已 touch 延保（UPDATE 无行即空操作），硬错前补上。
+            // 304 进臂时已 touch 延保（UPDATE 无行即空操作），硬错前补上。
             if let Ok(db) = state.db() {
                 let _ = db.touch_cached_app_detail(&clean_id, crate::now_secs());
             }
@@ -246,7 +242,7 @@ pub async fn get_platforms_lite(
                 Err("304 响应但本地未找到缓存数据".into())
             }
             crate::github::release_fetch::ShallowMiss::OfflineWithoutCache => {
-                // P0 合成空失败：无任何缓存时以 stale 区分于成功空（与详情同形），
+                // 合成空失败：无任何缓存时以 stale 区分于成功空（与详情同形），
                 // 前端 stale-empty 视为 pending，不确认 Other；本命令永不落库。
                 log::debug!(
                     "get_platforms_lite id={} from=empty:stale elapsed_ms={}",
@@ -292,7 +288,7 @@ pub async fn get_app_details_impl(
     // 单次临界区完成 TTL + 缓存读取 + verified 标记解析，避免同请求内多次加/解锁；
     // 注意：锁守卫不得跨越 await（Tauri 命令 Future 需 Send），故查询收拢于单闭包内。
     // 后续优化方向：r2d2 连接池（当前仍用全局 Mutex<Database>，见 ADR-0003；无 schema 变更）。
-    // FINAL 详情 TTL 60min（老 30 迁移，见 `detail_ttl_secs`；platforms_lite 同值）。
+    // FINAL 详情 TTL 60min（见 `detail_ttl_secs`；platforms_lite 同值）。
     if !is_force {
         let cached: Option<AppDetail> = state.db().ok().and_then(|db| {
             let ttl_seconds = detail_ttl_secs(&db);
@@ -432,7 +428,7 @@ pub async fn get_app_details_impl(
         let coords = match state.catalog.get_repo_coordinates(&clean_id) {
             Ok(c) => c,
             Err(e) => {
-                // P0：未知坐标降级同样标 stale，Ok(stale) 形状 IPC 保留，前端 stale-empty 视为 pending。
+                // 未知坐标降级同样标 stale，Ok(stale) 形状 IPC 保留，前端 stale-empty 视为 pending。
                 if let Ok(db) = state.db() {
                     if let Ok(Some(mut fallback)) = db.get_cached_app_detail_fallback(&clean_id) {
                         fallback.id = clean_id.clone();
@@ -508,9 +504,8 @@ pub async fn get_app_details_impl(
             let now = crate::now_secs();
             detail.cached_at = Some(now);
 
-            // ica3-5：release ETag 副作用经 `release_fetch::apply_release_cache_effects` 单口执行
-            //（与 lite 双径同形合一；touch 侧 stale 守卫保留：stale 穿透永不 touch，
-            // 避免把过期 stale 洗成 fresh）。
+            // release ETag 副作用经 `release_fetch::apply_release_cache_effects` 单口执行
+            //（touch 侧 stale 守卫：stale 穿透永不 touch，避免把过期 stale 洗成 fresh）。
             // 语义对照：to_cache=Some 为远端 200（落库 ETag 键）；to_cache=None + 非 stale
             // 为远端 304（仅 touch 延保，零配额；fresh 真空经 304 恢复同样走此延保，
             // 经 200 则走 save 并由下方落盘分支以 fresh 空行落盘，下次 TTL 内不再变黄）。
@@ -528,10 +523,10 @@ pub async fn get_app_details_impl(
             }
 
             // 存入 SQLite 本地持久化缓存。
-            // P0-1（inherit-then-recompute）：远端产物为空但本地已有资产时先继承，
+            // inherit-then-recompute：远端产物为空但本地已有资产时先继承，
             // 继承后若 releases 非空而 platforms 仍空则重算 deduce，
             // 使 assets-without-platforms 不可能成立。
-            // P0-2（never-poison）：仅 stale 穿透/合成空失败（is_stale==Some(true)）
+            // never-poison：仅 stale 穿透/合成空失败（is_stale==Some(true)）
             // 永不落库——有旧行则保持旧行（连 cached_at 都不刷新），无旧行则不建行；
             // 返回的 detail 保持 Ok 形状，但 is_stale=true 供前端视为
             // pending/待 backfill，永不确认 Other。空平台不 stamp ["other"]/["windows"]。
@@ -667,7 +662,7 @@ pub async fn get_app_details_impl(
                 crate::log_support::short_reason(&err)
             );
             // 网络或限额异常时，优雅降级返回已存储的历史缓存。
-            // P0：Ok(stale) 形状为 IPC 保留；is_stale=true 供前端视为 pending，
+            // Ok(stale) 形状为 IPC 保留；is_stale=true 供前端视为 pending，
             // stale-empty（双空）不得确认 Other，由 backfill 重试。
             if let Ok(db) = state.db() {
                 if let Ok(Some(mut fallback_detail)) = db.get_cached_app_detail_fallback(&clean_id)

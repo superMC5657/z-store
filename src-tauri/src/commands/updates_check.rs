@@ -89,11 +89,11 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
     }
 
     // 收敛：轻量决议经 `github::release_fetch` shallow adapter（与 `get_platforms_lite`
-    // 同一 interface；原 304-touch/save/回退内联分支已删除）。
+    // 同一 interface）。
     // ADR-0007 豁免对照分支（consult_ttl = false 侧）：此处故意不读详情 Cache TTL
     // （缓存生存时效），每次直探 ETag；TTL 快径仅 `get_platforms_lite` 有。语义见模块注释。
-    // 失败路径不做 ETag payload 恢复（现行语义）：仅 304 时传入 payload。
-    // Fresh 无需回退源，避免无谓 DB 读（现行 hot 路径语义）。
+    // 失败路径不做 ETag payload 恢复：仅 304 时传入 payload。
+    // Fresh 无需回退源，避免无谓 DB 读。
     let decide_payload = match &outcome {
         crate::github::http::EtagGetOutcome::NotModified => cached_payload.as_deref(),
         _ => None,
@@ -264,7 +264,7 @@ pub async fn check_for_updates(
         }),
     );
 
-    // P0-4：并发度 3 → 6，兼顾并发检查速度与 GitHub API 稳定性。
+    // 并发度 6，兼顾检查速度与 GitHub API 稳定性。
     // 关键体验优化：只要某款应用检测出有新版本，立即通过事件单项推流，实现“检测出一项跳出一项”的流畅反馈。
     // emit 顺序语义：zstore://update-item-found/progress 为无序发射，前端按 app_id 去重/累计，不依赖顺序；
     // zstore://update-check-finished 在 collect 完成后统一发射，保持终态语义。
@@ -380,11 +380,11 @@ async fn notify_watched_updates(
     };
     let now = crate::now_secs();
 
-    // P0-4：关注通知路径由串行 for 改为并发 buffer_unordered(6)，
+    // 关注通知路径用 buffer_unordered(6) 并发，
     // 每项经 GLOBAL_WATCH_TX 无序发送，前端按 app_id 去重，不依赖顺序；
-    // frozen/hidden 过滤、baseline 静默、daily 24h 节流语义保持不变。
-    // 瘦身：frequency 按引用复用（is_daily 预计算，Copy 无每项 String clone）；
-    // 终端用 for_each 替代 collect::<Vec<()>>，零 Vec 分配。
+    // frozen/hidden 过滤、baseline 静默、daily 24h 节流语义照常。
+    // frequency 按引用复用（is_daily 预计算，Copy 无每项 String clone）；
+    // 终端用 for_each 替代 collect，零 Vec 分配。
     let is_daily = frequency.as_str() == "daily";
     stream::iter(watched)
         .map(|w| {

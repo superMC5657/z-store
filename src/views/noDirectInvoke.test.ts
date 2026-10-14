@@ -1,5 +1,5 @@
 /**
- * B3-G12 前端收敛卡点（替代 eslint no-direct-invoke；根配置不在本任务允许范围）：
+ * View 层直调 Tauri IPC 卡点测试（替代 eslint no-direct-invoke）：
  *
  * - View 层禁止直调 Tauri IPC：全部调用必须经 `src/services/api.ts` 的
  *   `tauriApi` 方法，命令名统一收敛于表驱动 `CMD`。
@@ -22,7 +22,7 @@ function viewSources(): { file: string; text: string }[] {
     .map((file) => ({ file, text: fs.readFileSync(path.join(viewsDir, file), 'utf8') }));
 }
 
-describe('B3-G12: views go through tauriApi, never invoke directly', () => {
+describe('views go through tauriApi, never invoke directly', () => {
   it('no direct Tauri call in src/views production components', () => {
     const directCall = new RegExp('invoke\\s*\\(');
     const offenders = viewSources()

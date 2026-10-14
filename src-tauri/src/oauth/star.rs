@@ -18,7 +18,7 @@ fn authed_client() -> Result<reqwest::Client, String> {
 }
 
 pub(super) fn auth_headers(token: &str) -> Result<reqwest::header::HeaderMap, String> {
-    // 语义保持：非法 header 字符仍返回 Err（`forge::http` 侧为静默跳过，此处保留旧错误文案）。
+    // 非法 header 字符返回 Err（`forge::http` 侧为静默跳过，此处错误文案更明确）。
     if reqwest::header::HeaderValue::from_str(&format!("Bearer {}", token.trim())).is_err() {
         return Err("认证令牌格式无效".to_string());
     }

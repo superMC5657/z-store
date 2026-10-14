@@ -14,7 +14,7 @@ import {
   upsertTrendEnrichRichcard,
   type DetailPlatformsHealPayload,
   type DetailRichcardHealPayload,
-} from '../../services/trends';
+} from '../../services/trends/enrich';
 
 export interface UseDetailCacheSyncParams {
   selectedApp: AppDetailViewModel | null;
@@ -30,7 +30,7 @@ export interface UseDetailCacheSyncParams {
 }
 
 /**
- * 详情快照缓存与卡片列表同步（C3 自 App.tsx 抽出，原 L489-1046）。
+ * 详情快照缓存与卡片列表同步。
  *
  * - 内存快照 0ms 秒开 + 后台 ETag 条件探查静默更新；
  * - 后端占位简介永不污染内存快照/列表（富卡非占位兜底，无富卡即存 ''/保留旧值）；
@@ -367,7 +367,7 @@ export function useDetailCacheSync({
     if (patchedIcon) {
       // 详情实图：经店内唯一写口（buffer + 文件预热 + 四列表写透）。
       // patchedIcon 已剥 data:（上分流），此处恒为转正 http，直送安全。
-      applyHit({ key: idClean, id: idClean, icon: patchedIcon, patch: iconPatch });
+      applyHit({ id: idClean, icon: patchedIcon, patch: iconPatch });
     } else {
       // 卡有 http 实图 + M1 命中即跳过 getAppIconCycle（省 IPC，所见即存）：
       // 列表已有转正 http 直接画，缓冲已有实图首绘即对；仅双空才走 cycle 兜底。
@@ -390,10 +390,10 @@ export function useDetailCacheSync({
       }
       // detail.icon 为空：详情弹窗靠 Header 轮换态照常显示，列表三段用 iconCycle.url 经店内写口回填落盘。
       void api.getAppIconCycle(idClean).then((cycle) => {
-        // 双落盘口径：url=data: 即时态（IPC临时、永不进盘），remote_url/remoteUrl=可持久化 URL；
+        // 双落盘口径：url=data: 即时态（IPC临时、永不进盘），remote_url=可持久化 URL；
         // 落盘/回填一律用 persistUrl（remote优先，url非data:才兜底，否则空即 L5/空不发）。
-        const remote = typeof (cycle?.remote_url ?? cycle?.remoteUrl) === 'string'
-          ? String(cycle?.remote_url ?? cycle?.remoteUrl).trim()
+        const remote = typeof cycle?.remote_url === 'string'
+          ? String(cycle?.remote_url).trim()
           : '';
         const fallbackUrl = typeof cycle?.url === 'string' ? cycle.url.trim() : '';
         const persistUrl = remote !== '' ? remote : (!fallbackUrl.startsWith('data:') ? fallbackUrl : '');
@@ -402,12 +402,12 @@ export function useDetailCacheSync({
           // cycle 空但非 L5 时按下 `applyHit` 空守卫自然丢弃，保持占位）。
           const emptyLevel = typeof cycle?.level === 'number' && cycle.level === 5 ? 5 : undefined;
           if (emptyLevel === 5) {
-            applyHit({ key: idClean, id: idClean, icon: '', level: 5, patch: iconPatch });
+            applyHit({ id: idClean, icon: '', level: 5, patch: iconPatch });
           }
           return;
         }
         const cycleLevel = typeof cycle?.level === 'number' ? cycle.level : undefined;
-        applyHit({ key: idClean, id: idClean, icon: persistUrl, level: cycleLevel, patch: iconPatch });
+        applyHit({ id: idClean, icon: persistUrl, level: cycleLevel, patch: iconPatch });
       }).catch(() => {
         // 取不到轮换图标则保持占位，不阻塞
       });

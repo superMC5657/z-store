@@ -1,14 +1,13 @@
 //! 下载加速代理（Mirror Download Proxy）镜像改写唯一落点。
 //!
-//! 单一 `rewrite(url)` interface，两种调用上下文（票 13 收敛点；服务 ADR-0004，不重开）：
+//! 单一 `rewrite(url)` interface，两种调用上下文（服务 ADR-0004）：
 //! - 有状态安装下载：调用方持有 AppState 的 `&MirrorManager`，经
 //!   [`MirrorManager::rewrite_download_url`]（用户配置代理；默认直连返回原值）；
 //! - opportunistic 小文件拉取（Checksum Manifest〈校验清单〉）：`CatalogService`
 //!   够不到 AppState，调用方经 adapter 注入改写后 URL，默认注入即
 //!   [`opportunistic_rewrite`]（GitHub 域 gh-proxy 兜底，非 GitHub 域直连）。
 //!
-//! 底层前缀原语唯一（`wrap_gh_proxy` + `prefix_with_base`），两处上下文皆经此，
-//! checksum 第三份 `wrap` duplicate 已删除（见 `github::detail_fetch`）。
+//! 底层前缀原语唯一（`wrap_gh_proxy` + `prefix_with_base`），两处上下文皆经此。
 
 use crate::models::MirrorNodeStatus;
 use std::time::Instant;
@@ -39,11 +38,10 @@ pub fn wrap_gh_proxy(raw_url: &str) -> String {
 
 /// opportunistic 小文件拉取上下文的改写（单一 interface 的无状态侧）：
 /// GitHub 域 gh-proxy 前缀兜底加速，非 GitHub 域直连。
-/// 返回 `(effective_url, is_mirror)`（`is_mirror` 供日志）；`CatalogService`
-/// 侧详情 checksum 缝唯一调用点直调本函数（fn 指针注入参数已收敛删除，见
-/// `github::detail_fetch::fetch_checksum_table`），不再自立 duplicate。
-/// ica3-5：域判定收敛至 `wrap_gh_proxy` 单口（非 GitHub 直连 + 已套前缀直通皆由
-/// 底层原语判定，此处只比对是否改写），语义与原双分支完全一致。
+/// 返回 `(effective_url, is_mirror)`（`is_mirror` 供日志）；
+/// `CatalogService` 侧详情 checksum 缝唯一调用点直调本函数。
+/// 域判定收敛至 `wrap_gh_proxy` 单口（非 GitHub 直连 + 已套前缀直通皆由
+/// 底层原语判定，此处只比对是否改写）。
 pub fn opportunistic_rewrite(raw_url: &str) -> (String, bool) {
     let wrapped = wrap_gh_proxy(raw_url);
     let changed = wrapped != raw_url;
@@ -285,8 +283,7 @@ mod tests {
 
     #[test]
     fn test_opportunistic_rewrite_direct_and_fallback() {
-        // 新 seam 测试（replace-don't-layer）：第三份 duplicate 删除后，
-        // 校验拉取经统一 interface 仍走直接/回退（旧单测随旁路删，不迁移）。
+        // 校验拉取经统一 interface 走直接/回退两臂。
         // GitHub 域 → gh-proxy 回退。
         let raw = "https://github.com/o/r/releases/download/v1/f.sha256";
         let (effective, mirror) = opportunistic_rewrite(raw);

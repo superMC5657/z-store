@@ -352,7 +352,7 @@ impl CatalogService {
 
     /// 解析仓库坐标：收录库内按 canonical id 精确命中；
     /// 目录之外的 GitHub 仓库（在线搜索结果）由统一解析器合成外部坐标（external_synth）。
-    /// 未知标识直接拒绝，不再透传。
+    /// 未知标识直接拒绝，不透传。
     pub fn get_repo_coordinates(&self, id: &str) -> Result<AppRepoCoordinates, String> {
         let clean = crate::forge::canonical_app_id(id)
             .ok_or_else(|| format!("无法识别的应用标识: {}", id))?;
@@ -367,7 +367,7 @@ impl CatalogService {
                 icon_bg: item.icon_bg.clone(),
             })
         } else if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&clean) {
-            // external_synth：在线搜索返回的目录外 GitHub 坐标，现行 search 回退路径，保留
+            // external_synth：在线搜索返回的目录外 GitHub 坐标（search 回退路径）
             if coord.forge == crate::forge::ForgeType::GitHub {
                 Ok(AppRepoCoordinates {
                     owner: coord.owner,
@@ -468,7 +468,7 @@ mod tests {
             crate::forge::canonical_app_id("codeberg:FreeTubeApp/FreeTube").as_deref(),
             Some("codeberg:freetubeapp/freetube")
         );
-        // 未知标识显式拒绝，不再透传
+        // 未知标识显式拒绝
         assert!(crate::forge::canonical_app_id("Unknown-App").is_none());
         // 空输入
         assert!(crate::forge::canonical_app_id("").is_none());

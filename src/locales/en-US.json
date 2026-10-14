@@ -128,7 +128,7 @@
     "importing": "Importing...",
     "export_success": "Backup exported (Favorites {{fav}} · Watched {{watch}})",
     "export_failed": "Failed to export backup: {{error}}",
-    "import_success": "Import complete: Favorites +{{fav}} · Watched +{{watch}} · Settings {{settings}} ({{skipped}} installed unaffected)",
+    "import_success": "Import complete: Favorites +{{fav}} · Watched +{{watch}} · Settings {{settings}}",
     "settings_applied": "applied",
     "settings_unchanged": "unchanged",
     "import_failed": "Failed to import backup: {{error}}"

@@ -155,8 +155,7 @@ pub(crate) async fn get_with_etag(
     }
 }
 
-/// UA 常量统一收敛到 `forge::http` SSOT（第一步：常量统一，值与旧字面量一致）。
-/// `GH_ACCEPT` 已由 `ApiPreset::GithubApi` 表驱动收敛，不再保留字面量别名，避免双源漂移。
+/// UA 常量统一在 `forge::http` SSOT；ACCEPT 由 `ApiPreset::GithubApi` 表驱动。
 pub(crate) const GH_USER_AGENT: &str = crate::forge::http::USER_AGENT_VALUE;
 
 /// H8：github 内统一秒级时间戳（与 `db::now_secs` 同语义，跨 crate 统一留给二阶段）。
@@ -173,13 +172,13 @@ pub(crate) fn api_timeout() -> std::time::Duration {
     )
 }
 
-/// H2：统一 API 客户端构造（timeout 语义不变，委托 `forge::http` SSOT）。
+/// H2：统一 API 客户端构造（委托 `forge::http` SSOT）。
 pub(crate) fn build_api_client() -> Result<reqwest::Client, String> {
     crate::forge::http::new_api_client(api_timeout().as_secs())
 }
 
-/// H1：`token {}` 方案（含 ACCEPT），镜像 `detail`/`search` 旧行为。
-/// 薄包装：保留旧名与签名，函数体委托 `forge::http` 表驱动预设（`Token` 小写前缀不可合错）。
+/// H1：`token {}` 方案（含 ACCEPT）。
+/// 薄包装：函数体委托 `forge::http` 表驱动预设（`Token` 小写前缀不可合错）。
 pub(crate) fn token_headers(token: Option<&str>) -> HeaderMap {
     crate::forge::http::preset_headers(
         crate::forge::http::ApiPreset::GithubApi,
@@ -188,8 +187,8 @@ pub(crate) fn token_headers(token: Option<&str>) -> HeaderMap {
     )
 }
 
-/// H1：`Bearer {}` 方案（含 ACCEPT），镜像 `developer_*` 旧行为。
-/// 薄包装：保留旧名与签名，函数体委托 `forge::http` 表驱动预设。
+/// H1：`Bearer {}` 方案（含 ACCEPT）。
+/// 薄包装：函数体委托 `forge::http` 表驱动预设。
 pub(crate) fn bearer_headers(token: Option<&str>) -> HeaderMap {
     crate::forge::http::preset_headers(
         crate::forge::http::ApiPreset::GithubApi,
@@ -201,14 +200,6 @@ pub(crate) fn bearer_headers(token: Option<&str>) -> HeaderMap {
 /// H3：统一日志上下文，返回 `(req_id, sid)`，顺序与原样板一致。
 pub(crate) fn new_log_ctx() -> (String, String) {
     (crate::z_log::new_req_id(), crate::z_log::new_session_id())
-}
-
-/// H10：兜底平台列表（已废弃：未知仓库返回空，由前端 virtual-Other 规则接管）。
-/// 保留空实现仅防外部误用；"other" 永不过 IPC、永不进入 installer 匹配。
-#[allow(dead_code)]
-#[deprecated(note = "unknown repos return []; frontend virtual-Other takes over")]
-pub(crate) fn fallback_platforms() -> Vec<String> {
-    Vec::new()
 }
 
 /// H10：分类元信息结构体。
@@ -680,7 +671,7 @@ mod tests {
         )
         .await;
         assert_eq!(summary_none.icon, "");
-        // 未知仓库不再兜底 ["windows"]：直接返回 []，由前端 virtual-Other 接管。
+        // 未知仓库返回 []，由前端 virtual-Other 接管。
         assert!(summary_none.platforms.is_empty());
 
         // 当 confirmed_icon 存在时，无论是 probe=true 还是 probe=false 均优先使用 confirmed_icon
@@ -704,7 +695,7 @@ mod tests {
         )
         .await;
         assert_eq!(summary_confirmed.icon, custom_uri);
-        // platforms 同样不再兜底 ["windows"]：未知仓库一律 []。
+        // platforms 未知仓库一律 []。
         assert!(summary_confirmed.platforms.is_empty());
     }
 

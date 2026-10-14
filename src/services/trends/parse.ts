@@ -265,7 +265,7 @@ export const NEW_FALLBACK_MAX_FORKS = 500;
 /**
  * new 榜客户端兜底视图（纯函数，显式调用，非隐式 fallback）：
  * `stars<2000 && forks<500` 启发式近似“新仓”，组内按 starsGained 降序
- *（C2：undefined 恒沉底，tie 按 id 升序；缺失绝不回退总量）。
+ *（undefined 恒沉底，tie 按 id 升序；缺失绝不回退总量）。
  * `fetchTrends('new')` 远端失败时直接返回 error，不再隐式复用。
  */
 export function filterNewReposFallback(repos: TrendRepo[]): TrendRepo[] {

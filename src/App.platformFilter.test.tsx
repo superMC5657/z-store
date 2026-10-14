@@ -1,5 +1,5 @@
 /**
- * 任务 3 — App 级别平台筛选状态 + localStorage 持久化测试
+ * App 级别平台筛选状态 + localStorage 持久化测试
  * （决策方案 B：[] = 不选任何平台）。
  *
  * 所有测试均基于行为级覆盖：持久化往返经过 loadSelectedPlatforms/parseSelectedPlatforms 检验，
@@ -133,35 +133,20 @@ describe('task3: platform-filter persistence (Decision B select-nothing)', () =>
     expect(loadSelectedPlatforms()).toEqual(new Set(PLATFORM_IDS));
   });
 
-  it('v1 → v2 migration: legacy full-5 (show-all) upgrades to full-6, libraries stay visible', () => {
-    window.localStorage.setItem(
-      'zstore:platform-filter:v1',
-      JSON.stringify(['windows', 'macos', 'linux', 'ios', 'android'])
-    );
-    expect(loadSelectedPlatforms()).toEqual(new Set(PLATFORM_IDS));
-    expect(loadSelectedPlatforms().has('other')).toBe(true);
-  });
-
-  it('v1 → v2 migration: any legacy subset gains other (discoverability default)', () => {
-    window.localStorage.setItem(
-      'zstore:platform-filter:v1',
-      JSON.stringify(['windows', 'ios'])
-    );
-    expect(loadSelectedPlatforms()).toEqual(new Set(['windows', 'ios', 'other']));
-  });
-
-  it('v1 → v2 migration: corrupt legacy falls back to full-6', () => {
-    window.localStorage.setItem('zstore:platform-filter:v1', '{bad');
+  it('v2 key absent while a foreign legacy key exists → full set (only v2 is read)', () => {
+    window.localStorage.setItem('zstore:platform-filter:v1', JSON.stringify(['windows', 'ios']));
     expect(loadSelectedPlatforms()).toEqual(new Set(PLATFORM_IDS));
   });
 
-  it('v2 key wins over legacy v1 when both are present', () => {
-    window.localStorage.setItem(
-      'zstore:platform-filter:v1',
-      JSON.stringify(['windows', 'macos', 'linux', 'ios', 'android'])
-    );
+  it('v2 key present → read as-is, ignoring any foreign legacy key', () => {
+    window.localStorage.setItem('zstore:platform-filter:v1', JSON.stringify(['windows']));
     window.localStorage.setItem(PLATFORM_FILTER_STORAGE_KEY, JSON.stringify(['ios']));
     expect(loadSelectedPlatforms()).toEqual(new Set(['ios']));
+  });
+
+  it('v2 corrupt payload falls back to full set', () => {
+    window.localStorage.setItem(PLATFORM_FILTER_STORAGE_KEY, '{bad');
+    expect(loadSelectedPlatforms()).toEqual(new Set(PLATFORM_IDS));
   });
 
   it('filtering derivation: empty selection keeps nothing, full keeps all, partial keeps its subset', () => {

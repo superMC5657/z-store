@@ -8,7 +8,7 @@ pub const GITHUB_STARRED_MAX_PAGE_SIZE: usize = 100;
 /// `api_etag_cache` 表中既有 `https://api.github.com/...` 键一致）。
 pub const GITHUB_API_BASE: &str = "https://api.github.com";
 /// 配额护栏：单次 Star 同步中最多对多少个目录外仓库做 live `releases/latest` 探测。
-/// 缓存命中不计入该预算；超限仓库保留旧行为（`has_releases: false`），不发网络请求。
+/// 缓存命中不计入该预算；超限仓库 `has_releases: false`（安装状态未知），不发网络请求。
 pub const STARRED_RELEASE_ENRICH_LIMIT: usize = 20;
 
 impl CatalogService {

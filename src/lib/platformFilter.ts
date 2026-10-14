@@ -7,11 +7,9 @@
  *   归入前端虚拟 `other` 桶：仅当选中 `other` 时匹配。`other` 纯前端存在，
  *   从不经过 IPC，也从不参与安装目标匹配。
  *
- * ica3-3：pending 生命周期深模块收归于此（唯一深模块）。
- * 收编：inflight 集合 + seq 守卫 + lite 批量（5/批、上限 20）+ settle 定时（15s）
+ * pending 生命周期深模块收归于此（唯一深模块）：
+ * inflight 集合 + seq 守卫 + lite 批量（5/批、上限 20）+ settle 定时（15s）
  * + confirmed 并集 + 键归一唯一实现 + 主列表目标选择/快照 + 趋势富卡行判定。
- * `services/pendingLifecycle` 降为声明式兼容外观（重导出，无实现），
- * `app/selectors` 经单 seam 直引本模块，不再经服务中转。
  */
 
 export type PlatformId = 'windows' | 'macos' | 'linux' | 'ios' | 'android' | 'other';
@@ -58,37 +56,32 @@ export function isPlatformEmpty(app: PendingRow): boolean {
 }
 
 /** pending 键归一（lower-trim；空串表示无效，调用方自行跳过）。全模块键归一唯一实现。
- * 应用 id 归一请直用 `services/normalizeId`（后端 canonical 为准，与本键同值；ica3-11
- * 已删本模块旧应用 id 双口，本模块内键一律经此）。 */
+ * 应用 id 归一请直用 `services/normalizeId`（后端 canonical 为准，与本键同值）。 */
 export function normalizePendingKey(id: unknown): string {
   return typeof id === 'string' ? id.trim().toLowerCase() : '';
 }
 
 /**
  * 待确认态判定：summary 为空且尚未经详情确认。
- * - `resolvedOtherIds` 缺席时沿用旧语义（空即视为已确认 other，不产生 pending），
- *   保证纯函数单测与未接入追踪的调用方零变化。
- * - 传入集合（含空集合）时，空 + 未在集合中即为 pending（含在途与尚未发起），
- *   空 + 已在集合中即为已确认 other。
+ * - 空平台 + 未在追踪集合中即为 pending（含在途与尚未发起），
+ * - 空 + 已在集合中即为已确认 other。
  */
 export function isPlatformPending(
   app: PendingRow,
-  resolvedOtherIds?: ReadonlySet<string>,
+  resolvedOtherIds: ReadonlySet<string>,
 ): boolean {
   if (!isPlatformEmpty(app)) return false;
-  if (!resolvedOtherIds) return false;
   const key = normalizePendingKey(app.id);
   if (!key) return true;
   return !resolvedOtherIds.has(key);
 }
 
-/** 已确认 other：为空且已有详情背书（无追踪集合时空即视为已确认，保持旧语义）。 */
+/** 已确认 other：为空且已有详情背书（在追踪集合中）。 */
 export function isConfirmedOther(
   app: PendingRow,
-  resolvedOtherIds?: ReadonlySet<string>,
+  resolvedOtherIds: ReadonlySet<string>,
 ): boolean {
   if (!isPlatformEmpty(app)) return false;
-  if (!resolvedOtherIds) return true;
   const key = normalizePendingKey(app.id);
   if (!key) return false;
   return resolvedOtherIds.has(key);
@@ -96,14 +89,13 @@ export function isConfirmedOther(
 
 /**
  * 待确认行过滤：pending 行恒可见（不看 Other 勾选），落定后再走 matchPlatformSet。
- * 未传入追踪集合时直接退化为 matchPlatformSet（旧行为）。
  */
 export function matchPlatformSetWithPending(
   app: PendingRow,
   selected: ReadonlySet<string>,
-  resolvedOtherIds?: ReadonlySet<string>,
+  resolvedOtherIds: ReadonlySet<string>,
 ): boolean {
-  if (resolvedOtherIds && isPlatformPending(app, resolvedOtherIds)) return true;
+  if (isPlatformPending(app, resolvedOtherIds)) return true;
   return matchPlatformSet(app, selected);
 }
 
@@ -234,7 +226,7 @@ export async function resolvePendingPlatformsLite(
 }
 
 /* ------------------------------------------------------------------ */
-/* pending 生命周期（ica3-3 自 `services/pendingLifecycle` 收编，语义逐字一致） */
+/* pending 生命周期：inflight/seq 守卫、lite 批量、settle 定时归本模块。 */
 /* ------------------------------------------------------------------ */
 
 /**

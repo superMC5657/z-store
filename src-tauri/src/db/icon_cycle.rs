@@ -302,15 +302,14 @@ pub fn set_level(db: &Database, app_id: &str, level: i32) -> Result<()> {
 // --- 图标轮换决策 SSOT（Shotgun Surgery 收敛落点，C1 持久化唯一深口） ---
 // cataloged vs 非 cataloged 分流、owner/repo 解析（RepoRef）、文件名方案、
 // l2/l3/l4 槽位认领、级别推进、详情页图标层级决策 —— 各调用方只做薄委托，
-// 不再各自重写分支。纯决策，无 fs/网络/AppState 依赖；零行为变更。
+// 不再各自重写分支。纯决策，无 fs/网络/AppState 依赖。
 // 缝：probe-vs-persist——本文件永不做网络探测（无 client/token/probe 调用）；
 // 探测一律在 `github::icon_fetch` 深核（`probe_single_live`/`fetch_icons_stream` 纯探，
 // 永不触 DB/fs）；持久化单一写入路径在 `commands::icons_cycle_probe::persist_icon_bytes`
-//（`catalog_filename` vs `cycle_filename` 分流收敛在内 + `icons/` 落盘 + meta 同步，
-// mirror 仅改下载 URL 经 `download_via_mirror`，L5 空选经 `seal_empty_selection`）。
-// Curated Catalog 永不分支，例外仅
-// L1 填充（`ensure_cycle_levels`）与文件名分流（`catalog_filename` vs `cycle_filename`）。
-// ADR-0010：key 一律小写 `owner/repo`（三键合一：唯一实现见
+//（`icons/` 落盘 + meta 同步，mirror 仅改下载 URL 经 `download_via_mirror`，
+// L5 空选经 `seal_empty_selection`）。
+// Curated Catalog 永不分支，例外仅 L1 填充（`ensure_cycle_levels`）。
+// ADR-0010：key 一律小写 `owner/repo`（唯一实现见
 // `forge::canonical_app_id_from_parts`，`icon_key` 为其薄委托）。
 
 /// 级别→来源映射。
@@ -331,11 +330,11 @@ pub fn is_fallback_for_level(level: i32) -> bool {
 }
 
 /// 入站应用标识解析 SSOT：`RepositoryUrlParser::parse` 优先，`split_once('/')` 回退。
-/// 返回 `(canonical 小写 id, 原大小写 owner/repo)`；与原 resolve_app_coord 分支逐一对齐。
+/// 返回 `(canonical 小写 id, 原大小写 owner/repo)`。
 /// ADR-0010：`canonical` 即 `forge::canonical_app_id` 的 GitHub 形态
-/// （小写 `owner/repo`），与统一事件 key（三键合一，见
+/// （小写 `owner/repo`），与事件 id（见
 /// `forge::canonical_app_id_from_parts`）同值；
-/// 事件 `key/id`、DB 主键、前端归一键一律用此值，不透传脏 id。
+/// 事件 `id`、DB 主键、前端归一键一律用此值，不透传脏 id。
 pub fn resolve_icon_coord(app_id: &str) -> Result<(String, RepoRef), String> {
     let trimmed = app_id.trim();
     if trimmed.is_empty() {
@@ -394,8 +393,7 @@ pub fn next_cycle_level(curr_level: i32, cycle: &AppIconCycle) -> i32 {
     cand
 }
 
-/// 新建 cycle 行的 owner/repo 推导（原 get_or_fetch_icon 内联，逐字对齐）：
-/// parse 优先，否则原始 split_once（不过滤多段斜杠），全失败则空串。
+/// 新建 cycle 行的 owner/repo 推导：parse 优先，否则原始 split_once（不过滤多段斜杠），全失败则空串。
 pub fn owner_repo_for_new_cycle(lookup_id: &str) -> (String, String) {
     match crate::forge::RepositoryUrlParser::parse(lookup_id) {
         Some(c) => (c.owner, c.repo),
@@ -405,33 +403,20 @@ pub fn owner_repo_for_new_cycle(lookup_id: &str) -> (String, String) {
             .unwrap_or_default(),
     }
 }
-/// 收录应用缓存文件名（老命名，仅兼容读）：`{stem}.{ext}`（走 icon_cache_meta 表）。
-/// 非收录与收录的文件名分流为例外允许的 Catalog 分支（见模块缝注）；其余逻辑永不分支 Catalog。
-/// FINAL：新写一律 `hash_icon_filename(url, ext)`（sha256(url)[0:16]+sniff ext），老 stem 名仅双探兼容读。
-pub fn catalog_filename(stem: &str, ext: &str) -> String {
-    format!("{}.{}", stem, ext)
-}
-
-/// 非收录应用缓存文件名（老命名，仅兼容读）：`{stem}_l{level}.{ext}`（走 app_icon_cycles 表，级别隔离）。
-/// 与 `catalog_filename` 的分流为唯一允许的 Catalog 分支；level 纯L 2/3/4（非收录永无 L1）。
-/// FINAL：新写一律 hash，老 `stem_l{level}` 仅兼容读（见 probe 双探）。
-pub fn cycle_filename(stem: &str, level: i32, ext: &str) -> String {
-    format!("{}_l{}.{}", stem, level, ext)
-}
 
 /// FINAL Logo 口径：图标 TTL 7 天（文件存在+DB有效即命中0请求，过期后台重下1次，前台不闪）。
 /// 详情 TTL 60min 见 `commands::catalog_detail::detail_ttl_secs`；图标 ETag 禁用（仅详情用）。
 pub const ICON_TTL_SECS: i64 = 7 * 24 * 60 * 60;
 
-/// 详情 TTL 新默认 60min（老 30 迁移见 `commands::catalog_detail::detail_ttl_secs`，platforms_lite 同值；
+/// 详情 TTL 默认 60min（platforms_lite 同值；
 /// 单一来源：`detail_ttl_secs` 的默认/回退分支经此常量派生）。
 pub const DETAIL_TTL_MINUTES_DEFAULT: i64 = 60;
 
-/// hash 文件名 SSOT（写侧唯一新名）：`sha256(url_trimmed)[0:16].{ext}`。
+/// hash 文件名 SSOT（唯一文件名方案）：`sha256(url_trimmed)[0:16].{ext}`。
 /// - `url` 为 cycle/详情命中的备选 Logo 真地址（L1–L4；README 正文图永不进此）；
 /// - `ext` 为 sniff 纠正后的 `real_ext`（`mime_to_ext(detect(...))`），调用方保证小写无点；
 /// - 空 url 返回空串（调用方跳过落盘）。
-/// 读侧双探：先试 hash 名（含 `KNOWN` 全后缀兜底），miss 再试老 stem 名（见 probe）。
+/// 读侧用 `KNOWN_ICON_EXTS` 全后缀兜底（见 probe 的 hash 候选构造）。
 pub fn hash_icon_filename(url_trimmed: &str, ext: &str) -> String {
     let u = url_trimmed.trim();
     if u.is_empty() {
@@ -447,12 +432,6 @@ pub fn hash_icon_filename(url_trimmed: &str, ext: &str) -> String {
 /// 图标 DB 有效性：`cached_at/updated_at` 在 7 天内即有效（含未来时钟漂移宽容）。
 pub fn is_icon_fresh(cached_at: i64, now: i64) -> bool {
     cached_at > 0 && now.saturating_sub(cached_at) < ICON_TTL_SECS
-}
-
-/// hash 写侧派生（新轨）：`hash_icon_filename(url, ext)` 薄委托，供 probe/命令层统一调用。
-#[allow(dead_code)]
-pub fn persist_hash_filename(url_trimmed: &str, ext: &str) -> String {
-    hash_icon_filename(url_trimmed, ext)
 }
 
 /// 非收录 url 槽位认领：命中既有 l2/l3/l4 返回其级别，

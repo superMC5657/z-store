@@ -7,13 +7,6 @@ import { isTauri, tauriInvoke } from './api/client';
 
 export { isTauri, tauriInvoke };
 
-export interface SearchIconReadyPayload {
-  search_id: string;
-  app_id: string;
-  icon: string;
-  level: number;
-}
-
 /**
  * 发现页 feed 后端分页契约（Rust `get_home_feed` 返回）：
  * `{ items, total, has_more }`。容忍后端/ mock 误写 camelCase（`hasMore`），
@@ -65,27 +58,15 @@ export interface AppIconCycleResult {
   url: string;
   level: number;
   source?: string;
-  // 后端规范字段（snake_case，唯一可信来源；后端字段不动）。
+  // 后端规范字段（snake_case，唯一可信来源）。
   remote_url?: string;
   is_fallback?: boolean;
   total_levels?: number;
   is_cataloged?: boolean;
-  /**
-   * @deprecated 前端兼容别名：历史双命名残留，禁止新增写入；
-   * 读取请经 normalizeIconCycle 收敛。
-   */
-  remoteUrl?: string;
-  /** @deprecated 同上，经 normalizeIconCycle 收敛。 */
-  isFallback?: boolean;
-  /** @deprecated 同上，经 normalizeIconCycle 收敛。 */
-  totalLevels?: number;
-  /** @deprecated 同上，经 normalizeIconCycle 收敛。 */
-  isCataloged?: boolean;
 }
 
 /**
- * B3-G12 前端收敛：图标轮换双命名的唯一归一出口。
- * 后端只认 snake_case；此函数以后端字段优先、camelCase 兜底，
+ * 图标轮换双命名的唯一归一出口：后端只认 snake_case，
  * 输出统一的 camelCase 只读视图，供 View/组件层消费。
  */
 export interface NormalizedIconCycle {
@@ -102,17 +83,17 @@ export function normalizeIconCycle(raw: AppIconCycleResult | null | undefined): 
   if (!raw) return null;
   return {
     url: raw.url,
-    remoteUrl: raw.remote_url ?? raw.remoteUrl,
+    remoteUrl: raw.remote_url,
     level: raw.level,
     source: raw.source,
-    isFallback: raw.is_fallback ?? raw.isFallback,
-    totalLevels: raw.total_levels ?? raw.totalLevels,
-    isCataloged: raw.is_cataloged ?? raw.isCataloged,
+    isFallback: raw.is_fallback,
+    totalLevels: raw.total_levels,
+    isCataloged: raw.is_cataloged,
   };
 }
 
 /**
- * B3-G12 表驱动：全部 Tauri 命令名的唯一来源。
+ * 表驱动：全部 Tauri 命令名的唯一来源。
  * View 层禁止出现字面量命令名与直调 invoke，必须经 tauriApi 方法调用；
  * api.ts 内部统一经 CMD 派发（见下方的 tauriApi 实现）。
  */
@@ -201,7 +182,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   active_mirror: 'ghproxy',
   launch_on_startup: false,
   update_frequency: 'startup',
-  detail_cache_ttl_minutes: 30,
+  detail_cache_ttl_minutes: 60,
   catalog_source_url: '',
   watch_notify_frequency: 'daily',
 };
@@ -304,7 +285,4 @@ export const tauriApi = {
  * 核心统一 API 导出：仅面向 Tauri 桌面端 IPC 通信；
  * 浏览器直接访问时由应用入口渲染环境提示页（见 main.tsx）。
  */
-/** 历史别名：与 tauriApi 同一实例；View 层新代码请统一使用 tauriApi。 */
 export const api = tauriApi;
-
-export * from './trends';

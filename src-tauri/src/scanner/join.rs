@@ -1,4 +1,4 @@
-//! 深 join 模块（票 14）：未收录 join（`(favorite∪watched)∖精选收录库`）与
+//! 深 join 模块：未收录 join（`(favorite∪watched)∖精选收录库`）与
 //! scanner 模糊评分收拢于此；两种行为：
 //! - exact：Canonical App Id〈规范应用标识〉精确查（[`join_exact`]）；
 //!   命中保留（exact 命中直接返回收录项，不再进 fuzzy），缺席即未收录（调用方
@@ -7,8 +7,7 @@
 //!   （[`join_fuzzy`]，唯一入口 adapter， mechanics 在 [`super::matcher`]）。
 //!
 //! exact 侧归一律经 `forge::canonical_lookup_id`（canonical 或小写回退，后端唯一源
-//! `forge::coord`，ica3-6：不另立 normalizer），canonical 数据零行为变更，
-//! 存量大小写漂移行被治愈（接 ADR-0010 修订）。
+//! `forge::coord`，不另立 normalizer）；存量大小写漂移行经归一化治愈（ADR-0010 修订）。
 
 use super::{AppMatchResult, ScannedRawApp};
 use crate::github::CatalogItem;

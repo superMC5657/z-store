@@ -1,8 +1,7 @@
 /**
- * ica3-3 — pending 生命周期收归 `lib/platformFilter` 深模块的 locality 证明。
+ * pending 生命周期收归 `lib/platformFilter` 深模块的 locality 证明。
  *
  * - 行为经 lib 唯一入口覆盖（常量/键归一/并集/富卡行判定/守卫/目标选择/批量/settle）；
- * - ica3-8 已删 `services/pendingLifecycle` 外观：旧导入直引 lib，生产行为不变；
  * - `app/selectors` 重导出与 lib 同源（单 seam，无服务中转）。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -171,12 +170,12 @@ describe('platformFilter 深模块：lite 批量 + settle 定时', () => {
   });
 });
 
-describe('ica3-8 locality：selectors 与 lib 同源（单 seam，无服务中转）', () => {
-  it('app/selectors 重导出与 lib 同源（单 seam，无服务中转；ica3-11 别名已删）', () => {
+describe('locality：selectors 与 lib 同源（单 seam）', () => {
+  it('app/selectors 重导出与 lib 同源（单 seam，无服务中转）', () => {
     expect(selectors.PENDING_SETTLE_MS).toBe(lib.PENDING_SETTLE_MS);
     expect(selectors.isEnrichedRowPending).toBe(lib.isEnrichedRowPending);
     expect(selectors.unionConfirmedSets).toBe(lib.unionConfirmedSets);
-    // 旧别名已删：调用方直引 lib，selectors 不再重导出
+    // 调用方直引 lib，selectors 不重导出其他别名
     //（键分段书写：全仓零命中为收工标准，此处不断言字面量）
     expect((selectors as Record<string, unknown>)['isPending' + 'For']).toBeUndefined();
     expect((selectors as Record<string, unknown>)['matchSelected' + 'WithPending']).toBeUndefined();

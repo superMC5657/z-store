@@ -108,7 +108,6 @@ export const DataBackupRow: React.FC = () => {
         fav: counts.favorites_added,
         watch: counts.watched_added,
         settings: settingsStatus,
-        skipped: counts.installed_skipped,
       });
       showFeedback(msg, false);
       notifyToast(msg, 'success');

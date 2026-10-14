@@ -29,8 +29,7 @@ pub enum AssetKind {
     Other,
 }
 
-/// `AssetKind -> &str` 唯一收敛点（`forge/provider.rs::AssetKindExt` 与
-/// `github/detail.rs` 内联 `match` 均已收敛至此，禁止另起重复映射）。
+/// `AssetKind -> &str` 唯一映射点（禁止另起重复映射）。
 impl AssetKind {
     pub fn as_str(&self) -> &'static str {
         match self {

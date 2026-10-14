@@ -1,22 +1,19 @@
 //! 统一图标补探深核（后端 probe 唯一深模块，只做探测与调度，永不触 DB/fs）。
 //!
-//! - 归口原 `commands::catalog_search::search_apps_online` 内联的后台快慢探
-//!   （`spawn + stream::iter().buffer_unordered(pool).for_each + save_and_emit`），
-//!   对外伪接口等价于 `fetch_icons_stream(jobs, token, cfg, emit)`，其中
-//!   `jobs=[{id,owner,repo,ctx}]`，`ctx=Search{search_id,gen} | Trend{board,gen}`。
+//! - 探测与调度核：`fetch_icons_stream(jobs, token, cfg, emit)`，
+//!   其中 `jobs=[{id,owner,repo,ctx}]`，`ctx=Search{search_id,gen} | Trend{board,gen}`。
 //! - 行为：并发池 `cfg.pool`（默认 5，与趋势 `buffered(5)` 对齐，D6，ADR-0015）；
 //!   快路径 SimpleIcons / 慢路径 Trees 超时经
 //!   `network.api_timeout_seconds` 统一配置，未设置回退 1500ms/12s 历史值；
 //!   快路径外层兜底 `api_timeout_or(8000ms)`、慢路径分支顺序 main→master、
 //!   整批 `cfg.total_timeout_secs`（默认 15s）按页伸缩（经缝内纯函数
-//!   `scaled_total_timeout`），均与原内联语义相同；
+//!   `scaled_total_timeout`）；
 //!   世代防串（`SEARCH_GEN` 落库前 + emit 前双检查）由调用方 `emit` 回调
 //!   （`catalog_search::save_and_emit`）负责，core 只做探测与调度，不触 DB。
 //! - 单仓深核 `probe_single_live`（L2→L3）为流式与详情 cycle 共用的唯一探核：
 //!   `fetch_icons_stream` 逐 job 调它；`icons_cycle_probe::ensure_cycle_levels` 的
-//!   L2/L3 与 `fetch_anon_probe_bytes` 的匿名兜底亦经它（或其 L2/L3 拆分件），
-//!   不再各写一套串行 naive 探。L4=README 与 L1=官方填充分居详情/cycle 适配器，
-//!   不进本核。
+//!   L2/L3 与 `fetch_anon_probe_bytes` 的匿名兜底亦经它（或其 L2/L3 拆分件）。
+//!   L4=README 与 L1=官方填充分居详情/cycle 适配器，不进本核。
 //! - M2=DB落盘命中零网络，由调用方在进 core 前短锁预解析，不经本 core 探测。
 //!   L4=README需网络，详情链专属，不受本核心约束，本 core 不探 README。
 //!   level纯L(2=L2品牌库,3=L3仓库)；缓存正交用via(live|m2)表M2，pool=5/total伸缩。
@@ -25,19 +22,18 @@
 //!   `commands::icons_cycle_probe::persist_icon_bytes`（`catalog vs cycle` 分流 +
 //!   `icons/` 落盘 + meta 同步），下载经 `download_via_mirror`（ADR-0002 mirror
 //!   只改下载 URL），L5 空选经 `seal_empty_selection + empty_cycle_result`。
-//!   `enrich_trend_repos` 趋势 enrich 已切流式直路（首屏快返 + 后台
-//!   `fetch_icons_stream(Trend)` 逐张 emit，见 `commands::catalog_search`），
-//!   本核为流式探测与调度的唯一深核（搜索与趋势共用，见 ADR-0015 §6）。
+//!   趋势 enrich 走流式直路（首屏快返 + 后台 `fetch_icons_stream(Trend)` 逐张 emit，
+//!   见 `commands::catalog_search`）；本核为流式探测与调度的唯一深核
+//!  （搜索与趋势共用，见 ADR-0015 §6）。
 //! - D5/D6/D8：双池复用（icon client 隔离，CDN 恒丢 token）+ 有界池 5 +
 //!   首包验图与跳过（HEAD→Range 首 32KB→magic→300B，见 `icon_probe::verify_image`）。
-//!   Curated Catalog 永不分支：仅 L1 填充 + 文件名分流为例外（见 cycle 适配器）。
-//! - ADR-0010：key 一律小写 `owner/repo`（三键合一，见 `icon_key`）；
-//!   ADR-0015：只发 `zstore://icon-ready{key,id,icon,level,via,context}`，level 纯L，via=live|m2。
-
-
+//!   Curated Catalog 永不分支：仅 L1 填充为例外（见 cycle 适配器）。
+//! - ADR-0010：`id` 一律小写 `owner/repo`（与 DB 主键同源，唯一实现见 `icon_key`）；
+//!   ADR-0015：只发 `zstore://icon-ready{id,icon,level,via,context}`，level 纯L，via=live|m2。
+//!
 //! - 事件：调用方 `emit` 回调用本模块的 [`IconReadyPayload`]
-//!   发 `zstore://icon-ready{key,id,icon,level,via,context}`
-//!   （`key`=小写 `owner/repo`，`level`纯L: 2/3本core emit live，L4不经core；
+//!   发 `zstore://icon-ready{id,icon,level,via,context}`
+//!   （`id`=小写 `owner/repo`，`level`纯L: 2/3本core emit live，L4不经core；
 //!   `via`=live|m2，M2落盘由调用方回填走via=m2）。
 
 use futures_util::StreamExt;
@@ -46,10 +42,10 @@ use tauri::{AppHandle, Emitter};
 // 慢路径 Trees 分支回退顺序唯一定义见 [`crate::github::icon_probe::FALLBACK_PROBE_BRANCHES`]：
 // 先 main 后 master（ZCode 类老仓默认分支仍为 master，只查 main 会零命中零 emit，首屏恒为 initials）。
 // 实际探测分支由 [`crate::github::icon_probe::resolve_probe_branches`]
-// 动态解析（先 GET repos 取 `default_branch` 5s 超时，再补 main/master，最多3分支，
-// 与 `commands::icons_cycle_probe::probe_git_trees` 同源共用）；新代码一律用该动态解析，勿硬编码分支。
+// 动态解析（先 GET repos 取 `default_branch` 5s 超时，再补 main/master，最多3分支）。
+// 新代码一律用该动态解析，勿硬编码分支。
 
-/// 单个图标补探任务：`id` 为小写 `owner/repo`（与原 `candidates` 构造一致）。
+/// 单个图标补探任务：`id` 为小写 `owner/repo`。
 #[derive(Debug, Clone)]
 pub struct IconFetchJob {
     pub id: String,
@@ -66,27 +62,19 @@ pub enum IconFetchCtx {
     Trend { board: String, gen: u64 },
 }
 
-/// 新统一图标就绪事件载荷（`zstore://icon-ready`）。
+/// 图标就绪事件载荷（`zstore://icon-ready`）。
 /// `level`纯L(i32)：2=L2品牌库，3=L3仓库，4=L4 README（本core只发2/3 live，L4不经core）；
 /// `via`=live|m2：live=远端探测，m2=DB落盘回填（M1为前端内存，与本载荷正交）。
 /// level拒字符串，缓存只用via/M。
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct IconReadyPayload {
-    /// 小写 `owner/repo`（见 [`icon_key`]）。
-    pub key: String,
-    /// 小写 `owner/repo`。
+    /// 小写 `owner/repo`（经 [`icon_key`] 归一，与 DB 主键同源）。
     pub id: String,
     pub icon: String,
     pub level: i32,
     /// live|m2（见模块文档）。
-    #[serde(default = "default_icon_via")]
     pub via: String,
     pub context: IconFetchCtx,
-}
-
-/// `via`缺省（旧载荷兼容）按live计。
-fn default_icon_via() -> String {
-    "live".to_string()
 }
 
 /// FINAL Logo 口径（只做 Logo，不管正文插图）：
@@ -110,15 +98,15 @@ pub(crate) fn is_body_image_url(url: &str) -> bool {
     crate::github::icon_probe::is_readme_body_image(url)
 }
 
-/// 统一事件 key：小写 `owner/repo`（三键合一薄委托，唯一实现见
-/// [`crate::forge::canonical_app_id_from_parts`]；DB 主键/事件 key/前端归一键全同）。
+/// 事件 `id` 归一：小写 `owner/repo`（唯一实现见
+/// [`crate::forge::canonical_app_id_from_parts`]；DB 主键/事件 id/前端归一键全同）。
 /// 入站标识一律先经 `forge::canonical_app_id` 归一化，再拆 owner/repo 进本函数；
 /// 本函数只做归一拼接，不做解析（解析 SSOT 在 `forge::RepositoryUrlParser`）。
 pub fn icon_key(owner: &str, repo: &str) -> String {
     crate::forge::canonical_app_id_from_parts(owner, repo)
 }
 
-/// 由任务 + 探测结果构建新统一事件载荷（`via`=live|m2，core探测一律live）。
+/// 由任务 + 探测结果构建事件载荷（`via`=live|m2，core探测一律live）。
 pub fn icon_ready_payload(
     job: &IconFetchJob,
     url: &str,
@@ -126,8 +114,7 @@ pub fn icon_ready_payload(
     via: &str,
 ) -> IconReadyPayload {
     IconReadyPayload {
-        key: icon_key(&job.owner, &job.repo),
-        id: job.id.clone(),
+        id: icon_key(&job.owner, &job.repo),
         icon: url.to_owned(),
         level,
         via: via.to_owned(),
@@ -135,7 +122,7 @@ pub fn icon_ready_payload(
     }
 }
 
-/// 新发统一事件 `zstore://icon-ready`（吞错，与旧事件 emit 语义一致）。
+/// 发统一事件 `zstore://icon-ready`（吞错）。
 pub fn emit_icon_ready(handle: &AppHandle, payload: &IconReadyPayload) {
     let _ = handle.emit("zstore://icon-ready", payload);
 }
@@ -280,7 +267,7 @@ pub async fn fetch_icons_stream<F, Fut>(
         let emit = emit.clone();
         async move {
             // 快慢分离深核单调：经 `probe_single_live`（L2→L3，快命中即返不等慢，
-            // 慢仅快未命中且有 token 时跑）。超时/分支语义见该函数，不在此内联第二套。
+            // 慢仅快未命中且有 token 时跑）。超时/分支语义见该函数。
             if let Some((url, level)) =
                 probe_single_live(&client, slow_headers.as_ref(), &job.owner, &job.repo).await
             {
@@ -307,7 +294,7 @@ mod tests {
 
     #[test]
     fn search_icon_ready_payload_shape() {
-        // 新统一事件形状：`{key,id,icon,level,via,context}`，key=小写 owner/repo，level纯L，via=live|m2。
+        // 事件形状：`{id,icon,level,via,context}`，id=小写 owner/repo，level纯L，via=live|m2。
         let job = IconFetchJob {
             id: "o/r".to_string(),
             owner: "O".to_string(),
@@ -318,14 +305,14 @@ mod tests {
             },
         };
         let p = icon_ready_payload(&job, "https://cdn.simpleicons.org/r", 2, "live");
-        assert_eq!(p.key, "o/r");
         assert_eq!(p.id, "o/r");
         assert_eq!(p.level, 2);
         assert_eq!(p.via, "live");
         let v = serde_json::to_value(&p).unwrap();
-        for f in ["key", "id", "icon", "level", "via", "context"] {
+        for f in ["id", "icon", "level", "via", "context"] {
             assert!(v.get(f).is_some(), "missing field {f}");
         }
+        assert!(v.get("key").is_none(), "legacy key field must be gone");
         assert_eq!(v["context"]["kind"], "search");
         assert_eq!(v["context"]["search_id"], "7");
         // Trend 变体可序列化（锁形状）。

@@ -3,7 +3,7 @@ import type { AppDetail, AppSummary } from '../types';
 import type { AppIconCycleResult } from '../services/api';
 import { api, normalizeIconCycle } from '../services/api';
 import { applyHit, patchAppIconList } from '../services/iconStore';
-import { appSummaryFromDetail } from '../services/trends';
+import { appSummaryFromDetail } from '../services/trends/enrich';
 import { isRemoteIcon } from '../components/AppIcon';
 import { normalizeId } from '../services/normalizeId';
 
@@ -25,15 +25,13 @@ import { normalizeId } from '../services/normalizeId';
  *  （有详情实分类则保留实值，仅空时兜底 external），供展示层
  *   `isAppCataloged` 打标用，不参与 join/过滤/计数。
  *
- * 深 join 模块（票 14）：未收录 join（`(favorite∪watched)∖精选收录库`）唯一深模块，
+ * 深 join 模块：未收录 join（`(favorite∪watched)∖精选收录库`）唯一深模块，
  * 两种行为——exact（规范键精确查：归一精确差集 + 收录段合并去重）vs heuristic
  * （外部启发式：`parseFavoriteOwnerRepo` 末两段推导 + 占位合成行展示兜底）；
- * effect 侧 `useUncatalogedJoin`（原 `useFavoritesExtra` 内迁改名，原文件删除）收归于此，
- * 合并器已收归 `app/selectors`（ica3-6：`selectFavoritesViewApps` 薄透传删除，调用方
- * 经选择器消费；本模块不再导出合并器）。行消失（收录到达驱逐/取消收藏）与
- * 计数保留（全集计数）语义不变，见删除测试。
+ * effect 侧 `useUncatalogedJoin` 收归于此，
+ * 合并器收归 `app/selectors`（调用方经 `selectFavoritesViewApps` 消费）。
+ * 行消失（收录到达驱逐/取消收藏）与计数保留（全集计数）语义不变，见删除测试。
  *
- * ica3-6：`trimId` / `buildLowerIdSet` / `findMissingFavoriteIds` 薄 wrapper 已删，
  * 键归一律经 `normalizeId` 单口（含 Set 口径 `normalizeIdLowerSet`）；`parseFavoriteOwnerRepo`
  * 为展示用启发式（保留原大小写，仅 trim），非 canonical，不经归一。
  */
@@ -139,7 +137,7 @@ export function needsFavoriteIconWarm(icon: unknown): boolean {
 }
 
 /**
- * 求 `favoriteIds ∖ (catalog ∪ extra)`（大小写归一，按小写去重保序，ica3-6 后为内部实现）。
+ * 求 `favoriteIds ∖ (catalog ∪ extra)`（大小写归一，按小写去重保序）。
  * 返回原始 favId（保留原大小写供展示层精确命中），调用方按小写建双键索引。
  * 键口径一律 `normalizeId` 单口。
  */
@@ -170,8 +168,7 @@ export interface UseUncatalogedJoinParams {
 }
 
 /**
- * 收藏/关注 left-join 占位行（原 `useFavoritesExtra` 内迁改名，原文件已删除，
- * 行为逐字一致；C3 自 App.tsx 抽出，原 L1366-1464）。
+ * 收藏/关注 left-join 占位行。
  *
  * `(favoriteIds∪watchedIds) ∖ apps` 经 `getAppDetails`（后端
  * `get_cached_app_detail_fallback` 回退）合成占位行，未收录也能展示。
@@ -255,7 +252,7 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
                 const currentIcon = (summary.icon || '').trim();
                 if (!needsFavoriteIconWarm(currentIcon)) {
                   // 详情已带合法远端：经店内唯一写口做 M1 缓冲 + 文件预热（与搜索同通道，不直调 IPC）。
-                  applyHit({ key: summary.id, id: summary.id, icon: currentIcon });
+                  applyHit({ id: summary.id, icon: currentIcon });
                   return;
                 }
                 // 无可用远端：查轮换（同步读库命中即返，无则后端补探回填），命中经店内写口热替占位行。
@@ -266,7 +263,6 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
                 if (!persistUrl) {
                   if (cycleLevel === 5 && !cancelled) {
                     applyHit({
-                      key: summary.id,
                       id: summary.id,
                       icon: '',
                       level: 5,
@@ -279,7 +275,6 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
                 }
                 if (cancelled) return;
                 applyHit({
-                  key: summary.id,
                   id: summary.id,
                   icon: persistUrl,
                   level: cycleLevel,

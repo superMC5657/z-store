@@ -27,7 +27,7 @@ export interface HeaderProps {
   displayDesc: string;
   displayCategory: string;
   primaryAsset?: ReleaseAsset;
-  platformPending?: boolean;
+  platformPending: boolean;
   oauthUser?: OAuthUser | null;
   isFavorite?: boolean;
   isWatched?: boolean;
@@ -85,7 +85,7 @@ export const Header: React.FC<HeaderProps> = ({
         if (data) {
           setIconCycle(data);
           // 初次展示跟随+双落盘：iconCycle.url 是 data: 即时展示（IPC临时），
-          // 落盘一律用 remote_url（normalizeIconCycle 收敛，remote_url优先、camel兜底）；
+          // 落盘一律用 remote_url（normalizeIconCycle 收敛）；
           // data: 永不进盘，内存态短暂用 data: 由 AppIcon iconOverride 直显，榜单跟随用 persistUrl。
           // isCataloged 不阻止；L5/fallback 空（persistUrl ''）不 dispatch，避免把实图标清掉。
           const normalized = normalizeIconCycle(data);
@@ -102,7 +102,6 @@ export const Header: React.FC<HeaderProps> = ({
               // 此处只做缓冲预热，不自发 IPC 预热、不走窗口总线）。
               // data: 永不直送（persistUrl 已剥 data:，空即 L5/空不发）；patch 与 266 同体（经扇出落定）。
               applyHit({
-                key: app.id,
                 id: app.id,
                 icon: persistUrl,
                 level: typeof data.level === 'number' ? data.level : undefined,
@@ -125,11 +124,10 @@ export const Header: React.FC<HeaderProps> = ({
 
   const isCataloged = Boolean(
     iconCycle?.is_cataloged ??
-    iconCycle?.isCataloged ??
     (app.category && app.category !== 'external')
   );
 
-  const totalLevels = iconCycle?.total_levels ?? iconCycle?.totalLevels ?? 5;
+  const totalLevels = iconCycle?.total_levels ?? 5;
   const currentLevel = iconCycle?.level ?? 1;
   const nextLevel = currentLevel >= totalLevels ? 1 : currentLevel + 1;
   const nextLevelName = ICON_LEVEL_NAMES[nextLevel] || `L${nextLevel}`;
@@ -137,7 +135,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   const effectiveIconOverride = useMemo(() => {
     if (!iconCycle) return undefined;
-    if (iconCycle.level === 5 || iconCycle.is_fallback || iconCycle.isFallback) {
+    if (iconCycle.level === 5 || iconCycle.is_fallback) {
       return iconCycle.url || '';
     }
     // 收录首开冷返回 {url:"", remote_url:L1实图, level:1}：空 url override 会压住
@@ -146,8 +144,8 @@ export const Header: React.FC<HeaderProps> = ({
     const rawUrl = typeof iconCycle.url === 'string' ? iconCycle.url.trim() : '';
     if (rawUrl !== '') return iconCycle.url;
     const remoteRaw =
-      typeof (iconCycle.remote_url ?? iconCycle.remoteUrl) === 'string'
-        ? String(iconCycle.remote_url ?? iconCycle.remoteUrl).trim()
+      typeof iconCycle.remote_url === 'string'
+        ? String(iconCycle.remote_url).trim()
         : '';
     const persistUrl =
       remoteRaw !== '' ? remoteRaw : (!rawUrl.startsWith('data:') ? rawUrl : '');
@@ -174,8 +172,8 @@ export const Header: React.FC<HeaderProps> = ({
         // data: 永不直送 applyHit，只做 iconOverride（persistUrl 为空即不发）。
         const rawCycledUrl = typeof res.url === 'string' ? res.url.trim() : '';
         const remoteRaw =
-          typeof (res.remote_url ?? res.remoteUrl) === 'string'
-            ? String(res.remote_url ?? res.remoteUrl).trim()
+          typeof res.remote_url === 'string'
+            ? String(res.remote_url).trim()
             : '';
         const persistUrl =
           remoteRaw !== ''
@@ -184,10 +182,9 @@ export const Header: React.FC<HeaderProps> = ({
               ? rawCycledUrl
               : '';
         if (rawCycledUrl === '') {
-          applyHit({ key: app.id, id: app.id, icon: '', level: 5, patch: iconPatch });
+          applyHit({ id: app.id, icon: '', level: 5, patch: iconPatch });
         } else if (persistUrl !== '') {
           applyHit({
-            key: app.id,
             id: app.id,
             icon: persistUrl,
             level: typeof res.level === 'number' ? res.level : undefined,
@@ -196,7 +193,7 @@ export const Header: React.FC<HeaderProps> = ({
         } else {
           // data: 仅即时看：已 setIconCycle（iconOverride 直显），此处不调 applyHit、不进盘。
         }
-        const total = res.total_levels ?? res.totalLevels ?? 5;
+        const total = res.total_levels ?? 5;
         const name = ICON_LEVEL_NAMES[res.level] || '';
         notifyToast(`图标已切换为 L${res.level}${name} (${res.level}/${total})`, 'success');
       }
@@ -456,9 +453,8 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="modal-tag">{displayCategory}</span>
           {(() => {
             const hasModalPlatforms = !!app.platforms && app.platforms.length > 0;
-            // 传入 platformPending 即启用待确认语义：pending-empty 骨架占位，已确认-empty 才 Other；
-            // 缺席时沿用旧语义（isLoading 即 pending），旧调用方零变化。
-            const isModalPending = platformPending ?? Boolean(app.isLoading);
+            // pending-empty 骨架占位，已确认-empty 才 Other。
+            const isModalPending = Boolean(platformPending);
             const showModalPendingPlaceholder = !hasModalPlatforms && isModalPending;
             if (hasModalPlatforms) {
               return (

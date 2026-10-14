@@ -40,7 +40,7 @@ export function usePlatformBackfill({
   // 平台待确认追踪：summary 为空但详情尚未落定的行保持 pending（不展示 Other、不计入 other 桶、不过滤），
   // 详情取回仍为空才记入已确认 other（展示徽标、计入统计、参与过滤）。后端一律 `[]`，other 纯前端虚拟。
   const [platformResolvedOtherIds, setPlatformResolvedOtherIds] = useState<Set<string>>(() => new Set<string>());
-  // 生命周期守卫归深模块所有（ticket 11）：在途集合 + seq 守卫经统一工厂持有，逻辑见 `services/pendingLifecycle`。
+  // 生命周期守卫归深模块所有：在途集合 + seq 守卫经统一工厂持有，逻辑见 `lib/platformFilter`。
   const inflightGuardRef = useRef<InflightGuard | null>(null);
   if (!inflightGuardRef.current) inflightGuardRef.current = createInflightGuard();
   const platformResolvedOtherRef = useRef<Set<string>>(new Set());
@@ -143,7 +143,7 @@ export function usePlatformBackfill({
   // lite 失败/stale 的 pending 行至多等待 15s 后降级为已确认 Other
   // （徽标 + 计数 + 可过滤），而非无限 shimmer。超时前恒可见，落定后走正常 Other 过滤。
   // 治愈（具真实平台）的行永不被确认；定时器随列表/回填变化重置，落稳后一次触发。
-  // 定时归深模块 `scheduleSettleConfirm` 所有（ticket 11）。
+  // 定时归深模块 `scheduleSettleConfirm` 所有。
   useEffect(() => {
     if (apps.length === 0 && onlineApps.length === 0 && recentlyViewedApps.length === 0) return;
     const keys = collectListPendingKeys(

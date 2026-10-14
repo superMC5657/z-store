@@ -1,7 +1,7 @@
 /**
- * 设置特征化测试（用于 useAppSettings 模块拆分前的防劣化保护）。
+ * 设置特征化测试。
  *
- * 在抽取到独立的 Hook 之前锁定持久化设置应用契约：
+ * 锁定持久化设置应用契约：
  * 后端 `getSettings()` 快照与默认设置合并，并驱动 <html> 上的
  * `data-theme` / `data-font-size` / `--font-scale` 属性生效。
  */

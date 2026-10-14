@@ -52,7 +52,7 @@ describe('具平台驱逐删标记走同一 emit（写透联动）', () => {
       expect(events[1]?.kind).toBe('unmark');
       expect(events[1]?.keys).toEqual(['acme/atlas']);
       expect(isTrendConfirmedOtherFresh('acme/atlas')).toBe(false);
-      // 再次 put 同具平台不重复 emit（已删无残留）。
+      // 再次 put 同具平台不重复 emit。
       hydrateTrendEnrichCache({
         'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'] }),
       });

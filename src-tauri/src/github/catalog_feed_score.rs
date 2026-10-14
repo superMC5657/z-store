@@ -134,7 +134,7 @@ pub fn paginate_feed<T: Clone>(items: &[T], limit: usize, offset: usize) -> (Vec
 }
 
 /// 纯函数：可选分页切片（本地搜索 `limit/offset=None=全量` 语义 SSOT）。
-/// 原 `commands/catalog_search::slice_paged` 上移至此，行为不变：None=全量，Some 切 slice，越界守好。
+/// None=全量，Some 切 slice，越界守好。
 pub fn paginate_optional<T: Clone>(
     items: Vec<T>,
     limit: Option<usize>,
@@ -157,7 +157,6 @@ pub fn paginate_optional<T: Clone>(
 }
 
 /// 纯函数：Feed 策略解析（`strategy=None/非法→balanced`，大小写不敏感，前端原样透传、后端归一小写）。
-/// 原 `commands/catalog_feed` 内联 match 上移至此，`seed`/`strategy` 语义不变。
 pub fn parse_feed_strategy(raw: Option<&str>) -> FeedStrategy {
     let normalized = raw.unwrap_or("balanced").trim().to_lowercase();
     match normalized.as_str() {

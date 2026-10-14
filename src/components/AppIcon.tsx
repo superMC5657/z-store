@@ -2,8 +2,6 @@ import React, { useEffect, useState } from 'react';
 import {
   getBufferedIcon,
   getCachedIconDataUri,
-  invalidateIconCache as invalidateStoreCache,
-  preloadIcons as preloadStoreIcons,
   subscribeIconWrites,
 } from '../services/iconStore';
 import { normalizeId } from '../services/normalizeId';
@@ -21,24 +19,7 @@ export interface AppIconProps {
   loading?: 'eager' | 'lazy';
 }
 
-/**
- * 展示数据失效 adapter（薄透传）：实现已内聚至图标深 module（`services/iconStore` 内部 seam），
- * 此处仅委托（兼容 `useAppSubscriptions` 等未迁移调用方）。`deletion test`：删本文件透传，
- * 展示预热/失效仍经店内可用，证此处无 locality。
- */
-export function invalidateIconCache(key?: string): void {
-  invalidateStoreCache(key);
-}
-
-/**
- * 远端预热 adapter（薄透传）：实现已内聚至图标深 module，此处仅委托。
- * 调用方（首屏 30 项预热）逐步迁往店内直引，此透传待迁移后删除。
- */
-export function preloadIcons(items: (string | { id?: string; icon: string })[]) {
-  preloadStoreIcons(items);
-}
-
-// 唯一的远端图标判定谓词：调用方（preloadIcons 与组件本体）必须复用此函数，禁止各自内联重复形状
+// 唯一的远端图标判定谓词：调用方（`services/iconStore.preloadIcons` 内部与组件本体）必须复用此函数，禁止各自内联重复形状
 // 备注：此为展示判定（含 `.png/.svg` 后缀直显），与店内 `isRemoteHttpIconUrl` 落盘门控正交（仅 `http(s)` 落盘），非重复 locality。
 export function isRemoteIcon(icon: string | undefined | null): boolean {
   if (!icon) return false;
@@ -81,18 +62,17 @@ export const AppIcon: React.FC<AppIconProps> = ({
       if (targets.includes(appIdNorm)) {
         setStoreIcon(nextIcon);
       } else {
-        // 别名归一兜底：`key/id/app_id` 三别名已在店内归一为 targets，跨别名（坐标 vs id）已覆盖；
-        // 此处不再自立别名表（原 `appIdToIconMap` 并行 locality 已删）。
+        // 别名归一兜底：`id` 单一规范字段已在店内归一为 targets，跨键（坐标 vs id）已覆盖。
       }
     });
   }, [appIdNorm]);
   // M1 缓冲首绘回读 + 盘 dataUri 直显（只读，不自发 IPC）：
   // storeIcon（扇出即时态）优先，其次 M1 缓冲（getBufferedIcon 唯一口，迟到 icon-ready 首绘即对），
   // 最后回落父 prop；空（`''`/L5）恒徽章（不回读旧缓存，防复活旧图，见 `HomeView.search-icon` 回归线）。
-  // C1 读透适配（薄）：level 单调由店内 `applyHit` 保证，此处不判 level；列表空壳补齐经上游
+  // level 单调由店内 `applyHit` 保证，此处不判 level；列表空壳补齐经上游
   // `assembleOnlineRowsWithIcons`/`stickyIconFor`（店内唯一口），
   // 本组件只按 resolved 图标展示（空即徽章）——写口唯一在店内 `applyHit`（`invalidate→preload→patch`），
-  // 此处不自发 IPC、不订阅窗口总线（`zstore:icon-changed` 已删，见 09 收敛）。
+  // 此处不自发 IPC、不订阅窗口总线。
   // 首绘回读经 `getBufferedIcon` 同步读 M1，盘 dataUri 经 `getCachedIconDataUri` 同步读内存态（preload 落盘后），
   // 二者均为同步内存读，无 IPC 副作用。
   const bufferedFirstPaint = appIdNorm ? getBufferedIcon(appIdNorm) : undefined;
@@ -108,7 +88,7 @@ export const AppIcon: React.FC<AppIconProps> = ({
   const isDataUri = Boolean(activeIcon && activeIcon.startsWith('data:'));
   const [hasError, setHasError] = useState(false);
   // 只读展示：同 URL 的 data URI 缓存命中即直显（店内 `getCachedIconDataUri` 唯一口，
-  // `preload` 落盘后的内存态；原组件内 `iconDataCache` 并行 locality 已删），否则直显 prop；
+  // `preload` 落盘后的内存态），否则直显 prop；
   // L5 清零（`storeIcon === ''` 或首绘空）恒徽章（不回读旧缓存，防复活旧图）。
   // 盘 dataUri 双键回读：先按 URL 键，再按归一 id 键（preload 按 id 亦存一份，首绘即对）。
   const displaySrc = (() => {

@@ -4,7 +4,7 @@ use std::path::Path;
 #[cfg(target_os = "macos")]
 use std::path::PathBuf;
 
-/// macOS PKG 拉起 argv 纯函数（真实实现为 `open -W`，旧桩 `installer -pkg` 已删）。
+/// macOS PKG 拉起 argv 纯函数（真实实现为 `open -W`）。
 pub fn pkg_open_argv(path: &Path) -> Vec<String> {
     vec![
         "open".to_string(),

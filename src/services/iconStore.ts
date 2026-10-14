@@ -1,21 +1,19 @@
 /** 前端图标深 module（deep module，`IconFetch` 前端收口）。
  * module：`services/iconStore` 为图标写唯一深 module；`AppIcon`/`Search List Cache`/
- * `trends/enrich`/`trends/board` 不再自立图标 locality，并行 mem-cache 均已内聚为本 module 内部 seam。
+ * `trends/enrich`/`trends/board` 不自立图标 locality，并行 mem-cache 均内聚为本 module 内部 seam。
  * interface：唯一对外写 interface 为 `applyHit`（`icon-ready` 统一收口）+ 读侧扇出
- * `subscribeIconWrites`（读侧只合并、不再调写口，不复活窗口总线）；读口 `getBufferedIcon`/
+ * `subscribeIconWrites`（读侧只合并、不调写口，不复活窗口总线）；读口 `getBufferedIcon`/
  * `getCachedIconDataUri` 为展示/组装用只读 interface；`stickyIconFor`/`patchIconMirror`/
- * `patchAppIconList` 为erna组装/镜像用的纯合并 interface（内部 seam 的收敛实现，调用方直引、不自立规则）。
+ * `patchAppIconList` 为组装/镜像用的纯合并 interface（内部 seam 的收敛实现，调用方直引、不自立规则）。
  * depth：`applyHit` 内聚 generation gate（`search_id`/`board`+`gen`）+ L-monotone（纯L 1..5，
  * 低不顶高，`via` 正交）+ `via`（`live|m2`，`data:`/`m2` 只进 M1 内存不落盘）+ L5 badge
  *（`icon:'' + level:5` 唯一允许的空覆盖，经 fan-out）+ fan-out（`notifyIconWrites`）。
- * 一次 `IconFetch` 命中经 `icon-ready` 只跳本 module 单 interface，不再跨 `store→cache→enrich→board mirror` 四跳。
+ * 一次 `IconFetch` 命中经 `icon-ready` 只跳本 module 单 interface。
  * seam：`applyHit` 为唯一写 seam；`stickyIconFor`（`mergeStickyIcon` + M1 缓冲回读）与
  * `patchIconMirror`（趋势镜像合并）与 `iconDataCache`（`get_or_fetch_icon` 落盘预热内存态）均为内部 seam，
- * 对外不新增写口。`enrich.stickyIconFor` 与旧 board 镜像透传的重复 locality 已删除，
- * 调用方经本 module 直引，无保留的薄委托。
- * adapter/leverage/locality：旧四列表工厂 adapter 已删（ica3-11，`App.tsx`
- * 经 `patchAppIconList` + `subscribeIconWrites` 内联四连直写，不经工厂中转）；`AppIcon` 的
- * `appIdToIconMap` 并行 locality 已删（以店内 `iconById` 为单一别名源）；`isRemoteIcon` 留在
+ * 对外不新增写口。
+ * adapter/leverage/locality：`App.tsx` 经 `patchAppIconList` + `subscribeIconWrites` 内联四连直写；
+ * `isRemoteIcon` 留在
  * `AppIcon`（展示判定，与店内 `isRemoteHttpIconUrl` 落盘门控正交，非重复）。
  * 领域词：`IconFetch`（后端 `fetch_icons_stream`）→ `icon-ready`（`zstore://icon-ready`）→
  * 本 module `applyHit`；`Search List Cache`（`searchListCache.ts` 纯前端内存）经 `getBufferedIcon` 回读，
@@ -25,8 +23,8 @@
  * L5 显式徽章（用户切空，`icon:'' + level:5`）为唯一允许的空覆盖：经 `applyHit`
  * 清记忆 + `patch('')` + 读侧扇出；被动空壳（无 level 5）仍直接丢弃。
  * 读侧扇出（`subscribeIconWrites`）：`applyHit` 受理后通知订阅者（App 四列表/趋势镜像），
- * 写口仍唯一，不复活窗口总线。`clearBufferedIcon` 亦经同一扇出（直接清零亦通知，防富卡 stale，
- * 见 `ecb83e1` 语义；`applyBadgeHit` 内走批量单事件，直接调用走单键事件）。
+ * 写口仍唯一，不复活窗口总线。`clearBufferedIcon` 亦经同一扇出（直接清零亦通知，防富卡 stale；
+ * `applyBadgeHit` 内走批量单事件，直接调用走单键事件）。
  */
 import type { AppSummary } from '../types';
 import { normalizeId, normalizeIdSet } from './normalizeId';
@@ -58,27 +56,20 @@ export interface IconHitContext {
   gen?: number;
 }
 
-/** 图标命中（`key/id/app_id` 别名 + `icon/level/via/context`）。 */
+/** 图标命中（`id` 应用标识 + `icon/level/via/context`）。 */
 export interface IconHit {
-  /** `key`（小写 `owner/repo`）。 */
-  key?: string | null;
-  /** `id`（小写 `owner/repo`，与 `app_id` 同值）。 */
+  /** 应用标识（小写 `owner/repo`；坐标键与 id 键同值，店内按归一键扇出）。 */
   id?: string | null;
-  /** 别名：`app_id`（与 `id` 同值）。 */
-  app_id?: string | null;
   icon?: string | null;
   /** `level`纯L（2=L2品牌库，3=L3仓库；单调记忆，via正交）。 */
   level?: number | null;
   /** 缓存正交：`live|m2`（M2首屏直填不走emit）。 */
   via?: string | null;
   context?: IconHitContext | null;
-  /** 顶层 `search_id`（`context` 缺席时回落用）。 */
-  search_id?: string | null;
 }
 
 /** 事件载荷（`zstore://icon-ready`，供 `catalog.ts` 订阅打型）。 */
 export interface IconReadyPayload {
-  key: string;
   id: string;
   icon: string;
   level: number;
@@ -176,10 +167,10 @@ export function __resetIconWriteSubscribersForTests(): void {
 }
 
 /**
- * 归一 key+id 别名：取 `key/id/app_id` 去空 → 归一去重保序。
+ * 归一 id 目标集：取 `id` 去空 → 归一去重保序。
  */
-export function resolveIconTargets(hit: Pick<IconHit, 'key' | 'id' | 'app_id'>): string[] {
-  return normalizeIdSet([hit?.key, hit?.id, hit?.app_id]);
+export function resolveIconTargets(hit: Pick<IconHit, 'id'>): string[] {
+  return normalizeIdSet([hit?.id]);
 }
 
 /** 仅 `http(s)` 才算可落盘远端（`data:` 另行内存通道，其余一律丢弃）。 */
@@ -190,7 +181,7 @@ export function isRemoteHttpIconUrl(icon: unknown): boolean {
 }
 
 /**
- * icon 粘性 supersede-only 合并（内部 seam 的收敛实现，原 `enrich.stickyIconFor` 的下半）：
+ * icon 粘性 supersede-only 合并（内部 seam 的收敛实现）：
  * 旧图标非空 + 回填图标空 → 沿用旧图标；其余一律采用回填值。
  * 空值经 `isEmptyIcon` SSOT，不自立 `trim()===''` 规则。
  */
@@ -207,7 +198,7 @@ export function mergeStickyIcon(
 }
 
 /**
- * icon 粘性 + M1 缓冲回读（内部 seam 的收敛实现，原 `enrich.stickyIconFor` 全量上移）：
+ * icon 粘性 + M1 缓冲回读（内部 seam 的收敛实现）：
  * 先 `mergeStickyIcon`（旧实 + 回填空 → 沿用旧），再空壳经 `getBufferedIcon` 唯一口
  * 回读缓冲实图（坐标键 + id 键双查，`normalizeId` 归一，遵 ADR-0010）。
  * 调用方（`enrich.put`/`assembleOnlineRowsWithIcons`）直引此 interface，不自立空值/缓冲规则；
@@ -231,9 +222,9 @@ export function stickyIconFor(cur: AppSummary | undefined, incoming: AppSummary)
 }
 
 /**
- * 趋势镜像图标合并（内部 seam 的收敛实现，旧 board 镜像透传已删，逻辑全量收归本 module）：
+ * 趋势镜像图标合并（内部 seam 的收敛实现）：
  * incoming 与旧不同即覆盖；L5（`''`）放行内存清零；大小写归一，同时匹配坐标键与
- * `enriched.id` 小写别名（`normalizeId`，遵 ADR-0010）。调用方直调本函数，无 board 侧委托。
+ * `enriched.id` 小写别名（`normalizeId`，遵 ADR-0010）。调用方直调本函数。
  */
 export function patchIconMirror(
   prev: Record<string, AppSummary>,
@@ -263,9 +254,9 @@ const iconLevelById = new Map<string, number>();
 const iconById = new Map<string, string>();
 
 /**
- * 图标展示数据内存态（原 `AppIcon.iconDataCache` 上移为本 module 内部 seam）：
+ * 图标展示数据内存态（本 module 内部 seam）：
  * `get_or_fetch_icon` 落盘后的 `data:` 直显态，`key` 为远端 URL 或归一 id（小写）。
- * 别名源唯一是店内 `iconById`（`normalizeId`），不再另立 `appIdToIconMap` 并行 locality。
+ * 别名源唯一是店内 `iconById`（`normalizeId`）。
  */
 const iconDataCache = new Map<string, string>();
 const iconPendingPromises = new Map<string, Promise<string>>();
@@ -328,10 +319,9 @@ export interface GenerationGate {
 }
 
 /**
- * 展示数据失效（内部 seam，原 `AppIcon.invalidateIconCache` 上移）：
+ * 展示数据失效（内部 seam）：
  * 删 `iconDataCache`/`pending`/`队列`/`persisted` 中该键及其关联 URL/别名态。以店内 `iconById` 为唯一别名源
- * （`normalizeId`，遵 ADR-0010），不再维护并行 `appIdToIconMap`。
- * `AppIcon` 侧仅留薄 adapter 委托（兼容 `useAppSubscriptions` 等未迁移调用方）。
+ * （`normalizeId`，遵 ADR-0010）。
  */
 export function invalidateIconCache(key?: string): void {
   if (!key) {
@@ -380,7 +370,7 @@ export function getCachedIconDataUri(key: string): string | undefined {
 }
 
 /**
- * 远端预热（内部 seam，原 `AppIcon.preloadIcons` 上移）：
+ * 远端预热（内部 seam）：
  * 队列 + 单飞 + 批量排空：同 tick 多次调用合并为 `Set<url>`，同 URL 共用 Promise；
  * 仅远端（`http(s)`/`data:` 兼容展示判定由调用方保证，此处复用店内落盘门控）走
  * `get_or_fetch_icon` 落盘；`data:` 永不预热；退避期内跳过。
@@ -730,15 +720,13 @@ export function applyHit(args: ApplyHitArgs): ApplyHitResult {
   const icon = rawIcon;
 
   // 世代门控：过期判断只此一处，正交三维（`search_id`/`board`/`gen` 各自双非空不等即过期，任一为空即放行，不看 `kind`）。
-  // incoming 取 `context` 回落顶层，expected 即时取值回落静态值。
+  // incoming 取 `context`，expected 即时取值回落静态值。
   const ctx = args.context ?? null;
   const incoming: GenerationGate = {
     search_id:
       ctx && typeof ctx.search_id === 'string' && ctx.search_id
         ? ctx.search_id
-        : typeof args.search_id === 'string'
-          ? args.search_id
-          : '',
+        : '',
     board: ctx && typeof ctx.board === 'string' ? ctx.board : '',
     gen: ctx && typeof ctx.gen === 'number' && Number.isFinite(ctx.gen) ? ctx.gen : undefined,
   };
@@ -917,7 +905,7 @@ function deleteBufferedIcon(key: string): void {
 /** L5 显式清零：用户手动切到空徽章时清掉该键缓冲（含 level 记忆），
  * 否则后续 `assemble/sticky` 经缓冲回读会复活旧图。常规 L5 一律走
  * `applyHit({ icon:'', level:5 })`（批量扇出）；直接调此亦经同一读侧扇出
- * （单键 `''/5` 事件，`ecb83e1` 语义：清零必须通知列表/镜像，防富卡 stale）。
+ * （单键 `''/5` 事件：清零必须通知列表/镜像，防富卡 stale）。
  * 订阅回调只做读侧合并，不得再调写口（防递归）。 */
 export function clearBufferedIcon(key: string): void {
   const k = normalizeId(key);

@@ -143,7 +143,7 @@ fn find_running_nsis_temp_exe() -> Option<std::path::PathBuf> {
 }
 /// 执行官方卸载向导并异步挂起等待用户操作完成，随后核验卸载状态
 /// B1-G7 收敛：取消判定复用 `super::is_user_cancellation`（SSOT），
-/// 成功经 `InstallOutcome::Installed(..).into_result()` 收敛为 `Ok(())`；
+/// 成功经 `InstallOutcome::Installed(..).into_result()` 归一为 `Ok(())`；
 /// 本文件不保留本地取消谓词/退出码映射副本。
 pub async fn execute_uninstallation(
     uninstaller_cmd: &str,

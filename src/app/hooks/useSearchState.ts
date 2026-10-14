@@ -22,13 +22,13 @@ export interface UseSearchStateParams {
 /**
  * 回声窗协议纯函数（可单测，`HomeView.search-icon.test.tsx` 三 CTS 锁定）：
  * 回声为唯一真源，永不回落请求串号。
- * - `settlePageEcho`：首刷落定；有 sid 即立期望，无 sid（legacy）保持窗开（`''`），
- *   不回落请求串号（防请求-ref 制复活 + 不锁死后续 sid 升级）。
+ * - `settlePageEcho`：首刷落定；有效 `sid` 即立期望（回声真源）。
  * - `settleMoreEcho`：翻页落定；seq 失配（旧页/旧次迟到）直接丢不覆盖；
  *   seq 对上但无 sid 不覆盖（保持旧期望）；有 sid 落定后以最新为准。
  * - `adoptEchoInWindow`：窗内（期望空）首个搜索回声即立期望（与 `App.tsx` 同语义）；
  *   已立期望后异 sid 由店内门控判 stale，此处不覆盖（窗内只采首个）。
  */
+// C1(a): no-sid legacy dropped — callers guarantee valid sid, empty never passed (guard at call site).
 export function settlePageEcho(ref: { current: string }, sid: string): void {
   if (sid) ref.current = sid;
 }
@@ -251,8 +251,8 @@ export function useSearchState({
         const pageRes = await api.searchAppsOnline(q, searchId, 1, ONLINE_SEARCH_PER_PAGE);
         if (guardFreshSearch(seq)) return;
         const onlineResults = pageRes.rows;
-        // 以后端回声为唯一真源；无回声（legacy）保持窗开，不回落请求串号。
-        settlePageEcho(currentSearchIdRef, pageRes.sid || '');
+        // 以后端回声为唯一真源。
+        if (pageRes.sid) settlePageEcho(currentSearchIdRef, pageRes.sid);
         setOnlineSearchPerformed(true);
         if (onlineResults && onlineResults.length > 0) {
           // 同词在线集去重 + 图标回填。

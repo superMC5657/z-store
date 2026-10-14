@@ -24,8 +24,8 @@ pub struct Database {
 pub fn default_detail_cache_ttl_minutes() -> i64 {
     crate::config::get_project_config().cache.detail_ttl_minutes
 }
-/// ADR-0007：TTL 有效挡位（分钟）：0=每次实时校验，10/30/60/360/1440。
-pub const DETAIL_CACHE_TTL_VALID_MINUTES: [i64; 6] = [0, 10, 30, 60, 360, 1440];
+/// ADR-0007：TTL 有效挡位（分钟）：0=每次实时校验，10/60/360/1440。
+pub const DETAIL_CACHE_TTL_VALID_MINUTES: [i64; 5] = [0, 10, 60, 360, 1440];
 
 /// FR-6.2：关注通知频率默认值（每天至多通知一次）。
 pub const WATCH_NOTIFY_FREQUENCY_DEFAULT: &str = "daily";
