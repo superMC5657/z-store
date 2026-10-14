@@ -335,6 +335,39 @@ fn test_detail_cache_ttl_config_baseline() {
 }
 
 #[test]
+fn test_strict_errors_defaults_to_config_baseline() {
+    let db = fixtures::test_db();
+    assert_eq!(
+        db.is_strict_errors(),
+        crate::config::get_project_config().runtime.strict_errors
+    );
+}
+
+#[test]
+fn test_strict_errors_strict_mode_fails_fast() {
+    let db = fixtures::test_db();
+    db.set_setting("strict_errors", "true").unwrap();
+    assert!(db.is_strict_errors());
+    assert_eq!(crate::db::normalize_setting_value("strict_errors", "true"), "true");
+}
+
+#[test]
+fn test_strict_errors_graceful_mode_falls_back() {
+    let db = fixtures::test_db();
+    db.set_setting("strict_errors", "false").unwrap();
+    assert!(!db.is_strict_errors());
+    assert_eq!(
+        crate::db::normalize_setting_value("strict_errors", "false"),
+        "false"
+    );
+    db.set_setting("strict_errors", "bogus").unwrap();
+    assert_eq!(
+        db.is_strict_errors(),
+        crate::config::get_project_config().runtime.strict_errors
+    );
+}
+
+#[test]
 fn test_watch_notify_frequency_normalize() {
     assert_eq!(normalize_watch_notify_frequency("daily"), "daily");
     assert_eq!(normalize_watch_notify_frequency("startup"), "startup");

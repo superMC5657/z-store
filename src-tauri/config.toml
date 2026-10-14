@@ -1,5 +1,9 @@
 # ZStore 项目基线全局配置 (Project Baseline Configuration)
 
+[runtime]
+# 运行错误策略：true 严格失败直接报错，false 本地降级保证可用
+strict_errors = true
+
 [cache]
 # 应用详情本地缓存生存时效 (TTL)，单位：分钟
 # 在保鲜期内直接 0ms 读取本地 SQLite；过期后自动发起 ETag 条件协商

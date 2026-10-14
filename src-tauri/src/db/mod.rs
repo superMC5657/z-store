@@ -56,6 +56,25 @@ pub fn normalize_asset_cache_max_files(files: usize) -> usize {
     }
 }
 
+/// 运行错误策略默认值（优先读取 config.toml，缺失按构建类型回退）。
+pub fn default_strict_errors() -> bool {
+    crate::config::get_project_config().runtime.strict_errors
+}
+
+/// 解析严格开关文本：`true`/`1` 为开，`false`/`0` 为关，其余返回 None。
+pub fn parse_strict_errors(value: &str) -> Option<bool> {
+    match clean(value).to_ascii_lowercase().as_str() {
+        "true" | "1" => Some(true),
+        "false" | "0" => Some(false),
+        _ => None,
+    }
+}
+
+/// 将任意输入归一化到严格开关有效值；非法值回退 config.toml 默认值。
+pub fn normalize_strict_errors(value: &str) -> bool {
+    parse_strict_errors(value).unwrap_or_else(default_strict_errors)
+}
+
 /// FR-6.2：关注通知频率默认值（每天至多通知一次）。
 pub const WATCH_NOTIFY_FREQUENCY_DEFAULT: &str = "daily";
 /// FR-6.2：关注通知频率有效值：`startup`（每次启动检查即通知）/`daily`。
@@ -104,6 +123,8 @@ pub fn normalize_setting_value(key: &str, value: &str) -> String {
             .to_string()
     } else if key == "watch_notify_frequency" {
         normalize_watch_notify_frequency(value)
+    } else if key == "strict_errors" {
+        normalize_strict_errors(value).to_string()
     } else {
         value.to_string()
     }

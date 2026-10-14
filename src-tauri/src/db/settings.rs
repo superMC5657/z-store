@@ -1,6 +1,6 @@
 use super::{
     clean, normalize_asset_cache_max_files, normalize_asset_cache_max_mb,
-    normalize_detail_cache_ttl, Database,
+    normalize_detail_cache_ttl, normalize_strict_errors, Database,
 };
 use rusqlite::{params, Result};
 use std::collections::HashMap;
@@ -71,5 +71,15 @@ impl Database {
             .and_then(|v| clean(&v).parse::<usize>().ok())
             .map(normalize_asset_cache_max_files)
             .unwrap_or_else(|| crate::config::get_project_config().cache.asset_max_files)
+    }
+
+    /// 读取运行错误策略。
+    /// 优先级：用户设置 > config.toml > 构建类型默认值。
+    pub fn is_strict_errors(&self) -> bool {
+        self.get_setting("strict_errors")
+            .ok()
+            .flatten()
+            .map(|v| normalize_strict_errors(&v))
+            .unwrap_or_else(crate::db::default_strict_errors)
     }
 }

@@ -34,6 +34,10 @@ fn get_default_settings() -> HashMap<String, String> {
         cfg.catalog.default_source_url.clone(),
     );
     map.insert("watch_notify_frequency".to_string(), "daily".to_string());
+    map.insert(
+        "strict_errors".to_string(),
+        cfg.runtime.strict_errors.to_string(),
+    );
     map
 }
 

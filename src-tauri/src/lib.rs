@@ -415,12 +415,24 @@ pub fn run() {
     let _ = std::fs::create_dir_all(&db_dir);
     let db_path = db_dir.join("z_store.db");
 
-    let db = Database::open(&db_path)
-        .or_else(|_| {
+    let strict_errors = crate::config::is_strict_errors();
+    log::info!("strict_errors={} runtime error policy loaded", strict_errors);
+
+    let db = match Database::open(&db_path) {
+        Ok(db) => db,
+        Err(open_err) => {
+            if strict_errors {
+                log::error!(
+                    "db open failed strict abort path='{}' reason={}",
+                    db_path.display(),
+                    open_err
+                );
+                panic!("db open failed strict_errors=true: {open_err}");
+            }
             log::error!("db open failed fallback to in-memory");
-            Database::open_in_memory()
-        })
-        .expect("failed to init database");
+            Database::open_in_memory().expect("failed to init database")
+        }
+    };
 
     // Phase1A 趋势榜缓存：启动后 best-effort 清扫过期快照（吞错，不阻塞启动）。
     {

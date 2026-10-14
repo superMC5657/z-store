@@ -41,6 +41,18 @@ pub async fn sync_catalog(
     let (new_items, new_etag) = match res {
         Ok(val) => val,
         Err(err) => {
+            let strict_errors = state
+                .db()
+                .map(|db| db.is_strict_errors())
+                .unwrap_or_else(|_| crate::config::is_strict_errors());
+            if !should_use_local_fallback(strict_errors) {
+                log::error!(
+                    "sync catalog failed strict abort url='{}' reason={}",
+                    safe_url,
+                    crate::log_support::short_reason(&err)
+                );
+                return Err(err.into());
+            }
             // 如果请求远程失败且为默认或远程链接，检测本地配置的 catalog.json 路径作为无缝备选
             let mut local_fallback = None;
             let cfg = crate::config::get_project_config();
@@ -118,4 +130,24 @@ pub async fn sync_catalog(
 #[tauri::command]
 pub fn get_catalog_count(state: State<'_, AppState>) -> crate::AppResult<usize> {
     Ok(state.catalog.get_catalog_count())
+}
+
+/// 远端失败是否允许本地降级：严格模式直接抛错。
+pub(crate) fn should_use_local_fallback(strict_errors: bool) -> bool {
+    !strict_errors
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_use_local_fallback;
+
+    #[test]
+    fn strict_mode_skips_local_fallback() {
+        assert!(!should_use_local_fallback(true));
+    }
+
+    #[test]
+    fn graceful_mode_uses_local_fallback() {
+        assert!(should_use_local_fallback(false));
+    }
 }

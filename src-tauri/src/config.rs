@@ -6,6 +6,8 @@ const EMBEDDED_CONFIG: &str = include_str!("../config.toml");
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectConfig {
     #[serde(default)]
+    pub runtime: RuntimeConfig,
+    #[serde(default)]
     pub cache: CacheConfig,
     #[serde(default)]
     pub network: NetworkConfig,
@@ -15,6 +17,24 @@ pub struct ProjectConfig {
     pub oauth: OauthConfig,
     #[serde(default)]
     pub catalog: CatalogConfig,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct RuntimeConfig {
+    #[serde(default = "default_strict_errors")]
+    pub strict_errors: bool,
+}
+
+fn default_strict_errors() -> bool {
+    cfg!(debug_assertions)
+}
+
+impl Default for RuntimeConfig {
+    fn default() -> Self {
+        Self {
+            strict_errors: default_strict_errors(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -255,6 +275,7 @@ impl CatalogConfig {
 impl Default for ProjectConfig {
     fn default() -> Self {
         toml::from_str(EMBEDDED_CONFIG).unwrap_or_else(|_| Self {
+            runtime: RuntimeConfig::default(),
             cache: CacheConfig::default(),
             network: NetworkConfig::default(),
             limits: LimitsConfig::default(),
@@ -291,6 +312,11 @@ pub fn get_project_config() -> &'static ProjectConfig {
     })
 }
 
+/// 运行错误策略当前值（config.toml 缺失时按构建类型回退）。
+pub fn is_strict_errors() -> bool {
+    get_project_config().runtime.strict_errors
+}
+
 /// 有效超时：读统一配置中枢 `network.api_timeout_seconds`，0 回退 `fallback`。
 pub(crate) fn api_timeout_or(fallback: std::time::Duration) -> std::time::Duration {
     let secs = get_project_config().network.api_timeout_seconds;
@@ -308,6 +334,7 @@ mod tests {
     #[test]
     fn test_embedded_config_parses_successfully() {
         let conf = ProjectConfig::default();
+        assert!(conf.runtime.strict_errors);
         assert_eq!(conf.cache.detail_ttl_minutes, 60);
         assert_eq!(conf.cache.asset_max_mb, 500);
         assert_eq!(conf.cache.asset_max_files, 2000);
@@ -362,5 +389,19 @@ mod tests {
             toml::from_str(payload).expect("icon_fetch payload must parse");
         assert_eq!(conf.limits.icon_fetch.pool, 5);
         assert_eq!(conf.limits.icon_fetch.total_timeout_secs, 15);
+    }
+
+    #[test]
+    fn runtime_strict_errors_parses_explicit_value() {
+        let conf: ProjectConfig =
+            toml::from_str("[runtime]\nstrict_errors = false").expect("runtime payload must parse");
+        assert!(!conf.runtime.strict_errors);
+    }
+
+    #[test]
+    fn runtime_strict_errors_missing_key_falls_back_to_build_default() {
+        let conf: ProjectConfig =
+            toml::from_str("[cache]\ndetail_ttl_minutes = 60").expect("payload must parse");
+        assert_eq!(conf.runtime.strict_errors, cfg!(debug_assertions));
     }
 }
