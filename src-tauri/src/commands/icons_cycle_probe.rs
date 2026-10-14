@@ -4,14 +4,14 @@ use serde::{Deserialize, Serialize};
 // 图标 C1 深核适配层（薄）：探测经 `github::icon_fetch` 深核直调
 // `icon_probe` 原语（L2/L3-live 纯探，不碰 DB/fs），持久化经单一写入路径
 // `write_icon_file`（`catalog vs cycle` 分流收敛在内 + `icons/` 落盘 +
-// `icon_cache_meta` 同步），下载经 `download_via_mirror`（ADR-0002：mirror 只改
-// 下载 URL，API/登录仍直连）；L1=官方填充 + L4=README 现场扒分居本适配器
+// `icon_cache_meta` 同步），下载经 `download_icon_bytes_direct`；
+// L1=官方填充 + L4=README 现场扒分居本适配器
 //（详情链专属，不受流式核约束），L5 空选经 `empty_cycle_result` + `seal_empty_selection`。
 // `persist_catalog_icon`/`cleanup_stale_cycle_variants` 为缝内私有，
-// 命令层只经 `write_icon_file`/`download_via_mirror`（probe-vs-persist 缝合一）。
+// 命令层只经 `write_icon_file`/`download_icon_bytes_direct`（probe-vs-persist 缝合一）。
 
 // ADR-0008：网络超时统一经 `config::api_timeout_or` 单一来源（统一配置中枢同一键）；
-// 配置为 0（未设置）时回退到调用方传入的历史硬编码值。
+// 配置为 0（未设置）时回退到调用方传入的默认值。
 pub(crate) use crate::config::api_timeout_or;
 
 /// 图标轮换返回结构
@@ -37,30 +37,13 @@ pub(crate) fn resolve_app_coord(app_id: &str) -> Result<(String, String, String)
     Ok((canon, repo.owner, repo.repo))
 }
 
-/// 镜像改写唯一落点：统一走镜像改写逻辑；
-/// 改写无变化时返回 None（调用方直连）。
-/// ADR-0002：仅改下载 URL（本下载通道专用），API 与登录直接走系统网络通道。
-pub(crate) fn mirror_url_for(state: &AppState, url: &str) -> Option<String> {
-    state.mirror.lock().ok().and_then(|m| {
-        let rewritten = m.rewrite_download_url(url);
-        if rewritten != url {
-            Some(rewritten)
-        } else {
-            None
-        }
-    })
-}
-
-/// 下载唯一落点（ADR-0002）：
-/// `mirror_url_for` 改写 + `icons::download_icon_bytes` 拉取二合一。
-/// 命令层一律经此（API/登录仍直连，mirror 仅本通道）。
-pub(crate) async fn download_via_mirror(
-    state: &AppState,
+/// 图标下载唯一落点：失败只记 warn（见调用方），不重试。
+/// 命令层一律经此。
+pub(crate) async fn download_icon_bytes_direct(
     client: &reqwest::Client,
     url: &str,
 ) -> Result<Vec<u8>, String> {
-    let mirror = mirror_url_for(state, url);
-    crate::commands::icons::download_icon_bytes(client, mirror.as_deref(), url).await
+    crate::commands::icons::download_icon_bytes(client, None, url).await
 }
 
 /// L5 空态返回统一构造（首字母徽章，level 纯L=5）：
@@ -174,7 +157,7 @@ pub(crate) fn load_split_cached_bytes(
     is_cataloged: bool,
     noncatalog_cycle: Option<&crate::db::AppIconCycle>,
 ) -> Option<Vec<u8>> {
-    let url_trimmed = icon.url;
+    let url_trimmed = icon.url.trim();
     let now = crate::now_secs();
     if is_cataloged {
         // hash(url).{inferred + KNOWN 兜底}，每候选验 “文件新鲜 + DB 记录 URL 相等 + DB 7 天有效”。
@@ -246,7 +229,10 @@ fn persist_catalog_icon(
     real_ext: &str,
     bytes: &[u8],
 ) -> String {
-    let url_trimmed = icon.url;
+    let url_trimmed = icon.url.trim();
+    if url_trimmed.is_empty() {
+        return String::new();
+    }
     let inferred_ext = icon.ext;
     let final_filename =
         crate::db::icon_cycle::hash_icon_filename(url_trimmed, real_ext);
@@ -354,7 +340,7 @@ pub(crate) fn enforce_icon_quota_lru(
         if !p.is_file() {
             continue;
         }
-        // 仅管图标后缀（含无后缀历史残留亦管，避免漏网撑盘）。
+        // 仅管图标后缀（含无后缀文件亦管，避免漏网撑盘）。
         let meta = match std::fs::metadata(&p) {
             Ok(m) => m,
             Err(_) => continue,
@@ -404,7 +390,6 @@ pub(crate) fn load_or_new_cycle(
 /// L4 不进匿名兜底（需网络详情链专属）。
 pub(crate) async fn fetch_anon_probe_bytes(
     client: &reqwest::Client,
-    state: &AppState,
     app_id_label: &str,
     owner: &str,
     repo: &str,
@@ -415,7 +400,7 @@ pub(crate) async fn fetch_anon_probe_bytes(
         app_id_label,
         crate::log_support::sanitize_url(&probed_url)
     );
-    download_via_mirror(state, client, &probed_url).await.ok()
+    download_icon_bytes_direct(client, &probed_url).await.ok()
 }
 
 /// README 图标探测（L4 详情链专属适配器，不受流式核约束，需网络）。
@@ -438,8 +423,9 @@ async fn probe_readme(
                     owner,
                     repo,
                 );
+                // 纵深：非远端地址视为无，绝不入库、绝不下载，继续走远端分支。
                 if let Some(url) = logo {
-                    if !url.trim().is_empty() {
+                    if crate::github::markdown::is_http_url(url.trim()) {
                         return url;
                     }
                 }
@@ -469,7 +455,9 @@ async fn probe_readme(
                     repo,
                 );
                 if let Some(url) = logo {
-                    return url;
+                    if crate::github::markdown::is_http_url(url.trim()) {
+                        return url;
+                    }
                 }
             }
         }

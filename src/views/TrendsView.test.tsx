@@ -521,11 +521,11 @@ describe('rising/healthy：doforce 单飞共享（一次抓取，两榜各排）
 });
 
 describe('代理策略：趋势流量恒直连（proxyPrefix 被忽略）', () => {
-  it('normalizeProxyPrefix：direct/空 => undefined，ghproxy => 默认前缀', () => {
+  it('normalizeProxyPrefix：direct/空/ghproxy => undefined（镜像仅安装包可用）', () => {
     expect(normalizeProxyPrefix(undefined)).toBeUndefined();
     expect(normalizeProxyPrefix('')).toBeUndefined();
     expect(normalizeProxyPrefix('direct')).toBeUndefined();
-    expect(normalizeProxyPrefix('ghproxy')).toBe('https://gh-proxy.com');
+    expect(normalizeProxyPrefix('ghproxy')).toBeUndefined();
     expect(normalizeProxyPrefix('https://gh-proxy.com/')).toBe('https://gh-proxy.com');
   });
 

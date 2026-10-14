@@ -67,32 +67,30 @@ fn test_rewrite_readme_images() {
 "#;
     let rewritten = CatalogService::rewrite_readme_images(sample, "rustdesk", "rustdesk");
 
-    // 验证相对路径转为 raw + gh-proxy
-    assert!(rewritten.contains("https://gh-proxy.com/https://raw.githubusercontent.com/rustdesk/rustdesk/HEAD/assets/logo.png"));
-    assert!(rewritten.contains("https://gh-proxy.com/https://raw.githubusercontent.com/rustdesk/rustdesk/HEAD/docs/screenshot.svg"));
+    // 验证相对路径转为 raw 绝对地址
+    assert!(rewritten.contains("https://raw.githubusercontent.com/rustdesk/rustdesk/HEAD/assets/logo.png"));
+    assert!(rewritten.contains("https://raw.githubusercontent.com/rustdesk/rustdesk/HEAD/docs/screenshot.svg"));
 
     // 验证带空格路径进行了安全 URL 编码
-    assert!(rewritten.contains("https://gh-proxy.com/https://raw.githubusercontent.com/rustdesk/rustdesk/HEAD/doc/images/icons/Command%20Palette.png"));
+    assert!(rewritten.contains("https://raw.githubusercontent.com/rustdesk/rustdesk/HEAD/doc/images/icons/Command%20Palette.png"));
 
     // 验证 <source srcset="..."> 响应式标签重写
-    assert!(rewritten.contains("srcset=\"https://gh-proxy.com/https://raw.githubusercontent.com/rustdesk/rustdesk/HEAD/docs/dark-banner.png\""));
+    assert!(rewritten.contains("srcset=\"https://raw.githubusercontent.com/rustdesk/rustdesk/HEAD/docs/dark-banner.png\""));
 
     // 验证 Markdown 引用式链接定义 [ci-badge]: ... 重写
-    assert!(rewritten.contains("[ci-badge]: https://gh-proxy.com/https://raw.githubusercontent.com/rustdesk/rustdesk/HEAD/docs/ci-badge.svg"));
+    assert!(rewritten.contains("[ci-badge]: https://raw.githubusercontent.com/rustdesk/rustdesk/HEAD/docs/ci-badge.svg"));
 
-    // 验证 GitHub Blob 网页链接转为 raw 直链并代理
-    assert!(rewritten.contains("https://gh-proxy.com/https://raw.githubusercontent.com/rustdesk/rustdesk/master/res/demo.png"));
+    // 验证 GitHub Blob 网页链接转为 raw 绝对地址
+    assert!(rewritten.contains("https://raw.githubusercontent.com/rustdesk/rustdesk/master/res/demo.png"));
 
     // 验证外部 shields.io 保持原样
     assert!(rewritten.contains("https://img.shields.io/badge/license-MIT-blue"));
 
-    // 验证 GitHub 资产/截图直链绝不能被套用 gh-proxy，保持直连
+    // 验证 GitHub 资产/截图链接原样透传
     assert!(
         rewritten.contains("https://user-images.githubusercontent.com/71636191/171661982-demo.png")
     );
-    assert!(!rewritten.contains("gh-proxy.com/https://user-images.githubusercontent.com"));
     assert!(rewritten.contains("https://github.com/user-attachments/assets/abcd-1234"));
-    assert!(!rewritten.contains("gh-proxy.com/https://github.com/user-attachments/assets"));
 }
 
 #[test]
@@ -106,10 +104,57 @@ fn test_extract_and_strip_logo_from_readme() {
     let (logo, stripped) =
         CatalogService::extract_and_strip_logo_from_readme(sample, "rustdesk", "rustdesk");
     assert!(logo.is_some());
-    assert!(logo.unwrap().contains("assets/logo.png"));
+    let logo_url = logo.unwrap();
+    assert!(logo_url.contains("assets/logo.png"));
+    // 头部备选 Logo 为直链。
+    assert_eq!(
+        logo_url,
+        "https://raw.githubusercontent.com/rustdesk/rustdesk/HEAD/assets/logo.png"
+    );
     // 验证旧图标已被彻底剥离，不再残留在 README 内容中
     assert!(!stripped.contains("assets/logo.png"));
     assert!(stripped.contains("# RustDesk"));
+}
+
+#[test]
+fn test_clean_image_url_rejects_local_paths() {
+    // 本地盘路径一律拒收为空：Windows 盘符、编码形盘符、UNC、file/asset scheme、缓存目录特征。
+    for dirty in [
+        r"C:\Users\supermc\AppData\Roaming\com.zstore.app\cache\assets\31\313fde161a94b966.png",
+        "c:/users/supermc/logo.png",
+        "C%3A%5CUsers%5Csupermc%5CAppData%5CRoaming%5Ccom.zstore.app%5Ccache%5Cassets%5C31%5C313fde161a94b966.png",
+        r"\\SERVER\share\logo.png",
+        "file:///C:/Users/supermc/logo.png",
+        "asset://localhost/C%3A/Users/supermc/logo.png",
+        "https://example.com/com.zstore.app/logo.png",
+    ] {
+        assert_eq!(
+            CatalogService::clean_image_url(dirty, "o", "r"),
+            "",
+            "dirty={dirty}"
+        );
+    }
+    // 正常相对路径与远端地址不受影响。
+    assert_eq!(
+        CatalogService::clean_image_url("./assets/logo.png", "o", "r"),
+        "https://raw.githubusercontent.com/o/r/HEAD/assets/logo.png"
+    );
+    assert_eq!(
+        CatalogService::clean_image_url("https://example.com/logo.png", "o", "r"),
+        "https://example.com/logo.png"
+    );
+}
+
+#[test]
+fn test_extract_skips_local_path_logo() {
+    // 库里混入本地路径的正文：L4 候选为空，不入库、不下载。
+    let sample = concat!(
+        "<p align=\"center\">\n",
+        "  <img src=\"C:\\Users\\supermc\\AppData\\Roaming\\com.zstore.app\\cache\\assets\\31\\logo.png\" width=\"100\" alt=\"Logo\" />\n",
+        "</p>\n# Demo\n",
+    );
+    let (logo, _) = CatalogService::extract_and_strip_logo_from_readme(sample, "o", "r");
+    assert!(logo.is_none());
 }
 
 #[tokio::test]

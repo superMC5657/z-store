@@ -326,7 +326,7 @@ fn checksum_negative_hit(
 }
 
 /// checksum 抓取 seam：消极缓存命中整路跳过，否则经 `extract_checksums_map`
-///（opportunistic 3s 硬超时，失败置空不阻塞；镜像改写经 `mirror::opportunistic_rewrite` 单口直调）。
+///（3s 硬超时，失败置空不阻塞）。
 async fn fetch_checksum_table(
     assets: &[GitHubAssetResponse],
     client: &reqwest::Client,
@@ -630,7 +630,7 @@ impl CatalogService {
 
         // 首屏快速路径 (2)：保持 join(release,repo) 后，
         // readme + probe_repo_logo + checksums 三路 join 并发。
-        // checksum 为 opportunistic，失败/超时置空不阻塞；probe 无 token 直接跳过不计时。
+        // checksum 失败/超时置空不阻塞；probe 无 token 直接跳过不计时。
         // README 经 get_with_etag 走 SQLite ETag 缓存（304 命中直接用缓存 payload），
         // 不再每次全量；限流/401 经 get_with_etag 内统一上报，此处补 401 通知。
         let readme_url = format!("https://api.github.com/repos/{}/{}/readme", owner, repo);
@@ -743,7 +743,7 @@ impl CatalogService {
         );
 
         // checksums 已与 readme/probe 三路并发就绪（见上游 join），此处直接复用。
-        // opportunistic 语义：跳过/超时均以空表落库，sha256 缺失由调用方降级。
+        // 跳过/超时均以空表落库，sha256 缺失由调用方降级。
         // 消极缓存说明见上游 negative_hit 定义处。
         // 资产组装经 `build_release_assets` 内部 seam（过滤→classify→sha→打分排序）。
         let releases = build_release_assets(release_resp.assets, &checksums);
@@ -835,8 +835,7 @@ impl CatalogService {
     }
 
     /// Checksum Manifest〈校验清单〉拉取 adapter（fetch→verify 契约的 fetch 侧；
-    /// 服务 ADR-0004，不重开）：opportunistic 抓取（3s 硬超时，失败置空不阻塞），
-    /// 镜像改写经 `mirror::opportunistic_rewrite` 单口直调（ADR-0002 只改下载 URL），
+    /// 服务 ADR-0004，不重开）：3s 硬超时抓取，失败置空不阻塞；
     /// 命中表供流式校验 implementation（`persist_stream_to_file` Tampered 销毁）消费；
     /// 缺失时给空表，下游归 `completed_unverified`。
     /// 平台过滤经 `detail_assets::checksum_asset_platform_eligible` 单口。
@@ -895,25 +894,20 @@ impl CatalogService {
         // 仅记文件名 + 字节数 + 脱敏 URL/host，永不记 body/hash 值。
         let file_name = asset.name.clone();
         let file_bytes = asset.size;
-        // 镜像改写（单一 interface 的 opportunistic 上下文）：
-        // 经 `mirror::opportunistic_rewrite` 单口直调（ADR-0002 只改下载 URL）。
-        let (effective_url, is_mirror) =
-            crate::mirror::opportunistic_rewrite(&asset.browser_download_url);
+        // 用原 URL 抓取（失败置空不阻塞）。
+        let effective_url = asset.browser_download_url.clone();
         let safe_url = crate::log_support::sanitize_url(&asset.browser_download_url);
-        let safe_effective = crate::log_support::sanitize_url(&effective_url);
         let host = crate::log_support::host_of(&effective_url);
         log::debug!(
-            "checksum fetch start id={} sid={} req={} file='{}' bytes={} url='{}' effective='{}' mirror={}",
+            "checksum fetch start id={} sid={} req={} file='{}' bytes={} url='{}' mirror=false",
             app_id,
             sid,
             req_id,
             file_name,
             file_bytes,
             safe_url,
-            safe_effective,
-            is_mirror
         );
-        // 3s 硬超时：checksum 为 opportunistic 填充，绝不允许 10s 级阻塞首屏。
+        // 3s 硬超时：checksum 为尽力填充，绝不允许 10s 级阻塞首屏。
         let checksum_timeout = std::time::Duration::from_secs(3);
         let send_fut = client.get(&effective_url).headers(headers.clone()).send();
         let res = match tokio::time::timeout(checksum_timeout, send_fut).await {
@@ -1003,9 +997,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_checksum_manifest_fetch_via_unified_interface_degrades_to_empty() {
-        // 校验拉取经统一 interface（`mirror::opportunistic_rewrite` 单口直调，
-        // 直接/回退同形）：不可达 hostile 对端时返回空表，不阻塞详情、不 panic。
-        // 平台过滤断言见 `detail_assets` 单源覆盖，此处只锁 opportunistic 置空行为。
+        // 校验拉取（3s 硬超时，失败置空）：不可达 hostile 对端时返回空表，
+        // 不阻塞详情、不 panic。
+        // 平台过滤断言见 `detail_assets` 单源覆盖，此处只锁置空行为。
         let assets = vec![crate::github::models::GitHubAssetResponse {
             name: "x.sha256".to_string(),
             size: 100,

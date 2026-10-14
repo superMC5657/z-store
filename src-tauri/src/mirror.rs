@@ -1,13 +1,7 @@
-//! 下载加速代理（Mirror Download Proxy）镜像改写唯一落点。
+//! 下载加速代理：经用户配置镜像加速（仅安装包通道）。
 //!
-//! 单一 `rewrite(url)` interface，两种调用上下文（服务 ADR-0004）：
-//! - 有状态安装下载：调用方持有 AppState 的 `&MirrorManager`，经
-//!   [`MirrorManager::rewrite_download_url`]（用户配置代理；默认直连返回原值）；
-//! - opportunistic 小文件拉取（Checksum Manifest〈校验清单〉）：`CatalogService`
-//!   够不到 AppState，调用方经 adapter 注入改写后 URL，默认注入即
-//!   [`opportunistic_rewrite`]（GitHub 域 gh-proxy 兜底，非 GitHub 域直连）。
-//!
-//! 底层前缀原语唯一（`wrap_gh_proxy` + `prefix_with_base`），两处上下文皆经此。
+//! - 安装资产下载经 [`MirrorManager::rewrite_installer_asset_url`] 改写 URL，
+//!   失败时经 `wrap_gh_proxy` 公共兜底重试。
 
 use crate::models::MirrorNodeStatus;
 use std::time::Instant;
@@ -36,21 +30,8 @@ pub fn wrap_gh_proxy(raw_url: &str) -> String {
     prefix_with_base(DEFAULT_GH_PROXY, raw_url)
 }
 
-/// opportunistic 小文件拉取上下文的改写（单一 interface 的无状态侧）：
-/// GitHub 域 gh-proxy 前缀兜底加速，非 GitHub 域直连。
-/// 返回 `(effective_url, is_mirror)`（`is_mirror` 供日志）；
-/// `CatalogService` 侧详情 checksum 缝唯一调用点直调本函数。
-/// 域判定收敛至 `wrap_gh_proxy` 单口（非 GitHub 直连 + 已套前缀直通皆由
-/// 底层原语判定，此处只比对是否改写）。
-pub fn opportunistic_rewrite(raw_url: &str) -> (String, bool) {
-    let wrapped = wrap_gh_proxy(raw_url);
-    let changed = wrapped != raw_url;
-    (wrapped, changed)
-}
-
 pub struct MirrorManager {
-    // 默认为 None，表示 GitHub 官方直连；
-    // 用户可指定加速代理前缀（例如 "https://gh-proxy.com"）
+    // 默认为 None，表示官方直连；用户可指定加速代理前缀。
     custom_proxy: Option<String>,
 }
 
@@ -113,25 +94,21 @@ impl MirrorManager {
             return true; // 状态未改变，幂等跳过，避免重复刷日志
         }
         self.custom_proxy = new_proxy;
-        // 镜像 host 直连豁免：仅 per-client `no_proxy`（调用方经 `proxy_hosts_for` +
-        // `apply_proxy` 透传），永不写进程全局 `NO_PROXY`/`no_proxy`；下载加速代理
-        // 仅改写下载 URL 前缀，gh-proxy.com / trend host 等 API 端点始终直连
-        //（见 proxy 默认豁免）。
+        // 代理 host 豁免：仅 per-client `no_proxy` 透传，不写进程全局变量；
+        // 加速代理仅改写安装包下载 URL，API 端点始终直连（见 proxy 默认豁免）。
         let proxy_display = self.custom_proxy.as_deref().unwrap_or("direct");
         log::info!("mirror switch id={} proxy='{}'", id, proxy_display);
         true
     }
 
-    /// 有状态安装下载上下文的改写（单一 interface 的有状态侧）：
-    /// 用户配置代理时套前缀，默认直连返回原值；底层经唯一前缀原语。
-    pub fn rewrite_download_url(&self, raw_url: &str) -> String {
+    /// 安装资产 URL 改写：经用户配置镜像加速（仅安装包通道）。
+    pub fn rewrite_installer_asset_url(&self, raw_url: &str) -> String {
         let proxy = match &self.custom_proxy {
             Some(p) if !p.trim().is_empty() && p.trim() != "direct" => p.trim(),
-            _ => return raw_url.to_string(), // 默认为官方直连，无需任何重写
+            _ => return raw_url.to_string(),
         };
 
-        // 仅对 GitHub 官方链接及 Releases 资产应用镜像代理；
-        // Codeberg、Gitea、GitLab 等其它平台保持官方直连
+        // 仅 GitHub 链接及 Releases 资产走镜像代理，其它平台跳过。
         let is_github_url = is_github_domain(raw_url);
 
         if !is_github_url {
@@ -262,43 +239,23 @@ mod tests {
         let raw = "https://github.com/rustdesk/rustdesk/releases/download/1.2.6/rustdesk.msi";
 
         // 默认状态下是官方直连
-        let direct = mm.rewrite_download_url(raw);
+        let direct = mm.rewrite_installer_asset_url(raw);
         assert_eq!(direct, raw);
 
         // 设置自定义代理
         mm.set_active_mirror("https://gh-proxy.com");
-        let rewritten = mm.rewrite_download_url(raw);
+        let rewritten = mm.rewrite_installer_asset_url(raw);
         assert!(rewritten.starts_with("https://gh-proxy.com/https://github.com"));
 
         // 切换回直连
         mm.set_active_mirror("direct");
-        let direct2 = mm.rewrite_download_url(raw);
+        let direct2 = mm.rewrite_installer_asset_url(raw);
         assert_eq!(direct2, raw);
 
         // 非 GitHub 域名直连验证
         let cb_url = "https://codeberg.org/attachments/a1b2c3d4-installer.exe";
         mm.set_active_mirror("https://gh-proxy.com");
-        assert_eq!(mm.rewrite_download_url(cb_url), cb_url);
-    }
-
-    #[test]
-    fn test_opportunistic_rewrite_direct_and_fallback() {
-        // 校验拉取经统一 interface 走直接/回退两臂。
-        // GitHub 域 → gh-proxy 回退。
-        let raw = "https://github.com/o/r/releases/download/v1/f.sha256";
-        let (effective, mirror) = opportunistic_rewrite(raw);
-        assert!(mirror);
-        assert!(effective.starts_with("https://gh-proxy.com/https://github.com"));
-        // 非 GitHub 域 → 直接。
-        let cb = "https://codeberg.org/attachments/f.sha256";
-        let (effective, mirror) = opportunistic_rewrite(cb);
-        assert!(!mirror);
-        assert_eq!(effective, cb);
-        // 已套前缀 → 原值直通（不二次包裹）。
-        let wrapped = format!("{DEFAULT_GH_PROXY}/https://github.com/o/r/releases/download/v1/f.sha256");
-        let (effective, mirror) = opportunistic_rewrite(&wrapped);
-        assert!(!mirror);
-        assert_eq!(effective, wrapped);
+        assert_eq!(mm.rewrite_installer_asset_url(cb_url), cb_url);
     }
 
     #[test]

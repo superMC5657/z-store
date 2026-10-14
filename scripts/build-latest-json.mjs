@@ -65,7 +65,7 @@ if (repo.includes('<') || repo.includes('>')) {
   process.exit(1)
 }
 
-// url 加速前缀:默认 gh-proxy.com,--proxy-prefix 可覆盖(传空字符串 = 不加前缀)
+// 安装包 URL 加速前缀（仅安装包通道），--proxy-prefix 可覆盖(传空字符串 = 不加前缀)
 const urlPrefix = proxyPrefix ?? 'https://gh-proxy.com/'
 
 const assets = JSON.parse(assetsJson)

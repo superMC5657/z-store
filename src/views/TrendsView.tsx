@@ -78,7 +78,7 @@ import { admitIconHit, patchIconMirror, subscribeIconWrites } from '../services/
 /**
  * 趋势榜单一榜一源：调 `fetchTrendsResult(board, { proxyPrefix })`，
  * 排序口径以后端 ranker 为准；
- * gh-proxy 前缀来自设置库 `active_mirror`（见下），service 内归一化。
+ * 代理前缀来自设置库 `active_mirror`（见下），service 内归一化（抓取忽略该字段）。
  * 远端为空一律走空状态，绝不回退本地加权假榜。
  *
  * 本 View 仅做 load/refresh + render/filter/count；

@@ -30,7 +30,7 @@ pub async fn install_app(
         }
     };
 
-    // 1-3. 获取应用详情、匹配择取资产、镜像改写 + 流式下载 + SHA-256 完整性强校验（与仅下载共用通道）
+    // 1-3. 获取应用详情、匹配择取资产、经用户配置镜像加速下载（仅安装包通道）+ SHA-256 完整性强校验（与仅下载共用通道）
     let prep = prepare_and_download_asset(
         &app_handle,
         &state,

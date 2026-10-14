@@ -29,7 +29,6 @@ impl CatalogService {
     pub fn new() -> Self {
         let cfg = crate::config::get_project_config();
         let items: Vec<CatalogItem> = cfg.catalog.load_catalog_items().unwrap_or_default();
-        // 目录源默认走 gh-proxy 前缀（见 config default_source_url），靠 per-client no_proxy 直连。
         let catalog_extra: Vec<String> =
             crate::proxy::proxy_hosts_for(&cfg.catalog.default_source_url);
         let builder = reqwest::Client::builder()

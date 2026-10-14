@@ -325,7 +325,7 @@ pub struct AssetUsageStats {
     pub total_hits: i64,
 }
 
-/// 去除代理包装，还原待哈希的原始地址。
+/// 同一资源的缓存键归一：嵌套包装地址取最内层，直链恒等。
 pub fn canonical_asset_url(url: &str) -> String {
     let mut current = url.trim().to_string();
     loop {

@@ -6,13 +6,14 @@
  * - 官网独立仓库（z-store-landing 等）可直接复制/vendor 本文件使用。
  *
  * 清单结构与 CI 产物对应关系：
- * - latest.json: 海外直链版，platforms 条目为 { url, signature }，URL 为 GitHub 直链。
- * - latest-cn.json: 国内 gh-proxy 镜像版，platforms 条目扩展 { url, signature, name, size, sha256 }，URL 携带镜像前缀。
+ * - latest.json: platforms 条目为 { url, signature }。
+ * - latest-cn.json: platforms 条目扩展 { url, signature, name, size, sha256 }，
+ *   安装包 URL 拼接镜像前缀（仅安装包通道）。
  *
  * 回落链顺序（永不 reject，静默回退）：
- * 1. 本区清单（cn: 经镜像拉取 latest-cn.json；global: 直链拉取 latest.json）
- * 2. 对方清单（cn: 直链拉取 latest.json；global: 直链拉取 latest-cn.json）
- * 3. GitHub Releases API（cn: 经镜像拉取；global: 直链拉取；解析并过滤非安装包资产）
+ * 1. 本区清单
+ * 2. 对方清单
+ * 3. GitHub Releases API（解析并过滤非安装包资产；cn 区产物 URL 拼镜像前缀）
  * 4. 兜底终点：GitHub Releases 网页地址（不发请求）
  */
 
@@ -103,7 +104,7 @@ export function releasesPageUrl(repo: string): string {
 export interface ResolveUpdateFeedOptions {
   repo: string;
   region?: UpdateRegion;      // 缺省 detectRegion()
-  mirrorPrefix?: string;      // 缺省 DEFAULT_MIRROR_PREFIX
+  mirrorPrefix?: string;      // 缺省 DEFAULT_MIRROR_PREFIX；仅安装包 URL 拼接用（仅安装包通道）
   fetchImpl?: typeof fetch;   // 缺省 globalThis.fetch（须 typeof 守卫）
   timeoutMs?: number;         // 缺省 15000，单请求超时
 }
@@ -286,7 +287,7 @@ async function tryFetchReleasesApi(
 }
 
 /**
- * 按区域与镜像回落链解析最新安装包信息。
+ * 按区域回落链解析最新安装包信息。
  * 永不 reject，最终兜底为 releases 页面地址。
  */
 export async function resolveUpdateFeed(options: ResolveUpdateFeedOptions): Promise<UpdateFeedResult> {
@@ -306,7 +307,7 @@ export async function resolveUpdateFeed(options: ResolveUpdateFeedOptions): Prom
 
   // 1. 本区清单
   const step1Url = region === 'cn'
-    ? `${m}https://github.com/${cleanRepo}/releases/latest/download/latest-cn.json`
+    ? `https://github.com/${cleanRepo}/releases/latest/download/latest-cn.json`
     : `https://github.com/${cleanRepo}/releases/latest/download/latest.json`;
   const step1Res = await tryFetchManifest(step1Url, fetchFn, timeoutMs, region);
   if (step1Res) {
@@ -322,10 +323,8 @@ export async function resolveUpdateFeed(options: ResolveUpdateFeedOptions): Prom
     return step2Res;
   }
 
-  // 3. Releases API
-  const step3Url = region === 'cn'
-    ? `${m}https://api.github.com/repos/${cleanRepo}/releases/latest`
-    : `https://api.github.com/repos/${cleanRepo}/releases/latest`;
+  // 3. Releases API（cn 区产物安装包 URL 拼镜像前缀，见 tryFetchReleasesApi）
+  const step3Url = `https://api.github.com/repos/${cleanRepo}/releases/latest`;
   const step3Res = await tryFetchReleasesApi(step3Url, fetchFn, timeoutMs, region, m);
   if (step3Res) {
     return step3Res;

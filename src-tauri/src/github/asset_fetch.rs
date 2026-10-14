@@ -21,9 +21,8 @@ fn is_dynamic_asset_url(url: &str) -> bool {
         || lower.contains("workflow")
 }
 
-/// 去镜像前缀后的规范地址薄委托：同一资源的缓存键来源。
-/// 唯一实现为 `db::cache::canonical_asset_url`（循环剥离嵌套代理包装，
-/// 单层 `gh-proxy.com` 前缀为其特例，旧单测保持通过）。
+/// 规范地址薄委托：同一资源的缓存键来源。
+/// 唯一实现为 `db::cache::canonical_asset_url`（嵌套包装归一，直链恒等）。
 pub fn normalize_asset_url(url: &str) -> String {
     crate::db::cache::canonical_asset_url(url)
 }
@@ -166,8 +165,7 @@ enum ConditionalResult {
 }
 
 /// 共享新鲜命中确认（同步）：文件新鲜即 touch 并返回路径字符串，否则 `None`。
-/// `get_cached_asset_url`（同步）与 `fetch_asset_inner` 的无记录/无校验器分支共用；
-/// 有校验器分支仍走条件请求。同步无网络 IO，`markdown` 同步调用链保持同步（不改异步）。
+/// `fetch_asset_inner` 的无记录/无校验器分支共用。同步无网络 IO。
 /// 与 `find_cached_file`（按 stem 找文件）区分：本函数只做新鲜度门控。
 fn find_cached(path: &std::path::Path) -> Option<String> {
     if is_file_fresh(path) {
@@ -175,23 +173,6 @@ fn find_cached(path: &std::path::Path) -> Option<String> {
         return Some(path.to_string_lossy().to_string());
     }
     None
-}
-
-/// 同步缓存命中查询：命中未过期返回本地路径并 touch，否则返回原地址（不下载）。
-pub fn get_cached_asset_url(url: &str) -> String {
-    let trimmed = url.trim();
-    if !should_cache_asset(trimmed) {
-        return trimmed.to_string();
-    }
-    let normalized = normalize_asset_url(trimmed);
-    let stem = cache_stem(&normalized);
-    let dir = shard_dir(&stem);
-    if let Some(path) = find_cached_file(&dir, &stem) {
-        if let Some(hit) = find_cached(&path) {
-            return hit;
-        }
-    }
-    trimmed.to_string()
 }
 
 /// 下载网关：本地路径或原地址。
@@ -499,9 +480,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn normalize_strips_mirror_prefix() {
+    fn normalize_keeps_direct_url() {
+        // 全链已直链：规范地址对直链恒等透传。
         assert_eq!(
-            normalize_asset_url("https://gh-proxy.com/https://raw.githubusercontent.com/o/r/main/a.png"),
+            normalize_asset_url("https://raw.githubusercontent.com/o/r/main/a.png"),
             "https://raw.githubusercontent.com/o/r/main/a.png"
         );
         assert_eq!(

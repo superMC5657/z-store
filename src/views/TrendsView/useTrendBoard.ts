@@ -85,8 +85,8 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
   const [trendResult, setTrendResult] = useState<TrendsResult | null>(null);
   // 重试计数：递增即重触发抓取 effect。
   const [retryCount, setRetryCount] = useState(0);
-  // gh-proxy 前缀：`active_mirror` 持久化在 Rust 侧设置库，前端经 getSettings 异步读；
-  // 就绪前不抓取，避免先直连闪一次再带代理重抓。
+  // 代理前缀：`active_mirror` 持久化在 Rust 侧设置库，前端经 getSettings 异步读；
+  // 就绪前不抓取，避免首绘闪动后重抓。
   const [proxyPrefix, setProxyPrefix] = useState<string | undefined>(undefined);
   const [proxyReady, setProxyReady] = useState(false);
   // 手动刷新态：与首载 isLoading 分离，刷新期间保留旧榜（SWR  stale 展），仅按钮转圈 + 禁用。
@@ -120,12 +120,12 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
       .getSettings()
       .then((s) => {
         if (cancelled) return;
-        // 经 trends SSOT 归一化（'direct'/空 → 直连；其余透传，抓取恒直连忽略）。
+        // 经 trends SSOT 归一化后存入抓取参数（抓取忽略该字段）。
         setProxyPrefix(normalizeProxyPrefix(s?.active_mirror));
         setProxyReady(true);
       })
       .catch(() => {
-        // 非 Tauri 环境（浏览器预览/单测）无设置库：直连。
+        // 非 Tauri 环境（浏览器预览/单测）无设置库：字段置空。
         if (cancelled) return;
         setProxyPrefix(undefined);
         setProxyReady(true);

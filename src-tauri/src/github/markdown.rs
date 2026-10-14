@@ -1,7 +1,6 @@
 use super::CatalogService;
 use regex::Regex;
 use std::sync::LazyLock;
-
 static MD_IMG_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"!\[(.*?)\]\((\s*<)?([^\s\)>]+)(>)?(\s+.*?)?\)").expect("invalid MD_IMG_RE regex")
 });
@@ -35,13 +34,44 @@ static MD_REF_LINK_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?m)^(\s*\[[^\]]+\]:\s*)(\S+)(\s*.*)$"#).expect("invalid MD_REF_LINK_RE regex")
 });
 
+/// 远端地址判定（单收敛点）：仅 `http(s)` 为有效地址；`clean_image_url`
+/// 拒收本地路径后返回空，调用方经此统一视为无。
+pub(crate) fn is_http_url(url: &str) -> bool {
+    url.starts_with("http://") || url.starts_with("https://")
+}
+
+/// 本地盘路径判定（单收敛点）：盘符、UNC、file/asset scheme、客户端缓存目录、
+/// URL 编码形盘符一律视为本地路径。
+fn is_local_disk_path(trimmed: &str) -> bool {
+    let lower = trimmed.to_ascii_lowercase();
+    let b = lower.as_bytes();
+    // `C:\` / `C:/`（大小写不敏感）。
+    if b.len() >= 3
+        && b[0].is_ascii_alphabetic()
+        && b[1] == b':'
+        && (b[2] == b'\\' || b[2] == b'/')
+    {
+        return true;
+    }
+    // URL 编码形盘符（`C%3A...`）。
+    if b.len() >= 4 && b[0].is_ascii_alphabetic() && b[1] == b'%' && b[2] == b'3' && b[3] == b'a' {
+        return true;
+    }
+    // UNC（`\\server\share`）。
+    if trimmed.starts_with(r"\\") {
+        return true;
+    }
+    lower.starts_with("file:")
+        || lower.starts_with("asset:")
+        || lower.contains("com.zstore.app")
+}
+
 impl CatalogService {
     pub fn clean_image_url(url: &str, owner: &str, repo: &str) -> String {
         Self::clean_image_url_with_mirror(url, owner, repo)
     }
 
     pub fn clean_image_url_with_mirror(url: &str, owner: &str, repo: &str) -> String {
-        const MIRROR_PREFIX: &str = "https://gh-proxy.com/";
         let trimmed = url.trim().trim_matches(|c| c == '<' || c == '>');
         if trimmed.is_empty()
             || trimmed.starts_with('#')
@@ -52,7 +82,12 @@ impl CatalogService {
             return trimmed.to_string();
         }
 
-        // 1. GitHub 官方素材资产直链与第三方 CDN 必须保持直连，绝不能包装 gh-proxy 代理（gh-proxy 不支持会导致请求死锁或超时）
+        // 本地盘路径拒收：返回空，调用方经 `is_http_url` 统一视为无。
+        if is_local_disk_path(trimmed) {
+            return String::new();
+        }
+
+        // GitHub 官方素材资产与第三方 CDN 原样透传。
         if trimmed.starts_with("https://user-images.githubusercontent.com/")
             || trimmed.starts_with("http://user-images.githubusercontent.com/")
             || trimmed.starts_with("https://camo.githubusercontent.com/")
@@ -62,19 +97,10 @@ impl CatalogService {
             || trimmed.starts_with("https://avatars.githubusercontent.com/")
             || (trimmed.contains("github.com/") && trimmed.contains("/assets/"))
         {
-            // 如果历史数据已误带代理前缀，清洗剥离
-            if let Some(rest) = trimmed.strip_prefix(MIRROR_PREFIX) {
-                return rest.to_string();
-            }
             return trimmed.to_string();
         }
 
-        // 2. 如果已带有指定镜像前缀，不重复添加
-        if trimmed.starts_with(MIRROR_PREFIX) {
-            return trimmed.to_string();
-        }
-
-        // 3. GitHub Blob 页面链接转 Raw 直链：
+        // GitHub Blob 页面链接转 Raw 绝对地址：
         // 支持匹配任意 owner/repo 的 blob 地址（不区分大小写，自动剥离 ?raw=true）
         if let Some(caps) = GITHUB_BLOB_RE.captures(trimmed) {
             let b_owner = &caps[1];
@@ -85,10 +111,10 @@ impl CatalogService {
                 "https://raw.githubusercontent.com/{}/{}/{}/{}",
                 b_owner, b_repo, b_branch, b_path
             );
-            return format!("{}{}", MIRROR_PREFIX, raw_url);
+            return raw_url;
         }
 
-        // 4. GitHub Raw 页面链接：
+        // GitHub Raw 页面链接转 Raw 绝对地址：
         if let Some(caps) = GITHUB_RAW_RE.captures(trimmed) {
             let r_owner = &caps[1];
             let r_repo = &caps[2];
@@ -98,22 +124,22 @@ impl CatalogService {
                 "https://raw.githubusercontent.com/{}/{}/{}/{}",
                 r_owner, r_repo, r_branch, r_path
             );
-            return format!("{}{}", MIRROR_PREFIX, raw_url);
+            return raw_url;
         }
 
-        // 5. GitHub raw.githubusercontent.com 直链（支持加速代理）
+        // GitHub raw.githubusercontent.com 原样透传。
         if trimmed.starts_with("https://raw.githubusercontent.com/")
             || trimmed.starts_with("http://raw.githubusercontent.com/")
         {
-            return format!("{}{}", MIRROR_PREFIX, trimmed);
+            return trimmed.to_string();
         }
 
-        // 6. 其他已带 http:// 或 https:// 的外部绝对链接（shields.io, 外部 CDN 等保持直连）
+        // 其他已带 http:// 或 https:// 的外部绝对链接原样透传。
         if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
             return trimmed.to_string();
         }
 
-        // 7. 相对路径（如 ./assets/logo.png, docs/preview.jpg, /images/banner.svg, Command Palette.png）
+        // 相对路径转 Raw 绝对地址（如 ./assets/logo.png → HEAD 下同路径）。
         let clean_path = trimmed.trim_start_matches("./").trim_start_matches('/');
         let clean_path = clean_path.trim_start_matches("../").trim_start_matches('/');
 
@@ -134,17 +160,7 @@ impl CatalogService {
             "https://raw.githubusercontent.com/{}/{}/HEAD/{}",
             owner, repo, encoded_path
         );
-        format!("{}{}", MIRROR_PREFIX, raw_url)
-    }
-
-    /// README 图片地址解析：镜像改写后对可缓存候选命中本地磁盘缓存。
-    fn resolve_readme_image_url(url: &str, owner: &str, repo: &str) -> String {
-        let cleaned = Self::clean_image_url(url, owner, repo);
-        if super::asset_fetch::should_cache_asset(&cleaned) {
-            super::asset_fetch::get_cached_asset_url(&cleaned)
-        } else {
-            cleaned
-        }
+        raw_url
     }
 
     pub fn rewrite_readme_images(raw_markdown: &str, owner: &str, repo: &str) -> String {
@@ -153,7 +169,8 @@ impl CatalogService {
             let alt = &caps[1];
             let url = &caps[3];
             let title = caps.get(5).map(|m| m.as_str()).unwrap_or("");
-            let rewritten_url = Self::resolve_readme_image_url(url, owner, repo);
+            // 存库只做远端改写；本地缓存替换由展示层逐图处理，不进库。
+            let rewritten_url = Self::clean_image_url(url, owner, repo);
             if title.is_empty() {
                 format!("![{}]({})", alt, rewritten_url)
             } else {
@@ -182,7 +199,7 @@ impl CatalogService {
                     && !url.starts_with('#')
                     && !url.starts_with("mailto:"));
             if is_img {
-                let rewritten_url = Self::resolve_readme_image_url(url, owner, repo);
+                let rewritten_url = Self::clean_image_url(url, owner, repo);
                 format!("{}{}{}", prefix_part, rewritten_url, suffix_part)
             } else {
                 format!("{}{}{}", prefix_part, url, suffix_part)
@@ -194,7 +211,7 @@ impl CatalogService {
             let before = &caps[1];
             let url = &caps[2];
             let after = &caps[3];
-            let rewritten_url = Self::resolve_readme_image_url(url, owner, repo);
+            let rewritten_url = Self::clean_image_url(url, owner, repo);
             format!(r#"<img {}src="{}"{}>"#, before, rewritten_url, after)
         });
 
@@ -211,7 +228,7 @@ impl CatalogService {
                         if parts.is_empty() {
                             candidate.to_string()
                         } else {
-                            let cleaned = Self::resolve_readme_image_url(parts[0], owner, repo);
+                            let cleaned = Self::clean_image_url(parts[0], owner, repo);
                             if parts.len() > 1 {
                                 format!("{} {}", cleaned, parts[1..].join(" "))
                             } else {
@@ -260,6 +277,10 @@ impl CatalogService {
                 || lower.ends_with(".svg")
             {
                 let cleaned_url = Self::clean_image_url(src, owner, repo);
+                // 非远端地址（本地盘路径拒收为空）直接跳过，不进 Logo 候选。
+                if !is_http_url(&cleaned_url) {
+                    continue;
+                }
                 let mut stripped = raw_markdown.to_string();
 
                 // 仅在明确为单独居中的 Logo 容器（如 <p align="center">\s*<img>\s*</p>）时才安全剥离容器
@@ -311,6 +332,9 @@ impl CatalogService {
                 || lower_src.ends_with(".svg")
             {
                 let cleaned_url = Self::clean_image_url(src, owner, repo);
+                if !is_http_url(&cleaned_url) {
+                    continue;
+                }
                 // 同样保留 Markdown 原文完整性
                 return (Some(cleaned_url), raw_markdown.to_string());
             }

@@ -58,7 +58,7 @@ describe('releasesPageUrl', () => {
 });
 
 describe('resolveUpdateFeed 回落链契约', () => {
-  it('cn 主路径：首请求镜像 latest-cn.json 成功并透传扩展字段', async () => {
+  it('cn 主路径：首请求 latest-cn.json 成功并透传扩展字段', async () => {
     const mockManifest: UpdateManifest = {
       version: '1.2.0',
       notes: '更新内容说明',
@@ -75,7 +75,7 @@ describe('resolveUpdateFeed 回落链契约', () => {
     };
 
     const fetchMock = vi.fn().mockImplementation(async (url: string) => {
-      expect(url).toBe(`${DEFAULT_MIRROR_PREFIX}https://github.com/superMC5657/z-store/releases/latest/download/latest-cn.json`);
+      expect(url).toBe('https://github.com/superMC5657/z-store/releases/latest/download/latest-cn.json');
       return {
         ok: true,
         status: 200,
@@ -97,7 +97,7 @@ describe('resolveUpdateFeed 回落链契约', () => {
     });
   });
 
-  it('global 主路径：首请求 GitHub 直链 latest.json 成功', async () => {
+  it('global 主路径：首请求 latest.json 成功', async () => {
     const mockManifest: UpdateManifest = {
       version: '1.2.0',
       platforms: {
@@ -131,7 +131,7 @@ describe('resolveUpdateFeed 回落链契约', () => {
     });
   });
 
-  it('cn 失败回落：首清单 404 → 第二请求 GitHub 直链 latest.json 成功', async () => {
+  it('cn 失败回落：首清单 404 → 第二请求 latest.json 成功', async () => {
     const mockGlobalManifest: UpdateManifest = {
       version: '1.2.0',
       platforms: {
@@ -166,7 +166,7 @@ describe('resolveUpdateFeed 回落链契约', () => {
     });
 
     expect(calledUrls).toEqual([
-      `${DEFAULT_MIRROR_PREFIX}https://github.com/superMC5657/z-store/releases/latest/download/latest-cn.json`,
+      'https://github.com/superMC5657/z-store/releases/latest/download/latest-cn.json',
       'https://github.com/superMC5657/z-store/releases/latest/download/latest.json',
     ]);
     expect(result).toEqual({
@@ -176,7 +176,7 @@ describe('resolveUpdateFeed 回落链契约', () => {
     });
   });
 
-  it('global 失败回落：直链 latest.json 网络异常 → 直链 latest-cn.json 成功（不经镜像）', async () => {
+  it('global 失败回落：latest.json 网络异常 → latest-cn.json 成功', async () => {
     const mockCnManifest: UpdateManifest = {
       version: '1.2.0',
       platforms: {
@@ -217,7 +217,7 @@ describe('resolveUpdateFeed 回落链契约', () => {
     });
   });
 
-  it('双清单皆败 → Releases API：cn 经镜像拉取且过滤非产物资产', async () => {
+  it('双清单皆败 → Releases API：过滤非产物资产（cn 产物安装包 URL 拼镜像前缀）', async () => {
     const calledUrls: string[] = [];
     const fetchMock = vi.fn().mockImplementation(async (url: string) => {
       calledUrls.push(url);
@@ -266,7 +266,7 @@ describe('resolveUpdateFeed 回落链契约', () => {
       fetchImpl: fetchMock as unknown as typeof fetch,
     });
 
-    expect(calledUrls[2]).toBe(`${DEFAULT_MIRROR_PREFIX}https://api.github.com/repos/superMC5657/z-store/releases/latest`);
+    expect(calledUrls[2]).toBe('https://api.github.com/repos/superMC5657/z-store/releases/latest');
     expect(result).toEqual({
       source: 'releases-api',
       manifest: {

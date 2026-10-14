@@ -1,5 +1,5 @@
 use super::icons_cycle_probe::{
-    KNOWN_ICON_EXTS, download_via_mirror, empty_cycle_result, ensure_cycle_levels,
+    KNOWN_ICON_EXTS, download_icon_bytes_direct, empty_cycle_result, ensure_cycle_levels,
     first_available_level, is_fallback_for_level, load_split_cached_bytes, next_cycle_level,
     write_icon_file, read_level_cache_file, read_valid_image_file_async, resolve_app_coord,
     source_for_level, IconCycleResult, IconRef,
@@ -10,8 +10,8 @@ use tauri::State;
 // C1 薄适配器：L1–L5 UI 轮换仅非收录应用可切（收录恒 L1，不切换）；
 // 探测经 `ensure_cycle_levels`（L2/L3-live 走 `icon_fetch` 深核，L4 走 `probe_readme` 头部备选 Logo，
 // 正文图永不进链），持久化经单一写入路径 `write_icon_file`（hash 单轨
-// `sha256(url)[0:16]+sniff ext`），下载经 `download_via_mirror`
-//（ADR-0002：mirror 只改下载 URL），L5 空选经 `seal_empty_selection` +
+// `sha256(url)[0:16]+sniff ext`），下载经 `download_icon_bytes_direct`，
+// L5 空选经 `seal_empty_selection` +
 // `empty_cycle_result`（清选中态 + 删旧文件 + `sync_detail_icon("")` 防诈尸），detail 同步内联
 //（`data:` 永不进盘，`""` 显式清空）。
 // 手动选择持久化三件套：`selected_url + level + icons 文件` 同 tick 落库（kubenav/GNS3 首次 N=1 之后 N=0）。
@@ -144,8 +144,8 @@ pub async fn request_app_icon_cycle(
     let bytes = match cached_bytes {
         Some(b) => b,
         None => {
-            // 从远端下载（mirror 只改下载 URL，经单一落点）；若失败，不推进 level，直接返回 Err
-            match download_via_mirror(&state, &client, &target_url).await {
+            // 从远端下载（经单一落点）；若失败，不推进 level，直接返回 Err
+            match download_icon_bytes_direct(&client, &target_url).await {
                 Ok(b) => b,
                 Err(e) => {
                     log::warn!(
@@ -250,7 +250,7 @@ pub async fn restore_or_fetch_icon_cycle(
         crate::config::get_project_config().network.api_timeout_seconds,
     )
     .unwrap_or_default();
-            if let Ok(bytes) = download_via_mirror(&state, &client, &remote_url).await {
+            if let Ok(bytes) = download_icon_bytes_direct(&client, &remote_url).await {
                 // 真实 ext 落盘，绝不产生无扩展名文件（分流收敛在缝内）。
                 let inferred_ext = crate::commands::icons::infer_icon_ext_from_url(&remote_url).unwrap_or("png");
                 let icon = IconRef::new(&remote_url, inferred_ext);
@@ -417,7 +417,7 @@ pub async fn restore_or_fetch_icon_cycle(
         crate::config::get_project_config().network.api_timeout_seconds,
     )
     .unwrap_or_default();
-            if let Ok(bytes) = download_via_mirror(&state, &client, &remote_url).await {
+            if let Ok(bytes) = download_icon_bytes_direct(&client, &remote_url).await {
                 let icon = IconRef::new(&remote_url, inferred_ext);
                 let fn_non = write_icon_file(
                     &icons_dir,

@@ -306,7 +306,7 @@ pub fn set_level(db: &Database, app_id: &str, level: i32) -> Result<()> {
 // 缝：probe-vs-persist——本文件永不做网络探测（无 client/token/probe 调用）；
 // 探测一律在 `github::icon_fetch` 深核（`probe_single_live`/`fetch_icons_stream` 纯探，
 // 永不触 DB/fs）；持久化单一写入路径在 `commands::icons_cycle_probe::write_icon_file`
-//（`icons/` 落盘 + meta 同步，mirror 仅改下载 URL 经 `download_via_mirror`，
+//（`icons/` 落盘 + meta 同步；下载经 `download_icon_bytes_direct`，
 // L5 空选经 `seal_empty_selection`）。
 // Curated Catalog 永不分支，例外仅 L1 填充（`ensure_cycle_levels`）。
 // ADR-0010：key 一律小写 `owner/repo`（唯一实现见
@@ -438,20 +438,28 @@ pub fn is_icon_fresh(cached_at: i64, now: i64) -> bool {
 /// 否则写入首个空槽；全满则沿用当前合法级别。不写 l1_url。
 /// M2=落盘已确认
 pub fn claim_cycle_url_slot(cycle: &mut AppIconCycle, url_trimmed: &str) -> i32 {
-    if cycle.l2_url.trim() == url_trimmed {
+    let url = url_trimmed.trim();
+    if url.is_empty() {
+        return if (2..=4).contains(&cycle.level) {
+            cycle.level
+        } else {
+            2
+        };
+    }
+    if cycle.l2_url.trim() == url {
         2
-    } else if cycle.l3_url.trim() == url_trimmed {
+    } else if cycle.l3_url.trim() == url {
         3
-    } else if cycle.l4_url.trim() == url_trimmed {
+    } else if cycle.l4_url.trim() == url {
         4
     } else if cycle.l2_url.trim().is_empty() {
-        cycle.l2_url = url_trimmed.to_string();
+        cycle.l2_url = url.to_string();
         2
     } else if cycle.l3_url.trim().is_empty() {
-        cycle.l3_url = url_trimmed.to_string();
+        cycle.l3_url = url.to_string();
         3
     } else if cycle.l4_url.trim().is_empty() {
-        cycle.l4_url = url_trimmed.to_string();
+        cycle.l4_url = url.to_string();
         4
     } else if (2..=4).contains(&cycle.level) {
         cycle.level
@@ -520,8 +528,8 @@ pub fn record_online_icon(
     let mut cycle = AppIconCycle::new(app_id, owner, repo);
     cycle.is_cataloged = false;
     cycle.level = 2;
-    cycle.l2_url = icon.to_string();
-    cycle.selected_url = icon.to_string();
+    cycle.l2_url = icon.trim().to_string();
+    cycle.selected_url = icon.trim().to_string();
     cycle.updated_at = crate::now_secs();
     Some(cycle)
 }

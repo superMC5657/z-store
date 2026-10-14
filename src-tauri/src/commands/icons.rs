@@ -74,7 +74,7 @@ pub(crate) fn is_icon_file_fresh(path: &std::path::Path) -> bool {
 }
 
 /// 图标下载与校验通用 helper（薄适配器，下载缝 stays behind）：
-/// 支持镜像重写、超时重试、格式与非空校验。只做单 URL 拉取与验图，不做 L2/L3 探
+/// 单 URL 拉取与验图，不做 L2/L3 探
 /// （探测在 `github::icon_fetch` 深核）；`get_or_fetch_icon` 与 cycle 恢复路径共用此件。
 pub async fn download_icon_bytes(
     client: &reqwest::Client,
@@ -233,8 +233,8 @@ pub async fn download_icon_bytes(
 
 /// C1 薄适配器：`get_or_fetch_icon` 只做缓存读→远端拉→单一写入路径，
 /// 探测只经深核匿名兜底（`icons_cycle::fetch_anon_probe_bytes`→`icon_fetch::probe_anon_simple`）。
-/// 缝：文件名分流 + 镜像改写在 `icons_cycle_probe`
-///（`write_icon_file` + `download_via_mirror`，ADR-0002 mirror 只改下载 URL）；
+/// 缝：文件名分流在 `icons_cycle_probe`
+///（`write_icon_file` + `download_icon_bytes_direct`）；
 /// level 纯L，via 正交由上游事件表达，
 /// 本命令返回 `data:` 永不进盘语义由前端 `applyHit` 守卫（`data:` 只进 M1 内存）。
 /// 全链：infer（URL 后缀暂定 ext）→sniff（内容纠正 real_ext）→单一写入路径
@@ -287,13 +287,13 @@ pub async fn get_or_fetch_icon(
         }
     }
 
-    // 2. 本地缓存找不到或已过期，才去外部链接拉取（mirror 只改下载 URL，经单一落点）
+    // 2. 本地缓存找不到或已过期，才去外部链接拉取（经单一落点）
     let client = crate::forge::http::new_icon_client(
         crate::config::get_project_config().network.api_timeout_seconds,
     )
     .unwrap_or_default();
 
-    let fetched_bytes = icons_cycle::download_via_mirror(&state, &client, url_trimmed)
+    let fetched_bytes = icons_cycle::download_icon_bytes_direct(&client, url_trimmed)
         .await
         .ok();
 
@@ -307,7 +307,7 @@ pub async fn get_or_fetch_icon(
             if let Some(c) = crate::forge::RepositoryUrlParser::parse(raw_id) {
                 if !c.owner.is_empty() && !c.repo.is_empty() {
                     probe_bytes =
-                        icons_cycle::fetch_anon_probe_bytes(&client, &state, raw_id, &c.owner, &c.repo)
+                        icons_cycle::fetch_anon_probe_bytes(&client, raw_id, &c.owner, &c.repo)
                             .await;
                 }
             }

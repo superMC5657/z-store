@@ -1,12 +1,11 @@
 import type { TrendRepo, TrendsErrorKind } from '../../types';
 import { DOFORCE_RETRY_DEFAULT_WAIT_MS, DOFORCE_RETRY_MAX_WAIT_MS } from './cache';
 
-/** 规范化 proxy 前缀：empty/direct -> undefined；ghproxy -> 默认值；保留 http(s)。 */
+/** 规范化 proxy 前缀：empty/direct/ghproxy -> undefined（趋势恒直连）；保留 http(s) 显式值（调用方忽略，仅契约稳定）。 */
 export function normalizeProxyPrefix(raw?: string): string | undefined {
   if (raw == null) return undefined;
   const t = String(raw).trim();
-  if (!t || t === 'direct') return undefined;
-  if (t === 'ghproxy') return 'https://gh-proxy.com';
+  if (!t || t === 'direct' || t === 'ghproxy') return undefined;
   if (/^https?:\/\//i.test(t)) return t.replace(/\/+$/, '');
   return undefined;
 }

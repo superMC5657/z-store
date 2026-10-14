@@ -400,11 +400,7 @@ export interface FetchTrendsOptions {
   category?: string;
   forceRefresh?: boolean;
   /**
-   * GitHub 加速代理前缀（保留字段，仅为契约稳定；趋势流量恒直连，本字段被忽略）。
-   * gh-proxy 保留给应用下载（Rust 侧）；trends 皆为小 JSON/HTML，始终直连。
-   * UI 仍可传入既有值，无需改动调用方。
-   * `language`/`category` 参与缓存键时一律归一 `trim().toLowerCase()`
-   * （见 `services/trends/cache.ts`），读写同源（见 `services/trends/boards.ts`）。
+   * 代理前缀（保留字段，仅为契约稳定；趋势抓取忽略本字段）。
    */
   proxyPrefix?: string;
 }

@@ -24,8 +24,8 @@ pub(crate) fn resolve_download_dir(state: &AppState) -> Option<std::path::PathBu
     None
 }
 
-/// 安装与仅下载共用的下载通道：镜像改写 + 流式下载 + SHA-256 校验 + 进度事件，
-/// 直连失败且为 GitHub 官方链接时自动切换公共加速镜像重试。
+/// 安装与仅下载共用的下载通道：经用户配置镜像加速（仅安装包通道），
+/// 含流式下载 + SHA-256 校验 + 进度事件；直连失败且为 GitHub 链接时公共兜底重试。
 /// `init_log_tag` / `fallback_log_tag` 仅区分日志来源（`download init` / `download-only init`）。
 pub(crate) async fn download_asset_with_fallback(
     app_handle: &AppHandle,
@@ -38,7 +38,7 @@ pub(crate) async fn download_asset_with_fallback(
 ) -> Result<(std::path::PathBuf, String), String> {
     let (rewritten_url, is_mirror) = {
         let mirror = state.mirror.lock().map_err(|e| e.to_string())?;
-        let rewritten = mirror.rewrite_download_url(&asset.download_url);
+        let rewritten = mirror.rewrite_installer_asset_url(&asset.download_url);
         let is_mirror = rewritten != asset.download_url;
         (rewritten, is_mirror)
     };
@@ -152,7 +152,7 @@ pub(crate) async fn prepare_and_download_asset(
     })
 }
 
-/// 仅下载：复用安装通道的镜像改写 + 流式下载 + SHA-256 校验 + 进度事件，
+/// 仅下载：复用安装通道（经用户配置镜像加速）+ 流式下载 + SHA-256 校验 + 进度事件，
 /// 但不调用任何安装器。文件落盘至用户配置的下载目录，前端展示进度并提供“打开所在文件夹”。
 #[tauri::command]
 pub async fn download_asset(

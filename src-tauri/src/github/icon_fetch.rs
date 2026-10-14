@@ -20,8 +20,8 @@
 //! - 缝：probe-vs-persist——core 永不触 DB/fs（无 `Database`/`std::fs` 引用，
 //!   纯探 + 调度）；持久化单一写入路径收为内部缝
 //!   `commands::icons_cycle_probe::write_icon_file`（`catalog vs cycle` 分流 +
-//!   `icons/` 落盘 + meta 同步），下载经 `download_via_mirror`（ADR-0002 mirror
-//!   只改下载 URL），L5 空选经 `seal_empty_selection + empty_cycle_result`。
+//!   `icons/` 落盘 + meta 同步），下载经 `download_icon_bytes_direct`，
+//!   L5 空选经 `seal_empty_selection + empty_cycle_result`。
 //!   趋势 enrich 走流式直路（首屏快返 + 后台 `fetch_icons_stream(Trend)` 逐张 emit，
 //!   见 `commands::catalog_search`）；本核为流式探测与调度的唯一深核
 //!  （搜索与趋势共用，见 ADR-0015 §6）。

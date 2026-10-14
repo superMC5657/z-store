@@ -311,7 +311,7 @@ export function useDetailReadme(opts: {
     }
   };
 
-  // 智能图片错误容灾备用切换：当直连 raw.githubusercontent.com 遇到网络阻断时自动重试镜像代理，反之亦然
+  // 图片加载失败时降级占位，不再重试。
   const handleReadmeImageErrorCapture = (e: React.SyntheticEvent<HTMLDivElement, Event>) => {
     const target = e.target as HTMLElement;
     if (target.tagName.toLowerCase() !== 'img') return;
@@ -321,21 +321,7 @@ export function useDetailReadme(opts: {
       return;
     }
 
-    // 1. 若经过 gh-proxy 的 raw 直链加载失败，尝试脱壳回退到官方直连
-    if (currentSrc.startsWith('https://gh-proxy.com/https://raw.githubusercontent.com/')) {
-      img.dataset.hasFallbackAttempted = 'true';
-      img.src = currentSrc.replace('https://gh-proxy.com/', '');
-      return;
-    }
-
-    // 2. 若 raw.githubusercontent.com 官方直连加载失败（常见于网络阻断或 DNS 污染），自动重试通过 gh-proxy 镜像拉取
-    if (currentSrc.startsWith('https://raw.githubusercontent.com/')) {
-      img.dataset.hasFallbackAttempted = 'true';
-      img.src = `https://gh-proxy.com/${currentSrc}`;
-      return;
-    }
-
-    // 3. 彻底无法加载时优雅降低可见度并标注悬浮提示，杜绝破损裂图破坏页面美观
+    // 彻底无法加载时优雅降低可见度并标注悬浮提示，杜绝破损裂图破坏页面美观
     img.dataset.hasFallbackAttempted = 'true';
     img.style.opacity = '0.45';
     img.style.filter = 'grayscale(100%)';
