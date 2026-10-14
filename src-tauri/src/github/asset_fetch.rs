@@ -33,27 +33,41 @@ pub fn normalize_asset_url(url: &str) -> String {
     }
 }
 
-/// 地址 path 段扩展名白名单：png/jpg/jpeg/webp/gif/svg/avif/ico。
-fn url_ext_allowed(url: &str) -> bool {
+/// 地址 path 末段扩展名：无点返回 None。
+fn url_path_ext(url: &str) -> Option<String> {
     let path = if let Ok(parsed) = reqwest::Url::parse(url) {
         parsed.path().to_string()
     } else {
         let no_hash = url.split('#').next().unwrap_or(url);
         no_hash.split('?').next().unwrap_or(no_hash).to_string()
     };
-    let Some(segment) = path.rsplit('/').next() else {
-        return false;
-    };
-    let Some(dot) = segment.rfind('.') else {
-        return false;
-    };
-    matches!(
-        segment[dot + 1..].to_ascii_lowercase().as_str(),
-        "png" | "jpg" | "jpeg" | "webp" | "gif" | "svg" | "avif" | "ico"
-    )
+    let segment = path.rsplit('/').next().unwrap_or("");
+    let dot = segment.rfind('.')?;
+    let ext = segment[dot + 1..].trim().to_ascii_lowercase();
+    if ext.is_empty() {
+        return None;
+    }
+    Some(ext)
 }
 
-/// 是否为可缓存候选：http(s) + 非动态 + 扩展名白名单。
+/// 扩展名白名单：无后缀放行到下载时验证，有后缀仅白名单通过。
+fn url_ext_allowed(url: &str) -> bool {
+    match url_path_ext(url) {
+        None => true,
+        Some(ext) => matches!(
+            ext.as_str(),
+            "png" | "jpg" | "jpeg" | "webp" | "gif" | "svg" | "avif" | "ico"
+        ),
+    }
+}
+
+/// 响应 content-type 是否为图片。
+fn is_image_content_type(value: &str) -> bool {
+    let base = value.split(';').next().unwrap_or(value);
+    base.trim().to_ascii_lowercase().starts_with("image/")
+}
+
+/// 是否为可缓存候选：http(s) + 非动态，有后缀时校验扩展名白名单。
 pub fn should_cache_asset(url: &str) -> bool {
     let trimmed = url.trim();
     if trimmed.is_empty() || trimmed.starts_with("data:") || trimmed.starts_with("asset://") {
@@ -123,7 +137,8 @@ fn is_supported_image_bytes(bytes: &[u8]) -> bool {
 
 /// 嗅探 MIME 对应的落盘扩展名。
 fn ext_for_sniffed(mime: &str) -> &'static str {
-    match mime {
+    let base = mime.split(';').next().unwrap_or(mime);
+    match base.trim().to_ascii_lowercase().as_str() {
         "image/png" => "png",
         "image/jpeg" => "jpg",
         "image/gif" => "gif",
@@ -133,6 +148,24 @@ fn ext_for_sniffed(mime: &str) -> &'static str {
         "image/x-icon" => "ico",
         _ => "png",
     }
+}
+
+/// 落盘扩展名：魔数优先，缺失时从 content-type 推断。
+fn resolve_asset_ext(fresh: &DownloadedAsset) -> &'static str {
+    if let Some(mime) = sniff_asset_mime(&fresh.bytes) {
+        return ext_for_sniffed(mime);
+    }
+    let base = fresh
+        .content_type
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    if base.starts_with("image/") {
+        return ext_for_sniffed(base.as_str());
+    }
+    "png"
 }
 
 /// 缓存键：规范地址的 sha256 前 16 位。
@@ -385,8 +418,7 @@ fn store_fresh_asset(
     if !is_supported_image_bytes(&fresh.bytes) {
         return trimmed.to_string();
     }
-    let mime = sniff_asset_mime(&fresh.bytes).unwrap_or("image/png");
-    let ext = ext_for_sniffed(mime);
+    let ext = resolve_asset_ext(&fresh);
     let final_path = dir.join(format!("{}.{}", stem, ext));
     if persist_asset_bytes(&fresh.bytes, &final_path, stem).is_err() {
         if let Some(path) = existing {
@@ -400,7 +432,7 @@ fn store_fresh_asset(
         }
     }
     let content_type = if fresh.content_type.trim().is_empty() {
-        mime.to_string()
+        sniff_asset_mime(&fresh.bytes).unwrap_or("image/png").to_string()
     } else {
         fresh.content_type
     };
@@ -439,6 +471,28 @@ async fn fetch_remote_asset(
         .api_timeout_seconds;
     let client =
         crate::forge::http::new_icon_client(secs).unwrap_or_else(|_| reqwest::Client::new());
+    if url_path_ext(download_url).is_none() {
+        if let Ok(head) = client
+            .head(download_url)
+            .headers(crate::forge::http::icon_headers())
+            .send()
+            .await
+        {
+            if head.status().is_success() {
+                if let Some(value) = head
+                    .headers()
+                    .get(reqwest::header::CONTENT_TYPE)
+                    .and_then(|v| v.to_str().ok())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                {
+                    if !is_image_content_type(value) {
+                        return Err("non-image content-type".to_string());
+                    }
+                }
+            }
+        }
+    }
     let mut request = client
         .get(download_url)
         .headers(crate::forge::http::icon_headers());
@@ -557,7 +611,11 @@ mod tests {
             "https://raw.githubusercontent.com/o/r/main/a.avif"
         ));
         assert!(!should_cache_asset("https://example.com/a.bmp"));
-        assert!(!should_cache_asset("https://example.com/noext"));
+        assert!(!should_cache_asset("https://example.com/a.mp4"));
+        assert!(should_cache_asset("https://example.com/noext"));
+        assert!(should_cache_asset(
+            "https://github.com/user-attachments/assets/56af271c-949d-454c-a3ea-16188c063414"
+        ));
         assert!(!should_cache_asset("data:image/png;base64,xx"));
     }
 
