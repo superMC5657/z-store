@@ -17,5 +17,5 @@ The five canonical triage roles use their default label strings. See `docs/agent
 Single-context layout: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
 
 ## Rules
-
-Don't Use Find on Windows, Replace by fd;
+Don't use `find` on Windows; where you would use `find`, use `fd` instead.
+Docs and comments: describe what it does now, not change history; explain why only when non-obvious.
