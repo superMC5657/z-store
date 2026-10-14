@@ -47,17 +47,13 @@ vi.mock('../../services/api', () => {
         if (prop === 'getAppIconCycle') return (...a: unknown[]) => hooks.getAppIconCycle(...(a as [string]));
         if (prop === 'cycleAppIcon') return (...a: unknown[]) => hooks.cycleAppIcon(...(a as [string]));
         if (prop === 'isStarred') return (id: string) => hooks.isStarred(id);
-        if (prop === 'normalizeIconCycle') {
-          return (d: any) =>
-            d ? { ...d, remoteUrl: d.remote_url ?? d.remoteUrl } : null;
-        }
         if (prop === 'openUrl') return async () => undefined;
         if (prop.startsWith('on')) return async () => () => {};
         return async () => undefined;
       },
     },
   );
-  return { api, normalizeIconCycle: (d: any) => (d ? { ...d, remoteUrl: d.remote_url ?? d.remoteUrl } : null) };
+  return { api };
 });
 
 vi.mock('../../services/iconStore', async (importOriginal) => {

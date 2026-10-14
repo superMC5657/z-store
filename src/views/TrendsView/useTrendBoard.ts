@@ -6,10 +6,8 @@ import {
   boardGainKey,
   resolveTrendBoard,
 } from '../../services/trends/boards';
-import {
-  fetchTrendsResultSeam as fetchTrendsResult,
-  subscribeBoardReady,
-} from '../../services/trends/board';
+import { fetchTrendsResultSeam as fetchTrendsResult } from '../../services/trends/board';
+import { subscribeBoardHydrated } from '../../services/trends/boards';
 import type {
   FetchTrendsOptions,
   TrendBoardId,
@@ -138,9 +136,9 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
   }, []);
 
   // 一榜一源：board / 代理 / 重试任一变化均触发重抓。
-  // 经 board 唯一订阅（单 emit 源单订阅合一，不双订）。
+  // 就绪订阅单 emit 源单订阅（L1/L2/网络三路径统一 emit，不双订）。
   useEffect(() => {
-    return subscribeBoardReady(() => {
+    return subscribeBoardHydrated(() => {
       setBoardReady(true);
     });
   }, []);

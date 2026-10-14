@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { FolderOpen, Check, Trash2 } from 'lucide-react';
 import { tauriApi } from '../../../services/api';
 import type { AppSettings, CacheUsageStats } from '../../../types';
+import { formatBytes } from '../../../utils/appHelper';
 
 export interface StorageSectionProps {
   downloadDir: string;
@@ -13,20 +14,69 @@ export interface StorageSectionProps {
   triggerChangeFeedback: (key: string, text: string) => void;
 }
 
-// 字节数格式化为可读大小。
-function formatCacheBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return '--';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}
-
-// 缓存占用文本：条目数与总大小。
+// 缓存占用文本：条目数与总大小（加载中/无数据一律占位）。
 function formatCacheStats(stats: CacheUsageStats | null, loading: boolean): string {
   if (loading) return '--';
   if (!stats) return '--';
-  return `${stats.total_entries} 项 · ${formatCacheBytes(stats.total_bytes)}`;
+  const size =
+    Number.isFinite(stats.total_bytes) && stats.total_bytes >= 0
+      ? formatBytes(stats.total_bytes)
+      : '--';
+  return `${stats.total_entries} 项 · ${size}`;
+}
+
+// 缓存行展示：标签 + 占用文本 + 各自清理按钮（图标/通用图片两行共用）。
+interface CacheRowProps {
+  rowKey: string;
+  highlightRow: string | null;
+  title: string;
+  statsText: string;
+  noticeText: string | null;
+  clearDisabled: boolean;
+  clearLabel: string;
+  onClear: () => void;
+}
+
+function CacheRow({
+  rowKey,
+  highlightRow,
+  title,
+  statsText,
+  noticeText,
+  clearDisabled,
+  clearLabel,
+  onClear,
+}: CacheRowProps) {
+  return (
+    <div className={`settings-row ${highlightRow === rowKey ? 'row-highlight' : ''}`}>
+      <div className="settings-row-info">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ fontWeight: 510 }}>{title}</span>
+          <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>
+            {statsText}
+          </span>
+          {noticeText !== null && (
+            <span className="setting-applied-badge">
+              <Check size={11} strokeWidth={1.5} style={{ color: 'currentColor' }} />
+              <span>{noticeText}</span>
+            </span>
+          )}
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: '8px' }}>
+        <button
+          type="button"
+          className="btn-fluent btn-secondary"
+          onClick={onClear}
+          disabled={clearDisabled}
+          style={{ fontSize: 'var(--font-sm)', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+        >
+          <Trash2 size={13} strokeWidth={1.5} />
+          <span>{clearLabel}</span>
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export const StorageSection: React.FC<StorageSectionProps> = ({
@@ -174,63 +224,27 @@ export const StorageSection: React.FC<StorageSectionProps> = ({
         </div>
       </div>
 
-      <div className={`settings-row ${highlightRow === 'icon_cache' ? 'row-highlight' : ''}`}>
-        <div className="settings-row-info">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontWeight: 510 }}>{t('settings.icon_cache', { defaultValue: '图标缓存' })}</span>
-            <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>
-              {formatCacheStats(iconStats, statsLoading)}
-            </span>
-            {activeNotice?.key === 'icon_cache' && (
-              <span className="setting-applied-badge">
-                <Check size={11} strokeWidth={1.5} style={{ color: 'currentColor' }} />
-                <span>{activeNotice.text}</span>
-              </span>
-            )}
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button
-            type="button"
-            className="btn-fluent btn-secondary"
-            onClick={handleClearIcons}
-            disabled={clearingKey !== null || statsLoading}
-            style={{ fontSize: 'var(--font-sm)', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
-          >
-            <Trash2 size={13} strokeWidth={1.5} />
-            <span>{t('settings.clear_cache', { defaultValue: '清理' })}</span>
-          </button>
-        </div>
-      </div>
+      <CacheRow
+        rowKey="icon_cache"
+        highlightRow={highlightRow}
+        title={t('settings.icon_cache', { defaultValue: '图标缓存' })}
+        statsText={formatCacheStats(iconStats, statsLoading)}
+        noticeText={activeNotice?.key === 'icon_cache' ? activeNotice.text : null}
+        clearDisabled={clearingKey !== null || statsLoading}
+        clearLabel={t('settings.clear_cache', { defaultValue: '清理' })}
+        onClear={handleClearIcons}
+      />
 
-      <div className={`settings-row ${highlightRow === 'asset_cache' ? 'row-highlight' : ''}`}>
-        <div className="settings-row-info">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontWeight: 510 }}>{t('settings.asset_cache', { defaultValue: '通用图片缓存' })}</span>
-            <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>
-              {formatCacheStats(assetStats, statsLoading)}
-            </span>
-            {activeNotice?.key === 'asset_cache' && (
-              <span className="setting-applied-badge">
-                <Check size={11} strokeWidth={1.5} style={{ color: 'currentColor' }} />
-                <span>{activeNotice.text}</span>
-              </span>
-            )}
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button
-            type="button"
-            className="btn-fluent btn-secondary"
-            onClick={handleClearAssets}
-            disabled={clearingKey !== null || statsLoading}
-            style={{ fontSize: 'var(--font-sm)', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
-          >
-            <Trash2 size={13} strokeWidth={1.5} />
-            <span>{t('settings.clear_cache', { defaultValue: '清理' })}</span>
-          </button>
-        </div>
-      </div>
+      <CacheRow
+        rowKey="asset_cache"
+        highlightRow={highlightRow}
+        title={t('settings.asset_cache', { defaultValue: '通用图片缓存' })}
+        statsText={formatCacheStats(assetStats, statsLoading)}
+        noticeText={activeNotice?.key === 'asset_cache' ? activeNotice.text : null}
+        clearDisabled={clearingKey !== null || statsLoading}
+        clearLabel={t('settings.clear_cache', { defaultValue: '清理' })}
+        onClear={handleClearAssets}
+      />
     </div>
   );
 };

@@ -181,9 +181,8 @@ export type BoardHydratedListener = (board: string, key: string) => void;
 const boardHydratedListeners = new Set<BoardHydratedListener>();
 
 /**
- * board 就绪订阅的内部实现（单 emit 源 `emitBoardHydrated` 的订阅口）。
- * View 侧唯一对外口为 `board.subscribeBoardReady`，此处仅供 slice 内部 +
- * 白盒单测直订；View 禁止直调（useTrendBoard 已合一为单订阅）。
+ * board 就绪订阅口（单 emit 源 `emitBoardHydrated` 的订阅口）。
+ * View 经此口单订阅（useTrendBoard 内单 effect，不双订）；
  * L1/L2/网络三路径统一 emit（对称就绪），TTL/契约不变。
  */
 export function subscribeBoardHydrated(fn: BoardHydratedListener): () => void {

@@ -7,7 +7,7 @@
  * - 唯一对外抓取入口为本模块 `fetchTrendsResultSeam(board, opts)`（boards 内实现，
  *   L1/L2/网络三路径现均 emit boardHydrated）。
  *   View/hook 一律经此口，不直调 `boards.fetchTrendsResult`。
- * - 唯一就绪订阅为本模块 `subscribeBoardReady`（单 emit 源唯一出口，不双订）。
+ * - 唯一就绪订阅为 `boards.subscribeBoardHydrated`（单 emit 源，View 侧单订阅，不双订）。
  * - key/TTL/envelope/hydrate/snapshot 一律收为内部 seams：
  *   key 经 `resolveBoardCacheKey`（读写同源），TTL 语义不变（ADR-0007/ADR-0014），
  *   信封/hydrate/快照经 `persistBoardNow`/`hydrateBoardEnrich`/`snapshotBoard*`，
@@ -60,10 +60,6 @@ import {
 } from './enrich';
 import { fetchTrendsResult as fetchTrendsResultInner } from './boards';
 import {
-  subscribeBoardHydrated as subscribeBoardHydratedInner,
-  type BoardHydratedListener,
-} from './boards';
-import {
   PENDING_SETTLE_MS,
   createInflightGuard,
   createSeqGuard,
@@ -91,15 +87,6 @@ export function fetchTrendsResultSeam(
   return fetchTrendsResultInner(...args);
 }
 export type { PendingLiteTarget };
-
-/**
- * 唯一 boardReady 订阅（单 emit 源 `emitBoardHydrated` 的唯一出口）。
- * L1/L2/网络三路径在 boards 内统一 emit，本包装为唯一对外 interface。
- * View 侧只订此口，不双订 `subscribeBoardHydrated`（见 useTrendBoard）。
- */
-export function subscribeBoardReady(fn: BoardHydratedListener): () => void {
-  return subscribeBoardHydratedInner(fn);
-}
 
 /** settle 超时与主列表同值（TrendsView 重导出保持兼容）。 */
 export const TREND_BOARD_SETTLE_MS = PENDING_SETTLE_MS;

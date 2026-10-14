@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AppDetail, AppSummary } from '../types';
 import type { AppIconCycleResult } from '../services/api';
-import { api, normalizeIconCycle } from '../services/api';
+import { api } from '../services/api';
 import { applyHit, patchAppIconList } from '../services/iconStore';
 import { appSummaryFromDetail } from '../services/trends/enrich';
 import { isRemoteIcon } from '../components/AppIcon';
@@ -117,9 +117,9 @@ export function favoriteSummaryFromDetail(detail: AppDetail): AppSummary {
 export function pickFavoritePersistIconUrl(
   cycle: AppIconCycleResult | null | undefined,
 ): string {
-  const normalized = normalizeIconCycle(cycle);
-  const remote = (normalized?.remoteUrl ?? '').trim();
-  const fallback = (normalized?.url ?? '').trim();
+  // 后端规范字段为 snake_case（`remote_url`），此处按需直读。
+  const remote = (cycle?.remote_url ?? '').trim();
+  const fallback = (cycle?.url ?? '').trim();
   const persist = remote !== '' ? remote : (!fallback.startsWith('data:') ? fallback : '');
   if(!persist||!isRemoteIcon(persist))return'';
   return persist;

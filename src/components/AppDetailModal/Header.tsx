@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AppDetailViewModel, OAuthUser, ReleaseAsset } from '../../types';
-import { api, normalizeIconCycle, type AppIconCycleResult } from '../../services/api';
+import { api, type AppIconCycleResult } from '../../services/api';
 import { AppIcon } from '../AppIcon';
 import { applyHit } from '../../services/iconStore';
 import { notifyToast } from '../../utils/notify';
@@ -85,11 +85,10 @@ export const Header: React.FC<HeaderProps> = ({
         if (data) {
           setIconCycle(data);
           // 初次展示跟随+双落盘：iconCycle.url 是 data: 即时展示（IPC临时），
-          // 落盘一律用 remote_url（normalizeIconCycle 收敛）；
+          // 落盘一律用 remote_url（后端 snake_case 规范字段）；
           // data: 永不进盘，内存态短暂用 data: 由 AppIcon iconOverride 直显，榜单跟随用 persistUrl。
           // isCataloged 不阻止；L5/fallback 空（persistUrl ''）不 dispatch，避免把实图标清掉。
-          const normalized = normalizeIconCycle(data);
-          const remote = typeof normalized?.remoteUrl === 'string' ? normalized.remoteUrl.trim() : '';
+          const remote = typeof data.remote_url === 'string' ? data.remote_url.trim() : '';
           const fallbackUrl = typeof data.url === 'string' ? data.url.trim() : '';
           const persistUrl =
             remote !== '' ? remote : (!fallbackUrl.startsWith('data:') ? fallbackUrl : '');

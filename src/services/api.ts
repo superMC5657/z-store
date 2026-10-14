@@ -10,7 +10,7 @@ export { isTauri, tauriInvoke };
 /**
  * 发现页 feed 后端分页契约（Rust `get_home_feed` 返回）：
  * `{ items, total, has_more }`。容忍后端/ mock 误写 camelCase（`hasMore`），
- * 统一经 `normalizeHomeFeed` 收敛为 snake_case 只读视图。
+ * 调用方收敛为 snake_case 只读视图（见 `catalog.getHomeFeed`）。
  */
 export interface HomeFeedResult {
   items: AppSummary[];
@@ -24,13 +24,6 @@ export type HomeFeedRaw = {
   has_more?: boolean;
   hasMore?: boolean;
 } | null | undefined;
-
-export function normalizeHomeFeed(raw: HomeFeedRaw): HomeFeedResult {
-  const items = Array.isArray(raw?.items) ? (raw as { items: AppSummary[] }).items : [];
-  const total = typeof raw?.total === 'number' && Number.isFinite(raw.total) ? raw.total : items.length;
-  const hasMore = (raw?.has_more ?? (raw as { hasMore?: unknown })?.hasMore) as unknown;
-  return { items, total, has_more: hasMore === true };
-}
 
 export interface ReadmeVariant {
   lang: 'zh-CN' | 'en-US';
@@ -58,38 +51,11 @@ export interface AppIconCycleResult {
   url: string;
   level: number;
   source?: string;
-  // 后端规范字段（snake_case，唯一可信来源）。
+  // 后端规范字段（snake_case，调用方按需直读 `remote_url` 等）。
   remote_url?: string;
   is_fallback?: boolean;
   total_levels?: number;
   is_cataloged?: boolean;
-}
-
-/**
- * 图标轮换双命名的唯一归一出口：后端只认 snake_case，
- * 输出统一的 camelCase 只读视图，供 View/组件层消费。
- */
-export interface NormalizedIconCycle {
-  url: string;
-  remoteUrl?: string;
-  level: number;
-  source?: string;
-  isFallback?: boolean;
-  totalLevels?: number;
-  isCataloged?: boolean;
-}
-
-export function normalizeIconCycle(raw: AppIconCycleResult | null | undefined): NormalizedIconCycle | null {
-  if (!raw) return null;
-  return {
-    url: raw.url,
-    remoteUrl: raw.remote_url,
-    level: raw.level,
-    source: raw.source,
-    isFallback: raw.is_fallback,
-    totalLevels: raw.total_levels,
-    isCataloged: raw.is_cataloged,
-  };
 }
 
 /**

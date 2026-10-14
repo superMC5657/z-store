@@ -50,14 +50,15 @@ export function formatAppDate(ts: number, locale = 'zh-CN'): string {
 }
 
 /**
- * 格式化字节大小为可读字符串 (B / KB / MB / GB)
+ * 格式化字节大小为可读字符串（B 整数 / KB·MB 一位小数 / GB 两位小数）。
+ * 缺失、非数值、非有限或非正输入一律回退 '0 B'。
  */
 export function formatBytes(bytes?: number): string {
-  if (!bytes || typeof bytes !== 'number' || isNaN(bytes) || bytes <= 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i] || 'MB'}`;
+  if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
 /**
