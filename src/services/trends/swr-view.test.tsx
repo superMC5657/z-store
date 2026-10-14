@@ -8,7 +8,7 @@ import { tauriApi } from '../api';
 import { clearTrendsCache } from './cache';
 import {
   clearTrendEnrichCache,
-  hydrateTrendEnrichCache,
+  putTrendEnrichMemory,
   markTrendConfirmedOthers,
   snapshotTrendConfirmedOthers,
   snapshotTrendEnrichCache,
@@ -36,7 +36,7 @@ describe('SWR 组件直展：重挂首屏即见已确认 Other 富卡，不闪�
   it('预 hydrate 已确认 Other 后挂载直展 AppCard，无裸行占位', async () => {
     // 重启前 L2 富信封：三仓均为已确认 Other（先 mark 后 hydrate，未确认 pending 永不进内存）
     markTrendConfirmedOthers(['acme/atlas', 'acme/beacon', 'acme/comet']);
-    hydrateTrendEnrichCache({
+    putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [] }),
       'acme/beacon': makeEnrichedApp({ id: 'acme/beacon', platforms: [] }),
       'acme/comet': makeEnrichedApp({ id: 'acme/comet', platforms: [] }),
@@ -133,7 +133,7 @@ describe('平台随富卡缓存：L2 新鲜免验，过期才补验', () => {
         icon: 'https://x/r.png',
       });
     }
-    hydrateTrendEnrichCache(bulk);
+    putTrendEnrichMemory(bulk);
     vi.spyOn(tauriApi, 'fetchTrendsText').mockImplementation(async (url: string) => {
       if (String(url).includes('github.com/trending')) return elevenRowsHtml();
       throw new Error(`unexpected url: ${url}`);
@@ -164,7 +164,7 @@ describe('平台随富卡缓存：L2 新鲜免验，过期才补验', () => {
           ? makeEnrichedApp({ id: `acme/r${i}`, platforms: ['windows'], icon: 'https://x/r.png' })
           : makeEnrichedApp({ id: `acme/r${i}`, platforms: [], icon: '' });
     }
-    hydrateTrendEnrichCache(bulk);
+    putTrendEnrichMemory(bulk);
     vi.spyOn(tauriApi, 'fetchTrendsText').mockImplementation(async (url: string) => {
       if (String(url).includes('github.com/trending')) return elevenRowsHtml();
       throw new Error(`unexpected url: ${url}`);
@@ -261,7 +261,7 @@ describe('平台随富卡缓存：L2 新鲜免验，过期才补验', () => {
       return undefined;
     });
     // 首挂前内存 pending（三仓均为 pending 空平台，首屏展旧卡不闪裸）
-    hydrateTrendEnrichCache({
+    putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [] }),
       'acme/beacon': makeEnrichedApp({ id: 'acme/beacon', platforms: [] }),
       'acme/comet': makeEnrichedApp({ id: 'acme/comet', platforms: [] }),
@@ -519,7 +519,7 @@ describe('已确认Other落盘：重挂零lite直展Other卡、具平台可升�
     const { saveBoardCacheMerged } = await import('./cache');
     const { buildTrendsCacheKey } = await import('./cache');
     // 先由 L2 回填旧盘（触发 hydrate），再以具平台覆盖 atlas
-    const { hydrateTrendEnrichCache: hydrate } = await import('./enrich');
+    const { putTrendEnrichMemory: hydrate } = await import('./enrich');
     const l2Repos = [
       { id: 'acme/atlas', owner: 'acme', repo: 'atlas', name: 'acme/atlas', stars: 100, url: '' },
       { id: 'acme/beacon', owner: 'acme', repo: 'beacon', name: 'acme/beacon', stars: 100, url: '' },

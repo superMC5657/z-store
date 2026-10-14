@@ -43,7 +43,7 @@ import {
   clearTrendEnrichCache,
   enrichTrendRepos,
   formatStars,
-  hydrateTrendEnrichCache,
+  putTrendEnrichMemory,
   matchCatalogApp,
 } from '../services/trends/enrich';
 import {
@@ -1238,7 +1238,7 @@ describe('TrendsView L2可信分档：具平台免验，pending后台补验', ()
 
   it('L2全具平台零lite：三仓新鲜具平台直展富卡，后台零补验', async () => {
     // L2 新鲜富信封：三仓均为具真实平台（与 trendingHtmlFixture 三仓同坐标）。
-    hydrateTrendEnrichCache({
+    putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'] }),
       'acme/beacon': makeEnrichedApp({ id: 'acme/beacon', platforms: ['macos'] }),
       'acme/comet': makeEnrichedApp({ id: 'acme/comet', platforms: ['linux'] }),
@@ -1284,7 +1284,7 @@ describe('TrendsView L2可信分档：具平台免验，pending后台补验', ()
     // L2 新鲜混合：atlas 具平台直展免验；beacon/comet 未确认 pending 永不进内存，
     // 首屏裸行占位，后台 enrich 取回 pending 再走 lite 补验
     //（beacon 治愈为具平台，comet 确认为空 Other），落定后富卡齐展。
-    hydrateTrendEnrichCache({
+    putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'] }),
       'acme/beacon': makeEnrichedApp({ id: 'acme/beacon', platforms: [] }),
       'acme/comet': makeEnrichedApp({ id: 'acme/comet', platforms: [] }),
@@ -1340,7 +1340,7 @@ describe('TrendsView L2可信分档：具平台免验，pending后台补验', ()
   });
 });
 
-describe('图标唯一通道：icon-ready → applyHit（无窗口总线）', () => {
+describe('图标唯一通道：icon-ready → admitIconHit（无窗口总线）', () => {
   (globalThis as Record<string, unknown>)['IS_REACT_ACT_ENVIRONMENT'] = true;
 
   type EnrichFn = (repos: { owner: string; repo: string }[]) => Promise<(AppSummary | null)[]>;
@@ -1427,7 +1427,7 @@ describe('图标唯一通道：icon-ready → applyHit（无窗口总线）', ()
     expect(container.querySelector('img[src=""]')).toBeNull();
   });
 
-  it('L5 清零语义收口 board 纯函数（与 applyHit 空守卫同口径，不复活旧图）', async () => {
+  it('L5 清零语义收口 board 纯函数（与 admitIconHit 空守卫同口径，不复活旧图）', async () => {
     const prev: Record<string, AppSummary> = {
       'acme/atlas': makeEnrichedApp({
         id: 'acme/atlas',

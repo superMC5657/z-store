@@ -226,8 +226,8 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleSyncCatalog();
     case 'get_or_fetch_icon':
       return handleGetOrFetchIcon(a);
-    case 'cycle_app_icon':
-    case 'get_app_icon_cycle':
+    case 'request_app_icon_cycle':
+    case 'restore_or_fetch_icon_cycle':
       return handleGetAppIconCycle(a, cmd);
     case 'get_readme_variants':
       return handleGetReadmeVariants(a);

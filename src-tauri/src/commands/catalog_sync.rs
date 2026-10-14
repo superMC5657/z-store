@@ -35,7 +35,7 @@ pub async fn sync_catalog(
 
     let res = state
         .catalog
-        .sync_remote_catalog(&url, cached_etag.as_deref())
+        .fetch_remote_catalog(&url, cached_etag.as_deref())
         .await;
 
     let (new_items, new_etag) = match res {
@@ -59,7 +59,7 @@ pub async fn sync_catalog(
             if let Some(resolved_path) = cfg.catalog.resolve_local_path() {
                 let path_str = resolved_path.to_string_lossy().to_string();
                 if let Ok((Some(items), _)) =
-                    state.catalog.sync_remote_catalog(&path_str, None).await
+                    state.catalog.fetch_remote_catalog(&path_str, None).await
                 {
                     local_fallback = Some((items, path_str));
                 }

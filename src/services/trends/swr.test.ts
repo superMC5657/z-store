@@ -9,7 +9,7 @@ import {
 } from './cache';
 import {
   clearTrendEnrichCache,
-  hydrateTrendEnrichCache,
+  putTrendEnrichMemory,
   markTrendConfirmedOther,
   snapshotTrendEnrichCache,
 } from './enrich';
@@ -123,9 +123,9 @@ describe('SWR 旧富卡直展：已确认 Other 落盘后重挂直展富卡', ()
 
   it('hydrate 永不用旧 pending 覆盖内存已具平台值', () => {
     const healed = makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'] });
-    hydrateTrendEnrichCache({ 'acme/atlas': healed });
+    putTrendEnrichMemory({ 'acme/atlas': healed });
     const stalePending = makeEnrichedApp({ id: 'acme/atlas', platforms: [] });
-    hydrateTrendEnrichCache({ 'acme/atlas': stalePending });
+    putTrendEnrichMemory({ 'acme/atlas': stalePending });
     const snap = snapshotTrendEnrichCache([makeTrendRepo({ id: 'acme/atlas' })]);
     expect(snap['acme/atlas']?.platforms).toEqual(['windows']);
   });
@@ -304,14 +304,14 @@ describe('富卡落盘图标一视同仁：有/无图标重挂都直展富卡', 
   it('图标回填只做升级：空图标不覆盖已有真实图标，平台照常治愈', async () => {
     // 内存已有已确认 Other 富卡（真实图标）；旧数据回填空图标 → 真实图标保留
     markTrendConfirmedOther('acme/atlas');
-    hydrateTrendEnrichCache({
+    putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({
         id: 'acme/atlas',
         platforms: [],
         icon: 'https://simpleicons.org/icons/rust.svg',
       }),
     });
-    hydrateTrendEnrichCache({
+    putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [], icon: '' }),
     });
     const kept = snapshotTrendEnrichCache([makeTrendRepo({ id: 'acme/atlas' })])['acme/atlas'];
@@ -321,10 +321,10 @@ describe('富卡落盘图标一视同仁：有/无图标重挂都直展富卡', 
     // 反向：空图标在先（先确认后回填），真实图标回填即升级
     clearTrendEnrichCache();
     markTrendConfirmedOther('acme/atlas');
-    hydrateTrendEnrichCache({
+    putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [], icon: '' }),
     });
-    hydrateTrendEnrichCache({
+    putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({
         id: 'acme/atlas',
         platforms: ['windows'],
@@ -339,7 +339,7 @@ describe('富卡落盘图标一视同仁：有/无图标重挂都直展富卡', 
   it('详情治愈 data: 图标不进内存，已有真实图标不受降级', async () => {
     const { upsertTrendEnrichFromDetail } = await import('./enrich');
     markTrendConfirmedOther('acme/atlas');
-    hydrateTrendEnrichCache({
+    putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({
         id: 'acme/atlas',
         platforms: [],

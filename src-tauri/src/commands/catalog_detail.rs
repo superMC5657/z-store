@@ -377,7 +377,7 @@ pub async fn get_app_details_impl(
             if let Ok(db) = state.db() {
                 let start_db = std::time::Instant::now();
                 log::debug!("db_save start id={} sid={} req={}", clean_id, sid, req_id);
-                // Top2：详情 + 图标原子落库（2 提交变 1 提交），事务边界见 `save_detail_with_icon`；
+                // Top2：详情 + 图标原子落库（2 提交变 1 提交），事务边界见 `save_detail_with_cycle_row`；
                 // 失败整体回滚并回退逐条，保持 `let _ =` 吞错 + 下次重试语义，不改 TTL/ETag。
                 let icon_trimmed = detail.icon.trim();
                 let pending_cycle: Option<crate::db::AppIconCycle> =
@@ -399,7 +399,7 @@ pub async fn get_app_details_impl(
                         None
                     };
                 if db
-                    .save_detail_with_icon(&clean_id, &detail, pending_cycle.as_ref())
+                    .save_detail_with_cycle_row(&clean_id, &detail, pending_cycle.as_ref())
                     .is_err()
                 {
                     let _ = db.save_cached_app_detail(&clean_id, &detail);
@@ -632,7 +632,7 @@ pub async fn get_app_details_impl(
                             None
                         };
                     if db
-                        .save_detail_with_icon(&clean_id, &detail, pending_cycle.as_ref())
+                        .save_detail_with_cycle_row(&clean_id, &detail, pending_cycle.as_ref())
                         .is_err()
                     {
                         let _ = db.save_cached_app_detail(&clean_id, &detail);
@@ -682,12 +682,12 @@ pub async fn get_app_details_impl(
 
 /// 通用图片磁盘缓存查询：已缓存返回本地路径，未命中下载后返回本地路径，失败回退原地址。
 #[tauri::command]
-pub async fn get_asset_cache_url(
+pub async fn fetch_or_cache_asset_url(
     url: String,
     app_id: Option<String>,
 ) -> crate::AppResult<String> {
     let app = app_id.unwrap_or_default();
-    Ok(crate::github::asset_fetch::get_asset_url(&url, &app).await)
+    Ok(crate::github::asset_fetch::fetch_or_cache_asset_url_inner(&url, &app).await)
 }
 
 /// 查询通用图片磁盘缓存占用：返回条目数与总字节。

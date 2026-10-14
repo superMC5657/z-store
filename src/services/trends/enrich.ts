@@ -184,7 +184,7 @@ export function snapshotTrendConfirmedOthers(repos?: TrendRepo[]): string[] {
  * - 仅收非空小写键；已具平台键跳过（禁 pending 覆盖具平台）；
  * - 时间戳取 now。
  */
-export function hydrateTrendConfirmedOtherCache(keys?: readonly string[] | null): void {
+export function markConfirmedOthersFreshNow(keys?: readonly string[] | null): void {
   if (!keys) return;
   const now = Date.now();
   for (const raw of keys) {
@@ -274,7 +274,7 @@ export function clearTrendEnrichCache(): void {
 
 /**
  * 向内存 `trendEnrichCache` 回填（slice 内部写口）。
- * View 侧唯一出口为 board.hydrateBoardEnrich，不直调此函数；
+ * View 侧唯一出口为 board.putBoardEnrichMemory，不直调此函数；
  * 图标合并经 `stickyIconFor` 单口。
  * - 具平台恒进缓存（12h/500 FIFO），后续靠应用详情刷新治愈（upsert from detail）；
  * - pending 空平台仅已确认键进内存（调用方先 mark；读盘时先 hydrate 确认集再 hydrate enrich）；
@@ -284,7 +284,7 @@ export function clearTrendEnrichCache(): void {
  * - 约束：不存 dataURI（若 icon 是 data: 开头则跳过）；
  * - 键统一转为小写 `owner/repo`。
  */
-export function hydrateTrendEnrichCache(
+export function putTrendEnrichMemory(
   map?: Record<string, AppSummary> | Map<string, AppSummary> | null,
 ): void {
   if (!map) return;

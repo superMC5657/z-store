@@ -94,7 +94,7 @@ export async function enrichTrendRepos(
 /**
  * 只听统一事件 `zstore://icon-ready{id,icon,level,via,context}`：
  * 前端只订阅此事件（`via`透传，M2首屏直填不走emit）。
- * 世代门控走 `services/iconStore.applyHit`（读 `context.search_id` vs `currentSearchId`），
+ * 世代门控走 `services/iconStore.admitIconHit`（读 `context.search_id` vs `currentSearchId`），
  * `level`纯L单调，调用方只做载荷适配 + React 列表 `patch` 注入。
  */
 export type SearchIconUpgradePayload = IconReadyPayload;

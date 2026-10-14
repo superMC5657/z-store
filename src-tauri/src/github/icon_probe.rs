@@ -9,7 +9,7 @@
 //! 在 `github::icon_fetch` 深核（`probe_single_live`/`fetch_icons_stream` +
 //! `scaled_total_timeout` 纯决策）。`icons_cycle_probe` 的串行 naive 探已删，
 //! 一律经深核直调本原语；本模块永不触 DB/fs（无 `Database`/`std::fs` 引用，
-//! probe-vs-persist 缝纯侧），持久化单一路径在 `icons_cycle_probe::persist_icon_bytes`。
+//! probe-vs-persist 缝纯侧），持久化单一路径在 `icons_cycle_probe::write_icon_file`。
 //! D5/D6/D8：双池复用（调用方给 client，CDN 恒丢 token）+ `buffered(3)` 有界 +
 //! 首包验图与跳过（HEAD→Range 首 32KB→magic→300B）。
 //! level 纯L（2=L2品牌库，3=L3仓库），via=live|m2 正交（本层只产 live URL，

@@ -14,8 +14,8 @@ import {
 } from './cache';
 import {
   clearTrendEnrichCache,
-  hydrateTrendConfirmedOtherCache,
-  hydrateTrendEnrichCache,
+  markConfirmedOthersFreshNow,
+  putTrendEnrichMemory,
   markTrendConfirmedOthers,
   snapshotTrendConfirmedOthers,
   snapshotTrendEnrichCache,
@@ -206,7 +206,7 @@ describe('trends L2 persistence cache', () => {
       const store = mockL2();
       const repos = [makeTrendRepo({ id: 'acme/atlas' }), makeTrendRepo({ id: 'acme/beacon' })];
       markTrendConfirmedOthers(['acme/atlas', 'acme/beacon']);
-      hydrateTrendEnrichCache({
+      putTrendEnrichMemory({
         'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [] }),
         'acme/beacon': makeEnrichedApp({ id: 'acme/beacon', platforms: [] }),
       });
@@ -237,7 +237,7 @@ describe('trends L2 persistence cache', () => {
       mockL2();
       const repos = [makeTrendRepo({ id: 'acme/atlas' })];
       markTrendConfirmedOthers(['acme/atlas']);
-      hydrateTrendEnrichCache({
+      putTrendEnrichMemory({
         'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [] }),
       });
       await saveBoardCacheMerged('weekly||', 'weekly', repos);
@@ -298,7 +298,7 @@ describe('trends L2 persistence cache', () => {
       const store = mockL2();
       const repos = [makeTrendRepo({ id: 'acme/atlas' })];
       markTrendConfirmedOthers(['acme/atlas']);
-      hydrateTrendEnrichCache({
+      putTrendEnrichMemory({
         'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'] }),
       });
       // put 具平台自动移除确认
@@ -313,7 +313,7 @@ describe('trends L2 persistence cache', () => {
     });
 
     it('读侧 hydrate 确认集可独立恢复（无内存条目时 L2 标记仍有效）', async () => {
-      hydrateTrendConfirmedOtherCache(['acme/ghost']);
+      markConfirmedOthersFreshNow(['acme/ghost']);
       expect(snapshotTrendConfirmedOthers()).toContain('acme/ghost');
     });
   });

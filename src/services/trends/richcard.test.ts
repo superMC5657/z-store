@@ -12,7 +12,7 @@ import {
   appSummaryFromDetail,
   clearTrendEnrichCache,
   diffRichSummary,
-  hydrateTrendEnrichCache,
+  putTrendEnrichMemory,
   isPlaceholderDescription,
   snapshotTrendEnrichCache,
   upsertTrendEnrichRichcard,
@@ -83,7 +83,7 @@ describe('富卡简介占位名单', () => {
   });
 
   it('upsert：真实简介 + 详情回占位 → enriched 简介保持不变且不进盘', () => {
-    hydrateTrendEnrichCache({
+    putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', description: REAL_DESC }),
     });
     const healed = upsertTrendEnrichRichcard(placeholderDetail());

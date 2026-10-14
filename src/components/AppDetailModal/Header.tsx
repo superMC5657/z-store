@@ -10,7 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { AppDetailViewModel, OAuthUser, ReleaseAsset } from '../../types';
 import { api, type AppIconCycleResult } from '../../services/api';
 import { AppIcon } from '../AppIcon';
-import { applyHit } from '../../services/iconStore';
+import { admitIconHit } from '../../services/iconStore';
 import { notifyToast } from '../../utils/notify';
 import { VerifiedBadge } from '../VerifiedBadge';
 import { formatBytes } from '../../utils/appHelper';
@@ -67,7 +67,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   // 图标写透 patch（与 useDetailCacheSync:266 iconPatch 同效）：
   // Header 不直持四列表 setters，显式 patch 声明与 App 侧 `subscribeIconWrites` 扇出幂等，
-  // 实际四列表落定经扇出完成；此处传 patch 保证 `applyHit→patch→扇出` 同 tick 可观测（L2/L3/L4/L5 即默认）。
+  // 实际四列表落定经扇出完成；此处传 patch 保证 `admitIconHit→patch→扇出` 同 tick 可观测（L2/L3/L4/L5 即默认）。
   const iconPatch = (_tid: string, _icon: string): void => {
     // 无直写：四列表经 App 扇出 `patchAppIconList` 落定（与 266 同体同效，幂等）。
   };
@@ -100,7 +100,7 @@ export const Header: React.FC<HeaderProps> = ({
               // 初次展示跟随经店内唯一写口（M1 缓冲 + 文件预热；列表写透由详情同步侧持有 setters 完成，
               // 此处只做缓冲预热，不自发 IPC 预热、不走窗口总线）。
               // data: 永不直送（persistUrl 已剥 data:，空即 L5/空不发）；patch 与 266 同体（经扇出落定）。
-              applyHit({
+              admitIconHit({
                 id: app.id,
                 icon: persistUrl,
                 level: typeof data.level === 'number' ? data.level : undefined,
@@ -163,12 +163,12 @@ export const Header: React.FC<HeaderProps> = ({
     try {
       const res = await api.cycleAppIcon(app.id);
       if (res) {
-        // 未收录手动定 Logo：选中即默认——setIconCycle+applyHit+patch 同 tick 即时响应；
+        // 未收录手动定 Logo：选中即默认——setIconCycle+admitIconHit+patch 同 tick 即时响应；
         // L2/L3/L4 实图转正 http 才写透，L5 空（url ''）走显式徽章写，data: 仅经 iconOverride 即时看。
         setIconCycle(res);
         // 轮转跟随经店内写口：L5 空（url ''）走显式徽章写（清记忆 + 列表/镜像扇出）；
         // 实图经唯一写口缓冲预热；即时换图由 iconOverride 本地态直显，不走窗口总线。
-        // data: 永不直送 applyHit，只做 iconOverride（persistUrl 为空即不发）。
+        // data: 永不直送 admitIconHit，只做 iconOverride（persistUrl 为空即不发）。
         const rawCycledUrl = typeof res.url === 'string' ? res.url.trim() : '';
         const remoteRaw =
           typeof res.remote_url === 'string'
@@ -181,16 +181,16 @@ export const Header: React.FC<HeaderProps> = ({
               ? rawCycledUrl
               : '';
         if (rawCycledUrl === '') {
-          applyHit({ id: app.id, icon: '', level: 5, patch: iconPatch });
+          admitIconHit({ id: app.id, icon: '', level: 5, patch: iconPatch });
         } else if (persistUrl !== '') {
-          applyHit({
+          admitIconHit({
             id: app.id,
             icon: persistUrl,
             level: typeof res.level === 'number' ? res.level : undefined,
             patch: iconPatch,
           });
         } else {
-          // data: 仅即时看：已 setIconCycle（iconOverride 直显），此处不调 applyHit、不进盘。
+          // data: 仅即时看：已 setIconCycle（iconOverride 直显），此处不调 admitIconHit、不进盘。
         }
         const total = res.total_levels ?? 5;
         const name = ICON_LEVEL_NAMES[res.level] || '';

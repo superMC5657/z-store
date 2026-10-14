@@ -81,7 +81,7 @@ pub async fn oauth_device_poll(
             if let Ok(mut t) = state.github_token.lock() {
                 *t = Some(clean_token.clone());
             }
-            crate::probe_github_rate_limit(Some(&clean_token)).await;
+            crate::probe_and_announce_rate_limit(Some(&clean_token)).await;
             Ok(DevicePollResult {
                 status: "authorized".to_string(),
                 message: None,
@@ -209,7 +209,7 @@ pub async fn oauth_logout(state: State<'_, AppState>) -> crate::AppResult<bool> 
     } else {
         log::info!("oauth logout ok sid={}", sid);
     }
-    crate::probe_github_rate_limit(fallback_pat.as_deref()).await;
+    crate::probe_and_announce_rate_limit(fallback_pat.as_deref()).await;
     Ok(true)
 }
 

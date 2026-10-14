@@ -55,7 +55,7 @@ export function adoptEchoInWindow(ref: { current: string }, kind: string, sid: s
 
 /** 在线段图标回填组装（C1 读透适配，薄）。
  * M1内存回读：搜索列表缓存命中行经 `getBufferedIcon` 唯一口回读拼装，空壳不覆盖缓冲实图。
- * 空值经店内 SSOT（`isEmptyIcon`/`applyHit`），此处不自立规则；
+ * 空值经店内 SSOT（`isEmptyIcon`/`admitIconHit`），此处不自立规则；
  * 粘性合并经 `mergeStickyIcon`，此处只做组装。
  */
 function assembleOnlineRowsWithIcons(prev: AppSummary[], incoming: AppSummary[]): AppSummary[] {

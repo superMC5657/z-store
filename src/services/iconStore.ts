@@ -1,28 +1,28 @@
 /** 前端图标深 module（deep module，`IconFetch` 前端收口）。
  * module：`services/iconStore` 为图标写唯一深 module；`AppIcon`/`Search List Cache`/
  * `trends/enrich`/`trends/board` 不自立图标 locality，并行 mem-cache 均内聚为本 module 内部 seam。
- * interface：唯一对外写 interface 为 `applyHit`（`icon-ready` 统一收口）+ 读侧扇出
+ * interface：唯一对外写 interface 为 `admitIconHit`（`icon-ready` 统一收口）+ 读侧扇出
  * `subscribeIconWrites`（读侧只合并、不调写口，不复活窗口总线）；读口 `getBufferedIcon`/
  * `getCachedIconDataUri` 为展示/组装用只读 interface；`stickyIconFor`/`patchIconMirror`/
  * `patchAppIconList` 为组装/镜像用的纯合并 interface（内部 seam 的收敛实现，调用方直引、不自立规则）。
- * depth：`applyHit` 内聚 generation gate（`search_id`/`board`+`gen`）+ L-monotone（纯L 1..5，
+ * depth：`admitIconHit` 内聚 generation gate（`search_id`/`board`+`gen`）+ L-monotone（纯L 1..5，
  * 低不顶高，`via` 正交）+ `via`（`live|m2`，`data:`/`m2` 只进 M1 内存不落盘）+ L5 badge
  *（`icon:'' + level:5` 唯一允许的空覆盖，经 fan-out）+ fan-out（`notifyIconWrites`）。
  * 一次 `IconFetch` 命中经 `icon-ready` 只跳本 module 单 interface。
- * seam：`applyHit` 为唯一写 seam；`stickyIconFor`（`mergeStickyIcon` + M1 缓冲回读）与
+ * seam：`admitIconHit` 为唯一写 seam；`stickyIconFor`（`mergeStickyIcon` + M1 缓冲回读）与
  * `patchIconMirror`（趋势镜像合并）与 `iconDataCache`（`get_or_fetch_icon` 落盘预热内存态）均为内部 seam，
  * 对外不新增写口。
  * adapter/leverage/locality：`App.tsx` 经 `patchAppIconList` + `subscribeIconWrites` 内联四连直写；
  * `isRemoteIcon` 留在
  * `AppIcon`（展示判定，与店内 `isRemoteHttpIconUrl` 落盘门控正交，非重复）。
  * 领域词：`IconFetch`（后端 `fetch_icons_stream`）→ `icon-ready`（`zstore://icon-ready`）→
- * 本 module `applyHit`；`Search List Cache`（`searchListCache.ts` 纯前端内存）经 `getBufferedIcon` 回读，
+ * 本 module `admitIconHit`；`Search List Cache`（`searchListCache.ts` 纯前端内存）经 `getBufferedIcon` 回读，
  * 不另立图标规则。`boardReady`/`swrSyncedResult`/`isUpgradePending` 仍为趋势视图内部态，不进本 module。
  * 合规：level 纯L + `via` 正交 + M1/M2 划分遵 ADR-0015；`normalizeId` 归一遵 ADR-0010；
  * 展示图标分层（品牌母版/桌面外壳/运行时矢量）遵 ADR-0005，本 module 只碰运行时列表图标 URL，不碰品牌资产。
- * L5 显式徽章（用户切空，`icon:'' + level:5`）为唯一允许的空覆盖：经 `applyHit`
+ * L5 显式徽章（用户切空，`icon:'' + level:5`）为唯一允许的空覆盖：经 `admitIconHit`
  * 清记忆 + `patch('')` + 读侧扇出；被动空壳（无 level 5）仍直接丢弃。
- * 读侧扇出（`subscribeIconWrites`）：`applyHit` 受理后通知订阅者（App 四列表/趋势镜像），
+ * 读侧扇出（`subscribeIconWrites`）：`admitIconHit` 受理后通知订阅者（App 四列表/趋势镜像），
  * 写口仍唯一，不复活窗口总线。`clearBufferedIcon` 亦经同一扇出（直接清零亦通知，防富卡 stale；
  * `applyBadgeHit` 内走批量单事件，直接调用走单键事件）。
  */
@@ -78,7 +78,7 @@ export interface IconReadyPayload {
   context: IconHitContext;
 }
 
-export interface ApplyHitArgs extends IconHit {
+export interface AdmitIconHitArgs extends IconHit {
   /**
    * Search 世代门控期望值：当前搜索 id（字符串或取值函数）。
    * 双非空且与命中 `search_id` 不等即丢弃；任一为空即放行。
@@ -98,13 +98,13 @@ export interface ApplyHitArgs extends IconHit {
   getCurrentIcon?: ((targetIdLower: string) => string | undefined) | null;
 }
 
-export interface ApplyHitResult {
+export interface AdmitIconHitResult {
   accepted: boolean;
   targets?: string[];
   icon?: string;
   level?: number;
-  /** `true`=走了 `preloadIcons→get_or_fetch_icon` 落盘；`false`=M1纯内存（`data:`/`via=m2`）。 */
-  persisted?: boolean;
+  /** `true`=已入队 `queueIconFetches→get_or_fetch_icon`；`false`=M1纯内存（`data:`/`via=m2`）。 */
+  queued?: boolean;
   reason?: string;
 }
 
@@ -131,8 +131,8 @@ export function patchAppIconList(
 }
 
 /**
- * 读侧扇出订阅：`applyHit` 受理写入后通知订阅者（App 四列表写透/趋势镜像跟进）。
- * 写口仍唯一是 `applyHit`；订阅回调只做读侧合并，不得再调 `applyHit`（防递归）。
+ * 读侧扇出订阅：`admitIconHit` 受理写入后通知订阅者（App 四列表写透/趋势镜像跟进）。
+ * 写口仍唯一是 `admitIconHit`；订阅回调只做读侧合并，不得再调 `admitIconHit`（防递归）。
  * 窗口总线不复活：订阅表常驻店内模块，卸载即退订。
  */
 export interface IconWriteEvent {
@@ -260,9 +260,9 @@ const iconById = new Map<string, string>();
  */
 const iconDataCache = new Map<string, string>();
 const iconPendingPromises = new Map<string, Promise<string>>();
-/** 落盘成功标记（L1–L4 Logo `preload` 成功即 `persisted=true`，`data:`/`m2` 永不置位）。URL 与 id 别名同置。 */
+/** 入队成功标记（L1–L4 Logo 入队成功即 `queued=true`，`data:`/`m2` 永不置位）。URL 与 id 别名同置。 */
 const iconPersistedKeys = new Set<string>();
-/** 同 tick 合并队列：`url → ids`（`preloadIcons` 只入队，排空时按 URL 单次下载）。 */
+/** 同 tick 合并队列：`url → ids`（`queueIconFetches` 只入队，排空时按 URL 单次下载）。 */
 const iconPreloadQueue = new Map<string, Set<string>>();
 /** 在途别名扇出：`url → ids`（同 URL 共用 Promise，成功时一并写 `iconDataCache`）。 */
 const iconPendingAliases = new Map<string, Set<string>>();
@@ -271,7 +271,7 @@ const iconPreloadBackoffUntil = new Map<string, number>();
 let iconPreloadScheduled = false;
 const ICON_PRELOAD_BACKOFF_MS = 30_000; // stale-while-revalidate guard for batch preload: failures back off 30s while the UI keeps showing the stale URL.
 
-function resolveCurrentSearchId(args: ApplyHitArgs): string {
+function resolveCurrentSearchId(args: AdmitIconHitArgs): string {
   try {
     if (typeof args.getCurrentSearchId === 'function') {
       const v = args.getCurrentSearchId();
@@ -292,7 +292,7 @@ function resolveCurrentSearchId(args: ApplyHitArgs): string {
   return typeof c === 'string' ? c : '';
 }
 
-function hasExistingRealIcon(targets: string[], getCurrentIcon?: ApplyHitArgs['getCurrentIcon']): boolean {
+function hasExistingRealIcon(targets: string[], getCurrentIcon?: AdmitIconHitArgs['getCurrentIcon']): boolean {
   for (const t of targets) {
     const tracked = iconById.get(t);
     if (typeof tracked === 'string' && tracked.trim() !== '') return true;
@@ -320,7 +320,7 @@ export interface GenerationGate {
 
 /**
  * 展示数据失效（内部 seam）：
- * 删 `iconDataCache`/`pending`/`队列`/`persisted` 中该键及其关联 URL/别名态。以店内 `iconById` 为唯一别名源
+ * 删 `iconDataCache`/`pending`/`队列`/`queued` 中该键及其关联 URL/别名态。以店内 `iconById` 为唯一别名源
  * （`normalizeId`，遵 ADR-0010）。
  */
 export function invalidateIconCache(key?: string): void {
@@ -374,12 +374,12 @@ export function getCachedIconDataUri(key: string): string | undefined {
  * 队列 + 单飞 + 批量排空：同 tick 多次调用合并为 `Set<url>`，同 URL 共用 Promise；
  * 仅远端（`http(s)`/`data:` 兼容展示判定由调用方保证，此处复用店内落盘门控）走
  * `get_or_fetch_icon` 落盘；`data:` 永不预热；退避期内跳过。
- * `M1` 纯内存（`data:`/`via=m2`）路径不经此（`applyHit` 内跳过）。
- * 成功置 `persisted=true` + 写 `iconDataCache`（URL + id 别名扇出）；
+ * `M1` 纯内存（`data:`/`via=m2`）路径不经此（`admitIconHit` 内跳过）。
+ * 成功置 `queued=true` + 写 `iconDataCache`（URL + id 别名扇出）；
  * 失败 `delete` pending + 退避 30s（展示回落 URL 直显，不抛错、不产生未处理拒绝）。
  * 非 Tauri（单测/jsdom/浏览器预览）只收队不清耗（展示回落 URL 直显，不抛错）。
  */
-export function preloadIcons(items: (string | { id?: string; icon: string })[]): void {
+export function queueIconFetches(items: (string | { id?: string; icon: string })[]): void {
   if (!items || items.length === 0) return;
   for (const item of items) {
     const icon = typeof item === 'string' ? item : item.icon;
@@ -430,6 +430,14 @@ export function preloadIcons(items: (string | { id?: string; icon: string })[]):
     }
   }
   schedulePreloadDrain();
+}
+
+/**
+ * 首屏前 30 预热：取前 30 入队，后续经 `queueIconFetches` 合并排空。
+ */
+export function preloadTop30Icons(items: readonly (string | { id?: string; icon: string })[]): void {
+  if (!items || items.length === 0) return;
+  queueIconFetches(items.slice(0, 30) as (string | { id?: string; icon: string })[]);
 }
 
 function isTauriAvailable(): boolean {
@@ -577,17 +585,17 @@ export function __resetIconDataCacheForTests(): void {
  * L5 显式徽章（`icon:'' + level:5`，用户切空意图）为唯一允许的空覆盖：
  * 清图标+level 记忆（cycle-back 可重接受 L2..L4）+ `invalidate` + `patch('')` + 读侧扇出；
  * 其余空图标一律丢弃（被动空壳保护）。
- * 时机：`invalidateIconCache` 先失效 → `preloadIcons` → `patch` 写透四列表 → 读侧扇出。
+ * 时机：`invalidateIconCache` 先失效 → `queueIconFetches` → `patch` 写透四列表 → 读侧扇出。
  */
 /**
- * L5 显式徽章写（`applyHit` 内唯一空覆盖分支）：清图标+level 记忆
+ * L5 显式徽章写（`admitIconHit` 内唯一空覆盖分支）：清图标+level 记忆
  * （`deleteBufferedIcon` 同语义，cycle-back 可重接受 L2..L4，不复活旧图）、
  * `invalidate` 展示数据、`patch('')` 写透、读侧扇出。无网络副作用。
  */
 function applyBadgeHit(
   targets: string[],
-  patch?: ApplyHitArgs['patch'],
-): ApplyHitResult {
+  patch?: AdmitIconHitArgs['patch'],
+): AdmitIconHitResult {
   for (const t of targets) {
     try {
       invalidateIconCache(t);
@@ -606,10 +614,10 @@ function applyBadgeHit(
     }
   }
   notifyIconWrites(targets, '', 5);
-  return { accepted: true, targets, icon: '', level: 5, persisted: false, reason: 'level5-badge' };
+  return { accepted: true, targets, icon: '', level: 5, queued: false, reason: 'level5-badge' };
 }
 
-export function applyHit(args: ApplyHitArgs): ApplyHitResult {
+export function admitIconHit(args: AdmitIconHitArgs): AdmitIconHitResult {
   if (!args || typeof args !== 'object') return { accepted: false, reason: 'empty-hit' };
 
   const targets = resolveIconTargets(args);
@@ -705,7 +713,7 @@ export function applyHit(args: ApplyHitArgs): ApplyHitResult {
     // `data:`/`m2` 不推进：此处只算出 `nextLevel`，落盘路径才写记忆。
   }
 
-  // `data:`/`via=m2`只进M1内存不落盘：失效 + patch 内存态，跳过 `preloadIcons`，不推进 `level` 记忆。
+  // `data:`/`via=m2`只进M1内存不落盘：失效 + patch 内存态，跳过 `queueIconFetches`，不推进 `level` 记忆。
   if (isMemoryOnly) {
     for (const t of targets) {
       try {
@@ -731,12 +739,12 @@ export function applyHit(args: ApplyHitArgs): ApplyHitResult {
       targets,
       icon,
       level: pureLevel,
-      persisted: false,
+      queued: false,
       reason: icon.startsWith('data:') ? 'data-memory-only' : 'm2-memory-only',
     };
   }
 
-  // 仅 `remote(http)` 才 `patch state + preloadIcons` 走 `get_or_fetch_icon` 落盘。
+  // 仅 `remote(http)` 才 `patch state + queueIconFetches` 走 `get_or_fetch_icon` 落盘。
   // 批量收集一次 `preload`（同 URL 多别名一次入队），`patch` 仍逐个别名内存写透。
   if (!isRemoteHttpIconUrl(icon)) {
     return { accepted: false, targets, icon, level: pureLevel, reason: 'non-remote-dropped' };
@@ -753,7 +761,7 @@ export function applyHit(args: ApplyHitArgs): ApplyHitResult {
     }
   }
   try {
-    preloadIcons(targets.map((t) => ({ id: t, icon })));
+    queueIconFetches(targets.map((t) => ({ id: t, icon })));
   } catch {
     // 预热失败不阻塞列表写透（AppIcon 侧按 URL 直显兜底）
   }
@@ -769,7 +777,7 @@ export function applyHit(args: ApplyHitArgs): ApplyHitResult {
   }
   for (const t of targets) iconById.set(t, icon);
   notifyIconWrites(targets, icon, pureLevel);
-  return { accepted: true, targets, icon, level: pureLevel, persisted: true };
+  return { accepted: true, targets, icon, level: pureLevel, queued: true };
 }
 
 /** 仅供测试：清空 `level`/图标记忆（含展示数据态）。 */
@@ -786,7 +794,7 @@ export function __resetIconStoreForTests(): void {
 }
 
 /**
- * M1内存缓冲读口（经 `iconById`，`applyHit`唯一写口）：`icon-ready` 先到、
+ * M1内存缓冲读口（经 `iconById`，`admitIconHit`唯一写口）：`icon-ready` 先到、
  * `enrich` 后到竞态时，`enrich` 组装经此取缓冲实图，空壳不覆盖缓冲实图。
  * `data:`/`via=m2`只走此内存态；M2首屏直填不走emit。
  */
@@ -813,7 +821,7 @@ function deleteBufferedIcon(key: string): void {
 
 /** L5 显式清零：用户手动切到空徽章时清掉该键缓冲（含 level 记忆），
  * 否则后续 `assemble/sticky` 经缓冲回读会复活旧图。常规 L5 一律走
- * `applyHit({ icon:'', level:5 })`（批量扇出）；直接调此亦经同一读侧扇出
+ * `admitIconHit({ icon:'', level:5 })`（批量扇出）；直接调此亦经同一读侧扇出
  * （单键 `''/5` 事件：清零必须通知列表/镜像，防富卡 stale）。
  * 订阅回调只做读侧合并，不得再调写口（防递归）。 */
 export function clearBufferedIcon(key: string): void {

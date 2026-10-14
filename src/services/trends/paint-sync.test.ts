@@ -9,8 +9,8 @@ import * as clientModule from '../api/client';
 import { clearTrendsCache, saveBoardCacheMerged } from './cache';
 import {
   clearTrendEnrichCache,
-  hydrateTrendConfirmedOtherCache,
-  hydrateTrendEnrichCache,
+  markConfirmedOthersFreshNow,
+  putTrendEnrichMemory,
   isTrendConfirmedOtherFresh,
   markTrendConfirmedOther,
   snapshotTrendConfirmedOthers,
@@ -40,12 +40,12 @@ describe('具平台驱逐删标记走同一 emit（写透联动）', () => {
     try {
       markTrendConfirmedOther('acme/atlas');
       expect(events).toHaveLength(1);
-      hydrateTrendEnrichCache({
+      putTrendEnrichMemory({
         'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [], description: 'other' }),
       });
       expect(events).toHaveLength(1);
       // 具平台到场：put 驱逐删标记并 emit unmark（调用方靠订阅写透，不另行返回键，不双写）。
-      hydrateTrendEnrichCache({
+      putTrendEnrichMemory({
         'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'] }),
       });
       expect(events).toHaveLength(2);
@@ -53,7 +53,7 @@ describe('具平台驱逐删标记走同一 emit（写透联动）', () => {
       expect(events[1]?.keys).toEqual(['acme/atlas']);
       expect(isTrendConfirmedOtherFresh('acme/atlas')).toBe(false);
       // 再次 put 同具平台不重复 emit。
-      hydrateTrendEnrichCache({
+      putTrendEnrichMemory({
         'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'] }),
       });
       expect(events).toHaveLength(2);
@@ -70,11 +70,11 @@ describe('具平台驱逐删标记走同一 emit（写透联动）', () => {
     try {
       markTrendConfirmedOther('acme/beacon');
       expect(events).toHaveLength(1);
-      hydrateTrendEnrichCache({
+      putTrendEnrichMemory({
         'acme/beacon': makeEnrichedApp({ id: 'acme/beacon', platforms: [], description: 'other' }),
       });
       // 具平台到场由 put 驱逐并 emit 一次（与 mark/unmark 同一通道）。
-      hydrateTrendEnrichCache({
+      putTrendEnrichMemory({
         'acme/beacon': makeEnrichedApp({ id: 'acme/beacon', platforms: ['windows'] }),
       });
       expect(events.filter((e) => e.kind === 'unmark')).toHaveLength(1);
@@ -101,8 +101,8 @@ describe('具平台驱逐删标记走同一 emit（写透联动）', () => {
       events.push({ kind, keys });
     });
     try {
-      hydrateTrendConfirmedOtherCache(['acme/ghost']);
-      hydrateTrendEnrichCache({
+      markConfirmedOthersFreshNow(['acme/ghost']);
+      putTrendEnrichMemory({
         'acme/plain': makeEnrichedApp({ id: 'acme/plain', platforms: ['windows'] }),
       });
       sweepExpiredTrendEnrichCache();
@@ -133,7 +133,7 @@ describe('驱逐写透：具平台到→盘 confirmedOther 清', () => {
     const repos = [makeTrendRepo({ id: 'acme/atlas' })];
     // 先确认 pending 并落盘：盘含确认。
     markTrendConfirmedOther('acme/atlas');
-    hydrateTrendEnrichCache({
+    putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [], description: 'other' }),
     });
     await saveBoardCacheMerged('weekly||', 'weekly', repos);
@@ -147,7 +147,7 @@ describe('驱逐写透：具平台到→盘 confirmedOther 清', () => {
       events.push({ kind, keys });
     });
     try {
-      hydrateTrendEnrichCache({
+      putTrendEnrichMemory({
         'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'] }),
       });
       expect(events).toHaveLength(1);

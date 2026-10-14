@@ -29,7 +29,7 @@ pub struct OnlineSearchResult {
 
 /// emit 世代通道选择（纯选择器，可单测）：`ctx` 决定查哪一个全局世代计数器 + 期望 gen。
 /// 搜索与趋势共用同一套落库/emit，仅世代计数器不同。
-fn emit_gen_lane(
+fn select_gen_lane(
     ctx: &crate::github::icon_fetch::IconFetchCtx,
 ) -> (&'static AtomicU64, u64) {
     match ctx {
@@ -42,7 +42,7 @@ fn emit_gen_lane(
 /// level纯L：`level=2`写 `l2_url`，`level=3`写 `l3_url`；via=live|m2，远端探测走live，DB落盘回填走m2。
 /// - 只发统一 `zstore://icon-ready{id,icon,level,via,context}`（`context` 原样透传 `job.ctx`，
 ///   载荷经 core `icon_fetch::icon_ready_payload` 构建）；
-/// - 世代比对防串：落库前 + emit 前双检查 `emit_gen_lane(ctx)`（搜索查 SEARCH_GEN，
+/// - 世代比对防串：落库前 + emit 前双检查 `select_gen_lane(ctx)`（搜索查 SEARCH_GEN，
 ///   趋势查 BOARD_GEN；切榜/重搜抛弃过时在途结果，同语义）；
 /// - 单条显式事务边界（单语句隐式事务显式化，仍 1 提交，emit 不延迟）；
 ///   失败 `ROLLBACK` 返回 Err，内部吞错下次补探重试。
@@ -53,7 +53,7 @@ async fn save_and_emit(
     level: i32,
     via: &str,
 ) {
-    let (gen_counter, expected_gen) = emit_gen_lane(&job.ctx);
+    let (gen_counter, expected_gen) = select_gen_lane(&job.ctx);
     if gen_counter.load(Ordering::SeqCst) != expected_gen {
         return;
     }
@@ -753,21 +753,21 @@ mod tests {
     }
 
     #[test]
-    fn emit_gen_lane_selects_counter_by_ctx() {
+    fn select_gen_lane_selects_counter_by_ctx() {
         // 同一 emit 口：Search 查 SEARCH_GEN，Trend 查 BOARD_GEN；期望 gen 原样回显。
         // 删除 `save_and_emit_trend` 后趋势落库/emit 前双检查仍查 BOARD_GEN（行为一致）。
         let search = crate::github::icon_fetch::IconFetchCtx::Search {
             search_id: "s1".to_string(),
             gen: 7,
         };
-        let (counter, gen) = super::emit_gen_lane(&search);
+        let (counter, gen) = super::select_gen_lane(&search);
         assert_eq!(gen, 7);
         assert!(std::ptr::eq(counter, &super::SEARCH_GEN));
         let trend = crate::github::icon_fetch::IconFetchCtx::Trend {
             board: "weekly".to_string(),
             gen: 3,
         };
-        let (counter, gen) = super::emit_gen_lane(&trend);
+        let (counter, gen) = super::select_gen_lane(&trend);
         assert_eq!(gen, 3);
         assert!(std::ptr::eq(counter, &super::BOARD_GEN));
         assert!(!std::ptr::eq(counter, &super::SEARCH_GEN));

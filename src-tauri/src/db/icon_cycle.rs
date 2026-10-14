@@ -305,7 +305,7 @@ pub fn set_level(db: &Database, app_id: &str, level: i32) -> Result<()> {
 // 不再各自重写分支。纯决策，无 fs/网络/AppState 依赖。
 // 缝：probe-vs-persist——本文件永不做网络探测（无 client/token/probe 调用）；
 // 探测一律在 `github::icon_fetch` 深核（`probe_single_live`/`fetch_icons_stream` 纯探，
-// 永不触 DB/fs）；持久化单一写入路径在 `commands::icons_cycle_probe::persist_icon_bytes`
+// 永不触 DB/fs）；持久化单一写入路径在 `commands::icons_cycle_probe::write_icon_file`
 //（`icons/` 落盘 + meta 同步，mirror 仅改下载 URL 经 `download_via_mirror`，
 // L5 空选经 `seal_empty_selection`）。
 // Curated Catalog 永不分支，例外仅 L1 填充（`ensure_cycle_levels`）。

@@ -98,7 +98,7 @@ impl CatalogService {
         }
     }
 
-    pub async fn sync_remote_catalog(
+    pub async fn fetch_remote_catalog(
         &self,
         url: &str,
         cached_etag: Option<&str>,

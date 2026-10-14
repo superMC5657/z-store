@@ -3,8 +3,8 @@ import { isTauri, tauriInvoke } from '../api/client';
 import { normalizeId, normalizeIdSet } from '../normalizeId';
 import {
   clearTrendEnrichCache,
-  hydrateTrendConfirmedOtherCache,
-  hydrateTrendEnrichCache,
+  markConfirmedOthersFreshNow,
+  putTrendEnrichMemory,
   snapshotTrendConfirmedOthers,
   snapshotTrendEnrichCache,
 } from './enrich';
@@ -173,7 +173,7 @@ interface DbTrendBoardCacheRow {
 /**
  * 榜缓存二级落盘读：
  * - 解析 `{ v: 1, repos, enrich, confirmedOther }` 信封（唯一形状），repos 必须非空数组，
- *   enrich 逐项守卫后调 hydrateTrendEnrichCache 载入内存，并返回 repos；
+ *   enrich 逐项守卫后调 putTrendEnrichMemory 载入内存，并返回 repos；
  *   其余载荷（含旧纯数组 JSON）视为 miss 走网络；
  * - 命中且未过期返回解析后的 TrendRepo[]；过期判定含错峰抖动（见下）；
  * - 回填顺序：先 hydrate 确认集，再 hydrate enrich（pending 仅已确认键进内存，未确认 pending 丢弃）；
@@ -220,7 +220,7 @@ export async function getDbTrendCache(key: string, board?: string): Promise<Tren
       if (Array.isArray(rawConfirmed)) {
         guardedConfirmed = normalizeIdSet(rawConfirmed);
         if (guardedConfirmed.length > 0) {
-          hydrateTrendConfirmedOtherCache(guardedConfirmed);
+          markConfirmedOthersFreshNow(guardedConfirmed);
         }
       }
 
@@ -250,7 +250,7 @@ export async function getDbTrendCache(key: string, board?: string): Promise<Tren
         }
       }
 
-      hydrateTrendEnrichCache(guardedEnrich);
+      putTrendEnrichMemory(guardedEnrich);
       const repos = envelope.repos as TrendRepo[] & {
         enrich?: Record<string, AppSummary>;
         confirmedOther?: string[];

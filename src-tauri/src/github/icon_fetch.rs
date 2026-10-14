@@ -19,7 +19,7 @@
 //!   level纯L(2=L2品牌库,3=L3仓库)；缓存正交用via(live|m2)表M2，pool=5/total伸缩。
 //! - 缝：probe-vs-persist——core 永不触 DB/fs（无 `Database`/`std::fs` 引用，
 //!   纯探 + 调度）；持久化单一写入路径收为内部缝
-//!   `commands::icons_cycle_probe::persist_icon_bytes`（`catalog vs cycle` 分流 +
+//!   `commands::icons_cycle_probe::write_icon_file`（`catalog vs cycle` 分流 +
 //!   `icons/` 落盘 + meta 同步），下载经 `download_via_mirror`（ADR-0002 mirror
 //!   只改下载 URL），L5 空选经 `seal_empty_selection + empty_cycle_result`。
 //!   趋势 enrich 走流式直路（首屏快返 + 后台 `fetch_icons_stream(Trend)` 逐张 emit，

@@ -20,8 +20,8 @@ import {
   writeTrendsCache,
 } from './cache';
 import {
-  hydrateTrendConfirmedOtherCache,
-  hydrateTrendEnrichCache,
+  markConfirmedOthersFreshNow,
+  putTrendEnrichMemory,
   sweepExpiredTrendEnrichCache,
 } from './enrich';
 import {
@@ -230,10 +230,10 @@ async function fetchBoardWithL2(
     const dbHit = await getDbTrendCache(key, board);
     if (dbHit && dbHit.length > 0) {
       const enrich = (dbHit as { enrich?: Record<string, import('../../types').AppSummary> }).enrich;
-      if (enrich) hydrateTrendEnrichCache(enrich);
+      if (enrich) putTrendEnrichMemory(enrich);
       // 已确认 Other 同 key 回填（读时 hydrate；getDb 内已按先确认后 enrich 顺序回填，此处幂等补齐）。
       const confirmed = (dbHit as { confirmedOther?: unknown }).confirmedOther;
-      if (Array.isArray(confirmed)) hydrateTrendConfirmedOtherCache(confirmed);
+      if (Array.isArray(confirmed)) markConfirmedOthersFreshNow(confirmed);
       writeTrendsCache(key, dbHit);
       l2HitLog(board, key, dbHit);
       // 现状：读盘→hydrate→就绪顺序，hydrate 完成后透出就绪信号（首屏门订阅）。
@@ -312,9 +312,9 @@ async function fetchDoforceShared(opts: FetchTrendsOptions = {}): Promise<TrendR
         const dbHit = await getDbTrendCache(key, 'doforce');
         if (dbHit && dbHit.length > 0) {
           const enrich = (dbHit as { enrich?: Record<string, import('../../types').AppSummary> }).enrich;
-          if (enrich) hydrateTrendEnrichCache(enrich);
+          if (enrich) putTrendEnrichMemory(enrich);
           const confirmed = (dbHit as { confirmedOther?: unknown }).confirmedOther;
-          if (Array.isArray(confirmed)) hydrateTrendConfirmedOtherCache(confirmed);
+          if (Array.isArray(confirmed)) markConfirmedOthersFreshNow(confirmed);
           writeDoforceShared(dbHit);
           const hasEnrich = !!enrich && typeof enrich === 'object';
           const enrichCount = hasEnrich ? Object.keys(enrich as Record<string, unknown>).length : 0;

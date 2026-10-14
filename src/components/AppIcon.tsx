@@ -19,7 +19,7 @@ export interface AppIconProps {
   loading?: 'eager' | 'lazy';
 }
 
-// 唯一的远端图标判定谓词：调用方（`services/iconStore.preloadIcons` 内部与组件本体）必须复用此函数，禁止各自内联重复形状
+// 唯一的远端图标判定谓词：调用方（`services/iconStore.queueIconFetches` 内部与组件本体）必须复用此函数，禁止各自内联重复形状
 // 备注：此为展示判定（含 `.png/.svg` 后缀直显），与店内 `isRemoteHttpIconUrl` 落盘门控正交（仅 `http(s)` 落盘），非重复 locality。
 export function isRemoteIcon(icon: string | undefined | null): boolean {
   if (!icon) return false;
@@ -46,9 +46,9 @@ export const AppIcon: React.FC<AppIconProps> = ({
   iconOverride,
   loading = 'lazy',
 }) => {
-  // 图标深 module 订阅（读侧）：店内 `applyHit` 唯一写口受理后经 `subscribeIconWrites` 扇出，
+  // 图标深 module 订阅（读侧）：店内 `admitIconHit` 唯一写口受理后经 `subscribeIconWrites` 扇出，
   // 本组件经 `appId` 归一（`normalizeId`，遵 ADR-0010）跟进同键写——覆盖父 prop 迟到/stale 情形
-  // （如详情轮转切 L5 只调 `applyHit` 不带 patch，父列表经 App 侧扇出跟进，本组件经此跟进单卡）。
+  // （如详情轮转切 L5 只调 `admitIconHit` 不带 patch，父列表经 App 侧扇出跟进，本组件经此跟进单卡）。
   // 空（`''`/L5）恒覆盖旧 prop（防复活旧图）；实图覆盖空/旧 prop（迟到 `icon-ready` 先展）。
   // `iconOverride`（详情轮转即时态）优先于一切，不被扇出覆盖。
   const appIdNorm = typeof appId === 'string' ? normalizeId(appId) : '';
@@ -69,11 +69,11 @@ export const AppIcon: React.FC<AppIconProps> = ({
   // M1 缓冲首绘回读 + 盘 dataUri 直显（只读，不自发 IPC）：
   // storeIcon（扇出即时态）优先，其次 M1 缓冲（getBufferedIcon 唯一口，迟到 icon-ready 首绘即对），
   // 最后回落父 prop；空（`''`/L5）恒徽章（不回读旧缓存，防复活旧图，见 `HomeView.search-icon` 回归线）。
-  // level 单调由店内 `applyHit` 保证，此处不判 level；列表空壳补齐经上游
+  // level 单调由店内 `admitIconHit` 保证，此处不判 level；列表空壳补齐经上游
   // `assembleOnlineRowsWithIcons`/`stickyIconFor`（店内唯一口），
-  // 本组件只按 resolved 图标展示（空即徽章）——写口唯一在店内 `applyHit`（`invalidate→preload→patch`），
+  // 本组件只按 resolved 图标展示（空即徽章）——写口唯一在店内 `admitIconHit`（`invalidate→queue→patch`），
   // 此处不自发 IPC、不订阅窗口总线。
-  // 首绘回读经 `getBufferedIcon` 同步读 M1，盘 dataUri 经 `getCachedIconDataUri` 同步读内存态（preload 落盘后），
+  // 首绘回读经 `getBufferedIcon` 同步读 M1，盘 dataUri 经 `getCachedIconDataUri` 同步读内存态（入队落盘后），
   // 二者均为同步内存读，无 IPC 副作用。
   const bufferedFirstPaint = appIdNorm ? getBufferedIcon(appIdNorm) : undefined;
   const rawActiveIcon =
@@ -88,9 +88,9 @@ export const AppIcon: React.FC<AppIconProps> = ({
   const isDataUri = Boolean(activeIcon && activeIcon.startsWith('data:'));
   const [hasError, setHasError] = useState(false);
   // 只读展示：同 URL 的 data URI 缓存命中即直显（店内 `getCachedIconDataUri` 唯一口，
-  // `preload` 落盘后的内存态），否则直显 prop；
+  // 入队落盘后的内存态），否则直显 prop；
   // L5 清零（`storeIcon === ''` 或首绘空）恒徽章（不回读旧缓存，防复活旧图）。
-  // 盘 dataUri 双键回读：先按 URL 键，再按归一 id 键（preload 按 id 亦存一份，首绘即对）。
+  // 盘 dataUri 双键回读：先按 URL 键，再按归一 id 键（入队按 id 亦存一份，首绘即对）。
   const displaySrc = (() => {
     if (!activeIcon) return '';
     if (isDataUri) return activeIcon;

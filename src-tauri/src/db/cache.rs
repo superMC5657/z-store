@@ -109,7 +109,7 @@ impl Database {
     /// 详情 + 图标原子落库（单提交）：
     /// 事务内先写详情再写可选图标行，失败整体回滚，调用方保持 `let _ =` 吞错并可回退逐条。
     /// 不改 TTL/ETag 逻辑（`cached_at` 仍取 `now_secs()`）。
-    pub fn save_detail_with_icon(
+    pub fn save_detail_with_cycle_row(
         &self,
         app_id: &str,
         detail: &AppDetail,
@@ -124,7 +124,7 @@ impl Database {
         })
     }
 
-    /// 图标轮换写侧补齐：`cycle_app_icon` 选中态落库后同步 `detail_json.icon`
+    /// 图标轮换写侧补齐：`request_app_icon_cycle` 选中态落库后同步 `detail_json.icon`
     ///（读侧经轮换表 join 读确认图标，此处保持一致）。
     /// - 无详情行则跳过不建行（返回 `Ok(false)`）；
     /// - 仅重写 `detail_json.icon`，`cached_at` 保持不动（轮换是本地用户偏好，不延长 TTL）；

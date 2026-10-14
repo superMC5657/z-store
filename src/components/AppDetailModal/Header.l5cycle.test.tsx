@@ -2,7 +2,7 @@
  * L5 配线回归（用户报障：详情切到 L5 后富卡/列表不变旧图 stale）。
  *
  * 驱动精确症状的真实代码路径：渲染详情 Header，点击轮换按钮切到 L5，
- * 断言切流经店内唯一写口 `applyHit({ icon: '', level: 5 })`（P1 后架构约束）。
+ * 断言切流经店内唯一写口 `admitIconHit({ icon: '', level: 5 })`（P1 后架构约束）。
  * 当前代码 L5 分支只调 `clearBufferedIcon`（清内存、不通知列表/镜像），
  * 故本断言为红；修完变绿。另断言弹窗自身即时变徽章（两版本皆绿，防误伤）。
  */
@@ -34,7 +34,7 @@ const hooks = vi.hoisted(() => ({
     is_cataloged: false,
   })),
   isStarred: vi.fn(async (_id: string) => false),
-  applyHit: vi.fn(),
+  admitIconHit: vi.fn(),
   clearBufferedIcon: vi.fn(),
 }));
 
@@ -60,7 +60,7 @@ vi.mock('../../services/iconStore', async (importOriginal) => {
   const mod = await importOriginal<typeof import('../../services/iconStore')>();
   return {
     ...mod,
-    applyHit: (...a: Parameters<typeof mod.applyHit>) => hooks.applyHit(...a),
+    admitIconHit: (...a: Parameters<typeof mod.admitIconHit>) => hooks.admitIconHit(...a),
     clearBufferedIcon: (...a: Parameters<typeof mod.clearBufferedIcon>) => hooks.clearBufferedIcon(...a),
   };
 });
@@ -111,7 +111,7 @@ afterEach(() => {
 });
 
 describe('Header L5 cycle goes through the sole write', () => {
-  it('切到 L5 时调用 applyHit({ icon: "", level: 5 })（富卡/列表才能跟进）', async () => {
+  it('切到 L5 时调用 admitIconHit({ icon: "", level: 5 })（富卡/列表才能跟进）', async () => {
     render(
       <Header
         app={fixtureApp()}
@@ -131,7 +131,7 @@ describe('Header L5 cycle goes through the sole write', () => {
     });
     // 核心断言：L5 必须走唯一写口（当前代码只调 clearBufferedIcon → 此处为红）。
     await waitFor(() => {
-      expect(hooks.applyHit).toHaveBeenCalledWith(
+      expect(hooks.admitIconHit).toHaveBeenCalledWith(
         expect.objectContaining({ icon: '', level: 5 }),
       );
     });

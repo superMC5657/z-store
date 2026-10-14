@@ -12,9 +12,9 @@ import type {
 } from '../../types';
 import { api, DEFAULT_SETTINGS } from '../../services/api';
 import {
-  applyHit,
+  admitIconHit,
   patchAppIconList,
-  preloadIcons,
+  preloadTop30Icons,
 } from '../../services/iconStore';
 import { matchPlatformSetWithPending } from '../../lib/platformFilter';
 import { type PlatformId } from '../../lib/platformFilter';
@@ -95,7 +95,7 @@ function trackSubscription(ctx: MountCtx, promise: Promise<() => void>): void {
  * 更新中心切签检查 L440-450 与视图切换日志 L452-464）。
  *
  * - 初始拉取 + `zstore:catalog-synced` +
- *   `onSearchIconUpgraded`（回声窗内首个回声立期望，`applyHit` sole 写；双订阅正交门控，
+ *   `onSearchIconUpgraded`（回声窗内首个回声立期望，`admitIconHit` sole 写；双订阅正交门控，
  *   此处不做 kind 硬过滤，search/trend 经店内世代门控正交判定，图标全局共享）；
  * - 关注加载 + `onWatchUpdated` 应用内提醒；
  * - 更新流：`onUpdateItemFound` 逐条跳出 + `onUpdateCheckProgress` +
@@ -147,7 +147,7 @@ export function useAppSubscriptions({
     api.searchApps('').then((loadedApps) => {
       setApps(loadedApps);
       // 预解码热门应用图标，若本地配置目录已缓存则秒读，未缓存则后台下载并缓存
-      preloadIcons(
+      preloadTop30Icons(
         loadedApps
           .slice(0, 30)
           .map((a) => ({ id: a.id, owner: a.owner, repo: a.repo, icon: a.icon }))
@@ -173,7 +173,7 @@ export function useAppSubscriptions({
     const handleCatalogSynced = () => {
       api.searchApps('').then((updatedApps) => {
         setApps(updatedApps);
-        preloadIcons(
+        preloadTop30Icons(
           updatedApps
             .slice(0, 30)
             .filter((a) => a.icon)
@@ -186,8 +186,8 @@ export function useAppSubscriptions({
     let unlistenSearchIcons: (() => void) | null = null;
     api
       .onSearchIconUpgraded((payload) => {
-        // 回调体委托 `services/iconStore.applyHit`（世代门控 + 写透守卫 +
-        // 别名双写 + `invalidate→preload` 时机均在店内；此处仅做载荷适配
+        // 回调体委托 `services/iconStore.admitIconHit`（世代门控 + 写透守卫 +
+        // 别名双写 + `invalidate→queue` 时机均在店内；此处仅做载荷适配
         // 与 React 四列表 `patch` 注入，`via`透传，`level`纯L单调）。
         const raw = (payload ?? {}) as unknown as Record<string, unknown>;
         const asStr = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
@@ -204,7 +204,7 @@ export function useAppSubscriptions({
             ? ctx.search_id
             : asStr(raw['search_id'])) ?? '';
         adoptEchoInWindow(currentSearchIdRef, incomingKind, incomingSid);
-        applyHit({
+        admitIconHit({
           id: asStr(raw['id']),
           icon: asStr(raw['icon']),
           level: typeof raw['level'] === 'number' ? (raw['level'] as number) : undefined,

@@ -234,7 +234,7 @@ pub async fn download_icon_bytes(
 /// C1 薄适配器：`get_or_fetch_icon` 只做缓存读→远端拉→单一写入路径，
 /// 探测只经深核匿名兜底（`icons_cycle::fetch_anon_probe_bytes`→`icon_fetch::probe_anon_simple`）。
 /// 缝：文件名分流 + 镜像改写在 `icons_cycle_probe`
-///（`persist_icon_bytes` + `download_via_mirror`，ADR-0002 mirror 只改下载 URL）；
+///（`write_icon_file` + `download_via_mirror`，ADR-0002 mirror 只改下载 URL）；
 /// level 纯L，via 正交由上游事件表达，
 /// 本命令返回 `data:` 永不进盘语义由前端 `applyHit` 守卫（`data:` 只进 M1 内存）。
 /// 全链：infer（URL 后缀暂定 ext）→sniff（内容纠正 real_ext）→单一写入路径
@@ -325,7 +325,7 @@ pub async fn get_or_fetch_icon(
     let db_opt = state.db().ok();
 
     if is_cataloged {
-        icons_cycle::persist_icon_bytes(
+        icons_cycle::write_icon_file(
             &icons_dir,
             db_opt.as_deref(),
             &icons_cycle::IconRef::new(url_trimmed, inferred_ext),
@@ -344,7 +344,7 @@ pub async fn get_or_fetch_icon(
                     crate::db::icon_cycle::claim_cycle_url_slot(&mut cycle, url_trimmed);
 
                 // 单一写入（sniff 纠正 + 残留清理在内），返回最终文件名后固化行。
-                let filename = icons_cycle::persist_icon_bytes(
+                let filename = icons_cycle::write_icon_file(
                     &icons_dir,
                     db_opt.as_deref(),
                     &icons_cycle::IconRef::new(url_trimmed, inferred_ext),
@@ -360,7 +360,7 @@ pub async fn get_or_fetch_icon(
                 let _ = db.upsert_icon_cycle(&cycle);
             } else {
                 // 无 DB（锁失败）：仍经单一路径落盘，行下次重试。
-                let _ = icons_cycle::persist_icon_bytes(
+                let _ = icons_cycle::write_icon_file(
                     &icons_dir,
                     None,
                     &icons_cycle::IconRef::new(url_trimmed, inferred_ext),
@@ -370,7 +370,7 @@ pub async fn get_or_fetch_icon(
             }
         } else {
             // 匿名 id 为空：单一路径落盘（残留清理在内）。
-            let _ = icons_cycle::persist_icon_bytes(
+            let _ = icons_cycle::write_icon_file(
                 &icons_dir,
                 None,
                 &icons_cycle::IconRef::new(url_trimmed, inferred_ext),

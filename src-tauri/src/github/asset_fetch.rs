@@ -195,7 +195,7 @@ pub fn get_cached_asset_url(url: &str) -> String {
 }
 
 /// 下载网关：本地路径或原地址。
-pub async fn get_asset_url(url: &str, app_id: &str) -> String {
+pub async fn fetch_or_cache_asset_url_inner(url: &str, app_id: &str) -> String {
     let trimmed = url.trim();
     if !should_cache_asset(trimmed) {
         return trimmed.to_string();

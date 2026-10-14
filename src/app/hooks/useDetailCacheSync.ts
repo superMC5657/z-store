@@ -1,7 +1,7 @@
 import { useCallback, useRef } from 'react';
 import type { AppDetail, AppDetailViewModel, AppSummary } from '../../types';
 import { api } from '../../services/api';
-import { applyHit, getBufferedIcon, patchAppIconList } from '../../services/iconStore';
+import { admitIconHit, getBufferedIcon, patchAppIconList } from '../../services/iconStore';
 import {
   DETAIL_PLATFORMS_HEAL_EVENT,
   DETAIL_RICHCARD_HEAL_EVENT,
@@ -35,7 +35,7 @@ export interface UseDetailCacheSyncParams {
  * - 内存快照 0ms 秒开 + 后台 ETag 条件探查静默更新；
  * - 后端占位简介永不污染内存快照/列表（富卡非占位兜底，无富卡即存 ''/保留旧值）；
  * - stale 离线详情不碰平台（不确认、不治愈、不碰榜单缓存）；
- * - 图标回填唯一经店内 `applyHit`（`invalidate→preload→patch` 写透四列表，不走窗口总线；data: 永不进盘）。
+ * - 图标回填唯一经店内 `admitIconHit`（`invalidate→queue→patch` 写透四列表，不走窗口总线；data: 永不进盘）。
  */
 function pickRealDescription(v: unknown): string | undefined {
   if (typeof v !== 'string') return undefined;
@@ -113,8 +113,8 @@ export function useDetailCacheSync({
 
   // 同步详情快照缓存与卡片列表数据（消除后台条件探查与主动刷新之间的重复逻辑）
   // 列表 patch 仅在目标命中且字段确变时生成新对象并返回新数组，否则原引用返回，避免无谓全网格重渲染
-  const syncDetailCacheAndAppLists = useCallback((idClean: string, detail: AppDetail, isBackgroundSilent = false) => {
-    // F1：后端占位简介不污染内存快照——先算富卡兜底，落盘即存治愈值，
+  const patchDetailMemoryAndLists = useCallback((idClean: string, detail: AppDetail, isBackgroundSilent = false) => {
+    // F1：后端占位简介不污染内存快照——先算富卡兜底，内存即存治愈值，
     // 后续 handleOpenDetail 命中缓存直接展现实简介，不再闪占位。
     let enrichDesc: string | undefined;
     let enrichDescEn: string | undefined;
@@ -190,7 +190,7 @@ export function useDetailCacheSync({
     }
 
     const rawDetailIcon = typeof detail.icon === 'string' ? detail.icon.trim() : '';
-    // patchedIcon 先分流 data:：data: 仅即时看（Header 经 iconOverride 直显），永不进 patch/applyHit/盘；
+    // patchedIcon 先分流 data:：data: 仅即时看（Header 经 iconOverride 直显），永不进 patch/admitIconHit/盘；
     // 列表回填只用转正 http，data:/空一律按缺席走 cycle 兜底（L5 显式空除外，经 cycle level 5 显式写）。
     const patchedIcon =
       rawDetailIcon !== '' && !rawDetailIcon.startsWith('data:') ? rawDetailIcon : undefined;
@@ -266,7 +266,7 @@ export function useDetailCacheSync({
       return changed ? next : prev;
     };
     // 双键（idClean + detail.id，大小写不敏感）：与 patchSummary 同目标口径，覆盖两者不一致
-    // 图标写口唯一经店内 `applyHit`（写透四列表 + 文件预热 + M1 缓冲，不走窗口总线）。
+    // 图标写口唯一经店内 `admitIconHit`（写透四列表 + 文件预热 + M1 缓冲，不走窗口总线）。
     const iconPatch = (tid: string, icon: string): void => {
       setApps((prev) => patchAppIconList(prev, tid, icon));
       setOnlineApps((prev) => patchAppIconList(prev, tid, icon));
@@ -274,7 +274,7 @@ export function useDetailCacheSync({
       setFavoriteExtraApps((prev) => patchAppIconList(prev, tid, icon));
     };
     setApps(patchList);
-    // 在线段与本地段上下分段展示：详情回填直接落盘 onlineApps（店内 `applyHit` 写透，不走窗口总线）
+    // 在线段与本地段上下分段展示：详情回填打内存补丁到 onlineApps（店内 `admitIconHit` 写透，不走窗口总线）
     setOnlineApps(patchList);
     setRecentlyViewedApps(patchList);
     // 收藏占位行同步治愈：`favoriteIds ∖ apps` 合成行也在详情回填口径内（标记保持不动）
@@ -367,7 +367,7 @@ export function useDetailCacheSync({
     if (patchedIcon) {
       // 详情实图：经店内唯一写口（buffer + 文件预热 + 四列表写透）。
       // patchedIcon 已剥 data:（上分流），此处恒为转正 http，直送安全。
-      applyHit({ id: idClean, icon: patchedIcon, patch: iconPatch });
+      admitIconHit({ id: idClean, icon: patchedIcon, patch: iconPatch });
     } else {
       // 卡有 http 实图 + M1 命中即跳过 getAppIconCycle（省 IPC，所见即存）：
       // 列表已有转正 http 直接画，缓冲已有实图首绘即对；仅双空才走 cycle 兜底。
@@ -399,15 +399,15 @@ export function useDetailCacheSync({
         const persistUrl = remote !== '' ? remote : (!fallbackUrl.startsWith('data:') ? fallbackUrl : '');
         if(!persistUrl){
           // L5/空：显式徽章走唯一写口（`level:5` 显式才扇出列表/镜像；
-          // cycle 空但非 L5 时按下 `applyHit` 空守卫自然丢弃，保持占位）。
+          // cycle 空但非 L5 时按下 `admitIconHit` 空守卫自然丢弃，保持占位）。
           const emptyLevel = typeof cycle?.level === 'number' && cycle.level === 5 ? 5 : undefined;
           if (emptyLevel === 5) {
-            applyHit({ id: idClean, icon: '', level: 5, patch: iconPatch });
+            admitIconHit({ id: idClean, icon: '', level: 5, patch: iconPatch });
           }
           return;
         }
         const cycleLevel = typeof cycle?.level === 'number' ? cycle.level : undefined;
-        applyHit({ id: idClean, icon: persistUrl, level: cycleLevel, patch: iconPatch });
+        admitIconHit({ id: idClean, icon: persistUrl, level: cycleLevel, patch: iconPatch });
       }).catch(() => {
         // 取不到轮换图标则保持占位，不阻塞
       });
@@ -471,7 +471,7 @@ export function useDetailCacheSync({
 
         // 后台静默发起 ETag 条件探查：版本未变（304）后端毫秒级短路，版本变化则静默平滑更新
         api.getAppDetails(id, false).then((updatedDetail) => {
-          syncDetailCacheAndAppLists(idClean, updatedDetail, true);
+          patchDetailMemoryAndLists(idClean, updatedDetail, true);
         }).catch(() => {
           // 静默忽略后台探查异常，保留已展示的快照
         });
@@ -592,7 +592,7 @@ export function useDetailCacheSync({
 
     try {
       const fullDetail = await api.getAppDetails(id, forceRefresh);
-      syncDetailCacheAndAppLists(idClean, fullDetail, false);
+      patchDetailMemoryAndLists(idClean, fullDetail, false);
     } catch (e) {
       if (activeDetailIdRef.current === id) {
         setSelectedApp((prev) =>
@@ -603,13 +603,13 @@ export function useDetailCacheSync({
       }
     }
     await loadRecentViews();
-  }, [appsRef, loadRecentViews, onlineAppsRef, recentsRef, setSelectedApp, syncDetailCacheAndAppLists]);
+  }, [appsRef, loadRecentViews, onlineAppsRef, recentsRef, setSelectedApp, patchDetailMemoryAndLists]);
 
   return {
     appDetailMemoryCache,
     activeDetailIdRef,
     loadRecentViews,
-    syncDetailCacheAndAppLists,
+    patchDetailMemoryAndLists,
     handleOpenDetail,
   };
 }

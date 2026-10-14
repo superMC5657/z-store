@@ -10,12 +10,12 @@
  * - 唯一就绪订阅为 `boards.subscribeBoardHydrated`（单 emit 源，View 侧单订阅，不双订）。
  * - key/TTL/envelope/hydrate/snapshot 一律收为内部 seams：
  *   key 经 `resolveBoardCacheKey`（读写同源），TTL 语义不变（ADR-0007/ADR-0014），
- *   信封/hydrate/快照经 `persistBoardNow`/`hydrateBoardEnrich`/`snapshotBoard*`，
+ *   信封/hydrate/快照经 `maybePersistBoardNow`/`putBoardEnrichMemory`/`snapshotBoard*`，
  *   View 层禁止直调 cache/enrich 底层（`build*CacheKey`/`getDb*`/`hydrate*`/`mark/unmark*`）。
  *   底层导出仅供 slice 内部 + 白盒单测。
  * - L2 归一 key 读写同源，旧非归一 key 按 miss 重抓。
  * - 所有持久化收口于本模块 seam 之后：
- *   `persistBoardNow` / `scheduleBoardPersist` / `flushBoardPersist` /
+ *   `maybePersistBoardNow` / `maybeScheduleBoardPersist` / `flushBoardPersist` /
  *   `noteBoardReposForPersist` / `subscribeBoardPersistOnConfirmedChange`。
  *   View 层禁止直调 `saveBoardCacheMerged` / `hydrate*` / `mark/unmark*`，
  *   仅持有 `enrichedApps` 镜像 + 本模块纯合并函数。
@@ -23,7 +23,7 @@
  *   全部收口于此，View 只做 load/refresh + render/filter/count。
  * - 治愈总线收口：`normalizeHealKeys` + `subscribeTrendHealBus`，
  *   2 路 window 事件（detail-platforms / detail-richcard）
- *   经同一归一 upsert 路径进镜像（图标走 `icon-ready → applyHit` 唯一写口，不走窗口总线）。
+ *   经同一归一 upsert 路径进镜像（图标走 `icon-ready → admitIconHit` 唯一写口，不走窗口总线）。
  * - 首绘门：裸行先展不拦榜，仅升级受门控
  *  （`boardReady` + `swrSyncedResult` + `isUpgradePending`，见下）。
  *
@@ -48,7 +48,7 @@ import {
 import {
   DETAIL_PLATFORMS_HEAL_EVENT,
   DETAIL_RICHCARD_HEAL_EVENT,
-  hydrateTrendEnrichCache,
+  putTrendEnrichMemory,
   isPlaceholderDescription,
   markTrendConfirmedOthers,
   snapshotTrendConfirmedOthers,
@@ -123,7 +123,7 @@ export function noteBoardReposForPersist(ref: BoardCacheRef): void {
 }
 
 /** 直接写透一次（await 落稳；空榜直接返回；失败吞错不影响主流程）。 */
-export async function persistBoardNow(
+export async function maybePersistBoardNow(
   cacheKey: string,
   cacheBoard: TrendBoardId | 'doforce',
   repos: TrendRepo[],
@@ -136,7 +136,7 @@ export async function persistBoardNow(
  * 富卡写透节流：800ms debounce，聚合连击为一次落盘。
  * （timer 归模块，不归 View。）
  */
-export function scheduleBoardPersist(cacheKey: string): void {
+export function maybeScheduleBoardPersist(cacheKey: string): void {
   if (!cacheKey) return;
   const pending = boardPersistTimers.get(cacheKey);
   if (pending) clearTimeout(pending);
@@ -170,7 +170,7 @@ export function subscribeBoardPersistOnConfirmedChange(): () => void {
   return subscribeTrendConfirmedOtherChanges(() => {
     const { cacheKey } = boardPersistRef;
     if (!cacheKey) return;
-    scheduleBoardPersist(cacheKey);
+    maybeScheduleBoardPersist(cacheKey);
   });
 }
 
@@ -493,7 +493,7 @@ export function mergeLitePatchedMirror(
  * lite patched 持久化：hydrate（含 data: 剥空）+ 同榜 key 写透。
  * stale/失败不进 patched，保持 pending 等 settle 兜底。
  */
-export async function persistLitePatched(
+export async function maybePersistLitePatched(
   patched: Map<string, string[]>,
   latest: Record<string, AppSummary>,
 ): Promise<void> {
@@ -509,7 +509,7 @@ export async function persistLitePatched(
     toHydrate[normKey] = { ...cur, icon, platforms: [...plats] };
   }
   if (Object.keys(toHydrate).length === 0) return;
-  hydrateTrendEnrichCache(toHydrate);
+  putTrendEnrichMemory(toHydrate);
   const { cacheKey, cacheBoard, repos } = boardPersistRef;
   if (cacheKey && repos.length > 0) {
     await saveBoardCacheMerged(cacheKey, cacheBoard, repos);
@@ -553,7 +553,7 @@ export async function confirmLiteEmpty(
           : cur;
     }
     if (Object.keys(toHydrate).length > 0) {
-      hydrateTrendEnrichCache(toHydrate);
+      putTrendEnrichMemory(toHydrate);
     }
   } catch {
     // 剥离失败不影响确认标记
@@ -709,7 +709,7 @@ export function commitSettleConfirmed(aliasKeys: readonly string[], toHydrate: R
   try {
     markTrendConfirmedOthers(aliasKeys);
     if (Object.keys(toHydrate).length > 0) {
-      hydrateTrendEnrichCache(toHydrate);
+      putTrendEnrichMemory(toHydrate);
     }
   } catch {
     // 标记失败仍尝试本地落定（调用方继续并镜像）
@@ -733,7 +733,7 @@ export function mergeSettleSyntheticMirror(
 }
 
 /** settle 确认写透：同榜 key 落盘（含确认集），重挂零 lite 直展 Other 卡。 */
-export function persistSettleConfirmed(): void {
+export function maybePersistSettleConfirmed(): void {
   const { cacheKey, cacheBoard, repos } = boardPersistRef;
   if (!cacheKey || repos.length === 0) return;
   try {
@@ -942,7 +942,7 @@ export function applyRichcardHealToMirror(
 }
 
 /** 富卡治愈持久化：hydrate + 节流写透（data: 禁入由 hydrate 保证）。 */
-export function persistRichcardHeal(
+export function maybePersistRichcardHeal(
   latest: Record<string, AppSummary>,
   payload: DetailRichcardHealPayload,
   repoKeys: ReadonlySet<string>,
@@ -981,10 +981,10 @@ export function persistRichcardHeal(
       }
     }
     if (Object.keys(toHydrate).length === 0) return;
-    hydrateTrendEnrichCache(toHydrate);
+    putTrendEnrichMemory(toHydrate);
     const { cacheKey } = boardPersistRef;
     if (!cacheKey) return;
-    scheduleBoardPersist(cacheKey);
+    maybeScheduleBoardPersist(cacheKey);
   } catch {
     // 落盘失败不影响内存 merge
   }
@@ -1002,7 +1002,7 @@ export interface TrendHealBusHandlers {
 }
 
 /**
- * 治愈总线统一订阅：2 路 window 事件经同一归一路径分发（图标经 `icon-ready → applyHit`，不走总线）。
+ * 治愈总线统一订阅：2 路 window 事件经同一归一路径分发（图标经 `icon-ready → admitIconHit`，不走总线）。
  * 调用方只订一次；
  * key 归一（lower-trim 去空）。
  */
@@ -1084,8 +1084,8 @@ export function snapshotBoardEnrich(repos?: TrendRepo[]): Record<string, AppSumm
  * 镜像 hydrate 缝（View 侧唯一 hydrate 出口，不直调 enrich 内部）。
  * data:/未确认 pending/具平台覆盖等守卫仍由 enrich 侧执行。
  */
-export function hydrateBoardEnrich(map: Record<string, AppSummary>): void {
-  hydrateTrendEnrichCache(map);
+export function putBoardEnrichMemory(map: Record<string, AppSummary>): void {
+  putTrendEnrichMemory(map);
 }
 
 /** 当前持久化榜键（供节流调度读取；快照经 noteBoardReposForPersist 同步）。 */
@@ -1207,7 +1207,7 @@ export function useTrendPendingLifecycle(
           setTrendConfirmedOtherIds((prev) => removeConfirmedForConcrete(prev, [...patched.keys()]));
           // 经 board seam 持久化（hydrate + 同榜 key 写透；stale/失败不进 patched，保持 pending）。
           try {
-            await persistLitePatched(patched, enrichedAppsRef.current);
+            await maybePersistLitePatched(patched, enrichedAppsRef.current);
           } catch {
             // 写透失败不影响内存落定，pending 语义不变
           }
@@ -1265,7 +1265,7 @@ export function useTrendPendingLifecycle(
           setEnrichedApps((prev) => mergeSettleSyntheticMirror(prev, toHydrate));
         }
         // 确认写透：经 board seam 同榜 key 落盘（含确认集），重挂零 lite 直展 Other 卡。
-        persistSettleConfirmed();
+        maybePersistSettleConfirmed();
       },
     });
   }, [trendResult, rawItems, enrichedApps, globalConfirmed, combinedConfirmed, activeBoard, trendFetchOpts]);

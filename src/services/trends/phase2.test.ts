@@ -20,7 +20,7 @@ import {
   TREND_ENRICH_SHARD_SIZE,
   clearTrendEnrichCache,
   enrichTrendRepos,
-  hydrateTrendEnrichCache,
+  putTrendEnrichMemory,
   snapshotTrendEnrichCache,
   sweepExpiredTrendEnrichCache,
 } from './enrich';
@@ -64,7 +64,7 @@ describe('Phase2治理：内存有界 FIFO', () => {
     for (let i = 0; i < 501; i += 1) {
       bulk[`acme/r${i}`] = makeEnrichedApp({ id: `acme/r${i}` });
     }
-    hydrateTrendEnrichCache(bulk);
+    putTrendEnrichMemory(bulk);
     const snap = snapshotTrendEnrichCache();
     expect(Object.keys(snap).length).toBeLessThanOrEqual(500);
     // 最旧 acme/r0 被裁剪

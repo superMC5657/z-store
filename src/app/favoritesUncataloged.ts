@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { AppDetail, AppSummary } from '../types';
 import type { AppIconCycleResult } from '../services/api';
 import { api } from '../services/api';
-import { applyHit, patchAppIconList } from '../services/iconStore';
+import { admitIconHit, patchAppIconList } from '../services/iconStore';
 import { appSummaryFromDetail } from '../services/trends/enrich';
 import { isRemoteIcon } from '../components/AppIcon';
 import { normalizeId } from '../services/normalizeId';
@@ -107,7 +107,7 @@ export function favoriteSummaryFromDetail(detail: AppDetail): AppSummary {
 }
 
 /**
- * 收藏占位行图标热替口径（与搜索/最近同一套：店内 `applyHit` 唯一写口读 `app_icon_cycles`
+ * 收藏占位行图标热替口径（与搜索/最近同一套：店内 `admitIconHit` 唯一写口读 `app_icon_cycles`
  * 即前端侧 `resolve_confirmed_icon_from_db` 同源 + 后端 ensure/download 回填）。
  *
  * `pickFavoritePersistIconUrl`：轮换结果取可落盘持久化 URL——`remote_url` 优先，
@@ -252,7 +252,7 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
                 const currentIcon = (summary.icon || '').trim();
                 if (!needsFavoriteIconWarm(currentIcon)) {
                   // 详情已带合法远端：经店内唯一写口做 M1 缓冲 + 文件预热（与搜索同通道，不直调 IPC）。
-                  applyHit({ id: summary.id, icon: currentIcon });
+                  admitIconHit({ id: summary.id, icon: currentIcon });
                   return;
                 }
                 // 无可用远端：查轮换（同步读库命中即返，无则后端补探回填），命中经店内写口热替占位行。
@@ -262,7 +262,7 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
                 const cycleLevel = typeof cycle?.level === 'number' ? cycle.level : undefined;
                 if (!persistUrl) {
                   if (cycleLevel === 5 && !cancelled) {
-                    applyHit({
+                    admitIconHit({
                       id: summary.id,
                       icon: '',
                       level: 5,
@@ -274,7 +274,7 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
                   return;
                 }
                 if (cancelled) return;
-                applyHit({
+                admitIconHit({
                   id: summary.id,
                   icon: persistUrl,
                   level: cycleLevel,

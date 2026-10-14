@@ -1,7 +1,7 @@
 use super::icons_cycle_probe::{
     KNOWN_ICON_EXTS, download_via_mirror, empty_cycle_result, ensure_cycle_levels,
     first_available_level, is_fallback_for_level, load_split_cached_bytes, next_cycle_level,
-    persist_icon_bytes, read_level_cache_file, read_valid_image_file_async, resolve_app_coord,
+    write_icon_file, read_level_cache_file, read_valid_image_file_async, resolve_app_coord,
     source_for_level, IconCycleResult, IconRef,
 };
 use crate::AppState;
@@ -9,7 +9,7 @@ use tauri::State;
 
 // C1 薄适配器：L1–L5 UI 轮换仅非收录应用可切（收录恒 L1，不切换）；
 // 探测经 `ensure_cycle_levels`（L2/L3-live 走 `icon_fetch` 深核，L4 走 `probe_readme` 头部备选 Logo，
-// 正文图永不进链），持久化经单一写入路径 `persist_icon_bytes`（hash 单轨
+// 正文图永不进链），持久化经单一写入路径 `write_icon_file`（hash 单轨
 // `sha256(url)[0:16]+sniff ext`），下载经 `download_via_mirror`
 //（ADR-0002：mirror 只改下载 URL），L5 空选经 `seal_empty_selection` +
 // `empty_cycle_result`（清选中态 + 删旧文件 + `sync_detail_icon("")` 防诈尸），detail 同步内联
@@ -19,7 +19,7 @@ use tauri::State;
 
 /// 循环切换应用图标 (L1..=L5)
 #[tauri::command]
-pub async fn cycle_app_icon(
+pub async fn request_app_icon_cycle(
     state: State<'_, AppState>,
     app_id: String,
 ) -> crate::AppResult<IconCycleResult> {
@@ -28,7 +28,7 @@ pub async fn cycle_app_icon(
     let is_cataloged = catalog_item.is_some();
     if is_cataloged {
         // 加固：收录应用直接返回当前 L1，不切换（防误调）
-        return get_app_icon_cycle(state, app_id).await;
+        return restore_or_fetch_icon_cycle(state, app_id).await;
     }
     let token = crate::commands::resolve_active_github_token(&state);
 
@@ -149,7 +149,7 @@ pub async fn cycle_app_icon(
                 Ok(b) => b,
                 Err(e) => {
                     log::warn!(
-                        "cycle_app_icon download failed id={} level={} target_url='{}' err={}",
+                        "request_app_icon_cycle download failed id={} level={} target_url='{}' err={}",
                         canonical_id,
                         next_level,
                         crate::log_support::sanitize_url(&target_url),
@@ -163,7 +163,7 @@ pub async fn cycle_app_icon(
 
     // 单一写入路径（FINAL hash 单轨，不在命令层双分支；`data:` 永不进盘由下 sync 守卫）。
     let db_opt = state.db().ok();
-    let final_filename = persist_icon_bytes(
+    let final_filename = write_icon_file(
         &icons_dir,
         db_opt.as_deref(),
         &icon,
@@ -196,7 +196,7 @@ pub async fn cycle_app_icon(
 
 /// 只读恢复应用当前图标状态
 #[tauri::command]
-pub async fn get_app_icon_cycle(
+pub async fn restore_or_fetch_icon_cycle(
     state: State<'_, AppState>,
     app_id: String,
 ) -> crate::AppResult<IconCycleResult> {
@@ -254,7 +254,7 @@ pub async fn get_app_icon_cycle(
                 // 真实 ext 落盘，绝不产生无扩展名文件（分流收敛在缝内）。
                 let inferred_ext = crate::commands::icons::infer_icon_ext_from_url(&remote_url).unwrap_or("png");
                 let icon = IconRef::new(&remote_url, inferred_ext);
-                let filename = persist_icon_bytes(
+                let filename = write_icon_file(
                     &icons_dir,
                     state.db().ok().as_deref(),
                     &icon,
@@ -419,7 +419,7 @@ pub async fn get_app_icon_cycle(
     .unwrap_or_default();
             if let Ok(bytes) = download_via_mirror(&state, &client, &remote_url).await {
                 let icon = IconRef::new(&remote_url, inferred_ext);
-                let fn_non = persist_icon_bytes(
+                let fn_non = write_icon_file(
                     &icons_dir,
                     state.db().ok().as_deref(),
                     &icon,

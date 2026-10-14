@@ -2,7 +2,7 @@
  * 回归：搜索页首屏 icon='' 经统一 `zstore://icon-ready` 回填后转 img。
  * 回声 sid 为唯一真源：回声窗内（期望空）live L2/L3 按回声 sid 即收；
  * 期望立定后 `context.search_id` 失配（旧串号）才丢弃保持 initials
- * （与 App.tsx + `iconStore.applyHit` 世代门控同语义）。
+ * （与 App.tsx + `iconStore.admitIconHit` 世代门控同语义）。
  * `level`纯L单调（via正交）；`data:`/`via=m2`只进M1内存；M2首屏直填不走emit。
  */
 import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
@@ -52,7 +52,7 @@ import { AppIcon } from '../components/AppIcon';
 import { api } from '../services/api';
 import {
   __resetIconStoreForTests,
-  applyHit,
+  admitIconHit,
   getBufferedIcon,
   type IconReadyPayload,
 } from '../services/iconStore';
@@ -62,14 +62,14 @@ interface SearchRow {
   icon: string;
 }
 
-// 事件直通 `applyHit`：`context.search_id` 世代门控 + 列表 `patch` 写透（与 App.tsx 回调同语义，`via`透传）。
+// 事件直通 `admitIconHit`：`context.search_id` 世代门控 + 列表 `patch` 写透（与 App.tsx 回调同语义，`via`透传）。
 function applyNewIconReady(
   prev: SearchRow[],
   payload: IconReadyPayload,
   currentSearchId: string,
-): { next: SearchRow[]; accepted: boolean; reason?: string; persisted?: boolean } {
+): { next: SearchRow[]; accepted: boolean; reason?: string; queued?: boolean } {
   let next = prev;
-  const res = applyHit({
+  const res = admitIconHit({
     id: payload.id,
     icon: payload.icon,
     level: payload.level,
@@ -82,7 +82,7 @@ function applyNewIconReady(
       next = patchAppIconList(next as never[], tid, icon) as never as SearchRow[];
     },
   });
-  return { next, accepted: res.accepted, reason: res.reason, persisted: res.persisted };
+  return { next, accepted: res.accepted, reason: res.reason, queued: res.queued };
 }
 
 beforeEach(() => __resetIconStoreForTests());
@@ -177,7 +177,7 @@ describe('icon-ready backfill', () => {
 
   it('via=m2 http 只进M1内存不落盘（仍patch+缓冲）', () => {
     const prev: SearchRow[] = [{ id: 'o/r', icon: '' }];
-    const { next, accepted, reason, persisted } = applyNewIconReady(
+    const { next, accepted, reason, queued } = applyNewIconReady(
       prev,
       {
         id: 'o/r',
@@ -189,7 +189,7 @@ describe('icon-ready backfill', () => {
       'search-1-123',
     );
     expect(accepted).toBe(true);
-    expect(persisted).toBe(false);
+    expect(queued).toBe(false);
     expect(reason).toBe('m2-memory-only');
     expect(next[0].icon).toBe('https://cdn.simpleicons.org/r');
     expect(getBufferedIcon('o/r')).toBe('https://cdn.simpleicons.org/r');

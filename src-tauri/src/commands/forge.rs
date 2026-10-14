@@ -59,7 +59,7 @@ pub async fn set_host_token(
         } else {
             Some(clean_tok.as_str())
         };
-        crate::probe_github_rate_limit(tok_opt).await;
+        crate::probe_and_announce_rate_limit(tok_opt).await;
     }
     Ok(())
 }
@@ -75,7 +75,7 @@ pub async fn remove_host_token(state: State<'_, AppState>, host: String) -> crat
             let mut t = state.github_token.lock().map_err(|e| e.to_string())?;
             *t = None;
         }
-        crate::probe_github_rate_limit(None).await;
+        crate::probe_and_announce_rate_limit(None).await;
     }
     Ok(())
 }
@@ -94,7 +94,7 @@ pub async fn refresh_host_rate_limit(
         db.get_host_token(&clean_host).ok().flatten()
     };
     if clean_host.contains("github.com") {
-        crate::probe_github_rate_limit(token.as_deref()).await;
+        crate::probe_and_announce_rate_limit(token.as_deref()).await;
     }
     tokio::time::sleep(std::time::Duration::from_millis(60)).await;
     let db = state.db()?;

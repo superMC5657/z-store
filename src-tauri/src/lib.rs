@@ -200,7 +200,7 @@ fn probe_headers(token: Option<&str>) -> reqwest::header::HeaderMap {
     )
 }
 
-pub async fn probe_github_rate_limit(token: Option<&str>) {
+pub async fn probe_and_announce_rate_limit(token: Option<&str>) {
     let client = shared_http_client();
     let headers = probe_headers(token);
     if let Ok(resp) = client
@@ -543,7 +543,7 @@ pub fn run() {
 
             let init_token = saved_token.clone();
             tauri::async_runtime::spawn(async move {
-                crate::probe_github_rate_limit(init_token.as_deref()).await;
+                crate::probe_and_announce_rate_limit(init_token.as_deref()).await;
             });
 
             Ok(())
@@ -557,7 +557,7 @@ pub fn run() {
             commands::get_app_details,
             commands::get_platforms_lite,
             commands::get_readme_variants,
-            commands::get_asset_cache_url,
+            commands::fetch_or_cache_asset_url,
             commands::get_asset_cache_stats,
             commands::clear_asset_cache,
             commands::get_icon_cache_stats,
@@ -612,8 +612,8 @@ pub fn run() {
             commands::sync_catalog,
             commands::select_folder,
             commands::get_or_fetch_icon,
-            commands::cycle_app_icon,
-            commands::get_app_icon_cycle,
+            commands::request_app_icon_cycle,
+            commands::restore_or_fetch_icon_cycle,
             commands::open_url,
             commands::watch_app,
             commands::unwatch_app,

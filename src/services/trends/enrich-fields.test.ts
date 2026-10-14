@@ -11,8 +11,8 @@ import {
   clearTrendConfirmedOtherCache,
   clearTrendEnrichCache,
   enrichTrendRepos,
-  hydrateTrendConfirmedOtherCache,
-  hydrateTrendEnrichCache,
+  markConfirmedOthersFreshNow,
+  putTrendEnrichMemory,
   isTrendConfirmedOtherFresh,
   markTrendConfirmedOther,
   markTrendConfirmedOthers,
@@ -70,7 +70,7 @@ afterEach(() => {
 
 describe('per-field TTL：icon sticky / summary 12h（仅具平台）', () => {
   it('新鲜命中不重拉', async () => {
-    hydrateTrendEnrichCache({
+    putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'], description: 'old' }),
     });
     const spy = vi
@@ -83,7 +83,7 @@ describe('per-field TTL：icon sticky / summary 12h（仅具平台）', () => {
 
   it('stale summary 重拉，fresh icon 粘性保留（out 与内存一致）', async () => {
     const t0 = Date.now();
-    hydrateTrendEnrichCache({
+    putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({
         id: 'acme/atlas',
         platforms: ['windows'],
@@ -111,7 +111,7 @@ describe('per-field TTL：icon sticky / summary 12h（仅具平台）', () => {
 
 describe('pending 永不持久化', () => {
   it('hydrate pending 直接跳过（快照无条目）', () => {
-    hydrateTrendEnrichCache({
+    putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [], description: 'pending' }),
     });
     expect(snapshotTrendEnrichCache()).not.toHaveProperty('acme/atlas');
@@ -170,7 +170,7 @@ describe('已确认 Other（需确认标记）', () => {
   it('concrete→evicted（残留标记同步清除）', () => {
     markTrendConfirmedOther('acme/atlas');
     expect(isTrendConfirmedOtherFresh('acme/atlas')).toBe(true);
-    hydrateTrendEnrichCache({
+    putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'] }),
     });
     expect(isTrendConfirmedOtherFresh('acme/atlas')).toBe(false);
@@ -187,7 +187,7 @@ describe('已确认 Other（需确认标记）', () => {
   });
 
   it('无内存条目时 L2 标记仍有效', () => {
-    hydrateTrendConfirmedOtherCache(['acme/ghost']);
+    markConfirmedOthersFreshNow(['acme/ghost']);
     expect(isTrendConfirmedOtherFresh('acme/ghost')).toBe(true);
     expect(snapshotTrendConfirmedOthers()).toContain('acme/ghost');
   });
@@ -196,7 +196,7 @@ describe('已确认 Other（需确认标记）', () => {
 describe('已确认 pending 进内存（Other 写透联动）', () => {
   it('先 mark 后 hydrate：已确认 pending 进内存并可快照', () => {
     markTrendConfirmedOther('acme/atlas');
-    hydrateTrendEnrichCache({
+    putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [], description: 'other' }),
     });
     expect(snapshotTrendEnrichCache()['acme/atlas']?.platforms).toEqual([]);
@@ -204,13 +204,13 @@ describe('已确认 pending 进内存（Other 写透联动）', () => {
   });
 
   it('pending 回填永不覆盖内存已具平台值（即使已标记）', () => {
-    hydrateTrendEnrichCache({
+    putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'] }),
     });
     markTrendConfirmedOthers(['acme/atlas']);
     // 已具平台则 mark 跳过，仍非 Other
     expect(isTrendConfirmedOtherFresh('acme/atlas')).toBe(false);
-    hydrateTrendEnrichCache({
+    putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [], icon: '' }),
     });
     expect(snapshotTrendEnrichCache()['acme/atlas']?.platforms).toEqual(['windows']);
@@ -218,7 +218,7 @@ describe('已确认 pending 进内存（Other 写透联动）', () => {
 
   it('已确认 pending 新鲜命中 enrich（免重拉），stale 到期重拉', async () => {
     markTrendConfirmedOther('acme/atlas');
-    hydrateTrendEnrichCache({
+    putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [], description: 'other' }),
     });
     const spy = vi
@@ -250,10 +250,10 @@ describe('已确认变更订阅（写透联动钩子）', () => {
       expect(events[0]?.kind).toBe('mark');
       expect(events[0]?.keys).toEqual(['acme/atlas']);
       // 读路径 hydrate 不触发
-      hydrateTrendEnrichCache({
+      putTrendEnrichMemory({
         'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [] }),
       });
-      hydrateTrendConfirmedOtherCache(['acme/beacon']);
+      markConfirmedOthersFreshNow(['acme/beacon']);
       expect(events).toHaveLength(1);
       unmarkTrendConfirmedOther('acme/atlas');
       expect(events).toHaveLength(2);
@@ -273,7 +273,7 @@ describe('已确认变更订阅（写透联动钩子）', () => {
 describe('is_stale 透出：stale 条目永不进内存/快照（真零与失败空可区分）', () => {
   it('hydrate stale 直接跳过（快照无条目）', () => {
     markTrendConfirmedOther('acme/atlas');
-    hydrateTrendEnrichCache({
+    putTrendEnrichMemory({
       'acme/atlas': {
         ...makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'] }),
         is_stale: true,

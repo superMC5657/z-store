@@ -147,8 +147,8 @@ export function handleGetAppIconCycle(a: InvokeArgs, cmd: string): AppIconCycleR
   const hit = findSummary(id);
   if (!hit) return null;
   const key = hit.id.toLowerCase();
-  const level = cmd === 'cycle_app_icon' ? (iconLevel.get(key) ?? 0) + 1 : (iconLevel.get(key) ?? 0);
-  if (cmd === 'cycle_app_icon') iconLevel.set(key, level);
+  const level = cmd === 'request_app_icon_cycle' ? (iconLevel.get(key) ?? 0) + 1 : (iconLevel.get(key) ?? 0);
+  if (cmd === 'request_app_icon_cycle') iconLevel.set(key, level);
   return {
     url: hit.icon,
     level,

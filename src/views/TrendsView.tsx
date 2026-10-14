@@ -39,18 +39,18 @@ import {
   collectMissingEnrichRepos,
   flushBoardPersist,
   getBoardPersistKey,
-  hydrateBoardEnrich,
+  putBoardEnrichMemory,
   isEnrichUpgradeAllowed,
   isUpgradePending,
   mergeEnrichFoundMirror,
   mergeSwrConfirmedMirror,
   mergeSwrEnrichedMirror,
   noteBoardReposForPersist,
-  persistBoardNow,
-  persistRichcardHeal,
+  maybePersistBoardNow,
+  maybePersistRichcardHeal,
   removeConfirmedForConcrete,
   resolveBoardCacheKey,
-  scheduleBoardPersist,
+  maybeScheduleBoardPersist,
   snapshotBoardEnrich,
   subscribeBoardPersistOnConfirmedChange,
   subscribeTrendHealBus,
@@ -73,7 +73,7 @@ import {
   matchPlatformSetWithPending,
   type PlatformId,
 } from '../lib/platformFilter';
-import { applyHit, patchIconMirror, subscribeIconWrites } from '../services/iconStore';
+import { admitIconHit, patchIconMirror, subscribeIconWrites } from '../services/iconStore';
 
 /**
  * 趋势榜单一榜一源：调 `fetchTrendsResult(board, { proxyPrefix })`，
@@ -309,7 +309,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
 
   // 未收录行 enrichment：逐仓复用搜索 enrichment（Rust 侧并发 5、分片 20/片×2 片=40 上限、单仓 10s），
   // 成功合并为完整卡片；失败/无命中保持旧小行（enrichTrendRepos 缺席即不写，缺席即展裸行/旧缓存，不等齐）。
-  // 合并 + 写透收口 board（collectMissing + mergeEnrichFoundMirror + persistBoardNow）；
+  // 合并 + 写透收口 board（collectMissing + mergeEnrichFoundMirror + maybePersistBoardNow）；
   // 裸行先展不拦榜，仅富卡升级受 boardReady 门控（swrSyncedResult/isUpgradePending）。
   useEffect(() => {
     if (trendResult?.status !== 'ok') return;
@@ -337,7 +337,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       // enrich 落定后经 board seam 写透同榜 key（await 落稳再返回，刷新 cached_at 即刷新 12h 窗口）。
       if (hasNewEnrich && trendResult.repos.length > 0) {
         const { cacheKey, cacheBoard } = resolveBoardCacheKey(activeBoard, trendFetchOpts);
-        await persistBoardNow(cacheKey, cacheBoard, trendResult.repos);
+        await maybePersistBoardNow(cacheKey, cacheBoard, trendResult.repos);
       }
     });
     return () => {
@@ -369,13 +369,13 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   }, []);
 
   // 趋势流式图标订阅。
-  // 后台 `icon-ready` 经 `applyHit` 接上 `board` 门控逐个补齐富卡图标。
+  // 后台 `icon-ready` 经 `admitIconHit` 接上 `board` 门控逐个补齐富卡图标。
   // 此处只 patch 图标（空值规则由店内保证），
   // 平台逻辑不动；`data:`/`via=m2`只进M1内存不落盘，`remote`才 hydrate + 节流写透榜缓存二级。
   // 双门控正交（勿删其一）：`kind` 门控做榜/搜隔离（本订阅只收 `trend`，search 交 App 处理）；
-  // `applyHit` 内 `search_id/board+gen` 门控做同榜新鲜度判定（双非空不等即 stale，任一为空即放行）。
+  // `admitIconHit` 内 `search_id/board+gen` 门控做同榜新鲜度判定（双非空不等即 stale，任一为空即放行）。
   // 前者防跨榜串写（空 board/gen 在店内一律放行，无 kind 硬过滤即串榜），后者防同榜过期回放；两者不可互相替代。
-  // hydrate/写透经 board seam（hydrateBoardEnrich + scheduleBoardPersist）。
+  // hydrate/写透经 board seam（putBoardEnrichMemory + maybeScheduleBoardPersist）。
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | null = null;
@@ -396,7 +396,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
         if (kind !== 'trend') return;
         const asStr = (v: unknown): string | undefined =>
           typeof v === 'string' ? v : undefined;
-        const res = applyHit({
+        const res = admitIconHit({
           id: asStr(raw['id']),
           icon: asStr(raw['icon']),
           level: typeof raw['level'] === 'number' ? (raw['level'] as number) : undefined,
@@ -443,10 +443,10 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
             }
           }
           if (Object.keys(toHydrate).length === 0) return;
-          hydrateBoardEnrich(toHydrate);
+          putBoardEnrichMemory(toHydrate);
           const cacheKey = getBoardPersistKey();
           if (!cacheKey) return;
-          scheduleBoardPersist(cacheKey);
+          maybeScheduleBoardPersist(cacheKey);
         } catch {
           // 落盘失败不影响内存即时补齐
         }
@@ -469,7 +469,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
 
   // 治愈总线统一订阅：2 路 window 事件（detail-platforms / detail-richcard）
   // 经 board 同一归一 upsert 路径进镜像（normalizeHealKeys + boardRepoKeys 过滤跨榜）。
-  // 图标经 `icon-ready → applyHit` 唯一写口逐个补齐（见上流式订阅），不走窗口总线。
+  // 图标经 `icon-ready → admitIconHit` 唯一写口逐个补齐（见上流式订阅），不走窗口总线。
   // key 归一 lower-trim 同源。
   useEffect(() => {
     return subscribeTrendHealBus({
@@ -485,7 +485,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       onRichcardHeal: (payload: DetailRichcardHealPayload) => {
         const repoKeys = boardRepoKeys(trendResult?.repos);
         setEnrichedApps((prev) => applyRichcardHealToMirror(prev, payload, repoKeys));
-        persistRichcardHeal(enrichedAppsRef.current, payload, repoKeys);
+        maybePersistRichcardHeal(enrichedAppsRef.current, payload, repoKeys);
       },
     });
   }, [trendResult]);
@@ -494,7 +494,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   // 此处不自持 seq/inflight effect（见 `useTrendPendingLifecycle`）。
 
   // 图标写扇出订阅（读侧）：店内唯一写口受理后镜像跟进——覆盖无 patch 的本地写
-  // （如详情轮转切 L5 只调 `applyHit` 不带 patch，榜单行经此清徽章）。
+  // （如详情轮转切 L5 只调 `admitIconHit` 不带 patch，榜单行经此清徽章）。
   // 纯内存合并（`patchIconMirror` 单 interface；`''`/`data:` 不 hydrate/写透，
   // 与 `persistIconChanged` 同规则）；持久化源为 cycle 行/detail_json，remount 重衍生。
   // 卸载即退订。

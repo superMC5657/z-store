@@ -3,12 +3,12 @@ use serde::{Deserialize, Serialize};
 
 // 图标 C1 深核适配层（薄）：探测经 `github::icon_fetch` 深核直调
 // `icon_probe` 原语（L2/L3-live 纯探，不碰 DB/fs），持久化经单一写入路径
-// `persist_icon_bytes`（`catalog vs cycle` 分流收敛在内 + `icons/` 落盘 +
+// `write_icon_file`（`catalog vs cycle` 分流收敛在内 + `icons/` 落盘 +
 // `icon_cache_meta` 同步），下载经 `download_via_mirror`（ADR-0002：mirror 只改
 // 下载 URL，API/登录仍直连）；L1=官方填充 + L4=README 现场扒分居本适配器
 //（详情链专属，不受流式核约束），L5 空选经 `empty_cycle_result` + `seal_empty_selection`。
 // `persist_catalog_icon`/`cleanup_stale_cycle_variants` 为缝内私有，
-// 命令层只经 `persist_icon_bytes`/`download_via_mirror`（probe-vs-persist 缝合一）。
+// 命令层只经 `write_icon_file`/`download_via_mirror`（probe-vs-persist 缝合一）。
 
 // ADR-0008：网络超时统一经 `config::api_timeout_or` 单一来源（统一配置中枢同一键）；
 // 配置为 0（未设置）时回退到调用方传入的历史硬编码值。
@@ -300,7 +300,7 @@ fn persist_catalog_icon(
 /// - 写后触发配额 LRU（只清文件不删 DB URL，见 `enforce_icon_quota_lru`）。
 /// 调用方随后经 `seal_cycle_selection + upsert/set_selected` 固化行（`let _` 吞错）。
 /// ADR-0010：key 经 canonical id 派生；level 纯L，via 正交。
-pub(crate) fn persist_icon_bytes(
+pub(crate) fn write_icon_file(
     icons_dir: &std::path::Path,
     db_opt: Option<&crate::db::Database>,
     icon: &IconRef<'_>,

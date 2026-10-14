@@ -113,7 +113,7 @@ fn test_extract_and_strip_logo_from_readme() {
 }
 
 #[tokio::test]
-async fn test_sync_remote_catalog_local_file() {
+async fn test_fetch_remote_catalog_local_file() {
     let cat = CatalogService::new();
     let cfg = crate::config::get_project_config();
     let target_path = cfg
@@ -121,7 +121,7 @@ async fn test_sync_remote_catalog_local_file() {
         .resolve_local_path()
         .expect("catalog.json should be resolvable via config local_path");
     let target = target_path.to_str().unwrap();
-    let (items, etag) = cat.sync_remote_catalog(target, None).await.unwrap();
+    let (items, etag) = cat.fetch_remote_catalog(target, None).await.unwrap();
     assert!(items.is_some());
     let list = items.unwrap();
     assert!(list.len() >= 20);
@@ -140,7 +140,7 @@ async fn test_sync_remote_catalog_local_file() {
             .as_secs()
     );
     let (no_items, _) = cat
-        .sync_remote_catalog(target, Some(&etag_val))
+        .fetch_remote_catalog(target, Some(&etag_val))
         .await
         .unwrap();
     assert!(no_items.is_none());

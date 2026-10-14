@@ -66,7 +66,7 @@ pub fn get_recently_viewed_apps(state: State<'_, AppState>) -> crate::AppResult<
             continue;
         }
         // 未收录：view_history 存全量 id，catalog 拼不出；回退 DB 详情缓存
-        // （收录/未收录同走 save_detail_with_icon 落全量 detail_json）；
+        // （收录/未收录同走 save_detail_with_cycle_row 落全量 detail_json）；
         // 单条失败跳过不整单丢；仍无命中则跳过（不合成占位，避免污染过滤/计数，
         // 趋势 L2 仍是未收录首展来源）。
         if let Some(summary) = cached_detail_summary(&db, &id) {

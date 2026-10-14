@@ -12,7 +12,7 @@ import {
   sortByHealthyScore,
 } from './parse';
 import {
-  hydrateTrendEnrichCache,
+  putTrendEnrichMemory,
   markTrendConfirmedOther,
   matchCatalogApp,
   snapshotTrendEnrichCache,
@@ -129,7 +129,7 @@ describe('Phase1B C5（SWR）：已确认 pending 进盘直展，未确认永不
     const good = makeEnrichedApp({ id: 'acme/good', platforms: ['windows'], icon: 'https://x/icon.png' });
     // 已确认 pending 方可进内存（先 mark 后 hydrate）
     markTrendConfirmedOther('acme/empty');
-    hydrateTrendEnrichCache({
+    putTrendEnrichMemory({
       'acme/empty': empty,
       'acme/img': dataUri,
       'acme/good': good,
@@ -142,7 +142,7 @@ describe('Phase1B C5（SWR）：已确认 pending 进盘直展，未确认永不
     expect(snap['acme/img']).toBeUndefined();
     // 未确认 pending 永不进内存
     clearTrendEnrichCache();
-    hydrateTrendEnrichCache({ 'acme/empty': empty });
+    putTrendEnrichMemory({ 'acme/empty': empty });
     expect(snapshotTrendEnrichCache()).not.toHaveProperty('acme/empty');
   });
 
