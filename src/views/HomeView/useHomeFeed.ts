@@ -227,10 +227,12 @@ export function useHomeFeed({
   const onlineActive = isSearching && isOnlineResults && onlineHasMore;
   const hasMore = localHasMore || onlineActive;
 
-  const loadMoreRef = useRef<() => void>(() => {});
-  const handleLoadMore = useCallback(() => {
+  // 本地/发现 feed 续刷（哨兵自动触发）：可见数 +20，后端分页跟进。
+  // 在线搜索段永不经此自动续拉——哨兵只续本地段；在线下一页须经 armed 边界条的
+  // 越界手势或按钮显式触发（`useOnlinePullToLoadMore`），避免到底被提前 320px 预取吞掉边界感。
+  const loadLocalRef = useRef<() => void>(() => {});
+  const handleLocalLoadMore = useCallback(() => {
     if (loadingRef.current) return;
-    if (isLoadingOnlineMore) return;
     setVisibleCount((c) => c + HOME_FEED_PAGE);
     if (!isSearching && canUseHomeFeedBackend() && backendActive && backendHasMore) {
       const offset = backendItemsRef.current.length;
@@ -247,11 +249,19 @@ export function useHomeFeed({
           setBackendLoading(false);
         });
     }
+  }, [backendActive, backendHasMore, isSearching]);
+  loadLocalRef.current = handleLocalLoadMore;
+
+  // 显式续拉（按钮点击 / 在线段越界手势）：本地 +20 叠加在线下一页。
+  // `onOnlineLoadMore` 即 `handleOnlineLoadMore`，去重追加/缓存键/has_more 语义在其内部保持不变。
+  const handleLoadMore = useCallback(() => {
+    if (loadingRef.current) return;
+    if (isLoadingOnlineMore) return;
+    handleLocalLoadMore();
     if (isSearching && isOnlineResults && onlineHasMore && onOnlineLoadMore) {
       onOnlineLoadMore();
     }
-  }, [backendActive, backendHasMore, isSearching, isOnlineResults, onlineHasMore, onOnlineLoadMore, isLoadingOnlineMore]);
-  loadMoreRef.current = handleLoadMore;
+  }, [handleLocalLoadMore, isSearching, isOnlineResults, onlineHasMore, onOnlineLoadMore, isLoadingOnlineMore]);
 
   useEffect(() => {
     const el = sentinelRef.current;
@@ -259,13 +269,13 @@ export function useHomeFeed({
     if (!hasMore) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((e) => e.isIntersecting)) loadMoreRef.current();
+        if (entries.some((e) => e.isIntersecting)) loadLocalRef.current();
       },
       { rootMargin: '320px 0px' },
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [hasMore, useBackendList, displayedFeed.length, onlineActive, isOnlineResults]);
+  }, [hasMore, useBackendList, displayedFeed.length]);
 
   return {
     heroApp,

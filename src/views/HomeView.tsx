@@ -7,6 +7,7 @@ import {
   Play,
   Zap,
   ArrowRight,
+  ChevronsDown,
   Clock,
   Trash2,
   Package,
@@ -24,6 +25,7 @@ import {
 } from './ViewShell';
 import type { FeedStrategy } from '../services/feed';
 import { useHomeFeed, HOME_FEED_PAGE } from './HomeView/useHomeFeed';
+import { useOnlinePullToLoadMore } from './HomeView/useOnlinePullToLoadMore';
 import { queueAssembledRowIcons } from '../services/iconStore';
 import { isPlatformPending } from '../lib/platformFilter';
 import { isInstalledUnion as selectIsInstalledUnion, selectIsDetectedOnlyOpt, selectIsManagedOpt } from '../app/selectors';
@@ -115,6 +117,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
     onlineHasMore,
     isLoadingOnlineMore,
     onOnlineLoadMore,
+  });
+
+  // 在线段越界续拉：armed 边界条可见 + 滚动到底 + 继续下拉手势才调 handleLoadMore（续 1 页 20 个）。
+  // 到底本身不自动拉；加载中/失败中不重复触发，冷静过后可再拉重试。
+  const onlineArmedRef = useOnlinePullToLoadMore({
+    enabled: onlineActive,
+    loading: isSearchingOnline || isLoadingOnlineMore,
+    onLoadMore: handleLoadMore,
   });
 
   // 组装落盘补齐：首页各列表段（置顶/精选/feed/最近浏览/在线段）http 远端图标入队进盘
@@ -431,21 +441,40 @@ export const HomeView: React.FC<HomeViewProps> = ({
               ))}
             </div>
           )}
-          {/* 在线段底部哨兵：触底自动 page+1 追加到在线段；不可用时靠下方按钮兜底 */}
+          {/* 在线段底部哨兵：只续本地段，在线段不触底自动拉（见 useHomeFeed 注释） */}
           <div ref={sentinelRef} data-testid="feed-sentinel" className="feed-sentinel" aria-hidden="true" />
           {onlineActive ? (
-            <div className="feed-more-row">
-              <button
-                type="button"
-                data-testid="feed-load-more"
-                className="btn-fluent btn-secondary"
-                onClick={handleLoadMore}
-                disabled={isLoadingOnlineMore}
-              >
-                {isLoadingOnlineMore
-                  ? t('home.feed_loading', '正在加载…')
-                  : t('search.online_load_more', '加载更多在线结果')}
-              </button>
+            <div
+              ref={onlineArmedRef}
+              data-testid="online-armed-boundary"
+              className="online-armed"
+              data-loading={isSearchingOnline || isLoadingOnlineMore ? 'true' : 'false'}
+            >
+              <div className="online-armed-line">
+                <ChevronsDown size={15} aria-hidden="true" />
+                <span>
+                  {isSearchingOnline || isLoadingOnlineMore
+                    ? t('search.online_loading_more', '正在加载下 20 个…')
+                    : t('search.online_armed_more', '已到底 · 继续下拉加载更多')}
+                </span>
+                <ChevronsDown size={15} aria-hidden="true" />
+              </div>
+              <div className="online-armed-sub">
+                {t('search.online_armed_hint', `已加载 ${onlineApps.length} 个 · 每次续拉 20 个`)}
+              </div>
+              <div className="feed-more-row online-armed-btn">
+                <button
+                  type="button"
+                  data-testid="feed-load-more"
+                  className="btn-fluent btn-secondary"
+                  onClick={handleLoadMore}
+                  disabled={isSearchingOnline || isLoadingOnlineMore}
+                >
+                  {isSearchingOnline || isLoadingOnlineMore
+                    ? t('home.feed_loading', '正在加载…')
+                    : t('search.online_load_more', '加载更多在线结果')}
+                </button>
+              </div>
             </div>
           ) : (
             onlineApps.length > 0 && !onlineHasMore && (
