@@ -52,11 +52,17 @@ pub fn get_home_feed(
     })
 }
 
+/// 类别页分页（与发现页 `FeedPage` 同形 `{items,total,has_more}`）：
+/// - `page`/`per_page` 均为 None=默认（第 1 页 20 条，与发现页 `HOME_FEED_PAGE`、在线搜索对齐）；
+/// - `per_page` 复用搜索钳制 1-50（`clamp_online_search_per_page`），`page` 下限 1；
+/// - 过滤语义不变（`category`/`category_name` 大小写不敏感 + 隐藏规则）。
 #[tauri::command]
 pub fn get_category_apps(
     state: State<'_, AppState>,
     category: String,
-) -> crate::AppResult<Vec<AppSummary>> {
+    page: Option<u32>,
+    per_page: Option<u32>,
+) -> crate::AppResult<FeedPage> {
     let cat_clean = category.trim().to_lowercase();
     let hidden_ids: std::collections::HashSet<String> =
         super::catalog_search::hidden_rule_ids(&state);
@@ -70,5 +76,84 @@ pub fn get_category_apps(
         })
         .collect();
 
-    Ok(filtered)
+    let (offset, limit) = category_page_window(&crate::config::get_project_config().limits, page, per_page);
+    let (items, total, has_more) =
+        crate::github::catalog_feed_score::paginate_feed(&filtered, limit, offset);
+    Ok(FeedPage {
+        items,
+        total,
+        has_more,
+    })
+}
+
+/// 类别页分页窗口归一（纯函数，可单测）：`page` 下限 1，
+/// `per_page` 复用搜索钳制；返回 `(offset, limit)`。
+fn category_page_window(
+    limits: &crate::config::LimitsConfig,
+    page: Option<u32>,
+    per_page: Option<u32>,
+) -> (usize, usize) {
+    let limit = limits.clamp_online_search_per_page(per_page);
+    let eff_page = crate::config::LimitsConfig::normalize_online_search_page(page);
+    (
+        (eff_page as usize).saturating_sub(1).saturating_mul(limit),
+        limit,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn windowed(total: usize, page: Option<u32>, per_page: Option<u32>) -> (Vec<usize>, usize, bool) {
+        let items: Vec<usize> = (0..total).collect();
+        let (offset, limit) =
+            category_page_window(&crate::config::LimitsConfig::default(), page, per_page);
+        crate::github::catalog_feed_score::paginate_feed(&items, limit, offset)
+    }
+
+    #[test]
+    fn category_first_page_defaults_to_20() {
+        // 默认 None/None=第 1 页 20 条（与发现页/在线搜索对齐）。
+        let (items, total, has_more) = windowed(52, None, None);
+        assert_eq!(items.len(), 20);
+        assert_eq!(items[0], 0);
+        assert_eq!(total, 52);
+        assert!(has_more);
+    }
+
+    #[test]
+    fn category_second_page_appends_without_overlap() {
+        // 第二页去重续接：[20..40)，仍有下一页。
+        let (p1, _, _) = windowed(52, Some(1), None);
+        let (p2, total, has_more) = windowed(52, Some(2), None);
+        assert_eq!(p2.len(), 20);
+        assert_eq!(p2[0], 20);
+        assert!(p1.iter().all(|i| !p2.contains(i)));
+        assert_eq!(total, 52);
+        assert!(has_more);
+    }
+
+    #[test]
+    fn category_last_page_clears_has_more() {
+        // 52 条尾页 12 条且 has_more=false；越界页空且 false。
+        let (last, total, has_more) = windowed(52, Some(3), None);
+        assert_eq!(last.len(), 12);
+        assert_eq!(total, 52);
+        assert!(!has_more);
+        let (over, _, over_more) = windowed(52, Some(99), None);
+        assert!(over.is_empty());
+        assert!(!over_more);
+    }
+
+    #[test]
+    fn category_per_page_clamps_like_search() {
+        // 钳制复用搜索同族：500→50，0→1。
+        let (offset, limit) =
+            category_page_window(&crate::config::LimitsConfig::default(), Some(1), Some(500));
+        assert_eq!((offset, limit), (0, 50));
+        let (offset, limit) =
+            category_page_window(&crate::config::LimitsConfig::default(), Some(2), Some(0));
+        assert_eq!((offset, limit), (1, 1));
+    }
 }

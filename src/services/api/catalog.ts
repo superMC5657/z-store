@@ -186,8 +186,24 @@ export async function clearIconCache(): Promise<number> {
   return tauriInvoke<number>(CMD.clearIconCache);
 }
 
-export async function getCategoryApps(category: string): Promise<AppSummary[]> {
-  return tauriInvoke<AppSummary[]>(CMD.getCategoryApps, { category });
+/**
+ * 类别页默认页大小：与发现页 `HOME_FEED_PAGE`、在线搜索 `ONLINE_SEARCH_PER_PAGE` 对齐（20/页）。
+ */
+export const CATEGORY_APPS_PER_PAGE = 20;
+
+export async function getCategoryApps(
+  category: string,
+  page?: number,
+  perPage?: number,
+): Promise<HomeFeedResult> {
+  const args: Record<string, unknown> = { category };
+  if (page !== undefined && page !== null) args.page = page;
+  if (perPage !== undefined && perPage !== null) args.per_page = perPage;
+  // 类别页分页与发现页同形 `{ items, total, has_more }`（后端 snake_case）。
+  const raw = await tauriInvoke<HomeFeedRaw>(CMD.getCategoryApps, args);
+  const items = Array.isArray(raw?.items) ? (raw as { items: AppSummary[] }).items : [];
+  const total = typeof raw?.total === 'number' && Number.isFinite(raw.total) ? raw.total : items.length;
+  return { items, total, has_more: raw?.has_more === true };
 }
 
 export async function getCatalogCount(): Promise<number> {
