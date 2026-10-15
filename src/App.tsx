@@ -22,7 +22,7 @@ import { FavoritesView } from './views/FavoritesView';
 import { EmptyState } from './components/EmptyState';
 import { Search } from 'lucide-react';
 import { AppDetailViewModel, AppSummary, OAuthUser, UpdateItem, UpdateCheckProgressPayload, UpdateRule, ViewType, WatchUpdatedPayload } from './types';
-import { api } from './services/api';
+import { tauriApi } from './services/api';
 import { togglePlatformSet, type PlatformId } from './lib/platformFilter';
 import { isPlatformPending } from './lib/platformFilter';
 import { patchAppIconList, subscribeIconWrites } from './services/iconStore';
@@ -48,12 +48,6 @@ import { useToasts } from './useToasts';
 import { useAppSettings } from './useAppSettings';
 import { useTranslation } from 'react-i18next';
 import './i18n';
-
-export {
-  PLATFORM_FILTER_STORAGE_KEY,
-  parseSelectedPlatforms,
-  loadSelectedPlatforms,
-};
 
 export const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewType>('home');
@@ -82,7 +76,7 @@ export const App: React.FC = () => {
   const [watchedIds, setWatchedIds] = useState<Set<string>>(new Set());
   const [watchNotifications, setWatchNotifications] = useState<WatchUpdatedPayload[]>([]);
   // 任务 3（设备平台全局过滤）：App 级别多选平台状态，默认选中全部 6 种 PLATFORM_IDS（含虚拟 other），
-  // 仅持久化至 localStorage——刻意不接入 api.getSettings()/UserDataBackup（仅为本地界面偏好，非备份数据）。
+  // 仅持久化至 localStorage——刻意不接入 tauriApi.getSettings()/UserDataBackup（仅为本地界面偏好，非备份数据）。
   const [selectedPlatforms, setSelectedPlatforms] = useState<Set<PlatformId>>(() => loadSelectedPlatforms());
   // FR-7 OAuth 登录态（详情弹窗标星门控）
   const [oauthUser, setOAuthUser] = useState<OAuthUser | null>(null);
@@ -364,7 +358,7 @@ export const App: React.FC = () => {
 
   const handleClearRecentViews = async () => {
     try {
-      await api.clearViewHistory();
+      await tauriApi.clearViewHistory();
       setRecentlyViewedApps([]);
       showToast(t('toast.clear_history_success'), 'info');
     } catch {
@@ -378,9 +372,9 @@ export const App: React.FC = () => {
     const isWatched = watchedRef.current.has(id);
     try {
       if (isWatched) {
-        await api.unwatchApp(id);
+        await tauriApi.unwatchApp(id);
       } else {
-        await api.watchApp(id);
+        await tauriApi.watchApp(id);
       }
     } catch (e) {
       showToast(t('toast.watch_failed', { error: String(e) }), 'error');
@@ -408,7 +402,7 @@ export const App: React.FC = () => {
 
   // 切换收藏状态（稳定回调，供 memo 卡片复用）
   const handleToggleFavorite = useCallback(async (id: string) => {
-    await api.toggleFavorite(id);
+    await tauriApi.toggleFavorite(id);
     setFavoriteIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
@@ -438,14 +432,14 @@ export const App: React.FC = () => {
   const handleImportSuccess = async (count: number) => {
     showToast(t('toast.batch_import_success', { count }), 'success');
     try {
-      const loadedInstalled = await api.getInstalledApps();
+      const loadedInstalled = await tauriApi.getInstalledApps();
       setInstalledApps(loadedInstalled);
     } catch {
       /* Toast 提示后刷新静默失败 */
     }
 
     // 后台静默执行远端更新检查，绝不阻塞本地已安装列表呈现与界面交互
-    api
+    tauriApi
       .checkForUpdates(false)
       .then((loadedUpdates) => {
         setUpdates(loadedUpdates);
@@ -454,7 +448,7 @@ export const App: React.FC = () => {
   };
 
   const handleSelectMirror = async (mirrorId: string) => {
-    await api.switchMirror(mirrorId);
+    await tauriApi.switchMirror(mirrorId);
   };
 
   // 跳转设置页 GitHub 账号区（侧栏登录胶囊入口）

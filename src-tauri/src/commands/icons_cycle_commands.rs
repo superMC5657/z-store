@@ -87,7 +87,7 @@ pub async fn request_app_icon_cycle(
     let next_level = next_cycle_level(cycle.level, &cycle);
 
     // Level 5: 空（始终可用，直接置空，无需下载；L5 "" 收敛在缝内）。
-    // 旧缓存文件保留不删，配额 LRU 按 mtime 淘汰。
+    // 同 hash 同 ext 的非选中文件保留不删，配额 LRU 按 mtime 淘汰。
     if next_level == 5 {
         crate::db::icon_cycle::seal_empty_selection(&mut cycle);
         // 02 手动轮换保护：用户手动切档即 pinned，后续详情刷新只补槽不改选中。

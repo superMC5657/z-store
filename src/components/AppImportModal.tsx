@@ -10,7 +10,7 @@ import {
   Info,
 } from 'lucide-react';
 import { AppMatchResult, ImportAppRequest } from '../types';
-import { api } from '../services/api';
+import { tauriApi } from '../services/api';
 import { EmptyState } from './EmptyState';
 
 interface AppImportModalProps {
@@ -37,7 +37,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
     setIsLoading(true);
     setError(null);
 
-    api
+    tauriApi
       .scanAndMatchLocalApps()
       .then((results) => {
         if (!isMounted) return;
@@ -101,7 +101,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
 
     try {
       setIsImporting(true);
-      const importedCount = await api.importMatchedApps(toImport);
+      const importedCount = await tauriApi.importMatchedApps(toImport);
       onImportSuccess(importedCount);
       onClose();
     } catch (err) {

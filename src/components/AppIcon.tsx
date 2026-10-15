@@ -70,7 +70,7 @@ export const AppIcon: React.FC<AppIconProps> = ({
   // storeIcon（扇出即时态）优先，其次 M1 缓冲（getBufferedIcon 唯一口，迟到 icon-ready 首绘即对），
   // 最后回落父 prop；空（`''`/L5）恒徽章（不回读旧缓存，防复活旧图，见 `HomeView.search-icon` 回归线）。
   // level 单调由店内 `admitIconHit` 保证，此处不判 level；列表空壳补齐经上游
-  // `assembleOnlineRowsWithIcons`/`stickyIconFor`（店内唯一口），
+  // `assembleOnlineRowsWithIcons`/`resolveIconWithBuffer`（店内唯一口），
   // 本组件只按 resolved 图标展示（空即徽章）——写口唯一在店内 `admitIconHit`（`invalidate→queue→patch`），
   // 此处不自发 IPC、不订阅窗口总线。
   // 首绘回读经 `getBufferedIcon` 同步读 M1，盘 dataUri 经 `getCachedIconDataUri` 同步读内存态（入队落盘后），

@@ -2,7 +2,7 @@ use serde::{Serialize, Serializer};
 use thiserror::Error;
 
 /// 应用统一错误类型（实现 thiserror + Serialize + From 转换链）。
-/// 在 Tauri 命令边界序列化为纯错误字符串，完全兼容前端现有错误处理逻辑与文案。
+/// 在 Tauri 命令边界序列化为纯错误字符串，供统一错误边界展示。
 #[derive(Debug, Error)]
 pub enum AppError {
     #[error("{0}")]

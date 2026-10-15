@@ -2,7 +2,7 @@ use super::{AppMatchResult, AppScanner, ScannedRawApp};
 use crate::github::CatalogItem;
 
 /// 路径边界匹配（禁子串 `contains`，防 `test` 误命中 `/usr/bin/test` 同类误配）：
-/// 候选（已小写）须为路径文件名本身（含 `.exe` 形态兼容），或以 `/候选` / `\候选` 结尾；
+/// 候选（已小写）须为路径文件名本身（含 `.exe` 形态），或以 `/候选` / `\候选` 结尾；
 /// DisplayIcon 的 `,0` / `,-1` 数字后缀先剥离，末尾路径分隔符先裁剪；
 /// 大小写规则与既有 lowercase 一致（输入皆已 lower）。
 fn path_matches_candidate(hay_lower: &str, cand_lower: &str) -> bool {
@@ -24,7 +24,7 @@ fn path_matches_candidate(hay_lower: &str, cand_lower: &str) -> bool {
         return false;
     }
     let fname = h.rsplit(['/', '\\']).next().unwrap_or(h);
-    // 文件名相等（含 `motrix` vs `motrix.exe` 裸名兼容，大小写已统一 lower）
+    // 文件名相等（含 `motrix` vs `motrix.exe` 裸名等价，大小写已统一 lower）
     if fname == cand_lower {
         return true;
     }

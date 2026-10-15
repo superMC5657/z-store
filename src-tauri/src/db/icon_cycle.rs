@@ -288,7 +288,7 @@ impl Database {
         Ok(rows > 0)
     }
 
-    // --- 便捷别名 (兼容 get / upsert / set_level 简洁调用) ---
+    // --- 便捷别名 (get / upsert / set_level 简洁调用) ---
 
     pub fn get(&self, app_id: &str) -> Result<Option<AppIconCycle>> {
         self.get_icon_cycle(app_id)
@@ -507,7 +507,7 @@ pub fn seal_cycle_selection(
 /// cycle 命令层 L5 一律经此，不手写 `""` 散赋值（L5 `""` 泄漏收敛在缝内）；
 /// 写侧 `detail_json.icon` 显式清空（`""`）由调用方内联直写，不经薄 helper。
 /// FINAL：L5 清对应选中态（selected/cache 双空），`l1..l4` 备选 URL 保留供重选，
-/// 旧缓存文件保留不删（配额 LRU 按 mtime 淘汰）；`sync_detail_icon("")` 由调用方保证（见 cycle 命令层）。
+/// 同 hash 同 ext 的非选中文件保留不删（配额 LRU 按 mtime 淘汰）；`sync_detail_icon("")` 由调用方保证（见 cycle 命令层）。
 pub fn seal_empty_selection(cycle: &mut AppIconCycle) {
     seal_cycle_selection(cycle, 5, "", String::new());
 }

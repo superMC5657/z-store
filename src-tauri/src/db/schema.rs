@@ -157,26 +157,6 @@ impl Database {
             );
             "#,
         )?;
-        // 存量库迁移（02 手动轮换保护）：升级前已存在的 `app_icon_cycles` 无 `pinned` 列，
-        // 此处补列（新库经 CREATE TABLE 已含列，判空跳过；重复 open 幂等）。
-        if !Self::icon_cycle_has_pinned(&self.conn)? {
-            self.conn.execute(
-                "ALTER TABLE app_icon_cycles ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
-                [],
-            )?;
-        }
         Ok(())
-    }
-
-    /// 存量列存在性探测：`PRAGMA table_info` 逐列比对列名（不持有锁，open 幂等）。
-    fn icon_cycle_has_pinned(conn: &rusqlite::Connection) -> Result<bool> {
-        let mut stmt = conn.prepare("PRAGMA table_info(app_icon_cycles)")?;
-        let cols = stmt.query_map([], |row| row.get::<_, String>(1))?;
-        for col in cols {
-            if col? == "pinned" {
-                return Ok(true);
-            }
-        }
-        Ok(false)
     }
 }

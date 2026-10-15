@@ -161,7 +161,7 @@ fn prefix_sid_req(sid: &str, req: &str) -> String {
 }
 
 /// 日志级别覆盖：`ZSTORE_LOG` 优先，`RUST_LOG` 兜底，均缺失时用编译期默认。
-/// 解析大小写不敏感，兼容 `debug` 与 `zstore_lib=debug` 形态；非法值回退默认。
+/// 解析大小写不敏感，接受 `debug` 与 `crate=debug` 形态；非法值回退默认。
 pub fn parse_level_str(s: &str) -> Option<log::LevelFilter> {
     let lower = s.trim().to_lowercase();
     // 取 `=` 后段（如 `crate=debug`），再取 `,` 首段。
@@ -264,7 +264,7 @@ fn find_ci(hay: &str, needle: &str, from: usize) -> Option<usize> {
 }
 
 /// 键值脱敏：`code` / `device_code` / `user_code` / `api_key` 系（大小写不敏感）。
-/// 兼容 `=` / `:` / 空格 / 引号分隔的 JSON 与 query 形态；值遇空白/引号/`,;})` 截断。
+/// 支持 `=` / `:` / 空格 / 引号分隔的 JSON 与 query 形态；值遇空白/引号/`,;})` 截断。
 /// 键边界：命中仅当“前一字节为起始或 `? & ; 空白 \" ' { ,`”且“后一字节为
 /// `= : 空白 \" '`”时才视为键值；路径段内子串（如 `vscode`）永不触发。
 /// 全分支 ASCII 字节判定，字符边界安全，无正则，永不 panic。

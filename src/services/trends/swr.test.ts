@@ -194,7 +194,7 @@ describe('SWR 旧富卡直展：已确认 Other 落盘后重挂直展富卡', ()
     expect(payload.enrich['acme/atlas']?.platforms).toEqual(['windows']);
   });
 
-  it('归一 key 直命中：大小写/空格归一后单次读盘命中，无 legacy 回迁', async () => {
+  it('归一 key 直命中：大小写/空格归一后单次读盘命中', async () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
     const newKey = buildTrendsCacheKey('weekly', { language: ' Python ' });
     expect(newKey).toBe('weekly|python|');

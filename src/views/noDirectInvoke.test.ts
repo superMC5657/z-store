@@ -4,7 +4,7 @@
  * - View 层禁止直调 Tauri IPC：全部调用必须经 `src/services/api.ts` 的
  *   `tauriApi` 方法，命令名统一收敛于表驱动 `CMD`。
  * - View 层禁止导入 `@tauri-apps/api/core`。
- * - 引用 `../services/api` 的 View 必须使用 `tauriApi` 命名（`api` 仅为历史别名）。
+ * - 引用 `../services/api` 的 View 必须使用 `tauriApi` 命名。
  * - `api.ts` 必须导出表驱动 `CMD`。
  */
 import { describe, expect, it } from 'vitest';
@@ -39,8 +39,9 @@ describe('views go through tauriApi, never invoke directly', () => {
   });
 
   it('views importing ../services/api use the tauriApi name', () => {
+    const apiImport = /from\s+['"]\.\.\/services\/api['"]/;
     const offenders = viewSources()
-      .filter(({ text }) => text.includes('../services/api') && !text.includes('tauriApi'))
+      .filter(({ text }) => apiImport.test(text) && !text.includes('tauriApi'))
       .map(({ file }) => file);
     expect(offenders).toEqual([]);
   });

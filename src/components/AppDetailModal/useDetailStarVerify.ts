@@ -1,12 +1,10 @@
 import { useEffect, useState } from 'react';
-import { api } from '../../services/api';
+import { tauriApi } from '../../services/api';
 import { notifyToast } from '../../utils/notify';
 
 /**
- * AppDetailModal 标星关注点 Hook（FR-7）。
+ * AppDetailModal 标星关注点 Hook（FR-7）：维护详情弹窗 GitHub 标星态与切换处理器。
  * 已认证蓝标由 catalog 驱动展示（is_verified + VerifiedBadge），不经此 Hook。
- * 纯粹提取原 AppDetailModal.tsx 内联的标星状态及对应处理器。
- * 无任何行为变更；弹窗组件对外属性保持原样。
  */
 export function useDetailStarVerify(opts: {
   appId: string;
@@ -28,7 +26,7 @@ export function useDetailStarVerify(opts: {
       setIsStarred(false);
       return;
     }
-    api.isStarred(appId).then((v) => {
+    tauriApi.isStarred(appId).then((v) => {
       if (!cancelled) setIsStarred(v);
     }).catch(() => {
       if (!cancelled) setIsStarred(false);
@@ -44,22 +42,22 @@ export function useDetailStarVerify(opts: {
     setIsStarring(true);
     try {
       if (isStarred) {
-        await api.unstarApp(appId);
+        await tauriApi.unstarApp(appId);
         setIsStarred(false);
-        notifyToast(`已取消对 ${appName} 的 GitHub 收藏`, 'info');
+        notifyToast(`已取消对 ${appName} 的 GitHub 标星`, 'info');
       } else {
-        const res = await api.starApp(appId);
+        const res = await tauriApi.starApp(appId);
         setIsStarred(true);
         if (res.warning) {
           notifyToast(res.warning, 'warning');
         } else {
-          notifyToast(`已在 GitHub 上标星 ${appName}，并存入 z-store-list 列表 ★`, 'success');
+          notifyToast(`已在 GitHub 上标星 ${appName}，并存入 user_stars ★`, 'success');
         }
       }
     } catch (e) {
       const errStr = String(e);
       if (errStr.includes('请先完成 GitHub 登录') || errStr.includes('未配置') || errStr.includes('401')) {
-        notifyToast('请先在「设置」中登录 GitHub 账号，即可使用 GitHub 收藏/标星功能', 'info');
+        notifyToast('请先在「设置」中登录 GitHub 账号，即可使用 GitHub 标星功能', 'info');
       } else {
         notifyToast(`GitHub 标星失败: ${errStr}`, 'error');
       }

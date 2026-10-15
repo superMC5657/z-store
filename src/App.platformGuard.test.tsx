@@ -26,7 +26,7 @@ vi.mock('./services/api', () => {
     'getHostTokens',
     'getSearchHistory',
   ]);
-  const api = new Proxy(
+  const tauriApi = new Proxy(
     {},
     {
       get(_t, prop: string) {
@@ -40,7 +40,7 @@ vi.mock('./services/api', () => {
     },
   );
   return {
-    api,
+    tauriApi,
     DEFAULT_SETTINGS: {
       theme: 'dark',
       ui_scale: '100',
@@ -57,7 +57,8 @@ vi.mock('./services/api', () => {
   };
 });
 
-import { App, PLATFORM_FILTER_STORAGE_KEY } from './App';
+import { App } from './App';
+import { PLATFORM_FILTER_STORAGE_KEY } from './app/platformStorage';
 
 // 下方的同一 tick 派发直接使用 React.act（而非通过 fireEvent），
 // 显式为 jsdom 环境启用 act() 以避免无害告警。

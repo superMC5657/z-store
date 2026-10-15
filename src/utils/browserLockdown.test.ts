@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { isBlockedShortcut, initBrowserLockdown } from './browserLockdown';
-import { api } from '../services/api';
+import { tauriApi } from '../services/api';
 
 vi.mock('../services/api', () => ({
-  api: {
+  tauriApi: {
     openUrl: vi.fn(),
   },
 }));
@@ -95,12 +95,12 @@ describe('browserLockdown', () => {
       expect(typeof window.print).toBe('function');
       window.print();
 
-      // 2. window.open 转走 api.openUrl
+      // 2. window.open 转走 tauriApi.openUrl
       const res = window.open('https://example.com');
       expect(res).toBeNull();
-      expect(api.openUrl).toHaveBeenCalledWith('https://example.com');
+      expect(tauriApi.openUrl).toHaveBeenCalledWith('https://example.com');
 
-      // 3. 点击 a[target="_blank"] 事件委托走 api.openUrl
+      // 3. 点击 a[target="_blank"] 事件委托走 tauriApi.openUrl
       const link = document.createElement('a');
       link.href = 'https://github.com/superMC5657/z-store';
       link.target = '_blank';
@@ -109,7 +109,7 @@ describe('browserLockdown', () => {
       const evt = new MouseEvent('click', { bubbles: true, cancelable: true });
       link.dispatchEvent(evt);
       expect(evt.defaultPrevented).toBe(true);
-      expect(api.openUrl).toHaveBeenCalledWith('https://github.com/superMC5657/z-store');
+      expect(tauriApi.openUrl).toHaveBeenCalledWith('https://github.com/superMC5657/z-store');
 
       document.body.removeChild(link);
     });

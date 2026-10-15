@@ -9,7 +9,7 @@ pub(crate) fn resolve_managed_app_id(raw: &str) -> Result<String, String> {
     super::require_app_id(raw)
 }
 
-/// 审查项 3.2-3 无架构变更标记：在不执行数据库迁移的前提下 `InstalledApp` 无 missing 标记
+/// 审查项 3.2-3 无架构变更标记：无 schema 变更下 `InstalledApp` 无 missing 标记
 /// （models.rs 保持刻意未动），因此幽灵应用在返回视图中被隐藏，但数据库记录予以保留。
 /// 纯过滤函数 —— 执行 0 次数据库/缓存删除操作；幽灵计数在 `get_installed_apps` 中通过日志体现。
 /// 仅当用户显式调用卸载/取消管理时才执行实际删除。

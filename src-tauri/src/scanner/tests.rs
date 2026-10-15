@@ -217,7 +217,7 @@ fn test_match_expanded_apps_from_catalog() {
 
     let results = AppScanner::match_apps(&scanned, &catalog);
     assert_eq!(results.len(), 4);
-    // ADR-0010：真实清单 id 已迁移为 canonical owner/repo
+    // ADR-0010：真实清单 id 为 canonical owner/repo
     assert!(results
         .iter()
         .any(|r| r.catalog_id == "qbittorrent/qbittorrent"));

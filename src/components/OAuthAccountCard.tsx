@@ -3,7 +3,7 @@ import { AlertTriangle, AlertCircle, Copy, Check, ExternalLink, LogIn, LogOut } 
 import { useTranslation } from 'react-i18next';
 import { GitHubIcon } from './icons/PlatformIcons';
 import { OAuthUser } from '../types';
-import { api } from '../services/api';
+import { tauriApi } from '../services/api';
 import { notifyToast } from '../utils/notify';
 
 interface DeviceSession {
@@ -29,7 +29,7 @@ export const OAuthAccountCard: React.FC = () => {
   const loadUser = async () => {
     setIsLoadingUser(true);
     try {
-      const u = await api.getOAuthUser();
+      const u = await tauriApi.getOAuthUser();
       setUser(u);
     } catch {
       setUser(null);
@@ -64,7 +64,7 @@ export const OAuthAccountCard: React.FC = () => {
         return;
       }
       try {
-        const res = await api.oauthDevicePoll(deviceCode);
+        const res = await tauriApi.oauthDevicePoll(deviceCode);
         pollFailRef.current = 0;
         if (res.status === 'authorized') {
           stopPolling();
@@ -111,7 +111,7 @@ export const OAuthAccountCard: React.FC = () => {
     setError(null);
     pollFailRef.current = 0;
     try {
-      const res = await api.oauthDeviceStart();
+      const res = await tauriApi.oauthDeviceStart();
       const deadline = Date.now() + res.expires_in * 1000;
       const intervalMs = Math.max(1000, res.interval * 1000);
       const verificationUri = res.verification_uri_complete || res.verification_uri;
@@ -125,7 +125,7 @@ export const OAuthAccountCard: React.FC = () => {
       schedulePoll(res.device_code, deadline, intervalMs);
       // 成功即自动拉起浏览器授权页；失败也不阻塞，卡片上仍保留手动按钮
       try {
-        await api.openUrl(verificationUri);
+        await tauriApi.openUrl(verificationUri);
       } catch {
         // ignore：用户可点「前往授权页」手动打开
       }
@@ -156,7 +156,7 @@ export const OAuthAccountCard: React.FC = () => {
 
   const handleLogout = async () => {
     try {
-      await api.oauthLogout();
+      await tauriApi.oauthLogout();
     } catch (e) {
       notifyToast(t('oauth.logout_failed', { error: String(e) }), 'error');
       return;
@@ -365,7 +365,7 @@ export const OAuthAccountCard: React.FC = () => {
               type="button"
               className="btn-fluent btn-primary"
               style={{ fontSize: 'var(--font-sm)', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
-              onClick={() => api.openUrl(session.verificationUri)}
+              onClick={() => tauriApi.openUrl(session.verificationUri)}
             >
               <span>{t('oauth.open_auth_page')}</span>
               <ExternalLink size={12} />

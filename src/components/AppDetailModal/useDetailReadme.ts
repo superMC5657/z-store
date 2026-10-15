@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { marked } from 'marked';
-import { api, type ReadmeVariant } from '../../services/api';
+import { tauriApi, type ReadmeVariant } from '../../services/api';
 import { sanitizeHtml } from '../../utils/sanitize';
 import { normalizeId } from '../../services/normalizeId';
 
@@ -143,7 +143,7 @@ export function useDetailReadme(opts: {
     setVariantsLoading(true);
     (async () => {
       try {
-        const res = (await (api as unknown as {
+        const res = (await (tauriApi as unknown as {
           getReadmeVariants?: (id: string) => Promise<unknown>;
         }).getReadmeVariants?.(appId)) as
           | { variants?: ReadmeVariant[] }
@@ -246,7 +246,7 @@ export function useDetailReadme(opts: {
             if (lowerSrc.endsWith('.gif') || lowerSrc.includes('.gif?')) return;
             let cached: string;
             try {
-              cached = await api.getAssetCacheUrl(src, appId);
+              cached = await tauriApi.fetchOrCacheAssetUrl(src, appId);
             } catch {
               return;
             }
@@ -307,7 +307,7 @@ export function useDetailReadme(opts: {
     if (href.startsWith('http://') || href.startsWith('https://')) {
       e.preventDefault();
       e.stopPropagation();
-      api.openUrl(href);
+      tauriApi.openUrl(href);
     }
   };
 

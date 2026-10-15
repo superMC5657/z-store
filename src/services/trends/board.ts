@@ -72,7 +72,7 @@ import {
   type SeqGuard,
 } from '../../lib/platformFilter';
 import { zlogInfo } from '../../lib/z-log';
-import { stickyIconFor } from '../iconStore';
+import { resolveIconWithBuffer } from '../iconStore';
 
 /**
  * 单一抓取入口（board 为唯一 deep module 的对外抓取口）。
@@ -88,7 +88,7 @@ export function fetchTrendsResultSeam(
 }
 export type { PendingLiteTarget };
 
-/** settle 超时与主列表同值（TrendsView 重导出保持兼容）。 */
+/** settle 超时与主列表同值（TrendsView 重导出同值）。 */
 export const TREND_BOARD_SETTLE_MS = PENDING_SETTLE_MS;
 
 /* ------------------------------------------------------------------ */
@@ -204,7 +204,7 @@ export function buildSwrFill(repos: TrendRepo[]): SwrFill {
 }
 
 /**
- * SWR 富卡合并进镜像：缺席新增；旧 pending + 新具平台才覆盖（图标经店内 `stickyIconFor` 单 interface 合并，空不覆实 + 缓冲回读）。
+ * SWR 富卡合并进镜像：缺席新增；旧 pending + 新具平台才覆盖（图标经店内 `resolveIconWithBuffer` 单 interface 合并，空不覆实 + 缓冲回读）。
  * 富/裸以 enriched 存在为准，不用 icon 判定。图标 `depth` 在深 module，本函数只做平台准入，不自立图标 locality。
  */
 export function mergeSwrEnrichedMirror(
@@ -223,7 +223,7 @@ export function mergeSwrEnrichedMirror(
     const curHas = !!cur.platforms && cur.platforms.length > 0;
     const incHas = !!v.platforms && v.platforms.length > 0;
     if (!curHas && incHas) {
-      next[k] = stickyIconFor(cur, v);
+      next[k] = resolveIconWithBuffer(cur, v);
       changed = true;
     }
   }
@@ -281,7 +281,7 @@ export interface EnrichMergeResult {
 /**
  * enrich 回填合并进镜像：
  * - 详情治愈优先：已具真实平台的行不被空 enrich 回填覆盖；
- * - 图标经店内 `stickyIconFor` 单 interface 合并（旧实 + 回填空 → 沿用旧，空壳经 M1 缓冲回读）；
+ * - 图标经店内 `resolveIconWithBuffer` 单 interface 合并（旧实 + 回填空 → 沿用旧，空壳经 M1 缓冲回读）；
  *   本函数只做平台准入，不自立图标 `trim()===''`/`getBufferedIcon` locality（`depth` 在深 module）；
  * - 空壳不覆盖缓冲实图；具平台键同步收集供确认移除。
  */
@@ -299,7 +299,7 @@ export function mergeEnrichFoundMirror(
     const prevHasPlatforms = !!prevApp?.platforms && prevApp.platforms.length > 0;
     if (incomingEmpty && prevHasPlatforms) continue;
     // 图标单 interface：`undefined` 旧值亦经缓冲回读（与旧 `getBufferedIcon(key)` 同语义）。
-    const mergedApp = stickyIconFor(prevApp, app);
+    const mergedApp = resolveIconWithBuffer(prevApp, app);
     if (next[key] !== mergedApp) {
       next[key] = mergedApp;
       changed = true;

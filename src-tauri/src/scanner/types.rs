@@ -98,23 +98,25 @@ pub(crate) fn now_secs() -> i64 {
 impl From<&CatalogItem> for ScanConfig {
     fn from(cat: &CatalogItem) -> Self {
         // Windows：windows 标识为空才用 repo 派生 .exe。
-        // Linux：优先取 linux 原生标识（catalog.json 如 motrix），为空才回退；
-        // 为兼容存量单测（.exe 夹具）额外并入 .exe 派生。
+        // Linux：优先取 linux 原生标识，为空才回退裸名；
+        // Linux 无扩展名裸名需并入 `/usr/bin/<token>` 匹配。
         #[cfg(target_os = "windows")]
         let mut target_executables = cat.get_identifiers("windows");
         #[cfg(not(target_os = "windows"))]
         let mut target_executables = cat.get_native_identifiers();
         if target_executables.is_empty() {
-            // ADR-0010：id 为 owner/repo 坐标，不能再当文件名候选，仅以 repo/name 派生
-            target_executables = exe_candidates(&cat.repo);
+            // ADR-0010：id 为 owner/repo 坐标，不能再当文件名候选，仅以 repo 派生
+            #[cfg(target_os = "windows")]
+            {
+                target_executables = exe_candidates(&cat.repo);
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                target_executables = bare_candidates(&cat.repo);
+            }
         }
         #[cfg(target_os = "linux")]
         {
-            for extra in exe_candidates(&cat.repo) {
-                if !target_executables.contains(&extra) {
-                    target_executables.push(extra);
-                }
-            }
             for extra in bare_candidates(&cat.repo) {
                 if !target_executables.contains(&extra) {
                     target_executables.push(extra);

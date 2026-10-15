@@ -1,6 +1,6 @@
 import type { AppDetail, AppSummary, TrendRepo } from '../../types';
 import { tauriApi } from '../api';
-import { stickyIconFor } from '../iconStore';
+import { resolveIconWithBuffer } from '../iconStore';
 import { normalizeId, normalizeIdSet } from '../normalizeId';
 
 /** enrich 派生缓存 TTL：12h（坐标元数据日内几乎不变，与 DOFORCE 快照同口径）。 */
@@ -234,9 +234,9 @@ function putTrendEnrichCache(key: string, entry: { timestamp: number; data: AppS
   const cur = trendEnrichCache.get(k);
   if (cur && hasConcretePlatforms(cur.data.platforms) && !incomingConcrete) return;
   if (!incomingConcrete && !trendConfirmedOtherCache.has(k)) return;
-  // 图标回填只做升级不做准入（stickyIconFor）：已有真实图标（非空）不被空图标覆盖；
+  // 图标回填只做升级不做准入（resolveIconWithBuffer）：已有真实图标（非空）不被空图标覆盖；
   // 有/无图标一视同仁进富卡，首字母兜底在渲染侧生成，不影响持久化。
-  const data = stickyIconFor(cur?.data, entry.data);
+  const data = resolveIconWithBuffer(cur?.data, entry.data);
   if (trendEnrichCache.has(k)) trendEnrichCache.delete(k);
   trendEnrichCache.set(k, { timestamp: entry.timestamp, data });
   // 具平台到达即覆盖升级： concrete 入库同步移除已确认 Other 标记（pending 永不覆盖具平台的另一半）。
@@ -278,7 +278,7 @@ export function clearTrendEnrichCache(): void {
 /**
  * 向内存 `trendEnrichCache` 回填（slice 内部写口）。
  * View 侧唯一出口为 board.putBoardEnrichMemory，不直调此函数；
- * 图标合并经 `stickyIconFor` 单口。
+ * 图标合并经 `resolveIconWithBuffer` 单口。
  * - 具平台恒进缓存（12h/500 FIFO），后续靠应用详情刷新治愈（upsert from detail）；
  * - pending 空平台仅已确认键进内存（调用方先 mark；读盘时先 hydrate 确认集再 hydrate enrich）；
  *   未确认 pending 直接跳过（永不进内存/落库，只活当次 out 渲染）；
@@ -377,7 +377,7 @@ export function snapshotTrendEnrichCache(repos?: TrendRepo[]): Record<string, Ap
  * 超 40 的仓留占位（out 缺席，调用方保留旧小行），榜单永不置空；失败整批缺席。
  *
  * per-field 新鲜度（本函数读路径）：
- * - icon 粘性 supersede-only：永不过期，只被非空新图标替换（stickyIconFor，put 与 out 同语义）；
+ * - icon 粘性 supersede-only：永不过期，只被非空新图标替换（resolveIconWithBuffer，put 与 out 同语义）；
  * - summary/desc 12h：到期重拉，但旧条目保留供图标合并（快照/sweep 仍视其过期）；
  * - platforms：pending 永不覆盖具平台值，具平台到达即覆盖治愈（详情治愈回填唯一写口）。
  */
@@ -450,13 +450,13 @@ export async function enrichTrendRepos(repos: TrendRepo[]): Promise<Map<string, 
     // pending 当次有效永不缓存：只 set 当次 out，不 put 进 cache；具平台才 put。
     if (!hasConcretePlatforms(s.platforms)) {
       const cur = trendEnrichCache.get(key);
-      s = stickyIconFor(cur?.data, s);
+      s = resolveIconWithBuffer(cur?.data, s);
       out.set(key, s);
       return;
     }
     const cur = trendEnrichCache.get(key);
     // icon 粘性 supersede-only：旧图标非空 + 回填空 → out 与入库一并沿用旧图标。
-    s = stickyIconFor(cur?.data, s);
+    s = resolveIconWithBuffer(cur?.data, s);
     putTrendEnrichCache(key, { timestamp: at, data: s });
     out.set(key, s);
   });

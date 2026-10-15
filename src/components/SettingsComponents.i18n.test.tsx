@@ -6,7 +6,7 @@ import { DataBackupRow } from './DataBackupRow';
 import { ClientUpdateRow } from './ClientUpdateRow';
 
 vi.mock('../services/api', () => ({
-  api: {
+  tauriApi: {
     getOAuthUser: async () => null,
     oauthDeviceStart: async () => ({
       device_code: 'dev-123',

@@ -1,6 +1,6 @@
 import type { TFunction } from 'i18next';
 import type { AppSummary, InstalledApp, UpdateCheckProgressPayload, UpdateItem, UpdateRule } from '../../types';
-import { api } from '../../services/api';
+import { tauriApi } from '../../services/api';
 
 export interface UseUpdateActionsParams {
   updates: UpdateItem[];
@@ -34,7 +34,7 @@ export function useUpdateActions({
   // 应用单项更新
   const handleApplyUpdate = async (id: string) => {
     try {
-      const updatedApp = await api.installApp(id);
+      const updatedApp = await tauriApi.installApp(id);
       setInstalledApps((prev) => [...prev.filter((a) => a.app_id !== id), updatedApp]);
       setUpdates((prev) => prev.filter((u) => u.app_id !== id));
       showToast(t('toast.update_success', { name: updatedApp.app_name || id }), 'success');
@@ -46,82 +46,82 @@ export function useUpdateActions({
   // 忽略单项更新（FR-4.4）
   const handleIgnoreUpdate = async (id: string) => {
     const target = updates.find((u) => u.app_id === id);
-    await api.setAppSkipVersion(id, target?.latest_version ?? null);
+    await tauriApi.setAppSkipVersion(id, target?.latest_version ?? null);
     setUpdates((prev) => prev.filter((u) => u.app_id !== id));
-    const rules = await api.getUpdateRules();
+    const rules = await tauriApi.getUpdateRules();
     setUpdateRules(rules);
     showToast(t('toast.skip_update', { id }), 'info');
   };
 
   // 跳过指定版本（功能 C）
   const handleSkipVersion = async (id: string, version: string) => {
-    await api.setAppSkipVersion(id, version);
+    await tauriApi.setAppSkipVersion(id, version);
     setUpdates((prev) => prev.filter((u) => u.app_id !== id));
-    const rules = await api.getUpdateRules();
+    const rules = await tauriApi.getUpdateRules();
     setUpdateRules(rules);
     showToast(t('toast.skip_version', { id, version }), 'info');
   };
 
   // 锁定当前版本（功能 C）
   const handleFreezeVersion = async (id: string) => {
-    await api.setAppFrozen(id, true);
+    await tauriApi.setAppFrozen(id, true);
     setUpdates((prev) => prev.filter((u) => u.app_id !== id));
-    const rules = await api.getUpdateRules();
+    const rules = await tauriApi.getUpdateRules();
     setUpdateRules(rules);
     showToast(t('toast.lock_version', { id }), 'info');
   };
 
   // 隐藏应用（功能 C）
   const handleHideApp = async (id: string) => {
-    await api.setAppHidden(id, true);
+    await tauriApi.setAppHidden(id, true);
     setUpdates((prev) => prev.filter((u) => u.app_id !== id));
-    const rules = await api.getUpdateRules();
+    const rules = await tauriApi.getUpdateRules();
     setUpdateRules(rules);
-    const catalogApps = await api.searchApps(searchQuery);
+    const catalogApps = await tauriApi.searchApps(searchQuery);
     setApps(catalogApps);
     showToast(t('toast.hide_app', { id }), 'info');
   };
 
   // 移除规则（功能 C）
   const handleRemoveRule = async (appId: string) => {
-    await api.removeUpdateRule(appId);
-    const rules = await api.getUpdateRules();
+    await tauriApi.removeUpdateRule(appId);
+    const rules = await tauriApi.getUpdateRules();
     setUpdateRules(rules);
-    const freshUpdates = await api.checkForUpdates();
+    const freshUpdates = await tauriApi.checkForUpdates();
     setUpdates(freshUpdates);
-    const catalogApps = await api.searchApps(searchQuery);
+    const catalogApps = await tauriApi.searchApps(searchQuery);
     setApps(catalogApps);
     showToast(t('toast.clear_rules', { id: appId }), 'success');
   };
 
   // 清除跳过版本规则
   const handleClearRuleSkip = async (appId: string) => {
-    await api.setAppSkipVersion(appId, null);
-    const rules = await api.getUpdateRules();
+    await tauriApi.setAppSkipVersion(appId, null);
+    const rules = await tauriApi.getUpdateRules();
     setUpdateRules(rules);
-    const freshUpdates = await api.checkForUpdates();
+    const freshUpdates = await tauriApi.checkForUpdates();
     setUpdates(freshUpdates);
     showToast(t('toast.restore_rules', { id: appId }), 'success');
   };
 
   // 切换版本锁定状态
   const handleToggleRuleFrozen = async (appId: string, isFrozen: boolean) => {
-    await api.setAppFrozen(appId, isFrozen);
-    const rules = await api.getUpdateRules();
+    await tauriApi.setAppFrozen(appId, isFrozen);
+    const rules = await tauriApi.getUpdateRules();
     setUpdateRules(rules);
-    const freshUpdates = await api.checkForUpdates();
+    const freshUpdates = await tauriApi.checkForUpdates();
     setUpdates(freshUpdates);
     showToast(isFrozen ? t('toast.rule_locked', { id: appId }) : t('toast.rule_unlocked', { id: appId }), 'info');
   };
 
   // 切换应用隐藏状态
   const handleToggleRuleHidden = async (appId: string, isHidden: boolean) => {
-    await api.setAppHidden(appId, isHidden);
-    const rules = await api.getUpdateRules();
+    await tauriApi.setAppHidden(appId, isHidden);
+    const rules = await tauriApi.getUpdateRules();
     setUpdateRules(rules);
-    const freshUpdates = await api.checkForUpdates();
+    const freshUpdates = await tauriApi.checkForUpdates();
     setUpdates(freshUpdates);
-    const catalogApps = await api.searchApps(searchQuery);
+    const catalogApps = await tauriApi.searchApps(searchQuery);
     setApps(catalogApps);
     showToast(isHidden ? t('toast.rule_hidden', { id: appId }) : t('toast.rule_unhidden', { id: appId }), 'info');
   };
@@ -135,7 +135,7 @@ export function useUpdateActions({
 
     for (const u of updates) {
       try {
-        const updatedApp = await api.installApp(u.app_id);
+        const updatedApp = await tauriApi.installApp(u.app_id);
         setInstalledApps((prev) => [...prev.filter((a) => a.app_id !== u.app_id), updatedApp]);
         successCount++;
       } catch {
@@ -159,7 +159,7 @@ export function useUpdateActions({
     setUpdates([]); // 清空旧列表，使最新检测出来的项目逐个跳出
     setUpdateCheckProgress({ checked: 0, total: 0, app_id: '', app_name: '' });
     try {
-      const freshUpdates = await api.checkForUpdates(true);
+      const freshUpdates = await tauriApi.checkForUpdates(true);
       setUpdates(freshUpdates);
       if (freshUpdates.length === 0) {
         showToast(t('toast.all_latest'), 'success');

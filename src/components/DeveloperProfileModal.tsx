@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Package, Users, Building2, MapPin, Link, FolderOpen, Star, GitFork, Code2, ExternalLink } from 'lucide-react';
 import { DeveloperProfile } from '../types';
-import { api } from '../services/api';
+import { tauriApi } from '../services/api';
 import { EmptyState } from './EmptyState';
 import { isInstalledUnion, selectIsDetectedOnlyOpt, selectIsManagedOpt } from '../app/selectors';
 
@@ -44,7 +44,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
     setLoading(true);
     setError(null);
 
-    api
+    tauriApi
       .getDeveloperProfile(developer)
       .then((data) => {
         if (isMounted) {
@@ -172,7 +172,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                     style={{ fontSize: 'var(--font-xs)', padding: '2px 8px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                     onClick={(e) => {
                       e.preventDefault();
-                      void api.openUrl(profile.html_url);
+                      void tauriApi.openUrl(profile.html_url);
                     }}
                   >
                     <span>GitHub</span>
@@ -219,7 +219,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                         const blog = profile.blog;
                         if (!blog) return;
                         const url = blog.startsWith('http') ? blog : `https://${blog}`;
-                        void api.openUrl(url);
+                        void tauriApi.openUrl(url);
                       }}
                     >
                       <Link size={12} />
@@ -421,7 +421,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                             aria-label={`在 GitHub 中打开 ${repo.name}`}
                             onClick={(e) => {
                               e.preventDefault();
-                              void api.openUrl(repo.html_url);
+                              void tauriApi.openUrl(repo.html_url);
                             }}
                           >
                             <ExternalLink size={12} />

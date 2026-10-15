@@ -180,9 +180,9 @@ fn test_starred_api_url() {
 
 #[test]
 fn test_oauth_user_requires_all_fields() {
-    // 缺字段的旧持久化数据必须解析失败，调用方将其视为“需重新登录”。
-    let legacy_json = r#"{"login":"superMC5657","avatar_url":"https://github.com/superMC5657.png","has_list_scope":true}"#;
-    assert!(serde_json::from_str::<OAuthUser>(legacy_json).is_err());
+    // 缺字段的持久化数据必须解析失败，调用方将其视为“需重新登录”。
+    let rejected_json = r#"{"login":"superMC5657","avatar_url":"https://github.com/superMC5657.png","has_list_scope":true}"#;
+    assert!(serde_json::from_str::<OAuthUser>(rejected_json).is_err());
 
     // 完整字段正常解析
     let full_json = r#"{"login":"superMC5657","avatar_url":"https://github.com/superMC5657.png","has_list_scope":true,"is_expired":true}"#;

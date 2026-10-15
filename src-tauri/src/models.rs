@@ -62,8 +62,7 @@ pub struct AppDetail {
     pub changelog: String,
     pub is_verified: bool,
     pub readme_markdown: String,
-    /// README 多语言变体（`get_readme_variants` 按需拉取后可回填）。
-    /// `#[serde(default)]` 保证旧 `detail_json`（无此字段）反序列化不炸，零 migration。
+    /// README 多语言变体：`get_readme_variants` 按需回填，缺失即 `None`。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub readme_variants: Option<Vec<ReadmeVariant>>,
     pub releases: Vec<ReleaseAsset>,
@@ -77,7 +76,7 @@ pub struct AppDetail {
     pub cached_at: Option<i64>,
     /// P0 stale 契约：`Some(true)` = 瞬时失败降级（401/限流/离线复用旧行，或无缓存合成空）。
     /// 前端 backfill 必须将 `stale + releases/platforms 双空` 视为 pending/失败待重试，
-    /// 永不确认 Other；`Ok(stale)` 形状为 IPC 兼容保留。成功 deduce 空（真实零发布）
+    /// 永不确认 Other；`Ok(stale)` 为 IPC 形状约定。成功 deduce 空（真实零发布）
     /// 保持 `None`，与失败空可区分。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub is_stale: Option<bool>,

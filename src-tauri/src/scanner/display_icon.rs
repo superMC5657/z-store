@@ -81,7 +81,7 @@ impl AppScanner {
             }
         }
 
-        // 1b. Linux：裸名兼容 —— 配置中若为 `motrix.exe`，同目录下 `motrix`（去扩展名）也视为命中
+        // 1b. Linux：裸名等价 —— 配置中若为 `motrix.exe`，同目录下 `motrix`（去扩展名）也视为命中
         // （deb 落盘多为无扩展名；Windows 分支不受影响，因该块仅在 linux 生效）。
         #[cfg(target_os = "linux")]
         {

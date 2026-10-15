@@ -2,6 +2,7 @@
 //!
 //! 可缓存图片的本地落盘查询与下载入口：命中返回本地路径，未命中下载后返回本地路径，失败回退原地址。
 
+use crate::github::image_sniff::is_valid_image;
 use futures_util::StreamExt;
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
@@ -61,11 +62,6 @@ pub fn should_cache_asset(url: &str) -> bool {
 /// 字节魔数嗅探薄委托（唯一实现见共享模块，含 bmp）。
 fn sniff_asset_mime(bytes: &[u8]) -> Option<&'static str> {
     crate::github::image_sniff::sniff_image_mime(bytes)
-}
-
-/// 受支持的图片字节校验薄委托（含 bmp，多数口径）。
-fn is_supported_image_bytes(bytes: &[u8]) -> bool {
-    crate::github::image_sniff::is_supported_image_bytes(bytes)
 }
 
 /// 落盘扩展名薄委托：魔数优先，缺失时从 content-type 推断。
@@ -314,7 +310,7 @@ fn store_fresh_asset(
     fresh: DownloadedAsset,
     app: &str,
 ) -> String {
-    if !is_supported_image_bytes(&fresh.bytes) {
+    if !is_valid_image(&fresh.bytes) {
         return trimmed.to_string();
     }
     let ext = resolve_asset_ext(&fresh);
@@ -510,7 +506,7 @@ mod tests {
         assert!(should_cache_asset(
             "https://raw.githubusercontent.com/o/r/main/a.avif"
         ));
-        // bmp 纳入白名单（多数口径：icons 与 db 含、旧 asset 缺 → 含，见 image_sniff）。
+        // bmp 纳入白名单（见 image_sniff）。
         assert!(should_cache_asset("https://example.com/a.bmp"));
         assert!(should_cache_asset("https://example.com/a.apng"));
         assert!(!should_cache_asset("https://example.com/a.mp4"));
@@ -523,15 +519,15 @@ mod tests {
 
     #[test]
     fn magic_accepts_whitelist_rejects_html() {
-        assert!(is_supported_image_bytes(b"\x89PNG\r\n\x1a\nxxxxxxxx"));
-        assert!(is_supported_image_bytes(b"\xff\xd8\xff\x00\x11"));
-        assert!(is_supported_image_bytes(b"<svg></svg>"));
-        // bmp 纳入支持（多数口径，见 image_sniff::bmp_supported_everywhere）。
-        assert!(is_supported_image_bytes(b"BM12345678"));
-        assert!(!is_supported_image_bytes(
+        assert!(is_valid_image(b"\x89PNG\r\n\x1a\nxxxxxxxx"));
+        assert!(is_valid_image(b"\xff\xd8\xff\x00\x11"));
+        assert!(is_valid_image(b"<svg></svg>"));
+        // bmp 纳入支持（见 image_sniff::bmp_supported_everywhere）。
+        assert!(is_valid_image(b"BM12345678"));
+        assert!(!is_valid_image(
             b"<!DOCTYPE html><html>404</html>"
         ));
-        assert!(!is_supported_image_bytes(b""));
+        assert!(!is_valid_image(b""));
     }
 
     #[test]

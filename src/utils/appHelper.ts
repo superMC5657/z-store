@@ -222,7 +222,7 @@ interface AssetRelevance {
 /**
  * 资产相对宿主的相关度打分（与后端 score_asset 权重对齐）：
  * 系统匹配 +100 / 通用 +30 / 系统失配 -100；
- * 架构一致 +50 / 通用 +25 / x86_64 宿主兼容 x86 +10 / 失配 -50；
+ * 架构一致 +50 / 通用 +25 / x86_64 宿主可运行 x86 +10 / 失配 -50；
  * 类型档位 +20/+15/+12/+10，tar 便携包 +5 垫底（有原生包永远选原生）。
  */
 function scoreAssetRelevance(a: AssetRelevance, hostOs: string, hostArch: string): number {

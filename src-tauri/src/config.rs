@@ -317,7 +317,7 @@ pub fn is_strict_errors() -> bool {
     get_project_config().runtime.strict_errors
 }
 
-/// 有效超时：读统一配置中枢 `network.api_timeout_seconds`，0 回退 `fallback`。
+/// 有效超时：取统一配置中枢 `network.api_timeout_seconds`，0 视为未设置用 `fallback`。
 pub(crate) fn api_timeout_or(fallback: std::time::Duration) -> std::time::Duration {
     let secs = get_project_config().network.api_timeout_seconds;
     if secs > 0 {

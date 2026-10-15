@@ -14,7 +14,7 @@ impl CatalogService {
         username: Option<&str>,
         token: Option<&str>,
     ) -> Result<StarredSyncResult, String> {
-        // 后向兼容入口：缓存仅为本轮调用内去重（无持久化）。
+        // 无持久化入口：缓存仅为本轮调用内去重。
         // 持有 DB 的调用方应使用 sync_starred_repos_with_cache，传入经
         // db.get_etag 预填、`save_etag` 回写的 map（key 见 starred_release_endpoint）。
         let mut ephemeral: HashMap<String, (Option<String>, Option<String>)> = HashMap::new();

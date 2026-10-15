@@ -1,7 +1,7 @@
 import type { TFunction } from 'i18next';
 import { useEffect, useState } from 'react';
 import type { ViewType } from '../../types';
-import { api } from '../../services/api';
+import { tauriApi } from '../../services/api';
 
 export interface UseDeepLinkParams {
   handleOpenDetail: (id: string) => void;
@@ -26,7 +26,7 @@ export function useDeepLink({
   // 深链调度分发器（功能 E）
   const handleDispatchDeepLink = async (rawUrl: string) => {
     try {
-      const action = await api.handleDeepLink(rawUrl);
+      const action = await tauriApi.handleDeepLink(rawUrl);
       if (action.action === 'app_detail') {
         handleOpenDetail(action.payload.app_id);
       } else if (action.action === 'install_app') {
@@ -54,7 +54,7 @@ export function useDeepLink({
     (window as any).dispatchZStoreDeepLink = handleDispatchDeepLink;
 
     // 检查 CLI 参数是否带有唤起协议 (如外部双击链接拉起新进程)
-    api.getCliDeepLink().then((cliLink) => {
+    tauriApi.getCliDeepLink().then((cliLink) => {
       if (cliLink) {
         handleDispatchDeepLink(cliLink);
       }

@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Upload, Download, RotateCcw, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { api } from '../services/api';
+import { tauriApi } from '../services/api';
 import { notifyToast } from '../utils/notify';
 import { UserDataBackup, UserDataBackupSettings } from '../types';
 
@@ -71,9 +71,9 @@ export const DataBackupRow: React.FC = () => {
     setIsExporting(true);
     try {
       const [favorites, watched, settings] = await Promise.all([
-        api.getFavorites().catch(() => [] as string[]),
-        api.getWatchedApps().catch(() => [] as string[]),
-        api.getSettings().catch(() => ({} as Record<string, string>)),
+        tauriApi.getFavorites().catch(() => [] as string[]),
+        tauriApi.getWatchedApps().catch(() => [] as string[]),
+        tauriApi.getSettings().catch(() => ({} as Record<string, string>)),
       ]);
       const backup: UserDataBackup = buildUserDataBackup(favorites, watched, settings);
       const jsonStr = JSON.stringify(backup, null, 2);
@@ -102,7 +102,7 @@ export const DataBackupRow: React.FC = () => {
     setIsImporting(true);
     try {
       const text = await file.text();
-      const counts = await api.importUserData(text);
+      const counts = await tauriApi.importUserData(text);
       const settingsStatus = counts.settings_applied ? t('backup.settings_applied') : t('backup.settings_unchanged');
       const msg = t('backup.import_success', {
         fav: counts.favorites_added,

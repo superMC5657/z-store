@@ -372,14 +372,14 @@ pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, St
                 format!("（发现候选: {}，但嗅探未通过校验）", hints.join(", "))
             };
             return Err(format!(
-                "未能定位到该软件的可执行程序。\n记录路径: 无 {}\n应用: {} ({})\n建议检查软件是否已被重命名或迁移，或重新扫描添加。",
+                "未能定位到该软件的可执行程序。\n记录路径: 无 {}\n应用: {} ({})\n建议检查软件是否已被重命名或移动位置，或重新扫描添加。",
                 hint_text, app_name, app_id
             ));
         }
     }
 
     Err(format!(
-        "未能定位到该软件的可执行程序。\n记录路径: {}\n建议检查软件是否已被重命名或迁移，或重新扫描添加。",
+        "未能定位到该软件的可执行程序。\n记录路径: {}\n建议检查软件是否已被重命名或移动位置，或重新扫描添加。",
         if target_path.is_empty() { "无" } else { &target_path }
     ))
 }

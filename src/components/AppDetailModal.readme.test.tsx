@@ -13,7 +13,7 @@ const hooks = vi.hoisted(() => ({
 }));
 
 vi.mock('../services/api', () => {
-  const api = new Proxy(
+  const tauriApi = new Proxy(
     {},
     {
       get(_t, prop: string) {
@@ -25,7 +25,7 @@ vi.mock('../services/api', () => {
       },
     },
   );
-  return { api };
+  return { tauriApi };
 });
 
 import { AppDetailModal } from './AppDetailModal';

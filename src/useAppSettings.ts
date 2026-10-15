@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AppSettings } from './types';
-import { api, DEFAULT_SETTINGS } from './services/api';
+import { tauriApi, DEFAULT_SETTINGS } from './services/api';
 import i18n, { getSystemLanguage } from './i18n';
 import { appZoomFactor, fontScaleFor } from './utils/density';
 
@@ -68,7 +68,7 @@ export function useAppSettings() {
     applyUiZoom(merged.ui_scale);
 
     if (merged.active_mirror) {
-      api.switchMirror(merged.active_mirror);
+      tauriApi.switchMirror(merged.active_mirror);
     }
   };
 
@@ -120,7 +120,7 @@ export function useAppSettings() {
   // 通用单项设置更新器
   const handleUpdateSetting = async <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
-    await api.saveSetting(key, String(value));
+    await tauriApi.saveSetting(key, String(value));
 
     if (key === 'theme') {
       const t = value as 'light' | 'dark' | 'system';

@@ -34,7 +34,7 @@ export function loadPersistedTrendBoard(): TrendBoardId | undefined {
       return undefined;
     }
     // JSON-string 形 '"weekly"'：已 parse 一层得 board 字符串；若该字符串自身仍是 JSON
-    //（双重编码信封），再 parse 一层后按信封检查；裸数组等非信封一律拒绝（不回兼容）。
+    //（双重编码信封），再 parse 一层后按信封检查；裸数组等非信封一律拒绝。
     if (typeof candidate === 'string') {
       const s = candidate;
       try {

@@ -4,7 +4,7 @@
  * 只有具平台才进缓存（12h/500 FIFO）；后续靠应用详情刷新治愈（upsert from detail）。
  * - fresh 不自动确认，需 lite/详情确认标记才为 Other；
  * - concrete 到场驱逐确认；stale 到期重验；
- * - 兼容：无内存条目时 L2 确认标记仍有效（L2 confirmedOther 输入）。
+ * - 无内存条目时 L2 确认标记仍有效（L2 confirmedOther 输入）。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {

@@ -15,7 +15,7 @@ const APP_ID = 'o/r';
 const REAL_ICON = 'https://cdn.simpleicons.org/r';
 
 const hooks = vi.hoisted(() => ({
-  getAppIconCycle: vi.fn(async (_id: string) => ({
+  restoreOrFetchIconCycle: vi.fn(async (_id: string) => ({
     url: REAL_ICON,
     remote_url: REAL_ICON,
     level: 2,
@@ -39,12 +39,12 @@ const hooks = vi.hoisted(() => ({
 }));
 
 vi.mock('../../services/api', () => {
-  const api = new Proxy(
+  const tauriApi = new Proxy(
     {},
     {
       get(_t, prop: string) {
         if (prop === 'then') return undefined;
-        if (prop === 'getAppIconCycle') return (...a: unknown[]) => hooks.getAppIconCycle(...(a as [string]));
+        if (prop === 'restoreOrFetchIconCycle') return (...a: unknown[]) => hooks.restoreOrFetchIconCycle(...(a as [string]));
         if (prop === 'cycleAppIcon') return (...a: unknown[]) => hooks.cycleAppIcon(...(a as [string]));
         if (prop === 'isStarred') return (id: string) => hooks.isStarred(id);
         if (prop === 'openUrl') return async () => undefined;
@@ -53,7 +53,7 @@ vi.mock('../../services/api', () => {
       },
     },
   );
-  return { api };
+  return { tauriApi };
 });
 
 vi.mock('../../services/iconStore', async (importOriginal) => {

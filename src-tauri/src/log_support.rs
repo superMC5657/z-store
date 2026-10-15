@@ -2,7 +2,7 @@
 //!
 //! - `host_of`：只取 host（小写），未知返回 `unknown`；永不返回完整 URL/query。
 //! - `short_reason`：取首行并按 chars 截断 160，避免多行 body 与宽字符切半。
-//! - `file_base`：只取 basename（兼容 `/` 与 `\`），永不返回全路径。
+//! - `file_base`：只取 basename（支持 `/` 与 `\`），永不返回全路径。
 //! - `http_err_reason`：reqwest 0.12 `Display` 会回显完整 URL（含 release
 //!   资产签名 query），必须先剥离 URL 再取首行；不跨仓，自写。
 
@@ -162,7 +162,7 @@ pub fn short_reason(msg: &str) -> String {
     }
 }
 
-/// 只取 basename（兼容 `/` 与 `\`）；为空时回退 `package.bin`。
+/// 只取 basename（支持 `/` 与 `\`）；为空时回退 `package.bin`。
 pub fn file_base(p: &str) -> String {
     let normalized = p.replace('\\', "/");
     let base = normalized.rsplit('/').next().unwrap_or("").trim();

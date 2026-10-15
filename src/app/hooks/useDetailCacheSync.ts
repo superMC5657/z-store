@@ -1,6 +1,6 @@
 import { useCallback, useRef } from 'react';
 import type { AppDetail, AppDetailViewModel, AppSummary } from '../../types';
-import { api } from '../../services/api';
+import { tauriApi } from '../../services/api';
 import { admitIconHit, getBufferedIcon, patchAppIconList } from '../../services/iconStore';
 import {
   DETAIL_PLATFORMS_HEAL_EVENT,
@@ -63,7 +63,7 @@ export function useDetailCacheSync({
 
   const loadRecentViews = useCallback(async () => {
     try {
-      const recents = await api.getRecentlyViewedApps();
+      const recents = await tauriApi.getRecentlyViewedApps();
       // 趋势富卡治愈：后端 history 对未收录行原样拷贝占位简介，此处用富卡非占位值一次治愈
       // （首刷新增行 + 旧占位行；后到的 load 不再覆盖 sync 的治愈值；无富卡保持原值走现有空渲染）。
       try {
@@ -369,10 +369,10 @@ export function useDetailCacheSync({
       // patchedIcon 已剥 data:（上分流），此处恒为转正 http，直送安全。
       admitIconHit({ id: idClean, icon: patchedIcon, patch: iconPatch });
     } else {
-      // 卡有 http 实图 + M1 命中即跳过 getAppIconCycle（省 IPC，所见即存）：
+      // 卡有 http 实图 + M1 命中即跳过 restoreOrFetchIconCycle（省 IPC，所见即存）：
       // 列表已有转正 http 直接画，缓冲已有实图首绘即对；仅双空才走 cycle 兜底。
       // data: 不触发此处（已分流，Header 经 iconOverride 即时看）。
-      // 安全说明：每次进详情 Header 必挂载并无条件调 getAppIconCycle（Header.tsx），
+      // 安全说明：每次进详情 Header 必挂载并无条件调 restoreOrFetchIconCycle（Header.tsx），
       // 同一结果经店内唯一写口扇出到四列表，故此处跳过只是省掉重复 IPC，不丢加载。
       const bufferedHit = getBufferedIcon(idClean);
       if (typeof bufferedHit === 'string' && bufferedHit.trim() !== '') {
@@ -389,7 +389,7 @@ export function useDetailCacheSync({
         return;
       }
       // detail.icon 为空：详情弹窗靠 Header 轮换态照常显示，列表三段用 iconCycle.url 经店内写口回填落盘。
-      void api.getAppIconCycle(idClean).then((cycle) => {
+      void tauriApi.restoreOrFetchIconCycle(idClean).then((cycle) => {
         // 双落盘口径：url=data: 即时态（IPC临时、永不进盘），remote_url=可持久化 URL；
         // 落盘/回填一律用 persistUrl（remote优先，url非data:才兜底，否则空即 L5/空不发）。
         const remote = typeof cycle?.remote_url === 'string'
@@ -467,10 +467,10 @@ export function useDetailCacheSync({
         }
         // 先以 0ms 瞬间展示内存快照，避免骨架屏闪烁
         setSelectedApp({ ...cachedForShow, isLoading: false, isRefreshing: false, loadError: undefined });
-        api.recordAppView(id).then(loadRecentViews).catch(() => {});
+        tauriApi.recordAppView(id).then(loadRecentViews).catch(() => {});
 
         // 后台静默发起 ETag 条件探查：版本未变（304）后端毫秒级短路，版本变化则静默平滑更新
-        api.getAppDetails(id, false).then((updatedDetail) => {
+        tauriApi.getAppDetails(id, false).then((updatedDetail) => {
           patchDetailMemoryAndLists(idClean, updatedDetail, true);
         }).catch(() => {
           // 静默忽略后台探查异常，保留已展示的快照
@@ -588,10 +588,10 @@ export function useDetailCacheSync({
     // 0ms 同步打开弹窗或切换刷新态，主界面无任何阻塞感
     setSelectedApp(initialDetail);
     // 浏览记录先落盘不阻塞详情；recents 刷新延后到详情同步之后，避免后到的后端占位快照覆盖富卡治愈值（load 内自带富卡治愈）。
-    void api.recordAppView(id).catch(() => {});
+    void tauriApi.recordAppView(id).catch(() => {});
 
     try {
-      const fullDetail = await api.getAppDetails(id, forceRefresh);
+      const fullDetail = await tauriApi.getAppDetails(id, forceRefresh);
       patchDetailMemoryAndLists(idClean, fullDetail, false);
     } catch (e) {
       if (activeDetailIdRef.current === id) {

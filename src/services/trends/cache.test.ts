@@ -75,7 +75,7 @@ describe('trends L2 persistence cache', () => {
     expect(DOFORCE_SHARED_CACHE_KEY).toBe('doforce||');
   });
 
-  it('getDbTrendCache rejects non-struct formats (tuple / camelCase) as miss', async () => {
+  it('getDbTrendCache rejects non-struct formats (tuple / non-envelope) as miss', async () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
     const nowSec = Math.floor(Date.now() / 1000);
     // tuple format rejected
@@ -85,10 +85,10 @@ describe('trends L2 persistence cache', () => {
     ]);
     expect(await getDbTrendCache('weekly||', 'weekly')).toBeUndefined();
 
-    // camelCase format rejected
+    // 非信封载荷视为 miss（旧纯数组 JSON）
     vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValueOnce({
-      payloadJson: JSON.stringify([mockRepo]),
-      cachedAt: nowSec - 60,
+      payload_json: JSON.stringify([mockRepo]),
+      cached_at: nowSec - 60,
     });
     expect(await getDbTrendCache('weekly||', 'weekly')).toBeUndefined();
   });
@@ -165,10 +165,8 @@ describe('trends L2 persistence cache', () => {
     await saveDbTrendCache('weekly||', 'weekly', [mockRepo]);
     expect(invokeSpy).toHaveBeenCalledWith('save_trend_board_cache', {
       cache_key: 'weekly||',
-      cacheKey: 'weekly||',
       board: 'weekly',
       payload_json: JSON.stringify({ v: 1, repos: [mockRepo], enrich: {} }),
-      payloadJson: JSON.stringify({ v: 1, repos: [mockRepo], enrich: {} }),
     });
   });
 

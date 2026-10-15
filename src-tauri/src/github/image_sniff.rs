@@ -1,11 +1,9 @@
-//! 图片嗅探唯一来源：魔数嗅探 + 扩展名白名单 + 推断合一。
+//! 图片嗅探唯一来源：魔数嗅探 + 扩展名白名单 + 落盘推断合一。
 //!
-//! 合并前三套实现（`commands::icons` / `github::asset_fetch` / `db::cache::infer_asset_ext`）
-//! 在 bmp/apng 口径上漂移：bmp 嗅探仅 icons 有、白名单仅 asset 缺、apng 仅 icons 保留独立扩展名。
-//! 统一口径（多数为准，单测锁定）：
-//! - bmp 纳入嗅探 + 白名单 + 落盘（icons 与 db 含、asset 缺 → 含）；
-//! - apng 归一为 png（仅 icons 保留独立 `apng`、asset/db 均无 → 归一；与 `image/apng → png` 别名一致）；
-//! - 未知回退为 png（icons/asset 为 png、db 为 bin → png，2:1）。
+//! 口径（单测锁定）：
+//! - bmp 纳入嗅探 + 白名单 + 落盘；
+//! - apng 归一为 png（与 `image/apng → png` 别名一致）；
+//! - 未知回退为 `image/png`。
 
 /// URL 扩展名白名单：无后缀放行到下载时验字节，有后缀仅此表通过。
 /// `apng` 允许但推断时归一为 `png`（见 [`infer_ext_from_url`]）。
@@ -66,11 +64,6 @@ pub fn is_valid_image(bytes: &[u8]) -> bool {
     sniff_image_mime(bytes).is_some()
 }
 
-/// `is_valid_image` 的 asset 通道别名（同值，调用点语义保持）。
-pub fn is_supported_image_bytes(bytes: &[u8]) -> bool {
-    is_valid_image(bytes)
-}
-
 /// mime 到扩展名的单一对照表（规范对）；别名显式分支。
 const MIME_EXT_TABLE: &[(&str, &str)] = &[
     ("image/png", "png"),
@@ -106,11 +99,6 @@ pub fn mime_to_ext(mime: &str) -> &'static str {
     "png"
 }
 
-/// 嗅探 MIME 对应的落盘扩展名（兼容别名，与 [`mime_to_ext`] 同值）。
-pub fn ext_for_sniffed(mime: &str) -> &'static str {
-    mime_to_ext(mime)
-}
-
 /// 地址 path 末段原始扩展名（小写）：无点/空返回 `None`。
 pub fn url_path_ext(url: &str) -> Option<String> {
     let path = if let Ok(parsed) = reqwest::Url::parse(url) {
@@ -136,8 +124,8 @@ pub fn url_ext_allowed(url: &str) -> bool {
     }
 }
 
-/// URL 后缀推断规范扩展名：`jpeg → jpg`、`apng → png`（多数口径归一）；
-/// 无后缀或非白名单返回 `None`（调用方回退嗅探或默认 `png`）。
+/// 地址后缀推断落盘扩展名：后缀优先（`jpeg → jpg`、`apng → png`），
+/// 无后缀或非白名单返回 `None`（调用方回退 content-type 映射或默认 `png`）。
 pub fn infer_ext_from_url(url: &str) -> Option<&'static str> {
     let raw = url.trim();
     if raw.is_empty() {
@@ -169,7 +157,7 @@ pub fn infer_ext_from_url(url: &str) -> Option<&'static str> {
 /// 落盘扩展名：魔数优先，缺失时从 content-type 推断，未知回退 `png`。
 pub fn resolve_ext(bytes: &[u8], content_type: &str) -> &'static str {
     if let Some(mime) = sniff_image_mime(bytes) {
-        return ext_for_sniffed(mime);
+        return mime_to_ext(mime);
     }
     let base = content_type
         .split(';')
@@ -178,32 +166,9 @@ pub fn resolve_ext(bytes: &[u8], content_type: &str) -> &'static str {
         .trim()
         .to_ascii_lowercase();
     if base.starts_with("image/") {
-        return ext_for_sniffed(base.as_str());
+        return mime_to_ext(base.as_str());
     }
     "png"
-}
-
-/// 地址后缀或内容类型推断文件扩展名（db 兼容形态，返回 `String`）：
-/// 后缀优先（含 `jpeg → jpg`、`apng → png`），否则按 content-type 映射，未知回退 `png`。
-pub fn infer_asset_ext(canonical_url: &str, content_type: &str) -> String {
-    if let Some(ext) = infer_ext_from_url(canonical_url) {
-        return ext.to_string();
-    }
-    let ct = content_type.trim().to_ascii_lowercase();
-    let ct = ct.split(';').next().unwrap_or("").trim();
-    match ct {
-        "image/png" => "png",
-        "image/jpeg" | "image/jpg" => "jpg",
-        "image/gif" => "gif",
-        "image/webp" => "webp",
-        "image/svg+xml" => "svg",
-        "image/x-icon" | "image/vnd.microsoft.icon" => "ico",
-        "image/avif" => "avif",
-        "image/bmp" => "bmp",
-        "image/apng" => "png",
-        _ => "png",
-    }
-    .to_string()
 }
 
 #[cfg(test)]
@@ -214,11 +179,9 @@ mod tests {
     fn bmp_supported_everywhere() {
         assert_eq!(sniff_image_mime(b"BM12345678"), Some("image/bmp"));
         assert!(is_valid_image(b"BM12345678"));
-        assert!(is_supported_image_bytes(b"BM12345678"));
         assert_eq!(mime_to_ext("image/bmp"), "bmp");
         assert_eq!(infer_ext_from_url("https://example.com/a.bmp"), Some("bmp"));
         assert!(url_ext_allowed("https://example.com/a.bmp"));
-        assert_eq!(infer_asset_ext("https://example.com/a.bmp", ""), "bmp");
         assert_eq!(resolve_ext(b"BMxx", ""), "bmp");
     }
 
@@ -228,8 +191,6 @@ mod tests {
         assert_eq!(mime_to_ext("image/apng; charset=utf-8"), "png");
         assert_eq!(infer_ext_from_url("https://example.com/a.apng"), Some("png"));
         assert!(url_ext_allowed("https://example.com/a.apng"));
-        assert_eq!(infer_asset_ext("https://example.com/a.apng", ""), "png");
-        assert_eq!(infer_asset_ext("https://example.com/noext", "image/apng"), "png");
     }
 
     #[test]
@@ -241,11 +202,10 @@ mod tests {
         assert!(!url_ext_allowed("https://example.com/a.exe"));
         assert_eq!(mime_to_ext("application/octet-stream"), "png");
         assert_eq!(resolve_ext(b"not-an-image", ""), "png");
-        assert_eq!(infer_asset_ext("https://example.com/noext", ""), "png");
-        assert_eq!(infer_asset_ext("https://example.com/noext", "image/jpeg"), "jpg");
-        assert_eq!(infer_asset_ext("https://example.com/x.jpeg", "image/png"), "jpg");
-        assert!(!is_supported_image_bytes(b""));
-        assert!(!is_supported_image_bytes(b"<!DOCTYPE html><html>404</html>"));
+        assert_eq!(mime_to_ext("image/jpeg"), "jpg");
+        assert_eq!(infer_ext_from_url("https://example.com/x.jpeg"), Some("jpg"));
+        assert!(!is_valid_image(b""));
+        assert!(!is_valid_image(b"<!DOCTYPE html><html>404</html>"));
     }
 
     #[test]

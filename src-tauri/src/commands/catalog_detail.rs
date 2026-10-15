@@ -260,7 +260,7 @@ pub async fn get_platforms_lite(
 
 /// P0 stale 契约：瞬时失败（401/限流/离线）永不污染 SQLite。
 /// - 合成空（无缓存失败）以 `is_stale=true` 返回，调用方跳过落库，无旧行则不建行；
-/// - stale 穿透（复用旧行）保持旧行不动（含 `cached_at` 不刷新），`Ok(stale)` 形状为 IPC 保留；
+/// - stale 穿透（复用旧行）保持旧行不动（含 `cached_at` 不刷新），`Ok(stale)` 为 IPC 形状约定；
 /// - 前端必须将 `stale + releases/platforms 双空` 视为 pending/待 backfill，永不确认 Other。
 pub async fn get_app_details_impl(
     state: &AppState,

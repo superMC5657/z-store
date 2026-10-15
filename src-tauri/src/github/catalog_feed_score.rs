@@ -80,7 +80,7 @@ pub fn feed_score(strategy: FeedStrategy, stars: u64, jitter01: f64) -> f64 {
 /// 纯函数：Feed 排序（可插拔策略）。输入为已过滤的 summaries，不做 hidden 过滤。
 /// 口径与前端 `rankFeed` 对齐（canonical 见 `src/services/feed.ts`）：
 /// - StarsOnly → 纯 `ln(stars+1)` 降序，忽略 seed；
-/// - Balanced + Some(seed) → `ln(stars+1)+(jitter01-0.5)*0.3` 降序；None seed → 纯星数基线降序（向后兼容）；
+/// - Balanced + Some(seed) → `ln(stars+1)+(jitter01-0.5)*0.3` 降序；None seed → 纯星数基线降序（无 seed 基线）；
 /// - FreshFirst + Some(seed) → `jitter01*10+ln(stars+1)*0.05` 降序（无 updated_at 字段的近似）；None → 星数基线降序。
 ///   tie 按 id 升序（后端确定性；前端按入参稳定排序，两端分数同形同量级即可跨层可比）。
 pub fn rank_feed_with_strategy(

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AppSummary } from '../../types';
-import { api } from '../../services/api';
+import { tauriApi } from '../../services/api';
 import {
   collectListPendingKeys,
   createInflightGuard,
@@ -70,7 +70,7 @@ export function usePlatformBackfill({
       try {
         const { patched, confirmedEmpty } = await runLiteBatch(
           runTargets,
-          (liteId) => api.getPlatformsLite(liteId),
+          (liteId) => tauriApi.getPlatformsLite(liteId),
           () => guard.isStale(seq),
         );
         if (guard.isStale(seq)) return;

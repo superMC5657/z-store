@@ -1,4 +1,4 @@
-import { api } from '../services/api';
+import { tauriApi } from '../services/api';
 
 /**
  * 桌面原生化锁闭（第二轮去浏览器化）：
@@ -18,8 +18,8 @@ import { api } from '../services/api';
  * - dragover / drop：全局阻止文件拖拽替换页面（防 file:// 顶替）
  * - mouse auxclick / mouseup：侧键（button 3/4 前进后退）阻止
  * - window.print：重写为空函数
- * - window.open：劫持转走 api.openUrl 并返回 null
- * - click 事件委托：a[target="_blank"] 及 http/https 外链拦截转走 api.openUrl
+ * - window.open：劫持转走 tauriApi.openUrl 并返回 null
+ * - click 事件委托：a[target="_blank"] 及 http/https 外链拦截转走 tauriApi.openUrl
  *
  * 显式放行：Ctrl+K（搜索聚焦）、Escape（关闭菜单）、Ctrl+C/V/X/A/Z/Y（标准编辑）、Tab/Enter/Space
  */
@@ -172,7 +172,7 @@ export function initBrowserLockdown(): void {
     window.print = () => {};
   }
 
-  // 8. window.open 劫持转走 api.openUrl
+  // 8. window.open 劫持转走 tauriApi.openUrl
   let inWindowOpen = false;
   const hijackedOpen = (url?: string | URL): WindowProxy | null => {
     if (inWindowOpen) return null;
@@ -180,7 +180,7 @@ export function initBrowserLockdown(): void {
     try {
       if (url) {
         const urlStr = typeof url === 'string' ? url : url.toString();
-        void api.openUrl(urlStr);
+        void tauriApi.openUrl(urlStr);
       }
     } finally {
       inWindowOpen = false;
@@ -198,7 +198,7 @@ export function initBrowserLockdown(): void {
     window.open = hijackedOpen;
   }
 
-  // 9. 全局外链点击事件委托：a[target="_blank"] 及 http/https 链接拦截转走 api.openUrl
+  // 9. 全局外链点击事件委托：a[target="_blank"] 及 http/https 链接拦截转走 tauriApi.openUrl
   document.addEventListener(
     'click',
     (e) => {
@@ -214,7 +214,7 @@ export function initBrowserLockdown(): void {
         e.preventDefault();
         e.stopPropagation();
         if (href) {
-          void api.openUrl(href.trim());
+          void tauriApi.openUrl(href.trim());
         }
       }
     },

@@ -3,7 +3,7 @@
  *
  * module/interface/depth/seam/adapter/leverage/locality 口径：
  * - module：`services/iconStore` 为唯一深 module；`AppIcon`/`enrich`/`board` 无图标 locality。
- * - interface：写唯一经 `admitIconHit`，读侧经 `subscribeIconWrites` 扇出；`stickyIconFor`/
+ * - interface：写唯一经 `admitIconHit`，读侧经 `subscribeIconWrites` 扇出；`resolveIconWithBuffer`/
  *   `patchIconMirror` 为内部 seam 的收敛实现。
  * - 领域词：`IconFetch` → `icon-ready` → `admitIconHit`；`Search List Cache` 组装经缓冲回读。
  * - 合规：`normalizeId` 归一遵 ADR-0010；level 纯L + `via` 正交遵 ADR-0015；展示分层遵 ADR-0005。
@@ -22,7 +22,7 @@ import {
   isIconPersistedOrQueued,
   patchIconMirror,
   queueAssembledRowIcons,
-  stickyIconFor,
+  resolveIconWithBuffer,
   subscribeIconWrites,
 } from './iconStore';
 
@@ -82,14 +82,14 @@ describe('deepen icon-write seam behind single interface', () => {
     }
   });
 
-  it('stickyIconFor 单 interface：旧实 + 回填空沿用旧，空壳经缓冲回读', () => {
+  it('resolveIconWithBuffer 单 interface：旧实 + 回填空沿用旧，空壳经缓冲回读', () => {
     admitIconHit({ id: 'o/r', icon: REAL, level: 2, via: 'm2' });
     const cur = { id: 'o/r', owner: 'o', repo: 'r', icon: REAL } as never as import('../types').AppSummary;
     const incomingEmpty = { id: 'o/r', owner: 'o', repo: 'r', icon: '' } as never as import('../types').AppSummary;
-    expect(stickyIconFor(cur, incomingEmpty).icon).toBe(REAL);
+    expect(resolveIconWithBuffer(cur, incomingEmpty).icon).toBe(REAL);
     // 无旧值但缓冲有实图 → 回读缓冲（与旧 enrich/board getBufferedIcon(key) 同语义）。
     const incomingBare = { id: 'o/r', owner: 'o', repo: 'r', icon: '' } as never as import('../types').AppSummary;
-    expect(stickyIconFor(undefined, incomingBare).icon).toBe(REAL);
+    expect(resolveIconWithBuffer(undefined, incomingBare).icon).toBe(REAL);
   });
 
   it('queueAssembledRowIcons 批量上限与跳过规则（前 N 个 http 入队，data:/空跳过）', () => {

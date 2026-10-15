@@ -76,7 +76,7 @@ vi.mock('./services/api', () => {
     'getHostTokens',
     'getSearchHistory',
   ]);
-  const api = new Proxy(
+  const tauriApi = new Proxy(
     {},
     {
       get(_t, prop: string) {
@@ -94,7 +94,7 @@ vi.mock('./services/api', () => {
     },
   );
   return {
-    api,
+    tauriApi,
     DEFAULT_SETTINGS: {
       theme: 'dark',
       ui_scale: '100',

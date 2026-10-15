@@ -383,12 +383,6 @@ pub fn asset_local_path(hash: &str, ext: &str) -> String {
     format!("cache/assets/{}/{}.{}", dir, h, final_ext)
 }
 
-/// 地址后缀或内容类型推断文件扩展名薄委托（唯一实现见共享嗅探模块）：
-/// 未知回退 `png`（三套实现 2:1 多数口径，原 db 独有 `bin` 回退已归一）。
-fn infer_asset_ext(canonical_url: &str, content_type: &str) -> String {
-    crate::github::image_sniff::infer_asset_ext(canonical_url, content_type)
-}
-
 impl Database {
     /// 按原始地址读取缓存记录。
     pub fn get_asset(&self, url: &str) -> Result<Option<AssetCacheRecord>> {
@@ -437,7 +431,9 @@ impl Database {
         }
         let canonical = canonical_asset_url(&raw);
         let hash = asset_hash_for_url(&raw);
-        let ext = infer_asset_ext(&canonical, content_type);
+        // 落盘扩展名：地址后缀优先命中即用，否则按 content-type 映射，未知回退 `png`。
+        let ext = crate::github::image_sniff::infer_ext_from_url(&canonical)
+            .unwrap_or_else(|| crate::github::image_sniff::mime_to_ext(content_type));
         let local_path = asset_local_path(&hash, &ext);
         let content_type_clean = clean(content_type).to_string();
         let size_clean = size.max(0);

@@ -148,9 +148,9 @@ export async function getReadmeVariants(appId: string): Promise<ReadmeVariantsRe
 }
 
 // 图片磁盘缓存查询：返回 asset 本地路径或原 https，失败时回退原链。
-export async function getAssetCacheUrl(url: string, appId: string): Promise<string> {
+export async function fetchOrCacheAssetUrl(url: string, appId: string): Promise<string> {
   try {
-    const res = await tauriInvoke<string>(CMD.getAssetCacheUrl, { appId, url });
+    const res = await tauriInvoke<string>(CMD.fetchOrCacheAssetUrl, { appId, url });
     if (typeof res === 'string' && res) return res;
     return url;
   } catch {
@@ -270,13 +270,15 @@ export async function getOrFetchIcon(appId: string | undefined, remoteUrl: strin
   return tauriInvoke<string>(CMD.getOrFetchIcon, { appId: appId ?? null, remoteUrl });
 }
 
+// 请求轮换到下一档：用户手动切换图标档位（L1→L2→…→L5→L1），选中态落盘。
 export async function cycleAppIcon(appId: string): Promise<AppIconCycleResult> {
   return tauriInvoke<AppIconCycleResult>(CMD.cycleAppIcon, { appId });
 }
 
-export async function getAppIconCycle(appId: string): Promise<AppIconCycleResult | null> {
+// 恢复+探测+落盘：读库命中即返，无则后端补探回填后返回当前轮换态。
+export async function restoreOrFetchIconCycle(appId: string): Promise<AppIconCycleResult | null> {
   try {
-    return await tauriInvoke<AppIconCycleResult | null>(CMD.getAppIconCycle, {
+    return await tauriInvoke<AppIconCycleResult | null>(CMD.restoreOrFetchIconCycle, {
       appId,
     });
   } catch {

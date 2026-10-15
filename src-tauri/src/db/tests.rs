@@ -877,31 +877,29 @@ fn test_icon_cycle_pinned_roundtrip() {
 }
 
 #[test]
-fn test_icon_cycle_pinned_column_migrates_legacy_table() {
-    // 存量库迁移：模拟升级前无 pinned 列的老表，init_schema 补列且幂等。
+fn fresh_schema_has_pinned_default_zero() {
+    // 基线 schema：新建库 `app_icon_cycles` 即含 `pinned` 列，缺省为 0。
     let db = fixtures::test_db();
-    db.conn
-        .execute("ALTER TABLE app_icon_cycles DROP COLUMN pinned", [])
-        .unwrap();
-    db.init_schema().unwrap();
-    db.init_schema().unwrap();
     let mut stmt = db.conn.prepare("PRAGMA table_info(app_icon_cycles)").unwrap();
-    let cols: Vec<String> = stmt
-        .query_map([], |row| row.get::<_, String>(1))
+    let cols: Vec<(String, Option<String>)> = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(1)?, row.get::<_, Option<String>>(4)?))
+        })
         .unwrap()
         .map(|c| c.unwrap())
         .collect();
-    assert!(cols.contains(&"pinned".to_string()));
-    // 补列后读写正常。
+    let pinned = cols.iter().find(|(name, _)| name == "pinned");
+    assert!(pinned.is_some(), "fresh schema must contain pinned column");
+    assert_eq!(pinned.unwrap().1.as_deref(), Some("0"));
+    // 缺省写入即 false。
     let cycle = AppIconCycle {
-        app_id: "pinned/legacy".to_string(),
+        app_id: "pinned/fresh".to_string(),
         owner: "pinned".to_string(),
-        repo: "legacy".to_string(),
-        pinned: true,
+        repo: "fresh".to_string(),
         ..Default::default()
     };
     db.upsert_icon_cycle(&cycle).unwrap();
-    assert!(db.get_icon_cycle("pinned/legacy").unwrap().unwrap().pinned);
+    assert!(!db.get_icon_cycle("pinned/fresh").unwrap().unwrap().pinned);
 }
 
 #[test]

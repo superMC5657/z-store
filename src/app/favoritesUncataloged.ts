@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AppDetail, AppSummary } from '../types';
 import type { AppIconCycleResult } from '../services/api';
-import { api } from '../services/api';
+import { tauriApi } from '../services/api';
 import { admitIconHit, patchAppIconList } from '../services/iconStore';
 import { appSummaryFromDetail } from '../services/trends/enrich';
 import { isRemoteIcon } from '../components/AppIcon';
@@ -18,7 +18,7 @@ import { normalizeId } from '../services/normalizeId';
  *
  * - 归一大小写：join/去重一律经前端唯一口 `normalizeId`（`trim().toLowerCase()`），
  *   原始 id 保留原值供 `FavoritesView` 精确 `has` 命中（双键：原值 + 小写在调用方分别建索引）。
- * - 详情优先：`api.getAppDetails(id)`（后端经 `get_cached_app_detail_fallback`
+ * - 详情优先：`tauriApi.getAppDetails(id)`（后端经 `get_cached_app_detail_fallback`
  *   回退，TTL 外/离线仍可显）→ `appSummaryFromDetail`（`detail_to_summary`
  *   前端同构）；失败才用最小占位，保证行必展示。
  * - 标记：合成行一律 `is_cataloged: false` + `category: 'external'`
@@ -41,7 +41,7 @@ export const FAVORITE_EXTERNAL_CATEGORY_NAME = '跨平台开源';
 
 export function parseFavoriteOwnerRepo(id: string): { owner: string; repo: string } {
   const clean = typeof id === 'string' ? id.trim() : '';
-  // 兼容 `owner/repo`、`github.com/owner/repo`、`https://.../owner/repo`、`gh:owner/repo` 等直查形态；
+  // 支持 `owner/repo`、`github.com/owner/repo`、`https://.../owner/repo`、`gh:owner/repo` 等直查形态；
   // 取末两段为 owner/repo，取不到则 repo 回落 id 本身（保证可搜索、可展示）。
   const noScheme = clean.replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//, '').replace(/^(gh|github):/i, '');
   const parts = noScheme.split('/').map((s) => s.trim()).filter((s) => s.length > 0);
@@ -223,14 +223,14 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
     void (async () => {
       try {
         // 并发拉取、逐个落地：避免串行 6 倍等待；单个落盘经函数式去重，首个原值保留。
-        // 图标先占位后热替（不阻塞首屏）：落盘后经 `getAppIconCycle`（前端侧
+        // 图标先占位后热替（不阻塞首屏）：落盘后经 `restoreOrFetchIconCycle`（前端侧
         // `resolve_confirmed_icon_from_db` 同源读 `app_icon_cycles` + 后端回填）
         // 查轮换，命中即 `setFavoriteExtraApps` 逐个热替；已有合法远端仅文件预热。
         await Promise.all(
           missing.map(async (favId) => {
             let summary: AppSummary;
             try {
-              const detail = await api.getAppDetails(favId);
+              const detail = await tauriApi.getAppDetails(favId);
               summary = favoriteSummaryFromDetail(detail);
             } catch {
               summary = makeFavoritePlaceholderSummary(favId);
@@ -257,7 +257,7 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
                 }
                 // 无可用远端：查轮换（同步读库命中即返，无则后端补探回填），命中经店内写口热替占位行。
                 // L5 显式徽章（cycle.level===5）经唯一写口扇出占位行跟进；取不到轮换则保持占位。
-                const cycle = await api.getAppIconCycle(favId);
+                const cycle = await tauriApi.restoreOrFetchIconCycle(favId);
                 const persistUrl = pickFavoritePersistIconUrl(cycle);
                 const cycleLevel = typeof cycle?.level === 'number' ? cycle.level : undefined;
                 if (!persistUrl) {

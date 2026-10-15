@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Clock, Languages } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { BrandLogo } from './BrandLogo';
-import { api } from '../services/api';
+import { tauriApi } from '../services/api';
 
 interface TitleBarProps {
   searchQuery: string;
@@ -39,7 +39,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
 
   const loadSearchHistory = async () => {
     try {
-      const history = await api.getSearchHistory();
+      const history = await tauriApi.getSearchHistory();
       setSearchHistory(history);
     } catch {
       // 忽略错误
@@ -109,7 +109,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
         onSearchSubmit(localQuery);
       }
       if (query) {
-        api.recordSearchQuery(query).then(loadSearchHistory).catch(() => {});
+        tauriApi.recordSearchQuery(query).then(loadSearchHistory).catch(() => {});
       }
     }
   };
@@ -121,13 +121,13 @@ export const TitleBar: React.FC<TitleBarProps> = ({
     setLocalQuery(query);
     onSearchChange(query);
     setIsDropdownOpen(false);
-    api.recordSearchQuery(query).then(loadSearchHistory).catch(() => {});
+    tauriApi.recordSearchQuery(query).then(loadSearchHistory).catch(() => {});
   };
 
   const handleClearHistory = async (e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      await api.clearSearchHistory();
+      await tauriApi.clearSearchHistory();
       setSearchHistory([]);
     } catch {
       // 忽略错误
@@ -137,7 +137,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   const handleRemoveHistoryItem = async (e: React.MouseEvent, item: string) => {
     e.stopPropagation();
     try {
-      await api.removeSearchQuery(item);
+      await tauriApi.removeSearchQuery(item);
       setSearchHistory((prev) => prev.filter((x) => x !== item));
     } catch {
       // 忽略错误

@@ -22,7 +22,7 @@ export const DataManagementSection: React.FC<DataManagementSectionProps> = ({
     <div className="settings-group">
       <div className="settings-group-title">
         <Download size={15} strokeWidth={1.5} />
-        <span>{t('settings.data_management', { defaultValue: '数据管理与迁移' })}</span>
+        <span>{t('settings.data_management', { defaultValue: '数据管理与备份' })}</span>
       </div>
       <div className={`settings-row ${highlightRow === 'export' ? 'row-highlight' : ''}`}>
         <div className="settings-row-info">

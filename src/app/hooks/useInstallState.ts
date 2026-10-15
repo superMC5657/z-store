@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TFunction } from 'i18next';
 import type { AppSummary, InstalledApp, ViewType } from '../../types';
-import { api } from '../../services/api';
+import { tauriApi } from '../../services/api';
 import { zlogInfo } from '../../lib/z-log';
 
 export interface UseInstallStateParams {
@@ -33,7 +33,7 @@ export function useInstallState({
     zlogInfo(`click install id=${id} asset=${assetName || 'auto'}`);
     setInstallingAppIds((prev) => new Set(prev).add(id));
     try {
-      const installed = await api.installApp(id, assetName, customInstallDir);
+      const installed = await tauriApi.installApp(id, assetName, customInstallDir);
       setInstalledApps((prev) => [...prev.filter((a) => a.app_id.toLowerCase() !== id.toLowerCase()), installed]);
       setDetectedAppIds((prev) => new Set(prev).add(id).add(id.toLowerCase()));
       showToast(t('toast.install_success', { name: installed.app_name }), 'success');
@@ -65,7 +65,7 @@ export function useInstallState({
     const app = installedApps.find((a) => a.app_id === id);
     const appName = app ? app.app_name : id;
     try {
-      await api.launchApp(id);
+      await tauriApi.launchApp(id);
       showToast(t('toast.launch_success', { name: appName }), 'success');
     } catch (err) {
       showToast(t('toast.launch_failed', { error: String(err) }), 'error');
@@ -76,7 +76,7 @@ export function useInstallState({
   const handleUnmanageApp = async (id: string) => {
     const app = installedApps.find((a) => a.app_id === id);
     const appName = app?.app_name || id;
-    await api.unmanageApp(id);
+    await tauriApi.unmanageApp(id);
     setInstalledApps((prev) => prev.filter((a) => a.app_id !== id));
     showToast(t('toast.unmanage_success', { name: appName }), 'info');
   };
@@ -86,8 +86,8 @@ export function useInstallState({
     setIsRefreshingInstalled(true);
     try {
       const [freshInstalled, freshDetected] = await Promise.all([
-        api.getInstalledApps(),
-        api.getDetectedInstalledAppIds(true),
+        tauriApi.getInstalledApps(),
+        tauriApi.getDetectedInstalledAppIds(true),
       ]);
       setInstalledApps(freshInstalled);
       setDetectedAppIds(new Set(freshDetected.map((id) => id.toLowerCase())));
@@ -102,15 +102,15 @@ export function useInstallState({
   // 当用户切换至「已安装应用」视图时，自动触发后台校验与幽灵应用自愈清理
   useEffect(() => {
     if (currentView === 'installed') {
-      api.getInstalledApps().then(setInstalledApps).catch(() => undefined);
+      tauriApi.getInstalledApps().then(setInstalledApps).catch(() => undefined);
     }
   }, [currentView]);
 
   // 将探测到的应用纳入 ZStore 管理
   const handleManageApp = async (id: string) => {
     try {
-      await api.importSingleApp(id);
-      const updatedList = await api.getInstalledApps();
+      await tauriApi.importSingleApp(id);
+      const updatedList = await tauriApi.getInstalledApps();
       setInstalledApps(updatedList);
       // P0 纳管后 detected 集合保持含该 id（大小写双写，与安装/刷新口径一致，避免误报抖动）
       setDetectedAppIds((prev) => new Set(prev).add(id).add(id.toLowerCase()));
@@ -129,7 +129,7 @@ export function useInstallState({
 
     setUninstallingAppIds((prev) => new Set(prev).add(id));
     try {
-      await api.uninstallApp(id);
+      await tauriApi.uninstallApp(id);
       // 1. 精准增量从本地管理列表中移除
       setInstalledApps((prev) => prev.filter((a) => a.app_id.toLowerCase() !== id.toLowerCase()));
       // 2. 精准增量从系统探测列表中剔除（纯内存 O(1) 更新，完全无需触发全盘重扫）

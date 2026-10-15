@@ -118,7 +118,7 @@ pub fn is_valid_installer_asset(name: &str, size_bytes: u64) -> bool {
         crate::installer::AssetKind::PortableZip => true,
         crate::installer::AssetKind::PortableTarball => true,
         crate::installer::AssetKind::Other => {
-            // msix 扩展名特殊兼容支持
+            // msix 扩展名支持
             lower.ends_with(".msix")
         }
     }

@@ -48,7 +48,7 @@ import {
   PLATFORM_FILTER_STORAGE_KEY,
   loadSelectedPlatforms,
   parseSelectedPlatforms,
-} from './App';
+} from './app/platformStorage';
 
 afterEach(() => {
   window.localStorage.clear();
@@ -133,12 +133,12 @@ describe('task3: platform-filter persistence (Decision B select-nothing)', () =>
     expect(loadSelectedPlatforms()).toEqual(new Set(PLATFORM_IDS));
   });
 
-  it('v2 key absent while a foreign legacy key exists → full set (only v2 is read)', () => {
+  it('v2 key absent while a foreign key exists → full set (only v2 is read)', () => {
     window.localStorage.setItem('zstore:platform-filter:v1', JSON.stringify(['windows', 'ios']));
     expect(loadSelectedPlatforms()).toEqual(new Set(PLATFORM_IDS));
   });
 
-  it('v2 key present → read as-is, ignoring any foreign legacy key', () => {
+  it('v2 key present → read as-is, ignoring any foreign key', () => {
     window.localStorage.setItem('zstore:platform-filter:v1', JSON.stringify(['windows']));
     window.localStorage.setItem(PLATFORM_FILTER_STORAGE_KEY, JSON.stringify(['ios']));
     expect(loadSelectedPlatforms()).toEqual(new Set(['ios']));

@@ -2,7 +2,7 @@
  * P2-5 忽略更新持久化测试（真实 <App/> 链路）。
  *
  * `忽略本次提醒` 必须走与 `跳过此版本` 相同的后端链路
- * (api.setAppSkipVersion + 规则刷新)：被忽略的更新在重新检查后依然保持忽略状态，
+ * (tauriApi.setAppSkipVersion + 规则刷新)：被忽略的更新在重新检查后依然保持忽略状态，
  * 且规则管理弹窗界面需准确反映该持久化的跳过规则。
  */
 import { describe, expect, it, vi, afterEach } from 'vitest';
@@ -55,7 +55,7 @@ vi.mock('./services/api', () => {
     'getHostTokens',
     'getSearchHistory',
   ]);
-  const api = new Proxy(
+  const tauriApi = new Proxy(
     {},
     {
       get(_t, prop: string) {
@@ -72,7 +72,7 @@ vi.mock('./services/api', () => {
     },
   );
   return {
-    api,
+    tauriApi,
     DEFAULT_SETTINGS: {
       theme: 'dark',
       language: 'zh-CN',

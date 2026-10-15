@@ -18,7 +18,7 @@ const hooks = vi.hoisted(() => ({
 }));
 
 vi.mock('../services/api', () => {
-  const api = new Proxy(
+  const tauriApi = new Proxy(
     {},
     {
       get(_t, prop: string) {
@@ -31,7 +31,7 @@ vi.mock('../services/api', () => {
       },
     },
   );
-  return { api };
+  return { tauriApi };
 });
 
 import { AppDetailModal } from './AppDetailModal';
@@ -85,7 +85,7 @@ function collectToasts(): string[] {
 }
 
 describe('star characterization (real AppDetailModal path)', () => {
-  it('star toggle calls api.starApp and toasts success', async () => {
+  it('star toggle calls tauriApi.starApp and toasts success', async () => {
     const toasts = collectToasts();
     render(
       <AppDetailModal
@@ -103,12 +103,12 @@ describe('star characterization (real AppDetailModal path)', () => {
     });
 
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'GitHub 收藏 (Star)' }));
+      fireEvent.click(screen.getByRole('button', { name: 'GitHub 标星 (Star)' }));
     });
     await waitFor(() => {
       expect(hooks.starApp).toHaveBeenCalledWith(APP_ID);
     });
-    expect(screen.getByRole('button', { name: '取消 GitHub 收藏' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '取消 GitHub 标星' })).toBeTruthy();
     expect(toasts.some((t) => t.includes('标星'))).toBe(true);
   });
 });

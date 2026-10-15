@@ -12,13 +12,12 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import i18n from '../i18n';
 
 vi.mock('../services/api', () => {
-  // View 统一经 tauriApi 调用；此处 mock 同时提供 api 别名。
   const tauriApi = {
     syncCatalog: async () => ({ updated: false, count: 0, message: 'ok' }),
     selectFolder: async () => null,
     testProxy: async () => ({ success: true, latency_ms: 10, message: 'ok' }),
   };
-  return { api: tauriApi, tauriApi };
+  return { tauriApi };
 });
 vi.mock('../components/ClientUpdateRow', () => ({ ClientUpdateRow: () => null }));
 vi.mock('../components/OAuthAccountCard', () => ({ OAuthAccountCard: () => null }));

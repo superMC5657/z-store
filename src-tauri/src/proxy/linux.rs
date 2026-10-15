@@ -189,7 +189,7 @@ fn first_proxy_env_host() -> Option<String> {
 /// - env 已有任一 `HTTP(S)_PROXY/ALL_PROXY`：不写代理变量，仅补 `no_proxy`
 ///   默认豁免，记 `source=env`；
 /// - env 为空且 GNOME `manual` 有效：写小写 `http_proxy/https_proxy`
-///  （+ 大写镜像，兼容仅读大写的工具）与 `all_proxy`（仅 socks 有效时），
+///  （+ 大写镜像，供仅读大写的工具）与 `all_proxy`（仅 socks 有效时），
 ///   `no_proxy/NO_PROXY` 合并 GNOME `ignore-hosts` + 默认豁免，记 `source=gnome`；
 /// - 其余：仅补 `no_proxy` 默认豁免，记 `source=none`。
 /// - 日志只记 host（脱敏），永不记 query/凭证。

@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AppDetailViewModel, OAuthUser, ReleaseAsset } from '../../types';
-import { api, type AppIconCycleResult } from '../../services/api';
+import { tauriApi, type AppIconCycleResult } from '../../services/api';
 import { AppIcon } from '../AppIcon';
 import { admitIconHit } from '../../services/iconStore';
 import { notifyToast } from '../../utils/notify';
@@ -59,8 +59,8 @@ export const Header: React.FC<HeaderProps> = ({
   // 图标轮换态（T3 刷新图标）
   const [iconCycle, setIconCycle] = useState<AppIconCycleResult | null>(null);
   const [isCyclingIcon, setIsCyclingIcon] = useState(false);
-  // 轮换口径就绪：首轮 getAppIconCycle 落定前按钮不渲染（防 loading 期闪出）；
-  // 成功/失败均置 true，失败回退 category 兜底口径（与此前一致）。
+  // 轮换口径就绪：首轮 restoreOrFetchIconCycle 落定前按钮不渲染（防 loading 期闪出）；
+  // 成功/失败均置 true，失败回退 category 兜底口径（按钮按 category 显隐）。
   const [isIconCycleReady, setIsIconCycleReady] = useState(false);
   // 初次展示同步去重：同一 id+url 只 dispatch 一次，避免重复事件刷榜
   const iconSyncDispatchedRef = useRef<Set<string>>(new Set());
@@ -78,8 +78,8 @@ export const Header: React.FC<HeaderProps> = ({
     setIsIconCycleReady(false);
     if (!isTauri || !app.id) return;
 
-    api
-      .getAppIconCycle(app.id)
+    tauriApi
+      .restoreOrFetchIconCycle(app.id)
       .then((data) => {
         if (!isMounted) return;
         if (data) {
@@ -112,7 +112,7 @@ export const Header: React.FC<HeaderProps> = ({
         setIsIconCycleReady(true);
       })
       .catch(() => {
-        // 降级不崩；口径仍置就绪，按钮按 category 兜底显隐（与此前一致）
+        // 降级不崩；口径仍置就绪，失败时按钮按 category 兜底显隐
         if (isMounted) setIsIconCycleReady(true);
       });
 
@@ -161,7 +161,7 @@ export const Header: React.FC<HeaderProps> = ({
     if (isCyclingIcon || !isTauri || !app.id || isCataloged) return;
     setIsCyclingIcon(true);
     try {
-      const res = await api.cycleAppIcon(app.id);
+      const res = await tauriApi.cycleAppIcon(app.id);
       if (res) {
         // 未收录手动定 Logo：选中即默认——setIconCycle+admitIconHit+patch 同 tick 即时响应；
         // L2/L3/L4 实图转正 http 才写透，L5 空（url ''）走显式徽章写，data: 仅经 iconOverride 即时看。
@@ -254,13 +254,13 @@ export const Header: React.FC<HeaderProps> = ({
     const body = encodeURIComponent(
       `## 环境\n- ZStore 客户端版本：桌面端\n- 应用版本：${app.latest_version}\n- 系统：${navigator.platform}\n\n## 问题描述\n\n## 复现步骤\n1. \n2. \n`
     );
-    api.openUrl(`https://${host}/${app.owner}/${app.repo}/issues/new?title=${title}&body=${body}`);
+    tauriApi.openUrl(`https://${host}/${app.owner}/${app.repo}/issues/new?title=${title}&body=${body}`);
   };
 
   const handleOpenExternal = (e: React.MouseEvent, url: string) => {
     e.preventDefault();
     e.stopPropagation();
-    api.openUrl(url);
+    tauriApi.openUrl(url);
   };
 
   return (
@@ -321,19 +321,19 @@ export const Header: React.FC<HeaderProps> = ({
           className="modal-header-btn"
           onClick={handleToggleStar}
           disabled={isStarring}
-          aria-label={isStarred ? '取消 GitHub 收藏' : 'GitHub 收藏 (Star)'}
+          aria-label={isStarred ? '取消 GitHub 标星' : 'GitHub 标星 (Star)'}
           style={{
             color: isStarred ? '#eab308' : 'var(--text-secondary)',
             opacity: 1,
           }}
           title={
             isStarred
-              ? '已在 GitHub 标星并存入 z-store-list 列表（点击取消 GitHub 收藏）'
+              ? '已在 GitHub 标星并存入 user_stars（点击取消 GitHub 标星）'
               : oauthUser
               ? oauthUser.has_list_scope
-                ? 'GitHub 收藏：在 GitHub 标星该仓库并存入 z-store-list 列表'
-                : 'GitHub 收藏：在 GitHub 标星（当前令牌缺少 user 权限，建议在设置中重新授权以同步至清单）'
-              : 'GitHub 收藏：在 GitHub 标星该仓库并存入列表（需在设置中登录或配置令牌）'
+                ? 'GitHub 标星：在 GitHub 标星该仓库并存入 user_stars'
+                : 'GitHub 标星：在 GitHub 标星（当前令牌缺少 user 权限，建议在设置中重新授权以同步至清单）'
+              : 'GitHub 标星：在 GitHub 标星该仓库并存入 user_stars（需在设置中登录或配置令牌）'
           }
         >
           {isStarring ? (

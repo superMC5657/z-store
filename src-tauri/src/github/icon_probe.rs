@@ -275,7 +275,7 @@ fn magic_is_image(chunk: &[u8], ctype: &str) -> bool {
         return true;
     }
     // octet-stream 无明确类型时，有可识别二进制头才算过；否则按 ctype 放行
-    //（兼容 CDN 不返回标准 magic 的情况，长度阈值仍卡掉 LFS 指针等小文件）。
+    //（CDN 不返回标准 magic 时走此路，长度阈值仍卡掉 LFS 指针等小文件）。
     !ctype.contains("octet-stream")
 }
 
@@ -328,7 +328,7 @@ async fn verify_image(client: &reqwest::Client, url: &str, timeout: std::time::D
     if let Some(hit) = fetch_range_head(client, url, timeout).await {
         return Some(hit);
     }
-    // 3. 回退：全量 GET（兼容不支持 HEAD/Range 的服务器）。
+    // 3. 回退：全量 GET（不支持 HEAD/Range 的服务器走此路）。
     let req = client
         .get(url)
         .header("User-Agent", crate::forge::http::BROWSER_UA_VALUE)
@@ -439,8 +439,8 @@ struct GitTreeNode {
 /// `headers` 传入带 token 的鉴权头则含 Trees 级；
 /// 传 `None`（如无 token 的图标命令回退路径）则跳过 Trees，只做免鉴权级。
 /// 命中返回权威 URL，未命中返回 `None`。
-/// 快慢分离超时：快路径 SimpleIcons 每 slug 1500ms（免鉴权），慢路径 Trees 12s（需鉴权）。
-/// 两者均经 `api_timeout_seconds` 统一配置，未设置（0）时回退上述历史值，行为保持不变。
+/// 快慢分离超时：取统一配置中枢 `api_timeout_seconds`，0 视为未设置用缺省；
+/// 快路径 SimpleIcons 每 slug 缺省 1500ms（免鉴权），慢路径 Trees 缺省 12s（需鉴权）。
 /// ADR-0008：网络超时统一经 `config::api_timeout_or` 单一来源（统一配置中枢同一键）。
 pub(crate) fn simple_icon_timeout() -> std::time::Duration {
     crate::config::api_timeout_or(std::time::Duration::from_millis(1500))

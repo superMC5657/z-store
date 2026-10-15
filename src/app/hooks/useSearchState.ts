@@ -1,8 +1,8 @@
 import { useCallback, useRef, useState } from 'react';
 import type { TFunction } from 'i18next';
 import type { AppSummary, ViewType } from '../../types';
-import { api, ONLINE_SEARCH_PER_PAGE } from '../../services/api';
-import { getBufferedIcon, isEmptyIcon, mergeStickyIcon, queueAssembledRowIcons } from '../../services/iconStore';
+import { tauriApi, ONLINE_SEARCH_PER_PAGE } from '../../services/api';
+import { getBufferedIcon, isEmptyIcon, preferNonEmptyIcon, queueAssembledRowIcons } from '../../services/iconStore';
 import {
   readSearchListCache,
   sweepExpiredSearchListCache,
@@ -28,7 +28,7 @@ export interface UseSearchStateParams {
  * - `adoptEchoInWindow`：窗内（期望空）首个搜索回声即立期望（与 `App.tsx` 同语义）；
  *   已立期望后异 sid 由店内门控判 stale，此处不覆盖（窗内只采首个）。
  */
-// C1(a): no-sid legacy dropped — callers guarantee valid sid, empty never passed (guard at call site).
+// C1(a): empty sid never settles the expectation — callers pass a valid sid (guarded at the call site).
 export function settlePageEcho(ref: { current: string }, sid: string): void {
   if (sid) ref.current = sid;
 }
@@ -56,7 +56,7 @@ export function adoptEchoInWindow(ref: { current: string }, kind: string, sid: s
 /** 在线段图标回填组装（C1 读透适配，薄）。
  * M1内存回读：搜索列表缓存命中行经 `getBufferedIcon` 唯一口回读拼装，空壳不覆盖缓冲实图。
  * 空值经店内 SSOT（`isEmptyIcon`/`admitIconHit`），此处不自立规则；
- * 粘性合并经 `mergeStickyIcon`，此处只做组装。
+ * 粘性合并经 `preferNonEmptyIcon`，此处只做组装。
  * 组装行中 http 远端图标经 `queueAssembledRowIcons` 补齐落盘（前 30 上限，`data:`/空跳过），
  * 30 名开外无 preload 覆盖的行靠此自愈进盘。
  */
@@ -72,7 +72,7 @@ function assembleOnlineRowsWithIcons(prev: AppSummary[], incoming: AppSummary[])
     const k = (m.id || '').toLowerCase();
     if (!k || seen.has(k)) continue;
     seen.add(k);
-    let item = mergeStickyIcon(prevById.get(k), m);
+    let item = preferNonEmptyIcon(prevById.get(k), m);
     if (isEmptyIcon(item.icon)) {
       const coordKey =
         item.owner && item.repo
@@ -163,7 +163,7 @@ export function useSearchState({
     isLoadingOnlineMoreRef.current = false;
     const seq = ++searchSeqRef.current;
     try {
-      const results = await api.searchApps(q);
+      const results = await tauriApi.searchApps(q);
       if (guardFreshSearch(seq)) return;
       setApps(results);
       if (q && currentView !== 'home' && currentView !== 'trends' && currentView !== 'categories') {
@@ -207,7 +207,7 @@ export function useSearchState({
       onlinePageRef.current = 1;
       onlineQueryRef.current = '';
       try {
-        const freshLocal = await api.searchApps(q);
+        const freshLocal = await tauriApi.searchApps(q);
         if (guardFreshSearch(seq)) return;
         setApps(freshLocal);
         if (currentView !== 'home' && currentView !== 'trends' && currentView !== 'categories') {
@@ -252,7 +252,7 @@ export function useSearchState({
       // 首个回声到达即立期望（下行回声见下，直播首事件见 App 侧），之后异 sid 才丢。
       currentSearchIdRef.current = '';
       try {
-        const pageRes = await api.searchAppsOnline(q, searchId, 1, ONLINE_SEARCH_PER_PAGE);
+        const pageRes = await tauriApi.searchAppsOnline(q, searchId, 1, ONLINE_SEARCH_PER_PAGE);
         if (guardFreshSearch(seq)) return;
         const onlineResults = pageRes.rows;
         // 以后端回声为唯一真源。
@@ -350,7 +350,7 @@ export function useSearchState({
     setIsLoadingOnlineMore(true);
     isLoadingOnlineMoreRef.current = true;
     try {
-      const moreRes = await api.searchAppsOnline(
+      const moreRes = await tauriApi.searchAppsOnline(
         q,
         currentSearchIdRef.current || undefined,
         nextPage,

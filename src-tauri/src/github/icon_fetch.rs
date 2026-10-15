@@ -4,7 +4,7 @@
 //!   其中 `jobs=[{id,owner,repo,ctx}]`，`ctx=Search{search_id,gen} | Trend{board,gen}`。
 //! - 行为：并发池 `cfg.pool`（默认 5，与趋势 `buffered(5)` 对齐，D6，ADR-0015）；
 //!   快路径 SimpleIcons / 慢路径 Trees 超时经
-//!   `network.api_timeout_seconds` 统一配置，未设置回退 1500ms/12s 历史值；
+//!   `network.api_timeout_seconds` 统一配置，未设置回退 1500ms/12s 缺省；
 //!   快路径外层兜底 `api_timeout_or(8000ms)`、慢路径仅探 `default_branch`、
 //!   整批 `cfg.total_timeout_secs`（默认 15s）按页伸缩（经缝内纯函数
 //!   `scaled_total_timeout`）；
@@ -313,7 +313,7 @@ mod tests {
         for f in ["id", "icon", "level", "via", "context"] {
             assert!(v.get(f).is_some(), "missing field {f}");
         }
-        assert!(v.get("key").is_none(), "legacy key field must be gone");
+        assert!(v.get("key").is_none(), "unexpected key field must be gone");
         assert_eq!(v["context"]["kind"], "search");
         assert_eq!(v["context"]["search_id"], "7");
         // Trend 变体可序列化（锁形状）。

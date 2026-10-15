@@ -9,7 +9,7 @@ import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 
 vi.mock('../services/api', () => {
-  const api = new Proxy(
+  const tauriApi = new Proxy(
     {},
     {
       get(_t, prop: string) {
@@ -43,13 +43,13 @@ vi.mock('../services/api', () => {
       },
     },
   );
-  return { api, isTauri: false, ONLINE_SEARCH_PER_PAGE: 20 };
+  return { tauriApi, isTauri: false, ONLINE_SEARCH_PER_PAGE: 20 };
 });
 
 import { patchAppIconList } from '../services/iconStore';
 import { adoptEchoInWindow, settleMoreEcho, settlePageEcho } from '../app/hooks/useSearchState';
 import { AppIcon } from '../components/AppIcon';
-import { api } from '../services/api';
+import { tauriApi } from '../services/api';
 import {
   __getIconPreloadQueueSizeForTests,
   __resetIconStoreForTests,
@@ -92,7 +92,7 @@ afterEach(() => cleanup());
 describe('icon-ready backfill', () => {
   it('first paint icon is empty via searchAppsOnline', async () => {
     const res = await (
-      api as never as { searchAppsOnline: () => Promise<{ rows: SearchRow[]; sid: string }> }
+      tauriApi as never as { searchAppsOnline: () => Promise<{ rows: SearchRow[]; sid: string }> }
     ).searchAppsOnline();
     expect(res.rows[0].id).toBe('o/r');
     expect(res.rows[0].icon).toBe('');
@@ -453,7 +453,7 @@ describe('echo-window interleavings (fix-11 hardening)', () => {
 
   it('3. 无 sid 不落定期望：当次窗 live 照收，跨次按 sid 消歧，有 sid 到即升级', () => {
     const ref = { current: '' };
-    const requestId = 'search-1-legacy-req';
+    const requestId = 'search-1-req';
     // 回包无 sid：窗保持开（''），永不回落请求串号（echo-as-truth）。
     settlePageEcho(ref, '');
     expect(ref.current).toBe('');

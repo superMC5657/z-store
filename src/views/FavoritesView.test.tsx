@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { FavoritesView } from './FavoritesView';
 import { AppCard } from '../components/AppCard';
-import { api } from '../services/api';
+import { tauriApi } from '../services/api';
 import { makeApp } from './test-utils/filterFixture';
 import { makeFavoritePlaceholderSummary } from '../app/favoritesUncataloged';
 
@@ -24,7 +24,7 @@ describe('P2-7: batch install survives a single item failure', () => {
   it('single failure ⇒ button live again + error count shown, remaining items still attempted', async () => {
     const appA = makeApp({ id: 'owner/app-a', name: 'AppA' });
     const appB = makeApp({ id: 'owner/app-b', name: 'AppB' });
-    vi.spyOn(api, 'syncGithubStarred').mockResolvedValue({
+    vi.spyOn(tauriApi, 'syncGithubStarred').mockResolvedValue({
       total_starred: 2,
       catalog_matches: [appA, appB],
       other_repos: [],

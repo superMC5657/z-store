@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../../i18n';
 import { AppDetailViewModel, DownloadAssetResult, DownloadProgressPayload, OAuthUser, ReleaseAsset } from '../../types';
-import { api } from '../../services/api';
+import { tauriApi } from '../../services/api';
 import { getAppDescription, getCategoryLabel, isInstallableAssetKind, isProductAssetName, sortAssetsByRelevance } from '../../utils/appHelper';
 import { detectHostArch, detectHostOs } from '../hostEnv';
 import { Header } from './Header';
@@ -110,7 +110,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   useEffect(() => {
     let cleanup: (() => void) | undefined;
     let isMounted = true;
-    api.onDownloadProgress((payload) => {
+    tauriApi.onDownloadProgress((payload) => {
       if (!isMounted) return;
       // 任务隔离：仅消费归属当前应用的事件
       if (payload.task_id && payload.task_id.toLowerCase() !== app.id.toLowerCase()) {
@@ -175,7 +175,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
     );
     if (universalMatch) return universalMatch;
 
-    // 3. 兼容降级：x86_64 宿主向下兼容 32 位 x86 程序
+    // 3. 兜底：x86_64 宿主可运行 32 位 x86 程序
     if (currentArch === 'x86_64') {
       const x86Match = releases.find(
         (r) => (r.os === currentOs || r.os === 'all') && r.arch === 'x86'
@@ -206,14 +206,14 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
     if (!primaryAsset || isDownloadingOnly) return;
     // 浏览器预览无 Tauri 下载通道，回退到系统浏览器直链
     if (!isTauri) {
-      api.openUrl(primaryAsset.download_url);
+      tauriApi.openUrl(primaryAsset.download_url);
       return;
     }
     setInstallError(null);
     setDownloadedFile(null);
     setIsDownloadingOnly(true);
     try {
-      const res = await api.downloadAsset(app.id, primaryAsset.name);
+      const res = await tauriApi.downloadAsset(app.id, primaryAsset.name);
       setDownloadedFile(res);
     } catch (e) {
       setInstallError(String(e));
@@ -229,7 +229,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
     if (!downloadedFile || isRevealingFolder || !isTauri) return;
     setIsRevealingFolder(true);
     try {
-      await api.showFileInFolder(downloadedFile.file_path);
+      await tauriApi.showFileInFolder(downloadedFile.file_path);
     } catch (e) {
       setInstallError(String(e));
       setTimeout(() => {
@@ -254,7 +254,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
       // 如果目标是免安装便携版 (PortableZip / PortableTarball)，调用系统原生文件夹选择器让用户自主指定安装/解压位置
       const portableKind = (primaryAsset?.kind || '').toLowerCase();
       if (portableKind === 'portable_zip' || portableKind === 'portable_tarball') {
-        const picked = await api.selectFolder();
+        const picked = await tauriApi.selectFolder();
         if (!picked) {
           // 用户主动取消了文件夹选择，优雅中止安装
           setIsInstalling(false);
@@ -276,7 +276,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   const handleOpenExternal = (e: React.MouseEvent, url: string) => {
     e.preventDefault();
     e.stopPropagation();
-    api.openUrl(url);
+    tauriApi.openUrl(url);
   };
 
   return (

@@ -14,7 +14,7 @@ export function errorStatusOf(err: unknown): number | undefined {
   const s = (err as { status?: unknown })?.status;
   if (typeof s === 'number') return s;
   // Rust invoke 拒绝值为纯字符串（`.status` 经序列化丢失），从错误串回解析
-  // `upstream status {code}`，直透调用下 errorKind 映射保持不变（见 api.fetchTrendsText）。
+  // `upstream status {code}`，直透调用下 errorKind 映射保持不变（见 tauriApi.fetchTrendsText）。
   return errorStatusFromMessage(err);
 }
 

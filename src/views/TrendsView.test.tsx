@@ -8,7 +8,6 @@
  * rising/healthy → doforce 公开 API（单飞共享一次抓取 + 12h 共享缓存；
  *   rising 按 change，healthy 按 forks + change 各自排序）；
  * new → GitHub search（created 6mo 窗口，starsGained 恒为 undefined）。
- * 已删除：OSSInsight、HN Algolia、时间榜 GitHub-Search 兜底。
  *
  * 核心断言：
  * - rising/healthy 单飞共享：并发与随后调用只产生一次远端抓取；
@@ -171,8 +170,8 @@ function gitHubApiUrls() {
   return requestedUrls.filter((u) => u.includes('api.github.com'));
 }
 
-describe('P0: 旧加权公式与 dead 数据源已彻底删除', () => {
-  it('不再导出 sortAppsLocally / OSSInsight / HN / GitHub 窗口兜底', () => {
+describe('P0: 榜单数据源与排序契约', () => {
+  it('仅导出当前榜单抓取与排序入口', () => {
     for (const name of [
       'sortAppsLocally',
       'fetchOSSInsightRepos',
@@ -205,7 +204,7 @@ describe('P0: 旧加权公式与 dead 数据源已彻底删除', () => {
     expect(buildDoforceUrl()).toBe('https://trend.doforce.dpdns.org/repo');
   });
 
-  it('非法 board（旧 period / 已下线榜单）直接抛错', async () => {
+  it('非法 board 直接抛错', async () => {
     await expect(fetchTrendsResultSeam('day' as never)).rejects.toThrow(/unknown board/);
     await expect(fetchTrendsResult('week' as never)).rejects.toThrow(/unknown board/);
     await expect(fetchTrendsResultSeam('all' as never)).rejects.toThrow(/unknown board/);
@@ -604,7 +603,7 @@ describe('new 榜：GitHub search（created 6mo）保持不变', () => {
   });
 });
 
-describe('保留的纯函数与兼容入口', () => {
+describe('纯函数与抓取入口', () => {
   it('增速比公式 = starsGained / max(1, stars - starsGained)', () => {
     const [atlas, dune, beacon, comet] = boardFixture();
     expect(growthRatio(comet)).toBeCloseTo(380 / 20);
@@ -969,7 +968,7 @@ describe('TrendsView 榜单选项卡记忆（zstore.trends.opts）', () => {
     expect(loadPersistedTrendBoard()).toBeUndefined();
     window.localStorage.setItem(TREND_BOARD_STORAGE_KEY, JSON.stringify({ board: 'category' }));
     expect(loadPersistedTrendBoard()).toBeUndefined();
-    // 裸字符串（非 JSON）→ undefined（不回兼容）
+    // 裸字符串（非 JSON）→ undefined
     window.localStorage.setItem(TREND_BOARD_STORAGE_KEY, 'rising');
     expect(loadPersistedTrendBoard()).toBeUndefined();
     // JSON-string 形 '"weekly"'：parse 一层后按 board 名接受

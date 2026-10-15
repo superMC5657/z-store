@@ -7,7 +7,7 @@ fn test_catalog_load_and_search() {
 
     let res = cat.search_apps("rustdesk");
     assert!(!res.is_empty());
-    // ADR-0010：清单 id 已迁移为 canonical owner/repo
+    // ADR-0010：清单 id 为 canonical owner/repo
     assert_eq!(res[0].id, "rustdesk/rustdesk");
 
     let res_zh = cat.search_apps("远程桌面");

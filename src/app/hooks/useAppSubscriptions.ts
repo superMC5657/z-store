@@ -10,7 +10,7 @@ import type {
   ViewType,
   WatchUpdatedPayload,
 } from '../../types';
-import { api, DEFAULT_SETTINGS } from '../../services/api';
+import { tauriApi, DEFAULT_SETTINGS } from '../../services/api';
 import {
   admitIconHit,
   patchAppIconList,
@@ -72,7 +72,7 @@ function releaseMountCtx(ctx: MountCtx): void {
 }
 
 /**
- * 挂载订阅守卫（C3 统一口径）：`api.onX` 一律经此登记——挂载期收 unlisten
+ * 挂载订阅守卫（C3 统一口径）：`tauriApi.onX` 一律经此登记——挂载期收 unlisten
  * 入清理表，迟到（已卸载）即时解绑，订阅失败静默吞掉。消除 4 处
  * `isMounted/unlistenFn` 重复样板，语义与原内联代码一致。
  */
@@ -144,7 +144,7 @@ export function useAppSubscriptions({
   useEffect(() => {
     const initialFilter = initialFilterRef.current;
     // 初始数据拉取
-    api.searchApps('').then((loadedApps) => {
+    tauriApi.searchApps('').then((loadedApps) => {
       setApps(loadedApps);
       // 预解码热门应用图标，若本地配置目录已缓存则秒读，未缓存则后台下载并缓存
       preloadTop30Icons(
@@ -153,25 +153,25 @@ export function useAppSubscriptions({
           .map((a) => ({ id: a.id, owner: a.owner, repo: a.repo, icon: a.icon }))
       );
     });
-    api.getInstalledApps().then(setInstalledApps);
-    api.getDetectedInstalledAppIds().then((ids) => setDetectedAppIds(new Set(ids))).catch(() => {});
-    api.getFavorites().then((favs) => setFavoriteIds(new Set(favs)));
-    api.getUpdateRules().then(setUpdateRules);
-    api.getRecentlyViewedApps().then((recents) => setRecentlyViewedApps(recents.filter((a) => matchPlatformSetWithPending(a, initialFilter.selectedPlatforms, initialFilter.platformResolvedOtherIds)))).catch(() => {});
-    api.registerDeepLinkScheme().catch(() => {});
+    tauriApi.getInstalledApps().then(setInstalledApps);
+    tauriApi.getDetectedInstalledAppIds().then((ids) => setDetectedAppIds(new Set(ids))).catch(() => {});
+    tauriApi.getFavorites().then((favs) => setFavoriteIds(new Set(favs)));
+    tauriApi.getUpdateRules().then(setUpdateRules);
+    tauriApi.getRecentlyViewedApps().then((recents) => setRecentlyViewedApps(recents.filter((a) => matchPlatformSetWithPending(a, initialFilter.selectedPlatforms, initialFilter.platformResolvedOtherIds)))).catch(() => {});
+    tauriApi.registerDeepLinkScheme().catch(() => {});
 
     // 加载持久化设置
-    api.getSettings().then((persisted) => {
+    tauriApi.getSettings().then((persisted) => {
       applyPersistedSettingsRef.current(persisted);
       // P2-6: 仅启动时自动检查更新——`daily`（每日）更新频率选项目前在“设置”中刻意禁用（未开发功能，暂无调度器），
       // 因此此处仅对 `startup`（启动时）触发自动检查；`daily`/`manual` 用户可通过“更新中心”标签页手动检查。
       if ((persisted.update_frequency || DEFAULT_SETTINGS.update_frequency) === 'startup') {
-        api.checkForUpdates(false).then(setUpdates).catch(() => {});
+        tauriApi.checkForUpdates(false).then(setUpdates).catch(() => {});
       }
     });
 
     const handleCatalogSynced = () => {
-      api.searchApps('').then((updatedApps) => {
+      tauriApi.searchApps('').then((updatedApps) => {
         setApps(updatedApps);
         preloadTop30Icons(
           updatedApps
@@ -184,7 +184,7 @@ export function useAppSubscriptions({
     window.addEventListener('zstore:catalog-synced', handleCatalogSynced);
 
     let unlistenSearchIcons: (() => void) | null = null;
-    api
+    tauriApi
       .onSearchIconUpgraded((payload) => {
         // 回调体委托 `services/iconStore.admitIconHit`（世代门控 + 写透守卫 +
         // 别名双写 + `invalidate→queue` 时机均在店内；此处仅做载荷适配
@@ -242,10 +242,10 @@ export function useAppSubscriptions({
   // FR-6.2: 加载关注列表 + 订阅 `zstore://watch-updated` 应用内提醒
   useEffect(() => {
     const ctx = newMountCtx();
-    api.getWatchedApps().then((ids) => {
+    tauriApi.getWatchedApps().then((ids) => {
       if (ctx.mounted) setWatchedIds(new Set(ids));
     }).catch(() => {});
-    trackSubscription(ctx, api.onWatchUpdated((payload) => {
+    trackSubscription(ctx, tauriApi.onWatchUpdated((payload) => {
       if (!ctx.mounted) return;
       const label = payload.app_name || payload.app_id;
       showToastRef.current(tRef.current('toast.watch_update_released', { name: label, version: payload.version }), 'info');
@@ -264,7 +264,7 @@ export function useAppSubscriptions({
   useEffect(() => {
     const ctx = newMountCtx();
 
-    trackSubscription(ctx, api.onUpdateItemFound((item) => {
+    trackSubscription(ctx, tauriApi.onUpdateItemFound((item) => {
       if (!ctx.mounted) return;
       setUpdates((prev) => {
         const idx = prev.findIndex((u) => u.app_id.toLowerCase() === item.app_id.toLowerCase());
@@ -277,12 +277,12 @@ export function useAppSubscriptions({
       });
     }));
 
-    trackSubscription(ctx, api.onUpdateCheckProgress((payload) => {
+    trackSubscription(ctx, tauriApi.onUpdateCheckProgress((payload) => {
       if (!ctx.mounted) return;
       setUpdateCheckProgress(payload);
     }));
 
-    trackSubscription(ctx, api.onUpdateCheckFinished(() => {
+    trackSubscription(ctx, tauriApi.onUpdateCheckFinished(() => {
       if (!ctx.mounted) return;
       setIsCheckingUpdates(false);
       setUpdateCheckProgress(null);
@@ -298,7 +298,7 @@ export function useAppSubscriptions({
   useEffect(() => {
     const ctx = newMountCtx();
     const loadOAuthUser = () => {
-      api.getOAuthUser().then((u) => {
+      tauriApi.getOAuthUser().then((u) => {
         if (ctx.mounted) setOAuthUser(u);
       }).catch(() => {
         if (ctx.mounted) setOAuthUser(null);
@@ -306,7 +306,7 @@ export function useAppSubscriptions({
     };
     loadOAuthUser();
     const handleOAuthChanged = () => loadOAuthUser();
-    trackSubscription(ctx, api.onOAuthExpired(() => {
+    trackSubscription(ctx, tauriApi.onOAuthExpired(() => {
       if (ctx.mounted) {
         showToastRef.current(tRef.current('toast.github_auth_expired'), 'warning');
         loadOAuthUser();
@@ -317,9 +317,9 @@ export function useAppSubscriptions({
     const handleDataImported = async () => {
       try {
         const [persisted, favs, watched] = await Promise.all([
-          api.getSettings(),
-          api.getFavorites(),
-          api.getWatchedApps().catch(() => [] as string[]),
+          tauriApi.getSettings(),
+          tauriApi.getFavorites(),
+          tauriApi.getWatchedApps().catch(() => [] as string[]),
         ]);
         if (!ctx.mounted) return;
         applyPersistedSettingsRef.current(persisted);
@@ -346,7 +346,7 @@ export function useAppSubscriptions({
       const now = Date.now();
       if (now - lastTabUpdateCheckRef.current > 30_000) {
         lastTabUpdateCheckRef.current = now;
-        api.checkForUpdates(false).then(setUpdates).catch(() => {});
+        tauriApi.checkForUpdates(false).then(setUpdates).catch(() => {});
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

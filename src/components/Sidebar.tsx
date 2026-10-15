@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { OAuthUser, ViewType } from '../types';
-import { api } from '../services/api';
+import { tauriApi } from '../services/api';
 import { GitHubIcon, PlatformIcon } from './icons/PlatformIcons';
 import { PLATFORM_IDS, PLATFORM_META, type PlatformId } from '../lib/platformFilter';
 
@@ -65,7 +65,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   useEffect(() => {
     let cancelled = false;
     const load = () => {
-      api.getOAuthUser().then((u) => {
+      tauriApi.getOAuthUser().then((u) => {
         if (!cancelled) setOauthUser(u);
       }).catch(() => {
         if (!cancelled) setOauthUser(null);

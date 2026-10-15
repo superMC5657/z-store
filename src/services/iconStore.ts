@@ -3,13 +3,13 @@
  * `trends/enrich`/`trends/board` 不自立图标 locality，并行 mem-cache 均内聚为本 module 内部 seam。
  * interface：唯一对外写 interface 为 `admitIconHit`（`icon-ready` 统一收口）+ 读侧扇出
  * `subscribeIconWrites`（读侧只合并、不调写口，不复活窗口总线）；读口 `getBufferedIcon`/
- * `getCachedIconDataUri` 为展示/组装用只读 interface；`stickyIconFor`/`patchIconMirror`/
+ * `getCachedIconDataUri` 为展示/组装用只读 interface；`resolveIconWithBuffer`/`patchIconMirror`/
  * `patchAppIconList` 为组装/镜像用的纯合并 interface（内部 seam 的收敛实现，调用方直引、不自立规则）。
  * depth：`admitIconHit` 内聚 generation gate（`search_id`/`board`+`gen`）+ L-monotone（纯L 1..5，
  * 数字越小优先级越高、L5显式徽章最高，低不顶高，`via` 正交）+ `via`（`live|m2`，`data:` 只进 M1 内存；m2+http 远端落盘自愈）+ L5 badge
  *（`icon:'' + level:5` 唯一允许的空覆盖，经 fan-out）+ fan-out（`notifyIconWrites`）。
  * 一次 `IconFetch` 命中经 `icon-ready` 只跳本 module 单 interface。
- * seam：`admitIconHit` 为唯一写 seam；`stickyIconFor`（`mergeStickyIcon` + M1 缓冲回读）与
+ * seam：`admitIconHit` 为唯一写 seam；`resolveIconWithBuffer`（`preferNonEmptyIcon` + M1 缓冲回读）与
  * `patchIconMirror`（趋势镜像合并）与 `iconDataCache`（`get_or_fetch_icon` 落盘预热内存态）均为内部 seam，
  * 对外不新增写口。
  * adapter/leverage/locality：`App.tsx` 经 `patchAppIconList` + `subscribeIconWrites` 内联四连直写；
@@ -192,11 +192,11 @@ export function isRemoteHttpIconUrl(icon: unknown): boolean {
 }
 
 /**
- * icon 粘性 supersede-only 合并（内部 seam 的收敛实现）：
+ * 非空优先合并（内部 seam 的收敛实现）：
  * 旧图标非空 + 回填图标空 → 沿用旧图标；其余一律采用回填值。
  * 空值经 `isEmptyIcon` SSOT，不自立 `trim()===''` 规则。
  */
-export function mergeStickyIcon(
+export function preferNonEmptyIcon(
   cur: AppSummary | undefined,
   incoming: AppSummary,
 ): AppSummary {
@@ -209,14 +209,14 @@ export function mergeStickyIcon(
 }
 
 /**
- * icon 粘性 + M1 缓冲回读（内部 seam 的收敛实现）：
- * 先 `mergeStickyIcon`（旧实 + 回填空 → 沿用旧），再空壳经 `getBufferedIcon` 唯一口
+ * 带缓冲回读的图标合并（内部 seam 的收敛实现）：
+ * 先 `preferNonEmptyIcon`（旧实 + 回填空 → 沿用旧），再空壳经 `getBufferedIcon` 唯一口
  * 回读缓冲实图（坐标键 + id 键双查，`normalizeId` 归一，遵 ADR-0010）。
  * 调用方（`enrich.put`/`assembleOnlineRowsWithIcons`）直引此 interface，不自立空值/缓冲规则；
  * `Search List Cache` 命中行组装亦经此口，空壳不覆盖缓冲实图。
  */
-export function stickyIconFor(cur: AppSummary | undefined, incoming: AppSummary): AppSummary {
-  const merged = mergeStickyIcon(cur, incoming);
+export function resolveIconWithBuffer(cur: AppSummary | undefined, incoming: AppSummary): AppSummary {
+  const merged = preferNonEmptyIcon(cur, incoming);
   if (!isEmptyIcon(merged.icon)) return merged;
   const coordKey =
     incoming.owner && incoming.repo
@@ -383,7 +383,7 @@ export function getCachedIconDataUri(key: string): string | undefined {
 /**
  * 远端预热（内部 seam）：
  * 队列 + 单飞 + 批量排空：同 tick 多次调用合并为 `Set<url>`，同 URL 共用 Promise；
- * 仅远端（`http(s)`/`data:` 兼容展示判定由调用方保证，此处复用店内落盘门控）走
+ * 仅远端（`http(s)`/`data:` 展示判定由调用方保证，此处复用店内落盘门控）走
  * `get_or_fetch_icon` 落盘；`data:`/空永不预热；退避期内跳过。
  * `data:` 纯内存路径不经此（`admitIconHit` 内跳过）。
  * 成功置 `queued=true` + 写 `iconDataCache`（URL + id 别名扇出）；

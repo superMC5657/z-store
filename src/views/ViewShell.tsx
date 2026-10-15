@@ -1,5 +1,6 @@
 import React from 'react';
 import { EmptyState } from '../components/EmptyState';
+import { PLATFORM_FILTER_STORAGE_KEY } from '../app/platformStorage';
 import type { AppSummary } from '../types';
 
 /**
@@ -14,14 +15,12 @@ import type { AppSummary } from '../types';
  * 原有的 CSS 类名不变，已有测试的选择器（`.filter-empty-reset` 等）不受影响。
  */
 
-export const PLATFORM_FILTER_STORAGE_KEY = 'zstore:platform-filter:v2';
 export const PLATFORM_RESET_EVENT = 'zstore:reset-platform-filter';
 
 /**
  * 当 App 尚未接入 `onResetPlatformFilter` 时的兜底重置方案：
- * 清理持久化存储（App 的 `loadSelectedPlatforms` 在缺少键时会回退至全选集合），
- * 并向所有监听器广播重置意图。键名字符串与 App.PLATFORM_FILTER_STORAGE_KEY 一致；
- * 此处保持字面量以避免 view 与 App 之间的循环引用。
+ * 清理持久化存储（`loadSelectedPlatforms` 在缺少键时会回退至全选集合），
+ * 并向所有监听器广播重置意图。键经 `app/platformStorage` 单源导入，与持久化读写同键。
  */
 export function broadcastPlatformReset(): void {
   try {

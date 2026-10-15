@@ -681,7 +681,7 @@ impl AppScanner {
 
     /// 在 `PATH` 中查找裸命令。
     /// PATH 在 GUI/服务进程中可能稀疏，显式补齐标准绑定目录（FHS/XDG）：
-    /// `/usr/local/bin`（本地编译）、`/usr/bin`、`/bin`（与 `/usr/bin` 符号链接兼容）、
+    /// `/usr/local/bin`（本地编译）、`/usr/bin`、`/bin`（与 `/usr/bin` 符号链接等价）、
     /// `/snap/bin`（snap 应用，如 vlc snap 落盘处）、`~/.local/bin`（XDG 用户级）。
     /// 注：`/opt/bin` 非标准 FHS 路径，已删（`/opt/<Name>` 由 `resolve_linux_system_binary` 专管）。
     /// Unix 上必须有执行位才放行（无执行位返回 None；符号链接经 metadata 跟随目标判定）。
@@ -889,7 +889,7 @@ impl AppScanner {
     }
 
     /// 文件名/目录名归一化：小写去空格/`-`/`_`后比对（P0 止血 + P1 `/opt/Clash Verge`
-    /// 带空格目录兼容共用；纯函数，跨平台可单测）。
+    /// 带空格目录共用；纯函数，跨平台可单测）。
     pub fn normalize_fs_token(s: &str) -> String {
         s.to_lowercase()
             .chars()
@@ -1010,7 +1010,7 @@ impl AppScanner {
     }
 
     /// `/opt` 子目录是否与 token 匹配：归一化后比对；`len<5` 短 token 要求精确相等。
-    /// 长 token 允许目录名包含 token（兼容带后缀的长目录名）；反向（token 包含目录名）
+    /// 长 token 允许目录名包含 token（支持带后缀的长目录名）；反向（token 包含目录名）
     /// 仅当目录名等于 token 的完整分段（按 `/ - _` 空格 `.` 切分）时成立——
     /// P0：禁纯子串反向 `contains`，防 `/opt/go` 误命中长 token（如 `golang`）。
     /// 仅 Linux 嗅探调用（与调用方同 cfg，防 Windows 侧 dead_code 告警）。
@@ -1105,7 +1105,7 @@ impl AppScanner {
                 return Some((cand_local.to_string_lossy().to_string(), "which"));
             }
         }
-        // 3. /opt 目录嗅探：read_dir 枚举 + 归一化比对（兼容 `/opt/Clash Verge` 带空格），
+        // 3. /opt 目录嗅探：read_dir 枚举 + 归一化比对（支持 `/opt/Clash Verge` 带空格），
         // 命中目录再 `find_exe_in_directory` 精准提取。
         if let Some(found) = Self::resolve_linux_via_opt(&bare, config) {
             return Some((found, "opt"));
@@ -1122,7 +1122,7 @@ impl AppScanner {
     }
 
     /// P1：`/opt` read_dir 枚举 + 归一化比对（解决 `/opt/Clash Verge` 带空格问题）。
-    /// 仅 linux 生效。先枚举匹配目录，再 `find_exe_in_directory`；直连旧路径作为回退保留。
+    /// 仅 linux 生效。先枚举匹配目录，再 `find_exe_in_directory`；直连路径作为回退保留。
     #[cfg(target_os = "linux")]
     pub fn resolve_linux_via_opt(
         bare_tokens: &[String],
@@ -1174,7 +1174,7 @@ impl AppScanner {
                 }
             }
         }
-        // 回退：旧直连路径（/opt/<variant>）保留，防枚举权限失败时漏检。
+        // 回退：直连路径（/opt/<variant>）保留，防枚举权限失败时漏检。
         let mut opt_roots: Vec<PathBuf> = Vec::new();
         for d in &config.install_dirs {
             let last = d.rsplit(['/', '\\']).next().unwrap_or(d);

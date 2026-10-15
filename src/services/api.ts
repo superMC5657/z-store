@@ -118,9 +118,9 @@ export const CMD = {
   selectFolder: 'select_folder',
   getOrFetchIcon: 'get_or_fetch_icon',
   cycleAppIcon: 'request_app_icon_cycle',
-  getAppIconCycle: 'restore_or_fetch_icon_cycle',
+  restoreOrFetchIconCycle: 'restore_or_fetch_icon_cycle',
   getReadmeVariants: 'get_readme_variants',
-  getAssetCacheUrl: 'fetch_or_cache_asset_url',
+  fetchOrCacheAssetUrl: 'fetch_or_cache_asset_url',
   getAssetCacheStats: 'get_asset_cache_stats',
   clearAssetCache: 'clear_asset_cache',
   getIconCacheStats: 'get_icon_cache_stats',
@@ -172,7 +172,7 @@ export const tauriApi = {
   getAppDetails: catalogApi.getAppDetails,
   getPlatformsLite: catalogApi.getPlatformsLite,
   getReadmeVariants: catalogApi.getReadmeVariants,
-  getAssetCacheUrl: catalogApi.getAssetCacheUrl,
+  fetchOrCacheAssetUrl: catalogApi.fetchOrCacheAssetUrl,
   getAssetCacheStats: catalogApi.getAssetCacheStats,
   clearAssetCache: catalogApi.clearAssetCache,
   getIconCacheStats: catalogApi.getIconCacheStats,
@@ -194,7 +194,7 @@ export const tauriApi = {
   syncCatalog: catalogApi.syncCatalog,
   getOrFetchIcon: catalogApi.getOrFetchIcon,
   cycleAppIcon: catalogApi.cycleAppIcon,
-  getAppIconCycle: catalogApi.getAppIconCycle,
+  restoreOrFetchIconCycle: catalogApi.restoreOrFetchIconCycle,
 
   // Installer / Apps / Updates
   getInstalledApps: installerApi.getInstalledApps,
@@ -254,9 +254,3 @@ export const tauriApi = {
   unstarApp: socialApi.unstarApp,
   isStarred: socialApi.isStarred,
 };
-
-/**
- * 核心统一 API 导出：仅面向 Tauri 桌面端 IPC 通信；
- * 浏览器直接访问时由应用入口渲染环境提示页（见 main.tsx）。
- */
-export const api = tauriApi;
