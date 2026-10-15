@@ -73,7 +73,7 @@ import {
   matchPlatformSetWithPending,
   type PlatformId,
 } from '../lib/platformFilter';
-import { admitIconHit, patchIconMirror, subscribeIconWrites } from '../services/iconStore';
+import { admitIconHit, patchIconMirror, queueAssembledRowIcons, subscribeIconWrites } from '../services/iconStore';
 
 /**
  * 趋势榜单一榜一源：调 `fetchTrendsResult(board, { proxyPrefix })`，
@@ -305,6 +305,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       setTrendConfirmedOtherIds((prev) => mergeSwrConfirmedMirror(prev, l2Confirmed, snap));
     }
     setEnrichedApps((prev) => mergeSwrEnrichedMirror(prev, snap));
+    // 组装落盘补齐：SWR 富卡 http 远端图标入队进盘（前 30 上限，`data:`/空跳过）。
+    queueAssembledRowIcons(Object.values(snap));
   }, [trendResult]);
 
   // 未收录行 enrichment：逐仓复用搜索 enrichment（Rust 侧并发 5、分片 20/片×2 片=40 上限、单仓 10s），
@@ -329,6 +331,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
         found,
       );
       if (next !== enrichedAppsRef.current) setEnrichedApps(next);
+      // 组装落盘补齐：本批 enrich 行 http 远端图标入队进盘（前 30 上限）。
+      if (found.size > 0) queueAssembledRowIcons([...found.values()]);
       // 具平台到达可覆盖升级：enrich 具平台即移出已确认（本地 + board 内存标记）。
       if (concreteKeys.length > 0) {
         unmarkConcreteKeys(concreteKeys);
@@ -371,7 +375,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   // 趋势流式图标订阅。
   // 后台 `icon-ready` 经 `admitIconHit` 接上 `board` 门控逐个补齐富卡图标。
   // 此处只 patch 图标（空值规则由店内保证），
-  // 平台逻辑不动；`data:`/`via=m2`只进M1内存不落盘，`remote`才 hydrate + 节流写透榜缓存二级。
+  // 平台逻辑不动；`data:` 只进 M1 内存，`remote`（含 m2 回退远端）才 hydrate + 节流写透榜缓存二级。
   // 双门控正交（勿删其一）：`kind` 门控做榜/搜隔离（本订阅只收 `trend`，search 交 App 处理）；
   // `admitIconHit` 内 `search_id/board+gen` 门控做同榜新鲜度判定（双非空不等即 stale，任一为空即放行）。
   // 前者防跨榜串写（空 board/gen 在店内一律放行，无 kind 硬过滤即串榜），后者防同榜过期回放；两者不可互相替代。

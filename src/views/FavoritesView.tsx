@@ -11,6 +11,7 @@ import { ViewAppActions, ViewShell } from './ViewShell';
 import { matchesAppText } from './useViewFilter';
 import { isPlatformPending } from '../lib/platformFilter';
 import { normalizeId, normalizeIdLowerSet } from '../services/normalizeId';
+import { queueAssembledRowIcons } from '../services/iconStore';
 import { isInstalledUnion as selectIsInstalledUnion, selectIsDetectedOnlyOpt, selectIsManagedOpt } from '../app/selectors';
 
 interface FavoritesViewProps extends ViewAppActions {
@@ -60,6 +61,17 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   const watchedIdsLower = normalizeIdLowerSet(watchedSet);
   const favoriteApps = apps.filter((a) => favoriteIdsLower.has(normalizeId(a.id)) && matchesSearch(a));
   const watchedApps = apps.filter((a) => watchedIdsLower.has(normalizeId(a.id)) && matchesSearch(a));
+
+  // 组装落盘补齐：收藏/关注/标星匹配列表 http 远端图标入队进盘（前 30 上限，`data:`/空跳过）。
+  useEffect(() => {
+    queueAssembledRowIcons(favoriteApps);
+    queueAssembledRowIcons(watchedApps);
+  }, [favoriteApps, watchedApps]);
+  useEffect(() => {
+    if (syncResult?.catalog_matches && syncResult.catalog_matches.length > 0) {
+      queueAssembledRowIcons(syncResult.catalog_matches);
+    }
+  }, [syncResult]);
 
   const handleSyncStarred = async () => {
     setIsSyncing(true);

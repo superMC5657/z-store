@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { marked } from 'marked';
@@ -21,6 +21,7 @@ import { AppIcon } from '../components/AppIcon';
 import { EmptyState } from '../components/EmptyState';
 import { ViewShell } from './ViewShell';
 import { resolveAppIconInfo } from '../utils/appHelper';
+import { queueAssembledRowIcons } from '../services/iconStore';
 
 interface UpdatesViewProps {
   updates: UpdateItem[];
@@ -71,6 +72,28 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
 
   const resolveIconInfo = (appId: string, iconOverride?: string, iconBgOverride?: string) =>
     resolveAppIconInfo(appId, apps, iconOverride, iconBgOverride);
+
+  // 组装落盘补齐：更新列表 + 关注动态展示图标（自身覆盖优先、收录库回退）http 远端入队进盘（前 30 上限，`data:`/空跳过）。
+  useEffect(() => {
+    if (updates.length === 0 && (!watchNotifications || watchNotifications.length === 0)) return;
+    const catalogById = new Map(apps.map((a) => [a.id.toLowerCase(), a]));
+    if (updates.length > 0) {
+      queueAssembledRowIcons(
+        updates.map((u) => ({
+          id: u.app_id,
+          icon: u.icon || catalogById.get(u.app_id.toLowerCase())?.icon || '',
+        })),
+      );
+    }
+    if (watchNotifications && watchNotifications.length > 0) {
+      queueAssembledRowIcons(
+        watchNotifications.map((n) => ({
+          id: n.app_id,
+          icon: catalogById.get(n.app_id.toLowerCase())?.icon || '',
+        })),
+      );
+    }
+  }, [updates, apps, watchNotifications]);
 
   const handleUpdate = async (id: string) => {
     try {

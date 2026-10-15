@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
+import { queueAssembledRowIcons } from '../services/iconStore';
 import {
   Code2,
   Music,
@@ -71,6 +72,11 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
     }
     return [];
   }, [apps, selectedCategory]);
+
+  // 组装落盘补齐：分类列表 http 远端图标入队进盘（前 30 上限，`data:`/空跳过）。
+  useEffect(() => {
+    queueAssembledRowIcons(filteredApps);
+  }, [filteredApps]);
 
   const currentCategoryMeta = CATEGORY_DEFINITIONS.find((c) => c.id === selectedCategory);
 

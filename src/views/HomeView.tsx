@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import {
@@ -24,6 +24,7 @@ import {
 } from './ViewShell';
 import type { FeedStrategy } from '../services/feed';
 import { useHomeFeed, HOME_FEED_PAGE } from './HomeView/useHomeFeed';
+import { queueAssembledRowIcons } from '../services/iconStore';
 import { isPlatformPending } from '../lib/platformFilter';
 import { isInstalledUnion as selectIsInstalledUnion, selectIsDetectedOnlyOpt, selectIsManagedOpt } from '../app/selectors';
 export { HOME_FEED_PAGE };
@@ -115,6 +116,16 @@ export const HomeView: React.FC<HomeViewProps> = ({
     isLoadingOnlineMore,
     onOnlineLoadMore,
   });
+
+  // 组装落盘补齐：首页各列表段（置顶/精选/feed/最近浏览/在线段）http 远端图标入队进盘
+  //（前 30 上限，`data:`/空跳过；在线段组装侧已入队，此处重入队经店内去重无害）。
+  useEffect(() => {
+    if (heroApp) queueAssembledRowIcons([heroApp]);
+    queueAssembledRowIcons(featuredApps);
+    queueAssembledRowIcons(displayedFeed);
+    if (recentlyViewedApps.length > 0) queueAssembledRowIcons(recentlyViewedApps);
+    if (onlineApps.length > 0) queueAssembledRowIcons(onlineApps);
+  }, [heroApp, featuredApps, displayedFeed, recentlyViewedApps, onlineApps]);
 
   // 非搜索态筛选为空才走平台空态；搜索态本地为空但在线有结果时仍进双段展示，
   // 本地段给轻量空提示（两段都空时 App 侧整页空态已拦截，此处兜底同样进双段）。

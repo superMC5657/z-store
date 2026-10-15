@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import type { TFunction } from 'i18next';
 import type { AppSummary, ViewType } from '../../types';
 import { api, ONLINE_SEARCH_PER_PAGE } from '../../services/api';
-import { getBufferedIcon, isEmptyIcon, mergeStickyIcon } from '../../services/iconStore';
+import { getBufferedIcon, isEmptyIcon, mergeStickyIcon, queueAssembledRowIcons } from '../../services/iconStore';
 import {
   readSearchListCache,
   sweepExpiredSearchListCache,
@@ -57,6 +57,8 @@ export function adoptEchoInWindow(ref: { current: string }, kind: string, sid: s
  * M1内存回读：搜索列表缓存命中行经 `getBufferedIcon` 唯一口回读拼装，空壳不覆盖缓冲实图。
  * 空值经店内 SSOT（`isEmptyIcon`/`admitIconHit`），此处不自立规则；
  * 粘性合并经 `mergeStickyIcon`，此处只做组装。
+ * 组装行中 http 远端图标经 `queueAssembledRowIcons` 补齐落盘（前 30 上限，`data:`/空跳过），
+ * 30 名开外无 preload 覆盖的行靠此自愈进盘。
  */
 function assembleOnlineRowsWithIcons(prev: AppSummary[], incoming: AppSummary[]): AppSummary[] {
   const prevById = new Map<string, AppSummary>();
@@ -87,6 +89,8 @@ function assembleOnlineRowsWithIcons(prev: AppSummary[], incoming: AppSummary[])
     }
     deduped.push(item);
   }
+  // 组装落盘补齐：展示即入队（同 tick 合并+单飞+退避复用店内机制，前 30 上限防 N+1）。
+  queueAssembledRowIcons(deduped);
   return deduped;
 }
 

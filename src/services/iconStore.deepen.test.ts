@@ -10,12 +10,18 @@
  */
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  ASSEMBLED_ROW_ICON_QUEUE_CAP,
+  __flushIconPreloadsForTests,
+  __getIconPreloadQueueSizeForTests,
   __resetIconStoreForTests,
   __resetIconWriteSubscribersForTests,
+  __setIconDataCacheForTests,
   admitIconHit,
   clearBufferedIcon,
   getBufferedIcon,
+  isIconPersistedOrQueued,
   patchIconMirror,
+  queueAssembledRowIcons,
   stickyIconFor,
   subscribeIconWrites,
 } from './iconStore';
@@ -84,6 +90,49 @@ describe('deepen icon-write seam behind single interface', () => {
     // 无旧值但缓冲有实图 → 回读缓冲（与旧 enrich/board getBufferedIcon(key) 同语义）。
     const incomingBare = { id: 'o/r', owner: 'o', repo: 'r', icon: '' } as never as import('../types').AppSummary;
     expect(stickyIconFor(undefined, incomingBare).icon).toBe(REAL);
+  });
+
+  it('queueAssembledRowIcons 批量上限与跳过规则（前 N 个 http 入队，data:/空跳过）', () => {
+    const rows = Array.from({ length: ASSEMBLED_ROW_ICON_QUEUE_CAP + 5 }, (_, i) => ({
+      id: `o/r${i}`,
+      icon: `https://cdn.example.com/${i}.png`,
+    }));
+    rows.push(
+      { id: 'o/data', icon: 'data:image/png;base64,AAA' },
+      { id: 'o/empty', icon: '' },
+    );
+    queueAssembledRowIcons(rows);
+    expect(__getIconPreloadQueueSizeForTests()).toBe(ASSEMBLED_ROW_ICON_QUEUE_CAP);
+  });
+
+  it('queueAssembledRowIcons 已覆盖让位：已落盘的不占 30 名额，新行入队', async () => {
+    const first = Array.from({ length: ASSEMBLED_ROW_ICON_QUEUE_CAP }, (_, i) => ({
+      id: `o/cached${i}`,
+      icon: `https://cdn.example.com/cached-${i}.png`,
+    }));
+    queueAssembledRowIcons(first);
+    expect(__getIconPreloadQueueSizeForTests()).toBe(ASSEMBLED_ROW_ICON_QUEUE_CAP);
+    // 模拟落盘：写 iconDataCache + 排空队列（非 Tauri 只收队，保留落盘态）。
+    for (const r of first) __setIconDataCacheForTests(r.icon, 'data:image/png;base64,CACHED');
+    await __flushIconPreloadsForTests();
+    expect(__getIconPreloadQueueSizeForTests()).toBe(0);
+    // 第二批：前 30 为已落盘重叠，后 5 为新 URL（另带 data:/空，照旧跳过）。
+    const fresh = Array.from({ length: 5 }, (_, i) => ({
+      id: `o/fresh${i}`,
+      icon: `https://cdn.example.com/fresh-${i}.png`,
+    }));
+    const second = [
+      ...first,
+      ...fresh,
+      { id: 'o/data', icon: 'data:image/png;base64,AAA' },
+      { id: 'o/empty', icon: '' },
+    ];
+    queueAssembledRowIcons(second);
+    // 旧的不占名额：仅 5 个新 URL 入队。
+    expect(__getIconPreloadQueueSizeForTests()).toBe(5);
+    for (const r of fresh) expect(isIconPersistedOrQueued(r.icon)).toBe(true);
+    for (const r of first) expect(isIconPersistedOrQueued(r.icon)).toBe(true);
+    expect(isIconPersistedOrQueued('https://cdn.example.com/never-seen.png')).toBe(false);
   });
 
   it('patchIconMirror 单 interface（含 L5 清零与别名）', () => {

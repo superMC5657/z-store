@@ -6,7 +6,7 @@
  * `getCachedIconDataUri` 为展示/组装用只读 interface；`stickyIconFor`/`patchIconMirror`/
  * `patchAppIconList` 为组装/镜像用的纯合并 interface（内部 seam 的收敛实现，调用方直引、不自立规则）。
  * depth：`admitIconHit` 内聚 generation gate（`search_id`/`board`+`gen`）+ L-monotone（纯L 1..5，
- * 低不顶高，`via` 正交）+ `via`（`live|m2`，`data:`/`m2` 只进 M1 内存不落盘）+ L5 badge
+ * 低不顶高，`via` 正交）+ `via`（`live|m2`，`data:` 只进 M1 内存；m2+http 远端落盘自愈）+ L5 badge
  *（`icon:'' + level:5` 唯一允许的空覆盖，经 fan-out）+ fan-out（`notifyIconWrites`）。
  * 一次 `IconFetch` 命中经 `icon-ready` 只跳本 module 单 interface。
  * seam：`admitIconHit` 为唯一写 seam；`stickyIconFor`（`mergeStickyIcon` + M1 缓冲回读）与
@@ -103,7 +103,7 @@ export interface AdmitIconHitResult {
   targets?: string[];
   icon?: string;
   level?: number;
-  /** `true`=已入队 `queueIconFetches→get_or_fetch_icon`；`false`=M1纯内存（`data:`/`via=m2`）。 */
+  /** `true`=已入队 `queueIconFetches→get_or_fetch_icon`；`false`=M1纯内存（`data:`/非远端 m2）。 */
   queued?: boolean;
   reason?: string;
 }
@@ -260,7 +260,7 @@ const iconById = new Map<string, string>();
  */
 const iconDataCache = new Map<string, string>();
 const iconPendingPromises = new Map<string, Promise<string>>();
-/** 入队成功标记（L1–L4 Logo 入队成功即 `queued=true`，`data:`/`m2` 永不置位）。URL 与 id 别名同置。 */
+/** 入队成功标记（入队成功即 `queued=true`，`data:`/非远端 m2 永不置位）。URL 与 id 别名同置。 */
 const iconPersistedKeys = new Set<string>();
 /** 同 tick 合并队列：`url → ids`（`queueIconFetches` 只入队，排空时按 URL 单次下载）。 */
 const iconPreloadQueue = new Map<string, Set<string>>();
@@ -373,8 +373,8 @@ export function getCachedIconDataUri(key: string): string | undefined {
  * 远端预热（内部 seam）：
  * 队列 + 单飞 + 批量排空：同 tick 多次调用合并为 `Set<url>`，同 URL 共用 Promise；
  * 仅远端（`http(s)`/`data:` 兼容展示判定由调用方保证，此处复用店内落盘门控）走
- * `get_or_fetch_icon` 落盘；`data:` 永不预热；退避期内跳过。
- * `M1` 纯内存（`data:`/`via=m2`）路径不经此（`admitIconHit` 内跳过）。
+ * `get_or_fetch_icon` 落盘；`data:`/空永不预热；退避期内跳过。
+ * `data:` 纯内存路径不经此（`admitIconHit` 内跳过）。
  * 成功置 `queued=true` + 写 `iconDataCache`（URL + id 别名扇出）；
  * 失败 `delete` pending + 退避 30s（展示回落 URL 直显，不抛错、不产生未处理拒绝）。
  * 非 Tauri（单测/jsdom/浏览器预览）只收队不清耗（展示回落 URL 直显，不抛错）。
@@ -430,6 +430,62 @@ export function queueIconFetches(items: (string | { id?: string; icon: string })
     }
   }
   schedulePreloadDrain();
+}
+
+/**
+ * 列表组装落盘补齐上限：与首屏预热同量级（30），防 N+1 风暴。
+ */
+export const ASSEMBLED_ROW_ICON_QUEUE_CAP = 30;
+
+/**
+ * 同步覆盖查询：URL 已落盘（`iconDataCache` 有非空 `data:`）或已在队/在途
+ * （`iconPreloadQueue`/`iconPendingPromises`）即算已覆盖，选批时跳过不占名额。
+ * 失败退避中不算已覆盖（允许重试，仍占名额）。`data:`/空永不算覆盖（调用方另行跳过）。
+ */
+export function isIconPersistedOrQueued(url: unknown): boolean {
+  if (typeof url !== 'string' || url === '') return false;
+  const cached = iconDataCache.get(url);
+  if (typeof cached === 'string' && cached !== '') return true;
+  const nid = normalizeId(url);
+  if (nid && nid !== url) {
+    const cachedNorm = iconDataCache.get(nid);
+    if (typeof cachedNorm === 'string' && cachedNorm !== '') return true;
+  }
+  if (iconPendingPromises.has(url)) return true;
+  if (iconPreloadQueue.has(url)) return true;
+  if (nid && nid !== url) {
+    if (iconPendingPromises.has(nid)) return true;
+    if (iconPreloadQueue.has(nid)) return true;
+  }
+  return false;
+}
+
+/**
+ * 列表组装落盘补齐：对行中 http 远端图标调一次 `queueIconFetches`。
+ * 同 tick 合并 + 单飞 + 30s 退避 + 已落盘/在途去重皆复用 `queueIconFetches` 内部机制；
+ * 本函数选批时先跳过已覆盖（已落盘/在队/在途，经 `isIconPersistedOrQueued`，
+ * 退避中不算覆盖允许重试），再计 30 上限，让位给 30 名开外的新行。
+ * `data:`/空跳过；同批内重复 URL 去重不占名额。
+ */
+export function queueAssembledRowIcons(
+  rows: readonly { id?: string; icon?: unknown }[] | undefined,
+): void {
+  if (!rows || rows.length === 0) return;
+  const batch: { id?: string; icon: string }[] = [];
+  const seenInBatch = new Set<string>();
+  for (const row of rows) {
+    if (batch.length >= ASSEMBLED_ROW_ICON_QUEUE_CAP) break;
+    const icon = typeof row?.icon === 'string' ? row.icon : '';
+    if (!isRemoteHttpIconUrl(icon)) continue;
+    if (isIconPersistedOrQueued(icon)) continue;
+    const batchKey = normalizeId(icon) || icon;
+    if (seenInBatch.has(batchKey)) continue;
+    seenInBatch.add(batchKey);
+    seenInBatch.add(icon);
+    const id = typeof row?.id === 'string' ? row.id : undefined;
+    batch.push(id === undefined ? { icon } : { id, icon });
+  }
+  if (batch.length > 0) queueIconFetches(batch);
 }
 
 /**
@@ -568,6 +624,13 @@ export function __getIconPreloadBackoffForTests(url: string): number | undefined
   return iconPreloadBackoffUntil.get(url);
 }
 
+/** 仅供测试：模拟落盘写 `iconDataCache`（`queueAssembledRowIcons` 让位断言用）。 */
+export function __setIconDataCacheForTests(key: string, dataUri: string): void {
+  if (typeof key !== 'string' || key === '') return;
+  if (typeof dataUri !== 'string' || dataUri === '') return;
+  iconDataCache.set(key, dataUri);
+}
+
 /** 仅供测试：清空展示数据内存态（防跨文件泄漏）。 */
 export function __resetIconDataCacheForTests(): void {
   iconDataCache.clear();
@@ -581,7 +644,8 @@ export function __resetIconDataCacheForTests(): void {
 
 /**
  * 唯一写入口：`icon-ready` 统一收口（M1内存唯一口，经 `getBufferedIcon` 回读）。
- * `level`纯L单调；`data:`/`via=m2`只进M1内存不落盘；M2首屏直填不走emit。
+ * `level`纯L单调；`data:` 只进 M1 内存；m2+http 远端走落盘路自愈（m2 不推进 `level` 记忆）；
+ * M2首屏直填不走emit。
  * L5 显式徽章（`icon:'' + level:5`，用户切空意图）为唯一允许的空覆盖：
  * 清图标+level 记忆（cycle-back 可重接受 L2..L4）+ `invalidate` + `patch('')` + 读侧扇出；
  * 其余空图标一律丢弃（被动空壳保护）。
@@ -693,12 +757,14 @@ export function admitIconHit(args: AdmitIconHitArgs): AdmitIconHitResult {
   if (stale) return { accepted: false, targets, icon, reason: stale };
 
   // `level`纯L单调：低不顶高，via正交不参与比较。缺省即放行且不推进记忆。
-  // 仅 1..5 合法（`isPureLevel`）；`data:`/`via=m2` 只进 M1 内存，不推进 `level` 记忆（只做 stale 判定，不写）。
+  // 仅 1..5 合法（`isPureLevel`）；`data:` 只进 M1 内存，m2 不推进 `level` 记忆（只做 stale 判定，不写）。
   const level =
     typeof args.level === 'number' && Number.isFinite(args.level) ? args.level : undefined;
   const pureLevel = isPureLevel(level) ? (level as number) : undefined;
   const via = typeof args.via === 'string' ? args.via.trim().toLowerCase() : '';
-  const isMemoryOnly = icon.startsWith('data:') || via === 'm2';
+  // `isMemoryOnly` 拆分：`data:` 保持纯内存；`via=m2` 仅非远端走内存——m2 携带 http
+  // 远端（无文件回退 `selected_url`）时走 live 同落盘路自愈，后端 LRU“只删文件不删 URL”靠此回填。
+  const isMemoryOnly = icon.startsWith('data:') || (via === 'm2' && !isRemoteHttpIconUrl(icon));
   let nextLevel: number | undefined;
   if (pureLevel !== undefined) {
     let currentMax: number | undefined;
@@ -713,7 +779,8 @@ export function admitIconHit(args: AdmitIconHitArgs): AdmitIconHitResult {
     // `data:`/`m2` 不推进：此处只算出 `nextLevel`，落盘路径才写记忆。
   }
 
-  // `data:`/`via=m2`只进M1内存不落盘：失效 + patch 内存态，跳过 `queueIconFetches`，不推进 `level` 记忆。
+  // `data:`/非远端 m2 只进 M1 内存：失效 + patch 内存态，跳过 `queueIconFetches`，
+  // 不推进 `level` 记忆；m2+http 远端下沉到远端分支落盘。
   if (isMemoryOnly) {
     for (const t of targets) {
       try {
@@ -744,13 +811,13 @@ export function admitIconHit(args: AdmitIconHitArgs): AdmitIconHitResult {
     };
   }
 
-  // 仅 `remote(http)` 才 `patch state + queueIconFetches` 走 `get_or_fetch_icon` 落盘。
+  // 仅 `remote(http)` 才 `patch state + queueIconFetches` 走 `get_or_fetch_icon` 落盘（含 m2 回退远端）。
   // 批量收集一次 `preload`（同 URL 多别名一次入队），`patch` 仍逐个别名内存写透。
   if (!isRemoteHttpIconUrl(icon)) {
     return { accepted: false, targets, icon, level: pureLevel, reason: 'non-remote-dropped' };
   }
-  // 落盘路径才推进 `level` 记忆（`data:`/`m2` 已提前返回不推进）。
-  if (nextLevel !== undefined) {
+  // 落盘路径推进 `level` 记忆；m2 不推进（首屏直填不挡后续 live 升级，单调门控语义不变）。
+  if (nextLevel !== undefined && via !== 'm2') {
     for (const t of targets) iconLevelById.set(t, nextLevel);
   }
   for (const t of targets) {
@@ -796,7 +863,7 @@ export function __resetIconStoreForTests(): void {
 /**
  * M1内存缓冲读口（经 `iconById`，`admitIconHit`唯一写口）：`icon-ready` 先到、
  * `enrich` 后到竞态时，`enrich` 组装经此取缓冲实图，空壳不覆盖缓冲实图。
- * `data:`/`via=m2`只走此内存态；M2首屏直填不走emit。
+ * `data:` 只走此内存态；m2+http 兼走落盘路（内存写透照常）；M2首屏直填不走emit。
  */
 export function getBufferedIcon(key: string): string | undefined {
   const k = normalizeId(key);

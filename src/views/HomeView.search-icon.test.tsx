@@ -3,7 +3,7 @@
  * 回声 sid 为唯一真源：回声窗内（期望空）live L2/L3 按回声 sid 即收；
  * 期望立定后 `context.search_id` 失配（旧串号）才丢弃保持 initials
  * （与 App.tsx + `iconStore.admitIconHit` 世代门控同语义）。
- * `level`纯L单调（via正交）；`data:`/`via=m2`只进M1内存；M2首屏直填不走emit。
+ * `level`纯L单调（via正交）；`data:` 只进 M1 内存，m2+http 远端落盘自愈；M2首屏直填不走emit。
  */
 import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
@@ -51,6 +51,7 @@ import { adoptEchoInWindow, settleMoreEcho, settlePageEcho } from '../app/hooks/
 import { AppIcon } from '../components/AppIcon';
 import { api } from '../services/api';
 import {
+  __getIconPreloadQueueSizeForTests,
   __resetIconStoreForTests,
   admitIconHit,
   getBufferedIcon,
@@ -175,7 +176,7 @@ describe('icon-ready backfill', () => {
     expect(container.querySelector('img')).toBeNull();
   });
 
-  it('via=m2 http 只进M1内存不落盘（仍patch+缓冲）', () => {
+  it('via=m2 http 走落盘路自愈（queued:true，仍patch+缓冲）', () => {
     const prev: SearchRow[] = [{ id: 'o/r', icon: '' }];
     const { next, accepted, reason, queued } = applyNewIconReady(
       prev,
@@ -189,10 +190,31 @@ describe('icon-ready backfill', () => {
       'search-1-123',
     );
     expect(accepted).toBe(true);
-    expect(queued).toBe(false);
-    expect(reason).toBe('m2-memory-only');
+    expect(queued).toBe(true);
+    expect(reason).toBeUndefined();
     expect(next[0].icon).toBe('https://cdn.simpleicons.org/r');
     expect(getBufferedIcon('o/r')).toBe('https://cdn.simpleicons.org/r');
+    expect(__getIconPreloadQueueSizeForTests()).toBe(1);
+  });
+
+  it('data: 保持纯内存（queued:false，不入队）', () => {
+    const prev: SearchRow[] = [{ id: 'o/r', icon: '' }];
+    const { next, accepted, reason, queued } = applyNewIconReady(
+      prev,
+      {
+        id: 'o/r',
+        icon: 'data:image/png;base64,AAA',
+        level: 2,
+        via: 'live',
+        context: { kind: 'search', search_id: 'search-1-123', gen: 1 },
+      },
+      'search-1-123',
+    );
+    expect(accepted).toBe(true);
+    expect(queued).toBe(false);
+    expect(reason).toBe('data-memory-only');
+    expect(next[0].icon).toBe('data:image/png;base64,AAA');
+    expect(__getIconPreloadQueueSizeForTests()).toBe(0);
   });
 
   it('level纯L单调：4为L（2→4接受，4→2丢弃，via正交不绕单调）', () => {

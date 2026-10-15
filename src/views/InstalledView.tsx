@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import {
@@ -37,6 +37,7 @@ interface InstalledViewProps {
 }
 
 import { InstalledItemActions } from './InstalledView/InstalledItemActions';
+import { queueAssembledRowIcons } from '../services/iconStore';
 
 export const InstalledView: React.FC<InstalledViewProps> = ({
   installedApps,
@@ -60,6 +61,18 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
   const [confirmingUnmanageId, setConfirmingUnmanageId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+
+  // 组装落盘补齐：已装列表展示图标（自身覆盖优先、收录库回退）http 远端入队进盘（前 30 上限，`data:`/空跳过）。
+  useEffect(() => {
+    if (installedApps.length === 0) return;
+    const catalogById = new Map(apps.map((a) => [a.id.toLowerCase(), a]));
+    queueAssembledRowIcons(
+      installedApps.map((a) => ({
+        id: a.app_id,
+        icon: a.icon || catalogById.get(a.app_id.toLowerCase())?.icon || '',
+      })),
+    );
+  }, [installedApps, apps]);
 
   const handleTriggerUninstall = (id: string) => {
     if (uninstallingAppIds?.has(id)) return;
