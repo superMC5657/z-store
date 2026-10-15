@@ -84,7 +84,7 @@
     - 前端图标写入口唯一收口于 `src/services/iconStore.ts:703 applyHit`。
     - 搜缓存为 `src/services/search/searchListCache.ts` 纯前端内存缓存（key=`search|归一query|page|perPage`，见 `buildSearchListCacheKey:55`；TTL 30min 见 `SEARCH_LIST_TTL_MS:8`、上限 50 条 FIFO 见 `SEARCH_LIST_MAX_ENTRIES:10`），不碰榜缓存二级落盘与趋势榜缓存。
     - 图标就绪事件：只发 `zstore://icon-ready`（见 `src-tauri/src/github/icon_fetch.rs:126 emit_icon_ready`），前后端同一事件，载荷 `{id,icon,level,via,context}`（`id` 即小写 `owner/repo`，与 DB 主键同源）。
-    - 详情仍走最强探测（动态分支 + 图标 L4=README，需网络），不受统一核心约束。
+    - 详情仍走最强探测（动态分支 + 图标 L4=README，需网络；L3仅默认分支，详情失败用HEAD，README默认+HEAD），不受统一核心约束。
     - level纯L(1=L1官方,2=L2品牌库,3=L3仓库,4=L4 README)；缓存只用M(M1=前端内存，M2=DB落盘)，
       经 `via`=live|m2 正交表达（core探测一律live，DB回填走m2不占level）；level:4=L4。
     - 榜就绪门 `boardReady` 见 `src/views/TrendsView/useTrendBoard.ts:79`，SWR 快照 `swrSyncedResult` / 判定 `isUpgradePending` 定义见 `src/services/trends/board.ts:1056,1073`、消费见 `src/views/TrendsView.tsx:323-324`（仅门控富卡升级，不阻塞裸行直展）。

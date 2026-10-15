@@ -16,13 +16,12 @@
 - `config.rs:IconFetchConfig` 默认 `pool=5 / total 15s / compat_collect=true`（搜索与趋势共用收敛，与趋势 `buffered(5)` 对齐）。
 - 快慢超时经 `network.api_timeout_seconds` 统一配置，未设置回退 1500ms/12s 默认值；快路径外层兜底 8000ms，慢路径只在快未命中且有 token 时跑。
 - 整批总量按页伸缩：`total = max(cfg.total_timeout_secs, ceil(jobs/pool) × timeout_each)`，其中 `timeout_each=api_timeout_or(10s)`，`pool` 保持 5。
-- L4=README需网络，详情链专属，不受本核心约束；详情仍走最强探测（动态 3 分支 + L4 + 无整批熔断）。
+- L4=README需网络，详情链专属，不受本核心约束；详情仍走最强探测（详情 L3 取 `default_branch`，失败用 HEAD；L4 需网络；无整批熔断）。
 - M2=DB落盘命中零网络，由调用方在进 core 前短锁预解析，不受探测开关影响；经 `via`=m2 表达，不占level。
 
 ## 3. 动态分支与确认过滤
 
-- 慢路径 Trees 分支动态解析，复用 `icon_probe::resolve_probe_branches`（先 GET repos 取 `default_branch` 5s 超时，再补 main/master，最多 3 分支，与 `icons_cycle_probe::probe_git_trees` 同源，不另起第三套）。
-- 回退基线 `SEARCH_PROBE_BRANCHES=[main, master]`（main 优先，ZCode 类老仓默认分支仍为 master）。
+- 慢路径 Trees 分支动态解析，复用 `icon_probe::resolve_probe_branches`（GET 取 `default_branch`，失败即空跳过 L3，同源于 `probe_l3_trees`）。
 - 确认图标（DB落盘即M2，经 `via`=m2）经 DB 短锁预解析回填（`http::resolve_confirmed_icon_from_db`，锁即取即放，fetch 内零查询零直连）；搜索首屏只接受 M2 回填，不走 L4（README 现场扒，需网络）。
 - level纯L(1=L1官方,2=L2品牌库,3=L3仓库,4=L4 README)；缓存只用M(M1=前端内存，M2=DB落盘)，与level正交；level:4=L4。
 

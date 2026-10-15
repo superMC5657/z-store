@@ -5,7 +5,7 @@
 //! - 行为：并发池 `cfg.pool`（默认 5，与趋势 `buffered(5)` 对齐，D6，ADR-0015）；
 //!   快路径 SimpleIcons / 慢路径 Trees 超时经
 //!   `network.api_timeout_seconds` 统一配置，未设置回退 1500ms/12s 历史值；
-//!   快路径外层兜底 `api_timeout_or(8000ms)`、慢路径分支顺序 main→master、
+//!   快路径外层兜底 `api_timeout_or(8000ms)`、慢路径仅探 `default_branch`、
 //!   整批 `cfg.total_timeout_secs`（默认 15s）按页伸缩（经缝内纯函数
 //!   `scaled_total_timeout`）；
 //!   世代防串（`SEARCH_GEN` 落库前 + emit 前双检查）由调用方 `emit` 回调
@@ -39,10 +39,8 @@
 use futures_util::StreamExt;
 use tauri::{AppHandle, Emitter};
 
-// 慢路径 Trees 分支回退顺序唯一定义见 [`crate::github::icon_probe::FALLBACK_PROBE_BRANCHES`]：
-// 先 main 后 master（ZCode 类老仓默认分支仍为 master，只查 main 会零命中零 emit，首屏恒为 initials）。
-// 实际探测分支由 [`crate::github::icon_probe::resolve_probe_branches`]
-// 动态解析（先 GET repos 取 `default_branch` 5s 超时，再补 main/master，最多3分支）。
+// 慢路径 Trees 探测分支见 [`crate::github::icon_probe::resolve_probe_branches`]：
+// 取仓库 `default_branch`（解析失败即空，调用方跳过 L3）。
 // 新代码一律用该动态解析，勿硬编码分支。
 
 /// 单个图标补探任务：`id` 为小写 `owner/repo`。
@@ -146,9 +144,9 @@ pub(crate) async fn probe_l2_simple(
     .filter(|u| !u.trim().is_empty())
 }
 
-/// L3 单探深核（仓库 Git Trees，需鉴权头）：动态分支解析
-/// （先 GET repos 取 `default_branch` 5s 超时，再补 main/master，最多3分支）后
-/// 逐分支 `probe_trees`，首命中即停。无 headers（匿名）直接 `None`
+/// L3 单探深核（仓库 Git Trees，需鉴权头）：仅 `default_branch`
+/// （`resolve_probe_branches` 动态解析，失败/超时即空，直接跳过 L3）探
+/// `probe_trees`，首命中即停。无 headers（匿名）直接 `None`
 /// （保护匿名配额，与流式“无 token 只走快路径”同语义）。
 /// cycle 适配器 L3 直调此件，不另写串行 naive 探。
 pub(crate) async fn probe_l3_trees(
@@ -327,15 +325,6 @@ mod tests {
             serde_json::to_value(&t).unwrap()["kind"],
             "trend"
         );
-    }
-
-    #[test]
-    fn search_icon_branches_keep_master_fallback() {
-        // 回归：慢路径 Trees 必须覆盖 master（ZCode 类老仓默认分支），顺序 main 优先。
-        // 唯一定义见 `icon_probe::FALLBACK_PROBE_BRANCHES`（动态解析回退基线）。
-        let branches = crate::github::icon_probe::FALLBACK_PROBE_BRANCHES;
-        assert_eq!(branches, ["main", "master"]);
-        assert!(branches.contains(&"master"));
     }
 
     #[test]

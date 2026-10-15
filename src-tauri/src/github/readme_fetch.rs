@@ -417,14 +417,14 @@ impl CatalogService {
                 .await
         };
 
-        let mut branches: Vec<String> = Vec::with_capacity(4);
+        // 探测分支：默认分支 + HEAD 符号引用（与 detail_fetch probe_branch 同口径）。
+        // 全失败调用方跳过，不 panic。
+        let mut branches: Vec<String> = Vec::with_capacity(2);
         if let Some(b) = default_branch {
             branches.push(b);
         }
-        for fallback in ["main", "master", "HEAD"] {
-            if !branches.iter().any(|b| b == fallback) {
-                branches.push(fallback.to_string());
-            }
+        if !branches.iter().any(|b| b == "HEAD") {
+            branches.push("HEAD".to_string());
         }
 
         let mut effective_branch: Option<String> = None;

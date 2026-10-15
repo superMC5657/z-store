@@ -415,7 +415,7 @@ pub(crate) fn open_db_opt() -> Option<crate::db::Database> {
 
 /// H10：目录外仓库 `AppSummary` 兜底构造。
 /// 图标：若 probe 为 true，经统一同步适配器 `icon_fetch::probe_single_live`（L2→L3，
-/// 动态分支 `resolve_probe_branches` main→master，与流式核同源，不自立第三套分支硬编码）；
+/// 经 `resolve_probe_branches` 取默认分支，与流式核同源）；
 /// 图标探测不调 users API、不拼用户画像 avatar_url（见 OAuth/Sidebar，与图标无关）；
 /// 若 probe 为 false，图标置空（首屏快返，等后台 `fetch_icons_stream` emit）。
 /// 分类：移植 catalog guessCategory 关键词表，按 topics+description 判定。
@@ -455,7 +455,7 @@ pub(crate) async fn fallback_summary(
     let icon = if let Some(ci) = confirmed {
         ci
     } else if probe {
-        // 同步适配器唯一口：`probe_single_live`（L2→L3，动态分支 main→master 与流式核同源）。
+        // 同步适配器唯一口：`probe_single_live`（L2→L3，仅默认分支，与流式核同源）。
         // 无 token 只探 L2（保护匿名配额），有 token 才含 Trees，与旧先快后慢同语义，不另起内联探。
         let hdrs_opt = token
             .filter(|t| !t.trim().is_empty())

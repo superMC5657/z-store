@@ -689,17 +689,6 @@ pub async fn enrich_trend_repos(
 mod tests {
     use super::*;
 
-    #[test]
-    fn search_slow_falls_back_to_master() {
-        // 慢路径 Trees 覆盖 master（ZCode 类老仓默认分支），顺序 main 优先。
-        // 分支顺序唯一定义见 `github::icon_probe::FALLBACK_PROBE_BRANCHES`（动态解析回退基线）。
-        assert_eq!(
-            crate::github::icon_probe::FALLBACK_PROBE_BRANCHES,
-            ["main", "master"]
-        );
-        assert!(crate::github::icon_probe::FALLBACK_PROBE_BRANCHES.contains(&"master"));
-    }
-
     fn sample_summary(id: &str, owner: &str, repo: &str, icon: &str) -> AppSummary {
         AppSummary {
             id: id.to_string(),

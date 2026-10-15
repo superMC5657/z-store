@@ -449,20 +449,19 @@ fn trees_timeout() -> std::time::Duration {
     crate::config::api_timeout_or(std::time::Duration::from_secs(12))
 }
 
-/// Trees 分支回退唯一定义（搜索/趋势/详情共用）：`main` 优先，`master` 兜底。
-/// 动态分支解析（[`resolve_probe_branches`]）以此为回退基线，保证 ZCode 类老仓（默认 `master`）仍可命中。
-pub(crate) const FALLBACK_PROBE_BRANCHES: [&str; 2] = ["main", "master"];
+/// Trees 探测分支：仓库 `default_branch`（经 [`resolve_probe_branches`]
+/// 动态解析；接口失败/超时返回空，调用方跳过 L3）。
 
-/// 动态分支解析共用（搜索 `icon_fetch` + 详情 `icons_cycle_probe::probe_git_trees` + 匿名兜底共用，
-/// 不另起第三套）：先 GET `repos/{owner}/{repo}` 取 `default_branch`（5s 超时，失败静默降级），
-/// 再补 `main`/`master` 去重，最多 3 分支（抄 `icons_cycle_probe.rs:281-300` 语义）。
+/// 动态分支解析共用（搜索 `icon_fetch` + 详情 cycle L3 + 匿名兜底）：
+/// GET `repos/{owner}/{repo}` 取 `default_branch`（5s 超时，
+/// 失败/超时/空值返回空，调用方跳过 L3）。
+/// 返回 0 或 1 个分支（trim 后去空）。
 pub(crate) async fn resolve_probe_branches(
     client: &reqwest::Client,
     headers: &HeaderMap,
     owner: &str,
     repo: &str,
 ) -> Vec<String> {
-    let mut branches: Vec<String> = Vec::with_capacity(3);
     let repo_api = format!("https://api.github.com/repos/{}/{}", owner, repo);
     if let Ok(Ok(resp)) = tokio::time::timeout(
         crate::config::api_timeout_or(std::time::Duration::from_secs(5)),
@@ -474,18 +473,12 @@ pub(crate) async fn resolve_probe_branches(
             if let Some(b) = v.get("default_branch").and_then(|x| x.as_str()) {
                 let b = b.trim();
                 if !b.is_empty() {
-                    branches.push(b.to_string());
+                    return vec![b.to_string()];
                 }
             }
         }
     }
-    for fallback in FALLBACK_PROBE_BRANCHES {
-        if !branches.iter().any(|b| b == fallback) {
-            branches.push(fallback.to_string());
-        }
-    }
-    branches.truncate(3);
-    branches
+    Vec::new()
 }
 
 /// repo+owner 去重 slug 单循环：先 repo 后 owner，去重后逐个试探。
