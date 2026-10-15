@@ -7,10 +7,13 @@ import { normalizeId, normalizeIdSet } from '../normalizeId';
 export const TREND_ENRICH_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 /** trendEnrichCache 至多 500 条。 */
 export const TREND_ENRICH_CACHE_MAX_ENTRIES = 500;
-/** 分片 20/片×2 片=40 上限。 */
-export const TREND_ENRICH_SHARD_SIZE = 20;
-/** 单次 enrich 最多 40 仓。 */
+/** 单次 enrich 最多 40 仓一次取回。 */
 export const TREND_ENRICH_MAX_TOTAL = 40;
+/**
+ * 分片大小 20 已停用（单次批量直取 40 上限）。
+ * 保留常量作回滚锚点，切回串行分片时再引用，不要删除。
+ */
+export const TREND_ENRICH_SHARD_SIZE = 20;
 
 /**
  * 已确认 Other 标记 TTL：12h（与 enrich 同口径，到期重验）。
@@ -370,8 +373,8 @@ export function snapshotTrendEnrichCache(repos?: TrendRepo[]): Record<string, Ap
  * 已确认 pending 新鲜命中即直展（重挂免验，不重拉），stale 到期重拉；
  * 只有具平台才进 12h 内存（12h/500 FIFO）；后续靠应用详情刷新治愈（upsert from detail）。
  *
- * 分片：FE 分片串行 20/片 × 2 片 = 40 上限（BE take(40)+buffered(5) 保序不变）；
- * 超 40 的仓留占位（out 缺席，调用方保留旧小行），榜单永不置空；单片失败仅该片缺席，继续下片。
+ * 单次批量：最多 40 仓一次取回（BE take(40)+buffered(5) 保序不变）；
+ * 超 40 的仓留占位（out 缺席，调用方保留旧小行），榜单永不置空；失败整批缺席。
  *
  * per-field 新鲜度（本函数读路径）：
  * - icon 粘性 supersede-only：永不过期，只被非空新图标替换（stickyIconFor，put 与 out 同语义）；
@@ -422,44 +425,41 @@ export async function enrichTrendRepos(repos: TrendRepo[]): Promise<Map<string, 
     missing.push(r);
   }
   if (missing.length === 0) return out;
-  // 分片串行：20/片 × 最多 2 片 = 40 上限，超 40 留占位
+  // 单次批量：最多 40 仓一次取回，超 40 留占位
   const capped = missing.slice(0, TREND_ENRICH_MAX_TOTAL);
-  for (let start = 0; start < capped.length; start += TREND_ENRICH_SHARD_SIZE) {
-    const shard = capped.slice(start, start + TREND_ENRICH_SHARD_SIZE);
-    let summaries: (AppSummary | null)[];
-    try {
-      summaries = await tauriApi.enrichTrendRepos(
-        shard.map((r) => ({ owner: r.owner, repo: r.repo })),
-      );
-    } catch {
-      continue;
-    }
-    const at = Date.now();
-    shard.forEach((r, i) => {
-      let s = summaries[i];
-      if (!s) return;
-      if (!Array.isArray(s.platforms)) return;
-      if (typeof s.icon === 'string' && s.icon.startsWith('data:')) {
-        // data: 永不进内存。
-        const key = trendEnrichKey(r.owner, r.repo);
-        out.set(key, s);
-        return;
-      }
-      const key = trendEnrichKey(r.owner, r.repo);
-      // pending 当次有效永不缓存：只 set 当次 out，不 put 进 cache；具平台才 put。
-      if (!hasConcretePlatforms(s.platforms)) {
-        const cur = trendEnrichCache.get(key);
-        s = stickyIconFor(cur?.data, s);
-        out.set(key, s);
-        return;
-      }
-      const cur = trendEnrichCache.get(key);
-      // icon 粘性 supersede-only：旧图标非空 + 回填空 → out 与入库一并沿用旧图标。
-      s = stickyIconFor(cur?.data, s);
-      putTrendEnrichCache(key, { timestamp: at, data: s });
-      out.set(key, s);
-    });
+  let summaries: (AppSummary | null)[];
+  try {
+    summaries = await tauriApi.enrichTrendRepos(
+      capped.map((r) => ({ owner: r.owner, repo: r.repo })),
+    );
+  } catch {
+    return out;
   }
+  const at = Date.now();
+  capped.forEach((r, i) => {
+    let s = summaries[i];
+    if (!s) return;
+    if (!Array.isArray(s.platforms)) return;
+    if (typeof s.icon === 'string' && s.icon.startsWith('data:')) {
+      // data: 永不进内存。
+      const key = trendEnrichKey(r.owner, r.repo);
+      out.set(key, s);
+      return;
+    }
+    const key = trendEnrichKey(r.owner, r.repo);
+    // pending 当次有效永不缓存：只 set 当次 out，不 put 进 cache；具平台才 put。
+    if (!hasConcretePlatforms(s.platforms)) {
+      const cur = trendEnrichCache.get(key);
+      s = stickyIconFor(cur?.data, s);
+      out.set(key, s);
+      return;
+    }
+    const cur = trendEnrichCache.get(key);
+    // icon 粘性 supersede-only：旧图标非空 + 回填空 → out 与入库一并沿用旧图标。
+    s = stickyIconFor(cur?.data, s);
+    putTrendEnrichCache(key, { timestamp: at, data: s });
+    out.set(key, s);
+  });
   return out;
 }
 
