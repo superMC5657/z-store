@@ -158,7 +158,7 @@ fn default_view_history_limit() -> usize {
     30
 }
 fn default_online_search_page_size() -> usize {
-    12
+    20
 }
 
 /// 在线搜索分页钳制边界：前后端统一钳制 1-50。
@@ -345,7 +345,7 @@ mod tests {
         assert_eq!(conf.network.ping_timeout_ms, 4000);
         assert_eq!(conf.limits.search_history_limit, 20);
         assert_eq!(conf.limits.view_history_limit, 30);
-        assert_eq!(conf.limits.online_search_page_size, 12);
+        assert_eq!(conf.limits.online_search_page_size, 20);
         assert_eq!(conf.limits.icon_fetch.pool, 5);
         assert_eq!(conf.limits.icon_fetch.total_timeout_secs, 15);
         assert!(!conf.oauth.default_client_id.is_empty());

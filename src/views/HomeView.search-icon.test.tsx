@@ -43,7 +43,7 @@ vi.mock('../services/api', () => {
       },
     },
   );
-  return { api, isTauri: false, ONLINE_SEARCH_PER_PAGE: 12 };
+  return { api, isTauri: false, ONLINE_SEARCH_PER_PAGE: 20 };
 });
 
 import { patchAppIconList } from '../services/iconStore';

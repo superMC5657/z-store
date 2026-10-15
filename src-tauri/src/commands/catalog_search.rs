@@ -215,7 +215,7 @@ pub async fn search_apps(
     Ok(paged)
 }
 
-/// 在线搜索（可翻页）：`page`/`per_page` 均为 None=老行为（第 1 页 12 条）。
+/// 在线搜索（可翻页）：`page`/`per_page` 均为 None=默认行为（第 1 页 20 条）。
 /// - `per_page` 默认复用 `limits.online_search_page_size`，钳制 1-50；
 /// - `page` 默认 1（0 归一为 1）；`owner/repo` 直查短路只回第 1 页 1 条，page>1 回空（与 mock 同语义）。
 #[tauri::command]
@@ -421,7 +421,7 @@ pub async fn search_apps_online(
         flush_icon_cycle_pending(&db, &pending);
     }
 
-    // 后台图标补探量随分页 `per_page` 伸缩：None=老行为 12 条，其余为钳制后 1-50。
+    // 后台图标补探量随分页 `per_page` 伸缩：None=默认 20 条，其余为钳制后 1-50。
     let probe_cap = crate::config::get_project_config()
         .limits
         .clamp_online_search_per_page(per_page);

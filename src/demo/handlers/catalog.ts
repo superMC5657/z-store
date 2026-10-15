@@ -61,7 +61,7 @@ export function handleSearchAppsOnline(a: InvokeArgs): { rows: AppSummary[]; sid
   if (!qRaw) return { rows: [], sid };
   const rawPer = argNum(a, 'per_page');
   const rawPage = argNum(a, 'page');
-  const perPage = rawPer === undefined ? 12 : Math.min(50, Math.max(1, Math.floor(rawPer)));
+  const perPage = rawPer === undefined ? 20 : Math.min(50, Math.max(1, Math.floor(rawPer)));
   const page =
     rawPage === undefined || !Number.isFinite(rawPage) || Math.floor(rawPage) < 1
       ? 1

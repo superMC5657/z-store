@@ -31,7 +31,7 @@ search_history_limit = 20
 # 最近浏览记录最大保留条数
 view_history_limit = 30
 # 在线 GitHub 搜索单页结果数量
-online_search_page_size = 12
+online_search_page_size = 20
 
 [oauth]
 # GitHub OAuth Device Flow 默认 Client ID（可通过系统设置覆盖）

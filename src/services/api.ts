@@ -157,10 +157,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
 };
 
 /**
- * 在线搜索默认页大小：与后端 `LimitsConfig::online_search_page_size` 对齐（None 即 12）。
+ * 在线搜索默认页大小：与后端 `LimitsConfig::online_search_page_size` 对齐（None 即 20）。
  * 前端翻页时显式透传，后端统一钳制 1-50；直查单条仍只回 1 条（page>1 回空）。
  */
-export const ONLINE_SEARCH_PER_PAGE = 12;
+export const ONLINE_SEARCH_PER_PAGE = 20;
 
 export const tauriApi = {
   // Catalog / Discovery / Details
