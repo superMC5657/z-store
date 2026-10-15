@@ -108,14 +108,33 @@ export function useHomeFeed({
   const prevQueryRef = useRef<string>(searchQuery);
   useEffect(() => {
     const prevApps = prevAppsRef.current;
-    let shouldReset = true;
-    if (
-      prevQueryRef.current === searchQuery &&
-      prevApps.length > 0 &&
-      apps.length > prevApps.length
-    ) {
-      const isAppend = prevApps.every((a, i) => apps[i]?.id === a.id);
-      if (isAppend) shouldReset = false;
+    const queryChanged = prevQueryRef.current !== searchQuery;
+    let shouldReset = false;
+    if (queryChanged) {
+      // 换词搜索仍重置为首屏（期望行为保持）
+      shouldReset = true;
+    } else if (prevApps.length === 0 && apps.length === 0) {
+      shouldReset = false;
+    } else {
+      // 按 id 序列判定：同 id 序列仅字段 patch（如详情回填/图标回填）永不重置
+      const prevIds = prevApps.map((a) => a.id).join(',');
+      const nextIds = apps.map((a) => a.id).join(',');
+      if (prevIds === nextIds) {
+        shouldReset = false;
+      } else if (
+        prevApps.length > 0 &&
+        apps.length > prevApps.length &&
+        prevApps.every((a, i) => apps[i]?.id === a.id)
+      ) {
+        // 纯追加豁免（后端分页/在线加载更多）
+        shouldReset = false;
+      } else if (prevApps.length === 0) {
+        // 首刷：已是 HOME_FEED_PAGE，不确定时宁可不重置
+        shouldReset = false;
+      } else {
+        // id 集合/顺序真变化（过滤/排序/换源）才重置
+        shouldReset = true;
+      }
     }
     if (shouldReset) setVisibleCount(HOME_FEED_PAGE);
     prevAppsRef.current = apps;
