@@ -1,6 +1,6 @@
 import type { AppSummary } from '../../types';
 import { TREND_DB_PAYLOAD_MAX_BYTES, utf8ByteLength } from '../trends/cache';
-import { normalizeIdSet } from '../normalizeId';
+import { normalizeId, normalizeIdSet } from '../normalizeId';
 
 /** 搜索列表缓存：M1 内存。key=`search|norm|page|perPage`，TTL 30min，50 条 FIFO，无 timer（提交/翻页时 sweep）。 */
 
@@ -114,4 +114,28 @@ export function sweepExpiredSearchListCache(): void {
 /** 清空搜索列表缓存。 */
 export function clearSearchListCache(): void {
   searchListCache.clear();
+}
+
+/**
+ * 图标就绪写透搜索列表缓存行（05 翻页一致性）：
+ * 按归一规范应用标识更新全部缓存条目中同 id 行的图标（大小写归一），
+ * 使翻页回访/重搜命中即新图，不出现翻页丢图；
+ * 条目 `at` 不续期（图标更新不代表数据新鲜，TTL 仍按写入时刻计）、`ids` 不变（id 集未动）。
+ * L5 显式空（`icon:''`）亦写透（用户切徽章后回访同页即徽章，不复活旧图）；
+ * 未命中 id 即无操作。
+ */
+export function patchSearchListCacheIcon(targetIdLower: string, icon: string): void {
+  const norm = normalizeId(targetIdLower);
+  if (!norm) return;
+  if (typeof icon !== 'string') return;
+  for (const entry of searchListCache.values()) {
+    let changed = false;
+    const rows = entry.rows.map((r) => {
+      if (!r || normalizeId(r?.id) !== norm) return r;
+      if (r.icon === icon) return r;
+      changed = true;
+      return { ...r, icon };
+    });
+    if (changed) entry.rows = rows;
+  }
 }

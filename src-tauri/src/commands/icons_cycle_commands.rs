@@ -90,6 +90,8 @@ pub async fn request_app_icon_cycle(
     // 旧缓存文件保留不删，配额 LRU 按 mtime 淘汰。
     if next_level == 5 {
         crate::db::icon_cycle::seal_empty_selection(&mut cycle);
+        // 02 手动轮换保护：用户手动切档即 pinned，后续详情刷新只补槽不改选中。
+        cycle.pinned = true;
         if let Ok(db) = state.db() {
             let _ = db.upsert_icon_cycle(&cycle);
             // 写侧同步内联（原 sync_detail_icon_best_effort）：L5 显式清空 ""，有行才 UPDATE。
@@ -169,6 +171,8 @@ pub async fn request_app_icon_cycle(
 
     // 手动选择持久化三件套：selected_url + level + icons 文件同 tick 落库（关掉重进还在）。
     crate::db::icon_cycle::seal_cycle_selection(&mut cycle, next_level, &target_url, final_filename);
+    // 02 手动轮换保护：用户手动切档即 pinned，后续详情刷新只补槽不改选中。
+    cycle.pinned = true;
     if let Some(db) = db_opt.as_ref() {
         let _ = db.upsert_icon_cycle(&cycle);
         // 写侧同步内联（原 thin helper）：`data:` 永不进盘，有行才 UPDATE，cached_at 不动。
@@ -224,19 +228,24 @@ pub async fn restore_or_fetch_icon_cycle(
             .to_string();
 
         if !cycle.cache_file.is_empty() {
-            // 最高频读：经 spawn_blocking 卸载，避免阻塞 async 运行时。
-            if let Some(bytes) =
-                read_valid_image_file_async(icons_dir.join(&cycle.cache_file)).await
-            {
-                return Ok(IconCycleResult {
-                    url: crate::commands::icons::bytes_to_data_uri(&bytes),
-                    remote_url,
-                    level: lvl,
-                    source: source_for_level(lvl).to_string(),
-                    is_fallback: is_fallback_for_level(lvl),
-                    total_levels: 5,
-                    is_cataloged,
-                });
+            // 03 过期刷新：恢复路径与请求路径同口径判鲜（文件 7 天新鲜 + 行 7 天有效双检），
+            // 任一过期即走下载分支，不直接返回旧图；pinned 选择由下载分支 `set_icon_cycle_selected` 保持。
+            let now = crate::now_secs();
+            let cache_path = icons_dir.join(&cycle.cache_file);
+            let file_fresh = crate::commands::icons::is_icon_file_fresh(&cache_path);
+            if crate::db::icon_cycle::is_cycle_restore_fresh(&cycle, file_fresh, now) {
+                // 最高频读：经 spawn_blocking 卸载，避免阻塞 async 运行时。
+                if let Some(bytes) = read_valid_image_file_async(cache_path).await {
+                    return Ok(IconCycleResult {
+                        url: crate::commands::icons::bytes_to_data_uri(&bytes),
+                        remote_url,
+                        level: lvl,
+                        source: source_for_level(lvl).to_string(),
+                        is_fallback: is_fallback_for_level(lvl),
+                        total_levels: 5,
+                        is_cataloged,
+                    });
+                }
             }
         }
 

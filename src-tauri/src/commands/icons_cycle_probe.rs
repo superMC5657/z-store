@@ -386,21 +386,23 @@ pub(crate) fn load_or_new_cycle(
 
 /// 匿名兜底探测唯一落点（get_or_fetch_icon 直取失败分支）：
 /// 无 token，只跑免鉴权级（Simple Icons L2），跳过 Trees 以保护匿名配额；
-/// 经 `icon_fetch::probe_anon_simple` 深核单调，命中即下载返回字节。
+/// 经 `icon_fetch::probe_anon_simple` 深核单调，命中即下载返回 `(真地址, 字节)`。
+/// 调用方落盘/入槽/选中一律以真地址为键（05 兜底按真实来源入槽），死链不占槽。
 /// L4 不进匿名兜底（需网络详情链专属）。
 pub(crate) async fn fetch_anon_probe_bytes(
     client: &reqwest::Client,
     app_id_label: &str,
     owner: &str,
     repo: &str,
-) -> Option<Vec<u8>> {
+) -> Option<(String, Vec<u8>)> {
     let probed_url = crate::github::icon_fetch::probe_anon_simple(client, owner, repo).await?;
     log::debug!(
         "icon probe fallback hit app_id='{}' source=simple-icons url='{}'",
         app_id_label,
         crate::log_support::sanitize_url(&probed_url)
     );
-    download_icon_bytes_direct(client, &probed_url).await.ok()
+    let bytes = download_icon_bytes_direct(client, &probed_url).await.ok()?;
+    Some((probed_url, bytes))
 }
 
 /// README 图标探测（L4 详情链专属适配器，不受流式核约束，需网络）。
@@ -621,6 +623,7 @@ mod tests {
             selected_url: "https://example.com/1.png".to_string(),
             cache_file: "test.png".to_string(),
             updated_at: 0,
+            pinned: false,
         };
 
         // 全满时：1 -> 2 -> 3 -> 4 -> 5 -> 1
@@ -661,6 +664,7 @@ mod tests {
             selected_url: "https://example.com/2.png".to_string(),
             cache_file: "test_l2.png".to_string(),
             updated_at: 0,
+            pinned: false,
         };
         assert_eq!(next_cycle_level(2, &non_cat), 3);
         assert_eq!(next_cycle_level(3, &non_cat), 4);

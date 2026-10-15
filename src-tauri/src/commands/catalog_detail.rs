@@ -600,13 +600,16 @@ pub async fn get_app_details_impl(
                     // Top2：详情 + 图标原子落库（2 提交变 1 提交），失败回滚并回退逐条，不改 TTL/ETag。
                     // FINAL Logo 口径：`detail.icon` 必为 L1–L4 备选 Logo（官方/探测/README 头部），
                     // README 正文图永不进 `detail.icon`（见 detail_fetch 头部 40 行 Logo 提取），此处不存正文。
-                    let icon_trimmed = detail.icon.trim();
+                    // 02 手动轮换保护：pinned 行（用户已手动选择档位）保持 level/selected_url，
+                    // 仅把本次最强探测补进备选槽，并把 `detail.icon` 对齐 pinned 选择
+                    // （L5 pinned 对齐 `""` 保持徽章态）；未 pinned 行仍按最强探测更新选中图。
+                    let icon_trimmed = detail.icon.trim().to_owned();
                     let pending_cycle: Option<crate::db::AppIconCycle> =
-                        if !icon_trimmed.is_empty()
-                            && !crate::github::icon_fetch::is_body_image_url(icon_trimmed)
+                        if !icon_trimmed.trim().is_empty()
+                            && !crate::github::icon_fetch::is_body_image_url(&icon_trimmed)
                         {
                             let level =
-                                crate::github::icon_fetch::level_for_detail_icon(icon_trimmed);
+                                crate::github::icon_fetch::level_for_detail_icon(&icon_trimmed);
 
                             let mut cycle = db
                                 .get_icon_cycle(&clean_id)
@@ -616,19 +619,23 @@ pub async fn get_app_details_impl(
                                     crate::db::AppIconCycle::new(&clean_id, &detail.owner, &detail.repo)
                                 });
 
-                            cycle.is_cataloged = state.catalog.get_catalog_item(&clean_id).is_some();
-                            cycle.level = level;
-                            if level == 3 {
-                                cycle.l3_url = icon_trimmed.to_string();
-                            } else if level == 4 {
-                                cycle.l4_url = icon_trimmed.to_string();
-                            } else if level == 2 {
-                                cycle.l2_url = icon_trimmed.to_string();
+                            if crate::db::icon_cycle::merge_detail_icon(
+                                &mut cycle,
+                                level,
+                                icon_trimmed.trim(),
+                                state.catalog.get_catalog_item(&clean_id).is_some(),
+                                now,
+                            ) {
+                                detail.icon = cycle.selected_url.clone();
                             }
-                            cycle.selected_url = icon_trimmed.to_string();
-                            cycle.updated_at = now;
                             Some(cycle)
                         } else {
+                            // 探测无可用图标：pinned 行仍保持详情展示为用户所选档位。
+                            if let Ok(Some(pinned_cycle)) = db.get_icon_cycle(&clean_id) {
+                                if pinned_cycle.pinned {
+                                    detail.icon = pinned_cycle.selected_url.clone();
+                                }
+                            }
                             None
                         };
                     if db

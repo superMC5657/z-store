@@ -380,8 +380,9 @@ export function useSearchState({
         onlinePageRef.current = nextPage;
         setOnlineHasMore(hasMore);
         onlineHasMoreRef.current = hasMore;
-        // 搜索列表缓存（薄：只存行，不掺排名/平台判定）
-        writeSearchListCache({ query: q, page: nextPage, perPage: ONLINE_SEARCH_PER_PAGE }, more);
+        // 搜索列表缓存（薄：只存行，不掺排名/平台判定；与首屏同口径存组装行，
+        // 粘性合并 + M1 缓冲回填已落定，回访即新图不丢图）
+        writeSearchListCache({ query: q, page: nextPage, perPage: ONLINE_SEARCH_PER_PAGE }, assembledMore);
       } else {
         setOnlineHasMore(false);
         onlineHasMoreRef.current = false;

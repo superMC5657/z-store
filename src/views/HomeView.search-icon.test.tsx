@@ -122,25 +122,11 @@ describe('icon-ready backfill', () => {
     expect(after.container.querySelector('img')).not.toBeNull();
   });
 
-  it('首刷回声窗内 live L2/L3 按回声 sid 即收（期望空不判 stale）', () => {
+  it('首刷回声窗内迟到高优可替换低优（L3先到，L2后到升级；L2→L3判 stale）', () => {
     const echo = 'search-9-echo';
     const prev: SearchRow[] = [{ id: 'o/r', icon: '' }];
-    const l2 = applyNewIconReady(
-      prev,
-      {
-        id: 'o/r',
-        icon: 'https://cdn.simpleicons.org/r',
-        level: 2,
-        via: 'live',
-        context: { kind: 'search', search_id: echo, gen: 9 },
-      },
-      '',
-    );
-    expect(l2.reason).toBeUndefined();
-    expect(l2.accepted).toBe(true);
-    expect(l2.next[0].icon).toBe('https://cdn.simpleicons.org/r');
     const l3 = applyNewIconReady(
-      l2.next,
+      prev,
       {
         id: 'o/r',
         icon: 'https://raw.githubusercontent.com/o/r/main/icon.png',
@@ -150,9 +136,38 @@ describe('icon-ready backfill', () => {
       },
       '',
     );
+    expect(l3.reason).toBeUndefined();
     expect(l3.accepted).toBe(true);
     expect(l3.next[0].icon).toBe('https://raw.githubusercontent.com/o/r/main/icon.png');
-    const after = render(<AppIcon icon={l3.next[0].icon} name="OR" appId="o/r" />);
+    const l2 = applyNewIconReady(
+      l3.next,
+      {
+        id: 'o/r',
+        icon: 'https://cdn.simpleicons.org/r',
+        level: 2,
+        via: 'live',
+        context: { kind: 'search', search_id: echo, gen: 9 },
+      },
+      '',
+    );
+    expect(l2.accepted).toBe(true);
+    expect(l2.next[0].icon).toBe('https://cdn.simpleicons.org/r');
+    // 低优后到不再顶掉高优。
+    const l3Late = applyNewIconReady(
+      l2.next,
+      {
+        id: 'o/r',
+        icon: 'https://raw.githubusercontent.com/o/r/main/icon-late.png',
+        level: 3,
+        via: 'live',
+        context: { kind: 'search', search_id: echo, gen: 9 },
+      },
+      '',
+    );
+    expect(l3Late.accepted).toBe(false);
+    expect(l3Late.reason).toBe('level-stale');
+    expect(l3Late.next[0].icon).toBe('https://cdn.simpleicons.org/r');
+    const after = render(<AppIcon icon={l2.next[0].icon} name="OR" appId="o/r" />);
     expect(after.container.querySelector('img')).not.toBeNull();
   });
 
@@ -217,15 +232,15 @@ describe('icon-ready backfill', () => {
     expect(__getIconPreloadQueueSizeForTests()).toBe(0);
   });
 
-  it('level纯L单调：4为L（2→4接受，4→2丢弃，via正交不绕单调）', () => {
+  it('level纯L单调：数字越小越优（L4→L2接受升级，L2→L4丢弃，via正交不绕单调）', () => {
     const sid = 'search-1-123';
     const prev: SearchRow[] = [{ id: 'o/r', icon: '' }];
     const first = applyNewIconReady(
       prev,
       {
         id: 'o/r',
-        icon: 'https://cdn.simpleicons.org/r2',
-        level: 2,
+        icon: 'https://cdn.example.com/r4.png',
+        level: 4,
         via: 'live',
         context: { kind: 'search', search_id: sid, gen: 1 },
       },
@@ -236,21 +251,21 @@ describe('icon-ready backfill', () => {
       first.next,
       {
         id: 'o/r',
-        icon: 'https://cdn.example.com/r4.png',
-        level: 4,
+        icon: 'https://cdn.simpleicons.org/r2',
+        level: 2,
         via: 'live',
         context: { kind: 'search', search_id: sid, gen: 1 },
       },
       sid,
     );
     expect(second.accepted).toBe(true);
-    expect(second.next[0].icon).toBe('https://cdn.example.com/r4.png');
+    expect(second.next[0].icon).toBe('https://cdn.simpleicons.org/r2');
     const stale = applyNewIconReady(
       second.next,
       {
         id: 'o/r',
-        icon: 'https://cdn.simpleicons.org/r2-again',
-        level: 2,
+        icon: 'https://cdn.example.com/r4-again.png',
+        level: 4,
         via: 'm2',
         context: { kind: 'search', search_id: sid, gen: 1 },
       },
@@ -258,7 +273,7 @@ describe('icon-ready backfill', () => {
     );
     expect(stale.accepted).toBe(false);
     expect(stale.reason).toBe('level-stale');
-    expect(stale.next[0].icon).toBe('https://cdn.example.com/r4.png');
+    expect(stale.next[0].icon).toBe('https://cdn.simpleicons.org/r2');
   });
 });
 

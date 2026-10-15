@@ -26,6 +26,7 @@ import { api } from './services/api';
 import { togglePlatformSet, type PlatformId } from './lib/platformFilter';
 import { isPlatformPending } from './lib/platformFilter';
 import { patchAppIconList, subscribeIconWrites } from './services/iconStore';
+import { patchSearchListCacheIcon } from './services/search/searchListCache';
 
 import {
   PLATFORM_FILTER_STORAGE_KEY,
@@ -209,6 +210,14 @@ export const App: React.FC = () => {
   // patch 幂等，显式 patch 与扇出重复落定无闪烁；卸载即退订）。
   useEffect(() => {
     return subscribeIconWrites(({ targets, icon }) => {
+      // 05 翻页一致性：图标就绪同时写透搜索列表缓存行（翻页回访/重搜命中即新图，不续 TTL）。
+      for (const t of targets) {
+        try {
+          patchSearchListCacheIcon(t, icon);
+        } catch {
+          // 缓存写透失败不阻塞列表
+        }
+      }
       for (const t of targets) {
         try {
           setApps((prev) => patchAppIconList(prev, t, icon));

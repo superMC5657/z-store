@@ -6,7 +6,7 @@
  * `getCachedIconDataUri` 为展示/组装用只读 interface；`stickyIconFor`/`patchIconMirror`/
  * `patchAppIconList` 为组装/镜像用的纯合并 interface（内部 seam 的收敛实现，调用方直引、不自立规则）。
  * depth：`admitIconHit` 内聚 generation gate（`search_id`/`board`+`gen`）+ L-monotone（纯L 1..5，
- * 低不顶高，`via` 正交）+ `via`（`live|m2`，`data:` 只进 M1 内存；m2+http 远端落盘自愈）+ L5 badge
+ * 数字越小优先级越高、L5显式徽章最高，低不顶高，`via` 正交）+ `via`（`live|m2`，`data:` 只进 M1 内存；m2+http 远端落盘自愈）+ L5 badge
  *（`icon:'' + level:5` 唯一允许的空覆盖，经 fan-out）+ fan-out（`notifyIconWrites`）。
  * 一次 `IconFetch` 命中经 `icon-ready` 只跳本 module 单 interface。
  * seam：`admitIconHit` 为唯一写 seam；`stickyIconFor`（`mergeStickyIcon` + M1 缓冲回读）与
@@ -46,6 +46,17 @@ export function isPureLevel(level: unknown): level is number {
     level >= 1 &&
     level <= 5
   );
+}
+
+/**
+ * 纯L优先级比较（`IconFetch` 流式升级用）：
+ * 数字越小优先级越高（L1官方 > L2品牌库 > L3仓库 > L4 README）；
+ * L5显式徽章（用户切空意图）优先级最高，保持轮换门控语义（L2→L5接受、L5→L2判 stale）。
+ * 返回负数表 `a` 更优、零表同级、正数表 `b` 更优。
+ */
+export function compareIconPriority(a: number, b: number): number {
+  const rank = (l: number): number => (l === 5 ? 0 : l);
+  return rank(a) - rank(b);
 }
 
 /** 图标事件上下文（后端 `icon_fetch::IconFetchCtx` 的前端镜像）。 */
@@ -249,7 +260,7 @@ export function patchIconMirror(
   return changed ? next : prev;
 }
 
-/** `level`纯L单调记忆（别名共享最大值，低不顶高，via正交）+ 图标M1内存缓冲已有实图记忆（`''` 守卫回退）。 */
+/** `level`纯L单调记忆（别名共享最优值，数字越小越优、L5最高，低不顶高，via正交）+ 图标M1内存缓冲已有实图记忆（`''` 守卫回退）。 */
 const iconLevelById = new Map<string, number>();
 const iconById = new Map<string, string>();
 
@@ -756,7 +767,9 @@ export function admitIconHit(args: AdmitIconHitArgs): AdmitIconHitResult {
   }
   if (stale) return { accepted: false, targets, icon, reason: stale };
 
-  // `level`纯L单调：低不顶高，via正交不参与比较。缺省即放行且不推进记忆。
+  // `level`纯L单调：数字越小优先级越高（L1官方最高，其次L2品牌库，再次L3仓库/L4 README），
+  // 低优不顶高优；L5显式徽章优先级最高（用户切空意图，保持轮换语义）。via正交不参与比较。
+  // 缺省即放行且不推进记忆。
   // 仅 1..5 合法（`isPureLevel`）；`data:` 只进 M1 内存，m2 不推进 `level` 记忆（只做 stale 判定，不写）。
   const level =
     typeof args.level === 'number' && Number.isFinite(args.level) ? args.level : undefined;
@@ -767,15 +780,17 @@ export function admitIconHit(args: AdmitIconHitArgs): AdmitIconHitResult {
   const isMemoryOnly = icon.startsWith('data:') || (via === 'm2' && !isRemoteHttpIconUrl(icon));
   let nextLevel: number | undefined;
   if (pureLevel !== undefined) {
-    let currentMax: number | undefined;
+    let currentBest: number | undefined;
     for (const t of targets) {
       const s = iconLevelById.get(t);
-      if (s !== undefined && (currentMax === undefined || s > currentMax)) currentMax = s;
+      if (s === undefined) continue;
+      if (currentBest === undefined || compareIconPriority(s, currentBest) < 0) currentBest = s;
     }
-    if (currentMax !== undefined && pureLevel < currentMax) {
+    if (currentBest !== undefined && compareIconPriority(pureLevel, currentBest) > 0) {
       return { accepted: false, targets, icon, level: pureLevel, reason: 'level-stale' };
     }
-    nextLevel = currentMax === undefined ? pureLevel : Math.max(currentMax, pureLevel);
+    // 受理即采用 incoming（更优升级或同级覆盖新图；更差已在上分支丢弃）。
+    nextLevel = pureLevel;
     // `data:`/`m2` 不推进：此处只算出 `nextLevel`，落盘路径才写记忆。
   }
 

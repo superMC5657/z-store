@@ -486,6 +486,7 @@ fn test_icon_cycle_crud() {
         selected_url: "https://example.com/l1.png".to_string(),
         cache_file: "rustdesk_rustdesk_l1.png".to_string(),
         updated_at: 1700000000,
+        pinned: false,
     };
     db.upsert_icon_cycle(&cycle).unwrap();
 
@@ -542,6 +543,7 @@ fn test_icon_cycle_upsert_on_conflict() {
         selected_url: "https://example.com/motrix_l1.png".to_string(),
         cache_file: "motrix_1.png".to_string(),
         updated_at: 1000,
+        pinned: false,
     };
     db.upsert_icon_cycle(&initial).unwrap();
 
@@ -564,6 +566,7 @@ fn test_icon_cycle_upsert_on_conflict() {
         selected_url: "https://example.com/motrix_l2.png".to_string(),
         cache_file: "motrix_2.png".to_string(),
         updated_at: 2000,
+        pinned: false,
     };
     db.upsert_icon_cycle(&updated).unwrap();
 
@@ -606,6 +609,7 @@ fn test_icon_cycle_set_level() {
         selected_url: "https://example.com/ls_l1.png".to_string(),
         cache_file: "ls_1.png".to_string(),
         updated_at: 1000,
+        pinned: false,
     };
     db.upsert_icon_cycle(&item).unwrap();
 
@@ -833,5 +837,390 @@ fn test_trend_board_cache_prune_two_tiers_and_idempotent_schema() {
             "{key} must survive re-init"
         );
     }
+}
+
+#[test]
+fn test_icon_cycle_pinned_roundtrip() {
+    // pinned 标记落库往返：手动选择后置 true，读回保持。
+    let db = fixtures::test_db();
+    let app_id = "pinned/roundtrip";
+    let mut cycle = AppIconCycle {
+        app_id: app_id.to_string(),
+        owner: "pinned".to_string(),
+        repo: "roundtrip".to_string(),
+        is_cataloged: false,
+        level: 2,
+        l1_url: String::new(),
+        l2_url: "https://cdn.simpleicons.org/pinned".to_string(),
+        l3_url: String::new(),
+        l4_url: String::new(),
+        selected_url: "https://cdn.simpleicons.org/pinned".to_string(),
+        cache_file: "pinned_l2.png".to_string(),
+        updated_at: 1000,
+        pinned: true,
+    };
+    db.upsert_icon_cycle(&cycle).unwrap();
+    let fetched = db.get_icon_cycle(app_id).unwrap().expect("cycle exists");
+    assert!(fetched.pinned);
+    assert_eq!(fetched.level, 2);
+    assert_eq!(fetched.selected_url, "https://cdn.simpleicons.org/pinned");
+
+    // 非 pinned 行默认 false（未手动选择）。
+    cycle.app_id = "pinned/unpinned".to_string();
+    cycle.pinned = false;
+    db.upsert_icon_cycle(&cycle).unwrap();
+    let fetched2 = db
+        .get_icon_cycle("pinned/unpinned")
+        .unwrap()
+        .expect("cycle exists");
+    assert!(!fetched2.pinned);
+}
+
+#[test]
+fn test_icon_cycle_pinned_column_migrates_legacy_table() {
+    // 存量库迁移：模拟升级前无 pinned 列的老表，init_schema 补列且幂等。
+    let db = fixtures::test_db();
+    db.conn
+        .execute("ALTER TABLE app_icon_cycles DROP COLUMN pinned", [])
+        .unwrap();
+    db.init_schema().unwrap();
+    db.init_schema().unwrap();
+    let mut stmt = db.conn.prepare("PRAGMA table_info(app_icon_cycles)").unwrap();
+    let cols: Vec<String> = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .unwrap()
+        .map(|c| c.unwrap())
+        .collect();
+    assert!(cols.contains(&"pinned".to_string()));
+    // 补列后读写正常。
+    let cycle = AppIconCycle {
+        app_id: "pinned/legacy".to_string(),
+        owner: "pinned".to_string(),
+        repo: "legacy".to_string(),
+        pinned: true,
+        ..Default::default()
+    };
+    db.upsert_icon_cycle(&cycle).unwrap();
+    assert!(db.get_icon_cycle("pinned/legacy").unwrap().unwrap().pinned);
+}
+
+#[test]
+fn test_detail_refresh_keeps_pinned_selection_and_fills_slot() {
+    // 02 验收①：pinned 行（用户手动选 L2）遇详情最强探测（L4 README）时，
+    // 保持 level/selected_url/updated_at，仅补齐 l4 备选槽。
+    let db = fixtures::test_db();
+    let app_id = "pinned/keep";
+    let l2 = "https://cdn.simpleicons.org/keep";
+    let l4 = "https://raw.githubusercontent.com/pinned/keep/main/logo.png";
+    let before = AppIconCycle {
+        app_id: app_id.to_string(),
+        owner: "pinned".to_string(),
+        repo: "keep".to_string(),
+        is_cataloged: false,
+        level: 2,
+        l1_url: String::new(),
+        l2_url: l2.to_string(),
+        l3_url: String::new(),
+        l4_url: String::new(),
+        selected_url: l2.to_string(),
+        cache_file: "keep_l2.png".to_string(),
+        updated_at: 1000,
+        pinned: true,
+    };
+    db.upsert_icon_cycle(&before).unwrap();
+
+    let mut loaded = db.get_icon_cycle(app_id).unwrap().unwrap();
+    let was_pinned =
+        icon_cycle::merge_detail_icon(&mut loaded, 4, l4, false, 2000);
+    assert!(was_pinned, "pinned row must report pinned");
+    assert_eq!(loaded.level, 2);
+    assert_eq!(loaded.selected_url, l2);
+    assert_eq!(loaded.l4_url, l4);
+    assert_eq!(loaded.updated_at, 1000, "pinned merge must not bump updated_at");
+    db.upsert_icon_cycle(&loaded).unwrap();
+    let re = db.get_icon_cycle(app_id).unwrap().unwrap();
+    assert!(re.pinned);
+    assert_eq!(re.level, 2);
+    assert_eq!(re.selected_url, l2);
+    assert_eq!(re.l4_url, l4);
+
+    // pinned 补槽不覆盖已有备选值。
+    let mut loaded2 = db.get_icon_cycle(app_id).unwrap().unwrap();
+    assert!(icon_cycle::merge_detail_icon(
+        &mut loaded2,
+        2,
+        "https://cdn.simpleicons.org/other",
+        false,
+        3000
+    ));
+    assert_eq!(loaded2.l2_url, l2);
+    assert_eq!(loaded2.selected_url, l2);
+}
+
+#[test]
+fn test_detail_refresh_updates_unpinned_selection() {
+    // 02 验收②：未 pinned 行仍按最强探测更新选中图（level/selected/对应槽/updated_at 推进）。
+    let db = fixtures::test_db();
+    let app_id = "pinned/unpinned-update";
+    let l2 = "https://cdn.simpleicons.org/update";
+    let l4 = "https://raw.githubusercontent.com/pinned/update/main/logo.png";
+    let before = AppIconCycle {
+        app_id: app_id.to_string(),
+        owner: "pinned".to_string(),
+        repo: "update".to_string(),
+        is_cataloged: false,
+        level: 2,
+        l1_url: String::new(),
+        l2_url: l2.to_string(),
+        l3_url: String::new(),
+        l4_url: String::new(),
+        selected_url: l2.to_string(),
+        cache_file: "update_l2.png".to_string(),
+        updated_at: 1000,
+        pinned: false,
+    };
+    db.upsert_icon_cycle(&before).unwrap();
+
+    let mut loaded = db.get_icon_cycle(app_id).unwrap().unwrap();
+    let was_pinned = icon_cycle::merge_detail_icon(&mut loaded, 4, l4, false, 2000);
+    assert!(!was_pinned);
+    assert_eq!(loaded.level, 4);
+    assert_eq!(loaded.selected_url, l4);
+    assert_eq!(loaded.l4_url, l4);
+    assert_eq!(loaded.updated_at, 2000);
+    assert!(!loaded.pinned);
+}
+
+#[test]
+fn test_detail_refresh_keeps_pinned_l5_badge() {
+    // pinned L5（用户手动选空徽章）：详情刷新不复活图标，保持 level=5 与双空选中态，
+    // 备选槽仍可补齐供重选。
+    let db = fixtures::test_db();
+    let app_id = "pinned/l5";
+    let l2 = "https://cdn.simpleicons.org/l5keep";
+    let l4 = "https://raw.githubusercontent.com/pinned/l5/main/logo.png";
+    let mut before = AppIconCycle {
+        app_id: app_id.to_string(),
+        owner: "pinned".to_string(),
+        repo: "l5".to_string(),
+        is_cataloged: false,
+        level: 2,
+        l1_url: String::new(),
+        l2_url: l2.to_string(),
+        l3_url: String::new(),
+        l4_url: String::new(),
+        selected_url: l2.to_string(),
+        cache_file: "l5_l2.png".to_string(),
+        updated_at: 1000,
+        pinned: true,
+    };
+    icon_cycle::seal_empty_selection(&mut before);
+    before.pinned = true;
+    db.upsert_icon_cycle(&before).unwrap();
+
+    let mut loaded = db.get_icon_cycle(app_id).unwrap().unwrap();
+    assert_eq!(loaded.level, 5);
+    assert!(icon_cycle::merge_detail_icon(&mut loaded, 4, l4, false, 2000));
+    assert_eq!(loaded.level, 5);
+    assert!(loaded.selected_url.is_empty());
+    assert!(loaded.cache_file.is_empty());
+    assert_eq!(loaded.l4_url, l4);
+    // l1..l4 备选保留供重选。
+    assert_eq!(loaded.l2_url, l2);
+}
+
+#[test]
+fn test_cycle_recovery_paths_preserve_pinned() {
+    // 恢复路径（set_icon_cycle_level / set_icon_cycle_selected）不改变 pinned：
+    // 文件缺失重下等自动恢复永不丢失用户手动选择状态。
+    let db = fixtures::test_db();
+    let app_id = "pinned/recovery";
+    let cycle = AppIconCycle {
+        app_id: app_id.to_string(),
+        owner: "pinned".to_string(),
+        repo: "recovery".to_string(),
+        is_cataloged: false,
+        level: 2,
+        l1_url: String::new(),
+        l2_url: "https://cdn.simpleicons.org/recovery".to_string(),
+        l3_url: String::new(),
+        l4_url: String::new(),
+        selected_url: "https://cdn.simpleicons.org/recovery".to_string(),
+        cache_file: "recovery_l2.png".to_string(),
+        updated_at: 1000,
+        pinned: true,
+    };
+    db.upsert_icon_cycle(&cycle).unwrap();
+
+    db.set_icon_cycle_selected(app_id, 2, "https://cdn.simpleicons.org/recovery", "re.png")
+        .unwrap();
+    assert!(db.get_icon_cycle(app_id).unwrap().unwrap().pinned);
+    db.set_icon_cycle_level(app_id, 2).unwrap();
+    assert!(db.get_icon_cycle(app_id).unwrap().unwrap().pinned);
+}
+
+#[test]
+fn test_cycle_restore_fresh_requires_row_and_file() {
+    // 03 过期刷新：恢复路径与请求路径同口径判鲜（行 7 天有效 + 文件 7 天新鲜双检），
+    // 任一过期即走下载分支；pinned 选择不受判鲜影响（落库经 set_icon_cycle_selected 保持）。
+    let now = crate::now_secs();
+    let fresh_row = AppIconCycle {
+        app_id: "o/r".to_string(),
+        owner: "o".to_string(),
+        repo: "r".to_string(),
+        is_cataloged: false,
+        level: 2,
+        l1_url: String::new(),
+        l2_url: "https://example.com/2.png".to_string(),
+        l3_url: String::new(),
+        l4_url: String::new(),
+        selected_url: "https://example.com/2.png".to_string(),
+        cache_file: "abc123.png".to_string(),
+        updated_at: now,
+        pinned: true,
+    };
+    // 双新鲜即命中（pinned 行同样命中直接返回，刷新只走下载分支，不丢选择）。
+    assert!(icon_cycle::is_cycle_restore_fresh(&fresh_row, true, now));
+    // 行过期（缓存生存时效外）即走下载分支。
+    let mut stale_row = fresh_row.clone();
+    stale_row.updated_at = now - icon_cycle::ICON_TTL_SECS - 1;
+    assert!(!icon_cycle::is_cycle_restore_fresh(&stale_row, true, now));
+    // 文件过期即走下载分支。
+    assert!(!icon_cycle::is_cycle_restore_fresh(&fresh_row, false, now));
+    // 空 cache_file 永不命中。
+    let mut empty_file = fresh_row.clone();
+    empty_file.cache_file = String::new();
+    assert!(!icon_cycle::is_cycle_restore_fresh(&empty_file, true, now));
+    // 行零时间戳视为过期。
+    let mut zero_row = fresh_row.clone();
+    zero_row.updated_at = 0;
+    assert!(!icon_cycle::is_cycle_restore_fresh(&zero_row, true, now));
+}
+
+#[test]
+fn test_stream_merge_keeps_existing_slots_for_unpinned() {
+    // 05 多槽合并：流式命中（L2品牌库）落库先读旧行合并——已有 l3/l4 槽保留，
+    // 本次命中进对应来源槽并收编选中图；pinned 标记保持 false。
+    let db = fixtures::test_db();
+    let app_id = "merge/stream";
+    let l2 = "https://cdn.simpleicons.org/stream";
+    let l3 = "https://raw.githubusercontent.com/merge/stream/main/icon.png";
+    let l4 = "https://raw.githubusercontent.com/merge/stream/main/blob/logo.png";
+    let before = AppIconCycle {
+        app_id: app_id.to_string(),
+        owner: "merge".to_string(),
+        repo: "stream".to_string(),
+        is_cataloged: false,
+        level: 3,
+        l1_url: String::new(),
+        l2_url: String::new(),
+        l3_url: l3.to_string(),
+        l4_url: l4.to_string(),
+        selected_url: l3.to_string(),
+        cache_file: "stream_l3.png".to_string(),
+        updated_at: 1000,
+        pinned: false,
+    };
+    db.upsert_icon_cycle(&before).unwrap();
+
+    // 与 `save_and_emit` 同口径：读旧行 → `merge_detail_icon` → 落库。
+    let mut loaded = db.get_icon_cycle(app_id).unwrap().unwrap();
+    let keep_cataloged = loaded.is_cataloged;
+    let was_pinned = icon_cycle::merge_detail_icon(&mut loaded, 2, l2, keep_cataloged, 2000);
+    assert!(!was_pinned);
+    db.upsert_icon_cycle(&loaded).unwrap();
+
+    let re = db.get_icon_cycle(app_id).unwrap().unwrap();
+    assert!(!re.pinned);
+    assert_eq!(re.level, 2);
+    assert_eq!(re.l2_url, l2);
+    assert_eq!(re.l3_url, l3, "existing L3 slot must be kept");
+    assert_eq!(re.l4_url, l4, "existing L4 slot must be kept");
+    assert_eq!(re.selected_url, l2);
+    assert_eq!(re.updated_at, 2000);
+}
+
+#[test]
+fn test_stream_merge_on_pinned_row_only_fills_slot() {
+    // 05 + 02：流式命中落到已 pinned 行时只补对应空槽，
+    // level/selected_url/updated_at 保持手动选择，不丢 pinned。
+    let db = fixtures::test_db();
+    let app_id = "merge/pinned";
+    let l3 = "https://raw.githubusercontent.com/merge/pinned/main/icon.png";
+    let l2 = "https://cdn.simpleicons.org/pinned";
+    let before = AppIconCycle {
+        app_id: app_id.to_string(),
+        owner: "merge".to_string(),
+        repo: "pinned".to_string(),
+        is_cataloged: false,
+        level: 3,
+        l1_url: String::new(),
+        l2_url: String::new(),
+        l3_url: l3.to_string(),
+        l4_url: String::new(),
+        selected_url: l3.to_string(),
+        cache_file: "pinned_l3.png".to_string(),
+        updated_at: 1000,
+        pinned: true,
+    };
+    db.upsert_icon_cycle(&before).unwrap();
+
+    let mut loaded = db.get_icon_cycle(app_id).unwrap().unwrap();
+    let keep_cataloged = loaded.is_cataloged;
+    assert!(icon_cycle::merge_detail_icon(&mut loaded, 2, l2, keep_cataloged, 2000));
+    db.upsert_icon_cycle(&loaded).unwrap();
+
+    let re = db.get_icon_cycle(app_id).unwrap().unwrap();
+    assert!(re.pinned);
+    assert_eq!(re.level, 3);
+    assert_eq!(re.selected_url, l3);
+    assert_eq!(re.l2_url, l2, "empty L2 slot is filled");
+    assert_eq!(re.updated_at, 1000, "pinned merge must not bump updated_at");
+}
+
+#[test]
+fn test_probe_cache_file_adopt_only_when_selected_matches() {
+    // 05 槽满不錯配选中图：仅选中即真地址才认领新文件，否则保持原配对。
+    let mut adopted = AppIconCycle {
+        app_id: "probe/adopt".to_string(),
+        selected_url: "https://cdn.simpleicons.org/a".to_string(),
+        cache_file: "old.png".to_string(),
+        ..Default::default()
+    };
+    assert!(icon_cycle::adopt_probe_cache_file(
+        &mut adopted,
+        "https://cdn.simpleicons.org/a",
+        "new.png".to_string()
+    ));
+    assert_eq!(adopted.cache_file, "new.png");
+
+    // 选中是旧图（pinned/槽满未收编）：不认领，保持原配对。
+    let mut kept = AppIconCycle {
+        app_id: "probe/keep".to_string(),
+        selected_url: "https://example.com/old.png".to_string(),
+        cache_file: "old.png".to_string(),
+        ..Default::default()
+    };
+    assert!(!icon_cycle::adopt_probe_cache_file(
+        &mut kept,
+        "https://cdn.simpleicons.org/new",
+        "new.png".to_string()
+    ));
+    assert_eq!(kept.cache_file, "old.png");
+    assert_eq!(kept.selected_url, "https://example.com/old.png");
+
+    // 空文件名永不认领（写盘失败不破坏原配对）。
+    let mut empty = AppIconCycle {
+        app_id: "probe/empty".to_string(),
+        selected_url: "https://cdn.simpleicons.org/a".to_string(),
+        cache_file: "old.png".to_string(),
+        ..Default::default()
+    };
+    assert!(!icon_cycle::adopt_probe_cache_file(
+        &mut empty,
+        "https://cdn.simpleicons.org/a",
+        String::new()
+    ));
+    assert_eq!(empty.cache_file, "old.png");
 }
 

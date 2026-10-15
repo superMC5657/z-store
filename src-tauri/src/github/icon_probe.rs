@@ -499,6 +499,42 @@ pub(crate) fn dedup_slugs(owner: &str, repo: &str) -> Vec<String> {
     out
 }
 
+/// Trees 目录响应有界上限（超大单体仓库熔断）：
+/// - `MAX_TREE_BYTES` 2MB：正常仓库 tree JSON 远小于此值；超限多为 monorepo/大仓，直接放弃；
+/// - `MAX_TREE_NODES` 2 万节点：评分 O(n) 本身便宜，主要防超大 JSON 解析阻塞。
+/// 超限直接 `None` 不阻塞主流程（该行保持徽章/裸行，同批其他行不受影响）。
+pub(crate) const MAX_TREE_BYTES: usize = 2 * 1024 * 1024;
+/// 2 万节点上限（见 [`MAX_TREE_BYTES`] 文档）。
+pub(crate) const MAX_TREE_NODES: usize = 20_000;
+
+/// 有界累积纯决策（可单测，无网络）：已累积 `accumulated` + 下一块 `next_chunk`
+/// 未超 `cap` 即 true，超限即 false（调用方中断降级，不全量缓冲）。
+pub(crate) fn tree_body_within_cap(accumulated: usize, next_chunk: usize, cap: usize) -> bool {
+    accumulated.saturating_add(next_chunk) <= cap
+}
+
+/// 有界目录体流式读取：逐块累积，超 `cap` 即中断返 `None`
+/// （无长度声明的 chunked 响应同样有界，不全量缓冲；中断后调用方降级为徽章/裸行）。
+/// 网络分块失败同样返 `None`（调用方同语义降级）。
+async fn read_bounded_tree_bytes(resp: reqwest::Response, cap: usize) -> Option<Vec<u8>> {
+    use futures_util::StreamExt;
+    let mut buf = Vec::new();
+    let mut stream = resp.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.ok()?;
+        if !tree_body_within_cap(buf.len(), chunk.len(), cap) {
+            log::warn!(
+                "icon probe trees skip oversized stream streamed={} > {}",
+                buf.len().saturating_add(chunk.len()),
+                cap
+            );
+            return None;
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    Some(buf)
+}
+
 /// 快路径：SimpleIcons 品牌库（免鉴权），每 slug 超时经配置（未设置回退 1500ms），命中即返。
 /// 并发 buffered(3) 验图，按 slug 顺序取首个有效，语义与逐个串行一致（去重后通常 ≤2 个）。
 pub(crate) async fn probe_simple_icons(
@@ -539,8 +575,8 @@ pub(crate) async fn probe_simple_icons(
 
 /// 慢路径：Git Trees 全库评分（需鉴权头），超时经配置（未设置回退 12s）。
 /// 截断保护：Git Trees 无分页（`per_page` 不适用），此处以
-/// content-length 预检 + body 上限 + 节点数上限三层熔断；超限直接 `None`
-/// 不阻塞主流程（调用方继续走默认图标）。
+/// content-length 预检 + 有界流式体 + 节点数上限三层熔断；超限直接 `None`
+/// 不阻塞主流程（该行保持徽章/裸行，同批其他行不受影响，见统一图标补探 `IconFetch`）。
 pub(crate) async fn probe_trees(
     client: &reqwest::Client,
     headers: &HeaderMap,
@@ -548,10 +584,6 @@ pub(crate) async fn probe_trees(
     repo: &str,
     branch: &str,
 ) -> Option<ProbedIcon> {
-    /// 2MB：正常仓库 tree JSON 远小于此值；超限多为 monorepo/大仓，直接放弃。
-    const MAX_TREE_BYTES: usize = 2 * 1024 * 1024;
-    /// 2 万节点：评分 O(n) 本身便宜，主要防超大 JSON 解析阻塞。
-    const MAX_TREE_NODES: usize = 20_000;
     let tree_url = format!(
         "https://api.github.com/repos/{}/{}/git/trees/{}?recursive=1",
         owner, repo, branch
@@ -577,18 +609,9 @@ pub(crate) async fn probe_trees(
                     return None;
                 }
             }
-            // 层2：body 上限。先取字节再 `from_slice`，超限 bail 不解析。
-            let bytes = resp.bytes().await.ok()?;
-            if bytes.len() > MAX_TREE_BYTES {
-                log::warn!(
-                    "icon probe trees skip {}/{} oversized body={} > {}",
-                    owner,
-                    repo,
-                    bytes.len(),
-                    MAX_TREE_BYTES
-                );
-                return None;
-            }
+            // 层2：有界流式体。无长度声明的 chunked 响应逐块累积、超限即中断，
+            // 不全量缓冲；中断返 `None` 降级为徽章/裸行（内存有界）。
+            let bytes = read_bounded_tree_bytes(resp, MAX_TREE_BYTES).await?;
             let tree: GitTree = serde_json::from_slice(&bytes).ok()?;
             // 层3：节点数上限。
             if tree.tree.len() > MAX_TREE_NODES {
@@ -747,5 +770,32 @@ mod tests {
             score_candidate("assets/discover.png", Some(5000), "demo"),
             -50
         );
+    }
+
+    #[test]
+    fn test_tree_body_caps_are_bounded() {
+        // 超大单体仓库熔断阈值锁定：目录体 2MB + 节点 2 万（内存有界）。
+        assert_eq!(MAX_TREE_BYTES, 2 * 1024 * 1024);
+        assert_eq!(MAX_TREE_NODES, 20_000);
+    }
+
+    #[test]
+    fn test_tree_body_within_cap_stops_at_limit() {
+        // 有界累积纯决策：未超限 true，超限即 false（调用方中断降级为徽章/裸行）。
+        assert!(tree_body_within_cap(0, 100, MAX_TREE_BYTES));
+        assert!(tree_body_within_cap(MAX_TREE_BYTES - 1, 1, MAX_TREE_BYTES));
+        assert!(!tree_body_within_cap(MAX_TREE_BYTES, 1, MAX_TREE_BYTES));
+        assert!(!tree_body_within_cap(MAX_TREE_BYTES - 10, 11, MAX_TREE_BYTES));
+        // 无长度声明的 chunked 分块同样逐块判定：模拟 3 块，前两块受理、第三块超限中断。
+        let cap = 10usize;
+        let mut acc = 0usize;
+        for chunk in [4usize, 4, 4] {
+            if !tree_body_within_cap(acc, chunk, cap) {
+                acc = usize::MAX;
+                break;
+            }
+            acc += chunk;
+        }
+        assert_eq!(acc, usize::MAX, "third chunk must abort, not buffer");
     }
 }

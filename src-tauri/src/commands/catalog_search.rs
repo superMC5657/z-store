@@ -38,8 +38,9 @@ fn select_gen_lane(
     }
 }
 
-/// 图标命中落库 + 前端 emit 唯一实现（`upsert_icon_cycle` + 单发新事件，搜索/趋势同源）。
-/// level纯L：`level=2`写 `l2_url`，`level=3`写 `l3_url`；via=live|m2，远端探测走live，DB落盘回填走m2。
+/// 图标命中落库 + 前端 emit 唯一实现（读旧行合并后 `upsert_icon_cycle` + 单发新事件，搜索/趋势同源）。
+/// level纯L：经 `merge_detail_icon` 按来源入槽（`level=2`进 `l2_url`，`level=3`进 `l3_url`），
+/// 已有槽位合并保留，02 pinned 行只补槽不改选中；via=live|m2，远端探测走live，DB落盘回填走m2。
 /// - 只发统一 `zstore://icon-ready{id,icon,level,via,context}`（`context` 原样透传 `job.ctx`，
 ///   载荷经 core `icon_fetch::icon_ready_payload` 构建）；
 /// - 世代比对防串：落库前 + emit 前双检查 `select_gen_lane(ctx)`（搜索查 SEARCH_GEN，
@@ -59,16 +60,31 @@ async fn save_and_emit(
     }
     let state = handle.state::<AppState>();
     if let Ok(db) = state.db() {
-        let mut cycle = crate::db::AppIconCycle::new(&job.id, &job.owner, &job.repo);
-        cycle.is_cataloged = false;
-        cycle.level = level;
-        if level == 2 {
-            cycle.l2_url = url.to_owned();
-        } else if level == 3 {
-            cycle.l3_url = url.to_owned();
+        // 05 多槽合并：先读旧行再合并（M6），保留已有槽位与 02 pinned 选择；
+        // 未 pinned 行按本次命中收编，pinned 行仅补对应空槽，不改选中图。
+        let mut cycle = db
+            .get_icon_cycle(&job.id)
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| {
+                let mut c = crate::db::AppIconCycle::new(&job.id, &job.owner, &job.repo);
+                c.is_cataloged = false;
+                c
+            });
+        let keep_cataloged = cycle.is_cataloged;
+        let old_selected = cycle.selected_url.clone();
+        let was_pinned = crate::db::icon_cycle::merge_detail_icon(
+            &mut cycle,
+            level,
+            url,
+            keep_cataloged,
+            crate::now_secs(),
+        );
+        // 05 悬空配对修复：未 pinned 且选中变化时旧 cache_file 失效（等真地址下载认领）；
+        // pinned 行不动（merge 已保持 selected/cache 配对）。
+        if !was_pinned && cycle.selected_url != old_selected {
+            cycle.cache_file = String::new();
         }
-        cycle.selected_url = url.to_owned();
-        cycle.updated_at = crate::now_secs();
         let _ = db.with_immediate_transaction(|| {
             db.upsert_icon_cycle(&cycle)?;
             Ok(())
@@ -111,7 +127,7 @@ pub(crate) fn hidden_rule_ids(state: &AppState) -> std::collections::HashSet<Str
 
 /// 未收录卡片回填：确认图标覆盖 → 待写 icon_cycle 构建 → 详情缓存 platforms join。
 /// level纯L，via正交：DB落盘命中为M2回填走via=m2不占level；远端只标L2/L3 live。
-/// `simpleicons.org` 标 level 2 写 `l2_url`，其余标 level 3 写 `l3_url`。
+/// level 经 `level_for_detail_icon` 判定入对应槽（2=品牌库，4=README 头部，3=仓库树），via正交：
 /// 返回 `Some(cycle)` 时由调用方收进 `pending` 批量落库；无事可写返回 `None`。
 /// 纯同步无 `await`（调用方单临界区内复用 db 锁，批量 upsert 仍在调用点）。
 fn backfill_uncataloged_card(
@@ -125,17 +141,16 @@ fn backfill_uncataloged_card(
         item.icon = ci;
         None
     } else if !item.icon.trim().is_empty() {
-        let mut cycle = crate::db::AppIconCycle::new(&item.id, &item.owner, &item.repo);
-        cycle.is_cataloged = false;
-        if item.icon.contains("simpleicons.org") {
-            cycle.level = 2;
-            cycle.l2_url = item.icon.clone();
-        } else {
-            cycle.level = 3;
-            cycle.l3_url = item.icon.clone();
-        }
-        cycle.selected_url = item.icon.clone();
-        cycle.updated_at = crate::now_secs();
+        // 05 首屏回填收敛到 merge（与流式 save_and_emit 同口径）：先读旧行再合并，
+        // 保留流式已攒槽位与 pinned 选择；level 经 level_for_detail_icon 判定入槽。
+        let icon = item.icon.trim().to_string();
+        let level = crate::github::icon_fetch::level_for_detail_icon(&icon);
+        let mut cycle = db
+            .get_icon_cycle(&item.id)
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| crate::db::AppIconCycle::new(&item.id, &item.owner, &item.repo));
+        crate::db::icon_cycle::merge_detail_icon(&mut cycle, level, &icon, false, crate::now_secs());
         Some(cycle)
     } else {
         None
@@ -325,18 +340,24 @@ pub async fn search_apps_online(
                     ) {
                         item.icon = ci;
                     } else if !item.icon.trim().is_empty() {
-                        // 远端只标 L2/L3 live。
-                        let mut cycle = crate::db::AppIconCycle::new(&item.id, &item.owner, &item.repo);
-                        cycle.is_cataloged = false;
-                        if item.icon.contains("simpleicons.org") {
-                            cycle.level = 2;
-                            cycle.l2_url = item.icon.clone();
-                        } else {
-                            cycle.level = 3;
-                            cycle.l3_url = item.icon.clone();
-                        }
-                        cycle.selected_url = item.icon.clone();
-                        cycle.updated_at = crate::now_secs();
+                        // 05 直查回填收敛到 merge（与 backfill_uncataloged_card 同口径）：
+                        // 先读旧行再合并，保留流式已攒槽位；pinned 行仅补槽不改选中。
+                        let icon = item.icon.trim().to_string();
+                        let level = crate::github::icon_fetch::level_for_detail_icon(&icon);
+                        let mut cycle = db
+                            .get_icon_cycle(&item.id)
+                            .ok()
+                            .flatten()
+                            .unwrap_or_else(|| {
+                                crate::db::AppIconCycle::new(&item.id, &item.owner, &item.repo)
+                            });
+                        crate::db::icon_cycle::merge_detail_icon(
+                            &mut cycle,
+                            level,
+                            &icon,
+                            false,
+                            crate::now_secs(),
+                        );
                         let _ = db.upsert_icon_cycle(&cycle);
                     }
                 }

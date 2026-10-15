@@ -259,8 +259,8 @@ pub async fn get_or_fetch_icon(
         let _ = std::fs::create_dir_all(&icons_dir);
     }
 
-    // 无后缀暂定 png：落盘以 sniff real_ext 纠正 + 清旧变体（见 persist_*）。
-    let inferred_ext = infer_icon_ext_from_url(url_trimmed).unwrap_or("png");
+    // 无后缀暂定 png：读侧仅作 hash 候选首位，写侧以 sniff real_ext 纠正（见 persist_*）。
+    let requested_ext = infer_icon_ext_from_url(url_trimmed).unwrap_or("png");
 
     let is_cataloged = app_id.as_deref().is_some_and(|id| {
         state.catalog.get_catalog_item(id.trim()).is_some()
@@ -279,7 +279,7 @@ pub async fn get_or_fetch_icon(
         if let Some(bytes) = icons_cycle::load_split_cached_bytes(
             &icons_dir,
             &db,
-            &icons_cycle::IconRef::new(url_trimmed, inferred_ext),
+            &icons_cycle::IconRef::new(url_trimmed, requested_ext),
             is_cataloged,
             noncatalog_cycle.as_ref(),
         ) {
@@ -297,28 +297,33 @@ pub async fn get_or_fetch_icon(
         .await
         .ok();
 
-    let bytes = match fetched_bytes {
-        Some(b) => b,
+    // 匿名兜底按真地址为键（05）：直取失败经免鉴权 L2 探到的真地址下载，
+    // 落盘/入槽/选中一律用真地址，死链不占槽；展示字节照常返回 `data:`。
+    let (key_url_owned, bytes): (String, Vec<u8>) = match fetched_bytes {
+        Some(b) => (url_trimmed.to_string(), b),
         _ => {
             // 缓存缺失且直取失败：匿名兜底探测（收敛至共享 helper，无 token 免鉴权级）。
-            // 命中后按原请求缓存（文件存替代字节、DB 记录原 URL），后续同请求零网络命中。
+            // 命中后按真地址缓存（文件存替代字节、DB 记录真地址），后续同真地址请求零网络命中。
             let raw_id = app_id.as_deref().unwrap_or("");
-            let mut probe_bytes = None;
+            let mut probed: Option<(String, Vec<u8>)> = None;
             if let Some(c) = crate::forge::RepositoryUrlParser::parse(raw_id) {
                 if !c.owner.is_empty() && !c.repo.is_empty() {
-                    probe_bytes =
+                    probed =
                         icons_cycle::fetch_anon_probe_bytes(&client, raw_id, &c.owner, &c.repo)
                             .await;
                 }
             }
-            match probe_bytes {
-                Some(b) => b,
+            match probed {
+                Some((true_url, b)) => (true_url, b),
                 None => {
                     return Err(format!("拉取远程图标失败 ({})", url_trimmed).into());
                 }
             }
         }
     };
+    let key_url = key_url_owned.trim();
+    // 真地址后缀暂定（sniff 纠正 real_ext 后落盘，见单一写入路径）。
+    let inferred_ext = infer_icon_ext_from_url(key_url).unwrap_or("png");
 
     // 3. 单一写入路径（catalog vs cycle 分流收敛在缝内）：
     // icon_cache_meta 只写收录应用；非收录走 app_icon_cycles（文件复用 icons/ 目录，hash 命名）。
@@ -328,7 +333,7 @@ pub async fn get_or_fetch_icon(
         icons_cycle::write_icon_file(
             &icons_dir,
             db_opt.as_deref(),
-            &icons_cycle::IconRef::new(url_trimmed, inferred_ext),
+            &icons_cycle::IconRef::new(url_trimmed, requested_ext),
             true,
             &bytes,
         );
@@ -339,31 +344,36 @@ pub async fn get_or_fetch_icon(
                 let mut cycle = icons_cycle::load_or_new_cycle(db, clean_id);
                 cycle.is_cataloged = false;
 
-                // url 写入首个空的 l2/l3/l4，不写 l1_url（level 纯L 2/3/4）。
-                let actual_level =
-                    crate::db::icon_cycle::claim_cycle_url_slot(&mut cycle, url_trimmed);
+                // 按真实来源入槽（05）：level 经详情口径判定（simpleicons→L2品牌库，
+                // blob/readme→L4 README，其余→L3仓库），合并保留已有槽；
+                // 02 pinned 行只补槽不改选中；槽满未收编不碰选中图（见下认领）。
+                let source_level =
+                    crate::github::icon_fetch::level_for_detail_icon(key_url);
+                crate::db::icon_cycle::merge_detail_icon(
+                    &mut cycle,
+                    source_level,
+                    key_url,
+                    false,
+                    crate::now_secs(),
+                );
 
-                // 单一写入（sniff 纠正 + 残留清理在内），返回最终文件名后固化行。
+                // 单一写入（sniff 纠正 + 残留清理在内），真地址哈希命名。
                 let filename = icons_cycle::write_icon_file(
                     &icons_dir,
                     db_opt.as_deref(),
-                    &icons_cycle::IconRef::new(url_trimmed, inferred_ext),
+                    &icons_cycle::IconRef::new(key_url, inferred_ext),
                     false,
                     &bytes,
                 );
-                crate::db::icon_cycle::seal_cycle_selection(
-                    &mut cycle,
-                    actual_level,
-                    url_trimmed,
-                    filename,
-                );
+                // 槽满不錯配选中图：仅选中即真地址才认领新文件，否则保持原配对。
+                crate::db::icon_cycle::adopt_probe_cache_file(&mut cycle, key_url, filename);
                 let _ = db.upsert_icon_cycle(&cycle);
             } else {
                 // 无 DB（锁失败）：仍经单一路径落盘，行下次重试。
                 let _ = icons_cycle::write_icon_file(
                     &icons_dir,
                     None,
-                    &icons_cycle::IconRef::new(url_trimmed, inferred_ext),
+                    &icons_cycle::IconRef::new(key_url, inferred_ext),
                     false,
                     &bytes,
                 );
@@ -373,7 +383,7 @@ pub async fn get_or_fetch_icon(
             let _ = icons_cycle::write_icon_file(
                 &icons_dir,
                 None,
-                &icons_cycle::IconRef::new(url_trimmed, inferred_ext),
+                &icons_cycle::IconRef::new(key_url, inferred_ext),
                 false,
                 &bytes,
             );

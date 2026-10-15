@@ -17,6 +17,10 @@ pub struct AppIconCycle {
     pub selected_url: String,
     pub cache_file: String,
     pub updated_at: i64,
+    /// 用户手动选择标记（02 手动轮换保护）：应用详情手动切换档位后置 true；
+    /// 详情刷新（缓存生存时效到期/强制刷新）对 pinned 行只补备选槽位，
+    /// 不改 level/selected_url；未 pinned 行仍按最强探测更新选中图。
+    pub pinned: bool,
 }
 
 impl Default for AppIconCycle {
@@ -34,6 +38,7 @@ impl Default for AppIconCycle {
             selected_url: String::new(),
             cache_file: String::new(),
             updated_at: 0,
+            pinned: false,
         }
     }
 }
@@ -73,7 +78,7 @@ impl Database {
             SELECT
                 app_id, owner, repo, is_cataloged, level,
                 l1_url, l2_url, l3_url, l4_url,
-                selected_url, cache_file, updated_at
+                selected_url, cache_file, updated_at, pinned
             FROM app_icon_cycles
             WHERE app_id = ?1
             LIMIT 1
@@ -82,6 +87,7 @@ impl Database {
         let mut rows = stmt.query(params![cleaned])?;
         if let Some(row) = rows.next()? {
             let is_cataloged_int: i64 = row.get(3)?;
+            let pinned_int: i64 = row.get(12)?;
             Ok(Some(AppIconCycle {
                 app_id: row.get(0)?,
                 owner: row.get(1)?,
@@ -95,6 +101,7 @@ impl Database {
                 selected_url: row.get(9)?,
                 cache_file: row.get(10)?,
                 updated_at: row.get(11)?,
+                pinned: pinned_int != 0,
             }))
         } else {
             Ok(None)
@@ -114,7 +121,7 @@ impl Database {
             SELECT
                 app_id, owner, repo, is_cataloged, level,
                 l1_url, l2_url, l3_url, l4_url,
-                selected_url, cache_file, updated_at
+                selected_url, cache_file, updated_at, pinned
             FROM app_icon_cycles
             WHERE owner = ?1 AND repo = ?2
             LIMIT 1
@@ -123,6 +130,7 @@ impl Database {
         let mut rows = stmt.query(params![o, r])?;
         if let Some(row) = rows.next()? {
             let is_cataloged_int: i64 = row.get(3)?;
+            let pinned_int: i64 = row.get(12)?;
             Ok(Some(AppIconCycle {
                 app_id: row.get(0)?,
                 owner: row.get(1)?,
@@ -136,6 +144,7 @@ impl Database {
                 selected_url: row.get(9)?,
                 cache_file: row.get(10)?,
                 updated_at: row.get(11)?,
+                pinned: pinned_int != 0,
             }))
         } else {
             Ok(None)
@@ -154,14 +163,15 @@ impl Database {
             cycle.updated_at
         };
         let is_cataloged_int = if cycle.is_cataloged { 1 } else { 0 };
+        let pinned_int = if cycle.pinned { 1 } else { 0 };
 
         self.exec_upsert(
             r#"
             INSERT INTO app_icon_cycles (
                 app_id, owner, repo, is_cataloged, level,
                 l1_url, l2_url, l3_url, l4_url,
-                selected_url, cache_file, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                selected_url, cache_file, updated_at, pinned
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
             ON CONFLICT(app_id) DO UPDATE SET
                 owner = excluded.owner,
                 repo = excluded.repo,
@@ -173,7 +183,8 @@ impl Database {
                 l4_url = excluded.l4_url,
                 selected_url = excluded.selected_url,
                 cache_file = excluded.cache_file,
-                updated_at = excluded.updated_at;
+                updated_at = excluded.updated_at,
+                pinned = excluded.pinned;
             "#,
             params![
                 clean_id,
@@ -188,6 +199,7 @@ impl Database {
                 clean(&cycle.selected_url),
                 clean(&cycle.cache_file),
                 updated_at,
+                pinned_int,
             ],
         )?;
         Ok(())
@@ -208,7 +220,8 @@ impl Database {
         })
     }
 
-    /// 更新当前图标轮换级别，并在对应级别 URL 非空时自动同步切换 selected_url
+    /// 更新当前图标轮换级别，并在对应级别 URL 非空时自动同步切换 selected_url。
+    /// pinned 标记保持不动（恢复路径不改变用户手动选择状态）。
     pub fn set_icon_cycle_level(&self, app_id: &str, level: i32) -> Result<()> {
         let cleaned = clean(app_id);
         if cleaned.is_empty() {
@@ -234,7 +247,8 @@ impl Database {
         Ok(())
     }
 
-    /// 更新当前图标轮换级别及选中的 URL 和本地缓存文件路径
+    /// 更新当前图标轮换级别及选中的 URL 和本地缓存文件路径。
+    /// pinned 标记保持不动（恢复路径不改变用户手动选择状态）。
     pub fn set_icon_cycle_selected(
         &self,
         app_id: &str,
@@ -434,6 +448,14 @@ pub fn is_icon_fresh(cached_at: i64, now: i64) -> bool {
     cached_at > 0 && now.saturating_sub(cached_at) < ICON_TTL_SECS
 }
 
+/// 恢复路径判鲜（03 过期刷新，SSOT）：与请求路径同口径，行 7 天有效 + 文件 7 天新鲜双检。
+/// `file_fresh` 由调用方经 `is_icon_file_fresh` 传入（文件 mtime 口径）；
+/// 任一过期即 false，调用方走下载分支重下，不直接返回旧图。
+/// `pinned` 选择不受此判定影响（过期刷新落库经 `set_icon_cycle_selected`，pinned 保持不动）。
+pub fn is_cycle_restore_fresh(cycle: &AppIconCycle, file_fresh: bool, now: i64) -> bool {
+    !cycle.cache_file.trim().is_empty() && file_fresh && is_icon_fresh(cycle.updated_at, now)
+}
+
 /// 非收录 url 槽位认领：命中既有 l2/l3/l4 返回其级别，
 /// 否则写入首个空槽；全满则沿用当前合法级别。不写 l1_url。
 /// M2=落盘已确认
@@ -488,6 +510,90 @@ pub fn seal_cycle_selection(
 /// 旧缓存文件保留不删（配额 LRU 按 mtime 淘汰）；`sync_detail_icon("")` 由调用方保证（见 cycle 命令层）。
 pub fn seal_empty_selection(cycle: &mut AppIconCycle) {
     seal_cycle_selection(cycle, 5, "", String::new());
+}
+
+/// pinned 行备选槽补齐（02 详情刷新只补槽）：仅当探测 level 对应的 lN 槽为空时写入；
+/// level/selected_url/cache_file/updated_at/pinned 一律不动。槽映射与详情落库一致
+///（2=L2品牌库，3=L3仓库，4=L4 README；L1官方槽不由探测回填）。
+pub fn fill_probe_slot(cycle: &mut AppIconCycle, level: i32, url_trimmed: &str) {
+    let u = url_trimmed.trim();
+    if u.is_empty() {
+        return;
+    }
+    match level {
+        2 => {
+            if cycle.l2_url.trim().is_empty() {
+                cycle.l2_url = u.to_string();
+            }
+        }
+        3 => {
+            if cycle.l3_url.trim().is_empty() {
+                cycle.l3_url = u.to_string();
+            }
+        }
+        4 => {
+            if cycle.l4_url.trim().is_empty() {
+                cycle.l4_url = u.to_string();
+            }
+        }
+        _ => {}
+    }
+}
+
+/// 详情刷新图标合并（02 pinned 保护，SSOT，调用方为详情落库）：
+/// - pinned 行（用户已手动选择档位）：保持 level/selected_url/cache_file/updated_at，
+///   仅把本次最强探测命中的备选 Logo 补进对应 lN 空槽；返回 true，调用方须把应用详情
+///   `icon` 对齐 `selected_url`（L5 pinned 对齐为 `""`，保持徽章态）。
+/// - 未 pinned 行：按最强探测收编（level/selected_url/对应槽/updated_at 推进，
+///   pinned 保持 false）；返回 false，调用方保持探测 icon。
+/// level 纯 L（2=L2品牌库，3=L3仓库，4=L4 README）；空 URL 直接返回 false，不建行语义由调用方保持。
+pub fn merge_detail_icon(
+    cycle: &mut AppIconCycle,
+    level: i32,
+    url_trimmed: &str,
+    is_cataloged: bool,
+    now: i64,
+) -> bool {
+    cycle.is_cataloged = is_cataloged;
+    if cycle.pinned {
+        fill_probe_slot(cycle, level, url_trimmed);
+        return true;
+    }
+    let u = url_trimmed.trim();
+    if u.is_empty() {
+        return false;
+    }
+    // 未 pinned：与原详情落库同语义——level/selected_url/updated_at 推进，
+    // 对应槽位无条件采用本次最强探测（pinned 保持 false）。
+    cycle.level = level;
+    if level == 3 {
+        cycle.l3_url = u.to_string();
+    } else if level == 4 {
+        cycle.l4_url = u.to_string();
+    } else if level == 2 {
+        cycle.l2_url = u.to_string();
+    }
+    cycle.selected_url = u.to_string();
+    cycle.updated_at = now;
+    false
+}
+
+/// 探测命中合并后缓存文件认领（05 槽满不錯配选中图）：仅当行选中图即本次命中真地址时
+/// 才认领新文件名，否则保持原 `(selected_url, cache_file)` 配对，避免选中图与槽位/文件分叉。
+/// 空文件名永不认领。返回 true=已认领，false=保持原配对。
+pub fn adopt_probe_cache_file(
+    cycle: &mut AppIconCycle,
+    key_url_trimmed: &str,
+    filename: String,
+) -> bool {
+    if filename.trim().is_empty() {
+        return false;
+    }
+    if cycle.selected_url.trim() == key_url_trimmed.trim() {
+        cycle.cache_file = filename;
+        return true;
+    }
+    false
 }
 
 /// icon_cache_meta 读侧 TTL 感知记录（图标通道 ETag 禁用后的 DB 有效性唯一依据）：
