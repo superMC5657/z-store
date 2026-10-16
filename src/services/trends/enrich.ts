@@ -589,7 +589,7 @@ const RICH_VERSION_PLACEHOLDERS = new Set(['latest', '...']);
  *   显式保留，见 richcard.test.ts）；
  * - 唯一有意差异：空串前端返回 false（调用方 `b !== ''` 分支已先处理空；后端视空为占位）。
  *   空在三处消费点均先被过滤，行为同形（同上测试锁定）。
- * 展示兜底只留在渲染侧（TrendsView displayApp 的 no_desc 逻辑）。
+ * 展示侧：空或占位显示 trends.no_desc，中英任一有效即显示（见 AppCard）。
  */
 const RICH_DESCRIPTION_PLACEHOLDERS: readonly string[] = [
   'GitHub 社区开源项目',

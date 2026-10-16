@@ -4,6 +4,7 @@ import type { AppSummary } from '../../types';
 import * as apiModule from '../../services/api';
 import { rankFeed, resolveHero, sliceFeed, type FeedStrategy } from '../../services/feed';
 import { getAppDescription, getCategoryLabel } from '../../utils/appHelper';
+import { isPlaceholderDescription } from '../../services/trends/enrich';
 
 export type HomeFeedPage = {
   items: AppSummary[];
@@ -146,7 +147,17 @@ export function useHomeFeed({
     [apps, isSearching],
   );
   const heroDisplayName = heroApp ? heroApp.name : '';
-  const heroDisplayDesc = heroApp ? getAppDescription(heroApp, i18n.language) : '';
+  // 空或占位显示 trends.no_desc，中英任一有效即显示。
+  const heroDisplayDesc = (() => {
+    if (!heroApp) return '';
+    const langDesc = getAppDescription(heroApp, i18n.language);
+    const isValid = (v: unknown): v is string =>
+      typeof v === 'string' && v.trim() !== '' && !isPlaceholderDescription(v);
+    if (isValid(langDesc)) return langDesc;
+    if (isValid(heroApp.description_en)) return heroApp.description_en;
+    if (isValid(heroApp.description)) return heroApp.description;
+    return t('trends.no_desc');
+  })();
   const heroCategoryName = heroApp ? getCategoryLabel(heroApp.category, heroApp.category_name, t) : '';
 
   const nonHeroApps = useMemo(

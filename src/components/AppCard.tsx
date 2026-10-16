@@ -8,7 +8,7 @@ import { VerifiedBadge } from './VerifiedBadge';
 import { PlatformIcon, ForgeIcon } from './icons/PlatformIcons';
 import { PLATFORM_META, type PlatformId } from '../lib/platformFilter';
 import { getAppDescription, getCategoryLabel, isAppCataloged } from '../utils/appHelper';
-import { formatStars } from '../services/trends/enrich';
+import { formatStars, isPlaceholderDescription } from '../services/trends/enrich';
 
 interface AppCardProps {
   app: AppSummary;
@@ -159,7 +159,17 @@ export const AppCard: React.FC<AppCardProps> = memo(({
   const showDetected = !showUnknown && detectedOnly && !managed;
   const [isManaging, setIsManaging] = useState(false);
   const displayName = app.name;
-  const displayDesc = getAppDescription(app, i18n.language);
+  // 空或占位显示 trends.no_desc，中英任一有效即显示。
+  const langDesc = getAppDescription(app, i18n.language);
+  const isValidDesc = (v: unknown): v is string =>
+    typeof v === 'string' && v.trim() !== '' && !isPlaceholderDescription(v);
+  const displayDesc = isValidDesc(langDesc)
+    ? langDesc
+    : isValidDesc(app.description_en)
+      ? app.description_en
+      : isValidDesc(app.description)
+        ? app.description
+        : t('trends.no_desc');
   const displayCategory = getCategoryLabel(app.category, app.category_name, t);
   // 平台徽标三态：有平台展示 OS 图标；已确认 other 展示 Other 徽标；
   // 加载中（summary 为空且详情未落定）不展示 Other，改以同尺寸占位避免布局跳动。

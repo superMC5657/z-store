@@ -682,11 +682,6 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
             // Lane C fix：取标注后镜像（is_cataloged 显式=false，未命中 catalog），显式优先于 category 兜底。
             const enriched = annotatedEnrichedApps[item.repo.id.toLowerCase()];
             if (enriched) {
-              const hasDesc =
-                enriched.description?.trim() || enriched.description_en?.trim();
-              const displayApp = hasDesc
-                ? enriched
-                : { ...enriched, description: t('trends.no_desc') };
               const hasPlatforms = !!enriched.platforms && enriched.platforms.length > 0;
               const repoKey = item.repo.id.toLowerCase();
               // 未收录行 loading 口径与过滤判定同源（统一接口）。
@@ -695,19 +690,19 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
               return (
                 <AppCard
                   key={`uncataloged-${item.repo.id || item.repo.name}-${index}`}
-                  app={displayApp}
+                  app={enriched}
                   platformLoading={enrichedLoading}
                   className="fluent-list-row"
                   eager={index < 6}
                   trendGain={item.gain}
                   trendGainText={gainTextFor(item.gain)}
                   // 未收录 enrich 行安装态走真实 union 检查（归一 ID），禁止回退硬编码 false。
-                  isInstalled={selectIsInstalledUnion(displayApp.id, installedIds)}
-                  isManaged={selectIsManagedOpt(displayApp.id, managedIds)}
-                  isDetectedOnly={selectIsDetectedOnlyOpt(displayApp.id, installedIds, managedIds)}
+                  isInstalled={selectIsInstalledUnion(enriched.id, installedIds)}
+                  isManaged={selectIsManagedOpt(enriched.id, managedIds)}
+                  isDetectedOnly={selectIsDetectedOnlyOpt(enriched.id, installedIds, managedIds)}
                   isInstalling={false}
-                  isFavorite={favoriteIds?.has(normalizeId(displayApp.id)) ?? false}
-                  isWatched={watchedIds?.has(normalizeId(displayApp.id)) ?? false}
+                  isFavorite={favoriteIds?.has(normalizeId(enriched.id)) ?? false}
+                  isWatched={watchedIds?.has(normalizeId(enriched.id)) ?? false}
                   onOpenDetail={onOpenDetail}
                   onManageApp={onManageApp}
                   onToggleFavorite={onToggleFavorite}
@@ -718,8 +713,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                     }
                   }}
                   onMoveInApp={handleTrendMoveIn}
-                  isMovingIn={trendMovingIds.has(normalizeId(displayApp.id))}
-                  isCustomExisting={customIds?.has(normalizeId(displayApp.id)) ?? false}
+                  isMovingIn={trendMovingIds.has(normalizeId(enriched.id))}
+                  isCustomExisting={customIds?.has(normalizeId(enriched.id)) ?? false}
                 />
               );
             }
