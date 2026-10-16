@@ -1,5 +1,5 @@
 /* components-list-row.css · Linear Design System List Rows */
-/* Linear 标准行列表规范（精选列表 / 趋势榜单 / 已安装列表 / 应用更新） */
+/* Linear 标准行列表规范（精选 / 趋势 / 已安装 / 更新）：行 4px 12px / 间距 10px / 最小高 36px，列表 gap 4px */
 .fluent-list-container,
 .installed-list-container {
   display: flex;
@@ -16,19 +16,19 @@
   background: var(--bg-acrylic-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg) !important;
-  padding: 6px 12px !important;
+  padding: var(--list-row-padding) !important;
   display: flex !important;
   flex-direction: row !important;
   align-items: center !important;
   justify-content: space-between !important;
-  gap: 12px !important;
+  gap: var(--list-row-gap) !important;
   box-shadow: var(--shadow-rest);
   transition: background 0.12s cubic-bezier(0.16, 1, 0.3, 1),
               border-color 0.12s cubic-bezier(0.16, 1, 0.3, 1),
               box-shadow 0.12s cubic-bezier(0.16, 1, 0.3, 1);
   position: relative;
   box-sizing: border-box;
-  min-height: 40px;
+  min-height: var(--list-row-min-height);
   width: 100%;
   min-width: 0;
   align-self: stretch;
@@ -47,7 +47,7 @@
   flex-direction: row !important;
   align-items: center !important;
   justify-content: space-between !important;
-  gap: 12px !important;
+  gap: var(--list-row-gap) !important;
   width: 100% !important;
 }
 

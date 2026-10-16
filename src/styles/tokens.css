@@ -111,6 +111,15 @@
   /* 景深模糊 */
   --acrylic-blur-modal: 16px;
 
+  /* 列表行密度（行距统一基线：各列表行共用，保证视觉像素一致） */
+  --list-row-padding: 4px 12px;
+  --list-row-gap: 10px;
+  --list-row-min-height: 36px;
+  --list-row-header-width: 232px;
+  --list-row-header-width-md: 172px;
+  --list-row-header-gap: 8px;
+  --list-row-footer-gap: 6px;
+
   /* 全局字体缩放体系 */
   --font-scale: 1;
   --font-xs: calc(11px * var(--font-scale));

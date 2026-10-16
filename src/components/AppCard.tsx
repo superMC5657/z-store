@@ -215,7 +215,7 @@ export const AppCard: React.FC<AppCardProps> = memo(({
           </div>
         </div>
 
-        {onToggleWatch && (
+        {onToggleWatch ? (
           <button
             className={`btn-fav-card ${isWatched ? 'active' : ''}`}
             onClick={(e) => {
@@ -231,8 +231,10 @@ export const AppCard: React.FC<AppCardProps> = memo(({
               <circle cx="12" cy="12" r="3" />
             </svg>
           </button>
+        ) : (
+          <span className="btn-fav-card btn-fav-placeholder" aria-hidden="true" />
         )}
-        {onToggleFavorite && (
+        {onToggleFavorite ? (
           <button
             className={`btn-fav-card ${isFavorite ? 'active' : ''}`}
             onClick={(e) => {
@@ -246,6 +248,8 @@ export const AppCard: React.FC<AppCardProps> = memo(({
               <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
             </svg>
           </button>
+        ) : (
+          <span className="btn-fav-card btn-fav-placeholder" aria-hidden="true" />
         )}
       </div>
 
