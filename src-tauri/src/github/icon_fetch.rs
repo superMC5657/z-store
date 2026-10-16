@@ -1,15 +1,16 @@
 //! 统一图标补探深核（后端 probe 唯一深模块，只做探测与调度，永不触 DB/fs）。
 //!
-//! - 探测与调度核：`fetch_icons_stream(jobs, token, cfg, emit)`，
-//!   其中 `jobs=[{id,owner,repo,ctx}]`，`ctx=Search{search_id,gen} | Trend{board,gen}`。
+//! - 探测与调度核：`fetch_icons_stream(jobs, token, cfg, emit, should_stop)`，
+//!   其中 `jobs=[{id,owner,repo,ctx}]`，`ctx=Search{search_id,gen} | Trend{board,gen}`；
+//!   `should_stop` 为调用方世代闭包（过期开探前即止，协作取消）。
 //! - 行为：并发池 `cfg.pool`（默认 5，与趋势 `buffered(5)` 对齐，D6，ADR-0015）；
 //!   快路径 SimpleIcons / 慢路径 Trees 超时经
 //!   `network.api_timeout_seconds` 统一配置，未设置回退 1500ms/12s 缺省；
 //!   快路径外层兜底 `api_timeout_or(8000ms)`、慢路径仅探 `default_branch`、
 //!   整批 `cfg.total_timeout_secs`（默认 15s）按页伸缩（经缝内纯函数
 //!   `scaled_total_timeout`）；
-//!   世代防串（`SEARCH_GEN` 落库前 + emit 前双检查）由调用方 `emit` 回调
-//!   （`catalog_search::save_and_emit`）负责，core 只做探测与调度，不触 DB。
+//!   世代防串由调用方 `emit` 回调（`catalog_search::save_and_emit`：合并时按新鲜度取全量/补槽 +
+//!   emit 前查 gen，`should_stop` 开探前协作取消）负责，core 只做探测与调度，不触 DB。
 //! - 单仓深核 `probe_single_live`（L2→L3）为流式与详情 cycle 共用的唯一探核：
 //!   `fetch_icons_stream` 逐 job 调它；`icons_cycle_probe::ensure_cycle_levels` 的
 //!   L2/L3 与 `fetch_anon_probe_bytes` 的匿名兜底亦经它（或其 L2/L3 拆分件）。
@@ -221,15 +222,19 @@ pub(crate) fn scaled_total_timeout(
 /// - `jobs`：待补探任务（含 `ctx`，世代防串由 `emit` 回调按 `ctx.gen` 执行）；空直接返回。
 /// - `token`：慢路径 Trees 鉴权；无 token 只走快路径。
 /// - `cfg`：`limits.icon_fetch`（`pool=5`，总量按页伸缩）。
-/// - `emit`：命中回调（落库 + 发事件 + 世代双检查均在回调内，core 不触 DB）。
+/// - `emit`：命中回调（落库 + 发事件 + 世代收敛均在回调内，core 不触 DB）。
 ///   签名 `(handle, job, url, level, via)`，`level`纯L 2/3 live；L4不经本core探测，
 ///   M2回填走via=m2由调用方直发不经core。
+/// - `should_stop`：协作取消（调用方按世代闭包传入，如搜索 `SEARCH_GEN != gen`）；
+///   每个 job 开探前查一次，过期直接返空不发网络；在飞探完仍走 `emit`
+///   （由回调内 `save_and_emit` 按 gen 收敛）；不用 abort，不动事务，core 不碰 DB。
 pub async fn fetch_icons_stream<F, Fut>(
     handle: AppHandle,
     jobs: Vec<IconFetchJob>,
     token: Option<String>,
     cfg: crate::config::IconFetchConfig,
     emit: F,
+    should_stop: Option<std::sync::Arc<dyn Fn() -> bool + Send + Sync>>,
 ) where
     F: Fn(AppHandle, IconFetchJob, String, i32, String) -> Fut + Clone + Send + 'static,
     Fut: std::future::Future<Output = ()> + Send,
@@ -258,6 +263,11 @@ pub async fn fetch_icons_stream<F, Fut>(
     let pool = cfg.pool.max(1);
     // 整批总量按 jobs 伸缩（纯决策收敛在缝内，pool 保持 5）：
     let jobs_len = jobs.len();
+    // 截断观测：记 lane/scope/量级（只加日志，不改截断语义）。
+    let scope_desc = jobs.first().map(|j| match &j.ctx {
+        IconFetchCtx::Search { search_id, gen } => format!("search sid={search_id} gen={gen}"),
+        IconFetchCtx::Trend { board, gen } => format!("trend board={board} gen={gen}"),
+    });
     let timeout_each = crate::config::api_timeout_or(
         std::time::Duration::from_secs(10),
     );
@@ -266,7 +276,13 @@ pub async fn fetch_icons_stream<F, Fut>(
         let client = client.clone();
         let slow_headers = slow_headers.clone();
         let emit = emit.clone();
+        let should_stop = should_stop.clone();
         async move {
+            // 协作取消：过期世代开探前即止，不发网络；
+            // 在飞探完仍走 emit（由 `save_and_emit` 按 gen 收敛：过期写库攒槽、只拦发送）。
+            if should_stop.as_ref().is_some_and(|stop| stop()) {
+                return;
+            }
             // 快慢分离深核单调：经 `probe_single_live`（L2→L3，快命中即返不等慢，
             // 慢仅快未命中且有 token 时跑）。超时/分支语义见该函数。
             if let Some((url, level)) =
@@ -280,7 +296,13 @@ pub async fn fetch_icons_stream<F, Fut>(
     .for_each(|()| async {});
     // 整批总超时：超时即降级结束（剩余任务直接丢弃，不炸不重试）。
     let total = scaled_total_timeout(jobs_len, pool, timeout_each, cfg.total_timeout_secs);
-    let _ = tokio::time::timeout(total, batch).await;
+    if tokio::time::timeout(total, batch).await.is_err() {
+        log::debug!(
+            "icon fetch truncated jobs={} scope={}",
+            jobs_len,
+            scope_desc.as_deref().unwrap_or("unknown"),
+        );
+    }
 }
 
 #[cfg(test)]

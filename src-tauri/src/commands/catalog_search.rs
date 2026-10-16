@@ -7,8 +7,9 @@ static SEARCH_GEN: AtomicU64 = AtomicU64::new(0);
 
 /// 趋势流式世代：`enrich_trend_repos` 每次调用 +1（切榜/重拉/分片重拉均+1，
 /// 类比 `SEARCH_GEN` 每次 `search_apps_online` +1）。
-/// 后台 `fetch_icons_stream(Trend{board,gen})` 的落库前 + emit 前双检查用，
-/// 用户切榜后旧榜在途探测结果直接抛弃（与搜索防串词同语义）。
+/// 后台 `fetch_icons_stream(Trend{board,gen})` 的世代防串用（合并时按新鲜度取全量/补槽 +
+/// emit 前查 gen，过期写库攒槽、过期 return 只拦发送），
+/// 用户切榜后旧榜在途探测结果直接抛弃发送（与搜索防串词同语义）。
 static BOARD_GEN: AtomicU64 = AtomicU64::new(0);
 
 /// 流式世代分配：每次调用恰好 +1。唯一调用点为 `enrich_trend_repos`。
@@ -39,12 +40,12 @@ fn select_gen_lane(
 }
 
 /// 图标命中落库 + 前端 emit 唯一实现（读旧行合并后 `upsert_icon_cycle` + 单发新事件，搜索/趋势同源）。
-/// level纯L：经 `merge_detail_icon` 按来源入槽（`level=2`进 `l2_url`，`level=3`进 `l3_url`），
-/// 已有槽位合并保留，02 pinned 行只补槽不改选中；via=live|m2，远端探测走live，DB落盘回填走m2。
+/// level纯L：经 `merge_stream_hit` 按来源入槽（`level=2`进 `l2_url`，`level=3`进 `l3_url`），
+/// 新鲜命中全量合并，过期命中仅补空槽不降级；02 pinned 行只补槽不改选中；via=live|m2，远端探测走live，DB落盘回填走m2。
 /// - 只发统一 `zstore://icon-ready{id,icon,level,via,context}`（`context` 原样透传 `job.ctx`，
 ///   载荷经 core `icon_fetch::icon_ready_payload` 构建）；
-/// - 世代比对防串：落库前 + emit 前双检查 `select_gen_lane(ctx)`（搜索查 SEARCH_GEN，
-///   趋势查 BOARD_GEN；切榜/重搜抛弃过时在途结果，同语义）；
+/// - 世代防串：合并时按新鲜度取全量/补槽 + emit 前查 `select_gen_lane(ctx)`（搜索查 SEARCH_GEN，
+///   趋势查 BOARD_GEN；过期写库攒槽，过期 return 只拦发送；切榜/重搜抛弃过时在途结果，同语义）；
 /// - 单条显式事务边界（单语句隐式事务显式化，仍 1 提交，emit 不延迟）；
 ///   失败 `ROLLBACK` 返回 Err，内部吞错下次补探重试。
 async fn save_and_emit(
@@ -55,13 +56,11 @@ async fn save_and_emit(
     via: &str,
 ) {
     let (gen_counter, expected_gen) = select_gen_lane(&job.ctx);
-    if gen_counter.load(Ordering::SeqCst) != expected_gen {
-        return;
-    }
     let state = handle.state::<AppState>();
     if let Ok(db) = state.db() {
         // 05 多槽合并：先读旧行再合并（M6），保留已有槽位与 02 pinned 选择；
-        // 未 pinned 行按本次命中收编，pinned 行仅补对应空槽，不改选中图。
+        // 新鲜命中按本次命中收编，过期命中仅补对应空槽不降级（P0 守卫，见 `merge_stream_hit`）；
+        // pinned 行仅补对应空槽，不改选中图。
         let mut cycle = db
             .get_icon_cycle(&job.id)
             .ok()
@@ -73,15 +72,27 @@ async fn save_and_emit(
             });
         let keep_cataloged = cycle.is_cataloged;
         let old_selected = cycle.selected_url.clone();
-        let was_pinned = crate::db::icon_cycle::merge_detail_icon(
+        let current_gen_value = gen_counter.load(Ordering::SeqCst);
+        let fresh = current_gen_value == expected_gen;
+        if !fresh {
+            log::debug!(
+                "icon stale store id={} level={} expected_gen={} current_gen={}",
+                job.id,
+                level,
+                expected_gen,
+                current_gen_value
+            );
+        }
+        let was_pinned = merge_stream_hit(
             &mut cycle,
             level,
             url,
             keep_cataloged,
             crate::now_secs(),
+            fresh,
         );
         // 05 悬空配对修复：未 pinned 且选中变化时旧 cache_file 失效（等真地址下载认领）；
-        // pinned 行不动（merge 已保持 selected/cache 配对）。
+        // pinned 行不动（merge 已保持 selected/cache 配对）；过期补槽不改选中，此处恒为假。
         if !was_pinned && cycle.selected_url != old_selected {
             cycle.cache_file = String::new();
         }
@@ -90,7 +101,15 @@ async fn save_and_emit(
             Ok(())
         });
     }
-    if gen_counter.load(Ordering::SeqCst) != expected_gen {
+    // emit 前查 gen：过期只拦发送，不拦上面的入库（过期写库攒槽）。
+    let current_emit_gen = gen_counter.load(Ordering::SeqCst);
+    if current_emit_gen != expected_gen {
+        log::debug!(
+            "icon emit suppressed id={} expected_gen={} current_gen={}",
+            job.id,
+            expected_gen,
+            current_emit_gen
+        );
         return;
     }
     // 单发：新统一事件（载荷 schema 归 core 所有，见 `github::icon_fetch`）。
@@ -98,8 +117,28 @@ async fn save_and_emit(
     crate::github::icon_fetch::emit_icon_ready(handle, &ready);
 }
 
+/// 流式命中合并（P0 不降级守卫，纯函数可单测）：新鲜 gen 沿用 `merge_detail_icon` 全量合并；
+/// 过期 gen 仅补对应空槽（`fill_probe_slot`），不动 level/selected/cache/updated_at；
+/// pinned 行两者一致（merge 内已是补槽语义，返回 true）。
+fn merge_stream_hit(
+    cycle: &mut crate::db::AppIconCycle,
+    level: i32,
+    url: &str,
+    keep_cataloged: bool,
+    now: i64,
+    fresh: bool,
+) -> bool {
+    if fresh {
+        crate::db::icon_cycle::merge_detail_icon(cycle, level, url, keep_cataloged, now)
+    } else {
+        // 过期分支只补空槽：`keep_cataloged` 即行内原值（调用方传入 `cycle.is_cataloged`），无需回写。
+        crate::db::icon_cycle::fill_probe_slot(cycle, level, url);
+        cycle.pinned
+    }
+}
+
 /// `github::icon_fetch::fetch_icons_stream` 的命中回调（搜索/趋势同一口）。
-/// 世代防串由 `save_and_emit` 内落库前 + emit 前双检查执行（计数器经 `ctx` 选择）。
+/// 世代防串由 `save_and_emit` 内合并新鲜度 + emit 前检查执行（计数器经 `ctx` 选择）。
 /// `via`=live|m2 透传（core探测一律live，M2回填走m2不占level）。
 async fn emit_icon_job(
     handle: AppHandle,
@@ -492,8 +531,12 @@ pub async fn search_apps_online(
             })
             .collect();
         let cfg = crate::config::get_project_config().limits.icon_fetch;
+        // 协作取消：重搜后旧世代 job 开探前即止（在飞探完仍走 emit，由 save_and_emit 收敛）。
+        let stop_gen = current_gen;
+        let should_stop: std::sync::Arc<dyn Fn() -> bool + Send + Sync> =
+            std::sync::Arc::new(move || SEARCH_GEN.load(Ordering::SeqCst) != stop_gen);
         tokio::spawn(crate::github::icon_fetch::fetch_icons_stream(
-            handle, jobs, bg_token, cfg, emit_icon_job,
+            handle, jobs, bg_token, cfg, emit_icon_job, Some(should_stop),
         ));
     }
 
@@ -593,9 +636,9 @@ async fn fetch_enrich_batch(
 ///   确认图标仍经 `pre_confirmed` 短锁回填，platforms 经详情缓存 join 照旧），
 ///   另起 `tokio::spawn(fetch_icons_stream(ctx=Trend{board,board_gen}))` 流式
 ///   `emit_icon_ready` 逐张到达补齐（弱网首屏先出裸行/初始富卡，图标逐个补齐，
-///   空永不覆盖实由前端 `iconStore.applyHit` + 后端 `BOARD_GEN` 双检查保证）；
+///   空永不覆盖实由前端 `iconStore.applyHit` + 后端合并新鲜度与 emit 前查保证）；
 /// - 世代：每次调用 `BOARD_GEN+1`（切榜/重拉/分片重拉均+1，类比 `SEARCH_GEN`），
-///   落库前 + emit 前双检查（见唯一 `save_and_emit`，计数器经 `ctx` 选择）。
+///   落库/emit 世代防串见唯一 `save_and_emit`（合并新鲜度 + emit 前查 gen，计数器经 `ctx` 选择）。
 #[tauri::command]
 pub async fn enrich_trend_repos(
     app_handle: AppHandle,
@@ -666,12 +709,17 @@ pub async fn enrich_trend_repos(
     if !jobs.is_empty() {
         let handle = app_handle.clone();
         let bg_token = token.clone();
+        // 协作取消：切榜/重拉后旧世代 job 开探前即止（在飞探完仍走 emit，由 save_and_emit 收敛）。
+        let stop_gen = current_gen;
+        let should_stop: std::sync::Arc<dyn Fn() -> bool + Send + Sync> =
+            std::sync::Arc::new(move || BOARD_GEN.load(Ordering::SeqCst) != stop_gen);
         tokio::spawn(crate::github::icon_fetch::fetch_icons_stream(
             handle,
             jobs,
             bg_token,
             cfg_icon,
             emit_icon_job,
+            Some(should_stop),
         ));
     }
 
@@ -765,7 +813,7 @@ mod tests {
     #[test]
     fn select_gen_lane_selects_counter_by_ctx() {
         // 同一 emit 口：Search 查 SEARCH_GEN，Trend 查 BOARD_GEN；期望 gen 原样回显。
-        // 删除 `save_and_emit_trend` 后趋势落库/emit 前双检查仍查 BOARD_GEN（行为一致）。
+        // 趋势落库/emit 世代收敛仍查 BOARD_GEN（合并新鲜度 + emit 前查 gen，行为一致）。
         let search = crate::github::icon_fetch::IconFetchCtx::Search {
             search_id: "s1".to_string(),
             gen: 7,
@@ -808,5 +856,72 @@ mod tests {
         assert_eq!(v["context"]["kind"], "trend");
         assert_eq!(v["context"]["board"], "weekly");
         assert_eq!(v["context"]["gen"], 3);
+    }
+
+    fn stream_cycle(selected_level: i32, selected_url: &str, pinned: bool) -> crate::db::AppIconCycle {
+        let mut c = crate::db::AppIconCycle::new("o/r", "o", "r");
+        c.is_cataloged = false;
+        c.level = selected_level;
+        c.l2_url = "https://cdn.simpleicons.org/r".to_string();
+        c.selected_url = selected_url.to_string();
+        c.cache_file = "r.png".to_string();
+        c.updated_at = 1000;
+        c.pinned = pinned;
+        c
+    }
+
+    #[test]
+    fn stale_stream_hit_fills_slot_without_moving_selection() {
+        // P0 不降级守卫：过期 L3 只补 l3 空槽（过期写库），level/selected/cache/updated_at 不动。
+        let l3 = "https://raw.githubusercontent.com/o/r/main/icon.png";
+        let mut c = stream_cycle(2, "https://cdn.simpleicons.org/r", false);
+        let was_pinned = super::merge_stream_hit(&mut c, 3, l3, false, 2000, false);
+        assert!(!was_pinned);
+        assert_eq!(c.l3_url, l3);
+        assert_eq!(c.level, 2);
+        assert_eq!(c.selected_url, "https://cdn.simpleicons.org/r");
+        assert_eq!(c.cache_file, "r.png");
+        assert_eq!(c.updated_at, 1000);
+    }
+
+    #[test]
+    fn fresh_stream_hit_merges_fully_like_merge_detail_icon() {
+        // 新鲜命中沿用全量合并：L3 收编选中（与 `merge_detail_icon` 同语义）。
+        let l3 = "https://raw.githubusercontent.com/o/r/main/icon.png";
+        let mut c = stream_cycle(2, "https://cdn.simpleicons.org/r", false);
+        let was_pinned = super::merge_stream_hit(&mut c, 3, l3, false, 2000, true);
+        assert!(!was_pinned);
+        assert_eq!(c.level, 3);
+        assert_eq!(c.l3_url, l3);
+        assert_eq!(c.selected_url, l3);
+        assert_eq!(c.updated_at, 2000);
+    }
+
+    #[test]
+    fn stale_stream_hit_on_pinned_only_fills_slot() {
+        // pinned 行新旧一致：过期 L4 只补槽，不改选中（返回 true）。
+        let l4 = "https://raw.githubusercontent.com/o/r/main/logo.png";
+        let mut c = stream_cycle(2, "https://cdn.simpleicons.org/r", true);
+        let was_pinned = super::merge_stream_hit(&mut c, 4, l4, false, 2000, false);
+        assert!(was_pinned);
+        assert_eq!(c.l4_url, l4);
+        assert_eq!(c.level, 2);
+        assert_eq!(c.selected_url, "https://cdn.simpleicons.org/r");
+        assert_eq!(c.updated_at, 1000);
+    }
+
+    #[test]
+    fn stale_stream_hit_on_pinned_l5_keeps_badge() {
+        // pinned L5（用户手动选空徽章）：过期命中只补槽，level=5 与双空选中态保持（锁徽章态）。
+        let l4 = "https://raw.githubusercontent.com/o/r/main/logo.png";
+        let mut c = crate::db::AppIconCycle::new("o/r", "o", "r");
+        crate::db::icon_cycle::seal_empty_selection(&mut c);
+        c.pinned = true;
+        let was_pinned = super::merge_stream_hit(&mut c, 4, l4, false, 2000, false);
+        assert!(was_pinned);
+        assert_eq!(c.level, 5);
+        assert!(c.selected_url.is_empty());
+        assert!(c.cache_file.is_empty());
+        assert_eq!(c.l4_url, l4);
     }
 }
