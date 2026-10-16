@@ -220,16 +220,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   // P3-3 信任阻尼：切换至非默认（自定义）收录源将替换受信任的目录，
   // 属于敏感破坏性操作，必须经过二次显式确认。保存为空值（即恢复官方默认源流）立即生效。
-  const pendingCatalogUrl = catalogSourceUrl.trim();
+  const stagedCatalogUrl = catalogSourceUrl.trim();
   const isCustomCatalogSourceChange =
-    pendingCatalogUrl.length > 0 && pendingCatalogUrl !== (settings.catalog_source_url || '').trim();
+    stagedCatalogUrl.length > 0 && stagedCatalogUrl !== (settings.catalog_source_url || '').trim();
 
   const handleSaveCatalogSource = () => {
     if (isCustomCatalogSourceChange && !isCatalogSourceConfirming) {
       setIsCatalogSourceConfirming(true);
       return;
     }
-    onUpdateSetting('catalog_source_url', pendingCatalogUrl);
+    onUpdateSetting('catalog_source_url', stagedCatalogUrl);
     setIsCatalogSourceConfirming(false);
     setCatalogUrlSaved(true);
     triggerChangeFeedback('catalog_source', t('settings.catalog_sync_title'));

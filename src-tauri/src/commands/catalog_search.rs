@@ -167,14 +167,14 @@ pub(crate) fn hidden_rule_ids(state: &AppState) -> std::collections::HashSet<Str
 /// 未收录卡片回填：确认图标覆盖 → 待写 icon_cycle 构建 → 详情缓存 platforms join。
 /// level纯L，via正交：DB落盘命中为M2回填走via=m2不占level；远端只标L2/L3 live。
 /// level 经 `level_for_detail_icon` 判定入对应槽（2=品牌库，4=README 头部，3=仓库树），via正交：
-/// 返回 `Some(cycle)` 时由调用方收进 `pending` 批量落库；无事可写返回 `None`。
+/// 返回 `Some(cycle)` 时由调用方收进 `staged` 批量落库；无事可写返回 `None`。
 /// 纯同步无 `await`（调用方单临界区内复用 db 锁，批量 upsert 仍在调用点）。
 fn backfill_uncataloged_card(
     db: &crate::db::Database,
     item: &mut AppSummary,
     ttl_seconds: i64,
 ) -> Option<crate::db::AppIconCycle> {
-    let pending = if let Some(ci) =
+    let staged = if let Some(ci) =
         crate::github::http::resolve_confirmed_icon_from_db(db, &item.id, &item.owner, &item.repo)
     {
         item.icon = ci;
@@ -201,19 +201,19 @@ fn backfill_uncataloged_card(
             item.platforms = cached.platforms;
         }
     }
-    pending
+    staged
 }
 
 /// icon_cycle 待写批量落库（`search_apps_online` / `enrich_trend_repos` 双调用点收敛）：
 /// 事务边界：`BEGIN IMMEDIATE` → N 条 `upsert_icon_cycles_batch` → `COMMIT`；
 /// 失败整体 `ROLLBACK` 并回退逐条（保持 `let _ =` 吞错 + 下次重试语义）。
-/// 空 pending 直接跳过；纯同步无 `await`（调用方单临界区内复用 db 锁）。
-fn flush_icon_cycle_pending(db: &crate::db::Database, pending: &[crate::db::AppIconCycle]) {
-    if pending.is_empty() {
+/// 空 staged 直接跳过；纯同步无 `await`（调用方单临界区内复用 db 锁）。
+fn flush_icon_cycle_staged(db: &crate::db::Database, staged: &[crate::db::AppIconCycle]) {
+    if staged.is_empty() {
         return;
     }
-    if db.upsert_icon_cycles_batch(pending).is_err() {
-        for c in pending {
+    if db.upsert_icon_cycles_batch(staged).is_err() {
+        for c in staged {
             let _ = db.upsert_icon_cycle(c);
         }
     }
@@ -451,13 +451,13 @@ pub async fn search_apps_online(
     // 失败整体 `ROLLBACK` 并回退逐条（保持 `let _ =` 吞错 + 下次重试语义）。
     if let Ok(db) = state.db() {
         let ttl_seconds = db.get_detail_cache_ttl_minutes() * 60;
-        let mut pending: Vec<crate::db::AppIconCycle> = Vec::new();
+        let mut staged: Vec<crate::db::AppIconCycle> = Vec::new();
         for item in &mut results {
             if let Some(cycle) = backfill_uncataloged_card(&db, item, ttl_seconds) {
-                pending.push(cycle);
+                staged.push(cycle);
             }
         }
-        flush_icon_cycle_pending(&db, &pending);
+        flush_icon_cycle_staged(&db, &staged);
     }
 
     // 后台图标补探量随分页 `per_page` 伸缩：None=默认 20 条，其余为钳制后 1-50。
@@ -677,16 +677,16 @@ pub async fn enrich_trend_repos(
         fetch_enrich_batch(catalog, token.clone(), timeout_each, batch_jobs).await;
 
     // 循环外一次取 db 锁复用，读解析 + 写包事务化（与 search_apps_online 同一模式）。
-    // 快返壳图标为空，此处基本无 pending（确认图标已直接回填），platforms 经详情缓存 join 照旧。
+    // 快返壳图标为空，此处基本无 staged（确认图标已直接回填），platforms 经详情缓存 join 照旧。
     if let Ok(db) = state.db() {
         let ttl_seconds = db.get_detail_cache_ttl_minutes() * 60;
-        let mut pending: Vec<crate::db::AppIconCycle> = Vec::new();
+        let mut staged: Vec<crate::db::AppIconCycle> = Vec::new();
         for item in results.iter_mut().flatten() {
             if let Some(cycle) = backfill_uncataloged_card(&db, item, ttl_seconds) {
-                pending.push(cycle);
+                staged.push(cycle);
             }
         }
-        flush_icon_cycle_pending(&db, &pending);
+        flush_icon_cycle_staged(&db, &staged);
     }
 
     // 后台流式：无确认图标的仓全部入 `fetch_icons_stream(Trend)`，
@@ -766,8 +766,8 @@ mod tests {
 
     #[test]
     fn backfill_uncataloged_card_keeps_twin_loop_semantics() {
-        // 空图标无 pending 且保持原样 / L2品牌库 pending 构建 /
-        // 非品牌库远端只标 L3 live / DB 命中直接覆盖且无 pending（M2回填走via=m2不占level）。
+        // 空图标无 staged 且保持原样 / L2品牌库 staged 构建 /
+        // 非品牌库远端只标 L3 live / DB 命中直接覆盖且无 staged（M2回填走via=m2不占level）。
         let db = crate::db::Database::open_in_memory().unwrap();
         let mut empty = sample_summary("o/r", "o", "r", "");
         assert!(backfill_uncataloged_card(&db, &mut empty, 1800).is_none());
@@ -775,14 +775,14 @@ mod tests {
         assert!(empty.platforms.is_empty());
 
         let mut l2 = sample_summary("s/i", "s", "i", "https://cdn.simpleicons.org/i");
-        let c = backfill_uncataloged_card(&db, &mut l2, 1800).expect("l2 pending");
+        let c = backfill_uncataloged_card(&db, &mut l2, 1800).expect("l2 staged");
         assert_eq!(c.level, 2);
         assert_eq!(c.l2_url, "https://cdn.simpleicons.org/i");
         assert_eq!(c.selected_url, "https://cdn.simpleicons.org/i");
         assert_eq!(l2.icon, "https://cdn.simpleicons.org/i");
 
         let mut l3 = sample_summary("t/r", "t", "r", "https://raw.githubusercontent.com/t/r/main/icon.png");
-        let c3 = backfill_uncataloged_card(&db, &mut l3, 1800).expect("l3 pending");
+        let c3 = backfill_uncataloged_card(&db, &mut l3, 1800).expect("l3 staged");
         assert_eq!(c3.level, 3);
         assert_eq!(c3.l3_url, "https://raw.githubusercontent.com/t/r/main/icon.png");
         assert!(c3.l4_url.is_empty());

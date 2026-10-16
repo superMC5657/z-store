@@ -17,6 +17,8 @@ pub struct ProjectConfig {
     pub oauth: OauthConfig,
     #[serde(default)]
     pub catalog: CatalogConfig,
+    #[serde(default)]
+    pub license_gate: LicenseGateConfig,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -240,6 +242,271 @@ impl Default for CatalogConfig {
     }
 }
 
+/// D1 默认许可名单（ADR-0018）：与 `db::custom_apps` 历史 `OSI_ALLOWED_LICENSES`
+/// 同序同值；名单唯一源头，校验侧直接引用本常量，不再各自手写。
+pub const DEFAULT_LICENSE_ALLOWLIST: &[&str] = &[
+    "MIT",
+    "ISC",
+    "APACHE-2.0",
+    "APACHE-1.1",
+    "GPL-2.0",
+    "GPL-2.0-ONLY",
+    "GPL-2.0-OR-LATER",
+    "GPL-3.0",
+    "GPL-3.0-ONLY",
+    "GPL-3.0-OR-LATER",
+    "LGPL-2.0",
+    "LGPL-2.0-ONLY",
+    "LGPL-2.0-OR-LATER",
+    "LGPL-2.1",
+    "LGPL-2.1-ONLY",
+    "LGPL-2.1-OR-LATER",
+    "LGPL-3.0",
+    "LGPL-3.0-ONLY",
+    "LGPL-3.0-OR-LATER",
+    "AGPL-3.0",
+    "AGPL-3.0-ONLY",
+    "AGPL-3.0-OR-LATER",
+    "BSD-2-CLAUSE",
+    "BSD-3-CLAUSE",
+    "MPL-2.0",
+    "MPL-1.1",
+    "MPL-1.0",
+    "MS-PL",
+    "MS-RL",
+    "UNLICENSE",
+    "ZLIB",
+    "ARTISTIC-2.0",
+    "EPL-1.0",
+    "EPL-2.0",
+    "CDDL-1.0",
+    "OSL-3.0",
+    "AFL-3.0",
+];
+
+/// 嵌入配置门禁段的编译期扫描（`[license_gate]`）：`enabled=true`（缺键默认开）
+/// 且 `allowed=[...]` 存在但括号内无有效条目时返回 false，由下方 `const assert`
+/// 直接编译失败。有效条目指引号内含非空白字符，与运行时归一“空白串归一为空”口径等价；
+/// 缺段 / 缺 `allowed` 键视为 serde 默认全量名单，不判错。
+const fn embedded_gate_section_valid(config: &str) -> bool {
+    let bytes = config.as_bytes();
+    let len = bytes.len();
+    let header: &[u8] = b"[license_gate]";
+    let hlen = header.len();
+    let mut section_start: Option<usize> = None;
+    let mut i = 0;
+    while i + hlen <= len {
+        let mut k = 0;
+        while k < hlen && bytes[i + k] == header[k] {
+            k += 1;
+        }
+        if k == hlen {
+            section_start = Some(i + hlen);
+            break;
+        }
+        i += 1;
+    }
+    let start = match section_start {
+        Some(s) => s,
+        None => return true,
+    };
+    let mut end = len;
+    let mut j = start;
+    while j < len {
+        if bytes[j] == b'[' && (bytes[j - 1] == b'\n' || bytes[j - 1] == b'\r') {
+            end = j;
+            break;
+        }
+        j += 1;
+    }
+    let mut enabled = true;
+    if let Some(pos) = find_bytes(bytes, start, end, b"enabled") {
+        let mut p = pos + 7;
+        while p < end && bytes[p] != b'=' && bytes[p] != b'\n' {
+            p += 1;
+        }
+        if p < end && bytes[p] == b'=' {
+            p += 1;
+            while p < end && (bytes[p] == b' ' || bytes[p] == b'\t') {
+                p += 1;
+            }
+            if p + 5 <= end
+                && bytes[p] == b'f'
+                && bytes[p + 1] == b'a'
+                && bytes[p + 2] == b'l'
+                && bytes[p + 3] == b's'
+                && bytes[p + 4] == b'e'
+            {
+                enabled = false;
+            }
+        }
+    }
+    if !enabled {
+        return true;
+    }
+    let allowed_pos = match find_bytes(bytes, start, end, b"allowed") {
+        Some(p) => p,
+        None => return true,
+    };
+    let mut p = allowed_pos + 7;
+    while p < end && bytes[p] != b'=' && bytes[p] != b'\n' {
+        p += 1;
+    }
+    if p >= end || bytes[p] != b'=' {
+        return true;
+    }
+    p += 1;
+    while p < end && bytes[p] != b'[' && bytes[p] != b'\n' {
+        p += 1;
+    }
+    if p >= end || bytes[p] != b'[' {
+        return true;
+    }
+    p += 1;
+    let mut in_quote: Option<u8> = None;
+    let mut has_content = false;
+    let mut found = false;
+    while p < end {
+        let b = bytes[p];
+        match in_quote {
+            None => {
+                if b == b']' {
+                    break;
+                } else if b == b'"' || b == b'\'' {
+                    in_quote = Some(b);
+                    has_content = false;
+                }
+            }
+            Some(q) => {
+                if b == b'\\' {
+                    if p + 1 < end {
+                        has_content = true;
+                        p += 1;
+                    }
+                } else if b == q {
+                    if has_content {
+                        found = true;
+                    }
+                    in_quote = None;
+                } else if b != b' ' && b != b'\t' && b != b'\r' && b != b'\n' {
+                    has_content = true;
+                }
+            }
+        }
+        p += 1;
+    }
+    found
+}
+
+/// 字节子串定位（供上方 `const` 扫描使用）。
+const fn find_bytes(hay: &[u8], start: usize, end: usize, needle: &[u8]) -> Option<usize> {
+    let nlen = needle.len();
+    if nlen == 0 {
+        return Some(start);
+    }
+    let mut i = start;
+    while i + nlen <= end {
+        let mut k = 0;
+        while k < nlen && hay[i + k] == needle[k] {
+            k += 1;
+        }
+        if k == nlen {
+            return Some(i);
+        }
+        i += 1;
+    }
+    None
+}
+
+const _: () = assert!(
+    embedded_gate_section_valid(EMBEDDED_CONFIG),
+    "license_gate.allowed 为空/非法，请填OSI名单或显式 enabled=false"
+);
+
+/// 归一口径与 `db::custom_apps::normalize_license` 一致：
+/// 去空白 → 大写 → 空格/下划线折 `-` → 尾 `+` 视为或后续版本。
+/// 校验侧只用它判空（有效条目即归一后非空），名单命中比对仍走校验侧。
+fn normalize_license_token(raw: &str) -> String {
+    let mut s = raw
+        .trim()
+        .to_ascii_uppercase()
+        .replace([' ', '_'], "-");
+    if s.ends_with('+') {
+        s.pop();
+        if !s.ends_with("-OR-LATER") {
+            s.push_str("-OR-LATER");
+        }
+    }
+    s
+}
+
+/// 嵌入门禁运行时复核：`enabled=true` 且 `allowed` 为空或归一后无有效条目时
+/// 返回固定文案错误，由 `ProjectConfig::default` 直接 panic，不回退基线。
+fn validate_embedded_license_gate(gate: &LicenseGateConfig) -> Result<(), String> {
+    if !gate.enabled {
+        return Ok(());
+    }
+    let has_valid = gate
+        .allowed
+        .iter()
+        .any(|a| !normalize_license_token(a).is_empty());
+    if has_valid {
+        Ok(())
+    } else {
+        Err("license_gate.allowed 为空/非法，请填OSI名单或显式 enabled=false".to_string())
+    }
+}
+
+/// 外部配置合并：其余项取外部文件值，`license_gate` 两字段恒为编译时嵌入值；
+/// 外部不一致直接忽略并记 WARN，行为以编译时为准。
+fn apply_compiled_license_gate(
+    mut external: ProjectConfig,
+    compiled: &ProjectConfig,
+) -> ProjectConfig {
+    if external.license_gate.enabled != compiled.license_gate.enabled
+        || external.license_gate.allowed != compiled.license_gate.allowed
+    {
+        log::warn!(
+            "license_gate 运行时覆盖已忽略，以编译时嵌入值为准 (external enabled={} allowed_len={})",
+            external.license_gate.enabled,
+            external.license_gate.allowed.len()
+        );
+    }
+    external.license_gate = compiled.license_gate.clone();
+    external
+}
+
+/// 开源协议门禁（`[license_gate]`，ADR-0018）：默认开 + OSI 全量名单（D1 严格不变）；
+/// 关闭仅放行本地草稿提交（可审计 WARN），不改变官方生态仓口径。
+/// 门禁唯一源为编译时 config（行为由 `config.toml` 在编译发行时确定，无运行时覆盖）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LicenseGateConfig {
+    #[serde(default = "default_license_gate_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_license_gate_allowed")]
+    pub allowed: Vec<String>,
+}
+
+fn default_license_gate_enabled() -> bool {
+    true
+}
+
+fn default_license_gate_allowed() -> Vec<String> {
+    DEFAULT_LICENSE_ALLOWLIST
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+
+impl Default for LicenseGateConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_license_gate_enabled(),
+            allowed: default_license_gate_allowed(),
+        }
+    }
+}
+
 impl CatalogConfig {
     /// 解析 catalog.json 的真实有效路径：唯一依据 `config.toml [catalog] local_path`。
     /// 配置路径存在即返回；不存在即返回 None，由调用方回退编译期内置清单。
@@ -274,14 +541,19 @@ impl CatalogConfig {
 
 impl Default for ProjectConfig {
     fn default() -> Self {
-        toml::from_str(EMBEDDED_CONFIG).unwrap_or_else(|_| Self {
+        let cfg: Self = toml::from_str(EMBEDDED_CONFIG).unwrap_or_else(|_| Self {
             runtime: RuntimeConfig::default(),
             cache: CacheConfig::default(),
             network: NetworkConfig::default(),
             limits: LimitsConfig::default(),
             oauth: OauthConfig::default(),
             catalog: CatalogConfig::default(),
-        })
+            license_gate: LicenseGateConfig::default(),
+        });
+        if let Err(msg) = validate_embedded_license_gate(&cfg.license_gate) {
+            panic!("{}", msg);
+        }
+        cfg
     }
 }
 
@@ -289,6 +561,7 @@ static GLOBAL_CONFIG: OnceLock<ProjectConfig> = OnceLock::new();
 
 pub fn get_project_config() -> &'static ProjectConfig {
     GLOBAL_CONFIG.get_or_init(|| {
+        let compiled = ProjectConfig::default();
         let external_candidates = [
             std::path::PathBuf::from("config.toml"),
             std::path::PathBuf::from("src-tauri/config.toml"),
@@ -302,13 +575,13 @@ pub fn get_project_config() -> &'static ProjectConfig {
             if path.is_file() {
                 if let Ok(content) = std::fs::read_to_string(path) {
                     if let Ok(parsed) = toml::from_str::<ProjectConfig>(&content) {
-                        return parsed;
+                        return apply_compiled_license_gate(parsed, &compiled);
                     }
                 }
             }
         }
 
-        ProjectConfig::default()
+        compiled
     })
 }
 
@@ -403,5 +676,108 @@ mod tests {
         let conf: ProjectConfig =
             toml::from_str("[cache]\ndetail_ttl_minutes = 60").expect("payload must parse");
         assert_eq!(conf.runtime.strict_errors, cfg!(debug_assertions));
+    }
+
+    #[test]
+    fn license_gate_defaults_to_d1_strict() {
+        // 默认严格：开关开 + 名单与 D1 全量同序同值。
+        let conf = ProjectConfig::default();
+        assert!(conf.license_gate.enabled);
+        assert_eq!(conf.license_gate.allowed.len(), 37);
+        assert_eq!(conf.license_gate.allowed.first().map(String::as_str), Some("MIT"));
+        assert_eq!(
+            conf.license_gate.allowed.last().map(String::as_str),
+            Some("AFL-3.0")
+        );
+        assert!(conf.license_gate.allowed.contains(&"GPL-3.0".to_string()));
+    }
+
+    #[test]
+    fn license_gate_parses_explicit_disable_and_subset() {
+        let conf: ProjectConfig = toml::from_str(
+            "[license_gate]\nenabled = false\nallowed = [\"MIT\", \"GPL-3.0\"]",
+        )
+        .expect("license_gate payload must parse");
+        assert!(!conf.license_gate.enabled);
+        assert_eq!(conf.license_gate.allowed, vec!["MIT".to_string(), "GPL-3.0".to_string()]);
+    }
+
+    #[test]
+    fn license_gate_missing_section_falls_back_to_default() {
+        let conf: ProjectConfig =
+            toml::from_str("[cache]\ndetail_ttl_minutes = 60").expect("payload must parse");
+        assert!(conf.license_gate.enabled);
+        assert_eq!(conf.license_gate.allowed.len(), 37);
+    }
+
+    #[test]
+    fn license_gate_empty_or_blank_allowed_fails_validation() {
+        // 空名单 / 全空白条目（归一后无有效条目）直接报错，不回退基线。
+        let err_msg = "license_gate.allowed 为空/非法，请填OSI名单或显式 enabled=false";
+        let gate = LicenseGateConfig {
+            enabled: true,
+            allowed: vec![],
+        };
+        assert_eq!(
+            validate_embedded_license_gate(&gate).unwrap_err(),
+            err_msg
+        );
+        let gate = LicenseGateConfig {
+            enabled: true,
+            allowed: vec!["  ".to_string(), String::new()],
+        };
+        assert_eq!(
+            validate_embedded_license_gate(&gate).unwrap_err(),
+            err_msg
+        );
+        // 大小写 / 空格形态经归一仍算有效条目。
+        let gate = LicenseGateConfig {
+            enabled: true,
+            allowed: vec![" mit ".to_string()],
+        };
+        assert!(validate_embedded_license_gate(&gate).is_ok());
+        // 关闭语义不变：空名单也放行。
+        let gate = LicenseGateConfig {
+            enabled: false,
+            allowed: vec![],
+        };
+        assert!(validate_embedded_license_gate(&gate).is_ok());
+    }
+
+    #[test]
+    fn embedded_gate_section_scanner_matches_runtime_check() {
+        // 当前嵌入配置必须通过编译期扫描（与顶部 const assert 同口径）。
+        assert!(embedded_gate_section_valid(EMBEDDED_CONFIG));
+        // 开 + 空 / 全空白 → 非法。
+        assert!(!embedded_gate_section_valid(
+            "[license_gate]\nenabled = true\nallowed = []"
+        ));
+        assert!(!embedded_gate_section_valid(
+            "[license_gate]\nenabled = true\nallowed = [\"  \", \"\"]"
+        ));
+        // 关 → 放行；缺段 / 缺键 → serde 默认全量，不判错。
+        assert!(embedded_gate_section_valid(
+            "[license_gate]\nenabled = false\nallowed = []"
+        ));
+        assert!(embedded_gate_section_valid("[cache]\ndetail_ttl_minutes = 60"));
+        assert!(embedded_gate_section_valid("[license_gate]\nenabled = true"));
+        assert!(embedded_gate_section_valid(
+            "[license_gate]\nenabled = true\nallowed = [\"mit \"]"
+        ));
+    }
+
+    #[test]
+    fn external_license_gate_override_is_ignored() {
+        // 外部文件的门禁两字段被编译时嵌入值覆盖，其余项保留外部值。
+        let compiled = ProjectConfig::default();
+        let external: ProjectConfig = toml::from_str(
+            "[cache]\ndetail_ttl_minutes = 5\n[license_gate]\nenabled = false\nallowed = []",
+        )
+        .expect("payload must parse");
+        assert_eq!(external.cache.detail_ttl_minutes, 5);
+        let merged = apply_compiled_license_gate(external, &compiled);
+        assert_eq!(merged.cache.detail_ttl_minutes, 5);
+        assert!(merged.license_gate.enabled);
+        assert_eq!(merged.license_gate.allowed.len(), 37);
     }
 }

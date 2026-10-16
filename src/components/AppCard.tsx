@@ -1,6 +1,7 @@
 import React, { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
+import { Inbox } from 'lucide-react';
 import { AppSummary } from '../types';
 import { AppIcon } from './AppIcon';
 import { VerifiedBadge } from './VerifiedBadge';
@@ -48,6 +49,16 @@ interface AppCardProps {
   onManageApp?: (id: string) => void | Promise<void>;
   onToggleFavorite?: (id: string) => void;
   onToggleWatch?: (id: string) => void;
+  /**
+   * 移入收录入口（富卡内部操作区，与安装/详情同排）：
+   * 仅当未收录 external 行（`!isAppCataloged(app)`，沿用展示层唯一口径）且
+   * 非 custom 草稿行、且 `isCustomExisting` 为假时渲染；缺席即不渲染，其它页面零变化。
+   */
+  onMoveInApp?: (app: AppSummary) => void;
+  /** 移入进行中（该卡入口禁用态，防重复提交）。 */
+  isMovingIn?: boolean;
+  /** custom 草稿已存在（`selectMergedCatalogApps` 会命中 custom 行）——抑制入口防误点。 */
+  isCustomExisting?: boolean;
 }
 
 /** 趋势名次配色：冠军金 / 亚军银 / 季军铜，其余为次级文本色。入参为 0-based index。 */
@@ -70,6 +81,8 @@ function arePlatformsEqual(a?: string[], b?: string[]): boolean {
 
 function isAppVisualEqual(prev: AppSummary, next: AppSummary): boolean {
   if (prev === next) return true;
+  const prevSource = (prev as { source?: unknown }).source;
+  const nextSource = (next as { source?: unknown }).source;
   return (
     prev.id === next.id &&
     prev.icon === next.icon &&
@@ -89,6 +102,7 @@ function isAppVisualEqual(prev: AppSummary, next: AppSummary): boolean {
     prev.forge === next.forge &&
     prev.forge_host === next.forge_host &&
     prev.homepage === next.homepage &&
+    prevSource === nextSource &&
     arePlatformsEqual(prev.platforms, next.platforms)
   );
 }
@@ -114,11 +128,14 @@ function areAppCardPropsEqual(prev: AppCardProps, next: AppCardProps): boolean {
     prev.className === next.className &&
     (prev.eager ?? false) === (next.eager ?? false) &&
     (prev.showCatalogBadge ?? false) === (next.showCatalogBadge ?? false) &&
+    (prev.isMovingIn ?? false) === (next.isMovingIn ?? false) &&
+    (prev.isCustomExisting ?? false) === (next.isCustomExisting ?? false) &&
     prev.onOpenDetail === next.onOpenDetail &&
     prev.onQuickInstall === next.onQuickInstall &&
     prev.onManageApp === next.onManageApp &&
     prev.onToggleFavorite === next.onToggleFavorite &&
-    prev.onToggleWatch === next.onToggleWatch
+    prev.onToggleWatch === next.onToggleWatch &&
+    prev.onMoveInApp === next.onMoveInApp
   );
 }
 
@@ -143,6 +160,9 @@ export const AppCard: React.FC<AppCardProps> = memo(({
   onManageApp,
   onToggleFavorite,
   onToggleWatch,
+  onMoveInApp,
+  isMovingIn = false,
+  isCustomExisting = false,
 }) => {
   const { t, i18n } = useTranslation();
   // P0 已纳管 vs 仅检测到：managed 绿已安装，detected 灰检测到·点击纳管。
@@ -158,17 +178,27 @@ export const AppCard: React.FC<AppCardProps> = memo(({
   const displayDesc = getAppDescription(app, i18n.language);
   const displayCategory = getCategoryLabel(app.category, app.category_name, t);
   // 平台徽标三态：有平台展示 OS 图标；已确认 other 展示 Other 徽标；
-  // 待确认（summary 为空且详情未落定）不展示 Other，改以同尺寸占位避免布局跳动。
+  // 加载中（summary 为空且详情未落定）不展示 Other，改以同尺寸占位避免布局跳动。
   const hasPlatforms = !!app.platforms && app.platforms.length > 0;
-  const showPendingPlaceholder = !hasPlatforms && platformPending;
-  const showOther = !hasPlatforms && !platformPending;
-  // 主按钮降级：平台为空（pending 待确认或已确认 Other）且未安装时，
+  const showLoadingPlaceholder = !hasPlatforms && platformLoading;
+  const showOther = !hasPlatforms && !platformLoading;
+  // 主按钮降级：平台为空（loading 加载中或已确认 Other）且未安装时，
   // 不承诺安装——统一为次级“查看详情”直开详情（避免安装后 toast 失败）。
   // 已安装行保持原样（已安装徽标直开详情）。
   const showDetailOnly = !isInstalled && !hasPlatforms;
   const detailLabel = t('app.view_details');
   const otherLabel = t('nav.platforms_other');
   const supportedDevicesLabel = t('app.supported_devices', { defaultValue: '支持设备' });
+  // Lane C 自维护角标：source=custom 即本地草稿 overlay 行；category external 原样保留，
+  // 判定仅看 source，不改 isAppCataloged 口径。
+  const isCustomRow = (app as { source?: unknown }).source === 'custom';
+  const customBadgeLabel = t('app.custom_badge', { defaultValue: '自维护' });
+  // 移入收录入口门控：仅未收录 external 行（isAppCataloged 唯一口径）生效；
+  // 已收录 / 已转正（远端行）/ custom 草稿行 / custom 已存在一律不渲染，避免误点。
+  const showMoveIn = Boolean(onMoveInApp) && !isAppCataloged(app) && !isCustomRow && !isCustomExisting;
+  const moveInLabel = isMovingIn
+    ? t('custom.moving_in', { defaultValue: '移入中…' })
+    : t('custom.move_in', { defaultValue: '移入收录' });
 
   return (
     <div
@@ -272,14 +302,28 @@ export const AppCard: React.FC<AppCardProps> = memo(({
                 <span>{t('app.uncataloged_badge')}</span>
               </span>
             ))}
+          {isCustomRow && (
+            <span
+              className="app-tag app-tag-custom"
+              title={customBadgeLabel}
+              aria-label={customBadgeLabel}
+              style={{
+                border: '1px dashed var(--border-nav-active)',
+                color: 'var(--brand-primary)',
+                fontWeight: 600,
+              }}
+            >
+              <span>{customBadgeLabel}</span>
+            </span>
+          )}
           {typeof trendGain === 'number' && trendGain > 0 && trendGainText && (
             <span className="app-tag trend-gain" title={trendGainText}>
               {trendGainText}
             </span>
           )}
-          {showPendingPlaceholder ? (
+          {showLoadingPlaceholder ? (
             <span
-              className="app-tag app-tag-platforms app-tag-platforms-pending"
+              className="app-tag app-tag-platforms app-tag-platforms-loading"
               title={supportedDevicesLabel}
               aria-label={supportedDevicesLabel}
               style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 6px', cursor: 'default', opacity: 0.55, minWidth: '52px', justifyContent: 'center' }}
@@ -327,6 +371,25 @@ export const AppCard: React.FC<AppCardProps> = memo(({
           )}
         </div>
 
+        {showMoveIn && (
+          <button
+            type="button"
+            data-testid={`move-in-${app.id}`}
+            className="btn-fluent btn-secondary"
+            disabled={isMovingIn}
+            onClick={(e) => {
+              e.stopPropagation();
+              onMoveInApp?.(app);
+            }}
+            onKeyDown={(e) => e.stopPropagation()}
+            title={t('custom.move_in_hint', { defaultValue: '存为本地自维护草稿，编辑页可手改' })}
+            aria-label={moveInLabel}
+            style={{ padding: '6px 10px', fontSize: 'var(--font-xs)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+          >
+            <Inbox size={12} strokeWidth={1.5} aria-hidden="true" />
+            <span>{moveInLabel}</span>
+          </button>
+        )}
         <button
           className={`btn-install ${showManaged ? 'btn-installed' : ''}`}
           data-badge={showUnknown ? 'unknown' : showManaged ? 'managed' : showDetected ? 'detected' : 'none'}

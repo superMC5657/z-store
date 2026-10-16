@@ -261,6 +261,60 @@ impl CatalogService {
         items.iter().map(|item| item.to_summary()).collect()
     }
 
+    /// Lane A overlay 合并（ADR-0017）：未归档 custom 条目叠加到内存目录视图。
+    /// - 远端优先去重：远端 id 已存在时 custom 同 id 条目丢弃，不覆盖；
+    /// - `is_cataloged` 恒 true（视图内即视为已收录），来源经 `source` 区分
+    ///  （`remote` / `custom`），调用方按需展示“自维护”角标；
+    /// - 纯合并视图，不写回内存 `items`（吸入远端以上游同步为准，转正由退役标记处理）。
+    pub fn merge_catalog_overlay_view(
+        remote: &[CatalogItem],
+        custom: &[CatalogItem],
+    ) -> Vec<MergedCatalogEntry> {
+        let mut seen = std::collections::HashSet::new();
+        let mut out = Vec::with_capacity(remote.len() + custom.len());
+        for item in remote {
+            seen.insert(item.id.clone());
+            out.push(MergedCatalogEntry {
+                summary: item.to_summary(),
+                source: CatalogEntrySource::Remote.as_str().to_string(),
+                is_cataloged: true,
+            });
+        }
+        for item in custom {
+            if seen.insert(item.id.clone()) {
+                out.push(MergedCatalogEntry {
+                    summary: item.to_summary(),
+                    source: CatalogEntrySource::Custom.as_str().to_string(),
+                    is_cataloged: true,
+                });
+            }
+        }
+        out
+    }
+
+    /// 内存目录 + 未归档 custom 的合并条目（远端优先，custom 补位）。
+    pub fn merged_items_with_overlay(&self, custom: Vec<CatalogItem>) -> Vec<CatalogItem> {
+        let remote = self.get_catalog_items();
+        let mut seen: std::collections::HashSet<String> =
+            remote.iter().map(|i| i.id.clone()).collect();
+        let mut out = remote;
+        for item in custom {
+            if seen.insert(item.id.clone()) {
+                out.push(item);
+            }
+        }
+        out
+    }
+
+    /// 当前内存目录的合并视图（含调用方传入的未归档 custom）。
+    pub fn merged_summaries_with_overlay(
+        &self,
+        custom: Vec<CatalogItem>,
+    ) -> Vec<MergedCatalogEntry> {
+        let remote = self.get_catalog_items();
+        Self::merge_catalog_overlay_view(&remote, &custom)
+    }
+
     pub fn search_apps(&self, query: &str) -> Vec<AppSummary> {
         let q = query.trim().to_lowercase();
         if q.is_empty() {
@@ -400,6 +454,33 @@ impl CatalogService {
     }
 }
 
+/// 合并视图条目来源：远端精选收录 vs 本地自维护草稿（ADR-0017）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CatalogEntrySource {
+    Remote,
+    Custom,
+}
+
+impl CatalogEntrySource {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Remote => "remote",
+            Self::Custom => "custom",
+        }
+    }
+}
+
+/// 合并目录视图行：`AppSummary` 扁平展开 + 来源标记。
+/// `is_cataloged` 恒 true（视图内即视为已收录）；custom 行由 `source=custom` 区分，
+/// 前端按需展示“自维护”角标（Lane A 仅后端，视图接线为后续 Lane）。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MergedCatalogEntry {
+    #[serde(flatten)]
+    pub summary: AppSummary,
+    pub source: String,
+    pub is_cataloged: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -516,5 +597,34 @@ mod tests {
         assert!(!is_default_catalog_source(
             "file:///tmp/custom-catalog.json"
         ));
+    }
+
+    /// ADR-0017：overlay 合并远端优先去重（同 id 取远端行，custom 仅补位；来源标记可分）。
+    #[test]
+    fn test_merge_catalog_overlay_remote_first() {
+        let remote = vec![item("o/dup", "o", "dup"), item("o/remote", "o", "remote")];
+        let mut dup_custom = item("o/dup", "o", "dup");
+        dup_custom.name = "Custom Shadow".to_string();
+        let custom = vec![dup_custom, item("o/local", "o", "local")];
+
+        let view = CatalogService::merge_catalog_overlay_view(&remote, &custom);
+        assert_eq!(view.len(), 3);
+        // 同 id 取远端行（custom 影子被丢弃）。
+        let dup = view.iter().find(|e| e.summary.id == "o/dup").unwrap();
+        assert_eq!(dup.summary.name, "Test App");
+        assert_eq!(dup.source, "remote");
+        assert!(dup.is_cataloged);
+        // custom 补位行标记来源。
+        let local = view.iter().find(|e| e.summary.id == "o/local").unwrap();
+        assert_eq!(local.source, "custom");
+        assert!(local.is_cataloged);
+        // 顺序：远端在前，custom 补位在后。
+        assert_eq!(view[0].summary.id, "o/dup");
+        assert_eq!(view[2].summary.id, "o/local");
+
+        let svc = test_service(remote);
+        let merged = svc.merged_items_with_overlay(custom);
+        assert_eq!(merged.len(), 3);
+        assert_eq!(merged[0].name, "Test App");
     }
 }

@@ -224,7 +224,7 @@ export async function getDbTrendCache(key: string, board?: string): Promise<Tren
       }
 
       // enrich 逐项守卫：id/owner/repo 非空即保留（无 token 时慢探不跑，enrich 常无图标，
-      // 重启直展要求 pending 允许 icon 空）；仅禁 dataURI；platforms 仅要求为数组。
+      // 重启直展要求 loading 允许 icon 空）；仅禁 dataURI；platforms 仅要求为数组。
       // pending 进内存与否由 hydrate 侧按确认集裁决（已确认 pending 进，未确认丢弃）。
       const guardedEnrich: Record<string, AppSummary> = {};
       if (envelope.enrich && typeof envelope.enrich === 'object') {

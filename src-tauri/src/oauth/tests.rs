@@ -129,8 +129,9 @@ fn test_parse_import_payload_merge_rules() {
 
 #[test]
 fn test_backup_settings_full_round_trip() {
-    // P1-8：导出 → JSON → 导入往返：除 github_token 外的全部 12 项设置无损通过，
+    // P1-8：导出 → JSON → 导入往返：除 github_token 外的全部设置无损通过，
     // 混合 JSON 类型（字符串/数值/布尔）统一转字符串；version 保持为 1。
+    // Lane C：show_custom/showCustom 开关随备份往返（默认开）。
     let json = r#"{
         "version": 1,
         "favorites": ["rustdesk/rustdesk"],
@@ -148,6 +149,8 @@ fn test_backup_settings_full_round_trip() {
             "detail_cache_ttl_minutes": 60,
             "catalog_source_url": "https://example.com/catalog.json",
             "watch_notify_frequency": "startup",
+            "show_custom": "true",
+            "showCustom": "true",
             "github_token": "gho_should-never-leak"
         }
     }"#;

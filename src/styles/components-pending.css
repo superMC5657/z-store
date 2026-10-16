@@ -1,0 +1,71 @@
+/* components-pending.css · 待收录页布局：窄宽防横向溢出（只管布局，不管字段/校验/提交）。
+ *
+ * 根因：`input-fluent` 全局无宽度定义（原生控件 intrinsic 最小宽顶出网格），
+ * 两栏/双列 grid 无收缩无堆叠。修复口径：
+ * - 网格列一律 `minmax(..., ...)` + 子项 `min-width: 0`，窄宽可收缩；
+ * - 表单行一律单列纵向堆叠（label 在上、输入框在下占满宽），无多列网格；
+ * - 控件 `width: 100% + min-width: 0`；长文本正常换行不断裂；
+ * - 左右分栏中小宽度上下堆叠；容器 `overflow-x: hidden` 兜底，页内无横向裁切。
+ */
+.pending-view {
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+/* 左右分栏：宽屏列表 + 编辑区并排；中小宽度上下堆叠。 */
+.pending-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+.pending-layout > * {
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .pending-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* 表单字段：一律纵向单列、每字段独占一整行（label 在上、输入框在下占满宽）。
+ * 上一版多列网格在实机窄宽下被挤成细列、标签逐字竖排，故分组容器已拆除、
+ * label 直属编辑区卡片逐个堆叠，此处不再保留任何行容器规则。 */
+
+/* 表单控件：占满整行宽、可收缩；多行框只许纵向拉伸，杜绝横向顶出。 */
+.pending-view .input-fluent {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.pending-view textarea.input-fluent {
+  resize: vertical;
+}
+
+/* 编辑区卡片与长 id 标题：不顶宽，超长省略 + title 悬浮看全。
+ * 注意：卡片同时挂了全局 .app-card（display:flex row 行式卡），此处必须显式
+ * 覆盖为纵向，否则 18 个字段会被摆成横行（实机复现过）。用 .pending-view
+ * 前缀提权，不依赖样式表引入顺序。 */
+.pending-view .pending-editor-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.pending-editor-title {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

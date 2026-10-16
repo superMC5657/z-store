@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TitleBar } from './components/TitleBar';
 // ResizeHandles is only loaded in Tauri desktop environment; in test/web environments
 // it is skipped to avoid evaluating Tauri internals or failing on mock contracts.
@@ -15,6 +15,7 @@ import { RulesManagerModal } from './components/RulesManagerModal';
 import { HomeView } from './views/HomeView';
 import { TrendsView } from './views/TrendsView';
 import { CategoriesView } from './views/CategoriesView';
+import { PendingView, type CustomDraftEntry, type PendingDraftItem } from './views/PendingView';
 import { InstalledView } from './views/InstalledView';
 import { UpdatesView } from './views/UpdatesView';
 import { SettingsView } from './views/SettingsView';
@@ -23,14 +24,15 @@ import { EmptyState } from './components/EmptyState';
 import { Search } from 'lucide-react';
 import { AppDetailViewModel, AppSummary, OAuthUser, UpdateItem, UpdateCheckProgressPayload, UpdateRule, ViewType, WatchUpdatedPayload } from './types';
 import { tauriApi } from './services/api';
+import type { CustomAppEntry as BackendCustomAppEntry, CustomCatalogItem } from './services/api/catalog';
 import { togglePlatformSet, type PlatformId } from './lib/platformFilter';
-import { isPlatformPending } from './lib/platformFilter';
+import { isPlatformLoading } from './lib/platformFilter';
+import { normalizeId } from './services/normalizeId';
 import { patchAppIconList, subscribeIconWrites } from './services/iconStore';
 import { patchSearchListCacheIcon } from './services/search/searchListCache';
 
 import {
   PLATFORM_FILTER_STORAGE_KEY,
-  parseSelectedPlatforms,
   loadSelectedPlatforms,
 } from './app/platformStorage';
 import { InstallConfirmDialog } from './app/InstallConfirmDialog';
@@ -48,6 +50,70 @@ import { useToasts } from './useToasts';
 import { useAppSettings } from './useAppSettings';
 import { useTranslation } from 'react-i18next';
 import './i18n';
+
+/** Lane D：后端 CustomAppEntry → PendingView 展示态（status 归一 draft/submitted）。 */
+function toPendingViewEntry(e: BackendCustomAppEntry): CustomDraftEntry {
+  const it = e.item;
+  return {
+    id: e.id,
+    item: {
+      id: it.id,
+      name: it.name ?? '',
+      owner: it.owner ?? '',
+      repo: it.repo ?? '',
+      icon: it.icon ?? '',
+      icon_bg: it.icon_bg ?? '',
+      description: it.description ?? '',
+      description_en: typeof it.description_en === 'string' ? it.description_en : '',
+      category: it.category ?? '',
+      category_name: it.category_name ?? '',
+      aliases: it.aliases ?? [],
+      default_version: it.default_version ?? 'v0.1.0',
+      license: it.license ?? '',
+      homepage: it.homepage ?? '',
+      identifiers: it.identifiers ?? {},
+      install_dirs: it.install_dirs ?? [],
+      search_subdirs: it.search_subdirs ?? [],
+      publishers: it.publishers ?? [],
+      platforms: it.platforms ?? [],
+    },
+    status: e.status === 'submitted' ? 'submitted' : 'draft',
+    pr_url: e.pr_url ?? null,
+    archived: e.archived,
+    updated_at: e.updated_at,
+  };
+}
+
+/**
+ * Lane D：PendingView 表单 → 后端 payload（stars/forks 沿用现行值，
+ * is_verified 后端强制 false；description_en/homepage 空串归 null）。
+ */
+function toCustomCatalogItem(draft: PendingDraftItem, existing?: BackendCustomAppEntry): CustomCatalogItem {
+  return {
+    id: draft.id,
+    name: draft.name,
+    owner: draft.owner,
+    repo: draft.repo,
+    icon: draft.icon,
+    icon_bg: draft.icon_bg,
+    description: draft.description,
+    description_en: draft.description_en.trim() ? draft.description_en : null,
+    category: draft.category,
+    category_name: draft.category_name,
+    aliases: draft.aliases,
+    default_version: draft.default_version,
+    license: draft.license,
+    stars: existing?.item.stars ?? 0,
+    forks: existing?.item.forks ?? 0,
+    is_verified: false,
+    homepage: draft.homepage.trim() ? draft.homepage : null,
+    identifiers: draft.identifiers,
+    install_dirs: draft.install_dirs,
+    search_subdirs: draft.search_subdirs,
+    publishers: draft.publishers,
+    platforms: draft.platforms,
+  };
+}
 
 export const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewType>('home');
@@ -75,6 +141,9 @@ export const App: React.FC = () => {
   // FR-6.2 关注（Watch）
   const [watchedIds, setWatchedIds] = useState<Set<string>>(new Set());
   const [watchNotifications, setWatchNotifications] = useState<WatchUpdatedPayload[]>([]);
+  // Lane D 一键 PR 链路：待收录草稿后端列表（null = 未加载/非 Tauri 预览，
+  // 此时 PendingView 缺 entries 走内部本地态；备份/转正语义不受影响）。
+  const [customApps, setCustomApps] = useState<BackendCustomAppEntry[] | null>(null);
   // 任务 3（设备平台全局过滤）：App 级别多选平台状态，默认选中全部 6 种 PLATFORM_IDS（含虚拟 other），
   // 仅持久化至 localStorage——刻意不接入 tauriApi.getSettings()/UserDataBackup（仅为本地界面偏好，非备份数据）。
   const [selectedPlatforms, setSelectedPlatforms] = useState<Set<PlatformId>>(() => loadSelectedPlatforms());
@@ -91,6 +160,78 @@ export const App: React.FC = () => {
   // 应用内通知（FR-6.2 关注提醒 / FR-4.4 自更新 / FR-7 OAuth / FR-6.3 导入导出经此通道呈现）
   const { toasts, showToast, handleDismissToast } = useToasts();
   const { t } = useTranslation();
+
+  // Lane D 一键 PR 链路：待收录草稿透传（list/save/delete/markSubmitted 经 tauriApi）。
+  const reloadCustomApps = useCallback(async () => {
+    try {
+      setCustomApps(await tauriApi.listCustomApps(true));
+    } catch {
+      // 非 Tauri 预览/后端未就绪：保持 null，PendingView 走内部本地态
+      setCustomApps(null);
+    }
+  }, []);
+
+  // 进待收录页时拉取 + 跨视图变更跟随（移入收录/备份导入后刷新）。
+  useEffect(() => {
+    if (currentView !== 'pending') return;
+    void reloadCustomApps();
+    const onChanged = () => {
+      void reloadCustomApps();
+    };
+    window.addEventListener('zstore:custom-apps-changed', onChanged);
+    return () => {
+      window.removeEventListener('zstore:custom-apps-changed', onChanged);
+    };
+  }, [currentView, reloadCustomApps]);
+
+  const pendingEntries = useMemo(
+    () => customApps?.map(toPendingViewEntry),
+    [customApps],
+  );
+  const pendingCount = useMemo(
+    () => customApps?.filter((e) => !e.archived).length ?? 0,
+    [customApps],
+  );
+
+  // 移入收录入口抑制集：后端 customApps 全量 id + 本地乐观移入 id（归一小写），
+  // 即 `selectMergedCatalogApps` 会命中 custom 行的 id 集合；富卡内部入口据此隐藏已存在项。
+  // customApps 懒加载（进待收录页才拉），乐观集保证移入当刻即隐藏，不依赖后端往返。
+  const [movedInIds, setMovedInIds] = useState<Set<string>>(() => new Set<string>());
+  useEffect(() => {
+    const onMoved = (e: Event) => {
+      const id = (e as CustomEvent<{ id?: unknown }>).detail?.id;
+      const key = normalizeId(id);
+      if (!key) return;
+      setMovedInIds((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
+    };
+    window.addEventListener('zstore:custom-apps-changed', onMoved);
+    return () => {
+      window.removeEventListener('zstore:custom-apps-changed', onMoved);
+    };
+  }, []);
+  const customIds = useMemo(() => {
+    const out = new Set<string>(movedInIds);
+    for (const e of customApps ?? []) {
+      const key = normalizeId(e.id);
+      if (key) out.add(key);
+    }
+    return out;
+  }, [customApps, movedInIds]);
+
+  const handleSaveCustomApp = async (draft: PendingDraftItem) => {
+    await tauriApi.saveCustomApp(
+      toCustomCatalogItem(draft, customApps?.find((e) => e.id === draft.id)),
+    );
+    await reloadCustomApps();
+  };
+  const handleDeleteCustomApp = async (id: string) => {
+    await tauriApi.deleteCustomApp(id);
+    await reloadCustomApps();
+  };
+  const handleMarkCustomSubmitted = async (id: string, prUrl: string) => {
+    await tauriApi.markCustomSubmitted(id, prUrl);
+    await reloadCustomApps();
+  };
 
   // 1. 安装管理 Hook
   const {
@@ -187,8 +328,8 @@ export const App: React.FC = () => {
 
   // 深链调度分发器（功能 E）
   const {
-    pendingDeepLinkInstall,
-    setPendingDeepLinkInstall,
+    stagedDeepLinkInstall,
+    setStagedDeepLinkInstall,
   } = useDeepLink({
     handleOpenDetail,
     handleSearchChange,
@@ -279,9 +420,9 @@ export const App: React.FC = () => {
     installedIds,
     managedIds,
     managedLoaded,
-    pendingDeepLinkDetail,
-    pendingDeepLinkSummary,
-    pendingDeepLinkSha256,
+    stagedDeepLinkDetail,
+    stagedDeepLinkSummary,
+    stagedDeepLinkSha256,
   } = useAppSelectors({
     apps,
     onlineApps,
@@ -295,7 +436,7 @@ export const App: React.FC = () => {
     selectedApp,
     recentlyViewedApps,
     currentView,
-    pendingDeepLinkInstall,
+    stagedDeepLinkInstall,
   });
 
   // 7. 更新规则动作簇（单项更新/忽略/跳过/锁定/隐藏/规则管理/批量升级/手动检查）
@@ -492,6 +633,7 @@ export const App: React.FC = () => {
           onTogglePlatform={handleTogglePlatform}
           onResetPlatforms={handleResetPlatformFilter}
           platformCounts={sidebarPlatformCounts}
+          pendingCount={pendingCount}
         />
 
         {/* 主内容显示区域 */}
@@ -558,6 +700,7 @@ export const App: React.FC = () => {
                 onlineHasMore={onlineHasMore}
                 isLoadingOnlineMore={isLoadingOnlineMore}
                 onOnlineLoadMore={handleOnlineLoadMore}
+                customIds={customIds}
               />
             )
           )}
@@ -578,6 +721,7 @@ export const App: React.FC = () => {
               onManageApp={handleManageApp}
               onToggleFavorite={handleToggleFavorite}
               onResetPlatformFilter={handleResetPlatformFilter}
+              customIds={customIds}
             />
           )}
 
@@ -596,6 +740,18 @@ export const App: React.FC = () => {
               onToggleFavorite={handleToggleFavorite}
               onToggleWatch={handleToggleWatch}
               onResetPlatformFilter={handleResetPlatformFilter}
+            />
+          )}
+
+          {currentView === 'pending' && (
+            <PendingView
+              entries={pendingEntries}
+              onSave={(draft) => handleSaveCustomApp(draft)}
+              onDelete={(id) => handleDeleteCustomApp(id)}
+              onMarkSubmitted={(id, prUrl) => handleMarkCustomSubmitted(id, prUrl)}
+              onGetPrUrl={(id) => tauriApi.getCustomAppPrUrl(id)}
+              onGetBatchPrUrl={(ids) => tauriApi.getCustomAppsBatchPrUrl(ids)}
+              onNotify={(message, type) => showToast(message, type ?? 'info')}
             />
           )}
 
@@ -675,24 +831,24 @@ export const App: React.FC = () => {
       </div>
 
       {/* 深度链接安装确认弹窗（显式用户授权门禁） */}
-      {pendingDeepLinkInstall !== null && (
+      {stagedDeepLinkInstall !== null && (
         <InstallConfirmDialog
           intro="外部链接请求安装以下应用，请确认后再继续："
-          appName={pendingDeepLinkDetail?.name ?? pendingDeepLinkSummary?.name ?? pendingDeepLinkInstall}
-          repoLine={pendingDeepLinkDetail
-            ? `${pendingDeepLinkDetail.owner}/${pendingDeepLinkDetail.repo}`
-            : pendingDeepLinkSummary
-              ? `${pendingDeepLinkSummary.owner}/${pendingDeepLinkSummary.repo}`
-              : pendingDeepLinkInstall}
-          source={pendingDeepLinkDetail?.forge_host ?? pendingDeepLinkSummary?.forge_host ?? '未知来源'}
-          sha256={pendingDeepLinkSha256}
+          appName={stagedDeepLinkDetail?.name ?? stagedDeepLinkSummary?.name ?? stagedDeepLinkInstall}
+          repoLine={stagedDeepLinkDetail
+            ? `${stagedDeepLinkDetail.owner}/${stagedDeepLinkDetail.repo}`
+            : stagedDeepLinkSummary
+              ? `${stagedDeepLinkSummary.owner}/${stagedDeepLinkSummary.repo}`
+              : stagedDeepLinkInstall}
+          source={stagedDeepLinkDetail?.forge_host ?? stagedDeepLinkSummary?.forge_host ?? '未知来源'}
+          sha256={stagedDeepLinkSha256}
           onCancel={() => {
-            setPendingDeepLinkInstall(null);
+            setStagedDeepLinkInstall(null);
             showToast(t('toast.deeplink_cancelled'), 'info');
           }}
           onConfirm={() => {
-            const id = pendingDeepLinkInstall;
-            setPendingDeepLinkInstall(null);
+            const id = stagedDeepLinkInstall;
+            setStagedDeepLinkInstall(null);
             if (id !== null) {
               void handleInstallApp(id);
             }

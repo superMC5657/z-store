@@ -75,7 +75,7 @@ pub struct AppDetail {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cached_at: Option<i64>,
     /// P0 stale 契约：`Some(true)` = 瞬时失败降级（401/限流/离线复用旧行，或无缓存合成空）。
-    /// 前端 backfill 必须将 `stale + releases/platforms 双空` 视为 pending/失败待重试，
+    /// 前端 backfill 必须将 `stale + releases/platforms 双空` 视为 loading/失败待重试，
     /// 永不确认 Other；`Ok(stale)` 为 IPC 形状约定。成功 deduce 空（真实零发布）
     /// 保持 `None`，与失败空可区分。
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -109,7 +109,7 @@ pub struct SyncCatalogResult {
 /// - `platforms` 为空表示未知（unknown），永不 stamp `["other"]`/`["windows"]`，
 ///   `other` 仍为纯前端虚拟概念，永不过 IPC；
 /// - `is_stale == Some(true)` 为瞬时失败降级（401/限流/离线复用旧行，或无缓存合成空），
-///   前端必须视为 pending/待 backfill，永不确认 Other；成功空（真实零发布）保持 `None`。
+///   前端必须视为 loading/待 backfill-loading，永不确认 Other；成功空（真实零发布）保持 `None`。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlatformsLiteResult {
     pub id: String,

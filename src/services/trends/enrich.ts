@@ -26,7 +26,7 @@ export const TREND_CONFIRMED_OTHER_MAX_ENTRIES = 500;
 
 /**
  * 具平台判定（pending-never-overwrites-concrete 守卫的唯一口径）：
- * platforms 非空数组即具平台；空/缺失一律 pending（调用点均已保证数组形状）。
+ * platforms 非空数组即具平台；空/缺失一律 loading（调用点均已保证数组形状）。
  */
 function hasConcretePlatforms(platforms: unknown): boolean {
   return Array.isArray(platforms) && platforms.length > 0;
@@ -369,8 +369,8 @@ export function snapshotTrendEnrichCache(repos?: TrendRepo[]): Record<string, Ap
  * 本函数永不抛错：传输层异常一律吞为“全部缺席”。
  *
  * 平台语义：`fallback_summary` 恒为 `[]`（后端不打标，other 纯前端虚拟），
- * 空 platforms 为 pending：未确认 pending 只活当次 out 渲染，永不进内存/落库（不进 trendEnrichCache）；
- * 已确认 pending 新鲜命中即直展（重挂免验，不重拉），stale 到期重拉；
+ * 空 platforms 为 loading：未确认 loading 只活当次 out 渲染，永不进内存/落库（不进 trendEnrichCache）；
+ * 已确认 loading 新鲜命中即直展（重挂免验，不重拉），stale 到期重拉；
  * 只有具平台才进 12h 内存（12h/500 FIFO）；后续靠应用详情刷新治愈（upsert from detail）。
  *
  * 单次批量：最多 40 仓一次取回（BE take(40)+buffered(5) 保序不变）；
@@ -379,7 +379,7 @@ export function snapshotTrendEnrichCache(repos?: TrendRepo[]): Record<string, Ap
  * per-field 新鲜度（本函数读路径）：
  * - icon 粘性 supersede-only：永不过期，只被非空新图标替换（resolveIconWithBuffer，put 与 out 同语义）；
  * - summary/desc 12h：到期重拉，但旧条目保留供图标合并（快照/sweep 仍视其过期）；
- * - platforms：pending 永不覆盖具平台值，具平台到达即覆盖治愈（详情治愈回填唯一写口）。
+ * - platforms：loading 永不覆盖具平台值，具平台到达即覆盖治愈（详情治愈回填唯一写口）。
  */
 export async function enrichTrendRepos(repos: TrendRepo[]): Promise<Map<string, AppSummary>> {
   const out = new Map<string, AppSummary>();
@@ -393,7 +393,7 @@ export async function enrichTrendRepos(repos: TrendRepo[]): Promise<Map<string, 
     const hit = trendEnrichCache.get(key);
     if (hit) {
       if (!hasConcretePlatforms(hit.data.platforms)) {
-        // 已确认 pending 新鲜命中即直展（重挂免验，不重拉）；stale/未确认删后重拉，不直接返。
+        // 已确认 loading 新鲜命中即直展（重挂免验，不重拉）；stale/未确认删后重拉，不直接返。
         let confirmedHit = false;
         if (isTrendConfirmedOtherFresh(key)) {
           const elapsed = now - hit.timestamp;

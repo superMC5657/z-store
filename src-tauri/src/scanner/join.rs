@@ -2,7 +2,7 @@
 //! scanner 模糊评分收拢于此；两种行为：
 //! - exact：Canonical App Id〈规范应用标识〉精确查（[`join_exact`]）；
 //!   命中保留（exact 命中直接返回收录项，不再进 fuzzy），缺席即未收录（调用方
-//!   按 pending/占位处理，与前端未收录行 `platforms: []` 恒可见同形）；
+//!   按 loading/占位处理，与前端未收录行 `platforms: []` 恒可见同形）；
 //! - heuristic fuzzy：存量应用管理〈External App Management〉启发式评分
 //!   （[`join_fuzzy`]，唯一入口 adapter， mechanics 在 [`super::matcher`]）。
 //!
@@ -26,7 +26,7 @@ pub fn join_exact(raw_id: &str, catalog: &[CatalogItem]) -> Option<CatalogItem> 
 
 /// heuristic fuzzy 行为：存量应用管理启发式评分唯一入口 adapter
 /// （mechanics 在 `matcher::AppScanner::match_apps`，语义与其一致；
-/// 低分未命中属常态，调用方按 pending 处理）。
+/// 低分未命中属常态，调用方按 loading 处理）。
 pub fn join_fuzzy(
     scanned: &[ScannedRawApp],
     catalog: &[CatalogItem],
@@ -82,7 +82,7 @@ mod tests {
     }
 
     #[test]
-    fn test_join_exact_hit_retained_miss_pending() {
+    fn test_join_exact_hit_retained_miss_loading() {
         let catalog = vec![mock_item("videolan/vlc", "videolan", "vlc")];
         // exact 命中保留：大小写漂移入站仍命中同一收录项。
         let hit = join_exact("VideoLAN/VLC", &catalog).expect("exact hit retained");
@@ -127,6 +127,6 @@ mod tests {
         ];
         let results = join_fuzzy(&scanned, &catalog);
         assert!(results.iter().any(|r| r.catalog_id == "videolan/vlc"));
-        assert_eq!(results.len(), 1, "fuzzy miss stays pending (no fabrication)");
+        assert_eq!(results.len(), 1, "fuzzy miss stays loading (no fabrication)");
     }
 }

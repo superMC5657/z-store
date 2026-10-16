@@ -137,7 +137,7 @@ export interface DownloadAssetResult {
   verified: boolean;
 }
 
-export type ViewType = 'home' | 'trends' | 'categories' | 'favorites' | 'installed' | 'updates' | 'settings';
+export type ViewType = 'home' | 'trends' | 'categories' | 'favorites' | 'installed' | 'updates' | 'settings' | 'pending';
 
 export interface ToastMessage {
   id: string;

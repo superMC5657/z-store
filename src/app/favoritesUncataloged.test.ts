@@ -168,7 +168,7 @@ describe('uncataloged join keeps rows and full-set counts', () => {
     expect(selectFavoritesViewApps(base, [], new Set(PLATFORM_IDS), new Set<string>())).toBe(base);
   });
 
-  it('占位合成行恒为 external + platforms []（pending 恒可见，不参与计数）', () => {
+  it('占位合成行恒为 external + platforms []（loading 恒可见，不参与计数）', () => {
     const placeholder = makeFavoritePlaceholderSummary('Unknown/App');
     expect(placeholder.owner).toBe('Unknown');
     expect(placeholder.repo).toBe('App');

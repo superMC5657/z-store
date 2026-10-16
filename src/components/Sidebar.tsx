@@ -21,6 +21,8 @@ interface SidebarProps {
   onResetPlatforms?: () => void;
   /** 可选的各平台应用数量统计；由上层作为属性传入，本组件不自行计算。 */
   platformCounts?: Record<PlatformId, number>;
+  /** 自维护草稿角标预留位（Lane C 接线后透传待收录计数；缺席/0 时不渲染）。 */
+  pendingCount?: number;
 }
 
 interface NavGroupConfig {
@@ -59,6 +61,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onTogglePlatform = () => {},
   onResetPlatforms,
   platformCounts,
+  pendingCount = 0,
 }) => {
   const [oauthUser, setOauthUser] = useState<OAuthUser | null>(null);
 
@@ -129,6 +132,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
           <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" />
           <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
+        </svg>
+      ),
+    },
+    {
+      id: 'pending',
+      label: t('nav.items.pending'),
+      groupId: 'discovery',
+      badge: pendingCount,
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
+          <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
         </svg>
       ),
     },

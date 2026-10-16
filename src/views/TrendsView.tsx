@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import '../styles/components-trends.css';
@@ -24,6 +24,9 @@ import {
   type DetailPlatformsHealPayload,
   type DetailRichcardHealPayload,
 } from '../services/trends/enrich';
+import { buildCustomDraftItemFromSummary } from '../services/api/catalog';
+import { normalizeId } from '../services/normalizeId';
+import { notifyToast } from '../utils/notify';
 import type {
   AppSummary,
   TrendBoardId,
@@ -57,20 +60,22 @@ import {
   swrSyncedResult,
   unmarkConcreteKeys,
   unmarkPlatformsHealKeys,
-  useTrendPendingLifecycle,
+  useTrendLoadingLifecycle,
 } from '../services/trends/board';
 import {
-  PENDING_SETTLE_MS,
-  isEnrichedRowPending,
+  LOADING_SETTLE_MS,
+  annotateEnrichMirrorCataloged,
+  buildCatalogIdSet,
+  isEnrichedRowLoading,
   isInstalledUnion as selectIsInstalledUnion,
   selectIsDetectedOnlyOpt,
   selectIsManagedOpt,
 } from '../app/selectors';
 import {
   PLATFORM_IDS,
-  isPlatformPending,
+  isPlatformLoading,
   matchPlatformSet,
-  matchPlatformSetWithPending,
+  matchPlatformSetWithLoading,
   type PlatformId,
 } from '../lib/platformFilter';
 import { admitIconHit, patchIconMirror, queueAssembledRowIcons, subscribeIconWrites } from '../services/iconStore';
@@ -99,10 +104,16 @@ interface TrendsViewProps
   allApps?: AppSummary[];
   /** 全局设备平台选择：传入即按其过滤榜单行（含未收录行）；缺省不过滤。 */
   selectedPlatforms?: ReadonlySet<string>;
-  /** 已确认 other 追踪（App 懒回填落定集合）：空集合即启用 pending 语义。 */
+  /** 已确认 other 追踪（App 懒回填落定集合）：空集合即启用 loading 语义。 */
   platformResolvedOtherIds?: ReadonlySet<string>;
   /** 榜单平台分布上报（未过滤口径，供侧栏计数切到当前榜单；memo 稳定引用）。 */
   onDisplayPlatformCounts?: (counts: Record<PlatformId, number>) => void;
+  /**
+   * custom 草稿已存在 id 集（归一小写；App 侧以后端 customApps 全量 + 本地乐观移入合成，
+   * 即 `selectMergedCatalogApps` 会命中 custom 行的 id 集合）：
+   * 供未收录富卡内部移入入口抑制已存在项，缺席即不抑制。
+   */
+  customIds?: ReadonlySet<string>;
 }
 
 type DisplayTrendItem =
@@ -153,6 +164,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   selectedPlatforms,
   platformResolvedOtherIds,
   onDisplayPlatformCounts,
+  customIds,
 }) => {
   const { t } = useTranslation();
   const {
@@ -189,6 +201,49 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   // catalog 匹配（matchCatalogApp）保留——下掉的只是分类榜单，不是收录对照展示。
   // 身份匹配用全量收录（未过滤口径，保证取消勾选后行直接消失而非降级为占位小行）。
   const matchingBase = allApps ?? apps;
+  // Lane C fix：catalog id 集（canonical 小写，复用 normalizeId），供 enrich 显式标注。
+  const trendCatalogIds = useMemo(() => buildCatalogIdSet(matchingBase), [matchingBase]);
+  // enrich 合并处显式标注 is_cataloged（显式优先于 category 兜底；未命中=false 即显示按钮）。
+  const annotatedEnrichedApps = useMemo(
+    () => annotateEnrichMirrorCataloged(enrichedApps, trendCatalogIds),
+    [enrichedApps, trendCatalogIds],
+  );
+
+  // Lane C 移入收录（未收录富卡一键 save_custom_app 草稿，platforms [] loading）：
+  // 经 tauriApi（禁直调 invoke），复用 lite 确认链，编辑页可手改。
+  // 入口收进 AppCard 内部操作区（仅未收录 external 富卡渲染），小行无外挂按钮，
+  // 小行 enrich 为富卡后同样走内部入口；此处只保留动作实现（useCallback 稳定引用）。
+  const [trendMovingIds, setTrendMovingIds] = useState<Set<string>>(() => new Set<string>());
+  const trendMovingRef = useRef<Set<string>>(new Set<string>());
+  const handleTrendMoveIn = useCallback(async (app: AppSummary) => {
+    const key = normalizeId(app.id);
+    if (!key || trendMovingRef.current.has(key)) return;
+    trendMovingRef.current.add(key);
+    setTrendMovingIds((prev) => new Set(prev).add(key));
+    try {
+      const draft = buildCustomDraftItemFromSummary(app);
+      await tauriApi.saveCustomApp(draft);
+      const msg = t('custom.moved_in', { defaultValue: `已移入收录草稿：${draft.id}` });
+      notifyToast(msg, 'success');
+      window.dispatchEvent(new CustomEvent('zstore:custom-apps-changed', { detail: { id: draft.id } }));
+    } catch (e) {
+      const msg = t('custom.move_in_failed', {
+        defaultValue: `移入收录失败：${e instanceof Error ? e.message : String(e)}`,
+      });
+      notifyToast(msg, 'error');
+    } finally {
+      trendMovingRef.current.delete(key);
+      setTrendMovingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }
+  }, [t]);
+
+  // 与本地 catalog 预过滤后的 apps 交叉匹配：有则完整卡片，无则名 + 星数。
+  // catalog 匹配（matchCatalogApp）保留——下掉的只是分类榜单，不是收录对照展示。
+  // 身份匹配用全量收录（未过滤口径，保证取消勾选后行直接消失而非降级为占位小行）。
   const rawDisplayItems = useMemo<DisplayTrendItem[]>(() => {
     if (trendResult === null || trendResult.status === 'error') return [];
 
@@ -619,9 +674,10 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
 
             // 未收录行：enrich 命中即完整 AppCard（搜索式外观 + 涨星徽标），
             // 右按钮直开 GitHub（不调安装链）；缺席（加载中/失败）即旧小行占位。
-            // enrich 空（fallback []）视为 pending：占位不闪 Other，Other 未勾选仍可见，
+            // enrich 空（fallback []）视为 loading：占位不闪 Other，Other 未勾选仍可见，
             // 详情治愈/lite 回填/settle 确认为 other 后一次落定。
-            const enriched = enrichedApps[item.repo.id.toLowerCase()];
+            // Lane C fix：取标注后镜像（is_cataloged 显式=false，未命中 catalog），显式优先于 category 兜底。
+            const enriched = annotatedEnrichedApps[item.repo.id.toLowerCase()];
             if (enriched) {
               const hasDesc =
                 enriched.description?.trim() || enriched.description_en?.trim();
@@ -656,12 +712,23 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                       void tauriApi.openUrl(item.repo.url);
                     }
                   }}
+                  onMoveInApp={handleTrendMoveIn}
+                  isMovingIn={trendMovingIds.has(normalizeId(displayApp.id))}
+                  isCustomExisting={customIds?.has(normalizeId(displayApp.id)) ?? false}
                 />
               );
             }
 
             const gainText = gainTextFor(item.gain);
             const owner = item.repo.owner?.trim();
+            // Lane C fix：裸行迷你入口（复用 handleTrendMoveIn，isCustomExisting 同富卡隐藏逻辑）。
+            // 裸行是唯一呈现（不走 AppCard），无它用户永远点不到；catalog 分支按设计不动。
+            const bareKey = normalizeId(item.repo.id);
+            const bareMoving = trendMovingIds.has(bareKey);
+            const bareExisting = customIds?.has(bareKey) ?? false;
+            const bareMoveLabel = bareMoving
+              ? t('custom.moving_in', { defaultValue: '移入中…' })
+              : t('custom.move_in', { defaultValue: '移入收录' });
 
             return (
               <div
@@ -712,6 +779,44 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                       <span className="app-tag trend-gain" title={gainText}>
                         {gainText}
                       </span>
+                    )}
+                    {!bareExisting && (
+                      <button
+                        type="button"
+                        data-testid={`trend-move-in-${item.repo.id}`}
+                        className="btn-fluent btn-secondary"
+                        disabled={bareMoving}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleTrendMoveIn({
+                            id: item.repo.id,
+                            name: item.repo.name,
+                            owner: item.repo.owner,
+                            repo: item.repo.repo,
+                            icon: '',
+                            icon_bg: '',
+                            description: item.repo.description ?? item.repo.name,
+                            stars: item.repo.stars,
+                            forks: item.repo.forks ?? 0,
+                            license: '',
+                            latest_version: 'latest',
+                            category: 'external',
+                            category_name: 'external',
+                            is_verified: false,
+                            forge: 'github',
+                            forge_host: 'github.com',
+                            homepage: item.repo.url ?? null,
+                            platforms: [],
+                            is_cataloged: false,
+                          } as AppSummary);
+                        }}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        title={t('custom.move_in_hint', { defaultValue: '存为本地自维护草稿，编辑页可手改' })}
+                        aria-label={bareMoveLabel}
+                        style={{ padding: '2px 8px', fontSize: 'var(--font-xs)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                      >
+                        <span>{bareMoveLabel}</span>
+                      </button>
                     )}
                   </div>
                 </div>

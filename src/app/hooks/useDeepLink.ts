@@ -21,7 +21,7 @@ export function useDeepLink({
   t,
 }: UseDeepLinkParams) {
   // 深链安装守卫：`install_app` 深链仅暂存待确认状态——安装必须经由用户显式点击确认方可启动。
-  const [pendingDeepLinkInstall, setPendingDeepLinkInstall] = useState<string | null>(null);
+  const [stagedDeepLinkInstall, setStagedDeepLinkInstall] = useState<string | null>(null);
 
   // 深链调度分发器（功能 E）
   const handleDispatchDeepLink = async (rawUrl: string) => {
@@ -32,14 +32,14 @@ export function useDeepLink({
       } else if (action.action === 'install_app') {
         // 绝不直接自深链自动安装——打开详情视图并弹出显式确认弹窗；安装仅在用户点击确认后启动。
         handleOpenDetail(action.payload.app_id);
-        setPendingDeepLinkInstall(action.payload.app_id);
+        setStagedDeepLinkInstall(action.payload.app_id);
         showToast(t('toast.deeplink_confirm_notice', { id: action.payload.app_id }), 'warning');
       } else if (action.action === 'search') {
         handleSearchChange(action.payload.query);
       } else if (action.action === 'developer_profile') {
         setSelectedDeveloper(action.payload.owner);
       } else if (action.action === 'open_view') {
-        const validViews: ViewType[] = ['home', 'trends', 'categories', 'installed', 'updates', 'favorites', 'settings'];
+        const validViews: ViewType[] = ['home', 'trends', 'categories', 'pending', 'installed', 'updates', 'favorites', 'settings'];
         if (validViews.includes(action.payload.view as ViewType)) {
           setCurrentView(action.payload.view as ViewType);
         }
@@ -66,8 +66,8 @@ export function useDeepLink({
   }, [handleDispatchDeepLink]);
 
   return {
-    pendingDeepLinkInstall,
-    setPendingDeepLinkInstall,
+    stagedDeepLinkInstall,
+    setStagedDeepLinkInstall,
     handleDispatchDeepLink,
   };
 }

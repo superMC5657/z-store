@@ -42,3 +42,9 @@ default_client_id = "Ov23lik0b7fDGMLTiOYH"
 local_path = "../catalog.json"
 # 官方精选收录库默认增量同步源（指向独立数据仓库 z-store-catalog 根目录 catalog.json）
 default_source_url = "https://raw.githubusercontent.com/superMC5657/z-store-catalog/main/catalog.json"
+
+[license_gate]
+# 开源协议门禁总开关（默认开 = D1 严格；关闭仅放行本地草稿提交，不改变官方生态仓口径，见 ADR-0018）
+enabled = true
+# 许可名单（默认与 OSI 全量名单同序同值；可配子集收窄范围，归一口径与校验侧一致）
+allowed = ["MIT", "ISC", "APACHE-2.0", "APACHE-1.1", "GPL-2.0", "GPL-2.0-ONLY", "GPL-2.0-OR-LATER", "GPL-3.0", "GPL-3.0-ONLY", "GPL-3.0-OR-LATER", "LGPL-2.0", "LGPL-2.0-ONLY", "LGPL-2.0-OR-LATER", "LGPL-2.1", "LGPL-2.1-ONLY", "LGPL-2.1-OR-LATER", "LGPL-3.0", "LGPL-3.0-ONLY", "LGPL-3.0-OR-LATER", "AGPL-3.0", "AGPL-3.0-ONLY", "AGPL-3.0-OR-LATER", "BSD-2-CLAUSE", "BSD-3-CLAUSE", "MPL-2.0", "MPL-1.1", "MPL-1.0", "MS-PL", "MS-RL", "UNLICENSE", "ZLIB", "ARTISTIC-2.0", "EPL-1.0", "EPL-2.0", "CDDL-1.0", "OSL-3.0", "AFL-3.0"]

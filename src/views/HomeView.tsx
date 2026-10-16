@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import {
@@ -27,8 +27,12 @@ import type { FeedStrategy } from '../services/feed';
 import { useHomeFeed, HOME_FEED_PAGE } from './HomeView/useHomeFeed';
 import { useOnlinePullToLoadMore } from './HomeView/useOnlinePullToLoadMore';
 import { queueAssembledRowIcons } from '../services/iconStore';
-import { isPlatformPending } from '../lib/platformFilter';
-import { isInstalledUnion as selectIsInstalledUnion, selectIsDetectedOnlyOpt, selectIsManagedOpt } from '../app/selectors';
+import { isPlatformLoading } from '../lib/platformFilter';
+import { annotateOnlineCataloged, buildCatalogIdSet, isInstalledUnion as selectIsInstalledUnion, selectIsDetectedOnlyOpt, selectIsManagedOpt } from '../app/selectors';
+import { normalizeId } from '../services/normalizeId';
+import { tauriApi } from '../services/api';
+import { buildCustomDraftItemFromSummary } from '../services/api/catalog';
+import { notifyToast } from '../utils/notify';
 export { HOME_FEED_PAGE };
 
 interface HomeViewProps extends ViewAppActions, PlatformResetOption {
@@ -60,6 +64,12 @@ interface HomeViewProps extends ViewAppActions, PlatformResetOption {
   isLoadingOnlineMore?: boolean;
   /** 在线结果触底回调：App 负责 page+1 并拼接到 apps，失败/限流由 App toast。 */
   onOnlineLoadMore?: () => void;
+  /**
+   * custom 草稿已存在 id 集（归一小写；App 侧以后端 customApps 全量 + 本地乐观移入合成，
+   * 即 `selectMergedCatalogApps` 会命中 custom 行的 id 集合）：
+   * 供在线段富卡内部移入入口抑制已存在项，缺席即不抑制。
+   */
+  customIds?: ReadonlySet<string>;
 }
 
 export const HomeView: React.FC<HomeViewProps> = ({
@@ -87,10 +97,52 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onlineHasMore = false,
   isLoadingOnlineMore = false,
   onOnlineLoadMore,
+  customIds,
 }) => {
   const { t } = useTranslation();
   const isSearching = Boolean(searchQuery && searchQuery.trim().length > 0);
-  // pending 徽标口径统一经选择器接口。
+  // loading 徽标口径统一经选择器接口.
+
+  // Lane C 移入收录（一键 save_custom_app 草稿，status=draft/platforms [] loading）：
+  // 经 tauriApi（禁直调 invoke），platforms [] 复用 lite 确认链，编辑页可手改。
+  // 入口收进 AppCard 内部操作区（仅未收录 external 行渲染），此处只保留动作实现；
+  // useCallback 稳定引用，富卡 memo 不因父渲染失效。
+  const [movingIds, setMovingIds] = useState<Set<string>>(() => new Set<string>());
+  const movingRef = useRef<Set<string>>(new Set<string>());
+  const handleMoveIn = useCallback(async (app: AppSummary) => {
+    const key = app.id;
+    if (movingRef.current.has(key)) return;
+    movingRef.current.add(key);
+    setMovingIds((prev) => new Set(prev).add(key));
+    try {
+      const draft = buildCustomDraftItemFromSummary(app);
+      await tauriApi.saveCustomApp(draft);
+      const msg = t('custom.moved_in', { defaultValue: `已移入收录草稿：${draft.id}` });
+      notifyToast(msg, 'success');
+      window.dispatchEvent(new CustomEvent('zstore:custom-apps-changed', { detail: { id: draft.id } }));
+    } catch (e) {
+      const msg = t('custom.move_in_failed', {
+        defaultValue: `移入收录失败：${e instanceof Error ? e.message : String(e)}`,
+      });
+      notifyToast(msg, 'error');
+    } finally {
+      movingRef.current.delete(key);
+      setMovingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }
+  }, [t]);
+
+  // Lane C fix：在线落定处显式标注 is_cataloged（catalog id 集 canonical 比对）。
+  // App 侧 useAppSelectors 已标注，此处再守一次（直接渲染 HomeView 的单测/预览同样生效）；
+  // 显式标记优先于 category 兜底，已收录在线仍正确隐藏。
+  const onlineCatalogIds = React.useMemo(() => buildCatalogIdSet(apps), [apps]);
+  const annotatedOnlineApps = React.useMemo(
+    () => annotateOnlineCataloged(onlineApps, onlineCatalogIds),
+    [onlineApps, onlineCatalogIds],
+  );
 
   // ---- feed 状态与分页 Hook -------------------------------------
   const {
@@ -398,13 +450,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
               <span>{t('search.online_results', `在线结果 (${onlineApps.length})`)}</span>
             </h3>
           </div>
-          {onlineApps.length > 0 ? (
+          {annotatedOnlineApps.length > 0 ? (
             <div className="app-grid" data-testid="search-online-grid">
-              {onlineApps.map((app) => (
+              {annotatedOnlineApps.map((app) => (
                 <AppCard
                   key={app.id}
                   app={app}
-                  platformPending={isPlatformPending(app, platformResolvedOtherIds)}
+                  platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
                   isInstalled={selectIsInstalledUnion(app.id, installedIds)}
                   isManaged={selectIsManagedOpt(app.id, managedIds)}
                   isDetectedOnly={selectIsDetectedOnlyOpt(app.id, installedIds, managedIds)}
@@ -416,6 +468,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   onManageApp={onManageApp}
                   onToggleFavorite={onToggleFavorite}
                   onToggleWatch={onToggleWatch}
+                  onMoveInApp={handleMoveIn}
+                  isMovingIn={movingIds.has(app.id)}
+                  isCustomExisting={customIds?.has(normalizeId(app.id)) ?? false}
                 />
               ))}
             </div>

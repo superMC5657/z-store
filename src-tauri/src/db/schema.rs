@@ -155,6 +155,24 @@ impl Database {
                 last_seen INTEGER NOT NULL,
                 PRIMARY KEY (hash, app_id)
             );
+
+            -- Lane A 本地自维护草稿 overlay：待收录草稿本地暂存（ADR-0017）。
+            -- id 为 canonical 小写形态（`owner/repo` 或 `forge[:host]:owner/repo`）；
+            -- payload_json 存完整 CatalogItem；status=draft/submitted（已提交另存 pr_url）；
+            -- archived=1 为转正（远端已收录）自动归档标记。
+            CREATE TABLE IF NOT EXISTS custom_apps (
+                id TEXT PRIMARY KEY,
+                payload_json TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'draft',
+                pr_url TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                archived INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_custom_apps_archived ON custom_apps(archived);
+
+            CREATE INDEX IF NOT EXISTS idx_custom_apps_status ON custom_apps(status);
             "#,
         )?;
         Ok(())

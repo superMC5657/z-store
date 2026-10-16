@@ -67,6 +67,7 @@ pub async fn sync_catalog(
 
             if let Some((items, candidate)) = local_fallback {
                 let count = items.len();
+                let graduated = retire_graduated_drafts(&state, &items);
                 log::warn!(
                     "sync catalog remote failed url='{}' reason={}, fallback to local path='{}' count={}",
                     safe_url,
@@ -77,9 +78,12 @@ pub async fn sync_catalog(
                 return Ok(SyncCatalogResult {
                     updated: true,
                     count,
-                    message: format!(
-                        "远程源未就绪，已自动从本地 {} 载入 {} 款应用（本地开发模式）",
-                        candidate, count
+                    message: with_graduation_hint(
+                        &format!(
+                            "远程源未就绪，已自动从本地 {} 载入 {} 款应用（本地开发模式）",
+                            candidate, count
+                        ),
+                        &graduated,
                     ),
                 });
             } else {
@@ -102,6 +106,7 @@ pub async fn sync_catalog(
                 let _ = db.save_etag(&url, &etag, &json_str, now);
             }
         }
+        let graduated = retire_graduated_drafts(&state, &items);
         log::info!(
             "sync catalog done url='{}' updated=true count={}",
             safe_url,
@@ -110,7 +115,10 @@ pub async fn sync_catalog(
         Ok(SyncCatalogResult {
             updated: true,
             count,
-            message: format!("成功同步收录清单，当前共 {} 个精选应用", count),
+            message: with_graduation_hint(
+                &format!("成功同步收录清单，当前共 {} 个精选应用", count),
+                &graduated,
+            ),
         })
     } else {
         let count = state.catalog.get_catalog_count();
@@ -137,6 +145,35 @@ pub(crate) fn should_use_local_fallback(strict_errors: bool) -> bool {
     !strict_errors
 }
 
+/// Lane A 转正退役（ADR-0017）：同步成功后以远端 id 集合命中未归档草稿，
+/// 命中即 `archived=1`；失败吞错（best-effort，不阻塞同步主路径）。
+fn retire_graduated_drafts(
+    state: &tauri::State<'_, AppState>,
+    items: &[crate::github::models::CatalogItem],
+) -> Vec<String> {
+    let Ok(db) = state.db() else {
+        return Vec::new();
+    };
+    let ids: Vec<String> = items.iter().map(|i| i.id.clone()).collect();
+    db.retire_custom_apps_on_sync(&ids)
+        .map(|notices| notices.into_iter().map(|n| n.id).collect())
+        .unwrap_or_default()
+}
+
+/// 转正提示拼接到同步消息尾部（无转正原样返回）。
+fn with_graduation_hint(base: &str, graduated: &[String]) -> String {
+    if graduated.is_empty() {
+        base.to_string()
+    } else {
+        format!(
+            "{}；{} 款自维护草稿已转正并自动归档（{}）",
+            base,
+            graduated.len(),
+            graduated.join("、")
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::should_use_local_fallback;
@@ -149,5 +186,17 @@ mod tests {
     #[test]
     fn graceful_mode_uses_local_fallback() {
         assert!(should_use_local_fallback(false));
+    }
+
+    #[test]
+    fn graduation_hint_appends_only_on_hits() {
+        assert_eq!(
+            super::with_graduation_hint("ok", &[]),
+            "ok".to_string()
+        );
+        assert_eq!(
+            super::with_graduation_hint("ok", &["o/r".to_string()]),
+            "ok；1 款自维护草稿已转正并自动归档（o/r）".to_string()
+        );
     }
 }

@@ -114,7 +114,7 @@ pub async fn get_platforms_lite(
     }
 
     // 3. GitHub：release_endpoint + ETag 条件请求（仅 releases/latest 单次 RTT）。
-    // 未知坐标时沿用详情降级：stale 旧行穿透标 stale，无行则拒绝（前端一律视为 pending）。
+    // 未知坐标时沿用详情降级：stale 旧行穿透标 stale，无行则拒绝（前端一律视为 loading）。
     let (release_endpoint, cached_etag, cached_payload) = {
         if let Err(e) = state.catalog.get_repo_coordinates(&clean_id) {
             if let Ok(db) = state.db() {
@@ -241,7 +241,7 @@ pub async fn get_platforms_lite(
             }
             crate::github::release_fetch::ShallowMiss::OfflineWithoutCache => {
                 // 合成空失败：无任何缓存时以 stale 区分于成功空（与详情同形），
-                // 前端 stale-empty 视为 pending，不确认 Other；本命令永不落库。
+                // 前端 stale-empty 视为 loading，不确认 Other；本命令永不落库。
                 log::debug!(
                     "get_platforms_lite id={} from=empty:stale elapsed_ms={}",
                     clean_id,
@@ -261,7 +261,7 @@ pub async fn get_platforms_lite(
 /// P0 stale 契约：瞬时失败（401/限流/离线）永不污染 SQLite。
 /// - 合成空（无缓存失败）以 `is_stale=true` 返回，调用方跳过落库，无旧行则不建行；
 /// - stale 穿透（复用旧行）保持旧行不动（含 `cached_at` 不刷新），`Ok(stale)` 为 IPC 形状约定；
-/// - 前端必须将 `stale + releases/platforms 双空` 视为 pending/待 backfill，永不确认 Other。
+/// - 前端必须将 `stale + releases/platforms 双空` 视为 loading/待 backfill-loading，永不确认 Other。
 pub async fn get_app_details_impl(
     state: &AppState,
     id: String,
@@ -380,7 +380,7 @@ pub async fn get_app_details_impl(
                 // Top2：详情 + 图标原子落库（2 提交变 1 提交），事务边界见 `save_detail_with_cycle_row`；
                 // 失败整体回滚并回退逐条，保持 `let _ =` 吞错 + 下次重试语义，不改 TTL/ETag。
                 let icon_trimmed = detail.icon.trim();
-                let pending_cycle: Option<crate::db::AppIconCycle> =
+                let staged_cycle: Option<crate::db::AppIconCycle> =
                     if !icon_trimmed.is_empty() {
                         let mut cycle = db
                             .get_icon_cycle(&clean_id)
@@ -399,11 +399,11 @@ pub async fn get_app_details_impl(
                         None
                     };
                 if db
-                    .save_detail_with_cycle_row(&clean_id, &detail, pending_cycle.as_ref())
+                    .save_detail_with_cycle_row(&clean_id, &detail, staged_cycle.as_ref())
                     .is_err()
                 {
                     let _ = db.save_cached_app_detail(&clean_id, &detail);
-                    if let Some(c) = pending_cycle.as_ref() {
+                    if let Some(c) = staged_cycle.as_ref() {
                         let _ = db.upsert_icon_cycle(c);
                     }
                 }
@@ -426,7 +426,7 @@ pub async fn get_app_details_impl(
         let coords = match state.catalog.get_repo_coordinates(&clean_id) {
             Ok(c) => c,
             Err(e) => {
-                // 未知坐标降级同样标 stale，Ok(stale) 形状 IPC 保留，前端 stale-empty 视为 pending。
+                // 未知坐标降级同样标 stale，Ok(stale) 形状 IPC 保留，前端 stale-empty 视为 loading。
                 if let Ok(db) = state.db() {
                     if let Ok(Some(mut fallback)) = db.get_cached_app_detail(&clean_id, None) {
                         fallback.id = clean_id.clone();
@@ -527,7 +527,7 @@ pub async fn get_app_details_impl(
             // never-poison：仅 stale 穿透/合成空失败（is_stale==Some(true)）
             // 永不落库——有旧行则保持旧行（连 cached_at 都不刷新），无旧行则不建行；
             // 返回的 detail 保持 Ok 形状，但 is_stale=true 供前端视为
-            // pending/待 backfill，永不确认 Other。空平台不 stamp ["other"]/["windows"]。
+            // loading/待 backfill-loading，永不确认 Other。空平台不 stamp ["other"]/["windows"]。
             // 真空落盘：fresh 双空（200 已问到，仅全过滤致 releases/platforms 双空、
             // is_stale 非 true）为远端确认无有效安装包，以 fresh 空行落盘
             // （is_stale=None，cached_at=now），下次 TTL 内命中直接复用，前端灭黄标。
@@ -604,7 +604,7 @@ pub async fn get_app_details_impl(
                     // 仅把本次最强探测补进备选槽，并把 `detail.icon` 对齐 pinned 选择
                     // （L5 pinned 对齐 `""` 保持徽章态）；未 pinned 行仍按最强探测更新选中图。
                     let icon_trimmed = detail.icon.trim().to_owned();
-                    let pending_cycle: Option<crate::db::AppIconCycle> =
+                    let staged_cycle: Option<crate::db::AppIconCycle> =
                         if !icon_trimmed.trim().is_empty()
                             && !crate::github::icon_fetch::is_body_image_url(&icon_trimmed)
                         {
@@ -639,11 +639,11 @@ pub async fn get_app_details_impl(
                             None
                         };
                     if db
-                        .save_detail_with_cycle_row(&clean_id, &detail, pending_cycle.as_ref())
+                        .save_detail_with_cycle_row(&clean_id, &detail, staged_cycle.as_ref())
                         .is_err()
                     {
                         let _ = db.save_cached_app_detail(&clean_id, &detail);
-                        if let Some(c) = pending_cycle.as_ref() {
+                        if let Some(c) = staged_cycle.as_ref() {
                             let _ = db.upsert_icon_cycle(c);
                         }
                     }
@@ -667,7 +667,7 @@ pub async fn get_app_details_impl(
                 crate::log_support::short_reason(&err)
             );
             // 网络或限额异常时，优雅降级返回已存储的历史缓存。
-            // Ok(stale) 形状为 IPC 保留；is_stale=true 供前端视为 pending，
+            // Ok(stale) 形状为 IPC 保留；is_stale=true 供前端视为 loading，
             // stale-empty（双空）不得确认 Other，由 backfill 重试。
             if let Ok(db) = state.db() {
                 if let Ok(Some(mut fallback_detail)) = db.get_cached_app_detail(&clean_id, None)

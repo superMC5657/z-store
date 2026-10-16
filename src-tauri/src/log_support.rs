@@ -113,7 +113,7 @@ pub fn sanitize_url(url: &str) -> String {
     out.push_str(base);
     out.push('?');
     let mut emitted = false;
-    let mut pending_sep: Option<char> = None;
+    let mut staged_sep: Option<char> = None;
     let mut start = 0;
     loop {
         let rest = &query[start..];
@@ -123,7 +123,7 @@ pub fn sanitize_url(url: &str) -> String {
         };
         if !seg.is_empty() {
             if emitted {
-                out.push(pending_sep.unwrap_or('&'));
+                out.push(staged_sep.unwrap_or('&'));
             }
             if let Some((k, _v)) = seg.split_once('=') {
                 if is_sensitive_key(k) {
@@ -139,13 +139,13 @@ pub fn sanitize_url(url: &str) -> String {
                 out.push_str(seg);
             }
             emitted = true;
-            pending_sep = None;
+            staged_sep = None;
         }
         if next > query.len() {
             break;
         }
-        if sep != '\0' && pending_sep.is_none() {
-            pending_sep = Some(sep);
+        if sep != '\0' && staged_sep.is_none() {
+            staged_sep = Some(sep);
         }
         start = next;
     }

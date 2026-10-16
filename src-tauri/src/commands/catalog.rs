@@ -1,5 +1,7 @@
 #[path = "catalog_detail.rs"]
 pub mod catalog_detail;
+#[path = "catalog_custom.rs"]
+pub mod catalog_custom;
 #[path = "catalog_feed.rs"]
 pub mod catalog_feed;
 #[path = "catalog_search.rs"]
@@ -8,6 +10,7 @@ pub mod catalog_search;
 pub mod catalog_sync;
 
 pub use catalog_detail::*;
+pub use catalog_custom::*;
 pub use catalog_feed::*;
 pub use catalog_search::*;
 pub use catalog_sync::*;

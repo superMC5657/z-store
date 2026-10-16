@@ -144,7 +144,7 @@ impl CatalogService {
             .map_err(|e| format!("解析 GitHub Starred 列表数据失败: {}", e))?;
 
         let total_starred = starred_list.len();
-        struct PendingStar {
+        struct StagedStar {
             full_name: String,
             repo_name: String,
             description: Option<String>,
@@ -153,7 +153,7 @@ impl CatalogService {
             forks: u64,
             language: Option<String>,
         }
-        let mut pending: Vec<PendingStar> = Vec::new();
+        let mut staged: Vec<StagedStar> = Vec::new();
         for r in starred_list {
             let full_name = r.full_name.clone().unwrap_or_default();
             let repo_name = r.name.clone().unwrap_or_default();
@@ -168,7 +168,7 @@ impl CatalogService {
                 let html_url = r
                     .html_url
                     .unwrap_or_else(|| format!("https://github.com/{}", full_name));
-                pending.push(PendingStar {
+                staged.push(StagedStar {
                     full_name,
                     repo_name,
                     description: r.description,
@@ -182,8 +182,8 @@ impl CatalogService {
 
         // 第一遍：缓存优先（零网络）。payload 可解析出 tag 即认定有 release，
         // 复同步走 SQLite etag 层时命中即 0 配额。
-        let mut resolved: Vec<Option<(bool, Option<String>)>> = vec![None; pending.len()];
-        for (i, p) in pending.iter().enumerate() {
+        let mut resolved: Vec<Option<(bool, Option<String>)>> = vec![None; staged.len()];
+        for (i, p) in staged.iter().enumerate() {
             if p.full_name.trim().is_empty() {
                 resolved[i] = Some((false, None));
                 continue;
@@ -199,7 +199,7 @@ impl CatalogService {
         // 第二遍：live 轻量探测（`releases/latest` 单请求/库），预算上限
         // STARRED_RELEASE_ENRICH_LIMIT；失败/限流/404 记 false + 日志。
         // 并发 buffered(4)：预先按预算截断需探测下标，并发取回后按 index 回填 resolved。
-        let needy: Vec<usize> = pending
+        let needy: Vec<usize> = staged
             .iter()
             .enumerate()
             .filter_map(|(i, p)| {
@@ -214,7 +214,7 @@ impl CatalogService {
             .into_iter()
             .take(STARRED_RELEASE_ENRICH_LIMIT)
             .collect();
-        for (i, p) in pending.iter().enumerate() {
+        for (i, p) in staged.iter().enumerate() {
             if resolved[i].is_some() {
                 continue;
             }
@@ -237,8 +237,8 @@ impl CatalogService {
                 let client = client.clone();
                 let headers = headers.clone();
                 let api_base_owned = api_base_owned.clone();
-                let key = Self::starred_release_endpoint(&pending[idx].full_name);
-                let full_name = pending[idx].full_name.clone();
+                let key = Self::starred_release_endpoint(&staged[idx].full_name);
+                let full_name = staged[idx].full_name.clone();
                 let cached_etag =
                     release_cache.get(&key).and_then(|(e, _)| e.clone());
                 async move {
@@ -293,7 +293,7 @@ impl CatalogService {
             }
         }
 
-        for (p, r) in pending.into_iter().zip(resolved) {
+        for (p, r) in staged.into_iter().zip(resolved) {
             let (has_releases, latest_release_tag) = r.unwrap_or((false, None));
             other_repos.push(DeveloperRepoItem {
                 id: p.full_name.clone(),

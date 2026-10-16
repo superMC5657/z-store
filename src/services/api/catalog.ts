@@ -285,3 +285,377 @@ export async function restoreOrFetchIconCycle(appId: string): Promise<AppIconCyc
     return null;
   }
 }
+
+// ---------- Lane C：本地自维护草稿 overlay（ADR-0017） ----------
+// 后端已落盘（Lane A）：custom_apps 表 + catalog_custom commands + 合并视图。
+// 此处仅做 IPC 封装（CMD 表驱动），视图层禁直调 invoke（见 noDirectInvoke.test.ts）。
+
+/** 自维护草稿 payload（与后端 CatalogItem 同形，is_verified 入库强制 false）。 */
+export interface CustomCatalogItem {
+  id: string;
+  name: string;
+  owner: string;
+  repo: string;
+  icon: string;
+  icon_bg: string;
+  description: string;
+  description_en?: string | null;
+  category: string;
+  category_name: string;
+  aliases: string[];
+  default_version: string;
+  license: string;
+  stars: number;
+  forks: number;
+  is_verified: boolean;
+  homepage?: string | null;
+  identifiers: Record<string, string[]>;
+  install_dirs: string[];
+  search_subdirs: string[];
+  publishers: string[];
+  platforms: string[];
+}
+
+/** 自维护草稿条目（与后端 CustomAppEntry 同形）。 */
+export interface CustomAppEntry {
+  id: string;
+  item: CustomCatalogItem;
+  status: string;
+  pr_url?: string | null;
+  created_at: number;
+  updated_at: number;
+  archived: boolean;
+}
+
+/** 转正提示（与后端 GraduationNotice 同形）。 */
+export interface GraduationNotice {
+  id: string;
+  message: string;
+}
+
+/** 合并目录视图行：AppSummary 扁平 + 来源标记（remote/custom，is_cataloged 恒 true）。 */
+export type MergedCatalogEntry = AppSummary & {
+  source: string;
+  is_cataloged: boolean;
+};
+
+/** 草稿列表（默认仅未归档；includeArchived=true 含转正归档行）。 */
+export async function listCustomApps(includeArchived = false): Promise<CustomAppEntry[]> {
+  return tauriInvoke<CustomAppEntry[]>(CMD.listCustomApps, {
+    include_archived: includeArchived,
+  });
+}
+
+/**
+ * 草稿暂存（新建行 status=draft；已存在行仅刷新 payload）。
+ * 调用方须保证 id 为 canonical 小写且与 owner/repo 对齐（见 buildCustomDraftItem）。
+ */
+export async function saveCustomApp(item: CustomCatalogItem): Promise<CustomAppEntry> {
+  return tauriInvoke<CustomAppEntry>(CMD.saveCustomApp, { item });
+}
+
+/** 草稿删除（二次确认由调用方完成，后端直接删）：返回是否命中。 */
+export async function deleteCustomApp(id: string): Promise<boolean> {
+  return tauriInvoke<boolean>(CMD.deleteCustomApp, { id });
+}
+
+/** 标记已提交：status=submitted + 落 pr_url；已转正归档行拒绝。 */
+export async function markCustomSubmitted(id: string, prUrl: string): Promise<CustomAppEntry> {
+  return tauriInvoke<CustomAppEntry>(CMD.markCustomSubmitted, { id, pr_url: prUrl });
+}
+
+/**
+ * 转正退役：远端 id 集合命中未归档草稿即 archived=1，返回转正提示。
+ * remoteIds 缺席时后端以当前内存目录为准（sync_catalog 成功路径已自动调用）。
+ */
+export async function retireOnSync(remoteIds?: string[]): Promise<GraduationNotice[]> {
+  const args: Record<string, unknown> =
+    remoteIds === undefined ? {} : { remote_ids: remoteIds };
+  return tauriInvoke<GraduationNotice[]>(CMD.retireOnSync, args);
+}
+
+/** 合并目录视图：内存远端目录 + 未归档草稿 overlay（远端优先去重）。 */
+export async function getMergedCatalogView(): Promise<MergedCatalogEntry[]> {
+  return tauriInvoke<MergedCatalogEntry[]>(CMD.getMergedCatalogView);
+}
+
+/** 收录申请预填链接：由草稿 payload 生成清单仓库 Issue 预填 URL。 */
+export async function getCustomAppPrUrl(id: string): Promise<string> {
+  return tauriInvoke<string>(CMD.getCustomAppPrUrl, { id });
+}
+
+/**
+ * Lane D 一键 PR 链路：批量收录申请预填链接（二期开关）。
+ * 选中多条合并为一个 JSON 数组，经一个预填 URL 提交（批量合一 PR）。
+ */
+export async function getCustomAppsBatchPrUrl(ids: string[]): Promise<string> {
+  return tauriInvoke<string>(CMD.getCustomAppsBatchPrUrl, { ids });
+}
+
+/**
+ * 许可名单只读查询（ADR-0018）：名单唯一源头为后端编译时配置。
+ * 前端 SubmitStrict 校验（提交/预填 PR 前）经此拉取；调用失败由调用方视为
+ * 加载失败（放行暂存、提交提示重试），绝不在前端回退一份写死名单。
+ */
+export interface LicenseAllowlistResult {
+  enabled: boolean;
+  allowed: string[];
+}
+
+export async function getLicenseAllowlist(): Promise<LicenseAllowlistResult> {
+  const raw = await tauriInvoke<{ enabled?: unknown; allowed?: unknown }>(
+    CMD.getLicenseAllowlist,
+  );
+  if (!raw || typeof raw !== 'object' || !Array.isArray(raw.allowed)) {
+    throw new Error('invalid license allowlist response');
+  }
+  return {
+    enabled: raw.enabled !== false,
+    allowed: raw.allowed.filter((s): s is string => typeof s === 'string'),
+  };
+}
+
+// ---------- Lane D：一键 PR 链路纯函数（无 IPC，视图/单测可直用） ----------
+// 与后端 build_single_pr_url / build_batch_pr_url 同形：目标同为
+// superMC5657/z-store-catalog 预填页，正文含 JSON codeblock + 校验说明；
+// 后端不可达（浏览器预览/单测）时的本地同形兜底。
+
+/** 清单仓库收录申请预填页（与后端 CATALOG_REPO_ISSUES_URL 同值）。 */
+export const CATALOG_PR_ISSUES_URL =
+  'https://github.com/superMC5657/z-store-catalog/issues/new';
+
+/** 本地校验说明（与后端 PR_BODY_CHECK_NOTE 同义）。 */
+export const PR_CHECK_NOTE =
+  '本地校验：已通过提交档 `validate_custom_item(strict)`（canonical id / 必填字段 / OSI 协议），payload 见下方 JSON。';
+
+/** 预填 URL 的最小条目形态（前后端条目结构均满足此接口）。 */
+export interface LocalPrItem {
+  name: string;
+  owner: string;
+  repo: string;
+  homepage?: string | null;
+  license: string;
+  category: string;
+  category_name: string;
+  default_version: string;
+}
+
+export interface LocalPrEntry {
+  id: string;
+  status?: string;
+  item: LocalPrItem;
+}
+
+function encodePrUrl(title: string, body: string): string {
+  return `${CATALOG_PR_ISSUES_URL}?title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
+}
+
+function homepageOf(item: LocalPrItem): string {
+  const h = (item.homepage ?? '').trim();
+  return h || `https://github.com/${item.owner.trim()}/${item.repo.trim()}`;
+}
+
+/** 单条 PR payload JSON（标准 CatalogItem 片段，pretty 供复制/预填）。 */
+export function buildSinglePrPayloadJson(item: unknown): string {
+  return JSON.stringify(item, null, 2);
+}
+
+/** 批量 PR payload JSON 数组（多条合并为一个预填 URL）。 */
+export function buildBatchPrPayloadJson(items: unknown[]): string {
+  return JSON.stringify(items, null, 2);
+}
+
+/** 本地同形单条预填 URL（与后端 build_single_pr_url 同形）。 */
+export function buildLocalSinglePrUrl(entry: LocalPrEntry, payloadJson?: string): string {
+  const item = entry.item;
+  const payload = payloadJson ?? buildSinglePrPayloadJson(item);
+  const body = [
+    '## 收录申请（本地自维护草稿预填）',
+    '',
+    `- 应用：${item.name} (\`${entry.id}\`)`,
+    `- 仓库：${item.owner}/${item.repo}`,
+    `- 主页：${homepageOf(item)}`,
+    `- 协议：${item.license}`,
+    `- 分类：${item.category}（${item.category_name}）`,
+    `- 版本：${item.default_version}`,
+    `- 状态：${entry.status ?? 'draft'}`,
+    '',
+    PR_CHECK_NOTE,
+    '',
+    '### payload_json',
+    '',
+    '```json',
+    payload,
+    '```',
+    '',
+  ].join('\n');
+  return encodePrUrl(`[收录申请] ${entry.id}`, body);
+}
+
+/** 本地同形批量预填 URL（与后端 build_batch_pr_url 同形）。 */
+export function buildLocalBatchPrUrl(entries: LocalPrEntry[], payloadJson?: string): string {
+  const title = entries.length <= 1 ? '[批量收录申请]' : `[批量收录申请] ${entries.length} 项`;
+  const checklist =
+    entries.length === 0
+      ? '- （暂无条目）'
+      : entries.map((e) => `- \`${e.id}\`：校验通过`).join('\n');
+  const payload = payloadJson ?? buildBatchPrPayloadJson(entries.map((e) => e.item));
+  const body = [
+    `## 批量收录申请（本地自维护草稿预填，共 ${entries.length} 项）`,
+    '',
+    checklist,
+    '',
+    PR_CHECK_NOTE,
+    '',
+    '### payload_json',
+    '',
+    '```json',
+    payload,
+    '```',
+    '',
+  ].join('\n');
+  return encodePrUrl(title, body);
+}
+
+/**
+ * 文本复制（剪贴板 API 优先，失败回退 textarea + execCommand；永远不抛异常）。
+ * Lane D 单卡“提交 PR”先复制 JSON 再打开预填页。
+ */
+export async function copyTextToClipboard(text: string): Promise<boolean> {
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // 回退 textarea 方案
+  }
+  try {
+    if (typeof document === 'undefined') return false;
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+function cleanCoord(v: unknown): string {
+  return typeof v === 'string' ? v.trim() : String(v ?? '').trim();
+}
+
+function canonicalDraftId(owner: string, repo: string): string {
+  return `${cleanCoord(owner).toLowerCase()}/${cleanCoord(repo).toLowerCase()}`;
+}
+
+function homepageOrGithub(owner: string, repo: string, homepage?: string | null): string {
+  const h = (homepage ?? '').trim();
+  if (h.startsWith('http://') || h.startsWith('https://')) return h;
+  return `https://github.com/${cleanCoord(owner)}/${cleanCoord(repo)}`;
+}
+
+/**
+ * 由在线 AppSummary 合成草稿 payload（一键“移入收录”入口）：
+ * - id 取 canonical（小写 owner/repo），与坐标对齐；
+ * - status 由后端定为 draft，此处仅备 payload；
+ * - platforms 恒 []（loading 加载中，复用 lite 确认链，编辑页可手改）；
+ * - homepage 缺失回退 `https://github.com/owner/repo`；license 缺失回退 `OpenSource`
+ *   占位（诚实占位，不伪造 MIT；后端暂存档放行，提交前须在编辑页补真实 SPDX）；
+ * - category 为空回退 dev（external 原样保留，不强制改写）。
+ */
+export function buildCustomDraftItemFromSummary(app: AppSummary): CustomCatalogItem {
+  const owner = cleanCoord(app.owner) || cleanCoord(app.id.split('/')[0] ?? '');
+  const repo =
+    cleanCoord(app.repo) ||
+    cleanCoord(app.id.split('/').slice(1).join('/')) ||
+    cleanCoord(app.name);
+  const id = canonicalDraftId(owner, repo);
+  const category = cleanCoord(app.category) || 'dev';
+  return {
+    id,
+    name: cleanCoord(app.name) || repo,
+    owner,
+    repo,
+    icon: typeof app.icon === 'string' ? app.icon : '',
+    icon_bg:
+      typeof app.icon_bg === 'string' && app.icon_bg
+        ? app.icon_bg
+        : 'linear-gradient(135deg, #475569, #334155)',
+    description: cleanCoord(app.description) || cleanCoord(app.name) || id,
+    description_en:
+      typeof app.description_en === 'string' && app.description_en.trim()
+        ? app.description_en
+        : null,
+    category,
+    category_name: cleanCoord(app.category_name) || category,
+    aliases: [],
+    default_version: cleanCoord(app.latest_version) || 'v0.1.0',
+    // 未知协议诚实占位（未收录卡本就携带 `OpenSource`）：暂存档放行，提交前补真实 SPDX。
+    license: cleanCoord(app.license) || 'OpenSource',
+    stars: typeof app.stars === 'number' && Number.isFinite(app.stars) ? app.stars : 0,
+    forks: typeof app.forks === 'number' && Number.isFinite(app.forks) ? app.forks : 0,
+    is_verified: false,
+    homepage: homepageOrGithub(owner, repo, typeof app.homepage === 'string' ? app.homepage : null),
+    identifiers: {},
+    install_dirs: [],
+    search_subdirs: [],
+    publishers: [],
+    platforms: [],
+  };
+}
+
+/**
+ * 由趋势未收录行（TrendRepo）合成草稿 payload：同上，stars/forks 取榜单值，
+ * 描述缺失回退名称，homepage 回退 GitHub 坐标页；榜单无协议信息，license 恒
+ * `OpenSource` 占位（暂存档放行，提交前须在编辑页补真实 SPDX）。
+ */
+export function buildCustomDraftItemFromTrendRepo(repo: {
+  owner: string;
+  repo: string;
+  name?: string;
+  stars?: number;
+  forks?: number;
+  description?: string | null;
+  url?: string | null;
+}): CustomCatalogItem {
+  const owner = cleanCoord(repo.owner);
+  const repoName = cleanCoord(repo.repo) || cleanCoord(repo.name ?? '');
+  const id = canonicalDraftId(owner, repoName);
+  const stars = typeof repo.stars === 'number' && Number.isFinite(repo.stars) ? repo.stars : 0;
+  const forks = typeof repo.forks === 'number' && Number.isFinite(repo.forks) ? repo.forks : 0;
+  const homepage =
+    typeof repo.url === 'string' && repo.url.trim().startsWith('http')
+      ? repo.url.trim()
+      : `https://github.com/${owner}/${repoName}`;
+  return {
+    id,
+    name: cleanCoord(repo.name) || repoName,
+    owner,
+    repo: repoName,
+    icon: '',
+    icon_bg: 'linear-gradient(135deg, #475569, #334155)',
+    description: cleanCoord(repo.description ?? '') || repoName,
+    description_en: null,
+    category: 'dev',
+    category_name: 'dev',
+    aliases: [],
+    default_version: 'v0.1.0',
+    license: 'OpenSource',
+    stars,
+    forks,
+    is_verified: false,
+    homepage,
+    identifiers: {},
+    install_dirs: [],
+    search_subdirs: [],
+    publishers: [],
+    platforms: [],
+  };
+}

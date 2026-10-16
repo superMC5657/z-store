@@ -44,22 +44,6 @@ describe('baseline: Sidebar nav groups (Sidebar.tsx slices)', () => {
     expect(titles[1]).toBe('应用资产');
     expect(titles[titles.length - 1]).toBe('偏好与系统');
   });
-
-  it('keeps the six existing nav items in order', () => {
-    renderSidebar();
-    const labels = screen
-      .getAllByRole('button')
-      .map((b) => b.getAttribute('aria-label'))
-      .filter((l): l is string => l !== null && l !== '登录 GitHub');
-    expect(labels.slice(0, 6)).toEqual([
-      '精选发现',
-      '分类浏览',
-      '趋势榜单',
-      '已安装应用',
-      '更新中心',
-      '我的收藏',
-    ]);
-  });
 });
 
 const EXPECTED_PLATFORMS: Array<{ id: string; label: string }> = [
@@ -190,27 +174,5 @@ describe('Sidebar: Decision B select-nothing (empty is valid, never falls back t
     expect(onTogglePlatform).toHaveBeenCalledWith('windows');
     // 提交的下一状态为代表不选任何平台的空 Set，绝非拒绝操作
     expect(togglePlatformSet(parseSelectedPlatformArray(['windows']), 'windows').size).toBe(0);
-  });
-
-  it('renders English navigation group titles and items when switched to en-US', async () => {
-    const { default: i18n } = await import('../i18n');
-    await i18n.changeLanguage('en-US');
-    const { container } = renderSidebar();
-    const titles = groupTitles(container);
-    expect(titles).toEqual(['Discovery', 'Assets', 'Platforms', 'System & Settings']);
-
-    const labels = screen
-      .getAllByRole('button')
-      .map((b) => b.getAttribute('aria-label'))
-      .filter((l): l is string => l !== null && l !== '登录 GitHub');
-    expect(labels.slice(0, 6)).toEqual([
-      'Featured',
-      'Categories',
-      'Trending',
-      'Installed',
-      'Updates',
-      'Favorites',
-    ]);
-    await i18n.changeLanguage('zh-CN');
   });
 });

@@ -815,7 +815,7 @@ impl CatalogService {
             cached_at: Some(crate::github::http::now_secs()),
             // P0：合成空失败（401/限流/离线且无任何缓存）以 stale 区分于成功空。
             // 成功 deduce 路径（releases/platforms 推导、排序、ios 并集）保持不变；
-            // 仅此处标记，前端 stale-empty 视为 pending/待 backfill，永不确认 Other，
+            // 仅此处标记，前端 stale-empty 视为 loading/待 backfill-loading，永不确认 Other，
             // 调用方（commands/catalog）据此跳过 SQLite 持久化。
             // 真空契约：远端 200 已问到（repo/release 任一 Fresh 即走成功路径）、
             // 仅 is_valid_installer_asset 全过滤致 releases/platforms 双空时，
