@@ -27,10 +27,6 @@ interface AppCardProps {
   isWatched?: boolean;
   /** 加载中态（summary 为空且详情尚未落定）：此时不渲染 Other 徽标，改以占位保持布局稳定。 */
   platformLoading: boolean;
-  /** 趋势榜单名次（1-based）。不传则不渲染名次，精选页外观零变化。 */
-  rank?: number;
-  /** 名次颜色覆盖；默认按金银铜规则着色。 */
-  rankColor?: string;
   /** 趋势榜涨星数（>0 才渲染徽标，缺失时不渲染，保持精选页零变化）。 */
   trendGain?: number;
   /** 已按当前语言格式化好的涨星文案，如“本周 +1.2k”。 */
@@ -59,14 +55,6 @@ interface AppCardProps {
   isMovingIn?: boolean;
   /** custom 草稿已存在（`selectMergedCatalogApps` 会命中 custom 行）——抑制入口防误点。 */
   isCustomExisting?: boolean;
-}
-
-/** 趋势名次配色：冠军金 / 亚军银 / 季军铜，其余为次级文本色。入参为 0-based index。 */
-export function getRankBadgeColor(index: number): string {
-  if (index === 0) return '#eab308';
-  if (index === 1) return '#94a3b8';
-  if (index === 2) return '#d97706';
-  return 'var(--text-tertiary)';
 }
 
 function arePlatformsEqual(a?: string[], b?: string[]): boolean {
@@ -121,8 +109,6 @@ function areAppCardPropsEqual(prev: AppCardProps, next: AppCardProps): boolean {
     (prev.isFavorite ?? false) === (next.isFavorite ?? false) &&
     (prev.isWatched ?? false) === (next.isWatched ?? false) &&
     (prev.platformLoading) === (next.platformLoading) &&
-    prev.rank === next.rank &&
-    prev.rankColor === next.rankColor &&
     prev.trendGain === next.trendGain &&
     prev.trendGainText === next.trendGainText &&
     prev.className === next.className &&
@@ -148,8 +134,6 @@ export const AppCard: React.FC<AppCardProps> = memo(({
   isFavorite = false,
   isWatched = false,
   platformLoading,
-  rank,
-  rankColor,
   trendGain,
   trendGainText,
   className,
@@ -183,7 +167,7 @@ export const AppCard: React.FC<AppCardProps> = memo(({
   const showLoadingPlaceholder = !hasPlatforms && platformLoading;
   const showOther = !hasPlatforms && !platformLoading;
   // 主按钮降级：平台为空（loading 加载中或已确认 Other）且未安装时，
-  // 不承诺安装——统一为次级“查看详情”直开详情（避免安装后 toast 失败）。
+  // 不承诺安装——统一为次级“查看”直开详情（避免安装后 toast 失败）。
   // 已安装行保持原样（已安装徽标直开详情）。
   const showDetailOnly = !isInstalled && !hasPlatforms;
   const detailLabel = t('app.view_details');
@@ -212,15 +196,6 @@ export const AppCard: React.FC<AppCardProps> = memo(({
         }
       }}
     >
-      {rank !== undefined && (
-        <div
-          className="app-rank"
-          style={{ color: rankColor ?? getRankBadgeColor(rank - 1) }}
-          aria-label={`#${rank}`}
-        >
-          #{rank}
-        </div>
-      )}
       <div className="app-card-header">
         <AppIcon
           icon={app.icon}

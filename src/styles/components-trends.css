@@ -135,7 +135,7 @@
   color: #f87171;
 }
 
-/* 涨星徽标：灰底 + 金色涨星数，与星标/排名一致 */
+/* 涨星徽标：灰底 + 金色涨星数，与星标一致 */
 .app-tag.trend-gain {
   background: var(--bg-acrylic-hover);
   color: #eab308;

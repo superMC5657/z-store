@@ -112,7 +112,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
       expect(screen.getByText(/已安装应用.*\(0\)/)).toBeTruthy();
       expect(screen.getByText('规则')).toBeTruthy();
       expect(screen.getByText('导出清单')).toBeTruthy();
-      expect(screen.getByText('扫描本地应用')).toBeTruthy();
+      expect(screen.getByText('扫描本地')).toBeTruthy();
       expect(screen.getByText('暂无已安装应用')).toBeTruthy();
       unmount();
 
@@ -131,7 +131,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
       expect(screen.getByText(/Installed Apps.*\(0\)/)).toBeTruthy();
       expect(screen.getByText('Rules')).toBeTruthy();
       expect(screen.getByText('Export List')).toBeTruthy();
-      expect(screen.getByText('Scan Local Apps')).toBeTruthy();
+      expect(screen.getByText('Scan Local')).toBeTruthy();
       expect(screen.getByText('No Installed Apps')).toBeTruthy();
     });
 

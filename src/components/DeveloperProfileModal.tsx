@@ -339,7 +339,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                               onOpenAppDetail(repo.id);
                             }}
                           >
-                            查看详情
+                            查看
                           </button>
                           {isUnknownRow ? (
                             // P1 未知态中性占位（单色骨架，不可交互），永不闪灰
@@ -368,7 +368,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                               }}
                               title="已就绪 · 点击查看与管理"
                             >
-                              ✓ 已安装
+                              ✓ 安装
                             </button>
                           ) : showDetected ? (
                             <button
@@ -409,7 +409,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                               onOpenAppDetail(repo.id);
                             }}
                           >
-                            查看详情
+                            查看
                           </button>
                           <a
                             href={repo.html_url}

@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import '../i18n';
 import '../styles/components-trends.css';
 import { RefreshCw, TrendingUp, WifiOff } from 'lucide-react';
-import { AppCard, getRankBadgeColor } from '../components/AppCard';
+import { AppCard } from '../components/AppCard';
 import { SegmentedControl } from '../components/SegmentedControl';
 import { useTrendBoard } from './TrendsView/useTrendBoard';
 import { tauriApi } from '../services/api';
@@ -119,8 +119,8 @@ interface TrendsViewProps
 }
 
 type DisplayTrendItem =
-  | { type: 'catalog'; app: AppSummary; rank: number; gain?: number }
-  | { type: 'uncataloged'; repo: TrendRepo; rank: number; gain?: number };
+  | { type: 'catalog'; app: AppSummary; gain?: number }
+  | { type: 'uncataloged'; repo: TrendRepo; gain?: number };
 
 /** 错误种类 → 描述文案键一处映射，避免渲染处散落四分支。 */
 type TrendsErrorDescKey =
@@ -266,7 +266,6 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
         items.push({
           type: 'catalog',
           app: matched,
-          rank: items.length + 1,
           gain,
         });
         return;
@@ -274,7 +273,6 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       items.push({
         type: 'uncataloged',
         repo: trend,
-        rank: items.length + 1,
         gain,
       });
     });
@@ -658,7 +656,6 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                   key={item.app.id}
                   app={item.app}
                   platformLoading={catalogLoading}
-                  rank={item.rank}
                   className="fluent-list-row"
                   eager={index < 6}
                   trendGain={item.gain}
@@ -700,7 +697,6 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                   key={`uncataloged-${item.repo.id || item.repo.name}-${index}`}
                   app={displayApp}
                   platformLoading={enrichedLoading}
-                  rank={item.rank}
                   className="fluent-list-row"
                   eager={index < 6}
                   trendGain={item.gain}
@@ -759,13 +755,6 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                   }
                 }}
               >
-                <div
-                  className="app-rank"
-                  style={{ color: getRankBadgeColor(index) }}
-                  aria-label={`#${item.rank}`}
-                >
-                  #{item.rank}
-                </div>
                 <div className="app-card-header trend-uncataloged-main">
                   <div className="app-meta" style={{ minWidth: 0 }}>
                     <div className="app-title">

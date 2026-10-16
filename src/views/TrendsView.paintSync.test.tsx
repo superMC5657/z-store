@@ -1,6 +1,6 @@
 /**
  * 现状：裸行直展回归（paint-sync lane）：
- * - 未就绪不再拦整榜，board repos 直接展裸行（排名+仓库名+星，与裸行同形）；
+ * - 未就绪不再拦整榜，board repos 直接展裸行（仓库名+星）；
  * - enrich/SWR 到即原地升级富卡，全程无 trends-skeleton 空号。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -56,7 +56,7 @@ describe('裸行直展：未就绪展裸行不展骨架', () => {
         onResetPlatformFilter={() => {}}
       />,
     );
-    // 裸行有名直展（排名+仓库名+星，与裸行同形），无富卡描述，全程无骨架空号。
+    // 裸行直展（仓库名+星），无富卡描述，全程无骨架空号。
     await screen.findByText('acme/atlas');
     expect(container.querySelectorAll('.trend-uncataloged-row')).toHaveLength(3);
     expect(screen.queryByText('acme/atlas enriched desc')).toBeNull();

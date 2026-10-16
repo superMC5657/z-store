@@ -797,7 +797,7 @@ describe('TrendsView 未收录行 enrich：成功升 AppCard，失败留小行',
     enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockRejectedValue(new Error('offline'));
     const { container } = renderUncatalogedBoard();
 
-    // 现状：board 落定即展裸行有名（排名+仓库名+星），裸行即逃生。
+    // 现状：board 落定即展裸行（仓库名+星），裸行即逃生。
     await screen.findByText('acme/atlas');
     // enrich 拒绝后仍为 3 个小行，无完整卡片，全程无骨架空号。
     await waitFor(() => {
