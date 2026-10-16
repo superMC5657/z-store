@@ -1,6 +1,6 @@
 /**
- * 已确认 Other 回归 + pending 永不持久化：
- * pending 空平台永不持久化（不进 trendEnrichCache 内存，不落库），只活当次 out 渲染；
+ * 已确认 Other 回归 + loading 永不持久化：
+ * loading 空平台永不持久化（不进 trendEnrichCache 内存，不落库），只活当次 out 渲染；
  * 只有具平台才进缓存（12h/500 FIFO）；后续靠应用详情刷新治愈（upsert from detail）。
  * - fresh 不自动确认，需 lite/详情确认标记才为 Other；
  * - concrete 到场驱逐确认；stale 到期重验；
@@ -109,10 +109,10 @@ describe('per-field TTL：icon sticky / summary 12h（仅具平台）', () => {
   });
 });
 
-describe('pending 永不持久化', () => {
-  it('hydrate pending 直接跳过（快照无条目）', () => {
+describe('loading 永不持久化', () => {
+  it('hydrate loading 直接跳过（快照无条目）', () => {
     putTrendEnrichMemory({
-      'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [], description: 'pending' }),
+      'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [], description: 'loading' }),
     });
     expect(snapshotTrendEnrichCache()).not.toHaveProperty('acme/atlas');
     expect(snapshotTrendEnrichCache([makeTrendRepo({ id: 'acme/atlas' })])).not.toHaveProperty(
@@ -120,7 +120,7 @@ describe('pending 永不持久化', () => {
     );
   });
 
-  it('enrich pending 只活当次 out，二次进榜无缓存命中走重拉', async () => {
+  it('enrich loading 只活当次 out，二次进榜无缓存命中走重拉', async () => {
     const spy = vi
       .spyOn(tauriApi, 'enrichTrendRepos')
       .mockImplementation(async (rs) =>
@@ -129,7 +129,7 @@ describe('pending 永不持久化', () => {
     const repos = [makeTrendRepo({ id: 'acme/atlas' })];
     const first = await enrichTrendRepos(repos);
     expect(first.get('acme/atlas')?.platforms).toEqual([]);
-    // pending 永不进内存：快照无条目。
+    // loading 永不进内存：快照无条目。
     expect(snapshotTrendEnrichCache()).not.toHaveProperty('acme/atlas');
     const second = await enrichTrendRepos(repos);
     expect(second.get('acme/atlas')?.platforms).toEqual([]);
@@ -143,8 +143,8 @@ describe('pending 永不持久化', () => {
       rs.map((r) => makeEnrichedApp({ id: `${r.owner}/${r.repo}`, platforms: [] })),
     );
     const repos = [makeTrendRepo({ id: 'acme/atlas' })];
-    const pendingOut = await enrichTrendRepos(repos);
-    expect(pendingOut.get('acme/atlas')?.platforms).toEqual([]);
+    const loadingOut = await enrichTrendRepos(repos);
+    expect(loadingOut.get('acme/atlas')?.platforms).toEqual([]);
     expect(snapshotTrendEnrichCache()).not.toHaveProperty('acme/atlas');
     // 应用详情刷新治愈：具平台回填唯一写口。
     upsertTrendEnrichFromDetail(makeDetail({ id: 'acme/atlas', platforms: ['windows'] }));
@@ -193,8 +193,8 @@ describe('已确认 Other（需确认标记）', () => {
   });
 });
 
-describe('已确认 pending 进内存（Other 写透联动）', () => {
-  it('先 mark 后 hydrate：已确认 pending 进内存并可快照', () => {
+describe('已确认 loading 进内存（Other 写透联动）', () => {
+  it('先 mark 后 hydrate：已确认 loading 进内存并可快照', () => {
     markTrendConfirmedOther('acme/atlas');
     putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [], description: 'other' }),
@@ -203,7 +203,7 @@ describe('已确认 pending 进内存（Other 写透联动）', () => {
     expect(snapshotTrendEnrichCache([makeTrendRepo({ id: 'acme/atlas' })])['acme/atlas']).toBeDefined();
   });
 
-  it('pending 回填永不覆盖内存已具平台值（即使已标记）', () => {
+  it('loading 回填永不覆盖内存已具平台值（即使已标记）', () => {
     putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'] }),
     });
@@ -216,7 +216,7 @@ describe('已确认 pending 进内存（Other 写透联动）', () => {
     expect(snapshotTrendEnrichCache()['acme/atlas']?.platforms).toEqual(['windows']);
   });
 
-  it('已确认 pending 新鲜命中 enrich（免重拉），stale 到期重拉', async () => {
+  it('已确认 loading 新鲜命中 enrich（免重拉），stale 到期重拉', async () => {
     markTrendConfirmedOther('acme/atlas');
     putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [], description: 'other' }),

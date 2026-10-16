@@ -857,7 +857,7 @@ describe('TrendsView 平台过滤与榜单口径计数', () => {
     );
   }
 
-  it('取消 Other：裸远端行待确认恒可见（pending 不看 Other 勾选）', async () => {
+  it('取消 Other：裸远端行加载中恒可见（loading 不看 Other 勾选）', async () => {
     trendingHtml = trendingHtmlFixture();
     enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockRejectedValue(new Error('offline'));
     const { container } = renderBoard({

@@ -69,7 +69,7 @@ function renderModal(readme: string): HTMLElement {
     <AppDetailModal
       app={fixtureApp(readme)}
       isInstalled={false}
-      platformPending={false}
+      platformLoading={false}
       onClose={() => {}}
       onInstall={async () => {}}
       onLaunch={() => {}}
@@ -106,7 +106,7 @@ describe('readme characterization (real AppDetailModal path)', () => {
       <AppDetailModal
         app={app}
         isInstalled={false}
-        platformPending={false}
+        platformLoading={false}
         onClose={() => {}}
         onInstall={async () => {}}
         onLaunch={() => {}}

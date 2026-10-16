@@ -116,7 +116,7 @@ export async function getPlatformsLite(id: string): Promise<PlatformsLiteResult>
   try {
     const res = await tauriInvoke<PlatformsLiteResult>(CMD.getPlatformsLite, { id });
     if (!res || !Array.isArray((res as PlatformsLiteResult).platforms)) {
-      zlogWarn(`get_platforms_lite returned invalid shape for id=${id}, treating as stale pending`);
+      zlogWarn(`get_platforms_lite returned invalid shape for id=${id}, treating as stale loading`);
       return { id, platforms: [], is_stale: true };
     }
     return res;

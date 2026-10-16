@@ -34,7 +34,7 @@ describe('SWR 组件直展：重挂首屏即见已确认 Other 富卡，不闪�
   });
 
   it('预 hydrate 已确认 Other 后挂载直展 AppCard，无裸行占位', async () => {
-    // 重启前 L2 富信封：三仓均为已确认 Other（先 mark 后 hydrate，未确认 pending 永不进内存）
+    // 重启前 L2 富信封：三仓均为已确认 Other（先 mark 后 hydrate，未确认 loading 永不进内存）
     markTrendConfirmedOthers(['acme/atlas', 'acme/beacon', 'acme/comet']);
     putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [] }),
@@ -122,7 +122,7 @@ describe('平台随富卡缓存：L2 新鲜免验，过期才补验', () => {
     );
   }
 
-  // 新 SWR 语义两档：具平台免验、pending 后台补验（首屏均展旧卡、无裸行）。
+  // 新 SWR 语义两档：具平台免验、loading 后台补验（首屏均展旧卡、无裸行）。
   it('L2全具平台零lite零enrich：11仓新鲜具平台直展富卡，后台零补验', async () => {
     // L2 富信封：11 仓全具真实平台，均为新鲜 hydrate
     const bulk: Record<string, ReturnType<typeof makeEnrichedApp>> = {};
@@ -154,9 +154,9 @@ describe('平台随富卡缓存：L2 新鲜免验，过期才补验', () => {
     expect(liteSpy).not.toHaveBeenCalled();
   });
 
-  it('L2混合：具平台直展，pending 经 enrich+lite 落定（首屏裸行占位，落定后富卡）', async () => {
-    // L2 富信封：偶下标具平台（直展免验）、奇下标未确认 pending（永不进内存，首屏裸行占位）；
-    // 奇下标经后台 enrich 取回 pending，再走 lite 补验落定，不闪空。
+  it('L2混合：具平台直展，loading 经 enrich+lite 落定（首屏裸行占位，落定后富卡）', async () => {
+    // L2 富信封：偶下标具平台（直展免验）、奇下标未确认 loading（永不进内存，首屏裸行占位）；
+    // 奇下标经后台 enrich 取回 loading，再走 lite 补验落定，不闪空。
     const bulk: Record<string, ReturnType<typeof makeEnrichedApp>> = {};
     for (let i = 0; i < 11; i += 1) {
       bulk[`acme/r${i}`] =
@@ -169,7 +169,7 @@ describe('平台随富卡缓存：L2 新鲜免验，过期才补验', () => {
       if (String(url).includes('github.com/trending')) return elevenRowsHtml();
       throw new Error(`unexpected url: ${url}`);
     });
-    // 后台 enrich 取回奇下标 pending（只活当次 out，不进内存），再由 lite 确认
+    // 后台 enrich 取回奇下标 loading（只活当次 out，不进内存），再由 lite 确认
     const enrichSpy = vi
       .spyOn(tauriApi, 'enrichTrendRepos')
       .mockImplementation(async (rs) =>
@@ -180,9 +180,9 @@ describe('平台随富卡缓存：L2 新鲜免验，过期才补验', () => {
       .mockImplementation(async (id: string) => ({ id, platforms: [], is_stale: false }));
     const { container } = renderBoard();
 
-    // 首屏：偶下标具平台直展富卡；奇下标未确认 pending 无旧卡，裸行占位（恒可见，不断榜）
+    // 首屏：偶下标具平台直展富卡；奇下标未确认 loading 无旧卡，裸行占位（恒可见，不断榜）
     await screen.findByText('acme/r0 enriched desc');
-    // 后台 enrich 拉回缺席项（奇下标 pending）
+    // 后台 enrich 拉回缺席项（奇下标 loading）
     await waitFor(() => {
       expect(enrichSpy).toHaveBeenCalled();
     });
@@ -236,13 +236,13 @@ describe('平台随富卡缓存：L2 新鲜免验，过期才补验', () => {
     // 榜单经网络重拉后展示
     await screen.findByText('acme/atlas enriched desc');
     expect(container.querySelectorAll('.trend-uncataloged-row')).toHaveLength(0);
-    // 过期才补验：pending 行触发 getPlatformsLite
+    // 过期才补验：loading 行触发 getPlatformsLite
     await waitFor(() => {
       expect(liteSpy.mock.calls.length).toBeGreaterThan(0);
     });
   });
 
-  it('pending经lite具平台后重挂零lite直展：写透替代pending，下次免验', async () => {
+  it('loading经lite具平台后重挂零lite直展：写透替代loading，下次免验', async () => {
     const clientModule = await import('../api/client');
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
     // 内存 L2 存盘模拟：get/save 同一 Map，key 小写归一由业务保证，此处原样存取
@@ -260,7 +260,7 @@ describe('平台随富卡缓存：L2 新鲜免验，过期才补验', () => {
       }
       return undefined;
     });
-    // 首挂前内存 pending（三仓均为 pending 空平台，首屏展旧卡不闪裸）
+    // 首挂前内存 loading（三仓均为 loading 空平台，首屏展旧卡不闪裸）
     putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [] }),
       'acme/beacon': makeEnrichedApp({ id: 'acme/beacon', platforms: [] }),
@@ -281,11 +281,11 @@ describe('平台随富卡缓存：L2 新鲜免验，过期才补验', () => {
     await waitFor(() => {
       expect(first.container.querySelectorAll('.trend-uncataloged-row')).toHaveLength(0);
     });
-    // 首挂后台补验：三 pending 均走 lite 且落定为具平台
+    // 首挂后台补验：三 loading 均走 lite 且落定为具平台
     await waitFor(() => {
       expect(liteSpy).toHaveBeenCalledTimes(3);
     });
-    // 写透落稳：L2 存盘已替代 pending 为具平台（非空非 stale 才写透）
+    // 写透落稳：L2 存盘已替代 loading 为具平台（非空非 stale 才写透）
     await waitFor(() => {
       expect(l2Store.size).toBeGreaterThan(0);
       const hasConcrete = [...l2Store.values()].some((v) => {
@@ -382,7 +382,7 @@ describe('已确认Other落盘：重挂零lite直展Other卡、具平台可升�
       if (String(url).includes('github.com/trending')) return trendingHtmlFixture();
       throw new Error(`unexpected url: ${url}`);
     });
-    // 首挂：enrich 全空 pending，后台 lite 空非 stale 即确认为 Other
+    // 首挂：enrich 全空 loading，后台 lite 空非 stale 即确认为 Other
     const enrichSpy = vi
       .spyOn(tauriApi, 'enrichTrendRepos')
       .mockImplementation(async (rs) =>
@@ -396,7 +396,7 @@ describe('已确认Other落盘：重挂零lite直展Other卡、具平台可升�
     await waitFor(() => {
       expect(first.container.querySelectorAll('.trend-uncataloged-row')).toHaveLength(0);
     });
-    // 三 pending 均走 lite 确认
+    // 三 loading 均走 lite 确认
     await waitFor(() => {
       expect(liteSpy).toHaveBeenCalledTimes(3);
     });
@@ -452,7 +452,7 @@ describe('已确认Other落盘：重挂零lite直展Other卡、具平台可升�
     expect(snapshotTrendEnrichCache()['acme/atlas']?.platforms).toEqual([]);
   });
 
-  it('具平台可升级覆盖：Other确认后治愈写透替代，确认移除且pending不覆盖具平台', async () => {
+  it('具平台可升级覆盖：Other确认后治愈写透替代，确认移除且loading不覆盖具平台', async () => {
     const clientModule = await import('../api/client');
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
     const l2Store = new Map<string, { payload_json: string; cached_at: number }>();
@@ -515,7 +515,7 @@ describe('已确认Other落盘：重挂零lite直展Other卡、具平台可升�
     clearTrendEnrichCache();
     liteSpy.mockClear();
     enrichSpy.mockClear();
-    // 次挂前模拟治愈到达：L2 旧确认仍在，但内存先被具平台覆盖（put 自动移除确认，禁 pending 覆盖具平台）
+    // 次挂前模拟治愈到达：L2 旧确认仍在，但内存先被具平台覆盖（put 自动移除确认，禁 loading 覆盖具平台）
     const { saveBoardCacheMerged } = await import('./cache');
     const { buildTrendsCacheKey } = await import('./cache');
     // 先由 L2 回填旧盘（触发 hydrate），再以具平台覆盖 atlas
@@ -550,7 +550,7 @@ describe('已确认Other落盘：重挂零lite直展Other卡、具平台可升�
       );
       expect(withConcrete).toBe(true);
     });
-    // pending 空值永不覆盖具平台：再以空 pending hydrate 同键，仍保持具平台
+    // loading 空值永不覆盖具平台：再以空 loading hydrate 同键，仍保持具平台
     hydrate({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [] }),
     });

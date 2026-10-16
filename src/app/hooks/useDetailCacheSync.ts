@@ -194,7 +194,7 @@ export function useDetailCacheSync({
     // 列表回填只用转正 http，data:/空一律按缺席走 cycle 兜底（L5 显式空除外，经 cycle level 5 显式写）。
     const patchedIcon =
       rawDetailIcon !== '' && !rawDetailIcon.startsWith('data:') ? rawDetailIcon : undefined;
-    // stale 离线缓存不具权威：平台相关一律保持 pending（不确认、不治愈、不碰榜单缓存）
+    // stale 离线缓存不具权威：平台相关一律保持 loading（不确认、不治愈、不碰榜单缓存）
     const isStaleDetail = Boolean(detail.is_stale);
     const detailPlatforms = !isStaleDetail && detail.platforms && detail.platforms.length > 0 ? detail.platforms : undefined;
     const detailConfirmedEmpty = !isStaleDetail && !detailPlatforms;
@@ -205,7 +205,7 @@ export function useDetailCacheSync({
         (detail.id && app.id.toLowerCase() === detail.id.toLowerCase());
       if (!isTarget) return app;
       const nextIcon = patchedIcon ? patchedIcon : app.icon;
-      // stale 详情不碰平台：列表保持 pending，避免离线快照误治愈/误确认
+      // stale 详情不碰平台：列表保持 loading，避免离线快照误治愈/误确认
       const nextPlatforms = detailPlatforms && (!app.platforms || app.platforms.length === 0)
         ? detailPlatforms
         : app.platforms;

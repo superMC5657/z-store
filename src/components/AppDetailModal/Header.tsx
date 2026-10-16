@@ -27,7 +27,7 @@ export interface HeaderProps {
   displayDesc: string;
   displayCategory: string;
   primaryAsset?: ReleaseAsset;
-  platformPending: boolean;
+  platformLoading: boolean;
   oauthUser?: OAuthUser | null;
   isFavorite?: boolean;
   isWatched?: boolean;
@@ -44,7 +44,7 @@ export const Header: React.FC<HeaderProps> = ({
   displayDesc,
   displayCategory,
   primaryAsset,
-  platformPending,
+  platformLoading,
   oauthUser = null,
   isFavorite = false,
   isWatched = false,
@@ -452,9 +452,9 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="modal-tag">{displayCategory}</span>
           {(() => {
             const hasModalPlatforms = !!app.platforms && app.platforms.length > 0;
-            // pending-empty 骨架占位，已确认-empty 才 Other。
-            const isModalPending = Boolean(platformPending);
-            const showModalPendingPlaceholder = !hasModalPlatforms && isModalPending;
+            // loading-empty 骨架占位，已确认-empty 才 Other。
+            const isModalLoading = Boolean(platformLoading);
+            const showModalLoadingPlaceholder = !hasModalPlatforms && isModalLoading;
             if (hasModalPlatforms) {
               return (
                 <span
@@ -473,7 +473,7 @@ export const Header: React.FC<HeaderProps> = ({
                 </span>
               );
             }
-            if (showModalPendingPlaceholder) {
+            if (showModalLoadingPlaceholder) {
               return (
                 <span
                   className="modal-tag"

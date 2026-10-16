@@ -224,7 +224,7 @@ export function useSearchState({
     // 在线无结果/失败则保持本地结果 + 提示（内部分支处理）。
     // 搜索列表缓存：提交前先读搜索列表缓存，
     // 后台仍 searchAppsOnline revalidate（沿用 searchSeqRef/guardFreshSearch 防串）；
-    // 换词冷启动的 pending 平台每次重查（lazyBackfill 照常跑，不跳过）。
+    // 换词冷启动的 loading 平台每次重查（lazyBackfill 照常跑，不跳过）。
     let hadCacheHit = false;
     const listCached = readSearchListCache({ query: q, page: 1, perPage: ONLINE_SEARCH_PER_PAGE });
     if (listCached && listCached.length > 0) {

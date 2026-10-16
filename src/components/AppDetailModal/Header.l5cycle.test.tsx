@@ -118,7 +118,7 @@ describe('Header L5 cycle goes through the sole write', () => {
         displayName="L5 Fixture"
         displayDesc="l5 cycle fixture"
         displayCategory="跨平台开源"
-        platformPending={false}
+        platformLoading={false}
         onClose={() => {}}
       />,
     );
@@ -144,7 +144,7 @@ describe('Header L5 cycle goes through the sole write', () => {
         displayName="L5 Fixture"
         displayDesc="l5 cycle fixture"
         displayCategory="跨平台开源"
-        platformPending={false}
+        platformLoading={false}
         onClose={() => {}}
       />,
     );

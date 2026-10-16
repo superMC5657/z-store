@@ -295,17 +295,17 @@
   justify-content: center;
 }
 
-/* 平台待确认占位：同尺寸骨架避免布局跳动，低透明脉冲提示正在确认 */
-.app-tag-platforms-pending {
+/* 平台加载中占位：同尺寸骨架避免布局跳动，低透明脉冲提示正在加载 */
+.app-tag-platforms-loading {
   min-width: 52px;
   justify-content: center;
 }
 
-.app-tag-platforms-pending > span[aria-hidden='true'] {
-  animation: platform-pending-pulse 1.2s ease-in-out infinite;
+.app-tag-platforms-loading > span[aria-hidden='true'] {
+  animation: platform-loading-pulse 1.2s ease-in-out infinite;
 }
 
-@keyframes platform-pending-pulse {
+@keyframes platform-loading-pulse {
   0%, 100% { opacity: 0.45; }
   50% { opacity: 1; }
 }

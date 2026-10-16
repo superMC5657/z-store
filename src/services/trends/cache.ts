@@ -153,7 +153,7 @@ export const CMD_SAVE_TREND_BOARD_CACHE = 'save_trend_board_cache';
 /**
  * 榜单持久化信封 v1：
  * 包装榜单裸仓列表与对应的坐标 enrich 派生摘要。
- * enrich 键为小写 `owner/repo`，收录具真实平台与 pending 空平台条目（首屏直展，Other 待确认语义）；
+ * enrich 键为小写 `owner/repo`，收录具真实平台与 loading 空平台条目（首屏直展，Other 加载中语义）；
  * 仅禁 dataURI（图标 data: 开头一律不进盘）。
  * confirmedOther 为已确认 Other 键集。
  * 新鲜度复用 `cached_at` + 按榜 TTL。
@@ -274,7 +274,7 @@ export async function getDbTrendCache(key: string, board?: string): Promise<Tren
  * - enrich 可选：缺省按空对象写入信封；
  * - confirmedOther 可选：已确认 Other 键集（小写），与 enrich 同 key 落盘（data 仍禁由 enrich 守卫保证）；
  *   具平台键调用方已过滤，此处再做一次去重归一；为空即省略字段。
- * - 富信封：pending 空平台随信封落盘（首屏直展 pending 卡，Other 待确认语义）；仅禁 dataURI。
+ * - 富信封：loading 空平台随信封落盘（首屏直展 loading 卡，Other 加载中语义）；仅禁 dataURI。
  * - 已确认 Other 同信封落盘：settle 兜底 / lite 空非 stale 确认后按正常 enrich 同 key 写透，重挂免验直展 Other 卡；
  *   具平台到达即移除（可覆盖升级），按榜窗口（daily 1h，其余 12h）由 cached_at + 按榜 TTL 把关，到期重验。
  * - 字节上限：FE utf8ByteLength 预检 256KB；超限先丢 confirmed，再富卡长文本截断，

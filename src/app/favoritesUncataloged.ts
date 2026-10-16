@@ -13,8 +13,8 @@ import { normalizeId } from '../services/normalizeId';
  * 背景：`apps` 来自 `searchApps('')` 仅收录库；`FavoritesView` 按
  * `favoriteIds` 内连接过滤会丢未收录行（计数用全集 `favoriteIds.size`）。
  * 此处对 `favoriteIds ∖ apps` 合成占位 `AppSummary`，再进
- * `matchPlatformSetWithPending`（平台三态逻辑不动：占位 `platforms: []`
- * 即 pending 恒可见，落定后走正常 Other 过滤）。
+ * `matchPlatformSetWithLoading`（平台三态逻辑不动：占位 `platforms: []`
+ * 即 loading 恒可见，落定后走正常 Other 过滤）。
  *
  * - 归一大小写：join/去重一律经前端唯一口 `normalizeId`（`trim().toLowerCase()`），
  *   原始 id 保留原值供 `FavoritesView` 精确 `has` 命中（双键：原值 + 小写在调用方分别建索引）。
@@ -56,7 +56,7 @@ export function parseFavoriteOwnerRepo(id: string): { owner: string; repo: strin
   return { owner: clean, repo: clean };
 }
 
-/** 最小占位行：无详情缓存/离线失败时仍保证收藏行必展示（pending 恒可见）。 */
+/** 最小占位行：无详情缓存/离线失败时仍保证收藏行必展示（loading 恒可见）。 */
 export function makeFavoritePlaceholderSummary(favId: string): AppSummary {
   const id = typeof favId === 'string' ? favId.trim() : '';
   const { owner, repo } = parseFavoriteOwnerRepo(id);
@@ -173,12 +173,12 @@ export interface UseUncatalogedJoinParams {
  * `(favoriteIds∪watchedIds) ∖ apps` 经 `getAppDetails`（后端
  * `get_cached_app_detail_fallback` 回退）合成占位行，未收录也能展示。
  * 归一大小写 + 双键；合成行 `is_cataloged=false/category=external`，
- * `platforms: []` 即 pending，平台三态/徽标逻辑一律不动。
+ * `platforms: []` 即 loading，平台三态/徽标逻辑一律不动。
  * 失败即最小占位，行必展示；收录到达即驱逐。
  */
 export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatalogedJoinParams) {
   // 收藏/关注未收录占位行 left-join：`(favoriteIds∪watchedIds) ∖ apps` 经详情回退合成，仅收藏页消费，
-  // 不进 `apps`/计数/其它视图；`platforms: []` 即 pending 恒可见，平台三态不动）。
+  // 不进 `apps`/计数/其它视图；`platforms: []` 即 loading 恒可见，平台三态不动）。
   const [favoriteExtraApps, setFavoriteExtraApps] = useState<AppSummary[]>([]);
   const favoriteExtraAppsRef = useRef<AppSummary[]>([]);
   favoriteExtraAppsRef.current = favoriteExtraApps;

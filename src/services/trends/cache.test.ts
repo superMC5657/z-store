@@ -248,27 +248,27 @@ describe('trends L2 persistence cache', () => {
       expect(res.status).toBe('ok');
       expect(res.repos).toHaveLength(1);
       expect(networkSpy).not.toHaveBeenCalled();
-      // 同 key 命中不回 pending：确认集已恢复
+      // 同 key 命中不回 loading：确认集已恢复
       expect(snapshotTrendConfirmedOthers()).toContain('acme/atlas');
     });
 
-    it('未确认 pending 永不落盘：旧盘残留 pending 无确认则丢弃', async () => {
+    it('未确认 loading 永不落盘：旧盘残留 loading 无确认则丢弃', async () => {
       vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
       const store = mockL2();
       const nowSec = Math.floor(Date.now() / 1000);
       const repos = [makeTrendRepo({ id: 'acme/atlas' })];
-      const stalePending = makeEnrichedApp({ id: 'acme/atlas', platforms: [] });
+      const staleLoading = makeEnrichedApp({ id: 'acme/atlas', platforms: [] });
       vi.spyOn(clientModule, 'tauriInvoke').mockImplementationOnce(async () => ({
-        payload_json: JSON.stringify({ v: 1, repos, enrich: { 'acme/atlas': stalePending } }),
+        payload_json: JSON.stringify({ v: 1, repos, enrich: { 'acme/atlas': staleLoading } }),
         cached_at: nowSec - 60,
       }));
-      // 旧盘读：无确认集，pending 丢弃不进内存
+      // 旧盘读：无确认集，loading 丢弃不进内存
       const hit = await getDbTrendCache('weekly||', 'weekly');
       expect(hit).toHaveLength(1);
       expect(snapshotTrendEnrichCache(hit ?? [])).not.toHaveProperty('acme/atlas');
       expect(snapshotTrendConfirmedOthers()).not.toContain('acme/atlas');
 
-      // 恢复常规 L2 mock 后再合并写透：残留 pending 不回写
+      // 恢复常规 L2 mock 后再合并写透：残留 loading 不回写
       vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
         if (cmd === 'get_trend_board_cache') {
           const k = (args as { cache_key: string }).cache_key;

@@ -131,7 +131,7 @@ describe('驱逐写透：具平台到→盘 confirmedOther 清', () => {
       return undefined;
     });
     const repos = [makeTrendRepo({ id: 'acme/atlas' })];
-    // 先确认 pending 并落盘：盘含确认。
+    // 先确认 loading 并落盘：盘含确认。
     markTrendConfirmedOther('acme/atlas');
     putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [], description: 'other' }),

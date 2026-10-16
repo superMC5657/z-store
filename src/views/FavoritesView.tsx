@@ -9,7 +9,7 @@ import { AppSummary, OAuthUser, StarredSyncResult } from '../types';
 import { tauriApi } from '../services/api';
 import { ViewAppActions, ViewShell } from './ViewShell';
 import { matchesAppText } from './useViewFilter';
-import { isPlatformPending } from '../lib/platformFilter';
+import { isPlatformLoading } from '../lib/platformFilter';
 import { normalizeId, normalizeIdLowerSet } from '../services/normalizeId';
 import { queueAssembledRowIcons } from '../services/iconStore';
 import { isInstalledUnion as selectIsInstalledUnion, selectIsDetectedOnlyOpt, selectIsManagedOpt } from '../app/selectors';
@@ -49,7 +49,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   }, [oauthUser?.login]);
 
   const watchedSet = watchedIds || new Set<string>();
-  // pending 徽标口径统一经选择器接口。
+  // loading 徽标口径统一经选择器接口。
 
   // FR-6.1: 收藏 / 关注搜索框（按名称 / 别名 / 仓库坐标过滤，见 useViewFilter.matchesAppText）
   const matchesSearch = (a: AppSummary) => matchesAppText(a, searchText);
@@ -190,7 +190,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 key={app.id}
                 app={app}
                 eager={index < 6}
-                platformPending={isPlatformPending(app, platformResolvedOtherIds)}
+                platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
                 isInstalled={selectIsInstalledUnion(app.id, installedIds)}
                 isManaged={selectIsManagedOpt(app.id, managedIds)}
                 isDetectedOnly={selectIsDetectedOnlyOpt(app.id, installedIds, managedIds)}
@@ -231,7 +231,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 key={app.id}
                 app={app}
                 eager={index < 6}
-                platformPending={isPlatformPending(app, platformResolvedOtherIds)}
+                platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
                 isInstalled={selectIsInstalledUnion(app.id, installedIds)}
                 isManaged={selectIsManagedOpt(app.id, managedIds)}
                 isDetectedOnly={selectIsDetectedOnlyOpt(app.id, installedIds, managedIds)}
@@ -374,7 +374,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                       key={app.id}
                       app={app}
                       eager={index < 6}
-                      platformPending={isPlatformPending(app, platformResolvedOtherIds)}
+                      platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
                       isInstalled={selectIsInstalledUnion(app.id, installedIds)}
                       isManaged={selectIsManagedOpt(app.id, managedIds)}
                       isDetectedOnly={selectIsDetectedOnlyOpt(app.id, installedIds, managedIds)}

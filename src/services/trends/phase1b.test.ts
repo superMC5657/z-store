@@ -112,7 +112,7 @@ describe('key 归一读写一致', () => {
   });
 });
 
-describe('Phase1B C5（SWR）：已确认 pending 进盘直展，未确认永不进盘，data: URI 永不进 payload', () => {
+describe('Phase1B C5（SWR）：已确认 loading 进盘直展，未确认永不进盘，data: URI 永不进 payload', () => {
   beforeEach(() => {
     clearTrendsCache();
     vi.restoreAllMocks();
@@ -123,11 +123,11 @@ describe('Phase1B C5（SWR）：已确认 pending 进盘直展，未确认永不
     vi.restoreAllMocks();
   });
 
-  it('hydrate/snapshot 守卫：已确认 pending 进缓存直展，未确认跳过，data: URI 永不进', () => {
+  it('hydrate/snapshot 守卫：已确认 loading 进缓存直展，未确认跳过，data: URI 永不进', () => {
     const empty = makeEnrichedApp({ id: 'acme/empty', platforms: [] });
     const dataUri = makeEnrichedApp({ id: 'acme/img', platforms: ['windows'], icon: 'data:image/png;base64,xxx' });
     const good = makeEnrichedApp({ id: 'acme/good', platforms: ['windows'], icon: 'https://x/icon.png' });
-    // 已确认 pending 方可进内存（先 mark 后 hydrate）
+    // 已确认 loading 方可进内存（先 mark 后 hydrate）
     markTrendConfirmedOther('acme/empty');
     putTrendEnrichMemory({
       'acme/empty': empty,
@@ -136,17 +136,17 @@ describe('Phase1B C5（SWR）：已确认 pending 进盘直展，未确认永不
     });
     const snap = snapshotTrendEnrichCache();
     expect(snap['acme/good']).toBeDefined();
-    // SWR：已确认 pending 保留进盘，首屏直展 Other 卡
+    // SWR：已确认 loading 保留进盘，首屏直展 Other 卡
     expect(snap['acme/empty']).toBeDefined();
     expect(snap['acme/empty']?.platforms).toEqual([]);
     expect(snap['acme/img']).toBeUndefined();
-    // 未确认 pending 永不进内存
+    // 未确认 loading 永不进内存
     clearTrendEnrichCache();
     putTrendEnrichMemory({ 'acme/empty': empty });
     expect(snapshotTrendEnrichCache()).not.toHaveProperty('acme/empty');
   });
 
-  it('saveDbTrendCache 消毒：pending 进盘，data: URI 兜底不进 L2', async () => {
+  it('saveDbTrendCache 消毒：loading 进盘，data: URI 兜底不进 L2', async () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
     const invokeSpy = vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValue(undefined);
     const repos = [makeTrendRepo({ id: 'acme/atlas', stars: 10 })];
@@ -175,7 +175,7 @@ describe('Phase1B C5（SWR）：已确认 pending 进盘直展，未确认永不
     };
     expect(payload.v).toBe(1);
     expect(payload.enrich['acme/good']).toBeDefined();
-    // SWR：pending 空平台随信封落盘，首屏直展 pending 卡
+    // SWR：loading 空平台随信封落盘，首屏直展 loading 卡
     expect(payload.enrich['acme/atlas']).toBeDefined();
     expect(payload.enrich['acme/atlas']?.platforms).toEqual([]);
     expect(payload.enrich['acme/beacon']).toBeUndefined();

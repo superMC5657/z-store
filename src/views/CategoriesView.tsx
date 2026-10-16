@@ -23,7 +23,7 @@ import {
   ViewAppActions,
   ViewShell,
 } from './ViewShell';
-import { isPlatformPending } from '../lib/platformFilter';
+import { isPlatformLoading } from '../lib/platformFilter';
 import { CATEGORY_APPS_PER_PAGE, getCategoryApps } from '../services/api/catalog';
 import type { AppSummary } from '../types';
 import { isInstalledUnion as selectIsInstalledUnion, selectIsDetectedOnlyOpt, selectIsManagedOpt } from '../app/selectors';
@@ -288,7 +288,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
               key={app.id}
               app={app}
               eager={index < 6}
-              platformPending={isPlatformPending(app, platformResolvedOtherIds)}
+              platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
               isInstalled={selectIsInstalledUnion(app.id, installedIds)}
               isManaged={selectIsManagedOpt(app.id, managedIds)}
               isDetectedOnly={selectIsDetectedOnlyOpt(app.id, installedIds, managedIds)}

@@ -36,7 +36,7 @@ export interface ReadmeVariantsResult {
 /**
  * 平台轻量回填结果（Rust `get_platforms_lite`，见 `PlatformsLiteResult`）。
  * `platforms` 为空表示未知（unknown）；`is_stale` 为 true 表示降级数据，
- * 调用方必须视为 pending/待 backfill，永不确认 Other。
+ * 调用方必须视为 loading/待 backfill，永不确认 Other。
  */
 export interface PlatformsLiteResult {
   id: string;

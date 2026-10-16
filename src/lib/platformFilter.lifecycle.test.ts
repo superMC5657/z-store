@@ -1,5 +1,5 @@
 /**
- * pending 生命周期收归 `lib/platformFilter` 深模块的 locality 证明。
+ * loading 生命周期收归 `lib/platformFilter` 深模块的 locality 证明。
  *
  * - 行为经 lib 唯一入口覆盖（常量/键归一/并集/富卡行判定/守卫/目标选择/批量/settle）；
  * - `app/selectors` 重导出与 lib 同源（单 seam，无服务中转）。
@@ -7,14 +7,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as lib from './platformFilter';
 import {
-  PENDING_SETTLE_MS,
+  LOADING_SETTLE_MS,
   LITE_BATCH_SIZE,
   LITE_TARGET_CAP,
-  collectListPendingKeys,
+  collectListLoadingKeys,
   createInflightGuard,
   createSeqGuard,
-  isEnrichedRowPending,
-  normalizePendingKey,
+  isEnrichedRowLoading,
+  normalizeLoadingKey,
   runLiteBatch,
   scheduleSettleConfirm,
   selectListLiteTargets,
@@ -29,23 +29,23 @@ afterEach(() => {
 
 describe('platformFilter 深模块：常量与主列表/榜单同口径', () => {
   it('settle 15s、lite 分批 5、上限 20', () => {
-    expect(PENDING_SETTLE_MS).toBe(15_000);
+    expect(LOADING_SETTLE_MS).toBe(15_000);
     expect(LITE_BATCH_SIZE).toBe(5);
     expect(LITE_TARGET_CAP).toBe(20);
   });
 });
 
 describe('platformFilter 深模块：键归一唯一实现', () => {
-  it('normalizePendingKey lower-trim，非字符串归空', () => {
-    expect(normalizePendingKey(' A/B ')).toBe('a/b');
-    expect(normalizePendingKey('')).toBe('');
-    expect(normalizePendingKey(undefined)).toBe('');
-    expect(normalizePendingKey(42)).toBe('');
+  it('normalizeLoadingKey lower-trim，非字符串归空', () => {
+    expect(normalizeLoadingKey(' A/B ')).toBe('a/b');
+    expect(normalizeLoadingKey('')).toBe('');
+    expect(normalizeLoadingKey(undefined)).toBe('');
+    expect(normalizeLoadingKey(42)).toBe('');
   });
 
-  it('normalizeId（前端唯一口）与 pending 键同值（含 trim）', () => {
+  it('normalizeId（前端唯一口）与 loading 键同值（含 trim）', () => {
     expect(normalizeId(' A/B ')).toBe('a/b');
-    expect(normalizeId('A/B')).toBe(normalizePendingKey('A/B'));
+    expect(normalizeId('A/B')).toBe(normalizeLoadingKey('A/B'));
     expect(normalizeId(undefined)).toBe('');
   });
 });
@@ -58,13 +58,13 @@ describe('platformFilter 深模块：confirmed 并集 + 富卡行判定', () => 
     );
   });
 
-  it('isEnrichedRowPending：裸行未确认即 pending；具平台恒落定；空行按坐标/id 别名确认', () => {
-    expect(isEnrichedRowPending('a/b', undefined, new Set())).toBe(true);
-    expect(isEnrichedRowPending('a/b', undefined, new Set(['a/b']))).toBe(false);
-    expect(isEnrichedRowPending('a/b', { id: 'a/b', platforms: ['macos'] }, new Set())).toBe(false);
+  it('isEnrichedRowLoading：裸行未确认即 loading；具平台恒落定；空行按坐标/id 别名确认', () => {
+    expect(isEnrichedRowLoading('a/b', undefined, new Set())).toBe(true);
+    expect(isEnrichedRowLoading('a/b', undefined, new Set(['a/b']))).toBe(false);
+    expect(isEnrichedRowLoading('a/b', { id: 'a/b', platforms: ['macos'] }, new Set())).toBe(false);
     const emptyAlias = { id: 'A/B', platforms: [] as string[] };
-    expect(isEnrichedRowPending('a/b', emptyAlias, new Set())).toBe(true);
-    expect(isEnrichedRowPending('a/b', emptyAlias, new Set(['a/b']))).toBe(false);
+    expect(isEnrichedRowLoading('a/b', emptyAlias, new Set())).toBe(true);
+    expect(isEnrichedRowLoading('a/b', emptyAlias, new Set(['a/b']))).toBe(false);
   });
 });
 
@@ -95,13 +95,13 @@ describe('platformFilter 深模块：主列表目标选择 + 快照', () => {
       { id: 'c/concrete', platforms: ['windows'] },
       { id: 'r/resolved', platforms: [] as string[] },
       { id: 'f/flight', platforms: [] as string[] },
-      { id: 'p/pending', platforms: [] as string[] },
+      { id: 'p/loading', platforms: [] as string[] },
     ];
     const guard = createInflightGuard();
     guard.take(['f/flight']);
     expect(
       selectListLiteTargets(rows, { resolved: new Set(['r/resolved']), inflight: guard }),
-    ).toEqual([{ key: 'p/pending', liteId: 'p/pending' }]);
+    ).toEqual([{ key: 'p/loading', liteId: 'p/loading' }]);
 
     const many = Array.from({ length: 25 }, (_, i) => ({ id: `p/${i}`, platforms: [] as string[] }));
     expect(
@@ -109,9 +109,9 @@ describe('platformFilter 深模块：主列表目标选择 + 快照', () => {
     ).toHaveLength(20);
   });
 
-  it('collectListPendingKeys 跳过具平台与已确认，键归一去重', () => {
+  it('collectListLoadingKeys 跳过具平台与已确认，键归一去重', () => {
     expect(
-      collectListPendingKeys(
+      collectListLoadingKeys(
         [
           [{ id: 'A/B', platforms: [] as string[] }, { id: 'c/c', platforms: ['windows'] }],
           [{ id: 'a/b', platforms: [] as string[] }, { id: 'r/r', platforms: [] as string[] }],
@@ -123,7 +123,7 @@ describe('platformFilter 深模块：主列表目标选择 + 快照', () => {
 });
 
 describe('platformFilter 深模块：lite 批量 + settle 定时', () => {
-  it('runLiteBatch：非空治愈进 patched，空非 stale 进 confirmedEmpty，stale/失败保持 pending', async () => {
+  it('runLiteBatch：非空治愈进 patched，空非 stale 进 confirmedEmpty，stale/失败保持 loading', async () => {
     const { patched, confirmedEmpty } = await runLiteBatch(
       [
         { key: 'c/ok', liteId: 'c/ok' },
@@ -154,7 +154,7 @@ describe('platformFilter 深模块：lite 批量 + settle 定时', () => {
     expect(confirmedEmpty).toEqual([]);
   });
 
-  it('scheduleSettleConfirm：15s 后仍 pending 即确认提交；已治愈永不确认', () => {
+  it('scheduleSettleConfirm：15s 后仍 loading 即确认提交；已治愈永不确认', () => {
     vi.useFakeTimers();
     const onConfirm = vi.fn();
     const cancel = scheduleSettleConfirm({
@@ -172,12 +172,12 @@ describe('platformFilter 深模块：lite 批量 + settle 定时', () => {
 
 describe('locality：selectors 与 lib 同源（单 seam）', () => {
   it('app/selectors 重导出与 lib 同源（单 seam，无服务中转）', () => {
-    expect(selectors.PENDING_SETTLE_MS).toBe(lib.PENDING_SETTLE_MS);
-    expect(selectors.isEnrichedRowPending).toBe(lib.isEnrichedRowPending);
+    expect(selectors.LOADING_SETTLE_MS).toBe(lib.LOADING_SETTLE_MS);
+    expect(selectors.isEnrichedRowLoading).toBe(lib.isEnrichedRowLoading);
     expect(selectors.unionConfirmedSets).toBe(lib.unionConfirmedSets);
     // 调用方直引 lib，selectors 不重导出其他别名
     //（键分段书写：全仓零命中为收工标准，此处不断言字面量）
-    expect((selectors as Record<string, unknown>)['isPending' + 'For']).toBeUndefined();
-    expect((selectors as Record<string, unknown>)['matchSelected' + 'WithPending']).toBeUndefined();
+    expect((selectors as Record<string, unknown>)['isLoading' + 'For']).toBeUndefined();
+    expect((selectors as Record<string, unknown>)['matchSelected' + 'WithLoading']).toBeUndefined();
   });
 });

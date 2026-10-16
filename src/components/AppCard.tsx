@@ -24,8 +24,8 @@ interface AppCardProps {
   isInstalling?: boolean;
   isFavorite?: boolean;
   isWatched?: boolean;
-  /** 待确认态（summary 为空且详情尚未落定）：此时不渲染 Other 徽标，改以占位保持布局稳定。 */
-  platformPending: boolean;
+  /** 加载中态（summary 为空且详情尚未落定）：此时不渲染 Other 徽标，改以占位保持布局稳定。 */
+  platformLoading: boolean;
   /** 趋势榜单名次（1-based）。不传则不渲染名次，精选页外观零变化。 */
   rank?: number;
   /** 名次颜色覆盖；默认按金银铜规则着色。 */
@@ -106,7 +106,7 @@ function areAppCardPropsEqual(prev: AppCardProps, next: AppCardProps): boolean {
     (prev.isInstalling ?? false) === (next.isInstalling ?? false) &&
     (prev.isFavorite ?? false) === (next.isFavorite ?? false) &&
     (prev.isWatched ?? false) === (next.isWatched ?? false) &&
-    (prev.platformPending) === (next.platformPending) &&
+    (prev.platformLoading) === (next.platformLoading) &&
     prev.rank === next.rank &&
     prev.rankColor === next.rankColor &&
     prev.trendGain === next.trendGain &&
@@ -130,7 +130,7 @@ export const AppCard: React.FC<AppCardProps> = memo(({
   isInstalling = false,
   isFavorite = false,
   isWatched = false,
-  platformPending,
+  platformLoading,
   rank,
   rankColor,
   trendGain,

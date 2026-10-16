@@ -143,7 +143,7 @@ describe('Phase2治理：字节上限 + dataURI 永不进 payload', () => {
     expect(utf8ByteLength('中文')).toBeGreaterThan(2);
   });
 
-  it('超限分级降级：先截长文本，仍超才丢 pending，最后降裸榜', async () => {
+  it('超限分级降级：先截长文本，仍超才丢 loading，最后降裸榜', async () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
     const invokeSpy = vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValue(undefined);
     // 裸榜小，但单条 enrich 描述巨大（300KB）→ 信封超限 → 长文本截断后落富信封
@@ -161,16 +161,16 @@ describe('Phase2治理：字节上限 + dataURI 永不进 payload', () => {
     expect(envelope.enrich['acme/huge']?.description).toHaveLength(500);
   });
 
-  it('超限降级裸榜：截断+丢 pending 仍超限时去 enrich 落库', async () => {
+  it('超限降级裸榜：截断+丢 loading 仍超限时去 enrich 落库', async () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
     const invokeSpy = vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValue(undefined);
-    // 裸榜小，但 pending 富卡名称巨大（不可截断字段）→ 截断无效 → 丢 pending 后富信封可存
+    // 裸榜小，但 loading 富卡名称巨大（不可截断字段）→ 截断无效 → 丢 loading 后富信封可存
     const repos = [makeTrendRepo({ id: 'acme/small' })];
-    const hugePending = makeEnrichedApp({ id: 'acme/huge', platforms: [] });
-    (hugePending as unknown as Record<string, unknown>).name = 'n'.repeat(300 * 1024);
+    const hugeLoading = makeEnrichedApp({ id: 'acme/huge', platforms: [] });
+    (hugeLoading as unknown as Record<string, unknown>).name = 'n'.repeat(300 * 1024);
     const good = makeEnrichedApp({ id: 'acme/good', platforms: ['windows'] });
     await saveDbTrendCache('weekly||', 'weekly', repos, {
-      'acme/huge': hugePending,
+      'acme/huge': hugeLoading,
       'acme/good': good,
     });
     expect(invokeSpy).toHaveBeenCalledTimes(1);
@@ -190,11 +190,11 @@ describe('Phase2治理：字节上限 + dataURI 永不进 payload', () => {
     expect(invokeSpy).not.toHaveBeenCalled();
   });
 
-  it('dataURI 永不进 payload_json（回归）：字符串级断言，pending 可进盘', async () => {
+  it('dataURI 永不进 payload_json（回归）：字符串级断言，loading 可进盘', async () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
     const invokeSpy = vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValue(undefined);
     const repos = [makeTrendRepo({ id: 'acme/atlas' })];
-    const pending = makeEnrichedApp({
+    const loading = makeEnrichedApp({
       id: 'acme/atlas',
       platforms: [],
     });
@@ -209,7 +209,7 @@ describe('Phase2治理：字节上限 + dataURI 永不进 payload', () => {
       icon: 'https://x/icon.png',
     });
     await saveDbTrendCache('weekly||', 'weekly', repos, {
-      'acme/atlas': pending,
+      'acme/atlas': loading,
       'acme/beacon': dataUri,
       'acme/good': good,
     });
@@ -219,7 +219,7 @@ describe('Phase2治理：字节上限 + dataURI 永不进 payload', () => {
     const payload = JSON.parse(args.payload_json) as { enrich: Record<string, unknown> };
     expect(payload.enrich['acme/beacon']).toBeUndefined();
     expect(payload.enrich['acme/good']).toBeDefined();
-    // SWR：pending 空平台随信封落盘
+    // SWR：loading 空平台随信封落盘
     expect(payload.enrich['acme/atlas']).toBeDefined();
   });
 });

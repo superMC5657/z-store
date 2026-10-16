@@ -117,12 +117,12 @@ type TrendsErrorDescKey =
   | 'trends.error_unavailable';
 
 /**
- * 未收录行 pending 落定超时：enrich 空 + 一次 lite 仍未治愈（或 lite 不可用/stale）
+ * 未收录行 loading 落定超时：enrich 空 + 一次 lite 仍未治愈（或 lite 不可用/stale）
  * 至多等待此后降级为已确认 Other（徽标 + 计数 + 可过滤），而非无限 shimmer。
- * 待确认期间行恒可见（不看 Other 勾选），落定后走正常 Other 过滤。
- * 导出供单测以假时钟推进（与主列表共用 `PENDING_SETTLE_MS` 同值）。
+ * 加载中期间行恒可见（不看 Other 勾选），落定后走正常 Other 过滤。
+ * 导出供单测以假时钟推进（与主列表共用 `LOADING_SETTLE_MS` 同值）。
  */
-export const TREND_PENDING_SETTLE_MS = PENDING_SETTLE_MS;
+export const TREND_LOADING_SETTLE_MS = LOADING_SETTLE_MS;
 
 const ERROR_DESC_KEY: Record<TrendsErrorKind, TrendsErrorDescKey> = {
   network: 'trends.error_network',
@@ -177,8 +177,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   );
   // 未收录行榜单内已确认 Other（lite 空非 stale 落定 + settle 超时兜底）：
   // App 级 lazyBackfill 只补 apps/recents，此处补 enrichedApps 覆盖不到的缺口；
-  // 与全局 platformResolvedOtherIds 取并集判定 pending，详情治愈时同步移除。
-  // 现状：初值置空由下 SWR 合并补齐；重启同 key 命中不回 pending；未就绪展裸行不拦榜。
+  // 与全局 platformResolvedOtherIds 取并集判定 loading，详情治愈时同步移除。
+  // 现状：初值置空由下 SWR 合并补齐；重启同 key 命中不回 loading；未就绪展裸行不拦榜。
   const [trendConfirmedOtherIds, setTrendConfirmedOtherIds] = useState<Set<string>>(
     () => new Set<string>(),
   );
@@ -223,10 +223,10 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     return items;
   }, [trendResult, matchingBase]);
 
-  // 双维 pending 生命周期编排（lite 补验 + settle 超时 + 确认集并集）：
+  // 双维 loading 生命周期编排（lite 补验 + settle 超时 + 确认集并集）：
   // View 不自持 inflight/seq/trusted/ref 镜像与两段 effect，经 board 唯一 hook 编排；
   // 返回的 `combinedConfirmed`（全局 ∪ 榜单内）为过滤/计数/徽标统一口径。
-  const { combinedConfirmed } = useTrendPendingLifecycle({
+  const { combinedConfirmed } = useTrendLoadingLifecycle({
     trendResult,
     rawItems: rawDisplayItems,
     enrichedApps,
@@ -240,29 +240,29 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   });
 
   // 全局设备平台过滤接入榜单行（含未收录行）：catalog 命中按收录 platforms 判定，
-  // 待确认行恒可见（不看 Other 勾选），落定后再走 matchPlatformSet；
-  // enrich 命中且具真实平台按其判定；enrich 空（`fallback_summary` 恒 `[]`）一律视为 pending：
+  // 加载中行恒可见（不看 Other 勾选），落定后再走 matchPlatformSet；
+  // enrich 命中且具真实平台按其判定；enrich 空（`fallback_summary` 恒 `[]`）一律视为 loading：
   // 未确认前恒可见、不计入分布，详情治愈/lite 回填/确认为 other 后一次落定（VoiceStudio 类 bug 治愈）。
-  // 裸 TrendRepo（enrich 尚未落定）视为 pending，恒可见，绝不视同 other；
+  // 裸 TrendRepo（enrich 尚未落定）视为 loading，恒可见，绝不视同 other；
   // settle 超时后降级为已确认 Other（可过滤、可计数、展示徽标），不再无限 shimmer。
   // 未传入 selectedPlatforms 时不过滤。
   const displayItems = useMemo<DisplayTrendItem[]>(() => {
     if (!selectedPlatforms) return rawDisplayItems;
-    // pending 语义（全局 ∪ 榜单内已确认；缺省集合即空追踪）。
+    // loading 语义（全局 ∪ 榜单内已确认；缺省集合即空追踪）。
     return rawDisplayItems.filter((item) => {
       if (item.type === 'catalog') {
-        return matchPlatformSetWithPending(item.app, selectedPlatforms, platformResolvedOtherIds ?? new Set<string>());
+        return matchPlatformSetWithLoading(item.app, selectedPlatforms, platformResolvedOtherIds ?? new Set<string>());
       }
       const key = item.repo.id.toLowerCase();
       const enriched = enrichedApps[key];
-      // pending 语义：未落定恒可见（含裸行）；已确认 Other 后走正常 Other 过滤（统一接口判定）。
-      if (isEnrichedRowPending(key, enriched, combinedConfirmed)) return true;
+      // loading 语义：未落定恒可见（含裸行）；已确认 Other 后走正常 Other 过滤（统一接口判定）。
+      if (isEnrichedRowLoading(key, enriched, combinedConfirmed)) return true;
       return matchPlatformSet(enriched ?? { platforms: [] }, selectedPlatforms);
     });
   }, [rawDisplayItems, selectedPlatforms, enrichedApps, platformResolvedOtherIds, combinedConfirmed]);
 
   // 榜单平台分布（已过滤口径：计数跟随当前可见行，取消勾选即收缩；与过滤判定同语义）。
-  // 待确认行暂不计数：裸 TrendRepo（enrich 未落定）、catalog pending 行、enrich 空 pending 行均排除在外，
+  // 加载中行暂不计数：裸 TrendRepo（enrich 未落定）、catalog loading 行、enrich 空 loading 行均排除在外，
   // 首绘不闪 Other=N，enrich/回填/详情治愈/settle 落定后单次更新。
   // memo 稳定引用：可见行/回填不变即不触发上报，避免侧栏数字闪烁。
   const displayPlatformCounts = useMemo<Record<PlatformId, number>>(() => {
@@ -272,16 +272,16 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       if (item.type === 'catalog') return item.app.platforms;
       return enrichedApps[item.repo.id.toLowerCase()]?.platforms;
     };
-    const isPendingItem = (item: DisplayTrendItem): boolean => {
-      if (item.type === 'catalog') return isPlatformPending(item.app, platformResolvedOtherIds ?? new Set<string>());
-      // 未收录行 pending 口径与过滤判定同源（统一接口）。
+    const isLoadingItem = (item: DisplayTrendItem): boolean => {
+      if (item.type === 'catalog') return isPlatformLoading(item.app, platformResolvedOtherIds ?? new Set<string>());
+      // 未收录行 loading 口径与过滤判定同源（统一接口）。
       const key = item.repo.id.toLowerCase();
-      return isEnrichedRowPending(key, enrichedApps[key], combinedConfirmed);
+      return isEnrichedRowLoading(key, enrichedApps[key], combinedConfirmed);
     };
     for (const id of PLATFORM_IDS) {
       const singleton = new Set<string>([id]);
       for (const item of displayItems) {
-        if (isPendingItem(item)) continue;
+        if (isLoadingItem(item)) continue;
         if (matchPlatformSet({ platforms: platsOf(item) }, singleton)) counts[id] += 1;
       }
     }
@@ -293,7 +293,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   }, [displayPlatformCounts, onDisplayPlatformCounts]);
 
   // SWR 旧富卡直展：榜缓存二级富信封命中后 boards 已 hydrate 进内存，
-  // 此处经 board seam 同步合并进镜像先展旧富卡（含 pending 的 Other 待确认语义），不闪裸行；
+  // 此处经 board seam 同步合并进镜像先展旧富卡（含 loading 的 Other 加载中语义），不闪裸行；
   // 后台 enrich effect 再 revalidate 缺席项，找到具平台再覆盖写透；永不用空值覆盖已具平台值。
   // 合并逻辑收口 board（buildSwrFill + merge*Mirror），View 只做 load/refresh + 镜像持有。
   useEffect(() => {
@@ -494,8 +494,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     });
   }, [trendResult]);
 
-  // 榜单 pending 生命周期（lite 补验 + settle 超时）经 board 唯一 hook 编排，
-  // 此处不自持 seq/inflight effect（见 `useTrendPendingLifecycle`）。
+  // 榜单 loading 生命周期（lite 补验 + settle 超时）经 board 唯一 hook 编排，
+  // 此处不自持 seq/inflight effect（见 `useTrendLoadingLifecycle`）。
 
   // 图标写扇出订阅（读侧）：店内唯一写口受理后镜像跟进——覆盖无 patch 的本地写
   // （如详情轮转切 L5 只调 `admitIconHit` 不带 patch，榜单行经此清徽章）。
@@ -592,13 +592,13 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
         ) : (
           displayItems.map((item, index) => {
             if (item.type === 'catalog') {
-              // 待确认恒可见（统一接口）。
-              const catalogPending = isPlatformPending(item.app, platformResolvedOtherIds ?? new Set<string>());
+              // 加载中恒可见（统一接口）。
+              const catalogLoading = isPlatformLoading(item.app, platformResolvedOtherIds ?? new Set<string>());
               return (
                 <AppCard
                   key={item.app.id}
                   app={item.app}
-                  platformPending={catalogPending}
+                  platformLoading={catalogLoading}
                   rank={item.rank}
                   className="fluent-list-row"
                   eager={index < 6}
@@ -630,14 +630,14 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                 : { ...enriched, description: t('trends.no_desc') };
               const hasPlatforms = !!enriched.platforms && enriched.platforms.length > 0;
               const repoKey = item.repo.id.toLowerCase();
-              // 未收录行 pending 口径与过滤判定同源（统一接口）。
-              const enrichedPending =
-                !hasPlatforms && isEnrichedRowPending(repoKey, enriched, combinedConfirmed);
+              // 未收录行 loading 口径与过滤判定同源（统一接口）。
+              const enrichedLoading =
+                !hasPlatforms && isEnrichedRowLoading(repoKey, enriched, combinedConfirmed);
               return (
                 <AppCard
                   key={`uncataloged-${item.repo.id || item.repo.name}-${index}`}
                   app={displayApp}
-                  platformPending={enrichedPending}
+                  platformLoading={enrichedLoading}
                   rank={item.rank}
                   className="fluent-list-row"
                   eager={index < 6}

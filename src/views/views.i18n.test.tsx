@@ -346,7 +346,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
           app={BILINGUAL_APP}
           isInstalled={false}
           isManaged={false}
-          platformPending={false}
+          platformLoading={false}
           onOpenDetail={() => {}}
           onQuickInstall={() => {}}
         />,
@@ -364,7 +364,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
           app={BILINGUAL_APP}
           isInstalled={false}
           isManaged={false}
-          platformPending={false}
+          platformLoading={false}
           onOpenDetail={() => {}}
           onQuickInstall={() => {}}
         />,
@@ -430,7 +430,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
         <AppDetailModal
           app={detailApp}
           isInstalled={false}
-          platformPending={false}
+          platformLoading={false}
           onClose={() => {}}
           onInstall={async () => {}}
           onLaunch={() => {}}
@@ -448,7 +448,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
         <AppDetailModal
           app={detailApp}
           isInstalled={false}
-          platformPending={false}
+          platformLoading={false}
           onClose={() => {}}
           onInstall={async () => {}}
           onLaunch={() => {}}

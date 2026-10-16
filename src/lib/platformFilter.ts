@@ -7,7 +7,7 @@
  *   归入前端虚拟 `other` 桶：仅当选中 `other` 时匹配。`other` 纯前端存在，
  *   从不经过 IPC，也从不参与安装目标匹配。
  *
- * pending 生命周期深模块收归于此（唯一深模块）：
+ * loading 生命周期深模块收归于此（唯一深模块）：
  * inflight 集合 + seq 守卫 + lite 批量（5/批、上限 20）+ settle 定时（15s）
  * + confirmed 并集 + 键归一唯一实现 + 主列表目标选择/快照 + 趋势富卡行判定。
  */
@@ -44,58 +44,58 @@ export function normalizePlatform(p: string): string {
   return p.toLowerCase();
 }
 
-/** 待确认判定的最小行形态（`AppSummary`/`AppDetail` 均满足；本模块唯一行形态）。 */
-export interface PendingRow {
+/** 加载中判定的最小行形态（`AppSummary`/`AppDetail` 均满足；本模块唯一行形态）。 */
+export interface LoadingRow {
   id?: string;
   platforms?: string[];
 }
 
 /** 平台列表是否为空（缺失或空数组即视为空，后端保持 `[]` 不打标）。 */
-export function isPlatformEmpty(app: PendingRow): boolean {
+export function isPlatformEmpty(app: LoadingRow): boolean {
   return !app.platforms || app.platforms.length === 0;
 }
 
-/** pending 键归一（lower-trim；空串表示无效，调用方自行跳过）。全模块键归一唯一实现。
+/** loading 键归一（lower-trim；空串表示无效，调用方自行跳过）。全模块键归一唯一实现。
  * 应用 id 归一请直用 `services/normalizeId`（后端 canonical 为准，与本键同值）。 */
-export function normalizePendingKey(id: unknown): string {
+export function normalizeLoadingKey(id: unknown): string {
   return typeof id === 'string' ? id.trim().toLowerCase() : '';
 }
 
 /**
- * 待确认态判定：summary 为空且尚未经详情确认。
- * - 空平台 + 未在追踪集合中即为 pending（含在途与尚未发起），
+ * 加载中态判定：summary 为空且尚未经详情确认。
+ * - 空平台 + 未在追踪集合中即为 loading（含在途与尚未发起），
  * - 空 + 已在集合中即为已确认 other。
  */
-export function isPlatformPending(
-  app: PendingRow,
+export function isPlatformLoading(
+  app: LoadingRow,
   resolvedOtherIds: ReadonlySet<string>,
 ): boolean {
   if (!isPlatformEmpty(app)) return false;
-  const key = normalizePendingKey(app.id);
+  const key = normalizeLoadingKey(app.id);
   if (!key) return true;
   return !resolvedOtherIds.has(key);
 }
 
 /** 已确认 other：为空且已有详情背书（在追踪集合中）。 */
 export function isConfirmedOther(
-  app: PendingRow,
+  app: LoadingRow,
   resolvedOtherIds: ReadonlySet<string>,
 ): boolean {
   if (!isPlatformEmpty(app)) return false;
-  const key = normalizePendingKey(app.id);
+  const key = normalizeLoadingKey(app.id);
   if (!key) return false;
   return resolvedOtherIds.has(key);
 }
 
 /**
- * 待确认行过滤：pending 行恒可见（不看 Other 勾选），落定后再走 matchPlatformSet。
+ * 加载中行过滤：loading 行恒可见（不看 Other 勾选），落定后再走 matchPlatformSet。
  */
-export function matchPlatformSetWithPending(
-  app: PendingRow,
+export function matchPlatformSetWithLoading(
+  app: LoadingRow,
   selected: ReadonlySet<string>,
   resolvedOtherIds: ReadonlySet<string>,
 ): boolean {
-  if (isPlatformPending(app, resolvedOtherIds)) return true;
+  if (isPlatformLoading(app, resolvedOtherIds)) return true;
   return matchPlatformSet(app, selected);
 }
 
@@ -115,7 +115,7 @@ function knownSelected(selected: ReadonlySet<string>): Set<string> {
  * 未知平台字符串不匹配任何桶。
  * 空选择集合（或仅含未知平台）时不匹配任何应用。
  */
-export function matchPlatformSet(app: PendingRow, selected: ReadonlySet<string>): boolean {
+export function matchPlatformSet(app: LoadingRow, selected: ReadonlySet<string>): boolean {
   const wanted = knownSelected(selected);
   if (wanted.size === 0) return false;
   if (!app.platforms || app.platforms.length === 0) return wanted.has('other');
@@ -162,38 +162,38 @@ export function parseSelectedPlatformArray(input: readonly string[] | null | und
 }
 
 /**
- * 待确认落定超时：lite 不可用/stale/失败的行至多等待此后降级为已确认 Other，
- * 而非无限 shimmer。待确认期间行恒可见，落定后走正常 Other 过滤/计数/徽标。
- * App 主列表与 Trends 榜单共用同一超时（TrendsView 经 `TREND_PENDING_SETTLE_MS` 重导出同值）。
+ * 加载中落定超时：lite 不可用/stale/失败的行至多等待此后降级为已确认 Other，
+ * 而非无限 shimmer。加载中期间行恒可见，落定后走正常 Other 过滤/计数/徽标。
+ * App 主列表与 Trends 榜单共用同一超时（TrendsView 经 `TREND_LOADING_SETTLE_MS` 重导出同值）。
  */
-export const PENDING_SETTLE_MS = 15_000;
+export const LOADING_SETTLE_MS = 15_000;
 
-/** lite 通道分批大小（与 `resolvePendingPlatformsLite` 内步长同源）。 */
+/** lite 通道分批大小（与 `resolveLoadingPlatformsLite` 内步长同源）。 */
 export const LITE_BATCH_SIZE = 5;
 /** lite 单次目标上限（App 列表与趋势榜单同值，调用方切片前 20）。 */
 export const LITE_TARGET_CAP = 20;
 
 /** lite 批量确认的目标行（key 为小写归一 id，liteId 为取数用原始 id）。 */
-export interface PendingLiteTarget {
+export interface LoadingLiteTarget {
   key: string;
   liteId: string;
 }
 
 /** lite 通道返回（与 `getPlatformsLite` 对齐：stale 即无权威，空非 stale 即已确认）。 */
-export interface PendingLiteResult {
+export interface LoadingLiteResult {
   platforms?: readonly string[] | null;
   is_stale?: boolean | null;
 }
 
 /**
- * 待确认行 lite 批量确认的唯一实现（App 主列表与 Trends 榜单共用，杜绝第三份拷贝）。
+ * 加载中行 lite 批量确认的唯一实现（App 主列表与 Trends 榜单共用，杜绝第三份拷贝）。
  * 分批 5、上限由调用方切片（约定 20），批次间检查 `shouldAbort` 即整批丢弃。
- * stale/失败/异常一律保持 pending（既不治愈也不确认，交由 settle 超时兜底）；
+ * stale/失败/异常一律保持 loading（既不治愈也不确认，交由 settle 超时兜底）；
  * 非空治愈进 `patched`，空非 stale 进 `confirmedEmpty`。
  */
-export async function resolvePendingPlatformsLite(
-  targets: readonly PendingLiteTarget[],
-  fetchLite: (liteId: string) => Promise<PendingLiteResult | null | undefined>,
+export async function resolveLoadingPlatformsLite(
+  targets: readonly LoadingLiteTarget[],
+  fetchLite: (liteId: string) => Promise<LoadingLiteResult | null | undefined>,
   shouldAbort?: () => boolean,
 ): Promise<{ patched: Map<string, string[]>; confirmedEmpty: string[] }> {
   const patched = new Map<string, string[]>();
@@ -226,18 +226,18 @@ export async function resolvePendingPlatformsLite(
 }
 
 /* ------------------------------------------------------------------ */
-/* pending 生命周期：inflight/seq 守卫、lite 批量、settle 定时归本模块。 */
+/* loading 生命周期：inflight/seq 守卫、lite 批量、settle 定时归本模块。 */
 /* ------------------------------------------------------------------ */
 
 /**
- * 趋势未收录行 pending 判定（目录/富卡/裸行三处同口径）：
- * - 无 enrich（裸行）：未确认即 pending，恒可见；
+ * 趋势未收录行 loading 判定（目录/富卡/裸行三处同口径）：
+ * - 无 enrich（裸行）：未确认即 loading，恒可见；
  * - 有 enrich 且具真实平台：已落定；
- * - 有 enrich 但空：坐标键或 id 别名任一已确认即落定，否则 pending。
+ * - 有 enrich 但空：坐标键或 id 别名任一已确认即落定，否则 loading。
  */
-export function isEnrichedRowPending(
+export function isEnrichedRowLoading(
   repoKeyLower: string,
-  enriched: PendingRow | undefined,
+  enriched: LoadingRow | undefined,
   combined: ReadonlySet<string>,
 ): boolean {
   if (!enriched) return !combined.has(repoKeyLower);
@@ -288,7 +288,7 @@ export function createInflightGuard(): InflightGuard {
       const taken: string[] = [];
       const seen = new Set<string>();
       for (const raw of keys) {
-        const k = normalizePendingKey(raw);
+        const k = normalizeLoadingKey(raw);
         if (!k || seen.has(k) || inflight.has(k)) continue;
         seen.add(k);
         inflight.add(k);
@@ -297,7 +297,7 @@ export function createInflightGuard(): InflightGuard {
       return taken;
     },
     release: (keys: readonly string[]) => {
-      for (const raw of keys) inflight.delete(normalizePendingKey(raw));
+      for (const raw of keys) inflight.delete(normalizeLoadingKey(raw));
     },
     clear: () => inflight.clear(),
     get size() {
@@ -333,30 +333,30 @@ export function createSeqGuard(readCurrent: () => number): SeqGuard {
 /* ------------------------------------------------------------------ */
 
 /** lite 通道取数形态（与 `getPlatformsLite` 回包对齐）。 */
-export type LiteFetch = (liteId: string) => Promise<PendingLiteResult | null | undefined>;
+export type LiteFetch = (liteId: string) => Promise<LoadingLiteResult | null | undefined>;
 
 /**
- * lite 批量确认唯一实现（分批 5，超 `LITE_TARGET_CAP` 截断；stale/失败保持 pending 交 settle 兜底）。
+ * lite 批量确认唯一实现（分批 5，超 `LITE_TARGET_CAP` 截断；stale/失败保持 loading 交 settle 兜底）。
  * 调用方（主列表/榜单）经此同一口。
  */
 export async function runLiteBatch(
-  targets: readonly PendingLiteTarget[],
+  targets: readonly LoadingLiteTarget[],
   fetchLite: LiteFetch,
   shouldAbort?: () => boolean,
 ): Promise<{ patched: Map<string, string[]>; confirmedEmpty: string[] }> {
-  return resolvePendingPlatformsLite(targets.slice(0, LITE_TARGET_CAP), fetchLite, shouldAbort);
+  return resolveLoadingPlatformsLite(targets.slice(0, LITE_TARGET_CAP), fetchLite, shouldAbort);
 }
 
 /** 主列表 lite 目标选择：空平台 + 未确认 + 非在途，取前 `cap`（默认 20）。 */
 export function selectListLiteTargets(
-  summaries: readonly PendingRow[],
+  summaries: readonly LoadingRow[],
   opts: { resolved: ReadonlySet<string>; inflight: Pick<InflightGuard, 'has'>; cap?: number },
 ): { key: string; liteId: string }[] {
   const cap = opts.cap ?? LITE_TARGET_CAP;
   const out: { key: string; liteId: string }[] = [];
   for (const s of summaries) {
     if (s.platforms && s.platforms.length > 0) continue;
-    const key = normalizePendingKey((s as { id?: unknown }).id);
+    const key = normalizeLoadingKey((s as { id?: unknown }).id);
     if (!key || opts.resolved.has(key) || opts.inflight.has(key)) continue;
     out.push({ key, liteId: typeof (s as { id?: unknown }).id === 'string' ? String((s as { id?: string }).id) : key });
     if (out.length >= cap) break;
@@ -364,9 +364,9 @@ export function selectListLiteTargets(
   return out;
 }
 
-/** 主列表 pending 快照：多列表去重合并，跳过具平台与已确认（含空集合启用 pending 语义）。 */
-export function collectListPendingKeys(
-  lists: readonly (readonly PendingRow[])[],
+/** 主列表 loading 快照：多列表去重合并，跳过具平台与已确认（含空集合启用 loading 语义）。 */
+export function collectListLoadingKeys(
+  lists: readonly (readonly LoadingRow[])[],
   resolved: ReadonlySet<string>,
 ): string[] {
   const out: string[] = [];
@@ -374,7 +374,7 @@ export function collectListPendingKeys(
   for (const list of lists) {
     for (const s of list) {
       if (s.platforms && s.platforms.length > 0) continue;
-      const key = normalizePendingKey((s as { id?: unknown }).id);
+      const key = normalizeLoadingKey((s as { id?: unknown }).id);
       if (!key || seen.has(key) || resolved.has(key)) continue;
       seen.add(key);
       out.push(key);
@@ -384,30 +384,30 @@ export function collectListPendingKeys(
 }
 
 /* ------------------------------------------------------------------ */
-/* settle 定时：15s 后仍 pending 即降级为已确认 Other（杜绝永久 pending） */
+/* settle 定时：15s 后仍 loading 即降级为已确认 Other（杜绝永久 loading） */
 /* ------------------------------------------------------------------ */
 
 export interface SettleSchedule {
-  /** 发起时快照的 pending 键（去重保序后）。 */
+  /** 发起时快照的 loading 键（去重保序后）。 */
   keys: string[];
   /**
-   * 落定时复核：按最新状态过滤出仍 pending 的键
+   * 落定时复核：按最新状态过滤出仍 loading 的键
    * （具平台/已确认一律剔除，永不覆盖具平台）。
    */
   recheck: (keys: readonly string[]) => string[];
-  /** 确认提交（仅仍 pending 非空时调用一次）。 */
-  onConfirm: (stillPending: string[]) => void;
+  /** 确认提交（仅仍 loading 非空时调用一次）。 */
+  onConfirm: (stillLoading: string[]) => void;
 }
 
 /**
- * settle 定时唯一实现：`PENDING_SETTLE_MS` 后复核快照，仍 pending 才确认提交；
- * 无 pending 直接返回空清理函数。返回清理函数（调用方 effect 返回，超时前卸载即取消）。
+ * settle 定时唯一实现：`LOADING_SETTLE_MS` 后复核快照，仍 loading 才确认提交；
+ * 无 loading 直接返回空清理函数。返回清理函数（调用方 effect 返回，超时前卸载即取消）。
  */
 export function scheduleSettleConfirm(schedule: SettleSchedule): () => void {
   const keys: string[] = [];
   const seen = new Set<string>();
   for (const raw of schedule.keys) {
-    const k = normalizePendingKey(raw);
+    const k = normalizeLoadingKey(raw);
     if (!k || seen.has(k)) continue;
     seen.add(k);
     keys.push(k);
@@ -416,7 +416,7 @@ export function scheduleSettleConfirm(schedule: SettleSchedule): () => void {
   const timer = setTimeout(() => {
     let still: string[] = [];
     try {
-      still = schedule.recheck(keys).map((k) => normalizePendingKey(k)).filter((k) => k !== '');
+      still = schedule.recheck(keys).map((k) => normalizeLoadingKey(k)).filter((k) => k !== '');
     } catch {
       return;
     }
@@ -426,7 +426,7 @@ export function scheduleSettleConfirm(schedule: SettleSchedule): () => void {
     } catch {
       // 确认提交失败不影响主流程（下次列表变化重排定时）
     }
-  }, PENDING_SETTLE_MS);
+  }, LOADING_SETTLE_MS);
   return () => {
     clearTimeout(timer);
   };

@@ -40,7 +40,7 @@ function renderCard(installedIds: Set<string>, managedIds: Set<string> | null) {
     <AppCard
       app={app}
       {...cardProps(installedIds, managedIds)}
-      platformPending={false}
+      platformLoading={false}
       onOpenDetail={() => {}}
       onQuickInstall={() => {}}
       onManageApp={() => {}}

@@ -711,7 +711,7 @@ export const App: React.FC = () => {
           isWatched={watchedIds.has(selectedApp.id)}
           isInstallingGlobal={installingAppIds.has(selectedApp.id)}
           isUninstallingGlobal={uninstallingAppIds.has(selectedApp.id)}
-          platformPending={isPlatformPending(selectedApp, platformResolvedOtherIds)}
+          platformLoading={isPlatformLoading(selectedApp, platformResolvedOtherIds)}
           oauthUser={oauthUser}
           onClose={() => {
             activeDetailIdRef.current = null;

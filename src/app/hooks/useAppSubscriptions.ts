@@ -16,7 +16,7 @@ import {
   patchAppIconList,
   preloadTop30Icons,
 } from '../../services/iconStore';
-import { matchPlatformSetWithPending } from '../../lib/platformFilter';
+import { matchPlatformSetWithLoading } from '../../lib/platformFilter';
 import { type PlatformId } from '../../lib/platformFilter';
 import { zlogInfo } from '../../lib/z-log';
 import { adoptEchoInWindow } from './useSearchState';
@@ -157,7 +157,7 @@ export function useAppSubscriptions({
     tauriApi.getDetectedInstalledAppIds().then((ids) => setDetectedAppIds(new Set(ids))).catch(() => {});
     tauriApi.getFavorites().then((favs) => setFavoriteIds(new Set(favs)));
     tauriApi.getUpdateRules().then(setUpdateRules);
-    tauriApi.getRecentlyViewedApps().then((recents) => setRecentlyViewedApps(recents.filter((a) => matchPlatformSetWithPending(a, initialFilter.selectedPlatforms, initialFilter.platformResolvedOtherIds)))).catch(() => {});
+    tauriApi.getRecentlyViewedApps().then((recents) => setRecentlyViewedApps(recents.filter((a) => matchPlatformSetWithLoading(a, initialFilter.selectedPlatforms, initialFilter.platformResolvedOtherIds)))).catch(() => {});
     tauriApi.registerDeepLinkScheme().catch(() => {});
 
     // 加载持久化设置

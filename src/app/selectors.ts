@@ -53,7 +53,7 @@ export function selectPlatformFilteredApps(
   selectedPlatforms: Set<PlatformId>,
   platformResolvedOtherIds: Set<string>,
 ): AppSummary[] {
-  return apps.filter((a) => matchPlatformSetWithPending(a, selectedPlatforms, platformResolvedOtherIds));
+  return apps.filter((a) => matchPlatformSetWithLoading(a, selectedPlatforms, platformResolvedOtherIds));
 }
 
 export function selectPlatformCounts(
@@ -67,8 +67,8 @@ export function selectPlatformCounts(
   const known = new Set<string>(PLATFORM_IDS as readonly string[]);
   for (const a of apps) {
     if (!a.platforms || a.platforms.length === 0) {
-      // 待确认：暂不计入任何桶；已确认 other：仅计 other 桶
-      if (isPlatformPending(a, platformResolvedOtherIds)) continue;
+      // 加载中：暂不计入任何桶；已确认 other：仅计 other 桶
+      if (isPlatformLoading(a, platformResolvedOtherIds)) continue;
       counts['other'] += 1;
       continue;
     }
@@ -216,7 +216,7 @@ export function selectFavoritesViewApps(
 ): AppSummary[] {
   if (favoriteExtraApps.length === 0) return platformFilteredApps;
   const filteredExtras = favoriteExtraApps.filter((a) =>
-    matchPlatformSetWithPending(a, selectedPlatforms, platformResolvedOtherIds),
+    matchPlatformSetWithLoading(a, selectedPlatforms, platformResolvedOtherIds),
   );
   if (filteredExtras.length === 0) return platformFilteredApps;
   const baseLower = new Set<string>();

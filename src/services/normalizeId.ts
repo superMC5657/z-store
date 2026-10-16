@@ -5,7 +5,7 @@
  *   `src-tauri/src/forge/coord.rs`（`RepositoryUrlParser` / `canonical_app_id` /
  *   `canonical_lookup_id` / `canonical_app_id_from_parts`）；前端不另立解析器。
  * - 前端散装 `trim().toLowerCase()` / `(x || '').toLowerCase()` 一律经此，不另立
- *   normalizer（`platformFilter` pending 键语义归 `lib/platformFilter`，键归一与其同值）。
+ *   normalizer（`platformFilter` loading 键语义归 `lib/platformFilter`，键归一与其同值）。
  */
 /** id 归一：`trim().toLowerCase()`，非字符串按空处理。 */
 export function normalizeId(id: unknown): string {

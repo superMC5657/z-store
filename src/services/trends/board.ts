@@ -60,7 +60,7 @@ import {
 } from './enrich';
 import { fetchTrendsResult as fetchTrendsResultInner } from './boards';
 import {
-  PENDING_SETTLE_MS,
+  LOADING_SETTLE_MS,
   createInflightGuard,
   createSeqGuard,
   runLiteBatch,
@@ -68,7 +68,7 @@ import {
   unionConfirmedSets,
   type InflightGuard,
   type LiteFetch,
-  type PendingLiteTarget,
+  type LoadingLiteTarget,
   type SeqGuard,
 } from '../../lib/platformFilter';
 import { zlogInfo } from '../../lib/z-log';
@@ -86,10 +86,10 @@ export function fetchTrendsResultSeam(
 ): ReturnType<typeof fetchTrendsResultInner> {
   return fetchTrendsResultInner(...args);
 }
-export type { PendingLiteTarget };
+export type { LoadingLiteTarget };
 
 /** settle 超时与主列表同值（TrendsView 重导出同值）。 */
-export const TREND_BOARD_SETTLE_MS = PENDING_SETTLE_MS;
+export const TREND_BOARD_SETTLE_MS = LOADING_SETTLE_MS;
 
 /* ------------------------------------------------------------------ */
 /* A. 缓存键 + 持久化 seam（View 禁止直调 saveBoardCacheMerged）        */
@@ -204,7 +204,7 @@ export function buildSwrFill(repos: TrendRepo[]): SwrFill {
 }
 
 /**
- * SWR 富卡合并进镜像：缺席新增；旧 pending + 新具平台才覆盖（图标经店内 `resolveIconWithBuffer` 单 interface 合并，空不覆实 + 缓冲回读）。
+ * SWR 富卡合并进镜像：缺席新增；旧 loading + 新具平台才覆盖（图标经店内 `resolveIconWithBuffer` 单 interface 合并，空不覆实 + 缓冲回读）。
  * 富/裸以 enriched 存在为准，不用 icon 判定。图标 `depth` 在深 module，本函数只做平台准入，不自立图标 locality。
  */
 export function mergeSwrEnrichedMirror(
@@ -230,7 +230,7 @@ export function mergeSwrEnrichedMirror(
   return changed ? next : prev;
 }
 
-/** SWR 确认集合并：L2 确认并入本地（已具平台不并入，禁 pending 覆盖具平台）。 */
+/** SWR 确认集合并：L2 确认并入本地（已具平台不并入，禁 loading 覆盖具平台）。 */
 export function mergeSwrConfirmedMirror(
   prev: Set<string>,
   l2Confirmed: readonly string[],
@@ -371,9 +371,9 @@ export interface DisplayTrendItemLiteExt {
 }
 
 export interface LiteTargetsResult {
-  targets: PendingLiteTarget[];
+  targets: LoadingLiteTarget[];
   trustedConcrete: number;
-  trustedPending: number;
+  trustedLoading: number;
   skipped: number;
   uncatalogedTotal: number;
 }
@@ -386,7 +386,7 @@ function liteEnrichedKeyOf(enriched: AppSummary | undefined): string {
  * lite 补验目标选择：
  * 仅 enrich 已落定为空的行走 lite（裸行交 settle 兜底）；
  * 已具真实平台 / 已确认 / 在途一律跳过；
- * 具平台可信免验（fresh concrete 才免验，pending 永不免验）。
+ * 具平台可信免验（fresh concrete 才免验，loading 永不免验）。
  */
 export function selectLiteTargets(input: LiteSelectInput): LiteTargetsResult {
   const { rawItems, enrichedApps, combinedConfirmed, inflight, trusted } = input;
@@ -428,7 +428,7 @@ export function selectLiteTargets(input: LiteSelectInput): LiteTargetsResult {
     targets.push({ key, liteId });
     if (targets.length >= 20) break;
   }
-  let trustedPending = 0;
+  let trustedLoading = 0;
   let uncatalogedTotal = 0;
   for (const item of rawItems) {
     if (item.type !== 'uncataloged' || !item.repo) continue;
@@ -440,32 +440,32 @@ export function selectLiteTargets(input: LiteSelectInput): LiteTargetsResult {
     if (en.platforms && en.platforms.length > 0) continue;
     const enKey = liteEnrichedKeyOf(en);
     if (combinedConfirmed.has(k) || (enKey !== '' && combinedConfirmed.has(enKey))) continue;
-    trustedPending += 1;
+    trustedLoading += 1;
   }
   const skipped = uncatalogedTotal - targets.length;
   return {
     targets,
     trustedConcrete: trusted.size,
-    trustedPending,
+    trustedLoading,
     skipped,
     uncatalogedTotal,
   };
 }
 
-/** 免验取证单行日志（board/可信 concrete/pending/跳过/目标数，只读计数）。 */
+/** 免验取证单行日志（board/可信 concrete/loading/跳过/目标数，只读计数）。 */
 export function logLiteSkip(
   board: string,
   r: LiteTargetsResult,
 ): void {
   zlogInfo(
     `[trends] lite-skip board=${board} trustedConcrete=${r.trustedConcrete} ` +
-      `trustedPending=${r.trustedPending} skipped=${r.skipped} targets=${r.targets.length}`,
+      `trustedLoading=${r.trustedLoading} skipped=${r.skipped} targets=${r.targets.length}`,
   );
 }
 
 /** lite 通道批量确认（分批 5，上限 20，seq 守卫由调用方传入 shouldAbort；经深模块同一口）。 */
-export async function verifyPendingLite(
-  targets: readonly PendingLiteTarget[],
+export async function verifyLoadingLite(
+  targets: readonly LoadingLiteTarget[],
   fetchLite: LiteFetch,
   shouldAbort?: () => boolean,
 ): Promise<{ patched: Map<string, string[]>; confirmedEmpty: string[] }> {
@@ -491,7 +491,7 @@ export function mergeLitePatchedMirror(
 
 /**
  * lite patched 持久化：hydrate（含 data: 剥空）+ 同榜 key 写透。
- * stale/失败不进 patched，保持 pending 等 settle 兜底。
+ * stale/失败不进 patched，保持 loading 等 settle 兜底。
  */
 export async function maybePersistLitePatched(
   patched: Map<string, string[]>,
@@ -518,7 +518,7 @@ export async function maybePersistLitePatched(
 
 /**
  * lite 空非 stale 确认：本地 + 内存标记 + hydrate（含 data: 剥空）+ 同榜 key 写透。
- * 竞态下已被治愈为具平台则跳过（禁 pending 覆盖具平台）。
+ * 竞态下已被治愈为具平台则跳过（禁 loading 覆盖具平台）。
  */
 export async function confirmLiteEmpty(
   confirmedEmpty: readonly string[],
@@ -588,17 +588,17 @@ export function addConfirmedMirror(prev: Set<string>, keys: readonly string[]): 
 /* ------------------------------------------------------------------ */
 
 export interface SettleCollect {
-  pendingKeys: string[];
+  loadingKeys: string[];
   repoByKey: Map<string, TrendRepo>;
 }
 
-/** settle 超时输入收集：仍 pending（未具平台 + 未确认）的未收录行。 */
-export function collectSettlePending(
+/** settle 超时输入收集：仍 loading（未具平台 + 未确认）的未收录行。 */
+export function collectSettleLoading(
   rawItems: readonly DisplayTrendItemLiteExt[],
   enrichedApps: Record<string, AppSummary>,
   combinedConfirmed: ReadonlySet<string>,
 ): SettleCollect {
-  const pendingSnapshot: string[] = [];
+  const loadingSnapshot: string[] = [];
   const repoByKey = new Map<string, TrendRepo>();
   for (const item of rawItems) {
     if (item.type !== 'uncataloged' || !item.repo) continue;
@@ -614,28 +614,28 @@ export function collectSettlePending(
     ) {
       continue;
     }
-    pendingSnapshot.push(key);
+    loadingSnapshot.push(key);
   }
-  return { pendingKeys: pendingSnapshot, repoByKey };
+  return { loadingKeys: loadingSnapshot, repoByKey };
 }
 
-/** settle 超时仍 pending 过滤（timer 触发时按最新镜像 + 确认集复核）。 */
-export function filterStillPending(
-  pendingKeys: readonly string[],
+/** settle 超时仍 loading 过滤（timer 触发时按最新镜像 + 确认集复核）。 */
+export function filterStillLoading(
+  loadingKeys: readonly string[],
   latestEnriched: Record<string, AppSummary>,
   globalConfirmed: ReadonlySet<string> | undefined,
   localConfirmed: ReadonlySet<string>,
 ): string[] {
-  const stillPending: string[] = [];
-  for (const key of pendingKeys) {
+  const stillLoading: string[] = [];
+  for (const key of loadingKeys) {
     const cur = latestEnriched[key];
     if (cur?.platforms && cur.platforms.length > 0) continue;
     const curKey = ((cur?.id || '') as string).trim().toLowerCase();
     if (globalConfirmed?.has(key) || localConfirmed.has(key)) continue;
     if (curKey !== '' && (globalConfirmed?.has(curKey) || localConfirmed.has(curKey))) continue;
-    stillPending.push(key);
+    stillLoading.push(key);
   }
-  return stillPending;
+  return stillLoading;
 }
 
 /** 裸行合成最小 Other 摘要（与原内联合成逐字段一致；具平台不合成）。 */
@@ -671,14 +671,14 @@ export interface SettleHydration {
 
 /** 同 key hydrate 输入构建：空 enrich 剥 data:，裸行合成最小摘要。 */
 export function buildSettleHydration(
-  stillPending: readonly string[],
+  stillLoading: readonly string[],
   latestEnriched: Record<string, AppSummary>,
   repoByKey: Map<string, TrendRepo>,
   allRepos: readonly TrendRepo[],
 ): SettleHydration {
   const toHydrate: Record<string, AppSummary> = {};
   const aliasKeys: string[] = [];
-  for (const key of stillPending) {
+  for (const key of stillLoading) {
     const cur = latestEnriched[key];
     if (cur?.platforms && cur.platforms.length > 0) continue;
     if (cur) {
@@ -703,7 +703,7 @@ export function buildSettleHydration(
   return { toHydrate, aliasKeys };
 }
 
-/** settle 确认提交：先 mark 再 hydrate（已确认 pending 方可进内存）。 */
+/** settle 确认提交：先 mark 再 hydrate（已确认 loading 方可进内存）。 */
 export function commitSettleConfirmed(aliasKeys: readonly string[], toHydrate: Record<string, AppSummary>): void {
   if (!aliasKeys || aliasKeys.length === 0) return;
   try {
@@ -770,7 +770,7 @@ export function boardRepoKeys(repos: readonly TrendRepo[] | undefined): Set<stri
 
 /**
  * 平台治愈镜像合并：
- * 空 pending 行被具平台值替换并保留旧真实图标；已具平台行仅跟随非空图标；
+ * 空 loading 行被具平台值替换并保留旧真实图标；已具平台行仅跟随非空图标；
  * 预 enrich 行（榜单已知但镜像缺席）直接创建；命中键同步移出已确认。
  */
 export function applyPlatformsHealToMirror(
@@ -1082,7 +1082,7 @@ export function snapshotBoardEnrich(repos?: TrendRepo[]): Record<string, AppSumm
 
 /**
  * 镜像 hydrate 缝（View 侧唯一 hydrate 出口，不直调 enrich 内部）。
- * data:/未确认 pending/具平台覆盖等守卫仍由 enrich 侧执行。
+ * data:/未确认 loading/具平台覆盖等守卫仍由 enrich 侧执行。
  */
 export function putBoardEnrichMemory(map: Record<string, AppSummary>): void {
   putTrendEnrichMemory(map);
@@ -1094,10 +1094,10 @@ export function getBoardPersistKey(): string {
 }
 
 /* ------------------------------------------------------------------ */
-/* I. 趋势 pending 生命周期 hook（View 侧唯一编排出口）                 */
+/* I. 趋势 loading 生命周期 hook（View 侧唯一编排出口）                 */
 /* ------------------------------------------------------------------ */
 
-export interface TrendPendingLifecycleParams {
+export interface TrendLoadingLifecycleParams {
   trendResult: TrendsResult | null;
   rawItems: readonly DisplayTrendItemLiteExt[];
   enrichedApps: Record<string, AppSummary>;
@@ -1113,13 +1113,13 @@ export interface TrendPendingLifecycleParams {
 }
 
 /**
- * 趋势 pending 生命周期编排（lite 补验 + settle 超时 + 确认集并集）：
+ * 趋势 loading 生命周期编排（lite 补验 + settle 超时 + 确认集并集）：
  * View 侧只调此 hook，不自持 inflight/seq/trusted/ref 镜像与两段 effect。
  * - inflight/seq 守卫与 15s settle 定时归深模块；合并/写透仍走本 board seam；
  * - 返回 `combinedConfirmed`（全局 ∪ 榜单内）供过滤/计数/徽标统一口径。
  */
-export function useTrendPendingLifecycle(
-  params: TrendPendingLifecycleParams,
+export function useTrendLoadingLifecycle(
+  params: TrendLoadingLifecycleParams,
 ): { combinedConfirmed: Set<string> } {
   const {
     trendResult,
@@ -1147,7 +1147,7 @@ export function useTrendPendingLifecycle(
   const fetchLiteRef = React.useRef(fetchLite);
   fetchLiteRef.current = fetchLite;
 
-  // 全局已确认 ∪ 榜单内已确认：pending 判定的唯一口径（未传入全局集合时不启用）。
+  // 全局已确认 ∪ 榜单内已确认：loading 判定的唯一口径（未传入全局集合时不启用）。
   const combinedConfirmed = React.useMemo(
     () => unionConfirmedSets(globalConfirmed, localConfirmed),
     [globalConfirmed, localConfirmed],
@@ -1168,7 +1168,7 @@ export function useTrendPendingLifecycle(
   // 未收录行 lite 确认（App lazyBackfill 的榜单侧补齐，分批 5/上限 20/seq 守卫）：
   // enrich 落定为空的行按 App 同口径走 getPlatformsLite 轻量通道：
   // 非空非 stale 即 patch 治愈并经 board seam 写透；空非 stale 即确认 Other 并写透，重挂免验；
-  // stale/失败保持 pending 交给 settle 超时（不覆盖具平台）。
+  // stale/失败保持 loading 交给 settle 超时（不覆盖具平台）。
   React.useEffect(() => {
     if (trendResult?.status !== 'ok') return;
     if (globalConfirmed === undefined) return;
@@ -1191,7 +1191,7 @@ export function useTrendPendingLifecycle(
     if (runTargets.length === 0) return;
     void (async () => {
       try {
-        const { patched, confirmedEmpty } = await verifyPendingLite(
+        const { patched, confirmedEmpty } = await verifyLoadingLite(
           runTargets,
           (liteId) => fetchLiteRef.current(liteId),
           () => guard.isStale(seq),
@@ -1205,11 +1205,11 @@ export function useTrendPendingLifecycle(
           }
           setEnrichedApps((prev) => mergeLitePatchedMirror(prev, patched));
           setTrendConfirmedOtherIds((prev) => removeConfirmedForConcrete(prev, [...patched.keys()]));
-          // 经 board seam 持久化（hydrate + 同榜 key 写透；stale/失败不进 patched，保持 pending）。
+          // 经 board seam 持久化（hydrate + 同榜 key 写透；stale/失败不进 patched，保持 loading）。
           try {
             await maybePersistLitePatched(patched, enrichedAppsRef.current);
           } catch {
-            // 写透失败不影响内存落定，pending 语义不变
+            // 写透失败不影响内存落定，loading 语义不变
           }
         }
         if (confirmedEmpty.length > 0) {
@@ -1226,33 +1226,33 @@ export function useTrendPendingLifecycle(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trendResult, rawItems, enrichedApps, globalConfirmed, combinedConfirmed, activeBoard, trendFetchOpts]);
 
-  // pending settle 超时：enrich 空 + 一次 lite 仍未治愈（或 lite stale/失败/裸行）
+  // loading settle 超时：enrich 空 + 一次 lite 仍未治愈（或 lite stale/失败/裸行）
   // 至多等待 15s 后降级为已确认 Other（徽标 + 计数 + 可过滤），而非无限 shimmer。
   // 超时前仍恒可见（不看 Other 勾选），落定后走正常 Other 过滤。定时归深模块所有。
   React.useEffect(() => {
     if (globalConfirmed === undefined) return;
     if (trendResult?.status !== 'ok') return;
-    const { pendingKeys, repoByKey } = collectSettlePending(rawItems, enrichedApps, combinedConfirmed);
-    if (pendingKeys.length === 0) return;
+    const { loadingKeys, repoByKey } = collectSettleLoading(rawItems, enrichedApps, combinedConfirmed);
+    if (loadingKeys.length === 0) return;
     const repos = trendResult.repos;
     return scheduleSettleConfirm({
-      keys: pendingKeys,
+      keys: loadingKeys,
       recheck: (snapshot) =>
-        filterStillPending(
+        filterStillLoading(
           snapshot,
           enrichedAppsRef.current,
           globalConfirmedRef.current,
           localConfirmedRef.current,
         ),
-      onConfirm: (stillPending) => {
+      onConfirm: (stillLoading) => {
         const { toHydrate, aliasKeys } = buildSettleHydration(
-          stillPending,
+          stillLoading,
           enrichedAppsRef.current,
           repoByKey,
           repos,
         );
         if (aliasKeys.length === 0) return;
-        // 先 mark 再 hydrate：已确认 pending 方可进 board 内存（未确认 pending 永不进内存/落库）。
+        // 先 mark 再 hydrate：已确认 loading 方可进 board 内存（未确认 loading 永不进内存/落库）。
         commitSettleConfirmed(aliasKeys, toHydrate);
         setTrendConfirmedOtherIds((prev) =>
           addConfirmedMirror(

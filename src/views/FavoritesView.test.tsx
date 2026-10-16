@@ -111,7 +111,7 @@ describe('favorites catalog badge (display-only, data join untouched)', () => {
   it('不传 showCatalogBadge 时零徽标（其它页面外观零变化）', () => {
     const app = makeApp({ id: 'owner/app-a', name: 'AppA', category: 'system' });
     const { container } = render(
-      <AppCard app={app} isInstalled={false} isManaged={false} platformPending={false} onOpenDetail={() => {}} onQuickInstall={() => {}} />,
+      <AppCard app={app} isInstalled={false} isManaged={false} platformLoading={false} onOpenDetail={() => {}} onQuickInstall={() => {}} />,
     );
     expect(container.querySelector('.app-tag-cataloged')).toBeNull();
     expect(container.querySelector('.app-tag-uncataloged')).toBeNull();

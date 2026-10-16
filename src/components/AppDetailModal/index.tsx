@@ -22,8 +22,8 @@ export interface AppDetailModalProps {
   isWatched?: boolean;
   isInstallingGlobal?: boolean;
   isUninstallingGlobal?: boolean;
-  /** 待确认态（summary 为空且详情尚未落定）：pending-empty 展示骨架占位，已确认-empty 展示 Other。 */
-  platformPending: boolean;
+  /** 加载中态（summary 为空且详情尚未落定）：loading-empty 展示骨架占位，已确认-empty 展示 Other。 */
+  platformLoading: boolean;
   oauthUser?: OAuthUser | null;
   onClose: () => void;
   onInstall: (id: string, assetName?: string, customInstallDir?: string) => Promise<any>;
@@ -48,7 +48,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   isWatched = false,
   isInstallingGlobal = false,
   isUninstallingGlobal = false,
-  platformPending,
+  platformLoading,
   oauthUser = null,
   onClose,
   onInstall,
@@ -294,7 +294,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
           displayDesc={displayDesc}
           displayCategory={displayCategory}
           primaryAsset={primaryAsset}
-          platformPending={platformPending}
+          platformLoading={platformLoading}
           oauthUser={oauthUser}
           isFavorite={isFavorite}
           isWatched={isWatched}

@@ -293,7 +293,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               <AppCard
                 key={app.id}
                 app={app}
-                platformPending={isPlatformPending(app, platformResolvedOtherIds)}
+                platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
                 isInstalled={selectIsInstalledUnion(app.id, installedIds)}
                 isManaged={selectIsManagedOpt(app.id, managedIds)}
                 isDetectedOnly={selectIsDetectedOnlyOpt(app.id, installedIds, managedIds)}
@@ -326,7 +326,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 key={app.id}
                 app={app}
                 eager
-                platformPending={isPlatformPending(app, platformResolvedOtherIds)}
+                platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
                 isInstalled={selectIsInstalledUnion(app.id, installedIds)}
                 isManaged={selectIsManagedOpt(app.id, managedIds)}
                 isDetectedOnly={selectIsDetectedOnlyOpt(app.id, installedIds, managedIds)}
@@ -359,7 +359,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <AppCard
                   key={app.id}
                   app={app}
-                  platformPending={isPlatformPending(app, platformResolvedOtherIds)}
+                  platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
                   isInstalled={selectIsInstalledUnion(app.id, installedIds)}
                   isManaged={selectIsManagedOpt(app.id, managedIds)}
                   isDetectedOnly={selectIsDetectedOnlyOpt(app.id, installedIds, managedIds)}
@@ -501,7 +501,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               <AppCard
                 key={app.id}
                 app={app}
-                platformPending={isPlatformPending(app, platformResolvedOtherIds)}
+                platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
                 isInstalled={selectIsInstalledUnion(app.id, installedIds)}
                 isManaged={selectIsManagedOpt(app.id, managedIds)}
                 isDetectedOnly={selectIsDetectedOnlyOpt(app.id, installedIds, managedIds)}
