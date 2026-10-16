@@ -100,6 +100,8 @@ interface TrendsViewProps
   installedIds?: Set<string>;
   installingIds?: Set<string>;
   onToggleFavorite?: (id: string) => void;
+  watchedIds?: Set<string>;
+  onToggleWatch?: (id: string) => void;
   /** 全量收录（身份匹配用；缺省回退 apps）。显示用 apps 仍为 App 预过滤后的集合。 */
   allApps?: AppSummary[];
   /** 全局设备平台选择：传入即按其过滤榜单行（含未收录行）；缺省不过滤。 */
@@ -159,6 +161,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   onQuickInstall,
   onManageApp,
   onToggleFavorite,
+  onToggleWatch,
+  watchedIds,
   onResetPlatformFilter,
   allApps,
   selectedPlatforms,
@@ -663,11 +667,13 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                   isManaged={selectIsManagedOpt(item.app.id, managedIds)}
                   isDetectedOnly={selectIsDetectedOnlyOpt(item.app.id, installedIds, managedIds)}
                   isInstalling={installingIds?.has(item.app.id) ?? false}
-                  isFavorite={favoriteIds?.has(item.app.id) ?? false}
+                  isFavorite={favoriteIds?.has(normalizeId(item.app.id)) ?? false}
+                  isWatched={watchedIds?.has(normalizeId(item.app.id)) ?? false}
                   onOpenDetail={onOpenDetail}
                   onQuickInstall={onQuickInstall}
                   onManageApp={onManageApp}
                   onToggleFavorite={onToggleFavorite}
+                  onToggleWatch={onToggleWatch}
                 />
               );
             }
@@ -704,9 +710,12 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                   isManaged={selectIsManagedOpt(displayApp.id, managedIds)}
                   isDetectedOnly={selectIsDetectedOnlyOpt(displayApp.id, installedIds, managedIds)}
                   isInstalling={false}
-                  isFavorite={false}
+                  isFavorite={favoriteIds?.has(normalizeId(displayApp.id)) ?? false}
+                  isWatched={watchedIds?.has(normalizeId(displayApp.id)) ?? false}
                   onOpenDetail={onOpenDetail}
                   onManageApp={onManageApp}
+                  onToggleFavorite={onToggleFavorite}
+                  onToggleWatch={onToggleWatch}
                   onQuickInstall={() => {
                     if (item.repo.url) {
                       void tauriApi.openUrl(item.repo.url);
@@ -726,6 +735,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
             const bareKey = normalizeId(item.repo.id);
             const bareMoving = trendMovingIds.has(bareKey);
             const bareExisting = customIds?.has(bareKey) ?? false;
+            const bareWatched = watchedIds?.has(bareKey) ?? false;
+            const bareFavorite = favoriteIds?.has(bareKey) ?? false;
             const bareMoveLabel = bareMoving
               ? t('custom.moving_in', { defaultValue: '移入中…' })
               : t('custom.move_in', { defaultValue: '移入收录' });
@@ -779,6 +790,42 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                       <span className="app-tag trend-gain" title={gainText}>
                         {gainText}
                       </span>
+                    )}
+                    {onToggleWatch && (
+                      <button
+                        type="button"
+                        className={`btn-fav-card ${bareWatched ? 'active' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onToggleWatch(item.repo.id);
+                        }}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        title={bareWatched ? t('app.watch_active') : t('app.watch_inactive')}
+                        aria-label={bareWatched ? t('app.watch_active') : t('app.watch_inactive')}
+                        style={bareWatched ? { color: 'var(--brand-primary)' } : undefined}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill={bareWatched ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+                          <circle cx="12" cy="12" r="3" />
+                        </svg>
+                      </button>
+                    )}
+                    {onToggleFavorite && (
+                      <button
+                        type="button"
+                        className={`btn-fav-card ${bareFavorite ? 'active' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onToggleFavorite(item.repo.id);
+                        }}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        title={bareFavorite ? t('app.fav_active') : t('app.fav_inactive')}
+                        aria-label={bareFavorite ? t('app.fav_active') : t('app.fav_inactive')}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill={bareFavorite ? '#eab308' : 'none'} stroke={bareFavorite ? '#eab308' : 'currentColor'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+                        </svg>
+                      </button>
                     )}
                     {!bareExisting && (
                       <button

@@ -510,12 +510,16 @@ export const App: React.FC = () => {
   // Toggle Watch (FR-6.2: 关注 / 取消关注，后端未就绪时 Toast 提示且不崩溃)
   // useCallback + ref 稳定引用：搜索键入/图标升级时不连带卡片重渲染，仅选中态变化的那张经 isWatched 重渲染
   const handleToggleWatch = useCallback(async (id: string) => {
-    const isWatched = watchedRef.current.has(id);
+    // 读写归一：读态经 normalizeId 查 watchedIds，写入口同样归一后再 has/watch/unwatch，
+    // 大小写/空格变体（Owner/Repo vs owner/repo）点后可翻转。
+    const key = normalizeId(id);
+    if (!key) return;
+    const isWatched = watchedRef.current.has(key);
     try {
       if (isWatched) {
-        await tauriApi.unwatchApp(id);
+        await tauriApi.unwatchApp(key);
       } else {
-        await tauriApi.watchApp(id);
+        await tauriApi.watchApp(key);
       }
     } catch (e) {
       showToast(t('toast.watch_failed', { error: String(e) }), 'error');
@@ -523,17 +527,17 @@ export const App: React.FC = () => {
     }
     setWatchedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
+      if (next.has(key)) {
+        next.delete(key);
         showToast(t('toast.watch_unfollowed'), 'info');
       } else {
-        next.add(id);
+        next.add(key);
         showToast(t('toast.watch_followed'), 'success');
       }
       return next;
     });
     if (isWatched) {
-      setWatchNotifications((prev) => prev.filter((n) => n.app_id !== id));
+      setWatchNotifications((prev) => prev.filter((n) => normalizeId(n.app_id) !== key));
     }
   }, [showToast, t]);
 
@@ -541,16 +545,18 @@ export const App: React.FC = () => {
     setWatchNotifications((prev) => prev.filter((n) => n.app_id !== appId));
   }, []);
 
-  // 切换收藏状态（稳定回调，供 memo 卡片复用）
+  // 切换收藏状态（稳定回调，供 memo 卡片复用；入口归一，读写一致）
   const handleToggleFavorite = useCallback(async (id: string) => {
-    await tauriApi.toggleFavorite(id);
+    const key = normalizeId(id);
+    if (!key) return;
+    await tauriApi.toggleFavorite(key);
     setFavoriteIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
+      if (next.has(key)) {
+        next.delete(key);
         showToast(t('toast.favorite_removed'), 'info');
       } else {
-        next.add(id);
+        next.add(key);
         showToast(t('toast.favorite_added'), 'success');
       }
       return next;
@@ -713,6 +719,7 @@ export const App: React.FC = () => {
               platformResolvedOtherIds={platformResolvedOtherIds}
               onDisplayPlatformCounts={handleTrendsPlatformCounts}
               favoriteIds={favoriteIds}
+              watchedIds={watchedIds}
               installedIds={installedIds}
               installingIds={installingAppIds}
               managedIds={managedLoaded ? managedIds : null}
@@ -720,6 +727,7 @@ export const App: React.FC = () => {
               onQuickInstall={handleQuickInstall}
               onManageApp={handleManageApp}
               onToggleFavorite={handleToggleFavorite}
+              onToggleWatch={handleToggleWatch}
               onResetPlatformFilter={handleResetPlatformFilter}
               customIds={customIds}
             />
