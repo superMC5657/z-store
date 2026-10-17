@@ -186,7 +186,7 @@ export async function getDbTrendCache(key: string, board?: string): Promise<Tren
   if (!isTauri) return undefined;
   try {
     const row = await tauriInvoke<DbTrendBoardCacheRow | null>(CMD_GET_TREND_BOARD_CACHE, {
-      cache_key: key,
+      cacheKey: key,
     });
     if (!row) return undefined;
 
@@ -353,9 +353,9 @@ export async function saveDbTrendCache(
     }
 
     await tauriInvoke(CMD_SAVE_TREND_BOARD_CACHE, {
-      cache_key: key,
+      cacheKey: key,
       board,
-      payload_json: payloadJson,
+      payloadJson,
     });
   } catch (e) {
     const reason = e instanceof Error ? e.message : String(e);

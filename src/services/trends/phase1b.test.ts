@@ -167,8 +167,8 @@ describe('Phase1B C5（SWR）：已确认 loading 进盘直展，未确认永不
       'acme/good': good,
     });
     expect(invokeSpy).toHaveBeenCalledTimes(1);
-    const args = invokeSpy.mock.calls[0]?.[1] as { payload_json: string };
-    const payload = JSON.parse(args.payload_json) as {
+    const args = invokeSpy.mock.calls[0]?.[1] as { payloadJson: string };
+    const payload = JSON.parse(args.payloadJson) as {
       v: number;
       repos: unknown[];
       enrich: Record<string, { platforms: string[]; icon: string }>;

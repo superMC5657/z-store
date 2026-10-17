@@ -152,8 +152,8 @@ describe('Phase2治理：字节上限 + dataURI 永不进 payload', () => {
     (huge as unknown as Record<string, unknown>).description = 'y'.repeat(300 * 1024);
     await saveDbTrendCache('weekly||', 'weekly', repos, { 'acme/huge': huge });
     expect(invokeSpy).toHaveBeenCalledTimes(1);
-    const args = invokeSpy.mock.calls[0]?.[1] as { payload_json: string };
-    const parsed: unknown = JSON.parse(args.payload_json);
+    const args = invokeSpy.mock.calls[0]?.[1] as { payloadJson: string };
+    const parsed: unknown = JSON.parse(args.payloadJson);
     // 截断后为富信封，描述截至 500 字符
     expect(Array.isArray(parsed)).toBe(false);
     const envelope = parsed as { v: number; enrich: Record<string, { description: string }> };
@@ -174,8 +174,8 @@ describe('Phase2治理：字节上限 + dataURI 永不进 payload', () => {
       'acme/good': good,
     });
     expect(invokeSpy).toHaveBeenCalledTimes(1);
-    const args = invokeSpy.mock.calls[0]?.[1] as { payload_json: string };
-    const parsed: unknown = JSON.parse(args.payload_json);
+    const args = invokeSpy.mock.calls[0]?.[1] as { payloadJson: string };
+    const parsed: unknown = JSON.parse(args.payloadJson);
     expect(Array.isArray(parsed)).toBe(false);
     const envelope = parsed as { v: number; enrich: Record<string, unknown> };
     expect(envelope.enrich['acme/good']).toBeDefined();
@@ -214,9 +214,9 @@ describe('Phase2治理：字节上限 + dataURI 永不进 payload', () => {
       'acme/good': good,
     });
     expect(invokeSpy).toHaveBeenCalledTimes(1);
-    const args = invokeSpy.mock.calls[0]?.[1] as { payload_json: string };
-    expect(args.payload_json).not.toContain('data:');
-    const payload = JSON.parse(args.payload_json) as { enrich: Record<string, unknown> };
+    const args = invokeSpy.mock.calls[0]?.[1] as { payloadJson: string };
+    expect(args.payloadJson).not.toContain('data:');
+    const payload = JSON.parse(args.payloadJson) as { enrich: Record<string, unknown> };
     expect(payload.enrich['acme/beacon']).toBeUndefined();
     expect(payload.enrich['acme/good']).toBeDefined();
     // SWR：loading 空平台随信封落盘

@@ -39,7 +39,7 @@ describe('SWR 旧富卡直展：已确认 Other 落盘后重挂直展富卡', ()
     const saved: string[] = [];
     const saveSpy = vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
       if (cmd === 'save_trend_board_cache') {
-        saved.push((args as { payload_json: string }).payload_json);
+        saved.push((args as { payloadJson: string }).payloadJson);
       }
       return undefined;
     });
@@ -138,7 +138,7 @@ describe('SWR 旧富卡直展：已确认 Other 落盘后重挂直展富卡', ()
     const saved: string[] = [];
     const saveSpy = vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
       if (cmd === 'save_trend_board_cache') {
-        saved.push((args as { payload_json: string }).payload_json);
+        saved.push((args as { payloadJson: string }).payloadJson);
       }
       return undefined;
     });
@@ -173,20 +173,20 @@ describe('SWR 旧富卡直展：已确认 Other 落盘后重挂直展富卡', ()
     const rich = makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'], icon: 'https://x/a.png' });
     const richEnvelope = JSON.stringify({ v: 1, repos, enrich: { 'acme/atlas': rich } });
     const nowSec = Math.floor(Date.now() / 1000);
-    const saved: Array<{ payload_json: string }> = [];
+    const saved: Array<{ payloadJson: string }> = [];
     vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
       if (cmd === 'get_trend_board_cache') {
         return { payload_json: richEnvelope, cached_at: nowSec - 60 };
       }
       if (cmd === 'save_trend_board_cache') {
-        saved.push(args as { payload_json: string });
+        saved.push(args as { payloadJson: string });
       }
       return undefined;
     });
     // 关闭前/主体落盘统一走合并口：await 返回时 invoke 已完成，富条目保留
     await saveBoardCacheMerged('weekly||', 'weekly', repos);
     expect(saved).toHaveLength(1);
-    const payload = JSON.parse(saved[0]?.payload_json as string) as {
+    const payload = JSON.parse(saved[0]?.payloadJson as string) as {
       v: number;
       enrich: Record<string, { platforms: string[] }>;
     };
@@ -207,13 +207,13 @@ describe('SWR 旧富卡直展：已确认 Other 落盘后重挂直展富卡', ()
     const networkSpy = vi.spyOn(tauriApi, 'fetchTrendsText');
     vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
       if (cmd === 'get_trend_board_cache') {
-        const k = (args as { cache_key: string }).cache_key;
+        const k = (args as { cacheKey: string }).cacheKey;
         seenKeys.push(k);
         if (k === newKey) return { payload_json: richEnvelope, cached_at: nowSec - 60 };
         return null;
       }
       if (cmd === 'save_trend_board_cache') {
-        savedKeys.push((args as { cache_key: string }).cache_key);
+        savedKeys.push((args as { cacheKey: string }).cacheKey);
       }
       return undefined;
     });
@@ -258,7 +258,7 @@ describe('富卡落盘图标一视同仁：有/无图标重挂都直展富卡', 
     const saved: string[] = [];
     const saveSpy = vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
       if (cmd === 'save_trend_board_cache') {
-        saved.push((args as { payload_json: string }).payload_json);
+        saved.push((args as { payloadJson: string }).payloadJson);
       }
       return undefined;
     });

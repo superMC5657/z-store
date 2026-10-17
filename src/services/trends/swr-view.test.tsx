@@ -254,12 +254,12 @@ describe('平台随富卡缓存：L2 新鲜免验，过期才补验', () => {
     const l2Store = new Map<string, { payload_json: string; cached_at: number }>();
     vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
       if (cmd === 'get_trend_board_cache') {
-        const k = (args as { cache_key: string }).cache_key;
+        const k = (args as { cacheKey: string }).cacheKey;
         return l2Store.get(k) ?? null;
       }
       if (cmd === 'save_trend_board_cache') {
-        const k = (args as { cache_key: string }).cache_key;
-        const payload = (args as { payload_json: string }).payload_json;
+        const k = (args as { cacheKey: string }).cacheKey;
+        const payload = (args as { payloadJson: string }).payloadJson;
         l2Store.set(k, { payload_json: payload, cached_at: Math.floor(Date.now() / 1000) });
         return undefined;
       }
@@ -375,12 +375,12 @@ describe('已确认Other落盘：重挂零lite直展Other卡、具平台可升�
     const l2Store = new Map<string, { payload_json: string; cached_at: number }>();
     vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
       if (cmd === 'get_trend_board_cache') {
-        const k = (args as { cache_key: string }).cache_key;
+        const k = (args as { cacheKey: string }).cacheKey;
         return l2Store.get(k) ?? null;
       }
       if (cmd === 'save_trend_board_cache') {
-        const k = (args as { cache_key: string }).cache_key;
-        const payload = (args as { payload_json: string }).payload_json;
+        const k = (args as { cacheKey: string }).cacheKey;
+        const payload = (args as { payloadJson: string }).payloadJson;
         l2Store.set(k, { payload_json: payload, cached_at: Math.floor(Date.now() / 1000) });
         return undefined;
       }
@@ -467,12 +467,12 @@ describe('已确认Other落盘：重挂零lite直展Other卡、具平台可升�
     const l2Store = new Map<string, { payload_json: string; cached_at: number }>();
     vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
       if (cmd === 'get_trend_board_cache') {
-        const k = (args as { cache_key: string }).cache_key;
+        const k = (args as { cacheKey: string }).cacheKey;
         return l2Store.get(k) ?? null;
       }
       if (cmd === 'save_trend_board_cache') {
-        const k = (args as { cache_key: string }).cache_key;
-        const payload = (args as { payload_json: string }).payload_json;
+        const k = (args as { cacheKey: string }).cacheKey;
+        const payload = (args as { payloadJson: string }).payloadJson;
         l2Store.set(k, { payload_json: payload, cached_at: Math.floor(Date.now() / 1000) });
         return undefined;
       }

@@ -164,9 +164,9 @@ describe('trends L2 persistence cache', () => {
 
     await saveDbTrendCache('weekly||', 'weekly', [mockRepo]);
     expect(invokeSpy).toHaveBeenCalledWith('save_trend_board_cache', {
-      cache_key: 'weekly||',
+      cacheKey: 'weekly||',
       board: 'weekly',
-      payload_json: JSON.stringify({ v: 1, repos: [mockRepo], enrich: {} }),
+      payloadJson: JSON.stringify({ v: 1, repos: [mockRepo], enrich: {} }),
     });
   });
 
@@ -185,12 +185,12 @@ describe('trends L2 persistence cache', () => {
       const store = new Map<string, { payload_json: string; cached_at: number }>();
       vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
         if (cmd === 'get_trend_board_cache') {
-          const k = (args as { cache_key: string }).cache_key;
+          const k = (args as { cacheKey: string }).cacheKey;
           return store.get(k) ?? null;
         }
         if (cmd === 'save_trend_board_cache') {
-          const k = (args as { cache_key: string }).cache_key;
-          const payload = (args as { payload_json: string }).payload_json;
+          const k = (args as { cacheKey: string }).cacheKey;
+          const payload = (args as { payloadJson: string }).payloadJson;
           store.set(k, { payload_json: payload, cached_at: Math.floor(Date.now() / 1000) });
           return undefined;
         }
@@ -271,12 +271,12 @@ describe('trends L2 persistence cache', () => {
       // 恢复常规 L2 mock 后再合并写透：残留 loading 不回写
       vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
         if (cmd === 'get_trend_board_cache') {
-          const k = (args as { cache_key: string }).cache_key;
+          const k = (args as { cacheKey: string }).cacheKey;
           return store.get(k) ?? null;
         }
         if (cmd === 'save_trend_board_cache') {
-          const k = (args as { cache_key: string }).cache_key;
-          const payload = (args as { payload_json: string }).payload_json;
+          const k = (args as { cacheKey: string }).cacheKey;
+          const payload = (args as { payloadJson: string }).payloadJson;
           store.set(k, { payload_json: payload, cached_at: Math.floor(Date.now() / 1000) });
           return undefined;
         }
@@ -390,7 +390,7 @@ describe('trends L2 persistence cache', () => {
 
       vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
         if (cmd === 'get_trend_board_cache') {
-          expect((args as { cache_key?: string }).cache_key).toBe(expectedKey);
+          expect((args as { cacheKey?: string }).cacheKey).toBe(expectedKey);
           return {
             payload_json: JSON.stringify({ v: 1, repos: [mockRepo], enrich: {} }),
             cached_at: nowSec - 100,
