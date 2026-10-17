@@ -18,14 +18,14 @@ export const TREND_ENRICH_SHARD_SIZE = 20;
 /**
  * 已确认 Other 标记 TTL：12h（与 enrich 同口径，到期重验）。
  * settle 兜底 / lite 空非 stale 确认的 Other 经此集合记忆，具平台到达即覆盖升级（put 具平台自动移除），
- * pending 空平台永不覆盖已具平台值（mark 前检查 enrich 已具平台则跳过）。
+ * loading 空平台永不覆盖已具平台值（mark 前检查 enrich 已具平台则跳过）。
  */
 export const TREND_CONFIRMED_OTHER_TTL_MS = TREND_ENRICH_CACHE_TTL_MS;
 /** 已确认 Other 标记内存有界：至多 500 条，FIFO 裁剪（与 enrich 同口径）。 */
 export const TREND_CONFIRMED_OTHER_MAX_ENTRIES = 500;
 
 /**
- * 具平台判定（pending-never-overwrites-concrete 守卫的唯一口径）：
+ * 具平台判定（loading-never-overwrites-concrete 守卫的唯一口径）：
  * platforms 非空数组即具平台；空/缺失一律 loading（调用点均已保证数组形状）。
  */
 function hasConcretePlatforms(platforms: unknown): boolean {
@@ -47,7 +47,7 @@ function putTrendConfirmedOtherEntry(key: string, timestamp: number): void {
   }
 }
 
-/** 标记单键为已确认 Other（已具平台则跳过，禁 pending 覆盖具平台）。 */
+/** 标记单键为已确认 Other（已具平台则跳过，禁 loading 覆盖具平台）。 */
 export function markTrendConfirmedOther(key: string): void {
   const k = normalizeId(key);
   if (!k) return;
@@ -86,7 +86,7 @@ export function unmarkTrendConfirmedOthers(keys: readonly string[]): void {
 /**
  * 已确认 Other 变更订阅（榜缓存写透联动钩子）：
  * - 仅显式 mark/unmark（含具平台驱逐删标记）触发；读路径 hydrate/sweep/过期清理不触发（读不写盘）；
- * - 订阅方（如 TrendsView）据此节流写透同榜 key；pending 语义不动（未确认 pending 永不进内存/落库）。
+ * - 订阅方（如 TrendsView）据此节流写透同榜 key；loading 语义不动（未确认 loading 永不进内存/落库）。
  */
 export type TrendConfirmedOtherChangeKind = 'mark' | 'unmark';
 export type TrendConfirmedOtherListener = (
@@ -119,7 +119,7 @@ function emitTrendConfirmedOtherChanged(
 }
 
 /**
- * pending 当次有效永不缓存；Other 共享需确认（lite/详情确认标记）。
+ * loading 当次有效永不缓存；Other 共享需确认（lite/详情确认标记）。
  * 现状：具平台驱逐删标记走与 mark/unmark 同一 emit，触发写透（内存与盘所见即所得）；
  * TTL 过期清理为读路径，不 emit（不写放大）。
  */
@@ -144,7 +144,7 @@ export function isTrendConfirmedOtherFresh(key: string): boolean {
 }
 
 /**
- * pending 当次有效永不缓存；Other 共享需确认（lite/详情确认标记）。
+ * loading 当次有效永不缓存；Other 共享需确认（lite/详情确认标记）。
  * View 侧唯一出口为 board.snapshotBoardConfirmed，不直调此函数。
  * 可选传入 repos 时仅返回仍属本榜的键（坐标键 + id 键，小写）。
  * 现状：具平台驱逐删标记走与 mark/unmark 同一 emit，触发写透；过期清理不 emit。
@@ -184,7 +184,7 @@ export function snapshotTrendConfirmedOthers(repos?: TrendRepo[]): string[] {
 
 /**
  * 确认标记回填：
- * - 仅收非空小写键；已具平台键跳过（禁 pending 覆盖具平台）；
+ * - 仅收非空小写键；已具平台键跳过（禁 loading 覆盖具平台）；
  * - 时间戳取 now。
  */
 export function markConfirmedOthersFreshNow(keys?: readonly string[] | null): void {
@@ -214,15 +214,15 @@ export function sweepExpiredTrendConfirmedOtherCache(): void {
   }
 }
 
-/** M1内存：trendEnrichCache（仅具平台坐标元数据 12h/500 FIFO；pending 空平台永不进内存）。 */
+/** M1内存：trendEnrichCache（仅具平台坐标元数据 12h/500 FIFO；loading 空平台永不进内存）。 */
 const trendEnrichCache = new Map<string, { timestamp: number; data: AppSummary }>();
 
 /**
  * trendEnrichCache 唯一写入口。
  * - 具平台恒进缓存（12h/500 FIFO）；sticky/icon 合并仅对具平台执行；
- * - pending 空平台仅已确认键进内存（已确认 Other 随榜缓存同 key 落盘，重挂直展 Other 卡）；
- *   未确认 pending 入口直接 return（不进内存、不落库，只活当次 out 渲染）；
- * - 禁 pending 覆盖具平台：内存已有具平台值时 pending 回填直接丢弃；
+ * - loading 空平台仅已确认键进内存（已确认 Other 随榜缓存同 key 落盘，重挂直展 Other 卡）；
+ *   未确认 loading 入口直接 return（不进内存、不落库，只活当次 out 渲染）；
+ * - 禁 loading 覆盖具平台：内存已有具平台值时 loading 回填直接丢弃；
  * - 详情具平台治愈（upsertTrendEnrichFromDetail / upsertTrendEnrichRichcard）为唯一回填口。
  */
 function putTrendEnrichCache(key: string, entry: { timestamp: number; data: AppSummary }): void {
@@ -239,7 +239,7 @@ function putTrendEnrichCache(key: string, entry: { timestamp: number; data: AppS
   const data = resolveIconWithBuffer(cur?.data, entry.data);
   if (trendEnrichCache.has(k)) trendEnrichCache.delete(k);
   trendEnrichCache.set(k, { timestamp: entry.timestamp, data });
-  // 具平台到达即覆盖升级： concrete 入库同步移除已确认 Other 标记（pending 永不覆盖具平台的另一半）。
+  // 具平台到达即覆盖升级： concrete 入库同步移除已确认 Other 标记（loading 永不覆盖具平台的另一半）。
   // 现状：驱逐删标记走与 mark/unmark 同一 emit，触发写透（调用方不另行写透，不双写）。
   if (hasConcretePlatforms(data.platforms)) {
     if (trendConfirmedOtherCache.delete(k)) {
@@ -280,9 +280,9 @@ export function clearTrendEnrichCache(): void {
  * View 侧唯一出口为 board.putBoardEnrichMemory，不直调此函数；
  * 图标合并经 `resolveIconWithBuffer` 单口。
  * - 具平台恒进缓存（12h/500 FIFO），后续靠应用详情刷新治愈（upsert from detail）；
- * - pending 空平台仅已确认键进内存（调用方先 mark；读盘时先 hydrate 确认集再 hydrate enrich）；
- *   未确认 pending 直接跳过（永不进内存/落库，只活当次 out 渲染）；
- * - 禁 pending 覆盖具平台（put 入口守卫）；
+ * - loading 空平台仅已确认键进内存（调用方先 mark；读盘时先 hydrate 确认集再 hydrate enrich）；
+ *   未确认 loading 直接跳过（永不进内存/落库，只活当次 out 渲染）；
+ * - 禁 loading 覆盖具平台（put 入口守卫）；
  * - 准入只看三件套：id/owner/repo 非空必填（有/无图标一视同仁，icon 空也保留）；
  * - 约束：不存 dataURI（若 icon 是 data: 开头则跳过）；
  * - 键统一转为小写 `owner/repo`。
@@ -319,7 +319,7 @@ export function putTrendEnrichMemory(
  * View 侧唯一出口为 board.snapshotBoardEnrich / snapshotBoardConfirmed，不直调此函数。
  * - 可选传入 repos：若传入则仅提取属于这些 repos 的条目，否则提取全部；
  * - 仅提取未过期条目（elapsed<0 按过期；elapsed>=12h 按过期）；
- * - 具平台恒收录；pending 仅收录已确认新鲜键（Other 直展），未确认 pending 一律跳过（永不持久化）；
+ * - 具平台恒收录；loading 仅收录已确认新鲜键（Other 直展），未确认 loading 一律跳过（永不持久化）；
  * - 约束：跳过 dataURI。
  */
 export function snapshotTrendEnrichCache(repos?: TrendRepo[]): Record<string, AppSummary> {
@@ -363,8 +363,8 @@ export function snapshotTrendEnrichCache(repos?: TrendRepo[]): Record<string, Ap
 
 /**
  * Enrich 未收录 TrendRepo → AppSummary（Map 键为小写 `owner/repo`）。
- * 具平台缓存命中直接返回；已确认 pending 新鲜命中即直展（免验不重拉）；
- * 未确认 pending 永不命中（视为缺席，删后重拉，不直接返）；
+ * 具平台缓存命中直接返回；已确认 loading 新鲜命中即直展（免验不重拉）；
+ * 未确认 loading 永不命中（视为缺席，删后重拉，不直接返）；
  * 缺失批量走 Rust 命令；失败/空项缺席（调用方保留旧小行，榜单永不因此变空）。
  * 本函数永不抛错：传输层异常一律吞为“全部缺席”。
  *
@@ -421,7 +421,7 @@ export async function enrichTrendRepos(repos: TrendRepo[]): Promise<Map<string, 
         }
       }
     }
-    // pending 视为缺席：本次走重拉。
+    // loading 视为缺席：本次走重拉。
     missing.push(r);
   }
   if (missing.length === 0) return out;
@@ -447,7 +447,7 @@ export async function enrichTrendRepos(repos: TrendRepo[]): Promise<Map<string, 
       return;
     }
     const key = trendEnrichKey(r.owner, r.repo);
-    // pending 当次有效永不缓存：只 set 当次 out，不 put 进 cache；具平台才 put。
+    // loading 当次有效永不缓存：只 set 当次 out，不 put 进 cache；具平台才 put。
     if (!hasConcretePlatforms(s.platforms)) {
       const cur = trendEnrichCache.get(key);
       s = resolveIconWithBuffer(cur?.data, s);
@@ -466,7 +466,7 @@ export async function enrichTrendRepos(repos: TrendRepo[]): Promise<Map<string, 
 /**
  * 详情治愈榜单行的跨组件通道（App → TrendsView）。
  * 详情成功带回真实平台时，App 派发此事件，TrendsView 即时补齐其 `enrichedApps`，
- * 行内从 pending 占位一次落定为 OS 图标（VoiceStudio 类 bug 的治愈路径）。
+ * 行内从 loading 占位一次落定为 OS 图标（VoiceStudio 类 bug 的治愈路径）。
  */
 export const DETAIL_PLATFORMS_HEAL_EVENT = 'zstore:detail-platforms-healed';
 
@@ -544,7 +544,7 @@ export function appSummaryFromDetail(detail: AppDetail): AppSummary {
 
 /**
  * 详情治愈写入 enrich 长缓存（详情具平台治愈唯一写口之一）：
- * pending 当次有效永不缓存，具平台 12h/500 FIFO；仅非空平台写入（空不写），
+ * loading 当次有效永不缓存，具平台 12h/500 FIFO；仅非空平台写入（空不写），
  * 后续同坐标 enrich 直接命中治愈值，不回退 `[]`。
  * 图标回填只做升级不做准入：详情弹窗特供的 data: 内联大图不进内存
  * （快照恒禁 data:，存了也落不了盘）；空图标不覆盖已有真实图标（put 入口合并）。
@@ -726,7 +726,7 @@ function emptyRichBaseline(): AppSummary {
 
 /**
  * 富卡治愈写入 enrich 长缓存（详情具平台治愈唯一写口之一，处理全字段）：
- * pending 当次有效永不缓存（put 入口守卫空平台直接丢弃），具平台 12h/500 FIFO；
+ * loading 当次有效永不缓存（put 入口守卫空平台直接丢弃），具平台 12h/500 FIFO；
  * - stale 详情整单丢弃，返回 null；
  * - icon data: 剥成 ''，空图标保留旧；
  * - 其余 string 空/占位不覆盖实（name '加载中...'、category 占位、license OpenSource 非 github、

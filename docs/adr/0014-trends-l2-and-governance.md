@@ -47,6 +47,6 @@
 
 - recents 治愈：`history.rs` `heal_recent_summary`/`cached_detail_summary` + `App.tsx` recents heal，富卡非占位简介治愈占位行。已接受为正式需求。
 - 详情占位守卫：`detail_fetch.rs` `is_placeholder_description`/`repo_real_description_from_etag` + `App.tsx` `snapshotTrendEnrichCache`/`handleOpenDetail`/`syncDetailCache`，占位不覆盖。已接受为正式需求。
-- 富卡全量同步 confirmedOther：`cache.ts` `TrendCacheEnvelopeV1 confirmedOther` + `enrich.ts` pending-vs-concrete merge/settle/lite。已接受为正式需求。
+- 富卡全量同步 confirmedOther：`cache.ts` `TrendCacheEnvelopeV1 confirmedOther` + `enrich.ts` loading-vs-concrete merge/settle/lite。已接受为正式需求。
 - 图标门控：`Header.tsx`/`catalog_detail.rs`/`AppIcon.tsx` uncataloged-only cycle + recents fallback + warmup。已接受为正式需求。
 - 交互 chrome：`TrendsView` refresh 按钮 + `useTrendBoard forceRefresh` + localStorage tab memory + locales + 卡片对齐 CSS。已接受为正式需求。

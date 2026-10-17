@@ -158,6 +158,18 @@ afterEach(() => {
   trendSpy.mockRestore();
 });
 
+/**
+ * 进 tab（挂载）即自动抓取默认榜；Refresh 走 forceRefresh 直抓，Retry 走 effect 重抓。
+ * 下述 helper 仅用于“显式刷新”动作测试；extra tick 让 getSettings/proxyReady 落定
+ * （过早点击在 !proxyReady 时丢弃）。
+ */
+async function clickTrendsRefresh(): Promise<void> {
+  const btn = (await screen.findByTestId('trends-refresh')) as HTMLButtonElement;
+  await waitFor(() => expect(btn.disabled).toBe(false));
+  await new Promise((r) => setTimeout(r, 20));
+  fireEvent.click(btn);
+}
+
 function trendingUrls() {
   return requestedUrls.filter((u) => u.includes('github.com/trending'));
 }
@@ -772,6 +784,8 @@ describe('TrendsView 未收录行 enrich：成功升 AppCard，失败留小行',
     );
     const { container, onQuickInstall } = renderUncatalogedBoard();
 
+    // 进 tab 即抓默认榜，enrich 作为跟随链运行。
+    await clickTrendsRefresh();
     // enrich 后完整卡片：搜索式描述 + 涨星徽标（atlas 增量 1234 → 本周 +1.2k）
     const descEl = await screen.findByText('acme/atlas enriched desc');
     const card = descEl.closest('.app-card');
@@ -797,6 +811,8 @@ describe('TrendsView 未收录行 enrich：成功升 AppCard，失败留小行',
     enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockRejectedValue(new Error('offline'));
     const { container } = renderUncatalogedBoard();
 
+    // board 落定即展裸行（仓库名+星），裸行即逃生。
+    await clickTrendsRefresh();
     // 现状：board 落定即展裸行（仓库名+星），裸行即逃生。
     await screen.findByText('acme/atlas');
     // enrich 拒绝后仍为 3 个小行，无完整卡片，全程无骨架空号。
@@ -863,7 +879,8 @@ describe('TrendsView 平台过滤与榜单口径计数', () => {
     const { container } = renderBoard({
       selectedPlatforms: new Set(['windows', 'macos', 'linux', 'ios', 'android']),
     });
-    // 榜单加载后：裸行未确认 Other 前 pending 恒可见
+    // 挂载即加载榜单；裸行未确认 Other 前 loading 恒可见
+    await clickTrendsRefresh();
     await screen.findByText('acme/atlas');
     await waitFor(() => {
       expect(container.querySelectorAll('.trend-uncataloged-row')).toHaveLength(3);
@@ -874,6 +891,7 @@ describe('TrendsView 平台过滤与榜单口径计数', () => {
     trendingHtml = trendingHtmlFixture();
     enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockRejectedValue(new Error('offline'));
     const { container } = renderBoard();
+    await clickTrendsRefresh();
     await screen.findByText('acme/atlas');
     await waitFor(() => {
       expect(container.querySelectorAll('.trend-uncataloged-row')).toHaveLength(3);
@@ -890,20 +908,23 @@ describe('TrendsView 平台过滤与榜单口径计数', () => {
       allApps: [atlas],
       selectedPlatforms: new Set(['ios', 'other']),
     });
+    await clickTrendsRefresh();
     await screen.findByText('acme/beacon');
     // atlas 行彻底消失；beacon/comet 以 other 身份保留为小行
     expect(container.textContent).not.toContain('Atlas');
     expect(container.querySelectorAll('.trend-uncataloged-row')).toHaveLength(2);
   });
 
-  it('上报榜单分布：enrich 回填 [] 即 pending 不计数（全部桶为 0）', async () => {
+  it('上报榜单分布：enrich 回填 [] 即 loading 不计数（全部桶为 0）', async () => {
     trendingHtml = trendingHtmlFixture();
     enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockImplementation(async (repos) =>
       repos.map((r) => makeEnrichedApp({ id: `${r.owner}/${r.repo}`, platforms: [] })),
     );
     const onDisplayPlatformCounts = vi.fn();
     renderBoard({ onDisplayPlatformCounts });
-    // enrich 卡片出现后：pending 空平台行不进任何桶（确认/settle 落定后才计入 other）
+    // 挂载即加载榜单，enrich 卡片出现；loading 空平台行不进任何桶
+    await clickTrendsRefresh();
+    // enrich 卡片出现后：loading 空平台行不进任何桶（确认/settle 落定后才计入 other）
     await screen.findByText('acme/atlas enriched desc');
     await waitFor(() => {
       const calls = onDisplayPlatformCounts.mock.calls;
@@ -1012,6 +1033,8 @@ describe('TrendsView 榜单选项卡记忆（zstore.trends.opts）', () => {
     trendingHtml = trendingHtmlFixture();
     enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockRejectedValue(new Error('offline'));
     const first = renderBoard();
+    // 挂载即加载周榜，后再切榜
+    await clickTrendsRefresh();
     await screen.findByText('acme/atlas');
     // 6 榜顺序 daily/weekly/monthly/new/rising/healthy → monthly 下标 2
     const tabs = first.container.querySelectorAll('[role="tab"]');
@@ -1020,6 +1043,8 @@ describe('TrendsView 榜单选项卡记忆（zstore.trends.opts）', () => {
     expect(window.localStorage.getItem(TREND_BOARD_STORAGE_KEY)).toBe(
       JSON.stringify({ board: 'monthly' }),
     );
+    // 子榜点击即抓新榜
+    await clickTrendsRefresh();
     await waitFor(() => {
       expect(
         requestedUrls.some((u) => u.includes('github.com/trending') && u.includes('since=monthly')),
@@ -1033,6 +1058,8 @@ describe('TrendsView 榜单选项卡记忆（zstore.trends.opts）', () => {
     const second = renderBoard();
     // 首绘即 monthly（同步恢复，无闪切）：active tab 直接为月趋势
     expect(activeTabLabel(second.container)).toBe('月趋势');
+    // 重挂即抓 monthly
+    await clickTrendsRefresh();
     await screen.findByText('acme/atlas');
     // 重启首抓走现有 L1→L2→网络路径：L1 已清、单测无 L2，即正常触发一次 monthly 抓取
     await waitFor(() => {
@@ -1047,6 +1074,7 @@ describe('TrendsView 榜单选项卡记忆（zstore.trends.opts）', () => {
     window.localStorage.setItem(TREND_BOARD_STORAGE_KEY, JSON.stringify({ board: 'top' }));
     const { container } = renderBoard();
     expect(activeTabLabel(container)).toBe('周趋势');
+    await clickTrendsRefresh();
     await screen.findByText('acme/atlas');
     await waitFor(() => {
       expect(requestedUrls.some((u) => u.includes('since=weekly'))).toBe(true);
@@ -1069,6 +1097,7 @@ describe('TrendsView 榜单选项卡记忆（zstore.trends.opts）', () => {
       const { container, unmount } = renderBoard();
       // 首绘即周榜，无白屏抛错
       expect(activeTabLabel(container)).toBe('周趋势');
+      await clickTrendsRefresh();
       await screen.findByText('acme/atlas');
       await waitFor(() => {
         expect(requestedUrls.some((u) => u.includes('since=weekly'))).toBe(true);
@@ -1087,6 +1116,7 @@ describe('TrendsView 榜单选项卡记忆（zstore.trends.opts）', () => {
     expect(loadPersistedTrendBoard()).toBe('weekly');
     const { container } = renderBoard();
     expect(activeTabLabel(container)).toBe('周趋势');
+    await clickTrendsRefresh();
     await screen.findByText('acme/atlas');
   });
 });
@@ -1131,6 +1161,8 @@ describe('TrendsView 榜单刷新按钮（forceRefresh 直抓）', () => {
     enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockRejectedValue(new Error('offline'));
     vi.mocked(zlogInfo).mockClear();
     const { container } = renderBoard();
+    // 挂载即加载默认榜（首抓走缓存允许路径）
+    await clickTrendsRefresh();
     await screen.findByText('acme/atlas');
     const btn = screen.getByTestId('trends-refresh') as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
@@ -1168,6 +1200,7 @@ describe('TrendsView 榜单刷新按钮（forceRefresh 直抓）', () => {
     trendingHtml = trendingHtmlFixture();
     enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockRejectedValue(new Error('offline'));
     renderBoard();
+    await clickTrendsRefresh();
     await screen.findByText('acme/atlas');
     // 后续抓取一律 500：刷新穿透缓存必中失败。
     trendingStatus = 500;
@@ -1177,7 +1210,7 @@ describe('TrendsView 榜单刷新按钮（forceRefresh 直抓）', () => {
   });
 });
 
-describe('TrendsView L2可信分档：具平台免验，pending后台补验', () => {
+describe('TrendsView L2可信分档：具平台免验，loading后台补验', () => {
   (globalThis as Record<string, unknown>)['IS_REACT_ACT_ENVIRONMENT'] = true;
 
   type EnrichFn = (repos: { owner: string; repo: string }[]) => Promise<(AppSummary | null)[]>;
@@ -1252,6 +1285,8 @@ describe('TrendsView L2可信分档：具平台免验，pending后台补验', ()
       .mockImplementation(async (id: string) => ({ id, platforms: ['windows'], is_stale: false }));
     const { container } = renderLiteBoard();
 
+    // 挂载即加载周榜，SWR 直展三富卡，无裸行占位。
+    await clickTrendsRefresh();
     // 首屏直展三富卡，无裸行占位。
     await screen.findByText('acme/atlas enriched desc');
     await waitFor(() => {
@@ -1262,7 +1297,7 @@ describe('TrendsView L2可信分档：具平台免验，pending后台补验', ()
     await new Promise((r) => setTimeout(r, 50));
     expect(enrichSpy).not.toHaveBeenCalled();
     expect(liteSpy).not.toHaveBeenCalled();
-    // 免验取证单行日志：每次决策记录 board/可信 concrete/pending/跳过/目标（无 DevTools 可查）。
+    // 免验取证单行日志：每次决策记录 board/可信 concrete/loading/跳过/目标（无 DevTools 可查）。
     await waitFor(() => {
       const infos = vi.mocked(zlogInfo).mock.calls.map(([m]) => String(m));
       expect(
@@ -1279,9 +1314,9 @@ describe('TrendsView L2可信分档：具平台免验，pending后台补验', ()
     });
   });
 
-  it('含pending则仅pending补验：具平台直展，pending 经 enrich+lite 落定', async () => {
-    // L2 新鲜混合：atlas 具平台直展免验；beacon/comet 未确认 pending 永不进内存，
-    // 首屏裸行占位，后台 enrich 取回 pending 再走 lite 补验
+  it('含loading则仅loading补验：具平台直展，loading 经 enrich+lite 落定', async () => {
+    // L2 新鲜混合：atlas 具平台直展免验；beacon/comet 未确认 loading 永不进内存，
+    // 首屏裸行占位，后台 enrich 取回 loading 再走 lite 补验
     //（beacon 治愈为具平台，comet 确认为空 Other），落定后富卡齐展。
     putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'] }),
@@ -1301,7 +1336,9 @@ describe('TrendsView L2可信分档：具平台免验，pending后台补验', ()
     });
     const { container } = renderLiteBoard();
 
-    // 首屏：atlas 直展富卡；beacon/comet 未确认 pending 无旧卡，裸行占位（恒可见，不断榜）。
+    // 挂载即加载周榜；atlas 直展富卡，loading 裸行占位后后台补验。
+    await clickTrendsRefresh();
+    // 首屏：atlas 直展富卡；beacon/comet 未确认 loading 无旧卡，裸行占位（恒可见，不断榜）。
     await screen.findByText('acme/atlas enriched desc');
     // 后台 enrich 拉回缺席项；lite 仅补 beacon/comet。
     await waitFor(() => {
@@ -1321,7 +1358,7 @@ describe('TrendsView L2可信分档：具平台免验，pending后台补验', ()
       expect(container.querySelectorAll('.trend-uncataloged-row')).toHaveLength(0);
     });
     expect(screen.getByText('acme/beacon enriched desc')).toBeTruthy();
-    // 免验取证单行日志：混合档仅 pending 补验（atlas 免验，beacon/comet 为目标）。
+    // 免验取证单行日志：混合档仅 loading 补验（atlas 免验，beacon/comet 为目标）。
     await waitFor(() => {
       const infos = vi.mocked(zlogInfo).mock.calls.map(([m]) => String(m));
       expect(
@@ -1406,6 +1443,7 @@ describe('图标唯一通道：icon-ready → admitIconHit（无窗口总线）'
         onResetPlatformFilter={() => {}}
       />,
     );
+    await clickTrendsRefresh();
     const descEl = await screen.findByText('acme/atlas enriched desc');
     const card = descEl.closest('.app-card') as HTMLElement;
     expect(card).toBeTruthy();
