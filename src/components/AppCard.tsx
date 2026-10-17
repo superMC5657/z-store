@@ -1,7 +1,7 @@
 import React, { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
-import { Inbox } from 'lucide-react';
+import { Inbox, Download } from 'lucide-react';
 import { AppSummary } from '../types';
 import { AppIcon } from './AppIcon';
 import { VerifiedBadge } from './VerifiedBadge';
@@ -49,6 +49,13 @@ interface AppCardProps {
   isMovingIn?: boolean;
   /** custom 草稿已存在（`selectMergedCatalogApps` 会命中 custom 行）——抑制入口防误点。 */
   isCustomExisting?: boolean;
+  /**
+   * 占位行手动加载入口（收藏页未收录空壳行）：
+   * 调用方以 `isFavoritePlaceholderRow` 判定后传入 `showLoadDetail`，
+   * 点击经 `onLoadDetail(app.id)` 拉取详情升级富卡；缺席即不渲染，其它页面零变化。
+   */
+  showLoadDetail?: boolean;
+  onLoadDetail?: (id: string) => void;
 }
 
 function arePlatformsEqual(a?: string[], b?: string[]): boolean {
@@ -108,11 +115,13 @@ function areAppCardPropsEqual(prev: AppCardProps, next: AppCardProps): boolean {
     (prev.showCatalogBadge ?? false) === (next.showCatalogBadge ?? false) &&
     (prev.isMovingIn ?? false) === (next.isMovingIn ?? false) &&
     (prev.isCustomExisting ?? false) === (next.isCustomExisting ?? false) &&
+    (prev.showLoadDetail ?? false) === (next.showLoadDetail ?? false) &&
     prev.onOpenDetail === next.onOpenDetail &&
     prev.onQuickInstall === next.onQuickInstall &&
     prev.onToggleFavorite === next.onToggleFavorite &&
     prev.onToggleWatch === next.onToggleWatch &&
-    prev.onMoveInApp === next.onMoveInApp
+    prev.onMoveInApp === next.onMoveInApp &&
+    prev.onLoadDetail === next.onLoadDetail
   );
 }
 
@@ -136,6 +145,8 @@ export const AppCard: React.FC<AppCardProps> = memo(({
   onMoveInApp,
   isMovingIn = false,
   isCustomExisting = false,
+  showLoadDetail = false,
+  onLoadDetail,
 }) => {
   const { t, i18n } = useTranslation();
   // 已纳管绿已安装；未纳管走获取安装。
@@ -179,6 +190,9 @@ export const AppCard: React.FC<AppCardProps> = memo(({
   const moveInLabel = isMovingIn
     ? t('custom.moving_in', { defaultValue: '移入中…' })
     : t('custom.move_in', { defaultValue: '移入收录' });
+  // 占位行手动加载：仅调用方显式传入 showLoadDetail 时渲染，点击拉详情升级富卡。
+  const showLoadRow = showLoadDetail && typeof onLoadDetail === 'function';
+  const loadDetailLabel = t('favorites.load_detail', { defaultValue: '加载详情' });
 
   return (
     <div
@@ -363,6 +377,24 @@ export const AppCard: React.FC<AppCardProps> = memo(({
           >
             <Inbox size={12} strokeWidth={1.5} aria-hidden="true" />
             <span>{moveInLabel}</span>
+          </button>
+        )}
+        {showLoadRow && (
+          <button
+            type="button"
+            data-testid={`load-detail-${app.id}`}
+            className="btn-fluent btn-secondary"
+            onClick={(e) => {
+              e.stopPropagation();
+              onLoadDetail?.(app.id);
+            }}
+            onKeyDown={(e) => e.stopPropagation()}
+            title={loadDetailLabel}
+            aria-label={loadDetailLabel}
+            style={{ padding: '6px 10px', fontSize: 'var(--font-xs)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+          >
+            <Download size={12} strokeWidth={1.5} aria-hidden="true" />
+            <span>{loadDetailLabel}</span>
           </button>
         )}
         <button

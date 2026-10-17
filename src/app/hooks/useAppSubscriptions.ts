@@ -11,6 +11,7 @@ import type {
   WatchUpdatedPayload,
 } from '../../types';
 import { tauriApi, DEFAULT_SETTINGS } from '../../services/api';
+import { MANUAL_ONLY_NETWORK } from '../../lib/manualOnly';
 import {
   admitIconHit,
   patchAppIconList,
@@ -126,7 +127,8 @@ export function useAppSubscriptions({
   showToast,
   t,
   currentView,
-  updatesCount,
+  // 更新徽标计数由调用方持有；更新 tab 在本总线内只读 DB 快照。
+  updatesCount: _updatesCount,
 }: UseAppSubscriptionsParams) {
   // 首挂载过滤快照：初始 recents 过滤沿用挂载时刻的选择
   // （启动时全选 + 空已确认集，恒为恒等过滤）。
@@ -141,7 +143,7 @@ export function useAppSubscriptions({
   // 初始加载
   useEffect(() => {
     const initialFilter = initialFilterRef.current;
-    // 初始数据拉取
+    // 初始数据拉取（DB/local 直读，保持自动）
     tauriApi.searchApps('').then((loadedApps) => {
       setApps(loadedApps);
       // 预解码热门应用图标，若本地配置目录已缓存则秒读，未缓存则后台下载并缓存
@@ -154,12 +156,19 @@ export function useAppSubscriptions({
     tauriApi.getInstalledApps().then(setInstalledApps);
     tauriApi.getFavorites().then((favs) => setFavoriteIds(new Set(favs)));
     tauriApi.getUpdateRules().then(setUpdateRules);
+    // 更新中心首屏读 DB 快照（get_cached_updates，零网络；空快照即空列表，等手动 Refresh）。
+    tauriApi.getCachedUpdates().then((rows) => {
+      if (Array.isArray(rows)) setUpdates(rows);
+    }).catch(() => {});
     tauriApi.getRecentlyViewedApps().then((recents) => setRecentlyViewedApps(recents.filter((a) => matchPlatformSetWithLoading(a, initialFilter.selectedPlatforms, initialFilter.platformResolvedOtherIds)))).catch(() => {});
     tauriApi.registerDeepLinkScheme().catch(() => {});
 
-    // 加载持久化设置
+    // 加载持久化设置（DB/local，保持自动；更新检查仅手动触发检查更新按钮）
     tauriApi.getSettings().then((persisted) => {
       applyPersistedSettingsRef.current(persisted);
+      // 更新中心属资产区：启动时不自动检查（忽略 update_frequency startup 自动项）；
+      // 用户经更新中心检查更新按钮手动触发。
+      if (MANUAL_ONLY_NETWORK) return;
       // P2-6: 仅启动时自动检查更新——`daily`（每日）更新频率选项目前在“设置”中刻意禁用（未开发功能，暂无调度器），
       // 因此此处仅对 `startup`（启动时）触发自动检查；`daily`/`manual` 用户可通过“更新中心”标签页手动检查。
       if ((persisted.update_frequency || DEFAULT_SETTINGS.update_frequency) === 'startup') {
@@ -239,8 +248,11 @@ export function useAppSubscriptions({
   // FR-6.2: 加载关注列表 + 订阅 `zstore://watch-updated` 应用内提醒
   useEffect(() => {
     const ctx = newMountCtx();
-    tauriApi.getWatchedApps().then((ids) => {
-      if (ctx.mounted) setWatchedIds(new Set(ids));
+    tauriApi.getWatchedApps().then((entries) => {
+      if (ctx.mounted) {
+        const ids = (Array.isArray(entries) ? entries : []).map((e) => e.app_id);
+        setWatchedIds(new Set(ids));
+      }
     }).catch(() => {});
     trackSubscription(ctx, tauriApi.onWatchUpdated((payload) => {
       if (!ctx.mounted) return;
@@ -302,7 +314,13 @@ export function useAppSubscriptions({
       });
     };
     loadOAuthUser();
-    const handleOAuthChanged = () => loadOAuthUser();
+    const handleOAuthChanged = () => {
+      loadOAuthUser();
+      // 登录态切换后更新中心读 DB 快照（零网络；写仅手动 Refresh）。
+      tauriApi.getCachedUpdates().then((rows) => {
+        if (ctx.mounted && Array.isArray(rows)) setUpdates(rows);
+      }).catch(() => {});
+    };
     trackSubscription(ctx, tauriApi.onOAuthExpired(() => {
       if (ctx.mounted) {
         showToastRef.current(tRef.current('toast.github_auth_expired'), 'warning');
@@ -313,15 +331,16 @@ export function useAppSubscriptions({
 
     const handleDataImported = async () => {
       try {
-        const [persisted, favs, watched] = await Promise.all([
+        const [persisted, favs, watchedEntries] = await Promise.all([
           tauriApi.getSettings(),
           tauriApi.getFavorites(),
-          tauriApi.getWatchedApps().catch(() => [] as string[]),
+          tauriApi.getWatchedApps().catch(() => [] as { app_id: string }[]),
         ]);
         if (!ctx.mounted) return;
         applyPersistedSettingsRef.current(persisted);
         setFavoriteIds(new Set(favs));
-        setWatchedIds(new Set(watched));
+        const watchedIds = (Array.isArray(watchedEntries) ? watchedEntries : []).map((w) => w.app_id);
+        setWatchedIds(new Set(watchedIds));
       } catch {
         // 忽略：后端未就绪时保持现状
       }
@@ -336,18 +355,15 @@ export function useAppSubscriptions({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 仅在用户主动进入“更新中心”标签页时才执行轻量检查（30 秒防抖冷却，避免频繁切标签重复消耗配额）
-  const lastTabUpdateCheckRef = useRef<number>(0);
+  // 更新中心属资产区：进 tab 只读 DB 快照（getCachedUpdates，零网络），不自动检查更新。
+  // 网络仅经检查更新按钮手动触发（handleCheckUpdates：force 写库后重读快照）；进度监听保持被动。
   useEffect(() => {
-    if (currentView === 'updates' && updatesCount === 0) {
-      const now = Date.now();
-      if (now - lastTabUpdateCheckRef.current > 30_000) {
-        lastTabUpdateCheckRef.current = now;
-        tauriApi.checkForUpdates(false).then(setUpdates).catch(() => {});
-      }
-    }
+    if (currentView !== 'updates') return;
+    tauriApi.getCachedUpdates().then((rows) => {
+      if (Array.isArray(rows)) setUpdates(rows);
+    }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView, updatesCount]);
+  }, [currentView]);
 
   const isFirstViewRender = useRef(true);
   const prevViewRef = useRef<ViewType>('home');

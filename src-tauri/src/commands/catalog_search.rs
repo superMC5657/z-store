@@ -257,6 +257,8 @@ pub async fn search_apps(
 /// 在线搜索（可翻页）：`page`/`per_page` 均为 None=默认行为（第 1 页 20 条）。
 /// - `per_page` 默认复用 `limits.online_search_page_size`，钳制 1-50；
 /// - `page` 默认 1（0 归一为 1）；`owner/repo` 直查短路只回第 1 页 1 条，page>1 回空（与 mock 同语义）。
+/// - `force_refresh` 为手动刷新按钮透传位（前端统一调用签名）；
+///   网络默认允许：默认即走在线直查 + 后台图标流式，与显式手动刷新同路。
 #[tauri::command]
 pub async fn search_apps_online(
     app_handle: AppHandle,
@@ -265,7 +267,10 @@ pub async fn search_apps_online(
     search_id: Option<String>,
     page: Option<u32>,
     per_page: Option<u32>,
+    force_refresh: Option<bool>,
 ) -> crate::AppResult<OnlineSearchResult> {
+    // 手动刷新与默认同路：在线直查本就每次走网络，此处仅记录触发来源供诊断。
+    let is_force = force_refresh.unwrap_or(false);
     // 单次 search_apps 只记一行 INFO `search done`（行为链 sid 关联），此处为唯一 INFO。
     let search_start = std::time::Instant::now();
     let current_gen = SEARCH_GEN.fetch_add(1, Ordering::SeqCst) + 1;
@@ -301,10 +306,11 @@ pub async fn search_apps_online(
                     Err(_) => ("latest".to_string(), Vec::new()),
                 };
                 log::info!(
-                    "search done sid={} query='{}' hits=1 elapsed_ms={}",
+                    "search done sid={} query='{}' hits=1 elapsed_ms={} force={}",
                     crate::z_log::new_session_id(),
                     crate::log_support::short_reason(&query),
-                    search_start.elapsed().as_millis()
+                    search_start.elapsed().as_millis(),
+                    is_force
                 );
                 let app_id = coord.to_app_id();
                 let icon = if let Ok(db) = state.db() {
@@ -402,10 +408,11 @@ pub async fn search_apps_online(
                 }
                 log::debug!("fetch repo ok id={}", item.id);
                 log::info!(
-                    "search done sid={} query='{}' hits=1 elapsed_ms={}",
+                    "search done sid={} query='{}' hits=1 elapsed_ms={} force={}",
                     crate::z_log::new_session_id(),
                     crate::log_support::short_reason(&query),
-                    search_start.elapsed().as_millis()
+                    search_start.elapsed().as_millis(),
+                    is_force
                 );
                 return Ok(OnlineSearchResult { rows: vec![item], sid: actual_search_id.clone() });
             }
@@ -495,11 +502,12 @@ pub async fn search_apps_online(
         .collect();
 
     log::info!(
-        "search done sid={} query='{}' hits={} elapsed_ms={}",
+        "search done sid={} query='{}' hits={} elapsed_ms={} force={}",
         crate::z_log::new_session_id(),
         crate::log_support::short_reason(&query),
         results.len(),
-        search_start.elapsed().as_millis()
+        search_start.elapsed().as_millis(),
+        is_force
     );
 
     let filtered_results: Vec<AppSummary> = if hidden_ids.is_empty() {
@@ -639,13 +647,18 @@ async fn fetch_enrich_batch(
 ///   空永不覆盖实由前端 `iconStore.applyHit` + 后端合并新鲜度与 emit 前查保证）；
 /// - 世代：每次调用 `BOARD_GEN+1`（切榜/重拉均+1，类比 `SEARCH_GEN`），
 ///   落库/emit 世代防串见唯一 `save_and_emit`（合并新鲜度 + emit 前查 gen，计数器经 `ctx` 选择）。
+/// - `force_refresh` 为手动刷新按钮透传位（前端统一调用签名）；
+///   网络默认允许：默认即走批量直查 + 后台 `fetch_icons_stream`，与显式手动刷新同路。
 #[tauri::command]
 pub async fn enrich_trend_repos(
     app_handle: AppHandle,
     state: State<'_, AppState>,
     repos: Vec<TrendEnrichRequest>,
     board: Option<String>,
+    force_refresh: Option<bool>,
 ) -> crate::AppResult<Vec<Option<AppSummary>>> {
+    // 手动刷新与默认同路：批量直查本就每次走网络，此处仅记录触发来源供诊断。
+    let is_force = force_refresh.unwrap_or(false);
     let enrich_start = std::time::Instant::now();
     let board_name = board.unwrap_or_default().trim().to_lowercase();
     let cfg_icon = crate::config::get_project_config().limits.icon_fetch;
@@ -724,11 +737,12 @@ pub async fn enrich_trend_repos(
     }
 
     log::info!(
-        "trend enrich done requested={} hits={} elapsed_ms={} streamed_gen={}",
+        "trend enrich done requested={} hits={} elapsed_ms={} streamed_gen={} force={}",
         requested,
         results.iter().filter(|r| r.is_some()).count(),
         enrich_start.elapsed().as_millis(),
         current_gen,
+        is_force,
     );
     Ok(results)
 }

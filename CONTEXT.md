@@ -24,7 +24,7 @@
 | **已安装应用** | `InstalledApp` | 由 ZStore 管理且持久化存储在本地 SQLite 中的应用实体，包含本地路径与卸载入口。 | 本地应用、已装软件 |
 | **条件请求缓存** | `ETag Cache` | 存储于本地 SQLite 中的 HTTP 304 缓存机制，通过 `If-None-Match` 实现零配额消耗更新检测。 | 本地缓存、HTTP缓存 |
 | **清单同步** | `Manifest Catalog Sync` | 客户端从独立开源收录仓库动态拉取或增量刷新应用元数据清单的机制，详见 ADR-0007 与 ADR-0009。 | 清单下载、列表更新 |
-| **缓存生存时效** | `Cache TTL` | 客户端本地持久化详情的有效周期（基线 60 分钟；设置页不暴露；后端对改库/导入值按挡位 `[0, 10, 60, 360, 1440]` 归一化，非法值回退 60），过期后触发带 ETag 的条件重新验证；仅约束详情浏览，更新发现（更新中心/关注动态）每次走 ETag 轻量探查，不受其约束。 | 缓存过期时间、过期策略 |
+| **缓存生存时效** | `Cache TTL` | 客户端本地持久化详情的有效周期（基线 60 分钟；设置页不暴露；后端对改库/导入值按挡位 `[0, 10, 60, 360, 1440]` 归一化，非法值回退 60），过期后触发带 ETag 的条件重新验证；仅约束详情浏览：非资产面（搜索/趋势/平台推导/图标/首页）默认自动拉取并经 ETag 条件请求复用，资产面（已安装应用、更新中心、收藏）仅手动触发网络——更新中心列表为手动快照（仅显式刷新写 `update_results`，其余读库），收藏/关注凭记录自带收录标记就近读卡。 | 缓存过期时间、过期策略 |
 | **应用内仅下载** | `Download-Only` | 宿主不可安装的资产经应用内通道下载落盘、不调用安装器的模式，复用安装通道的镜像改写、SHA-256 校验与下载进度事件，落盘后可一键定位文件。 | 浏览器下载、直链下载 |
 | **便携版应用** | `Portable App` | 免安装 ZIP/二进制tarball，剥顶层解压至AppData、Linux/macOS chmod兜底，仅本平台可装，自动创建桌面快捷方式与提供卸载清理。 | 绿色软件、免安装版 |
 | **双模标识系统** | `Adaptive Icon System` | 包含明亮模式 (D-轻1 冰川浅蓝) 与暗黑模式 (D-轻4 晶透亚克力) 的三层图标分层架构，涵盖桌面打包与多端自适应，详见 ADR-0005。 | 软件LOGO、系统图标 |
@@ -51,6 +51,8 @@
 | **待收录草稿** | `Draft` | 暂存于本地 `custom_apps` 表、尚未提交至独立生态清单仓库的收录候选条目（`status=draft`），经暂存校验（canonical 身份对齐）后参与合并目录视图，提交时才强制全字段校验。 | 草稿箱、未提交应用 |
 | **自维护** | `Maintained` | 用户在本地自维护的收录条目（`custom_apps` 未归档行），经 overlay 合并进入目录视图并以 `source=custom` 标识，远端命中后自动转正归档。 | 本地条目、自定义应用 |
 | **转正** | `Graduated` | 自维护草稿被远端精选收录库正式收录（`sync_catalog` 命中 canonical id），本地行置 `archived=1` 自动归档，不再参与合并视图。 | 毕业、上岸、合并完成 |
+| **已收录/未收录** | `Cataloged/Uncataloged` | 卡片收录态徽标：id 命中精选收录库为已收录，否则为未收录（走详情缓存读富卡）；与自维护/转正正交（后者仅描述本地草稿生命周期）。 | 收录状态、有无收录 |
+| **收录标记** | `is_cataloged` | 收藏/关注记录自带的收录态字段（0/1 持久化于 `user_favorites` / `watched_apps`）：写入时按内存目录判定一次，存量行启动回填；前端凭此决定走收录库还是详情缓存读卡。 | cataloged 字段、收录位 |
 
 ---
 
@@ -61,10 +63,10 @@
 2. **D2 零服务器成本与解耦清单同步 (Serverless Direct API & Decoupled Manifest Sync)**:
    - 客户端从独立开源清单仓库（`superMC5657/z-store-catalog`）增量同步精选应用元数据（包含分类、英文原名、图标、多端标识符与仓库坐标等）；本地预置 `catalog.json` 种子清单兜底（详见 ADR-0009）。
    - 应用深度详情与构建资产通过 `ForgeProvider` 抽象层按需直连各代码源官方 REST API 获取，不设中心化聚合后端；
-   - 本地 SQLite (`z_store.db`) 维护基于单一配置源（`src-tauri/config.toml`）的 TTL 缓存（基线 60 分钟，改库/导入值按挡位 `[0, 10, 60, 360, 1440]` 归一化，非法值回退 60），配合 HTTP ETag 304 条件请求实现零配额消耗延长缓存时效；该 TTL 仅约束详情浏览，更新检查（更新中心/关注动态）独立于 TTL、每次经 ETag 轻量探查；离线或请求失败时平滑回退本地持久化数据（详见 ADR-0007）。
+   - 本地 SQLite (`z_store.db`) 维护基于单一配置源（`src-tauri/config.toml`）的 TTL 缓存（基线 60 分钟，改库/导入值按挡位 `[0, 10, 60, 360, 1440]` 归一化，非法值回退 60），配合 HTTP ETag 304 条件请求实现零配额消耗延长缓存时效；该 TTL 仅约束详情浏览：非资产面（搜索/趋势/平台推导/图标/首页）默认自动拉取并经 ETag 条件请求复用，资产面（已安装应用、更新中心、收藏）仅手动触发网络——更新中心列表为手动快照（仅显式刷新写入 `update_results`，其余读库呈现），收藏/关注记录自带收录标记就近读卡；离线或请求失败时平滑回退本地持久化数据（详见 ADR-0007）。
    - 网络层自动继承操作系统代理与环境变量（Windows 下启动时自探测注册表且 https 优先，支持 Clash / v2ray / TUN 模式透明截获），与针对 Release 大文件下载的加速镜像节点正交可叠加；镜像切换永不写进程全局 `NO_PROXY`/`no_proxy`（仅 per-client `no_proxy` 生效）；`gh-proxy.com` 与趋势 host（`trend.doforce.dpdns.org`）为直连豁免，不走镜像（镜像代理仅下载）。
-   - 所有已安装记录、用户设置、主机令牌（PAT）、更新规则、关注应用与本地足迹均保存在客户端本地嵌入式 SQLite 中（15 张核心表，见 `src-tauri/src/db/schema.rs:8-152`：`installed_apps` / `api_etag_cache` / `app_details_cache` / `user_settings` / `user_favorites` / `update_rules` / `search_history` / `view_history` / `host_tokens` / `watched_apps` / `user_stars` / `icon_cache_meta` / `app_icon_cycles` / `trend_board_cache` / `custom_apps`；其中 `icon_cache_meta` 追踪收录应用图标缓存来源，`app_icon_cycles` 追踪图标轮换状态，两表分流；`trend_board_cache` 为趋势榜 L2 缓存，后端命令 `get/save_trend_board_cache` 见 `src-tauri/src/commands/trends_cache.rs`，前端沿用同 key 直接命中；L2按榜双档 daily 1h/其余12h（见 `src/services/trends/cache.ts:19-21`），有效TTL=基线-min(抖动0-30s,基线/4)（见 `src/services/trends/cache.ts:42-59`），清扫双档对齐；后端写盘硬上限 512KiB（见 `src-tauri/src/db/cache.rs:215,249`），前端写前 256KB 预检、超限逐级裁剪（见 `src/services/trends/cache.ts:33,322`））。
-   - 后端 `src-tauri/src/lib.rs:551-637` 共注册 86 个 commands（含 `zlog_get_dir` / `zlog_export_bundle`）；前端 IPC 唯一出口为CMD表+tauriApi（`src/services/api.ts:64-140` CMD 表 + `src/services/api.ts:165-256` `tauriApi` 经 `src/services/api/client.ts:1-10` `tauriInvoke`/`isTauri` 派发），视图层禁止直调 `invoke`（见 `src/views/noDirectInvoke.test.ts`）；前端无 router，用 `useState` 视图机（`ViewType` 8 种：`home|trends|categories|favorites|installed|updates|settings|pending`，见 `src/types/index.ts:140`；`App.tsx:59`）。
+   - 所有已安装记录、用户设置、主机令牌（PAT）、更新规则、关注应用与本地足迹均保存在客户端本地嵌入式 SQLite 中（18 张核心表，见 `src-tauri/src/db/schema.rs:8-182`：`installed_apps` / `api_etag_cache` / `app_details_cache` / `user_settings` / `user_favorites` / `update_rules` / `search_history` / `view_history` / `host_tokens` / `watched_apps` / `user_stars` / `icon_cache_meta` / `app_icon_cycles` / `trend_board_cache` / `asset_cache` / `asset_refs` / `custom_apps` / `update_results`；其中 `icon_cache_meta` 追踪收录应用图标缓存来源，`app_icon_cycles` 追踪图标轮换状态，两表分流；`trend_board_cache` 为趋势榜 L2 缓存，后端命令 `get/save_trend_board_cache` 见 `src-tauri/src/commands/trends_cache.rs`，前端沿用同 key 直接命中；L2按榜双档 daily 1h/其余12h（见 `src/services/trends/cache.ts:19-21`），有效TTL=基线-min(抖动0-30s,基线/4)（见 `src/services/trends/cache.ts:42-59`），清扫双档对齐；后端写盘硬上限 512KiB（见 `src-tauri/src/db/cache.rs:215,249`），前端写前 256KB 预检、超限逐级裁剪（见 `src/services/trends/cache.ts:33,322`））。
+   - 后端 `src-tauri/src/lib.rs:569-659` 共注册 89 个 commands（含 `zlog_get_dir` / `zlog_export_bundle`）；前端 IPC 唯一出口为CMD表+tauriApi（`src/services/api.ts:64-140` CMD 表 + `src/services/api.ts:165-256` `tauriApi` 经 `src/services/api/client.ts:1-10` `tauriInvoke`/`isTauri` 派发），视图层禁止直调 `invoke`（见 `src/views/noDirectInvoke.test.ts`）；前端无 router，用 `useState` 视图机（`ViewType` 8 种：`home|trends|categories|favorites|installed|updates|settings|pending`，见 `src/types/index.ts:140`；`App.tsx:59`）。
 3. **D3 零信任完整性防篡改 (Zero-Trust Anti-Tampering)**:
     - 所有下载的二进制安装包强制流式计算 SHA-256 哈希值并与官方校验清单比对，哈希不符立即强行阻断并销毁临时文件（详见 ADR-0004）。
 4. **D4 Linear 去彩单色界面 (Monochrome Design System)**:

@@ -104,8 +104,10 @@ describe('P2-5 ignore-update persistence (real App path)', () => {
   it('ignore persists via setAppSkipVersion; re-check keeps it absent and rules UI reflects it', async () => {
     render(<App />);
 
-    // 导航至更新中心；后端供给的测试用例项已列出。
+    // 更新中心属资产区：打开/切签不自动检查，经检查更新按钮显式刷新。
+    // 导航至更新中心后手动触发检查，后端供给的测试用例项列出。
     fireEvent.click(screen.getByRole('button', { name: '更新中心' }));
+    fireEvent.click(screen.getByRole('button', { name: '检查更新' }));
     expect(await screen.findByText('Ignored App')).toBeTruthy();
 
     // 忽略该更新（入口与用户界面菜单一致）。

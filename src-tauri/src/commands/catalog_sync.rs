@@ -2,6 +2,8 @@ use crate::models::SyncCatalogResult;
 use crate::AppState;
 use tauri::State;
 
+/// 收录清单同步：网络默认允许（ETag 条件请求，未变更即 304 零消耗复用内存目录）。
+/// `force` 为手动同步按钮透传位，`Some(true)` 时跳过 ETag 复用、强制拉取远端。
 #[tauri::command]
 pub async fn sync_catalog(
     state: State<'_, AppState>,
@@ -107,6 +109,8 @@ pub async fn sync_catalog(
             }
         }
         let graduated = retire_graduated_drafts(&state, &items);
+        // 目录已更新：收藏/关注收录标记就地回填，新收录行无需重启即纠正（最佳努力，不阻塞同步返回）。
+        crate::commands::history::backfill_cataloged_flags(&state);
         log::info!(
             "sync catalog done url='{}' updated=true count={}",
             safe_url,

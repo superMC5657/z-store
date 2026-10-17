@@ -1,4 +1,4 @@
-use crate::models::{AppDetail, PlatformsLiteResult, ReadmeVariantsResponse};
+use crate::models::{AppDetail, AppSummary, PlatformsLiteResult, ReadmeVariantsResponse};
 use crate::AppState;
 use tauri::State;
 
@@ -24,6 +24,8 @@ pub(crate) fn detail_ttl_secs(db: &crate::db::Database) -> i64 {
     m * 60
 }
 
+/// 应用详情：网络默认允许；TTL 命中直返缓存，否则走 ETag 条件请求拉取并落库。
+/// `force_refresh` 为手动刷新按钮透传位，`Some(true)` 时跳过 TTL 与 ETag 复用、直探远端。
 #[tauri::command]
 pub async fn get_app_details(
     state: State<'_, AppState>,
@@ -54,34 +56,41 @@ pub async fn get_app_details(
 ///   `other` 仍为纯前端虚拟概念，永不过 IPC。
 /// 本命令永不写入 `app_details_cache`（不构造全量 `AppDetail`，避免污染详情缓存），
 /// 仅读写 `api_etag_cache`（条件请求键）与详情 `cached_at` touch。
+/// - 网络默认允许：TTL 命中直返缓存，否则走 forge 直拉 / ETag 条件请求；
+///   `force_refresh` 为手动刷新按钮透传位，`Some(true)` 时跳过 TTL 快径直探远端。
 #[tauri::command]
 pub async fn get_platforms_lite(
     state: State<'_, AppState>,
     id: String,
+    force_refresh: Option<bool>,
 ) -> crate::AppResult<PlatformsLiteResult> {
     use crate::github::http::EtagGetOutcome;
 
     // ADR-0010：入站 id 统一归一化为 canonical；未知标识直接拒绝，不触碰网络。
     let clean_id = crate::commands::require_app_id(&id)?;
     let start = std::time::Instant::now();
+    let is_force = force_refresh.unwrap_or(false);
 
     // 1. TTL 内详情缓存命中：零网络开销复用已 deduce 的 platforms。
     // TTL 口径与 get_app_details_impl 缓存链一致（FINAL 60min，见 `detail_ttl_secs`）；stale 标记原样透传
     // （持久化行正常为 None，透传仅为防御性一致）。图标 ETag 禁用不影响此通道（详情 ETag 仍用）。
-    if let Ok(db) = state.db() {
-        let ttl_seconds = detail_ttl_secs(&db);
-        if let Ok(Some(cached)) = db.get_cached_app_detail(&clean_id, Some(ttl_seconds)) {
-            log::debug!(
-                "get_platforms_lite id={} from=cache:db elapsed_ms={}",
-                clean_id,
-                start.elapsed().as_millis()
-            );
-            return Ok(PlatformsLiteResult {
-                id: clean_id,
-                platforms: cached.platforms,
-                from_cache: true,
-                is_stale: cached.is_stale,
-            });
+    // 显式强制刷新时跳过此快径，直探远端。
+    if !is_force {
+        if let Ok(db) = state.db() {
+            let ttl_seconds = detail_ttl_secs(&db);
+            if let Ok(Some(cached)) = db.get_cached_app_detail(&clean_id, Some(ttl_seconds)) {
+                log::debug!(
+                    "get_platforms_lite id={} from=cache:db elapsed_ms={}",
+                    clean_id,
+                    start.elapsed().as_millis()
+                );
+                return Ok(PlatformsLiteResult {
+                    id: clean_id,
+                    platforms: cached.platforms,
+                    from_cache: true,
+                    is_stale: cached.is_stale,
+                });
+            }
         }
     }
 
@@ -258,6 +267,71 @@ pub async fn get_platforms_lite(
     }
 }
 
+/// DB-only 批量详情回填（Favorites/Watching 富卡专用）：零网络、零写盘。
+/// - 入参逐个经 `require_app_id` 归一为 canonical；不可解析的未知标识直接落 `None`，不触碰 SQLite；
+/// - 命中行读 `get_cached_app_detail(None)`（无 TTL 门控，过期行同样复用；无行即 `None`，永不穿透网络/ETag/forge）；
+/// - 确认图标经 `resolve_confirmed_icon_from_db` 覆盖（`Some` 才覆盖，`None` 保持 `detail.icon`）；
+/// - platforms 随详情行自带，无需二次 join（空即未知，前端视为待 backfill，不 stamp `["other"]`/`["windows"]`）；
+/// - 全程只读：不 `touch` 保鲜期、不落库、不 spawn 后台任务；返回与入参一一对齐（含 `None` 占位）。
+/// `get_app_details` 的 force 语义不受影响（本命令永不走其网络分支）。
+#[tauri::command]
+pub fn get_cached_app_details_batch(
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+) -> crate::AppResult<Vec<Option<AppSummary>>> {
+    let db = state.db()?;
+    Ok(ids.iter().map(|raw| cached_detail_summary(&db, raw)).collect())
+}
+
+/// 单 id 的 DB-only 投影：`AppDetail` 子集转 `AppSummary`，无网络、无写盘。
+/// changelog/readme/releases 不进卡；`is_stale` 不进卡（前端小行不黄，详情黄标另行）。
+/// `data:` 详情图标置空兜底（确认图标随后覆盖，M2 `data:` 仍可呈现）。
+fn cached_detail_summary(
+    db: &crate::db::Database,
+    raw_id: &str,
+) -> Option<AppSummary> {
+    let clean_id = crate::commands::require_app_id(raw_id).ok()?;
+    let detail = db.get_cached_app_detail(&clean_id, None).ok().flatten()?;
+    let icon_trimmed = detail.icon.trim();
+    let mut summary = AppSummary {
+        id: detail.id.clone(),
+        name: detail.name.clone(),
+        description_en: detail.description_en.clone(),
+        owner: detail.owner.clone(),
+        repo: detail.repo.clone(),
+        icon: if icon_trimmed.is_empty() || icon_trimmed.starts_with("data:") {
+            String::new()
+        } else {
+            detail.icon.clone()
+        },
+        icon_bg: detail.icon_bg.clone(),
+        description: detail.description.clone(),
+        stars: detail.stars,
+        forks: detail.forks,
+        license: detail.license.clone(),
+        latest_version: detail.latest_version.clone(),
+        category: detail.category.clone(),
+        category_name: detail.category_name.clone(),
+        is_verified: detail.is_verified,
+        is_installed: None,
+        has_update: None,
+        installed_version: None,
+        forge: detail.forge.clone(),
+        forge_host: detail.forge_host.clone(),
+        homepage: detail.homepage.clone(),
+        platforms: detail.platforms.clone(),
+    };
+    if let Some(ci) = crate::github::http::resolve_confirmed_icon_from_db(
+        db,
+        &summary.id,
+        &summary.owner,
+        &summary.repo,
+    ) {
+        summary.icon = ci;
+    }
+    Some(summary)
+}
+
 /// P0 stale 契约：瞬时失败（401/限流/离线）永不污染 SQLite。
 /// - 合成空（无缓存失败）以 `is_stale=true` 返回，调用方跳过落库，无旧行则不建行；
 /// - stale 穿透（复用旧行）保持旧行不动（含 `cached_at` 不刷新），`Ok(stale)` 为 IPC 形状约定；
@@ -314,8 +388,26 @@ pub async fn get_app_details_impl(
 
     // 2. 本地无缓存或用户主动要求强制刷新，执行远程拉取
     // 2.1 多源 (Codeberg, Gitea 等) 穿透解析
+    // forge 分支同样遵循 is_force 门控：非强制刷新且缓存行新鲜（TTL 内）时直接复用，
+    // 不进 `try_join` 网络；`forge/http` 无 ETag，保持无条件请求语义，仅调用方设门。
     if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&clean_id) {
         if coord.forge != crate::forge::ForgeType::GitHub {
+            if !is_force {
+                if let Ok(db) = state.db() {
+                    let ttl_seconds = detail_ttl_secs(&db);
+                    if let Ok(Some(mut cached)) =
+                        db.get_cached_app_detail(&clean_id, Some(ttl_seconds))
+                    {
+                        cached.id = clean_id.clone();
+                        log::debug!(
+                            "get_app_details id={} from=cache:db forge elapsed_ms={}",
+                            clean_id,
+                            start.elapsed().as_millis()
+                        );
+                        return Ok(cached);
+                    }
+                }
+            }
             log::debug!(
                 "fetch app detail multi-forge id={} host={} forge={:?}",
                 clean_id,
@@ -623,7 +715,7 @@ pub async fn get_app_details_impl(
                                 &mut cycle,
                                 level,
                                 icon_trimmed.trim(),
-                                state.catalog.get_catalog_item(&clean_id).is_some(),
+                                state.catalog.is_cataloged(&clean_id),
                                 now,
                             ) {
                                 detail.icon = cycle.selected_url.clone();
@@ -846,5 +938,71 @@ mod catalog_platform_tests {
         assert!(summary.icon.starts_with("data:image/png;base64,"));
 
         let _ = std::fs::remove_file(&test_file_path);
+    }
+
+    fn batch_detail(id: &str, icon: &str) -> crate::models::AppDetail {
+        crate::models::AppDetail {
+            id: id.to_string(),
+            name: "Demo App".to_string(),
+            description_en: None,
+            owner: "demo".to_string(),
+            repo: "app".to_string(),
+            icon: icon.to_string(),
+            icon_bg: "linear-gradient(135deg, #475569, #334155)".to_string(),
+            description: "演示应用".to_string(),
+            stars: 7,
+            forks: 3,
+            license: "MIT".to_string(),
+            latest_version: "v1.2.3".to_string(),
+            changelog: String::new(),
+            is_verified: false,
+            readme_markdown: String::new(),
+            readme_variants: None,
+            releases: vec![],
+            category: "external".to_string(),
+            category_name: "跨平台开源".to_string(),
+            forge: Some("github".to_string()),
+            forge_host: Some("github.com".to_string()),
+            cached_at: None,
+            is_stale: None,
+            homepage: None,
+            platforms: vec!["windows".to_string()],
+        }
+    }
+
+    #[test]
+    fn cached_batch_hit_projects_detail_with_platforms() {
+        let db = crate::db::Database::open_in_memory().unwrap();
+        db.save_cached_app_detail(
+            "demo/app",
+            &batch_detail("demo/app", "https://example.com/icon.png"),
+        )
+        .unwrap();
+        let hit = super::cached_detail_summary(&db, "demo/app").expect("缓存行应当命中");
+        assert_eq!(hit.id, "demo/app");
+        assert_eq!(hit.name, "Demo App");
+        assert_eq!(hit.icon, "https://example.com/icon.png");
+        assert_eq!(hit.platforms, vec!["windows".to_string()]);
+        assert_eq!(hit.latest_version, "v1.2.3");
+    }
+
+    #[test]
+    fn cached_batch_miss_and_invalid_id_yield_none() {
+        let db = crate::db::Database::open_in_memory().unwrap();
+        assert!(super::cached_detail_summary(&db, "ghost/nobody").is_none());
+        assert!(super::cached_detail_summary(&db, "not an id !!!").is_none());
+        assert!(super::cached_detail_summary(&db, "   ").is_none());
+    }
+
+    #[test]
+    fn cached_batch_blanks_data_icon_without_confirmed() {
+        let db = crate::db::Database::open_in_memory().unwrap();
+        db.save_cached_app_detail(
+            "demo/app",
+            &batch_detail("demo/app", "data:image/png;base64,AAA"),
+        )
+        .unwrap();
+        let hit = super::cached_detail_summary(&db, "demo/app").expect("缓存行应当命中");
+        assert_eq!(hit.icon, "", "无确认图标时 data: 详情图标必须置空");
     }
 }

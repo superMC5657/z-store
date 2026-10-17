@@ -1,17 +1,29 @@
 import type {
   DeveloperProfile,
+  FavoriteEntry,
   HostRateLimitStatus,
   HostTokenEntry,
   StarAppResult,
   StarredSyncResult,
+  WatchedAppEntry,
 } from '../../types';
-import { summaries } from '../fixtures';
+import { summaries, findSummary } from '../fixtures';
 import { getFavSet, getStarSet, getWatchSet, persistSets } from '../demoState';
 import { argStr, type InvokeArgs } from './common';
 
 export function handleGetFavorites(): string[] {
   const favSet = getFavSet();
   return summaries.filter((s) => favSet.has(s.id.toLowerCase())).map((s) => s.id);
+}
+
+// demo 同形收藏记录：收录快照命中即已收录（`findSummary` 归一口径），附当前秒级时间戳。
+export function handleGetFavoriteEntries(): FavoriteEntry[] {
+  const now = Math.floor(Date.now() / 1000);
+  return handleGetFavorites().map((id) => ({
+    app_id: id,
+    is_cataloged: findSummary(id) !== undefined,
+    favorited_at: now,
+  }));
 }
 
 export function handleToggleFavorite(a: InvokeArgs): boolean {
@@ -24,8 +36,8 @@ export function handleToggleFavorite(a: InvokeArgs): boolean {
   return favSet.has(id);
 }
 
-export function handleGetWatchedApps(): Array<{ app_id: string }> {
-  return [...getWatchSet()].map((id) => ({ app_id: id }));
+export function handleGetWatchedApps(): WatchedAppEntry[] {
+  return [...getWatchSet()].map((id) => ({ app_id: id, is_cataloged: findSummary(id) !== undefined }));
 }
 
 export function handleWatchApp(a: InvokeArgs): boolean {

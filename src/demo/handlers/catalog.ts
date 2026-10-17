@@ -128,6 +128,16 @@ export function handleGetAppDetails(a: InvokeArgs): AppDetail {
   return toDetail(hit);
 }
 
+// DB-only 批量回填 demo 同形（与后端 `get_cached_app_details_batch` 同语义）：
+// 逐 id 归一查收录快照，命中即摘要行、无行即 null，与入参一一对齐，永不抛错。
+export function handleGetCachedAppDetailsBatch(a: InvokeArgs): (AppSummary | null)[] {
+  const raw = a['ids'];
+  const ids: unknown[] = Array.isArray(raw) ? raw : [];
+  return ids.map((id) =>
+    typeof id === 'string' && id.trim() !== '' ? findSummary(id) ?? null : null,
+  );
+}
+
 export function handleGetReadmeVariants(a: InvokeArgs): ReadmeVariantsResult {
   const id = argStr(a, 'appId', 'app_id', 'id');
   const hit = findSummary(id);

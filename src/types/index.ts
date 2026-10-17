@@ -293,6 +293,20 @@ export interface WatchUpdatedPayload {
   app_name?: string;
 }
 
+// 收藏/关注收录标记行（后端写时经 catalog index 落 `is_cataloged`，启动回填补齐旧行）：
+// `get_favorite_entries` / `get_watched_apps` 逐行携带，展示层徽标以记录为准
+// （记录优先；`apps` 目录列表仅作结构去重/驱逐补充，永不覆盖记录标记）。
+export interface FavoriteEntry {
+  app_id: string;
+  is_cataloged: boolean;
+  favorited_at: number;
+}
+
+export interface WatchedAppEntry {
+  app_id: string;
+  is_cataloged: boolean;
+}
+
 // FR-7: GitHub OAuth Device Flow（IPCs 由 Rust 侧并发实现，前端防御性调用）
 export interface OAuthDeviceStartResult {
   device_code: string;

@@ -15,15 +15,15 @@ impl Database {
             .unwrap_or_else(|| WATCH_NOTIFY_FREQUENCY_DEFAULT.to_string())
     }
 
-    pub fn watch_app(&self, app_id: &str) -> Result<bool> {
+    pub fn watch_app(&self, app_id: &str, is_cataloged: bool) -> Result<bool> {
         let id = clean(app_id);
         if id.is_empty() {
             return Ok(false);
         }
         let now = now_secs();
         let rows = self.exec_upsert(
-            "INSERT OR IGNORE INTO watched_apps (app_id, added_at, last_notified_version, last_notified_at) VALUES (?1, ?2, NULL, NULL)",
-            params![id, now],
+            "INSERT OR IGNORE INTO watched_apps (app_id, added_at, last_notified_version, last_notified_at, is_cataloged) VALUES (?1, ?2, NULL, NULL, ?3)",
+            params![id, now, is_cataloged as i32],
         )?;
         Ok(rows > 0)
     }
@@ -38,16 +38,26 @@ impl Database {
 
     pub fn get_watched_apps(&self) -> Result<Vec<crate::models::WatchedApp>> {
         self.query_vec(
-            "SELECT app_id, added_at, last_notified_version FROM watched_apps ORDER BY added_at DESC",
+            "SELECT app_id, added_at, last_notified_version, is_cataloged FROM watched_apps ORDER BY added_at DESC",
             [],
             |row| {
                 Ok(crate::models::WatchedApp {
                     app_id: row.get(0)?,
                     added_at: row.get(1)?,
                     last_notified_version: row.get(2)?,
+                    is_cataloged: row.get::<_, i64>(3)? != 0,
                 })
             },
         )
+    }
+
+    /// 收录标记回填写点（启动/迁移用）：仅更新标记，不碰通知基线字段。
+    pub fn set_watched_cataloged(&self, app_id: &str, is_cataloged: bool) -> Result<()> {
+        self.exec_upsert(
+            "UPDATE watched_apps SET is_cataloged = ?1 WHERE app_id = ?2",
+            params![is_cataloged as i32, clean(app_id)],
+        )?;
+        Ok(())
     }
 
     pub fn get_watch_last_notified_at(&self, app_id: &str) -> Result<Option<i64>> {

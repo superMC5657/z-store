@@ -28,6 +28,7 @@ import {
   handleClearViewHistory,
   handleEnrichTrendRepos,
   handleGetAppDetails,
+  handleGetCachedAppDetailsBatch,
   handleGetAppIconCycle,
   handleGetCategoryApps,
   handleGetCatalogCount,
@@ -50,6 +51,7 @@ import {
 import {
   handleCheckForUpdates,
   handleDownloadAsset,
+  handleGetCachedUpdates,
   handleGetInstalledApps,
   handleGetUpdateRules,
   handleInstallApp,
@@ -79,6 +81,7 @@ import {
 } from './handlers/settings';
 import {
   handleGetDeveloperProfile,
+  handleGetFavoriteEntries,
   handleGetFavorites,
   handleGetHostTokens,
   handleGetOAuthUser,
@@ -192,6 +195,8 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleEnrichTrendRepos(a);
     case 'get_app_details':
       return handleGetAppDetails(a);
+    case 'get_cached_app_details_batch':
+      return handleGetCachedAppDetailsBatch(a);
     case 'get_platforms_lite':
       return handleGetPlatformsLite(a);
     case 'get_home_feed':
@@ -249,6 +254,8 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleLaunchApp();
     case 'check_for_updates':
       return handleCheckForUpdates();
+    case 'get_cached_updates':
+      return handleGetCachedUpdates();
     case 'get_update_rules':
       return handleGetUpdateRules();
     case 'set_app_skip_version':
@@ -289,6 +296,8 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
     // -- 社交 / 认证 / 关注 / 令牌 -------------------------------------
     case 'get_favorites':
       return handleGetFavorites();
+    case 'get_favorite_entries':
+      return handleGetFavoriteEntries();
     case 'toggle_favorite':
       return handleToggleFavorite(a);
     case 'get_developer_profile':

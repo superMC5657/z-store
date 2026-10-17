@@ -9,6 +9,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { AppDetailViewModel, OAuthUser, ReleaseAsset } from '../../types';
 import { tauriApi, type AppIconCycleResult } from '../../services/api';
+import { MANUAL_ONLY_NETWORK } from '../../lib/manualOnly';
 import { AppIcon } from '../AppIcon';
 import { admitIconHit } from '../../services/iconStore';
 import { notifyToast } from '../../utils/notify';
@@ -76,6 +77,14 @@ export const Header: React.FC<HeaderProps> = ({
     let isMounted = true;
     setIconCycle(null);
     setIsIconCycleReady(false);
+    // 挂载不自动回填图标轮换（URL/首字母兜底）；轮换按钮按需触发，入口始终可达。
+    // Ready immediately so manual cycle button (handleCycleIcon, explicit) stays reachable.
+    if (MANUAL_ONLY_NETWORK) {
+      setIsIconCycleReady(true);
+      return () => {
+        isMounted = false;
+      };
+    }
     if (!isTauri || !app.id) return;
 
     tauriApi

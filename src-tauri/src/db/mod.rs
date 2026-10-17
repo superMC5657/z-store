@@ -7,11 +7,13 @@ pub mod rules;
 pub mod schema;
 pub mod settings;
 pub mod tokens;
+pub mod update_results;
 pub mod watch;
 
 pub use cache::{AssetCacheRecord, AssetUsageStats};
 pub use custom_apps::{CustomAppEntry, GraduationNotice};
 pub use icon_cycle::AppIconCycle;
+pub use update_results::UpdateCheckRow;
 
 #[cfg(test)]
 mod tests;

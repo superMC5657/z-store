@@ -479,7 +479,8 @@
     "starred_zero_desc": "该账号在 GitHub 上尚未星标（Star）任何公开仓库。",
     "starred_no_match_desc": "您 Star 的 {{total}} 个开源项目中暂未匹配到 ZStore 已收录的应用。您可在主页搜索栏直接输入 owner/repo 实时检索并一键安装。",
     "not_synced_title": "尚未同步 Starred 仓库",
-    "not_synced_desc": "在上方输入 GitHub 用户名并点击「立即同步」，一站式接管您的 GitHub 开源装机清单。"
+    "not_synced_desc": "在上方输入 GitHub 用户名并点击「立即同步」，一站式接管您的 GitHub 开源装机清单。",
+    "load_detail": "加载详情"
   },
   "rules": {
     "title": "版本策略与屏蔽规则管理 ({{count}})",

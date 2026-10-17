@@ -11,12 +11,16 @@ import { ViewAppActions, ViewShell } from './ViewShell';
 import { matchesAppText } from './useViewFilter';
 import { isPlatformLoading } from '../lib/platformFilter';
 import { normalizeId, normalizeIdLowerSet } from '../services/normalizeId';
+import { isFavoritePlaceholderRow } from '../app/favoritesUncataloged';
 import { queueAssembledRowIcons } from '../services/iconStore';
+import { MANUAL_ONLY_NETWORK } from '../lib/manualOnly';
 import { isInstalled as selectIsInstalled, selectIsManagedOpt } from '../app/selectors';
 
 interface FavoritesViewProps extends ViewAppActions {
   platformResolvedOtherIds?: ReadonlySet<string>;
   oauthUser?: OAuthUser | null;
+  /** 占位行手动加载（缓存缺失空壳行经行内按钮拉详情升级富卡；缺席即无按钮）。 */
+  onLoadUncatalogedDetail?: (id: string) => void;
 }
 
 export const FavoritesView: React.FC<FavoritesViewProps> = ({
@@ -32,6 +36,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   onQuickInstall,
   onToggleFavorite,
   onToggleWatch,
+  onLoadUncatalogedDetail,
 }) => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'local' | 'watched' | 'starred'>('local');
@@ -53,7 +58,8 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   // FR-6.1: 收藏 / 关注搜索框（按名称 / 别名 / 仓库坐标过滤，见 useViewFilter.matchesAppText）
   const matchesSearch = (a: AppSummary) => matchesAppText(a, searchText);
 
-  // 收藏 left-join 消费侧：`apps` 已由 App 补齐未收录占位行，此处仅做归一大小写 inner 过滤
+  // 收藏 left-join 消费侧：`apps` 已由 App 补齐未收录行（缓存命中为富卡行、
+  // 未命中为占位行，同形 `AppSummary`），此处仅做归一大小写 inner 过滤
   // （双键：原值 + 小写均命中；键构造经前端唯一口 `normalizeId`）；计数仍用 `favoriteIds.size` 全集。
   const favoriteIdsLower = normalizeIdLowerSet(favoriteIds);
   // 关注同口径小写归一（与收藏分支一致）；计数仍用 `watchedSet.size` 全集。
@@ -61,12 +67,16 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   const favoriteApps = apps.filter((a) => favoriteIdsLower.has(normalizeId(a.id)) && matchesSearch(a));
   const watchedApps = apps.filter((a) => watchedIdsLower.has(normalizeId(a.id)) && matchesSearch(a));
 
+  // 组装行 http 远端图标不自动入队落盘（就地 URL/首字母展示）。
   // 组装落盘补齐：收藏/关注/标星匹配列表 http 远端图标入队进盘（前 30 上限，`data:`/空跳过）。
   useEffect(() => {
+    if (MANUAL_ONLY_NETWORK) return;
     queueAssembledRowIcons(favoriteApps);
     queueAssembledRowIcons(watchedApps);
   }, [favoriteApps, watchedApps]);
   useEffect(() => {
+    // 同步后标星匹配列表图标同样不自动入队（就地展示）。
+    if (MANUAL_ONLY_NETWORK) return;
     if (syncResult?.catalog_matches && syncResult.catalog_matches.length > 0) {
       queueAssembledRowIcons(syncResult.catalog_matches);
     }
@@ -196,6 +206,8 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 isFavorite={true}
                 isWatched={watchedIdsLower.has(normalizeId(app.id))}
                 showCatalogBadge={true}
+                showLoadDetail={onLoadUncatalogedDetail !== undefined && isFavoritePlaceholderRow(app)}
+                onLoadDetail={onLoadUncatalogedDetail}
                 onOpenDetail={onOpenDetail}
                 onQuickInstall={onQuickInstall}
                 onToggleFavorite={onToggleFavorite}
@@ -234,6 +246,9 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIdsLower.has(normalizeId(app.id))}
                 isWatched={true}
+                showCatalogBadge={true}
+                showLoadDetail={onLoadUncatalogedDetail !== undefined && isFavoritePlaceholderRow(app)}
+                onLoadDetail={onLoadUncatalogedDetail}
                 onOpenDetail={onOpenDetail}
                 onQuickInstall={onQuickInstall}
                 onToggleFavorite={onToggleFavorite}

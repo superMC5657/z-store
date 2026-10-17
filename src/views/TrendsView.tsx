@@ -181,6 +181,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     isRefreshing,
     handleRefresh,
     trendFetchOpts,
+    refreshEnrichForceRef,
   } = useTrendBoard('weekly');
 
   // 未收录行 enrichment 镜像（键为小写 owner/repo）：命中即完整 AppCard，
@@ -364,17 +365,23 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     queueAssembledRowIcons(Object.values(snap));
   }, [trendResult]);
 
+  // Enter-intent：进 tab（挂载，含默认榜）即抓取，enrich 作为 board 落定后的跟随链运行。
   // 未收录行 enrichment：逐仓复用搜索 enrichment（Rust 侧并发 5、单次批量 40 上限、单仓 10s），
   // 成功合并为完整卡片；失败/无命中保持旧小行（enrichTrendRepos 缺席即不写，缺席即展裸行/旧缓存，不等齐）。
   // 合并 + 写透收口 board（collectMissing + mergeEnrichFoundMirror + maybePersistBoardNow）；
   // 裸行先展不拦榜，仅富卡升级受 boardReady 门控（swrSyncedResult/isUpgradePending）。
   useEffect(() => {
     if (trendResult?.status !== 'ok') return;
+    // 刷新链跟随强制：手动 Refresh 落定后的本轮 enrich 消费一次标记，透传后端
+    // force_refresh 做网络重拉；其余进 tab/切榜场景均为缓存允许路径。
+    // 标记在本轮早消费（即使本轮无缺席项），避免泄漏到后续无关轮次造成误强制。
+    const enrichForce = refreshEnrichForceRef.current;
+    refreshEnrichForceRef.current = false;
     const missing = collectMissingEnrichRepos(displayItems, enrichedApps);
     if (missing.size === 0) return;
     let cancelled = false;
     // 写透时机：enrich 完成即同步 await 写透一次（关闭前 fire-and-forget 易丢，flush 兜底见下）。
-    void enrichTrendRepos([...missing.values()]).then(async (found) => {
+    void enrichTrendRepos([...missing.values()], enrichForce ? { forceRefresh: true } : undefined).then(async (found) => {
       if (cancelled || found.size === 0) return;
       // 首绘门：裸行已直展，此处仅做升级；未就绪时延迟到 boardReady 置位后（下轮 effect 重入）。
       const swrSynced = swrSyncedResult(trendResult.repos, enrichedAppsRef.current);

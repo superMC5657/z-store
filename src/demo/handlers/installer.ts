@@ -95,6 +95,22 @@ export function handleCheckForUpdates(): UpdateItem[] {
   return buildDemoUpdates(getInstalledApps());
 }
 
+// 缓存快照（DB 同形）：首读时冻结当前已安装集合对应的更新行，此后安装/卸载
+// 不再改变快照内容；与 live 的 check_for_updates（每次按现状重算）语义区分。
+let cachedUpdatesSnapshot: UpdateItem[] | null = null;
+
+export function handleGetCachedUpdates(): UpdateItem[] {
+  if (!cachedUpdatesSnapshot) {
+    cachedUpdatesSnapshot = buildDemoUpdates([...getInstalledApps()]);
+  }
+  return cachedUpdatesSnapshot.map((u) => ({ ...u }));
+}
+
+/** demo 重置钩子（测试/重注水时清快照；生产链路不调用）。 */
+export function resetCachedUpdatesSnapshot(): void {
+  cachedUpdatesSnapshot = null;
+}
+
 export function handleGetUpdateRules(): UpdateRule[] {
   return [];
 }

@@ -139,6 +139,7 @@ export function useDetailReadme(opts: {
       setVariantsLoading(false);
       return;
     }
+    // README 页签挂载即拉取变体（语言切换只改 activeMarkdown，不重拉）。
     setVariants([]);
     setVariantsLoading(true);
     (async () => {

@@ -254,7 +254,7 @@ export const App: React.FC = () => {
   });
 
   // 2. 平台回填与搜索解耦
-  const lazyBackfillRef = useRef<(summaries: AppSummary[], seq: number) => void>(() => {});
+  const lazyBackfillRef = useRef<(summaries: AppSummary[], seq: number, forceRefresh?: boolean) => void>(() => {});
 
   const {
     searchQuery,
@@ -275,7 +275,7 @@ export const App: React.FC = () => {
     currentView,
     setCurrentView,
     setApps,
-    lazyBackfillPlatforms: (summaries, seq) => lazyBackfillRef.current(summaries, seq),
+    lazyBackfillPlatforms: (summaries, seq, forceRefresh) => lazyBackfillRef.current(summaries, seq, forceRefresh),
     showToast,
     t,
   });
@@ -304,6 +304,7 @@ export const App: React.FC = () => {
     favoriteExtraApps,
     setFavoriteExtraApps,
     favoriteExtraAppsRef,
+    loadUncatalogedDetail,
   } = useUncatalogedJoin({ favoriteIds, watchedIds, apps });
 
   // 4. 详情快照缓存与卡片列表同步（内存 0ms 秒开 + ETag 后台探查 + 富卡/平台治愈）
@@ -580,14 +581,24 @@ export const App: React.FC = () => {
       /* Toast 提示后刷新静默失败 */
     }
 
-    // 后台静默执行远端更新检查，绝不阻塞本地已安装列表呈现与界面交互
+    // 导入成功后刷新已安装列表，并后台复核更新（DB-only 合成读，不阻塞界面交互）
     tauriApi
       .checkForUpdates(false)
       .then((loadedUpdates) => {
-        setUpdates(loadedUpdates);
+        if (Array.isArray(loadedUpdates)) setUpdates(loadedUpdates);
       })
       .catch(() => undefined);
   };
+
+  // 更新中心切签/挂载读 DB 快照（零网络；写仅手动 Refresh）。
+  const handleEnterUpdatesTab = useCallback(() => {
+    tauriApi
+      .getCachedUpdates()
+      .then((rows) => {
+        if (Array.isArray(rows)) setUpdates(rows);
+      })
+      .catch(() => undefined);
+  }, []);
 
   const handleSelectMirror = async (mirrorId: string) => {
     await tauriApi.switchMirror(mirrorId);
@@ -769,6 +780,7 @@ export const App: React.FC = () => {
               onQuickInstall={handleQuickInstall}
               onToggleFavorite={handleToggleFavorite}
               onToggleWatch={handleToggleWatch}
+              onLoadUncatalogedDetail={loadUncatalogedDetail}
             />
           )}
 
@@ -810,6 +822,7 @@ export const App: React.FC = () => {
               watchNotifications={watchNotifications}
               onOpenWatchedApp={handleOpenDetail}
               onDismissWatch={handleDismissWatchNotification}
+              onEnterUpdatesTab={handleEnterUpdatesTab}
             />
           )}
 

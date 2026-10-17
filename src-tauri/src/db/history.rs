@@ -3,15 +3,16 @@ use rusqlite::{params, Result};
 
 impl Database {
     /// 收藏（合并式）：已存在返回 false，否则插入返回 true。
-    pub fn add_favorite(&self, app_id: &str) -> Result<bool> {
+    /// `is_cataloged` 由调用方写时按内存目录判定一次后传入（零网络），存量以默认 1 建行、启动回填校准。
+    pub fn add_favorite(&self, app_id: &str, is_cataloged: bool) -> Result<bool> {
         let id = clean(app_id);
         if id.is_empty() {
             return Ok(false);
         }
         let now = now_secs();
         let rows = self.exec_upsert(
-            "INSERT OR IGNORE INTO user_favorites (app_id, favorited_at) VALUES (?1, ?2)",
-            params![id, now],
+            "INSERT OR IGNORE INTO user_favorites (app_id, favorited_at, is_cataloged) VALUES (?1, ?2, ?3)",
+            params![id, now, is_cataloged as i32],
         )?;
         Ok(rows > 0)
     }
@@ -24,7 +25,31 @@ impl Database {
         )
     }
 
-    pub fn toggle_favorite(&self, app_id: &str) -> Result<bool> {
+    /// 收藏条目（含收录标记）：与 `get_favorites` 同序，形状见 `FavoriteEntry`。
+    pub fn get_favorite_entries(&self) -> Result<Vec<crate::models::FavoriteEntry>> {
+        self.query_vec(
+            "SELECT app_id, is_cataloged, favorited_at FROM user_favorites ORDER BY favorited_at DESC",
+            [],
+            |row| {
+                Ok(crate::models::FavoriteEntry {
+                    app_id: row.get(0)?,
+                    is_cataloged: row.get::<_, i64>(1)? != 0,
+                    favorited_at: row.get(2)?,
+                })
+            },
+        )
+    }
+
+    /// 收录标记回填写点（启动/迁移用）：仅更新标记，不碰 `favorited_at`。
+    pub fn set_favorite_cataloged(&self, app_id: &str, is_cataloged: bool) -> Result<()> {
+        self.exec_upsert(
+            "UPDATE user_favorites SET is_cataloged = ?1 WHERE app_id = ?2",
+            params![is_cataloged as i32, clean(app_id)],
+        )?;
+        Ok(())
+    }
+
+    pub fn toggle_favorite(&self, app_id: &str, is_cataloged: bool) -> Result<bool> {
         let id = clean(app_id);
         let exists = self.record_exists(
             "SELECT 1 FROM user_favorites WHERE app_id = ?1",
@@ -40,8 +65,8 @@ impl Database {
         } else {
             let now = now_secs();
             self.exec_upsert(
-                "INSERT INTO user_favorites (app_id, favorited_at) VALUES (?1, ?2)",
-                params![id, now],
+                "INSERT INTO user_favorites (app_id, favorited_at, is_cataloged) VALUES (?1, ?2, ?3)",
+                params![id, now, is_cataloged as i32],
             )?;
             Ok(true)
         }

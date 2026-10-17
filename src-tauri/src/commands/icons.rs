@@ -263,7 +263,7 @@ pub async fn get_or_fetch_icon(
     let requested_ext = infer_icon_ext_from_url(url_trimmed).unwrap_or("png");
 
     let is_cataloged = app_id.as_deref().is_some_and(|id| {
-        state.catalog.get_catalog_item(id.trim()).is_some()
+        state.catalog.is_cataloged(id.trim())
     });
 
     // 1. 严格优先查找本地内部缓存（两表分流读取收敛至共享 helper）

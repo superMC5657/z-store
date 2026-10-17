@@ -189,6 +189,8 @@ export function useHomeFeed({
 
   const visibleLocal = useMemo(() => sliceFeed(feedPool, 0, visibleCount), [feedPool, visibleCount]);
 
+  // 发现页后端分页：挂载即拉首屏（本地切片兜底，见 displayedFeed）。
+  // 后端分页仅在显式 Load more 点击时跟进（handleLocalLoadMore/handleLoadMore）。
   useEffect(() => {
     if (!canUseHomeFeedBackend()) return;
     let cancelled = false;
@@ -238,7 +240,7 @@ export function useHomeFeed({
   const onlineActive = isSearching && isOnlineResults && onlineHasMore;
   const hasMore = localHasMore || onlineActive;
 
-  // 本地/发现 feed 续刷（哨兵自动触发）：可见数 +20，后端分页跟进。
+  // 本地/发现 feed 续刷（手动 Load more 点击或哨兵越界）：可见数 +20，后端分页跟进。
   // 在线搜索段永不经此自动续拉——哨兵只续本地段；在线下一页须经 armed 边界条的
   // 越界手势或按钮显式触发（`useOnlinePullToLoadMore`），避免到底被提前 320px 预取吞掉边界感。
   const loadLocalRef = useRef<() => void>(() => {});

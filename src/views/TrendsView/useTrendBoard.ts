@@ -92,6 +92,9 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
   // 手动刷新态：与首载 isLoading 分离，刷新期间保留旧榜（SWR  stale 展），仅按钮转圈 + 禁用。
   const [isRefreshing, setIsRefreshing] = useState(false);
   const refreshSeqRef = useRef(0);
+  // 刷新链 enrich 强制标记：手动 Refresh 成功落定后，跟随的 enrich effect 消费一次
+  // （读后即清零），透传后端 force_refresh 做网络重拉；其余 effect 抓取均为缓存允许路径。
+  const refreshEnrichForceRef = useRef(false);
   // 首屏门：裸行直展不拦榜，仅富卡升级参考此门。
   // board 为唯一 deep module，单 emit 源单订阅（L1/L2/网络三路径统一 emit）；
   // 抓取 await 后的直接置位保留作幂等兜底（防事件竞态漏置，非第二通道）。
@@ -143,6 +146,10 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
     });
   }, []);
 
+  // Enter-intent fetch：TrendsView 仅在进入趋势 tab 时挂载（App 条件渲染），
+  // 故 mount 即 enter，属 MANUAL 显式意图，直接抓取；子榜切换（activeBoard 变化）与
+  // Retry（retryCount 递增）同样重抓。不存在“未进入 tab 的后台预取”路径，无需门控。
+  // 本 effect 走缓存允许路径（SWR/hydrate 优先）；Refresh 按钮另走 forceRefresh 直抓。
   useEffect(() => {
     if (!proxyReady) return;
     let isMounted = true;
@@ -189,6 +196,8 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
       .then((res) => {
         if (seq !== refreshSeqRef.current) return;
         if (activeBoardRef.current !== boardAtClick) return;
+        // 刷新链 enrich 跟随强制：board 落定后 effect 内消费一次。
+        refreshEnrichForceRef.current = true;
         setTrendResult(res);
       })
       .catch(() => {
@@ -234,5 +243,6 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
     isRefreshing,
     handleRefresh,
     trendFetchOpts,
+    refreshEnrichForceRef,
   };
 }

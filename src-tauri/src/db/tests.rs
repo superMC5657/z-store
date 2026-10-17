@@ -67,11 +67,21 @@ fn test_settings_and_favorites() {
     db.set_setting("theme", "dark").unwrap();
     assert_eq!(db.get_setting("theme").unwrap(), Some("dark".to_string()));
 
-    let fav_added = db.toggle_favorite("rustdesk").unwrap();
+    let fav_added = db.toggle_favorite("rustdesk", true).unwrap();
     assert!(fav_added);
     assert_eq!(db.get_favorites().unwrap(), vec!["rustdesk".to_string()]);
+    let entries = db.get_favorite_entries().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].app_id, "rustdesk");
+    assert!(entries[0].is_cataloged);
 
-    let fav_removed = db.toggle_favorite("rustdesk").unwrap();
+    // 回填写点仅更新标记，不碰时间戳/行身份
+    db.set_favorite_cataloged("rustdesk", false).unwrap();
+    let entries = db.get_favorite_entries().unwrap();
+    assert!(!entries[0].is_cataloged);
+    assert_eq!(db.get_favorites().unwrap(), vec!["rustdesk".to_string()]);
+
+    let fav_removed = db.toggle_favorite("rustdesk", true).unwrap();
     assert!(!fav_removed);
     assert_eq!(db.get_favorites().unwrap().len(), 0);
 }
@@ -388,15 +398,20 @@ fn test_watched_apps_crud() {
     let db = fixtures::test_db();
     assert!(db.get_watched_apps().unwrap().is_empty());
 
-    assert!(db.watch_app("rustdesk/rustdesk").unwrap());
+    assert!(db.watch_app("rustdesk/rustdesk", false).unwrap());
     // 重复关注幂等：返回 false，不产生重复行
-    assert!(!db.watch_app("rustdesk/rustdesk").unwrap());
-    assert!(!db.watch_app("   ").unwrap());
+    assert!(!db.watch_app("rustdesk/rustdesk", false).unwrap());
+    assert!(!db.watch_app("   ", false).unwrap());
 
     let watched = db.get_watched_apps().unwrap();
     assert_eq!(watched.len(), 1);
     assert_eq!(watched[0].app_id, "rustdesk/rustdesk");
+    assert!(!watched[0].is_cataloged);
     assert!(watched[0].last_notified_version.is_none());
+
+    // 回填写点仅更新标记，不碰通知基线
+    db.set_watched_cataloged("rustdesk/rustdesk", true).unwrap();
+    assert!(db.get_watched_apps().unwrap()[0].is_cataloged);
 
     // 基线初始化仅在 NULL 时写入
     db.init_watch_baseline("rustdesk/rustdesk", "v1.0.0")

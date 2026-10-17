@@ -49,9 +49,11 @@ export async function searchAppsOnline(
   searchId?: string,
   page?: number,
   perPage?: number,
+  // 显式手动提交（搜索提交/加载更多）传 true 走网络；缺席即后端 DB-only 回退。
+  forceRefresh = false,
 ): Promise<{ rows: AppSummary[]; sid: string }> {
   try {
-    const args: Record<string, unknown> = { query, search_id: searchId };
+    const args: Record<string, unknown> = { query, search_id: searchId, force_refresh: forceRefresh };
     if (page !== undefined && page !== null) args.page = page;
     if (perPage !== undefined && perPage !== null) args.per_page = perPage;
     const res = await tauriInvoke<AppSummary[] | { rows: AppSummary[]; sid: string }>(
@@ -75,10 +77,15 @@ export async function searchAppsOnline(
 
 export async function enrichTrendRepos(
   repos: { owner: string; repo: string }[],
+  // 趋势刷新链传 true 走网络 + 流式；缺席即后端 DB-only（读 enrich 缓存）。
+  forceRefresh = false,
 ): Promise<(AppSummary | null)[]> {
   const fallback = repos.map(() => null);
   try {
-    const res = await tauriInvoke<(AppSummary | null)[]>(CMD.enrichTrendRepos, { repos });
+    const res = await tauriInvoke<(AppSummary | null)[]>(CMD.enrichTrendRepos, {
+      repos,
+      force_refresh: forceRefresh,
+    });
     if (!Array.isArray(res)) return fallback;
     return repos.map((_, i) => res[i] ?? null);
   } catch (err) {
@@ -112,9 +119,19 @@ export async function getAppDetails(id: string, forceRefresh = false): Promise<A
   return tauriInvoke<AppDetail>(CMD.getAppDetails, { id, forceRefresh });
 }
 
-export async function getPlatformsLite(id: string): Promise<PlatformsLiteResult> {
+// 收藏/关注未收录行富卡回填（DB-only，零网络零写盘）：与入参一一对齐的
+// `(AppSummary | null)[]`，无缓存行即 `None -> null`。调用方以 Array.isArray 防御后端缺席。
+export async function getCachedAppDetailsBatch(ids: string[]): Promise<(AppSummary | null)[]> {
+  return tauriInvoke<(AppSummary | null)[]>(CMD.getCachedAppDetailsBatch, { ids });
+}
+
+export async function getPlatformsLite(
+  id: string,
+  // 手动重试传 true 走 ETag 条件请求；缺席即读 TTL 缓存/DB（默认 DB-only）。
+  forceRefresh = false,
+): Promise<PlatformsLiteResult> {
   try {
-    const res = await tauriInvoke<PlatformsLiteResult>(CMD.getPlatformsLite, { id });
+    const res = await tauriInvoke<PlatformsLiteResult>(CMD.getPlatformsLite, { id, force_refresh: forceRefresh });
     if (!res || !Array.isArray((res as PlatformsLiteResult).platforms)) {
       zlogWarn(`get_platforms_lite returned invalid shape for id=${id}, treating as stale loading`);
       return { id, platforms: [], is_stale: true };

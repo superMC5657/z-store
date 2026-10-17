@@ -54,7 +54,9 @@ export function usePlatformBackfill({
   // 轻量取回仍为空（且非 stale 离线缓存）才记为已确认 other（单次落定更新），
   // 详情不可达或 stale 一律保持 loading 交由 settle 超时兜底，不报错。后端一律 `[]`，other 纯前端虚拟。
   // seq 过期则整批丢弃，绝不阻塞列表首绘。
-  const lazyBackfillPlatforms = useCallback((summaries: AppSummary[], seq: number) => {
+  // forceRefresh：显式手动路径（搜索提交/加载更多）传 true 走 ETag 条件请求；
+  // 缺席即读 TTL 缓存/DB（默认 DB-only）。
+  const lazyBackfillPlatforms = useCallback((summaries: AppSummary[], seq: number, forceRefresh = false) => {
     const guard = seqGuardRef.current;
     const inflight = inflightGuardRef.current;
     if (!guard || !inflight) return;
@@ -70,7 +72,7 @@ export function usePlatformBackfill({
       try {
         const { patched, confirmedEmpty } = await runLiteBatch(
           runTargets,
-          (liteId) => tauriApi.getPlatformsLite(liteId),
+          (liteId) => tauriApi.getPlatformsLite(liteId, forceRefresh),
           () => guard.isStale(seq),
         );
         if (guard.isStale(seq)) return;
@@ -134,6 +136,7 @@ export function usePlatformBackfill({
 
   // 首绘回填：本地收录（含初始全量/搜索/目录同步）的 loading 行同样走轻量确认，
   // 首绘不闪 Other，落定后单次更新。重复调用经在途/已确认集合去重。
+  // 自动路径读 TTL 缓存/DB（默认 DB-only）；显式重试经 lazyBackfillPlatforms 第三个参数传 true。
   useEffect(() => {
     if (apps.length === 0) return;
     lazyBackfillPlatforms(apps, searchSeqRef.current);

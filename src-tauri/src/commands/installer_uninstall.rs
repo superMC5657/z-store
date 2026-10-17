@@ -165,6 +165,10 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result
     // 5. 卸载向导操作或目录清理核验通过后，才正式从 SQLite 数据库移除条例
     let db = state.db()?;
     let res = db.remove_installed_app(&app_id).map_err(|e| e.to_string());
+    // 卸载失效：已卸载应用的更新判定行同步清理，best-effort 不影响卸载结果。
+    if res.as_ref().is_ok_and(|v| *v) {
+        let _ = db.remove_update_result(&app_id);
+    }
 
     match &res {
         Ok(_) => log::info!(
@@ -187,6 +191,10 @@ pub fn unmanage_app(state: State<'_, AppState>, app_id: String) -> Result<bool, 
     let app_id = resolve_managed_app_id(&app_id)?;
     let db = state.db()?;
     let res = db.remove_installed_app(&app_id).map_err(|e| e.to_string());
+    // 取消管理同步失效更新判定行（同卸载语义，best-effort）。
+    if res.as_ref().is_ok_and(|v| *v) {
+        let _ = db.remove_update_result(&app_id);
+    }
     res
 }
 

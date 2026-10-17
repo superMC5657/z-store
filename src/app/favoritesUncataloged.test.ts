@@ -10,8 +10,13 @@ import type { AppSummary } from '../types';
 import { PLATFORM_IDS } from '../lib/platformFilter';
 import { normalizeId, normalizeIdLowerSet } from '../services/normalizeId';
 import {
+  buildRecordCatalogedMap,
+  favoriteSummaryFromCached,
   favoriteSummaryFromDetail,
+  isFavoritePlaceholderRow,
   makeFavoritePlaceholderSummary,
+  markFavoriteRowByRecord,
+  markFavoriteUncatalogedRow,
   needsFavoriteIconWarm,
   parseFavoriteOwnerRepo,
   pickFavoritePersistIconUrl,
@@ -214,5 +219,91 @@ describe('uncataloged join keeps rows and full-set counts', () => {
       repo: 'RustDesk',
     });
     expect(parseFavoriteOwnerRepo('gh:owner/repo')).toEqual({ owner: 'owner', repo: 'repo' });
+  });
+});
+
+describe('favoriteSummaryFromCached (batch cache join marking)', () => {
+  it('Some 命中保留富卡字段并补 is_cataloged=false', () => {
+    const hit = {
+      id: 'o/rich',
+      name: 'Rich',
+      description: 'rich desc',
+      stars: 42,
+      category: 'dev',
+      category_name: '开发工具',
+    } as AppSummary;
+    const row = favoriteSummaryFromCached(hit);
+    expect(row.name).toBe('Rich');
+    expect(row.description).toBe('rich desc');
+    expect(row.stars).toBe(42);
+    expect(row.category).toBe('dev');
+    expect(row.is_cataloged).toBe(false);
+  });
+
+  it('空分类兜底 external，实分类保留（与 favoriteSummaryFromDetail 同口径）', () => {
+    const fallback = favoriteSummaryFromCached({ id: 'o/x', category: '', category_name: '' } as AppSummary);
+    expect(fallback.category).toBe('external');
+    expect(fallback.is_cataloged).toBe(false);
+    const kept = markFavoriteUncatalogedRow({ id: 'o/y', category: 'system', category_name: '系统' } as AppSummary);
+    expect(kept.category).toBe('system');
+    expect(kept.is_cataloged).toBe(false);
+  });
+
+  it('记录已收录行保留真实分类 + 已收录标记（记录优先）', () => {
+    const hit = {
+      id: 'o/rich',
+      name: 'Rich',
+      category: 'dev',
+      category_name: '开发工具',
+    } as AppSummary;
+    const row = favoriteSummaryFromCached(hit, true);
+    expect(row.category).toBe('dev');
+    expect(row.is_cataloged).toBe(true);
+    expect(markFavoriteRowByRecord(hit, false).is_cataloged).toBe(false);
+  });
+
+  it('占位行同样按记录打标（缺席即未收录）', () => {
+    expect(makeFavoritePlaceholderSummary('o/x', true).is_cataloged).toBe(true);
+    expect(makeFavoritePlaceholderSummary('o/x').is_cataloged).toBe(false);
+    expect(makeFavoritePlaceholderSummary('o/x', false).category).toBe('external');
+  });
+});
+
+describe('buildRecordCatalogedMap (record wins, false wins)', () => {
+  it('收藏 + 关注 union，任一显式 false 即未收录（优先于 stale 的 true）', () => {
+    const map = buildRecordCatalogedMap(
+      [{ app_id: 'o/a', is_cataloged: false, favorited_at: 1 }],
+      [{ app_id: 'O/A', is_cataloged: true }, { app_id: 'o/b', is_cataloged: false }],
+    );
+    expect(map.get('o/a')).toBe(false);
+    expect(map.get('o/b')).toBe(false);
+  });
+
+  it('双 true 才已收录；缺字段旧快照默认已收录，脏行/非数组直接忽略', () => {
+    const both = buildRecordCatalogedMap(
+      [{ app_id: 'o/c', is_cataloged: true, favorited_at: 2 }],
+      [{ app_id: 'o/c', is_cataloged: true }],
+    );
+    expect(both.get('o/c')).toBe(true);
+    const map = buildRecordCatalogedMap(
+      [{ app_id: 'o/old' } as { app_id: string },
+        { app_id: '  ' } as { app_id: string },
+        null as unknown as { app_id: string }],
+      undefined,
+    );
+    expect(map.get('o/old')).toBe(true);
+    expect(map.size).toBe(1);
+    expect(buildRecordCatalogedMap(undefined, null).size).toBe(0);
+  });
+
+  it('占位行判定：空壳即占位，富卡行（任一实质字段非空）即非占位', () => {
+    expect(isFavoritePlaceholderRow(makeFavoritePlaceholderSummary('o/x'))).toBe(true);
+    expect(
+      isFavoritePlaceholderRow({ ...makeFavoritePlaceholderSummary('o/x'), description: 'desc' }),
+    ).toBe(false);
+    expect(
+      isFavoritePlaceholderRow({ ...makeFavoritePlaceholderSummary('o/x'), stars: 10 }),
+    ).toBe(false);
+    expect(isFavoritePlaceholderRow(null as unknown as AppSummary)).toBe(false);
   });
 });

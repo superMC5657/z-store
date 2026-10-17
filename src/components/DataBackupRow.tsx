@@ -130,9 +130,9 @@ export const DataBackupRow: React.FC = () => {
   const handleExport = async () => {
     setIsExporting(true);
     try {
-      const [favorites, watched, settings, customEntries] = await Promise.all([
+      const [favorites, watchedEntries, settings, customEntries] = await Promise.all([
         tauriApi.getFavorites().catch(() => [] as string[]),
-        tauriApi.getWatchedApps().catch(() => [] as string[]),
+        tauriApi.getWatchedApps().catch(() => [] as { app_id: string }[]),
         tauriApi.getSettings().catch(() => ({} as Record<string, string>)),
         tauriApi.listCustomApps(false).catch(() => [] as { id: string; item: unknown }[]),
       ]);
@@ -142,6 +142,10 @@ export const DataBackupRow: React.FC = () => {
             .filter((e) => e && typeof e.id === 'string' && e.id.trim() && e.item)
             .map((e) => ({ id: e.id, item: e.item as unknown as Record<string, unknown> }))
         : [];
+      // 关注备份只取 id（收录标记不进备份文件，恢复后以后端记录为准）。
+      const watched: string[] = (Array.isArray(watchedEntries) ? watchedEntries : [])
+        .map((w) => w?.app_id)
+        .filter((id): id is string => typeof id === 'string' && id.trim() !== '');
       const backup: UserDataBackupWithCustom = buildUserDataBackup(
         favorites,
         watched,

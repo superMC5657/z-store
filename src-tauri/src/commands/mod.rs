@@ -40,6 +40,7 @@ pub use crate::installer::{resolve_uninstaller_command, select_best_asset, Insta
 
 use crate::AppState;
 
+// 各命令 `force_refresh: Option<bool>` 保持透传布尔语义：收敛为策略表需同步改前端 IPC 签名，非行为保持的小改，故维持现状。
 /// H6：入站 `app_id` 统一归一化守卫（ADR-0010）。
 /// 成功返回 canonical id；未知标识直接拒绝，调用方永不触碰 SQLite。
 pub(crate) fn require_app_id(raw: &str) -> Result<String, String> {

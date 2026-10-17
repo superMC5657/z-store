@@ -180,6 +180,8 @@ pub async fn install_app(
         let db = state.db()?;
         db.save_installed_app(&installed_app)
             .map_err(|e| e.to_string())?;
+        // 安装/版本变更失效：新版本即最新，旧判定行过期，best-effort 删除下次刷新重建。
+        let _ = db.remove_update_result(&installed_app.app_id);
     }
 
     Ok(installed_app)

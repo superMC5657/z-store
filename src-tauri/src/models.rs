@@ -277,6 +277,21 @@ pub struct WatchedApp {
     pub app_id: String,
     pub added_at: i64,
     pub last_notified_version: Option<String>,
+    /// 收录标记：写入时按内存目录判定一次并持久化，存量行由启动回填校准；
+    /// 前端据此决定走收录库还是 `app_details_cache` 读卡（`default` 兼容旧快照）。
+    #[serde(default)]
+    pub is_cataloged: bool,
+}
+
+/// 收藏条目（含收录标记）：`get_favorite_entries` 返回形状；
+/// `get_favorites` 仍返回 `Vec<String>`（历史形状不变）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FavoriteEntry {
+    pub app_id: String,
+    /// 收录标记：语义与 `WatchedApp::is_cataloged` 一致。
+    #[serde(default)]
+    pub is_cataloged: bool,
+    pub favorited_at: i64,
 }
 
 /// 应用内关注更新通知事件（`zstore://watch-updated`）。

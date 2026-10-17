@@ -467,6 +467,7 @@ export function useDetailCacheSync({
         }
         // 先以 0ms 瞬间展示内存快照，避免骨架屏闪烁
         setSelectedApp({ ...cachedForShow, isLoading: false, isRefreshing: false, loadError: undefined });
+        // recordAppView 本地写保留（DB/local）；后台 ETag 条件探查自动跟进（缓存优先，命中 short-circuit）。
         tauriApi.recordAppView(id).then(loadRecentViews).catch(() => {});
 
         // 后台静默发起 ETag 条件探查：版本未变（304）后端毫秒级短路，版本变化则静默平滑更新

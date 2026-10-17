@@ -60,6 +60,12 @@ export async function checkForUpdates(forceRefresh = false): Promise<UpdateItem[
   return tauriInvoke<UpdateItem[]>(CMD.checkForUpdates, { forceRefresh });
 }
 
+// 更新中心列表读（DB-only，零网络）：登录/切签首屏直读上次手动刷新快照。
+// 空快照即空列表（等手动 Refresh），调用方以 Array.isArray 防御后端缺席。
+export async function getCachedUpdates(): Promise<UpdateItem[]> {
+  return tauriInvoke<UpdateItem[]>(CMD.getCachedUpdates);
+}
+
 export async function onUpdateItemFound(callback: (item: UpdateItem) => void): Promise<() => void> {
   if (!isTauri) return () => {};
   return listen<UpdateItem>('zstore://update-item-found', (e) => {

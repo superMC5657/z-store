@@ -11,8 +11,9 @@ pub const DAILY_NOTIFY_INTERVAL_SECONDS: i64 = 24 * 60 * 60;
 
 /// 轻量级获取应用最新版本号与更新说明（专为更新检查与关注动态设计）
 /// 坚决不拉取 README.md、不拉取仓库详情与 Stars、不拉取校验和文件
-/// 不看详情缓存 TTL：每次都走 ETag 轻量探查（无新版本时 304 零配额返回），
-/// 保证“有更新”提示不受详情浏览缓存过期时间拖累；
+/// - 默认 DB-only（`force_refresh != Some(true)`）：仅读 `get_cached_app_detail(None)` /
+///   收录库默认版本，零网络（启动/登录不触网）；
+/// - 显式手动刷新（`Some(true)`）才走 ETag 轻量探查（无新版本时 304 零配额返回）；
 /// 离线/限流时仍降级返回本地已有缓存。
 pub(crate) async fn fetch_app_latest_version_lightweight(
     state: &AppState,
@@ -22,9 +23,26 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
     let is_force = force_refresh.unwrap_or(false);
     let clean_id = crate::commands::require_app_id(app_id)?;
 
-    // 注意：此处故意不读详情缓存 TTL。更新发现对新鲜度的要求与详情浏览不同，
-    // 若复用详情 TTL，“有更新”提示最长会被拖累一个 TTL 窗口；轻量 ETag 探查足够便宜，
-    // 每次都走网络（304 命中时零配额），失败时再降级读本地缓存。
+    // 启动/登录默认 DB-only：非显式手动刷新一律不触网（ETag 探针门控在 force 臂内）。
+    // 口径：更新判定行（update_results 上次刷新快照）优先，其次详情缓存行（忽略 TTL），
+    // 再次收录库默认版本；均无则报离线无缓存。
+    if !is_force {
+        if let Ok(db) = state.db() {
+            if let Ok(Some((latest, changelog))) = db.get_cached_update_version(&clean_id) {
+                return Ok((latest, changelog));
+            }
+            if let Ok(Some(cached)) = db.get_cached_app_detail(&clean_id, None) {
+                return Ok((cached.latest_version, cached.changelog));
+            }
+        }
+        if let Some(item) = state.catalog.get_catalog_item(&clean_id) {
+            return Ok((item.default_version, String::new()));
+        }
+        return Err("检查更新网络不可达且无本地缓存".to_string());
+    }
+
+    // 显式手动刷新（force==true）：直探 ETag，不读详情 Cache TTL（更新发现不受浏览 TTL 拖累）。
+    // 失败时再降级读本地缓存（见下方 shallow adapter 回退）。
 
     // 2. 多源支持 (Codeberg, Gitea 等)
     if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&clean_id) {
@@ -59,14 +77,8 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
         coords.owner, coords.repo
     );
 
-    let (cached_etag, cached_payload) = if is_force {
-        (None, None)
-    } else {
-        let db = state.db()?;
-        let etag = db.get_etag(&ep).ok().flatten();
-        let payload = db.get_cached_payload(&ep).ok().flatten();
-        (etag, payload)
-    };
+    // 手动刷新直探：不带 ETag 条件头，强制取远端最新（304 延保仅非 force 臂，此处不可达）。
+    let (cached_etag, cached_payload): (Option<String>, Option<String>) = (None, None);
 
     let token = crate::commands::resolve_active_github_token(state);
     let base_headers = crate::github::http::token_headers(token.as_deref());
@@ -225,8 +237,12 @@ pub async fn check_for_updates(
     force_refresh: Option<bool>,
 ) -> crate::AppResult<Vec<UpdateItem>> {
     // Wave2：整轮耗时 + sid 关联，结束只记一行汇总。
+    // 持久化语义：仅显式手动刷新（force==true）写 `update_results`；
+    // 默认 DB-only 臂不写库（读经 `fetch_app_latest_version_lightweight` 判定行快径）。
+    let is_force = force_refresh.unwrap_or(false);
     let check_start = std::time::Instant::now();
     let installed = crate::commands::installer::get_installed_apps(state.clone())?;
+    let installed_ids: Vec<String> = installed.iter().map(|a| a.app_id.clone()).collect();
     let rules_map: HashMap<String, UpdateRule> = {
         let db = state.db()?;
         db.get_all_rules()
@@ -252,6 +268,8 @@ pub async fn check_for_updates(
     let total = eligible_apps.len();
     let checked_count = Arc::new(AtomicUsize::new(0));
     let failed_count = Arc::new(AtomicUsize::new(0));
+    // 写包时间戳单点：同轮同 `checked_at`，读侧按行比对过期 decisions 一致。
+    let checked_at = crate::now_secs();
 
     // 发送初始进度通知
     let _ = app_handle.emit(
@@ -268,6 +286,7 @@ pub async fn check_for_updates(
     // 关键体验优化：只要某款应用检测出有新版本，立即通过事件单项推流，实现“检测出一项跳出一项”的流畅反馈。
     // emit 顺序语义：zstore://update-item-found/progress 为无序发射，前端按 app_id 去重/累计，不依赖顺序；
     // zstore://update-check-finished 在 collect 完成后统一发射，保持终态语义。
+    // 持久化行与推流项同源：Ok 即产行（has_update 经 `should_include_update` 判定），Err 不产行（保留旧行）。
     let check_stream = stream::iter(eligible_apps)
         .map(|app| {
             let app_handle = app_handle.clone();
@@ -276,20 +295,37 @@ pub async fn check_for_updates(
             let failed_count = Arc::clone(&failed_count);
             let rule_opt = rules_map.get(&app.app_id).cloned();
             async move {
-                let mut found_item = None;
+                let mut found_item: Option<UpdateItem> = None;
+                let mut write_row: Option<crate::db::UpdateCheckRow> = None;
 
                 match fetch_app_latest_version_lightweight(state_ref, &app.app_id, force_refresh)
                     .await
                 {
                     Ok((latest_version, changelog)) => {
-                        if should_include_update(&app.version, &latest_version, rule_opt.as_ref()) {
-                            let (icon, icon_bg) = if let Some(item) =
-                                state_ref.catalog.get_catalog_item(&app.app_id)
-                            {
-                                (Some(item.icon), Some(item.icon_bg))
-                            } else {
-                                (app.icon.clone(), app.icon_bg.clone())
-                            };
+                        let has_update = should_include_update(
+                            &app.version,
+                            &latest_version,
+                            rule_opt.as_ref(),
+                        );
+                        let (icon, icon_bg) = if let Some(item) =
+                            state_ref.catalog.get_catalog_item(&app.app_id)
+                        {
+                            (Some(item.icon), Some(item.icon_bg))
+                        } else {
+                            (app.icon.clone(), app.icon_bg.clone())
+                        };
+                        write_row = Some(crate::db::UpdateCheckRow {
+                            app_id: app.app_id.clone(),
+                            app_name: app.app_name.clone(),
+                            installed_version: app.version.clone(),
+                            latest_version: latest_version.clone(),
+                            has_update,
+                            changelog: changelog.clone(),
+                            icon: icon.clone(),
+                            icon_bg: icon_bg.clone(),
+                            checked_at,
+                        });
+                        if has_update {
                             let update_item = UpdateItem {
                                 app_id: app.app_id.clone(),
                                 app_name: app.app_name.clone(),
@@ -325,22 +361,42 @@ pub async fn check_for_updates(
                     }),
                 );
 
-                found_item
+                (found_item, write_row)
             }
         })
         .buffer_unordered(6);
 
-    let results: Vec<Option<UpdateItem>> = check_stream.collect().await;
-    let updates: Vec<UpdateItem> = results.into_iter().flatten().collect();
+    let results: Vec<(Option<UpdateItem>, Option<crate::db::UpdateCheckRow>)> =
+        check_stream.collect().await;
+    let mut updates: Vec<UpdateItem> = Vec::new();
+    let mut write_rows: Vec<crate::db::UpdateCheckRow> = Vec::new();
+    for (item, row) in results {
+        if let Some(u) = item {
+            updates.push(u);
+        }
+        if let Some(r) = row {
+            write_rows.push(r);
+        }
+    }
+
+    // 手动刷新落库：同轮判定行批量 upsert + 已卸载剪枝；失败 `let _ =` 吞错下次重试。
+    // 非 force 臂零写（启动/登录只读，保持 DB 快照语义）。
+    if is_force {
+        if let Ok(db) = state.db() {
+            let _ = db.save_update_checks_batch(&write_rows);
+            let _ = db.prune_update_results_not_in(&installed_ids);
+        }
+    }
 
     // 一轮一行：更新检查轮结束 info（new/failures 计数 + 耗时 + sid）。
     log::info!(
-        "update batch check done sid={} total={} updates={} failures={} elapsed_ms={}",
+        "update batch check done sid={} total={} updates={} failures={} elapsed_ms={} persisted={}",
         crate::z_log::new_session_id(),
         total,
         updates.len(),
         failed_count.load(Ordering::SeqCst),
-        check_start.elapsed().as_millis()
+        check_start.elapsed().as_millis(),
+        if is_force { write_rows.len() } else { 0 },
     );
 
     // 发送检查完成事件
@@ -356,6 +412,66 @@ pub async fn check_for_updates(
     notify_watched_updates(&state, &rules_map, force_refresh).await;
 
     Ok(updates)
+}
+
+/// 更新中心列表读（DB-only，无网络）：登录/UpdatesView 首屏直读快照。
+/// - 仅 `has_update=1` 行；逐行与当前已安装版本比对（`installed_version` 不一致视为过期跳过，
+///   覆盖安装/导入未及时失效的缺口）；
+/// - 规则过滤与 `check_for_updates` 同口径（frozen/hidden 跳过，skip 版本跳过，
+///   `should_include_update` 重校验）；
+/// - 幽灵隐藏语义沿用 `get_installed_apps`（未安装/幽灵不行，`stale_passthrough` 不动）。
+#[tauri::command]
+pub fn get_cached_updates(state: State<'_, AppState>) -> crate::AppResult<Vec<UpdateItem>> {
+    let start = std::time::Instant::now();
+    let installed = crate::commands::installer::get_installed_apps(state.clone())?;
+    let installed_map: HashMap<String, String> = installed
+        .into_iter()
+        .map(|a| (a.app_id.clone(), a.version.clone()))
+        .collect();
+    let rules_map: HashMap<String, UpdateRule> = state
+        .db()
+        .map(|db| {
+            db.get_all_rules()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|r| (r.app_id.clone(), r))
+                .collect()
+        })
+        .unwrap_or_default();
+    let rows = state
+        .db()
+        .map(|db| db.get_cached_updates().unwrap_or_default())
+        .unwrap_or_default();
+    let mut out: Vec<UpdateItem> = Vec::with_capacity(rows.len());
+    for mut item in rows {
+        // 已卸载/幽灵不行。
+        let Some(current) = installed_map.get(&item.app_id) else {
+            continue;
+        };
+        // 安装版本变更即过期（安装/导入失效缺口的读侧兜底）。
+        if current.trim() != item.current_version.trim() {
+            continue;
+        }
+        let rule_opt = rules_map.get(&item.app_id);
+        if let Some(r) = rule_opt {
+            if r.is_frozen || r.is_hidden {
+                continue;
+            }
+        }
+        if !should_include_update(current, &item.latest_version, rule_opt) {
+            continue;
+        }
+        // 当前版本以安装表为准（快照可能滞后一个版本写窗口）。
+        item.current_version = current.clone();
+        out.push(item);
+    }
+    log::debug!(
+        "cached updates done rows={} hits={} elapsed_ms={}",
+        installed_map.len(),
+        out.len(),
+        start.elapsed().as_millis()
+    );
+    Ok(out)
 }
 
 /// FR-6.2：遍历被关注应用，若出现较 `last_notified_version` 更新的

@@ -160,11 +160,19 @@ export function useUpdateActions({
     setUpdateCheckProgress({ checked: 0, total: 0, app_id: '', app_name: '' });
     try {
       const freshUpdates = await tauriApi.checkForUpdates(true);
-      setUpdates(freshUpdates);
-      if (freshUpdates.length === 0) {
+      // force 写库后重读 DB 快照（与登录/切签首屏同口径；规则过滤与剪枝已在写侧收敛）。
+      let displayed = freshUpdates;
+      try {
+        const cached = await tauriApi.getCachedUpdates();
+        if (Array.isArray(cached)) displayed = cached;
+      } catch {
+        // 快照缺席时回退网络回包
+      }
+      setUpdates(displayed);
+      if (displayed.length === 0) {
         showToast(t('toast.all_latest'), 'success');
       } else {
-        showToast(t('toast.updates_found', { count: freshUpdates.length }), 'info');
+        showToast(t('toast.updates_found', { count: displayed.length }), 'info');
       }
     } catch (e) {
       showToast(t('toast.check_failed', { error: String(e) }), 'error');

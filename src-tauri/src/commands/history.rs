@@ -1,4 +1,4 @@
-use crate::models::{AppSummary, ImportUserDataResult, WatchedApp};
+use crate::models::{AppSummary, FavoriteEntry, ImportUserDataResult, WatchedApp};
 use crate::AppState;
 use tauri::State;
 
@@ -8,11 +8,40 @@ pub fn get_favorites(state: State<'_, AppState>) -> crate::AppResult<Vec<String>
     Ok(db.get_favorites()?)
 }
 
+/// 收藏条目（含收录标记）：与 `get_favorites` 同序，形状见 `FavoriteEntry`；
+/// `get_favorites` 历史形状（`Vec<String>`）不变。
+#[tauri::command]
+pub fn get_favorite_entries(
+    state: State<'_, AppState>,
+) -> crate::AppResult<Vec<FavoriteEntry>> {
+    let db = state.db()?;
+    Ok(db.get_favorite_entries()?)
+}
+
+/// 收录标记全量回填（启动 + 清单同步完成后）：收藏/关注逐行按内存目录校准，零网络；
+/// 最佳努力，行级失败吞错不阻塞调用方（由下次启动/同步重试）。
+pub(crate) fn backfill_cataloged_flags(state: &AppState) {
+    if let Ok(db) = state.db() {
+        if let Ok(ids) = db.get_favorites() {
+            for id in &ids {
+                let _ = db.set_favorite_cataloged(id, state.catalog.is_cataloged(id));
+            }
+        }
+        if let Ok(watched) = db.get_watched_apps() {
+            for w in &watched {
+                let _ =
+                    db.set_watched_cataloged(&w.app_id, state.catalog.is_cataloged(&w.app_id));
+            }
+        }
+    }
+}
+
 #[tauri::command]
 pub fn toggle_favorite(state: State<'_, AppState>, app_id: String) -> crate::AppResult<bool> {
     let app_id = super::require_app_id(&app_id)?;
+    let flag = state.catalog.is_cataloged(&app_id);
     let db = state.db()?;
-    Ok(db.toggle_favorite(&app_id)?)
+    Ok(db.toggle_favorite(&app_id, flag)?)
 }
 
 #[tauri::command]
@@ -215,8 +244,9 @@ pub fn clear_view_history(state: State<'_, AppState>) -> crate::AppResult<()> {
 #[tauri::command]
 pub fn watch_app(state: State<'_, AppState>, app_id: String) -> crate::AppResult<bool> {
     let id = super::require_app_id(&app_id)?;
+    let flag = state.catalog.is_cataloged(&id);
     let db = state.db()?;
-    Ok(db.watch_app(&id)?)
+    Ok(db.watch_app(&id, flag)?)
 }
 
 #[tauri::command]
@@ -248,16 +278,18 @@ pub fn import_user_data(
     let mut watched_added = 0usize;
     let mut settings_applied = 0usize;
 
-    // 收藏/关注与安装态正交：同机恢复也必须合入。
+    // 收藏/关注与安装态正交：同机恢复也必须合入；收录标记写时按目录判定一次。
     for id in &plan.favorites {
         let id = super::require_app_id(id)?;
-        if db.add_favorite(&id).map_err(|e| e.to_string())? {
+        let flag = state.catalog.is_cataloged(&id);
+        if db.add_favorite(&id, flag).map_err(|e| e.to_string())? {
             favorites_added += 1;
         }
     }
     for id in &plan.watched {
         let id = super::require_app_id(id)?;
-        if db.watch_app(&id).map_err(|e| e.to_string())? {
+        let flag = state.catalog.is_cataloged(&id);
+        if db.watch_app(&id, flag).map_err(|e| e.to_string())? {
             watched_added += 1;
         }
     }
@@ -318,14 +350,14 @@ mod import_restore_tests {
         let mut favorites_added = 0usize;
         for id in &plan.favorites {
             let id = crate::forge::canonical_app_id(id).expect("合法标识应当归一化成功");
-            if db.add_favorite(&id).unwrap() {
+            if db.add_favorite(&id, true).unwrap() {
                 favorites_added += 1;
             }
         }
         let mut watched_added = 0usize;
         for id in &plan.watched {
             let id = crate::forge::canonical_app_id(id).expect("合法标识应当归一化成功");
-            if db.watch_app(&id).unwrap() {
+            if db.watch_app(&id, true).unwrap() {
                 watched_added += 1;
             }
         }

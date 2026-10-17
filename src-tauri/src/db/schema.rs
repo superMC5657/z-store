@@ -39,7 +39,8 @@ impl Database {
 
             CREATE TABLE IF NOT EXISTS user_favorites (
                 app_id TEXT PRIMARY KEY,
-                favorited_at INTEGER NOT NULL
+                favorited_at INTEGER NOT NULL,
+                is_cataloged INTEGER NOT NULL DEFAULT 1
             );
 
             CREATE TABLE IF NOT EXISTS update_rules (
@@ -79,7 +80,8 @@ impl Database {
                 app_id TEXT PRIMARY KEY,
                 added_at INTEGER NOT NULL,
                 last_notified_version TEXT,
-                last_notified_at INTEGER
+                last_notified_at INTEGER,
+                is_cataloged INTEGER NOT NULL DEFAULT 1
             );
 
             -- GitHub Star 列表本地持久化记录
@@ -173,8 +175,52 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_custom_apps_archived ON custom_apps(archived);
 
             CREATE INDEX IF NOT EXISTS idx_custom_apps_status ON custom_apps(status);
+
+            -- 更新中心持久化（update-results cache）：一次手动刷新对每个已安装应用的判定快照。
+            -- has_update=1 行即 UpdatesView 列表；installed_version 供读取时与当前安装版本比对过期；
+            -- changelog/icon/icon_bg 透存远端回包，get_cached_updates 零网络直显。
+            CREATE TABLE IF NOT EXISTS update_results (
+                app_id TEXT PRIMARY KEY,
+                app_name TEXT NOT NULL,
+                installed_version TEXT NOT NULL,
+                latest_version TEXT NOT NULL,
+                has_update INTEGER NOT NULL DEFAULT 0,
+                changelog TEXT NOT NULL DEFAULT '',
+                icon TEXT NOT NULL DEFAULT '',
+                icon_bg TEXT NOT NULL DEFAULT '',
+                checked_at INTEGER NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_update_results_has_update ON update_results(has_update);
             "#,
         )?;
+        // 收录标记列迁移（幂等）：存量库缺列时 `ADD COLUMN` 补齐（默认 1，启动回填再按目录校准）。
+        // 本库无版本号机制，沿用 `IF NOT EXISTS` 幂等风格：列存在即跳过。
+        self.ensure_column(
+            "user_favorites",
+            "is_cataloged",
+            "ALTER TABLE user_favorites ADD COLUMN is_cataloged INTEGER NOT NULL DEFAULT 1",
+        )?;
+        self.ensure_column(
+            "watched_apps",
+            "is_cataloged",
+            "ALTER TABLE watched_apps ADD COLUMN is_cataloged INTEGER NOT NULL DEFAULT 1",
+        )?;
+        Ok(())
+    }
+
+    /// 轻量列迁移：缺列时执行 `ADD COLUMN`，列存在即跳过。
+    /// `table`/`column`/`ddl` 均为内部常量，不拼接外部输入。
+    fn ensure_column(&self, table: &str, column: &str, ddl: &str) -> Result<()> {
+        let exists: bool = self
+            .query_scalar_opt(
+                "SELECT 1 FROM pragma_table_info(?1) WHERE name = ?2",
+                rusqlite::params![table, column],
+            )?
+            .unwrap_or(false);
+        if !exists {
+            self.conn.execute(ddl, [])?;
+        }
         Ok(())
     }
 }

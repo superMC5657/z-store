@@ -479,7 +479,8 @@
     "starred_zero_desc": "This account does not have any public starred repositories on GitHub.",
     "starred_no_match_desc": "None of your {{total}} starred open source projects match apps cataloged in ZStore. You can search owner/repo directly from the top search bar to install.",
     "not_synced_title": "Starred Repositories Not Yet Synced",
-    "not_synced_desc": "Enter a GitHub username above and click 'Sync Now' to import your GitHub open-source software collection."
+    "not_synced_desc": "Enter a GitHub username above and click 'Sync Now' to import your GitHub open-source software collection.",
+    "load_detail": "Load details"
   },
   "rules": {
     "title": "Version Policies & Ignore Rules ({{count}})",

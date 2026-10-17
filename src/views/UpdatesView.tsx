@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { marked } from 'marked';
@@ -22,6 +22,7 @@ import { EmptyState } from '../components/EmptyState';
 import { ViewShell } from './ViewShell';
 import { resolveAppIconInfo } from '../utils/appHelper';
 import { queueAssembledRowIcons } from '../services/iconStore';
+import { MANUAL_ONLY_NETWORK } from '../lib/manualOnly';
 
 interface UpdatesViewProps {
   updates: UpdateItem[];
@@ -41,6 +42,9 @@ interface UpdatesViewProps {
   watchNotifications?: WatchUpdatedPayload[];
   onOpenWatchedApp?: (id: string) => void;
   onDismissWatch?: (appId: string) => void;
+  // 切签进入更新中心即读一次 DB 快照（父层经 tauriApi.getCachedUpdates 供给，零网络；
+  // 缺席即空列表，等手动 Refresh；网络仅经检查更新按钮）。
+  onEnterUpdatesTab?: () => void;
 }
 
 export const UpdatesView: React.FC<UpdatesViewProps> = ({
@@ -60,6 +64,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
   watchNotifications,
   onOpenWatchedApp,
   onDismissWatch,
+  onEnterUpdatesTab,
 }) => {
   const { t } = useTranslation();
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -73,8 +78,18 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
   const resolveIconInfo = (appId: string, iconOverride?: string, iconBgOverride?: string) =>
     resolveAppIconInfo(appId, apps, iconOverride, iconBgOverride);
 
+  // 切签挂载（App 条件渲染，进 tab 即挂载）读一次 DB 快照；此处不触发任何网络检查。
+  const onEnterRef = useRef(onEnterUpdatesTab);
+  onEnterRef.current = onEnterUpdatesTab;
+  useEffect(() => {
+    onEnterRef.current?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 更新列表图标不自动入队落盘（就地 URL/首字母展示）。
   // 组装落盘补齐：更新列表 + 关注动态展示图标（自身覆盖优先、收录库回退）http 远端入队进盘（前 30 上限，`data:`/空跳过）。
   useEffect(() => {
+    if (MANUAL_ONLY_NETWORK) return;
     if (updates.length === 0 && (!watchNotifications || watchNotifications.length === 0)) return;
     const catalogById = new Map(apps.map((a) => [a.id.toLowerCase(), a]));
     if (updates.length > 0) {

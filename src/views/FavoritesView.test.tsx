@@ -7,6 +7,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import i18n from '../i18n';
 import { FavoritesView } from './FavoritesView';
 import { AppCard } from '../components/AppCard';
 import { tauriApi } from '../services/api';
@@ -144,6 +145,22 @@ describe('rows kept and counts from full sets', () => {
     expect(screen.getByText('本地收藏 (3)')).not.toBeNull();
   });
 
+  it('缓存回填的富卡行按真实信息渲染（同形 AppSummary 直显 + 未收录徽标）', () => {
+    const rich = {
+      ...makeApp({ id: 'owner/app-rich', name: 'RichApp', description: 'rich desc', stars: 4242 }),
+      is_cataloged: false,
+    };
+    const { container } = render(
+      <FavoritesView
+        apps={[rich]}
+        favoriteIds={new Set(['owner/app-rich'])}
+        {...baseLocal}
+      />,
+    );
+    expect(container.textContent).toContain('RichApp');
+    expect(container.querySelector('.app-tag-uncataloged')?.textContent).toContain('未收录');
+  });
+
   it('取消收藏即行消失（缺席 id 不成行）', () => {
     const cataloged = makeApp({ id: 'owner/app-a', name: 'AppA', category: 'system', platforms: ['windows'] });
     const { container } = render(
@@ -151,5 +168,37 @@ describe('rows kept and counts from full sets', () => {
     );
     expect(container.textContent).toContain('AppA');
     expect(screen.getByText('本地收藏 (1)')).not.toBeNull();
+  });
+
+  it('占位行渲染行内加载按钮并透传 id；富卡行无按钮', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const placeholder = makeFavoritePlaceholderSummary('Unknown/App');
+    const rich = makeApp({ id: 'owner/app-a', name: 'AppA' });
+    const onLoadUncatalogedDetail = vi.fn(async () => {});
+    const { container } = render(
+      <FavoritesView
+        apps={[placeholder, rich]}
+        favoriteIds={new Set(['Unknown/App', 'owner/app-a'])}
+        onLoadUncatalogedDetail={onLoadUncatalogedDetail}
+        {...baseLocal}
+      />,
+    );
+    const buttons = container.querySelectorAll('[data-testid^="load-detail-"]');
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].textContent).toContain('加载详情');
+    fireEvent.click(buttons[0]);
+    expect(onLoadUncatalogedDetail).toHaveBeenCalledWith('Unknown/App');
+  });
+
+  it('未传 onLoadUncatalogedDetail 时占位行无加载按钮', () => {
+    const placeholder = makeFavoritePlaceholderSummary('Unknown/App');
+    const { container } = render(
+      <FavoritesView
+        apps={[placeholder]}
+        favoriteIds={new Set(['Unknown/App'])}
+        {...baseLocal}
+      />,
+    );
+    expect(container.querySelectorAll('[data-testid^="load-detail-"]')).toHaveLength(0);
   });
 });

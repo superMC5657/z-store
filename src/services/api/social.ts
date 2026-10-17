@@ -1,6 +1,7 @@
 import { listen } from '@tauri-apps/api/event';
 import type {
   DeveloperProfile,
+  FavoriteEntry,
   HostRateLimitStatus,
   HostTokenEntry,
   OAuthDeviceStartResult,
@@ -9,6 +10,7 @@ import type {
   QuotaUpdatePayload,
   StarAppResult,
   StarredSyncResult,
+  WatchedAppEntry,
   WatchUpdatedPayload,
 } from '../../types';
 import { CMD } from '../api';
@@ -16,6 +18,13 @@ import { isTauri, tauriInvoke } from './client';
 
 export async function getFavorites(): Promise<string[]> {
   return tauriInvoke<string[]>(CMD.getFavorites);
+}
+
+// 收藏记录（含收录标记）：徽标/富卡标记以记录为准；后端缺席时调用方以空数组计。
+export async function getFavoriteEntries(): Promise<FavoriteEntry[]> {
+  const rows = await tauriInvoke<FavoriteEntry[]>(CMD.getFavoriteEntries);
+  if (!Array.isArray(rows)) return [];
+  return rows.filter((r) => r && typeof r.app_id === 'string' && r.app_id.trim() !== '');
 }
 
 export async function toggleFavorite(appId: string): Promise<boolean> {
@@ -59,9 +68,25 @@ export async function testHostConnection(host: string, token?: string): Promise<
   return tauriInvoke<HostRateLimitStatus>(CMD.testHostConnection, { host, token });
 }
 
-export async function getWatchedApps(): Promise<string[]> {
-  const rows = await tauriInvoke<Array<{ app_id: string }>>(CMD.getWatchedApps);
-  return rows.map((r) => r.app_id);
+export async function getWatchedApps(): Promise<WatchedAppEntry[]> {
+  const rows = await tauriInvoke<Array<{ app_id?: unknown; is_cataloged?: unknown } | string>>(
+    CMD.getWatchedApps,
+  );
+  if (!Array.isArray(rows)) return [];
+  const out: WatchedAppEntry[] = [];
+  for (const r of rows) {
+    const appId = typeof r === 'string' ? r : r?.app_id;
+    if (typeof appId !== 'string' || appId.trim() === '') continue;
+    out.push({
+      app_id: appId,
+      // 旧快照缺字段时默认已收录（与历史渲染一致）。
+      is_cataloged:
+        typeof r === 'object' && r !== null && typeof r.is_cataloged === 'boolean'
+          ? r.is_cataloged
+          : true,
+    });
+  }
+  return out;
 }
 
 export async function watchApp(appId: string): Promise<boolean> {

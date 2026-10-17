@@ -376,12 +376,19 @@ export function snapshotTrendEnrichCache(repos?: TrendRepo[]): Record<string, Ap
  * 单次批量：最多 40 仓一次取回（BE take(40)+buffered(5) 保序不变）；
  * 超 40 的仓留占位（out 缺席，调用方保留旧小行），榜单永不置空；失败整批缺席。
  *
+ * forceRefresh（趋势刷新链显式传入）：跳过 12h 内存命中，整批直取并透传
+ * 后端 `force_refresh`（网络 + 流式）；缺席即后端 DB-only（读 enrich 缓存）。
+ *
  * per-field 新鲜度（本函数读路径）：
  * - icon 粘性 supersede-only：永不过期，只被非空新图标替换（resolveIconWithBuffer，put 与 out 同语义）；
  * - summary/desc 12h：到期重拉，但旧条目保留供图标合并（快照/sweep 仍视其过期）；
  * - platforms：loading 永不覆盖具平台值，具平台到达即覆盖治愈（详情治愈回填唯一写口）。
  */
-export async function enrichTrendRepos(repos: TrendRepo[]): Promise<Map<string, AppSummary>> {
+export async function enrichTrendRepos(
+  repos: TrendRepo[],
+  opts?: { forceRefresh?: boolean },
+): Promise<Map<string, AppSummary>> {
+  const force = opts?.forceRefresh === true;
   const out = new Map<string, AppSummary>();
   const missing: TrendRepo[] = [];
   const seen = new Set<string>();
@@ -390,6 +397,11 @@ export async function enrichTrendRepos(repos: TrendRepo[]): Promise<Map<string, 
     const key = trendEnrichKey(r.owner, r.repo);
     if (seen.has(key)) continue;
     seen.add(key);
+    if (force) {
+      // 刷新链：内存命中同样重拉（落定后写透刷新时间戳）。
+      missing.push(r);
+      continue;
+    }
     const hit = trendEnrichCache.get(key);
     if (hit) {
       if (!hasConcretePlatforms(hit.data.platforms)) {
@@ -431,6 +443,7 @@ export async function enrichTrendRepos(repos: TrendRepo[]): Promise<Map<string, 
   try {
     summaries = await tauriApi.enrichTrendRepos(
       capped.map((r) => ({ owner: r.owner, repo: r.repo })),
+      force,
     );
   } catch {
     return out;

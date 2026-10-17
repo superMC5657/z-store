@@ -63,6 +63,11 @@ impl CatalogService {
             .and_then(|items| items.iter().find(|i| i.id == key).cloned())
     }
 
+    /// 收录成员判定唯一口（写时标记/启动回填/图标分流共用）：内存目录精确匹配，零网络。
+    pub fn is_cataloged(&self, id: &str) -> bool {
+        self.get_catalog_item(id).is_some()
+    }
+
     pub fn update_items(&self, new_items: Vec<CatalogItem>) {
         if let Ok(mut lock) = self.items.write() {
             *lock = new_items;

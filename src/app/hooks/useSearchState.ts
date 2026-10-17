@@ -14,7 +14,7 @@ export interface UseSearchStateParams {
   currentView: ViewType;
   setCurrentView: (view: ViewType) => void;
   setApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
-  lazyBackfillPlatforms: (summaries: AppSummary[], seq: number) => void;
+  lazyBackfillPlatforms: (summaries: AppSummary[], seq: number, forceRefresh?: boolean) => void;
   showToast: (msg: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
   t: TFunction;
 }
@@ -242,7 +242,7 @@ export function useSearchState({
         const cachedHasMore = listCached.length >= ONLINE_SEARCH_PER_PAGE;
         setOnlineHasMore(cachedHasMore);
         onlineHasMoreRef.current = cachedHasMore;
-        lazyBackfillPlatforms(listCached, seq);
+        lazyBackfillPlatforms(listCached, seq, true);
       }
     }
     {
@@ -252,7 +252,7 @@ export function useSearchState({
       // 首个回声到达即立期望（下行回声见下，直播首事件见 App 侧），之后异 sid 才丢。
       currentSearchIdRef.current = '';
       try {
-        const pageRes = await tauriApi.searchAppsOnline(q, searchId, 1, ONLINE_SEARCH_PER_PAGE);
+        const pageRes = await tauriApi.searchAppsOnline(q, searchId, 1, ONLINE_SEARCH_PER_PAGE, true);
         if (guardFreshSearch(seq)) return;
         const onlineResults = pageRes.rows;
         // 以后端回声为唯一真源。
@@ -262,7 +262,7 @@ export function useSearchState({
           // 同词在线集去重 + 图标回填。
           const deduped = assembleOnlineRowsWithIcons(onlineAppsRef.current ?? [], onlineResults);
           setOnlineApps(deduped);
-          lazyBackfillPlatforms(onlineResults, seq);
+          lazyBackfillPlatforms(onlineResults, seq, true);
           setIsOnlineResultSet(true);
           isOnlineResultSetRef.current = true;
           setOnlinePage(1);
@@ -339,7 +339,7 @@ export function useSearchState({
         }
         return toAppend.length > 0 ? [...prev, ...toAppend] : prev;
       });
-      lazyBackfillPlatforms(cachedMore, seq);
+      lazyBackfillPlatforms(cachedMore, seq, true);
       const cachedHasMore = cachedMore.length >= ONLINE_SEARCH_PER_PAGE;
       setOnlinePage(nextPage);
       onlinePageRef.current = nextPage;
@@ -355,6 +355,7 @@ export function useSearchState({
         currentSearchIdRef.current || undefined,
         nextPage,
         ONLINE_SEARCH_PER_PAGE,
+        true,
       );
       if (!settleMoreEcho(currentSearchIdRef, seq, searchSeqRef.current, moreRes.sid || '')) return;
       const more = moreRes.rows;
@@ -374,7 +375,7 @@ export function useSearchState({
           }
           return fresh.length > 0 ? [...prev, ...fresh] : prev;
         });
-        lazyBackfillPlatforms(more, seq);
+        lazyBackfillPlatforms(more, seq, true);
         const hasMore = more.length >= ONLINE_SEARCH_PER_PAGE;
         setOnlinePage(nextPage);
         onlinePageRef.current = nextPage;

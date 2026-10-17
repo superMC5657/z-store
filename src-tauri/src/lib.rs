@@ -466,6 +466,9 @@ pub fn run() {
         github_token: Mutex::new(saved_token.clone()),
         http,
     };
+    // 收藏/关注收录标记回填：存量行按内存目录一次性校准（目录构造时已同步加载，零网络）；
+    // 最佳努力，不阻塞启动（行级吞错，由下次启动/同步/写入重试）。
+    crate::commands::backfill_cataloged_flags(&state);
 
     let db_for_worker = Arc::clone(&db_arc);
     let db_for_auth = Arc::clone(&db_arc);
@@ -556,6 +559,7 @@ pub fn run() {
             commands::get_category_apps,
             commands::get_app_details,
             commands::get_platforms_lite,
+            commands::get_cached_app_details_batch,
             commands::get_readme_variants,
             commands::fetch_or_cache_asset_url,
             commands::get_asset_cache_stats,
@@ -570,11 +574,13 @@ pub fn run() {
             commands::uninstall_app,
             commands::unmanage_app,
             commands::check_for_updates,
+            commands::get_cached_updates,
             commands::get_mirror_status,
             commands::switch_mirror,
             commands::get_settings,
             commands::save_setting,
             commands::get_favorites,
+            commands::get_favorite_entries,
             commands::toggle_favorite,
             commands::test_proxy,
             commands::fetch_trends_text,

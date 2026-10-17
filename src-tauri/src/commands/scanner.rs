@@ -86,6 +86,8 @@ pub fn import_matched_apps(
 
         if db.save_installed_app(&installed).is_ok() {
             imported_count += 1;
+            // 系统导入/版本变更失效：导入版本即当前，旧判定行过期 best-effort 清理。
+            let _ = db.remove_update_result(&installed.app_id);
         }
     }
 
