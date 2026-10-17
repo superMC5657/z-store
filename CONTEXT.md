@@ -44,9 +44,9 @@
 | **统一图标获取** | `IconFetch` | 后端统一图标补探核心（`github/icon_fetch.rs:fetch_icons_stream`），搜索与趋势后台均已接入流式补齐；仅负责探测与调度，不触 DB。 | 图标管道、补图核心 |
 | **图标就绪事件** | `icon-ready` | 后端逐张发射的统一事件 `zstore://icon-ready{id,icon,level,via,context}`（`id` 即小写 `owner/repo`，与 DB 主键同源）；前端统一由 `iconStore.applyHit` 收口。 | 图标推送、icon 事件 |
 | **搜索列表缓存** | `Search List Cache` | 搜索页纯前端内存搜缓存（搜缓存=搜索 L1，`services/search/searchListCache.ts`），key=`search\|归一query\|page\|perPage`，TTL 30min、空不存、上限 50 条 FIFO；不碰榜缓存二级落盘与趋势榜缓存。 | 搜索缓存、结果缓存 |
-| **榜就绪门信号** | `boardReady` | 趋势视图内部态：`useTrendBoard` 内 hydrate 就绪门信号（`useTrendBoard.ts:79` 定义，L1/L2/网络三路径统一 emit 后置位，见 `setBoardReady`），仅供富卡升级判定、不阻塞裸行直展；对应 ADR-0014 榜 L2 落盘语义。 | 就绪态、加载完成 |
-| **SWR 同步快照** | `swrSyncedResult` | 趋势视图内部态：当前榜单 SWR 合并完成快照判定（定义 `services/trends/board.ts:1056`，消费 `TrendsView.tsx:323`），快照与 hydrate 一致即原地升级富卡、不拦裸行。 | 同步结果、合并态 |
-| **升级待定判定** | `isUpgradePending` | 趋势视图内部态：富卡升级待定判定（定义 `services/trends/board.ts:1073`，真实消费点 `TrendsView.tsx:324`），enrich 富卡升级路径经 `isUpgradePending(boardReady, swrSynced) && !isEnrichUpgradeAllowed(boardReady)` 门控，未就绪即延迟到 boardReady 置位后重入；仅门控升级、不阻塞裸行直展；内部视图态，非用户-facing。 | 待升级、pending 态 |
+| **榜就绪门信号** | `boardReady` | 趋势视图内部态：`useTrendBoard` 内 hydrate 就绪门信号（`useTrendBoard.ts:101` 定义，L1/L2/网络三路径统一 emit 后置位，见 `setBoardReady`），仅供富卡升级判定、不阻塞裸行直展；对应 ADR-0014 榜 L2 落盘语义。 | 就绪态、加载完成 |
+| **SWR 同步快照** | `swrSyncedResult` | 趋势视图内部态：当前榜单 SWR 合并完成快照判定（定义 `services/trends/board.ts:1158`，消费 `TrendsView.tsx:438`），快照与 hydrate 一致即原地升级富卡、不拦裸行。 | 同步结果、合并态 |
+| **升级待定判定** | `isUpgradePending` | 趋势视图内部态：富卡升级待定判定（定义 `services/trends/board.ts:1175`，真实消费点 `TrendsView.tsx:439`），enrich 富卡升级路径经 `isUpgradePending(boardReady, swrSynced) && !isEnrichUpgradeAllowed(boardReady)` 门控，未就绪即延迟到 boardReady 置位后重入；仅门控升级、不阻塞裸行直展；内部视图态，非用户-facing。 | 待升级、pending 态 |
 | **绘制同步回归线** | `paint-sync` | 测试专用 lane 名，非用户-facing 概念：驱逐写透/裸行直展回归（内存与盘所见即所得，见 `paint-sync.test.ts:2`、`TrendsView.paintSync.test.tsx:2`），仅测试命名。 | 首屏测试、渲染同步 |
 | **待收录草稿** | `Draft` | 暂存于本地 `custom_apps` 表、尚未提交至独立生态清单仓库的收录候选条目（`status=draft`），经暂存校验（canonical 身份对齐）后参与合并目录视图，提交时才强制全字段校验。 | 草稿箱、未提交应用 |
 | **自维护** | `Maintained` | 用户在本地自维护的收录条目（`custom_apps` 未归档行），经 overlay 合并进入目录视图并以 `source=custom` 标识，远端命中后自动转正归档。 | 本地条目、自定义应用 |
@@ -79,13 +79,13 @@
    - API 与图标下载使用物理隔离的复用单例 Client，均配置 connect_timeout 5s、keepalive 60s、pool 20/idle 90s；图标 CDN 通道恒丢 token，绝不携带认证头。
 6. **D6 有限并发 (Bounded Concurrency)**:
    - 明星榜 `buffered(4)`、更新检查 `buffer_unordered(6)`（主路径与关注通知两处，见 `updates_check.rs:331,455`），首命中即停并按原顺序回填结果；SimpleIcons 快路径逐 slug 验图 `buffered(3)`（见 `github/icon_probe.rs:524`）。
-    - 统一图标补探 `IconFetch` 有界池 `pool=5`（见 `config.rs:97-102 IconFetchConfig`）：搜索与趋势后台均经该核心逐张 `emit` 流式补齐；趋势 enrich 侧 `buffered(5)` 等齐（详见 ADR-0015）。
+    - 统一图标补探 `IconFetch` 有界池 `pool=5` 无序并发（`buffer_unordered(pool)`，见 `github/icon_fetch.rs:295`；配置见 `config.rs:97-102 IconFetchConfig`）：搜索与趋势后台均经该核心逐张 `emit` 流式补齐；趋势 enrich 批量直查侧 `buffered(5)` 保序等齐（见 `commands/catalog_search.rs:593,632`，详见 ADR-0015）。
 7. **D7 有限重试 (Limited Retry)**:
    - 仅 GET 可重试，仅覆盖传输错误与 429/5xx，最多重试 2 次并按 200ms→800ms 退避；401/404/304 永不重试。
 8. **D8 首包验图与跳过 (First-Bytes Verify & Skip)**:
    - 图标先 HEAD 判类型长度，再 Range 取前 32KB 验 magic，失败回退全量 GET，并以 300B 最小阈值卡掉 LFS 指针文件；下载前 SHA-256 命中即零网络跳过，ETag 收敛至统一 helper，force 模式跳过 DB 读取。
 9. **D9 趋势与首页 (Trending & Home)**:
-   - 趋势复用共享 Client（见 `src-tauri/src/lib.rs:86-100`），经 tokio 10s 超时并截断 2MB 防爆内存；榜缓存一级内存分档（榜 L1，daily 1h/weekly-monthly-new 12h/其余 5min）+ 榜缓存二级落盘双档（榜 L2，daily 1h/其余 12h，见 `src/services/trends/cache.ts:19-21`；有效 TTL 扣抖动，见 `src/services/trends/cache.ts:42-59`）；内存 200 有界（见 `src/services/trends/cache.ts:31`）、切榜 sweep 无 timer；写盘 FE 256KB 预检、超限逐级裁剪（见 `src/services/trends/cache.ts:33,322`）、BE 512KiB 硬拒绝（见 `src-tauri/src/db/cache.rs:215,249`）；enrich 单次批量 40 上限（整批失败即整批缺席，不抛错，缺席留占位，避免第二片顶掉第一片慢尾）；429 透传 `retry_after_ms` 单次重试（上限 60s 缺省 5s，见 `src/services/trends/cache.ts:23-25`；详见 ADR-0014）；趋势 enrich 后台流式补探（首屏快返 + `fetch_icons_stream(Trend)` 逐张 emit，见 `src-tauri/src/commands/catalog_search.rs:649`），enrich 合并侧 `buffered(5)` 等齐（见 `src-tauri/src/commands/catalog_search.rs:561`）。首页固定 balanced 排序与 seed 7（见 `src/views/HomeView/useHomeFeed.ts:69-70`），不提供策略切换工具条。
+   - 趋势复用共享 Client（见 `src-tauri/src/lib.rs:86-100`），经 tokio 10s 超时并截断 2MB 防爆内存；榜缓存一级内存分档（榜 L1，daily 1h/weekly-monthly-new 12h/其余 5min）+ 榜缓存二级落盘双档（榜 L2，daily 1h/其余 12h，见 `src/services/trends/cache.ts:19-21`；有效 TTL 扣抖动，见 `src/services/trends/cache.ts:42-59`）；内存 200 有界（见 `src/services/trends/cache.ts:31`）、切榜 sweep 无 timer；写盘 FE 256KB 预检、超限逐级裁剪（见 `src/services/trends/cache.ts:33,322`）、BE 512KiB 硬拒绝（见 `src-tauri/src/db/cache.rs:215,249`）；enrich 单次批量 40 上限（整批失败即整批缺席，不抛错，缺席留占位，避免第二片顶掉第一片慢尾）；429 透传 `retry_after_ms` 单次重试（上限 60s 缺省 5s，见 `src/services/trends/cache.ts:23-25`；详见 ADR-0014）；趋势 enrich 后台流式补探（首屏快返 + `fetch_icons_stream(Trend)` 逐张 emit，见 `src-tauri/src/commands/catalog_search.rs:729`），enrich 批量直查侧 `buffered(5)` 保序等齐（见 `src-tauri/src/commands/catalog_search.rs:593,632`）。首页固定 balanced 排序与 seed 7（见 `src/views/HomeView/useHomeFeed.ts:69-70`），不提供策略切换工具条。
 10. **D10 统一图标获取 (Unified Icon Fetch)**:
     - 后端统一核心为 `src-tauri/src/github/icon_fetch.rs:229 fetch_icons_stream`，搜索与趋势后台均接入该核心逐张补齐。
     - 前端图标写入口唯一收口于 `src/services/iconStore.ts:703 applyHit`。
@@ -94,4 +94,4 @@
     - 详情仍走最强探测（动态分支 + 图标 L4=README，需网络；L3仅默认分支，详情失败用HEAD，README默认+HEAD），不受统一核心约束。
     - level纯L(1=L1官方,2=L2品牌库,3=L3仓库,4=L4 README)；缓存只用M(M1=前端内存，M2=DB落盘)，
       经 `via`=live|m2 正交表达（core探测一律live，DB回填走m2不占level）；level:4=L4。
-    - 榜就绪门 `boardReady` 见 `src/views/TrendsView/useTrendBoard.ts:79`，SWR 快照 `swrSyncedResult` / 判定 `isUpgradePending` 定义见 `src/services/trends/board.ts:1056,1073`、消费见 `src/views/TrendsView.tsx:323-324`（仅门控富卡升级，不阻塞裸行直展）。
+    - 榜就绪门 `boardReady` 见 `src/views/TrendsView/useTrendBoard.ts:101`，SWR 快照 `swrSyncedResult` / 判定 `isUpgradePending` 定义见 `src/services/trends/board.ts:1158,1175`、消费见 `src/views/TrendsView.tsx:438-439`（仅门控富卡升级，不阻塞裸行直展）。

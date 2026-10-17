@@ -29,7 +29,7 @@
 
 ## 5. 两级字节上限 + dataURI 禁入
 
-- FE `TREND_DB_PAYLOAD_MAX_BYTES=256KB` 预检：信封超限降级裸榜，仍超限放弃写盘；BE `TREND_BOARD_CACHE_MAX_BYTES=512KiB` 硬拒绝（`trend_board_payload_too_large`，不落库）保持。
+- FE `TREND_DB_PAYLOAD_MAX_BYTES=256KB` 预检：信封超限逐级裁剪（丢 confirmed → 长文本截 500 字 → 丢 loading 空平台条），仍超限放弃写盘；BE `TREND_BOARD_CACHE_MAX_BYTES=512KiB` 硬拒绝（`trend_board_payload_too_large`，不落库）保持。
 - `data:`/空平台永不进 `payload_json`（写盘消毒 + hydrate/snapshot 守卫 + 读盘逐项守卫）。
 
 ## 6. 分片 40
