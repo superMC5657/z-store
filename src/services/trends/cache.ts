@@ -1,6 +1,7 @@
 import type { AppSummary, FetchTrendsOptions, TrendBoardId, TrendRepo } from '../../types';
 import { isTauri, tauriInvoke } from '../api/client';
 import { normalizeId, normalizeIdSet } from '../normalizeId';
+import { zlogWarn } from '../../lib/z-log';
 import {
   clearTrendEnrichCache,
   markConfirmedOthersFreshNow,
@@ -343,7 +344,10 @@ export async function saveDbTrendCache(
             if (Array.isArray(s.platforms) && s.platforms.length > 0) concrete[k] = s;
           }
           payloadJson = JSON.stringify({ v: 1, repos, enrich: concrete } as TrendCacheEnvelopeV1);
-          if (utf8ByteLength(payloadJson) > TREND_DB_PAYLOAD_MAX_BYTES) return;
+          if (utf8ByteLength(payloadJson) > TREND_DB_PAYLOAD_MAX_BYTES) {
+            zlogWarn(`[trends] persist skipped reason=payload-too-large key=${key} bytes=${utf8ByteLength(payloadJson)}`);
+            return;
+          }
         }
       }
     }
@@ -353,8 +357,9 @@ export async function saveDbTrendCache(
       board,
       payload_json: payloadJson,
     });
-  } catch {
-    // 降级吞错，不影响主流程
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    zlogWarn(`[trends] persist save failed key=${key} reason=${reason.slice(0, 160)}`);
   }
 }
 

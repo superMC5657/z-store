@@ -74,7 +74,7 @@ import {
   type LoadingLiteTarget,
   type SeqGuard,
 } from '../../lib/platformFilter';
-import { zlogInfo } from '../../lib/z-log';
+import { zlogInfo, zlogWarn } from '../../lib/z-log';
 import {
   ASSEMBLED_ROW_ICON_QUEUE_CAP,
   admitIconHit,
@@ -166,8 +166,15 @@ export function flushBoardPersist(): void {
   for (const timer of boardPersistTimers.values()) clearTimeout(timer);
   boardPersistTimers.clear();
   const { cacheKey, cacheBoard, repos } = boardPersistRef;
-  if (!cacheKey || repos.length === 0) return;
-  if (Object.keys(snapshotTrendEnrichCache(repos)).length === 0) return;
+  if (!cacheKey || repos.length === 0) {
+    zlogWarn(`[trends] persist skipped reason=no-key-or-empty-repos hasKey=${cacheKey !== ''} repos=${repos.length}`);
+    return;
+  }
+  const snapSize = Object.keys(snapshotTrendEnrichCache(repos)).length;
+  if (snapSize === 0) {
+    zlogWarn(`[trends] persist skipped reason=empty-enrich-snapshot repos=${repos.length}`);
+    return;
+  }
   void saveBoardCacheMerged(cacheKey, cacheBoard, repos);
 }
 
