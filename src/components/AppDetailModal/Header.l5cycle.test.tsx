@@ -157,3 +157,36 @@ describe('Header L5 cycle goes through the sole write', () => {
     });
   });
 });
+
+describe('Header fail-closed：dev 猜分类 + iconCycle null 仍未收录可切图', () => {
+  it("category 'dev' + iconCycle null + is_cataloged=false ⇒ 未收录徽标 + 切图按钮可用", async () => {
+    const { isAppCataloged } = await import('../../utils/appHelper');
+    const app = {
+      ...fixtureApp(),
+      category: 'dev',
+      category_name: '开发工具',
+      is_cataloged: false,
+    };
+    // 未收录徽标口径：显式 false 即未收录（dev 猜分类不再误判已收录）。
+    expect(isAppCataloged(app)).toBe(false);
+    render(
+      <Header
+        app={app}
+        displayName="L5 Fixture"
+        displayDesc="l5 cycle fixture"
+        displayCategory="开发工具"
+        platformLoading={false}
+        onClose={() => {}}
+      />,
+    );
+    // MANUAL_ONLY 下 iconCycle 恒 null：显式位 false 即渲染切图按钮（旧 category 兜底会闷掉）。
+    const cycleBtn = await screen.findByTitle(/下一档/);
+    expect(cycleBtn.hasAttribute('disabled')).toBe(false);
+    await act(async () => {
+      fireEvent.click(cycleBtn);
+    });
+    await waitFor(() => {
+      expect(hooks.cycleAppIcon).toHaveBeenCalledWith(APP_ID);
+    });
+  });
+});

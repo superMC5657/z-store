@@ -91,9 +91,18 @@ export function getCategoryLabel(
 }
 
 /**
- * 收录态判定（展示层唯一口径，与详情页 Header 一致）：
- * 显式 `is_cataloged` 标记优先（数据层占位行携带），
+ * 显式收录位 fail-closed 读取：仅布尔值按原值返回，缺席/非布尔一律 false。
+ * 详情 Header、记录表、关注快照共用；卡片 `isAppCataloged` 另有 category 兜底，不走此处。
+ */
+export function isCatalogedFailClosed(value: unknown): boolean {
+  return typeof value === 'boolean' ? value : false;
+}
+
+/**
+ * 收录态判定（卡片展示层口径）：
+ * 显式 `is_cataloged` 标记优先（数据层占位行/已标注行携带），
  * 缺席时按 `category !== 'external'` 兜底；空分类视为未收录。
+ * 详情页 Header 另行 fail-closed（显式位缺席即未收录，不按 category 兜底）。
  * 仅展示层读取，绝不参与数据源 join。
  */
 export function isAppCataloged(app: {

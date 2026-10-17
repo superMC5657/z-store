@@ -3,7 +3,7 @@ use rusqlite::{params, Result};
 
 impl Database {
     /// 收藏（合并式）：已存在返回 false，否则插入返回 true。
-    /// `is_cataloged` 由调用方写时按内存目录判定一次后传入（零网络），存量以默认 1 建行、启动回填校准。
+    /// `is_cataloged` 由调用方写时按内存目录判定一次后传入（零网络），缺列补齐/新建行默认 0 fail-closed、启动回填校准。
     pub fn add_favorite(&self, app_id: &str, is_cataloged: bool) -> Result<bool> {
         let id = clean(app_id);
         if id.is_empty() {

@@ -279,7 +279,7 @@ describe('buildRecordCatalogedMap (record wins, false wins)', () => {
     expect(map.get('o/b')).toBe(false);
   });
 
-  it('双 true 才已收录；缺字段旧快照默认已收录，脏行/非数组直接忽略', () => {
+  it('双 true 才已收录；缺字段旧快照默认未收录 fail-closed，脏行/非数组直接忽略', () => {
     const both = buildRecordCatalogedMap(
       [{ app_id: 'o/c', is_cataloged: true, favorited_at: 2 }],
       [{ app_id: 'o/c', is_cataloged: true }],
@@ -291,7 +291,7 @@ describe('buildRecordCatalogedMap (record wins, false wins)', () => {
         null as unknown as { app_id: string }],
       undefined,
     );
-    expect(map.get('o/old')).toBe(true);
+    expect(map.get('o/old')).toBe(false);
     expect(map.size).toBe(1);
     expect(buildRecordCatalogedMap(undefined, null).size).toBe(0);
   });

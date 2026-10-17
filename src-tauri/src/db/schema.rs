@@ -40,7 +40,7 @@ impl Database {
             CREATE TABLE IF NOT EXISTS user_favorites (
                 app_id TEXT PRIMARY KEY,
                 favorited_at INTEGER NOT NULL,
-                is_cataloged INTEGER NOT NULL DEFAULT 1
+                is_cataloged INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS update_rules (
@@ -81,7 +81,7 @@ impl Database {
                 added_at INTEGER NOT NULL,
                 last_notified_version TEXT,
                 last_notified_at INTEGER,
-                is_cataloged INTEGER NOT NULL DEFAULT 1
+                is_cataloged INTEGER NOT NULL DEFAULT 0
             );
 
             -- GitHub Star 列表本地持久化记录
@@ -194,17 +194,17 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_update_results_has_update ON update_results(has_update);
             "#,
         )?;
-        // 收录标记列迁移（幂等）：存量库缺列时 `ADD COLUMN` 补齐（默认 1，启动回填再按目录校准）。
+        // 收录标记列迁移（幂等）：存量库缺列时 `ADD COLUMN` 补齐（默认 0 fail-closed，启动回填再按目录校准）。
         // 本库无版本号机制，沿用 `IF NOT EXISTS` 幂等风格：列存在即跳过。
         self.ensure_column(
             "user_favorites",
             "is_cataloged",
-            "ALTER TABLE user_favorites ADD COLUMN is_cataloged INTEGER NOT NULL DEFAULT 1",
+            "ALTER TABLE user_favorites ADD COLUMN is_cataloged INTEGER NOT NULL DEFAULT 0",
         )?;
         self.ensure_column(
             "watched_apps",
             "is_cataloged",
-            "ALTER TABLE watched_apps ADD COLUMN is_cataloged INTEGER NOT NULL DEFAULT 1",
+            "ALTER TABLE watched_apps ADD COLUMN is_cataloged INTEGER NOT NULL DEFAULT 0",
         )?;
         Ok(())
     }
