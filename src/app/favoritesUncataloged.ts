@@ -7,8 +7,6 @@ import { admitIconHit, patchAppIconList } from '../services/iconStore';
 import { appSummaryFromDetail } from '../services/trends/enrich';
 import { isRemoteIcon } from '../components/AppIcon';
 import { normalizeId } from '../services/normalizeId';
-import { isCatalogedFailClosed } from '../utils/appHelper';
-import { buildCatalogIdSet } from './selectors';
 
 /**
  * 收藏未收录行 left-join 合成（数据层唯一口径，展示层只读标记）。
@@ -23,7 +21,7 @@ import { buildCatalogIdSet } from './selectors';
  *   原始 id 保留原值供 `FavoritesView` 精确 `has` 命中（双键：原值 + 小写在调用方分别建索引）。
  * - 富卡优先（cache-first）：`getCachedAppDetailsBatch`（DB-only 全量回填）→
  *   记录 `is_cataloged` 打标（`get_favorite_entries` + `get_watched_apps` 联合记录，
- *   任一显式 `false` 即未收录，缺字段/缺席即未收录 fail-closed）；`None`/失败才用最小占位，
+ *   任一显式 `false` 即未收录，缺字段旧快照默认已收录）；`None`/失败才用最小占位，
  *   保证行必展示。
  * - 标记：记录优先——记录已收录行 `is_cataloged: true`（已收录徽标 + 真实分类），
  *   记录未收录/缺席行 `is_cataloged: false` + 空分类兜底 external，供展示层
@@ -148,7 +146,7 @@ export function favoriteSummaryFromCached(hit: AppSummary, isCataloged = false):
 /**
  * 记录收录标记表（归一小写键 → `is_cataloged`）：
  * 收藏记录 + 关注记录 union，任一显式 `false` 即未收录（false 优先于 stale 的
- * true）；读值语义见 `isCatalogedFailClosed`；非数组/脏行直接忽略（调用方 mock 缺席即空表）。
+ * true）；记录缺字段（旧快照）默认已收录；非数组/脏行直接忽略（调用方 mock 缺席即空表）。
  */
 export function buildRecordCatalogedMap(
   favEntries: ReadonlyArray<{ app_id?: unknown; is_cataloged?: unknown }> | unknown,
@@ -162,7 +160,7 @@ export function buildRecordCatalogedMap(
       if (!e || typeof e.app_id !== 'string') continue;
       const k = normalizeId(e.app_id);
       if (!k) continue;
-      const flag = isCatalogedFailClosed(e.is_cataloged);
+      const flag = typeof e.is_cataloged === 'boolean' ? e.is_cataloged : true;
       map.set(k, map.has(k) ? (map.get(k) as boolean) && flag : flag);
     }
   }
@@ -351,7 +349,11 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
       recordCatalogedRef.current = new Map();
       return;
     }
-    const catalogLower = buildCatalogIdSet(apps);
+    const catalogLower = new Set<string>();
+    for (const a of apps) {
+      const k = normalizeId(a.id);
+      if (k) catalogLower.add(k);
+    }
     const current = favoriteExtraAppsRef.current;
     // 收录到达即驱逐（大小写归一），避免与目录行双显
     let pruned: AppSummary[] | null = null;

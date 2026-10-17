@@ -14,7 +14,7 @@ import { AppIcon } from '../AppIcon';
 import { admitIconHit } from '../../services/iconStore';
 import { notifyToast } from '../../utils/notify';
 import { VerifiedBadge } from '../VerifiedBadge';
-import { formatBytes, isCatalogedFailClosed } from '../../utils/appHelper';
+import { formatBytes } from '../../utils/appHelper';
 import { PlatformIcon, ForgeIcon } from '../icons/PlatformIcons';
 import { PLATFORM_META, type PlatformId } from '../../lib/platformFilter';
 import { useDetailStarVerify } from './useDetailStarVerify';
@@ -130,8 +130,10 @@ export const Header: React.FC<HeaderProps> = ({
     };
   }, [app.id]);
 
-  // 收录判定见 isCatalogedFailClosed（utils/appHelper）：iconCycle 落定值优先，其次详情显式标记。
-  const isCataloged = iconCycle?.is_cataloged ?? isCatalogedFailClosed(app.is_cataloged);
+  const isCataloged = Boolean(
+    iconCycle?.is_cataloged ??
+    (app.category && app.category !== 'external')
+  );
 
   const totalLevels = iconCycle?.total_levels ?? 5;
   const currentLevel = iconCycle?.level ?? 1;

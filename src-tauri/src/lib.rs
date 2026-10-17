@@ -467,7 +467,7 @@ pub fn run() {
         http,
     };
     // 收藏/关注收录标记回填：存量行按内存目录一次性校准（目录构造时已同步加载，零网络）；
-    // 最佳努力，不阻塞启动（行级失败记 warn 日志，由下次启动/同步/写入重试）。
+    // 最佳努力，不阻塞启动（行级吞错，由下次启动/同步/写入重试）。
     crate::commands::backfill_cataloged_flags(&state);
 
     let db_for_worker = Arc::clone(&db_arc);
@@ -560,6 +560,7 @@ pub fn run() {
             commands::get_app_details,
             commands::get_platforms_lite,
             commands::get_cached_app_details_batch,
+            commands::get_confirmed_icons_batch,
             commands::get_readme_variants,
             commands::fetch_or_cache_asset_url,
             commands::get_asset_cache_stats,

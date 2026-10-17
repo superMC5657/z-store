@@ -125,6 +125,14 @@ export async function getCachedAppDetailsBatch(ids: string[]): Promise<(AppSumma
   return tauriInvoke<(AppSummary | null)[]>(CMD.getCachedAppDetailsBatch, { ids });
 }
 
+// 趋势榜重挂图标自愈（DB-only，零网络零写盘）：与入参一一对齐的 `(string | null)[]`，
+// 无确认图标即 `None -> null`（cycle 表 + 本地文件，M2 dataURI 或 L1..L3 远端；L4 即 null）。
+// 空入参直接回空，不进 IPC；调用方以 Array.isArray 防御后端缺席。
+export async function getConfirmedIconsBatch(ids: string[]): Promise<(string | null)[]> {
+  if (!Array.isArray(ids) || ids.length === 0) return [];
+  return tauriInvoke<(string | null)[]>(CMD.getConfirmedIconsBatch, { ids });
+}
+
 export async function getPlatformsLite(
   id: string,
   // 手动重试传 true 走 ETag 条件请求；缺席即读 TTL 缓存/DB（默认 DB-only）。

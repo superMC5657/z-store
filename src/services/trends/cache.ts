@@ -382,6 +382,30 @@ function wantedEnrichKeys(repos: TrendRepo[]): Set<string> {
  * - 现状：写透节流由调用方 debounce（TrendsView scheduleBoardWriteThrough 800ms）保持；
  *   读路径 hydrate/sweep 不触发写放大，仅显式变化（mark/unmark/具平台驱逐 emit）触发写透。
  */
+/** 可落盘图标判定：非空且非 `data:`（`data:` 永不进盘，见信封守卫）。 */
+function isRealPersistableIcon(icon: unknown): boolean {
+  return typeof icon === 'string' && icon.trim() !== '' && !icon.startsWith('data:');
+}
+
+/**
+ * 图标互补合并（落盘守卫）：空/`data:` 永不覆实；一方实图即取实图，
+ * 双方实图取内存侧（调用方保证首参为内存新鲜值）；双方均空取内存侧。
+ */
+function preferRealIcon(
+  memory: AppSummary,
+  disk: AppSummary,
+): AppSummary {
+  const memoryReal = isRealPersistableIcon(memory.icon);
+  const diskReal = isRealPersistableIcon(disk.icon);
+  if (memoryReal) return memory;
+  if (diskReal) return { ...memory, icon: disk.icon };
+  // 双方均空/`data:`：统一剥成空串（`data:` 永不进盘），其余字段取内存侧。
+  if (typeof memory.icon === 'string' && memory.icon.startsWith('data:')) {
+    return { ...memory, icon: '' };
+  }
+  return memory;
+}
+
 export async function saveBoardCacheMerged(
   key: string,
   board: string,
@@ -419,7 +443,12 @@ export async function saveBoardCacheMerged(
           continue;
         }
         const curHas = Array.isArray(cur.platforms) && cur.platforms.length > 0;
-        if (!curHas && prevHas) merged[k] = v;
+        if (!curHas && prevHas) {
+          merged[k] = preferRealIcon(v, cur);
+          continue;
+        }
+        // 同级（同 loading / 同具平台）图标跟进：空/`data:` 永不覆实，实图互补。
+        merged[k] = preferRealIcon(cur, v);
       }
     }
   } catch {

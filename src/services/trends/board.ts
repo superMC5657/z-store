@@ -72,7 +72,7 @@ import {
   type SeqGuard,
 } from '../../lib/platformFilter';
 import { zlogInfo } from '../../lib/z-log';
-import { resolveIconWithBuffer } from '../iconStore';
+import { ASSEMBLED_ROW_ICON_QUEUE_CAP, resolveIconWithBuffer } from '../iconStore';
 
 /**
  * 单一抓取入口（board 为唯一 deep module 的对外抓取口）。
@@ -151,7 +151,7 @@ export function maybeScheduleBoardPersist(cacheKey: string): void {
 
 /**
  * 卸载/切榜 flush：先清节流 pending 再落盘一次（有富条目才写，防裸覆盖）。
- * 
+ *
  */
 export function flushBoardPersist(): void {
   for (const timer of boardPersistTimers.values()) clearTimeout(timer);
@@ -160,6 +160,22 @@ export function flushBoardPersist(): void {
   if (!cacheKey || repos.length === 0) return;
   if (Object.keys(snapshotTrendEnrichCache(repos)).length === 0) return;
   void saveBoardCacheMerged(cacheKey, cacheBoard, repos);
+}
+
+/**
+ * 卸载同步落盘（含最新镜像先行 hydrate）：View 卸载时先把已渲染镜像
+ * 推入内存（图标空不覆实由 enrich 侧保证），再清 debounce 落盘一次，
+ * 已 patch 图标先落袋再丢行，不丢于 800ms 窗口内。
+ */
+export function flushBoardPersistWithMirror(latest: Record<string, AppSummary>): void {
+  try {
+    if (latest && typeof latest === 'object' && Object.keys(latest).length > 0) {
+      putTrendEnrichMemory(latest);
+    }
+  } catch {
+    // hydrate 失败不阻塞落盘
+  }
+  flushBoardPersist();
 }
 
 /**
@@ -206,6 +222,7 @@ export function buildSwrFill(repos: TrendRepo[]): SwrFill {
 /**
  * SWR 富卡合并进镜像：缺席新增；旧 loading + 新具平台才覆盖（图标经店内 `resolveIconWithBuffer` 单 interface 合并，空不覆实 + 缓冲回读）。
  * 富/裸以 enriched 存在为准，不用 icon 判定。图标 `depth` 在深 module，本函数只做平台准入，不自立图标 locality。
+ * 同级（同 loading / 同具平台）仍合并图标：快照实图回填镜像空图（空/`data:` 永不覆实），重挂不闪空徽章。
  */
 export function mergeSwrEnrichedMirror(
   prev: Record<string, AppSummary>,
@@ -224,6 +241,13 @@ export function mergeSwrEnrichedMirror(
     const incHas = !!v.platforms && v.platforms.length > 0;
     if (!curHas && incHas) {
       next[k] = resolveIconWithBuffer(cur, v);
+      changed = true;
+      continue;
+    }
+    // 同级仅图标跟进：快照实图补镜像空图，空/`data:` 永不覆实（单 interface 收敛）。
+    const mergedIcon = resolveIconWithBuffer(cur, v);
+    if (mergedIcon.icon !== cur.icon) {
+      next[k] = mergedIcon;
       changed = true;
     }
   }
@@ -248,6 +272,80 @@ export function mergeSwrConfirmedMirror(
     changed = true;
   }
   return changed ? next : prev;
+}
+
+/** 行图标缺失判定（SWR 重挂自愈用）：空串或 `data:` 一律视为缺失（`data:` 永不进盘，无盘可暖）。 */
+export function isRowIconMissing(icon: unknown): boolean {
+  if (typeof icon !== 'string') return true;
+  const t = icon.trim();
+  return t === '' || t.startsWith('data:');
+}
+
+/**
+ * SWR 重挂图标自愈输入收集：镜像中图标缺失的坐标键（小写去重保序）。
+ * 上限与组装落盘补齐同量级（`ASSEMBLED_ROW_ICON_QUEUE_CAP`），防 N+1 风暴；
+ * 去重 + 保序与 enrich 缺席收集同约定。
+ */
+export function collectEmptyIconKeys(
+  mirror: Record<string, AppSummary>,
+  cap: number = ASSEMBLED_ROW_ICON_QUEUE_CAP,
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const k of Object.keys(mirror ?? {})) {
+    if (out.length >= cap) break;
+    const nk = String(k).trim().toLowerCase();
+    if (!nk || seen.has(nk)) continue;
+    seen.add(nk);
+    const cur = (mirror as Record<string, AppSummary>)[k];
+    if (isRowIconMissing(cur?.icon)) out.push(nk);
+  }
+  return out;
+}
+
+export interface DbIconMergeResult {
+  next: Record<string, AppSummary>;
+  patchedKeys: string[];
+}
+
+/**
+ * DB 确认图标合并进镜像（重挂自愈写口，DB-only 无网络）：
+ * 仅镜像图标缺失（空/`data:`）且入库图标为非空串时覆盖；已有实图永不覆写
+ * （空/`data:` 永不覆实，与店内单 interface 同规则）；大小写归一同时匹配
+ * 坐标键与 `enriched.id` 小写别名。返回补齐后的镜像与被补键（供 hydrate 用）。
+ */
+export function mergeDbIconsIntoMirror(
+  prev: Record<string, AppSummary>,
+  icons: ReadonlyMap<string, string> | Record<string, string>,
+): DbIconMergeResult {
+  const entries =
+    icons instanceof Map ? [...icons.entries()] : Object.entries(icons ?? {});
+  if (entries.length === 0) return { next: prev, patchedKeys: [] };
+  const byKey = new Map<string, string>();
+  for (const [rawK, rawIcon] of entries) {
+    const nk = String(rawK).trim().toLowerCase();
+    if (!nk || byKey.has(nk)) continue;
+    if (typeof rawIcon !== 'string' || rawIcon.trim() === '') continue;
+    byKey.set(nk, rawIcon);
+  }
+  if (byKey.size === 0) return { next: prev, patchedKeys: [] };
+  let changed = false;
+  const next = { ...prev };
+  const patchedKeys: string[] = [];
+  for (const k of Object.keys(prev)) {
+    const cur = prev[k];
+    if (!isRowIconMissing(cur?.icon)) continue;
+    const alias = String(cur?.id ?? '').trim().toLowerCase();
+    const hit =
+      byKey.get(String(k).trim().toLowerCase()) ??
+      (alias !== '' ? byKey.get(alias) : undefined);
+    if (typeof hit !== 'string' || hit.trim() === '') continue;
+    if (cur.icon === hit) continue;
+    next[k] = { ...cur, icon: hit };
+    changed = true;
+    patchedKeys.push(k);
+  }
+  return { next: changed ? next : prev, patchedKeys };
 }
 
 /* ------------------------------------------------------------------ */

@@ -45,6 +45,20 @@ function pickRealDescription(v: unknown): string | undefined {
   return v;
 }
 
+/**
+ * 详情显式收录标注（复用在线/趋势同口径 `annotateIsCataloged`）：
+ * 详情后端无 `is_cataloged`，猜分类恒为真实分类（非前端 external 兜底），
+ * 故按目录 id 集（canonical 小写）显式携带：命中=true，未命中=false。
+ * Header 以 `app.is_cataloged ?? false` 为准（fail-closed 未收录可切图），
+ * 不再按 category 兜底。
+ */
+function annotateDetailWithCatalog<D extends { id: string }>(
+  detail: D,
+  catalogIds: ReadonlySet<string>,
+): D {
+  return annotateIsCataloged(detail as unknown as AppSummary, catalogIds) as unknown as D;
+}
+
 export function useDetailCacheSync({
   selectedApp,
   appsRef,
@@ -61,14 +75,6 @@ export function useDetailCacheSync({
   const activeDetailIdRef = useRef<string | null>(null);
   const selectedAppRef = useRef<AppDetailViewModel | null>(null);
   selectedAppRef.current = selectedApp;
-
-  // 详情入口唯一标注口：按当前目录集显式标注 is_cataloged（fail-closed，未命中即 false）。
-  // 标注后经 patchSummary 内 shouldSyncCataloged 写透列表：false 恒写透，true 仅纠正已有显式位，
-  // 目录行保持无标记（防全量 churn）。
-  const annotateEntry = useCallback(
-    <T extends AppSummary>(row: T): T => annotateIsCataloged(row, buildCatalogIdSet(appsRef.current)),
-    [appsRef],
-  );
 
   const loadRecentViews = useCallback(async () => {
     try {
@@ -123,9 +129,10 @@ export function useDetailCacheSync({
   // 同步详情快照缓存与卡片列表数据（消除后台条件探查与主动刷新之间的重复逻辑）
   // 列表 patch 仅在目标命中且字段确变时生成新对象并返回新数组，否则原引用返回，避免无谓全网格重渲染
   const patchDetailMemoryAndLists = useCallback((idClean: string, rawDetail: AppDetail, isBackgroundSilent = false) => {
-    // 详情显式收录标注经唯一入口（目录 id 集 canonical 比对，未命中即 false fail-closed），
+    // 详情显式收录标注：目录 id 集 canonical 比对，未命中即 false（fail-closed），
     // 后续缓存/选中态/治愈载荷均携带显式 is_cataloged，Header 不再按 category 兜底。
-    const detail = annotateEntry(rawDetail);
+    const catalogIds = buildCatalogIdSet(appsRef.current);
+    const detail = annotateDetailWithCatalog(rawDetail, catalogIds);
     // F1：后端占位简介不污染内存快照——先算富卡兜底，内存即存治愈值，
     // 后续 handleOpenDetail 命中缓存直接展现实简介，不再闪占位。
     let enrichDesc: string | undefined;
@@ -233,15 +240,6 @@ export function useDetailCacheSync({
           ? (enrichDescEn ?? app.description_en)
           : nextDescriptionEnRaw;
       const nextHomepage = detail.homepage;
-      // 详情显式收录位同步：未收录（false）恒写透（dev 猜分类行经此得显式 false，
-      // Header/卡片不再按 category 误判已收录）；已收录（true）仅纠正已有显式位，
-      // 目录行保持无标记（category 兜底仍为已收录，避免全量 churn）。
-      const nextCataloged = (detail as unknown as { is_cataloged?: unknown }).is_cataloged;
-      const rowCataloged = (app as unknown as { is_cataloged?: unknown }).is_cataloged;
-      const shouldSyncCataloged =
-        typeof nextCataloged === 'boolean' &&
-        (nextCataloged === false || typeof rowCataloged === 'boolean') &&
-        rowCataloged !== nextCataloged;
       if (
         app.stars === detail.stars &&
         app.forks === detail.forks &&
@@ -255,8 +253,7 @@ export function useDetailCacheSync({
         app.category_name === detail.category_name &&
         app.is_verified === detail.is_verified &&
         (app.homepage ?? null) === (nextHomepage ?? null) &&
-        app.name === detail.name &&
-        !shouldSyncCataloged
+        app.name === detail.name
       ) {
         return app;
       }
@@ -275,7 +272,6 @@ export function useDetailCacheSync({
         is_verified: detail.is_verified,
         homepage: nextHomepage,
         name: detail.name,
-        ...(shouldSyncCataloged ? { is_cataloged: nextCataloged } : null),
       };
     };
 
@@ -435,7 +431,7 @@ export function useDetailCacheSync({
         // 取不到轮换图标则保持占位，不阻塞
       });
     }
-  }, [annotateEntry, appsRef, onlineAppsRef, recentsRef, setApps, setFavoriteExtraApps, setOnlineApps, setPlatformResolvedOtherIds, setRecentlyViewedApps, setSelectedApp]);
+  }, [appsRef, onlineAppsRef, recentsRef, setApps, setFavoriteExtraApps, setOnlineApps, setPlatformResolvedOtherIds, setRecentlyViewedApps, setSelectedApp]);
 
   // 打开应用详情弹窗（优先内存/数据库 0ms 瞬间秒开，且一个仓库生命周期内只拉取一次）
   // 经 useCallback + ref 稳定：搜索键入改 apps 时回调引用不变，memo 卡片不跟风重渲染
@@ -489,13 +485,7 @@ export function useDetailCacheSync({
           }
         }
         // 先以 0ms 瞬间展示内存快照，避免骨架屏闪烁
-        // 内存快照按当前目录重标注收录位（目录后到即纠正旧快照缺位，fail-closed）。
-        setSelectedApp({
-          ...annotateEntry(cachedForShow),
-          isLoading: false,
-          isRefreshing: false,
-          loadError: undefined,
-        });
+        setSelectedApp({ ...cachedForShow, isLoading: false, isRefreshing: false, loadError: undefined });
         // recordAppView 本地写保留（DB/local）；后台 ETag 条件探查自动跟进（缓存优先，命中 short-circuit）。
         tauriApi.recordAppView(id).then(loadRecentViews).catch(() => {});
 
@@ -616,11 +606,7 @@ export function useDetailCacheSync({
         };
 
     // 0ms 同步打开弹窗或切换刷新态，主界面无任何阻塞感
-    // 初始详情同样按目录显式标注收录位（existing 派生行继承目录命中，未知占位 fail-closed false），
-    // Header 以显式位为准，不再按 category 兜底。
-    setSelectedApp(
-      annotateEntry(initialDetail),
-    );
+    setSelectedApp(initialDetail);
     // 浏览记录先落盘不阻塞详情；recents 刷新延后到详情同步之后，避免后到的后端占位快照覆盖富卡治愈值（load 内自带富卡治愈）。
     void tauriApi.recordAppView(id).catch(() => {});
 
@@ -637,7 +623,7 @@ export function useDetailCacheSync({
       }
     }
     await loadRecentViews();
-  }, [annotateEntry, appsRef, loadRecentViews, onlineAppsRef, recentsRef, setSelectedApp, patchDetailMemoryAndLists]);
+  }, [appsRef, loadRecentViews, onlineAppsRef, recentsRef, setSelectedApp, patchDetailMemoryAndLists]);
 
   return {
     appDetailMemoryCache,

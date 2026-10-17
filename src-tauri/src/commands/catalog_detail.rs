@@ -332,6 +332,32 @@ fn cached_detail_summary(
     Some(summary)
 }
 
+/// DB-only 确认图标批量回填（趋势榜重挂图标自愈专用）：零网络、零 ETag、零写盘、不 spawn 后台任务。
+/// - 入参与返回一一对齐：每个 id 经 `canonical_app_id` 归一（不可解析即 `None`，不触碰 SQLite）；
+/// - 命中经 `resolve_confirmed_icon_from_db`（cycle 表 + 本地图标文件，`M2` dataURI 直显或 L1..L3 远端回退；L4/`None` 即 `None`）；
+/// - 全程只读：不 `touch` 保鲜期、不落库、不触发 `fetch_icons_stream`；调用方以前端内存合并呈现，不走 `admitIconHit` 写口。
+#[tauri::command]
+pub fn get_confirmed_icons_batch(
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+) -> crate::AppResult<Vec<Option<String>>> {
+    let db = state.db()?;
+    Ok(ids
+        .iter()
+        .map(|raw| {
+            let clean_id = crate::forge::canonical_app_id(raw.trim()).unwrap_or_default();
+            if clean_id.is_empty() || !clean_id.contains('/') {
+                return None;
+            }
+            let (owner, repo) = clean_id.split_once('/').unwrap_or_default();
+            if owner.is_empty() || repo.is_empty() {
+                return None;
+            }
+            crate::github::http::resolve_confirmed_icon_from_db(&db, &clean_id, owner, repo)
+        })
+        .collect())
+}
+
 /// P0 stale 契约：瞬时失败（401/限流/离线）永不污染 SQLite。
 /// - 合成空（无缓存失败）以 `is_stale=true` 返回，调用方跳过落库，无旧行则不建行；
 /// - stale 穿透（复用旧行）保持旧行不动（含 `cached_at` 不刷新），`Ok(stale)` 为 IPC 形状约定；

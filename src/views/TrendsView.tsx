@@ -39,12 +39,14 @@ import {
   boardRepoKeys,
   buildSwrFill,
   cleanupPlatformsHealConfirmed,
+  collectEmptyIconKeys,
   collectMissingEnrichRepos,
-  flushBoardPersist,
+  flushBoardPersistWithMirror,
   getBoardPersistKey,
   putBoardEnrichMemory,
   isEnrichUpgradeAllowed,
   isUpgradePending,
+  mergeDbIconsIntoMirror,
   mergeEnrichFoundMirror,
   mergeSwrConfirmedMirror,
   mergeSwrEnrichedMirror,
@@ -363,6 +365,53 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     setEnrichedApps((prev) => mergeSwrEnrichedMirror(prev, snap));
     // 组装落盘补齐：SWR 富卡 http 远端图标入队进盘（前 30 上限，`data:`/空跳过）。
     queueAssembledRowIcons(Object.values(snap));
+    // 重挂图标自愈（DB-only）：快照空图标经本地 cycle 表回填，
+    // 不走网络/`fetch_icons_stream`/ETag；已有实图永不覆写，上限与组装补齐同量级。
+    const preview = mergeSwrEnrichedMirror(enrichedAppsRef.current, snap);
+    const emptyKeys = collectEmptyIconKeys(preview);
+    if (emptyKeys.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      let icons: (string | null)[];
+      try {
+        icons = await tauriApi.getConfirmedIconsBatch(emptyKeys);
+      } catch {
+        return;
+      }
+      if (cancelled || !Array.isArray(icons)) return;
+      const iconMap = new Map<string, string>();
+      emptyKeys.forEach((k, i) => {
+        const icon = icons[i];
+        if (typeof icon === 'string' && icon.trim() !== '') iconMap.set(k, icon);
+      });
+      if (iconMap.size === 0) return;
+      setEnrichedApps((prev) => mergeDbIconsIntoMirror(prev, iconMap).next);
+      // 已确认行同步内存供下次快照直展（未确认 loading 由 put 侧自然丢弃，
+      // `data:` 仅进 React 呈现不 hydrate）；写透经统一 debounce，不直写。
+      try {
+        const cur = enrichedAppsRef.current;
+        const patch: Record<string, AppSummary> = {};
+        for (const k of Object.keys(cur)) {
+          const nk = String(k).trim().toLowerCase();
+          const alias = String(cur[k]?.id ?? '').trim().toLowerCase();
+          const hit =
+            iconMap.get(nk) ?? (alias !== '' ? iconMap.get(alias) : undefined);
+          if (typeof hit !== 'string' || hit.trim() === '' || hit.startsWith('data:')) continue;
+          if (typeof cur[k]?.icon === 'string' && cur[k].icon.trim() !== '') continue;
+          patch[k] = { ...cur[k], icon: hit };
+        }
+        if (Object.keys(patch).length > 0) {
+          putBoardEnrichMemory(patch);
+          const cacheKey = getBoardPersistKey();
+          if (cacheKey) maybeScheduleBoardPersist(cacheKey);
+        }
+      } catch {
+        // 内存同步失败不影响已呈现
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [trendResult]);
 
   // Enter-intent：进 tab（挂载，含默认榜）即抓取，enrich 作为 board 落定后的跟随链运行。
@@ -420,7 +469,11 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   }
   useEffect(() => {
     const flush = (): void => {
-      flushBoardPersist();
+      try {
+        flushBoardPersistWithMirror(enrichedAppsRef.current);
+      } catch {
+        // 卸载兜底不抛错
+      }
     };
     window.addEventListener('pagehide', flush);
     return () => {

@@ -557,3 +557,86 @@ describe('已确认Other落盘：重挂零lite直展Other卡、具平台可升�
     expect(snapshotTrendEnrichCache()['acme/atlas']?.platforms).toEqual(['windows']);
   });
 });
+
+describe('重挂图标自愈：SWR 空图标经 DB-only 回填，不走网络', () => {
+  (globalThis as Record<string, unknown>)['IS_REACT_ACT_ENVIRONMENT'] = true;
+
+  beforeEach(async () => {
+    clearTrendsCache();
+    clearTrendEnrichCache();
+    vi.restoreAllMocks();
+    await i18n.changeLanguage('zh-CN');
+    vi.spyOn(tauriApi, 'getSettings').mockResolvedValue({});
+    vi.spyOn(tauriApi, 'openUrl').mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    cleanup();
+    clearTrendsCache();
+    clearTrendEnrichCache();
+    vi.restoreAllMocks();
+  });
+
+  function renderBoard() {
+    return render(
+      <TrendsView
+        apps={[makeApp({ id: 'other/app', name: 'Other' })]}
+        platformResolvedOtherIds={new Set<string>()}
+        favoriteIds={new Set<string>()}
+        installedIds={new Set<string>()}
+        installingIds={new Set<string>()}
+        onOpenDetail={() => {}}
+        onQuickInstall={() => {}}
+        onToggleFavorite={() => {}}
+        onResetPlatformFilter={() => {}}
+      />,
+    );
+  }
+
+  it('SWR 快照空图标经 getConfirmedIconsBatch 回填实图：零 enrich 零 lite 零 getOrFetchIcon', async () => {
+    // L2 富信封：三仓均为具平台但图标为空（旧盘曾以空覆实，重挂需自愈）。
+    putTrendEnrichMemory({
+      'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'], icon: '' }),
+      'acme/beacon': makeEnrichedApp({ id: 'acme/beacon', platforms: ['windows'], icon: '' }),
+      'acme/comet': makeEnrichedApp({ id: 'acme/comet', platforms: ['windows'], icon: '' }),
+    });
+    vi.spyOn(tauriApi, 'fetchTrendsText').mockImplementation(async (url: string) => {
+      if (String(url).includes('github.com/trending')) return trendingHtmlFixture();
+      throw new Error(`unexpected url: ${url}`);
+    });
+    const enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos');
+    const liteSpy = vi.spyOn(tauriApi, 'getPlatformsLite');
+    const cycleSpy = vi
+      .spyOn(tauriApi, 'getConfirmedIconsBatch')
+      .mockImplementation(async (ids: string[]) =>
+        ids.map((id) => `https://icons.example.com/${String(id).replace('/', '-')}.png`),
+      );
+    const fetchIconSpy = vi.spyOn(tauriApi, 'getOrFetchIcon');
+    const { container } = renderBoard();
+
+    // 首屏 SWR 直展三富卡（具平台免验，无裸行）。
+    await screen.findByText('acme/atlas enriched desc');
+    await waitFor(() => {
+      expect(container.querySelectorAll('.trend-uncataloged-row')).toHaveLength(0);
+    });
+    // DB-only 回填触发且一一对齐。
+    await waitFor(() => {
+      expect(cycleSpy).toHaveBeenCalledTimes(1);
+    });
+    const calledIds = (cycleSpy.mock.calls[0]?.[0] as string[]).map((s) =>
+      String(s).trim().toLowerCase(),
+    );
+    expect(calledIds.sort()).toEqual(['acme/atlas', 'acme/beacon', 'acme/comet']);
+    // 回填实图呈现：三卡均渲染远端图标 img，无空徽章回退。
+    await waitFor(() => {
+      const imgs = [...container.querySelectorAll('.app-icon-image')] as HTMLImageElement[];
+      const srcs = imgs.map((img) => img.getAttribute('src') ?? '');
+      expect(srcs.filter((s) => s.includes('https://icons.example.com/')).length).toBeGreaterThanOrEqual(3);
+    });
+    // 零网络：行已存在故 enrich 缺席集为空，具平台免 lite，且不走单图落盘通道。
+    await new Promise((r) => setTimeout(r, 50));
+    expect(enrichSpy).not.toHaveBeenCalled();
+    expect(liteSpy).not.toHaveBeenCalled();
+    expect(fetchIconSpy).not.toHaveBeenCalled();
+  });
+});
