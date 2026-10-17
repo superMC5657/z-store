@@ -15,6 +15,7 @@ import type {
 } from '../../types';
 import { CMD } from '../api';
 import { isTauri, tauriInvoke } from './client';
+import { isCatalogedFailClosed } from '../../utils/appHelper';
 
 export async function getFavorites(): Promise<string[]> {
   return tauriInvoke<string[]>(CMD.getFavorites);
@@ -79,11 +80,10 @@ export async function getWatchedApps(): Promise<WatchedAppEntry[]> {
     if (typeof appId !== 'string' || appId.trim() === '') continue;
     out.push({
       app_id: appId,
-      // 旧快照缺字段时默认已收录（与历史渲染一致）。
-      is_cataloged:
-        typeof r === 'object' && r !== null && typeof r.is_cataloged === 'boolean'
-          ? r.is_cataloged
-          : true,
+      // 读值语义见 isCatalogedFailClosed（utils/appHelper）。
+      is_cataloged: isCatalogedFailClosed(
+        (r as unknown as { is_cataloged?: unknown } | null)?.is_cataloged,
+      ),
     });
   }
   return out;

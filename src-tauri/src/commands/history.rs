@@ -18,20 +18,55 @@ pub fn get_favorite_entries(
     Ok(db.get_favorite_entries()?)
 }
 
+/// 回填失败单行 warn：只记操作、行 id 与首行原因。
+fn log_backfill_warn(op: &str, id: Option<&str>, reason: impl std::fmt::Display) {
+    let reason = crate::log_support::short_reason(&reason.to_string());
+    match id {
+        Some(id) => log::warn!("{} id={} reason={}", op, id, reason),
+        None => log::warn!("{} reason={}", op, reason),
+    }
+}
+
 /// 收录标记全量回填（启动 + 清单同步完成后）：收藏/关注逐行按内存目录校准，零网络；
-/// 最佳努力，行级失败吞错不阻塞调用方（由下次启动/同步重试）。
+/// 最佳努力，不阻塞调用方（行级失败记 warn 日志，由下次启动/同步重试）。
 pub(crate) fn backfill_cataloged_flags(state: &AppState) {
-    if let Ok(db) = state.db() {
-        if let Ok(ids) = db.get_favorites() {
+    let db = match state.db() {
+        Ok(db) => db,
+        Err(e) => {
+            log_backfill_warn("backfill cataloged flags skipped", None, &e);
+            return;
+        }
+    };
+    match db.get_favorites() {
+        Ok(ids) => {
             for id in &ids {
-                let _ = db.set_favorite_cataloged(id, state.catalog.is_cataloged(id));
+                if let Err(e) =
+                    db.set_favorite_cataloged(id, state.catalog.is_cataloged(id))
+                {
+                    log_backfill_warn("backfill favorite flag failed", Some(id.as_str()), &e);
+                }
             }
         }
-        if let Ok(watched) = db.get_watched_apps() {
+        Err(e) => {
+            log_backfill_warn("backfill favorites skipped", None, &e);
+        }
+    }
+    match db.get_watched_apps() {
+        Ok(watched) => {
             for w in &watched {
-                let _ =
-                    db.set_watched_cataloged(&w.app_id, state.catalog.is_cataloged(&w.app_id));
+                if let Err(e) =
+                    db.set_watched_cataloged(&w.app_id, state.catalog.is_cataloged(&w.app_id))
+                {
+                    log_backfill_warn(
+                        "backfill watched flag failed",
+                        Some(w.app_id.as_str()),
+                        &e,
+                    );
+                }
             }
+        }
+        Err(e) => {
+            log_backfill_warn("backfill watched skipped", None, &e);
         }
     }
 }

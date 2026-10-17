@@ -335,7 +335,7 @@ fn cached_detail_summary(
 /// DB-only 确认图标批量回填（趋势榜重挂图标自愈专用）：零网络、零 ETag、零写盘、不 spawn 后台任务。
 /// - 入参与返回一一对齐：每个 id 经 `canonical_app_id` 归一（不可解析即 `None`，不触碰 SQLite）；
 /// - 命中经 `resolve_confirmed_icon_from_db`（cycle 表 + 本地图标文件，`M2` dataURI 直显或 L1..L3 远端回退；L4/`None` 即 `None`）；
-/// - 全程只读：不 `touch` 保鲜期、不落库、不触发 `fetch_icons_stream`；调用方以前端内存合并呈现，不走 `admitIconHit` 写口。
+/// - 全程只读：不 `touch` 保鲜期、不落库、不触发 `fetch_icons_stream`；前端经店内唯一写口 `admitIconHit`（`via=m2`，不占 `level`）合流进镜像。
 #[tauri::command]
 pub fn get_confirmed_icons_batch(
     state: State<'_, AppState>,

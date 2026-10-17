@@ -6,6 +6,7 @@ import { trendingHtmlFixture, makeEnrichedApp } from '../../views/test-utils/tre
 import { makeApp } from '../../views/test-utils/filterFixture';
 import { tauriApi } from '../api';
 import { clearTrendsCache } from './cache';
+import { __resetIconStoreForTests } from '../iconStore';
 import {
   clearTrendEnrichCache,
   putTrendEnrichMemory,
@@ -20,6 +21,7 @@ describe('SWR 组件直展：重挂首屏即见已确认 Other 富卡，不闪�
   beforeEach(async () => {
     clearTrendsCache();
     clearTrendEnrichCache();
+    __resetIconStoreForTests();
     vi.restoreAllMocks();
     await i18n.changeLanguage('zh-CN');
     vi.spyOn(tauriApi, 'getSettings').mockResolvedValue({});
@@ -30,6 +32,7 @@ describe('SWR 组件直展：重挂首屏即见已确认 Other 富卡，不闪�
     cleanup();
     clearTrendsCache();
     clearTrendEnrichCache();
+    __resetIconStoreForTests();
     vi.restoreAllMocks();
   });
 
@@ -93,6 +96,7 @@ describe('平台随富卡缓存：L2 新鲜免验，过期才补验', () => {
   beforeEach(async () => {
     clearTrendsCache();
     clearTrendEnrichCache();
+    __resetIconStoreForTests();
     vi.restoreAllMocks();
     await i18n.changeLanguage('zh-CN');
     vi.spyOn(tauriApi, 'getSettings').mockResolvedValue({});
@@ -103,6 +107,7 @@ describe('平台随富卡缓存：L2 新鲜免验，过期才补验', () => {
     cleanup();
     clearTrendsCache();
     clearTrendEnrichCache();
+    __resetIconStoreForTests();
     vi.restoreAllMocks();
   });
 
@@ -308,6 +313,7 @@ describe('平台随富卡缓存：L2 新鲜免验，过期才补验', () => {
     // 重挂模拟重启：清 L1（含 enrich 内存）但保 L2 存盘
     clearTrendsCache();
     clearTrendEnrichCache();
+    __resetIconStoreForTests();
     liteSpy.mockClear();
     const second = renderBoard();
     // 重挂直展具平台富卡，无裸行占位
@@ -332,6 +338,7 @@ describe('已确认Other落盘：重挂零lite直展Other卡、具平台可升�
   beforeEach(async () => {
     clearTrendsCache();
     clearTrendEnrichCache();
+    __resetIconStoreForTests();
     vi.restoreAllMocks();
     await i18n.changeLanguage('zh-CN');
     vi.spyOn(tauriApi, 'getSettings').mockResolvedValue({});
@@ -342,6 +349,7 @@ describe('已确认Other落盘：重挂零lite直展Other卡、具平台可升�
     cleanup();
     clearTrendsCache();
     clearTrendEnrichCache();
+    __resetIconStoreForTests();
     vi.restoreAllMocks();
   });
 
@@ -433,6 +441,7 @@ describe('已确认Other落盘：重挂零lite直展Other卡、具平台可升�
     // 重挂模拟重启：清 L1（含 enrich/确认内存）但保 L2 存盘
     clearTrendsCache();
     clearTrendEnrichCache();
+    __resetIconStoreForTests();
     enrichSpy.mockClear();
     liteSpy.mockClear();
     const second = renderBoard();
@@ -513,6 +522,7 @@ describe('已确认Other落盘：重挂零lite直展Other卡、具平台可升�
     cleanup();
     clearTrendsCache();
     clearTrendEnrichCache();
+    __resetIconStoreForTests();
     liteSpy.mockClear();
     enrichSpy.mockClear();
     // 次挂前模拟治愈到达：L2 旧确认仍在，但内存先被具平台覆盖（put 自动移除确认，禁 loading 覆盖具平台）
@@ -564,6 +574,7 @@ describe('重挂图标自愈：SWR 空图标经 DB-only 回填，不走网络', 
   beforeEach(async () => {
     clearTrendsCache();
     clearTrendEnrichCache();
+    __resetIconStoreForTests();
     vi.restoreAllMocks();
     await i18n.changeLanguage('zh-CN');
     vi.spyOn(tauriApi, 'getSettings').mockResolvedValue({});
@@ -574,6 +585,7 @@ describe('重挂图标自愈：SWR 空图标经 DB-only 回填，不走网络', 
     cleanup();
     clearTrendsCache();
     clearTrendEnrichCache();
+    __resetIconStoreForTests();
     vi.restoreAllMocks();
   });
 
@@ -594,7 +606,7 @@ describe('重挂图标自愈：SWR 空图标经 DB-only 回填，不走网络', 
   }
 
   it('SWR 快照空图标经 getConfirmedIconsBatch 回填实图：零 enrich 零 lite 零 getOrFetchIcon', async () => {
-    // L2 富信封：三仓均为具平台但图标为空（旧盘曾以空覆实，重挂需自愈）。
+    // L2 富信封：三仓均为具平台但图标为空，断言重挂经 DB-only 回填实图并直显。
     putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'], icon: '' }),
       'acme/beacon': makeEnrichedApp({ id: 'acme/beacon', platforms: ['windows'], icon: '' }),

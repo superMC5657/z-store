@@ -45,6 +45,7 @@ import {
   getBoardPersistKey,
   putBoardEnrichMemory,
   isEnrichUpgradeAllowed,
+  isPersistableIcon,
   isUpgradePending,
   mergeDbIconsIntoMirror,
   mergeEnrichFoundMirror,
@@ -363,10 +364,10 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       setTrendConfirmedOtherIds((prev) => mergeSwrConfirmedMirror(prev, l2Confirmed, snap));
     }
     setEnrichedApps((prev) => mergeSwrEnrichedMirror(prev, snap));
-    // 组装落盘补齐：SWR 富卡 http 远端图标入队进盘（前 30 上限，`data:`/空跳过）。
+    // 组装落盘补齐：SWR 富卡 http 远端图标入队进盘（前 30 上限，内联/`data:` 与空跳过由店内裁决）。
     queueAssembledRowIcons(Object.values(snap));
-    // 重挂图标自愈（DB-only）：快照空图标经本地 cycle 表回填，
-    // 不走网络/`fetch_icons_stream`/ETag；已有实图永不覆写，上限与组装补齐同量级。
+    // 重挂图标自愈（DB-only）：快照缺失图标经本地 cycle 表回填，
+    // 零网络/零 ETag；图标经店内唯一写口合流（`via=m2`，不占 `level`），已有实图永不覆写，上限与组装补齐同量级。
     const preview = mergeSwrEnrichedMirror(enrichedAppsRef.current, snap);
     const emptyKeys = collectEmptyIconKeys(preview);
     if (emptyKeys.length === 0) return;
@@ -385,23 +386,24 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
         if (typeof icon === 'string' && icon.trim() !== '') iconMap.set(k, icon);
       });
       if (iconMap.size === 0) return;
-      setEnrichedApps((prev) => mergeDbIconsIntoMirror(prev, iconMap).next);
-      // 已确认行同步内存供下次快照直展（未确认 loading 由 put 侧自然丢弃，
-      // `data:` 仅进 React 呈现不 hydrate）；写透经统一 debounce，不直写。
+      // 单一写口合流：镜像更新经 `mergeDbIconsIntoMirror`（内调 `admitIconHit`），
+      // 返回补齐键供内存 hydrate；`data:` 只进 React 呈现，hydrate 前按可落盘过滤。
+      const merged = mergeDbIconsIntoMirror(enrichedAppsRef.current, iconMap);
+      if (merged.patchedKeys.length === 0) return;
+      if (cancelled) return;
+      setEnrichedApps(merged.next);
+      // 内存 hydrate 供下次快照直展：已确认/具平台门控由 `put` 侧执行，
+      // 未确认 loading 不进内存；写透经统一 debounce，不直写。
       try {
-        const cur = enrichedAppsRef.current;
-        const patch: Record<string, AppSummary> = {};
-        for (const k of Object.keys(cur)) {
-          const nk = String(k).trim().toLowerCase();
-          const alias = String(cur[k]?.id ?? '').trim().toLowerCase();
-          const hit =
-            iconMap.get(nk) ?? (alias !== '' ? iconMap.get(alias) : undefined);
-          if (typeof hit !== 'string' || hit.trim() === '' || hit.startsWith('data:')) continue;
-          if (typeof cur[k]?.icon === 'string' && cur[k].icon.trim() !== '') continue;
-          patch[k] = { ...cur[k], icon: hit };
+        const toHydrate: Record<string, AppSummary> = {};
+        for (const k of merged.patchedKeys) {
+          const row = merged.next[k];
+          if (!row) continue;
+          if (!isPersistableIcon(row.icon)) continue;
+          toHydrate[k] = row;
         }
-        if (Object.keys(patch).length > 0) {
-          putBoardEnrichMemory(patch);
+        if (Object.keys(toHydrate).length > 0) {
+          putBoardEnrichMemory(toHydrate);
           const cacheKey = getBoardPersistKey();
           if (cacheKey) maybeScheduleBoardPersist(cacheKey);
         }

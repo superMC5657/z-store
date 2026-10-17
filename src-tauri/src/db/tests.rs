@@ -447,6 +447,52 @@ fn test_watched_apps_crud() {
 }
 
 #[test]
+fn test_cataloged_flags_fail_closed_default_and_backfill() {
+    // 新库 fail-closed：缺省不带标记建行读出为 false，回填置 true 校准。
+    let db = fixtures::test_db();
+    for table in ["user_favorites", "watched_apps"] {
+        let dflt: Option<String> = db
+            .conn
+            .query_row(
+                "SELECT dflt_value FROM pragma_table_info(?1) WHERE name = 'is_cataloged'",
+                [table],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(dflt.as_deref(), Some("0"), "{table} default must fail closed");
+    }
+    db.conn
+        .execute(
+            "INSERT INTO user_favorites (app_id, favorited_at) VALUES ('fail/closed', 1700000000)",
+            [],
+        )
+        .unwrap();
+    let entries = db.get_favorite_entries().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert!(
+        !entries[0].is_cataloged,
+        "fresh favorite without flag must fail closed"
+    );
+    db.conn
+        .execute(
+            "INSERT INTO watched_apps (app_id, added_at) VALUES ('fail/closed', 1700000000)",
+            [],
+        )
+        .unwrap();
+    let watched = db.get_watched_apps().unwrap();
+    assert_eq!(watched.len(), 1);
+    assert!(
+        !watched[0].is_cataloged,
+        "fresh watched without flag must fail closed"
+    );
+    // 启动回填语义：目录命中即置 true。
+    db.set_favorite_cataloged("fail/closed", true).unwrap();
+    assert!(db.get_favorite_entries().unwrap()[0].is_cataloged);
+    db.set_watched_cataloged("fail/closed", true).unwrap();
+    assert!(db.get_watched_apps().unwrap()[0].is_cataloged);
+}
+
+#[test]
 fn test_icon_cache_meta_crud() {
     let db = fixtures::test_db();
     assert_eq!(db.get_icon_cache_url("agalwood_Motrix.png").unwrap(), None);

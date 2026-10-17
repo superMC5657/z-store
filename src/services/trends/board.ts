@@ -43,6 +43,9 @@ import React from 'react';
 import {
   buildDoforceCacheKey,
   buildTrendsCacheKey,
+  isDataIcon,
+  isMissingIconForDisplay,
+  isPersistableIcon,
   saveBoardCacheMerged,
 } from './cache';
 import {
@@ -72,7 +75,13 @@ import {
   type SeqGuard,
 } from '../../lib/platformFilter';
 import { zlogInfo } from '../../lib/z-log';
-import { ASSEMBLED_ROW_ICON_QUEUE_CAP, resolveIconWithBuffer } from '../iconStore';
+import {
+  ASSEMBLED_ROW_ICON_QUEUE_CAP,
+  admitIconHit,
+  resolveIconWithBuffer,
+} from '../iconStore';
+
+export { isDataIcon, isMissingIconForDisplay, isPersistableIcon };
 
 /**
  * 单一抓取入口（board 为唯一 deep module 的对外抓取口）。
@@ -163,9 +172,8 @@ export function flushBoardPersist(): void {
 }
 
 /**
- * 卸载同步落盘（含最新镜像先行 hydrate）：View 卸载时先把已渲染镜像
- * 推入内存（图标空不覆实由 enrich 侧保证），再清 debounce 落盘一次，
- * 已 patch 图标先落袋再丢行，不丢于 800ms 窗口内。
+ * 卸载同步落盘（含最新镜像先行 hydrate）：先把已渲染镜像推入内存，
+ * 再清 debounce 定时器并落盘一次；内存合并守卫（空不覆实、`data:` 禁入）由 enrich 侧执行。
  */
 export function flushBoardPersistWithMirror(latest: Record<string, AppSummary>): void {
   try {
@@ -274,11 +282,9 @@ export function mergeSwrConfirmedMirror(
   return changed ? next : prev;
 }
 
-/** 行图标缺失判定（SWR 重挂自愈用）：空串或 `data:` 一律视为缺失（`data:` 永不进盘，无盘可暖）。 */
+/** 行图标缺失判定（SWR 重挂自愈用）：复用展示态 SSOT，空串或 `data:` 视为缺失。 */
 export function isRowIconMissing(icon: unknown): boolean {
-  if (typeof icon !== 'string') return true;
-  const t = icon.trim();
-  return t === '' || t.startsWith('data:');
+  return isMissingIconForDisplay(icon);
 }
 
 /**
@@ -310,9 +316,10 @@ export interface DbIconMergeResult {
 
 /**
  * DB 确认图标合并进镜像（重挂自愈写口，DB-only 无网络）：
- * 仅镜像图标缺失（空/`data:`）且入库图标为非空串时覆盖；已有实图永不覆写
- * （空/`data:` 永不覆实，与店内单 interface 同规则）；大小写归一同时匹配
- * 坐标键与 `enriched.id` 小写别名。返回补齐后的镜像与被补键（供 hydrate 用）。
+ * 仅镜像图标缺失（空/`data:`）时受理；入库图标经店内唯一写口 `admitIconHit`
+ *（`via=m2`，不占 `level`）合流，`data:` 只进 M1 内存、`http` 远端走落盘预热；
+ * 已有实图永不覆写；大小写归一同时匹配坐标键与 `enriched.id` 小写别名。
+ * 返回补齐后的镜像与被补键（供 hydrate 用）。
  */
 export function mergeDbIconsIntoMirror(
   prev: Record<string, AppSummary>,
@@ -334,14 +341,28 @@ export function mergeDbIconsIntoMirror(
   const patchedKeys: string[] = [];
   for (const k of Object.keys(prev)) {
     const cur = prev[k];
-    if (!isRowIconMissing(cur?.icon)) continue;
+    if (!isMissingIconForDisplay(cur?.icon)) continue;
     const alias = String(cur?.id ?? '').trim().toLowerCase();
     const hit =
       byKey.get(String(k).trim().toLowerCase()) ??
       (alias !== '' ? byKey.get(alias) : undefined);
     if (typeof hit !== 'string' || hit.trim() === '') continue;
     if (cur.icon === hit) continue;
-    next[k] = { ...cur, icon: hit };
+    let admitted: string | undefined;
+    try {
+      const res = admitIconHit({
+        id: String(k).trim().toLowerCase() || alias,
+        icon: hit,
+        via: 'm2',
+      });
+      if (!res.accepted || !res.icon) continue;
+      admitted = res.icon;
+    } catch {
+      continue;
+    }
+    if (typeof admitted !== 'string' || admitted.trim() === '') continue;
+    if (cur.icon === admitted) continue;
+    next[k] = { ...cur, icon: admitted };
     changed = true;
     patchedKeys.push(k);
   }
@@ -588,7 +609,7 @@ export function mergeLitePatchedMirror(
 }
 
 /**
- * lite patched 持久化：hydrate（含 data: 剥空）+ 同榜 key 写透。
+ * lite patched 持久化：hydrate（`data:` 剥空由展示态 SSOT 裁决）+ 同榜 key 写透。
  * stale/失败不进 patched，保持 loading 等 settle 兜底。
  */
 export async function maybePersistLitePatched(
@@ -602,8 +623,7 @@ export async function maybePersistLitePatched(
     const cur = latest[normKey];
     if (!cur) continue;
     if (cur.platforms && cur.platforms.length > 0) continue;
-    const icon =
-      typeof cur.icon === 'string' && cur.icon.startsWith('data:') ? '' : cur.icon;
+    const icon = isDataIcon(cur.icon) ? '' : cur.icon;
     toHydrate[normKey] = { ...cur, icon, platforms: [...plats] };
   }
   if (Object.keys(toHydrate).length === 0) return;
@@ -615,7 +635,7 @@ export async function maybePersistLitePatched(
 }
 
 /**
- * lite 空非 stale 确认：本地 + 内存标记 + hydrate（含 data: 剥空）+ 同榜 key 写透。
+ * lite 空非 stale 确认：本地 + 内存标记 + hydrate（`data:` 剥空由展示态 SSOT 裁决）+ 同榜 key 写透。
  * 竞态下已被治愈为具平台则跳过（禁 loading 覆盖具平台）。
  */
 export async function confirmLiteEmpty(
@@ -645,10 +665,7 @@ export async function confirmLiteEmpty(
       const cur = latest[k];
       if (!cur) continue;
       if (cur.platforms && cur.platforms.length > 0) continue;
-      toHydrate[k] =
-        typeof cur.icon === 'string' && cur.icon.startsWith('data:')
-          ? { ...cur, icon: '' }
-          : cur;
+      toHydrate[k] = isDataIcon(cur.icon) ? { ...cur, icon: '' } : cur;
     }
     if (Object.keys(toHydrate).length > 0) {
       putTrendEnrichMemory(toHydrate);
@@ -767,7 +784,7 @@ export interface SettleHydration {
   aliasKeys: string[];
 }
 
-/** 同 key hydrate 输入构建：空 enrich 剥 data:，裸行合成最小摘要。 */
+/** 同 key hydrate 输入构建：`data:` 剥空由展示态 SSOT 裁决，裸行合成最小摘要。 */
 export function buildSettleHydration(
   stillLoading: readonly string[],
   latestEnriched: Record<string, AppSummary>,
@@ -783,7 +800,7 @@ export function buildSettleHydration(
       const curKey = ((cur.id || '') as string).trim().toLowerCase();
       aliasKeys.push(key);
       if (curKey !== '' && curKey !== key) aliasKeys.push(curKey);
-      if (typeof cur.icon === 'string' && cur.icon.startsWith('data:')) {
+      if (isDataIcon(cur.icon)) {
         toHydrate[key] = { ...cur, icon: '' };
       } else if (!toHydrate[key]) {
         toHydrate[key] = cur;
@@ -1039,7 +1056,7 @@ export function applyRichcardHealToMirror(
   return changed ? next : prev;
 }
 
-/** 富卡治愈持久化：hydrate + 节流写透（data: 禁入由 hydrate 保证）。 */
+/** 富卡治愈持久化：hydrate + 节流写透（`data:` 禁入由展示态 SSOT 与 hydrate 保证）。 */
 export function maybePersistRichcardHeal(
   latest: Record<string, AppSummary>,
   payload: DetailRichcardHealPayload,
@@ -1065,7 +1082,7 @@ export function maybePersistRichcardHeal(
           platforms:
             payload.platforms && payload.platforms.length > 0 ? [...payload.platforms] : [],
         } as AppSummary;
-        if (typeof created.icon === 'string' && created.icon.startsWith('data:')) continue;
+        if (isDataIcon(created.icon)) continue;
         if (typeof created.description === 'string' && isPlaceholderDescription(created.description)) {
           created.description = '';
         }

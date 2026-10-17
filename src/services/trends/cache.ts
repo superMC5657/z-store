@@ -238,10 +238,7 @@ export async function getDbTrendCache(key: string, board?: string): Promise<Tren
             candidate.owner.trim() !== '' &&
             typeof candidate.repo === 'string' &&
             candidate.repo.trim() !== '' &&
-            !(
-              typeof candidate.icon === 'string' &&
-              candidate.icon.startsWith('data:')
-            ) &&
+            !isDataIcon(candidate.icon) &&
             Array.isArray(candidate.platforms)
           ) {
             guardedEnrich[normalizeId(rawKey)] = item as AppSummary;
@@ -300,7 +297,7 @@ export async function saveDbTrendCache(
       if (typeof s.owner !== 'string' || s.owner.trim() === '') continue;
       if (typeof s.repo !== 'string' || s.repo.trim() === '') continue;
       if (!Array.isArray(summary.platforms)) continue;
-      if (typeof summary.icon === 'string' && summary.icon.startsWith('data:')) continue;
+      if (isDataIcon(summary.icon)) continue;
       const cleanKey = normalizeId(k);
       if (cleanKey) {
         sanitizedEnrich[cleanKey] = summary;
@@ -382,9 +379,27 @@ function wantedEnrichKeys(repos: TrendRepo[]): Set<string> {
  * - 现状：写透节流由调用方 debounce（TrendsView scheduleBoardWriteThrough 800ms）保持；
  *   读路径 hydrate/sweep 不触发写放大，仅显式变化（mark/unmark/具平台驱逐 emit）触发写透。
  */
-/** 可落盘图标判定：非空且非 `data:`（`data:` 永不进盘，见信封守卫）。 */
-function isRealPersistableIcon(icon: unknown): boolean {
-  return typeof icon === 'string' && icon.trim() !== '' && !icon.startsWith('data:');
+/**
+ * 图标展示态判定 SSOT（趋势榜 + 榜缓存二级共用）：
+ * - `isDataIcon`：`data:` 前缀即内联展示态（前后空格容忍）；
+ * - `isMissingIconForDisplay`：空串或内联展示态一律视为缺失（内联态永不进盘）；
+ * - `isPersistableIcon`：非缺失即实图（内联态永不进盘）。
+ * 本模块唯一前缀判定实现处，其余一律复用三函数，不自立规则。
+ */
+export function isDataIcon(icon: unknown): boolean {
+  return typeof icon === 'string' && icon.trim().startsWith('data:');
+}
+
+/** 图标缺失判定：空串或 `data:` 视为缺失（重挂自愈与落盘守卫共用）。 */
+export function isMissingIconForDisplay(icon: unknown): boolean {
+  if (typeof icon !== 'string') return true;
+  if (icon.trim() === '') return true;
+  return isDataIcon(icon);
+}
+
+/** 可落盘图标判定：非缺失即实图（`data:` 永不进盘，见信封守卫）。 */
+export function isPersistableIcon(icon: unknown): boolean {
+  return !isMissingIconForDisplay(icon);
 }
 
 /**
@@ -395,12 +410,12 @@ function preferRealIcon(
   memory: AppSummary,
   disk: AppSummary,
 ): AppSummary {
-  const memoryReal = isRealPersistableIcon(memory.icon);
-  const diskReal = isRealPersistableIcon(disk.icon);
+  const memoryReal = isPersistableIcon(memory.icon);
+  const diskReal = isPersistableIcon(disk.icon);
   if (memoryReal) return memory;
   if (diskReal) return { ...memory, icon: disk.icon };
-  // 双方均空/`data:`：统一剥成空串（`data:` 永不进盘），其余字段取内存侧。
-  if (typeof memory.icon === 'string' && memory.icon.startsWith('data:')) {
+  // 双方均缺失：统一剥成空串（`data:` 永不进盘），其余字段取内存侧。
+  if (isDataIcon(memory.icon)) {
     return { ...memory, icon: '' };
   }
   return memory;
