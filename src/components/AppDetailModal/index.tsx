@@ -30,7 +30,6 @@ export interface AppDetailModalProps {
   onLaunch: (id: string) => void;
   onUninstall?: (id: string) => Promise<void> | void;
   onUnmanage?: (id: string) => Promise<void> | void;
-  onManageApp?: (id: string) => Promise<void> | void;
   onToggleFavorite?: (id: string) => void;
   onToggleWatch?: (id: string) => void;
   onOpenDeveloperProfile?: (developer: string) => void;
@@ -55,7 +54,6 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   onLaunch,
   onUninstall,
   onUnmanage,
-  onManageApp,
   onToggleFavorite,
   onToggleWatch,
   onOpenDeveloperProfile,
@@ -241,7 +239,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   };
 
   const handleAction = async () => {
-    // P0 已纳管 vs 仅检测到：仅已纳管走启动；仅检测到走覆盖/重装（安装通道），避免误把纳管点击当启动。
+    // 已纳管走启动；未纳管走安装通道。
     if (isInstalled && isManaged) {
       onLaunch(app.id);
       return;
@@ -336,7 +334,6 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
             onLaunch={onLaunch}
             onUninstall={onUninstall}
             onUnmanage={onUnmanage}
-            onManageApp={onManageApp}
             onOpenAccountSettings={onOpenAccountSettings}
             onClose={onClose}
             onRevealDownload={handleRevealDownload}

@@ -583,8 +583,6 @@ pub fn run() {
             commands::get_catalog_count,
             commands::scan_and_match_local_apps,
             commands::import_matched_apps,
-            commands::get_detected_installed_app_ids,
-            commands::import_single_app,
             commands::launch_app,
             commands::get_update_rules,
             commands::set_app_skip_version,

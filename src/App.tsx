@@ -44,7 +44,7 @@ import { useDetailCacheSync } from './app/hooks/useDetailCacheSync';
 import { useUncatalogedJoin } from './app/favoritesUncataloged';
 import { useAppSubscriptions } from './app/hooks/useAppSubscriptions';
 import { useAppSelectors } from './app/selectors';
-import { isInstalledUnion as selectIsInstalledUnion, isManaged as selectIsManaged } from './app/selectors';
+import { isInstalled as selectIsInstalled, isManaged as selectIsManaged } from './app/selectors';
 import { useUpdateActions } from './app/hooks/useUpdateActions';
 import { useToasts } from './useToasts';
 import { useAppSettings } from './useAppSettings';
@@ -240,14 +240,11 @@ export const App: React.FC = () => {
     installingAppIds,
     uninstallingAppIds,
     isRefreshingInstalled,
-    detectedAppIds,
-    setDetectedAppIds,
     handleInstallApp,
     handleQuickInstall,
     handleLaunchApp,
     handleUnmanageApp,
     handleRefreshInstalledApps,
-    handleManageApp,
     handleUninstallApp,
   } = useInstallState({
     currentView,
@@ -384,7 +381,6 @@ export const App: React.FC = () => {
     setRecentlyViewedApps,
     setFavoriteExtraApps,
     setInstalledApps,
-    setDetectedAppIds,
     setFavoriteIds,
     setUpdateRules,
     setWatchedIds,
@@ -428,7 +424,6 @@ export const App: React.FC = () => {
     onlineApps,
     favoriteExtraApps,
     installedApps,
-    detectedAppIds,
     updates,
     selectedPlatforms,
     setSelectedPlatforms,
@@ -693,7 +688,6 @@ export const App: React.FC = () => {
                 searchQuery={searchQuery}
                 onOpenDetail={handleOpenDetail}
                 onQuickInstall={handleQuickInstall}
-                onManageApp={handleManageApp}
                 onToggleFavorite={handleToggleFavorite}
                 onToggleWatch={handleToggleWatch}
                 onNavigateTrends={() => setCurrentView('trends')}
@@ -725,7 +719,6 @@ export const App: React.FC = () => {
               managedIds={managedLoaded ? managedIds : null}
               onOpenDetail={handleOpenDetail}
               onQuickInstall={handleQuickInstall}
-              onManageApp={handleManageApp}
               onToggleFavorite={handleToggleFavorite}
               onToggleWatch={handleToggleWatch}
               onResetPlatformFilter={handleResetPlatformFilter}
@@ -744,7 +737,6 @@ export const App: React.FC = () => {
               watchedIds={watchedIds}
               onOpenDetail={handleOpenDetail}
               onQuickInstall={handleQuickInstall}
-              onManageApp={handleManageApp}
               onToggleFavorite={handleToggleFavorite}
               onToggleWatch={handleToggleWatch}
               onResetPlatformFilter={handleResetPlatformFilter}
@@ -775,7 +767,6 @@ export const App: React.FC = () => {
               oauthUser={oauthUser}
               onOpenDetail={handleOpenDetail}
               onQuickInstall={handleQuickInstall}
-              onManageApp={handleManageApp}
               onToggleFavorite={handleToggleFavorite}
               onToggleWatch={handleToggleWatch}
             />
@@ -868,7 +859,7 @@ export const App: React.FC = () => {
       {selectedApp && (
         <AppDetailModal
           app={selectedApp}
-          isInstalled={selectIsInstalledUnion(selectedApp.id, installedIds)}
+          isInstalled={selectIsInstalled(selectedApp.id, installedIds)}
           isManaged={managedLoaded ? selectIsManaged(selectedApp.id, managedIds) : null}
           isExploreMode={currentView === 'home' || currentView === 'trends' || currentView === 'categories'}
           isFavorite={favoriteIds.has(selectedApp.id)}
@@ -885,7 +876,6 @@ export const App: React.FC = () => {
           onLaunch={handleLaunchApp}
           onUninstall={handleUninstallApp}
           onUnmanage={handleUnmanageApp}
-          onManageApp={handleManageApp}
           onToggleFavorite={handleToggleFavorite}
           onToggleWatch={handleToggleWatch}
           onOpenDeveloperProfile={(owner) => setSelectedDeveloper(owner)}
@@ -904,7 +894,6 @@ export const App: React.FC = () => {
         onInstallApp={handleInstallApp}
         installedIds={installedIds}
         managedIds={managedLoaded ? managedIds : null}
-        onManageApp={handleManageApp}
       />
 
       {/* 系统已安装应用导入弹窗（FR-5.3） */}

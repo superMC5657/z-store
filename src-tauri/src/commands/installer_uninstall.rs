@@ -166,9 +166,6 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result
     let db = state.db()?;
     let res = db.remove_installed_app(&app_id).map_err(|e| e.to_string());
 
-    // 6. 精准从缓存中移除该应用，避免产生全量扫描开销
-    crate::commands::scanner::remove_from_detected_cache(&app_id);
-
     match &res {
         Ok(_) => log::info!(
             "uninstall done sid={} id={}",
@@ -190,8 +187,6 @@ pub fn unmanage_app(state: State<'_, AppState>, app_id: String) -> Result<bool, 
     let app_id = resolve_managed_app_id(&app_id)?;
     let db = state.db()?;
     let res = db.remove_installed_app(&app_id).map_err(|e| e.to_string());
-    // 从列表移除管理后，本机依然存在该软件，因此保持/添加到已探测缓存中
-    crate::commands::scanner::add_to_detected_cache(&app_id);
     res
 }
 

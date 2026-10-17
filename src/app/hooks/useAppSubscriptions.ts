@@ -27,7 +27,6 @@ export interface UseAppSubscriptionsParams {
   setRecentlyViewedApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
   setFavoriteExtraApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
   setInstalledApps: React.Dispatch<React.SetStateAction<InstalledApp[]>>;
-  setDetectedAppIds: React.Dispatch<React.SetStateAction<Set<string>>>;
   setFavoriteIds: React.Dispatch<React.SetStateAction<Set<string>>>;
   setUpdateRules: React.Dispatch<React.SetStateAction<UpdateRule[]>>;
   setWatchedIds: React.Dispatch<React.SetStateAction<Set<string>>>;
@@ -108,7 +107,6 @@ export function useAppSubscriptions({
   setRecentlyViewedApps,
   setFavoriteExtraApps,
   setInstalledApps,
-  setDetectedAppIds,
   setFavoriteIds,
   setUpdateRules,
   setWatchedIds,
@@ -154,7 +152,6 @@ export function useAppSubscriptions({
       );
     });
     tauriApi.getInstalledApps().then(setInstalledApps);
-    tauriApi.getDetectedInstalledAppIds().then((ids) => setDetectedAppIds(new Set(ids))).catch(() => {});
     tauriApi.getFavorites().then((favs) => setFavoriteIds(new Set(favs)));
     tauriApi.getUpdateRules().then(setUpdateRules);
     tauriApi.getRecentlyViewedApps().then((recents) => setRecentlyViewedApps(recents.filter((a) => matchPlatformSetWithLoading(a, initialFilter.selectedPlatforms, initialFilter.platformResolvedOtherIds)))).catch(() => {});

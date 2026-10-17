@@ -28,7 +28,7 @@ import { useHomeFeed, HOME_FEED_PAGE } from './HomeView/useHomeFeed';
 import { useOnlinePullToLoadMore } from './HomeView/useOnlinePullToLoadMore';
 import { queueAssembledRowIcons } from '../services/iconStore';
 import { isPlatformLoading } from '../lib/platformFilter';
-import { annotateOnlineCataloged, buildCatalogIdSet, isInstalledUnion as selectIsInstalledUnion, selectIsDetectedOnlyOpt, selectIsManagedOpt } from '../app/selectors';
+import { annotateOnlineCataloged, buildCatalogIdSet, isInstalled as selectIsInstalled, selectIsManagedOpt } from '../app/selectors';
 import { normalizeId } from '../services/normalizeId';
 import { tauriApi } from '../services/api';
 import { buildCustomDraftItemFromSummary } from '../services/api/catalog';
@@ -83,7 +83,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
   searchQuery = '',
   onOpenDetail,
   onQuickInstall,
-  onManageApp,
   onToggleFavorite,
   watchedIds,
   onToggleWatch,
@@ -257,7 +256,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             {/* 操作按钮组 */}
             <div className="hero-actions">
               <button
-                className={`btn-fluent ${selectIsInstalledUnion(heroApp.id, installedIds) ? 'btn-secondary' : 'btn-primary'}`}
+                className={`btn-fluent ${selectIsInstalled(heroApp.id, installedIds) ? 'btn-secondary' : 'btn-primary'}`}
                 style={{ padding: '8px 20px', fontSize: 'var(--font-base)', fontWeight: 510, display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                 disabled={installingIds?.has(heroApp.id)}
                 onClick={(e) => {
@@ -270,7 +269,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                     <span className="spinner-icon" style={{ width: '12px', height: '12px', borderWidth: '1.5px' }} />
                     <span>{t('app.installing')}</span>
                   </span>
-                ) : selectIsInstalledUnion(heroApp.id, installedIds) ? (
+                ) : selectIsInstalled(heroApp.id, installedIds) ? (
                   <>
                     <Play size={14} />
                     <span>{t('home.ready_open')}</span>
@@ -346,15 +345,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 key={app.id}
                 app={app}
                 platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
-                isInstalled={selectIsInstalledUnion(app.id, installedIds)}
+                isInstalled={selectIsInstalled(app.id, installedIds)}
                 isManaged={selectIsManagedOpt(app.id, managedIds)}
-                isDetectedOnly={selectIsDetectedOnlyOpt(app.id, installedIds, managedIds)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}
                 isWatched={watchedIds?.has(app.id)}
                 onOpenDetail={onOpenDetail}
                 onQuickInstall={onQuickInstall}
-                onManageApp={onManageApp}
                 onToggleFavorite={onToggleFavorite}
                 onToggleWatch={onToggleWatch}
               />
@@ -379,15 +376,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 app={app}
                 eager
                 platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
-                isInstalled={selectIsInstalledUnion(app.id, installedIds)}
+                isInstalled={selectIsInstalled(app.id, installedIds)}
                 isManaged={selectIsManagedOpt(app.id, managedIds)}
-                isDetectedOnly={selectIsDetectedOnlyOpt(app.id, installedIds, managedIds)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}
                 isWatched={watchedIds?.has(app.id)}
                 onOpenDetail={onOpenDetail}
                 onQuickInstall={onQuickInstall}
-                onManageApp={onManageApp}
                 onToggleFavorite={onToggleFavorite}
                 onToggleWatch={onToggleWatch}
               />
@@ -412,15 +407,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   key={app.id}
                   app={app}
                   platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
-                  isInstalled={selectIsInstalledUnion(app.id, installedIds)}
+                  isInstalled={selectIsInstalled(app.id, installedIds)}
                   isManaged={selectIsManagedOpt(app.id, managedIds)}
-                  isDetectedOnly={selectIsDetectedOnlyOpt(app.id, installedIds, managedIds)}
                   isInstalling={installingIds?.has(app.id)}
                   isFavorite={favoriteIds.has(app.id)}
                   isWatched={watchedIds?.has(app.id)}
                   onOpenDetail={onOpenDetail}
                   onQuickInstall={onQuickInstall}
-                  onManageApp={onManageApp}
                   onToggleFavorite={onToggleFavorite}
                   onToggleWatch={onToggleWatch}
                 />
@@ -457,15 +450,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   key={app.id}
                   app={app}
                   platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
-                  isInstalled={selectIsInstalledUnion(app.id, installedIds)}
+                  isInstalled={selectIsInstalled(app.id, installedIds)}
                   isManaged={selectIsManagedOpt(app.id, managedIds)}
-                  isDetectedOnly={selectIsDetectedOnlyOpt(app.id, installedIds, managedIds)}
                   isInstalling={installingIds?.has(app.id)}
                   isFavorite={favoriteIds.has(app.id)}
                   isWatched={watchedIds?.has(app.id)}
                   onOpenDetail={onOpenDetail}
                   onQuickInstall={onQuickInstall}
-                  onManageApp={onManageApp}
                   onToggleFavorite={onToggleFavorite}
                   onToggleWatch={onToggleWatch}
                   onMoveInApp={handleMoveIn}
@@ -557,15 +548,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 key={app.id}
                 app={app}
                 platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
-                isInstalled={selectIsInstalledUnion(app.id, installedIds)}
+                isInstalled={selectIsInstalled(app.id, installedIds)}
                 isManaged={selectIsManagedOpt(app.id, managedIds)}
-                isDetectedOnly={selectIsDetectedOnlyOpt(app.id, installedIds, managedIds)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}
                 isWatched={watchedIds?.has(app.id)}
                 onOpenDetail={onOpenDetail}
                 onQuickInstall={onQuickInstall}
-                onManageApp={onManageApp}
                 onToggleFavorite={onToggleFavorite}
                 onToggleWatch={onToggleWatch}
               />

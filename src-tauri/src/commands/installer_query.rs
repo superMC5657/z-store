@@ -66,7 +66,7 @@ pub fn get_installed_apps(state: State<'_, AppState>) -> Result<Vec<InstalledApp
         let _ = db.save_installed_app(&updated);
     }
     // 审查项 3.2-3：只读扫描契约 —— 可执行文件消失绝不能在此处直接删除数据库记录
-    // （不得调用 remove_installed_app，也不得清除检测缓存）；
+    // （不得调用 remove_installed_app）；
     // 数据库行予以保留，幽灵应用仅在返回视图中隐藏，并在日志中体现数量。
     if !ghost_app_ids.is_empty() {
         log::warn!(

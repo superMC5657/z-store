@@ -38,12 +38,10 @@ export interface ViewAppActions {
   installingIds?: Set<string>;
   favoriteIds: Set<string>;
   watchedIds?: Set<string>;
-  /** 已纳管集合（供 isManaged/isDetectedOnly 派生；显式 null = managed 未加载，union 命中行占位，P1）。 */
+  /** 已纳管集合（供 isManaged 派生；显式 null = managed 未加载，已安装命中行占位，P1）。 */
   managedIds?: Set<string> | null;
   onOpenDetail: (id: string) => void;
   onQuickInstall: (id: string) => void;
-  /** 仅检测到时点击纳管（调 handleManageApp/importSingleApp）。缺席时回退为打开详情。 */
-  onManageApp?: (id: string) => void | Promise<void>;
   onToggleFavorite: (id: string) => void;
   onToggleWatch?: (id: string) => void;
 }

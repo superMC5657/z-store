@@ -218,14 +218,6 @@ export async function importMatchedApps(apps: ImportAppRequest[]): Promise<numbe
   return tauriInvoke<number>(CMD.importMatchedApps, { apps });
 }
 
-export async function getDetectedInstalledAppIds(forceRefresh = false): Promise<string[]> {
-  return tauriInvoke<string[]>(CMD.getDetectedInstalledAppIds, { forceRefresh });
-}
-
-export async function importSingleApp(appId: string): Promise<boolean> {
-  return tauriInvoke<boolean>(CMD.importSingleApp, { appId });
-}
-
 export async function recordSearchQuery(query: string): Promise<void> {
   return tauriInvoke<void>(CMD.recordSearchQuery, { query });
 }

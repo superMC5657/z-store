@@ -67,8 +67,7 @@ import {
   annotateEnrichMirrorCataloged,
   buildCatalogIdSet,
   isEnrichedRowLoading,
-  isInstalledUnion as selectIsInstalledUnion,
-  selectIsDetectedOnlyOpt,
+  isInstalled as selectIsInstalled,
   selectIsManagedOpt,
 } from '../app/selectors';
 import {
@@ -159,7 +158,6 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   managedIds = null,
   onOpenDetail,
   onQuickInstall,
-  onManageApp,
   onToggleFavorite,
   onToggleWatch,
   watchedIds,
@@ -660,15 +658,13 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                   eager={index < 6}
                   trendGain={item.gain}
                   trendGainText={gainTextFor(item.gain)}
-                  isInstalled={selectIsInstalledUnion(item.app.id, installedIds)}
+                  isInstalled={selectIsInstalled(item.app.id, installedIds)}
                   isManaged={selectIsManagedOpt(item.app.id, managedIds)}
-                  isDetectedOnly={selectIsDetectedOnlyOpt(item.app.id, installedIds, managedIds)}
                   isInstalling={installingIds?.has(item.app.id) ?? false}
                   isFavorite={favoriteIds?.has(normalizeId(item.app.id)) ?? false}
                   isWatched={watchedIds?.has(normalizeId(item.app.id)) ?? false}
                   onOpenDetail={onOpenDetail}
                   onQuickInstall={onQuickInstall}
-                  onManageApp={onManageApp}
                   onToggleFavorite={onToggleFavorite}
                   onToggleWatch={onToggleWatch}
                 />
@@ -696,15 +692,13 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                   eager={index < 6}
                   trendGain={item.gain}
                   trendGainText={gainTextFor(item.gain)}
-                  // 未收录 enrich 行安装态走真实 union 检查（归一 ID），禁止回退硬编码 false。
-                  isInstalled={selectIsInstalledUnion(enriched.id, installedIds)}
+                  // 未收录 enrich 行安装态走真实已安装检查（归一 ID），禁止回退硬编码 false。
+                  isInstalled={selectIsInstalled(enriched.id, installedIds)}
                   isManaged={selectIsManagedOpt(enriched.id, managedIds)}
-                  isDetectedOnly={selectIsDetectedOnlyOpt(enriched.id, installedIds, managedIds)}
                   isInstalling={false}
                   isFavorite={favoriteIds?.has(normalizeId(enriched.id)) ?? false}
                   isWatched={watchedIds?.has(normalizeId(enriched.id)) ?? false}
                   onOpenDetail={onOpenDetail}
-                  onManageApp={onManageApp}
                   onToggleFavorite={onToggleFavorite}
                   onToggleWatch={onToggleWatch}
                   onQuickInstall={() => {

@@ -50,10 +50,8 @@ import {
 import {
   handleCheckForUpdates,
   handleDownloadAsset,
-  handleGetDetectedInstalledAppIds,
   handleGetInstalledApps,
   handleGetUpdateRules,
-  handleImportSingleApp,
   handleInstallApp,
   handleLaunchApp,
   handleOpenFolder,
@@ -251,10 +249,6 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleLaunchApp();
     case 'check_for_updates':
       return handleCheckForUpdates();
-    case 'get_detected_installed_app_ids':
-      return handleGetDetectedInstalledAppIds();
-    case 'import_single_app':
-      return handleImportSingleApp(a);
     case 'get_update_rules':
       return handleGetUpdateRules();
     case 'set_app_skip_version':

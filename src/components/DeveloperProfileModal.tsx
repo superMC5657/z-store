@@ -3,7 +3,7 @@ import { Package, Users, Building2, MapPin, Link, FolderOpen, Star, GitFork, Cod
 import { DeveloperProfile } from '../types';
 import { tauriApi } from '../services/api';
 import { EmptyState } from './EmptyState';
-import { isInstalledUnion, selectIsDetectedOnlyOpt, selectIsManagedOpt } from '../app/selectors';
+import { isInstalled, selectIsManagedOpt } from '../app/selectors';
 
 interface DeveloperProfileModalProps {
   developer: string;
@@ -14,11 +14,9 @@ interface DeveloperProfileModalProps {
   installedIds?: Set<string>;
   /**
    * 已纳管集合（必传；显式 `null` = managed 未加载，
-   * union 命中行渲染中性占位，永不闪灰，P1）。
+   * 已安装命中行渲染中性占位，P1）。
    */
   managedIds: Set<string> | null;
-  /** 仅检测到时点击纳管（调 handleManageApp/importSingleApp）。缺席时回退为打开详情。 */
-  onManageApp?: (appId: string) => void | Promise<void>;
 }
 
 export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
@@ -29,13 +27,11 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
   onInstallApp,
   installedIds,
   managedIds,
-  onManageApp,
 }) => {
   const [profile, setProfile] = useState<DeveloperProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [installingId, setInstallingId] = useState<string | null>(null);
-  const [managingId, setManagingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen || !developer) return;
@@ -83,18 +79,6 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
       await onInstallApp(appId);
     } finally {
       setInstallingId(null);
-    }
-  };
-
-  const handleManage = async (appId: string) => {
-    if (!onManageApp || managingId === appId) return;
-    try {
-      setManagingId(appId);
-      await onManageApp(appId);
-    } catch {
-      /* 导入静默失败；列表保持不变 */
-    } finally {
-      setManagingId(null);
     }
   };
 
@@ -256,16 +240,13 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {profile.repos.map((repo) => {
                 const isInstalling = installingId === repo.id;
-                const isManagingRow = managingId === repo.id;
-                // P0 已纳管 vs 仅检测到：managed 绿已安装，detected 灰检测到·点击纳管；
+                // 已纳管绿已安装，未纳管走安装；
                 // 判态统一经共享选择器（归一 ID，大小写变体一致）；managedIds===null（未加载）
-                // + union 命中 = 未知，中性占位永不闪灰（P1）。
-                const installed = isInstalledUnion(repo.id, installedIds);
+                // + 已安装命中 = 未知，中性占位（P1）。
+                const installed = isInstalled(repo.id, installedIds);
                 const managed = selectIsManagedOpt(repo.id, managedIds);
-                const detectedOnly = selectIsDetectedOnlyOpt(repo.id, installedIds, managedIds);
                 const isUnknownRow = installed && managed === null;
-                const showManaged = !isUnknownRow && managed === true && detectedOnly !== true;
-                const showDetected = !isUnknownRow && detectedOnly === true && !managed;
+                const showManaged = !isUnknownRow && managed === true;
 
                 return (
                   <div
@@ -342,7 +323,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                             查看
                           </button>
                           {isUnknownRow ? (
-                            // P1 未知态中性占位（单色骨架，不可交互），永不闪灰
+                            // P1 未知态中性占位（单色骨架，不可交互）
                             <button
                               className="btn-fluent btn-secondary"
                               data-badge="unknown"
@@ -369,24 +350,6 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                               title="已就绪 · 点击查看与管理"
                             >
                               ✓ 安装
-                            </button>
-                          ) : showDetected ? (
-                            <button
-                              className="btn-fluent btn-install"
-                              data-badge="detected"
-                              style={{ fontSize: 'var(--font-sm)', padding: '6px 14px', fontWeight: 510, background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', borderColor: 'var(--border-subtle)' }}
-                              disabled={isManagingRow}
-                              onClick={() => {
-                                if (onManageApp) {
-                                  void handleManage(repo.id);
-                                } else {
-                                  onClose();
-                                  onOpenAppDetail(repo.id);
-                                }
-                              }}
-                              title="检测到本地安装，点击纳入管理"
-                            >
-                              {isManagingRow ? '纳管中...' : '检测到·点击纳管'}
                             </button>
                           ) : (
                             <button

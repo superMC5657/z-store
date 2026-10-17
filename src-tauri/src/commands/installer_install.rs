@@ -182,8 +182,5 @@ pub async fn install_app(
             .map_err(|e| e.to_string())?;
     }
 
-    // 精准将新安装的应用增量写入常驻缓存，避免全盘重新扫描
-    crate::commands::scanner::add_to_detected_cache(&prep.detail.id);
-
     Ok(installed_app)
 }

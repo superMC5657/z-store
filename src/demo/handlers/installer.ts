@@ -91,21 +91,6 @@ export function handleGetInstalledApps(): InstalledApp[] {
   return [...getInstalledApps()];
 }
 
-export function handleGetDetectedInstalledAppIds(): string[] {
-  return getInstalledApps().map((i) => i.app_id);
-}
-
-export function handleImportSingleApp(a: InvokeArgs): boolean {
-  const id = argStr(a, 'appId', 'app_id', 'id');
-  const hit = findSummary(id);
-  if (hit && !getInstalledApps().some((i) => i.app_id.toLowerCase() === hit.id.toLowerCase())) {
-    const list = [...getInstalledApps(), summaryToInstalled(hit)];
-    setInstalledApps(list);
-    lsSet(LS.installed, list);
-  }
-  return true;
-}
-
 export function handleCheckForUpdates(): UpdateItem[] {
   return buildDemoUpdates(getInstalledApps());
 }

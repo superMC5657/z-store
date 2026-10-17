@@ -28,7 +28,6 @@ export interface UseAppSelectorsParams {
   onlineApps: AppSummary[];
   favoriteExtraApps: AppSummary[];
   installedApps: InstalledApp[];
-  detectedAppIds: Set<string>;
   updates: UpdateItem[];
   selectedPlatforms: Set<PlatformId>;
   setSelectedPlatforms: React.Dispatch<React.SetStateAction<Set<PlatformId>>>;
@@ -101,16 +100,11 @@ export function buildAppsById(apps: AppSummary[]): Map<string, AppSummary> {
   return map;
 }
 
-export function buildInstalledIds(installedApps: InstalledApp[], detectedAppIds: Set<string>): Set<string> {
+export function buildInstalledIds(installedApps: InstalledApp[]): Set<string> {
   const set = new Set<string>();
   for (const a of installedApps) {
     set.add(a.app_id);
     const n = normalizeId(a.app_id);
-    if (n) set.add(n);
-  }
-  for (const id of detectedAppIds) {
-    set.add(id);
-    const n = normalizeId(id);
     if (n) set.add(n);
   }
   return set;
@@ -127,9 +121,8 @@ export function buildManagedIds(installedApps: InstalledApp[]): Set<string> {
 }
 
 /**
- * P0 已纳管 vs 仅检测到：组件统一经此判态，消灭发现页误报“已安装”。
+ * 已纳管判定：组件统一经此判态，消灭发现页误报“已安装”。
  * - isManaged：已纳入 ZStore 管理（绿色已安装，来源 installedApps）。
- * - isDetectedOnly：在 union（installed+detected）中但不在 managed 中（灰色检测到·点击纳管）。
  * 大小写归一经 `normalizeId` 单口；raw 直命中优先，归一兜底。
  */
 export function isManaged(id: string, managedIds: Set<string>): boolean {
@@ -140,21 +133,12 @@ export function isManaged(id: string, managedIds: Set<string>): boolean {
   return false;
 }
 
-export function isDetectedOnly(id: string, installedIds: Set<string>, managedIds: Set<string>): boolean {
-  if (!id) return false;
-  if (isManaged(id, managedIds)) return false;
-  if (installedIds.has(id)) return true;
-  const n = normalizeId(id);
-  if (n && installedIds.has(n)) return true;
-  return false;
-}
-
 /**
- * union 已安装（含仅检测到）归一判定：调用方禁止再手写 `installedIds.has(id)` raw 直查
+ * 已安装（已纳管）归一判定：调用方禁止再手写 `installedIds.has(id)` raw 直查
  * （大小写变体 ID 下与 managed 判态分叉）。raw 直命中优先，归一兜底；
  * 集合缺席（null/undefined）即未安装。
  */
-export function isInstalledUnion(id: string, installedIds: Set<string> | null | undefined): boolean {
+export function isInstalled(id: string, installedIds: Set<string> | null | undefined): boolean {
   if (!id || !installedIds || installedIds.size === 0) return false;
   if (installedIds.has(id)) return true;
   const n = normalizeId(id);
@@ -164,7 +148,7 @@ export function isInstalledUnion(id: string, installedIds: Set<string> | null | 
 
 /**
  * managed 三态（P1 冷启闪烁修复）：`null` = managed 列表尚未加载（未知），
- * `Set<string>` = 已知集合。未知态调用方渲染中性占位，永不闪灰。
+ * `Set<string>` = 已知集合。未知态调用方渲染中性占位。
  */
 export function selectIsManagedOpt(
   id: string,
@@ -174,21 +158,8 @@ export function selectIsManagedOpt(
   return isManaged(id, managedIds);
 }
 
-/**
- * detectedOnly 三态：与 `selectIsManagedOpt` 同口径。managed 未知且 union 命中
- * 即未知（null，占位）；union 未命中即确定未检测到（false，无需占位）。
- */
-export function selectIsDetectedOnlyOpt(
-  id: string,
-  installedIds: Set<string> | null | undefined,
-  managedIds: Set<string> | null,
-): boolean | null {
-  if (managedIds === null) return isInstalledUnion(id, installedIds) ? null : false;
-  return isDetectedOnly(id, installedIds ?? new Set<string>(), managedIds);
-}
-
-/** 徽标四态（单测与文档口径，组件三布尔 props 为其展开形态）。 */
-export type BadgeState = 'managed' | 'detected' | 'none' | 'unknown';
+/** 徽标三态（单测与文档口径，组件布尔 props 为其展开形态）。 */
+export type BadgeState = 'managed' | 'none' | 'unknown';
 
 export function selectBadgeState(
   id: string,
@@ -196,19 +167,9 @@ export function selectBadgeState(
   managedIds: Set<string> | null,
 ): BadgeState {
   if (!id) return 'none';
-  if (managedIds === null) return isInstalledUnion(id, installedIds) ? 'unknown' : 'none';
+  if (managedIds === null) return isInstalled(id, installedIds) ? 'unknown' : 'none';
   if (isManaged(id, managedIds)) return 'managed';
-  if (isDetectedOnly(id, installedIds ?? new Set<string>(), managedIds)) return 'detected';
   return 'none';
-}
-
-/**
- * 布尔口径 detected 归一（InstallActions 等仅持有 booleans 的末端使用）：
- * 调用方 booleans 须经上方归一选择器得出；末端禁止再手写 `isInstalled && !isManaged`
- * 派生（大小写变体 ID 下与选择器分叉）。`isManaged === null`（未知）恒非 detected。
- */
-export function resolveDetectedOnly(isInstalled: boolean, isManaged: boolean | null): boolean {
-  return isInstalled && isManaged === false;
 }
 
 /**
@@ -444,7 +405,6 @@ export function useAppSelectors({
   onlineApps,
   favoriteExtraApps,
   installedApps,
-  detectedAppIds,
   updates,
   selectedPlatforms,
   setSelectedPlatforms,
@@ -526,15 +486,15 @@ export function useAppSelectors({
   }, []);
   const sidebarPlatformCounts = currentView === 'trends' && trendsPlatformCounts ? trendsPlatformCounts : platformCounts;
 
-  const installedIds = useMemo(() => buildInstalledIds(installedApps, detectedAppIds), [installedApps, detectedAppIds]);
+  const installedIds = useMemo(() => buildInstalledIds(installedApps), [installedApps]);
 
   const managedIds = useMemo(() => buildManagedIds(installedApps), [installedApps]);
 
-  // managed 加载三态（P1 冷启 green→gray→green 闪烁修复）：`installedApps` 初始 `[]`
+  // managed 加载三态（P1 冷启闪烁修复）：`installedApps` 初始 `[]`
   // 与“已加载但为空”引用不同（订阅层 `.then(setInstalledApps)` 恒产生新引用，
   // IPC 反序列化无复用），引用变化即 managed 已加载；其它重渲染引用不变即仍未知。
-  // 加载失败无写入时 union 为空恒走 'none'（全 Get），故失败态自然降级；8s 超时兜底
-  // 防 installed 失败 + detected 成功时占位永久悬挂（此时 union 命中才占位）。
+  // 加载失败无写入时 installed 为空恒走 'none'（全 Get），故失败态自然降级；8s 超时兜底
+  // 防占位永久悬挂（此时已安装命中才占位）。
   const initialInstalledRef = useRef(installedApps);
   const [managedLoaded, setManagedLoaded] = useState(false);
   useEffect(() => {

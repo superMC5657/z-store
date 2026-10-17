@@ -1,17 +1,15 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   RotateCcw,
   CheckCircle2,
   AlertTriangle,
   Trash2,
-  PlusCircle,
   Play,
   KeyRound,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AppDetailViewModel, DownloadAssetResult, DownloadProgressPayload, ReleaseAsset } from '../../types';
 import { InlineConfirmButton } from '../InlineConfirmButton';
-import { resolveDetectedOnly } from '../../app/selectors';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -33,14 +31,8 @@ export interface InstallActionsProps {
   onToggleShowAllAssets: () => void;
   isInstalled: boolean;
   isExploreMode: boolean;
-  /** 已纳管。显式 `null` = managed 列表尚未加载（未知）：中性占位，永不闪灰（P1）。 */
+  /** 已纳管。显式 `null` = managed 列表尚未加载（未知）：中性占位（P1）。 */
   isManaged: boolean | null;
-  /**
-   * 仅检测到未纳管（归一选择器得出，由 App→AppDetailModal 透传；缺席时经共享
-   * `resolveDetectedOnly` 归一派生，禁止本地手写 `&&`）。
-   * `null` 视为缺席（未知态由 isManaged===null 统一门控）。
-   */
-  isDetectedOnly?: boolean | null;
   isUninstallingGlobal: boolean;
   downloadedFile: DownloadAssetResult | null;
   isRevealingFolder: boolean;
@@ -50,7 +42,6 @@ export interface InstallActionsProps {
   onLaunch: (id: string) => void;
   onUninstall?: (id: string) => Promise<void> | void;
   onUnmanage?: (id: string) => Promise<void> | void;
-  onManageApp?: (id: string) => Promise<void> | void;
   onOpenAccountSettings?: () => void;
   onClose: () => void;
   onRevealDownload: () => void;
@@ -77,7 +68,6 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
   isInstalled,
   isExploreMode,
   isManaged,
-  isDetectedOnly: isDetectedOnlyProp,
   isUninstallingGlobal,
   downloadedFile,
   isRevealingFolder,
@@ -87,7 +77,6 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
   onLaunch,
   onUninstall,
   onUnmanage,
-  onManageApp,
   onOpenAccountSettings,
   onClose,
   onRevealDownload,
@@ -95,23 +84,9 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
   onAction,
 }) => {
   const { t } = useTranslation();
-  const [isManaging, setIsManaging] = useState(false);
-  // P0 已纳管 vs 仅检测到：managed 绿已安装；detected 灰检测到·点击纳管，点击调 handleManageApp/importSingleApp。
-  // 判态收口共享选择器：调用方 booleans 经归一选择器得出，末端经 `resolveDetectedOnly`
-  // 归一派生（末端禁止本地手写 `isInstalled && !isManaged`，与选择器分叉）。
-  // P1 三态：isManaged===null（未知）+ 已安装 = 未知，中性占位，永不闪灰。
+  // 已纳管绿已安装；未纳管走获取安装。
+  // P1 三态：isManaged===null（未知）+ 已安装 = 未知，中性占位。
   const isUnknown = isInstalled && isManaged === null;
-  const isDetectedOnly = isDetectedOnlyProp ?? resolveDetectedOnly(isInstalled, isManaged);
-  const statusClickable = isDetectedOnly && !isExploreMode && !isUnknown;
-  const handleClickManage = async () => {
-    if (isManaging || !onManageApp) return;
-    setIsManaging(true);
-    try {
-      await onManageApp(app.id);
-    } finally {
-      setIsManaging(false);
-    }
-  };
 
   const statusTitle =
     app.isLoading && hasNoReleases
@@ -125,9 +100,7 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
         ? '已安装'
         : isUnknown
         ? '正在确认安装状态…'
-        : isManaged
-        ? '已安装就绪'
-        : '检测到本地安装，点击纳入管理'
+        : '已安装就绪'
       : selectedAssetName
       ? canInstallPrimary
         ? `已选安装包 · ${primaryAsset?.os || ''} ${primaryAsset?.arch || ''}`
@@ -147,9 +120,7 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
         ? '已安装'
         : isUnknown
         ? '正在确认安装状态…'
-        : isManaged
-        ? '已安装就绪'
-        : (isManaging ? '纳管中...' : '检测到·点击纳管')
+        : '已安装就绪'
       : selectedAssetName
       ? canInstallPrimary
         ? `已选安装包 · ${primaryAsset?.os || ''} ${primaryAsset?.arch || ''}`
@@ -157,33 +128,18 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
       : canInstallPrimary
       ? `推荐版本 · ${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch}`
       : `下载版本 · ${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch}`;
-  const statusBadge = isUnknown ? 'unknown' : isDetectedOnly && !isExploreMode ? 'detected' : isInstalled && isManaged ? 'managed' : 'none';
+  const statusBadge = isUnknown ? 'unknown' : isInstalled && isManaged ? 'managed' : 'none';
 
   return (
     <div className="install-action-bar">
       <div className="install-action-left">
-        {statusClickable ? (
-          // 可点击态用原生 button（键盘可达，免费 a11y；视觉与容器一致，D4 单色）。
-          <button
-            type="button"
-            className="install-asset-label"
-            data-badge={statusBadge}
-            title={statusTitle}
-            onClick={() => void handleClickManage()}
-            disabled={isManaging}
-            style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', textAlign: 'left', cursor: 'pointer', color: 'var(--text-secondary)' }}
-          >
-            {statusText}
-          </button>
-        ) : (
-          <div
-            className="install-asset-label"
-            data-badge={statusBadge}
-            title={statusTitle}
-          >
-            {statusText}
-          </div>
-        )}
+        <div
+          className="install-asset-label"
+          data-badge={statusBadge}
+          title={statusTitle}
+        >
+          {statusText}
+        </div>
         <div
           className="install-asset-name"
           title={primaryAsset ? primaryAsset.name : `${displayName} 最新发布包`}
@@ -304,7 +260,7 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
                 )}
               </>
             ) : isUnknown ? (
-              // P1 未知态中性占位（单色骨架，不可交互）：managed 未加载前永不闪灰
+              // P1 未知态中性占位（单色骨架，不可交互）
               <button
                 type="button"
                 className="btn-fluent btn-secondary"
@@ -320,41 +276,6 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
                   style={{ width: '64px', height: '12px', borderRadius: '3px', display: 'inline-block' }}
                 />
               </button>
-            ) : !isManaged ? (
-              <>
-                {onManageApp && (
-                  <button
-                    type="button"
-                    className="btn-fluent btn-secondary"
-                    style={{
-                      fontWeight: 510,
-                      color: 'var(--brand-primary)',
-                      borderColor: 'var(--border-nav-active)',
-                    }}
-                    disabled={isManaging}
-                    onClick={handleClickManage}
-                    title="加入管理：将本地已安装应用加入列表，支持版本检测与快捷更新"
-                  >
-                    {isManaging ? '正在添加...' : (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                        <PlusCircle size={13} />
-                        <span>加入管理</span>
-                      </span>
-                    )}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="btn-fluent btn-secondary"
-                  onClick={onAction}
-                  title="通过 ZStore 重新下载安装最新版本或覆盖安装"
-                >
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                    <RotateCcw size={13} />
-                    <span>覆盖/重装</span>
-                  </span>
-                </button>
-              </>
             ) : (
               <>
                 {onUnmanage && (

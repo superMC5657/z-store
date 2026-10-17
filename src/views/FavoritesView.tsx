@@ -12,7 +12,7 @@ import { matchesAppText } from './useViewFilter';
 import { isPlatformLoading } from '../lib/platformFilter';
 import { normalizeId, normalizeIdLowerSet } from '../services/normalizeId';
 import { queueAssembledRowIcons } from '../services/iconStore';
-import { isInstalledUnion as selectIsInstalledUnion, selectIsDetectedOnlyOpt, selectIsManagedOpt } from '../app/selectors';
+import { isInstalled as selectIsInstalled, selectIsManagedOpt } from '../app/selectors';
 
 interface FavoritesViewProps extends ViewAppActions {
   platformResolvedOtherIds?: ReadonlySet<string>;
@@ -30,7 +30,6 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   oauthUser,
   onOpenDetail,
   onQuickInstall,
-  onManageApp,
   onToggleFavorite,
   onToggleWatch,
 }) => {
@@ -191,16 +190,14 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 app={app}
                 eager={index < 6}
                 platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
-                isInstalled={selectIsInstalledUnion(app.id, installedIds)}
+                isInstalled={selectIsInstalled(app.id, installedIds)}
                 isManaged={selectIsManagedOpt(app.id, managedIds)}
-                isDetectedOnly={selectIsDetectedOnlyOpt(app.id, installedIds, managedIds)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={true}
                 isWatched={watchedIdsLower.has(normalizeId(app.id))}
                 showCatalogBadge={true}
                 onOpenDetail={onOpenDetail}
                 onQuickInstall={onQuickInstall}
-                onManageApp={onManageApp}
                 onToggleFavorite={onToggleFavorite}
                 onToggleWatch={onToggleWatch}
               />
@@ -232,15 +229,13 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 app={app}
                 eager={index < 6}
                 platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
-                isInstalled={selectIsInstalledUnion(app.id, installedIds)}
+                isInstalled={selectIsInstalled(app.id, installedIds)}
                 isManaged={selectIsManagedOpt(app.id, managedIds)}
-                isDetectedOnly={selectIsDetectedOnlyOpt(app.id, installedIds, managedIds)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIdsLower.has(normalizeId(app.id))}
                 isWatched={true}
                 onOpenDetail={onOpenDetail}
                 onQuickInstall={onQuickInstall}
-                onManageApp={onManageApp}
                 onToggleFavorite={onToggleFavorite}
                 onToggleWatch={onToggleWatch}
               />
@@ -375,15 +370,13 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                       app={app}
                       eager={index < 6}
                       platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
-                      isInstalled={selectIsInstalledUnion(app.id, installedIds)}
+                      isInstalled={selectIsInstalled(app.id, installedIds)}
                       isManaged={selectIsManagedOpt(app.id, managedIds)}
-                      isDetectedOnly={selectIsDetectedOnlyOpt(app.id, installedIds, managedIds)}
                       isInstalling={installingIds?.has(app.id)}
                       isFavorite={favoriteIdsLower.has(normalizeId(app.id))}
                       isWatched={watchedIdsLower.has(normalizeId(app.id))}
                       onOpenDetail={onOpenDetail}
                       onQuickInstall={onQuickInstall}
-                      onManageApp={onManageApp}
                       onToggleFavorite={onToggleFavorite}
                       onToggleWatch={onToggleWatch}
                     />

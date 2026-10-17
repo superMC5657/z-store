@@ -70,7 +70,6 @@ vi.mock('./services/api', () => {
     'getFavorites',
     'getUpdateRules',
     'getRecentlyViewedApps',
-    'getDetectedInstalledAppIds',
     'getWatchedApps',
     'checkForUpdates',
     'getHostTokens',

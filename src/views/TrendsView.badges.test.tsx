@@ -1,8 +1,8 @@
 /**
  * 趋势未收录行徽标锁定（review findings B3 / badge lane）：
- * - 未收录 enrich 行安装态走真实 union 检查（归一 ID），禁止回退硬编码 false；
- * - 大小写变体 ID 下徽标与收录行一致（managed 绿 / detected 灰）；
- * - managed 未加载（managedIds=null）时 union 命中行渲染中性占位，永不闪灰。
+ * - 未收录 enrich 行安装态走真实已安装检查（归一 ID），禁止回退硬编码 false；
+ * - 大小写变体 ID 下徽标与收录行一致（managed 绿）；
+ * - managed 未加载（managedIds=null）时已安装命中行渲染中性占位。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MockInstance } from 'vitest';
@@ -80,7 +80,7 @@ describe('TrendsView 未收录行徽标：真实安装检查（非硬编码 fals
     window.localStorage.clear();
   });
 
-  it('union 命中的未收录行展示 managed 徽标（大小写变体 ID 归一）', async () => {
+  it('已安装命中的未收录行展示 managed 徽标（大小写变体 ID 归一）', async () => {
     // 生产集合恒含归一小写条目；回填值 id 为大写变体，锁定查询侧归一判定。
     renderBoard({
       installedIds: new Set(['acme/atlas']),
@@ -92,25 +92,10 @@ describe('TrendsView 未收录行徽标：真实安装检查（非硬编码 fals
     // 真实检查：managed 绿徽标，而非硬编码 false 的“获取”按钮。
     expect(card?.querySelector('[data-badge="managed"]')).toBeTruthy();
     expect(card?.querySelector('[data-badge="managed"]')?.textContent).toBe('安装');
-    expect(card?.querySelector('[data-badge="detected"]')).toBeNull();
   });
 
-  it('仅检测到的未收录行展示 detected 徽标（点击纳管）', async () => {
-    const { container } = renderBoard({
-      installedIds: new Set(['acme/beacon']),
-      managedIds: new Set<string>(),
-    });
-    const descEl = await screen.findByText('acme/beacon enriched desc');
-    const card = descEl.closest('.app-card');
-    expect(card).toBeTruthy();
-    expect(card?.querySelector('[data-badge="detected"]')).toBeTruthy();
-    expect(card?.textContent).toContain('检测到·点击纳管');
-    expect(card?.querySelector('[data-badge="managed"]')).toBeNull();
-    void container;
-  });
-
-  it('managed 未加载时 union 命中行占位，永不闪灰', async () => {
-    const { container } = renderBoard({
+  it('managed 未加载时已安装命中行占位', async () => {
+    renderBoard({
       installedIds: new Set(['acme/atlas']),
       managedIds: null,
     });
@@ -118,11 +103,10 @@ describe('TrendsView 未收录行徽标：真实安装检查（非硬编码 fals
     const card = descEl.closest('.app-card');
     expect(card).toBeTruthy();
     expect(card?.querySelector('[data-badge="unknown"]')).toBeTruthy();
-    expect(container.querySelectorAll('[data-badge="detected"]')).toHaveLength(0);
   });
 
   it('未安装的未收录行保持 Get（data-badge=none）', async () => {
-    const { container } = renderBoard({
+    renderBoard({
       installedIds: new Set<string>(),
       managedIds: new Set<string>(),
     });
@@ -131,7 +115,5 @@ describe('TrendsView 未收录行徽标：真实安装检查（非硬编码 fals
     expect(card).toBeTruthy();
     expect(card?.querySelector('[data-badge="none"]')).toBeTruthy();
     expect(card?.querySelector('[data-badge="managed"]')).toBeNull();
-    expect(card?.querySelector('[data-badge="detected"]')).toBeNull();
-    void container;
   });
 });

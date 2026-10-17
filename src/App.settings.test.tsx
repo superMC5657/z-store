@@ -16,7 +16,6 @@ vi.mock('./services/api', () => {
     'getFavorites',
     'getUpdateRules',
     'getRecentlyViewedApps',
-    'getDetectedInstalledAppIds',
     'getWatchedApps',
     'getHostTokens',
     'getSearchHistory',

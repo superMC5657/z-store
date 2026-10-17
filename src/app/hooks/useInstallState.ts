@@ -21,7 +21,6 @@ export function useInstallState({
   const [installingAppIds, setInstallingAppIds] = useState<Set<string>>(new Set());
   const [uninstallingAppIds, setUninstallingAppIds] = useState<Set<string>>(new Set());
   const [isRefreshingInstalled, setIsRefreshingInstalled] = useState(false);
-  const [detectedAppIds, setDetectedAppIds] = useState<Set<string>>(new Set());
 
   // 安装集合经 ref 读取，回调引用在搜索、图标升级时保持稳定
   const installingRef = useRef<Set<string>>(installingAppIds);
@@ -35,7 +34,6 @@ export function useInstallState({
     try {
       const installed = await tauriApi.installApp(id, assetName, customInstallDir);
       setInstalledApps((prev) => [...prev.filter((a) => a.app_id.toLowerCase() !== id.toLowerCase()), installed]);
-      setDetectedAppIds((prev) => new Set(prev).add(id).add(id.toLowerCase()));
       showToast(t('toast.install_success', { name: installed.app_name }), 'success');
     } catch (err) {
       const errStr = String(err);
@@ -81,16 +79,12 @@ export function useInstallState({
     showToast(t('toast.unmanage_success', { name: appName }), 'info');
   };
 
-  // 刷新已安装应用列表（幽灵应用自愈清理 + 重新扫描探测应用）
+  // 刷新已安装应用列表（幽灵应用自愈清理）
   const handleRefreshInstalledApps = async () => {
     setIsRefreshingInstalled(true);
     try {
-      const [freshInstalled, freshDetected] = await Promise.all([
-        tauriApi.getInstalledApps(),
-        tauriApi.getDetectedInstalledAppIds(true),
-      ]);
+      const freshInstalled = await tauriApi.getInstalledApps();
       setInstalledApps(freshInstalled);
-      setDetectedAppIds(new Set(freshDetected.map((id) => id.toLowerCase())));
       showToast(t('toast.refresh_installed_success'), 'success');
     } catch (err) {
       showToast(t('toast.refresh_installed_failed', { error: String(err) }), 'error');
@@ -106,20 +100,6 @@ export function useInstallState({
     }
   }, [currentView]);
 
-  // 将探测到的应用纳入 ZStore 管理
-  const handleManageApp = async (id: string) => {
-    try {
-      await tauriApi.importSingleApp(id);
-      const updatedList = await tauriApi.getInstalledApps();
-      setInstalledApps(updatedList);
-      // P0 纳管后 detected 集合保持含该 id（大小写双写，与安装/刷新口径一致，避免误报抖动）
-      setDetectedAppIds((prev) => new Set(prev).add(id).add(id.toLowerCase()));
-      showToast(t('toast.import_success'), 'success');
-    } catch {
-      /* 导入静默失败；列表保持不变 */
-    }
-  };
-
   // 卸载应用（触发官方卸载器 -> 等待完成 -> 校验移除 -> 从列表删除）
   const handleUninstallApp = async (id: string) => {
     if (uninstallingAppIds.has(id)) return;
@@ -130,15 +110,8 @@ export function useInstallState({
     setUninstallingAppIds((prev) => new Set(prev).add(id));
     try {
       await tauriApi.uninstallApp(id);
-      // 1. 精准增量从本地管理列表中移除
+      // 精准增量从本地管理列表中移除
       setInstalledApps((prev) => prev.filter((a) => a.app_id.toLowerCase() !== id.toLowerCase()));
-      // 2. 精准增量从系统探测列表中剔除（纯内存 O(1) 更新，完全无需触发全盘重扫）
-      setDetectedAppIds((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        next.delete(id.toLowerCase());
-        return next;
-      });
       showToast(t('toast.uninstall_success', { name: appName }), 'success');
     } catch (err) {
       const errStr = String(err);
@@ -164,15 +137,12 @@ export function useInstallState({
     uninstallingAppIds,
     setUninstallingAppIds,
     isRefreshingInstalled,
-    detectedAppIds,
-    setDetectedAppIds,
     installingRef,
     handleInstallApp,
     handleQuickInstall,
     handleLaunchApp,
     handleUnmanageApp,
     handleRefreshInstalledApps,
-    handleManageApp,
     handleUninstallApp,
   };
 }

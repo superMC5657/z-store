@@ -26,7 +26,7 @@ import {
 import { isPlatformLoading } from '../lib/platformFilter';
 import { CATEGORY_APPS_PER_PAGE, getCategoryApps } from '../services/api/catalog';
 import type { AppSummary } from '../types';
-import { isInstalledUnion as selectIsInstalledUnion, selectIsDetectedOnlyOpt, selectIsManagedOpt } from '../app/selectors';
+import { isInstalled as selectIsInstalled, selectIsManagedOpt } from '../app/selectors';
 
 interface CategoriesViewProps extends ViewAppActions, RequiredPlatformReset {
   platformResolvedOtherIds?: ReadonlySet<string>;
@@ -62,7 +62,6 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   watchedIds,
   onOpenDetail,
   onQuickInstall,
-  onManageApp,
   onToggleFavorite,
   onToggleWatch,
   onResetPlatformFilter,
@@ -289,15 +288,13 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
               app={app}
               eager={index < 6}
               platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
-              isInstalled={selectIsInstalledUnion(app.id, installedIds)}
+              isInstalled={selectIsInstalled(app.id, installedIds)}
               isManaged={selectIsManagedOpt(app.id, managedIds)}
-              isDetectedOnly={selectIsDetectedOnlyOpt(app.id, installedIds, managedIds)}
               isInstalling={installingIds?.has(app.id)}
               isFavorite={favoriteIds.has(app.id)}
               isWatched={watchedIds?.has(app.id)}
               onOpenDetail={onOpenDetail}
               onQuickInstall={onQuickInstall}
-              onManageApp={onManageApp}
               onToggleFavorite={onToggleFavorite}
               onToggleWatch={onToggleWatch}
             />

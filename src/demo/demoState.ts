@@ -190,7 +190,6 @@ export const LIST_FALLBACK = new Set([
   'get_favorites',
   'get_category_apps',
   'scan_and_match_local_apps',
-  'get_detected_installed_app_ids',
   'get_update_rules',
   'get_search_history',
   'get_recently_viewed_apps',
