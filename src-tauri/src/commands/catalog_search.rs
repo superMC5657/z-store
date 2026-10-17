@@ -5,7 +5,7 @@ use tauri::{AppHandle, Manager, State};
 
 static SEARCH_GEN: AtomicU64 = AtomicU64::new(0);
 
-/// 趋势流式世代：`enrich_trend_repos` 每次调用 +1（切榜/重拉/分片重拉均+1，
+/// 趋势流式世代：`enrich_trend_repos` 每次调用 +1（切榜/重拉均+1，
 /// 类比 `SEARCH_GEN` 每次 `search_apps_online` +1）。
 /// 后台 `fetch_icons_stream(Trend{board,gen})` 的世代防串用（合并时按新鲜度取全量/补槽 +
 /// emit 前查 gen，过期写库攒槽、过期 return 只拦发送），
@@ -551,7 +551,7 @@ pub struct TrendEnrichRequest {
 }
 
 /// 趋势 enrich 目标整形：take(40) 兜底截断 + trim + 小写 id。
-/// FE 已按 20/片×2 片串行（上限 40），此处截断不静默吃超量。
+/// FE 单次批量 40 上限，此处截断不静默吃超量。
 fn enrich_targets(repos: Vec<TrendEnrichRequest>) -> Vec<(String, String, String)> {
     repos
         .into_iter()
@@ -631,13 +631,13 @@ async fn fetch_enrich_batch(
 /// 配额/鉴权沿用既有链路（`resolve_active_github_token` + 内层 `notify_rate_limit`）。
 /// - 并发上限 5（`buffered` 保序，返回与入参一一对齐）；单仓 `api_timeout_or(10s)` 熔断；
 /// - 单仓失败落 `None`（前端保留旧小行，榜单永不因此变空）；
-///   入参上限 40（FE 分片串行 20/片×2 片，上限 40；BE 侧 take(40) 截断，buffered(5) 不变）。
+///   入参上限 40（FE 单次批量 40 上限，整批失败即整批缺席；BE 侧 take(40) 截断，buffered(5) 不变）。
 /// - 趋势流式：首屏 `fallback_summary(probe=false)` 空壳快返（图标置空，
 ///   确认图标仍经 `pre_confirmed` 短锁回填，platforms 经详情缓存 join 照旧），
 ///   另起 `tokio::spawn(fetch_icons_stream(ctx=Trend{board,board_gen}))` 流式
 ///   `emit_icon_ready` 逐张到达补齐（弱网首屏先出裸行/初始富卡，图标逐个补齐，
 ///   空永不覆盖实由前端 `iconStore.applyHit` + 后端合并新鲜度与 emit 前查保证）；
-/// - 世代：每次调用 `BOARD_GEN+1`（切榜/重拉/分片重拉均+1，类比 `SEARCH_GEN`），
+/// - 世代：每次调用 `BOARD_GEN+1`（切榜/重拉均+1，类比 `SEARCH_GEN`），
 ///   落库/emit 世代防串见唯一 `save_and_emit`（合并新鲜度 + emit 前查 gen，计数器经 `ctx` 选择）。
 #[tauri::command]
 pub async fn enrich_trend_repos(

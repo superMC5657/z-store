@@ -91,7 +91,7 @@ describe('TrendsView 未收录行徽标：真实安装检查（非硬编码 fals
     expect(card).toBeTruthy();
     // 真实检查：managed 绿徽标，而非硬编码 false 的“获取”按钮。
     expect(card?.querySelector('[data-badge="managed"]')).toBeTruthy();
-    expect(card?.textContent).toContain('已安装');
+    expect(card?.querySelector('[data-badge="managed"]')?.textContent).toBe('安装');
     expect(card?.querySelector('[data-badge="detected"]')).toBeNull();
   });
 

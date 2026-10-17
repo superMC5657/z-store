@@ -224,7 +224,7 @@ describe('Phase2治理：字节上限 + dataURI 永不进 payload', () => {
   });
 });
 
-describe('Phase2治理：分片 20/片×2 片=40 上限', () => {
+describe('Phase2治理：单批量 40 上限', () => {
   beforeEach(() => {
     clearTrendsCache();
     clearTrendEnrichCache();
@@ -236,12 +236,12 @@ describe('Phase2治理：分片 20/片×2 片=40 上限', () => {
     vi.restoreAllMocks();
   });
 
-  it('分片常量 20/片、上限 40', () => {
+  it('回滚锚点保留：SHARD_SIZE 仍为 20（已停用）', () => {
     expect(TREND_ENRICH_SHARD_SIZE).toBe(20);
     expect(TREND_ENRICH_MAX_TOTAL).toBe(40);
   });
 
-  it('45 仓仅请求 40（20+20 两片串行），超量留占位不置空', async () => {
+  it('45 仓单次请求 40，超量留占位不置空', async () => {
     const calls: number[] = [];
     vi.spyOn(tauriApi, 'enrichTrendRepos').mockImplementation(async (repos) => {
       calls.push(repos.length);
@@ -252,25 +252,22 @@ describe('Phase2治理：分片 20/片×2 片=40 上限', () => {
       repos.push(makeTrendRepo({ id: `acme/r${i}` }));
     }
     const out = await enrichTrendRepos(repos);
-    expect(calls).toEqual([20, 20]);
+    expect(calls).toEqual([40]);
     expect(out.size).toBe(40);
     // 超量 5 个留占位（缺席但不抛错，榜单不置空）
     expect(out.has('acme/r40')).toBe(false);
     expect(out.has('acme/r44')).toBe(false);
   });
 
-  it('单片失败仅该片缺席，继续下片', async () => {
-    vi.spyOn(tauriApi, 'enrichTrendRepos')
-      .mockRejectedValueOnce(new Error('shard0 down'))
-      .mockImplementation(async (repos) => repos.map((r) => makeEnrichedApp({ id: `${r.owner}/${r.repo}` })));
+  it('整批失败即整批缺席，不抛错', async () => {
+    vi.spyOn(tauriApi, 'enrichTrendRepos').mockRejectedValue(new Error('batch down'));
     const repos: TrendRepo[] = [];
     for (let i = 0; i < 25; i += 1) {
       repos.push(makeTrendRepo({ id: `acme/s${i}` }));
     }
     const out = await enrichTrendRepos(repos);
-    // 首片 20 失败缺席，次片 5 成功
-    expect(out.size).toBe(5);
-    expect(out.has('acme/s20')).toBe(true);
+    // 单次批量失败整批缺席（catch 返回已落定 out，本例缓存无命中即为空）
+    expect(out.size).toBe(0);
   });
 });
 

@@ -366,7 +366,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     queueAssembledRowIcons(Object.values(snap));
   }, [trendResult]);
 
-  // 未收录行 enrichment：逐仓复用搜索 enrichment（Rust 侧并发 5、分片 20/片×2 片=40 上限、单仓 10s），
+  // 未收录行 enrichment：逐仓复用搜索 enrichment（Rust 侧并发 5、单次批量 40 上限、单仓 10s），
   // 成功合并为完整卡片；失败/无命中保持旧小行（enrichTrendRepos 缺席即不写，缺席即展裸行/旧缓存，不等齐）。
   // 合并 + 写透收口 board（collectMissing + mergeEnrichFoundMirror + maybePersistBoardNow）；
   // 裸行先展不拦榜，仅富卡升级受 boardReady 门控（swrSyncedResult/isUpgradePending）。

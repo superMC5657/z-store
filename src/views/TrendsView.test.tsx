@@ -1271,7 +1271,7 @@ describe('TrendsView L2可信分档：具平台免验，pending后台补验', ()
             m.includes('[trends] lite-skip') &&
             m.includes('board=weekly') &&
             m.includes('trustedConcrete=3') &&
-            m.includes('trustedPending=0') &&
+            m.includes('trustedLoading=0') &&
             m.includes('skipped=3') &&
             m.includes('targets=0'),
         ),
@@ -1330,7 +1330,7 @@ describe('TrendsView L2可信分档：具平台免验，pending后台补验', ()
             m.includes('[trends] lite-skip') &&
             m.includes('board=weekly') &&
             m.includes('trustedConcrete=1') &&
-            m.includes('trustedPending=2') &&
+            m.includes('trustedLoading=2') &&
             m.includes('skipped=1') &&
             m.includes('targets=2'),
         ),

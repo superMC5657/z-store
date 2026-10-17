@@ -158,7 +158,7 @@ describe('卡片 vs 弹窗一致（同 id）', () => {
     const managed = new Set(['acme/atlas']);
     const card = renderCard(installed, managed);
     expect(card.container.querySelector('[data-badge="managed"]')).toBeTruthy();
-    expect(card.container.textContent).toContain('已安装');
+    expect(card.container.querySelector('[data-badge="managed"]')?.textContent).toBe('安装');
     card.unmount();
     cleanup();
 

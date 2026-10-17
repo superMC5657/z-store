@@ -16,6 +16,10 @@ vi.mock('../services/api', () => {
     syncCatalog: async () => ({ updated: false, count: 0, message: 'ok' }),
     selectFolder: async () => null,
     testProxy: async () => ({ success: true, latency_ms: 10, message: 'ok' }),
+    getIconCacheStats: async () => ({ total_entries: 0, total_bytes: 0, total_hits: 0 }),
+    getAssetCacheStats: async () => ({ total_entries: 0, total_bytes: 0, total_hits: 0 }),
+    clearIconCache: async () => 0,
+    clearAssetCache: async () => 0,
   };
   return { tauriApi };
 });

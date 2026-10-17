@@ -60,7 +60,7 @@
 - **GitHub OAuth 登录**：Device Flow 免应用密钥登录，Client ID 遵循单一配置源（`src-tauri/config.toml`），支持在设置项中自定义覆盖。采用 `classify_device_poll` 明确区分 `Expired` 与 `Denied` 状态。
 - **GitHub Star 导入**：登录后一键拉取个人 Star 列表中所有具备可用构建资产的开源项目。
 - **本地足迹追踪**：自动记录并持久化搜索历史与最近浏览应用，支持一键快捷回访。
-- **趋势榜单直取**：经共享 Client 直取（`tokio` 10s 超时，截断 2MB 防爆内存），仅允许 `github.com` / `trend.doforce.dpdns.org` / `api.github.com` 三 host 白名单；doforce 429 透传 `retry-after` + `retry_after_ms` 后按值再试一次（上限 60s，缺省等 5s）；enrich 分片 20/片×2 片=40 上限（详见 ADR-0014）。
+- **趋势榜单直取**：经共享 Client 直取（`tokio` 10s 超时，截断 2MB 防爆内存），仅允许 `github.com` / `trend.doforce.dpdns.org` / `api.github.com` 三 host 白名单；doforce 429 透传 `retry-after` + `retry_after_ms` 后按值再试一次（上限 60s，缺省等 5s）；enrich 单次批量 40 上限（整批失败即整批缺席，不抛错；详见 ADR-0014）。
 
 ### 6. 🔄 检查更新流式推流与实时感知
 - **实时推流动效**：更新检查基于并发管道流式拉取（`buffer_unordered(6)`，主路径与关注通知两处），后端通过 `zstore://update-check-progress` 逐项推流，前端呈现丝滑进度条与更新项逐项跳出微动效。
