@@ -43,6 +43,309 @@ const CANDIDATE_STOP_WORDS: &[&str] = &[
 ];
 
 impl AppScanner {
+    /// token 形状判定：len>=3、非纯数字、非停用词（`build_tokens` 5 处条件收敛共用；
+    /// 输入须已小写，与 `linux_candidate_names` 切分过滤同规则）。
+    fn is_search_token(lower: &str) -> bool {
+        lower.len() >= 3
+            && !lower.chars().all(|c| c.is_ascii_digit())
+            && !CANDIDATE_STOP_WORDS.contains(&lower)
+    }
+
+    /// token 构建 + 配置扩展：按 app_name / app_id / repo 全名、空白切分、
+    /// `-`/`/` 切分、首段回退顺序收集，经 `is_search_token` 过滤后按序并入
+    /// `install_dirs` / `target_executables`（含 `-gui.exe` 变体；Linux 另并入裸名）。
+    /// 纯构造（除 env 外无文件系统副作用），跨平台可单测。
+    fn build_tokens(
+        app_name: &str,
+        app_id: &str,
+        repo_str: &str,
+        config: &mut ScanConfig,
+    ) -> Vec<String> {
+        let mut tokens = vec![
+            app_name.trim().to_lowercase(),
+            app_id.trim().to_lowercase(),
+            repo_str.trim().to_lowercase(),
+        ];
+        for part in app_name.split_whitespace() {
+            let p_lower = part.trim().to_lowercase();
+            if Self::is_search_token(&p_lower) {
+                tokens.push(p_lower);
+            }
+        }
+        for part in app_id.split(['-', '/']) {
+            let p_lower = part.trim().to_lowercase();
+            if Self::is_search_token(&p_lower) {
+                tokens.push(p_lower);
+            }
+        }
+        if let Some((first, _)) = app_name.rsplit_once(' ') {
+            let f_lower = first.trim().to_lowercase();
+            if Self::is_search_token(&f_lower) {
+                tokens.push(f_lower);
+            }
+        }
+        if let Some((first, _)) = app_id.rsplit_once('-') {
+            let f_lower = first.trim().to_lowercase();
+            if Self::is_search_token(&f_lower) {
+                tokens.push(f_lower);
+            }
+        }
+        tokens.retain(|t| !t.is_empty() && Self::is_search_token(t));
+
+        for t in &tokens {
+            if !config.install_dirs.contains(t) {
+                config.install_dirs.push(t.clone());
+            }
+            let exe_name = format!("{}.exe", t);
+            if !config.target_executables.contains(&exe_name) {
+                config.target_executables.push(exe_name);
+            }
+            let exe_gui = format!("{}-gui.exe", t);
+            if !config.target_executables.contains(&exe_gui) {
+                config.target_executables.push(exe_gui);
+            }
+            // Linux：裸名并入（/usr/bin/<token>、desktop Exec 多为无扩展名；
+            // Windows 编译时不执行此块，行为不变）。
+            #[cfg(target_os = "linux")]
+            {
+                if !config.target_executables.contains(t) {
+                    config.target_executables.push(t.clone());
+                }
+            }
+        }
+        tokens
+    }
+
+    /// 单个快捷方式根目录扫描（`resolve_executable_path` 与 `shortcut_scan` 共用）：
+    /// 根 + 一级子目录内 `.lnk` 按 `matches` 谓词过滤文件名（已小写），
+    /// 命中即 `resolve_lnk_target` + 安装缓存排除 + 存在性校验后返回首个落盘路径。
+    /// 遍历顺序与原双处内联循环一致（根优先，`read_dir` 原序）。
+    #[allow(dead_code)]
+    fn scan_lnk_dir(root: &Path, matches: impl Fn(&str) -> bool) -> Option<String> {
+        if !root.is_dir() {
+            return None;
+        }
+        let mut scan_dirs = vec![root.to_path_buf()];
+        if let Ok(entries) = std::fs::read_dir(root) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_dir() {
+                    scan_dirs.push(p);
+                }
+            }
+        }
+        for sdir in scan_dirs {
+            if let Ok(entries) = std::fs::read_dir(&sdir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.is_file()
+                        && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("lnk"))
+                    {
+                        let fname = p
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_lowercase();
+                        if matches(&fname) {
+                            if let Some(target_exe) = Self::resolve_lnk_target(&p) {
+                                if !Self::is_installer_or_cache_path(&target_exe)
+                                    && target_exe.is_file()
+                                {
+                                    return Some(target_exe.to_string_lossy().to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// 1. Windows 注册表深度检索 (HKLM, Wow6432Node, HKCU)：DisplayName/key 名与
+    /// token 命中后依次试 DisplayIcon / InstallLocation / UninstallString 同目录。
+    #[cfg(target_os = "windows")]
+    fn registry_scan(tokens: &[String], config: &ScanConfig) -> Option<String> {
+        use winreg::enums::*;
+        use winreg::RegKey;
+
+        let targets = [
+            (
+                HKEY_LOCAL_MACHINE,
+                r"Software\Microsoft\Windows\CurrentVersion\Uninstall",
+            ),
+            (
+                HKEY_LOCAL_MACHINE,
+                r"Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+            ),
+            (
+                HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Uninstall",
+            ),
+        ];
+
+        for (hive, subpath) in targets {
+            let root = RegKey::predef(hive);
+            if let Ok(uninstall_key) = root.open_subkey(subpath) {
+                for key_name in uninstall_key.enum_keys().map_while(Result::ok) {
+                    let k_lower = key_name.to_lowercase();
+                    let is_guid = k_lower.starts_with('{') && k_lower.ends_with('}');
+                    if let Ok(app_key) = uninstall_key.open_subkey(&key_name) {
+                        let disp_name: String = app_key
+                            .get_value::<String, _>("DisplayName")
+                            .unwrap_or_default()
+                            .trim()
+                            .to_string();
+                        let d_lower = disp_name.to_lowercase();
+
+                        let is_match = !d_lower.is_empty()
+                            && tokens.iter().any(|t| {
+                                d_lower == *t
+                                    || (t.len() >= 4 && d_lower.contains(t))
+                                    || (d_lower.len() >= 4 && t.contains(&d_lower))
+                                    || (!is_guid
+                                        && (k_lower == *t
+                                            || (t.len() >= 4 && k_lower.contains(t))))
+                            });
+
+                        if is_match {
+                            // A. 检查 DisplayIcon
+                            if let Ok(icon) = app_key.get_value::<String, _>("DisplayIcon") {
+                                if let Some(icon_path) = Self::clean_display_icon(&icon) {
+                                    if !Self::is_installer_or_cache_path(&icon_path)
+                                        && icon_path.is_file()
+                                    {
+                                        return Some(icon_path.to_string_lossy().to_string());
+                                    }
+                                }
+                            }
+
+                            // B. 检查 InstallLocation
+                            if let Ok(loc) = app_key.get_value::<String, _>("InstallLocation") {
+                                let clean_loc = loc.trim().trim_matches('"');
+                                let p = Path::new(clean_loc);
+                                if !clean_loc.is_empty() && !Self::is_installer_or_cache_path(p)
+                                {
+                                    if p.is_file()
+                                        && p.extension()
+                                            .is_some_and(|e| e.eq_ignore_ascii_case("exe"))
+                                    {
+                                        return Some(p.to_string_lossy().to_string());
+                                    }
+                                    if p.is_dir() {
+                                        if let Some(exe) =
+                                            Self::find_exe_in_directory(p, config)
+                                        {
+                                            return Some(exe);
+                                        }
+                                    }
+                                }
+                            }
+
+                            // C. 检查 UninstallString (若主程序同目录存在 uninstall.exe 等)
+                            if let Ok(uninst) =
+                                app_key.get_value::<String, _>("UninstallString")
+                            {
+                                let clean_un = uninst.trim().trim_matches('"');
+                                if let Some(first_arg) = clean_un
+                                    .split(" -")
+                                    .next()
+                                    .and_then(|s| s.split(" /").next())
+                                {
+                                    let p = Path::new(first_arg.trim_matches('"'));
+                                    if let Some(parent) = p.parent() {
+                                        if parent.is_dir()
+                                            && !Self::is_installer_or_cache_path(parent)
+                                        {
+                                            if let Some(exe) =
+                                                Self::find_exe_in_directory(parent, config)
+                                            {
+                                                return Some(exe);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// 2. 跨驱动器常用软件根目录广度检索 (C:, D:, E:, F:, G: + LOCALAPPDATA/APPDATA)。
+    #[cfg(target_os = "windows")]
+    fn drive_scan(tokens: &[String], config: &ScanConfig) -> Option<String> {
+        let mut search_dirs = Vec::new();
+        let drive_letters = ['C', 'D', 'E', 'F', 'G'];
+        for drive in drive_letters {
+            let p1 = format!("{}:\\Program Files", drive);
+            let p2 = format!("{}:\\Program Files (x86)", drive);
+            let p3 = format!("{}:\\Programs", drive);
+            let p4 = format!("{}:\\tools", drive);
+            let p5 = format!("{}:\\", drive);
+
+            for root_str in [p1, p2, p3, p4, p5] {
+                let root_path = PathBuf::from(root_str);
+                if root_path.is_dir() {
+                    for t in tokens {
+                        search_dirs.push(root_path.join(t));
+                    }
+                }
+            }
+        }
+
+        if let Ok(local) = std::env::var("LOCALAPPDATA") {
+            let local_path = PathBuf::from(local);
+            for t in tokens {
+                search_dirs.push(local_path.join("Programs").join(t));
+                search_dirs.push(local_path.join(t));
+            }
+        }
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let appdata_path = PathBuf::from(appdata);
+            for t in tokens {
+                search_dirs.push(appdata_path.join(t));
+            }
+        }
+
+        for dir in search_dirs {
+            if dir.is_dir() && !Self::is_installer_or_cache_path(&dir) {
+                if let Some(exe) = Self::find_exe_in_directory(&dir, config) {
+                    return Some(exe);
+                }
+            }
+        }
+        None
+    }
+
+    /// 3. 开始菜单与桌面快捷方式探测与智能目标解构 (.lnk -> Target exe)。
+    #[cfg(target_os = "windows")]
+    fn shortcut_scan(tokens: &[String]) -> Option<String> {
+        let shortcut_roots = [
+            std::env::var("ProgramData")
+                .map(|p| PathBuf::from(p).join(r"Microsoft\Windows\Start Menu\Programs"))
+                .ok(),
+            std::env::var("APPDATA")
+                .map(|p| PathBuf::from(p).join(r"Microsoft\Windows\Start Menu\Programs"))
+                .ok(),
+            std::env::var("USERPROFILE")
+                .map(|p| PathBuf::from(p).join("Desktop"))
+                .ok(),
+            Some(PathBuf::from(r"C:\Users\Public\Desktop")),
+        ];
+
+        for root_opt in shortcut_roots.into_iter().flatten() {
+            if let Some(found) =
+                Self::scan_lnk_dir(&root_opt, |fname| tokens.iter().any(|t| fname.contains(t)))
+            {
+                return Some(found);
+            }
+        }
+        None
+    }
+
     /// 智能探测应用程序的主可执行文件物理路径（确保返回的一定是磁盘上真实存在的文件）
     pub fn resolve_executable_path<C: Into<ScanConfig>>(
         install_location: Option<&str>,
@@ -140,60 +443,17 @@ impl AppScanner {
             ];
 
             for dir_opt in shortcut_dirs.into_iter().flatten() {
-                if dir_opt.is_dir() {
-                    let mut scan_dirs = vec![dir_opt.clone()];
-                    if let Ok(entries) = std::fs::read_dir(&dir_opt) {
-                        for entry in entries.flatten() {
-                            let p = entry.path();
-                            if p.is_dir() {
-                                scan_dirs.push(p);
-                            }
-                        }
-                    }
-
-                    for sdir in scan_dirs {
-                        if let Ok(entries) = std::fs::read_dir(&sdir) {
-                            for entry in entries.flatten() {
-                                let p = entry.path();
-                                if p.is_file()
-                                    && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("lnk"))
-                                {
-                                    let fname = p
-                                        .file_name()
-                                        .unwrap_or_default()
-                                        .to_string_lossy()
-                                        .to_lowercase();
-                                    for exe in &config.target_executables {
-                                        let base_name = exe.trim_end_matches(".exe").to_lowercase();
-                                        if !base_name.is_empty() && fname.contains(&base_name) {
-                                            if let Some(target_exe) = Self::resolve_lnk_target(&p) {
-                                                if !Self::is_installer_or_cache_path(&target_exe)
-                                                    && target_exe.is_file()
-                                                {
-                                                    return Some(
-                                                        target_exe.to_string_lossy().to_string(),
-                                                    );
-                                                }
-                                            }
-                                        }
-                                    }
-                                    for dir_name in &config.install_dirs {
-                                        if fname.contains(&dir_name.to_lowercase()) {
-                                            if let Some(target_exe) = Self::resolve_lnk_target(&p) {
-                                                if !Self::is_installer_or_cache_path(&target_exe)
-                                                    && target_exe.is_file()
-                                                {
-                                                    return Some(
-                                                        target_exe.to_string_lossy().to_string(),
-                                                    );
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                let matched = Self::scan_lnk_dir(&dir_opt, |fname| {
+                    config.target_executables.iter().any(|exe| {
+                        let base_name = exe.trim_end_matches(".exe").to_lowercase();
+                        !base_name.is_empty() && fname.contains(&base_name)
+                    }) || config
+                        .install_dirs
+                        .iter()
+                        .any(|dir_name| fname.contains(&dir_name.to_lowercase()))
+                });
+                if matched.is_some() {
+                    return matched;
                 }
             }
         }
@@ -213,291 +473,29 @@ impl AppScanner {
         let repo_base = repo_str.rsplit('/').next().unwrap_or(repo_str);
         let mut config = ScanConfig::from(repo_base);
 
-        const STOP_WORDS: &[&str] = CANDIDATE_STOP_WORDS;
-
-        let mut tokens = vec![
-            app_name.trim().to_lowercase(),
-            app_id.trim().to_lowercase(),
-            repo_str.trim().to_lowercase(),
-        ];
-        for part in app_name.split_whitespace() {
-            let p_lower = part.trim().to_lowercase();
-            if p_lower.len() >= 3
-                && !p_lower.chars().all(|c| c.is_ascii_digit())
-                && !STOP_WORDS.contains(&p_lower.as_str())
-            {
-                tokens.push(p_lower);
-            }
-        }
-        for part in app_id.split(['-', '/']) {
-            let p_lower = part.trim().to_lowercase();
-            if p_lower.len() >= 3
-                && !p_lower.chars().all(|c| c.is_ascii_digit())
-                && !STOP_WORDS.contains(&p_lower.as_str())
-            {
-                tokens.push(p_lower);
-            }
-        }
-        if let Some((first, _)) = app_name.rsplit_once(' ') {
-            let f_lower = first.trim().to_lowercase();
-            if f_lower.len() >= 3
-                && !f_lower.chars().all(|c| c.is_ascii_digit())
-                && !STOP_WORDS.contains(&f_lower.as_str())
-            {
-                tokens.push(f_lower);
-            }
-        }
-        if let Some((first, _)) = app_id.rsplit_once('-') {
-            let f_lower = first.trim().to_lowercase();
-            if f_lower.len() >= 3
-                && !f_lower.chars().all(|c| c.is_ascii_digit())
-                && !STOP_WORDS.contains(&f_lower.as_str())
-            {
-                tokens.push(f_lower);
-            }
-        }
-        tokens.retain(|t| {
-            !t.is_empty()
-                && t.len() >= 3
-                && !t.chars().all(|c| c.is_ascii_digit())
-                && !STOP_WORDS.contains(&t.as_str())
-        });
-
-        for t in &tokens {
-            if !config.install_dirs.contains(t) {
-                config.install_dirs.push(t.clone());
-            }
-            let exe_name = format!("{}.exe", t);
-            if !config.target_executables.contains(&exe_name) {
-                config.target_executables.push(exe_name);
-            }
-            let exe_gui = format!("{}-gui.exe", t);
-            if !config.target_executables.contains(&exe_gui) {
-                config.target_executables.push(exe_gui);
-            }
-            // Linux：裸名并入（/usr/bin/<token>、desktop Exec 多为无扩展名；
-            // Windows 编译时不执行此块，行为不变）。
-            #[cfg(target_os = "linux")]
-            {
-                if !config.target_executables.contains(t) {
-                    config.target_executables.push(t.clone());
-                }
-            }
-        }
+        let tokens = Self::build_tokens(app_name, app_id, repo_str, &mut config);
 
         // 1. Windows 注册表深度检索 (HKLM, Wow6432Node, HKCU)
         #[cfg(target_os = "windows")]
         {
-            use winreg::enums::*;
-            use winreg::RegKey;
-
-            let targets = [
-                (
-                    HKEY_LOCAL_MACHINE,
-                    r"Software\Microsoft\Windows\CurrentVersion\Uninstall",
-                ),
-                (
-                    HKEY_LOCAL_MACHINE,
-                    r"Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
-                ),
-                (
-                    HKEY_CURRENT_USER,
-                    r"Software\Microsoft\Windows\CurrentVersion\Uninstall",
-                ),
-            ];
-
-            for (hive, subpath) in targets {
-                let root = RegKey::predef(hive);
-                if let Ok(uninstall_key) = root.open_subkey(subpath) {
-                    for key_name in uninstall_key.enum_keys().map_while(Result::ok) {
-                        let k_lower = key_name.to_lowercase();
-                        let is_guid = k_lower.starts_with('{') && k_lower.ends_with('}');
-                        if let Ok(app_key) = uninstall_key.open_subkey(&key_name) {
-                            let disp_name: String = app_key
-                                .get_value::<String, _>("DisplayName")
-                                .unwrap_or_default()
-                                .trim()
-                                .to_string();
-                            let d_lower = disp_name.to_lowercase();
-
-                            let is_match = !d_lower.is_empty()
-                                && tokens.iter().any(|t| {
-                                    d_lower == *t
-                                        || (t.len() >= 4 && d_lower.contains(t))
-                                        || (d_lower.len() >= 4 && t.contains(&d_lower))
-                                        || (!is_guid
-                                            && (k_lower == *t
-                                                || (t.len() >= 4 && k_lower.contains(t))))
-                                });
-
-                            if is_match {
-                                // A. 检查 DisplayIcon
-                                if let Ok(icon) = app_key.get_value::<String, _>("DisplayIcon") {
-                                    if let Some(icon_path) = Self::clean_display_icon(&icon) {
-                                        if !Self::is_installer_or_cache_path(&icon_path)
-                                            && icon_path.is_file()
-                                        {
-                                            return Some(icon_path.to_string_lossy().to_string());
-                                        }
-                                    }
-                                }
-
-                                // B. 检查 InstallLocation
-                                if let Ok(loc) = app_key.get_value::<String, _>("InstallLocation") {
-                                    let clean_loc = loc.trim().trim_matches('"');
-                                    let p = Path::new(clean_loc);
-                                    if !clean_loc.is_empty() && !Self::is_installer_or_cache_path(p)
-                                    {
-                                        if p.is_file()
-                                            && p.extension()
-                                                .is_some_and(|e| e.eq_ignore_ascii_case("exe"))
-                                        {
-                                            return Some(p.to_string_lossy().to_string());
-                                        }
-                                        if p.is_dir() {
-                                            if let Some(exe) =
-                                                Self::find_exe_in_directory(p, &config)
-                                            {
-                                                return Some(exe);
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // C. 检查 UninstallString (若主程序同目录存在 uninstall.exe 等)
-                                if let Ok(uninst) =
-                                    app_key.get_value::<String, _>("UninstallString")
-                                {
-                                    let clean_un = uninst.trim().trim_matches('"');
-                                    if let Some(first_arg) = clean_un
-                                        .split(" -")
-                                        .next()
-                                        .and_then(|s| s.split(" /").next())
-                                    {
-                                        let p = Path::new(first_arg.trim_matches('"'));
-                                        if let Some(parent) = p.parent() {
-                                            if parent.is_dir()
-                                                && !Self::is_installer_or_cache_path(parent)
-                                            {
-                                                if let Some(exe) =
-                                                    Self::find_exe_in_directory(parent, &config)
-                                                {
-                                                    return Some(exe);
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+            if let Some(found) = Self::registry_scan(&tokens, &config) {
+                return Some(found);
             }
         }
 
         // 2. 跨驱动器常用软件根目录广度检索 (C:, D:, E:, F:, G:)
         #[cfg(target_os = "windows")]
         {
-            let mut search_dirs = Vec::new();
-            let drive_letters = ['C', 'D', 'E', 'F', 'G'];
-            for drive in drive_letters {
-                let p1 = format!("{}:\\Program Files", drive);
-                let p2 = format!("{}:\\Program Files (x86)", drive);
-                let p3 = format!("{}:\\Programs", drive);
-                let p4 = format!("{}:\\tools", drive);
-                let p5 = format!("{}:\\", drive);
-
-                for root_str in [p1, p2, p3, p4, p5] {
-                    let root_path = PathBuf::from(root_str);
-                    if root_path.is_dir() {
-                        for t in &tokens {
-                            search_dirs.push(root_path.join(t));
-                        }
-                    }
-                }
-            }
-
-            if let Ok(local) = std::env::var("LOCALAPPDATA") {
-                let local_path = PathBuf::from(local);
-                for t in &tokens {
-                    search_dirs.push(local_path.join("Programs").join(t));
-                    search_dirs.push(local_path.join(t));
-                }
-            }
-            if let Ok(appdata) = std::env::var("APPDATA") {
-                let appdata_path = PathBuf::from(appdata);
-                for t in &tokens {
-                    search_dirs.push(appdata_path.join(t));
-                }
-            }
-
-            for dir in search_dirs {
-                if dir.is_dir() && !Self::is_installer_or_cache_path(&dir) {
-                    if let Some(exe) = Self::find_exe_in_directory(&dir, &config) {
-                        return Some(exe);
-                    }
-                }
+            if let Some(found) = Self::drive_scan(&tokens, &config) {
+                return Some(found);
             }
         }
 
         // 3. 开始菜单与桌面快捷方式探测与智能目标解构 (.lnk -> Target exe)
         #[cfg(target_os = "windows")]
         {
-            let shortcut_roots = [
-                std::env::var("ProgramData")
-                    .map(|p| PathBuf::from(p).join(r"Microsoft\Windows\Start Menu\Programs"))
-                    .ok(),
-                std::env::var("APPDATA")
-                    .map(|p| PathBuf::from(p).join(r"Microsoft\Windows\Start Menu\Programs"))
-                    .ok(),
-                std::env::var("USERPROFILE")
-                    .map(|p| PathBuf::from(p).join("Desktop"))
-                    .ok(),
-                Some(PathBuf::from(r"C:\Users\Public\Desktop")),
-            ];
-
-            for root_opt in shortcut_roots.into_iter().flatten() {
-                if root_opt.is_dir() {
-                    let mut scan_folders = vec![root_opt.clone()];
-                    if let Ok(entries) = std::fs::read_dir(&root_opt) {
-                        for entry in entries.flatten() {
-                            let p = entry.path();
-                            if p.is_dir() {
-                                scan_folders.push(p);
-                            }
-                        }
-                    }
-
-                    for folder in scan_folders {
-                        if let Ok(entries) = std::fs::read_dir(&folder) {
-                            for entry in entries.flatten() {
-                                let p = entry.path();
-                                if p.is_file()
-                                    && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("lnk"))
-                                {
-                                    let fname = p
-                                        .file_name()
-                                        .unwrap_or_default()
-                                        .to_string_lossy()
-                                        .to_lowercase();
-                                    let f_matched = tokens.iter().any(|t| fname.contains(t));
-
-                                    if f_matched {
-                                        if let Some(target_exe) = Self::resolve_lnk_target(&p) {
-                                            if !Self::is_installer_or_cache_path(&target_exe)
-                                                && target_exe.is_file()
-                                            {
-                                                return Some(
-                                                    target_exe.to_string_lossy().to_string(),
-                                                );
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+            if let Some(found) = Self::shortcut_scan(&tokens) {
+                return Some(found);
             }
         }
 
@@ -1672,5 +1670,100 @@ impl AppScanner {
 
         // 3. 回退尝试从物理路径/可执行文件元数据获取创建时间
         Self::detect_path_installed_at(install_path)
+    }
+}
+
+#[cfg(test)]
+mod executable_refactor_tests {
+    use super::*;
+
+    #[test]
+    fn is_search_token_dedups_shape_condition() {
+        // 停用词、短 token、纯数字一律过滤（原 5 处重复条件收敛点）。
+        assert!(!AppScanner::is_search_token("app"));
+        assert!(!AppScanner::is_search_token("tool"));
+        assert!(!AppScanner::is_search_token("ab"));
+        assert!(!AppScanner::is_search_token("12"));
+        assert!(!AppScanner::is_search_token("999"));
+        assert!(!AppScanner::is_search_token(""));
+        // 正常 token 通过。
+        assert!(AppScanner::is_search_token("vlc"));
+        assert!(AppScanner::is_search_token("motrix"));
+        assert!(AppScanner::is_search_token("clash-verge-rev"));
+    }
+
+    #[test]
+    fn build_tokens_filters_stop_short_digit_and_extends_config() {
+        let mut config = ScanConfig::from("motrix");
+        let tokens = AppScanner::build_tokens("Motrix App", "motrix-app-999", "agalwood/motrix", &mut config);
+        // 独立停用词 / 纯数字 / 短 token 不得作为独立 token 出现。
+        assert!(!tokens.iter().any(|t| t == "app"));
+        assert!(!tokens.iter().any(|t| t == "999"));
+        assert!(tokens.iter().any(|t| t == "motrix"));
+        // 首段回退分支同样受形状过滤（"motrix-app" 保留，"app" 不保留）。
+        assert!(tokens.iter().any(|t| t == "motrix-app"));
+        // 配置扩展与 token 同源：安装目录与可执行名按序并入。
+        assert!(config.install_dirs.iter().any(|d| d == "motrix"));
+        assert!(config
+            .target_executables
+            .iter()
+            .any(|e| e == "motrix.exe"));
+        assert!(config
+            .target_executables
+            .iter()
+            .any(|e| e == "motrix-gui.exe"));
+    }
+
+    #[test]
+    fn lnk_dir_predicates_match_expected_filenames() {
+        // shortcut_scan 风格：token 子串匹配（已小写）。
+        let tokens = vec!["vlc".to_string()];
+        let shortcut_pred = |fname: &str| tokens.iter().any(|t| fname.contains(t));
+        assert!(shortcut_pred("vlc.lnk"));
+        assert!(!shortcut_pred("other.lnk"));
+
+        // resolve_executable_path 风格：exe 基名或安装目录名匹配。
+        let config = ScanConfig {
+            target_executables: vec!["vlc.exe".to_string()],
+            install_dirs: vec!["vlc".to_string()],
+            search_subdirs: vec![],
+        };
+        let exe_pred = |fname: &str| {
+            config.target_executables.iter().any(|exe| {
+                let base = exe.trim_end_matches(".exe").to_lowercase();
+                !base.is_empty() && fname.contains(&base)
+            }) || config
+                .install_dirs
+                .iter()
+                .any(|d| fname.contains(&d.to_lowercase()))
+        };
+        assert!(exe_pred("vlc.lnk"));
+        assert!(!exe_pred("other.lnk"));
+    }
+
+    #[test]
+    fn scan_lnk_dir_traverses_temp_dirs_without_filesystem_side_effects() {
+        // 仅使用临时目录，不依赖本机真实快捷方式目录。
+        let dir = tempfile::tempdir().expect("tempdir");
+        // 空目录：无论谓词真假均返回 None。
+        assert!(AppScanner::scan_lnk_dir(dir.path(), |_| true).is_none());
+        assert!(AppScanner::scan_lnk_dir(dir.path(), |_| false).is_none());
+        // 非 .lnk 文件不触发解析。
+        std::fs::write(dir.path().join("note.txt"), b"hello").unwrap();
+        assert!(AppScanner::scan_lnk_dir(dir.path(), |_| true).is_none());
+        // 损坏的 .lnk：谓词命中也不 panic，优雅返回 None。
+        std::fs::write(dir.path().join("vlc.lnk"), b"invalid header data").unwrap();
+        assert!(AppScanner::scan_lnk_dir(dir.path(), |fname| fname.contains("vlc")).is_none());
+        // 一级子目录同样被遍历（损坏 .lnk 仍返回 None，不 panic）。
+        let sub = dir.path().join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(sub.join("vlc.lnk"), b"invalid header data").unwrap();
+        assert!(AppScanner::scan_lnk_dir(dir.path(), |fname| fname.contains("vlc")).is_none());
+        // 谓词为假时不触及解析，直接返回 None。
+        assert!(AppScanner::scan_lnk_dir(dir.path(), |_| false).is_none());
+        // 不存在路径与文件路径均返回 None。
+        assert!(AppScanner::scan_lnk_dir(&dir.path().join("missing"), |_| true).is_none());
+        let file_root = dir.path().join("note.txt");
+        assert!(AppScanner::scan_lnk_dir(&file_root, |_| true).is_none());
     }
 }
