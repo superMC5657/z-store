@@ -4,5 +4,3 @@ pub mod readme_parse;
 pub mod readme_fetch;
 
 pub use readme_parse::*;
-#[allow(unused_imports)]
-pub use readme_fetch::*;

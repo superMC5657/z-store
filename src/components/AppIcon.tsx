@@ -19,8 +19,7 @@ export interface AppIconProps {
   loading?: 'eager' | 'lazy';
 }
 
-// 唯一的远端图标判定谓词：调用方（`services/iconStore.queueIconFetches` 内部与组件本体）必须复用此函数，禁止各自内联重复形状
-// 备注：此为展示判定（含 `.png/.svg` 后缀直显），与店内 `isRemoteHttpIconUrl` 落盘门控正交（仅 `http(s)` 落盘），非重复 locality。
+// 唯一的远端图标判定谓词：调用方（`services/iconStore.queueIconFetches` 内部与组件本体）必须复用此函数，禁止各自内联重复形状。
 export function isRemoteIcon(icon: string | undefined | null): boolean {
   if (!icon) return false;
   return (

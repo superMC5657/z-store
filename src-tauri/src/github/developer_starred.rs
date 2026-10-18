@@ -341,8 +341,6 @@ pub(crate) mod test_support {
 
     pub(crate) struct MockServer {
         pub(crate) base: String,
-        #[allow(dead_code)]
-        pub(crate) hits: Arc<Mutex<HashMap<String, usize>>>,
         pub(crate) seen_inm: Arc<Mutex<HashMap<String, Option<String>>>>,
     }
 
@@ -350,10 +348,8 @@ pub(crate) mod test_support {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let routes = Arc::new(routes);
-        let hits: Arc<Mutex<HashMap<String, usize>>> = Arc::new(Mutex::new(HashMap::new()));
         let seen_inm: Arc<Mutex<HashMap<String, Option<String>>>> =
             Arc::new(Mutex::new(HashMap::new()));
-        let hits_c = hits.clone();
         let seen_c = seen_inm.clone();
         tokio::spawn(async move {
             loop {
@@ -361,7 +357,6 @@ pub(crate) mod test_support {
                     break;
                 };
                 let routes = routes.clone();
-                let hits = hits_c.clone();
                 let seen = seen_c.clone();
                 tokio::spawn(async move {
                     use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
@@ -390,10 +385,7 @@ pub(crate) mod test_support {
                             inm = Some(v.trim().to_string());
                         }
                     }
-                    {
-                        *hits.lock().unwrap().entry(path.clone()).or_insert(0) += 1;
-                        seen.lock().unwrap().insert(path.clone(), inm.clone());
-                    }
+                    seen.lock().unwrap().insert(path.clone(), inm.clone());
                     let (status, reason, etag, body) = match routes.get(&path) {
                         Some(r) => {
                             if let Some(ref want) = r.honor_inm {
@@ -425,14 +417,8 @@ pub(crate) mod test_support {
         });
         MockServer {
             base: format!("http://127.0.0.1:{}", port),
-            hits,
             seen_inm,
         }
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn hits_of(srv: &MockServer, path: &str) -> usize {
-        srv.hits.lock().unwrap().get(path).copied().unwrap_or(0)
     }
 
     pub(crate) fn user_json(login: &str) -> String {

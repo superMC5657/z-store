@@ -1,3 +1,4 @@
+import type { TFunction } from 'i18next';
 import { AppSummary, InstalledApp } from '../types';
 
 interface IconInfo {
@@ -82,7 +83,7 @@ export function getAppDescription(
 export function getCategoryLabel(
   category: string,
   defaultName: string,
-  t?: (key: any, options?: any) => string
+  t?: TFunction
 ): string {
   if (!t) return defaultName;
   const key = `categories.cat_${category}_name`;

@@ -387,7 +387,6 @@ fn test_resolve_installed_app_path_non_existent() {
     // 测试不存在的应用返回 None，绝不产生假路径或 Panic（在任何纯净环境/CI 均稳定）
     let non_existent =
         AppScanner::resolve_installed_app_path("NonExistentApp999", "non-existent-app-999", None);
-    println!("NonExistent resolved path: {:?}", non_existent);
     assert!(non_existent.is_none());
 }
 
@@ -425,7 +424,6 @@ fn test_resolve_lnk_target_local() {
     );
     if lnk.exists() {
         let target = AppScanner::resolve_lnk_target(lnk);
-        println!("RESOLVED LNK TARGET for Clash Verge: {:?}", target);
         assert!(target.is_some());
     }
 }
@@ -439,18 +437,13 @@ fn test_resolve_installed_app_path_real() {
         "clash-verge-rev",
         Some("clash-verge-rev"),
     );
-    println!("Clash Verge resolved path: {:?}", path1);
-
     let path2 = AppScanner::resolve_installed_app_path("WezTerm", "wezterm", Some("wezterm"));
-    println!("WezTerm resolved path: {:?}", path2);
 
     let path3 =
         AppScanner::resolve_installed_app_path("qBittorrent", "qbittorrent", Some("qBittorrent"));
-    println!("qBittorrent resolved path: {:?}", path3);
 
-    let path4 =
+    let _path4 =
         AppScanner::resolve_installed_app_path("Oh My Posh", "oh-my-posh", Some("oh-my-posh"));
-    println!("Oh My Posh resolved path: {:?}", path4);
 
     assert!(path1.is_some() || path2.is_some() || path3.is_some());
 }
@@ -463,7 +456,6 @@ fn test_batch_detect_catalog_apps() {
         .catalog
         .load_catalog_items()
         .expect("failed to load catalog via config local_path");
-    let start = std::time::Instant::now();
     let mut detected = Vec::new();
     for cat in &catalog {
         if let Some(path) =
@@ -472,9 +464,8 @@ fn test_batch_detect_catalog_apps() {
             detected.push((cat.id.clone(), cat.name.clone(), path));
         }
     }
-    let elapsed = start.elapsed();
-    println!("Batch detected {} apps in {:?}", detected.len(), elapsed);
-    for (id, name, path) in &detected {
-        println!("  [DETECTED] {} ({}): {}", name, id, path);
-    }
+    assert!(
+        detected.len() <= catalog.len(),
+        "detected apps must be a subset of catalog"
+    );
 }

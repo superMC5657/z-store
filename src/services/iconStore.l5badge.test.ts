@@ -21,7 +21,7 @@ import {
 
 const REAL_ICON = 'https://cdn.simpleicons.org/r';
 
-let list: any[];
+let list: { id: string; icon: string }[];
 let mirror: Record<string, any>;
 
 function testPatch(tid: string, icon: string): void {

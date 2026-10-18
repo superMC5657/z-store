@@ -4,11 +4,12 @@
  */
 import { describe, expect, it, beforeEach } from 'vitest';
 import { __resetIconStoreForTests, admitIconHit, patchAppIconList, getBufferedIcon } from './iconStore';
+import type { AppSummary } from '../types';
 beforeEach(() => __resetIconStoreForTests());
 describe('patchAppIconList 归一一致', () => {
   it('含空白 id 经归一直达（首搜 patch 命中，与缓冲同键）', () => {
     const prev = [{ id: ' O/R ', name: 'x', owner: 'o', repo: 'r', icon: '', icon_bg: '', description: '', stars: 0, forks: 0, license: '', latest_version: '', category: '', category_name: '', is_verified: false, forge: '', forge_host: '', homepage: null, platforms: [] } as any];
-    let patched: any = prev;
+    let patched: AppSummary[] = prev;
     const res = admitIconHit({
       id: 'o/r', icon: 'https://cdn.simpleicons.org/r', level: 2, via: 'm2',
       context: { kind: 'search', search_id: 's1' } as any,
@@ -24,7 +25,7 @@ describe('patchAppIconList 归一一致', () => {
   });
   it('常规 id 直写命中（无空白亦一致）', () => {
     const prev = [{ id: 'o/r', icon: '' } as any];
-    let patched: any = prev;
+    let patched: AppSummary[] = prev;
     const res = admitIconHit({
       id: 'o/r', icon: 'https://cdn.simpleicons.org/r', level: 2, via: 'm2',
       context: { kind: 'search', search_id: 's1' } as any,

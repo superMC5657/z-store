@@ -6,7 +6,7 @@ import { InstalledView } from './InstalledView';
 import { FavoritesView } from './FavoritesView';
 import { UpdatesView } from './UpdatesView';
 import { RulesManagerModal } from '../components/RulesManagerModal';
-import { AppSummary, InstalledApp, UpdateRule } from '../types';
+import { AppDetailViewModel, AppSummary, InstalledApp, UpdateRule } from '../types';
 
 (globalThis as Record<string, unknown>)['IS_REACT_ACT_ENVIRONMENT'] = true;
 
@@ -417,7 +417,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
 
     it('switches app name, description and category in AppDetailModal between Chinese and English', async () => {
       const { AppDetailModal } = await import('../components/AppDetailModal');
-      const detailApp: any = {
+      const detailApp: AppDetailViewModel = {
         ...BILINGUAL_APP,
         readme_markdown: '# Readme',
         releases: [],

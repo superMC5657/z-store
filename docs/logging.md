@@ -36,30 +36,22 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
 - Target 规范化：Webview 上送的调用栈 Target 统一被后端重写为精简的 `[ui]`，提升日志可读性。
 - `window.onerror` / `unhandledrejection` 直透 `error()`。
 
-## 4. 前端直透与脱敏
+## 4. 前端直透与脱敏（redact）
 
 入口 `main.tsx` 最早调用 `initZLog()`（见 `src/main.tsx`）。
-- 实际导出只有 `zlogInfo / zlogWarn / zlogError` + `initZLog`（见 `src/lib/z-log.ts:62-86`）：**无 `zlogDebug` 导出**，无 `flush()` 导出；
-- 各级别方法即时异步落盘（`@tauri-apps/plugin-log` 的 `info / warn / error` 直写，失败吞错，不影响业务）；
-- 每行自动加 `[sid=…]` 前缀（`meta.sid` 未传时取前端 sid，见 `withPrefix`）+ 可选 `[req=…]`，同一行 1s 内重复去重一行（`DEDUP_WINDOW_MS=1000`，见 `src/lib/z-log.ts:48-59`，仅影响日志送达、不影响业务）；
-- DEV 环境自动执行 `attachConsole()` 桥接；`window.onerror` / `unhandledrejection` 经 `redact` 后直透 `error()`；
-- 初始化幂等由内部 `isInitialized` 变量守卫（**未导出**，非公共 API）。
+- 公开 API 只有 `zlogInfo / zlogWarn / zlogError` + `initZLog`（见 `src/lib/z-log.ts`，无 `zlogDebug`、无 `flush` 公开导出，幂等守卫为内部变量）；
+- 各级别即时异步落盘（`@tauri-apps/plugin-log` 的 `info / warn / error` 直写，失败吞错，不影响业务）；
+- 每行自动加 `[sid=…]` 前缀（未传取前端 sid）+ 可选 `[req=…]`，同一行 1s 内重复去重一行（仅影响送达、不影响业务）；
+- DEV 环境自动执行 `attachConsole()` 桥接；`window.onerror` / `unhandledrejection` 先脱敏后直透 `error()`。
+- 脱敏规则（前后端同规则，字符边界安全、无正则）：邮箱掩码；`code` / `device_code` / `user_code` / `api_key` 系（含 JSON `"key": "值"` 形态）掩码；`Bearer` / `Token` 后紧跟原文打码为 `***`；后端另在写盘前 + 导出打包前各执行一次，panic hook 入参先脱敏再记 `error`。
 
-## 5. 脱敏（redact）
+## 6. 保留与清理（prune 14d / 25MB，只碰 `*.log`（含 `*.log.bak`），实现以 `src-tauri/src/z_log.rs::prune` 为准，不记行号）
 
-- 后端 `z_log::redact`：`format` 写盘前 + 导出打包前各执行一次。规则（无正则、字符边界安全）：
-  邮箱掩码；`code` / `device_code` / `user_code` / `api_key` 系（大小写不敏感，含 JSON `"key": "值"` 形态）掩码；
-  `Bearer` / `Token` 后紧跟的 token 原文打码为 `***`；
-  panic hook 入参先脱敏再记 `error`。
-- 前端同规则轻量脱敏（`redact()`）：`zlogInfo / zlogWarn / zlogError / zlogDebug` 与 `onerror / unhandledrejection` 直透路径均先脱敏，避免密钥落盘。
-
-## 6. 保留与清理（prune 14d / 25MB，只碰 *.log（含 *.log.bak），以 `src-tauri/src/z_log.rs:379-440` 为准）
-
-`z_log::prune` 在 `setup` 中对 `app_log_dir` 执行（`KEEP_DAYS = 14` 见 `z_log.rs:11`，`MAX_TOTAL_BYTES = 25MB` 见 `z_log.rs:13`；单文件 5MB 见 `MAX_SINGLE_FILE_BYTES`（`z_log.rs:16`），轮转保留 5 个见 `ROTATION_KEEP_COUNT`（`z_log.rs:18`），`KeepSome(5)`）：
+`z_log::prune` 在 `setup` 中对 `app_log_dir` 执行（`KEEP_DAYS = 14`，`MAX_TOTAL_BYTES = 25MB`；单文件 5MB + `KeepSome(5)` 轮转，常量名与实现对照 `z_log.rs`，定位用 `rg` 现查）：
 
 - `KEEP_DAYS = 14`：mtime 超 14 天删；
 - `MAX_TOTAL_BYTES = 25MB`：超量按 mtime 最旧先删；
-- **只碰日志文件**（见 `z_log.rs:395-405`：文件名小写以后缀 `.log` / `.log.bak` 判定，或扩展名 `log` / `bak` 大小写不敏感判定）：`.zip` 导出包、`.txt`、
+- **只碰日志文件**（判定逻辑见 `z_log::prune`，文件名小写以后缀 `.log` / `.log.bak` 判定，或扩展名 `log` / `bak` 大小写不敏感判定）：`.zip` 导出包、`.txt`、
   业务 SQLite（`z_store.db` 在 AppDataDir，与 LogDir 分离）一律不动。
 
 ## 7. 导出命令
@@ -73,8 +65,7 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
 
 ## 8. 禁 sqlite 声明
 
-- 日志**只进 LogDir**，禁止写入业务 SQLite（`z_store.db`：已安装记录 / 设置 / 令牌 /
-  更新规则 / 足迹等 14 张核心表（见 `src-tauri/src/db/schema.rs:8-131`，含 `trend_board_cache` 榜缓存二级落盘与 `icon_cache_meta` / `app_icon_cycles` 图标缓存分流两表），与日志物理隔离）。
+- 日志**只进 LogDir**，禁止写入业务 SQLite（`z_store.db`，表清单以 `src-tauri/src/db/schema.rs` 为准，与日志物理隔离）。
 - panic hook 仅记 `log::error!` 落盘，不写 DB、不上报。
 - 磁盘库（`z_store.db`）打不开回退内存库时记一条 `error`
  （`src-tauri/src/lib.rs::run` 约 L331–L336，
@@ -87,7 +78,7 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
 - `src-tauri/src/lib.rs::run`：首行 `install_panic_hook()` + `.plugin(z_log::init())` +
   `setup` 内 `prune` + commands 注册。
 - `src-tauri/src/main.rs`：首行 `install_panic_hook()`（与 `run` 双入口，`OnceLock` 幂等）。
-- `src/lib/z-log.ts` + `src/main.tsx`：前端直透入口（`initZLog / zlog* / flush / isInitialized`）。
+- `src/lib/z-log.ts` + `src/main.tsx`：前端直透入口（`initZLog / zlogInfo / zlogWarn / zlogError`）。
 
 ## 10. 业务打点三层设计（定稿）
 
@@ -151,21 +142,7 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
 - **上游错误脱敏（`log_support::http_err_reason`）**：reqwest 0.12 `Display` 回显完整 URL，先剥离签名 query 再取首行（160 字符安全截断）。
 - **令牌遮蔽（`z_log::redact`）**：`Bearer/token` 之后紧跟的 token 原文统一打码为 `***`。
 
-## 12. 接线位置索引（以当前代码为准，不记行号）
+## 12. 接线位置索引（以源码为准，不记行号）
 
-- `src-tauri/src/log_support.rs`：辅助定义 + 单测。
-- `src-tauri/src/lib.rs`：`mod log_support`；限流 error/warn（`log_rate_limit_water_mark`）；
-  磁盘库回退内存库 error（`db open failed fallback to in-memory`）。
-- `src-tauri/src/installer/downloader.rs`：下载开始 info、失败 error（多分支）、完成 info；
-  校验成功 / 失败（`download verify failed`）同文件。
-- `src-tauri/src/installer/executor.rs`：安装出入口 info/error；卸载起止 info/error。
-- `src-tauri/src/installer/selector.rs`：选包决策 debug。
-- `src-tauri/src/commands/updates.rs`：单项 warn、轮结束 info、挂起 debug。
-- `src-tauri/src/commands/catalog.rs`：成功 debug、回退 debug、失败 warn、同步起止 info。
-- `src-tauri/src/commands/oauth.rs`：登录 info、取消 debug、失败 warn、登出 info。
-- `src-tauri/src/oauth/device_flow.rs`、`star.rs`：轮询 debug、401/403 warn。
-- `src-tauri/src/commands/scanner.rs`：扫描起止 info。
-- `src-tauri/src/mirror.rs`：切换 info（`set_active_mirror`）。
-- `src-tauri/src/commands/network.rs`：测速 info/warn、ping debug；趋势文本拒绝/限流/上游 warn、起止 debug。
-
-行号以当前代码为准，例如：`rg -n "download start|download done|oauth login ok" src-tauri/src`。
+- 实现：`src-tauri/src/z_log.rs`（init / prune / redact / panic hook / 导出命令）、`src-tauri/src/log_support.rs`（脱敏与 URL 处理）、`src/lib/z-log.ts`（前端直透入口）。
+- 定位点位用 `rg` 现查，例如：`rg -n "download start|download done|oauth login ok" src-tauri/src`。

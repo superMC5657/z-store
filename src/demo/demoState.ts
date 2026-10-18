@@ -1,5 +1,6 @@
 import type { InstalledApp } from '../types';
 import { summaries, summaryToInstalled } from './fixtures';
+import { zlogWarn } from '../lib/z-log';
 
 export const LS = {
   favorites: 'zstore:demo:favorites:v1',
@@ -148,7 +149,7 @@ export function demoRunCallback(id: number, data: unknown): void {
   if (fn) {
     fn(data);
   } else {
-    console.warn(`[demo-mock] missing callback ${id}`);
+    zlogWarn(`[demo-mock] missing callback ${id}`);
   }
 }
 
@@ -177,7 +178,7 @@ const warned = new Set<string>();
 export function warnOnce(cmd: string): void {
   if (warned.has(cmd)) return;
   warned.add(cmd);
-  console.warn(`[demo-mock] unmocked command "${cmd}" → shape-safe fallback`);
+  zlogWarn(`[demo-mock] unmocked command "${cmd}" → shape-safe fallback`);
 }
 
 export const LIST_FALLBACK = new Set([

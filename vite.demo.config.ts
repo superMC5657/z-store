@@ -2,8 +2,8 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
 // Live-demo 嵌入页：用于 `/live-demo` 嵌入场景的浏览器静态打包配置。
-// 约定：Demo 静态产物输出至
-//   Z:\web_workplace\z-store-web/public/live-demo/，且 base 为 `/live-demo/`。
+// 约定：Demo 静态产物输出至仓库相对路径
+//   `../../web_workplace/z-store-web/public/live-demo/`（与下方 outDir 一致），且 base 为 `/live-demo/`。
 // 此配置仅供 `pnpm run build:demo` 使用；常规 Tauri 构建使用
 // vite.config.ts，绝不会引入 VITE_DEMO / Demo mock（以及 catalog.json）。
 //

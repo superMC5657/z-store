@@ -41,20 +41,14 @@
 | **流式更新检查** | `Streaming Update Check` | 更新中心采用并发管道流式检测，实时发射 `zstore://update-check-progress` 推流事件，驱动逐项跳出微动效。 | 批量更新、后台检测 |
 | **统一配置中枢** | `Unified Project Config` | `src-tauri/config.toml` 作为项目超参与默认配置的单一配置源 (SSOT)，结合编译期宏内置兜底与运行期动态重载。 | 配置文件、硬编码常量 |
 | **规范应用标识** | `Canonical App Id` | 全系统唯一应用标识，统一为小写 `owner/repo`（GitHub）或 `forge[:host]:owner/repo`（多源）；id 即仓库坐标本身。入站标识（命令/深链/导入）一律经 `canonical_app_id()` 归一化，目录检索仅按 id 唯一匹配。详见 ADR-0010。 | 随机 UUID、应用别名 ID |
-| **统一图标获取** | `IconFetch` | 后端统一图标补探核心（`github/icon_fetch.rs:fetch_icons_stream`），搜索与趋势后台均已接入流式补齐；仅负责探测与调度，不触 DB。 | 图标管道、补图核心 |
-| **图标就绪事件** | `icon-ready` | 后端逐张发射的统一事件 `zstore://icon-ready{id,icon,level,via,context}`（`id` 即小写 `owner/repo`，与 DB 主键同源）；前端统一由 `iconStore.applyHit` 收口。 | 图标推送、icon 事件 |
+| **统一图标获取** | `IconFetch` | 后端统一图标补探核心（`src-tauri/src/github/icon_fetch.rs:fetch_icons_stream`），搜索与趋势后台均已接入流式补齐；仅负责探测与调度，不触 DB；逐张经统一事件 `zstore://icon-ready` 发射（`id` 即小写 `owner/repo`，与 DB 主键同源），前端统一由 `iconStore.applyHit` 收口。 | 图标管道、补图核心 |
 | **搜索列表缓存** | `Search List Cache` | 搜索页纯前端内存搜缓存（搜缓存=搜索 L1，`services/search/searchListCache.ts`），key=`search\|归一query\|page\|perPage`，TTL 30min、空不存、上限 50 条 FIFO；不碰榜缓存二级落盘与趋势榜缓存。 | 搜索缓存、结果缓存 |
-| **榜就绪门信号** | `boardReady` | 趋势视图内部态：`useTrendBoard` 内 hydrate 就绪门信号（`useTrendBoard.ts:101` 定义，L1/L2/网络三路径统一 emit 后置位，见 `setBoardReady`），仅供富卡升级判定、不阻塞裸行直展；对应 ADR-0014 榜 L2 落盘语义。 | 就绪态、加载完成 |
-| **SWR 同步快照** | `swrSyncedResult` | 趋势视图内部态：当前榜单 SWR 合并完成快照判定（定义 `services/trends/board.ts:1158`，消费 `TrendsView.tsx:438`），快照与 hydrate 一致即原地升级富卡、不拦裸行。 | 同步结果、合并态 |
-| **升级待定判定** | `isUpgradePending` | 趋势视图内部态：富卡升级待定判定（定义 `services/trends/board.ts:1175`，真实消费点 `TrendsView.tsx:439`），enrich 富卡升级路径经 `isUpgradePending(boardReady, swrSynced) && !isEnrichUpgradeAllowed(boardReady)` 门控，未就绪即延迟到 boardReady 置位后重入；仅门控升级、不阻塞裸行直展；内部视图态，非用户-facing。 | 待升级、pending 态 |
-| **绘制同步回归线** | `paint-sync` | 测试专用 lane 名，非用户-facing 概念：驱逐写透/裸行直展回归（内存与盘所见即所得，见 `paint-sync.test.ts:2`、`TrendsView.paintSync.test.tsx:2`），仅测试命名。 | 首屏测试、渲染同步 |
 | **待收录草稿** | `Draft` | 暂存于本地 `custom_apps` 表、尚未提交至独立生态清单仓库的收录候选条目（`status=draft`），经暂存校验（canonical 身份对齐）后参与合并目录视图，提交时才强制全字段校验。 | 草稿箱、未提交应用 |
 | **自维护** | `Maintained` | 用户在本地自维护的收录条目（`custom_apps` 未归档行），经 overlay 合并进入目录视图并以 `source=custom` 标识，远端命中后自动转正归档。 | 本地条目、自定义应用 |
 | **转正** | `Graduated` | 自维护草稿被远端精选收录库正式收录（`sync_catalog` 命中 canonical id），本地行置 `archived=1` 自动归档，不再参与合并视图。 | 毕业、上岸、合并完成 |
 | **已收录/未收录** | `Cataloged/Uncataloged` | 卡片收录态徽标：id 命中精选收录库为已收录，否则为未收录（走详情缓存读富卡）；与自维护/转正正交（后者仅描述本地草稿生命周期）。 | 收录状态、有无收录 |
 | **收录标记** | `is_cataloged` | 收藏/关注记录自带的收录态字段（0/1 持久化于 `user_favorites` / `watched_apps`）：写入时按内存目录判定一次，存量行启动回填；前端凭此决定走收录库还是详情缓存读卡。 | cataloged 字段、收录位 |
-| **确认图标** | `Confirmed Icon` | `app_icon_cycles` 表 + 本地图标文件已落定的可直显图标：M2 为 `data:` 直显，L1-L3 为远端回退，L4 无（即空）。与统一图标获取/`icon-ready`/M2 内存态正交（后者描述探测与缓存分层）。 | 落定图标、有效图标 |
-| **DB-only 回填** | `DB-only Backfill` | 趋势榜重挂时经 `getConfirmedIconsBatch` 本地回填空图标：零网络、零写盘，只进内存呈现。区别于统一图标获取（后端探测）与 `icon-ready`（流式事件）与 M2 首屏直填（缓存分层）。 | 本地回填、图标自愈 |
+| **确认图标** | `Confirmed Icon` | `app_icon_cycles` 表 + 本地图标文件已落定的可直显图标：M2 为 `data:` 直显，L1-L3 为远端回退，L4 无（即空）；榜重挂时经 `getConfirmedIconsBatch` 本地回填（DB-only：零网络、零写盘、只进内存呈现）。与统一图标获取（后端探测与流式事件）及 M1/M2 缓存分层正交。 | 落定图标、本地回填 |
 
 ---
 
@@ -65,16 +59,16 @@
 2. **D2 零服务器成本与解耦清单同步 (Serverless Direct API & Decoupled Manifest Sync)**:
    - 客户端从独立开源清单仓库（`superMC5657/z-store-catalog`）增量同步精选应用元数据（包含分类、英文原名、图标、多端标识符与仓库坐标等）；本地预置 `catalog.json` 种子清单兜底（详见 ADR-0009）。
    - 应用深度详情与构建资产通过 `ForgeProvider` 抽象层按需直连各代码源官方 REST API 获取，不设中心化聚合后端；
-   - 本地 SQLite (`z_store.db`) 维护基于单一配置源（`src-tauri/config.toml`）的 TTL 缓存（基线 60 分钟，改库/导入值按挡位 `[0, 10, 60, 360, 1440]` 归一化，非法值回退 60），配合 HTTP ETag 304 条件请求实现零配额消耗延长缓存时效；该 TTL 仅约束详情浏览：非资产面（搜索/趋势/平台推导/图标/首页）默认自动拉取并经 ETag 条件请求复用，资产面（已安装应用、更新中心、收藏）仅手动触发网络——更新中心列表为手动快照（仅显式刷新写入 `update_results`，其余读库呈现），收藏/关注记录自带收录标记就近读卡；离线或请求失败时平滑回退本地持久化数据（详见 ADR-0007）。
-   - 网络层自动继承操作系统代理与环境变量（Windows 下启动时自探测注册表且 https 优先，支持 Clash / v2ray / TUN 模式透明截获），与针对 Release 大文件下载的加速镜像节点正交可叠加；镜像切换永不写进程全局 `NO_PROXY`/`no_proxy`（仅 per-client `no_proxy` 生效）；`gh-proxy.com` 与趋势 host（`trend.doforce.dpdns.org`）为直连豁免，不走镜像（镜像代理仅下载）。
-   - 所有已安装记录、用户设置、主机令牌（PAT）、更新规则、关注应用与本地足迹均保存在客户端本地嵌入式 SQLite 中（18 张核心表，见 `src-tauri/src/db/schema.rs:8-182`：`installed_apps` / `api_etag_cache` / `app_details_cache` / `user_settings` / `user_favorites` / `update_rules` / `search_history` / `view_history` / `host_tokens` / `watched_apps` / `user_stars` / `icon_cache_meta` / `app_icon_cycles` / `trend_board_cache` / `asset_cache` / `asset_refs` / `custom_apps` / `update_results`；其中 `icon_cache_meta` 追踪收录应用图标缓存来源，`app_icon_cycles` 追踪图标轮换状态，两表分流；`trend_board_cache` 为趋势榜 L2 缓存，后端命令 `get/save_trend_board_cache` 见 `src-tauri/src/commands/trends_cache.rs`，前端沿用同 key 直接命中；L2按榜双档 daily 1h/其余12h（见 `src/services/trends/cache.ts:19-21`），有效TTL=基线-min(抖动0-30s,基线/4)（见 `src/services/trends/cache.ts:42-59`），清扫双档对齐；后端写盘硬上限 512KiB（见 `src-tauri/src/db/cache.rs:215,249`），前端写前 256KB 预检、超限逐级裁剪（见 `src/services/trends/cache.ts:33,322`））。
-   - 后端 `src-tauri/src/lib.rs:569-659` 共注册 89 个 commands（含 `zlog_get_dir` / `zlog_export_bundle`）；前端 IPC 唯一出口为CMD表+tauriApi（`src/services/api.ts:64-140` CMD 表 + `src/services/api.ts:165-256` `tauriApi` 经 `src/services/api/client.ts:1-10` `tauriInvoke`/`isTauri` 派发），视图层禁止直调 `invoke`（见 `src/views/noDirectInvoke.test.ts`）；前端无 router，用 `useState` 视图机（`ViewType` 8 种：`home|trends|categories|favorites|installed|updates|settings|pending`，见 `src/types/index.ts:140`；`App.tsx:59`）。
+   - 本地 SQLite (`z_store.db`) 维护 TTL 缓存（基线 60 分钟）配合 HTTP ETag 304 条件请求；分面策略与挡位归一化详见 ADR-0007。
+   - 网络层自动继承操作系统代理；Release 大文件下载走下载加速代理（正交可叠加，详见 ADR-0002）。
+   - 所有已安装记录、用户设置、主机令牌（PAT）、更新规则、关注应用与本地足迹均保存在客户端本地嵌入式 SQLite 中；表清单以 `src-tauri/src/db/schema.rs::init_schema` 为准，榜缓存与图标分流语义见 ADR-0014/ADR-0015，文档不记具体数字。
+   - 后端 commands 注册表以 `src-tauri/src/lib.rs::invoke_handler` 为准（含 zlog 命令）；前端唯一出口为 CMD 表 + `tauriInvoke` 派发，视图层禁直调 `invoke`，请求键命名规则以 AGENTS.md 为准；前端用 `useState` 视图机（`ViewType` 见 `src/types/index.ts`）。
 3. **D3 零信任完整性防篡改 (Zero-Trust Anti-Tampering)**:
     - 所有下载的二进制安装包强制流式计算 SHA-256 哈希值并与官方校验清单比对，哈希不符立即强行阻断并销毁临时文件（详见 ADR-0004）。
 4. **D4 Linear 去彩单色界面 (Monochrome Design System)**:
    - 界面采用 Linear 风格的去彩单色体系：黑白灰画布、hairline 微边框、6/8px 圆角、510/590 字重与系统级深浅色自适应（Fluent 仅指 `lucide-react` 矢量图标体系，不要求 Acrylic/品牌蓝）。
    - 采用统一的线性矢量图标体系（统一由 `lucide-react` 14px/stroke 1.5 及单色矢量 SVG 驱动并适配 `currentColor`），状态反馈采用标准 CSS 微动效（如旋转 `.icon-spin`）与高亮状态指示原点（`.status-dot`），消除视觉割裂；基底保持单色，星级收藏（金 `#eab308`）、榜单排名（金/银/铜）与告警/错误等状态色为例外点缀，图标本体仍为单色 `currentColor`。
-   - 侧栏底部常驻账号入口胶囊（`Account Capsule`），未登录显示登录入口，已登录呈现头像与用户名，点击直达设置中心账号卡片（`#settings-account`）。
+   - 侧栏底部账号入口胶囊与设置中心分组见词汇表；网络/认证与分组规范见 ADR-0008。
 5. **D5 双池复用 (Dual-Pool Client Reuse)**:
    - API 与图标下载使用物理隔离的复用单例 Client，均配置 connect_timeout 5s、keepalive 60s、pool 20/idle 90s；图标 CDN 通道恒丢 token，绝不携带认证头。
 6. **D6 有限并发 (Bounded Concurrency)**:
@@ -94,4 +88,4 @@
     - 详情仍走最强探测（动态分支 + 图标 L4=README，需网络；L3仅默认分支，详情失败用HEAD，README默认+HEAD），不受统一核心约束。
     - level纯L(1=L1官方,2=L2品牌库,3=L3仓库,4=L4 README)；缓存只用M(M1=前端内存，M2=DB落盘)，
       经 `via`=live|m2 正交表达（core探测一律live，DB回填走m2不占level）；level:4=L4。
-    - 榜就绪门 `boardReady` 见 `src/views/TrendsView/useTrendBoard.ts:101`，SWR 快照 `swrSyncedResult` / 判定 `isUpgradePending` 定义见 `src/services/trends/board.ts:1158,1175`、消费见 `src/views/TrendsView.tsx:438-439`（仅门控富卡升级，不阻塞裸行直展）。
+    - 榜就绪门控（`boardReady` / SWR 快照判定）仅门控富卡升级、不阻塞裸行直展，实现见 `src/services/trends/board.ts` 与 `useTrendBoard.ts`。
