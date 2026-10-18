@@ -26,7 +26,7 @@ pub(crate) fn detail_ttl_secs(db: &crate::db::Database) -> i64 {
 
 /// 应用详情：网络默认允许；TTL 命中直返缓存，否则走 ETag 条件请求拉取并落库。
 /// `force_refresh` 为手动刷新按钮透传位，`Some(true)` 时跳过 TTL 与 ETag 复用、直探远端。
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub async fn get_app_details(
     state: State<'_, AppState>,
     id: String,
@@ -58,7 +58,7 @@ pub async fn get_app_details(
 /// 仅读写 `api_etag_cache`（条件请求键）与详情 `cached_at` touch。
 /// - 网络默认允许：TTL 命中直返缓存，否则走 forge 直拉 / ETag 条件请求；
 ///   `force_refresh` 为手动刷新按钮透传位，`Some(true)` 时跳过 TTL 快径直探远端。
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub async fn get_platforms_lite(
     state: State<'_, AppState>,
     id: String,
@@ -806,7 +806,7 @@ pub async fn get_app_details_impl(
 }
 
 /// 通用图片磁盘缓存查询：已缓存返回本地路径，未命中下载后返回本地路径，失败回退原地址。
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub async fn fetch_or_cache_asset_url(
     url: String,
     app_id: Option<String>,
@@ -832,7 +832,7 @@ pub fn clear_asset_cache(state: State<'_, AppState>) -> crate::AppResult<usize> 
     Ok(db.clear_asset_cache(&assets_dir)?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub async fn get_readme_variants(
     state: State<'_, AppState>,
     app_id: String,

@@ -9,7 +9,7 @@ pub struct TrendBoardCacheEntry {
 }
 
 /// 获取趋势榜缓存：`cache_key` 经 trim，空拒绝；后端不判 TTL，由前端 L2 执行。
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub fn get_trend_board_cache(
     state: State<'_, AppState>,
     cache_key: String,
@@ -25,7 +25,7 @@ pub fn get_trend_board_cache(
 }
 
 /// 保存趋势榜缓存：`cache_key` 与 `payload_json` 经 trim，空拒绝；后端不判 TTL，由前端 L2 执行。
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub fn save_trend_board_cache(
     state: State<'_, AppState>,
     board: String,

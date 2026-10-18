@@ -230,7 +230,7 @@ pub(crate) fn should_include_update(
     is_version_newer(current_version, latest_version)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub async fn check_for_updates(
     app_handle: AppHandle,
     state: State<'_, AppState>,

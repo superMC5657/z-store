@@ -71,7 +71,7 @@ pub(crate) fn backfill_cataloged_flags(state: &AppState) {
     }
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub fn toggle_favorite(state: State<'_, AppState>, app_id: String) -> crate::AppResult<bool> {
     let app_id = super::require_app_id(&app_id)?;
     let flag = state.catalog.is_cataloged(&app_id);
@@ -103,7 +103,7 @@ pub fn remove_search_query(state: State<'_, AppState>, query: String) -> crate::
     Ok(db.remove_search_query(&query)?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub fn record_app_view(state: State<'_, AppState>, app_id: String) -> crate::AppResult<()> {
     let app_id = super::require_app_id(&app_id)?;
     let db = state.db()?;
@@ -276,7 +276,7 @@ pub fn clear_view_history(state: State<'_, AppState>) -> crate::AppResult<()> {
 
 // ---------- FR-6.2 关注订阅 ----------
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub fn watch_app(state: State<'_, AppState>, app_id: String) -> crate::AppResult<bool> {
     let id = super::require_app_id(&app_id)?;
     let flag = state.catalog.is_cataloged(&id);
@@ -284,7 +284,7 @@ pub fn watch_app(state: State<'_, AppState>, app_id: String) -> crate::AppResult
     Ok(db.watch_app(&id, flag)?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub fn unwatch_app(state: State<'_, AppState>, app_id: String) -> crate::AppResult<bool> {
     let id = super::require_app_id(&app_id)?;
     let db = state.db()?;

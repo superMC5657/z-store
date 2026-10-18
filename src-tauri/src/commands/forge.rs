@@ -231,7 +231,7 @@ pub async fn test_host_connection(
     }
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub async fn search_forge_repos(
     state: State<'_, AppState>,
     forge: String,

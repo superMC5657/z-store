@@ -8,7 +8,7 @@ pub fn get_update_rules(state: State<'_, AppState>) -> crate::AppResult<Vec<Upda
     Ok(db.get_all_rules()?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub fn set_app_skip_version(
     state: State<'_, AppState>,
     app_id: String,
@@ -21,7 +21,7 @@ pub fn set_app_skip_version(
     Ok(true)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub fn set_app_frozen(
     state: State<'_, AppState>,
     app_id: String,
@@ -34,7 +34,7 @@ pub fn set_app_frozen(
     Ok(true)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub fn set_app_hidden(
     state: State<'_, AppState>,
     app_id: String,
@@ -47,7 +47,7 @@ pub fn set_app_hidden(
     Ok(true)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub fn remove_update_rule(state: State<'_, AppState>, app_id: String) -> crate::AppResult<bool> {
     // ADR-0010：入站归一化后全程使用 canonical id；未知标识直接拒绝，永不写入
     let app_id = crate::commands::require_app_id(&app_id)?;

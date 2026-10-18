@@ -53,9 +53,9 @@ export async function searchAppsOnline(
   forceRefresh = false,
 ): Promise<{ rows: AppSummary[]; sid: string }> {
   try {
-    const args: Record<string, unknown> = { query, search_id: searchId, force_refresh: forceRefresh };
+    const args: Record<string, unknown> = { query, searchId, forceRefresh };
     if (page !== undefined && page !== null) args.page = page;
-    if (perPage !== undefined && perPage !== null) args.per_page = perPage;
+    if (perPage !== undefined && perPage !== null) args.perPage = perPage;
     const res = await tauriInvoke<AppSummary[] | { rows: AppSummary[]; sid: string }>(
       CMD.searchOnline,
       args,
@@ -84,7 +84,7 @@ export async function enrichTrendRepos(
   try {
     const res = await tauriInvoke<(AppSummary | null)[]>(CMD.enrichTrendRepos, {
       repos,
-      force_refresh: forceRefresh,
+      forceRefresh,
     });
     if (!Array.isArray(res)) return fallback;
     return repos.map((_, i) => res[i] ?? null);
@@ -139,7 +139,7 @@ export async function getPlatformsLite(
   forceRefresh = false,
 ): Promise<PlatformsLiteResult> {
   try {
-    const res = await tauriInvoke<PlatformsLiteResult>(CMD.getPlatformsLite, { id, force_refresh: forceRefresh });
+    const res = await tauriInvoke<PlatformsLiteResult>(CMD.getPlatformsLite, { id, forceRefresh });
     if (!res || !Array.isArray((res as PlatformsLiteResult).platforms)) {
       zlogWarn(`get_platforms_lite returned invalid shape for id=${id}, treating as stale loading`);
       return { id, platforms: [], is_stale: true };
@@ -223,8 +223,8 @@ export async function getCategoryApps(
 ): Promise<HomeFeedResult> {
   const args: Record<string, unknown> = { category };
   if (page !== undefined && page !== null) args.page = page;
-  if (perPage !== undefined && perPage !== null) args.per_page = perPage;
-  // 类别页分页与发现页同形 `{ items, total, has_more }`（后端 snake_case）。
+  if (perPage !== undefined && perPage !== null) args.perPage = perPage;
+  // 类别页分页与发现页同形 `{ items, total, has_more }`（请求 key camel，经 command rename 桥接；回包字段 snake，serde 不动）。
   const raw = await tauriInvoke<HomeFeedRaw>(CMD.getCategoryApps, args);
   const items = Array.isArray(raw?.items) ? (raw as { items: AppSummary[] }).items : [];
   const total = typeof raw?.total === 'number' && Number.isFinite(raw.total) ? raw.total : items.length;
@@ -359,7 +359,7 @@ export type MergedCatalogEntry = AppSummary & {
 /** 草稿列表（默认仅未归档；includeArchived=true 含转正归档行）。 */
 export async function listCustomApps(includeArchived = false): Promise<CustomAppEntry[]> {
   return tauriInvoke<CustomAppEntry[]>(CMD.listCustomApps, {
-    include_archived: includeArchived,
+    includeArchived,
   });
 }
 
@@ -378,7 +378,7 @@ export async function deleteCustomApp(id: string): Promise<boolean> {
 
 /** 标记已提交：status=submitted + 落 pr_url；已转正归档行拒绝。 */
 export async function markCustomSubmitted(id: string, prUrl: string): Promise<CustomAppEntry> {
-  return tauriInvoke<CustomAppEntry>(CMD.markCustomSubmitted, { id, pr_url: prUrl });
+  return tauriInvoke<CustomAppEntry>(CMD.markCustomSubmitted, { id, prUrl });
 }
 
 /**
@@ -387,7 +387,7 @@ export async function markCustomSubmitted(id: string, prUrl: string): Promise<Cu
  */
 export async function retireOnSync(remoteIds?: string[]): Promise<GraduationNotice[]> {
   const args: Record<string, unknown> =
-    remoteIds === undefined ? {} : { remote_ids: remoteIds };
+    remoteIds === undefined ? {} : { remoteIds };
   return tauriInvoke<GraduationNotice[]>(CMD.retireOnSync, args);
 }
 

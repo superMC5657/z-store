@@ -27,7 +27,7 @@ export function handleGetFavoriteEntries(): FavoriteEntry[] {
 }
 
 export function handleToggleFavorite(a: InvokeArgs): boolean {
-  const id = argStr(a, 'appId', 'app_id', 'id').toLowerCase();
+  const id = argStr(a, 'appId').toLowerCase();
   if (!id) return false;
   const favSet = getFavSet();
   if (favSet.has(id)) favSet.delete(id);
@@ -41,7 +41,7 @@ export function handleGetWatchedApps(): WatchedAppEntry[] {
 }
 
 export function handleWatchApp(a: InvokeArgs): boolean {
-  const id = argStr(a, 'appId', 'app_id', 'id').toLowerCase();
+  const id = argStr(a, 'appId').toLowerCase();
   if (id) {
     getWatchSet().add(id);
     persistSets();
@@ -50,14 +50,14 @@ export function handleWatchApp(a: InvokeArgs): boolean {
 }
 
 export function handleUnwatchApp(a: InvokeArgs): boolean {
-  const id = argStr(a, 'appId', 'app_id', 'id').toLowerCase();
+  const id = argStr(a, 'appId').toLowerCase();
   getWatchSet().delete(id);
   persistSets();
   return true;
 }
 
 export function handleStarApp(a: InvokeArgs): StarAppResult {
-  const id = argStr(a, 'appId', 'app_id', 'id').toLowerCase();
+  const id = argStr(a, 'appId').toLowerCase();
   if (id) {
     getStarSet().add(id);
     persistSets();
@@ -66,14 +66,14 @@ export function handleStarApp(a: InvokeArgs): StarAppResult {
 }
 
 export function handleUnstarApp(a: InvokeArgs): boolean {
-  const id = argStr(a, 'appId', 'app_id', 'id').toLowerCase();
+  const id = argStr(a, 'appId').toLowerCase();
   getStarSet().delete(id);
   persistSets();
   return true;
 }
 
 export function handleIsStarred(a: InvokeArgs): boolean {
-  const id = argStr(a, 'appId', 'app_id', 'id').toLowerCase();
+  const id = argStr(a, 'appId').toLowerCase();
   return getStarSet().has(id);
 }
 

@@ -22,7 +22,7 @@ import {
   setRecentIds,
   setSearchHistory,
 } from '../demoState';
-import { argNum, argStr, type InvokeArgs, rankSummariesForFeed } from './common';
+import { argNum, argStr, warnUnknownArgs, type InvokeArgs, rankSummariesForFeed } from './common';
 
 export function handleSearchApps(a: InvokeArgs): AppSummary[] {
   const q = argStr(a, 'query').trim().toLowerCase();
@@ -55,11 +55,12 @@ export function handleGetHomeFeed(a: InvokeArgs): {
 }
 
 export function handleSearchAppsOnline(a: InvokeArgs): { rows: AppSummary[]; sid: string } {
-  // Mock 回声：直透前端 `search_id` 为 `sid`（与 Rust `OnlineSearchResult` 同形收敛）。
-  const sid = argStr(a, 'search_id');
+  warnUnknownArgs(['query', 'searchId', 'page', 'perPage', 'forceRefresh'], a, 'handleSearchAppsOnline');
+  // Mock 回声：直透前端 `searchId` 为 `sid`（与 Rust `OnlineSearchResult` 同形收敛）。
+  const sid = argStr(a, 'searchId');
   const qRaw = argStr(a, 'query').trim();
   if (!qRaw) return { rows: [], sid };
-  const rawPer = argNum(a, 'per_page');
+  const rawPer = argNum(a, 'perPage');
   const rawPage = argNum(a, 'page');
   const perPage = rawPer === undefined ? 20 : Math.min(50, Math.max(1, Math.floor(rawPer)));
   const page =
@@ -108,7 +109,7 @@ export function handleEnrichTrendRepos(a: InvokeArgs): (AppSummary | null)[] {
 }
 
 export function handleGetPlatformsLite(a: InvokeArgs): PlatformsLiteResult {
-  const id = argStr(a, 'id', 'appId', 'app_id');
+  const id = argStr(a, 'id');
   const hit = findSummary(id);
   if (hit) {
     return {
@@ -122,7 +123,8 @@ export function handleGetPlatformsLite(a: InvokeArgs): PlatformsLiteResult {
 }
 
 export function handleGetAppDetails(a: InvokeArgs): AppDetail {
-  const id = argStr(a, 'id', 'appId', 'app_id');
+  warnUnknownArgs(['id', 'forceRefresh'], a, 'handleGetAppDetails');
+  const id = argStr(a, 'id');
   const hit = findSummary(id);
   if (!hit) throw new Error(`demo: unknown app "${id}"`);
   return toDetail(hit);
@@ -139,7 +141,7 @@ export function handleGetCachedAppDetailsBatch(a: InvokeArgs): (AppSummary | nul
 }
 
 export function handleGetReadmeVariants(a: InvokeArgs): ReadmeVariantsResult {
-  const id = argStr(a, 'appId', 'app_id', 'id');
+  const id = argStr(a, 'appId');
   const hit = findSummary(id);
   const name = hit?.name ?? id;
   const zh = `# ${name}\n\n${hit?.description ?? ''}\n\n> Live-demo bundle: full README unavailable offline.`;
@@ -153,7 +155,7 @@ export function handleGetReadmeVariants(a: InvokeArgs): ReadmeVariantsResult {
 }
 
 export function handleGetAppIconCycle(a: InvokeArgs, cmd: string): AppIconCycleResult | null {
-  const id = argStr(a, 'appId', 'app_id', 'id');
+  const id = argStr(a, 'appId');
   const hit = findSummary(id);
   if (!hit) return null;
   const key = hit.id.toLowerCase();
@@ -171,9 +173,10 @@ export function handleGetAppIconCycle(a: InvokeArgs, cmd: string): AppIconCycleR
 }
 
 export function handleGetOrFetchIcon(a: InvokeArgs): string {
-  const remote = argStr(a, 'remoteUrl', 'remote_url');
+  warnUnknownArgs(['appId', 'remoteUrl'], a, 'handleGetOrFetchIcon');
+  const remote = argStr(a, 'remoteUrl');
   if (remote) return remote;
-  const appId = argStr(a, 'appId', 'app_id');
+  const appId = argStr(a, 'appId');
   return findSummary(appId)?.icon ?? '';
 }
 
@@ -187,7 +190,7 @@ export function handleGetCategoryApps(a: InvokeArgs): {
   const category = argStr(a, 'category').toLowerCase();
   if (!category) return { items: [], total: 0, has_more: false };
   const matched = summaries.filter((s) => s.category.toLowerCase() === category);
-  const rawPer = argNum(a, 'per_page');
+  const rawPer = argNum(a, 'perPage');
   const rawPage = argNum(a, 'page');
   const perPage = rawPer === undefined ? 20 : Math.min(50, Math.max(1, Math.floor(rawPer)));
   const page =
@@ -240,7 +243,7 @@ export function handleRemoveSearchQuery(a: InvokeArgs): null {
 }
 
 export function handleRecordAppView(a: InvokeArgs): null {
-  const id = argStr(a, 'appId', 'app_id', 'id').toLowerCase();
+  const id = argStr(a, 'appId').toLowerCase();
   if (id) {
     const list = [id, ...getRecentIds().filter((x) => x !== id)].slice(0, 20);
     setRecentIds(list);

@@ -154,7 +154,7 @@ pub(crate) async fn prepare_and_download_asset(
 
 /// 仅下载：复用安装通道（经用户配置镜像加速）+ 流式下载 + SHA-256 校验 + 进度事件，
 /// 但不调用任何安装器。文件落盘至用户配置的下载目录，前端展示进度并提供“打开所在文件夹”。
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub async fn download_asset(
     app_handle: AppHandle,
     state: State<'_, AppState>,

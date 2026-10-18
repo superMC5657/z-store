@@ -106,7 +106,7 @@ pub fn save_setting(
     Ok(true)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub async fn select_folder(
     default_path: Option<String>,
     title: Option<String>,

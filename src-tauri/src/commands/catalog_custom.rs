@@ -115,7 +115,7 @@ pub fn build_batch_pr_url(entries: &[CustomAppEntry], gate: &LicenseGateConfig) 
 }
 
 /// 草稿列表（默认仅未归档；`include_archived=true` 含转正归档行）。
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub fn list_custom_apps(
     state: State<'_, AppState>,
     include_archived: Option<bool>,
@@ -166,7 +166,7 @@ pub fn delete_custom_app(
 
 /// 标记已提交：`status=submitted` + 落 `pr_url`；已转正归档行拒绝。
 /// 提交档全校验在 db 层强制（占位 license 草稿被拦，先补真实 SPDX 再提交）。
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub fn mark_submitted(
     state: State<'_, AppState>,
     id: String,
@@ -179,7 +179,7 @@ pub fn mark_submitted(
 
 /// 转正退役：远端 id 集合命中未归档草稿即 `archived=1`，返回转正提示。
 /// `remote_ids=None` 时以当前内存目录 id 为准（`sync_catalog` 成功路径会自动调用）。
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub fn retire_on_sync(
     state: State<'_, AppState>,
     remote_ids: Option<Vec<String>>,

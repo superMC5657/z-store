@@ -18,7 +18,7 @@ use tauri::State;
 // 本文件只做编排，不写探测与文件名规则；图标通道禁用 ETag（命中 0 请求，7 天 TTL）。
 
 /// 循环切换应用图标 (L1..=L5)
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub async fn request_app_icon_cycle(
     state: State<'_, AppState>,
     app_id: String,
@@ -195,7 +195,7 @@ pub async fn request_app_icon_cycle(
 }
 
 /// 只读恢复应用当前图标状态
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub async fn restore_or_fetch_icon_cycle(
     state: State<'_, AppState>,
     app_id: String,

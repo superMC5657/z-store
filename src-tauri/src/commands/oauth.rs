@@ -36,7 +36,7 @@ pub async fn oauth_device_start(
 
 /// 轮询 Device Flow 授权结果（前端按返回 `interval` 节流调用）。
 /// `pending` 继续轮询；`authorized` 已持久化令牌+用户；`error` 停止并提示。
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub async fn oauth_device_poll(
     state: State<'_, AppState>,
     device_code: String,
@@ -236,7 +236,7 @@ fn sync_star_cache(state: &AppState, owner: &str, repo: &str, starred: bool) {
     }
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub async fn star_app(
     state: State<'_, AppState>,
     app_id: String,
@@ -250,7 +250,7 @@ pub async fn star_app(
     Ok(outcome)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub async fn unstar_app(state: State<'_, AppState>, app_id: String) -> crate::AppResult<bool> {
     let (owner, repo) = split_github_repo_id(&app_id)?;
     let token = resolve_write_token(&state).ok_or_else(|| "请先完成 GitHub 登录".to_string())?;
@@ -263,7 +263,7 @@ pub async fn unstar_app(state: State<'_, AppState>, app_id: String) -> crate::Ap
         .map_err(Into::into)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub async fn is_starred(state: State<'_, AppState>, app_id: String) -> crate::AppResult<bool> {
     let (owner, repo) = split_github_repo_id(&app_id)?;
     let token = resolve_write_token(&state);

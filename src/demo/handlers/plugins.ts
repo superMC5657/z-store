@@ -25,7 +25,7 @@ export function handlePluginCommand(cmd: string, a: InvokeArgs): { handled: bool
   }
   if (cmd === 'plugin:event|unlisten') {
     const event = argStr(a, 'event');
-    const id = a['eventId'] ?? a['event_id'];
+    const id = a['eventId'];
     if (event && typeof id === 'number') demoUnregisterListener(event, id);
     return { handled: true, result: null };
   }

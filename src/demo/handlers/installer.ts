@@ -10,7 +10,7 @@ import { emitDemoEvent, getInstalledApps, LS, lsSet, setInstalledApps } from '..
 import { argStr, delay, type InvokeArgs } from './common';
 
 export async function handleInstallApp(a: InvokeArgs): Promise<InstalledApp> {
-  const appId = argStr(a, 'appId', 'app_id', 'id');
+  const appId = argStr(a, 'appId');
   const hit = findSummary(appId);
   if (!hit) throw new Error(`demo: unknown app "${appId}"`);
   const total = 20 * 1024 * 1024;
@@ -48,8 +48,8 @@ export async function handleInstallApp(a: InvokeArgs): Promise<InstalledApp> {
 }
 
 export function handleDownloadAsset(a: InvokeArgs): DownloadAssetResult {
-  const appId = argStr(a, 'appId', 'app_id', 'id');
-  const assetName = argStr(a, 'assetName', 'asset_name') || `${appId || 'app'}-demo.msi`;
+  const appId = argStr(a, 'appId');
+  const assetName = argStr(a, 'assetName') || `${appId || 'app'}-demo.msi`;
   return {
     file_path: `C:\\Users\\Demo\\Downloads\\${assetName}`,
     file_name: assetName,
@@ -60,7 +60,7 @@ export function handleDownloadAsset(a: InvokeArgs): DownloadAssetResult {
 }
 
 export function handleUninstallApp(a: InvokeArgs): boolean {
-  const appId = argStr(a, 'appId', 'app_id', 'id').toLowerCase();
+  const appId = argStr(a, 'appId').toLowerCase();
   const list = getInstalledApps().filter((i) => i.app_id.toLowerCase() !== appId);
   setInstalledApps(list);
   lsSet(LS.installed, list);
@@ -68,7 +68,7 @@ export function handleUninstallApp(a: InvokeArgs): boolean {
 }
 
 export function handleUnmanageApp(a: InvokeArgs): boolean {
-  const appId = argStr(a, 'appId', 'app_id', 'id').toLowerCase();
+  const appId = argStr(a, 'appId').toLowerCase();
   const list = getInstalledApps().filter((i) => i.app_id.toLowerCase() !== appId);
   setInstalledApps(list);
   lsSet(LS.installed, list);

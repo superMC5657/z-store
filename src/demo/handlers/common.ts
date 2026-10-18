@@ -30,6 +30,23 @@ export function argNum(a: InvokeArgs, ...keys: string[]): number | undefined {
 
 export const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
+// demo 未知 key 兜底：仅 dev 告警，未知 key 逐个 console.error，不抛错、不改现有取值行为。
+export function warnUnknownArgs(
+  allowedKeys: readonly string[],
+  actualArgs: InvokeArgs,
+  handler?: string,
+): void {
+  if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'production') return;
+  const allowed = new Set(allowedKeys);
+  for (const key of Object.keys(actualArgs ?? {})) {
+    if (!allowed.has(key)) {
+      console.error(
+        `[demo-args] unknown key "${key}"${handler ? ` for "${handler}"` : ''} — allowed: ${allowedKeys.join(', ')}`,
+      );
+    }
+  }
+}
+
 export function rankSummariesForFeed(seed: number, strategy?: unknown): AppSummary[] {
   // 打分/排序经 `services/feed.ts rankFeed` 唯一口（后端 `rank_feed` 为准；
   // demo/搜索本地路径保持确定性：同 seed 同序，tie 按 id 升序）。

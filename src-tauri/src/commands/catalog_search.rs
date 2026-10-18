@@ -259,7 +259,7 @@ pub async fn search_apps(
 /// - `page` 默认 1（0 归一为 1）；`owner/repo` 直查短路只回第 1 页 1 条，page>1 回空（与 mock 同语义）。
 /// - `force_refresh` 为手动刷新按钮透传位（前端统一调用签名）；
 ///   网络默认允许：默认即走在线直查 + 后台图标流式，与显式手动刷新同路。
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub async fn search_apps_online(
     app_handle: AppHandle,
     state: State<'_, AppState>,
@@ -649,7 +649,7 @@ async fn fetch_enrich_batch(
 ///   落库/emit 世代防串见唯一 `save_and_emit`（合并新鲜度 + emit 前查 gen，计数器经 `ctx` 选择）。
 /// - `force_refresh` 为手动刷新按钮透传位（前端统一调用签名）；
 ///   网络默认允许：默认即走批量直查 + 后台 `fetch_icons_stream`，与显式手动刷新同路。
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub async fn enrich_trend_repos(
     app_handle: AppHandle,
     state: State<'_, AppState>,

@@ -56,7 +56,7 @@ pub fn get_home_feed(
 /// - `page`/`per_page` 均为 None=默认（第 1 页 20 条，与发现页 `HOME_FEED_PAGE`、在线搜索对齐）；
 /// - `per_page` 复用搜索钳制 1-50（`clamp_online_search_per_page`），`page` 下限 1；
 /// - 过滤语义不变（`category`/`category_name` 大小写不敏感 + 隐藏规则）。
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub fn get_category_apps(
     state: State<'_, AppState>,
     category: String,

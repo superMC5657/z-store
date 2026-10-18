@@ -10,7 +10,7 @@ pub struct ProxyTestResult {
     pub message: String,
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub async fn test_proxy(proxy_url: Option<String>) -> crate::AppResult<ProxyTestResult> {
     let (success, latency_ms, message) =
         crate::mirror::MirrorManager::test_proxy_latency(proxy_url.as_deref()).await;
@@ -41,7 +41,7 @@ pub fn get_mirror_status(state: State<'_, AppState>) -> crate::AppResult<Vec<Mir
     Ok(mirror.get_mirror_statuses())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub fn switch_mirror(state: State<'_, AppState>, mirror_id: String) -> crate::AppResult<bool> {
     let mut mirror = state.mirror.lock().map_err(|e| e.to_string())?;
     let ok = mirror.set_active_mirror(&mirror_id);

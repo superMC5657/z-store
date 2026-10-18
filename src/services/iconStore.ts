@@ -28,7 +28,7 @@
  */
 import type { AppSummary } from '../types';
 import { normalizeId, normalizeIdSet } from './normalizeId';
-import { tauriInvoke } from './api/client';
+import { getOrFetchIcon } from './api/catalog';
 
 /** 空图标判定 SSOT（读透适配统一用此件，不各自 `trim()===''` 散写）。 */
 export function isEmptyIcon(icon: unknown): boolean {
@@ -586,7 +586,7 @@ function startIconFetch(url: string, ids: Set<string>): void {
       break;
     }
   }
-  const p = tauriInvoke<string>('get_or_fetch_icon', { appId: firstId, remoteUrl: url })
+  const p = getOrFetchIcon(firstId ?? undefined, url)
     .then((dataUri) => {
       iconDataCache.set(url, dataUri);
       iconPersistedKeys.add(url);
