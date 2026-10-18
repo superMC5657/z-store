@@ -362,6 +362,52 @@ export function snapshotTrendEnrichCache(repos?: TrendRepo[]): Record<string, Ap
 }
 
 /**
+ * Enrich 缓存新鲜度单口（force→缺席→平台→确认→TTL）：
+ * - force 直接不新鲜（重拉）；
+ * - 无条目不新鲜；
+ * - loading 需已确认新鲜 + TTL 新鲜，否则驱逐后重拉；
+ * - 具平台 TTL 新鲜即命中；时钟倒退按过期驱逐；stale 保留旧值供图标合并后重拉。
+ * 副作用：应驱逐时直接删条目（stale 具平台保留），调用方据返回值决定命中或重拉。
+ */
+export function isEnrichCacheFresh(key: string, now = Date.now(), force = false): boolean {
+  if (force) return false;
+  const hit = trendEnrichCache.get(key);
+  if (!hit) return false;
+  if (!hasConcretePlatforms(hit.data.platforms)) {
+    // 已确认 loading 新鲜命中即直展；stale/未确认删后重拉。
+    if (!isTrendConfirmedOtherFresh(key)) {
+      trendEnrichCache.delete(key);
+      return false;
+    }
+    const elapsed = now - hit.timestamp;
+    if (elapsed >= 0 && elapsed < TREND_ENRICH_CACHE_TTL_MS) return true;
+    trendEnrichCache.delete(key);
+    return false;
+  }
+  const elapsed = now - hit.timestamp;
+  // 时钟钳制：elapsed<0 按过期
+  if (elapsed < 0) {
+    trendEnrichCache.delete(key);
+    return false;
+  }
+  if (elapsed < TREND_ENRICH_CACHE_TTL_MS) return true;
+  // summary/desc 12h 到期 → 重拉；旧条目保留供图标粘性合并。
+  return false;
+}
+
+/**
+ * 批量结果图标单口：data: 原样透出（调用方跳过入库，只活当次 out）；
+ * 其余经 resolveIconWithBuffer 粘性合并（旧实 + 回填空 → 沿用旧 + 缓冲回读）。
+ */
+export function stripDataUriIcon(
+  prev: AppSummary | undefined,
+  next: AppSummary,
+): AppSummary {
+  if (typeof next.icon === 'string' && next.icon.startsWith('data:')) return next;
+  return resolveIconWithBuffer(prev, next);
+}
+
+/**
  * Enrich 未收录 TrendRepo → AppSummary（Map 键为小写 `owner/repo`）。
  * 具平台缓存命中直接返回；已确认 loading 新鲜命中即直展（免验不重拉）；
  * 未确认 loading 永不命中（视为缺席，删后重拉，不直接返）；
@@ -384,11 +430,10 @@ export function snapshotTrendEnrichCache(repos?: TrendRepo[]): Record<string, Ap
  * - summary/desc 12h：到期重拉，但旧条目保留供图标合并（快照/sweep 仍视其过期）；
  * - platforms：loading 永不覆盖具平台值，具平台到达即覆盖治愈（详情治愈回填唯一写口）。
  */
-export async function enrichTrendRepos(
+async function enrichTrendReposCore(
   repos: TrendRepo[],
-  opts?: { forceRefresh?: boolean },
+  force: boolean,
 ): Promise<Map<string, AppSummary>> {
-  const force = opts?.forceRefresh === true;
   const out = new Map<string, AppSummary>();
   const missing: TrendRepo[] = [];
   const seen = new Set<string>();
@@ -397,43 +442,15 @@ export async function enrichTrendRepos(
     const key = trendEnrichKey(r.owner, r.repo);
     if (seen.has(key)) continue;
     seen.add(key);
-    if (force) {
-      // 刷新链：内存命中同样重拉（落定后写透刷新时间戳）。
-      missing.push(r);
-      continue;
-    }
-    const hit = trendEnrichCache.get(key);
-    if (hit) {
-      if (!hasConcretePlatforms(hit.data.platforms)) {
-        // 已确认 loading 新鲜命中即直展（重挂免验，不重拉）；stale/未确认删后重拉，不直接返。
-        let confirmedHit = false;
-        if (isTrendConfirmedOtherFresh(key)) {
-          const elapsed = now - hit.timestamp;
-          if (elapsed >= 0 && elapsed < TREND_ENRICH_CACHE_TTL_MS) {
-            out.set(key, hit.data);
-            confirmedHit = true;
-          }
-        }
-        if (!confirmedHit) {
-          trendEnrichCache.delete(key);
-        } else {
-          continue;
-        }
-      } else {
-        const elapsed = now - hit.timestamp;
-        // 时钟钳制：elapsed<0 按过期
-        if (elapsed < 0) {
-          trendEnrichCache.delete(key);
-        } else if (elapsed < TREND_ENRICH_CACHE_TTL_MS) {
-          out.set(key, hit.data);
-          continue;
-        } else {
-          // summary/desc 12h 到期 → 重拉；旧条目保留供图标粘性合并，
-          // 重拉成功即刷新时间戳，失败则下次再验（不删旧图标）。
-        }
+    if (!force) {
+      const hit = trendEnrichCache.get(key);
+      if (hit && isEnrichCacheFresh(key, now)) {
+        out.set(key, hit.data);
+        continue;
       }
     }
-    // loading 视为缺席：本次走重拉。
+    // 缺席（含 force 直取、未确认 loading、stale）：本次走重拉。
+    // 刷新链 force：内存命中同样重拉（落定后写透刷新时间戳）。
     missing.push(r);
   }
   if (missing.length === 0) return out;
@@ -453,27 +470,32 @@ export async function enrichTrendRepos(
     let s = summaries[i];
     if (!s) return;
     if (!Array.isArray(s.platforms)) return;
-    if (typeof s.icon === 'string' && s.icon.startsWith('data:')) {
-      // data: 永不进内存。
-      const key = trendEnrichKey(r.owner, r.repo);
-      out.set(key, s);
-      return;
-    }
     const key = trendEnrichKey(r.owner, r.repo);
-    // loading 当次有效永不缓存：只 set 当次 out，不 put 进 cache；具平台才 put。
-    if (!hasConcretePlatforms(s.platforms)) {
-      const cur = trendEnrichCache.get(key);
-      s = resolveIconWithBuffer(cur?.data, s);
-      out.set(key, s);
-      return;
-    }
     const cur = trendEnrichCache.get(key);
-    // icon 粘性 supersede-only：旧图标非空 + 回填空 → out 与入库一并沿用旧图标。
-    s = resolveIconWithBuffer(cur?.data, s);
-    putTrendEnrichCache(key, { timestamp: at, data: s });
+    // 图标单口：data: 原样透出只活当次 out；其余粘性合并。
+    s = stripDataUriIcon(cur?.data, s);
     out.set(key, s);
+    // data: 永不进内存；loading 当次有效永不缓存，只活当次 out。
+    if (typeof s.icon === 'string' && s.icon.startsWith('data:')) return;
+    if (!hasConcretePlatforms(s.platforms)) return;
+    // icon 粘性 supersede-only 已在单口内合并，具平台才 put。
+    putTrendEnrichCache(key, { timestamp: at, data: s });
   });
   return out;
+}
+
+export async function enrichTrendRepos(
+  repos: TrendRepo[],
+  opts?: { forceRefresh?: boolean },
+): Promise<Map<string, AppSummary>> {
+  return enrichTrendReposCore(repos, opts?.forceRefresh === true);
+}
+
+/**
+ * 刷新链显式入口（无布尔 flag）：跳过 12h 内存命中整批直取并透传后端 `force_refresh`。
+ */
+export async function enrichTrendReposFresh(repos: TrendRepo[]): Promise<Map<string, AppSummary>> {
+  return enrichTrendReposCore(repos, true);
 }
 
 /**
@@ -738,6 +760,75 @@ function emptyRichBaseline(): AppSummary {
 }
 
 /**
+ * 富卡 prev 回填单口（空/占位不覆盖实，就地改 merged 并返回）：
+ * icon data:/空保留旧实；name '加载中...'、简介占位、license OpenSource 非 github、
+ * latest_version/category 占位、homepage 空、平台空均保留旧。
+ */
+export function mergeEnrichPrev(
+  prev: AppSummary | undefined,
+  merged: AppSummary,
+): AppSummary {
+  if (!prev) return merged;
+  // icon：data: 剥成 ''；空保留旧（put 入口亦有合并，此处先行保证 diff 准确）
+  const incomingIcon = richStr(merged.icon);
+  const prevIcon = richStr(prev.icon);
+  const prevIconUsable = prevIcon !== '' && !prevIcon.startsWith('data:');
+  if (incomingIcon === '' || incomingIcon.startsWith('data:')) {
+    merged.icon = prevIconUsable ? prev.icon : '';
+  }
+  // 空/占位不覆盖实
+  if (richStr(merged.name) === '' || richStr(merged.name) === '加载中...') merged.name = prev.name;
+  for (const f of ['description', 'description_en'] as const) {
+    const bv = richStr((merged as unknown as Record<string, unknown>)[f]);
+    if (bv === '' || isPlaceholderDescription(bv)) {
+      (merged as unknown as Record<string, unknown>)[f] = (prev as unknown as Record<string, unknown>)[f];
+    }
+  }
+  if (richStr(merged.license) === '') {
+    merged.license = prev.license;
+  } else if (
+    richStr(merged.license) === 'OpenSource' &&
+    richStr(merged.forge).toLowerCase() !== 'github' &&
+    richStr(prev.license) !== ''
+  ) {
+    merged.license = prev.license;
+  }
+  if (
+    richStr(merged.latest_version) === '' ||
+    RICH_VERSION_PLACEHOLDERS.has(merged.latest_version as string)
+  ) {
+    merged.latest_version = prev.latest_version;
+  }
+  const mc = richStr(merged.category);
+  if (mc === '' || RICH_CATEGORY_PLACEHOLDERS.has(mc.toLowerCase())) {
+    if (
+      richStr(prev.category) !== '' &&
+      !RICH_CATEGORY_PLACEHOLDERS.has(richStr(prev.category).toLowerCase())
+    ) {
+      merged.category = prev.category;
+    } else if (mc === '') {
+      merged.category = prev.category;
+    }
+  }
+  for (const f of ['category_name', 'forge', 'forge_host', 'owner', 'repo'] as const) {
+    if (richStr((merged as unknown as Record<string, unknown>)[f]) === '') {
+      (merged as unknown as Record<string, unknown>)[f] = (prev as unknown as Record<string, unknown>)[f];
+    }
+  }
+  if (
+    merged.homepage === null ||
+    (typeof merged.homepage === 'string' && merged.homepage.trim() === '')
+  ) {
+    merged.homepage = prev.homepage;
+  }
+  // 平台空不覆盖已具平台值
+  if (!hasConcretePlatforms(merged.platforms) && hasConcretePlatforms(prev.platforms)) {
+    merged.platforms = [...prev.platforms];
+  }
+  return merged;
+}
+
+/**
  * 富卡治愈写入 enrich 长缓存（详情具平台治愈唯一写口之一，处理全字段）：
  * loading 当次有效永不缓存（put 入口守卫空平台直接丢弃），具平台 12h/500 FIFO；
  * - stale 详情整单丢弃，返回 null；
@@ -779,51 +870,7 @@ export function upsertTrendEnrichRichcard(
     }
   }
   const merged = appSummaryFromDetail(detail);
-  // icon：data: 剥成 ''；空保留旧（put 入口亦有合并，此处先行保证 diff 准确）
-  const incomingIcon = richStr(merged.icon);
-  const prevIcon = prev ? richStr(prev.icon) : '';
-  const prevIconUsable=prevIcon!==''&&!prevIcon.startsWith('data:');
-  if(incomingIcon===''||incomingIcon.startsWith('data:')) {
-    merged.icon = prevIconUsable && prev ? prev.icon : '';
-  }
-  if (prev) {
-    // 空/占位不覆盖实
-    if (richStr(merged.name) === '' || richStr(merged.name) === '加载中...') merged.name = prev.name;
-    for (const f of ['description', 'description_en'] as const) {
-      const bv = richStr((merged as unknown as Record<string, unknown>)[f]);
-      if (bv === '' || isPlaceholderDescription(bv)) {
-        (merged as unknown as Record<string, unknown>)[f] = (prev as unknown as Record<string, unknown>)[f];
-      }
-    }
-    if (richStr(merged.license) === '') {
-      merged.license = prev.license;
-    } else if (richStr(merged.license) === 'OpenSource' && richStr(merged.forge).toLowerCase() !== 'github' && richStr(prev.license) !== '') {
-      merged.license = prev.license;
-    }
-    if (richStr(merged.latest_version) === '' || RICH_VERSION_PLACEHOLDERS.has(merged.latest_version as string)) {
-      merged.latest_version = prev.latest_version;
-    }
-    const mc = richStr(merged.category);
-    if (mc === '' || RICH_CATEGORY_PLACEHOLDERS.has(mc.toLowerCase())) {
-      if (richStr(prev.category) !== '' && !RICH_CATEGORY_PLACEHOLDERS.has(richStr(prev.category).toLowerCase())) {
-        merged.category = prev.category;
-      } else if (mc === '') {
-        merged.category = prev.category;
-      }
-    }
-    for (const f of ['category_name', 'forge', 'forge_host', 'owner', 'repo'] as const) {
-      if (richStr((merged as unknown as Record<string, unknown>)[f]) === '') {
-        (merged as unknown as Record<string, unknown>)[f] = (prev as unknown as Record<string, unknown>)[f];
-      }
-    }
-    if (merged.homepage === null || (typeof merged.homepage === 'string' && merged.homepage.trim() === '')) {
-      merged.homepage = prev.homepage;
-    }
-    // 平台空不覆盖已具平台值
-    if (!hasConcretePlatforms(merged.platforms) && hasConcretePlatforms(prev.platforms)) {
-      merged.platforms = [...prev.platforms];
-    }
-  }
+  mergeEnrichPrev(prev, merged);
   const at = Date.now();
   for (const k of keys) {
     putTrendEnrichCache(k, { timestamp: at, data: merged });
