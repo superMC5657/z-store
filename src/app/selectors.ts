@@ -308,8 +308,8 @@ export function isCatalogedId(id: unknown, catalogIds: ReadonlySet<string>): boo
 
 /**
  * 单行显式标注（不改原对象）：
- * - source=custom 草稿行恒 true（不被 catalog 集覆盖）；
- * - 其余按 catalog 集命中=true、未命中=false，显式携带以优先于 category 兜底；
+ * - source=custom 草稿行恒 true（不被 catalog 集覆盖，不碰 is_verified，草稿不配已认证蓝标）；
+ * - 其余按 catalog 集命中/未命中显式携带以优先于 category 兜底；
  * - 已有正确布尔值即原引用透传（memo 友好）。
  */
 export function annotateIsCataloged<T extends AppSummary>(

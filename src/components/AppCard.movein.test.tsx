@@ -366,6 +366,32 @@ describe('selectors 显式 is_cataloged 标注（canonical 小写）', () => {
     expect(rows[0]?.is_cataloged).toBeUndefined();
   });
 
+  it('在线收录标注不碰已认证：命中仅标is_cataloged，不回填is_verified', async () => {
+    const { annotateIsCataloged, annotateOnlineCataloged, buildCatalogIdSet } = await import(
+      '../app/selectors'
+    );
+    const ids = buildCatalogIdSet([makeApp({ id: 'o/kept', name: 'Kept' })]);
+    const hit = makeApp({ id: 'O/KEPT', name: 'Kept', is_verified: false });
+    const miss = makeApp({ id: 'o/other', name: 'Other', is_verified: false });
+    const custom = {
+      ...makeApp({ id: 'o/kept', name: 'Kept', is_verified: false }),
+      source: 'custom',
+    } as AppSummary;
+    const out = annotateOnlineCataloged([hit, miss, custom], ids);
+    expect(out[0]?.is_cataloged).toBe(true);
+    expect(out[0]?.is_verified).toBe(false);
+    expect(out[1]?.is_cataloged).toBe(false);
+    expect(out[1]?.is_verified).toBe(false);
+    expect(out[2]?.is_cataloged).toBe(true);
+    expect(out[2]?.is_verified).toBe(false);
+    // 原行不改写。
+    expect(hit.is_cataloged).toBeUndefined();
+    expect(hit.is_verified).toBe(false);
+    // memo 友好：已有正确值即原引用透传。
+    const clean = makeApp({ id: 'o/kept', name: 'Kept', is_verified: true, is_cataloged: true });
+    expect(annotateIsCataloged(clean, ids)).toBe(clean);
+  });
+
   it('enrich 镜像标注：dev 行未命中=false', async () => {
     const { annotateEnrichMirrorCataloged, buildCatalogIdSet } = await import('../app/selectors');
     const ids = buildCatalogIdSet([makeApp({ id: 'other/app', name: 'Other' })]);
