@@ -692,29 +692,9 @@ function applyBadgeHit(
   return { accepted: true, targets, icon: '', level: 5, queued: false, reason: 'level5-badge' };
 }
 
-export function admitIconHit(args: AdmitIconHitArgs): AdmitIconHitResult {
-  if (!args || typeof args !== 'object') return { accepted: false, reason: 'empty-hit' };
-
-  const targets = resolveIconTargets(args);
-  if (targets.length === 0) return { accepted: false, reason: 'missing-target' };
-
-  const rawIcon = typeof args.icon === 'string' ? args.icon.trim() : '';
-  // L5 显式徽章优先：用户切空意图（`icon:'' + level:5`）走唯一写口扇出，
-  // 不受被动空壳守卫拦截；其余空图标永不覆盖已有实图，直接丢弃。
-  if (rawIcon === '' && typeof args.level === 'number' && args.level === 5) {
-    return applyBadgeHit(targets, args.patch);
-  }
-  // `''` 永不覆盖已有实图；无实图时亦为无操作，直接丢弃。
-  if (rawIcon === '') {
-    const keep = hasExistingRealIcon(targets, args.getCurrentIcon);
-    return { accepted: false, targets, reason: keep ? 'empty-keeps-real' : 'empty-noop' };
-  }
-  const icon = rawIcon;
-
-  // 世代门控：过期判断只此一处，正交三维（`search_id`/`board`/`gen` 各自双非空不等即过期，任一为空即放行，不看 `kind`）。
-  // incoming 取 `context`，expected 即时取值回落静态值。
-  const ctx = args.context ?? null;
-  const incoming: GenerationGate = {
+/** Incoming generation snapshot from `context` (normalized; empty means no gate). */
+function resolveIncomingGate(ctx: IconHitContext | null | undefined): GenerationGate {
+  return {
     search_id:
       ctx && typeof ctx.search_id === 'string' && ctx.search_id
         ? ctx.search_id
@@ -722,7 +702,10 @@ export function admitIconHit(args: AdmitIconHitArgs): AdmitIconHitResult {
     board: ctx && typeof ctx.board === 'string' ? ctx.board : '',
     gen: ctx && typeof ctx.gen === 'number' && Number.isFinite(ctx.gen) ? ctx.gen : undefined,
   };
-  const incomingBoard = typeof incoming.board === 'string' ? incoming.board : '';
+}
+
+/** Expected generation snapshot (live getters first, static values as fallback; empty means no gate). */
+function resolveExpectedGate(args: AdmitIconHitArgs, incomingBoard: string): GenerationGate {
   let expectedGen: number | undefined;
   try {
     if (typeof args.getBoardGen === 'function') {
@@ -740,52 +723,193 @@ export function admitIconHit(args: AdmitIconHitArgs): AdmitIconHitResult {
   ) {
     expectedGen = args.boardGen;
   }
-  const expected: GenerationGate = {
+  return {
     search_id: resolveCurrentSearchId(args),
     board: typeof args.board === 'string' ? args.board : '',
     gen: expectedGen,
   };
-  let stale: string | undefined;
-  {
-    const a = typeof incoming.search_id === 'string' ? incoming.search_id : '';
-    const b = typeof expected.search_id === 'string' ? expected.search_id : '';
-    if (a && b && a !== b) stale = 'stale-search-id';
-  }
-  if (!stale) {
-    const ib = normalizeId(incoming.board);
-    const eb = normalizeId(expected.board);
-    if (ib && eb && ib !== eb) stale = 'stale-board';
-  }
-  if (!stale) {
-    if (
-      incoming.gen !== undefined &&
-      expected.gen !== undefined &&
-      incoming.gen !== expected.gen
-    ) {
-      stale = 'stale-board-gen';
-    }
-  }
-  if (stale) return { accepted: false, targets, icon, reason: stale };
+}
 
-  // `level`纯L单调：数字越小优先级越高（L1官方最高，其次L2品牌库，再次L3仓库/L4 README），
-  // 低优不顶高优；L5显式徽章优先级最高（用户切空意图，保持轮换语义）。via正交不参与比较。
-  // 缺省即放行且不推进记忆。
-  // 仅 1..5 合法（`isPureLevel`）；`data:` 只进 M1 内存，m2 不推进 `level` 记忆（只做 stale 判定，不写）。
+/** Generation staleness (`search_id`/`board`/`gen` orthogonal; first mismatch wins, empty always passes). */
+function findStaleGateReason(
+  incoming: GenerationGate,
+  expected: GenerationGate,
+): string | undefined {
+  const a = typeof incoming.search_id === 'string' ? incoming.search_id : '';
+  const b = typeof expected.search_id === 'string' ? expected.search_id : '';
+  if (a && b && a !== b) return 'stale-search-id';
+  const ib = normalizeId(incoming.board);
+  const eb = normalizeId(expected.board);
+  if (ib && eb && ib !== eb) return 'stale-board';
+  if (
+    incoming.gen !== undefined &&
+    expected.gen !== undefined &&
+    incoming.gen !== expected.gen
+  ) {
+    return 'stale-board-gen';
+  }
+  return undefined;
+}
+
+/** Pure level input (only 1..5 valid; otherwise absent and never advances memory). */
+function resolvePureLevel(args: AdmitIconHitArgs): number | undefined {
   const level =
     typeof args.level === 'number' && Number.isFinite(args.level) ? args.level : undefined;
-  const pureLevel = isPureLevel(level) ? (level as number) : undefined;
-  const via = typeof args.via === 'string' ? args.via.trim().toLowerCase() : '';
-  // `isMemoryOnly` 拆分：`data:` 保持纯内存；`via=m2` 仅非远端走内存——m2 携带 http
-  // 远端（无文件回退 `selected_url`）时走 live 同落盘路自愈，后端 LRU“只删文件不删 URL”靠此回填。
-  const isMemoryOnly = icon.startsWith('data:') || (via === 'm2' && !isRemoteHttpIconUrl(icon));
+  return isPureLevel(level) ? (level as number) : undefined;
+}
+
+/** Cache channel (`live|m2`, normalized; orthogonal to level, never participates in comparison). */
+function resolveVia(args: AdmitIconHitArgs): string {
+  return typeof args.via === 'string' ? args.via.trim().toLowerCase() : '';
+}
+
+/** Memory-only icons (`data:` always; `m2` only without remote http, otherwise heals via persist path). */
+function isMemoryOnlyIcon(icon: string, via: string): boolean {
+  return icon.startsWith('data:') || (via === 'm2' && !isRemoteHttpIconUrl(icon));
+}
+
+/** Best remembered pure level across targets (lower wins, L5 ranks highest). */
+function findBestStoredLevel(targets: string[]): number | undefined {
+  let best: number | undefined;
+  for (const t of targets) {
+    const s = iconLevelById.get(t);
+    if (s === undefined) continue;
+    if (best === undefined || compareIconPriority(s, best) < 0) best = s;
+  }
+  return best;
+}
+
+/**
+ * Persistable icon URL (single-icon copy of the `pickFavoritePersistIconUrl` shape):
+ * trims, rejects `data:` immediates, gates on remote http; non-persistable returns `''`.
+ */
+function pickPersistIconUrl(icon: string): string {
+  const value = typeof icon === 'string' ? icon.trim() : '';
+  if (value === '' || value.startsWith('data:')) return '';
+  return isRemoteHttpIconUrl(value) ? value : '';
+}
+
+/** Best-effort cache invalidation across targets (one failure never blocks the rest). */
+function invalidateTargets(targets: string[]): void {
+  for (const t of targets) {
+    try {
+      invalidateIconCache(t);
+    } catch {
+      // 缓存失效失败不阻塞内存写透
+    }
+  }
+}
+
+/** Best-effort list write-through across targets (one failure never blocks the rest). */
+function patchTargets(
+  targets: string[],
+  icon: string,
+  patch?: AdmitIconHitArgs['patch'],
+): void {
+  if (typeof patch !== 'function') return;
+  for (const t of targets) {
+    try {
+      patch(t, icon);
+    } catch {
+      // 单别名 patch 失败不阻塞其余别名
+    }
+  }
+}
+
+/** Empty-icon path (badge handled earlier): never overwrites a real icon, otherwise a noop drop. */
+function admitEmptyHit(
+  targets: string[],
+  getCurrentIcon?: AdmitIconHitArgs['getCurrentIcon'],
+): AdmitIconHitResult {
+  const keep = hasExistingRealIcon(targets, getCurrentIcon);
+  return { accepted: false, targets, reason: keep ? 'empty-keeps-real' : 'empty-noop' };
+}
+
+/** Memory-only path (`data:`/non-remote m2): invalidate + memory write + patch, no preload, no level advance. */
+function admitMemoryOnlyHit(
+  targets: string[],
+  icon: string,
+  pureLevel: number | undefined,
+  patch?: AdmitIconHitArgs['patch'],
+): AdmitIconHitResult {
+  for (const t of targets) {
+    try {
+      invalidateIconCache(t);
+    } catch {
+      // 缓存失效失败不阻塞内存写透
+    }
+    iconById.set(t, icon);
+  }
+  patchTargets(targets, icon, patch);
+  notifyIconWrites(targets, icon, pureLevel);
+  return {
+    accepted: true,
+    targets,
+    icon,
+    level: pureLevel,
+    queued: false,
+    reason: icon.startsWith('data:') ? 'data-memory-only' : 'm2-memory-only',
+  };
+}
+
+/** Remote persist path (http only): advances level memory (non-m2), preloads, patches, remembers, fans out. */
+function admitRemoteHit(
+  targets: string[],
+  icon: string,
+  pureLevel: number | undefined,
+  via: string,
+  nextLevel: number | undefined,
+  patch?: AdmitIconHitArgs['patch'],
+): AdmitIconHitResult {
+  const persistUrl = pickPersistIconUrl(icon);
+  if (persistUrl === '') {
+    return { accepted: false, targets, icon, level: pureLevel, reason: 'non-remote-dropped' };
+  }
+  if (nextLevel !== undefined && via !== 'm2') {
+    for (const t of targets) iconLevelById.set(t, nextLevel);
+  }
+  invalidateTargets(targets);
+  try {
+    queueIconFetches(targets.map((t) => ({ id: t, icon: persistUrl })));
+  } catch {
+    // 预热失败不阻塞列表写透（AppIcon 侧按 URL 直显兜底）
+  }
+  patchTargets(targets, persistUrl, patch);
+  for (const t of targets) iconById.set(t, persistUrl);
+  notifyIconWrites(targets, persistUrl, pureLevel);
+  return { accepted: true, targets, icon: persistUrl, level: pureLevel, queued: true };
+}
+
+export function admitIconHit(args: AdmitIconHitArgs): AdmitIconHitResult {
+  if (!args || typeof args !== 'object') return { accepted: false, reason: 'empty-hit' };
+
+  const targets = resolveIconTargets(args);
+  if (targets.length === 0) return { accepted: false, reason: 'missing-target' };
+
+  const rawIcon = typeof args.icon === 'string' ? args.icon.trim() : '';
+  // L5 显式徽章优先：用户切空意图走唯一写口扇出，不受被动空壳守卫拦截。
+  if (rawIcon === '' && typeof args.level === 'number' && args.level === 5) {
+    return applyBadgeHit(targets, args.patch);
+  }
+  if (rawIcon === '') {
+    return admitEmptyHit(targets, args.getCurrentIcon);
+  }
+  const icon = rawIcon;
+
+  // 世代门控：过期判断只此一处，正交三维（`search_id`/`board`/`gen` 各自双非空不等即过期，任一为空即放行，不看 `kind`）。
+  const incoming = resolveIncomingGate(args.context ?? null);
+  const incomingBoard = typeof incoming.board === 'string' ? incoming.board : '';
+  const expected = resolveExpectedGate(args, incomingBoard);
+  const stale = findStaleGateReason(incoming, expected);
+  if (stale) return { accepted: false, targets, icon, reason: stale };
+
+  // `level`纯L单调：数字越小优先级越高，低优不顶高优；缺省即放行且不推进记忆。
+  // 仅 1..5 合法；`data:`/`m2` 不推进 `level` 记忆（只做 stale 判定，不写）。
+  const pureLevel = resolvePureLevel(args);
+  const via = resolveVia(args);
   let nextLevel: number | undefined;
   if (pureLevel !== undefined) {
-    let currentBest: number | undefined;
-    for (const t of targets) {
-      const s = iconLevelById.get(t);
-      if (s === undefined) continue;
-      if (currentBest === undefined || compareIconPriority(s, currentBest) < 0) currentBest = s;
-    }
+    const currentBest = findBestStoredLevel(targets);
     if (currentBest !== undefined && compareIconPriority(pureLevel, currentBest) > 0) {
       return { accepted: false, targets, icon, level: pureLevel, reason: 'level-stale' };
     }
@@ -794,72 +918,13 @@ export function admitIconHit(args: AdmitIconHitArgs): AdmitIconHitResult {
     // `data:`/`m2` 不推进：此处只算出 `nextLevel`，落盘路径才写记忆。
   }
 
-  // `data:`/非远端 m2 只进 M1 内存：失效 + patch 内存态，跳过 `queueIconFetches`，
-  // 不推进 `level` 记忆；m2+http 远端下沉到远端分支落盘。
-  if (isMemoryOnly) {
-    for (const t of targets) {
-      try {
-        invalidateIconCache(t);
-      } catch {
-        // 缓存失效失败不阻塞内存写透
-      }
-      iconById.set(t, icon);
-    }
-    const patch = args.patch;
-    if (typeof patch === 'function') {
-      for (const t of targets) {
-        try {
-          patch(t, icon);
-        } catch {
-          // 单别名 patch 失败不阻塞其余别名
-        }
-      }
-    }
-    notifyIconWrites(targets, icon, pureLevel);
-    return {
-      accepted: true,
-      targets,
-      icon,
-      level: pureLevel,
-      queued: false,
-      reason: icon.startsWith('data:') ? 'data-memory-only' : 'm2-memory-only',
-    };
+  // `data:`/非远端 m2 只进 M1 内存；m2+http 远端下沉到远端分支落盘。
+  if (isMemoryOnlyIcon(icon, via)) {
+    return admitMemoryOnlyHit(targets, icon, pureLevel, args.patch);
   }
 
-  // 仅 `remote(http)` 才 `patch state + queueIconFetches` 走 `get_or_fetch_icon` 落盘（含 m2 回退远端）。
-  // 批量收集一次 `preload`（同 URL 多别名一次入队），`patch` 仍逐个别名内存写透。
-  if (!isRemoteHttpIconUrl(icon)) {
-    return { accepted: false, targets, icon, level: pureLevel, reason: 'non-remote-dropped' };
-  }
-  // 落盘路径推进 `level` 记忆；m2 不推进（首屏直填不挡后续 live 升级，单调门控语义不变）。
-  if (nextLevel !== undefined && via !== 'm2') {
-    for (const t of targets) iconLevelById.set(t, nextLevel);
-  }
-  for (const t of targets) {
-    try {
-      invalidateIconCache(t);
-    } catch {
-      // 同上
-    }
-  }
-  try {
-    queueIconFetches(targets.map((t) => ({ id: t, icon })));
-  } catch {
-    // 预热失败不阻塞列表写透（AppIcon 侧按 URL 直显兜底）
-  }
-  const patch = args.patch;
-  if (typeof patch === 'function') {
-    for (const t of targets) {
-      try {
-        patch(t, icon);
-      } catch {
-        // 同上
-      }
-    }
-  }
-  for (const t of targets) iconById.set(t, icon);
-  notifyIconWrites(targets, icon, pureLevel);
-  return { accepted: true, targets, icon, level: pureLevel, queued: true };
+  // 仅 `remote(http)` 才落盘（含 m2 回退远端）；非远端直接丢弃。
+  return admitRemoteHit(targets, icon, pureLevel, via, nextLevel, args.patch);
 }
 
 /** 仅供测试：清空 `level`/图标记忆（含展示数据态）。 */
