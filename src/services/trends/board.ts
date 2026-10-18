@@ -962,6 +962,79 @@ export function unmarkPlatformsHealKeys(keys: readonly string[]): void {
   unmarkTrendConfirmedOthers(keys);
 }
 
+/** 治愈行键匹配：镜像键或行 id 别名命中治愈键，且仍属本榜已知仓键。 */
+function matchHealRowKey(
+  mirrorKey: string,
+  rowId: unknown,
+  keySet: ReadonlySet<string>,
+  repoKeys: ReadonlySet<string>,
+): boolean {
+  const alias = String(rowId ?? '').trim().toLowerCase();
+  const lowerKey = mirrorKey.toLowerCase();
+  if (!keySet.has(lowerKey) && (alias === '' || !keySet.has(alias))) return false;
+  if (!repoKeys.has(lowerKey) && (alias === '' || !repoKeys.has(alias))) return false;
+  return true;
+}
+
+/** 治愈行补丁：平台仅旧空时补，占位简介永不覆盖实值；无变更返回 null。 */
+function patchHealRow(
+  cur: AppSummary,
+  dirtyFields: ReadonlySet<string>,
+  summary: Record<string, unknown>,
+  platforms: readonly string[] | undefined,
+): AppSummary | null {
+  const patched: AppSummary = { ...cur };
+  let rowChanged = false;
+  if ((!patched.platforms || patched.platforms.length === 0) && platforms && platforms.length > 0) {
+    patched.platforms = [...platforms];
+    rowChanged = true;
+  }
+  for (const f of dirtyFields) {
+    const incoming = summary[f];
+    if (incoming === undefined) continue;
+    if (
+      (f === 'description' || f === 'description_en') &&
+      typeof incoming === 'string' &&
+      isPlaceholderDescription(incoming)
+    ) {
+      continue;
+    }
+    if ((patched as unknown as Record<string, unknown>)[f] === incoming) continue;
+    (patched as unknown as Record<string, unknown>)[f] = incoming as unknown;
+    rowChanged = true;
+  }
+  return rowChanged ? patched : null;
+}
+
+/** 治愈行合成：预 enrich 行创建时剥图标通道与占位简介，平台取详情实值。 */
+function synthesizeHealRow(summary: AppSummary, platforms: readonly string[] | undefined): AppSummary {
+  const {
+    icon: _dropIcon,
+    icon_bg: _dropBg,
+    platforms: _dropPlats,
+    ...rest
+  } = summary as unknown as AppSummary & Record<string, unknown>;
+  void _dropIcon;
+  void _dropBg;
+  void _dropPlats;
+  const restSummary = rest as unknown as AppSummary;
+  return {
+    ...restSummary,
+    description:
+      typeof restSummary.description === 'string' && isPlaceholderDescription(restSummary.description)
+        ? ''
+        : restSummary.description,
+    description_en:
+      typeof restSummary.description_en === 'string' &&
+      isPlaceholderDescription(restSummary.description_en)
+        ? ''
+        : restSummary.description_en,
+    icon: '',
+    icon_bg: 'linear-gradient(135deg, #475569, #334155)',
+    platforms: platforms && platforms.length > 0 ? [...platforms] : [],
+  };
+}
+
 /**
  * 富卡治愈镜像合并：
  * platforms 沿旧（仅旧空且 incoming 非空才补）；icon/icon_bg 不动归 icon 通道；
@@ -983,82 +1056,22 @@ export function applyRichcardHealToMirror(
   dirtySet.delete('platforms');
   if (dirtySet.size === 0 && (!payload.platforms || payload.platforms.length === 0)) return prev;
   const hitKeys = keys.filter((k) => repoKeys.has(k));
-  if (hitKeys.length === 0) {
-    let aliasHit = false;
-    for (const k of Object.keys(prev)) {
-      if (!keySet.has(k.toLowerCase())) continue;
-      aliasHit = true;
-      break;
-    }
-    if (!aliasHit) return prev;
-  }
+  const hasMirrorHit = Object.keys(prev).some((k) => keySet.has(k.toLowerCase()));
+  if (hitKeys.length === 0 && !hasMirrorHit) return prev;
+  const summaryFields = payload.summary as unknown as Record<string, unknown>;
   let changed = false;
   const next = { ...prev };
   for (const k of Object.keys(prev)) {
-    const cur = prev[k];
-    const alias = String(cur?.id ?? '').trim().toLowerCase();
-    if (!keySet.has(k.toLowerCase()) && (alias === '' || !keySet.has(alias))) continue;
-    if (!repoKeys.has(k.toLowerCase()) && (alias === '' || !repoKeys.has(alias))) continue;
-    const patched: AppSummary = { ...cur };
-    let rowChanged = false;
-    if (
-      (!patched.platforms || patched.platforms.length === 0) &&
-      payload.platforms &&
-      payload.platforms.length > 0
-    ) {
-      patched.platforms = [...payload.platforms];
-      rowChanged = true;
-    }
-    for (const f of dirtySet) {
-      const incoming = (payload.summary as unknown as Record<string, unknown>)[f];
-      if (incoming === undefined) continue;
-      if (
-        (f === 'description' || f === 'description_en') &&
-        typeof incoming === 'string' &&
-        isPlaceholderDescription(incoming)
-      ) {
-        continue;
-      }
-      if ((patched as unknown as Record<string, unknown>)[f] !== incoming) {
-        (patched as unknown as Record<string, unknown>)[f] = incoming as unknown;
-        rowChanged = true;
-      }
-    }
-    if (rowChanged) {
-      next[k] = patched;
-      changed = true;
-    }
+    if (!matchHealRowKey(k, prev[k]?.id, keySet, repoKeys)) continue;
+    const patched = patchHealRow(prev[k], dirtySet, summaryFields, payload.platforms);
+    if (patched === null) continue;
+    next[k] = patched;
+    changed = true;
   }
   for (const k of hitKeys) {
-    if (!next[k]) {
-      const {
-        icon: _dropIcon,
-        icon_bg: _dropBg,
-        platforms: _dropPlats,
-        ...rest
-      } = payload.summary as unknown as AppSummary & Record<string, unknown>;
-      void _dropIcon;
-      void _dropBg;
-      void _dropPlats;
-      const restSummary = rest as unknown as AppSummary;
-      next[k] = {
-        ...restSummary,
-        description:
-          typeof restSummary.description === 'string' &&
-          isPlaceholderDescription(restSummary.description)
-            ? ''
-            : restSummary.description,
-        description_en:
-          typeof restSummary.description_en === 'string' &&
-          isPlaceholderDescription(restSummary.description_en)
-            ? ''
-            : restSummary.description_en,
-        icon: '',
-        icon_bg: 'linear-gradient(135deg, #475569, #334155)',
-        platforms: payload.platforms && payload.platforms.length > 0 ? [...payload.platforms] : [],
-      };
-      changed = true;
-    }
+    if (next[k]) continue;
+    next[k] = synthesizeHealRow(payload.summary, payload.platforms);
+    changed = true;
   }
   return changed ? next : prev;
 }
