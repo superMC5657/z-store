@@ -24,7 +24,11 @@ export interface AppearanceSectionProps {
   onSelectLanguage: (lang: 'zh-CN' | 'en-US') => void;
   onSelectUiScale: (scale: '90' | '100' | '110' | '125') => void;
   onSelectFontSize: (val: string, label: string) => void;
+  showCoords?: boolean;
+  onToggleShowCoords?: (show: boolean) => void;
+  /** @deprecated 仅对外兼容旧名，等同 showCoords，新代码请用 showCoords */
   showPendingCoords?: boolean;
+  /** @deprecated 仅对外兼容旧名，等同 onToggleShowCoords */
   onToggleShowPendingCoords?: (show: boolean) => void;
 }
 
@@ -39,10 +43,15 @@ export const AppearanceSection: React.FC<AppearanceSectionProps> = ({
   onSelectLanguage,
   onSelectUiScale,
   onSelectFontSize,
-  showPendingCoords = true,
+  showCoords,
+  onToggleShowCoords,
+  showPendingCoords,
   onToggleShowPendingCoords,
 }) => {
   const { t } = useTranslation();
+  // 命名收敛：统一为 showCoords；旧 props 名仅作对外兼容别名（注明）。
+  const effectiveShowCoords = showCoords ?? showPendingCoords ?? true;
+  const handleToggleShowCoords = onToggleShowCoords ?? onToggleShowPendingCoords;
 
   return (
     <div className="settings-group">
@@ -213,8 +222,8 @@ export const AppearanceSection: React.FC<AppearanceSectionProps> = ({
           </span>
         </div>
         <SegmentedControl
-          value={showPendingCoords ? 'show' : 'hide'}
-          onChange={(val) => onToggleShowPendingCoords?.(val === 'show')}
+          value={effectiveShowCoords ? 'show' : 'hide'}
+          onChange={(val) => handleToggleShowCoords?.(val === 'show')}
           options={[
             {
               value: 'show',

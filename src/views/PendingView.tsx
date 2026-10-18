@@ -35,6 +35,14 @@ import {
   getLicenseAllowlist,
   type LicenseAllowlistResult,
 } from '../services/api/catalog';
+import {
+  getPendingSectionPrefs,
+  getPendingShowCoordsPref,
+  PENDING_SHOW_COORDS_EVENT,
+  PENDING_SHOW_COORDS_EVENT_LEGACY,
+  setPendingSectionPrefs,
+  setPendingShowCoordsPref,
+} from '../lib/pendingPrefs';
 
 export type { LicenseAllowlistResult };
 
@@ -124,28 +132,8 @@ export interface PendingViewProps {
   onNotify?: (message: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
 }
 
-export const PENDING_SHOW_COORDS_STORAGE_KEY = 'zstore:pending_show_coords';
-
-export function getPendingShowCoordsPref(): boolean {
-  try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      const val = window.localStorage.getItem(PENDING_SHOW_COORDS_STORAGE_KEY);
-      if (val !== null) {
-        return val === 'true';
-      }
-    }
-  } catch {}
-  return true; // 默认显示
-}
-
-export function setPendingShowCoordsPref(show: boolean): void {
-  try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      window.localStorage.setItem(PENDING_SHOW_COORDS_STORAGE_KEY, String(show));
-      window.dispatchEvent(new CustomEvent('zstore:pending-show-coords-changed', { detail: { show } }));
-    }
-  } catch {}
-}
+// 兼容再导出：历史调用方仍可从本视图 import 该键，实际收容于 `lib/pendingPrefs`（新代码请直引 lib）。
+export { PENDING_SHOW_COORDS_STORAGE_KEY } from '../lib/pendingPrefs';
 
 export const PENDING_EMPTY_DRAFT: PendingDraftItem = {
   id: '',
@@ -345,6 +333,8 @@ export const PendingView: React.FC<PendingViewProps> = ({
   const [submittingId, setSubmittingId] = useState<string | null>(null);
   const [batchSelected, setBatchSelected] = useState<Set<string>>(new Set());
   const [batchBusy, setBatchBusy] = useState(false);
+  // 批量栏显隐分工（两者正交，故保留双状态）：batchHidden 管整栏是否卸载
+  // （隐藏后仅留入口按钮），batchExpanded 管栏内候选列表是否展开。
   const [batchHidden, setBatchHidden] = useState(false);
   const [batchExpanded, setBatchExpanded] = useState(false);
   const [previewExpanded, setPreviewExpanded] = useState(true);
@@ -361,9 +351,11 @@ export const PendingView: React.FC<PendingViewProps> = ({
         setShowCoords(getPendingShowCoordsPref());
       }
     };
-    window.addEventListener('zstore:pending-show-coords-changed', handler);
+    window.addEventListener(PENDING_SHOW_COORDS_EVENT, handler);
+    window.addEventListener(PENDING_SHOW_COORDS_EVENT_LEGACY, handler);
     return () => {
-      window.removeEventListener('zstore:pending-show-coords-changed', handler);
+      window.removeEventListener(PENDING_SHOW_COORDS_EVENT, handler);
+      window.removeEventListener(PENDING_SHOW_COORDS_EVENT_LEGACY, handler);
     };
   }, []);
 
@@ -373,31 +365,14 @@ export const PendingView: React.FC<PendingViewProps> = ({
     setPendingShowCoordsPref(next);
   };
 
-  // 表单 B/C 分节的展开/收起偏好（localStorage 持久化，A 核心必填不许折叠隐藏）
-  const [openSections, setOpenSections] = useState<{ optional: boolean; runtime: boolean }>(() => {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const raw = window.localStorage.getItem('zstore:pending_section_prefs');
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          return {
-            optional: typeof parsed.optional === 'boolean' ? parsed.optional : true,
-            runtime: typeof parsed.runtime === 'boolean' ? parsed.runtime : false,
-          };
-        }
-      }
-    } catch {}
-    return { optional: true, runtime: false };
-  });
+  // 表单 B/C 分节的展开/收起偏好（localStorage 持久化，A 核心必填不许折叠隐藏；
+  // B 键名已收敛为 supplemental，旧 `optional` 形态由共享模块解析兼容）
+  const [openSections, setOpenSections] = useState(() => getPendingSectionPrefs());
 
-  const toggleSection = (key: 'optional' | 'runtime') => {
+  const toggleSection = (key: 'supplemental' | 'runtime') => {
     setOpenSections((prev) => {
       const next = { ...prev, [key]: !prev[key] };
-      try {
-        if (typeof window !== 'undefined' && window.localStorage) {
-          window.localStorage.setItem('zstore:pending_section_prefs', JSON.stringify(next));
-        }
-      } catch {}
+      setPendingSectionPrefs(next);
       return next;
     });
   };
@@ -504,21 +479,47 @@ export const PendingView: React.FC<PendingViewProps> = ({
   const setField = <K extends keyof PendingDraftItem>(key: K, value: PendingDraftItem[K]) => {
     setForm((prev) => {
       const next = { ...prev, [key]: value };
-      // owner/repo 键入时自动联动规范 id（D 档规范：id 永不可手动编辑，恒为 canonical(owner, repo)）
+      // P0：owner/repo 键入仅在 id 为空或仍等于上一次联动值时跟随填充；
+      // 手输（偏离上次 canonical）一律保留，不逐键改写；
+      // canonical 对齐只在失焦/保存时校验，见 handleIdBlur/handleSave + validatePendingDraft draft 档）。
       if (key === 'owner' || key === 'repo') {
         const owner = key === 'owner' ? String(value) : prev.owner;
         const repo = key === 'repo' ? String(value) : prev.repo;
         if (owner.trim() && repo.trim()) {
-          next.id = canonicalDraftId(owner, repo);
+          const prevCanonical =
+            prev.owner.trim() && prev.repo.trim() ? canonicalDraftId(prev.owner, prev.repo) : '';
+          if (!prev.id.trim() || prev.id.trim() === prevCanonical) {
+            next.id = canonicalDraftId(owner, repo);
+          }
         }
       }
       return next;
     });
   };
 
+  // P0：id 失焦校验（DraftLenient 口径：id==canonical 且与 owner/repo 对齐）。
+  // 仅Inline提示期望 canonical（复用 id_preview 文案），不改写手输。
+  const handleIdBlur = () => {
+    if (!form.owner.trim() || !form.repo.trim()) return;
+    const expected = canonicalDraftId(form.owner, form.repo);
+    const actual = form.id.trim();
+    if (actual && (actual !== expected || actual !== actual.toLowerCase())) {
+      setFormErrors((prev) => ({ ...prev, id: 'id_mismatch' }));
+    } else if (actual === expected) {
+      setFormErrors((prev) => {
+        if (!prev.id) return prev;
+        const next = { ...prev };
+        delete next.id;
+        return next;
+      });
+    }
+  };
+
   const collectFormItem = (): PendingDraftItem => ({
     ...form,
-    id: canonicalDraftId(form.owner, form.repo),
+    // P0：不静默丢弃手输 id——非空即原样保留（仅去首尾空格，大小写/内部空格留给校验），
+    // 为空才回退 canonical；非规范手输由 draft 档校验拦下（id_mismatch），不直接改写。
+    id: form.id.trim() ? form.id.trim() : canonicalDraftId(form.owner, form.repo),
     name: form.name.trim(),
     owner: form.owner.trim(),
     repo: form.repo.trim(),
@@ -579,6 +580,14 @@ export const PendingView: React.FC<PendingViewProps> = ({
     setFormErrors(errors);
     if (Object.keys(errors).length > 0) {
       onNotify?.(t('pending.fix_errors'), 'warning');
+      return;
+    }
+    // 复制/手输撞已存在 id：warning 提示并中断，不静默建第二条（也不静默覆盖）。
+    if (isCreating && entries.some((e) => e.id === item.id)) {
+      onNotify?.(
+        t('pending.duplicated_hint', { defaultValue: `已存在相同 ID：${item.id}，请修改 owner/repo 后再保存` }),
+        'warning',
+      );
       return;
     }
     if (onSave) {
@@ -1304,19 +1313,32 @@ export const PendingView: React.FC<PendingViewProps> = ({
 
                     <div style={labelStyle} className="pending-id-display">
                       <span>{t('pending.fields.id')}</span>
-                      <div className="pending-id-badge-wrap">
-                        <code className="pending-id-code">{currentId || '—'}</code>
-                        <button
-                          type="button"
-                          className="btn-fluent btn-secondary btn-sm"
-                          data-testid="pending-copy-id"
-                          onClick={() => void handleCopyId()}
-                          style={{ padding: '2px 8px', fontSize: '11px' }}
-                          title="复制应用标识 ID"
-                        >
-                          <span>复制</span>
-                        </button>
-                      </div>
+                      {isCreating ? (
+                        <input
+                          className="input-fluent"
+                          data-testid="pending-id-input"
+                          value={form.id}
+                          onChange={(e) => setField('id', e.target.value)}
+                          onBlur={handleIdBlur}
+                          placeholder="owner/repo"
+                          autoComplete="off"
+                          spellCheck={false}
+                        />
+                      ) : (
+                        <div className="pending-id-badge-wrap">
+                          <code className="pending-id-code">{currentId || '—'}</code>
+                          <button
+                            type="button"
+                            className="btn-fluent btn-secondary btn-sm"
+                            data-testid="pending-copy-id"
+                            onClick={() => void handleCopyId()}
+                            style={{ padding: '2px 8px', fontSize: '11px' }}
+                            title="复制应用标识 ID"
+                          >
+                            <span>复制</span>
+                          </button>
+                        </div>
+                      )}
                       {isCreating && expectedId && (
                         <span style={hintStyle}>
                           {t('pending.id_preview', { id: expectedId })}
@@ -1419,11 +1441,11 @@ export const PendingView: React.FC<PendingViewProps> = ({
                   role="button"
                   tabIndex={0}
                   className="pending-section-header"
-                  onClick={() => toggleSection('optional')}
+                  onClick={() => toggleSection('supplemental')}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
-                      toggleSection('optional');
+                      toggleSection('supplemental');
                     }
                   }}
                 >
@@ -1432,14 +1454,14 @@ export const PendingView: React.FC<PendingViewProps> = ({
                     <span>补充信息（可选）</span>
                     <span className="pending-section-count">4</span>
                   </div>
-                  {openSections.optional ? (
+                  {openSections.supplemental ? (
                     <ChevronDown size={14} strokeWidth={1.5} aria-hidden="true" />
                   ) : (
                     <ChevronRight size={14} strokeWidth={1.5} aria-hidden="true" />
                   )}
                 </div>
 
-                <label style={{ ...labelStyle, display: openSections.optional ? 'flex' : 'none' }}>
+                <label style={{ ...labelStyle, display: openSections.supplemental ? 'flex' : 'none' }}>
                   <span>{t('pending.fields.category_name')}</span>
                   <input
                     className="input-fluent"
@@ -1450,7 +1472,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
                   />
                 </label>
 
-                <label style={{ ...labelStyle, display: openSections.optional ? 'flex' : 'none' }}>
+                <label style={{ ...labelStyle, display: openSections.supplemental ? 'flex' : 'none' }}>
                   <span>{t('pending.fields.description_en')}</span>
                   <textarea
                     className="input-fluent"
@@ -1462,7 +1484,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
                   />
                 </label>
 
-                <label style={{ ...labelStyle, display: openSections.optional ? 'flex' : 'none' }}>
+                <label style={{ ...labelStyle, display: openSections.supplemental ? 'flex' : 'none' }}>
                   <span>{t('pending.fields.icon')}</span>
                   <input
                     className="input-fluent"
@@ -1475,7 +1497,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
                   />
                 </label>
 
-                <label style={{ ...labelStyle, display: openSections.optional ? 'flex' : 'none' }}>
+                <label style={{ ...labelStyle, display: openSections.supplemental ? 'flex' : 'none' }}>
                   <span>{t('pending.fields.aliases')}</span>
                   <input
                     className="input-fluent"

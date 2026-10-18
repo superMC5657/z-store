@@ -175,23 +175,6 @@
   transform: scale(0.97);
 }
 
-[data-theme="dark"] .btn-ghost {
-  background: transparent;
-  color: var(--btn-secondary-text);
-  border: 1px solid transparent;
-  box-shadow: none;
-}
-
-[data-theme="dark"] .btn-ghost:hover:not(:disabled) {
-  background: var(--btn-secondary-hover);
-  color: var(--btn-secondary-hover-text);
-  border-color: transparent;
-}
-
-[data-theme="dark"] .btn-ghost:active:not(:disabled) {
-  background: var(--btn-secondary-active);
-}
-
 /* 已安装应用操作按钮组 */
 .installed-actions-group {
   display: flex;
