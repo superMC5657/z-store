@@ -1,10 +1,11 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import i18n from '../i18n';
 import {
   PENDING_EMPTY_DRAFT,
+  PENDING_SHOW_COORDS_STORAGE_KEY,
   PendingView,
   canonicalDraftId,
   isOsiApprovedLicense,
@@ -226,6 +227,169 @@ describe('PendingView 表单窄宽布局回归（只锁布局，不碰字段/校
     const css = readPendingCss();
     expect(css).toContain('.pending-editor-title');
     expect(css).toContain('text-overflow: ellipsis');
+  });
+});
+
+describe('PendingView 草稿字段可改性与锁定规则（Oracle 定稿落实）', () => {
+  it('编辑态 owner/repo 只读锁定，id 显示为徽标且提供 pending-copy-id', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const writeSpy = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(window.navigator, 'clipboard', {
+      value: { writeText: writeSpy },
+      configurable: true,
+    });
+    const onNotify = vi.fn();
+
+    render(
+      <PendingView
+        showBatchBar={false}
+        initialEntries={[
+          {
+            id: 'owner1/repo1',
+            status: 'draft',
+            pr_url: null,
+            archived: false,
+            item: {
+              ...PENDING_EMPTY_DRAFT,
+              id: 'owner1/repo1',
+              name: 'Demo',
+              owner: 'owner1',
+              repo: 'repo1',
+              description: 'demo',
+              category: 'dev',
+              homepage: 'https://example.com',
+              license: 'MIT',
+            },
+          },
+        ]}
+        onNotify={onNotify}
+      />,
+    );
+    fireEvent.click(screen.getByText('owner1/repo1'));
+
+    // owner/repo 在编辑态具有 readOnly
+    const ownerInput = screen.getByDisplayValue('owner1') as HTMLInputElement;
+    const repoInput = screen.getByDisplayValue('repo1') as HTMLInputElement;
+    expect(ownerInput.readOnly).toBe(true);
+    expect(repoInput.readOnly).toBe(true);
+
+    // id 不再是 input，而是徽标 + 复制按钮
+    expect(screen.queryByPlaceholderText('owner/repo')).toBeNull();
+    const copyBtn = screen.getByTestId('pending-copy-id');
+    expect(copyBtn).toBeTruthy();
+    fireEvent.click(copyBtn);
+    expect(writeSpy).toHaveBeenCalledWith('owner1/repo1');
+    await waitFor(() => {
+      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('owner1/repo1'), 'success');
+    });
+  });
+
+  it('点击“复制为新草稿”切到新建态（owner/repo 可改，原草稿保留）', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const onNotify = vi.fn();
+
+    render(
+      <PendingView
+        showBatchBar={false}
+        initialEntries={[
+          {
+            id: 'owner1/repo1',
+            status: 'draft',
+            pr_url: null,
+            archived: false,
+            item: {
+              ...PENDING_EMPTY_DRAFT,
+              id: 'owner1/repo1',
+              name: 'Demo',
+              owner: 'owner1',
+              repo: 'repo1',
+              description: 'demo',
+              category: 'dev',
+              homepage: 'https://example.com',
+              license: 'MIT',
+            },
+          },
+        ]}
+        onNotify={onNotify}
+      />,
+    );
+    fireEvent.click(screen.getByText('owner1/repo1'));
+
+    const dupBtn = screen.getByTestId('pending-duplicate');
+    expect(dupBtn).toBeTruthy();
+    fireEvent.click(dupBtn);
+
+    // 切到新建态：owner 与 repo 输入框不再 readOnly
+    const ownerInput = screen.getByDisplayValue('owner1') as HTMLInputElement;
+    const repoInput = screen.getByDisplayValue('repo1') as HTMLInputElement;
+    expect(ownerInput.readOnly).toBe(false);
+    expect(repoInput.readOnly).toBe(false);
+
+    // 修改仓库坐标并保存新草稿
+    fireEvent.change(ownerInput, { target: { value: 'owner2' } });
+    fireEvent.change(repoInput, { target: { value: 'repo2' } });
+    fireEvent.click(screen.getByText('保存草稿'));
+
+    // 确认生成了新条目且原条目仍存
+    expect(screen.getByText('owner1/repo1')).toBeTruthy();
+    expect(screen.getAllByText('owner2/repo2').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('archived 行整表单只读、禁用保存，仅留“复制为新草稿”可用', async () => {
+    await i18n.changeLanguage('zh-CN');
+    render(
+      <PendingView
+        showBatchBar={false}
+        initialEntries={[draftEntry({ id: 'arch/one', archived: true })]}
+      />,
+    );
+    fireEvent.click(screen.getByText('已归档'));
+    fireEvent.click(screen.getByText('arch/one'));
+
+    // 保存按钮被禁用
+    const saveBtn = screen.getByText('保存草稿') as HTMLButtonElement;
+    expect(saveBtn.disabled).toBe(true);
+
+    // 字段均带有 readOnly
+    const nameInput = screen.getByDisplayValue('Demo') as HTMLInputElement;
+    expect(nameInput.readOnly).toBe(true);
+
+    // 仍提供“复制为新草稿”
+    const dupBtn = screen.getByTestId('pending-duplicate');
+    expect(dupBtn).toBeTruthy();
+  });
+
+  it('仓库与标识区提供显隐开关，隐藏时不渲染该节但标题保留 id，新建态不受影响', async () => {
+    await i18n.changeLanguage('zh-CN');
+    window.localStorage.removeItem(PENDING_SHOW_COORDS_STORAGE_KEY);
+
+    const { container, unmount } = render(
+      <PendingView
+        showBatchBar={false}
+        initialEntries={[draftEntry({ id: 'owner1/repo1' })]}
+      />,
+    );
+    fireEvent.click(screen.getByText('owner1/repo1'));
+
+    // 默认显示：Section D 存在
+    expect(screen.getByTestId('pending-copy-id')).toBeTruthy();
+    expect(screen.getByTestId('pending-duplicate')).toBeTruthy();
+    const toggleBtn = screen.getByTestId('pending-toggle-coords');
+    expect(toggleBtn).toBeTruthy();
+
+    // 点击隐藏：Section D 不再渲染，但编辑器标题仍保留 owner1/repo1
+    fireEvent.click(toggleBtn);
+    expect(window.localStorage.getItem(PENDING_SHOW_COORDS_STORAGE_KEY)).toBe('false');
+    expect(screen.queryByTestId('pending-copy-id')).toBeNull();
+    expect(screen.queryByTestId('pending-duplicate')).toBeNull();
+    expect(container.querySelector('.pending-editor-title')?.textContent).toBe('owner1/repo1');
+
+    // 重新切到新建态：核心仓库录入字段始终可填，不被隐藏
+    fireEvent.click(screen.getByText('新建草稿'));
+    expect(screen.getAllByPlaceholderText('rustdesk')).toHaveLength(2);
+
+    unmount();
+    window.localStorage.removeItem(PENDING_SHOW_COORDS_STORAGE_KEY);
   });
 });
 

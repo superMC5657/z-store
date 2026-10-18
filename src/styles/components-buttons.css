@@ -44,6 +44,14 @@
   outline-offset: 1px;
 }
 
+.btn-fluent:disabled,
+.btn-fluent[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
 .btn-fluent.btn-sm {
   height: 26px;
   min-height: 24px;
@@ -143,6 +151,44 @@
 }
 
 [data-theme="dark"] .btn-secondary:active {
+  background: var(--btn-secondary-active);
+}
+
+/* 幽灵按钮：完全透明底 / secondary 文字 / hover 微透 / 用于紧凑次级与批量操作 */
+.btn-ghost {
+  height: 30px;
+  min-height: 28px;
+  background: transparent;
+  color: var(--btn-secondary-text);
+  border: 1px solid transparent;
+  box-shadow: none;
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: var(--btn-secondary-hover);
+  color: var(--btn-secondary-hover-text);
+  border-color: transparent;
+}
+
+.btn-ghost:active:not(:disabled) {
+  background: var(--btn-secondary-active);
+  transform: scale(0.97);
+}
+
+[data-theme="dark"] .btn-ghost {
+  background: transparent;
+  color: var(--btn-secondary-text);
+  border: 1px solid transparent;
+  box-shadow: none;
+}
+
+[data-theme="dark"] .btn-ghost:hover:not(:disabled) {
+  background: var(--btn-secondary-hover);
+  color: var(--btn-secondary-hover-text);
+  border-color: transparent;
+}
+
+[data-theme="dark"] .btn-ghost:active:not(:disabled) {
   background: var(--btn-secondary-active);
 }
 

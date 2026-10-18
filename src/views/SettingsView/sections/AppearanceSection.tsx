@@ -8,6 +8,8 @@ import {
   Laptop,
   Languages,
   Globe,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { SegmentedControl } from '../../../components/SegmentedControl';
 
@@ -22,6 +24,8 @@ export interface AppearanceSectionProps {
   onSelectLanguage: (lang: 'zh-CN' | 'en-US') => void;
   onSelectUiScale: (scale: '90' | '100' | '110' | '125') => void;
   onSelectFontSize: (val: string, label: string) => void;
+  showPendingCoords?: boolean;
+  onToggleShowPendingCoords?: (show: boolean) => void;
 }
 
 export const AppearanceSection: React.FC<AppearanceSectionProps> = ({
@@ -35,6 +39,8 @@ export const AppearanceSection: React.FC<AppearanceSectionProps> = ({
   onSelectLanguage,
   onSelectUiScale,
   onSelectFontSize,
+  showPendingCoords = true,
+  onToggleShowPendingCoords,
 }) => {
   const { t } = useTranslation();
 
@@ -187,6 +193,47 @@ export const AppearanceSection: React.FC<AppearanceSectionProps> = ({
             { value: '16', label: '16px' },
             { value: '18', label: '18px' },
             { value: '20', label: '20px' },
+          ]}
+        />
+      </div>
+
+      <div className={`settings-row ${highlightRow === 'pending_coords' ? 'row-highlight' : ''}`}>
+        <div className="settings-row-info">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontWeight: 510 }}>{t('settings.pending_coords_title')}</span>
+            {activeNotice?.key === 'pending_coords' && (
+              <span className="setting-applied-badge">
+                <Check size={11} strokeWidth={1.5} style={{ color: 'currentColor' }} />
+                <span>{activeNotice.text}</span>
+              </span>
+            )}
+          </div>
+          <span style={{ fontSize: 'var(--font-xs)', color: 'var(--text-tertiary)', marginTop: '2px' }}>
+            {t('settings.pending_coords_desc')}
+          </span>
+        </div>
+        <SegmentedControl
+          value={showPendingCoords ? 'show' : 'hide'}
+          onChange={(val) => onToggleShowPendingCoords?.(val === 'show')}
+          options={[
+            {
+              value: 'show',
+              label: (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <Eye size={13} strokeWidth={1.5} />
+                  <span>{t('settings.pending_coords_show')}</span>
+                </span>
+              ),
+            },
+            {
+              value: 'hide',
+              label: (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <EyeOff size={13} strokeWidth={1.5} />
+                  <span>{t('settings.pending_coords_hide')}</span>
+                </span>
+              ),
+            },
           ]}
         />
       </div>
