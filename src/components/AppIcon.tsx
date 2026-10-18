@@ -19,19 +19,71 @@ export interface AppIconProps {
   loading?: 'eager' | 'lazy';
 }
 
+/** 可直接展示的图片扩展名（裸路径用；`http(s)`/`data:` 另由前缀判定，不在此列）。 */
+const IMAGE_EXTENSIONS = ['.png', '.svg', '.jpg', '.webp', '.ico'];
+
 // 唯一的远端图标判定谓词：调用方（`services/iconStore.queueIconFetches` 内部与组件本体）必须复用此函数，禁止各自内联重复形状。
 export function isRemoteIcon(icon: string | undefined | null): boolean {
   if (!icon) return false;
-  return (
-    icon.startsWith('http://') ||
-    icon.startsWith('https://') ||
-    icon.startsWith('data:') ||
-    icon.includes('.png') ||
-    icon.includes('.svg') ||
-    icon.includes('.jpg') ||
-    icon.includes('.webp') ||
-    icon.includes('.ico')
-  );
+  const value = icon.trim().toLowerCase();
+  if (
+    value.startsWith('http://') ||
+    value.startsWith('https://') ||
+    value.startsWith('data:')
+  ) {
+    return true;
+  }
+  // 裸路径按扩展名收尾判定（忽略 `?` 查询与 `#` 描点）；`foo.png-evil` 之类不再误判。
+  const path = value.split(/[?#]/, 1)[0];
+  return IMAGE_EXTENSIONS.some((ext) => path.endsWith(ext));
+}
+
+/**
+ * 有效图标优先级：`iconOverride`（详情轮转即时态）优先于一切，其次读侧扇出
+ * `storeIcon`，再次 M1 缓冲首绘，最后回落父 prop。空（`''`）亦为有效值，
+ * 恒覆盖旧值（防复活旧图），故一律按 `undefined` 判空。
+ */
+export function resolveActiveIcon(
+  iconOverride: string | undefined,
+  storeIcon: string | undefined,
+  bufferedFirstPaint: string | undefined,
+  icon: string,
+): string {
+  if (iconOverride !== undefined) return iconOverride;
+  if (storeIcon !== undefined) return storeIcon;
+  if (bufferedFirstPaint !== undefined) return bufferedFirstPaint;
+  return icon;
+}
+
+/**
+ * 可渲染地址：空恒空（徽章）；`data:` 与 `iconOverride` 直显；
+ * 否则按 URL 键、归一 id 键双查落盘 `data:` 缓存，皆无则回落原值。
+ */
+export function resolveDisplaySrc(
+  activeIcon: string,
+  hasIconOverride: boolean,
+  appIdNorm: string,
+): string {
+  if (!activeIcon) return '';
+  if (activeIcon.startsWith('data:')) return activeIcon;
+  if (hasIconOverride) return activeIcon;
+  const fromUrlCache = getCachedIconDataUri(activeIcon);
+  if (fromUrlCache) return fromUrlCache;
+  const fromIdCache = appIdNorm ? getCachedIconDataUri(appIdNorm) : undefined;
+  return fromIdCache ?? activeIcon;
+}
+
+// 首字母缩写徽章（如 RustDesk -> RD，LocalSend -> LS）。
+export function getInitials(name: string): string {
+  const clean = name.replace(/[^\w\s\u4e00-\u9fa5]/g, '').trim();
+  if (!clean) return '📦';
+  const words = clean.split(/\s+/);
+  if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+  const camelParts = clean.match(/[A-Z][a-z0-9]*/g);
+  if (camelParts && camelParts.length >= 2) {
+    return (camelParts[0][0] + camelParts[1][0]).toUpperCase();
+  }
+  return clean.slice(0, 2).toUpperCase();
 }
 
 export const AppIcon: React.FC<AppIconProps> = ({
@@ -45,11 +97,8 @@ export const AppIcon: React.FC<AppIconProps> = ({
   iconOverride,
   loading = 'lazy',
 }) => {
-  // 图标深 module 订阅（读侧）：店内 `admitIconHit` 唯一写口受理后经 `subscribeIconWrites` 扇出，
-  // 本组件经 `appId` 归一（`normalizeId`，遵 ADR-0010）跟进同键写——覆盖父 prop 迟到/stale 情形
-  // （如详情轮转切 L5 只调 `admitIconHit` 不带 patch，父列表经 App 侧扇出跟进，本组件经此跟进单卡）。
-  // 空（`''`/L5）恒覆盖旧 prop（防复活旧图）；实图覆盖空/旧 prop（迟到 `icon-ready` 先展）。
-  // `iconOverride`（详情轮转即时态）优先于一切，不被扇出覆盖。
+  // 图标读侧订阅：店内 `admitIconHit` 受理后经 `subscribeIconWrites` 扇出，
+  // 本组件经 `appId` 归一（`normalizeId`）跟进同键写（覆盖父 prop 迟到/stale）。
   const appIdNorm = typeof appId === 'string' ? normalizeId(appId) : '';
   const [storeIcon, setStoreIcon] = useState<string | undefined>(undefined);
   useEffect(() => {
@@ -60,51 +109,19 @@ export const AppIcon: React.FC<AppIconProps> = ({
     return subscribeIconWrites(({ targets, icon: nextIcon }) => {
       if (targets.includes(appIdNorm)) {
         setStoreIcon(nextIcon);
-      } else {
-        // 别名归一兜底：`id` 单一规范字段已在店内归一为 targets，跨键（坐标 vs id）已覆盖。
       }
     });
   }, [appIdNorm]);
-  // M1 缓冲首绘回读 + 盘 dataUri 直显（只读，不自发 IPC）：
-  // storeIcon（扇出即时态）优先，其次 M1 缓冲（getBufferedIcon 唯一口，迟到 icon-ready 首绘即对），
-  // 最后回落父 prop；空（`''`/L5）恒徽章（不回读旧缓存，防复活旧图，见 `HomeView.search-icon` 回归线）。
-  // level 单调由店内 `admitIconHit` 保证，此处不判 level；列表空壳补齐经上游
-  // `assembleOnlineRowsWithIcons`/`resolveIconWithBuffer`（店内唯一口），
-  // 本组件只按 resolved 图标展示（空即徽章）——写口唯一在店内 `admitIconHit`（`invalidate→queue→patch`），
-  // 此处不自发 IPC、不订阅窗口总线。
-  // 首绘回读经 `getBufferedIcon` 同步读 M1，盘 dataUri 经 `getCachedIconDataUri` 同步读内存态（入队落盘后），
-  // 二者均为同步内存读，无 IPC 副作用。
+
   const bufferedFirstPaint = appIdNorm ? getBufferedIcon(appIdNorm) : undefined;
-  const rawActiveIcon =
-    iconOverride !== undefined
-      ? iconOverride
-      : storeIcon !== undefined
-        ? storeIcon
-        : bufferedFirstPaint !== undefined
-          ? bufferedFirstPaint
-          : icon;
-  const activeIcon=rawActiveIcon;
-  const isDataUri = Boolean(activeIcon && activeIcon.startsWith('data:'));
-  const [hasError, setHasError] = useState(false);
-  // 只读展示：同 URL 的 data URI 缓存命中即直显（店内 `getCachedIconDataUri` 唯一口，
-  // 入队落盘后的内存态），否则直显 prop；
-  // L5 清零（`storeIcon === ''` 或首绘空）恒徽章（不回读旧缓存，防复活旧图）。
-  // 盘 dataUri 双键回读：先按 URL 键，再按归一 id 键（入队按 id 亦存一份，首绘即对）。
-  const displaySrc = (() => {
-    if (!activeIcon) return '';
-    if (isDataUri) return activeIcon;
-    if (iconOverride !== undefined) return activeIcon;
-    const fromCache = getCachedIconDataUri(activeIcon);
-    if (fromCache) return fromCache;
-    const fromIdCache = appIdNorm ? getCachedIconDataUri(appIdNorm) : undefined;
-    if (fromIdCache) return fromIdCache;
-    return activeIcon;
-  })();
+  const activeIcon = resolveActiveIcon(iconOverride, storeIcon, bufferedFirstPaint, icon);
+  const displaySrc = resolveDisplaySrc(activeIcon, iconOverride !== undefined, appIdNorm);
 
   // 判断是否为网络图片 URL（复用模块级唯一谓词，禁止内联重复形状）
   const isUrl = isRemoteIcon(activeIcon);
 
   // prop 切换即重置错误态（展示走渲染期直算，无 IPC 副作用）。
+  const [hasError, setHasError] = useState(false);
   useEffect(() => {
     setHasError(false);
   }, [activeIcon]);
@@ -114,26 +131,18 @@ export const AppIcon: React.FC<AppIconProps> = ({
     setHasError(true);
   };
 
-  // 生成首字母缩写徽章（如 RustDesk -> RD，LocalSend -> LS）
-  const getInitials = (str: string) => {
-    const clean = str.replace(/[^\w\s\u4e00-\u9fa5]/g, '').trim();
-    if (!clean) return '📦';
-    const words = clean.split(/\s+/);
-    if (words.length >= 2) {
-      return (words[0][0] + words[1][0]).toUpperCase();
-    }
-    const camelParts = clean.match(/[A-Z][a-z0-9]*/g);
-    if (camelParts && camelParts.length >= 2) {
-      return (camelParts[0][0] + camelParts[1][0]).toUpperCase();
-    }
-    return clean.slice(0, 2).toUpperCase();
-  };
-
   const isImageActive = isUrl && !hasError;
-  // 可渲染判定必须看 displaySrc 本体：activeIcon 为旧 URL 而 displaySrc 被 L5 清空/
+  // 可渲染判定看 displaySrc 本体：activeIcon 为旧 URL 而 displaySrc 被清空/
   // 解析失败置 '' 时，若仍按 activeIcon 渲染 <img src=""> 即永久裂图（hasError 永不置位）。
   const isDisplaySrcRenderable = displaySrc.trim() !== '' && isRemoteIcon(displaySrc);
   const showImg = isImageActive && isDisplaySrcRenderable;
+  // 非图即徽章：加载失败、图标为空、地址不可渲染，或轮转覆盖为非图（L5 切空意图）。
+  const isFallbackBadge =
+    !showImg &&
+    ((isUrl && hasError) ||
+      !activeIcon ||
+      (isUrl && !isDisplaySrcRenderable) ||
+      (iconOverride !== undefined && !isUrl));
 
   const containerStyle: React.CSSProperties = {
     background: isImageActive ? (style?.background ?? 'transparent') : iconBg,
@@ -165,7 +174,7 @@ export const AppIcon: React.FC<AppIconProps> = ({
             opacity: 1,
           }}
         />
-      ) : (isUrl && hasError) || !activeIcon || (isUrl && !isDisplaySrcRenderable) || (iconOverride !== undefined && !isUrl) ? (
+      ) : isFallbackBadge ? (
         <span
           className="app-icon-fallback-badge"
           style={{
