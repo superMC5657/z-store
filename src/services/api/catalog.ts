@@ -1,6 +1,7 @@
 import { listen } from '@tauri-apps/api/event';
 import { zlogWarn } from '../../lib/z-log';
 import type { IconReadyPayload } from '../iconStore';
+import type { DraftEntryWire, DraftItemWire } from '../custom/types';
 import type {
   AppDetail,
   AppMatchResult,
@@ -306,47 +307,13 @@ export async function restoreOrFetchIconCycle(appId: string): Promise<AppIconCyc
 
 // 自维护草稿 overlay：仅做 IPC 封装（CMD 表驱动），视图层禁直调 invoke（见 noDirectInvoke.test.ts）。
 
-/** 自维护草稿 payload（与后端 CatalogItem 同形，is_verified 入库强制 false）。 */
-export interface CustomCatalogItem {
-  id: string;
-  name: string;
-  owner: string;
-  repo: string;
-  icon: string;
-  icon_bg: string;
-  description: string;
-  description_en?: string | null;
-  category: string;
-  category_name: string;
-  aliases: string[];
-  default_version: string;
-  license: string;
-  stars: number;
-  forks: number;
-  is_verified: boolean;
-  homepage?: string | null;
-  install_dirs: string[];
-  search_subdirs: string[];
-  publishers: string[];
-  platforms: string[];
-  identifiers: Record<string, string[]>;
-}
+/**
+ * 草稿线格式别名（唯一定义见 `services/custom/types.ts`）：
+ * `CustomCatalogItem` = payload，`CustomAppEntry` = 后端行。
+ */
+export type CustomCatalogItem = DraftItemWire;
+export type CustomAppEntry = DraftEntryWire;
 
-/** 自维护草稿状态（收录态 collected 系与 local_collected 同义，PR 前置门禁唯一口径）。 */
-type CustomAppStatus = 'draft' | 'submitted' | 'collected' | 'local_collected';
-
-/** 收录态判定唯一口径见 selectors（`isCollectedStatus`，本模块不再重导出）。 */
-
-/** 自维护草稿条目（与后端 CustomAppEntry 同形）。 */
-export interface CustomAppEntry {
-  id: string;
-  item: CustomCatalogItem;
-  status: CustomAppStatus | string;
-  pr_url?: string | null;
-  created_at: number;
-  updated_at: number;
-  archived: boolean;
-}
 
 /** 转正提示（与后端 GraduationNotice 同形）。 */
 interface GraduationNotice {

@@ -26,6 +26,8 @@ import {
 import { FilterEmptyState, ViewShell } from './ViewShell';
 import { AppCard } from '../components/AppCard';
 import type { AppSummary } from '../types';
+import type { DraftEntry, DraftItem, DraftStatus } from '../services/custom/types';
+import { itemToSummary } from '../services/custom/mappers';
 import { PlatformIcon } from '../components/icons/PlatformIcons';
 import { PLATFORM_META, type PlatformId } from '../lib/platformFilter';
 import {
@@ -68,69 +70,27 @@ export const PREFILL_URL_LENGTH_LIMIT = 8000;
  * - 设计走 Linear 去彩单色：仅用文本层级 + 边框 + 单色图标，不引入彩色语义。
  */
 
-/** 草稿 payload（CatalogItem 可编辑子集，is_verified 恒 false，不参与表单；stars/forks 为后端真值透传，表单不编辑）。 */
-export interface PendingDraftItem {
-  id: string;
-  name: string;
-  owner: string;
-  repo: string;
-  icon: string;
-  icon_bg: string;
-  description: string;
-  description_en: string;
-  category: string;
-  category_name: string;
-  aliases: string[];
-  default_version: string;
-  license: string;
-  homepage: string;
-  install_dirs: string[];
-  search_subdirs: string[];
-  publishers: string[];
-  platforms: string[];
-  identifiers: Record<string, string[]>;
-  stars?: number;
-  forks?: number;
-}
+/**
+ * 草稿领域形状（唯一定义见 `services/custom/types.ts`）：
+ * 本视图保留同名重导出，既有调用方与测试 import 不需迁移。
+ */
+export type PendingDraftItem = DraftItem;
 
-type PendingDraftStatus = 'draft' | 'submitted' | 'collected' | 'local_collected';
+/** 草稿状态（`local_collected` 与 `collected` 同义）。 */
+type PendingDraftStatus = DraftStatus;
 
 /** 收录态判定唯一口径收敛于 selectors（本视图仅重导出供内部复用）。 */
 const isPendingCollectedStatus = isCollectedStatus;
 
 /**
  * 待收录草稿转富卡展示态（collected/submitted 右侧富卡化复用 AppCard）：
- * - `source: 'local'` 固定本地收录来源，复用黄标（verified-badge-local）；
- * - `status` 透传原状态，badge 判定兜底同样命中 local；
- * - stars/forks 取 item 真值（有限数字保留，缺失/非有限回退 0；表单不编辑该两字段），forge 回退 github。
+ * `source=local` + 显式 status 复用黄标判定；投影唯一口径在 `services/custom/mappers`。
  */
 export function pendingDraftToAppSummary(
   item: PendingDraftItem,
   status: PendingDraftStatus,
 ): AppSummary & { source: string; status: string } {
-  return {
-    id: item.id,
-    name: item.name || item.id,
-    owner: item.owner,
-    repo: item.repo,
-    icon: item.icon,
-    icon_bg: item.icon_bg,
-    description: item.description,
-    description_en: item.description_en,
-    stars: typeof item.stars === 'number' && Number.isFinite(item.stars) ? item.stars : 0,
-    forks: typeof item.forks === 'number' && Number.isFinite(item.forks) ? item.forks : 0,
-    license: item.license,
-    latest_version: item.default_version || 'v0.1.0',
-    category: item.category || 'dev',
-    category_name: item.category_name || item.category || 'dev',
-    is_verified: false,
-    forge: 'github',
-    forge_host: 'github.com',
-    homepage: item.homepage || null,
-    platforms: item.platforms ?? [],
-    source: 'local',
-    status,
-  } as AppSummary & { source: string; status: string };
+  return itemToSummary(item, status);
 }
 
 /**
@@ -150,15 +110,8 @@ export function resolvePendingDraftDescription(
   return zh || en;
 }
 
-/** 与后端 CustomAppEntry 同形的展示态（受控透传时直接复用）。 */
-export interface CustomDraftEntry {
-  id: string;
-  item: PendingDraftItem;
-  status: PendingDraftStatus;
-  pr_url?: string | null;
-  archived: boolean;
-  updated_at?: number;
-}
+/** 视图条目 = 草稿领域形状（唯一定义见 `services/custom/types.ts`）。 */
+export type CustomDraftEntry = DraftEntry;
 
 type PendingGroupId = 'draft' | 'collected' | 'submitted' | 'archived';
 

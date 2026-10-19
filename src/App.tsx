@@ -15,7 +15,7 @@ import { RulesManagerModal } from './components/RulesManagerModal';
 import { HomeView } from './views/HomeView';
 import { TrendsView } from './views/TrendsView';
 import { CategoriesView } from './views/CategoriesView';
-import { PendingView, type CustomDraftEntry, type PendingDraftItem } from './views/PendingView';
+import { PendingView, type PendingDraftItem } from './views/PendingView';
 import { InstalledView } from './views/InstalledView';
 import { UpdatesView } from './views/UpdatesView';
 import { SettingsView } from './views/SettingsView';
@@ -24,7 +24,8 @@ import { EmptyState } from './components/EmptyState';
 import { Search } from 'lucide-react';
 import { AppDetailViewModel, AppSummary, OAuthUser, UpdateItem, UpdateCheckProgressPayload, UpdateRule, ViewType, WatchUpdatedPayload } from './types';
 import { tauriApi } from './services/api';
-import type { CustomAppEntry as BackendCustomAppEntry, CustomCatalogItem } from './services/api/catalog';
+import { entryFromWire, entryToCollectedSummary, itemToWire } from './services/custom/mappers';
+import type { DraftEntry } from './services/custom/types';
 import { togglePlatformSet, type PlatformId } from './lib/platformFilter';
 import { isPlatformLoading } from './lib/platformFilter';
 import { normalizeId } from './services/normalizeId';
@@ -51,78 +52,6 @@ import { useToasts } from './useToasts';
 import { useAppSettings } from './useAppSettings';
 import { useTranslation } from 'react-i18next';
 import './i18n';
-
-/** 后端 CustomAppEntry → PendingView 展示态（status 归一 draft/submitted/collected 系，local_collected 归 collected）。 */
-function toPendingViewEntry(e: BackendCustomAppEntry): CustomDraftEntry {
-  const it = e.item;
-  const status =
-    e.status === 'submitted'
-      ? 'submitted'
-      : e.status === 'collected' || e.status === 'local_collected'
-        ? 'collected'
-        : 'draft';
-  return {
-    id: e.id,
-    item: {
-      id: it.id,
-      name: it.name ?? '',
-      owner: it.owner ?? '',
-      repo: it.repo ?? '',
-      icon: it.icon ?? '',
-      icon_bg: it.icon_bg ?? '',
-      description: it.description ?? '',
-      description_en: typeof it.description_en === 'string' ? it.description_en : '',
-      category: it.category ?? '',
-      category_name: it.category_name ?? '',
-      aliases: it.aliases ?? [],
-      default_version: it.default_version ?? 'v0.1.0',
-      license: it.license ?? '',
-      homepage: it.homepage ?? '',
-      install_dirs: it.install_dirs ?? [],
-      search_subdirs: it.search_subdirs ?? [],
-      publishers: it.publishers ?? [],
-      platforms: it.platforms ?? [],
-      identifiers: it.identifiers ?? {},
-      stars: typeof it.stars === 'number' && Number.isFinite(it.stars) ? it.stars : 0,
-      forks: typeof it.forks === 'number' && Number.isFinite(it.forks) ? it.forks : 0,
-    },
-    status,
-    pr_url: e.pr_url ?? null,
-    archived: e.archived,
-    updated_at: e.updated_at,
-  };
-}
-
-/**
- * PendingView 表单 → 后端 payload（stars/forks 沿用现行值，
- * is_verified 后端强制 false；description_en/homepage 空串归 null 以对齐后端 Option）。
- */
-function toCustomCatalogItem(draft: PendingDraftItem, existing?: BackendCustomAppEntry): CustomCatalogItem {
-  return {
-    id: draft.id,
-    name: draft.name,
-    owner: draft.owner,
-    repo: draft.repo,
-    icon: draft.icon,
-    icon_bg: draft.icon_bg,
-    description: draft.description,
-    description_en: draft.description_en.trim() ? draft.description_en : null,
-    category: draft.category,
-    category_name: draft.category_name,
-    aliases: draft.aliases,
-    default_version: draft.default_version,
-    license: draft.license,
-    stars: existing?.item.stars ?? 0,
-    forks: existing?.item.forks ?? 0,
-    is_verified: false,
-    homepage: draft.homepage.trim() ? draft.homepage : null,
-    install_dirs: draft.install_dirs,
-    search_subdirs: draft.search_subdirs,
-    publishers: draft.publishers,
-    platforms: draft.platforms,
-    identifiers: draft.identifiers,
-  };
-}
 
 export const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewType>('home');
@@ -152,7 +81,7 @@ export const App: React.FC = () => {
   const [watchNotifications, setWatchNotifications] = useState<WatchUpdatedPayload[]>([]);
   // 待收录草稿后端列表（null = 未加载/非 Tauri 预览，
   // 此时 PendingView 缺 entries 走内部本地态；备份/转正语义不受影响）。
-  const [customApps, setCustomApps] = useState<BackendCustomAppEntry[] | null>(null);
+  const [customApps, setCustomApps] = useState<DraftEntry[] | null>(null);
   // 任务 3（设备平台全局过滤）：App 级别多选平台状态，默认选中全部 6 种 PLATFORM_IDS（含虚拟 other），
   // 仅持久化至 localStorage——刻意不接入 tauriApi.getSettings()/UserDataBackup（仅为本地界面偏好，非备份数据）。
   const [selectedPlatforms, setSelectedPlatforms] = useState<Set<PlatformId>>(() => loadSelectedPlatforms());
@@ -173,7 +102,8 @@ export const App: React.FC = () => {
   // 待收录草稿透传（list/save/delete/markSubmitted 经 tauriApi）。
   const reloadCustomApps = useCallback(async () => {
     try {
-      setCustomApps(await tauriApi.listCustomApps(true));
+      const wires = await tauriApi.listCustomApps(true);
+      setCustomApps(wires.map(entryFromWire));
     } catch {
       // 非 Tauri 预览/后端未就绪：保持 null，PendingView 走内部本地态
       setCustomApps(null);
@@ -193,10 +123,7 @@ export const App: React.FC = () => {
     };
   }, [reloadCustomApps]);
 
-  const pendingEntries = useMemo(
-    () => customApps?.map(toPendingViewEntry),
-    [customApps],
-  );
+  const pendingEntries = useMemo(() => customApps ?? undefined, [customApps]);
   const pendingCount = useMemo(
     () => customApps?.filter((e) => !e.archived).length ?? 0,
     [customApps],
@@ -228,9 +155,8 @@ export const App: React.FC = () => {
   }, [customApps, movedInIds]);
 
   const handleSaveCustomApp = async (draft: PendingDraftItem) => {
-    await tauriApi.saveCustomApp(
-      toCustomCatalogItem(draft, customApps?.find((e) => e.id === draft.id)),
-    );
+    const existing = customApps?.find((e) => e.id === draft.id);
+    await tauriApi.saveCustomApp(itemToWire(draft, existing?.item));
     await reloadCustomApps();
   };
   const handleDeleteCustomApp = async (id: string) => {
@@ -269,32 +195,8 @@ export const App: React.FC = () => {
   const collectedSummaries = useMemo(() => {
     const out: Array<AppSummary & { status: string; archived: boolean }> = [];
     for (const e of customApps ?? []) {
-      if (e.archived) continue;
-      if (e.status !== 'collected' && e.status !== 'local_collected') continue;
-      const it = e.item;
-      out.push({
-        id: it.id,
-        name: it.name ?? '',
-        description_en: typeof it.description_en === 'string' ? it.description_en : undefined,
-        owner: it.owner ?? '',
-        repo: it.repo ?? '',
-        icon: it.icon ?? '',
-        icon_bg: it.icon_bg ?? 'linear-gradient(135deg, #475569, #334155)',
-        description: it.description ?? '',
-        stars: it.stars ?? 0,
-        forks: it.forks ?? 0,
-        license: it.license ?? '',
-        latest_version: it.default_version ?? 'v0.1.0',
-        category: it.category ?? 'dev',
-        category_name: it.category_name ?? it.category ?? 'dev',
-        is_verified: false,
-        forge: 'github',
-        forge_host: 'github.com',
-        homepage: it.homepage ?? null,
-        platforms: [...(it.platforms ?? [])],
-        status: e.status,
-        archived: e.archived,
-      });
+      if (e.archived || e.status !== 'collected') continue;
+      out.push(entryToCollectedSummary(e));
     }
     return out;
   }, [customApps]);

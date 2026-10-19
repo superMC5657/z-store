@@ -93,6 +93,11 @@
   （`selectors` 全局合并 + `showCustom` 默认开，关即回退 remote 本体；
   `AppSummary` / `AppDetail` 新增可选 `source` / `status` / `is_cataloged` 字段，
   后端投影即盖章，前端只读字段不再自行比对名单，旧载荷缺席时按既有兜底解析）。
+- 前端草稿形状唯一来源：领域形状 `DraftItem` / `DraftEntry` 与线格式
+  `DraftItemWire` / `DraftEntryWire` 定义于 `src/services/custom/types.ts`，
+  两者转换只在 `mappers.ts`（`entryFromWire` / `itemToWire` / `itemToSummary`）；
+  `PendingView` 的 `PendingDraftItem` / `CustomDraftEntry` 与 API 客户端的
+  `CustomCatalogItem` / `CustomAppEntry` 均为别名，新增字段只改类型与 mapper 一处。
 - 风险：草稿详情依赖 `get_repo_coordinates` 的 external_synth 回退（已验证可用）；
   若远端改名（`owner/repo` 变更），旧草稿 id 命中失败而长期残留——后续可加
   “孤儿草稿”提示，当前仅保证不污染视图。
