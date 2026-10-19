@@ -66,7 +66,7 @@
     "download_dir": "安装包下载位置",
     "portable_dir": "便携版解压目录",
     "browse": "浏览选择...",
-    "proxy_title": "GitHub 下载加速代理",
+    "proxy_title": "GitHub 下载加速镜像",
     "proxy_placeholder": "留空为 GitHub 官方直连，或输入加速前缀如 https://gh-proxy.com",
     "test_speed": "测速",
     "testing_speed": "测速中...",

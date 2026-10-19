@@ -110,8 +110,8 @@ export const InstalledItemActions: React.FC<InstalledItemActionsProps> = ({
           onClick={() => onLaunch(app.app_id)}
           title={t('installed.launch_tooltip')}
         >
-          <Play size={12} fill="currentColor" style={{ marginRight: '4px' }} />
-          <span>{t('installed.launch')}</span>
+          <Play size={12} fill="currentColor" strokeWidth={0} aria-hidden="true" style={{ marginRight: '4px', width: '12px', height: '12px', flexShrink: 0, display: 'block' }} />
+          <span style={{ lineHeight: 1 }}>{t('installed.launch')}</span>
         </button>
 
         <div style={{ position: 'relative' }}>

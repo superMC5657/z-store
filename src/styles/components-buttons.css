@@ -116,6 +116,13 @@
   background: var(--btn-primary-active);
 }
 
+/* 主按钮去底部外投影、只留顶部 inset 高光——凡与次级按钮同排并列（任意尺寸），
+   外轮廓即与次级同高（dense 行 1px 剪影差）；独立成排的大 CTA 不受影响，保留原立体感 */
+.btn-fluent.btn-sm.btn-primary,
+div:has(> .btn-fluent.btn-secondary) > .btn-fluent.btn-primary {
+  box-shadow: var(--btn-primary-inset);
+}
+
 /* 次级与幽灵按钮：Ghost 透明底 / secondary 文字 / hover 微透 / 28-32px / 6px 圆角 */
 .btn-secondary {
   height: 30px;

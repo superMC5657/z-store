@@ -154,7 +154,7 @@ describe('SettingsView custom catalog source confirm', () => {
     expect(screen.getByText('Theme Mode')).toBeTruthy();
 
     // 网络与代理设置行
-    expect(screen.getByText('GitHub Download Proxy')).toBeTruthy();
+    expect(screen.getByText('GitHub Download Mirror')).toBeTruthy();
 
     // 数据备份设置行
     expect(screen.getByText('Export Managed Apps')).toBeTruthy();
