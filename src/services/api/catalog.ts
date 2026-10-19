@@ -411,35 +411,6 @@ export async function revertCollectedApp(id: string): Promise<CustomAppEntry> {
 }
 
 /**
- * 草稿 payload 转收录行摘要（合并流输入）：
- * default_version 落 latest_version，forge/host 补 github，is_verified 恒 false。
- */
-export function customCatalogItemToSummary(item: CustomCatalogItem): AppSummary {
-  return {
-    id: item.id,
-    name: item.name,
-    description_en:
-      typeof item.description_en === 'string' ? item.description_en : undefined,
-    owner: item.owner,
-    repo: item.repo,
-    icon: item.icon,
-    icon_bg: item.icon_bg,
-    description: item.description,
-    stars: item.stars,
-    forks: item.forks,
-    license: item.license,
-    latest_version: item.default_version,
-    category: item.category,
-    category_name: item.category_name,
-    is_verified: false,
-    forge: 'github',
-    forge_host: 'github.com',
-    homepage: item.homepage ?? null,
-    platforms: [...item.platforms],
-  };
-}
-
-/**
  * 转正退役：远端 id 集合命中未归档草稿即 archived=1，返回转正提示。
  * remoteIds 缺席时后端以当前内存目录为准（sync_catalog 成功路径已自动调用）。
  */

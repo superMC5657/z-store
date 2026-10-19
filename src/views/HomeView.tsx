@@ -32,7 +32,7 @@ import { annotateIsCataloged, annotateOnlineCataloged, buildCatalogIdSet, isInst
 import { resolveVerifiedBadgeVariant } from '../components/VerifiedBadge';
 import { normalizeId } from '../services/normalizeId';
 import { tauriApi } from '../services/api';
-import { buildCustomDraftItemFromSummary } from '../services/api/catalog';
+import { moveInToDraft } from '../services/custom/draft';
 import { notifyToast } from '../utils/notify';
 export { HOME_FEED_PAGE };
 
@@ -122,24 +122,20 @@ export const HomeView: React.FC<HomeViewProps> = ({
     movingRef.current.add(key);
     setMovingIds((prev) => new Set(prev).add(key));
     try {
-      let iconRemote: string | undefined;
-      try {
-        const cycle = await tauriApi.restoreOrFetchIconCycle(app.id).catch(() => null);
-        const remote = typeof cycle?.remote_url === "string" ? cycle.remote_url.trim() : "";
-        if (/^https?:\/\//i.test(remote)) iconRemote = remote;
-      } catch {
-        // remote truth unavailable: fall back to app.icon normalization, never fabricate
+      const res = await moveInToDraft(app);
+      if (!res.ok) {
+        notifyToast(
+          t('custom.move_in_failed', {
+            defaultValue: `移入收录失败：${res.error ?? ''}`,
+          }),
+          'error',
+        );
+        return;
       }
-      const draft = buildCustomDraftItemFromSummary(app, iconRemote);
-      await tauriApi.saveCustomApp(draft);
-      const msg = t('custom.moved_in', { defaultValue: `已移入收录草稿：${draft.id}` });
-      notifyToast(msg, 'success');
-      window.dispatchEvent(new CustomEvent('zstore:custom-apps-changed', { detail: { id: draft.id } }));
-    } catch (e) {
-      const msg = t('custom.move_in_failed', {
-        defaultValue: `移入收录失败：${e instanceof Error ? e.message : String(e)}`,
-      });
-      notifyToast(msg, 'error');
+      notifyToast(
+        t('custom.moved_in', { defaultValue: `已移入收录草稿：${res.id}` }),
+        'success',
+      );
     } finally {
       movingRef.current.delete(key);
       setMovingIds((prev) => {
