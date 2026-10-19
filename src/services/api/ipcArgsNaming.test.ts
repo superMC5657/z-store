@@ -37,6 +37,18 @@ function stubFor(cmd: string): unknown {
     case 'get_custom_app_pr_url':
     case 'get_custom_apps_batch_pr_url':
       return 'https://example.com/pr';
+    case 'collect_custom_app':
+    case 'collect_local_app':
+    case 'revert_collected_to_draft':
+      return {
+        id: 'o/r',
+        item: { id: 'o/r' },
+        status: 'collected',
+        pr_url: null,
+        created_at: 1,
+        updated_at: 1,
+        archived: false,
+      };
     case 'clear_asset_cache':
     case 'clear_icon_cache':
     case 'get_catalog_count':
@@ -98,8 +110,7 @@ describe('ipc args naming (camelCase)', () => {
     }
   }
 
-  it('catalog 包装器一律 camelCase（含本次收敛的 8 处）', async () => {
-    const swallow = async (p: Promise<unknown>): Promise<void> => {
+  it('catalog 包装器一律 camelCase（含本次收敛的 8 处）', async () => {    const swallow = async (p: Promise<unknown>): Promise<void> => {
       try {
         await p;
       } catch {
@@ -130,6 +141,10 @@ describe('ipc args naming (camelCase)', () => {
     await swallow(catalog.saveCustomApp({ id: 'o/r' } as never));
     await swallow(catalog.deleteCustomApp('o/r'));
     await swallow(catalog.markCustomSubmitted('o/r', 'https://example.com/pr'));
+    await swallow(catalog.collectCustomApp('o/r'));
+    await swallow(catalog.collectLocalApp('o/r'));
+    await swallow(catalog.revertCollectedApp('o/r'));
+    await swallow(catalog.collect('o/r'));
     await swallow(catalog.retireOnSync(['o/r']));
     await swallow(catalog.retireOnSync(undefined));
     await swallow(catalog.getCustomAppPrUrl('o/r'));
@@ -143,6 +158,7 @@ describe('ipc args naming (camelCase)', () => {
 
     const byCmd = new Map(captured.map((c) => [c.cmd, c.args]));
     const retireCalls = captured.filter((c) => c.cmd === 'retire_on_sync').map((c) => c.args);
+    const collectCalls = captured.filter((c) => c.cmd === 'collect_custom_app' || c.cmd === 'collect_local_app').map((c) => c.args);
     expect(byCmd.get('search_apps_online')).toMatchObject({
       searchId: 'sid-1',
       perPage: 20,
@@ -153,6 +169,13 @@ describe('ipc args naming (camelCase)', () => {
     expect(byCmd.get('get_category_apps')).toMatchObject({ perPage: 20 });
     expect(byCmd.get('list_custom_apps')).toMatchObject({ includeArchived: true });
     expect(byCmd.get('mark_submitted')).toMatchObject({ prUrl: 'https://example.com/pr' });
+    expect(byCmd.get('collect_custom_app')).toMatchObject({ id: 'o/r' });
+    expect(byCmd.get('collect_local_app')).toMatchObject({ id: 'o/r' });
+    expect(byCmd.get('revert_collected_to_draft')).toMatchObject({ id: 'o/r' });
+    expect(collectCalls).toHaveLength(3);
+    for (const args of collectCalls) {
+      expect(args).toEqual({ id: 'o/r' });
+    }
     expect(retireCalls).toContainEqual({ remoteIds: ['o/r'] });
     expect(retireCalls).toContainEqual({});
   });

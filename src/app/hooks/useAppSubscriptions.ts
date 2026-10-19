@@ -18,6 +18,7 @@ import {
   preloadTop30Icons,
 } from '../../services/iconStore';
 import { matchPlatformSetWithLoading } from '../../lib/platformFilter';
+import { annotateIsCataloged, buildCatalogIdSet } from '../selectors';
 import { type PlatformId } from '../../lib/platformFilter';
 import { zlogInfo } from '../../lib/z-log';
 import { adoptEchoInWindow } from './useSearchState';
@@ -48,6 +49,8 @@ export interface UseAppSubscriptionsParams {
   t: TFunction;
   currentView: ViewType;
   updatesCount: number;
+  /** 本地收录合并行（含 source/status，供最近浏览黄标叠加；仅搬标记）。 */
+  localApps?: readonly AppSummary[];
 }
 
 interface MountCtx {
@@ -129,6 +132,7 @@ export function useAppSubscriptions({
   currentView,
   // 更新徽标计数由调用方持有；更新 tab 在本总线内只读 DB 快照。
   updatesCount: _updatesCount,
+  localApps,
 }: UseAppSubscriptionsParams) {
   // 首挂载过滤快照：初始 recents 过滤沿用挂载时刻的选择
   // （启动时全选 + 空已确认集，恒为恒等过滤）。
@@ -139,6 +143,9 @@ export function useAppSubscriptions({
   showToastRef.current = showToast;
   const tRef = useRef(t);
   tRef.current = t;
+  // 本地收录就绪后重标最近浏览（首刷 customApps null→[] 时首渲染无标，加载后补标；不改排序/去重，仅搬标记）。
+  const localAppsRef = useRef(localApps);
+  localAppsRef.current = localApps;
 
   // 初始加载
   useEffect(() => {
@@ -160,7 +167,16 @@ export function useAppSubscriptions({
     tauriApi.getCachedUpdates().then((rows) => {
       if (Array.isArray(rows)) setUpdates(rows);
     }).catch(() => {});
-    tauriApi.getRecentlyViewedApps().then((recents) => setRecentlyViewedApps(recents.filter((a) => matchPlatformSetWithLoading(a, initialFilter.selectedPlatforms, initialFilter.platformResolvedOtherIds)))).catch(() => {});
+    tauriApi.getRecentlyViewedApps().then((recents) => {
+      // 最近浏览黄标：后端无 source/status，此处叠加本地标记（蓝优先），再按平台过滤。
+      const catalogIds = buildCatalogIdSet(appsRef.current);
+      const withLocal = recents.map((r) => annotateIsCataloged(r, catalogIds, localApps));
+      setRecentlyViewedApps(
+        withLocal.filter((a) =>
+          matchPlatformSetWithLoading(a, initialFilter.selectedPlatforms, initialFilter.platformResolvedOtherIds),
+        ),
+      );
+    }).catch(() => {});
     tauriApi.registerDeepLinkScheme().catch(() => {});
 
     // 加载持久化设置（DB/local，保持自动；更新检查仅手动触发检查更新按钮）
@@ -179,6 +195,21 @@ export function useAppSubscriptions({
     const handleCatalogSynced = () => {
       tauriApi.searchApps('').then((updatedApps) => {
         setApps(updatedApps);
+        // 目录后到即重标最近浏览（蓝优先、不改排序；图标经店内写口，不在此拉取）。
+        const currentLocal = localAppsRef.current;
+        if (currentLocal && currentLocal.length > 0) {
+          const catalogIds = buildCatalogIdSet(updatedApps);
+          setRecentlyViewedApps((prev) => {
+            if (prev.length === 0) return prev;
+            let changed = false;
+            const next = prev.map((r) => {
+              const n = annotateIsCataloged(r, catalogIds, currentLocal);
+              if (n !== r) changed = true;
+              return n;
+            });
+            return changed ? next : prev;
+          });
+        }
         preloadTop30Icons(
           updatedApps
             .slice(0, 30)
@@ -244,6 +275,23 @@ export function useAppSubscriptions({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 本地收录就绪后重标已渲染的最近浏览行（首刷 null→[] 漏标，加载后补标；loading 占位不误判终态）。
+  useEffect(() => {
+    if (!localApps || localApps.length === 0) return;
+    const catalogIds = buildCatalogIdSet(appsRef.current);
+    setRecentlyViewedApps((prev) => {
+      if (prev.length === 0) return prev;
+      let changed = false;
+      const next = prev.map((r) => {
+        const n = annotateIsCataloged(r, catalogIds, localApps);
+        if (n !== r) changed = true;
+        return n;
+      });
+      return changed ? next : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localApps]);
 
   // FR-6.2: 加载关注列表 + 订阅 `zstore://watch-updated` 应用内提醒
   useEffect(() => {

@@ -24,6 +24,57 @@ pub(crate) fn detail_ttl_secs(db: &crate::db::Database) -> i64 {
     m * 60
 }
 
+/// 本地收录回退（详情/安装唯一口径）：仅 `status==collected && !archived` 行视为已收录。
+fn collected_item(state: &AppState, id: &str) -> Option<crate::github::models::CatalogItem> {
+    state
+        .db()
+        .ok()
+        .and_then(|db| db.get_collected_custom_item(id).ok().flatten())
+        .map(|e| e.item)
+}
+
+/// 远端或本地收录的目录项（远端优先，收录补位）。
+fn catalog_or_collected_item(
+    state: &AppState,
+    id: &str,
+) -> Option<crate::github::models::CatalogItem> {
+    state.catalog.get_catalog_item(id).or_else(|| collected_item(state, id))
+}
+
+/// 收录判定（含本地）：远端精选或本地收录均视为已收录。
+fn is_cataloged_with_collected(state: &AppState, id: &str) -> bool {
+    state.catalog.is_cataloged(id) || collected_item(state, id).is_some()
+}
+
+/// 仓库坐标（含本地收录回退）：远端精确命中优先，其次本地收录行，
+/// 最后委托远端 `get_repo_coordinates`（在线外部合成/拒绝语义不变）。
+fn repo_coords_with_collected(
+    state: &AppState,
+    id: &str,
+) -> Result<crate::github::models::AppRepoCoordinates, String> {
+    if let Some(item) = state.catalog.get_catalog_item(id) {
+        return Ok(crate::github::models::AppRepoCoordinates {
+            owner: item.owner.clone(),
+            repo: item.repo.clone(),
+            name: item.name.clone(),
+            description: item.description.clone(),
+            icon: item.icon.clone(),
+            icon_bg: item.icon_bg.clone(),
+        });
+    }
+    if let Some(item) = collected_item(state, id) {
+        return Ok(crate::github::models::AppRepoCoordinates {
+            owner: item.owner.clone(),
+            repo: item.repo.clone(),
+            name: item.name.clone(),
+            description: item.description.clone(),
+            icon: item.icon.clone(),
+            icon_bg: item.icon_bg.clone(),
+        });
+    }
+    state.catalog.get_repo_coordinates(id)
+}
+
 /// 应用详情：网络默认允许；TTL 命中直返缓存，否则走 ETag 条件请求拉取并落库。
 /// `force_refresh` 为手动刷新按钮透传位，`Some(true)` 时跳过 TTL 与 ETag 复用、直探远端。
 #[tauri::command(rename_all = "camelCase")]
@@ -124,8 +175,9 @@ pub async fn get_platforms_lite(
 
     // 3. GitHub：release_endpoint + ETag 条件请求（仅 releases/latest 单次 RTT）。
     // 未知坐标时沿用详情降级：stale 旧行穿透标 stale，无行则拒绝（前端一律视为 loading）。
+    // 本地收录行同样视为已知坐标（与远端同行为，可查可装）。
     let (release_endpoint, cached_etag, cached_payload) = {
-        if let Err(e) = state.catalog.get_repo_coordinates(&clean_id) {
+        if let Err(e) = repo_coords_with_collected(&state, &clean_id) {
             if let Ok(db) = state.db() {
                 if let Ok(Some(fallback)) = db.get_cached_app_detail(&clean_id, None) {
                     log::debug!(
@@ -143,7 +195,7 @@ pub async fn get_platforms_lite(
             }
             return Err(e.into());
         }
-        let coords = state.catalog.get_repo_coordinates(&clean_id)?;
+        let coords = repo_coords_with_collected(&state, &clean_id)?;
         let ep = format!(
             "https://api.github.com/repos/{}/{}/releases/latest",
             coords.owner, coords.repo
@@ -205,7 +257,17 @@ pub async fn get_platforms_lite(
             let platforms = match rel.row_platforms {
                 // 旧行穿透：直接采用已 deduce platforms，不重推导。
                 Some(p) => p,
-                None => state.catalog.deduce_lite_platforms(&clean_id, &rel.assets),
+                // 本地收录行并集推导（与远端同行为）：收录平台参与 deduce。
+                None => {
+                    if let Some(collected) = collected_item(&state, &clean_id) {
+                        crate::github::detail_assets::lite_platforms_for_github_assets(
+                            &rel.assets,
+                            Some(&collected.platforms),
+                        )
+                    } else {
+                        state.catalog.deduce_lite_platforms(&clean_id, &rel.assets)
+                    }
+                }
             };
             // 日志 from= 文案：304-行/离线-payload 穿透本无日志，仅 miss/304/stale 三臂标注。
             let from_label: Option<&str> = match (&rel.source, rel.touch) {
@@ -398,7 +460,7 @@ pub async fn get_app_details_impl(
         });
         if let Some(mut cached_detail) = cached {
             cached_detail.id = clean_id.clone();
-            if let Some(cat_item) = state.catalog.get_catalog_item(&clean_id) {
+            if let Some(cat_item) = catalog_or_collected_item(&state, &clean_id) {
                 if cat_item.description_en.is_some() {
                     cached_detail.description_en = cat_item.description_en.clone();
                 }
@@ -538,10 +600,10 @@ pub async fn get_app_details_impl(
         }
     }
 
-    // 2.2 GitHub 仓库拉取
+    // 2.2 GitHub 仓库拉取（含本地收录回退，可查可装与远端同行为）
     let (release_endpoint, cached_etag, cached_payload, token, cached_detail_opt) = {
         let token = crate::commands::resolve_active_github_token(state);
-        let coords = match state.catalog.get_repo_coordinates(&clean_id) {
+        let coords = match repo_coords_with_collected(state, &clean_id) {
             Ok(c) => c,
             Err(e) => {
                 // 未知坐标降级同样标 stale，Ok(stale) 形状 IPC 保留，前端 stale-empty 视为 loading。
@@ -680,8 +742,9 @@ pub async fn get_app_details_impl(
                     // 下次 TTL 内命中直接复用，前端灭黄标（virtual-Other）。
                     // 落盘前占位根治：未收录仓 detail 占位简介若能从 ETag repo 真值回填则替换，
                     // 避免占位永久落盘导致 recents 永远吐占位；已收录仓人工精校优先直接跳过。
+                    // 已收录含本地收录行（仅 `status==collected`），与远端同行为。
                     // （fetch 侧 B1 已用 fresh repo_info 治愈，此处补 repo 401/失败但 ETag 仍有旧真值的缺口；同步读不触网。）
-                    if state.catalog.get_catalog_item(&clean_id).is_none() {
+                    if catalog_or_collected_item(&state, &clean_id).is_none() {
                         let need_desc =
                             crate::github::detail_fetch::is_placeholder_description(
                                 &detail.description,
@@ -741,7 +804,7 @@ pub async fn get_app_details_impl(
                                 &mut cycle,
                                 level,
                                 icon_trimmed.trim(),
-                                state.catalog.is_cataloged(&clean_id),
+                                is_cataloged_with_collected(&state, &clean_id),
                                 now,
                             ) {
                                 detail.icon = cycle.selected_url.clone();

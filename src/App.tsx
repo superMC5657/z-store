@@ -44,6 +44,7 @@ import { useDetailCacheSync } from './app/hooks/useDetailCacheSync';
 import { useUncatalogedJoin } from './app/favoritesUncataloged';
 import { useAppSubscriptions } from './app/hooks/useAppSubscriptions';
 import { useAppSelectors } from './app/selectors';
+import { selectMergedCatalogApps } from './app/selectors';
 import { isInstalled as selectIsInstalled, isManaged as selectIsManaged } from './app/selectors';
 import { useUpdateActions } from './app/hooks/useUpdateActions';
 import { useToasts } from './useToasts';
@@ -51,9 +52,15 @@ import { useAppSettings } from './useAppSettings';
 import { useTranslation } from 'react-i18next';
 import './i18n';
 
-/** Lane D：后端 CustomAppEntry → PendingView 展示态（status 归一 draft/submitted）。 */
+/** Lane D：后端 CustomAppEntry → PendingView 展示态（status 归一 draft/submitted/collected 系）。 */
 function toPendingViewEntry(e: BackendCustomAppEntry): CustomDraftEntry {
   const it = e.item;
+  const status =
+    e.status === 'submitted'
+      ? 'submitted'
+      : e.status === 'collected' || e.status === 'local_collected'
+        ? 'collected'
+        : 'draft';
   return {
     id: e.id,
     item: {
@@ -71,13 +78,15 @@ function toPendingViewEntry(e: BackendCustomAppEntry): CustomDraftEntry {
       default_version: it.default_version ?? 'v0.1.0',
       license: it.license ?? '',
       homepage: it.homepage ?? '',
-      identifiers: it.identifiers ?? {},
       install_dirs: it.install_dirs ?? [],
       search_subdirs: it.search_subdirs ?? [],
       publishers: it.publishers ?? [],
       platforms: it.platforms ?? [],
+      identifiers: it.identifiers ?? {},
+      stars: typeof it.stars === 'number' && Number.isFinite(it.stars) ? it.stars : 0,
+      forks: typeof it.forks === 'number' && Number.isFinite(it.forks) ? it.forks : 0,
     },
-    status: e.status === 'submitted' ? 'submitted' : 'draft',
+    status,
     pr_url: e.pr_url ?? null,
     archived: e.archived,
     updated_at: e.updated_at,
@@ -107,11 +116,11 @@ function toCustomCatalogItem(draft: PendingDraftItem, existing?: BackendCustomAp
     forks: existing?.item.forks ?? 0,
     is_verified: false,
     homepage: draft.homepage.trim() ? draft.homepage : null,
-    identifiers: draft.identifiers,
     install_dirs: draft.install_dirs,
     search_subdirs: draft.search_subdirs,
     publishers: draft.publishers,
     platforms: draft.platforms,
+    identifiers: draft.identifiers,
   };
 }
 
@@ -172,8 +181,8 @@ export const App: React.FC = () => {
   }, []);
 
   // 进待收录页时拉取 + 跨视图变更跟随（移入收录/备份导入后刷新）。
+  // 本地收录合并流需首页/分类同展：挂载即拉取，跨视图变更全局跟随。
   useEffect(() => {
-    if (currentView !== 'pending') return;
     void reloadCustomApps();
     const onChanged = () => {
       void reloadCustomApps();
@@ -182,7 +191,7 @@ export const App: React.FC = () => {
     return () => {
       window.removeEventListener('zstore:custom-apps-changed', onChanged);
     };
-  }, [currentView, reloadCustomApps]);
+  }, [reloadCustomApps]);
 
   const pendingEntries = useMemo(
     () => customApps?.map(toPendingViewEntry),
@@ -232,6 +241,63 @@ export const App: React.FC = () => {
     await tauriApi.markCustomSubmitted(id, prUrl);
     await reloadCustomApps();
   };
+  const handleCollectLocalApp = async (id: string) => {
+    await tauriApi.collectLocalApp(id);
+    await reloadCustomApps();
+  };
+  const handleRevertCollectedApp = async (id: string) => {
+    try {
+      await tauriApi.revertCollectedApp(id);
+      await reloadCustomApps();
+    } catch (e) {
+      // 落盘失败必须报错并向上传递（PendingView 侧同样 toast），禁止静默本地翻 draft
+      // 否则当次停留收录退出、重启又因 DB 仍 collected 而重现。
+      const detail = e instanceof Error ? e.message : String(e);
+      showToast(
+        t('pending.revert_failed', {
+          id,
+          error: detail,
+          defaultValue: `退回草稿失败：${id}：${detail}`,
+        }),
+        'error',
+      );
+      throw e;
+    }
+  };
+
+  // 本地收录合并流：仅 collected 系且未归档进入首页/分类（可搜可装，橘黄 local 徽标）。
+  const collectedSummaries = useMemo(() => {
+    const out: Array<AppSummary & { status: string; archived: boolean }> = [];
+    for (const e of customApps ?? []) {
+      if (e.archived) continue;
+      if (e.status !== 'collected' && e.status !== 'local_collected') continue;
+      const it = e.item;
+      out.push({
+        id: it.id,
+        name: it.name ?? '',
+        description_en: typeof it.description_en === 'string' ? it.description_en : undefined,
+        owner: it.owner ?? '',
+        repo: it.repo ?? '',
+        icon: it.icon ?? '',
+        icon_bg: it.icon_bg ?? 'linear-gradient(135deg, #475569, #334155)',
+        description: it.description ?? '',
+        stars: it.stars ?? 0,
+        forks: it.forks ?? 0,
+        license: it.license ?? '',
+        latest_version: it.default_version ?? 'v0.1.0',
+        category: it.category ?? 'dev',
+        category_name: it.category_name ?? it.category ?? 'dev',
+        is_verified: false,
+        forge: 'github',
+        forge_host: 'github.com',
+        homepage: it.homepage ?? null,
+        platforms: [...(it.platforms ?? [])],
+        status: e.status,
+        archived: e.archived,
+      });
+    }
+    return out;
+  }, [customApps]);
 
   // 1. 安装管理 Hook
   const {
@@ -298,6 +364,13 @@ export const App: React.FC = () => {
   });
   lazyBackfillRef.current = lazyBackfillPlatforms;
 
+  // 合并后全量（含本地，远端优先去重语义不动）：收藏 join/详情标注共用此口径，
+  // 本地行保留 source='local'/status 供黄标判定。
+  const mergedAppsForJoins = useMemo(
+    () => selectMergedCatalogApps(apps, collectedSummaries, true),
+    [apps, collectedSummaries],
+  );
+
   // 3. 收藏/关注未收录占位行 left-join（深 join 模块 `useUncatalogedJoin`；
   // 仅收藏页消费，不进 apps/计数/其它视图）
   const {
@@ -305,7 +378,7 @@ export const App: React.FC = () => {
     setFavoriteExtraApps,
     favoriteExtraAppsRef,
     loadUncatalogedDetail,
-  } = useUncatalogedJoin({ favoriteIds, watchedIds, apps });
+  } = useUncatalogedJoin({ favoriteIds, watchedIds, apps: mergedAppsForJoins });
 
   // 4. 详情快照缓存与卡片列表同步（内存 0ms 秒开 + ETag 后台探查 + 富卡/平台治愈）
   const {
@@ -322,6 +395,7 @@ export const App: React.FC = () => {
     setFavoriteExtraApps,
     setSelectedApp,
     setPlatformResolvedOtherIds,
+    localApps: collectedSummaries,
   });
 
   // 深链调度分发器（功能 E）
@@ -402,6 +476,7 @@ export const App: React.FC = () => {
     t,
     currentView,
     updatesCount: updates.length,
+    localApps: collectedSummaries,
   });
 
   // 6. 派生选择器（平台过滤/计数/收藏 left-join 供给/已安装-更新过滤/深链确认解析）
@@ -433,6 +508,7 @@ export const App: React.FC = () => {
     recentlyViewedApps,
     currentView,
     stagedDeepLinkInstall,
+    customApps: collectedSummaries,
   });
 
   // 7. 更新规则动作簇（单项更新/忽略/跳过/锁定/隐藏/规则管理/批量升级/手动检查）
@@ -712,6 +788,7 @@ export const App: React.FC = () => {
                 isLoadingOnlineMore={isLoadingOnlineMore}
                 onOnlineLoadMore={handleOnlineLoadMore}
                 customIds={customIds}
+                localApps={collectedSummaries}
               />
             )
           )}
@@ -719,7 +796,7 @@ export const App: React.FC = () => {
           {currentView === 'trends' && (
             <TrendsView
               apps={platformFilteredApps}
-              allApps={apps}
+              allApps={mergedAppsForJoins}
               selectedPlatforms={selectedPlatforms}
               platformResolvedOtherIds={platformResolvedOtherIds}
               onDisplayPlatformCounts={handleTrendsPlatformCounts}
@@ -760,6 +837,8 @@ export const App: React.FC = () => {
               onSave={(draft) => handleSaveCustomApp(draft)}
               onDelete={(id) => handleDeleteCustomApp(id)}
               onMarkSubmitted={(id, prUrl) => handleMarkCustomSubmitted(id, prUrl)}
+              onCollectLocal={(id) => handleCollectLocalApp(id)}
+              onRevertToDraft={(id) => handleRevertCollectedApp(id)}
               onGetPrUrl={(id) => tauriApi.getCustomAppPrUrl(id)}
               onGetBatchPrUrl={(ids) => tauriApi.getCustomAppsBatchPrUrl(ids)}
               onNotify={(message, type) => showToast(message, type ?? 'info')}

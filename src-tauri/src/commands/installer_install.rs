@@ -4,6 +4,22 @@ use crate::models::InstalledApp;
 use crate::AppState;
 use tauri::{AppHandle, State};
 
+/// 本地收录回退（安装链路口径）：仅 `status==collected && !archived` 行视为已收录。
+#[allow(dead_code)]
+fn collected_native_identifiers(state: &AppState, id: &str) -> Vec<String> {
+    let collected = state
+        .db()
+        .ok()
+        .and_then(|db| db.get_collected_custom_item(id).ok().flatten())
+        .map(|e| e.item);
+    state
+        .catalog
+        .get_catalog_item(id)
+        .or(collected)
+        .map(|cat| cat.get_native_identifiers())
+        .unwrap_or_default()
+}
+
 /// 安装流程核心实现（从 `installer.rs` 抽离；命令包装层保留在原处）。
 pub async fn install_app(
     app_handle: AppHandle,
@@ -109,12 +125,8 @@ pub async fn install_app(
         );
         if real_install_path.is_empty() && is_sys_pkg {
             // 候选包名/二进制名共享派生（与 installer_query 4b / scanner dpkg 共用
-            // `AppScanner::linux_candidate_names`，收敛重复）。
-            let catalog_ids = state
-                .catalog
-                .get_catalog_item(&prep.detail.id)
-                .map(|cat| cat.get_native_identifiers())
-                .unwrap_or_default();
+            // `AppScanner::linux_candidate_names`，收敛重复；本地收录同样识别）。
+            let catalog_ids = collected_native_identifiers(&state, &prep.detail.id);
             let (pkg_names, bin_names) =
                 crate::scanner::AppScanner::linux_candidate_names(
                     &catalog_ids,

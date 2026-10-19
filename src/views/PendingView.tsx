@@ -15,8 +15,8 @@ import {
   Globe,
   Inbox,
   Link2,
+  PackageCheck,
   PencilLine,
-  Plus,
   Send,
   ShieldCheck,
   Sliders,
@@ -24,6 +24,8 @@ import {
   Trash2,
 } from 'lucide-react';
 import { FilterEmptyState, ViewShell } from './ViewShell';
+import { AppCard } from '../components/AppCard';
+import type { AppSummary } from '../types';
 import { PlatformIcon } from '../components/icons/PlatformIcons';
 import { PLATFORM_META, type PlatformId } from '../lib/platformFilter';
 import {
@@ -35,6 +37,8 @@ import {
   getLicenseAllowlist,
   type LicenseAllowlistResult,
 } from '../services/api/catalog';
+import { tauriApi } from '../services/api';
+import { resolveFallbackOpener } from '../utils/browserLockdown';
 import {
   getPendingSectionPrefs,
   getPendingShowCoordsPref,
@@ -45,6 +49,12 @@ import {
 } from '../lib/pendingPrefs';
 
 export type { LicenseAllowlistResult };
+
+/**
+ * 预填 URL 长度门限（pretty JSON 进 issues/new body 后极易超长）：
+ * 超过即提示分批提交（仍复制 JSON + 仍尝试打开），单条/批量同口径。
+ */
+export const PREFILL_URL_LENGTH_LIMIT = 8000;
 
 /**
  * Lane B 待收录页（UI 层，ADR-0017 草稿 overlay 前端）。
@@ -62,7 +72,7 @@ export type { LicenseAllowlistResult };
  * - 设计走 Linear 去彩单色：仅用文本层级 + 边框 + 单色图标，不引入彩色语义。
  */
 
-/** 草稿 payload（CatalogItem 可编辑子集，is_verified 恒 false，不参与表单）。 */
+/** 草稿 payload（CatalogItem 可编辑子集，is_verified 恒 false，不参与表单；stars/forks 为后端真值透传，表单不编辑）。 */
 export interface PendingDraftItem {
   id: string;
   name: string;
@@ -78,14 +88,73 @@ export interface PendingDraftItem {
   default_version: string;
   license: string;
   homepage: string;
-  identifiers: Record<string, string[]>;
   install_dirs: string[];
   search_subdirs: string[];
   publishers: string[];
   platforms: string[];
+  identifiers: Record<string, string[]>;
+  stars?: number;
+  forks?: number;
 }
 
-export type PendingDraftStatus = 'draft' | 'submitted';
+export type PendingDraftStatus = 'draft' | 'submitted' | 'collected' | 'local_collected';
+
+/** 本地收录态判定（PR 门禁唯一口径）：status 为 collected 系。 */
+export function isPendingCollectedStatus(status: unknown): boolean {
+  return status === 'collected' || status === 'local_collected';
+}
+
+/**
+ * 待收录草稿转富卡展示态（collected/submitted 右侧富卡化复用 AppCard）：
+ * - `source: 'local'` 固定本地收录来源，复用黄标（verified-badge-local）；
+ * - `status` 透传原状态，badge 判定兜底同样命中 local；
+ * - stars/forks 取 item 真值（有限数字保留，缺失/非有限回退 0；表单不编辑该两字段），forge 回退 github。
+ */
+export function pendingDraftToAppSummary(
+  item: PendingDraftItem,
+  status: PendingDraftStatus,
+): AppSummary & { source: string; status: string } {
+  return {
+    id: item.id,
+    name: item.name || item.id,
+    owner: item.owner,
+    repo: item.repo,
+    icon: item.icon,
+    icon_bg: item.icon_bg,
+    description: item.description,
+    description_en: item.description_en,
+    stars: typeof item.stars === 'number' && Number.isFinite(item.stars) ? item.stars : 0,
+    forks: typeof item.forks === 'number' && Number.isFinite(item.forks) ? item.forks : 0,
+    license: item.license,
+    latest_version: item.default_version || 'v0.1.0',
+    category: item.category || 'dev',
+    category_name: item.category_name || item.category || 'dev',
+    is_verified: false,
+    forge: 'github',
+    forge_host: 'github.com',
+    homepage: item.homepage || null,
+    platforms: item.platforms ?? [],
+    source: 'local',
+    status,
+  } as AppSummary & { source: string; status: string };
+}
+
+/**
+ * 待收录草稿简介按当前语言取展示文案（列表/富卡预览/空态共用）：
+ * - 英文环境优先 description_en，非中文环境外优先 description；
+ * - 主语言为空回退另一语言，两空返回 ''（调用方以 trends.no_desc 兜底，不新增文案）；
+ * - 仅 trim 判空，不改表单两框可编辑性。
+ */
+export function resolvePendingDraftDescription(
+  item: Pick<PendingDraftItem, 'description' | 'description_en'>,
+  language?: string,
+): string {
+  const zh = item.description.trim();
+  const en = item.description_en.trim();
+  const isEn = typeof language === 'string' && language.toLowerCase().startsWith('en');
+  if (isEn) return en || zh;
+  return zh || en;
+}
 
 /** 与后端 CustomAppEntry 同形的展示态（Lane C 透传时直接复用）。 */
 export interface CustomDraftEntry {
@@ -97,7 +166,7 @@ export interface CustomDraftEntry {
   updated_at?: number;
 }
 
-export type PendingGroupId = 'draft' | 'submitted' | 'archived';
+export type PendingGroupId = 'draft' | 'collected' | 'submitted' | 'archived';
 
 export interface PendingViewProps {
   /** 受控草稿列表（Lane C 接线后传入；缺席时走内部本地态）。 */
@@ -110,6 +179,10 @@ export interface PendingViewProps {
   onDelete?: (id: string) => void | Promise<void>;
   /** 标记已提交回调（缺席时仅翻本地态）。 */
   onMarkSubmitted?: (id: string, prUrl: string) => void | Promise<void>;
+  /** 收录进本地回调（缺席时本地翻 collected 态；App 接入后透传 tauriApi.collectLocalApp）。 */
+  onCollectLocal?: (id: string) => void | Promise<void>;
+  /** 退回草稿回调（collected 退回 draft；App 透传 tauriApi.revertCollectedApp 落盘，失败抛错由本组件 toast）。 */
+  onRevertToDraft?: (id: string) => void | Promise<void>;
   /**
    * 单条预填 URL 提供方（Lane D 一键 PR 链路，App 透传 tauriApi.getCustomAppPrUrl；
    * 缺席时用本地同形兜底，浏览器预览/单测可用）。
@@ -126,7 +199,7 @@ export interface PendingViewProps {
    * 启动/提交前拉取，失败不回退写死名单（暂存放行、提交提示重试）。
    */
   onGetLicenseAllowlist?: () => Promise<LicenseAllowlistResult>;
-  /** 二期批量栏开关（默认开启，传 false 隐藏）。 */
+  /** 批量提交入口开关（默认开启，传 false 隐藏本地收录列表工具行批量按钮与列表多选；开启时也仅本地收录分组可见）。 */
   showBatchBar?: boolean;
   /** 轻提示通道（Lane C 可接入 Toast；缺席时静默）。 */
   onNotify?: (message: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
@@ -150,11 +223,11 @@ export const PENDING_EMPTY_DRAFT: PendingDraftItem = {
   default_version: 'v0.1.0',
   license: 'MIT',
   homepage: '',
-  identifiers: {},
   install_dirs: [],
   search_subdirs: [],
   publishers: [],
   platforms: ['windows'],
+  identifiers: {},
 };
 
 /**
@@ -270,10 +343,6 @@ export function validatePendingDraft(
   return errors;
 }
 
-function splitLines(v: string): string[] {
-  return v.split('\n').map((s) => s.trim()).filter(Boolean);
-}
-
 function splitCsv(v: string): string[] {
   return v.split(',').map((s) => s.trim()).filter(Boolean);
 }
@@ -299,11 +368,15 @@ function stringifyIdentifiers(ids: Record<string, string[]>): string {
 
 function entryGroup(e: CustomDraftEntry): PendingGroupId {
   if (e.archived) return 'archived';
-  return e.status === 'submitted' ? 'submitted' : 'draft';
+  // 已提交行仍归 submitted（与 collected 互斥）；已收录未提交归 collected，优先级高于 draft。
+  if (e.status === 'submitted') return 'submitted';
+  if (isPendingCollectedStatus(e.status)) return 'collected';
+  return 'draft';
 }
 
 const GROUP_META: ReadonlyArray<{ id: PendingGroupId; icon: typeof Inbox }> = [
   { id: 'draft', icon: FilePlus2 },
+  { id: 'collected', icon: PackageCheck },
   { id: 'submitted', icon: Send },
   { id: 'archived', icon: Archive },
 ];
@@ -314,13 +387,15 @@ export const PendingView: React.FC<PendingViewProps> = ({
   onSave,
   onDelete,
   onMarkSubmitted,
+  onCollectLocal,
+  onRevertToDraft,
   onGetPrUrl,
   onGetBatchPrUrl,
   onGetLicenseAllowlist,
   showBatchBar = true,
   onNotify,
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [localEntries, setLocalEntries] = useState<CustomDraftEntry[]>(initialEntries);
   const entries = controlledEntries ?? localEntries;
   const [activeGroup, setActiveGroup] = useState<PendingGroupId>('draft');
@@ -329,15 +404,30 @@ export const PendingView: React.FC<PendingViewProps> = ({
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [prUrlInput, setPrUrlInput] = useState('');
   const [formErrors, setFormErrors] = useState<PendingDraftErrors>({});
-  // Lane D 一键 PR 链路态：单卡提交中 id + 批量选中/提交中/栏显隐与折叠展开。
+  // Lane D 一键 PR 链路态：单卡提交中 id + 批量选中/提交中。
   const [submittingId, setSubmittingId] = useState<string | null>(null);
+  const [collectingId, setCollectingId] = useState<string | null>(null);
+  const [confirmRevertId, setConfirmRevertId] = useState<string | null>(null);
+  const [revertingId, setRevertingId] = useState<string | null>(null);
   const [batchSelected, setBatchSelected] = useState<Set<string>>(new Set());
   const [batchBusy, setBatchBusy] = useState(false);
-  // 批量栏显隐分工（两者正交，故保留双状态）：batchHidden 管整栏是否卸载
-  // （隐藏后仅留入口按钮），batchExpanded 管栏内候选列表是否展开。
-  const [batchHidden, setBatchHidden] = useState(false);
-  const [batchExpanded, setBatchExpanded] = useState(false);
   const [previewExpanded, setPreviewExpanded] = useState(true);
+
+  /**
+   * 顶层四态切换（draft/collected/submitted/archived）：
+   * 右侧详情 + 底部批量栏 + 操作按钮随 activeGroup 联动，
+   * 切 Tab 即重置跨分组选中（含新建态与二次确认态），无选中走空态提示。
+   */
+  const handleGroupChange = (group: PendingGroupId) => {
+    if (group === activeGroup) return;
+    setActiveGroup(group);
+    setSelectedId(null);
+    setIsCreating(false);
+    setConfirmDeleteId(null);
+    setConfirmRevertId(null);
+    setPrUrlInput('');
+    setFormErrors({});
+  };
 
   // 仓库坐标与标识只读区显隐（localStorage 持久化，默认开启；设置页与页头开关联动）
   const [showCoords, setShowCoords] = useState<boolean>(() => getPendingShowCoordsPref());
@@ -380,6 +470,9 @@ export const PendingView: React.FC<PendingViewProps> = ({
   // ADR-0018 许可名单（唯一源头为后端只读命令）：启动预取 + 提交前兜底拉取。
   // 加载失败不回退任何本地名单：暂存（draft 档）本就不查名单直接放行；
   // 提交/预填前拿不到名单则提示重试并中止。
+  // 逐框内联校验用快照（不每键 IPC）：licenseGateSnapshot 为已预取快照，
+  // 未就绪时按 disabled 口径暂不标 osi/gate_unavailable（仍保留 required）。
+  const [licenseGateSnapshot, setLicenseGateSnapshot] = useState<LicenseAllowlistResult | null>(null);
   const licenseGateRequestRef = useRef<Promise<LicenseAllowlistResult | null> | null>(null);
   const loadLicenseGate = useCallback((): Promise<LicenseAllowlistResult | null> => {
     if (licenseGateRequestRef.current) return licenseGateRequestRef.current;
@@ -407,8 +500,11 @@ export const PendingView: React.FC<PendingViewProps> = ({
   }, [onGetLicenseAllowlist]);
 
   // 启动预取（提交时大概率已就绪；失败静默，提交时再提示重试）。
+  // 快照同步给逐框校验：就绪即存快照，不每键 IPC。
   useEffect(() => {
-    void loadLicenseGate();
+    void loadLicenseGate().then((g) => {
+      if (g) setLicenseGateSnapshot(g);
+    });
   }, [loadLicenseGate]);
 
   // 提交/预填前确保名单就绪：拿不到则提示重试并返回 null（调用方中止，不开页不标记）。
@@ -416,6 +512,8 @@ export const PendingView: React.FC<PendingViewProps> = ({
     const gate = await loadLicenseGate();
     if (!gate) {
       onNotify?.(t('pending.pr.allowlist_load_failed', { defaultValue: '名单加载失败，请重试' }), 'warning');
+    } else {
+      setLicenseGateSnapshot(gate);
     }
     return gate;
   }, [loadLicenseGate, onNotify, t]);
@@ -424,13 +522,51 @@ export const PendingView: React.FC<PendingViewProps> = ({
   const [form, setForm] = useState<PendingDraftItem>(PENDING_EMPTY_DRAFT);
   const [aliasesText, setAliasesText] = useState('');
   const [platformsText, setPlatformsText] = useState('windows');
-  const [publishersText, setPublishersText] = useState('');
-  const [installDirsText, setInstallDirsText] = useState('');
-  const [searchSubdirsText, setSearchSubdirsText] = useState('');
   const [identifiersText, setIdentifiersText] = useState('');
 
+  // 逐框校验快照口径：已预取快照即用严格校验，未就绪按 disabled 暂不标 osi/gate（仍保留 required）。
+  const effectiveGate: LicenseAllowlistInput = useMemo(
+    () => licenseGateSnapshot ?? { enabled: false, allowed: [] },
+    [licenseGateSnapshot],
+  );
+
+  // 当前表单归一后的 submit 档 live 校验（文本态字段归一后参验，不新增阻塞项）。
+  const liveSubmitItem = useMemo((): PendingDraftItem => {
+    const f = form;
+    return {
+      ...f,
+      id: f.id.trim() ? f.id.trim() : canonicalDraftId(f.owner, f.repo),
+      name: f.name.trim(),
+      owner: f.owner.trim(),
+      repo: f.repo.trim(),
+      description: f.description.trim(),
+      description_en: f.description_en.trim(),
+      category: f.category.trim(),
+      category_name: f.category_name.trim() || f.category.trim(),
+      license: f.license.trim(),
+      homepage: f.homepage.trim(),
+      icon: f.icon.trim(),
+      icon_bg: f.icon_bg.trim(),
+      default_version: f.default_version.trim() || 'v0.1.0',
+      aliases: splitCsv(aliasesText),
+      platforms: splitCsv(platformsText.toLowerCase()),
+      // 草稿即 catalog.json 单个应用 JSON：模板无 publishers/install_dirs/search_subdirs 时不出现，恒 []（已存旧值不迁移，展示/载荷照旧）。
+      publishers: [],
+      install_dirs: [],
+      search_subdirs: [],
+      identifiers: parseIdentifiersText(identifiersText),
+    };
+  }, [form, aliasesText, platformsText, identifiersText]);
+
+  const liveSubmitErrors = useMemo(
+    () => validatePendingDraft(liveSubmitItem, 'submit', effectiveGate),
+    [liveSubmitItem, effectiveGate],
+  );
+  const hasSubmitErrors = Object.keys(liveSubmitErrors).length > 0;
+  const hasLicenseSubmitError = Boolean(liveSubmitErrors.license);
+
   const counts = useMemo(() => {
-    const c: Record<PendingGroupId, number> = { draft: 0, submitted: 0, archived: 0 };
+    const c: Record<PendingGroupId, number> = { draft: 0, collected: 0, submitted: 0, archived: 0 };
     for (const e of entries) c[entryGroup(e)] += 1;
     return c;
   }, [entries]);
@@ -444,23 +580,24 @@ export const PendingView: React.FC<PendingViewProps> = ({
     return splitCsv(platformsText.toLowerCase());
   }, [platformsText]);
 
-  const editingEntry = useMemo(
-    () => entries.find((e) => e.id === selectedId) ?? null,
-    [entries, selectedId],
-  );
+  const editingEntry = useMemo(() => {
+    const found = entries.find((e) => e.id === selectedId) ?? null;
+    // 跨 Tab 选中重置兜底：选中行分组与当前 Tab 不一致时视为无选中，走空态提示，不展错配表单/富卡。
+    if (found && !isCreating && entryGroup(found) !== activeGroup) return null;
+    return found;
+  }, [entries, selectedId, activeGroup, isCreating]);
 
   const loadIntoForm = (item: PendingDraftItem) => {
     setForm({ ...item });
     setAliasesText(item.aliases.join(', '));
     setPlatformsText(item.platforms.join(', '));
-    setPublishersText(item.publishers.join(', '));
-    setInstallDirsText(item.install_dirs.join('\n'));
-    setSearchSubdirsText(item.search_subdirs.join('\n'));
     setIdentifiersText(stringifyIdentifiers(item.identifiers));
     setFormErrors({});
   };
 
   const handleStartCreate = () => {
+    // 新建草稿归 draft 分组：切 Tab 即进草稿态，避免在 collected/submitted/archived 下展错配表单。
+    setActiveGroup('draft');
     setIsCreating(true);
     setSelectedId(null);
     loadIntoForm(PENDING_EMPTY_DRAFT);
@@ -477,24 +614,87 @@ export const PendingView: React.FC<PendingViewProps> = ({
   };
 
   const setField = <K extends keyof PendingDraftItem>(key: K, value: PendingDraftItem[K]) => {
-    setForm((prev) => {
-      const next = { ...prev, [key]: value };
-      // P0：owner/repo 键入仅在 id 为空或仍等于上一次联动值时跟随填充；
-      // 手输（偏离上次 canonical）一律保留，不逐键改写；
-      // canonical 对齐只在失焦/保存时校验，见 handleIdBlur/handleSave + validatePendingDraft draft 档）。
-      if (key === 'owner' || key === 'repo') {
-        const owner = key === 'owner' ? String(value) : prev.owner;
-        const repo = key === 'repo' ? String(value) : prev.repo;
-        if (owner.trim() && repo.trim()) {
-          const prevCanonical =
-            prev.owner.trim() && prev.repo.trim() ? canonicalDraftId(prev.owner, prev.repo) : '';
-          if (!prev.id.trim() || prev.id.trim() === prevCanonical) {
-            next.id = canonicalDraftId(owner, repo);
-          }
+    // P0：owner/repo 键入仅在 id 为空或仍等于上一次联动值时跟随填充；
+    // 手输（偏离上次 canonical）一律保留，不逐键改写。
+    const prev = form;
+    const next = { ...prev, [key]: value };
+    if (key === 'owner' || key === 'repo') {
+      const owner = key === 'owner' ? String(value) : prev.owner;
+      const repo = key === 'repo' ? String(value) : prev.repo;
+      if (owner.trim() && repo.trim()) {
+        const prevCanonical =
+          prev.owner.trim() && prev.repo.trim() ? canonicalDraftId(prev.owner, prev.repo) : '';
+        if (!prev.id.trim() || prev.id.trim() === prevCanonical) {
+          next.id = canonicalDraftId(owner, repo);
         }
       }
-      return next;
-    });
+    }
+    setForm(next);
+    // 逐框即时校验：对归一后表单跑 submit 档（license 用快照，不每键 IPC）。
+    const nextItem: PendingDraftItem = {
+      ...next,
+      id: next.id.trim() ? next.id.trim() : canonicalDraftId(next.owner, next.repo),
+      name: next.name.trim(),
+      owner: next.owner.trim(),
+      repo: next.repo.trim(),
+      description: next.description.trim(),
+      description_en: next.description_en.trim(),
+      category: next.category.trim(),
+      category_name: next.category_name.trim() || next.category.trim(),
+      license: next.license.trim(),
+      homepage: next.homepage.trim(),
+      icon: next.icon.trim(),
+      icon_bg: next.icon_bg.trim(),
+      default_version: next.default_version.trim() || 'v0.1.0',
+      aliases: splitCsv(aliasesText),
+      platforms: splitCsv(platformsText.toLowerCase()),
+      publishers: [],
+      install_dirs: [],
+      search_subdirs: [],
+      identifiers: parseIdentifiersText(identifiersText),
+    };
+    setFormErrors(validatePendingDraft(nextItem, 'submit', effectiveGate));
+  };
+
+  // 文本态字段变更：仅归一后参验，不新增阻塞项；仍刷新 submit 档内联。
+  const handleTextFieldChange = (
+    key: 'aliases' | 'platforms' | 'identifiers',
+    value: string,
+  ) => {
+    if (key === 'aliases') setAliasesText(value);
+    else if (key === 'platforms') setPlatformsText(value);
+    else setIdentifiersText(value);
+    const nextAliases = key === 'aliases' ? value : aliasesText;
+    const nextPlatforms = key === 'platforms' ? value : platformsText;
+    const nextIdentifiers = key === 'identifiers' ? value : identifiersText;
+    const nextItem: PendingDraftItem = {
+      ...form,
+      id: form.id.trim() ? form.id.trim() : canonicalDraftId(form.owner, form.repo),
+      name: form.name.trim(),
+      owner: form.owner.trim(),
+      repo: form.repo.trim(),
+      description: form.description.trim(),
+      description_en: form.description_en.trim(),
+      category: form.category.trim(),
+      category_name: form.category_name.trim() || form.category.trim(),
+      license: form.license.trim(),
+      homepage: form.homepage.trim(),
+      icon: form.icon.trim(),
+      icon_bg: form.icon_bg.trim(),
+      default_version: form.default_version.trim() || 'v0.1.0',
+      aliases: splitCsv(nextAliases),
+      platforms: splitCsv(nextPlatforms.toLowerCase()),
+      publishers: [],
+      install_dirs: [],
+      search_subdirs: [],
+      identifiers: parseIdentifiersText(nextIdentifiers),
+    };
+    setFormErrors(validatePendingDraft(nextItem, 'submit', effectiveGate));
+  };
+
+  // 通用失焦校验：对归一后表单跑 submit 档，合并进内联（不 toast）。
+  const handleFieldBlur = () => {
+    setFormErrors(validatePendingDraft(collectFormItem(), 'submit', effectiveGate));
   };
 
   // P0：id 失焦校验（DraftLenient 口径：id==canonical 且与 owner/repo 对齐）。
@@ -534,13 +734,59 @@ export const PendingView: React.FC<PendingViewProps> = ({
     default_version: form.default_version.trim() || 'v0.1.0',
     aliases: splitCsv(aliasesText),
     platforms: splitCsv(platformsText.toLowerCase()),
-    publishers: splitLines(publishersText),
-    install_dirs: splitLines(installDirsText),
-    search_subdirs: splitLines(searchSubdirsText),
+    // 草稿即 catalog.json 单个应用 JSON：三字段恒 []，已存旧值不迁移、不回填表单。
+    publishers: [],
+    install_dirs: [],
+    search_subdirs: [],
     identifiers: parseIdentifiersText(identifiersText),
   });
 
   const errorText = (code: string): string => t(`pending.errors.${code}`, code);
+
+  // 首错定位：按表单顺序找首个错误 key，滚动到复用的 errorStyle 内联槽位并聚焦输入。
+  // 八个校验键均在常显区（D 坐标 + A 核心），无需展开折叠节；折叠节字段不阻塞。
+  const focusFirstError = (errors: PendingDraftErrors) => {
+    const order: Array<keyof PendingDraftErrors> = [
+      'owner',
+      'repo',
+      'id',
+      'name',
+      'description',
+      'category',
+      'license',
+      'homepage',
+    ];
+    const first = order.find((k) => errors[k]);
+    if (!first) return;
+    window.setTimeout(() => {
+      const el = document.querySelector(`[data-testid="pending-error-${first}"]`);
+      if (!el) return;
+      try {
+        (el as HTMLElement).scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+      } catch {
+        /* jsdom 无滚动实现时忽略 */
+      }
+      const box = (el as HTMLElement).closest('label, div');
+      const input = box?.querySelector('input, textarea') as HTMLElement | null;
+      try {
+        input?.focus?.();
+      } catch {
+        /* 忽略 */
+      }
+    }, 0);
+  };
+
+  const scrollToBatchBlocked = () => {
+    window.setTimeout(() => {
+      const el = document.querySelector('[data-testid="pending-batch-blocked"]');
+      if (!el) return;
+      try {
+        (el as HTMLElement).scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+      } catch {
+        /* 忽略 */
+      }
+    }, 0);
+  };
 
   const handleCopyId = async () => {
     const idToCopy = form.id.trim() || expectedId;
@@ -557,6 +803,8 @@ export const PendingView: React.FC<PendingViewProps> = ({
 
   const handleDuplicateDraft = () => {
     if (!editingEntry) return;
+    // 复制为新草稿归 draft 分组：切回草稿 Tab 再展新建表单。
+    setActiveGroup('draft');
     setIsCreating(true);
     setSelectedId(null);
     setConfirmDeleteId(null);
@@ -606,6 +854,8 @@ export const PendingView: React.FC<PendingViewProps> = ({
     }
     setIsCreating(false);
     setSelectedId(item.id);
+    // 保存后留在 draft 分组（新建/编辑均为草稿语义），避免切 Tab 后左右错配。
+    setActiveGroup('draft');
     onNotify?.(t('pending.saved', { id: item.id }), 'success');
   };
 
@@ -639,10 +889,10 @@ export const PendingView: React.FC<PendingViewProps> = ({
     if (onMarkSubmitted) {
       await onMarkSubmitted(id, url);
     } else {
-      setLocalEntries((prev) =>
-        prev.map((e) => (e.id === id ? { ...e, status: 'submitted' as const, pr_url: url } : e)),
-      );
+      flipLocalSubmitted(id, url);
     }
+    // 手动标记后切到已提交待合入分组，富卡仅展 PR 链接，不再重复提交。
+    setActiveGroup('submitted');
     onNotify?.(t('pending.marked_submitted', { id }), 'success');
   };
 
@@ -652,68 +902,245 @@ export const PendingView: React.FC<PendingViewProps> = ({
     );
   };
 
-  const openPrefillPage = (url: string) => {
-    if (typeof window !== 'undefined' && typeof window.open === 'function') {
-      window.open(url, '_blank', 'noopener,noreferrer');
+  const flipLocalCollected = (id: string) => {
+    setLocalEntries((prev) =>
+      prev.map((e) => (e.id === id ? { ...e, status: 'collected' as const } : e)),
+    );
+  };
+
+  const flipLocalReverted = (id: string) => {
+    setLocalEntries((prev) =>
+      prev.map((e) => (e.id === id ? { ...e, status: 'draft' as const } : e)),
+    );
+    setConfirmRevertId((prev) => (prev === id ? null : prev));
+  };
+
+  /**
+   * 本地收录退回草稿：二次确认复用删除确认形态（首点置确认态 4s，次点执行）；
+   * 有回调走后端落盘（App 透传 revert，失败抛错 toast 不静默），缺席仅本地预览翻 draft 态；toast 复用现有风格。
+   * 退回后停留本地收录页（不跳 Tab）：选中清空或落到下一条同组行，由调用方切 Tab 回草稿查看。
+   */
+  const handleRevertToDraft = async (id: string) => {
+    const target = entries.find((e) => e.id === id);
+    if (!target || revertingId === id) return;
+    if (target.archived) return;
+    if (!isPendingCollectedStatus(target.status)) return;
+    if (confirmRevertId !== id) {
+      setConfirmRevertId(id);
+      window.setTimeout(() => {
+        setConfirmRevertId((prev) => (prev === id ? null : prev));
+      }, 4000);
+      return;
+    }
+    setRevertingId(id);
+    try {
+      if (onRevertToDraft) {
+        await onRevertToDraft(id);
+      } else {
+        flipLocalReverted(id);
+      }
+      // 退回后停留 collected：不切 Tab；选中落到下一条同组行，无剩余则清空回空态。
+      const collectedOrder = entries.filter(
+        (e) => !e.archived && isPendingCollectedStatus(e.status),
+      );
+      const idx = collectedOrder.findIndex((e) => e.id === id);
+      const remaining = collectedOrder.filter((e) => e.id !== id);
+      const next =
+        remaining.length === 0
+          ? null
+          : (remaining[Math.min(Math.max(idx, 0), remaining.length - 1)] ?? remaining[0] ?? null);
+      setSelectedId(next ? next.id : null);
+      setIsCreating(false);
+      if (next) {
+        setPrUrlInput(next.pr_url ?? '');
+        loadIntoForm(next.item);
+      } else {
+        setPrUrlInput('');
+        setFormErrors({});
+      }
+      setBatchSelected((prev) => {
+        if (!prev.has(id)) return prev;
+        const nextSet = new Set(prev);
+        nextSet.delete(id);
+        return nextSet;
+      });
+      onNotify?.(t('pending.reverted', { id, defaultValue: `已退回草稿：${id}` }), 'info');
+    } catch (e) {
+      onNotify?.(e instanceof Error ? e.message : String(e), 'error');
+    } finally {
+      setRevertingId(null);
+      setConfirmRevertId(null);
     }
   };
 
   /**
-   * Lane D 单卡“提交 PR”：先确保后端许可名单就绪（失败提示重试并中止，
-   * 不回退本地名单）→ 提交档本地预检（与后端 SubmitStrict 同口径；
-   * 占位 license 在此被拦，toast 指到 license 字段，不开页不标记）→ 复制 JSON →
-   * 打开预填 URL（无 token 纯 URL）→ mark_submitted 存 URL 切到已提交。
-   * URL 优先走后端，失败回退本地同形；标记失败 toast 后端原文并中止。
+   * 收录进本地：收录档校验通过后 status=collected（首页/分类同展，可搜可装）；
+   * 缺项可点击：置内联 + 定位首错，不 toast；后端失败 toast 原文。
+   */
+  const handleCollectLocal = async (id: string) => {
+    const target = entries.find((e) => e.id === id);
+    if (!target || collectingId === id) return;
+    if (target.archived) return;
+    if (isPendingCollectedStatus(target.status)) {
+      onNotify?.(t('pending.already_collected', { id, defaultValue: `已收录进本地：${id}` }), 'info');
+      return;
+    }
+    const gate = await ensureLicenseGate();
+    if (!gate) return;
+    // 点击校验当前表单归一结果（可点：错即内联 + 定位首错，不 toast）
+    const strictErrors = validatePendingDraft(collectFormItem(), 'submit', gate);
+    if (Object.keys(strictErrors).length > 0) {
+      setFormErrors(strictErrors);
+      focusFirstError(strictErrors);
+      return;
+    }
+    setCollectingId(id);
+    try {
+      if (onCollectLocal) {
+        await onCollectLocal(id);
+      } else {
+        flipLocalCollected(id);
+      }
+      // 收录后切到本地收录分组，右侧切富卡 + 批量栏可见。
+      setActiveGroup('collected');
+      onNotify?.(t('pending.collected', { id, defaultValue: `已收录进本地：${id}` }), 'success');
+    } catch (e) {
+      onNotify?.(e instanceof Error ? e.message : String(e), 'error');
+    } finally {
+      setCollectingId(null);
+    }
+  };
+
+  /**
+   * 预填页打开（先直调 `tauriApi.openUrl` 成功即返，失败才原生 `window.open` 兜底）：
+   * - 直调覆盖后端 `open_url`（rundll32 拉起默认浏览器），成功即返；
+   * - 直调失败（非 Tauri / 后端 spawn 失败）才经 `resolveFallbackOpener()` 拿劫持前
+   *   原生 opener 兜底（直接 `window.open` 会被劫持返回 null），返回 null（弹窗拦截/
+   *   无原生）则抛错保留失败感知，杜绝全部打不开又不谎报成功。
+   */
+  const openPrefillPage = async (url: string): Promise<void> => {
+    const trimmed = (url ?? '').trim();
+    if (!trimmed) throw new Error('empty url');
+    try {
+      await tauriApi.openUrl(trimmed);
+      return;
+    } catch (directErr) {
+      const opener = resolveFallbackOpener();
+      if (opener) {
+        try {
+          const ret = opener(trimmed, '_blank', 'noopener,noreferrer');
+          if (ret) return;
+        } catch {
+          /* 原生调用抛错则落到下方抛出来源错 */
+        }
+      }
+      throw directErr;
+    }
+  };
+
+  /** 预填页打开失败降级：toast 明确失败（不谎报成功）+ 把 URL 复制到剪贴板提示手动粘贴打开。 */
+  const notifyPrefillOpenFailed = async (url: string, err: unknown): Promise<void> => {
+    const message = err instanceof Error ? err.message : String(err);
+    onNotify?.(
+      t('pending.pr.open_failed', { message, defaultValue: `预填页打开失败：${message}，链接已复制请手动粘贴打开` }),
+      'error',
+    );
+    try {
+      const urlCopied = await copyTextToClipboard(url);
+      if (urlCopied) {
+        onNotify?.(
+          t('pending.pr.url_copied', { defaultValue: '预填链接已复制，请手动粘贴到浏览器打开' }),
+          'info',
+        );
+      }
+    } catch {
+      /* 降级复制失败已 toast 主错，不再叠错 */
+    }
+  };
+
+  /**
+   * Lane D 单卡“提交 PR”：仅收录态可提交（draft 先收录进本地）→ 先确保后端许可名单就绪
+   * （失败提示重试并中止，不回退本地名单）→ 提交档本地预检（与后端 SubmitStrict 同口径；
+   * 缺项可点击：置内联 + 定位首错，不 toast）→ 先取 URL（后端优先，无 provider 走本地同形；
+   * 后端抛错直接 toast 中止，不静默回退本地）→ 复制 JSON（成功才提示“已复制正在打开”）→
+   * 超长（>8000 字符）额外提示分批 → 打开预填 URL（无 token 纯 URL）即止：不自动 mark submitted，
+   * 用户在预填页提交 PR 后回本地收录手动贴链接确认（复用 mark_submitted 行），
+   * 取消则停留 collected，可重新提交。
+   * 打开失败 toast 明确失败 + 降级复制 URL，不谎报成功。
    */
   const handleSubmitPr = async (id: string) => {
     const target = entries.find((e) => e.id === id);
     if (!target || submittingId === id) return;
+    if (target.archived) return;
+    if (!isPendingCollectedStatus(target.status)) {
+      onNotify?.(t('pending.need_local_hint', { id }), 'warning');
+      return;
+    }
     const gate = await ensureLicenseGate();
     if (!gate) return;
-    const strictErrors = validatePendingDraft(target.item, 'submit', gate);
+    // 点击校验当前表单归一结果（可点：错即内联 + 定位首错，不 toast）
+    const strictErrors = validatePendingDraft(collectFormItem(), 'submit', gate);
     if (Object.keys(strictErrors).length > 0) {
       setFormErrors(strictErrors);
-      onNotify?.(
-        strictErrors.license
-          ? t('pending.pr.license_fix_hint', { id })
-          : t('pending.fix_errors'),
-        'warning',
-      );
+      focusFirstError(strictErrors);
       return;
     }
     setSubmittingId(id);
     try {
-      const payload = buildSinglePrPayloadJson(target.item);
-      const copied = await copyTextToClipboard(payload);
-      onNotify?.(t(copied ? 'pending.pr.json_copied' : 'pending.pr.copy_failed'), copied ? 'success' : 'warning');
+      // 先取 URL：后端门禁错直接透出 toast，中止不开页（不静默回退本地）。
       let url = '';
-      try {
-        url = onGetPrUrl ? await onGetPrUrl(id) : buildLocalSinglePrUrl(target);
-      } catch {
+      if (onGetPrUrl) {
+        try {
+          url = await onGetPrUrl(id);
+        } catch (e) {
+          onNotify?.(e instanceof Error ? e.message : String(e), 'error');
+          return;
+        }
+      } else {
         url = buildLocalSinglePrUrl(target);
       }
-      openPrefillPage(url);
-      try {
-        if (onMarkSubmitted) {
-          await onMarkSubmitted(id, url);
-        } else {
-          flipLocalSubmitted(id, url);
-        }
-      } catch (e) {
-        onNotify?.(e instanceof Error ? e.message : String(e), 'error');
+      // 合法 https 预填必过：trim + 大小写不敏感判 https，避免首尾空白/大小写误杀；
+      // 空值/非 https 仍 fail-closed（不尝试打开，直接失败感知 + 复制降级）。
+      const trimmedUrl = (url ?? '').trim();
+      if (!trimmedUrl || !/^https:\/\//i.test(trimmedUrl)) {
+        await notifyPrefillOpenFailed(trimmedUrl || target.id, new Error('invalid prefill url'));
         return;
       }
-      onNotify?.(t('pending.marked_submitted', { id }), 'success');
+      url = trimmedUrl;
+      const payload = buildSinglePrPayloadJson(target.item);
+      const copied = await copyTextToClipboard(payload);
+      if (url.length > PREFILL_URL_LENGTH_LIMIT) {
+        onNotify?.(
+          t('pending.pr.url_too_long', {
+            length: url.length,
+            defaultValue: `预填链接过长（${url.length} 字符），建议分批提交；JSON 已复制`,
+          }),
+          'warning',
+        );
+      }
+      // 取 URL 成功后才提示“已复制正在打开”，避免取数/门禁失败时谎报。
+      onNotify?.(t(copied ? 'pending.pr.json_copied' : 'pending.pr.copy_failed'), copied ? 'success' : 'warning');
+      try {
+        await openPrefillPage(url);
+      } catch (e) {
+        await notifyPrefillOpenFailed(url, e);
+        return;
+      }
+      // 打开预填页后即止：不 mark submitted、不切分组，停留 collected 等手动确认。
     } finally {
       setSubmittingId(null);
     }
   };
 
-  /** 二期批量候选：仅未归档未提交草稿（已提交不再重复进批）。 */
+  /** 二期批量候选：仅已收录未归档（collected 系；draft 先收录进本地，已提交/已归档不再进批）。 */
   const batchCandidates = useMemo(
-    () => entries.filter((e) => !e.archived && e.status !== 'submitted'),
+    () => entries.filter((e) => !e.archived && isPendingCollectedStatus(e.status)),
     [entries],
   );
+
+  /** 列表多选可用性：仅 collected 分组可勾选（draft 表单态、submitted 已提交、archived 只读均不可选）。 */
+  const isBatchSelectableGroup = activeGroup === 'collected';
+  const showBatchSelection = showBatchBar && isBatchSelectableGroup;
 
   const toggleBatchSelected = (id: string) => {
     setBatchSelected((prev) => {
@@ -727,11 +1154,35 @@ export const PendingView: React.FC<PendingViewProps> = ({
     });
   };
 
+  // 批量选中项的 submit 档 live 拦阻（快照口径，不每键 IPC；未就绪按 disabled 暂不标 license）。
+  const batchPicked = useMemo(
+    () => batchCandidates.filter((e) => batchSelected.has(e.id)),
+    [batchCandidates, batchSelected],
+  );
+  const batchBlockedLive = useMemo(
+    () =>
+      batchPicked.filter(
+        (e) => Object.keys(validatePendingDraft(e.item, 'submit', effectiveGate)).length > 0,
+      ),
+    [batchPicked, effectiveGate],
+  );
+  const hasBatchErrors = batchBlockedLive.length > 0;
+  const batchLicenseErrorId = useMemo(() => {
+    for (const e of batchBlockedLive) {
+      if (validatePendingDraft(e.item, 'submit', effectiveGate).license) return e.id;
+    }
+    return null;
+  }, [batchBlockedLive, effectiveGate]);
+
   /**
-   * Lane D 二期批量栏：先确保后端许可名单就绪（失败提示重试并中止）→
-   * 选中多条 → 提交档本地预检（整批任一条不过即拦下并点名，
-   * 不开页不标记）→ 合并 JSON 数组 → 一个预填 URL（批量合一 PR）→
-   * 逐条 mark_submitted（同 URL）。默认开启，showBatchBar=false 或栏内隐藏可关。
+   * 批量提交（仅本地收录分组：列表多选 + 列表工具行按钮，随切 Tab 显隐）：先确保后端许可名单就绪（失败提示重试并中止）→
+   * 选中多条 → 提交档本地预检（缺项可点击：拦阻行内列出 ids，不 toast 不开页不标记）→
+   * 先取 URL（后端优先，无 provider 走本地同形；后端抛错直接 toast 中止，不静默回退）→
+   * 合并 JSON 数组并复制（成功才提示“已复制正在打开”；超长 >8000 字符额外提示分批，仍复制）→
+   * 一个预填 URL（批量合一 PR）即止：不自动 mark，
+   * 各条目 submitted 态靠用户逐条手动贴链接确认，取消则停留 collected 可重新提交。
+   * 打开失败 toast 明确失败 + 降级复制 URL，不谎报 batch_submitted；仅打开成功才清选中 + 报 batch_submitted。
+   * showBatchBar=false 时隐藏工具行入口与多选。
    */
   const handleBatchSubmit = async () => {
     const picked = batchCandidates.filter((e) => batchSelected.has(e.id));
@@ -747,37 +1198,52 @@ export const PendingView: React.FC<PendingViewProps> = ({
       (e) => Object.keys(validatePendingDraft(e.item, 'submit', gate)).length > 0,
     );
     if (blocked.length > 0) {
-      onNotify?.(
-        t('pending.pr.batch_blocked', { ids: blocked.map((e) => e.id).join('、') }),
-        'warning',
-      );
+      setFormErrors(validatePendingDraft(blocked[0].item, 'submit', gate));
+      scrollToBatchBlocked();
       return;
     }
     setBatchBusy(true);
     try {
       const ids = picked.map((e) => e.id);
-      const payload = buildBatchPrPayloadJson(picked.map((e) => e.item));
-      const copied = await copyTextToClipboard(payload);
-      onNotify?.(t(copied ? 'pending.pr.json_copied' : 'pending.pr.copy_failed'), copied ? 'success' : 'warning');
+      // 先取 URL：后端门禁错直接透出 toast，中止不开页（不静默回退本地）。
       let url = '';
-      try {
-        url = onGetBatchPrUrl ? await onGetBatchPrUrl(ids) : buildLocalBatchPrUrl(picked);
-      } catch {
+      if (onGetBatchPrUrl) {
+        try {
+          url = await onGetBatchPrUrl(ids);
+        } catch (e) {
+          onNotify?.(e instanceof Error ? e.message : String(e), 'error');
+          return;
+        }
+      } else {
         url = buildLocalBatchPrUrl(picked);
       }
-      openPrefillPage(url);
-      try {
-        for (const pid of ids) {
-          if (onMarkSubmitted) {
-            await onMarkSubmitted(pid, url);
-          } else {
-            flipLocalSubmitted(pid, url);
-          }
-        }
-      } catch (e) {
-        onNotify?.(e instanceof Error ? e.message : String(e), 'error');
+      const trimmedBatchUrl = (url ?? '').trim();
+      if (!trimmedBatchUrl || !/^https:\/\//i.test(trimmedBatchUrl)) {
+        await notifyPrefillOpenFailed(ids.join('、') || 'batch', new Error('invalid prefill url'));
         return;
       }
+      url = trimmedBatchUrl;
+      const payload = buildBatchPrPayloadJson(picked.map((e) => e.item));
+      const copied = await copyTextToClipboard(payload);
+      if (url.length > PREFILL_URL_LENGTH_LIMIT) {
+        onNotify?.(
+          t('pending.pr.url_too_long', {
+            length: url.length,
+            count: ids.length,
+            defaultValue: `预填链接过长（${url.length} 字符），建议分批提交；JSON 已复制`,
+          }),
+          'warning',
+        );
+      }
+      // 取 URL 成功后才提示“已复制正在打开”，避免取数/门禁失败时谎报。
+      onNotify?.(t(copied ? 'pending.pr.json_copied' : 'pending.pr.copy_failed'), copied ? 'success' : 'warning');
+      try {
+        await openPrefillPage(url);
+      } catch (e) {
+        await notifyPrefillOpenFailed(url, e);
+        return;
+      }
+      // 打开预填页后即止：不逐条 mark submitted，停留 collected 等手动确认。
       setBatchSelected(new Set());
       onNotify?.(t('pending.pr.batch_submitted', { count: ids.length }), 'success');
     } finally {
@@ -787,35 +1253,40 @@ export const PendingView: React.FC<PendingViewProps> = ({
 
   const showEditor = isCreating || editingEntry !== null;
   const isArchived = Boolean(editingEntry?.archived);
+  // 富卡分支：后链路（collected/submitted/archived，非新建）一律富卡展示，不再出现新建式表单页；
+  // 仅 draft（含新建）走表单。archived 富卡只读 + 复制为新草稿。
+  const isRichCollectedView =
+    !isCreating &&
+    editingEntry !== null &&
+    entryGroup(editingEntry) !== 'draft';
+  const richCardApp = useMemo(() => {
+    if (!editingEntry) return null;
+    return pendingDraftToAppSummary(editingEntry.item, editingEntry.status);
+  }, [editingEntry]);
+  // 富卡态内联口径：live（快照）与提交尝试（formErrors，真实门禁）合并展示，
+  // 门禁未就绪时 live 按 disabled 暂不标，提交后以 formErrors 为准。
+  const richInlineErrors: PendingDraftErrors = useMemo(() => {
+    if (!isRichCollectedView) return {};
+    // 已归档只读不做提交拦阻，不展内联错误。
+    if (editingEntry?.archived) return {};
+    return { ...liveSubmitErrors, ...formErrors };
+  }, [isRichCollectedView, liveSubmitErrors, formErrors, editingEntry]);
   const expectedId = form.owner.trim() && form.repo.trim() ? canonicalDraftId(form.owner, form.repo) : '';
   const currentId = form.id.trim() || expectedId;
 
   return (
     <ViewShell viewClass="pending-view">
-      {/* 1. 页头：标题 + 计数 + 简明说明 + 右侧主操作“新建草稿” */}
+      {/* 1. 页头：仅标题 + 描述（无计数徽标；草稿/收录计数由 Tab 自带；页头不再设新建入口，新建走空态提示） */}
       <div className="pending-header">
         <div className="pending-header-info">
           <h3 className="pending-header-title">
             <Inbox size={18} strokeWidth={1.5} aria-hidden="true" />
             <span>{t('pending.title')}</span>
-            {entries.length > 0 && (
-              <span
-                className="nav-badge"
-                aria-label={t('pending.count_hint', { count: entries.length })}
-                title={t('pending.count_hint', { count: entries.length })}
-              >
-                {entries.length}
-              </span>
-            )}
           </h3>
           <p className="pending-header-desc">
             {t('pending.subtitle')}
           </p>
         </div>
-        <button type="button" className="btn-fluent btn-primary btn-sm" onClick={handleStartCreate}>
-          <Plus size={14} strokeWidth={1.5} aria-hidden="true" />
-          <span>{t('pending.new_draft')}</span>
-        </button>
       </div>
 
       {/* 2. 状态 tabs 分组 */}
@@ -827,7 +1298,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
             role="tab"
             aria-selected={activeGroup === id}
             className={`segmented-item ${activeGroup === id ? 'active' : ''}`}
-            onClick={() => setActiveGroup(id)}
+            onClick={() => handleGroupChange(id)}
           >
             <Icon size={13} strokeWidth={1.5} aria-hidden="true" />
             <span>{t(`pending.groups.${id}`)}</span>
@@ -836,141 +1307,17 @@ export const PendingView: React.FC<PendingViewProps> = ({
         ))}
       </div>
 
-      {/* 3. Lane D 二期批量栏：收起为次级工具条，按需展开候选与合并提交 */}
-      {showBatchBar &&
-        (batchHidden ? (
-          <div style={{ marginBottom: '12px' }}>
-            <button
-              type="button"
-              className="btn-fluent btn-secondary btn-sm"
-              onClick={() => setBatchHidden(false)}
-            >
-              <span>{t('pending.pr.show_batch')}</span>
-            </button>
-          </div>
-        ) : (
-          <div
-            className="pending-batch-bar"
-            data-testid="pending-batch-bar"
-          >
-            <div className="pending-batch-bar-header">
-              <div className="pending-batch-bar-title-wrap">
-                <Send size={13} strokeWidth={1.5} aria-hidden="true" className="pending-batch-icon" />
-                <strong className="pending-batch-title">
-                  {t('pending.pr.batch_title')}
-                </strong>
-                <span className="pending-batch-hint">
-                  {t('pending.pr.batch_hint')}
-                </span>
-              </div>
-              <div className="pending-batch-bar-actions">
-                {batchSelected.size > 0 && (
-                  <span className="pending-batch-count-badge">
-                    {t('pending.pr.batch_selected', { count: batchSelected.size, defaultValue: `已选 ${batchSelected.size}` })}
-                  </span>
-                )}
-                <button
-                  type="button"
-                  className="btn-fluent btn-ghost btn-sm"
-                  onClick={() => setBatchExpanded((prev) => !prev)}
-                  aria-expanded={batchExpanded}
-                >
-                  {batchExpanded ? (
-                    <>
-                      <ChevronUp size={13} strokeWidth={1.5} aria-hidden="true" />
-                      <span>{t('pending.pr.batch_collapse', { defaultValue: '收起' })}</span>
-                    </>
-                  ) : (
-                    <>
-                      <ChevronDown size={13} strokeWidth={1.5} aria-hidden="true" />
-                      <span>{t('pending.pr.batch_expand', { defaultValue: '展开' })}</span>
-                    </>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  className="btn-fluent btn-ghost btn-sm"
-                  onClick={() => setBatchHidden(true)}
-                  title={t('pending.pr.hide_batch')}
-                  aria-label={t('pending.pr.hide_batch')}
-                >
-                  <span>{t('pending.pr.hide_batch')}</span>
-                </button>
-              </div>
-            </div>
-
-            <div
-              className="pending-batch-bar-body"
-              style={{ display: batchExpanded ? 'flex' : 'none' }}
-            >
-              {batchCandidates.length === 0 ? (
-                <div className="pending-batch-empty">{t('pending.group_empty_title')}</div>
-              ) : (
-                <>
-                  <div className="pending-batch-candidate-list">
-                    {batchCandidates.map((candidate) => {
-                      const isSelected = batchSelected.has(candidate.id);
-                      const name = candidate.item.name || candidate.id;
-                      return (
-                        <label
-                          key={candidate.id}
-                          className={`pending-batch-candidate-item ${isSelected ? 'selected' : ''}`}
-                          title={`${name} (${candidate.id})`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => toggleBatchSelected(candidate.id)}
-                            aria-label={candidate.id}
-                          />
-                          <span className="pending-batch-candidate-name">
-                            {name}
-                          </span>
-                          <span className="pending-batch-candidate-id">
-                            {candidate.id}
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                  <div className="pending-batch-actions-row">
-                    <div className="pending-batch-actions-right">
-                      <button
-                        type="button"
-                        className="btn-fluent btn-ghost btn-sm"
-                        onClick={() => setBatchSelected(new Set(batchCandidates.map((e) => e.id)))}
-                      >
-                        <span>{t('pending.pr.select_all')}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-fluent btn-ghost btn-sm"
-                        disabled={batchSelected.size === 0}
-                        onClick={() => setBatchSelected(new Set())}
-                      >
-                        <span>{t('pending.pr.clear_selection')}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-fluent btn-primary btn-sm"
-                        data-testid="pending-batch-submit"
-                        disabled={batchBusy || batchSelected.size === 0}
-                        onClick={() => void handleBatchSubmit()}
-                      >
-                        <Send size={13} strokeWidth={1.5} aria-hidden="true" />
-                        <span>
-                          {batchBusy
-                            ? t('pending.pr.batch_submitting')
-                            : t('pending.pr.batch_submit', { count: batchSelected.size })}
-                        </span>
-                      </button>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        ))}
+      {/* 3. 批量拦阻行内提示（仅本地收录分组随多选展出；复用同文案/testid） */}
+      {showBatchSelection && hasBatchErrors && batchPicked.length > 0 && (
+        <div
+          data-testid="pending-batch-blocked"
+          style={{ ...errorStyle, margin: '0 0 12px' }}
+        >
+          {t('pending.pr.batch_blocked', {
+            ids: batchBlockedLive.map((e) => e.id).join('、'),
+          })}
+        </div>
+      )}
 
       {/* 4. 主区：草稿全空时展示全局引导；有草稿时展示 master-detail 左右分栏 */}
       {entries.length === 0 && !isCreating ? (
@@ -994,8 +1341,11 @@ export const PendingView: React.FC<PendingViewProps> = ({
             ) : (
               visibleEntries.map((entry) => {
                 const selected = entry.id === selectedId;
-                const isSubmitted = entryGroup(entry) === 'submitted';
-                const isArchived = entryGroup(entry) === 'archived';
+                const group = entryGroup(entry);
+                const isSubmitted = group === 'submitted';
+                const isArchived = group === 'archived';
+                const isCollected = group === 'collected';
+                const batchChecked = batchSelected.has(entry.id);
                 return (
                   <div
                     key={entry.id}
@@ -1011,11 +1361,25 @@ export const PendingView: React.FC<PendingViewProps> = ({
                       }
                     }}
                   >
+                    {showBatchSelection && isCollected && (
+                      <input
+                        type="checkbox"
+                        checked={batchChecked}
+                        onChange={() => toggleBatchSelected(entry.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        aria-label={entry.id}
+                        title={t('pending.pr.batch_selected', { count: batchSelected.size, defaultValue: `已选 ${batchSelected.size}` })}
+                        style={{ flexShrink: 0 }}
+                      />
+                    )}
                     <span className="pending-item-icon-box">
                       {isArchived ? (
                         <Archive size={14} strokeWidth={1.5} aria-hidden="true" />
                       ) : isSubmitted ? (
                         <Send size={14} strokeWidth={1.5} aria-hidden="true" />
+                      ) : isCollected ? (
+                        <PackageCheck size={14} strokeWidth={1.5} aria-hidden="true" />
                       ) : (
                         <FilePlus2 size={14} strokeWidth={1.5} aria-hidden="true" />
                       )}
@@ -1027,6 +1391,16 @@ export const PendingView: React.FC<PendingViewProps> = ({
                       <div className="pending-item-meta">
                         <span className="pending-item-id">{entry.id}</span>
                       </div>
+                      {(() => {
+                        const listDesc = resolvePendingDraftDescription(entry.item, i18n.language);
+                        return listDesc ? (
+                          <div className="pending-item-desc" title={listDesc}>
+                            {listDesc}
+                          </div>
+                        ) : (
+                          <div className="pending-item-desc pending-preview-empty">{t('trends.no_desc')}</div>
+                        );
+                      })()}
                       {entry.pr_url && (
                         <div className="pending-item-pr-link">
                           <Link2 size={11} strokeWidth={1.5} aria-hidden="true" />
@@ -1047,9 +1421,39 @@ export const PendingView: React.FC<PendingViewProps> = ({
                 );
               })
             )}
+            {/* 列表底部工具行：批量提交专属位置（随 collected 分组显隐，多选汇总/禁用/title 逻辑不变，右对齐单色） */}
+            {showBatchSelection && (
+              <div
+                className="pending-list-toolbar"
+                data-testid="pending-batch-toolbar"
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginTop: '8px', minHeight: '28px' }}
+              >
+                <button
+                  type="button"
+                  className="btn-fluent btn-primary btn-sm"
+                  data-testid="pending-batch-submit"
+                  disabled={batchBusy || batchSelected.size === 0}
+                  onClick={() => void handleBatchSubmit()}
+                  title={
+                    hasBatchErrors
+                      ? batchLicenseErrorId
+                        ? t('pending.pr.license_fix_hint', { id: batchLicenseErrorId })
+                        : t('pending.fix_errors')
+                      : undefined
+                  }
+                >
+                  <Send size={13} strokeWidth={1.5} aria-hidden="true" />
+                  <span>
+                    {batchBusy
+                      ? t('pending.pr.batch_submitting')
+                      : t('pending.pr.batch_submit', { count: batchSelected.size })}
+                  </span>
+                </button>
+              </div>
+            )}
           </div>
 
-          {/* 右：Detail 全字段编辑器 */}
+          {/* 右：Detail（draft 表单 / 后链路富卡：collected/submitted/archived 一律富卡） */}
           <div className="pending-editor">
             {!showEditor ? (
               <FilterEmptyState
@@ -1060,6 +1464,218 @@ export const PendingView: React.FC<PendingViewProps> = ({
                 variant="secondary"
                 onReset={handleStartCreate}
               />
+            ) : isRichCollectedView && editingEntry && richCardApp ? (
+              <>
+                <div className="app-card pending-editor-card">
+                  {/* 富卡头：标题 + 分组徽标（无坐标显隐开关，富卡即全量） */}
+                  <div className="pending-editor-header">
+                    <div className="pending-editor-title-wrap">
+                      {editingEntry.archived ? (
+                        <Archive size={15} strokeWidth={1.5} aria-hidden="true" style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
+                      ) : editingEntry.status === 'submitted' ? (
+                        <Send size={15} strokeWidth={1.5} aria-hidden="true" style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
+                      ) : (
+                        <PackageCheck size={15} strokeWidth={1.5} aria-hidden="true" style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
+                      )}
+                      <strong
+                        className="pending-editor-title"
+                        title={editingEntry.id}
+                      >
+                        {editingEntry.id}
+                      </strong>
+                      {editingEntry.archived ? (
+                        <span className="nav-badge" title={t('pending.archived_badge')}>
+                          {t('pending.archived_badge')}
+                        </span>
+                      ) : editingEntry.status === 'submitted' ? (
+                        <span className="nav-badge" style={{ color: 'var(--brand-primary)', borderColor: 'var(--brand-glow)' }}>
+                          {t('pending.groups.submitted')}
+                        </span>
+                      ) : (
+                        <span className="nav-badge" title={t('pending.groups.collected')}>
+                          {t('pending.groups.collected')}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 富卡主体：复用 AppCard（source=local 即黄标），只读预览 */}
+                  <div style={{ marginBottom: '12px' }}>
+                    <AppCard
+                      app={richCardApp}
+                      isInstalled={false}
+                      isManaged={false}
+                      platformLoading={false}
+                      onOpenDetail={() => {}}
+                      onQuickInstall={() => {}}
+                    />
+                  </div>
+
+                  {/* 富卡内联拦阻（与表单同 testid 口径，提交/收录前缺项即显） */}
+                  {Object.keys(richInlineErrors).length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '8px' }}>
+                      {(Object.entries(richInlineErrors) as Array<[string, string | undefined]>).map(([key, code]) =>
+                        code ? (
+                          <em key={key} data-testid={`pending-error-${key}`} style={errorStyle}>
+                            {errorText(code)}
+                          </em>
+                        ) : null,
+                      )}
+                    </div>
+                  )}
+
+                  {/* 富卡底部：collected=PR 主/退回次，submitted=PR 链接+删除，archived=只读+复制为新草稿 */}
+                  <div className="pending-editor-footer">
+                    <div className="pending-editor-footer-actions">
+                      {!editingEntry.archived && editingEntry.status === 'submitted' && (
+                        <button
+                          type="button"
+                          className="btn-fluent btn-secondary btn-sm"
+                          data-testid="pending-delete"
+                          onClick={() => void handleDelete(editingEntry.id)}
+                          title={t('pending.delete_hint')}
+                          style={{ marginLeft: 'auto' }}
+                        >
+                          <Trash2 size={13} strokeWidth={1.5} aria-hidden="true" />
+                          <span>
+                            {confirmDeleteId === editingEntry.id ? t('pending.confirm_delete') : t('pending.delete')}
+                          </span>
+                        </button>
+                      )}
+                      {!editingEntry.archived && isPendingCollectedStatus(editingEntry.status) && (
+                        <>
+                          <button
+                            type="button"
+                            className="btn-fluent btn-secondary btn-sm"
+                            data-testid="pending-revert-to-draft"
+                            disabled={revertingId === editingEntry.id}
+                            onClick={() => void handleRevertToDraft(editingEntry.id)}
+                            title={t('pending.revert_hint', { id: editingEntry.id, defaultValue: '将本地收录退回草稿' })}
+                            style={{ marginLeft: 'auto' }}
+                          >
+                            <Archive size={13} strokeWidth={1.5} aria-hidden="true" />
+                            <span>
+                              {confirmRevertId === editingEntry.id
+                                ? t('pending.confirm_revert', { defaultValue: '再次点击确认退回' })
+                                : t('pending.revert_to_draft', { defaultValue: '退回草稿' })}
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-fluent btn-primary btn-sm"
+                            data-testid="pending-submit-pr"
+                            disabled={submittingId === editingEntry.id}
+                            onClick={() => void handleSubmitPr(editingEntry.id)}
+                            title={
+                              hasSubmitErrors
+                                ? hasLicenseSubmitError
+                                  ? t('pending.pr.license_fix_hint', { id: editingEntry.id })
+                                  : t('pending.fix_errors')
+                                : t('pending.pr.json_copied')
+                            }
+                          >
+                            <Send size={13} strokeWidth={1.5} aria-hidden="true" />
+                            <span>
+                              {submittingId === editingEntry.id
+                                ? t('pending.pr.submitting')
+                                : t('pending.pr.submit_pr')}
+                            </span>
+                          </button>
+                        </>
+                      )}
+                    </div>
+
+                    {/* 已提交展 PR 链接 + 删除（不再重复提交）；已收录才展手动标记行；已归档只读 */}
+                    {!editingEntry.archived && isPendingCollectedStatus(editingEntry.status) && (
+                      <div className="pending-editor-footer-manual">
+                        <div className="pending-manual-label">{t('pending.submit_title')}</div>
+                        <div className="pending-manual-row">
+                          <input
+                            className="input-fluent"
+                            style={{ flex: '1 1 200px' }}
+                            value={prUrlInput}
+                            onChange={(e) => setPrUrlInput(e.target.value)}
+                            placeholder="https://github.com/…/pull/…"
+                            inputMode="url"
+                            spellCheck={false}
+                            aria-label={t('pending.submit_title')}
+                          />
+                          <button
+                            type="button"
+                            className="btn-fluent btn-secondary btn-sm"
+                            onClick={() => handleMarkSubmitted(editingEntry.id)}
+                          >
+                            <Send size={13} strokeWidth={1.5} aria-hidden="true" />
+                            <span>{t('pending.mark_submitted')}</span>
+                          </button>
+                        </div>
+                        {editingEntry.pr_url && (
+                          <div className="pending-editor-pr-link">
+                            <Link2 size={12} strokeWidth={1.5} aria-hidden="true" style={{ verticalAlign: '-2px' }} />{' '}
+                            <a
+                              href={editingEntry.pr_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              title={t('pending.pr.open_pr')}
+                              aria-label={t('pending.pr.open_pr')}
+                            >
+                              {editingEntry.pr_url}
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {!editingEntry.archived && editingEntry.status === 'submitted' && editingEntry.pr_url && (
+                      <div className="pending-editor-footer-manual">
+                        <div className="pending-editor-pr-link">
+                          <Link2 size={12} strokeWidth={1.5} aria-hidden="true" style={{ verticalAlign: '-2px' }} />{' '}
+                          <a
+                            href={editingEntry.pr_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            title={t('pending.pr.open_pr')}
+                            aria-label={t('pending.pr.open_pr')}
+                          >
+                            {editingEntry.pr_url}
+                          </a>
+                        </div>
+                      </div>
+                    )}
+                    {editingEntry.archived && (
+                      <div className="pending-editor-footer-manual">
+                        {editingEntry.pr_url && (
+                          <div className="pending-editor-pr-link">
+                            <Link2 size={12} strokeWidth={1.5} aria-hidden="true" style={{ verticalAlign: '-2px' }} />{' '}
+                            <a
+                              href={editingEntry.pr_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              title={t('pending.pr.open_pr')}
+                              aria-label={t('pending.pr.open_pr')}
+                            >
+                              {editingEntry.pr_url}
+                            </a>
+                          </div>
+                        )}
+                        <div className="pending-manual-row">
+                          <span className="pending-archived-hint">
+                            已归档草稿为只读，改名或修改请使用“复制为新草稿”
+                          </span>
+                          <button
+                            type="button"
+                            className="btn-fluent btn-secondary btn-sm"
+                            data-testid="pending-duplicate"
+                            onClick={handleDuplicateDraft}
+                            style={{ padding: '2px 8px', fontSize: '11px' }}
+                          >
+                            <span>复制为新草稿</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
             ) : (
               <>
                 {/* 实时卡片预览窗口（Draft Visual / Post-inclusion preview lane） */}
@@ -1156,10 +1772,15 @@ export const PendingView: React.FC<PendingViewProps> = ({
                         </div>
                       </div>
 
-                      {/* 描述 */}
-                      <p className={`pending-preview-desc ${!(form.description.trim() || form.description_en.trim()) ? 'pending-preview-empty' : ''}`}>
-                        {form.description.trim() || form.description_en.trim() || '未填写应用描述（收录后将在此展示简要说明）'}
-                      </p>
+                      {/* 描述：按当前语言取 description/description_en，空回退另一语言，两空复用 trends.no_desc */}
+                      {(() => {
+                        const previewDesc = resolvePendingDraftDescription(form, i18n.language);
+                        return (
+                          <p className={`pending-preview-desc ${!previewDesc ? 'pending-preview-empty' : ''}`}>
+                            {previewDesc || t('trends.no_desc')}
+                          </p>
+                        );
+                      })()}
 
                       {/* 底部信息标签栏 */}
                       <div className="pending-preview-tags">
@@ -1233,6 +1854,11 @@ export const PendingView: React.FC<PendingViewProps> = ({
                         {t('pending.groups.submitted')}
                       </span>
                     )}
+                    {!isCreating && editingEntry && !editingEntry.archived && isPendingCollectedStatus(editingEntry.status) && editingEntry.status !== 'submitted' && (
+                      <span className="nav-badge" title={t('pending.groups.collected')}>
+                        {t('pending.groups.collected')}
+                      </span>
+                    )}
                   </div>
                   {!isCreating && (
                     <div className="pending-editor-header-actions">
@@ -1276,11 +1902,16 @@ export const PendingView: React.FC<PendingViewProps> = ({
                         className="input-fluent"
                         value={form.owner}
                         onChange={(e) => setField('owner', e.target.value)}
+                        onBlur={handleFieldBlur}
                         placeholder="rustdesk"
                         autoComplete="off"
                         readOnly={!isCreating || isArchived}
                       />
-                      {formErrors.owner && <em style={errorStyle}>{errorText(formErrors.owner)}</em>}
+                      {formErrors.owner && (
+                        <em data-testid="pending-error-owner" style={errorStyle}>
+                          {errorText(formErrors.owner)}
+                        </em>
+                      )}
                     </label>
 
                     <label style={labelStyle}>
@@ -1289,11 +1920,16 @@ export const PendingView: React.FC<PendingViewProps> = ({
                         className="input-fluent"
                         value={form.repo}
                         onChange={(e) => setField('repo', e.target.value)}
+                        onBlur={handleFieldBlur}
                         placeholder="rustdesk"
                         autoComplete="off"
                         readOnly={!isCreating || isArchived}
                       />
-                      {formErrors.repo && <em style={errorStyle}>{errorText(formErrors.repo)}</em>}
+                      {formErrors.repo && (
+                        <em data-testid="pending-error-repo" style={errorStyle}>
+                          {errorText(formErrors.repo)}
+                        </em>
+                      )}
                     </label>
 
                     {!isCreating && (
@@ -1319,7 +1955,10 @@ export const PendingView: React.FC<PendingViewProps> = ({
                           data-testid="pending-id-input"
                           value={form.id}
                           onChange={(e) => setField('id', e.target.value)}
-                          onBlur={handleIdBlur}
+                          onBlur={() => {
+                            handleIdBlur();
+                            handleFieldBlur();
+                          }}
                           placeholder="owner/repo"
                           autoComplete="off"
                           spellCheck={false}
@@ -1344,7 +1983,11 @@ export const PendingView: React.FC<PendingViewProps> = ({
                           {t('pending.id_preview', { id: expectedId })}
                         </span>
                       )}
-                      {formErrors.id && <em style={errorStyle}>{errorText(formErrors.id)}</em>}
+                      {formErrors.id && (
+                        <em data-testid="pending-error-id" style={errorStyle}>
+                          {errorText(formErrors.id)}
+                        </em>
+                      )}
                     </div>
                   </>
                 )}
@@ -1364,10 +2007,15 @@ export const PendingView: React.FC<PendingViewProps> = ({
                     className="input-fluent"
                     value={form.name}
                     onChange={(e) => setField('name', e.target.value)}
+                    onBlur={handleFieldBlur}
                     placeholder={t('pending.placeholders.name')}
                     readOnly={isArchived}
                   />
-                  {formErrors.name && <em style={errorStyle}>{errorText(formErrors.name)}</em>}
+                  {formErrors.name && (
+                    <em data-testid="pending-error-name" style={errorStyle}>
+                      {errorText(formErrors.name)}
+                    </em>
+                  )}
                 </label>
 
                 <label style={labelStyle}>
@@ -1376,11 +2024,16 @@ export const PendingView: React.FC<PendingViewProps> = ({
                     className="input-fluent"
                     value={form.description}
                     onChange={(e) => setField('description', e.target.value)}
+                    onBlur={handleFieldBlur}
                     rows={2}
                     placeholder={t('pending.placeholders.description')}
                     readOnly={isArchived}
                   />
-                  {formErrors.description && <em style={errorStyle}>{errorText(formErrors.description)}</em>}
+                  {formErrors.description && (
+                    <em data-testid="pending-error-description" style={errorStyle}>
+                      {errorText(formErrors.description)}
+                    </em>
+                  )}
                 </label>
 
                 <label style={labelStyle}>
@@ -1389,11 +2042,16 @@ export const PendingView: React.FC<PendingViewProps> = ({
                     className="input-fluent"
                     value={form.category}
                     onChange={(e) => setField('category', e.target.value)}
+                    onBlur={handleFieldBlur}
                     placeholder="dev"
                     autoComplete="off"
                     readOnly={isArchived}
                   />
-                  {formErrors.category && <em style={errorStyle}>{errorText(formErrors.category)}</em>}
+                  {formErrors.category && (
+                    <em data-testid="pending-error-category" style={errorStyle}>
+                      {errorText(formErrors.category)}
+                    </em>
+                  )}
                 </label>
 
                 <label style={labelStyle}>
@@ -1402,12 +2060,17 @@ export const PendingView: React.FC<PendingViewProps> = ({
                     className="input-fluent"
                     value={form.license}
                     onChange={(e) => setField('license', e.target.value)}
+                    onBlur={handleFieldBlur}
                     placeholder="MIT"
                     autoComplete="off"
                     spellCheck={false}
                     readOnly={isArchived}
                   />
-                  {formErrors.license && <em style={errorStyle}>{errorText(formErrors.license)}</em>}
+                  {formErrors.license && (
+                    <em data-testid="pending-error-license" style={errorStyle}>
+                      {errorText(formErrors.license)}
+                    </em>
+                  )}
                 </label>
 
                 <label style={labelStyle}>
@@ -1416,12 +2079,17 @@ export const PendingView: React.FC<PendingViewProps> = ({
                     className="input-fluent"
                     value={form.homepage}
                     onChange={(e) => setField('homepage', e.target.value)}
+                    onBlur={handleFieldBlur}
                     placeholder="https://example.com"
                     inputMode="url"
                     spellCheck={false}
                     readOnly={isArchived}
                   />
-                  {formErrors.homepage && <em style={errorStyle}>{errorText(formErrors.homepage)}</em>}
+                  {formErrors.homepage && (
+                    <em data-testid="pending-error-homepage" style={errorStyle}>
+                      {errorText(formErrors.homepage)}
+                    </em>
+                  )}
                 </label>
 
                 <label style={labelStyle}>
@@ -1430,6 +2098,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
                     className="input-fluent"
                     value={form.default_version}
                     onChange={(e) => setField('default_version', e.target.value)}
+                    onBlur={handleFieldBlur}
                     placeholder="v0.1.0"
                     autoComplete="off"
                     readOnly={isArchived}
@@ -1467,6 +2136,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
                     className="input-fluent"
                     value={form.category_name}
                     onChange={(e) => setField('category_name', e.target.value)}
+                    onBlur={handleFieldBlur}
                     placeholder={t('pending.placeholders.category_name')}
                     readOnly={isArchived}
                   />
@@ -1478,6 +2148,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
                     className="input-fluent"
                     value={form.description_en}
                     onChange={(e) => setField('description_en', e.target.value)}
+                    onBlur={handleFieldBlur}
                     rows={2}
                     placeholder={t('pending.placeholders.description_en')}
                     readOnly={isArchived}
@@ -1490,6 +2161,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
                     className="input-fluent"
                     value={form.icon}
                     onChange={(e) => setField('icon', e.target.value)}
+                    onBlur={handleFieldBlur}
                     placeholder="https://…"
                     inputMode="url"
                     spellCheck={false}
@@ -1502,7 +2174,8 @@ export const PendingView: React.FC<PendingViewProps> = ({
                   <input
                     className="input-fluent"
                     value={aliasesText}
-                    onChange={(e) => setAliasesText(e.target.value)}
+                    onChange={(e) => handleTextFieldChange('aliases', e.target.value)}
+                    onBlur={handleFieldBlur}
                     placeholder={t('pending.placeholders.csv')}
                     readOnly={isArchived}
                   />
@@ -1523,8 +2196,8 @@ export const PendingView: React.FC<PendingViewProps> = ({
                 >
                   <div className="pending-section-title-wrap">
                     <Sliders size={13} strokeWidth={1.5} aria-hidden="true" />
-                    <span>运行时与目录（高级）</span>
-                    <span className="pending-section-count">5</span>
+                    <span>运行时（高级）</span>
+                    <span className="pending-section-count">2</span>
                   </div>
                   {openSections.runtime ? (
                     <ChevronDown size={14} strokeWidth={1.5} aria-hidden="true" />
@@ -1538,46 +2211,11 @@ export const PendingView: React.FC<PendingViewProps> = ({
                   <input
                     className="input-fluent"
                     value={platformsText}
-                    onChange={(e) => setPlatformsText(e.target.value)}
+                    onChange={(e) => handleTextFieldChange('platforms', e.target.value)}
+                    onBlur={handleFieldBlur}
                     placeholder="windows, linux"
                     autoComplete="off"
                     spellCheck={false}
-                    readOnly={isArchived}
-                  />
-                </label>
-
-                <label style={{ ...labelStyle, display: openSections.runtime ? 'flex' : 'none' }}>
-                  <span>{t('pending.fields.publishers')}</span>
-                  <textarea
-                    className="input-fluent"
-                    value={publishersText}
-                    onChange={(e) => setPublishersText(e.target.value)}
-                    rows={2}
-                    placeholder={t('pending.placeholders.lines')}
-                    readOnly={isArchived}
-                  />
-                </label>
-
-                <label style={{ ...labelStyle, display: openSections.runtime ? 'flex' : 'none' }}>
-                  <span>{t('pending.fields.install_dirs')}</span>
-                  <textarea
-                    className="input-fluent"
-                    value={installDirsText}
-                    onChange={(e) => setInstallDirsText(e.target.value)}
-                    rows={2}
-                    placeholder={t('pending.placeholders.lines')}
-                    readOnly={isArchived}
-                  />
-                </label>
-
-                <label style={{ ...labelStyle, display: openSections.runtime ? 'flex' : 'none' }}>
-                  <span>{t('pending.fields.search_subdirs')}</span>
-                  <textarea
-                    className="input-fluent"
-                    value={searchSubdirsText}
-                    onChange={(e) => setSearchSubdirsText(e.target.value)}
-                    rows={2}
-                    placeholder={t('pending.placeholders.lines')}
                     readOnly={isArchived}
                   />
                 </label>
@@ -1587,7 +2225,8 @@ export const PendingView: React.FC<PendingViewProps> = ({
                   <textarea
                     className="input-fluent"
                     value={identifiersText}
-                    onChange={(e) => setIdentifiersText(e.target.value)}
+                    onChange={(e) => handleTextFieldChange('identifiers', e.target.value)}
+                    onBlur={handleFieldBlur}
                     rows={2}
                     placeholder="windows=rustdesk.exe"
                     spellCheck={false}
@@ -1626,27 +2265,74 @@ export const PendingView: React.FC<PendingViewProps> = ({
                         已归档草稿为只读，改名或修改请使用“复制为新草稿”
                       </span>
                     )}
-                    {!isCreating && editingEntry && !isArchived && (
+                    {!isCreating && editingEntry && !isArchived && editingEntry.status === 'draft' && (
                       <button
                         type="button"
                         className="btn-fluent btn-primary btn-sm"
-                        data-testid="pending-submit-pr"
-                        disabled={submittingId === editingEntry.id}
-                        onClick={() => void handleSubmitPr(editingEntry.id)}
-                        title={t('pending.pr.json_copied')}
+                        data-testid="pending-collect-local"
+                        disabled={collectingId === editingEntry.id}
+                        onClick={() => void handleCollectLocal(editingEntry.id)}
+                        title={
+                          hasSubmitErrors
+                            ? hasLicenseSubmitError
+                              ? t('pending.pr.license_fix_hint', { id: editingEntry.id })
+                              : t('pending.fix_errors')
+                            : t('pending.need_local_hint', { id: editingEntry.id })
+                        }
                         style={{ marginLeft: 'auto' }}
                       >
-                        <Send size={13} strokeWidth={1.5} aria-hidden="true" />
+                        <Inbox size={13} strokeWidth={1.5} aria-hidden="true" />
                         <span>
-                          {submittingId === editingEntry.id
-                            ? t('pending.pr.submitting')
-                            : t('pending.pr.submit_pr')}
+                          {collectingId === editingEntry.id
+                            ? t('pending.collecting', { defaultValue: '收录中…' })
+                            : t('pending.collect_local')}
                         </span>
                       </button>
                     )}
+                    {!isCreating && editingEntry && !isArchived && isPendingCollectedStatus(editingEntry.status) && (
+                      <>
+                        <button
+                          type="button"
+                          className="btn-fluent btn-secondary btn-sm"
+                          data-testid="pending-revert-to-draft"
+                          disabled={revertingId === editingEntry.id}
+                          onClick={() => void handleRevertToDraft(editingEntry.id)}
+                          title={t('pending.revert_hint', { id: editingEntry.id, defaultValue: '将本地收录退回草稿' })}
+                          style={{ marginLeft: 'auto' }}
+                        >
+                          <Archive size={13} strokeWidth={1.5} aria-hidden="true" />
+                          <span>
+                            {confirmRevertId === editingEntry.id
+                              ? t('pending.confirm_revert', { defaultValue: '再次点击确认退回' })
+                              : t('pending.revert_to_draft', { defaultValue: '退回草稿' })}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-fluent btn-primary btn-sm"
+                          data-testid="pending-submit-pr"
+                          disabled={submittingId === editingEntry.id}
+                          onClick={() => void handleSubmitPr(editingEntry.id)}
+                          title={
+                            hasSubmitErrors
+                              ? hasLicenseSubmitError
+                                ? t('pending.pr.license_fix_hint', { id: editingEntry.id })
+                                : t('pending.fix_errors')
+                              : t('pending.pr.json_copied')
+                          }
+                        >
+                          <Send size={13} strokeWidth={1.5} aria-hidden="true" />
+                          <span>
+                            {submittingId === editingEntry.id
+                              ? t('pending.pr.submitting')
+                              : t('pending.pr.submit_pr')}
+                          </span>
+                        </button>
+                      </>
+                    )}
                   </div>
 
-                  {!isCreating && editingEntry && !isArchived && (
+                  {!isCreating && editingEntry && !isArchived && isPendingCollectedStatus(editingEntry.status) && (
                     <div className="pending-editor-footer-manual">
                       <div className="pending-manual-label">{t('pending.submit_title')}</div>
                       <div className="pending-manual-row">

@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { isBlockedShortcut, initBrowserLockdown } from './browserLockdown';
+import {
+  getNativeWindowOpen,
+  isBlockedShortcut,
+  initBrowserLockdown,
+  resolveFallbackOpener,
+} from './browserLockdown';
 import { tauriApi } from '../services/api';
 
 vi.mock('../services/api', () => ({
@@ -140,6 +145,43 @@ describe('browserLockdown', () => {
       const normalWheel = new WheelEvent('wheel', { ctrlKey: false, cancelable: true, bubbles: true });
       window.dispatchEvent(normalWheel);
       expect(normalWheel.defaultPrevented).toBe(false);
+    });
+
+    it('hijack flag stays set until the async open settles (no sync reset)', async () => {
+      initBrowserLockdown();
+      const mocked = vi.mocked(tauriApi.openUrl);
+      mocked.mockClear();
+      mocked.mockResolvedValue(undefined);
+
+      // 同 tick 内连调两次：第二次应被旗标拦截，不再透传 tauriApi
+      window.open('https://example.com/a');
+      window.open('https://example.com/b');
+      expect(mocked).toHaveBeenCalledTimes(1);
+      expect(mocked).toHaveBeenCalledWith('https://example.com/a');
+
+      // 落定后复位：下一次调用恢复透传
+      await Promise.resolve();
+      await Promise.resolve();
+      window.open('https://example.com/c');
+      expect(mocked).toHaveBeenCalledTimes(2);
+      expect(mocked).toHaveBeenLastCalledWith('https://example.com/c');
+    });
+
+    it('fallback opener bypasses the hijack via the captured native open', () => {
+      initBrowserLockdown();
+      // 劫持版带标记且同步返回 null
+      expect(
+        (window.open as unknown as Record<string, unknown>).__zstoreHijacked,
+      ).toBe(true);
+      const native = getNativeWindowOpen();
+      expect(typeof native).toBe('function');
+      const fallback = resolveFallbackOpener();
+      expect(typeof fallback).toBe('function');
+      // 兜底返回的是原生而非劫持版
+      expect(fallback).not.toBe(window.open);
+      expect(
+        (fallback as unknown as Record<string, unknown>).__zstoreHijacked,
+      ).not.toBe(true);
     });
   });
 });

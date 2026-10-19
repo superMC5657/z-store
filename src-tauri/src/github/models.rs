@@ -11,7 +11,7 @@ pub struct CatalogItem {
     pub icon: String,
     pub icon_bg: String,
     pub description: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description_en: Option<String>,
     pub category: String,
     pub category_name: String,
@@ -21,17 +21,20 @@ pub struct CatalogItem {
     pub stars: u64,
     pub forks: u64,
     pub is_verified: bool,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub homepage: Option<String>,
-    #[serde(default)]
-    pub identifiers: HashMap<String, Vec<String>>,
-    #[serde(default)]
+    // 字段顺序与 catalog.json 磁盘顺序对齐：homepage, install_dirs?,
+    // search_subdirs?, publishers?, platforms, identifiers（identifiers 恒尾；
+    // 空向量/None 经 skip_serializing_if 省略，与 catalog.json 省略空一致）。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub install_dirs: Vec<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub search_subdirs: Vec<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub publishers: Vec<String>,
     pub platforms: Vec<String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub identifiers: HashMap<String, Vec<String>>,
 }
 
 impl CatalogItem {
@@ -196,6 +199,7 @@ mod tests {
     use std::collections::HashMap;
 
     fn dummy_item(platforms: Vec<String>) -> CatalogItem {
+        // 构造字段顺序与 CatalogItem 定义（catalog.json 磁盘顺序）对齐，行为不变。
         CatalogItem {
             id: "unknown/repo".to_string(),
             name: "repo".to_string(),
@@ -214,11 +218,11 @@ mod tests {
             forks: 0,
             is_verified: false,
             homepage: None,
-            identifiers: HashMap::new(),
             install_dirs: vec![],
             search_subdirs: vec![],
             publishers: vec![],
             platforms,
+            identifiers: HashMap::new(),
         }
     }
 

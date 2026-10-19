@@ -326,18 +326,26 @@ export interface CustomCatalogItem {
   forks: number;
   is_verified: boolean;
   homepage?: string | null;
-  identifiers: Record<string, string[]>;
   install_dirs: string[];
   search_subdirs: string[];
   publishers: string[];
   platforms: string[];
+  identifiers: Record<string, string[]>;
+}
+
+/** 自维护草稿状态（收录态 collected 系与 local_collected 同义，PR 前置门禁唯一口径）。 */
+export type CustomAppStatus = 'draft' | 'submitted' | 'collected' | 'local_collected';
+
+/** 本地收录态判定（overlay/PR 门禁唯一口径）：status 为 collected 系。 */
+export function isCollectedStatus(status: unknown): boolean {
+  return status === 'collected' || status === 'local_collected';
 }
 
 /** 自维护草稿条目（与后端 CustomAppEntry 同形）。 */
 export interface CustomAppEntry {
   id: string;
   item: CustomCatalogItem;
-  status: string;
+  status: CustomAppStatus | string;
   pr_url?: string | null;
   created_at: number;
   updated_at: number;
@@ -379,6 +387,59 @@ export async function deleteCustomApp(id: string): Promise<boolean> {
 /** 标记已提交：status=submitted + 落 pr_url；已转正归档行拒绝。 */
 export async function markCustomSubmitted(id: string, prUrl: string): Promise<CustomAppEntry> {
   return tauriInvoke<CustomAppEntry>(CMD.markCustomSubmitted, { id, prUrl });
+}
+
+/**
+ * 本地收录（收录档校验后 status=collected，已收录仍 is_verified=false）：
+ * 仅发 {id}（camelCase 单键，snake 后端桥接）。
+ */
+export async function collectCustomApp(id: string): Promise<CustomAppEntry> {
+  return tauriInvoke<CustomAppEntry>(CMD.collectCustomApp, { id });
+}
+
+/** 本地收录别名（语义同 collectCustomApp，视图经 tauriApi.collectLocalApp 接入）。 */
+export async function collectLocalApp(id: string): Promise<CustomAppEntry> {
+  return tauriInvoke<CustomAppEntry>(CMD.collectLocalApp, { id });
+}
+
+/**
+ * 本地收录退回草稿（后端 `revert_collected_to_draft` 落盘：status=draft + pr_url 清空）：
+ * 仅发 {id}（camelCase 单键，snake 后端桥接）。失败由调用方 toast 报错，禁止静默本地翻态。
+ */
+export async function revertCollectedApp(id: string): Promise<CustomAppEntry> {
+  return tauriInvoke<CustomAppEntry>(CMD.revertCollectedApp, { id });
+}
+
+/** 收录别名（同 collectCustomApp，保持旧调用兼容）。 */
+export const collect = collectCustomApp;
+
+/**
+ * 草稿 payload 转收录行摘要（合并流输入）：
+ * default_version 落 latest_version，forge/host 补 github，is_verified 恒 false。
+ */
+export function customCatalogItemToSummary(item: CustomCatalogItem): AppSummary {
+  return {
+    id: item.id,
+    name: item.name,
+    description_en:
+      typeof item.description_en === 'string' ? item.description_en : undefined,
+    owner: item.owner,
+    repo: item.repo,
+    icon: item.icon,
+    icon_bg: item.icon_bg,
+    description: item.description,
+    stars: item.stars,
+    forks: item.forks,
+    license: item.license,
+    latest_version: item.default_version,
+    category: item.category,
+    category_name: item.category_name,
+    is_verified: false,
+    forge: 'github',
+    forge_host: 'github.com',
+    homepage: item.homepage ?? null,
+    platforms: [...item.platforms],
+  };
 }
 
 /**
@@ -472,14 +533,127 @@ function homepageOf(item: LocalPrItem): string {
   return h || `https://github.com/${item.owner.trim()}/${item.repo.trim()}`;
 }
 
-/** 单条 PR payload JSON（标准 CatalogItem 片段，pretty 供复制/预填）。 */
-export function buildSinglePrPayloadJson(item: unknown): string {
-  return JSON.stringify(item, null, 2);
+/** PR payload 标准 key 顺序（与 catalog.json 同形：platforms 倒二、identifiers 恒尾）。 */
+function isNonEmptyTrimmedString(v: unknown): v is string {
+  return typeof v === 'string' && v.trim() !== '';
 }
 
-/** 批量 PR payload JSON 数组（多条合并为一个预填 URL）。 */
+function isNonEmptyArray(v: unknown): v is unknown[] {
+  return Array.isArray(v) && v.length > 0;
+}
+
+function isNonEmptyIdentifiers(v: unknown): v is Record<string, string[]> {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
+  return Object.keys(v as Record<string, unknown>).length > 0;
+}
+
+/** identifiers 标准键优先级（与 catalog.json 磁盘顺序对齐：windows/linux/macos/android/ios，其余按字母）。 */
+const PR_IDENTIFIER_PRIORITY = ['windows', 'linux', 'macos', 'android', 'ios'];
+
+function orderedIdentifierKeys(ids: Record<string, unknown>): string[] {
+  const rank = new Map(PR_IDENTIFIER_PRIORITY.map((k, i) => [k, i] as const));
+  return Object.keys(ids).sort((a, b) => {
+    const ra = rank.has(a) ? (rank.get(a) as number) : 999;
+    const rb = rank.has(b) ? (rank.get(b) as number) : 999;
+    if (ra !== rb) return ra - rb;
+    return a < b ? -1 : a > b ? 1 : 0;
+  });
+}
+
+function inlineJsonStringArray(arr: unknown[]): string {
+  return `[${arr.map((v) => JSON.stringify(v)).join(', ')}]`;
+}
+
+/**
+ * PR payload 对象格式化（模板风格，2 空格）：
+ * - 字符串数组单行内联（aliases/platforms/identifiers 内层数组）；
+ * - identifiers 对象展开（每键一行，内层数组仍内联）；
+ * - 标量走 JSON.stringify（转义一致，可 JSON.parse 回读）。
+ */
+function formatPrObject(payload: Record<string, unknown>, baseIndent = ''): string {
+  const fieldIndent = `${baseIndent}  `;
+  const innerIndent = `${baseIndent}    `;
+  // 与 JSON.stringify 同形：undefined 值直接省略（草稿缺 stars/forks 时仍可解析）。
+  const entries = Object.entries(payload).filter(([, v]) => v !== undefined);
+  const blocks: string[] = [];
+  for (const [key, value] of entries) {
+    const jkey = JSON.stringify(key);
+    if (key === 'identifiers' && value && typeof value === 'object' && !Array.isArray(value)) {
+      const ids = value as Record<string, unknown[]>;
+      const keys = orderedIdentifierKeys(ids).filter(
+        (k) => Array.isArray(ids[k]) && (ids[k] as unknown[]).length > 0,
+      );
+      if (keys.length === 0) continue;
+      const innerLines = keys.map((ik, j) => {
+        const c2 = j < keys.length - 1 ? ',' : '';
+        const arr = ids[ik] as unknown[];
+        return `${innerIndent}${JSON.stringify(ik)}: ${inlineJsonStringArray(arr)}${c2}`;
+      });
+      blocks.push(`${fieldIndent}${jkey}: {\n${innerLines.join('\n')}\n${fieldIndent}}`);
+      continue;
+    }
+    if (Array.isArray(value)) {
+      if (value.length === 0) continue;
+      blocks.push(`${fieldIndent}${jkey}: ${inlineJsonStringArray(value)}`);
+      continue;
+    }
+    blocks.push(`${fieldIndent}${jkey}: ${JSON.stringify(value)}`);
+  }
+  return `${baseIndent}{\n${blocks.join(',\n')}\n${baseIndent}}`;
+}
+
+/**
+ * 单条目重排为标准顺序并省略空：install_dirs/search_subdirs/publishers
+ * 按模板直接丢弃（预填启发式猜测，不进 PR）；aliases/platforms 空数组省、
+ * identifiers 空对象/空内层数组省；description_en/homepage 空省；
+ * stars/forks 恒保留；is_verified 恒为 true（仅预填/复制体，库存对象不改）。
+ */
+function toOrderedPrPayload(item: unknown): Record<string, unknown> {
+  const src = (item ?? {}) as Record<string, unknown>;
+  let cleanedIdentifiers: Record<string, string[]> | undefined;
+  if (isNonEmptyIdentifiers(src.identifiers)) {
+    const raw = src.identifiers as Record<string, unknown>;
+    const out: Record<string, string[]> = {};
+    for (const [k, v] of Object.entries(raw)) {
+      if (!Array.isArray(v) || v.length === 0) continue;
+      const strs = (v as unknown[]).filter((s): s is string => typeof s === 'string');
+      if (strs.length > 0) out[k] = strs;
+    }
+    if (Object.keys(out).length > 0) cleanedIdentifiers = out;
+  }
+  return {
+    id: src.id,
+    name: src.name,
+    owner: src.owner,
+    repo: src.repo,
+    icon: src.icon,
+    icon_bg: src.icon_bg,
+    description: src.description,
+    ...(isNonEmptyTrimmedString(src.description_en) ? { description_en: src.description_en } : {}),
+    category: src.category,
+    category_name: src.category_name,
+    ...(isNonEmptyArray(src.aliases) ? { aliases: src.aliases } : {}),
+    default_version: src.default_version,
+    license: src.license,
+    stars: src.stars,
+    forks: src.forks,
+    is_verified: true,
+    ...(isNonEmptyTrimmedString(src.homepage) ? { homepage: src.homepage } : {}),
+    ...(isNonEmptyArray(src.platforms) ? { platforms: src.platforms } : {}),
+    ...(cleanedIdentifiers ? { identifiers: cleanedIdentifiers } : {}),
+  };
+}
+
+/** 单条 PR payload JSON（标准 CatalogItem 片段，模板风格 2 空格：数组内联/identifiers 展开）。 */
+export function buildSinglePrPayloadJson(item: unknown): string {
+  return formatPrObject(toOrderedPrPayload(item), '');
+}
+
+/** 批量 PR payload JSON 数组（多条合并为一个预填 URL，内层对象同单条模板风格）。 */
 export function buildBatchPrPayloadJson(items: unknown[]): string {
-  return JSON.stringify(items, null, 2);
+  if (!Array.isArray(items) || items.length === 0) return '[]';
+  const bodies = items.map((item) => formatPrObject(toOrderedPrPayload(item), '  '));
+  return `[\n${bodies.join(',\n')}\n]`;
 }
 
 /** 本地同形单条预填 URL（与后端 build_single_pr_url 同形）。 */
@@ -578,41 +752,319 @@ function homepageOrGithub(owner: string, repo: string, homepage?: string | null)
   return `https://github.com/${cleanCoord(owner)}/${cleanCoord(repo)}`;
 }
 
+/** 草稿 icon 归一：仅保留远程 http(s) 真值，base64/data:/空/相对路径一律置空走详情 icon 链回填。 */
+function normalizeDraftIcon(icon: unknown): string {
+  if (typeof icon !== 'string') return '';
+  const v = icon.trim();
+  return /^https?:\/\//i.test(v) ? v : '';
+}
+
+// ---------- Lane C：移入草稿启发式预填（前端轻量版，仅预填可编辑，提交前人工校对） ----------
+// 口径参考 `src-tauri/scanner/{types,executable,matcher}` + `github/http::guess_category`
+// 的轻量前端版（不照抄后端）：有真值绝不覆盖（源非空优先），仅空时填猜测。
+// - platforms：源非空即用（归一小写去重，过滤 `other`），否则按名猜桌面最小集；
+// - identifiers：按有效 platforms（未知则 windows/macos/linux）填 exe/裸名候选；
+// - install_dirs：`[Repo, lower]` 去重；search_subdirs：默认 8 项中高频子集 `["bin"]`；
+// - publishers：无源不猜，保守填 owner 美化（首字母大写，可编辑）；
+// - aliases：`[name, repo, owner/repo]` 小写去重；
+// - category：源非空原样保留，仅空时用轻量关键词表猜 + `category_name` 同步。
+
+/** 桌面默认三端（platforms 未知 + identifiers 未知键回退共用）。 */
+const DRAFT_DESKTOP_PLATFORMS = ['windows', 'macos', 'linux'];
+
+/** 默认检索子目录高频子集（后端 `default_search_subdirs` 8 项中的最高频）。 */
+const DRAFT_SEARCH_SUBDIRS = ['bin'];
+
+/** 分类 key → 中文名（与后端 `guess_category` 的 `CategoryMeta.name` 同值）。 */
+const DRAFT_CATEGORY_NAMES: Record<string, string> = {
+  system: '系统实用',
+  network: '网络工具',
+  media: '影音视听',
+  security: '安全隐私',
+  dev: '开发工具',
+  graphics: '图形设计',
+  office: '效率办公',
+  reading: '学习阅读',
+  ops: '极客运维',
+  games: '休闲游戏',
+};
+
+function normalizeDraftPlatforms(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const p of input) {
+    if (typeof p !== 'string') continue;
+    const key = p.trim().toLowerCase();
+    if (!key || key === 'other' || seen.has(key)) continue;
+    seen.add(key);
+    out.push(key);
+  }
+  return out;
+}
+
+/** platforms 为空时按名猜桌面最小集（显式单端命中即收窄，否则回退三端；保持可编辑）。 */
+function guessDraftPlatformsFromName(repo: string, name: string, extra = ''): string[] {
+  const text = `${repo} ${name} ${extra}`.toLowerCase();
+  const hasAndroid = text.includes('android');
+  const hasIos =
+    text.includes('ios') || text.includes('iphone') || text.includes('ipad');
+  if (hasAndroid && !hasIos) return ['android'];
+  if (hasIos && !hasAndroid) return ['ios'];
+  const hasWin =
+    text.includes('windows') ||
+    text.includes('win32') ||
+    text.includes('win64') ||
+    text.includes('winui') ||
+    text.includes('wpf');
+  const hasMac =
+    text.includes('macos') ||
+    text.includes('mac os') ||
+    text.includes('darwin') ||
+    text.includes('appkit') ||
+    text.includes('cocoa');
+  const hasLinux =
+    text.includes('linux') ||
+    text.includes('appimage') ||
+    text.includes('flatpak') ||
+    /(?:^|[\W_])deb(?:$|[\W_])/.test(text);
+  const hits = [
+    hasWin ? 'windows' : '',
+    hasMac ? 'macos' : '',
+    hasLinux ? 'linux' : '',
+  ].filter((s): s is string => s !== '');
+  if (hits.length === 1) return hits;
+  return [...DRAFT_DESKTOP_PLATFORMS];
+}
+
+/** Windows 可执行候选（原生大小写 + 小写 + 去分隔小写，轻量版不含 `64/-x64` 变体）。 */
+function draftExeCandidates(base: string): string[] {
+  const b = cleanCoord(base);
+  if (!b) return [];
+  const lower = b.toLowerCase();
+  const clean = lower.replace(/[.\-]+/g, '');
+  const out = [`${b}.exe`, `${lower}.exe`];
+  if (clean && clean !== lower) out.push(`${clean}.exe`);
+  return [...new Set(out.filter((s) => s.trim() !== ''))];
+}
+
+/** 非 Windows 裸名候选（原生 + 小写 + 去分隔小写，去重保序）。 */
+function draftBareCandidates(base: string): string[] {
+  const b = cleanCoord(base);
+  if (!b) return [];
+  const lower = b.toLowerCase();
+  const clean = lower.replace(/[.\-]+/g, '');
+  return [...new Set([b, lower, clean].filter((s) => s && s.trim() !== ''))];
+}
+
+/** 按有效 platforms 生成 identifiers（windows 取 exe，其余取裸名；`other` 永不进键）。 */
+function buildDraftIdentifiers(
+  base: string,
+  platforms: string[],
+): Record<string, string[]> {
+  const keys = platforms.length > 0 ? platforms : [...DRAFT_DESKTOP_PLATFORMS];
+  const out: Record<string, string[]> = {};
+  for (const k of keys) {
+    const key = k.trim().toLowerCase();
+    if (!key || key === 'other' || out[key]) continue;
+    const candidates =
+      key === 'windows' ? draftExeCandidates(base) : draftBareCandidates(base);
+    if (candidates.length > 0) out[key] = candidates;
+  }
+  return out;
+}
+
+function buildDraftInstallDirs(repo: string): string[] {
+  const r = cleanCoord(repo);
+  if (!r) return [];
+  const lower = r.toLowerCase();
+  return r === lower ? [r] : [r, lower];
+}
+
+/** owner 美化为发行商（按 `-/_/./空格` 切分后首字母大写，其余保持；保守可编辑）。 */
+function buildDraftPublishers(owner: string): string[] {
+  const t = cleanCoord(owner);
+  if (!t) return [];
+  const parts = t.split(/[-_.\s]+/).filter(Boolean);
+  if (parts.length === 0) return [];
+  const beautified = parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+  return beautified ? [beautified] : [];
+}
+
+/** 别名预填（`[name, repo, owner/repo]` 小写去重，空项丢弃）。 */
+function buildDraftAliases(name: string, repo: string, owner: string): string[] {
+  const id = canonicalDraftId(owner, repo);
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const c of [cleanCoord(name), cleanCoord(repo), id]) {
+    const lower = c.toLowerCase();
+    if (!lower || lower === '/' || seen.has(lower)) continue;
+    seen.add(lower);
+    out.push(lower);
+  }
+  return out;
+}
+
+/** 轻量分类关键词表（与后端 `guess_category` 同序：system/network/media/security/dev/graphics/office/reading/ops/games）。 */
+function guessDraftCategoryKey(text: string): string {
+  const t = text.toLowerCase();
+  if (
+    t.includes('remote') ||
+    t.includes('desktop') ||
+    t.includes('cleaner') ||
+    t.includes('launcher') ||
+    t.includes('file manager')
+  ) {
+    return 'system';
+  }
+  if (
+    t.includes('network') ||
+    t.includes('transfer') ||
+    t.includes('download') ||
+    t.includes('torrent') ||
+    t.includes('proxy') ||
+    t.includes('vpn')
+  ) {
+    return 'network';
+  }
+  if (
+    t.includes('player') ||
+    t.includes('video') ||
+    t.includes('audio') ||
+    t.includes('music') ||
+    t.includes('stream') ||
+    t.includes('record')
+  ) {
+    return 'media';
+  }
+  if (
+    t.includes('password') ||
+    t.includes('security') ||
+    t.includes('crypto') ||
+    t.includes('2fa') ||
+    t.includes('otp') ||
+    t.includes('authenticator')
+  ) {
+    return 'security';
+  }
+  if (
+    t.includes('editor') ||
+    t.includes('terminal') ||
+    t.includes('git') ||
+    t.includes('code') ||
+    t.includes('developer') ||
+    t.includes('api')
+  ) {
+    return 'dev';
+  }
+  if (
+    t.includes('image') ||
+    t.includes('paint') ||
+    t.includes('photo') ||
+    t.includes('screenshot') ||
+    t.includes('3d') ||
+    t.includes('svg')
+  ) {
+    return 'graphics';
+  }
+  if (
+    t.includes('note') ||
+    t.includes('markdown') ||
+    t.includes('pdf') ||
+    t.includes('office') ||
+    t.includes('todo') ||
+    t.includes('calendar')
+  ) {
+    return 'office';
+  }
+  if (
+    t.includes('book') ||
+    t.includes('reader') ||
+    t.includes('rss') ||
+    t.includes('epub') ||
+    t.includes('feed')
+  ) {
+    return 'reading';
+  }
+  if (
+    t.includes('docker') ||
+    t.includes('kubernetes') ||
+    t.includes('monitor') ||
+    t.includes('database') ||
+    t.includes('server')
+  ) {
+    return 'ops';
+  }
+  if (t.includes('game') || t.includes('emulator') || t.includes('arcade')) {
+    return 'games';
+  }
+  return 'dev';
+}
+
+function resolveDraftCategory(
+  rawCategory: string,
+  rawCategoryName: string,
+  guessText: string,
+): { category: string; category_name: string } {
+  if (rawCategory) {
+    return { category: rawCategory, category_name: rawCategoryName || rawCategory };
+  }
+  const key = guessDraftCategoryKey(guessText);
+  return { category: key, category_name: DRAFT_CATEGORY_NAMES[key] ?? key };
+}
+
 /**
  * 由在线 AppSummary 合成草稿 payload（一键“移入收录”入口）：
  * - id 取 canonical（小写 owner/repo），与坐标对齐；
  * - status 由后端定为 draft，此处仅备 payload；
- * - platforms 恒 []（loading 加载中，复用 lite 确认链，编辑页可手改）；
+ * - icon 仅保留远程 http(s) 真值，base64/data:/空/相对路径一律置空（后续详情 icon 链回填），有真值不覆盖；
+ * - platforms 源非空即用（归一小写），否则按名猜桌面最小集（可编辑）；
+ * - identifiers/install_dirs/search_subdirs/publishers/aliases/category 仅空时启发式预填，
+ *   有真值绝不覆盖，提交前须在编辑页人工校对；
  * - homepage 缺失回退 `https://github.com/owner/repo`；license 缺失回退 `OpenSource`
  *   占位（诚实占位，不伪造 MIT；后端暂存档放行，提交前须在编辑页补真实 SPDX）；
- * - category 为空回退 dev（external 原样保留，不强制改写）。
+ * - category 非空原样保留（含 external/dev），为空才按关键词猜 + `category_name` 同步。
  */
-export function buildCustomDraftItemFromSummary(app: AppSummary): CustomCatalogItem {
+// iconRemote: restoreOrFetchIconCycle().remote_url remote truth (http only), takes precedence over app.icon (M2 data: display state).
+export function buildCustomDraftItemFromSummary(app: AppSummary, iconRemote?: unknown): CustomCatalogItem {
   const owner = cleanCoord(app.owner) || cleanCoord(app.id.split('/')[0] ?? '');
   const repo =
     cleanCoord(app.repo) ||
     cleanCoord(app.id.split('/').slice(1).join('/')) ||
     cleanCoord(app.name);
   const id = canonicalDraftId(owner, repo);
-  const category = cleanCoord(app.category) || 'dev';
+  const draftName = cleanCoord(app.name) || repo;
+  const description = cleanCoord(app.description) || cleanCoord(app.name) || id;
+  const descriptionEn =
+    typeof app.description_en === 'string' && app.description_en.trim()
+      ? app.description_en
+      : null;
+  const { category, category_name } = resolveDraftCategory(
+    cleanCoord(app.category),
+    cleanCoord(app.category_name),
+    `${draftName} ${repo} ${description} ${descriptionEn ?? ''}`,
+  );
+  const srcPlatforms = normalizeDraftPlatforms(app.platforms);
+  const platforms =
+    srcPlatforms.length > 0
+      ? srcPlatforms
+      : guessDraftPlatformsFromName(repo, draftName, description);
+  const idBase = repo || draftName;
   return {
     id,
-    name: cleanCoord(app.name) || repo,
+    name: draftName,
     owner,
     repo,
-    icon: typeof app.icon === 'string' ? app.icon : '',
+    icon: normalizeDraftIcon(iconRemote) || normalizeDraftIcon(app.icon),
     icon_bg:
       typeof app.icon_bg === 'string' && app.icon_bg
         ? app.icon_bg
         : 'linear-gradient(135deg, #475569, #334155)',
-    description: cleanCoord(app.description) || cleanCoord(app.name) || id,
-    description_en:
-      typeof app.description_en === 'string' && app.description_en.trim()
-        ? app.description_en
-        : null,
+    description,
+    description_en: descriptionEn,
     category,
-    category_name: cleanCoord(app.category_name) || category,
-    aliases: [],
+    category_name,
+    aliases: buildDraftAliases(draftName, repo, owner),
     default_version: cleanCoord(app.latest_version) || 'v0.1.0',
     // 未知协议诚实占位（未收录卡本就携带 `OpenSource`）：暂存档放行，提交前补真实 SPDX。
     license: cleanCoord(app.license) || 'OpenSource',
@@ -620,11 +1072,11 @@ export function buildCustomDraftItemFromSummary(app: AppSummary): CustomCatalogI
     forks: typeof app.forks === 'number' && Number.isFinite(app.forks) ? app.forks : 0,
     is_verified: false,
     homepage: homepageOrGithub(owner, repo, typeof app.homepage === 'string' ? app.homepage : null),
-    identifiers: {},
-    install_dirs: [],
-    search_subdirs: [],
-    publishers: [],
-    platforms: [],
+    install_dirs: buildDraftInstallDirs(repo),
+    search_subdirs: [...DRAFT_SEARCH_SUBDIRS],
+    publishers: buildDraftPublishers(owner),
+    platforms,
+    identifiers: buildDraftIdentifiers(idBase, platforms),
   };
 }
 
@@ -632,6 +1084,9 @@ export function buildCustomDraftItemFromSummary(app: AppSummary): CustomCatalogI
  * 由趋势未收录行（TrendRepo）合成草稿 payload：同上，stars/forks 取榜单值，
  * 描述缺失回退名称，homepage 回退 GitHub 坐标页；榜单无协议信息，license 恒
  * `OpenSource` 占位（暂存档放行，提交前须在编辑页补真实 SPDX）。
+ * icon 恒置空（仅允许远程 http(s)，榜单无图标输入，后续详情 icon 链回填）。
+ * 空字段按 repo/name 启发式预填（platforms 按名猜桌面最小集，category 按关键词猜），
+ * 均为可编辑预填，提交前人工校对。
  */
 export function buildCustomDraftItemFromTrendRepo(repo: {
   owner: string;
@@ -651,28 +1106,37 @@ export function buildCustomDraftItemFromTrendRepo(repo: {
     typeof repo.url === 'string' && repo.url.trim().startsWith('http')
       ? repo.url.trim()
       : `https://github.com/${owner}/${repoName}`;
+  const draftName = cleanCoord(repo.name) || repoName;
+  const description = cleanCoord(repo.description ?? '') || repoName;
+  const { category, category_name } = resolveDraftCategory(
+    '',
+    '',
+    `${draftName} ${repoName} ${description}`,
+  );
+  const platforms = guessDraftPlatformsFromName(repoName, draftName, description);
+  const idBase = repoName || draftName;
   return {
     id,
-    name: cleanCoord(repo.name) || repoName,
+    name: draftName,
     owner,
     repo: repoName,
     icon: '',
     icon_bg: 'linear-gradient(135deg, #475569, #334155)',
-    description: cleanCoord(repo.description ?? '') || repoName,
+    description,
     description_en: null,
-    category: 'dev',
-    category_name: 'dev',
-    aliases: [],
+    category,
+    category_name,
+    aliases: buildDraftAliases(draftName, repoName, owner),
     default_version: 'v0.1.0',
     license: 'OpenSource',
     stars,
     forks,
     is_verified: false,
     homepage,
-    identifiers: {},
-    install_dirs: [],
-    search_subdirs: [],
-    publishers: [],
-    platforms: [],
+    install_dirs: buildDraftInstallDirs(repoName),
+    search_subdirs: [...DRAFT_SEARCH_SUBDIRS],
+    publishers: buildDraftPublishers(owner),
+    platforms,
+    identifiers: buildDraftIdentifiers(idBase, platforms),
   };
 }

@@ -12,6 +12,12 @@ use serde::{Deserialize, Serialize};
 
 pub const CUSTOM_APP_STATUS_DRAFT: &str = "draft";
 pub const CUSTOM_APP_STATUS_SUBMITTED: &str = "submitted";
+/// 本地收录态：已收录进本地（可搜可装，与远端精选同行为；PR 前置门禁）。
+pub const CUSTOM_APP_STATUS_COLLECTED: &str = "collected";
+/// 别名：本地收录态（语义同 `CUSTOM_APP_STATUS_COLLECTED`）。
+pub const LOCAL_COLLECTED: &str = CUSTOM_APP_STATUS_COLLECTED;
+/// 别名：本地收录态全称（语义同 `CUSTOM_APP_STATUS_COLLECTED`）。
+pub const CUSTOM_APP_STATUS_LOCAL_COLLECTED: &str = CUSTOM_APP_STATUS_COLLECTED;
 
 /// 自维护草稿条目：DB 行 + 反序列化后的完整 `CatalogItem`。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,6 +83,9 @@ pub enum ValidateMode {
     /// 提交档（`mark_submitted` / 预填 PR 链接）：既有全量——必填 +
     /// `homepage` http(s) + OSI 白名单（D1）。
     SubmitStrict,
+    /// 收录档（`mark_collected` / `collect_custom_app`）：与 `SubmitStrict` 同口径——
+    /// 必填 + `homepage` http(s) + OSI 白名单（D1），仅语义区分收录与提交。
+    CollectStrict,
 }
 
 /// 草稿校验（纯函数，可单测）：通过返回 canonical id，失败返回中文原因。
@@ -200,6 +209,17 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> Result<CustomAppEntry> {
     })
 }
 
+/// 本地收录态判定（overlay/PR 门禁唯一口径）：`status==collected && !archived`。
+/// 兼容历史字面 `local_collected`（前端曾透出该别名字面，库内常量同值但盘上可能残留）。
+pub fn is_collected_entry(entry: &CustomAppEntry) -> bool {
+    is_collected_status(&entry.status) && !entry.archived
+}
+
+/// 收录态判定（纯状态位，不含归档）：`status==collected`，兼容 `local_collected` 字面。
+pub fn is_collected_status(status: &str) -> bool {
+    status == CUSTOM_APP_STATUS_COLLECTED || status == "local_collected"
+}
+
 impl Database {
     /// 草稿列表：默认仅未归档（`include_archived=true` 含转正归档行），按更新时间倒序。
     pub fn list_custom_apps(&self, include_archived: bool) -> Result<Vec<CustomAppEntry>> {
@@ -251,6 +271,8 @@ impl Database {
     }
 
     /// 草稿删除（后端直接删，二次确认由前端做）：返回是否命中。
+    /// 未归档 `submitted` 可删（`status`/`pr_url` 经 `list`/`get` 透出后手动清理）；
+    /// 已归档行同样直接删（转正归档手动清理，现有语义不变）。
     pub fn delete_custom_app(&self, id: &str) -> Result<bool> {
         let rows = self.exec_upsert(
             "DELETE FROM custom_apps WHERE id = ?1",
@@ -262,6 +284,7 @@ impl Database {
     /// 标记已提交：`status=submitted` + 落 `pr_url`；已归档（转正）行拒绝，不复活。
     /// 提交时强制提交档全校验（`SubmitStrict`：必填 + homepage http(s) + OSI 白名单 D1），
     /// 占位 license（`OpenSource` 等）草稿在此被拦下，先补真实 SPDX 再提交。
+    /// 已提交行只读：二次 `mark` 直接拒绝（明确文案，不走收录门禁）。
     pub fn mark_custom_app_submitted(
         &self,
         id: &str,
@@ -283,6 +306,18 @@ impl Database {
                 "草稿已转正归档，无需重复提交: {}",
                 cleaned
             )));
+        }
+        if entry.status == CUSTOM_APP_STATUS_SUBMITTED {
+            return Err(MarkSubmittedError::Invalid(format!(
+                "已提交行不可重复提交: {}",
+                cleaned
+            )));
+        }
+        // PR 前置门禁（与命令层 `ensure_collected_for_pr` 同口径）：仅收录行放行（含历史 `local_collected` 字面）。
+        if !is_collected_status(&entry.status) {
+            return Err(MarkSubmittedError::Invalid(
+                "须先收录进本地再PR".to_string(),
+            ));
         }
         if let Err(reason) = validate_custom_item(
             &entry.item,
@@ -306,8 +341,147 @@ impl Database {
             .map_err(MarkSubmittedError::Db)
     }
 
+    /// 标记本地收录：`status=collected`（`archived` 不动，已归档行拒绝不复活）。
+    /// 收录时强制收录档全校验（`CollectStrict`，与 `SubmitStrict` 同口径）；
+    /// 入库保持 `is_verified=false`（已收录仍不冒充已验证，纠正后落盘）。
+    /// 已提交行只读：重收录直接拒绝（明确文案，不降级回 `collected`）。
+    pub fn mark_custom_app_collected(
+        &self,
+        id: &str,
+    ) -> Result<CustomAppEntry, MarkCollectedError> {
+        let cleaned = clean(id);
+        if cleaned.is_empty() {
+            return Err(MarkCollectedError::Invalid("应用标识不可为空".to_string()));
+        }
+        let existing = self
+            .get_custom_app(cleaned)
+            .map_err(MarkCollectedError::Db)?;
+        let entry = existing.ok_or_else(|| {
+            MarkCollectedError::Invalid(format!("草稿不存在: {}", cleaned))
+        })?;
+        if entry.archived {
+            return Err(MarkCollectedError::Invalid(format!(
+                "草稿已转正归档，无需重复收录: {}",
+                cleaned
+            )));
+        }
+        if entry.status == CUSTOM_APP_STATUS_SUBMITTED {
+            return Err(MarkCollectedError::Invalid(format!(
+                "已提交行不可重复收录: {}",
+                cleaned
+            )));
+        }
+        if let Err(reason) = validate_custom_item(
+            &entry.item,
+            ValidateMode::CollectStrict,
+            &resolve_license_gate(),
+        ) {
+            return Err(MarkCollectedError::Invalid(format!(
+                "本地收录校验未通过：{}",
+                reason
+            )));
+        }
+        let mut item = entry.item.clone();
+        item.is_verified = false;
+        let payload = serde_json::to_string(&item).map_err(|e| {
+            MarkCollectedError::Db(rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
+        })?;
+        let now = now_secs();
+        self.exec_upsert(
+            "UPDATE custom_apps SET payload_json = ?1, status = 'collected', updated_at = ?2 WHERE id = ?3",
+            params![payload, now, cleaned],
+        )
+        .map_err(MarkCollectedError::Db)?;
+        self.get_custom_app(cleaned)
+            .map_err(MarkCollectedError::Db)?
+            .ok_or(rusqlite::Error::QueryReturnedNoRows)
+            .map_err(MarkCollectedError::Db)
+    }
+
+    /// 别名：标记本地收录（语义同 `mark_custom_app_collected`）。
+    pub fn mark_collected(&self, id: &str) -> Result<CustomAppEntry, MarkCollectedError> {
+        self.mark_custom_app_collected(id)
+    }
+
+    /// 退回草稿：`status=collected` → `draft`（未归档限定；已提交/已归档不退回，只读）。
+    /// `pr_url` 清空，`is_verified=false` 落盘保持（草稿永不冒充已验证）。
+    pub fn revert_collected_to_draft(
+        &self,
+        id: &str,
+    ) -> Result<CustomAppEntry, RevertCollectedError> {
+        let cleaned = clean(id);
+        if cleaned.is_empty() {
+            return Err(RevertCollectedError::Invalid("应用标识不可为空".to_string()));
+        }
+        let existing = self
+            .get_custom_app(cleaned)
+            .map_err(RevertCollectedError::Db)?;
+        let entry = existing.ok_or_else(|| {
+            RevertCollectedError::Invalid(format!("草稿不存在: {}", cleaned))
+        })?;
+        if entry.archived {
+            return Err(RevertCollectedError::Invalid(format!(
+                "草稿已转正归档，不可退回草稿: {}",
+                cleaned
+            )));
+        }
+        if entry.status == CUSTOM_APP_STATUS_SUBMITTED {
+            return Err(RevertCollectedError::Invalid(format!(
+                "已提交行不可退回草稿: {}",
+                cleaned
+            )));
+        }
+        if !is_collected_status(&entry.status) {
+            return Err(RevertCollectedError::Invalid(format!(
+                "仅已收录行可退回草稿: {}",
+                cleaned
+            )));
+        }
+        let mut item = entry.item.clone();
+        item.is_verified = false;
+        let payload = serde_json::to_string(&item).map_err(|e| {
+            RevertCollectedError::Db(rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
+        })?;
+        let now = now_secs();
+        self.exec_upsert(
+            "UPDATE custom_apps SET payload_json = ?1, status = 'draft', pr_url = NULL, updated_at = ?2 WHERE id = ?3",
+            params![payload, now, cleaned],
+        )
+        .map_err(RevertCollectedError::Db)?;
+        self.get_custom_app(cleaned)
+            .map_err(RevertCollectedError::Db)?
+            .ok_or(rusqlite::Error::QueryReturnedNoRows)
+            .map_err(RevertCollectedError::Db)
+    }
+
+    /// 本地收录列表：仅 `status=collected && archived=0`（overlay/发现页/搜索唯一口径，兼容历史 `local_collected` 字面）。
+    pub fn list_collected_apps(&self) -> Result<Vec<CustomAppEntry>> {
+        self.query_vec(
+            "SELECT id, payload_json, status, pr_url, created_at, updated_at, archived FROM custom_apps WHERE status IN ('collected', 'local_collected') AND archived = 0 ORDER BY updated_at DESC",
+            [],
+            row_to_entry,
+        )
+    }
+
+    /// 本地收录 payload 列表：`list_collected_apps` 的 `CatalogItem` 投影（合并视图输入）。
+    pub fn list_collected_custom_items(&self) -> Result<Vec<CatalogItem>> {
+        Ok(self
+            .list_collected_apps()?
+            .into_iter()
+            .map(|e| e.item)
+            .collect())
+    }
+
+    /// 按 id 取本地收录行：仅 `status=collected && !archived` 命中（详情/安装回退口径，兼容历史 `local_collected` 字面）。
+    pub fn get_collected_custom_item(&self, id: &str) -> Result<Option<CustomAppEntry>> {
+        Ok(self
+            .get_custom_app(id)?
+            .filter(|e| is_collected_status(&e.status) && !e.archived))
+    }
+
     /// 转正退役：远端 id 集合命中未归档草稿即 `archived=1`，返回转正提示。
-    /// 远端 id 经 `canonical_app_id` 归一后比对（大小写漂移行治愈）。
+    /// `draft`/`collected`/`submitted` 未归档行均命中归档（`submitted` 转正同样归档，
+    /// `status`/`pr_url` 保留可查）；远端 id 经 `canonical_app_id` 归一后比对（大小写漂移行治愈）。
     pub fn retire_custom_apps_on_sync(
         &self,
         remote_ids: &[String],
@@ -379,6 +553,56 @@ impl From<MarkSubmittedError> for crate::AppError {
         match e {
             MarkSubmittedError::Invalid(msg) => Self::Message(msg),
             MarkSubmittedError::Db(err) => Self::Database(err),
+        }
+    }
+}
+
+/// `mark_custom_app_collected` 错误：校验失败与 DB 失败分层（命令层分别转中文串）。
+#[derive(Debug)]
+pub enum MarkCollectedError {
+    Invalid(String),
+    Db(rusqlite::Error),
+}
+
+impl std::fmt::Display for MarkCollectedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Invalid(msg) => write!(f, "{}", msg),
+            Self::Db(e) => write!(f, "{}", e),
+        }
+    }
+}
+
+impl From<MarkCollectedError> for crate::AppError {
+    fn from(e: MarkCollectedError) -> Self {
+        match e {
+            MarkCollectedError::Invalid(msg) => Self::Message(msg),
+            MarkCollectedError::Db(err) => Self::Database(err),
+        }
+    }
+}
+
+/// `revert_collected_to_draft` 错误：校验失败与 DB 失败分层（命令层分别转中文串）。
+#[derive(Debug)]
+pub enum RevertCollectedError {
+    Invalid(String),
+    Db(rusqlite::Error),
+}
+
+impl std::fmt::Display for RevertCollectedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Invalid(msg) => write!(f, "{}", msg),
+            Self::Db(e) => write!(f, "{}", e),
+        }
+    }
+}
+
+impl From<RevertCollectedError> for crate::AppError {
+    fn from(e: RevertCollectedError) -> Self {
+        match e {
+            RevertCollectedError::Invalid(msg) => Self::Message(msg),
+            RevertCollectedError::Db(err) => Self::Database(err),
         }
     }
 }
@@ -596,23 +820,112 @@ mod tests {
 
     #[test]
     fn mark_submitted_enforces_submit_strict() {
-        // 占位 license 草稿可暂存（lenient），但 mark 提交被拦；补真实 SPDX 后放行。
+        // 占位 license 草稿可暂存（lenient），但收录/提交均被拦；补真实 SPDX 后收录再提交放行。
         let db = Database::open_in_memory().unwrap();
         let mut placeholder = draft_item("o/r", "o", "r");
         placeholder.license = "OpenSource".to_string();
         assert!(validate_custom_item(&placeholder, ValidateMode::DraftLenient, &strict_gate()).is_ok());
         db.upsert_custom_app_payload(&placeholder).unwrap();
-        let err = db
+        // 草稿直交提交被门禁拦（先收录）。
+        let gate_err = db
             .mark_custom_app_submitted("o/r", "https://github.com/x/y/pull/1")
-            .expect_err("OpenSource draft must be blocked at submit");
-        assert!(err.to_string().contains("OSI"), "unexpected: {err}");
+            .expect_err("draft must be gated before submit");
+        assert_eq!(gate_err.to_string(), "须先收录进本地再PR");
+        // 占位 license 同样过不了收录档。
+        assert!(db.mark_custom_app_collected("o/r").is_err());
 
         let fixed = draft_item("o/r", "o", "r");
         db.upsert_custom_app_payload(&fixed).unwrap();
+        // 收录后提交放行（提交档二次校验同口径）。
+        db.mark_custom_app_collected("o/r").unwrap();
         let submitted = db
             .mark_custom_app_submitted("o/r", "https://github.com/x/y/pull/1")
             .unwrap();
         assert_eq!(submitted.status, CUSTOM_APP_STATUS_SUBMITTED);
+    }
+
+    #[test]
+    fn mark_submitted_requires_collected_gate() {
+        // 门禁：draft 直交提交走收录门禁；已提交二次提交明确拒绝（只读）。
+        let db = Database::open_in_memory().unwrap();
+        db.upsert_custom_app_payload(&draft_item("o/r", "o", "r"))
+            .unwrap();
+        let err = db
+            .mark_custom_app_submitted("o/r", "https://github.com/x/y/pull/1")
+            .expect_err("draft must be gated");
+        assert_eq!(err.to_string(), "须先收录进本地再PR");
+
+        db.mark_custom_app_collected("o/r").unwrap();
+        db.mark_custom_app_submitted("o/r", "https://github.com/x/y/pull/1")
+            .unwrap();
+        // 已提交行不可重复提交（只读，明确文案）。
+        let again = db
+            .mark_custom_app_submitted("o/r", "https://github.com/x/y/pull/2")
+            .expect_err("submitted must stay read-only");
+        assert_eq!(again.to_string(), "已提交行不可重复提交: o/r");
+    }
+
+    #[test]
+    fn submitted_deletable_and_archived_cleanup() {
+        // 未归档 submitted 可删（状态透出后手动清理）；已归档按现有语义同样直接删。
+        let db = Database::open_in_memory().unwrap();
+        db.upsert_custom_app_payload(&draft_item("o/r", "o", "r"))
+            .unwrap();
+        db.mark_custom_app_collected("o/r").unwrap();
+        let submitted = db
+            .mark_custom_app_submitted("o/r", "https://github.com/x/y/pull/1")
+            .unwrap();
+        assert_eq!(submitted.status, CUSTOM_APP_STATUS_SUBMITTED);
+        // 查询透出 status/pr_url（无需新增轮询）。
+        let fetched = db.get_custom_app("o/r").unwrap().unwrap();
+        assert_eq!(fetched.status, CUSTOM_APP_STATUS_SUBMITTED);
+        assert_eq!(
+            fetched.pr_url.as_deref(),
+            Some("https://github.com/x/y/pull/1")
+        );
+        assert!(db.delete_custom_app("o/r").unwrap());
+        assert!(db.get_custom_app("o/r").unwrap().is_none());
+
+        // 转正归档后同样可手动清理（现有语义不变）。
+        db.upsert_custom_app_payload(&draft_item("o/s", "o", "s"))
+            .unwrap();
+        db.mark_custom_app_collected("o/s").unwrap();
+        db.mark_custom_app_submitted("o/s", "https://github.com/x/y/pull/1")
+            .unwrap();
+        db.retire_custom_apps_on_sync(&["o/s".to_string()])
+            .unwrap();
+        let archived = db.get_custom_app("o/s").unwrap().unwrap();
+        assert!(archived.archived);
+        assert_eq!(archived.status, CUSTOM_APP_STATUS_SUBMITTED);
+        assert!(db.delete_custom_app("o/s").unwrap());
+        assert!(db.get_custom_app("o/s").unwrap().is_none());
+    }
+
+    #[test]
+    fn submitted_second_mark_and_recollect_blocked() {
+        // 二次提交/重收录硬拦，明确文案。
+        let db = Database::open_in_memory().unwrap();
+        db.upsert_custom_app_payload(&draft_item("o/r", "o", "r"))
+            .unwrap();
+        db.mark_custom_app_collected("o/r").unwrap();
+        db.mark_custom_app_submitted("o/r", "https://github.com/x/y/pull/1")
+            .unwrap();
+        let again = db
+            .mark_custom_app_submitted("o/r", "https://github.com/x/y/pull/2")
+            .expect_err("second submit must be blocked");
+        assert!(
+            again.to_string().contains("已提交行不可重复提交"),
+            "unexpected: {again}"
+        );
+        let recollect = db
+            .mark_custom_app_collected("o/r")
+            .expect_err("recollect submitted must be blocked");
+        assert!(
+            recollect.to_string().contains("已提交行不可重复收录"),
+            "unexpected: {recollect}"
+        );
+        // 别名同口径。
+        assert!(db.mark_collected("o/r").is_err());
     }
 
     #[test]
@@ -625,7 +938,11 @@ mod tests {
         assert_eq!(saved.status, CUSTOM_APP_STATUS_DRAFT);
         assert!(!saved.archived);
 
-        // 二次暂存仅刷新 payload，不动 status。
+        // 收录后提交：二次暂存仅刷新 payload，不动 status。
+        db.mark_custom_app_collected("o/r").unwrap();
+        // 非法 pr_url 在收录态即拒绝。
+        assert!(db.mark_custom_app_submitted("o/r", "not-a-url").is_err());
+        assert!(db.mark_custom_app_submitted("o/r", "").is_err());
         db.mark_custom_app_submitted("o/r", "https://github.com/x/y/pull/1")
             .unwrap();
         let mut v2 = draft_item("o/r", "o", "r");
@@ -638,10 +955,6 @@ mod tests {
         );
         assert_eq!(resaved.item.description, "更新后的描述");
 
-        // 非法 pr_url 拒绝。
-        assert!(db.mark_custom_app_submitted("o/r", "not-a-url").is_err());
-        assert!(db.mark_custom_app_submitted("o/r", "").is_err());
-
         assert!(db.delete_custom_app("o/r").unwrap());
         assert!(!db.delete_custom_app("o/r").unwrap());
         assert!(db.get_custom_app("o/r").unwrap().is_none());
@@ -653,6 +966,12 @@ mod tests {
         db.upsert_custom_app_payload(&draft_item("o/hit", "o", "hit"))
             .unwrap();
         db.upsert_custom_app_payload(&draft_item("o/miss", "o", "miss"))
+            .unwrap();
+        // submitted 未归档行同样命中归档（转正按 remote_ids 命中）。
+        db.upsert_custom_app_payload(&draft_item("o/sub", "o", "sub"))
+            .unwrap();
+        db.mark_custom_app_collected("o/sub").unwrap();
+        db.mark_custom_app_submitted("o/sub", "https://github.com/x/y/pull/1")
             .unwrap();
 
         // 大小写漂移的远端 id 同样命中（归一后比对）。
@@ -669,14 +988,196 @@ mod tests {
             .into_iter()
             .map(|e| e.id)
             .collect();
-        assert_eq!(visible, vec!["o/miss".to_string()]);
+        assert!(visible.contains(&"o/miss".to_string()));
+        assert!(visible.contains(&"o/sub".to_string()));
         let all = db.list_custom_apps(true).unwrap();
-        assert_eq!(all.len(), 2);
+        assert_eq!(all.len(), 3);
         assert!(all.iter().find(|e| e.id == "o/hit").unwrap().archived);
+        // submitted 未归档行命中远端即归档，status/pr_url 保留可查。
+        let sub_notices = db
+            .retire_custom_apps_on_sync(&["o/sub".to_string()])
+            .unwrap();
+        assert_eq!(sub_notices.len(), 1);
+        assert_eq!(sub_notices[0].id, "o/sub");
+        let sub_archived = db.get_custom_app("o/sub").unwrap().unwrap();
+        assert!(sub_archived.archived);
+        assert_eq!(sub_archived.status, CUSTOM_APP_STATUS_SUBMITTED);
 
         // 已归档行拒绝重复提交，不复活。
         assert!(db.mark_custom_app_submitted("o/hit", "https://github.com/x/y/pull/2").is_err());
+        assert!(db.mark_custom_app_submitted("o/sub", "https://github.com/x/y/pull/2").is_err());
         // 空远端集合直接空回，不触库。
         assert!(db.retire_custom_apps_on_sync(&[]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn collect_strict_matches_submit_strict() {
+        // 收录档与提交档同口径：占位 license 两档同拒，MIT 两档同放。
+        for bad in ["OpenSource", "NOASSERTION", ""] {
+            let mut item = draft_item("o/r", "o", "r");
+            item.license = bad.to_string();
+            assert!(
+                validate_custom_item(&item, ValidateMode::CollectStrict, &strict_gate()).is_err(),
+                "license={bad} must fail collect-strict"
+            );
+            assert!(
+                validate_custom_item(&item, ValidateMode::SubmitStrict, &strict_gate()).is_err()
+            );
+        }
+        let mit = draft_item("o/r", "o", "r");
+        assert!(validate_custom_item(&mit, ValidateMode::CollectStrict, &strict_gate()).is_ok());
+        assert!(validate_custom_item(&mit, ValidateMode::SubmitStrict, &strict_gate()).is_ok());
+        // 常量别名同值。
+        assert_eq!(CUSTOM_APP_STATUS_COLLECTED, "collected");
+        assert_eq!(LOCAL_COLLECTED, CUSTOM_APP_STATUS_COLLECTED);
+        assert_eq!(
+            CUSTOM_APP_STATUS_LOCAL_COLLECTED,
+            CUSTOM_APP_STATUS_COLLECTED
+        );
+    }
+
+    #[test]
+    fn mark_collected_sets_status_and_keeps_verified_false() {
+        let db = Database::open_in_memory().unwrap();
+        let mut item = draft_item("o/r", "o", "r");
+        item.is_verified = true;
+        db.upsert_custom_app_payload(&item).unwrap();
+        let collected = db.mark_custom_app_collected("o/r").unwrap();
+        assert_eq!(collected.status, CUSTOM_APP_STATUS_COLLECTED);
+        assert!(!collected.archived);
+        assert!(!collected.item.is_verified);
+        // 别名同语义。
+        let again = db.mark_collected("o/r").unwrap();
+        assert_eq!(again.status, CUSTOM_APP_STATUS_COLLECTED);
+        // 收录列表仅含 collected 行。
+        assert_eq!(db.list_collected_apps().unwrap().len(), 1);
+        assert_eq!(db.list_collected_custom_items().unwrap().len(), 1);
+        assert!(db.get_collected_custom_item("o/r").unwrap().is_some());
+        // 二次暂存不洗状态。
+        let resaved = db.upsert_custom_app_payload(&draft_item("o/r", "o", "r")).unwrap();
+        assert_eq!(resaved.status, CUSTOM_APP_STATUS_COLLECTED);
+    }
+
+    #[test]
+    fn mark_collected_rejects_placeholder_and_archived() {
+        let db = Database::open_in_memory().unwrap();
+        let mut placeholder = draft_item("o/r", "o", "r");
+        placeholder.license = "OpenSource".to_string();
+        db.upsert_custom_app_payload(&placeholder).unwrap();
+        assert!(db.mark_custom_app_collected("o/r").is_err());
+        assert!(db.mark_collected("o/r").is_err());
+        assert!(db.get_collected_custom_item("o/r").unwrap().is_none());
+
+        let db2 = Database::open_in_memory().unwrap();
+        db2.upsert_custom_app_payload(&draft_item("o/h", "o", "h"))
+            .unwrap();
+        db2.retire_custom_apps_on_sync(&["o/h".to_string()])
+            .unwrap();
+        assert!(db2.mark_custom_app_collected("o/h").is_err());
+    }
+
+    #[test]
+    fn revert_collected_to_draft_roundtrip() {
+        // 收录往返：draft → collected → draft，pr_url 清空、is_verified 保持 false。
+        let db = Database::open_in_memory().unwrap();
+        db.upsert_custom_app_payload(&draft_item("o/r", "o", "r"))
+            .unwrap();
+        let collected = db.mark_custom_app_collected("o/r").unwrap();
+        assert_eq!(collected.status, CUSTOM_APP_STATUS_COLLECTED);
+
+        let reverted = db.revert_collected_to_draft("o/r").unwrap();
+        assert_eq!(reverted.status, CUSTOM_APP_STATUS_DRAFT);
+        assert!(!reverted.archived);
+        assert!(reverted.pr_url.is_none());
+        assert!(!reverted.item.is_verified);
+        assert!(db.get_collected_custom_item("o/r").unwrap().is_none());
+
+        // 退回后可再次收录（往返闭环）。
+        let recollected = db.mark_custom_app_collected("o/r").unwrap();
+        assert_eq!(recollected.status, CUSTOM_APP_STATUS_COLLECTED);
+    }
+
+    #[test]
+    fn revert_collected_rejects_non_collected() {
+        let db = Database::open_in_memory().unwrap();
+        // 不存在行拒绝。
+        assert!(db.revert_collected_to_draft("o/missing").is_err());
+        // 草稿态不可退回（仅已收录行可退）。
+        db.upsert_custom_app_payload(&draft_item("o/d", "o", "d"))
+            .unwrap();
+        let err = db
+            .revert_collected_to_draft("o/d")
+            .expect_err("draft must not revert");
+        assert!(err.to_string().contains("仅已收录行可退回草稿"));
+
+        // 已提交行只读，不退回。
+        db.upsert_custom_app_payload(&draft_item("o/s", "o", "s"))
+            .unwrap();
+        db.mark_custom_app_collected("o/s").unwrap();
+        db.mark_custom_app_submitted("o/s", "https://github.com/x/y/pull/1")
+            .unwrap();
+        let err = db
+            .revert_collected_to_draft("o/s")
+            .expect_err("submitted must stay read-only");
+        assert!(err.to_string().contains("已提交行不可退回草稿"));
+
+        // 已归档行不复活。
+        db.upsert_custom_app_payload(&draft_item("o/h", "o", "h"))
+            .unwrap();
+        db.mark_custom_app_collected("o/h").unwrap();
+        db.retire_custom_apps_on_sync(&["o/h".to_string()])
+            .unwrap();
+        let err = db
+            .revert_collected_to_draft("o/h")
+            .expect_err("archived must not revert");
+        assert!(err.to_string().contains("已转正归档"));
+    }
+
+    #[test]
+    fn revert_persists_draft_and_drops_from_collected_lists() {
+        // 回归：退回必须落盘（status=draft），重启后不再进 collected 列表/overlay。
+        let db = Database::open_in_memory().unwrap();
+        db.upsert_custom_app_payload(&draft_item("o/r", "o", "r"))
+            .unwrap();
+        db.mark_custom_app_collected("o/r").unwrap();
+        assert_eq!(db.list_collected_apps().unwrap().len(), 1);
+        assert!(is_collected_entry(&db.get_custom_app("o/r").unwrap().unwrap()));
+
+        let reverted = db.revert_collected_to_draft("o/r").unwrap();
+        assert_eq!(reverted.status, CUSTOM_APP_STATUS_DRAFT);
+        // 落盘断言：重读仍为 draft，不再是收录态。
+        let stored = db.get_custom_app("o/r").unwrap().unwrap();
+        assert_eq!(stored.status, CUSTOM_APP_STATUS_DRAFT);
+        assert!(!is_collected_entry(&stored));
+        assert!(!is_collected_status(&stored.status));
+        assert!(db.get_collected_custom_item("o/r").unwrap().is_none());
+        assert!(db.list_collected_apps().unwrap().is_empty());
+        assert!(db.list_collected_custom_items().unwrap().is_empty());
+        // 未归档列表仍含该行（draft 态，可在草稿 Tab 查看），归档位不动。
+        assert!(db.list_custom_apps(false).unwrap().iter().any(|e| e.id == "o/r"));
+    }
+
+    #[test]
+    fn collected_helpers_accept_legacy_local_collected_literal() {
+        // 历史盘上 `local_collected` 字面与 `collected` 同义：判定/列表均兼容。
+        assert!(is_collected_status("collected"));
+        assert!(is_collected_status("local_collected"));
+        assert!(!is_collected_status("draft"));
+        let db = Database::open_in_memory().unwrap();
+        db.upsert_custom_app_payload(&draft_item("o/l", "o", "l"))
+            .unwrap();
+        db.exec_upsert(
+            "UPDATE custom_apps SET status = 'local_collected' WHERE id = 'o/l'",
+            [],
+        )
+        .unwrap();
+        let stored = db.get_custom_app("o/l").unwrap().unwrap();
+        assert!(is_collected_entry(&stored));
+        assert!(db.get_collected_custom_item("o/l").unwrap().is_some());
+        assert_eq!(db.list_collected_apps().unwrap().len(), 1);
+        // 兼容字面同样可退回草稿并落盘。
+        let reverted = db.revert_collected_to_draft("o/l").unwrap();
+        assert_eq!(reverted.status, CUSTOM_APP_STATUS_DRAFT);
+        assert!(db.list_collected_apps().unwrap().is_empty());
     }
 }

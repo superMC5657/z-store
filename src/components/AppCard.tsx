@@ -4,7 +4,7 @@ import '../i18n';
 import { Inbox, Download } from 'lucide-react';
 import { AppSummary } from '../types';
 import { AppIcon } from './AppIcon';
-import { VerifiedBadge } from './VerifiedBadge';
+import { VerifiedBadge, resolveVerifiedBadgeVariant } from './VerifiedBadge';
 import { PlatformIcon, ForgeIcon } from './icons/PlatformIcons';
 import { PLATFORM_META, type PlatformId } from '../lib/platformFilter';
 import { getAppDescription, getCategoryLabel, isAppCataloged } from '../utils/appHelper';
@@ -72,6 +72,8 @@ function isAppVisualEqual(prev: AppSummary, next: AppSummary): boolean {
   if (prev === next) return true;
   const prevSource = (prev as { source?: unknown }).source;
   const nextSource = (next as { source?: unknown }).source;
+  const prevStatus = (prev as { status?: unknown }).status;
+  const nextStatus = (next as { status?: unknown }).status;
   return (
     prev.id === next.id &&
     prev.icon === next.icon &&
@@ -92,6 +94,7 @@ function isAppVisualEqual(prev: AppSummary, next: AppSummary): boolean {
     prev.forge_host === next.forge_host &&
     prev.homepage === next.homepage &&
     prevSource === nextSource &&
+    prevStatus === nextStatus &&
     arePlatformsEqual(prev.platforms, next.platforms)
   );
 }
@@ -180,13 +183,16 @@ export const AppCard: React.FC<AppCardProps> = memo(({
   const detailLabel = t('app.view_details');
   const otherLabel = t('nav.platforms_other');
   const supportedDevicesLabel = t('app.supported_devices', { defaultValue: '支持设备' });
+  // 已认证蓝标优先，本地收录橘黄次之，其余无标（verified 蓝不动）。
+  const badgeVariant = resolveVerifiedBadgeVariant(app as { is_verified?: unknown; source?: unknown; status?: unknown });
   // Lane C 自维护角标：source=custom 即本地草稿 overlay 行；category external 原样保留，
   // 判定仅看 source，不改 isAppCataloged 口径。
   const isCustomRow = (app as { source?: unknown }).source === 'custom';
+  const isLocalRow = (app as { source?: unknown }).source === 'local';
   const customBadgeLabel = t('app.custom_badge', { defaultValue: '自维护' });
   // 移入收录入口门控：仅未收录 external 行（isAppCataloged 唯一口径）生效；
-  // 已收录 / 已转正（远端行）/ custom 草稿行 / custom 已存在一律不渲染，避免误点。
-  const showMoveIn = Boolean(onMoveInApp) && !isAppCataloged(app) && !isCustomRow && !isCustomExisting;
+  // 已收录 / 已转正（远端行）/ custom 草稿行 / local 收录行 / custom 已存在一律不渲染，避免误点。
+  const showMoveIn = Boolean(onMoveInApp) && !isAppCataloged(app) && !isCustomRow && !isLocalRow && !isCustomExisting;
   const moveInLabel = isMovingIn
     ? t('custom.moving_in', { defaultValue: '移入中…' })
     : t('custom.move_in', { defaultValue: '移入收录' });
@@ -218,7 +224,8 @@ export const AppCard: React.FC<AppCardProps> = memo(({
         <div className="app-meta">
           <div className="app-title">
             <span className="app-name">{displayName}</span>
-            {app.is_verified && <VerifiedBadge size="sm" />}
+            {badgeVariant === 'verified' && <VerifiedBadge size="sm" variant="verified" />}
+            {badgeVariant === 'local' && <VerifiedBadge size="sm" variant="local" />}
           </div>
           <div className="app-owner">
             {app.owner} · {displayCategory}

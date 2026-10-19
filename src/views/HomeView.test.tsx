@@ -257,3 +257,95 @@ describe('U16b: recently-viewed platform filter (App derivation)', () => {
     expect(container.textContent).not.toContain('最近浏览');
   });
 });
+
+describe('最近浏览本地收录黄标（仅搬标记，蓝优先）', () => {
+  it('后端回读无 source 的本地行按合并后 apps 叠加黄标', () => {
+    const localRow = {
+      ...makeApp({ id: 'openchamber/cc-switch', name: 'CC Switch', platforms: ['windows'] }),
+      source: 'local',
+      status: 'collected',
+      is_cataloged: true,
+    } as AppSummary;
+    // 后端 get_recently_viewed_apps 回读：仅远端 catalog + 详情缓存，无 source/status
+    const rawRecent = makeApp({
+      id: 'openchamber/cc-switch',
+      name: 'CC Switch',
+      platforms: ['windows'],
+    });
+    expect((rawRecent as { source?: unknown }).source).toBeUndefined();
+    const { container } = renderHomeView([localRow, RUSTDESK], {
+      recentlyViewedApps: [rawRecent],
+    });
+    expect(container.textContent).toContain('最近浏览');
+    // 复用 verified-badge-local 样式，无新色
+    expect(container.querySelector('.app-grid .verified-badge-local')).toBeTruthy();
+  });
+
+  it('已验证蓝标优先：远端已验证不被本地覆盖', () => {
+    const verifiedRemote = makeApp({
+      id: 'o/verified',
+      name: 'Verified',
+      platforms: ['windows'],
+      is_verified: true,
+    });
+    const rawRecent = makeApp({ id: 'o/verified', name: 'Verified', platforms: ['windows'] });
+    const { container } = renderHomeView([verifiedRemote], {
+      recentlyViewedApps: [rawRecent],
+    });
+    expect(container.querySelector('.app-grid .verified-badge-local')).toBeNull();
+  });
+
+  it('双行去重：最近浏览与精选同 id 时精选侧去重，星数以合并目录为准', () => {
+    const localRow = {
+      ...makeApp({ id: 'o/dup', name: 'DupApp', platforms: ['windows'], stars: 200000 }),
+      source: 'local',
+      status: 'collected',
+      is_cataloged: true,
+    } as unknown as AppSummary;
+    // 后端回读旧快照星数（145.8k 口径），合并目录为内存值（145.2k 口径此处用 200k 示意）
+    const rawRecent = makeApp({ id: 'o/dup', name: 'DupApp', platforms: ['windows'], stars: 100 });
+    const { container } = renderHomeView([RUSTDESK, localRow, IOS_APP, NO_PLATFORMS_APP], {
+      recentlyViewedApps: [rawRecent],
+    });
+    const grids = Array.from(container.querySelectorAll('.app-grid'));
+    expect(grids.length).toBeGreaterThanOrEqual(2);
+    const recentGrid = grids[0];
+    const featuredGrid = grids[1];
+    // 最近保留且黄标 + 星数已同步为目录值（200.0k，而非旧快照 100）
+    expect(recentGrid?.textContent).toContain('DupApp');
+    expect(recentGrid?.querySelector('.verified-badge-local')).toBeTruthy();
+    expect(recentGrid?.textContent).toContain('200.0k');
+    expect(recentGrid?.textContent).not.toContain('145.8k');
+    // 精选侧去重：同一 id 不再出现（保持相对顺序，不改排序语义）
+    expect(featuredGrid?.textContent).not.toContain('DupApp');
+  });
+
+  it('空图标行触发一次按需拉取（不全量刷）', async () => {
+    const { tauriApi } = await import('../services/api');
+    const spy = vi.spyOn(tauriApi, 'restoreOrFetchIconCycle').mockResolvedValue({
+      url: 'https://example.com/icon.png',
+      remote_url: 'https://example.com/icon.png',
+      level: 2,
+    } as never);
+    try {
+      const emptyLocal = {
+        ...makeApp({ id: 'o/empty-icon', name: 'EmptyIcon', platforms: ['windows'], stars: 9000 }),
+        icon: '',
+        source: 'local',
+        status: 'collected',
+        is_cataloged: true,
+      } as unknown as AppSummary;
+      const rawRecent = makeApp({ id: 'o/empty-icon', name: 'EmptyIcon', platforms: ['windows'], stars: 9000 });
+      (rawRecent as unknown as { icon: string }).icon = '';
+      renderHomeView([RUSTDESK, emptyLocal], {
+        recentlyViewedApps: [{ ...rawRecent, icon: '' } as AppSummary],
+      });
+      await vi.waitFor(() => expect(spy).toHaveBeenCalledWith('o/empty-icon'));
+      // 去重：同一 id 仅拉一次（最近 + 精选去重后精选无此行，跨段不重复拉）
+      const calls = spy.mock.calls.filter((c) => c[0] === 'o/empty-icon');
+      expect(calls.length).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});

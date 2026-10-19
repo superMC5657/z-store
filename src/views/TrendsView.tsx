@@ -68,7 +68,6 @@ import {
 import {
   LOADING_SETTLE_MS,
   annotateEnrichMirrorCataloged,
-  buildCatalogIdSet,
   isEnrichedRowLoading,
   isInstalled as selectIsInstalled,
   selectIsManagedOpt,
@@ -206,13 +205,13 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   // 与本地 catalog 预过滤后的 apps 交叉匹配：有则完整卡片，无则名 + 星数。
   // catalog 匹配（matchCatalogApp）保留——下掉的只是分类榜单，不是收录对照展示。
   // 身份匹配用全量收录（未过滤口径，保证取消勾选后行直接消失而非降级为占位小行）。
+  // 本地橘黄：matchingBase 为合并后全量（含本地 source，远端优先语义不动），
+  // enrich 标注直接传数组本体以搬运 source/status（蓝优先）。
   const matchingBase = allApps ?? apps;
-  // Lane C fix：catalog id 集（canonical 小写，复用 normalizeId），供 enrich 显式标注。
-  const trendCatalogIds = useMemo(() => buildCatalogIdSet(matchingBase), [matchingBase]);
   // enrich 合并处显式标注 is_cataloged（显式优先于 category 兜底；未命中=false 即显示按钮）。
   const annotatedEnrichedApps = useMemo(
-    () => annotateEnrichMirrorCataloged(enrichedApps, trendCatalogIds),
-    [enrichedApps, trendCatalogIds],
+    () => annotateEnrichMirrorCataloged(enrichedApps, matchingBase),
+    [enrichedApps, matchingBase],
   );
 
   // Lane C 移入收录（未收录富卡一键 save_custom_app 草稿，platforms [] loading）：
@@ -227,7 +226,15 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     trendMovingRef.current.add(key);
     setTrendMovingIds((prev) => new Set(prev).add(key));
     try {
-      const draft = buildCustomDraftItemFromSummary(app);
+      let iconRemote: string | undefined;
+      try {
+        const cycle = await tauriApi.restoreOrFetchIconCycle(app.id).catch(() => null);
+        const remote = typeof cycle?.remote_url === "string" ? cycle.remote_url.trim() : "";
+        if (/^https?:\/\//i.test(remote)) iconRemote = remote;
+      } catch {
+        // remote truth unavailable: fall back to app.icon normalization, never fabricate
+      }
+      const draft = buildCustomDraftItemFromSummary(app, iconRemote);
       await tauriApi.saveCustomApp(draft);
       const msg = t('custom.moved_in', { defaultValue: `已移入收录草稿：${draft.id}` });
       notifyToast(msg, 'success');

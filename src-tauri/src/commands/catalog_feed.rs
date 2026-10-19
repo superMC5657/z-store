@@ -1,9 +1,32 @@
+use crate::github::models::CatalogItem;
 use crate::models::AppSummary;
 use crate::AppState;
 use tauri::State;
 
 /// 发现页卡片摘要（复用 `AppSummary` 形状，前端按 `AppSummary` 解析）。
 pub type CatalogItemSummary = AppSummary;
+
+/// 本地收录叠加输入（纯调用方过滤口径）：仅 `status==collected && !archived` 行
+/// 进入合并视图（`catalog.json` 只读禁写回，合并不污染内存目录）。
+fn collected_overlay_items(state: &AppState) -> Vec<CatalogItem> {
+    state
+        .db()
+        .ok()
+        .and_then(|db| db.list_collected_custom_items().ok())
+        .unwrap_or_default()
+}
+
+/// 合并摘要视图（纯函数，可单测）：远端优先去重 + 本地收录补位，转摘要。
+fn merged_feed_summaries(
+    catalog: &crate::github::CatalogService,
+    collected: &[CatalogItem],
+) -> Vec<AppSummary> {
+    catalog
+        .merged_items_with_overlay(collected.to_vec())
+        .into_iter()
+        .map(|item| item.to_summary())
+        .collect()
+}
 
 /// 发现页分页载荷（serde 默认 snake_case，前端按 `{ limit, offset, seed }` invoke('get_home_feed')）。
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -14,7 +37,8 @@ pub struct FeedPage {
     pub has_more: bool,
 }
 
-/// 发现页 Feed（分页 + 混排）：
+/// 发现页 Feed（分页 + 混排，含本地收录合并视图）：
+/// - 输入为远端目录 + 本地收录（`status==collected && !archived`）合并，可搜可装与远端同行为；
 /// - `total`=过滤后总量，`has_more`=(offset+limit)<total（saturating，边界守好）；
 /// - `seed`=None 时纯 stars 降序（确定性），Some(seed)+balanced 时轻扰动打散头部垄断；
 /// - `strategy`=None/非法时回退 balanced（大小写不敏感，前端原样透传、后端归一小写）；
@@ -31,7 +55,8 @@ pub fn get_home_feed(
 ) -> Result<FeedPage, String> {
     let hidden_ids: std::collections::HashSet<String> =
         super::catalog_search::hidden_rule_ids(&state);
-    let all = state.catalog.get_all_summaries();
+    let collected = collected_overlay_items(&state);
+    let all = merged_feed_summaries(&state.catalog, &collected);
     let filtered: Vec<AppSummary> = if hidden_ids.is_empty() {
         all
     } else {
@@ -52,7 +77,8 @@ pub fn get_home_feed(
     })
 }
 
-/// 类别页分页（与发现页 `FeedPage` 同形 `{items,total,has_more}`）：
+/// 类别页分页（与发现页 `FeedPage` 同形 `{items,total,has_more}`，含本地收录合并视图）：
+/// - `page`/`per_page` 均为 None=默认（第 1 页 20 条，与发现页 `HOME_FEED_PAGE`、在线搜索对齐）；
 /// - `page`/`per_page` 均为 None=默认（第 1 页 20 条，与发现页 `HOME_FEED_PAGE`、在线搜索对齐）；
 /// - `per_page` 复用搜索钳制 1-50（`clamp_online_search_per_page`），`page` 下限 1；
 /// - 过滤语义不变（`category`/`category_name` 大小写不敏感 + 隐藏规则）。
@@ -67,7 +93,8 @@ pub fn get_category_apps(
     let hidden_ids: std::collections::HashSet<String> =
         super::catalog_search::hidden_rule_ids(&state);
 
-    let all = state.catalog.get_all_summaries();
+    let collected = collected_overlay_items(&state);
+    let all = merged_feed_summaries(&state.catalog, &collected);
     let filtered: Vec<AppSummary> = all
         .into_iter()
         .filter(|a| {
@@ -155,5 +182,49 @@ mod tests {
         let (offset, limit) =
             category_page_window(&crate::config::LimitsConfig::default(), Some(2), Some(0));
         assert_eq!((offset, limit), (1, 1));
+    }
+
+    fn feed_item(id: &str, owner: &str, repo: &str) -> CatalogItem {
+        CatalogItem {
+            id: id.to_string(),
+            name: "Feed App".to_string(),
+            owner: owner.to_string(),
+            repo: repo.to_string(),
+            icon: String::new(),
+            icon_bg: String::new(),
+            description: String::new(),
+            description_en: None,
+            category: "dev".to_string(),
+            category_name: "开发工具".to_string(),
+            aliases: vec![],
+            default_version: "v1.0.0".to_string(),
+            license: "MIT".to_string(),
+            stars: 0,
+            forks: 0,
+            is_verified: false,
+            homepage: None,
+            identifiers: std::collections::HashMap::new(),
+            install_dirs: vec![],
+            search_subdirs: vec![],
+            publishers: vec![],
+            platforms: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn feed_merge_includes_local_collected() {
+        // 发现页合并含本地收录：远端 1 + 收录 1 = 2，远端优先去重。
+        use std::sync::RwLock;
+        let catalog = crate::github::CatalogService {
+            items: RwLock::new(vec![feed_item("o/remote", "o", "remote")]),
+            client: reqwest::Client::new(),
+        };
+        let collected = vec![feed_item("o/local", "o", "local")];
+        let merged = merged_feed_summaries(&catalog, &collected);
+        assert_eq!(merged.len(), 2);
+        assert!(merged.iter().any(|s| s.id == "o/local"));
+        // 空收录退化为纯远端。
+        let remote_only = merged_feed_summaries(&catalog, &[]);
+        assert_eq!(remote_only.len(), 1);
     }
 }

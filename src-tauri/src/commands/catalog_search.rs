@@ -229,7 +229,17 @@ pub async fn search_apps(
     let search_start = std::time::Instant::now();
     let hidden_ids: std::collections::HashSet<String> = hidden_rule_ids(&state);
 
-    let results = state.catalog.search_apps(&query);
+    // 本地收录叠加搜索（含本地，可搜与远端同行为）：仅 `status==collected && !archived`。
+    let collected: Vec<crate::github::models::CatalogItem> = state
+        .db()
+        .ok()
+        .and_then(|db| db.list_collected_custom_items().ok())
+        .unwrap_or_default();
+    let results = if collected.is_empty() {
+        state.catalog.search_apps(&query)
+    } else {
+        state.catalog.search_apps_with_overlay(&query, &collected)
+    };
     let filtered: Vec<AppSummary> = if hidden_ids.is_empty() {
         results
     } else {
@@ -489,17 +499,27 @@ pub async fn search_apps_online(
     } else {
         results.iter().map(|_| None).collect()
     };
-    let candidates: Vec<(String, String, String)> = results
-        .iter()
-        .zip(pre_confirmed.iter())
-        .filter(|(item, pre)| {
-            state.catalog.get_catalog_item(&item.id).is_none()
-                && !item.icon.contains("simpleicons.org")
-                && pre.is_none()
-        })
-        .take(probe_cap)
-        .map(|(item, _)| (item.id.to_lowercase(), item.owner.clone(), item.repo.clone()))
-        .collect();
+    let candidates: Vec<(String, String, String)> = {
+        // 本地收录同样视为已收录（仅 `status==collected` 行）：跳过图标补探。
+        let collected_ids: std::collections::HashSet<String> = state
+            .db()
+            .ok()
+            .and_then(|db| db.list_collected_apps().ok())
+            .map(|v| v.into_iter().map(|e| e.id).collect())
+            .unwrap_or_default();
+        results
+            .iter()
+            .zip(pre_confirmed.iter())
+            .filter(|(item, pre)| {
+                state.catalog.get_catalog_item(&item.id).is_none()
+                    && !collected_ids.contains(&item.id)
+                    && !item.icon.contains("simpleicons.org")
+                    && pre.is_none()
+            })
+            .take(probe_cap)
+            .map(|(item, _)| (item.id.to_lowercase(), item.owner.clone(), item.repo.clone()))
+            .collect()
+    };
 
     log::info!(
         "search done sid={} query='{}' hits={} elapsed_ms={} force={}",

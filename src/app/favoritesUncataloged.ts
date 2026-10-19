@@ -280,6 +280,39 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
   const favoriteExtraInflightRef = useRef<Set<string>>(new Set());
   // 记录收录标记表（归一小写键 → is_cataloged，行打标唯一依据；目录 apps 仅补充去重）。
   const recordCatalogedRef = useRef<Map<string, boolean>>(new Map());
+  // 本地橘黄 lookup（合并后 apps 含本地 source；蓝优先，去重不动，仅搬标记）。
+  const localMarkLookup = (() => {
+    const ids = new Set<string>();
+    const statusById = new Map<string, unknown>();
+    for (const a of apps ?? []) {
+      if (!a) continue;
+      if ((a as { source?: unknown }).source !== 'local') continue;
+      if ((a as { is_verified?: unknown }).is_verified === true) continue;
+      const k = normalizeId((a as AppSummary).id);
+      if (!k || ids.has(k)) continue;
+      ids.add(k);
+      const st = (a as { status?: unknown }).status;
+      if (typeof st === 'string' && st) statusById.set(k, st);
+    }
+    return { ids, statusById };
+  })();
+  const withLocalMarkOuter = (row: AppSummary): AppSummary => {
+    const k = normalizeId(row.id);
+    if (!k || !localMarkLookup.ids.has(k)) return row;
+    if ((row as { source?: unknown }).source === 'custom') return row;
+    if ((row as { source?: unknown }).source === 'local') {
+      return (row as { is_cataloged?: unknown }).is_cataloged === true
+        ? row
+        : ({ ...row, is_cataloged: true } as unknown as AppSummary);
+    }
+    if ((row as { is_verified?: unknown }).is_verified === true) return row;
+    return {
+      ...row,
+      source: 'local',
+      status: (localMarkLookup.statusById.get(k) ?? 'collected') as string,
+      is_cataloged: true,
+    } as unknown as AppSummary;
+  };
 
   // Per-row manual loader: explicit Load info for one uncataloged id (detail + icon cycle).
   const loadUncatalogedDetail = useCallback(async (favId: string): Promise<void> => {
@@ -296,8 +329,10 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
       } catch {
         summary = makeFavoritePlaceholderSummary(raw);
       }
-      // 手动拉取行同样按记录打标（记录缺席即未收录）。
-      summary = markFavoriteRowByRecord(summary, isRecordCataloged(recordCatalogedRef.current, key));
+      // 手动拉取行同样按记录打标（记录缺席即未收录），本地同 id 叠加黄标。
+      summary = withLocalMarkOuter(
+        markFavoriteRowByRecord(summary, isRecordCataloged(recordCatalogedRef.current, key)),
+      );
       const k = normalizeId(summary.id);
       if (k) {
         setFavoriteExtraApps((prev) => {
@@ -352,6 +387,46 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
       return;
     }
     const catalogLower = buildCatalogIdSet(apps);
+    // 本地橘黄：合并后 apps（含本地 source）中提取本地 id 集，占位/富卡同 id 叠加 source='local'
+    //（蓝优先：已验证行不叠加；去重仍远端优先，仅搬标记）。
+    const localLower = new Set<string>();
+    const localStatusById = new Map<string, unknown>();
+    for (const a of apps) {
+      if (!a) continue;
+      if ((a as { source?: unknown }).source !== 'local') continue;
+      if ((a as { is_verified?: unknown }).is_verified === true) continue;
+      const k = normalizeId((a as AppSummary).id);
+      if (!k || localLower.has(k)) continue;
+      localLower.add(k);
+      const st = (a as { status?: unknown }).status;
+      if (typeof st === 'string' && st) localStatusById.set(k, st);
+    }
+    const withLocalMark = (row: AppSummary): AppSummary => {
+      const k = normalizeId(row.id);
+      if (!k || !localLower.has(k)) return row;
+      if ((row as { source?: unknown }).source === 'custom') return row;
+      if ((row as { source?: unknown }).source === 'local') {
+        return (row as { is_cataloged?: unknown }).is_cataloged === true
+          ? row
+          : ({ ...row, is_cataloged: true } as unknown as AppSummary);
+      }
+      if ((row as { is_verified?: unknown }).is_verified === true) return row;
+      const wantStatus = localStatusById.get(k) ?? 'collected';
+      const curStatus = (row as { status?: unknown }).status;
+      if (
+        (row as { source?: unknown }).source === 'local' &&
+        curStatus === wantStatus &&
+        (row as { is_cataloged?: unknown }).is_cataloged === true
+      ) {
+        return row;
+      }
+      return {
+        ...row,
+        source: 'local',
+        status: wantStatus as string,
+        is_cataloged: true,
+      } as unknown as AppSummary;
+    };
     const current = favoriteExtraAppsRef.current;
     // 收录到达即驱逐（大小写归一），避免与目录行双显
     let pruned: AppSummary[] | null = null;
@@ -382,7 +457,9 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
           const k = normalizeId(id);
           if (!k || seen.has(k) || catalogLower.has(k)) continue;
           seen.add(k);
-          toAdd.push(makeFavoritePlaceholderSummary(id, knownRecords.get(k) ?? false));
+          toAdd.push(
+            withLocalMark(makeFavoritePlaceholderSummary(id, knownRecords.get(k) ?? false)),
+          );
         }
         return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
       });
@@ -413,7 +490,7 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
         if (!hit) continue;
         const k = normalizeId(hit.id);
         if (!k) continue;
-        rich.push(markFavoriteRowByRecord(hit, record.get(k) ?? false));
+        rich.push(withLocalMark(markFavoriteRowByRecord(hit, record.get(k) ?? false)));
       }
       setFavoriteExtraApps((prev) => {
         if (prev.length === 0 && rich.length === 0) return prev;
@@ -424,13 +501,22 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
           if (k && !indexByKey.has(k)) indexByKey.set(k, i);
         });
         let changed = false;
-        // (c1) 既有行按最新记录重打标（徽标跟记录走；记录缺席的行保持原样）。
+        // (c1) 既有行按最新记录重打标（徽标跟记录走；记录缺席的行保持原样；本地行叠加黄标）。
         next.forEach((e, i) => {
           const k = normalizeId(e.id);
           const flag = k ? record.get(k) : undefined;
-          if (flag === undefined || e.is_cataloged === flag) return;
-          next[i] = markFavoriteRowByRecord(e, flag);
-          changed = true;
+          let cur: AppSummary = e;
+          if (flag !== undefined && e.is_cataloged !== flag) {
+            cur = markFavoriteRowByRecord(e, flag);
+          }
+          const withLocal = withLocalMark(cur);
+          if (withLocal !== e) {
+            next[i] = withLocal;
+            changed = true;
+          } else if (cur !== e) {
+            next[i] = cur;
+            changed = true;
+          }
         });
         // (c2) 富卡行合入：目录已收录键跳过（由目录行渲染，避免双显）。
         for (const r of rich) {
@@ -474,8 +560,10 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
             if (cancelled) return;
             const k = normalizeId(summary.id);
             if (!k) return;
-            // 非 manual 兜底分支同样按记录打标（记录缺席即未收录）。
-            summary = markFavoriteRowByRecord(summary, isRecordCataloged(recordCatalogedRef.current, k));
+            // 非 manual 兜底分支同样按记录打标（记录缺席即未收录），本地同 id 叠加黄标。
+            summary = withLocalMarkOuter(
+              markFavoriteRowByRecord(summary, isRecordCataloged(recordCatalogedRef.current, k)),
+            );
             // 若期间收录到达则跳过（由驱逐逻辑收敛，不双显）
             if (catalogLower.has(k)) return;
             setFavoriteExtraApps((prev) => {

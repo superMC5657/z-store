@@ -266,7 +266,25 @@ impl CatalogService {
         items.iter().map(|item| item.to_summary()).collect()
     }
 
-    /// Lane A overlay 合并（ADR-0017）：未归档 custom 条目叠加到内存目录视图。
+    /// 本地收录叠加全量摘要（发现页/类别页输入）：远端优先去重后转摘要。
+    /// `extra` 须已过滤为 `status==collected && !archived`。
+    pub fn get_all_summaries_with_overlay(&self, extra: &[CatalogItem]) -> Vec<AppSummary> {
+        self.merged_items_with_overlay(extra.to_vec())
+            .into_iter()
+            .map(|item| item.to_summary())
+            .collect()
+    }
+
+    /// 本地收录 overlay 唯一口径：仅 `status==collected && !archived` 行参与合并。
+    /// 调用方须先经 `db::custom_apps::list_collected_*` 或 `collected_overlay_items` 过滤；
+    /// 本函数不做状态判断，仅执行远端优先去重合并（`catalog.json` 只读禁写回，
+    /// 合并不写回内存 `items`，转正由退役标记处理）。
+    pub fn is_collected_overlay_status(status: &str, archived: bool) -> bool {
+        status == crate::db::custom_apps::CUSTOM_APP_STATUS_COLLECTED && !archived
+    }
+
+    /// Lane A overlay 合并（ADR-0017）：本地收录条目叠加到内存目录视图。
+    /// - 输入 `custom` 调用方须已过滤为本地收录（`status==collected && !archived`）；
     /// - 远端优先去重：远端 id 已存在时 custom 同 id 条目丢弃，不覆盖；
     /// - `is_cataloged` 恒 true（视图内即视为已收录），来源经 `source` 区分
     ///  （`remote` / `custom`），调用方按需展示“自维护”角标；
@@ -297,7 +315,8 @@ impl CatalogService {
         out
     }
 
-    /// 内存目录 + 未归档 custom 的合并条目（远端优先，custom 补位）。
+    /// 内存目录 + 本地收录 custom 的合并条目（远端优先，custom 补位）。
+    /// 调用方传入的 `custom` 须已过滤为 `status==collected && !archived`。
     pub fn merged_items_with_overlay(&self, custom: Vec<CatalogItem>) -> Vec<CatalogItem> {
         let remote = self.get_catalog_items();
         let mut seen: std::collections::HashSet<String> =
@@ -311,7 +330,7 @@ impl CatalogService {
         out
     }
 
-    /// 当前内存目录的合并视图（含调用方传入的未归档 custom）。
+    /// 当前内存目录的合并视图（含调用方传入的本地收录 custom）。
     pub fn merged_summaries_with_overlay(
         &self,
         custom: Vec<CatalogItem>,
@@ -321,20 +340,35 @@ impl CatalogService {
     }
 
     pub fn search_apps(&self, query: &str) -> Vec<AppSummary> {
+        let items = self.items.read().unwrap_or_else(|e| e.into_inner());
+        Self::search_in_slice(&items, query)
+    }
+
+    /// 本地收录叠加搜索（与 `search_apps` 同行为）：`extra` 须已过滤为
+    /// `status==collected && !archived`，远端优先去重后同分值同排序执行搜索。
+    pub fn search_apps_with_overlay(
+        &self,
+        query: &str,
+        extra: &[CatalogItem],
+    ) -> Vec<AppSummary> {
+        let merged = self.merged_items_with_overlay(extra.to_vec());
+        Self::search_in_slice(&merged, query)
+    }
+
+    fn search_in_slice(items: &[CatalogItem], query: &str) -> Vec<AppSummary> {
         let q = query.trim().to_lowercase();
         if q.is_empty() {
-            let mut all = self.get_all_summaries();
+            let mut all: Vec<AppSummary> = items.iter().map(|i| i.to_summary()).collect();
             all.sort_by_key(|b| std::cmp::Reverse(b.stars));
             return all;
         }
 
         // 分类过滤匹配
-        if let Some(cat_match) = self.filter_by_category(&q) {
+        if let Some(cat_match) = Self::filter_in_slice(items, &q) {
             return cat_match;
         }
 
         let mut matches: Vec<(i32, AppSummary)> = Vec::new();
-        let items = self.items.read().unwrap_or_else(|e| e.into_inner());
 
         for item in items.iter() {
             let mut score = 0;
@@ -374,8 +408,22 @@ impl CatalogService {
     }
 
     pub fn filter_by_category(&self, category: &str) -> Option<Vec<AppSummary>> {
-        let cat_clean = category.trim().to_lowercase();
         let items = self.items.read().unwrap_or_else(|e| e.into_inner());
+        Self::filter_in_slice(&items, category)
+    }
+
+    /// 本地收录叠加分类过滤：同 `filter_by_category` 语义，输入为合并后视图。
+    pub fn filter_by_category_with_overlay(
+        &self,
+        category: &str,
+        extra: &[CatalogItem],
+    ) -> Option<Vec<AppSummary>> {
+        let merged = self.merged_items_with_overlay(extra.to_vec());
+        Self::filter_in_slice(&merged, category)
+    }
+
+    fn filter_in_slice(items: &[CatalogItem], category: &str) -> Option<Vec<AppSummary>> {
+        let cat_clean = category.trim().to_lowercase();
         let matched: Vec<AppSummary> = items
             .iter()
             .filter(|item| {
@@ -631,5 +679,31 @@ mod tests {
         let merged = svc.merged_items_with_overlay(custom);
         assert_eq!(merged.len(), 3);
         assert_eq!(merged[0].name, "Test App");
+    }
+
+    /// 本地收录 overlay 口径：仅 `status==collected && !archived` 参与合并。
+    #[test]
+    fn test_collected_overlay_status_gate() {
+        assert!(CatalogService::is_collected_overlay_status("collected", false));
+        assert!(!CatalogService::is_collected_overlay_status("draft", false));
+        assert!(!CatalogService::is_collected_overlay_status("submitted", false));
+        assert!(!CatalogService::is_collected_overlay_status("collected", true));
+        assert_eq!(
+            crate::db::custom_apps::CUSTOM_APP_STATUS_COLLECTED,
+            "collected"
+        );
+    }
+
+    /// overlay 叠加搜索与远端同行为：本地收录可搜，远端优先去重。
+    #[test]
+    fn test_search_with_overlay_finds_local() {
+        let svc = test_service(vec![item("o/remote", "o", "remote")]);
+        let mut local = item("o/local", "o", "local");
+        local.name = "Local Tool".to_string();
+        let hits = svc.search_apps_with_overlay("local", &[local.clone()]);
+        assert!(hits.iter().any(|s| s.id == "o/local"));
+        // 空查询含本地（stars 降序全量）。
+        let all = svc.search_apps_with_overlay("", &[local]);
+        assert_eq!(all.len(), 2);
     }
 }

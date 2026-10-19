@@ -13,7 +13,7 @@ import { MANUAL_ONLY_NETWORK } from '../../lib/manualOnly';
 import { AppIcon } from '../AppIcon';
 import { admitIconHit } from '../../services/iconStore';
 import { notifyToast } from '../../utils/notify';
-import { VerifiedBadge } from '../VerifiedBadge';
+import { VerifiedBadge, resolveVerifiedBadgeVariant } from '../VerifiedBadge';
 import { formatBytes, isCatalogedFailClosed } from '../../utils/appHelper';
 import { PlatformIcon, ForgeIcon } from '../icons/PlatformIcons';
 import { PLATFORM_META, type PlatformId } from '../../lib/platformFilter';
@@ -379,7 +379,14 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="modal-header-info">
         <div className="modal-app-title">
           <span>{displayName}</span>
-          {app.is_verified && <VerifiedBadge size="md" />}
+          {(() => {
+            const variant = resolveVerifiedBadgeVariant(
+              app as { is_verified?: unknown; source?: unknown; status?: unknown },
+            );
+            if (variant === 'verified') return <VerifiedBadge size="md" variant="verified" />;
+            if (variant === 'local') return <VerifiedBadge size="md" variant="local" />;
+            return null;
+          })()}
         </div>
         <div className="modal-app-repo" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
           {onOpenDeveloperProfile ? (

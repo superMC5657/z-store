@@ -28,6 +28,8 @@ export interface UseDetailCacheSyncParams {
   setFavoriteExtraApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
   setSelectedApp: React.Dispatch<React.SetStateAction<AppDetailViewModel | null>>;
   setPlatformResolvedOtherIds: React.Dispatch<React.SetStateAction<Set<string>>>;
+  /** 本地收录合并行（含 source='local'/status，供详情 Header 黄标判定；不改排序/去重）。 */
+  localApps?: readonly AppSummary[];
 }
 
 /**
@@ -56,6 +58,7 @@ export function useDetailCacheSync({
   setFavoriteExtraApps,
   setSelectedApp,
   setPlatformResolvedOtherIds,
+  localApps,
 }: UseDetailCacheSyncParams) {
   const appDetailMemoryCache = useRef<Map<string, AppDetail>>(new Map());
   const activeDetailIdRef = useRef<string | null>(null);
@@ -65,23 +68,29 @@ export function useDetailCacheSync({
   // 详情入口唯一标注口：按当前目录集显式标注 is_cataloged（fail-closed，未命中即 false）。
   // 标注后经 patchSummary 内 shouldSyncCataloged 写透列表：false 恒写透，true 仅纠正已有显式位，
   // 目录行保持无标记（防全量 churn）。
+  // 本地橘黄：叠加 localApps 同 id source='local'/status（蓝优先），供 Header 黄标判定。
   const annotateEntry = useCallback(
-    <T extends AppSummary>(row: T): T => annotateIsCataloged(row, buildCatalogIdSet(appsRef.current)),
-    [appsRef],
+    <T extends AppSummary>(row: T): T =>
+      annotateIsCataloged(row, buildCatalogIdSet(appsRef.current), localApps),
+    [appsRef, localApps],
   );
 
   const loadRecentViews = useCallback(async () => {
     try {
       const recents = await tauriApi.getRecentlyViewedApps();
+      // 最近浏览黄标：后端仅拼远端 catalog + 详情缓存（无 source/status），此处叠加本地标记
+      //（蓝优先、远端优先语义不动，仅搬标记供 AppCard 黄标），再做富卡治愈。
+      const catalogIds = buildCatalogIdSet(appsRef.current);
+      const withLocal = recents.map((r) => annotateIsCataloged(r, catalogIds, localApps));
       // 趋势富卡治愈：后端 history 对未收录行原样拷贝占位简介，此处用富卡非占位值一次治愈
       // （首刷新增行 + 旧占位行；后到的 load 不再覆盖 sync 的治愈值；无富卡保持原值走现有空渲染）。
       try {
         const snap = snapshotTrendEnrichCache();
         if (Object.keys(snap).length === 0) {
-          setRecentlyViewedApps(recents);
+          setRecentlyViewedApps(withLocal);
           return;
         }
-        const healed = recents.map((r) => {
+        const healed = withLocal.map((r) => {
           const needDesc =
             typeof r.description !== 'string' || r.description.trim() === '' || isPlaceholderDescription(r.description);
           const needDescEn =
@@ -113,12 +122,12 @@ export function useDetailCacheSync({
         });
         setRecentlyViewedApps(healed);
       } catch {
-        setRecentlyViewedApps(recents);
+        setRecentlyViewedApps(withLocal);
       }
     } catch {
       // 忽略错误
     }
-  }, [setRecentlyViewedApps]);
+  }, [setRecentlyViewedApps, appsRef, localApps]);
 
   // 同步详情快照缓存与卡片列表数据（消除后台条件探查与主动刷新之间的重复逻辑）
   // 列表 patch 仅在目标命中且字段确变时生成新对象并返回新数组，否则原引用返回，避免无谓全网格重渲染
@@ -236,12 +245,22 @@ export function useDetailCacheSync({
       // 详情显式收录位同步：未收录（false）恒写透（dev 猜分类行经此得显式 false，
       // Header/卡片不再按 category 误判已收录）；已收录（true）仅纠正已有显式位，
       // 目录行保持无标记（category 兜底仍为已收录，避免全量 churn）。
+      // 本地橘黄同步：详情带 source=local 时同 id 行叠加 source/status（蓝优先：已验证不叠加）。
       const nextCataloged = (detail as unknown as { is_cataloged?: unknown }).is_cataloged;
       const rowCataloged = (app as unknown as { is_cataloged?: unknown }).is_cataloged;
       const shouldSyncCataloged =
         typeof nextCataloged === 'boolean' &&
         (nextCataloged === false || typeof rowCataloged === 'boolean') &&
         rowCataloged !== nextCataloged;
+      const detailSource = (detail as unknown as { source?: unknown }).source;
+      const detailStatus = (detail as unknown as { status?: unknown }).status;
+      const rowSource = (app as unknown as { source?: unknown }).source;
+      const shouldSyncLocal =
+        detailSource === 'local' &&
+        rowSource !== 'local' &&
+        rowSource !== 'custom' &&
+        app.is_verified !== true;
+      const wantStatus = typeof detailStatus === 'string' && detailStatus ? detailStatus : 'collected';
       if (
         app.stars === detail.stars &&
         app.forks === detail.forks &&
@@ -256,7 +275,8 @@ export function useDetailCacheSync({
         app.is_verified === detail.is_verified &&
         (app.homepage ?? null) === (nextHomepage ?? null) &&
         app.name === detail.name &&
-        !shouldSyncCataloged
+        !shouldSyncCataloged &&
+        !shouldSyncLocal
       ) {
         return app;
       }
@@ -276,6 +296,7 @@ export function useDetailCacheSync({
         homepage: nextHomepage,
         name: detail.name,
         ...(shouldSyncCataloged ? { is_cataloged: nextCataloged } : null),
+        ...(shouldSyncLocal ? { source: 'local', status: wantStatus, is_cataloged: true } : null),
       };
     };
 

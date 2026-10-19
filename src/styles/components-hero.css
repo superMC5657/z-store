@@ -146,6 +146,19 @@
   flex-shrink: 0;
 }
 
+/* 本地收录 hero 徽标（橘黄，verified 蓝不动）：浅色 #F59E0B，深色 #D97706。 */
+.hero-verified-badge.hero-local-badge {
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.2);
+  color: #F59E0B;
+}
+
+[data-theme="dark"] .hero-verified-badge.hero-local-badge {
+  background: rgba(245, 158, 11, 0.14);
+  border-color: rgba(245, 158, 11, 0.3);
+  color: #D97706;
+}
+
 .hero-banner:hover .hero-verified-badge {
   transform: none;
 }

@@ -208,15 +208,31 @@ export const SHOW_CUSTOM_DEFAULT = true;
 /** showCustom 设置键（兼容 snake/camel；值形态兼容 boolean/数字/字符串）。 */
 export const SHOW_CUSTOM_SETTING_KEYS = ['showCustom', 'show_custom'] as const;
 
-/** 带 source 标记的合并行（custom 标 source=custom，is_cataloged 恒 true）。 */
+/** 带 source 标记的合并行（custom 标 source=custom，local 标 source=local，is_cataloged 恒 true）。 */
 export type MergedAppRow = AppSummary & {
   source?: string;
   is_cataloged?: boolean;
+  status?: string;
 };
 
 /** 是否为自维护行（source=custom 即是；category external 原样保留，不参与判定）。 */
 export function isCustomAppRow(app: { source?: unknown }): boolean {
   return (app as { source?: unknown }).source === 'custom';
+}
+
+/** 是否为本地收录行（source=local 即是，已收录可搜可装，徽标走橘黄 local 变体）。 */
+export function isLocalAppRow(app: { source?: unknown }): boolean {
+  return (app as { source?: unknown }).source === 'local';
+}
+
+/** 本地收录态判定（status 为 collected 系即是；归档与否由调用方另判）。 */
+export function isCollectedStatus(status: unknown): boolean {
+  return status === 'collected' || status === 'local_collected';
+}
+
+/** 本地收录行判定（overlay/PR 门禁唯一口径）：status 为 collected 系且未归档。 */
+export function isLocalCollectedEntry(entry: { status?: unknown; archived?: unknown }): boolean {
+  return isCollectedStatus((entry as { status?: unknown }).status) && !(entry as { archived?: unknown }).archived;
 }
 
 /**
@@ -249,16 +265,73 @@ export function markCustomSource<T extends AppSummary>(app: T): MergedAppRow {
   return { ...app, source: 'custom', is_cataloged: true };
 }
 
+/** 本地收录行打标（source=local，is_cataloged 恒 true；不改原对象）。 */
+export function markLocalSource<T extends AppSummary>(app: T): MergedAppRow {
+  return { ...app, source: 'local', is_cataloged: true };
+}
+
+/** 草稿 payload 转收录行摘要（default_version 落 latest_version，forge 补 github）。 */
+function customItemToSummary(item: {
+  id: string;
+  name?: unknown;
+  owner?: unknown;
+  repo?: unknown;
+  icon?: unknown;
+  icon_bg?: unknown;
+  description?: unknown;
+  description_en?: unknown;
+  category?: unknown;
+  category_name?: unknown;
+  default_version?: unknown;
+  latest_version?: unknown;
+  license?: unknown;
+  stars?: unknown;
+  forks?: unknown;
+  homepage?: unknown;
+  platforms?: unknown;
+}): AppSummary {
+  const str = (v: unknown, fallback = ''): string => (typeof v === 'string' ? v : fallback);
+  const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+  const platforms = Array.isArray(item.platforms)
+    ? (item.platforms as unknown[]).filter((p): p is string => typeof p === 'string')
+    : [];
+  const homepage = typeof item.homepage === 'string' ? item.homepage : null;
+  return {
+    id: str(item.id),
+    name: str(item.name),
+    description_en: typeof item.description_en === 'string' ? item.description_en : undefined,
+    owner: str(item.owner),
+    repo: str(item.repo),
+    icon: str(item.icon),
+    icon_bg: str(item.icon_bg, 'linear-gradient(135deg, #475569, #334155)'),
+    description: str(item.description),
+    stars: num(item.stars),
+    forks: num(item.forks),
+    license: str(item.license),
+    latest_version: str(item.default_version ?? item.latest_version, 'v0.1.0'),
+    category: str(item.category, 'dev'),
+    category_name: str(item.category_name ?? item.category, 'dev'),
+    is_verified: false,
+    forge: 'github',
+    forge_host: 'github.com',
+    homepage,
+    platforms: [...platforms],
+  };
+}
+
 /**
- * 全局合并（远端优先去重，custom 仅补位）：
- * - remote 在前，custom 在后；同 id（归一）取远端行；
+ * 全局合并（远端优先去重，仅收录态补位）：
+ * - remote 在前，collected 在后；同 id（归一）取远端行；
  * - showCustom=false 即返回 remote 本体（引用透传，调用方可 memo 命中）；
- * - custom 为空同样透传 remote；否则 custom 行经 markCustomSource 打标。
+ * - 仅合 status 为 collected 系且未归档的行（draft/submitted/已归档一律跳过），
+ *   补位行经 markLocalSource 打标（source=local，is_cataloged 恒 true）；
+ * - 支持 CustomAppEntry（{item,status,archived}）与扁平行（含 status/archived）两种形态；
+ *   无 status 的旧行视为未收录直接跳过。
  * Home/分类/搜索三处共用同一口（调用方先合并再平台过滤）。
  */
 export function selectMergedCatalogApps(
   remote: AppSummary[],
-  custom: readonly AppSummary[],
+  custom: readonly unknown[],
   showCustom: boolean = SHOW_CUSTOM_DEFAULT,
 ): AppSummary[] {
   if (!showCustom || custom.length === 0) return remote;
@@ -267,16 +340,76 @@ export function selectMergedCatalogApps(
     const k = normalizeId(r.id);
     if (k) seen.add(k);
   }
+  // 收录态 overlay 用别名集（大小写/owner/repo/前后缀漂移仍命中，如 openchamber 大小写变体）：
+  // 去重语义不动（仍仅 id 归一去重），仅对远端已存在同仓行叠加 local 标记（蓝优先）。
+  const collectedAliasStatus = new Map<string, unknown>();
+  const collectedBases: Array<{ base: AppSummary; status: unknown }> = [];
+  for (const c of custom) {
+    if (!c || typeof c !== 'object') continue;
+    let base: AppSummary | null = null;
+    let status: unknown;
+    let archived: unknown;
+    if ('item' in (c as Record<string, unknown>) && (c as { item?: unknown }).item) {
+      const entry = c as { item: Parameters<typeof customItemToSummary>[0]; status?: unknown; archived?: unknown };
+      status = entry.status;
+      archived = entry.archived;
+      if (!isCollectedStatus(status) || archived) continue;
+      if (!entry.item || typeof entry.item.id !== 'string' || !entry.item.id) continue;
+      base = customItemToSummary(entry.item);
+    } else {
+      const row = c as AppSummary & { status?: unknown; archived?: unknown };
+      status = (row as { status?: unknown }).status;
+      archived = (row as { archived?: unknown }).archived;
+      if (!isCollectedStatus(status) || archived) continue;
+      if (!row.id) continue;
+      // 扁平行已是摘要形态（App.tsx 侧经 customCatalogItemToSummary 转换后仍带 status），直接复用。
+      base = row as AppSummary;
+    }
+    if (!base) continue;
+    const wantStatus = typeof status === 'string' && status ? status : 'collected';
+    for (const k of rowAliasKeys(base)) {
+      if (!collectedAliasStatus.has(k)) collectedAliasStatus.set(k, wantStatus);
+    }
+    collectedBases.push({ base, status: wantStatus });
+  }
+  if (collectedBases.length === 0) return remote;
   let appended = false;
   const out: AppSummary[] = [...remote];
-  for (const c of custom) {
-    const k = normalizeId(c.id);
+  for (const { base } of collectedBases) {
+    const k = normalizeId(base.id);
     if (!k || seen.has(k)) continue;
     seen.add(k);
-    out.push(markCustomSource(c));
+    out.push(markLocalSource(base));
     appended = true;
   }
-  if (!appended) return remote;
+  // 远端已存在同仓行叠加 local（蓝优先：已验证不叠加；custom 草稿行不参与，此处仅 remote）：
+  // 不改顺序/去重，仅搬标记供黄标判定；首刷 customApps null→就绪后经引用变化重标。
+  let overlaid = false;
+  const remoteCount = remote.length;
+  for (let i = 0; i < remoteCount; i++) {
+    const r = out[i];
+    if (!r || (r as { is_verified?: unknown }).is_verified === true) continue;
+    if (isCustomAppRow(r as { source?: unknown }) || isLocalAppRow(r as { source?: unknown })) continue;
+    const keys = rowAliasKeys(r);
+    let hitStatus: unknown;
+    let hit = false;
+    for (const k of keys) {
+      if (collectedAliasStatus.has(k)) {
+        hit = true;
+        hitStatus = collectedAliasStatus.get(k);
+        break;
+      }
+    }
+    if (!hit) continue;
+    const wantStatus = typeof hitStatus === 'string' && hitStatus ? hitStatus : 'collected';
+    const curSource = (r as { source?: unknown }).source;
+    const curStatus = (r as { status?: unknown }).status;
+    const curCataloged = (r as { is_cataloged?: unknown }).is_cataloged;
+    if (curSource === 'local' && curStatus === wantStatus && curCataloged === true) continue;
+    out[i] = { ...r, source: 'local', status: wantStatus, is_cataloged: true } as AppSummary;
+    overlaid = true;
+  }
+  if (!appended && !overlaid) return remote;
   return out;
 }
 
@@ -308,19 +441,40 @@ export function isCatalogedId(id: unknown, catalogIds: ReadonlySet<string>): boo
 
 /**
  * 单行显式标注（不改原对象）：
- * - source=custom 草稿行恒 true（不被 catalog 集覆盖，不碰 is_verified，草稿不配已认证蓝标）；
+ * - source=custom 草稿行与 source=local 收录行恒 true（不被 catalog 集覆盖，
+ *   不碰 is_verified，草稿/本地收录均不配已认证蓝标，本地收录配橘黄 local 变体）；
  * - 其余按 catalog 集命中/未命中显式携带以优先于 category 兜底；
- * - 已有正确布尔值即原引用透传（memo 友好）。
+ * - 本地收录叠加：同 id 命中本地收录且自身未验证（is_verified !== true）时补
+ *   source='local'（蓝标优先不动；远端已验证仍蓝，仅远端缺席/未验证才显黄），
+ *   status 一并搬运供 badge 兜底判定；
+ * - 已有正确值即原引用透传（memo 友好）。
  */
 export function annotateIsCataloged<T extends AppSummary>(
   row: T,
   catalogIds: ReadonlySet<string>,
+  localAppsOrIds?: readonly AppSummary[] | ReadonlySet<string>,
 ): T {
-  if (isCustomAppRow(row as { source?: unknown })) {
+  if (isCustomAppRow(row as { source?: unknown }) || isLocalAppRow(row as { source?: unknown })) {
     return typeof (row as { is_cataloged?: unknown }).is_cataloged === 'boolean' &&
       (row as { is_cataloged?: unknown }).is_cataloged === true
       ? row
       : ({ ...row, is_cataloged: true } as T);
+  }
+  // 蓝标优先：已验证行不叠加本地标记（仍走蓝），仅显式 is_cataloged。
+  const selfVerified = (row as { is_verified?: unknown }).is_verified === true;
+  const localHit = didHitLocal(row as AppSummary, localAppsOrIds);
+  if (!selfVerified && localHit.hit) {
+    const curCataloged = (row as { is_cataloged?: unknown }).is_cataloged;
+    const curSource = (row as { source?: unknown }).source;
+    const curStatus = (row as { status?: unknown }).status;
+    const wantStatus = localHit.status ?? 'collected';
+    if (curCataloged === true && curSource === 'local' && curStatus === wantStatus) return row;
+    return {
+      ...row,
+      source: 'local',
+      status: wantStatus,
+      is_cataloged: true,
+    } as T;
   }
   const expected = isCatalogedId((row as AppSummary).id, catalogIds);
   const cur = (row as { is_cataloged?: unknown }).is_cataloged;
@@ -328,22 +482,145 @@ export function annotateIsCataloged<T extends AppSummary>(
   return { ...row, is_cataloged: expected } as T;
 }
 
+/** 行别名键（id 归一 + owner/repo 归一 + id 末两段归一）：大小写/前后缀漂移仍命中同一仓库。 */
+export function rowAliasKeys(row: { id?: unknown; owner?: unknown; repo?: unknown }): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (k: string): void => {
+    if (!k || seen.has(k)) return;
+    seen.add(k);
+    out.push(k);
+  };
+  const idKey = normalizeId(row?.id);
+  if (idKey) {
+    push(idKey);
+    const raw = String(row?.id ?? '').trim();
+    const afterColon = raw.includes(':') ? (raw.split(':').pop() ?? raw) : raw;
+    const segs = afterColon.split('/').map((s) => s.trim()).filter(Boolean);
+    if (segs.length >= 2) {
+      const shortKey = normalizeId(`${segs[segs.length - 2]}/${segs[segs.length - 1]}`);
+      if (shortKey) push(shortKey);
+    }
+  }
+  if (typeof row?.owner === 'string' && typeof row?.repo === 'string') {
+    const coord = normalizeId(`${row.owner.trim()}/${row.repo.trim()}`);
+    if (coord && coord !== '/') push(coord);
+  }
+  return out;
+}
+
+/** 本地命中判定（含 status 搬运；Set 口径无 status 时回落 'collected'；数组口径仅认 source=local/status collected 系）。 */
+function didHitLocal(
+  row: AppSummary,
+  localAppsOrIds?: readonly AppSummary[] | ReadonlySet<string>,
+): { hit: boolean; status?: unknown } {
+  if (!localAppsOrIds) return { hit: false };
+  const rowKeys = rowAliasKeys(row);
+  if (rowKeys.length === 0) return { hit: false };
+  const rowKeySet = new Set(rowKeys);
+  if (localAppsOrIds instanceof Set) {
+    let hit = false;
+    for (const k of rowKeySet) {
+      if ((localAppsOrIds as ReadonlySet<string>).has(k)) {
+        hit = true;
+        break;
+      }
+    }
+    if (!hit) {
+      for (const raw of localAppsOrIds as ReadonlySet<string>) {
+        const nk = normalizeId(raw);
+        if (!nk) continue;
+        if (rowKeySet.has(nk)) {
+          hit = true;
+          break;
+        }
+        const s = String(raw).trim();
+        const afterColon = s.includes(':') ? (s.split(':').pop() ?? s) : s;
+        const segs = afterColon.split('/').map((x) => x.trim()).filter(Boolean);
+        if (segs.length >= 2) {
+          const shortKey = normalizeId(`${segs[segs.length - 2]}/${segs[segs.length - 1]}`);
+          if (shortKey && rowKeySet.has(shortKey)) {
+            hit = true;
+            break;
+          }
+        }
+      }
+    }
+    return { hit, status: 'collected' };
+  }
+  const statusByAlias = new Map<string, unknown>();
+  for (const l of localAppsOrIds) {
+    if (!l || typeof (l as AppSummary).id !== 'string') continue;
+    const src = (l as { source?: unknown }).source;
+    const st = (l as { status?: unknown }).status;
+    const isLocalRow =
+      src === 'local' || st === 'collected' || st === 'local_collected';
+    if (!isLocalRow) continue;
+    const keys = rowAliasKeys(l as AppSummary);
+    const wantStatus = typeof st === 'string' && st ? st : 'collected';
+    for (const k of keys) {
+      if (!statusByAlias.has(k)) statusByAlias.set(k, wantStatus);
+    }
+  }
+  for (const k of rowKeySet) {
+    if (statusByAlias.has(k)) return { hit: true, status: statusByAlias.get(k) };
+  }
+  return { hit: false };
+}
+
+/** 从目录数组中提取本地收录行（source=local）供在线叠加，不改排序/去重语义。 */
+function collectLocalFromCatalog(catalogApps: readonly AppSummary[]): AppSummary[] {
+  const out: AppSummary[] = [];
+  for (const c of catalogApps) {
+    if (!c) continue;
+    if ((c as { source?: unknown }).source === 'local') out.push(c);
+  }
+  return out;
+}
+
+/** 合并显式本地（数组或 Set 口径）与目录自带本地行，统一为数组 lookup（不改排序/去重）。 */
+export function mergeLocalLookups(
+  inferred: AppSummary[],
+  explicit?: readonly AppSummary[] | ReadonlySet<string>,
+): AppSummary[] | undefined {
+  const out: AppSummary[] = [...inferred];
+  if (explicit) {
+    if (explicit instanceof Set) {
+      for (const id of explicit) {
+        const k = normalizeId(id);
+        if (!k) continue;
+        out.push({ id: k, status: 'collected' } as unknown as AppSummary);
+      }
+    } else {
+      const arr = explicit as readonly AppSummary[];
+      if (arr.length > 0) out.push(...arr);
+    }
+  }
+  return out.length > 0 ? out : undefined;
+}
+
 /**
  * 在线段标注（online 落定处调用）：
- * 命中 catalog 即 true（已收录，在线结果仍正确隐藏按钮），未命中即 false。
+ * 命中 catalog 即 true（已收录，在线结果仍正确隐藏按钮），未命中即 false；
+ * 同 id 命中本地收录时叠加 source='local'/status（蓝标优先：自身已验证不叠加）。
  */
 export function annotateOnlineCataloged<T extends AppSummary>(
   onlineApps: readonly T[],
   catalogAppsOrIds: readonly AppSummary[] | ReadonlySet<string>,
+  localAppsOrIds?: readonly AppSummary[] | ReadonlySet<string>,
 ): T[] {
   if (onlineApps.length === 0) return onlineApps as T[];
   const catalogIds =
     catalogAppsOrIds instanceof Set
       ? catalogAppsOrIds
       : buildCatalogIdSet(catalogAppsOrIds as readonly AppSummary[]);
+  // 目录数组自带本地行时自动 inferred（不改排序/去重，仅搬标记供 badge 判定）。
+  const inferredLocal =
+    catalogAppsOrIds instanceof Set ? [] : collectLocalFromCatalog(catalogAppsOrIds as readonly AppSummary[]);
+  const localLookup = mergeLocalLookups(inferredLocal, localAppsOrIds);
   let changed = false;
   const out = onlineApps.map((r) => {
-    const next = annotateIsCataloged(r, catalogIds);
+    const next = annotateIsCataloged(r, catalogIds, localLookup);
     if (next !== (r as T)) changed = true;
     return next;
   });
@@ -352,11 +629,13 @@ export function annotateOnlineCataloged<T extends AppSummary>(
 
 /**
  * 趋势 enrich 镜像标注（enrich 合并处调用，Record 口径）：
- * 同上，未命中=false，命中=true；key 与 app.id 双通道归一（防别名漂移）。
+ * 同上，未命中=false，命中=true；key 与 app.id 双通道归一（防别名漂移）；
+ * 本地收录同 id 叠加 source/status（蓝优先）。
  */
 export function annotateEnrichMirrorCataloged(
   mirror: Record<string, AppSummary>,
   catalogAppsOrIds: readonly AppSummary[] | ReadonlySet<string>,
+  localAppsOrIds?: readonly AppSummary[] | ReadonlySet<string>,
 ): Record<string, AppSummary> {
   const keys = Object.keys(mirror);
   if (keys.length === 0) return mirror;
@@ -364,12 +643,15 @@ export function annotateEnrichMirrorCataloged(
     catalogAppsOrIds instanceof Set
       ? catalogAppsOrIds
       : buildCatalogIdSet(catalogAppsOrIds as readonly AppSummary[]);
+  const inferredLocal =
+    catalogAppsOrIds instanceof Set ? [] : collectLocalFromCatalog(catalogAppsOrIds as readonly AppSummary[]);
+  const localLookup = mergeLocalLookups(inferredLocal, localAppsOrIds);
   let changed = false;
   const next: Record<string, AppSummary> = { ...mirror };
   for (const k of keys) {
     const cur = mirror[k];
     if (!cur) continue;
-    const annotated = annotateIsCataloged(cur, catalogIds);
+    const annotated = annotateIsCataloged(cur, catalogIds, localLookup);
     if (annotated !== cur) {
       next[k] = annotated;
       changed = true;
@@ -431,10 +713,11 @@ export function useAppSelectors({
   // 搜索在线段同口径平台过滤：与本地段一致，加载中恒可见，落定后走正常过滤。
   // Lane C fix：在线落定处显式标注 is_cataloged（catalog id 集 canonical 比对），
   // 显式标记优先于 category 兜底；已收录在线仍正确隐藏按钮，未收录 dev 猜分类正确显示。
-  const catalogIdSet = useMemo(() => buildCatalogIdSet(apps), [apps]);
+  // 本地收录橘黄链路：目录用合并后全量（含本地，远端优先去重语义不动），在线同 id 命中本地
+  // 叠加 source='local'/status（蓝优先：自身已验证不叠加），供 badge 判定。
   const annotatedOnlineApps = useMemo(
-    () => annotateOnlineCataloged(onlineApps, catalogIdSet),
-    [onlineApps, catalogIdSet],
+    () => annotateOnlineCataloged(onlineApps, mergedApps, customApps),
+    [onlineApps, mergedApps, customApps],
   );
   const platformFilteredOnlineApps = useMemo(
     () => selectPlatformFilteredApps(annotatedOnlineApps, selectedPlatforms, platformResolvedOtherIds),

@@ -137,6 +137,15 @@
   color: var(--brand-primary);
 }
 
+/* 本地收录徽标（橘黄，verified 蓝不动）：浅色 #F59E0B，深色 #D97706。 */
+.verified-badge-local {
+  color: #F59E0B;
+}
+
+[data-theme="dark"] .verified-badge-local {
+  color: #D97706;
+}
+
 .app-owner {
   font-size: var(--font-xs);
   color: var(--text-tertiary);
