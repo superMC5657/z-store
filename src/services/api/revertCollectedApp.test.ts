@@ -1,13 +1,14 @@
 /**
  * 退回草稿回归：命令名对齐 + 落盘可见 + draft 不再进收录。
- * 后端规范命令为 `revert_collected_to_draft`（`revert_collected_app` 仅兼容别名），
+ * 后端规范命令为 `revert_collected_to_draft`，
  * 前端 CMD 必须指向规范名，否则 invoke 走旧名在新后端缺席时静默本地翻态、
  * 重启因 DB 仍 collected 而重现。
  */
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { CMD } from '../api';
+import { isCollectedStatus } from '../../app/selectors';
 import * as clientModule from './client';
-import { isCollectedStatus, revertCollectedApp } from './catalog';
+import { revertCollectedApp } from './catalog';
 
 describe('revertCollectedApp command alignment + persistence', () => {
   beforeEach(() => {

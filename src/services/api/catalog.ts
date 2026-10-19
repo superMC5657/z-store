@@ -18,6 +18,7 @@ import {
   type PlatformsLiteResult,
   type ReadmeVariant,
   type ReadmeVariantsResult,
+  type TauriCommand,
 } from '../api';
 import { isTauri, tauriInvoke } from './client';
 
@@ -334,8 +335,7 @@ export interface CustomCatalogItem {
 /** 自维护草稿状态（收录态 collected 系与 local_collected 同义，PR 前置门禁唯一口径）。 */
 export type CustomAppStatus = 'draft' | 'submitted' | 'collected' | 'local_collected';
 
-/** 收录态判定唯一口径收敛于 selectors（避免三处漂移）：本模块仅重导出。 */
-export { isCollectedStatus } from '../../app/selectors';
+/** 收录态判定唯一口径见 selectors（`isCollectedStatus`，本模块不再重导出）。 */
 
 /** 自维护草稿条目（与后端 CustomAppEntry 同形）。 */
 export interface CustomAppEntry {
@@ -389,13 +389,17 @@ export async function markCustomSubmitted(id: string, prUrl: string): Promise<Cu
  * 本地收录（收录档校验后 status=collected，已收录仍 is_verified=false）：
  * 仅发 {id}（camelCase 单键，snake 后端桥接）。
  */
+async function collectByCommand(cmd: TauriCommand, id: string): Promise<CustomAppEntry> {
+  return tauriInvoke<CustomAppEntry>(cmd, { id });
+}
+
 export async function collectCustomApp(id: string): Promise<CustomAppEntry> {
-  return tauriInvoke<CustomAppEntry>(CMD.collectCustomApp, { id });
+  return collectByCommand(CMD.collectCustomApp, id);
 }
 
 /** 本地收录视图入口（收录档校验后 status=collected，已收录仍 is_verified=false；直调 collect_local_app 真身）。 */
 export async function collectLocalApp(id: string): Promise<CustomAppEntry> {
-  return tauriInvoke<CustomAppEntry>(CMD.collectLocalApp, { id });
+  return collectByCommand(CMD.collectLocalApp, id);
 }
 
 /**
@@ -405,9 +409,6 @@ export async function collectLocalApp(id: string): Promise<CustomAppEntry> {
 export async function revertCollectedApp(id: string): Promise<CustomAppEntry> {
   return tauriInvoke<CustomAppEntry>(CMD.revertCollectedApp, { id });
 }
-
-/** 收录入口别名（与 collectCustomApp 同引用，供视图复用）。 */
-export const collect = collectCustomApp;
 
 /**
  * 草稿 payload 转收录行摘要（合并流输入）：
@@ -459,7 +460,7 @@ export async function getCustomAppPrUrl(id: string): Promise<string> {
 }
 
 /**
- * 批量收录申请预填链接（二期开关）：选中多条合并为一个 JSON 数组，经一个预填 URL 提交（批量合一）。
+ * 批量收录申请预填链接：选中多条合并为一个 JSON 数组，经一个预填 URL 提交（批量合一）。
  */
 export async function getCustomAppsBatchPrUrl(ids: string[]): Promise<string> {
   return tauriInvoke<string>(CMD.getCustomAppsBatchPrUrl, { ids });

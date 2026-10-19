@@ -2,7 +2,7 @@
 //!
 //! - `list_custom_apps` / `save_custom_app` / `delete_custom_app` /
 //!   `collect_custom_app` / `collect_local_app`（同真身，前者供草稿链路，后者供视图直调） /
-//!   `revert_collected_to_draft`（规范名；`revert_collected_app` 为等义别名，同真身） /
+//!   `revert_collected_to_draft`（规范名） /
 //!   `mark_submitted` / `retire_on_sync` / `get_merged_catalog_view` /
 //!   `get_custom_app_pr_url`；
 //! - 二次确认由前端做，后端 `delete_custom_app` 直接删；
@@ -444,18 +444,6 @@ pub fn collect_local_app(
 /// `pr_url` 清空，`is_verified=false` 保持（草稿永不冒充已验证）。
 #[tauri::command(rename_all = "camelCase")]
 pub fn revert_collected_to_draft(
-    state: State<'_, AppState>,
-    id: String,
-) -> crate::AppResult<CustomAppEntry> {
-    let key = crate::forge::canonical_lookup_id(&id);
-    let db = state.db().map_err(crate::AppError::from)?;
-    Ok(db.revert_collected_to_draft(&key)?)
-}
-
-/// Deprecated compat: canonical is `revert_collected_to_draft`, to be removed in next minor; keeps old frontend working.
-#[deprecated(note = "use revert_collected_to_draft instead; will be removed in next minor")]
-#[tauri::command(rename_all = "camelCase")]
-pub fn revert_collected_app(
     state: State<'_, AppState>,
     id: String,
 ) -> crate::AppResult<CustomAppEntry> {
