@@ -229,7 +229,7 @@ export function isCollectedStatus(status: unknown): boolean {
   return status === 'collected' || status === 'local_collected';
 }
 
-/** 本地收录行打标（source=local，is_cataloged 恒 true；已盖章行原引用透传，不再克隆）。 */
+/** 本地收录行打标（source=local，is_cataloged 恒 true；已盖章行原引用透传，不克隆）。 */
 function markLocalSource<T extends AppSummary>(app: T): MergedAppRow {
   if (
     app.source === 'local' &&
@@ -404,6 +404,9 @@ function isCatalogedId(id: unknown, catalogIds: ReadonlySet<string>): boolean {
 }
 
 /**
+ * 兼容层说明：后端 `AppSummary`/`AppDetail` 投影是收录态的权威来源；
+ * 以下客户端标注只为乐观本地行与旧载荷补齐字段，不是真值。
+ *
  * 单行显式标注（不改原对象）：
  * - source=custom 草稿行与 source=local 收录行恒 true（不被 catalog 集覆盖，
  *   不碰 is_verified，草稿/本地收录均不配已认证蓝标，本地收录配橘黄 local 变体）；
@@ -625,6 +628,9 @@ export function annotateEnrichMirrorCataloged(
 }
 
 /**
+ * 兼容层：后端 `AppSummary`/`AppDetail` 投影是权威来源，本函数只为
+ * 乐观本地行与旧载荷补齐字段，不是真值。
+ *
  * 本地收录标记搬运（不改收录判定）：
  * 命中本地收录即补 `source='local'` + `status` + `is_cataloged=true`，未命中原引用透传。
  * 蓝优先：已验证行不叠加；`source=custom` 草稿行原样保留；已是本地行仅补显式收录位。

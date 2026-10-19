@@ -3,6 +3,8 @@ import { TitleBar } from './components/TitleBar';
 // ResizeHandles is only loaded in Tauri desktop environment; in test/web environments
 // it is skipped to avoid evaluating Tauri internals or failing on mock contracts.
 const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+/** Live demo has no backend persistence or system browser; omit PR providers so PendingView shows the desktop-only hint. */
+const DEMO_MODE = Boolean(import.meta.env.VITE_DEMO);
 const ResizeHandles = isTauriEnv
   ? React.lazy(() => import('./components/ResizeHandles').then((m) => ({ default: m.ResizeHandles })))
   : () => null;
@@ -742,8 +744,12 @@ export const App: React.FC = () => {
               onMarkSubmitted={(id, prUrl) => handleMarkCustomSubmitted(id, prUrl)}
               onCollectLocal={(id) => handleCollectLocalApp(id)}
               onRevertToDraft={(id) => handleRevertCollectedApp(id)}
-              onGetPrUrl={(id) => tauriApi.getCustomAppPrUrl(id)}
-              onGetBatchPrUrl={(ids) => tauriApi.getCustomAppsBatchPrUrl(ids)}
+              onGetPrUrl={DEMO_MODE ? undefined : (id) => tauriApi.getCustomAppPrUrl(id)}
+              onGetBatchPrUrl={DEMO_MODE ? undefined : (ids) => tauriApi.getCustomAppsBatchPrUrl(ids)}
+              onGetPrPayload={DEMO_MODE ? undefined : (id) => tauriApi.getCustomAppPrPayload(id)}
+              onGetBatchPrPayload={
+                DEMO_MODE ? undefined : (ids) => tauriApi.getCustomAppsBatchPrPayload(ids)
+              }
               onNotify={(message, type) => showToast(message, type ?? 'info')}
             />
           )}

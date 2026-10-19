@@ -21,8 +21,19 @@ afterEach(async () => {
   cleanup();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  delete (window.navigator as unknown as Record<string, unknown>)['clipboard'];
   await i18n.changeLanguage('zh-CN');
 });
+
+/** 剪贴板桩（同 PendingView.test.tsx：直接覆写 navigator.clipboard.writeText）。 */
+function stubClipboard(): ReturnType<typeof vi.fn> {
+  const writeSpy = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(window.navigator, 'clipboard', {
+    value: { writeText: writeSpy },
+    configurable: true,
+  });
+  return writeSpy;
+}
 
 function draftEntry(partial: Partial<CustomDraftEntry> & { id: string }): CustomDraftEntry {
   return {
@@ -135,7 +146,10 @@ describe('PendingView one-click PR submit (Lane D)', () => {
     fireEvent.click(screen.getByText('提交 PR'));
 
     await waitFor(() =>
-      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('预览模式不可提交 PR'), 'warning'),
+      expect(onNotify).toHaveBeenCalledWith(
+        expect.stringContaining('预览模式仅演示，提交 PR 请在桌面版完成'),
+        'warning',
+      ),
     );
     expect(openSpy).not.toHaveBeenCalled();
     // 停留 collected：提交入口与手动标记行仍在
@@ -770,11 +784,12 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     );
   });
 
-  it('single open failure toasts open_failed without clipboard fallback', async () => {
+  it('single open failure copies the prefill URL and toasts the copied hint', async () => {
     await i18n.changeLanguage('zh-CN');
     const openSpy = vi.spyOn(tauriApi, 'openUrl').mockRejectedValue(new Error('shell open denied'));
     // 真失败：原生兜底同样被拦截返回 null，保留失败感知
     const windowOpenSpy = vi.spyOn(window, 'open').mockReturnValue(null);
+    const writeSpy = stubClipboard();
     const onNotify = vi.fn();
     const onGetPrUrl = vi.fn().mockResolvedValue(BATCH_URL);
 
@@ -794,9 +809,17 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     await waitFor(() => expect(openSpy).toHaveBeenCalledWith(BATCH_URL));
     // 兜底同样失败（window.open 返回 null）才判真失败
     await waitFor(() => expect(windowOpenSpy).toHaveBeenCalledWith(BATCH_URL, '_blank', 'noopener,noreferrer'));
-    // 打开失败给明确失败提示（复用失败文案风格），不只留“正在打开”谎报
+    // 失败降级：复制预填链接并明确提示已复制可手动打开
+    await waitFor(() => expect(writeSpy).toHaveBeenCalledWith(BATCH_URL));
     await waitFor(() =>
-      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('预填页打开失败'), 'error'),
+      expect(onNotify).toHaveBeenCalledWith(
+        expect.stringContaining('已复制链接，请手动打开'),
+        'error',
+      ),
+    );
+    expect(onNotify).not.toHaveBeenCalledWith(
+      expect.stringMatching(/预填页打开失败：shell open denied$/),
+      'error',
     );
   });
 
@@ -960,5 +983,114 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     await waitFor(() =>
       expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('已批量打开预填页'), 'success'),
     );
+  });
+
+  it('single over-limit copies the backend payload verbatim and still opens the prefill URL', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const longUrl = `https://example.com/new?body=${'x'.repeat(PREFILL_URL_LENGTH_LIMIT + 100)}`;
+    const payload = '{"id":"o/a","name":"Atlas"}';
+    const openSpy = vi.spyOn(tauriApi, 'openUrl').mockResolvedValue(undefined);
+    const writeSpy = stubClipboard();
+    const onNotify = vi.fn();
+    const onGetPrUrl = vi.fn().mockResolvedValue(longUrl);
+    const onGetPrPayload = vi.fn().mockResolvedValue(payload);
+
+    render(
+      <PendingView
+        initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
+        showBatchBar={false}
+        onGetPrUrl={onGetPrUrl}
+        onGetPrPayload={onGetPrPayload}
+        onNotify={onNotify}
+        onGetLicenseAllowlist={gateProvider}
+      />,
+    );
+    fireEvent.click(screen.getByText('本地收录'));
+    fireEvent.click(screen.getByText('o/a'));
+    fireEvent.click(screen.getByText('提交 PR'));
+
+    // 载荷由后端命令产出：回调按 id 取，剪贴板收到的就是原样字符串（前端不改写）
+    await waitFor(() => expect(onGetPrPayload).toHaveBeenCalledWith('o/a'));
+    await waitFor(() => expect(writeSpy).toHaveBeenCalledWith(payload));
+    expect(writeSpy).not.toHaveBeenCalledWith(longUrl);
+    // 复制载荷后仍尝试打开预填页
+    await waitFor(() => expect(openSpy).toHaveBeenCalledWith(longUrl));
+    await waitFor(() =>
+      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('已复制提交载荷'), 'success'),
+    );
+    expect(onNotify).not.toHaveBeenCalledWith(expect.stringContaining('建议分批提交'), 'warning');
+  });
+
+  it('batch over-limit copies the backend batch payload and still opens the prefill URL', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const longUrl = `https://example.com/new?body=${'y'.repeat(PREFILL_URL_LENGTH_LIMIT + 10)}`;
+    const payload = '[{"id":"o/a"},{"id":"o/b"}]';
+    const openSpy = vi.spyOn(tauriApi, 'openUrl').mockResolvedValue(undefined);
+    const writeSpy = stubClipboard();
+    const onNotify = vi.fn();
+    const onGetBatchPrUrl = vi.fn().mockResolvedValue(longUrl);
+    const onGetBatchPrPayload = vi.fn().mockResolvedValue(payload);
+
+    const { container } = render(
+      <PendingView
+        initialEntries={[draftEntry({ id: 'o/a', status: 'collected' }), draftEntry({ id: 'o/b', status: 'collected' })]}
+        onGetBatchPrUrl={onGetBatchPrUrl}
+        onGetBatchPrPayload={onGetBatchPrPayload}
+        onNotify={onNotify}
+        onGetLicenseAllowlist={gateProvider}
+      />,
+    );
+    fireEvent.click(screen.getByText('本地收录'));
+    const boxA = container.querySelector('.pending-list input[type="checkbox"][aria-label="o/a"]') as HTMLInputElement;
+    const boxB = container.querySelector('.pending-list input[type="checkbox"][aria-label="o/b"]') as HTMLInputElement;
+    fireEvent.click(boxA);
+    fireEvent.click(boxB);
+    await waitFor(() => expect((screen.getByTestId('pending-batch-submit') as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByTestId('pending-batch-submit'));
+
+    await waitFor(() => expect(onGetBatchPrPayload).toHaveBeenCalledWith(['o/a', 'o/b']));
+    await waitFor(() => expect(writeSpy).toHaveBeenCalledWith(payload));
+    await waitFor(() => expect(openSpy).toHaveBeenCalledWith(longUrl));
+    await waitFor(() =>
+      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('已复制提交载荷'), 'success'),
+    );
+    // 复制载荷即当作本次提交流程继续：打开成功仍报批量已打开
+    await waitFor(() =>
+      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('已批量打开预填页'), 'success'),
+    );
+  });
+
+  it('over-limit without a payload provider falls back to copying the prefill URL', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const longUrl = `https://example.com/new?body=${'z'.repeat(PREFILL_URL_LENGTH_LIMIT + 50)}`;
+    const openSpy = vi.spyOn(tauriApi, 'openUrl').mockResolvedValue(undefined);
+    const writeSpy = stubClipboard();
+    const onNotify = vi.fn();
+    const onGetPrUrl = vi.fn().mockResolvedValue(longUrl);
+
+    render(
+      <PendingView
+        initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
+        showBatchBar={false}
+        onGetPrUrl={onGetPrUrl}
+        onNotify={onNotify}
+        onGetLicenseAllowlist={gateProvider}
+      />,
+    );
+    fireEvent.click(screen.getByText('本地收录'));
+    fireEvent.click(screen.getByText('o/a'));
+    fireEvent.click(screen.getByText('提交 PR'));
+
+    await waitFor(() => expect(writeSpy).toHaveBeenCalledWith(longUrl));
+    // 保留原有超长告警，另加“已复制链接”提示
+    await waitFor(() =>
+      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('建议分批提交'), 'warning'),
+    );
+    await waitFor(() =>
+      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('已复制预填链接'), 'info'),
+    );
+    expect(onNotify).not.toHaveBeenCalledWith(expect.stringContaining('已复制提交载荷'), 'success');
+    // 仍尝试打开
+    expect(openSpy).toHaveBeenCalledWith(longUrl);
   });
 });

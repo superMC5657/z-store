@@ -150,6 +150,8 @@ export const CMD = {
   getMergedCatalogView: 'get_merged_catalog_view',
   getCustomAppPrUrl: 'get_custom_app_pr_url',
   getCustomAppsBatchPrUrl: 'get_custom_apps_batch_pr_url',
+  getCustomAppPrPayload: 'get_custom_app_pr_payload',
+  getCustomAppsBatchPrPayload: 'get_custom_apps_batch_pr_payload',
   getLicenseAllowlist: 'get_license_allowlist',
 } as const;
 
@@ -217,6 +219,8 @@ export const tauriApi = {
   getMergedCatalogView: catalogApi.getMergedCatalogView,
   getCustomAppPrUrl: catalogApi.getCustomAppPrUrl,
   getCustomAppsBatchPrUrl: catalogApi.getCustomAppsBatchPrUrl,
+  getCustomAppPrPayload: catalogApi.getCustomAppPrPayload,
+  getCustomAppsBatchPrPayload: catalogApi.getCustomAppsBatchPrPayload,
   getLicenseAllowlist: catalogApi.getLicenseAllowlist,
   getOrFetchIcon: catalogApi.getOrFetchIcon,
   cycleAppIcon: catalogApi.cycleAppIcon,

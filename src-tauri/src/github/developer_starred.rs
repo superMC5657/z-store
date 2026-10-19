@@ -163,7 +163,7 @@ impl CatalogService {
             if let Some(cat) = catalog_list.iter().find(|c| {
                 crate::forge::canonical_app_id(&full_name).as_deref() == Some(c.id.as_str())
             }) {
-                catalog_matches.push(cat.to_summary());
+                catalog_matches.push(self.item_to_stamped_summary(cat));
             } else {
                 let html_url = r
                     .html_url

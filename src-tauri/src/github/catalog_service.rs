@@ -143,14 +143,10 @@ impl CatalogService {
     fn resolve_catalog_stamp(
         &self,
         id: &str,
-        fallback_verified: bool,
     ) -> (bool, Option<String>, Option<String>) {
         let remote = self.get_remote_catalog_item(id);
         let is_collected = self.is_collected_id(id);
-        let remote_verified = remote
-            .as_ref()
-            .map(|i| i.is_verified)
-            .unwrap_or(fallback_verified);
+        let remote_verified = remote.as_ref().map(|i| i.is_verified).unwrap_or(false);
         if remote.is_some() && (remote_verified || !is_collected) {
             (true, Some(CATALOG_SOURCE_REMOTE.to_string()), None)
         } else if is_collected {
@@ -166,8 +162,7 @@ impl CatalogService {
 
     /// 收录态盖章（`AppSummary` 投影唯一口）。
     pub fn stamp_summary(&self, summary: &mut AppSummary) {
-        let (cataloged, source, status) =
-            self.resolve_catalog_stamp(&summary.id, summary.is_verified);
+        let (cataloged, source, status) = self.resolve_catalog_stamp(&summary.id);
         summary.is_cataloged = Some(cataloged);
         summary.source = source;
         summary.status = status;
@@ -175,8 +170,7 @@ impl CatalogService {
 
     /// 收录态盖章（`AppDetail` 投影唯一口，口径与 `stamp_summary` 一致）。
     pub fn stamp_detail(&self, detail: &mut crate::models::AppDetail) {
-        let (cataloged, source, status) =
-            self.resolve_catalog_stamp(&detail.id, detail.is_verified);
+        let (cataloged, source, status) = self.resolve_catalog_stamp(&detail.id);
         detail.is_cataloged = Some(cataloged);
         detail.source = source;
         detail.status = status;
@@ -834,6 +828,37 @@ mod tests {
         // 远端本体口径不含本地收录。
         assert_eq!(svc.get_remote_catalog_items().len(), 1);
         assert_eq!(svc.get_catalog_items().len(), 2);
+    }
+
+    /// overlay 来源：`sync_collected_from_db` 后合并目录含本地收录，
+    /// 远端本体口径仍不含（scanner/detail/installer 走合并目录）。
+    #[test]
+    fn test_sync_collected_from_db_feeds_merged_catalog_only() {
+        let db = crate::db::Database::open_in_memory().unwrap();
+        let mut local = item("o/local", "o", "local");
+        local.name = "Local Tool".to_string();
+        local.description = "a local tool".to_string();
+        local.homepage = Some("https://example.com/local".to_string());
+        db.upsert_custom_app_payload(&local).unwrap();
+        db.mark_custom_app_collected("o/local").unwrap();
+
+        let svc = test_service(vec![item("o/remote", "o", "remote")]);
+        // 同步前 overlay 为空：合并目录只有远端行。
+        assert!(svc.get_catalog_item("o/local").is_none());
+        svc.sync_collected_from_db(&db);
+
+        assert_eq!(
+            svc.get_catalog_item("o/local").map(|i| i.name),
+            Some("Local Tool".to_string())
+        );
+        assert_eq!(svc.get_catalog_items().len(), 2);
+        assert!(svc.get_catalog_items().iter().any(|i| i.id == "o/local"));
+        // 远端本体口径不含本地收录。
+        assert_eq!(svc.get_remote_catalog_items().len(), 1);
+        assert!(!svc
+            .get_remote_catalog_items()
+            .iter()
+            .any(|i| i.id == "o/local"));
     }
 
     /// 收录态盖章：蓝标优先、本地补位、未收录 false。

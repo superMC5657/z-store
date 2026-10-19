@@ -50,9 +50,10 @@ import {
 export type { LicenseAllowlistResult };
 
 /**
- * 预填 URL 长度门限（pretty JSON 进 issues/new body 后极易超长，判定口径为编码后
- * 预填链接全长，含 percent-encoding 膨胀；与 Spec §5 对齐，阈值 8000 不变）：
- * 超过即提示分批提交（仍复制 JSON + 仍尝试打开），单条/批量同口径。
+ * 预填 URL 长度门限（判定口径为编码后预填链接全长，含 percent-encoding 膨胀；
+ * 与 Spec §5 对齐，阈值 8000）：
+ * 超过即提示分批提交，单条/批量同口径；超长时优先复制后端产出的提交载荷
+ * （前端不拼装 JSON），再照常尝试打开预填页；载荷不可得则退化为复制链接。
  */
 export const PREFILL_URL_LENGTH_LIMIT = 8000;
 
@@ -141,6 +142,16 @@ interface PendingViewProps {
    */
   onGetBatchPrUrl?: (ids: string[]) => Promise<string>;
   /**
+   * 单条提交载荷（后端 `get_custom_app_pr_payload` 产出的 JSON 对象文本；
+   * 前端只原样复制，不自行拼装/格式化）。预填链接超长时优先复制它。
+   */
+  onGetPrPayload?: (id: string) => Promise<string>;
+  /**
+   * 批量提交载荷（后端 `get_custom_apps_batch_pr_payload` 产出的 JSON 数组文本；
+   * 前端只原样复制）。批量预填链接超长时优先复制它。
+   */
+  onGetBatchPrPayload?: (ids: string[]) => Promise<string>;
+  /**
    * 许可名单提供方（后端只读命令的前端封装；
    * 缺席时默认走 `getLicenseAllowlist`，单测可注入桩）。
    * 启动/提交前拉取，失败不回退写死名单（暂存放行、提交提示重试）。
@@ -178,11 +189,12 @@ export const PENDING_EMPTY_DRAFT: PendingDraftItem = {
 };
 
 /**
- * 协议归一（与后端 `normalize_license` 同口径）：去空白 → 大写 →
- * 空格/下划线折 `-` → 尾 `+` 视为或后续版本。
+ * 协议归一（与后端 `normalize_license` 逐字符同口径）：去首尾空白 → 大写 →
+ * 每个空格/下划线单独折 `-`（连续空白因此各出一个 `-`，不做 run 折叠）→
+ * 尾 `+` 视为或后续版本。
  */
 export function normalizeLicense(raw: string): string {
-  let s = raw.trim().toUpperCase().replace(/[ _]+/g, '-');
+  let s = raw.trim().toUpperCase().replace(/[ _]/g, '-');
   if (s.endsWith('+')) {
     s = s.slice(0, -1);
     if (!s.endsWith('-OR-LATER')) s += '-OR-LATER';
@@ -342,6 +354,8 @@ export const PendingView: React.FC<PendingViewProps> = ({
   onRevertToDraft,
   onGetPrUrl,
   onGetBatchPrUrl,
+  onGetPrPayload,
+  onGetBatchPrPayload,
   onGetLicenseAllowlist,
   showBatchBar = true,
   onNotify,
@@ -998,9 +1012,38 @@ export const PendingView: React.FC<PendingViewProps> = ({
     }
   };
 
-  /** 预填页打开失败：toast 明确失败（不谎报成功），不做剪贴板降级。 */
-  const notifyPrefillOpenFailed = async (_url: string, err: unknown): Promise<void> => {
+  /**
+   * 后端载荷复制：取后端产出的载荷文本并原样写入剪贴板（不 trim、不重新格式化）。
+   * provider 缺席或取载荷/复制失败一律返回 false，由调用方走链接复制退化路径。
+   */
+  const copyBackendPayload = async (load: () => Promise<string>): Promise<boolean> => {
+    try {
+      const payload = await load();
+      if (typeof payload !== 'string' || !payload.trim()) return false;
+      return await copyTextToClipboard(payload);
+    } catch {
+      return false;
+    }
+  };
+
+  /**
+   * 预填页打开失败：真实 https 链接先复制到剪贴板再 toast（已复制链接，请手动打开）；
+   * 复制失败或传入的非链接标识（invalid-URL 守卫传 id）只报 plain open_failed，不谎报已复制。
+   */
+  const notifyPrefillOpenFailed = async (url: string, err: unknown): Promise<void> => {
     const message = err instanceof Error ? err.message : String(err);
+    const target = (url ?? '').trim();
+    const copied = /^https:\/\//i.test(target) ? await copyTextToClipboard(target) : false;
+    if (copied) {
+      onNotify?.(
+        t('pending.pr.open_failed_copied', {
+          message,
+          defaultValue: `预填页打开失败：${message}；已复制链接，请手动打开`,
+        }),
+        'error',
+      );
+      return;
+    }
     onNotify?.(
       t('pending.pr.open_failed', { message, defaultValue: `预填页打开失败：${message}` }),
       'error',
@@ -1010,12 +1053,13 @@ export const PendingView: React.FC<PendingViewProps> = ({
   /**
    * 单卡“提交 PR”：仅收录态可提交（draft 先收录进本地）→ 先确保后端许可名单就绪
    * （失败提示重试并中止，不回退本地名单）→ 提交档本地预检（与后端 SubmitStrict 同口径；
-   * 缺项可点击：置内联 + 定位首错，不 toast）→ 先取 URL（后端优先，无 provider 走本地同形；
-   * 后端抛错直接 toast 中止，不静默回退本地）→ 复制 JSON（成功才提示“已复制正在打开”）→
-   * 超长额外提示分批 → 打开预填 URL（无 token 纯 URL）即止：不自动 mark submitted，
+   * 缺项可点击：置内联 + 定位首错，不 toast）→ 取预填 URL（后端产出；无 provider 即预览模式，
+   * 硬拦提示去桌面版）→ 打开预填 URL（无 token 纯 URL）即止：不自动 mark submitted，
    * 用户在预填页提交 PR 后回本地收录手动贴链接确认（复用 mark_submitted 行），
    * 取消则停留 collected，可重新提交。
-   * 打开失败 toast 明确失败 + 降级复制 URL，不谎报成功。
+   * 超长（> PREFILL_URL_LENGTH_LIMIT）：优先复制后端产出的载荷 JSON（前端不拼装/格式化），
+   * 复制不到才提示分批并复制链接；两种情形都仍尝试打开预填页。
+   * 打开失败：复制预填链接并 toast 已复制（复制不到只报打开失败），不谎报成功。
    */
   const handleSubmitPr = async (id: string) => {
     const target = entries.find((e) => e.id === id);
@@ -1038,7 +1082,12 @@ export const PendingView: React.FC<PendingViewProps> = ({
     try {
       // 先取 URL：后端门禁错直接透出 toast，中止不开页；无回调即预览模式不可提交。
       if (!onGetPrUrl) {
-        onNotify?.(t('pending.pr.preview_only', { defaultValue: '预览模式不可提交 PR' }), 'warning');
+        onNotify?.(
+          t('pending.pr.preview_only', {
+            defaultValue: '预览模式仅演示，提交 PR 请在桌面版完成',
+          }),
+          'warning',
+        );
         return;
       }
       let url = '';
@@ -1056,15 +1105,36 @@ export const PendingView: React.FC<PendingViewProps> = ({
         return;
       }
       url = trimmedUrl;
-      // 预填链接长度判定（含 percent-encoding 膨胀，按编码后 URL 全长计，与 Spec §5 对齐；阈值不变）。
+      // 预填链接长度判定（含 percent-encoding 膨胀，按编码后 URL 全长计，与 Spec §5 对齐）。
       if (url.length > PREFILL_URL_LENGTH_LIMIT) {
-        onNotify?.(
-          t('pending.pr.url_too_long', {
-            length: url.length,
-            defaultValue: `预填链接过长（${url.length} 字符），建议分批提交`,
-          }),
-          'warning',
-        );
+        const payloadCopied = onGetPrPayload
+          ? await copyBackendPayload(() => onGetPrPayload(id))
+          : false;
+        if (payloadCopied) {
+          onNotify?.(
+            t('pending.pr.payload_copied', {
+              length: url.length,
+              defaultValue: `预填链接过长（${url.length} 字符），已复制提交载荷，正在打开预填页`,
+            }),
+            'success',
+          );
+        } else {
+          onNotify?.(
+            t('pending.pr.url_too_long', {
+              length: url.length,
+              defaultValue: `预填链接过长（${url.length} 字符），建议分批提交`,
+            }),
+            'warning',
+          );
+          if (await copyTextToClipboard(url)) {
+            onNotify?.(
+              t('pending.pr.url_copied_open_hint', {
+                defaultValue: '已复制预填链接，可直接粘贴到浏览器打开',
+              }),
+              'info',
+            );
+          }
+        }
       }
       try {
         await openPrefillPage(url);
@@ -1123,12 +1193,13 @@ export const PendingView: React.FC<PendingViewProps> = ({
   /**
    * 批量提交（仅本地收录分组：列表多选 + 列表工具行按钮，随切 Tab 显隐）：先确保后端许可名单就绪（失败提示重试并中止）→
    * 选中多条 → 提交档本地预检（缺项可点击：拦阻行内列出 ids，不 toast 不开页不标记）→
-   * 先取 URL（后端优先，无 provider 走本地同形；后端抛错直接 toast 中止，不静默回退）→
-   * 合并 JSON 数组并复制（成功才提示“已复制正在打开”；超长额外提示分批，仍复制，长度按编码后 URL 全长计）→
+   * 取批量预填 URL（后端产出；无 provider 即预览模式，硬拦提示去桌面版）→
    * 一个预填 URL（批量合一）即止：不自动 mark，
    * 各条目 submitted 态靠用户逐条手动贴链接确认，取消则停留 collected 可重新提交。
-   * 打开失败 toast 明确失败 + 降级复制 URL，不谎报 batch_submitted；仅打开成功才清选中 + 报 batch_submitted。
-   * showBatchBar=false 时隐藏工具行入口与多选。
+   * 超长（> PREFILL_URL_LENGTH_LIMIT）：优先复制后端产出的批量载荷 JSON 数组
+   * （前端不拼装/格式化），复制不到才提示分批并复制链接；两种情形都仍尝试打开预填页。
+   * 打开失败：复制预填链接并 toast 已复制（复制不到只报打开失败），不谎报 batch_submitted；
+   * 仅打开成功才清选中 + 报 batch_submitted。showBatchBar=false 时隐藏工具行入口与多选。
    */
   const handleBatchSubmit = async () => {
     const picked = batchCandidates.filter((e) => batchSelected.has(e.id));
@@ -1153,7 +1224,12 @@ export const PendingView: React.FC<PendingViewProps> = ({
       const ids = picked.map((e) => e.id);
       // 先取 URL：后端门禁错直接透出 toast，中止不开页；无回调即预览模式不可提交。
       if (!onGetBatchPrUrl) {
-        onNotify?.(t('pending.pr.preview_only', { defaultValue: '预览模式不可提交 PR' }), 'warning');
+        onNotify?.(
+          t('pending.pr.preview_only', {
+            defaultValue: '预览模式仅演示，提交 PR 请在桌面版完成',
+          }),
+          'warning',
+        );
         return;
       }
       let url = '';
@@ -1169,16 +1245,37 @@ export const PendingView: React.FC<PendingViewProps> = ({
         return;
       }
       url = trimmedBatchUrl;
-      // 预填链接长度判定（含 percent-encoding 膨胀，按编码后 URL 全长计，与 Spec §5 对齐；阈值不变）。
+      // 预填链接长度判定（含 percent-encoding 膨胀，按编码后 URL 全长计，与 Spec §5 对齐）。
       if (url.length > PREFILL_URL_LENGTH_LIMIT) {
-        onNotify?.(
-          t('pending.pr.url_too_long', {
-            length: url.length,
-            count: ids.length,
-            defaultValue: `预填链接过长（${url.length} 字符），建议分批提交`,
-          }),
-          'warning',
-        );
+        const payloadCopied = onGetBatchPrPayload
+          ? await copyBackendPayload(() => onGetBatchPrPayload(ids))
+          : false;
+        if (payloadCopied) {
+          onNotify?.(
+            t('pending.pr.payload_copied', {
+              length: url.length,
+              defaultValue: `预填链接过长（${url.length} 字符），已复制提交载荷，正在打开预填页`,
+            }),
+            'success',
+          );
+        } else {
+          onNotify?.(
+            t('pending.pr.url_too_long', {
+              length: url.length,
+              count: ids.length,
+              defaultValue: `预填链接过长（${url.length} 字符），建议分批提交`,
+            }),
+            'warning',
+          );
+          if (await copyTextToClipboard(url)) {
+            onNotify?.(
+              t('pending.pr.url_copied_open_hint', {
+                defaultValue: '已复制预填链接，可直接粘贴到浏览器打开',
+              }),
+              'info',
+            );
+          }
+        }
       }
       try {
         await openPrefillPage(url);

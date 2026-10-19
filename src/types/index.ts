@@ -20,7 +20,7 @@ export interface AppSummary {
    */
   is_cataloged?: boolean;
   /** 目录来源：`remote`（远端精选）/ `local`（本地收录补位）；未收录与旧载荷缺席。 */
-  source?: 'remote' | 'local' | 'custom' | string;
+  source?: 'remote' | 'local' | 'custom';
   /** 本地收录行状态（`collected` 系），仅徽标判定用；远端行缺席。 */
   status?: string;
   is_installed?: boolean;
@@ -73,7 +73,7 @@ export interface AppDetail {
    */
   is_cataloged?: boolean;
   /** 目录来源：`remote`（远端精选）/ `local`（本地收录补位）；未收录缺席。 */
-  source?: 'remote' | 'local' | string;
+  source?: 'remote' | 'local' | 'custom';
   /** 本地收录行状态（`collected` 系），仅徽标判定用；远端行缺席。 */
   status?: string;
 }

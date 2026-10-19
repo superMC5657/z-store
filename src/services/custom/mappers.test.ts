@@ -95,23 +95,47 @@ describe('草稿 mappers（线格式 ↔ 领域）', () => {
     expect(roundTrip).toEqual(item);
   });
 
-  it('itemToSummary：本地收录黄标字段（source=local + 显式 status）与星数透传', () => {
-    const summary = itemToSummary(draftItem({ name: '' }), 'collected');
+  it('itemToSummary：本地收录黄标字段（source=local + 显式 status）与统一归一化', () => {
+    const item = draftItem({ name: '', icon_bg: '', description_en: '' });
+    const summary = itemToSummary(item, 'collected');
     expect(summary.id).toBe('acme/atlas');
     expect(summary.name).toBe('acme/atlas');
+    expect(summary.icon_bg).toBe('linear-gradient(135deg, #475569, #334155)');
+    expect(summary.description_en).toBeUndefined();
     expect(summary.source).toBe('local');
     expect(summary.status).toBe('collected');
     expect(summary.is_verified).toBe(false);
     expect(summary.stars).toBe(42);
     expect(summary.homepage).toBeNull();
     expect(summary.platforms).toEqual(['windows']);
+    // 待收录路径不携带 archived。
+    expect('archived' in summary).toBe(false);
   });
 
-  it('entryToCollectedSummary：保留 status/archived 供合并去重与黄标', () => {
-    const summary = entryToCollectedSummary(entryFromWire(wireEntry()));
+  it('itemToSummary：stars/forks 非有限数回退 0，platforms 复制而非共享引用', () => {
+    const item = draftItem({ stars: undefined, forks: undefined });
+    const summary = itemToSummary(item, 'draft');
+    expect(summary.stars).toBe(0);
+    expect(summary.forks).toBe(0);
+    expect(summary.platforms).not.toBe(item.platforms);
+  });
+
+  it('entryToCollectedSummary：与待收录路径共用归一化，并透传 status/archived', () => {
+    const item = draftItem({ name: '', icon_bg: '', description_en: '' });
+    const entry = { ...entryFromWire(wireEntry({ archived: true })), item };
+    const summary = entryToCollectedSummary(entry);
+    const pending = itemToSummary(item, entry.status);
+
+    // 同一条目两条路径的展示字段完全一致（除 archived）。
+    expect({ ...summary, archived: undefined }).toEqual({ ...pending, archived: undefined });
+    expect(summary.name).toBe('acme/atlas');
+    expect(summary.icon_bg).toBe(pending.icon_bg);
+    expect(summary.description_en).toBeUndefined();
+    expect(summary.source).toBe('local');
     expect(summary.status).toBe('collected');
-    expect(summary.archived).toBe(false);
+    expect(summary.archived).toBe(true);
     expect(summary.is_verified).toBe(false);
     expect(summary.latest_version).toBe('v0.1.0');
+    expect(summary.platforms).not.toBe(item.platforms);
   });
 });

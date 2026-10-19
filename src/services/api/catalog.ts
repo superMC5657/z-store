@@ -405,6 +405,22 @@ export async function getCustomAppsBatchPrUrl(ids: string[]): Promise<string> {
 }
 
 /**
+ * 单条提交载荷（后端序列化的 JSON 对象文本）：预填链接超长时直接复制给用户。
+ * 前端只原样透传字符串，不自行拼装/格式化 JSON。
+ */
+export async function getCustomAppPrPayload(id: string): Promise<string> {
+  return tauriInvoke<string>(CMD.getCustomAppPrPayload, { id });
+}
+
+/**
+ * 批量提交载荷（后端序列化的 JSON 数组文本）：批量预填链接超长时直接复制给用户。
+ * 前端只原样透传字符串，不自行拼装/格式化 JSON。
+ */
+export async function getCustomAppsBatchPrPayload(ids: string[]): Promise<string> {
+  return tauriInvoke<string>(CMD.getCustomAppsBatchPrPayload, { ids });
+}
+
+/**
  * 许可名单只读查询（ADR-0018）：名单唯一源头为后端编译时配置。
  * 前端 SubmitStrict 校验（提交/预填 PR 前）经此拉取；调用失败由调用方视为
  * 加载失败（放行暂存、提交提示重试），绝不在前端回退一份写死名单。
@@ -429,7 +445,8 @@ export async function getLicenseAllowlist(): Promise<LicenseAllowlistResult> {
 
 /**
  * 文本复制（剪贴板 API 优先，失败回退 textarea + execCommand；永远不抛异常）。
- * 仅服务轻量文本（如应用标识），不参与 PR 预填链路。
+ * 供轻量文本（应用标识）、超长预填链接及后端提交载荷的复制兜底使用；
+ * 载荷文本由后端命令产出，调用方只原样复制，不重新格式化。
  */
 export async function copyTextToClipboard(text: string): Promise<boolean> {
   try {

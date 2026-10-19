@@ -20,13 +20,10 @@ export interface MoveInResult {
  */
 export async function moveInToDraft(app: AppSummary): Promise<MoveInResult> {
   let iconRemote: string | undefined;
-  try {
-    const cycle = await tauriApi.restoreOrFetchIconCycle(app.id).catch(() => null);
-    const remote = typeof cycle?.remote_url === 'string' ? cycle.remote_url.trim() : '';
-    if (/^https?:\/\//i.test(remote)) iconRemote = remote;
-  } catch {
-    // remote truth unavailable: fall back to app.icon normalization, never fabricate
-  }
+  // 探测失败回退摘要图标归一（`catch` 已吞掉拒绝），绝不伪造 remote 真值。
+  const cycle = await tauriApi.restoreOrFetchIconCycle(app.id).catch(() => null);
+  const remote = typeof cycle?.remote_url === 'string' ? cycle.remote_url.trim() : '';
+  if (/^https?:\/\//i.test(remote)) iconRemote = remote;
   const draft = buildCustomDraftItemFromSummary(app, iconRemote);
   try {
     await tauriApi.saveCustomApp(draft);

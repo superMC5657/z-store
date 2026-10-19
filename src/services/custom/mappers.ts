@@ -96,20 +96,25 @@ export function itemToWire(
   };
 }
 
-/** 草稿 → 本地收录卡片摘要（`source=local`，显式 status 供黄标判定）。 */
+/**
+ * 草稿 → 卡片摘要（唯一投影：待收录与本地收录行共用）。
+ * `source=local` + 显式 status 供黄标判定；`archived` 仅在调用方传入时携带
+ * （待收录路径无归档概念，收录行路径透传行真值）。
+ */
 export function itemToSummary(
   item: DraftItem,
   status: DraftStatus,
-): AppSummary & { source: string; status: string } {
+  archived?: boolean,
+): AppSummary & { source: 'local'; status: string; archived?: boolean } {
   return {
     id: item.id,
     name: item.name || item.id,
     owner: item.owner,
     repo: item.repo,
     icon: item.icon,
-    icon_bg: item.icon_bg,
+    icon_bg: item.icon_bg || DEFAULT_ICON_BG,
     description: item.description,
-    description_en: item.description_en,
+    description_en: item.description_en || undefined,
     stars: typeof item.stars === 'number' && Number.isFinite(item.stars) ? item.stars : 0,
     forks: typeof item.forks === 'number' && Number.isFinite(item.forks) ? item.forks : 0,
     license: item.license,
@@ -120,38 +125,19 @@ export function itemToSummary(
     forge: 'github',
     forge_host: 'github.com',
     homepage: item.homepage || null,
-    platforms: item.platforms ?? [],
+    platforms: [...(item.platforms ?? [])],
     source: 'local',
     status,
-  } as AppSummary & { source: string; status: string };
+    ...(archived === undefined ? {} : { archived }),
+  };
 }
 
 /** 本地收录行 → 合并视图摘要（保留 status/archived，供去重与黄标）。 */
 export function entryToCollectedSummary(
   entry: DraftEntry,
 ): AppSummary & { status: string; archived: boolean } {
-  const it = entry.item;
-  return {
-    id: it.id,
-    name: it.name,
-    description_en: it.description_en || undefined,
-    owner: it.owner,
-    repo: it.repo,
-    icon: it.icon,
-    icon_bg: it.icon_bg || DEFAULT_ICON_BG,
-    description: it.description,
-    stars: it.stars ?? 0,
-    forks: it.forks ?? 0,
-    license: it.license,
-    latest_version: it.default_version || 'v0.1.0',
-    category: it.category || 'dev',
-    category_name: it.category_name || it.category || 'dev',
-    is_verified: false,
-    forge: 'github',
-    forge_host: 'github.com',
-    homepage: it.homepage || null,
-    platforms: [...it.platforms],
-    status: entry.status,
-    archived: entry.archived,
+  return itemToSummary(entry.item, entry.status, entry.archived) as AppSummary & {
+    status: string;
+    archived: boolean;
   };
 }

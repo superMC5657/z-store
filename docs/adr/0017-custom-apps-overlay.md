@@ -39,8 +39,9 @@
    提交档校验后生成）。
 3. **全局合并为视图（非写回）**：`CatalogService` 持有远端精选目录 + 本地收录 overlay
    （`collected: RwLock<Vec<CatalogItem>>`，启动与 `custom_apps` 变更后经 `sync_collected_from_db` 同步）；
-   `get_catalog_item`/`is_cataloged`/`get_repo_coordinates`/`search_apps`/`merged_summaries`
-   统一解析远端优先 + 本地收录补位，并在投影时盖章 `AppSummary`/`AppDetail` 的
+   `get_catalog_item`/`get_catalog_items`/`is_cataloged`/`get_repo_coordinates`/`search_apps`/
+   `merged_summaries` 统一解析远端优先 + 本地收录补位（`get_remote_catalog_items` 保留远端本体口径，
+   供清单同步与差异计算），并在投影时盖章 `AppSummary`/`AppDetail` 的
    `source`（`remote`/`local`）与 `is_cataloged`（未收录显式 `false`）。
    `merge_catalog_overlay_view` 把未归档 custom 条目叠加到内存目录视图；`is_cataloged` 恒 true（视图内即视为已收录），
    来源经 `source=remote/custom/local` 区分（`custom` 为草稿行，`local` 为已收录行：`status` 为 `collected` 系且未归档，库存恒 `is_cataloged=true`、`is_verified=false`，PR 预填复制体翻 `true` 仅限载荷）；去重远端优先（同 id 取远端行，custom/local 仅补位；远端已存在同仓行叠加 `local` 标记供黄标判定，蓝标优先，已验证不叠加）；收录态 `collected` 与磁盘残留 `local_collected` 同义，判定唯一口径 `isCollectedStatus`；本地徽标走 `verified-badge-local` 橘黄（D4 去彩例外，见 CONTEXT 词汇表）。
@@ -52,15 +53,18 @@
 5. **预填 PR 链路**：`build_catalog_pr_url` 由草稿 payload 生成清单仓库 Issue 预填 URL
    （标题带 canonical id，正文含关键字段 + 完整 JSON），用户在浏览器确认后提交，
    maintainer 转 PR——草稿“本地先生效、远端后收录”不断链。单条入口为
-   `get_custom_app_pr_url`，批量入口为 `get_custom_apps_batch_pr_url` /
-   `build_batch_pr_url`（提交档校验后生成，门禁口径见 ADR-0018）。
+   `get_custom_app_pr_url` / `get_custom_app_pr_payload`，批量入口为
+   `get_custom_apps_batch_pr_url` / `get_custom_apps_batch_pr_payload` /
+   `build_batch_pr_url`（提交档校验后生成，门禁口径见 ADR-0018）；payload 命令只返回
+   Rust 序列化的 JSON 文本（单对象 / 数组），供预填链接超长时原样复制，前端不拼模板。
 6. **前端已交付**：待收录页 `PendingView.tsx`
   （+ `PendingView.test.tsx` / `PendingView.pr.test.tsx`、`styles/components-pending.css`，
    Linear 去彩单色）；`App.tsx` 透传 `pendingCount`/`customIds`/`movedInIds`
   （保存/删除/标记提交回调 + `zstore:custom-apps-changed` 刷新）；
    `Sidebar` 待收录导航（`nav.items.pending` + `pendingCount` 角标）；
    `selectors` 全局合并（`selectMergedCatalogApps` + `showCustom` 开关默认开 +
-   `annotateIsCataloged` 系列标注）；`AppCard` 移入入口 + custom 角标；
+   `annotateIsCataloged` 系列兼容标注：后端投影为权威，客户端仅补齐乐观本地行与旧载荷）；
+   `AppCard` 移入入口 + custom 角标；
    `HomeView`/`TrendsView` 移入入口；设置 `show_custom` 开关（默认开）+ 备份
    allowlist 往返（`oauth/backup.rs`）；`ViewType` 新增 `pending`；
    中英双语 pending/custom 文案。
@@ -92,7 +96,8 @@
 - 中性：现有列表/搜索命令输出语义不动；合并视图已由前端消费
   （`selectors` 全局合并 + `showCustom` 默认开，关即回退 remote 本体；
   `AppSummary` / `AppDetail` 新增可选 `source` / `status` / `is_cataloged` 字段，
-  后端投影即盖章，前端只读字段不再自行比对名单，旧载荷缺席时按既有兜底解析）。
+  后端投影即盖章，前端优先读字段；旧载荷与乐观本地行仍由 `selectors` 兼容层补齐，
+  缺席时按既有兜底解析）。
 - 前端草稿形状唯一来源：领域形状 `DraftItem` / `DraftEntry` 与线格式
   `DraftItemWire` / `DraftEntryWire` 定义于 `src/services/custom/types.ts`，
   两者转换只在 `mappers.ts`（`entryFromWire` / `itemToWire` / `itemToSummary`）；

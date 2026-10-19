@@ -30,7 +30,8 @@ OSI 全量名单。用户需求希望门禁可开关、可控范围（例如本�
    `validate_custom_item` 是唯一权威；两侧由同一份契约样例
    `tests/fixtures/draft-validation-cases.json` 各跑一遍
    （`PendingView.validationParity.test.ts` / `db::custom_apps::tests::draft_validation_matches_shared_parity_cases`），
-   新增规则先加样例再实现。
+   新增规则先加样例再实现。协议归一两侧逐字符把空格/下划线折成 `-`（不折叠连续空白），
+   连续空格样例已纳入契约集。
 4. **关闭只影响本地**：官方生态仓（`z-store-catalog`）仍以 OSI 为准；
    本地放行的条目提交到官方仓后仍走官方 PR 准入校验，不保证合入。
 

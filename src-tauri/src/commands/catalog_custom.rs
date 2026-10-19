@@ -535,6 +535,39 @@ pub fn get_merged_catalog_view(
     ))
 }
 
+/// PR 链路通用取件（单条）：canonical 归一 → 取行 → 收录门禁 → 提交档二次全校验。
+/// 四个 PR 入口（单条/批量 × URL/payload）共用此门禁。
+fn load_pr_entry(
+    db: &crate::db::Database,
+    id: &str,
+    gate: &LicenseGateConfig,
+) -> crate::AppResult<CustomAppEntry> {
+    let key = crate::forge::canonical_lookup_id(id);
+    let entry = db
+        .get_custom_app(&key)?
+        .ok_or_else(|| crate::AppError::new(format!("草稿不存在: {}", key)))?;
+    ensure_collected_for_pr(&entry).map_err(crate::AppError::new)?;
+    crate::db::custom_apps::validate_custom_item(&entry.item, ValidateMode::SubmitStrict, gate)
+        .map_err(|reason| {
+            crate::AppError::new(format!("草稿 {} 提交校验未通过：{}", key, reason))
+        })?;
+    Ok(entry)
+}
+
+/// 批量 PR 链路通用取件：逐条同口径门禁，任一条缺席/未收录/校验不过即整批拒绝，
+/// 不静默丢条（错误已带 id，指到待补字段）。
+fn load_pr_entries(
+    db: &crate::db::Database,
+    ids: &[String],
+    gate: &LicenseGateConfig,
+) -> crate::AppResult<Vec<CustomAppEntry>> {
+    let mut entries = Vec::with_capacity(ids.len());
+    for id in ids {
+        entries.push(load_pr_entry(db, id, gate)?);
+    }
+    Ok(entries)
+}
+
 /// 收录申请预填链接：由草稿 payload 生成清单仓库 Issue 预填 URL（预填 PR 链路入口）。
 /// 首行收录门禁：仅 `status==collected` 行允许取链接；取链接前保留提交档二次全校验
 ///（占位 license 草稿在此被拦，前端指到 license 字段补 SPDX）。
@@ -543,16 +576,23 @@ pub fn get_custom_app_pr_url(
     state: State<'_, AppState>,
     id: String,
 ) -> crate::AppResult<String> {
-    let key = crate::forge::canonical_lookup_id(&id);
     let db = state.db().map_err(crate::AppError::from)?;
-    let entry = db.get_custom_app(&key)?.ok_or_else(|| {
-        crate::AppError::new(format!("草稿不存在: {}", key))
-    })?;
-    ensure_collected_for_pr(&entry).map_err(crate::AppError::new)?;
     let gate = crate::db::custom_apps::resolve_license_gate();
-    crate::db::custom_apps::validate_custom_item(&entry.item, ValidateMode::SubmitStrict, &gate)
-        .map_err(crate::AppError::new)?;
+    let entry = load_pr_entry(&db, &id, &gate)?;
     Ok(build_single_pr_url(&entry))
+}
+
+/// 收录申请预填 payload（单条）：与 `get_custom_app_pr_url` 同口径门禁，
+/// 只返回原始 JSON 文本（前端自行渲染/复制，不在前端拼模板）。
+#[tauri::command]
+pub fn get_custom_app_pr_payload(
+    state: State<'_, AppState>,
+    id: String,
+) -> crate::AppResult<String> {
+    let db = state.db().map_err(crate::AppError::from)?;
+    let gate = crate::db::custom_apps::resolve_license_gate();
+    let entry = load_pr_entry(&db, &id, &gate)?;
+    Ok(pr_single_payload_json(&normalize_pr_item(&entry.item)))
 }
 
 /// 批量收录申请预填链接（二期开关）：多条草稿合并为一个 JSON 数组，经一个预填 URL
@@ -566,26 +606,25 @@ pub fn get_custom_apps_batch_pr_url(
 ) -> crate::AppResult<String> {
     let db = state.db().map_err(crate::AppError::from)?;
     let gate = crate::db::custom_apps::resolve_license_gate();
-    let mut entries = Vec::with_capacity(ids.len());
-    for id in &ids {
-        let key = crate::forge::canonical_lookup_id(id);
-        let entry = db.get_custom_app(&key)?.ok_or_else(|| {
-            crate::AppError::new(format!("草稿不存在: {}", key))
-        })?;
-        ensure_collected_for_pr(&entry).map_err(crate::AppError::new)?;
-        if let Err(reason) = crate::db::custom_apps::validate_custom_item(
-            &entry.item,
-            ValidateMode::SubmitStrict,
-            &gate,
-        ) {
-            return Err(crate::AppError::new(format!(
-                "草稿 {} 提交校验未通过：{}",
-                key, reason
-            )));
-        }
-        entries.push(entry);
-    }
+    let entries = load_pr_entries(&db, &ids, &gate)?;
     Ok(build_batch_pr_url(&entries, &gate))
+}
+
+/// 批量收录申请预填 payload（原始 JSON 数组）：与 `get_custom_apps_batch_pr_url`
+/// 同口径门禁，逐条归一化后按模板顺序输出。
+#[tauri::command]
+pub fn get_custom_apps_batch_pr_payload(
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+) -> crate::AppResult<String> {
+    let db = state.db().map_err(crate::AppError::from)?;
+    let gate = crate::db::custom_apps::resolve_license_gate();
+    let entries = load_pr_entries(&db, &ids, &gate)?;
+    let items: Vec<CatalogItem> = entries
+        .iter()
+        .map(|e| normalize_pr_item(&e.item))
+        .collect();
+    Ok(pr_batch_payload_json(&items))
 }
 
 /// 许可名单只读查询结果（ADR-0018）：名单唯一源头为后端编译时配置，

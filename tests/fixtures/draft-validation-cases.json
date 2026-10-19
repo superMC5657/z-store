@@ -255,6 +255,51 @@
       "expect": { "ok": true }
     },
     {
+      "name": "submit rejects license with consecutive spaces (each becomes a dash)",
+      "mode": "submit",
+      "item": {
+        "id": "acme/atlas",
+        "owner": "acme",
+        "repo": "atlas",
+        "name": "Atlas",
+        "description": "tool",
+        "category": "dev",
+        "homepage": "https://example.com",
+        "license": "apache  2.0"
+      },
+      "expect": { "ok": false, "field": "license" }
+    },
+    {
+      "name": "submit accepts underscore in license",
+      "mode": "submit",
+      "item": {
+        "id": "acme/atlas",
+        "owner": "acme",
+        "repo": "atlas",
+        "name": "Atlas",
+        "description": "tool",
+        "category": "dev",
+        "homepage": "https://example.com",
+        "license": "Apache_2.0"
+      },
+      "expect": { "ok": true }
+    },
+    {
+      "name": "submit trims surrounding whitespace in license",
+      "mode": "submit",
+      "item": {
+        "id": "acme/atlas",
+        "owner": "acme",
+        "repo": "atlas",
+        "name": "Atlas",
+        "description": "tool",
+        "category": "dev",
+        "homepage": "https://example.com",
+        "license": "  Apache-2.0  "
+      },
+      "expect": { "ok": true }
+    },
+    {
       "name": "submit accepts any non-empty license when gate is disabled",
       "mode": "submit",
       "gate": { "enabled": false, "allowed": [] },
