@@ -37,8 +37,12 @@
    `get_merged_catalog_view`（合并查询 helper）/ `get_custom_app_pr_url`（单条预填链路入口，
    提交档校验后生成）/ `get_custom_apps_batch_pr_url` + `build_batch_pr_url`（批量预填链路，
    提交档校验后生成）。
-3. **全局合并为视图（非写回）**：`CatalogService::merge_catalog_overlay_view`
-   把未归档 custom 条目叠加到内存目录视图；`is_cataloged` 恒 true（视图内即视为已收录），
+3. **全局合并为视图（非写回）**：`CatalogService` 持有远端精选目录 + 本地收录 overlay
+   （`collected: RwLock<Vec<CatalogItem>>`，启动与 `custom_apps` 变更后经 `sync_collected_from_db` 同步）；
+   `get_catalog_item`/`is_cataloged`/`get_repo_coordinates`/`search_apps`/`merged_summaries`
+   统一解析远端优先 + 本地收录补位，并在投影时盖章 `AppSummary`/`AppDetail` 的
+   `source`（`remote`/`local`）与 `is_cataloged`（未收录显式 `false`）。
+   `merge_catalog_overlay_view` 把未归档 custom 条目叠加到内存目录视图；`is_cataloged` 恒 true（视图内即视为已收录），
    来源经 `source=remote/custom/local` 区分（`custom` 为草稿行，`local` 为已收录行：`status` 为 `collected` 系且未归档，库存恒 `is_cataloged=true`、`is_verified=false`，PR 预填复制体翻 `true` 仅限载荷）；去重远端优先（同 id 取远端行，custom/local 仅补位；远端已存在同仓行叠加 `local` 标记供黄标判定，蓝标优先，已验证不叠加）；收录态 `collected` 与磁盘残留 `local_collected` 同义，判定唯一口径 `isCollectedStatus`；本地徽标走 `verified-badge-local` 橘黄（D4 去彩例外，见 CONTEXT 词汇表）。
    现有 `search_apps`/`get_home_feed` 语义不动；视图接线已由前端消费
    （`selectors` 全局合并 + `showCustom` 默认开，关即回退 remote 本体，见 §2.6）。
@@ -87,8 +91,8 @@
   预填链路降低社区投稿门槛。
 - 中性：现有列表/搜索命令输出语义不动；合并视图已由前端消费
   （`selectors` 全局合并 + `showCustom` 默认开，关即回退 remote 本体；
-  `AppSummary` 未加字段（`MergedCatalogEntry` flatten 展开，
-  前端按 `AppSummary` 解析兼容），custom 行以角标/`source=custom` 区分）。
+  `AppSummary` / `AppDetail` 新增可选 `source` / `status` / `is_cataloged` 字段，
+  后端投影即盖章，前端只读字段不再自行比对名单，旧载荷缺席时按既有兜底解析）。
 - 风险：草稿详情依赖 `get_repo_coordinates` 的 external_synth 回退（已验证可用）；
   若远端改名（`owner/repo` 变更），旧草稿 id 命中失败而长期残留——后续可加
   “孤儿草稿”提示，当前仅保证不污染视图。

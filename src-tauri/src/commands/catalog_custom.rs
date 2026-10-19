@@ -366,6 +366,15 @@ pub fn collected_overlay_items(entries: Vec<CustomAppEntry>) -> Vec<CatalogItem>
         .collect()
 }
 
+/// 本地收录变更后的目录同步：重读 overlay（远端优先合并视图立即生效）
+/// 并回填收藏/关注收录标记（写时口径与启动回填同源）。
+fn sync_catalog_overlay(state: &AppState) {
+    if let Ok(db) = state.db() {
+        state.catalog.sync_collected_from_db(&db);
+    }
+    crate::commands::history::backfill_cataloged_flags(state);
+}
+
 /// 草稿列表（默认仅未归档；`include_archived=true` 含转正归档行）。
 #[tauri::command(rename_all = "camelCase")]
 pub fn list_custom_apps(
@@ -402,7 +411,10 @@ pub fn save_custom_app(
     normalized.id = canonical;
     normalized.is_verified = false;
     let db = state.db().map_err(crate::AppError::from)?;
-    Ok(db.upsert_custom_app_payload(&normalized)?)
+    let entry = db.upsert_custom_app_payload(&normalized)?;
+    drop(db);
+    sync_catalog_overlay(&state);
+    Ok(entry)
 }
 
 /// 草稿删除（后端直接删，二次确认由前端做）：返回是否命中。
@@ -414,7 +426,10 @@ pub fn delete_custom_app(
 ) -> crate::AppResult<bool> {
     let key = crate::forge::canonical_lookup_id(&id);
     let db = state.db().map_err(crate::AppError::from)?;
-    Ok(db.delete_custom_app(&key)?)
+    let hit = db.delete_custom_app(&key)?;
+    drop(db);
+    sync_catalog_overlay(&state);
+    Ok(hit)
 }
 
 /// 本地收录：`status=collected`（收录档全校验，`is_verified=false` 入库约束保持）。
@@ -426,7 +441,10 @@ pub fn collect_custom_app(
 ) -> crate::AppResult<CustomAppEntry> {
     let key = crate::forge::canonical_lookup_id(&id);
     let db = state.db().map_err(crate::AppError::from)?;
-    Ok(db.mark_custom_app_collected(&key)?)
+    let entry = db.mark_custom_app_collected(&key)?;
+    drop(db);
+    sync_catalog_overlay(&state);
+    Ok(entry)
 }
 
 /// Local collect entry (view): same truth as `collect_custom_app` (CollectStrict, `is_verified=false` kept).
@@ -437,7 +455,10 @@ pub fn collect_local_app(
 ) -> crate::AppResult<CustomAppEntry> {
     let key = crate::forge::canonical_lookup_id(&id);
     let db = state.db().map_err(crate::AppError::from)?;
-    Ok(db.mark_custom_app_collected(&key)?)
+    let entry = db.mark_custom_app_collected(&key)?;
+    drop(db);
+    sync_catalog_overlay(&state);
+    Ok(entry)
 }
 
 /// 本地收录退回草稿：`status=collected` → `draft`（未归档限定；已提交/已归档不退回，只读）。
@@ -449,7 +470,10 @@ pub fn revert_collected_to_draft(
 ) -> crate::AppResult<CustomAppEntry> {
     let key = crate::forge::canonical_lookup_id(&id);
     let db = state.db().map_err(crate::AppError::from)?;
-    Ok(db.revert_collected_to_draft(&key)?)
+    let entry = db.revert_collected_to_draft(&key)?;
+    drop(db);
+    sync_catalog_overlay(&state);
+    Ok(entry)
 }
 
 /// 标记已提交：`status=submitted` + 落 `pr_url`；已转正归档行拒绝。
@@ -468,7 +492,10 @@ pub fn mark_submitted(
         crate::AppError::new(format!("草稿不存在: {}", key))
     })?;
     ensure_collected_for_pr(&entry).map_err(crate::AppError::new)?;
-    Ok(db.mark_custom_app_submitted(&key, &pr_url)?)
+    let entry = db.mark_custom_app_submitted(&key, &pr_url)?;
+    drop(db);
+    sync_catalog_overlay(&state);
+    Ok(entry)
 }
 
 /// 转正退役：远端 id 集合命中未归档草稿即 `archived=1`，返回转正提示。
@@ -483,13 +510,16 @@ pub fn retire_on_sync(
         Some(v) => v,
         None => state
             .catalog
-            .get_catalog_items()
+            .get_remote_catalog_items()
             .into_iter()
             .map(|i| i.id)
             .collect(),
     };
     let db = state.db().map_err(crate::AppError::from)?;
-    Ok(db.retire_custom_apps_on_sync(&ids)?)
+    let notices = db.retire_custom_apps_on_sync(&ids)?;
+    drop(db);
+    sync_catalog_overlay(&state);
+    Ok(notices)
 }
 
 /// 合并目录视图：内存远端目录 + 本地收录 overlay（仅 `status==collected && !archived`，
@@ -498,14 +528,8 @@ pub fn retire_on_sync(
 pub fn get_merged_catalog_view(
     state: State<'_, AppState>,
 ) -> crate::AppResult<Vec<crate::github::catalog_service::MergedCatalogEntry>> {
-    let remote = state.catalog.get_catalog_items();
-    let custom: Vec<CatalogItem> = match state.db() {
-        Ok(db) => db
-            .list_custom_apps(false)
-            .map(collected_overlay_items)
-            .unwrap_or_default(),
-        Err(_) => Vec::new(),
-    };
+    let remote = state.catalog.get_remote_catalog_items();
+    let custom = state.catalog.get_collected_items();
     Ok(CatalogService::merge_catalog_overlay_view(
         &remote, &custom,
     ))

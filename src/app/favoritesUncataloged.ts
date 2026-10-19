@@ -8,7 +8,7 @@ import { appSummaryFromDetail } from '../services/trends/enrich';
 import { isRemoteIcon } from '../components/AppIcon';
 import { normalizeId } from '../services/normalizeId';
 import { isCatalogedFailClosed } from '../utils/appHelper';
-import { buildCatalogIdSet } from './selectors';
+import { annotateLocalSource, buildCatalogIdSet } from './selectors';
 
 /**
  * 收藏未收录行 left-join 合成（数据层唯一口径，展示层只读标记）。
@@ -269,47 +269,6 @@ interface UseUncatalogedJoinParams {
  * 资产区默认 DB-only：占位 + 缓存富卡自动呈现，`getAppDetails`/
  * `restoreOrFetchIconCycle` 仅手动触发。
  */
-/**
- * 本地黄标 lookup 与行叠加（单一样式双处共用）：
- * 合并后 apps 中 `source=local` 且未验证行提取 id 集 + status 搬运；
- * 叠加时蓝优先（已验证/已为 custom 不动），仅搬标记不改排序/去重。
- */
-type LocalMarkLookup = { ids: Set<string>; statusById: Map<string, unknown> };
-
-function buildLocalMarkLookup(apps: readonly AppSummary[] | undefined): LocalMarkLookup {
-  const ids = new Set<string>();
-  const statusById = new Map<string, unknown>();
-  for (const a of apps ?? []) {
-    if (!a) continue;
-    if ((a as { source?: unknown }).source !== 'local') continue;
-    if ((a as { is_verified?: unknown }).is_verified === true) continue;
-    const k = normalizeId((a as AppSummary).id);
-    if (!k || ids.has(k)) continue;
-    ids.add(k);
-    const st = (a as { status?: unknown }).status;
-    if (typeof st === 'string' && st) statusById.set(k, st);
-  }
-  return { ids, statusById };
-}
-
-function applyLocalMark(row: AppSummary, lookup: LocalMarkLookup): AppSummary {
-  const k = normalizeId(row.id);
-  if (!k || !lookup.ids.has(k)) return row;
-  if ((row as { source?: unknown }).source === 'custom') return row;
-  if ((row as { source?: unknown }).source === 'local') {
-    return (row as { is_cataloged?: unknown }).is_cataloged === true
-      ? row
-      : ({ ...row, is_cataloged: true } as unknown as AppSummary);
-  }
-  if ((row as { is_verified?: unknown }).is_verified === true) return row;
-  return {
-    ...row,
-    source: 'local',
-    status: (lookup.statusById.get(k) ?? 'collected') as string,
-    is_cataloged: true,
-  } as unknown as AppSummary;
-}
-
 export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatalogedJoinParams) {
   // 收藏/关注未收录富卡行 left-join：`(favoriteIds∪watchedIds)` 先占位，
   // 再经 `getCachedAppDetailsBatch`（DB-only）回填富卡 + 记录表打标，仅收藏页消费，
@@ -321,9 +280,8 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
   const favoriteExtraInflightRef = useRef<Set<string>>(new Set());
   // 记录收录标记表（归一小写键 → is_cataloged，行打标唯一依据；目录 apps 仅补充去重）。
   const recordCatalogedRef = useRef<Map<string, boolean>>(new Map());
-  // 本地橘黄 lookup（合并后 apps 含本地 source；蓝优先，去重不动，仅搬标记）。
-  const localMarkLookup = buildLocalMarkLookup(apps);
-  const withLocalMarkOuter = (row: AppSummary): AppSummary => applyLocalMark(row, localMarkLookup);
+  // 本地橘黄：统一经 selectors 搬运标记（蓝优先，去重不动）。
+  const withLocalMarkOuter = (row: AppSummary): AppSummary => annotateLocalSource(row, apps);
 
   // Per-row manual loader: explicit Load info for one uncataloged id (detail + icon cycle).
   const loadUncatalogedDetail = useCallback(async (favId: string): Promise<void> => {
@@ -398,10 +356,9 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
       return;
     }
     const catalogLower = buildCatalogIdSet(apps);
-    // 本地橘黄：合并后 apps（含本地 source）中提取 lookup，占位/富卡同 id 叠加 source='local'
+    // 本地橘黄：占位/富卡同 id 经 selectors 叠加 source='local'
     //（蓝优先：已验证行不叠加；去重仍远端优先，仅搬标记）。
-    const localEffectLookup = buildLocalMarkLookup(apps);
-    const withLocalMark = (row: AppSummary): AppSummary => applyLocalMark(row, localEffectLookup);
+    const withLocalMark = (row: AppSummary): AppSummary => annotateLocalSource(row, apps);
     const current = favoriteExtraAppsRef.current;
     // 收录到达即驱逐（大小写归一），避免与目录行双显
     let pruned: AppSummary[] | null = null;

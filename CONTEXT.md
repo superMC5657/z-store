@@ -47,8 +47,8 @@
 | **自维护** | `Maintained` | 用户在本地自维护的收录条目（`custom_apps` 未归档行），经 overlay 合并进入目录视图并以 `source=custom` 标识，远端命中后自动转正归档。 | 本地条目、自定义应用 |
 | **转正** | `Graduated` | 自维护草稿被远端精选收录库正式收录（`sync_catalog` 命中 canonical id），本地行置 `archived=1` 自动归档，不再参与合并视图。 | 毕业、上岸、合并完成 |
 | **已收录/未收录** | `Cataloged/Uncataloged` | 卡片收录态徽标：id 命中精选收录库为已收录，否则为未收录（走详情缓存读富卡）；与自维护/转正正交（后者仅描述本地草稿生命周期）。 | 收录状态、有无收录 |
-| **收录标记** | `is_cataloged` | 收藏/关注记录自带的收录态字段（0/1 持久化于 `user_favorites` / `watched_apps`）：写入时按内存目录判定一次，存量行启动回填；前端凭此决定走收录库还是详情缓存读卡。 | cataloged 字段、收录位 |
-| **本地收录来源** | `source=local` | 合并目录视图中本地收录行的来源标记：仅 `status` 为收录态且未归档的 `custom_apps` 行进入合并（远端优先去重，补位行与远端同仓叠加行均标 `local`）；库存恒 `is_cataloged=true`、`is_verified=false`（永不冒充已验证蓝标，PR 预填载荷翻 `true` 仅限复制体）。 | 本地来源、收录来源 |
+| **收录标记** | `is_cataloged` | 收藏/关注记录自带的收录态字段（0/1 持久化于 `user_favorites` / `watched_apps`）：写入时按目录判定一次，存量行启动回填、清单同步与本地收录状态切换后即时回填；前端凭此决定走收录库还是详情缓存读卡。 | cataloged 字段、收录位 |
+| **本地收录来源** | `source=local` | 合并目录视图中本地收录行的来源标记：仅 `status` 为收录态且未归档的 `custom_apps` 行进入合并（远端优先去重，补位行与远端同仓叠加行均标 `local`）；库存恒 `is_cataloged=true`、`is_verified=false`（永不冒充已验证蓝标，PR 预填载荷翻 `true` 仅限复制体）。后端统一目录模块在 `AppSummary` / `AppDetail` 投影时直接盖章 `source` 与 `is_cataloged`（`remote`/`local`，未收录即显式 `false`），前端只读卡片字段，不再自行比对本地收录名单。 | 本地来源、收录来源 |
 | **本地收录态** | `collected` / `local_collected` | 本地收录状态：`collected` 为现行写入值，`local_collected` 为磁盘残留同义值（判定与列表均等同 `collected`）；收录态判定唯一口径为 `isCollectedStatus`（`src/app/selectors.ts` 单一导出）。 | 已收录态、本地态 |
 | **本地收录徽标** | `verified-badge-local` | 本地收录行的橘黄徽标变体（浅色 `#F59E0B`、深色 `#D97706`，见 `components-app-card.css`）：已验证蓝标优先，本地收录仅在未验证时叠加；为 D4 去彩例外点缀（与星级金、榜单金/银/铜、告警/错误色同类）。 | 黄标、本地标 |
 | **确认图标** | `Confirmed Icon` | `app_icon_cycles` 表 + 本地图标文件已落定的可直显图标：M2 为 `data:` 直显，L1-L3 为远端回退，L4 无（即空）；榜重挂时经 `getConfirmedIconsBatch` 本地回填（DB-only：零网络、零写盘、只进内存呈现）。与统一图标获取（后端探测与流式事件）及 M1/M2 缓存分层正交。 | 落定图标、本地回填 |
@@ -62,6 +62,7 @@
 2. **D2 零服务器成本与解耦清单同步 (Serverless Direct API & Decoupled Manifest Sync)**:
    - 客户端从独立开源清单仓库（`superMC5657/z-store-catalog`）增量同步精选应用元数据（包含分类、英文原名、图标、多端标识符与仓库坐标等）；本地预置 `catalog.json` 种子清单兜底（详见 ADR-0009）。
    - 应用深度详情与构建资产通过 `ForgeProvider` 抽象层按需直连各代码源官方 REST API 获取，不设中心化聚合后端；
+   - 后端统一目录模块 `CatalogService`（`src-tauri/src/github/catalog_service.rs`）持有远端精选目录 + 本地收录 overlay（启动与 `custom_apps` 变更后同步）；收录检索、坐标解析、搜索、首页/分类、详情投影统一经该模块，并在 `AppSummary` / `AppDetail` 上盖章 `source`（`remote`/`local`）与 `is_cataloged`；
    - 本地 SQLite (`z_store.db`) 维护 TTL 缓存（基线 60 分钟）配合 HTTP ETag 304 条件请求；分面策略与挡位归一化详见 ADR-0007。
    - 网络层自动继承操作系统代理；Release 大文件下载走下载加速代理（正交可叠加，详见 ADR-0002）。
    - 所有已安装记录、用户设置、主机令牌（PAT）、更新规则、关注应用与本地足迹均保存在客户端本地嵌入式 SQLite 中；表清单以 `src-tauri/src/db/schema.rs::init_schema` 为准，榜缓存与图标分流语义见 ADR-0014/ADR-0015，文档不记具体数字。

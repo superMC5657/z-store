@@ -229,17 +229,8 @@ pub async fn search_apps(
     let search_start = std::time::Instant::now();
     let hidden_ids: std::collections::HashSet<String> = hidden_rule_ids(&state);
 
-    // 本地收录叠加搜索（含本地，可搜与远端同行为）：仅 `status==collected && !archived`。
-    let collected: Vec<crate::github::models::CatalogItem> = state
-        .db()
-        .ok()
-        .and_then(|db| db.list_collected_custom_items().ok())
-        .unwrap_or_default();
-    let results = if collected.is_empty() {
-        state.catalog.search_apps(&query)
-    } else {
-        state.catalog.search_apps_with_overlay(&query, &collected)
-    };
+    // 本地收录叠加搜索（含本地，可搜与远端同行为）：目录模块统一合并远端 + 本地收录。
+    let results = state.catalog.search_apps(&query);
     let filtered: Vec<AppSummary> = if hidden_ids.is_empty() {
         results
     } else {
@@ -334,7 +325,7 @@ pub async fn search_apps_online(
                 } else {
                     String::new()
                 };
-                return Ok(OnlineSearchResult { rows: vec![AppSummary {
+                let mut row = AppSummary {
                     id: app_id,
                     name: repo_info.name,
                     description_en: repo_info.description.clone(),
@@ -359,7 +350,15 @@ pub async fn search_apps_online(
                     forge_host: Some(coord.host),
                     homepage: repo_info.homepage.clone(),
                     platforms,
-                }], sid: actual_search_id.clone() });
+                    is_cataloged: None,
+                    source: None,
+                    status: None,
+                };
+                state.catalog.stamp_summary(&mut row);
+                return Ok(OnlineSearchResult {
+                    rows: vec![row],
+                    sid: actual_search_id.clone(),
+                });
             }
         } else if query.contains('/')
             || query.starts_with("https://")
@@ -416,6 +415,7 @@ pub async fn search_apps_online(
                         let _ = db.upsert_icon_cycle(&cycle);
                     }
                 }
+                state.catalog.stamp_summary(&mut item);
                 log::debug!("fetch repo ok id={}", item.id);
                 log::info!(
                     "search done sid={} query='{}' hits=1 elapsed_ms={} force={}",
@@ -500,19 +500,12 @@ pub async fn search_apps_online(
         results.iter().map(|_| None).collect()
     };
     let candidates: Vec<(String, String, String)> = {
-        // 本地收录同样视为已收录（仅 `status==collected` 行）：跳过图标补探。
-        let collected_ids: std::collections::HashSet<String> = state
-            .db()
-            .ok()
-            .and_then(|db| db.list_collected_apps().ok())
-            .map(|v| v.into_iter().map(|e| e.id).collect())
-            .unwrap_or_default();
+        // 本地收录同样视为已收录（目录模块统一判定）：跳过图标补探。
         results
             .iter()
             .zip(pre_confirmed.iter())
             .filter(|(item, pre)| {
-                state.catalog.get_catalog_item(&item.id).is_none()
-                    && !collected_ids.contains(&item.id)
+                !state.catalog.is_cataloged(&item.id)
                     && !item.icon.contains("simpleicons.org")
                     && pre.is_none()
             })
@@ -530,12 +523,21 @@ pub async fn search_apps_online(
         is_force
     );
 
-    let filtered_results: Vec<AppSummary> = if hidden_ids.is_empty() {
-        results
-    } else {
-        results
-            .into_iter()
-            .filter(|a| !hidden_ids.contains(&a.id))
+    let filtered_results: Vec<AppSummary> = {
+        let rows: Vec<AppSummary> = if hidden_ids.is_empty() {
+            results
+        } else {
+            results
+                .into_iter()
+                .filter(|a| !hidden_ids.contains(&a.id))
+                .collect()
+        };
+        // 收录态盖章（未收录即 is_cataloged=false）：前端只读卡片字段，不再自行 join 目录。
+        rows.into_iter()
+            .map(|mut row| {
+                state.catalog.stamp_summary(&mut row);
+                row
+            })
             .collect()
     };
 
@@ -756,6 +758,12 @@ pub async fn enrich_trend_repos(
         ));
     }
 
+    // 收录态盖章：趋势富卡/裸行一律携带显式 is_cataloged（未收录即 false），
+    // 前端只读卡片字段判定徽标与“移入收录”入口。
+    for row in results.iter_mut().flatten() {
+        state.catalog.stamp_summary(row);
+    }
+
     log::info!(
         "trend enrich done requested={} hits={} elapsed_ms={} streamed_gen={} force={}",
         requested,
@@ -795,6 +803,9 @@ mod tests {
             forge_host: None,
             homepage: None,
             platforms: Vec::new(),
+            is_cataloged: None,
+            source: None,
+            status: None,
         }
     }
 

@@ -398,6 +398,9 @@ mod tests {
             is_stale: None,
             homepage: None,
             platforms: vec!["windows".to_string()],
+            is_cataloged: None,
+            source: None,
+            status: None,
         }
     }
 

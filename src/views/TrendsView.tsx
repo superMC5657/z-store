@@ -68,13 +68,13 @@ import {
 import {
   LOADING_SETTLE_MS,
   annotateEnrichMirrorCataloged,
-  annotateIsCataloged,
+  resolveBareRowLocalBadgeVariant,
   isEnrichedRowLoading,
   isInstalled as selectIsInstalled,
   mergeLocalLookups,
   selectIsManagedOpt,
 } from '../app/selectors';
-import { VerifiedBadge, resolveVerifiedBadgeVariant } from '../components/VerifiedBadge';
+import { VerifiedBadge } from '../components/VerifiedBadge';
 import {
   PLATFORM_IDS,
   isPlatformLoading,
@@ -807,20 +807,10 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
               ? t('custom.moving_in', { defaultValue: '移入中…' })
               : t('custom.move_in', { defaultValue: '移入收录' });
             // 裸行黄标：enrich 缺席占位小行命中本地也在标题旁黄标（复用 verified-badge-local，
-            // 判定唯一口径 resolveVerifiedBadgeVariant，蓝优先；身份归一沿用 rowAliasKeys）。
-            const bareLocalVariant = (() => {
-              if (!trendLocalLookup) return null;
-              const pseudo = {
-                id: item.repo.id,
-                owner: item.repo.owner,
-                repo: item.repo.repo,
-                is_verified: false,
-              } as AppSummary;
-              const annotated = annotateIsCataloged(pseudo, new Set<string>(), trendLocalLookup);
-              return resolveVerifiedBadgeVariant(
-                annotated as { is_verified?: unknown; source?: unknown; status?: unknown },
-              );
-            })();
+            // 判定唯一口径在 selectors，蓝优先；身份归一沿用 rowAliasKeys）。
+            const bareLocalVariant = trendLocalLookup
+              ? resolveBareRowLocalBadgeVariant(item.repo, trendLocalLookup)
+              : null;
 
             return (
               <div

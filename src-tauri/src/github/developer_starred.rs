@@ -326,6 +326,7 @@ pub(crate) mod test_support {
     pub(crate) fn test_service() -> CatalogService {
         CatalogService {
             items: std::sync::RwLock::new(Vec::new()),
+            collected: std::sync::RwLock::new(Vec::new()),
             client: reqwest::Client::new(),
         }
     }

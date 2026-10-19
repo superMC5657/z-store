@@ -151,6 +151,7 @@ pub(crate) fn should_use_local_fallback(strict_errors: bool) -> bool {
 
 /// 转正退役（ADR-0017）：同步成功后以远端 id 集合命中未归档草稿，
 /// 命中即 `archived=1`；失败吞错（best-effort，不阻塞同步主路径）。
+/// 退役后重读本地收录 overlay，归档行即刻退出合并视图与收藏/关注收录态。
 fn retire_graduated_drafts(
     state: &tauri::State<'_, AppState>,
     items: &[crate::github::models::CatalogItem],
@@ -159,9 +160,12 @@ fn retire_graduated_drafts(
         return Vec::new();
     };
     let ids: Vec<String> = items.iter().map(|i| i.id.clone()).collect();
-    db.retire_custom_apps_on_sync(&ids)
+    let graduated: Vec<String> = db
+        .retire_custom_apps_on_sync(&ids)
         .map(|notices| notices.into_iter().map(|n| n.id).collect())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    state.catalog.sync_collected_from_db(&db);
+    graduated
 }
 
 /// 转正提示拼接到同步消息尾部（无转正原样返回）。

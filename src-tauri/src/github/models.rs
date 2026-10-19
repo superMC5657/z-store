@@ -130,6 +130,9 @@ impl CatalogItem {
             forge_host: Some("github.com".to_string()),
             homepage: self.homepage.clone(),
             platforms: effective_platforms,
+            is_cataloged: None,
+            source: None,
+            status: None,
         }
     }
 }

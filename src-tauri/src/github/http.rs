@@ -491,6 +491,9 @@ pub(crate) async fn fallback_summary(
         forge_host: Some("github.com".to_string()),
         homepage,
         platforms: Vec::new(),
+        is_cataloged: None,
+        source: None,
+        status: None,
     }
 }
 

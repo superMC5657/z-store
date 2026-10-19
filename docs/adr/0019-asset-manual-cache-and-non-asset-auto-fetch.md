@@ -13,7 +13,7 @@
 
 1. **资产面（已安装应用、更新中心、收藏）仅手动触发网络**：`fetch_app_latest_version_lightweight` 与 `check_for_updates` 默认只读本地（判定行 → 详情行 → 收录库默认版本），仅前端请求键 `forceRefresh=true` 走 ETag 轻量探查并写入 `update_results`；`get_cached_updates` 恒为 DB 快照读。
 2. **非资产面（搜索/趋势/平台推导/图标/首页/清单同步）默认自动拉取**：TTL/ETag 复用保留，`forceRefresh` 保留透传（手动按钮统一签名；平台与详情侧 `force` 跳过 TTL 快径，搜索与趋势侧默认即在线直查）。
-3. **收藏/关注记录自带收录标记**：`user_favorites` / `watched_apps` 持久化 `is_cataloged`（写入时按内存目录判定一次，启动与清单同步完成后回填），前端凭标记选择收录库或详情缓存读卡。
+3. **收藏/关注记录自带收录标记**：`user_favorites` / `watched_apps` 持久化 `is_cataloged`（写入时按内存目录判定一次，启动、清单同步完成与本地收录状态切换后回填），前端凭标记选择收录库或详情缓存读卡。
 
 ## 3. 后果
 

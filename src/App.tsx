@@ -395,7 +395,8 @@ export const App: React.FC = () => {
     setFavoriteExtraApps,
     setSelectedApp,
     setPlatformResolvedOtherIds,
-    localApps: collectedSummaries,
+    // customApps 未加载（null）即本地 lookup 未知：后端盖章行原样透传，避免误清本地标注。
+    localApps: customApps === null ? undefined : collectedSummaries,
   });
 
   // 深链调度分发器（功能 E）

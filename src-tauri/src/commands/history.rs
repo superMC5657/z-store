@@ -114,12 +114,12 @@ pub fn record_app_view(state: State<'_, AppState>, app_id: String) -> crate::App
 pub fn get_recently_viewed_apps(state: State<'_, AppState>) -> crate::AppResult<Vec<AppSummary>> {
     let db = state.db()?;
     let ids = db.get_recently_viewed_app_ids()?;
-    let catalog_items = state.catalog.get_catalog_items();
     let mut result = Vec::new();
 
     for id in ids {
-        if let Some(item) = catalog_items.iter().find(|i| i.id == id) {
-            let mut summary = item.to_summary();
+        if let Some(item) = state.catalog.get_catalog_item(&id) {
+            // 目录命中（远端精选或本地收录）：统一经目录盖章投影。
+            let mut summary = state.catalog.item_to_stamped_summary(&item);
             // 最近浏览简介占位根治：收录行占位（理论上不应出现）同样回填/置空，
             // 非占位人工简介原样保留。
             heal_recent_summary(&db, &mut summary);
@@ -133,7 +133,8 @@ pub fn get_recently_viewed_apps(state: State<'_, AppState>) -> crate::AppResult<
         // （收录/未收录同走 save_detail_with_cycle_row 落全量 detail_json）；
         // 单条失败跳过不整单丢；仍无命中则跳过（不合成占位，避免污染过滤/计数，
         // 趋势 L2 仍是未收录首展来源）。
-        if let Some(summary) = cached_detail_summary(&db, &id) {
+        if let Some(mut summary) = cached_detail_summary(&db, &id) {
+            state.catalog.stamp_summary(&mut summary);
             result.push(summary);
         }
     }
@@ -213,6 +214,9 @@ fn detail_to_summary(detail: &crate::models::AppDetail) -> AppSummary {
         forge_host: detail.forge_host.clone(),
         homepage: detail.homepage.clone(),
         platforms: detail.platforms.clone(),
+        is_cataloged: detail.is_cataloged,
+        source: detail.source.clone(),
+        status: detail.status.clone(),
     }
 }
 
@@ -447,6 +451,9 @@ mod recent_uncataloged_tests {
             is_stale: None,
             homepage: Some("https://example.com".to_string()),
             platforms: vec!["windows".to_string()],
+            is_cataloged: None,
+            source: None,
+            status: None,
         }
     }
 

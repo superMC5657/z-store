@@ -180,6 +180,30 @@ describe('trends L2 persistence cache', () => {
     await expect(saveDbTrendCache('weekly||', 'weekly', [mockRepo])).resolves.toBeUndefined();
   });
 
+  it('saveDbTrendCache 剥离收录态标注（source/status/is_cataloged 不入盘）', async () => {
+    vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
+    const invokeSpy = vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValue(undefined);
+
+    const stamped = {
+      ...makeEnrichedApp({ id: 'acme/atlas' }),
+      source: 'local',
+      status: 'collected',
+      is_cataloged: true,
+    } as never;
+    await saveDbTrendCache('weekly||', 'weekly', [mockRepo], { 'acme/atlas': stamped });
+    const args = invokeSpy.mock.calls[0]?.[1] as { payloadJson: string };
+    const payload = JSON.parse(args.payloadJson) as {
+      enrich: Record<string, Record<string, unknown>>;
+    };
+    const row = payload.enrich['acme/atlas'];
+    expect(row).toBeTruthy();
+    expect(row?.['source']).toBeUndefined();
+    expect(row?.['status']).toBeUndefined();
+    expect(row?.['is_cataloged']).toBeUndefined();
+    // 业务字段保留
+    expect(row?.['id']).toBe('acme/atlas');
+  });
+
   describe('已确认 Other 写透→重读恢复（Other-persist）', () => {
     function mockL2() {
       const store = new Map<string, { payload_json: string; cached_at: number }>();

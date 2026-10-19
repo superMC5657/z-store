@@ -5,6 +5,11 @@ use crate::models::AppSummary;
 use reqwest::header::{IF_NONE_MATCH, USER_AGENT};
 use std::sync::RwLock;
 
+/// 目录来源标记：远端精选收录库行。
+pub const CATALOG_SOURCE_REMOTE: &str = "remote";
+/// 目录来源标记：本地收录（`custom_apps` collected 系）补位行。
+pub const CATALOG_SOURCE_LOCAL: &str = "local";
+
 /// 当 `url` 为官方默认软件源时返回 true（空字符串同样由调用方视为默认源，并在发起同步前进行解析）。
 pub(crate) fn is_default_catalog_source(url: &str) -> bool {
     let trimmed = url.trim();
@@ -43,6 +48,7 @@ impl CatalogService {
             .unwrap_or_else(|_| reqwest::Client::new());
         Self {
             items: RwLock::new(items),
+            collected: RwLock::new(Vec::new()),
             client,
         }
     }
@@ -51,12 +57,47 @@ impl CatalogService {
         self.items.read().map(|i| i.len()).unwrap_or(0)
     }
 
-    pub fn get_catalog_items(&self) -> Vec<CatalogItem> {
+    /// 远端精选目录本体（不含本地收录 overlay）：转正判定与目录计数口径。
+    pub fn get_remote_catalog_items(&self) -> Vec<CatalogItem> {
         self.items.read().map(|i| i.clone()).unwrap_or_default()
     }
 
-    /// 按 canonical id 检索收录项（入口统一归一化，库内精确匹配；未知标识直接拒绝）
-    pub fn get_catalog_item(&self, id: &str) -> Option<CatalogItem> {
+    /// 合并目录（远端在前，本地收录按 id 补位去重）：全站收录视图唯一来源。
+    pub fn get_catalog_items(&self) -> Vec<CatalogItem> {
+        let remote = self.get_remote_catalog_items();
+        let collected = self
+            .collected
+            .read()
+            .map(|c| c.clone())
+            .unwrap_or_default();
+        let mut seen: std::collections::HashSet<String> =
+            remote.iter().map(|i| i.id.clone()).collect();
+        let mut out = remote;
+        for item in collected {
+            if seen.insert(item.id.clone()) {
+                out.push(item);
+            }
+        }
+        out
+    }
+
+    /// 本地收录 overlay 同步（启动与 `custom_apps` 每次变更后调用）：
+    /// 输入须已过滤为 collected 系且未归档，库内保存原始 payload。
+    pub fn set_collected_items(&self, items: Vec<CatalogItem>) {
+        if let Ok(mut lock) = self.collected.write() {
+            *lock = items;
+        }
+    }
+
+    /// 从 SQLite `custom_apps` 重读本地收录 overlay（最佳努力，失败即保持现值）。
+    pub fn sync_collected_from_db(&self, db: &crate::db::Database) {
+        if let Ok(items) = db.list_collected_custom_items() {
+            self.set_collected_items(items);
+        }
+    }
+
+    /// 按 canonical id 检索远端收录项（入口统一归一化，库内精确匹配；未知标识直接拒绝）。
+    pub fn get_remote_catalog_item(&self, id: &str) -> Option<CatalogItem> {
         let key = crate::forge::canonical_app_id(id)?;
         self.items
             .read()
@@ -64,9 +105,96 @@ impl CatalogService {
             .and_then(|items| items.iter().find(|i| i.id == key).cloned())
     }
 
-    /// 收录成员判定唯一口（写时标记/启动回填/图标分流共用）：内存目录精确匹配，零网络。
+    /// 本地收录 overlay 全量（`status` 为 collected 系且未归档）。
+    pub fn get_collected_items(&self) -> Vec<CatalogItem> {
+        self.collected.read().map(|c| c.clone()).unwrap_or_default()
+    }
+
+    /// 按 canonical id 检索本地收录项（`status` 为 collected 系且未归档）。
+    pub fn get_collected_item(&self, id: &str) -> Option<CatalogItem> {
+        let key = crate::forge::canonical_app_id(id)?;
+        self.collected
+            .read()
+            .ok()
+            .and_then(|items| items.iter().find(|i| i.id == key).cloned())
+    }
+
+    /// 本地收录命中判定（canonical 归一，零网络）。
+    pub fn is_collected_id(&self, id: &str) -> bool {
+        self.get_collected_item(id).is_some()
+    }
+
+    /// 目录项检索唯一口：远端精确命中优先，其次本地收录补位。
+    pub fn get_catalog_item(&self, id: &str) -> Option<CatalogItem> {
+        self.get_remote_catalog_item(id)
+            .or_else(|| self.get_collected_item(id))
+    }
+
+    /// 收录成员判定唯一口（写时标记/启动回填/图标分流共用）：远端或本地收录均视为已收录。
     pub fn is_cataloged(&self, id: &str) -> bool {
         self.get_catalog_item(id).is_some()
+    }
+
+    /// 收录态决议（盖章唯一口径）：返回 `(is_cataloged, source, status)`。
+    /// - 远端已验证 → `remote`（蓝标优先，本地同 id 不降级）；
+    /// - 本地收录（含远端未验证同仓补位）→ `local` + `status=collected`；
+    /// - 远端未验证且无本地收录 → `remote`；
+    /// - 均未命中 → `is_cataloged=false`（来源缺席）。
+    fn resolve_catalog_stamp(
+        &self,
+        id: &str,
+        fallback_verified: bool,
+    ) -> (bool, Option<String>, Option<String>) {
+        let remote = self.get_remote_catalog_item(id);
+        let is_collected = self.is_collected_id(id);
+        let remote_verified = remote
+            .as_ref()
+            .map(|i| i.is_verified)
+            .unwrap_or(fallback_verified);
+        if remote.is_some() && (remote_verified || !is_collected) {
+            (true, Some(CATALOG_SOURCE_REMOTE.to_string()), None)
+        } else if is_collected {
+            (
+                true,
+                Some(CATALOG_SOURCE_LOCAL.to_string()),
+                Some(crate::db::custom_apps::CUSTOM_APP_STATUS_COLLECTED.to_string()),
+            )
+        } else {
+            (false, None, None)
+        }
+    }
+
+    /// 收录态盖章（`AppSummary` 投影唯一口）。
+    pub fn stamp_summary(&self, summary: &mut AppSummary) {
+        let (cataloged, source, status) =
+            self.resolve_catalog_stamp(&summary.id, summary.is_verified);
+        summary.is_cataloged = Some(cataloged);
+        summary.source = source;
+        summary.status = status;
+    }
+
+    /// 收录态盖章（`AppDetail` 投影唯一口，口径与 `stamp_summary` 一致）。
+    pub fn stamp_detail(&self, detail: &mut crate::models::AppDetail) {
+        let (cataloged, source, status) =
+            self.resolve_catalog_stamp(&detail.id, detail.is_verified);
+        detail.is_cataloged = Some(cataloged);
+        detail.source = source;
+        detail.status = status;
+    }
+
+    /// 目录项转已盖章摘要（列表/详情/搜索统一投影）。
+    pub fn item_to_stamped_summary(&self, item: &CatalogItem) -> AppSummary {
+        let mut summary = item.to_summary();
+        self.stamp_summary(&mut summary);
+        summary
+    }
+
+    /// 合并目录全量已盖章摘要（首页/分类/搜索共用）。
+    pub fn merged_summaries(&self) -> Vec<AppSummary> {
+        self.get_catalog_items()
+            .iter()
+            .map(|item| self.item_to_stamped_summary(item))
+            .collect()
     }
 
     pub fn update_items(&self, new_items: Vec<CatalogItem>) {
@@ -318,8 +446,8 @@ impl CatalogService {
     }
 
     pub fn search_apps(&self, query: &str) -> Vec<AppSummary> {
-        let items = self.items.read().unwrap_or_else(|e| e.into_inner());
-        Self::search_in_slice(&items, query)
+        let items = self.get_catalog_items();
+        self.search_in_slice(&items, query)
     }
 
     /// 本地收录叠加搜索（与 `search_apps` 同行为）：`extra` 须已过滤为
@@ -330,19 +458,22 @@ impl CatalogService {
         extra: &[CatalogItem],
     ) -> Vec<AppSummary> {
         let merged = self.merged_items_with_overlay(extra.to_vec());
-        Self::search_in_slice(&merged, query)
+        self.search_in_slice(&merged, query)
     }
 
-    fn search_in_slice(items: &[CatalogItem], query: &str) -> Vec<AppSummary> {
+    fn search_in_slice(&self, items: &[CatalogItem], query: &str) -> Vec<AppSummary> {
         let q = query.trim().to_lowercase();
         if q.is_empty() {
-            let mut all: Vec<AppSummary> = items.iter().map(|i| i.to_summary()).collect();
+            let mut all: Vec<AppSummary> = items
+                .iter()
+                .map(|i| self.item_to_stamped_summary(i))
+                .collect();
             all.sort_by_key(|b| std::cmp::Reverse(b.stars));
             return all;
         }
 
         // 分类过滤匹配
-        if let Some(cat_match) = Self::filter_in_slice(items, &q) {
+        if let Some(cat_match) = self.filter_in_slice(items, &q) {
             return cat_match;
         }
 
@@ -369,7 +500,7 @@ impl CatalogService {
             }
 
             if score > 0 {
-                matches.push((score, item.to_summary()));
+                matches.push((score, self.item_to_stamped_summary(item)));
             }
         }
 
@@ -386,11 +517,11 @@ impl CatalogService {
     }
 
     pub fn filter_by_category(&self, category: &str) -> Option<Vec<AppSummary>> {
-        let items = self.items.read().unwrap_or_else(|e| e.into_inner());
-        Self::filter_in_slice(&items, category)
+        let items = self.get_catalog_items();
+        self.filter_in_slice(&items, category)
     }
 
-    fn filter_in_slice(items: &[CatalogItem], category: &str) -> Option<Vec<AppSummary>> {
+    fn filter_in_slice(&self, items: &[CatalogItem], category: &str) -> Option<Vec<AppSummary>> {
         let cat_clean = category.trim().to_lowercase();
         let matched: Vec<AppSummary> = items
             .iter()
@@ -398,7 +529,7 @@ impl CatalogService {
                 item.category.to_lowercase() == cat_clean
                     || item.category_name.to_lowercase() == cat_clean
             })
-            .map(|item| item.to_summary())
+            .map(|item| self.item_to_stamped_summary(item))
             .collect();
 
         if matched.is_empty() {
@@ -430,8 +561,7 @@ impl CatalogService {
     pub fn get_repo_coordinates(&self, id: &str) -> Result<AppRepoCoordinates, String> {
         let clean = crate::forge::canonical_app_id(id)
             .ok_or_else(|| format!("无法识别的应用标识: {}", id))?;
-        let items = self.items.read().unwrap_or_else(|e| e.into_inner());
-        if let Some(item) = items.iter().find(|i| i.id == clean) {
+        if let Some(item) = self.get_catalog_item(&clean) {
             Ok(AppRepoCoordinates {
                 owner: item.owner.clone(),
                 repo: item.repo.clone(),
@@ -537,6 +667,7 @@ mod tests {
     fn test_service(items: Vec<CatalogItem>) -> CatalogService {
         CatalogService {
             items: RwLock::new(items),
+            collected: RwLock::new(Vec::new()),
             client: reqwest::Client::new(),
         }
     }
@@ -673,5 +804,96 @@ mod tests {
         // 空查询含本地（stars 降序全量）。
         let all = svc.search_apps_with_overlay("", &[local]);
         assert_eq!(all.len(), 2);
+    }
+
+    /// 本地收录 overlay 并入统一目录：检索/收录判定/坐标/搜索均命中。
+    #[test]
+    fn test_collected_overlay_joins_catalog_interface() {
+        let svc = test_service(vec![item("o/remote", "o", "remote")]);
+        let mut local = item("o/local", "o", "local");
+        local.name = "Local Tool".to_string();
+        svc.set_collected_items(vec![local]);
+
+        assert!(svc.is_cataloged("o/local"));
+        assert!(svc.is_collected_id("O/LOCAL"));
+        assert_eq!(
+            svc.get_catalog_item("o/local").map(|i| i.name),
+            Some("Local Tool".to_string())
+        );
+        // 远端优先：同 id 命中的是远端行。
+        assert_eq!(
+            svc.get_catalog_item("o/remote").map(|i| i.name),
+            Some("Test App".to_string())
+        );
+        // 坐标回退命中本地收录（未知标识仍拒绝）。
+        let coords = svc.get_repo_coordinates("o/local").expect("local coords");
+        assert_eq!(coords.name, "Local Tool");
+        // 搜索覆盖合并目录。
+        let hits = svc.search_apps("local tool");
+        assert!(hits.iter().any(|s| s.id == "o/local"));
+        // 远端本体口径不含本地收录。
+        assert_eq!(svc.get_remote_catalog_items().len(), 1);
+        assert_eq!(svc.get_catalog_items().len(), 2);
+    }
+
+    /// 收录态盖章：蓝标优先、本地补位、未收录 false。
+    #[test]
+    fn test_stamp_summary_source_rules() {
+        let mut remote = item("o/verified", "o", "verified");
+        remote.is_verified = true;
+        let svc = test_service(vec![
+            remote,
+            item("o/remote", "o", "remote"),
+            item("o/both", "o", "both"),
+        ]);
+        // 本地收录同 id 不夺蓝标（已验证远端仍 source=remote）。
+        svc.set_collected_items(vec![
+            item("o/verified", "o", "verified"),
+            item("o/both", "o", "both"),
+            item("o/local", "o", "local"),
+        ]);
+
+        let mut verified = svc.item_to_stamped_summary(&item("o/verified", "o", "verified"));
+        assert_eq!(verified.source.as_deref(), Some(CATALOG_SOURCE_REMOTE));
+        assert_eq!(verified.is_cataloged, Some(true));
+        assert_eq!(verified.status, None);
+
+        // 远端未验证 + 本地收录同仓 → 本地补位（橘黄）。
+        verified = svc.item_to_stamped_summary(&item("o/both", "o", "both"));
+        assert_eq!(verified.source.as_deref(), Some(CATALOG_SOURCE_LOCAL));
+        assert_eq!(verified.status.as_deref(), Some("collected"));
+        assert_eq!(verified.is_cataloged, Some(true));
+
+        // 纯远端未验证。
+        let remote_only = svc.item_to_stamped_summary(&item("o/remote", "o", "remote"));
+        assert_eq!(remote_only.source.as_deref(), Some(CATALOG_SOURCE_REMOTE));
+        assert_eq!(remote_only.status, None);
+
+        // 纯本地收录。
+        let local_only = svc.item_to_stamped_summary(&item("o/local", "o", "local"));
+        assert_eq!(local_only.source.as_deref(), Some(CATALOG_SOURCE_LOCAL));
+        assert_eq!(local_only.status.as_deref(), Some("collected"));
+
+        // 未收录（在线/趋势野生仓）。
+        let empty = test_service(Vec::new());
+        let unknown = empty.item_to_stamped_summary(&item("o/unknown", "o", "unknown"));
+        assert_eq!(unknown.is_cataloged, Some(false));
+        assert_eq!(unknown.source, None);
+        assert_eq!(unknown.status, None);
+    }
+
+    /// 合并目录摘要：远端在前、本地补位，逐行盖章。
+    #[test]
+    fn test_merged_summaries_stamps_every_row() {
+        let svc = test_service(vec![item("o/remote", "o", "remote")]);
+        svc.set_collected_items(vec![item("o/local", "o", "local")]);
+        let rows = svc.merged_summaries();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].id, "o/remote");
+        assert_eq!(rows[1].id, "o/local");
+        for row in &rows {
+            assert_eq!(row.is_cataloged, Some(true));
+            assert!(row.source.is_some());
+        }
     }
 }

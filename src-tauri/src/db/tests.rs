@@ -260,6 +260,9 @@ fn test_app_details_cache_crud() {
         is_stale: None,
         homepage: None,
         platforms: vec!["windows".to_string()],
+        is_cataloged: None,
+        source: None,
+        status: None,
     };
 
     db.save_cached_app_detail("rustdesk/rustdesk", &detail)

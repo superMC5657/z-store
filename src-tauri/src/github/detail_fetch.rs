@@ -829,6 +829,9 @@ impl CatalogService {
             },
             homepage: latest_homepage,
             platforms: final_platforms,
+            is_cataloged: None,
+            source: None,
+            status: None,
         };
 
         Ok((detail, new_cache))

@@ -8,9 +8,11 @@ import { cleanup, render } from '@testing-library/react';
 import {
   annotateEnrichMirrorCataloged,
   annotateIsCataloged,
+  annotateLocalSource,
   annotateOnlineCataloged,
   buildCatalogIdSet,
   mergeLocalLookups,
+  resolveBareRowLocalBadgeVariant,
   rowAliasKeys,
   selectMergedCatalogApps,
 } from './selectors';
@@ -202,5 +204,83 @@ describe('冷启黄标补标（首刷 null→就绪 + id 归一）', () => {
     // mergeLocalLookups 复用：显式 + 推断合并，不改排序
     const lookup = mergeLocalLookups([], collected);
     expect(Array.isArray(lookup)).toBe(true);
+  });
+});
+
+describe('裸行本地徽标与后端预盖章透传', () => {
+  it('resolveBareRowLocalBadgeVariant：命中本地即 local，未命中/已验证即 null', () => {
+    const local = [
+      { ...app('acme/atlas'), source: 'local', status: 'collected', is_cataloged: true } as AppSummary,
+    ];
+    expect(
+      resolveBareRowLocalBadgeVariant({ id: 'acme/atlas', owner: 'acme', repo: 'atlas' }, local),
+    ).toBe('local');
+    // 大小写/owner-repo 漂移仍命中
+    expect(
+      resolveBareRowLocalBadgeVariant({ id: 'ACME/Atlas', owner: 'ACME', repo: 'Atlas' }, local),
+    ).toBe('local');
+    expect(
+      resolveBareRowLocalBadgeVariant({ id: 'other/app', owner: 'other', repo: 'app' }, local),
+    ).toBeNull();
+    // 蓝优先：已验证行不返回橘黄
+    expect(
+      resolveBareRowLocalBadgeVariant(
+        { id: 'acme/atlas', owner: 'acme', repo: 'atlas', is_verified: true },
+        local,
+      ),
+    ).toBeNull();
+  });
+
+  it('annotateLocalSource：未命中原引用透传，命中补 source/status 且幂等', () => {
+    const local = [
+      { ...app('acme/atlas'), source: 'local', status: 'collected', is_cataloged: true } as AppSummary,
+    ];
+    const miss = app('other/app');
+    expect(annotateLocalSource(miss, local)).toBe(miss);
+
+    const hit = app('acme/atlas');
+    const marked = annotateLocalSource(hit, local);
+    expect(marked.source).toBe('local');
+    expect(marked.status).toBe('collected');
+    expect(marked.is_cataloged).toBe(true);
+    // 幂等：已标记行原引用返回
+    expect(annotateLocalSource(marked, local)).toBe(marked);
+    // 蓝优先：已验证行不叠加
+    const verified = app('acme/atlas', { is_verified: true });
+    expect(annotateLocalSource(verified, local)).toBe(verified);
+  });
+
+  it('陈旧本地标注（本地收录已退回）：is_cataloged/source/status 一并纠正', () => {
+    // 后端旧投影或缓存行残留 source=local，当前目录已无本地收录：黄标不得继续。
+    const stale = {
+      ...app('o/gone'),
+      source: 'local',
+      status: 'collected',
+      is_cataloged: true,
+    } as AppSummary;
+    const out = annotateIsCataloged(stale, new Set<string>(), []);
+    expect(out.is_cataloged).toBe(false);
+    expect(out.source).toBeUndefined();
+    expect(out.status).toBeUndefined();
+    expect(resolveVerifiedBadgeVariant(out as never)).toBeNull();
+    // 远端目录仍收录时改回 remote 并保留已收录语义。
+    const remoteOut = annotateIsCataloged(stale, buildCatalogIdSet([app('o/gone')]), []);
+    expect(remoteOut.is_cataloged).toBe(true);
+    expect(remoteOut.source).toBe('remote');
+    expect(remoteOut.status).toBeUndefined();
+  });
+
+  it('后端已盖章行（source/status/is_cataloged 齐备）经标注原引用透传', () => {
+    const stamped = {
+      ...app('o/local'),
+      source: 'local',
+      status: 'collected',
+      is_cataloged: true,
+    } as AppSummary;
+    const out = annotateIsCataloged(stamped, new Set<string>(), [stamped]);
+    expect(out).toBe(stamped);
+    // 合并视图同样不改写已盖章行引用
+    const merged = selectMergedCatalogApps([app('o/remote')], [stamped], true);
+    expect(merged.find((r) => r.id === 'o/local')).toBe(stamped);
   });
 });

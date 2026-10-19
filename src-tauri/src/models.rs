@@ -31,6 +31,15 @@ pub struct AppSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub homepage: Option<String>,
     pub platforms: Vec<String>,
+    /// 收录态（后端目录投影时盖章）：`Some(true)` 表示远端精选或本地收录命中。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_cataloged: Option<bool>,
+    /// 目录来源：`remote`（远端精选）/ `local`（本地收录补位），未收录即缺席。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// 本地收录行状态（`collected` 系），仅供徽标判定，远端行为缺席。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -83,6 +92,15 @@ pub struct AppDetail {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub homepage: Option<String>,
     pub platforms: Vec<String>,
+    /// 收录态（后端目录投影时盖章）：`Some(true)` 表示远端精选或本地收录命中。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_cataloged: Option<bool>,
+    /// 目录来源：`remote`（远端精选）/ `local`（本地收录补位），未收录即缺席。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// 本地收录行状态（`collected` 系），仅供徽标判定；远端行与未收录行缺席。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

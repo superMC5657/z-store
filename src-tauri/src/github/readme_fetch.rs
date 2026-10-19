@@ -598,6 +598,7 @@ mod tests {
         let srv = spawn_mock(routes).await;
         let svc = crate::github::CatalogService {
             items: std::sync::RwLock::new(Vec::new()),
+            collected: std::sync::RwLock::new(Vec::new()),
             client: reqwest::Client::new(),
         };
         let variants = svc
@@ -671,6 +672,7 @@ mod tests {
         let srv = spawn_mock(routes).await;
         let svc = crate::github::CatalogService {
             items: std::sync::RwLock::new(Vec::new()),
+            collected: std::sync::RwLock::new(Vec::new()),
             client: reqwest::Client::new(),
         };
         let variants = svc

@@ -3,22 +3,6 @@ use crate::models::InstalledApp;
 use crate::AppState;
 use tauri::State;
 
-/// 本地收录回退（安装链路口径）：仅 `status==collected && !archived` 行视为已收录。
-fn collected_item(state: &AppState, id: &str) -> Option<crate::github::models::CatalogItem> {
-    state
-        .db()
-        .ok()
-        .and_then(|db| db.get_collected_custom_item(id).ok().flatten())
-        .map(|e| e.item)
-}
-
-fn catalog_or_collected_item(
-    state: &AppState,
-    id: &str,
-) -> Option<crate::github::models::CatalogItem> {
-    state.catalog.get_catalog_item(id).or_else(|| collected_item(state, id))
-}
-
 pub fn get_installed_apps(state: State<'_, AppState>) -> Result<Vec<InstalledApp>, String> {
     let db = state.db()?;
     let mut apps = db.get_installed_apps().map_err(|e| e.to_string())?;
@@ -29,7 +13,7 @@ pub fn get_installed_apps(state: State<'_, AppState>) -> Result<Vec<InstalledApp
     for app in &mut apps {
         let mut app_changed = false;
         if app.icon.is_none() {
-            if let Some(item) = catalog_or_collected_item(&state, &app.app_id) {
+            if let Some(item) = state.catalog.get_catalog_item(&app.app_id) {
                 app.icon = Some(item.icon);
                 app.icon_bg = Some(item.icon_bg);
             }
@@ -148,12 +132,7 @@ pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, St
             None,
         )
     } else {
-        let cat = state
-            .catalog
-            .get_catalog_items()
-            .into_iter()
-            .find(|c| c.id == app_id)
-            .or_else(|| collected_item(&state, &app_id));
+        let cat = state.catalog.get_catalog_item(&app_id);
         if let Some(c) = cat {
             let p = crate::scanner::AppScanner::resolve_installed_app_path(
                 &c.name,
@@ -334,7 +313,9 @@ pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, St
     {
         // 候选裸名共享派生（与 installer_install / scanner dpkg 共用
         // `AppScanner::linux_candidate_names`，收敛重复）。
-        let catalog_ids = catalog_or_collected_item(&state, &app_id)
+        let catalog_ids = state
+            .catalog
+            .get_catalog_item(&app_id)
             .map(|cat| cat.get_native_identifiers())
             .unwrap_or_default();
         let (_, bare_names) = crate::scanner::AppScanner::linux_candidate_names(

@@ -211,14 +211,17 @@ type MergedAppRow = AppSummary & {
   status?: string;
 };
 
+/** 行身份（id / owner / repo 任一形态）：别名归一与本地命中判定的最小输入。 */
+type RowIdentity = { id?: unknown; owner?: unknown; repo?: unknown };
+
 /** 是否为自维护行（source=custom 即是；category external 原样保留，不参与判定）。 */
-function isCustomAppRow(app: { source?: unknown }): boolean {
-  return (app as { source?: unknown }).source === 'custom';
+function isCustomAppRow(app: { source?: string }): boolean {
+  return app.source === 'custom';
 }
 
 /** 是否为本地收录行（source=local 即是，已收录可搜可装，徽标走橘黄 local 变体）。 */
-function isLocalAppRow(app: { source?: unknown }): boolean {
-  return (app as { source?: unknown }).source === 'local';
+function isLocalAppRow(app: { source?: string }): boolean {
+  return app.source === 'local';
 }
 
 /** 本地收录态判定（overlay/PR 门禁唯一口径，`collected` 与磁盘残留 `local_collected` 同义；归档与否由调用方另判）。 */
@@ -226,8 +229,16 @@ export function isCollectedStatus(status: unknown): boolean {
   return status === 'collected' || status === 'local_collected';
 }
 
-/** 本地收录行打标（source=local，is_cataloged 恒 true；不改原对象）。 */
+/** 本地收录行打标（source=local，is_cataloged 恒 true；已盖章行原引用透传，不再克隆）。 */
 function markLocalSource<T extends AppSummary>(app: T): MergedAppRow {
+  if (
+    app.source === 'local' &&
+    app.is_cataloged === true &&
+    typeof app.status === 'string' &&
+    app.status !== ''
+  ) {
+    return app;
+  }
   return { ...app, source: 'local', is_cataloged: true };
 }
 
@@ -349,8 +360,8 @@ export function selectMergedCatalogApps(
   const remoteCount = remote.length;
   for (let i = 0; i < remoteCount; i++) {
     const r = out[i];
-    if (!r || (r as { is_verified?: unknown }).is_verified === true) continue;
-    if (isCustomAppRow(r as { source?: unknown }) || isLocalAppRow(r as { source?: unknown })) continue;
+    if (!r || r.is_verified === true) continue;
+    if (isCustomAppRow(r) || isLocalAppRow(r)) continue;
     const keys = rowAliasKeys(r);
     let hitStatus: unknown;
     let hit = false;
@@ -363,11 +374,8 @@ export function selectMergedCatalogApps(
     }
     if (!hit) continue;
     const wantStatus = typeof hitStatus === 'string' && hitStatus ? hitStatus : 'collected';
-    const curSource = (r as { source?: unknown }).source;
-    const curStatus = (r as { status?: unknown }).status;
-    const curCataloged = (r as { is_cataloged?: unknown }).is_cataloged;
-    if (curSource === 'local' && curStatus === wantStatus && curCataloged === true) continue;
-    out[i] = { ...r, source: 'local', status: wantStatus, is_cataloged: true } as AppSummary;
+    if (r.source === 'local' && r.status === wantStatus && r.is_cataloged === true) continue;
+    out[i] = { ...r, source: 'local', status: wantStatus, is_cataloged: true };
     overlaid = true;
   }
   if (!appended && !overlaid) return remote;
@@ -410,21 +418,23 @@ export function annotateIsCataloged<T extends AppSummary>(
   catalogIds: ReadonlySet<string>,
   localAppsOrIds?: readonly AppSummary[] | ReadonlySet<string>,
 ): T {
-  if (isCustomAppRow(row as { source?: unknown }) || isLocalAppRow(row as { source?: unknown })) {
-    return typeof (row as { is_cataloged?: unknown }).is_cataloged === 'boolean' &&
-      (row as { is_cataloged?: unknown }).is_cataloged === true
-      ? row
-      : ({ ...row, is_cataloged: true } as T);
+  if (isCustomAppRow(row)) {
+    return row.is_cataloged === true ? row : ({ ...row, is_cataloged: true } as T);
+  }
+  if (isLocalAppRow(row)) {
+    // 给了本地 lookup 时以 lookup 为准（未命中即陈旧标注，落到下方按目录纠正）；
+    // lookup 缺席（customApps 未加载）时信任后端盖章原样透传。
+    if (localAppsOrIds === undefined || didHitLocal(row, localAppsOrIds).hit) {
+      return row.is_cataloged === true ? row : ({ ...row, is_cataloged: true } as T);
+    }
   }
   // 蓝标优先：已验证行不叠加本地标记（仍走蓝），仅显式 is_cataloged。
-  const selfVerified = (row as { is_verified?: unknown }).is_verified === true;
-  const localHit = didHitLocal(row as AppSummary, localAppsOrIds);
-  if (!selfVerified && localHit.hit) {
-    const curCataloged = (row as { is_cataloged?: unknown }).is_cataloged;
-    const curSource = (row as { source?: unknown }).source;
-    const curStatus = (row as { status?: unknown }).status;
+  const localHit = didHitLocal(row, localAppsOrIds);
+  if (row.is_verified !== true && localHit.hit) {
     const wantStatus = localHit.status ?? 'collected';
-    if (curCataloged === true && curSource === 'local' && curStatus === wantStatus) return row;
+    if (row.is_cataloged === true && row.source === 'local' && row.status === wantStatus) {
+      return row;
+    }
     return {
       ...row,
       source: 'local',
@@ -432,14 +442,25 @@ export function annotateIsCataloged<T extends AppSummary>(
       is_cataloged: true,
     } as T;
   }
-  const expected = isCatalogedId((row as AppSummary).id, catalogIds);
-  const cur = (row as { is_cataloged?: unknown }).is_cataloged;
-  if (typeof cur === 'boolean' && cur === expected) return row;
-  return { ...row, is_cataloged: expected } as T;
+  const expected = isCatalogedId(row.id, catalogIds);
+  // 陈旧本地标注（本地收录已退回/删除、或后端旧投影）：source/status 一并清掉，
+  // 否则仅纠 is_cataloged 会让黄标判定继续读到旧 source。
+  const staleLocalMark =
+    row.source === 'local' || isCollectedStatus(row.status);
+  if (!staleLocalMark) {
+    if (typeof row.is_cataloged === 'boolean' && row.is_cataloged === expected) return row;
+    return { ...row, is_cataloged: expected } as T;
+  }
+  return {
+    ...row,
+    is_cataloged: expected,
+    source: expected ? 'remote' : undefined,
+    status: undefined,
+  } as T;
 }
 
 /** 行别名键（id 归一 + owner/repo 归一 + id 末两段归一）：大小写/前后缀漂移仍命中同一仓库。 */
-export function rowAliasKeys(row: { id?: unknown; owner?: unknown; repo?: unknown }): string[] {
+export function rowAliasKeys(row: RowIdentity): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
   const push = (k: string): void => {
@@ -467,7 +488,7 @@ export function rowAliasKeys(row: { id?: unknown; owner?: unknown; repo?: unknow
 
 /** 本地命中判定（含 status 搬运；Set 口径无 status 时回落 'collected'；数组口径仅认 source=local/status collected 系）。 */
 function didHitLocal(
-  row: AppSummary,
+  row: RowIdentity,
   localAppsOrIds?: readonly AppSummary[] | ReadonlySet<string>,
 ): { hit: boolean; status?: unknown } {
   if (!localAppsOrIds) return { hit: false };
@@ -601,6 +622,39 @@ export function annotateEnrichMirrorCataloged(
     }
   }
   return changed ? next : mirror;
+}
+
+/**
+ * 本地收录标记搬运（不改收录判定）：
+ * 命中本地收录即补 `source='local'` + `status` + `is_cataloged=true`，未命中原引用透传。
+ * 蓝优先：已验证行不叠加；`source=custom` 草稿行原样保留；已是本地行仅补显式收录位。
+ */
+export function annotateLocalSource<T extends AppSummary>(
+  row: T,
+  localAppsOrIds?: readonly AppSummary[] | ReadonlySet<string>,
+): T {
+  if (row.is_verified === true || isCustomAppRow(row)) return row;
+  if (isLocalAppRow(row)) {
+    return row.is_cataloged === true ? row : ({ ...row, is_cataloged: true } as T);
+  }
+  const hit = didHitLocal(row, localAppsOrIds);
+  if (!hit.hit) return row;
+  const wantStatus = hit.status ?? 'collected';
+  if (row.is_cataloged === true && row.status === wantStatus) return row;
+  return { ...row, source: 'local', status: wantStatus, is_cataloged: true } as T;
+}
+
+/**
+ * 裸行（enrich 富卡缺席的占位小行）本地收录徽标判定：
+ * 身份按 `rowAliasKeys` 归一对齐（大小写 / owner-repo 漂移仍命中），
+ * 已认证行由自身蓝标承担（此处不返回橘黄），命中本地收录即 'local'，否则 null。
+ */
+export function resolveBareRowLocalBadgeVariant(
+  row: RowIdentity & { is_verified?: boolean },
+  localAppsOrIds?: readonly AppSummary[] | ReadonlySet<string>,
+): 'local' | null {
+  if (row.is_verified === true) return null;
+  return didHitLocal(row, localAppsOrIds).hit ? 'local' : null;
 }
 
 export function useAppSelectors({

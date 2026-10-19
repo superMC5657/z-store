@@ -15,11 +15,14 @@ export interface AppSummary {
   category_name: string;
   is_verified: boolean;
   /**
-   * 展示层容错：数据层为 `favoriteIds ∖ apps` 补占位行时携带的收录标记。
-   * 缺席时卡片按 `category !== 'external'` 兜底；详情页 Header 以显式位为准 fail-closed（缺席即未收录）。
-   * 仅展示层读取，绝不参与数据源 join。
+   * 收录态（后端目录投影盖章）：`true` 表示远端精选或本地收录命中，`false` 明确未收录。
+   * 缺席时展示层按 `category !== 'external'` 兜底（旧载荷兼容）。
    */
   is_cataloged?: boolean;
+  /** 目录来源：`remote`（远端精选）/ `local`（本地收录补位）；未收录与旧载荷缺席。 */
+  source?: 'remote' | 'local' | 'custom' | string;
+  /** 本地收录行状态（`collected` 系），仅徽标判定用；远端行缺席。 */
+  status?: string;
   is_installed?: boolean;
   has_update?: boolean;
   installed_version?: string;
@@ -69,6 +72,10 @@ export interface AppDetail {
    * 展示层（Header）以此为准，不再按 category 兜底。
    */
   is_cataloged?: boolean;
+  /** 目录来源：`remote`（远端精选）/ `local`（本地收录补位）；未收录缺席。 */
+  source?: 'remote' | 'local' | string;
+  /** 本地收录行状态（`collected` 系），仅徽标判定用；远端行缺席。 */
+  status?: string;
 }
 
 // 纯前端视图态：加载/刷新/错误状态不属于后端 AppDetail，独立存放

@@ -268,6 +268,23 @@ export async function getDbTrendCache(key: string, board?: string): Promise<Tren
 }
 
 /**
+ * 收录态标注剥离：`source` / `status` / `is_cataloged` 是后端按当前目录产物盖章的运行时标注，
+ * 随本地收录变更（收录/退回/转正）即时变化，永不入 L2 落盘，避免旧标注在缓存窗口内滞留。
+ * 渲染侧由 `selectors` 按当前目录重新标注。
+ */
+function stripCatalogAnnotations(summary: AppSummary): AppSummary {
+  if (
+    summary.source === undefined &&
+    summary.status === undefined &&
+    summary.is_cataloged === undefined
+  ) {
+    return summary;
+  }
+  const { source: _source, status: _status, is_cataloged: _cataloged, ...rest } = summary;
+  return rest as AppSummary;
+}
+
+/**
  * 榜缓存二级落盘写：统一 `{ v: 1, repos, enrich, confirmedOther? }` 信封落盘。
  * - enrich 可选：缺省按空对象写入信封；
  * - confirmedOther 可选：已确认 Other 键集（小写），与 enrich 同 key 落盘（data 仍禁由 enrich 守卫保证）；
@@ -301,7 +318,7 @@ export async function saveDbTrendCache(
       if (isDataIcon(summary.icon)) continue;
       const cleanKey = normalizeId(k);
       if (cleanKey) {
-        sanitizedEnrich[cleanKey] = summary;
+        sanitizedEnrich[cleanKey] = stripCatalogAnnotations(summary);
       }
     }
     const envelope: TrendCacheEnvelopeV1 = {

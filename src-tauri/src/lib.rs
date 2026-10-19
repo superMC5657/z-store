@@ -444,6 +444,9 @@ pub fn run() {
     let saved_mirror = db.get_setting("active_mirror").ok().flatten();
 
     let catalog = CatalogService::new();
+    // 本地收录 overlay 启动同步：目录模块启动即持有远端 + 本地收录合并视图，
+    // 收藏/关注收录标记回填与详情/安装/更新读路径同源（零网络）。
+    catalog.sync_collected_from_db(&db);
     let mut mirror = MirrorManager::new();
     if let Some(ref m_id) = saved_mirror {
         mirror.set_active_mirror(m_id);
