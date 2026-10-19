@@ -73,7 +73,7 @@ export async function openUrl(url: string): Promise<void> {
     // 直调失败（非 Tauri 的 Not in Tauri / 后端 rundll32 spawn 失败等）才走原生兜底：
     // 经劫持前捕获的原生 opener 绕过 `window.open` 劫持（劫持版直接调必返回 null），
     // 原生返回 null（弹窗拦截/无原生可用）则抛 `popup_blocked` 语义错保留失败感知，
-    // 调用方 toast 走 `url_copied` 降级复制，不谎报成功；此处不复用 directErr，
+    // 调用方按自身失败文案 toast，不谎报成功；此处不复用 directErr，
     // 避免把后端失败当拦截原因误导排查。
     const opener = resolveSettingsFallbackOpener();
     if (!opener) throw directErr;

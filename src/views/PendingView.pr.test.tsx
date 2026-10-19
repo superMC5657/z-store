@@ -8,14 +8,8 @@ import {
   type CustomDraftEntry,
 } from './PendingView';
 import {
-  buildBatchPrPayloadJson,
   buildCustomDraftItemFromSummary,
   buildCustomDraftItemFromTrendRepo,
-  buildLocalBatchPrUrl,
-  buildLocalSinglePrUrl,
-  buildSinglePrPayloadJson,
-  CATALOG_PR_ISSUES_URL,
-  copyTextToClipboard,
 } from '../services/api/catalog';
 import { tauriApi } from '../services/api';
 import type { AppSummary } from '../types';
@@ -62,208 +56,10 @@ function gateProvider(): Promise<LicenseAllowlistResult> {
   return Promise.resolve(TEST_GATE);
 }
 
-describe('Lane D PR payload pure helpers (no IPC)', () => {
-  it('builds single payload JSON from the entry item', () => {
-    const entry = draftEntry({ id: 'o/a' });
-    const json = buildSinglePrPayloadJson(entry.item);
-    expect(json).toContain('"o/a"');
-    expect(() => JSON.parse(json)).not.toThrow();
-    // 预填/复制体 is_verified 恒为 true（库存对象仍为 false，不在此断言）。
-    expect(JSON.parse(json).is_verified).toBe(true);
-  });
-
-  it('forces is_verified true even when the stock item carries false', () => {
-    const entry = draftEntry({ id: 'o/a' });
-    const json = buildSinglePrPayloadJson({ ...entry.item, stars: 0, forks: 0, is_verified: false });
-    expect(JSON.parse(json).is_verified).toBe(true);
-  });
-
-  it('builds batch payload JSON array from multiple items', () => {
-    const json = buildBatchPrPayloadJson([draftEntry({ id: 'o/a' }).item, draftEntry({ id: 'o/b' }).item]);
-    const parsed = JSON.parse(json);
-    expect(Array.isArray(parsed)).toBe(true);
-    expect(parsed).toHaveLength(2);
-    for (const row of parsed) expect(row.is_verified).toBe(true);
-  });
-
-  it('local single prefill URL targets the catalog repo with JSON codeblock + check note', () => {
-    const entry = draftEntry({ id: 'o/a' });
-    const url = buildLocalSinglePrUrl(entry);
-    expect(url.startsWith(CATALOG_PR_ISSUES_URL)).toBe(true);
-    expect(url).toContain(encodeURIComponent('o/a'));
-    expect(url).toContain('payload_json');
-    expect(url).toContain('validate_custom_item');
-  });
-
-  it('local batch prefill URL merges ids into one prefilled page', () => {
-    const url = buildLocalBatchPrUrl([draftEntry({ id: 'o/a' }), draftEntry({ id: 'o/b' })]);
-    expect(url.startsWith(CATALOG_PR_ISSUES_URL)).toBe(true);
-    expect(url).toContain(encodeURIComponent('o/a'));
-    expect(url).toContain(encodeURIComponent('o/b'));
-    expect(url).toContain('payload_json');
-  });
-
-  it('single payload matches vscodium template style (inline arrays, expanded identifiers, no heuristic dirs)', () => {
-    const full = {
-      ...draftEntry({ id: 'o/r' }).item,
-      icon: 'https://example.com/icon.png',
-      icon_bg: 'linear-gradient(135deg, #475569, #334155)',
-      category_name: '开发工具',
-      aliases: ['demo', 'o/r'],
-      description_en: 'demo en',
-      platforms: ['windows', 'macos', 'linux'],
-      identifiers: {
-        macos: ['Demo.app', 'demo'],
-        windows: ['Demo.exe'],
-        linux: ['demo'],
-      },
-      install_dirs: ['r'],
-      search_subdirs: ['bin'],
-      publishers: ['O'],
-      stars: 1,
-      forks: 2,
-    };
-    const json = buildSinglePrPayloadJson(full);
-    const parsed = JSON.parse(json);
-    // 模板无预填启发式三字段，直接丢弃。
-    expect(parsed.install_dirs).toBeUndefined();
-    expect(parsed.search_subdirs).toBeUndefined();
-    expect(parsed.publishers).toBeUndefined();
-    expect(json).not.toContain('install_dirs');
-    expect(json).not.toContain('search_subdirs');
-    expect(json).not.toContain('publishers');
-    // 非空字符串数组单行内联。
-    for (const key of ['aliases', 'platforms']) {
-      const line = json.split('\n').find((l) => l.trimStart().startsWith(`"${key}":`));
-      expect(line).toBeTruthy();
-      expect(line).toContain('[');
-      expect(line).toContain(']');
-    }
-    // identifiers 对象展开，内层数组仍内联。
-    expect(json).toContain('"identifiers": {');
-    const winLine = json.split('\n').find((l) => l.trimStart().startsWith('"windows":'));
-    expect(winLine).toContain('[');
-    expect(winLine).toContain(']');
-    // 字段顺序沿用标准顺序。
-    const order = [
-      '"id"',
-      '"name"',
-      '"owner"',
-      '"repo"',
-      '"icon"',
-      '"icon_bg"',
-      '"description"',
-      '"category"',
-      '"category_name"',
-      '"aliases"',
-      '"default_version"',
-      '"license"',
-      '"stars"',
-      '"forks"',
-      '"is_verified"',
-      '"homepage"',
-      '"platforms"',
-      '"identifiers"',
-    ];
-    let last = 0;
-    for (const key of order) {
-      const pos = json.indexOf(key);
-      expect(pos).toBeGreaterThanOrEqual(0);
-      expect(pos).toBeGreaterThanOrEqual(last);
-      last = pos;
-    }
-  });
-
-  it('single payload omits empty arrays/objects instead of multiline []', () => {
-    const empty = {
-      ...draftEntry({ id: 'o/r' }).item,
-      icon: '',
-      icon_bg: '   ',
-      description: '',
-      description_en: '',
-      homepage: '',
-      category: '   ',
-      category_name: '',
-      aliases: [],
-      platforms: [],
-      identifiers: {},
-      stars: 0,
-      forks: 0,
-    };
-    const json = buildSinglePrPayloadJson(empty);
-    expect(() => JSON.parse(json)).not.toThrow();
-    const parsed = JSON.parse(json);
-    expect(parsed.aliases).toBeUndefined();
-    expect(parsed.platforms).toBeUndefined();
-    expect(parsed.identifiers).toBeUndefined();
-    expect(json).not.toContain('"aliases"');
-    expect(json).not.toContain('"platforms"');
-    expect(json).not.toContain('"identifiers"');
-    expect(json).not.toContain('install_dirs');
-    // 空串直接省略（不输出 ""），无真值 stars/forks 省（不恒输出 0）。
-    expect(parsed.icon).toBeUndefined();
-    expect(parsed.icon_bg).toBeUndefined();
-    expect(parsed.description).toBeUndefined();
-    expect(parsed.category).toBeUndefined();
-    expect(parsed.category_name).toBeUndefined();
-    expect(parsed.description_en).toBeUndefined();
-    expect(parsed.homepage).toBeUndefined();
-    expect(parsed.stars).toBeUndefined();
-    expect(parsed.forks).toBeUndefined();
-    expect(json).not.toContain('"icon"');
-    expect(json).not.toContain('"description_en"');
-    expect(json).not.toContain('"homepage"');
-    expect(json).not.toContain('"stars"');
-    expect(json).not.toContain('"forks"');
-  });
-
-  it('batch payload reuses single template style for each item', () => {
-    const a = {
-      ...draftEntry({ id: 'o/a' }).item,
-      aliases: ['demo-a'],
-      platforms: ['windows'],
-      identifiers: { windows: ['DemoA.exe'] },
-      install_dirs: ['a'],
-      stars: 0,
-      forks: 0,
-    };
-    const b = {
-      ...draftEntry({ id: 'o/b' }).item,
-      aliases: ['demo-b'],
-      platforms: ['linux'],
-      identifiers: { linux: ['demob'] },
-      publishers: ['O'],
-      stars: 0,
-      forks: 0,
-    };
-    const json = buildBatchPrPayloadJson([a, b]);
-    const parsed = JSON.parse(json);
-    expect(parsed).toHaveLength(2);
-    for (const row of parsed) {
-      expect(row.install_dirs).toBeUndefined();
-      expect(row.search_subdirs).toBeUndefined();
-      expect(row.publishers).toBeUndefined();
-      expect(row.is_verified).toBe(true);
-    }
-    expect(json).toContain('"aliases": [');
-    expect(json).toContain('"platforms": [');
-    expect(json).toContain('"identifiers": {');
-  });
-
-  it('copyTextToClipboard resolves a boolean and never throws', async () => {
-    await expect(copyTextToClipboard('{"id":"o/a"}')).resolves.toEqual(expect.any(Boolean));
-  });
-});
-
 describe('PendingView one-click PR submit (Lane D)', () => {
-  it('single card submit copies JSON and opens prefill URL without auto-marking (stays collected for manual confirm)', async () => {
+  it('single card submit opens prefill URL without auto-marking (stays collected for manual confirm)', async () => {
     await i18n.changeLanguage('zh-CN');
     const openSpy = vi.spyOn(tauriApi, 'openUrl').mockResolvedValue(undefined);
-    const writeSpy = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(window.navigator, 'clipboard', {
-      value: { writeText: writeSpy },
-      configurable: true,
-    });
     const onGetPrUrl = vi.fn().mockResolvedValue(BATCH_URL);
     const onMarkSubmitted = vi.fn().mockResolvedValue(undefined);
 
@@ -283,7 +79,6 @@ describe('PendingView one-click PR submit (Lane D)', () => {
     fireEvent.click(screen.getByText('提交 PR'));
 
     await waitFor(() => expect(onGetPrUrl).toHaveBeenCalledWith('o/a'));
-    expect(writeSpy).toHaveBeenCalledTimes(1);
     // 生产经 tauriApi.openUrl 打开（不再走被劫持的 window.open），可 await/检查失败
     expect(openSpy).toHaveBeenCalledWith(BATCH_URL);
     // 打开预填页不自动 mark：submitted 态只靠手动贴链接确认
@@ -322,16 +117,16 @@ describe('PendingView one-click PR submit (Lane D)', () => {
     await waitFor(() => expect(onMarkSubmitted).toHaveBeenCalledWith('o/a', 'https://github.com/o/r/pull/42'));
   });
 
-  it('falls back to the local prefill URL when no backend provider is wired', async () => {
+  it('没有后端 provider（预览模式）时提示不可提交，且不打开任何链接', async () => {
     await i18n.changeLanguage('zh-CN');
     const openSpy = vi.spyOn(tauriApi, 'openUrl').mockResolvedValue(undefined);
-    const onMarkSubmitted = vi.fn().mockResolvedValue(undefined);
+    const onNotify = vi.fn();
 
     render(
       <PendingView
         initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
         showBatchBar={false}
-        onMarkSubmitted={onMarkSubmitted}
+        onNotify={onNotify}
         onGetLicenseAllowlist={gateProvider}
       />,
     );
@@ -339,11 +134,11 @@ describe('PendingView one-click PR submit (Lane D)', () => {
     fireEvent.click(screen.getByText('o/a'));
     fireEvent.click(screen.getByText('提交 PR'));
 
-    // 打开预填页但不自动 mark：停留 collected，可手动确认或重新提交
-    await waitFor(() => expect(openSpy).toHaveBeenCalledTimes(1));
-    const url = openSpy.mock.calls[0]?.[0] as string;
-    expect(url.startsWith(CATALOG_PR_ISSUES_URL)).toBe(true);
-    expect(onMarkSubmitted).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('预览模式不可提交 PR'), 'warning'),
+    );
+    expect(openSpy).not.toHaveBeenCalled();
+    // 停留 collected：提交入口与手动标记行仍在
     expect(screen.getByTestId('pending-submit-pr')).toBeTruthy();
     expect(screen.getByText('标记已提交')).toBeTruthy();
   });
@@ -941,10 +736,6 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     await waitFor(() => expect(openSpy).toHaveBeenCalledWith(BATCH_URL));
     // 劫持路径已绕过：window.open 不再被调用
     expect(windowOpenSpy).not.toHaveBeenCalled();
-    // 取 URL 成功后才提示“已复制正在打开”（复用 json_copied 文案）
-    await waitFor(() =>
-      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('正在打开预填页'), 'success'),
-    );
   });
 
   it('backend pr-url gate error surfaces and aborts without silent local fallback or open', async () => {
@@ -979,16 +770,11 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     );
   });
 
-  it('single open failure toasts open_failed and copies the prefill URL for manual paste', async () => {
+  it('single open failure toasts open_failed without clipboard fallback', async () => {
     await i18n.changeLanguage('zh-CN');
     const openSpy = vi.spyOn(tauriApi, 'openUrl').mockRejectedValue(new Error('shell open denied'));
     // 真失败：原生兜底同样被拦截返回 null，保留失败感知
     const windowOpenSpy = vi.spyOn(window, 'open').mockReturnValue(null);
-    const writeSpy = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(window.navigator, 'clipboard', {
-      value: { writeText: writeSpy },
-      configurable: true,
-    });
     const onNotify = vi.fn();
     const onGetPrUrl = vi.fn().mockResolvedValue(BATCH_URL);
 
@@ -1012,12 +798,6 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     await waitFor(() =>
       expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('预填页打开失败'), 'error'),
     );
-    // 降级把预填 URL 也复制到剪贴板并提示手动粘贴打开：JSON + URL 共两次复制
-    await waitFor(() => expect(writeSpy.mock.calls.length).toBeGreaterThanOrEqual(2));
-    expect(writeSpy).toHaveBeenCalledWith(BATCH_URL);
-    await waitFor(() =>
-      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('手动粘贴'), 'info'),
-    );
   });
 
   it('single fallback opens via native window.open when direct openUrl fails', async () => {
@@ -1026,11 +806,6 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     const windowOpenSpy = vi
       .spyOn(window, 'open')
       .mockReturnValue({} as unknown as Window);
-    const writeSpy = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(window.navigator, 'clipboard', {
-      value: { writeText: writeSpy },
-      configurable: true,
-    });
     const onNotify = vi.fn();
     const onGetPrUrl = vi.fn().mockResolvedValue(BATCH_URL);
 
@@ -1052,14 +827,8 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     await waitFor(() =>
       expect(windowOpenSpy).toHaveBeenCalledWith(BATCH_URL, '_blank', 'noopener,noreferrer'),
     );
-    // 兜底成功不报 open_failed，仍保留“已复制正在打开”成功感知
+    // 兜底成功不报 open_failed
     expect(onNotify).not.toHaveBeenCalledWith(expect.stringContaining('预填页打开失败'), 'error');
-    await waitFor(() =>
-      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('正在打开预填页'), 'success'),
-    );
-    // 兜底成功无需复制 URL 降级：仅 JSON 一次复制
-    await waitFor(() => expect(writeSpy).toHaveBeenCalledTimes(1));
-    expect(writeSpy).not.toHaveBeenCalledWith(BATCH_URL);
   });
 
   it('batch fallback opens via native window.open and reports batch_submitted', async () => {
@@ -1132,16 +901,11 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     expect(onNotify).not.toHaveBeenCalledWith(expect.stringContaining('已批量打开预填页'), 'success');
   });
 
-  it('single over-long prefill URL warns to split batches but still copies JSON and opens', async () => {
+  it('single over-long prefill URL warns to split batches but still opens', async () => {
     await i18n.changeLanguage('zh-CN');
     expect(PREFILL_URL_LENGTH_LIMIT).toBe(8000);
     const longUrl = `https://example.com/new?body=${'x'.repeat(PREFILL_URL_LENGTH_LIMIT + 100)}`;
     const openSpy = vi.spyOn(tauriApi, 'openUrl').mockResolvedValue(undefined);
-    const writeSpy = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(window.navigator, 'clipboard', {
-      value: { writeText: writeSpy },
-      configurable: true,
-    });
     const onNotify = vi.fn();
     const onGetPrUrl = vi.fn().mockResolvedValue(longUrl);
 
@@ -1159,15 +923,13 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     fireEvent.click(screen.getByText('提交 PR'));
 
     await waitFor(() => expect(openSpy).toHaveBeenCalledWith(longUrl));
-    // 超长仍复制 JSON
-    expect(writeSpy).toHaveBeenCalledTimes(1);
     // 超长提示分批（复用 url_too_long 文案）
     await waitFor(() =>
       expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('过长'), 'warning'),
     );
   });
 
-  it('batch over-long prefill URL warns to split batches but still copies JSON and opens', async () => {
+  it('batch over-long prefill URL warns to split batches but still opens', async () => {
     await i18n.changeLanguage('zh-CN');
     const longUrl = `https://example.com/new?body=${'y'.repeat(PREFILL_URL_LENGTH_LIMIT + 10)}`;
     const openSpy = vi.spyOn(tauriApi, 'openUrl').mockResolvedValue(undefined);

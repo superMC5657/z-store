@@ -29,10 +29,6 @@ import type { AppSummary } from '../types';
 import { PlatformIcon } from '../components/icons/PlatformIcons';
 import { PLATFORM_META, type PlatformId } from '../lib/platformFilter';
 import {
-  buildBatchPrPayloadJson,
-  buildLocalBatchPrUrl,
-  buildLocalSinglePrUrl,
-  buildSinglePrPayloadJson,
   copyTextToClipboard,
   getLicenseAllowlist,
   type LicenseAllowlistResult,
@@ -1045,24 +1041,13 @@ export const PendingView: React.FC<PendingViewProps> = ({
     }
   };
 
-  /** 预填页打开失败降级：toast 明确失败（不谎报成功）+ 把 URL 复制到剪贴板提示手动粘贴打开。 */
-  const notifyPrefillOpenFailed = async (url: string, err: unknown): Promise<void> => {
+  /** 预填页打开失败：toast 明确失败（不谎报成功），不做剪贴板降级。 */
+  const notifyPrefillOpenFailed = async (_url: string, err: unknown): Promise<void> => {
     const message = err instanceof Error ? err.message : String(err);
     onNotify?.(
-      t('pending.pr.open_failed', { message, defaultValue: `预填页打开失败：${message}，链接已复制请手动粘贴打开` }),
+      t('pending.pr.open_failed', { message, defaultValue: `预填页打开失败：${message}` }),
       'error',
     );
-    try {
-      const urlCopied = await copyTextToClipboard(url);
-      if (urlCopied) {
-        onNotify?.(
-          t('pending.pr.url_copied', { defaultValue: '预填链接已复制，请手动粘贴到浏览器打开' }),
-          'info',
-        );
-      }
-    } catch {
-      /* 降级复制失败已 toast 主错，不再叠错 */
-    }
   };
 
   /**
@@ -1094,40 +1079,36 @@ export const PendingView: React.FC<PendingViewProps> = ({
     }
     setSubmittingId(id);
     try {
-      // 先取 URL：后端门禁错直接透出 toast，中止不开页（不静默回退本地）。
+      // 先取 URL：后端门禁错直接透出 toast，中止不开页；无回调即预览模式不可提交。
+      if (!onGetPrUrl) {
+        onNotify?.(t('pending.pr.preview_only', { defaultValue: '预览模式不可提交 PR' }), 'warning');
+        return;
+      }
       let url = '';
-      if (onGetPrUrl) {
-        try {
-          url = await onGetPrUrl(id);
-        } catch (e) {
-          onNotify?.(e instanceof Error ? e.message : String(e), 'error');
-          return;
-        }
-      } else {
-        url = buildLocalSinglePrUrl(target);
+      try {
+        url = await onGetPrUrl(id);
+      } catch (e) {
+        onNotify?.(e instanceof Error ? e.message : String(e), 'error');
+        return;
       }
       // 合法 https 预填必过：trim + 大小写不敏感判 https，避免首尾空白/大小写误杀；
-      // 空值/非 https 仍 fail-closed（不尝试打开，直接失败感知 + 复制降级）。
+      // 空值/非 https 仍 fail-closed（不尝试打开，直接失败感知）。
       const trimmedUrl = (url ?? '').trim();
       if (!trimmedUrl || !/^https:\/\//i.test(trimmedUrl)) {
         await notifyPrefillOpenFailed(trimmedUrl || target.id, new Error('invalid prefill url'));
         return;
       }
       url = trimmedUrl;
-      const payload = buildSinglePrPayloadJson(target.item);
-      const copied = await copyTextToClipboard(payload);
       // 预填链接长度判定（含 percent-encoding 膨胀，按编码后 URL 全长计，与 Spec §5 对齐；阈值不变）。
       if (url.length > PREFILL_URL_LENGTH_LIMIT) {
         onNotify?.(
           t('pending.pr.url_too_long', {
             length: url.length,
-            defaultValue: `预填链接过长（${url.length} 字符），建议分批提交；JSON 已复制`,
+            defaultValue: `预填链接过长（${url.length} 字符），建议分批提交`,
           }),
           'warning',
         );
       }
-      // 取 URL 成功后才提示“已复制正在打开”，避免取数/门禁失败时谎报。
-      onNotify?.(t(copied ? 'pending.pr.json_copied' : 'pending.pr.copy_failed'), copied ? 'success' : 'warning');
       try {
         await openPrefillPage(url);
       } catch (e) {
@@ -1213,17 +1194,17 @@ export const PendingView: React.FC<PendingViewProps> = ({
     setBatchBusy(true);
     try {
       const ids = picked.map((e) => e.id);
-      // 先取 URL：后端门禁错直接透出 toast，中止不开页（不静默回退本地）。
+      // 先取 URL：后端门禁错直接透出 toast，中止不开页；无回调即预览模式不可提交。
+      if (!onGetBatchPrUrl) {
+        onNotify?.(t('pending.pr.preview_only', { defaultValue: '预览模式不可提交 PR' }), 'warning');
+        return;
+      }
       let url = '';
-      if (onGetBatchPrUrl) {
-        try {
-          url = await onGetBatchPrUrl(ids);
-        } catch (e) {
-          onNotify?.(e instanceof Error ? e.message : String(e), 'error');
-          return;
-        }
-      } else {
-        url = buildLocalBatchPrUrl(picked);
+      try {
+        url = await onGetBatchPrUrl(ids);
+      } catch (e) {
+        onNotify?.(e instanceof Error ? e.message : String(e), 'error');
+        return;
       }
       const trimmedBatchUrl = (url ?? '').trim();
       if (!trimmedBatchUrl || !/^https:\/\//i.test(trimmedBatchUrl)) {
@@ -1231,21 +1212,17 @@ export const PendingView: React.FC<PendingViewProps> = ({
         return;
       }
       url = trimmedBatchUrl;
-      const payload = buildBatchPrPayloadJson(picked.map((e) => e.item));
-      const copied = await copyTextToClipboard(payload);
       // 预填链接长度判定（含 percent-encoding 膨胀，按编码后 URL 全长计，与 Spec §5 对齐；阈值不变）。
       if (url.length > PREFILL_URL_LENGTH_LIMIT) {
         onNotify?.(
           t('pending.pr.url_too_long', {
             length: url.length,
             count: ids.length,
-            defaultValue: `预填链接过长（${url.length} 字符），建议分批提交；JSON 已复制`,
+            defaultValue: `预填链接过长（${url.length} 字符），建议分批提交`,
           }),
           'warning',
         );
       }
-      // 取 URL 成功后才提示“已复制正在打开”，避免取数/门禁失败时谎报。
-      onNotify?.(t(copied ? 'pending.pr.json_copied' : 'pending.pr.copy_failed'), copied ? 'success' : 'warning');
       try {
         await openPrefillPage(url);
       } catch (e) {
@@ -1580,7 +1557,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
                                 ? hasLicenseSubmitError
                                   ? t('pending.pr.license_fix_hint', { id: editingEntry.id })
                                   : t('pending.fix_errors')
-                                : t('pending.pr.json_copied')
+                                : t('pending.pr.prefill_hint')
                             }
                           >
                             <Send size={13} strokeWidth={1.5} aria-hidden="true" />
@@ -2327,7 +2304,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
                               ? hasLicenseSubmitError
                                 ? t('pending.pr.license_fix_hint', { id: editingEntry.id })
                                 : t('pending.fix_errors')
-                              : t('pending.pr.json_copied')
+                              : t('pending.pr.prefill_hint')
                           }
                         >
                           <Send size={13} strokeWidth={1.5} aria-hidden="true" />
