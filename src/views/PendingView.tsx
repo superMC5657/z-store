@@ -309,6 +309,10 @@ export function validatePendingDraft(
     if (item.owner.includes('/') || item.repo.includes('/')) {
       errors.owner = errors.owner ?? 'coord_slash';
     }
+    // 与 Rust 同口径：坐标不可含空白（否则 id 归一后与 owner/repo 失配）。
+    if (/\s/.test(item.owner) || /\s/.test(item.repo)) {
+      errors.owner = errors.owner ?? 'coord_whitespace';
+    }
   }
   if (mode === 'draft') return errors;
   if (!item.name.trim()) errors.name = 'name_required';

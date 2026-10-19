@@ -327,6 +327,7 @@
       "owner_required": "Repo owner is required",
       "repo_required": "Repo name is required",
       "coord_slash": "owner/repo must not contain /",
+      "coord_whitespace": "owner/repo must not contain whitespace",
       "id_required": "App ID is required",
       "id_mismatch": "ID must equal lowercase owner/repo",
       "name_required": "Name is required",

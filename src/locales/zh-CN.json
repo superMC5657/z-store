@@ -327,6 +327,7 @@
       "owner_required": "仓库 owner 不可为空",
       "repo_required": "仓库 repo 不可为空",
       "coord_slash": "owner/repo 不可包含 /",
+      "coord_whitespace": "owner/repo 不可包含空白字符",
       "id_required": "应用标识 id 不可为空",
       "id_mismatch": "id 必须等于小写的 owner/repo",
       "name_required": "应用名称不可为空",

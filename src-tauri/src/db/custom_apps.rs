@@ -1177,4 +1177,125 @@ mod tests {
         assert_eq!(reverted.status, CUSTOM_APP_STATUS_DRAFT);
         assert!(db.list_collected_apps().unwrap().is_empty());
     }
+
+    /// 草稿校验契约（parity）：与前端 `PendingView.validationParity.test.ts` 共用
+    /// `tests/fixtures/draft-validation-cases.json`，断言 ok 与首个阻断字段一致
+    /// （UI 即时镜像 ↔ 权威门禁不漂移；新增规则先加样例）。
+    #[derive(serde::Deserialize)]
+    struct ParityFixture {
+        gate: ParityGate,
+        cases: Vec<ParityCase>,
+    }
+
+    #[derive(serde::Deserialize, Clone)]
+    struct ParityGate {
+        enabled: bool,
+        allowed: Vec<String>,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct ParityCase {
+        name: String,
+        mode: String,
+        item: ParityItem,
+        #[serde(default)]
+        gate: Option<ParityGate>,
+        expect: ParityExpect,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct ParityItem {
+        id: String,
+        owner: String,
+        repo: String,
+        #[serde(default)]
+        name: String,
+        #[serde(default)]
+        description: String,
+        #[serde(default)]
+        category: String,
+        #[serde(default)]
+        homepage: Option<String>,
+        #[serde(default)]
+        license: String,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct ParityExpect {
+        ok: bool,
+        #[serde(default)]
+        field: Option<String>,
+    }
+
+    /// 错误消息 → 首个阻断字段桶（顺序与 `validate_custom_item` 检查顺序一致）。
+    fn parity_blocked_field(message: &str) -> &'static str {
+        if message.starts_with("仅支持 GitHub owner/repo")
+            || message.starts_with("仓库坐标")
+            || message.starts_with("无法识别的应用标识")
+            || message.starts_with("草稿 id")
+        {
+            "identity"
+        } else if message.starts_with("应用名称") {
+            "name"
+        } else if message.starts_with("应用描述") {
+            "description"
+        } else if message.starts_with("功能分类") {
+            "category"
+        } else if message.starts_with("官方主页") {
+            "homepage"
+        } else if message.starts_with("开源协议") || message.starts_with("仅收录 OSI") {
+            "license"
+        } else {
+            "unknown"
+        }
+    }
+
+    fn parity_item(item: &ParityItem) -> CatalogItem {
+        let mut base = draft_item(&item.id, &item.owner, &item.repo);
+        base.name = item.name.clone();
+        base.description = item.description.clone();
+        base.category = item.category.clone();
+        base.homepage = item.homepage.clone();
+        base.license = item.license.clone();
+        base
+    }
+
+    #[test]
+    fn draft_validation_matches_shared_parity_cases() {
+        let raw = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../tests/fixtures/draft-validation-cases.json"
+        ));
+        let fixture: ParityFixture = serde_json::from_str(raw).expect("parity fixture parses");
+        assert!(!fixture.cases.is_empty(), "parity fixture must not be empty");
+        for case in &fixture.cases {
+            let gate_cfg = case.gate.clone().unwrap_or_else(|| fixture.gate.clone());
+            let gate = LicenseGateConfig {
+                enabled: gate_cfg.enabled,
+                allowed: gate_cfg.allowed,
+            };
+            let mode = match case.mode.as_str() {
+                "draft" => ValidateMode::DraftLenient,
+                "submit" => ValidateMode::SubmitStrict,
+                other => panic!("unknown parity mode: {other}"),
+            };
+            let outcome = validate_custom_item(&parity_item(&case.item), mode, &gate);
+            match (outcome, case.expect.ok) {
+                (Ok(_), true) => {}
+                (Err(message), false) => {
+                    assert_eq!(
+                        parity_blocked_field(&message),
+                        case.expect.field.as_deref().unwrap_or(""),
+                        "case '{}' unexpected error: {}",
+                        case.name,
+                        message
+                    );
+                }
+                (Ok(_), false) => panic!("case '{}' expected failure but passed", case.name),
+                (Err(message), true) => {
+                    panic!("case '{}' expected ok, got: {}", case.name, message)
+                }
+            }
+        }
+    }
 }

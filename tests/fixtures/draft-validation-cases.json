@@ -1,0 +1,274 @@
+{
+  "note": "草稿校验契约样例（TS UI 镜像 ↔ Rust 权威门禁）。两侧各跑一遍，断言 ok 与首个阻断字段一致；新增规则先在此加样例。",
+  "gate": {
+    "enabled": true,
+    "allowed": ["MIT", "Apache-2.0", "GPL-3.0", "GPL-3.0-OR-LATER"]
+  },
+  "cases": [
+    {
+      "name": "draft accepts placeholder license and empty submit-only fields",
+      "mode": "draft",
+      "item": {
+        "id": "acme/atlas",
+        "owner": "acme",
+        "repo": "atlas",
+        "name": "",
+        "description": "",
+        "category": "",
+        "license": "OpenSource"
+      },
+      "expect": { "ok": true }
+    },
+    {
+      "name": "draft rejects uppercase id",
+      "mode": "draft",
+      "item": {
+        "id": "Acme/Atlas",
+        "owner": "acme",
+        "repo": "atlas",
+        "name": "Atlas",
+        "description": "tool",
+        "category": "dev",
+        "license": "MIT"
+      },
+      "expect": { "ok": false, "field": "identity" }
+    },
+    {
+      "name": "draft rejects empty owner",
+      "mode": "draft",
+      "item": {
+        "id": "acme/atlas",
+        "owner": "",
+        "repo": "atlas",
+        "name": "Atlas",
+        "description": "tool",
+        "category": "dev",
+        "license": "MIT"
+      },
+      "expect": { "ok": false, "field": "identity" }
+    },
+    {
+      "name": "draft rejects slash inside coord",
+      "mode": "draft",
+      "item": {
+        "id": "acme/atlas",
+        "owner": "acme/team",
+        "repo": "atlas",
+        "name": "Atlas",
+        "description": "tool",
+        "category": "dev",
+        "license": "MIT"
+      },
+      "expect": { "ok": false, "field": "identity" }
+    },
+    {
+      "name": "draft rejects whitespace inside coord",
+      "mode": "draft",
+      "item": {
+        "id": "acme/atlas",
+        "owner": "acme team",
+        "repo": "atlas",
+        "name": "Atlas",
+        "description": "tool",
+        "category": "dev",
+        "license": "MIT"
+      },
+      "expect": { "ok": false, "field": "identity" }
+    },
+    {
+      "name": "draft rejects forge prefixed id",
+      "mode": "draft",
+      "item": {
+        "id": "codeberg:acme/atlas",
+        "owner": "acme",
+        "repo": "atlas",
+        "name": "Atlas",
+        "description": "tool",
+        "category": "dev",
+        "license": "MIT"
+      },
+      "expect": { "ok": false, "field": "identity" }
+    },
+    {
+      "name": "submit accepts complete MIT draft",
+      "mode": "submit",
+      "item": {
+        "id": "acme/atlas",
+        "owner": "acme",
+        "repo": "atlas",
+        "name": "Atlas",
+        "description": "tool",
+        "category": "dev",
+        "homepage": "https://example.com",
+        "license": "MIT"
+      },
+      "expect": { "ok": true }
+    },
+    {
+      "name": "submit rejects empty name",
+      "mode": "submit",
+      "item": {
+        "id": "acme/atlas",
+        "owner": "acme",
+        "repo": "atlas",
+        "name": "",
+        "description": "tool",
+        "category": "dev",
+        "homepage": "https://example.com",
+        "license": "MIT"
+      },
+      "expect": { "ok": false, "field": "name" }
+    },
+    {
+      "name": "submit rejects empty description",
+      "mode": "submit",
+      "item": {
+        "id": "acme/atlas",
+        "owner": "acme",
+        "repo": "atlas",
+        "name": "Atlas",
+        "description": "   ",
+        "category": "dev",
+        "homepage": "https://example.com",
+        "license": "MIT"
+      },
+      "expect": { "ok": false, "field": "description" }
+    },
+    {
+      "name": "submit rejects empty category",
+      "mode": "submit",
+      "item": {
+        "id": "acme/atlas",
+        "owner": "acme",
+        "repo": "atlas",
+        "name": "Atlas",
+        "description": "tool",
+        "category": "",
+        "homepage": "https://example.com",
+        "license": "MIT"
+      },
+      "expect": { "ok": false, "field": "category" }
+    },
+    {
+      "name": "submit rejects empty homepage",
+      "mode": "submit",
+      "item": {
+        "id": "acme/atlas",
+        "owner": "acme",
+        "repo": "atlas",
+        "name": "Atlas",
+        "description": "tool",
+        "category": "dev",
+        "homepage": "",
+        "license": "MIT"
+      },
+      "expect": { "ok": false, "field": "homepage" }
+    },
+    {
+      "name": "submit rejects non-http homepage",
+      "mode": "submit",
+      "item": {
+        "id": "acme/atlas",
+        "owner": "acme",
+        "repo": "atlas",
+        "name": "Atlas",
+        "description": "tool",
+        "category": "dev",
+        "homepage": "ftp://example.com",
+        "license": "MIT"
+      },
+      "expect": { "ok": false, "field": "homepage" }
+    },
+    {
+      "name": "submit rejects empty license",
+      "mode": "submit",
+      "item": {
+        "id": "acme/atlas",
+        "owner": "acme",
+        "repo": "atlas",
+        "name": "Atlas",
+        "description": "tool",
+        "category": "dev",
+        "homepage": "https://example.com",
+        "license": ""
+      },
+      "expect": { "ok": false, "field": "license" }
+    },
+    {
+      "name": "submit rejects placeholder license",
+      "mode": "submit",
+      "item": {
+        "id": "acme/atlas",
+        "owner": "acme",
+        "repo": "atlas",
+        "name": "Atlas",
+        "description": "tool",
+        "category": "dev",
+        "homepage": "https://example.com",
+        "license": "OpenSource"
+      },
+      "expect": { "ok": false, "field": "license" }
+    },
+    {
+      "name": "submit rejects non-OSI license",
+      "mode": "submit",
+      "item": {
+        "id": "acme/atlas",
+        "owner": "acme",
+        "repo": "atlas",
+        "name": "Atlas",
+        "description": "tool",
+        "category": "dev",
+        "homepage": "https://example.com",
+        "license": "CC-BY-4.0"
+      },
+      "expect": { "ok": false, "field": "license" }
+    },
+    {
+      "name": "submit accepts or-later shorthand",
+      "mode": "submit",
+      "item": {
+        "id": "acme/atlas",
+        "owner": "acme",
+        "repo": "atlas",
+        "name": "Atlas",
+        "description": "tool",
+        "category": "dev",
+        "homepage": "https://example.com",
+        "license": "gpl-3.0+"
+      },
+      "expect": { "ok": true }
+    },
+    {
+      "name": "submit accepts space-folded license",
+      "mode": "submit",
+      "item": {
+        "id": "acme/atlas",
+        "owner": "acme",
+        "repo": "atlas",
+        "name": "Atlas",
+        "description": "tool",
+        "category": "dev",
+        "homepage": "https://example.com",
+        "license": "apache 2.0"
+      },
+      "expect": { "ok": true }
+    },
+    {
+      "name": "submit accepts any non-empty license when gate is disabled",
+      "mode": "submit",
+      "gate": { "enabled": false, "allowed": [] },
+      "item": {
+        "id": "acme/atlas",
+        "owner": "acme",
+        "repo": "atlas",
+        "name": "Atlas",
+        "description": "tool",
+        "category": "dev",
+        "homepage": "https://example.com",
+        "license": "Proprietary"
+      },
+      "expect": { "ok": true }
+    }
+  ]
+}
