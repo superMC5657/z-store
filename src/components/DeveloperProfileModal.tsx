@@ -14,7 +14,7 @@ interface DeveloperProfileModalProps {
   installedIds?: Set<string>;
   /**
    * 已纳管集合（必传；显式 `null` = managed 未加载，
-   * 已安装命中行渲染中性占位，P1）。
+   * 已安装命中行渲染中性占位）。
    */
   managedIds: Set<string> | null;
 }
@@ -242,7 +242,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                 const isInstalling = installingId === repo.id;
                 // 已纳管绿已安装，未纳管走安装；
                 // 判态统一经共享选择器（归一 ID，大小写变体一致）；managedIds===null（未加载）
-                // + 已安装命中 = 未知，中性占位（P1）。
+                // + 已安装命中 = 未知，中性占位。
                 const installed = isInstalled(repo.id, installedIds);
                 const managed = selectIsManagedOpt(repo.id, managedIds);
                 const isUnknownRow = installed && managed === null;
@@ -323,7 +323,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                             查看
                           </button>
                           {isUnknownRow ? (
-                            // P1 未知态中性占位（单色骨架，不可交互）
+                            // 未知态中性占位（单色骨架，不可交互）
                             <button
                               className="btn-fluent btn-secondary"
                               data-badge="unknown"

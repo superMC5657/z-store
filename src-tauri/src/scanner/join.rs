@@ -7,7 +7,7 @@
 //!   （[`join_fuzzy`]，唯一入口 adapter， mechanics 在 [`super::matcher`]）。
 //!
 //! exact 侧归一律经 `forge::canonical_lookup_id`（canonical 或小写回退，后端唯一源
-//! `forge::coord`，不另立 normalizer）；存量大小写漂移行经归一化治愈（ADR-0010 修订）。
+//! `forge::coord`，不另立 normalizer）；存量大小写漂移行经归一化治愈（ADR-0010）。
 
 use super::{AppMatchResult, ScannedRawApp};
 use crate::github::CatalogItem;

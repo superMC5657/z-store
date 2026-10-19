@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { OAuthAccountCard } from '../../../components/OAuthAccountCard';
 
-export interface NetworkDataSectionProps {
+interface NetworkDataSectionProps {
   proxyInput: string;
   setProxyInput: (val: string) => void;
   isTestingProxy: boolean;

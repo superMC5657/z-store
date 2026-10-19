@@ -264,8 +264,8 @@ pub async fn search_forge_repos(
     .await?)
 }
 
-/// H1/H2：本作用域 API 请求头/客户端收敛（UA 恒定；认证方案按调用方原样传递）。
-/// 各调用点的 Accept/认证组合保持不变，仅收敛样板。
+/// 本作用域 API 请求头/客户端收敛（UA 恒定；认证方案按调用方原样传递）。
+/// Accept/认证组合由调用点给定，本函数只收敛样板。
 fn build_api_client() -> Result<reqwest::Client, String> {
     let timeout_sec = crate::config::get_project_config()
         .network

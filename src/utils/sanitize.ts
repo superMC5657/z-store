@@ -35,7 +35,7 @@ function isAllowedDataUrl(lowerVal: string): boolean {
   return ALLOWED_DATA_IMAGE_PREFIXES.some((prefix) => lowerVal.startsWith(prefix));
 }
 
-export interface SanitizeOptions {
+interface SanitizeOptions {
   /** 仓库素材直链基准地址，如 https://raw.githubusercontent.com/{owner}/{repo}/HEAD/ */
   rawBaseUrl?: string;
   /** 仓库网页链接基准地址，如 https://github.com/{owner}/{repo}/blob/HEAD/ */

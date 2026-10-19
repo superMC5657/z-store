@@ -1,7 +1,7 @@
 /**
- * Pending 草稿盒偏好共享模块（P1 视图解耦：PendingView 与 SettingsView/AppearanceSection 均从此 import）。
+ * Pending 草稿盒偏好共享模块（视图解耦：PendingView 与 SettingsView/AppearanceSection 均从此 import）。
  *
- * - 存储键统一为点分形态（P2）：`zstore:pending.showCoords` / `zstore:pending.sectionPrefs`，
+ * - 存储键统一为点分形态：`zstore:pending.showCoords` / `zstore:pending.sectionPrefs`，
  *   事件 `zstore:pending.showCoordsChanged`；读时兼容旧下划线/横杠 key，命中旧值即迁移写新 key。
  * - 文案键（`settings.pending_coords_*`）保持不变，只改底层 storage key。
  */
@@ -76,14 +76,14 @@ export function setPendingShowCoordsPref(show: boolean): void {
 }
 
 /** 表单 B/C 分节展开偏好（A 核心必填恒展开，不进持久化）。 */
-export interface PendingSectionPrefs {
+interface PendingSectionPrefs {
   /** B 补充信息（默认展开）。 */
   supplemental: boolean;
   /** C 运行时与目录（默认折叠）。 */
   runtime: boolean;
 }
 
-export const DEFAULT_SECTION_PREFS: PendingSectionPrefs = { supplemental: true, runtime: false };
+const DEFAULT_SECTION_PREFS: PendingSectionPrefs = { supplemental: true, runtime: false };
 
 function normalizeSectionPrefs(parsed: unknown): PendingSectionPrefs {
   const obj = (parsed ?? {}) as Record<string, unknown>;

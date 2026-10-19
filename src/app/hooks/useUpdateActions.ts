@@ -2,7 +2,7 @@ import type { TFunction } from 'i18next';
 import type { AppSummary, InstalledApp, UpdateCheckProgressPayload, UpdateItem, UpdateRule } from '../../types';
 import { tauriApi } from '../../services/api';
 
-export interface UseUpdateActionsParams {
+interface UseUpdateActionsParams {
   updates: UpdateItem[];
   setUpdates: React.Dispatch<React.SetStateAction<UpdateItem[]>>;
   setInstalledApps: React.Dispatch<React.SetStateAction<InstalledApp[]>>;

@@ -15,7 +15,7 @@ type UpdatePhase =
   | { kind: 'ready'; version: string }
   | { kind: 'error'; message: string; fallback?: { label: string; url: string } };
 
-// P3-4 契约：客户端自更新面板（check/downloadAndInstall，配置见 tauri.conf.json plugins.updater，状态机见下方本地 UpdatePhase）。
+// 客户端自更新面板（check/downloadAndInstall，配置见 tauri.conf.json plugins.updater，状态机见下方本地 UpdatePhase）。
 export const ClientUpdateRow: React.FC = () => {
   const { t } = useTranslation();
   const [phase, setPhase] = useState<UpdatePhase>({ kind: 'idle' });

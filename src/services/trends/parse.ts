@@ -19,7 +19,7 @@ export function errorStatusOf(err: unknown): number | undefined {
 }
 
 /** 从错误串回解析 HTTP 状态（`upstream status {code}` / `... status {code}`）。 */
-export function errorStatusFromMessage(err: unknown): number | undefined {
+function errorStatusFromMessage(err: unknown): number | undefined {
   const msg = String(
     (err as { message?: unknown })?.message ?? (typeof err === 'string' ? err : '') ?? '',
   );
@@ -56,7 +56,7 @@ export function parseCompactNumber(raw: string): number | undefined {
   return Math.round(n * mult);
 }
 
-export function stripHtmlTags(html: string): string {
+function stripHtmlTags(html: string): string {
   return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
@@ -69,7 +69,7 @@ export function stripHtmlTags(html: string): string {
  * - 总量：stargazers/forks 链接文本（k/m 缩写展开）；缺失时 stars 回退 0
  *  （TrendRepo.stars 为必填 number）、forks 保持 undefined。
  */
-export function mapTrendingArticle(articleHtml: string): TrendRepo | null {
+function mapTrendingArticle(articleHtml: string): TrendRepo | null {
   const linkRe = /<a\b[^>]*\bhref="(\/[^"]+)"[^>]*>/gi;
   let owner = '';
   let repo = '';
@@ -146,7 +146,7 @@ export function parseTrendingHtml(html: string): TrendRepo[] {
   return repos;
 }
 
-export function numOrUndefined(v: unknown): number | undefined {
+function numOrUndefined(v: unknown): number | undefined {
   if (v == null || v === '') return undefined;
   const n = typeof v === 'string' ? Number(v.trim().replace(/,/g, '')) : Number(v);
   return Number.isFinite(n) ? n : undefined;
@@ -212,7 +212,7 @@ export function growthRatio(repo: TrendRepo): number {
 }
 
 /**
- * P1正确性（C2 排序沉底）：starsGained 降序比较器（SSOT）。
+ * 排序沉底契约：starsGained 降序比较器（SSOT）。
  * - undefined 恒沉底（缺增量绝不冒充 0 参与排名）；
  * - 双 defined 按数值降序；
  * - tie 按 id 升序（确定性，与后端 ranker 同口径）。
@@ -258,8 +258,8 @@ export function sortByHealthyScore(repos: TrendRepo[]): TrendRepo[] {
 }
 
 /** new 榜客户端兜底阈值（显式调用，非隐式 fallback）。 */
-export const NEW_FALLBACK_MAX_STARS = 2000;
-export const NEW_FALLBACK_MAX_FORKS = 500;
+const NEW_FALLBACK_MAX_STARS = 2000;
+const NEW_FALLBACK_MAX_FORKS = 500;
 
 /**
  * new 榜客户端兜底视图（纯函数，显式调用，非隐式 fallback）：

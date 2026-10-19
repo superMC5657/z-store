@@ -121,7 +121,7 @@ impl Database {
             -- FR-6.2 默认通知频率：daily（仅缺失时填充）
             INSERT OR IGNORE INTO user_settings (key, value) VALUES ('watch_notify_frequency', 'daily');
 
-            -- Phase1A 趋势榜缓存（纯透存，后端不判 TTL；board 列供双档清扫区分 daily/其余）
+            -- 趋势榜缓存（纯透存，后端不判 TTL；board 列供双档清扫区分 daily/其余）
             CREATE TABLE IF NOT EXISTS trend_board_cache (
                 cache_key TEXT PRIMARY KEY,
                 board TEXT NOT NULL,
@@ -158,9 +158,11 @@ impl Database {
                 PRIMARY KEY (hash, app_id)
             );
 
-            -- 本地自维护草稿 overlay：待收录草稿本地暂存（ADR-0017）。
-            -- id 为 canonical 小写形态（`owner/repo` 或 `forge[:host]:owner/repo`）；
-            -- payload_json 存完整 CatalogItem；status=draft/submitted（已提交另存 pr_url）；
+            -- 本地自维护条目 overlay：草稿暂存 + 本地收录（ADR-0017）。
+            -- id 为 canonical 小写形态（仅 GitHub `owner/repo`）；
+            -- payload_json 存完整 CatalogItem；status=draft/submitted/collected
+            --（已提交另存 pr_url；collected 为本地收录态，可搜可装）；
+            -- 旧数据的 local_collected 字面与 collected 同义，查询双匹配该残留值；
             -- archived=1 为转正（远端已收录）自动归档标记。
             CREATE TABLE IF NOT EXISTS custom_apps (
                 id TEXT PRIMARY KEY,

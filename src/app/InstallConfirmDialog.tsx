@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 
-export interface InstallConfirmDialogProps {
+interface InstallConfirmDialogProps {
   intro: string;
   appName: string;
   repoLine: string;

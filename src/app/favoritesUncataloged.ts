@@ -41,8 +41,8 @@ import { buildCatalogIdSet } from './selectors';
  * 为展示用启发式（保留原大小写，仅 trim），非 canonical，不经归一。
  */
 
-export const FAVORITE_EXTERNAL_CATEGORY = 'external';
-export const FAVORITE_EXTERNAL_CATEGORY_NAME = '跨平台开源';
+const FAVORITE_EXTERNAL_CATEGORY = 'external';
+const FAVORITE_EXTERNAL_CATEGORY_NAME = '跨平台开源';
 
 export function parseFavoriteOwnerRepo(id: string): { owner: string; repo: string } {
   const clean = typeof id === 'string' ? id.trim() : '';
@@ -172,7 +172,7 @@ export function buildRecordCatalogedMap(
 /**
  * 记录表示值读取：归一键缺席即未收录（`?? false`），调用方无需重复空值合并。
  */
-export function isRecordCataloged(record: ReadonlyMap<string, boolean>, key: string): boolean {
+function isRecordCataloged(record: ReadonlyMap<string, boolean>, key: string): boolean {
   return record.get(key) ?? false;
 }
 
@@ -249,7 +249,7 @@ function findMissingIds(
   return missing;
 }
 
-export interface UseUncatalogedJoinParams {
+interface UseUncatalogedJoinParams {
   favoriteIds: Set<string>;
   watchedIds: Set<string>;
   apps: AppSummary[];

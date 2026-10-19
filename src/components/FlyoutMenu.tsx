@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
-export interface FlyoutMenuProps {
+interface FlyoutMenuProps {
   isOpen: boolean;
   onClose: () => void;
   children: React.ReactNode;

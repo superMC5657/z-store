@@ -236,7 +236,7 @@ pub async fn check_for_updates(
     state: State<'_, AppState>,
     force_refresh: Option<bool>,
 ) -> crate::AppResult<Vec<UpdateItem>> {
-    // Wave2：整轮耗时 + sid 关联，结束只记一行汇总。
+    // 整轮耗时 + sid 关联，结束只记一行汇总。
     // 持久化语义：仅显式手动刷新（force==true）写 `update_results`；
     // 默认 DB-only 臂不写库（读经 `fetch_app_latest_version_lightweight` 判定行快径）。
     let is_force = force_refresh.unwrap_or(false);

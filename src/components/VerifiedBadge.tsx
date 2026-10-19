@@ -3,9 +3,9 @@ import { BadgeCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { isCollectedStatus } from '../app/selectors';
 
-export type VerifiedBadgeVariant = 'verified' | 'local';
+type VerifiedBadgeVariant = 'verified' | 'local';
 
-export interface VerifiedBadgeProps {
+interface VerifiedBadgeProps {
   size?: 'sm' | 'md';
   variant?: VerifiedBadgeVariant;
   title?: string;

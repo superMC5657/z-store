@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 
-export interface InlineConfirmButtonProps {
+interface InlineConfirmButtonProps {
   onConfirm: () => void | Promise<void>;
   confirmText: React.ReactNode;
   cancelTitle?: string;

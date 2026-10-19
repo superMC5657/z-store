@@ -16,7 +16,7 @@ pub mod windows;
 pub use uninstall::{execute_uninstallation, parse_uninstaller_command};
 
 /// 判断是否属于用户主动取消安装流程
-/// B1-G7 SSOT：取消谓词唯一来源（回滚点：保持 19-26 行判定语义不动），
+/// 取消谓词唯一来源（SSOT：判定语义保持不变），
 /// 卸载侧（executor_uninstall）直接复用，禁止本地副本。
 pub(crate) fn is_user_cancellation(reason: &str) -> bool {
     reason.contains("用户取消")
@@ -116,7 +116,7 @@ pub fn silent_args_for_setup_kind(kind: &SetupKind) -> Vec<String> {
     }
 }
 
-/// B3-G6 argv 统一执行入口：deb/rpm/pkg/dmg 共用，防空 argv 索引越界 panic。
+/// argv 统一执行入口：deb/rpm/pkg/dmg 共用，防空 argv 索引越界 panic。
 /// 纯透传 `argv[0]` 为程序、`argv[1..]` 为参数；argv 组装仍由各纯函数负责（SSOT 不动）。
 /// 调用方自行叠加业务上下文（见各 install_* 的 map_err），此处仅透传 io 错误文本。
 #[cfg(any(target_os = "linux", target_os = "macos"))]

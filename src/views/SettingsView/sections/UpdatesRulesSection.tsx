@@ -4,7 +4,7 @@ import { RefreshCw, Check, Shield } from 'lucide-react';
 import { SegmentedControl } from '../../../components/SegmentedControl';
 import { ClientUpdateRow } from '../../../components/ClientUpdateRow';
 
-export interface UpdatesRulesSectionProps {
+interface UpdatesRulesSectionProps {
   updateFrequency: string;
   watchNotifyFrequency: string;
   updateRulesCount: number;

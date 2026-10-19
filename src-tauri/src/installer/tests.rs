@@ -147,7 +147,7 @@ fn test_tarball_score_bottom_and_no_cross_os_fallback() {
 
 #[test]
 fn test_classify_7z_never_portable() {
-    // P1-4：产品决策 —— 放弃对 `.7z` 的便携版支持声明，不增加 7z 依赖。
+    // 产品决策 —— 放弃对 `.7z` 的便携版支持声明，不增加 7z 依赖。
     // 任何 `.7z` 文件名均不得分类为 PortableZip（解压器仅能解开 zip::ZipArchive）。
     let cases = [
         "app-portable.7z",
@@ -339,7 +339,7 @@ fn test_uninstaller_payload_argv_spawn_never_executes_injected_command() {
 
 #[test]
 fn test_select_best_asset_fail_closed_no_cross_os_fallback() {
-    // P1-5：产物非空但操作系统匹配结果为空时必须返回 None —— 绝不可跨系统回退
+    // 产物非空但操作系统匹配结果为空时必须返回 None —— 绝不可跨系统回退
     // （例如在 Windows 下仅有 `.deb` 产物时绝不能误选 `.deb`）。
     #[cfg(target_os = "windows")]
     let foreign_os = "linux";
@@ -380,7 +380,7 @@ fn test_uninstall_unix_path_never_shells_command_string() {
     );
 }
 
-// --- 审查项 3.3-3：SetupExe 安装包类型嗅探 + 静默参数识别（纯函数，无实际启动）---
+// --- SetupExe 安装包类型嗅探 + 静默参数识别（纯函数，无实际启动）---
 #[test]
 fn test_sniff_nsis_fixture() {
     // 包含 NSIS 标记的最小 PE 头测试固件。
@@ -428,7 +428,7 @@ fn test_silent_args_mapping() {
     }
 }
 
-// --- 审查项 3.3-4：跨平台跳过是非成功信号，绝不能视为 Ok 安装完成 ---
+// --- 跨平台跳过是非成功信号，绝不能视为 Ok 安装完成 ---
 #[test]
 fn test_skipped_outcome_is_non_success() {
     let skipped = executor::InstallOutcome::Skipped("skip: test".to_string());

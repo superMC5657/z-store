@@ -78,7 +78,7 @@
 ### 9. ⚙️ 设置中心 5 组架构
 - 设置中心规范分为 5 个业务分组：`🖥️ 外观与显示`、`🔄 更新与提醒`、`📁 存储与下载`、`🌐 账号与网络`、`💾 数据备份`。
 - 全量项目超参与默认配置收敛于 `src-tauri/config.toml` 单一真相源，确保前后端与引擎默认行为严格对齐。
-- **数据备份范围**：备份覆盖 12 个设置字段，`github_token`（PAT 凭据）刻意排除，永不经备份文件流转。
+- **数据备份范围**：备份覆盖 13 个设置键（`oauth/backup.rs` 白名单，含 `show_custom` 自维护 overlay 开关，并兼容历史 `showCustom` 键），`github_token`（PAT 凭据）刻意排除，永不经备份文件流转。
 - **更新频率选项**：支持“启动时检测”与“仅手动检查”。
 - **自定义清单源**：填写非官方同步源属于破坏性替换，需经过显式二次确认；留空即恢复官方默认流程。
 
@@ -86,11 +86,11 @@
 
 ## 🛠️ 架构与技术栈
 
-- **桌面底座**: Tauri 2（前后端版本见 `package.json` / `src-tauri/Cargo.toml`；三处版本号由 `scripts/bump-version.mjs` 同步，以代码为准）+ Rust（`edition 2021`，见 `src-tauri/Cargo.toml:6`；仓库内未 pin 工具链版本）
+- **桌面底座**: Tauri 2（前后端版本见 `package.json` / `src-tauri/Cargo.toml`；四处版本号 `package.json` / `src-tauri/Cargo.toml` / `src-tauri/Cargo.lock` / `src-tauri/tauri.conf.json` 由 `scripts/bump-version.mjs` 同步，以代码为准）+ Rust（`edition 2021`，见 `src-tauri/Cargo.toml:6`；仓库内未 pin 工具链版本）
 - **前端界面**: React 19（`^19.0.0`，见 `package.json:25`）+ TypeScript 5.7 (strict)（`^5.7.3`，见 `package.json:37`）+ Vite 6（`^6.2.0`，见 `package.json:38`；`vite.config.ts:13-22` 固定 `1420` + HMR `1421`）+ `i18next ^26.4.2`（见 `package.json:22`）+ `pnpm 10.33.0`（见 `package.json:6`）+ `vitest ^3.2.4`（见 `package.json:39`）+ 原生 Fluent 2.0 CSS + Fluent 矢量图标体系 (`lucide-react`)
-- **本地数据库**: 嵌入式 SQLite（WAL 模式；表清单以 `src-tauri/src/db/schema.rs::init_schema` 为准：`installed_apps` / `api_etag_cache` / `app_details_cache` / `user_settings` / `user_favorites` / `update_rules` / `search_history` / `view_history` / `host_tokens` / `watched_apps` / `user_stars` / `icon_cache_meta` / `app_icon_cycles` / `trend_board_cache`，含趋势榜二级缓存与图标分流表）
+- **本地数据库**: 嵌入式 SQLite（WAL 模式；表清单以 `src-tauri/src/db/schema.rs::init_schema` 为准，共 18 张：`installed_apps` / `api_etag_cache` / `app_details_cache` / `user_settings` / `user_favorites` / `update_rules` / `search_history` / `view_history` / `host_tokens` / `watched_apps` / `user_stars` / `icon_cache_meta` / `app_icon_cycles` / `trend_board_cache` / `asset_cache` / `asset_refs` / `custom_apps` / `update_results`，含趋势榜二级缓存、资产缓存与图标分流表）
 - **配置中枢**: 单一基线配置源（`src-tauri/config.toml`），结合编译期内置兜底与外部重载机制
-- **网络与下载**: API / 图标双池物理隔离复用单例（均 `connect_timeout 5s`、`keepalive 60s`、`pool 20/idle 90s`，见 `src-tauri/src/lib.rs:86-100`；图标 CDN 通道恒丢 token，绝不携带认证头）+ `tokio full`（见 `src-tauri/Cargo.toml:24`）异步流式下载 + `reqwest 0.12`（见 `src-tauri/Cargo.toml:25`）+ ETag 条件缓存 + 有限重试（仅 GET 传输错误与 429/5xx，最多 2 次按 200ms→800ms 退避，401/404/304 永不重试）+ 并发镜像测速管道；图标先 HEAD 判类型长度、再 Range 取前 32KB 验 magic（300B 最小阈值卡掉 LFS 指针，`buffered(3)` 并发）；自动继承系统代理与 TUN 模式（Windows 启动自探测注册表，见 `src-tauri/src/lib.rs:266-287`）
+- **网络与下载**: API / 图标双池物理隔离复用单例（`SHARED_API` / `SHARED_ICON`，均 `connect_timeout 5s`、`keepalive 60s`、`pool 20/idle 90s`，见 `src-tauri/src/forge/http.rs:68-89`；另 `src-tauri/src/lib.rs:84-106` 的 `shared_http_client` 为第三个共享 client，供趋势、OAuth 等通用出站请求，池参数同上；图标 CDN 通道恒丢 token，绝不携带认证头）+ `tokio full`（见 `src-tauri/Cargo.toml:24`）异步流式下载 + `reqwest 0.12`（见 `src-tauri/Cargo.toml:25`）+ ETag 条件缓存 + 有限重试（仅 GET 传输错误与 429/5xx，最多 2 次按 200ms→800ms 退避，401/404/304 永不重试）+ 并发镜像测速管道；图标先 HEAD 判类型长度、再 Range 取前 32KB 验 magic（300B 最小阈值卡掉 LFS 指针，`buffered(3)` 并发）；自动继承系统代理与 TUN 模式（Windows 启动自探测注册表，见 `src-tauri/src/lib.rs:266-287`）
 - **桌面开发配置**: `pnpm tauri dev`（基于 `src-tauri/tauri.conf.json` 配置本地安全策略：无边框 `decorations:false` / `1280x860`，见 `tauri.conf.json:18-23`；CSP，见 `tauri.conf.json:31-34`；NSIS `currentUser`，见 `tauri.conf.json:48-54`；updater 双 endpoint，见 `tauri.conf.json:57-63`）
 - **IPC 出口**: 前端唯一出口为 CMD 表 + `tauriInvoke` 派发（请求键命名规则以 AGENTS.md 为准；视图层禁直调 `invoke`）；后端 commands 注册表以 `src-tauri/src/lib.rs::invoke_handler` 为准（含 zlog 命令）
 - **安装引擎**: Windows MSI (`/qn`)、Setup EXE (`/S` / `/VERYSILENT`)、便携版 ZIP/tarball 自动解压与快捷方式生成（便携 ZIP/tarball（.zip + 二进制 .tar.gz/.tgz/.tar.xz/.tar，os+arch命中可装、仅本平台、tar权重+5垫底、剥顶层+chmod兜底；.7z/.tar.bz2只下载））、macOS (DMG/PKG) 及 Linux (deb/rpm/AppImage) 管道；Unix 卸载走 argv 直调，不经 `sh -c`

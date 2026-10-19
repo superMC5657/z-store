@@ -1,8 +1,10 @@
 //! 本地自维护草稿 overlay（ADR-0017）：`custom_apps` 表 CRUD + 校验 + 转正。
 //!
 //! - `id` 为 canonical 小写形态（仅 GitHub `owner/repo`，经 `canonical_app_id()` 归一）；`payload_json` 存完整 `CatalogItem`；
-//! - `status=draft/submitted`（已提交另存 `pr_url`）；`archived=1` 为转正归档标记
+//! - `status=draft/submitted/collected`（已提交另存 `pr_url`；`collected` 为本地收录态，
+//!   可搜可装、与远端精选同行为，是 PR 前置门禁）；`archived=1` 为转正归档标记
 //!   （`sync_catalog` 命中 canonical id 即归档）；
+//! - 旧数据的 `local_collected` 字面与 `collected` 同义，收录判定/列表查询双匹配该残留值；
 //! - 二次确认由前端做，后端 `delete` 直接删。
 
 use super::{clean, now_secs, Database};

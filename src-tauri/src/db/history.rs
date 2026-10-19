@@ -78,7 +78,7 @@ impl Database {
             return Ok(());
         }
         let now = now_secs();
-        // 事务边界：插入 + prune 合并为 1 提交（原 2 提交），失败整体回滚返回 Err。
+        // 事务边界：插入 + prune 合并为 1 提交，失败整体回滚返回 Err。
         self.with_immediate_transaction(|| {
             self.exec_upsert(
                 r#"
@@ -130,7 +130,7 @@ impl Database {
             return Ok(());
         }
         let now = now_secs();
-        // 事务边界：插入 + prune 合并为 1 提交（原 2 提交），失败整体回滚返回 Err。
+        // 事务边界：插入 + prune 合并为 1 提交，失败整体回滚返回 Err。
         self.with_immediate_transaction(|| {
             self.exec_upsert(
                 r#"

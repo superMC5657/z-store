@@ -5,7 +5,7 @@ use crate::models::AppSummary;
 use reqwest::header::{IF_NONE_MATCH, USER_AGENT};
 use std::sync::RwLock;
 
-/// P3-3: 当 `url` 为官方默认软件源时返回 true（空字符串同样由调用方视为默认源，并在发起同步前进行解析）。
+/// 当 `url` 为官方默认软件源时返回 true（空字符串同样由调用方视为默认源，并在发起同步前进行解析）。
 pub(crate) fn is_default_catalog_source(url: &str) -> bool {
     let trimmed = url.trim();
     if trimmed.is_empty() {
@@ -108,8 +108,8 @@ impl CatalogService {
         url: &str,
         cached_etag: Option<&str>,
     ) -> Result<(Option<Vec<CatalogItem>>, Option<String>), String> {
-        // P3-3 信任冲突防范：任何非默认软件源都会静默替换受信任的软件目录，
-        // 因此在此处重点记录其来源（设置界面已在危险确认弹窗后方才放行变更）。默认流程保持不变。
+        // 信任冲突防范：任何非默认软件源都会静默替换受信任的软件目录，
+        // 因此在此处重点记录其来源（设置界面已在危险确认弹窗后方才放行变更）。
         // 未来演进（暂未实现）：受信任源域名白名单 + 签名/清单校验（如已签名的目录数据包）；本阶段暂无签名基础设施。
         if is_default_catalog_source(url) {
             log::info!(
@@ -262,20 +262,6 @@ impl CatalogService {
         Ok((Some(items), new_etag))
     }
 
-    pub fn get_all_summaries(&self) -> Vec<AppSummary> {
-        let items = self.items.read().unwrap_or_else(|e| e.into_inner());
-        items.iter().map(|item| item.to_summary()).collect()
-    }
-
-    /// 本地收录叠加全量摘要（发现页/类别页输入）：远端优先去重后转摘要。
-    /// `extra` 须已过滤为 `status==collected && !archived`。
-    pub fn get_all_summaries_with_overlay(&self, extra: &[CatalogItem]) -> Vec<AppSummary> {
-        self.merged_items_with_overlay(extra.to_vec())
-            .into_iter()
-            .map(|item| item.to_summary())
-            .collect()
-    }
-
     /// 本地收录 overlay 唯一口径：仅 `status==collected && !archived` 行参与合并。
     /// 调用方须先经 `db::custom_apps::list_collected_*` 或 `collected_overlay_items` 过滤；
     /// 本函数不做状态判断，仅执行远端优先去重合并（`catalog.json` 只读禁写回，
@@ -329,15 +315,6 @@ impl CatalogService {
             }
         }
         out
-    }
-
-    /// 当前内存目录的合并视图（含调用方传入的本地收录 custom）。
-    pub fn merged_summaries_with_overlay(
-        &self,
-        custom: Vec<CatalogItem>,
-    ) -> Vec<MergedCatalogEntry> {
-        let remote = self.get_catalog_items();
-        Self::merge_catalog_overlay_view(&remote, &custom)
     }
 
     pub fn search_apps(&self, query: &str) -> Vec<AppSummary> {
@@ -411,16 +388,6 @@ impl CatalogService {
     pub fn filter_by_category(&self, category: &str) -> Option<Vec<AppSummary>> {
         let items = self.items.read().unwrap_or_else(|e| e.into_inner());
         Self::filter_in_slice(&items, category)
-    }
-
-    /// 本地收录叠加分类过滤：同 `filter_by_category` 语义，输入为合并后视图。
-    pub fn filter_by_category_with_overlay(
-        &self,
-        category: &str,
-        extra: &[CatalogItem],
-    ) -> Option<Vec<AppSummary>> {
-        let merged = self.merged_items_with_overlay(extra.to_vec());
-        Self::filter_in_slice(&merged, category)
     }
 
     fn filter_in_slice(items: &[CatalogItem], category: &str) -> Option<Vec<AppSummary>> {
@@ -634,7 +601,7 @@ mod tests {
         assert!(svc.get_repo_coordinates("does-not-exist").is_err());
     }
 
-    /// P3-3：默认源与自定义源来源检查（同步日志审计门禁）。
+    /// 默认源与自定义源来源检查（同步日志审计门禁）。
     #[test]
     fn test_is_default_catalog_source() {
         let default_url = crate::config::get_project_config()

@@ -19,7 +19,7 @@ export const DOFORCE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 /** 榜缓存二级落盘默认 TTL：12h。 */
 export const TREND_DB_TTL_MS = 12 * 60 * 60 * 1000;
 /** 榜缓存二级落盘 daily 榜 TTL：1h。 */
-export const TREND_DB_DAILY_TTL_MS = 60 * 60 * 1000;
+const TREND_DB_DAILY_TTL_MS = 60 * 60 * 1000;
 /** 429 单次重试的最大等待：60s；超过即直接 error，不再等待。 */
 export const DOFORCE_RETRY_MAX_WAIT_MS = 60_000;
 /** 429 错误串无 Retry-After 可用时的默认等待（Rust 侧当前仅回传状态码）。 */
@@ -33,7 +33,7 @@ export const TRENDS_CACHE_MAX_ENTRIES = 200;
 /** 写盘前 UTF-8 预检上限 256KB。 */
 export const TREND_DB_PAYLOAD_MAX_BYTES = 256 * 1024;
 /** 榜缓存二级落盘读错峰抖动上限 30s。 */
-export const TREND_L2_JITTER_MAX_MS = 30_000;
+const TREND_L2_JITTER_MAX_MS = 30_000;
 
 const trendsCache = new Map<string, { timestamp: number; data: TrendRepo[] }>();
 
@@ -75,7 +75,7 @@ export function utf8ByteLength(s: string): number {
   }
 }
 
-/** 缓存键 = board + language + category（P1 要求，统一口径；三段归一 trim().toLowerCase()，读写同源）。
+/** 缓存键 = board + language + category（统一口径；三段归一 trim().toLowerCase()，读写同源）。
  *  View 侧唯一出口为 board.resolveBoardCacheKey，不直调此 builder。 */
 export function buildTrendsCacheKey(board: TrendBoardId, opts: FetchTrendsOptions = {}): string {
   const language = normalizeId(opts.language);
@@ -148,8 +148,8 @@ export function buildDoforceCacheKey(opts: FetchTrendsOptions = {}): string {
 
 export const DOFORCE_SHARED_CACHE_KEY = buildDoforceCacheKey();
 
-export const CMD_GET_TREND_BOARD_CACHE = 'get_trend_board_cache';
-export const CMD_SAVE_TREND_BOARD_CACHE = 'save_trend_board_cache';
+const CMD_GET_TREND_BOARD_CACHE = 'get_trend_board_cache';
+const CMD_SAVE_TREND_BOARD_CACHE = 'save_trend_board_cache';
 
 /**
  * 榜单持久化信封 v1：
@@ -159,7 +159,7 @@ export const CMD_SAVE_TREND_BOARD_CACHE = 'save_trend_board_cache';
  * confirmedOther 为已确认 Other 键集。
  * 新鲜度复用 `cached_at` + 按榜 TTL。
  */
-export interface TrendCacheEnvelopeV1 {
+interface TrendCacheEnvelopeV1 {
   v: 1;
   repos: TrendRepo[];
   enrich?: Record<string, AppSummary>;

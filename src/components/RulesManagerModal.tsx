@@ -15,7 +15,7 @@ import { InstalledApp, UpdateRule } from '../types';
 import { SegmentedControl } from './SegmentedControl';
 import { EmptyState } from './EmptyState';
 
-export interface RulesManagerModalProps {
+interface RulesManagerModalProps {
   isOpen: boolean;
   onClose: () => void;
   updateRules: UpdateRule[];

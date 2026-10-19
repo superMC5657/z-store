@@ -219,7 +219,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     triggerChangeFeedback('export', t('settings.export_apps'));
   };
 
-  // P3-3 信任阻尼：切换至非默认（自定义）收录源将替换受信任的目录，
+  // 信任阻尼：切换至非默认（自定义）收录源将替换受信任的目录，
   // 属于敏感破坏性操作，必须经过二次显式确认。保存为空值（即恢复官方默认源流）立即生效。
   const stagedCatalogUrl = catalogSourceUrl.trim();
   const isCustomCatalogSourceChange =

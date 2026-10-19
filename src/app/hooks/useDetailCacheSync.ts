@@ -17,7 +17,7 @@ import {
   type DetailRichcardHealPayload,
 } from '../../services/trends/enrich';
 
-export interface UseDetailCacheSyncParams {
+interface UseDetailCacheSyncParams {
   selectedApp: AppDetailViewModel | null;
   appsRef: React.MutableRefObject<AppSummary[]>;
   onlineAppsRef: React.MutableRefObject<AppSummary[]>;

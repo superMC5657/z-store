@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Download, Check } from 'lucide-react';
 import { DataBackupRow } from '../../../components/DataBackupRow';
 
-export interface DataManagementSectionProps {
+interface DataManagementSectionProps {
   installedCount: number;
   highlightRow: string | null;
   activeNotice: { key: string; text: string } | null;

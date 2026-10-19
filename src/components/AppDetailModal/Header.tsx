@@ -22,7 +22,7 @@ import { IconLevelBadge, ICON_LEVEL_NAMES } from './IconLevelBadge';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
-export interface HeaderProps {
+interface HeaderProps {
   app: AppDetailViewModel;
   displayName: string;
   displayDesc: string;

@@ -63,7 +63,6 @@ import {
 } from './enrich';
 import { fetchTrendsResult as fetchTrendsResultInner } from './boards';
 import {
-  LOADING_SETTLE_MS,
   createInflightGuard,
   createSeqGuard,
   runLiteBatch,
@@ -97,14 +96,11 @@ export function fetchTrendsResultSeam(
 }
 export type { LoadingLiteTarget };
 
-/** settle 超时与主列表同值（TrendsView 重导出同值）。 */
-export const TREND_BOARD_SETTLE_MS = LOADING_SETTLE_MS;
-
 /* ------------------------------------------------------------------ */
 /* A. 缓存键 + 持久化 seam（View 禁止直调 saveBoardCacheMerged）        */
 /* ------------------------------------------------------------------ */
 
-export interface BoardCacheRef {
+interface BoardCacheRef {
   cacheKey: string;
   cacheBoard: TrendBoardId | 'doforce';
   repos: TrendRepo[];
@@ -162,7 +158,7 @@ export function maybeScheduleBoardPersist(cacheKey: string): void {
  * 卸载/切榜 flush：先清节流 pending 再落盘一次（有富条目才写，防裸覆盖）。
  *
  */
-export function flushBoardPersist(): void {
+function flushBoardPersist(): void {
   for (const timer of boardPersistTimers.values()) clearTimeout(timer);
   boardPersistTimers.clear();
   const { cacheKey, cacheBoard, repos } = boardPersistRef;
@@ -205,18 +201,11 @@ export function subscribeBoardPersistOnConfirmedChange(): () => void {
   });
 }
 
-/** 仅供测试：重置持久化 seam（清快照 + 定时器）。 */
-export function __resetBoardPersistForTest(): void {
-  for (const timer of boardPersistTimers.values()) clearTimeout(timer);
-  boardPersistTimers.clear();
-  boardPersistRef = { cacheKey: '', cacheBoard: 'weekly', repos: [] };
-}
-
 /* ------------------------------------------------------------------ */
 /* B. SWR-fill                        */
 /* ------------------------------------------------------------------ */
 
-export interface SwrFill {
+interface SwrFill {
   snap: Record<string, AppSummary>;
   trustedConcrete: Set<string>;
   l2Confirmed: string[];
@@ -290,7 +279,7 @@ export function mergeSwrConfirmedMirror(
 }
 
 /** 行图标缺失判定（SWR 重挂自愈用）：复用展示态 SSOT，空串或 `data:` 视为缺失。 */
-export function isRowIconMissing(icon: unknown): boolean {
+function isRowIconMissing(icon: unknown): boolean {
   return isMissingIconForDisplay(icon);
 }
 
@@ -316,7 +305,7 @@ export function collectEmptyIconKeys(
   return out;
 }
 
-export interface DbIconMergeResult {
+interface DbIconMergeResult {
   next: Record<string, AppSummary>;
   patchedKeys: string[];
 }
@@ -380,7 +369,7 @@ export function mergeDbIconsIntoMirror(
 /* C. enrich-merge                    */
 /* ------------------------------------------------------------------ */
 
-export type DisplayTrendItemLite =
+type DisplayTrendItemLite =
   | { type: 'catalog'; app: AppSummary }
   | { type: 'uncataloged'; repo: TrendRepo };
 
@@ -398,7 +387,7 @@ export function collectMissingEnrichRepos(
   return missing;
 }
 
-export interface EnrichMergeResult {
+interface EnrichMergeResult {
   next: Record<string, AppSummary>;
   hasNewEnrich: boolean;
   concreteKeys: string[];
@@ -464,7 +453,7 @@ export function unmarkConcreteKeys(concreteKeys: readonly string[]): void {
 }
 
 /** lite patched 具平台升级的别名清理键收集（坐标 + id 别名双查）。 */
-export function collectUnmarkAliasKeys(
+function collectUnmarkAliasKeys(
   patchedKeys: Iterable<string>,
   latest: Record<string, AppSummary>,
 ): string[] {
@@ -483,7 +472,7 @@ export function collectUnmarkAliasKeys(
 /* D. lite-verify                    */
 /* ------------------------------------------------------------------ */
 
-export interface LiteSelectInput {
+interface LiteSelectInput {
   rawItems: readonly DisplayTrendItemLiteExt[];
   enrichedApps: Record<string, AppSummary>;
   combinedConfirmed: ReadonlySet<string>;
@@ -491,12 +480,12 @@ export interface LiteSelectInput {
   trusted: ReadonlySet<string>;
 }
 
-export interface DisplayTrendItemLiteExt {
+interface DisplayTrendItemLiteExt {
   type: 'catalog' | 'uncataloged';
   repo?: TrendRepo;
 }
 
-export interface LiteTargetsResult {
+interface LiteTargetsResult {
   targets: LoadingLiteTarget[];
   trustedConcrete: number;
   trustedLoading: number;
@@ -514,7 +503,7 @@ function liteEnrichedKeyOf(enriched: AppSummary | undefined): string {
  * 已具真实平台 / 已确认 / 在途一律跳过；
  * 具平台可信免验（fresh concrete 才免验，loading 永不免验）。
  */
-export function selectLiteTargets(input: LiteSelectInput): LiteTargetsResult {
+function selectLiteTargets(input: LiteSelectInput): LiteTargetsResult {
   const { rawItems, enrichedApps, combinedConfirmed, inflight, trusted } = input;
   let freshSnap: Record<string, AppSummary> | null = null;
   const isFreshConcreteTrusted = (k: string): boolean => {
@@ -579,7 +568,7 @@ export function selectLiteTargets(input: LiteSelectInput): LiteTargetsResult {
 }
 
 /** 免验取证单行日志（board/可信 concrete/loading/跳过/目标数，只读计数）。 */
-export function logLiteSkip(
+function logLiteSkip(
   board: string,
   r: LiteTargetsResult,
 ): void {
@@ -590,7 +579,7 @@ export function logLiteSkip(
 }
 
 /** lite 通道批量确认（分批 5，上限 20，seq 守卫由调用方传入 shouldAbort；经深模块同一口）。 */
-export async function verifyLoadingLite(
+async function verifyLoadingLite(
   targets: readonly LoadingLiteTarget[],
   fetchLite: LiteFetch,
   shouldAbort?: () => boolean,
@@ -599,7 +588,7 @@ export async function verifyLoadingLite(
 }
 
 /** lite patched 合并进镜像：空永不覆盖已具平台（调用方已跳过，此处再守一次）。 */
-export function mergeLitePatchedMirror(
+function mergeLitePatchedMirror(
   prev: Record<string, AppSummary>,
   patched: Map<string, string[]>,
 ): Record<string, AppSummary> {
@@ -619,7 +608,7 @@ export function mergeLitePatchedMirror(
  * lite patched 持久化：hydrate（`data:` 剥空由展示态 SSOT 裁决）+ 同榜 key 写透。
  * stale/失败不进 patched，保持 loading 等 settle 兜底。
  */
-export async function maybePersistLitePatched(
+async function maybePersistLitePatched(
   patched: Map<string, string[]>,
   latest: Record<string, AppSummary>,
 ): Promise<void> {
@@ -645,7 +634,7 @@ export async function maybePersistLitePatched(
  * lite 空非 stale 确认：本地 + 内存标记 + hydrate（`data:` 剥空由展示态 SSOT 裁决）+ 同榜 key 写透。
  * 竞态下已被治愈为具平台则跳过（禁 loading 覆盖具平台）。
  */
-export async function confirmLiteEmpty(
+async function confirmLiteEmpty(
   confirmedEmpty: readonly string[],
   latest: Record<string, AppSummary>,
 ): Promise<string[]> {
@@ -692,7 +681,7 @@ export async function confirmLiteEmpty(
 }
 
 /** 已确认集合并进本地（lite 确认落定）。 */
-export function addConfirmedMirror(prev: Set<string>, keys: readonly string[]): Set<string> {
+function addConfirmedMirror(prev: Set<string>, keys: readonly string[]): Set<string> {
   if (!keys || keys.length === 0) return prev;
   let changed = false;
   const next = new Set(prev);
@@ -709,13 +698,13 @@ export function addConfirmedMirror(prev: Set<string>, keys: readonly string[]): 
 /* E. settle-timeout                */
 /* ------------------------------------------------------------------ */
 
-export interface SettleCollect {
+interface SettleCollect {
   loadingKeys: string[];
   repoByKey: Map<string, TrendRepo>;
 }
 
 /** settle 超时输入收集：仍 loading（未具平台 + 未确认）的未收录行。 */
-export function collectSettleLoading(
+function collectSettleLoading(
   rawItems: readonly DisplayTrendItemLiteExt[],
   enrichedApps: Record<string, AppSummary>,
   combinedConfirmed: ReadonlySet<string>,
@@ -742,7 +731,7 @@ export function collectSettleLoading(
 }
 
 /** settle 超时仍 loading 过滤（timer 触发时按最新镜像 + 确认集复核）。 */
-export function filterStillLoading(
+function filterStillLoading(
   loadingKeys: readonly string[],
   latestEnriched: Record<string, AppSummary>,
   globalConfirmed: ReadonlySet<string> | undefined,
@@ -761,7 +750,7 @@ export function filterStillLoading(
 }
 
 /** 裸行合成最小 Other 摘要（与原内联合成逐字段一致；具平台不合成）。 */
-export function synthesizeSettleSummary(repo: TrendRepo): AppSummary | null {
+function synthesizeSettleSummary(repo: TrendRepo): AppSummary | null {
   if (!repo.id || !repo.owner || !repo.repo) return null;
   const shortName = (repo.repo || repo.name || repo.id).trim() || repo.id;
   return {
@@ -786,13 +775,13 @@ export function synthesizeSettleSummary(repo: TrendRepo): AppSummary | null {
   };
 }
 
-export interface SettleHydration {
+interface SettleHydration {
   toHydrate: Record<string, AppSummary>;
   aliasKeys: string[];
 }
 
 /** 同 key hydrate 输入构建：`data:` 剥空由展示态 SSOT 裁决，裸行合成最小摘要。 */
-export function buildSettleHydration(
+function buildSettleHydration(
   stillLoading: readonly string[],
   latestEnriched: Record<string, AppSummary>,
   repoByKey: Map<string, TrendRepo>,
@@ -826,7 +815,7 @@ export function buildSettleHydration(
 }
 
 /** settle 确认提交：先 mark 再 hydrate（已确认 loading 方可进内存）。 */
-export function commitSettleConfirmed(aliasKeys: readonly string[], toHydrate: Record<string, AppSummary>): void {
+function commitSettleConfirmed(aliasKeys: readonly string[], toHydrate: Record<string, AppSummary>): void {
   if (!aliasKeys || aliasKeys.length === 0) return;
   try {
     markTrendConfirmedOthers(aliasKeys);
@@ -839,7 +828,7 @@ export function commitSettleConfirmed(aliasKeys: readonly string[], toHydrate: R
 }
 
 /** settle 本地直展裸合成卡：镜像缺席的键一次并入（已有不重写）。 */
-export function mergeSettleSyntheticMirror(
+function mergeSettleSyntheticMirror(
   prev: Record<string, AppSummary>,
   toHydrate: Record<string, AppSummary>,
 ): Record<string, AppSummary> {
@@ -855,7 +844,7 @@ export function mergeSettleSyntheticMirror(
 }
 
 /** settle 确认写透：同榜 key 落盘（含确认集），重挂零 lite 直展 Other 卡。 */
-export function maybePersistSettleConfirmed(): void {
+function maybePersistSettleConfirmed(): void {
   const { cacheKey, cacheBoard, repos } = boardPersistRef;
   if (!cacheKey || repos.length === 0) return;
   try {
@@ -870,7 +859,7 @@ export function maybePersistSettleConfirmed(): void {
 /* ------------------------------------------------------------------ */
 
 /** 治愈键归一（lower-trim 去空，与 enrich 键同源）。 */
-export function normalizeHealKeys(keys: unknown): string[] {
+function normalizeHealKeys(keys: unknown): string[] {
   if (!Array.isArray(keys)) return [];
   const out: string[] = [];
   for (const k of keys) {
@@ -1125,7 +1114,7 @@ export function maybePersistRichcardHeal(
   }
 }
 
-export interface TrendHealBusHandlers {
+interface TrendHealBusHandlers {
   onPlatformsHeal?: (
     payload: DetailPlatformsHealPayload,
     keys: string[],
@@ -1232,7 +1221,7 @@ export function getBoardPersistKey(): string {
 /* I. 趋势 loading 生命周期 hook（View 侧唯一编排出口）                 */
 /* ------------------------------------------------------------------ */
 
-export interface TrendLoadingLifecycleParams {
+interface TrendLoadingLifecycleParams {
   trendResult: TrendsResult | null;
   rawItems: readonly DisplayTrendItemLiteExt[];
   enrichedApps: Record<string, AppSummary>;

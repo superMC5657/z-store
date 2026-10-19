@@ -62,14 +62,14 @@ pub fn verify_sha256_str(actual_hex: &str, expected_hex: &str) -> bool {
 }
 
 impl AppState {
-    /// H5：集中收敛 `state.db.lock()` 样板（含毒锁映射）。
+    /// 集中收敛 `state.db.lock()` 样板（含毒锁映射）。
     /// `tauri::State<AppState>` 经 `Deref` 自动命中本方法，`&AppState` 直接调用。
     pub fn db(&self) -> Result<std::sync::MutexGuard<'_, Database>, String> {
         self.db.lock().map_err(|e| e.to_string())
     }
 }
 
-/// H7：401 统一收敛（通知 + warn 日志），返回是否命中过期。
+/// 401 统一收敛（通知 + warn 日志），返回是否命中过期。
 /// `ctx` 仅传 `op=...` 及必要的 `owner/repo` 上下文，不含 token/body。
 pub(crate) fn check_auth_expired(status: u16, ctx: &str) -> bool {
     if status == 401 {
@@ -191,7 +191,7 @@ fn log_rate_limit_water_mark(host: &str, remaining: u32, limit: u32) {
     }
 }
 
-/// H1：探针请求头收敛（委托 `forge::http` SSOT，与 `oauth::star::auth_headers` 同值）。
+/// 探针请求头收敛（委托 `forge::http` SSOT，与 `oauth::star::auth_headers` 同值）。
 fn probe_headers(token: Option<&str>) -> reqwest::header::HeaderMap {
     crate::forge::http::api_headers(
         crate::forge::http::GITHUB_ACCEPT_VALUE,
@@ -423,7 +423,7 @@ pub fn run() {
         }
     };
 
-    // Phase1A 趋势榜缓存：启动后 best-effort 清扫过期快照（吞错，不阻塞启动）。
+    // 趋势榜缓存：启动后 best-effort 清扫过期快照（吞错，不阻塞启动）。
     {
         let _ = db.prune_expired_trend_board_cache(now_secs());
         let assets_dir = db_dir.join("cache").join("assets");

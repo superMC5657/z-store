@@ -185,7 +185,7 @@ describe('task3: platform-filter persistence (Decision B select-nothing)', () =>
   });
 });
 
-describe('P2-3a: global platform filter applies to Favorites/Installed/Updates', () => {
+describe('global platform filter applies to Favorites/Installed/Updates', () => {
   interface CatalogApp {
     id: string;
     platforms?: string[];

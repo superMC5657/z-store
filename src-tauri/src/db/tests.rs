@@ -712,7 +712,7 @@ fn test_icon_cycle_set_level() {
 #[test]
 fn test_history_prune_limit_n_plus_one() {
     let db = fixtures::test_db();
-    // B1-G5：裁剪唯一落点 prune_history_table，插入 LIMIT+1 条断言仍为 LIMIT
+    // 裁剪唯一落点 prune_history_table，插入 LIMIT+1 条断言仍为 LIMIT
     let search_limit = crate::config::get_project_config()
         .limits
         .search_history_limit;

@@ -132,7 +132,7 @@ pub fn icon_headers() -> HeaderMap {
 }
 
 /// 统一 HTTP 跨度：req_id/sid/host/safe_url/start + 统一日志/rate_limit 入口。
-/// 行为保持不变：只收敛 id 生成与日志字段组装，不改变请求语义；
+/// 只收敛 id 生成与日志字段组装，不改变请求语义；
 /// rate_limit 由调用方显式触发（GitHub 传 "github.com"，其余 forge 保持原样不触发）。
 pub struct HttpSpan {
     pub req_id: String,

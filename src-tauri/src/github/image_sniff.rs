@@ -51,7 +51,7 @@ pub fn sniff_image_mime(bytes: &[u8]) -> Option<&'static str> {
     None
 }
 
-/// 嗅探失败回退 `image/png`（历史行为，调用方无需判空）。
+/// 嗅探失败回退 `image/png`（调用方无需判空）。
 pub fn detect_image_mime(bytes: &[u8]) -> &'static str {
     sniff_image_mime(bytes).unwrap_or("image/png")
 }

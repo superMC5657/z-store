@@ -100,7 +100,7 @@ fn test_parse_import_payload_merge_rules() {
         vec!["rustdesk".to_string(), "vlc".to_string()]
     );
     assert_eq!(plan.watched, vec!["localsend".to_string()]);
-    // 仅白名单设置项通过（P1-8：除 github_token 外全量通过），数值/布尔转字符串
+    // 仅白名单设置项通过（除 github_token 外全量通过），数值/布尔转字符串
     let mut keys: Vec<&str> = plan.settings.iter().map(|(k, _)| k.as_str()).collect();
     keys.sort_unstable();
     assert_eq!(
@@ -129,7 +129,7 @@ fn test_parse_import_payload_merge_rules() {
 
 #[test]
 fn test_backup_settings_full_round_trip() {
-    // P1-8：导出 → JSON → 导入往返：除 github_token 外的全部设置无损通过，
+    // 导出 → JSON → 导入往返：除 github_token 外的全部设置无损通过，
     // 混合 JSON 类型（字符串/数值/布尔）统一转字符串；version 保持为 1。
     // show_custom/showCustom 开关随备份往返（默认开；缺席即默认开，不污染旧备份）。
     let json = r#"{

@@ -17,11 +17,11 @@
  * 4. 兜底终点：GitHub Releases 网页地址（不发请求）
  */
 
-export type UpdateRegion = 'cn' | 'global';
+type UpdateRegion = 'cn' | 'global';
 export const DEFAULT_MIRROR_PREFIX = 'https://gh-proxy.com/';
 export const ZSTORE_REPO = 'superMC5657/z-store';
 
-export interface UpdateManifestPlatform {
+interface UpdateManifestPlatform {
   url: string;
   signature: string;
   name?: string;
@@ -36,7 +36,7 @@ export interface UpdateManifest {
   platforms: Record<string, UpdateManifestPlatform>;
 }
 
-export type UpdateFeedResult =
+type UpdateFeedResult =
   | { source: 'manifest'; region: UpdateRegion; manifest: UpdateManifest }
   | { source: 'releases-api'; manifest: UpdateManifest }
   | { source: 'releases-page'; url: string };
@@ -101,7 +101,7 @@ export function releasesPageUrl(repo: string): string {
   return `https://github.com/${cleanRepo}/releases/latest`;
 }
 
-export interface ResolveUpdateFeedOptions {
+interface ResolveUpdateFeedOptions {
   repo: string;
   region?: UpdateRegion;      // 缺省 detectRegion()
   mirrorPrefix?: string;      // 缺省 DEFAULT_MIRROR_PREFIX；仅安装包 URL 拼接用（仅安装包通道）

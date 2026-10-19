@@ -42,7 +42,7 @@ pub fn host_of(url: &str) -> String {
 ///    或带镜像前缀的 `https://gh-proxy.net/https://github.com/...`）；路径段永不动
 ///    （`vscode` 内的 `code` 子串永不触发）；
 /// 2. Query 键值脱敏（query-key-only）：只看 `=` 前的键名，值含敏感词永不触发；
-///    键边界镜像 Wave1（`redact_kv_values`）：起始或前一字节为 `? & ;` 才视为键，
+///    键边界与 `redact_kv_values` 一致：起始或前一字节为 `? & ;` 才视为键，
 ///    此处按 `&` / `;` 切分并原样保留分隔形态；
 /// 3. `code` 系精确匹配（`code` / `device_code` / `user_code` / `api_key` 系），避免
 ///    `vscode` 子串误杀；其余短键（`sig` / `key` / `auth` / `pass`）按分隔符分词匹配，
@@ -73,7 +73,7 @@ pub fn sanitize_url(url: &str) -> String {
         if k.is_empty() {
             return false;
         }
-        // 精确键（含 Wave1 六键 + 常见单键）：`vscode` 等子串宿主永不命中。
+        // 精确键（六键 + 常见单键）：`vscode` 等子串宿主永不命中。
         match k.as_str() {
             "code" | "device_code" | "user_code" | "api_key" | "api-key" | "apikey" | "token"
             | "secret" | "sig" | "signature" | "key" | "auth" | "credential" | "pass"
@@ -303,7 +303,7 @@ mod tests {
             sanitize_url("https://example.com/dl?token=topsecret&sig=abc123&q=mytoken"),
             "https://example.com/dl?token=***&sig=***&q=mytoken"
         );
-        // Wave1 边界镜像：`;` 同为 query 分隔符，分隔形态原样保留。
+        // 键边界：`;` 同为 query 分隔符，分隔形态原样保留。
         assert_eq!(
             sanitize_url("https://example.com/f?q=a;code=secret"),
             "https://example.com/f?q=a;code=secret".replace("code=secret", "code=***")

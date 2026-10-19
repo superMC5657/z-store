@@ -20,7 +20,7 @@ export function matchesAppText(app: AppSummary, query: string): boolean {
 }
 
 /** 纯函数：按查询过滤应用列表（空查询返回原数组）。 */
-export function filterAppsByQuery(apps: AppSummary[], query: string): AppSummary[] {
+function filterAppsByQuery(apps: AppSummary[], query: string): AppSummary[] {
   const q = query.trim().toLowerCase();
   if (!q) return apps;
   return apps.filter((a) => matchesAppText(a, q));

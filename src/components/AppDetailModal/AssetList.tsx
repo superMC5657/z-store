@@ -2,7 +2,7 @@ import React from 'react';
 import { ReleaseAsset } from '../../types';
 import { formatBytes } from '../../utils/appHelper';
 
-export interface AssetListProps {
+interface AssetListProps {
   showAllAssets: boolean;
   releases: ReleaseAsset[];
   primaryAsset?: ReleaseAsset;

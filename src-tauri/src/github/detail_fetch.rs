@@ -27,7 +27,7 @@ fn parse_repo_payload(payload: Option<&String>) -> Option<GitHubRepoResponse> {
     payload.and_then(|pl| serde_json::from_str::<GitHubRepoResponse>(pl).ok())
 }
 
-/// B1：详情简介占位判断（未收录仓 external_synth / search 回退占位）。
+/// 详情简介占位判断（未收录仓 external_synth / search 回退占位）。
 /// 空白视为占位（前端渲染兜底）；命中任一已知占位子串即视为占位。
 /// 已收录仓人工精校简介优先，调用方需以 `catalog_item.is_none()` 门控后再回填。
 pub(crate) fn is_placeholder_description(s: &str) -> bool {
@@ -143,7 +143,7 @@ async fn fetch_repo_info(
     repo_payload: Option<String>,
     id: &str,
 ) -> Option<GitHubRepoResponse> {
-    // H7/HttpSpan：repo 并发请求经 forge HttpSpan（log_search_* 分支），
+    // repo 并发请求经 forge HttpSpan（log_search_* 分支），
     // 经 get_with_etag 挂 IF_NONE_MATCH，304 时用 SQLite payload 恢复。
     let repo_span = crate::forge::http::HttpSpan::start(repo_url);
     repo_span.log_search_start("repo");
@@ -157,7 +157,7 @@ async fn fetch_repo_info(
     )
     .await;
     // repo ETag 响应的 401/限流处理与日志（get_with_etag 已做限流上报，此处补 HttpSpan + 401 通知）。
-    // H7：401 经 crate::check_auth_expired 统一通知 + warn；日志经 HttpSpan 统一收敛。
+    // 401 经 crate::check_auth_expired 统一通知 + warn；日志经 HttpSpan 统一收敛。
     // Fresh 落库 api_etag_cache；304/失败时用 SQLite payload 恢复，避免每次全量。
     // NotModified/Unauthorized/Failed 回退解析合并，日志分支内部分发。
     match outcome {
@@ -452,7 +452,7 @@ fn resolve_detail_stats(
     }
 }
 
-/// B1 简介治愈 seam：未收录仓 external_synth 占位回填 repo 真简介；
+/// 简介治愈 seam：未收录仓 external_synth 占位回填 repo 真简介；
 /// 已收录仓人工精校优先，不覆盖 desc / description_en。
 fn resolve_effective_descriptions(
     catalog_item: Option<&CatalogItem>,
@@ -507,7 +507,7 @@ impl CatalogService {
 
         let client = &self.client;
 
-        // H1/H2/H3：header/client/log 经 github 内本地 helper。
+        // header/client/log 经 github 内本地 helper。
         let base_headers = crate::github::http::token_headers(token);
         let mut headers = base_headers.clone();
 
@@ -527,7 +527,7 @@ impl CatalogService {
         // 与 release 响应无任何依赖，故两个原始请求同时在途，重叠 TLS 握手与首字节等待。
         // repo 同样经 get_with_etag 走 SQLite ETag 缓存（304 命中直接用缓存 payload），
         // 与 release 一致零配额；401/限流语义一致。
-        // H9：release 复用已有 get_with_etag（304/200/ETag 与 developer_* 共用实现）。
+        // release 复用已有 get_with_etag（304/200/ETag 与 developer_* 共用实现）。
         // force 语义：调用方 force 时传入全 None，此时跳过 DB 预读；
         // 冷启动同样全 None（DB 无行，预读亦为 None），语义一致。
         // repo 侧经 `fetch_repo_info` 内部 seam（HttpSpan/落库/回退在内），join 并发。
@@ -553,7 +553,7 @@ impl CatalogService {
             )
         );
 
-        // H7：release 401 统一经 crate::check_auth_expired 通知；H9 的 get_with_etag 已做限流上报。
+        // release 401 统一经 crate::check_auth_expired 通知；get_with_etag 已做限流上报。
         let is_auth_unauthorized = matches!(release_outcome, EtagGetOutcome::Unauthorized);
         if is_auth_unauthorized {
             crate::notify_auth_expired();
@@ -655,7 +655,7 @@ impl CatalogService {
         // 无 token 直接跳过探测，不计时、不耗配额；有 token 才进 SimpleIcons+Trees。
         let has_token = token.map(|t| !t.trim().is_empty()).unwrap_or(false);
         // 消极缓存判定前移，供 checksum 并发分支使用。
-        // H8：时间戳经 github 内 now_secs()。
+        // 时间戳经 github 内 now_secs()。
         let now_secs = crate::github::http::now_secs();
         let negative_hit =
             checksum_negative_hit(cached_detail.as_ref(), version_changed, now_secs);
@@ -764,7 +764,7 @@ impl CatalogService {
             crate::db::icon_cycle::pick_detail_icon(&icon, probed_url, extracted_logo)
         };
 
-        // B1：趋势榜详情简介丢弃根治——未收录仓 external_synth 占位回填 GitHub 真简介。
+        // 趋势榜详情简介丢弃根治——未收录仓 external_synth 占位回填 GitHub 真简介。
         // 已收录仓（catalog_item.is_some()）人工精校简介优先，不覆盖 desc / description_en。
         // 仅当 catalog 未命中且 desc 为占位、repo_info.description 有非空真值时替换；
         // description_en 缺失或占位时同理用 repo 真值回填。
@@ -813,8 +813,8 @@ impl CatalogService {
             forge: Some("github".to_string()),
             forge_host: Some("github.com".to_string()),
             cached_at: Some(crate::github::http::now_secs()),
-            // P0：合成空失败（401/限流/离线且无任何缓存）以 stale 区分于成功空。
-            // 成功 deduce 路径（releases/platforms 推导、排序、ios 并集）保持不变；
+            // 合成空失败（401/限流/离线且无任何缓存）以 stale 区分于成功空。
+            // 成功 deduce 路径（releases/platforms 推导、排序、ios 并集）不带 stale；
             // 仅此处标记，前端 stale-empty 视为 loading/待 backfill-loading，永不确认 Other，
             // 调用方（commands/catalog）据此跳过 SQLite 持久化。
             // 真空契约：远端 200 已问到（repo/release 任一 Fresh 即走成功路径）、

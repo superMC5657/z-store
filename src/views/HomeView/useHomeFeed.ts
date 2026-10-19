@@ -6,7 +6,7 @@ import { rankFeed, resolveHero, sliceFeed, type FeedStrategy } from '../../servi
 import { getAppDescription, getCategoryLabel } from '../../utils/appHelper';
 import { isPlaceholderDescription } from '../../services/trends/enrich';
 
-export type HomeFeedPage = {
+type HomeFeedPage = {
   items: AppSummary[];
   total: number;
   has_more: boolean;
@@ -39,7 +39,7 @@ function readHomeFeedFn():
   }
 }
 
-export function canUseHomeFeedBackend(): boolean {
+function canUseHomeFeedBackend(): boolean {
   const flag = readIsTauriFlag();
   if (flag === true) return true;
   if (flag === false) return false;
@@ -50,7 +50,7 @@ export function canUseHomeFeedBackend(): boolean {
   }
 }
 
-export async function fetchHomeFeedPage(limit: number, offset: number, seed: number, strategy?: string): Promise<HomeFeedPage> {
+async function fetchHomeFeedPage(limit: number, offset: number, seed: number, strategy?: string): Promise<HomeFeedPage> {
   const fn = readHomeFeedFn();
   if (typeof fn !== 'function') throw new Error('home feed backend unavailable');
   const raw = (await fn(limit, offset, seed, strategy)) as unknown as {
@@ -69,7 +69,7 @@ const FIRST_PAGE_LIMIT = HOME_FEED_PAGE + 5;
 const FIXED_FEED_STRATEGY: FeedStrategy = 'balanced';
 const FIXED_FEED_SEED = 7;
 
-export interface UseHomeFeedParams {
+interface UseHomeFeedParams {
   apps: AppSummary[];
   searchQuery?: string;
   isOnlineResults?: boolean;

@@ -12,10 +12,10 @@ import { ReadmeSection } from './ReadmeSection';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
-export interface AppDetailModalProps {
+interface AppDetailModalProps {
   app: AppDetailViewModel;
   isInstalled: boolean;
-  /** 已纳管。显式 `null` = managed 未加载（未知），透传 InstallActions 渲染中性占位（P1）。 */
+  /** 已纳管。显式 `null` = managed 未加载（未知），透传 InstallActions 渲染中性占位。 */
   isManaged?: boolean | null;
   isExploreMode?: boolean;
   isFavorite?: boolean;

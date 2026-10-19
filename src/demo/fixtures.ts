@@ -7,7 +7,7 @@ import type {
 } from '../types';
 import catalogRaw from '../../catalog.json';
 
-export interface CatalogRaw {
+interface CatalogRaw {
   id: string;
   name: string;
   owner: string;
@@ -28,9 +28,9 @@ export interface CatalogRaw {
   platforms?: string[];
 }
 
-export const catalogEntries = catalogRaw as unknown as CatalogRaw[];
+const catalogEntries = catalogRaw as unknown as CatalogRaw[];
 
-export function toSummary(c: CatalogRaw): AppSummary {
+function toSummary(c: CatalogRaw): AppSummary {
   return {
     id: c.id,
     name: c.name,
@@ -56,7 +56,7 @@ export function toSummary(c: CatalogRaw): AppSummary {
 
 export const summaries: AppSummary[] = catalogEntries.map(toSummary);
 
-export const summaryById = new Map<string, AppSummary>();
+const summaryById = new Map<string, AppSummary>();
 for (const s of summaries) {
   const key = s.id.toLowerCase();
   if (!summaryById.has(key)) summaryById.set(key, s);
@@ -177,7 +177,7 @@ export function buildDemoUpdates(installed: InstalledApp[]): UpdateItem[] {
   ];
 }
 
-export interface DemoExternalTrend {
+interface DemoExternalTrend {
   owner: string;
   repo: string;
   desc: string;
@@ -190,7 +190,7 @@ export interface DemoExternalTrend {
   catn: string;
 }
 
-export const DEMO_EXTERNAL_TRENDS: readonly DemoExternalTrend[] = [
+const DEMO_EXTERNAL_TRENDS: readonly DemoExternalTrend[] = [
   { owner: 'facebook', repo: 'react', desc: 'The library for web and native user interfaces.', lang: 'JavaScript', stars: 229000, forks: 48200, change: 2400, gain: 277, cat: 'dev', catn: '开发工具' },
   { owner: 'vuejs', repo: 'vue', desc: 'A progressive, incrementally-adoptable JavaScript framework.', lang: 'JavaScript', stars: 207000, forks: 34800, change: 2342, gain: 890, cat: 'dev', catn: '开发工具' },
   { owner: 'tensorflow', repo: 'tensorflow', desc: 'An open source machine learning framework for everyone.', lang: 'C++', stars: 187000, forks: 75000, change: 2243, gain: 1503, cat: 'ai', catn: 'AI 工具' },
@@ -217,7 +217,7 @@ export const DEMO_EXTERNAL_TRENDS: readonly DemoExternalTrend[] = [
   { owner: 'astral-sh', repo: 'uv', desc: 'An extremely fast Python package and project manager, written in Rust.', lang: 'Rust', stars: 55000, forks: 3000, change: 246, gain: 876, cat: 'dev', catn: '开发工具' },
 ];
 
-export function escapeTrendHtml(raw: string): string {
+function escapeTrendHtml(raw: string): string {
   return raw
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -225,20 +225,20 @@ export function escapeTrendHtml(raw: string): string {
     .replace(/"/g, '&quot;');
 }
 
-export function demoTrendPathSegment(seg: string): string {
+function demoTrendPathSegment(seg: string): string {
   return seg.replace(/[^A-Za-z0-9_.-]+/g, '-') || 'repo';
 }
 
-export const DEMO_TREND_SINCE_SUFFIX = { daily: 'today', weekly: 'this week', monthly: 'this month' } as const;
+const DEMO_TREND_SINCE_SUFFIX = { daily: 'today', weekly: 'this week', monthly: 'this month' } as const;
 
-export type DemoTrendSince = keyof typeof DEMO_TREND_SINCE_SUFFIX;
+type DemoTrendSince = keyof typeof DEMO_TREND_SINCE_SUFFIX;
 
-export function demoTrendingSince(url: string): DemoTrendSince {
+function demoTrendingSince(url: string): DemoTrendSince {
   const token = /[?&]since=(daily|weekly|monthly)/i.exec(url)?.[1]?.toLowerCase();
   return token === 'weekly' || token === 'monthly' ? token : 'daily';
 }
 
-export function demoFallbackGradient(cat: string): string {
+function demoFallbackGradient(cat: string): string {
   if (cat === 'ai') return 'linear-gradient(135deg, #7c3aed, #4c1d95)';
   return 'linear-gradient(135deg, #475569, #334155)';
 }
@@ -273,7 +273,7 @@ export function findExternalTrend(owner: string, repo: string): DemoExternalTren
   return DEMO_EXTERNAL_TRENDS.find((t) => t.owner.toLowerCase() === o && t.repo.toLowerCase() === r);
 }
 
-export function buildDemoTrendingHtml(url: string): string {
+function buildDemoTrendingHtml(url: string): string {
   const gainSuffix = DEMO_TREND_SINCE_SUFFIX[demoTrendingSince(url)];
   const top = DEMO_EXTERNAL_TRENDS.slice(0, 20);
   const articles = top.map((t) => {
@@ -295,7 +295,7 @@ export function buildDemoTrendingHtml(url: string): string {
   return `<div class="Box">\n${articles.join('\n')}\n</div>`;
 }
 
-export function buildDemoDoforceJson(): string {
+function buildDemoDoforceJson(): string {
   const items = DEMO_EXTERNAL_TRENDS.slice(2, 22).map((t) => ({
     repo: `/${t.owner}/${t.repo}`,
     desc: t.desc,
@@ -307,7 +307,7 @@ export function buildDemoDoforceJson(): string {
   return JSON.stringify(items);
 }
 
-export function buildDemoGitHubSearchJson(): string {
+function buildDemoGitHubSearchJson(): string {
   const items = DEMO_EXTERNAL_TRENDS.slice(4, 24).map((t) => ({
     full_name: `${t.owner}/${t.repo}`,
     stargazers_count: t.stars,

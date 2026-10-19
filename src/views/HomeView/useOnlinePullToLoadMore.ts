@@ -16,7 +16,7 @@ import { useCallback, useEffect, useRef } from 'react';
  *
  * 发现页/类别/趋势的哨兵自动续刷一律不动（见 `useHomeFeed` 注释）。
  */
-export interface OnlinePullToLoadMoreOptions {
+interface OnlinePullToLoadMoreOptions {
   enabled: boolean;
   loading: boolean;
   onLoadMore?: () => void;

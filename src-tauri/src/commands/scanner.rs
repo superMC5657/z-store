@@ -6,7 +6,7 @@ use tauri::State;
 pub fn scan_and_match_local_apps(
     state: State<'_, AppState>,
 ) -> crate::AppResult<Vec<crate::scanner::AppMatchResult>> {
-    // Wave2：行为链 sid 关联 + 耗时，汇总行保持只记数量。
+    // 行为链 sid 关联 + 耗时，汇总行只记数量。
     let sid = crate::z_log::new_session_id();
     let scan_start = std::time::Instant::now();
     log::info!("scanner start sid={}", sid);
@@ -16,7 +16,7 @@ pub fn scan_and_match_local_apps(
     let installed_ids: std::collections::HashSet<String> = {
         let db = state.db()?;
         // 深 join 模块 exact 侧：建集时一次归一（canonical 数据零行为变更，
-        // 存量大小写漂移行被治愈，接 ADR-0010 修订）。
+        // 存量大小写漂移行被治愈，见 ADR-0010）。
         crate::scanner::join::canonical_id_set(
             db.get_installed_apps().unwrap_or_default().into_iter().map(|a| a.app_id),
         )

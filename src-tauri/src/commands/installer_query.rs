@@ -59,7 +59,7 @@ pub fn get_installed_apps(state: State<'_, AppState>) -> Result<Vec<InstalledApp
             }
         }
 
-        // 自愈已导入本地应用的真实安装时间（解决此前导入时全量盖章当前时刻的问题）
+        // 自愈已导入本地应用的真实安装时间（导入路径只盖当前时刻，此处按可执行文件反查纠正）
         if app.install_method == "system_import" {
             if let Some(real_time) = crate::scanner::AppScanner::resolve_app_installed_at(
                 &app.app_name,
@@ -81,7 +81,7 @@ pub fn get_installed_apps(state: State<'_, AppState>) -> Result<Vec<InstalledApp
     for updated in needs_db_update {
         let _ = db.save_installed_app(&updated);
     }
-    // 审查项 3.2-3：只读扫描契约 —— 可执行文件消失绝不能在此处直接删除数据库记录
+    // 只读扫描契约：可执行文件消失绝不能在此处直接删除数据库记录
     // （不得调用 remove_installed_app）；
     // 数据库行予以保留，幽灵应用仅在返回视图中隐藏，并在日志中体现数量。
     if !ghost_app_ids.is_empty() {

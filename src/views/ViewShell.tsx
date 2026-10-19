@@ -11,18 +11,18 @@ import type { AppSummary } from '../types';
  * - `broadcastPlatformReset` 兜底
  * - `.filter-empty-reset` 空状态按钮
  *
- * 约束：后端字段不动；此处只收敛前端展示层。`viewClass` 保持各 View
+ * 约束：后端字段不动，只涉及前端展示层。`viewClass` 保持各 View
  * 原有的 CSS 类名不变，已有测试的选择器（`.filter-empty-reset` 等）不受影响。
  */
 
-export const PLATFORM_RESET_EVENT = 'zstore:reset-platform-filter';
+const PLATFORM_RESET_EVENT = 'zstore:reset-platform-filter';
 
 /**
  * 当 App 尚未接入 `onResetPlatformFilter` 时的兜底重置方案：
  * 清理持久化存储（`loadSelectedPlatforms` 在缺少键时会回退至全选集合），
  * 并向所有监听器广播重置意图。键经 `app/platformStorage` 单源导入，与持久化读写同键。
  */
-export function broadcastPlatformReset(): void {
+function broadcastPlatformReset(): void {
   try {
     window.localStorage.removeItem(PLATFORM_FILTER_STORAGE_KEY);
   } catch {
@@ -38,7 +38,7 @@ export interface ViewAppActions {
   installingIds?: Set<string>;
   favoriteIds: Set<string>;
   watchedIds?: Set<string>;
-  /** 已纳管集合（供 isManaged 派生；显式 null = managed 未加载，已安装命中行占位，P1）。 */
+  /** 已纳管集合（供 isManaged 派生；显式 null = managed 未加载，已安装命中行占位）。 */
   managedIds?: Set<string> | null;
   onOpenDetail: (id: string) => void;
   onQuickInstall: (id: string) => void;
@@ -67,18 +67,18 @@ export function resolvePlatformReset(onReset?: () => void): () => void {
   };
 }
 
-export interface ViewShellProps {
+interface ViewShellProps {
   /** 各 View 原有的根类名（如 `home-view`），`view-entrance` 由壳统一追加。 */
   viewClass: string;
   children: React.ReactNode;
 }
 
-/** 各 View 统一外壳：保留原根类名，仅收敛 `view-entrance` 拼接。 */
+/** 各 View 统一外壳：保留各 View 根类名，统一追加 `view-entrance`。 */
 export const ViewShell: React.FC<ViewShellProps> = ({ viewClass, children }) => {
   return <div className={`${viewClass} view-entrance`}>{children}</div>;
 };
 
-export interface FilterEmptyStateProps {
+interface FilterEmptyStateProps {
   icon?: React.ReactNode;
   title: React.ReactNode;
   description?: React.ReactNode;

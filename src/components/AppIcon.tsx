@@ -6,7 +6,7 @@ import {
 } from '../services/iconStore';
 import { normalizeId } from '../services/normalizeId';
 
-export interface AppIconProps {
+interface AppIconProps {
   icon: string;
   name: string;
   appId?: string;

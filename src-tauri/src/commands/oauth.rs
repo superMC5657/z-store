@@ -4,7 +4,7 @@ use crate::AppState;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::State;
 
-/// Wave2：登录/登出 INFO 去重窗口（毫秒）。StrictMode 双调用与重复点击只产生一行 INFO，
+/// 登录/登出 INFO 去重窗口（毫秒）。StrictMode 双调用与重复点击只产生一行 INFO，
 /// 窗口内重复调用降级为 debug，行为本身（落盘 token / 清理）不受影响。
 static LAST_LOGIN_INFO_MS: AtomicU64 = AtomicU64::new(0);
 static LAST_LOGOUT_INFO_MS: AtomicU64 = AtomicU64::new(0);
@@ -59,7 +59,7 @@ pub async fn oauth_device_poll(
             let clean_token = access_token.trim().to_string();
             let user = crate::oauth::fetch_oauth_user(&clean_token).await.ok();
             // 登录成功：只记 GitHub login 用户名，不记 token/device_code/user_code。
-            // Wave2：幂等去重 + sid 关联，窗口内重复授权只记一行 INFO。
+            // 幂等去重 + sid 关联，窗口内重复授权只记一行 INFO。
             let sid = crate::z_log::new_session_id();
             let now = now_ms();
             let last = LAST_LOGIN_INFO_MS.swap(now, Ordering::SeqCst);
@@ -200,7 +200,7 @@ pub async fn oauth_logout(state: State<'_, AppState>) -> crate::AppResult<bool> 
     if let Ok(mut t) = state.github_token.lock() {
         *t = fallback_pat.clone();
     }
-    // Wave2：登出幂等去重 + sid 关联，清理行为每次都执行，INFO 窗口内只记一行。
+    // 登出幂等去重 + sid 关联，清理行为每次都执行，INFO 窗口内只记一行。
     let sid = crate::z_log::new_session_id();
     let now = now_ms();
     let last = LAST_LOGOUT_INFO_MS.swap(now, Ordering::SeqCst);
@@ -229,7 +229,7 @@ fn split_github_repo_id(app_id: &str) -> Result<(String, String), String> {
     Ok((owner.to_string(), repo.to_string()))
 }
 
-/// H9：Star 本地缓存同步收敛（`star/unstar/is_starred` 三处共用，最佳努力）。
+/// Star 本地缓存同步收敛（`star/unstar/is_starred` 三处共用，最佳努力）。
 fn sync_star_cache(state: &AppState, owner: &str, repo: &str, starred: bool) {
     if let Ok(db) = state.db() {
         let _ = db.set_starred(owner, repo, starred);

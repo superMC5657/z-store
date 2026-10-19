@@ -68,7 +68,7 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
 - 日志**只进 LogDir**，禁止写入业务 SQLite（`z_store.db`，表清单以 `src-tauri/src/db/schema.rs` 为准，与日志物理隔离）。
 - panic hook 仅记 `log::error!` 落盘，不写 DB、不上报。
 - 磁盘库（`z_store.db`）打不开回退内存库时记一条 `error`
- （`src-tauri/src/lib.rs::run` 约 L331–L336，
+ （`src-tauri/src/lib.rs::run` 的库打开失败回退分支，
   `db open failed fallback to in-memory`）：静态文案，不记任何路径值；
   行为不变（仍回退内存库），静默丢数据是最坏一类故障故定为 error 级必记。
 
@@ -90,18 +90,18 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
 
 | 点位 | 级别 | 消息样例 |
 |---|---|---|
-| 更新检查轮结束 `commands/updates.rs` | info | `update check finished total=12 new=2 failures=1` |
-| 单仓抓取失败 `commands/updates.rs`（更新项） | warn | `update check item failed id=rustdesk/rustdesk host=github.com reason=检查更新网络不可达且无本地缓存` |
-| 单仓详情失败 `commands/catalog.rs` | warn | `fetch detail failed id=rustdesk/rustdesk host=github.com reason=…首行…` |
-| 下载开始 `installer/downloader.rs` | info | `download start id=rustdesk/rustdesk file=rustdesk.msi host=objects.githubusercontent.com` |
-| 下载完成 `installer/downloader.rs` | info | `download done id=rustdesk/rustdesk file=rustdesk.msi bytes=12345678 elapsed_ms=4321` |
-| 下载失败 `installer/downloader.rs`（各终端分支记一次） | error | `download failed id=… file=… host=… reason=…首行…` / `download verify failed id=… file=…` |
+| 更新检查轮结束 `commands/updates_check.rs` | info | `update batch check done sid=… total=12 updates=2 failures=1 elapsed_ms=4321 persisted=true` |
+| 单仓抓取失败 `commands/updates_check.rs`（更新项） | warn | `update check item failed id=rustdesk/rustdesk host=github.com reason=检查更新网络不可达且无本地缓存` |
+| 单仓详情失败 `commands/catalog_detail.rs` | warn | `fetch app detail failed id={} url='{}' reason={}` |
+| 下载开始 `installer/downloader_http.rs` | info | `download start id=rustdesk/rustdesk file=rustdesk.msi host=objects.githubusercontent.com` |
+| 下载完成 `installer/downloader_http.rs` | info | `download done id=rustdesk/rustdesk file=rustdesk.msi bytes=12345678 elapsed_ms=4321` |
+| 下载失败 `installer/downloader_http.rs`（各终端分支记一次） | error | `download failed id=… file=… host=… reason=…首行…` / `download verify failed id=… file=…` |
 | 安装启动 `installer/executor.rs` | info | `install start id=… kind=Msi\|SetupExe\|…` |
 | 安装静默失败降级向导 `installer/executor.rs` | info | `install silent failed code=1603, fallback to interactive wizard id=…` |
 | 安装用户主动取消 `installer/executor.rs` | info | `install cancelled by user id=… reason=用户取消了 MSI 安装向导` |
 | 安装结果 `installer/executor.rs`（唯一出入口） | info/error | `install done id=…` / `install failed id=… reason=…首行…` |
-| 校验成功 `installer/downloader.rs` | info | `verify ok reason=expected-empty` / `verify ok algo=sha256` |
-| 校验失败 `installer/downloader.rs` | error | `download verify failed id=… file=…` |
+| 校验结果 `installer/downloader_progress.rs::verify_terminal_state`（不单独打点） | — | 终态随进度事件下发 `verified` / `completed_unverified`，不写日志 |
+| 校验失败 `installer/downloader_http.rs` | error | `download verify failed id=… file=…` |
 | 扫描起止 `commands/scanner.rs` | info | `scanner start` / `scanner done scanned=… unmanaged=…` |
 | 卸载起止 `installer/executor.rs` | info/error | `uninstall start/done/failed`（原因首行，不记全路径） |
 | 限额低水位 `lib.rs::log_rate_limit_water_mark`（每进程每 host 每种一次） | warn | `rate limit low host=github.com remaining=6/60` |
@@ -111,15 +111,15 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
 | 换 token/刷新/轮询失败 `commands/oauth.rs` | warn | `oauth poll failed reason=…` / `oauth refresh failed reason=…` / `oauth device start failed reason=…` |
 | 镜像切换 `mirror.rs::set_active_mirror` | info | `mirror switch id=… proxy='…'`（代理只记脱敏展示值） |
 | 测速结果 `commands/network.rs::test_proxy`（调用方记） | info/warn | `proxy test ok latency_ms=210` / `proxy test failed latency_ms=9999 reason=…`（不记被测 URL） |
-| 下载命中跳过 `installer/downloader.rs::SkipDone::finish` | info | `download skipped sid=… req=… id=… host=… file=… bytes=… elapsed_ms=…`（零网络，`should_skip_download` 命中：本地存在且大小>0 且 SHA-256 与期望一致） |
+| 下载命中跳过 `installer/downloader_progress.rs::SkipDone::finish` | info | `download skipped sid=… req=… id=… host=… file=… bytes=… elapsed_ms=…`（零网络，`should_skip_download` 命中：本地存在且大小>0 且 SHA-256 与期望一致） |
 | 趋势文本拒绝/失败 `commands/network.rs::fetch_trends_text` | warn | `trends text rejected sid=… req=… reason=…` / `trends text timeout …` / `trends text network fail …` / `trends text upstream … status=…` / `trends text rate-limited … status=429 retry_after='…' retry_after_ms=…` / `trends text read fail …` / `trends text upstream too large …` / `trends text decode fail …`（只记 host，不记 query/URL；429 不占单飞槽计数） |
 
 ### 第二层：debug（release 不可见）
 
 | 点位 | 消息样例 |
 |---|---|
-| 单仓/详情/搜索成功 `commands/catalog.rs` | `fetch detail ok id=…` / `fetch repo ok id=…` / `search done query='rust' hits=3` |
-| 关注挂起 `commands/updates.rs::notify_watched_updates` | `watch deferred id=… reason=daily-throttle\|baseline-init\|…首行…` |
+| 单仓/详情/搜索成功 `commands/catalog_detail.rs` / `commands/catalog_search.rs` | `fetch app detail done id=… url='…' cache=…` / `fetch repo ok id=…` / `search done sid=… query='…' hits=…` |
+| 关注挂起 `commands/updates_check.rs::notify_watched_updates` | `watch deferred id=… reason=daily-throttle\|baseline-init\|…首行…` |
 | device 取消 `commands/oauth.rs` | `oauth device denied`（正常流程，不记 token/user_code） |
 | 拉取层正常请求 `github/*`、`forge/*` | `http fetch … / http forge …`（成功/304 一律 debug；失败 warn，错误上浮到命令层记一次） |
 | 趋势文本起止 `commands/network.rs::fetch_trends_text` | `trends text fetch start sid=… req=… host='…' path='…'` / `trends text ok sid=… req=… host='…' bytes=… elapsed_ms=…`（成功/开始一律 debug；失败 warn 见第一层） |
@@ -130,7 +130,7 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
 - 完整 URL（含 release 资产签名 query）、token / user_code / device_code、
   响应 body、文件全路径、私钥、`tick`：一律不记。
 - `println!` / `eprint!` / `dbg!`：业务代码禁用（`scanner/tests.rs` 内既有测试 `println!` 保留不动）。
-- 循环内打点：禁止 `info`，只许 `debug` 且须可聚合；单项未命中类 debug 已删除。
+- 循环内打点：禁止 `info`，只许 `debug` 且须可聚合；单项未命中类 debug 禁止（仅允许可聚合的汇总计数）。
 
 ## 11. 脱敏红线与网络透明化（sanitize_url）
 

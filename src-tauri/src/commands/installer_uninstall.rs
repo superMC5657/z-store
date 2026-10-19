@@ -9,8 +9,8 @@ pub(crate) fn resolve_managed_app_id(raw: &str) -> Result<String, String> {
     super::require_app_id(raw)
 }
 
-/// 审查项 3.2-3 无架构变更标记：无 schema 变更下 `InstalledApp` 无 missing 标记
-/// （models.rs 保持刻意未动），因此幽灵应用在返回视图中被隐藏，但数据库记录予以保留。
+/// 无 schema 变更契约：`InstalledApp` 无 missing 标记（models.rs 保持刻意未动），
+/// 因此幽灵应用在返回视图中被隐藏，但数据库记录予以保留。
 /// 纯过滤函数 —— 执行 0 次数据库/缓存删除操作；幽灵计数在 `get_installed_apps` 中通过日志体现。
 /// 仅当用户显式调用卸载/取消管理时才执行实际删除。
 pub(crate) fn hide_ghost_apps(apps: Vec<InstalledApp>, ghost_ids: &[String]) -> Vec<InstalledApp> {
@@ -279,7 +279,7 @@ mod ghost_and_id_guard_tests {
 
     #[test]
     fn unmanage_rejects_unparseable_id() {
-        // 审查项 2.1-1 乙部：无法解析的 id 必须直接报错拒绝，绝不可透传原始字符串。
+        // 无法解析的 id 必须直接报错拒绝，绝不可透传原始字符串。
         assert!(super::resolve_managed_app_id("").is_err());
         assert!(super::resolve_managed_app_id("   ").is_err());
         assert!(super::resolve_managed_app_id("not a valid id !!!").is_err());
@@ -300,7 +300,7 @@ mod ghost_and_id_guard_tests {
 
     #[test]
     fn scan_hides_ghost_from_view_but_signals_retention() {
-        // 审查项 3.2-3：可执行文件丢失 -> 从返回视图中隐藏；
+        // 可执行文件丢失 -> 从返回视图中隐藏；
         // 数据库行保留属于架构设计（纯过滤执行零数据库删除；
         // get_installed_apps 严禁对幽灵应用调用 remove_installed_app）。
         let apps = vec![

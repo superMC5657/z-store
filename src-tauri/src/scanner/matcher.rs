@@ -112,8 +112,8 @@ impl AppScanner {
                 }
 
                 // 3. 安装路径或图标主程序匹配（基于 catalog 配置的 executables 与 install_dirs）
-                // 平台隔离：Windows 取 windows 标识，Linux 取 linux 标识（此前写死 windows 导致
-                // catalog.json 中 Motrix linux=["motrix"] 被忽略；Windows 行为不变）。
+                // 平台隔离：Windows 取 windows 标识，Linux 取 linux 标识（catalog.json 中
+                // Motrix linux=["motrix"] 依赖此隔离，否则会被忽略；Windows 走 windows 标识）。
                 if !s_loc.is_empty() || !s_icon.is_empty() {
                     let mut path_matched = s_loc.contains(&c_repo) || s_icon.contains(&c_repo);
                     if !path_matched {

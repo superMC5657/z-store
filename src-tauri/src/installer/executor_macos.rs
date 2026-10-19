@@ -71,7 +71,7 @@ pub async fn install_pkg(installer_path: &Path) -> Result<InstallOutcome, String
 #[cfg(target_os = "macos")]
 pub async fn install_macos_dmg(installer_path: &Path) -> Result<String, String> {
     // 1. 命令行 hdiutil attach -nobrowse -readonly 挂载镜像
-    // B3-G6：attach 需解析 stdout（output），走同一空 argv 守卫后直调 tokio output；
+    // attach 需解析 stdout（output），走同一空 argv 守卫后直调 tokio output；
     // 其余 detach/cp -R 状态执行统一走 super::run_argv。
     let attach_argv = dmg_attach_argv(installer_path);
     let (attach_prog, attach_args) = attach_argv

@@ -236,7 +236,7 @@ pub async fn download_icon_bytes(
 /// 缝：文件名分流在 `icons_cycle_probe`
 ///（`write_icon_file` + `download_icon_bytes_direct`）；
 /// level 纯L，via 正交由上游事件表达，
-/// 本命令返回 `data:` 永不进盘语义由前端 `applyHit` 守卫（`data:` 只进 M1 内存）。
+/// 本命令返回 `data:` 永不进盘语义由前端 `admitIconHit` 守卫（`data:` 只进 M1 内存）。
 /// 全链：infer（URL 后缀暂定 ext）→sniff（内容纠正 real_ext）→单一写入路径
 ///（收录走 meta，非收录走 cycle 行，hash 命名）。
 #[tauri::command(rename_all = "camelCase")]

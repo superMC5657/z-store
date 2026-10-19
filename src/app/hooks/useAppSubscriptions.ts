@@ -23,7 +23,7 @@ import { type PlatformId } from '../../lib/platformFilter';
 import { zlogInfo } from '../../lib/z-log';
 import { adoptEchoInWindow } from './useSearchState';
 
-export interface UseAppSubscriptionsParams {
+interface UseAppSubscriptionsParams {
   setApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
   setOnlineApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
   setRecentlyViewedApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
@@ -185,7 +185,7 @@ export function useAppSubscriptions({
       // 更新中心属资产区：启动时不自动检查（忽略 update_frequency startup 自动项）；
       // 用户经更新中心检查更新按钮手动触发。
       if (MANUAL_ONLY_NETWORK) return;
-      // P2-6: 仅启动时自动检查更新——`daily`（每日）更新频率选项目前在“设置”中刻意禁用（未开发功能，暂无调度器），
+      // 仅启动时自动检查更新——`daily`（每日）更新频率选项目前在“设置”中刻意禁用（未开发功能，暂无调度器），
       // 因此此处仅对 `startup`（启动时）触发自动检查；`daily`/`manual` 用户可通过“更新中心”标签页手动检查。
       if ((persisted.update_frequency || DEFAULT_SETTINGS.update_frequency) === 'startup') {
         tauriApi.checkForUpdates(false).then(setUpdates).catch(() => {});
@@ -421,7 +421,7 @@ export function useAppSubscriptions({
       prevViewRef.current = currentView;
       return;
     }
-    // Wave2：视图切换永带 from + params（杜绝裸 switch），sid 由 z-log 自动关联行为链。
+    // 视图切换永带 from + params（杜绝裸 switch），sid 由 z-log 自动关联行为链。
     const from = prevViewRef.current;
     prevViewRef.current = currentView;
     zlogInfo(`switch view='${currentView}' from='${from}' params={}`);

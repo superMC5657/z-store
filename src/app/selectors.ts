@@ -14,7 +14,6 @@ import {
   type PlatformId,
 } from '../lib/platformFilter';
 import { normalizeId } from '../services/normalizeId';
-import { notifyToast } from '../utils/notify';
 // loading 语义唯一深模块为 `lib/platformFilter`：本选择器直接消费 lib，
 // 对外仅保留 LOADING_SETTLE_MS/isEnrichedRowLoading/unionConfirmedSets 三件重导出。
 export {
@@ -23,7 +22,7 @@ export {
   unionConfirmedSets,
 } from '../lib/platformFilter';
 
-export interface UseAppSelectorsParams {
+interface UseAppSelectorsParams {
   apps: AppSummary[];
   onlineApps: AppSummary[];
   favoriteExtraApps: AppSummary[];
@@ -54,7 +53,7 @@ export interface UseAppSelectorsParams {
  * - 深链确认弹窗的详情/摘要/SHA-256 解析。
  */
 
-export function selectPlatformFilteredApps(
+function selectPlatformFilteredApps(
   apps: AppSummary[],
   selectedPlatforms: Set<PlatformId>,
   platformResolvedOtherIds: Set<string>,
@@ -62,7 +61,7 @@ export function selectPlatformFilteredApps(
   return apps.filter((a) => matchPlatformSetWithLoading(a, selectedPlatforms, platformResolvedOtherIds));
 }
 
-export function selectPlatformCounts(
+function selectPlatformCounts(
   apps: AppSummary[],
   platformResolvedOtherIds: Set<string>,
 ): Record<PlatformId, number> {
@@ -90,7 +89,7 @@ export function selectPlatformCounts(
   return counts;
 }
 
-export function buildAppsById(apps: AppSummary[]): Map<string, AppSummary> {
+function buildAppsById(apps: AppSummary[]): Map<string, AppSummary> {
   const map = new Map<string, AppSummary>();
   for (const a of apps) {
     const key = normalizeId(a.id);
@@ -100,7 +99,7 @@ export function buildAppsById(apps: AppSummary[]): Map<string, AppSummary> {
   return map;
 }
 
-export function buildInstalledIds(installedApps: InstalledApp[]): Set<string> {
+function buildInstalledIds(installedApps: InstalledApp[]): Set<string> {
   const set = new Set<string>();
   for (const a of installedApps) {
     set.add(a.app_id);
@@ -110,7 +109,7 @@ export function buildInstalledIds(installedApps: InstalledApp[]): Set<string> {
   return set;
 }
 
-export function buildManagedIds(installedApps: InstalledApp[]): Set<string> {
+function buildManagedIds(installedApps: InstalledApp[]): Set<string> {
   const set = new Set<string>();
   for (const a of installedApps) {
     set.add(a.app_id);
@@ -147,7 +146,7 @@ export function isInstalled(id: string, installedIds: Set<string> | null | undef
 }
 
 /**
- * managed 三态（P1 冷启闪烁修复）：`null` = managed 列表尚未加载（未知），
+ * managed 三态（冷启闪烁守卫）：`null` = managed 列表尚未加载（未知），
  * `Set<string>` = 已知集合。未知态调用方渲染中性占位。
  */
 export function selectIsManagedOpt(
@@ -159,7 +158,7 @@ export function selectIsManagedOpt(
 }
 
 /** 徽标三态（单测与文档口径，组件布尔 props 为其展开形态）。 */
-export type BadgeState = 'managed' | 'none' | 'unknown';
+type BadgeState = 'managed' | 'none' | 'unknown';
 
 export function selectBadgeState(
   id: string,
@@ -203,25 +202,22 @@ export function selectFavoritesViewApps(
 // ---------- 全局合并显示 + showCustom 开关 + 转正提示（ADR-0017 自维护 overlay） ----------
 
 /** 自维护 overlay 开关默认值：开（关闭即隐藏全部 custom 行）。 */
-export const SHOW_CUSTOM_DEFAULT = true;
-
-/** showCustom 设置键（读 snake/camel 双键；值形态兼容 boolean/数字/字符串）。 */
-export const SHOW_CUSTOM_SETTING_KEYS = ['showCustom', 'show_custom'] as const;
+const SHOW_CUSTOM_DEFAULT = true;
 
 /** 带 source 标记的合并行（custom 标 source=custom，local 标 source=local，is_cataloged 恒 true）。 */
-export type MergedAppRow = AppSummary & {
+type MergedAppRow = AppSummary & {
   source?: string;
   is_cataloged?: boolean;
   status?: string;
 };
 
 /** 是否为自维护行（source=custom 即是；category external 原样保留，不参与判定）。 */
-export function isCustomAppRow(app: { source?: unknown }): boolean {
+function isCustomAppRow(app: { source?: unknown }): boolean {
   return (app as { source?: unknown }).source === 'custom';
 }
 
 /** 是否为本地收录行（source=local 即是，已收录可搜可装，徽标走橘黄 local 变体）。 */
-export function isLocalAppRow(app: { source?: unknown }): boolean {
+function isLocalAppRow(app: { source?: unknown }): boolean {
   return (app as { source?: unknown }).source === 'local';
 }
 
@@ -230,43 +226,8 @@ export function isCollectedStatus(status: unknown): boolean {
   return status === 'collected' || status === 'local_collected';
 }
 
-/** 本地收录行判定（overlay/PR 门禁唯一口径）：status 为 collected 系且未归档。 */
-export function isLocalCollectedEntry(entry: { status?: unknown; archived?: unknown }): boolean {
-  return isCollectedStatus((entry as { status?: unknown }).status) && !(entry as { archived?: unknown }).archived;
-}
-
-/**
- * showCustom 解析（纯函数，默认开）：
- * settings 缺席/无键即默认开；'false'/false/0/'0'/'no'/'off' 即关，其余即开。
- */
-export function resolveShowCustom(
-  settings?: Record<string, unknown> | null,
-  fallback: boolean = SHOW_CUSTOM_DEFAULT,
-): boolean {
-  if (!settings) return fallback;
-  for (const key of SHOW_CUSTOM_SETTING_KEYS) {
-    if (!(key in settings)) continue;
-    const v = (settings as Record<string, unknown>)[key];
-    if (typeof v === 'boolean') return v;
-    if (typeof v === 'number') return v !== 0;
-    if (typeof v === 'string') {
-      const s = v.trim().toLowerCase();
-      if (s === '' ) continue;
-      if (s === 'false' || s === '0' || s === 'no' || s === 'off') return false;
-      if (s === 'true' || s === '1' || s === 'yes' || s === 'on') return true;
-      continue;
-    }
-  }
-  return fallback;
-}
-
-/** custom 行打标（source=custom，is_cataloged 恒 true；不改原对象）。 */
-export function markCustomSource<T extends AppSummary>(app: T): MergedAppRow {
-  return { ...app, source: 'custom', is_cataloged: true };
-}
-
 /** 本地收录行打标（source=local，is_cataloged 恒 true；不改原对象）。 */
-export function markLocalSource<T extends AppSummary>(app: T): MergedAppRow {
+function markLocalSource<T extends AppSummary>(app: T): MergedAppRow {
   return { ...app, source: 'local', is_cataloged: true };
 }
 
@@ -413,11 +374,6 @@ export function selectMergedCatalogApps(
   return out;
 }
 
-/** 未归档 custom 可见行（archived 即隐藏；后端默认已过滤，此处再守一次）。 */
-export function selectVisibleCustomApps<T extends { archived?: boolean }>(entries: readonly T[]): T[] {
-  return entries.filter((e) => !e.archived);
-}
-
 // ---------- 在线/趋势 enrich 显式 is_cataloged 标注 ----------
 // 后端 AppSummary 无 is_cataloged（models.rs），在线/富卡 category 为
 // guess_category 猜的真实分类（http.rs 默认 dev），需按 catalog id 集显式标注才不误判已收录。
@@ -434,7 +390,7 @@ export function buildCatalogIdSet(catalogApps: readonly AppSummary[]): Set<strin
 }
 
 /** 单 id 是否命中收录（canonical 小写比对）。 */
-export function isCatalogedId(id: unknown, catalogIds: ReadonlySet<string>): boolean {
+function isCatalogedId(id: unknown, catalogIds: ReadonlySet<string>): boolean {
   const k = normalizeId(id);
   return k !== '' && catalogIds.has(k);
 }
@@ -647,28 +603,6 @@ export function annotateEnrichMirrorCataloged(
   return changed ? next : mirror;
 }
 
-/** 转正 toast 文案（恒含“已转正”，无转正返回空串）。 */
-export function formatGraduationToast(notices: readonly { id: string }[]): string {
-  if (notices.length === 0) return '';
-  const ids = notices.map((n) => n.id).join('、');
-  return `${ids} 已转正并自动归档`;
-}
-
-/**
- * 转正 toast 派发（archived 即隐藏由调用方经可见行过滤完成，此处仅提示）：
- * 文案恒含“已转正”，失败静默不阻塞主流程。
- */
-export function notifyGraduationNotices(notices: readonly { id: string; message?: string }[]): void {
-  if (notices.length === 0) return;
-  const text = formatGraduationToast(notices);
-  if (!text) return;
-  try {
-    notifyToast(text, 'success');
-  } catch {
-    // 通知失败不影响主流程
-  }
-}
-
 export function useAppSelectors({
   apps,
   onlineApps,
@@ -760,7 +694,7 @@ export function useAppSelectors({
 
   const managedIds = useMemo(() => buildManagedIds(installedApps), [installedApps]);
 
-  // managed 加载三态（P1 冷启闪烁修复）：`installedApps` 初始 `[]`
+  // managed 加载三态（冷启闪烁守卫）：`installedApps` 初始 `[]`
   // 与“已加载但为空”引用不同（订阅层 `.then(setInstalledApps)` 恒产生新引用，
   // IPC 反序列化无复用），引用变化即 managed 已加载；其它重渲染引用不变即仍未知。
   // 加载失败无写入时 installed 为空恒走 'none'（全 Get），故失败态自然降级；8s 超时兜底

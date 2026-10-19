@@ -6,7 +6,7 @@ import { sanitizeHtml } from '../../utils/sanitize';
 import { normalizeId } from '../../services/normalizeId';
 
 // GitHub Markdown 块级引用 Alerts 预处理器（支持 [!NOTE], [!TIP], [!IMPORTANT], [!WARNING], [!CAUTION]）
-export function preprocessGitHubAlerts(markdown: string): string {
+function preprocessGitHubAlerts(markdown: string): string {
   if (!markdown || !markdown.includes('[!')) return markdown;
   const alertRegex = /^>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][^\n]*\n((?:^>[^\n]*\n?)*)/gim;
   return markdown.replace(alertRegex, (_match, type, body) => {
@@ -28,7 +28,7 @@ export function preprocessGitHubAlerts(markdown: string): string {
   });
 }
 
-export type ReadmeLang = 'zh-CN' | 'en-US';
+type ReadmeLang = 'zh-CN' | 'en-US';
 
 function defaultLangFromI18n(lng?: string): ReadmeLang {
   if (lng && lng.toLowerCase().startsWith('zh')) return 'zh-CN';
@@ -37,7 +37,7 @@ function defaultLangFromI18n(lng?: string): ReadmeLang {
 
 // README 变体内存缓存：appId（小写）维度存 variants + mtime，TTL 复用详情 30min。
 // 命中且未过期直接复用，不调 getReadmeVariants；语言切换只切 activeMarkdown，不触发重拉。
-export const README_VARIANTS_TTL_MS = 30 * 60 * 1000;
+const README_VARIANTS_TTL_MS = 30 * 60 * 1000;
 
 interface ReadmeVariantsCacheEntry {
   variants: ReadmeVariant[];
@@ -45,15 +45,6 @@ interface ReadmeVariantsCacheEntry {
 }
 
 const readmeVariantsCache = new Map<string, ReadmeVariantsCacheEntry>();
-
-export function clearReadmeVariantsCache(appId?: string): void {
-  if (appId) {
-    const key = normalizeId(appId);
-    readmeVariantsCache.delete(key);
-  } else {
-    readmeVariantsCache.clear();
-  }
-}
 
 function readmeCacheKey(appId: string): string {
   return normalizeId(appId);
@@ -76,9 +67,7 @@ function normalizeReadmeVariants(input: unknown): ReadmeVariant[] {
 
 /**
  * AppDetailModal README 关注点 Hook：警示框预处理、HTML 净化清洗、
- * 链接点击分流与图片回退兜底处理。
- * 纯粹提取原 AppDetailModal.tsx 内联的 README 处理逻辑代码块。
- * 无任何行为变更；弹窗组件对外属性保持原样。
+ * 链接点击分流与图片回退兜底处理；弹窗组件对外属性不变。
  *
  * README 双语：经 get_readme_variants 拉取 zh-CN / en-US 变体，
  * 默认跟随界面语言（zh 开头选中中文，否则 EN），局部 state 切换，

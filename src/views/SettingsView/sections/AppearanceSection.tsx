@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { SegmentedControl } from '../../../components/SegmentedControl';
 
-export interface AppearanceSectionProps {
+interface AppearanceSectionProps {
   currentTheme: 'light' | 'dark' | 'system';
   language: string;
   uiScale: string;

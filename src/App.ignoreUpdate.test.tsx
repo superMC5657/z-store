@@ -1,5 +1,5 @@
 /**
- * P2-5 忽略更新持久化测试（真实 <App/> 链路）。
+ * 忽略更新持久化测试（真实 <App/> 链路）。
  *
  * `忽略本次提醒` 必须走与 `跳过此版本` 相同的后端链路
  * (tauriApi.setAppSkipVersion + 规则刷新)：被忽略的更新在重新检查后依然保持忽略状态，
@@ -100,7 +100,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe('P2-5 ignore-update persistence (real App path)', () => {
+describe('ignore-update persistence (real App path)', () => {
   it('ignore persists via setAppSkipVersion; re-check keeps it absent and rules UI reflects it', async () => {
     render(<App />);
 

@@ -5,9 +5,8 @@ import i18n, { getSystemLanguage } from './i18n';
 import { appZoomFactor, fontScaleFor } from './utils/density';
 
 /**
- * 应用级外观表现与持久化设置 Hook。
- * 纯粹提取原 App.tsx 内联的主题/设置状态、字号/缩放应用逻辑、
- * 持久化快照合并、系统主题跟随以及通用设置更新器。无任何行为变更。
+ * 应用级外观表现与持久化设置 Hook：主题/设置状态、字号/缩放应用、
+ * 持久化快照合并、系统主题跟随与通用设置更新器。
  */
 export function useAppSettings() {
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');

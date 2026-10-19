@@ -5,11 +5,11 @@
 - 关联：ADR-0011（doforce 例外）、ADR-0010（小写 canonical）
 - 前置：主干以本 ADR 为准；`.scratch/feature-trends-board/issues/01-06` 为设计提案。
 
-## 1. 表结构（14 张，无 `search_result_cache`）
+## 1. 表结构（18 张，无 `search_result_cache`）
 
 - `trend_board_cache(cache_key TEXT PK, board TEXT NOT NULL, payload_json TEXT NOT NULL, payload_bytes INTEGER DEFAULT 0, cached_at INTEGER)` + `idx_trend_board_cache_board(board)`，见 `db/schema.rs`。
-- 全库 14 张核心表（`search_result_cache` 不存在，不做承诺）。
-- 后端命令 `get/save_trend_board_cache`（`commands/trends_cache.rs`）已补齐：薄透传，双命名兼容（`cache_key/cacheKey`、`payload_json/payloadJson`），仅 trim+空拒绝，不做大小写归一，不判 TTL；前端沿用同 key 直接命中，零改动。
+- 全库 18 张核心表（`search_result_cache` 不存在，不做承诺）。
+- 后端命令 `get/save_trend_board_cache`（`commands/trends_cache.rs`）已补齐：薄透传，请求键经 `#[tauri::command(rename_all = "camelCase")]` 桥接（前端 `cacheKey`/`payloadJson` → 后端 `cache_key`/`payload_json`），仅 trim+空拒绝，不做大小写归一，不判 TTL；前端沿用同 key 直接命中，零改动。
 
 ## 2. Key 归一（小写，读写同源）
 
@@ -46,7 +46,7 @@
 ## 8. 需求收口（2026-10-09 PM确认）
 
 - recents 治愈：`history.rs` `heal_recent_summary`/`cached_detail_summary` + `App.tsx` recents heal，富卡非占位简介治愈占位行。已接受为正式需求。
-- 详情占位守卫：`detail_fetch.rs` `is_placeholder_description`/`repo_real_description_from_etag` + `App.tsx` `snapshotTrendEnrichCache`/`handleOpenDetail`/`syncDetailCache`，占位不覆盖。已接受为正式需求。
+- 详情占位守卫：`detail_fetch.rs` `is_placeholder_description`/`repo_real_description_from_etag` + `App.tsx` 的 `snapshotTrendEnrichCache`/`handleOpenDetail`/`useDetailCacheSync`，占位不覆盖。已接受为正式需求。
 - 富卡全量同步 confirmedOther：`cache.ts` `TrendCacheEnvelopeV1 confirmedOther` + `enrich.ts` loading-vs-concrete merge/settle/lite。已接受为正式需求。
 - 图标门控：`Header.tsx`/`catalog_detail.rs`/`AppIcon.tsx` uncataloged-only cycle + recents fallback + warmup。已接受为正式需求。
 - 交互 chrome：`TrendsView` refresh 按钮 + `useTrendBoard forceRefresh` + localStorage tab memory + locales + 卡片对齐 CSS。已接受为正式需求。

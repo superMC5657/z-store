@@ -14,10 +14,10 @@ import type { AppSummary } from '../types';
 export type FeedStrategy = 'balanced' | 'stars' | 'fresh';
 
 /** 打分器签名：入参为应用与该应用在当前 seed 下的确定性抖动（[0, 1)），返回分数（越大越靠前）。 */
-export type FeedScorer = (app: AppSummary, jitter01: number) => number;
+type FeedScorer = (app: AppSummary, jitter01: number) => number;
 
 /** balanced 策略的抖动半幅（总摆动 2 * HALF）。取 0.15 保证只有头部相近星数才会被打散，深部大差距不受影响。 */
-export const FEED_JITTER_HALF = 0.15;
+const FEED_JITTER_HALF = 0.15;
 
 /**
  * 置顶解析：结果集内优先 `rustdesk/rustdesk`（ADR-0010 canonical id），
@@ -84,7 +84,7 @@ function starsBase(app: AppSummary): number {
  * - stars：纯星数降序，seed 无影响，行为完全确定；
  * - fresh：seed 抖动主导 + 星数只给 5% 权重（目录暂无时间字段，用抖动近似“常看常新”，换 seed 即换一批）。
  */
-export const feedScorers: Record<FeedStrategy, FeedScorer> = {
+const feedScorers: Record<FeedStrategy, FeedScorer> = {
   stars: (app) => starsBase(app),
   balanced: (app, jitter01) => starsBase(app) + (jitter01 - 0.5) * FEED_JITTER_HALF * 2,
   fresh: (app, jitter01) => jitter01 * 10 + starsBase(app) * 0.05,

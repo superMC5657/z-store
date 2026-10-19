@@ -105,7 +105,7 @@ export async function enrichTrendRepos(
  * 世代门控走 `services/iconStore.admitIconHit`（读 `context.search_id` vs `currentSearchId`），
  * `level`纯L单调，调用方只做载荷适配 + React 列表 `patch` 注入。
  */
-export type SearchIconUpgradePayload = IconReadyPayload;
+type SearchIconUpgradePayload = IconReadyPayload;
 
 export async function onSearchIconUpgraded(
   callback: (payload: SearchIconUpgradePayload) => void,
@@ -333,7 +333,7 @@ export interface CustomCatalogItem {
 }
 
 /** 自维护草稿状态（收录态 collected 系与 local_collected 同义，PR 前置门禁唯一口径）。 */
-export type CustomAppStatus = 'draft' | 'submitted' | 'collected' | 'local_collected';
+type CustomAppStatus = 'draft' | 'submitted' | 'collected' | 'local_collected';
 
 /** 收录态判定唯一口径见 selectors（`isCollectedStatus`，本模块不再重导出）。 */
 
@@ -349,13 +349,13 @@ export interface CustomAppEntry {
 }
 
 /** 转正提示（与后端 GraduationNotice 同形）。 */
-export interface GraduationNotice {
+interface GraduationNotice {
   id: string;
   message: string;
 }
 
 /** 合并目录视图行：AppSummary 扁平 + 来源标记（remote/custom，is_cataloged 恒 true）。 */
-export type MergedCatalogEntry = AppSummary & {
+type MergedCatalogEntry = AppSummary & {
   source: string;
   is_cataloged: boolean;
 };
@@ -498,11 +498,11 @@ export const CATALOG_PR_ISSUES_URL =
   'https://github.com/superMC5657/z-store-catalog/issues/new';
 
 /** 本地校验说明（与后端 PR_BODY_CHECK_NOTE 同义）。 */
-export const PR_CHECK_NOTE =
+const PR_CHECK_NOTE =
   '本地校验：已通过提交档 `validate_custom_item(strict)`（canonical id / 必填字段 / OSI 协议），payload 见下方 JSON。';
 
 /** 预填 URL 的最小条目形态（前后端条目结构均满足此接口）。 */
-export interface LocalPrItem {
+interface LocalPrItem {
   name: string;
   owner: string;
   repo: string;
@@ -513,7 +513,7 @@ export interface LocalPrItem {
   default_version: string;
 }
 
-export interface LocalPrEntry {
+interface LocalPrEntry {
   id: string;
   status?: string;
   item: LocalPrItem;

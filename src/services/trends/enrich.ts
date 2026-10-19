@@ -9,20 +9,15 @@ export const TREND_ENRICH_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 export const TREND_ENRICH_CACHE_MAX_ENTRIES = 500;
 /** 单次 enrich 最多 40 仓一次取回。 */
 export const TREND_ENRICH_MAX_TOTAL = 40;
-/**
- * 分片大小 20 已停用（单次批量直取 40 上限）。
- * 保留常量作回滚锚点，切回串行分片时再引用，不要删除。
- */
-export const TREND_ENRICH_SHARD_SIZE = 20;
 
 /**
  * 已确认 Other 标记 TTL：12h（与 enrich 同口径，到期重验）。
  * settle 兜底 / lite 空非 stale 确认的 Other 经此集合记忆，具平台到达即覆盖升级（put 具平台自动移除），
  * loading 空平台永不覆盖已具平台值（mark 前检查 enrich 已具平台则跳过）。
  */
-export const TREND_CONFIRMED_OTHER_TTL_MS = TREND_ENRICH_CACHE_TTL_MS;
+const TREND_CONFIRMED_OTHER_TTL_MS = TREND_ENRICH_CACHE_TTL_MS;
 /** 已确认 Other 标记内存有界：至多 500 条，FIFO 裁剪（与 enrich 同口径）。 */
-export const TREND_CONFIRMED_OTHER_MAX_ENTRIES = 500;
+const TREND_CONFIRMED_OTHER_MAX_ENTRIES = 500;
 
 /**
  * 具平台判定（loading-never-overwrites-concrete 守卫的唯一口径）：
@@ -88,8 +83,8 @@ export function unmarkTrendConfirmedOthers(keys: readonly string[]): void {
  * - 仅显式 mark/unmark（含具平台驱逐删标记）触发；读路径 hydrate/sweep/过期清理不触发（读不写盘）；
  * - 订阅方（如 TrendsView）据此节流写透同榜 key；loading 语义不动（未确认 loading 永不进内存/落库）。
  */
-export type TrendConfirmedOtherChangeKind = 'mark' | 'unmark';
-export type TrendConfirmedOtherListener = (
+type TrendConfirmedOtherChangeKind = 'mark' | 'unmark';
+type TrendConfirmedOtherListener = (
   kind: TrendConfirmedOtherChangeKind,
   keys: readonly string[],
 ) => void;
@@ -206,7 +201,7 @@ export function clearTrendConfirmedOtherCache(): void {
 }
 
 /** 切榜顺手 sweep 已确认过期（与 enrich 同入口调用，不加 timer）。 */
-export function sweepExpiredTrendConfirmedOtherCache(): void {
+function sweepExpiredTrendConfirmedOtherCache(): void {
   const now = Date.now();
   for (const [k, ts] of trendConfirmedOtherCache) {
     const elapsed = now - ts;
@@ -513,21 +508,11 @@ export interface DetailPlatformsHealPayload {
   summary: AppSummary;
 }
 
-/** 归一 enrich 键（小写 `owner/repo`），供详情治愈与缓存驱逐复用。 */
-export function buildTrendEnrichKey(owner: string, repo: string): string {
-  return trendEnrichKey(owner, repo);
-}
-
 /** 按归一键驱逐单条 enrich 缓存（详情治愈前先清 stale []，避免旧快照覆盖）。 */
-export function evictTrendEnrichCacheByKey(key: string): void {
+function evictTrendEnrichCacheByKey(key: string): void {
   const k = normalizeId(key);
   if (!k) return;
   trendEnrichCache.delete(k);
-}
-
-/** 按坐标驱逐 enrich 缓存。 */
-export function evictTrendEnrichCache(owner: string, repo: string): void {
-  evictTrendEnrichCacheByKey(trendEnrichKey(owner, repo));
 }
 
 /** 详情治愈的缓存驱逐全集：id / owner-repo / github 前缀一并清除。 */
@@ -891,13 +876,12 @@ export function formatStars(count: number): string {
 }
 
 /**
- * 跨源匹配 catalog.json 本地应用。
- * P1正确性（C1 owner佐证）：仅当 owner 佐证时才命中，跨 owner 永不命中——
+ * 跨源匹配 catalog.json 本地应用：仅 owner 佐证才命中，跨 owner 永不命中——
  * - aId === tId（canonical id 全等），或
  * - 归一 fullName 相等（`owner/repo` 小写全等，含 tId 本身即 fullName 的情形），或
  * - owner 与 repo 同时相等；
- * repo 单字段 / name 模糊分支已删除（同名不同 owner 如 `acme/atlas` vs `evil/atlas`
- * 绝不互命中，避免错绑卡片与平台误判）。
+ * 无 repo 单字段 / name 模糊匹配，同名不同 owner（如 `acme/atlas` vs `evil/atlas`）
+ * 绝不互命中，避免错绑卡片与平台误判。
  */
 export function matchCatalogApp(trend: TrendRepo, catalogApps: AppSummary[]): AppSummary | undefined {
   const tId = normalizeId(trend.id);
@@ -917,7 +901,7 @@ export function matchCatalogApp(trend: TrendRepo, catalogApps: AppSummary[]): Ap
     // 2. 归一 fullName 相等（tId 本身即 fullName 的情形 + owner/repo 拼出的 fullName）
     if (tId && aFullName && aFullName === tId) return true;
     if (tFullName && aFullName && aFullName === tFullName) return true;
-    // 3. owner + repo 同时相等（与 2 同构，显式保留作 owner 佐证主口径）
+    // 3. owner + repo 同时相等（owner 佐证）
     if (tOwner && tRepo && aOwner === tOwner && aRepo === tRepo) return true;
 
     return false;

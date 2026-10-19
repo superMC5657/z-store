@@ -4,7 +4,7 @@ import { Play, MinusCircle } from 'lucide-react';
 import type { InstalledApp } from '../../types';
 import { FlyoutMenu } from '../../components/FlyoutMenu';
 
-export interface InstalledItemActionsProps {
+interface InstalledItemActionsProps {
   app: InstalledApp;
   isFrozen: boolean;
   isHidden: boolean;

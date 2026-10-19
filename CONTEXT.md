@@ -16,7 +16,7 @@
 | **多端应用标识符** | `Platform Identifiers` | 按操作系统（Windows、Linux、macOS、Android、iOS）区分的原生进程/包名标识符映射字典，用于精准匹配管理与启动。 | 执行文件名、进程表 |
 | **双维目录筛选** | `Bi-dimensional Filter` | 分类浏览中心提供的“设备平台（全部/Windows/Android/macOS/Linux/iOS）”与“功能分类（开发、影音等 10 类）”双维交叉过滤机制。其中设备平台轴取值为全部 + Windows/Android/macOS/Linux/iOS 五端，全部为不过滤快捷方式；空选择（`[]`）表示什么都不选，视图渲染空筛选状态；缺少本地键时回退全选，仅显式 `[]` 渲染空状态。 | 标签过滤、分类切换 |
 | **应用概要** | `AppSummary` | 列表页展示的轻量级实体，包含 Star 数、协议、分类、图标、多端平台支持与最新版本信息。 | 应用简报、AppInfo |
-| **应用详情** | `AppDetail` | 弹窗呈现的完整元数据，包含对应 Release 的构建资产列表 (`assets`)、官方 README Markdown、分类与多端标识符等字段（以 `src-tauri/src/models.rs` 为准）。 | 详细信息、FullApp |
+| **应用详情** | `AppDetail` | 弹窗呈现的完整元数据，包含对应 Release 的构建资产列表 (`releases`)、官方 README Markdown、分类与多端标识符等字段（以 `src-tauri/src/models.rs` 为准）。 | 详细信息、FullApp |
 | **构建资产** | `ReleaseAsset` | Release 附带的编译产物二进制包（如 `.msi`、`.exe`、`.zip`、`.tar.gz`/`.tgz`/`.tar.xz`/`.tar`、`.deb`、`.dmg`、`.apk`，其中 `.7z`/`.tar.bz2`为Download-Only），带有平台架构分类。 | 附件、下载包、安装文件 |
 | **托管源提供者** | `ForgeProvider` | 统一源代码托管抽象层，原生支持 GitHub、Codeberg、Gitea、GitLab 等开源代码源。详见 ADR-0006。 | 仓库源、平台接口 |
 | **校验清单** | `Checksum Manifest` | Release 附带的 `checksums.txt` / `SHA256SUMS`，记录官方预期 SHA-256 哈希值。 | 哈希表、签名文件 |
@@ -41,7 +41,7 @@
 | **流式更新检查** | `Streaming Update Check` | 更新中心采用并发管道流式检测，实时发射 `zstore://update-check-progress` 推流事件，驱动逐项跳出微动效。 | 批量更新、后台检测 |
 | **统一配置中枢** | `Unified Project Config` | `src-tauri/config.toml` 作为项目超参与默认配置的单一配置源 (SSOT)，结合编译期宏内置兜底与运行期动态重载。 | 配置文件、硬编码常量 |
 | **规范应用标识** | `Canonical App Id` | 全系统唯一应用标识，统一为小写 `owner/repo`（GitHub）或 `forge[:host]:owner/repo`（多源）；id 即仓库坐标本身。入站标识（命令/深链/导入）一律经 `canonical_app_id()` 归一化，目录检索仅按 id 唯一匹配。详见 ADR-0010。 | 随机 UUID、应用别名 ID |
-| **统一图标获取** | `IconFetch` | 后端统一图标补探核心（`src-tauri/src/github/icon_fetch.rs:fetch_icons_stream`），搜索与趋势后台均已接入流式补齐；仅负责探测与调度，不触 DB；逐张经统一事件 `zstore://icon-ready` 发射（`id` 即小写 `owner/repo`，与 DB 主键同源），前端统一由 `iconStore.applyHit` 收口。 | 图标管道、补图核心 |
+| **统一图标获取** | `IconFetch` | 后端统一图标补探核心（`src-tauri/src/github/icon_fetch.rs:fetch_icons_stream`），搜索与趋势后台均已接入流式补齐；仅负责探测与调度，不触 DB；逐张经统一事件 `zstore://icon-ready` 发射（`id` 即小写 `owner/repo`，与 DB 主键同源），前端统一由 `iconStore.admitIconHit` 收口。 | 图标管道、补图核心 |
 | **搜索列表缓存** | `Search List Cache` | 搜索页纯前端内存搜缓存（搜缓存=搜索 L1，`services/search/searchListCache.ts`），key=`search\|归一query\|page\|perPage`，TTL 30min、空不存、上限 50 条 FIFO；不碰榜缓存二级落盘与趋势榜缓存。 | 搜索缓存、结果缓存 |
 | **待收录草稿** | `Draft` | 暂存于本地 `custom_apps` 表、尚未提交至独立生态清单仓库的收录候选条目（`status=draft`），经暂存校验（canonical 身份对齐）后参与合并目录视图，提交时才强制全字段校验。 | 草稿箱、未提交应用 |
 | **自维护** | `Maintained` | 用户在本地自维护的收录条目（`custom_apps` 未归档行），经 overlay 合并进入目录视图并以 `source=custom` 标识，远端命中后自动转正归档。 | 本地条目、自定义应用 |
@@ -75,19 +75,19 @@
 5. **D5 双池复用 (Dual-Pool Client Reuse)**:
    - API 与图标下载使用物理隔离的复用单例 Client，均配置 connect_timeout 5s、keepalive 60s、pool 20/idle 90s；图标 CDN 通道恒丢 token，绝不携带认证头。
 6. **D6 有限并发 (Bounded Concurrency)**:
-   - 明星榜 `buffered(4)`、更新检查 `buffer_unordered(6)`（主路径与关注通知两处，见 `updates_check.rs:331,455`），首命中即停并按原顺序回填结果；SimpleIcons 快路径逐 slug 验图 `buffered(3)`（见 `github/icon_probe.rs:524`）。
-    - 统一图标补探 `IconFetch` 有界池 `pool=5` 无序并发（`buffer_unordered(pool)`，见 `github/icon_fetch.rs:295`；配置见 `config.rs:97-102 IconFetchConfig`）：搜索与趋势后台均经该核心逐张 `emit` 流式补齐；趋势 enrich 批量直查侧 `buffered(5)` 保序等齐（见 `commands/catalog_search.rs:593,632`，详见 ADR-0015）。
+   - 明星榜 `buffered(4)`、更新检查 `buffer_unordered(6)`（`commands/updates_check.rs` 主路径与关注通知两处），首命中即停并按原顺序回填结果；SimpleIcons 快路径逐 slug 验图 `buffered(3)`（见 `github/icon_probe.rs`）。
+    - 统一图标补探 `IconFetch` 有界池 `pool=5` 无序并发（`buffer_unordered(pool)`，见 `github/icon_fetch.rs`；配置见 `config.rs` 的 `IconFetchConfig`）：搜索与趋势后台均经该核心逐张 `emit` 流式补齐；趋势 enrich 批量直查侧 `buffered(5)` 保序等齐（见 `commands/catalog_search.rs`，详见 ADR-0015）。
 7. **D7 有限重试 (Limited Retry)**:
    - 仅 GET 可重试，仅覆盖传输错误与 429/5xx，最多重试 2 次并按 200ms→800ms 退避；401/404/304 永不重试。
 8. **D8 首包验图与跳过 (First-Bytes Verify & Skip)**:
    - 图标先 HEAD 判类型长度，再 Range 取前 32KB 验 magic，失败回退全量 GET，并以 300B 最小阈值卡掉 LFS 指针文件；下载前 SHA-256 命中即零网络跳过，ETag 收敛至统一 helper，force 模式跳过 DB 读取。
 9. **D9 趋势与首页 (Trending & Home)**:
-   - 趋势复用共享 Client（见 `src-tauri/src/lib.rs:86-100`），经 tokio 10s 超时并截断 2MB 防爆内存；榜缓存一级内存分档（榜 L1，daily 1h/weekly-monthly-new 12h/其余 5min）+ 榜缓存二级落盘双档（榜 L2，daily 1h/其余 12h，见 `src/services/trends/cache.ts:19-21`；有效 TTL 扣抖动，见 `src/services/trends/cache.ts:42-59`）；内存 200 有界（见 `src/services/trends/cache.ts:31`）、切榜 sweep 无 timer；写盘 FE 256KB 预检、超限逐级裁剪（见 `src/services/trends/cache.ts:33,322`）、BE 512KiB 硬拒绝（见 `src-tauri/src/db/cache.rs:215,249`）；enrich 单次批量 40 上限（整批失败即整批缺席，不抛错，缺席留占位，避免第二片顶掉第一片慢尾）；429 透传 `retry_after_ms` 单次重试（上限 60s 缺省 5s，见 `src/services/trends/cache.ts:23-25`；详见 ADR-0014）；趋势 enrich 后台流式补探（首屏快返 + `fetch_icons_stream(Trend)` 逐张 emit，见 `src-tauri/src/commands/catalog_search.rs:729`），enrich 批量直查侧 `buffered(5)` 保序等齐（见 `src-tauri/src/commands/catalog_search.rs:593,632`）。首页固定 balanced 排序与 seed 7（见 `src/views/HomeView/useHomeFeed.ts:69-70`），不提供策略切换工具条。
+   - 趋势复用共享 Client（`shared_http_client`，见 `src-tauri/src/lib.rs`），经 tokio 10s 超时并截断 2MB 防爆内存；榜缓存一级内存分档（榜 L1，daily 1h/weekly-monthly-new 12h/其余 5min）+ 榜缓存二级落盘双档（榜 L2，daily 1h/其余 12h，见 `src/services/trends/cache.ts` 的 `TREND_DB_TTL_MS` / `TREND_DB_DAILY_TTL_MS`；有效 TTL 扣抖动，见同文件 `trendL2EffectiveTtlMs`）；内存 200 有界（`TRENDS_CACHE_MAX_ENTRIES`）、切榜 sweep 无 timer；写盘 FE 256KB 预检、超限逐级裁剪（`TREND_DB_PAYLOAD_MAX_BYTES`）、BE 512KiB 硬拒绝（见 `src-tauri/src/db/cache.rs` 的 `TREND_BOARD_CACHE_MAX_BYTES`）；enrich 单次批量 40 上限（整批失败即整批缺席，不抛错，缺席留占位，避免第二片顶掉第一片慢尾）；429 透传 `retry_after_ms` 单次重试（上限 60s 缺省 5s，见 `src/services/trends/cache.ts` 的 `DOFORCE_RETRY_MAX_WAIT_MS` / `DOFORCE_RETRY_DEFAULT_WAIT_MS`；详见 ADR-0014）；趋势 enrich 后台流式补探（首屏快返 + `fetch_icons_stream(Trend)` 逐张 emit，见 `src-tauri/src/commands/catalog_search.rs`），enrich 批量直查侧 `buffered(5)` 保序等齐（同上）。首页固定 balanced 排序与 seed 7（见 `src/views/HomeView/useHomeFeed.ts`），不提供策略切换工具条。
 10. **D10 统一图标获取 (Unified Icon Fetch)**:
-    - 后端统一核心为 `src-tauri/src/github/icon_fetch.rs:229 fetch_icons_stream`，搜索与趋势后台均接入该核心逐张补齐。
-    - 前端图标写入口唯一收口于 `src/services/iconStore.ts:703 applyHit`。
-    - 搜缓存为 `src/services/search/searchListCache.ts` 纯前端内存缓存（key=`search|归一query|page|perPage`，见 `buildSearchListCacheKey:55`；TTL 30min 见 `SEARCH_LIST_TTL_MS:8`、上限 50 条 FIFO 见 `SEARCH_LIST_MAX_ENTRIES:10`），不碰榜缓存二级落盘与趋势榜缓存。
-    - 图标就绪事件：只发 `zstore://icon-ready`（见 `src-tauri/src/github/icon_fetch.rs:126 emit_icon_ready`），前后端同一事件，载荷 `{id,icon,level,via,context}`（`id` 即小写 `owner/repo`，与 DB 主键同源）。
+    - 后端统一核心为 `src-tauri/src/github/icon_fetch.rs` 的 `fetch_icons_stream`，搜索与趋势后台均接入该核心逐张补齐。
+    - 前端图标写入口唯一收口于 `src/services/iconStore.ts` 的 `admitIconHit`。
+    - 搜缓存为 `src/services/search/searchListCache.ts` 纯前端内存缓存（key=`search|归一query|page|perPage`，见 `buildSearchListCacheKey`；TTL 30min 见 `SEARCH_LIST_TTL_MS`、上限 50 条 FIFO 见 `SEARCH_LIST_MAX_ENTRIES`），不碰榜缓存二级落盘与趋势榜缓存。
+    - 图标就绪事件：只发 `zstore://icon-ready`（见 `src-tauri/src/github/icon_fetch.rs` 的 `emit_icon_ready`），前后端同一事件，载荷 `{id,icon,level,via,context}`（`id` 即小写 `owner/repo`，与 DB 主键同源）。
     - 详情仍走最强探测（动态分支 + 图标 L4=README，需网络；L3仅默认分支，详情失败用HEAD，README默认+HEAD），不受统一核心约束。
     - level纯L(1=L1官方,2=L2品牌库,3=L3仓库,4=L4 README)；缓存只用M(M1=前端内存，M2=DB落盘)，
       经 `via`=live|m2 正交表达（core探测一律live，DB回填走m2不占level）；level:4=L4。

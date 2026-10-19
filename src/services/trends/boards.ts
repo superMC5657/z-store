@@ -35,7 +35,7 @@ import {
   sortByHealthyScore,
 } from './parse';
 
-export type TimeBoardId = 'daily' | 'weekly' | 'monthly';
+type TimeBoardId = 'daily' | 'weekly' | 'monthly';
 
 /** Board → trending `?since=` 参数的单一映射（SSOT）。 */
 export const TRENDING_SINCE: Record<TimeBoardId, 'daily' | 'weekly' | 'monthly'> = {
@@ -54,10 +54,10 @@ export const TREND_BOARD_IDS: readonly TrendBoardId[] = [
   'healthy',
 ];
 
-export type TrendGainKey = 'today' | 'week' | 'month';
+type TrendGainKey = 'today' | 'week' | 'month';
 
 /** 榜单 → gain 文案口径（today/week/month），一处维护。 */
-export const BOARD_GAIN_KEY: Record<TrendBoardId, TrendGainKey> = {
+const BOARD_GAIN_KEY: Record<TrendBoardId, TrendGainKey> = {
   daily: 'today',
   weekly: 'week',
   monthly: 'month',
@@ -72,7 +72,7 @@ export function boardGainKey(board: TrendBoardId): TrendGainKey {
 }
 
 /** 时间榜判定（TRENDING_SINCE 单一映射的唯一出口，替代散写的 `in` 检查）。 */
-export function isTimeBoard(board: string): board is TimeBoardId {
+function isTimeBoard(board: string): board is TimeBoardId {
   return board in TRENDING_SINCE;
 }
 
@@ -177,7 +177,7 @@ async function runBoardFetch(
   }
 }
 
-export type BoardHydratedListener = (board: string, key: string) => void;
+type BoardHydratedListener = (board: string, key: string) => void;
 const boardHydratedListeners = new Set<BoardHydratedListener>();
 
 /**

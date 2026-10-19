@@ -2,9 +2,8 @@
  * L5 配线回归（用户报障：详情切到 L5 后富卡/列表不变旧图 stale）。
  *
  * 驱动精确症状的真实代码路径：渲染详情 Header，点击轮换按钮切到 L5，
- * 断言切流经店内唯一写口 `admitIconHit({ icon: '', level: 5 })`（P1 后架构约束）。
- * 当前代码 L5 分支只调 `clearBufferedIcon`（清内存、不通知列表/镜像），
- * 故本断言为红；修完变绿。另断言弹窗自身即时变徽章（两版本皆绿，防误伤）。
+ * 断言切流经店内唯一写口 `admitIconHit({ icon: '', level: 5 })`。
+ * 另断言弹窗自身即时变徽章（防误伤）。
  */
 import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -129,7 +128,7 @@ describe('Header L5 cycle goes through the sole write', () => {
     await waitFor(() => {
       expect(hooks.cycleAppIcon).toHaveBeenCalledWith(APP_ID);
     });
-    // 核心断言：L5 必须走唯一写口（当前代码只调 clearBufferedIcon → 此处为红）。
+    // 核心断言：L5 必须走唯一写口。
     await waitFor(() => {
       expect(hooks.admitIconHit).toHaveBeenCalledWith(
         expect.objectContaining({ icon: '', level: 5 }),
@@ -137,7 +136,7 @@ describe('Header L5 cycle goes through the sole write', () => {
     });
   });
 
-  it('弹窗自身切 L5 即时变徽章（不受本次回归影响）', async () => {
+  it('弹窗自身切 L5 即时变徽章', async () => {
     const { container } = render(
       <Header
         app={fixtureApp()}

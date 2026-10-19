@@ -5,7 +5,7 @@ import { tauriApi } from '../../../services/api';
 import type { AppSettings, CacheUsageStats } from '../../../types';
 import { formatBytes } from '../../../utils/appHelper';
 
-export interface StorageSectionProps {
+interface StorageSectionProps {
   downloadDir: string;
   portableDir: string;
   highlightRow: string | null;

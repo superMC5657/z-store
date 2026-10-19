@@ -16,7 +16,7 @@
 
 ## 2. 决策
 
-1. **新表 `custom_apps`**（`db/schema.rs`，第 15 张核心表）：
+1. **新表 `custom_apps`**（`db/schema.rs`，第 17 个 `CREATE TABLE`）：
    `id TEXT PK`（canonical，仅小写 `owner/repo`；本项目只做 GitHub 平台，
    `forge[:host]:owner/repo` 形态不在项目范围）/ `payload_json TEXT`（完整 `CatalogItem` 字段：
    名称、坐标、图标、描述、分类、别名、版本、协议、星数、`is_verified=false`、

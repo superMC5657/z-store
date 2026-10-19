@@ -178,7 +178,7 @@ impl CatalogService {
                         safe_url,
                         summaries.len()
                     );
-                    // Wave2：`search done` 的 INFO 唯一归属 commands/catalog，此处结论降级为 debug，
+                    // `search done` 的 INFO 唯一归属 commands/catalog，此处结论降级为 debug，
                     // 单次搜索只产生一行 INFO `search done`（行为链），避免双 INFO。
                     log::debug!(
                         "http resp search done sid={} req={} host={} hits={} elapsed_ms={}",

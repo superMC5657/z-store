@@ -420,7 +420,7 @@ pub fn get_confirmed_icons_batch(
         .collect())
 }
 
-/// P0 stale 契约：瞬时失败（401/限流/离线）永不污染 SQLite。
+/// stale 契约：瞬时失败（401/限流/离线）永不污染 SQLite。
 /// - 合成空（无缓存失败）以 `is_stale=true` 返回，调用方跳过落库，无旧行则不建行；
 /// - stale 穿透（复用旧行）保持旧行不动（含 `cached_at` 不刷新），`Ok(stale)` 为 IPC 形状约定；
 /// - 前端必须将 `stale + releases/platforms 双空` 视为 loading/待 backfill-loading，永不确认 Other。
@@ -743,7 +743,7 @@ pub async fn get_app_details_impl(
                     // 落盘前占位根治：未收录仓 detail 占位简介若能从 ETag repo 真值回填则替换，
                     // 避免占位永久落盘导致 recents 永远吐占位；已收录仓人工精校优先直接跳过。
                     // 已收录含本地收录行（仅 `status==collected`），与远端同行为。
-                    // （fetch 侧 B1 已用 fresh repo_info 治愈，此处补 repo 401/失败但 ETag 仍有旧真值的缺口；同步读不触网。）
+                    // （fetch 侧已用 fresh repo_info 治愈，此处补 repo 401/失败但 ETag 仍有旧真值的缺口；同步读不触网。）
                     if catalog_or_collected_item(&state, &clean_id).is_none() {
                         let need_desc =
                             crate::github::detail_fetch::is_placeholder_description(
@@ -828,7 +828,7 @@ pub async fn get_app_details_impl(
                             let _ = db.upsert_icon_cycle(c);
                         }
                     }
-                } // end non-stale non-empty save branch (P0: stale/empty-empty skip above)
+                } // end non-stale non-empty save branch (stale/empty-empty skip above)
             }
             log::debug!(
                 "db_save done id={} sid={} req={} elapsed_ms={}",

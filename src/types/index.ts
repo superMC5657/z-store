@@ -173,7 +173,7 @@ export interface SyncCatalogResult {
   message: string;
 }
 
-export interface ScannedRawApp {
+interface ScannedRawApp {
   display_name: string;
   display_version: string;
   publisher?: string;
@@ -231,7 +231,7 @@ export interface DeveloperProfile {
   repos: DeveloperRepoItem[];
 }
 
-export interface DeveloperRepoItem {
+interface DeveloperRepoItem {
   id: string;
   name: string;
   full_name: string;
@@ -322,7 +322,7 @@ export interface OAuthDeviceStartResult {
   interval: number;
 }
 
-export type OAuthPollStatus = 'pending' | 'authorized' | 'expired' | 'denied' | 'error';
+type OAuthPollStatus = 'pending' | 'authorized' | 'expired' | 'denied' | 'error';
 
 export interface OAuthPollResult {
   status: OAuthPollStatus;
@@ -352,7 +352,7 @@ export interface CacheUsageStats {
 }
 
 // FR-6.3-manual: 用户数据手动导出 / 导入（纯文件同步，M2 服务端同步为远期规划）
-// P1-8: 备份覆盖除 github_token 之外的全部设置项。github_token（PAT 凭据）
+// 备份覆盖除 github_token 之外的全部设置项。github_token（PAT 凭据）
 // 出于安全考虑被刻意排除：永不写入备份文件，导入侧白名单同样拒绝该键。
 export interface UserDataBackupSettings {
   theme?: string;
@@ -404,7 +404,7 @@ export interface TrendRepo {
    * doforce change 等）时为 defined；缺失/不可解析时一律为 undefined，
    * 绝不回退为总 stars。UI 契约：仅在 defined 时渲染 +N 徽标，
    * undefined 一律不渲染。
-   * 排序契约（P1-C2）：`compareStarsGainedDesc` 中 undefined 恒沉底，
+   * 排序契约：`compareStarsGainedDesc` 中 undefined 恒沉底，
    * 双 defined 比大小，tie 按 id 升序（见 `services/trends/parse.ts`）。
    */
   starsGained?: number;
@@ -426,7 +426,7 @@ export interface FetchTrendsOptions {
 
 // 趋势抓取结果契约（UI 空态/错误 lane 依赖，保持 STABLE）。
 // status: 'ok' = 有数据；'empty' = 远端合法空结果；'error' = 失败（见 errorKind）。
-export type TrendsStatus = 'ok' | 'empty' | 'error';
+type TrendsStatus = 'ok' | 'empty' | 'error';
 
 export type TrendsErrorKind = 'network' | 'timeout' | 'rate-limited' | 'unavailable';
 

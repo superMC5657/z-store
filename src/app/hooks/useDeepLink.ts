@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import type { ViewType } from '../../types';
 import { tauriApi } from '../../services/api';
 
-export interface UseDeepLinkParams {
+interface UseDeepLinkParams {
   handleOpenDetail: (id: string) => void;
   handleSearchChange: (q: string) => Promise<void> | void;
   setSelectedDeveloper: (dev: string | null) => void;

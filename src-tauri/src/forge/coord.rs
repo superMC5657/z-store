@@ -232,7 +232,7 @@ impl RepositoryUrlParser {
     }
 }
 
-/// B3-G11：图标已确认记录的大小写容错查询 SSOT（db 查询侧）。
+/// 图标已确认记录的大小写容错查询 SSOT（db 查询侧）。
 /// 收拢散落在调用方的 `to_lowercase` 多段回退；解析器本身保持大小写保留、不被污染。
 /// 查询顺序：`app_id` 原值 → `canonical_app_id` → 小写 → `owner/repo`（解析器优先）原值 → 小写；
 /// `owner/repo` 优先经 `RepositoryUrlParser::parse(app_id)` 推导（SSOT），回退调用方传入值；命中即返。

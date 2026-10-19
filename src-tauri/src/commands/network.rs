@@ -139,7 +139,7 @@ pub async fn fetch_trends_text(url: String) -> Result<String, String> {
     };
     let status = resp.status();
     if !status.is_success() {
-        // Phase2治理：429 透传 Retry-After（FE doforceRetryDelayMs 按秒/HTTP-date 或 retry_after_ms 毫秒兑现）。
+        // 429 透传 Retry-After（FE doforceRetryDelayMs 按秒/HTTP-date 或 retry_after_ms 毫秒兑现）。
         // 限流日志不占单飞槽计数：此处仅打日志，无额外状态/槽位占用。
         if status.as_u16() == 429 {
             let raw_retry_after = resp

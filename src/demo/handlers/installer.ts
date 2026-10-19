@@ -106,10 +106,6 @@ export function handleGetCachedUpdates(): UpdateItem[] {
   return cachedUpdatesSnapshot.map((u) => ({ ...u }));
 }
 
-/** demo 重置钩子（测试/重注水时清快照；生产链路不调用）。 */
-export function resetCachedUpdatesSnapshot(): void {
-  cachedUpdatesSnapshot = null;
-}
 
 export function handleGetUpdateRules(): UpdateRule[] {
   return [];

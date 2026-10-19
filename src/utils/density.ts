@@ -1,5 +1,5 @@
 /** Shared density helpers (single source for font scale + app zoom factor). */
-export const FONT_SCALE_MAP: Record<string, string> = {
+const FONT_SCALE_MAP: Record<string, string> = {
   '12': '0.86',
   '14': '1',
   '16': '1.14',

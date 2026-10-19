@@ -437,7 +437,7 @@ describe('PendingView 草稿字段可改性与锁定规则（Oracle 定稿落实
   });
 });
 
-describe('PendingView P0/P1/P2 回归（id 自由输入 + duplicate 警告 + 旧 key 迁移）', () => {
+describe('PendingView 回归（id 自由输入 + duplicate 警告 + 旧 key 迁移）', () => {
   it('新建态 id 手输大写/空格不被改写，失焦提示 canonical', async () => {
     await i18n.changeLanguage('zh-CN');
     render(<PendingView showBatchBar={false} />);

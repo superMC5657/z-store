@@ -17,7 +17,6 @@ import {
 import {
   TREND_ENRICH_CACHE_MAX_ENTRIES,
   TREND_ENRICH_MAX_TOTAL,
-  TREND_ENRICH_SHARD_SIZE,
   clearTrendEnrichCache,
   enrichTrendRepos,
   putTrendEnrichMemory,
@@ -236,8 +235,7 @@ describe('Phase2治理：单批量 40 上限', () => {
     vi.restoreAllMocks();
   });
 
-  it('回滚锚点保留：SHARD_SIZE 仍为 20（已停用）', () => {
-    expect(TREND_ENRICH_SHARD_SIZE).toBe(20);
+  it('单次 enrich 上限 40 仓', () => {
     expect(TREND_ENRICH_MAX_TOTAL).toBe(40);
   });
 

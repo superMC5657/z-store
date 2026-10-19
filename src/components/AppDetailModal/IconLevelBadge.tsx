@@ -9,7 +9,7 @@ export const ICON_LEVEL_NAMES: Record<number, string> = {
   5: '首字母',
 };
 
-export interface IconLevelBadgeProps {
+interface IconLevelBadgeProps {
   isCataloged: boolean;
   isCyclingIcon: boolean;
   nextLevelTitle: string;

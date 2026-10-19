@@ -1,5 +1,5 @@
-//! OAuth 请求段收敛（B2-G8）：Star/Device 共用发送与 401/403 映射。
-//! 不碰 Header 常量（G2）与 ETag 日志（G4），仅收敛请求发送样板。
+//! OAuth 请求段收敛：Star/Device 共用发送与 401/403 映射。
+//! 不碰 Header 常量与 ETag 日志，仅收敛请求发送样板。
 
 /// 带认证通用请求：Star 三函数共用（send + rate_limit 上报收敛于此）。
 pub async fn authed_req(

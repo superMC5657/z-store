@@ -115,11 +115,6 @@ pub fn rank_feed_with_strategy(
     scored.into_iter().map(|(_, app)| app).collect()
 }
 
-/// 纯函数：默认 Balanced 的便捷包装（发现页直接用）。
-pub fn rank_feed(items: Vec<AppSummary>, seed: Option<u64>) -> Vec<AppSummary> {
-    rank_feed_with_strategy(items, seed, FeedStrategy::Balanced)
-}
-
 /// 纯函数：分页切片（供 get_home_feed / search_apps 分页复用，边界守好）。
 /// 返回 (page_items, total, has_more)，has_more = (offset+limit) < total（saturating）。
 pub fn paginate_feed<T: Clone>(items: &[T], limit: usize, offset: usize) -> (Vec<T>, usize, bool) {

@@ -10,7 +10,7 @@ import {
 } from '../../services/search/searchListCache';
 import { zlogWarn } from '../../lib/z-log';
 
-export interface UseSearchStateParams {
+interface UseSearchStateParams {
   currentView: ViewType;
   setCurrentView: (view: ViewType) => void;
   setApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
@@ -123,7 +123,7 @@ export function useSearchState({
   onlineAppsRef.current = onlineApps;
 
   // 搜索 stale 守卫 + 错误回退合一：seq 过期返回 true（调用方直接 return）；
-  // 否则若传入 err 则记录日志并执行 fallback，返回 false。日志内容与回退行为与原内联代码保持一致。
+  // 否则若传入 err 则记录日志并执行 fallback，返回 false。
   const guardFreshSearch = (seq: number, err?: unknown, logPrefix?: string, fallback?: () => void): boolean => {
     if (seq !== searchSeqRef.current) return true;
     if (err !== undefined && logPrefix !== undefined) {

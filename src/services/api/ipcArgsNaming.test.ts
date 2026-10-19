@@ -110,7 +110,8 @@ describe('ipc args naming (camelCase)', () => {
     }
   }
 
-  it('catalog 包装器一律 camelCase（含本次收敛的 8 处）', async () => {    const swallow = async (p: Promise<unknown>): Promise<void> => {
+  it('catalog 包装器一律 camelCase', async () => {
+    const swallow = async (p: Promise<unknown>): Promise<void> => {
       try {
         await p;
       } catch {

@@ -1,5 +1,5 @@
 /**
- * P2-7 — 批量安装按钮绝不能处于永久卡住状态。
+ * 批量安装按钮绝不能处于永久卡住状态。
  *
  * 契约规范：`handleBatchInstallAll` 依次等待每个应用安装；单个应用安装失败
  * 绝不能导致 `isBatchInstalling` 永久停留在 true。按钮必须重新变为可用状态，
@@ -21,7 +21,7 @@ afterEach(() => {
 
 // 批量安装夹具经 test-utils/filterFixture.makeApp 构造。
 
-describe('P2-7: batch install survives a single item failure', () => {
+describe('batch install survives a single item failure', () => {
   it('single failure ⇒ button live again + error count shown, remaining items still attempted', async () => {
     const appA = makeApp({ id: 'owner/app-a', name: 'AppA' });
     const appB = makeApp({ id: 'owner/app-b', name: 'AppB' });

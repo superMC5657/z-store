@@ -1,5 +1,5 @@
 /**
- * 趋势未收录行徽标锁定（review findings B3 / badge lane）：
+ * 趋势未收录行徽标锁定：
  * - 未收录 enrich 行安装态走真实已安装检查（归一 ID），禁止回退硬编码 false；
  * - 大小写变体 ID 下徽标与收录行一致（managed 绿）；
  * - managed 未加载（managedIds=null）时已安装命中行渲染中性占位。

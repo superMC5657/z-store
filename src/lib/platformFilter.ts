@@ -45,13 +45,13 @@ export function normalizePlatform(p: string): string {
 }
 
 /** 加载中判定的最小行形态（`AppSummary`/`AppDetail` 均满足；本模块唯一行形态）。 */
-export interface LoadingRow {
+interface LoadingRow {
   id?: string;
   platforms?: string[];
 }
 
 /** 平台列表是否为空（缺失或空数组即视为空，后端保持 `[]` 不打标）。 */
-export function isPlatformEmpty(app: LoadingRow): boolean {
+function isPlatformEmpty(app: LoadingRow): boolean {
   return !app.platforms || app.platforms.length === 0;
 }
 
@@ -74,17 +74,6 @@ export function isPlatformLoading(
   const key = normalizeLoadingKey(app.id);
   if (!key) return true;
   return !resolvedOtherIds.has(key);
-}
-
-/** 已确认 other：为空且已有详情背书（在追踪集合中）。 */
-export function isConfirmedOther(
-  app: LoadingRow,
-  resolvedOtherIds: ReadonlySet<string>,
-): boolean {
-  if (!isPlatformEmpty(app)) return false;
-  const key = normalizeLoadingKey(app.id);
-  if (!key) return false;
-  return resolvedOtherIds.has(key);
 }
 
 /**
@@ -180,7 +169,7 @@ export interface LoadingLiteTarget {
 }
 
 /** lite 通道返回（与 `getPlatformsLite` 对齐：stale 即无权威，空非 stale 即已确认）。 */
-export interface LoadingLiteResult {
+interface LoadingLiteResult {
   platforms?: readonly string[] | null;
   is_stale?: boolean | null;
 }
@@ -191,7 +180,7 @@ export interface LoadingLiteResult {
  * stale/失败/异常一律保持 loading（既不治愈也不确认，交由 settle 超时兜底）；
  * 非空治愈进 `patched`，空非 stale 进 `confirmedEmpty`。
  */
-export async function resolveLoadingPlatformsLite(
+async function resolveLoadingPlatformsLite(
   targets: readonly LoadingLiteTarget[],
   fetchLite: (liteId: string) => Promise<LoadingLiteResult | null | undefined>,
   shouldAbort?: () => boolean,
@@ -387,7 +376,7 @@ export function collectListLoadingKeys(
 /* settle 定时：15s 后仍 loading 即降级为已确认 Other（杜绝永久 loading） */
 /* ------------------------------------------------------------------ */
 
-export interface SettleSchedule {
+interface SettleSchedule {
   /** 发起时快照的 loading 键（去重保序后）。 */
   keys: string[];
   /**

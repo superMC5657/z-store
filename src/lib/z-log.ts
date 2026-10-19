@@ -10,7 +10,7 @@ function redact(msg: string): string {
       .replace(/bearer\s+[^\s"'；;,]+/g, 'bearer ***')
       .replace(/Token\s+[^\s"'；;,]+/g, 'Token ***')
       .replace(/token\s+[^\s"'；;,]+/g, 'token ***')
-      // Wave2：与后端 code/device_code/user_code/api_key 键值脱敏对齐（\b 护住 vscode 类路径）。
+      // 与后端 code/device_code/user_code/api_key 键值脱敏对齐（\b 护住 vscode 类路径）。
       .replace(
         /\b(device_code|user_code|api_key|api-key|apikey)\s*[:=]\s*"?[^"'\s,;}]+/gi,
         (_m, k: string) => `${k}=***`,
@@ -45,8 +45,8 @@ function withPrefix(msg: string, meta?: ZLogMeta): string {
   return prefix ? `${prefix} ${msg}` : msg;
 }
 
-// Wave2：StrictMode 双调用去重窗（毫秒）。同一行 1s 内重复只送一行，
-// 行为本身不受影响，去重只发生在日志送达前。
+// StrictMode 双调用去重窗（毫秒）：同一行 1s 内重复只送一行，
+// 去重发生在日志送达前，不影响业务行为。
 let lastLine = '';
 let lastAt = 0;
 const DEDUP_WINDOW_MS = 1000;

@@ -1,5 +1,5 @@
 /**
- * enrich 简化回归：抽取后行为不变。
+ * enrich 缓存与合并契约：
  * - isEnrichCacheFresh：force→缺席→平台→确认→TTL 分支；
  * - enrichTrendReposFresh：与 forceRefresh:true 等价；
  * - mergeEnrichPrev：空/占位回退；

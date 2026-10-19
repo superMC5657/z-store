@@ -1,13 +1,13 @@
 import React from 'react';
 
-export interface SegmentedOption<T extends string | number> {
+interface SegmentedOption<T extends string | number> {
   value: T;
   label: React.ReactNode;
   title?: string;
   disabled?: boolean;
 }
 
-export interface SegmentedControlProps<T extends string | number> {
+interface SegmentedControlProps<T extends string | number> {
   value: T;
   onChange: (value: T) => void;
   options: SegmentedOption<T>[];

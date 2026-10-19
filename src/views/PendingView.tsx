@@ -97,10 +97,10 @@ export interface PendingDraftItem {
   forks?: number;
 }
 
-export type PendingDraftStatus = 'draft' | 'submitted' | 'collected' | 'local_collected';
+type PendingDraftStatus = 'draft' | 'submitted' | 'collected' | 'local_collected';
 
 /** 收录态判定唯一口径收敛于 selectors（本视图仅重导出供内部复用）。 */
-export const isPendingCollectedStatus = isCollectedStatus;
+const isPendingCollectedStatus = isCollectedStatus;
 
 /**
  * 待收录草稿转富卡展示态（collected/submitted 右侧富卡化复用 AppCard）：
@@ -164,9 +164,9 @@ export interface CustomDraftEntry {
   updated_at?: number;
 }
 
-export type PendingGroupId = 'draft' | 'collected' | 'submitted' | 'archived';
+type PendingGroupId = 'draft' | 'collected' | 'submitted' | 'archived';
 
-export interface PendingViewProps {
+interface PendingViewProps {
   /** 受控草稿列表（缺席时走内部本地态）。 */
   entries?: CustomDraftEntry[];
   /** 初始草稿（非受控模式种子，故事/单测用）。 */
@@ -246,7 +246,7 @@ export function normalizeLicense(raw: string): string {
  * 完整快照、纯名单数组（视为门禁开）、`Set` 均可；`null/undefined` 表示
  * 名单未加载——调用方不得回退写死名单（提交提示重试，暂存直接放行）。
  */
-export type LicenseAllowlistInput =
+type LicenseAllowlistInput =
   | LicenseAllowlistResult
   | readonly string[]
   | Set<string>
@@ -276,7 +276,7 @@ export function canonicalDraftId(owner: string, repo: string): string {
   return `${owner.trim().toLowerCase()}/${repo.trim().toLowerCase()}`;
 }
 
-export type PendingDraftErrors = Partial<Record<'id' | 'name' | 'owner' | 'repo' | 'description' | 'category' | 'homepage' | 'license', string>>;
+type PendingDraftErrors = Partial<Record<'id' | 'name' | 'owner' | 'repo' | 'description' | 'category' | 'homepage' | 'license', string>>;
 
 /**
  * 草稿校验档位（与后端 `ValidateMode` 同语义）：
@@ -285,7 +285,7 @@ export type PendingDraftErrors = Partial<Record<'id' | 'name' | 'owner' | 'repo'
  * - `submit`：提交档，全量校验（必填 + `homepage` http(s) + 许可名单 D1），
  *   名单取后端 `get_license_allowlist` 快照。
  */
-export type PendingValidateMode = 'draft' | 'submit';
+type PendingValidateMode = 'draft' | 'submit';
 
 /**
  * 草稿全字段校验（与后端 `validate_custom_item` 同口径的 UI 镜像）：
@@ -454,7 +454,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
   };
 
   // 表单 B/C 分节的展开/收起偏好（localStorage 持久化，A 核心必填不许折叠隐藏；
-  // B 键名已收敛为 supplemental，旧 `optional` 形态由共享模块解析兼容）
+  // B 键名为 supplemental，旧 `optional` 形态由共享模块解析兼容）
   const [openSections, setOpenSections] = useState(() => getPendingSectionPrefs());
 
   const toggleSection = (key: 'supplemental' | 'runtime') => {
@@ -612,7 +612,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
   };
 
   const setField = <K extends keyof PendingDraftItem>(key: K, value: PendingDraftItem[K]) => {
-    // P0：owner/repo 键入仅在 id 为空或仍等于上一次联动值时跟随填充；
+    // owner/repo 键入仅在 id 为空或仍等于上一次联动值时跟随填充；
     // 手输（偏离上次 canonical）一律保留，不逐键改写。
     const prev = form;
     const next = { ...prev, [key]: value };
@@ -695,7 +695,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
     setFormErrors(validatePendingDraft(collectFormItem(), 'submit', effectiveGate));
   };
 
-  // P0：id 失焦校验（DraftLenient 口径：id==canonical 且与 owner/repo 对齐）。
+  // id 失焦校验（DraftLenient 口径：id==canonical 且与 owner/repo 对齐）。
   // 仅Inline提示期望 canonical（复用 id_preview 文案），不改写手输。
   const handleIdBlur = () => {
     if (!form.owner.trim() || !form.repo.trim()) return;
@@ -715,7 +715,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
 
   const collectFormItem = (): PendingDraftItem => ({
     ...form,
-    // P0：不静默丢弃手输 id——非空即原样保留（仅去首尾空格，大小写/内部空格留给校验），
+    // 不静默丢弃手输 id——非空即原样保留（仅去首尾空格，大小写/内部空格留给校验），
     // 为空才回退 canonical；非规范手输由 draft 档校验拦下（id_mismatch），不直接改写。
     id: form.id.trim() ? form.id.trim() : canonicalDraftId(form.owner, form.repo),
     name: form.name.trim(),

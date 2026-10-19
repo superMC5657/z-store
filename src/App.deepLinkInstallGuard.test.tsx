@@ -5,7 +5,7 @@
  * 它必须打开应用详情视图并弹出显式确认弹窗，
  * 仅在用户显式点击确认后方可启动安装。其余四种
  * 深度链接分支（app_detail / search / developer_profile / open_view）
- * 行为与此前完全保持一致。
+ * 各自打开对应视图，均不触发安装。
  */
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';

@@ -12,7 +12,7 @@ import {
   type SeqGuard,
 } from '../../lib/platformFilter';
 
-export interface UsePlatformBackfillParams {
+interface UsePlatformBackfillParams {
   apps: AppSummary[];
   onlineApps: AppSummary[];
   recentlyViewedApps: AppSummary[];

@@ -5,18 +5,18 @@ import { normalizeId, normalizeIdSet } from '../normalizeId';
 /** 搜索列表缓存：M1 内存。key=`search|norm|page|perPage`，TTL 30min，50 条 FIFO，无 timer（提交/翻页时 sweep）。 */
 
 /** 搜索列表缓存 TTL 30min。 */
-export const SEARCH_LIST_TTL_MS = 30 * 60 * 1000;
+const SEARCH_LIST_TTL_MS = 30 * 60 * 1000;
 /** 搜索列表缓存至多 50 条。 */
-export const SEARCH_LIST_MAX_ENTRIES = 50;
+const SEARCH_LIST_MAX_ENTRIES = 50;
 
-export interface SearchListCacheEntry {
+interface SearchListCacheEntry {
   at: number;
   ids: string[];
   rows: AppSummary[];
 }
 
 /** 搜索列表键：归一词 + 页码 + 页大小。 */
-export interface SearchListKey {
+interface SearchListKey {
   query: string;
   page: number;
   perPage: number;
@@ -25,7 +25,7 @@ export interface SearchListKey {
 const searchListCache = new Map<string, SearchListCacheEntry>();
 
 /** 归一搜索词：trim + 小写 + 连续空白（含全角/换行）压单空格；空串调用方拒绝写。 */
-export function normalizeSearchQuery(query: string): string {
+function normalizeSearchQuery(query: string): string {
   if (typeof query !== 'string') return '';
   return query.trim().toLowerCase().replace(/\s+/g, ' ');
 }
@@ -39,7 +39,7 @@ function sanitizePerPage(perPage: number): number {
 }
 
 /** 归一键：词归一 + 页码/页大小钳制。 */
-export function sanitizeSearchListKey(key: SearchListKey): {
+function sanitizeSearchListKey(key: SearchListKey): {
   norm: string;
   page: number;
   perPage: number;
@@ -52,7 +52,7 @@ export function sanitizeSearchListKey(key: SearchListKey): {
 }
 
 /** 缓存键 = search + 归一词 + 页码 + 页大小（翻页不串；大小写/多空格同键）。 */
-export function buildSearchListCacheKey(key: SearchListKey): string {
+function buildSearchListCacheKey(key: SearchListKey): string {
   const { norm, page, perPage } = sanitizeSearchListKey(key);
   return `search|${norm}|${page}|${perPage}`;
 }

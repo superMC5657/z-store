@@ -13,7 +13,7 @@ import { InlineConfirmButton } from '../InlineConfirmButton';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
-export interface InstallActionsProps {
+interface InstallActionsProps {
   app: AppDetailViewModel;
   displayName: string;
   releases: ReleaseAsset[];
@@ -31,7 +31,7 @@ export interface InstallActionsProps {
   onToggleShowAllAssets: () => void;
   isInstalled: boolean;
   isExploreMode: boolean;
-  /** 已纳管。显式 `null` = managed 列表尚未加载（未知）：中性占位（P1）。 */
+  /** 已纳管。显式 `null` = managed 列表尚未加载（未知）：中性占位。 */
   isManaged: boolean | null;
   isUninstallingGlobal: boolean;
   downloadedFile: DownloadAssetResult | null;
@@ -85,7 +85,7 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
 }) => {
   const { t } = useTranslation();
   // 已纳管绿已安装；未纳管走获取安装。
-  // P1 三态：isManaged===null（未知）+ 已安装 = 未知，中性占位。
+  // 三态：isManaged===null（未知）+ 已安装 = 未知，中性占位。
   const isUnknown = isInstalled && isManaged === null;
 
   const statusTitle =
@@ -260,7 +260,7 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
                 )}
               </>
             ) : isUnknown ? (
-              // P1 未知态中性占位（单色骨架，不可交互）
+              // 未知态中性占位（单色骨架，不可交互）
               <button
                 type="button"
                 className="btn-fluent btn-secondary"

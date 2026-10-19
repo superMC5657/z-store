@@ -118,7 +118,7 @@ impl MirrorManager {
         prefix_with_base(proxy, raw_url)
     }
 
-    /// H2：测速专用 HTTP 客户端（短超时 + 浏览器 UA）。
+    /// 测速专用 HTTP 客户端（短超时 + 浏览器 UA）。
     /// `extra_hosts` 追加进 `no_proxy`（被测镜像 host 直连，不另起 Client）。
     fn ping_client(timeout_ms: u64, extra_hosts: &[String]) -> reqwest::Client {
         let builder = reqwest::Client::builder()

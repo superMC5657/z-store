@@ -172,7 +172,7 @@ pub(crate) async fn probe_l3_trees(
 }
 
 /// 匿名单探深核（无 token 免鉴权级）：只跑 L2，不跑 Trees（保护匿名配额），
-/// 不做分支循环（`probe_repo_logo(None)` 本就忽略分支，循环属重复浪费，已删）。
+/// 不做分支循环（`probe_repo_logo(None)` 本就忽略分支，循环属重复浪费）。
 /// `get_or_fetch_icon` 直取失败兜底与 `fetch_anon_probe_bytes` 经此件，不另起第三套。
 pub(crate) async fn probe_anon_simple(
     client: &reqwest::Client,

@@ -12,7 +12,7 @@ export const LS = {
   settings: 'zstore:demo:settings:v1',
 } as const;
 
-export function lsGet<T>(key: string, fallback: T): T {
+function lsGet<T>(key: string, fallback: T): T {
   try {
     const raw = window.localStorage.getItem(key);
     if (!raw) return fallback;
@@ -30,7 +30,7 @@ export function lsSet(key: string, value: unknown): void {
   }
 }
 
-export function lsStringArray(key: string): string[] {
+function lsStringArray(key: string): string[] {
   const v = lsGet<unknown>(key, []);
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
 }

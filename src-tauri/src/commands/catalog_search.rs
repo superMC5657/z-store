@@ -59,7 +59,7 @@ async fn save_and_emit(
     let state = handle.state::<AppState>();
     if let Ok(db) = state.db() {
         // 05 多槽合并：先读旧行再合并（M6），保留已有槽位与 02 pinned 选择；
-        // 新鲜命中按本次命中收编，过期命中仅补对应空槽不降级（P0 守卫，见 `merge_stream_hit`）；
+        // 新鲜命中按本次命中收编，过期命中仅补对应空槽不降级（见 `merge_stream_hit`）；
         // pinned 行仅补对应空槽，不改选中图。
         let mut cycle = db
             .get_icon_cycle(&job.id)
@@ -117,7 +117,7 @@ async fn save_and_emit(
     crate::github::icon_fetch::emit_icon_ready(handle, &ready);
 }
 
-/// 流式命中合并（P0 不降级守卫，纯函数可单测）：新鲜 gen 沿用 `merge_detail_icon` 全量合并；
+/// 流式命中合并（不降级守卫，纯函数可单测）：新鲜 gen 沿用 `merge_detail_icon` 全量合并；
 /// 过期 gen 仅补对应空槽（`fill_probe_slot`），不动 level/selected/cache/updated_at；
 /// pinned 行两者一致（merge 内已是补槽语义，返回 true）。
 fn merge_stream_hit(
@@ -150,7 +150,7 @@ async fn emit_icon_job(
     save_and_emit(&handle, &job, &url, level, &via).await;
 }
 
-/// H8：隐藏规则 id 集合（本地收敛 `search_apps` / `get_category_apps` 重复块）。
+/// 隐藏规则 id 集合（本地收敛 `search_apps` / `get_category_apps` 重复块）。
 pub(crate) fn hidden_rule_ids(state: &AppState) -> std::collections::HashSet<String> {
     if let Ok(db) = state.db() {
         db.get_all_rules()
@@ -249,7 +249,7 @@ pub async fn search_apps(
             .collect()
     };
     // 分页经 `catalog_feed_score::paginate_optional`（域内 SSOT）：None=全量，Some 切 slice。
-    // 空查询 stars 降序、非空线性打分逻辑在 `CatalogService::search_apps` 内保持不变，此处仅切片。
+    // 空查询 stars 降序、非空线性打分由 `CatalogService::search_apps` 承担，此处仅切片。
     let total = filtered.len();
     let paged = crate::github::catalog_feed_score::paginate_optional(filtered, limit, offset);
 
@@ -664,7 +664,7 @@ async fn fetch_enrich_batch(
 ///   确认图标仍经 `pre_confirmed` 短锁回填，platforms 经详情缓存 join 照旧），
 ///   另起 `tokio::spawn(fetch_icons_stream(ctx=Trend{board,board_gen}))` 流式
 ///   `emit_icon_ready` 逐张到达补齐（弱网首屏先出裸行/初始富卡，图标逐个补齐，
-///   空永不覆盖实由前端 `iconStore.applyHit` + 后端合并新鲜度与 emit 前查保证）；
+///   空永不覆盖实由前端 `iconStore.admitIconHit` + 后端合并新鲜度与 emit 前查保证）；
 /// - 世代：每次调用 `BOARD_GEN+1`（切榜/重拉均+1，类比 `SEARCH_GEN`），
 ///   落库/emit 世代防串见唯一 `save_and_emit`（合并新鲜度 + emit 前查 gen，计数器经 `ctx` 选择）。
 /// - `force_refresh` 为手动刷新按钮透传位（前端统一调用签名）；
@@ -906,7 +906,7 @@ mod tests {
 
     #[test]
     fn stale_stream_hit_fills_slot_without_moving_selection() {
-        // P0 不降级守卫：过期 L3 只补 l3 空槽（过期写库），level/selected/cache/updated_at 不动。
+        // 不降级守卫：过期 L3 只补 l3 空槽（过期写库），level/selected/cache/updated_at 不动。
         let l3 = "https://raw.githubusercontent.com/o/r/main/icon.png";
         let mut c = stream_cycle(2, "https://cdn.simpleicons.org/r", false);
         let was_pinned = super::merge_stream_hit(&mut c, 3, l3, false, 2000, false);

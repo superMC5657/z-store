@@ -483,7 +483,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   }, [trendResult, displayItems, activeBoard, trendFetchOpts, boardReady]);
 
   // 当前榜快照同步（render 侧同步 note，供 board debounce/pagehide/confirm 链读取）。
-  // P1-C3 读写同源：key 与 boards 读路径同源（同 board + 同 trendFetchOpts），杜绝读写分叉。
+  // 读写同源：key 与 boards 读路径同源（同 board + 同 trendFetchOpts），杜绝读写分叉。
   if (trendResult?.status === 'ok' && trendResult.repos.length > 0) {
     const { cacheKey, cacheBoard } = resolveBoardCacheKey(activeBoard, trendFetchOpts);
     noteBoardReposForPersist({ cacheKey, cacheBoard, repos: trendResult.repos });

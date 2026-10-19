@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildUserDataBackup, BACKUP_EXCLUDED_KEYS } from './DataBackupRow';
 import type { UserDataBackup } from '../types';
 
-// P1-8（TDD 红灯测试）：备份 schema 必须覆盖除 github_token 之外的全部设置项，
+// 备份 schema 必须覆盖除 github_token 之外的全部设置项，
 // version 保持为 1，且导出 → JSON → 导入后字段无损往返。
 
 // 与 getSettings() 返回形态一致：值全为字符串。
@@ -37,7 +37,7 @@ const EXPECTED_SETTINGS = {
   watch_notify_frequency: 'startup',
 };
 
-describe('DataBackupRow backup schema (P1-8)', () => {
+describe('DataBackupRow backup schema', () => {
   it('导出覆盖全部设置项（12 个），version 保持为 1', () => {
     const backup = buildUserDataBackup(['a/b'], ['c/d'], FULL_SETTINGS);
     expect(backup.version).toBe(1);

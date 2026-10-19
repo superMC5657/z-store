@@ -25,7 +25,7 @@ pub const ROTATION_KEEP_COUNT: usize = 5;
 /// - 降低 reqwest / hyper / tao / wry 等高噪音第三方库级别为 Warn
 /// - 统一将 webview 前端长路径 target 规整为简洁的 [ui]
 ///
-/// 级别策略（Wave1 契约）：INFO 只记行为摘要（结果 / 计数 / 耗时 / host），
+/// 级别策略（INFO 契约）：INFO 只记行为摘要（结果 / 计数 / 耗时 / host），
 /// DEBUG 才记完整 URL 与细节正文；release 默认 Info，故 DEBUG 的完整 URL
 /// 默认不可见（后续任务按需提升）。调用方另用 `log_support::sanitize_url` /
 /// `host_of` / `short_reason` 先脱敏再记行。

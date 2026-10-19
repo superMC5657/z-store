@@ -65,7 +65,7 @@ pub fn classify_asset(filename: &str) -> (AssetKind, &'static str, &'static str)
         };
         (AssetKind::PortableZip, zip_os, arch)
     } else if name_lower.ends_with(".7z") {
-        // P1-4：移除 `.7z` 文件的便携版识别声明 —— 解压器仅支持
+        // 移除 `.7z` 文件的便携版识别声明 —— 解压器仅支持
         // `zip::ZipArchive`，因此 `.7z` 按照下文 `.tar.gz` 的既有惯例归类为 Other（不支持）。不额外引入 7z 依赖。
         (AssetKind::Other, "all", "universal")
     } else if name_lower.ends_with(".tar.bz2") {
@@ -217,7 +217,7 @@ pub fn select_best_asset(
         .filter(|a| a.os == target_os || a.os == "all")
         .collect();
 
-    // P1-5 故障阻断：产物非空但操作系统匹配结果为空时返回 None ——
+    // 故障阻断：产物非空但操作系统匹配结果为空时返回 None ——
     // 绝不可跨系统回退选择产物。
     if os_matches.is_empty() {
         log::debug!("selector decision none candidates={}", assets.len());

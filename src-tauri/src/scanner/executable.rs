@@ -562,7 +562,7 @@ impl AppScanner {
         if let Some(stripped) = rest.strip_prefix("Exec=") {
             rest = stripped.trim();
         }
-        // P0 止血：`flatpak run <appid>` 包装器无本地二进制，禁解析为 `flatpak`
+        // `flatpak run <appid>` 包装器无本地二进制，禁解析为 `flatpak`
         //（否则 which 到 /usr/bin/flatpak 造成全量误报）。大小写不敏感。
         if Self::is_flatpak_shell_wrapper(rest) {
             return None;
@@ -619,7 +619,7 @@ impl AppScanner {
                 idx += 1;
                 continue;
             }
-            // P0 止血：env 前缀后的 `flatpak run` 同样拒识（防 `env .. flatpak run` 绕过）。
+            // env 前缀后的 `flatpak run` 同样拒识（防 `env .. flatpak run` 绕过）。
             if Self::is_flatpak_shell_wrapper(t) {
                 return None;
             }
@@ -681,7 +681,7 @@ impl AppScanner {
     /// PATH 在 GUI/服务进程中可能稀疏，显式补齐标准绑定目录（FHS/XDG）：
     /// `/usr/local/bin`（本地编译）、`/usr/bin`、`/bin`（与 `/usr/bin` 符号链接等价）、
     /// `/snap/bin`（snap 应用，如 vlc snap 落盘处）、`~/.local/bin`（XDG 用户级）。
-    /// 注：`/opt/bin` 非标准 FHS 路径，已删（`/opt/<Name>` 由 `resolve_linux_system_binary` 专管）。
+    /// 注：`/opt/bin` 非标准 FHS 路径，不在此补齐（`/opt/<Name>` 由 `resolve_linux_system_binary` 专管）。
     /// Unix 上必须有执行位才放行（无执行位返回 None；符号链接经 metadata 跟随目标判定）。
     pub fn which_binary(name: &str) -> Option<String> {
         let n = name.trim();
@@ -886,7 +886,7 @@ impl AppScanner {
         Some(picked)
     }
 
-    /// 文件名/目录名归一化：小写去空格/`-`/`_`后比对（P0 止血 + P1 `/opt/Clash Verge`
+    /// 文件名/目录名归一化：小写去空格/`-`/`_`后比对（与 `/opt/Clash Verge`
     /// 带空格目录共用；纯函数，跨平台可单测）。
     pub fn normalize_fs_token(s: &str) -> String {
         s.to_lowercase()
@@ -963,7 +963,7 @@ impl AppScanner {
         out
     }
 
-    /// desktop stem 是否与任一 token 归一化精确相等（P0 止血：禁 `contains`，
+    /// desktop stem 是否与任一 token 归一化精确相等（禁 `contains`，
     /// 防 `app` 误命中 `apport-gtk.desktop`；`len<5` 短 token 天然精确相等）。
     #[cfg(target_os = "linux")]
     fn desktop_stem_matches_exact(stem: &str, bare_tokens: &[String]) -> bool {
@@ -1010,7 +1010,7 @@ impl AppScanner {
     /// `/opt` 子目录是否与 token 匹配：归一化后比对；`len<5` 短 token 要求精确相等。
     /// 长 token 允许目录名包含 token（支持带后缀的长目录名）；反向（token 包含目录名）
     /// 仅当目录名等于 token 的完整分段（按 `/ - _` 空格 `.` 切分）时成立——
-    /// P0：禁纯子串反向 `contains`，防 `/opt/go` 误命中长 token（如 `golang`）。
+    /// 禁纯子串反向 `contains`，防 `/opt/go` 误命中长 token（如 `golang`）。
     /// 仅 Linux 嗅探调用（与调用方同 cfg，防 Windows 侧 dead_code 告警）。
     #[cfg(target_os = "linux")]
     fn opt_dir_matches(norm_dir: &str, token: &str) -> bool {
@@ -1057,12 +1057,12 @@ impl AppScanner {
         // `target_executables`（原生大小写 + 小写 + `.exe` 退化裸名）+ `install_dirs` 切分 token。
         let (_, bare) =
             Self::linux_candidate_names(&config.target_executables, &config.install_dirs);
-        // P0 补充：长 token 优先（防 `clash-verge-rev` 派生的短片段 `rev` 先命中
+        // 长 token 优先（防 `clash-verge-rev` 派生的短片段 `rev` 先命中
         // `/usr/bin/rev`，而正确二进制 `/usr/bin/clash-verge` 被淹没）。
         let mut ordered = bare.clone();
         ordered.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
         // 1. PATH / which（含 /usr/bin/motrix 符号链接链；/snap/bin 已并入 which 搜索）。
-        // P0：裸名并入保持，但 which 命中天然 basename 精确 == token（`which_binary` 按文件名
+        // 裸名并入保持，但 which 命中天然 basename 精确 == token（`which_binary` 按文件名
         // 精确 join，不做 contains）。
         for name in &ordered {
             // 跳过明显非命令的 token（含空格/路径分隔符）
@@ -1119,7 +1119,7 @@ impl AppScanner {
         None
     }
 
-    /// P1：`/opt` read_dir 枚举 + 归一化比对（解决 `/opt/Clash Verge` 带空格问题）。
+    /// `/opt` read_dir 枚举 + 归一化比对（解决 `/opt/Clash Verge` 带空格问题）。
     /// 仅 linux 生效。先枚举匹配目录，再 `find_exe_in_directory`；直连路径作为回退保留。
     #[cfg(target_os = "linux")]
     pub fn resolve_linux_via_opt(
@@ -1219,7 +1219,7 @@ impl AppScanner {
         None
     }
 
-    /// P1：AppImage 嗅探（`~/Applications`、`~/AppImages`、`/opt/appimages/*.AppImage`
+    /// AppImage 嗅探（`~/Applications`、`~/AppImages`、`/opt/appimages/*.AppImage`
     /// 按 basename 精确 == token）。仅 linux 生效。
     #[cfg(target_os = "linux")]
     pub fn resolve_linux_via_appimage(bare_tokens: &[String]) -> Option<String> {
@@ -1271,7 +1271,7 @@ impl AppScanner {
     }
 
     /// Linux desktop 文件嗅探：仅认 filename stem 归一化 == token 或 Exec 二进制
-    /// basename == token（P0 止血：砍掉 desktop Name `contains` 匹配与 stem `contains`
+    /// basename == token（禁用 desktop Name `contains` 匹配与 stem `contains`
     /// 匹配，防 `app` 误命中 `apport-gtk.desktop`）。
     /// 全仓唯一的 desktop walker（installer 回填与系统嗅探共用，收敛 executor 侧重复实现）。
     /// 桌面目录见 [`Self::linux_desktop_dirs`]（7 类）。
@@ -1679,7 +1679,7 @@ mod executable_refactor_tests {
 
     #[test]
     fn is_search_token_dedups_shape_condition() {
-        // 停用词、短 token、纯数字一律过滤（原 5 处重复条件收敛点）。
+        // 停用词、短 token、纯数字一律过滤（唯一收敛点）。
         assert!(!AppScanner::is_search_token("app"));
         assert!(!AppScanner::is_search_token("tool"));
         assert!(!AppScanner::is_search_token("ab"));

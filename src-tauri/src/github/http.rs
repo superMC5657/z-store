@@ -1,6 +1,6 @@
-//! GitHub 内本地 HTTP/日志/兜底 helpers（H1/H2/H3/H8/H10 收敛点）。
+//! GitHub 内本地 HTTP/日志/兜底 helpers。
 //!
-//! 仅 `github` 模块内使用，跨 crate 统一留给二阶段，行为与原样板一致。
+//! 仅 `github` 模块内使用，行为与原样板一致。
 
 use crate::models::AppSummary;
 use reqwest::header::{HeaderMap, HeaderValue, IF_NONE_MATCH};
@@ -158,12 +158,12 @@ pub(crate) async fn get_with_etag(
 /// UA 常量统一在 `forge::http` SSOT；ACCEPT 由 `ApiPreset::GithubApi` 表驱动。
 pub(crate) const GH_USER_AGENT: &str = crate::forge::http::USER_AGENT_VALUE;
 
-/// H8：github 内统一秒级时间戳（与 `db::now_secs` 同语义，跨 crate 统一留给二阶段）。
+/// github 内统一秒级时间戳（与 `db::now_secs` 同语义）。
 pub(crate) fn now_secs() -> i64 {
     crate::now_secs()
 }
 
-/// H2：统一 API 超时（读取项目配置）。
+/// 统一 API 超时（读取项目配置）。
 pub(crate) fn api_timeout() -> std::time::Duration {
     std::time::Duration::from_secs(
         crate::config::get_project_config()
@@ -172,12 +172,12 @@ pub(crate) fn api_timeout() -> std::time::Duration {
     )
 }
 
-/// H2：统一 API 客户端构造（委托 `forge::http` SSOT）。
+/// 统一 API 客户端构造（委托 `forge::http` SSOT）。
 pub(crate) fn build_api_client() -> Result<reqwest::Client, String> {
     crate::forge::http::new_api_client(api_timeout().as_secs())
 }
 
-/// H1：`token {}` 方案（含 ACCEPT）。
+/// `token {}` 方案（含 ACCEPT）。
 /// 薄包装：函数体委托 `forge::http` 表驱动预设（`Token` 小写前缀不可合错）。
 pub(crate) fn token_headers(token: Option<&str>) -> HeaderMap {
     crate::forge::http::preset_headers(
@@ -187,7 +187,7 @@ pub(crate) fn token_headers(token: Option<&str>) -> HeaderMap {
     )
 }
 
-/// H1：`Bearer {}` 方案（含 ACCEPT）。
+/// `Bearer {}` 方案（含 ACCEPT）。
 /// 薄包装：函数体委托 `forge::http` 表驱动预设。
 pub(crate) fn bearer_headers(token: Option<&str>) -> HeaderMap {
     crate::forge::http::preset_headers(
@@ -197,12 +197,12 @@ pub(crate) fn bearer_headers(token: Option<&str>) -> HeaderMap {
     )
 }
 
-/// H3：统一日志上下文，返回 `(req_id, sid)`，顺序与原样板一致。
+/// 统一日志上下文，返回 `(req_id, sid)`，顺序与原样板一致。
 pub(crate) fn new_log_ctx() -> (String, String) {
     (crate::z_log::new_req_id(), crate::z_log::new_session_id())
 }
 
-/// H10：分类元信息结构体。
+/// 分类元信息结构体。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CategoryMeta {
     pub key: &'static str,
@@ -365,7 +365,7 @@ pub(crate) fn guess_category(
 /// 缓存文件有效（`cache_file` 非空且落盘文件存在且为合法图片）返回 dataURI（M2）；
 /// 无有效文件时 level 1-3 回退 `selected_url` 远端，level 4 返回 None（4=L4 README需网络，此处不给）。
 /// level纯L(1=L1官方,2=L2品牌库,3=L3仓库,4=L4 README)；缓存正交用M(M1前端内存，M2=DB落盘)。
-/// B3-G11 SSOT：标识解析经 `RepositoryUrlParser` + `canonical_app_id`，大小写回退收进
+/// SSOT：标识解析经 `RepositoryUrlParser` + `canonical_app_id`，大小写回退收进
 /// `forge::coord::lookup_case_insensitive`（db 查询侧）。
 pub(crate) fn resolve_confirmed_icon_from_db(
     db: &crate::db::Database,
@@ -413,7 +413,7 @@ pub(crate) fn open_db_opt() -> Option<crate::db::Database> {
     }
 }
 
-/// H10：目录外仓库 `AppSummary` 兜底构造。
+/// 目录外仓库 `AppSummary` 兜底构造。
 /// 图标：若 probe 为 true，经统一同步适配器 `icon_fetch::probe_single_live`（L2→L3，
 /// 经 `resolve_probe_branches` 取默认分支，与流式核同源）；
 /// 图标探测不调 users API、不拼用户画像 avatar_url（见 OAuth/Sidebar，与图标无关）；
@@ -548,7 +548,7 @@ mod tests {
         assert_eq!(resolve_confirmed_icon_from_db(&db, app_id, owner, repo), None);
 
         // 3. 有记录且 selected_url 非空，但 cache_file 在磁盘上不存在：
-        //    L1 回退 remote_url；level 4=L4需网络，此处返回 None（见新增用例）。
+        //    L1 回退 remote_url；level 4=L4 需网络，此处返回 None。
         let cycle_missing_file = crate::db::AppIconCycle {
             app_id: app_id.to_string(),
             owner: owner.to_string(),

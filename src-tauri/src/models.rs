@@ -74,7 +74,7 @@ pub struct AppDetail {
     pub forge_host: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cached_at: Option<i64>,
-    /// P0 stale 契约：`Some(true)` = 瞬时失败降级（401/限流/离线复用旧行，或无缓存合成空）。
+    /// stale 契约：`Some(true)` = 瞬时失败降级（401/限流/离线复用旧行，或无缓存合成空）。
     /// 前端 backfill 必须将 `stale + releases/platforms 双空` 视为 loading/失败待重试，
     /// 永不确认 Other；`Ok(stale)` 为 IPC 形状约定。成功 deduce 空（真实零发布）
     /// 保持 `None`，与失败空可区分。
@@ -284,7 +284,7 @@ pub struct WatchedApp {
 }
 
 /// 收藏条目（含收录标记）：`get_favorite_entries` 返回形状；
-/// `get_favorites` 仍返回 `Vec<String>`（历史形状不变）。
+/// `get_favorites` 返回 `Vec<String>`（不含收录标记的轻量形状）。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FavoriteEntry {
     pub app_id: String,
@@ -301,7 +301,7 @@ pub struct WatchUpdatedPayload {
     pub version: String,
 }
 
-/// OAuth Device 轮询结果：`pending` | `authorized` | `error`。
+/// OAuth Device 轮询结果：`pending` | `authorized` | `expired` | `denied` | `error`。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DevicePollResult {
     pub status: String,

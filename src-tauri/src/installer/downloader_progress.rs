@@ -4,7 +4,7 @@ use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-/// 异步落盘关键路径（P1-10a）的执行结果。
+/// 异步落盘关键路径的执行结果。
 /// 携带调用方重现历史日志与发送 `zstore://download-progress` 事件所需的全部上下文。
 #[derive(Debug)]
 pub enum PersistError<E> {

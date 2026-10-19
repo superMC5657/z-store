@@ -15,7 +15,7 @@ interface AppCardProps {
   isInstalled: boolean;
   /**
    * 已纳管（绿色已安装）。三态：`true`/`false` = 已知，
-   * `null` = managed 列表尚未加载（未知）：已安装命中时渲染中性占位（P1）。
+   * `null` = managed 列表尚未加载（未知）：已安装命中时渲染中性占位。
    */
   isManaged: boolean | null;
   isInstalling?: boolean;
@@ -153,7 +153,7 @@ export const AppCard: React.FC<AppCardProps> = memo(({
 }) => {
   const { t, i18n } = useTranslation();
   // 已纳管绿已安装；未纳管走获取安装。
-  // P1 三态：isManaged===null（managed 未加载）+ 已安装 = 未知，渲染中性占位；
+  // 三态：isManaged===null（managed 未加载）+ 已安装 = 未知，渲染中性占位；
   // 未命中即确定未安装（Get），无需占位。
   const managed = isManaged;
   const showUnknown = isInstalled && isManaged === null;
@@ -447,7 +447,7 @@ export const AppCard: React.FC<AppCardProps> = memo(({
               : undefined
           }
         >
-          {/* P1 未知态中性占位（单色骨架，不可交互） */}
+          {/* 未知态中性占位（单色骨架，不可交互） */}
           {showUnknown ? (
             <span role="status" aria-label={t('app.loading', { defaultValue: '加载中' })} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', opacity: 0.65, cursor: 'default' }}>
               <span

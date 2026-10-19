@@ -29,7 +29,7 @@ pub(super) fn auth_headers(token: &str) -> Result<reqwest::header::HeaderMap, St
     ))
 }
 
-/// H14：GraphQL 单条错误是否为权限不足（`INSUFFICIENT_SCOPES`）。
+/// GraphQL 单条错误是否为权限不足（`INSUFFICIENT_SCOPES`）。
 fn is_insufficient_scopes(err: &serde_json::Value) -> bool {
     err.get("type").and_then(|t| t.as_str()) == Some("INSUFFICIENT_SCOPES")
 }

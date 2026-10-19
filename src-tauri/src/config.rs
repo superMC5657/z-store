@@ -242,8 +242,7 @@ impl Default for CatalogConfig {
     }
 }
 
-/// D1 默认许可名单（ADR-0018）：与 `db::custom_apps` 历史 `OSI_ALLOWED_LICENSES`
-/// 同序同值；名单唯一源头，校验侧直接引用本常量，不再各自手写。
+/// 默认许可名单（ADR-0018）：名单唯一源头，校验侧直接引用本常量，不再各自手写。
 pub const DEFAULT_LICENSE_ALLOWLIST: &[&str] = &[
     "MIT",
     "ISC",

@@ -32,7 +32,7 @@ describe('Phase1B C1：match 需 owner 佐证，跨 owner 永不命中', () => {
     expect(matchCatalogApp(trend, catalog)).toBeUndefined();
   });
 
-  it('同 name 不同 owner 永不命中（模糊分支已删）', () => {
+  it('同 name 不同 owner 永不命中', () => {
     const catalog = [
       makeApp({ id: 'evil/atlas', name: 'atlas', owner: 'evil', repo: 'atlas', category: 'dev' }),
     ];

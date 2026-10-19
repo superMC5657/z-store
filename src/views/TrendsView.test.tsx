@@ -182,7 +182,7 @@ function gitHubApiUrls() {
   return requestedUrls.filter((u) => u.includes('api.github.com'));
 }
 
-describe('P0: 榜单数据源与排序契约', () => {
+describe('榜单数据源与排序契约', () => {
   it('仅导出当前榜单抓取与排序入口', () => {
     for (const name of [
       'sortAppsLocally',

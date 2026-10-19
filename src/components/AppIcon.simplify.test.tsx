@@ -1,8 +1,8 @@
 /**
- * AppIcon 简化回归：纯 helper 优先级与展示分支保持原语义。
+ * AppIcon 渲染契约：
  * `resolveActiveIcon`（override > store > 缓冲 > prop，空亦覆盖）；
  * `resolveDisplaySrc`（空徽章 / `data:` 与 override 直显 / 双键缓存回读）；
- * `isRemoteIcon` 收窄为前缀 + 扩展名收尾（不再 `includes` 误判）。
+ * `isRemoteIcon` 仅认前缀 + 扩展名收尾，不做子串匹配。
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';

@@ -1,11 +1,10 @@
 /**
- * 宿主系统环境嗅探工具，用于 AppDetailModal 安装包版本资产匹配。
- * 纯粹提取原内联在 AppDetailModal.tsx 中作为 `currentOs`/`currentArch` memo 的
- * 重复 `navigator.userAgent` 级联嗅探逻辑（每个维度独立辅助函数，测试可注入 UA）。无任何行为变更。
+ * 宿主系统环境嗅探工具，用于 AppDetailModal 安装包版本资产匹配：
+ * `currentOs`/`currentArch` 各一独立辅助函数，均由 `navigator.userAgent` 级联嗅探，测试可注入 UA。
  */
 
-export type HostOs = 'windows' | 'macos' | 'linux';
-export type HostArch = 'x86_64' | 'aarch64';
+type HostOs = 'windows' | 'macos' | 'linux';
+type HostArch = 'x86_64' | 'aarch64';
 
 export function detectHostOs(userAgent?: string): HostOs {
   if (userAgent === undefined) {

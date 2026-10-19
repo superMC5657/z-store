@@ -38,7 +38,7 @@ export function isEmptyIcon(icon: unknown): boolean {
 /** 纯L合法性：1..5 为合法 level（1官方/2品牌库/3仓库/4 README/5空徽章）；
  * 其余视为缺省（放行但不推进记忆）。L5 为显式空（cycle 切空），参与单调
  * （L2→L5 接受、L5→L2 判 stale，见 `HomeView.search-icon` 回归线）。 */
-export function isPureLevel(level: unknown): level is number {
+function isPureLevel(level: unknown): level is number {
   return (
     typeof level === 'number' &&
     Number.isFinite(level) &&
@@ -54,13 +54,13 @@ export function isPureLevel(level: unknown): level is number {
  * L5显式徽章（用户切空意图）优先级最高，保持轮换门控语义（L2→L5接受、L5→L2判 stale）。
  * 返回负数表 `a` 更优、零表同级、正数表 `b` 更优。
  */
-export function compareIconPriority(a: number, b: number): number {
+function compareIconPriority(a: number, b: number): number {
   const rank = (l: number): number => (l === 5 ? 0 : l);
   return rank(a) - rank(b);
 }
 
 /** 图标事件上下文（后端 `icon_fetch::IconFetchCtx` 的前端镜像）。 */
-export interface IconHitContext {
+interface IconHitContext {
   kind: 'search' | 'trend' | string;
   search_id?: string;
   board?: string;
@@ -68,7 +68,7 @@ export interface IconHitContext {
 }
 
 /** 图标命中（`id` 应用标识 + `icon/level/via/context`）。 */
-export interface IconHit {
+interface IconHit {
   /** 应用标识（小写 `owner/repo`；坐标键与 id 键同值，店内按归一键扇出）。 */
   id?: string | null;
   icon?: string | null;
@@ -89,7 +89,7 @@ export interface IconReadyPayload {
   context: IconHitContext;
 }
 
-export interface AdmitIconHitArgs extends IconHit {
+interface AdmitIconHitArgs extends IconHit {
   /**
    * Search 世代门控期望值：当前搜索 id（字符串或取值函数）。
    * 双非空且与命中 `search_id` 不等即丢弃；任一为空即放行。
@@ -109,7 +109,7 @@ export interface AdmitIconHitArgs extends IconHit {
   getCurrentIcon?: ((targetIdLower: string) => string | undefined) | null;
 }
 
-export interface AdmitIconHitResult {
+interface AdmitIconHitResult {
   accepted: boolean;
   targets?: string[];
   icon?: string;
@@ -146,12 +146,12 @@ export function patchAppIconList(
  * 写口仍唯一是 `admitIconHit`；订阅回调只做读侧合并，不得再调 `admitIconHit`（防递归）。
  * 窗口总线不复活：订阅表常驻店内模块，卸载即退订。
  */
-export interface IconWriteEvent {
+interface IconWriteEvent {
   targets: string[];
   icon: string;
   level?: number;
 }
-export type IconWriteSubscriber = (hit: IconWriteEvent) => void;
+type IconWriteSubscriber = (hit: IconWriteEvent) => void;
 const iconWriteSubscribers = new Set<IconWriteSubscriber>();
 
 export function subscribeIconWrites(fn: IconWriteSubscriber): () => void {
@@ -180,12 +180,12 @@ export function __resetIconWriteSubscribersForTests(): void {
 /**
  * 归一 id 目标集：取 `id` 去空 → 归一去重保序。
  */
-export function resolveIconTargets(hit: Pick<IconHit, 'id'>): string[] {
+function resolveIconTargets(hit: Pick<IconHit, 'id'>): string[] {
   return normalizeIdSet([hit?.id]);
 }
 
 /** 仅 `http(s)` 才算可落盘远端（`data:` 另行内存通道，其余一律丢弃）。 */
-export function isRemoteHttpIconUrl(icon: unknown): boolean {
+function isRemoteHttpIconUrl(icon: unknown): boolean {
   if (typeof icon !== 'string') return false;
   const u = icon.trim().toLowerCase();
   return u.startsWith('http://') || u.startsWith('https://');
@@ -323,7 +323,7 @@ function hasExistingRealIcon(targets: string[], getCurrentIcon?: AdmitIconHitArg
  * 世代门控快照：`search_id`（搜索）/`board`+`gen`（榜单）三段。
  * 双非空不等即过期，任一为空即放行。
  */
-export interface GenerationGate {
+interface GenerationGate {
   search_id?: string | null;
   board?: string | null;
   gen?: number | null;
@@ -334,7 +334,7 @@ export interface GenerationGate {
  * 删 `iconDataCache`/`pending`/`队列`/`queued` 中该键及其关联 URL/别名态。以店内 `iconById` 为唯一别名源
  * （`normalizeId`，遵 ADR-0010）。
  */
-export function invalidateIconCache(key?: string): void {
+function invalidateIconCache(key?: string): void {
   if (!key) {
     iconDataCache.clear();
     iconPendingPromises.clear();
@@ -390,7 +390,7 @@ export function getCachedIconDataUri(key: string): string | undefined {
  * 失败 `delete` pending + 退避 30s（展示回落 URL 直显，不抛错、不产生未处理拒绝）。
  * 非 Tauri（单测/jsdom/浏览器预览）只收队不清耗（展示回落 URL 直显，不抛错）。
  */
-export function queueIconFetches(items: (string | { id?: string; icon: string })[]): void {
+function queueIconFetches(items: (string | { id?: string; icon: string })[]): void {
   if (!items || items.length === 0) return;
   for (const item of items) {
     const icon = typeof item === 'string' ? item : item.icon;
@@ -630,27 +630,11 @@ export function __getIconPreloadQueueSizeForTests(): number {
   return iconPreloadQueue.size + iconPendingPromises.size;
 }
 
-/** 仅供测试：读退避状态。 */
-export function __getIconPreloadBackoffForTests(url: string): number | undefined {
-  return iconPreloadBackoffUntil.get(url);
-}
-
 /** 仅供测试：模拟落盘写 `iconDataCache`（`queueAssembledRowIcons` 让位断言用）。 */
 export function __setIconDataCacheForTests(key: string, dataUri: string): void {
   if (typeof key !== 'string' || key === '') return;
   if (typeof dataUri !== 'string' || dataUri === '') return;
   iconDataCache.set(key, dataUri);
-}
-
-/** 仅供测试：清空展示数据内存态（防跨文件泄漏）。 */
-export function __resetIconDataCacheForTests(): void {
-  iconDataCache.clear();
-  iconPendingPromises.clear();
-  iconPendingAliases.clear();
-  iconPreloadQueue.clear();
-  iconPersistedKeys.clear();
-  iconPreloadBackoffUntil.clear();
-  iconPreloadScheduled = false;
 }
 
 /**
@@ -950,12 +934,6 @@ export function getBufferedIcon(key: string): string | undefined {
   if (!k) return undefined;
   const v = iconById.get(k);
   return typeof v === 'string' && v.trim() !== '' ? v : undefined;
-}
-
-/** 仅供测试：读取别名已记忆 `level`。 */
-export function __getIconStoreLevel(id: string): number | undefined {
-  if (typeof id !== 'string') return undefined;
-  return iconLevelById.get(normalizeId(id));
 }
 
 /** 内部：删缓冲 + level 记忆（不扇出，供 `applyBadgeHit` 批量单事件用）。 */

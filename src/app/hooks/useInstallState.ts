@@ -4,7 +4,7 @@ import type { AppSummary, InstalledApp, ViewType } from '../../types';
 import { tauriApi } from '../../services/api';
 import { zlogInfo } from '../../lib/z-log';
 
-export interface UseInstallStateParams {
+interface UseInstallStateParams {
   currentView: ViewType;
   apps: AppSummary[];
   showToast: (msg: string, type?: 'info' | 'success' | 'warning' | 'error') => void;

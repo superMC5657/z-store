@@ -7,7 +7,7 @@ import { UserDataBackup, UserDataBackupSettings } from '../types';
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
 
-// P1-8: 出于安全考虑，github_token（PAT 凭据）永不写入备份文件；
+// 出于安全考虑，github_token（PAT 凭据）永不写入备份文件；
 // 导入侧白名单（src-tauri/src/oauth/backup.rs）同样拒绝该键。
 export const BACKUP_EXCLUDED_KEYS = ['github_token'] as const;
 
@@ -24,8 +24,8 @@ const toOptionalBool = (v: unknown): boolean | undefined => {
   return undefined;
 };
 
-// P1-8: 纯函数导出组装（version 保持为 1，便于单测覆盖导出 → JSON → 导入往返）。
-// Lane C：showCustom 开关随备份往返（默认开；缺席即默认开，不污染旧备份）。
+// 纯函数导出组装（version 保持为 1，便于单测覆盖导出 → JSON → 导入往返）。
+// showCustom 开关随备份往返（默认开；缺席即默认开，不污染旧备份）。
 const buildBackupSettings = (
   settings: Record<string, unknown>,
 ): UserDataBackupSettings => {
@@ -62,12 +62,12 @@ const buildBackupSettings = (
 };
 
 /** 备份中的草稿 payload（CustomAppEntry 最小子集；恢复经 saveCustomApp 逐条 upsert）。 */
-export interface BackupCustomAppItem {
+interface BackupCustomAppItem {
   id: string;
   item: Record<string, unknown>;
 }
 
-export type UserDataBackupWithCustom = UserDataBackup & {
+type UserDataBackupWithCustom = UserDataBackup & {
   custom_apps?: BackupCustomAppItem[];
 };
 
@@ -94,7 +94,7 @@ export const buildUserDataBackup = (
  * 备份 JSON 中的草稿提取（纯函数，可单测）：仅收合法条目
  * （id 非空 + item 为对象），非法行直接丢弃。
  */
-export function parseBackupCustomApps(json: string): BackupCustomAppItem[] {
+function parseBackupCustomApps(json: string): BackupCustomAppItem[] {
   try {
     const raw = JSON.parse(json) as { custom_apps?: unknown };
     if (!Array.isArray(raw.custom_apps)) return [];

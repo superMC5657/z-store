@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { AppDetailViewModel } from '../../types';
 import { useDetailReadme } from './useDetailReadme';
 
-export interface ReadmeSectionProps {
+interface ReadmeSectionProps {
   app: AppDetailViewModel;
   displayDesc: string;
   showSkeleton: boolean;

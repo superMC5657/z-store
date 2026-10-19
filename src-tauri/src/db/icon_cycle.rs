@@ -422,10 +422,6 @@ pub fn owner_repo_for_new_cycle(lookup_id: &str) -> (String, String) {
 /// 详情 TTL 60min 见 `commands::catalog_detail::detail_ttl_secs`；图标 ETag 禁用（仅详情用）。
 pub const ICON_TTL_SECS: i64 = 7 * 24 * 60 * 60;
 
-/// 详情 TTL 默认 60min（platforms_lite 同值；
-/// 单一来源：`detail_ttl_secs` 的默认/回退分支经此常量派生）。
-pub const DETAIL_TTL_MINUTES_DEFAULT: i64 = 60;
-
 /// hash 文件名 SSOT（唯一文件名方案）：`sha256(url_trimmed)[0:16].{ext}`。
 /// - `url` 为 cycle/详情命中的备选 Logo 真地址（L1–L4；README 正文图永不进此）；
 /// - `ext` 为 sniff 纠正后的 `real_ext`（`mime_to_ext(detect(...))`），调用方保证小写无点；
@@ -454,40 +450,6 @@ pub fn is_icon_fresh(cached_at: i64, now: i64) -> bool {
 /// `pinned` 选择不受此判定影响（过期刷新落库经 `set_icon_cycle_selected`，pinned 保持不动）。
 pub fn is_cycle_restore_fresh(cycle: &AppIconCycle, file_fresh: bool, now: i64) -> bool {
     !cycle.cache_file.trim().is_empty() && file_fresh && is_icon_fresh(cycle.updated_at, now)
-}
-
-/// 非收录 url 槽位认领：命中既有 l2/l3/l4 返回其级别，
-/// 否则写入首个空槽；全满则沿用当前合法级别。不写 l1_url。
-/// M2=落盘已确认
-pub fn claim_cycle_url_slot(cycle: &mut AppIconCycle, url_trimmed: &str) -> i32 {
-    let url = url_trimmed.trim();
-    if url.is_empty() {
-        return if (2..=4).contains(&cycle.level) {
-            cycle.level
-        } else {
-            2
-        };
-    }
-    if cycle.l2_url.trim() == url {
-        2
-    } else if cycle.l3_url.trim() == url {
-        3
-    } else if cycle.l4_url.trim() == url {
-        4
-    } else if cycle.l2_url.trim().is_empty() {
-        cycle.l2_url = url.to_string();
-        2
-    } else if cycle.l3_url.trim().is_empty() {
-        cycle.l3_url = url.to_string();
-        3
-    } else if cycle.l4_url.trim().is_empty() {
-        cycle.l4_url = url.to_string();
-        4
-    } else if (2..=4).contains(&cycle.level) {
-        cycle.level
-    } else {
-        2
-    }
 }
 
 /// 固化一次轮换选中态：level/selected_url/cache_file/updated_at 同步推进。
@@ -618,26 +580,6 @@ pub fn get_icon_cache_record(
     } else {
         Ok(None)
     }
-}
-
-/// 在线单仓直查的 cycle 行构造（原 github::search::fetch_online_repo 内联）：
-/// 非收录、图标L2=品牌库即确认图标；图标为空时返回 None（调用方跳过 upsert）。
-pub fn record_online_icon(
-    app_id: &str,
-    owner: &str,
-    repo: &str,
-    icon: &str,
-) -> Option<AppIconCycle> {
-    if icon.trim().is_empty() {
-        return None;
-    }
-    let mut cycle = AppIconCycle::new(app_id, owner, repo);
-    cycle.is_cataloged = false;
-    cycle.level = 2;
-    cycle.l2_url = icon.trim().to_string();
-    cycle.selected_url = icon.trim().to_string();
-    cycle.updated_at = crate::now_secs();
-    Some(cycle)
 }
 
 /// 详情页图标层级决策（原 github::detail 内联）：
