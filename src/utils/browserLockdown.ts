@@ -28,15 +28,15 @@ let isInitialized = false;
 
 /**
  * 劫持前捕获的原生 `window.open`（fallback 专用，绕过劫持直达浏览器）：
- * - `initBrowserLockdown` 在覆写前一次性捕获并同步到 `window.__ZSTORE_NATIVE_OPEN__`，
- *   `settings.openUrl` 经该全局键读取（避免 `settings → browserLockdown → services/api`
- *   循环导入），`PendingView` 经下方的 `resolveFallbackOpener()` 读取；
+ * 劫持版 `window.open` 同步返回 null，直接调用必被拦截，所以必须在覆写前一次性捕获
+ * 原生 opener 并同步到 `window.__ZSTORE_NATIVE_OPEN__`，兜底经该全局键绕过劫持直达
+ * 浏览器；非劫持（未初始化/单测桩）时用当前 `window.open` 本体即可。
+ * - `initBrowserLockdown` 在覆写前捕获并同步到全局键，`settings.openUrl` 经该全局键
+ *   读取（避免 `settings → browserLockdown → services/api` 循环导入），`PendingView`
+ *   经下方的 `resolveFallbackOpener()` 读取；
  * - Demo 的 `__ZSTORE_DEMO_NATIVE_OPEN__` 同为劫持前捕获，两键任一可用即视为原生可用。
  */
 let cachedNativeOpen: typeof window.open | null = null;
-
-/** 劫持标记：`resolveFallbackOpener` 据此判断当前 `window.open` 是否为劫持版。 */
-const HIJACK_MARK = '__zstoreHijacked';
 
 /** 读取劫持前捕获的原生 opener（未初始化时为 null）。 */
 export function getNativeWindowOpen(): typeof window.open | null {
@@ -44,28 +44,22 @@ export function getNativeWindowOpen(): typeof window.open | null {
 }
 
 /**
- * 解析兜底 opener：
- * - 当前 `window.open` 为劫持版时返回劫持前捕获的原生（`cachedNativeOpen` /
- *   `__ZSTORE_NATIVE_OPEN__` / `__ZSTORE_DEMO_NATIVE_OPEN__`），绕过“直接调用被拦截返回 null”；
- * - 非劫持（单测 mock / 未初始化）时返回当前 `window.open` 本体，单测可桩返回值；
- * - 无可用 opener 时返回 null，调用方抛错保留失败感知。
+ * 解析兜底 opener（Spec §5 最小集：劫持前缓存 + 兜底判 null，无生产加锁）：
+ * - 有 `__ZSTORE_NATIVE_OPEN__` / `__ZSTORE_DEMO_NATIVE_OPEN__`（劫持前捕获）时优先
+ *   返回它，绕过“劫持版直接调用必返回 null”；
+ * - 无缓存键时（未初始化/单测桩）返回当前 `window.open` 本体，单测可桩返回值；
+ * - 两者皆无时返回 null，调用方抛错保留失败感知（并发 edge 由单测锁定，不在生产加锁）。
  */
 export function resolveFallbackOpener(): typeof window.open | null {
   if (typeof window === 'undefined') return null;
   try {
-    const cur = window.open as unknown as Record<string, unknown>;
-    const isHijacked = Boolean(cur?.[HIJACK_MARK]);
-    if (isHijacked) {
-      if (cachedNativeOpen) return cachedNativeOpen;
-      const w = window as unknown as Record<string, unknown>;
-      const stored =
-        w['__ZSTORE_NATIVE_OPEN__'] ?? w['__ZSTORE_DEMO_NATIVE_OPEN__'];
-      if (typeof stored === 'function') {
-        return (stored as typeof window.open).bind(window);
-      }
-      return null;
+    const w = window as unknown as Record<string, unknown>;
+    const stored = w['__ZSTORE_NATIVE_OPEN__'] ?? w['__ZSTORE_DEMO_NATIVE_OPEN__'];
+    if (typeof stored === 'function') {
+      return (stored as typeof window.open).bind(window);
     }
-    return window.open.bind(window);
+    if (typeof window.open === 'function') return window.open.bind(window);
+    return null;
   } catch {
     return null;
   }
@@ -217,13 +211,13 @@ export function initBrowserLockdown(): void {
     window.print = () => {};
   }
 
-  // 8. window.open 劫持转走 tauriApi.openUrl（fire-and-forget：window.open 同步无处抛错，
-  // 生产需 await/检查的调用方请直调 tauriApi.openUrl，勿经 window.open；此处仅兜底吞错防未处理 rejection）。
-  // 旗标跨 async 复位修复：置位后仅在兜底 promise 落定（finally）后复位，避免同步 finally
-  // 立即复位导致重入拦截失效；原生 opener 已在覆写前捕获，供兜底绕过劫持直达浏览器。
+  // 8. window.open 劫持转走 tauriApi.openUrl（Spec §5 最小集：劫持前缓存原生 open +
+  // 兜底同步返回 null；window.open 同步无处抛错，生产需 await/检查的调用方请直调
+  // tauriApi.openUrl，勿经 window.open；此处仅兜底吞错防未处理 rejection；并发连调
+  // 均透传 tauriApi，不在生产加锁，去重/幂等由调用方负责，行为由单测锁定）。
+  // 原生 opener 已在覆写前捕获（见顶部 cachedNativeOpen 注释），供兜底绕过劫持直达浏览器。
   try {
-    const cur = window.open as unknown as Record<string, unknown>;
-    if (!cur?.[HIJACK_MARK] && typeof window.open === 'function' && !cachedNativeOpen) {
+    if (!cachedNativeOpen && typeof window.open === 'function') {
       cachedNativeOpen = window.open.bind(window);
       try {
         (window as unknown as Record<string, unknown>).__ZSTORE_NATIVE_OPEN__ = cachedNativeOpen;
@@ -234,30 +228,14 @@ export function initBrowserLockdown(): void {
   } catch {
     /* 忽略 */
   }
-  let inWindowOpen = false;
   const hijackedOpen = (url?: string | URL, target?: string, features?: string): WindowProxy | null => {
     void target;
     void features;
-    if (inWindowOpen) return null;
     if (url == null) return null;
-    inWindowOpen = true;
-    try {
-      const urlStr = typeof url === 'string' ? url : url.toString();
-      void Promise.resolve(tauriApi.openUrl(urlStr))
-        .catch(() => {})
-        .finally(() => {
-          inWindowOpen = false;
-        });
-    } catch {
-      inWindowOpen = false;
-    }
+    const urlStr = typeof url === 'string' ? url : url.toString();
+    void Promise.resolve(tauriApi.openUrl(urlStr)).catch(() => {});
     return null;
   };
-  try {
-    (hijackedOpen as unknown as Record<string, unknown>)[HIJACK_MARK] = true;
-  } catch {
-    /* 忽略 */
-  }
 
   try {
     Object.defineProperty(window, 'open', {

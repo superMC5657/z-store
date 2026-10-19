@@ -621,7 +621,7 @@ pub fn run() {
             commands::collect_custom_app,
             commands::collect_local_app,
             commands::revert_collected_to_draft,
-            commands::revert_collected_app,
+            commands::revert_collected_app, // deprecated compat, canonical is revert_collected_to_draft
             commands::mark_submitted,
             commands::retire_on_sync,
             commands::get_merged_catalog_view,

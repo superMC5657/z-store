@@ -37,8 +37,8 @@ export interface UseAppSelectorsParams {
   currentView: ViewType;
   stagedDeepLinkInstall: string | null;
   /**
-   * Lane C 自维护 overlay（ADR-0017，可选以兼容 Lane B 现有调用）：
-   * 未归档 custom 列表 + showCustom 开关（默认开）。缺席即无 overlay，行为零变化。
+   * 自维护 overlay 可选项（ADR-0017）：未归档 custom 列表 + showCustom 开关（默认开）。
+   * 缺席即无 overlay，直接返回 remote 本体。
    */
   customApps?: AppSummary[];
   showCustom?: boolean;
@@ -200,12 +200,12 @@ export function selectFavoritesViewApps(
   return [...platformFilteredApps, ...deduped];
 }
 
-// ---------- Lane C：全局合并显示 + showCustom 开关 + 转正提示 ----------
+// ---------- 全局合并显示 + showCustom 开关 + 转正提示（ADR-0017 自维护 overlay） ----------
 
 /** 自维护 overlay 开关默认值：开（关闭即隐藏全部 custom 行）。 */
 export const SHOW_CUSTOM_DEFAULT = true;
 
-/** showCustom 设置键（兼容 snake/camel；值形态兼容 boolean/数字/字符串）。 */
+/** showCustom 设置键（读 snake/camel 双键；值形态兼容 boolean/数字/字符串）。 */
 export const SHOW_CUSTOM_SETTING_KEYS = ['showCustom', 'show_custom'] as const;
 
 /** 带 source 标记的合并行（custom 标 source=custom，local 标 source=local，is_cataloged 恒 true）。 */
@@ -225,7 +225,7 @@ export function isLocalAppRow(app: { source?: unknown }): boolean {
   return (app as { source?: unknown }).source === 'local';
 }
 
-/** 本地收录态判定（status 为 collected 系即是；归档与否由调用方另判）。 */
+/** 本地收录态判定（overlay/PR 门禁唯一口径，`collected` 与磁盘残留 `local_collected` 同义；归档与否由调用方另判）。 */
 export function isCollectedStatus(status: unknown): boolean {
   return status === 'collected' || status === 'local_collected';
 }
@@ -383,7 +383,7 @@ export function selectMergedCatalogApps(
     appended = true;
   }
   // 远端已存在同仓行叠加 local（蓝优先：已验证不叠加；custom 草稿行不参与，此处仅 remote）：
-  // 不改顺序/去重，仅搬标记供黄标判定；首刷 customApps null→就绪后经引用变化重标。
+  // 不改顺序/去重，仅搬标记供黄标判定；custom 就绪前后经引用变化重标（缺席透传 remote 本体）。
   let overlaid = false;
   const remoteCount = remote.length;
   for (let i = 0; i < remoteCount; i++) {
@@ -418,9 +418,9 @@ export function selectVisibleCustomApps<T extends { archived?: boolean }>(entrie
   return entries.filter((e) => !e.archived);
 }
 
-// ---------- Lane C fix：在线/趋势 enrich 显式 is_cataloged 标注 ----------
-// 根因：后端 AppSummary 无 is_cataloged（models.rs），在线/富卡 category 为
-// guess_category 猜的真实分类（http.rs 默认 dev），appHelper category 兜底遂误判已收录。
+// ---------- 在线/趋势 enrich 显式 is_cataloged 标注 ----------
+// 后端 AppSummary 无 is_cataloged（models.rs），在线/富卡 category 为
+// guess_category 猜的真实分类（http.rs 默认 dev），需按 catalog id 集显式标注才不误判已收录。
 // 此处按 catalog id 集（canonical 小写，复用 normalizeId）显式标注，显式标记优先于兜底。
 
 /** catalog id 集（canonical 小写归一，去空去重）。 */
@@ -519,42 +519,23 @@ function didHitLocal(
   if (rowKeys.length === 0) return { hit: false };
   const rowKeySet = new Set(rowKeys);
   if (localAppsOrIds instanceof Set) {
-    let hit = false;
+    // Set 口径经行别名归一展开后求交（大小写/前后缀漂移仍命中，口径与数组侧一致）。
+    const expanded = new Set<string>();
+    for (const raw of localAppsOrIds as ReadonlySet<string>) {
+      if (typeof raw !== 'string') continue;
+      for (const k of rowAliasKeys({ id: raw })) expanded.add(k);
+    }
     for (const k of rowKeySet) {
-      if ((localAppsOrIds as ReadonlySet<string>).has(k)) {
-        hit = true;
-        break;
-      }
+      if (expanded.has(k)) return { hit: true, status: 'collected' };
     }
-    if (!hit) {
-      for (const raw of localAppsOrIds as ReadonlySet<string>) {
-        const nk = normalizeId(raw);
-        if (!nk) continue;
-        if (rowKeySet.has(nk)) {
-          hit = true;
-          break;
-        }
-        const s = String(raw).trim();
-        const afterColon = s.includes(':') ? (s.split(':').pop() ?? s) : s;
-        const segs = afterColon.split('/').map((x) => x.trim()).filter(Boolean);
-        if (segs.length >= 2) {
-          const shortKey = normalizeId(`${segs[segs.length - 2]}/${segs[segs.length - 1]}`);
-          if (shortKey && rowKeySet.has(shortKey)) {
-            hit = true;
-            break;
-          }
-        }
-      }
-    }
-    return { hit, status: 'collected' };
+    return { hit: false };
   }
   const statusByAlias = new Map<string, unknown>();
   for (const l of localAppsOrIds) {
     if (!l || typeof (l as AppSummary).id !== 'string') continue;
     const src = (l as { source?: unknown }).source;
     const st = (l as { status?: unknown }).status;
-    const isLocalRow =
-      src === 'local' || st === 'collected' || st === 'local_collected';
+    const isLocalRow = src === 'local' || isCollectedStatus(st);
     if (!isLocalRow) continue;
     const keys = rowAliasKeys(l as AppSummary);
     const wantStatus = typeof st === 'string' && st ? st : 'collected';
@@ -599,6 +580,16 @@ export function mergeLocalLookups(
   return out.length > 0 ? out : undefined;
 }
 
+/** 目录自带本地行 + 显式本地统一为数组 lookup（在线/enrich 双处共用，不改排序/去重）。 */
+function resolveLocalLookup(
+  catalogAppsOrIds: readonly AppSummary[] | ReadonlySet<string>,
+  localAppsOrIds?: readonly AppSummary[] | ReadonlySet<string>,
+): AppSummary[] | undefined {
+  const inferred =
+    catalogAppsOrIds instanceof Set ? [] : collectLocalFromCatalog(catalogAppsOrIds as readonly AppSummary[]);
+  return mergeLocalLookups(inferred, localAppsOrIds);
+}
+
 /**
  * 在线段标注（online 落定处调用）：
  * 命中 catalog 即 true（已收录，在线结果仍正确隐藏按钮），未命中即 false；
@@ -614,10 +605,8 @@ export function annotateOnlineCataloged<T extends AppSummary>(
     catalogAppsOrIds instanceof Set
       ? catalogAppsOrIds
       : buildCatalogIdSet(catalogAppsOrIds as readonly AppSummary[]);
-  // 目录数组自带本地行时自动 inferred（不改排序/去重，仅搬标记供 badge 判定）。
-  const inferredLocal =
-    catalogAppsOrIds instanceof Set ? [] : collectLocalFromCatalog(catalogAppsOrIds as readonly AppSummary[]);
-  const localLookup = mergeLocalLookups(inferredLocal, localAppsOrIds);
+  // 目录自带本地行与显式本地统一为 lookup（不改排序/去重，仅搬标记供 badge 判定）。
+  const localLookup = resolveLocalLookup(catalogAppsOrIds, localAppsOrIds);
   let changed = false;
   const out = onlineApps.map((r) => {
     const next = annotateIsCataloged(r, catalogIds, localLookup);
@@ -643,9 +632,7 @@ export function annotateEnrichMirrorCataloged(
     catalogAppsOrIds instanceof Set
       ? catalogAppsOrIds
       : buildCatalogIdSet(catalogAppsOrIds as readonly AppSummary[]);
-  const inferredLocal =
-    catalogAppsOrIds instanceof Set ? [] : collectLocalFromCatalog(catalogAppsOrIds as readonly AppSummary[]);
-  const localLookup = mergeLocalLookups(inferredLocal, localAppsOrIds);
+  const localLookup = resolveLocalLookup(catalogAppsOrIds, localAppsOrIds);
   let changed = false;
   const next: Record<string, AppSummary> = { ...mirror };
   for (const k of keys) {
@@ -698,8 +685,8 @@ export function useAppSelectors({
   customApps = [],
   showCustom = SHOW_CUSTOM_DEFAULT,
 }: UseAppSelectorsParams) {
-  // Lane C overlay：custom 未归档叠加到 Home/分类/搜索（远端优先去重，custom 标 source=custom）。
-  // 缺省（customApps=[]/showCustom=true）即原数组透传，Lane B 现有调用零变化。
+  // 自维护 overlay：custom 未归档叠加到 Home/分类/搜索（远端优先去重，custom 标 source=custom）。
+  // 缺省（customApps=[]/showCustom=true）即原数组透传。
   const mergedApps = useMemo(
     () => selectMergedCatalogApps(apps, customApps, showCustom),
     [apps, customApps, showCustom],
@@ -711,7 +698,7 @@ export function useAppSelectors({
     [mergedApps, selectedPlatforms, platformResolvedOtherIds]
   );
   // 搜索在线段同口径平台过滤：与本地段一致，加载中恒可见，落定后走正常过滤。
-  // Lane C fix：在线落定处显式标注 is_cataloged（catalog id 集 canonical 比对），
+  // 在线落定处显式标注 is_cataloged（catalog id 集 canonical 比对），
   // 显式标记优先于 category 兜底；已收录在线仍正确隐藏按钮，未收录 dev 猜分类正确显示。
   // 本地收录橘黄链路：目录用合并后全量（含本地，远端优先去重语义不动），在线同 id 命中本地
   // 叠加 source='local'/status（蓝优先：自身已验证不叠加），供 badge 判定。
@@ -732,9 +719,9 @@ export function useAppSelectors({
 
   // 任务 4（设备平台全局过滤）：侧栏分组的各平台应用计数，
   // 基于全量 `apps` 数组（而非已过滤数组）计算，以便准确呈现“有多少应用支持该设备”。
-  // 一次扫完 6 项：已确认 other 才计入虚拟 other 桶，加载中行暂不计数（首绘不闪 Other=23，
+  // 一次扫完 6 项：已确认 other 才计入虚拟 other 桶，加载中行暂不计数（缺席沿用收录库口径，
   // 落定后单次更新），大小写归一，同应用去重后各桶 +1（与 6×filter 语义一致）。
-  // Lane C：计数基于合并后全量（含 custom 补位行）。
+  // 计数基于合并后全量（含 custom 补位行）。
   const platformCounts = useMemo(
     () => selectPlatformCounts(mergedApps, platformResolvedOtherIds),
     [mergedApps, platformResolvedOtherIds]
@@ -762,7 +749,7 @@ export function useAppSelectors({
   }, [setSelectedPlatforms]);
 
   // 趋势榜单平台分布（TrendsView 上报其榜单行口径）：趋势页侧栏计数切到该口径，
-  // 其余页面沿用收录库口径。null = 尚未上报（首绘沿用收录库，避免闪 0）。
+  // 其余页面沿用收录库口径。null = 尚未上报（沿用收录库，避免闪 0）。
   const [trendsPlatformCounts, setTrendsPlatformCounts] = useState<Record<PlatformId, number> | null>(null);
   const handleTrendsPlatformCounts = useCallback((counts: Record<PlatformId, number>) => {
     setTrendsPlatformCounts(counts);

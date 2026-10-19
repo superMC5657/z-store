@@ -337,7 +337,8 @@
       "license_required": "License is required",
       "license_osi": "Only OSI-approved licenses are accepted",
       "license_gate_unavailable": "License allowlist not loaded yet, submit validation unavailable. Please retry later.",
-      "pr_url_scheme": "Submission URL must be an https link"
+      "pr_url_scheme": "Submission URL must be an https link",
+      "already_submitted": "Already submitted, cannot resubmit: {{id}}"
     }
   },
   "installed": {

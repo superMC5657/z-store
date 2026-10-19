@@ -158,7 +158,7 @@ impl Database {
                 PRIMARY KEY (hash, app_id)
             );
 
-            -- Lane A 本地自维护草稿 overlay：待收录草稿本地暂存（ADR-0017）。
+            -- 本地自维护草稿 overlay：待收录草稿本地暂存（ADR-0017）。
             -- id 为 canonical 小写形态（`owner/repo` 或 `forge[:host]:owner/repo`）；
             -- payload_json 存完整 CatalogItem；status=draft/submitted（已提交另存 pr_url）；
             -- archived=1 为转正（远端已收录）自动归档标记。

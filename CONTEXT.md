@@ -48,6 +48,9 @@
 | **转正** | `Graduated` | 自维护草稿被远端精选收录库正式收录（`sync_catalog` 命中 canonical id），本地行置 `archived=1` 自动归档，不再参与合并视图。 | 毕业、上岸、合并完成 |
 | **已收录/未收录** | `Cataloged/Uncataloged` | 卡片收录态徽标：id 命中精选收录库为已收录，否则为未收录（走详情缓存读富卡）；与自维护/转正正交（后者仅描述本地草稿生命周期）。 | 收录状态、有无收录 |
 | **收录标记** | `is_cataloged` | 收藏/关注记录自带的收录态字段（0/1 持久化于 `user_favorites` / `watched_apps`）：写入时按内存目录判定一次，存量行启动回填；前端凭此决定走收录库还是详情缓存读卡。 | cataloged 字段、收录位 |
+| **本地收录来源** | `source=local` | 合并目录视图中本地收录行的来源标记：仅 `status` 为收录态且未归档的 `custom_apps` 行进入合并（远端优先去重，补位行与远端同仓叠加行均标 `local`）；库存恒 `is_cataloged=true`、`is_verified=false`（永不冒充已验证蓝标，PR 预填载荷翻 `true` 仅限复制体）。 | 本地来源、收录来源 |
+| **本地收录态** | `collected` / `local_collected` | 本地收录状态：`collected` 为现行写入值，`local_collected` 为磁盘残留同义值（判定与列表均等同 `collected`）；收录态判定唯一口径为 `isCollectedStatus`（`src/app/selectors.ts` 单一导出）。 | 已收录态、本地态 |
+| **本地收录徽标** | `verified-badge-local` | 本地收录行的橘黄徽标变体（浅色 `#F59E0B`、深色 `#D97706`，见 `components-app-card.css`）：已验证蓝标优先，本地收录仅在未验证时叠加；为 D4 去彩例外点缀（与星级金、榜单金/银/铜、告警/错误色同类）。 | 黄标、本地标 |
 | **确认图标** | `Confirmed Icon` | `app_icon_cycles` 表 + 本地图标文件已落定的可直显图标：M2 为 `data:` 直显，L1-L3 为远端回退，L4 无（即空）；榜重挂时经 `getConfirmedIconsBatch` 本地回填（DB-only：零网络、零写盘、只进内存呈现）。与统一图标获取（后端探测与流式事件）及 M1/M2 缓存分层正交。 | 落定图标、本地回填 |
 
 ---
@@ -67,7 +70,7 @@
     - 所有下载的二进制安装包强制流式计算 SHA-256 哈希值并与官方校验清单比对，哈希不符立即强行阻断并销毁临时文件（详见 ADR-0004）。
 4. **D4 Linear 去彩单色界面 (Monochrome Design System)**:
    - 界面采用 Linear 风格的去彩单色体系：黑白灰画布、hairline 微边框、6/8px 圆角、510/590 字重与系统级深浅色自适应（Fluent 仅指 `lucide-react` 矢量图标体系，不要求 Acrylic/品牌蓝）。
-   - 采用统一的线性矢量图标体系（统一由 `lucide-react` 14px/stroke 1.5 及单色矢量 SVG 驱动并适配 `currentColor`），状态反馈采用标准 CSS 微动效（如旋转 `.icon-spin`）与高亮状态指示原点（`.status-dot`），消除视觉割裂；基底保持单色，星级收藏（金 `#eab308`）、榜单排名（金/银/铜）与告警/错误等状态色为例外点缀，图标本体仍为单色 `currentColor`。
+   - 采用统一的线性矢量图标体系（统一由 `lucide-react` 14px/stroke 1.5 及单色矢量 SVG 驱动并适配 `currentColor`），状态反馈采用标准 CSS 微动效（如旋转 `.icon-spin`）与高亮状态指示原点（`.status-dot`），消除视觉割裂；基底保持单色，星级收藏（金 `#eab308`）、榜单排名（金/银/铜）、本地收录徽标（橘黄 `verified-badge-local`：浅色 `#F59E0B`/深色 `#D97706`，仅未验证时叠加）与告警/错误等状态色为例外点缀，图标本体仍为单色 `currentColor`。
    - 侧栏底部账号入口胶囊与设置中心分组见词汇表；网络/认证与分组规范见 ADR-0008。
 5. **D5 双池复用 (Dual-Pool Client Reuse)**:
    - API 与图标下载使用物理隔离的复用单例 Client，均配置 connect_timeout 5s、keepalive 60s、pool 20/idle 90s；图标 CDN 通道恒丢 token，绝不携带认证头。

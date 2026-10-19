@@ -131,7 +131,7 @@ fn test_parse_import_payload_merge_rules() {
 fn test_backup_settings_full_round_trip() {
     // P1-8：导出 → JSON → 导入往返：除 github_token 外的全部设置无损通过，
     // 混合 JSON 类型（字符串/数值/布尔）统一转字符串；version 保持为 1。
-    // Lane C：show_custom/showCustom 开关随备份往返（默认开）。
+    // show_custom/showCustom 开关随备份往返（默认开；缺席即默认开，不污染旧备份）。
     let json = r#"{
         "version": 1,
         "favorites": ["rustdesk/rustdesk"],

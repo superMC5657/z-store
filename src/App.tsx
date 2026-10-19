@@ -52,7 +52,7 @@ import { useAppSettings } from './useAppSettings';
 import { useTranslation } from 'react-i18next';
 import './i18n';
 
-/** Lane D：后端 CustomAppEntry → PendingView 展示态（status 归一 draft/submitted/collected 系）。 */
+/** 后端 CustomAppEntry → PendingView 展示态（status 归一 draft/submitted/collected 系，local_collected 归 collected）。 */
 function toPendingViewEntry(e: BackendCustomAppEntry): CustomDraftEntry {
   const it = e.item;
   const status =
@@ -94,8 +94,8 @@ function toPendingViewEntry(e: BackendCustomAppEntry): CustomDraftEntry {
 }
 
 /**
- * Lane D：PendingView 表单 → 后端 payload（stars/forks 沿用现行值，
- * is_verified 后端强制 false；description_en/homepage 空串归 null）。
+ * PendingView 表单 → 后端 payload（stars/forks 沿用现行值，
+ * is_verified 后端强制 false；description_en/homepage 空串归 null 以对齐后端 Option）。
  */
 function toCustomCatalogItem(draft: PendingDraftItem, existing?: BackendCustomAppEntry): CustomCatalogItem {
   return {
@@ -150,7 +150,7 @@ export const App: React.FC = () => {
   // FR-6.2 关注（Watch）
   const [watchedIds, setWatchedIds] = useState<Set<string>>(new Set());
   const [watchNotifications, setWatchNotifications] = useState<WatchUpdatedPayload[]>([]);
-  // Lane D 一键 PR 链路：待收录草稿后端列表（null = 未加载/非 Tauri 预览，
+  // 待收录草稿后端列表（null = 未加载/非 Tauri 预览，
   // 此时 PendingView 缺 entries 走内部本地态；备份/转正语义不受影响）。
   const [customApps, setCustomApps] = useState<BackendCustomAppEntry[] | null>(null);
   // 任务 3（设备平台全局过滤）：App 级别多选平台状态，默认选中全部 6 种 PLATFORM_IDS（含虚拟 other），
@@ -170,7 +170,7 @@ export const App: React.FC = () => {
   const { toasts, showToast, handleDismissToast } = useToasts();
   const { t } = useTranslation();
 
-  // Lane D 一键 PR 链路：待收录草稿透传（list/save/delete/markSubmitted 经 tauriApi）。
+  // 待收录草稿透传（list/save/delete/markSubmitted 经 tauriApi）。
   const reloadCustomApps = useCallback(async () => {
     try {
       setCustomApps(await tauriApi.listCustomApps(true));
@@ -180,8 +180,8 @@ export const App: React.FC = () => {
     }
   }, []);
 
-  // 进待收录页时拉取 + 跨视图变更跟随（移入收录/备份导入后刷新）。
-  // 本地收录合并流需首页/分类同展：挂载即拉取，跨视图变更全局跟随。
+  // 待收录变更跟随（移入收录/备份导入后刷新）+ 挂载即拉取：
+  // 本地收录需首页/分类同展，挂载拉取保证首刷补黄（缺席无标，就绪重标），跨视图变更全局跟随。
   useEffect(() => {
     void reloadCustomApps();
     const onChanged = () => {

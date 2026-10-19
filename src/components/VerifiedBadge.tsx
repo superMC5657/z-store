@@ -1,6 +1,7 @@
 import React from 'react';
 import { BadgeCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { isCollectedStatus } from '../app/selectors';
 
 export type VerifiedBadgeVariant = 'verified' | 'local';
 
@@ -14,7 +15,8 @@ export interface VerifiedBadgeProps {
 
 /**
  * 徽标变体判定（展示层唯一口径）：
- * 已认证优先 verified（蓝色不动），本地收录走 local（橘黄），其余无标。
+ * 已认证优先 verified（蓝色不动），本地收录走 local（橘黄，D4 去彩例外），其余无标。
+ * 蓝优先保证榜单公信力：已验证远端不叠黄。
  */
 export function resolveVerifiedBadgeVariant(app: {
   is_verified?: unknown;
@@ -24,7 +26,7 @@ export function resolveVerifiedBadgeVariant(app: {
   if ((app as { is_verified?: unknown }).is_verified === true) return 'verified';
   if ((app as { source?: unknown }).source === 'local') return 'local';
   const status = (app as { status?: unknown }).status;
-  if (status === 'collected' || status === 'local_collected') return 'local';
+  if (isCollectedStatus(status)) return 'local';
   return null;
 }
 

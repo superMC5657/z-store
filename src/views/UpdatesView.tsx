@@ -389,9 +389,10 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                   </div>
 
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center', position: 'relative' }}>
+                    {/* 行内三按钮统一 28px 高：btn-sm 的 max-height:28px 会钳制行内高度，改高需同步 maxHeight */}
                     <button
                       className="btn-fluent btn-sm btn-secondary"
-                      style={{ height: '30px', boxSizing: 'border-box', padding: '0 10px', fontSize: 'var(--font-sm)' }}
+                      style={{ height: '28px', boxSizing: 'border-box', padding: '0 10px', fontSize: 'var(--font-sm)' }}
                       onClick={() => setExpandedId(isExpanded ? null : item.app_id)}
                     >
                       {isExpanded ? t('updates.collapse_changelog') : t('updates.view_changelog')}
@@ -399,7 +400,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
 
                     <button
                       className="btn-fluent btn-sm btn-primary"
-                      style={{ height: '30px', boxSizing: 'border-box', padding: '0 14px', fontSize: 'calc(12.5px * var(--font-scale))', fontWeight: 510 }}
+                      style={{ height: '28px', boxSizing: 'border-box', padding: '0 14px', fontSize: 'calc(12.5px * var(--font-scale))', fontWeight: 510 }}
                       disabled={isThisUpdating || isUpdatingAll}
                       onClick={() => handleUpdate(item.app_id)}
                     >
@@ -412,7 +413,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                         className={`btn-fluent btn-sm btn-secondary ${isMenuOpen ? 'active' : ''}`}
                         style={{
                           width: '30px',
-                          height: '30px',
+                          height: '28px',
                           boxSizing: 'border-box',
                           padding: 0,
                           display: 'flex',

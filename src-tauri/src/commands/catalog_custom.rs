@@ -1,9 +1,10 @@
-//! Lane A 本地自维护草稿 commands（ADR-0017）：CRUD + 转正 + 合并视图 + 预填 PR 链路。
+//! 本地自维护草稿 commands（ADR-0017）：CRUD + 转正 + 合并视图 + 预填 PR 链路。
 //!
 //! - `list_custom_apps` / `save_custom_app` / `delete_custom_app` /
-//!   `collect_custom_app` / `collect_local_app` / `revert_collected_to_draft`
-//!   （别名 `revert_collected_app` 兼容旧前端） / `mark_submitted` /
-//!   `retire_on_sync` / `get_merged_catalog_view` / `get_custom_app_pr_url`；
+//!   `collect_custom_app` / `collect_local_app`（同真身，前者供草稿链路，后者供视图直调） /
+//!   `revert_collected_to_draft`（规范名；`revert_collected_app` 为等义别名，同真身） /
+//!   `mark_submitted` / `retire_on_sync` / `get_merged_catalog_view` /
+//!   `get_custom_app_pr_url`；
 //! - 二次确认由前端做，后端 `delete_custom_app` 直接删；
 //! - `save_custom_app` 暂存档校验（`DraftLenient`，草稿允许不完整）+ `is_verified` 强制
 //!   false（草稿永不冒充已验证收录）；收录档（`CollectStrict`，与 `SubmitStrict` 同口径）
@@ -21,7 +22,7 @@ use crate::AppState;
 use tauri::State;
 
 /// 独立生态清单仓库收录申请预填页（ADR-0009）：收录 PR 目标。
-/// 纯 URL 打开即可用，无需 token/OAuth（Lane D 一键 PR 链路入口）。
+/// 纯 URL 打开即可用，无需 token/OAuth（PR-link entry）。
 pub const CATALOG_REPO_ISSUES_URL: &str =
     "https://github.com/superMC5657/z-store-catalog/issues/new";
 
@@ -68,7 +69,7 @@ pub fn build_single_pr_url(entry: &CustomAppEntry) -> String {
     )
 }
 
-/// 收录申请预填链接（纯函数，可单测）：`build_single_pr_url` 别名（Lane A 历史入口，语义不变）。
+/// 收录申请预填链接（纯函数，可单测）：`build_single_pr_url` same-shape entry(same semantics)。
 pub fn build_catalog_pr_url(entry: &CustomAppEntry) -> String {
     build_single_pr_url(entry)
 }
@@ -239,21 +240,27 @@ fn pr_item_json_with_indent(item: &CatalogItem, base: &str) -> String {
         field = field,
         v = pr_json_string(&item.repo)
     ));
-    fields.push(format!(
-        "{field}\"icon\": {v}",
-        field = field,
-        v = pr_json_string(&item.icon)
-    ));
-    fields.push(format!(
-        "{field}\"icon_bg\": {v}",
-        field = field,
-        v = pr_json_string(&item.icon_bg)
-    ));
-    fields.push(format!(
-        "{field}\"description\": {v}",
-        field = field,
-        v = pr_json_string(&item.description)
-    ));
+    if !item.icon.trim().is_empty() {
+        fields.push(format!(
+            "{field}\"icon\": {v}",
+            field = field,
+            v = pr_json_string(&item.icon)
+        ));
+    }
+    if !item.icon_bg.trim().is_empty() {
+        fields.push(format!(
+            "{field}\"icon_bg\": {v}",
+            field = field,
+            v = pr_json_string(&item.icon_bg)
+        ));
+    }
+    if !item.description.trim().is_empty() {
+        fields.push(format!(
+            "{field}\"description\": {v}",
+            field = field,
+            v = pr_json_string(&item.description)
+        ));
+    }
     if let Some(desc_en) = item.description_en.as_deref().filter(|s| !s.trim().is_empty()) {
         fields.push(format!(
             "{field}\"description_en\": {v}",
@@ -288,8 +295,12 @@ fn pr_item_json_with_indent(item: &CatalogItem, base: &str) -> String {
         field = field,
         v = pr_json_string(&item.license)
     ));
-    fields.push(format!("{field}\"stars\": {v}", field = field, v = item.stars));
-    fields.push(format!("{field}\"forks\": {v}", field = field, v = item.forks));
+    if item.stars != 0 {
+        fields.push(format!("{field}\"stars\": {v}", field = field, v = item.stars));
+    }
+    if item.forks != 0 {
+        fields.push(format!("{field}\"forks\": {v}", field = field, v = item.forks));
+    }
     fields.push(format!(
         "{field}\"is_verified\": {v}",
         field = field,
@@ -346,7 +357,7 @@ pub fn ensure_collected_for_pr(entry: &CustomAppEntry) -> Result<(), String> {
 }
 
 /// 本地收录 overlay 输入过滤（纯函数，可单测）：仅 `status==collected && !archived`
-/// 行进入合并视图（远端优先去重由 `merge_catalog_overlay_view` 执行，兼容历史 `local_collected` 字面）。
+/// 行进入合并视图（远端优先去重由 `merge_catalog_overlay_view` 执行，on-disk residual `local_collected` 字面）。
 pub fn collected_overlay_items(entries: Vec<CustomAppEntry>) -> Vec<CatalogItem> {
     entries
         .into_iter()
@@ -418,13 +429,15 @@ pub fn collect_custom_app(
     Ok(db.mark_custom_app_collected(&key)?)
 }
 
-/// 本地收录别名（语义同 `collect_custom_app`，请求键 camelCase `{id}`）。
+/// Local collect entry (view): same truth as `collect_custom_app` (CollectStrict, `is_verified=false` kept).
 #[tauri::command(rename_all = "camelCase")]
 pub fn collect_local_app(
     state: State<'_, AppState>,
     id: String,
 ) -> crate::AppResult<CustomAppEntry> {
-    collect_custom_app(state, id)
+    let key = crate::forge::canonical_lookup_id(&id);
+    let db = state.db().map_err(crate::AppError::from)?;
+    Ok(db.mark_custom_app_collected(&key)?)
 }
 
 /// 本地收录退回草稿：`status=collected` → `draft`（未归档限定；已提交/已归档不退回，只读）。
@@ -439,13 +452,16 @@ pub fn revert_collected_to_draft(
     Ok(db.revert_collected_to_draft(&key)?)
 }
 
-/// 旧前端兼容别名（语义同 `revert_collected_to_draft`，请求键 camelCase `{id}`）。
+/// Deprecated compat: canonical is `revert_collected_to_draft`, to be removed in next minor; keeps old frontend working.
+#[deprecated(note = "use revert_collected_to_draft instead; will be removed in next minor")]
 #[tauri::command(rename_all = "camelCase")]
 pub fn revert_collected_app(
     state: State<'_, AppState>,
     id: String,
 ) -> crate::AppResult<CustomAppEntry> {
-    revert_collected_to_draft(state, id)
+    let key = crate::forge::canonical_lookup_id(&id);
+    let db = state.db().map_err(crate::AppError::from)?;
+    Ok(db.revert_collected_to_draft(&key)?)
 }
 
 /// 标记已提交：`status=submitted` + 落 `pr_url`；已转正归档行拒绝。
@@ -769,7 +785,7 @@ mod tests {
 
     #[test]
     fn overlay_accepts_legacy_local_collected_literal_and_rejects_draft() {
-        // 兼容盘上残留 `local_collected` 字面：同样进入 overlay；退回 draft 后不再进入。
+        // On-disk residual `local_collected` 字面：同样进入 overlay；退回 draft 后不再进入。
         let mut legacy = entry("o/legacy");
         legacy.status = "local_collected".to_string();
         let mut reverted = entry("o/reverted");
@@ -783,7 +799,7 @@ mod tests {
         assert!(items.iter().any(|i| i.id == "o/legacy"));
         assert!(items.iter().any(|i| i.id == "o/keep"));
         assert!(!items.iter().any(|i| i.id == "o/reverted"));
-        // PR 门禁同样兼容字面。
+        // PR 门禁同样on-disk literal。
         let mut gate_legacy = entry("o/legacy");
         gate_legacy.status = "local_collected".to_string();
         assert!(ensure_collected_for_pr(&gate_legacy).is_ok());
@@ -804,6 +820,10 @@ mod tests {
 
     fn full_entry(id: &str) -> CustomAppEntry {
         let mut e = entry(id);
+        e.item.icon = "https://example.com/icon.png".to_string();
+        e.item.icon_bg = "linear-gradient(135deg, #475569, #334155)".to_string();
+        e.item.stars = 42;
+        e.item.forks = 7;
         e.item.aliases = vec!["demo".to_string(), "o/r".to_string()];
         e.item.description_en = Some("demo en".to_string());
         e.item.platforms = vec!["windows".to_string(), "macos".to_string(), "linux".to_string()];
@@ -855,6 +875,18 @@ mod tests {
         assert!(!empty_payload.contains("\"aliases\""));
         assert!(!empty_payload.contains("\"platforms\""));
         assert!(!empty_payload.contains("\"identifiers\""));
+        // Empty-string fields omitted (same as frontend toOrderedPrPayload): empty icon/icon_bg emit nothing.
+        assert!(empty_v.get("icon").is_none());
+        assert!(empty_v.get("icon_bg").is_none());
+        assert!(!empty_payload.contains("\"icon\""));
+        assert!(!empty_payload.contains("\"icon_bg\""));
+        // Zero stars/forks omitted (no finite truthy value).
+        assert!(empty_v.get("stars").is_none());
+        assert!(empty_v.get("forks").is_none());
+        assert!(!empty_payload.contains("\"stars\""));
+        assert!(!empty_payload.contains("\"forks\""));
+        // Non-empty description keeps.
+        assert!(empty_v.get("description").is_some());
         // 字段顺序沿用既有标准顺序。
         let order = [
             "\"id\"",

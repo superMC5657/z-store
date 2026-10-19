@@ -149,7 +149,7 @@ pub(crate) fn should_use_local_fallback(strict_errors: bool) -> bool {
     !strict_errors
 }
 
-/// Lane A 转正退役（ADR-0017）：同步成功后以远端 id 集合命中未归档草稿，
+/// 转正退役（ADR-0017）：同步成功后以远端 id 集合命中未归档草稿，
 /// 命中即 `archived=1`；失败吞错（best-effort，不阻塞同步主路径）。
 fn retire_graduated_drafts(
     state: &tauri::State<'_, AppState>,

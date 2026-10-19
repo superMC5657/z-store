@@ -68,10 +68,13 @@ import {
 import {
   LOADING_SETTLE_MS,
   annotateEnrichMirrorCataloged,
+  annotateIsCataloged,
   isEnrichedRowLoading,
   isInstalled as selectIsInstalled,
+  mergeLocalLookups,
   selectIsManagedOpt,
 } from '../app/selectors';
+import { VerifiedBadge, resolveVerifiedBadgeVariant } from '../components/VerifiedBadge';
 import {
   PLATFORM_IDS,
   isPlatformLoading,
@@ -208,14 +211,23 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   // 本地橘黄：matchingBase 为合并后全量（含本地 source，远端优先语义不动），
   // enrich 标注直接传数组本体以搬运 source/status（蓝优先）。
   const matchingBase = allApps ?? apps;
+  // 本地显式 lookup（inferred + customIds 合成）：matchingBase 自带 local 行一般已够，
+  // customIds（乐观移入/过滤后缺 local 时）显式补齐；引用变化即重标（缺席透传，就绪补黄）。
+  const trendLocalLookup = useMemo(() => {
+    const inferred = (matchingBase ?? []).filter(
+      (m) => (m as { source?: unknown }).source === 'local',
+    );
+    return mergeLocalLookups(inferred, customIds);
+  }, [matchingBase, customIds]);
   // enrich 合并处显式标注 is_cataloged（显式优先于 category 兜底；未命中=false 即显示按钮）。
+  // 本地收录叠加经 customIds 显式口径补齐（matchingBase 缺 local 时 enrich 仍能黄）。
   const annotatedEnrichedApps = useMemo(
-    () => annotateEnrichMirrorCataloged(enrichedApps, matchingBase),
-    [enrichedApps, matchingBase],
+    () => annotateEnrichMirrorCataloged(enrichedApps, matchingBase, customIds),
+    [enrichedApps, matchingBase, customIds],
   );
 
-  // Lane C 移入收录（未收录富卡一键 save_custom_app 草稿，platforms [] loading）：
-  // 经 tauriApi（禁直调 invoke），复用 lite 确认链，编辑页可手改。
+  // 移入收录（未收录富卡一键 save_custom_app 草稿，platforms [] loading）：
+  // 经 tauriApi（视图禁直调 invoke，命令表驱动），复用 lite 确认链（缺席即 loading，编辑页可手改）。
   // 入口收进 AppCard 内部操作区（仅未收录 external 富卡渲染），小行无外挂按钮，
   // 小行 enrich 为富卡后同样走内部入口；此处只保留动作实现（useCallback 稳定引用）。
   const [trendMovingIds, setTrendMovingIds] = useState<Set<string>>(() => new Set<string>());
@@ -744,7 +756,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
             // 右按钮直开 GitHub（不调安装链）；缺席（加载中/失败）即旧小行占位。
             // enrich 空（fallback []）视为 loading：占位不闪 Other，Other 未勾选仍可见，
             // 详情治愈/lite 回填/settle 确认为 other 后一次落定。
-            // Lane C fix：取标注后镜像（is_cataloged 显式=false，未命中 catalog），显式优先于 category 兜底。
+            // 取标注后镜像（is_cataloged 显式=false，未命中 catalog），显式优先于 category 兜底。
             const enriched = annotatedEnrichedApps[item.repo.id.toLowerCase()];
             if (enriched) {
               const hasPlatforms = !!enriched.platforms && enriched.platforms.length > 0;
@@ -784,7 +796,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
 
             const gainText = gainTextFor(item.gain);
             const owner = item.repo.owner?.trim();
-            // Lane C fix：裸行迷你入口（复用 handleTrendMoveIn，isCustomExisting 同富卡隐藏逻辑）。
+            // 裸行迷你入口（复用 handleTrendMoveIn，isCustomExisting 同富卡隐藏逻辑）。
             // 裸行是唯一呈现（不走 AppCard），无它用户永远点不到；catalog 分支按设计不动。
             const bareKey = normalizeId(item.repo.id);
             const bareMoving = trendMovingIds.has(bareKey);
@@ -794,6 +806,21 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
             const bareMoveLabel = bareMoving
               ? t('custom.moving_in', { defaultValue: '移入中…' })
               : t('custom.move_in', { defaultValue: '移入收录' });
+            // 裸行黄标：enrich 缺席占位小行命中本地也在标题旁黄标（复用 verified-badge-local，
+            // 判定唯一口径 resolveVerifiedBadgeVariant，蓝优先；身份归一沿用 rowAliasKeys）。
+            const bareLocalVariant = (() => {
+              if (!trendLocalLookup) return null;
+              const pseudo = {
+                id: item.repo.id,
+                owner: item.repo.owner,
+                repo: item.repo.repo,
+                is_verified: false,
+              } as AppSummary;
+              const annotated = annotateIsCataloged(pseudo, new Set<string>(), trendLocalLookup);
+              return resolveVerifiedBadgeVariant(
+                annotated as { is_verified?: unknown; source?: unknown; status?: unknown },
+              );
+            })();
 
             return (
               <div
@@ -817,6 +844,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                   <div className="app-meta" style={{ minWidth: 0 }}>
                     <div className="app-title">
                       <span className="app-name">{item.repo.name}</span>
+                      {bareLocalVariant === 'local' && <VerifiedBadge size="sm" variant="local" />}
                     </div>
                     {owner && (
                       <div className="app-owner">

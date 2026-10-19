@@ -34,7 +34,7 @@ fn get_default_settings() -> HashMap<String, String> {
         cfg.catalog.default_source_url.clone(),
     );
     map.insert("watch_notify_frequency".to_string(), "daily".to_string());
-    // Lane C 自维护 overlay 开关（默认开；关闭即隐藏全部 custom 行）。
+    // 自维护 overlay 开关（默认开；关闭即隐藏全部 custom 行）。
     map.insert("show_custom".to_string(), "true".to_string());
     map.insert(
         "strict_errors".to_string(),

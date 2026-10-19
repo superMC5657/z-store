@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   getNativeWindowOpen,
   isBlockedShortcut,
@@ -100,7 +100,7 @@ describe('browserLockdown', () => {
       expect(typeof window.print).toBe('function');
       window.print();
 
-      // 2. window.open 转走 tauriApi.openUrl
+      // 2. window.open 转走 tauriApi.openUrl（劫持版同步返回 null 兜底）
       const res = window.open('https://example.com');
       expect(res).toBeNull();
       expect(tauriApi.openUrl).toHaveBeenCalledWith('https://example.com');
@@ -147,41 +147,102 @@ describe('browserLockdown', () => {
       expect(normalWheel.defaultPrevented).toBe(false);
     });
 
-    it('hijack flag stays set until the async open settles (no sync reset)', async () => {
+    it('concurrent window.open calls both reach tauriApi (no production lock)', async () => {
       initBrowserLockdown();
       const mocked = vi.mocked(tauriApi.openUrl);
       mocked.mockClear();
       mocked.mockResolvedValue(undefined);
 
-      // 同 tick 内连调两次：第二次应被旗标拦截，不再透传 tauriApi
+      // 同 tick 内连调两次：最小集无生产加锁，两次均透传 tauriApi（去重由调用方负责）
       window.open('https://example.com/a');
       window.open('https://example.com/b');
-      expect(mocked).toHaveBeenCalledTimes(1);
-      expect(mocked).toHaveBeenCalledWith('https://example.com/a');
-
-      // 落定后复位：下一次调用恢复透传
-      await Promise.resolve();
-      await Promise.resolve();
-      window.open('https://example.com/c');
       expect(mocked).toHaveBeenCalledTimes(2);
-      expect(mocked).toHaveBeenLastCalledWith('https://example.com/c');
+      expect(mocked).toHaveBeenNthCalledWith(1, 'https://example.com/a');
+      expect(mocked).toHaveBeenNthCalledWith(2, 'https://example.com/b');
+
+      // 空 URL 兜底判 null，不透传
+      mocked.mockClear();
+      expect(window.open(undefined as unknown as string)).toBeNull();
+      expect(mocked).not.toHaveBeenCalled();
     });
 
     it('fallback opener bypasses the hijack via the captured native open', () => {
       initBrowserLockdown();
-      // 劫持版带标记且同步返回 null
-      expect(
-        (window.open as unknown as Record<string, unknown>).__zstoreHijacked,
-      ).toBe(true);
+      // 劫持版同步返回 null
+      expect(window.open('https://example.com/hijacked')).toBeNull();
       const native = getNativeWindowOpen();
       expect(typeof native).toBe('function');
       const fallback = resolveFallbackOpener();
       expect(typeof fallback).toBe('function');
       // 兜底返回的是原生而非劫持版
       expect(fallback).not.toBe(window.open);
-      expect(
-        (fallback as unknown as Record<string, unknown>).__zstoreHijacked,
-      ).not.toBe(true);
+    });
+  });
+
+  describe('resolveFallbackOpener three routes', () => {
+    const w = window as unknown as Record<string, unknown>;
+    let savedNative: unknown;
+    let savedDemo: unknown;
+
+    beforeEach(() => {
+      initBrowserLockdown();
+      savedNative = w['__ZSTORE_NATIVE_OPEN__'];
+      savedDemo = w['__ZSTORE_DEMO_NATIVE_OPEN__'];
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+      if (savedNative === undefined) delete w['__ZSTORE_NATIVE_OPEN__'];
+      else w['__ZSTORE_NATIVE_OPEN__'] = savedNative;
+      if (savedDemo === undefined) delete w['__ZSTORE_DEMO_NATIVE_OPEN__'];
+      else w['__ZSTORE_DEMO_NATIVE_OPEN__'] = savedDemo;
+    });
+
+    it('hijacked: prefers the pre-hijack cached native open', () => {
+      const nativeSpy = vi.fn().mockReturnValue({} as unknown as Window);
+      w['__ZSTORE_NATIVE_OPEN__'] = nativeSpy;
+      const hijackedSpy = vi.spyOn(window, 'open').mockReturnValue(null);
+
+      const fallback = resolveFallbackOpener();
+      expect(typeof fallback).toBe('function');
+      expect(fallback).not.toBe(window.open);
+      const ret = fallback!('https://example.com/hijacked', '_blank', 'noopener,noreferrer');
+      expect(nativeSpy).toHaveBeenCalledWith(
+        'https://example.com/hijacked',
+        '_blank',
+        'noopener,noreferrer',
+      );
+      expect(ret).not.toBeNull();
+      expect(hijackedSpy).not.toHaveBeenCalled();
+    });
+
+    it('non-hijacked: without cache keys returns the current window.open', () => {
+      delete w['__ZSTORE_NATIVE_OPEN__'];
+      delete w['__ZSTORE_DEMO_NATIVE_OPEN__'];
+      const handle = {} as unknown as Window;
+      const currentSpy = vi.spyOn(window, 'open').mockReturnValue(handle);
+
+      const fallback = resolveFallbackOpener();
+      expect(typeof fallback).toBe('function');
+      const ret = fallback!('https://example.com/plain', '_blank', 'noopener,noreferrer');
+      expect(currentSpy).toHaveBeenCalledWith(
+        'https://example.com/plain',
+        '_blank',
+        'noopener,noreferrer',
+      );
+      expect(ret).toBe(handle);
+    });
+
+    it('null: without keys and without window.open returns null', () => {
+      delete w['__ZSTORE_NATIVE_OPEN__'];
+      delete w['__ZSTORE_DEMO_NATIVE_OPEN__'];
+      const original = window.open;
+      (window as unknown as Record<string, unknown>).open = undefined;
+      try {
+        expect(resolveFallbackOpener()).toBeNull();
+      } finally {
+        window.open = original;
+      }
     });
   });
 });

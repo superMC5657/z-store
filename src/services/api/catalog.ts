@@ -303,9 +303,7 @@ export async function restoreOrFetchIconCycle(appId: string): Promise<AppIconCyc
   }
 }
 
-// ---------- Lane C：本地自维护草稿 overlay（ADR-0017） ----------
-// 后端已落盘（Lane A）：custom_apps 表 + catalog_custom commands + 合并视图。
-// 此处仅做 IPC 封装（CMD 表驱动），视图层禁直调 invoke（见 noDirectInvoke.test.ts）。
+// 自维护草稿 overlay：仅做 IPC 封装（CMD 表驱动），视图层禁直调 invoke（见 noDirectInvoke.test.ts）。
 
 /** 自维护草稿 payload（与后端 CatalogItem 同形，is_verified 入库强制 false）。 */
 export interface CustomCatalogItem {
@@ -336,10 +334,8 @@ export interface CustomCatalogItem {
 /** 自维护草稿状态（收录态 collected 系与 local_collected 同义，PR 前置门禁唯一口径）。 */
 export type CustomAppStatus = 'draft' | 'submitted' | 'collected' | 'local_collected';
 
-/** 本地收录态判定（overlay/PR 门禁唯一口径）：status 为 collected 系。 */
-export function isCollectedStatus(status: unknown): boolean {
-  return status === 'collected' || status === 'local_collected';
-}
+/** 收录态判定唯一口径收敛于 selectors（避免三处漂移）：本模块仅重导出。 */
+export { isCollectedStatus } from '../../app/selectors';
 
 /** 自维护草稿条目（与后端 CustomAppEntry 同形）。 */
 export interface CustomAppEntry {
@@ -397,7 +393,7 @@ export async function collectCustomApp(id: string): Promise<CustomAppEntry> {
   return tauriInvoke<CustomAppEntry>(CMD.collectCustomApp, { id });
 }
 
-/** 本地收录别名（语义同 collectCustomApp，视图经 tauriApi.collectLocalApp 接入）。 */
+/** 本地收录视图入口（收录档校验后 status=collected，已收录仍 is_verified=false；直调 collect_local_app 真身）。 */
 export async function collectLocalApp(id: string): Promise<CustomAppEntry> {
   return tauriInvoke<CustomAppEntry>(CMD.collectLocalApp, { id });
 }
@@ -410,7 +406,7 @@ export async function revertCollectedApp(id: string): Promise<CustomAppEntry> {
   return tauriInvoke<CustomAppEntry>(CMD.revertCollectedApp, { id });
 }
 
-/** 收录别名（同 collectCustomApp，保持旧调用兼容）。 */
+/** 收录入口别名（与 collectCustomApp 同引用，供视图复用）。 */
 export const collect = collectCustomApp;
 
 /**
@@ -463,8 +459,7 @@ export async function getCustomAppPrUrl(id: string): Promise<string> {
 }
 
 /**
- * Lane D 一键 PR 链路：批量收录申请预填链接（二期开关）。
- * 选中多条合并为一个 JSON 数组，经一个预填 URL 提交（批量合一 PR）。
+ * 批量收录申请预填链接（二期开关）：选中多条合并为一个 JSON 数组，经一个预填 URL 提交（批量合一）。
  */
 export async function getCustomAppsBatchPrUrl(ids: string[]): Promise<string> {
   return tauriInvoke<string>(CMD.getCustomAppsBatchPrUrl, { ids });
@@ -493,9 +488,8 @@ export async function getLicenseAllowlist(): Promise<LicenseAllowlistResult> {
   };
 }
 
-// ---------- Lane D：一键 PR 链路纯函数（无 IPC，视图/单测可直用） ----------
-// 与后端 build_single_pr_url / build_batch_pr_url 同形：目标同为
-// superMC5657/z-store-catalog 预填页，正文含 JSON codeblock + 校验说明；
+// 预填 URL 纯函数（无 IPC，视图/单测可直用）：与后端 build_single_pr_url /
+// build_batch_pr_url 同形，目标同为清单仓库预填页，正文含 JSON codeblock + 校验说明；
 // 后端不可达（浏览器预览/单测）时的本地同形兜底。
 
 /** 清单仓库收录申请预填页（与后端 CATALOG_REPO_ISSUES_URL 同值）。 */
@@ -605,8 +599,11 @@ function formatPrObject(payload: Record<string, unknown>, baseIndent = ''): stri
 /**
  * 单条目重排为标准顺序并省略空：install_dirs/search_subdirs/publishers
  * 按模板直接丢弃（预填启发式猜测，不进 PR）；aliases/platforms 空数组省、
- * identifiers 空对象/空内层数组省；description_en/homepage 空省；
- * stars/forks 恒保留；is_verified 恒为 true（仅预填/复制体，库存对象不改）。
+ * identifiers 空对象/空内层数组省；icon/icon_bg/description/description_en/
+ * homepage/category/category_name 空串（去首尾空白后为空）直接省，不输出 `""`；
+ * stars/forks 仅有限非零数字保留（缺失/非有限/0 一律省，不恒输出 0）；
+ * is_verified 恒为 true（仅预填/复制体，库存对象不改）。
+ * 字段顺序与模板 2 空格 + 单行数组内联风格不变。
  */
 function toOrderedPrPayload(item: unknown): Record<string, unknown> {
   const src = (item ?? {}) as Record<string, unknown>;
@@ -621,22 +618,28 @@ function toOrderedPrPayload(item: unknown): Record<string, unknown> {
     }
     if (Object.keys(out).length > 0) cleanedIdentifiers = out;
   }
+  const starsValue = src.stars;
+  const forksValue = src.forks;
   return {
     id: src.id,
     name: src.name,
     owner: src.owner,
     repo: src.repo,
-    icon: src.icon,
-    icon_bg: src.icon_bg,
-    description: src.description,
+    ...(isNonEmptyTrimmedString(src.icon) ? { icon: src.icon } : {}),
+    ...(isNonEmptyTrimmedString(src.icon_bg) ? { icon_bg: src.icon_bg } : {}),
+    ...(isNonEmptyTrimmedString(src.description) ? { description: src.description } : {}),
     ...(isNonEmptyTrimmedString(src.description_en) ? { description_en: src.description_en } : {}),
-    category: src.category,
-    category_name: src.category_name,
+    ...(isNonEmptyTrimmedString(src.category) ? { category: src.category } : {}),
+    ...(isNonEmptyTrimmedString(src.category_name) ? { category_name: src.category_name } : {}),
     ...(isNonEmptyArray(src.aliases) ? { aliases: src.aliases } : {}),
     default_version: src.default_version,
     license: src.license,
-    stars: src.stars,
-    forks: src.forks,
+    ...(typeof starsValue === 'number' && Number.isFinite(starsValue) && starsValue !== 0
+      ? { stars: starsValue }
+      : {}),
+    ...(typeof forksValue === 'number' && Number.isFinite(forksValue) && forksValue !== 0
+      ? { forks: forksValue }
+      : {}),
     is_verified: true,
     ...(isNonEmptyTrimmedString(src.homepage) ? { homepage: src.homepage } : {}),
     ...(isNonEmptyArray(src.platforms) ? { platforms: src.platforms } : {}),
@@ -710,7 +713,7 @@ export function buildLocalBatchPrUrl(entries: LocalPrEntry[], payloadJson?: stri
 
 /**
  * 文本复制（剪贴板 API 优先，失败回退 textarea + execCommand；永远不抛异常）。
- * Lane D 单卡“提交 PR”先复制 JSON 再打开预填页。
+ * 单卡“提交 PR”先复制 JSON 再打开预填页，避免预填页打不开时丢失载荷。
  */
 export async function copyTextToClipboard(text: string): Promise<boolean> {
   try {
@@ -759,9 +762,8 @@ function normalizeDraftIcon(icon: unknown): string {
   return /^https?:\/\//i.test(v) ? v : '';
 }
 
-// ---------- Lane C：移入草稿启发式预填（前端轻量版，仅预填可编辑，提交前人工校对） ----------
-// 口径参考 `src-tauri/scanner/{types,executable,matcher}` + `github/http::guess_category`
-// 的轻量前端版（不照抄后端）：有真值绝不覆盖（源非空优先），仅空时填猜测。
+// 移入草稿启发式预填（仅预填可编辑，提交前人工校对）：有真值绝不覆盖（源非空优先），仅空时填猜测。
+// 参考后端 scanner/guess_category 的轻量前端版（不照抄后端）：
 // - platforms：源非空即用（归一小写去重，过滤 `other`），否则按名猜桌面最小集；
 // - identifiers：按有效 platforms（未知则 windows/macos/linux）填 exe/裸名候选；
 // - install_dirs：`[Repo, lower]` 去重；search_subdirs：默认 8 项中高频子集 `["bin"]`；

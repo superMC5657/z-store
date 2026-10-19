@@ -59,8 +59,9 @@ export async function importUserData(json: string): Promise<ImportUserDataCounts
 }
 
 export async function openUrl(url: string): Promise<void> {
-  // 合法 https 预填 URL 必过：先 trim 去首尾空白，再大小写不敏感判 http(s)，
-  // 仅空值/非法 scheme 抛错，不误杀合法预填长链。
+  // 空值/非法 scheme 全 repo 调用方扫描结论：均为合法 https 外链透传（`void openUrl`
+  // fire-and-forget 或 try/catch 自处理，无调用方依赖静默吞错），故保留 fail-closed 抛错，
+  // 避免空串/非 http(s) 被误打开或谎报成功。
   const trimmed = (url ?? '').trim();
   if (!trimmed) throw new Error('empty url');
   if (!/^https?:\/\//i.test(trimmed)) throw new Error(`unsupported url scheme: ${trimmed}`);
@@ -70,38 +71,48 @@ export async function openUrl(url: string): Promise<void> {
     return;
   } catch (directErr) {
     // 直调失败（非 Tauri 的 Not in Tauri / 后端 rundll32 spawn 失败等）才走原生兜底：
-    // 经劫持前捕获的原生 opener 绕过 `window.open` 劫持（直接调会被拦截返回 null），
-    // 返回 null（弹窗拦截/无原生可用）则抛出来源错保留失败感知，杜绝静默谎报成功。
+    // 经劫持前捕获的原生 opener 绕过 `window.open` 劫持（劫持版直接调必返回 null），
+    // 原生返回 null（弹窗拦截/无原生可用）则抛 `popup_blocked` 语义错保留失败感知，
+    // 调用方 toast 走 `url_copied` 降级复制，不谎报成功；此处不复用 directErr，
+    // 避免把后端失败当拦截原因误导排查。
     const opener = resolveSettingsFallbackOpener();
-    if (opener) {
-      try {
-        const ret = opener(trimmed, '_blank', 'noopener,noreferrer');
-        if (ret) return;
-      } catch {
-        /* 原生调用抛错则落到下方抛出来源错 */
-      }
+    if (!opener) throw directErr;
+    let ret: WindowProxy | Window | null = null;
+    try {
+      ret = opener(trimmed, '_blank', 'noopener,noreferrer');
+    } catch {
+      // 原生调用抛错与返回 null 同语义（拦截/不可用），统一抛 popup_blocked。
+      throw popupBlockedError(trimmed);
     }
-    throw directErr;
+    if (ret) return;
+    throw popupBlockedError(trimmed);
   }
+}
+
+function popupBlockedError(url: string): Error & { code?: string } {
+  const err = new Error(`popup_blocked: native window.open returned null for ${url}`) as Error & {
+    code?: string;
+  };
+  err.code = 'popup_blocked';
+  return err;
 }
 
 /**
  * settings 层兜底 opener 解析（不导入 browserLockdown，避免
  * `settings → browserLockdown → services/api → settings` 循环）：
- * 劫持版 `window.open` 直接调用必返 null，须经 `__ZSTORE_NATIVE_OPEN__` /
- * `__ZSTORE_DEMO_NATIVE_OPEN__`（劫持前捕获）绕过；非劫持时用当前本体（单测可桩）。
+ * 劫持版 `window.open` 同步返回 null，直接调用必被拦截，故必须经 `__ZSTORE_NATIVE_OPEN__` /
+ * `__ZSTORE_DEMO_NATIVE_OPEN__`（劫持前捕获的原生 opener，见 browserLockdown/demo-mock
+ * 在覆写前缓存的原因）绕过劫持；无缓存键时（未初始化/单测桩）回落到当前 `window.open`
+ * 本体，调用方可桩返回值；两者皆无时返回 null，调用方按无原生处理。
  */
 function resolveSettingsFallbackOpener(): typeof window.open | null {
-  if (typeof window === 'undefined' || typeof window.open !== 'function') return null;
+  if (typeof window === 'undefined') return null;
   try {
-    const cur = window.open as unknown as Record<string, unknown>;
-    if (cur?.['__zstoreHijacked']) {
-      const w = window as unknown as Record<string, unknown>;
-      const stored = w['__ZSTORE_NATIVE_OPEN__'] ?? w['__ZSTORE_DEMO_NATIVE_OPEN__'];
-      if (typeof stored === 'function') return (stored as typeof window.open).bind(window);
-      return null;
-    }
-    return window.open.bind(window);
+    const w = window as unknown as Record<string, unknown>;
+    const stored = w['__ZSTORE_NATIVE_OPEN__'] ?? w['__ZSTORE_DEMO_NATIVE_OPEN__'];
+    if (typeof stored === 'function') return (stored as typeof window.open).bind(window);
+    if (typeof window.open === 'function') return window.open.bind(window);
+    return null;
   } catch {
     return null;
   }

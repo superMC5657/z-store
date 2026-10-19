@@ -283,7 +283,7 @@ impl CatalogService {
         status == crate::db::custom_apps::CUSTOM_APP_STATUS_COLLECTED && !archived
     }
 
-    /// Lane A overlay 合并（ADR-0017）：本地收录条目叠加到内存目录视图。
+    /// 本地收录 overlay 合并（ADR-0017）：本地收录条目叠加到内存目录视图。
     /// - 输入 `custom` 调用方须已过滤为本地收录（`status==collected && !archived`）；
     /// - 远端优先去重：远端 id 已存在时 custom 同 id 条目丢弃，不覆盖；
     /// - `is_cataloged` 恒 true（视图内即视为已收录），来源经 `source` 区分
@@ -525,7 +525,7 @@ impl CatalogEntrySource {
 
 /// 合并目录视图行：`AppSummary` 扁平展开 + 来源标记。
 /// `is_cataloged` 恒 true（视图内即视为已收录）；custom 行由 `source=custom` 区分，
-/// 前端按需展示“自维护”角标（Lane A 仅后端，视图接线为后续 Lane）。
+/// 前端按需展示“自维护”角标。
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MergedCatalogEntry {
     #[serde(flatten)]

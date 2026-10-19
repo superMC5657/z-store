@@ -337,7 +337,8 @@
       "license_required": "开源协议不可为空",
       "license_osi": "仅收录 OSI 认证开源协议",
       "license_gate_unavailable": "协议名单尚未加载，无法提交校验，请稍后重试",
-      "pr_url_scheme": "提交链接必须为 https 链接"
+      "pr_url_scheme": "提交链接必须为 https 链接",
+      "already_submitted": "已提交行不可重复提交：{{id}}"
     }
   },
   "installed": {

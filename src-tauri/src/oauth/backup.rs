@@ -4,7 +4,7 @@ use std::collections::HashMap;
 /// 用户数据导入：允许合入设置项的白名单（P1-8：覆盖除凭据外的全部设置项）。
 /// `github_token`（PAT 凭据）被刻意排除：永不经备份文件跨设备流转，
 /// 导出侧（DataBackupRow）同样不写入该键。
-/// Lane C：自维护 overlay 开关 `show_custom`/`showCustom`（默认开）随备份往返。
+/// 自维护 overlay 开关 `show_custom`/`showCustom`（默认开）随备份往返：关闭即隐藏全部 custom 行。
 pub const IMPORT_SETTINGS_ALLOWLIST: &[&str] = &[
     "theme",
     "language",

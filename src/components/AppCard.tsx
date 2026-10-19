@@ -23,7 +23,7 @@ interface AppCardProps {
   isWatched?: boolean;
   /** 加载中态（summary 为空且详情尚未落定）：此时不渲染 Other 徽标，改以占位保持布局稳定。 */
   platformLoading: boolean;
-  /** 趋势榜涨星数（>0 才渲染徽标，缺失时不渲染，保持精选页零变化）。 */
+  /** 趋势榜涨星数（>0 才渲染徽标，缺席时不渲染）。 */
   trendGain?: number;
   /** 已按当前语言格式化好的涨星文案，如“本周 +1.2k”。 */
   trendGainText?: string;
@@ -32,7 +32,7 @@ interface AppCardProps {
   eager?: boolean;
   /**
    * 收录态徽标（收藏列表传入 true）：已收录走收录蓝 pill，未收录走弱化描边，
-   * 定宽 48px 保持布局稳定。不传则不渲染，其它页面外观零变化。
+   * 定宽 48px 保持布局稳定。不传则不渲染。
    */
   showCatalogBadge?: boolean;
   onOpenDetail: (id: string) => void;
@@ -41,8 +41,8 @@ interface AppCardProps {
   onToggleWatch?: (id: string) => void;
   /**
    * 移入收录入口（富卡内部操作区，与安装/详情同排）：
-   * 仅当未收录 external 行（`!isAppCataloged(app)`，沿用展示层唯一口径）且
-   * 非 custom 草稿行、且 `isCustomExisting` 为假时渲染；缺席即不渲染，其它页面零变化。
+   * 仅当未收录 external 行（`!isAppCataloged(app)`，展示层唯一口径）且
+   * 非 custom 草稿行、且 `isCustomExisting` 为假时渲染；缺席即不渲染。
    */
   onMoveInApp?: (app: AppSummary) => void;
   /** 移入进行中（该卡入口禁用态，防重复提交）。 */
@@ -52,7 +52,7 @@ interface AppCardProps {
   /**
    * 占位行手动加载入口（收藏页未收录空壳行）：
    * 调用方以 `isFavoritePlaceholderRow` 判定后传入 `showLoadDetail`，
-   * 点击经 `onLoadDetail(app.id)` 拉取详情升级富卡；缺席即不渲染，其它页面零变化。
+   * 点击经 `onLoadDetail(app.id)` 拉取详情升级富卡；缺席即不渲染。
    */
   showLoadDetail?: boolean;
   onLoadDetail?: (id: string) => void;
@@ -185,7 +185,7 @@ export const AppCard: React.FC<AppCardProps> = memo(({
   const supportedDevicesLabel = t('app.supported_devices', { defaultValue: '支持设备' });
   // 已认证蓝标优先，本地收录橘黄次之，其余无标（verified 蓝不动）。
   const badgeVariant = resolveVerifiedBadgeVariant(app as { is_verified?: unknown; source?: unknown; status?: unknown });
-  // Lane C 自维护角标：source=custom 即本地草稿 overlay 行；category external 原样保留，
+  // 自维护角标：source=custom 即本地草稿行；category external 原样保留，
   // 判定仅看 source，不改 isAppCataloged 口径。
   const isCustomRow = (app as { source?: unknown }).source === 'custom';
   const isLocalRow = (app as { source?: unknown }).source === 'local';

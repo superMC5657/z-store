@@ -39,6 +39,7 @@ import {
 } from '../services/api/catalog';
 import { tauriApi } from '../services/api';
 import { resolveFallbackOpener } from '../utils/browserLockdown';
+import { isCollectedStatus } from '../app/selectors';
 import {
   getPendingSectionPrefs,
   getPendingShowCoordsPref,
@@ -51,23 +52,22 @@ import {
 export type { LicenseAllowlistResult };
 
 /**
- * 预填 URL 长度门限（pretty JSON 进 issues/new body 后极易超长）：
+ * 预填 URL 长度门限（pretty JSON 进 issues/new body 后极易超长，判定口径为编码后
+ * 预填链接全长，含 percent-encoding 膨胀；与 Spec §5 对齐，阈值 8000 不变）：
  * 超过即提示分批提交（仍复制 JSON + 仍尝试打开），单条/批量同口径。
  */
 export const PREFILL_URL_LENGTH_LIMIT = 8000;
 
 /**
- * Lane B 待收录页（UI 层，ADR-0017 草稿 overlay 前端）。
+ * 待收录页（UI 层，自维护草稿 overlay 前端）。
  *
- * - 后端已落盘（Lane A）：custom_apps 表 + catalog_custom commands + 合并视图；
- *   CMD 接线由 Lane C 负责，本文件只管 UI，不直调任何 Tauri 命令
- *  （许可名单经 `services/api/catalog.getLicenseAllowlist` 封装调用，
- *   无字面量命令名直调，见 noDirectInvoke.test.ts）。
- * - 许可名单唯一源头为后端（ADR-0018 `get_license_allowlist` 只读命令）：
- *   本文件不保留任何硬编码名单；暂存走 draft 档（不查名单），
- *   提交/预填 PR 前拉取后端名单做 submit 档校验；加载失败放行暂存、
- *   提交提示重试。
- * - 受控/非受控双模：传入 `entries` 即为受控（Lane C 接线后直接透传后端列表），
+ * - 本文件只管 UI，不直调任何 Tauri 命令（许可名单经
+ *   `services/api/catalog.getLicenseAllowlist` 封装调用，无字面量命令名直调，
+ *   见 noDirectInvoke.test.ts；命令表驱动收敛于 CMD）。
+ * - 许可名单唯一源头为后端只读命令：本文件不保留任何硬编码名单；
+ *   暂存走 draft 档（不查名单），提交/预填 PR 前拉取后端名单做 submit 档校验；
+ *   加载失败放行暂存、提交提示重试。
+ * - 受控/非受控双模：传入 `entries` 即为受控（直接透传后端列表），
  *   缺席时走内部本地态（浏览器预览/单测可独立渲染编辑）。
  * - 设计走 Linear 去彩单色：仅用文本层级 + 边框 + 单色图标，不引入彩色语义。
  */
@@ -99,10 +99,8 @@ export interface PendingDraftItem {
 
 export type PendingDraftStatus = 'draft' | 'submitted' | 'collected' | 'local_collected';
 
-/** 本地收录态判定（PR 门禁唯一口径）：status 为 collected 系。 */
-export function isPendingCollectedStatus(status: unknown): boolean {
-  return status === 'collected' || status === 'local_collected';
-}
+/** 收录态判定唯一口径收敛于 selectors（本视图仅重导出供内部复用）。 */
+export const isPendingCollectedStatus = isCollectedStatus;
 
 /**
  * 待收录草稿转富卡展示态（collected/submitted 右侧富卡化复用 AppCard）：
@@ -156,7 +154,7 @@ export function resolvePendingDraftDescription(
   return zh || en;
 }
 
-/** 与后端 CustomAppEntry 同形的展示态（Lane C 透传时直接复用）。 */
+/** 与后端 CustomAppEntry 同形的展示态（受控透传时直接复用）。 */
 export interface CustomDraftEntry {
   id: string;
   item: PendingDraftItem;
@@ -169,11 +167,11 @@ export interface CustomDraftEntry {
 export type PendingGroupId = 'draft' | 'collected' | 'submitted' | 'archived';
 
 export interface PendingViewProps {
-  /** 受控草稿列表（Lane C 接线后传入；缺席时走内部本地态）。 */
+  /** 受控草稿列表（缺席时走内部本地态）。 */
   entries?: CustomDraftEntry[];
   /** 初始草稿（非受控模式种子，故事/单测用）。 */
   initialEntries?: CustomDraftEntry[];
-  /** 保存回调（缺席时仅更新本地态，Lane C 接入后透传后端 save）。 */
+  /** 保存回调（缺席时仅更新本地态）。 */
   onSave?: (item: PendingDraftItem) => void | Promise<void>;
   /** 删除回调（二次确认由本组件完成，后端直接删）。 */
   onDelete?: (id: string) => void | Promise<void>;
@@ -184,24 +182,24 @@ export interface PendingViewProps {
   /** 退回草稿回调（collected 退回 draft；App 透传 tauriApi.revertCollectedApp 落盘，失败抛错由本组件 toast）。 */
   onRevertToDraft?: (id: string) => void | Promise<void>;
   /**
-   * 单条预填 URL 提供方（Lane D 一键 PR 链路，App 透传 tauriApi.getCustomAppPrUrl；
+   * 单条预填 URL 提供方（App 透传 tauriApi.getCustomAppPrUrl；
    * 缺席时用本地同形兜底，浏览器预览/单测可用）。
    */
   onGetPrUrl?: (id: string) => Promise<string>;
   /**
-   * 批量预填 URL 提供方（Lane D 二期开关，App 透传 tauriApi.getCustomAppsBatchPrUrl；
+   * 批量预填 URL 提供方（App 透传 tauriApi.getCustomAppsBatchPrUrl；
    * 缺席时用本地同形兜底）。
    */
   onGetBatchPrUrl?: (ids: string[]) => Promise<string>;
   /**
-   * 许可名单提供方（ADR-0018 唯一源头只读命令的前端封装；
+   * 许可名单提供方（后端只读命令的前端封装；
    * 缺席时默认走 `getLicenseAllowlist`，单测可注入桩）。
    * 启动/提交前拉取，失败不回退写死名单（暂存放行、提交提示重试）。
    */
   onGetLicenseAllowlist?: () => Promise<LicenseAllowlistResult>;
   /** 批量提交入口开关（默认开启，传 false 隐藏本地收录列表工具行批量按钮与列表多选；开启时也仅本地收录分组可见）。 */
   showBatchBar?: boolean;
-  /** 轻提示通道（Lane C 可接入 Toast；缺席时静默）。 */
+  /** 轻提示通道（缺席时静默）。 */
   onNotify?: (message: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
 }
 
@@ -244,7 +242,7 @@ export function normalizeLicense(raw: string): string {
 }
 
 /**
- * 后端许可名单输入（ADR-0018 唯一源头，经 `get_license_allowlist` 拉取）：
+ * 后端许可名单输入（经 `get_license_allowlist` 拉取的唯一源头）：
  * 完整快照、纯名单数组（视为门禁开）、`Set` 均可；`null/undefined` 表示
  * 名单未加载——调用方不得回退写死名单（提交提示重试，暂存直接放行）。
  */
@@ -404,7 +402,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [prUrlInput, setPrUrlInput] = useState('');
   const [formErrors, setFormErrors] = useState<PendingDraftErrors>({});
-  // Lane D 一键 PR 链路态：单卡提交中 id + 批量选中/提交中。
+  // 单卡提交/收录忙态：提交中 id + 收录中 id + 批量选中/提交中（避免重复提交）。
   const [submittingId, setSubmittingId] = useState<string | null>(null);
   const [collectingId, setCollectingId] = useState<string | null>(null);
   const [confirmRevertId, setConfirmRevertId] = useState<string | null>(null);
@@ -467,7 +465,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
     });
   };
 
-  // ADR-0018 许可名单（唯一源头为后端只读命令）：启动预取 + 提交前兜底拉取。
+  // 许可名单（唯一源头为后端只读命令）：启动预取 + 提交前兜底拉取。
   // 加载失败不回退任何本地名单：暂存（draft 档）本就不查名单直接放行；
   // 提交/预填前拿不到名单则提示重试并中止。
   // 逐框内联校验用快照（不每键 IPC）：licenseGateSnapshot 为已预取快照，
@@ -975,12 +973,21 @@ export const PendingView: React.FC<PendingViewProps> = ({
 
   /**
    * 收录进本地：收录档校验通过后 status=collected（首页/分类同展，可搜可装）；
+   * 已提交行前端硬拦（直接 toast，不调后端，避免重复收录）；
+   * 已收录行仅提示已收录，不重复调后端；
    * 缺项可点击：置内联 + 定位首错，不 toast；后端失败 toast 原文。
    */
   const handleCollectLocal = async (id: string) => {
     const target = entries.find((e) => e.id === id);
     if (!target || collectingId === id) return;
     if (target.archived) return;
+    if (target.status === 'submitted') {
+      onNotify?.(
+        t('pending.errors.already_submitted', { id, defaultValue: `已提交行不可重复提交：${id}` }),
+        'warning',
+      );
+      return;
+    }
     if (isPendingCollectedStatus(target.status)) {
       onNotify?.(t('pending.already_collected', { id, defaultValue: `已收录进本地：${id}` }), 'info');
       return;
@@ -1059,11 +1066,11 @@ export const PendingView: React.FC<PendingViewProps> = ({
   };
 
   /**
-   * Lane D 单卡“提交 PR”：仅收录态可提交（draft 先收录进本地）→ 先确保后端许可名单就绪
+   * 单卡“提交 PR”：仅收录态可提交（draft 先收录进本地）→ 先确保后端许可名单就绪
    * （失败提示重试并中止，不回退本地名单）→ 提交档本地预检（与后端 SubmitStrict 同口径；
    * 缺项可点击：置内联 + 定位首错，不 toast）→ 先取 URL（后端优先，无 provider 走本地同形；
    * 后端抛错直接 toast 中止，不静默回退本地）→ 复制 JSON（成功才提示“已复制正在打开”）→
-   * 超长（>8000 字符）额外提示分批 → 打开预填 URL（无 token 纯 URL）即止：不自动 mark submitted，
+   * 超长额外提示分批 → 打开预填 URL（无 token 纯 URL）即止：不自动 mark submitted，
    * 用户在预填页提交 PR 后回本地收录手动贴链接确认（复用 mark_submitted 行），
    * 取消则停留 collected，可重新提交。
    * 打开失败 toast 明确失败 + 降级复制 URL，不谎报成功。
@@ -1109,6 +1116,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
       url = trimmedUrl;
       const payload = buildSinglePrPayloadJson(target.item);
       const copied = await copyTextToClipboard(payload);
+      // 预填链接长度判定（含 percent-encoding 膨胀，按编码后 URL 全长计，与 Spec §5 对齐；阈值不变）。
       if (url.length > PREFILL_URL_LENGTH_LIMIT) {
         onNotify?.(
           t('pending.pr.url_too_long', {
@@ -1178,8 +1186,8 @@ export const PendingView: React.FC<PendingViewProps> = ({
    * 批量提交（仅本地收录分组：列表多选 + 列表工具行按钮，随切 Tab 显隐）：先确保后端许可名单就绪（失败提示重试并中止）→
    * 选中多条 → 提交档本地预检（缺项可点击：拦阻行内列出 ids，不 toast 不开页不标记）→
    * 先取 URL（后端优先，无 provider 走本地同形；后端抛错直接 toast 中止，不静默回退）→
-   * 合并 JSON 数组并复制（成功才提示“已复制正在打开”；超长 >8000 字符额外提示分批，仍复制）→
-   * 一个预填 URL（批量合一 PR）即止：不自动 mark，
+   * 合并 JSON 数组并复制（成功才提示“已复制正在打开”；超长额外提示分批，仍复制，长度按编码后 URL 全长计）→
+   * 一个预填 URL（批量合一）即止：不自动 mark，
    * 各条目 submitted 态靠用户逐条手动贴链接确认，取消则停留 collected 可重新提交。
    * 打开失败 toast 明确失败 + 降级复制 URL，不谎报 batch_submitted；仅打开成功才清选中 + 报 batch_submitted。
    * showBatchBar=false 时隐藏工具行入口与多选。
@@ -1225,6 +1233,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
       url = trimmedBatchUrl;
       const payload = buildBatchPrPayloadJson(picked.map((e) => e.item));
       const copied = await copyTextToClipboard(payload);
+      // 预填链接长度判定（含 percent-encoding 膨胀，按编码后 URL 全长计，与 Spec §5 对齐；阈值不变）。
       if (url.length > PREFILL_URL_LENGTH_LIMIT) {
         onNotify?.(
           t('pending.pr.url_too_long', {

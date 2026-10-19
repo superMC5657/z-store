@@ -1,4 +1,4 @@
-//! Lane A 本地自维护草稿 overlay（ADR-0017）：`custom_apps` 表 CRUD + 校验 + 转正。
+//! 本地自维护草稿 overlay（ADR-0017）：`custom_apps` 表 CRUD + 校验 + 转正。
 //!
 //! - `id` 为 canonical 小写形态（仅 GitHub `owner/repo`，经 `canonical_app_id()` 归一）；`payload_json` 存完整 `CatalogItem`；
 //! - `status=draft/submitted`（已提交另存 `pr_url`）；`archived=1` 为转正归档标记
@@ -14,9 +14,9 @@ pub const CUSTOM_APP_STATUS_DRAFT: &str = "draft";
 pub const CUSTOM_APP_STATUS_SUBMITTED: &str = "submitted";
 /// 本地收录态：已收录进本地（可搜可装，与远端精选同行为；PR 前置门禁）。
 pub const CUSTOM_APP_STATUS_COLLECTED: &str = "collected";
-/// 别名：本地收录态（语义同 `CUSTOM_APP_STATUS_COLLECTED`）。
+/// Same value as `CUSTOM_APP_STATUS_COLLECTED` (kept for on-disk `local_collected` comparison).
 pub const LOCAL_COLLECTED: &str = CUSTOM_APP_STATUS_COLLECTED;
-/// 别名：本地收录态全称（语义同 `CUSTOM_APP_STATUS_COLLECTED`）。
+/// Same value as `CUSTOM_APP_STATUS_COLLECTED` (full-name form, kept for on-disk comparison).
 pub const CUSTOM_APP_STATUS_LOCAL_COLLECTED: &str = CUSTOM_APP_STATUS_COLLECTED;
 
 /// 自维护草稿条目：DB 行 + 反序列化后的完整 `CatalogItem`。
@@ -83,7 +83,7 @@ pub enum ValidateMode {
     /// 提交档（`mark_submitted` / 预填 PR 链接）：既有全量——必填 +
     /// `homepage` http(s) + OSI 白名单（D1）。
     SubmitStrict,
-    /// 收录档（`mark_collected` / `collect_custom_app`）：与 `SubmitStrict` 同口径——
+    /// 收录档（`collect_custom_app`）：与 `SubmitStrict` 同口径——
     /// 必填 + `homepage` http(s) + OSI 白名单（D1），仅语义区分收录与提交。
     CollectStrict,
 }
@@ -210,12 +210,12 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> Result<CustomAppEntry> {
 }
 
 /// 本地收录态判定（overlay/PR 门禁唯一口径）：`status==collected && !archived`。
-/// 兼容历史字面 `local_collected`（前端曾透出该别名字面，库内常量同值但盘上可能残留）。
+/// On-disk `local_collected` also counts as collected (same as `collected`, avoids missing old rows).
 pub fn is_collected_entry(entry: &CustomAppEntry) -> bool {
     is_collected_status(&entry.status) && !entry.archived
 }
 
-/// 收录态判定（纯状态位，不含归档）：`status==collected`，兼容 `local_collected` 字面。
+/// Collected-state check (pure status, no archived): `status==collected`, on-disk `local_collected` also counts.
 pub fn is_collected_status(status: &str) -> bool {
     status == CUSTOM_APP_STATUS_COLLECTED || status == "local_collected"
 }
@@ -313,7 +313,7 @@ impl Database {
                 cleaned
             )));
         }
-        // PR 前置门禁（与命令层 `ensure_collected_for_pr` 同口径）：仅收录行放行（含历史 `local_collected` 字面）。
+        // PR 前置门禁（与命令层 `ensure_collected_for_pr` 同口径）：仅收录行放行（with on-disk `local_collected` 字面）。
         if !is_collected_status(&entry.status) {
             return Err(MarkSubmittedError::Invalid(
                 "须先收录进本地再PR".to_string(),
@@ -398,11 +398,6 @@ impl Database {
             .map_err(MarkCollectedError::Db)
     }
 
-    /// 别名：标记本地收录（语义同 `mark_custom_app_collected`）。
-    pub fn mark_collected(&self, id: &str) -> Result<CustomAppEntry, MarkCollectedError> {
-        self.mark_custom_app_collected(id)
-    }
-
     /// 退回草稿：`status=collected` → `draft`（未归档限定；已提交/已归档不退回，只读）。
     /// `pr_url` 清空，`is_verified=false` 落盘保持（草稿永不冒充已验证）。
     pub fn revert_collected_to_draft(
@@ -454,7 +449,7 @@ impl Database {
             .map_err(RevertCollectedError::Db)
     }
 
-    /// 本地收录列表：仅 `status=collected && archived=0`（overlay/发现页/搜索唯一口径，兼容历史 `local_collected` 字面）。
+    /// 本地收录列表：仅 `status=collected && archived=0`（overlay/发现页/搜索唯一口径，on-disk residual `local_collected` 字面）。
     pub fn list_collected_apps(&self) -> Result<Vec<CustomAppEntry>> {
         self.query_vec(
             "SELECT id, payload_json, status, pr_url, created_at, updated_at, archived FROM custom_apps WHERE status IN ('collected', 'local_collected') AND archived = 0 ORDER BY updated_at DESC",
@@ -472,7 +467,7 @@ impl Database {
             .collect())
     }
 
-    /// 按 id 取本地收录行：仅 `status=collected && !archived` 命中（详情/安装回退口径，兼容历史 `local_collected` 字面）。
+    /// 按 id 取本地收录行：仅 `status=collected && !archived` 命中（详情/安装回退口径，on-disk residual `local_collected` 字面）。
     pub fn get_collected_custom_item(&self, id: &str) -> Result<Option<CustomAppEntry>> {
         Ok(self
             .get_custom_app(id)?
@@ -924,8 +919,8 @@ mod tests {
             recollect.to_string().contains("已提交行不可重复收录"),
             "unexpected: {recollect}"
         );
-        // 别名同口径。
-        assert!(db.mark_collected("o/r").is_err());
+        // same truth, same gate.
+        assert!(db.mark_custom_app_collected("o/r").is_err());
     }
 
     #[test]
@@ -1027,7 +1022,7 @@ mod tests {
         let mit = draft_item("o/r", "o", "r");
         assert!(validate_custom_item(&mit, ValidateMode::CollectStrict, &strict_gate()).is_ok());
         assert!(validate_custom_item(&mit, ValidateMode::SubmitStrict, &strict_gate()).is_ok());
-        // 常量别名同值。
+        // constants share the same value.
         assert_eq!(CUSTOM_APP_STATUS_COLLECTED, "collected");
         assert_eq!(LOCAL_COLLECTED, CUSTOM_APP_STATUS_COLLECTED);
         assert_eq!(
@@ -1037,7 +1032,7 @@ mod tests {
     }
 
     #[test]
-    fn mark_collected_sets_status_and_keeps_verified_false() {
+    fn mark_custom_app_collected_sets_status_and_keeps_verified_false() {
         let db = Database::open_in_memory().unwrap();
         let mut item = draft_item("o/r", "o", "r");
         item.is_verified = true;
@@ -1046,8 +1041,8 @@ mod tests {
         assert_eq!(collected.status, CUSTOM_APP_STATUS_COLLECTED);
         assert!(!collected.archived);
         assert!(!collected.item.is_verified);
-        // 别名同语义。
-        let again = db.mark_collected("o/r").unwrap();
+        // same truth, idempotent re-collect.
+        let again = db.mark_custom_app_collected("o/r").unwrap();
         assert_eq!(again.status, CUSTOM_APP_STATUS_COLLECTED);
         // 收录列表仅含 collected 行。
         assert_eq!(db.list_collected_apps().unwrap().len(), 1);
@@ -1059,13 +1054,13 @@ mod tests {
     }
 
     #[test]
-    fn mark_collected_rejects_placeholder_and_archived() {
+    fn mark_custom_app_collected_rejects_placeholder_and_archived() {
         let db = Database::open_in_memory().unwrap();
         let mut placeholder = draft_item("o/r", "o", "r");
         placeholder.license = "OpenSource".to_string();
         db.upsert_custom_app_payload(&placeholder).unwrap();
         assert!(db.mark_custom_app_collected("o/r").is_err());
-        assert!(db.mark_collected("o/r").is_err());
+        assert!(db.mark_custom_app_collected("o/r").is_err());
         assert!(db.get_collected_custom_item("o/r").unwrap().is_none());
 
         let db2 = Database::open_in_memory().unwrap();
@@ -1159,7 +1154,7 @@ mod tests {
 
     #[test]
     fn collected_helpers_accept_legacy_local_collected_literal() {
-        // 历史盘上 `local_collected` 字面与 `collected` 同义：判定/列表均兼容。
+        // on-disk `local_collected` 字面与 `collected` 同义：判定/列表both match。
         assert!(is_collected_status("collected"));
         assert!(is_collected_status("local_collected"));
         assert!(!is_collected_status("draft"));
@@ -1175,7 +1170,7 @@ mod tests {
         assert!(is_collected_entry(&stored));
         assert!(db.get_collected_custom_item("o/l").unwrap().is_some());
         assert_eq!(db.list_collected_apps().unwrap().len(), 1);
-        // 兼容字面同样可退回草稿并落盘。
+        // on-disk literal can also revert and persist.
         let reverted = db.revert_collected_to_draft("o/l").unwrap();
         assert_eq!(reverted.status, CUSTOM_APP_STATUS_DRAFT);
         assert!(db.list_collected_apps().unwrap().is_empty());

@@ -74,7 +74,7 @@ interface HomeViewProps extends ViewAppActions, PlatformResetOption {
   /**
    * 本地收录全量（App 侧 collectedSummaries：仅 collected 系未归档）：
    * 供本地段/在线段叠加黄标（远端已存在同仓行亦命中，蓝优先）；
-   * 缺席即回退目录自带本地行（旧调用零变化）；首刷 null→就绪后经 deps 重标。
+   * 缺席即回退目录自带本地行；就绪后经 deps 重标（缺席透传，避免误终态）。
    */
   localApps?: readonly AppSummary[];
 }
@@ -110,8 +110,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const isSearching = Boolean(searchQuery && searchQuery.trim().length > 0);
   // loading 徽标口径统一经选择器接口.
 
-  // Lane C 移入收录（一键 save_custom_app 草稿，status=draft/platforms [] loading）：
-  // 经 tauriApi（禁直调 invoke），platforms [] 复用 lite 确认链，编辑页可手改。
+  // 移入收录（一键 save_custom_app 草稿，status=draft/platforms [] loading）：
+  // 经 tauriApi（视图禁直调 invoke，命令表驱动），platforms [] 复用 lite 确认链（缺席即 loading，编辑页可手改）。
   // 入口收进 AppCard 内部操作区（仅未收录 external 行渲染），此处只保留动作实现；
   // useCallback 稳定引用，富卡 memo 不因父渲染失效。
   const [movingIds, setMovingIds] = useState<Set<string>>(() => new Set<string>());
@@ -150,12 +150,12 @@ export const HomeView: React.FC<HomeViewProps> = ({
     }
   }, [t]);
 
-  // Lane C fix：在线落定处显式标注 is_cataloged（catalog id 集 canonical 比对）。
+  // 在线落定处显式标注 is_cataloged（catalog id 集 canonical 比对）。
   // App 侧 useAppSelectors 已标注，此处再守一次（直接渲染 HomeView 的单测/预览同样生效）；
   // 显式标记优先于 category 兜底，已收录在线仍正确隐藏。
   // 本地橘黄：目录用 apps 数组本体（含本地 source，远端优先语义由上游合并保证），
   // 同 id/owner-repo 命中本地叠加 source='local'/status（蓝优先；远端已存在同仓行经显式 localApps 亦命中）。
-  // 首刷 customApps null→就绪后经 localApps deps 重标，不误终态。
+  // custom 缺席透传，就绪后经 localApps deps 重标（缺席不误终态）。
   const annotatedOnlineApps = React.useMemo(
     () => annotateOnlineCataloged(onlineApps, apps, localApps),
     [onlineApps, apps, localApps],
@@ -167,7 +167,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
     [apps],
   );
   // 显式本地（含远端已存在同仓的收录行）+ 目录自带本地行统一为 lookup：
-  // localApps 缺席即回退目录自带（旧调用零变化）；就绪后重标经 deps 自动。
+  // localApps 缺席即回退目录自带；就绪后重标经 deps 自动。
   const localLookupForMark = React.useMemo(
     () => mergeLocalLookups(localRowsForMark, localApps),
     [localRowsForMark, localApps],
@@ -264,7 +264,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
     [annotatedDisplayedFeed, recentVisibleIds],
   );
 
-  // 首开即有标 + 空图标按需拉取：customApps null 首刷不误判（apps 无本地则无标，加载后重标经 deps 自动）；
+  // 首开即有标 + 空图标按需拉取：custom 缺席即透传无标（apps 无本地则无标，加载后重标经 deps 自动）；
   // 空 icon 行（recent/精选/feed）触发一次 restoreOrFetchIconCycle（不全量刷，去重防抖）。
   const emptyIconFetchedRef = useRef<Set<string>>(new Set<string>());
   useEffect(() => {

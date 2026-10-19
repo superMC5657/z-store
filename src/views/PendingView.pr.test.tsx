@@ -106,6 +106,9 @@ describe('Lane D PR payload pure helpers (no IPC)', () => {
   it('single payload matches vscodium template style (inline arrays, expanded identifiers, no heuristic dirs)', () => {
     const full = {
       ...draftEntry({ id: 'o/r' }).item,
+      icon: 'https://example.com/icon.png',
+      icon_bg: 'linear-gradient(135deg, #475569, #334155)',
+      category_name: '开发工具',
       aliases: ['demo', 'o/r'],
       description_en: 'demo en',
       platforms: ['windows', 'macos', 'linux'],
@@ -174,11 +177,18 @@ describe('Lane D PR payload pure helpers (no IPC)', () => {
   it('single payload omits empty arrays/objects instead of multiline []', () => {
     const empty = {
       ...draftEntry({ id: 'o/r' }).item,
+      icon: '',
+      icon_bg: '   ',
+      description: '',
+      description_en: '',
+      homepage: '',
+      category: '   ',
+      category_name: '',
       aliases: [],
       platforms: [],
       identifiers: {},
-      description_en: '',
-      homepage: '',
+      stars: 0,
+      forks: 0,
     };
     const json = buildSinglePrPayloadJson(empty);
     expect(() => JSON.parse(json)).not.toThrow();
@@ -190,6 +200,21 @@ describe('Lane D PR payload pure helpers (no IPC)', () => {
     expect(json).not.toContain('"platforms"');
     expect(json).not.toContain('"identifiers"');
     expect(json).not.toContain('install_dirs');
+    // 空串直接省略（不输出 ""），无真值 stars/forks 省（不恒输出 0）。
+    expect(parsed.icon).toBeUndefined();
+    expect(parsed.icon_bg).toBeUndefined();
+    expect(parsed.description).toBeUndefined();
+    expect(parsed.category).toBeUndefined();
+    expect(parsed.category_name).toBeUndefined();
+    expect(parsed.description_en).toBeUndefined();
+    expect(parsed.homepage).toBeUndefined();
+    expect(parsed.stars).toBeUndefined();
+    expect(parsed.forks).toBeUndefined();
+    expect(json).not.toContain('"icon"');
+    expect(json).not.toContain('"description_en"');
+    expect(json).not.toContain('"homepage"');
+    expect(json).not.toContain('"stars"');
+    expect(json).not.toContain('"forks"');
   });
 
   it('batch payload reuses single template style for each item', () => {

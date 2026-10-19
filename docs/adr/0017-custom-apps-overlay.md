@@ -5,13 +5,13 @@
 - 关联：ADR-0009（清单仓库解耦）、ADR-0010（规范应用标识）、ADR-0007（开放清单与 TTL）
 - 范围：后端 overlay（SQLite 表、CRUD commands、合并视图 helper、单条与批量预填 PR 链路）
   + 前端已交付（待收录视图、侧栏导航、全局合并显示、移入入口、设置开关与备份，
-  详见 §2.6；原“视图接线为后续 Lane”已落地，不再是后续项）。
+  详见 §2.6）。
 
 ## 1. 背景
 
 精选收录库走独立生态清单仓库 PR 准入（ADR-0009），社区提交有一段“写条目 → 提 PR →
 等合入”的空窗期。空窗期内用户希望草稿在本地立即可见、可安装、可管理，
-而不是等远端合入后才出现。Lane A 以本地 overlay 满足该需求：草稿先在本地
+而不是等远端合入后才出现。本地 overlay 满足该需求：草稿先在本地
 生效，远端收录后自动退役，全程不碰远端数据文件。
 
 ## 2. 决策
@@ -20,7 +20,7 @@
    `id TEXT PK`（canonical，仅小写 `owner/repo`；本项目只做 GitHub 平台，
    `forge[:host]:owner/repo` 形态不在项目范围）/ `payload_json TEXT`（完整 `CatalogItem` 字段：
    名称、坐标、图标、描述、分类、别名、版本、协议、星数、`is_verified=false`、
-   主页、标识符、安装目录、发布者、平台）/ `status TEXT`（`draft`/`submitted`，
+   主页、标识符、安装目录、发布者、平台）/ `status TEXT`（`draft`/`submitted`/`collected`（含磁盘残留 `local_collected` 同义，判定唯一口径 `isCollectedStatus`），
    已提交另存 `pr_url`）/ `created_at`/`updated_at` / `archived INTEGER`
    （转正退役标记）。
 2. **CRUD commands**（`commands/catalog_custom.rs`）：
@@ -31,13 +31,15 @@
    `delete_custom_app`（二次确认由前端做，后端直接删）/
    `mark_submitted(pr_url)`（`status=submitted` + 落链接，已归档拒绝；
    提交档 `SubmitStrict`：必填 + `homepage` http(s) + OSI 门禁，见 ADR-0018）/
+   `collect_custom_app`/`collect_local_app`（收录档 `CollectStrict` 置 `status=collected`，`is_verified` 恒 false，可搜可装；两命令同真身，前者供草稿链路，后者供视图直调）/
+   `revert_collected_to_draft`（`collected`→`draft` + 清空 `pr_url`，失败抛错不静默）/
    `retire_on_sync`（远端 id 命中即 `archived=1`，返回转正提示）/
    `get_merged_catalog_view`（合并查询 helper）/ `get_custom_app_pr_url`（单条预填链路入口，
    提交档校验后生成）/ `get_custom_apps_batch_pr_url` + `build_batch_pr_url`（批量预填链路，
    提交档校验后生成）。
 3. **全局合并为视图（非写回）**：`CatalogService::merge_catalog_overlay_view`
    把未归档 custom 条目叠加到内存目录视图；`is_cataloged` 恒 true（视图内即视为已收录），
-   来源经 `source=remote/custom` 区分；去重远端优先（同 id 取远端行，custom 仅补位）。
+   来源经 `source=remote/custom/local` 区分（`custom` 为草稿行，`local` 为已收录行：`status` 为 `collected` 系且未归档，库存恒 `is_cataloged=true`、`is_verified=false`，PR 预填复制体翻 `true` 仅限载荷）；去重远端优先（同 id 取远端行，custom/local 仅补位；远端已存在同仓行叠加 `local` 标记供黄标判定，蓝标优先，已验证不叠加）；收录态 `collected` 与磁盘残留 `local_collected` 同义，判定唯一口径 `isCollectedStatus`；本地徽标走 `verified-badge-local` 橘黄（D4 去彩例外，见 CONTEXT 词汇表）。
    现有 `search_apps`/`get_home_feed` 语义不动；视图接线已由前端消费
    （`selectors` 全局合并 + `showCustom` 默认开，关即回退 remote 本体，见 §2.6）。
 4. **转正闭环**：`sync_catalog` 成功路径（含本地降级）以远端 id 集合自动退役命中草稿，
@@ -48,7 +50,7 @@
    maintainer 转 PR——草稿“本地先生效、远端后收录”不断链。单条入口为
    `get_custom_app_pr_url`，批量入口为 `get_custom_apps_batch_pr_url` /
    `build_batch_pr_url`（提交档校验后生成，门禁口径见 ADR-0018）。
-6. **前端已交付**（原后续 Lane，现已落地为本篇范围）：待收录页 `PendingView.tsx`
+6. **前端已交付**：待收录页 `PendingView.tsx`
   （+ `PendingView.test.tsx` / `PendingView.pr.test.tsx`、`styles/components-pending.css`，
    Linear 去彩单色）；`App.tsx` 透传 `pendingCount`/`customIds`/`movedInIds`
   （保存/删除/标记提交回调 + `zstore:custom-apps-changed` 刷新）；
@@ -88,5 +90,12 @@
   `AppSummary` 未加字段（`MergedCatalogEntry` flatten 展开，
   前端按 `AppSummary` 解析兼容），custom 行以角标/`source=custom` 区分）。
 - 风险：草稿详情依赖 `get_repo_coordinates` 的 external_synth 回退（已验证可用）；
-  若远端改名（`owner/repo` 变更），旧草稿 id 命中失败而长期残留——后续 Lane 可加
-  “孤儿草稿”提示，本 Lane 仅保证不污染视图。
+  若远端改名（`owner/repo` 变更），旧草稿 id 命中失败而长期残留——后续可加
+  “孤儿草稿”提示，当前仅保证不污染视图。
+
+
+## 6. P2 结论（既有范围，非 scope creep）
+
+- 挂载即 `reloadCustomApps` 保留：`App.tsx` 挂载即拉取本地收录供首页/分类首刷补黄（缺席即无标，就绪后经引用变化重标），避免首刷误终态。
+- 趋势计数含本地保留：榜单平台分布按可见行统计，含本地收录行（与黄标同口径）；榜单公信力由蓝优先保障（已验证远端不叠黄），计数口径不单独剔除本地。
+- 待收录既有范围接受：`pending_coords_*` 坐标显隐、`supplemental`/`runtime` 折叠、`OpenSource` 占位均为既有范围（缺空态则补空态，不删功能）；后续评审不再计入 scope creep。
