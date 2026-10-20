@@ -110,21 +110,34 @@ pub async fn install_setup_exe(
 }
 
 /// Windows 通用回退安装体（`_` 分支，cfg(windows) 门控）。
+/// 直接以资产路径拉起进程，严禁经 cmd.exe `start` 路由：第三方资产名可能含
+/// `"`/`&`/`%` 等元字符，Rust 按 MSVCRT 规则转义为 `\"`，cmd 解析器并不认，
+/// 可断开参数注入任意命令；且 `start` 会把首个带引号参数当窗口标题吞掉。
+/// `.status()` 自带等待语义，与原 `/wait` 等价。
 #[cfg(target_os = "windows")]
 pub async fn install_fallback_default(installer_path: &Path) -> Result<InstallOutcome, String> {
-    let status = tokio::process::Command::new("cmd.exe")
-        .arg("/c")
-        .arg("start")
-        .arg("/wait")
-        .arg(installer_path)
+    let status = tokio::process::Command::new(installer_path)
         .status()
         .await
-        .map_err(|e| format!("调起系统默认程序失败: {}", e))?;
+        .map_err(|e| format!("调起安装程序失败 ({}): {}", installer_path.display(), e))?;
     if status.success() {
         Ok(InstallOutcome::Installed(
-            "系统默认程序已处理完成".to_string(),
+            "安装程序已处理完成".to_string(),
         ))
     } else {
         Err("处理未正常完成".to_string())
+    }
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod fallback_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn fallback_surfaces_spawn_error_for_missing_installer() {
+        // 直调路径下缺失资产的 spawn 失败必须如实冒泡为 Err；
+        // 若回退经 cmd.exe start，cmd 自身总是被成功拉起，错误与注入面都会被掩盖。
+        let missing = std::env::temp_dir().join(format!("zstore-missing-{}.exe", std::process::id()));
+        assert!(install_fallback_default(&missing).await.is_err());
     }
 }
