@@ -200,7 +200,10 @@ fn probe_headers(token: Option<&str>) -> reqwest::header::HeaderMap {
     )
 }
 
-pub async fn probe_and_announce_rate_limit(token: Option<&str>) {
+/// 主动探测 GitHub 配额并经 `notify_rate_limit` 走统一事件通道（DB 落库 + 前端 emit）。
+/// 返回响应头提取的 `(remaining, limit, reset)`：调用方需要即时值时不必等事件落库
+///（消除「sleep 等写入」竞态），网络失败/无头返回 `None`。
+pub async fn probe_and_announce_rate_limit(token: Option<&str>) -> Option<(u32, u32, Option<i64>)> {
     let client = shared_http_client();
     let headers = probe_headers(token);
     if let Ok(resp) = client
@@ -209,10 +212,14 @@ pub async fn probe_and_announce_rate_limit(token: Option<&str>) {
         .send()
         .await
     {
+        let quotas = extract_rate_limit_headers(resp.headers());
         notify_rate_limit("github.com", resp.headers());
         if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
             notify_auth_expired();
         }
+        quotas
+    } else {
+        None
     }
 }
 

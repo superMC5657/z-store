@@ -87,26 +87,77 @@ pub async fn refresh_host_rate_limit(
         let db = state.db()?;
         db.get_host_token(&clean_host).ok().flatten()
     };
-    if clean_host == "github.com" || clean_host.ends_with(".github.com") {
-        crate::probe_and_announce_rate_limit(token.as_deref()).await;
-    }
-    tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+    // GitHub 探测即取值：probe 返回响应头提取的配额三元组（同步可用），
+    // 事件通道照常异步落库/emit 前端，命令侧不再 `sleep(60ms)` 赌写入时序
+    //（竞态下返回陈旧 None 的根源），改为对读出的 entry 确定性覆写。
+    let probed = if clean_host == "github.com" || clean_host.ends_with(".github.com") {
+        crate::probe_and_announce_rate_limit(token.as_deref()).await
+    } else {
+        None
+    };
     let db = state.db()?;
     let tokens = db.get_host_tokens()?;
-    if let Some(entry) = tokens
+    let entry = tokens
         .into_iter()
         .find(|t| t.host.eq_ignore_ascii_case(&clean_host))
-    {
-        Ok(entry)
-    } else {
-        Ok(HostTokenEntry {
+        .unwrap_or_else(|| HostTokenEntry {
             host: clean_host,
             token: token.unwrap_or_default(),
             rate_limit_remaining: None,
             rate_limit_limit: None,
             rate_limit_reset: None,
             updated_at: crate::now_secs(),
-        })
+        });
+    Ok(overlay_probed_quota(entry, probed))
+}
+
+/// 探测值确定性覆写：probe 命中即以响应头为准（事件通道仍异步落库/emit，
+/// 命令侧不再等写入时序）；未探测到（`None`）保持 DB 原值，unknown 不伪造数值。
+fn overlay_probed_quota(
+    mut entry: HostTokenEntry,
+    probed: Option<(u32, u32, Option<i64>)>,
+) -> HostTokenEntry {
+    if let Some((remaining, limit, reset)) = probed {
+        entry.rate_limit_remaining = Some(remaining);
+        entry.rate_limit_limit = Some(limit);
+        entry.rate_limit_reset = reset;
+        entry.updated_at = crate::now_secs();
+    }
+    entry
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(host: &str) -> HostTokenEntry {
+        HostTokenEntry {
+            host: host.to_string(),
+            token: String::new(),
+            rate_limit_remaining: None,
+            rate_limit_limit: None,
+            rate_limit_reset: None,
+            updated_at: 1,
+        }
+    }
+
+    #[test]
+    fn test_overlay_probed_quota() {
+        // probe 命中：以响应头为准并刷新 updated_at。
+        let e = overlay_probed_quota(entry("github.com"), Some((42, 5000, Some(123))));
+        assert_eq!(e.rate_limit_remaining, Some(42));
+        assert_eq!(e.rate_limit_limit, Some(5000));
+        assert_eq!(e.rate_limit_reset, Some(123));
+        assert!(e.updated_at >= crate::now_secs() - 5);
+
+        // probe 未命中（网络失败/无头）：保持 DB 原值，不伪造数值。
+        let mut stale = entry("gitea.com");
+        stale.rate_limit_remaining = Some(7);
+        stale.rate_limit_limit = Some(100);
+        let e = overlay_probed_quota(stale, None);
+        assert_eq!(e.rate_limit_remaining, Some(7));
+        assert_eq!(e.rate_limit_limit, Some(100));
+        assert_eq!(e.updated_at, 1);
     }
 }
 
@@ -197,18 +248,18 @@ pub async fn test_host_connection(
         match client.get(&url).headers(headers).send().await {
             Ok(resp) if resp.status().is_success() => {
                 crate::notify_rate_limit(&clean_host, resp.headers());
+                // 无 x-ratelimit 头（多数 Gitea/Forgejo 实例）保持 None（unknown），
+                // 不再伪造 5000 数值误导前端配额展示。
                 let remaining = resp
                     .headers()
                     .get("x-ratelimit-remaining")
                     .and_then(|v| v.to_str().ok())
-                    .and_then(|v| v.parse::<u32>().ok())
-                    .or(Some(5000));
+                    .and_then(|v| v.parse::<u32>().ok());
                 let limit = resp
                     .headers()
                     .get("x-ratelimit-limit")
                     .and_then(|v| v.to_str().ok())
-                    .and_then(|v| v.parse::<u32>().ok())
-                    .or(Some(5000));
+                    .and_then(|v| v.parse::<u32>().ok());
 
                 Ok(HostRateLimitStatus {
                     host: clean_host,

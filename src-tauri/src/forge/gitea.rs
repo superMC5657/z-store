@@ -52,6 +52,8 @@ impl ForgeProvider for GiteaProvider {
                 e.to_string()
             })?;
         span.log_done("fetch repo", &repo_id, resp.status().as_u16());
+        // 三家限流口径对齐：x-ratelimit 头存在即上报配额事件（无头时为 no-op）。
+        span.notify(&resp, host);
 
         if !resp.status().is_success() {
             return Err(format!(
@@ -116,6 +118,7 @@ impl ForgeProvider for GiteaProvider {
                 e.to_string()
             })?;
         span.log_done("fetch release", &repo_id, resp.status().as_u16());
+        span.notify(&resp, host);
 
         if !resp.status().is_success() {
             return Err(format!(
@@ -191,6 +194,7 @@ impl ForgeProvider for GiteaProvider {
                 e.to_string()
             })?;
         span.log_search_done("search", resp.status().as_u16());
+        span.notify(&resp, host);
 
         if !resp.status().is_success() {
             return Err(format!("Gitea/Codeberg 搜索失败: HTTP {}", resp.status()));
