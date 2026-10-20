@@ -43,6 +43,9 @@ pub fn get_mirror_status(state: State<'_, AppState>) -> crate::AppResult<Vec<Mir
 
 #[tauri::command(rename_all = "camelCase")]
 pub fn switch_mirror(state: State<'_, AppState>, mirror_id: String) -> crate::AppResult<bool> {
+    // 自定义镜像准入校验前置（https 强制 + 域名校验）：拒绝理由直达前端；
+    // set_active_mirror 内部再校验一次兜底其它调用方。
+    crate::mirror::validate_custom_proxy(&mirror_id)?;
     let mut mirror = state.mirror.lock().map_err(|e| e.to_string())?;
     let ok = mirror.set_active_mirror(&mirror_id);
     if ok {

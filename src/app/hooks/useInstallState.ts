@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TFunction } from 'i18next';
 import type { AppSummary, InstalledApp, ViewType } from '../../types';
-import { tauriApi } from '../../services/api';
+import { tauriApi, UNVERIFIED_ASSET_MARKER } from '../../services/api';
 import { zlogInfo } from '../../lib/z-log';
+
+/** 无校验资产待确认状态：D3 门禁拒绝后挂起，待用户在警示弹窗显式确认后重试。 */
+export interface UnverifiedInstallPrompt {
+  id: string;
+  assetName?: string;
+  customInstallDir?: string;
+}
 
 interface UseInstallStateParams {
   currentView: ViewType;
@@ -23,22 +30,30 @@ export function useInstallState({
   const [isRefreshingInstalled, setIsRefreshingInstalled] = useState(false);
   // 已装列表初始加载错误（null = 无错误/未加载）：与空列表区分呈现，供 InstalledView 出重试
   const [installLoadError, setInstallLoadError] = useState<string | null>(null);
+  // D3 门禁：无校验资产待用户确认（null = 无待确认安装）
+  const [unverifiedInstall, setUnverifiedInstall] = useState<UnverifiedInstallPrompt | null>(null);
 
   // 安装集合经 ref 读取，回调引用在搜索、图标升级时保持稳定
   const installingRef = useRef<Set<string>>(installingAppIds);
   installingRef.current = installingAppIds;
 
   // 安装应用（稳定回调：经 ref 读 installing，搜索键入/图标升级时引用不变）
-  const handleInstallApp = useCallback(async (id: string, assetName?: string, customInstallDir?: string): Promise<void> => {
+  const handleInstallApp = useCallback(async (id: string, assetName?: string, customInstallDir?: string, allowUnverified?: boolean): Promise<void> => {
     if (installingRef.current.has(id)) return;
-    zlogInfo(`click install id=${id} asset=${assetName || 'auto'}`);
+    zlogInfo(`click install id=${id} asset=${assetName || 'auto'} allowUnverified=${allowUnverified ? 'yes' : 'no'}`);
     setInstallingAppIds((prev) => new Set(prev).add(id));
     try {
-      const installed = await tauriApi.installApp(id, assetName, customInstallDir);
+      const installed = await tauriApi.installApp(id, assetName, customInstallDir, allowUnverified);
       setInstalledApps((prev) => [...prev.filter((a) => a.app_id.toLowerCase() !== id.toLowerCase()), installed]);
       showToast(t('toast.install_success', { name: installed.app_name }), 'success');
     } catch (err) {
       const errStr = String(err);
+      if (errStr.startsWith(UNVERIFIED_ASSET_MARKER)) {
+        // D3 门禁：无校验清单资产默认拒绝。挂起待确认（UI 警示弹窗），非失败态：
+        // 不弹错误 toast、不 rethrow，用户确认后经 onConfirm 携 allowUnverified 重试。
+        setUnverifiedInstall({ id, assetName, customInstallDir });
+        return;
+      }
       if (errStr.includes('取消') || errStr.includes('中止') || errStr.includes('1602')) {
         showToast(t('toast.install_cancelled', { error: errStr }), 'info');
       } else {
@@ -53,6 +68,11 @@ export function useInstallState({
       });
     }
   }, [showToast, t]);
+
+  // 无校验资产警示弹窗关闭（确认/取消共用清口）
+  const dismissUnverifiedInstall = useCallback(() => {
+    setUnverifiedInstall(null);
+  }, []);
 
   // 快捷安装（稳定回调，供 memo 卡片复用）
   const handleQuickInstall = useCallback(async (id: string) => {
@@ -159,5 +179,7 @@ export function useInstallState({
     handleUnmanageApp,
     handleRefreshInstalledApps,
     handleUninstallApp,
+    unverifiedInstall,
+    dismissUnverifiedInstall,
   };
 }

@@ -9,8 +9,17 @@ pub async fn install_app(
     app_id: String,
     asset_name: Option<String>,
     custom_install_dir: Option<String>,
+    allow_unverified: Option<bool>,
 ) -> AppResult<InstalledApp> {
-    Ok(super::installer_install::install_app(app_handle, state, app_id, asset_name, custom_install_dir).await?)
+    Ok(super::installer_install::install_app(
+        app_handle,
+        state,
+        app_id,
+        asset_name,
+        custom_install_dir,
+        allow_unverified,
+    )
+    .await?)
 }
 
 #[tauri::command(rename_all = "camelCase")]

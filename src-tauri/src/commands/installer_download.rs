@@ -105,10 +105,33 @@ pub(crate) async fn download_asset_with_fallback(
 }
 
 pub(crate) struct PreparedDownload {
-    pub detail: crate::models::AppDetail,
     pub asset: ReleaseAsset,
     pub dest_path: std::path::PathBuf,
     pub actual_sha256: String,
+}
+
+/// 下载资产择取（详情获取 + 命中择取），与实际下载分离：
+/// 安装通道需要在「择取」与「下载」之间插入 D3 无校验门禁（无 checksums
+/// 资产默认拒绝安装），不先消耗带宽/落盘。
+pub(crate) async fn select_download_asset(
+    state: &State<'_, AppState>,
+    app_id: &str,
+    asset_name: Option<&str>,
+    missing_asset_err: &str,
+) -> Result<(crate::models::AppDetail, ReleaseAsset), String> {
+    let detail = super::catalog::get_app_details(state.clone(), app_id.to_string(), None).await?;
+
+    let selected_asset = if let Some(target_name) = asset_name {
+        detail.releases.iter().find(|r| r.name == target_name).cloned()
+    } else {
+        None
+    };
+
+    let asset = selected_asset
+        .or_else(|| super::select_best_asset(&detail.releases).cloned())
+        .ok_or_else(|| missing_asset_err.to_string())?;
+
+    Ok((detail, asset))
 }
 
 pub(crate) async fn prepare_and_download_asset(
@@ -121,17 +144,8 @@ pub(crate) async fn prepare_and_download_asset(
     fallback_log_tag: &str,
 ) -> Result<PreparedDownload, String> {
     let custom_download_dir = resolve_download_dir(state);
-    let detail = super::catalog::get_app_details(state.clone(), app_id.to_string(), None).await?;
-
-    let selected_asset = if let Some(target_name) = asset_name {
-        detail.releases.iter().find(|r| r.name == target_name).cloned()
-    } else {
-        None
-    };
-
-    let asset = selected_asset
-        .or_else(|| super::select_best_asset(&detail.releases).cloned())
-        .ok_or_else(|| missing_asset_err.to_string())?;
+    // 仅下载通道不消费详情元数据，仅取择取结果（detail 供安装通道使用）。
+    let (_, asset) = select_download_asset(state, app_id, asset_name, missing_asset_err).await?;
 
     let (dest_path, actual_sha256) = download_asset_with_fallback(
         app_handle,
@@ -145,7 +159,6 @@ pub(crate) async fn prepare_and_download_asset(
     .await?;
 
     Ok(PreparedDownload {
-        detail,
         asset,
         dest_path,
         actual_sha256,

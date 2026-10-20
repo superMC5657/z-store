@@ -222,6 +222,8 @@ export const App: React.FC = () => {
     handleUnmanageApp,
     handleRefreshInstalledApps,
     handleUninstallApp,
+    unverifiedInstall,
+    dismissUnverifiedInstall,
   } = useInstallState({
     currentView,
     apps,
@@ -595,7 +597,12 @@ export const App: React.FC = () => {
   }, []);
 
   const handleSelectMirror = async (mirrorId: string) => {
-    await tauriApi.switchMirror(mirrorId);
+    try {
+      await tauriApi.switchMirror(mirrorId);
+    } catch (err) {
+      // 自定义镜像准入失败（非 https / 非法域名）：拒绝理由直达用户
+      showToast(String(err), 'error');
+    }
   };
 
   // 跳转设置页 GitHub 账号区（侧栏登录胶囊入口）
@@ -869,6 +876,25 @@ export const App: React.FC = () => {
             if (id !== null) {
               void handleInstallApp(id);
             }
+          }}
+        />
+      )}
+
+      {/* 无校验资产警示弹窗（D3 门禁：后端默认拒绝安装，仅显式确认后放行） */}
+      {unverifiedInstall !== null && (
+        <InstallConfirmDialog
+          intro="警告：该安装包未提供官方 SHA-256 校验清单，ZStore 无法验证文件是否被篡改。仅在您完全信任该发布者时继续安装："
+          appName={unverifiedInstall.id}
+          repoLine={unverifiedInstall.id}
+          source="未校验资产（Release 未附带 checksums 清单）"
+          onCancel={() => {
+            dismissUnverifiedInstall();
+            showToast(t('toast.unverified_install_cancelled'), 'info');
+          }}
+          onConfirm={() => {
+            const pending = unverifiedInstall;
+            dismissUnverifiedInstall();
+            void handleInstallApp(pending.id, pending.assetName, pending.customInstallDir, true);
           }}
         />
       )}

@@ -18,13 +18,20 @@ export async function installApp(
   appId: string,
   assetName?: string,
   customInstallDir?: string,
+  // D3 门禁：无 checksums 资产默认被后端拒绝安装，仅在用户于警示弹窗中
+  // 显式确认后由调用方携带 true 重试放行。
+  allowUnverified?: boolean,
 ): Promise<InstalledApp> {
   return tauriInvoke<InstalledApp>(CMD.installApp, {
     appId,
     assetName: assetName || null,
     customInstallDir: customInstallDir || null,
+    allowUnverified: allowUnverified ?? null,
   });
 }
+
+/** 后端 D3 门禁的机器可读标记：无校验清单资产默认拒绝安装，待 UI 警示 + 用户逐次确认。 */
+export const UNVERIFIED_ASSET_MARKER = 'unverified-asset-required:';
 
 export async function downloadAsset(
   appId: string,

@@ -643,7 +643,8 @@
     "updates_found": "检查完成，共发现 {{count}} 个应用有新版本可用！",
     "check_failed": "检查更新失败: {{error}}",
     "batch_import_success": "🎉 成功添加 {{count}} 款开源应用到管理列表！",
-    "deeplink_cancelled": "已取消外部链接发起的安装请求"
+    "deeplink_cancelled": "已取消外部链接发起的安装请求",
+    "unverified_install_cancelled": "已取消安装未校验资产"
   },
   "error": {
     "title": "界面出错了",

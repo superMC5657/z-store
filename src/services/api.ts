@@ -6,6 +6,7 @@ import * as socialApi from './api/social';
 import { isTauri, tauriInvoke } from './api/client';
 
 export { isTauri, tauriInvoke };
+export { UNVERIFIED_ASSET_MARKER } from './api/installer';
 
 /**
  * 发现页 feed 后端分页契约（Rust `get_home_feed` 返回）：

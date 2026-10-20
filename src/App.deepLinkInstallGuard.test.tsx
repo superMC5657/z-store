@@ -161,7 +161,7 @@ describe('deeplink install guard (real App path)', () => {
     await waitFor(() => {
       expect(hooks.installApp).toHaveBeenCalledTimes(1);
     });
-    expect(hooks.installApp).toHaveBeenCalledWith('testowner/testrepo', undefined, undefined);
+    expect(hooks.installApp).toHaveBeenCalledWith('testowner/testrepo', undefined, undefined, undefined);
   });
 
   it('cancelling the confirm dialog aborts the deeplink install', async () => {

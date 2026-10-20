@@ -643,7 +643,8 @@
     "updates_found": "Check complete: {{count}} apps have updates available!",
     "check_failed": "Failed to check for updates: {{error}}",
     "batch_import_success": "🎉 Successfully added {{count}} open source apps to management list!",
-    "deeplink_cancelled": "Cancelled install request from external link"
+    "deeplink_cancelled": "Cancelled install request from external link",
+    "unverified_install_cancelled": "Cancelled unverified asset installation"
   },
   "error": {
     "title": "Something Went Wrong",

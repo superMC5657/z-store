@@ -67,7 +67,9 @@ export function useAppSettings() {
     applyUiZoom(merged.ui_scale);
 
     if (merged.active_mirror) {
-      tauriApi.switchMirror(merged.active_mirror);
+      // 启动回放镜像档位：历史存量值若不满足新准入口径（https 强制 + 域名校验）
+      // 会被后端拒绝并保持直连（fail-closed），此处吞掉该错误不打断启动。
+      tauriApi.switchMirror(merged.active_mirror).catch(() => undefined);
     }
   };
 

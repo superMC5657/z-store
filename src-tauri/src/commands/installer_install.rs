@@ -1,4 +1,3 @@
-use super::installer_download::prepare_and_download_asset;
 use super::{resolve_uninstaller_command, InstallerEngine};
 use crate::models::InstalledApp;
 use crate::AppState;
@@ -11,6 +10,7 @@ pub async fn install_app(
     app_id: String,
     asset_name: Option<String>,
     custom_install_dir: Option<String>,
+    allow_unverified: Option<bool>,
 ) -> Result<InstalledApp, String> {
     // ADR-0010：深链安装可能传入 URL/前缀形态，入站归一化后全程使用 canonical id；未知标识直接拒绝
     let app_id = super::require_app_id(&app_id)?;
@@ -30,27 +30,54 @@ pub async fn install_app(
         }
     };
 
-    // 1-3. 获取应用详情、匹配择取资产、经用户配置镜像加速下载（仅安装包通道）+ SHA-256 完整性强校验（与仅下载共用通道）
-    let prep = prepare_and_download_asset(
-        &app_handle,
+    // 1-2. 获取应用详情、匹配择取资产（择取与下载分离：D3 门禁须在消耗带宽/落盘之前判定）
+    let (detail, asset) = super::installer_download::select_download_asset(
         &state,
         &app_id,
         asset_name.as_deref(),
         "该 Release 未提供匹配当前操作系统的安装包资产",
-        "download init",
-        "download direct failed, retrying via fallback mirror",
     )
     .await?;
 
+    // D3 零信任门禁：无校验清单的资产默认拒绝安装。下载侧终态虽诚实标注
+    // completed_unverified，执行侧此前无门禁。仅在 UI 显式警示（「未校验」）
+    // 且用户逐次确认（allowUnverified=true）后放行；放行后下载终态仍保留
+    // completed_unverified 标记，不虚假声明已校验。
+    let has_checksum = asset
+        .sha256
+        .as_deref()
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false);
+    if !has_checksum && allow_unverified != Some(true) {
+        return Err(
+            "unverified-asset-required: 该资产未提供官方 SHA-256 校验清单，无法验证文件完整性，已默认拒绝安装。可在确认弹窗了解风险后显式继续，或改用带 checksums 清单的版本"
+                .to_string(),
+        );
+    }
+
+    // 3. 经用户配置镜像加速下载 + SHA-256 完整性强校验（与仅下载共用通道）
+    let custom_download_dir = super::installer_download::resolve_download_dir(&state);
+    let (dest_path, actual_sha256) =
+        super::installer_download::download_asset_with_fallback(
+            &app_handle,
+            &state,
+            &app_id,
+            &asset,
+            custom_download_dir.as_deref(),
+            "download init",
+            "download direct failed, retrying via fallback mirror",
+        )
+        .await?;
+
     // 4. 调用原生安装器或解压便携版（优先使用用户在前端主动选择的目录）
-    let (kind, _, _) = InstallerEngine::classify_asset(&prep.asset.name);
+    let (kind, _, _) = InstallerEngine::classify_asset(&asset.name);
     let effective_portable_dir = custom_install_dir.or(custom_portable_dir);
     // Finding 3.3-4：平台跳过是结构化非成功信号，映射为 Err 中断、
     // 绝不落库为"已安装"（经 InstallOutcome::into_result 统一）。
     let _install_note = InstallerEngine::execute_installation(
-        &prep.dest_path,
+        &dest_path,
         &kind,
-        &prep.detail.id,
+        &detail.id,
         effective_portable_dir.as_deref(),
     )
     .await?
@@ -61,20 +88,20 @@ pub async fn install_app(
         crate::installer::AssetKind::PortableZip
         | crate::installer::AssetKind::PortableTarball => {
             let app_dir = crate::installer::dirs_or_fallback_with_base(
-                &prep.detail.id,
+                &detail.id,
                 effective_portable_dir.as_deref(),
             );
             crate::scanner::AppScanner::resolve_executable_path(
                 Some(&app_dir.to_string_lossy()),
                 None,
-                &prep.detail.repo,
+                &detail.repo,
             )
             .unwrap_or_else(|| app_dir.to_string_lossy().to_string())
         }
         _ => crate::scanner::AppScanner::resolve_installed_app_path(
-            &prep.detail.name,
-            &prep.detail.id,
-            Some(&prep.detail.repo),
+            &detail.name,
+            &detail.id,
+            Some(&detail.repo),
         )
         .unwrap_or_default(),
     };
@@ -87,9 +114,9 @@ pub async fn install_app(
         for _ in 0..5 {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             if let Some(p) = crate::scanner::AppScanner::resolve_installed_app_path(
-                &prep.detail.name,
-                &prep.detail.id,
-                Some(&prep.detail.repo),
+                &detail.name,
+                &detail.id,
+                Some(&detail.repo),
             ) {
                 real_install_path = p;
                 break;
@@ -112,16 +139,16 @@ pub async fn install_app(
             // `AppScanner::linux_candidate_names`，收敛重复；本地收录同样识别）。
             let catalog_ids = state
                 .catalog
-                .get_catalog_item(&prep.detail.id)
+                .get_catalog_item(&detail.id)
                 .map(|cat| cat.get_native_identifiers())
                 .unwrap_or_default();
             let (pkg_names, bin_names) =
                 crate::scanner::AppScanner::linux_candidate_names(
                     &catalog_ids,
                     &[
-                        prep.detail.repo.clone(),
-                        prep.detail.id.clone(),
-                        prep.detail.name.clone(),
+                        detail.repo.clone(),
+                        detail.id.clone(),
+                        detail.name.clone(),
                     ],
                 );
             // 系统包回填：先包管理器列表（deb/rpm 按 kind 分流），再 desktop Exec，最后 PATH/which。
@@ -159,21 +186,21 @@ pub async fn install_app(
     }
 
     let resolved_uninst =
-        resolve_uninstaller_command(&prep.detail.name, &prep.detail.id, &real_install_path, None);
+        resolve_uninstaller_command(&detail.name, &detail.id, &real_install_path, None);
 
     // 5. 写入本地 SQLite 持久化
     let installed_app = InstalledApp {
-        app_id: prep.detail.id.clone(),
-        app_name: prep.detail.name.clone(),
-        version: prep.detail.latest_version.clone(),
+        app_id: detail.id.clone(),
+        app_name: detail.name.clone(),
+        version: detail.latest_version.clone(),
         installed_at: crate::now_secs(),
-        install_method: prep.asset.kind.clone(),
+        install_method: asset.kind.clone(),
         install_path: real_install_path,
-        asset_name: prep.asset.name.clone(),
-        asset_sha256: prep.actual_sha256,
+        asset_name: asset.name.clone(),
+        asset_sha256: actual_sha256,
         uninstall_command: resolved_uninst,
-        icon: Some(prep.detail.icon.clone()),
-        icon_bg: Some(prep.detail.icon_bg.clone()),
+        icon: Some(detail.icon.clone()),
+        icon_bg: Some(detail.icon_bg.clone()),
     };
 
     {

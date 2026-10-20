@@ -8,10 +8,77 @@ use std::time::Instant;
 
 pub const DEFAULT_GH_PROXY: &str = "https://gh-proxy.com";
 
+/// 从 URL 提取小写 host（仅接受带 scheme 的完整 URL；剥 userinfo 与端口）。
+/// 手写解析不引入 `url` 依赖：调用方传入的均为 Provider/镜像侧完整 URL。
+fn url_host(raw_url: &str) -> Option<String> {
+    let rest = raw_url
+        .strip_prefix("https://")
+        .or_else(|| raw_url.strip_prefix("http://"))?;
+    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..authority_end];
+    let host = authority.rsplit('@').next()?; // 剥 userinfo（user:pass@host）
+    let host = host.split(':').next()?; // 剥端口
+    let host = host.trim().to_ascii_lowercase();
+    (!host.is_empty()).then_some(host)
+}
+
+/// host 精确或子域匹配：`github.com` 命中 `api.github.com`，
+/// 不命中 `notgithub.com` / `github.com.evil.com`。
+fn host_is_or_subdomain_of(host: &str, domain: &str) -> bool {
+    host == domain || host.ends_with(&format!(".{domain}"))
+}
+
 pub fn is_github_domain(raw_url: &str) -> bool {
-    raw_url.contains("github.com")
-        || raw_url.contains("githubusercontent.com")
-        || raw_url.contains("github-releases")
+    // 解析 host 后精确匹配（含子域）：此前子串匹配会把 notgithub.com、
+    // github.com.evil.com 误判为 GitHub 资产，走错镜像改写/兜底路径。
+    let Some(host) = url_host(raw_url) else {
+        return false;
+    };
+    ["github.com", "githubusercontent.com"]
+        .iter()
+        .any(|d| host_is_or_subdomain_of(&host, d))
+}
+
+/// 自定义镜像准入校验（D3 供应链防线）：仅接受 `https://` 且 host 为合法域名。
+/// 明文 http 镜像可被中间人整体替换下载载荷；裸 IP、userinfo、畸形 host 同拒。
+/// `direct` / `ghproxy` / 空串为内置档位，直通。
+pub fn validate_custom_proxy(id_or_url: &str) -> Result<(), String> {
+    let trimmed = id_or_url.trim();
+    if trimmed.is_empty() || trimmed == "direct" || trimmed == "ghproxy" {
+        return Ok(());
+    }
+    if !trimmed.starts_with("https://") {
+        return Err("加速镜像必须使用 https://（明文 http 镜像可篡改下载载荷，已拒绝）".to_string());
+    }
+    // userinfo（user:pass@host）显式拒绝：镜像地址不应携带凭据。
+    let rest = trimmed.strip_prefix("https://").unwrap_or(trimmed);
+    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    if rest[..authority_end].contains('@') {
+        return Err("镜像地址不应携带用户凭据（user:pass@host 形态）".to_string());
+    }
+    let host = url_host(trimmed).ok_or_else(|| "无法解析镜像地址的主机名".to_string())?;
+    if host.len() > 253 {
+        return Err("镜像主机名过长".to_string());
+    }
+    let labels: Vec<&str> = host.split('.').collect();
+    if labels.len() < 2 || labels.iter().any(|l| l.is_empty() || l.len() > 63) {
+        return Err(format!("镜像地址必须是合法域名（如 gh-proxy.com）：{host}"));
+    }
+    for label in &labels {
+        if !label
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-')
+            || label.starts_with('-')
+            || label.ends_with('-')
+        {
+            return Err(format!("镜像域名含非法字符：{host}"));
+        }
+    }
+    // TLD 必须含字母：拒绝裸 IP 形态的“镜像”（常见钓鱼面）。
+    if !labels[labels.len() - 1].chars().any(|c| c.is_ascii_alphabetic()) {
+        return Err(format!("镜像地址必须是域名（不接受裸 IP）：{host}"));
+    }
+    Ok(())
 }
 
 /// 底层前缀原语（唯一）：`base` 去尾斜杠后当前缀拼接；已套前缀返回原值。
@@ -82,12 +149,18 @@ impl MirrorManager {
         let trimmed = id_or_url.trim();
         let (new_proxy, id) = if trimmed.is_empty() || trimmed == "direct" {
             (None, "direct")
-        } else if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
-            (Some(trimmed.to_string()), "custom")
         } else if trimmed == "ghproxy" {
             (Some(DEFAULT_GH_PROXY.to_string()), "custom")
+        } else if let Err(reason) = validate_custom_proxy(trimmed) {
+            // 自定义镜像准入失败（非 https / 非法域名）：拒绝切换保持现状（fail-closed），
+            // 含启动时回读历史存量值；拒绝理由由 switch_mirror 命令层前置透出。
+            log::warn!(
+                "mirror rejected id_or_url reason={}",
+                crate::log_support::short_reason(&reason)
+            );
+            return false;
         } else {
-            (None, "direct")
+            (Some(trimmed.to_string()), "custom")
         };
 
         if self.custom_proxy == new_proxy {
@@ -138,12 +211,10 @@ impl MirrorManager {
 
         let test_url = match clean_url {
             Some(p) => {
-                if !p.starts_with("http://") && !p.starts_with("https://") {
-                    return (
-                        false,
-                        9999,
-                        "代理地址格式需以 http:// 或 https:// 开头".to_string(),
-                    );
+                // 测速与保存同一准入口径（https 强制 + 域名校验）：
+                // 允许测 http 却存不进去只会制造困惑。
+                if let Err(reason) = validate_custom_proxy(p) {
+                    return (false, 9999, reason);
                 }
                 p.trim_end_matches('/').to_string()
             }
@@ -265,6 +336,59 @@ mod tests {
         let nodes = mm.get_mirror_statuses();
         let custom = nodes.iter().find(|n| n.id == "custom").unwrap();
         assert!(custom.is_active);
+    }
+
+    #[test]
+    fn github_domain_matches_host_not_substring() {
+        assert!(is_github_domain(
+            "https://github.com/owner/repo/releases/download/v1/a.zip"
+        ));
+        assert!(is_github_domain("https://api.github.com/repos/o/r"));
+        assert!(is_github_domain(
+            "https://raw.githubusercontent.com/o/r/main/x"
+        ));
+        assert!(is_github_domain(
+            "https://github-releases.githubusercontent.com/x"
+        ));
+        // 子串误命中形态必须拒绝
+        assert!(!is_github_domain("https://notgithub.com/a.zip"));
+        assert!(!is_github_domain("https://github.com.evil.com/a.zip"));
+        assert!(!is_github_domain("https://mygithubusercontent.com/a"));
+        // 无 scheme 不再盲配（调用方传入的均为完整 URL）
+        assert!(!is_github_domain("github.com/owner/repo"));
+        assert!(!is_github_domain("https://codeberg.org/attachments/a.exe"));
+    }
+
+    #[test]
+    fn custom_proxy_validation_enforces_https_and_domain() {
+        // 内置档位直通
+        assert!(validate_custom_proxy("").is_ok());
+        assert!(validate_custom_proxy("direct").is_ok());
+        assert!(validate_custom_proxy("ghproxy").is_ok());
+        assert!(validate_custom_proxy("https://gh-proxy.com").is_ok());
+        assert!(validate_custom_proxy("https://mirror.example.com:8443/prefix").is_ok());
+        // 明文 http / 缺 scheme 拒绝
+        assert!(validate_custom_proxy("http://gh-proxy.com").is_err());
+        assert!(validate_custom_proxy("gh-proxy.com").is_err());
+        // 裸 IP / 无点单标签 / userinfo / 畸形 host 拒绝
+        assert!(validate_custom_proxy("https://127.0.0.1").is_err());
+        assert!(validate_custom_proxy("https://localhost").is_err());
+        assert!(validate_custom_proxy("https://user:pass@gh-proxy.com").is_err());
+        assert!(validate_custom_proxy("https://bad host.com").is_err());
+        assert!(validate_custom_proxy("https://-leading-dot.example.com").is_err());
+    }
+
+    #[test]
+    fn set_active_mirror_rejects_non_https_and_bad_hosts() {
+        let mut mm = MirrorManager::new();
+        assert!(mm.set_active_mirror("https://gh-proxy.com"));
+        // 明文 http 与非法 host 拒绝切换，保持上一状态
+        assert!(!mm.set_active_mirror("http://gh-proxy.com"));
+        assert!(!mm.set_active_mirror("https://127.0.0.1"));
+        let nodes = mm.get_mirror_statuses();
+        let custom = nodes.iter().find(|n| n.id == "custom").unwrap();
+        assert!(custom.is_active);
+        assert_eq!(custom.base_url, "https://gh-proxy.com");
     }
 
     #[tokio::test]
