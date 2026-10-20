@@ -214,6 +214,8 @@ export const App: React.FC = () => {
     installingAppIds,
     uninstallingAppIds,
     isRefreshingInstalled,
+    installLoadError,
+    loadInstalledApps,
     handleInstallApp,
     handleQuickInstall,
     handleLaunchApp,
@@ -802,6 +804,8 @@ export const App: React.FC = () => {
               onOpenRules={() => setIsRulesModalOpen(true)}
               onRefresh={handleRefreshInstalledApps}
               isRefreshing={isRefreshingInstalled}
+              loadError={installLoadError}
+              onRetryLoad={loadInstalledApps}
             />
           )}
 

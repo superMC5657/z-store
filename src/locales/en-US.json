@@ -380,6 +380,9 @@
     "scan_local_apps": "Scan Local",
     "scan_local_tooltip": "Scan system installed software and add to management",
     "empty_title": "No Installed Apps",
+    "load_failed_title": "Failed to Load Installed Apps",
+    "load_failed_desc": "Could not read the local installed list: {{error}}",
+    "retry_load": "Retry",
     "empty_desc": "Go to Featured or Categories to explore apps, or click above to scan and manage local installations.",
     "refresh_list": "Refresh List",
     "refreshing_list": "Refreshing...",
@@ -641,5 +644,10 @@
     "check_failed": "Failed to check for updates: {{error}}",
     "batch_import_success": "🎉 Successfully added {{count}} open source apps to management list!",
     "deeplink_cancelled": "Cancelled install request from external link"
+  },
+  "error": {
+    "title": "Something Went Wrong",
+    "description": "The app hit an unexpected error and stopped rendering. Click the button below to reload and recover.",
+    "reload": "Reload App"
   }
 }

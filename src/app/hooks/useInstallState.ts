@@ -21,6 +21,8 @@ export function useInstallState({
   const [installingAppIds, setInstallingAppIds] = useState<Set<string>>(new Set());
   const [uninstallingAppIds, setUninstallingAppIds] = useState<Set<string>>(new Set());
   const [isRefreshingInstalled, setIsRefreshingInstalled] = useState(false);
+  // 已装列表初始加载错误（null = 无错误/未加载）：与空列表区分呈现，供 InstalledView 出重试
+  const [installLoadError, setInstallLoadError] = useState<string | null>(null);
 
   // 安装集合经 ref 读取，回调引用在搜索、图标升级时保持稳定
   const installingRef = useRef<Set<string>>(installingAppIds);
@@ -93,12 +95,23 @@ export function useInstallState({
     }
   };
 
-  // 当用户切换至「已安装应用」视图时，自动触发后台校验与幽灵应用自愈清理
+  // 已装列表加载：进入「已安装」视图自动触发，失败保存错误态（不再与空列表混同静默）；
+  // 同一函数兼作 InstalledView 错误卡的重试入口。
+  const loadInstalledApps = useCallback(async () => {
+    try {
+      const freshInstalled = await tauriApi.getInstalledApps();
+      setInstalledApps(freshInstalled);
+      setInstallLoadError(null);
+    } catch (err) {
+      setInstallLoadError(String(err));
+    }
+  }, []);
+
   useEffect(() => {
     if (currentView === 'installed') {
-      tauriApi.getInstalledApps().then(setInstalledApps).catch(() => undefined);
+      void loadInstalledApps();
     }
-  }, [currentView]);
+  }, [currentView, loadInstalledApps]);
 
   // 卸载应用（触发官方卸载器 -> 等待完成 -> 校验移除 -> 从列表删除）
   const handleUninstallApp = async (id: string) => {
@@ -137,6 +150,8 @@ export function useInstallState({
     uninstallingAppIds,
     setUninstallingAppIds,
     isRefreshingInstalled,
+    installLoadError,
+    loadInstalledApps,
     installingRef,
     handleInstallApp,
     handleQuickInstall,

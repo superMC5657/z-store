@@ -4,6 +4,7 @@ import './i18n';
 import './styles/fluent.css';
 import { initZLog } from './lib/z-log';
 import { appZoomFactor, fontScaleFor } from './utils/density';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 void initZLog();
 
@@ -34,7 +35,9 @@ async function bootstrap(): Promise<void> {
     const { App } = await import('./App');
     ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
       <React.StrictMode>
-        <App />
+        <ErrorBoundary>
+          <App />
+        </ErrorBoundary>
       </React.StrictMode>
     );
     return;
@@ -71,7 +74,9 @@ async function bootstrap(): Promise<void> {
   } else {
     ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
       <React.StrictMode>
-        <App />
+        <ErrorBoundary>
+          <App />
+        </ErrorBoundary>
       </React.StrictMode>
     );
   }

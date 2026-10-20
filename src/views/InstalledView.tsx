@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import {
+  AlertTriangle,
   RotateCcw,
   Shield,
   Download,
@@ -34,6 +35,9 @@ interface InstalledViewProps {
   onOpenRules?: () => void;
   onRefresh?: () => Promise<void> | void;
   isRefreshing?: boolean;
+  /** 初始加载错误（非空且列表为空时呈现错误卡，与空态区分）；重试经 onRetryLoad。 */
+  loadError?: string | null;
+  onRetryLoad?: () => void;
 }
 
 import { InstalledItemActions } from './InstalledView/InstalledItemActions';
@@ -56,6 +60,8 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
   onOpenRules,
   onRefresh,
   isRefreshing = false,
+  loadError = null,
+  onRetryLoad,
 }) => {
   const { t, i18n } = useTranslation();
   const [confirmingUninstallId, setConfirmingUninstallId] = useState<string | null>(null);
@@ -177,7 +183,24 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
         </div>
       </div>
 
-      {installedApps.length === 0 ? (
+      {installedApps.length === 0 && loadError ? (
+        <EmptyState
+          icon={<AlertTriangle size={40} strokeWidth={1.5} />}
+          title={t('installed.load_failed_title')}
+          description={t('installed.load_failed_desc', { error: loadError })}
+          action={onRetryLoad && (
+            <button
+              type="button"
+              className="btn-fluent btn-secondary"
+              style={{ padding: '6px 16px', fontSize: 'var(--font-base)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              onClick={onRetryLoad}
+            >
+              <RotateCcw size={14} strokeWidth={1.5} />
+              <span>{t('installed.retry_load')}</span>
+            </button>
+          )}
+        />
+      ) : installedApps.length === 0 ? (
         <EmptyState
           icon={<FolderOpen size={40} strokeWidth={1.5} />}
           title={t('installed.empty_title')}

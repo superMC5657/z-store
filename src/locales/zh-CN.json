@@ -380,6 +380,9 @@
     "scan_local_apps": "扫描本地",
     "scan_local_tooltip": "扫描系统已安装软件并加入管理",
     "empty_title": "暂无已安装应用",
+    "load_failed_title": "已装列表加载失败",
+    "load_failed_desc": "无法读取本地已装列表：{{error}}",
+    "retry_load": "重试加载",
     "empty_desc": "前往「精选发现」或「分类浏览」探索应用，也可点击上方扫描添加本地已安装应用。",
     "refresh_list": "刷新列表",
     "refreshing_list": "正在刷新...",
@@ -641,5 +644,10 @@
     "check_failed": "检查更新失败: {{error}}",
     "batch_import_success": "🎉 成功添加 {{count}} 款开源应用到管理列表！",
     "deeplink_cancelled": "已取消外部链接发起的安装请求"
+  },
+  "error": {
+    "title": "界面出错了",
+    "description": "应用遇到未预期的错误，界面已停止渲染。点击下方按钮重载即可恢复。",
+    "reload": "重载应用"
   }
 }
