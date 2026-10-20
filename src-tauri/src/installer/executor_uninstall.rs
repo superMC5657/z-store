@@ -141,6 +141,110 @@ fn find_running_nsis_temp_exe() -> Option<std::path::PathBuf> {
     }
     None
 }
+
+/// `.lnk` 卸载快捷方式放行校验（allowlist）：必须是真实存在的 .lnk 文件，
+/// 且不含 shell 元字符。不满足即拒绝执行，报错交用户手动卸载。
+#[cfg(target_os = "windows")]
+fn validate_lnk_for_launch(exe: &str) -> Result<(), String> {
+    const FORBIDDEN: &[char] = &['"', '&', '|', '^', '<', '>', '%', '!', '\n', '\r'];
+    if !exe.to_lowercase().ends_with(".lnk") {
+        return Err(format!("卸载目标不是 .lnk 快捷方式: {}", exe));
+    }
+    if !std::path::Path::new(exe).is_file() {
+        return Err(format!("卸载快捷方式不存在或不可访问: {}", exe));
+    }
+    if let Some(c) = exe.chars().find(|c| FORBIDDEN.contains(c)) {
+        return Err(format!(
+            "卸载快捷方式路径含 shell 元字符 {:?}，已拒绝执行；请在系统设置中手动卸载该应用",
+            c
+        ));
+    }
+    Ok(())
+}
+
+/// 进程句柄包装。Windows 内核对象句柄进程级有效、不绑定线程，跨线程等待安全；
+/// 裸指针默认非 Send 是 FFI 泛化保守，这里显式放行以承载跨 `.await` 的等待循环。
+#[cfg(target_os = "windows")]
+struct SendHandle(windows_sys::Win32::Foundation::HANDLE);
+#[cfg(target_os = "windows")]
+unsafe impl Send for SendHandle {}
+
+/// 以 ShellExecuteEx("open") 拉起 .lnk 并等待其进程退出：与 `cmd start /WAIT` 走
+/// 同一系统路由，但路径以单个宽字符串直传 shell32，不存在 cmd 元字符解析面。
+/// 等待用 250ms 轮询切片，避免卸载向导长驻时阻塞独占执行器线程。
+#[cfg(target_os = "windows")]
+async fn shell_execute_open_wait(
+    file: &str,
+) -> Result<std::process::ExitStatus, String> {
+    use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::process::ExitStatusExt;
+    use std::time::Duration;
+    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, WAIT_FAILED, WAIT_TIMEOUT};
+    use windows_sys::Win32::System::Threading::{GetExitCodeProcess, WaitForSingleObject};
+    use windows_sys::Win32::UI::Shell::{
+        ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW,
+    };
+
+    fn to_wide(s: &str) -> Vec<u16> {
+        std::ffi::OsStr::new(s)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    }
+
+    // 全部裸指针状态收口在本块内：块内无 await，跨 `.await` 的只有 SendHandle。
+    let launched: SendHandle = {
+        let file_w = to_wide(file);
+        let verb_w = to_wide("open");
+        // SAFETY: 全零值对 SHELLEXECUTEINFOW 合法（指针字段为 null）。
+        let mut info: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
+        info.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
+        info.fMask = SEE_MASK_NOCLOSEPROCESS;
+        info.lpVerb = verb_w.as_ptr();
+        info.lpFile = file_w.as_ptr();
+        info.nShow = 1; // SW_SHOWNORMAL
+
+        // SAFETY: info 已初始化，宽字符串缓冲存活到本次调用结束。
+        if unsafe { ShellExecuteExW(&mut info) } == 0 {
+            let err = unsafe { GetLastError() };
+            return Err(format!(
+                "调起卸载快捷方式失败 (Windows 错误码 {}): {}",
+                err, file
+            ));
+        }
+        SendHandle(info.hProcess)
+    };
+
+    // 处理程序直接委托给已运行实例等场景不回传进程句柄：视作已交由系统处理完成。
+    if launched.0.is_null() {
+        return Ok(std::process::ExitStatus::from_raw(0));
+    }
+
+    let wait_result = loop {
+        // SAFETY: handle 来自成功的 ShellExecuteExW 且尚未关闭。
+        let wa = unsafe { WaitForSingleObject(launched.0, 250) };
+        if wa != WAIT_TIMEOUT {
+            break wa;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    };
+    if wait_result == WAIT_FAILED {
+        let err = unsafe { GetLastError() };
+        // SAFETY: handle 有效。
+        unsafe { CloseHandle(launched.0) };
+        return Err(format!("等待卸载快捷方式进程失败 (Windows 错误码 {})", err));
+    }
+
+    let mut exit_code: u32 = 0;
+    // SAFETY: handle 有效且已收到退出信号。
+    let got_code = unsafe { GetExitCodeProcess(launched.0, &mut exit_code) };
+    // SAFETY: handle 有效。
+    unsafe { CloseHandle(launched.0) };
+    if got_code == 0 {
+        return Err("获取卸载快捷方式进程退出码失败".to_string());
+    }
+    Ok(std::process::ExitStatus::from_raw(exit_code))
+}
 /// 执行官方卸载向导并异步挂起等待用户操作完成，随后核验卸载状态
 /// 取消判定复用 `super::is_user_cancellation`（SSOT），
 /// 成功经 `InstallOutcome::Installed(..).into_result()` 归一为 `Ok(())`；
@@ -194,14 +298,11 @@ async fn execute_uninstallation_inner(
         let is_lnk = exe.to_lowercase().ends_with(".lnk");
 
         let status = if is_lnk {
-            let mut child = tokio::process::Command::new("cmd.exe")
-                .args(["/C", "start", "/WAIT", "", &exe])
-                .spawn()
-                .map_err(|e| format!("启动卸载快捷方式失败 ({}): {}", exe, e))?;
-            child
-                .wait()
-                .await
-                .map_err(|e| format!("快捷方式执行异常: {}", e))?
+            // 注册表/DB 来路的卸载串不可信：经 cmd.exe `start /WAIT` 时 `"`/`&`/`%`
+            // 等元字符可断开参数注入任意命令。改走 allowlist 校验 + ShellExecuteEx
+            // 直调，命令串不再经任何 shell 词法解析。
+            validate_lnk_for_launch(&exe)?;
+            shell_execute_open_wait(&exe).await?
         } else {
             let is_nsis = is_nsis_uninstaller(&exe);
             let mut std_cmd = std::process::Command::new(&exe);
@@ -293,5 +394,65 @@ async fn execute_uninstallation_inner(
         } else {
             Err(format!("卸载未能成功完成 (退出代码: {:?})", status.code()))
         }
+    }
+}
+
+#[cfg(test)]
+mod parse_uninstaller_tests {
+    use super::parse_uninstaller_command;
+
+    #[test]
+    fn quoted_path_with_args_splits() {
+        let (exe, args) =
+            parse_uninstaller_command(r#""C:\Program Files\App\unins.exe" /S /x=1"#);
+        assert_eq!(exe, r"C:\Program Files\App\unins.exe");
+        assert_eq!(args, vec!["/S", "/x=1"]);
+    }
+
+    #[test]
+    fn quoted_path_without_args_has_empty_args() {
+        let (exe, args) = parse_uninstaller_command(r#""C:\Program Files\App\unins.exe""#);
+        assert_eq!(exe, r"C:\Program Files\App\unins.exe");
+        assert!(args.is_empty());
+    }
+
+    #[test]
+    fn msiexec_splits_without_quotes() {
+        let (exe, args) = parse_uninstaller_command("MsiExec.exe /X{ABC-123}");
+        assert_eq!(exe, "MsiExec.exe");
+        assert_eq!(args, vec!["/X{ABC-123}"]);
+    }
+
+    #[test]
+    fn single_token_returns_whole_string() {
+        let (exe, args) = parse_uninstaller_command("just-one-token");
+        assert_eq!(exe, "just-one-token");
+        assert!(args.is_empty());
+    }
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod lnk_launch_guard_tests {
+    use super::validate_lnk_for_launch;
+
+    #[test]
+    fn rejects_metachars_missing_file_and_non_lnk() {
+        // 元字符一律拒绝（含经引号断参的注入形态），缺失文件与非 .lnk 目标同样不放行。
+        assert!(validate_lnk_for_launch(r#"foo.lnk" & calc & ""#).is_err());
+        assert!(validate_lnk_for_launch("a^b.lnk").is_err());
+        assert!(validate_lnk_for_launch("a%PATH%b.lnk").is_err());
+        assert!(validate_lnk_for_launch("a|b.lnk").is_err());
+        assert!(validate_lnk_for_launch("C:\\does\\not\\exist\\uninstall.lnk").is_err());
+        assert!(validate_lnk_for_launch("C:\\Windows\\System32\\cmd.exe").is_err());
+    }
+
+    #[test]
+    fn accepts_existing_lnk_without_metachars() {
+        let dir = std::env::temp_dir().join(format!("zstore-lnk-ok-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let lnk = dir.join("Uninstall App.lnk");
+        std::fs::write(&lnk, b"lnk").unwrap();
+        assert!(validate_lnk_for_launch(&lnk.to_string_lossy()).is_ok());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
