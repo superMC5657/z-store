@@ -35,6 +35,15 @@ impl ForgeType {
             Self::GitLab => "gitlab.com",
         }
     }
+
+    /// 宿主精确或白名单子域匹配：`github.com` 命中 `api.github.com`，
+    /// 不命中 `xx-github.com` / `github.com.evil.com`（子串 `contains` 判定已废，
+    /// 与 `mirror::host_is_or_subdomain_of` 同口径）。
+    pub fn matches_host(&self, host: &str) -> bool {
+        let host = host.trim().trim_end_matches('.').to_lowercase();
+        let domain = self.default_host();
+        host == domain || host.ends_with(&format!(".{domain}"))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -96,6 +105,35 @@ pub fn canonical_lookup_id(raw: &str) -> String {
 
 pub struct RepositoryUrlParser;
 
+/// 解析出口统一段校验（注入面收口）：owner/repo/host 段拒绝空值与
+/// `?`/`#`/`/`/反斜杠/空白——这些字符入 URL 路径即路径/查询注入，
+/// 入 canonical 键即脏键；校验失败整体拒绝（返回 `None`），不透传脏坐标。
+/// host 段额外放行 `:`（自建实例非标端口）；`/`/`://` 经上游 split 切分天然不出现，
+/// 此处仍显式拒绝作纵深防御。
+fn valid_coord_segment(s: &str) -> bool {
+    !s.is_empty()
+        && !s.contains(['?', '#', '/', '\\'])
+        && !s.chars().any(char::is_whitespace)
+}
+
+/// 解析出口唯一构造点：四条解析分支经此校验收敛，脏段一律 `None`。
+fn checked_coord(
+    forge: ForgeType,
+    host: &str,
+    owner: &str,
+    repo: &str,
+) -> Option<UniversalRepoCoord> {
+    if !valid_coord_segment(host) || !valid_coord_segment(owner) || !valid_coord_segment(repo) {
+        return None;
+    }
+    Some(UniversalRepoCoord {
+        forge,
+        host: host.to_string(),
+        owner: owner.to_string(),
+        repo: repo.to_string(),
+    })
+}
+
 impl RepositoryUrlParser {
     pub fn parse(input: &str) -> Option<UniversalRepoCoord> {
         let s = input.trim();
@@ -116,8 +154,8 @@ impl RepositoryUrlParser {
             let parts: Vec<&str> = without_proto.split('/').filter(|p| !p.is_empty()).collect();
             if parts.len() >= 3 {
                 let host = parts[0].to_lowercase();
-                let owner = parts[1].to_string();
-                let mut repo_part = parts[2];
+                let owner = parts[1].trim();
+                let mut repo_part = parts[2].trim();
                 if let Some(pos) = repo_part.find('?') {
                     repo_part = &repo_part[..pos];
                 }
@@ -129,23 +167,18 @@ impl RepositoryUrlParser {
                     repo = stripped.to_string();
                 }
 
-                let forge = if host.contains("github.com") {
+                let forge = if ForgeType::GitHub.matches_host(&host) {
                     ForgeType::GitHub
-                } else if host.contains("codeberg.org") {
+                } else if ForgeType::Codeberg.matches_host(&host) {
                     ForgeType::Codeberg
-                } else if host.contains("gitlab.com") {
+                } else if ForgeType::GitLab.matches_host(&host) {
                     ForgeType::GitLab
                 } else {
                     // 自建域名默认遵循 Gitea / Forgejo REST API 体系
                     ForgeType::Gitea
                 };
 
-                return Some(UniversalRepoCoord {
-                    forge,
-                    host,
-                    owner,
-                    repo,
-                });
+                return checked_coord(forge, &host, owner, &repo);
             }
         }
 
@@ -173,12 +206,7 @@ impl RepositoryUrlParser {
                     if let Some(stripped) = repo.strip_suffix(".git") {
                         repo = stripped.to_string();
                     }
-                    return Some(UniversalRepoCoord {
-                        forge,
-                        host: forge.default_host().to_string(),
-                        owner: parts[0].trim().to_string(),
-                        repo,
-                    });
+                    return checked_coord(forge, forge.default_host(), parts[0].trim(), &repo);
                 } else if parts.len() == 3 {
                     let mut repo_part = parts[2].trim();
                     if let Some(pos) = repo_part.find('?') {
@@ -191,12 +219,7 @@ impl RepositoryUrlParser {
                     if let Some(stripped) = repo.strip_suffix(".git") {
                         repo = stripped.to_string();
                     }
-                    return Some(UniversalRepoCoord {
-                        forge,
-                        host: parts[0].trim().to_string(),
-                        owner: parts[1].trim().to_string(),
-                        repo,
-                    });
+                    return checked_coord(forge, parts[0].trim(), parts[1].trim(), &repo);
                 }
             }
         }
@@ -218,12 +241,7 @@ impl RepositoryUrlParser {
                     repo = stripped.to_string();
                 }
                 if !owner.is_empty() && !repo.is_empty() {
-                    return Some(UniversalRepoCoord {
-                        forge: ForgeType::GitHub,
-                        host: "github.com".to_string(),
-                        owner,
-                        repo,
-                    });
+                    return checked_coord(ForgeType::GitHub, "github.com", &owner, &repo);
                 }
             }
         }

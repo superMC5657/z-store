@@ -209,7 +209,13 @@ impl CatalogService {
 
         let headers = super::http::token_headers(token);
 
-        let url = format!("https://api.github.com/repos/{}/{}", owner, repo);
+        // owner/repo 段统一 percent-encoding：直查入参来自用户 query 切分，
+        // 未校验即入 URL 可造成路径注入（`/`→`%2F`、空格→`%20`），编码后由 API 404 兜底。
+        let url = format!(
+            "https://api.github.com/repos/{}/{}",
+            urlencoding::encode(owner),
+            urlencoding::encode(repo)
+        );
         let safe_url = crate::log_support::sanitize_url(&url);
         let (req_id, sid) = super::http::new_log_ctx();
         let req_host = crate::log_support::host_of(&url);

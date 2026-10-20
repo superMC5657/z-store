@@ -224,12 +224,20 @@ pub(crate) fn score_candidate(file_path: &str, size: Option<u64>, repo: &str) ->
 }
 
 fn raw_url(owner: &str, repo: &str, branch: &str, file_path: &str) -> String {
+    // owner/repo/branch 整段编码（含 `/` 的分支名成 `%2F`，不再错切路径）；
+    // file_path 保留 `/` 分隔逐段编码（对齐 markdown.rs 相对路径编码写法）。
+    let encoded_path = file_path
+        .trim_start_matches('/')
+        .split('/')
+        .map(urlencoding::encode)
+        .collect::<Vec<_>>()
+        .join("/");
     format!(
         "https://raw.githubusercontent.com/{}/{}/{}/{}",
-        owner,
-        repo,
-        branch,
-        file_path.trim_start_matches('/')
+        urlencoding::encode(owner),
+        urlencoding::encode(repo),
+        urlencoding::encode(branch),
+        encoded_path
     )
 }
 

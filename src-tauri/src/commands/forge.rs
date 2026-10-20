@@ -87,7 +87,7 @@ pub async fn refresh_host_rate_limit(
         let db = state.db()?;
         db.get_host_token(&clean_host).ok().flatten()
     };
-    if clean_host.contains("github.com") {
+    if clean_host == "github.com" || clean_host.ends_with(".github.com") {
         crate::probe_and_announce_rate_limit(token.as_deref()).await;
     }
     tokio::time::sleep(std::time::Duration::from_millis(60)).await;
@@ -117,6 +117,17 @@ pub async fn test_host_connection(
     token: Option<String>,
 ) -> crate::AppResult<HostRateLimitStatus> {
     let clean_host = host.trim().to_lowercase();
+    // host 段直拼 `https://{host}/api/...`（Gitea 分支）前的注入面收口：
+    // 拒绝空值、scheme 前缀、路径/查询/空白等 URL 结构字符，脏 host 不发请求。
+    if !valid_self_hosted_host(&clean_host) {
+        return Ok(HostRateLimitStatus {
+            host: clean_host,
+            is_connected: false,
+            rate_limit_remaining: None,
+            rate_limit_limit: None,
+            message: Some("host 不合法".to_string()),
+        });
+    }
     let client = build_api_client()?;
 
     let effective_token = if let Some(ref tok) = token {
@@ -133,7 +144,7 @@ pub async fn test_host_connection(
 
     let mut headers = base_ua_headers();
 
-    if clean_host.contains("github.com") {
+    if clean_host == "github.com" || clean_host.ends_with(".github.com") {
         if let Some(ref tok) = effective_token {
             try_insert_auth(&mut headers, "Bearer", tok);
         }
@@ -265,6 +276,15 @@ fn build_api_client() -> Result<reqwest::Client, String> {
         .network
         .api_timeout_seconds;
     crate::forge::http::new_api_client(timeout_sec)
+}
+
+/// 自建实例 host 段校验：非空、无 scheme 前缀、无 `/?#\` 与空白。
+/// `:`（非标端口）放行；Gitea 分支 `https://{host}/api/v1/...` 直拼前唯一闸口。
+fn valid_self_hosted_host(host: &str) -> bool {
+    !host.is_empty()
+        && !host.contains("://")
+        && !host.contains(['/', '?', '#', '\\'])
+        && !host.chars().any(char::is_whitespace)
 }
 
 fn base_ua_headers() -> reqwest::header::HeaderMap {

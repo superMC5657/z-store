@@ -58,3 +58,52 @@ fn test_forge_type_metadata() {
     assert_eq!(ForgeType::Codeberg.default_host(), "codeberg.org");
     assert_eq!(ForgeType::GitLab.default_host(), "gitlab.com");
 }
+
+#[test]
+fn test_matches_host_exact_or_subdomain_not_substring() {
+    // 精确命中 + 白名单子域；子串/前缀伪装域不命中（contains 判定已废）。
+    assert!(ForgeType::GitHub.matches_host("github.com"));
+    assert!(ForgeType::GitHub.matches_host("api.github.com"));
+    assert!(!ForgeType::GitHub.matches_host("xx-github.com"));
+    assert!(!ForgeType::GitHub.matches_host("github.com.evil.com"));
+    assert!(!ForgeType::GitHub.matches_host("notgithub.com"));
+    assert!(ForgeType::Codeberg.matches_host("codeberg.org"));
+    assert!(!ForgeType::Codeberg.matches_host("xx-codeberg.org"));
+}
+
+#[test]
+fn test_parse_rejects_injectable_segments() {
+    // owner/repo 段含 `?`/`#`/空白：解析出口整体拒绝（原实现原样保留，可注入 URL 路径）。
+    assert!(RepositoryUrlParser::parse("https://github.com/o w/r").is_none());
+    assert!(RepositoryUrlParser::parse("https://github.com/o?x=1/r").is_none());
+    assert!(RepositoryUrlParser::parse("https://github.com/o#x/r").is_none());
+    assert!(RepositoryUrlParser::parse("github:o w/r").is_none());
+    assert!(RepositoryUrlParser::parse("codeberg:o#x/r").is_none());
+    // host 段拒绝查询注入；经典分支整串空格已在门禁拒绝，tab 经段校验拒绝。
+    assert!(RepositoryUrlParser::parse("gitea:evil.com?a=b/owner/repo").is_none());
+    assert!(RepositoryUrlParser::parse("o\tr/r2").is_none());
+}
+
+#[test]
+fn test_parse_host_detection_exact_not_substring() {
+    // 伪装域不再误入 GitHub/Codeberg/GitLab 分支，回落自建 Gitea。
+    assert_eq!(
+        RepositoryUrlParser::parse("https://xx-github.com/o/r")
+            .unwrap()
+            .forge,
+        ForgeType::Gitea
+    );
+    assert_eq!(
+        RepositoryUrlParser::parse("https://github.com.evil.com/o/r")
+            .unwrap()
+            .forge,
+        ForgeType::Gitea
+    );
+    // 白名单子域仍命中。
+    assert_eq!(
+        RepositoryUrlParser::parse("https://api.github.com/o/r")
+            .unwrap()
+            .forge,
+        ForgeType::GitHub
+    );
+}

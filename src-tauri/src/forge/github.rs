@@ -23,7 +23,13 @@ impl ForgeProvider for GitHubProvider {
         let client = new_api_client(timeout_sec)?;
         let headers = api_headers(GITHUB_ACCEPT_VALUE, token, AuthScheme::Bearer);
 
-        let url = format!("https://api.github.com/repos/{}/{}", owner, repo);
+        // owner/repo 段统一 percent-encoding（对齐 gitlab.rs）：解析出口已校验，
+        // 此处兜底非 coord 来源的脏段（`/`→`%2F`、空格→`%20`），不致路径注入。
+        let url = format!(
+            "https://api.github.com/repos/{}/{}",
+            urlencoding::encode(owner),
+            urlencoding::encode(repo)
+        );
         let span = HttpSpan::start(&url);
         let repo_id = format!("{owner}/{repo}");
         span.log_start("fetch repo", &repo_id);
@@ -82,7 +88,8 @@ impl ForgeProvider for GitHubProvider {
 
         let url = format!(
             "https://api.github.com/repos/{}/{}/releases/latest",
-            owner, repo
+            urlencoding::encode(owner),
+            urlencoding::encode(repo)
         );
         let span = HttpSpan::start(&url);
         let repo_id = format!("{owner}/{repo}");

@@ -31,8 +31,14 @@ impl ForgeProvider for GiteaProvider {
         let client = new_api_client(timeout_sec)?;
         let headers = api_headers(JSON_ACCEPT_VALUE, token, AuthScheme::Token);
 
-        // Gitea / Forgejo 接口 v1
-        let url = format!("https://{}/api/v1/repos/{}/{}", host, owner, repo);
+        // Gitea / Forgejo 接口 v1；owner/repo 段统一 percent-encoding（对齐 gitlab.rs），
+        // 解析出口已校验，此处兜底非 coord 来源的脏段（`/`→`%2F`、空格→`%20`）。
+        let url = format!(
+            "https://{}/api/v1/repos/{}/{}",
+            host,
+            urlencoding::encode(owner),
+            urlencoding::encode(repo)
+        );
         let span = HttpSpan::start(&url);
         let repo_id = format!("{owner}/{repo}");
         span.log_start("fetch repo", &repo_id);
@@ -93,7 +99,9 @@ impl ForgeProvider for GiteaProvider {
 
         let url = format!(
             "https://{}/api/v1/repos/{}/{}/releases/latest",
-            host, owner, repo
+            host,
+            urlencoding::encode(owner),
+            urlencoding::encode(repo)
         );
         let span = HttpSpan::start(&url);
         let repo_id = format!("{owner}/{repo}");
