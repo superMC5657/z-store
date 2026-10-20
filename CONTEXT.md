@@ -48,7 +48,7 @@
 | **转正** | `Graduated` | 自维护草稿被远端精选收录库正式收录（`sync_catalog` 命中 canonical id），本地行置 `archived=1` 自动归档，不再参与合并视图。 | 毕业、上岸、合并完成 |
 | **已收录/未收录** | `Cataloged/Uncataloged` | 卡片收录态徽标：id 命中精选收录库为已收录，否则为未收录（走详情缓存读富卡）；与自维护/转正正交（后者仅描述本地草稿生命周期）。 | 收录状态、有无收录 |
 | **收录标记** | `is_cataloged` | 收藏/关注记录自带的收录态字段（0/1 持久化于 `user_favorites` / `watched_apps`）：写入时按目录判定一次，存量行启动回填、清单同步与本地收录状态切换后即时回填；前端凭此决定走收录库还是详情缓存读卡。 | cataloged 字段、收录位 |
-| **本地收录来源** | `source=local` | 合并目录视图中本地库行的来源标记：仅库内成员（收录态或已提交 Issue（`submitted`））且未归档的 `custom_apps` 行进入合并（远端优先去重，补位行与远端同仓叠加行均标 `local`）；库存恒 `is_cataloged=true`、`is_verified=false`（永不冒充已验证蓝标，Issue 预填载荷翻 `true` 仅限复制体）。后端统一目录模块在 `AppSummary` / `AppDetail` 投影时直接盖章 `source` 与 `is_cataloged`（`remote`/`local`，未收录即显式 `false`），前端优先读卡片字段；仅乐观本地行与旧载荷由 `selectors` 兼容层（`annotateIsCataloged` / `annotateLocalSource`）补齐，不作为真值。 | 本地来源、收录来源 |
+| **本地收录来源** | `source=local` | 合并目录视图中本地库行的来源标记：仅库内成员（收录态或已提交 Issue（`submitted`））且未归档的 `custom_apps` 行进入合并（远端优先去重，补位行与远端同仓叠加行均标 `local`）；库存恒 `is_cataloged=true`、`is_verified=false`（永不冒充已验证蓝标，Issue 预填载荷翻 `true` 仅限复制体）。后端统一目录模块在 `AppSummary` / `AppDetail` 投影时直接盖章 `source` 与 `is_cataloged`（`remote`/`local`，未收录即显式 `false`），前端优先读卡片字段；仅乐观本地行与旧载荷由 `selectors` 兼容层（`annotateIsCataloged` / `annotateLocalSource`）补齐，不作为真值。同一 overlay 行存在双层表达：合并视图条目枚举（`MergedCatalogEntry.source`）为 `CatalogEntrySource::Custom`（序列化 `custom`，对应 `remote`），卡片盖章字段（`AppSummary.source`）为 `local`（对应 `remote`）——投影时 `Custom` 恒映射为 `local`，前者适用目录条目枚举/检索侧，后者适用卡片投影字段。 | 本地来源、收录来源 |
 | **本地收录态** | `collected` / `local_collected` | 本地收录状态：`collected` 为现行写入值，`local_collected` 为磁盘残留同义值（判定与列表均等同 `collected`）；收录态判定唯一口径为 `isCollectedStatus`（`src/app/selectors.ts` 单一导出）。这是「可提交 Issue / 可退回草稿」的门禁口径，不等于库内成员（见本地库）。 | 已收录态、本地态 |
 | **本地库** | `Local Library` | 用户本地可搜可装的自维护条目集合：`custom_apps` 中未归档且 `status` 为收录态（collected/local_collected）或已提交 Issue（submitted）的行。库内判定唯一口径为 `isLocalLibraryStatus`；`draft` 不在库，`archived` 退出库（权威交还远端）。 | 我的应用、本地列表 |
 | **已提交** | `Submitted` | 库内条目已提交 Issue、等待上游收录的阶段（`status=submitted` + `pr_url`）。仍是库内成员：可搜可装、带黄标；不可重复提交 Issue、不可退回草稿；可「标记为未提交」回到待提交（Issue 需自行关闭）。 | 待合入、PR 中 |
@@ -76,7 +76,7 @@
    - 采用统一的线性矢量图标体系（统一由 `lucide-react` 14px/stroke 1.5 及单色矢量 SVG 驱动并适配 `currentColor`），状态反馈采用标准 CSS 微动效（如旋转 `.icon-spin`）与高亮状态指示原点（`.status-dot`），消除视觉割裂；基底保持单色，星级收藏（金 `#eab308`）、榜单排名（金/银/铜）、本地收录徽标（橘黄 `verified-badge-local`：浅色 `#F59E0B`/深色 `#D97706`，仅未验证时叠加）与告警/错误等状态色为例外点缀，图标本体仍为单色 `currentColor`。
    - 侧栏底部账号入口胶囊与设置中心分组见词汇表；网络/认证与分组规范见 ADR-0008。
 5. **D5 双池复用 (Dual-Pool Client Reuse)**:
-   - API 与图标下载使用物理隔离的复用单例 Client，均配置 connect_timeout 5s、keepalive 60s、pool 20/idle 90s；图标 CDN 通道恒丢 token，绝不携带认证头。
+   - API 与图标下载使用物理隔离的复用单例 Client，均配置 connect_timeout 5s、keepalive 60s、pool 20/idle 90s；图标 CDN 通道恒丢 token，绝不携带认证头。清单同步另设独立第三 Client（CatalogService 自建：拉取公开静态内容、token 恒不携带，connect 5s / pool 10，超时走 `api_timeout_seconds`），与图标池同构的 token 卫生边界（见 ADR-0012）。
 6. **D6 有限并发 (Bounded Concurrency)**:
    - 明星榜 `buffered(4)`、更新检查 `buffer_unordered(6)`（`commands/updates_check.rs` 主路径与关注通知两处），首命中即停并按原顺序回填结果；SimpleIcons 快路径逐 slug 验图 `buffered(3)`（见 `github/icon_probe.rs`）。
     - 统一图标补探 `IconFetch` 有界池 `pool=5` 无序并发（`buffer_unordered(pool)`，见 `github/icon_fetch.rs`；配置见 `config.rs` 的 `IconFetchConfig`）：搜索与趋势后台均经该核心逐张 `emit` 流式补齐；趋势 enrich 批量直查侧 `buffered(5)` 保序等齐（见 `commands/catalog_search.rs`，详见 ADR-0015）。

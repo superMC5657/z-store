@@ -244,7 +244,9 @@ impl Default for CatalogConfig {
     }
 }
 
-/// 默认许可名单（ADR-0018）：名单唯一源头，校验侧直接引用本常量，不再各自手写。
+/// 默认许可名单（ADR-0018）：编译期兜底；运行时源为编译进发行的 config.toml
+/// `[license_gate] allowed`（serde 缺段时回落本常量），两者由
+/// `license_allowed_matches_constant_item_by_item` 测试锁定同序同值。
 pub const DEFAULT_LICENSE_ALLOWLIST: &[&str] = &[
     "MIT",
     "ISC",
@@ -711,17 +713,16 @@ mod tests {
     }
 
     #[test]
-    fn license_gate_defaults_to_d1_strict() {
-        // 默认严格：开关开 + 名单与 D1 全量同序同值。
+    fn license_allowed_matches_constant_item_by_item() {
+        // 运行时源（嵌入 config.toml [license_gate] allowed）与编译期兜底常量
+        // 逐项同序同值（工单 38：替换原 len/首尾抽样断言，杜绝静默漂移）。
         let conf = ProjectConfig::default();
         assert!(conf.license_gate.enabled);
-        assert_eq!(conf.license_gate.allowed.len(), 37);
-        assert_eq!(conf.license_gate.allowed.first().map(String::as_str), Some("MIT"));
-        assert_eq!(
-            conf.license_gate.allowed.last().map(String::as_str),
-            Some("AFL-3.0")
-        );
-        assert!(conf.license_gate.allowed.contains(&"GPL-3.0".to_string()));
+        let expected: Vec<String> = DEFAULT_LICENSE_ALLOWLIST
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(conf.license_gate.allowed, expected);
     }
 
     #[test]

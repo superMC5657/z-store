@@ -16,8 +16,10 @@ OSI 全量名单。用户需求希望门禁可开关、可控范围（例如本�
 ## 2. 决策
 
 1. **`config.toml [license_gate]`**：`enabled=true`（默认开）、`allowed=[...]`
-   （默认与 OSI 全量名单同序同值）；名单唯一源头为
-   `config::DEFAULT_LICENSE_ALLOWLIST`，校验侧直接引用，不各自手写。
+   （默认与 OSI 全量名单同序同值）；运行时名单源为编译进发行的
+   `config.toml [license_gate] allowed`，`config::DEFAULT_LICENSE_ALLOWLIST`
+   为编译期兜底（serde 缺段回落），两者由逐项相等测试
+   （`license_allowed_matches_constant_item_by_item`）锁定同序同值。
 2. **解析**：`config::LicenseGateConfig{enabled, allowed}`，名单匹配两侧均经
    `normalize_license` 归一（config 子集大小写/空格形态同样命中）。
    门禁唯一源为编译时 config：行为只由 `config.toml` 在编译发行时确定，

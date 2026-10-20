@@ -39,6 +39,7 @@ impl CatalogService {
         let catalog_extra: Vec<String> = Vec::new();
         let builder = reqwest::Client::builder()
             .pool_max_idle_per_host(10)
+            .connect_timeout(std::time::Duration::from_secs(5))
             .tcp_keepalive(std::time::Duration::from_secs(60))
             .timeout(std::time::Duration::from_secs(
                 cfg.network.api_timeout_seconds,
