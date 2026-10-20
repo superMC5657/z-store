@@ -202,34 +202,45 @@ pub async fn fetch_trends_text(url: String) -> Result<String, String> {
         );
         return Err(format!("trends: upstream status {}", status.as_u16()));
     }
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| {
+    // 流式读取并截断至 2MB（D9 截断语义）：不再先全量缓冲超大 body 再判限，
+    // 超限即停止读取并返回前 2MB（前端对截断 body 的解析失败已有既有兜底）。
+    use futures_util::StreamExt;
+    const MAX_TRENDS_BYTES: usize = 2 * 1024 * 1024;
+    let mut buf: Vec<u8> = Vec::with_capacity(64 * 1024);
+    let mut truncated = false;
+    let mut stream = resp.bytes_stream();
+    while let Some(chunk_res) = stream.next().await {
+        let chunk = chunk_res.map_err(|e| {
+            let reason = crate::log_support::short_reason(&e.to_string());
             log::warn!(
                 "trends text read fail sid={} req={} host='{}' elapsed_ms={} reason={}",
                 sid,
                 req,
                 host,
                 start.elapsed().as_millis(),
-                crate::log_support::short_reason(&e.to_string())
+                reason
             );
-            format!("trends: read body failed: {}", crate::log_support::short_reason(&e.to_string()))
+            format!("trends: read body failed: {}", reason)
         })?;
-    // 限长 2MB：防超大 body 撑内存；超长按上游异常回错误标记（不回显 URL）。
-    const MAX_TRENDS_BYTES: usize = 2 * 1024 * 1024;
-    if bytes.len() > MAX_TRENDS_BYTES {
+        let remaining = MAX_TRENDS_BYTES - buf.len();
+        if chunk.len() > remaining {
+            buf.extend_from_slice(&chunk[..remaining]);
+            truncated = true;
+            break;
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    if truncated {
         log::warn!(
-            "trends text upstream too large sid={} req={} host='{}' bytes={} elapsed_ms={}",
+            "trends text truncated sid={} req={} host='{}' bytes={} elapsed_ms={}",
             sid,
             req,
             host,
-            bytes.len(),
+            buf.len(),
             start.elapsed().as_millis()
         );
-        return Err("trends: upstream too large".to_string());
     }
-    let body = String::from_utf8(bytes.to_vec()).map_err(|e| {
+    let body = String::from_utf8(buf).map_err(|e| {
         log::warn!(
             "trends text decode fail sid={} req={} host='{}' elapsed_ms={} reason={}",
             sid,

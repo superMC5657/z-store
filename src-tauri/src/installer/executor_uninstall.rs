@@ -332,8 +332,20 @@ async fn execute_uninstallation_inner(
                 }
 
                 if let Some(temp_exe) = temp_uninstaller {
+                    // 锁等待上限（60s）：临时卸载器被第三方进程长期占用时不再无限
+                    // 轮询挂起安装任务，超时报错交用户手动处理。
+                    const NSIS_LOCK_WAIT_TIMEOUT_MS: u64 = 60_000;
+                    let mut waited_ms: u64 = 0;
                     while is_file_locked(&temp_exe) && temp_exe.exists() {
+                        if waited_ms >= NSIS_LOCK_WAIT_TIMEOUT_MS {
+                            return Err(format!(
+                                "NSIS 临时卸载器仍被占用（已等待 {} 秒）: {}。请关闭相关进程或完成系统卸载向导后重试",
+                                NSIS_LOCK_WAIT_TIMEOUT_MS / 1000,
+                                temp_exe.display()
+                            ));
+                        }
                         tokio::time::sleep(Duration::from_millis(500)).await;
+                        waited_ms += 500;
                     }
                 }
             }

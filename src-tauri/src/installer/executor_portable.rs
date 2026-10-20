@@ -3,6 +3,37 @@ use std::fs::File;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 
+/// 解压防护上限：累计未压缩字节与条目数，zip/tar 炸弹防磁盘耗尽。
+/// 8 GiB 覆盖现存最大便携应用解压体积；条目 65536 远超正常发行包。
+const MAX_EXTRACT_TOTAL_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+const MAX_EXTRACT_ENTRIES: usize = 65_536;
+
+/// 解压配额判定（纯函数）：条目数或累计字节数超限即报错，由调用方回滚后中止。
+fn check_extract_quota(total_bytes: u64, add_bytes: u64, entries: usize) -> Result<(), String> {
+    if entries > MAX_EXTRACT_ENTRIES {
+        return Err(format!(
+            "条目数 {} 超过上限 {}，疑似归档炸弹",
+            entries, MAX_EXTRACT_ENTRIES
+        ));
+    }
+    let projected = total_bytes.saturating_add(add_bytes);
+    if projected > MAX_EXTRACT_TOTAL_BYTES {
+        return Err(format!(
+            "累计解压体积超过 {} 字节上限，疑似归档炸弹",
+            MAX_EXTRACT_TOTAL_BYTES
+        ));
+    }
+    Ok(())
+}
+
+/// 超限回滚：仅删除本次解压新建的文件，不动 app_dir 既有内容
+/// （更新安装场景下旧版本文件保留，可重试安装）。
+fn rollback_extracted(written: &[PathBuf]) {
+    for p in written {
+        let _ = std::fs::remove_file(p);
+    }
+}
+
 /// 便携 ZIP 解压安装体（原 executor.rs PortableZip 分支纯移动，跨平台）。
 pub fn install_portable_zip(
     installer_path: &Path,
@@ -22,6 +53,13 @@ pub fn install_portable_zip(
     })?;
 
     let mut main_exe: Option<PathBuf> = None;
+    // 解压防护：跟踪本次新建文件 + 累计字节/条目配额，超限回滚并中止。
+    let mut written: Vec<PathBuf> = Vec::new();
+    let mut total_bytes: u64 = 0;
+    let abort = |written: &[PathBuf], reason: &str| -> String {
+        rollback_extracted(written);
+        format!("解压中止：{}，已回滚本次解压内容", reason)
+    };
     for i in 0..archive.len() {
         let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
         let outpath = match file.enclosed_name() {
@@ -37,8 +75,18 @@ pub fn install_portable_zip(
                     let _ = std::fs::create_dir_all(p);
                 }
             }
+            // 声明大小预检（提前拦下单文件超大声明）+ 实际写入复核（声明可谎报）
+            if let Err(reason) = check_extract_quota(total_bytes, file.size(), i + 1) {
+                return Err(abort(&written, &reason));
+            }
             let mut outfile = File::create(&outpath).map_err(|e| e.to_string())?;
-            io::copy(&mut file, &mut outfile).map_err(|e| e.to_string())?;
+            let n = io::copy(&mut file, &mut outfile).map_err(|e| e.to_string())?;
+            drop(outfile);
+            written.push(outpath.clone());
+            total_bytes += n;
+            if let Err(reason) = check_extract_quota(total_bytes, 0, 0) {
+                return Err(abort(&written, &reason));
+            }
 
             if outpath.extension().and_then(|ext| ext.to_str()) == Some("exe") && main_exe.is_none()
             {
@@ -80,8 +128,17 @@ fn unpack_tar_entries<R: io::Read>(
     app_dir: &Path,
 ) -> Result<Option<PathBuf>, String> {
     let mut main_exe: Option<PathBuf> = None;
+    // 解压防护：与 zip 同一配额口径，超限回滚本次已写文件并中止。
+    let mut written: Vec<PathBuf> = Vec::new();
+    let mut total_bytes: u64 = 0;
+    let mut entries_seen: usize = 0;
+    let abort = |written: &[PathBuf], reason: &str| -> String {
+        rollback_extracted(written);
+        format!("解压中止：{}，已回滚本次解压内容", reason)
+    };
     let entries = archive.entries().map_err(|e| e.to_string())?;
     for entry_res in entries {
+        entries_seen += 1;
         let mut entry = entry_res.map_err(|e| e.to_string())?;
         let entry_path = entry.path().map_err(|e| e.to_string())?.into_owned();
         let entry_type = entry.header().entry_type();
@@ -137,20 +194,28 @@ fn unpack_tar_entries<R: io::Read>(
                 let _ = std::fs::create_dir_all(p);
             }
         }
+        // 声明大小预检 + 实际写入复核（与 zip 同口径）
+        let declared = entry.header().size().unwrap_or(0);
+        if let Err(reason) = check_extract_quota(total_bytes, declared, entries_seen) {
+            return Err(abort(&written, &reason));
+        }
         let _mode = entry.header().mode().unwrap_or(0);
         let mut outfile = File::create(&outpath).map_err(|e| e.to_string())?;
-        io::copy(&mut entry, &mut outfile).map_err(|e| e.to_string())?;
+        let n = io::copy(&mut entry, &mut outfile).map_err(|e| e.to_string())?;
         drop(outfile);
+        written.push(outpath.clone());
+        total_bytes += n;
+        if let Err(reason) = check_extract_quota(total_bytes, 0, 0) {
+            return Err(abort(&written, &reason));
+        }
 
         #[cfg(unix)]
         {
-            // 保留 tar 中的可执行位；缺 exec 位时兜底 0o755，保证 Linux 二进制可直接执行。
+            // 权限按可执行位二值判定：有任一 exec 位 → 0o755（二进制/脚本可直接执行），
+            // 否则 0o644。不再把无 exec 位的普通文件兜底成全员可执行，
+            // 也不保留归档中的 setuid/setgid/sticky 等特权位。
             use std::os::unix::fs::PermissionsExt;
-            let perm_bits = if _mode & 0o111 != 0 && _mode & 0o777 != 0 {
-                _mode & 0o777
-            } else {
-                0o755
-            };
+            let perm_bits = if _mode & 0o111 != 0 { 0o755 } else { 0o644 };
             let _ = std::fs::set_permissions(
                 &outpath,
                 std::fs::Permissions::from_mode(perm_bits),
@@ -240,4 +305,98 @@ pub fn install_portable_tarball(
         "已解压至便携目录: {:?}",
         app_dir
     )))
+}
+
+#[cfg(test)]
+mod extract_guard_tests {
+    use super::*;
+
+    #[test]
+    fn quota_rejects_entry_overflow_and_byte_bomb() {
+        assert!(check_extract_quota(0, 1024, 10).is_ok());
+        assert!(check_extract_quota(MAX_EXTRACT_TOTAL_BYTES - 1, 1, 1).is_ok());
+        assert!(check_extract_quota(0, 0, MAX_EXTRACT_ENTRIES + 1).is_err());
+        assert!(check_extract_quota(MAX_EXTRACT_TOTAL_BYTES - 1, 2, 1).is_err());
+        // u64 溢出饱和判定不 panic
+        assert!(check_extract_quota(u64::MAX, 1, 1).is_err());
+    }
+
+    #[test]
+    fn rollback_removes_only_tracked_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let keep = dir.path().join("keep.txt");
+        let gone = dir.path().join("gone.txt");
+        std::fs::write(&keep, b"k").unwrap();
+        std::fs::write(&gone, b"g").unwrap();
+        rollback_extracted(std::slice::from_ref(&gone));
+        assert!(keep.exists(), "untracked file must survive rollback");
+        assert!(!gone.exists(), "tracked file must be removed");
+    }
+
+    #[test]
+    fn zip_install_extracts_entries_and_tracks_quota() {
+        let dir = tempfile::tempdir().unwrap();
+        let zip_path = dir.path().join("app.zip");
+        let f = std::fs::File::create(&zip_path).unwrap();
+        let mut zw = zip::ZipWriter::new(f);
+        zw.start_file("myapp/app.exe", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        std::io::Write::write_all(&mut zw, b"fake-exe-bytes").unwrap();
+        zw.start_file("myapp/data/readme.txt", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        std::io::Write::write_all(&mut zw, b"hello").unwrap();
+        zw.finish().unwrap();
+
+        let base = tempfile::tempdir().unwrap();
+        let res = super::install_portable_zip(
+            &zip_path,
+            "owner/repo",
+            Some(base.path().to_str().unwrap()),
+        );
+        assert!(res.is_ok(), "normal zip must extract: {:?}", res.err());
+        let app_dir = crate::installer::paths::dirs_or_fallback_with_base(
+            "owner/repo",
+            Some(base.path().to_str().unwrap()),
+        );
+        assert!(app_dir.join("myapp").join("app.exe").is_file());
+        assert!(app_dir.join("myapp").join("data").join("readme.txt").is_file());
+    }
+
+    #[test]
+    fn tar_install_extracts_entries_within_quota() {
+        let dir = tempfile::tempdir().unwrap();
+        let tar_path = dir.path().join("app.tar");
+        let f = std::fs::File::create(&tar_path).unwrap();
+        {
+            let mut tb = tar::Builder::new(f);
+            let mut header = tar::Header::new_gnu();
+            header.set_size(5);
+            header.set_mode(0o644);
+            header.set_cksum();
+            tb.append_data(&mut header, "myapp/data.txt", b"hello".as_ref())
+                .unwrap();
+            let mut header2 = tar::Header::new_gnu();
+            header2.set_size(4);
+            header2.set_mode(0o755);
+            header2.set_cksum();
+            tb.append_data(&mut header2, "myapp/bin/run", b"#!/x".as_ref())
+                .unwrap();
+            tb.finish().unwrap();
+        }
+
+        let base = tempfile::tempdir().unwrap();
+        let res = super::install_portable_tarball(
+            &tar_path,
+            "owner/repo",
+            Some(base.path().to_str().unwrap()),
+        );
+        assert!(res.is_ok(), "normal tar must extract: {:?}", res.err());
+        let app_dir = crate::installer::paths::dirs_or_fallback_with_base(
+            "owner/repo",
+            Some(base.path().to_str().unwrap()),
+        );
+        // tar 通道剥顶层目录（与 zip 归一）：myapp/* 落在 app_dir 根。
+        assert!(app_dir.join("data.txt").is_file());
+        assert!(app_dir.join("bin").join("run").is_file());
+    }
 }

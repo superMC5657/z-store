@@ -160,11 +160,16 @@ pub async fn download_with_progress(
 
     let total_bytes = resp.content_length().unwrap_or(0);
 
-    // 原子落盘：先写 `.tmp`，成功后 rename 到最终路径；失败删 tmp，
-    // 半文件不污染下次跳过（跳过只认最终文件的 SHA256）。
+    // 原子落盘：先写唯一 `.tmp`（进程 id + 纳秒后缀），成功后 rename 到最终路径；
+    // 失败时落盘函数清理半文件。唯一名防并发同名任务互写同一临时文件导致
+    // 字节交错成损坏包（各自哈希自洽但落盘混合）。
     let tmp_path = {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
         let mut s = final_path.as_os_str().to_owned();
-        s.push(".tmp");
+        s.push(format!(".{}.{}.tmp", std::process::id(), nanos));
         PathBuf::from(s)
     };
 
@@ -335,10 +340,32 @@ pub async fn download_with_progress(
 
     // 成功后 rename 到最终路径；Windows rename 不覆盖已存在目标，先删后改。
     // 此处旧最终文件（若有）必是哈希未命中的脏文件，删了重建即可。
-    let _ = tokio::fs::remove_file(&final_path).await;
-    if let Err(e) = tokio::fs::rename(&tmp_path, &final_path).await {
+    // 并发同名任务可能在「删后改名前」再次落盘同名文件（或持旧句柄）：
+    // 对 删+改 做有界重试（5 次 × 100ms），仍失败才报错并清理本次临时文件。
+    // 任一时刻最终路径上只会有某个任务的完整已校验文件，交换无实害。
+    let mut rename_ok = false;
+    let mut last_rename_err: Option<std::io::Error> = None;
+    for _ in 0..5 {
+        let _ = tokio::fs::remove_file(&final_path).await; // 不存在属预期
+        match tokio::fs::rename(&tmp_path, &final_path).await {
+            Ok(()) => {
+                rename_ok = true;
+                break;
+            }
+            Err(e) => {
+                last_rename_err = Some(e);
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        }
+    }
+    if !rename_ok {
         let _ = tokio::fs::remove_file(&tmp_path).await;
-        let err_msg = format!("写入磁盘失败: {}", e);
+        let err_msg = format!(
+            "写入磁盘失败: {}",
+            last_rename_err
+                .map(|e| e.to_string())
+                .unwrap_or_else(|| "未知错误".to_string())
+        );
         log::error!(
             "download failed id={} sid={} req={} host={} file={} url='{}' reason={}",
             task_id,

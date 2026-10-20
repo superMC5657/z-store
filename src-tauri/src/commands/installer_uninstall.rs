@@ -52,7 +52,11 @@ pub(crate) fn is_owned_portable_dir(
 
 /// 安全清理：属于自有专属目录 -> 执行 `remove_dir_all`；共享目录（如“下载”或 D:\Tools）
 /// -> 仅删除清单记录的单一文件，或拒绝整目录删除。
-pub(crate) fn cleanup_portable_path(install_path: &std::path::Path, owned_dir: &std::path::Path) {
+/// 删除失败以 Err 上浮：卸载结果不再吞错虚报成功（DB 记录保留，用户可重试）。
+pub(crate) fn cleanup_portable_path(
+    install_path: &std::path::Path,
+    owned_dir: &std::path::Path,
+) -> Result<(), String> {
     let dir = if install_path.is_file() {
         install_path.parent()
     } else if install_path.is_dir() {
@@ -61,12 +65,19 @@ pub(crate) fn cleanup_portable_path(install_path: &std::path::Path, owned_dir: &
         None
     };
     if let Some(d) = dir {
-        if d.exists() && is_owned_portable_dir(d, owned_dir) {
-            let _ = std::fs::remove_dir_all(d);
-        } else if install_path.is_file() && install_path.exists() {
-            let _ = std::fs::remove_file(install_path);
+        if d.exists() {
+            if is_owned_portable_dir(d, owned_dir) {
+                std::fs::remove_dir_all(d).map_err(|e| {
+                    format!("清理便携目录失败 ({}): {}", d.display(), e)
+                })?;
+            } else if install_path.is_file() && install_path.exists() {
+                std::fs::remove_file(install_path).map_err(|e| {
+                    format!("删除清单记录文件失败 ({}): {}", install_path.display(), e)
+                })?;
+            }
         }
     }
+    Ok(())
 }
 
 /// 解析可安全删除的 Desktop 快捷方式路径：文件名复用创建侧同一消毒函数
@@ -143,12 +154,13 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result
         }
     };
 
-    // 1. 便携版清理：remove_dir_all 仅允许在 ZStore 自建隔离目录内
+    // 1. 便携版清理：remove_dir_all 仅允许在 ZStore 自建隔离目录内；
+    // 清理失败以 Err 上浮（文件仍在 → 不删 DB 记录，卸载不虚报成功）。
     if app.install_method == "portable_zip" {
         cleanup_portable_path(
             std::path::Path::new(&app.install_path),
             &crate::installer::dirs_or_fallback(&app.app_id),
-        );
+        )?;
     } else {
         // 2. 安装版 / 系统导入版：动态定位并调起官方卸载向导 EXE，挂起等待用户操作完成并核验
         let resolved_uninst = resolve_uninstaller_command(
@@ -173,10 +185,11 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result
         }
     }
 
-    // 3. 默认便携缓存目录清理
+    // 3. 默认便携缓存目录清理（失败同样上浮，不虚报成功）
     let app_dir = crate::installer::dirs_or_fallback(&app.app_id);
     if app_dir.exists() {
-        let _ = std::fs::remove_dir_all(&app_dir);
+        std::fs::remove_dir_all(&app_dir)
+            .map_err(|e| format!("清理默认便携缓存目录失败 ({}): {}", app_dir.display(), e))?;
     }
 
     // 4. 快捷方式清理（消毒 + 前缀断言，绝不越出 Desktop）
@@ -237,7 +250,7 @@ mod portable_uninstall_safety_tests {
         fs::write(&exe, b"fake-exe").unwrap();
         fs::write(&precious, b"user data must survive").unwrap();
 
-        super::cleanup_portable_path(&exe, &owned);
+        super::cleanup_portable_path(&exe, &owned).unwrap();
 
         assert!(
             precious.exists(),
@@ -256,7 +269,7 @@ mod portable_uninstall_safety_tests {
         let exe = owned.join("app.exe");
         fs::write(&exe, b"fake-exe").unwrap();
 
-        super::cleanup_portable_path(&exe, &owned);
+        super::cleanup_portable_path(&exe, &owned).unwrap();
 
         assert!(
             !owned.exists(),

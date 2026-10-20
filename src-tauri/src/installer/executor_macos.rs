@@ -131,11 +131,25 @@ pub async fn install_macos_dmg(installer_path: &Path) -> Result<String, String> 
         .ok_or_else(|| "无法获取 .app 目录名称".to_string())?;
 
     // 4. 拷贝至 /Applications 或用户 ~/Applications 目录
+    // 旧版本删除失败必须中止：吞错继续 cp -R 会在已存在目录下生成
+    // `X.app/X.app` 嵌套坏安装（应用无法启动且残留难以清理）。
     let sys_apps = PathBuf::from("/Applications");
     let dest_app = sys_apps.join(app_name);
 
     if dest_app.exists() {
-        let _ = std::fs::remove_dir_all(&dest_app);
+        std::fs::remove_dir_all(&dest_app).map_err(|e| {
+            format!(
+                "无法移除已存在的旧版本 {}（权限不足或文件被占用）: {}。已中止安装，避免嵌套坏安装",
+                dest_app.display(),
+                e
+            )
+        })?;
+        if dest_app.exists() {
+            return Err(format!(
+                "旧版本 {} 移除指令执行后仍存在，已中止安装避免嵌套复制",
+                dest_app.display()
+            ));
+        }
     }
 
     let copy_argv = dmg_copy_argv(&target_app, &dest_app);
