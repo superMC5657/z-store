@@ -313,36 +313,65 @@ pub fn import_user_data(
     let plan = crate::oauth::parse_import_payload(&json)?;
     let db = state.db()?;
 
-    let mut favorites_added = 0usize;
-    let mut watched_added = 0usize;
-    let mut settings_applied = 0usize;
+    // 归一校验前置于任何写入（fail-fast，坏载荷零写入）；
+    // 随后单事务合入：任一步失败整体回滚，不留半量导入数据。
+    let favorite_ids = plan
+        .favorites
+        .iter()
+        .map(|id| super::require_app_id(id))
+        .collect::<Result<Vec<String>, String>>()?;
+    let watched_ids = plan
+        .watched
+        .iter()
+        .map(|id| super::require_app_id(id))
+        .collect::<Result<Vec<String>, String>>()?;
 
-    // 收藏/关注与安装态正交：同机恢复也必须合入；收录标记写时按目录判定一次。
-    for id in &plan.favorites {
-        let id = super::require_app_id(id)?;
-        let flag = state.catalog.is_cataloged(&id);
-        if db.add_favorite(&id, flag).map_err(|e| e.to_string())? {
-            favorites_added += 1;
-        }
-    }
-    for id in &plan.watched {
-        let id = super::require_app_id(id)?;
-        let flag = state.catalog.is_cataloged(&id);
-        if db.watch_app(&id, flag).map_err(|e| e.to_string())? {
-            watched_added += 1;
-        }
-    }
-    for (key, value) in &plan.settings {
-        let normalized = crate::db::normalize_setting_value(key, value);
-        db.set_setting(key, &normalized)
-            .map_err(|e| e.to_string())?;
-        settings_applied += 1;
-    }
+    Ok(apply_import_plan(
+        &db,
+        |id| state.catalog.is_cataloged(id),
+        &favorite_ids,
+        &watched_ids,
+        &plan.settings,
+    )
+    .map_err(|e| e.to_string())?)
+}
 
-    Ok(ImportUserDataResult {
-        favorites_added,
-        watched_added,
-        settings_applied,
+/// 导入事务体（命令与单测共用的生产一致路径）：
+/// 收藏→关注→设置依序合入，`BEGIN IMMEDIATE` 包裹，失败整体 ROLLBACK 并上浮 Err。
+fn apply_import_plan(
+    db: &crate::db::Database,
+    catalog_flag: impl Fn(&str) -> bool,
+    favorite_ids: &[String],
+    watched_ids: &[String],
+    settings: &[(String, String)],
+) -> rusqlite::Result<ImportUserDataResult> {
+    db.with_immediate_transaction(|| {
+        let mut favorites_added = 0usize;
+        let mut watched_added = 0usize;
+        let mut settings_applied = 0usize;
+
+        // 收藏/关注与安装态正交：同机恢复也必须合入；收录标记写时按目录判定一次。
+        for id in favorite_ids {
+            if db.add_favorite(id, catalog_flag(id))? {
+                favorites_added += 1;
+            }
+        }
+        for id in watched_ids {
+            if db.watch_app(id, catalog_flag(id))? {
+                watched_added += 1;
+            }
+        }
+        for (key, value) in settings {
+            let normalized = crate::db::normalize_setting_value(key, value);
+            db.set_setting(key, &normalized)?;
+            settings_applied += 1;
+        }
+
+        Ok(ImportUserDataResult {
+            favorites_added,
+            watched_added,
+            settings_applied,
+        })
     })
 }
 
@@ -371,8 +400,8 @@ mod import_restore_tests {
     fn test_same_machine_restore_merges_favorites_and_watch_for_installed_apps() {
         // 同机备份恢复：已安装应用的收藏/关注是独立用户数据，导入合入时不得因已安装而跳过。
         // （注：`import_user_data` 的命令入口需 Tauri State 挂载——`tauri::test`
-        // 能力门控于 tauri 自身 `test` feature，本 crate 未启用，故本场景在 DB
-        // 缝合处按“解析→归一化→合入”的生产一致路径断言；命令层循环的修复与此同语义。）
+        // 能力门控于 tauri 自身 `test` feature，本 crate 未启用，故直调命令事务体
+        // `apply_import_plan`（生产一致路径）断言。）
         let db = Database::open_in_memory().expect("内存数据库应当可用");
         db.save_installed_app(&installed_app("rustdesk/rustdesk"))
             .expect("预置已安装应用应当成功");
@@ -385,24 +414,17 @@ mod import_restore_tests {
         }"#;
         let plan = crate::oauth::parse_import_payload(json).expect("合法导入 JSON 应当成功");
 
-        // 与 `import_user_data` 循环同语义：仅归一化校验，不查已安装表。
-        let mut favorites_added = 0usize;
-        for id in &plan.favorites {
-            let id = crate::forge::canonical_app_id(id).expect("合法标识应当归一化成功");
-            if db.add_favorite(&id, true).unwrap() {
-                favorites_added += 1;
-            }
-        }
-        let mut watched_added = 0usize;
-        for id in &plan.watched {
-            let id = crate::forge::canonical_app_id(id).expect("合法标识应当归一化成功");
-            if db.watch_app(&id, true).unwrap() {
-                watched_added += 1;
-            }
-        }
+        let result = super::apply_import_plan(
+            &db,
+            |_| true,
+            &plan.favorites,
+            &plan.watched,
+            &plan.settings,
+        )
+        .expect("合并导入应当成功");
 
-        assert_eq!(favorites_added, 1, "已安装应用的收藏应当合入");
-        assert_eq!(watched_added, 1, "已安装应用的关注应当合入");
+        assert_eq!(result.favorites_added, 1, "已安装应用的收藏应当合入");
+        assert_eq!(result.watched_added, 1, "已安装应用的关注应当合入");
         assert!(
             db.get_favorites()
                 .unwrap()
@@ -415,6 +437,30 @@ mod import_restore_tests {
                 .iter()
                 .any(|w| w.app_id == "rustdesk/rustdesk"),
             "关注表应当包含已安装应用"
+        );
+    }
+
+    #[test]
+    fn test_import_transaction_rolls_back_partial_writes() {
+        // 事务性锁值：合入中途失败必须整体回滚，不留半量导入数据
+        // （`apply_import_plan` 即经此 `with_immediate_transaction` 原语包裹）。
+        let db = Database::open_in_memory().expect("内存数据库应当可用");
+        let err = db
+            .with_immediate_transaction(|| -> rusqlite::Result<()> {
+                db.add_favorite("rustdesk/rustdesk", true)?;
+                Err(rusqlite::Error::InvalidParameterName(
+                    "注入的写入失败".to_string(),
+                ))
+            })
+            .expect_err("注入的写入失败应当上浮");
+        assert!(err.to_string().contains("注入的写入失败"));
+        assert!(
+            db.get_favorites().unwrap().is_empty(),
+            "事务回滚后半量收藏不得残留"
+        );
+        assert!(
+            db.get_watched_apps().unwrap().is_empty(),
+            "事务回滚不得污染后续写入"
         );
     }
 }

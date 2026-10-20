@@ -1,6 +1,12 @@
 use super::Database;
 use rusqlite::Result;
 
+/// 当前 schema 版本（`PRAGMA user_version`）。
+/// v0 = 机制引入前的现状形态（18 表 + ensure_column 幂等补列，未盖章）；
+/// v1 = 机制采用版（形态与 v0 一致）。后续破坏性迁移（改类型/删列/重建表）
+/// 在 `run_migrations` 的 match 续链迁移函数逐版推进，禁止改动既有版本语义。
+const CURRENT_USER_VERSION: i64 = 1;
+
 impl Database {
     pub(crate) fn init_schema(&self) -> Result<()> {
         self.conn.execute_batch(
@@ -197,7 +203,7 @@ impl Database {
             "#,
         )?;
         // 收录标记列迁移（幂等）：存量库缺列时 `ADD COLUMN` 补齐（默认 0 fail-closed，启动回填再按目录校准）。
-        // 本库无版本号机制，沿用 `IF NOT EXISTS` 幂等风格：列存在即跳过。
+        // 版本机制之下保留在基底路径：列存在即跳过，任何版本启动都自愈。
         self.ensure_column(
             "user_favorites",
             "is_cataloged",
@@ -208,7 +214,49 @@ impl Database {
             "is_cataloged",
             "ALTER TABLE watched_apps ADD COLUMN is_cataloged INTEGER NOT NULL DEFAULT 0",
         )?;
+        self.run_migrations()
+    }
+
+    /// user_version 迁移链：读当前版本 → 逐版执行迁移函数 → 盖章至 `CURRENT_USER_VERSION`。
+    /// 基底 DDL 与幂等补列先行执行，v0（存量库/新库的未盖章态）→ v1 仅机制采用；
+    /// 高版本库被旧构建打开时不降级盖章，仅跑幂等基底（只读兼容）。
+    fn run_migrations(&self) -> Result<()> {
+        let version = self.user_version()?;
+        if version > CURRENT_USER_VERSION {
+            log::warn!(
+                "db user_version={} 高于当前支持的 {}，跳过迁移仅跑幂等基底",
+                version,
+                CURRENT_USER_VERSION
+            );
+            return Ok(());
+        }
+        for v in version..CURRENT_USER_VERSION {
+            match v {
+                0 => self.migrate_v0_to_v1()?,
+                other => unreachable!("迁移链存在空洞：v{other} 无对应迁移函数"),
+            }
+        }
+        if version < CURRENT_USER_VERSION {
+            self.set_user_version(CURRENT_USER_VERSION)?;
+        }
         Ok(())
+    }
+
+    /// v0 → v1：仅采用版本机制，无形态变更（18 表与收录标记列已由幂等基底补齐）。
+    /// 后续破坏性迁移按 `migrate_vN_to_vN+1` 命名续链于此。
+    fn migrate_v0_to_v1(&self) -> Result<()> {
+        Ok(())
+    }
+
+    /// 读 `PRAGMA user_version`（迁移链与 schema 迁移测试共用读口）。
+    pub(crate) fn user_version(&self) -> Result<i64> {
+        self.conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+    }
+
+    /// 盖章 user_version（值为内部版本常量，无外部输入拼接面）。
+    fn set_user_version(&self, v: i64) -> Result<()> {
+        self.conn.execute_batch(&format!("PRAGMA user_version = {v};"))
     }
 
     /// 轻量列迁移：缺列时执行 `ADD COLUMN`，列存在即跳过。
@@ -224,5 +272,60 @@ impl Database {
             self.conn.execute(ddl, [])?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod schema_migration_tests {
+    use super::{Database, CURRENT_USER_VERSION};
+
+    #[test]
+    fn fresh_db_stamps_user_version_and_reinit_is_idempotent() {
+        let db = Database::open_in_memory().expect("内存数据库应当可用");
+        assert_eq!(
+            db.user_version().unwrap(),
+            CURRENT_USER_VERSION,
+            "新库经 init_schema 应当盖章至当前版本"
+        );
+        // 重复 init（升级重开/测试挂载）：版本不回退、不重跑迁移
+        db.init_schema().unwrap();
+        assert_eq!(db.user_version().unwrap(), CURRENT_USER_VERSION);
+    }
+
+    #[test]
+    fn legacy_v0_db_upgrades_column_and_stamps_version() {
+        // 模拟机制引入前的存量库：user_favorites 缺收录标记列、user_version 未盖章（=0）
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE user_favorites (
+                app_id TEXT PRIMARY KEY,
+                favorited_at INTEGER NOT NULL
+            );
+            INSERT INTO user_favorites (app_id, favorited_at) VALUES ('rustdesk/rustdesk', 1700000000);
+            "#,
+        )
+        .unwrap();
+        let db = Database { conn };
+        db.init_schema().unwrap();
+
+        assert_eq!(
+            db.user_version().unwrap(),
+            CURRENT_USER_VERSION,
+            "存量库应当走 v0→v1 迁移并盖章"
+        );
+        let has_col: bool = db
+            .query_scalar_opt(
+                "SELECT 1 FROM pragma_table_info('user_favorites') WHERE name = 'is_cataloged'",
+                [],
+            )
+            .unwrap()
+            .unwrap_or(false);
+        assert!(has_col, "存量库缺列应当被幂等补齐");
+        // 存量行收录标记默认 0（fail-closed）
+        let entries = db.get_favorite_entries().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].app_id, "rustdesk/rustdesk");
+        assert!(!entries[0].is_cataloged, "存量行收录标记应当默认 0");
     }
 }
