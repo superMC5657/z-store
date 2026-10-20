@@ -17,15 +17,32 @@ pub enum DeepLinkAction {
 
 pub struct DeepLinkParser;
 
+/// 深链整体长度上限：外部输入直达的解析面，畸形超长 URL 直接拒绝。
+const MAX_DEEPLINK_LEN: usize = 2048;
+
+/// 载荷解码 + 防御性过滤：解码失败回退原串（既有语义不变）；解码结果含
+/// NUL 控制字符视为畸形输入返回 None（%00 注入面，正常 id/查询串不含 NUL）。
+fn decode_payload(raw: &str) -> Option<String> {
+    let decoded = urlencoding::decode(raw)
+        .unwrap_or(std::borrow::Cow::Borrowed(raw))
+        .into_owned();
+    (!decoded.contains('\0')).then_some(decoded)
+}
+
 impl DeepLinkParser {
     pub fn parse(raw_url: &str) -> Option<DeepLinkAction> {
         let s = raw_url.trim();
-        if s.is_empty() {
+        if s.is_empty() || s.len() > MAX_DEEPLINK_LEN {
             return None;
         }
 
-        // 必须以 zstore:// 开头 (大小写不敏感)
-        let without_proto = if s.len() >= 9 && s[..9].eq_ignore_ascii_case("zstore://") {
+        // 必须以 zstore:// 开头 (大小写不敏感)。
+        // 用 `get(..9)` 而非 `s[..9]`：第 9 字节落在多字节 UTF-8 字符中间时后者
+        // 直接 panic（畸形深链即可崩进程），`get` 返回 None 一律按不匹配拒绝。
+        let without_proto = if s
+            .get(..9)
+            .is_some_and(|p| p.eq_ignore_ascii_case("zstore://"))
+        {
             &s[9..]
         } else {
             return None;
@@ -46,11 +63,8 @@ impl DeepLinkParser {
                     if let Some((k, v)) = pair.split_once('=') {
                         if k == "q" {
                             let with_spaces = v.replace('+', " ");
-                            let decoded = urlencoding::decode(&with_spaces)
-                                .unwrap_or_else(|_| with_spaces.as_str().into());
-                            return Some(DeepLinkAction::Search {
-                                query: decoded.to_string(),
-                            });
+                            let decoded = decode_payload(&with_spaces)?;
+                            return Some(DeepLinkAction::Search { query: decoded });
                         }
                     }
                 }
@@ -63,7 +77,7 @@ impl DeepLinkParser {
         // 2. 应用详情路由：zstore://app/{app_id}
         // ADR-0010 契约：入站强制归一化（canonical 或小写回退，见模块注）。
         if let Some(app_id) = path_part.strip_prefix("app/") {
-            let id = urlencoding::decode(app_id).unwrap_or_else(|_| app_id.into());
+            let id = decode_payload(app_id)?;
             if !id.trim().is_empty() {
                 return Some(DeepLinkAction::AppDetail {
                     app_id: crate::forge::canonical_lookup_id(&id),
@@ -74,7 +88,7 @@ impl DeepLinkParser {
         // 3. 安装应用路由：zstore://install/{app_id}
         // ADR-0010 契约：入站强制归一化（canonical 或小写回退，见模块注）。
         if let Some(app_id) = path_part.strip_prefix("install/") {
-            let id = urlencoding::decode(app_id).unwrap_or_else(|_| app_id.into());
+            let id = decode_payload(app_id)?;
             if !id.trim().is_empty() {
                 return Some(DeepLinkAction::InstallApp {
                     app_id: crate::forge::canonical_lookup_id(&id),
@@ -84,11 +98,9 @@ impl DeepLinkParser {
 
         // 4. 开发者主页路由：zstore://developer/{owner}
         if let Some(owner) = path_part.strip_prefix("developer/") {
-            let o = urlencoding::decode(owner).unwrap_or_else(|_| owner.into());
+            let o = decode_payload(owner)?;
             if !o.trim().is_empty() {
-                return Some(DeepLinkAction::DeveloperProfile {
-                    owner: o.to_string(),
-                });
+                return Some(DeepLinkAction::DeveloperProfile { owner: o });
             }
         }
 
@@ -110,12 +122,11 @@ impl DeepLinkParser {
             {
                 return None;
             }
-            let id = urlencoding::decode(path_part).unwrap_or_else(|_| path_part.into());
-            let clean = id.trim();
+            let clean = decode_payload(path_part)?.trim().to_string();
             if !clean.is_empty() {
                 // ADR-0010 契约：裸 id 路由同样强制归一化。
                 return Some(DeepLinkAction::AppDetail {
-                    app_id: crate::forge::canonical_lookup_id(clean),
+                    app_id: crate::forge::canonical_lookup_id(&clean),
                 });
             }
         }
@@ -298,5 +309,40 @@ mod tests {
         assert!(DeepLinkParser::parse("zstore://install/").is_none());
         assert!(DeepLinkParser::parse("zstore://developer").is_none());
         assert!(DeepLinkParser::parse("zstore://developer/").is_none());
+    }
+
+    #[test]
+    fn multibyte_at_prefix_boundary_does_not_panic() {
+        // 第 9 字节落在多字节 UTF-8 字符中间：按字节切片会 panic（畸形深链
+        // 即可崩进程），必须按不匹配拒绝。
+        assert!(DeepLinkParser::parse("zstore:/é").is_none());
+        assert!(DeepLinkParser::parse("ZSTORE:/é").is_none());
+        assert!(DeepLinkParser::parse("zstore:/播放器").is_none());
+        // 大小写不敏感前缀语义保留
+        let res = DeepLinkParser::parse("ZSTORE://app/rustdesk/rustdesk").unwrap();
+        assert_eq!(
+            res,
+            DeepLinkAction::AppDetail {
+                app_id: "rustdesk/rustdesk".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn oversized_deeplink_rejected() {
+        let long = format!("zstore://app/{}", "a".repeat(4096));
+        assert!(DeepLinkParser::parse(&long).is_none());
+        let ok = format!("zstore://app/{}", "a".repeat(64));
+        assert!(DeepLinkParser::parse(&ok).is_some());
+    }
+
+    #[test]
+    fn nul_payload_rejected_and_decode_fallback_kept() {
+        // %00 解码为 NUL：畸形载荷整链拒绝
+        assert!(DeepLinkParser::parse("zstore://app/foo%00bar").is_none());
+        assert!(DeepLinkParser::parse("zstore://search?q=%00").is_none());
+        assert!(DeepLinkParser::parse("zstore://install/a%00b").is_none());
+        // 解码失败回退原串的既有语义保留（非法编码不 panic、不断路由）
+        assert!(DeepLinkParser::parse("zstore://app/%FF%FE").is_some());
     }
 }
