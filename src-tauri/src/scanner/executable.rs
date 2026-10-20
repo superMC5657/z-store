@@ -1717,7 +1717,7 @@ mod executable_refactor_tests {
     #[test]
     fn lnk_dir_predicates_match_expected_filenames() {
         // shortcut_scan 风格：token 子串匹配（已小写）。
-        let tokens = vec!["vlc".to_string()];
+        let tokens = ["vlc".to_string()];
         let shortcut_pred = |fname: &str| tokens.iter().any(|t| fname.contains(t));
         assert!(shortcut_pred("vlc.lnk"));
         assert!(!shortcut_pred("other.lnk"));

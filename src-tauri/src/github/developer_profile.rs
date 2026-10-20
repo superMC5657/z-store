@@ -388,7 +388,7 @@ mod developer_profile_tests {
             serde_json::json!({
                 "login": "someone",
                 "name": "someone",
-                "html_url": format!("https://github.com/someone"),
+                "html_url": "https://github.com/someone",
                 "public_repos": public_repos,
                 "followers": 0u64,
                 "following": 0u64
