@@ -2,7 +2,6 @@ use super::detail_assets::is_valid_installer_asset;
 use crate::github::developer_profile::EtagGetOutcome;
 use crate::github::models::{CatalogItem, GitHubAssetResponse, GitHubRepoResponse};
 use crate::github::CatalogService;
-use crate::installer::InstallerEngine;
 use crate::models::{AppDetail, ReleaseAsset};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, IF_NONE_MATCH};
 use std::collections::HashMap;
@@ -348,7 +347,8 @@ async fn fetch_checksum_table(
     CatalogService::extract_checksums_map(assets, client, headers, app_id, sid, req_id).await
 }
 
-/// release 资产组装 seam：校验过滤 → classify → sha 匹配 → 宿主打分排序。
+/// release 资产组装 seam：校验过滤 → classify（`forge::provider::classify_asset_fields`
+/// 单源，含 `.msix`→setup_exe/windows 特判）→ sha 匹配 → 宿主打分排序。
 fn build_release_assets(
     assets: Vec<GitHubAssetResponse>,
     checksums: &HashMap<String, String>,
@@ -360,18 +360,7 @@ fn build_release_assets(
             continue;
         }
 
-        let (kind, os, arch) = InstallerEngine::classify_asset(&asset.name);
-        // kind 映射经 `installer::AssetKind::as_str()` 单一实现；
-        // 仅 `.msix` 保留 setup_exe（classify 归 Other）。
-        let kind_str = match &kind {
-            crate::installer::AssetKind::Other
-                if asset.name.to_lowercase().ends_with(".msix") =>
-            {
-                "setup_exe"
-            }
-            _ => kind.as_str(),
-        };
-
+        let (kind, os, arch) = crate::forge::provider::classify_asset_fields(&asset.name);
         let matched_sha256 = checksums.get(&asset.name).cloned();
 
         releases.push(ReleaseAsset {
@@ -379,13 +368,9 @@ fn build_release_assets(
             download_url: asset.browser_download_url,
             size_bytes: asset.size,
             sha256: matched_sha256,
-            os: if os == "all" && asset.name.to_lowercase().ends_with(".msix") {
-                "windows".to_string()
-            } else {
-                os.to_string()
-            },
-            arch: arch.to_string(),
-            kind: kind_str.to_string(),
+            os,
+            arch,
+            kind,
         });
     }
 

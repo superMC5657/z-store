@@ -1,3 +1,5 @@
+use futures_util::future::BoxFuture;
+
 use super::coord::ForgeType;
 use super::http::{api_headers, new_api_client, AuthScheme, HttpSpan, JSON_ACCEPT_VALUE};
 use super::provider::{parse_assets, ForgeProvider, ForgeReleaseInfo, ForgeRepoInfo};
@@ -10,248 +12,254 @@ impl ForgeProvider for GitLabProvider {
         ForgeType::GitLab
     }
 
-    async fn fetch_repo(
-        &self,
-        host: &str,
-        owner: &str,
-        repo: &str,
-        token: Option<&str>,
-    ) -> Result<ForgeRepoInfo, String> {
-        let timeout_sec = crate::config::get_project_config()
-            .network
-            .api_timeout_seconds;
-        let client = new_api_client(timeout_sec)?;
-        let headers = api_headers(JSON_ACCEPT_VALUE, token, AuthScheme::Bearer);
+    fn fetch_repo<'a>(
+        &'a self,
+        host: &'a str,
+        owner: &'a str,
+        repo: &'a str,
+        token: Option<&'a str>,
+    ) -> BoxFuture<'a, Result<ForgeRepoInfo, String>> {
+        Box::pin(async move {
+            let timeout_sec = crate::config::get_project_config()
+                .network
+                .api_timeout_seconds;
+            let client = new_api_client(timeout_sec)?;
+            let headers = api_headers(JSON_ACCEPT_VALUE, token, AuthScheme::Bearer);
 
-        let encoded_path = format!(
-            "{}%2F{}",
-            urlencoding::encode(owner),
-            urlencoding::encode(repo)
-        );
-        let url = format!("https://{}/api/v4/projects/{}", host, encoded_path);
-        let span = HttpSpan::start(&url);
-        let repo_id = format!("{owner}/{repo}");
-        span.log_start("fetch repo", &repo_id);
-        let resp = client
-            .get(&url)
-            .headers(headers)
-            .send()
-            .await
-            .map_err(|e| {
-                span.log_fail("fetch repo", &repo_id, &e.to_string());
-                e.to_string()
-            })?;
-        span.log_done("fetch repo", &repo_id, resp.status().as_u16());
-        // 三家限流口径对齐：x-ratelimit 头存在即上报配额事件（无头时为 no-op）。
-        span.notify(&resp, host);
-
-        if !resp.status().is_success() {
-            return Err(format!("GitLab API 响应失败: HTTP {}", resp.status()));
-        }
-
-        #[derive(Deserialize)]
-        struct GitLabRepoPayload {
-            name: String,
-            description: Option<String>,
-            star_count: Option<u64>,
-            forks_count: Option<u64>,
-            default_branch: Option<String>,
-        }
-
-        let payload: GitLabRepoPayload = resp.json().await.map_err(|e| e.to_string())?;
-
-        Ok(ForgeRepoInfo::from_counts(
-            payload.name,
-            payload.description,
-            payload.star_count,
-            payload.forks_count,
-            None,
-            payload.default_branch,
-            None,
-        ))
-    }
-
-    async fn fetch_latest_release(
-        &self,
-        host: &str,
-        owner: &str,
-        repo: &str,
-        token: Option<&str>,
-    ) -> Result<ForgeReleaseInfo, String> {
-        let timeout_sec = crate::config::get_project_config()
-            .network
-            .api_timeout_seconds;
-        let client = new_api_client(timeout_sec)?;
-        let headers = api_headers(JSON_ACCEPT_VALUE, token, AuthScheme::Bearer);
-
-        #[derive(Deserialize)]
-        struct GitLabAssetLink {
-            name: String,
-            url: String,
-            direct_asset_url: Option<String>,
-        }
-
-        #[derive(Deserialize)]
-        struct GitLabReleaseAssets {
-            links: Option<Vec<GitLabAssetLink>>,
-        }
-
-        #[derive(Deserialize)]
-        struct GitLabReleasePayload {
-            tag_name: String,
-            name: Option<String>,
-            description: Option<String>,
-            released_at: Option<String>,
-            assets: Option<GitLabReleaseAssets>,
-        }
-
-        let encoded_path = format!(
-            "{}%2F{}",
-            urlencoding::encode(owner),
-            urlencoding::encode(repo)
-        );
-        let latest_url = format!(
-            "https://{}/api/v4/projects/{}/releases/permalink/latest",
-            host, encoded_path
-        );
-
-        let span = HttpSpan::start(&latest_url);
-        let repo_id = format!("{owner}/{repo}");
-        span.log_start("fetch release", &repo_id);
-        let resp = client
-            .get(&latest_url)
-            .headers(headers.clone())
-            .send()
-            .await
-            .map_err(|e| {
-                span.log_fail("fetch release", &repo_id, &e.to_string());
-                e.to_string()
-            })?;
-        span.log_done("fetch release", &repo_id, resp.status().as_u16());
-        span.notify(&resp, host);
-
-        let release: GitLabReleasePayload = if resp.status().is_success() {
-            resp.json().await.map_err(|e| e.to_string())?
-        } else {
-            // 回退到 /releases 列表首项
-            let list_url = format!(
-                "https://{}/api/v4/projects/{}/releases?per_page=1",
-                host, encoded_path
+            let encoded_path = format!(
+                "{}%2F{}",
+                urlencoding::encode(owner),
+                urlencoding::encode(repo)
             );
-            let safe_list = crate::log_support::sanitize_url(&list_url);
-            let start_list = std::time::Instant::now();
-            log::debug!(
-                "http get forge release fallback id={}/{} sid={} req={} url='{}'",
-                owner,
-                repo,
-                span.sid,
-                span.req_id,
-                safe_list
-            );
-            let list_resp = client
-                .get(&list_url)
+            let url = format!("https://{}/api/v4/projects/{}", host, encoded_path);
+            let span = HttpSpan::start(&url);
+            let repo_id = format!("{owner}/{repo}");
+            span.log_start("fetch repo", &repo_id);
+            let resp = client
+                .get(&url)
                 .headers(headers)
                 .send()
                 .await
                 .map_err(|e| {
-                    log::warn!("http get forge release fallback failed id={}/{} sid={} req={} host={} reason={}", owner, repo, span.sid, span.req_id, span.host, crate::log_support::short_reason(&e.to_string()));
+                    span.log_fail("fetch repo", &repo_id, &e.to_string());
                     e.to_string()
                 })?;
-            span.notify(&list_resp, host);
-            // fallback 出入口合一：单条 debug 记列表回退结果。
-            log::debug!("http forge release fallback id={}/{} sid={} req={} url='{}' status={} elapsed_ms={}", owner, repo, span.sid, span.req_id, safe_list, list_resp.status().as_u16(), start_list.elapsed().as_millis());
-            log::info!("http resp forge release fallback id={}/{} sid={} req={} host={} status={} elapsed_ms={}", owner, repo, span.sid, span.req_id, span.host, list_resp.status().as_u16(), start_list.elapsed().as_millis());
-            if !list_resp.status().is_success() {
-                return Err(format!(
-                    "获取 GitLab Release 失败: HTTP {}",
-                    list_resp.status()
-                ));
+            span.log_done("fetch repo", &repo_id, resp.status().as_u16());
+            // 三家限流口径对齐：x-ratelimit 头存在即上报配额事件（无头时为 no-op）。
+            span.notify(&resp, host);
+
+            if !resp.status().is_success() {
+                return Err(format!("GitLab API 响应失败: HTTP {}", resp.status()));
             }
-            let list: Vec<GitLabReleasePayload> =
-                list_resp.json().await.map_err(|e| e.to_string())?;
-            list.into_iter()
-                .next()
-                .ok_or_else(|| "该 GitLab 项目未找到任何 Release".to_string())?
-        };
 
-        let links = release.assets.and_then(|a| a.links).unwrap_or_default();
-        let assets = parse_assets(links.into_iter().map(|l| {
-            let dl_url = l.direct_asset_url.unwrap_or(l.url);
-            (l.name, dl_url, 0)
-        }));
+            #[derive(Deserialize)]
+            struct GitLabRepoPayload {
+                name: String,
+                description: Option<String>,
+                star_count: Option<u64>,
+                forks_count: Option<u64>,
+                default_branch: Option<String>,
+            }
 
-        Ok(ForgeReleaseInfo {
-            tag_name: release.tag_name,
-            name: release.name,
-            body: release.description,
-            published_at: release.released_at,
-            assets,
+            let payload: GitLabRepoPayload = resp.json().await.map_err(|e| e.to_string())?;
+
+            Ok(ForgeRepoInfo::from_counts(
+                payload.name,
+                payload.description,
+                payload.star_count,
+                payload.forks_count,
+                None,
+                payload.default_branch,
+                None,
+            ))
         })
     }
 
-    async fn search_repos(
-        &self,
-        host: &str,
-        query: &str,
-        token: Option<&str>,
+    fn fetch_latest_release<'a>(
+        &'a self,
+        host: &'a str,
+        owner: &'a str,
+        repo: &'a str,
+        token: Option<&'a str>,
+    ) -> BoxFuture<'a, Result<ForgeReleaseInfo, String>> {
+        Box::pin(async move {
+            let timeout_sec = crate::config::get_project_config()
+                .network
+                .api_timeout_seconds;
+            let client = new_api_client(timeout_sec)?;
+            let headers = api_headers(JSON_ACCEPT_VALUE, token, AuthScheme::Bearer);
+
+            #[derive(Deserialize)]
+            struct GitLabAssetLink {
+                name: String,
+                url: String,
+                direct_asset_url: Option<String>,
+            }
+
+            #[derive(Deserialize)]
+            struct GitLabReleaseAssets {
+                links: Option<Vec<GitLabAssetLink>>,
+            }
+
+            #[derive(Deserialize)]
+            struct GitLabReleasePayload {
+                tag_name: String,
+                name: Option<String>,
+                description: Option<String>,
+                released_at: Option<String>,
+                assets: Option<GitLabReleaseAssets>,
+            }
+
+            let encoded_path = format!(
+                "{}%2F{}",
+                urlencoding::encode(owner),
+                urlencoding::encode(repo)
+            );
+            let latest_url = format!(
+                "https://{}/api/v4/projects/{}/releases/permalink/latest",
+                host, encoded_path
+            );
+
+            let span = HttpSpan::start(&latest_url);
+            let repo_id = format!("{owner}/{repo}");
+            span.log_start("fetch release", &repo_id);
+            let resp = client
+                .get(&latest_url)
+                .headers(headers.clone())
+                .send()
+                .await
+                .map_err(|e| {
+                    span.log_fail("fetch release", &repo_id, &e.to_string());
+                    e.to_string()
+                })?;
+            span.log_done("fetch release", &repo_id, resp.status().as_u16());
+            span.notify(&resp, host);
+
+            let release: GitLabReleasePayload = if resp.status().is_success() {
+                resp.json().await.map_err(|e| e.to_string())?
+            } else {
+                // 回退到 /releases 列表首项
+                let list_url = format!(
+                    "https://{}/api/v4/projects/{}/releases?per_page=1",
+                    host, encoded_path
+                );
+                let safe_list = crate::log_support::sanitize_url(&list_url);
+                let start_list = std::time::Instant::now();
+                log::debug!(
+                    "http get forge release fallback id={}/{} sid={} req={} url='{}'",
+                    owner,
+                    repo,
+                    span.sid,
+                    span.req_id,
+                    safe_list
+                );
+                let list_resp = client
+                    .get(&list_url)
+                    .headers(headers)
+                    .send()
+                    .await
+                    .map_err(|e| {
+                        log::warn!("http get forge release fallback failed id={}/{} sid={} req={} host={} reason={}", owner, repo, span.sid, span.req_id, span.host, crate::log_support::short_reason(&e.to_string()));
+                        e.to_string()
+                    })?;
+                span.notify(&list_resp, host);
+                // fallback 出入口合一：单条 debug 记列表回退结果。
+                log::debug!("http forge release fallback id={}/{} sid={} req={} url='{}' status={} elapsed_ms={}", owner, repo, span.sid, span.req_id, safe_list, list_resp.status().as_u16(), start_list.elapsed().as_millis());
+                log::info!("http resp forge release fallback id={}/{} sid={} req={} host={} status={} elapsed_ms={}", owner, repo, span.sid, span.req_id, span.host, list_resp.status().as_u16(), start_list.elapsed().as_millis());
+                if !list_resp.status().is_success() {
+                    return Err(format!(
+                        "获取 GitLab Release 失败: HTTP {}",
+                        list_resp.status()
+                    ));
+                }
+                let list: Vec<GitLabReleasePayload> =
+                    list_resp.json().await.map_err(|e| e.to_string())?;
+                list.into_iter()
+                    .next()
+                    .ok_or_else(|| "该 GitLab 项目未找到任何 Release".to_string())?
+            };
+
+            let links = release.assets.and_then(|a| a.links).unwrap_or_default();
+            let assets = parse_assets(links.into_iter().map(|l| {
+                let dl_url = l.direct_asset_url.unwrap_or(l.url);
+                (l.name, dl_url, 0)
+            }));
+
+            Ok(ForgeReleaseInfo {
+                tag_name: release.tag_name,
+                name: release.name,
+                body: release.description,
+                published_at: release.released_at,
+                assets,
+            })
+        })
+    }
+
+    fn search_repos<'a>(
+        &'a self,
+        host: &'a str,
+        query: &'a str,
+        token: Option<&'a str>,
         page: Option<u32>,
         per_page: Option<u32>,
-    ) -> Result<Vec<ForgeRepoInfo>, String> {
-        let net_conf = &crate::config::get_project_config().network;
-        let limits = &crate::config::get_project_config().limits;
-        let eff_per_page = limits.clamp_online_search_per_page(per_page);
-        let eff_page = crate::config::LimitsConfig::normalize_online_search_page(page);
-        let client = new_api_client(net_conf.api_timeout_seconds)?;
-        let headers = api_headers(JSON_ACCEPT_VALUE, token, AuthScheme::Bearer);
+    ) -> BoxFuture<'a, Result<Vec<ForgeRepoInfo>, String>> {
+        Box::pin(async move {
+            let net_conf = &crate::config::get_project_config().network;
+            let limits = &crate::config::get_project_config().limits;
+            let eff_per_page = limits.clamp_online_search_per_page(per_page);
+            let eff_page = crate::config::LimitsConfig::normalize_online_search_page(page);
+            let client = new_api_client(net_conf.api_timeout_seconds)?;
+            let headers = api_headers(JSON_ACCEPT_VALUE, token, AuthScheme::Bearer);
 
-        let encoded_q = urlencoding::encode(query);
-        let url = format!(
-            "https://{}/api/v4/projects?search={}&per_page={}&page={}",
-            host, encoded_q, eff_per_page, eff_page
-        );
-        let span = HttpSpan::start(&url);
-        span.log_search_start("search");
-        let resp = client
-            .get(&url)
-            .headers(headers)
-            .send()
-            .await
-            .map_err(|e| {
-                span.log_search_fail("search", &e.to_string());
-                e.to_string()
-            })?;
-        span.log_search_done("search", resp.status().as_u16());
-        span.notify(&resp, host);
+            let encoded_q = urlencoding::encode(query);
+            let url = format!(
+                "https://{}/api/v4/projects?search={}&per_page={}&page={}",
+                host, encoded_q, eff_per_page, eff_page
+            );
+            let span = HttpSpan::start(&url);
+            span.log_search_start("search");
+            let resp = client
+                .get(&url)
+                .headers(headers)
+                .send()
+                .await
+                .map_err(|e| {
+                    span.log_search_fail("search", &e.to_string());
+                    e.to_string()
+                })?;
+            span.log_search_done("search", resp.status().as_u16());
+            span.notify(&resp, host);
 
-        if !resp.status().is_success() {
-            return Err(format!("GitLab 搜索失败: HTTP {}", resp.status()));
-        }
+            if !resp.status().is_success() {
+                return Err(format!("GitLab 搜索失败: HTTP {}", resp.status()));
+            }
 
-        #[derive(Deserialize)]
-        struct GitLabProjectItem {
-            name: String,
-            description: Option<String>,
-            star_count: Option<u64>,
-            forks_count: Option<u64>,
-            default_branch: Option<String>,
-        }
+            #[derive(Deserialize)]
+            struct GitLabProjectItem {
+                name: String,
+                description: Option<String>,
+                star_count: Option<u64>,
+                forks_count: Option<u64>,
+                default_branch: Option<String>,
+            }
 
-        let items: Vec<GitLabProjectItem> = resp.json().await.map_err(|e| e.to_string())?;
-        let result = items
-            .into_iter()
-            .map(|item| {
-                ForgeRepoInfo::from_counts(
-                    item.name,
-                    item.description,
-                    item.star_count,
-                    item.forks_count,
-                    None,
-                    item.default_branch,
-                    None,
-                )
-            })
-            .collect();
+            let items: Vec<GitLabProjectItem> = resp.json().await.map_err(|e| e.to_string())?;
+            let result = items
+                .into_iter()
+                .map(|item| {
+                    ForgeRepoInfo::from_counts(
+                        item.name,
+                        item.description,
+                        item.star_count,
+                        item.forks_count,
+                        None,
+                        item.default_branch,
+                        None,
+                    )
+                })
+                .collect();
 
-        Ok(result)
+            Ok(result)
+        })
     }
 }

@@ -17,63 +17,51 @@ pub use github::GitHubProvider;
 pub use gitlab::GitLabProvider;
 pub use provider::{ForgeProvider, ForgeReleaseInfo, ForgeRepoInfo};
 
+use std::sync::OnceLock;
+
+/// Forge 分发唯一入口：持 `Box<dyn ForgeProvider>` 注册表按 `forge_type` 查找，
+/// 替代按 ForgeType 三段 match 复制分发（3 操作 × 4 分支的同形样板收敛于此）。
+/// 对外关联函数签名不变，调用方无感。
 pub struct ForgeRegistry;
 
 impl ForgeRegistry {
+    /// provider 唯一注册表：Gitea 双形态（Codeberg / 自建 Gitea）按 `forge_type` 区分。
+    fn providers() -> &'static [Box<dyn ForgeProvider>] {
+        static PROVIDERS: OnceLock<Vec<Box<dyn ForgeProvider>>> = OnceLock::new();
+        PROVIDERS.get_or_init(|| {
+            vec![
+                Box::new(GitHubProvider),
+                Box::new(GitLabProvider),
+                Box::new(GiteaProvider::new(ForgeType::Codeberg)),
+                Box::new(GiteaProvider::new(ForgeType::Gitea)),
+            ]
+        })
+    }
+
+    fn provider_for(forge: ForgeType) -> &'static dyn ForgeProvider {
+        Self::providers()
+            .iter()
+            .find(|p| p.forge_type() == forge)
+            .expect("ForgeType 全量注册于 providers 表")
+            .as_ref()
+    }
+
     pub async fn fetch_repo(
         coord: &UniversalRepoCoord,
         token: Option<&str>,
     ) -> Result<ForgeRepoInfo, String> {
-        match coord.forge {
-            ForgeType::GitHub => {
-                GitHubProvider
-                    .fetch_repo(&coord.host, &coord.owner, &coord.repo, token)
-                    .await
-            }
-            ForgeType::Codeberg => {
-                GiteaProvider::new(ForgeType::Codeberg)
-                    .fetch_repo(&coord.host, &coord.owner, &coord.repo, token)
-                    .await
-            }
-            ForgeType::Gitea => {
-                GiteaProvider::new(ForgeType::Gitea)
-                    .fetch_repo(&coord.host, &coord.owner, &coord.repo, token)
-                    .await
-            }
-            ForgeType::GitLab => {
-                GitLabProvider
-                    .fetch_repo(&coord.host, &coord.owner, &coord.repo, token)
-                    .await
-            }
-        }
+        Self::provider_for(coord.forge)
+            .fetch_repo(&coord.host, &coord.owner, &coord.repo, token)
+            .await
     }
 
     pub async fn fetch_latest_release(
         coord: &UniversalRepoCoord,
         token: Option<&str>,
     ) -> Result<ForgeReleaseInfo, String> {
-        match coord.forge {
-            ForgeType::GitHub => {
-                GitHubProvider
-                    .fetch_latest_release(&coord.host, &coord.owner, &coord.repo, token)
-                    .await
-            }
-            ForgeType::Codeberg => {
-                GiteaProvider::new(ForgeType::Codeberg)
-                    .fetch_latest_release(&coord.host, &coord.owner, &coord.repo, token)
-                    .await
-            }
-            ForgeType::Gitea => {
-                GiteaProvider::new(ForgeType::Gitea)
-                    .fetch_latest_release(&coord.host, &coord.owner, &coord.repo, token)
-                    .await
-            }
-            ForgeType::GitLab => {
-                GitLabProvider
-                    .fetch_latest_release(&coord.host, &coord.owner, &coord.repo, token)
-                    .await
-            }
-        }
+        Self::provider_for(coord.forge)
+            .fetch_latest_release(&coord.host, &coord.owner, &coord.repo, token)
+            .await
     }
 
     pub async fn search_repos(
@@ -84,27 +72,14 @@ impl ForgeRegistry {
         page: Option<u32>,
         per_page: Option<u32>,
     ) -> Result<Vec<ForgeRepoInfo>, String> {
-        match forge {
-            ForgeType::GitHub => {
-                GitHubProvider
-                    .search_repos("github.com", query, token, page, per_page)
-                    .await
-            }
-            ForgeType::Codeberg => {
-                GiteaProvider::new(ForgeType::Codeberg)
-                    .search_repos(host.unwrap_or("codeberg.org"), query, token, page, per_page)
-                    .await
-            }
-            ForgeType::Gitea => {
-                GiteaProvider::new(ForgeType::Gitea)
-                    .search_repos(host.unwrap_or("gitea.com"), query, token, page, per_page)
-                    .await
-            }
-            ForgeType::GitLab => {
-                GitLabProvider
-                    .search_repos(host.unwrap_or("gitlab.com"), query, token, page, per_page)
-                    .await
-            }
-        }
+        Self::provider_for(forge)
+            .search_repos(
+                host.unwrap_or(forge.default_host()),
+                query,
+                token,
+                page,
+                per_page,
+            )
+            .await
     }
 }
