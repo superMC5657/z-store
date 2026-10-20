@@ -6,6 +6,8 @@ import type { UserDataBackup } from '../types';
 // version 保持为 1，且导出 → JSON → 导入后字段无损往返。
 
 // 与 getSettings() 返回形态一致：值全为字符串。
+// 凭据键一并入样（github_token 为历史 PAT 键；github_oauth_token 为 OAuth 令牌，
+// 08 号收口后 get_settings 已不回传，仍锁死导出排除保证）。
 const FULL_SETTINGS: Record<string, string> = {
   theme: 'dark',
   language: 'zh-CN',
@@ -15,6 +17,7 @@ const FULL_SETTINGS: Record<string, string> = {
   download_dir: 'D:\\dl',
   active_mirror: 'direct',
   github_token: 'gho_should-never-leak',
+  github_oauth_token: 'gho_oauth-should-never-leak',
   launch_on_startup: 'true',
   update_frequency: 'daily',
   detail_cache_ttl_minutes: '60',
@@ -51,6 +54,13 @@ describe('DataBackupRow backup schema', () => {
     const backup = buildUserDataBackup([], [], FULL_SETTINGS);
     expect('github_token' in backup.settings).toBe(false);
     expect(JSON.stringify(backup)).not.toContain('gho_should-never-leak');
+  });
+
+  it('OAuth 令牌 github_oauth_token 同样被排除（ADR-0020 备份排除保证）', () => {
+    const backup = buildUserDataBackup([], [], FULL_SETTINGS);
+    expect('github_oauth_token' in backup.settings).toBe(false);
+    expect('github_oauth_user' in backup.settings).toBe(false);
+    expect(JSON.stringify(backup)).not.toContain('gho_oauth-should-never-leak');
   });
 
   it('导出 → JSON → 导入往返无损', () => {
