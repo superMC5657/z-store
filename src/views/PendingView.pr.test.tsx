@@ -67,7 +67,7 @@ function gateProvider(): Promise<LicenseAllowlistResult> {
   return Promise.resolve(TEST_GATE);
 }
 
-describe('PendingView one-click PR submit (Lane D)', () => {
+describe('PendingView one-click Issue submit (Lane D)', () => {
   it('single card submit opens prefill URL without auto-marking (stays collected for manual confirm)', async () => {
     await i18n.changeLanguage('zh-CN');
     const openSpy = vi.spyOn(tauriApi, 'openUrl').mockResolvedValue(undefined);
@@ -87,7 +87,7 @@ describe('PendingView one-click PR submit (Lane D)', () => {
     fireEvent.click(screen.getByText('本地收录'));
     // 选中草稿进入编辑态
     fireEvent.click(screen.getByText('o/a'));
-    fireEvent.click(screen.getByText('提交 PR'));
+    fireEvent.click(screen.getByText('提交 Issue'));
 
     await waitFor(() => expect(onGetPrUrl).toHaveBeenCalledWith('o/a'));
     // 生产经 tauriApi.openUrl 打开（不再走被劫持的 window.open），可 await/检查失败
@@ -100,7 +100,7 @@ describe('PendingView one-click PR submit (Lane D)', () => {
     expect(screen.getByText('标记已提交')).toBeTruthy();
   });
 
-  it('manual mark after opening prefill moves to submitted (user pastes PR URL to confirm)', async () => {
+  it('manual mark after opening prefill moves to submitted (user pastes Issue URL to confirm)', async () => {
     await i18n.changeLanguage('zh-CN');
     const openSpy = vi.spyOn(tauriApi, 'openUrl').mockResolvedValue(undefined);
     const onGetPrUrl = vi.fn().mockResolvedValue(BATCH_URL);
@@ -117,11 +117,11 @@ describe('PendingView one-click PR submit (Lane D)', () => {
     );
     fireEvent.click(screen.getByText('本地收录'));
     fireEvent.click(screen.getByText('o/a'));
-    fireEvent.click(screen.getByText('提交 PR'));
+    fireEvent.click(screen.getByText('提交 Issue'));
 
     await waitFor(() => expect(openSpy).toHaveBeenCalledTimes(1));
     expect(onMarkSubmitted).not.toHaveBeenCalled();
-    // 手动贴上 PR 链接再确认，方进入已提交待合入
+    // 手动贴上 Issue 链接再确认，方进入已提交
     const urlInput = screen.getByPlaceholderText('https://github.com/…/pull/…') as HTMLInputElement;
     fireEvent.change(urlInput, { target: { value: 'https://github.com/o/r/pull/42' } });
     fireEvent.click(screen.getByText('标记已提交'));
@@ -143,11 +143,11 @@ describe('PendingView one-click PR submit (Lane D)', () => {
     );
     fireEvent.click(screen.getByText('本地收录'));
     fireEvent.click(screen.getByText('o/a'));
-    fireEvent.click(screen.getByText('提交 PR'));
+    fireEvent.click(screen.getByText('提交 Issue'));
 
     await waitFor(() =>
       expect(onNotify).toHaveBeenCalledWith(
-        expect.stringContaining('预览模式仅演示，提交 PR 请在桌面版完成'),
+        expect.stringContaining('预览模式仅演示，提交 Issue 请在桌面版完成'),
         'warning',
       ),
     );
@@ -157,7 +157,7 @@ describe('PendingView one-click PR submit (Lane D)', () => {
     expect(screen.getByText('标记已提交')).toBeTruthy();
   });
 
-  it('renders the submitted PR link as a back-jump anchor', async () => {
+  it('renders the submitted Issue link as a back-jump anchor', async () => {
     await i18n.changeLanguage('zh-CN');
     render(
       <PendingView
@@ -168,7 +168,8 @@ describe('PendingView one-click PR submit (Lane D)', () => {
         ]}
       />,
     );
-    fireEvent.click(screen.getByText('已提交待合入'));
+    fireEvent.click(screen.getByText('本地收录'));
+    fireEvent.click(screen.getByTestId('pending-segment-submitted'));
     const link = screen.getByText('https://github.com/x/y/pull/1').closest('a');
     expect(link?.getAttribute('href')).toBe('https://github.com/x/y/pull/1');
     expect(link?.getAttribute('target')).toBe('_blank');
@@ -229,7 +230,7 @@ describe('PendingView batch submit via list multi-select + list toolbar button (
     expect(container.querySelector('.pending-list input[type="checkbox"]')).toBeNull();
   });
 
-  it('switches one-click PR copy between Chinese and English (collected only)', async () => {
+  it('switches one-click Issue copy between Chinese and English (collected only)', async () => {
     await i18n.changeLanguage('en-US');
     render(
       <PendingView
@@ -238,12 +239,12 @@ describe('PendingView batch submit via list multi-select + list toolbar button (
         onGetLicenseAllowlist={gateProvider}
       />,
     );
-    fireEvent.click(screen.getByText('Collected'));
+    fireEvent.click(screen.getByText('Local Library'));
     fireEvent.click(screen.getByText('o/a'));
-    expect(screen.getByText('Submit PR')).toBeTruthy();
+    expect(screen.getByText('Submit Issue')).toBeTruthy();
   });
 
-  it('draft has no submit PR button (must collect locally first)', async () => {
+  it('draft has no submit Issue button (must collect locally first)', async () => {
     await i18n.changeLanguage('zh-CN');
     render(<PendingView showBatchBar={false} initialEntries={[draftEntry({ id: 'o/a' })]} onGetLicenseAllowlist={gateProvider} />);
     fireEvent.click(screen.getByText('o/a'));
@@ -576,7 +577,7 @@ describe('ADR-0018 backend-sourced license allowlist (fail-safe without a baked-
     // 提交必须提示重试且不开页不标记，绝不回退写死名单。
     fireEvent.click(screen.getByText('本地收录'));
     fireEvent.click(screen.getByText('o/a'));
-    fireEvent.click(screen.getByText('提交 PR'));
+    fireEvent.click(screen.getByText('提交 Issue'));
 
     await waitFor(() =>
       expect(onNotify).toHaveBeenCalledWith(
@@ -633,7 +634,7 @@ describe('PendingView top tabs sync batch entry and submitted with activeGroup',
     // 页头无计数徽标、无新建入口：页头仅标题 + 描述，计数由 Tab 自带
     expect(container.querySelector('.pending-header')?.textContent).not.toContain('新建草稿');
     expect(container.querySelector('.pending-header .nav-badge')).toBeNull();
-    expect(container.querySelectorAll('.segmented-count')).toHaveLength(4);
+    expect(container.querySelectorAll('.segmented-count')).toHaveLength(3);
     // 默认草稿分组：列表工具行批量隐藏，无独立批量栏，无多选
     expect(screen.queryByTestId('pending-batch-submit')).toBeNull();
     expect(screen.queryByTestId('pending-batch-toolbar')).toBeNull();
@@ -648,9 +649,10 @@ describe('PendingView top tabs sync batch entry and submitted with activeGroup',
     // 工具行位于列表底部：.pending-list 最后一个子节点，排在所有列表项之后
     expect(container.querySelector('.pending-list')?.lastElementChild?.getAttribute('data-testid')).toBe('pending-batch-toolbar');
     expect(container.querySelector('.pending-list input[type="checkbox"][aria-label="o/col"]')).toBeTruthy();
+    expect(container.querySelector('.pending-list input[type="checkbox"][aria-label="o/sub"]')).toBeNull();
     expect(screen.queryByTestId('pending-batch-bar')).toBeNull();
-    // 切到已提交待合入：工具行批量隐藏，无多选（批量仅本地收录可见），无独立栏
-    fireEvent.click(screen.getByText('已提交待合入'));
+    // 切到本地收录 · 已提交：工具行批量隐藏，无多选，无独立栏
+    fireEvent.click(screen.getByTestId('pending-segment-submitted'));
     expect(screen.queryByTestId('pending-batch-submit')).toBeNull();
     expect(screen.queryByTestId('pending-batch-toolbar')).toBeNull();
     expect(container.querySelector('.pending-list input[type="checkbox"]')).toBeNull();
@@ -696,7 +698,7 @@ describe('PendingView top tabs sync batch entry and submitted with activeGroup',
     expect(screen.getByText('选择或新建一份草稿')).toBeTruthy();
   });
 
-  it('submitted shows rich PR link without duplicate submit or manual mark', async () => {
+  it('submitted shows rich Issue link without duplicate submit or manual mark', async () => {
     await i18n.changeLanguage('zh-CN');
     const { container } = render(
       <PendingView
@@ -709,19 +711,20 @@ describe('PendingView top tabs sync batch entry and submitted with activeGroup',
     // 草稿分组下列表工具行批量隐藏（draft 不可选）
     expect(screen.queryByTestId('pending-batch-submit')).toBeNull();
     expect(screen.queryByTestId('pending-batch-toolbar')).toBeNull();
-    fireEvent.click(screen.getByText('已提交待合入'));
-    // 已提交待合入分组无批量：工具行隐藏、列表不可多选（批量仅本地收录可见）
+    fireEvent.click(screen.getByText('本地收录'));
+    fireEvent.click(screen.getByTestId('pending-segment-submitted'));
+    // 已提交分段无批量：工具行隐藏、列表不可多选
     expect(screen.queryByTestId('pending-batch-submit')).toBeNull();
     expect(screen.queryByTestId('pending-batch-toolbar')).toBeNull();
     expect(container.querySelector('.pending-list input[type="checkbox"]')).toBeNull();
     fireEvent.click(screen.getByText('o/sub'));
-    // 已提交仅展 PR 链接（列表与详情各一次，同文案双节点），无重复提交/退回/收录
+    // 已提交仅展 Issue 链接（列表与详情各一次，同文案双节点），无重复提交/退回/收录
     expect(screen.getAllByText('https://github.com/x/y/pull/9').length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByTestId('pending-submit-pr')).toBeNull();
     expect(screen.queryByTestId('pending-revert-to-draft')).toBeNull();
     expect(screen.queryByTestId('pending-collect-local')).toBeNull();
     expect(screen.queryByText('标记已提交')).toBeNull();
-    // 已提交待合入允许删除（二次确认复用删除形态）
+    // 已提交允许删除（二次确认复用删除形态）
     expect(screen.getByTestId('pending-delete')).toBeTruthy();
   });
 });
@@ -745,7 +748,7 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     );
     fireEvent.click(screen.getByText('本地收录'));
     fireEvent.click(screen.getByText('o/a'));
-    fireEvent.click(screen.getByText('提交 PR'));
+    fireEvent.click(screen.getByText('提交 Issue'));
 
     await waitFor(() => expect(openSpy).toHaveBeenCalledWith(BATCH_URL));
     // 劫持路径已绕过：window.open 不再被调用
@@ -769,7 +772,7 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     );
     fireEvent.click(screen.getByText('本地收录'));
     fireEvent.click(screen.getByText('o/a'));
-    fireEvent.click(screen.getByText('提交 PR'));
+    fireEvent.click(screen.getByText('提交 Issue'));
 
     await waitFor(() => expect(onGetPrUrl).toHaveBeenCalledWith('o/a'));
     // 后端门禁错直接透出，不静默回退本地 URL、不开页
@@ -804,7 +807,7 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     );
     fireEvent.click(screen.getByText('本地收录'));
     fireEvent.click(screen.getByText('o/a'));
-    fireEvent.click(screen.getByText('提交 PR'));
+    fireEvent.click(screen.getByText('提交 Issue'));
 
     await waitFor(() => expect(openSpy).toHaveBeenCalledWith(BATCH_URL));
     // 兜底同样失败（window.open 返回 null）才判真失败
@@ -843,7 +846,7 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     );
     fireEvent.click(screen.getByText('本地收录'));
     fireEvent.click(screen.getByText('o/a'));
-    fireEvent.click(screen.getByText('提交 PR'));
+    fireEvent.click(screen.getByText('提交 Issue'));
 
     await waitFor(() => expect(openSpy).toHaveBeenCalledWith(BATCH_URL));
     // 直调失败走原生兜底并成功：window.open 被调用且返回非 null，不抛错
@@ -885,7 +888,7 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     );
     // 兜底成功报 batch_submitted，不报 open_failed
     await waitFor(() =>
-      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('已批量打开预填页'), 'success'),
+      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('已批量打开 Issue 预填页'), 'success'),
     );
     expect(onNotify).not.toHaveBeenCalledWith(expect.stringContaining('预填页打开失败'), 'error');
   });
@@ -921,7 +924,7 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
       expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('预填页打开失败'), 'error'),
     );
     // 打开失败不谎报 batch_submitted
-    expect(onNotify).not.toHaveBeenCalledWith(expect.stringContaining('已批量打开预填页'), 'success');
+    expect(onNotify).not.toHaveBeenCalledWith(expect.stringContaining('已批量打开 Issue 预填页'), 'success');
   });
 
   it('single over-long prefill URL warns to split batches but still opens', async () => {
@@ -943,7 +946,7 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     );
     fireEvent.click(screen.getByText('本地收录'));
     fireEvent.click(screen.getByText('o/a'));
-    fireEvent.click(screen.getByText('提交 PR'));
+    fireEvent.click(screen.getByText('提交 Issue'));
 
     await waitFor(() => expect(openSpy).toHaveBeenCalledWith(longUrl));
     // 超长提示分批（复用 url_too_long 文案）
@@ -981,7 +984,7 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     );
     // 超长仍尝试打开并报 batch_submitted（仅打开失败才不报）
     await waitFor(() =>
-      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('已批量打开预填页'), 'success'),
+      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('已批量打开 Issue 预填页'), 'success'),
     );
   });
 
@@ -1007,7 +1010,7 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     );
     fireEvent.click(screen.getByText('本地收录'));
     fireEvent.click(screen.getByText('o/a'));
-    fireEvent.click(screen.getByText('提交 PR'));
+    fireEvent.click(screen.getByText('提交 Issue'));
 
     // 载荷由后端命令产出：回调按 id 取，剪贴板收到的就是原样字符串（前端不改写）
     await waitFor(() => expect(onGetPrPayload).toHaveBeenCalledWith('o/a'));
@@ -1056,7 +1059,7 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     );
     // 复制载荷即当作本次提交流程继续：打开成功仍报批量已打开
     await waitFor(() =>
-      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('已批量打开预填页'), 'success'),
+      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('已批量打开 Issue 预填页'), 'success'),
     );
   });
 
@@ -1079,7 +1082,7 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     );
     fireEvent.click(screen.getByText('本地收录'));
     fireEvent.click(screen.getByText('o/a'));
-    fireEvent.click(screen.getByText('提交 PR'));
+    fireEvent.click(screen.getByText('提交 Issue'));
 
     await waitFor(() => expect(writeSpy).toHaveBeenCalledWith(longUrl));
     // 保留原有超长告警，另加“已复制链接”提示
@@ -1087,7 +1090,7 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
       expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('建议分批提交'), 'warning'),
     );
     await waitFor(() =>
-      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('已复制预填链接'), 'info'),
+      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('已复制 Issue 预填链接'), 'info'),
     );
     expect(onNotify).not.toHaveBeenCalledWith(expect.stringContaining('已复制提交载荷'), 'success');
     // 仍尝试打开

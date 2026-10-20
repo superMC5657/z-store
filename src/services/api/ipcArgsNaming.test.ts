@@ -44,6 +44,7 @@ function stubFor(cmd: string): unknown {
     case 'collect_custom_app':
     case 'collect_local_app':
     case 'revert_collected_to_draft':
+    case 'withdraw_submitted':
       return {
         id: 'o/r',
         item: { id: 'o/r' },
@@ -149,6 +150,7 @@ describe('ipc args naming (camelCase)', () => {
     await swallow(catalog.collectCustomApp('o/r'));
     await swallow(catalog.collectLocalApp('o/r'));
     await swallow(catalog.revertCollectedApp('o/r'));
+    await swallow(catalog.withdrawSubmitted('o/r'));
     await swallow(catalog.retireOnSync(['o/r']));
     await swallow(catalog.retireOnSync(undefined));
     await swallow(catalog.getCustomAppPrUrl('o/r'));
@@ -178,6 +180,7 @@ describe('ipc args naming (camelCase)', () => {
     expect(byCmd.get('collect_custom_app')).toMatchObject({ id: 'o/r' });
     expect(byCmd.get('collect_local_app')).toMatchObject({ id: 'o/r' });
     expect(byCmd.get('revert_collected_to_draft')).toMatchObject({ id: 'o/r' });
+    expect(byCmd.get('withdraw_submitted')).toMatchObject({ id: 'o/r' });
     expect(collectCalls).toHaveLength(2);
     for (const args of collectCalls) {
       expect(args).toEqual({ id: 'o/r' });

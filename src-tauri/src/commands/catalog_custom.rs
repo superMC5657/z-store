@@ -1,14 +1,14 @@
-//! 本地自维护草稿 commands（ADR-0017）：CRUD + 转正 + 合并视图 + 预填 PR 链路。
+//! 本地自维护草稿 commands（ADR-0017）：CRUD + 转正 + 合并视图 + 预填 Issue 链路。
 //!
 //! - `list_custom_apps` / `save_custom_app` / `delete_custom_app` /
 //!   `collect_custom_app` / `collect_local_app`（同真身，前者供草稿链路，后者供视图直调） /
-//!   `revert_collected_to_draft`（规范名） /
+//!   `revert_collected_to_draft`（规范名） / `withdraw_submitted` /
 //!   `mark_submitted` / `retire_on_sync` / `get_merged_catalog_view` /
 //!   `get_custom_app_pr_url`；
 //! - 二次确认由前端做，后端 `delete_custom_app` 直接删；
 //! - `save_custom_app` 暂存档校验（`DraftLenient`，草稿允许不完整）+ `is_verified` 强制
 //!   false（草稿永不冒充已验证收录）；收录档（`CollectStrict`，与 `SubmitStrict` 同口径）
-//!   经 `collect_custom_app` 置 `status=collected`，PR 链路首行门禁仅收录行放行，
+//!   经 `collect_custom_app` 置 `status=collected`，Issue 链路首行门禁仅收录行放行，
 //!   提交档全校验（`SubmitStrict`，D1 不破）保留二次校验。
 
 use crate::config::LicenseGateConfig;
@@ -21,8 +21,8 @@ use crate::github::CatalogService;
 use crate::AppState;
 use tauri::State;
 
-/// 独立生态清单仓库收录申请预填页（ADR-0009）：收录 PR 目标。
-/// 纯 URL 打开即可用，无需 token/OAuth（PR-link entry）。
+/// 独立生态清单仓库收录申请预填页（ADR-0009）：收录 Issue 目标。
+/// 纯 URL 打开即可用，无需 token/OAuth（Issue-link entry）。
 pub const CATALOG_REPO_ISSUES_URL: &str =
     "https://github.com/superMC5657/z-store-catalog/issues/new";
 
@@ -31,8 +31,8 @@ const PR_BODY_CHECK_NOTE: &str =
     "本地校验：已通过提交档 `validate_custom_item(strict)`（canonical id / 必填字段 / OSI 协议），payload 见下方 JSON。";
 
 /// 单条收录申请预填链接（纯函数，可单测）：标题带 canonical id，正文携带关键字段 +
-/// 完整 JSON + 校验说明，用户在浏览器中确认后提交 Issue → maintainer 转 PR（预填 PR 链路）。
-/// 首版单条单 PR（Q6=A/Q8=A/Q10=C 分期）；无需 token，纯 URL 打开。
+/// 完整 JSON + 校验说明，用户在浏览器中确认后提交 Issue → maintainer 转 PR（预填 Issue 链路）。
+/// 首版单条单 Issue（Q6=A/Q8=A/Q10=C 分期）；无需 token，纯 URL 打开。
 pub fn build_single_pr_url(entry: &CustomAppEntry) -> String {
     let item = &entry.item;
     let title = format!("[收录申请] {}", entry.id);
@@ -75,7 +75,7 @@ pub fn build_catalog_pr_url(entry: &CustomAppEntry) -> String {
 }
 
 /// 批量收录申请预填链接（纯函数，可单测，二期开关）：
-/// 选中多条合并为一个 JSON 数组，经一个预填 URL 提交（批量合一 PR）。
+/// 选中多条合并为一个 JSON 数组，经一个预填 URL 提交（批量合一 Issue）。
 /// 每条校验状态经提交档 `validate_custom_item(strict)` 逐条标注；
 /// 空集合返回空数组占位页，不 panic。
 pub fn build_batch_pr_url(entries: &[CustomAppEntry], gate: &LicenseGateConfig) -> String {
@@ -119,10 +119,10 @@ pub fn build_batch_pr_url(entries: &[CustomAppEntry], gate: &LicenseGateConfig) 
     )
 }
 
-/// PR 前置门禁（纯函数，可单测）：仅 `status==collected` 行允许走 PR 链路；
+/// Issue 提交前置门禁（纯函数，可单测）：仅 `status==collected` 行允许走 Issue 链路；
 /// 草稿行首行即拦（提示先收录），已提交行只读（明确文案，不走收录门禁）。
 /// `status`/`pr_url` 经 `list_custom_apps`/`get` 透出，无需新增轮询。
-/// PR payload normalize: trim-empty homepage/description_en to None so
+/// Issue payload normalize: trim-empty homepage/description_en to None so
 /// they are omitted like catalog.json; install_dirs/search_subdirs/publishers
 /// are prefill heuristics and dropped outright to match the vscodium template
 /// (homepage → platforms → identifiers); field order is enforced by the manual
@@ -193,13 +193,13 @@ fn pr_ordered_identifier_keys(
     keys
 }
 
-/// 单条 PR payload JSON（模板风格 2 空格：字符串数组单行内联，
+/// 单条 Issue payload JSON（模板风格 2 空格：字符串数组单行内联，
 /// identifiers 对象展开且内层数组内联，空数组/空对象直接省略）。
 fn pr_single_payload_json(item: &CatalogItem) -> String {
     pr_item_json_with_indent(item, "")
 }
 
-/// 批量 PR payload JSON 数组（内层对象同单条模板风格，整体 2 空格）。
+/// 批量 Issue payload JSON 数组（内层对象同单条模板风格，整体 2 空格）。
 fn pr_batch_payload_json(items: &[CatalogItem]) -> String {
     if items.is_empty() {
         return "[]".to_string();
@@ -351,17 +351,17 @@ pub fn ensure_collected_for_pr(entry: &CustomAppEntry) -> Result<(), String> {
         return Err(format!("已提交行不可重复提交: {}", entry.id));
     }
     if !crate::db::custom_apps::is_collected_status(&entry.status) {
-        return Err("须先收录进本地再PR".to_string());
+        return Err("须先收录进本地再提交 Issue".to_string());
     }
     Ok(())
 }
 
-/// 本地收录 overlay 输入过滤（纯函数，可单测）：仅 `status==collected && !archived`
-/// 行进入合并视图（远端优先去重由 `merge_catalog_overlay_view` 执行，on-disk residual `local_collected` 字面）。
+/// 本地库 overlay 输入过滤（纯函数，可单测）：未归档的 collected 系 + `submitted` 行进入
+/// 合并视图（远端优先去重由 `merge_catalog_overlay_view` 执行，on-disk residual `local_collected` 字面）。
 pub fn collected_overlay_items(entries: Vec<CustomAppEntry>) -> Vec<CatalogItem> {
     entries
         .into_iter()
-        .filter(|e| crate::db::custom_apps::is_collected_status(&e.status) && !e.archived)
+        .filter(|e| crate::db::custom_apps::is_local_library_status(&e.status) && !e.archived)
         .map(|e| e.item)
         .collect()
 }
@@ -433,7 +433,7 @@ pub fn delete_custom_app(
 }
 
 /// 本地收录：`status=collected`（收录档全校验，`is_verified=false` 入库约束保持）。
-/// 未收录行经此进入本地精选（可搜可装），PR 链路前置门禁要求先收录。
+/// 未收录行经此进入本地精选（可搜可装），Issue 链路前置门禁要求先收录。
 #[tauri::command(rename_all = "camelCase")]
 pub fn collect_custom_app(
     state: State<'_, AppState>,
@@ -476,8 +476,23 @@ pub fn revert_collected_to_draft(
     Ok(entry)
 }
 
+/// 标记为未提交：`submitted` → `collected`，`pr_url` 清空，payload 不变；Issue 需在 GitHub 自行关闭。
+/// 已归档行与未提交行拒绝（分别提示归档、仅已提交行可标记为未提交）。
+#[tauri::command(rename_all = "camelCase")]
+pub fn withdraw_submitted(
+    state: State<'_, AppState>,
+    id: String,
+) -> crate::AppResult<CustomAppEntry> {
+    let key = crate::forge::canonical_lookup_id(&id);
+    let db = state.db().map_err(crate::AppError::from)?;
+    let entry = db.withdraw_submitted(&key)?;
+    drop(db);
+    sync_catalog_overlay(&state);
+    Ok(entry)
+}
+
 /// 标记已提交：`status=submitted` + 落 `pr_url`；已转正归档行拒绝。
-/// 首行收录门禁：仅 `status==collected` 行允许走 PR（否则 `须先收录进本地再PR`）；
+/// 首行收录门禁：仅 `status==collected` 行允许提交 Issue（否则 `须先收录进本地再提交 Issue`）；
 /// 已提交行只读：二次 `mark` 明确拒绝（`已提交行不可重复提交`）；
 /// 提交档全校验在 db 层保留二次校验（占位 license 草稿被拦，先补真实 SPDX 再提交）。
 #[tauri::command(rename_all = "camelCase")]
@@ -522,7 +537,7 @@ pub fn retire_on_sync(
     Ok(notices)
 }
 
-/// 合并目录视图：内存远端目录 + 本地收录 overlay（仅 `status==collected && !archived`，
+/// 合并目录视图：内存远端目录 + 本地库 overlay（未归档的 collected 系 + `submitted`，
 /// 远端优先去重，`is_cataloged` 恒 true，来源经 `source` 区分 `remote`/`custom`）。
 #[tauri::command]
 pub fn get_merged_catalog_view(
@@ -535,8 +550,8 @@ pub fn get_merged_catalog_view(
     ))
 }
 
-/// PR 链路通用取件（单条）：canonical 归一 → 取行 → 收录门禁 → 提交档二次全校验。
-/// 四个 PR 入口（单条/批量 × URL/payload）共用此门禁。
+/// Issue 链路通用取件（单条）：canonical 归一 → 取行 → 收录门禁 → 提交档二次全校验。
+/// 四个 Issue 入口（单条/批量 × URL/payload）共用此门禁。
 fn load_pr_entry(
     db: &crate::db::Database,
     id: &str,
@@ -554,7 +569,7 @@ fn load_pr_entry(
     Ok(entry)
 }
 
-/// 批量 PR 链路通用取件：逐条同口径门禁，任一条缺席/未收录/校验不过即整批拒绝，
+/// 批量 Issue 链路通用取件：逐条同口径门禁，任一条缺席/未收录/校验不过即整批拒绝，
 /// 不静默丢条（错误已带 id，指到待补字段）。
 fn load_pr_entries(
     db: &crate::db::Database,
@@ -568,7 +583,7 @@ fn load_pr_entries(
     Ok(entries)
 }
 
-/// 收录申请预填链接：由草稿 payload 生成清单仓库 Issue 预填 URL（预填 PR 链路入口）。
+/// 收录申请预填链接：由草稿 payload 生成清单仓库 Issue 预填 URL（预填 Issue 链路入口）。
 /// 首行收录门禁：仅 `status==collected` 行允许取链接；取链接前保留提交档二次全校验
 ///（占位 license 草稿在此被拦，前端指到 license 字段补 SPDX）。
 #[tauri::command]
@@ -596,8 +611,8 @@ pub fn get_custom_app_pr_payload(
 }
 
 /// 批量收录申请预填链接（二期开关）：多条草稿合并为一个 JSON 数组，经一个预填 URL
-/// 提交（批量合一 PR）；任一条缺席即整批拒绝，不静默丢条；首行逐条收录门禁
-///（任一条非 collected 即整批 `须先收录进本地再PR`）；任一条提交档二次校验不过
+/// 提交（批量合一 Issue）；任一条缺席即整批拒绝，不静默丢条；首行逐条收录门禁
+///（任一条非 collected 即整批 `须先收录进本地再提交 Issue`）；任一条提交档二次校验不过
 /// 即整批拒绝（附 id，指到待补字段）。
 #[tauri::command]
 pub fn get_custom_apps_batch_pr_url(
@@ -628,7 +643,7 @@ pub fn get_custom_apps_batch_pr_payload(
 }
 
 /// 许可名单只读查询结果（ADR-0018）：名单唯一源头为后端编译时配置，
-/// 前端 SubmitStrict 校验（提交/预填 PR 前）经此拉取；加载失败前端放行暂存、
+/// 前端 SubmitStrict 校验（提交/预填 Issue 前）经此拉取；加载失败前端放行暂存、
 /// 提交提示重试，绝不在前端回退一份写死名单。
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct LicenseAllowlist {
@@ -802,10 +817,10 @@ mod tests {
 
     #[test]
     fn pr_gate_blocks_draft_and_submitted() {
-        // PR 门禁：draft 提示先收录；submitted 只读，明确文案（不走收录门禁）。
+        // Issue 门禁：draft 提示先收录；submitted 只读，明确文案（不走收录门禁）。
         let mut draft = entry("o/r");
         let err = ensure_collected_for_pr(&draft).expect_err("draft must be gated");
-        assert_eq!(err, "须先收录进本地再PR");
+        assert_eq!(err, "须先收录进本地再提交 Issue");
         draft.status = CUSTOM_APP_STATUS_COLLECTED.to_string();
         assert!(ensure_collected_for_pr(&draft).is_ok());
 
@@ -818,8 +833,8 @@ mod tests {
     }
 
     #[test]
-    fn overlay_only_contains_local_collected() {
-        // overlay 只含本地收录：draft/submitted/archived 均被过滤。
+    fn overlay_includes_collected_and_submitted_excludes_archived() {
+        // overlay 含本地库成员：collected 系 + submitted；draft/archived 均被过滤。
         let mut archived = collected_entry("o/arch");
         archived.archived = true;
         let mut submitted = entry("o/sub");
@@ -830,8 +845,11 @@ mod tests {
             collected_entry("o/keep"),
             archived,
         ]);
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0].id, "o/keep");
+        assert_eq!(items.len(), 2);
+        assert!(items.iter().any(|i| i.id == "o/keep"));
+        assert!(items.iter().any(|i| i.id == "o/sub"));
+        assert!(!items.iter().any(|i| i.id == "o/draft"));
+        assert!(!items.iter().any(|i| i.id == "o/arch"));
     }
 
     #[test]
@@ -850,7 +868,7 @@ mod tests {
         assert!(items.iter().any(|i| i.id == "o/legacy"));
         assert!(items.iter().any(|i| i.id == "o/keep"));
         assert!(!items.iter().any(|i| i.id == "o/reverted"));
-        // PR 门禁同样on-disk literal。
+        // Issue 门禁同样on-disk literal。
         let mut gate_legacy = entry("o/legacy");
         gate_legacy.status = "local_collected".to_string();
         assert!(ensure_collected_for_pr(&gate_legacy).is_ok());
@@ -883,7 +901,7 @@ mod tests {
         ids.insert("windows".to_string(), vec!["Demo.exe".to_string()]);
         ids.insert("linux".to_string(), vec!["demo".to_string()]);
         e.item.identifiers = ids;
-        // 预填启发式猜测：PR 模板直接丢弃，不进 payload。
+        // 预填启发式猜测：Issue 模板直接丢弃，不进 payload。
         e.item.install_dirs = vec!["r".to_string()];
         e.item.search_subdirs = vec!["bin".to_string()];
         e.item.publishers = vec!["O".to_string()];

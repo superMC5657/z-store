@@ -378,6 +378,14 @@ export async function revertCollectedApp(id: string): Promise<CustomAppEntry> {
 }
 
 /**
+ * 标记为未提交（后端 `withdraw_submitted` 落盘：submitted → collected、pr_url 清空，payload 不变）：
+ * 仅发 {id}（camelCase 单键，snake 后端桥接）。Issue 需用户在 GitHub 自行关闭；失败由调用方 toast。
+ */
+export async function withdrawSubmitted(id: string): Promise<CustomAppEntry> {
+  return tauriInvoke<CustomAppEntry>(CMD.withdrawSubmitted, { id });
+}
+
+/**
  * 转正退役：远端 id 集合命中未归档草稿即 archived=1，返回转正提示。
  * remoteIds 缺席时后端以当前内存目录为准（sync_catalog 成功路径已自动调用）。
  */
@@ -422,7 +430,7 @@ export async function getCustomAppsBatchPrPayload(ids: string[]): Promise<string
 
 /**
  * 许可名单只读查询（ADR-0018）：名单唯一源头为后端编译时配置。
- * 前端 SubmitStrict 校验（提交/预填 PR 前）经此拉取；调用失败由调用方视为
+ * 前端 SubmitStrict 校验（提交 Issue/预填前）经此拉取；调用失败由调用方视为
  * 加载失败（放行暂存、提交提示重试），绝不在前端回退一份写死名单。
  */
 export interface LicenseAllowlistResult {

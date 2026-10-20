@@ -11,6 +11,8 @@ import {
   annotateLocalSource,
   annotateOnlineCataloged,
   buildCatalogIdSet,
+  isCollectedStatus,
+  isLocalLibraryStatus,
   mergeLocalLookups,
   resolveBareRowLocalBadgeVariant,
   restampLocalMarks,
@@ -283,6 +285,63 @@ describe('裸行本地徽标与后端预盖章透传', () => {
     // 合并视图同样不改写已盖章行引用
     const merged = selectMergedCatalogApps([app('o/remote')], [stamped], true);
     expect(merged.find((r) => r.id === 'o/local')).toBe(stamped);
+  });
+});
+
+describe('库内成员（提交 Issue 不退出本地库）', () => {
+  it('isLocalLibraryStatus：collected 系与 submitted 在库，draft 不在库；门禁口径不扩大', () => {
+    expect(isLocalLibraryStatus('collected')).toBe(true);
+    expect(isLocalLibraryStatus('local_collected')).toBe(true);
+    expect(isLocalLibraryStatus('submitted')).toBe(true);
+    expect(isLocalLibraryStatus('draft')).toBe(false);
+    expect(isLocalLibraryStatus(undefined)).toBe(false);
+    // 可提 Issue / 可退回的门禁口径不算 submitted
+    expect(isCollectedStatus('submitted')).toBe(false);
+  });
+
+  it('submitted 进入合并目录并显黄（提交后仍可搜可装）', () => {
+    const merged = selectMergedCatalogApps(
+      [],
+      [
+        {
+          item: { id: 'o/sub', owner: 'o', repo: 'sub', platforms: ['windows'] },
+          status: 'submitted',
+          archived: false,
+        } as never,
+      ],
+      true,
+    );
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.source).toBe('local');
+    expect(merged[0]?.status).toBe('submitted');
+    expect(resolveVerifiedBadgeVariant(merged[0] as never)).toBe('local');
+  });
+
+  it('submitted 命中在线行即叠黄；draft 仍不叠', () => {
+    const local = [{ ...app('o/sub'), source: 'local', status: 'submitted' } as AppSummary];
+    const hit = annotateIsCataloged(app('o/sub'), new Set<string>(), local);
+    expect(hit.source).toBe('local');
+    expect(hit.status).toBe('submitted');
+    expect(resolveVerifiedBadgeVariant(hit as never)).toBe('local');
+    const draftOnly = [{ ...app('o/draft'), source: 'custom', status: 'draft' } as AppSummary];
+    const draftOut = annotateIsCataloged(app('o/draft'), new Set<string>(), draftOnly);
+    expect(draftOut.source).toBeUndefined();
+    expect(resolveVerifiedBadgeVariant(draftOut as never)).toBeNull();
+  });
+
+  it('归档行仍不参与合并（权威交还远端）', () => {
+    const merged = selectMergedCatalogApps(
+      [],
+      [
+        {
+          item: { id: 'o/gone', owner: 'o', repo: 'gone', platforms: ['windows'] },
+          status: 'submitted',
+          archived: true,
+        } as never,
+      ],
+      true,
+    );
+    expect(merged).toHaveLength(0);
   });
 });
 

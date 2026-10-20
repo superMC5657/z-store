@@ -224,9 +224,17 @@ function isLocalAppRow(app: { source?: string }): boolean {
   return app.source === 'local';
 }
 
-/** 本地收录态判定（overlay/PR 门禁唯一口径，`collected` 与磁盘残留 `local_collected` 同义；归档与否由调用方另判）。 */
+/** 本地收录态判定（可提 Issue/可退回的唯一口径，`collected` 与磁盘残留 `local_collected` 同义；归档与否由调用方另判）。 */
 export function isCollectedStatus(status: unknown): boolean {
   return status === 'collected' || status === 'local_collected';
+}
+
+/**
+ * 本地库成员判定（可搜可装/黄标的唯一口径）：
+ * 收录态与「已提交」都在库；`draft` 不在库，`archived` 由调用方另判（权威交还远端）。
+ */
+export function isLocalLibraryStatus(status: unknown): boolean {
+  return isCollectedStatus(status) || status === 'submitted';
 }
 
 /** 本地收录行打标（source=local，is_cataloged 恒 true；已盖章行原引用透传，不克隆）。 */
@@ -325,14 +333,14 @@ export function selectMergedCatalogApps(
       const entry = c as { item: Parameters<typeof customItemToSummary>[0]; status?: unknown; archived?: unknown };
       status = entry.status;
       archived = entry.archived;
-      if (!isCollectedStatus(status) || archived) continue;
+      if (!isLocalLibraryStatus(status) || archived) continue;
       if (!entry.item || typeof entry.item.id !== 'string' || !entry.item.id) continue;
       base = customItemToSummary(entry.item);
     } else {
       const row = c as AppSummary & { status?: unknown; archived?: unknown };
       status = (row as { status?: unknown }).status;
       archived = (row as { archived?: unknown }).archived;
-      if (!isCollectedStatus(status) || archived) continue;
+      if (!isLocalLibraryStatus(status) || archived) continue;
       if (!row.id) continue;
       // 扁平行已是摘要形态（App.tsx 侧经 customCatalogItemToSummary 转换后仍带 status），直接复用。
       base = row as AppSummary;
@@ -347,11 +355,16 @@ export function selectMergedCatalogApps(
   if (collectedBases.length === 0) return remote;
   let appended = false;
   const out: AppSummary[] = [...remote];
-  for (const { base } of collectedBases) {
+  for (const { base, status } of collectedBases) {
     const k = normalizeId(base.id);
     if (!k || seen.has(k)) continue;
     seen.add(k);
-    out.push(markLocalSource(base));
+    // 补位行携带库内状态（草稿已被上方过滤）：已盖章行保持原引用，摘要投影补 status。
+    const withStatus =
+      (base as { status?: unknown }).status === status
+        ? base
+        : ({ ...base, status } as AppSummary);
+    out.push(markLocalSource(withStatus));
     appended = true;
   }
   // 远端已存在同仓行叠加 local（蓝优先：已验证不叠加；custom 草稿行不参与，此处仅 remote）：
@@ -537,7 +550,7 @@ function didHitLocal(
     if (!l || typeof (l as AppSummary).id !== 'string') continue;
     const src = (l as { source?: unknown }).source;
     const st = (l as { status?: unknown }).status;
-    const isLocalRow = src === 'local' || isCollectedStatus(st);
+    const isLocalRow = src === 'local' || isLocalLibraryStatus(st);
     if (!isLocalRow) continue;
     const keys = rowAliasKeys(l as AppSummary);
     const wantStatus = typeof st === 'string' && st ? st : 'collected';

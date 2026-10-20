@@ -102,6 +102,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       triggerChangeFeedback('catalog_sync', t('settings.catalog_sync_success'));
       setTimeout(() => setSyncFeedback(null), 5000);
       window.dispatchEvent(new CustomEvent('zstore:catalog-synced'));
+      // 同步可能触发转正归档：通知 customApps 重载，待收录页/计数立即跟随（无需重启）。
+      window.dispatchEvent(new CustomEvent('zstore:custom-apps-changed'));
     } catch (e) {
       setSyncFeedback(t('settings.catalog_sync_failed', { error: String(e) }));
     } finally {

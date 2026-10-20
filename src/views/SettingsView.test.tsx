@@ -8,7 +8,7 @@
  * - 重新保存当前已生效的相同自定义 URL 立即应用（无改动）。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import i18n from '../i18n';
 
 vi.mock('../services/api', () => {
@@ -163,5 +163,28 @@ describe('SettingsView custom catalog source confirm', () => {
     // 更新与通知设置行
     expect(screen.getByText('Auto Check Updates')).toBeTruthy();
     expect(screen.getByText('Version Pin & Ignore Rules')).toBeTruthy();
+  });
+
+  it('同步成功后同时通知 catalog-synced 与 custom-apps-changed（转正立即刷新）', async () => {
+    const fired: string[] = [];
+    const onCatalog = (): void => {
+      fired.push('catalog-synced');
+    };
+    const onCustom = (): void => {
+      fired.push('custom-apps-changed');
+    };
+    window.addEventListener('zstore:catalog-synced', onCatalog);
+    window.addEventListener('zstore:custom-apps-changed', onCustom);
+    try {
+      renderSettings(baseSettings());
+      fireEvent.click(screen.getByText('立即同步'));
+      await waitFor(() => {
+        expect(fired).toContain('catalog-synced');
+        expect(fired).toContain('custom-apps-changed');
+      });
+    } finally {
+      window.removeEventListener('zstore:catalog-synced', onCatalog);
+      window.removeEventListener('zstore:custom-apps-changed', onCustom);
+    }
   });
 });

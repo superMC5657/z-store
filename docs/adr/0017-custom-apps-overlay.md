@@ -1,15 +1,15 @@
-# ADR-0017：本地自维护草稿后端 overlay（custom_apps + 全局合并 + 预填 PR 链路）
+# ADR-0017：本地自维护草稿后端 overlay（custom_apps + 全局合并 + 预填 Issue 链路）
 
 - 状态：Accepted
 - 日期：2026-10-16
 - 关联：ADR-0009（清单仓库解耦）、ADR-0010（规范应用标识）、ADR-0007（开放清单与 TTL）
-- 范围：后端 overlay（SQLite 表、CRUD commands、合并视图 helper、单条与批量预填 PR 链路）
+- 范围：后端 overlay（SQLite 表、CRUD commands、合并视图 helper、单条与批量预填 Issue 链路）
   + 前端已交付（待收录视图、侧栏导航、全局合并显示、移入入口、设置开关与备份，
   详见 §2.6）。
 
 ## 1. 背景
 
-精选收录库走独立生态清单仓库 PR 准入（ADR-0009），社区提交有一段“写条目 → 提 PR →
+精选收录库走独立生态清单仓库 PR 准入（ADR-0009），社区提交有一段“写条目 → 提交 Issue →
 等合入”的空窗期。空窗期内用户希望草稿在本地立即可见、可安装、可管理，
 而不是等远端合入后才出现。本地 overlay 满足该需求：草稿先在本地
 生效，远端收录后自动退役，全程不碰远端数据文件。
@@ -22,7 +22,7 @@
    名称、坐标、图标、描述、分类、别名、版本、协议、星数、`is_verified=false`、
    主页、标识符、安装目录、发布者、平台）/ `status TEXT`（`draft`/`submitted`/`collected`（含磁盘残留 `local_collected` 同义，判定唯一口径 `isCollectedStatus`），
    已提交另存 `pr_url`）/ `created_at`/`updated_at` / `archived INTEGER`
-   （转正退役标记）。
+   （转正退役标记）。库内归属另有唯一口径 `isLocalLibraryStatus`（收录态 + `submitted`，见 §2.7）。
 2. **CRUD commands**（`commands/catalog_custom.rs`）：
    `list_custom_apps`（默认仅未归档）/ `save_custom_app`（暂存档 `DraftLenient`：
    仅校验 `id==canonical` 且与 `owner/repo` 对齐，`license`/`homepage` 可空，
@@ -33,6 +33,7 @@
    提交档 `SubmitStrict`：必填 + `homepage` http(s) + OSI 门禁，见 ADR-0018）/
    `collect_custom_app`/`collect_local_app`（收录档 `CollectStrict` 置 `status=collected`，`is_verified` 恒 false，可搜可装；两命令同真身，前者供草稿链路，后者供视图直调）/
    `revert_collected_to_draft`（`collected`→`draft` + 清空 `pr_url`，失败抛错不静默）/
+   `withdraw_submitted`（`submitted`→`collected` + 清空 `pr_url`，payload 不动；已归档/非 submitted 拒绝）/
    `retire_on_sync`（远端 id 命中即 `archived=1`，返回转正提示）/
    `get_merged_catalog_view`（合并查询 helper）/ `get_custom_app_pr_url`（单条预填链路入口，
    提交档校验后生成）/ `get_custom_apps_batch_pr_url` + `build_batch_pr_url`（批量预填链路，
@@ -43,20 +44,21 @@
    `merged_summaries` 统一解析远端优先 + 本地收录补位（`get_remote_catalog_items` 保留远端本体口径，
    供清单同步与差异计算），并在投影时盖章 `AppSummary`/`AppDetail` 的
    `source`（`remote`/`local`）与 `is_cataloged`（未收录显式 `false`）。
-   `merge_catalog_overlay_view` 把未归档 custom 条目叠加到内存目录视图；`is_cataloged` 恒 true（视图内即视为已收录），
-   来源经 `source=remote/custom/local` 区分（`custom` 为草稿行，`local` 为已收录行：`status` 为 `collected` 系且未归档，库存恒 `is_cataloged=true`、`is_verified=false`，PR 预填复制体翻 `true` 仅限载荷）；去重远端优先（同 id 取远端行，custom/local 仅补位；远端已存在同仓行叠加 `local` 标记供黄标判定，蓝标优先，已验证不叠加）；收录态 `collected` 与磁盘残留 `local_collected` 同义，判定唯一口径 `isCollectedStatus`；本地徽标走 `verified-badge-local` 橘黄（D4 去彩例外，见 CONTEXT 词汇表）。
+   `merge_catalog_overlay_view` 把未归档库内条目叠加到内存目录视图；`is_cataloged` 恒 true（视图内即视为已收录），
+   来源标记分两处：`AppSummary.source` 为 `remote`/`local`（`local` 为库内行：`status` 为 `collected` 系或 `submitted` 且未归档（库内判定唯一口径 `isLocalLibraryStatus`），库存恒 `is_cataloged=true`、`is_verified=false`，Issue 预填复制体翻 `true` 仅限载荷；提交 Issue 不退出库，只有归档才退出）；`get_merged_catalog_view` 的 `MergedCatalogEntry.source` 另有 `custom`，表示 overlay 补位行（库内条目，草稿不进该视图）；去重远端优先（同 id 取远端行，custom/local 仅补位；远端已存在同仓行叠加 `local` 标记供黄标判定，蓝标优先，已验证不叠加）；收录态 `collected` 与磁盘残留 `local_collected` 同义，`isCollectedStatus` 是「可提交 Issue/可退回」的门禁口径（不含 `submitted`）；本地徽标走 `verified-badge-local` 橘黄（D4 去彩例外，见 CONTEXT 词汇表）。
    现有 `search_apps`/`get_home_feed` 语义不动；视图接线已由前端消费
    （`selectors` 全局合并 + `showCustom` 默认开，关即回退 remote 本体，见 §2.6）。
 4. **转正闭环**：`sync_catalog` 成功路径（含本地降级）以远端 id 集合自动退役命中草稿，
    消息尾部追加转正提示（`with_graduation_hint`）；`retire_on_sync` 亦可独立调用
    （`remote_ids=None` 时以当前内存目录为准）。
-5. **预填 PR 链路**：`build_catalog_pr_url` 由草稿 payload 生成清单仓库 Issue 预填 URL
+5. **预填 Issue 链路**：`build_catalog_pr_url` 由草稿 payload 生成清单仓库 Issue 预填 URL
    （标题带 canonical id，正文含关键字段 + 完整 JSON），用户在浏览器确认后提交，
    maintainer 转 PR——草稿“本地先生效、远端后收录”不断链。单条入口为
    `get_custom_app_pr_url` / `get_custom_app_pr_payload`，批量入口为
    `get_custom_apps_batch_pr_url` / `get_custom_apps_batch_pr_payload` /
    `build_batch_pr_url`（提交档校验后生成，门禁口径见 ADR-0018）；payload 命令只返回
    Rust 序列化的 JSON 文本（单对象 / 数组），供预填链接超长时原样复制，前端不拼模板。
+   （内部命令与字段仍沿用 `pr_url` 历史命名，仅界面文案称 Issue。）
 6. **前端已交付**：待收录页 `PendingView.tsx`
   （+ `PendingView.test.tsx` / `PendingView.pr.test.tsx`、`styles/components-pending.css`，
    Linear 去彩单色）；`App.tsx` 透传 `pendingCount`/`customIds`/`movedInIds`
@@ -68,6 +70,17 @@
    `HomeView`/`TrendsView` 移入入口；设置 `show_custom` 开关（默认开）+ 备份
    allowlist 往返（`oauth/backup.rs`）；`ViewType` 新增 `pending`；
    中英双语 pending/custom 文案。
+7. **库内归属 × 上游进度（两轴）**：`status` 不是互斥流水线，而是两个维度：
+   - 库内归属：`draft`（不在库）→ `collected` 系 / `submitted`（在库）→ `archived`（退出库，权威交还远端）。
+   - 上游进度：无 → 已提交 Issue（`submitted`，待收录）→ 已收录（`archived`，转正）。
+
+   提交 Issue 只增加上游进度，不撤销本地可搜可装与黄标。归档是同一 canonical id 的权威切换
+   （local → remote）：首页只保留远端一行，黄标转蓝标（远端已验证时），不重复、不闪空，
+   本地行不再参与合并/计数/搜索，仅作「已归档」记录留档。
+   待收录页收为 3 个 Tab（草稿 / 本地收录 / 已归档），「本地收录」内部按
+   全部 / 待提交 / 已提交 分段，计数按 Tab 分区不重计；批量预填只在「待提交」段出现。
+   `submitted` 不可重复提交 Issue、不可退回草稿；可「标记为未提交」回到待提交（Issue 需用户自行关闭）。
+   已知边界：远端行未验证时归档后无来源徽标（不引入第三徽标）；catalog 后续下架不会回补已归档本地行。
 
 ## 3. 为何不用直接改 catalog.json
 

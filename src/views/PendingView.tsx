@@ -22,6 +22,7 @@ import {
   Sliders,
   Tag,
   Trash2,
+  Undo2,
 } from 'lucide-react';
 import { FilterEmptyState, ViewShell } from './ViewShell';
 import { AppCard } from '../components/AppCard';
@@ -37,7 +38,7 @@ import {
 } from '../services/api/catalog';
 import { tauriApi } from '../services/api';
 import { resolveFallbackOpener } from '../utils/browserLockdown';
-import { isCollectedStatus } from '../app/selectors';
+import { isCollectedStatus, isLocalLibraryStatus } from '../app/selectors';
 import {
   getPendingSectionPrefs,
   getPendingShowCoordsPref,
@@ -64,7 +65,7 @@ export const PREFILL_URL_LENGTH_LIMIT = 8000;
  *   `services/api/catalog.getLicenseAllowlist` 封装调用，无字面量命令名直调，
  *   见 noDirectInvoke.test.ts；命令表驱动收敛于 CMD）。
  * - 许可名单唯一源头为后端只读命令：本文件不保留任何硬编码名单；
- *   暂存走 draft 档（不查名单），提交/预填 PR 前拉取后端名单做 submit 档校验；
+ *   暂存走 draft 档（不查名单），提交/预填 Issue 前拉取后端名单做 submit 档校验；
  *   加载失败放行暂存、提交提示重试。
  * - 受控/非受控双模：传入 `entries` 即为受控（直接透传后端列表），
  *   缺席时走内部本地态（浏览器预览/单测可独立渲染编辑）。
@@ -116,7 +117,13 @@ export function resolvePendingDraftDescription(
 /** 视图条目 = 草稿领域形状（唯一定义见 `services/custom/types.ts`）。 */
 export type CustomDraftEntry = DraftEntry;
 
-type PendingGroupId = 'draft' | 'collected' | 'submitted' | 'archived';
+type PendingGroupId = 'draft' | 'library' | 'archived';
+
+/**
+ * 「本地收录」内部分段（Issue 进度）：全部 = 收录系 + submitted；
+ * 待提交 = 收录系（collected/local_collected）；已提交 = submitted。
+ */
+type PendingSegmentId = 'all' | 'to_submit' | 'submitted';
 
 interface PendingViewProps {
   /** 受控草稿列表（缺席时走内部本地态）。 */
@@ -133,6 +140,11 @@ interface PendingViewProps {
   onCollectLocal?: (id: string) => void | Promise<void>;
   /** 退回草稿回调（collected 退回 draft；App 透传 tauriApi.revertCollectedApp 落盘，失败抛错由本组件 toast）。 */
   onRevertToDraft?: (id: string) => void | Promise<void>;
+  /**
+   * 标记为未提交回调（submitted → collected，pr_url 清空；App 透传 tauriApi.withdrawSubmitted）。
+   * 缺席时不渲染该动作（浏览器预览/单测无后端写入即不展示）。
+   */
+  onWithdrawSubmitted?: (id: string) => void | Promise<void>;
   /**
    * 单条预填 URL 提供方（App 透传 tauriApi.getCustomAppPrUrl；
    * 缺席时用本地同形兜底，浏览器预览/单测可用）。
@@ -332,18 +344,35 @@ function stringifyIdentifiers(ids: Record<string, string[]>): string {
 }
 
 function entryGroup(e: CustomDraftEntry): PendingGroupId {
+  // 归档优先（权威已交给远端）；库内成员 = collected 系 + submitted，其余（draft/未知）归草稿。
   if (e.archived) return 'archived';
-  // 已提交行仍归 submitted（与 collected 互斥）；已收录未提交归 collected，优先级高于 draft。
-  if (e.status === 'submitted') return 'submitted';
-  if (isPendingCollectedStatus(e.status)) return 'collected';
+  if (isLocalLibraryStatus(e.status)) return 'library';
   return 'draft';
+}
+
+/** 库内行的 Issue 进度分段；非库内行返回 null（不参与分段过滤）。 */
+function entrySegment(e: CustomDraftEntry): Exclude<PendingSegmentId, 'all'> | null {
+  if (e.archived) return null;
+  if (e.status === 'submitted') return 'submitted';
+  if (isPendingCollectedStatus(e.status)) return 'to_submit';
+  return null;
+}
+
+/** submitted（已提交）判定：归档行优先只读，不再按 submitted 处理。 */
+function isSubmittedEntry(e: CustomDraftEntry): boolean {
+  return !e.archived && e.status === 'submitted';
 }
 
 const GROUP_META: ReadonlyArray<{ id: PendingGroupId; icon: typeof Inbox }> = [
   { id: 'draft', icon: FilePlus2 },
-  { id: 'collected', icon: PackageCheck },
-  { id: 'submitted', icon: Send },
+  { id: 'library', icon: PackageCheck },
   { id: 'archived', icon: Archive },
+];
+
+const SEGMENT_META: ReadonlyArray<{ id: PendingSegmentId }> = [
+  { id: 'all' },
+  { id: 'to_submit' },
+  { id: 'submitted' },
 ];
 
 export const PendingView: React.FC<PendingViewProps> = ({
@@ -354,6 +383,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
   onMarkSubmitted,
   onCollectLocal,
   onRevertToDraft,
+  onWithdrawSubmitted,
   onGetPrUrl,
   onGetBatchPrUrl,
   onGetPrPayload,
@@ -366,6 +396,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
   const [localEntries, setLocalEntries] = useState<CustomDraftEntry[]>(initialEntries);
   const entries = controlledEntries ?? localEntries;
   const [activeGroup, setActiveGroup] = useState<PendingGroupId>('draft');
+  const [activeSegment, setActiveSegment] = useState<PendingSegmentId>('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -376,24 +407,43 @@ export const PendingView: React.FC<PendingViewProps> = ({
   const [collectingId, setCollectingId] = useState<string | null>(null);
   const [confirmRevertId, setConfirmRevertId] = useState<string | null>(null);
   const [revertingId, setRevertingId] = useState<string | null>(null);
+  const [confirmWithdrawId, setConfirmWithdrawId] = useState<string | null>(null);
+  const [withdrawingId, setWithdrawingId] = useState<string | null>(null);
   const [batchSelected, setBatchSelected] = useState<Set<string>>(new Set());
   const [batchBusy, setBatchBusy] = useState(false);
   const [previewExpanded, setPreviewExpanded] = useState(true);
 
   /**
-   * 顶层四态切换（draft/collected/submitted/archived）：
+   * 顶层三态切换（draft/library/archived）：
    * 右侧详情 + 底部批量栏 + 操作按钮随 activeGroup 联动，
-   * 切 Tab 即重置跨分组选中（含新建态与二次确认态），无选中走空态提示。
+   * 切 Tab 即重置跨分组选中（含新建态与二次确认态）与分段（回默认「全部」），无选中走空态提示。
    */
   const handleGroupChange = (group: PendingGroupId) => {
     if (group === activeGroup) return;
     setActiveGroup(group);
+    setActiveSegment('all');
     setSelectedId(null);
     setIsCreating(false);
     setConfirmDeleteId(null);
     setConfirmRevertId(null);
+    setConfirmWithdrawId(null);
     setPrUrlInput('');
     setFormErrors({});
+    setBatchSelected(new Set());
+  };
+
+  /** 分段切换沿用切 Tab 的重置语义（选中/表单/报错/批量选择归零）。 */
+  const handleSegmentChange = (segment: PendingSegmentId) => {
+    if (segment === activeSegment) return;
+    setActiveSegment(segment);
+    setSelectedId(null);
+    setIsCreating(false);
+    setConfirmDeleteId(null);
+    setConfirmRevertId(null);
+    setConfirmWithdrawId(null);
+    setPrUrlInput('');
+    setFormErrors({});
+    setBatchSelected(new Set());
   };
 
   // 仓库坐标与标识只读区显隐（localStorage 持久化，默认开启；设置页与页头开关联动）
@@ -533,14 +583,32 @@ export const PendingView: React.FC<PendingViewProps> = ({
   const hasLicenseSubmitError = Boolean(liveSubmitErrors.license);
 
   const counts = useMemo(() => {
-    const c: Record<PendingGroupId, number> = { draft: 0, collected: 0, submitted: 0, archived: 0 };
+    const c: Record<PendingGroupId, number> = { draft: 0, library: 0, archived: 0 };
     for (const e of entries) c[entryGroup(e)] += 1;
     return c;
   }, [entries]);
 
+  // 内层过滤计数：与 counts.library 同源（库内每条必属 to_submit 或 submitted），
+  // 让「全部 / 待提交 / 已提交」读作数据过滤而非第二层导航。
+  const segmentCounts = useMemo(() => {
+    const c: Record<PendingSegmentId, number> = { all: 0, to_submit: 0, submitted: 0 };
+    for (const e of entries) {
+      if (entryGroup(e) !== 'library') continue;
+      c.all += 1;
+      const seg = entrySegment(e);
+      if (seg) c[seg] += 1;
+    }
+    return c;
+  }, [entries]);
+
   const visibleEntries = useMemo(
-    () => entries.filter((e) => entryGroup(e) === activeGroup),
-    [entries, activeGroup],
+    () =>
+      entries.filter((e) => {
+        if (entryGroup(e) !== activeGroup) return false;
+        if (activeGroup !== 'library' || activeSegment === 'all') return true;
+        return entrySegment(e) === activeSegment;
+      }),
+    [entries, activeGroup, activeSegment],
   );
 
   const previewPlatforms = useMemo(() => {
@@ -549,10 +617,15 @@ export const PendingView: React.FC<PendingViewProps> = ({
 
   const editingEntry = useMemo(() => {
     const found = entries.find((e) => e.id === selectedId) ?? null;
-    // 跨 Tab 选中重置兜底：选中行分组与当前 Tab 不一致时视为无选中，走空态提示，不展错配表单/富卡。
-    if (found && !isCreating && entryGroup(found) !== activeGroup) return null;
+    // 跨 Tab/分段选中重置兜底：选中行不在当前 Tab（或不在当前分段）时视为无选中，走空态提示。
+    if (found && !isCreating) {
+      if (entryGroup(found) !== activeGroup) return null;
+      if (activeGroup === 'library' && activeSegment !== 'all' && entrySegment(found) !== activeSegment) {
+        return null;
+      }
+    }
     return found;
-  }, [entries, selectedId, activeGroup, isCreating]);
+  }, [entries, selectedId, activeGroup, activeSegment, isCreating]);
 
   const loadIntoForm = (item: PendingDraftItem) => {
     setForm({ ...item });
@@ -563,7 +636,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
   };
 
   const handleStartCreate = () => {
-    // 新建草稿归 draft 分组：切 Tab 即进草稿态，避免在 collected/submitted/archived 下展错配表单。
+    // 新建草稿归 draft 分组：切 Tab 即进草稿态，避免在库内/归档展开错配表单。
     setActiveGroup('draft');
     setIsCreating(true);
     setSelectedId(null);
@@ -576,6 +649,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
     setIsCreating(false);
     setSelectedId(id);
     setConfirmDeleteId(null);
+    setConfirmWithdrawId(null);
     setPrUrlInput(found.pr_url ?? '');
     loadIntoForm(found.item);
   };
@@ -858,8 +932,9 @@ export const PendingView: React.FC<PendingViewProps> = ({
     } else {
       flipLocalSubmitted(id, url);
     }
-    // 手动标记后切到已提交待合入分组，富卡仅展 PR 链接，不再重复提交。
-    setActiveGroup('submitted');
+    // 手动标记后切到本地收录 · 已提交：富卡仅展 Issue 链接，不再重复提交。
+    setActiveGroup('library');
+    setActiveSegment('submitted');
     onNotify?.(t('pending.marked_submitted', { id }), 'success');
   };
 
@@ -941,6 +1016,46 @@ export const PendingView: React.FC<PendingViewProps> = ({
   };
 
   /**
+   * 标记为未提交（submitted → collected，pr_url 清空）：二次确认复用删除/退回形态；
+   * 成功后行离开已提交、回到待提交（父级刷新后），Issue 需用户在 GitHub 自行关闭。
+   * 已归档/非 submitted 行拒绝；无回调不渲染该动作（预览模式无后端写入）。
+   */
+  const handleWithdrawSubmitted = async (id: string) => {
+    const target = entries.find((e) => e.id === id);
+    if (!target || withdrawingId === id) return;
+    if (target.archived || target.status !== 'submitted') return;
+    if (!onWithdrawSubmitted) return;
+    if (confirmWithdrawId !== id) {
+      setConfirmWithdrawId(id);
+      window.setTimeout(() => {
+        setConfirmWithdrawId((prev) => (prev === id ? null : prev));
+      }, 4000);
+      return;
+    }
+    setWithdrawingId(id);
+    try {
+      await onWithdrawSubmitted(id);
+      // 撤下后行离开已提交：选中清空（父级刷新后回待提交分段），批量重新可选。
+      setSelectedId(null);
+      setIsCreating(false);
+      setPrUrlInput('');
+      setFormErrors({});
+      setBatchSelected((prev) => {
+        if (!prev.has(id)) return prev;
+        const nextSet = new Set(prev);
+        nextSet.delete(id);
+        return nextSet;
+      });
+      onNotify?.(t('pending.withdrawn', { id }), 'success');
+    } catch (e) {
+      onNotify?.(e instanceof Error ? e.message : String(e), 'error');
+    } finally {
+      setWithdrawingId(null);
+      setConfirmWithdrawId(null);
+    }
+  };
+
+  /**
    * 收录进本地：收录档校验通过后 status=collected（首页/分类同展，可搜可装）；
    * 已提交行前端硬拦（直接 toast，不调后端，避免重复收录）；
    * 已收录行仅提示已收录，不重复调后端；
@@ -977,8 +1092,9 @@ export const PendingView: React.FC<PendingViewProps> = ({
       } else {
         flipLocalCollected(id);
       }
-      // 收录后切到本地收录分组，右侧切富卡 + 批量栏可见。
-      setActiveGroup('collected');
+      // 收录后切到本地收录 · 待提交，右侧切富卡 + 批量栏可见。
+      setActiveGroup('library');
+      setActiveSegment('to_submit');
       onNotify?.(t('pending.collected', { id, defaultValue: `已收录进本地：${id}` }), 'success');
     } catch (e) {
       onNotify?.(e instanceof Error ? e.message : String(e), 'error');
@@ -1053,11 +1169,11 @@ export const PendingView: React.FC<PendingViewProps> = ({
   };
 
   /**
-   * 单卡“提交 PR”：仅收录态可提交（draft 先收录进本地）→ 先确保后端许可名单就绪
+   * 单卡“提交 Issue”：仅收录态可提交（draft 先收录进本地）→ 先确保后端许可名单就绪
    * （失败提示重试并中止，不回退本地名单）→ 提交档本地预检（与后端 SubmitStrict 同口径；
    * 缺项可点击：置内联 + 定位首错，不 toast）→ 取预填 URL（后端产出；无 provider 即预览模式，
    * 硬拦提示去桌面版）→ 打开预填 URL（无 token 纯 URL）即止：不自动 mark submitted，
-   * 用户在预填页提交 PR 后回本地收录手动贴链接确认（复用 mark_submitted 行），
+   * 用户在预填页提交 Issue 后回本地收录手动贴链接确认（复用 mark_submitted 行），
    * 取消则停留 collected，可重新提交。
    * 超长（> PREFILL_URL_LENGTH_LIMIT）：优先复制后端产出的载荷 JSON（前端不拼装/格式化），
    * 复制不到才提示分批并复制链接；两种情形都仍尝试打开预填页。
@@ -1086,7 +1202,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
       if (!onGetPrUrl) {
         onNotify?.(
           t('pending.pr.preview_only', {
-            defaultValue: '预览模式仅演示，提交 PR 请在桌面版完成',
+            defaultValue: '预览模式仅演示，提交 Issue 请在桌面版完成',
           }),
           'warning',
         );
@@ -1156,11 +1272,24 @@ export const PendingView: React.FC<PendingViewProps> = ({
     [entries],
   );
 
-  /** 列表多选可用性：仅 collected 分组可勾选（draft 表单态、submitted 已提交、archived 只读均不可选）。 */
-  const isBatchSelectableGroup = activeGroup === 'collected';
+  // 提交态/归档态一旦离开候选（父级刷新或本地翻态），立即从批量选中剔除，保证 submitted 永不入批。
+  useEffect(() => {
+    setBatchSelected((prev) => {
+      if (prev.size === 0) return prev;
+      const candidateIds = new Set(batchCandidates.map((e) => e.id));
+      const next = new Set<string>();
+      for (const id of prev) if (candidateIds.has(id)) next.add(id);
+      return next.size === prev.size ? prev : next;
+    });
+  }, [batchCandidates]);
+
+  /** 列表多选可用性：仅本地收录 · 非已提交分段可勾选；行本身仍限 collected 系（submitted/draft/archived 不可选）。 */
+  const isBatchSelectableGroup = activeGroup === 'library' && activeSegment !== 'submitted';
   const showBatchSelection = showBatchBar && isBatchSelectableGroup;
 
   const toggleBatchSelected = (id: string) => {
+    const target = entries.find((e) => e.id === id);
+    if (!target || target.archived || !isPendingCollectedStatus(target.status)) return;
     setBatchSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
@@ -1228,7 +1357,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
       if (!onGetBatchPrUrl) {
         onNotify?.(
           t('pending.pr.preview_only', {
-            defaultValue: '预览模式仅演示，提交 PR 请在桌面版完成',
+            defaultValue: '预览模式仅演示，提交 Issue 请在桌面版完成',
           }),
           'warning',
         );
@@ -1331,7 +1460,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
         </div>
       </div>
 
-      {/* 2. 状态 tabs 分组 */}
+      {/* 2. 状态 tabs 分组（草稿 / 本地收录 / 已归档） */}
       <div className="segmented-group" role="tablist" aria-label={t('pending.title')} style={{ marginBottom: '12px' }}>
         {GROUP_META.map(({ id, icon: Icon }) => (
           <button
@@ -1348,6 +1477,29 @@ export const PendingView: React.FC<PendingViewProps> = ({
           </button>
         ))}
       </div>
+
+      {/* 2b. 本地收录内部分段：全部 / 待提交 / 已提交（内层过滤，非第二层导航；其他 Tab 不展） */}
+      {activeGroup === 'library' && (
+        <div
+          className="pending-segment-row"
+          role="group"
+          aria-label={t('pending.groups.library')}
+        >
+          {SEGMENT_META.map(({ id }) => (
+            <button
+              key={id}
+              type="button"
+              data-testid={`pending-segment-${id}`}
+              aria-pressed={activeSegment === id}
+              className={`pending-segment ${activeSegment === id ? 'active' : ''}`}
+              onClick={() => handleSegmentChange(id)}
+            >
+              <span>{t(`pending.segments.${id}`)}</span>
+              <span className="pending-segment-count">{segmentCounts[id]}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* 3. 批量拦阻行内提示（仅本地收录分组随多选展出；复用同文案/testid） */}
       {showBatchSelection && hasBatchErrors && batchPicked.length > 0 && (
@@ -1377,16 +1529,24 @@ export const PendingView: React.FC<PendingViewProps> = ({
             {visibleEntries.length === 0 ? (
               <div className="pending-list-empty-inline">
                 <Inbox size={22} strokeWidth={1.25} aria-hidden="true" style={{ opacity: 0.5 }} />
-                <div style={{ fontWeight: 510, color: 'var(--text-secondary)' }}>{t('pending.group_empty_title')}</div>
-                <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-tertiary)' }}>{t('pending.group_empty_desc')}</div>
+                <div style={{ fontWeight: 510, color: 'var(--text-secondary)' }}>
+                  {activeGroup === 'library'
+                    ? t(`pending.segments.empty_title.${activeSegment}`)
+                    : t('pending.group_empty_title')}
+                </div>
+                <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-tertiary)' }}>
+                  {activeGroup === 'library'
+                    ? t(`pending.segments.empty_desc.${activeSegment}`)
+                    : t('pending.group_empty_desc')}
+                </div>
               </div>
             ) : (
               visibleEntries.map((entry) => {
                 const selected = entry.id === selectedId;
                 const group = entryGroup(entry);
-                const isSubmitted = group === 'submitted';
+                const isSubmitted = isSubmittedEntry(entry);
                 const isArchived = group === 'archived';
-                const isCollected = group === 'collected';
+                const isCollected = !isArchived && !isSubmitted && isPendingCollectedStatus(entry.status);
                 const batchChecked = batchSelected.has(entry.id);
                 return (
                   <div
@@ -1463,7 +1623,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
                 );
               })
             )}
-            {/* 列表底部工具行：批量提交专属位置（随 collected 分组显隐，多选汇总/禁用/title 逻辑不变，右对齐单色） */}
+            {/* 列表底部工具行：批量提交专属位置（随本地收录 · 非已提交分段显隐，多选汇总/禁用/title 逻辑不变，右对齐单色） */}
             {showBatchSelection && (
               <div
                 className="pending-list-toolbar"
@@ -1474,7 +1634,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
                   type="button"
                   className="btn-fluent btn-primary btn-sm"
                   data-testid="pending-batch-submit"
-                  disabled={batchBusy || batchSelected.size === 0}
+                  disabled={batchBusy || batchPicked.length === 0}
                   onClick={() => void handleBatchSubmit()}
                   title={
                     hasBatchErrors
@@ -1488,7 +1648,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
                   <span>
                     {batchBusy
                       ? t('pending.pr.batch_submitting')
-                      : t('pending.pr.batch_submit', { count: batchSelected.size })}
+                      : t('pending.pr.batch_submit', { count: batchPicked.length })}
                   </span>
                 </button>
               </div>
@@ -1514,7 +1674,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
                     <div className="pending-editor-title-wrap">
                       {editingEntry.archived ? (
                         <Archive size={15} strokeWidth={1.5} aria-hidden="true" style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
-                      ) : editingEntry.status === 'submitted' ? (
+                      ) : isSubmittedEntry(editingEntry) ? (
                         <Send size={15} strokeWidth={1.5} aria-hidden="true" style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
                       ) : (
                         <PackageCheck size={15} strokeWidth={1.5} aria-hidden="true" style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
@@ -1529,13 +1689,13 @@ export const PendingView: React.FC<PendingViewProps> = ({
                         <span className="nav-badge" title={t('pending.archived_badge')}>
                           {t('pending.archived_badge')}
                         </span>
-                      ) : editingEntry.status === 'submitted' ? (
+                      ) : isSubmittedEntry(editingEntry) ? (
                         <span className="nav-badge" style={{ color: 'var(--brand-primary)', borderColor: 'var(--brand-glow)' }}>
-                          {t('pending.groups.submitted')}
+                          {t('pending.segments.submitted')}
                         </span>
                       ) : (
-                        <span className="nav-badge" title={t('pending.groups.collected')}>
-                          {t('pending.groups.collected')}
+                        <span className="nav-badge" title={t('pending.groups.library')}>
+                          {t('pending.groups.library')}
                         </span>
                       )}
                     </div>
@@ -1566,10 +1726,29 @@ export const PendingView: React.FC<PendingViewProps> = ({
                     </div>
                   )}
 
-                  {/* 富卡底部：collected=PR 主/退回次，submitted=PR 链接+删除，archived=只读+复制为新草稿 */}
+                  {/* 富卡底部：collected=提交 Issue 主/退回次，submitted=Issue 链接+删除，archived=只读+复制为新草稿 */}
                   <div className="pending-editor-footer">
                     <div className="pending-editor-footer-actions">
-                      {!editingEntry.archived && editingEntry.status === 'submitted' && (
+                      {onWithdrawSubmitted && isSubmittedEntry(editingEntry) && (
+                        <button
+                          type="button"
+                          className="btn-fluent btn-secondary btn-sm"
+                          data-testid="pending-withdraw-submitted"
+                          disabled={withdrawingId === editingEntry.id}
+                          onClick={() => void handleWithdrawSubmitted(editingEntry.id)}
+                          title={t('pending.withdraw_hint', { id: editingEntry.id })}
+                        >
+                          <Undo2 size={13} strokeWidth={1.5} aria-hidden="true" />
+                          <span>
+                            {withdrawingId === editingEntry.id
+                              ? t('pending.withdrawing')
+                              : confirmWithdrawId === editingEntry.id
+                                ? t('pending.confirm_withdraw')
+                                : t('pending.withdraw_submitted')}
+                          </span>
+                        </button>
+                      )}
+                      {!editingEntry.archived && isSubmittedEntry(editingEntry) && (
                         <button
                           type="button"
                           className="btn-fluent btn-secondary btn-sm"
@@ -1627,7 +1806,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
                       )}
                     </div>
 
-                    {/* 已提交展 PR 链接 + 删除（不再重复提交）；已收录才展手动标记行；已归档只读 */}
+                    {/* 已提交展 Issue 链接 + 删除（不再重复提交）；已收录才展手动标记行；已归档只读 */}
                     {!editingEntry.archived && isPendingCollectedStatus(editingEntry.status) && (
                       <div className="pending-editor-footer-manual">
                         <div className="pending-manual-label">{t('pending.submit_title')}</div>
@@ -1891,14 +2070,14 @@ export const PendingView: React.FC<PendingViewProps> = ({
                         {t('pending.archived_badge')}
                       </span>
                     )}
-                    {!isCreating && editingEntry?.status === 'submitted' && (
+                    {!isCreating && editingEntry && isSubmittedEntry(editingEntry) && (
                       <span className="nav-badge" style={{ color: 'var(--brand-primary)', borderColor: 'var(--brand-glow)' }}>
-                        {t('pending.groups.submitted')}
+                        {t('pending.segments.submitted')}
                       </span>
                     )}
                     {!isCreating && editingEntry && !editingEntry.archived && isPendingCollectedStatus(editingEntry.status) && editingEntry.status !== 'submitted' && (
-                      <span className="nav-badge" title={t('pending.groups.collected')}>
-                        {t('pending.groups.collected')}
+                      <span className="nav-badge" title={t('pending.groups.library')}>
+                        {t('pending.groups.library')}
                       </span>
                     )}
                   </div>

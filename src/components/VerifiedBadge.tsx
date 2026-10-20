@@ -1,7 +1,7 @@
 import React from 'react';
 import { BadgeCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { isCollectedStatus } from '../app/selectors';
+import { isLocalLibraryStatus } from '../app/selectors';
 
 type VerifiedBadgeVariant = 'verified' | 'local';
 
@@ -26,7 +26,7 @@ export function resolveVerifiedBadgeVariant(app: {
   if ((app as { is_verified?: unknown }).is_verified === true) return 'verified';
   if ((app as { source?: unknown }).source === 'local') return 'local';
   const status = (app as { status?: unknown }).status;
-  if (isCollectedStatus(status)) return 'local';
+  if (isLocalLibraryStatus(status)) return 'local';
   return null;
 }
 

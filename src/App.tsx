@@ -3,7 +3,7 @@ import { TitleBar } from './components/TitleBar';
 // ResizeHandles is only loaded in Tauri desktop environment; in test/web environments
 // it is skipped to avoid evaluating Tauri internals or failing on mock contracts.
 const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-/** Live demo has no backend persistence or system browser; omit PR providers so PendingView shows the desktop-only hint. */
+/** Live demo has no backend persistence or system browser; omit Issue providers so PendingView shows the desktop-only hint. */
 const DEMO_MODE = Boolean(import.meta.env.VITE_DEMO);
 const ResizeHandles = isTauriEnv
   ? React.lazy(() => import('./components/ResizeHandles').then((m) => ({ default: m.ResizeHandles })))
@@ -47,7 +47,7 @@ import { useDetailCacheSync } from './app/hooks/useDetailCacheSync';
 import { useUncatalogedJoin } from './app/favoritesUncataloged';
 import { useAppSubscriptions } from './app/hooks/useAppSubscriptions';
 import { useAppSelectors } from './app/selectors';
-import { isCollectedStatus, selectMergedCatalogApps } from './app/selectors';
+import { isLocalLibraryStatus, selectMergedCatalogApps } from './app/selectors';
 import { isInstalled as selectIsInstalled, isManaged as selectIsManaged } from './app/selectors';
 import { useUpdateActions } from './app/hooks/useUpdateActions';
 import { useToasts } from './useToasts';
@@ -173,6 +173,10 @@ export const App: React.FC = () => {
     await tauriApi.collectLocalApp(id);
     await reloadCustomApps();
   };
+  const handleWithdrawSubmitted = async (id: string) => {
+    await tauriApi.withdrawSubmitted(id);
+    await reloadCustomApps();
+  };
   const handleRevertCollectedApp = async (id: string) => {
     try {
       await tauriApi.revertCollectedApp(id);
@@ -193,11 +197,11 @@ export const App: React.FC = () => {
     }
   };
 
-  // 本地收录合并流：仅 collected 系（含磁盘残留 local_collected）且未归档进入首页/分类（可搜可装，橘黄 local 徽标）。
-  const collectedSummaries = useMemo(() => {
+  // 本地库合并流：仅库内成员（collected 系 + 已提交 submitted）且未归档进入首页/分类（可搜可装，橘黄 local 徽标）。
+  const localLibrarySummaries = useMemo(() => {
     const out: Array<AppSummary & { status: string; archived: boolean }> = [];
     for (const e of customApps ?? []) {
-      if (e.archived || !isCollectedStatus(e.status)) continue;
+      if (e.archived || !isLocalLibraryStatus(e.status)) continue;
       out.push(entryToCollectedSummary(e));
     }
     return out;
@@ -271,8 +275,8 @@ export const App: React.FC = () => {
   // 合并后全量（含本地，远端优先去重语义不动）：收藏 join/详情标注共用此口径，
   // 本地行保留 source='local'/status 供黄标判定。
   const mergedAppsForJoins = useMemo(
-    () => selectMergedCatalogApps(apps, collectedSummaries, true),
-    [apps, collectedSummaries],
+    () => selectMergedCatalogApps(apps, localLibrarySummaries, true),
+    [apps, localLibrarySummaries],
   );
 
   // 3. 收藏/关注未收录占位行 left-join（深 join 模块 `useUncatalogedJoin`；
@@ -300,7 +304,7 @@ export const App: React.FC = () => {
     setSelectedApp,
     setPlatformResolvedOtherIds,
     // customApps 未加载（null）即本地 lookup 未知：后端盖章行原样透传，避免误清本地标注。
-    localApps: customApps === null ? undefined : collectedSummaries,
+    localApps: customApps === null ? undefined : localLibrarySummaries,
   });
 
   // 深链调度分发器（功能 E）
@@ -382,7 +386,7 @@ export const App: React.FC = () => {
     currentView,
     updatesCount: updates.length,
     // customApps 未加载（null）即本地 lookup 未知：不误清已渲染的最近浏览黄标。
-    localApps: customApps === null ? undefined : collectedSummaries,
+    localApps: customApps === null ? undefined : localLibrarySummaries,
   });
 
   // 6. 派生选择器（平台过滤/计数/收藏 left-join 供给/已安装-更新过滤/深链确认解析）
@@ -414,7 +418,7 @@ export const App: React.FC = () => {
     recentlyViewedApps,
     currentView,
     stagedDeepLinkInstall,
-    customApps: collectedSummaries,
+    customApps: localLibrarySummaries,
   });
 
   // 7. 更新规则动作簇（单项更新/忽略/跳过/锁定/隐藏/规则管理/批量升级/手动检查）
@@ -694,7 +698,7 @@ export const App: React.FC = () => {
                 isLoadingOnlineMore={isLoadingOnlineMore}
                 onOnlineLoadMore={handleOnlineLoadMore}
                 customIds={customIds}
-                localApps={collectedSummaries}
+                localApps={localLibrarySummaries}
               />
             )
           )}
@@ -717,7 +721,7 @@ export const App: React.FC = () => {
               onToggleWatch={handleToggleWatch}
               onResetPlatformFilter={handleResetPlatformFilter}
               customIds={customIds}
-              localApps={collectedSummaries}
+              localApps={localLibrarySummaries}
             />
           )}
 
@@ -746,6 +750,7 @@ export const App: React.FC = () => {
               onMarkSubmitted={(id, prUrl) => handleMarkCustomSubmitted(id, prUrl)}
               onCollectLocal={(id) => handleCollectLocalApp(id)}
               onRevertToDraft={(id) => handleRevertCollectedApp(id)}
+              onWithdrawSubmitted={(id) => handleWithdrawSubmitted(id)}
               onGetPrUrl={DEMO_MODE ? undefined : (id) => tauriApi.getCustomAppPrUrl(id)}
               onGetBatchPrUrl={DEMO_MODE ? undefined : (ids) => tauriApi.getCustomAppsBatchPrUrl(ids)}
               onGetPrPayload={DEMO_MODE ? undefined : (id) => tauriApi.getCustomAppPrPayload(id)}

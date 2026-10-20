@@ -126,7 +126,7 @@ describe('PendingView grouping and empty states', () => {
     expect(screen.getByText('新建草稿')).toBeTruthy();
   });
 
-  it('groups drafts by status and shows pr_url on submitted', async () => {
+  it('groups drafts into 3 tabs and shows pr_url in the library pending-merge segment', async () => {
     await i18n.changeLanguage('zh-CN');
     const entries = [
       draftEntry({ id: 'o/a' }),
@@ -136,45 +136,56 @@ describe('PendingView grouping and empty states', () => {
       draftEntry({ id: 'o/c', archived: true }),
     ];
     const { container } = render(<PendingView showBatchBar={false} initialEntries={entries} />);
-    // 四态分组齐备（draft→collected→submitted→archived）；页头无计数徽标，计数由 Tab 自带
+    // 三态分组：草稿 / 本地收录 / 已归档；Issue 进度降为本地收录内部分段
     expect(container.querySelector('.pending-header .nav-badge')).toBeNull();
     expect(screen.getByText('草稿')).toBeTruthy();
     expect(screen.getByText('本地收录')).toBeTruthy();
-    expect(screen.getByText('已提交待合入')).toBeTruthy();
     expect(screen.getByText('已归档')).toBeTruthy();
-    // Tab 自带草稿/收录计数保留（1/2/1/1）
+    expect(screen.queryByText('已提交')).toBeNull();
+    // Tab 计数按分区：1 草稿 + 3 本地收录（collected/local_collected/submitted）+ 1 归档
     const counts = Array.from(container.querySelectorAll('.segmented-count')).map((el) => el.textContent ?? '');
-    expect(counts).toEqual(['1', '2', '1', '1']);
-    // tab 顺序：草稿 → 本地收录 → 已提交待合入 → 已归档
+    expect(counts).toEqual(['1', '3', '1']);
+    // tab 顺序：草稿 → 本地收录 → 已归档；分段不占顶层 Tab
     const tabs = Array.from(container.querySelectorAll('.segmented-item')).map((el) =>
       el.textContent ?? '',
     );
-    expect(tabs).toHaveLength(4);
+    expect(tabs).toHaveLength(3);
     expect(tabs[0]).toContain('草稿');
     expect(tabs[1]).toContain('本地收录');
-    expect(tabs[2]).toContain('已提交待合入');
-    expect(tabs[3]).toContain('已归档');
-    // 默认草稿分组仅见 o/a（collected 不再折进 draft；批量栏候选不计入列表断言）
+    expect(tabs[2]).toContain('已归档');
+    // 默认草稿分组仅见 o/a
     const listText = () => container.querySelector('.pending-list')?.textContent ?? '';
     expect(listText()).toContain('o/a');
     expect(listText()).not.toContain('o/col');
-    // 已收录未提交归 collected（含 local_collected），与 submitted 互斥
+    // 本地收录默认「全部」：collected 系 + submitted 同列
     fireEvent.click(screen.getByText('本地收录'));
     expect(listText()).toContain('o/col');
     expect(listText()).toContain('o/lc');
+    expect(listText()).toContain('o/b');
     expect(listText()).not.toContain('o/a');
-    expect(listText()).not.toContain('o/b');
+    expect(screen.getByTestId('pending-segment-all')).toBeTruthy();
+    expect(screen.getByTestId('pending-segment-to_submit')).toBeTruthy();
+    expect(screen.getByTestId('pending-segment-submitted')).toBeTruthy();
     // 选中已收录行：编辑头显已收录徽标，收录按钮隐藏（仅 draft 显示）
     fireEvent.click(screen.getByText('o/col'));
     expect(screen.getAllByText('本地收录').length).toBeGreaterThanOrEqual(2);
     expect(screen.queryByTestId('pending-collect-local')).toBeNull();
     expect(screen.getByTestId('pending-submit-pr')).toBeTruthy();
-    // 切换到已提交待合入分组可见 PR 链接
-    fireEvent.click(screen.getByText('已提交待合入'));
+    // 已提交分段仅见 submitted，Issue 链接可见
+    fireEvent.click(screen.getByTestId('pending-segment-submitted'));
+    expect(listText()).toContain('o/b');
+    expect(listText()).not.toContain('o/col');
+    expect(listText()).not.toContain('o/lc');
     expect(screen.getByText('https://github.com/x/y/pull/1')).toBeTruthy();
-    // 切换到已归档分组
+    // 待提交分段仅见 collected 系
+    fireEvent.click(screen.getByTestId('pending-segment-to_submit'));
+    expect(listText()).toContain('o/col');
+    expect(listText()).toContain('o/lc');
+    expect(listText()).not.toContain('o/b');
+    // 切换到已归档分组（分段控件不展）
     fireEvent.click(screen.getByText('已归档'));
     expect(listText()).toContain('o/c');
+    expect(screen.queryByTestId('pending-segment-all')).toBeNull();
   });
 
   it('switches title between Chinese and English', async () => {
@@ -615,7 +626,7 @@ describe('PendingView 逐框内联校验（submit 档即时标错，不 toast）
   });
 });
 
-describe('PendingView 顶层四态切 Tab 联动（右侧详情/批量栏/操作按钮随 activeGroup 切换）', () => {
+describe('PendingView 顶层三态切 Tab 联动（右侧详情/批量栏/操作按钮随 activeGroup 切换）', () => {
   const gate: LicenseAllowlistResult = {
     enabled: true,
     allowed: ['MIT', 'ISC', 'Apache-2.0', 'GPL-3.0', 'MPL-2.0', 'Unlicense'],
@@ -639,14 +650,14 @@ describe('PendingView 顶层四态切 Tab 联动（右侧详情/批量栏/操作
     expect(container.querySelector('.pending-header .nav-badge')).toBeNull();
     // Tab 自带草稿/收录计数保留
     expect(container.querySelector('.segmented-group')?.textContent).toContain('草稿');
-    expect(container.querySelectorAll('.segmented-count')).toHaveLength(4);
+    expect(container.querySelectorAll('.segmented-count')).toHaveLength(3);
     expect(screen.queryByTestId('pending-batch-submit')).toBeNull();
     expect(screen.queryByTestId('pending-batch-toolbar')).toBeNull();
     expect(screen.queryByTestId('pending-batch-bar')).toBeNull();
     // draft 列表无多选 checkbox
     expect(container.querySelector('.pending-list input[type="checkbox"]')).toBeNull();
     fireEvent.click(screen.getByText('o/draft'));
-    // 表单态：保存草稿 + 收录主按钮，无提交 PR，无富卡黄标
+    // 表单态：保存草稿 + 收录主按钮，无提交 Issue，无富卡黄标
     expect(screen.getByText('保存草稿')).toBeTruthy();
     expect(screen.getByTestId('pending-collect-local')).toBeTruthy();
     expect(screen.queryByTestId('pending-submit-pr')).toBeNull();
@@ -667,9 +678,10 @@ describe('PendingView 顶层四态切 Tab 联动（右侧详情/批量栏/操作
     // 工具行位于列表底部：.pending-list 最后一个子节点，排在所有列表项之后
     expect(container.querySelector('.pending-list')?.lastElementChild?.getAttribute('data-testid')).toBe('pending-batch-toolbar');
     expect(screen.queryByTestId('pending-batch-bar')).toBeNull();
-    // 列表多选 checkbox 仅 collected/submitted 可见
+    // 列表多选 checkbox 仅 collected 行可见（submitted 同列但不可勾选）
     const checkbox = container.querySelector('.pending-list input[type="checkbox"][aria-label="o/col"]') as HTMLInputElement;
     expect(checkbox).toBeTruthy();
+    expect(container.querySelector('.pending-list input[type="checkbox"][aria-label="o/sub"]')).toBeNull();
     fireEvent.click(checkbox);
     await waitFor(() => expect((screen.getByTestId('pending-batch-submit') as HTMLButtonElement).disabled).toBe(false));
     // 点左侧列表项进详情（checkbox 点击不触发选中，已由 stopPropagation 隔离）
@@ -693,13 +705,14 @@ describe('PendingView 顶层四态切 Tab 联动（右侧详情/批量栏/操作
         onGetLicenseAllowlist={gateProvider}
       />,
     );
-    fireEvent.click(screen.getByText('已提交待合入'));
-    // submitted 分组无批量：工具行隐藏、列表不可多选（批量仅本地收录可见）
+    fireEvent.click(screen.getByText('本地收录'));
+    fireEvent.click(screen.getByTestId('pending-segment-submitted'));
+    // 已提交分段无批量：工具行隐藏、列表不可多选
     expect(screen.queryByTestId('pending-batch-submit')).toBeNull();
     expect(screen.queryByTestId('pending-batch-toolbar')).toBeNull();
     expect(container.querySelector('.pending-list input[type="checkbox"]')).toBeNull();
     fireEvent.click(screen.getByText('o/sub'));
-    // 列表与详情各展一次 PR 链接（同文案双节点），断言至少详情区展出
+    // 列表与详情各展一次 Issue 链接（同文案双节点），断言至少详情区展出
     expect(screen.getAllByText('https://github.com/x/y/pull/9').length).toBeGreaterThanOrEqual(1);
     // 富卡黄标 + 无表单
     expect(document.querySelector('.pending-editor .verified-badge-local')).toBeTruthy();
@@ -709,8 +722,10 @@ describe('PendingView 顶层四态切 Tab 联动（右侧详情/批量栏/操作
     expect(screen.queryByTestId('pending-revert-to-draft')).toBeNull();
     expect(screen.queryByTestId('pending-collect-local')).toBeNull();
     expect(screen.queryByText('标记已提交')).toBeNull();
-    // 已提交待合入允许删除：二次确认复用删除形态（首点确认态，次点执行）
+    // 已提交允许删除：二次确认复用删除形态（首点确认态，次点执行）
     expect(screen.getByTestId('pending-delete')).toBeTruthy();
+    // 未接线撤下回调时不渲染撤下动作（预览/单测安全）
+    expect(screen.queryByTestId('pending-withdraw-submitted')).toBeNull();
   });
 
   it('submitted 删除走二次确认（本地态删后退出选中，列表不再含该行）', async () => {
@@ -724,7 +739,8 @@ describe('PendingView 顶层四态切 Tab 联动（右侧详情/批量栏/操作
         onGetLicenseAllowlist={gateProvider}
       />,
     );
-    fireEvent.click(screen.getByText('已提交待合入'));
+    fireEvent.click(screen.getByText('本地收录'));
+    fireEvent.click(screen.getByTestId('pending-segment-submitted'));
     fireEvent.click(screen.getByText('o/sub'));
     // 首点仅置确认态，不删行
     fireEvent.click(screen.getByTestId('pending-delete'));
@@ -751,7 +767,8 @@ describe('PendingView 顶层四态切 Tab 联动（右侧详情/批量栏/操作
         onGetLicenseAllowlist={gateProvider}
       />,
     );
-    fireEvent.click(screen.getByText('已提交待合入'));
+    fireEvent.click(screen.getByText('本地收录'));
+    fireEvent.click(screen.getByTestId('pending-segment-submitted'));
     fireEvent.click(screen.getByText('o/sub'));
     fireEvent.click(screen.getByTestId('pending-delete'));
     fireEvent.click(screen.getByTestId('pending-delete'));
@@ -804,6 +821,230 @@ describe('PendingView 顶层四态切 Tab 联动（右侧详情/批量栏/操作
 function readPendingCss(): string {
   return readFileSync(join(process.cwd(), 'src', 'styles', 'components-pending.css'), 'utf8');
 }
+
+describe('PendingView 3 tabs + 本地收录内部分段（计数分区 / 批量门禁）', () => {
+  const gate: LicenseAllowlistResult = {
+    enabled: true,
+    allowed: ['MIT', 'ISC', 'Apache-2.0', 'GPL-3.0', 'MPL-2.0', 'Unlicense'],
+  };
+  const gateProvider = () => Promise.resolve(gate);
+
+  function libraryEntries(): CustomDraftEntry[] {
+    return [
+      draftEntry({ id: 'o/draft' }),
+      draftEntry({ id: 'o/col', status: 'collected' }),
+      draftEntry({ id: 'o/lc', status: 'local_collected' }),
+      draftEntry({ id: 'o/sub', status: 'submitted', pr_url: 'https://github.com/x/y/pull/9' }),
+      draftEntry({ id: 'o/arch', archived: true }),
+    ];
+  }
+
+  it('tab counts partition every entry (draft + library + archived = total, no double count)', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const entries = libraryEntries();
+    const { container } = render(<PendingView entries={entries} onGetLicenseAllowlist={gateProvider} />);
+    const counts = Array.from(container.querySelectorAll('.segmented-count')).map((el) =>
+      Number(el.textContent ?? '0'),
+    );
+    expect(counts).toEqual([1, 3, 1]);
+    expect(counts.reduce((sum, n) => sum + n, 0)).toBe(entries.length);
+  });
+
+  it('segments filter all / to-submit / pending-merge and reset the detail selection', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const { container } = render(
+      <PendingView showBatchBar={false} entries={libraryEntries()} onGetLicenseAllowlist={gateProvider} />,
+    );
+    const listText = () => container.querySelector('.pending-list')?.textContent ?? '';
+    fireEvent.click(screen.getByText('本地收录'));
+    // 全部：collected 系 + submitted
+    expect(listText()).toContain('o/col');
+    expect(listText()).toContain('o/lc');
+    expect(listText()).toContain('o/sub');
+    // 选中后切分段：选中/表单重置回空态
+    fireEvent.click(screen.getByText('o/col'));
+    expect(screen.getByTestId('pending-submit-pr')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('pending-segment-to_submit'));
+    expect(screen.queryByTestId('pending-submit-pr')).toBeNull();
+    expect(screen.getByText('选择或新建一份草稿')).toBeTruthy();
+    // 待提交：仅 collected 系
+    expect(listText()).toContain('o/col');
+    expect(listText()).toContain('o/lc');
+    expect(listText()).not.toContain('o/sub');
+    // 已提交：仅 submitted
+    fireEvent.click(screen.getByTestId('pending-segment-submitted'));
+    expect(listText()).toContain('o/sub');
+    expect(listText()).not.toContain('o/col');
+    expect(listText()).not.toContain('o/lc');
+    // 空分段给专用空态文案
+    fireEvent.click(screen.getByTestId('pending-segment-all'));
+    expect(listText()).toContain('o/col');
+  });
+
+  it('empty segment shows its own copy instead of the generic group empty state', async () => {
+    await i18n.changeLanguage('zh-CN');
+    render(<PendingView showBatchBar={false} entries={[draftEntry({ id: 'o/col', status: 'collected' })]} />);
+    fireEvent.click(screen.getByText('本地收录'));
+    fireEvent.click(screen.getByTestId('pending-segment-submitted'));
+    expect(screen.getByText('没有已提交的应用')).toBeTruthy();
+    expect(screen.getByText('已提交 Issue、等待收录的应用会出现在这里。')).toBeTruthy();
+    expect(screen.queryByText('该分组暂无草稿')).toBeNull();
+  });
+
+  it('batch bar only exists in library non-pending-merge; submitted ids are never selectable', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const { container } = render(<PendingView entries={libraryEntries()} onGetLicenseAllowlist={gateProvider} />);
+    fireEvent.click(screen.getByText('本地收录'));
+    // 全部段：批量栏在，但只有 collected 行有 checkbox
+    expect(screen.getByTestId('pending-batch-toolbar')).toBeTruthy();
+    expect(container.querySelector('.pending-list input[type="checkbox"][aria-label="o/col"]')).toBeTruthy();
+    expect(container.querySelector('.pending-list input[type="checkbox"][aria-label="o/lc"]')).toBeTruthy();
+    expect(container.querySelector('.pending-list input[type="checkbox"][aria-label="o/sub"]')).toBeNull();
+    // 勾选 collected → 批量可点
+    fireEvent.click(container.querySelector('.pending-list input[type="checkbox"][aria-label="o/col"]') as HTMLInputElement);
+    await waitFor(() => expect((screen.getByTestId('pending-batch-submit') as HTMLButtonElement).disabled).toBe(false));
+    // 切到已提交：批量栏消失、无复选框
+    fireEvent.click(screen.getByTestId('pending-segment-submitted'));
+    expect(screen.queryByTestId('pending-batch-toolbar')).toBeNull();
+    expect(screen.queryByTestId('pending-batch-submit')).toBeNull();
+    expect(container.querySelector('.pending-list input[type="checkbox"]')).toBeNull();
+    // 切回待提交：批量栏回来，上一段选择已在切换时重置
+    fireEvent.click(screen.getByTestId('pending-segment-to_submit'));
+    expect(screen.getByTestId('pending-batch-toolbar')).toBeTruthy();
+    expect((screen.getByTestId('pending-batch-submit') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('prunes a selected collected id when the row becomes submitted after a parent refresh', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const collected = draftEntry({ id: 'o/col', status: 'collected' });
+    const { container, rerender } = render(
+      <PendingView entries={[collected]} onGetLicenseAllowlist={gateProvider} />,
+    );
+    fireEvent.click(screen.getByText('本地收录'));
+    fireEvent.click(container.querySelector('.pending-list input[type="checkbox"][aria-label="o/col"]') as HTMLInputElement);
+    await waitFor(() => expect((screen.getByTestId('pending-batch-submit') as HTMLButtonElement).disabled).toBe(false));
+    // 父级刷新：同 id 变为 submitted（仍在库内，但不可入批）
+    rerender(
+      <PendingView
+        entries={[draftEntry({ id: 'o/col', status: 'submitted', pr_url: 'https://github.com/x/y/pull/3' })]}
+        onGetLicenseAllowlist={gateProvider}
+      />,
+    );
+    await waitFor(() =>
+      expect((screen.getByTestId('pending-batch-submit') as HTMLButtonElement).disabled).toBe(true),
+    );
+    expect(container.querySelector('.pending-list input[type="checkbox"]')).toBeNull();
+  });
+});
+
+describe('PendingView 标记为未提交（submitted → collected，二次确认）', () => {
+  const gate: LicenseAllowlistResult = {
+    enabled: true,
+    allowed: ['MIT', 'ISC', 'Apache-2.0', 'GPL-3.0', 'MPL-2.0', 'Unlicense'],
+  };
+  const gateProvider = () => Promise.resolve(gate);
+
+  function submittedEntry(): CustomDraftEntry {
+    return draftEntry({ id: 'o/sub', status: 'submitted', pr_url: 'https://github.com/o/r/pull/7' });
+  }
+
+  async function openSubmitted(submitProps: Parameters<typeof PendingView>[0] = {}) {
+    const view = render(
+      <PendingView
+        entries={[submittedEntry()]}
+        onGetLicenseAllowlist={gateProvider}
+        {...submitProps}
+      />,
+    );
+    fireEvent.click(screen.getByText('本地收录'));
+    fireEvent.click(screen.getByTestId('pending-segment-submitted'));
+    fireEvent.click(screen.getByText('o/sub'));
+    return view;
+  }
+
+  it('hides the action when no callback is wired (preview/unit safety)', async () => {
+    await i18n.changeLanguage('zh-CN');
+    await openSubmitted();
+    expect(screen.queryByTestId('pending-withdraw-submitted')).toBeNull();
+    // 删除仍在（原 submitted 行为不回退）
+    expect(screen.getByTestId('pending-delete')).toBeTruthy();
+  });
+
+  it('double-confirms, calls the callback, and returns the row to 待提交 after parent refresh', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const onWithdrawSubmitted = vi.fn().mockResolvedValue(undefined);
+    const onNotify = vi.fn();
+    const { rerender } = await openSubmitted({ onWithdrawSubmitted, onNotify });
+
+    const btn = screen.getByTestId('pending-withdraw-submitted');
+    fireEvent.click(btn);
+    // 首点仅确认态，不调后端
+    expect(screen.getByText('再次点击确认')).toBeTruthy();
+    expect(onWithdrawSubmitted).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('pending-withdraw-submitted'));
+    await waitFor(() => expect(onWithdrawSubmitted).toHaveBeenCalledWith('o/sub'));
+    await waitFor(() =>
+      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('o/sub'), 'success'),
+    );
+    // 受控模式不静默本地翻态：父级刷新前行仍在
+    expect(screen.getAllByText('o/sub').length).toBeGreaterThanOrEqual(1);
+
+    // 父级刷新：同 id 回到 collected，已提交分段清空、待提交分段可重新提交
+    rerender(
+      <PendingView
+        entries={[draftEntry({ id: 'o/sub', status: 'collected', pr_url: null })]}
+        onWithdrawSubmitted={onWithdrawSubmitted}
+        onGetLicenseAllowlist={gateProvider}
+      />,
+    );
+    expect(screen.queryByTestId('pending-withdraw-submitted')).toBeNull();
+    expect(screen.getByText('没有已提交的应用')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('pending-segment-to_submit'));
+    expect(screen.getByText('o/sub')).toBeTruthy();
+    fireEvent.click(screen.getByText('o/sub'));
+    expect(screen.getByTestId('pending-submit-pr')).toBeTruthy();
+  });
+
+  it('disables the action while running and keeps the row when the callback fails', async () => {
+    await i18n.changeLanguage('zh-CN');
+    let rejectWithdraw: (err: Error) => void = () => {};
+    const onWithdrawSubmitted = vi.fn(
+      () => new Promise<void>((_resolve, reject) => {
+        rejectWithdraw = reject;
+      }),
+    );
+    const onNotify = vi.fn();
+    await openSubmitted({ onWithdrawSubmitted, onNotify });
+    fireEvent.click(screen.getByTestId('pending-withdraw-submitted'));
+    fireEvent.click(screen.getByTestId('pending-withdraw-submitted'));
+    await waitFor(() => expect((screen.getByTestId('pending-withdraw-submitted') as HTMLButtonElement).disabled).toBe(true));
+    expect(screen.getByText('处理中…')).toBeTruthy();
+    rejectWithdraw(new Error('withdraw rejected'));
+    await waitFor(() =>
+      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('withdraw rejected'), 'error'),
+    );
+    // 失败不翻态：行仍在已提交，动作恢复可点
+    expect(screen.getAllByText('o/sub').length).toBeGreaterThanOrEqual(1);
+    const btn = screen.getByTestId('pending-withdraw-submitted') as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+    expect(screen.getByText('标记为未提交')).toBeTruthy();
+  });
+
+  it('archived rows keep the read-only card without a withdraw action', async () => {
+    await i18n.changeLanguage('zh-CN');
+    render(
+      <PendingView
+        entries={[draftEntry({ id: 'arch/one', archived: true })]}
+        onWithdrawSubmitted={vi.fn().mockResolvedValue(undefined)}
+        onGetLicenseAllowlist={gateProvider}
+      />,
+    );
+    fireEvent.click(screen.getByText('已归档'));
+    fireEvent.click(screen.getByText('arch/one'));
+    expect(screen.getByText('已转正归档')).toBeTruthy();
+    expect(screen.queryByTestId('pending-withdraw-submitted')).toBeNull();
+  });
+});
 
 describe('PendingView 草稿简介随语言切换（列表/预览/空态复用现有文案）', () => {
   const gate: LicenseAllowlistResult = {
@@ -977,7 +1218,7 @@ describe('PendingView 草稿简介随语言切换（列表/预览/空态复用�
         onGetLicenseAllowlist={gateProvider}
       />,
     );
-    fireEvent.click(screen.getByText('Collected'));
+    fireEvent.click(screen.getByText('Local Library'));
     fireEvent.click(screen.getByText('o/a'));
     expect(document.querySelector('.pending-editor .app-desc')?.textContent).toBe('English desc');
   });

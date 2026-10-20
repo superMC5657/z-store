@@ -22,7 +22,7 @@ OSI 全量名单。用户需求希望门禁可开关、可控范围（例如本�
    `normalize_license` 归一（config 子集大小写/空格形态同样命中）。
    门禁唯一源为编译时 config：行为只由 `config.toml` 在编译发行时确定，
    无运行时覆盖、无用户提醒，静默生效。
-3. **生效点**：仅提交档（`mark_submitted` / 单条与批量预填 PR 链接）；
+3. **生效点**：仅提交档（`mark_submitted` / 单条与批量 Issue 预填链接）；
    暂存档（`DraftLenient`）行为不变。门禁关闭放行任意非空 license，但记
    WARN 审计日志（`license gate DISABLED … (local-only bypass, non-official)`，
    口径参照 `fetch_remote_catalog` 非默认源 WARN，仅日志文件可见）。

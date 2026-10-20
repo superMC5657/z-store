@@ -81,17 +81,17 @@ impl CatalogService {
         out
     }
 
-    /// 本地收录 overlay 同步（启动与 `custom_apps` 每次变更后调用）：
-    /// 输入须已过滤为 collected 系且未归档，库内保存原始 payload。
+    /// 本地库 overlay 同步（启动与 `custom_apps` 每次变更后调用）：
+    /// 输入须已过滤为未归档的 collected 系/`submitted`，库内保存原始 payload。
     pub fn set_collected_items(&self, items: Vec<CatalogItem>) {
         if let Ok(mut lock) = self.collected.write() {
             *lock = items;
         }
     }
 
-    /// 从 SQLite `custom_apps` 重读本地收录 overlay（最佳努力，失败即保持现值）。
+    /// 从 SQLite `custom_apps` 重读本地库 overlay（最佳努力，失败即保持现值）。
     pub fn sync_collected_from_db(&self, db: &crate::db::Database) {
-        if let Ok(items) = db.list_collected_custom_items() {
+        if let Ok(items) = db.list_local_library_items() {
             self.set_collected_items(items);
         }
     }
@@ -105,12 +105,12 @@ impl CatalogService {
             .and_then(|items| items.iter().find(|i| i.id == key).cloned())
     }
 
-    /// 本地收录 overlay 全量（`status` 为 collected 系且未归档）。
+    /// 本地库 overlay 全量（collected 系/`submitted` 且未归档）。
     pub fn get_collected_items(&self) -> Vec<CatalogItem> {
         self.collected.read().map(|c| c.clone()).unwrap_or_default()
     }
 
-    /// 按 canonical id 检索本地收录项（`status` 为 collected 系且未归档）。
+    /// 按 canonical id 检索本地库项（collected 系/`submitted` 且未归档）。
     pub fn get_collected_item(&self, id: &str) -> Option<CatalogItem> {
         let key = crate::forge::canonical_app_id(id)?;
         self.collected
@@ -384,16 +384,16 @@ impl CatalogService {
         Ok((Some(items), new_etag))
     }
 
-    /// 本地收录 overlay 唯一口径：仅 `status==collected && !archived` 行参与合并。
-    /// 调用方须先经 `db::custom_apps::list_collected_*` 或 `collected_overlay_items` 过滤；
+    /// 本地库 overlay 唯一口径：未归档的 collected 系 + `submitted` 行参与合并。
+    /// 调用方须先经 `db::custom_apps::list_local_library_*` 或 `collected_overlay_items` 过滤；
     /// 本函数不做状态判断，仅执行远端优先去重合并（`catalog.json` 只读禁写回，
     /// 合并不写回内存 `items`，转正由退役标记处理）。
     pub fn is_collected_overlay_status(status: &str, archived: bool) -> bool {
-        status == crate::db::custom_apps::CUSTOM_APP_STATUS_COLLECTED && !archived
+        crate::db::custom_apps::is_local_library_status(status) && !archived
     }
 
-    /// 本地收录 overlay 合并（ADR-0017）：本地收录条目叠加到内存目录视图。
-    /// - 输入 `custom` 调用方须已过滤为本地收录（`status==collected && !archived`）；
+    /// 本地库 overlay 合并（ADR-0017）：本地库条目叠加到内存目录视图。
+    /// - 输入 `custom` 调用方须已过滤为本地库（collected 系/`submitted` 且未归档）；
     /// - 远端优先去重：远端 id 已存在时 custom 同 id 条目丢弃，不覆盖；
     /// - `is_cataloged` 恒 true（视图内即视为已收录），来源经 `source` 区分
     ///  （`remote` / `custom`），调用方按需展示“自维护”角标；
@@ -424,8 +424,8 @@ impl CatalogService {
         out
     }
 
-    /// 内存目录 + 本地收录 custom 的合并条目（远端优先，custom 补位）。
-    /// 调用方传入的 `custom` 须已过滤为 `status==collected && !archived`。
+    /// 内存目录 + 本地库 custom 的合并条目（远端优先，custom 补位）。
+    /// 调用方传入的 `custom` 须已过滤为本地库（collected 系/`submitted` 且未归档）。
     pub fn merged_items_with_overlay(&self, custom: Vec<CatalogItem>) -> Vec<CatalogItem> {
         let remote = self.get_catalog_items();
         let mut seen: std::collections::HashSet<String> =
@@ -444,8 +444,8 @@ impl CatalogService {
         self.search_in_slice(&items, query)
     }
 
-    /// 本地收录叠加搜索（与 `search_apps` 同行为）：`extra` 须已过滤为
-    /// `status==collected && !archived`，远端优先去重后同分值同排序执行搜索。
+    /// 本地库叠加搜索（与 `search_apps` 同行为）：`extra` 须已过滤为
+    /// 本地库（collected 系/`submitted` 且未归档），远端优先去重后同分值同排序执行搜索。
     pub fn search_apps_with_overlay(
         &self,
         query: &str,
@@ -774,12 +774,13 @@ mod tests {
         assert_eq!(merged[0].name, "Test App");
     }
 
-    /// 本地收录 overlay 口径：仅 `status==collected && !archived` 参与合并。
+    /// 本地库 overlay 口径：collected 系 + `submitted` 且未归档参与合并。
     #[test]
     fn test_collected_overlay_status_gate() {
         assert!(CatalogService::is_collected_overlay_status("collected", false));
+        assert!(CatalogService::is_collected_overlay_status("submitted", false));
         assert!(!CatalogService::is_collected_overlay_status("draft", false));
-        assert!(!CatalogService::is_collected_overlay_status("submitted", false));
+        assert!(!CatalogService::is_collected_overlay_status("submitted", true));
         assert!(!CatalogService::is_collected_overlay_status("collected", true));
         assert_eq!(
             crate::db::custom_apps::CUSTOM_APP_STATUS_COLLECTED,
@@ -859,6 +860,42 @@ mod tests {
             .get_remote_catalog_items()
             .iter()
             .any(|i| i.id == "o/local"));
+    }
+
+    /// submitted 仍在本地库：sync 后并入合并目录，收藏/关注 `is_cataloged` 保持 true。
+    #[test]
+    fn test_sync_collected_from_db_includes_submitted() {
+        let db = crate::db::Database::open_in_memory().unwrap();
+        let mut local = item("o/pending", "o", "pending");
+        local.name = "Pending Issue Tool".to_string();
+        local.description = "awaiting upstream merge".to_string();
+        local.homepage = Some("https://example.com/pending".to_string());
+        db.upsert_custom_app_payload(&local).unwrap();
+        db.mark_custom_app_collected("o/pending").unwrap();
+        db.mark_custom_app_submitted("o/pending", "https://github.com/x/y/pull/1")
+            .unwrap();
+        // 收藏写入时序：目录就绪后写时判定。
+        db.add_favorite("o/pending", false).unwrap();
+
+        let svc = test_service(Vec::new());
+        svc.sync_collected_from_db(&db);
+        assert!(svc.is_cataloged("o/pending"));
+        assert_eq!(
+            svc.get_catalog_item("o/pending").map(|i| i.name),
+            Some("Pending Issue Tool".to_string())
+        );
+        // 回填口径与 `backfill_cataloged_flags` 同源：收藏标记转 true。
+        db.set_favorite_cataloged("o/pending", svc.is_cataloged("o/pending"))
+            .unwrap();
+        let favorites = db.get_favorite_entries().unwrap();
+        assert_eq!(favorites.len(), 1);
+        assert!(favorites[0].is_cataloged);
+
+        // 归档行退出 overlay：同步后不再可搜可装。
+        db.retire_custom_apps_on_sync(&["o/pending".to_string()])
+            .unwrap();
+        svc.sync_collected_from_db(&db);
+        assert!(!svc.is_cataloged("o/pending"));
     }
 
     /// 收录态盖章：蓝标优先、本地补位、未收录 false。

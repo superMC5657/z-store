@@ -1,9 +1,10 @@
 //! 本地自维护草稿 overlay（ADR-0017）：`custom_apps` 表 CRUD + 校验 + 转正。
 //!
 //! - `id` 为 canonical 小写形态（仅 GitHub `owner/repo`，经 `canonical_app_id()` 归一）；`payload_json` 存完整 `CatalogItem`；
-//! - `status=draft/submitted/collected`（已提交另存 `pr_url`；`collected` 为本地收录态，
-//!   可搜可装、与远端精选同行为，是 PR 前置门禁）；`archived=1` 为转正归档标记
-//!   （`sync_catalog` 命中 canonical id 即归档）；
+//! - `status=draft/submitted/collected`（已提交另存 `pr_url`；`collected` 与 `submitted`
+//!   同为库内成员，可搜可装、与远端精选同行为；`collected` 是 Issue 提交前置门禁，
+//!   `submitted` 表示 已提交 Issue）；`archived=1` 为转正归档标记
+//!   （`sync_catalog` 命中 canonical id 即归档，权威交给远端）；
 //! - 旧数据的 `local_collected` 字面与 `collected` 同义，收录判定/列表查询双匹配该残留值；
 //! - 二次确认由前端做，后端 `delete` 直接删。
 
@@ -14,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 pub const CUSTOM_APP_STATUS_DRAFT: &str = "draft";
 pub const CUSTOM_APP_STATUS_SUBMITTED: &str = "submitted";
-/// 本地收录态：已收录进本地（可搜可装，与远端精选同行为；PR 前置门禁）。
+/// 本地收录态：已收录进本地（可搜可装，与远端精选同行为；Issue 提交前置门禁）。
 pub const CUSTOM_APP_STATUS_COLLECTED: &str = "collected";
 /// Same value as `CUSTOM_APP_STATUS_COLLECTED` (kept for on-disk `local_collected` comparison).
 pub const LOCAL_COLLECTED: &str = CUSTOM_APP_STATUS_COLLECTED;
@@ -75,14 +76,14 @@ pub fn resolve_license_gate() -> LicenseGateConfig {
     crate::config::get_project_config().license_gate.clone()
 }
 
-/// 校验档位（Q8 三态）：草稿允许不完整（暂存即存），提交 PR 时才强制全校验（D1 不破）。
+/// 校验档位（Q8 三态）：草稿允许不完整（暂存即存），提交 Issue 时才强制全校验（D1 不破）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ValidateMode {
     /// 暂存档（`save_custom_app`）：仅校验 `id==canonical` 与 `owner/repo` 对齐；
     /// `license` 允许空 / `OpenSource` / `NOASSERTION` / 未知占位，`homepage` 允许空，
     /// `name`/`description`/`category` 允许不完整（Q8 草稿三态）。
     DraftLenient,
-    /// 提交档（`mark_submitted` / 预填 PR 链接）：既有全量——必填 +
+    /// 提交档（`mark_submitted` / 预填 Issue 链接）：既有全量——必填 +
     /// `homepage` http(s) + OSI 白名单（D1）。
     SubmitStrict,
     /// 收录档（`collect_custom_app`）：与 `SubmitStrict` 同口径——
@@ -211,15 +212,22 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> Result<CustomAppEntry> {
     })
 }
 
-/// 本地收录态判定（overlay/PR 门禁唯一口径）：`status==collected && !archived`。
-/// On-disk `local_collected` also counts as collected (same as `collected`, avoids missing old rows).
-pub fn is_collected_entry(entry: &CustomAppEntry) -> bool {
-    is_collected_status(&entry.status) && !entry.archived
+/// 库内成员判定（overlay/详情/安装回退口径）：`status` 为 collected 系或 `submitted`；
+/// 归档另由调用方判定（`!archived`）。
+pub fn is_local_library_entry(entry: &CustomAppEntry) -> bool {
+    is_local_library_status(&entry.status) && !entry.archived
 }
 
 /// Collected-state check (pure status, no archived): `status==collected`, on-disk `local_collected` also counts.
+/// This is the "can submit an Issue / can revert" gate; `submitted` is excluded here (it has its own gates).
 pub fn is_collected_status(status: &str) -> bool {
     status == CUSTOM_APP_STATUS_COLLECTED || status == "local_collected"
+}
+
+/// 库内成员判定（纯状态）：collected 系或 `submitted`（已提交 Issue仍在本地库）。
+/// 与 `is_collected_status` 的区别：本函数答「是否在库」，后者答「能否提交 Issue/退回」。
+pub fn is_local_library_status(status: &str) -> bool {
+    is_collected_status(status) || status == CUSTOM_APP_STATUS_SUBMITTED
 }
 
 impl Database {
@@ -315,10 +323,10 @@ impl Database {
                 cleaned
             )));
         }
-        // PR 前置门禁（与命令层 `ensure_collected_for_pr` 同口径）：仅收录行放行（with on-disk `local_collected` 字面）。
+        // Issue 提交前置门禁（与命令层 `ensure_collected_for_pr` 同口径）：仅收录行放行（with on-disk `local_collected` 字面）。
         if !is_collected_status(&entry.status) {
             return Err(MarkSubmittedError::Invalid(
-                "须先收录进本地再PR".to_string(),
+                "须先收录进本地再提交 Issue".to_string(),
             ));
         }
         if let Err(reason) = validate_custom_item(
@@ -451,29 +459,69 @@ impl Database {
             .map_err(RevertCollectedError::Db)
     }
 
-    /// 本地收录列表：仅 `status=collected && archived=0`（overlay/发现页/搜索唯一口径，on-disk residual `local_collected` 字面）。
-    pub fn list_collected_apps(&self) -> Result<Vec<CustomAppEntry>> {
+    /// 标记为未提交：`submitted` → `collected`（未归档限定），`pr_url` 清空，payload 原样保留。
+    /// Issue 需在 GitHub 侧自行关闭（后端零网络）；撤下后可重新走收录/提交链路。
+    pub fn withdraw_submitted(&self, id: &str) -> Result<CustomAppEntry, WithdrawSubmittedError> {
+        let cleaned = clean(id);
+        if cleaned.is_empty() {
+            return Err(WithdrawSubmittedError::Invalid(
+                "应用标识不可为空".to_string(),
+            ));
+        }
+        let existing = self
+            .get_custom_app(cleaned)
+            .map_err(WithdrawSubmittedError::Db)?;
+        let entry = existing
+            .ok_or_else(|| WithdrawSubmittedError::Invalid(format!("草稿不存在: {}", cleaned)))?;
+        if entry.archived {
+            return Err(WithdrawSubmittedError::Invalid(format!(
+                "已转正归档行不可标记为未提交: {}",
+                cleaned
+            )));
+        }
+        if entry.status != CUSTOM_APP_STATUS_SUBMITTED {
+            return Err(WithdrawSubmittedError::Invalid(format!(
+                "仅已提交行可标记为未提交: {}",
+                cleaned
+            )));
+        }
+        let now = now_secs();
+        self.exec_upsert(
+            "UPDATE custom_apps SET status = 'collected', pr_url = NULL, updated_at = ?1 WHERE id = ?2",
+            params![now, cleaned],
+        )
+        .map_err(WithdrawSubmittedError::Db)?;
+        self.get_custom_app(cleaned)
+            .map_err(WithdrawSubmittedError::Db)?
+            .ok_or(rusqlite::Error::QueryReturnedNoRows)
+            .map_err(WithdrawSubmittedError::Db)
+    }
+
+    /// 本地库列表：未归档的 collected 系 + `submitted`（overlay/发现页/搜索唯一口径，
+    /// on-disk residual `local_collected` 字面同匹配；归档行权威交给远端，不参与）。
+    pub fn list_local_library_apps(&self) -> Result<Vec<CustomAppEntry>> {
         self.query_vec(
-            "SELECT id, payload_json, status, pr_url, created_at, updated_at, archived FROM custom_apps WHERE status IN ('collected', 'local_collected') AND archived = 0 ORDER BY updated_at DESC",
+            "SELECT id, payload_json, status, pr_url, created_at, updated_at, archived FROM custom_apps WHERE status IN ('collected', 'local_collected', 'submitted') AND archived = 0 ORDER BY updated_at DESC",
             [],
             row_to_entry,
         )
     }
 
-    /// 本地收录 payload 列表：`list_collected_apps` 的 `CatalogItem` 投影（合并视图输入）。
-    pub fn list_collected_custom_items(&self) -> Result<Vec<CatalogItem>> {
+    /// 本地库 payload 列表：`list_local_library_apps` 的 `CatalogItem` 投影（合并视图输入）。
+    pub fn list_local_library_items(&self) -> Result<Vec<CatalogItem>> {
         Ok(self
-            .list_collected_apps()?
+            .list_local_library_apps()?
             .into_iter()
             .map(|e| e.item)
             .collect())
     }
 
-    /// 按 id 取本地收录行：仅 `status=collected && !archived` 命中（详情/安装回退口径，on-disk residual `local_collected` 字面）。
+    /// 按 id 取本地库行：仅未归档的 collected 系/`submitted` 命中（详情/安装回退口径，
+    /// on-disk residual `local_collected` 字面同匹配）。
     pub fn get_collected_custom_item(&self, id: &str) -> Result<Option<CustomAppEntry>> {
         Ok(self
             .get_custom_app(id)?
-            .filter(|e| is_collected_status(&e.status) && !e.archived))
+            .filter(|e| is_local_library_status(&e.status) && !e.archived))
     }
 
     /// 转正退役：远端 id 集合命中未归档草稿即 `archived=1`，返回转正提示。
@@ -600,6 +648,31 @@ impl From<RevertCollectedError> for crate::AppError {
         match e {
             RevertCollectedError::Invalid(msg) => Self::Message(msg),
             RevertCollectedError::Db(err) => Self::Database(err),
+        }
+    }
+}
+
+/// `withdraw_submitted` 错误：校验失败与 DB 失败分层（命令层分别转中文串）。
+#[derive(Debug)]
+pub enum WithdrawSubmittedError {
+    Invalid(String),
+    Db(rusqlite::Error),
+}
+
+impl std::fmt::Display for WithdrawSubmittedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Invalid(msg) => write!(f, "{}", msg),
+            Self::Db(e) => write!(f, "{}", e),
+        }
+    }
+}
+
+impl From<WithdrawSubmittedError> for crate::AppError {
+    fn from(e: WithdrawSubmittedError) -> Self {
+        match e {
+            WithdrawSubmittedError::Invalid(msg) => Self::Message(msg),
+            WithdrawSubmittedError::Db(err) => Self::Database(err),
         }
     }
 }
@@ -827,7 +900,7 @@ mod tests {
         let gate_err = db
             .mark_custom_app_submitted("o/r", "https://github.com/x/y/pull/1")
             .expect_err("draft must be gated before submit");
-        assert_eq!(gate_err.to_string(), "须先收录进本地再PR");
+        assert_eq!(gate_err.to_string(), "须先收录进本地再提交 Issue");
         // 占位 license 同样过不了收录档。
         assert!(db.mark_custom_app_collected("o/r").is_err());
 
@@ -850,7 +923,7 @@ mod tests {
         let err = db
             .mark_custom_app_submitted("o/r", "https://github.com/x/y/pull/1")
             .expect_err("draft must be gated");
-        assert_eq!(err.to_string(), "须先收录进本地再PR");
+        assert_eq!(err.to_string(), "须先收录进本地再提交 Issue");
 
         db.mark_custom_app_collected("o/r").unwrap();
         db.mark_custom_app_submitted("o/r", "https://github.com/x/y/pull/1")
@@ -1046,9 +1119,9 @@ mod tests {
         // same truth, idempotent re-collect.
         let again = db.mark_custom_app_collected("o/r").unwrap();
         assert_eq!(again.status, CUSTOM_APP_STATUS_COLLECTED);
-        // 收录列表仅含 collected 行。
-        assert_eq!(db.list_collected_apps().unwrap().len(), 1);
-        assert_eq!(db.list_collected_custom_items().unwrap().len(), 1);
+        // 本地库列表含该 collected 行。
+        assert_eq!(db.list_local_library_apps().unwrap().len(), 1);
+        assert_eq!(db.list_local_library_items().unwrap().len(), 1);
         assert!(db.get_collected_custom_item("o/r").unwrap().is_some());
         // 二次暂存不洗状态。
         let resaved = db.upsert_custom_app_payload(&draft_item("o/r", "o", "r")).unwrap();
@@ -1131,27 +1204,153 @@ mod tests {
     }
 
     #[test]
-    fn revert_persists_draft_and_drops_from_collected_lists() {
-        // 回归：退回必须落盘（status=draft），重启后不再进 collected 列表/overlay。
+    fn revert_persists_draft_and_drops_from_local_library() {
+        // 回归：退回必须落盘（status=draft），重启后不再进本地库列表/overlay。
         let db = Database::open_in_memory().unwrap();
         db.upsert_custom_app_payload(&draft_item("o/r", "o", "r"))
             .unwrap();
         db.mark_custom_app_collected("o/r").unwrap();
-        assert_eq!(db.list_collected_apps().unwrap().len(), 1);
-        assert!(is_collected_entry(&db.get_custom_app("o/r").unwrap().unwrap()));
+        assert_eq!(db.list_local_library_apps().unwrap().len(), 1);
+        assert!(is_local_library_entry(
+            &db.get_custom_app("o/r").unwrap().unwrap()
+        ));
 
         let reverted = db.revert_collected_to_draft("o/r").unwrap();
         assert_eq!(reverted.status, CUSTOM_APP_STATUS_DRAFT);
         // 落盘断言：重读仍为 draft，不再是收录态。
         let stored = db.get_custom_app("o/r").unwrap().unwrap();
         assert_eq!(stored.status, CUSTOM_APP_STATUS_DRAFT);
-        assert!(!is_collected_entry(&stored));
+        assert!(!is_local_library_entry(&stored));
         assert!(!is_collected_status(&stored.status));
         assert!(db.get_collected_custom_item("o/r").unwrap().is_none());
-        assert!(db.list_collected_apps().unwrap().is_empty());
-        assert!(db.list_collected_custom_items().unwrap().is_empty());
+        assert!(db.list_local_library_apps().unwrap().is_empty());
+        assert!(db.list_local_library_items().unwrap().is_empty());
         // 未归档列表仍含该行（draft 态，可在草稿 Tab 查看），归档位不动。
         assert!(db.list_custom_apps(false).unwrap().iter().any(|e| e.id == "o/r"));
+    }
+
+    #[test]
+    fn local_library_includes_submitted_and_excludes_archived() {
+        // 库内成员 = collected 系 + submitted；草稿不在库，归档行退出（权威交给远端）。
+        let db = Database::open_in_memory().unwrap();
+        db.upsert_custom_app_payload(&draft_item("o/draft", "o", "draft"))
+            .unwrap();
+        db.upsert_custom_app_payload(&draft_item("o/collected", "o", "collected"))
+            .unwrap();
+        db.mark_custom_app_collected("o/collected").unwrap();
+        db.upsert_custom_app_payload(&draft_item("o/sub", "o", "sub"))
+            .unwrap();
+        db.mark_custom_app_collected("o/sub").unwrap();
+        db.mark_custom_app_submitted("o/sub", "https://github.com/x/y/pull/1")
+            .unwrap();
+        db.upsert_custom_app_payload(&draft_item("o/arch", "o", "arch"))
+            .unwrap();
+        db.mark_custom_app_collected("o/arch").unwrap();
+        db.retire_custom_apps_on_sync(&["o/arch".to_string()])
+            .unwrap();
+
+        let ids: Vec<String> = db
+            .list_local_library_apps()
+            .unwrap()
+            .into_iter()
+            .map(|e| e.id)
+            .collect();
+        assert_eq!(ids.len(), 2, "unexpected library members: {ids:?}");
+        assert!(ids.contains(&"o/collected".to_string()));
+        assert!(ids.contains(&"o/sub".to_string()));
+        assert!(!ids.contains(&"o/draft".to_string()));
+        assert!(!ids.contains(&"o/arch".to_string()));
+        assert_eq!(db.list_local_library_items().unwrap().len(), 2);
+
+        // 单行取件同口径（详情/安装回退）。
+        let sub = db
+            .get_collected_custom_item("o/sub")
+            .unwrap()
+            .expect("submitted stays in library");
+        assert_eq!(sub.status, CUSTOM_APP_STATUS_SUBMITTED);
+        assert!(db.get_collected_custom_item("o/draft").unwrap().is_none());
+        assert!(db.get_collected_custom_item("o/arch").unwrap().is_none());
+
+        // 门禁仍按 collected 系：submitted 不可重收录、不可退回草稿。
+        assert!(db.mark_custom_app_collected("o/sub").is_err());
+        assert!(db.revert_collected_to_draft("o/sub").is_err());
+    }
+
+    #[test]
+    fn withdraw_submitted_keeps_payload_and_allows_resubmit() {
+        // 撤下：submitted → collected，pr_url 清空，payload 不变，可再次提交。
+        let db = Database::open_in_memory().unwrap();
+        db.upsert_custom_app_payload(&draft_item("o/r", "o", "r"))
+            .unwrap();
+        db.mark_custom_app_collected("o/r").unwrap();
+        let before = db.get_custom_app("o/r").unwrap().unwrap();
+        let submitted = db
+            .mark_custom_app_submitted("o/r", "https://github.com/x/y/pull/1")
+            .unwrap();
+        assert_eq!(submitted.status, CUSTOM_APP_STATUS_SUBMITTED);
+
+        let withdrawn = db.withdraw_submitted("o/r").unwrap();
+        assert_eq!(withdrawn.status, CUSTOM_APP_STATUS_COLLECTED);
+        assert!(withdrawn.pr_url.is_none());
+        assert!(!withdrawn.archived);
+        assert_eq!(
+            serde_json::to_string(&withdrawn.item).unwrap(),
+            serde_json::to_string(&before.item).unwrap(),
+            "payload must stay untouched"
+        );
+
+        // 落盘断言：重读同口径（不只看返回值）。
+        let stored = db.get_custom_app("o/r").unwrap().unwrap();
+        assert_eq!(stored.status, CUSTOM_APP_STATUS_COLLECTED);
+        assert!(stored.pr_url.is_none());
+
+        // 回到库内待提交态：仍在本地库且可重新提交。
+        assert!(db.get_collected_custom_item("o/r").unwrap().is_some());
+        let resubmitted = db
+            .mark_custom_app_submitted("o/r", "https://github.com/x/y/pull/2")
+            .unwrap();
+        assert_eq!(resubmitted.status, CUSTOM_APP_STATUS_SUBMITTED);
+        assert_eq!(
+            resubmitted.pr_url.as_deref(),
+            Some("https://github.com/x/y/pull/2")
+        );
+    }
+
+    #[test]
+    fn withdraw_submitted_rejects_archived_and_non_submitted() {
+        let db = Database::open_in_memory().unwrap();
+        // 不存在行拒绝。
+        assert!(db.withdraw_submitted("o/missing").is_err());
+        // 草稿态不可撤下。
+        db.upsert_custom_app_payload(&draft_item("o/draft", "o", "draft"))
+            .unwrap();
+        let err = db
+            .withdraw_submitted("o/draft")
+            .expect_err("draft cannot withdraw");
+        assert!(err.to_string().contains("仅已提交行可标记为未提交"));
+        // 已收录未提交不可撤下。
+        db.upsert_custom_app_payload(&draft_item("o/collected", "o", "collected"))
+            .unwrap();
+        db.mark_custom_app_collected("o/collected").unwrap();
+        let err = db
+            .withdraw_submitted("o/collected")
+            .expect_err("collected cannot withdraw");
+        assert!(err.to_string().contains("仅已提交行可标记为未提交"));
+        // 已归档 submitted 拒绝，状态不复活。
+        db.upsert_custom_app_payload(&draft_item("o/arch", "o", "arch"))
+            .unwrap();
+        db.mark_custom_app_collected("o/arch").unwrap();
+        db.mark_custom_app_submitted("o/arch", "https://github.com/x/y/pull/1")
+            .unwrap();
+        db.retire_custom_apps_on_sync(&["o/arch".to_string()])
+            .unwrap();
+        let err = db
+            .withdraw_submitted("o/arch")
+            .expect_err("archived cannot withdraw");
+        assert!(err.to_string().contains("已转正归档"));
+        let stored = db.get_custom_app("o/arch").unwrap().unwrap();
+        assert!(stored.archived);
+        assert_eq!(stored.status, CUSTOM_APP_STATUS_SUBMITTED);
     }
 
     #[test]
@@ -1160,6 +1359,12 @@ mod tests {
         assert!(is_collected_status("collected"));
         assert!(is_collected_status("local_collected"));
         assert!(!is_collected_status("draft"));
+        // 库内谓词另含 submitted；Issue/退回门禁谓词仍拒绝 submitted。
+        assert!(is_local_library_status("collected"));
+        assert!(is_local_library_status("local_collected"));
+        assert!(is_local_library_status("submitted"));
+        assert!(!is_local_library_status("draft"));
+        assert!(!is_collected_status("submitted"));
         let db = Database::open_in_memory().unwrap();
         db.upsert_custom_app_payload(&draft_item("o/l", "o", "l"))
             .unwrap();
@@ -1169,13 +1374,13 @@ mod tests {
         )
         .unwrap();
         let stored = db.get_custom_app("o/l").unwrap().unwrap();
-        assert!(is_collected_entry(&stored));
+        assert!(is_local_library_entry(&stored));
         assert!(db.get_collected_custom_item("o/l").unwrap().is_some());
-        assert_eq!(db.list_collected_apps().unwrap().len(), 1);
+        assert_eq!(db.list_local_library_apps().unwrap().len(), 1);
         // on-disk literal can also revert and persist.
         let reverted = db.revert_collected_to_draft("o/l").unwrap();
         assert_eq!(reverted.status, CUSTOM_APP_STATUS_DRAFT);
-        assert!(db.list_collected_apps().unwrap().is_empty());
+        assert!(db.list_local_library_apps().unwrap().is_empty());
     }
 
     /// 草稿校验契约（parity）：与前端 `PendingView.validationParity.test.ts` 共用

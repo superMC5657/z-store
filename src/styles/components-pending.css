@@ -45,6 +45,124 @@
   line-height: 1.5;
 }
 
+/* 本地收录内的次级过滤行（全部 / 待提交 / 已提交）。
+ * 与顶部 Tab 明确分层：Tab 是导航（保留 pill 分段控件），这里是过滤，
+ * 故降级为 12.5px 文本 + 2px 下划线选中，无逐项边框与浮起底色；
+ * 左对齐到 Tab 文字起始线，紧贴 Tab 下方（净间距 8px），构成一组。
+ * 窄宽不换行：行内横向滚动（隐藏滚动条），与 Tab 同属一条控制带。 */
+.pending-segment-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 2px;
+  margin: -4px 0 14px;
+  padding: 0 4px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  box-sizing: border-box;
+}
+
+.pending-segment-row::-webkit-scrollbar {
+  display: none;
+}
+
+.pending-segment {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  font-size: calc(12.5px * var(--font-scale));
+  font-weight: var(--font-weight-medium);
+  letter-spacing: var(--letter-spacing-tight);
+  line-height: 1;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  box-sizing: border-box;
+  transition: color 0.15s var(--ease-smooth), background 0.15s var(--ease-smooth);
+}
+
+/* 下划线只覆盖文字宽度（左右各让出 10px 内边距） */
+.pending-segment::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: transparent;
+  transition: background 0.15s var(--ease-smooth);
+}
+
+/* 计数只作数据注脚：等宽数字、无底色，不抢选中态的下划线 */
+.pending-segment-count {
+  margin-left: 5px;
+  font-family: var(--font-mono);
+  font-size: calc(10.5px * var(--font-scale));
+  font-weight: var(--font-weight-regular);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  line-height: 1;
+  color: var(--text-tertiary);
+}
+
+.pending-segment.active .pending-segment-count {
+  color: var(--text-secondary);
+}
+
+.pending-segment:hover {
+  color: var(--text-primary);
+  background: var(--bg-acrylic-hover);
+}
+
+.pending-segment:active {
+  transform: scale(0.98);
+}
+
+.pending-segment.active {
+  color: var(--text-primary);
+  background: transparent;
+  font-weight: var(--font-weight-semibold);
+}
+
+.pending-segment.active::after {
+  background: var(--text-primary);
+}
+
+/* 行内滚动容器会裁掉外描边，焦点环收进按钮内 */
+.pending-segment:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: -2px;
+}
+
+@media (max-width: 480px) {
+  .pending-segment-row {
+    padding: 0 2px;
+    margin-bottom: 12px;
+  }
+
+  .pending-segment {
+    padding: 0 8px;
+  }
+
+  .pending-segment::after {
+    left: 8px;
+    right: 8px;
+  }
+}
+
 /* 左右分栏：宽屏列表（横向收窄至200~240px） + 编辑区并排；中小宽度上下堆叠。 */
 .pending-layout {
   display: grid;
