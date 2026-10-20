@@ -25,7 +25,7 @@
 //!   L5 空选经 `seal_empty_selection + empty_cycle_result`。
 //!   趋势 enrich 走流式直路（首屏快返 + 后台 `fetch_icons_stream(Trend)` 逐张 emit，
 //!   见 `commands::catalog_search`）；本核为流式探测与调度的唯一深核
-//!  （搜索与趋势共用，见 ADR-0015 §6）。
+//!   （搜索与趋势共用，见 ADR-0015 §6）。
 //! - D5/D6/D8：双池复用（icon client 隔离，CDN 恒丢 token）+ 有界池 5 +
 //!   首包验图与跳过（HEAD→Range 首 32KB→magic→300B，见 `icon_probe::verify_image`）。
 //!   Curated Catalog 永不分支：仅 L1 填充为例外（见 cycle 适配器）。

@@ -426,6 +426,7 @@ pub const ICON_TTL_SECS: i64 = 7 * 24 * 60 * 60;
 /// - `url` 为 cycle/详情命中的备选 Logo 真地址（L1–L4；README 正文图永不进此）；
 /// - `ext` 为 sniff 纠正后的 `real_ext`（`mime_to_ext(detect(...))`），调用方保证小写无点；
 /// - 空 url 返回空串（调用方跳过落盘）。
+///
 /// 读侧用 `KNOWN_ICON_EXTS` 全后缀兜底（见 probe 的 hash 候选构造）。
 pub fn hash_icon_filename(url_trimmed: &str, ext: &str) -> String {
     let u = url_trimmed.trim();
@@ -493,10 +494,8 @@ pub fn fill_probe_slot(cycle: &mut AppIconCycle, level: i32, url_trimmed: &str) 
                 cycle.l3_url = u.to_string();
             }
         }
-        4 => {
-            if cycle.l4_url.trim().is_empty() {
-                cycle.l4_url = u.to_string();
-            }
+        4 if cycle.l4_url.trim().is_empty() => {
+            cycle.l4_url = u.to_string();
         }
         _ => {}
     }
@@ -508,6 +507,7 @@ pub fn fill_probe_slot(cycle: &mut AppIconCycle, level: i32, url_trimmed: &str) 
 ///   `icon` 对齐 `selected_url`（L5 pinned 对齐为 `""`，保持徽章态）。
 /// - 未 pinned 行：按最强探测收编（level/selected_url/对应槽/updated_at 推进，
 ///   pinned 保持 false）；返回 false，调用方保持探测 icon。
+///
 /// level 纯 L（2=L2品牌库，3=L3仓库，4=L4 README）；空 URL 直接返回 false，不建行语义由调用方保持。
 pub fn merge_detail_icon(
     cycle: &mut AppIconCycle,

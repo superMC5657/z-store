@@ -163,7 +163,7 @@ impl AppScanner {
     }
 
     /// 1. Windows 注册表深度检索 (HKLM, Wow6432Node, HKCU)：DisplayName/key 名与
-    /// token 命中后依次试 DisplayIcon / InstallLocation / UninstallString 同目录。
+    ///    token 命中后依次试 DisplayIcon / InstallLocation / UninstallString 同目录。
     #[cfg(target_os = "windows")]
     fn registry_scan(tokens: &[String], config: &ScanConfig) -> Option<String> {
         use winreg::enums::*;

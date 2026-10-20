@@ -284,6 +284,7 @@ fn persist_catalog_icon(
 /// - L1–L4 备选 Logo 必落盘（L4 仅 cycle 头部备选 Logo；正文图永不进此）；
 /// - 图标通道禁用 ETag：此处永不读写 `api_etag_cache`；
 /// - 写后触发配额 LRU（只清文件不删 DB URL，见 `enforce_icon_quota_lru`）。
+///
 /// 调用方随后经 `seal_cycle_selection + upsert/set_selected` 固化行（`let _` 吞错）。
 /// ADR-0010：key 经 canonical id 派生；level 纯L，via 正交。
 pub(crate) fn write_icon_file(
@@ -353,7 +354,7 @@ pub(crate) fn enforce_icon_quota_lru(
     if entries.len() <= max_files && total_bytes <= max_bytes {
         return;
     }
-    entries.sort_by(|a, b| a.2.cmp(&b.2));
+    entries.sort_by_key(|e| e.2);
     let mut files = entries.len();
     let mut bytes = total_bytes;
     for (p, len, _) in entries {

@@ -396,7 +396,7 @@ impl CatalogService {
     /// - 输入 `custom` 调用方须已过滤为本地库（collected 系/`submitted` 且未归档）；
     /// - 远端优先去重：远端 id 已存在时 custom 同 id 条目丢弃，不覆盖；
     /// - `is_cataloged` 恒 true（视图内即视为已收录），来源经 `source` 区分
-    ///  （`remote` / `custom`），调用方按需展示“自维护”角标；
+    ///   （`remote` / `custom`），调用方按需展示“自维护”角标；
     /// - 纯合并视图，不写回内存 `items`（吸入远端以上游同步为准，转正由退役标记处理）。
     pub fn merge_catalog_overlay_view(
         remote: &[CatalogItem],

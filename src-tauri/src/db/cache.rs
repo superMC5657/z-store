@@ -328,10 +328,7 @@ pub struct AssetUsageStats {
 /// 同一资源的缓存键归一：嵌套包装地址取最内层，直链恒等。
 pub fn canonical_asset_url(url: &str) -> String {
     let mut current = url.trim().to_string();
-    loop {
-        let Some(scheme_pos) = current.find("://") else {
-            break;
-        };
+    while let Some(scheme_pos) = current.find("://") {
         let after_scheme = &current[scheme_pos + 3..];
         let Some(slash_pos) = after_scheme.find('/') else {
             break;
@@ -434,7 +431,7 @@ impl Database {
         // 落盘扩展名：地址后缀优先命中即用，否则按 content-type 映射，未知回退 `png`。
         let ext = crate::github::image_sniff::infer_ext_from_url(&canonical)
             .unwrap_or_else(|| crate::github::image_sniff::mime_to_ext(content_type));
-        let local_path = asset_local_path(&hash, &ext);
+        let local_path = asset_local_path(&hash, ext);
         let content_type_clean = clean(content_type).to_string();
         let size_clean = size.max(0);
         let etag_clean = etag.map(|s| s.trim()).filter(|s| !s.is_empty());
@@ -582,7 +579,7 @@ impl Database {
         if fs_count <= max_files && fs_bytes <= max_bytes {
             return Ok(removed);
         }
-        scanned.sort_by(|a, b| a.2.cmp(&b.2));
+        scanned.sort_by_key(|e| e.2);
         for (path, len, _) in scanned {
             if fs_count <= max_files && fs_bytes <= max_bytes {
                 break;

@@ -145,6 +145,7 @@ pub(crate) fn clean(s: &str) -> &str {
 /// - `parse`：文本解析（如 `str::parse`，失败进回退）；
 /// - `normalize`：有效值清洗（如挡位钳制）；
 /// - `fallback`：config.toml 基线闭包。
+///
 /// settings 三 getter、配额水位、详情 TTL 秒换算共用此形状，不再各自手写回退链。
 pub(crate) fn get_or_config<T>(
     stored: Option<String>,

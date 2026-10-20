@@ -451,7 +451,6 @@ fn trees_timeout() -> std::time::Duration {
 
 /// Trees 探测分支：仓库 `default_branch`（经 [`resolve_probe_branches`]
 /// 动态解析；接口失败/超时返回空，调用方跳过 L3）。
-
 /// 动态分支解析共用（搜索 `icon_fetch` + 详情 cycle L3 + 匿名兜底）：
 /// GET `repos/{owner}/{repo}` 取 `default_branch`（5s 超时，
 /// 失败/超时/空值返回空，调用方跳过 L3）。
@@ -495,6 +494,7 @@ pub(crate) fn dedup_slugs(owner: &str, repo: &str) -> Vec<String> {
 /// Trees 目录响应有界上限（超大单体仓库熔断）：
 /// - `MAX_TREE_BYTES` 2MB：正常仓库 tree JSON 远小于此值；超限多为 monorepo/大仓，直接放弃；
 /// - `MAX_TREE_NODES` 2 万节点：评分 O(n) 本身便宜，主要防超大 JSON 解析阻塞。
+///
 /// 超限直接 `None` 不阻塞主流程（该行保持徽章/裸行，同批其他行不受影响）。
 pub(crate) const MAX_TREE_BYTES: usize = 2 * 1024 * 1024;
 /// 2 万节点上限（见 [`MAX_TREE_BYTES`] 文档）。

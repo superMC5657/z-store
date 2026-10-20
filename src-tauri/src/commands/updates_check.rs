@@ -14,7 +14,7 @@ pub const DAILY_NOTIFY_INTERVAL_SECONDS: i64 = 24 * 60 * 60;
 /// - 默认 DB-only（`force_refresh != Some(true)`）：仅读 `get_cached_app_detail(None)` /
 ///   收录库默认版本，零网络（启动/登录不触网）；
 /// - 显式手动刷新（`Some(true)`）才走 ETag 轻量探查（无新版本时 304 零配额返回）；
-/// 离线/限流时仍降级返回本地已有缓存。
+///   离线/限流时仍降级返回本地已有缓存。
 pub(crate) async fn fetch_app_latest_version_lightweight(
     state: &AppState,
     app_id: &str,

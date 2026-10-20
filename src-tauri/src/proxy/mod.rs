@@ -6,7 +6,7 @@
 //!   hyper-util `Matcher::from_system` 在 Linux 的 env 行为），并附加
 //!   合并后的 `NoProxy`（env 原值 + 默认豁免 + 调用方 `extra_hosts`）。
 //! - 默认豁免：`gh-proxy.com`（镜像直连）+ `trend.doforce.dpdns.org`
-//!  （趋势直连白名单）+ `localhost/127.0.0.1/::1`。调用方（如下载器）
+//!   （趋势直连白名单）+ `localhost/127.0.0.1/::1`。调用方（如下载器）
 //!   可经 `extra_hosts` 追加当前镜像 host，命中镜像时靠 `no_proxy`
 //!   直连，不另起 Client。
 //! - 日志只记 host（脱敏），永不记 query/凭证。
@@ -122,7 +122,7 @@ pub fn merged_no_proxy_string(extra_hosts: &[String]) -> String {
     }
     for e in extra_hosts {
         let t = e.trim().to_string();
-        if !t.is_empty() && t.to_ascii_lowercase() != "unknown" {
+        if !t.is_empty() && !t.eq_ignore_ascii_case("unknown") {
             push(t);
         }
     }

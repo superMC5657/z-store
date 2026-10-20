@@ -15,7 +15,7 @@ pub(crate) fn should_skip_persist(is_stale: Option<bool>) -> bool {
 /// 此处仅做单位换算。
 /// - `0`（每次实时校验）原样透传 0；
 /// - 其余一律 `m * 60`（挡位合法性由 DB 层保证，不做二次钳制）。
-/// 图标 TTL 另见 `db::icon_cycle::ICON_TTL_SECS`（7 天，图标通道禁用 ETag）。
+///   图标 TTL 另见 `db::icon_cycle::ICON_TTL_SECS`（7 天，图标通道禁用 ETag）。
 pub(crate) fn detail_ttl_secs(db: &crate::db::Database) -> i64 {
     let m = db.get_detail_cache_ttl_minutes();
     if m <= 0 {
