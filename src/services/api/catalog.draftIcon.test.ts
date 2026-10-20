@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AppSummary } from '../../types';
-import { buildCustomDraftItemFromSummary, buildCustomDraftItemFromTrendRepo } from './catalog';
+import { buildCustomDraftItemFromSummary, buildCustomDraftItemFromTrendRepo, draftForgeGateError } from './catalog';
 
 function summaryWithIcon(icon: unknown): AppSummary {
   return {
@@ -96,5 +96,29 @@ describe('iconRemote remote truth (restoreOrFetchIconCycle().remote_url)', () =>
     expect(
       buildCustomDraftItemFromSummary(summaryWithIcon('data:image/png;base64,AAA'), null).icon,
     ).toBe('');
+  });
+});
+
+describe('草稿 forge 门（#35，后端 DraftLenient 同口径）', () => {
+  it('GitHub 摘要放行（gate 返回 null）', () => {
+    expect(draftForgeGateError(summaryWithIcon(''))).toBeNull();
+  });
+
+  it('非 GitHub forge 摘要拒绝（builder 会剥前缀记成 GitHub 应用）', () => {
+    const app = { ...summaryWithIcon(''), id: 'codeberg:acme/atlas', forge: 'codeberg' };
+    expect(draftForgeGateError(app)).toContain('codeberg');
+    expect(() => buildCustomDraftItemFromSummary(app as AppSummary)).toThrow(/codeberg/);
+  });
+
+  it('未知前缀 id 按 canonical 解析拒绝（对齐 #16）', () => {
+    const app = { ...summaryWithIcon(''), id: 'xyz:acme/atlas' };
+    expect(draftForgeGateError(app)).toContain('无法识别的应用标识');
+    expect(() => buildCustomDraftItemFromSummary(app as AppSummary)).toThrow(/无法识别/);
+  });
+
+  it('已知 forge 前缀 id 按形态拒绝（后端 `:` 闸同口径）', () => {
+    expect(draftForgeGateError({ ...summaryWithIcon(''), id: 'gh:acme/atlas' })).toContain(
+      'forge 形态 id 暂不收录',
+    );
   });
 });
