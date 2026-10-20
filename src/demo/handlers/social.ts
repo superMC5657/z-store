@@ -94,10 +94,6 @@ export function handleSyncGithubStarred(): StarredSyncResult {
   return { total_starred: 0, catalog_matches: [], other_repos: [] };
 }
 
-export function handleGetHostTokens(): HostTokenEntry[] {
-  return [];
-}
-
 export function handleSetHostToken(): null {
   return null;
 }

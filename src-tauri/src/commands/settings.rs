@@ -43,6 +43,13 @@ fn get_default_settings() -> HashMap<String, String> {
     map
 }
 
+/// 设置键白名单 = `get_default_settings` 键集：`save_setting` 只接受这些键、
+/// `get_settings` 只回传这些键；OAuth 令牌/用户键由 oauth 模块专用命令经独立路径
+/// 读写，永不经通用设置 IPC 面进出（XSS 一发 IPC 拿不到凭据，也不能借设置面覆写）。
+fn is_managed_setting_key(key: &str) -> bool {
+    get_default_settings().contains_key(key)
+}
+
 #[tauri::command]
 pub fn get_settings(state: State<'_, AppState>) -> crate::AppResult<HashMap<String, String>> {
     let db = state.db()?;
@@ -51,9 +58,9 @@ pub fn get_settings(state: State<'_, AppState>) -> crate::AppResult<HashMap<Stri
     // 1. 以 config.toml 及项目基准作为权威默认底表
     let mut map = get_default_settings();
 
-    // 2. 将用户在 SQLite 中持久化的修改项合并覆盖
+    // 2. 将用户在 SQLite 中持久化的修改项合并覆盖（只收白名单键，凭据键不回传）
     for (k, v) in db_settings {
-        if !v.trim().is_empty() {
+        if is_managed_setting_key(&k) && !v.trim().is_empty() {
             map.insert(k, v);
         }
     }
@@ -94,6 +101,9 @@ pub fn save_setting(
     key: String,
     value: String,
 ) -> crate::AppResult<bool> {
+    if !is_managed_setting_key(&key) {
+        return Err(crate::AppError::new(format!("未知的设置键: {}", key)));
+    }
     let db = state.db()?;
     let value = crate::db::normalize_setting_value(&key, &value);
     db.set_setting(&key, &value)?;
@@ -126,4 +136,47 @@ pub async fn select_folder(
     .await
     .map_err(|e| crate::AppError::new(e.to_string()))?;
     Ok(res)
+}
+
+#[cfg(test)]
+mod setting_gate_tests {
+    use super::is_managed_setting_key;
+
+    #[test]
+    fn ui_setting_keys_pass_gate() {
+        // 白名单与默认键集同源：全部默认键必然放行（抽 commonly written 的代表）。
+        for key in [
+            "theme",
+            "language",
+            "ui_scale",
+            "font_size",
+            "portable_dir",
+            "download_dir",
+            "active_mirror",
+            "launch_on_startup",
+            "update_frequency",
+            "detail_cache_ttl_minutes",
+            "catalog_source_url",
+            "watch_notify_frequency",
+            "show_custom",
+            "strict_errors",
+        ] {
+            assert!(is_managed_setting_key(key), "{} 应当在白名单内", key);
+        }
+    }
+
+    #[test]
+    fn credential_and_foreign_keys_rejected() {
+        // 凭据/用户键不得经通用设置面写读；任意其他键同样拒绝。
+        for key in [
+            "github_oauth_token",
+            "github_oauth_user",
+            "github_oauth_client_id",
+            "github_token",
+            "",
+            "theme; DROP TABLE user_settings",
+        ] {
+            assert!(!is_managed_setting_key(key), "{} 应当被白名单拒绝", key);
+        }
+    }
 }

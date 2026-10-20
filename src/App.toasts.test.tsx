@@ -19,7 +19,6 @@ vi.mock('./services/api', () => {
     'getUpdateRules',
     'getRecentlyViewedApps',
     'getWatchedApps',
-    'getHostTokens',
     'getSearchHistory',
     'checkForUpdates',
   ]);

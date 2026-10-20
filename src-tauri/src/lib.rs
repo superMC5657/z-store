@@ -608,7 +608,6 @@ pub fn run() {
             commands::record_app_view,
             commands::get_recently_viewed_apps,
             commands::clear_view_history,
-            commands::get_host_tokens,
             commands::set_host_token,
             commands::remove_host_token,
             commands::refresh_host_rate_limit,

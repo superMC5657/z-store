@@ -28,12 +28,6 @@ pub async fn sync_github_starred(
 }
 
 #[tauri::command]
-pub fn get_host_tokens(state: State<'_, AppState>) -> crate::AppResult<Vec<HostTokenEntry>> {
-    let db = state.db()?;
-    Ok(db.get_host_tokens()?)
-}
-
-#[tauri::command]
 pub async fn set_host_token(
     state: State<'_, AppState>,
     host: String,

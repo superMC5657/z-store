@@ -304,8 +304,6 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleGetDeveloperProfile(a);
     case 'sync_github_starred':
       return handleSyncGithubStarred();
-    case 'get_host_tokens':
-      return handleGetHostTokens();
     case 'set_host_token':
       return handleSetHostToken();
     case 'remove_host_token':

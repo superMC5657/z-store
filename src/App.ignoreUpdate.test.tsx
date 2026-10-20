@@ -51,7 +51,6 @@ vi.mock('./services/api', () => {
     'getFavorites',
     'getRecentlyViewedApps',
     'getWatchedApps',
-    'getHostTokens',
     'getSearchHistory',
   ]);
   const tauriApi = new Proxy(

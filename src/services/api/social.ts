@@ -40,10 +40,6 @@ export async function syncGithubStarred(username?: string): Promise<StarredSyncR
   return tauriInvoke<StarredSyncResult>(CMD.syncGithubStarred, { username });
 }
 
-export async function getHostTokens(): Promise<HostTokenEntry[]> {
-  return tauriInvoke<HostTokenEntry[]>(CMD.getHostTokens);
-}
-
 export async function setHostToken(host: string, token: string): Promise<void> {
   return tauriInvoke<void>(CMD.setHostToken, { host, token });
 }

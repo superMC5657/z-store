@@ -194,7 +194,6 @@ export const LIST_FALLBACK = new Set([
   'get_update_rules',
   'get_search_history',
   'get_recently_viewed_apps',
-  'get_host_tokens',
   'search_forge_repos',
   'get_watched_apps',
 ]);
