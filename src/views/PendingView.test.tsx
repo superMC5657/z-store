@@ -1268,3 +1268,78 @@ describe('PendingView 富卡 stars/forks 取真值（pendingDraftToAppSummary）
     expect(document.querySelector('.pending-editor .app-tag-star')?.textContent).toContain('12.0k');
   });
 });
+
+describe('PendingView 保存类回调失败路径（Issue 05）', () => {
+  it('onSave reject 时 toast 报错且停留编辑态可重试', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const onNotify = vi.fn();
+    const onSave = vi.fn().mockRejectedValue(new Error('db offline'));
+    render(
+      <PendingView
+        showBatchBar={false}
+        initialEntries={[draftEntry({ id: 'o/a' })]}
+        onNotify={onNotify}
+        onSave={onSave}
+      />,
+    );
+    fireEvent.click(screen.getByText('o/a'));
+    fireEvent.click(screen.getByText('保存草稿'));
+    await waitFor(() => {
+      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('保存失败'), 'error');
+    });
+    // 停留编辑态：表单未关闭（保存按钮仍在），成功提示不出现
+    expect(screen.getByText('保存草稿')).toBeTruthy();
+    expect(onNotify).not.toHaveBeenCalledWith(expect.stringContaining('草稿已保存'), 'success');
+  });
+
+  it('onDelete reject 时 toast 报错并解除二次确认态', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const onNotify = vi.fn();
+    const onDelete = vi.fn().mockRejectedValue(new Error('db offline'));
+    render(
+      <PendingView
+        showBatchBar={false}
+        initialEntries={[draftEntry({ id: 'o/a' })]}
+        onNotify={onNotify}
+        onDelete={onDelete}
+      />,
+    );
+    fireEvent.click(screen.getByText('o/a'));
+    const deleteBtn = screen.getByTitle('删除本地草稿（需二次确认）');
+    fireEvent.click(deleteBtn);
+    // 首点置确认态，次点执行
+    fireEvent.click(screen.getByText('再次点击确认删除'));
+    await waitFor(() => {
+      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('删除失败'), 'error');
+    });
+    // 失败后解除确认态：按钮 title 回到首点口径，成功提示不出现
+    expect(screen.getByTitle('删除本地草稿（需二次确认）')).toBeTruthy();
+    expect(onNotify).not.toHaveBeenCalledWith(expect.stringContaining('草稿已删除'), 'info');
+  });
+
+  it('onMarkSubmitted reject 时 toast 报错且不切已提交分段', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const onNotify = vi.fn();
+    const onMarkSubmitted = vi.fn().mockRejectedValue(new Error('db offline'));
+    render(
+      <PendingView
+        showBatchBar={false}
+        initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
+        onNotify={onNotify}
+        onMarkSubmitted={onMarkSubmitted}
+      />,
+    );
+    fireEvent.click(screen.getByText('本地收录'));
+    fireEvent.click(screen.getByText('o/a'));
+    fireEvent.change(screen.getByLabelText('收录申请提交'), {
+      target: { value: 'https://github.com/o/a/pull/1' },
+    });
+    fireEvent.click(screen.getByText('标记已提交'));
+    await waitFor(() => {
+      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('标记失败'), 'error');
+    });
+    // 停留原位：标记按钮仍在（未切已提交分段），成功提示不出现
+    expect(screen.getByText('标记已提交')).toBeTruthy();
+    expect(onNotify).not.toHaveBeenCalledWith(expect.stringContaining('已标记为已提交'), 'success');
+  });
+});

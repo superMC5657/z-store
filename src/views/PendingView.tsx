@@ -880,7 +880,20 @@ export const PendingView: React.FC<PendingViewProps> = ({
       return;
     }
     if (onSave) {
-      await onSave(item);
+      try {
+        await onSave(item);
+      } catch (e) {
+        // 落盘失败：toast 报错并停留编辑态（表单内容保留可重试），成功后的出表单/选中/切组均不执行
+        onNotify?.(
+          t('pending.save_failed', {
+            id: item.id,
+            error: e instanceof Error ? e.message : String(e),
+            defaultValue: `保存失败：${item.id}：${e instanceof Error ? e.message : String(e)}`,
+          }),
+          'error',
+        );
+        return;
+      }
     } else {
       setLocalEntries((prev) => {
         const now = Math.floor(Date.now() / 1000);
@@ -909,7 +922,21 @@ export const PendingView: React.FC<PendingViewProps> = ({
       return;
     }
     if (onDelete) {
-      await onDelete(id);
+      try {
+        await onDelete(id);
+      } catch (e) {
+        // 删除失败：toast 报错并解除二次确认态（行保持原状），成功后的清选中不执行
+        onNotify?.(
+          t('pending.delete_failed', {
+            id,
+            error: e instanceof Error ? e.message : String(e),
+            defaultValue: `删除失败：${id}：${e instanceof Error ? e.message : String(e)}`,
+          }),
+          'error',
+        );
+        setConfirmDeleteId(null);
+        return;
+      }
     } else {
       setLocalEntries((prev) => prev.filter((e) => e.id !== id));
     }
@@ -928,7 +955,20 @@ export const PendingView: React.FC<PendingViewProps> = ({
       return;
     }
     if (onMarkSubmitted) {
-      await onMarkSubmitted(id, url);
+      try {
+        await onMarkSubmitted(id, url);
+      } catch (e) {
+        // 落盘失败：toast 报错并停留原分组（不切已提交），成功后的切换与提示均不执行
+        onNotify?.(
+          t('pending.mark_submitted_failed', {
+            id,
+            error: e instanceof Error ? e.message : String(e),
+            defaultValue: `标记失败：${id}：${e instanceof Error ? e.message : String(e)}`,
+          }),
+          'error',
+        );
+        return;
+      }
     } else {
       flipLocalSubmitted(id, url);
     }
