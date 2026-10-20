@@ -343,35 +343,25 @@ pub fn is_fallback_for_level(level: i32) -> bool {
     level > 1
 }
 
-/// 入站应用标识解析 SSOT：`RepositoryUrlParser::parse` 优先，`split_once('/')` 回退。
+/// 入站应用标识解析唯一出口：薄委托 `RepositoryUrlParser::parse`（即
+/// `forge::canonical_app_id` 的同一解析体），无本地兜底分支。
 /// 返回 `(canonical 小写 id, 原大小写 owner/repo)`。
-/// ADR-0010：`canonical` 即 `forge::canonical_app_id` 的 GitHub 形态
-/// （小写 `owner/repo`），与事件 id（见
+/// ADR-0010：`canonical` 即 `forge::canonical_app_id` 的同值形态
+/// （小写 `owner/repo` 或 `forge[:host]:owner/repo`），与事件 id（见
 /// `forge::canonical_app_id_from_parts`）同值；
 /// 事件 `id`、DB 主键、前端归一键一律用此值，不透传脏 id。
+/// 未知 forge 前缀等不可解析标识与 `require_app_id` 同拒绝语义（不另设
+/// `split_once` 回退放行脏前缀）。
 pub fn resolve_icon_coord(app_id: &str) -> Result<(String, RepoRef), String> {
     let trimmed = app_id.trim();
     if trimmed.is_empty() {
         return Err("应用标识不能为空".into());
     }
 
-    if let Some(coord) = crate::forge::RepositoryUrlParser::parse(trimmed) {
-        if !coord.owner.is_empty() && !coord.repo.is_empty() {
-            let canon = coord.to_app_id().to_lowercase();
-            return Ok((canon, RepoRef::new(&coord.owner, &coord.repo)));
-        }
-    }
-
-    if let Some((owner, repo)) = trimmed.split_once('/') {
-        let o = owner.trim();
-        let r = repo.trim().trim_end_matches(".git");
-        if !o.is_empty() && !r.is_empty() && !o.contains('/') && !r.contains('/') {
-            let canon = format!("{}/{}", o.to_lowercase(), r.to_lowercase());
-            return Ok((canon, RepoRef::new(o, r)));
-        }
-    }
-
-    Err(format!("无法识别的应用标识: {}", trimmed))
+    let coord = crate::forge::RepositoryUrlParser::parse(trimmed)
+        .ok_or_else(|| format!("无法识别的应用标识: {}", trimmed))?;
+    let canon = coord.to_app_id().to_lowercase();
+    Ok((canon, RepoRef::new(&coord.owner, &coord.repo)))
 }
 
 /// 获取周期记录中首个有效 URL 对应的级别（收录 1..=4，非收录 2..=4 跳 L1）。
@@ -599,4 +589,63 @@ pub fn pick_detail_icon(
         return logo;
     }
     String::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resolve_icon_coord_rejects_unknown_forge_prefix() {
+        // 回归（16 号工单）：旧 split_once 兜底把 `xyz:owner/repo` 切成
+        // ("xyz:owner","repo") 放行入库，旁路 require_app_id 的未知前缀拒绝。
+        assert!(resolve_icon_coord("xyz:owner/repo").is_err());
+        assert!(resolve_icon_coord("foo:owner/repo.git").is_err());
+        assert!(resolve_icon_coord("").is_err());
+        assert!(resolve_icon_coord("   ").is_err());
+    }
+
+    #[test]
+    fn test_resolve_icon_coord_matches_require_app_id_acceptance() {
+        // 与执行层守卫同口径：任一输入接受性一致（拒绝路径同一解析体）。
+        let cases = [
+            "owner/repo",
+            "Owner/Repo",
+            "gh:owner/repo",
+            "codeberg:FreeTubeApp/FreeTube",
+            "gitea:git.example.com/owner/repo",
+            "https://github.com/owner/repo",
+            "xyz:owner/repo",
+            "no-slash-id",
+            "owner/repo/extra",
+        ];
+        for c in cases {
+            assert_eq!(
+                resolve_icon_coord(c).is_ok(),
+                crate::commands::require_app_id(c).is_ok(),
+                "acceptance diverged for {c}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_resolve_icon_coord_canonical_matches_canonical_app_id() {
+        // 三键同值（ADR-0010）：DB 主键 canonical 与 canonical_app_id 全同。
+        for c in [
+            "Owner/Repo",
+            "gh:Owner/Repo",
+            "codeberg:FreeTubeApp/FreeTube",
+            "gitea:git.example.com/Owner/Repo",
+            "https://github.com/Owner/Repo",
+        ] {
+            let (canon, repo) = resolve_icon_coord(c).unwrap();
+            assert_eq!(canon, crate::forge::canonical_app_id(c).unwrap(), "{c}");
+            assert!(!repo.is_empty());
+        }
+        // 裸 owner/repo 与 GitHub 前缀形态归一同键。
+        let (canon, _) = resolve_icon_coord("Owner/Repo").unwrap();
+        assert_eq!(canon, "owner/repo");
+        let (canon, _) = resolve_icon_coord("gh:Owner/Repo").unwrap();
+        assert_eq!(canon, "owner/repo");
+    }
 }
