@@ -21,7 +21,7 @@ pub struct ProjectConfig {
     pub license_gate: LicenseGateConfig,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct RuntimeConfig {
     #[serde(default = "default_strict_errors")]
     pub strict_errors: bool,
@@ -39,7 +39,7 @@ impl Default for RuntimeConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CacheConfig {
     #[serde(default = "default_detail_ttl_minutes")]
     pub detail_ttl_minutes: i64,
@@ -71,7 +71,7 @@ impl Default for CacheConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NetworkConfig {
     #[serde(default = "default_connect_timeout_seconds")]
     pub connect_timeout_seconds: u64,
@@ -113,7 +113,7 @@ impl Default for NetworkConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LimitsConfig {
     #[serde(default = "default_search_history_limit")]
     pub search_history_limit: usize,
@@ -129,7 +129,7 @@ pub struct LimitsConfig {
 /// 统一图标补探配置（`limits.icon_fetch`）。
 /// 默认：`pool=5 / total_timeout_secs=15`。
 /// 快慢超时经 `network.api_timeout_seconds` 统一配置；整批总量按页伸缩。
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct IconFetchConfig {
     #[serde(default = "default_icon_fetch_pool")]
     pub pool: usize,
@@ -199,14 +199,16 @@ impl Default for LimitsConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OauthConfig {
     #[serde(default = "default_oauth_client_id")]
     pub default_client_id: String,
 }
 
 fn default_oauth_client_id() -> String {
-    String::new()
+    // 与嵌入 config.toml [oauth] default_client_id 同值（单一事实源锁：
+    // serde_field_defaults_match_embedded_baseline 逐项校验，防外部文件缺段时漂移）。
+    "Ov23lik0b7fDGMLTiOYH".to_string()
 }
 
 impl Default for OauthConfig {
@@ -217,7 +219,7 @@ impl Default for OauthConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CatalogConfig {
     #[serde(default = "default_local_path")]
     pub local_path: String,
@@ -478,7 +480,7 @@ fn apply_compiled_license_gate(
 /// 开源协议门禁（`[license_gate]`，ADR-0018）：默认开 + OSI 全量名单（D1 严格不变）；
 /// 关闭仅放行本地草稿提交（可审计 WARN），不改变官方生态仓口径。
 /// 门禁唯一源为编译时 config（行为由 `config.toml` 在编译发行时确定，无运行时覆盖）。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LicenseGateConfig {
     #[serde(default = "default_license_gate_enabled")]
     pub enabled: bool,
@@ -540,14 +542,17 @@ impl CatalogConfig {
 
 impl Default for ProjectConfig {
     fn default() -> Self {
-        let cfg: Self = toml::from_str(EMBEDDED_CONFIG).unwrap_or_else(|_| Self {
-            runtime: RuntimeConfig::default(),
-            cache: CacheConfig::default(),
-            network: NetworkConfig::default(),
-            limits: LimitsConfig::default(),
-            oauth: OauthConfig::default(),
-            catalog: CatalogConfig::default(),
-            license_gate: LicenseGateConfig::default(),
+        let cfg: Self = toml::from_str(EMBEDDED_CONFIG).unwrap_or_else(|e| {
+            log::warn!("嵌入 config.toml 解析失败，按节回退编译期默认值: {}", e);
+            Self {
+                runtime: RuntimeConfig::default(),
+                cache: CacheConfig::default(),
+                network: NetworkConfig::default(),
+                limits: LimitsConfig::default(),
+                oauth: OauthConfig::default(),
+                catalog: CatalogConfig::default(),
+                license_gate: LicenseGateConfig::default(),
+            }
         });
         if let Err(msg) = validate_embedded_license_gate(&cfg.license_gate) {
             panic!("{}", msg);
@@ -558,28 +563,56 @@ impl Default for ProjectConfig {
 
 static GLOBAL_CONFIG: OnceLock<ProjectConfig> = OnceLock::new();
 
+/// 外部 config.toml 候选（全绝对路径，消除 CWD 依赖——同一机器不同工作目录
+/// 读到同一份配置）：安装目录随包覆盖优先，其次用户配置目录（与数据目录同域）。
+/// 开发期覆写走嵌入文件（`include_str!` 随构建生效）或放置于 target 调试目录。
+fn external_config_candidates() -> Vec<std::path::PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(dir) = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.to_path_buf()))
+    {
+        candidates.push(dir.join("config.toml"));
+    }
+    candidates.push(crate::resolve_default_app_data_dir().join("config.toml"));
+    candidates
+}
+
 pub fn get_project_config() -> &'static ProjectConfig {
     GLOBAL_CONFIG.get_or_init(|| {
         let compiled = ProjectConfig::default();
-        let external_candidates = [
-            std::path::PathBuf::from("config.toml"),
-            std::path::PathBuf::from("src-tauri/config.toml"),
-            std::env::current_exe()
-                .ok()
-                .and_then(|p| p.parent().map(|dir| dir.join("config.toml")))
-                .unwrap_or_default(),
-        ];
-
-        for path in &external_candidates {
-            if path.is_file() {
-                if let Ok(content) = std::fs::read_to_string(path) {
-                    if let Ok(parsed) = toml::from_str::<ProjectConfig>(&content) {
-                        return apply_compiled_license_gate(parsed, &compiled);
-                    }
+        let candidates = external_config_candidates();
+        for path in &candidates {
+            if !path.is_file() {
+                continue;
+            }
+            let parsed = std::fs::read_to_string(path)
+                .map_err(|e| e.to_string())
+                .and_then(|content| {
+                    toml::from_str::<ProjectConfig>(&content).map_err(|e| e.to_string())
+                });
+            match parsed {
+                Ok(external) => {
+                    log::info!("外部 config.toml 已加载 path={}", path.display());
+                    return apply_compiled_license_gate(external, &compiled);
+                }
+                Err(reason) => {
+                    log::warn!(
+                        "外部 config.toml 读取/解析失败，跳过 path={} reason={}",
+                        path.display(),
+                        reason
+                    );
                 }
             }
         }
-
+        log::warn!(
+            "未加载任何外部 config.toml，使用编译期嵌入配置（候选：{}）",
+            candidates
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
         compiled
     })
 }
@@ -778,5 +811,41 @@ mod tests {
         assert_eq!(merged.cache.detail_ttl_minutes, 5);
         assert!(merged.license_gate.enabled);
         assert_eq!(merged.license_gate.allowed.len(), 37);
+    }
+
+    #[test]
+    fn serde_field_defaults_match_embedded_baseline() {
+        // 单一事实源锁（工单 12）：serde 逐字段默认函数与嵌入 config.toml 字面量
+        // 逐项相等——外部文件缺字段时落的是与嵌入兜底同源的值，不存在第二套默认值。
+        // `strict_errors` 例外：按构建类型回退（cfg!(debug_assertions)）是文档化语义，
+        // 与文件字面量刻意不同源。
+        let embedded = ProjectConfig::default();
+        let baseline = ProjectConfig {
+            runtime: RuntimeConfig::default(),
+            cache: CacheConfig::default(),
+            network: NetworkConfig::default(),
+            limits: LimitsConfig::default(),
+            oauth: OauthConfig::default(),
+            catalog: CatalogConfig::default(),
+            license_gate: LicenseGateConfig::default(),
+        };
+        assert_eq!(baseline.runtime.strict_errors, cfg!(debug_assertions));
+        assert_eq!(embedded.cache, baseline.cache);
+        assert_eq!(embedded.network, baseline.network);
+        assert_eq!(embedded.limits, baseline.limits);
+        assert_eq!(embedded.oauth, baseline.oauth);
+        assert_eq!(embedded.catalog, baseline.catalog);
+        assert_eq!(embedded.license_gate, baseline.license_gate);
+    }
+
+    #[test]
+    fn external_config_candidates_are_absolute_and_cwd_independent() {
+        // 候选全为绝对路径（工单 12）：不同工作目录解析到同一份配置。
+        let candidates = external_config_candidates();
+        assert!(!candidates.is_empty());
+        for path in candidates {
+            assert!(path.is_absolute(), "{} 应当为绝对路径", path.display());
+            assert_eq!(path.file_name().map(|s| s.to_string_lossy()), Some("config.toml".into()));
+        }
     }
 }
