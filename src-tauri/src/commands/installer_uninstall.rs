@@ -69,6 +69,35 @@ pub(crate) fn cleanup_portable_path(install_path: &std::path::Path, owned_dir: &
     }
 }
 
+/// 解析可安全删除的 Desktop 快捷方式路径：文件名复用创建侧同一消毒函数
+/// （`sanitize_shortcut_name`，无 `\`/`/` 等分隔符即无逐级穿越），
+/// 拼接后再做 canonicalize + Desktop 前缀断言双保险；任一环节不满足则返回 None，
+/// 宁可残留死快捷方式也绝不删除 Desktop 之外的文件。
+#[cfg(target_os = "windows")]
+fn deletable_desktop_lnk(
+    desktop: &std::path::Path,
+    app_name: &str,
+) -> Option<std::path::PathBuf> {
+    let name = crate::installer::sanitize_shortcut_name(app_name);
+    let lnk = desktop.join(format!("{}.lnk", name));
+    if !lnk.exists() {
+        return None;
+    }
+    let canon_lnk = lnk.canonicalize().ok()?;
+    let canon_desktop = desktop.canonicalize().ok()?;
+    canon_lnk.starts_with(canon_desktop).then_some(lnk)
+}
+
+#[cfg(target_os = "windows")]
+fn cleanup_desktop_shortcut(app_name: &str) {
+    let desktop = std::env::var("USERPROFILE")
+        .map(|p| std::path::PathBuf::from(p).join("Desktop"))
+        .unwrap_or_else(|_| std::path::PathBuf::from("C:\\Users\\Public\\Desktop"));
+    if let Some(lnk) = deletable_desktop_lnk(&desktop, app_name) {
+        let _ = std::fs::remove_file(lnk);
+    }
+}
+
 pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
     let app_id = super::require_app_id(&app_id)?;
     log::info!(
@@ -150,17 +179,9 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result
         let _ = std::fs::remove_dir_all(&app_dir);
     }
 
-    // 4. 快捷方式清理
+    // 4. 快捷方式清理（消毒 + 前缀断言，绝不越出 Desktop）
     #[cfg(target_os = "windows")]
-    {
-        let desktop = std::env::var("USERPROFILE")
-            .map(|p| std::path::PathBuf::from(p).join("Desktop"))
-            .unwrap_or_else(|_| std::path::PathBuf::from("C:\\Users\\Public\\Desktop"));
-        let lnk = desktop.join(format!("{}.lnk", app.app_name));
-        if lnk.exists() {
-            let _ = std::fs::remove_file(lnk);
-        }
-    }
+    cleanup_desktop_shortcut(&app.app_name);
 
     // 5. 卸载向导操作或目录清理核验通过后，才正式从 SQLite 数据库移除条例
     let db = state.db()?;
@@ -324,5 +345,50 @@ mod ghost_and_id_guard_tests {
         ];
         let out = super::hide_ghost_apps(apps, &[]);
         assert_eq!(out.len(), 2);
+    }
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod desktop_shortcut_guard_tests {
+    use std::fs;
+
+    fn temp_dir_with(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("zstore-lnk-{}-{}", tag, std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn existing_sanitized_shortcut_is_deletable() {
+        let desktop = temp_dir_with("del");
+        fs::write(desktop.join("My App.lnk"), b"lnk").unwrap();
+        assert!(super::deletable_desktop_lnk(&desktop, "My App").is_some());
+        fs::remove_dir_all(&desktop).unwrap();
+    }
+
+    #[test]
+    fn traversal_name_resolves_inside_desktop_only() {
+        // app_name 含 `..\` 时消毒把分隔符剥掉，解析结果必须仍落在 Desktop 内，
+        // Desktop 之外的同名文件绝不可见。
+        let desktop = temp_dir_with("traverse");
+        let outside = temp_dir_with("outside");
+        let outside_lnk = outside.join("....evil.lnk");
+        fs::write(&outside_lnk, b"lnk").unwrap();
+        fs::write(desktop.join("....evil.lnk"), b"lnk").unwrap();
+
+        let resolved = super::deletable_desktop_lnk(&desktop, "..\\..\\evil");
+        assert!(resolved.is_some());
+        assert_eq!(resolved.unwrap().parent().unwrap(), desktop.as_path());
+        assert!(outside_lnk.exists(), "file outside desktop must survive");
+
+        fs::remove_dir_all(&desktop).unwrap();
+        fs::remove_dir_all(&outside).unwrap();
+    }
+
+    #[test]
+    fn missing_shortcut_resolves_none() {
+        let desktop = temp_dir_with("missing");
+        assert!(super::deletable_desktop_lnk(&desktop, "ghost app").is_none());
+        fs::remove_dir_all(&desktop).unwrap();
     }
 }

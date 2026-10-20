@@ -10,7 +10,7 @@ pub use executor::InstallOutcome;
 pub use executor::{execute_installation, execute_uninstallation, parse_uninstaller_command};
 pub use paths::{
     default_download_dir, dirs_or_fallback, dirs_or_fallback_with_base, expand_env_path,
-    resolve_uninstaller_command, user_home_dir,
+    resolve_uninstaller_command, sanitize_shortcut_name, user_home_dir,
 };
 pub use selector::{classify_asset, score_asset, select_best_asset};
 

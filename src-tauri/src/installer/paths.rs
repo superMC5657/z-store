@@ -157,19 +157,25 @@ pub fn dirs_or_fallback(app_id: &str) -> PathBuf {
     }
 }
 
-#[cfg(target_os = "windows")]
-pub fn create_desktop_shortcut(app_name: &str, exe_path: &Path) {
-    // 清洗快捷方式文件名，过滤 Windows 非法文件名字符: \ / : * ? " < > |
+/// 快捷方式文件名消毒：过滤 Windows 非法文件名字符 `\ / : * ? " < > |`，去首尾空白，
+/// 清洗后为空则回退 "App"。创建侧与卸载侧（desktop .lnk 清理）共用此唯一口径，
+/// 保证「能创建的快捷方式名」与「会删除的名字」字符集一致，特殊名不会被删到 Desktop 之外。
+pub fn sanitize_shortcut_name(app_name: &str) -> String {
     let clean_name: String = app_name
         .chars()
         .filter(|c| !['\\', '/', ':', '*', '?', '"', '<', '>', '|'].contains(c))
         .collect();
     let safe_name = clean_name.trim();
-    let final_name = if safe_name.is_empty() {
-        "App"
+    if safe_name.is_empty() {
+        "App".to_string()
     } else {
-        safe_name
-    };
+        safe_name.to_string()
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn create_desktop_shortcut(app_name: &str, exe_path: &Path) {
+    let final_name = sanitize_shortcut_name(app_name);
 
     let working_dir = exe_path.parent().unwrap_or(exe_path);
     let script = format!(
@@ -345,4 +351,24 @@ pub fn resolve_uninstaller_command(
     }
 
     None
+}
+
+#[cfg(test)]
+mod shortcut_name_tests {
+    use super::sanitize_shortcut_name;
+
+    #[test]
+    fn strips_windows_reserved_filename_chars() {
+        // 创建/删除两侧共用字符集：分隔符与 Windows 非法文件名字符全部剥离，
+        // `..\` 形态的穿越名随之退化为 Desktop 内的普通文件名。
+        assert_eq!(sanitize_shortcut_name(r"foo\..\..\bar"), "foo....bar");
+        assert_eq!(sanitize_shortcut_name("a/b:c*d?e\"f<g>h|i"), "abcdefghi");
+        assert_eq!(sanitize_shortcut_name("  Visual Studio Code  "), "Visual Studio Code");
+    }
+
+    #[test]
+    fn empty_after_sanitize_falls_back_to_app() {
+        assert_eq!(sanitize_shortcut_name(""), "App");
+        assert_eq!(sanitize_shortcut_name("\\\\/:*?"), "App");
+    }
 }
