@@ -240,6 +240,16 @@ impl CatalogService {
             }
         }
 
+        // 截断标注（#21）：单页拉取无翻页，`public_repos` 大于实际行数即标注截断，
+        // 前端明示"仅展示最近更新的前 N 个"，不伪装全量（离线兜底分支 public_repos
+        // 归一为 catalog 命中数，与 repos 行数一致，天然不误标）。
+        let effective_public_repos = if public_repos == 0 {
+            repos.len() as u64
+        } else {
+            public_repos
+        };
+        let repos_truncated = effective_public_repos > repos.len() as u64;
+
         Ok((
             DeveloperProfile {
                 login,
@@ -250,14 +260,11 @@ impl CatalogService {
                 company,
                 blog,
                 location,
-                public_repos: if public_repos == 0 {
-                    repos.len() as u64
-                } else {
-                    public_repos
-                },
+                public_repos: effective_public_repos,
                 followers,
                 following,
                 repos,
+                repos_truncated,
             },
             user_new_cache,
             repos_new_cache,
@@ -370,5 +377,66 @@ mod developer_profile_tests {
         assert!(user_new.is_none());
         assert!(repos_new.is_none());
         assert!(profile.repos.iter().any(|r| r.full_name == "someone/r1"));
+    }
+
+    #[tokio::test]
+    async fn test_profile_marks_repos_truncated_against_public_repos() {
+        // #21 截断标注：public_repos > 实际行数即 repos_truncated=true（单页 30 条
+        // 无翻页，前端据此明示截断）；计数一致（或 user 端点缺席归一为行数）不误标。
+        let repos_body = repos_json();
+        let user = |public_repos: u64| {
+            serde_json::json!({
+                "login": "someone",
+                "name": "someone",
+                "html_url": format!("https://github.com/someone"),
+                "public_repos": public_repos,
+                "followers": 0u64,
+                "following": 0u64
+            })
+            .to_string()
+        };
+
+        let mut routes = HashMap::new();
+        routes.insert(
+            "/users/someone".to_string(),
+            MockResp { status: 200, reason: "OK", etag: None, body: user(5), honor_inm: None },
+        );
+        routes.insert(
+            "/users/someone/repos?sort=updated&per_page=30".to_string(),
+            MockResp {
+                status: 200,
+                reason: "OK",
+                etag: None,
+                body: repos_body.clone(),
+                honor_inm: None,
+            },
+        );
+        let srv = spawn_mock(routes).await;
+        let svc = test_service();
+        let (profile, _, _) = svc
+            .fetch_developer_profile_with_cache("someone", None, (None, None), (None, None), Some(&srv.base))
+            .await
+            .unwrap();
+        assert_eq!(profile.repos.len(), 1);
+        assert!(profile.repos_truncated, "public_repos=5 > 1 行必须标注截断");
+        assert_eq!(profile.public_repos, 5);
+
+        let mut routes = HashMap::new();
+        routes.insert(
+            "/users/someone".to_string(),
+            MockResp { status: 200, reason: "OK", etag: None, body: user(1), honor_inm: None },
+        );
+        routes.insert(
+            "/users/someone/repos?sort=updated&per_page=30".to_string(),
+            MockResp { status: 200, reason: "OK", etag: None, body: repos_body, honor_inm: None },
+        );
+        let srv = spawn_mock(routes).await;
+        let svc = test_service();
+        let (profile, _, _) = svc
+            .fetch_developer_profile_with_cache("someone", None, (None, None), (None, None), Some(&srv.base))
+            .await
+            .unwrap();
+        assert!(!profile.repos_truncated, "计数一致不误标");
+        assert_eq!(profile.public_repos, 1);
     }
 }

@@ -415,7 +415,11 @@ fn resolve_detail_stats(
         .and_then(|r| r.license.as_ref())
         .and_then(|l| l.spdx_id.clone())
         .or_else(|| catalog_item.map(|i| i.license.clone()))
-        .unwrap_or_else(|| "FLOSS".to_string());
+        // 空串不视作真值（与下方 homepage 同过滤模式），未知一律显式 `unknown`
+        //（#21：诚实未知，不伪装已验证开源）；D1 门禁按名单外拒绝
+        //（`UNKNOWN` 不在 DEFAULT_LICENSE_ALLOWLIST），ADR-0018 默认开。
+        .filter(|l| !l.trim().is_empty())
+        .unwrap_or_else(|| "unknown".to_string());
     let homepage = repo_info
         .and_then(|r| r.homepage.clone())
         .filter(|h| !h.trim().is_empty())
@@ -1015,6 +1019,70 @@ mod tests {
         assert!(super::is_placeholder_description("跨平台开源项目（extra）"));
         assert!(!super::is_placeholder_description("Real repo description"));
         assert!(!super::is_placeholder_description("树莓派工具"));
+    }
+
+    #[test]
+    fn test_resolve_detail_stats_license_unknown_sentinel() {
+        // #21：repo 无 license 且无收录兜底时显式 `unknown`（诚实未知，不伪装
+        // 已验证开源）；repo spdx 优先，缺失回退收录库。
+        let stats = super::resolve_detail_stats(None, None);
+        assert_eq!(stats.license, "unknown");
+
+        let repo_no_license = super::GitHubRepoResponse {
+            name: None,
+            full_name: None,
+            html_url: None,
+            description: None,
+            stargazers_count: None,
+            forks_count: None,
+            language: None,
+            license: Some(crate::github::models::GitHubLicense { spdx_id: None }),
+            homepage: None,
+            default_branch: None,
+        };
+        let stats = super::resolve_detail_stats(Some(&repo_no_license), None);
+        assert_eq!(stats.license, "unknown");
+
+        let bare_item = crate::github::models::CatalogItem {
+            id: "o/r".to_string(),
+            name: "R".to_string(),
+            owner: "o".to_string(),
+            repo: "r".to_string(),
+            icon: String::new(),
+            icon_bg: String::new(),
+            description: String::new(),
+            description_en: None,
+            category: "dev".to_string(),
+            category_name: "开发工具".to_string(),
+            aliases: vec![],
+            default_version: "v0.1.0".to_string(),
+            license: String::new(),
+            stars: 0,
+            forks: 0,
+            is_verified: false,
+            homepage: None,
+            install_dirs: vec![],
+            search_subdirs: vec![],
+            publishers: vec![],
+            platforms: vec![],
+            identifiers: std::collections::HashMap::new(),
+        };
+        let stats = super::resolve_detail_stats(Some(&repo_no_license), Some(&bare_item));
+        assert_eq!(stats.license, "unknown");
+
+        let mut licensed = bare_item.clone();
+        licensed.license = "MIT".to_string();
+        let stats = super::resolve_detail_stats(Some(&repo_no_license), Some(&licensed));
+        assert_eq!(stats.license, "MIT");
+
+        let repo_mit = super::GitHubRepoResponse {
+            license: Some(crate::github::models::GitHubLicense {
+                spdx_id: Some("MIT".to_string()),
+            }),
+            ..repo_no_license
+        };
+        let stats = super::resolve_detail_stats(Some(&repo_mit), None);
+        assert_eq!(stats.license, "MIT");
     }
 
     #[test]

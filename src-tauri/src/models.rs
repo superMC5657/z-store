@@ -238,6 +238,10 @@ pub struct DeveloperProfile {
     pub followers: u64,
     pub following: u64,
     pub repos: Vec<DeveloperRepoItem>,
+    /// 列表截断标记（#21）：仓库列表单次拉取 `DEVELOPER_REPOS_PAGE_SIZE` 条无翻页，
+    /// `public_repos` 大于实际返回行数即 `true`——前端据此标注截断，不伪装全量。
+    #[serde(default)]
+    pub repos_truncated: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -132,68 +132,82 @@ impl CatalogService {
             );
         }
 
-        if let Ok(res) = resp {
-            crate::notify_rate_limit("github.com", res.headers());
-            if res.status().is_success() {
-                if let Ok(data) = res.json::<OnlineSearchResponse>().await {
-                    // Top1：零 DB（零直连零查询，`Send` 安全），每条直接 `None`；
-                    // `fallback_summary`（`probe=false` + `None`）直接置空零直连，确认图标由调用方单锁批量回填。
-                    let summaries: Vec<AppSummary> = futures_util::future::join_all(
-                        data.items.into_iter().map(|it| {
-                            let client = &client;
-                            async move {
-                                let owner = it.owner.login;
-                                let repo = it.full_name.split('/').nth(1).unwrap_or("").to_string();
-                                let description_en = it.description.clone();
-                                let description =
-                                    it.description.unwrap_or_else(|| "开源软件项目".to_string());
-                                let topics = it.topics.unwrap_or_default();
-                                // 首屏快返：probe=false 置空图标，等后台快慢分离补探 emit。
-                                super::http::fallback_summary(
-                                    client,
-                                    it.full_name.to_lowercase(),
-                                    it.name,
-                                    owner,
-                                    repo,
-                                    description,
-                                    description_en,
-                                    it.stargazers_count,
-                                    it.forks_count,
-                                    "OpenSource".to_string(),
-                                    &topics,
-                                    None,
-                                    false,
-                                    None,
-                                    token,
-                                )
-                                .await
-                            }
-                        }),
-                    )
-                    .await;
-                    log::debug!(
-                        "http search done sid={} req={} url='{}' hits={}",
-                        sid,
-                        req_id,
-                        safe_url,
-                        summaries.len()
-                    );
-                    // `search done` 的 INFO 唯一归属 commands/catalog，此处结论降级为 debug，
-                    // 单次搜索只产生一行 INFO `search done`（行为链），避免双 INFO。
-                    log::debug!(
-                        "http resp search done sid={} req={} host={} hits={} elapsed_ms={}",
-                        sid,
-                        req_id,
-                        req_host,
-                        summaries.len(),
-                        start_search.elapsed().as_millis()
-                    );
-                    return Ok(summaries);
-                }
+        // 失败上浮错误态（#21：区分 空结果 / 网络失败）：网络错误、非 2xx、
+        // JSON 解析失败一律返回 Err，不再伪装"无结果"；前端 `useSearchState`
+        // 已有 error 车道（`search.online_failed`），直查回退搜索的既有分流不变。
+        let res = match resp {
+            Ok(res) => res,
+            Err(e) => {
+                return Err(format!(
+                    "GitHub 搜索网络失败: {}",
+                    crate::log_support::short_reason(&e.to_string())
+                ));
             }
-        }
+        };
 
-        Ok(Vec::new())
+        crate::notify_rate_limit("github.com", res.headers());
+        if !res.status().is_success() {
+            return Err(format!(
+                "GitHub 搜索请求失败（HTTP {}）",
+                res.status().as_u16()
+            ));
+        }
+        let data: OnlineSearchResponse = res
+            .json()
+            .await
+            .map_err(|e| format!("解析 GitHub 搜索结果失败: {}", e))?;
+        // Top1：零 DB（零直连零查询，`Send` 安全），每条直接 `None`；
+        // `fallback_summary`（`probe=false` + `None`）直接置空零直连，确认图标由调用方单锁批量回填。
+        let summaries: Vec<AppSummary> = futures_util::future::join_all(
+            data.items.into_iter().map(|it| {
+                let client = &client;
+                async move {
+                    let owner = it.owner.login;
+                    let repo = it.full_name.split('/').nth(1).unwrap_or("").to_string();
+                    let description_en = it.description.clone();
+                    let description = it.description.unwrap_or_else(|| "开源软件项目".to_string());
+                    let topics = it.topics.unwrap_or_default();
+                    // 首屏快返：probe=false 置空图标，等后台快慢分离补探 emit。
+                    super::http::fallback_summary(
+                        client,
+                        it.full_name.to_lowercase(),
+                        it.name,
+                        owner,
+                        repo,
+                        description,
+                        description_en,
+                        it.stargazers_count,
+                        it.forks_count,
+                        "OpenSource".to_string(),
+                        &topics,
+                        None,
+                        false,
+                        None,
+                        token,
+                    )
+                    .await
+                }
+            }),
+        )
+        .await;
+        log::debug!(
+            "http search done sid={} req={} url='{}' hits={}",
+            sid,
+            req_id,
+            safe_url,
+            summaries.len()
+        );
+        // `search done` 的 INFO 唯一归属 commands/catalog，此处结论降级为 debug，
+        // 单次搜索只产生一行 INFO `search done`（行为链），避免双 INFO。
+        log::debug!(
+            "http resp search done sid={} req={} host={} hits={} elapsed_ms={}",
+            sid,
+            req_id,
+            req_host,
+            summaries.len(),
+            start_search.elapsed().as_millis()
+        );
+        Ok(summaries)
     }
 
     /// Top1+`Send` 安全：`pre_confirmed` 为调用方短锁预解析的 owned 确认图标，
@@ -275,10 +289,13 @@ impl CatalogService {
 
         let repo_data: OnlineRepoResponse = resp.json().await.map_err(|e| e.to_string())?;
         let repo_desc = repo_data.description.clone();
+        // 未知协议显式 `unknown`（#21：诚实未知，不伪装已验证开源）；D1 门禁按
+        // 名单外拒绝（`UNKNOWN` 不在 DEFAULT_LICENSE_ALLOWLIST），ADR-0018 默认开。
         let license = repo_data
             .license
             .and_then(|l| l.spdx_id)
-            .unwrap_or_else(|| "FLOSS".to_string());
+            .filter(|l| !l.trim().is_empty())
+            .unwrap_or_else(|| "unknown".to_string());
         let topics = repo_data.topics.unwrap_or_default();
         // Top1：复用调用方预解析 `pre_confirmed`（owned `Send`，零查询零直连）；
         // `None` 时 `fallback_summary`（`probe=true`）内回退本地直连（`ok()` 吞错不 panic，单条）。

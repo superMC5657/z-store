@@ -222,6 +222,12 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
             <h4 style={{ margin: 0, fontSize: 'calc(15px * var(--font-scale))', fontWeight: 590, display: 'flex', alignItems: 'center', gap: '6px', letterSpacing: '-0.015em' }}>
               <FolderOpen size={15} strokeWidth={1.5} />
               <span>开源项目矩阵 ({profile?.repos.length || 0})</span>
+              {/* 截断明示（#21）：仓库列表单次拉取无翻页，public_repos > 行数即标注，不伪装全量 */}
+              {profile?.repos_truncated && (
+                <span style={{ fontSize: 'var(--font-xs)', fontWeight: 400, color: 'var(--text-tertiary)' }}>
+                  仅展示最近更新的前 {profile.repos.length} 个
+                </span>
+              )}
             </h4>
             <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-tertiary)' }}>
               标记「已收录」的项目可直接在 ZStore 中一键安装与接管更新

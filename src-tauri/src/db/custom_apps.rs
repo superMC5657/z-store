@@ -836,7 +836,8 @@ mod tests {
     #[test]
     fn validate_rejects_non_osi_license() {
         // D1：CC-BY（非 OSI）、Unknown/NOASSERTION、闭源空 license 一律拒绝。
-        for bad in ["CC-BY-4.0", "Unknown", "NOASSERTION", "", "Proprietary"] {
+        // `unknown`（#21 显式未知哨兵值）与旧 `FLOSS` 占位同按名单外拒绝。
+        for bad in ["CC-BY-4.0", "Unknown", "unknown", "FLOSS", "NOASSERTION", "", "Proprietary"] {
             let mut item = draft_item("o/r", "o", "r");
             item.license = bad.to_string();
             assert!(
