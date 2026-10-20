@@ -25,6 +25,9 @@ export const OAuthAccountCard: React.FC = () => {
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 连续轮询网络失败计数：抖动不断会话，攒够次数才停（用户码保留展示）
   const pollFailRef = useRef(0);
+  // 轮询会话取消标志：unmount/手动取消置位。in-flight poll 无法 abort，
+  // 返回后凭此标志丢弃结果并不再重排，防止卸载后轮询泄漏到 deadline。
+  const pollCancelledRef = useRef(false);
 
   const loadUser = async () => {
     setIsLoadingUser(true);
@@ -44,7 +47,8 @@ export const OAuthAccountCard: React.FC = () => {
     window.addEventListener('zstore:oauth-changed', refresh);
     return () => {
       window.removeEventListener('zstore:oauth-changed', refresh);
-      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+      pollCancelledRef.current = true;
+      stopPolling();
     };
   }, []);
 
@@ -58,6 +62,7 @@ export const OAuthAccountCard: React.FC = () => {
   const schedulePoll = (deviceCode: string, deadline: number, intervalMs: number) => {
     stopPolling();
     pollTimerRef.current = setTimeout(async () => {
+      if (pollCancelledRef.current) return;
       if (Date.now() > deadline) {
         setError(t('oauth.poll_timeout'));
         setSession(null);
@@ -65,6 +70,7 @@ export const OAuthAccountCard: React.FC = () => {
       }
       try {
         const res = await tauriApi.oauthDevicePoll(deviceCode);
+        if (pollCancelledRef.current) return;
         pollFailRef.current = 0;
         if (res.status === 'authorized') {
           stopPolling();
@@ -85,6 +91,7 @@ export const OAuthAccountCard: React.FC = () => {
           schedulePoll(deviceCode, deadline, intervalMs);
         }
       } catch (e) {
+        if (pollCancelledRef.current) return;
         const detail = String(e);
         // 参数/调用错误与网络抖动要区分：前者停轮询并展示完整错误，后者才重试。
         if (detail.includes('invalid args')) {
@@ -110,6 +117,7 @@ export const OAuthAccountCard: React.FC = () => {
     setIsStarting(true);
     setError(null);
     pollFailRef.current = 0;
+    pollCancelledRef.current = false;
     try {
       const res = await tauriApi.oauthDeviceStart();
       const deadline = Date.now() + res.expires_in * 1000;
@@ -137,6 +145,7 @@ export const OAuthAccountCard: React.FC = () => {
   };
 
   const handleCancelSession = () => {
+    pollCancelledRef.current = true;
     stopPolling();
     pollFailRef.current = 0;
     setSession(null);
