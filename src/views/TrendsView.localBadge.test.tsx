@@ -1,8 +1,9 @@
 /**
  * 趋势榜本地收录黄标（catalog / enriched / 裸行三分支）：
  * - catalog：matchCatalogApp 命中本地即 AppCard 黄标；
- * - enriched：enrich 命中经 annotate + customIds 显式补齐即黄标；
+ * - enriched：enrich 命中经 annotate + localApps 显式补齐即黄标；
  * - 裸行：enrich 缺席占位小行命中本地即标题旁黄标；
+ * - 黄标只认已收录（localApps）；草稿 customIds 仅抑制移入入口，不叠黄；
  * - 蓝优先不动，首刷 null→就绪补标，大小写归一。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -113,7 +114,7 @@ describe('TrendsView 本地收录黄标三分支', () => {
     expect(voidRow[0]?.querySelector('.verified-badge-local')).toBeNull();
   });
 
-  it('enriched 分支：customIds 显式补齐即黄标（matchingBase 缺本地）', async () => {
+  it('enriched 分支：localApps 显式补齐即黄标（matchingBase 缺本地）', async () => {
     mockBoard([makeTrendRepo({ id: 'acme/atlas' }), makeTrendRepo({ id: 'other/void' })]);
     enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockImplementation(async (repos) =>
       repos.map((r) => makeEnrichedApp({ id: `${r.owner}/${r.repo}` })),
@@ -122,7 +123,7 @@ describe('TrendsView 本地收录黄标三分支', () => {
       <TrendsView
         apps={[makeApp({ id: 'other/app', name: 'Other' })]}
         allApps={[makeApp({ id: 'other/app', name: 'Other' })]}
-        customIds={new Set(['acme/atlas'])}
+        localApps={[localRow('acme/atlas', 'acme', 'atlas')]}
         favoriteIds={new Set<string>()}
         installedIds={new Set<string>()}
         installingIds={new Set<string>()}
@@ -147,7 +148,7 @@ describe('TrendsView 本地收录黄标三分支', () => {
       <TrendsView
         apps={[makeApp({ id: 'other/app', name: 'Other' })]}
         allApps={[makeApp({ id: 'other/app', name: 'Other' })]}
-        customIds={new Set(['acme/atlas'])}
+        localApps={[localRow('acme/atlas', 'acme', 'atlas')]}
         favoriteIds={new Set<string>()}
         installedIds={new Set<string>()}
         installingIds={new Set<string>()}
@@ -184,7 +185,7 @@ describe('TrendsView 本地收录黄标三分支', () => {
       <TrendsView
         apps={[makeApp({ id: 'other/app', name: 'Other' })]}
         allApps={[verified, makeApp({ id: 'other/app', name: 'Other' })]}
-        customIds={new Set(['o/verified'])}
+        localApps={[localRow('o/verified', 'o', 'verified')]}
         favoriteIds={new Set<string>()}
         installedIds={new Set<string>()}
         installingIds={new Set<string>()}
@@ -201,7 +202,7 @@ describe('TrendsView 本地收录黄标三分支', () => {
     expect(container.querySelectorAll('.verified-badge').length).toBeGreaterThan(0);
   });
 
-  it('首刷补标：customIds 空即无标，就绪后引用变化即补黄', async () => {
+  it('首刷补标：localApps 空即无标，就绪后引用变化即补黄', async () => {
     mockBoard([makeTrendRepo({ id: 'acme/atlas' })]);
     enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockRejectedValue(new Error('offline'));
     const baseProps = {
@@ -215,10 +216,53 @@ describe('TrendsView 本地收录黄标三分支', () => {
       onToggleFavorite: () => {},
       onResetPlatformFilter: () => {},
     };
-    const { container, rerender } = render(<TrendsView {...baseProps} customIds={new Set<string>()} />);
+    const { container, rerender } = render(<TrendsView {...baseProps} localApps={[]} />);
     await screen.findByText('acme/atlas');
     expect(container.querySelectorAll('.verified-badge-local').length).toBe(0);
-    rerender(<TrendsView {...baseProps} customIds={new Set(['acme/atlas'])} />);
+    rerender(<TrendsView {...baseProps} localApps={[localRow('acme/atlas', 'acme', 'atlas')]} />);
+    await waitFor(() => {
+      expect(container.querySelectorAll('.verified-badge-local').length).toBe(1);
+    });
+  });
+
+  it('草稿（customIds）不叠黄：仅抑制移入入口，收录进本地后才黄', async () => {
+    mockBoard([makeTrendRepo({ id: 'acme/atlas' })]);
+    enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockRejectedValue(new Error('offline'));
+    const baseProps = {
+      apps: [makeApp({ id: 'other/app', name: 'Other' })],
+      allApps: [makeApp({ id: 'other/app', name: 'Other' })],
+      favoriteIds: new Set<string>(),
+      installedIds: new Set<string>(),
+      installingIds: new Set<string>(),
+      onOpenDetail: () => {},
+      onQuickInstall: () => {},
+      onToggleFavorite: () => {},
+      onResetPlatformFilter: () => {},
+    };
+    const { container, rerender } = render(
+      <TrendsView {...baseProps} customIds={new Set<string>()} localApps={[]} />,
+    );
+    await screen.findByText('acme/atlas');
+    await waitFor(() => {
+      expect(container.querySelectorAll('.trend-uncataloged-row').length).toBe(1);
+    });
+    // 基线：无草稿时入口在（防「入口本来就不渲染」让下一条空转通过）、无黄标
+    expect(screen.getByTestId('trend-move-in-acme/atlas')).toBeTruthy();
+    expect(container.querySelectorAll('.verified-badge-local').length).toBe(0);
+    // 移入草稿：入口消失，但仍不是收录，不得出现黄标
+    rerender(<TrendsView {...baseProps} customIds={new Set(['acme/atlas'])} localApps={[]} />);
+    await waitFor(() => {
+      expect(screen.queryByTestId('trend-move-in-acme/atlas')).toBeNull();
+    });
+    expect(container.querySelectorAll('.verified-badge-local').length).toBe(0);
+    // 收录进本地（collected）后才允许黄标
+    rerender(
+      <TrendsView
+        {...baseProps}
+        customIds={new Set(['acme/atlas'])}
+        localApps={[localRow('acme/atlas', 'acme', 'atlas')]}
+      />,
+    );
     await waitFor(() => {
       expect(container.querySelectorAll('.verified-badge-local').length).toBe(1);
     });

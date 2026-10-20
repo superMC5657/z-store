@@ -18,7 +18,7 @@ import {
   preloadTop30Icons,
 } from '../../services/iconStore';
 import { matchPlatformSetWithLoading } from '../../lib/platformFilter';
-import { annotateIsCataloged, buildCatalogIdSet } from '../selectors';
+import { annotateIsCataloged, buildCatalogIdSet, restampLocalMarks } from '../selectors';
 import { type PlatformId } from '../../lib/platformFilter';
 import { zlogInfo } from '../../lib/z-log';
 import { adoptEchoInWindow } from './useSearchState';
@@ -276,20 +276,12 @@ export function useAppSubscriptions({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 本地收录就绪后重标已渲染的最近浏览行（首刷 null→[] 漏标，加载后补标；loading 占位不误判终态）。
+  // 本地收录就绪/清空后重标已渲染的最近浏览行：
+  // undefined（customApps 未加载）原样透传；空集合即「确知无收录」，须清掉退回/删除后的陈旧黄标。
   useEffect(() => {
-    if (!localApps || localApps.length === 0) return;
+    if (!localApps) return;
     const catalogIds = buildCatalogIdSet(appsRef.current);
-    setRecentlyViewedApps((prev) => {
-      if (prev.length === 0) return prev;
-      let changed = false;
-      const next = prev.map((r) => {
-        const n = annotateIsCataloged(r, catalogIds, localApps);
-        if (n !== r) changed = true;
-        return n;
-      });
-      return changed ? next : prev;
-    });
+    setRecentlyViewedApps((prev) => restampLocalMarks(prev, catalogIds, localApps));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [localApps]);
 

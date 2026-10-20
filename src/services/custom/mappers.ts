@@ -98,14 +98,17 @@ export function itemToWire(
 
 /**
  * 草稿 → 卡片摘要（唯一投影：待收录与本地收录行共用）。
- * `source=local` + 显式 status 供黄标判定；`archived` 仅在调用方传入时携带
- * （待收录路径无归档概念，收录行路径透传行真值）。
+ * 黄标来源只属于收录及其后链路（collected/local_collected/submitted/已归档记录）：
+ * 纯 `draft` 不带 `source`，移入草稿当刻不会误亮黄标；`status` 恒显式携带。
+ * 已归档行即使 status 仍是 draft（转正退役）也保留来源——待收录页作为收录记录只读展示。
+ * `archived` 仅在调用方传入时携带（待收录路径无归档概念，收录行路径透传行真值）。
  */
 export function itemToSummary(
   item: DraftItem,
   status: DraftStatus,
   archived?: boolean,
-): AppSummary & { source: 'local'; status: string; archived?: boolean } {
+): AppSummary & { source?: 'local'; status: string; archived?: boolean } {
+  const hasCollectionRecord = archived === true || status !== 'draft';
   return {
     id: item.id,
     name: item.name || item.id,
@@ -126,7 +129,7 @@ export function itemToSummary(
     forge_host: 'github.com',
     homepage: item.homepage || null,
     platforms: [...(item.platforms ?? [])],
-    source: 'local',
+    ...(hasCollectionRecord ? { source: 'local' as const } : {}),
     status,
     ...(archived === undefined ? {} : { archived }),
   };

@@ -13,6 +13,7 @@ import {
   buildCatalogIdSet,
   mergeLocalLookups,
   resolveBareRowLocalBadgeVariant,
+  restampLocalMarks,
   rowAliasKeys,
   selectMergedCatalogApps,
 } from './selectors';
@@ -282,5 +283,32 @@ describe('裸行本地徽标与后端预盖章透传', () => {
     // 合并视图同样不改写已盖章行引用
     const merged = selectMergedCatalogApps([app('o/remote')], [stamped], true);
     expect(merged.find((r) => r.id === 'o/local')).toBe(stamped);
+  });
+});
+
+describe('历史行重标（最近浏览去黄成对）', () => {
+  it('空集合（最后一条收录退回/删除）清陈旧黄标；undefined 未加载原样透传', () => {
+    const stale = {
+      ...app('o/gone'),
+      source: 'local',
+      status: 'collected',
+      is_cataloged: true,
+    } as AppSummary;
+    const rows = [stale, app('o/plain')];
+    const cleared = restampLocalMarks(rows, new Set<string>(), []);
+    expect(cleared[0]?.source).toBeUndefined();
+    expect(cleared[0]?.status).toBeUndefined();
+    expect(cleared[0]?.is_cataloged).toBe(false);
+    expect(resolveVerifiedBadgeVariant(cleared[0] as never)).toBeNull();
+    // 未知（customApps 未加载）不误清后端/缓存盖章
+    expect(restampLocalMarks(rows, new Set<string>(), undefined)).toBe(rows);
+  });
+
+  it('命中收录补黄；已标记行原引用透传（无变化不触发多余渲染）', () => {
+    const local = [{ ...app('o/kept'), source: 'local', status: 'collected' } as AppSummary];
+    const marked = restampLocalMarks([app('o/kept')], new Set<string>(), local);
+    expect(marked[0]?.source).toBe('local');
+    expect(resolveVerifiedBadgeVariant(marked[0] as never)).toBe('local');
+    expect(restampLocalMarks(marked, new Set<string>(), local)).toBe(marked);
   });
 });

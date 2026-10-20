@@ -3,7 +3,7 @@
  * - 线格式 `null` ↔ 领域空串；
  * - `local_collected` 归一为 `collected`；
  * - 保存 payload 恒 `is_verified=false`，stars/forks 沿用已有行真值；
- * - 摘要投影沿用本地收录黄标字段（source/status）。
+ * - 摘要投影：草稿不是收录（无 source），收录及其后链路才带黄标来源；status 恒显式。
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -110,6 +110,21 @@ describe('草稿 mappers（线格式 ↔ 领域）', () => {
     expect(summary.platforms).toEqual(['windows']);
     // 待收录路径不携带 archived。
     expect('archived' in summary).toBe(false);
+  });
+
+  it('itemToSummary：草稿不是收录（无 source），collected 系与后链路才带黄标来源', () => {
+    const item = draftItem();
+    const draft = itemToSummary(item, 'draft');
+    expect(draft.source).toBeUndefined();
+    expect('source' in draft).toBe(false);
+    expect(draft.status).toBe('draft');
+    // 收录态（含磁盘残留同义值）与后链路 submitted 保留 source=local
+    expect(itemToSummary(item, 'local_collected').source).toBe('local');
+    expect(itemToSummary(item, 'collected').source).toBe('local');
+    expect(itemToSummary(item, 'submitted').source).toBe('local');
+    // 归档是独立布尔（status 仍为收录/已提交/退役草稿），待收录页记录态保留来源
+    expect(itemToSummary(item, 'collected', true).source).toBe('local');
+    expect(itemToSummary(item, 'draft', true).source).toBe('local');
   });
 
   it('itemToSummary：stars/forks 非有限数回退 0，platforms 复制而非共享引用', () => {

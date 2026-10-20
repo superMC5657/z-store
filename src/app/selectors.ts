@@ -462,6 +462,28 @@ export function annotateIsCataloged<T extends AppSummary>(
   } as T;
 }
 
+/**
+ * 历史行（最近浏览等）按当前本地收录集合重标：
+ * - `undefined` 即 customApps 未加载（未知），原样透传，不误清后端盖章；
+ * - 空集合是「确知没有本地收录」，按现行口径重算即清掉陈旧 `source=local`
+ *   （退回草稿/删除后必须去黄，收录与撤销成对）；
+ * - 无变化返回原引用（set state 不触发多余渲染）。
+ */
+export function restampLocalMarks<T extends AppSummary>(
+  rows: T[],
+  catalogIds: ReadonlySet<string>,
+  localApps?: readonly AppSummary[] | ReadonlySet<string>,
+): T[] {
+  if (!localApps || rows.length === 0) return rows;
+  let changed = false;
+  const next = rows.map((row) => {
+    const n = annotateIsCataloged(row, catalogIds, localApps);
+    if (n !== row) changed = true;
+    return n;
+  });
+  return changed ? next : rows;
+}
+
 /** 行别名键（id 归一 + owner/repo 归一 + id 末两段归一）：大小写/前后缀漂移仍命中同一仓库。 */
 export function rowAliasKeys(row: RowIdentity): string[] {
   const out: string[] = [];

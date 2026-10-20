@@ -84,8 +84,14 @@ interface TrendsViewProps
    * custom 草稿已存在 id 集（归一小写；App 侧以后端 customApps 全量 + 本地乐观移入合成，
    * 即 `selectMergedCatalogApps` 会命中 custom 行的 id 集合）：
    * 供未收录富卡内部移入入口抑制已存在项，缺席即不抑制。
+   * 草稿不是收录：本集合不参与黄标判定。
    */
   customIds?: ReadonlySet<string>;
+  /**
+   * 本地收录全量（App 侧 collectedSummaries：仅 collected 系未归档）：
+   * 黄标唯一来源（草稿 `customIds` 不叠黄），缺席即回退目录自带 local 行。
+   */
+  localApps?: readonly AppSummary[];
 }
 
 /** 错误种类 → 描述文案键一处映射，避免渲染处散落四分支。 */
@@ -134,6 +140,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   platformResolvedOtherIds,
   onDisplayPlatformCounts,
   customIds,
+  localApps,
 }) => {
   const { t } = useTranslation();
   const {
@@ -173,19 +180,21 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   // 本地橘黄：matchingBase 为合并后全量（含本地 source，远端优先语义不动），
   // enrich 标注直接传数组本体以搬运 source/status（蓝优先）。
   const matchingBase = allApps ?? apps;
-  // 本地显式 lookup（inferred + customIds 合成）：matchingBase 自带 local 行一般已够，
-  // customIds（乐观移入/过滤后缺 local 时）显式补齐；引用变化即重标（缺席透传，就绪补黄）。
+  // 本地显式 lookup（inferred + localApps 合成）：matchingBase 自带 local 行一般已够，
+  // localApps（过滤后缺 local 时）显式补齐；引用变化即重标（缺席透传，就绪补黄）。
+  // 只认已收录：草稿 customIds 仅抑制移入入口，绝不叠黄。
   const trendLocalLookup = useMemo(() => {
     const inferred = (matchingBase ?? []).filter(
       (m) => (m as { source?: unknown }).source === 'local',
     );
-    return mergeLocalLookups(inferred, customIds);
-  }, [matchingBase, customIds]);
+    return mergeLocalLookups(inferred, localApps);
+  }, [matchingBase, localApps]);
   // enrich 合并处显式标注 is_cataloged（显式优先于 category 兜底；未命中=false 即显示按钮）。
-  // 本地收录叠加经 customIds 显式口径补齐（matchingBase 缺 local 时 enrich 仍能黄）。
+  // 本地收录叠加经 localApps 显式口径补齐（matchingBase 缺 local 时 enrich 仍能黄）；
+  // 草稿在收录进本地前不带黄标。
   const annotatedEnrichedApps = useMemo(
-    () => annotateEnrichMirrorCataloged(enrichedApps, matchingBase, customIds),
-    [enrichedApps, matchingBase, customIds],
+    () => annotateEnrichMirrorCataloged(enrichedApps, matchingBase, localApps),
+    [enrichedApps, matchingBase, localApps],
   );
 
   // 移入收录（未收录富卡一键 save_custom_app 草稿，platforms [] loading）：

@@ -84,14 +84,16 @@ type PendingDraftStatus = DraftStatus;
 const isPendingCollectedStatus = isCollectedStatus;
 
 /**
- * 待收录草稿转富卡展示态（collected/submitted 右侧富卡化复用 AppCard）：
- * `source=local` + 显式 status 复用黄标判定；投影唯一口径在 `services/custom/mappers`。
+ * 待收录草稿转富卡展示态（collected/submitted/archived 右侧富卡化复用 AppCard）：
+ * 黄标只属于收录及其后链路（由 mappers 投影决定，草稿无 source）；
+ * 投影唯一口径在 `services/custom/mappers`。
  */
 export function pendingDraftToAppSummary(
   item: PendingDraftItem,
   status: PendingDraftStatus,
-): AppSummary & { source: string; status: string } {
-  return itemToSummary(item, status);
+  archived?: boolean,
+): AppSummary & { status: string; archived?: boolean } {
+  return itemToSummary(item, status, archived);
 }
 
 /**
@@ -1301,7 +1303,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
     entryGroup(editingEntry) !== 'draft';
   const richCardApp = useMemo(() => {
     if (!editingEntry) return null;
-    return pendingDraftToAppSummary(editingEntry.item, editingEntry.status);
+    return pendingDraftToAppSummary(editingEntry.item, editingEntry.status, editingEntry.archived);
   }, [editingEntry]);
   // 富卡态内联口径：live（快照）与提交尝试（formErrors，真实门禁）合并展示，
   // 门禁未就绪时 live 按 disabled 暂不标，提交后以 formErrors 为准。

@@ -47,7 +47,7 @@ import { useDetailCacheSync } from './app/hooks/useDetailCacheSync';
 import { useUncatalogedJoin } from './app/favoritesUncataloged';
 import { useAppSubscriptions } from './app/hooks/useAppSubscriptions';
 import { useAppSelectors } from './app/selectors';
-import { selectMergedCatalogApps } from './app/selectors';
+import { isCollectedStatus, selectMergedCatalogApps } from './app/selectors';
 import { isInstalled as selectIsInstalled, isManaged as selectIsManaged } from './app/selectors';
 import { useUpdateActions } from './app/hooks/useUpdateActions';
 import { useToasts } from './useToasts';
@@ -193,11 +193,11 @@ export const App: React.FC = () => {
     }
   };
 
-  // 本地收录合并流：仅 collected 系且未归档进入首页/分类（可搜可装，橘黄 local 徽标）。
+  // 本地收录合并流：仅 collected 系（含磁盘残留 local_collected）且未归档进入首页/分类（可搜可装，橘黄 local 徽标）。
   const collectedSummaries = useMemo(() => {
     const out: Array<AppSummary & { status: string; archived: boolean }> = [];
     for (const e of customApps ?? []) {
-      if (e.archived || e.status !== 'collected') continue;
+      if (e.archived || !isCollectedStatus(e.status)) continue;
       out.push(entryToCollectedSummary(e));
     }
     return out;
@@ -381,7 +381,8 @@ export const App: React.FC = () => {
     t,
     currentView,
     updatesCount: updates.length,
-    localApps: collectedSummaries,
+    // customApps 未加载（null）即本地 lookup 未知：不误清已渲染的最近浏览黄标。
+    localApps: customApps === null ? undefined : collectedSummaries,
   });
 
   // 6. 派生选择器（平台过滤/计数/收藏 left-join 供给/已安装-更新过滤/深链确认解析）
@@ -716,6 +717,7 @@ export const App: React.FC = () => {
               onToggleWatch={handleToggleWatch}
               onResetPlatformFilter={handleResetPlatformFilter}
               customIds={customIds}
+              localApps={collectedSummaries}
             />
           )}
 
