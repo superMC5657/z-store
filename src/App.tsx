@@ -528,10 +528,16 @@ export const App: React.FC = () => {
   }, []);
 
   // 切换收藏状态（稳定回调，供 memo 卡片复用；入口归一，读写一致）
+  // 后端 reject 时 toast 报错并保持原态：收藏集合仅在成功后更新，失败无乐观态可回滚
   const handleToggleFavorite = useCallback(async (id: string) => {
     const key = normalizeId(id);
     if (!key) return;
-    await tauriApi.toggleFavorite(key);
+    try {
+      await tauriApi.toggleFavorite(key);
+    } catch (e) {
+      showToast(t('toast.favorite_failed', { error: String(e) }), 'error');
+      return;
+    }
     setFavoriteIds((prev) => {
       const next = new Set(prev);
       if (next.has(key)) {

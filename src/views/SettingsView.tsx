@@ -157,23 +157,28 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   const handleSaveProxy = async () => {
     const trimmed = proxyInput.trim();
-    if (!trimmed || trimmed === 'direct') {
-      await onSelectMirror('direct');
-      onUpdateSetting('active_mirror', 'direct');
-      setProxySavedFeedback(t('settings.proxy_saved_direct'));
-      triggerChangeFeedback('proxy', t('settings.proxy_active_direct'));
-    } else {
-      let finalUrl = trimmed;
-      if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
-        finalUrl = 'https://' + finalUrl;
-        setProxyInput(finalUrl);
+    try {
+      if (!trimmed || trimmed === 'direct') {
+        await onSelectMirror('direct');
+        onUpdateSetting('active_mirror', 'direct');
+        setProxySavedFeedback(t('settings.proxy_saved_direct'));
+        triggerChangeFeedback('proxy', t('settings.proxy_active_direct'));
+      } else {
+        let finalUrl = trimmed;
+        if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
+          finalUrl = 'https://' + finalUrl;
+          setProxyInput(finalUrl);
+        }
+        await onSelectMirror(finalUrl);
+        onUpdateSetting('active_mirror', finalUrl);
+        setProxySavedFeedback(t('settings.proxy_saved_custom', { url: finalUrl }));
+        triggerChangeFeedback('proxy', t('settings.save_proxy'));
       }
-      await onSelectMirror(finalUrl);
-      onUpdateSetting('active_mirror', finalUrl);
-      setProxySavedFeedback(t('settings.proxy_saved_custom', { url: finalUrl }));
-      triggerChangeFeedback('proxy', t('settings.save_proxy'));
+      setTimeout(() => setProxySavedFeedback(null), 3500);
+    } catch (e) {
+      // 切换镜像失败：不落 active_mirror、不给成功反馈，错误留存至下次操作
+      setProxySavedFeedback(t('settings.proxy_save_failed', { error: String(e) }));
     }
-    setTimeout(() => setProxySavedFeedback(null), 3500);
   };
 
 
