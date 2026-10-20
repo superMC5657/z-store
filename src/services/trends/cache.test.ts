@@ -340,6 +340,100 @@ describe('trends L2 persistence cache', () => {
     });
   });
 
+  describe('saveBoardCacheMerged 写竞态串行化', () => {
+    it('同 key 并发合并写按序排队：后写基于前写已落盘快照 rebase，双侧 enrich/confirmed 均保留', async () => {
+      vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
+      const store = new Map<string, { payload_json: string; cached_at: number }>();
+      const calls: string[] = [];
+      let gateFirstGet: (() => void) | undefined;
+      vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
+        const k = (args as { cacheKey: string }).cacheKey;
+        calls.push(`${cmd}:${k}`);
+        if (cmd === 'get_trend_board_cache') {
+          // 首读挂起在途：后续合并写必须排队等它写完，不得交错读盘
+          if (!gateFirstGet) {
+            await new Promise<void>((resolve) => {
+              gateFirstGet = resolve;
+            });
+          }
+          return store.get(k) ?? null;
+        }
+        if (cmd === 'save_trend_board_cache') {
+          store.set(k, {
+            payload_json: (args as { payloadJson: string }).payloadJson,
+            cached_at: Math.floor(Date.now() / 1000),
+          });
+        }
+        return undefined;
+      });
+      const repos = [makeTrendRepo({ id: 'acme/atlas' }), makeTrendRepo({ id: 'acme/beacon' })];
+
+      // 写 A：仅 atlas（loading + 已确认）进内存（先 mark 后 put：未确认 loading 不进内存）
+      markTrendConfirmedOthers(['acme/atlas']);
+      putTrendEnrichMemory({
+        'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [] }),
+      });
+      const a = saveBoardCacheMerged('weekly||', 'weekly', repos);
+      await vi.waitFor(() => expect(gateFirstGet).toBeTruthy());
+
+      // 写 B 后到：清内存仅留 beacon，模拟并发写透的另一侧数据
+      clearTrendEnrichCache();
+      markTrendConfirmedOthers(['acme/beacon']);
+      putTrendEnrichMemory({
+        'acme/beacon': makeEnrichedApp({ id: 'acme/beacon', platforms: [] }),
+      });
+      const b = saveBoardCacheMerged('weekly||', 'weekly', repos);
+      await Promise.resolve();
+      await Promise.resolve();
+      // B 尚未读盘：串行链令其排队等 A 写完（无修复时此处已交错为 get, get）
+      expect(calls.filter((c) => c.startsWith('get_trend_board_cache')).length).toBe(1);
+
+      gateFirstGet?.();
+      await a;
+      await b;
+      // 调用序严格交错：读 A → 写 A → 读 B → 写 B（B 读到的即 A 刚写的快照）
+      expect(calls).toEqual([
+        'get_trend_board_cache:weekly||',
+        'save_trend_board_cache:weekly||',
+        'get_trend_board_cache:weekly||',
+        'save_trend_board_cache:weekly||',
+      ]);
+      const payload = JSON.parse(store.get('weekly||')?.payload_json as string) as {
+        enrich: Record<string, unknown>;
+        confirmedOther?: string[];
+      };
+      expect(payload.enrich['acme/atlas']).toBeTruthy();
+      expect(payload.enrich['acme/beacon']).toBeTruthy();
+      expect(payload.confirmedOther).toContain('acme/atlas');
+      expect(payload.confirmedOther).toContain('acme/beacon');
+    });
+
+    it('串行链空转后清理：写完再写仍正常落盘（链表不悬挂）', async () => {
+      vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
+      const store = new Map<string, { payload_json: string; cached_at: number }>();
+      vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
+        if (cmd === 'save_trend_board_cache') {
+          const k = (args as { cacheKey: string }).cacheKey;
+          store.set(k, {
+            payload_json: (args as { payloadJson: string }).payloadJson,
+            cached_at: Math.floor(Date.now() / 1000),
+          });
+        }
+        return undefined;
+      });
+      const repos = [makeTrendRepo({ id: 'acme/atlas' })];
+      markTrendConfirmedOthers(['acme/atlas']);
+      putTrendEnrichMemory({
+        'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [] }),
+      });
+      await saveBoardCacheMerged('weekly||', 'weekly', repos);
+      await saveBoardCacheMerged('weekly||', 'weekly', repos);
+      await expect(saveBoardCacheMerged('weekly||', 'weekly', repos)).resolves.toBeUndefined();
+      expect(store.get('weekly||')?.payload_json).toBeTruthy();
+    });
+  });
+
+
   describe('L1 -> L2 -> Network integration in boards', () => {
     it('hits L2 on L1 miss and populates L1 for subsequent calls', async () => {
       vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);

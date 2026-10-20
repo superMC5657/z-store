@@ -393,15 +393,6 @@ function wantedEnrichKeys(repos: TrendRepo[]): Set<string> {
 }
 
 /**
- * 榜单写盘合并口（先读后写，防裸覆盖富）。
- * - 已确认 Other 同 key 合并：内存确认 + 旧盘确认取并集（仍属本榜），具平台键剔除；
- * - 旧盘富条目合并：具平台恒保留；loading 仅确认键保留，未确认 loading 永不回写；
- * - 合并后有富条目或有确认集即存富信封（含确认集），否则存裸数组；空榜直接返回不写盘。
- * boards 主体落盘与 TrendsView 写透统一走此口，关闭前丢失/裸存覆盖即被堵住。
- * - 现状：写透节流由调用方 debounce（TrendsView scheduleBoardWriteThrough 800ms）保持；
- *   读路径 hydrate/sweep 不触发写放大，仅显式变化（mark/unmark/具平台驱逐 emit）触发写透。
- */
-/**
  * 图标展示态判定 SSOT（趋势榜 + 榜缓存二级共用）：
  * - `isDataIcon`：`data:` 前缀即内联展示态（前后空格容忍）；
  * - `isMissingIconForDisplay`：空串或内联展示态一律视为缺失（内联态永不进盘）；
@@ -443,7 +434,38 @@ function preferRealIcon(
   return memory;
 }
 
-export async function saveBoardCacheMerged(
+/** 按榜单 key 维护的合并写在途链：同 key 读-合并-写全程串行，跨 key 互不阻塞。 */
+const boardSaveChains = new Map<string, Promise<void>>();
+
+/**
+ * 榜单写盘合并口（先读后写，防裸覆盖富），debounce 写透/pagehide flush/确认写透/
+ * lite 持久化全走此唯一入口——按 key 串行排队，后到合并基于前一次已写快照 rebase，
+ * 并发交错不再 last-write-wins 丢一侧 enrich/confirmedOther。
+ * - 已确认 Other 同 key 合并：内存确认 + 旧盘确认取并集（仍属本榜），具平台键剔除；
+ * - 旧盘富条目合并：具平台恒保留；loading 仅确认键保留，未确认 loading 永不回写；
+ * - 合并后有富条目或有确认集即存富信封（含确认集），否则存裸数组；空榜直接返回不写盘。
+ * boards 主体落盘与 TrendsView 写透统一走此口，关闭前丢失/裸存覆盖即被堵住。
+ * - 写透节流仍由调用方 debounce（TrendsView scheduleBoardWriteThrough 800ms）保持；
+ *   读路径 hydrate/sweep 不触发写放大，仅显式变化（mark/unmark/具平台驱逐 emit）触发写透。
+ */
+export function saveBoardCacheMerged(
+  key: string,
+  board: string,
+  repos: TrendRepo[],
+): Promise<void> {
+  const task = (boardSaveChains.get(key) ?? Promise.resolve())
+    .catch(() => {})
+    .then(() => runBoardCacheMerged(key, board, repos));
+  boardSaveChains.set(key, task);
+  const cleanup = (): void => {
+    if (boardSaveChains.get(key) === task) boardSaveChains.delete(key);
+  };
+  void task.then(cleanup, cleanup);
+  return task;
+}
+
+/** 合并写单次执行（读-合并-写）。内部全吞错永不变 reject，串行链依赖此约定。 */
+async function runBoardCacheMerged(
   key: string,
   board: string,
   repos: TrendRepo[],
