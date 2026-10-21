@@ -1,22 +1,4 @@
 /* components-inputs.css · Linear Design System Input Elements */
-.fluent-input {
-  height: 30px;
-  background: var(--bg-input);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  padding: 0 10px;
-  font-size: var(--font-base);
-  color: var(--text-primary);
-  box-sizing: border-box;
-  outline: none;
-  transition: border-color 0.1s var(--ease-smooth), box-shadow 0.1s var(--ease-smooth);
-}
-
-.fluent-input:focus {
-  border-color: var(--brand-primary);
-  box-shadow: 0 0 0 1px var(--brand-primary), 0 0 0 3px var(--brand-glow);
-}
-
 .fluent-input-search {
   position: relative;
   display: inline-flex;

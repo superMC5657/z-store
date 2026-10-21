@@ -17,7 +17,7 @@ pub struct AppIconCycle {
     pub selected_url: String,
     pub cache_file: String,
     pub updated_at: i64,
-    /// 用户手动选择标记（02 手动轮换保护）：应用详情手动切换档位后置 true；
+    /// 用户手动选择标记（手动轮换保护）：应用详情手动切换档位后置 true；
     /// 详情刷新（缓存生存时效到期/强制刷新）对 pinned 行只补备选槽位，
     /// 不改 level/selected_url；未 pinned 行仍按最强探测更新选中图。
     pub pinned: bool,
@@ -165,7 +165,7 @@ impl Database {
         let is_cataloged_int = if cycle.is_cataloged { 1 } else { 0 };
         let pinned_int = if cycle.pinned { 1 } else { 0 };
 
-        self.exec_upsert(
+        self.exec_write(
             r#"
             INSERT INTO app_icon_cycles (
                 app_id, owner, repo, is_cataloged, level,
@@ -207,7 +207,7 @@ impl Database {
 
     /// 批量 upsert（Top1+2：12 条逐条提交 → 1 提交）：
     /// 事务边界：`BEGIN IMMEDIATE` → N 条 `upsert_icon_cycle` → `COMMIT`，失败整体 `ROLLBACK` 返回 Err。
-    /// 调用方保持 `let _ =` 吞错语义，下次搜索重试；失败时调用方可回退逐条（见 commands/catalog 调用处）。
+    /// 调用方保持 `let _ =` 吞错语义，下次搜索重试；失败时调用方可回退逐条（见 commands::catalog_search 调用处）。
     pub fn upsert_icon_cycles_batch(&self, cycles: &[AppIconCycle]) -> Result<()> {
         if cycles.is_empty() {
             return Ok(());
@@ -228,7 +228,7 @@ impl Database {
             return Ok(());
         }
         let now = now_secs();
-        self.exec_upsert(
+        self.exec_write(
             r#"
             UPDATE app_icon_cycles
             SET level = ?1,
@@ -261,7 +261,7 @@ impl Database {
             return Ok(());
         }
         let now = now_secs();
-        self.exec_upsert(
+        self.exec_write(
             r#"
             UPDATE app_icon_cycles
             SET level = ?1,
@@ -281,21 +281,17 @@ impl Database {
         if cleaned.is_empty() {
             return Ok(false);
         }
-        let rows = self.exec_upsert(
+        let rows = self.exec_write(
             "DELETE FROM app_icon_cycles WHERE app_id = ?1",
             params![cleaned],
         )?;
         Ok(rows > 0)
     }
 
-    // --- 便捷别名 (get / upsert / set_level 简洁调用) ---
+    // --- 便捷别名 (get / set_level 简洁调用) ---
 
     pub fn get(&self, app_id: &str) -> Result<Option<AppIconCycle>> {
         self.get_icon_cycle(app_id)
-    }
-
-    pub fn upsert(&self, cycle: &AppIconCycle) -> Result<()> {
-        self.upsert_icon_cycle(cycle)
     }
 
     pub fn set_level(&self, app_id: &str, level: i32) -> Result<()> {
@@ -315,8 +311,8 @@ pub fn set_level(db: &Database, app_id: &str, level: i32) -> Result<()> {
 
 // --- 图标轮换决策 SSOT（Shotgun Surgery 收敛落点，C1 持久化唯一深口） ---
 // cataloged vs 非 cataloged 分流、owner/repo 解析（RepoRef）、文件名方案、
-// l2/l3/l4 槽位认领、级别推进、详情页图标层级决策 —— 各调用方只做薄委托，
-// 不再各自重写分支。纯决策，无 fs/网络/AppState 依赖。
+// l2/l3/l4 槽位认领、级别推进、详情页图标层级决策 —— 各调用方只做薄委托；
+// 纯决策，无 fs/网络/AppState 依赖。
 // 缝：probe-vs-persist——本文件永不做网络探测（无 client/token/probe 调用）；
 // 探测一律在 `github::icon_fetch` 深核（`probe_single_live`/`fetch_icons_stream` 纯探，
 // 永不触 DB/fs）；持久化单一写入路径在 `commands::icons_cycle_probe::write_icon_file`
@@ -435,7 +431,7 @@ pub fn is_icon_fresh(cached_at: i64, now: i64) -> bool {
     cached_at > 0 && now.saturating_sub(cached_at) < ICON_TTL_SECS
 }
 
-/// 恢复路径判鲜（03 过期刷新，SSOT）：与请求路径同口径，行 7 天有效 + 文件 7 天新鲜双检。
+/// 恢复路径判鲜（过期刷新，SSOT）：与请求路径同口径，行 7 天有效 + 文件 7 天新鲜双检。
 /// `file_fresh` 由调用方经 `is_icon_file_fresh` 传入（文件 mtime 口径）；
 /// 任一过期即 false，调用方走下载分支重下，不直接返回旧图。
 /// `pinned` 选择不受此判定影响（过期刷新落库经 `set_icon_cycle_selected`，pinned 保持不动）。
@@ -465,7 +461,7 @@ pub fn seal_empty_selection(cycle: &mut AppIconCycle) {
     seal_cycle_selection(cycle, 5, "", String::new());
 }
 
-/// pinned 行备选槽补齐（02 详情刷新只补槽）：仅当探测 level 对应的 lN 槽为空时写入；
+/// pinned 行备选槽补齐（详情刷新只补槽）：仅当探测 level 对应的 lN 槽为空时写入；
 /// level/selected_url/cache_file/updated_at/pinned 一律不动。槽映射与详情落库一致
 ///（2=L2品牌库，3=L3仓库，4=L4 README；L1官方槽不由探测回填）。
 pub fn fill_probe_slot(cycle: &mut AppIconCycle, level: i32, url_trimmed: &str) {
@@ -491,7 +487,7 @@ pub fn fill_probe_slot(cycle: &mut AppIconCycle, level: i32, url_trimmed: &str) 
     }
 }
 
-/// 详情刷新图标合并（02 pinned 保护，SSOT，调用方为详情落库）：
+/// 详情刷新图标合并（pinned 保护，SSOT，调用方为详情落库）：
 /// - pinned 行（用户已手动选择档位）：保持 level/selected_url/cache_file/updated_at，
 ///   仅把本次最强探测命中的备选 Logo 补进对应 lN 空槽；返回 true，调用方须把应用详情
 ///   `icon` 对齐 `selected_url`（L5 pinned 对齐为 `""`，保持徽章态）。
@@ -515,7 +511,7 @@ pub fn merge_detail_icon(
     if u.is_empty() {
         return false;
     }
-    // 未 pinned：与原详情落库同语义——level/selected_url/updated_at 推进，
+    // 未 pinned：level/selected_url/updated_at 推进，
     // 对应槽位无条件采用本次最强探测（pinned 保持 false）。
     cycle.level = level;
     if level == 3 {
@@ -530,7 +526,7 @@ pub fn merge_detail_icon(
     false
 }
 
-/// 探测命中合并后缓存文件认领（05 槽满不錯配选中图）：仅当行选中图即本次命中真地址时
+/// 探测命中合并后缓存文件认领（槽满不误配选中图）：仅当行选中图即本次命中真地址时
 /// 才认领新文件名，否则保持原 `(selected_url, cache_file)` 配对，避免选中图与槽位/文件分叉。
 /// 空文件名永不认领。返回 true=已认领，false=保持原配对。
 pub fn adopt_probe_cache_file(
@@ -572,7 +568,7 @@ pub fn get_icon_cache_record(
     }
 }
 
-/// 详情页图标层级决策（原 github::detail 内联）：
+/// 详情页图标层级决策：
 /// 官方 http(s) 图标保持 → 探测命中 → README logo → 空（前端降级首字母徽章）。
 pub fn pick_detail_icon(
     official_icon: &str,
@@ -597,8 +593,7 @@ mod tests {
 
     #[test]
     fn test_resolve_icon_coord_rejects_unknown_forge_prefix() {
-        // 回归（16 号工单）：旧 split_once 兜底把 `xyz:owner/repo` 切成
-        // ("xyz:owner","repo") 放行入库，旁路 require_app_id 的未知前缀拒绝。
+        // 未知 forge 前缀必须拒绝（与 require_app_id 同解析体）。
         assert!(resolve_icon_coord("xyz:owner/repo").is_err());
         assert!(resolve_icon_coord("foo:owner/repo.git").is_err());
         assert!(resolve_icon_coord("").is_err());

@@ -230,7 +230,7 @@ pub async fn search_apps(
     let hidden_ids: std::collections::HashSet<String> = hidden_rule_ids(&state);
 
     // 本地收录叠加搜索（含本地，可搜与远端同行为）：目录模块统一合并远端 + 本地收录。
-    let results = state.catalog.search_apps(&query);
+    let results = state.catalog.search_local_catalog(&query);
     let filtered: Vec<AppSummary> = if hidden_ids.is_empty() {
         results
     } else {
@@ -240,7 +240,7 @@ pub async fn search_apps(
             .collect()
     };
     // 分页经 `catalog_feed_score::paginate_optional`（域内 SSOT）：None=全量，Some 切 slice。
-    // 空查询 stars 降序、非空线性打分由 `CatalogService::search_apps` 承担，此处仅切片。
+    // 空查询 stars 降序、非空线性打分由 `CatalogService::search_local_catalog` 承担，此处仅切片。
     let total = filtered.len();
     let paged = crate::github::catalog_feed_score::paginate_optional(filtered, limit, offset);
 
@@ -352,9 +352,6 @@ pub async fn search_apps_online(
                         source: None,
                         status: None,
                     },
-                    is_installed: None,
-                    has_update: None,
-                    installed_version: None,
                 };
                 state.catalog.stamp_summary(&mut row);
                 return Ok(OnlineSearchResult {
@@ -805,9 +802,6 @@ mod tests {
                 source: None,
                 status: None,
             },
-            is_installed: None,
-            has_update: None,
-            installed_version: None,
         }
     }
 

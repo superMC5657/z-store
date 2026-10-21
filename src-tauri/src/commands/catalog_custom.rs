@@ -69,11 +69,6 @@ pub fn build_single_pr_url(entry: &CustomAppEntry) -> String {
     )
 }
 
-/// 收录申请预填链接（纯函数，可单测）：`build_single_pr_url` same-shape entry(same semantics)。
-pub fn build_catalog_pr_url(entry: &CustomAppEntry) -> String {
-    build_single_pr_url(entry)
-}
-
 /// 批量收录申请预填链接（纯函数，可单测，二期开关）：
 /// 选中多条合并为一个 JSON 数组，经一个预填 URL 提交（批量合一 Issue）。
 /// 每条校验状态经提交档 `validate_custom_item(strict)` 逐条标注；
@@ -387,8 +382,8 @@ pub fn list_custom_apps(
 
 /// 草稿暂存（暂存档校验：仅 `id==canonical` 且与 `owner/repo` 对齐；
 /// `license` 占位（`OpenSource` 等）/ 空 `homepage` / 不完整字段均放行，Q8 草稿三态）。
-/// 仅支持 GitHub `owner/repo`：forge 形态 id（含冒号 `:`）直接拒绝（PM#2 收口，
-/// 通用 forge 基础设施保留，入口在此与 `validate_custom_item` 双层收口）。
+/// 仅支持 GitHub `owner/repo`：forge 形态 id（含冒号 `:`）直接拒绝，
+/// 通用 forge 基础设施保留，入口在此与 `validate_custom_item` 双层收口。
 /// 新建行 `status=draft`；已存在行仅刷新 payload（`status`/`pr_url` 保持）。
 #[tauri::command]
 pub fn save_custom_app(
@@ -712,7 +707,7 @@ mod tests {
 
     #[test]
     fn pr_url_carries_canonical_id_and_payload() {
-        let url = build_catalog_pr_url(&entry("o/r"));
+        let url = build_single_pr_url(&entry("o/r"));
         assert!(url.starts_with(CATALOG_REPO_ISSUES_URL));
         // 标题/正文均经 URL 编码，canonical id 与关键字段可还原。
         assert!(url.contains("o%2Fr"));
@@ -721,10 +716,8 @@ mod tests {
     }
 
     #[test]
-    fn single_pr_url_matches_legacy_alias_and_carries_check_note() {
-        let e = entry("o/r");
-        assert_eq!(build_catalog_pr_url(&e), build_single_pr_url(&e));
-        let url = build_single_pr_url(&e);
+    fn single_pr_url_carries_check_note() {
+        let url = build_single_pr_url(&entry("o/r"));
         assert!(url.starts_with(CATALOG_REPO_ISSUES_URL));
         // 校验说明随正文预填（URL 编码后仍可还原关键字）。
         assert!(url.contains("validate_custom_item"));

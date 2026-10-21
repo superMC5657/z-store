@@ -341,9 +341,6 @@ fn cached_detail_summary(
             status: None,
             ..detail.core.clone()
         },
-        is_installed: None,
-        has_update: None,
-        installed_version: None,
     };
     if let Some(ci) = crate::github::http::resolve_confirmed_icon_from_db(
         db,
@@ -753,7 +750,7 @@ async fn fetch_detail_from_github(
 /// （fetch 侧已用 fresh repo_info 治愈，此处补 repo 401/失败但 ETag 仍有旧真值的缺口；同步读不触网。）
 /// Top2：详情 + 图标原子落库（2 提交变 1 提交），失败回滚并回退逐条，不改 TTL/ETag。
 /// FINAL Logo 口径：`detail.icon` 必为 L1–L4 备选 Logo（官方/探测/README 头部），
-/// README 正文图永不进 `detail.icon`（见 detail_fetch 头部 40 行 Logo 提取），此处不存正文。
+/// README 正文图永不进 `detail.icon`（见 `detail_fetch::extract_and_strip_logo_from_readme`），此处不存正文。
 /// 02 手动轮换保护：pinned 行（用户已手动选择档位）保持 level/selected_url，
 /// 仅把本次最强探测补进备选槽，并把 `detail.icon` 对齐 pinned 选择
 /// （L5 pinned 对齐 `""` 保持徽章态）；未 pinned 行仍按最强探测更新选中图。
@@ -830,7 +827,7 @@ fn persist_github_detail(
                         }
                     }
                     // FINAL Logo 口径：`detail.icon` 必为 L1–L4 备选 Logo（官方/探测/README 头部），
-                    // README 正文图永不进 `detail.icon`（见 detail_fetch 头部 40 行 Logo 提取），此处不存正文。
+                    // README 正文图永不进 `detail.icon`（见 `detail_fetch::extract_and_strip_logo_from_readme`），此处不存正文。
                     // 02 手动轮换保护：pinned 行（用户已手动选择档位）保持 level/selected_url，
                     // 仅把本次最强探测补进备选槽，并把 `detail.icon` 对齐 pinned 选择
                     // （L5 pinned 对齐 `""` 保持徽章态）；未 pinned 行仍按最强探测更新选中图。
@@ -1036,9 +1033,6 @@ mod catalog_platform_tests {
                 source: None,
                 status: None,
             },
-            is_installed: None,
-            has_update: None,
-            installed_version: None,
         };
 
         if let Some(ci) = crate::github::http::resolve_confirmed_icon_from_db(

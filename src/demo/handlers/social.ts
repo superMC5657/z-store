@@ -72,7 +72,7 @@ export function handleUnstarApp(a: InvokeArgs): boolean {
   return true;
 }
 
-export function handleIsStarred(a: InvokeArgs): boolean {
+export function handleFetchStarredStatus(a: InvokeArgs): boolean {
   const id = argStr(a, 'appId').toLowerCase();
   return getStarSet().has(id);
 }

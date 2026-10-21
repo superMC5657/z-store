@@ -3,7 +3,7 @@ import { Package, Users, Building2, MapPin, Link, FolderOpen, Star, GitFork, Cod
 import { DeveloperProfile } from '../types';
 import { tauriApi } from '../services/api';
 import { EmptyState } from './EmptyState';
-import { isInstalled, selectIsManagedOpt } from '../app/selectors';
+import { isInstalled, selectManagedState } from '../app/selectors';
 
 interface DeveloperProfileModalProps {
   developer: string;
@@ -250,7 +250,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                 // 判态统一经共享选择器（归一 ID，大小写变体一致）；managedIds===null（未加载）
                 // + 已安装命中 = 未知，中性占位。
                 const installed = isInstalled(repo.id, installedIds);
-                const managed = selectIsManagedOpt(repo.id, managedIds);
+                const managed = selectManagedState(repo.id, managedIds);
                 const isUnknownRow = installed && managed === null;
                 const showManaged = !isUnknownRow && managed === true;
 

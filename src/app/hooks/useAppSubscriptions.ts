@@ -27,7 +27,7 @@ interface UseAppSubscriptionsParams {
   setApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
   setOnlineApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
   setRecentlyViewedApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
-  setFavoriteExtraApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
+  setUncatalogedExtraApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
   setInstalledApps: React.Dispatch<React.SetStateAction<InstalledApp[]>>;
   setFavoriteIds: React.Dispatch<React.SetStateAction<Set<string>>>;
   setUpdateRules: React.Dispatch<React.SetStateAction<UpdateRule[]>>;
@@ -40,7 +40,7 @@ interface UseAppSubscriptionsParams {
   appsRef: React.MutableRefObject<AppSummary[]>;
   onlineAppsRef: React.MutableRefObject<AppSummary[]>;
   recentsRef: React.MutableRefObject<AppSummary[]>;
-  favoriteExtraAppsRef: React.MutableRefObject<AppSummary[]>;
+  uncatalogedExtraAppsRef: React.MutableRefObject<AppSummary[]>;
   currentSearchIdRef: React.MutableRefObject<string>;
   selectedPlatforms: Set<PlatformId>;
   platformResolvedOtherIds: Set<string>;
@@ -98,7 +98,7 @@ function trackSubscription(ctx: MountCtx, promise: Promise<() => void>): void {
  * 更新中心切签检查 L440-450 与视图切换日志 L452-464）。
  *
  * - 初始拉取 + `zstore:catalog-synced` +
- *   `onSearchIconUpgraded`（回声窗内首个回声立期望，`admitIconHit` sole 写；双订阅正交门控，
+ *   `onIconReady`（回声窗内首个回声立期望，`admitIconHit` sole 写；双订阅正交门控，
  *   此处不做 kind 硬过滤，search/trend 经店内世代门控正交判定，图标全局共享）；
  * - 关注加载 + `onWatchUpdated` 应用内提醒；
  * - 更新流：`onUpdateItemFound` 逐条跳出 + `onUpdateCheckProgress` +
@@ -109,7 +109,7 @@ export function useAppSubscriptions({
   setApps,
   setOnlineApps,
   setRecentlyViewedApps,
-  setFavoriteExtraApps,
+  setUncatalogedExtraApps,
   setInstalledApps,
   setFavoriteIds,
   setUpdateRules,
@@ -122,7 +122,7 @@ export function useAppSubscriptions({
   appsRef,
   onlineAppsRef,
   recentsRef,
-  favoriteExtraAppsRef,
+  uncatalogedExtraAppsRef,
   currentSearchIdRef,
   selectedPlatforms,
   platformResolvedOtherIds,
@@ -222,7 +222,7 @@ export function useAppSubscriptions({
 
     let unlistenSearchIcons: (() => void) | null = null;
     tauriApi
-      .onSearchIconUpgraded((payload) => {
+      .onIconReady((payload) => {
         // 回调体委托 `services/iconStore.admitIconHit`（世代门控 + 写透守卫 +
         // 别名双写 + `invalidate→queue` 时机均在店内；此处仅做载荷适配
         // 与 React 四列表 `patch` 注入，`via`透传，`level`纯L单调）。
@@ -254,14 +254,14 @@ export function useAppSubscriptions({
               appsRef.current.find((a) => a.id.toLowerCase() === lk)?.icon ??
               onlineAppsRef.current.find((a) => a.id.toLowerCase() === lk)?.icon ??
               recentsRef.current.find((a) => a.id.toLowerCase() === lk)?.icon ??
-              favoriteExtraAppsRef.current.find((a) => a.id.toLowerCase() === lk)?.icon
+              uncatalogedExtraAppsRef.current.find((a) => a.id.toLowerCase() === lk)?.icon
             );
           },
           patch: (tid, icon) => {
             setApps((prevApps) => patchAppIconList(prevApps, tid, icon));
             setOnlineApps((prev) => patchAppIconList(prev, tid, icon));
             setRecentlyViewedApps((prevRecents) => patchAppIconList(prevRecents, tid, icon));
-            setFavoriteExtraApps((prevExtras) => patchAppIconList(prevExtras, tid, icon));
+            setUncatalogedExtraApps((prevExtras) => patchAppIconList(prevExtras, tid, icon));
           },
         });
       })

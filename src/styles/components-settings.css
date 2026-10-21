@@ -116,8 +116,7 @@
   min-width: 0;
 }
 
-.settings-row[style*="column"] > .settings-row-info,
-.settings-row-col > .settings-row-info {
+.settings-row[style*="column"] > .settings-row-info {
   flex: 0 0 auto;
   min-height: 0;
 }
@@ -127,73 +126,6 @@
   color: var(--text-tertiary);
   line-height: 1.4;
   letter-spacing: -0.011em;
-}
-
-.settings-select {
-  background: var(--bg-input);
-  border: 1px solid var(--border-color);
-  color: var(--text-primary);
-  padding: 4px 10px;
-  border-radius: var(--radius-sm);
-  font-size: calc(12.5px * var(--font-scale));
-  outline: none;
-  cursor: pointer;
-  transition: border-color 0.1s var(--ease-smooth), box-shadow 0.1s var(--ease-smooth);
-  box-shadow: var(--shadow-rest);
-  height: 28px;
-  box-sizing: border-box;
-}
-
-.settings-select:focus {
-  border-color: var(--brand-primary);
-  box-shadow: 0 0 0 1px var(--brand-primary), 0 0 0 3px var(--brand-glow);
-}
-
-/* Linear 风格极简滑动开关 */
-.fluent-toggle-wrapper {
-  display: inline-flex;
-  align-items: center;
-  cursor: pointer;
-  position: relative;
-  flex-shrink: 0;
-}
-
-.fluent-toggle-input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-  position: absolute;
-}
-
-.fluent-toggle-track {
-  width: 32px;
-  height: 18px;
-  background: var(--border-color);
-  border: 1px solid transparent;
-  border-radius: var(--radius-pill);
-  position: relative;
-  transition: background 0.12s var(--ease-smooth), border-color 0.12s var(--ease-smooth);
-}
-
-.fluent-toggle-thumb {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--text-tertiary);
-  position: absolute;
-  top: 1px;
-  left: 1px;
-  transition: transform 0.12s var(--ease-smooth), background 0.12s var(--ease-smooth);
-}
-
-.fluent-toggle-input:checked + .fluent-toggle-track {
-  background: var(--brand-primary);
-  border-color: var(--brand-primary);
-}
-
-.fluent-toggle-input:checked + .fluent-toggle-track .fluent-toggle-thumb {
-  transform: translateX(14px);
-  background: #ffffff;
 }
 
 /* 设置输入控件组 */

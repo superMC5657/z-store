@@ -154,7 +154,7 @@ export function isTrendConfirmedOtherFresh(key: string): boolean {
 
 /**
  * loading 当次有效永不缓存；Other 共享需确认（lite/详情确认标记）。
- * View 侧唯一出口为 board.snapshotBoardConfirmed，不直调此函数。
+ * View 侧不直调此函数。
  * 可选传入 repos 时仅返回仍属本榜的键（坐标键 + id 键，小写）。
  * 现状：具平台驱逐删标记走与 mark/unmark 同一 emit，触发写透；过期清理不 emit。
  */
@@ -325,7 +325,7 @@ export function putTrendEnrichMemory(
 
 /**
  * 内存快照（slice 内部读口）。
- * View 侧唯一出口为 board.snapshotBoardEnrich / snapshotBoardConfirmed，不直调此函数。
+ * View 侧唯一出口为 board.snapshotBoardEnrich，不直调此函数。
  * - 可选传入 repos：若传入则仅提取属于这些 repos 的条目，否则提取全部；
  * - 仅提取未过期条目（elapsed<0 按过期；elapsed>=12h 按过期）；
  * - 具平台恒收录；loading 仅收录已确认新鲜键（Other 直展），未确认 loading 一律跳过（永不持久化）；
@@ -371,14 +371,14 @@ export function snapshotTrendEnrichCache(repos?: TrendRepo[]): Record<string, Ap
 }
 
 /**
- * Enrich 缓存新鲜度单口（force→缺席→平台→确认→TTL）：
+ * Enrich 缓存新鲜条目取用单口（force→缺席→平台→确认→TTL）：
  * - force 直接不新鲜（重拉）；
  * - 无条目不新鲜；
  * - loading 需已确认新鲜 + TTL 新鲜，否则驱逐后重拉；
  * - 具平台 TTL 新鲜即命中；时钟倒退按过期驱逐；stale 保留旧值供图标合并后重拉。
  * 副作用：应驱逐时直接删条目（stale 具平台保留），调用方据返回值决定命中或重拉。
  */
-export function isEnrichCacheFresh(key: string, now = Date.now(), force = false): boolean {
+export function takeFreshEnrichEntry(key: string, now = Date.now(), force = false): boolean {
   if (force) return false;
   const hit = trendEnrichCache.get(key);
   if (!hit) return false;
@@ -408,7 +408,7 @@ export function isEnrichCacheFresh(key: string, now = Date.now(), force = false)
  * 批量结果图标单口：data: 原样透出（调用方跳过入库，只活当次 out）；
  * 其余经 resolveIconWithBuffer 粘性合并（旧实 + 回填空 → 沿用旧 + 缓冲回读）。
  */
-export function stripDataUriIcon(
+export function mergeIconSticky(
   prev: AppSummary | undefined,
   next: AppSummary,
 ): AppSummary {
@@ -453,7 +453,7 @@ async function enrichTrendReposCore(
     seen.add(key);
     if (!force) {
       const hit = trendEnrichCache.get(key);
-      if (hit && isEnrichCacheFresh(key, now)) {
+      if (hit && takeFreshEnrichEntry(key, now)) {
         out.set(key, hit.data);
         continue;
       }
@@ -482,7 +482,7 @@ async function enrichTrendReposCore(
     const key = trendEnrichKey(r.owner, r.repo);
     const cur = trendEnrichCache.get(key);
     // 图标单口：data: 原样透出只活当次 out；其余粘性合并。
-    s = stripDataUriIcon(cur?.data, s);
+    s = mergeIconSticky(cur?.data, s);
     out.set(key, s);
     // data: 永不进内存；loading 当次有效永不缓存，只活当次 out。
     if (typeof s.icon === 'string' && s.icon.startsWith('data:')) return;
@@ -510,7 +510,7 @@ export async function enrichTrendReposFresh(repos: TrendRepo[]): Promise<Map<str
 /**
  * 详情治愈榜单行的跨组件通道（App → TrendsView）。
  * 详情成功带回真实平台时，App 派发此事件，TrendsView 即时补齐其 `enrichedApps`，
- * 行内从 loading 占位一次落定为 OS 图标（VoiceStudio 类 bug 的治愈路径）。
+ * 行内从 loading 占位一次落定为 OS 图标（平台治愈路径）。
  */
 export const DETAIL_PLATFORMS_HEAL_EVENT = 'zstore:detail-platforms-healed';
 
@@ -763,7 +763,7 @@ function emptyRichBaseline(): AppSummary {
  * icon data:/空保留旧实；name '加载中...'、简介占位、license OpenSource 非 github、
  * latest_version/category 占位、homepage 空、平台空均保留旧。
  */
-export function mergeEnrichPrev(
+export function fillMissingFromPrev(
   prev: AppSummary | undefined,
   merged: AppSummary,
 ): AppSummary {
@@ -869,7 +869,7 @@ export function upsertTrendEnrichRichcard(
     }
   }
   const merged = appSummaryFromDetail(detail);
-  mergeEnrichPrev(prev, merged);
+  fillMissingFromPrev(prev, merged);
   const at = Date.now();
   for (const k of keys) {
     putTrendEnrichCache(k, { timestamp: at, data: merged });

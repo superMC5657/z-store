@@ -12,9 +12,7 @@ import {
   collectMissingEnrichRepos,
   flushBoardPersistWithMirror,
   getBoardPersistKey,
-  isEnrichUpgradeAllowed,
   isPersistableIcon,
-  isUpgradePending,
   maybePersistBoardNow,
   maybePersistRichcardHeal,
   maybeScheduleBoardPersist,
@@ -28,7 +26,6 @@ import {
   resolveBoardCacheKey,
   subscribeBoardPersistOnConfirmedChange,
   subscribeTrendHealBus,
-  swrSyncedResult,
   unmarkConcreteKeys,
   unmarkPlatformsHealKeys,
 } from '../../services/trends/board';
@@ -68,7 +65,7 @@ interface UseTrendEnrichmentParams {
  * 趋势榜富卡编排（唯一深模块）：SWR 旧富卡直展、缺席仓 enrich、图标流式补齐、
  * 详情治愈总线、图标写扇出、L2 写透与卸载 flush 全部收口于此。
  *
- * View 只持有 `TrendMirror` 与渲染派生，不再各自串联 effect 顺序与写透时机；
+ * View 只持有 `TrendMirror` 与渲染派生，effect 顺序与写透时机由本 hook 统一编排；
  * 内部一律经 `board.ts` seam（读写同源 key / 世代门控 / debounce 写透）。
  */
 export function useTrendEnrichment({
@@ -156,7 +153,7 @@ export function useTrendEnrichment({
   // 未收录行 enrichment：逐仓复用搜索 enrichment（Rust 侧并发 5、单次批量 40 上限、单仓 10s），
   // 成功合并为完整卡片；失败/无命中保持旧小行（enrichTrendRepos 缺席即不写，缺席即展裸行/旧缓存，不等齐）。
   // 合并 + 写透收口 board（collectMissing + mergeEnrichFoundMirror + maybePersistBoardNow）；
-  // 裸行先展不拦榜，仅富卡升级受 boardReady 门控（swrSyncedResult/isUpgradePending）。
+  // 裸行先展不拦榜，仅富卡升级受 boardReady 门控。
   useEffect(() => {
     if (trendResult?.status !== 'ok') return;
     // 刷新链跟随强制：手动 Refresh 落定后的本轮 enrich 消费一次标记，透传后端
@@ -171,10 +168,7 @@ export function useTrendEnrichment({
     void enrichTrendRepos([...missing.values()], enrichForce ? { forceRefresh: true } : undefined).then(async (found) => {
       if (cancelled || found.size === 0) return;
       // 首绘门：裸行已直展，此处仅做升级；未就绪时延迟到 boardReady 置位后（下轮 effect 重入）。
-      const swrSynced = swrSyncedResult(trendResult.repos, enrichedAppsRef.current);
-      if (isUpgradePending(boardReady, swrSynced) && !isEnrichUpgradeAllowed(boardReady)) {
-        return;
-      }
+      if (!boardReady) return;
       const { next, hasNewEnrich, concreteKeys } = mergeEnrichFoundMirror(
         enrichedAppsRef.current,
         found,
@@ -239,7 +233,7 @@ export function useTrendEnrichment({
     let cancelled = false;
     let unlisten: (() => void) | null = null;
     void tauriApi
-      .onSearchIconUpgraded((payload) => {
+      .onIconReady((payload) => {
         if (cancelled) return;
         const raw = (payload ?? {}) as unknown as Record<string, unknown>;
         const ctx = (raw['context'] ?? null) as {

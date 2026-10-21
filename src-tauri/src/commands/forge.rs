@@ -89,9 +89,7 @@ pub async fn refresh_host_rate_limit(
         let db = state.db()?;
         db.get_host_token(&clean_host).ok().flatten()
     };
-    // GitHub 探测即取值：probe 返回响应头提取的配额三元组（同步可用），
-    // 事件通道照常异步落库/emit 前端，命令侧不再 `sleep(60ms)` 赌写入时序
-    //（竞态下返回陈旧 None 的根源），改为对读出的 entry 确定性覆写。
+    // GitHub 探测即取值；配额事件仍异步落库/emit，命令侧对读出的 entry 确定性覆写探测值。
     let probed = if crate::forge::ForgeType::GitHub.matches_host(&clean_host) {
         crate::probe_and_announce_rate_limit(token.as_deref()).await
     } else {
@@ -120,8 +118,8 @@ pub async fn refresh_host_rate_limit(
     })
 }
 
-/// 探测值确定性覆写：probe 命中即以响应头为准（事件通道仍异步落库/emit，
-/// 命令侧不再等写入时序）；未探测到（`None`）保持 DB 原值，unknown 不伪造数值。
+/// 探测值确定性覆写：probe 命中即以响应头为准（事件通道仍异步落库/emit）；
+/// 未探测到（`None`）保持 DB 原值，unknown 不伪造数值。
 fn overlay_probed_quota(
     mut entry: HostTokenEntry,
     probed: Option<(u32, u32, Option<i64>)>,
@@ -257,8 +255,7 @@ pub async fn test_host_connection(
         match client.get(&url).headers(headers).send().await {
             Ok(resp) if resp.status().is_success() => {
                 crate::notify_rate_limit(&clean_host, resp.headers());
-                // 无 x-ratelimit 头（多数 Gitea/Forgejo 实例）保持 None（unknown），
-                // 不再伪造 5000 数值误导前端配额展示。
+                // 未知配额保持 None，不伪造数值。
                 let remaining = resp
                     .headers()
                     .get("x-ratelimit-remaining")

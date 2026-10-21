@@ -275,9 +275,9 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
   // 再经 `getCachedAppDetailsBatch`（DB-only）回填富卡 + 记录表打标，仅收藏页消费，
   // 不进 `apps`/计数/其它视图；`platforms: []` 即 loading 恒可见，平台三态不动）。
   // 占位行经缓存批量升级；`None` 行留待行内加载按钮或详情打开手动拉取。
-  const [favoriteExtraApps, setFavoriteExtraApps] = useState<AppSummary[]>([]);
-  const favoriteExtraAppsRef = useRef<AppSummary[]>([]);
-  favoriteExtraAppsRef.current = favoriteExtraApps;
+  const [uncatalogedExtraApps, setUncatalogedExtraApps] = useState<AppSummary[]>([]);
+  const uncatalogedExtraAppsRef = useRef<AppSummary[]>([]);
+  uncatalogedExtraAppsRef.current = uncatalogedExtraApps;
   const favoriteExtraInflightRef = useRef<Set<string>>(new Set());
   // 记录收录标记表（归一小写键 → is_cataloged，行打标唯一依据；目录 apps 仅补充去重）。
   const recordCatalogedRef = useRef<Map<string, boolean>>(new Map());
@@ -305,7 +305,7 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
       );
       const k = normalizeId(summary.id);
       if (k) {
-        setFavoriteExtraApps((prev) => {
+        setUncatalogedExtraApps((prev) => {
           for (const e of prev) {
             if (normalizeId(e.id) === k) return prev;
           }
@@ -328,7 +328,7 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
               icon: '',
               level: 5,
               patch: (tid, icon) => {
-                setFavoriteExtraApps((prev) => patchAppIconList(prev, tid, icon));
+                setUncatalogedExtraApps((prev) => patchAppIconList(prev, tid, icon));
               },
             });
           }
@@ -339,7 +339,7 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
           icon: persistUrl,
           level: cycleLevel,
           patch: (tid, icon) => {
-            setFavoriteExtraApps((prev) => patchAppIconList(prev, tid, icon));
+            setUncatalogedExtraApps((prev) => patchAppIconList(prev, tid, icon));
           },
         });
       } catch {
@@ -352,7 +352,7 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
 
   useEffect(() => {
     if (favoriteIds.size === 0 && watchedIds.size === 0) {
-      if (favoriteExtraAppsRef.current.length > 0) setFavoriteExtraApps([]);
+      if (uncatalogedExtraAppsRef.current.length > 0) setUncatalogedExtraApps([]);
       recordCatalogedRef.current = new Map();
       return;
     }
@@ -360,12 +360,12 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
     // 本地橘黄：占位/富卡同 id 经 selectors 叠加 source='local'
     //（蓝优先：已验证行不叠加；去重仍远端优先，仅搬标记）。
     const withLocalMark = (row: AppSummary): AppSummary => annotateLocalSource(row, apps);
-    const current = favoriteExtraAppsRef.current;
+    const current = uncatalogedExtraAppsRef.current;
     // 收录到达即驱逐（大小写归一），避免与目录行双显
     let pruned: AppSummary[] | null = null;
     if (current.length > 0 && catalogLower.size > 0) {
       pruned = current.filter((e) => !catalogLower.has(normalizeId(e.id)));
-      if (pruned.length !== current.length) setFavoriteExtraApps(pruned);
+      if (pruned.length !== current.length) setUncatalogedExtraApps(pruned);
     }
     const baseLower = pruned ?? current;
     const baseLowerSet = new Set<string>();
@@ -378,12 +378,12 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
     const missing = findMissingIds(unionIds, catalogLower, baseLowerSet).filter(
       (id) => !favoriteExtraInflightRef.current.has(normalizeId(id)),
     );
-    if (missing.length === 0 && favoriteExtraAppsRef.current.length === 0) return;
+    if (missing.length === 0 && uncatalogedExtraAppsRef.current.length === 0) return;
     let cancelled = false;
     // (a) 占位行同步（行必展示；打标用上轮记录表，重合后由 (c) 按最新记录纠正）。
     if (missing.length > 0) {
       const knownRecords = recordCatalogedRef.current;
-      setFavoriteExtraApps((prev) => {
+      setUncatalogedExtraApps((prev) => {
         const seen = new Set(prev.map((e) => normalizeId(e.id)));
         const toAdd: AppSummary[] = [];
         for (const id of missing) {
@@ -425,7 +425,7 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
         if (!k) continue;
         rich.push(withLocalMark(markFavoriteRowByRecord(hit, record.get(k) ?? false)));
       }
-      setFavoriteExtraApps((prev) => {
+      setUncatalogedExtraApps((prev) => {
         if (prev.length === 0 && rich.length === 0) return prev;
         const next = [...prev];
         const indexByKey = new Map<string, number>();
@@ -480,7 +480,7 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
         // 并发拉取、逐个落地：避免串行 6 倍等待；单个落盘经函数式去重，首个原值保留。
         // 图标先占位后热替（不阻塞首屏）：落盘后经 `restoreOrFetchIconCycle`（前端侧
         // `resolve_confirmed_icon_from_db` 同源读 `app_icon_cycles` + 后端回填）
-        // 查轮换，命中即 `setFavoriteExtraApps` 逐个热替；已有合法远端仅文件预热。
+        // 查轮换，命中即 `setUncatalogedExtraApps` 逐个热替；已有合法远端仅文件预热。
         await Promise.all(
           missing.map(async (favId) => {
             let summary: AppSummary;
@@ -499,7 +499,7 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
             );
             // 若期间收录到达则跳过（由驱逐逻辑收敛，不双显）
             if (catalogLower.has(k)) return;
-            setFavoriteExtraApps((prev) => {
+            setUncatalogedExtraApps((prev) => {
               const lower = k;
               for (const e of prev) {
                 if (normalizeId(e.id) === lower) return prev;
@@ -526,7 +526,7 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
                       icon: '',
                       level: 5,
                       patch: (tid, icon) => {
-                        setFavoriteExtraApps((prev) => patchAppIconList(prev, tid, icon));
+                        setUncatalogedExtraApps((prev) => patchAppIconList(prev, tid, icon));
                       },
                     });
                   }
@@ -538,7 +538,7 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
                   icon: persistUrl,
                   level: cycleLevel,
                   patch: (tid, icon) => {
-                    setFavoriteExtraApps((prev) => patchAppIconList(prev, tid, icon));
+                    setUncatalogedExtraApps((prev) => patchAppIconList(prev, tid, icon));
                   },
                 });
               } catch {
@@ -560,9 +560,9 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
   }, [favoriteIds, watchedIds, apps]);
 
   return {
-    favoriteExtraApps,
-    setFavoriteExtraApps,
-    favoriteExtraAppsRef,
+    uncatalogedExtraApps,
+    setUncatalogedExtraApps,
+    uncatalogedExtraAppsRef,
     loadUncatalogedDetail,
   };
 }

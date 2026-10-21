@@ -30,7 +30,7 @@ function stubFor(cmd: string): unknown {
       return 'https://example.com/x.png';
     case 'get_or_fetch_icon':
       return 'data:,';
-    case 'request_app_icon_cycle':
+    case 'cycle_app_icon':
       return { url: '', level: 1 };
     case 'get_license_allowlist':
       return { enabled: true, allowed: ['MIT'] };
@@ -71,7 +71,7 @@ function stubFor(cmd: string): unknown {
     case 'switch_mirror':
     case 'save_setting':
       return true;
-    case 'is_starred':
+    case 'fetch_starred_status':
       return false;
     case 'oauth_device_poll':
       return { status: 'pending' };
@@ -219,7 +219,7 @@ describe('ipc args naming (camelCase)', () => {
     await swallow(social.oauthDevicePoll('code'));
     await swallow(social.starApp('o/r'));
     await swallow(social.unstarApp('o/r'));
-    await swallow(social.isStarred('o/r'));
+    await swallow(social.fetchStarredStatus('o/r'));
     await swallow(settings.switchMirror('m'));
     await swallow(settings.testProxy('http://proxy'));
     await swallow(settings.fetchTrendsText('https://example.com/t'));

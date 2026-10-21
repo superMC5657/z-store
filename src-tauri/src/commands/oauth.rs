@@ -1,4 +1,4 @@
-use super::{resolve_oauth_client_id_from_db, resolve_write_token};
+use super::{resolve_oauth_client_id_from_db, resolve_active_github_token};
 use crate::models::DevicePollResult;
 use crate::AppState;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -150,7 +150,7 @@ pub async fn get_oauth_user(
         return Ok(stored);
     }
     // 有令牌但缺用户快照或快照未标记权限范围时实时补拉一次
-    let token = resolve_write_token(&state);
+    let token = resolve_active_github_token(&state);
     let is_oauth = state
         .db
         .lock()
@@ -229,7 +229,7 @@ fn split_github_repo_id(app_id: &str) -> Result<(String, String), String> {
     Ok((owner.to_string(), repo.to_string()))
 }
 
-/// Star 本地缓存同步收敛（`star/unstar/is_starred` 三处共用，最佳努力）。
+/// Star 本地缓存同步收敛（`star/unstar/fetch_starred_status` 三处共用，最佳努力）。
 fn sync_star_cache(state: &AppState, owner: &str, repo: &str, starred: bool) {
     if let Ok(db) = state.db() {
         let _ = db.set_starred(owner, repo, starred);
@@ -242,7 +242,8 @@ pub async fn star_app(
     app_id: String,
 ) -> crate::AppResult<crate::oauth::StarRepoOutcome> {
     let (owner, repo) = split_github_repo_id(&app_id)?;
-    let token = resolve_write_token(&state).ok_or_else(|| "请先完成 GitHub 登录".to_string())?;
+    let token =
+        resolve_active_github_token(&state).ok_or_else(|| "请先完成 GitHub 登录".to_string())?;
     let outcome = crate::oauth::star_repo(&token, &owner, &repo).await?;
     if outcome.starred {
         sync_star_cache(&state, &owner, &repo, true);
@@ -253,7 +254,8 @@ pub async fn star_app(
 #[tauri::command(rename_all = "camelCase")]
 pub async fn unstar_app(state: State<'_, AppState>, app_id: String) -> crate::AppResult<bool> {
     let (owner, repo) = split_github_repo_id(&app_id)?;
-    let token = resolve_write_token(&state).ok_or_else(|| "请先完成 GitHub 登录".to_string())?;
+    let token =
+        resolve_active_github_token(&state).ok_or_else(|| "请先完成 GitHub 登录".to_string())?;
     crate::oauth::unstar_repo(&token, &owner, &repo)
         .await
         .map(|_| {
@@ -264,9 +266,12 @@ pub async fn unstar_app(state: State<'_, AppState>, app_id: String) -> crate::Ap
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn is_starred(state: State<'_, AppState>, app_id: String) -> crate::AppResult<bool> {
+pub async fn fetch_starred_status(
+    state: State<'_, AppState>,
+    app_id: String,
+) -> crate::AppResult<bool> {
     let (owner, repo) = split_github_repo_id(&app_id)?;
-    let token = resolve_write_token(&state);
+    let token = resolve_active_github_token(&state);
     if let Some(ref t) = token {
         if let Ok(remote_val) = crate::oauth::check_starred(t, &owner, &repo).await {
             sync_star_cache(&state, &owner, &repo, remote_val);

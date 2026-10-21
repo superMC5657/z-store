@@ -18,7 +18,7 @@ describe('normalizeId（canonical 深度，与后端 canonical_lookup_id 同值�
   it('GitHub 前缀别名折叠为裸 owner/repo（与后端 canonical 同值）', () => {
     expect(normalizeId('gh:Owner/Repo')).toBe('owner/repo');
     expect(normalizeId('github:Owner/Repo')).toBe('owner/repo');
-    // id 键与坐标键收敛（#35 enrich merge miss 修复口径）
+    // id 键与坐标键收敛（enrich merge miss 口径）
     expect(normalizeId('gh:Owner/Repo')).toBe(`${normalizeId('Owner')}/${normalizeId('Repo')}`);
   });
 

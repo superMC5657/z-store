@@ -392,14 +392,6 @@ impl CatalogService {
         Ok((Some(items), new_etag))
     }
 
-    /// 本地库 overlay 唯一口径：未归档的 collected 系 + `submitted` 行参与合并。
-    /// 调用方须先经 `db::custom_apps::list_local_library_*` 或 `collected_overlay_items` 过滤；
-    /// 本函数不做状态判断，仅执行远端优先去重合并（`catalog.json` 只读禁写回，
-    /// 合并不写回内存 `items`，转正由退役标记处理）。
-    pub fn is_collected_overlay_status(status: &str, archived: bool) -> bool {
-        crate::db::custom_apps::is_local_library_status(status) && !archived
-    }
-
     /// 本地库 overlay 合并（ADR-0017）：本地库条目叠加到内存目录视图。
     /// - 输入 `custom` 调用方须已过滤为本地库（collected 系/`submitted` 且未归档）；
     /// - 远端优先去重：远端 id 已存在时 custom 同 id 条目丢弃，不覆盖；
@@ -439,14 +431,14 @@ impl CatalogService {
         merge_remote_first(remote, custom)
     }
 
-    pub fn search_apps(&self, query: &str) -> Vec<AppSummary> {
+    pub fn search_local_catalog(&self, query: &str) -> Vec<AppSummary> {
         let items = self.get_catalog_items();
         self.search_in_slice(&items, query)
     }
 
-    /// 本地库叠加搜索（与 `search_apps` 同行为）：`extra` 须已过滤为
+    /// 本地库叠加搜索（与 `search_local_catalog` 同行为）：`extra` 须已过滤为
     /// 本地库（collected 系/`submitted` 且未归档），远端优先去重后同分值同排序执行搜索。
-    pub fn search_apps_with_overlay(
+    pub fn search_local_catalog_with_overlay(
         &self,
         query: &str,
         extra: &[CatalogItem],
@@ -759,14 +751,29 @@ mod tests {
         assert_eq!(merged[0].name, "Test App");
     }
 
-    /// 本地库 overlay 口径：collected 系 + `submitted` 且未归档参与合并。
+    /// 本地库 overlay 口径（canonical 谓词 `db::custom_apps::is_local_library_entry`）：
+    /// collected 系 + `submitted` 且未归档参与合并。
     #[test]
     fn test_collected_overlay_status_gate() {
-        assert!(CatalogService::is_collected_overlay_status("collected", false));
-        assert!(CatalogService::is_collected_overlay_status("submitted", false));
-        assert!(!CatalogService::is_collected_overlay_status("draft", false));
-        assert!(!CatalogService::is_collected_overlay_status("submitted", true));
-        assert!(!CatalogService::is_collected_overlay_status("collected", true));
+        use crate::db::custom_apps::{is_local_library_entry, CustomAppEntry};
+
+        fn entry(status: &str, archived: bool) -> CustomAppEntry {
+            CustomAppEntry {
+                id: "o/r".to_string(),
+                item: item("o/r", "o", "r"),
+                status: status.to_string(),
+                pr_url: None,
+                created_at: 0,
+                updated_at: 0,
+                archived,
+            }
+        }
+
+        assert!(is_local_library_entry(&entry("collected", false)));
+        assert!(is_local_library_entry(&entry("submitted", false)));
+        assert!(!is_local_library_entry(&entry("draft", false)));
+        assert!(!is_local_library_entry(&entry("submitted", true)));
+        assert!(!is_local_library_entry(&entry("collected", true)));
         assert_eq!(
             crate::db::custom_apps::CUSTOM_APP_STATUS_COLLECTED,
             "collected"
@@ -779,10 +786,10 @@ mod tests {
         let svc = test_service(vec![item("o/remote", "o", "remote")]);
         let mut local = item("o/local", "o", "local");
         local.name = "Local Tool".to_string();
-        let hits = svc.search_apps_with_overlay("local", &[local.clone()]);
+        let hits = svc.search_local_catalog_with_overlay("local", &[local.clone()]);
         assert!(hits.iter().any(|s| s.core.id == "o/local"));
         // 空查询含本地（stars 降序全量）。
-        let all = svc.search_apps_with_overlay("", &[local]);
+        let all = svc.search_local_catalog_with_overlay("", &[local]);
         assert_eq!(all.len(), 2);
     }
 
@@ -809,7 +816,7 @@ mod tests {
         let coords = svc.get_repo_coordinates("o/local").expect("local coords");
         assert_eq!(coords.name, "Local Tool");
         // 搜索覆盖合并目录。
-        let hits = svc.search_apps("local tool");
+        let hits = svc.search_local_catalog("local tool");
         assert!(hits.iter().any(|s| s.core.id == "o/local"));
         // 远端本体口径不含本地收录。
         assert_eq!(svc.get_remote_catalog_items().len(), 1);

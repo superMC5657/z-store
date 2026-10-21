@@ -2,7 +2,7 @@
 use super::InstallOutcome;
 use std::path::Path;
 
-/// Linux 提权安装 argv 纯函数（供单测直调锁定真实实现，防旧桩漂移）。
+/// Linux 提权安装 argv 纯函数（供单测直调锁定真实实现）。
 pub fn deb_install_argv(path: &Path) -> Vec<String> {
     vec![
         "pkexec".to_string(),
@@ -88,7 +88,7 @@ pub fn resolve_deb_installed_path(
 }
 
 /// rpm 安装后回填：对候选包名执行 `rpm -ql` 并精准挑选可执行文件；失败返回 None。
-/// 与 deb 共用查询通用体（`rpm_list_argv` 在此接线，消零调用）。
+/// 与 deb 共用查询通用体（`rpm_list_argv` 在此接线）。
 /// 仅 Linux 编译；非 Linux 返回 None 且不执行任何进程。
 pub fn resolve_rpm_installed_path(
     package_names: &[String],

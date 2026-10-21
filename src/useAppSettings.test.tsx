@@ -1,5 +1,5 @@
 /**
- * useAppSettings 持久化健壮性回归（#18）：
+ * useAppSettings 持久化健壮性回归：
  * - 持久化失败不再 unhandled rejection：回滚乐观值 + toast；
  * - 成功后按后端归一口径回写 state（save_setting 只回 bool，前端镜像钳制）；
  * - 快照合并显式判空：合法挡位 `'0'`（TTL 实时校验档）不被 truthy 兜底吞成默认 60；

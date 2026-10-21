@@ -105,19 +105,6 @@
   letter-spacing: -0.015em;
 }
 
-.section-link {
-  font-size: var(--font-sm);
-  color: var(--brand-primary);
-  font-weight: 510;
-  cursor: pointer;
-  text-decoration: none;
-  letter-spacing: -0.011em;
-}
-
-.section-link:hover {
-  text-decoration: underline;
-}
-
 /* Linear 紧凑行式列表 */
 .app-grid {
   display: flex;

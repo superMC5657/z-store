@@ -25,7 +25,7 @@
  *   2 路 window 事件（detail-platforms / detail-richcard）
  *   经同一归一 upsert 路径进镜像（图标走 `icon-ready → admitIconHit` 唯一写口，不走窗口总线）。
  * - 首绘门：裸行先展不拦榜，仅升级受门控
- *  （`boardReady` + `swrSyncedResult` + `isUpgradePending`，见下）。
+ *  （`boardReady` 单门，见下）。
  *
  * 约束（ADR-0011 / ADR-0014+D9）：
  * - doforce 仅 rising/healthy，经 fetch_trends_text 单飞 12h 共享；
@@ -577,15 +577,6 @@ function logLiteSkip(
     `[trends] lite-skip board=${board} trustedConcrete=${r.trustedConcrete} ` +
       `trustedLoading=${r.trustedLoading} skipped=${r.skipped} targets=${r.targets.length}`,
   );
-}
-
-/** lite 通道批量确认（分批 5，上限 20，seq 守卫由调用方传入 shouldAbort；经深模块同一口）。 */
-async function verifyLoadingLite(
-  targets: readonly LoadingLiteTarget[],
-  fetchLite: LiteFetch,
-  shouldAbort?: () => boolean,
-): Promise<{ patched: Map<string, string[]>; confirmedEmpty: string[] }> {
-  return runLiteBatch(targets, fetchLite, shouldAbort);
 }
 
 /** lite patched 合并进镜像：空永不覆盖已具平台（调用方已跳过，此处再守一次）。 */
@@ -1161,48 +1152,13 @@ export function subscribeTrendHealBus(handlers: TrendHealBusHandlers): () => voi
 /* G. 首绘门：裸行先展不拦榜，仅升级受门控                              */
 /* ------------------------------------------------------------------ */
 
-/**
- * SWR 同步结果：board repos 落定 + 内存快照已合并进镜像即同步。
- * 裸行直展不拦榜；仅富卡升级参考此门。
- */
-export function swrSyncedResult(
-  repos: readonly TrendRepo[] | undefined,
-  enrichedApps: Record<string, AppSummary>,
-): boolean {
-  if (!repos || repos.length === 0) return false;
-  for (const r of repos) {
-    const key = (r.id || '').trim().toLowerCase();
-    if (!key) continue;
-    if (enrichedApps[key]) return true;
-  }
-  return repos.length > 0;
-}
-
-/**
- * 升级是否挂起：未就绪（boardReady=false）或 SWR 尚未同步即挂起。
- * 调用方：裸行照常直展；enrich/图标补齐等升级路径据此决定是否延迟到就绪后。
- */
-export function isUpgradePending(boardReady: boolean, swrSynced: boolean): boolean {
-  return !boardReady || !swrSynced;
-}
-
-/** 富卡升级门：就绪即允许升级（裸行先展，升级不拦首绘）。 */
-export function isEnrichUpgradeAllowed(boardReady: boolean): boolean {
-  return boardReady;
-}
-
 /* ------------------------------------------------------------------ */
-/* H. 确认集快照透出（View 过滤/计数口径用，不直调 enrich 内部）        */
+/* H. enrich 快照透出（View 侧读口，不直调 enrich 内部）                */
 /* ------------------------------------------------------------------ */
-
-/** 榜单确认集快照（仍属本榜 + 新鲜 + 非具平台由 enrich 侧保证）。 */
-export function snapshotBoardConfirmed(repos?: TrendRepo[]): string[] {
-  return snapshotTrendConfirmedOthers(repos);
-}
 
 /** 榜单 enrich 快照（归一键 + 新鲜 + data: 禁入由 enrich 侧保证）。 */
-export function snapshotBoardEnrich(repos?: TrendRepo[]): Record<string, AppSummary> {
-  return snapshotTrendEnrichCache(repos);
+export function snapshotBoardEnrich(): Record<string, AppSummary> {
+  return snapshotTrendEnrichCache();
 }
 
 /**
@@ -1316,7 +1272,7 @@ export function useTrendLoadingLifecycle(
     if (runTargets.length === 0) return;
     void (async () => {
       try {
-        const { patched, confirmedEmpty } = await verifyLoadingLite(
+        const { patched, confirmedEmpty } = await runLiteBatch(
           runTargets,
           (liteId) => fetchLiteRef.current(liteId),
           () => guard.isStale(seq),

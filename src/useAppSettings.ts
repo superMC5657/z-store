@@ -90,7 +90,7 @@ export function useAppSettings() {
           (merged as any)[k] = v === 'true';
         } else if (typeof (DEFAULT_SETTINGS as any)[k] === 'number') {
           // 显式判空：`0` 是合法挡位（TTL 实时校验档），不得被 truthy 兜底吞掉；
-          // 非数字串（NaN）仍回默认，与旧口径的垃圾值防护一致。
+          // 非数字串（NaN）仍回默认。
           const n = Number(v);
           (merged as any)[k] =
             v === '' || v == null || !Number.isFinite(n) ? (DEFAULT_SETTINGS as any)[k] : n;

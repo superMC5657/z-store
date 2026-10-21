@@ -3,8 +3,8 @@ import {
   getNativeWindowOpen,
   isBlockedShortcut,
   initBrowserLockdown,
-  resolveFallbackOpener,
 } from './browserLockdown';
+import { resolveFallbackOpener } from './fallbackOpener';
 import { tauriApi } from '../services/api';
 
 vi.mock('../services/api', () => ({

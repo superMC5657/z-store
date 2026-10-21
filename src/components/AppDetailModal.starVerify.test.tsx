@@ -8,13 +8,13 @@ import { describe, expect, it, vi, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { act } from 'react';
 import type { AppDetailViewModel, OAuthUser } from '../types';
-// Header 文案经 i18n（#20 迁移）：测试断言 zh 文案前须初始化 i18n
+// Header 文案经 i18n：测试断言 zh 文案前须初始化 i18n
 import '../i18n';
 
 const APP_ID = 'testowner/testrepo';
 
 const hooks = vi.hoisted(() => ({
-  isStarred: vi.fn(async (_id: string) => false),
+  fetchStarredStatus: vi.fn(async (_id: string) => false),
   starApp: vi.fn(async (_id: string) => ({ starred: true, in_list: true })),
   onRefresh: vi.fn(async (_id: string) => {}),
 }));
@@ -25,7 +25,7 @@ vi.mock('../services/api', () => {
     {
       get(_t, prop: string) {
         if (prop === 'then') return undefined;
-        if (prop === 'isStarred') return (id: string) => hooks.isStarred(id);
+        if (prop === 'fetchStarredStatus') return (id: string) => hooks.fetchStarredStatus(id);
         if (prop === 'starApp') return (id: string) => hooks.starApp(id);
         if (prop === 'openUrl') return async () => undefined;
         if (prop.startsWith('on')) return async () => () => {};
@@ -101,7 +101,7 @@ describe('star characterization (real AppDetailModal path)', () => {
       />,
     );
     await waitFor(() => {
-      expect(hooks.isStarred).toHaveBeenCalledWith(APP_ID);
+      expect(hooks.fetchStarredStatus).toHaveBeenCalledWith(APP_ID);
     });
 
     await act(async () => {

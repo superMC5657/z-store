@@ -16,14 +16,14 @@ import type {
 } from './types';
 
 /** 线格式状态 → 领域状态（`local_collected` 与 `collected` 同义，判定走唯一口径 isCollectedStatus）。 */
-export function draftStatusFromWire(status: string): DraftStatus {
+function draftStatusFromWire(status: string): DraftStatus {
   if (status === 'submitted') return 'submitted';
   if (isCollectedStatus(status)) return 'collected';
   return 'draft';
 }
 
 /** 线格式 payload → 领域 item（null 归一为空串，数值缺省为 0）。 */
-export function itemFromWire(wire: DraftItemWire): DraftItem {
+function itemFromWire(wire: DraftItemWire): DraftItem {
   return {
     id: wire.id,
     name: wire.name ?? '',

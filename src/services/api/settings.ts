@@ -6,6 +6,7 @@ import type {
 } from '../../types';
 import { CMD } from '../api';
 import { isTauri, tauriInvoke } from './client';
+import { resolveFallbackOpener } from '../../utils/fallbackOpener';
 
 export async function getMirrorStatus(): Promise<MirrorNodeStatus[]> {
   return tauriInvoke<MirrorNodeStatus[]>(CMD.getMirrorStatus);
@@ -75,7 +76,7 @@ export async function openUrl(url: string): Promise<void> {
     // 原生返回 null（弹窗拦截/无原生可用）则抛 `popup_blocked` 语义错保留失败感知，
     // 调用方按自身失败文案 toast，不谎报成功；此处不复用 directErr，
     // 避免把后端失败当拦截原因误导排查。
-    const opener = resolveSettingsFallbackOpener();
+    const opener = resolveFallbackOpener();
     if (!opener) throw directErr;
     let ret: WindowProxy | Window | null = null;
     try {
@@ -95,25 +96,4 @@ function popupBlockedError(url: string): Error & { code?: string } {
   };
   err.code = 'popup_blocked';
   return err;
-}
-
-/**
- * settings 层兜底 opener 解析（不导入 browserLockdown，避免
- * `settings → browserLockdown → services/api → settings` 循环）：
- * 劫持版 `window.open` 同步返回 null，直接调用必被拦截，故必须经 `__ZSTORE_NATIVE_OPEN__` /
- * `__ZSTORE_DEMO_NATIVE_OPEN__`（劫持前捕获的原生 opener，见 browserLockdown/demo-mock
- * 在覆写前缓存的原因）绕过劫持；无缓存键时（未初始化/单测桩）回落到当前 `window.open`
- * 本体，调用方可桩返回值；两者皆无时返回 null，调用方按无原生处理。
- */
-function resolveSettingsFallbackOpener(): typeof window.open | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const w = window as unknown as Record<string, unknown>;
-    const stored = w['__ZSTORE_NATIVE_OPEN__'] ?? w['__ZSTORE_DEMO_NATIVE_OPEN__'];
-    if (typeof stored === 'function') return (stored as typeof window.open).bind(window);
-    if (typeof window.open === 'function') return window.open.bind(window);
-    return null;
-  } catch {
-    return null;
-  }
 }

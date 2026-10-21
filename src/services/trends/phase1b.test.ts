@@ -101,7 +101,7 @@ describe('key 归一读写一致', () => {
   });
 
   it('读写同源：同 board+opts 读写 key 一致', () => {
-    // boards.ts:204/214/240 读路径与 TrendsView 写透路径同源（同 builder + 同 opts）
+    // boards 读路径与 TrendsView 写透路径同源（同 builder + 同 opts）
     const opts = { language: 'Python', category: 'Media' };
     expect(buildTrendsCacheKey('weekly', opts)).toBe(buildTrendsCacheKey('weekly', { ...opts }));
     expect(buildTrendsCacheKey('weekly', { language: 'PYTHON' })).toBe(

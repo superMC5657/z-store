@@ -215,7 +215,7 @@ export function useHomeFeed({
     };
   }, []);
 
-  const platformIdSet = useMemo(
+  const presentAppIdSet = useMemo(
     () => new Set(apps.map((a) => a.id.toLowerCase())),
     [apps],
   );
@@ -229,14 +229,14 @@ export function useHomeFeed({
   const backendFeed = useMemo(
     () =>
       backendItems.filter(
-        (s) => platformIdSet.has(s.id.toLowerCase()) && !displayedIds.has(s.id.toLowerCase()),
+        (s) => presentAppIdSet.has(s.id.toLowerCase()) && !displayedIds.has(s.id.toLowerCase()),
       ),
-    [backendItems, platformIdSet, displayedIds],
+    [backendItems, presentAppIdSet, displayedIds],
   );
 
-  const useBackendList = !isSearching && backendActive && backendFeed.length > 0;
-  const displayedFeed = useBackendList ? sliceFeed(backendFeed, 0, visibleCount) : visibleLocal;
-  const localHasMore = useBackendList ? backendHasMore : visibleLocal.length < feedPool.length;
+  const isBackendListActive = !isSearching && backendActive && backendFeed.length > 0;
+  const displayedFeed = isBackendListActive ? sliceFeed(backendFeed, 0, visibleCount) : visibleLocal;
+  const localHasMore = isBackendListActive ? backendHasMore : visibleLocal.length < feedPool.length;
   const onlineActive = isSearching && isOnlineResults && onlineHasMore;
   const hasMore = localHasMore || onlineActive;
 
@@ -288,7 +288,7 @@ export function useHomeFeed({
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [hasMore, useBackendList, displayedFeed.length]);
+  }, [hasMore, isBackendListActive, displayedFeed.length]);
 
   return {
     heroApp,
@@ -303,7 +303,7 @@ export function useHomeFeed({
     backendLoading,
     backendTotal,
     backendActive,
-    useBackendList,
+    isBackendListActive,
     feedPoolLength: feedPool.length,
     handleLoadMore,
     sentinelRef,

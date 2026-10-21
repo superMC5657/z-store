@@ -1,4 +1,4 @@
-//! GitHub OAuth Device Flow、Star 操作与用户数据导入（FR-7.1 / FR-7.2、FR-6.3 手动同步）。
+//! GitHub OAuth Device Flow 与 Star 操作（FR-7.1 / FR-7.2、FR-6.3 手动同步）。
 //!
 //! 说明：
 //! - Device Flow 无需应用密钥（secret），客户端仅需 `client_id`；
@@ -8,7 +8,6 @@
 //!   会返回 403/404），且不触碰任何私有仓库，符合最小权限原则。
 //! - OAuth 令牌仅存于本地 SQLite（`user_settings.github_oauth_token`），永不打印日志。
 
-pub mod backup;
 pub mod constants;
 pub mod device_flow;
 pub mod http;
@@ -18,7 +17,6 @@ pub mod types;
 #[cfg(test)]
 mod tests;
 
-pub use backup::{parse_import_payload, validate_app_id, ImportPlan, IMPORT_SETTINGS_ALLOWLIST};
 pub use constants::{
     default_oauth_client_id, resolve_oauth_client_id, ACCESS_TOKEN_URL, DEVICE_CODE_URL,
     GITHUB_API_BASE, OAUTH_CLIENT_ID_PLACEHOLDER, OAUTH_SCOPE, SETTING_OAUTH_CLIENT_ID,

@@ -13,7 +13,7 @@ pub const DAILY_NOTIFY_INTERVAL_SECONDS: i64 = 24 * 60 * 60;
 /// 坚决不拉取 README.md、不拉取仓库详情与 Stars、不拉取校验和文件
 /// - 默认 DB-only（`force_refresh != Some(true)`）：仅读 `get_cached_app_detail(None)` /
 ///   收录库默认版本，零网络（启动/登录不触网）；
-/// - 显式手动刷新（`Some(true)`）才走 ETag 轻量探查（无新版本时 304 零配额返回）；
+/// - 显式手动刷新（`Some(true)`）直探 `releases/latest`（无 `If-None-Match`，不会 304）；
 ///   离线/限流时仍降级返回本地已有缓存。
 pub(crate) async fn fetch_app_latest_version_lightweight(
     state: &AppState,
@@ -41,7 +41,7 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
         return Err("检查更新网络不可达且无本地缓存".to_string());
     }
 
-    // 显式手动刷新（force==true）：直探 ETag，不读详情 Cache TTL（更新发现不受浏览 TTL 拖累）。
+    // 显式手动刷新（force==true）：直探 `releases/latest`，不读详情 Cache TTL（更新发现不受浏览 TTL 拖累）。
     // 失败时再降级读本地缓存（见下方 shallow adapter 回退）。
 
     // 2. 多源支持 (Codeberg, Gitea 等)
@@ -77,21 +77,13 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
         coords.owner, coords.repo
     );
 
-    // 手动刷新直探：不带 ETag 条件头，强制取远端最新（304 延保仅非 force 臂，此处不可达）。
-    let (cached_etag, cached_payload): (Option<String>, Option<String>) = (None, None);
-
+    // 手动刷新直探：不带 ETag 条件头，强制取远端最新。
     let token = crate::commands::resolve_active_github_token(state);
     let base_headers = crate::github::http::token_headers(token.as_deref());
 
-    let outcome = crate::github::http::get_with_etag(
-        &state.http,
-        &ep,
-        None,
-        &base_headers,
-        cached_etag.as_deref(),
-        "updates",
-    )
-    .await;
+    let outcome =
+        crate::github::http::get_with_etag(&state.http, &ep, None, &base_headers, None, "updates")
+            .await;
 
     if matches!(
         outcome,
@@ -103,13 +95,9 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
     // 收敛：轻量决议经 `github::release_fetch` shallow adapter（与 `get_platforms_lite`
     // 同一 interface）。
     // ADR-0007 豁免对照分支（consult_ttl = false 侧）：此处故意不读详情 Cache TTL
-    // （缓存生存时效），每次直探 ETag；TTL 快径仅 `get_platforms_lite` 有。语义见模块注释。
-    // 失败路径不做 ETag payload 恢复：仅 304 时传入 payload。
+    // （缓存生存时效），每次直探远端；TTL 快径仅 `get_platforms_lite` 有。语义见模块注释。
+    // 无 ETag 缓存可恢复（直探不带 If-None-Match，不会 304）。
     // Fresh 无需回退源，避免无谓 DB 读。
-    let decide_payload = match &outcome {
-        crate::github::http::EtagGetOutcome::NotModified => cached_payload.as_deref(),
-        _ => None,
-    };
     let (stale_row, catalog_default) = match &outcome {
         crate::github::http::EtagGetOutcome::Fresh { .. } => (None, None),
         _ => {
@@ -124,28 +112,15 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
             (row, cat)
         }
     };
-    let mut resolution = crate::github::release_fetch::decide_shallow_release(
+    let resolution = crate::github::release_fetch::decide_shallow_release(
         &outcome,
-        decide_payload,
+        None,
         stale_row.as_ref(),
         catalog_default.as_deref(),
     );
-    // 现行 tolerant 语义：304 payload 腐坏时跳过 payload 继续沿行/收录库回退
-    //（`get_platforms_lite`-304 对同错报硬错，见模块注释）。
-    if matches!(
-        resolution,
-        Err(crate::github::release_fetch::ShallowError::PayloadCorrupt(_))
-    ) {
-        resolution = crate::github::release_fetch::decide_shallow_release(
-            &outcome,
-            None,
-            stale_row.as_ref(),
-            catalog_default.as_deref(),
-        );
-    }
     match resolution {
         Ok(rel) => {
-            // 304 一律 touch 延保（decide 置位）；Fresh/穿透不 touch。
+            // touch 由 decide 置位（本路径无 304，恒 false）；Fresh 不 touch。
             if rel.touch {
                 if let Ok(db) = state.db() {
                     let _ = db.touch_cached_app_detail(&clean_id, crate::now_secs());
@@ -159,7 +134,7 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
             Ok((rel.tag, rel.body))
         }
         Err(crate::github::release_fetch::ShallowError::Parse(e)) => Err(e),
-        // 防御：tolerant 重试已去 payload，理论不可达；文案与 304 缺缓存一致。
+        // 防御：payload 恒 None，该臂不会命中；文案与 304 缺缓存一致。
         Err(crate::github::release_fetch::ShallowError::PayloadCorrupt(_)) => {
             Err("304 响应但未能提取到有效版本信息".to_string())
         }

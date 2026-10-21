@@ -578,7 +578,7 @@ fn test_icon_cycle_crud() {
         .expect("cycle exists by repo");
     assert_eq!(fetched_by_repo.app_id, app_id);
 
-    // 5. 模块别名方法 (get / upsert)
+    // 5. 模块别名方法 (get)
     let alias_fetched = db.get(app_id).unwrap().expect("alias get exists");
     assert_eq!(alias_fetched.app_id, app_id);
 
@@ -1300,7 +1300,7 @@ fn commit_failure_rolls_back_and_leaves_no_open_transaction() {
     let db = Database { conn };
     // 延迟外键只在 COMMIT 时校验：插入孤立行使 COMMIT 必定失败。
     let res: Result<()> = db.with_immediate_transaction(|| {
-        db.exec_upsert("INSERT INTO child (pid) VALUES (42)", [])?;
+        db.exec_write("INSERT INTO child (pid) VALUES (42)", [])?;
         Ok(())
     });
     assert!(res.is_err(), "延迟约束违规应使 COMMIT 返回错误");

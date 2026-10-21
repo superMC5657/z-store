@@ -32,13 +32,12 @@ import {
   useTrendLoadingLifecycle,
 } from '../services/trends/board';
 import {
-  LOADING_SETTLE_MS,
   annotateEnrichMirrorCataloged,
   resolveBareRowLocalBadgeVariant,
   isEnrichedRowLoading,
   isInstalled as selectIsInstalled,
   mergeLocalLookups,
-  selectIsManagedOpt,
+  selectManagedState,
 } from '../app/selectors';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import {
@@ -100,14 +99,6 @@ type TrendsErrorDescKey =
   | 'trends.error_timeout'
   | 'trends.error_rate_limited'
   | 'trends.error_unavailable';
-
-/**
- * 未收录行 loading 落定超时：enrich 空 + 一次 lite 仍未治愈（或 lite 不可用/stale）
- * 至多等待此后降级为已确认 Other（徽标 + 计数 + 可过滤），而非无限 shimmer。
- * 加载中期间行恒可见（不看 Other 勾选），落定后走正常 Other 过滤。
- * 导出供单测以假时钟推进（与主列表共用 `LOADING_SETTLE_MS` 同值）。
- */
-export const TREND_LOADING_SETTLE_MS = LOADING_SETTLE_MS;
 
 const ERROR_DESC_KEY: Record<TrendsErrorKind, TrendsErrorDescKey> = {
   network: 'trends.error_network',
@@ -287,7 +278,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   // 全局设备平台过滤接入榜单行（含未收录行）：catalog 命中按收录 platforms 判定，
   // 加载中行恒可见（不看 Other 勾选），落定后再走 matchPlatformSet；
   // enrich 命中且具真实平台按其判定；enrich 空（`fallback_summary` 恒 `[]`）一律视为 loading：
-  // 未确认前恒可见、不计入分布，详情治愈/lite 回填/确认为 other 后一次落定（VoiceStudio 类 bug 治愈）。
+  // 未确认前恒可见、不计入分布，详情治愈/lite 回填/确认为 other 后一次落定。
   // 裸 TrendRepo（enrich 尚未落定）视为 loading，恒可见，绝不视同 other；
   // settle 超时后降级为已确认 Other（可过滤、可计数、展示徽标），不再无限 shimmer。
   // 未传入 selectedPlatforms 时不过滤。
@@ -448,7 +439,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                   trendGain={item.gain}
                   trendGainText={gainTextFor(item.gain)}
                   isInstalled={selectIsInstalled(item.app.id, installedIds)}
-                  isManaged={selectIsManagedOpt(item.app.id, managedIds)}
+                  isManaged={selectManagedState(item.app.id, managedIds)}
                   isInstalling={installingIds?.has(item.app.id) ?? false}
                   isFavorite={favoriteIds?.has(normalizeId(item.app.id)) ?? false}
                   isWatched={watchedIds?.has(normalizeId(item.app.id)) ?? false}
@@ -483,7 +474,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                   trendGainText={gainTextFor(item.gain)}
                   // 未收录 enrich 行安装态走真实已安装检查（归一 ID），禁止回退硬编码 false。
                   isInstalled={selectIsInstalled(enriched.id, installedIds)}
-                  isManaged={selectIsManagedOpt(enriched.id, managedIds)}
+                  isManaged={selectManagedState(enriched.id, managedIds)}
                   isInstalling={false}
                   isFavorite={favoriteIds?.has(normalizeId(enriched.id)) ?? false}
                   isWatched={watchedIds?.has(normalizeId(enriched.id)) ?? false}

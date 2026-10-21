@@ -43,7 +43,7 @@ struct OnlineRepoLicense {
 
 impl CatalogService {
     /// Top1 灭 N+1（`Send` 安全）：本函数零 DB（零直连零查询，`Send` 无借用），首屏 `probe=false` 置空图标；
-    /// 确认图标由调用方 `commands/catalog` 经 `state.db()` 单锁批量 enrich 统一回填（`ok()` 吞错不 panic）。
+    /// 确认图标由调用方 `commands::catalog_search` 经 `state.db()` 单锁批量 enrich 统一回填（`ok()` 吞错不 panic）。
     /// 单仓直查透传调用方预解析的 owned 确认图标（`Send`），免二次查询/直连。
     pub async fn search_github_online(
         &self,
@@ -197,7 +197,7 @@ impl CatalogService {
             safe_url,
             summaries.len()
         );
-        // `search done` 的 INFO 唯一归属 commands/catalog，此处结论降级为 debug，
+        // `search done` 的 INFO 唯一归属 commands::catalog_search，此处结论降级为 debug，
         // 单次搜索只产生一行 INFO `search done`（行为链），避免双 INFO。
         log::debug!(
             "http resp search done sid={} req={} host={} hits={} elapsed_ms={}",
@@ -289,7 +289,7 @@ impl CatalogService {
 
         let repo_data: OnlineRepoResponse = resp.json().await.map_err(|e| e.to_string())?;
         let repo_desc = repo_data.description.clone();
-        // 未知协议显式 `unknown`（#21：诚实未知，不伪装已验证开源）；D1 门禁按
+        // 未知协议显式 `unknown`（诚实未知，不伪装已验证开源）；D1 门禁按
         // 名单外拒绝（`UNKNOWN` 不在 DEFAULT_LICENSE_ALLOWLIST），ADR-0018 默认开。
         let license = repo_data
             .license
@@ -320,7 +320,7 @@ impl CatalogService {
         )
         .await;
 
-        // Top2：落库收敛至调用方 `commands/catalog` 批量 enrich（单锁单事务），本函数只读不写，
+        // Top2：落库收敛至调用方 `commands::catalog_search` 批量 enrich（单锁单事务），本函数只读不写，
         // 免与调用方重复写同一 `app_id`，搜索热路径零写。
         Ok(item)
     }

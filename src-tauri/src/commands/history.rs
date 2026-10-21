@@ -196,9 +196,6 @@ fn detail_to_summary(detail: &crate::models::AppDetail) -> AppSummary {
             icon,
             ..detail.core.clone()
         },
-        is_installed: None,
-        has_update: None,
-        installed_version: None,
     }
 }
 
@@ -292,7 +289,7 @@ pub fn import_user_data(
     state: State<'_, AppState>,
     json: String,
 ) -> crate::AppResult<ImportUserDataResult> {
-    let plan = crate::oauth::parse_import_payload(&json)?;
+    let plan = crate::userdata::parse_import_payload(&json)?;
     let db = state.db()?;
 
     // 归一校验前置于任何写入（fail-fast，坏载荷零写入）；
@@ -394,7 +391,7 @@ mod import_restore_tests {
             "watched": ["rustdesk/rustdesk"],
             "settings": {}
         }"#;
-        let plan = crate::oauth::parse_import_payload(json).expect("合法导入 JSON 应当成功");
+        let plan = crate::userdata::parse_import_payload(json).expect("合法导入 JSON 应当成功");
 
         let result = super::apply_import_plan(
             &db,

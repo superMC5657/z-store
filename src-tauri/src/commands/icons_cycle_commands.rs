@@ -20,7 +20,7 @@ use tauri::State;
 
 /// 循环切换应用图标 (L1..=L5)
 #[tauri::command(rename_all = "camelCase")]
-pub async fn request_app_icon_cycle(
+pub async fn cycle_app_icon(
     state: State<'_, AppState>,
     app_id: String,
 ) -> crate::AppResult<IconCycleResult> {
@@ -84,7 +84,7 @@ pub async fn request_app_icon_cycle(
             Ok(b) => b,
             Err(e) => {
                 log::warn!(
-                    "request_app_icon_cycle download failed id={} level={} target_url='{}' err={}",
+                    "cycle_app_icon download failed id={} level={} target_url='{}' err={}",
                     canonical_id,
                     next_level,
                     crate::log_support::sanitize_url(&target_url),
@@ -223,7 +223,7 @@ async fn load_or_seed_cycle(
     }
 }
 
-/// L5 空选落库段：封空选中 + pinned（02 手动轮换保护）+ 落库 + detail 同步显式清空 ""。
+/// L5 空选落库段：封空选中 + pinned（手动轮换保护）+ 落库 + detail 同步显式清空 ""。
 fn seal_empty_level_selection(
     state: &AppState,
     canonical_id: &str,

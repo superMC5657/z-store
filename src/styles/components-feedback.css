@@ -56,10 +56,6 @@
   background-color: var(--status-danger);
 }
 
-.status-dot-neutral {
-  background-color: var(--text-tertiary);
-}
-
 /* 空状态卡片（Linear Empty State 标准样式） */
 .empty-state-card {
   display: flex;

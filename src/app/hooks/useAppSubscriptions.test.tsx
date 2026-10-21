@@ -4,7 +4,7 @@
  * - 初始拉取扇出：目录/已装/收藏/规则/更新快照/最近浏览（平台过滤 + 黄标叠加）/
  *   设置回放/深链注册；`update_frequency='startup'` 才自动检查更新；
  * - `zstore:catalog-synced`：目录后到重拉目录 + 最近浏览黄标重标；
- * - `onSearchIconUpgraded`：载荷适配 + `admitIconHit` 四列表写透 + 回声窗立期望；
+ * - `onIconReady`：载荷适配 + `admitIconHit` 四列表写透 + 回声窗立期望；
  * - watch 订阅：关注集加载 + 更新提醒 toast + 同 app 通知去重；
  * - 更新流：逐条 upsert（大小写不敏感）+ 进度 + 完成复位；
  * - OAuth：登录态加载、过期警示 + `zstore:oauth-changed` 派发、数据导入全量回放；
@@ -89,7 +89,7 @@ vi.mock('../../services/api', async () => {
           checkForUpdates: mocks.checkForUpdates,
           getWatchedApps: mocks.getWatchedApps,
           getOAuthUser: mocks.getOAuthUser,
-          onSearchIconUpgraded: subs.searchIconUpgraded.on,
+          onIconReady: subs.searchIconUpgraded.on,
           onWatchUpdated: subs.watchUpdated.on,
           onUpdateItemFound: subs.updateItemFound.on,
           onUpdateCheckProgress: subs.updateCheckProgress.on,
@@ -146,7 +146,7 @@ function renderSubs(overrides: Partial<Parameters<typeof useAppSubscriptions>[0]
     setApps: vi.fn(),
     setOnlineApps: vi.fn(),
     setRecentlyViewedApps: vi.fn(),
-    setFavoriteExtraApps: vi.fn(),
+    setUncatalogedExtraApps: vi.fn(),
     setInstalledApps: vi.fn(),
     setFavoriteIds: vi.fn(),
     setUpdateRules: vi.fn(),
@@ -164,7 +164,7 @@ function renderSubs(overrides: Partial<Parameters<typeof useAppSubscriptions>[0]
     appsRef: { current: [] as AppSummary[] },
     onlineAppsRef: { current: [] as AppSummary[] },
     recentsRef: { current: [] as AppSummary[] },
-    favoriteExtraAppsRef: { current: [] as AppSummary[] },
+    uncatalogedExtraAppsRef: { current: [] as AppSummary[] },
     currentSearchIdRef: { current: '' },
     selectedPlatforms: new Set(['windows', 'macos', 'linux', 'ios', 'android', 'other']),
     platformResolvedOtherIds: new Set<string>(),
@@ -295,7 +295,7 @@ describe('useAppSubscriptions：目录同步与图标升级', () => {
     expect(restamped[0].source).toBe('local');
   });
 
-  it('onSearchIconUpgraded：回声窗立期望 + 图标四列表写透', async () => {
+  it('onIconReady：回声窗立期望 + 图标四列表写透', async () => {
     const rows = [makeRow('acme/atlas', { icon: '' })];
     const { deps, currentSearchIdRef } = renderSubs({ appsRef: { current: rows } });
     await flush();

@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 /// repo/readme ETag 预读统一经此 helper（force 时跳过 DB；
 /// 冷启动 DB 无行亦为 None）。release 的调用方传入缓存不在此读 DB，三处调用指
-/// repo 预读 + readme 预读（+ release 调用方同模式，见 commands/catalog）。
+/// repo 预读 + readme 预读（+ release 调用方同模式，见 commands::catalog_detail）。
 fn cached_etag_payload(url: &str, is_force_like: bool) -> (Option<String>, Option<String>) {
     if is_force_like {
         return (None, None);
@@ -311,7 +311,7 @@ async fn probe_repo_icon(
 
 /// 消极缓存判定 seam：版本未变 + 24h 内 fresh + 有资产但 sha256 全缺时，
 /// checksum 抓取整路跳过。
-fn checksum_negative_hit(
+fn should_skip_checksum_fetch(
     cached_detail: Option<&AppDetail>,
     version_changed: bool,
     now_secs: i64,
@@ -337,9 +337,9 @@ async fn fetch_checksum_table(
     app_id: &str,
     sid: &str,
     req_id: &str,
-    negative_hit: bool,
+    skip_checksum: bool,
 ) -> HashMap<String, String> {
-    if negative_hit {
+    if skip_checksum {
         log::debug!(
             "checksum skip id={} sid={} req={} reason=negative_cache_hit_24h",
             app_id,
@@ -420,7 +420,7 @@ fn resolve_detail_stats(
         .and_then(|l| l.spdx_id.clone())
         .or_else(|| catalog_item.map(|i| i.license.clone()))
         // 空串不视作真值（与下方 homepage 同过滤模式），未知一律显式 `unknown`
-        //（#21：诚实未知，不伪装已验证开源）；D1 门禁按名单外拒绝
+        //（诚实未知，不伪装已验证开源）；D1 门禁按名单外拒绝
         //（`UNKNOWN` 不在 DEFAULT_LICENSE_ALLOWLIST），ADR-0018 默认开。
         .filter(|l| !l.trim().is_empty())
         .unwrap_or_else(|| "unknown".to_string());
@@ -630,7 +630,7 @@ impl CatalogService {
         // readme + probe_repo_logo + checksums 三路 join 并发。
         // checksum 失败/超时置空不阻塞；probe 无 token 直接跳过不计时。
         // README 经 get_with_etag 走 SQLite ETag 缓存（304 命中直接用缓存 payload），
-        // 不再每次全量；限流/401 经 get_with_etag 内统一上报，此处补 401 通知。
+        // ETag 命中 304 时直接复用缓存 payload；限流/401 经 get_with_etag 内统一上报，此处补 401 通知。
         let readme_url = format!(
             "https://api.github.com/repos/{}/{}/readme",
             urlencoding::encode(&owner),
@@ -659,8 +659,8 @@ impl CatalogService {
         // 消极缓存判定前移，供 checksum 并发分支使用。
         // 时间戳经 github 内 now_secs()。
         let now_secs = crate::github::http::now_secs();
-        let negative_hit =
-            checksum_negative_hit(cached_detail.as_ref(), version_changed, now_secs);
+        let skip_checksum =
+            should_skip_checksum_fetch(cached_detail.as_ref(), version_changed, now_secs);
         // 三路并发：readme 文本、图标探测、校验和抓取同时在途，超时各自内部收敛。
         let (raw_readme, probed_hit, checksums) = tokio::join!(
             fetch_readme_markdown(ReadmeFetch {
@@ -683,7 +683,7 @@ impl CatalogService {
                 id,
                 &sid,
                 &req_id,
-                negative_hit
+                skip_checksum
             )
         );
         if let Some(ref p) = probed_hit {
@@ -721,7 +721,7 @@ impl CatalogService {
             start_stats.elapsed().as_millis()
         );
 
-        // 提取 README 首部 Logo，并从 README 原始内容中清洗删除该旧图标，避免详情页头部与文档内容区发生重叠/重复
+        // 提取 README 首部 Logo，并从 README 正文中剥离该 Logo，避免详情页头部与文档内容区发生重叠/重复
         let chars_in = raw_readme.chars().count();
         log::debug!(
             "readme_process start id={} sid={} req={} chars_in={}",
@@ -746,7 +746,7 @@ impl CatalogService {
 
         // checksums 已与 readme/probe 三路并发就绪（见上游 join），此处直接复用。
         // 跳过/超时均以空表落库，sha256 缺失由调用方降级。
-        // 消极缓存说明见上游 negative_hit 定义处。
+        // 跳过判定见上游 `should_skip_checksum_fetch`。
         // 资产组装经 `build_release_assets` 内部 seam（过滤→classify→sha→打分排序）。
         let releases = build_release_assets(release_resp.assets, &checksums);
 
@@ -825,7 +825,7 @@ impl CatalogService {
             // 合成空失败（401/限流/离线且无任何缓存）以 stale 区分于成功空。
             // 成功 deduce 路径（releases/platforms 推导、排序、ios 并集）不带 stale；
             // 仅此处标记，前端 stale-empty 视为 loading/待 backfill-loading，永不确认 Other，
-            // 调用方（commands/catalog）据此跳过 SQLite 持久化。
+            // 调用方（commands::catalog_detail）据此跳过 SQLite 持久化。
             // 真空契约：远端 200 已问到（repo/release 任一 Fresh 即走成功路径）、
             // 仅 is_valid_installer_asset 全过滤致 releases/platforms 双空时，
             // synthesized_empty_failure 为 false，此处保持 None（与失败空可区分）；
@@ -1038,7 +1038,7 @@ mod tests {
 
     #[test]
     fn test_resolve_detail_stats_license_unknown_sentinel() {
-        // #21：repo 无 license 且无收录兜底时显式 `unknown`（诚实未知，不伪装
+        // repo 无 license 且无收录兜底时显式 `unknown`（诚实未知，不伪装
         // 已验证开源）；repo spdx 优先，缺失回退收录库。
         let stats = super::resolve_detail_stats(None, None);
         assert_eq!(stats.license, "unknown");

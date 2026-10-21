@@ -7,11 +7,11 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import type { AppDetailViewModel } from '../types';
-// Header 文案经 i18n（#20 迁移）：渲染 AppDetailModal 须初始化 i18n
+// Header 文案经 i18n：渲染 AppDetailModal 须初始化 i18n
 import '../i18n';
 
 const hooks = vi.hoisted(() => ({
-  isStarred: vi.fn(async (_id: string) => false),
+  fetchStarredStatus: vi.fn(async (_id: string) => false),
 }));
 
 vi.mock('../services/api', () => {
@@ -20,7 +20,7 @@ vi.mock('../services/api', () => {
     {
       get(_t, prop: string) {
         if (prop === 'then') return undefined;
-        if (prop === 'isStarred') return (id: string) => hooks.isStarred(id);
+        if (prop === 'fetchStarredStatus') return (id: string) => hooks.fetchStarredStatus(id);
         if (prop === 'openUrl') return async () => undefined;
         if (prop.startsWith('on')) return async () => () => {};
         return async () => undefined;
@@ -84,7 +84,7 @@ describe('readme characterization (real AppDetailModal path)', () => {
   it('renders markdown headings and links as HTML', async () => {
     const container = renderModal('# Char Readme Title\n\n[docs](https://example.com/docs)');
     await waitFor(() => {
-      expect(hooks.isStarred).toHaveBeenCalled();
+      expect(hooks.fetchStarredStatus).toHaveBeenCalled();
     });
     const body = container.querySelector('.readme-markdown-body');
     expect(body?.innerHTML).toContain('Char Readme Title');
@@ -95,7 +95,7 @@ describe('readme characterization (real AppDetailModal path)', () => {
   it('preprocesses GitHub alert blocks into alert divs', async () => {
     const container = renderModal('> [!NOTE]\n> char alert body');
     await waitFor(() => {
-      expect(hooks.isStarred).toHaveBeenCalled();
+      expect(hooks.fetchStarredStatus).toHaveBeenCalled();
     });
     const body = container.querySelector('.readme-markdown-body');
     expect(body?.querySelector('.markdown-alert-note')).toBeTruthy();

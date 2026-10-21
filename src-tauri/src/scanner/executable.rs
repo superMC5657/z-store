@@ -119,8 +119,7 @@ impl AppScanner {
     /// 单个快捷方式根目录扫描（`resolve_executable_path` 与 `shortcut_scan` 共用）：
     /// 根 + 一级子目录内 `.lnk` 按 `matches` 谓词过滤文件名（已小写），
     /// 命中即 `resolve_lnk_target` + 安装缓存排除 + 存在性校验后返回首个落盘路径。
-    /// 遍历顺序与原双处内联循环一致（根优先，`read_dir` 原序）。
-    #[allow(dead_code)]
+    /// 遍历顺序：根优先，`read_dir` 原序。
     fn scan_lnk_dir(root: &Path, matches: impl Fn(&str) -> bool) -> Option<String> {
         if !root.is_dir() {
             return None;
@@ -1674,7 +1673,7 @@ impl AppScanner {
 }
 
 #[cfg(test)]
-mod executable_refactor_tests {
+mod path_resolution_tests {
     use super::*;
 
     #[test]

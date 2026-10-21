@@ -122,7 +122,7 @@
 }
 
 /* 导航项激活态（视图切换）：Linear 极简 subtle 衬底 + inset 高光 + 内嵌紫条 */
-.nav-item:not(.platform-item).active {
+.nav-item.active {
   background: var(--bg-nav-active);
   color: var(--text-primary);
   font-weight: 510;
@@ -131,12 +131,12 @@
   padding-left: 12px;
 }
 
-.nav-item:not(.platform-item).active svg {
+.nav-item.active svg {
   color: var(--text-primary);
 }
 
 /* 展开态指示紫条：3px 宽、上下内缩 7px、2px 圆角、颜色 #5E6AD2，定位 left: 3px (内嵌于 pill 内部，绝不贴边溢出) */
-.nav-item:not(.platform-item).active::before {
+.nav-item.active::before {
   content: '';
   position: absolute;
   left: 3px;
@@ -149,43 +149,12 @@
 }
 
 /* 折叠态紫条：定位 left: 3px，上下内缩 7px，2px 圆角，内嵌于 44px pill 内部，绝不溢出 */
-.sidebar.collapsed .nav-item:not(.platform-item).active::before {
+.sidebar.collapsed .nav-item.active::before {
   left: 3px;
   top: 7px;
   bottom: 7px;
   width: 3px;
   border-radius: 2px;
-}
-
-/* 平台过滤器项（多选标签，区别于视图单选导航） */
-.platform-item::before {
-  display: none !important;
-}
-
-.platform-item {
-  color: var(--text-secondary);
-}
-
-.platform-item.active {
-  background: var(--bg-nav-active);
-  color: var(--text-primary);
-  border: 1px solid var(--border-nav-active);
-  box-shadow: var(--shadow-nav-active);
-}
-
-.platform-item.active svg {
-  color: var(--text-primary);
-}
-
-.platform-item:not(.active) {
-  color: var(--text-tertiary);
-  opacity: 0.45;
-}
-
-.platform-item:not(.active):hover {
-  opacity: 1;
-  color: var(--text-primary);
-  background: var(--bg-acrylic-hover);
 }
 
 /* 图标容器与 SVG 标准：统一 16px / stroke 1.5 */

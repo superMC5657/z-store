@@ -114,7 +114,7 @@ export const App: React.FC = () => {
   // 状态机本体收容于 app/hooks/useCustomApps（对齐既有下沉模式）。
   const {
     customApps,
-    pendingEntries,
+    customAppEntries,
     pendingCount,
     localLibrarySummaries,
     handleSaveCustomApp,
@@ -165,7 +165,7 @@ export const App: React.FC = () => {
     handleUnmanageApp,
     handleRefreshInstalledApps,
     handleUninstallApp,
-    unverifiedInstall,
+    unverifiedInstallPrompt,
     dismissUnverifiedInstall,
   } = useInstallState({
     currentView,
@@ -236,9 +236,9 @@ export const App: React.FC = () => {
   // 3. 收藏/关注未收录占位行 left-join（深 join 模块 `useUncatalogedJoin`；
   // 仅收藏页消费，不进 apps/计数/其它视图）
   const {
-    favoriteExtraApps,
-    setFavoriteExtraApps,
-    favoriteExtraAppsRef,
+    uncatalogedExtraApps,
+    setUncatalogedExtraApps,
+    uncatalogedExtraAppsRef,
     loadUncatalogedDetail,
   } = useUncatalogedJoin({ favoriteIds, watchedIds, apps: mergedAppsForJoins });
 
@@ -254,7 +254,7 @@ export const App: React.FC = () => {
     setApps,
     setOnlineApps,
     setRecentlyViewedApps,
-    setFavoriteExtraApps,
+    setUncatalogedExtraApps,
     setSelectedApp,
     setPlatformResolvedOtherIds,
     // customApps 未加载（null）即本地 lookup 未知：后端盖章行原样透传，避免误清本地标注。
@@ -305,7 +305,7 @@ export const App: React.FC = () => {
           // 同上
         }
         try {
-          setFavoriteExtraApps((prev) => patchAppIconList(prev, t, icon));
+          setUncatalogedExtraApps((prev) => patchAppIconList(prev, t, icon));
         } catch {
           // 同上
         }
@@ -317,7 +317,7 @@ export const App: React.FC = () => {
     setApps,
     setOnlineApps,
     setRecentlyViewedApps,
-    setFavoriteExtraApps,
+    setUncatalogedExtraApps,
     setInstalledApps,
     setFavoriteIds,
     setUpdateRules,
@@ -330,7 +330,7 @@ export const App: React.FC = () => {
     appsRef,
     onlineAppsRef,
     recentsRef,
-    favoriteExtraAppsRef,
+    uncatalogedExtraAppsRef,
     currentSearchIdRef,
     selectedPlatforms,
     platformResolvedOtherIds,
@@ -362,7 +362,7 @@ export const App: React.FC = () => {
   } = useAppSelectors({
     apps,
     onlineApps,
-    favoriteExtraApps,
+    uncatalogedExtraApps,
     installedApps,
     updates,
     selectedPlatforms,
@@ -709,7 +709,7 @@ export const App: React.FC = () => {
 
           {currentView === 'pending' && (
             <PendingView
-              entries={pendingEntries}
+              entries={customAppEntries}
               onSave={(draft) => handleSaveCustomApp(draft)}
               onDelete={(id) => handleDeleteCustomApp(id)}
               onMarkSubmitted={(id, prUrl) => handleMarkCustomSubmitted(id, prUrl)}
@@ -831,18 +831,18 @@ export const App: React.FC = () => {
       )}
 
       {/* 无校验资产警示弹窗（D3 门禁：后端默认拒绝安装，仅显式确认后放行） */}
-      {unverifiedInstall !== null && (
+      {unverifiedInstallPrompt !== null && (
         <InstallConfirmDialog
           intro={t('install_confirm.unverified_intro')}
-          appName={unverifiedInstall.id}
-          repoLine={unverifiedInstall.id}
+          appName={unverifiedInstallPrompt.id}
+          repoLine={unverifiedInstallPrompt.id}
           source={t('install_confirm.unverified_source')}
           onCancel={() => {
             dismissUnverifiedInstall();
             showToast(t('toast.unverified_install_cancelled'), 'info');
           }}
           onConfirm={() => {
-            const pending = unverifiedInstall;
+            const pending = unverifiedInstallPrompt;
             dismissUnverifiedInstall();
             void handleInstallRequest({ ...pending, allowUnverified: true });
           }}

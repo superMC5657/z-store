@@ -236,7 +236,7 @@ async function fetchBoardWithL2(
       if (Array.isArray(confirmed)) markConfirmedOthersFreshNow(confirmed);
       writeTrendsCache(key, dbHit);
       l2HitLog(board, key, dbHit);
-      // 现状：读盘→hydrate→就绪顺序，hydrate 完成后透出就绪信号（首屏门订阅）。
+      // hydrate 完成后才透出就绪信号（首屏门订阅）。
       emitBoardHydrated(board, key);
       return { repos: dbHit, status: 'ok', stale: false };
     }
@@ -322,7 +322,7 @@ async function fetchDoforceShared(opts: FetchTrendsOptions = {}): Promise<TrendR
             `[trends] board=doforce L2-cache hit key=${key} hasEnrich=${hasEnrich} ` +
               `enrichCount=${enrichCount} reposCount=${dbHit.length}`,
           );
-          // 现状：读盘→hydrate→就绪顺序，hydrate 完成后透出就绪信号（首屏门订阅）。
+          // hydrate 完成后才透出就绪信号（首屏门订阅）。
           emitBoardHydrated('doforce', key);
           return dbHit;
         }

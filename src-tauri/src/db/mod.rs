@@ -229,7 +229,8 @@ impl Database {
         }
     }
 
-    pub(crate) fn exec_upsert<P: rusqlite::Params>(&self, sql: &str, params: P) -> Result<usize> {
+    /// 统一写入口：INSERT/UPDATE/DELETE/DDL 均走 `conn.execute`。
+    pub(crate) fn exec_write<P: rusqlite::Params>(&self, sql: &str, params: P) -> Result<usize> {
         self.conn.execute(sql, params)
     }
 
@@ -246,7 +247,7 @@ impl Database {
             table.order_col(),
             limit
         );
-        self.exec_upsert(&sql, [])?;
+        self.exec_write(&sql, [])?;
         Ok(())
     }
 

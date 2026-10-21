@@ -153,7 +153,7 @@ export function parseSelectedPlatformArray(input: readonly string[] | null | und
 /**
  * 加载中落定超时：lite 不可用/stale/失败的行至多等待此后降级为已确认 Other，
  * 而非无限 shimmer。加载中期间行恒可见，落定后走正常 Other 过滤/计数/徽标。
- * App 主列表与 Trends 榜单共用同一超时（TrendsView 经 `TREND_LOADING_SETTLE_MS` 重导出同值）。
+ * App 主列表与 Trends 榜单共用同一超时。
  */
 export const LOADING_SETTLE_MS = 15_000;
 

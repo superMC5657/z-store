@@ -25,7 +25,7 @@ impl Database {
         payload_json: &str,
         timestamp: i64,
     ) -> Result<()> {
-        self.exec_upsert(
+        self.exec_write(
             r#"
             INSERT INTO api_etag_cache (endpoint_url, etag, payload_json, last_checked_at)
             VALUES (?1, ?2, ?3, ?4)
@@ -78,7 +78,7 @@ impl Database {
 
     /// 当远端返回 304 Not Modified 时，快速刷新 cached_at 时间戳，零开销延长保鲜期
     pub fn touch_cached_app_detail(&self, app_id: &str, new_cached_at: i64) -> Result<()> {
-        self.exec_upsert(
+        self.exec_write(
             "UPDATE app_details_cache SET cached_at = ?1 WHERE app_id = ?2",
             params![new_cached_at, clean(app_id)],
         )?;
@@ -91,7 +91,7 @@ impl Database {
         let json_str = serde_json::to_string(detail)
             .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
 
-        self.exec_upsert(
+        self.exec_write(
             r#"
             INSERT INTO app_details_cache (app_id, name, latest_version, detail_json, cached_at)
             VALUES (?1, ?2, ?3, ?4, ?5)
@@ -124,7 +124,7 @@ impl Database {
         })
     }
 
-    /// 图标轮换写侧补齐：`request_app_icon_cycle` 选中态落库后同步 `detail_json.icon`
+    /// 图标轮换写侧补齐：`cycle_app_icon` 选中态落库后同步 `detail_json.icon`
     ///（读侧经轮换表 join 读确认图标，此处保持一致）。
     /// - 无详情行则跳过不建行（返回 `Ok(false)`）；
     /// - 仅重写 `detail_json.icon`，`cached_at` 保持不动（轮换是本地用户偏好，不延长 TTL）；
@@ -153,7 +153,7 @@ impl Database {
         let new_json = serde_json::to_string(&v)
             .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
         // 注意：只碰 detail_json，cached_at 不动（见上）。
-        let rows = self.exec_upsert(
+        let rows = self.exec_write(
             "UPDATE app_details_cache SET detail_json = ?1 WHERE app_id = ?2",
             params![new_json, clean_id],
         )?;
@@ -163,7 +163,7 @@ impl Database {
     /// 测试专用：清空详情缓存（生产路径只增量写入，从不全清）。
     #[cfg(test)]
     pub fn clear_app_details_cache(&self) -> Result<()> {
-        self.exec_upsert("DELETE FROM app_details_cache", [])?;
+        self.exec_write("DELETE FROM app_details_cache", [])?;
         Ok(())
     }
 
@@ -185,7 +185,7 @@ impl Database {
             return Ok(());
         }
         let now = now_secs();
-        self.exec_upsert(
+        self.exec_write(
             "INSERT INTO icon_cache_meta (cache_key, remote_url, cached_at) VALUES (?1, ?2, ?3)
              ON CONFLICT(cache_key) DO UPDATE SET remote_url = excluded.remote_url, cached_at = excluded.cached_at",
             params![clean_key, clean_url, now],
@@ -199,7 +199,7 @@ impl Database {
         if clean_key.is_empty() {
             return Ok(());
         }
-        self.exec_upsert(
+        self.exec_write(
             "DELETE FROM icon_cache_meta WHERE cache_key = ?1",
             params![clean_key],
         )?;
@@ -251,7 +251,7 @@ impl Database {
             )));
         }
         let now = now_secs();
-        self.exec_upsert(
+        self.exec_write(
             r#"
             INSERT INTO trend_board_cache (cache_key, board, payload_json, payload_bytes, cached_at)
             VALUES (?1, ?2, ?3, ?4, ?5)
@@ -437,7 +437,7 @@ impl Database {
         let etag_clean = etag.map(|s| s.trim()).filter(|s| !s.is_empty());
         let last_modified_clean = last_modified.map(|s| s.trim()).filter(|s| !s.is_empty());
         let now = now_secs();
-        self.exec_upsert(
+        self.exec_write(
             r#"
             INSERT INTO asset_cache (url, hash, local_path, content_type, size, etag, last_modified, last_used, expires_at, hits)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0)
@@ -484,11 +484,11 @@ impl Database {
         }
         self.with_immediate_transaction(|| {
             let now = now_secs();
-            self.exec_upsert(
+            self.exec_write(
                 "UPDATE asset_cache SET last_used = ?1, hits = hits + 1 WHERE hash = ?2",
                 params![now, h],
             )?;
-            self.exec_upsert(
+            self.exec_write(
                 r#"
                 INSERT INTO asset_refs (hash, app_id, last_seen)
                 VALUES (?1, ?2, ?3)
@@ -507,7 +507,7 @@ impl Database {
             return Ok(());
         }
         let now = now_secs();
-        self.exec_upsert(
+        self.exec_write(
             "UPDATE asset_cache SET last_used = ?1, expires_at = ?2, hits = hits + 1 WHERE hash = ?3",
             params![now, expires_at, h],
         )?;
@@ -668,7 +668,7 @@ impl Database {
             }
         }
         for sql in statements {
-            self.exec_upsert(sql, [])?;
+            self.exec_write(sql, [])?;
         }
         Ok(removed)
     }

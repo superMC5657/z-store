@@ -4,7 +4,7 @@
  * 同一概念只在两处表达：
  * - `DraftItem` / `DraftEntry`：领域/表单形状（空值用空串，`is_verified` 不入表单）；
  * - `DraftItemWire` / `DraftEntryWire`：IPC 线格式（空值用 `null`，`is_verified` 必填）。
- * 两者之间的转换只在 `mappers.ts` 发生，视图与 API 客户端都不再各写一套。
+ * 两者之间的转换只在 `mappers.ts` 发生，视图与 API 客户端不各自转换。
  */
 
 /** 草稿状态：`local_collected` 为磁盘残留同义值（判定与 `collected` 等同）。 */

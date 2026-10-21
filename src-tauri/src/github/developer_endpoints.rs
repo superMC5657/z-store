@@ -28,7 +28,7 @@ impl CatalogService {
     }
 
     /// 目录外 Star 仓库的 `releases/latest` 端点（canonical cache key，与
-    /// `updates.rs`/`catalog.rs` 共用 `api_etag_cache` 表，零新 schema）。
+    /// `commands::updates_check`/`commands::catalog_detail` 共用 `api_etag_cache` 表，零新 schema）。
     pub fn starred_release_endpoint(full_name: &str) -> String {
         let key = crate::forge::canonical_app_id(full_name)
             .unwrap_or_else(|| full_name.trim().to_lowercase());
@@ -67,7 +67,7 @@ mod developer_endpoints_tests {
 
     #[test]
     fn test_release_endpoint_key_matches_updates_ep_format() {
-        // 缓存键必须与 updates.rs/catalog.rs 使用的规范化 release 接口保持一致，
+        // 缓存键必须与 commands::updates_check/commands::catalog_detail 使用的规范化 release 接口保持一致，
         // 从而实现无新增数据库架构直接复用既有的 api_etag_cache 数据表。
         let key = CatalogService::starred_release_endpoint("SomeOne/R1");
         assert_eq!(

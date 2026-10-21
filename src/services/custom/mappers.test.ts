@@ -7,10 +7,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  draftStatusFromWire,
   entryFromWire,
   entryToCollectedSummary,
-  itemFromWire,
   itemToSummary,
   itemToWire,
 } from './mappers';
@@ -58,7 +56,7 @@ function wireEntry(extra: Partial<DraftEntryWire> = {}): DraftEntryWire {
 }
 
 function draftItem(extra: Partial<DraftItem> = {}): DraftItem {
-  return { ...itemFromWire(wireItem()), ...extra };
+  return { ...entryFromWire(wireEntry()).item, ...extra };
 }
 
 describe('草稿 mappers（线格式 ↔ 领域）', () => {
@@ -70,9 +68,9 @@ describe('草稿 mappers（线格式 ↔ 领域）', () => {
     expect(entry.item.stars).toBe(42);
     expect(entry.pr_url).toBeNull();
     expect(entry.updated_at).toBe(2);
-    expect(draftStatusFromWire('submitted')).toBe('submitted');
-    expect(draftStatusFromWire('draft')).toBe('draft');
-    expect(draftStatusFromWire('weird')).toBe('draft');
+    expect(entryFromWire(wireEntry({ status: 'submitted' })).status).toBe('submitted');
+    expect(entryFromWire(wireEntry({ status: 'draft' })).status).toBe('draft');
+    expect(entryFromWire(wireEntry({ status: 'weird' })).status).toBe('draft');
   });
 
   it('itemToWire：空串归 null、is_verified 恒 false、stars/forks 沿用已有行', () => {
@@ -91,7 +89,7 @@ describe('草稿 mappers（线格式 ↔ 领域）', () => {
 
   it('往返：领域 → 线格式 → 领域保持业务字段不变', () => {
     const item = draftItem({ description_en: 'tool en', homepage: 'https://example.com' });
-    const roundTrip = itemFromWire(itemToWire(item));
+    const roundTrip = entryFromWire(wireEntry({ item: itemToWire(item) })).item;
     expect(roundTrip).toEqual(item);
   });
 

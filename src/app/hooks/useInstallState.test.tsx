@@ -128,7 +128,7 @@ describe('useInstallState：安装流', () => {
     });
 
     expect(deps.showToast).not.toHaveBeenCalled();
-    expect(rendered.result.current.unverifiedInstall).toEqual({
+    expect(rendered.result.current.unverifiedInstallPrompt).toEqual({
       id: 'acme/atlas',
       assetName: 'setup.exe',
       customInstallDir: 'C:\\dir',
@@ -138,7 +138,7 @@ describe('useInstallState：安装流', () => {
     act(() => {
       rendered.result.current.dismissUnverifiedInstall();
     });
-    expect(rendered.result.current.unverifiedInstall).toBeNull();
+    expect(rendered.result.current.unverifiedInstallPrompt).toBeNull();
   });
 
   it('用户取消（取消/中止/1602）：info 提示；其余失败 error 提示并 rethrow', async () => {

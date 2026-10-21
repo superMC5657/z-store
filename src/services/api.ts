@@ -124,7 +124,7 @@ export const CMD = {
   syncCatalog: 'sync_catalog',
   selectFolder: 'select_folder',
   getOrFetchIcon: 'get_or_fetch_icon',
-  cycleAppIcon: 'request_app_icon_cycle',
+  cycleAppIcon: 'cycle_app_icon',
   restoreOrFetchIconCycle: 'restore_or_fetch_icon_cycle',
   getReadmeVariants: 'get_readme_variants',
   fetchOrCacheAssetUrl: 'fetch_or_cache_asset_url',
@@ -141,7 +141,7 @@ export const CMD = {
   oauthLogout: 'oauth_logout',
   starApp: 'star_app',
   unstarApp: 'unstar_app',
-  isStarred: 'is_starred',
+  fetchStarredStatus: 'fetch_starred_status',
   importUserData: 'import_user_data',
   openUrl: 'open_url',
   listCustomApps: 'list_custom_apps',
@@ -159,8 +159,6 @@ export const CMD = {
   getCustomAppsBatchPrPayload: 'get_custom_apps_batch_pr_payload',
   getLicenseAllowlist: 'get_license_allowlist',
 } as const;
-
-export type TauriCommand = (typeof CMD)[keyof typeof CMD];
 
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'dark',
@@ -189,7 +187,7 @@ export const tauriApi = {
   getHomeFeed: catalogApi.getHomeFeed,
   searchAppsOnline: catalogApi.searchAppsOnline,
   enrichTrendRepos: catalogApi.enrichTrendRepos,
-  onSearchIconUpgraded: catalogApi.onSearchIconUpgraded,
+  onIconReady: catalogApi.onIconReady,
   getAppDetails: catalogApi.getAppDetails,
   getCachedAppDetailsBatch: catalogApi.getCachedAppDetailsBatch,
   getConfirmedIconsBatch: catalogApi.getConfirmedIconsBatch,
@@ -274,7 +272,6 @@ export const tauriApi = {
   syncGithubStarred: socialApi.syncGithubStarred,
   setHostToken: socialApi.setHostToken,
   removeHostToken: socialApi.removeHostToken,
-  onQuotaUpdated: socialApi.onQuotaUpdated,
   refreshHostRateLimit: socialApi.refreshHostRateLimit,
   testHostConnection: socialApi.testHostConnection,
   getWatchedApps: socialApi.getWatchedApps,
@@ -288,7 +285,7 @@ export const tauriApi = {
   oauthLogout: socialApi.oauthLogout,
   starApp: socialApi.starApp,
   unstarApp: socialApi.unstarApp,
-  isStarred: socialApi.isStarred,
+  fetchStarredStatus: socialApi.fetchStarredStatus,
 
   // Diagnostics / Logs
   getLogDir: zlogApi.getLogDir,

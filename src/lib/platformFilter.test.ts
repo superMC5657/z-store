@@ -1,7 +1,7 @@
 /**
  * 任务 1 — 设备平台全局过滤器测试。
  *
- * 第一部分（基线特征化测试）：锁定完全复制自 src/views/CategoriesView.tsx:56-62 的单选 matchPlatform 现有语义。
+ * 第一部分（基线特征化测试）：锁定完全复制自 selectors.matchPlatform 的单选 matchPlatform 现有语义。
  * 自包含测试：在不引入新模块的情况下即可通过。
  */
 import { describe, expect, it } from 'vitest';
@@ -19,7 +19,7 @@ function baselineMatchPlatform(app: BaselineApp, platform: string): boolean {
   return app.platforms.some((p) => p.toLowerCase() === platform.toLowerCase());
 }
 
-describe('baseline: single-select matchPlatform (CategoriesView:56-62)', () => {
+describe('baseline: single-select matchPlatform (selectors.matchPlatform)', () => {
   it("matches everything when platform is 'all'", () => {
     expect(baselineMatchPlatform({ platforms: ['linux'] }, 'all')).toBe(true);
     expect(baselineMatchPlatform({}, 'all')).toBe(true);

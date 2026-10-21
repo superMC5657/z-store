@@ -1,6 +1,4 @@
-//! GitHub 内本地 HTTP/日志/兜底 helpers。
-//!
-//! 仅 `github` 模块内使用，行为与原样板一致。
+//! GitHub 内本地 HTTP/日志/兜底 helpers（github + commands 共用）。
 
 use crate::forge::http::retry_after_delay_ms;
 use crate::models::{AppCore, AppSummary};
@@ -212,7 +210,7 @@ pub(crate) fn bearer_headers(token: Option<&str>) -> HeaderMap {
     )
 }
 
-/// 统一日志上下文，返回 `(req_id, sid)`，顺序与原样板一致。
+/// 统一日志上下文，返回 `(req_id, sid)`。
 pub(crate) fn new_log_ctx() -> (String, String) {
     (crate::z_log::new_req_id(), crate::z_log::new_session_id())
 }
@@ -421,9 +419,7 @@ pub(crate) fn resolve_confirmed_icon_from_db(
     None
 }
 
-/// 尝试从本地默认数据库解析已确认的图标。
-/// Top1 fallback 保留：仅当调用方传不进 `&Database`（`None`）且 `probe=true` 时回退本地直连，
-/// `ok()` 吞错不 panic；搜索首屏 `probe=false` 传 `None` 时直接置空，零直连。
+/// 打开默认数据目录下的 z_store.db（不存在返回 None）。
 pub(crate) fn open_db_opt() -> Option<crate::db::Database> {
     let db_path = crate::get_app_data_dir().join("z_store.db");
     if db_path.is_file() {
@@ -476,7 +472,7 @@ pub(crate) async fn fallback_summary(
         ci
     } else if probe {
         // 同步适配器唯一口：`probe_single_live`（L2→L3，仅默认分支，与流式核同源）。
-        // 无 token 只探 L2（保护匿名配额），有 token 才含 Trees，与旧先快后慢同语义，不另起内联探。
+        // 无 token 只探 L2（保护匿名配额），有 token 才含 Trees，不另起内联探。
         let hdrs_opt = token
             .filter(|t| !t.trim().is_empty())
             .map(|tok| token_headers(Some(tok)));
@@ -513,9 +509,6 @@ pub(crate) async fn fallback_summary(
             source: None,
             status: None,
         },
-        is_installed: None,
-        has_update: None,
-        installed_version: None,
     }
 }
 

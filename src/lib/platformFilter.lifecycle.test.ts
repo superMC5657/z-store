@@ -174,7 +174,6 @@ describe('locality：selectors 与 lib 同源（单 seam）', () => {
   it('app/selectors 重导出与 lib 同源（单 seam，无服务中转）', () => {
     expect(selectors.LOADING_SETTLE_MS).toBe(lib.LOADING_SETTLE_MS);
     expect(selectors.isEnrichedRowLoading).toBe(lib.isEnrichedRowLoading);
-    expect(selectors.unionConfirmedSets).toBe(lib.unionConfirmedSets);
     // 调用方直引 lib，selectors 不重导出其他别名
     //（键分段书写：全仓零命中为收工标准，此处不断言字面量）
     expect((selectors as Record<string, unknown>)['isLoading' + 'For']).toBeUndefined();

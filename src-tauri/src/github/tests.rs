@@ -5,12 +5,12 @@ fn test_catalog_load_and_search() {
     let cat = CatalogService::new();
     assert!(cat.get_catalog_count() >= 20);
 
-    let res = cat.search_apps("rustdesk");
+    let res = cat.search_local_catalog("rustdesk");
     assert!(!res.is_empty());
     // ADR-0010：清单 id 为 canonical owner/repo
     assert_eq!(res[0].core.id, "rustdesk/rustdesk");
 
-    let res_zh = cat.search_apps("远程桌面");
+    let res_zh = cat.search_local_catalog("远程桌面");
     assert!(!res_zh.is_empty());
     assert_eq!(res_zh[0].core.id, "rustdesk/rustdesk");
 }
@@ -111,7 +111,7 @@ fn test_extract_and_strip_logo_from_readme() {
         logo_url,
         "https://raw.githubusercontent.com/rustdesk/rustdesk/HEAD/assets/logo.png"
     );
-    // 验证旧图标已被彻底剥离，不再残留在 README 内容中
+    // 头部 Logo 已从 README 正文剥离
     assert!(!stripped.contains("assets/logo.png"));
     assert!(stripped.contains("# RustDesk"));
 }

@@ -9,6 +9,7 @@ import { Header } from './Header';
 import { InstallActions } from './InstallActions';
 import { AssetList } from './AssetList';
 import { ReadmeSection } from './ReadmeSection';
+import { handleOpenExternal } from './openExternal';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -188,7 +189,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
     );
     if (osWithoutOppositeArch) return osWithoutOppositeArch;
 
-    // 3. 兜底匹配系统
+    // 5. 兜底匹配系统
     const osMatch = releases.find((r) => r.os === currentOs || r.os === 'all');
     if (osMatch) return osMatch;
 
@@ -238,7 +239,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
     }
   };
 
-  const handleAction = async () => {
+  const handleLaunchOrInstall = async () => {
     // 已纳管走启动；未纳管走安装通道。
     if (isInstalled && isManaged) {
       onLaunch(app.id);
@@ -269,12 +270,6 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
     } finally {
       setIsInstalling(false);
     }
-  };
-
-  const handleOpenExternal = (e: React.MouseEvent, url: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    tauriApi.openUrl(url);
   };
 
   return (
@@ -338,7 +333,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
             onClose={onClose}
             onRevealDownload={handleRevealDownload}
             onDownloadPrimary={handleDownloadPrimary}
-            onAction={handleAction}
+            onAction={handleLaunchOrInstall}
           />
 
           {/* 完整发布产物抽屉列表（按宿主相关度排序；列表区独立滚动最多展示 3 行，标题常驻） */}
@@ -365,11 +360,3 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
     </div>
   );
 };
-
-export { Header } from './Header';
-export { AssetList } from './AssetList';
-export { InstallActions } from './InstallActions';
-export { ReadmeSection } from './ReadmeSection';
-export { IconLevelBadge } from './IconLevelBadge';
-export { useDetailReadme } from './useDetailReadme';
-export { useDetailStarVerify } from './useDetailStarVerify';

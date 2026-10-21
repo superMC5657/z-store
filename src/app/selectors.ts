@@ -17,17 +17,16 @@ import { normalizeId } from '../services/normalizeId';
 import { isCollectedStatus } from '../services/custom/status';
 import { DEFAULT_ICON_BG } from '../styles/tokens';
 // loading 语义唯一深模块为 `lib/platformFilter`：本选择器直接消费 lib，
-// 对外仅保留 LOADING_SETTLE_MS/isEnrichedRowLoading/unionConfirmedSets 三件重导出。
+// 对外仅保留 LOADING_SETTLE_MS/isEnrichedRowLoading 两件重导出。
 export {
   LOADING_SETTLE_MS,
   isEnrichedRowLoading,
-  unionConfirmedSets,
 } from '../lib/platformFilter';
 
 interface UseAppSelectorsParams {
   apps: AppSummary[];
   onlineApps: AppSummary[];
-  favoriteExtraApps: AppSummary[];
+  uncatalogedExtraApps: AppSummary[];
   installedApps: InstalledApp[];
   updates: UpdateItem[];
   selectedPlatforms: Set<PlatformId>;
@@ -145,7 +144,7 @@ export function isInstalled(id: string, installedIds: Set<string> | null | undef
  * managed 三态（冷启闪烁守卫）：`null` = managed 列表尚未加载（未知），
  * `Set<string>` = 已知集合。未知态调用方渲染中性占位。
  */
-export function selectIsManagedOpt(
+export function selectManagedState(
   id: string,
   managedIds: Set<string> | null,
 ): boolean | null {
@@ -173,12 +172,12 @@ export function selectBadgeState(
  */
 export function selectFavoritesViewApps(
   platformFilteredApps: AppSummary[],
-  favoriteExtraApps: AppSummary[],
+  uncatalogedExtraApps: AppSummary[],
   selectedPlatforms: Set<PlatformId>,
   platformResolvedOtherIds: Set<string>,
 ): AppSummary[] {
-  if (favoriteExtraApps.length === 0) return platformFilteredApps;
-  const filteredExtras = favoriteExtraApps.filter((a) =>
+  if (uncatalogedExtraApps.length === 0) return platformFilteredApps;
+  const filteredExtras = uncatalogedExtraApps.filter((a) =>
     matchPlatformSetWithLoading(a, selectedPlatforms, platformResolvedOtherIds),
   );
   if (filteredExtras.length === 0) return platformFilteredApps;
@@ -695,7 +694,7 @@ export function resolveBareRowLocalBadgeVariant(
 export function useAppSelectors({
   apps,
   onlineApps,
-  favoriteExtraApps,
+  uncatalogedExtraApps,
   installedApps,
   updates,
   selectedPlatforms,
@@ -736,8 +735,8 @@ export function useAppSelectors({
   // 收藏页 left-join 供给：收录段（已平台过滤）+ 未收录占位段（收藏/关注 union 合成，同口径平台过滤后并入，
   // 小写去重防双显）。其它视图仍用 `platformFilteredApps`，计数仍基于全量 `apps`。
   const favoritesViewApps = useMemo(
-    () => selectFavoritesViewApps(platformFilteredApps, favoriteExtraApps, selectedPlatforms, platformResolvedOtherIds),
-    [platformFilteredApps, favoriteExtraApps, selectedPlatforms, platformResolvedOtherIds]
+    () => selectFavoritesViewApps(platformFilteredApps, uncatalogedExtraApps, selectedPlatforms, platformResolvedOtherIds),
+    [platformFilteredApps, uncatalogedExtraApps, selectedPlatforms, platformResolvedOtherIds]
   );
 
   // 任务 4（设备平台全局过滤）：侧栏分组的各平台应用计数，

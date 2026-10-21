@@ -273,7 +273,7 @@ mod tests {
         assert_eq!(normalize_proxy_url(""), None);
         assert_eq!(normalize_proxy_url("   "), None);
         assert_eq!(normalize_proxy_url("notaproxy"), None);
-        // `socks4` 裸前缀无 `://` 一律拒绝（曾误判为合法 scheme 导致 junk 进代理 env）。
+        // `socks4` 裸前缀无 `://` 一律拒绝（避免 junk scheme 进代理 env）。
         assert_eq!(normalize_proxy_url("socks4"), None);
         assert_eq!(normalize_proxy_url("socks4junk"), None);
         assert_eq!(normalize_proxy_url("socks4proxy"), None);

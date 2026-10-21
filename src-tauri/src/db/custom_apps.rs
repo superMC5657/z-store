@@ -17,10 +17,6 @@ pub const CUSTOM_APP_STATUS_DRAFT: &str = "draft";
 pub const CUSTOM_APP_STATUS_SUBMITTED: &str = "submitted";
 /// 本地收录态：已收录进本地（可搜可装，与远端精选同行为；Issue 提交前置门禁）。
 pub const CUSTOM_APP_STATUS_COLLECTED: &str = "collected";
-/// Same value as `CUSTOM_APP_STATUS_COLLECTED` (kept for on-disk `local_collected` comparison).
-pub const LOCAL_COLLECTED: &str = CUSTOM_APP_STATUS_COLLECTED;
-/// Same value as `CUSTOM_APP_STATUS_COLLECTED` (full-name form, kept for on-disk comparison).
-pub const CUSTOM_APP_STATUS_LOCAL_COLLECTED: &str = CUSTOM_APP_STATUS_COLLECTED;
 
 /// 自维护草稿条目：DB 行 + 反序列化后的完整 `CatalogItem`。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,7 +99,7 @@ pub fn validate_custom_item(
     mode: ValidateMode,
     gate: &LicenseGateConfig,
 ) -> Result<String, String> {
-    // PM#2 收口：草稿箱仅支持 GitHub owner/repo，forge 形态（含冒号）直接拒绝。
+    // 草稿箱仅支持 GitHub owner/repo，forge 形态（含冒号）直接拒绝。
     // 通用 forge 解析基础设施（ForgeType/coord）保留，此处只做入口收口。
     if item.id.contains(':') {
         return Err(format!(
@@ -212,8 +208,8 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> Result<CustomAppEntry> {
     })
 }
 
-/// 库内成员判定（overlay/详情/安装回退口径）：`status` 为 collected 系或 `submitted`；
-/// 归档另由调用方判定（`!archived`）。
+/// 库内成员判定（测试专用断言谓词）：`status` 为 collected 系或 `submitted`，且未归档。
+#[cfg(test)]
 pub fn is_local_library_entry(entry: &CustomAppEntry) -> bool {
     is_local_library_status(&entry.status) && !entry.archived
 }
@@ -266,7 +262,7 @@ impl Database {
         let payload = serde_json::to_string(item).map_err(|e| {
             rusqlite::Error::ToSqlConversionFailure(Box::new(e))
         })?;
-        self.exec_upsert(
+        self.exec_write(
             r#"
             INSERT INTO custom_apps (id, payload_json, status, pr_url, created_at, updated_at, archived)
             VALUES (?1, ?2, 'draft', NULL, ?3, ?3, 0)
@@ -284,7 +280,7 @@ impl Database {
     /// 未归档 `submitted` 可删（`status`/`pr_url` 经 `list`/`get` 透出后手动清理）；
     /// 已归档行同样直接删（转正归档手动清理，现有语义不变）。
     pub fn delete_custom_app(&self, id: &str) -> Result<bool> {
-        let rows = self.exec_upsert(
+        let rows = self.exec_write(
             "DELETE FROM custom_apps WHERE id = ?1",
             params![clean(id)],
         )?;
@@ -340,7 +336,7 @@ impl Database {
             )));
         }
         let now = now_secs();
-        self.exec_upsert(
+        self.exec_write(
             "UPDATE custom_apps SET status = 'submitted', pr_url = ?1, updated_at = ?2 WHERE id = ?3",
             params![clean_url, now, cleaned],
         )
@@ -397,7 +393,7 @@ impl Database {
             MarkCollectedError::Db(rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
         })?;
         let now = now_secs();
-        self.exec_upsert(
+        self.exec_write(
             "UPDATE custom_apps SET payload_json = ?1, status = 'collected', updated_at = ?2 WHERE id = ?3",
             params![payload, now, cleaned],
         )
@@ -448,7 +444,7 @@ impl Database {
             RevertCollectedError::Db(rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
         })?;
         let now = now_secs();
-        self.exec_upsert(
+        self.exec_write(
             "UPDATE custom_apps SET payload_json = ?1, status = 'draft', pr_url = NULL, updated_at = ?2 WHERE id = ?3",
             params![payload, now, cleaned],
         )
@@ -486,7 +482,7 @@ impl Database {
             )));
         }
         let now = now_secs();
-        self.exec_upsert(
+        self.exec_write(
             "UPDATE custom_apps SET status = 'collected', pr_url = NULL, updated_at = ?1 WHERE id = ?2",
             params![now, cleaned],
         )
@@ -507,7 +503,8 @@ impl Database {
         )
     }
 
-    /// 本地库 payload 列表：`list_local_library_apps` 的 `CatalogItem` 投影（合并视图输入）。
+    /// 本地库 payload 列表：`list_local_library_apps` 的 `CatalogItem` 投影
+    /// （`CatalogService::sync_collected_from_db` 的输入）。
     pub fn list_local_library_items(&self) -> Result<Vec<CatalogItem>> {
         Ok(self
             .list_local_library_apps()?
@@ -516,8 +513,9 @@ impl Database {
             .collect())
     }
 
-    /// 按 id 取本地库行：仅未归档的 collected 系/`submitted` 命中（详情/安装回退口径，
-    /// on-disk residual `local_collected` 字面同匹配）。
+    /// 按 id 取本地库行（测试专用）：仅未归档的 collected 系/`submitted` 命中，
+    /// on-disk residual `local_collected` 字面同匹配。
+    #[cfg(test)]
     pub fn get_collected_custom_item(&self, id: &str) -> Result<Option<CustomAppEntry>> {
         Ok(self
             .get_custom_app(id)?
@@ -560,7 +558,7 @@ impl Database {
         let now = now_secs();
         self.with_immediate_transaction(|| {
             for id in &staged_ids {
-                self.exec_upsert(
+                self.exec_write(
                     "UPDATE custom_apps SET archived = 1, updated_at = ?1 WHERE id = ?2",
                     params![now, id],
                 )?;
@@ -772,7 +770,7 @@ mod tests {
 
     #[test]
     fn validate_rejects_forge_prefixed_id_github_only() {
-        // PM#2 收口：草稿箱仅支持 GitHub owner/repo，forge 前缀 id（含冒号）两档同拒。
+        // 草稿箱仅支持 GitHub owner/repo，forge 前缀 id（含冒号）两档同拒。
         let item = draft_item("codeberg:o/r", "O", "R");
         for mode in [ValidateMode::DraftLenient, ValidateMode::SubmitStrict] {
             let err =
@@ -836,7 +834,7 @@ mod tests {
     #[test]
     fn validate_rejects_non_osi_license() {
         // D1：CC-BY（非 OSI）、Unknown/NOASSERTION、闭源空 license 一律拒绝。
-        // `unknown`（#21 显式未知哨兵值）与旧 `FLOSS` 占位同按名单外拒绝。
+        // `unknown`（显式未知哨兵值）与 `FLOSS` 占位同按名单外拒绝。
         for bad in ["CC-BY-4.0", "Unknown", "unknown", "FLOSS", "NOASSERTION", "", "Proprietary"] {
             let mut item = draft_item("o/r", "o", "r");
             item.license = bad.to_string();
@@ -1100,11 +1098,6 @@ mod tests {
         assert!(validate_custom_item(&mit, ValidateMode::SubmitStrict, &strict_gate()).is_ok());
         // constants share the same value.
         assert_eq!(CUSTOM_APP_STATUS_COLLECTED, "collected");
-        assert_eq!(LOCAL_COLLECTED, CUSTOM_APP_STATUS_COLLECTED);
-        assert_eq!(
-            CUSTOM_APP_STATUS_LOCAL_COLLECTED,
-            CUSTOM_APP_STATUS_COLLECTED
-        );
     }
 
     #[test]
@@ -1206,7 +1199,7 @@ mod tests {
 
     #[test]
     fn revert_persists_draft_and_drops_from_local_library() {
-        // 回归：退回必须落盘（status=draft），重启后不再进本地库列表/overlay。
+        // 退回后 status=draft 持久化，且不进本地库列表/overlay。
         let db = Database::open_in_memory().unwrap();
         db.upsert_custom_app_payload(&draft_item("o/r", "o", "r"))
             .unwrap();
@@ -1369,7 +1362,7 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         db.upsert_custom_app_payload(&draft_item("o/l", "o", "l"))
             .unwrap();
-        db.exec_upsert(
+        db.exec_write(
             "UPDATE custom_apps SET status = 'local_collected' WHERE id = 'o/l'",
             [],
         )

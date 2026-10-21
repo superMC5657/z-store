@@ -31,7 +31,7 @@ impl Database {
         } else {
             row.checked_at
         };
-        self.exec_upsert(
+        self.exec_write(
             r#"
             INSERT INTO update_results (
                 app_id, app_name, installed_version, latest_version,
@@ -134,7 +134,7 @@ impl Database {
     /// 安装/卸载/版本变更失效：删除该应用的更新判定行（无行即空操作）。
     /// 调用方（安装/卸载/取消管理/导入）在版本写成功后 best-effort 调用，`let _ =` 吞错。
     pub fn remove_update_result(&self, app_id: &str) -> Result<bool> {
-        let rows = self.exec_upsert(
+        let rows = self.exec_write(
             "DELETE FROM update_results WHERE app_id = ?1",
             params![clean(app_id)],
         )?;

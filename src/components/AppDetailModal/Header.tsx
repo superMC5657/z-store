@@ -20,6 +20,7 @@ import { PLATFORM_META, type PlatformId } from '../../lib/platformFilter';
 import { useDetailStarVerify } from './useDetailStarVerify';
 import { IconLevelBadge, ICON_LEVEL_NAME_KEYS } from './IconLevelBadge';
 import { resolveRemoteIconUrl } from '../../services/custom/iconUrl';
+import { handleOpenExternal } from './openExternal';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -62,16 +63,16 @@ export const Header: React.FC<HeaderProps> = ({
   const [iconCycle, setIconCycle] = useState<AppIconCycleResult | null>(null);
   const [isCyclingIcon, setIsCyclingIcon] = useState(false);
   // 轮换口径就绪：首轮 restoreOrFetchIconCycle 落定前按钮不渲染（防 loading 期闪出）；
-  // 成功/失败均置 true，失败回退 category 兜底口径（按钮按 category 显隐）。
+  // 成功/失败均置 true；失败仅放行按钮就绪，收录位仍按显式 is_cataloged 判定。
   const [isIconCycleReady, setIsIconCycleReady] = useState(false);
   // 初次展示同步去重：同一 id+url 只 dispatch 一次，避免重复事件刷榜
   const iconSyncDispatchedRef = useRef<Set<string>>(new Set());
 
-  // 图标写透 patch（与 useDetailCacheSync:266 iconPatch 同效）：
+  // 图标写透 patch（与 useDetailCacheSync 的 iconPatch 同效）：
   // Header 不直持四列表 setters，显式 patch 声明与 App 侧 `subscribeIconWrites` 扇出幂等，
   // 实际四列表落定经扇出完成；此处传 patch 保证 `admitIconHit→patch→扇出` 同 tick 可观测（L2/L3/L4/L5 即默认）。
   const iconPatch = (_tid: string, _icon: string): void => {
-    // 无直写：四列表经 App 扇出 `patchAppIconList` 落定（与 266 同体同效，幂等）。
+    // 无直写：四列表经 App 扇出 `patchAppIconList` 落定（与详情同步侧 iconPatch 同体同效，幂等）。
   };
 
   useEffect(() => {
@@ -109,7 +110,7 @@ export const Header: React.FC<HeaderProps> = ({
               iconSyncDispatchedRef.current.add(dedupKey);
               // 初次展示跟随经店内唯一写口（M1 缓冲 + 文件预热；列表写透由详情同步侧持有 setters 完成，
               // 此处只做缓冲预热，不自发 IPC 预热、不走窗口总线）。
-              // data: 永不直送（persistUrl 已剥 data:，空即 L5/空不发）；patch 与 266 同体（经扇出落定）。
+              // data: 永不直送（persistUrl 已剥 data:，空即 L5/空不发）；patch 与轮换分支同体（经扇出落定）。
               admitIconHit({
                 id: app.id,
                 icon: persistUrl,
@@ -122,7 +123,7 @@ export const Header: React.FC<HeaderProps> = ({
         setIsIconCycleReady(true);
       })
       .catch(() => {
-        // 降级不崩；口径仍置就绪，失败时按钮按 category 兜底显隐
+        // 降级不崩；口径仍置就绪，收录位按显式 is_cataloged 判定。
         if (isMounted) setIsIconCycleReady(true);
       });
 
@@ -282,12 +283,6 @@ export const Header: React.FC<HeaderProps> = ({
       }),
     );
     tauriApi.openUrl(`https://${host}/${app.owner}/${app.repo}/issues/new?title=${title}&body=${body}`);
-  };
-
-  const handleOpenExternal = (e: React.MouseEvent, url: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    tauriApi.openUrl(url);
   };
 
   return (

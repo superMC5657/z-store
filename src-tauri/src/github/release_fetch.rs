@@ -13,7 +13,7 @@
 //!
 //! ADR-0007 豁免（不重开，原语义以注释 + 分支形状编码于此，勿"修复"）：
 //! Streaming Update Check（流式更新检查）永不查 Cache TTL（缓存生存时效）——
-//! 每次直探 ETag（304 零配额），"有更新"提示不受详情浏览 TTL 拖累。
+//! 每次直探 `releases/latest`，"有更新"提示不受详情浏览 TTL 拖累。
 //! 编码方式：本模块故意不设任何 TTL 参数（ETag 决议与 TTL 正交）；
 //! - consult_ttl = true 侧：`get_platforms_lite` 入口保留 `if TTL-hit → return` 快径分支，
 //!   进本模块前已先查 Cache TTL；
@@ -88,7 +88,7 @@ pub(crate) enum ShallowError {
     Parse(String),
     /// 304 时 ETag payload 腐坏（"解析本地 ETag 缓存失败: ..."）。
     /// 仅 304 抛出（lite-304 硬错现行语义）；失败路径 tolerant 跳过（lite-离线现行语义）；
-    /// 更新检查以 payload=None 重试，复现其 tolerant 跳过语义。
+    /// 更新检查恒传 payload=None，不会命中该臂。
     PayloadCorrupt(String),
     Miss(ShallowMiss),
 }
@@ -110,8 +110,8 @@ fn row_release(row: &AppDetail, touch: bool, stale: Option<bool>) -> ShallowRele
 ///
 /// - `outcome`：单次 `releases/latest` ETag GET 结果（调用方保留 log_tag：
 ///   "updates" / "platforms-lite"，诊断可 grep）。
-/// - `cached_payload`：ETag Cache（条件请求缓存）预读 payload；更新检查在失败路径
-///   传入 None（不恢复，现行语义），仅 304 时传入。
+/// - `cached_payload`：ETag Cache（条件请求缓存）预读 payload；更新检查恒传 None
+///   （直探无 ETag，不会 304）；平台 lite 在 304/失败时传入预读 payload。
 /// - `stale_row`：旧详情行回退源（无行时 None）。
 /// - `catalog_default_version`：收录库默认版本（lite 通道无此回退，传 None）。
 pub(crate) fn decide_shallow_release(

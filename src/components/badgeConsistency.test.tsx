@@ -11,7 +11,7 @@ import { InstallActions } from './AppDetailModal/InstallActions';
 import {
   isInstalled,
   selectBadgeState,
-  selectIsManagedOpt,
+  selectManagedState,
 } from '../app/selectors';
 import { makeApp } from '../views/test-utils/filterFixture';
 import type { AppDetailViewModel } from '../types';
@@ -27,7 +27,7 @@ const APP_ID = 'Acme/Atlas';
 function cardProps(installedIds: Set<string>, managedIds: Set<string> | null) {
   return {
     isInstalled: isInstalled(APP_ID, installedIds),
-    isManaged: selectIsManagedOpt(APP_ID, managedIds),
+    isManaged: selectManagedState(APP_ID, managedIds),
   };
 }
 
@@ -98,7 +98,7 @@ function renderModalStatus(
     onToggleShowAllAssets: () => {},
     isInstalled: isInstalled(APP_ID, installedIds),
     isExploreMode: false,
-    isManaged: selectIsManagedOpt(APP_ID, managedIds),
+    isManaged: selectManagedState(APP_ID, managedIds),
     isUninstallingGlobal: false,
     downloadedFile: null,
     isRevealingFolder: false,
@@ -122,7 +122,7 @@ describe('选择器归一：大小写变体一致', () => {
     const installed = new Set(['acme/atlas']);
     const managed = new Set(['acme/atlas']);
     expect(isInstalled('Acme/Atlas', installed)).toBe(true);
-    expect(selectIsManagedOpt('Acme/Atlas', managed)).toBe(true);
+    expect(selectManagedState('Acme/Atlas', managed)).toBe(true);
     expect(selectBadgeState('Acme/Atlas', installed, managed)).toBe('managed');
     expect(selectBadgeState('acme/atlas', installed, managed)).toBe('managed');
     expect(selectBadgeState('acme/atlas', new Set<string>(), new Set<string>())).toBe('none');
@@ -131,7 +131,7 @@ describe('选择器归一：大小写变体一致', () => {
   it('未知态三态为 unknown（已安装命中）/ none（未命中）', () => {
     expect(selectBadgeState('acme/atlas', new Set(['acme/atlas']), null)).toBe('unknown');
     expect(selectBadgeState('acme/atlas', new Set<string>(), null)).toBe('none');
-    expect(selectIsManagedOpt('acme/atlas', null)).toBeNull();
+    expect(selectManagedState('acme/atlas', null)).toBeNull();
   });
 });
 

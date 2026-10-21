@@ -27,7 +27,7 @@ interface UseDetailCacheSyncParams {
   setApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
   setOnlineApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
   setRecentlyViewedApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
-  setFavoriteExtraApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
+  setUncatalogedExtraApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
   setSelectedApp: React.Dispatch<React.SetStateAction<AppDetailViewModel | null>>;
   setPlatformResolvedOtherIds: React.Dispatch<React.SetStateAction<Set<string>>>;
   /** 本地收录合并行（含 source='local'/status，供详情 Header 黄标判定；不改排序/去重）。 */
@@ -57,7 +57,7 @@ export function useDetailCacheSync({
   setApps,
   setOnlineApps,
   setRecentlyViewedApps,
-  setFavoriteExtraApps,
+  setUncatalogedExtraApps,
   setSelectedApp,
   setPlatformResolvedOtherIds,
   localApps,
@@ -135,7 +135,7 @@ export function useDetailCacheSync({
   // 列表 patch 仅在目标命中且字段确变时生成新对象并返回新数组，否则原引用返回，避免无谓全网格重渲染
   const patchDetailMemoryAndLists = useCallback((idClean: string, rawDetail: AppDetail, isBackgroundSilent = false) => {
     // 详情显式收录标注经唯一入口（目录 id 集 canonical 比对，未命中即 false fail-closed），
-    // 后续缓存/选中态/治愈载荷均携带显式 is_cataloged，Header 不再按 category 兜底。
+    // 后续缓存/选中态/治愈载荷均携带显式 is_cataloged，Header 据此判定收录位。
     const detail = annotateEntry(rawDetail);
     // F1：后端占位简介不污染内存快照——先算富卡兜底，内存即存治愈值，
     // 后续 handleOpenDetail 命中缓存直接展现实简介，不再闪占位。
@@ -245,7 +245,7 @@ export function useDetailCacheSync({
           : nextDescriptionEnRaw;
       const nextHomepage = detail.homepage;
       // 详情显式收录位同步：未收录（false）恒写透（dev 猜分类行经此得显式 false，
-      // Header/卡片不再按 category 误判已收录）；已收录（true）仅纠正已有显式位，
+      // Header/卡片按显式位判定收录）；已收录（true）仅纠正已有显式位，
       // 目录行保持无标记（category 兜底仍为已收录，避免全量 churn）。
       // 本地橘黄同步：详情带 source=local 时同 id 行叠加 source/status（蓝优先：已验证不叠加）。
       const nextCataloged = (detail as unknown as { is_cataloged?: unknown }).is_cataloged;
@@ -317,14 +317,14 @@ export function useDetailCacheSync({
       setApps((prev) => patchAppIconList(prev, tid, icon));
       setOnlineApps((prev) => patchAppIconList(prev, tid, icon));
       setRecentlyViewedApps((prev) => patchAppIconList(prev, tid, icon));
-      setFavoriteExtraApps((prev) => patchAppIconList(prev, tid, icon));
+      setUncatalogedExtraApps((prev) => patchAppIconList(prev, tid, icon));
     };
     setApps(patchList);
     // 在线段与本地段上下分段展示：详情回填打内存补丁到 onlineApps（店内 `admitIconHit` 写透，不走窗口总线）
     setOnlineApps(patchList);
     setRecentlyViewedApps(patchList);
     // 收藏占位行同步治愈：`favoriteIds ∖ apps` 合成行也在详情回填口径内（标记保持不动）
-    setFavoriteExtraApps(patchList);
+    setUncatalogedExtraApps(patchList);
     // 详情已取回仍为空（非 stale）：记为已确认 other，徽标/统计/过滤一次落定
     if (detailConfirmedEmpty) {
       const keys = new Set<string>([idClean, detail.id.toLowerCase()]);
@@ -342,7 +342,7 @@ export function useDetailCacheSync({
     }
     // 详情带回真实平台（非 stale）：解除已确认 other、驱逐榜单 stale [] 缓存、
     // 并向 TrendsView 推送治愈（列表 patch 覆盖不到未收录行，此处补齐）。
-    // VoiceStudio 类 bug 的治愈路径：行内 Other → OS 图标，过滤/计数同步跟进。
+    // 平台治愈路径：行内 Other → OS 图标，过滤/计数同步跟进。
     if (detailPlatforms) {
       const healKeys = detailHealKeysFor(idClean, detail.owner, detail.repo);
       // detail.id 与 idClean 不一致时的双键兜底
@@ -456,7 +456,7 @@ export function useDetailCacheSync({
         // 取不到轮换图标则保持占位，不阻塞
       });
     }
-  }, [annotateEntry, appsRef, onlineAppsRef, recentsRef, setApps, setFavoriteExtraApps, setOnlineApps, setPlatformResolvedOtherIds, setRecentlyViewedApps, setSelectedApp]);
+  }, [annotateEntry, appsRef, onlineAppsRef, recentsRef, setApps, setUncatalogedExtraApps, setOnlineApps, setPlatformResolvedOtherIds, setRecentlyViewedApps, setSelectedApp]);
 
   // 打开应用详情弹窗（优先内存/数据库 0ms 瞬间秒开，且一个仓库生命周期内只拉取一次）
   // 经 useCallback + ref 稳定：搜索键入改 apps 时回调引用不变，memo 卡片不跟风重渲染
@@ -638,7 +638,7 @@ export function useDetailCacheSync({
 
     // 0ms 同步打开弹窗或切换刷新态，主界面无任何阻塞感
     // 初始详情同样按目录显式标注收录位（existing 派生行继承目录命中，未知占位 fail-closed false），
-    // Header 以显式位为准，不再按 category 兜底。
+    // Header 以显式位为准判定收录。
     setSelectedApp(
       annotateEntry(initialDetail),
     );

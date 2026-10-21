@@ -33,7 +33,7 @@ impl CatalogService {
     ) -> Result<DeveloperProfile, String> {
         // 无缓存上下文的入口：etag 为 None 即普通 GET。
         // 持有 DB 的调用方应使用 fetch_developer_profile_with_cache，并经
-        // db.get_etag/save_etag 持久化（与 commands/catalog.rs 的 ETag 调用模式一致）。
+        // db.get_etag/save_etag 持久化（与 commands::catalog_detail 的 ETag 调用模式一致）。
         let (profile, _, _) = self
             .fetch_developer_profile_with_cache(developer, token, (None, None), (None, None), None)
             .await?;
@@ -240,7 +240,7 @@ impl CatalogService {
             }
         }
 
-        // 截断标注（#21）：单页拉取无翻页，`public_repos` 大于实际行数即标注截断，
+        // 截断标注：单页拉取无翻页，`public_repos` 大于实际行数即标注截断，
         // 前端明示"仅展示最近更新的前 N 个"，不伪装全量（离线兜底分支 public_repos
         // 归一为 catalog 命中数，与 repos 行数一致，天然不误标）。
         let effective_public_repos = if public_repos == 0 {
@@ -381,7 +381,7 @@ mod developer_profile_tests {
 
     #[tokio::test]
     async fn test_profile_marks_repos_truncated_against_public_repos() {
-        // #21 截断标注：public_repos > 实际行数即 repos_truncated=true（单页 30 条
+        // 截断标注：public_repos > 实际行数即 repos_truncated=true（单页 30 条
         // 无翻页，前端据此明示截断）；计数一致（或 user 端点缺席归一为行数）不误标。
         let repos_body = repos_json();
         let user = |public_repos: u64| {

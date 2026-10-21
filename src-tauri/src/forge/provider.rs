@@ -93,8 +93,7 @@ pub struct ForgeReleaseInfo {
 }
 
 /// Forge provider 抽象（ADR-0006）。async 方法以 boxed future 返回（`BoxFuture`），
-/// 使 trait 对象安全：Registry 持 `Box<dyn ForgeProvider>` 唯一注册表分发，
-/// 不再按 ForgeType 三段 match 复制。
+/// 使 trait 对象安全：Registry 持 `Box<dyn ForgeProvider>` 唯一注册表分发。
 pub trait ForgeProvider: Send + Sync {
     fn forge_type(&self) -> ForgeType;
 

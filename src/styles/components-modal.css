@@ -446,29 +446,6 @@
   border-width: 1px;
 }
 
-.btn-danger {
-  background: var(--status-danger-bg);
-  color: var(--status-danger);
-  border: 1px solid rgba(239, 68, 68, 0.25);
-}
-
-.btn-danger:hover {
-  background: rgba(239, 68, 68, 0.18);
-  border-color: rgba(239, 68, 68, 0.40);
-  color: var(--status-danger);
-}
-
-.btn-danger-confirm {
-  background: rgba(239, 68, 68, 0.18) !important;
-  color: var(--status-danger) !important;
-  border: 1px solid rgba(239, 68, 68, 0.40) !important;
-}
-
-.btn-danger-confirm:hover {
-  background: rgba(239, 68, 68, 0.26) !important;
-  border-color: rgba(239, 68, 68, 0.55) !important;
-}
-
 @media (max-width: 680px) {
   .install-action-bar {
     flex-direction: column;

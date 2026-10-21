@@ -26,7 +26,7 @@ export function useDetailStarVerify(opts: {
       setIsStarred(false);
       return;
     }
-    tauriApi.isStarred(appId).then((v) => {
+    tauriApi.fetchStarredStatus(appId).then((v) => {
       if (!cancelled) setIsStarred(v);
     }).catch(() => {
       if (!cancelled) setIsStarred(false);

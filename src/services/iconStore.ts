@@ -17,7 +17,7 @@
  * `AppIcon`（展示判定，与店内 `isRemoteHttpIconUrl` 落盘门控正交，非重复）。
  * 领域词：`IconFetch`（后端 `fetch_icons_stream`）→ `icon-ready`（`zstore://icon-ready`）→
  * 本 module `admitIconHit`；`Search List Cache`（`searchListCache.ts` 纯前端内存）经 `getBufferedIcon` 回读，
- * 不另立图标规则。`boardReady`/`swrSyncedResult`/`isUpgradePending` 仍为趋势视图内部态，不进本 module。
+ * 不另立图标规则。趋势视图的加载/就绪等内部态不进本 module。
  * 合规：level 纯L + `via` 正交 + M1/M2 划分遵 ADR-0015；`normalizeId` 归一遵 ADR-0010；
  * 展示图标分层（品牌母版/桌面外壳/运行时矢量）遵 ADR-0005，本 module 只碰运行时列表图标 URL，不碰品牌资产。
  * L5 显式徽章（用户切空，`icon:'' + level:5`）为唯一允许的空覆盖：经 `admitIconHit`
@@ -287,11 +287,9 @@ const iconById = new Map<string, string>();
  */
 const iconDataCache = new Map<string, string>();
 const iconPendingPromises = new Map<string, Promise<string>>();
-/** 入队成功标记（入队成功即 `queued=true`，`data:`/非远端 m2 永不置位）。URL 与 id 别名同置。 */
-const iconPersistedKeys = new Set<string>();
 
 /**
- * 店内内存有界口径：`iconLevelById`/`iconById`/`iconDataCache`/`iconPersistedKeys` 与
+ * 店内内存有界口径：`iconLevelById`/`iconById`/`iconDataCache` 与
  * 预热态 `iconPreloadQueue`/`iconPendingAliases`/`iconPendingPromises`/
  * `iconPreloadBackoffUntil` 一律钳在 200 条。数值与榜缓存 `TRENDS_CACHE_MAX_ENTRIES`
  * 同口径——榜缓存 200 计榜单粒度、图标面 200 计应用粒度，同一长会话跨榜浏览的应用量级相当。
@@ -310,14 +308,6 @@ function trimBoundedMap<T>(map: Map<string, T>): void {
   }
 }
 
-function trimBoundedSet<T>(set: Set<T>): void {
-  while (set.size > ICON_STORE_MAX_ENTRIES) {
-    const oldest = set.values().next().value as T | undefined;
-    if (oldest === undefined) break;
-    set.delete(oldest);
-  }
-}
-
 function rememberIconLevel(key: string, level: number): void {
   iconLevelById.set(key, level);
   trimBoundedMap(iconLevelById);
@@ -333,10 +323,6 @@ function rememberIconData(key: string, dataUri: string): void {
   trimBoundedMap(iconDataCache);
 }
 
-function rememberPersistedKey(key: string): void {
-  iconPersistedKeys.add(key);
-  trimBoundedSet(iconPersistedKeys);
-}
 /** 同 tick 合并队列：`url → ids`（`queueIconFetches` 只入队，排空时按 URL 单次下载）。 */
 const iconPreloadQueue = new Map<string, Set<string>>();
 /** 在途别名扇出：`url → ids`（同 URL 共用 Promise，成功时一并写 `iconDataCache`）。 */
@@ -404,7 +390,6 @@ function invalidateIconCache(key?: string): void {
     iconPendingPromises.clear();
     iconPendingAliases.clear();
     iconPreloadQueue.clear();
-    iconPersistedKeys.clear();
     iconPreloadScheduled = false;
     return;
   }
@@ -431,7 +416,6 @@ function invalidateIconCache(key?: string): void {
     iconPendingPromises.delete(c);
     iconPendingAliases.delete(c);
     iconPreloadQueue.delete(c);
-    iconPersistedKeys.delete(c);
   }
 }
 
@@ -470,9 +454,6 @@ function queueIconFetches(items: (string | { id?: string; icon: string })[]): vo
         if (!iconDataCache.has(id)) rememberIconData(id, cached);
         const nid = normalizeId(id);
         if (nid && !iconDataCache.has(nid)) rememberIconData(nid, cached);
-        rememberPersistedKey(icon);
-        rememberPersistedKey(id);
-        if (nid) rememberPersistedKey(nid);
       }
       continue;
     }
@@ -620,8 +601,6 @@ function drainIconPreloadQueue(): void {
       if (typeof cached === 'string' && cached !== '') {
         for (const id of ids) {
           if (id && !iconDataCache.has(id)) rememberIconData(id, cached);
-          rememberPersistedKey(url);
-          if (id) rememberPersistedKey(id);
         }
       }
       continue;
@@ -658,16 +637,13 @@ function startIconFetch(url: string, ids: Set<string>): void {
   const p = getOrFetchIcon(firstId ?? undefined, url)
     .then((dataUri) => {
       rememberIconData(url, dataUri);
-      rememberPersistedKey(url);
       const aliases = iconPendingAliases.get(url) ?? aliasSet;
       for (const id of aliases) {
         if (!id) continue;
         rememberIconData(id, dataUri);
-        rememberPersistedKey(id);
         const nid = normalizeId(id);
         if (nid) {
           rememberIconData(nid, dataUri);
-          rememberPersistedKey(nid);
         }
       }
       iconPendingPromises.delete(url);
@@ -713,7 +689,6 @@ export function __getIconStoreSizesForTests(): {
   levelById: number;
   iconById: number;
   dataCache: number;
-  persistedKeys: number;
   preloadQueue: number;
   pendingAliases: number;
   pendingPromises: number;
@@ -723,7 +698,6 @@ export function __getIconStoreSizesForTests(): {
     levelById: iconLevelById.size,
     iconById: iconById.size,
     dataCache: iconDataCache.size,
-    persistedKeys: iconPersistedKeys.size,
     preloadQueue: iconPreloadQueue.size,
     pendingAliases: iconPendingAliases.size,
     pendingPromises: iconPendingPromises.size,
@@ -1013,7 +987,6 @@ export function __resetIconStoreForTests(): void {
   iconPendingPromises.clear();
   iconPendingAliases.clear();
   iconPreloadQueue.clear();
-  iconPersistedKeys.clear();
   iconPreloadBackoffUntil.clear();
   iconPreloadScheduled = false;
 }

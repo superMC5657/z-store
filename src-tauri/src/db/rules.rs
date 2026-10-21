@@ -58,7 +58,7 @@ impl Database {
             "#,
             field = field_name
         );
-        self.exec_upsert(&sql, params![clean(app_id), value, now])?;
+        self.exec_write(&sql, params![clean(app_id), value, now])?;
         Ok(())
     }
 
@@ -75,7 +75,7 @@ impl Database {
     }
 
     pub fn remove_rule(&self, app_id: &str) -> Result<bool> {
-        let rows = self.exec_upsert(
+        let rows = self.exec_write(
             "DELETE FROM update_rules WHERE app_id = ?1",
             params![clean(app_id)],
         )?;

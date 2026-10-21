@@ -1,9 +1,9 @@
 /**
  * enrich 缓存与合并契约：
- * - isEnrichCacheFresh：force→缺席→平台→确认→TTL 分支；
+ * - takeFreshEnrichEntry：force→缺席→平台→确认→TTL 分支；
  * - enrichTrendReposFresh：与 forceRefresh:true 等价；
- * - mergeEnrichPrev：空/占位回退；
- * - stripDataUriIcon：data: 单口。
+ * - fillMissingFromPrev：空/占位回退；
+ * - mergeIconSticky：data: 单口。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -11,12 +11,12 @@ import {
   clearTrendEnrichCache,
   enrichTrendRepos,
   enrichTrendReposFresh,
-  isEnrichCacheFresh,
+  takeFreshEnrichEntry,
   markTrendConfirmedOther,
-  mergeEnrichPrev,
+  fillMissingFromPrev,
   putTrendEnrichMemory,
   snapshotTrendEnrichCache,
-  stripDataUriIcon,
+  mergeIconSticky,
 } from './enrich';
 import { tauriApi } from '../api';
 import { makeEnrichedApp, makeTrendRepo } from '../../views/test-utils/trendFixture';
@@ -34,23 +34,23 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('isEnrichCacheFresh 分支', () => {
+describe('takeFreshEnrichEntry 分支', () => {
   it('force 直接不新鲜', () => {
     putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'] }),
     });
-    expect(isEnrichCacheFresh('acme/atlas', Date.now(), true)).toBe(false);
+    expect(takeFreshEnrichEntry('acme/atlas', Date.now(), true)).toBe(false);
   });
 
   it('缺席不新鲜', () => {
-    expect(isEnrichCacheFresh('acme/ghost', Date.now(), false)).toBe(false);
+    expect(takeFreshEnrichEntry('acme/ghost', Date.now(), false)).toBe(false);
   });
 
   it('具平台新鲜命中', () => {
     putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'] }),
     });
-    expect(isEnrichCacheFresh('acme/atlas', Date.now(), false)).toBe(true);
+    expect(takeFreshEnrichEntry('acme/atlas', Date.now(), false)).toBe(true);
   });
 
   it('具平台 stale 不新鲜但保留旧值供图标合并', async () => {
@@ -64,7 +64,7 @@ describe('isEnrichCacheFresh 分支', () => {
       }),
     });
     const staleNow = t0 + 13 * HOUR_MS;
-    expect(isEnrichCacheFresh('acme/atlas', staleNow, false)).toBe(false);
+    expect(takeFreshEnrichEntry('acme/atlas', staleNow, false)).toBe(false);
     // 保留：stale 后重拉空图标仍粘性合并出旧图标。
     vi.spyOn(Date, 'now').mockReturnValue(staleNow);
     vi.spyOn(tauriApi, 'enrichTrendRepos').mockImplementation(async (rs) =>
@@ -89,7 +89,7 @@ describe('isEnrichCacheFresh 分支', () => {
       }),
     });
     // elapsed<0：驱逐后重拉，旧图标已删，空回填保持空。
-    expect(isEnrichCacheFresh('acme/atlas', t0 - 1000, false)).toBe(false);
+    expect(takeFreshEnrichEntry('acme/atlas', t0 - 1000, false)).toBe(false);
     vi.spyOn(tauriApi, 'enrichTrendRepos').mockImplementation(async (rs) =>
       rs.map((r) => ({
         ...makeEnrichedApp({ id: `${r.owner}/${r.repo}`, platforms: ['windows'] }),
@@ -106,7 +106,7 @@ describe('isEnrichCacheFresh 分支', () => {
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [] }),
     });
     clearTrendConfirmedOtherCache();
-    expect(isEnrichCacheFresh('acme/atlas', Date.now(), false)).toBe(false);
+    expect(takeFreshEnrichEntry('acme/atlas', Date.now(), false)).toBe(false);
     // 已驱逐：快照无条目。
     expect(snapshotTrendEnrichCache()).not.toHaveProperty('acme/atlas');
   });
@@ -116,7 +116,7 @@ describe('isEnrichCacheFresh 分支', () => {
     putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [] }),
     });
-    expect(isEnrichCacheFresh('acme/atlas', Date.now(), false)).toBe(true);
+    expect(takeFreshEnrichEntry('acme/atlas', Date.now(), false)).toBe(true);
   });
 
   it('已确认 loading stale 到期重拉', () => {
@@ -125,7 +125,7 @@ describe('isEnrichCacheFresh 分支', () => {
     putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [] }),
     });
-    expect(isEnrichCacheFresh('acme/atlas', t0 + 13 * HOUR_MS, false)).toBe(false);
+    expect(takeFreshEnrichEntry('acme/atlas', t0 + 13 * HOUR_MS, false)).toBe(false);
   });
 });
 
@@ -170,7 +170,7 @@ describe('enrichTrendReposFresh 等价', () => {
   });
 });
 
-describe('mergeEnrichPrev 回退', () => {
+describe('fillMissingFromPrev 回退', () => {
   function prevApp() {
     return makeEnrichedApp({
       id: 'acme/atlas',
@@ -193,82 +193,82 @@ describe('mergeEnrichPrev 回退', () => {
 
   it('空名/占位名保留旧', () => {
     const prev = prevApp();
-    expect(mergeEnrichPrev(prev, { ...prevApp(), name: '' }).name).toBe('atlas-real');
-    expect(mergeEnrichPrev(prev, { ...prevApp(), name: '加载中...' }).name).toBe('atlas-real');
+    expect(fillMissingFromPrev(prev, { ...prevApp(), name: '' }).name).toBe('atlas-real');
+    expect(fillMissingFromPrev(prev, { ...prevApp(), name: '加载中...' }).name).toBe('atlas-real');
   });
 
   it('空简介/占位简介保留旧', () => {
     const prev = prevApp();
-    expect(mergeEnrichPrev(prev, { ...prevApp(), description: '' }).description).toBe('real desc');
+    expect(fillMissingFromPrev(prev, { ...prevApp(), description: '' }).description).toBe('real desc');
     expect(
-      mergeEnrichPrev(prev, { ...prevApp(), description: 'GitHub 社区开源项目' }).description,
+      fillMissingFromPrev(prev, { ...prevApp(), description: 'GitHub 社区开源项目' }).description,
     ).toBe('real desc');
     expect(
-      mergeEnrichPrev(prev, { ...prevApp(), description_en: '开源软件项目' }).description_en,
+      fillMissingFromPrev(prev, { ...prevApp(), description_en: '开源软件项目' }).description_en,
     ).toBe('real en');
   });
 
   it('license 空与 OpenSource 非 github 保留旧', () => {
     const prev = prevApp();
-    expect(mergeEnrichPrev(prev, { ...prevApp(), license: '' }).license).toBe('MIT');
+    expect(fillMissingFromPrev(prev, { ...prevApp(), license: '' }).license).toBe('MIT');
     expect(
-      mergeEnrichPrev(prev, { ...prevApp(), license: 'OpenSource', forge: 'gitee' }).license,
+      fillMissingFromPrev(prev, { ...prevApp(), license: 'OpenSource', forge: 'gitee' }).license,
     ).toBe('MIT');
     // github 下 OpenSource 视为实值透出。
     expect(
-      mergeEnrichPrev(prev, { ...prevApp(), license: 'OpenSource', forge: 'github' }).license,
+      fillMissingFromPrev(prev, { ...prevApp(), license: 'OpenSource', forge: 'github' }).license,
     ).toBe('OpenSource');
   });
 
   it('latest_version 空/占位保留旧', () => {
     const prev = prevApp();
-    expect(mergeEnrichPrev(prev, { ...prevApp(), latest_version: '' }).latest_version).toBe('v1.0.0');
-    expect(mergeEnrichPrev(prev, { ...prevApp(), latest_version: 'latest' }).latest_version).toBe(
+    expect(fillMissingFromPrev(prev, { ...prevApp(), latest_version: '' }).latest_version).toBe('v1.0.0');
+    expect(fillMissingFromPrev(prev, { ...prevApp(), latest_version: 'latest' }).latest_version).toBe(
       'v1.0.0',
     );
   });
 
   it('category 空/占位保留旧，homepage 空保留旧，平台空不覆盖实', () => {
     const prev = prevApp();
-    expect(mergeEnrichPrev(prev, { ...prevApp(), category: '' }).category).toBe('tool');
-    expect(mergeEnrichPrev(prev, { ...prevApp(), category: 'external' }).category).toBe('tool');
-    expect(mergeEnrichPrev(prev, { ...prevApp(), homepage: null }).homepage).toBe(
+    expect(fillMissingFromPrev(prev, { ...prevApp(), category: '' }).category).toBe('tool');
+    expect(fillMissingFromPrev(prev, { ...prevApp(), category: 'external' }).category).toBe('tool');
+    expect(fillMissingFromPrev(prev, { ...prevApp(), homepage: null }).homepage).toBe(
       'https://atlas.example',
     );
-    expect(mergeEnrichPrev(prev, { ...prevApp(), platforms: [] }).platforms).toEqual(['windows']);
+    expect(fillMissingFromPrev(prev, { ...prevApp(), platforms: [] }).platforms).toEqual(['windows']);
   });
 
   it('icon 空/data: 保留旧实，舊亦空则落空', () => {
     const prev = prevApp();
-    expect(mergeEnrichPrev(prev, { ...prevApp(), icon: '' }).icon).toBe('https://x/real.png');
-    expect(mergeEnrichPrev(prev, { ...prevApp(), icon: 'data:image/png;base64,xx' }).icon).toBe(
+    expect(fillMissingFromPrev(prev, { ...prevApp(), icon: '' }).icon).toBe('https://x/real.png');
+    expect(fillMissingFromPrev(prev, { ...prevApp(), icon: 'data:image/png;base64,xx' }).icon).toBe(
       'https://x/real.png',
     );
     const emptyPrev = { ...prev, icon: '' };
-    expect(mergeEnrichPrev(emptyPrev, { ...prevApp(), icon: '' }).icon).toBe('');
+    expect(fillMissingFromPrev(emptyPrev, { ...prevApp(), icon: '' }).icon).toBe('');
   });
 
   it('无 prev 原样返回', () => {
     const next = prevApp();
-    expect(mergeEnrichPrev(undefined, next)).toBe(next);
+    expect(fillMissingFromPrev(undefined, next)).toBe(next);
   });
 });
 
-describe('stripDataUriIcon 单口', () => {
+describe('mergeIconSticky 单口', () => {
   it('data: 原样透出（调用方跳过入库）', () => {
     const next = makeEnrichedApp({ id: 'acme/atlas', icon: 'data:image/png;base64,xx' });
     const prev = makeEnrichedApp({ id: 'acme/atlas', icon: 'https://x/real.png' });
-    expect(stripDataUriIcon(prev, next)).toBe(next);
-    expect(stripDataUriIcon(prev, next).icon.startsWith('data:')).toBe(true);
+    expect(mergeIconSticky(prev, next)).toBe(next);
+    expect(mergeIconSticky(prev, next).icon.startsWith('data:')).toBe(true);
   });
 
   it('空回填粘旧实，非空透出新值', () => {
     const prev = makeEnrichedApp({ id: 'acme/atlas', icon: 'https://x/real.png' });
     expect(
-      stripDataUriIcon(prev, makeEnrichedApp({ id: 'acme/atlas', icon: '' })).icon,
+      mergeIconSticky(prev, makeEnrichedApp({ id: 'acme/atlas', icon: '' })).icon,
     ).toBe('https://x/real.png');
     expect(
-      stripDataUriIcon(prev, makeEnrichedApp({ id: 'acme/atlas', icon: 'https://x/new.png' })).icon,
+      mergeIconSticky(prev, makeEnrichedApp({ id: 'acme/atlas', icon: 'https://x/new.png' })).icon,
     ).toBe('https://x/new.png');
   });
 

@@ -26,7 +26,7 @@ import {
 import { isPlatformLoading } from '../lib/platformFilter';
 import { CATEGORY_APPS_PER_PAGE, getCategoryApps } from '../services/api/catalog';
 import type { AppSummary } from '../types';
-import { isInstalled as selectIsInstalled, selectIsManagedOpt } from '../app/selectors';
+import { isInstalled as selectIsInstalled, selectManagedState } from '../app/selectors';
 
 interface CategoriesViewProps extends ViewAppActions, RequiredPlatformReset {
   platformResolvedOtherIds?: ReadonlySet<string>;
@@ -289,7 +289,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
               eager={index < 6}
               platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
               isInstalled={selectIsInstalled(app.id, installedIds)}
-              isManaged={selectIsManagedOpt(app.id, managedIds)}
+              isManaged={selectManagedState(app.id, managedIds)}
               isInstalling={installingIds?.has(app.id)}
               isFavorite={favoriteIds.has(app.id)}
               isWatched={watchedIds?.has(app.id)}

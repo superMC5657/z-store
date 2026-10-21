@@ -1,4 +1,7 @@
 import { tauriApi } from '../services/api';
+import { resolveFallbackOpener } from './fallbackOpener';
+
+export { resolveFallbackOpener };
 
 /**
  * 桌面原生化锁闭（第二轮去浏览器化）：
@@ -31,9 +34,9 @@ let isInitialized = false;
  * 劫持版 `window.open` 同步返回 null，直接调用必被拦截，所以必须在覆写前一次性捕获
  * 原生 opener 并同步到 `window.__ZSTORE_NATIVE_OPEN__`，兜底经该全局键绕过劫持直达
  * 浏览器；非劫持（未初始化/单测桩）时用当前 `window.open` 本体即可。
- * - `initBrowserLockdown` 在覆写前捕获并同步到全局键，`settings.openUrl` 经该全局键
- *   读取（避免 `settings → browserLockdown → services/api` 循环导入），`PendingView`
- *   经下方的 `resolveFallbackOpener()` 读取；
+ * - `initBrowserLockdown` 在覆写前捕获并同步到全局键；`settings.openUrl` 与 `PendingView`
+ *   的兜底均经 `utils/fallbackOpener` 的 `resolveFallbackOpener()` 读取（本文件再导出），
+ *   该叶子模块不导入 `services/`，避免 `settings → browserLockdown → services/api` 循环；
  * - Demo 的 `__ZSTORE_DEMO_NATIVE_OPEN__` 同为劫持前捕获，两键任一可用即视为原生可用。
  */
 let cachedNativeOpen: typeof window.open | null = null;
@@ -41,28 +44,6 @@ let cachedNativeOpen: typeof window.open | null = null;
 /** 读取劫持前捕获的原生 opener（未初始化时为 null）。 */
 export function getNativeWindowOpen(): typeof window.open | null {
   return cachedNativeOpen;
-}
-
-/**
- * 解析兜底 opener（Spec §5 最小集：劫持前缓存 + 兜底判 null，无生产加锁）：
- * - 有 `__ZSTORE_NATIVE_OPEN__` / `__ZSTORE_DEMO_NATIVE_OPEN__`（劫持前捕获）时优先
- *   返回它，绕过“劫持版直接调用必返回 null”；
- * - 无缓存键时（未初始化/单测桩）返回当前 `window.open` 本体，单测可桩返回值；
- * - 两者皆无时返回 null，调用方抛错保留失败感知（并发 edge 由单测锁定，不在生产加锁）。
- */
-export function resolveFallbackOpener(): typeof window.open | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const w = window as unknown as Record<string, unknown>;
-    const stored = w['__ZSTORE_NATIVE_OPEN__'] ?? w['__ZSTORE_DEMO_NATIVE_OPEN__'];
-    if (typeof stored === 'function') {
-      return (stored as typeof window.open).bind(window);
-    }
-    if (typeof window.open === 'function') return window.open.bind(window);
-    return null;
-  } catch {
-    return null;
-  }
 }
 
 const BLOCKED_CTRL_KEYS = new Set([

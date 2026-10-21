@@ -129,11 +129,11 @@ export function toDetail(s: AppSummary): AppDetail {
   };
 }
 
-export function summaryToInstalled(s: AppSummary, version?: string): InstalledApp {
+export function summaryToInstalled(s: AppSummary): InstalledApp {
   return {
     app_id: s.id,
     app_name: s.name,
-    version: version ?? s.latest_version,
+    version: s.latest_version,
     installed_at: Math.floor(Date.now() / 1000) - 30 * 24 * 3600,
     install_method: 'demo',
     install_path: `C:\\Program Files\\${s.name}`,

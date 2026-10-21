@@ -66,14 +66,14 @@ export function zlogInfo(msg: string, meta?: ZLogMeta): void {
   void info(redact(line)).catch(() => undefined);
 }
 
-export function zlogWarn(msg: string, meta?: ZLogMeta): void {
-  const line = withPrefix(msg, meta);
+export function zlogWarn(msg: string): void {
+  const line = withPrefix(msg);
   if (isDuplicate(line)) return;
   void warn(redact(line)).catch(() => undefined);
 }
 
-export function zlogError(msg: string, meta?: ZLogMeta): void {
-  const line = withPrefix(msg, meta);
+export function zlogError(msg: string): void {
+  const line = withPrefix(msg);
   if (isDuplicate(line)) return;
   void error(redact(line)).catch(() => undefined);
 }

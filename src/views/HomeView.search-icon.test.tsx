@@ -114,7 +114,7 @@ describe('icon-ready backfill', () => {
     );
     expect(accepted).toBe(true);
     expect(next[0].icon).toBe('https://cdn.simpleicons.org/r');
-    // FINAL口径：M1已有实图时空prop首绘回读缓冲，直接出img（不再是null）
+    // M1 已有实图时，空 icon prop 首绘经缓冲回读直接出 img。
     const before = render(<AppIcon icon="" name="OR" appId="o/r" />);
     expect(before.container.querySelector('img')).not.toBeNull();
     before.unmount();

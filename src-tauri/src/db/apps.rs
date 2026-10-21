@@ -26,7 +26,7 @@ impl Database {
     }
 
     pub fn save_installed_app(&self, app: &InstalledApp) -> Result<()> {
-        self.exec_upsert(
+        self.exec_write(
             r#"
             INSERT INTO installed_apps (app_id, app_name, version, installed_at, install_method, install_path, asset_name, asset_sha256, uninstall_command)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
@@ -56,7 +56,7 @@ impl Database {
     }
 
     pub fn remove_installed_app(&self, app_id: &str) -> Result<bool> {
-        let rows = self.exec_upsert(
+        let rows = self.exec_write(
             "DELETE FROM installed_apps WHERE app_id = ?1",
             params![clean(app_id)],
         )?;

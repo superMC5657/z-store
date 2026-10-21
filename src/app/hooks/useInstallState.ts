@@ -31,7 +31,7 @@ export function useInstallState({
   // 已装列表初始加载错误（null = 无错误/未加载）：与空列表区分呈现，供 InstalledView 出重试
   const [installLoadError, setInstallLoadError] = useState<string | null>(null);
   // D3 门禁：无校验资产待用户确认（null = 无待确认安装）
-  const [unverifiedInstall, setUnverifiedInstall] = useState<UnverifiedInstallPrompt | null>(null);
+  const [unverifiedInstallPrompt, setUnverifiedInstallPrompt] = useState<UnverifiedInstallPrompt | null>(null);
 
   // 安装集合经 ref 读取，回调引用在搜索、图标升级时保持稳定
   const installingRef = useRef<Set<string>>(installingAppIds);
@@ -51,7 +51,7 @@ export function useInstallState({
       if (errStr.startsWith(UNVERIFIED_ASSET_MARKER)) {
         // D3 门禁：无校验清单资产默认拒绝。挂起待确认（UI 警示弹窗），非失败态：
         // 不弹错误 toast、不 rethrow，用户确认后经 onConfirm 携 allowUnverified 重试。
-        setUnverifiedInstall({ id, assetName, customInstallDir });
+        setUnverifiedInstallPrompt({ id, assetName, customInstallDir });
         return;
       }
       if (errStr.includes('取消') || errStr.includes('中止') || errStr.includes('1602')) {
@@ -71,7 +71,7 @@ export function useInstallState({
 
   // 无校验资产警示弹窗关闭（确认/取消共用清口）
   const dismissUnverifiedInstall = useCallback(() => {
-    setUnverifiedInstall(null);
+    setUnverifiedInstallPrompt(null);
   }, []);
 
   // 快捷安装（稳定回调，供 memo 卡片复用）
@@ -179,7 +179,7 @@ export function useInstallState({
     handleUnmanageApp,
     handleRefreshInstalledApps,
     handleUninstallApp,
-    unverifiedInstall,
+    unverifiedInstallPrompt,
     dismissUnverifiedInstall,
   };
 }

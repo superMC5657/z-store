@@ -109,7 +109,7 @@ export async function enrichTrendRepos(
  */
 type SearchIconUpgradePayload = IconReadyPayload;
 
-export async function onSearchIconUpgraded(
+export async function onIconReady(
   callback: (payload: SearchIconUpgradePayload) => void,
 ): Promise<() => void> {
   if (!isTauri) return () => {};
@@ -749,9 +749,9 @@ function resolveDraftCategory(
 }
 
 /**
- * 草稿 forge 门（#35，后端 `validate_custom_item` DraftLenient 同口径）：
+ * 草稿 forge 门（后端 `validate_custom_item` DraftLenient 同口径）：
  * 暂存档仅收 GitHub owner/repo——含 `:` 的 forge 形态 id 一律拒；未知前缀先经
- * canonical 解析拒绝（对齐 #16 单出口）；摘要 `forge` 明确非 github 也拒
+ * canonical 解析拒绝（单出口）；摘要 `forge` 明确非 github 也拒
  * （builder 只取 owner/repo 拼无冒号 id，放行会把非 GitHub 仓库记成 GitHub 应用）。
  * 返回 `null`=放行，否则拒绝原因（视图 toast 直出，本地化边界不越层）。
  */

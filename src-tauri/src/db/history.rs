@@ -10,7 +10,7 @@ impl Database {
             return Ok(false);
         }
         let now = now_secs();
-        let rows = self.exec_upsert(
+        let rows = self.exec_write(
             "INSERT OR IGNORE INTO user_favorites (app_id, favorited_at, is_cataloged) VALUES (?1, ?2, ?3)",
             params![id, now, is_cataloged as i32],
         )?;
@@ -42,7 +42,7 @@ impl Database {
 
     /// 收录标记回填写点（启动/迁移用）：仅更新标记，不碰 `favorited_at`。
     pub fn set_favorite_cataloged(&self, app_id: &str, is_cataloged: bool) -> Result<()> {
-        self.exec_upsert(
+        self.exec_write(
             "UPDATE user_favorites SET is_cataloged = ?1 WHERE app_id = ?2",
             params![is_cataloged as i32, clean(app_id)],
         )?;
@@ -57,14 +57,14 @@ impl Database {
         )?;
 
         if exists {
-            self.exec_upsert(
+            self.exec_write(
                 "DELETE FROM user_favorites WHERE app_id = ?1",
                 params![id],
             )?;
             Ok(false)
         } else {
             let now = now_secs();
-            self.exec_upsert(
+            self.exec_write(
                 "INSERT INTO user_favorites (app_id, favorited_at, is_cataloged) VALUES (?1, ?2, ?3)",
                 params![id, now, is_cataloged as i32],
             )?;
@@ -80,7 +80,7 @@ impl Database {
         let now = now_secs();
         // 事务边界：插入 + prune 合并为 1 提交，失败整体回滚返回 Err。
         self.with_immediate_transaction(|| {
-            self.exec_upsert(
+            self.exec_write(
                 r#"
             INSERT INTO search_history (query, searched_at)
             VALUES (?1, ?2)
@@ -112,12 +112,12 @@ impl Database {
     }
 
     pub fn clear_search_history(&self) -> Result<()> {
-        self.exec_upsert("DELETE FROM search_history", [])?;
+        self.exec_write("DELETE FROM search_history", [])?;
         Ok(())
     }
 
     pub fn remove_search_query(&self, query: &str) -> Result<()> {
-        self.exec_upsert(
+        self.exec_write(
             "DELETE FROM search_history WHERE query = ?1",
             params![clean(query)],
         )?;
@@ -132,7 +132,7 @@ impl Database {
         let now = now_secs();
         // 事务边界：插入 + prune 合并为 1 提交，失败整体回滚返回 Err。
         self.with_immediate_transaction(|| {
-            self.exec_upsert(
+            self.exec_write(
                 r#"
             INSERT INTO view_history (app_id, viewed_at)
             VALUES (?1, ?2)
@@ -164,7 +164,7 @@ impl Database {
     }
 
     pub fn clear_view_history(&self) -> Result<()> {
-        self.exec_upsert("DELETE FROM view_history", [])?;
+        self.exec_write("DELETE FROM view_history", [])?;
         Ok(())
     }
 }

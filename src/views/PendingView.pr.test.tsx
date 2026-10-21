@@ -751,7 +751,7 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     fireEvent.click(screen.getByText('提交 Issue'));
 
     await waitFor(() => expect(openSpy).toHaveBeenCalledWith(BATCH_URL));
-    // 劫持路径已绕过：window.open 不再被调用
+    // 经 tauriApi.openUrl 打开，未调用 window.open
     expect(windowOpenSpy).not.toHaveBeenCalled();
   });
 

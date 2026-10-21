@@ -9,7 +9,7 @@ import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { act } from 'react';
 import type { AppDetailViewModel } from '../../types';
-// Header 文案经 i18n（#20 迁移）：测试断言 zh 文案前须初始化 i18n
+// Header 文案经 i18n：测试断言 zh 文案前须初始化 i18n
 import '../../i18n';
 
 const APP_ID = 'o/r';
@@ -34,7 +34,7 @@ const hooks = vi.hoisted(() => ({
     total_levels: 5,
     is_cataloged: false,
   })),
-  isStarred: vi.fn(async (_id: string) => false),
+  fetchStarredStatus: vi.fn(async (_id: string) => false),
   admitIconHit: vi.fn(),
   clearBufferedIcon: vi.fn(),
 }));
@@ -47,7 +47,7 @@ vi.mock('../../services/api', () => {
         if (prop === 'then') return undefined;
         if (prop === 'restoreOrFetchIconCycle') return (...a: unknown[]) => hooks.restoreOrFetchIconCycle(...(a as [string]));
         if (prop === 'cycleAppIcon') return (...a: unknown[]) => hooks.cycleAppIcon(...(a as [string]));
-        if (prop === 'isStarred') return (id: string) => hooks.isStarred(id);
+        if (prop === 'fetchStarredStatus') return (id: string) => hooks.fetchStarredStatus(id);
         if (prop === 'openUrl') return async () => undefined;
         if (prop.startsWith('on')) return async () => () => {};
         return async () => undefined;
@@ -168,7 +168,7 @@ describe('Header fail-closed：dev 猜分类 + iconCycle null 仍未收录可切
       category_name: '开发工具',
       is_cataloged: false,
     };
-    // 未收录徽标口径：显式 false 即未收录（dev 猜分类不再误判已收录）。
+    // 未收录徽标口径：显式 false 即未收录。
     expect(isAppCataloged(app)).toBe(false);
     render(
       <Header
@@ -180,7 +180,7 @@ describe('Header fail-closed：dev 猜分类 + iconCycle null 仍未收录可切
         onClose={() => {}}
       />,
     );
-    // MANUAL_ONLY 下 iconCycle 恒 null：显式位 false 即渲染切图按钮（旧 category 兜底会闷掉）。
+    // MANUAL_ONLY 下 iconCycle 恒 null：显式位 false 即渲染切图按钮。
     const cycleBtn = await screen.findByTitle(/下一档/);
     expect(cycleBtn.hasAttribute('disabled')).toBe(false);
     await act(async () => {

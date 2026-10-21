@@ -342,7 +342,7 @@ describe('TrendsView 未收录行入口位置', () => {
       ),
     );
     renderBoard();
-    // dev 猜分类 + 无显式标记时旧门控会闷掉；标注后 is_cataloged=false 即显示。
+    // dev 猜分类 + 无显式标记时会被门控隐藏；标注 is_cataloged=false 即显示。
     const btn = await screen.findByTestId('move-in-acme/atlas');
     expect(btn.textContent).toContain('移入收录');
   });

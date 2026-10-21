@@ -1,6 +1,6 @@
 import type { AppSummary } from '../../types';
 import { TREND_DB_PAYLOAD_MAX_BYTES, utf8ByteLength } from '../trends/cache';
-import { normalizeId, normalizeIdSet } from '../normalizeId';
+import { normalizeId } from '../normalizeId';
 
 /** 搜索列表缓存：M1 内存。key=`search|norm|page|perPage`，TTL 30min，50 条 FIFO，无 timer（提交/翻页时 sweep）。 */
 
@@ -11,7 +11,6 @@ const SEARCH_LIST_MAX_ENTRIES = 50;
 
 interface SearchListCacheEntry {
   at: number;
-  ids: string[];
   rows: AppSummary[];
 }
 
@@ -92,8 +91,7 @@ export function writeSearchListCache(key: SearchListKey, rows: AppSummary[]): vo
   }
   // 刷新写序：已存在先删再插，使其成为最新；新插入触发 FIFO 裁剪时删最旧。
   if (searchListCache.has(cacheKey)) searchListCache.delete(cacheKey);
-  const ids = normalizeIdSet(rows.map((r) => r?.id));
-  searchListCache.set(cacheKey, { at: Date.now(), ids, rows });
+  searchListCache.set(cacheKey, { at: Date.now(), rows });
   while (searchListCache.size > SEARCH_LIST_MAX_ENTRIES) {
     const oldest = searchListCache.keys().next().value as string | undefined;
     if (oldest === undefined) break;
@@ -117,10 +115,10 @@ export function clearSearchListCache(): void {
 }
 
 /**
- * 图标就绪写透搜索列表缓存行（05 翻页一致性）：
+ * 图标就绪写透搜索列表缓存行（翻页一致性）：
  * 按归一规范应用标识更新全部缓存条目中同 id 行的图标（大小写归一），
  * 使翻页回访/重搜命中即新图，不出现翻页丢图；
- * 条目 `at` 不续期（图标更新不代表数据新鲜，TTL 仍按写入时刻计）、`ids` 不变（id 集未动）。
+ * 条目 `at` 不续期（图标更新不代表数据新鲜，TTL 仍按写入时刻计）。
  * L5 显式空（`icon:''`）亦写透（用户切徽章后回访同页即徽章，不复活旧图）；
  * 未命中 id 即无操作。
  */

@@ -1,6 +1,6 @@
 /**
  * iconStore 容器有界回归：
- * `iconLevelById`/`iconById`/`iconDataCache`/`iconPersistedKeys` 与预热态
+ * `iconLevelById`/`iconById`/`iconDataCache` 与预热态
  * `iconPreloadQueue`/`iconPendingAliases`/`iconPendingPromises`/`iconPreloadBackoffUntil`
  * 均按 `ICON_STORE_MAX_ENTRIES`（200，与榜缓存 `TRENDS_CACHE_MAX_ENTRIES` 同口径）
  * 写时 FIFO 删最旧。已落盘条目被淘汰后经 `get_or_fetch_icon` 落盘缓存重读自愈。
@@ -59,7 +59,6 @@ describe('iconStore 四容器有界', () => {
     expect(sizes.iconById).toBe(ICON_STORE_MAX_ENTRIES);
     expect(sizes.levelById).toBe(ICON_STORE_MAX_ENTRIES);
     expect(sizes.dataCache).toBe(ICON_STORE_MAX_ENTRIES);
-    expect(sizes.persistedKeys).toBe(ICON_STORE_MAX_ENTRIES);
   });
 
   it('FIFO 删最旧：最早条目被淘汰，最新条目保留', async () => {

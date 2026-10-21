@@ -69,7 +69,7 @@ describe('TrendsView 本地收录黄标三分支', () => {
     window.localStorage.clear();
     mockUseTrendBoard.mockReset();
     iconsSpy = vi.spyOn(tauriApi, 'getConfirmedIconsBatch').mockResolvedValue([]);
-    subSpy = vi.spyOn(tauriApi, 'onSearchIconUpgraded').mockResolvedValue(() => {});
+    subSpy = vi.spyOn(tauriApi, 'onIconReady').mockResolvedValue(() => {});
   });
 
   afterEach(() => {

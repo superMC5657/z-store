@@ -301,7 +301,7 @@ export function useDetailReadme(opts: {
     }
   };
 
-  // 图片加载失败时降级占位，不再重试。
+  // 图片加载失败时降灰降透明度并挂 title 提示，不再重试。
   const handleReadmeImageErrorCapture = (e: React.SyntheticEvent<HTMLDivElement, Event>) => {
     const target = e.target as HTMLElement;
     if (target.tagName.toLowerCase() !== 'img') return;

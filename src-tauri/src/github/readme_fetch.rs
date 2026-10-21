@@ -303,7 +303,7 @@ async fn list_root_paths(
     }
 }
 
-/// 取单个 README 文本：`contents/{path}?ref=` + raw Accept（与 `detail.rs` 一致），
+/// 取单个 README 文本：`contents/{path}?ref=` + raw Accept（与 `detail_fetch` 一致），
 /// 失败再试 `raw.githubusercontent.com`。测试覆写 `api_base` 时跳过直连回退。
 #[allow(clippy::too_many_arguments)]
 async fn fetch_readme_text(
@@ -547,7 +547,7 @@ impl CatalogService {
             let Some(raw) = raw_opt else {
                 continue;
             };
-            // 清洗管线与 detail.rs 完全一致：先提 Logo 再重写图片。
+            // 清洗管线与 `detail_fetch` 完全一致：先提 Logo 再重写图片。
             let (_, stripped) =
                 Self::extract_and_strip_logo_from_readme(&raw, &owner, &repo);
             let markdown = Self::rewrite_readme_images(&stripped, &owner, &repo);

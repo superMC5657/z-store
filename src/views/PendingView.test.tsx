@@ -225,7 +225,7 @@ describe('PendingView 表单窄宽布局回归（只锁布局，不碰字段/校
     const { container } = render(<PendingView showBatchBar={false} initialEntries={[draftEntry({ id: 'o/a' })]} />);
     const layout = container.querySelector('.pending-layout') as HTMLElement | null;
     expect(layout).toBeTruthy();
-    // 分栏列定义收进样式表，行内不再写死双列。
+    // 分栏列定义在样式表，行内不留 grid-template-columns。
     expect(layout?.style.gridTemplateColumns).toBe('');
     // 子栏可收缩（min-width:0 经样式表 .pending-layout > * 落定）。
     const css = readPendingCss();
@@ -323,7 +323,7 @@ describe('PendingView 草稿字段可改性与锁定规则（Oracle 定稿落实
     expect(ownerInput.readOnly).toBe(true);
     expect(repoInput.readOnly).toBe(true);
 
-    // id 不再是 input，而是徽标 + 复制按钮
+    // id 以徽标 + 复制按钮呈现，非输入框
     expect(screen.queryByPlaceholderText('owner/repo')).toBeNull();
     const copyBtn = screen.getByTestId('pending-copy-id');
     expect(copyBtn).toBeTruthy();

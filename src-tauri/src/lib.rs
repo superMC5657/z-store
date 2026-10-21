@@ -12,6 +12,7 @@ pub mod models;
 pub mod oauth;
 pub mod proxy;
 pub mod scanner;
+pub mod userdata;
 pub mod z_log;
 
 pub use error::{AppError, AppResult};
@@ -640,7 +641,7 @@ pub fn run() {
             commands::get_license_allowlist,
             commands::select_folder,
             commands::get_or_fetch_icon,
-            commands::request_app_icon_cycle,
+            commands::cycle_app_icon,
             commands::restore_or_fetch_icon_cycle,
             commands::open_url,
             commands::watch_app,
@@ -652,7 +653,7 @@ pub fn run() {
             commands::oauth_logout,
             commands::star_app,
             commands::unstar_app,
-            commands::is_starred,
+            commands::fetch_starred_status,
             commands::import_user_data,
             z_log::zlog_get_dir,
             z_log::zlog_export_bundle

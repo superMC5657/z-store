@@ -23,12 +23,11 @@ import {
   ViewShell,
   resolvePlatformReset,
 } from './ViewShell';
-import type { FeedStrategy } from '../services/feed';
 import { useHomeFeed, HOME_FEED_PAGE } from './HomeView/useHomeFeed';
 import { useOnlinePullToLoadMore } from './HomeView/useOnlinePullToLoadMore';
 import { queueAssembledRowIcons, admitIconHit } from '../services/iconStore';
 import { isPlatformLoading } from '../lib/platformFilter';
-import { annotateIsCataloged, annotateOnlineCataloged, buildCatalogIdSet, isInstalled as selectIsInstalled, mergeLocalLookups, selectIsManagedOpt } from '../app/selectors';
+import { annotateIsCataloged, annotateOnlineCataloged, buildCatalogIdSet, isInstalled as selectIsInstalled, mergeLocalLookups, selectManagedState } from '../app/selectors';
 import { resolveVerifiedBadgeVariant } from '../components/VerifiedBadge';
 import { normalizeId } from '../services/normalizeId';
 import { tauriApi } from '../services/api';
@@ -48,10 +47,6 @@ interface HomeViewProps extends ViewAppActions, PlatformResetOption {
   searchQuery?: string;
   onNavigateTrends: () => void;
   onClearRecentViews?: () => void;
-  /** 推荐策略（默认 balanced），变化时 feed 从头重置。 */
-  initialStrategy?: FeedStrategy;
-  /** 确定性种子（默认 7），“换一批”即 +1，保证同 seed 同顺序。 */
-  initialSeed?: number;
   /** 搜索在线结果集标记：true 表示当前查询的在线段有结果（apps 本身永远是本地结果）。 */
   isOnlineResults?: boolean;
   /** 搜索在线段（App 已做平台过滤，保序）：搜索态渲染在本地段下方，复用同一 AppCard。 */
@@ -212,7 +207,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
     onlineActive,
     backendLoading,
     backendTotal,
-    useBackendList,
+    isBackendListActive,
     feedPoolLength,
     handleLoadMore,
     sentinelRef,
@@ -484,7 +479,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 app={app}
                 platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
                 isInstalled={selectIsInstalled(app.id, installedIds)}
-                isManaged={selectIsManagedOpt(app.id, managedIds)}
+                isManaged={selectManagedState(app.id, managedIds)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}
                 isWatched={watchedIds?.has(app.id)}
@@ -515,7 +510,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 eager
                 platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
                 isInstalled={selectIsInstalled(app.id, installedIds)}
-                isManaged={selectIsManagedOpt(app.id, managedIds)}
+                isManaged={selectManagedState(app.id, managedIds)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}
                 isWatched={watchedIds?.has(app.id)}
@@ -546,7 +541,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   app={app}
                   platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
                   isInstalled={selectIsInstalled(app.id, installedIds)}
-                  isManaged={selectIsManagedOpt(app.id, managedIds)}
+                  isManaged={selectManagedState(app.id, managedIds)}
                   isInstalling={installingIds?.has(app.id)}
                   isFavorite={favoriteIds.has(app.id)}
                   isWatched={watchedIds?.has(app.id)}
@@ -589,7 +584,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   app={app}
                   platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
                   isInstalled={selectIsInstalled(app.id, installedIds)}
-                  isManaged={selectIsManagedOpt(app.id, managedIds)}
+                  isManaged={selectManagedState(app.id, managedIds)}
                   isInstalling={installingIds?.has(app.id)}
                   isFavorite={favoriteIds.has(app.id)}
                   isWatched={watchedIds?.has(app.id)}
@@ -687,7 +682,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 app={app}
                 platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
                 isInstalled={selectIsInstalled(app.id, installedIds)}
-                isManaged={selectIsManagedOpt(app.id, managedIds)}
+                isManaged={selectManagedState(app.id, managedIds)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIds.has(app.id)}
                 isWatched={watchedIds?.has(app.id)}
@@ -733,7 +728,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
           ) : (
             dedupedDisplayedFeed.length > 0 && (
               <div data-testid="feed-end" className="feed-end">
-                {useBackendList && backendTotal !== null
+                {isBackendListActive && backendTotal !== null
                   ? t('home.feed_end_backend', `到底了 · 后端共 ${backendTotal} 个`)
                   : t('home.feed_end', `到底了 · 共 ${feedPoolLength} 个推荐`)}
               </div>

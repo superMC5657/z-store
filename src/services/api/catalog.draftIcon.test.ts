@@ -99,7 +99,7 @@ describe('iconRemote remote truth (restoreOrFetchIconCycle().remote_url)', () =>
   });
 });
 
-describe('草稿 forge 门（#35，后端 DraftLenient 同口径）', () => {
+describe('草稿 forge 门（后端 DraftLenient 同口径）', () => {
   it('GitHub 摘要放行（gate 返回 null）', () => {
     expect(draftForgeGateError(summaryWithIcon(''))).toBeNull();
   });
@@ -110,7 +110,7 @@ describe('草稿 forge 门（#35，后端 DraftLenient 同口径）', () => {
     expect(() => buildCustomDraftItemFromSummary(app as AppSummary)).toThrow(/codeberg/);
   });
 
-  it('未知前缀 id 按 canonical 解析拒绝（对齐 #16）', () => {
+  it('未知前缀 id 按 canonical 解析拒绝（单出口）', () => {
     const app = { ...summaryWithIcon(''), id: 'xyz:acme/atlas' };
     expect(draftForgeGateError(app)).toContain('无法识别的应用标识');
     expect(() => buildCustomDraftItemFromSummary(app as AppSummary)).toThrow(/无法识别/);

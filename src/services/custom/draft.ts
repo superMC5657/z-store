@@ -15,7 +15,7 @@ export interface MoveInResult {
  * 移入收录（唯一入口）：探测 remote 图标真值 → 按摘要合成草稿 payload → 落库草稿
  * → 广播 `zstore:custom-apps-changed`。提示文案由视图持有（本地化边界不越层）。
  *
- * - forge 门先行（#35，后端 DraftLenient 同口径）：非 GitHub 仓库/forge 形态 id
+ * - forge 门先行（后端 DraftLenient 同口径）：非 GitHub 仓库/forge 形态 id
  *   入口即拒（`ok=false`，不落库不广播；builder 内同门 throw 兜底，不越层到视图）；
  * - 图标只认 `restoreOrFetchIconCycle().remote_url` 的 http(s) 真值；
  *   探测失败回退摘要图标归一，绝不伪造；

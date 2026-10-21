@@ -1,9 +1,7 @@
 use crate::AppState;
 use tauri::State;
 
-#[path = "icons_cycle.rs"]
-pub mod icons_cycle;
-pub use icons_cycle::*;
+use super::icons_cycle_probe;
 
 const BASE64_ALPHABET: &[u8; 64] =
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -232,7 +230,7 @@ pub async fn download_icon_bytes(
 }
 
 /// C1 薄适配器：`get_or_fetch_icon` 只做缓存读→远端拉→单一写入路径，
-/// 探测只经深核匿名兜底（`icons_cycle::fetch_anon_probe_bytes`→`icon_fetch::probe_anon_simple`）。
+/// 探测只经深核匿名兜底（`icons_cycle_probe::fetch_anon_probe_bytes`→`icon_fetch::probe_anon_simple`）。
 /// 缝：文件名分流在 `icons_cycle_probe`
 ///（`write_icon_file` + `download_icon_bytes_direct`）；
 /// level 纯L，via 正交由上游事件表达，
@@ -276,10 +274,10 @@ pub async fn get_or_fetch_icon(
                 .as_deref()
                 .and_then(|id| db.get_icon_cycle(id).ok().flatten())
         };
-        if let Some(bytes) = icons_cycle::load_split_cached_bytes(
+        if let Some(bytes) = icons_cycle_probe::load_split_cached_bytes(
             &icons_dir,
             &db,
-            &icons_cycle::IconRef::new(url_trimmed, requested_ext),
+            &icons_cycle_probe::IconRef::new(url_trimmed, requested_ext),
             is_cataloged,
             noncatalog_cycle.as_ref(),
         ) {
@@ -293,7 +291,7 @@ pub async fn get_or_fetch_icon(
     )
     .unwrap_or_default();
 
-    let fetched_bytes = icons_cycle::download_icon_bytes_direct(&client, url_trimmed)
+    let fetched_bytes = icons_cycle_probe::download_icon_bytes_direct(&client, url_trimmed)
         .await
         .ok();
 
@@ -308,9 +306,10 @@ pub async fn get_or_fetch_icon(
             let mut probed: Option<(String, Vec<u8>)> = None;
             if let Some(c) = crate::forge::RepositoryUrlParser::parse(raw_id) {
                 if !c.owner.is_empty() && !c.repo.is_empty() {
-                    probed =
-                        icons_cycle::fetch_anon_probe_bytes(&client, raw_id, &c.owner, &c.repo)
-                            .await;
+                    probed = icons_cycle_probe::fetch_anon_probe_bytes(
+                        &client, raw_id, &c.owner, &c.repo,
+                    )
+                    .await;
                 }
             }
             match probed {
@@ -330,10 +329,10 @@ pub async fn get_or_fetch_icon(
     let db_opt = state.db().ok();
 
     if is_cataloged {
-        icons_cycle::write_icon_file(
+        icons_cycle_probe::write_icon_file(
             &icons_dir,
             db_opt.as_deref(),
-            &icons_cycle::IconRef::new(url_trimmed, requested_ext),
+            &icons_cycle_probe::IconRef::new(url_trimmed, requested_ext),
             true,
             &bytes,
         );
@@ -341,7 +340,7 @@ pub async fn get_or_fetch_icon(
         let clean_id = app_id.as_deref().map(str::trim).unwrap_or("");
         if !clean_id.is_empty() {
             if let Some(ref db) = db_opt {
-                let mut cycle = icons_cycle::load_or_new_cycle(db, clean_id);
+                let mut cycle = icons_cycle_probe::load_or_new_cycle(db, clean_id);
                 cycle.is_cataloged = false;
 
                 // 按真实来源入槽（05）：level 经详情口径判定（simpleicons→L2品牌库，
@@ -358,10 +357,10 @@ pub async fn get_or_fetch_icon(
                 );
 
                 // 单一写入（sniff 纠正 + 残留清理在内），真地址哈希命名。
-                let filename = icons_cycle::write_icon_file(
+                let filename = icons_cycle_probe::write_icon_file(
                     &icons_dir,
                     db_opt.as_deref(),
-                    &icons_cycle::IconRef::new(key_url, inferred_ext),
+                    &icons_cycle_probe::IconRef::new(key_url, inferred_ext),
                     false,
                     &bytes,
                 );
@@ -370,20 +369,20 @@ pub async fn get_or_fetch_icon(
                 let _ = db.upsert_icon_cycle(&cycle);
             } else {
                 // 无 DB（锁失败）：仍经单一路径落盘，行下次重试。
-                let _ = icons_cycle::write_icon_file(
+                let _ = icons_cycle_probe::write_icon_file(
                     &icons_dir,
                     None,
-                    &icons_cycle::IconRef::new(key_url, inferred_ext),
+                    &icons_cycle_probe::IconRef::new(key_url, inferred_ext),
                     false,
                     &bytes,
                 );
             }
         } else {
             // 匿名 id 为空：单一路径落盘（残留清理在内）。
-            let _ = icons_cycle::write_icon_file(
+            let _ = icons_cycle_probe::write_icon_file(
                 &icons_dir,
                 None,
-                &icons_cycle::IconRef::new(key_url, inferred_ext),
+                &icons_cycle_probe::IconRef::new(key_url, inferred_ext),
                 false,
                 &bytes,
             );

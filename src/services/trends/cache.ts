@@ -157,7 +157,7 @@ export const DOFORCE_SHARED_CACHE_KEY = buildDoforceCacheKey();
  * confirmedOther 为已确认 Other 键集。
  * 新鲜度复用 `cached_at` + 按榜 TTL。
  */
-interface TrendCacheEnvelopeV1 {
+interface TrendCacheEnvelope {
   v: 1;
   repos: TrendRepo[];
   enrich?: Record<string, AppSummary>;
@@ -206,7 +206,7 @@ export async function getDbTrendCache(key: string, board?: string): Promise<Tren
 
     // v === 1 信封（唯一形状）
     if (parsed && typeof parsed === 'object' && (parsed as { v?: unknown }).v === 1) {
-      const envelope = parsed as TrendCacheEnvelopeV1;
+      const envelope = parsed as TrendCacheEnvelope;
       if (!Array.isArray(envelope.repos) || envelope.repos.length === 0) {
         return undefined;
       }
@@ -319,7 +319,7 @@ export async function saveDbTrendCache(
         sanitizedEnrich[cleanKey] = stripCatalogAnnotations(summary);
       }
     }
-    const envelope: TrendCacheEnvelopeV1 = {
+    const envelope: TrendCacheEnvelope = {
       v: 1,
       repos,
       enrich: sanitizedEnrich,
@@ -333,7 +333,7 @@ export async function saveDbTrendCache(
     let payloadJson = JSON.stringify(envelope);
     if (utf8ByteLength(payloadJson) > TREND_DB_PAYLOAD_MAX_BYTES) {
       // 超限先丢 confirmed（enrich 富卡优先）
-      const slim: TrendCacheEnvelopeV1 = { v: 1, repos, enrich: sanitizedEnrich };
+      const slim: TrendCacheEnvelope = { v: 1, repos, enrich: sanitizedEnrich };
       payloadJson = JSON.stringify(slim);
       if (utf8ByteLength(payloadJson) > TREND_DB_PAYLOAD_MAX_BYTES) {
         // 富卡长文本截断：description(_en) 各截 500 字符，homepage 截 500
@@ -351,14 +351,14 @@ export async function saveDbTrendCache(
           }
           truncated[k] = c;
         }
-        payloadJson = JSON.stringify({ v: 1, repos, enrich: truncated } as TrendCacheEnvelopeV1);
+        payloadJson = JSON.stringify({ v: 1, repos, enrich: truncated } as TrendCacheEnvelope);
         if (utf8ByteLength(payloadJson) > TREND_DB_PAYLOAD_MAX_BYTES) {
           // 丢 loading 空平台条（具平台优先）
           const concrete: Record<string, AppSummary> = {};
           for (const [k, s] of Object.entries(truncated)) {
             if (Array.isArray(s.platforms) && s.platforms.length > 0) concrete[k] = s;
           }
-          payloadJson = JSON.stringify({ v: 1, repos, enrich: concrete } as TrendCacheEnvelopeV1);
+          payloadJson = JSON.stringify({ v: 1, repos, enrich: concrete } as TrendCacheEnvelope);
           if (utf8ByteLength(payloadJson) > TREND_DB_PAYLOAD_MAX_BYTES) {
             zlogWarn(`[trends] persist skipped reason=payload-too-large key=${key} bytes=${utf8ByteLength(payloadJson)}`);
             return;
@@ -438,7 +438,7 @@ const boardSaveChains = new Map<string, Promise<void>>();
 /**
  * 榜单写盘合并口（先读后写，防裸覆盖富），debounce 写透/pagehide flush/确认写透/
  * lite 持久化全走此唯一入口——按 key 串行排队，后到合并基于前一次已写快照 rebase，
- * 并发交错不再 last-write-wins 丢一侧 enrich/confirmedOther。
+ * 按 key 串行保证并发交错不丢任一侧 enrich/confirmedOther。
  * - 已确认 Other 同 key 合并：内存确认 + 旧盘确认取并集（仍属本榜），具平台键剔除；
  * - 旧盘富条目合并：具平台恒保留；loading 仅确认键保留，未确认 loading 永不回写；
  * - 合并后有富条目或有确认集即存富信封（含确认集），否则存裸数组；空榜直接返回不写盘。

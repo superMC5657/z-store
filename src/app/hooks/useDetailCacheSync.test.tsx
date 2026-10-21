@@ -1,5 +1,5 @@
 /**
- * useDetailCacheSync 回归（17/18 号竞态史工单相关的安全语义锁定）：
+ * useDetailCacheSync 回归：锁定详情首 patch / 图标写透 / 缓存治愈的竞态安全语义。
  *
  * - 0ms 内存快照命中：先展快照 + recordAppView + 后台 ETag 条件探查；
  * - 后台静默探查同值返回 prev（不触发全网格重渲染）、变值平滑覆盖；
@@ -105,7 +105,7 @@ interface Harness {
     setApps: ReturnType<typeof vi.fn>;
     setOnlineApps: ReturnType<typeof vi.fn>;
     setRecentlyViewedApps: ReturnType<typeof vi.fn>;
-    setFavoriteExtraApps: ReturnType<typeof vi.fn>;
+    setUncatalogedExtraApps: ReturnType<typeof vi.fn>;
     setSelectedApp: ReturnType<typeof vi.fn>;
     setPlatformResolvedOtherIds: ReturnType<typeof vi.fn>;
   };
@@ -119,7 +119,7 @@ function renderSync(
     setApps: vi.fn(),
     setOnlineApps: vi.fn(),
     setRecentlyViewedApps: vi.fn(),
-    setFavoriteExtraApps: vi.fn(),
+    setUncatalogedExtraApps: vi.fn(),
     setSelectedApp: vi.fn(),
     setPlatformResolvedOtherIds: vi.fn(),
   };
@@ -418,7 +418,7 @@ describe('useDetailCacheSync：图标三态', () => {
       result.current.patchDetailMemoryAndLists('acme/atlas', makeDetail({ icon: iconUrl }));
     });
 
-    for (const setter of [params.setApps, params.setOnlineApps, params.setRecentlyViewedApps, params.setFavoriteExtraApps]) {
+    for (const setter of [params.setApps, params.setOnlineApps, params.setRecentlyViewedApps, params.setUncatalogedExtraApps]) {
       const patched = applyListSetter(setter as never, apps);
       expect(patched[0].icon).toBe(iconUrl);
     }

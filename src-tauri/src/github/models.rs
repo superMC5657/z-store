@@ -132,9 +132,6 @@ impl CatalogItem {
                 source: None,
                 status: None,
             },
-            is_installed: None,
-            has_update: None,
-            installed_version: None,
         }
     }
 }

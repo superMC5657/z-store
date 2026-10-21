@@ -19,7 +19,7 @@ const hooks = vi.hoisted(() => ({
     total_levels: 5,
     is_cataloged: false,
   })),
-  isStarred: vi.fn(async (_id: string) => false),
+  fetchStarredStatus: vi.fn(async (_id: string) => false),
 }));
 
 vi.mock('../../services/api', () => {
@@ -29,7 +29,7 @@ vi.mock('../../services/api', () => {
       get(_t, prop: string) {
         if (prop === 'then') return undefined;
         if (prop === 'cycleAppIcon') return (...a: unknown[]) => hooks.cycleAppIcon(...(a as [string]));
-        if (prop === 'isStarred') return (id: string) => hooks.isStarred(id);
+        if (prop === 'fetchStarredStatus') return (id: string) => hooks.fetchStarredStatus(id);
         if (prop.startsWith('on')) return async () => () => {};
         return async () => undefined;
       },

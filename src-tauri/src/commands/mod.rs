@@ -2,6 +2,10 @@ pub mod catalog;
 pub mod forge;
 pub mod history;
 pub mod icons;
+#[path = "icons_cycle_commands.rs"]
+pub mod icons_cycle_commands;
+#[path = "icons_cycle_probe.rs"]
+pub mod icons_cycle_probe;
 pub mod installer;
 pub mod installer_download;
 pub mod installer_install;
@@ -22,6 +26,8 @@ pub use catalog::*;
 pub use forge::*;
 pub use history::*;
 pub use icons::*;
+pub use icons_cycle_commands::*;
+pub use icons_cycle_probe::*;
 pub use installer::*;
 pub use installer_download::*;
 pub use network::*;
@@ -32,7 +38,6 @@ pub use system::*;
 pub use trends_cache::*;
 pub use updates::*;
 
-pub use icons::icons_cycle;
 pub use updates::{updates_check, updates_rules};
 
 pub use crate::error::{AppError, AppResult};
@@ -40,7 +45,6 @@ pub use crate::installer::{resolve_uninstaller_command, select_best_asset, Insta
 
 use crate::AppState;
 
-// 各命令 `force_refresh: Option<bool>` 保持透传布尔语义：收敛为策略表需同步改前端 IPC 签名，非行为保持的小改，故维持现状。
 /// 入站 `app_id` 统一归一化守卫（ADR-0010）。
 /// 成功返回 canonical id；未知标识直接拒绝，调用方永不触碰 SQLite。
 pub(crate) fn require_app_id(raw: &str) -> Result<String, String> {
@@ -83,8 +87,4 @@ pub(crate) fn resolve_oauth_client_id_from_db(state: &AppState) -> String {
             .flatten()
     });
     crate::oauth::resolve_oauth_client_id(override_id.as_deref())
-}
-
-pub(crate) fn resolve_write_token(state: &AppState) -> Option<String> {
-    resolve_active_github_token(state)
 }

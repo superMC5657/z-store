@@ -1,7 +1,7 @@
 //! 图标探测原语 SSOT（与 z-store-catalog 同源逻辑）：
 //! 品牌库 Simple Icons → 翻全家 Git Trees 全库评分。
 //! 调用方找不到缓存时按此逻辑派生替代图标 URL；本模块只负责“找 URL 并验字节”，
-//! 缓存读写仍由调用方（`commands::icons` / `github::detail`）负责。
+//! 缓存读写仍由调用方（`commands::icons` / `commands::icons_cycle_probe`）负责。
 //!
 //! C1 深核分工：本文件为探针原语层（`derive_slugs`/`score_candidate`/
 //! `verify_image`+`fetch_range_head`/`probe_simple_icons`/`probe_trees`/
@@ -9,7 +9,7 @@
 //! 在 `github::icon_fetch` 深核（`probe_single_live`/`fetch_icons_stream` +
 //! `scaled_total_timeout` 纯决策）。所有探测一律经深核直调本原语（无串行 naive 探路径），
 //! 本模块永不触 DB/fs（无 `Database`/`std::fs` 引用，
-//! probe-vs-persist 缝纯侧），持久化单一路径在 `icons_cycle_probe::write_icon_file`。
+//! probe-vs-persist 缝纯侧），持久化单一路径在 `commands::icons_cycle_probe::write_icon_file`。
 //! D5/D6/D8：双池复用（调用方给 client，CDN 恒丢 token）+ `buffered(3)` 有界 +
 //! 首包验图与跳过（HEAD→Range 首 32KB→magic→300B）。
 //! level 纯L（2=L2品牌库，3=L3仓库），via=live|m2 正交（本层只产 live URL，

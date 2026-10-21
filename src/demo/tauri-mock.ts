@@ -85,7 +85,7 @@ import {
   handleGetFavorites,
   handleGetOAuthUser,
   handleGetWatchedApps,
-  handleIsStarred,
+  handleFetchStarredStatus,
   handleOAuthDevicePoll,
   handleOAuthDeviceStart,
   handleOAuthLogout,
@@ -228,7 +228,7 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleSyncCatalog();
     case 'get_or_fetch_icon':
       return handleGetOrFetchIcon(a);
-    case 'request_app_icon_cycle':
+    case 'cycle_app_icon':
     case 'restore_or_fetch_icon_cycle':
       return handleGetAppIconCycle(a, cmd);
     case 'get_readme_variants':
@@ -329,8 +329,8 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleStarApp(a);
     case 'unstar_app':
       return handleUnstarApp(a);
-    case 'is_starred':
-      return handleIsStarred(a);
+    case 'fetch_starred_status':
+      return handleFetchStarredStatus(a);
 
     default:
       warnOnce(cmd);

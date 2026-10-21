@@ -388,7 +388,7 @@ pub(crate) fn load_or_new_cycle(
 /// 匿名兜底探测唯一落点（get_or_fetch_icon 直取失败分支）：
 /// 无 token，只跑免鉴权级（Simple Icons L2），跳过 Trees 以保护匿名配额；
 /// 经 `icon_fetch::probe_anon_simple` 深核单调，命中即下载返回 `(真地址, 字节)`。
-/// 调用方落盘/入槽/选中一律以真地址为键（05 兜底按真实来源入槽），死链不占槽。
+/// 调用方落盘/入槽/选中一律以真地址为键（兜底按真实来源入槽），死链不占槽。
 /// L4 不进匿名兜底（需网络详情链专属）。
 pub(crate) async fn fetch_anon_probe_bytes(
     client: &reqwest::Client,

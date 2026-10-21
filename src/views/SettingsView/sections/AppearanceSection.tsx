@@ -25,12 +25,10 @@ interface AppearanceSectionProps {
   onSelectLanguage: (lang: 'zh-CN' | 'en-US') => void;
   onSelectUiScale: (scale: '90' | '100' | '110' | '125') => void;
   onSelectFontSize: (val: AppSettings['font_size'], label: string) => void;
+  /** 待提交分栏显示 owner/repo 坐标；缺席按显示处理。 */
   showCoords?: boolean;
+  /** 切换上述坐标显示。 */
   onToggleShowCoords?: (show: boolean) => void;
-  /** @deprecated 仅对外兼容旧名，等同 showCoords，新代码请用 showCoords */
-  showPendingCoords?: boolean;
-  /** @deprecated 仅对外兼容旧名，等同 onToggleShowCoords */
-  onToggleShowPendingCoords?: (show: boolean) => void;
 }
 
 export const AppearanceSection: React.FC<AppearanceSectionProps> = ({
@@ -46,13 +44,10 @@ export const AppearanceSection: React.FC<AppearanceSectionProps> = ({
   onSelectFontSize,
   showCoords,
   onToggleShowCoords,
-  showPendingCoords,
-  onToggleShowPendingCoords,
 }) => {
   const { t } = useTranslation();
-  // 命名收敛：统一为 showCoords；旧 props 名仅作对外兼容别名（注明）。
-  const effectiveShowCoords = showCoords ?? showPendingCoords ?? true;
-  const handleToggleShowCoords = onToggleShowCoords ?? onToggleShowPendingCoords;
+  const effectiveShowCoords = showCoords ?? true;
+  const handleToggleShowCoords = onToggleShowCoords;
 
   return (
     <div className="settings-group">

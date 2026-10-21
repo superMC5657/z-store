@@ -14,7 +14,7 @@ import { normalizeId, normalizeIdLowerSet } from '../services/normalizeId';
 import { isFavoritePlaceholderRow } from '../app/favoritesUncataloged';
 import { queueAssembledRowIcons } from '../services/iconStore';
 import { MANUAL_ONLY_NETWORK } from '../lib/manualOnly';
-import { isInstalled as selectIsInstalled, selectIsManagedOpt } from '../app/selectors';
+import { isInstalled as selectIsInstalled, selectManagedState } from '../app/selectors';
 
 interface FavoritesViewProps extends ViewAppActions {
   platformResolvedOtherIds?: ReadonlySet<string>;
@@ -201,7 +201,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 eager={index < 6}
                 platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
                 isInstalled={selectIsInstalled(app.id, installedIds)}
-                isManaged={selectIsManagedOpt(app.id, managedIds)}
+                isManaged={selectManagedState(app.id, managedIds)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={true}
                 isWatched={watchedIdsLower.has(normalizeId(app.id))}
@@ -242,7 +242,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 eager={index < 6}
                 platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
                 isInstalled={selectIsInstalled(app.id, installedIds)}
-                isManaged={selectIsManagedOpt(app.id, managedIds)}
+                isManaged={selectManagedState(app.id, managedIds)}
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIdsLower.has(normalizeId(app.id))}
                 isWatched={true}
@@ -386,7 +386,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                       eager={index < 6}
                       platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
                       isInstalled={selectIsInstalled(app.id, installedIds)}
-                      isManaged={selectIsManagedOpt(app.id, managedIds)}
+                      isManaged={selectManagedState(app.id, managedIds)}
                       isInstalling={installingIds?.has(app.id)}
                       isFavorite={favoriteIdsLower.has(normalizeId(app.id))}
                       isWatched={watchedIdsLower.has(normalizeId(app.id))}

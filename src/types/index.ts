@@ -23,9 +23,6 @@ export interface AppSummary {
   source?: 'remote' | 'local' | 'custom';
   /** 本地收录行状态（`collected` 系），仅徽标判定用；远端行缺席。 */
   status?: string;
-  is_installed?: boolean;
-  has_update?: boolean;
-  installed_version?: string;
   forge: string;
   forge_host: string;
   homepage: string | null;
@@ -279,13 +276,6 @@ export interface HostRateLimitStatus {
   message?: string;
 }
 
-export interface QuotaUpdatePayload {
-  host: string;
-  rate_limit_remaining?: number;
-  rate_limit_limit?: number;
-  rate_limit_reset?: number;
-}
-
 export type DeepLinkAction =
   | { action: 'app_detail'; payload: { app_id: string } }
   | { action: 'install_app'; payload: { app_id: string } }
@@ -393,9 +383,8 @@ export interface ImportUserDataCounts {
   settings_applied: boolean;
 }
 
-// 趋势榜单数据层契约（SSOT）。
-// `services/trends.ts` 负责抓取与排序实现，本文件只承载可序列化的类型定义，
-// UI（含 TrendsView）可从任意一侧导入：`services/trends.ts` 会原样 re-export。
+// 趋势榜单数据层契约（SSOT）：services/trends/ 负责抓取与排序实现，本文件只承载可序列化的类型定义，
+// UI 直接从 types 或具体子模块导入。
 export type TrendBoardId =
   | 'daily'
   | 'weekly'

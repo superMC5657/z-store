@@ -21,7 +21,7 @@ impl Database {
             return Ok(false);
         }
         let now = now_secs();
-        let rows = self.exec_upsert(
+        let rows = self.exec_write(
             "INSERT OR IGNORE INTO watched_apps (app_id, added_at, last_notified_version, last_notified_at, is_cataloged) VALUES (?1, ?2, NULL, NULL, ?3)",
             params![id, now, is_cataloged as i32],
         )?;
@@ -29,7 +29,7 @@ impl Database {
     }
 
     pub fn unwatch_app(&self, app_id: &str) -> Result<bool> {
-        let rows = self.exec_upsert(
+        let rows = self.exec_write(
             "DELETE FROM watched_apps WHERE app_id = ?1",
             params![clean(app_id)],
         )?;
@@ -53,7 +53,7 @@ impl Database {
 
     /// 收录标记回填写点（启动/迁移用）：仅更新标记，不碰通知基线字段。
     pub fn set_watched_cataloged(&self, app_id: &str, is_cataloged: bool) -> Result<()> {
-        self.exec_upsert(
+        self.exec_write(
             "UPDATE watched_apps SET is_cataloged = ?1 WHERE app_id = ?2",
             params![is_cataloged as i32, clean(app_id)],
         )?;
@@ -68,7 +68,7 @@ impl Database {
     }
 
     pub fn set_watch_notified(&self, app_id: &str, version: &str, at: i64) -> Result<()> {
-        self.exec_upsert(
+        self.exec_write(
             "UPDATE watched_apps SET last_notified_version = ?1, last_notified_at = ?2 WHERE app_id = ?3",
             params![version, at, clean(app_id)],
         )?;
@@ -77,7 +77,7 @@ impl Database {
 
     /// 首次建立基线（静默，不触发通知）：仅当从未记录过版本时写入当前版本。
     pub fn init_watch_baseline(&self, app_id: &str, version: &str) -> Result<()> {
-        self.exec_upsert(
+        self.exec_write(
             "UPDATE watched_apps SET last_notified_version = ?1 WHERE app_id = ?2 AND last_notified_version IS NULL",
             params![version, clean(app_id)],
         )?;
@@ -92,12 +92,12 @@ impl Database {
                 return Ok(());
             }
             let now = now_secs();
-            self.exec_upsert(
+            self.exec_write(
                 "INSERT OR REPLACE INTO user_stars (owner, repo, starred_at) VALUES (?1, ?2, ?3)",
                 params![o, r, now],
             )?;
         } else {
-            self.exec_upsert(
+            self.exec_write(
                 "DELETE FROM user_stars WHERE owner = ?1 AND repo = ?2",
                 params![o, r],
             )?;

@@ -41,7 +41,7 @@ export function useCustomApps() {
     };
   }, [reloadCustomApps]);
 
-  const pendingEntries = useMemo(() => customApps ?? undefined, [customApps]);
+  const customAppEntries = useMemo(() => customApps ?? undefined, [customApps]);
   const pendingCount = useMemo(
     () => customApps?.filter((e) => !e.archived).length ?? 0,
     [customApps],
@@ -89,7 +89,7 @@ export function useCustomApps() {
 
   return {
     customApps,
-    pendingEntries,
+    customAppEntries,
     pendingCount,
     localLibrarySummaries,
     handleSaveCustomApp,

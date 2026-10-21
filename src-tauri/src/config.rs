@@ -914,7 +914,7 @@ mod tests {
 
     #[test]
     fn serde_field_defaults_match_embedded_baseline() {
-        // 单一事实源锁（工单 12）：serde 逐字段默认函数与嵌入 config.toml 字面量
+        // 单一事实源锁：serde 逐字段默认函数与嵌入 config.toml 字面量
         // 逐项相等——外部文件缺字段时落的是与嵌入兜底同源的值，不存在第二套默认值。
         // `strict_errors` 例外：按构建类型回退（cfg!(debug_assertions)）是文档化语义，
         // 与文件字面量刻意不同源。
@@ -972,7 +972,7 @@ mod tests {
 
     #[test]
     fn external_config_candidates_are_absolute_and_cwd_independent() {
-        // 候选全为绝对路径（工单 12）：不同工作目录解析到同一份配置。
+        // 候选全为绝对路径：不同工作目录解析到同一份配置。
         let candidates = external_config_candidates();
         assert!(!candidates.is_empty());
         for path in candidates {

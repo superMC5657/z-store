@@ -7,7 +7,6 @@ import type {
   OAuthDeviceStartResult,
   OAuthPollResult,
   OAuthUser,
-  QuotaUpdatePayload,
   StarAppResult,
   StarredSyncResult,
   WatchedAppEntry,
@@ -46,15 +45,6 @@ export async function setHostToken(host: string, token: string): Promise<void> {
 
 export async function removeHostToken(host: string): Promise<void> {
   return tauriInvoke<void>(CMD.removeHostToken, { host });
-}
-
-export async function onQuotaUpdated(
-  callback: (payload: QuotaUpdatePayload) => void,
-): Promise<() => void> {
-  if (!isTauri) return () => {};
-  return listen<QuotaUpdatePayload>('zstore://quota-updated', (e) => {
-    callback(e.payload);
-  });
 }
 
 export async function refreshHostRateLimit(host?: string): Promise<HostRateLimitRefresh> {
@@ -154,9 +144,9 @@ export async function unstarApp(appId: string): Promise<boolean> {
   return tauriInvoke<boolean>(CMD.unstarApp, { appId });
 }
 
-export async function isStarred(appId: string): Promise<boolean> {
+export async function fetchStarredStatus(appId: string): Promise<boolean> {
   try {
-    return await tauriInvoke<boolean>(CMD.isStarred, { appId });
+    return await tauriInvoke<boolean>(CMD.fetchStarredStatus, { appId });
   } catch {
     return false;
   }

@@ -109,7 +109,7 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
   const errorKind: TrendsErrorKind | undefined =
     trendResult?.status === 'error' ? (trendResult.errorKind ?? 'unavailable') : undefined;
 
-  // 读写同源：抓取所用的 opts 即缓存键所用的 opts（与 boards.ts:204/214/240 同源）。
+  // 读写同源：抓取所用的 opts 即缓存键所用的 opts（与 boards 读路径同源）。
   // 当前仅含 proxyPrefix（builders 忽略该字段，仅 language/category 参与键）；后续若接入
   // language/category 筛选，此处一并透传即可保证 L1/L2 读写同 key。
   const trendFetchOpts: FetchTrendsOptions = useMemo(

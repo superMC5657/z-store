@@ -303,7 +303,7 @@ describe('时间榜主源：trending HTML 一榜一 URL', () => {
     expect(parseCompactNumber('n/a')).toBeUndefined();
   });
 
-  it('经 Rust 命令抓取，不再使用 WebView raw fetch', async () => {
+  it('经 Rust 命令抓取（不直发 WebView fetch）', async () => {
     trendingHtml = trendingHtmlFixture();
     doforceItems = doforceFixture();
     await fetchTrendsResult('daily');

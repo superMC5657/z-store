@@ -941,7 +941,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
     }
   };
 
-  /** 二期批量候选：仅已收录未归档（collected 系；draft 先收录进本地，已提交/已归档不再进批）。 */
+  /** 批量提交候选：仅已收录未归档（collected 系；draft 先收录进本地，已提交/已归档不进批）。 */
   const batchCandidates = useMemo(
     () => entries.filter((e) => !e.archived && isPendingCollectedStatus(e.status)),
     [entries],

@@ -43,12 +43,6 @@ pub struct AppCore {
 pub struct AppSummary {
     #[serde(flatten)]
     pub core: AppCore,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_installed: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub has_update: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub installed_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -131,9 +125,6 @@ mod app_core_tests {
         };
         let summary = AppSummary {
             core: detail.core.clone(),
-            is_installed: Some(true),
-            has_update: None,
-            installed_version: None,
         };
 
         let sv: serde_json::Value = serde_json::to_value(&summary).unwrap();
@@ -142,7 +133,7 @@ mod app_core_tests {
         assert!(dv.get("core").is_none(), "AppDetail 序列化出现 core 包装键");
         assert_eq!(sv["id"], "o/r");
         assert_eq!(sv["status"], "collected");
-        assert_eq!(sv["is_installed"], true);
+        assert_eq!(sv["is_cataloged"], true);
         assert_eq!(dv["changelog"], "c");
 
         // 平面载荷（无 core 键、缺 Option 字段）经同一反序列化入口原样可读。
@@ -154,7 +145,7 @@ mod app_core_tests {
         .unwrap();
         assert_eq!(legacy_summary.core.id, "o/r");
         assert_eq!(legacy_summary.core.is_cataloged, None);
-        assert_eq!(legacy_summary.is_installed, None);
+        assert_eq!(legacy_summary.core.source, None);
         let legacy_detail: AppDetail = serde_json::from_str(
             r#"{"id":"o/r","name":"n","owner":"o","repo":"r","icon":"i","icon_bg":"g",
                 "description":"d","stars":1,"forks":2,"license":"MIT","latest_version":"v1",
@@ -295,7 +286,7 @@ pub struct DeveloperProfile {
     pub followers: u64,
     pub following: u64,
     pub repos: Vec<DeveloperRepoItem>,
-    /// 列表截断标记（#21）：仓库列表单次拉取 `DEVELOPER_REPOS_PAGE_SIZE` 条无翻页，
+    /// 列表截断标记：仓库列表单次拉取 `DEVELOPER_REPOS_PAGE_SIZE` 条无翻页，
     /// `public_repos` 大于实际返回行数即 `true`——前端据此标注截断，不伪装全量。
     #[serde(default)]
     pub repos_truncated: bool,

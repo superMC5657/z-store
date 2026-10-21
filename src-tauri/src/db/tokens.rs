@@ -30,7 +30,7 @@ impl Database {
 
     pub fn set_host_token(&self, host: &str, token: &str) -> Result<()> {
         let now = now_secs();
-        self.exec_upsert(
+        self.exec_write(
             r#"
             INSERT INTO host_tokens (host, token, rate_limit_remaining, rate_limit_limit, rate_limit_reset, updated_at)
             VALUES (?1, ?2, NULL, NULL, NULL, ?3)
@@ -44,7 +44,7 @@ impl Database {
     }
 
     pub fn remove_host_token(&self, host: &str) -> Result<bool> {
-        let rows = self.exec_upsert(
+        let rows = self.exec_write(
             "DELETE FROM host_tokens WHERE host = ?1",
             params![clean(host).to_lowercase()],
         )?;
@@ -59,7 +59,7 @@ impl Database {
         reset: Option<i64>,
     ) -> Result<()> {
         let now = now_secs();
-        self.exec_upsert(
+        self.exec_write(
             r#"
             INSERT INTO host_tokens (host, token, rate_limit_remaining, rate_limit_limit, rate_limit_reset, updated_at)
             VALUES (?1, '', ?2, ?3, ?4, ?5)
