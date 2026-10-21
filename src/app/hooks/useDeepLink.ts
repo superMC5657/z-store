@@ -12,6 +12,13 @@ interface UseDeepLinkParams {
   t: TFunction;
 }
 
+/** 全局深链分发器类型（window 挂载点唯一声明处，挂载/卸载见 useDeepLink effect）。 */
+declare global {
+  interface Window {
+    dispatchZStoreDeepLink?: (rawUrl: string) => void;
+  }
+}
+
 export function useDeepLink({
   handleOpenDetail,
   handleSearchChange,
@@ -51,7 +58,7 @@ export function useDeepLink({
   };
 
   useEffect(() => {
-    (window as any).dispatchZStoreDeepLink = handleDispatchDeepLink;
+    window.dispatchZStoreDeepLink = handleDispatchDeepLink;
 
     // 检查 CLI 参数是否带有唤起协议 (如外部双击链接拉起新进程)
     tauriApi.getCliDeepLink().then((cliLink) => {
@@ -61,7 +68,7 @@ export function useDeepLink({
     }).catch(() => {});
 
     return () => {
-      delete (window as any).dispatchZStoreDeepLink;
+      delete window.dispatchZStoreDeepLink;
     };
   }, [handleDispatchDeepLink]);
 

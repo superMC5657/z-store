@@ -3,14 +3,15 @@ import { useTranslation } from 'react-i18next';
 import { RefreshCw, Check, Shield } from 'lucide-react';
 import { SegmentedControl } from '../../../components/SegmentedControl';
 import { ClientUpdateRow } from '../../../components/ClientUpdateRow';
+import type { AppSettings } from '../../../types';
 
 interface UpdatesRulesSectionProps {
-  updateFrequency: string;
+  updateFrequency: AppSettings['update_frequency'];
   watchNotifyFrequency: string;
   updateRulesCount: number;
   highlightRow: string | null;
   activeNotice: { key: string; text: string } | null;
-  onSelectUpdateFrequency: (freq: string, label: string) => void;
+  onSelectUpdateFrequency: (freq: AppSettings['update_frequency'], label: string) => void;
   onSelectWatchFrequency: (freq: 'startup' | 'daily', label: string) => void;
   onOpenRules: () => void;
 }

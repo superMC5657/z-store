@@ -27,6 +27,20 @@ function hasConcretePlatforms(platforms: unknown): boolean {
   return Array.isArray(platforms) && platforms.length > 0;
 }
 
+/**
+ * wire 松散字段读取收口（本模块唯一 cast 点）：富卡 diff/merge 需按字段名循环
+ * 访问 AppSummary 字段，且 wire 载荷可偏离声明（`is_stale` 未声明、stars 等可能
+ * 为脏类型），统一 cast 成 unknown 后由调用方按值判定（richStr/Number/===）。
+ */
+function readLoose(obj: object, key: string): unknown {
+  return (obj as Record<string, unknown>)[key];
+}
+
+/** 松散字段写入收口（merge prev 回填专用）：值均取自同类摘要同名字段，循环键受限。 */
+function writeLoose(obj: object, key: string, value: unknown): void {
+  (obj as Record<string, unknown>)[key] = value;
+}
+
 const trendConfirmedOtherCache = new Map<string, number>();
 
 function putTrendConfirmedOtherEntry(key: string, timestamp: number): void {
@@ -224,7 +238,7 @@ function putTrendEnrichCache(key: string, entry: { timestamp: number; data: AppS
   const k = normalizeId(key);
   if (!k) return;
   // is_stale 透出：stale 条目永不进内存（调用方可据 TrendsResult.stale 区分真零与失败空）。
-  if ((entry.data as unknown as { is_stale?: unknown }).is_stale === true) return;
+  if (readLoose(entry.data, 'is_stale') === true) return;
   const incomingConcrete = hasConcretePlatforms(entry.data.platforms);
   const cur = trendEnrichCache.get(k);
   if (cur && hasConcretePlatforms(cur.data.platforms) && !incomingConcrete) return;
@@ -290,7 +304,7 @@ export function putTrendEnrichMemory(
   const now = Date.now();
   for (const [rawKey, summary] of entries) {
     if (!summary || typeof summary !== 'object') continue;
-    if ((summary as unknown as { is_stale?: unknown }).is_stale === true) continue;
+    if (readLoose(summary, 'is_stale') === true) continue;
     if (typeof summary.id !== 'string' || summary.id.trim() === '') continue;
     if (typeof summary.owner !== 'string' || summary.owner.trim() === '') continue;
     if (typeof summary.repo !== 'string' || summary.repo.trim() === '') continue;
@@ -329,7 +343,7 @@ export function snapshotTrendEnrichCache(repos?: TrendRepo[]): Record<string, Ap
       const idHit = idKey ? trendEnrichCache.get(idKey) : undefined;
       const hit = coordHit ?? idHit;
       if (!hit) continue;
-      if ((hit.data as unknown as { is_stale?: unknown }).is_stale === true) continue;
+      if (readLoose(hit.data, 'is_stale') === true) continue;
       const storedKey = coordHit ? coordKey : idKey;
       const elapsed = now - hit.timestamp;
       if (elapsed < 0 || elapsed >= TREND_ENRICH_CACHE_TTL_MS) continue;
@@ -348,7 +362,7 @@ export function snapshotTrendEnrichCache(repos?: TrendRepo[]): Record<string, Ap
   for (const [key, hit] of trendEnrichCache.entries()) {
     const elapsed = now - hit.timestamp;
     if (elapsed < 0 || elapsed >= TREND_ENRICH_CACHE_TTL_MS) continue;
-    if ((hit.data as unknown as { is_stale?: unknown }).is_stale === true) continue;
+    if (readLoose(hit.data, 'is_stale') === true) continue;
     if (!hasConcretePlatforms(hit.data.platforms) && !confirmed.has(key)) continue;
     if (typeof hit.data.icon === 'string' && hit.data.icon.startsWith('data:')) continue;
     out[key] = hit.data;
@@ -645,13 +659,13 @@ export function diffRichSummary(prev: AppSummary, next: AppSummary): string[] {
   }
   // description / description_en：detail 非空优先，占位文案视为空（不脏）
   for (const f of ['description', 'description_en'] as const) {
-    const a = richStr((prev as unknown as Record<string, unknown>)[f]);
-    const b = richStr((next as unknown as Record<string, unknown>)[f]);
+    const a = richStr(readLoose(prev, f));
+    const b = richStr(readLoose(next, f));
     if (b !== '' && !isPlaceholderDescription(b) && a !== b) dirty.push(f);
   }
   // stars / forks：Number 比对，减少亦脏
   for (const f of ['stars', 'forks'] as const) {
-    if (Number((prev as unknown as Record<string, unknown>)[f]) !== Number((next as unknown as Record<string, unknown>)[f])) {
+    if (Number(readLoose(prev, f)) !== Number(readLoose(next, f))) {
       dirty.push(f);
     }
   }
@@ -666,8 +680,8 @@ export function diffRichSummary(prev: AppSummary, next: AppSummary): string[] {
   }
   // latest_version：原样比对，'latest'/'...' 占位不脏
   {
-    const a = prev.latest_version as unknown;
-    const b = next.latest_version as unknown;
+    const a = readLoose(prev, 'latest_version');
+    const b = readLoose(next, 'latest_version');
     if (a !== b && !RICH_VERSION_PLACEHOLDERS.has(b as string)) dirty.push('latest_version');
   }
   // category：占位名单不覆盖实
@@ -680,8 +694,8 @@ export function diffRichSummary(prev: AppSummary, next: AppSummary): string[] {
   }
   // 其余 string 系 trim 比对，空不覆盖实
   for (const f of ['category_name', 'forge', 'forge_host', 'owner', 'repo'] as const) {
-    const a = richStr((prev as unknown as Record<string, unknown>)[f]);
-    const b = richStr((next as unknown as Record<string, unknown>)[f]);
+    const a = richStr(readLoose(prev, f));
+    const b = richStr(readLoose(next, f));
     if (b !== '' && a !== b) dirty.push(f);
   }
   // is_verified：布尔全量
@@ -764,9 +778,9 @@ export function mergeEnrichPrev(
   // 空/占位不覆盖实
   if (richStr(merged.name) === '' || richStr(merged.name) === '加载中...') merged.name = prev.name;
   for (const f of ['description', 'description_en'] as const) {
-    const bv = richStr((merged as unknown as Record<string, unknown>)[f]);
+    const bv = richStr(readLoose(merged, f));
     if (bv === '' || isPlaceholderDescription(bv)) {
-      (merged as unknown as Record<string, unknown>)[f] = (prev as unknown as Record<string, unknown>)[f];
+      writeLoose(merged, f, readLoose(prev, f));
     }
   }
   if (richStr(merged.license) === '') {
@@ -796,8 +810,8 @@ export function mergeEnrichPrev(
     }
   }
   for (const f of ['category_name', 'forge', 'forge_host', 'owner', 'repo'] as const) {
-    if (richStr((merged as unknown as Record<string, unknown>)[f]) === '') {
-      (merged as unknown as Record<string, unknown>)[f] = (prev as unknown as Record<string, unknown>)[f];
+    if (richStr(readLoose(merged, f)) === '') {
+      writeLoose(merged, f, readLoose(prev, f));
     }
   }
   if (

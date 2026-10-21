@@ -12,18 +12,19 @@ import {
   EyeOff,
 } from 'lucide-react';
 import { SegmentedControl } from '../../../components/SegmentedControl';
+import type { AppSettings } from '../../../types';
 
 interface AppearanceSectionProps {
   currentTheme: 'light' | 'dark' | 'system';
   language: string;
   uiScale: string;
-  fontSize: string;
+  fontSize: AppSettings['font_size'];
   highlightRow: string | null;
   activeNotice: { key: string; text: string } | null;
   onSelectTheme: (theme: 'light' | 'dark' | 'system') => void;
   onSelectLanguage: (lang: 'zh-CN' | 'en-US') => void;
   onSelectUiScale: (scale: '90' | '100' | '110' | '125') => void;
-  onSelectFontSize: (val: string, label: string) => void;
+  onSelectFontSize: (val: AppSettings['font_size'], label: string) => void;
   showCoords?: boolean;
   onToggleShowCoords?: (show: boolean) => void;
   /** @deprecated 仅对外兼容旧名，等同 showCoords，新代码请用 showCoords */

@@ -203,15 +203,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     onUpdateSetting('ui_scale', scale);
   };
 
-  const handleSelectFontSize = (id: string, label: string) => {
+  const handleSelectFontSize = (id: AppSettings['font_size'], label: string) => {
     triggerChangeFeedback('font_size', label);
-    onUpdateSetting('font_size', id as any);
+    onUpdateSetting('font_size', id);
   };
 
 
-  const handleSelectUpdateFrequency = (id: string, label: string) => {
+  const handleSelectUpdateFrequency = (id: AppSettings['update_frequency'], label: string) => {
     triggerChangeFeedback('update_frequency', label);
-    onUpdateSetting('update_frequency', id as any);
+    onUpdateSetting('update_frequency', id);
   };
 
   // FR-6.2: 关注更新的应用内提醒频率（每次启动 / 每天），经 user_settings 持久化
