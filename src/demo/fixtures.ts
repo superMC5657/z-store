@@ -6,6 +6,7 @@ import type {
   UpdateItem,
 } from '../types';
 import catalogRaw from '../../catalog.json';
+import { DEFAULT_ICON_BG } from '../styles/tokens';
 
 interface CatalogRaw {
   id: string;
@@ -240,7 +241,7 @@ function demoTrendingSince(url: string): DemoTrendSince {
 
 function demoFallbackGradient(cat: string): string {
   if (cat === 'ai') return 'linear-gradient(135deg, #7c3aed, #4c1d95)';
-  return 'linear-gradient(135deg, #475569, #334155)';
+  return DEFAULT_ICON_BG;
 }
 
 export function demoExternalFallback(t: DemoExternalTrend): AppSummary {

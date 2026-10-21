@@ -333,7 +333,7 @@ pub async fn search_apps_online(
                         owner: coord.owner,
                         repo: coord.repo,
                         icon,
-                        icon_bg: "linear-gradient(135deg, #475569, #334155)".to_string(),
+                        icon_bg: crate::github::http::DEFAULT_ICON_BG.to_string(),
                         description: repo_info
                             .description
                             .unwrap_or_else(|| "跨平台开源项目".to_string()),

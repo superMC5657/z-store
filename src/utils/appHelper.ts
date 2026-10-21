@@ -1,5 +1,6 @@
 import type { TFunction } from 'i18next';
 import { AppSummary, InstalledApp } from '../types';
+import { DEFAULT_ICON_BG } from '../styles/tokens';
 
 interface IconInfo {
   icon: string;
@@ -20,7 +21,7 @@ export function resolveAppIconInfo(
 
   return {
     icon: iconOverride || catalogApp?.icon || '📦',
-    iconBg: iconBgOverride || catalogApp?.icon_bg || 'linear-gradient(135deg, #475569, #334155)',
+    iconBg: iconBgOverride || catalogApp?.icon_bg || DEFAULT_ICON_BG,
   };
 }
 

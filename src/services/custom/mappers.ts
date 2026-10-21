@@ -5,6 +5,7 @@
  * `is_verified` 的写入约束、`stars/forks` 的缺省都只在这里发生。
  */
 import type { AppSummary } from '../../types';
+import { DEFAULT_ICON_BG } from '../../styles/tokens';
 import { isCollectedStatus } from './status';
 import type {
   DraftEntry,
@@ -13,8 +14,6 @@ import type {
   DraftItemWire,
   DraftStatus,
 } from './types';
-
-const DEFAULT_ICON_BG = 'linear-gradient(135deg, #475569, #334155)';
 
 /** 线格式状态 → 领域状态（`local_collected` 与 `collected` 同义，判定走唯一口径 isCollectedStatus）。 */
 export function draftStatusFromWire(status: string): DraftStatus {

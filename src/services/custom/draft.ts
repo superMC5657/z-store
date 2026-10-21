@@ -1,6 +1,7 @@
 import type { AppSummary } from '../../types';
 import { tauriApi } from '../api';
 import { buildCustomDraftItemFromSummary, draftForgeGateError, type CustomCatalogItem } from '../api/catalog';
+import { resolveRemoteIconUrl } from './iconUrl';
 
 /** 移入收录结果：成功时带回落库草稿（含 canonical id），失败带回原因供视图本地化提示。 */
 export interface MoveInResult {
@@ -28,8 +29,8 @@ export async function moveInToDraft(app: AppSummary): Promise<MoveInResult> {
   let iconRemote: string | undefined;
   // 探测失败回退摘要图标归一（`catch` 已吞掉拒绝），绝不伪造 remote 真值。
   const cycle = await tauriApi.restoreOrFetchIconCycle(app.id).catch(() => null);
-  const remote = typeof cycle?.remote_url === 'string' ? cycle.remote_url.trim() : '';
-  if (/^https?:\/\//i.test(remote)) iconRemote = remote;
+  const remote = resolveRemoteIconUrl(cycle);
+  if (remote !== '') iconRemote = remote;
   const draft = buildCustomDraftItemFromSummary(app, iconRemote);
   try {
     await tauriApi.saveCustomApp(draft);

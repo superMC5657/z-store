@@ -9,6 +9,7 @@ import { isRemoteIcon } from '../components/AppIcon';
 import { normalizeId } from '../services/normalizeId';
 import { isCatalogedFailClosed } from '../utils/appHelper';
 import { annotateLocalSource, buildCatalogIdSet } from './selectors';
+import { DEFAULT_ICON_BG } from '../styles/tokens';
 
 /**
  * 收藏未收录行 left-join 合成（数据层唯一口径，展示层只读标记）。
@@ -74,7 +75,7 @@ export function makeFavoritePlaceholderSummary(favId: string, isCataloged = fals
       owner,
       repo,
       icon: '',
-      icon_bg: 'linear-gradient(135deg, #475569, #334155)',
+      icon_bg: DEFAULT_ICON_BG,
       description: '',
       stars: 0,
       forks: 0,

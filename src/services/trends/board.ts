@@ -74,6 +74,7 @@ import {
   type SeqGuard,
 } from '../../lib/platformFilter';
 import { zlogInfo, zlogWarn } from '../../lib/z-log';
+import { DEFAULT_ICON_BG } from '../../styles/tokens';
 import {
   ASSEMBLED_ROW_ICON_QUEUE_CAP,
   admitIconHit,
@@ -759,7 +760,7 @@ function synthesizeSettleSummary(repo: TrendRepo): AppSummary | null {
     owner: repo.owner,
     repo: repo.repo,
     icon: '',
-    icon_bg: 'linear-gradient(135deg, #475569, #334155)',
+    icon_bg: DEFAULT_ICON_BG,
     description: repo.description ?? '',
     stars: typeof repo.stars === 'number' ? repo.stars : 0,
     forks: typeof repo.forks === 'number' ? repo.forks : 0,
@@ -1019,7 +1020,7 @@ function synthesizeHealRow(summary: AppSummary, platforms: readonly string[] | u
         ? ''
         : restSummary.description_en,
     icon: '',
-    icon_bg: 'linear-gradient(135deg, #475569, #334155)',
+    icon_bg: DEFAULT_ICON_BG,
     platforms: platforms && platforms.length > 0 ? [...platforms] : [],
   };
 }

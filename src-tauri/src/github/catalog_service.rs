@@ -574,7 +574,7 @@ impl CatalogService {
                     repo: coord.repo,
                     description: "GitHub 社区开源项目".to_string(),
                     icon: String::new(),
-                    icon_bg: "linear-gradient(135deg, #475569, #334155)".to_string(),
+                    icon_bg: crate::github::http::DEFAULT_ICON_BG.to_string(),
                 })
             } else {
                 Err(format!("未识别的仓库坐标: {}", id))

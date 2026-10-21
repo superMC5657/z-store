@@ -237,6 +237,11 @@ pub(crate) struct CategoryMeta {
     pub gradient: &'static str,
 }
 
+/// 应用缺省底色渐变（图标占位/未收录兜底的唯一来源）：
+/// 与前端 styles token `DEFAULT_ICON_BG`（`src/styles/tokens.ts`）同值互指；
+/// 新代码一律引用本常量，禁止手写字面渐变。
+pub(crate) const DEFAULT_ICON_BG: &str = "linear-gradient(135deg, #475569, #334155)";
+
 /// 移植 catalog guessCategory 关键词表（system/network/media/security/dev/graphics/office/reading/ops/games）。
 /// 依据 description（含中文与英文）及 GitHub topics 标签推断最贴切的分类。
 pub(crate) fn guess_category(
@@ -268,7 +273,7 @@ pub(crate) fn guess_category(
         return CategoryMeta {
             key: "system",
             name: "系统实用",
-            gradient: "linear-gradient(135deg, #475569, #334155)",
+            gradient: DEFAULT_ICON_BG,
         };
     }
     if text.contains("network")

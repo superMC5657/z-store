@@ -19,6 +19,7 @@ import { PlatformIcon, ForgeIcon } from '../icons/PlatformIcons';
 import { PLATFORM_META, type PlatformId } from '../../lib/platformFilter';
 import { useDetailStarVerify } from './useDetailStarVerify';
 import { IconLevelBadge, ICON_LEVEL_NAME_KEYS } from './IconLevelBadge';
+import { resolveRemoteIconUrl } from '../../services/custom/iconUrl';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -97,7 +98,7 @@ export const Header: React.FC<HeaderProps> = ({
           // 落盘一律用 remote_url（后端 snake_case 规范字段）；
           // data: 永不进盘，内存态短暂用 data: 由 AppIcon iconOverride 直显，榜单跟随用 persistUrl。
           // isCataloged 不阻止；L5/fallback 空（persistUrl ''）不 dispatch，避免把实图标清掉。
-          const remote = typeof data.remote_url === 'string' ? data.remote_url.trim() : '';
+          const remote = resolveRemoteIconUrl(data);
           const fallbackUrl = typeof data.url === 'string' ? data.url.trim() : '';
           const persistUrl =
             remote !== '' ? remote : (!fallbackUrl.startsWith('data:') ? fallbackUrl : '');

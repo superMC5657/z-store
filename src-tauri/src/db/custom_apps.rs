@@ -689,7 +689,7 @@ mod tests {
             owner: owner.to_string(),
             repo: repo.to_string(),
             icon: String::new(),
-            icon_bg: "linear-gradient(135deg, #475569, #334155)".to_string(),
+            icon_bg: crate::github::http::DEFAULT_ICON_BG.to_string(),
             description: "本地自维护草稿".to_string(),
             description_en: None,
             category: "dev".to_string(),

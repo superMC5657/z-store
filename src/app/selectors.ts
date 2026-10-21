@@ -15,6 +15,7 @@ import {
 } from '../lib/platformFilter';
 import { normalizeId } from '../services/normalizeId';
 import { isCollectedStatus } from '../services/custom/status';
+import { DEFAULT_ICON_BG } from '../styles/tokens';
 // loading 语义唯一深模块为 `lib/platformFilter`：本选择器直接消费 lib，
 // 对外仅保留 LOADING_SETTLE_MS/isEnrichedRowLoading/unionConfirmedSets 三件重导出。
 export {
@@ -276,7 +277,7 @@ function customItemToSummary(item: {
     owner: str(item.owner),
     repo: str(item.repo),
     icon: str(item.icon),
-    icon_bg: str(item.icon_bg, 'linear-gradient(135deg, #475569, #334155)'),
+    icon_bg: str(item.icon_bg, DEFAULT_ICON_BG),
     description: str(item.description),
     stars: num(item.stars),
     forks: num(item.forks),

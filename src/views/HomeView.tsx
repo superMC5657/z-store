@@ -33,6 +33,7 @@ import { resolveVerifiedBadgeVariant } from '../components/VerifiedBadge';
 import { normalizeId } from '../services/normalizeId';
 import { tauriApi } from '../services/api';
 import { moveInToDraft } from '../services/custom/draft';
+import { resolveRemoteIconUrl } from '../services/custom/iconUrl';
 import { notifyToast } from '../utils/notify';
 export { HOME_FEED_PAGE };
 
@@ -278,7 +279,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
       void (async () => {
         try {
           const cycle = await tauriApi.restoreOrFetchIconCycle(row.id);
-          const remote = typeof cycle?.remote_url === 'string' ? cycle.remote_url.trim() : '';
+          const remote = resolveRemoteIconUrl(cycle);
           const fallback = typeof cycle?.url === 'string' ? cycle.url.trim() : '';
           const persistUrl =
             remote !== '' ? remote : !fallback.startsWith('data:') && fallback !== '' ? fallback : '';

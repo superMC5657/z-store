@@ -3,6 +3,8 @@ import type { AppDetail, AppDetailViewModel, AppSummary } from '../../types';
 import { tauriApi } from '../../services/api';
 import { admitIconHit, getBufferedIcon, patchAppIconList } from '../../services/iconStore';
 import { annotateIsCataloged, buildCatalogIdSet } from '../selectors';
+import { DEFAULT_ICON_BG } from '../../styles/tokens';
+import { resolveRemoteIconUrl } from '../../services/custom/iconUrl';
 import {
   DETAIL_PLATFORMS_HEAL_EVENT,
   DETAIL_RICHCARD_HEAL_EVENT,
@@ -436,9 +438,7 @@ export function useDetailCacheSync({
       void tauriApi.restoreOrFetchIconCycle(idClean).then((cycle) => {
         // 双落盘口径：url=data: 即时态（IPC临时、永不进盘），remote_url=可持久化 URL；
         // 落盘/回填一律用 persistUrl（remote优先，url非data:才兜底，否则空即 L5/空不发）。
-        const remote = typeof cycle?.remote_url === 'string'
-          ? String(cycle?.remote_url).trim()
-          : '';
+        const remote = resolveRemoteIconUrl(cycle);
         const fallbackUrl = typeof cycle?.url === 'string' ? cycle.url.trim() : '';
         const persistUrl = remote !== '' ? remote : (!fallbackUrl.startsWith('data:') ? fallbackUrl : '');
         if(!persistUrl){
@@ -615,7 +615,7 @@ export function useDetailCacheSync({
           owner: '加载中...',
           repo: id,
           icon: '📦',
-          icon_bg: 'linear-gradient(135deg, #475569, #334155)',
+          icon_bg: DEFAULT_ICON_BG,
           description: enrichInitialDesc ?? '正在获取应用元数据...',
           description_en: enrichInitialDescEn,
           stars: 0,

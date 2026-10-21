@@ -22,6 +22,7 @@ import {
 } from '../api';
 import { isTauri, tauriInvoke } from './client';
 import { canonicalAppId } from '../normalizeId';
+import { DEFAULT_ICON_BG } from '../../styles/tokens';
 
 export async function searchApps(query: string, limit?: number, offset?: number): Promise<AppSummary[]> {
   const args: Record<string, unknown> = { query };
@@ -819,7 +820,7 @@ export function buildCustomDraftItemFromSummary(app: AppSummary, iconRemote?: un
     icon_bg:
       typeof app.icon_bg === 'string' && app.icon_bg
         ? app.icon_bg
-        : 'linear-gradient(135deg, #475569, #334155)',
+        : DEFAULT_ICON_BG,
     description,
     description_en: descriptionEn,
     category,
@@ -881,7 +882,7 @@ export function buildCustomDraftItemFromTrendRepo(repo: {
     owner,
     repo: repoName,
     icon: '',
-    icon_bg: 'linear-gradient(135deg, #475569, #334155)',
+    icon_bg: DEFAULT_ICON_BG,
     description,
     description_en: null,
     category,

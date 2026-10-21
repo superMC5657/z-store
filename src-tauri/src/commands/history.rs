@@ -481,7 +481,7 @@ mod recent_uncataloged_tests {
                 owner: "oh-my-pi".to_string(),
                 repo: "oh-my-pi".to_string(),
                 icon: icon.to_string(),
-                icon_bg: "linear-gradient(135deg, #475569, #334155)".to_string(),
+                icon_bg: crate::github::http::DEFAULT_ICON_BG.to_string(),
                 description: "树莓派工具".to_string(),
                 stars: 123,
                 forks: 45,

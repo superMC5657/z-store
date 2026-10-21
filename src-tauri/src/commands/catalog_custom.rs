@@ -877,7 +877,7 @@ mod tests {
     fn full_entry(id: &str) -> CustomAppEntry {
         let mut e = entry(id);
         e.item.icon = "https://example.com/icon.png".to_string();
-        e.item.icon_bg = "linear-gradient(135deg, #475569, #334155)".to_string();
+        e.item.icon_bg = crate::github::http::DEFAULT_ICON_BG.to_string();
         e.item.stars = 42;
         e.item.forks = 7;
         e.item.aliases = vec!["demo".to_string(), "o/r".to_string()];
