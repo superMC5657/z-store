@@ -273,6 +273,48 @@ const iconDataCache = new Map<string, string>();
 const iconPendingPromises = new Map<string, Promise<string>>();
 /** 入队成功标记（入队成功即 `queued=true`，`data:`/非远端 m2 永不置位）。URL 与 id 别名同置。 */
 const iconPersistedKeys = new Set<string>();
+
+/**
+ * 图标四容器（`iconLevelById`/`iconById`/`iconDataCache`/`iconPersistedKeys`）统一内存上限：
+ * 与榜缓存 `TRENDS_CACHE_MAX_ENTRIES`（内存 200 有界）同口径——榜缓存 200 计榜单粒度、
+ * 图标面 200 计应用粒度，同一长会话跨榜浏览的应用量级相当。`iconDataCache` 淘汰的
+ * 已落盘条目按 M2 语义经 `get_or_fetch_icon` 重读自愈（落盘命中不走网络），与榜缓存
+ * L1 淘汰回落 L2 落盘同型。写时 FIFO 删最旧（`writeTrendsCache` 同型；图标无刷新写序
+ * 需求，已存在覆盖写不重排）。
+ */
+export const ICON_STORE_MAX_ENTRIES = 200;
+
+function trimBoundedMap<T>(map: Map<string, T>): void {
+  while (map.size > ICON_STORE_MAX_ENTRIES) {
+    const oldest = map.keys().next().value as string | undefined;
+    if (oldest === undefined) break;
+    map.delete(oldest);
+  }
+}
+
+function rememberIconLevel(key: string, level: number): void {
+  iconLevelById.set(key, level);
+  trimBoundedMap(iconLevelById);
+}
+
+function rememberBufferedIcon(key: string, icon: string): void {
+  iconById.set(key, icon);
+  trimBoundedMap(iconById);
+}
+
+function rememberIconData(key: string, dataUri: string): void {
+  iconDataCache.set(key, dataUri);
+  trimBoundedMap(iconDataCache);
+}
+
+function rememberPersistedKey(key: string): void {
+  iconPersistedKeys.add(key);
+  while (iconPersistedKeys.size > ICON_STORE_MAX_ENTRIES) {
+    const oldest = iconPersistedKeys.values().next().value as string | undefined;
+    if (oldest === undefined) break;
+    iconPersistedKeys.delete(oldest);
+  }
+}
 /** 同 tick 合并队列：`url → ids`（`queueIconFetches` 只入队，排空时按 URL 单次下载）。 */
 const iconPreloadQueue = new Map<string, Set<string>>();
 /** 在途别名扇出：`url → ids`（同 URL 共用 Promise，成功时一并写 `iconDataCache`）。 */
@@ -402,12 +444,12 @@ function queueIconFetches(items: (string | { id?: string; icon: string })[]): vo
     const cached = iconDataCache.get(icon);
     if (typeof cached === 'string' && cached !== '') {
       if (typeof id === 'string' && id !== '') {
-        if (!iconDataCache.has(id)) iconDataCache.set(id, cached);
+        if (!iconDataCache.has(id)) rememberIconData(id, cached);
         const nid = normalizeId(id);
-        if (nid && !iconDataCache.has(nid)) iconDataCache.set(nid, cached);
-        iconPersistedKeys.add(icon);
-        iconPersistedKeys.add(id);
-        if (nid) iconPersistedKeys.add(nid);
+        if (nid && !iconDataCache.has(nid)) rememberIconData(nid, cached);
+        rememberPersistedKey(icon);
+        rememberPersistedKey(id);
+        if (nid) rememberPersistedKey(nid);
       }
       continue;
     }
@@ -552,9 +594,9 @@ function drainIconPreloadQueue(): void {
       const cached = iconDataCache.get(url);
       if (typeof cached === 'string' && cached !== '') {
         for (const id of ids) {
-          if (id && !iconDataCache.has(id)) iconDataCache.set(id, cached);
-          iconPersistedKeys.add(url);
-          if (id) iconPersistedKeys.add(id);
+          if (id && !iconDataCache.has(id)) rememberIconData(id, cached);
+          rememberPersistedKey(url);
+          if (id) rememberPersistedKey(id);
         }
       }
       continue;
@@ -588,17 +630,17 @@ function startIconFetch(url: string, ids: Set<string>): void {
   }
   const p = getOrFetchIcon(firstId ?? undefined, url)
     .then((dataUri) => {
-      iconDataCache.set(url, dataUri);
-      iconPersistedKeys.add(url);
+      rememberIconData(url, dataUri);
+      rememberPersistedKey(url);
       const aliases = iconPendingAliases.get(url) ?? aliasSet;
       for (const id of aliases) {
         if (!id) continue;
-        iconDataCache.set(id, dataUri);
-        iconPersistedKeys.add(id);
+        rememberIconData(id, dataUri);
+        rememberPersistedKey(id);
         const nid = normalizeId(id);
         if (nid) {
-          iconDataCache.set(nid, dataUri);
-          iconPersistedKeys.add(nid);
+          rememberIconData(nid, dataUri);
+          rememberPersistedKey(nid);
         }
       }
       iconPendingPromises.delete(url);
@@ -630,11 +672,26 @@ export function __getIconPreloadQueueSizeForTests(): number {
   return iconPreloadQueue.size + iconPendingPromises.size;
 }
 
-/** 仅供测试：模拟落盘写 `iconDataCache`（`queueAssembledRowIcons` 让位断言用）。 */
+/** 仅供测试：模拟落盘写 `iconDataCache`（`queueAssembledRowIcons` 让位断言用；经有界写口）。 */
 export function __setIconDataCacheForTests(key: string, dataUri: string): void {
   if (typeof key !== 'string' || key === '') return;
   if (typeof dataUri !== 'string' || dataUri === '') return;
-  iconDataCache.set(key, dataUri);
+  rememberIconData(key, dataUri);
+}
+
+/** 仅供测试：四容器现存量（有界断言用）。 */
+export function __getIconStoreSizesForTests(): {
+  levelById: number;
+  iconById: number;
+  dataCache: number;
+  persistedKeys: number;
+} {
+  return {
+    levelById: iconLevelById.size,
+    iconById: iconById.size,
+    dataCache: iconDataCache.size,
+    persistedKeys: iconPersistedKeys.size,
+  };
 }
 
 /**
@@ -822,7 +879,7 @@ function admitMemoryOnlyHit(
     } catch {
       // 缓存失效失败不阻塞内存写透
     }
-    iconById.set(t, icon);
+    rememberBufferedIcon(t, icon);
   }
   patchTargets(targets, icon, patch);
   notifyIconWrites(targets, icon, pureLevel);
@@ -850,7 +907,7 @@ function admitRemoteHit(
     return { accepted: false, targets, icon, level: pureLevel, reason: 'non-remote-dropped' };
   }
   if (nextLevel !== undefined && via !== 'm2') {
-    for (const t of targets) iconLevelById.set(t, nextLevel);
+    for (const t of targets) rememberIconLevel(t, nextLevel);
   }
   invalidateTargets(targets);
   try {
@@ -859,7 +916,7 @@ function admitRemoteHit(
     // 预热失败不阻塞列表写透（AppIcon 侧按 URL 直显兜底）
   }
   patchTargets(targets, persistUrl, patch);
-  for (const t of targets) iconById.set(t, persistUrl);
+  for (const t of targets) rememberBufferedIcon(t, persistUrl);
   notifyIconWrites(targets, persistUrl, pureLevel);
   return { accepted: true, targets, icon: persistUrl, level: pureLevel, queued: true };
 }
