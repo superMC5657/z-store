@@ -21,7 +21,7 @@ interface NetworkDataSectionProps {
     text: string;
     badge: string;
   } | null;
-  proxySavedFeedback: string | null;
+  proxyFeedback: string | null;
   highlightRow: string | null;
   activeNotice: { key: string; text: string } | null;
   handleTestProxy: () => void;
@@ -45,7 +45,7 @@ export const NetworkDataSection: React.FC<NetworkDataSectionProps> = ({
   setProxyInput,
   isTestingProxy,
   proxyTestResult,
-  proxySavedFeedback,
+  proxyFeedback,
   highlightRow,
   activeNotice,
   handleTestProxy,
@@ -95,9 +95,9 @@ export const NetworkDataSection: React.FC<NetworkDataSectionProps> = ({
                 <span>{proxyTestResult.text}</span>
               </span>
             )}
-            {proxySavedFeedback && (
+            {proxyFeedback && (
               <span style={{ fontSize: 'var(--font-sm)', color: '#10b981', fontWeight: 500 }}>
-                {proxySavedFeedback}
+                {proxyFeedback}
               </span>
             )}
             {activeNotice?.key === 'proxy' && (

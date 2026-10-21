@@ -1,7 +1,7 @@
 /**
  * 待收录页草稿表单卡（新建/编辑）：顶部标题栏 + 四个表单段子组件（D 坐标 / A 核心 /
- * B 补充 / C 运行时）+ 固定页脚。从 PendingView 拆出的表单段子组件，
- * 各段内部再按表单段拆分，行为与拆分前逐行同口径。
+ * B 补充 / C 运行时）+ 固定页脚。各段只接收自身用到的 props 并各自声明类型，
+ * 字段缺失在编译期暴露。
  */
 import React from 'react';
 import { useTranslation } from 'react-i18next';
@@ -29,6 +29,7 @@ import {
   type PendingDraftItem,
 } from './draftModel';
 import { errorStyle, hintStyle, labelStyle } from './pendingStyles';
+import { errorText } from './pendingText';
 
 interface PendingDraftFormProps {
   form: PendingDraftItem;
@@ -72,17 +73,144 @@ interface PendingDraftFormProps {
   onDuplicate: () => void;
 }
 
+/** 各段只取自身用到的字段，拼错的字段名/漏传在编译期暴露。 */
+type FormHeaderProps = Pick<
+  PendingDraftFormProps,
+  'isCreating' | 'editing' | 'showCoords' | 'onToggleCoords'
+>;
+type CoordsSectionProps = Pick<
+  PendingDraftFormProps,
+  | 'form'
+  | 'onField'
+  | 'onFieldBlur'
+  | 'onIdBlur'
+  | 'onCopyId'
+  | 'formErrors'
+  | 'isCreating'
+  | 'isArchived'
+  | 'expectedId'
+  | 'currentId'
+  | 'onDuplicate'
+>;
+type CoreSectionProps = Pick<
+  PendingDraftFormProps,
+  'form' | 'onField' | 'onFieldBlur' | 'formErrors' | 'isArchived'
+>;
+type SupplementalSectionProps = Pick<
+  PendingDraftFormProps,
+  | 'form'
+  | 'onField'
+  | 'onTextField'
+  | 'onFieldBlur'
+  | 'aliasesText'
+  | 'openSections'
+  | 'onToggleSection'
+  | 'isArchived'
+>;
+type RuntimeSectionProps = Pick<
+  PendingDraftFormProps,
+  | 'onTextField'
+  | 'onFieldBlur'
+  | 'platformsText'
+  | 'identifiersText'
+  | 'openSections'
+  | 'onToggleSection'
+  | 'isArchived'
+>;
+type FormFooterProps = Pick<
+  PendingDraftFormProps,
+  | 'isCreating'
+  | 'isArchived'
+  | 'editing'
+  | 'confirmDeleteId'
+  | 'onDelete'
+  | 'collectingId'
+  | 'onCollectLocal'
+  | 'hasSubmitErrors'
+  | 'hasLicenseSubmitError'
+  | 'revertingId'
+  | 'confirmRevertId'
+  | 'onRevertToDraft'
+  | 'submittingId'
+  | 'onSubmitPr'
+  | 'prUrlInput'
+  | 'onPrUrlInput'
+  | 'onMarkSubmitted'
+  | 'onSave'
+>;
+
 export const PendingDraftForm: React.FC<PendingDraftFormProps> = (props) => {
   const { isCreating, showCoords } = props;
 
   return (
     <div className="app-card pending-editor-card">
-      <FormHeader {...props} />
-      {(isCreating || showCoords) && <CoordsSection {...props} />}
-      <CoreSection {...props} />
-      <SupplementalSection {...props} />
-      <RuntimeSection {...props} />
-      <FormFooter {...props} />
+      <FormHeader
+        isCreating={props.isCreating}
+        editing={props.editing}
+        showCoords={props.showCoords}
+        onToggleCoords={props.onToggleCoords}
+      />
+      {(isCreating || showCoords) && (
+        <CoordsSection
+          form={props.form}
+          onField={props.onField}
+          onFieldBlur={props.onFieldBlur}
+          onIdBlur={props.onIdBlur}
+          onCopyId={props.onCopyId}
+          formErrors={props.formErrors}
+          isCreating={props.isCreating}
+          isArchived={props.isArchived}
+          expectedId={props.expectedId}
+          currentId={props.currentId}
+          onDuplicate={props.onDuplicate}
+        />
+      )}
+      <CoreSection
+        form={props.form}
+        onField={props.onField}
+        onFieldBlur={props.onFieldBlur}
+        formErrors={props.formErrors}
+        isArchived={props.isArchived}
+      />
+      <SupplementalSection
+        form={props.form}
+        onField={props.onField}
+        onTextField={props.onTextField}
+        onFieldBlur={props.onFieldBlur}
+        aliasesText={props.aliasesText}
+        openSections={props.openSections}
+        onToggleSection={props.onToggleSection}
+        isArchived={props.isArchived}
+      />
+      <RuntimeSection
+        onTextField={props.onTextField}
+        onFieldBlur={props.onFieldBlur}
+        platformsText={props.platformsText}
+        identifiersText={props.identifiersText}
+        openSections={props.openSections}
+        onToggleSection={props.onToggleSection}
+        isArchived={props.isArchived}
+      />
+      <FormFooter
+        isCreating={props.isCreating}
+        isArchived={props.isArchived}
+        editing={props.editing}
+        confirmDeleteId={props.confirmDeleteId}
+        onDelete={props.onDelete}
+        collectingId={props.collectingId}
+        onCollectLocal={props.onCollectLocal}
+        hasSubmitErrors={props.hasSubmitErrors}
+        hasLicenseSubmitError={props.hasLicenseSubmitError}
+        revertingId={props.revertingId}
+        confirmRevertId={props.confirmRevertId}
+        onRevertToDraft={props.onRevertToDraft}
+        submittingId={props.submittingId}
+        onSubmitPr={props.onSubmitPr}
+        prUrlInput={props.prUrlInput}
+        onPrUrlInput={props.onPrUrlInput}
+        onMarkSubmitted={props.onMarkSubmitted}
+        onSave={props.onSave}
+      />
     </div>
   );
 };
@@ -90,7 +218,7 @@ export const PendingDraftForm: React.FC<PendingDraftFormProps> = (props) => {
 /** 顶部标题栏：新建/编辑标题 + 分组徽标 + 坐标显隐开关。 */
 function FormHeader({
   isCreating, editing, showCoords, onToggleCoords,
-}: PendingDraftFormProps) {
+}: FormHeaderProps) {
   const { t } = useTranslation();
   return (
     <div className="pending-editor-header">
@@ -150,9 +278,8 @@ function FormHeader({
 function CoordsSection({
   form, onField, onFieldBlur, onIdBlur, onCopyId, formErrors, isCreating,
   isArchived, expectedId, currentId, onDuplicate,
-}: PendingDraftFormProps) {
+}: CoordsSectionProps) {
   const { t } = useTranslation();
-  const errorText = (code: string): string => t(`pending.errors.${code}`, code);
   return (
     <>
       <div className="pending-section-header pending-section-header-static">
@@ -175,7 +302,7 @@ function CoordsSection({
         />
         {formErrors.owner && (
           <em data-testid="pending-error-owner" style={errorStyle}>
-            {errorText(formErrors.owner)}
+            {errorText(t, formErrors.owner)}
           </em>
         )}
       </label>
@@ -193,7 +320,7 @@ function CoordsSection({
         />
         {formErrors.repo && (
           <em data-testid="pending-error-repo" style={errorStyle}>
-            {errorText(formErrors.repo)}
+            {errorText(t, formErrors.repo)}
           </em>
         )}
       </label>
@@ -251,7 +378,7 @@ function CoordsSection({
         )}
         {formErrors.id && (
           <em data-testid="pending-error-id" style={errorStyle}>
-            {errorText(formErrors.id)}
+            {errorText(t, formErrors.id)}
           </em>
         )}
       </div>
@@ -262,9 +389,8 @@ function CoordsSection({
 /** 分节 A：核心信息（核心必填，恒定展开，不可隐藏）。 */
 function CoreSection({
   form, onField, onFieldBlur, formErrors, isArchived,
-}: PendingDraftFormProps) {
+}: CoreSectionProps) {
   const { t } = useTranslation();
-  const errorText = (code: string): string => t(`pending.errors.${code}`, code);
   return (
     <>
       <div className="pending-section-header pending-section-header-static">
@@ -287,7 +413,7 @@ function CoreSection({
         />
         {formErrors.name && (
           <em data-testid="pending-error-name" style={errorStyle}>
-            {errorText(formErrors.name)}
+            {errorText(t, formErrors.name)}
           </em>
         )}
       </label>
@@ -305,7 +431,7 @@ function CoreSection({
         />
         {formErrors.description && (
           <em data-testid="pending-error-description" style={errorStyle}>
-            {errorText(formErrors.description)}
+            {errorText(t, formErrors.description)}
           </em>
         )}
       </label>
@@ -323,7 +449,7 @@ function CoreSection({
         />
         {formErrors.category && (
           <em data-testid="pending-error-category" style={errorStyle}>
-            {errorText(formErrors.category)}
+            {errorText(t, formErrors.category)}
           </em>
         )}
       </label>
@@ -342,7 +468,7 @@ function CoreSection({
         />
         {formErrors.license && (
           <em data-testid="pending-error-license" style={errorStyle}>
-            {errorText(formErrors.license)}
+            {errorText(t, formErrors.license)}
           </em>
         )}
       </label>
@@ -361,7 +487,7 @@ function CoreSection({
         />
         {formErrors.homepage && (
           <em data-testid="pending-error-homepage" style={errorStyle}>
-            {errorText(formErrors.homepage)}
+            {errorText(t, formErrors.homepage)}
           </em>
         )}
       </label>
@@ -385,7 +511,7 @@ function CoreSection({
 /** 分节 B：补充信息（可选补充，默认展开，允许折叠）。 */
 function SupplementalSection({
   form, onField, onTextField, onFieldBlur, aliasesText, openSections, onToggleSection, isArchived,
-}: PendingDraftFormProps) {
+}: SupplementalSectionProps) {
   const { t } = useTranslation();
   return (
     <>
@@ -470,7 +596,7 @@ function SupplementalSection({
 /** 分节 C：高级运行时（默认折叠，允许展开）。 */
 function RuntimeSection({
   onTextField, onFieldBlur, platformsText, identifiersText, openSections, onToggleSection, isArchived,
-}: PendingDraftFormProps) {
+}: RuntimeSectionProps) {
   const { t } = useTranslation();
   return (
     <>
@@ -536,7 +662,7 @@ function FormFooter({
   onCollectLocal, hasSubmitErrors, hasLicenseSubmitError, revertingId,
   confirmRevertId, onRevertToDraft, submittingId, onSubmitPr, prUrlInput,
   onPrUrlInput, onMarkSubmitted, onSave,
-}: PendingDraftFormProps) {
+}: FormFooterProps) {
   const { t } = useTranslation();
   return (
     <div className="pending-editor-footer">

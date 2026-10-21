@@ -3,8 +3,7 @@
  *
  * - 后端全形态 canonical（`owner/repo` / `forge[:host]:owner/repo` 解析）唯一源在
  *   `src-tauri/src/forge/coord.rs`（`RepositoryUrlParser` / `canonical_app_id` /
- *   `canonical_lookup_id`）；前端经本模块解析镜像对齐（#35：纯 trim+lowercase
- *   不解析前缀，与后端 canonical 深度分叉致 enrich/比对键 merge miss，已收口）。
+ *   `canonical_lookup_id`）；前端经本模块解析镜像对齐，前后端键同值（ADR-0010）。
  *   语义同后端 `canonical_lookup_id`（total）：可解析直取 canonical，不可解析
  *   回退 `trim().toLowerCase()`（不断路由；门禁类拒绝语义另见 `canonicalAppId`）。
  *   前端同步键路径无法逐键 await Rust，镜像与后端解析分支一一对应，对齐锁值在
@@ -32,10 +31,18 @@ const FORGE_DEFAULT_HOSTS: Record<string, string> = {
   gitlab: 'gitlab.com',
 };
 
+/** 宿主归一（后端 `matches_host` 同口径）：剥 `:port` 与尾点、小写化。 */
+function normalizeForgeHost(host: string): string {
+  const colon = host.indexOf(':');
+  const withoutPort = colon >= 0 ? host.slice(0, colon) : host;
+  return withoutPort.trim().replace(/\.+$/, '').toLowerCase();
+}
+
 /** 宿主精确或白名单子域匹配（后端 `ForgeType::matches_host` 同口径）。 */
 function matchesForgeHost(forge: string, host: string): boolean {
   const domain = FORGE_DEFAULT_HOSTS[forge];
-  return host === domain || host.endsWith(`.${domain}`);
+  const normalized = normalizeForgeHost(host);
+  return normalized === domain || normalized.endsWith(`.${domain}`);
 }
 
 /** 坐标段校验（后端 `valid_coord_segment` 镜像）：拒绝空段与 `?`/`#`/`/`/`\`/空白。 */
@@ -87,8 +94,16 @@ function parseCanonical(input: string): string | null {
           : matchesForgeHost('gitlab', host)
             ? 'gitlab'
             : 'gitea';
-      if (validCoordSegment(host) && validCoordSegment(owner) && validCoordSegment(repo)) {
-        return toAppId(forge, host, owner, repo).toLowerCase();
+      // 默认宿主的端口/尾点写法折叠为裸域名，使同仓不同写法落到同一 canonical id；
+      // 自建宿主保留原样（含端口），与后端 canonical 同键。
+      const canonicalHost =
+        normalizeForgeHost(host) === FORGE_DEFAULT_HOSTS[forge] ? FORGE_DEFAULT_HOSTS[forge] : host;
+      if (
+        validCoordSegment(canonicalHost) &&
+        validCoordSegment(owner) &&
+        validCoordSegment(repo)
+      ) {
+        return toAppId(forge, canonicalHost, owner, repo).toLowerCase();
       }
       return null;
     }

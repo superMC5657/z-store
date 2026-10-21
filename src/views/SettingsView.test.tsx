@@ -60,14 +60,17 @@ interface SavedCall {
   value: unknown;
 }
 
-function renderSettings(settings: AppSettings) {
+function renderSettings(
+  settings: AppSettings,
+  onSelectMirror: (id: string) => Promise<void> = async () => undefined,
+) {
   const calls: SavedCall[] = [];
   const onUpdateSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]): void => {
     calls.push({ key, value });
   };
   render(
     <SettingsView
-      onSelectMirror={async () => undefined}
+      onSelectMirror={onSelectMirror}
       theme="dark"
       onSetTheme={() => undefined}
       onExportAppsJson={() => undefined}
@@ -186,5 +189,25 @@ describe('SettingsView custom catalog source confirm', () => {
       window.removeEventListener('zstore:catalog-synced', onCatalog);
       window.removeEventListener('zstore:custom-apps-changed', onCustom);
     }
+  });
+});
+
+describe('SettingsView proxy save failure', () => {
+  it('镜像切换失败：不持久化 active_mirror，失败反馈留在反馈位', async () => {
+    const onSelectMirror = vi.fn(async () => {
+      throw new Error('switchMirror rejected');
+    });
+    const { calls } = renderSettings(baseSettings(), onSelectMirror);
+    fireEvent.change(
+      screen.getByPlaceholderText(/留空为 GitHub 官方直连/),
+      { target: { value: 'https://bad.example.com' } },
+    );
+    fireEvent.click(screen.getByText('保存'));
+
+    await waitFor(() => {
+      expect(screen.getByText(/代理保存失败/)).toBeTruthy();
+    });
+    expect(onSelectMirror).toHaveBeenCalledWith('https://bad.example.com');
+    expect(calls).toEqual([]);
   });
 });

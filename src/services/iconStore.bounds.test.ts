@@ -1,8 +1,9 @@
 /**
- * iconStore 四容器有界化回归（#33）：
- * `iconLevelById`/`iconById`/`iconDataCache`/`iconPersistedKeys` 长会话跨榜浏览原本
- * 无上限增长；现统一 `ICON_STORE_MAX_ENTRIES`（200，与榜缓存 TRENDS_CACHE_MAX_ENTRIES
- * 同口径）写时 FIFO 删最旧。已落盘条目被淘汰后经 `get_or_fetch_icon` 落盘缓存重读自愈。
+ * iconStore 容器有界回归（#33）：
+ * `iconLevelById`/`iconById`/`iconDataCache`/`iconPersistedKeys` 与预热态
+ * `iconPreloadQueue`/`iconPendingAliases`/`iconPendingPromises`/`iconPreloadBackoffUntil`
+ * 均按 `ICON_STORE_MAX_ENTRIES`（200，与榜缓存 `TRENDS_CACHE_MAX_ENTRIES` 同口径）
+ * 写时 FIFO 删最旧。已落盘条目被淘汰后经 `get_or_fetch_icon` 落盘缓存重读自愈。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -15,11 +16,13 @@ import {
   admitIconHit,
   getBufferedIcon,
   getCachedIconDataUri,
+  __flushIconPreloadsForTests,
   __getIconStoreSizesForTests,
   __resetIconStoreForTests,
   __resetIconWriteSubscribersForTests,
   __setIconDataCacheForTests,
 } from './iconStore';
+import { getOrFetchIcon } from './api/catalog';
 
 const DATA_URI = 'data:image/png;base64,AAAAAAAA';
 
@@ -89,5 +92,28 @@ describe('iconStore 四容器有界', () => {
     const sizes = __getIconStoreSizesForTests();
     expect(sizes.iconById).toBe(50);
     expect(sizes.levelById).toBe(50);
+  });
+
+  it('同 tick 预热入队超 200 时队列钳在 200', () => {
+    for (let i = 0; i < 210; i += 1) {
+      admitIconHit({ id: idOf(i), icon: urlOf(i), level: 2 });
+    }
+    expect(__getIconStoreSizesForTests().preloadQueue).toBe(ICON_STORE_MAX_ENTRIES);
+  });
+
+  it('预热失败后：在途/别名清空，退避表钳在 200', async () => {
+    vi.mocked(getOrFetchIcon).mockRejectedValue(new Error('offline'));
+    try {
+      for (let i = 0; i < 210; i += 1) {
+        admitIconHit({ id: idOf(i), icon: urlOf(i), level: 2 });
+      }
+      await __flushIconPreloadsForTests();
+      const sizes = __getIconStoreSizesForTests();
+      expect(sizes.pendingPromises).toBe(0);
+      expect(sizes.pendingAliases).toBe(0);
+      expect(sizes.preloadBackoff).toBe(ICON_STORE_MAX_ENTRIES);
+    } finally {
+      vi.mocked(getOrFetchIcon).mockResolvedValue(DATA_URI);
+    }
   });
 });

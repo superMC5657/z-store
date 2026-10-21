@@ -3,6 +3,7 @@ import { ScrollText, FolderOpen, RotateCcw, CheckCircle2, AlertTriangle } from '
 import { useTranslation } from 'react-i18next';
 import { tauriApi } from '../services/api';
 import { notifyToast } from '../utils/notify';
+import { useTransientFeedback } from './useTransientFeedback';
 
 /**
  * 诊断日志行（设置 → 数据管理与备份）：导出脱敏日志包 / 打开日志文件夹。
@@ -11,14 +12,7 @@ import { notifyToast } from '../utils/notify';
 export const LogExportRow: React.FC = () => {
   const { t } = useTranslation();
   const [isExporting, setIsExporting] = useState(false);
-  const [feedback, setFeedback] = useState<string | null>(null);
-  const [isError, setIsError] = useState(false);
-
-  const showFeedback = (text: string, error: boolean) => {
-    setFeedback(text);
-    setIsError(error);
-    setTimeout(() => setFeedback(null), 5000);
-  };
+  const { text: feedback, isError, show: showFeedback } = useTransientFeedback();
 
   const handleExport = async () => {
     setIsExporting(true);

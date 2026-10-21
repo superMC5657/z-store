@@ -779,9 +779,10 @@ export function useAppSelectors({
   }, []);
   const sidebarPlatformCounts = currentView === 'trends' && trendsPlatformCounts ? trendsPlatformCounts : platformCounts;
 
+  // 已安装 id 集（大小写归一）：安装态与「受管」判定共用同一集合，一处计算两处消费。
   const installedIds = useMemo(() => buildInstalledIdSet(installedApps), [installedApps]);
 
-  const managedIds = useMemo(() => buildInstalledIdSet(installedApps), [installedApps]);
+  const managedIds = installedIds;
 
   // managed 加载三态（冷启闪烁守卫）：`installedApps` 初始 `[]`
   // 与“已加载但为空”引用不同（订阅层 `.then(setInstalledApps)` 恒产生新引用，

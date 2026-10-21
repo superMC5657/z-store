@@ -192,6 +192,22 @@ function isRemoteHttpIconUrl(icon: unknown): boolean {
 }
 
 /**
+ * 图标键归一：URL 键（`http://`/`https://`/`data:`）按去空白小写比较，
+ * 其余键走 `normalizeId`。`normalizeId` 会把深链 URL 解析成仓库 id
+ * （`https://github.com/o/r/a.png` → `o/r`），URL 键用它会让同仓不同文件互串缓存。
+ */
+function normalizeIconKey(key: unknown): string {
+  if (typeof key !== 'string') return '';
+  const trimmed = key.trim();
+  if (!trimmed) return '';
+  const lower = trimmed.toLowerCase();
+  if (lower.startsWith('http://') || lower.startsWith('https://') || lower.startsWith('data:')) {
+    return lower;
+  }
+  return normalizeId(trimmed);
+}
+
+/**
  * 非空优先合并（内部 seam 的收敛实现）：
  * 旧图标非空 + 回填图标空 → 沿用旧图标；其余一律采用回填值。
  * 空值经 `isEmptyIcon` SSOT，不自立 `trim()===''` 规则。
@@ -275,12 +291,14 @@ const iconPendingPromises = new Map<string, Promise<string>>();
 const iconPersistedKeys = new Set<string>();
 
 /**
- * 图标四容器（`iconLevelById`/`iconById`/`iconDataCache`/`iconPersistedKeys`）统一内存上限：
- * 与榜缓存 `TRENDS_CACHE_MAX_ENTRIES`（内存 200 有界）同口径——榜缓存 200 计榜单粒度、
- * 图标面 200 计应用粒度，同一长会话跨榜浏览的应用量级相当。`iconDataCache` 淘汰的
- * 已落盘条目按 M2 语义经 `get_or_fetch_icon` 重读自愈（落盘命中不走网络），与榜缓存
- * L1 淘汰回落 L2 落盘同型。写时 FIFO 删最旧（`writeTrendsCache` 同型；图标无刷新写序
- * 需求，已存在覆盖写不重排）。
+ * 店内内存有界口径：`iconLevelById`/`iconById`/`iconDataCache`/`iconPersistedKeys` 与
+ * 预热态 `iconPreloadQueue`/`iconPendingAliases`/`iconPendingPromises`/
+ * `iconPreloadBackoffUntil` 一律钳在 200 条。数值与榜缓存 `TRENDS_CACHE_MAX_ENTRIES`
+ * 同口径——榜缓存 200 计榜单粒度、图标面 200 计应用粒度，同一长会话跨榜浏览的应用量级相当。
+ * `iconDataCache` 淘汰的已落盘条目按 M2 语义经 `get_or_fetch_icon` 重读自愈
+ * （落盘命中不走网络），与榜缓存 L1 淘汰回落 L2 落盘同型。写时 FIFO 删最旧
+ * （`writeTrendsCache` 同型；图标无刷新写序需求，已存在覆盖写不重排）。
+ * 预热三态另在完成时即时删除（成功/失败都清 pending 与别名），上限只兜极端突发。
  */
 export const ICON_STORE_MAX_ENTRIES = 200;
 
@@ -289,6 +307,14 @@ function trimBoundedMap<T>(map: Map<string, T>): void {
     const oldest = map.keys().next().value as string | undefined;
     if (oldest === undefined) break;
     map.delete(oldest);
+  }
+}
+
+function trimBoundedSet<T>(set: Set<T>): void {
+  while (set.size > ICON_STORE_MAX_ENTRIES) {
+    const oldest = set.values().next().value as T | undefined;
+    if (oldest === undefined) break;
+    set.delete(oldest);
   }
 }
 
@@ -309,11 +335,7 @@ function rememberIconData(key: string, dataUri: string): void {
 
 function rememberPersistedKey(key: string): void {
   iconPersistedKeys.add(key);
-  while (iconPersistedKeys.size > ICON_STORE_MAX_ENTRIES) {
-    const oldest = iconPersistedKeys.values().next().value as string | undefined;
-    if (oldest === undefined) break;
-    iconPersistedKeys.delete(oldest);
-  }
+  trimBoundedSet(iconPersistedKeys);
 }
 /** 同 tick 合并队列：`url → ids`（`queueIconFetches` 只入队，排空时按 URL 单次下载）。 */
 const iconPreloadQueue = new Map<string, Set<string>>();
@@ -374,7 +396,7 @@ interface GenerationGate {
 /**
  * 展示数据失效（内部 seam）：
  * 删 `iconDataCache`/`pending`/`队列`/`queued` 中该键及其关联 URL/别名态。以店内 `iconById` 为唯一别名源
- * （`normalizeId`，遵 ADR-0010）。
+ * （id 键经 `normalizeId`、URL 键经 `normalizeIconKey`，遵 ADR-0010）。
  */
 function invalidateIconCache(key?: string): void {
   if (!key) {
@@ -386,20 +408,20 @@ function invalidateIconCache(key?: string): void {
     iconPreloadScheduled = false;
     return;
   }
-  const norm = normalizeId(key);
+  const norm = normalizeIconKey(key);
   const candidates = new Set<string>([key, norm]);
   // id→URL 别名经店内 `iconById` 单源回查（无并行 map）。
   const mappedUrl = norm ? iconById.get(norm) : undefined;
   if (typeof mappedUrl === 'string' && mappedUrl) {
     candidates.add(mappedUrl);
-    candidates.add(normalizeId(mappedUrl));
+    candidates.add(normalizeIconKey(mappedUrl));
   }
   // URL→id 反查：同 URL 的别名 data 态一并失效。
   if (norm) {
     for (const [id, url] of iconById.entries()) {
-      if (normalizeId(url) === norm || url === key) {
+      if (normalizeIconKey(url) === norm || url === key) {
         candidates.add(id);
-        candidates.add(normalizeId(id));
+        candidates.add(normalizeIconKey(id));
       }
     }
   }
@@ -419,7 +441,8 @@ function invalidateIconCache(key?: string): void {
  */
 export function getCachedIconDataUri(key: string): string | undefined {
   if (typeof key !== 'string' || key === '') return undefined;
-  return iconDataCache.get(key) ?? (normalizeId(key) ? iconDataCache.get(normalizeId(key)) : undefined);
+  const n = normalizeIconKey(key);
+  return iconDataCache.get(key) ?? (n ? iconDataCache.get(n) : undefined);
 }
 
 /**
@@ -463,6 +486,7 @@ function queueIconFetches(items: (string | { id?: string; icon: string })[]): vo
         if (!aliases) {
           aliases = new Set<string>();
           iconPendingAliases.set(icon, aliases);
+          trimBoundedMap(iconPendingAliases);
         }
         aliases.add(id);
         const nid = normalizeId(id);
@@ -475,6 +499,7 @@ function queueIconFetches(items: (string | { id?: string; icon: string })[]): vo
     if (!queued) {
       queued = new Set<string>();
       iconPreloadQueue.set(icon, queued);
+      trimBoundedMap(iconPreloadQueue);
     }
     if (typeof id === 'string' && id !== '') {
       queued.add(id);
@@ -499,7 +524,7 @@ export function isIconPersistedOrQueued(url: unknown): boolean {
   if (typeof url !== 'string' || url === '') return false;
   const cached = iconDataCache.get(url);
   if (typeof cached === 'string' && cached !== '') return true;
-  const nid = normalizeId(url);
+  const nid = normalizeIconKey(url);
   if (nid && nid !== url) {
     const cachedNorm = iconDataCache.get(nid);
     if (typeof cachedNorm === 'string' && cachedNorm !== '') return true;
@@ -531,7 +556,7 @@ export function queueAssembledRowIcons(
     const icon = typeof row?.icon === 'string' ? row.icon : '';
     if (!isRemoteHttpIconUrl(icon)) continue;
     if (isIconPersistedOrQueued(icon)) continue;
-    const batchKey = normalizeId(icon) || icon;
+    const batchKey = normalizeIconKey(icon) || icon;
     if (seenInBatch.has(batchKey)) continue;
     seenInBatch.add(batchKey);
     seenInBatch.add(icon);
@@ -607,6 +632,7 @@ function drainIconPreloadQueue(): void {
       if (!aliases) {
         aliases = new Set<string>();
         iconPendingAliases.set(url, aliases);
+        trimBoundedMap(iconPendingAliases);
       }
       for (const id of ids) if (id) aliases.add(id);
       continue;
@@ -620,6 +646,7 @@ function drainIconPreloadQueue(): void {
 function startIconFetch(url: string, ids: Set<string>): void {
   const aliasSet = new Set<string>(ids);
   iconPendingAliases.set(url, aliasSet);
+  trimBoundedMap(iconPendingAliases);
   // 多别名同 URL 取首个非空 id 透传后端（其余经成功扇出写缓存）。
   let firstId: string | null = null;
   for (const id of aliasSet) {
@@ -653,9 +680,11 @@ function startIconFetch(url: string, ids: Set<string>): void {
       iconPendingPromises.delete(url);
       iconPendingAliases.delete(url);
       iconPreloadBackoffUntil.set(url, Date.now() + ICON_PRELOAD_BACKOFF_MS);
+      trimBoundedMap(iconPreloadBackoffUntil);
       return '';
     });
   iconPendingPromises.set(url, p);
+  trimBoundedMap(iconPendingPromises);
   // 挂载空 catch 防未处理拒绝（上已吞错，此处再兜底一次）。
   void p.catch(() => undefined);
 }
@@ -679,18 +708,26 @@ export function __setIconDataCacheForTests(key: string, dataUri: string): void {
   rememberIconData(key, dataUri);
 }
 
-/** 仅供测试：四容器现存量（有界断言用）。 */
+/** 仅供测试：有界容器现存量（有界断言用）。 */
 export function __getIconStoreSizesForTests(): {
   levelById: number;
   iconById: number;
   dataCache: number;
   persistedKeys: number;
+  preloadQueue: number;
+  pendingAliases: number;
+  pendingPromises: number;
+  preloadBackoff: number;
 } {
   return {
     levelById: iconLevelById.size,
     iconById: iconById.size,
     dataCache: iconDataCache.size,
     persistedKeys: iconPersistedKeys.size,
+    preloadQueue: iconPreloadQueue.size,
+    pendingAliases: iconPendingAliases.size,
+    pendingPromises: iconPendingPromises.size,
+    preloadBackoff: iconPreloadBackoffUntil.size,
   };
 }
 

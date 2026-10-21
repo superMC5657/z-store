@@ -361,6 +361,26 @@
       "csv": "以逗号分隔多个值",
       "lines": "每行一个值"
     },
+    "archived_readonly_hint": "已归档草稿为只读，改名或修改请使用“复制为新草稿”",
+    "duplicate_as_new_draft": "复制为新草稿",
+    "preview": {
+      "title": "草稿收录后预览",
+      "hint": "随表单输入实时同步",
+      "badge": "自维护草稿",
+      "collapse": "收起预览",
+      "expand": "展开预览",
+      "empty_name": "未填写应用名称",
+      "empty_id": "未生成 id",
+      "empty_repo": "未填写仓库 owner/repo",
+      "empty_category": "未填写分类",
+      "empty_platforms": "未填写平台",
+      "empty_license": "未填写协议",
+      "empty_homepage": "未填写主页",
+      "category_title": "功能分类",
+      "license_title": "开源协议",
+      "platform_title": "支持平台: {{platform}}",
+      "homepage_title": "官方主页: {{homepage}}"
+    },
     "errors": {
       "owner_required": "仓库 owner 不可为空",
       "repo_required": "仓库 repo 不可为空",

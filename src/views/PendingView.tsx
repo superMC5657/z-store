@@ -37,6 +37,7 @@ import {
 } from './pending/draftModel';
 import { runSubmitPrefillFlow } from './pending/submitPrefillFlow';
 import { errorStyle } from './pending/pendingStyles';
+import type { ShowToast } from './pending/pendingText';
 import { PendingListColumn } from './pending/PendingListColumn';
 import { PendingRichCard } from './pending/PendingRichCard';
 import { PendingPreviewLane } from './pending/PendingPreviewLane';
@@ -55,33 +56,8 @@ import { PendingDraftForm } from './pending/PendingDraftForm';
  *   缺席时走内部本地态（浏览器预览/单测可独立渲染编辑）。
  * - 设计走 Linear 去彩单色：仅用文本层级 + 边框 + 单色图标，不引入彩色语义。
  * - 领域纯函数（校验/归一/分组）收容于 `pending/draftModel`，
- *   单条/批量提交共享尾段收容于 `pending/submitPrefillFlow`；
- *   本文件保留同名重导出，既有调用方与测试 import 不需迁移。
+ *   单条/批量提交共享尾段收容于 `pending/submitPrefillFlow`。
  */
-
-export type { LicenseAllowlistResult };
-
-/**
- * 草稿领域形状（唯一定义见 `services/custom/types.ts`）：
- * 本视图保留同名重导出，既有调用方与测试 import 不需迁移。
- */
-export type PendingDraftItem = DraftItem;
-
-// 兼容再导出：历史调用方仍可从本视图 import 该键，实际收容于 `lib/pendingPrefs`（新代码请直引 lib）。
-export { PENDING_SHOW_COORDS_STORAGE_KEY } from '../lib/pendingPrefs';
-
-// 领域纯函数与共享提交流重导出（原单文件实现迁至 pending/ 子模块，口径不变）。
-export {
-  PENDING_EMPTY_DRAFT,
-  canonicalDraftId,
-  isOsiApprovedLicense,
-  normalizeLicense,
-  pendingDraftToAppSummary,
-  resolvePendingDraftDescription,
-  validatePendingDraft,
-  type CustomDraftEntry,
-} from './pending/draftModel';
-export { PREFILL_URL_LENGTH_LIMIT } from './pending/submitPrefillFlow';
 
 interface PendingViewProps {
   /** 受控草稿列表（缺席时走内部本地态）。 */
@@ -89,7 +65,7 @@ interface PendingViewProps {
   /** 初始草稿（非受控模式种子，故事/单测用）。 */
   initialEntries?: CustomDraftEntry[];
   /** 保存回调（缺席时仅更新本地态）。 */
-  onSave?: (item: PendingDraftItem) => void | Promise<void>;
+  onSave?: (item: DraftItem) => void | Promise<void>;
   /** 删除回调（二次确认由本组件完成，后端直接删）。 */
   onDelete?: (id: string) => void | Promise<void>;
   /** 标记已提交回调（缺席时仅翻本地态）。 */
@@ -132,7 +108,7 @@ interface PendingViewProps {
   /** 批量提交入口开关（默认开启，传 false 隐藏本地收录列表工具行批量按钮与列表多选；开启时也仅本地收录分组可见）。 */
   showBatchBar?: boolean;
   /** 轻提示通道（缺席时静默）。 */
-  onNotify?: (message: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
+  onNotify?: ShowToast;
 }
 
 /** 顶层三态分组（draft/library/archived）与组图标。 */
@@ -310,7 +286,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
   }, [loadLicenseGate, onNotify, t]);
 
   // 表单态（新建或选中行载入；identifier/platforms 等以文本态编辑，保存时归一）。
-  const [form, setForm] = useState<PendingDraftItem>(PENDING_EMPTY_DRAFT);
+  const [form, setForm] = useState<DraftItem>(PENDING_EMPTY_DRAFT);
   const [aliasesText, setAliasesText] = useState('');
   const [platformsText, setPlatformsText] = useState('windows');
   const [identifiersText, setIdentifiersText] = useState('');
@@ -322,7 +298,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
   );
 
   // 当前表单归一后的 submit 档 live 校验（文本态字段归一后参验，不新增阻塞项）。
-  const liveSubmitItem = useMemo((): PendingDraftItem => {
+  const liveSubmitItem = useMemo((): DraftItem => {
     const f = form;
     return {
       ...f,
@@ -401,7 +377,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
     return found;
   }, [entries, selectedId, activeGroup, activeSegment, isCreating]);
 
-  const loadIntoForm = (item: PendingDraftItem) => {
+  const loadIntoForm = (item: DraftItem) => {
     setForm({ ...item });
     setAliasesText(item.aliases.join(', '));
     setPlatformsText(item.platforms.join(', '));
@@ -428,7 +404,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
     loadIntoForm(found.item);
   };
 
-  const setField = <K extends keyof PendingDraftItem>(key: K, value: PendingDraftItem[K]) => {
+  const setField = <K extends keyof DraftItem>(key: K, value: DraftItem[K]) => {
     // owner/repo 键入仅在 id 为空或仍等于上一次联动值时跟随填充；
     // 手输（偏离上次 canonical）一律保留，不逐键改写。
     const prev = form;
@@ -446,7 +422,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
     }
     setForm(next);
     // 逐框即时校验：对归一后表单跑 submit 档（license 用快照，不每键 IPC）。
-    const nextItem: PendingDraftItem = {
+    const nextItem: DraftItem = {
       ...next,
       id: next.id.trim() ? next.id.trim() : canonicalDraftId(next.owner, next.repo),
       name: next.name.trim(),
@@ -482,7 +458,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
     const nextAliases = key === 'aliases' ? value : aliasesText;
     const nextPlatforms = key === 'platforms' ? value : platformsText;
     const nextIdentifiers = key === 'identifiers' ? value : identifiersText;
-    const nextItem: PendingDraftItem = {
+    const nextItem: DraftItem = {
       ...form,
       id: form.id.trim() ? form.id.trim() : canonicalDraftId(form.owner, form.repo),
       name: form.name.trim(),
@@ -530,7 +506,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
     }
   };
 
-  const collectFormItem = (): PendingDraftItem => ({
+  const collectFormItem = (): DraftItem => ({
     ...form,
     // 不静默丢弃手输 id——非空即原样保留（仅去首尾空格，大小写/内部空格留给校验），
     // 为空才回退 canonical；非规范手输由 draft 档校验拦下（id_mismatch），不直接改写。
@@ -622,7 +598,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
     setSelectedId(null);
     setConfirmDeleteId(null);
     setPrUrlInput('');
-    const duplicatedItem: PendingDraftItem = {
+    const duplicatedItem: DraftItem = {
       ...editingEntry.item,
       id: '', // 清空 id，修改 owner/repo 时自动联动新 id
     };
@@ -820,7 +796,15 @@ export const PendingView: React.FC<PendingViewProps> = ({
       });
       onNotify?.(t('pending.reverted', { id, defaultValue: `已退回草稿：${id}` }), 'info');
     } catch (e) {
-      onNotify?.(e instanceof Error ? e.message : String(e), 'error');
+      const detail = e instanceof Error ? e.message : String(e);
+      onNotify?.(
+        t('pending.revert_failed', {
+          id,
+          error: detail,
+          defaultValue: `退回草稿失败：${id}：${detail}`,
+        }),
+        'error',
+      );
     } finally {
       setRevertingId(null);
       setConfirmRevertId(null);
@@ -1207,8 +1191,9 @@ export const PendingView: React.FC<PendingViewProps> = ({
                 onRevertToDraft={(id) => void handleRevertToDraft(id)}
                 withdrawingId={withdrawingId}
                 confirmWithdrawId={confirmWithdrawId}
-                onWithdrawSubmitted={(id) => void handleWithdrawSubmitted(id)}
-                hasWithdrawProvider={Boolean(onWithdrawSubmitted)}
+                onWithdrawSubmitted={
+                  onWithdrawSubmitted ? (id) => void handleWithdrawSubmitted(id) : undefined
+                }
                 confirmDeleteId={confirmDeleteId}
                 onDelete={(id) => void handleDelete(id)}
                 onDuplicate={handleDuplicateDraft}

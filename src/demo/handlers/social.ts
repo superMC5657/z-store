@@ -1,8 +1,8 @@
 import type {
   DeveloperProfile,
   FavoriteEntry,
+  HostRateLimitRefresh,
   HostRateLimitStatus,
-  HostTokenEntry,
   StarAppResult,
   StarredSyncResult,
   WatchedAppEntry,
@@ -102,9 +102,9 @@ export function handleRemoveHostToken(): null {
   return null;
 }
 
-export function handleRefreshHostRateLimit(a: InvokeArgs): HostTokenEntry {
+export function handleRefreshHostRateLimit(a: InvokeArgs): HostRateLimitRefresh {
   const host = argStr(a, 'host') || 'github.com';
-  return { host, token: '', updated_at: Math.floor(Date.now() / 1000) };
+  return { host, updated_at: Math.floor(Date.now() / 1000) };
 }
 
 export function handleTestHostConnection(a: InvokeArgs): HostRateLimitStatus {

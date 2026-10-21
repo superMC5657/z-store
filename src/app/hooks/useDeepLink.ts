@@ -2,6 +2,7 @@ import type { TFunction } from 'i18next';
 import { useEffect, useState } from 'react';
 import { tauriApi } from '../../services/api';
 import type { Navigate } from '../navigation';
+import { isViewType } from '../navigation';
 
 interface UseDeepLinkParams {
   handleOpenDetail: (id: string) => void;
@@ -47,8 +48,8 @@ export function useDeepLink({
       } else if (action.action === 'developer_profile') {
         setSelectedDeveloper(action.payload.owner);
       } else if (action.action === 'open_view') {
-        // 合法视图校验收口于集中导航（navigation.isViewType）；非法视图静默忽略。
-        navigate(action.payload.view);
+        // 深链载荷是外部字符串：先经 isViewType 收窄，未知视图静默忽略。
+        if (isViewType(action.payload.view)) navigate(action.payload.view);
       }
       showToast(t('toast.deeplink_responded', { url: rawUrl }), 'info');
     } catch (e) {

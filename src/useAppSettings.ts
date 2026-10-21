@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AppSettings } from './types';
 import { tauriApi, DEFAULT_SETTINGS } from './services/api';
 import i18n, { getSystemLanguage } from './i18n';
@@ -40,10 +40,27 @@ function normalizeSettingLikeBackend<K extends keyof AppSettings>(
 export function useAppSettings() {
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  // 每个设置的写入序号：只有最后一次写入才回滚 / 回放副作用，避免在途旧写覆盖新值。
+  const latestWriteSeq = useRef<Partial<Record<keyof AppSettings, number>>>({});
 
   const applyFontSize = (sizeKey: string) => {
     document.documentElement.setAttribute('data-font-size', sizeKey);
     document.documentElement.style.setProperty('--font-scale', fontScaleFor(sizeKey));
+  };
+
+  /** 主题设置串（`light`/`dark`/`system`）→ 实际生效主题。 */
+  const resolveEffectiveTheme = (t: string): 'light' | 'dark' => {
+    if (t === 'light') return 'light';
+    if (t === 'dark') return 'dark';
+    const isDark = !!window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    return isDark ? 'dark' : 'light';
+  };
+
+  /** 应用主题到 state + 根节点 `data-theme`（乐观应用与失败回滚同一路径）。 */
+  const applyTheme = (t: string) => {
+    const effective = resolveEffectiveTheme(t);
+    setTheme(effective);
+    document.documentElement.setAttribute('data-theme', effective);
   };
 
   const applyUiZoom = (scaleStr: string) => {
@@ -51,6 +68,17 @@ export function useAppSettings() {
     const factor = appZoomFactor(scaleStr);
     if (factor === null) return;
     document.documentElement.style.setProperty('--app-zoom', `${factor}`);
+  };
+
+  /** 视觉键的 DOM 副作用（主题/字号/缩放）；乐观应用与回滚共用，保证 DOM 与 state 同值。 */
+  const applyVisualSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
+    if (key === 'theme') {
+      applyTheme(String(value));
+    } else if (key === 'font_size') {
+      applyFontSize(String(value));
+    } else if (key === 'ui_scale') {
+      applyUiZoom(String(value));
+    }
   };
 
   // 将持久化设置快照合并入 AppSettings 并应用主题 / 字号 / 缩放（导入备份后复用同一路径）
@@ -81,17 +109,7 @@ export function useAppSettings() {
     void i18n.changeLanguage(merged.language);
 
     // 应用主题
-    let currentTheme: 'light' | 'dark' = 'dark';
-    if (merged.theme === 'light') {
-      currentTheme = 'light';
-    } else if (merged.theme === 'dark') {
-      currentTheme = 'dark';
-    } else {
-      const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-      currentTheme = isDark ? 'dark' : 'light';
-    }
-    setTheme(currentTheme);
-    document.documentElement.setAttribute('data-theme', currentTheme);
+    applyTheme(merged.theme);
 
     // 应用字号
     applyFontSize(merged.font_size);
@@ -142,61 +160,43 @@ export function useAppSettings() {
   // 主题快速切换器
   const handleToggleTheme = () => {
     const next = theme === 'light' ? 'dark' : 'light';
-    setTheme(next);
-    document.documentElement.setAttribute('data-theme', next);
-    handleUpdateSetting('theme', next);
+    applyTheme(next);
+    void handleUpdateSetting('theme', next);
   };
 
   const handleSetTheme = (t: 'light' | 'dark' | 'system') => {
-    let effective: 'light' | 'dark' = 'dark';
-    if (t === 'light') {
-      effective = 'light';
-    } else if (t === 'dark') {
-      effective = 'dark';
-    } else {
-      const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-      effective = isDark ? 'dark' : 'light';
-    }
-    setTheme(effective);
-    document.documentElement.setAttribute('data-theme', effective);
-    handleUpdateSetting('theme', t);
+    applyTheme(t);
+    void handleUpdateSetting('theme', t);
   };
 
   // 通用单项设置更新器：乐观更新 → 持久化（失败回滚乐观值并提示）→
   // 成功后按后端归一口径回写（save_setting 只回 bool，钳制镜像见 normalizeSettingLikeBackend）
   const handleUpdateSetting = async <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
+    const previous = settings[key];
+    const seq = (latestWriteSeq.current[key] ?? 0) + 1;
+    latestWriteSeq.current[key] = seq;
     setSettings((prev) => ({ ...prev, [key]: value }));
     try {
       await tauriApi.saveSetting(key, String(value));
     } catch (e) {
-      setSettings((prev) => ({ ...prev, [key]: settings[key] }));
+      // 该键已被后续写入接手时不回滚：回滚会把在途/已生效的新值覆盖成旧快照。
+      if (latestWriteSeq.current[key] === seq) {
+        setSettings((prev) => ({ ...prev, [key]: previous }));
+        applyVisualSetting(key, previous);
+      }
       notifyToast(i18n.t('settings.persist_failed', { error: String(e) }), 'error');
       return;
     }
+    if (latestWriteSeq.current[key] !== seq) return;
     const normalized = normalizeSettingLikeBackend(key, value);
     if (normalized !== value) {
       setSettings((prev) => ({ ...prev, [key]: normalized }));
     }
 
-    if (key === 'theme') {
-      const t = value as 'light' | 'dark' | 'system';
-      let effective: 'light' | 'dark' = 'dark';
-      if (t === 'light') {
-        effective = 'light';
-      } else if (t === 'dark') {
-        effective = 'dark';
-      } else {
-        const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-        effective = isDark ? 'dark' : 'light';
-      }
-      setTheme(effective);
-      document.documentElement.setAttribute('data-theme', effective);
-    } else if (key === 'font_size') {
-      applyFontSize(String(value));
-    } else if (key === 'ui_scale') {
-      applyUiZoom(String(value));
-    } else if (key === 'language') {
+    if (key === 'language') {
       void i18n.changeLanguage(String(value));
+    } else {
+      applyVisualSetting(key, value);
     }
   };
 

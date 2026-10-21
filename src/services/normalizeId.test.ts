@@ -38,6 +38,15 @@ describe('normalizeId（canonical 深度，与后端 canonical_lookup_id 同值�
     expect(normalizeId('https://xx-github.com/o/r')).toBe('gitea:xx-github.com/o/r');
   });
 
+  it('宿主端口/尾点在白名单匹配前剥离（后端 matches_host 同口径）', () => {
+    expect(normalizeId('https://github.com:443/o/r')).toBe('o/r');
+    expect(normalizeId('https://github.com./o/r')).toBe('o/r');
+    expect(normalizeId('https://api.github.com:443/o/r')).toBe('github:api.github.com:443/o/r');
+    expect(normalizeId('https://git.example.com:8443/o/r')).toBe(
+      'gitea:git.example.com:8443/o/r',
+    );
+  });
+
   it('不可解析回退小写（total 不断路由，同 canonical_lookup_id）', () => {
     expect(normalizeId('rustdesk')).toBe('rustdesk');
     expect(normalizeId('xyz:owner/repo')).toBe('xyz:owner/repo');

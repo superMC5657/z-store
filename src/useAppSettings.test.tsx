@@ -121,6 +121,45 @@ describe('useAppSettings 持久化', () => {
     expect(toasts[0].text).toContain('db locked');
   });
 
+  it('同键两笔在途写：前一笔失败不回滚后一笔的值', async () => {
+    let rejectFirst: (e: Error) => void = () => {};
+    saveSettingMock
+      .mockImplementationOnce(
+        () => new Promise<boolean>((_, reject) => {
+          rejectFirst = reject;
+        }),
+      )
+      .mockResolvedValueOnce(true);
+    const { result } = renderHook(() => useAppSettings());
+    let first: Promise<void> = Promise.resolve();
+    let second: Promise<void> = Promise.resolve();
+    await act(async () => {
+      first = result.current.handleUpdateSetting('detail_cache_ttl_minutes', 10);
+      second = result.current.handleUpdateSetting('detail_cache_ttl_minutes', 360);
+      rejectFirst(new Error('db locked'));
+      await Promise.allSettled([first, second]);
+    });
+    expect(result.current.settings.detail_cache_ttl_minutes).toBe(360);
+  });
+
+  it('主题切换持久化失败：settings 与 data-theme 一起回滚', async () => {
+    saveSettingMock.mockRejectedValueOnce(new Error('db locked'));
+    const { result } = renderHook(() => useAppSettings());
+    act(() => {
+      result.current.applyPersistedSettings({ theme: 'dark' });
+    });
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+
+    act(() => {
+      result.current.handleToggleTheme();
+    });
+    await act(async () => {});
+    expect(result.current.settings.theme).toBe('dark');
+    expect(result.current.theme).toBe('dark');
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    expect(toasts).toHaveLength(1);
+  });
+
   it('启动镜像回放被拒（resolve false）：state 回滚 direct + warning toast', async () => {
     switchMirrorMock.mockResolvedValueOnce(false);
     const { result } = renderHook(() => useAppSettings());

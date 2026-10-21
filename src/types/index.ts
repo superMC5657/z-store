@@ -149,7 +149,9 @@ export interface DownloadAssetResult {
   verified: boolean;
 }
 
-export type ViewType = 'home' | 'trends' | 'categories' | 'favorites' | 'installed' | 'updates' | 'settings' | 'pending';
+// 视图类型的唯一来源是 app/navigation 的 `VIEW_TYPES` 清单（`ViewType` 由该常量推导）；
+// 此处 re-export，使既有 `from '../types'` 的导入路径保持不变。
+export type { ViewType } from '../app/navigation';
 
 export interface ToastMessage {
   id: string;
@@ -260,9 +262,9 @@ export interface StarredSyncResult {
   other_repos: DeveloperRepoItem[];
 }
 
-export interface HostTokenEntry {
+/** `refresh_host_rate_limit` 的响应：配额三元组 + host/时间戳；令牌字段不经此命令回传。 */
+export interface HostRateLimitRefresh {
   host: string;
-  token: string;
   rate_limit_remaining?: number;
   rate_limit_limit?: number;
   rate_limit_reset?: number;

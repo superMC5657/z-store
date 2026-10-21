@@ -1,6 +1,6 @@
 /**
  * 移入收录唯一入口（`moveInToDraft`）：
- * - forge 门先行（#35）：非 GitHub 仓库/forge 形态 id 入口即拒，不落库不广播；
+ * - forge 门先于落库与广播：非 GitHub 仓库/forge 形态 id 入口即拒；
  * - 图标只认 remote http(s) 真值，探测失败回退摘要归一；
  * - 落库成功才广播 `zstore:custom-apps-changed`；
  * - 落库失败返回 ok=false，不抛异常（视图负责本地化提示）。

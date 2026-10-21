@@ -5,8 +5,6 @@ import { join } from 'node:path';
 import i18n from '../i18n';
 import {
   PENDING_EMPTY_DRAFT,
-  PENDING_SHOW_COORDS_STORAGE_KEY,
-  PendingView,
   canonicalDraftId,
   isOsiApprovedLicense,
   normalizeLicense,
@@ -14,11 +12,13 @@ import {
   resolvePendingDraftDescription,
   validatePendingDraft,
   type CustomDraftEntry,
-  type LicenseAllowlistResult,
-} from './PendingView';
+} from './pending/draftModel';
+import { PendingView } from './PendingView';
+import type { LicenseAllowlistResult } from '../services/api/catalog';
 import {
   PENDING_SECTION_PREFS_STORAGE_KEY,
   PENDING_SECTION_PREFS_STORAGE_KEY_LEGACY,
+  PENDING_SHOW_COORDS_STORAGE_KEY,
   PENDING_SHOW_COORDS_STORAGE_KEY_LEGACY,
   getPendingSectionPrefs,
 } from '../lib/pendingPrefs';

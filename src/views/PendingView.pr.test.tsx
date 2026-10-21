@@ -3,10 +3,10 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import i18n from '../i18n';
 import {
   PENDING_EMPTY_DRAFT,
-  PendingView,
-  PREFILL_URL_LENGTH_LIMIT,
   type CustomDraftEntry,
-} from './PendingView';
+} from './pending/draftModel';
+import { PendingView } from './PendingView';
+import { PREFILL_URL_LENGTH_LIMIT } from './pending/submitPrefillFlow';
 import {
   buildCustomDraftItemFromSummary,
   buildCustomDraftItemFromTrendRepo,

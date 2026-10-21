@@ -1,7 +1,6 @@
 /**
  * 待收录草稿领域模型（纯函数与类型，无 React）：
- * 从 PendingView 拆出的校验/归一/分组判定单一实现；
- * PendingView 保留同名重导出，既有调用方与测试 import 不需迁移。
+ * 校验/归一/分组判定的单一实现，供 PendingView 与 pending/ 子组件共用。
  */
 import type { AppSummary } from '../../types';
 import type { DraftEntry, DraftItem, DraftStatus } from '../../services/custom/types';

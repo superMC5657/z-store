@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { tauriApi } from '../services/api';
 import { notifyToast } from '../utils/notify';
 import { UserDataBackup, UserDataBackupSettings } from '../types';
+import { useTransientFeedback } from './useTransientFeedback';
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
 
@@ -117,15 +118,8 @@ export const DataBackupRow: React.FC = () => {
   const { t } = useTranslation();
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
-  const [feedback, setFeedback] = useState<string | null>(null);
-  const [isError, setIsError] = useState(false);
+  const { text: feedback, isError, show: showFeedback } = useTransientFeedback();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-
-  const showFeedback = (text: string, error: boolean) => {
-    setFeedback(text);
-    setIsError(error);
-    setTimeout(() => setFeedback(null), 5000);
-  };
 
   const handleExport = async () => {
     setIsExporting(true);

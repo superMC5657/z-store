@@ -13,7 +13,7 @@ import { NetworkDataSection } from './SettingsView/sections/NetworkDataSection';
 import { DataManagementSection } from './SettingsView/sections/DataManagementSection';
 
 interface SettingsViewProps {
-  onSelectMirror: (id: string) => void;
+  onSelectMirror: (id: string) => Promise<void>;
   theme: 'light' | 'dark' | 'system';
   onSetTheme: (theme: 'light' | 'dark' | 'system') => void;
   onExportAppsJson: () => void;
@@ -50,7 +50,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     text: string;
     badge: string;
   } | null>(null);
-  const [proxySavedFeedback, setProxySavedFeedback] = useState<string | null>(null);
+  // 代理保存的瞬时反馈（成功与失败共用，成功 3.5s 后清空、失败留至下次操作）。
+  const [proxyFeedback, setProxyFeedback] = useState<string | null>(null);
 
   const [catalogSourceUrl, setCatalogSourceUrl] = useState(
     settings.catalog_source_url || ''
@@ -161,7 +162,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       if (!trimmed || trimmed === 'direct') {
         await onSelectMirror('direct');
         onUpdateSetting('active_mirror', 'direct');
-        setProxySavedFeedback(t('settings.proxy_saved_direct'));
+        setProxyFeedback(t('settings.proxy_saved_direct'));
         triggerChangeFeedback('proxy', t('settings.proxy_active_direct'));
       } else {
         let finalUrl = trimmed;
@@ -171,13 +172,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         }
         await onSelectMirror(finalUrl);
         onUpdateSetting('active_mirror', finalUrl);
-        setProxySavedFeedback(t('settings.proxy_saved_custom', { url: finalUrl }));
+        setProxyFeedback(t('settings.proxy_saved_custom', { url: finalUrl }));
         triggerChangeFeedback('proxy', t('settings.save_proxy'));
       }
-      setTimeout(() => setProxySavedFeedback(null), 3500);
+      setTimeout(() => setProxyFeedback(null), 3500);
     } catch (e) {
       // 切换镜像失败：不落 active_mirror、不给成功反馈，错误留存至下次操作
-      setProxySavedFeedback(t('settings.proxy_save_failed', { error: String(e) }));
+      setProxyFeedback(t('settings.proxy_save_failed', { error: String(e) }));
     }
   };
 
@@ -302,7 +303,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         setProxyInput={setProxyInput}
         isTestingProxy={isTestingProxy}
         proxyTestResult={proxyTestResult}
-        proxySavedFeedback={proxySavedFeedback}
+        proxyFeedback={proxyFeedback}
         highlightRow={highlightRow}
         activeNotice={activeNotice}
         handleTestProxy={handleTestProxy}

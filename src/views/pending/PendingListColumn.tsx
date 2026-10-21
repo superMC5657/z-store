@@ -1,6 +1,6 @@
 /**
  * 待收录页左列：Master 列表（含行内批量多选与底部批量提交工具行）。
- * 从 PendingView 拆出的表单段子组件之一，行为与拆分前逐行同口径。
+ * 只渲染调用方已按 Tab/分段过滤后的条目。
  */
 import React from 'react';
 import { useTranslation } from 'react-i18next';

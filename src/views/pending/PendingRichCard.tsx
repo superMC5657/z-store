@@ -1,6 +1,6 @@
 /**
  * 待收录页右侧富卡（collected/submitted/archived 后链路只读展示 + 操作页脚）。
- * 从 PendingView 拆出的表单段子组件之一，行为与拆分前逐行同口径。
+ * 撤下入口是否渲染由调用方是否传入 `onWithdrawSubmitted` 决定。
  */
 import React from 'react';
 import { useTranslation } from 'react-i18next';
@@ -14,6 +14,7 @@ import {
   type PendingDraftErrors,
 } from './draftModel';
 import { errorStyle } from './pendingStyles';
+import { errorText } from './pendingText';
 
 interface PendingRichCardProps {
   /** 当前选中条目（富卡分支保证非空）。 */
@@ -34,9 +35,8 @@ interface PendingRichCardProps {
   onRevertToDraft: (id: string) => void;
   withdrawingId: string | null;
   confirmWithdrawId: string | null;
-  onWithdrawSubmitted: (id: string) => void;
-  /** 撤下入口开关（App 透传 onWithdrawSubmitted 才渲染）。 */
-  hasWithdrawProvider: boolean;
+  /** 撤下入口开关：缺席即不渲染该动作（预览模式无后端写入）。 */
+  onWithdrawSubmitted?: (id: string) => void;
   confirmDeleteId: string | null;
   onDelete: (id: string) => void;
   onDuplicate: () => void;
@@ -59,13 +59,11 @@ export const PendingRichCard: React.FC<PendingRichCardProps> = ({
   withdrawingId,
   confirmWithdrawId,
   onWithdrawSubmitted,
-  hasWithdrawProvider,
   confirmDeleteId,
   onDelete,
   onDuplicate,
 }) => {
   const { t } = useTranslation();
-  const errorText = (code: string): string => t(`pending.errors.${code}`, code);
 
   return (
     <div className="app-card pending-editor-card">
@@ -119,7 +117,7 @@ export const PendingRichCard: React.FC<PendingRichCardProps> = ({
           {(Object.entries(inlineErrors) as Array<[string, string | undefined]>).map(([key, code]) =>
             code ? (
               <em key={key} data-testid={`pending-error-${key}`} style={errorStyle}>
-                {errorText(code)}
+                {errorText(t, code)}
               </em>
             ) : null,
           )}
@@ -129,7 +127,7 @@ export const PendingRichCard: React.FC<PendingRichCardProps> = ({
       {/* 富卡底部：collected=提交 Issue 主/退回次，submitted=Issue 链接+删除，archived=只读+复制为新草稿 */}
       <div className="pending-editor-footer">
         <div className="pending-editor-footer-actions">
-          {hasWithdrawProvider && isSubmittedEntry(entry) && (
+          {onWithdrawSubmitted && isSubmittedEntry(entry) && (
             <button
               type="button"
               className="btn-fluent btn-secondary btn-sm"
@@ -280,7 +278,7 @@ export const PendingRichCard: React.FC<PendingRichCardProps> = ({
             )}
             <div className="pending-manual-row">
               <span className="pending-archived-hint">
-                已归档草稿为只读，改名或修改请使用“复制为新草稿”
+                {t('pending.archived_readonly_hint')}
               </span>
               <button
                 type="button"
@@ -289,7 +287,7 @@ export const PendingRichCard: React.FC<PendingRichCardProps> = ({
                 onClick={onDuplicate}
                 style={{ padding: '2px 8px', fontSize: '11px' }}
               >
-                <span>复制为新草稿</span>
+                <span>{t('pending.duplicate_as_new_draft')}</span>
               </button>
             </div>
           </div>

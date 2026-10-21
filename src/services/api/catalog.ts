@@ -749,20 +749,6 @@ function resolveDraftCategory(
 }
 
 /**
- * 由在线 AppSummary 合成草稿 payload（一键“移入收录”入口）：
- * - 入口先过草稿 forge 门（`draftForgeGateError`，#35）：非 GitHub 仓库/forge 形态
- *   id 直接拒绝（throw），不合成会被后端记成 GitHub 应用的 payload；
- * - id 取 canonical（小写 owner/repo），与坐标对齐；
- * - status 由后端定为 draft，此处仅备 payload；
- * - icon 仅保留远程 http(s) 真值，base64/data:/空/相对路径一律置空（后续详情 icon 链回填），有真值不覆盖；
- * - platforms 源非空即用（归一小写），否则按名猜桌面最小集（可编辑）；
- * - identifiers/install_dirs/search_subdirs/publishers/aliases/category 仅空时启发式预填，
- *   有真值绝不覆盖，提交前须在编辑页人工校对；
- * - homepage 缺失回退 `https://github.com/owner/repo`；license 缺失回退 `OpenSource`
- *   占位（诚实占位，不伪造 MIT；后端暂存档放行，提交前须在编辑页补真实 SPDX）；
- * - category 非空原样保留（含 external/dev），为空才按关键词猜 + `category_name` 同步。
- */
-/**
  * 草稿 forge 门（#35，后端 `validate_custom_item` DraftLenient 同口径）：
  * 暂存档仅收 GitHub owner/repo——含 `:` 的 forge 形态 id 一律拒；未知前缀先经
  * canonical 解析拒绝（对齐 #16 单出口）；摘要 `forge` 明确非 github 也拒
@@ -784,6 +770,20 @@ export function draftForgeGateError(app: Pick<AppSummary, 'id' | 'forge'>): stri
   return null;
 }
 
+/**
+ * 由在线 AppSummary 合成草稿 payload（一键“移入收录”入口）：
+ * - 入口先过草稿 forge 门（`draftForgeGateError`，#35）：非 GitHub 仓库/forge 形态
+ *   id 直接拒绝（throw），不合成会被后端记成 GitHub 应用的 payload；
+ * - id 取 canonical（小写 owner/repo），与坐标对齐；
+ * - status 由后端定为 draft，此处仅备 payload；
+ * - icon 仅保留远程 http(s) 真值，base64/data:/空/相对路径一律置空（后续详情 icon 链回填），有真值不覆盖；
+ * - platforms 源非空即用（归一小写），否则按名猜桌面最小集（可编辑）；
+ * - identifiers/install_dirs/search_subdirs/publishers/aliases/category 仅空时启发式预填，
+ *   有真值绝不覆盖，提交前须在编辑页人工校对；
+ * - homepage 缺失回退 `https://github.com/owner/repo`；license 缺失回退 `OpenSource`
+ *   占位（诚实占位，不伪造 MIT；后端暂存档放行，提交前须在编辑页补真实 SPDX）；
+ * - category 非空原样保留（含 external/dev），为空才按关键词猜 + `category_name` 同步。
+ */
 // iconRemote: restoreOrFetchIconCycle().remote_url remote truth (http only), takes precedence over app.icon (M2 data: display state).
 export function buildCustomDraftItemFromSummary(app: AppSummary, iconRemote?: unknown): CustomCatalogItem {
   const gateError = draftForgeGateError(app);

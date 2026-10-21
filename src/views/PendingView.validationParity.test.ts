@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import casesFixture from '../../tests/fixtures/draft-validation-cases.json';
 import type { LicenseAllowlistResult } from '../services/api/catalog';
-import { PENDING_EMPTY_DRAFT, validatePendingDraft, type PendingDraftItem } from './PendingView';
+import { PENDING_EMPTY_DRAFT, validatePendingDraft, type PendingDraftItem } from './pending/draftModel';
 
 interface CaseItem {
   id: string;

@@ -1,6 +1,6 @@
 /**
  * 待收录页草稿表单上方的实时卡片预览窗口（Draft Visual / Post-inclusion preview lane）。
- * 从 PendingView 拆出的表单段子组件之一，行为与拆分前逐行同口径。
+ * 可见文案全部取 `pending.preview.*`。
  */
 import React from 'react';
 import { useTranslation } from 'react-i18next';
@@ -33,8 +33,8 @@ export const PendingPreviewLane: React.FC<PendingPreviewLaneProps> = ({
       <div className="pending-preview-header">
         <div className="pending-preview-header-title">
           <Eye size={13} strokeWidth={1.5} aria-hidden="true" style={{ color: 'var(--text-secondary)' }} />
-          <strong>草稿收录后预览</strong>
-          <span className="pending-preview-header-hint">随表单输入实时同步</span>
+          <strong>{t('pending.preview.title')}</strong>
+          <span className="pending-preview-header-hint">{t('pending.preview.hint')}</span>
         </div>
         <div className="pending-preview-header-actions">
           <span
@@ -45,7 +45,7 @@ export const PendingPreviewLane: React.FC<PendingPreviewLaneProps> = ({
               fontWeight: 600,
             }}
           >
-            自维护草稿
+            {t('pending.preview.badge')}
           </span>
           <button
             type="button"
@@ -56,12 +56,12 @@ export const PendingPreviewLane: React.FC<PendingPreviewLaneProps> = ({
             {expanded ? (
               <>
                 <ChevronUp size={12} strokeWidth={1.5} aria-hidden="true" />
-                <span>收起预览</span>
+                <span>{t('pending.preview.collapse')}</span>
               </>
             ) : (
               <>
                 <ChevronDown size={12} strokeWidth={1.5} aria-hidden="true" />
-                <span>展开预览</span>
+                <span>{t('pending.preview.expand')}</span>
               </>
             )}
           </button>
@@ -96,21 +96,21 @@ export const PendingPreviewLane: React.FC<PendingPreviewLaneProps> = ({
             <div className="pending-preview-meta">
               <div className="pending-preview-title-row">
                 <span className={`pending-preview-name ${!form.name.trim() ? 'pending-preview-empty' : ''}`}>
-                  {form.name.trim() || '未填写应用名称'}
+                  {form.name.trim() || t('pending.preview.empty_name')}
                 </span>
                 <span className="pending-preview-id-badge" title={form.id.trim() || expectedId}>
-                  {form.id.trim() || expectedId || '未生成 id'}
+                  {form.id.trim() || expectedId || t('pending.preview.empty_id')}
                 </span>
               </div>
               <div className="pending-preview-owner-row">
                 {form.owner.trim() || form.repo.trim() ? (
                   <span>{form.owner.trim() || '—'} / {form.repo.trim() || '—'}</span>
                 ) : (
-                  <span className="pending-preview-empty">未填写仓库 owner/repo</span>
+                  <span className="pending-preview-empty">{t('pending.preview.empty_repo')}</span>
                 )}
                 <span className="pending-item-dot" />
                 <span className={!form.category.trim() ? 'pending-preview-empty' : ''}>
-                  {form.category_name.trim() || form.category.trim() || '未填写分类'}
+                  {form.category_name.trim() || form.category.trim() || t('pending.preview.empty_category')}
                 </span>
                 {form.default_version.trim() && (
                   <>
@@ -135,9 +135,9 @@ export const PendingPreviewLane: React.FC<PendingPreviewLaneProps> = ({
           {/* 底部信息标签栏 */}
           <div className="pending-preview-tags">
             {/* 分类标签 */}
-            <span className={`pending-preview-tag ${!form.category.trim() ? 'pending-preview-empty' : ''}`} title="功能分类">
+            <span className={`pending-preview-tag ${!form.category.trim() ? 'pending-preview-empty' : ''}`} title={t('pending.preview.category_title')}>
               <Tag size={10} strokeWidth={1.5} aria-hidden="true" />
-              <span>{form.category_name.trim() || form.category.trim() || '未填写分类'}</span>
+              <span>{form.category_name.trim() || form.category.trim() || t('pending.preview.empty_category')}</span>
             </span>
 
             {/* 平台标签列表 */}
@@ -145,25 +145,25 @@ export const PendingPreviewLane: React.FC<PendingPreviewLaneProps> = ({
               previewPlatforms.map((p) => {
                 const meta = PLATFORM_META[p as PlatformId];
                 return (
-                  <span key={p} className="pending-preview-tag" title={`支持平台: ${meta?.label || p}`}>
+                  <span key={p} className="pending-preview-tag" title={t('pending.preview.platform_title', { platform: meta?.label || p })}>
                     <PlatformIcon platform={p} size={11} />
                     <span>{meta?.label || p}</span>
                   </span>
                 );
               })
             ) : (
-              <span className="pending-preview-tag pending-preview-empty">未填写平台</span>
+              <span className="pending-preview-tag pending-preview-empty">{t('pending.preview.empty_platforms')}</span>
             )}
 
             {/* 开源协议标签 */}
-            <span className={`pending-preview-tag ${!form.license.trim() ? 'pending-preview-empty' : ''}`} title="开源协议">
+            <span className={`pending-preview-tag ${!form.license.trim() ? 'pending-preview-empty' : ''}`} title={t('pending.preview.license_title')}>
               <ShieldCheck size={11} strokeWidth={1.5} aria-hidden="true" />
-              <span>{form.license.trim() || '未填写协议'}</span>
+              <span>{form.license.trim() || t('pending.preview.empty_license')}</span>
             </span>
 
             {/* 官网/主页标签 */}
             {form.homepage.trim() ? (
-              <span className="pending-preview-tag" title={`官方主页: ${form.homepage}`}>
+              <span className="pending-preview-tag" title={t('pending.preview.homepage_title', { homepage: form.homepage })}>
                 <Globe size={11} strokeWidth={1.5} aria-hidden="true" />
                 <a
                   href={form.homepage.trim()}
@@ -176,7 +176,7 @@ export const PendingPreviewLane: React.FC<PendingPreviewLaneProps> = ({
                 </a>
               </span>
             ) : (
-              <span className="pending-preview-tag pending-preview-empty">未填写主页</span>
+              <span className="pending-preview-tag pending-preview-empty">{t('pending.preview.empty_homepage')}</span>
             )}
           </div>
         </div>

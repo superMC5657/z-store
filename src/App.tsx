@@ -55,6 +55,15 @@ import { useAppSettings } from './useAppSettings';
 import { useTranslation } from 'react-i18next';
 import './i18n';
 
+/** 安装请求：无校验资产警示弹窗确认后需携原上下文重试。 */
+interface InstallAppRequest {
+  id: string;
+  assetName?: string;
+  customInstallDir?: string;
+  /** 用户在无校验资产警示弹窗中显式放行。 */
+  allowUnverified?: boolean;
+}
+
 export const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewType>('home');
   // 集中导航入口：全部视图切换（Sidebar/搜索回跳/深链 open_view/账号设置/趋势跳转）唯一收口，
@@ -114,7 +123,7 @@ export const App: React.FC = () => {
     handleCollectLocalApp,
     handleWithdrawSubmitted,
     handleRevertCollectedApp,
-  } = useCustomApps({ showToast, t });
+  } = useCustomApps();
 
   // 移入收录入口抑制集：后端 customApps 全量 id + 本地乐观移入 id（归一小写），
   // 即 `selectMergedCatalogApps` 会命中 custom 行的 id 集合；富卡内部入口据此隐藏已存在项。
@@ -164,6 +173,13 @@ export const App: React.FC = () => {
     showToast,
     t,
   });
+
+  // 安装请求收口：以选项对象承接弹窗上下文（确认无校验资产后原样重试），避免位置参数膨胀。
+  const handleInstallRequest = useCallback(
+    (request: InstallAppRequest) =>
+      handleInstallApp(request.id, request.assetName, request.customInstallDir, request.allowUnverified),
+    [handleInstallApp],
+  );
 
   // 2. 平台回填与搜索解耦
   const lazyBackfillRef = useRef<(summaries: AppSummary[], seq: number, forceRefresh?: boolean) => void>(() => {});
@@ -530,12 +546,12 @@ export const App: React.FC = () => {
       .catch(() => undefined);
   }, []);
 
+  // 镜像切换失败向上抛，由设置页统一 toast `settings.proxy_save_failed`（单点呈现，App 侧不弹）；
+  // 后端以返回 false 表示拒绝生效（不抛错，如非 https / 非法域名），同样按失败处理。
   const handleSelectMirror = async (mirrorId: string) => {
-    try {
-      await tauriApi.switchMirror(mirrorId);
-    } catch (err) {
-      // 自定义镜像准入失败（非 https / 非法域名）：拒绝理由直达用户
-      showToast(String(err), 'error');
+    const applied = await tauriApi.switchMirror(mirrorId);
+    if (!applied) {
+      throw new Error(`switchMirror rejected: ${mirrorId}`);
     }
   };
 
@@ -808,7 +824,7 @@ export const App: React.FC = () => {
             const id = stagedDeepLinkInstall;
             setStagedDeepLinkInstall(null);
             if (id !== null) {
-              void handleInstallApp(id);
+              void handleInstallRequest({ id });
             }
           }}
         />
@@ -828,7 +844,7 @@ export const App: React.FC = () => {
           onConfirm={() => {
             const pending = unverifiedInstall;
             dismissUnverifiedInstall();
-            void handleInstallApp(pending.id, pending.assetName, pending.customInstallDir, true);
+            void handleInstallRequest({ ...pending, allowUnverified: true });
           }}
         />
       )}

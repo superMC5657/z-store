@@ -361,6 +361,26 @@
       "csv": "Separate multiple values with commas",
       "lines": "One value per line"
     },
+    "archived_readonly_hint": "Archived drafts are read-only; rename or edit via \"Duplicate as new draft\"",
+    "duplicate_as_new_draft": "Duplicate as new draft",
+    "preview": {
+      "title": "Post-inclusion preview",
+      "hint": "Updates live as you type",
+      "badge": "Self-maintained draft",
+      "collapse": "Collapse preview",
+      "expand": "Expand preview",
+      "empty_name": "App name not set",
+      "empty_id": "ID not generated",
+      "empty_repo": "Repository owner/repo not set",
+      "empty_category": "Category not set",
+      "empty_platforms": "Platforms not set",
+      "empty_license": "License not set",
+      "empty_homepage": "Homepage not set",
+      "category_title": "Category",
+      "license_title": "License",
+      "platform_title": "Supported platforms: {{platform}}",
+      "homepage_title": "Homepage: {{homepage}}"
+    },
     "errors": {
       "owner_required": "Repo owner is required",
       "repo_required": "Repo name is required",

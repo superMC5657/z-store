@@ -20,6 +20,8 @@ const MIGRATED_FILES = [
   'AppDetailModal/Header.tsx',
   'AppDetailModal/AssetList.tsx',
   'AppDetailModal/IconLevelBadge.tsx',
+  '../views/pending/PendingPreviewLane.tsx',
+  '../views/pending/PendingRichCard.tsx',
 ];
 
 interface Violation {

@@ -12,6 +12,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import React from 'react';
 import { Sidebar } from './Sidebar';
 import { parseSelectedPlatformArray, togglePlatformSet } from '../lib/platformFilter';
+import { VIEW_TYPES } from '../app/navigation';
 
 afterEach(() => {
   cleanup();
@@ -174,5 +175,24 @@ describe('Sidebar: Decision B select-nothing (empty is valid, never falls back t
     expect(onTogglePlatform).toHaveBeenCalledWith('windows');
     // 提交的下一状态为代表不选任何平台的空 Set，绝非拒绝操作
     expect(togglePlatformSet(parseSelectedPlatformArray(['windows']), 'windows').size).toBe(0);
+  });
+});
+
+describe('Sidebar: nav items follow VIEW_TYPES', () => {
+  it('导航项逐项来自 VIEW_TYPES（数量与顺序一致）', () => {
+    const { container } = renderSidebar();
+    const ids = Array.from(container.querySelectorAll('.nav-item')).map((el) =>
+      el.getAttribute('data-view-id'),
+    );
+    expect(ids).toEqual([...VIEW_TYPES]);
+  });
+
+  it('点击任意导航项回调对应 ViewType', () => {
+    const onSelectView = vi.fn();
+    const { container } = renderSidebar({ onSelectView });
+    for (const id of VIEW_TYPES) {
+      fireEvent.click(container.querySelector(`[data-view-id="${id}"]`) as HTMLElement);
+    }
+    expect(onSelectView.mock.calls.map((call) => call[0])).toEqual([...VIEW_TYPES]);
   });
 });

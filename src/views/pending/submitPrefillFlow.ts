@@ -7,6 +7,7 @@ import type { TFunction } from 'i18next';
 import { copyTextToClipboard } from '../../services/api/catalog';
 import { tauriApi } from '../../services/api';
 import { resolveFallbackOpener } from '../../utils/browserLockdown';
+import type { ShowToast } from './pendingText';
 
 /**
  * 预填 URL 长度门限（判定口径为编码后预填链接全长，含 percent-encoding 膨胀；
@@ -16,8 +17,8 @@ import { resolveFallbackOpener } from '../../utils/browserLockdown';
  */
 export const PREFILL_URL_LENGTH_LIMIT = 8000;
 
-/** 轻提示通道（与 PendingViewProps.onNotify 同形）。 */
-type Notify = (message: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
+/** 轻提示通道（与 `PendingViewProps.onNotify` 同形）。 */
+type Notify = ShowToast;
 
 /**
  * 预填页打开（先直调 `tauriApi.openUrl` 成功即返，失败才原生 `window.open` 兜底）：
@@ -89,7 +90,7 @@ async function notifyPrefillOpenFailed(
   );
 }
 
-/** 共享尾段参数（单条/批量差异全部由此表达，行为与拆分前逐行同口径）。 */
+/** 共享尾段参数（单条/批量差异全部由此表达）。 */
 export interface SubmitPrefillFlowArgs {
   /** 预填 URL 提供方（单条 getCustomAppPrUrl / 批量 getCustomAppsBatchPrUrl）；缺席即预览模式硬拦。 */
   loadUrl: (() => Promise<string>) | undefined;

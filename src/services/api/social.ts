@@ -2,8 +2,8 @@ import { listen } from '@tauri-apps/api/event';
 import type {
   DeveloperProfile,
   FavoriteEntry,
+  HostRateLimitRefresh,
   HostRateLimitStatus,
-  HostTokenEntry,
   OAuthDeviceStartResult,
   OAuthPollResult,
   OAuthUser,
@@ -57,8 +57,8 @@ export async function onQuotaUpdated(
   });
 }
 
-export async function refreshHostRateLimit(host?: string): Promise<HostTokenEntry> {
-  return tauriInvoke<HostTokenEntry>(CMD.refreshHostRateLimit, { host });
+export async function refreshHostRateLimit(host?: string): Promise<HostRateLimitRefresh> {
+  return tauriInvoke<HostRateLimitRefresh>(CMD.refreshHostRateLimit, { host });
 }
 
 export async function testHostConnection(host: string, token?: string): Promise<HostRateLimitStatus> {
