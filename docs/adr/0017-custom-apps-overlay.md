@@ -31,7 +31,7 @@
    `delete_custom_app`（二次确认由前端做，后端直接删）/
    `mark_submitted(pr_url)`（`status=submitted` + 落链接，已归档拒绝；
    提交档 `SubmitStrict`：必填 + `homepage` http(s) + OSI 门禁，见 ADR-0018）/
-   `collect_custom_app`/`collect_local_app`（收录档 `CollectStrict` 置 `status=collected`，`is_verified` 恒 false，可搜可装；两命令同真身，前者供草稿链路，后者供视图直调）/
+   `collect_local_app`（收录档 `CollectStrict` 置 `status=collected`，`is_verified` 恒 false，可搜可装；草稿链路与视图共用的唯一收录命令面）/
    `revert_collected_to_draft`（`collected`→`draft` + 清空 `pr_url`，失败抛错不静默）/
    `withdraw_submitted`（`submitted`→`collected` + 清空 `pr_url`，payload 不动；已归档/非 submitted 拒绝）/
    `retire_on_sync`（远端 id 命中即 `archived=1`，返回转正提示）/

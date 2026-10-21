@@ -21,7 +21,8 @@ Service，SQLite 只存密文或句柄），维护者拍板不引入，维持明
    收益不抵其复杂度（跨平台凭据服务依赖、迁移与故障恢复），故接受文件级风险。
 2. **IPC 暴露面收口先行**（工单 08）：凭据永不经通用设置 IPC 面进出——`get_settings`
    只回传 UI 设置键白名单、`save_setting` 只接受同源白名单，OAuth 令牌/用户键仅经
-   oauth 模块专用命令读写；`get_host_tokens` 明文回传命令已移除。
+   oauth 模块专用命令读写；`get_host_tokens` 不在命令表内，`refresh_host_rate_limit`
+   只回 host + 配额三元组，响应结构无令牌字段。
 3. **备份文件永不携带凭据**：导出侧（`DataBackupRow` 的 `buildBackupSettings`）按
    枚举字段组装，令牌键结构性缺席（`BACKUP_EXCLUDED_KEYS` 声明排除面）；导入侧
    （`oauth/backup.rs::IMPORT_SETTINGS_ALLOWLIST`）拒绝全部凭据键。恢复后需重新登录。

@@ -112,7 +112,7 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
 | 镜像切换 `mirror.rs::set_active_mirror` | info | `mirror switch id=… proxy='…'`（代理只记脱敏展示值） |
 | 测速结果 `commands/network.rs::test_proxy`（调用方记） | info/warn | `proxy test ok latency_ms=210` / `proxy test failed latency_ms=9999 reason=…`（不记被测 URL） |
 | 下载命中跳过 `installer/downloader_progress.rs::SkipDone::finish` | info | `download skipped sid=… req=… id=… host=… file=… bytes=… elapsed_ms=…`（零网络，`should_skip_download` 命中：本地存在且大小>0 且 SHA-256 与期望一致） |
-| 趋势文本拒绝/失败 `commands/network.rs::fetch_trends_text` | warn | `trends text rejected sid=… req=… reason=…` / `trends text timeout …` / `trends text network fail …` / `trends text upstream … status=…` / `trends text rate-limited … status=429 retry_after='…' retry_after_ms=…` / `trends text read fail …` / `trends text upstream too large …` / `trends text decode fail …`（只记 host，不记 query/URL；429 不占单飞槽计数） |
+| 趋势文本拒绝/失败 `commands/network.rs::fetch_trends_text` | warn | `trends text rejected sid=… req=… reason=…` / `trends text timeout …` / `trends text network fail …` / `trends text upstream … status=…` / `trends text rate-limited … status=429 retry_after='…' retry_after_ms=…` / `trends text read fail …` / `trends text truncated … bytes=…`（超 2MB 截断到字符边界，仍返回前段正文） / `trends text decode fail …`（只记 host，不记 query/URL；429 不占单飞槽计数） |
 
 ### 第二层：debug（release 不可见）
 
