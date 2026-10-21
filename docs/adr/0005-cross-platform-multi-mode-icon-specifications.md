@@ -1,7 +1,7 @@
-# ADR-0005: 跨平台多模式应用图标（Icon）自适应架构规范与后续演化设计
+# ADR-0005: 跨平台多模式应用图标（Icon）自适应架构规范
 
-## 状态
-已接受 (Accepted) - 2026-09-03
+- 状态: Accepted
+- 日期: 2026-09-03
 
 ## 背景
 随着 Z-Store 品牌视觉标识（LOGO）系统完成 Fluent 2.0 重构，应用具备了两套核心意象形态：
@@ -65,14 +65,11 @@
    ```bash
    npx tauri icon app-icon.svg
    ```
-2. **多端独立深色包烘焙建议（未来规划，未落地）**：
-   未来为 iOS/Android 单独烘焙暗色资产时，设想调用（当前仓库不存在 `src-tauri/icons-dark/`，以下命令不可直接执行）：
-   ```bash
-   npx tauri icon app-icon-dark.svg -o src-tauri/icons-dark/
-   ```
+2. **多端深色包为独立资产时的烘焙方式（当前未提供）**：
+   仓库不存在 `src-tauri/icons-dark/`，`npx tauri icon app-icon-dark.svg -o src-tauri/icons-dark/` 不可直接执行；当前唯一的烘焙入口是上面的 `app-icon.svg` → `src-tauri/icons/`。
 
 ---
 
 ## 后果与价值
 - **架构清晰性**：彻底理清了“操作系统原生外壳”与“客户端 Webview 运行时”之间的图标分工边界；
-- **跨平台演进资产完备**：未来在向 macOS 托盘、iOS 18 深色主屏及 Android 动态取色拓展时，具备明确的工程规约与已就绪的母版资产。
+- **跨平台演进资产完备**：macOS 托盘、iOS 18 深色主屏及 Android 动态取色所需的工程规约与母版资产已具备。

@@ -21,12 +21,12 @@
 2. **客户端离线秒开种子兜底（Offline Seed Fallback）**：
    - 客户端主仓库（`z-store`）根目录继续保留一份 `catalog.json`，在打包时作为离线种子预置入安装包；
    - 确保初次安装、弱网或断网用户启动应用时能够 0 延迟立即可见精选应用列表，无白屏与网络阻断风险；
-   - 未来规划（尚未落地，切勿当作可用命令）：拟提供 `pnpm sync:catalog`（`scripts/sync-catalog-seed.mjs`），以便维护者在发版打包前一键拉取远端数据更新本地种子；当前仓库 `package.json` 无该脚本、`scripts/` 下无该文件。
+   - `pnpm sync:catalog`（`scripts/sync-catalog-seed.mjs`）尚未提供：当前 `package.json` 无该脚本、`scripts/` 下无该文件。
 
 3. **客户端同步源与配置对齐**：
    - `src-tauri/config.toml` 中 `default_source_url` 更新指向 `https://raw.githubusercontent.com/superMC5657/z-store-catalog/main/catalog.json`；
-   - `src-tauri/src/config.rs` 中代码内置兜底地址同步对齐加速镜像前缀；
-   - 客户端已实现的 ETag 条件协商增量同步机制无缝切换至该独立仓库。
+   - `src-tauri/src/config.rs` 中代码内置兜底地址与 `config.toml` 同为直连 URL（`https://raw.githubusercontent.com/superMC5657/z-store-catalog/main/catalog.json`），不带镜像前缀；
+   - 客户端以 ETag 条件协商对该独立仓库做增量同步。
 
 4. **主客户端仓库 CI 净化**：
     - 清单 CI 归属 `z-store-catalog` 仓库。

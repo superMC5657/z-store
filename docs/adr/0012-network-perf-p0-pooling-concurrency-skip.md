@@ -2,19 +2,19 @@
 
 - 状态：Accepted
 - 日期：2026-10-05
-- 关联：ADR-0002/0006/0011；首页策略锁死 balanced+7（用户确认不切换）
+- 关联：ADR-0002/0006/0011；首页固定 balanced+seed 7，不提供切换
 
 ## 背景
 
-Tauri 无服务端，全请求出站直调 GitHub/聚合源/CDN。已合并 cache 省流量波（ETag 收敛、HEAD/Range 首 32KB 验图、下载 hash-skip、目录异步落库、更新 ETag 探查并发）+ 本次省时间波。
+Tauri 无服务端，全请求出站直调 GitHub/聚合源/CDN。网络层同时省流量（ETag 收敛、HEAD/Range 首 32KB 验图、下载 hash-skip、目录异步落库、更新 ETag 探查并发）与省时间（池化复用 + 有限并发）。
 
 ## 决策
 
-1. 复用：API/图标双池隔离单例（forge/http.rs:67-88），各 pool_max_idle_per_host=20、idle 90s、connect 5s；图标池 redirect limited(10)+浏览器 UA、恒禁 token。第三池为清单同步专用（CatalogService 自建单例，catalog_service.rs）：拉取公开静态清单（raw.githubusercontent.com），token 恒不携带，构成与图标池同构的 token 卫生边界；pool_max_idle_per_host=10、connect 5s、keepalive 60s，超时走 `network.api_timeout_seconds`。
+1. 复用：API/图标双池隔离单例（`forge/http.rs::new_api_client` / `::new_icon_client`），各 pool_max_idle_per_host=20、idle 90s、connect 5s；图标池 redirect limited(10)+浏览器 UA、恒禁 token。第三池为清单同步专用（CatalogService 自建单例，catalog_service.rs）：拉取公开静态清单（raw.githubusercontent.com），token 恒不携带，构成与图标池同构的 token 卫生边界；pool_max_idle_per_host=10、connect 5s、keepalive 60s，超时走 `network.api_timeout_seconds`。
 2. 并发：仅三处 buffered 保序并发——目录 enrich 5、图标验图 3、starred 探测 4；单仓 10s 熔断，失败落 None。
-3. 重试：仅 timeout/connect+429/5xx，最多 2 次；5xx 与传输错误退避 200ms→800ms，429 消费 `Retry-After`（60s 上限/5s 缺省，与 D9 同口径），三家 forge 同口径（github/http.rs 及其共享 helper）；401/404/304 直返。
-4. 首包：图标先 HEAD 探类型/长度，再 Range 取首 32KB 验 magic（≥300B）；不支持者回退全量首块截断（icon_probe.rs:213/290）。
-5. 跳过：详情/更新走 ETag 条件请求（304 零配额复用 payload），下载命中 hash 直接 skip，目录落库异步不挡首屏。
+3. 重试：仅 timeout/connect+429/5xx，最多 2 次；5xx 与传输错误退避 200ms→800ms，429 消费 `Retry-After`（60s 上限/5s 缺省，与 D9 同口径），各 forge provider 同口径（github/http.rs 及其共享 helper）；401/404/304 直返。
+4. 首包：图标先 HEAD 探类型/长度，再 Range 取首 32KB 验 magic（≥300B）；不支持者回退全量首块截断（`github/icon_probe.rs::verify_image`，SimpleIcons 快路径见同文件 `probe_simple_icons` 的 `buffered(3)`）。
+5. 跳过：详情与手动刷新的更新检查走 ETag 条件请求（304 零配额复用 payload），下载命中 hash 直接 skip，目录落库异步不挡首屏。
 6. 趋势：fetch_trends_text 限长 2MB、10s 超时、三 host 白名单；429 仅按 Retry-After 重试一次（上限 60s）。
 
 ## 后果

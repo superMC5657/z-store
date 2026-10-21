@@ -4,7 +4,7 @@
 - 日期：2026-10-16
 - 关联：ADR-0009（清单仓库解耦）、ADR-0010（规范应用标识）、ADR-0007（开放清单与 TTL）
 - 范围：后端 overlay（SQLite 表、CRUD commands、合并视图 helper、单条与批量预填 Issue 链路）
-  + 前端已交付（待收录视图、侧栏导航、全局合并显示、移入入口、设置开关与备份，
+  + 前端（待收录视图、侧栏导航、全局合并显示、移入入口、设置开关与备份，
   详见 §2.6）。
 
 ## 1. 背景
@@ -16,9 +16,9 @@
 
 ## 2. 决策
 
-1. **新表 `custom_apps`**（`db/schema.rs`，第 17 个 `CREATE TABLE`）：
+1. **新表 `custom_apps`**（`db/schema.rs`）：
    `id TEXT PK`（canonical，仅小写 `owner/repo`；本项目只做 GitHub 平台，
-   `forge[:host]:owner/repo` 形态不在项目范围）/ `payload_json TEXT`（完整 `CatalogItem` 字段：
+   `forge:host/owner/repo` 形态不在项目范围）/ `payload_json TEXT`（完整 `CatalogItem` 字段：
    名称、坐标、图标、描述、分类、别名、版本、协议、星数、`is_verified=false`、
    主页、标识符、安装目录、发布者、平台）/ `status TEXT`（`draft`/`submitted`/`collected`（含磁盘残留 `local_collected` 同义，判定唯一口径 `isCollectedStatus`），
    已提交另存 `pr_url`）/ `created_at`/`updated_at` / `archived INTEGER`
@@ -46,7 +46,7 @@
    `source`（`remote`/`local`）与 `is_cataloged`（未收录显式 `false`）。
    `merge_catalog_overlay_view` 把未归档库内条目叠加到内存目录视图；`is_cataloged` 恒 true（视图内即视为已收录），
    来源标记分两处：`AppSummary.source` 为 `remote`/`local`（`local` 为库内行：`status` 为 `collected` 系或 `submitted` 且未归档（库内判定唯一口径 `isLocalLibraryStatus`），库存恒 `is_cataloged=true`、`is_verified=false`，Issue 预填复制体翻 `true` 仅限载荷；提交 Issue 不退出库，只有归档才退出）；`get_merged_catalog_view` 的 `MergedCatalogEntry.source` 另有 `custom`，表示 overlay 补位行（库内条目，草稿不进该视图）；去重远端优先（同 id 取远端行，custom/local 仅补位；远端已存在同仓行叠加 `local` 标记供黄标判定，蓝标优先，已验证不叠加）；收录态 `collected` 与磁盘残留 `local_collected` 同义，`isCollectedStatus` 是「可提交 Issue/可退回」的门禁口径（不含 `submitted`）；本地徽标走 `verified-badge-local` 橘黄（D4 去彩例外，见 CONTEXT 词汇表）。
-   现有 `search_apps`/`get_home_feed` 语义不动；视图接线已由前端消费
+   现有 `search_apps`/`get_home_feed` 语义不动；前端消费该视图
    （`selectors` 全局合并 + `showCustom` 默认开，关即回退 remote 本体，见 §2.6）。
 4. **转正闭环**：`sync_catalog` 成功路径（含本地降级）以远端 id 集合自动退役命中草稿，
    消息尾部追加转正提示（`with_graduation_hint`）；`retire_on_sync` 亦可独立调用
@@ -59,7 +59,7 @@
    `build_batch_pr_url`（提交档校验后生成，门禁口径见 ADR-0018）；payload 命令只返回
    Rust 序列化的 JSON 文本（单对象 / 数组），供预填链接超长时原样复制，前端不拼模板。
    （内部命令与字段仍沿用 `pr_url` 历史命名，仅界面文案称 Issue。）
-6. **前端已交付**：待收录页 `PendingView.tsx`
+6. **前端接线**：待收录页 `PendingView.tsx`
   （+ `PendingView.test.tsx` / `PendingView.pr.test.tsx`、`styles/components-pending.css`，
    Linear 去彩单色）；`App.tsx` 透传 `pendingCount`/`customIds`/`movedInIds`
   （保存/删除/标记提交回调 + `zstore:custom-apps-changed` 刷新）；
@@ -68,7 +68,7 @@
    `annotateIsCataloged` 系列兼容标注：后端投影为权威，客户端仅补齐乐观本地行与旧载荷）；
    `AppCard` 移入入口 + custom 角标；
    `HomeView`/`TrendsView` 移入入口；设置 `show_custom` 开关（默认开）+ 备份
-   allowlist 往返（`oauth/backup.rs`）；`ViewType` 新增 `pending`；
+   allowlist 往返（`userdata/import.rs::IMPORT_SETTINGS_ALLOWLIST`）；`ViewType` 新增 `pending`；
    中英双语 pending/custom 文案。
 7. **库内归属 × 上游进度（两轴）**：`status` 不是互斥流水线，而是两个维度：
    - 库内归属：`draft`（不在库）→ `collected` 系 / `submitted`（在库）→ `archived`（退出库，权威交还远端）。
@@ -121,8 +121,8 @@
   “孤儿草稿”提示，当前仅保证不污染视图。
 
 
-## 6. P2 结论（既有范围，非 scope creep）
+## 6. 既有范围
 
 - 挂载即 `reloadCustomApps` 保留：`App.tsx` 挂载即拉取本地收录供首页/分类首刷补黄（缺席即无标，就绪后经引用变化重标），避免首刷误终态。
 - 趋势计数含本地保留：榜单平台分布按可见行统计，含本地收录行（与黄标同口径）；榜单公信力由蓝优先保障（已验证远端不叠黄），计数口径不单独剔除本地。
-- 待收录既有范围接受：`pending_coords_*` 坐标显隐、`supplemental`/`runtime` 折叠、`OpenSource` 占位均为既有范围（缺空态则补空态，不删功能）；后续评审不再计入 scope creep。
+- 待收录既有范围：`pending_coords_*` 坐标显隐、`supplemental`/`runtime` 折叠、`OpenSource` 占位均为既有范围（缺空态则补空态，不删功能）。

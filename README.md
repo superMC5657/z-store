@@ -35,13 +35,13 @@
 
 ### 1. 🌐 解耦清单同步与按需详情获取
 - **离线秒开与种子兜底**：客户端启动优先读取本地 `catalog.json` 种子清单，保证零网络延迟立即可用。
-- **一键动态同步**：设置中心支持随时“立即同步收录库”，增量拉取独立生态仓库最新清单，支持配置自定义同步源与加速前缀。
-- **TTL 智能缓存与 ETag 续期**：详情缓存 TTL 基线 60 分钟（合法挡位 `[0, 10, 60, 360, 1440]`，非法值归一化回退 60），过期后触发 ETag 304 条件请求，零配额消耗延长缓存新鲜度；该 TTL 仅约束详情浏览，更新发现（更新中心/关注动态）每次走 ETag 轻量探查，不受其约束。
+- **一键动态同步**：设置中心支持随时“立即同步收录库”，增量拉取独立生态仓库最新清单，同步源可自定义（填写非官方源属破坏性替换）。清单同步为直连通道，不套加速前缀；加速前缀只改写安装包下载 URL。
+- **TTL 智能缓存与 ETag 续期**：详情缓存 TTL 基线 60 分钟（合法挡位 `[0, 10, 60, 360, 1440]`，非法值归一化回退 60），过期后触发 ETag 304 条件请求，零配额消耗延长缓存新鲜度；该 TTL 仅约束详情浏览。资产面（更新中心、收藏）只在显式手动刷新时做 ETag 轻量探查并写 `update_results`，其余时间读本地快照；非资产面（搜索/趋势/平台推导/图标/首页）默认自动拉取并经 ETag 条件请求复用。
 - **发现流分页与搜索翻页**：发现 Feed 首屏 20、触底续 20 无限滑（`has_more=(offset+limit)<total`）；在线搜索默认 `per_page=20`、钳制 1–50，满页即 `hasMore` 续拉下一页。
 - **首页排序锁定**：首页固定 `balanced + seed 7`，无排序切换工具条。
 
 ### 2. 🦊 多托管平台与多设备平台双维筛选
-- **多托管源抽象**：`ForgeProvider` 统一抽象层原生支持 **GitHub**、**Codeberg**、**GitLab**、**Forgejo** 与自建 **Gitea** 实例（[ADR-0006](docs/adr/0006-multi-forge-ecosystem-support.md)），跨平台统一仓库标识（`gh:`、`cb:`、`gl:`、`gitea:`），支持独立主机 PAT 与速率管理。
+- **多托管源抽象**：`ForgeProvider` 统一抽象层原生支持 **GitHub**、**Codeberg**、**GitLab**、**Forgejo** 与自建 **Gitea** 实例（[ADR-0006](docs/adr/0006-multi-forge-ecosystem-support.md)）。canonical 仓库标识为小写 `owner/repo`（GitHub）或 `forge:owner/repo`（非 GitHub 默认主机）/ `forge:host/owner/repo`（自建实例，host 后接 `/`）；`gh:` / `cb:` / `gl:` / `gt:` 只是入站输入别名，落库前统一归一为 canonical。支持独立主机 PAT 与速率管理。
 - **原生多端标识符结构**：元数据清单原生支持按操作系统划分的应用标识符体系（`identifiers`：Windows 进程/可执行文件名、Linux 进程名、macOS 应用名、Android/iOS 原生包名）。
 - **双维交叉筛选**：分类中心支持按设备平台（全部设备 / Windows / Android / macOS / Linux / iOS）与功能分类（系统实用、开发工具、影音视听等 10 大分类）实时双维交叉过滤。
 
@@ -64,11 +64,11 @@
 
 ### 6. 🔄 检查更新流式推流与实时感知
 - **实时推流动效**：更新检查基于并发管道流式拉取（`buffer_unordered(6)`，主路径与关注通知两处），后端通过 `zstore://update-check-progress` 逐项推流，前端呈现丝滑进度条与更新项逐项跳出微动效。
-- **轻量版本嗅探**：更新检查仅拉取版本号与 Release 说明，结合 ETag 304 极速响应，不下载大体积 README 或非必要元数据；与详情 60 分钟 TTL 解耦，每次 ETag 轻探查（304 零配额延长保鲜）。
+- **轻量版本嗅探**：更新检查仅拉取版本号与 Release 说明，不下载大体积 README 或非必要元数据；默认只读本地快照（零网络），显式手动刷新（`forceRefresh=true`）才走 ETag 轻量探查（304 零配额），与详情 60 分钟 TTL 解耦。
 
 ### 7. 🔗 系统级协议与状态指示
 - **深层链接唤起**：注册 `zstore://` URL Scheme，支持浏览器与外部命令行直接唤起客户端直达详情、安装或搜索；安装类深链必须经过显式确认对话框，用户点确认后才开始安装。
-- **API 速率感知**：后台动态感知 GitHub 剩余调用配额，收敛于账号卡片按需查看与管理。
+- **API 速率感知**：后端解析 GitHub 响应里的限流头并经 `zstore://quota-updated` 广播剩余配额；界面暂未消费该事件，账号卡片只展示登录态的配额说明文案。
 - **GitHub 账号胶囊**：侧栏底部常驻账号入口（`Account Capsule`），未登录状态下展示登录入口，登录后展示用户头像与用户名，点击直达设置中心账号卡片。
 
 ### 8. 🌐 网络代理与下载加速架构
@@ -76,24 +76,24 @@
 - **系统代理与 TUN 截获**：客户端发出的 HTTP 请求天然受系统代理及本地代理工具（如 Clash / v2ray / TUN 模式）透明捕获，无需在应用内繁琐配置本地代理 IP/端口；Windows 启动时自探测注册表系统代理无缝衔接。
 
 ### 9. ⚙️ 设置中心 5 组架构
-- 设置中心规范分为 5 个业务分组：`🖥️ 外观与显示`、`🔄 更新与提醒`、`📁 存储与下载`、`🌐 账号与网络`、`💾 数据备份`。
+- 设置中心规范分为 5 个业务分组：`外观与个性化`、`更新与规则`、`存储与安装`、`网络与数据`（GitHub 账号卡片位于该组，锚点 `#settings-account`）、`数据管理与备份`。
 - 全量项目超参与默认配置收敛于 `src-tauri/config.toml` 单一真相源，确保前后端与引擎默认行为严格对齐。
-- **数据备份范围**：备份覆盖 13 个设置键（`oauth/backup.rs` 白名单，含 `show_custom` 自维护 overlay 开关，并兼容历史 `showCustom` 键），`github_token`（PAT 凭据）刻意排除，永不经备份文件流转。
-- **更新频率选项**：支持“启动时检测”与“仅手动检查”。
+- **数据备份范围**：备份覆盖 13 个设置项（`components/DataBackupRow.tsx::buildBackupSettings` 的 12 个显式字段 + `showCustom` 自维护 overlay 开关；导入侧白名单 `userdata/import.rs::IMPORT_SETTINGS_ALLOWLIST` 同时兼容历史 `showCustom` 键），`github_token`（PAT 凭据）刻意排除，永不经备份文件流转。
+- **更新频率选项**：设置页提供“启动时检测”与“仅手动检查”；更新中心属资产面（`MANUAL_ONLY_NETWORK`），启动时不自动触网，实际生效路径为手动检查。
 - **自定义清单源**：填写非官方同步源属于破坏性替换，需经过显式二次确认；留空即恢复官方默认流程。
 
 ---
 
 ## 🛠️ 架构与技术栈
 
-- **桌面底座**: Tauri 2（前后端版本见 `package.json` / `src-tauri/Cargo.toml`；四处版本号 `package.json` / `src-tauri/Cargo.toml` / `src-tauri/Cargo.lock` / `src-tauri/tauri.conf.json` 由 `scripts/bump-version.mjs` 同步，以代码为准）+ Rust（`edition 2021`，见 `src-tauri/Cargo.toml:6`；仓库内未 pin 工具链版本）
-- **前端界面**: React 19（`^19.0.0`，见 `package.json:25`）+ TypeScript 5.7 (strict)（`^5.7.3`，见 `package.json:37`）+ Vite 6（`^6.2.0`，见 `package.json:38`；`vite.config.ts:13-22` 固定 `1420` + HMR `1421`）+ `i18next ^26.4.2`（见 `package.json:22`）+ `pnpm 10.33.0`（见 `package.json:6`）+ `vitest ^3.2.4`（见 `package.json:39`）+ 原生 Fluent 2.0 CSS + Fluent 矢量图标体系 (`lucide-react`)
-- **本地数据库**: 嵌入式 SQLite（WAL 模式；表清单以 `src-tauri/src/db/schema.rs::init_schema` 为准，共 18 张：`installed_apps` / `api_etag_cache` / `app_details_cache` / `user_settings` / `user_favorites` / `update_rules` / `search_history` / `view_history` / `host_tokens` / `watched_apps` / `user_stars` / `icon_cache_meta` / `app_icon_cycles` / `trend_board_cache` / `asset_cache` / `asset_refs` / `custom_apps` / `update_results`，含趋势榜二级缓存、资产缓存与图标分流表）
+- **桌面底座**: Tauri 2（前后端版本见 `package.json` / `src-tauri/Cargo.toml`；四处版本号 `package.json` / `src-tauri/Cargo.toml` / `src-tauri/Cargo.lock` / `src-tauri/tauri.conf.json` 由 `scripts/bump-version.mjs` 同步，以代码为准）+ Rust（`edition 2021`，见 `src-tauri/Cargo.toml`；仓库内未 pin 工具链版本）
+- **前端界面**: React 19（`^19.0.0`，见 `package.json`）+ TypeScript 5.7 (strict)（`^5.7.3`，见 `package.json`）+ Vite 6（`^6.2.0`，见 `package.json`；`vite.config.ts` 固定 `1420` + HMR `1421`）+ `i18next ^26.4.2`（见 `package.json`）+ `pnpm 10.33.0`（见 `package.json`）+ `vitest ^3.2.4`（见 `package.json`）+ 原生 Fluent 2.0 CSS + Fluent 矢量图标体系 (`lucide-react`)
+- **本地数据库**: 嵌入式 SQLite（WAL 模式；表清单以 `src-tauri/src/db/schema.rs::init_schema` 为准，含榜缓存二级落盘、资产缓存与图标分流表）
 - **配置中枢**: 单一基线配置源（`src-tauri/config.toml`），结合编译期内置兜底与外部重载机制
-- **网络与下载**: API / 图标双池物理隔离复用单例（`SHARED_API` / `SHARED_ICON`，均 `connect_timeout 5s`、`keepalive 60s`、`pool 20/idle 90s`，见 `src-tauri/src/forge/http.rs:68-89`；另 `src-tauri/src/lib.rs:84-106` 的 `shared_http_client` 为第三个共享 client，供趋势、OAuth 等通用出站请求，池参数同上；图标 CDN 通道恒丢 token，绝不携带认证头）+ `tokio full`（见 `src-tauri/Cargo.toml:24`）异步流式下载 + `reqwest 0.12`（见 `src-tauri/Cargo.toml:25`）+ ETag 条件缓存 + 有限重试（仅 GET 传输错误与 429/5xx，最多 2 次按 200ms→800ms 退避，401/404/304 永不重试）+ 并发镜像测速管道；图标先 HEAD 判类型长度、再 Range 取前 32KB 验 magic（300B 最小阈值卡掉 LFS 指针，`buffered(3)` 并发）；自动继承系统代理与 TUN 模式（Windows 启动自探测注册表，见 `src-tauri/src/lib.rs:266-287`）
-- **桌面开发配置**: `pnpm tauri dev`（基于 `src-tauri/tauri.conf.json` 配置本地安全策略：无边框 `decorations:false` / `1280x860`，见 `tauri.conf.json:18-23`；CSP，见 `tauri.conf.json:31-34`；NSIS `currentUser`，见 `tauri.conf.json:48-54`；updater 双 endpoint，见 `tauri.conf.json:57-63`）
-- **IPC 出口**: 前端唯一出口为 CMD 表 + `tauriInvoke` 派发（请求键命名规则以 AGENTS.md 为准；视图层禁直调 `invoke`）；后端 commands 注册表以 `src-tauri/src/lib.rs::invoke_handler` 为准（含 zlog 命令）
-- **安装引擎**: Windows MSI (`/qn`)、Setup EXE (`/S` / `/VERYSILENT`)、便携版 ZIP/tarball 自动解压与快捷方式生成（便携 ZIP/tarball（.zip + 二进制 .tar.gz/.tgz/.tar.xz/.tar，os+arch命中可装、仅本平台、tar权重+5垫底、剥顶层+chmod兜底；.7z/.tar.bz2只下载））、macOS (DMG/PKG) 及 Linux (deb/rpm/AppImage) 管道；Unix 卸载走 argv 直调，不经 `sh -c`
+- **网络与下载**: API / 图标双池物理隔离复用单例（`SHARED_API` / `SHARED_ICON`，均 `connect_timeout 5s`、`keepalive 60s`、`pool 20/idle 90s`，见 `src-tauri/src/forge/http.rs::build_client`；另 `src-tauri/src/lib.rs::shared_http_client` 为第三个共享 client，供趋势、OAuth 等通用出站请求，池参数同上；图标 CDN 通道恒丢 token，绝不携带认证头）+ `tokio full` + `reqwest 0.12` 异步流式下载 + ETag 条件缓存 + 有限重试（仅 GET 传输错误与 429/5xx，最多 2 次按 200ms→800ms 退避，401/404/304 永不重试）+ 设置页单键镜像测速；图标先 HEAD 判类型长度、再 Range 取前 32KB 验 magic（300B 最小阈值卡掉 LFS 指针，`buffered(3)` 并发）；自动继承系统代理与 TUN 模式（Windows 启动自探测注册表，见 `src-tauri/src/lib.rs::init_windows_system_proxy`）
+- **桌面开发配置**: `pnpm tauri dev`（基于 `src-tauri/tauri.conf.json` 配置本地安全策略：无边框 `decorations:false` / `1280x860`、CSP、NSIS `currentUser`、updater 双 endpoint）
+- **IPC 出口**: 前端唯一出口为 CMD 表 + `tauriInvoke` 派发（请求键命名规则以 AGENTS.md 为准；视图层禁直调 `invoke`）；后端 commands 注册表以 `src-tauri/src/lib.rs` 的 `tauri::generate_handler!` 为准（含 zlog 命令）
+- **安装引擎**: Windows MSI (`/qn`)、Setup EXE（不带静默参数、交互式拉起，由其自带向导控制流程；退出码 1602/1/2 视为用户取消）、便携版 ZIP/tarball 自动解压与快捷方式生成（便携 ZIP/tarball（.zip + 二进制 .tar.gz/.tgz/.tar.xz/.tar，os+arch命中可装、仅本平台、tar权重+5垫底、剥顶层+chmod兜底；.7z/.tar.bz2只下载））、macOS (DMG/PKG) 及 Linux (deb/rpm/AppImage) 管道；Unix 卸载走 argv 直调，不经 `sh -c`
 
 ---
 
@@ -146,8 +146,12 @@ pnpm tauri build
 - [ADR-0011: doforce趋势聚合源例外](docs/adr/0011-doforce-trends-aggregator-exception.md)
 - [ADR-0012: 网络性能P0双池并发跳过](docs/adr/0012-network-perf-p0-pooling-concurrency-skip.md)
 - [ADR-0013: Feed契约](docs/adr/0013-feed-contract.md)
-- [ADR-0014: 趋势榜 L2 与治理收口](docs/adr/0014-trends-l2-and-governance.md)
+- [ADR-0014: 趋势榜 L2 与治理](docs/adr/0014-trends-l2-and-governance.md)
 - [ADR-0015: 统一图标获取与搜索对齐](docs/adr/0015-unified-icon-fetch-and-search-alignment.md)
+- [ADR-0017: 本地自维护草稿后端 overlay（custom_apps + 全局合并 + 预填 Issue 链路）](docs/adr/0017-custom-apps-overlay.md)
+- [ADR-0018: 开源协议门禁可配（`license_gate`）与 D1 默认严格](docs/adr/0018-license-gate-configurable.md)
+- [ADR-0019: 资产面手动缓存与非资产面自动拉取](docs/adr/0019-asset-manual-cache-and-non-asset-auto-fetch.md)
+- [ADR-0020: 令牌本地明文存储的风险接受](docs/adr/0020-token-plaintext-risk-acceptance.md)
 - [协作规范与 Agent 指南](AGENTS.md)
 
 ---
