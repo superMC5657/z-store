@@ -117,7 +117,7 @@ function renderModalStatus(
 
 describe('选择器归一：大小写变体一致', () => {
   it('installed/managed 与三态在大小写变体下一致', () => {
-    // 生产集合恒含归一小写条目（buildInstalledIds/buildManagedIds 双写）；
+    // 生产集合恒含归一小写条目（buildInstalledIdSet raw+归一双写）；
     // 变体仅出现在查询侧 id，此处锁定查询侧归一。
     const installed = new Set(['acme/atlas']);
     const managed = new Set(['acme/atlas']);

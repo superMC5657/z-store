@@ -1,14 +1,14 @@
 //! 本地自维护草稿 commands（ADR-0017）：CRUD + 转正 + 合并视图 + 预填 Issue 链路。
 //!
 //! - `list_custom_apps` / `save_custom_app` / `delete_custom_app` /
-//!   `collect_custom_app` / `collect_local_app`（同真身，前者供草稿链路，后者供视图直调） /
+//!   `collect_local_app`（本地收录唯一命令面，草稿链路与视图共用） /
 //!   `revert_collected_to_draft`（规范名） / `withdraw_submitted` /
 //!   `mark_submitted` / `retire_on_sync` / `get_merged_catalog_view` /
 //!   `get_custom_app_pr_url`；
 //! - 二次确认由前端做，后端 `delete_custom_app` 直接删；
 //! - `save_custom_app` 暂存档校验（`DraftLenient`，草稿允许不完整）+ `is_verified` 强制
 //!   false（草稿永不冒充已验证收录）；收录档（`CollectStrict`，与 `SubmitStrict` 同口径）
-//!   经 `collect_custom_app` 置 `status=collected`，Issue 链路首行门禁仅收录行放行，
+//!   经 `collect_local_app` 置 `status=collected`，Issue 链路首行门禁仅收录行放行，
 //!   提交档全校验（`SubmitStrict`，D1 不破）保留二次校验。
 
 use crate::config::LicenseGateConfig;
@@ -433,21 +433,8 @@ pub fn delete_custom_app(
 }
 
 /// 本地收录：`status=collected`（收录档全校验，`is_verified=false` 入库约束保持）。
-/// 未收录行经此进入本地精选（可搜可装），Issue 链路前置门禁要求先收录。
-#[tauri::command(rename_all = "camelCase")]
-pub fn collect_custom_app(
-    state: State<'_, AppState>,
-    id: String,
-) -> crate::AppResult<CustomAppEntry> {
-    let key = crate::forge::canonical_lookup_id(&id);
-    let db = state.db().map_err(crate::AppError::from)?;
-    let entry = db.mark_custom_app_collected(&key)?;
-    drop(db);
-    sync_catalog_overlay(&state);
-    Ok(entry)
-}
-
-/// Local collect entry (view): same truth as `collect_custom_app` (CollectStrict, `is_verified=false` kept).
+/// 未收录行经此进入本地精选（可搜可装），Issue 链路前置门禁要求先收录；
+/// 草稿链路与视图直调共用此唯一命令面。
 #[tauri::command(rename_all = "camelCase")]
 pub fn collect_local_app(
     state: State<'_, AppState>,

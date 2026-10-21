@@ -19,7 +19,6 @@ import {
   type PlatformsLiteResult,
   type ReadmeVariant,
   type ReadmeVariantsResult,
-  type TauriCommand,
 } from '../api';
 import { isTauri, tauriInvoke } from './client';
 import { canonicalAppId } from '../normalizeId';
@@ -354,20 +353,11 @@ export async function markCustomSubmitted(id: string, prUrl: string): Promise<Cu
 }
 
 /**
- * 本地收录（收录档校验后 status=collected，已收录仍 is_verified=false）：
- * 仅发 {id}（camelCase 单键，snake 后端桥接）。
+ * 本地收录（唯一命令面 `collect_local_app`：收录档校验后 status=collected，
+ * 已收录仍 is_verified=false）：仅发 {id}（camelCase 单键，snake 后端桥接）。
  */
-async function collectByCommand(cmd: TauriCommand, id: string): Promise<CustomAppEntry> {
-  return tauriInvoke<CustomAppEntry>(cmd, { id });
-}
-
-export async function collectCustomApp(id: string): Promise<CustomAppEntry> {
-  return collectByCommand(CMD.collectCustomApp, id);
-}
-
-/** 本地收录视图入口（收录档校验后 status=collected，已收录仍 is_verified=false；直调 collect_local_app 真身）。 */
 export async function collectLocalApp(id: string): Promise<CustomAppEntry> {
-  return collectByCommand(CMD.collectLocalApp, id);
+  return tauriInvoke<CustomAppEntry>(CMD.collectLocalApp, { id });
 }
 
 /**

@@ -110,7 +110,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
 
   const handleBatchInstallAll = async () => {
     if (!syncResult) return;
-    const toInstall = syncResult.catalog_matches.filter((app) => !installedIds.has(app.id));
+    const toInstall = syncResult.catalog_matches.filter((app) => !selectIsInstalled(app.id, installedIds));
     if (toInstall.length === 0) return;
     setIsBatchInstalling(true);
     setBatchError(null);
@@ -354,7 +354,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                     <button
                       className="btn-fluent btn-primary"
                       style={{ fontSize: 'var(--font-sm)', padding: '4px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
-                      disabled={isBatchInstalling || syncResult.catalog_matches.every((a) => installedIds.has(a.id))}
+                      disabled={isBatchInstalling || syncResult.catalog_matches.every((a) => selectIsInstalled(a.id, installedIds))}
                       onClick={handleBatchInstallAll}
                     >
                       {isBatchInstalling ? <RotateCcw size={12} className="icon-spin" /> : <Zap size={12} />}

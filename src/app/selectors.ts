@@ -14,6 +14,7 @@ import {
   type PlatformId,
 } from '../lib/platformFilter';
 import { normalizeId } from '../services/normalizeId';
+import { isCollectedStatus } from '../services/custom/status';
 // loading 语义唯一深模块为 `lib/platformFilter`：本选择器直接消费 lib，
 // 对外仅保留 LOADING_SETTLE_MS/isEnrichedRowLoading/unionConfirmedSets 三件重导出。
 export {
@@ -99,17 +100,11 @@ function buildAppsById(apps: AppSummary[]): Map<string, AppSummary> {
   return map;
 }
 
-function buildInstalledIds(installedApps: InstalledApp[]): Set<string> {
-  const set = new Set<string>();
-  for (const a of installedApps) {
-    set.add(a.app_id);
-    const n = normalizeId(a.app_id);
-    if (n) set.add(n);
-  }
-  return set;
-}
-
-function buildManagedIds(installedApps: InstalledApp[]): Set<string> {
+/**
+ * installed/managed 集合的同一构建（raw + normalizeId 归一各一条）：
+ * 两集合当前恒等，判定分叉只在读取侧（isInstalled/isManaged），构建只留一个实现。
+ */
+function buildInstalledIdSet(installedApps: InstalledApp[]): Set<string> {
   const set = new Set<string>();
   for (const a of installedApps) {
     set.add(a.app_id);
@@ -224,10 +219,8 @@ function isLocalAppRow(app: { source?: string }): boolean {
   return app.source === 'local';
 }
 
-/** 本地收录态判定（可提 Issue/可退回的唯一口径，`collected` 与磁盘残留 `local_collected` 同义；归档与否由调用方另判）。 */
-export function isCollectedStatus(status: unknown): boolean {
-  return status === 'collected' || status === 'local_collected';
-}
+/** 本地收录态判定唯一口径：实现居 `services/custom/status`（services 层同消费），此处单一重导出（CONTEXT.md 承诺）。 */
+export { isCollectedStatus };
 
 /**
  * 本地库成员判定（可搜可装/黄标的唯一口径）：
@@ -785,9 +778,9 @@ export function useAppSelectors({
   }, []);
   const sidebarPlatformCounts = currentView === 'trends' && trendsPlatformCounts ? trendsPlatformCounts : platformCounts;
 
-  const installedIds = useMemo(() => buildInstalledIds(installedApps), [installedApps]);
+  const installedIds = useMemo(() => buildInstalledIdSet(installedApps), [installedApps]);
 
-  const managedIds = useMemo(() => buildManagedIds(installedApps), [installedApps]);
+  const managedIds = useMemo(() => buildInstalledIdSet(installedApps), [installedApps]);
 
   // managed 加载三态（冷启闪烁守卫）：`installedApps` 初始 `[]`
   // 与“已加载但为空”引用不同（订阅层 `.then(setInstalledApps)` 恒产生新引用，

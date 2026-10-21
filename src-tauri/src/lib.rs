@@ -627,7 +627,6 @@ pub fn run() {
             commands::list_custom_apps,
             commands::save_custom_app,
             commands::delete_custom_app,
-            commands::collect_custom_app,
             commands::collect_local_app,
             commands::revert_collected_to_draft,
             commands::withdraw_submitted,

@@ -86,7 +86,7 @@ pub enum ValidateMode {
     /// 提交档（`mark_submitted` / 预填 Issue 链接）：既有全量——必填 +
     /// `homepage` http(s) + OSI 白名单（D1）。
     SubmitStrict,
-    /// 收录档（`collect_custom_app`）：与 `SubmitStrict` 同口径——
+    /// 收录档（`collect_local_app`）：与 `SubmitStrict` 同口径——
     /// 必填 + `homepage` http(s) + OSI 白名单（D1），仅语义区分收录与提交。
     CollectStrict,
 }

@@ -41,7 +41,6 @@ function stubFor(cmd: string): unknown {
       return '{}';
     case 'get_custom_apps_batch_pr_payload':
       return '[]';
-    case 'collect_custom_app':
     case 'collect_local_app':
     case 'revert_collected_to_draft':
     case 'withdraw_submitted':
@@ -147,7 +146,6 @@ describe('ipc args naming (camelCase)', () => {
     await swallow(catalog.saveCustomApp({ id: 'o/r' } as never));
     await swallow(catalog.deleteCustomApp('o/r'));
     await swallow(catalog.markCustomSubmitted('o/r', 'https://example.com/pr'));
-    await swallow(catalog.collectCustomApp('o/r'));
     await swallow(catalog.collectLocalApp('o/r'));
     await swallow(catalog.revertCollectedApp('o/r'));
     await swallow(catalog.withdrawSubmitted('o/r'));
@@ -166,7 +164,7 @@ describe('ipc args naming (camelCase)', () => {
 
     const byCmd = new Map(captured.map((c) => [c.cmd, c.args]));
     const retireCalls = captured.filter((c) => c.cmd === 'retire_on_sync').map((c) => c.args);
-    const collectCalls = captured.filter((c) => c.cmd === 'collect_custom_app' || c.cmd === 'collect_local_app').map((c) => c.args);
+    const collectCalls = captured.filter((c) => c.cmd === 'collect_local_app').map((c) => c.args);
     expect(byCmd.get('search_apps_online')).toMatchObject({
       searchId: 'sid-1',
       perPage: 20,
@@ -177,11 +175,10 @@ describe('ipc args naming (camelCase)', () => {
     expect(byCmd.get('get_category_apps')).toMatchObject({ perPage: 20 });
     expect(byCmd.get('list_custom_apps')).toMatchObject({ includeArchived: true });
     expect(byCmd.get('mark_submitted')).toMatchObject({ prUrl: 'https://example.com/pr' });
-    expect(byCmd.get('collect_custom_app')).toMatchObject({ id: 'o/r' });
     expect(byCmd.get('collect_local_app')).toMatchObject({ id: 'o/r' });
     expect(byCmd.get('revert_collected_to_draft')).toMatchObject({ id: 'o/r' });
     expect(byCmd.get('withdraw_submitted')).toMatchObject({ id: 'o/r' });
-    expect(collectCalls).toHaveLength(2);
+    expect(collectCalls).toHaveLength(1);
     for (const args of collectCalls) {
       expect(args).toEqual({ id: 'o/r' });
     }
