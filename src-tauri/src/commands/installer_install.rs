@@ -139,16 +139,16 @@ pub async fn install_app(
             // `AppScanner::linux_candidate_names`，收敛重复；本地收录同样识别）。
             let catalog_ids = state
                 .catalog
-                .get_catalog_item(&detail.id)
+                .get_catalog_item(&detail.core.id)
                 .map(|cat| cat.get_native_identifiers())
                 .unwrap_or_default();
             let (pkg_names, bin_names) =
                 crate::scanner::AppScanner::linux_candidate_names(
                     &catalog_ids,
                     &[
-                        detail.repo.clone(),
-                        detail.id.clone(),
-                        detail.name.clone(),
+                        detail.core.repo.clone(),
+                        detail.core.id.clone(),
+                        detail.core.name.clone(),
                     ],
                 );
             // 系统包回填：先包管理器列表（deb/rpm 按 kind 分流），再 desktop Exec，最后 PATH/which。
