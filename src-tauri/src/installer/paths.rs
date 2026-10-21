@@ -1,4 +1,6 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+#[cfg(target_os = "windows")]
+use std::path::Path;
 
 /// 获取当前系统用户的主目录（跨平台：Windows: USERPROFILE / HOMEDRIVE+HOMEPATH；Unix: HOME）
 pub fn user_home_dir() -> Option<PathBuf> {

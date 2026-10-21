@@ -120,6 +120,7 @@ impl AppScanner {
     /// 根 + 一级子目录内 `.lnk` 按 `matches` 谓词过滤文件名（已小写），
     /// 命中即 `resolve_lnk_target` + 安装缓存排除 + 存在性校验后返回首个落盘路径。
     /// 遍历顺序：根优先，`read_dir` 原序。
+    #[cfg(target_os = "windows")]
     fn scan_lnk_dir(root: &Path, matches: impl Fn(&str) -> bool) -> Option<String> {
         if !root.is_dir() {
             return None;
@@ -1740,6 +1741,7 @@ mod path_resolution_tests {
         assert!(!exe_pred("other.lnk"));
     }
 
+    #[cfg(target_os = "windows")]
     #[test]
     fn scan_lnk_dir_traverses_temp_dirs_without_filesystem_side_effects() {
         // 仅使用临时目录，不依赖本机真实快捷方式目录。
