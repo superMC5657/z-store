@@ -4,6 +4,7 @@ import type { DownloadEvent, Update } from '@tauri-apps/plugin-updater';
 import { useTranslation } from 'react-i18next';
 import { notifyToast } from '../utils/notify';
 import { isTauri } from '../services/api';
+import { restartApp } from '../services/appProcess';
 import { resolveUpdateFeed, ZSTORE_REPO } from '../utils/updateManifest';
 
 type UpdatePhase =
@@ -129,8 +130,7 @@ export const ClientUpdateRow: React.FC = () => {
   const handleRestart = async () => {
     setManualRestartHint(false);
     try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      await invoke('plugin:process|restart');
+      await restartApp();
     } catch {
       // 未注册 plugin-process（本仓库未引入该依赖）：提示用户手动重启
       setManualRestartHint(true);

@@ -3,6 +3,7 @@ import { Clock, Languages } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { BrandLogo } from './BrandLogo';
 import { tauriApi } from '../services/api';
+import { closeWindow, minimizeWindow, toggleMaximizeWindow, isWindowMaximized } from '../services/window';
 
 interface TitleBarProps {
   searchQuery: string;
@@ -146,8 +147,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
 
   const handleMinimize = async () => {
     try {
-      const { getCurrentWindow } = await import('@tauri-apps/api/window');
-      await getCurrentWindow().minimize();
+      await minimizeWindow();
     } catch {
       // 纯浏览器预览模式
     }
@@ -155,9 +155,8 @@ export const TitleBar: React.FC<TitleBarProps> = ({
 
   const handleMaximize = async () => {
     try {
-      const { getCurrentWindow } = await import('@tauri-apps/api/window');
-      await getCurrentWindow().toggleMaximize();
-      setIsMaximized(await getCurrentWindow().isMaximized());
+      await toggleMaximizeWindow();
+      setIsMaximized(await isWindowMaximized());
     } catch {
       // 纯浏览器预览模式
     }
@@ -165,8 +164,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
 
   const handleClose = async () => {
     try {
-      const { getCurrentWindow } = await import('@tauri-apps/api/window');
-      await getCurrentWindow().close();
+      await closeWindow();
     } catch {
       // 纯浏览器预览模式
     }

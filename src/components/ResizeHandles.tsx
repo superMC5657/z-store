@@ -1,14 +1,9 @@
 import React from 'react';
-import type { Window } from '@tauri-apps/api/window';
 import { isTauri } from '../services/api';
-
-// 单一数据源派生自上游 `startResizeDragging` 函数签名
-// （`@tauri-apps/api/window@2.11.1` 未导出 `ResizeDirection`，
-// 直接 `import type { ResizeDirection }` 会导致 tsc 编译失败 —— 此处通过参数类型自动推导）。
-type ResizeDirection = Parameters<Window['startResizeDragging']>[0];
+import { startWindowResizeDragging, type WindowResizeDirection } from '../services/window';
 
 interface HandleDef {
-  direction: ResizeDirection;
+  direction: WindowResizeDirection;
   className: string;
 }
 
@@ -22,17 +17,6 @@ const HANDLES: readonly HandleDef[] = [
   { direction: 'SouthEast', className: 'resize-se' },
   { direction: 'SouthWest', className: 'resize-sw' },
 ];
-
-async function beginResize(direction: ResizeDirection): Promise<void> {
-  if (!isTauri) return;
-  try {
-    const { getCurrentWindow } = await import('@tauri-apps/api/window');
-    if (await getCurrentWindow().isMaximized()) return;
-    await getCurrentWindow().startResizeDragging(direction);
-  } catch {
-    // 非 Tauri 演示模式 / WebView2 降级：空操作，确保永不回退。
-  }
-}
 
 /**
  * 无边框全边缘调整大小支持（Ubuntu Wayland/X11）。
@@ -56,9 +40,9 @@ export const ResizeHandles: React.FC = () => {
           onMouseDown={(e) => {
             if (e.buttons !== 1) return;
             e.preventDefault();
-            void beginResize(direction);
+            void startWindowResizeDragging(direction);
           }}
-          onTouchStart={() => void beginResize(direction)}
+          onTouchStart={() => void startWindowResizeDragging(direction)}
         />
       ))}
     </>
