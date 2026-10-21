@@ -145,7 +145,7 @@ mod app_core_tests {
         assert_eq!(sv["is_installed"], true);
         assert_eq!(dv["changelog"], "c");
 
-        // 拆分前落盘的平面载荷（无 core 键、缺 Option 字段）原样可读。
+        // 平面载荷（无 core 键、缺 Option 字段）经同一反序列化入口原样可读。
         let legacy_summary: AppSummary = serde_json::from_str(
             r#"{"id":"o/r","name":"n","owner":"o","repo":"r","icon":"i","icon_bg":"g",
                 "description":"d","stars":1,"forks":2,"license":"MIT","latest_version":"v1",
@@ -327,6 +327,17 @@ pub struct StarredSyncResult {
 pub struct HostTokenEntry {
     pub host: String,
     pub token: String,
+    pub rate_limit_remaining: Option<u32>,
+    pub rate_limit_limit: Option<u32>,
+    pub rate_limit_reset: Option<i64>,
+    pub updated_at: i64,
+}
+
+/// `refresh_host_rate_limit` 的 IPC 响应：host + 配额三元组 + 时间戳。
+/// 令牌字段结构性缺席——凭据只经 oauth 专用命令读写，不随配额刷新面回传 webview。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostRateLimitRefresh {
+    pub host: String,
     pub rate_limit_remaining: Option<u32>,
     pub rate_limit_limit: Option<u32>,
     pub rate_limit_reset: Option<i64>,

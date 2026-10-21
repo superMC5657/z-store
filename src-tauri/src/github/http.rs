@@ -2,6 +2,7 @@
 //!
 //! 仅 `github` 模块内使用，行为与原样板一致。
 
+use crate::forge::http::retry_after_delay_ms;
 use crate::models::{AppCore, AppSummary};
 use reqwest::header::{HeaderMap, HeaderValue, IF_NONE_MATCH};
 
@@ -11,19 +12,6 @@ pub(crate) enum EtagGetOutcome {
     NotModified,
     Unauthorized,
     Failed,
-}
-
-/// 429 Retry-After 消费口径（对齐 D9 趋势侧 60s 上限 / 5s 缺省）：
-/// 秒值 → 毫秒并夹到上限，缺失/非数字用缺省。5xx 与传输错误仍走 D7 固定退避。
-fn retry_after_delay_ms(headers: &reqwest::header::HeaderMap) -> u64 {
-    const RETRY_AFTER_MAX_MS: u64 = 60_000;
-    const RETRY_AFTER_DEFAULT_MS: u64 = 5_000;
-    headers
-        .get("retry-after")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.trim().parse::<u64>().ok())
-        .map(|secs| secs.saturating_mul(1000).min(RETRY_AFTER_MAX_MS))
-        .unwrap_or(RETRY_AFTER_DEFAULT_MS)
 }
 
 /// 通用 ETag GET 请求通道：挂载 `If-None-Match`，处理 304 / 401 / 200 结果并上报限流。
@@ -534,26 +522,6 @@ pub(crate) async fn fallback_summary(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_retry_after_delay_ms_d9_clamp_and_default() {
-        let h = |v: &str| {
-            let mut map = reqwest::header::HeaderMap::new();
-            map.insert(
-                "retry-after",
-                reqwest::header::HeaderValue::from_str(v).unwrap(),
-            );
-            map
-        };
-        // 秒值 → 毫秒。
-        assert_eq!(retry_after_delay_ms(&h("2")), 2_000);
-        // 上限 60s（对齐 D9 口径）。
-        assert_eq!(retry_after_delay_ms(&h("999")), 60_000);
-        // 缺失/非数字 → 缺省 5s。
-        assert_eq!(retry_after_delay_ms(&reqwest::header::HeaderMap::new()), 5_000);
-        assert_eq!(retry_after_delay_ms(&h("abc")), 5_000);
-        assert_eq!(retry_after_delay_ms(&h(" ")), 5_000);
-    }
 
     #[test]
     fn test_guess_category_all_10_kinds() {

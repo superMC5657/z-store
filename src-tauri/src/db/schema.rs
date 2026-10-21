@@ -218,13 +218,13 @@ impl Database {
     }
 
     /// user_version 迁移链：读当前版本 → 逐版执行迁移函数 → 盖章至 `CURRENT_USER_VERSION`。
-    /// 基底 DDL 与幂等补列先行执行，v0（存量库/新库的未盖章态）→ v1 仅机制采用；
-    /// 高版本库被旧构建打开时不降级盖章，仅跑幂等基底（只读兼容）。
+    /// 基底 DDL 与幂等补列先行执行；v0（存量库/新库的未盖章态）→ v1 仅机制采用。
+    /// 高版本库被旧构建打开时不降级盖章、不跑迁移链，但幂等基底 DDL 照常执行（缺表/缺列自愈）。
     fn run_migrations(&self) -> Result<()> {
         let version = self.user_version()?;
         if version > CURRENT_USER_VERSION {
             log::warn!(
-                "db user_version={} 高于当前支持的 {}，跳过迁移仅跑幂等基底",
+                "db user_version={} 高于当前支持的 {}，跳过迁移、仅跑幂等基底",
                 version,
                 CURRENT_USER_VERSION
             );
@@ -233,7 +233,15 @@ impl Database {
         for v in version..CURRENT_USER_VERSION {
             match v {
                 0 => self.migrate_v0_to_v1()?,
-                other => unreachable!("迁移链存在空洞：v{other} 无对应迁移函数"),
+                other => {
+                    return Err(rusqlite::Error::SqliteFailure(
+                        rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_ERROR),
+                        Some(format!(
+                            "迁移链存在空洞：v{other} 无对应迁移函数（user_version={version}, CURRENT_USER_VERSION={CURRENT_USER_VERSION}），请补齐 migrate_v{other}_to_v{}",
+                            other + 1
+                        )),
+                    ));
+                }
             }
         }
         if version < CURRENT_USER_VERSION {
@@ -331,7 +339,7 @@ mod schema_migration_tests {
 
     #[test]
     fn higher_version_db_stays_readonly_without_downgrade_stamp() {
-        // 高版本库被旧构建打开：不降级盖章、不跑迁移，仅幂等基底自愈（只读兼容）。
+        // 高版本库被旧构建打开：不降级盖章、不跑迁移链，幂等基底 DDL 照常执行（缺表/缺列自愈）。
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         conn.execute_batch("PRAGMA user_version = 99;").unwrap();
         let db = Database { conn };

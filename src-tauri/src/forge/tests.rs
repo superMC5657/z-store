@@ -61,7 +61,7 @@ fn test_forge_type_metadata() {
 
 #[test]
 fn test_matches_host_exact_or_subdomain_not_substring() {
-    // 精确命中 + 白名单子域；子串/前缀伪装域不命中（contains 判定已废）。
+    // 精确命中 + 白名单子域；子串/前缀伪装域不命中。
     assert!(ForgeType::GitHub.matches_host("github.com"));
     assert!(ForgeType::GitHub.matches_host("api.github.com"));
     assert!(!ForgeType::GitHub.matches_host("xx-github.com"));
@@ -73,7 +73,7 @@ fn test_matches_host_exact_or_subdomain_not_substring() {
 
 #[test]
 fn test_parse_rejects_injectable_segments() {
-    // owner/repo 段含 `?`/`#`/空白：解析出口整体拒绝（原实现原样保留，可注入 URL 路径）。
+    // owner/repo 段含 `?`/`#`/空白：解析出口整体拒绝（这些字符入 URL 路径即可注入）。
     assert!(RepositoryUrlParser::parse("https://github.com/o w/r").is_none());
     assert!(RepositoryUrlParser::parse("https://github.com/o?x=1/r").is_none());
     assert!(RepositoryUrlParser::parse("https://github.com/o#x/r").is_none());
@@ -85,8 +85,56 @@ fn test_parse_rejects_injectable_segments() {
 }
 
 #[test]
+fn test_matches_host_ignores_port_and_trailing_dot() {
+    assert!(ForgeType::GitHub.matches_host("github.com:443"));
+    assert!(ForgeType::GitHub.matches_host("api.github.com:443"));
+    assert!(ForgeType::GitHub.matches_host("GitHub.com."));
+    assert!(!ForgeType::GitHub.matches_host("github.com.evil.com:443"));
+    assert!(!ForgeType::GitHub.matches_host("evilgithub.com"));
+}
+
+#[test]
+fn test_parse_url_host_default_port_and_trailing_dot() {
+    // 默认端口与尾部点归一同键：canonical 与无装饰写法一致。
+    assert_eq!(
+        crate::forge::canonical_app_id("https://github.com:443/o/r").as_deref(),
+        Some("o/r")
+    );
+    assert_eq!(
+        crate::forge::canonical_app_id("https://codeberg.org./o/r").as_deref(),
+        Some("codeberg:o/r")
+    );
+    // 非标端口保留（自建实例 API 需带端口）。
+    assert_eq!(
+        RepositoryUrlParser::parse("https://git.example.com:8080/o/r")
+            .unwrap()
+            .host,
+        "git.example.com:8080"
+    );
+    // 伪装域仍不判为 GitHub。
+    let evil = RepositoryUrlParser::parse("https://evilgithub.com/o/r").unwrap();
+    assert_eq!(evil.forge, ForgeType::Gitea);
+    assert_eq!(evil.to_app_id(), "gitea:evilgithub.com/o/r");
+}
+
+#[test]
+fn test_parse_rejects_colon_in_owner_repo() {
+    // host 段放行 `:`（非标端口），owner/repo 段拒绝（否则与 `forge:host:owner/repo` 语法混淆）。
+    assert_eq!(
+        RepositoryUrlParser::parse("gitea:example.com:8080/o/r")
+            .unwrap()
+            .to_app_id(),
+        "gitea:example.com:8080/o/r"
+    );
+    assert!(RepositoryUrlParser::parse("o:r/x").is_none());
+    assert!(RepositoryUrlParser::parse("o/r:x").is_none());
+    assert!(RepositoryUrlParser::parse("github:o:r/x").is_none());
+    assert!(RepositoryUrlParser::parse("https://github.com/o:r/x").is_none());
+}
+
+#[test]
 fn test_parse_host_detection_exact_not_substring() {
-    // 伪装域不再误入 GitHub/Codeberg/GitLab 分支，回落自建 Gitea。
+    // 伪装域不进入 GitHub/Codeberg/GitLab 分支，回落自建 Gitea。
     assert_eq!(
         RepositoryUrlParser::parse("https://xx-github.com/o/r")
             .unwrap()

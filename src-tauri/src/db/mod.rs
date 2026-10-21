@@ -214,7 +214,12 @@ impl Database {
         let res = f();
         match res {
             Ok(v) => {
-                self.conn.execute_batch("COMMIT")?;
+                // COMMIT 失败（如延迟约束/IO 错误）时事务仍处于打开态：
+                // 先尽力 ROLLBACK，避免后续写落在隐式事务里。
+                if let Err(e) = self.conn.execute_batch("COMMIT") {
+                    let _ = self.conn.execute_batch("ROLLBACK");
+                    return Err(e);
+                }
                 Ok(v)
             }
             Err(e) => {

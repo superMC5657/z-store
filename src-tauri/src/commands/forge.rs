@@ -1,5 +1,7 @@
 use super::resolve_active_github_token;
-use crate::models::{DeveloperProfile, HostRateLimitStatus, HostTokenEntry, StarredSyncResult};
+use crate::models::{
+    DeveloperProfile, HostRateLimitRefresh, HostRateLimitStatus, HostTokenEntry, StarredSyncResult,
+};
 use crate::AppState;
 use tauri::State;
 
@@ -78,7 +80,7 @@ pub async fn remove_host_token(state: State<'_, AppState>, host: String) -> crat
 pub async fn refresh_host_rate_limit(
     state: State<'_, AppState>,
     host: Option<String>,
-) -> crate::AppResult<HostTokenEntry> {
+) -> crate::AppResult<HostRateLimitRefresh> {
     let clean_host = host
         .unwrap_or_else(|| "github.com".to_string())
         .trim()
@@ -90,7 +92,7 @@ pub async fn refresh_host_rate_limit(
     // GitHub 探测即取值：probe 返回响应头提取的配额三元组（同步可用），
     // 事件通道照常异步落库/emit 前端，命令侧不再 `sleep(60ms)` 赌写入时序
     //（竞态下返回陈旧 None 的根源），改为对读出的 entry 确定性覆写。
-    let probed = if clean_host == "github.com" || clean_host.ends_with(".github.com") {
+    let probed = if crate::forge::ForgeType::GitHub.matches_host(&clean_host) {
         crate::probe_and_announce_rate_limit(token.as_deref()).await
     } else {
         None
@@ -108,7 +110,14 @@ pub async fn refresh_host_rate_limit(
             rate_limit_reset: None,
             updated_at: crate::now_secs(),
         });
-    Ok(overlay_probed_quota(entry, probed))
+    let entry = overlay_probed_quota(entry, probed);
+    Ok(HostRateLimitRefresh {
+        host: entry.host,
+        rate_limit_remaining: entry.rate_limit_remaining,
+        rate_limit_limit: entry.rate_limit_limit,
+        rate_limit_reset: entry.rate_limit_reset,
+        updated_at: entry.updated_at,
+    })
 }
 
 /// 探测值确定性覆写：probe 命中即以响应头为准（事件通道仍异步落库/emit，
@@ -195,7 +204,7 @@ pub async fn test_host_connection(
 
     let mut headers = base_ua_headers();
 
-    if clean_host == "github.com" || clean_host.ends_with(".github.com") {
+    if crate::forge::ForgeType::GitHub.matches_host(&clean_host) {
         if let Some(ref tok) = effective_token {
             try_insert_auth(&mut headers, "Bearer", tok);
         }

@@ -203,9 +203,7 @@ async fn platforms_lite_from_github(
         crate::check_auth_expired(401, &format!("op=platforms-lite id={}", clean_id));
     }
 
-    // 收敛：304-touch/save/回退分支收归 `github::release_fetch` shallow adapter
-    //（与 Streaming Update Check〈流式更新检查〉同一 interface）。
-    // Fresh 无需回退源，避免无谓 DB 读。
+    // 缓存效应收敛见本函数文档：Fresh 无需回退源，避免无谓 DB 读；
     // touch/save 双效应经 `apply_release_cache_effects` 单口执行。
     let stale_row: Option<crate::models::AppDetail> = match &outcome {
         EtagGetOutcome::Fresh { .. } => None,
@@ -332,32 +330,16 @@ fn cached_detail_summary(
     let icon_trimmed = detail.core.icon.trim();
     let mut summary = AppSummary {
         core: AppCore {
-            id: detail.core.id.clone(),
-            name: detail.core.name.clone(),
-            description_en: detail.core.description_en.clone(),
-            owner: detail.core.owner.clone(),
-            repo: detail.core.repo.clone(),
             icon: if icon_trimmed.is_empty() || icon_trimmed.starts_with("data:") {
                 String::new()
             } else {
                 detail.core.icon.clone()
             },
-            icon_bg: detail.core.icon_bg.clone(),
-            description: detail.core.description.clone(),
-            stars: detail.core.stars,
-            forks: detail.core.forks,
-            license: detail.core.license.clone(),
-            latest_version: detail.core.latest_version.clone(),
-            category: detail.core.category.clone(),
-            category_name: detail.core.category_name.clone(),
-            is_verified: detail.core.is_verified,
-            forge: detail.core.forge.clone(),
-            forge_host: detail.core.forge_host.clone(),
-            homepage: detail.core.homepage.clone(),
-            platforms: detail.core.platforms.clone(),
+            // 卡片不携带收录标记/来源/状态，恒为 None。
             is_cataloged: None,
             source: None,
             status: None,
+            ..detail.core.clone()
         },
         is_installed: None,
         has_update: None,

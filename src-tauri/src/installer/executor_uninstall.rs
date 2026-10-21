@@ -299,8 +299,8 @@ async fn execute_uninstallation_inner(
 
         let status = if is_lnk {
             // 注册表/DB 来路的卸载串不可信：经 cmd.exe `start /WAIT` 时 `"`/`&`/`%`
-            // 等元字符可断开参数注入任意命令。改走 allowlist 校验 + ShellExecuteEx
-            // 直调，命令串不再经任何 shell 词法解析。
+            // 等元字符可断开参数注入任意命令。`.lnk` 走 allowlist 校验 + ShellExecuteEx
+            // 直调，命令串不经任何 shell 词法解析。
             validate_lnk_for_launch(&exe)?;
             shell_execute_open_wait(&exe).await?
         } else {

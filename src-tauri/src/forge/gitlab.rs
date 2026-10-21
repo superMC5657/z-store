@@ -1,7 +1,10 @@
 use futures_util::future::BoxFuture;
 
 use super::coord::ForgeType;
-use super::http::{api_headers, new_api_client, AuthScheme, HttpSpan, JSON_ACCEPT_VALUE};
+use super::http::{
+    api_headers, get_with_retry_after_once, new_api_client, AuthScheme, HttpSpan,
+    JSON_ACCEPT_VALUE,
+};
 use super::provider::{parse_assets, ForgeProvider, ForgeReleaseInfo, ForgeRepoInfo};
 use serde::Deserialize;
 
@@ -35,10 +38,7 @@ impl ForgeProvider for GitLabProvider {
             let span = HttpSpan::start(&url);
             let repo_id = format!("{owner}/{repo}");
             span.log_start("fetch repo", &repo_id);
-            let resp = client
-                .get(&url)
-                .headers(headers)
-                .send()
+            let resp = get_with_retry_after_once(&client, &url, &headers)
                 .await
                 .map_err(|e| {
                     span.log_fail("fetch repo", &repo_id, &e.to_string());
@@ -123,10 +123,7 @@ impl ForgeProvider for GitLabProvider {
             let span = HttpSpan::start(&latest_url);
             let repo_id = format!("{owner}/{repo}");
             span.log_start("fetch release", &repo_id);
-            let resp = client
-                .get(&latest_url)
-                .headers(headers.clone())
-                .send()
+            let resp = get_with_retry_after_once(&client, &latest_url, &headers)
                 .await
                 .map_err(|e| {
                     span.log_fail("fetch release", &repo_id, &e.to_string());
@@ -153,10 +150,7 @@ impl ForgeProvider for GitLabProvider {
                     span.req_id,
                     safe_list
                 );
-                let list_resp = client
-                    .get(&list_url)
-                    .headers(headers)
-                    .send()
+                let list_resp = get_with_retry_after_once(&client, &list_url, &headers)
                     .await
                     .map_err(|e| {
                         log::warn!("http get forge release fallback failed id={}/{} sid={} req={} host={} reason={}", owner, repo, span.sid, span.req_id, span.host, crate::log_support::short_reason(&e.to_string()));
@@ -218,10 +212,7 @@ impl ForgeProvider for GitLabProvider {
             );
             let span = HttpSpan::start(&url);
             span.log_search_start("search");
-            let resp = client
-                .get(&url)
-                .headers(headers)
-                .send()
+            let resp = get_with_retry_after_once(&client, &url, &headers)
                 .await
                 .map_err(|e| {
                     span.log_search_fail("search", &e.to_string());

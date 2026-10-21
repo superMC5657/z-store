@@ -437,7 +437,11 @@ async fn probe_readme(
     }
 
     // 2. 远端拉取 README
-    let readme_url = format!("https://api.github.com/repos/{}/{}/readme", owner, repo);
+    let readme_url = format!(
+        "https://api.github.com/repos/{}/{}/readme",
+        urlencoding::encode(owner),
+        urlencoding::encode(repo)
+    );
     let mut req = client
         .get(&readme_url)
         .header("User-Agent", crate::forge::http::BROWSER_UA_VALUE)

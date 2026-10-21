@@ -36,11 +36,12 @@ impl ForgeType {
         }
     }
 
-    /// 宿主精确或白名单子域匹配：`github.com` 命中 `api.github.com`，
-    /// 不命中 `xx-github.com` / `github.com.evil.com`（子串 `contains` 判定已废，
-    /// 与 `mirror::host_is_or_subdomain_of` 同口径）。
+    /// 宿主精确或白名单子域匹配（大小写不敏感）：`github.com` 命中
+    /// `api.github.com` / `github.com:443`，不命中 `xx-github.com` / `github.com.evil.com`。
+    /// 比较前剥端口（`split(':').next()`，与 `mirror::url_host` 同口径）并去尾部点。
     pub fn matches_host(&self, host: &str) -> bool {
-        let host = host.trim().trim_end_matches('.').to_lowercase();
+        let host = host.trim().to_lowercase();
+        let host = host.split(':').next().unwrap_or("").trim_end_matches('.');
         let domain = self.default_host();
         host == domain || host.ends_with(&format!(".{domain}"))
     }
@@ -105,15 +106,19 @@ pub fn canonical_lookup_id(raw: &str) -> String {
 
 pub struct RepositoryUrlParser;
 
-/// 解析出口统一段校验（注入面收口）：owner/repo/host 段拒绝空值与
-/// `?`/`#`/`/`/反斜杠/空白——这些字符入 URL 路径即路径/查询注入，
-/// 入 canonical 键即脏键；校验失败整体拒绝（返回 `None`），不透传脏坐标。
-/// host 段额外放行 `:`（自建实例非标端口）；`/`/`://` 经上游 split 切分天然不出现，
-/// 此处仍显式拒绝作纵深防御。
-fn valid_coord_segment(s: &str) -> bool {
+/// host 段校验（注入面收口）：拒绝空值与 `?`/`#`/`/`/反斜杠/空白——这些字符
+/// 入 URL 路径即路径/查询注入，入 canonical 键即脏键。放行 `:` 以承载自建实例
+/// 的非标端口；`/`/`://` 经上游 split 切分天然不出现，此处仍显式拒绝作纵深防御。
+fn valid_host_segment(s: &str) -> bool {
     !s.is_empty()
         && !s.contains(['?', '#', '/', '\\'])
         && !s.chars().any(char::is_whitespace)
+}
+
+/// owner/repo 段校验：同 host 口径并拒绝 `:`——`owner:repo` 会与
+/// `forge:host:owner/repo` 语法混淆。
+fn valid_repo_segment(s: &str) -> bool {
+    valid_host_segment(s) && !s.contains(':')
 }
 
 /// 解析出口唯一构造点：四条解析分支经此校验收敛，脏段一律 `None`。
@@ -123,7 +128,7 @@ fn checked_coord(
     owner: &str,
     repo: &str,
 ) -> Option<UniversalRepoCoord> {
-    if !valid_coord_segment(host) || !valid_coord_segment(owner) || !valid_coord_segment(repo) {
+    if !valid_host_segment(host) || !valid_repo_segment(owner) || !valid_repo_segment(repo) {
         return None;
     }
     Some(UniversalRepoCoord {
@@ -134,7 +139,20 @@ fn checked_coord(
     })
 }
 
+/// Web URL 的 host 归一：小写、去尾部点、去默认端口（https 443 / http 80）。
+/// 非标端口保留，自建实例 API 仍需带端口访问；canonical 键因此与无端口写法同值。
+fn normalize_url_host(raw: &str, is_https: bool) -> String {
+    let host = raw.trim().to_lowercase();
+    let default_port = if is_https { "443" } else { "80" };
+    let host = match host.rsplit_once(':') {
+        Some((head, port)) if port == default_port => head.to_string(),
+        _ => host,
+    };
+    host.trim_end_matches('.').to_string()
+}
+
 impl RepositoryUrlParser {
+
     pub fn parse(input: &str) -> Option<UniversalRepoCoord> {
         let s = input.trim();
         if s.is_empty() {
@@ -143,6 +161,7 @@ impl RepositoryUrlParser {
 
         // 1. 解析完整的 Web URL (例如 https://codeberg.org/FreeTube/FreeTube)
         if s.starts_with("http://") || s.starts_with("https://") {
+            let is_https = s.starts_with("https://");
             let without_proto = if let Some(rest) = s.strip_prefix("https://") {
                 rest
             } else if let Some(rest) = s.strip_prefix("http://") {
@@ -153,7 +172,7 @@ impl RepositoryUrlParser {
 
             let parts: Vec<&str> = without_proto.split('/').filter(|p| !p.is_empty()).collect();
             if parts.len() >= 3 {
-                let host = parts[0].to_lowercase();
+                let host = normalize_url_host(parts[0], is_https);
                 let owner = parts[1].trim();
                 let mut repo_part = parts[2].trim();
                 if let Some(pos) = repo_part.find('?') {

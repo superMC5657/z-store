@@ -105,7 +105,13 @@ fn cleanup_desktop_shortcut(app_name: &str) {
         .map(|p| std::path::PathBuf::from(p).join("Desktop"))
         .unwrap_or_else(|_| std::path::PathBuf::from("C:\\Users\\Public\\Desktop"));
     if let Some(lnk) = deletable_desktop_lnk(&desktop, app_name) {
-        let _ = std::fs::remove_file(lnk);
+        if let Err(e) = std::fs::remove_file(&lnk) {
+            log::warn!(
+                "删除 Desktop 快捷方式失败 path={} err={}",
+                lnk.display(),
+                e
+            );
+        }
     }
 }
 

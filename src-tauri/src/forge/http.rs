@@ -131,6 +131,40 @@ pub fn icon_headers() -> HeaderMap {
     preset_headers(ApiPreset::IconCdn, None, AuthScheme::Bearer)
 }
 
+/// 429 `Retry-After` 退避口径：秒值转毫秒并封顶 60s，缺失/非数字取 5s 缺省。
+/// 只解析秒值形态；HTTP-date 形态无日期解析依赖，按缺省处理。
+pub(crate) fn retry_after_delay_ms(headers: &HeaderMap) -> u64 {
+    const RETRY_AFTER_MAX_MS: u64 = 60_000;
+    const RETRY_AFTER_DEFAULT_MS: u64 = 5_000;
+    headers
+        .get("retry-after")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .map(|secs| secs.saturating_mul(1000).min(RETRY_AFTER_MAX_MS))
+        .unwrap_or(RETRY_AFTER_DEFAULT_MS)
+}
+
+/// 单次 GET + 429 重发一次：读 `Retry-After` → 封顶 sleep → 原样重发。
+/// 非 429 响应（含 5xx）与传输层错误不重试，交由调用方判定。
+pub(crate) async fn get_with_retry_after_once(
+    client: &reqwest::Client,
+    url: &str,
+    headers: &HeaderMap,
+) -> Result<reqwest::Response, reqwest::Error> {
+    let resp = client.get(url).headers(headers.clone()).send().await?;
+    if resp.status().as_u16() != 429 {
+        return Ok(resp);
+    }
+    let delay_ms = retry_after_delay_ms(resp.headers());
+    log::debug!(
+        "forge http 429 retry url='{}' retry_after_ms={}",
+        crate::log_support::sanitize_url(url),
+        delay_ms
+    );
+    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+    client.get(url).headers(headers.clone()).send().await
+}
+
 /// 统一 HTTP 跨度：req_id/sid/host/safe_url/start + 统一日志/rate_limit 入口。
 /// 只收敛 id 生成与日志字段组装，不改变请求语义；
 /// rate_limit 由调用方显式触发：GitHub 传 "github.com"，gitea/gitlab 传实际 host
@@ -250,5 +284,27 @@ impl HttpSpan {
     /// 统一 rate_limit 入口：透传给 `crate::notify_rate_limit`。
     pub fn notify(&self, resp: &reqwest::Response, rate_host: &str) {
         crate::notify_rate_limit(rate_host, resp.headers());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::retry_after_delay_ms;
+
+    #[test]
+    fn retry_after_delay_ms_clamps_and_defaults() {
+        let h = |v: &str| {
+            let mut map = reqwest::header::HeaderMap::new();
+            map.insert(
+                "retry-after",
+                reqwest::header::HeaderValue::from_str(v).unwrap(),
+            );
+            map
+        };
+        assert_eq!(retry_after_delay_ms(&h("2")), 2_000);
+        assert_eq!(retry_after_delay_ms(&h("999")), 60_000);
+        assert_eq!(retry_after_delay_ms(&reqwest::header::HeaderMap::new()), 5_000);
+        assert_eq!(retry_after_delay_ms(&h("abc")), 5_000);
+        assert_eq!(retry_after_delay_ms(&h(" ")), 5_000);
     }
 }

@@ -55,7 +55,7 @@ pub struct IconFetchJob {
 
 /// 待补探/待 enrich 仓库坐标（`id` 归一小写 + `owner`/`repo`）：
 /// 搜索与趋势组装 `IconFetchJob` 前的中间形状（ctx 尚未产生，由调用方入流时附加），
-/// 替代按位解构的 `(id, owner, repo)` 裸三元组。
+/// 区别于按位解构的 `(id, owner, repo)` 裸三元组。
 #[derive(Debug, Clone)]
 pub struct RepoCoord {
     pub id: String,

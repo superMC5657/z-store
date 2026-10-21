@@ -1288,3 +1288,31 @@ fn test_probe_cache_file_adopt_only_when_selected_matches() {
     assert_eq!(empty.cache_file, "old.png");
 }
 
+#[test]
+fn commit_failure_rolls_back_and_leaves_no_open_transaction() {
+    let conn = rusqlite::Connection::open_in_memory().unwrap();
+    conn.execute_batch(
+        "PRAGMA foreign_keys = ON;
+         CREATE TABLE parent (id INTEGER PRIMARY KEY);
+         CREATE TABLE child (pid INTEGER REFERENCES parent(id) DEFERRABLE INITIALLY DEFERRED);",
+    )
+    .unwrap();
+    let db = Database { conn };
+    // 延迟外键只在 COMMIT 时校验：插入孤立行使 COMMIT 必定失败。
+    let res: Result<()> = db.with_immediate_transaction(|| {
+        db.exec_upsert("INSERT INTO child (pid) VALUES (42)", [])?;
+        Ok(())
+    });
+    assert!(res.is_err(), "延迟约束违规应使 COMMIT 返回错误");
+    // 失败后已回滚：连接不在事务中，可重新 BEGIN（否则报 transaction within a transaction）。
+    db.conn
+        .execute_batch("BEGIN IMMEDIATE")
+        .expect("COMMIT 失败后连接不得停留在未结束的事务里");
+    db.conn.execute_batch("ROLLBACK").unwrap();
+    let rows: i64 = db
+        .query_scalar_opt("SELECT count(*) FROM child", [])
+        .unwrap()
+        .unwrap();
+    assert_eq!(rows, 0, "失败事务的写入应随回滚丢弃");
+}
+

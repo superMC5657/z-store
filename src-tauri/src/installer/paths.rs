@@ -1,6 +1,4 @@
-#[cfg(target_os = "windows")]
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// 获取当前系统用户的主目录（跨平台：Windows: USERPROFILE / HOMEDRIVE+HOMEPATH；Unix: HOME）
 pub fn user_home_dir() -> Option<PathBuf> {
@@ -191,6 +189,30 @@ pub fn create_desktop_shortcut(app_name: &str, exe_path: &Path) {
         .output();
 }
 
+/// 开始菜单程序组内的卸载快捷方式：包名先经 `sanitize_shortcut_name` 剥离分隔符，
+/// 拼接结果必然落在 `base` 之下（绝对路径的盘符/根分隔符与 `..` 均随之失效）；
+/// 命中的 `.lnk` 再经 canonicalize + 前缀断言确认仍在程序组目录内才返回。
+fn start_menu_uninstall_lnk(base: &Path, app_name: &str) -> Option<PathBuf> {
+    let sdir = base.join(sanitize_shortcut_name(app_name));
+    let canon_sdir = sdir.canonicalize().ok()?;
+    let entries = std::fs::read_dir(&canon_sdir).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let fname = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_lowercase();
+        if fname.contains("uninstall") && fname.ends_with(".lnk") && path.is_file() {
+            let canon = path.canonicalize().ok()?;
+            if canon.starts_with(&canon_sdir) {
+                return Some(canon);
+            }
+        }
+    }
+    None
+}
+
 /// 自动嗅探或构造已安装应用的系统卸载命令行
 pub fn resolve_uninstaller_command(
     app_name: &str,
@@ -319,33 +341,18 @@ pub fn resolve_uninstaller_command(
         }
 
         // 4. 检查开始菜单程序组中的卸载快捷方式
-        let start_menu_candidates = [
-            std::env::var("APPDATA").ok().map(|p| {
-                std::path::PathBuf::from(p)
-                    .join(r"Microsoft\Windows\Start Menu\Programs")
-                    .join(app_name)
-            }),
-            Some(
-                std::path::PathBuf::from(r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs")
-                    .join(app_name),
-            ),
+        let start_menu_bases = [
+            std::env::var("APPDATA")
+                .ok()
+                .map(|p| PathBuf::from(p).join(r"Microsoft\Windows\Start Menu\Programs")),
+            Some(PathBuf::from(
+                r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs",
+            )),
         ];
 
-        for sdir_opt in start_menu_candidates.into_iter().flatten() {
-            if sdir_opt.is_dir() {
-                if let Ok(entries) = std::fs::read_dir(&sdir_opt) {
-                    for entry in entries.flatten() {
-                        let path = entry.path();
-                        let fname = path
-                            .file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .to_lowercase();
-                        if fname.contains("uninstall") && fname.ends_with(".lnk") {
-                            return Some(format!("\"{}\"", path.to_string_lossy()));
-                        }
-                    }
-                }
+        for base in start_menu_bases.into_iter().flatten() {
+            if let Some(lnk) = start_menu_uninstall_lnk(&base, app_name) {
+                return Some(format!("\"{}\"", lnk.to_string_lossy()));
             }
         }
     }
@@ -356,6 +363,8 @@ pub fn resolve_uninstaller_command(
 #[cfg(test)]
 mod shortcut_name_tests {
     use super::sanitize_shortcut_name;
+    #[cfg(target_os = "windows")]
+    use std::path::PathBuf;
 
     #[test]
     fn strips_windows_reserved_filename_chars() {
@@ -370,5 +379,21 @@ mod shortcut_name_tests {
     fn empty_after_sanitize_falls_back_to_app() {
         assert_eq!(sanitize_shortcut_name(""), "App");
         assert_eq!(sanitize_shortcut_name("\\\\/:*?"), "App");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn start_menu_lookup_rejects_traversal_and_absolute_app_names() {
+        let base = PathBuf::from(r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs");
+        for app_name in [r"..\..\Windows\System32", r"C:\Windows\System32"] {
+            let sdir = base.join(super::sanitize_shortcut_name(app_name));
+            assert!(
+                sdir.starts_with(&base),
+                "{app_name} 不得逃出程序组目录: {:?}",
+                sdir
+            );
+            assert_eq!(sdir.parent(), Some(base.as_path()));
+            assert_eq!(super::start_menu_uninstall_lnk(&base, app_name), None);
+        }
     }
 }

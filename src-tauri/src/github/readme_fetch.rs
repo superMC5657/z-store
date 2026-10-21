@@ -16,6 +16,15 @@ type RootPathsCache = std::collections::HashMap<String, (Vec<String>, i64)>;
 static ROOT_PATHS_CACHE: LazyLock<std::sync::Mutex<RootPathsCache>> =
     LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
+/// 路径逐段 percent-encoding：`/` 保留作分隔，段内字符各编码一次。
+fn encode_path_segments(path: &str) -> String {
+    path.trim_start_matches('/')
+        .split('/')
+        .map(urlencoding::encode)
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 fn readme_list_ttl_secs() -> i64 {
     if let Some(db) = crate::github::http::open_db_opt() {
         let minutes = db.get_detail_cache_ttl_minutes();
@@ -205,7 +214,12 @@ async fn list_root_paths(
     api_base: Option<&str>,
     api_timeout: std::time::Duration,
 ) -> Option<Vec<String>> {
-    let canonical_contents = format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/contents?ref={branch}");
+    let canonical_contents = format!(
+        "{GITHUB_API_BASE}/repos/{}/{}/contents?ref={}",
+        urlencoding::encode(owner),
+        urlencoding::encode(repo),
+        urlencoding::encode(branch)
+    );
     let contents_url = CatalogService::request_url(&canonical_contents, api_base);
     let span = crate::forge::http::HttpSpan::start(&contents_url);
     span.log_search_start("readme-contents");
@@ -302,7 +316,13 @@ async fn fetch_readme_text(
     api_base: Option<&str>,
     api_timeout: std::time::Duration,
 ) -> Option<String> {
-    let canonical = format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/contents/{path}?ref={branch}");
+    let canonical = format!(
+        "{GITHUB_API_BASE}/repos/{}/{}/contents/{}?ref={}",
+        urlencoding::encode(owner),
+        urlencoding::encode(repo),
+        encode_path_segments(path),
+        urlencoding::encode(branch)
+    );
     let url = CatalogService::request_url(&canonical, api_base);
     let mut raw_headers = headers.clone();
     raw_headers.remove(ACCEPT);
@@ -338,7 +358,13 @@ async fn fetch_readme_text(
     if api_base.is_some_and(|b| !b.trim().is_empty()) {
         return None;
     }
-    let raw_url = format!("https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}");
+    let raw_url = format!(
+        "https://raw.githubusercontent.com/{}/{}/{}/{}",
+        urlencoding::encode(owner),
+        urlencoding::encode(repo),
+        urlencoding::encode(branch),
+        encode_path_segments(path)
+    );
     let raw_span = crate::forge::http::HttpSpan::start(&raw_url);
     raw_span.log_search_start("readme-raw-direct");
     let req = client.get(&raw_url).header(

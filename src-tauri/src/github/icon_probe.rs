@@ -443,22 +443,17 @@ struct GitTreeNode {
     size: Option<u64>,
 }
 
-/// 图标探测主入口（Simple Icons 品牌库 → Git Trees 全库评分）。
-/// `headers` 传入带 token 的鉴权头则含 Trees 级；
-/// 传 `None`（如无 token 的图标命令回退路径）则跳过 Trees，只做免鉴权级。
-/// 命中返回权威 URL，未命中返回 `None`。
-/// 快慢分离超时：取统一配置中枢 `api_timeout_seconds`，0 视为未设置用缺省；
-/// 快路径 SimpleIcons 每 slug 缺省 1500ms（免鉴权），慢路径 Trees 缺省 12s（需鉴权）。
+/// 快路径 SimpleIcons 每 slug 超时：取统一配置中枢 `api_timeout_seconds`，
+/// 0 视为未设置，用缺省 1500ms（免鉴权）。
 /// ADR-0008：网络超时统一经 `config::api_timeout_or` 单一来源（统一配置中枢同一键）。
 pub(crate) fn simple_icon_timeout() -> std::time::Duration {
     crate::config::api_timeout_or(std::time::Duration::from_millis(1500))
 }
+/// 慢路径 Trees 超时：同一配置中枢同一键，0 视为未设置，用缺省 12s（需鉴权）。
 fn trees_timeout() -> std::time::Duration {
     crate::config::api_timeout_or(std::time::Duration::from_secs(12))
 }
 
-/// Trees 探测分支：仓库 `default_branch`（经 [`resolve_probe_branches`]
-/// 动态解析；接口失败/超时返回空，调用方跳过 L3）。
 /// 动态分支解析共用（搜索 `icon_fetch` + 详情 cycle L3 + 匿名兜底）：
 /// GET `repos/{owner}/{repo}` 取 `default_branch`（5s 超时，
 /// 失败/超时/空值返回空，调用方跳过 L3）。
@@ -469,7 +464,11 @@ pub(crate) async fn resolve_probe_branches(
     owner: &str,
     repo: &str,
 ) -> Vec<String> {
-    let repo_api = format!("https://api.github.com/repos/{}/{}", owner, repo);
+    let repo_api = format!(
+        "https://api.github.com/repos/{}/{}",
+        urlencoding::encode(owner),
+        urlencoding::encode(repo)
+    );
     if let Ok(Ok(resp)) = tokio::time::timeout(
         crate::config::api_timeout_or(std::time::Duration::from_secs(5)),
         client.get(&repo_api).headers(headers.clone()).send(),
@@ -587,7 +586,9 @@ pub(crate) async fn probe_trees(
 ) -> Option<ProbedIcon> {
     let tree_url = format!(
         "https://api.github.com/repos/{}/{}/git/trees/{}?recursive=1",
-        owner, repo, branch
+        urlencoding::encode(owner),
+        urlencoding::encode(repo),
+        urlencoding::encode(branch)
     );
     let req = client.get(&tree_url).headers(headers.clone()).send();
     if let Ok(Ok(resp)) = tokio::time::timeout(trees_timeout(), req).await {
@@ -650,6 +651,11 @@ pub(crate) async fn probe_trees(
     None
 }
 
+/// 图标探测主入口（Simple Icons 品牌库 → Git Trees 全库评分）。
+/// `headers` 传 `Some` 带 token 鉴权头则含 Trees 级；传 `None`（无 token 的图标命令回退路径）
+/// 只做免鉴权级。`branch` 由调用方经 [`resolve_probe_branches`] 动态解析
+///（接口失败/超时返回空，调用方跳过 L3）。
+/// 命中返回权威 URL，未命中返回 `None`。
 pub(crate) async fn probe_repo_logo(
     client: &reqwest::Client,
     headers: Option<&HeaderMap>,

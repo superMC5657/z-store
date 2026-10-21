@@ -206,8 +206,9 @@ pub struct OauthConfig {
 }
 
 fn default_oauth_client_id() -> String {
-    // 与嵌入 config.toml [oauth] default_client_id 同值（单一事实源锁：
-    // serde_field_defaults_match_embedded_baseline 逐项校验，防外部文件缺段时漂移）。
+    // 与嵌入 config.toml [oauth] default_client_id 两处同值：常量供外部文件缺段时回退，
+    // 嵌入字面量供正常启动读取；一致性由
+    // `serde_field_defaults_match_embedded_baseline` 逐项校验锁定。
     "Ov23lik0b7fDGMLTiOYH".to_string()
 }
 
@@ -511,8 +512,8 @@ impl Default for LicenseGateConfig {
 }
 
 impl CatalogConfig {
-    /// 解析 catalog.json 的真实有效路径：唯一依据 `config.toml [catalog] local_path`。
-    /// 配置路径存在即返回；不存在即返回 None，由调用方回退编译期内置清单。
+    /// 解析 catalog.json 的真实有效路径：依据 `config.toml [catalog] local_path`。
+    /// 路径存在即返回；不存在即返回 None，由调用方回退编译期内置清单。
     pub fn resolve_local_path(&self) -> Option<std::path::PathBuf> {
         let configured = std::path::Path::new(&self.local_path);
         if configured.is_file() {
@@ -520,6 +521,19 @@ impl CatalogConfig {
         }
 
         None
+    }
+
+    /// 外部 `config.toml` 载入时把相对 `local_path` 锚定到该文件所在目录：
+    /// 配置发现已是绝对路径，`local_path` 随之不再依赖进程 CWD。
+    /// 嵌入/默认值不经此处，保持原有 CWD 相对语义。
+    fn rebase_local_path(&mut self, config_dir: &std::path::Path) {
+        let configured = std::path::Path::new(&self.local_path);
+        if configured.is_relative() {
+            self.local_path = config_dir
+                .join(configured)
+                .to_string_lossy()
+                .into_owned();
+        }
     }
 
     /// 读取本地收录清单内容：优先使用配置的 local_path 文件；
@@ -594,7 +608,10 @@ pub fn get_project_config() -> &'static ProjectConfig {
                     toml::from_str::<ProjectConfig>(&content).map_err(|e| e.to_string())
                 });
             match parsed {
-                Ok(external) => {
+                Ok(mut external) => {
+                    if let Some(config_dir) = path.parent() {
+                        external.catalog.rebase_local_path(config_dir);
+                    }
                     log::info!("外部 config.toml 已加载 path={}", path.display());
                     return apply_compiled_license_gate(external, &compiled);
                 }
@@ -607,7 +624,7 @@ pub fn get_project_config() -> &'static ProjectConfig {
                 }
             }
         }
-        log::warn!(
+        log::debug!(
             "未加载任何外部 config.toml，使用编译期嵌入配置（候选：{}）",
             candidates
                 .iter()
@@ -662,6 +679,27 @@ mod tests {
         let items: Option<Vec<serde_json::Value>> = conf.catalog.load_catalog_items();
         assert!(items.is_some());
         assert!(items.unwrap().len() >= 20);
+    }
+
+    #[test]
+    fn external_relative_local_path_is_rebased_to_config_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut catalog = CatalogConfig::default();
+        catalog.rebase_local_path(dir.path());
+        assert_eq!(
+            std::path::Path::new(&catalog.local_path),
+            dir.path().join("../catalog.json"),
+            "相对 local_path 应锚定到 config.toml 所在目录"
+        );
+
+        // 绝对路径原样保留。
+        let abs = dir.path().join("catalog.json");
+        let mut catalog = CatalogConfig {
+            local_path: abs.to_string_lossy().into_owned(),
+            ..CatalogConfig::default()
+        };
+        catalog.rebase_local_path(std::path::Path::new("C:\\elsewhere"));
+        assert_eq!(catalog.local_path, abs.to_string_lossy());
     }
 
     #[test]
@@ -775,7 +813,7 @@ mod tests {
     #[test]
     fn license_allowed_matches_constant_item_by_item() {
         // 运行时源（嵌入 config.toml [license_gate] allowed）与编译期兜底常量
-        // 逐项同序同值（工单 38：替换原 len/首尾抽样断言，杜绝静默漂移）。
+        // 逐项同序同值比对，杜绝静默漂移。
         let conf = ProjectConfig::default();
         assert!(conf.license_gate.enabled);
         let expected: Vec<String> = DEFAULT_LICENSE_ALLOWLIST

@@ -63,11 +63,15 @@ pub(crate) fn repo_real_description_from_etag(
     if owner.is_empty() || repo.is_empty() {
         return None;
     }
-    let raw = format!("https://api.github.com/repos/{}/{}", owner, repo);
+    let raw = format!(
+        "https://api.github.com/repos/{}/{}",
+        urlencoding::encode(owner),
+        urlencoding::encode(repo)
+    );
     let lowered = format!(
         "https://api.github.com/repos/{}/{}",
-        owner.to_lowercase(),
-        repo.to_lowercase()
+        urlencoding::encode(&owner.to_lowercase()),
+        urlencoding::encode(&repo.to_lowercase())
     );
     let mut urls = vec![raw];
     if !urls.contains(&lowered) {
@@ -508,9 +512,14 @@ impl CatalogService {
 
         let release_url = format!(
             "https://api.github.com/repos/{}/{}/releases/latest",
-            owner, repo
+            urlencoding::encode(&owner),
+            urlencoding::encode(&repo)
         );
-        let repo_url = format!("https://api.github.com/repos/{}/{}", owner, repo);
+        let repo_url = format!(
+            "https://api.github.com/repos/{}/{}",
+            urlencoding::encode(&owner),
+            urlencoding::encode(&repo)
+        );
         let (req_id, sid) = crate::github::http::new_log_ctx();
         // 首屏快速路径 (1)：release ∥ repo 并发发射。repo 仅需 owner/repo，
         // 与 release 响应无任何依赖，故两个原始请求同时在途，重叠 TLS 握手与首字节等待。
@@ -622,7 +631,11 @@ impl CatalogService {
         // checksum 失败/超时置空不阻塞；probe 无 token 直接跳过不计时。
         // README 经 get_with_etag 走 SQLite ETag 缓存（304 命中直接用缓存 payload），
         // 不再每次全量；限流/401 经 get_with_etag 内统一上报，此处补 401 通知。
-        let readme_url = format!("https://api.github.com/repos/{}/{}/readme", owner, repo);
+        let readme_url = format!(
+            "https://api.github.com/repos/{}/{}/readme",
+            urlencoding::encode(&owner),
+            urlencoding::encode(&repo)
+        );
         // 瘦身：base_headers 各派生只 clone 一次，后续经 &复用（release/repo/probe 共用 &base_headers，
         // readme 独占 &readme_headers，checksum 独占 &headers），避免双 clone。
         let mut readme_headers = base_headers.clone();

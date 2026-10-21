@@ -74,6 +74,20 @@ fn check_trends_text_url(raw: &str) -> Result<reqwest::Url, String> {
     Ok(url)
 }
 
+/// 截断体解码：首块截断点落在多字节字符中间时，回退到 `valid_up_to()` 边界，
+/// 返回已完整的文本前缀；完整体的非法 UTF-8 不在此处理。
+fn decode_truncated_utf8(buf: Vec<u8>) -> String {
+    match String::from_utf8(buf) {
+        Ok(text) => text,
+        Err(e) => {
+            let valid = e.utf8_error().valid_up_to();
+            let mut bytes = e.into_bytes();
+            bytes.truncate(valid);
+            String::from_utf8(bytes).unwrap_or_default()
+        }
+    }
+}
+
 /// 趋势榜单 HTTP 直取（绕过 WebView CORS；Rust 侧无 CORS 概念）。
 /// 10s 超时；成功返回 body 文本。错误串内含可机读标记供前端映射：
 /// `upstream status {code}`（HTTP 状态）、`request timeout`（超时）、
@@ -240,17 +254,23 @@ pub async fn fetch_trends_text(url: String) -> Result<String, String> {
             start.elapsed().as_millis()
         );
     }
-    let body = String::from_utf8(buf).map_err(|e| {
-        log::warn!(
-            "trends text decode fail sid={} req={} host='{}' elapsed_ms={} reason={}",
-            sid,
-            req,
-            host,
-            start.elapsed().as_millis(),
-            crate::log_support::short_reason(&e.to_string())
-        );
-        format!("trends: read body failed: {}", crate::log_support::short_reason(&e.to_string()))
-    })?;
+    let body = if truncated {
+        // 截断点可能落在多字节字符中间：截到最后一个完整字符边界再解码，
+        // 调用方拿到前 2MB 有效前缀而非解码错误。
+        decode_truncated_utf8(buf)
+    } else {
+        String::from_utf8(buf).map_err(|e| {
+            log::warn!(
+                "trends text decode fail sid={} req={} host='{}' elapsed_ms={} reason={}",
+                sid,
+                req,
+                host,
+                start.elapsed().as_millis(),
+                crate::log_support::short_reason(&e.to_string())
+            );
+            format!("trends: read body failed: {}", crate::log_support::short_reason(&e.to_string()))
+        })?
+    };
     log::debug!(
         "trends text ok sid={} req={} host='{}' bytes={} elapsed_ms={}",
         sid,
@@ -264,7 +284,22 @@ pub async fn fetch_trends_text(url: String) -> Result<String, String> {
 
 #[cfg(test)]
 mod trends_text_tests {
-    use super::check_trends_text_url;
+    use super::{check_trends_text_url, decode_truncated_utf8};
+
+    #[test]
+    fn truncation_cut_inside_multibyte_char_returns_valid_prefix() {
+        // "ab€cd"：€ 占 3 字节，截到第 4 字节即落在 € 中间。
+        let full = "ab€cd".as_bytes();
+        let cut = &full[..4];
+        assert!(std::str::from_utf8(cut).is_err());
+        assert_eq!(decode_truncated_utf8(cut.to_vec()), "ab");
+    }
+
+    #[test]
+    fn truncation_on_char_boundary_keeps_whole_text() {
+        let full = "ab€cd";
+        assert_eq!(decode_truncated_utf8(full.as_bytes()[..5].to_vec()), "ab€");
+    }
 
     #[test]
     fn allowlist_accepts_trends_origins() {

@@ -29,8 +29,8 @@ fn host_is_or_subdomain_of(host: &str, domain: &str) -> bool {
 }
 
 pub fn is_github_domain(raw_url: &str) -> bool {
-    // 解析 host 后精确匹配（含子域）：此前子串匹配会把 notgithub.com、
-    // github.com.evil.com 误判为 GitHub 资产，走错镜像改写/兜底路径。
+    // 解析 host 后按精确/子域匹配：`notgithub.com`、`github.com.evil.com` 不是 GitHub 资产，
+    // 不走镜像改写/兜底路径。
     let Some(host) = url_host(raw_url) else {
         return false;
     };

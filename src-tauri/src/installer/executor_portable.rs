@@ -26,12 +26,35 @@ fn check_extract_quota(total_bytes: u64, add_bytes: u64, entries: usize) -> Resu
     Ok(())
 }
 
-/// 超限回滚：仅删除本次解压新建的文件，不动 app_dir 既有内容
-/// （更新安装场景下旧版本文件保留，可重试安装）。
-fn rollback_extracted(written: &[PathBuf]) {
+/// 超限回滚：删除本次解压新建的文件，再按创建顺序的逆序删除本次新建的空目录
+/// （`remove_dir` 仅删空目录，故 app_dir 既有内容与旧版本文件不受影响，可重试安装）。
+fn rollback_extracted(written: &[PathBuf], created_dirs: &[PathBuf]) {
     for p in written {
         let _ = std::fs::remove_file(p);
     }
+    for d in created_dirs.iter().rev() {
+        let _ = std::fs::remove_dir(d);
+    }
+}
+
+/// 创建 `dir` 及其缺失祖先，并按自顶向下顺序记录新建的目录（回滚逆序删除即最深层优先）。
+fn create_dir_all_tracked(dir: &Path, created: &mut Vec<PathBuf>) -> io::Result<()> {
+    if dir.exists() {
+        return Ok(());
+    }
+    let mut missing = Vec::new();
+    let mut cur = Some(dir);
+    while let Some(p) = cur {
+        if p.exists() {
+            break;
+        }
+        missing.push(p.to_path_buf());
+        cur = p.parent();
+    }
+    std::fs::create_dir_all(dir)?;
+    missing.reverse();
+    created.extend(missing);
+    Ok(())
 }
 
 /// 便携 ZIP 解压安装体（原 executor.rs PortableZip 分支纯移动，跨平台）。
@@ -41,7 +64,9 @@ pub fn install_portable_zip(
     custom_portable_dir: Option<&str>,
 ) -> Result<InstallOutcome, String> {
     let app_dir = crate::installer::paths::dirs_or_fallback_with_base(app_id, custom_portable_dir);
-    let _ = std::fs::create_dir_all(&app_dir);
+    // 解压防护：跟踪本次新建的目录，回滚时连同目录一并清除。
+    let mut created_dirs: Vec<PathBuf> = Vec::new();
+    let _ = create_dir_all_tracked(&app_dir, &mut created_dirs);
 
     let file = File::open(installer_path).map_err(|e| e.to_string())?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| {
@@ -56,8 +81,8 @@ pub fn install_portable_zip(
     // 解压防护：跟踪本次新建文件 + 累计字节/条目配额，超限回滚并中止。
     let mut written: Vec<PathBuf> = Vec::new();
     let mut total_bytes: u64 = 0;
-    let abort = |written: &[PathBuf], reason: &str| -> String {
-        rollback_extracted(written);
+    let abort = |written: &[PathBuf], created_dirs: &[PathBuf], reason: &str| -> String {
+        rollback_extracted(written, created_dirs);
         format!("解压中止：{}，已回滚本次解压内容", reason)
     };
     for i in 0..archive.len() {
@@ -68,16 +93,16 @@ pub fn install_portable_zip(
         };
 
         if file.name().ends_with('/') {
-            let _ = std::fs::create_dir_all(&outpath);
+            let _ = create_dir_all_tracked(&outpath, &mut created_dirs);
         } else {
             if let Some(p) = outpath.parent() {
                 if !p.exists() {
-                    let _ = std::fs::create_dir_all(p);
+                    let _ = create_dir_all_tracked(p, &mut created_dirs);
                 }
             }
             // 声明大小预检（提前拦下单文件超大声明）+ 实际写入复核（声明可谎报）
             if let Err(reason) = check_extract_quota(total_bytes, file.size(), i + 1) {
-                return Err(abort(&written, &reason));
+                return Err(abort(&written, &created_dirs, &reason));
             }
             let mut outfile = File::create(&outpath).map_err(|e| e.to_string())?;
             let n = io::copy(&mut file, &mut outfile).map_err(|e| e.to_string())?;
@@ -85,7 +110,7 @@ pub fn install_portable_zip(
             written.push(outpath.clone());
             total_bytes += n;
             if let Err(reason) = check_extract_quota(total_bytes, 0, 0) {
-                return Err(abort(&written, &reason));
+                return Err(abort(&written, &created_dirs, &reason));
             }
 
             if outpath.extension().and_then(|ext| ext.to_str()) == Some("exe") && main_exe.is_none()
@@ -126,14 +151,15 @@ fn enclosed_join(base: &Path, entry_path: &Path) -> Option<PathBuf> {
 fn unpack_tar_entries<R: io::Read>(
     archive: &mut tar::Archive<R>,
     app_dir: &Path,
+    created_dirs: &mut Vec<PathBuf>,
 ) -> Result<Option<PathBuf>, String> {
     let mut main_exe: Option<PathBuf> = None;
-    // 解压防护：与 zip 同一配额口径，超限回滚本次已写文件并中止。
+    // 解压防护：与 zip 同一配额口径，超限回滚本次已写文件与新建目录并中止。
     let mut written: Vec<PathBuf> = Vec::new();
     let mut total_bytes: u64 = 0;
     let mut entries_seen: usize = 0;
-    let abort = |written: &[PathBuf], reason: &str| -> String {
-        rollback_extracted(written);
+    let abort = |written: &[PathBuf], created_dirs: &[PathBuf], reason: &str| -> String {
+        rollback_extracted(written, created_dirs);
         format!("解压中止：{}，已回滚本次解压内容", reason)
     };
     let entries = archive.entries().map_err(|e| e.to_string())?;
@@ -186,18 +212,18 @@ fn unpack_tar_entries<R: io::Read>(
             continue;
         };
         if entry_type.is_dir() {
-            let _ = std::fs::create_dir_all(&outpath);
+            let _ = create_dir_all_tracked(&outpath, created_dirs);
             continue;
         }
         if let Some(p) = outpath.parent() {
             if !p.exists() {
-                let _ = std::fs::create_dir_all(p);
+                let _ = create_dir_all_tracked(p, created_dirs);
             }
         }
         // 声明大小预检 + 实际写入复核（与 zip 同口径）
         let declared = entry.header().size().unwrap_or(0);
         if let Err(reason) = check_extract_quota(total_bytes, declared, entries_seen) {
-            return Err(abort(&written, &reason));
+            return Err(abort(&written, created_dirs, &reason));
         }
         let _mode = entry.header().mode().unwrap_or(0);
         let mut outfile = File::create(&outpath).map_err(|e| e.to_string())?;
@@ -206,13 +232,13 @@ fn unpack_tar_entries<R: io::Read>(
         written.push(outpath.clone());
         total_bytes += n;
         if let Err(reason) = check_extract_quota(total_bytes, 0, 0) {
-            return Err(abort(&written, &reason));
+            return Err(abort(&written, created_dirs, &reason));
         }
 
         #[cfg(unix)]
         {
             // 权限按可执行位二值判定：有任一 exec 位 → 0o755（二进制/脚本可直接执行），
-            // 否则 0o644。不再把无 exec 位的普通文件兜底成全员可执行，
+            // 否则 0o644：无 exec 位的普通文件按普通数据落盘，不兜底成全员可执行，
             // 也不保留归档中的 setuid/setgid/sticky 等特权位。
             use std::os::unix::fs::PermissionsExt;
             let perm_bits = if _mode & 0o111 != 0 { 0o755 } else { 0o644 };
@@ -241,7 +267,8 @@ pub fn install_portable_tarball(
     custom_portable_dir: Option<&str>,
 ) -> Result<InstallOutcome, String> {
     let app_dir = crate::installer::paths::dirs_or_fallback_with_base(app_id, custom_portable_dir);
-    let _ = std::fs::create_dir_all(&app_dir);
+    let mut created_dirs: Vec<PathBuf> = Vec::new();
+    let _ = create_dir_all_tracked(&app_dir, &mut created_dirs);
 
     let lower = installer_path
         .as_os_str()
@@ -259,7 +286,7 @@ pub fn install_portable_tarball(
         let file = File::open(installer_path).map_err(|e| e.to_string())?;
         let decoder = flate2::read::GzDecoder::new(file);
         let mut archive = tar::Archive::new(decoder);
-        unpack_tar_entries(&mut archive, &app_dir).map_err(|e| {
+        unpack_tar_entries(&mut archive, &app_dir, &mut created_dirs).map_err(|e| {
             format!(
                 "解压 TAR.GZ 归档失败 (文件: {}): {}",
                 installer_path.display(),
@@ -270,7 +297,7 @@ pub fn install_portable_tarball(
         let file = File::open(installer_path).map_err(|e| e.to_string())?;
         let decoder = xz2::read::XzDecoder::new(file);
         let mut archive = tar::Archive::new(decoder);
-        unpack_tar_entries(&mut archive, &app_dir).map_err(|e| {
+        unpack_tar_entries(&mut archive, &app_dir, &mut created_dirs).map_err(|e| {
             format!(
                 "解压 TAR.XZ 归档失败 (文件: {}): {}",
                 installer_path.display(),
@@ -280,7 +307,7 @@ pub fn install_portable_tarball(
     } else if lower.ends_with(".tar") {
         let file = File::open(installer_path).map_err(|e| e.to_string())?;
         let mut archive = tar::Archive::new(file);
-        unpack_tar_entries(&mut archive, &app_dir).map_err(|e| {
+        unpack_tar_entries(&mut archive, &app_dir, &mut created_dirs).map_err(|e| {
             format!(
                 "解压 TAR 归档失败 (文件: {}): {}",
                 installer_path.display(),
@@ -322,15 +349,35 @@ mod extract_guard_tests {
     }
 
     #[test]
-    fn rollback_removes_only_tracked_files() {
+    fn rollback_removes_only_tracked_files_and_created_dirs() {
         let dir = tempfile::tempdir().unwrap();
         let keep = dir.path().join("keep.txt");
         let gone = dir.path().join("gone.txt");
         std::fs::write(&keep, b"k").unwrap();
         std::fs::write(&gone, b"g").unwrap();
-        rollback_extracted(std::slice::from_ref(&gone));
+        let mut created = Vec::new();
+        let nested = dir.path().join("newdir").join("nested");
+        create_dir_all_tracked(&nested, &mut created).unwrap();
+        rollback_extracted(std::slice::from_ref(&gone), &created);
         assert!(keep.exists(), "untracked file must survive rollback");
         assert!(!gone.exists(), "tracked file must be removed");
+        assert!(!nested.exists(), "created nested dir must be removed");
+        assert!(
+            !dir.path().join("newdir").exists(),
+            "created parent dir must be removed deepest-first"
+        );
+        assert!(dir.path().exists(), "pre-existing base dir must survive");
+    }
+
+    #[test]
+    fn rollback_keeps_pre_existing_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        // 目录已存在（更新安装场景）：不得记录、不得在回滚时删除。
+        let mut created = Vec::new();
+        create_dir_all_tracked(dir.path(), &mut created).unwrap();
+        assert!(created.is_empty(), "existing dir must not be tracked");
+        rollback_extracted(&[], &created);
+        assert!(dir.path().exists(), "pre-existing dir must survive rollback");
     }
 
     #[test]
