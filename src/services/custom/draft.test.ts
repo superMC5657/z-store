@@ -88,7 +88,7 @@ describe('moveInToDraft（移入收录唯一入口）', () => {
     window.removeEventListener('zstore:custom-apps-changed', onChanged);
   });
 
-  it('forge 门（#35）：非 GitHub 摘要入口即拒，不探测不落库不广播', async () => {
+  it('forge 门：非 GitHub 摘要入口即拒，不探测不落库不广播', async () => {
     const cycleSpy = vi.spyOn(tauriApi, 'restoreOrFetchIconCycle');
     const saveSpy = vi.spyOn(tauriApi, 'saveCustomApp');
 
@@ -105,7 +105,7 @@ describe('moveInToDraft（移入收录唯一入口）', () => {
     expect(saveSpy).not.toHaveBeenCalled();
   });
 
-  it('forge 门（#35）：未知前缀 id 按 canonical 解析拒绝（对齐 #16），已知 forge 前缀按形态拒绝', async () => {
+  it('forge 门：未知前缀 id 按 canonical 解析拒绝（与后端单出口同口径），已知 forge 前缀按形态拒绝', async () => {
     const saveSpy = vi.spyOn(tauriApi, 'saveCustomApp');
 
     const unknown = await moveInToDraft(onlineApp({ id: 'xyz:acme/atlas' }));

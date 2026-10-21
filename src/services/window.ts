@@ -4,7 +4,7 @@ import { isTauri } from './api';
 /**
  * 窗口控制唯一出口（TitleBar 三键 + ResizeHandles 边缘拖拽共用）：
  * `@tauri-apps/api/window` 禁在视图/组件层直用（noDirectInvoke 卡点），一律经此封装。
- * 失败原样抛出，浏览器/演示模式的降级语义由调用方 try/catch 自持（与迁移前一致）。
+ * 失败原样抛出，浏览器/演示模式的降级语义由调用方 try/catch 自持。
  */
 
 /** 单一数据源派生自上游 `startResizeDragging` 函数签名

@@ -7,7 +7,7 @@ import type { UserDataBackup } from '../types';
 
 // 与 getSettings() 返回形态一致：值全为字符串。
 // 凭据键一并入样（github_token 为历史 PAT 键；github_oauth_token 为 OAuth 令牌，
-// 08 号收口后 get_settings 已不回传，仍锁死导出排除保证）。
+// get_settings 不回传两者，此处锁死导出排除保证）。
 const FULL_SETTINGS: Record<string, string> = {
   theme: 'dark',
   language: 'zh-CN',

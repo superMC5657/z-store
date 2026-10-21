@@ -238,7 +238,7 @@ export interface DeveloperProfile {
   followers: number;
   following: number;
   repos: DeveloperRepoItem[];
-  /** 列表截断标记（#21）：仓库列表单次拉取无翻页，public_repos > 行数即 true，前端明示截断。 */
+  /** 列表截断标记：仓库列表单次拉取无翻页，public_repos > 行数即 true，前端明示截断。 */
   repos_truncated?: boolean;
 }
 

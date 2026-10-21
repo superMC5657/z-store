@@ -1,5 +1,5 @@
 /**
- * Canonical App Id 前端归一口锁值（#35）：
+ * Canonical App Id 前端归一口锁值：
  * `normalizeId` 升级为后端 `canonical_lookup_id` 同语义（可解析直取 canonical，
  * 不可解析回退小写），案例与 `src-tauri/src/forge/coord.rs` 单测同源——
  * 前后端键全同（ADR-0010）在此锁定。

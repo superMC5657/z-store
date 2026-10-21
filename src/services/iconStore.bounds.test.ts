@@ -1,5 +1,5 @@
 /**
- * iconStore 容器有界回归（#33）：
+ * iconStore 容器有界回归：
  * `iconLevelById`/`iconById`/`iconDataCache`/`iconPersistedKeys` 与预热态
  * `iconPreloadQueue`/`iconPendingAliases`/`iconPendingPromises`/`iconPreloadBackoffUntil`
  * 均按 `ICON_STORE_MAX_ENTRIES`（200，与榜缓存 `TRENDS_CACHE_MAX_ENTRIES` 同口径）

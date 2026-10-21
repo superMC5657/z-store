@@ -772,7 +772,7 @@ export function draftForgeGateError(app: Pick<AppSummary, 'id' | 'forge'>): stri
 
 /**
  * 由在线 AppSummary 合成草稿 payload（一键“移入收录”入口）：
- * - 入口先过草稿 forge 门（`draftForgeGateError`，#35）：非 GitHub 仓库/forge 形态
+ * - 入口先过草稿 forge 门（`draftForgeGateError`）：非 GitHub 仓库/forge 形态
  *   id 直接拒绝（throw），不合成会被后端记成 GitHub 应用的 payload；
  * - id 取 canonical（小写 owner/repo），与坐标对齐；
  * - status 由后端定为 draft，此处仅备 payload；

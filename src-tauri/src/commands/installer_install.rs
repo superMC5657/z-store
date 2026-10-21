@@ -39,8 +39,8 @@ pub async fn install_app(
     )
     .await?;
 
-    // D3 零信任门禁：无校验清单的资产默认拒绝安装。下载侧终态虽诚实标注
-    // completed_unverified，执行侧此前无门禁。仅在 UI 显式警示（「未校验」）
+    // D3 零信任门禁：无校验清单的资产默认拒绝安装。下载侧终态诚实标注
+    // completed_unverified，执行侧同样以该门禁把关：仅在 UI 显式警示（「未校验」）
     // 且用户逐次确认（allowUnverified=true）后放行；放行后下载终态仍保留
     // completed_unverified 标记，不虚假声明已校验。
     let has_checksum = asset

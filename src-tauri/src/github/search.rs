@@ -132,8 +132,8 @@ impl CatalogService {
             );
         }
 
-        // 失败上浮错误态（#21：区分 空结果 / 网络失败）：网络错误、非 2xx、
-        // JSON 解析失败一律返回 Err，不再伪装"无结果"；前端 `useSearchState`
+        // 失败上浮错误态（区分 空结果 / 网络失败）：网络错误、非 2xx、
+        // JSON 解析失败一律返回 Err，不返回空结果冒充"无命中"；前端 `useSearchState`
         // 已有 error 车道（`search.online_failed`），直查回退搜索的既有分流不变。
         let res = match resp {
             Ok(res) => res,

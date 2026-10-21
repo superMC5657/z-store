@@ -938,6 +938,39 @@ mod tests {
     }
 
     #[test]
+    fn embedded_config_toml_declares_every_section() {
+        // 逐段存在性锁：默认值回退会让"删段"在相等断言下静默通过，
+        // 这里直接锁嵌入文本结构（段存在、license 名单条数、enabled 为布尔）。
+        let doc: toml::Value = toml::from_str(EMBEDDED_CONFIG).expect("embedded config must parse");
+        for section in [
+            "runtime",
+            "cache",
+            "network",
+            "limits",
+            "oauth",
+            "catalog",
+            "license_gate",
+        ] {
+            assert!(
+                doc.get(section).is_some_and(|v| v.is_table()),
+                "嵌入 config.toml 缺 [{section}] 段"
+            );
+        }
+        let allowed = doc
+            .get("license_gate")
+            .and_then(|v| v.get("allowed"))
+            .and_then(|v| v.as_array())
+            .expect("license_gate.allowed 必须是数组");
+        assert_eq!(allowed.len(), 37, "license 白名单条目数漂移");
+        assert!(
+            doc.get("license_gate")
+                .and_then(|v| v.get("enabled"))
+                .is_some_and(|v| v.is_bool()),
+            "license_gate.enabled 缺失或非布尔"
+        );
+    }
+
+    #[test]
     fn external_config_candidates_are_absolute_and_cwd_independent() {
         // 候选全为绝对路径（工单 12）：不同工作目录解析到同一份配置。
         let candidates = external_config_candidates();
