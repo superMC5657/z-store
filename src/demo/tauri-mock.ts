@@ -83,7 +83,6 @@ import {
   handleGetDeveloperProfile,
   handleGetFavoriteEntries,
   handleGetFavorites,
-  handleGetHostTokens,
   handleGetOAuthUser,
   handleGetWatchedApps,
   handleIsStarred,
