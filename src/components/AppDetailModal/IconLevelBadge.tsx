@@ -1,12 +1,20 @@
 import React from 'react';
 import { RefreshCw } from 'lucide-react';
 
-export const ICON_LEVEL_NAMES: Record<number, string> = {
-  1: '收录官方',
-  2: '品牌库',
-  3: '仓库文件',
-  4: '文档Logo',
-  5: '首字母',
+/** 图标档位名经 i18n 键翻译（Header 持 t 上下文处取值），档位超出 1-5 时回落 L{n}。 */
+export type IconLevelNameKey =
+  | 'detail.icon_level_1'
+  | 'detail.icon_level_2'
+  | 'detail.icon_level_3'
+  | 'detail.icon_level_4'
+  | 'detail.icon_level_5';
+
+export const ICON_LEVEL_NAME_KEYS: Partial<Record<number, IconLevelNameKey>> = {
+  1: 'detail.icon_level_1',
+  2: 'detail.icon_level_2',
+  3: 'detail.icon_level_3',
+  4: 'detail.icon_level_4',
+  5: 'detail.icon_level_5',
 };
 
 interface IconLevelBadgeProps {

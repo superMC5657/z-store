@@ -9,6 +9,8 @@ import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { act } from 'react';
 import type { AppDetailViewModel } from '../../types';
+// Header 文案经 i18n（#20 迁移）：测试断言 zh 文案前须初始化 i18n
+import '../../i18n';
 
 const APP_ID = 'o/r';
 const REAL_ICON = 'https://cdn.simpleicons.org/r';

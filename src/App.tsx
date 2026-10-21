@@ -857,14 +857,14 @@ export const App: React.FC = () => {
       {/* 深度链接安装确认弹窗（显式用户授权门禁） */}
       {stagedDeepLinkInstall !== null && (
         <InstallConfirmDialog
-          intro="外部链接请求安装以下应用，请确认后再继续："
+          intro={t('install_confirm.deeplink_intro')}
           appName={stagedDeepLinkDetail?.name ?? stagedDeepLinkSummary?.name ?? stagedDeepLinkInstall}
           repoLine={stagedDeepLinkDetail
             ? `${stagedDeepLinkDetail.owner}/${stagedDeepLinkDetail.repo}`
             : stagedDeepLinkSummary
               ? `${stagedDeepLinkSummary.owner}/${stagedDeepLinkSummary.repo}`
               : stagedDeepLinkInstall}
-          source={stagedDeepLinkDetail?.forge_host ?? stagedDeepLinkSummary?.forge_host ?? '未知来源'}
+          source={stagedDeepLinkDetail?.forge_host ?? stagedDeepLinkSummary?.forge_host ?? t('install_confirm.unknown_source')}
           sha256={stagedDeepLinkSha256}
           onCancel={() => {
             setStagedDeepLinkInstall(null);
@@ -883,10 +883,10 @@ export const App: React.FC = () => {
       {/* 无校验资产警示弹窗（D3 门禁：后端默认拒绝安装，仅显式确认后放行） */}
       {unverifiedInstall !== null && (
         <InstallConfirmDialog
-          intro="警告：该安装包未提供官方 SHA-256 校验清单，ZStore 无法验证文件是否被篡改。仅在您完全信任该发布者时继续安装："
+          intro={t('install_confirm.unverified_intro')}
           appName={unverifiedInstall.id}
           repoLine={unverifiedInstall.id}
-          source="未校验资产（Release 未附带 checksums 清单）"
+          source={t('install_confirm.unverified_source')}
           onCancel={() => {
             dismissUnverifiedInstall();
             showToast(t('toast.unverified_install_cancelled'), 'info');

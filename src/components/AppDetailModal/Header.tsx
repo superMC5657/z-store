@@ -18,7 +18,7 @@ import { formatBytes, isCatalogedFailClosed } from '../../utils/appHelper';
 import { PlatformIcon, ForgeIcon } from '../icons/PlatformIcons';
 import { PLATFORM_META, type PlatformId } from '../../lib/platformFilter';
 import { useDetailStarVerify } from './useDetailStarVerify';
-import { IconLevelBadge, ICON_LEVEL_NAMES } from './IconLevelBadge';
+import { IconLevelBadge, ICON_LEVEL_NAME_KEYS } from './IconLevelBadge';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -136,8 +136,13 @@ export const Header: React.FC<HeaderProps> = ({
   const totalLevels = iconCycle?.total_levels ?? 5;
   const currentLevel = iconCycle?.level ?? 1;
   const nextLevel = currentLevel >= totalLevels ? 1 : currentLevel + 1;
-  const nextLevelName = ICON_LEVEL_NAMES[nextLevel] || `L${nextLevel}`;
-  const nextLevelTitle = `下一档：L${nextLevel}${nextLevelName} (${nextLevel}/${totalLevels})`;
+  const nextLevelKey = ICON_LEVEL_NAME_KEYS[nextLevel];
+  const nextLevelName = nextLevelKey ? t(nextLevelKey) : `L${nextLevel}`;
+  const nextLevelTitle = t('detail.icon_next_level_title', {
+    level: nextLevel,
+    name: nextLevelName,
+    total: totalLevels,
+  });
 
   const effectiveIconOverride = useMemo(() => {
     if (!iconCycle) return undefined;
@@ -200,11 +205,20 @@ export const Header: React.FC<HeaderProps> = ({
           // data: 仅即时看：已 setIconCycle（iconOverride 直显），此处不调 admitIconHit、不进盘。
         }
         const total = res.total_levels ?? 5;
-        const name = ICON_LEVEL_NAMES[res.level] || '';
-        notifyToast(`图标已切换为 L${res.level}${name} (${res.level}/${total})`, 'success');
+        const levelKey = ICON_LEVEL_NAME_KEYS[res.level];
+        const name = levelKey ? t(levelKey) : '';
+        notifyToast(
+          t('toast.icon_cycle_success', { level: res.level, name, total }),
+          'success',
+        );
       }
     } catch (err) {
-      notifyToast(`切换图标失败: ${err instanceof Error ? err.message : String(err)}`, 'error');
+      notifyToast(
+        t('toast.icon_cycle_failed', {
+          error: err instanceof Error ? err.message : String(err),
+        }),
+        'error',
+      );
     } finally {
       setIsCyclingIcon(false);
     }
@@ -257,9 +271,14 @@ export const Header: React.FC<HeaderProps> = ({
     e.preventDefault();
     e.stopPropagation();
     const host = app.forge_host || 'github.com';
-    const title = encodeURIComponent(`【反馈】${displayName} ${app.latest_version}`);
+    const title = encodeURIComponent(
+      t('detail.issue_feedback_title', { name: displayName, version: app.latest_version }),
+    );
     const body = encodeURIComponent(
-      `## 环境\n- ZStore 客户端版本：桌面端\n- 应用版本：${app.latest_version}\n- 系统：${navigator.platform}\n\n## 问题描述\n\n## 复现步骤\n1. \n2. \n`
+      t('detail.issue_feedback_body', {
+        version: app.latest_version,
+        platform: navigator.platform,
+      }),
     );
     tauriApi.openUrl(`https://${host}/${app.owner}/${app.repo}/issues/new?title=${title}&body=${body}`);
   };
@@ -278,8 +297,8 @@ export const Header: React.FC<HeaderProps> = ({
             className={`modal-header-btn ${effectiveRefreshing ? 'btn-refreshing' : ''}`}
             onClick={handleTriggerRefresh}
             disabled={effectiveRefreshing}
-            aria-label="强制从远端刷新应用信息与最新发布"
-            title={effectiveRefreshing ? '正在从远端重新同步数据...' : '强制从远端刷新 (穿透本地缓存)'}
+            aria-label={t('detail.refresh_aria')}
+            title={effectiveRefreshing ? t('detail.refresh_title_syncing') : t('detail.refresh_title')}
             style={{ color: effectiveRefreshing ? 'var(--brand-primary)' : 'var(--text-secondary)' }}
           >
             <svg
@@ -301,9 +320,9 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             className="modal-header-btn"
             onClick={() => onToggleFavorite(app.id)}
-            aria-label={isFavorite ? '取消应用内收藏' : '加入应用内收藏'}
+            aria-label={isFavorite ? t('detail.fav_aria_active') : t('detail.fav_aria_inactive')}
             style={{ color: isFavorite ? '#eab308' : 'var(--text-secondary)' }}
-            title={isFavorite ? '已加入应用内收藏（存入本地数据库 · 点击取消）' : '应用内收藏：保存至本机数据库，离线随时可用'}
+            title={isFavorite ? t('app.fav_active') : t('detail.fav_title_inactive')}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill={isFavorite ? '#eab308' : 'none'} stroke={isFavorite ? '#eab308' : 'currentColor'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
@@ -314,9 +333,9 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             className="modal-header-btn"
             onClick={() => onToggleWatch(app.id)}
-            aria-label={isWatched ? '取消关注 Release 更新' : '关注 Release 更新'}
+            aria-label={isWatched ? t('detail.watch_aria_active') : t('detail.watch_aria_inactive')}
             style={{ color: isWatched ? 'var(--brand-primary)' : 'var(--text-secondary)' }}
-            title={isWatched ? '已关注该应用的新版本动态（新 Release 发布时在应用内提醒 · 点击取消）' : '关注 Release 更新：该应用发布新版本时在应用内提醒'}
+            title={isWatched ? t('detail.watch_title_active') : t('detail.watch_title_inactive')}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill={isWatched ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
@@ -328,19 +347,19 @@ export const Header: React.FC<HeaderProps> = ({
           className="modal-header-btn"
           onClick={handleToggleStar}
           disabled={isStarring}
-          aria-label={isStarred ? '取消 GitHub 标星' : 'GitHub 标星 (Star)'}
+          aria-label={isStarred ? t('detail.star_aria_active') : t('detail.star_aria_inactive')}
           style={{
             color: isStarred ? '#eab308' : 'var(--text-secondary)',
             opacity: 1,
           }}
           title={
             isStarred
-              ? '已在 GitHub 标星并存入 user_stars（点击取消 GitHub 标星）'
+              ? t('detail.star_title_active')
               : oauthUser
               ? oauthUser.has_list_scope
-                ? 'GitHub 标星：在 GitHub 标星该仓库并存入 user_stars'
-                : 'GitHub 标星：在 GitHub 标星（当前令牌缺少 user 权限，建议在设置中重新授权以同步至清单）'
-              : 'GitHub 标星：在 GitHub 标星该仓库并存入 user_stars（需在设置中登录或配置令牌）'
+                ? t('detail.star_title_default')
+                : t('detail.star_title_no_user_scope')
+              : t('detail.star_title_need_auth')
           }
         >
           {isStarring ? (
@@ -356,7 +375,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           className="modal-close-btn"
           onClick={onClose}
-          aria-label="关闭详情弹窗"
+          aria-label={t('detail.close_aria')}
           style={{ position: 'relative', top: 'auto', right: 'auto' }}
         >
           <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4">
@@ -406,7 +425,7 @@ export const Header: React.FC<HeaderProps> = ({
                 gap: '4px',
                 lineHeight: '1.4',
               }}
-              title={`查看 ${app.owner} 开发者全景与开源项目`}
+              title={t('detail.owner_profile_title', { owner: app.owner })}
             >
               <User size={12} strokeWidth={1.5} />
               <span>{app.owner}</span>
@@ -421,12 +440,12 @@ export const Header: React.FC<HeaderProps> = ({
             target="_blank"
             rel="noopener noreferrer"
             style={{ fontWeight: 510, color: 'inherit', textDecoration: 'none' }}
-            title="在浏览器中查看开源仓库"
+            title={t('detail.repo_open_title')}
           >
             {app.repo} ↗
           </a>
           <span>·</span>
-          <span>最新发布 {app.latest_version}</span>
+          <span>{t('detail.latest_release', { version: app.latest_version })}</span>
           <span>·</span>
           <a
             href={`https://${app.forge_host || 'github.com'}/${app.owner}/${app.repo}/issues/new`}
@@ -434,10 +453,10 @@ export const Header: React.FC<HeaderProps> = ({
             target="_blank"
             rel="noopener noreferrer"
             style={{ fontWeight: 510, color: 'var(--brand-primary)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-            title="前往开源仓库提交问题反馈（自动预填版本信息）"
+            title={t('detail.issue_link_title')}
           >
             <Bug size={12} strokeWidth={1.5} />
-            <span>问题反馈</span>
+            <span>{t('detail.issue_link')}</span>
           </a>
           <IconLevelBadge
             isCataloged={isCataloged}
@@ -474,10 +493,10 @@ export const Header: React.FC<HeaderProps> = ({
                 <span
                   className="modal-tag"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                  title={`支持设备: ${app.platforms!.map((p) => PLATFORM_META[p.toLowerCase() as PlatformId]?.label || p).join(', ')}`}
+                  title={`${t('app.supported_devices', { defaultValue: '支持设备' })}: ${app.platforms!.map((p) => PLATFORM_META[p.toLowerCase() as PlatformId]?.label || p).join(', ')}`}
                 >
                   <Monitor size={12} />
-                  <span>支持端:</span>
+                  <span>{t('detail.supported_ends')}</span>
                   {app.platforms!.map((p) => (
                     <span key={p} style={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
                       <PlatformIcon platform={p} size={11} />
@@ -496,7 +515,7 @@ export const Header: React.FC<HeaderProps> = ({
                   aria-label={t('app.supported_devices', { defaultValue: '支持设备' })}
                 >
                   <Monitor size={12} />
-                  <span>支持端:</span>
+                  <span>{t('detail.supported_ends')}</span>
                   <span
                     aria-hidden="true"
                     style={{ width: '34px', height: '10px', borderRadius: '3px', background: 'var(--border-subtle)', display: 'inline-block' }}
@@ -511,7 +530,7 @@ export const Header: React.FC<HeaderProps> = ({
                 title={`${t('app.supported_devices', { defaultValue: '支持设备' })}: ${t('nav.platforms_other')}`}
               >
                 <Monitor size={12} />
-                <span>支持端:</span>
+                <span>{t('detail.supported_ends')}</span>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
                   <PlatformIcon platform="other" size={11} />
                   <span>{t('nav.platforms_other')}</span>
@@ -533,11 +552,11 @@ export const Header: React.FC<HeaderProps> = ({
               }}
             >
               <ForgeIcon forge={app.forge} size={12} />
-              <span>{app.forge === 'codeberg' ? 'Codeberg 源' : app.forge === 'gitea' ? 'Gitea 源' : `${app.forge_host || app.forge}`}</span>
+              <span>{app.forge === 'codeberg' ? t('detail.forge_codeberg') : app.forge === 'gitea' ? t('detail.forge_gitea') : `${app.forge_host || app.forge}`}</span>
             </span>
           )}
           {primaryAsset && (
-            <span className="modal-tag">大小 {formatBytes(primaryAsset.size_bytes)}</span>
+            <span className="modal-tag">{t('detail.size_label', { size: formatBytes(primaryAsset.size_bytes) })}</span>
           )}
           {app.is_stale && (
             <span
@@ -551,10 +570,10 @@ export const Header: React.FC<HeaderProps> = ({
                 alignItems: 'center',
                 gap: '4px',
               }}
-              title="网络不可用或请求受限，当前正在呈现本地历史数据"
+              title={t('detail.stale_title')}
             >
               <AlertTriangle size={11} strokeWidth={1.5} />
-              <span>离线缓存</span>
+              <span>{t('detail.stale_badge')}</span>
             </span>
           )}
 
@@ -562,36 +581,36 @@ export const Header: React.FC<HeaderProps> = ({
           {refreshSuccessNotice ? (
             <span
               className="modal-tag modal-tag-success tag-spring-in"
-              title="已成功同步最新版本与文档数据"
+              title={t('detail.sync_success_title')}
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="20 6 9 17 4 12" />
               </svg>
-              <span>已同步最新数据</span>
+              <span>{t('detail.sync_success')}</span>
             </span>
           ) : refreshErrorNotice ? (
             <span
               className="modal-tag modal-tag-error tag-spring-in"
-              title={`远端拉取失败: ${refreshErrorNotice}`}
+              title={t('detail.sync_error_title', { error: refreshErrorNotice })}
               style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
             >
               <AlertTriangle size={11} />
-              <span>同步异常，请重试</span>
+              <span>{t('detail.sync_error')}</span>
             </span>
           ) : effectiveRefreshing ? (
             <span className="modal-tag modal-tag-refreshing tag-spring-in">
               <span className="spinner-icon" style={{ width: '10px', height: '10px', borderWidth: '1.5px' }} />
-              <span>正在同步最新数据...</span>
+              <span>{t('detail.syncing')}</span>
             </span>
           ) : (
             app.cached_at && !app.is_stale && (
               <span
                 className="modal-tag"
                 style={{ fontSize: 'var(--font-xs)', opacity: 0.8, display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                title={`最后缓存时间：${new Date(app.cached_at * 1000).toLocaleString()}`}
+                title={t('detail.cached_at_title', { time: new Date(app.cached_at * 1000).toLocaleString() })}
               >
                 <Clock size={11} />
-                <span>{new Date(app.cached_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} 缓存</span>
+                <span>{t('detail.cached_suffix', { time: new Date(app.cached_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) })}</span>
               </span>
             )
           )}

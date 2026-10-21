@@ -7,6 +7,8 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import type { AppDetailViewModel } from '../types';
+// Header 文案经 i18n（#20 迁移）：渲染 AppDetailModal 须初始化 i18n
+import '../i18n';
 
 const hooks = vi.hoisted(() => ({
   isStarred: vi.fn(async (_id: string) => false),

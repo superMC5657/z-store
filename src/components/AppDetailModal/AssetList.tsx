@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { ReleaseAsset } from '../../types';
 import { formatBytes } from '../../utils/appHelper';
 
@@ -23,14 +24,15 @@ export const AssetList: React.FC<AssetListProps> = ({
   onSelectAsset,
   onOpenExternal,
 }) => {
+  const { t } = useTranslation();
   if (!showAllAssets) return null;
 
   return (
     <div className="settings-group" style={{ marginBottom: 0 }}>
       <div className="settings-group-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span>GitHub Release 原生构建设施产物</span>
+        <span>{t('detail.assets_title')}</span>
         <span style={{ fontSize: 'var(--font-sm)', fontWeight: 'normal', color: 'var(--text-tertiary)' }}>
-          宿主环境匹配: {currentOs} ({currentArch})
+          {t('detail.asset_host_match', { os: currentOs, arch: currentArch })}
         </span>
       </div>
       <div className="asset-list-scroll">
@@ -46,19 +48,19 @@ export const AssetList: React.FC<AssetListProps> = ({
                       className="modal-tag modal-tag-success"
                       style={{ fontSize: 'calc(10px * var(--font-scale))', padding: '1px 6px' }}
                     >
-                      当前目标
+                      {t('detail.asset_current')}
                     </span>
                   )}
                 </div>
                 <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-tertiary)' }}>
-                  目标平台: {asset.os} ({asset.arch}) · 类型: {asset.kind} · 体积: {formatBytes(asset.size_bytes)}
+                  {t('detail.asset_meta', { os: asset.os, arch: asset.arch, kind: asset.kind, size: formatBytes(asset.size_bytes) })}
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 {asset.sha256 && (
                   <span
                     className="trust-hash text-mono"
-                    title={`官方校验值: ${asset.sha256}`}
+                    title={t('detail.asset_sha_title', { sha: asset.sha256 })}
                     style={{ maxWidth: '120px' }}
                   >
                     SHA-256: {asset.sha256.slice(0, 10)}...
@@ -69,9 +71,9 @@ export const AssetList: React.FC<AssetListProps> = ({
                   onClick={() => onSelectAsset(asset.name)}
                   className={`btn-fluent ${isSelected ? 'btn-primary' : 'btn-secondary'} detail-asset-btn`}
                   disabled={effectiveIsBusy}
-                  title={isSelected ? '当前正在使用该版本安装' : '将此包选为当前安装目标'}
+                  title={isSelected ? t('detail.asset_selected_title') : t('detail.asset_select_title')}
                 >
-                  {isSelected ? '✓ 已选用' : '选用此包'}
+                  {isSelected ? t('detail.asset_selected') : t('detail.asset_select')}
                 </button>
                 <a
                   href={asset.download_url}
@@ -79,9 +81,9 @@ export const AssetList: React.FC<AssetListProps> = ({
                   target="_blank"
                   rel="noopener noreferrer"
                   className="btn-fluent btn-secondary detail-asset-btn"
-                  title="在浏览器中直接下载"
+                  title={t('detail.asset_download_title')}
                 >
-                  直链
+                  {t('detail.asset_direct_link')}
                 </a>
               </div>
             </div>
