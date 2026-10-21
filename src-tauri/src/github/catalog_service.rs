@@ -24,6 +24,21 @@ pub(crate) fn is_default_catalog_source(url: &str) -> bool {
     trimmed == default_url
 }
 
+/// 远端优先去重合并（同一形状唯一实现）：`remote` 原样在前，`local` 按 id 补位
+/// （已存在即跳过）。`get_catalog_items`（远端 + 本地库 overlay）与
+/// `merged_items_with_overlay`（远端 + 调用方 custom）共用。
+fn merge_remote_first(remote: Vec<CatalogItem>, local: Vec<CatalogItem>) -> Vec<CatalogItem> {
+    let mut seen: std::collections::HashSet<String> =
+        remote.iter().map(|i| i.id.clone()).collect();
+    let mut out = remote;
+    for item in local {
+        if seen.insert(item.id.clone()) {
+            out.push(item);
+        }
+    }
+    out
+}
+
 impl Default for CatalogService {
     fn default() -> Self {
         Self::new()
@@ -71,15 +86,7 @@ impl CatalogService {
             .read()
             .map(|c| c.clone())
             .unwrap_or_default();
-        let mut seen: std::collections::HashSet<String> =
-            remote.iter().map(|i| i.id.clone()).collect();
-        let mut out = remote;
-        for item in collected {
-            if seen.insert(item.id.clone()) {
-                out.push(item);
-            }
-        }
-        out
+        merge_remote_first(remote, collected)
     }
 
     /// 本地库 overlay 同步（启动与 `custom_apps` 每次变更后调用）：
@@ -429,15 +436,7 @@ impl CatalogService {
     /// 调用方传入的 `custom` 须已过滤为本地库（collected 系/`submitted` 且未归档）。
     pub fn merged_items_with_overlay(&self, custom: Vec<CatalogItem>) -> Vec<CatalogItem> {
         let remote = self.get_catalog_items();
-        let mut seen: std::collections::HashSet<String> =
-            remote.iter().map(|i| i.id.clone()).collect();
-        let mut out = remote;
-        for item in custom {
-            if seen.insert(item.id.clone()) {
-                out.push(item);
-            }
-        }
-        out
+        merge_remote_first(remote, custom)
     }
 
     pub fn search_apps(&self, query: &str) -> Vec<AppSummary> {

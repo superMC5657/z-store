@@ -64,67 +64,98 @@ pub async fn get_platforms_lite(
     id: String,
     force_refresh: Option<bool>,
 ) -> crate::AppResult<PlatformsLiteResult> {
-    use crate::github::http::EtagGetOutcome;
-
     // ADR-0010：入站 id 统一归一化为 canonical；未知标识直接拒绝，不触碰网络。
     let clean_id = crate::commands::require_app_id(&id)?;
     let start = std::time::Instant::now();
     let is_force = force_refresh.unwrap_or(false);
 
-    // 1. TTL 内详情缓存命中：零网络开销复用已 deduce 的 platforms。
-    // TTL 口径与 get_app_details_impl 缓存链一致（FINAL 60min，见 `detail_ttl_secs`）；stale 标记原样透传
-    // （持久化行正常为 None，透传仅为防御性一致）。图标 ETag 禁用不影响此通道（详情 ETag 仍用）。
+    // 1. TTL 内详情缓存命中段：零网络开销复用已 deduce 的 platforms。
     // 显式强制刷新时跳过此快径，直探远端。
     if !is_force {
-        if let Ok(db) = state.db() {
-            let ttl_seconds = detail_ttl_secs(&db);
-            if let Ok(Some(cached)) = db.get_cached_app_detail(&clean_id, Some(ttl_seconds)) {
-                log::debug!(
-                    "get_platforms_lite id={} from=cache:db elapsed_ms={}",
-                    clean_id,
-                    start.elapsed().as_millis()
-                );
-                return Ok(PlatformsLiteResult {
-                    id: clean_id,
-                    platforms: cached.core.platforms,
-                    from_cache: true,
-                    is_stale: cached.is_stale,
-                });
-            }
+        if let Some(lite) = platforms_lite_from_cache(&state, &clean_id, start) {
+            return Ok(lite);
         }
     }
 
-    // 2. 多源（Codeberg/Gitea 等）穿透：仅拉 latest release，deduce 即返。
+    // 2. 多源（Codeberg/Gitea 等）穿透段：仅拉 latest release，deduce 即返。
     if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&clean_id) {
         if coord.forge != crate::forge::ForgeType::GitHub {
-            let host_token = if let Ok(db) = state.db() {
-                db.get_host_token(&coord.host).ok().flatten()
-            } else {
-                None
-            };
-            let release_info = crate::forge::ForgeRegistry::fetch_latest_release(
-                &coord,
-                host_token.as_deref(),
-            )
-            .await?;
-            log::debug!(
-                "get_platforms_lite id={} from=forge:{} elapsed_ms={}",
-                clean_id,
-                coord.forge.as_str(),
-                start.elapsed().as_millis()
-            );
-            return Ok(PlatformsLiteResult {
-                id: clean_id,
-                platforms: crate::github::detail_assets::platforms_from_assets(&release_info.assets),
-                from_cache: false,
-                is_stale: None,
-            });
+            return platforms_lite_from_forge(&state, clean_id, coord, start).await;
         }
     }
 
-    // 3. GitHub：release_endpoint + ETag 条件请求（仅 releases/latest 单次 RTT）。
-    // 未知坐标时沿用详情降级：stale 旧行穿透标 stale，无行则拒绝（前端一律视为 loading）。
-    // 本地收录行同样视为已知坐标（与远端同行为，可查可装）。
+    // 3. GitHub ETag 段：release_endpoint + 条件请求（仅 releases/latest 单次 RTT）。
+    platforms_lite_from_github(&state, clean_id, start).await
+}
+
+/// TTL 内详情缓存命中段：复用已 deduce 的 platforms（TTL 口径与 get_app_details_impl
+/// 缓存链一致，见 `detail_ttl_secs`）；stale 标记原样透传（持久化行正常为 None，
+/// 透传仅为防御性一致）。
+fn platforms_lite_from_cache(
+    state: &AppState,
+    clean_id: &str,
+    start: std::time::Instant,
+) -> Option<PlatformsLiteResult> {
+    let db = state.db().ok()?;
+    let ttl_seconds = detail_ttl_secs(&db);
+    let cached = db
+        .get_cached_app_detail(clean_id, Some(ttl_seconds))
+        .ok()
+        .flatten()?;
+    log::debug!(
+        "get_platforms_lite id={} from=cache:db elapsed_ms={}",
+        clean_id,
+        start.elapsed().as_millis()
+    );
+    Some(PlatformsLiteResult {
+        id: clean_id.to_string(),
+        platforms: cached.core.platforms,
+        from_cache: true,
+        is_stale: cached.is_stale,
+    })
+}
+
+/// 多源（Codeberg/Gitea 等）穿透段：仅拉 latest release，deduce 即返（无缓存读写）。
+async fn platforms_lite_from_forge(
+    state: &AppState,
+    clean_id: String,
+    coord: crate::forge::UniversalRepoCoord,
+    start: std::time::Instant,
+) -> crate::AppResult<PlatformsLiteResult> {
+    let host_token = if let Ok(db) = state.db() {
+        db.get_host_token(&coord.host).ok().flatten()
+    } else {
+        None
+    };
+    let release_info =
+        crate::forge::ForgeRegistry::fetch_latest_release(&coord, host_token.as_deref()).await?;
+    log::debug!(
+        "get_platforms_lite id={} from=forge:{} elapsed_ms={}",
+        clean_id,
+        coord.forge.as_str(),
+        start.elapsed().as_millis()
+    );
+    Ok(PlatformsLiteResult {
+        id: clean_id,
+        platforms: crate::github::detail_assets::platforms_from_assets(&release_info.assets),
+        from_cache: false,
+        is_stale: None,
+    })
+}
+
+/// GitHub ETag 段：release_endpoint + ETag 条件请求（仅 releases/latest 单次 RTT）。
+/// 未知坐标时沿用详情降级：stale 旧行穿透标 stale，无行则拒绝（前端一律视为 loading）。
+/// 本地收录行同样视为已知坐标（与远端同行为，可查可装）。
+/// 304-touch/save/回退分支收归 `github::release_fetch` shallow adapter；ADR-0007 豁免
+/// 对照分支（consult_ttl = true 侧）：本通道入口已先走 Cache TTL 快径；更新检查通道无此
+/// 分支，每次直探。304 payload 腐坏报硬错"解析本地 ETag 缓存失败"（更新检查侧 tolerant 跳过）。
+async fn platforms_lite_from_github(
+    state: &AppState,
+    clean_id: String,
+    start: std::time::Instant,
+) -> crate::AppResult<PlatformsLiteResult> {
+    use crate::github::http::EtagGetOutcome;
+
     let (release_endpoint, cached_etag, cached_payload) = {
         if let Err(e) = state.catalog.get_repo_coordinates(&clean_id) {
             if let Ok(db) = state.db() {
@@ -155,7 +186,7 @@ pub async fn get_platforms_lite(
         (ep, etag, payload)
     };
 
-    let token = crate::commands::resolve_active_github_token(&state);
+    let token = crate::commands::resolve_active_github_token(state);
     let headers = crate::github::http::token_headers(token.as_deref());
     let outcome = crate::github::http::get_with_etag(
         &state.http,
@@ -174,9 +205,6 @@ pub async fn get_platforms_lite(
 
     // 收敛：304-touch/save/回退分支收归 `github::release_fetch` shallow adapter
     //（与 Streaming Update Check〈流式更新检查〉同一 interface）。
-    // ADR-0007 豁免对照分支（consult_ttl = true 侧）：本通道入口已先走 Cache TTL 快径
-    // （见上）；更新检查通道无此分支，每次直探。语义见模块注释。
-    // 304 payload 腐坏报硬错"解析本地 ETag 缓存失败"（更新检查侧 tolerant 跳过）。
     // Fresh 无需回退源，避免无谓 DB 读。
     // touch/save 双效应经 `apply_release_cache_effects` 单口执行。
     let stale_row: Option<crate::models::AppDetail> = match &outcome {
@@ -396,66 +424,105 @@ pub async fn get_app_details_impl(
         }
     };
 
-    // 1. 若非主动强制刷新，优先从 SQLite 本地持久化缓存中读取，实现 0ms 瞬间秒开
-    // 单次临界区完成 TTL + 缓存读取 + verified 标记解析，避免同请求内多次加/解锁；
-    // 注意：锁守卫不得跨越 await（Tauri 命令 Future 需 Send），故查询收拢于单闭包内。
-    // 后续优化方向：r2d2 连接池（当前仍用全局 Mutex<Database>，见 ADR-0003；无 schema 变更）。
-    // FINAL 详情 TTL 60min（见 `detail_ttl_secs`；platforms_lite 同值）。
+    // 1. 缓存命中段：非主动强制刷新时优先走 TTL 内快径（0ms 秒开），
+    // 「读缓存→id回写→盖章→返回」收口于 `project_from_cache`。
     if !is_force {
-        let cached: Option<AppDetail> = state.db().ok().and_then(|db| {
-            let ttl_seconds = detail_ttl_secs(&db);
-            let detail = db
-                .get_cached_app_detail(&clean_id, Some(ttl_seconds))
-                .ok()
-                .flatten()?;
-            Some(detail)
-        });
-        if let Some(mut cached_detail) = cached {
-            cached_detail.core.id = clean_id.clone();
-            if let Some(cat_item) = state.catalog.get_catalog_item(&clean_id) {
-                if cat_item.description_en.is_some() {
-                    cached_detail.core.description_en = cat_item.description_en.clone();
-                }
-            }
-            log::debug!(
-                "get_app_details id={} from=cache:db elapsed_ms={}",
-                clean_id,
-                start.elapsed().as_millis()
-            );
-            state.catalog.stamp_detail(&mut cached_detail);
-            return Ok(cached_detail);
+        if let Some(hit) = project_from_cache(
+            state, &clean_id, true, true, "get_app_details", "cache:db", start,
+        ) {
+            return Ok(hit);
         }
     }
 
-    // 2. 本地无缓存或用户主动要求强制刷新，执行远程拉取
-    // 2.1 多源 (Codeberg, Gitea 等) 穿透解析
-    // forge 分支同样遵循 is_force 门控：非强制刷新且缓存行新鲜（TTL 内）时直接复用，
-    // 不进 `try_join` 网络；`forge/http` 无 ETag，保持无条件请求语义，仅调用方设门。
+    // 2. 多源 forge lite 段（Codeberg/Gitea 等）：repo + latest release 合成。
     if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&clean_id) {
         if coord.forge != crate::forge::ForgeType::GitHub {
-            if !is_force {
-                if let Ok(db) = state.db() {
-                    let ttl_seconds = detail_ttl_secs(&db);
-                    if let Ok(Some(mut cached)) =
-                        db.get_cached_app_detail(&clean_id, Some(ttl_seconds))
-                    {
-                        cached.core.id = clean_id.clone();
-                        log::debug!(
-                            "get_app_details id={} from=cache:db forge elapsed_ms={}",
-                            clean_id,
-                            start.elapsed().as_millis()
-                        );
-                        state.catalog.stamp_detail(&mut cached);
-                        return Ok(cached);
-                    }
-                }
+            return fetch_detail_from_forge(
+                state, clean_id, coord, is_force, sid, req_id, start,
+            )
+            .await;
+        }
+    }
+
+    // 3. GitHub full 段：ETag 条件请求 + repo/README/平台/Checksum 全量组装落库。
+    fetch_detail_from_github(state, &clean_id, is_force, sid, req_id, start).await
+}
+
+/// 「读缓存行 → id 回写 → 盖章 → 返回」共享投影（详情路径同形收敛，四处调用）：
+/// - `ttl_gated=true`：TTL 内快径（`detail_ttl_secs` 门控，命中即 fresh 复用，不标 stale）；
+/// - `ttl_gated=false`：stale 穿透臂——无 TTL 门控（过期行同样复用）且强制置
+///   `is_stale=Some(true)`（401/离线/未知坐标回退，Ok(stale) 形状 IPC 保留）；
+/// - `enrich_catalog_desc_en`：收录项 `description_en` 回填（仅主臂 TTL 快径启用）；
+/// - `log_prefix`/`log_from`：保留各调用点原日志文案。
+///
+/// 未命中返回 `None`（调用方继续后续段）；命中即已完成 id 回写与 `stamp_detail` 盖章，
+/// 缓存语义与拆分前逐行一致（只读，不写盘不 touch）。
+fn project_from_cache(
+    state: &AppState,
+    clean_id: &str,
+    ttl_gated: bool,
+    enrich_catalog_desc_en: bool,
+    log_prefix: &str,
+    log_from: &str,
+    start: std::time::Instant,
+) -> Option<AppDetail> {
+    let db = state.db().ok()?;
+    let ttl_seconds = if ttl_gated {
+        Some(detail_ttl_secs(&db))
+    } else {
+        None
+    };
+    let mut detail = db
+        .get_cached_app_detail(clean_id, ttl_seconds)
+        .ok()
+        .flatten()?;
+    detail.core.id = clean_id.to_string();
+    if !ttl_gated {
+        detail.is_stale = Some(true);
+    }
+    if enrich_catalog_desc_en {
+        if let Some(cat_item) = state.catalog.get_catalog_item(clean_id) {
+            if cat_item.description_en.is_some() {
+                detail.core.description_en = cat_item.description_en.clone();
             }
-            log::debug!(
-                "fetch app detail multi-forge id={} host={} forge={:?}",
-                clean_id,
-                coord.host,
-                coord.forge
-            );
+        }
+    }
+    log::debug!(
+        "{} id={} from={} elapsed_ms={}",
+        log_prefix,
+        clean_id,
+        log_from,
+        start.elapsed().as_millis()
+    );
+    state.catalog.stamp_detail(&mut detail);
+    Some(detail)
+}
+
+/// 多源 forge lite 段：repo + latest release 并发拉取合成详情（无 README 变体/图标探测/
+/// Checksum），Top2 原子落库（失败回退逐条），盖章返回。
+/// 非强制刷新同样先走 TTL 快径（`forge/http` 无 ETag，保持无条件请求语义，仅调用方设门）。
+async fn fetch_detail_from_forge(
+    state: &AppState,
+    clean_id: String,
+    coord: crate::forge::UniversalRepoCoord,
+    is_force: bool,
+    sid: String,
+    req_id: String,
+    start: std::time::Instant,
+) -> Result<AppDetail, String> {
+    if !is_force {
+        if let Some(hit) = project_from_cache(
+            state, &clean_id, true, false, "get_app_details", "cache:db forge", start,
+        ) {
+            return Ok(hit);
+        }
+    }
+    log::debug!(
+        "fetch app detail multi-forge id={} host={} forge={:?}",
+        clean_id,
+        coord.host,
+        coord.forge
+    );
             let host_token = if let Ok(db) = state.db() {
                 db.get_host_token(&coord.host).ok().flatten()
             } else {
@@ -556,29 +623,31 @@ pub async fn get_app_details_impl(
             }
 
             state.catalog.stamp_detail(&mut detail);
-            return Ok(detail);
-        }
-    }
+            Ok(detail)
+}
 
-    // 2.2 GitHub 仓库拉取（含本地收录回退，可查可装与远端同行为）
+/// GitHub full 段：ETag 条件请求 + repo/README/平台/Checksum 全量组装落库。
+/// 含未知坐标 stale 降级、本地收录回退（可查可装与远端同行为）与落库子段
+/// （`persist_github_detail`）。
+async fn fetch_detail_from_github(
+    state: &AppState,
+    clean_id: &str,
+    is_force: bool,
+    sid: String,
+    req_id: String,
+    start: std::time::Instant,
+) -> Result<AppDetail, String> {
+    // GitHub 仓库拉取（含本地收录回退，可查可装与远端同行为）
     let (release_endpoint, cached_etag, cached_payload, token, cached_detail_opt) = {
         let token = crate::commands::resolve_active_github_token(state);
-        let coords = match state.catalog.get_repo_coordinates(&clean_id) {
+        let coords = match state.catalog.get_repo_coordinates(clean_id) {
             Ok(c) => c,
             Err(e) => {
                 // 未知坐标降级同样标 stale，Ok(stale) 形状 IPC 保留，前端 stale-empty 视为 loading。
-                if let Ok(db) = state.db() {
-                    if let Ok(Some(mut fallback)) = db.get_cached_app_detail(&clean_id, None) {
-                        fallback.core.id = clean_id.clone();
-                        fallback.is_stale = Some(true);
-                        log::debug!(
-                            "fetch detail fallback id={} cache=stale elapsed_ms={}",
-                            clean_id,
-                            start.elapsed().as_millis()
-                        );
-                        state.catalog.stamp_detail(&mut fallback);
-                        return Ok(fallback);
-                    }
+                if let Some(fallback) = project_from_cache(
+                    state, clean_id, false, false, "fetch detail fallback", "cache:stale", start,
+                ) {
+                    return Ok(fallback);
                 }
                 return Err(e);
             }
@@ -598,7 +667,7 @@ pub async fn get_app_details_impl(
         let cached_detail = if is_force {
             None
         } else {
-            db.get_cached_app_detail(&clean_id, None).ok().flatten()
+            db.get_cached_app_detail(clean_id, None).ok().flatten()
         };
         (ep, etag, payload, token, cached_detail)
     };
@@ -614,7 +683,7 @@ pub async fn get_app_details_impl(
     let fetch_result = state
         .catalog
         .fetch_app_detail(
-            &clean_id,
+            clean_id,
             cached_etag,
             cached_payload,
             cached_detail_opt,
@@ -654,29 +723,71 @@ pub async fn get_app_details_impl(
                 crate::github::release_fetch::apply_release_cache_effects(
                     &db,
                     &release_endpoint,
-                    &clean_id,
+                    clean_id,
                     touch_on_304,
                     to_cache,
                     now,
                 );
             }
 
-            // 存入 SQLite 本地持久化缓存。
-            // inherit-then-recompute：远端产物为空但本地已有资产时先继承，
-            // 继承后若 releases 非空而 platforms 仍空则重算 deduce，
-            // 使 assets-without-platforms 不可能成立。
-            // never-poison：仅 stale 穿透/合成空失败（is_stale==Some(true)）
-            // 永不落库——有旧行则保持旧行（连 cached_at 都不刷新），无旧行则不建行；
-            // 返回的 detail 保持 Ok 形状，但 is_stale=true 供前端视为
-            // loading/待 backfill-loading，永不确认 Other。空平台不 stamp ["other"]/["windows"]。
-            // 真空落盘：fresh 双空（200 已问到，仅全过滤致 releases/platforms 双空、
-            // is_stale 非 true）为远端确认无有效安装包，以 fresh 空行落盘
-            // （is_stale=None，cached_at=now），下次 TTL 内命中直接复用，前端灭黄标。
-            let start_db = std::time::Instant::now();
-            log::debug!("db_save start id={} sid={} req={}", clean_id, sid, req_id);
-            if let Ok(db) = state.db() {
+            persist_github_detail(state, clean_id, &mut detail, now, &sid, &req_id);
+
+            state.catalog.stamp_detail(&mut detail);
+            Ok(detail)
+        }
+        Err(err) => {
+            log::warn!(
+                "fetch app detail failed id={} url='{}' reason={}",
+                clean_id,
+                safe_ep,
+                crate::log_support::short_reason(&err)
+            );
+            // 网络或限额异常时，优雅降级返回已存储的历史缓存。
+            // Ok(stale) 形状为 IPC 保留；is_stale=true 供前端视为 loading，
+            // stale-empty（双空）不得确认 Other，由 backfill 重试。
+            if let Some(fallback_detail) = project_from_cache(
+                state, clean_id, false, false, "fetch app detail fallback", "cache:stale", start,
+            ) {
+                return Ok(fallback_detail);
+            }
+            Err(err)
+        }
+    }
+}
+
+/// GitHub full 段落库子段：存入 SQLite 本地持久化缓存。
+/// inherit-then-recompute：远端产物为空但本地已有资产时先继承，继承后若 releases 非空
+/// 而 platforms 仍空则重算 deduce，使 assets-without-platforms 不可能成立。
+/// never-poison：仅 stale 穿透/合成空失败（`is_stale==Some(true)`，判定见
+/// `should_skip_persist`）永不落库——有旧行则保持旧行（连 cached_at 都不刷新），
+/// 无旧行则不建行；返回的 detail 保持 Ok 形状，但 is_stale=true 供前端视为
+/// loading/待 backfill-loading，永不确认 Other。空平台不 stamp ["other"]/["windows"]。
+/// 真空落盘：fresh 双空（200 已问到、is_stale 非 true、releases/platforms 双空）为远端
+/// 确认真空，同样落盘 fresh 空行（is_stale=None，cached_at=now），下次 TTL 内命中直接
+/// 复用，前端灭黄标（virtual-Other）。
+/// 落盘前占位根治：未收录仓 detail 占位简介若能从 ETag repo 真值回填则替换，
+/// 避免占位永久落盘导致 recents 永远吐占位；已收录仓人工精校优先直接跳过。
+/// 已收录含本地收录行（仅 `status==collected`），与远端同行为。
+/// （fetch 侧已用 fresh repo_info 治愈，此处补 repo 401/失败但 ETag 仍有旧真值的缺口；同步读不触网。）
+/// Top2：详情 + 图标原子落库（2 提交变 1 提交），失败回滚并回退逐条，不改 TTL/ETag。
+/// FINAL Logo 口径：`detail.icon` 必为 L1–L4 备选 Logo（官方/探测/README 头部），
+/// README 正文图永不进 `detail.icon`（见 detail_fetch 头部 40 行 Logo 提取），此处不存正文。
+/// 02 手动轮换保护：pinned 行（用户已手动选择档位）保持 level/selected_url，
+/// 仅把本次最强探测补进备选槽，并把 `detail.icon` 对齐 pinned 选择
+/// （L5 pinned 对齐 `""` 保持徽章态）；未 pinned 行仍按最强探测更新选中图。
+fn persist_github_detail(
+    state: &AppState,
+    clean_id: &str,
+    detail: &mut AppDetail,
+    now: i64,
+    sid: &str,
+    req_id: &str,
+) {
+    let start_db = std::time::Instant::now();
+    log::debug!("db_save start id={} sid={} req={}", clean_id, sid, req_id);
+    if let Ok(db) = state.db() {
                 if detail.releases.is_empty() {
-                    if let Ok(Some(old)) = db.get_cached_app_detail(&clean_id, None) {
+                    if let Ok(Some(old)) = db.get_cached_app_detail(clean_id, None) {
                         if !old.releases.is_empty() {
                             detail.releases = old.releases.clone();
                         }
@@ -698,14 +809,11 @@ pub async fn get_app_details_impl(
                         req_id
                     );
                 } else {
-                    // fresh 双空（200 已问到、is_stale 非 true、releases/platforms 双空）
-                    // 为远端确认真空：同样落盘 fresh 空行（is_stale=None，cached_at=now），
-                    // 下次 TTL 内命中直接复用，前端灭黄标（virtual-Other）。
                     // 落盘前占位根治：未收录仓 detail 占位简介若能从 ETag repo 真值回填则替换，
                     // 避免占位永久落盘导致 recents 永远吐占位；已收录仓人工精校优先直接跳过。
                     // 已收录含本地收录行（仅 `status==collected`），与远端同行为。
                     // （fetch 侧已用 fresh repo_info 治愈，此处补 repo 401/失败但 ETag 仍有旧真值的缺口；同步读不触网。）
-                    if state.catalog.get_catalog_item(&clean_id).is_none() {
+                    if state.catalog.get_catalog_item(clean_id).is_none() {
                         let need_desc =
                             crate::github::detail_fetch::is_placeholder_description(
                                 &detail.core.description,
@@ -739,7 +847,6 @@ pub async fn get_app_details_impl(
                             }
                         }
                     }
-                    // Top2：详情 + 图标原子落库（2 提交变 1 提交），失败回滚并回退逐条，不改 TTL/ETag。
                     // FINAL Logo 口径：`detail.icon` 必为 L1–L4 备选 Logo（官方/探测/README 头部），
                     // README 正文图永不进 `detail.icon`（见 detail_fetch 头部 40 行 Logo 提取），此处不存正文。
                     // 02 手动轮换保护：pinned 行（用户已手动选择档位）保持 level/selected_url，
@@ -754,18 +861,18 @@ pub async fn get_app_details_impl(
                                 crate::github::icon_fetch::level_for_detail_icon(&icon_trimmed);
 
                             let mut cycle = db
-                                .get_icon_cycle(&clean_id)
+                                .get_icon_cycle(clean_id)
                                 .ok()
                                 .flatten()
                                 .unwrap_or_else(|| {
-                                    crate::db::AppIconCycle::new(&clean_id, &detail.core.owner, &detail.core.repo)
+                                    crate::db::AppIconCycle::new(clean_id, &detail.core.owner, &detail.core.repo)
                                 });
 
                             if crate::db::icon_cycle::merge_detail_icon(
                                 &mut cycle,
                                 level,
                                 icon_trimmed.trim(),
-                                state.catalog.is_cataloged(&clean_id),
+                                state.catalog.is_cataloged(clean_id),
                                 now,
                             ) {
                                 detail.core.icon = cycle.selected_url.clone();
@@ -773,7 +880,7 @@ pub async fn get_app_details_impl(
                             Some(cycle)
                         } else {
                             // 探测无可用图标：pinned 行仍保持详情展示为用户所选档位。
-                            if let Ok(Some(pinned_cycle)) = db.get_icon_cycle(&clean_id) {
+                            if let Ok(Some(pinned_cycle)) = db.get_icon_cycle(clean_id) {
                                 if pinned_cycle.pinned {
                                     detail.core.icon = pinned_cycle.selected_url.clone();
                                 }
@@ -781,54 +888,23 @@ pub async fn get_app_details_impl(
                             None
                         };
                     if db
-                        .save_detail_with_cycle_row(&clean_id, &detail, staged_cycle.as_ref())
+                        .save_detail_with_cycle_row(clean_id, detail, staged_cycle.as_ref())
                         .is_err()
                     {
-                        let _ = db.save_cached_app_detail(&clean_id, &detail);
+                        let _ = db.save_cached_app_detail(clean_id, detail);
                         if let Some(c) = staged_cycle.as_ref() {
                             let _ = db.upsert_icon_cycle(c);
                         }
                     }
                 } // end non-stale non-empty save branch (stale/empty-empty skip above)
             }
-            log::debug!(
-                "db_save done id={} sid={} req={} elapsed_ms={}",
-                clean_id,
-                sid,
-                req_id,
-                start_db.elapsed().as_millis()
-            );
-
-            state.catalog.stamp_detail(&mut detail);
-            Ok(detail)
-        }
-        Err(err) => {
-            log::warn!(
-                "fetch app detail failed id={} url='{}' reason={}",
-                clean_id,
-                safe_ep,
-                crate::log_support::short_reason(&err)
-            );
-            // 网络或限额异常时，优雅降级返回已存储的历史缓存。
-            // Ok(stale) 形状为 IPC 保留；is_stale=true 供前端视为 loading，
-            // stale-empty（双空）不得确认 Other，由 backfill 重试。
-            if let Ok(db) = state.db() {
-                if let Ok(Some(mut fallback_detail)) = db.get_cached_app_detail(&clean_id, None)
-                {
-                    fallback_detail.core.id = clean_id.clone();
-                    fallback_detail.is_stale = Some(true);
-                    log::debug!(
-                        "fetch app detail fallback id={} from=cache:stale elapsed_ms={}",
-                        clean_id,
-                        start.elapsed().as_millis()
-                    );
-                    state.catalog.stamp_detail(&mut fallback_detail);
-                    return Ok(fallback_detail);
-                }
-            }
-            Err(err)
-        }
-    }
+    log::debug!(
+        "db_save done id={} sid={} req={} elapsed_ms={}",
+        clean_id,
+        sid,
+        req_id,
+        start_db.elapsed().as_millis()
+    );
 }
 
 /// 通用图片磁盘缓存查询：已缓存返回本地路径，未命中下载后返回本地路径，失败回退原地址。
