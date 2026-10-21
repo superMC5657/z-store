@@ -9,10 +9,12 @@ import {
   writeSearchListCache,
 } from '../../services/search/searchListCache';
 import { zlogWarn } from '../../lib/z-log';
+import type { Navigate } from '../navigation';
 
 interface UseSearchStateParams {
   currentView: ViewType;
-  setCurrentView: (view: ViewType) => void;
+  /** 集中导航入口（App.createNavigate 产物；合法性校验收口于 navigation）。 */
+  navigate: Navigate;
   setApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
   lazyBackfillPlatforms: (summaries: AppSummary[], seq: number, forceRefresh?: boolean) => void;
   showToast: (msg: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
@@ -96,7 +98,7 @@ function assembleOnlineRowsWithIcons(prev: AppSummary[], incoming: AppSummary[])
 
 export function useSearchState({
   currentView,
-  setCurrentView,
+  navigate,
   setApps,
   lazyBackfillPlatforms,
   showToast,
@@ -167,7 +169,7 @@ export function useSearchState({
       if (guardFreshSearch(seq)) return;
       setApps(results);
       if (q && currentView !== 'home' && currentView !== 'trends' && currentView !== 'categories') {
-        setCurrentView('home');
+        navigate('home');
       }
     } catch (err) {
       if (guardFreshSearch(seq, err, 'searchApps error')) return;
@@ -211,7 +213,7 @@ export function useSearchState({
         if (guardFreshSearch(seq)) return;
         setApps(freshLocal);
         if (currentView !== 'home' && currentView !== 'trends' && currentView !== 'categories') {
-          setCurrentView('home');
+          navigate('home');
         }
       } catch (err) {
         // 本地失败不阻塞：照常转在线（apps 保持原样，在线无结果/失败则提示）。

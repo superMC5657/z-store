@@ -1,13 +1,14 @@
 import type { TFunction } from 'i18next';
 import { useEffect, useState } from 'react';
-import type { ViewType } from '../../types';
 import { tauriApi } from '../../services/api';
+import type { Navigate } from '../navigation';
 
 interface UseDeepLinkParams {
   handleOpenDetail: (id: string) => void;
   handleSearchChange: (q: string) => Promise<void> | void;
   setSelectedDeveloper: (dev: string | null) => void;
-  setCurrentView: (view: ViewType) => void;
+  /** 集中导航入口（App.createNavigate 产物；合法 ViewType 校验收口于 navigation）。 */
+  navigate: Navigate;
   showToast: (msg: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
   t: TFunction;
 }
@@ -23,7 +24,7 @@ export function useDeepLink({
   handleOpenDetail,
   handleSearchChange,
   setSelectedDeveloper,
-  setCurrentView,
+  navigate,
   showToast,
   t,
 }: UseDeepLinkParams) {
@@ -46,10 +47,8 @@ export function useDeepLink({
       } else if (action.action === 'developer_profile') {
         setSelectedDeveloper(action.payload.owner);
       } else if (action.action === 'open_view') {
-        const validViews: ViewType[] = ['home', 'trends', 'categories', 'pending', 'installed', 'updates', 'favorites', 'settings'];
-        if (validViews.includes(action.payload.view as ViewType)) {
-          setCurrentView(action.payload.view as ViewType);
-        }
+        // 合法视图校验收口于集中导航（navigation.isViewType）；非法视图静默忽略。
+        navigate(action.payload.view);
       }
       showToast(t('toast.deeplink_responded', { url: rawUrl }), 'info');
     } catch (e) {

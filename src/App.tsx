@@ -17,7 +17,7 @@ import { RulesManagerModal } from './components/RulesManagerModal';
 import { HomeView } from './views/HomeView';
 import { TrendsView } from './views/TrendsView';
 import { CategoriesView } from './views/CategoriesView';
-import { PendingView, type PendingDraftItem } from './views/PendingView';
+import { PendingView } from './views/PendingView';
 import { InstalledView } from './views/InstalledView';
 import { UpdatesView } from './views/UpdatesView';
 import { SettingsView } from './views/SettingsView';
@@ -26,8 +26,6 @@ import { EmptyState } from './components/EmptyState';
 import { Search } from 'lucide-react';
 import { AppDetailViewModel, AppSummary, OAuthUser, UpdateItem, UpdateCheckProgressPayload, UpdateRule, ViewType, WatchUpdatedPayload } from './types';
 import { tauriApi } from './services/api';
-import { entryFromWire, entryToCollectedSummary, itemToWire } from './services/custom/mappers';
-import type { DraftEntry } from './services/custom/types';
 import { togglePlatformSet, type PlatformId } from './lib/platformFilter';
 import { isPlatformLoading } from './lib/platformFilter';
 import { normalizeId } from './services/normalizeId';
@@ -43,12 +41,14 @@ import { usePlatformBackfill } from './app/hooks/usePlatformBackfill';
 import { useSearchState } from './app/hooks/useSearchState';
 import { useInstallState } from './app/hooks/useInstallState';
 import { useDeepLink } from './app/hooks/useDeepLink';
+import { useCustomApps } from './app/hooks/useCustomApps';
 import { useDetailCacheSync } from './app/hooks/useDetailCacheSync';
 import { useUncatalogedJoin } from './app/favoritesUncataloged';
 import { useAppSubscriptions } from './app/hooks/useAppSubscriptions';
 import { useAppSelectors } from './app/selectors';
-import { isLocalLibraryStatus, selectMergedCatalogApps } from './app/selectors';
+import { selectMergedCatalogApps } from './app/selectors';
 import { isInstalled as selectIsInstalled, isManaged as selectIsManaged } from './app/selectors';
+import { createNavigate } from './app/navigation';
 import { useUpdateActions } from './app/hooks/useUpdateActions';
 import { useToasts } from './useToasts';
 import { useAppSettings } from './useAppSettings';
@@ -57,6 +57,9 @@ import './i18n';
 
 export const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewType>('home');
+  // 集中导航入口：全部视图切换（Sidebar/搜索回跳/深链 open_view/账号设置/趋势跳转）唯一收口，
+  // 合法 ViewType 校验收口于 app/navigation（非法视图拒绝，不回落 home）。
+  const navigate = useMemo(() => createNavigate(setCurrentView), [setCurrentView]);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [apps, setApps] = useState<AppSummary[]>([]);
   const [updates, setUpdates] = useState<UpdateItem[]>([]);
@@ -81,9 +84,6 @@ export const App: React.FC = () => {
   // FR-6.2 关注（Watch）
   const [watchedIds, setWatchedIds] = useState<Set<string>>(new Set());
   const [watchNotifications, setWatchNotifications] = useState<WatchUpdatedPayload[]>([]);
-  // 待收录草稿后端列表（null = 未加载/非 Tauri 预览，
-  // 此时 PendingView 缺 entries 走内部本地态；备份/转正语义不受影响）。
-  const [customApps, setCustomApps] = useState<DraftEntry[] | null>(null);
   // 任务 3（设备平台全局过滤）：App 级别多选平台状态，默认选中全部 6 种 PLATFORM_IDS（含虚拟 other），
   // 仅持久化至 localStorage——刻意不接入 tauriApi.getSettings()/UserDataBackup（仅为本地界面偏好，非备份数据）。
   const [selectedPlatforms, setSelectedPlatforms] = useState<Set<PlatformId>>(() => loadSelectedPlatforms());
@@ -101,35 +101,20 @@ export const App: React.FC = () => {
   const { toasts, showToast, handleDismissToast } = useToasts();
   const { t } = useTranslation();
 
-  // 待收录草稿透传（list/save/delete/markSubmitted 经 tauriApi）。
-  const reloadCustomApps = useCallback(async () => {
-    try {
-      const wires = await tauriApi.listCustomApps(true);
-      setCustomApps(wires.map(entryFromWire));
-    } catch {
-      // 非 Tauri 预览/后端未就绪：保持 null，PendingView 走内部本地态
-      setCustomApps(null);
-    }
-  }, []);
-
-  // 待收录变更跟随（移入收录/备份导入后刷新）+ 挂载即拉取：
-  // 本地收录需首页/分类同展，挂载拉取保证首刷补黄（缺席无标，就绪重标），跨视图变更全局跟随。
-  useEffect(() => {
-    void reloadCustomApps();
-    const onChanged = () => {
-      void reloadCustomApps();
-    };
-    window.addEventListener('zstore:custom-apps-changed', onChanged);
-    return () => {
-      window.removeEventListener('zstore:custom-apps-changed', onChanged);
-    };
-  }, [reloadCustomApps]);
-
-  const pendingEntries = useMemo(() => customApps ?? undefined, [customApps]);
-  const pendingCount = useMemo(
-    () => customApps?.filter((e) => !e.archived).length ?? 0,
-    [customApps],
-  );
+  // 待收录草稿域（customApps 列表 + 六个落盘 handler + 派生序列）：
+  // 状态机本体收容于 app/hooks/useCustomApps（对齐既有下沉模式）。
+  const {
+    customApps,
+    pendingEntries,
+    pendingCount,
+    localLibrarySummaries,
+    handleSaveCustomApp,
+    handleDeleteCustomApp,
+    handleMarkCustomSubmitted,
+    handleCollectLocalApp,
+    handleWithdrawSubmitted,
+    handleRevertCollectedApp,
+  } = useCustomApps({ showToast, t });
 
   // 移入收录入口抑制集：后端 customApps 全量 id + 本地乐观移入 id（归一小写），
   // 即 `selectMergedCatalogApps` 会命中 custom 行的 id 集合；富卡内部入口据此隐藏已存在项。
@@ -155,57 +140,6 @@ export const App: React.FC = () => {
     }
     return out;
   }, [customApps, movedInIds]);
-
-  const handleSaveCustomApp = async (draft: PendingDraftItem) => {
-    const existing = customApps?.find((e) => e.id === draft.id);
-    await tauriApi.saveCustomApp(itemToWire(draft, existing?.item));
-    await reloadCustomApps();
-  };
-  const handleDeleteCustomApp = async (id: string) => {
-    await tauriApi.deleteCustomApp(id);
-    await reloadCustomApps();
-  };
-  const handleMarkCustomSubmitted = async (id: string, prUrl: string) => {
-    await tauriApi.markCustomSubmitted(id, prUrl);
-    await reloadCustomApps();
-  };
-  const handleCollectLocalApp = async (id: string) => {
-    await tauriApi.collectLocalApp(id);
-    await reloadCustomApps();
-  };
-  const handleWithdrawSubmitted = async (id: string) => {
-    await tauriApi.withdrawSubmitted(id);
-    await reloadCustomApps();
-  };
-  const handleRevertCollectedApp = async (id: string) => {
-    try {
-      await tauriApi.revertCollectedApp(id);
-      await reloadCustomApps();
-    } catch (e) {
-      // 落盘失败必须报错并向上传递（PendingView 侧同样 toast），禁止静默本地翻 draft
-      // 否则当次停留收录退出、重启又因 DB 仍 collected 而重现。
-      const detail = e instanceof Error ? e.message : String(e);
-      showToast(
-        t('pending.revert_failed', {
-          id,
-          error: detail,
-          defaultValue: `退回草稿失败：${id}：${detail}`,
-        }),
-        'error',
-      );
-      throw e;
-    }
-  };
-
-  // 本地库合并流：仅库内成员（collected 系 + 已提交 submitted）且未归档进入首页/分类（可搜可装，橘黄 local 徽标）。
-  const localLibrarySummaries = useMemo(() => {
-    const out: Array<AppSummary & { status: string; archived: boolean }> = [];
-    for (const e of customApps ?? []) {
-      if (e.archived || !isLocalLibraryStatus(e.status)) continue;
-      out.push(entryToCollectedSummary(e));
-    }
-    return out;
-  }, [customApps]);
 
   // 1. 安装管理 Hook
   const {
@@ -251,7 +185,7 @@ export const App: React.FC = () => {
     handleOnlineLoadMore,
   } = useSearchState({
     currentView,
-    setCurrentView,
+    navigate,
     setApps,
     lazyBackfillPlatforms: (summaries, seq, forceRefresh) => lazyBackfillRef.current(summaries, seq, forceRefresh),
     showToast,
@@ -319,7 +253,7 @@ export const App: React.FC = () => {
     handleOpenDetail,
     handleSearchChange,
     setSelectedDeveloper,
-    setCurrentView,
+    navigate,
     showToast,
     t,
   });
@@ -607,7 +541,7 @@ export const App: React.FC = () => {
 
   // 跳转设置页 GitHub 账号区（侧栏登录胶囊入口）
   const handleOpenAccountSettings = () => {
-    setCurrentView('settings');
+    navigate('settings');
     setTimeout(() => {
       document.getElementById('settings-account')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, 120);
@@ -637,7 +571,7 @@ export const App: React.FC = () => {
         {/* 侧边导航栏 */}
         <Sidebar
           currentView={currentView}
-          onSelectView={setCurrentView}
+          onSelectView={navigate}
           installedCount={installedApps.length}
           hasUpdates={updates.length > 0 || watchNotifications.length > 0}
           onOpenAccount={handleOpenAccountSettings}
@@ -702,7 +636,7 @@ export const App: React.FC = () => {
                 onQuickInstall={handleQuickInstall}
                 onToggleFavorite={handleToggleFavorite}
                 onToggleWatch={handleToggleWatch}
-                onNavigateTrends={() => setCurrentView('trends')}
+                onNavigateTrends={() => navigate('trends')}
                 onClearRecentViews={handleClearRecentViews}
                 onResetPlatformFilter={handleResetPlatformFilter}
                 isOnlineResults={isOnlineResultSet}
