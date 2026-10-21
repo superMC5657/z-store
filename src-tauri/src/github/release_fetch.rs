@@ -95,13 +95,13 @@ pub(crate) enum ShallowError {
 
 fn row_release(row: &AppDetail, touch: bool, stale: Option<bool>) -> ShallowRelease {
     ShallowRelease {
-        tag: row.latest_version.clone(),
+        tag: row.core.latest_version.clone(),
         body: row.changelog.clone(),
         assets: Vec::new(),
         source: ShallowSource::StaleRow,
         touch,
         cache_to_save: None,
-        row_platforms: Some(row.platforms.clone()),
+        row_platforms: Some(row.core.platforms.clone()),
         stale,
     }
 }
@@ -274,7 +274,7 @@ pub(crate) fn decide_detail_release(
             if let Some(existing) = input.cached_detail {
                 let mut reused = existing.clone();
                 if let Some(desc_en) = input.catalog_description_en {
-                    reused.description_en = Some(desc_en.to_string());
+                    reused.core.description_en = Some(desc_en.to_string());
                 }
                 reused.is_stale = Some(true);
                 return Ok(DetailReleaseDecision::ReuseStale(Box::new(reused)));
@@ -355,6 +355,7 @@ pub(crate) fn apply_release_cache_effects(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::AppCore;
 
     fn release_json(tag: &str, body: &str) -> String {
         serde_json::json!({
@@ -373,34 +374,36 @@ mod tests {
 
     fn sample_row() -> AppDetail {
         AppDetail {
-            id: "o/r".to_string(),
-            name: "r".to_string(),
-            description_en: Some("EN".to_string()),
-            owner: "o".to_string(),
-            repo: "r".to_string(),
-            icon: String::new(),
-            icon_bg: String::new(),
-            description: "desc".to_string(),
-            stars: 1,
-            forks: 0,
-            license: "MIT".to_string(),
-            latest_version: "v1.0.0".to_string(),
+            core: AppCore {
+                id: "o/r".to_string(),
+                name: "r".to_string(),
+                description_en: Some("EN".to_string()),
+                owner: "o".to_string(),
+                repo: "r".to_string(),
+                icon: String::new(),
+                icon_bg: String::new(),
+                description: "desc".to_string(),
+                stars: 1,
+                forks: 0,
+                license: "MIT".to_string(),
+                latest_version: "v1.0.0".to_string(),
+                is_verified: false,
+                category: "dev".to_string(),
+                category_name: "开发工具".to_string(),
+                forge: Some("github".to_string()),
+                forge_host: Some("github.com".to_string()),
+                homepage: None,
+                platforms: vec!["windows".to_string()],
+                is_cataloged: None,
+                source: None,
+                status: None,
+            },
             changelog: "old notes".to_string(),
-            is_verified: false,
             readme_markdown: "# r".to_string(),
             readme_variants: None,
             releases: vec![],
-            category: "dev".to_string(),
-            category_name: "开发工具".to_string(),
-            forge: Some("github".to_string()),
-            forge_host: Some("github.com".to_string()),
             cached_at: None,
             is_stale: None,
-            homepage: None,
-            platforms: vec!["windows".to_string()],
-            is_cataloged: None,
-            source: None,
-            status: None,
         }
     }
 
@@ -666,8 +669,8 @@ mod tests {
         };
         match decide_detail_release(input).unwrap() {
             DetailReleaseDecision::ReuseStale(reused) => {
-                assert_eq!(reused.latest_version, "v1.0.0");
-                assert_eq!(reused.description_en.as_deref(), Some("Curated EN"));
+                assert_eq!(reused.core.latest_version, "v1.0.0");
+                assert_eq!(reused.core.description_en.as_deref(), Some("Curated EN"));
                 assert_eq!(reused.is_stale, Some(true));
             }
             other => panic!("unexpected {other:?}"),
@@ -684,7 +687,7 @@ mod tests {
         };
         match decide_detail_release(input).unwrap() {
             DetailReleaseDecision::ReuseStale(reused) => {
-                assert_eq!(reused.description_en.as_deref(), Some("EN"));
+                assert_eq!(reused.core.description_en.as_deref(), Some("EN"));
                 assert_eq!(reused.is_stale, Some(true));
             }
             other => panic!("unexpected {other:?}"),

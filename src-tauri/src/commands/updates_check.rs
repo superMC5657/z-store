@@ -32,7 +32,7 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
                 return Ok((latest, changelog));
             }
             if let Ok(Some(cached)) = db.get_cached_app_detail(&clean_id, None) {
-                return Ok((cached.latest_version, cached.changelog));
+                return Ok((cached.core.latest_version, cached.changelog));
             }
         }
         if let Some(item) = state.catalog.get_catalog_item(&clean_id) {
@@ -65,7 +65,7 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
         Err(_) => {
             if let Ok(db) = state.db() {
                 if let Ok(Some(fallback)) = db.get_cached_app_detail(&clean_id, None) {
-                    return Ok((fallback.latest_version, fallback.changelog));
+                    return Ok((fallback.core.latest_version, fallback.changelog));
                 }
             }
             return Err(format!("未识别的应用坐标: {}", app_id));

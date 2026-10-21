@@ -92,9 +92,9 @@ pub fn rank_feed_with_strategy(
     if strategy == FeedStrategy::StarsOnly || seed.is_none() {
         let mut items = items;
         items.sort_by(|a, b| {
-            b.stars
-                .cmp(&a.stars)
-                .then_with(|| a.id.cmp(&b.id))
+            b.core.stars
+                .cmp(&a.core.stars)
+                .then_with(|| a.core.id.cmp(&b.core.id))
         });
         return items;
     }
@@ -102,15 +102,15 @@ pub fn rank_feed_with_strategy(
     let mut scored: Vec<(f64, AppSummary)> = items
         .into_iter()
         .map(|app| {
-            let jitter = feed_jitter01(&app.id, s);
-            let score = feed_score(strategy, app.stars, jitter);
+            let jitter = feed_jitter01(&app.core.id, s);
+            let score = feed_score(strategy, app.core.stars, jitter);
             (score, app)
         })
         .collect();
     scored.sort_by(|a, b| {
         b.0.partial_cmp(&a.0)
             .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.1.id.cmp(&b.1.id))
+            .then_with(|| a.1.core.id.cmp(&b.1.core.id))
     });
     scored.into_iter().map(|(_, app)| app).collect()
 }

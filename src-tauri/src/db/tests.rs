@@ -1,5 +1,5 @@
 use super::*;
-use crate::models::AppDetail;
+use crate::models::{AppCore, AppDetail};
 
 pub mod fixtures {
     use crate::db::Database;
@@ -235,34 +235,36 @@ fn test_app_details_cache_crud() {
 
     // 2. 保存详情缓存
     let detail = AppDetail {
-        id: "rustdesk".to_string(),
-        name: "RustDesk".to_string(),
-        description_en: Some("Remote desktop software".to_string()),
-        owner: "rustdesk".to_string(),
-        repo: "rustdesk".to_string(),
-        icon: "https://github.com/rustdesk.png".to_string(),
-        icon_bg: "linear-gradient(135deg, #f97316, #ea580c)".to_string(),
-        description: "远程桌面软件".to_string(),
-        stars: 70000,
-        forks: 9000,
-        license: "AGPL-3.0".to_string(),
-        latest_version: "v1.3.1".to_string(),
+        core: AppCore {
+            id: "rustdesk".to_string(),
+            name: "RustDesk".to_string(),
+            description_en: Some("Remote desktop software".to_string()),
+            owner: "rustdesk".to_string(),
+            repo: "rustdesk".to_string(),
+            icon: "https://github.com/rustdesk.png".to_string(),
+            icon_bg: "linear-gradient(135deg, #f97316, #ea580c)".to_string(),
+            description: "远程桌面软件".to_string(),
+            stars: 70000,
+            forks: 9000,
+            license: "AGPL-3.0".to_string(),
+            latest_version: "v1.3.1".to_string(),
+            is_verified: true,
+            category: "system".to_string(),
+            category_name: "系统实用".to_string(),
+            forge: Some("github".to_string()),
+            forge_host: Some("github.com".to_string()),
+            homepage: None,
+            platforms: vec!["windows".to_string()],
+            is_cataloged: None,
+            source: None,
+            status: None,
+        },
         changelog: "修复已知问题".to_string(),
-        is_verified: true,
         readme_markdown: "# RustDesk".to_string(),
         readme_variants: None,
         releases: vec![],
-        category: "system".to_string(),
-        category_name: "系统实用".to_string(),
-        forge: Some("github".to_string()),
-        forge_host: Some("github.com".to_string()),
         cached_at: None,
         is_stale: None,
-        homepage: None,
-        platforms: vec!["windows".to_string()],
-        is_cataloged: None,
-        source: None,
-        status: None,
     };
 
     db.save_cached_app_detail("rustdesk/rustdesk", &detail)
@@ -273,12 +275,12 @@ fn test_app_details_cache_crud() {
         .get_cached_app_detail("rustdesk/rustdesk", Some(1800))
         .unwrap()
         .expect("hit by id");
-    assert_eq!(cached_by_id.name, "RustDesk");
+    assert_eq!(cached_by_id.core.name, "RustDesk");
     assert_eq!(
-        cached_by_id.description_en.as_deref(),
+        cached_by_id.core.description_en.as_deref(),
         Some("Remote desktop software")
     );
-    assert_eq!(cached_by_id.latest_version, "v1.3.1");
+    assert_eq!(cached_by_id.core.latest_version, "v1.3.1");
     assert!(cached_by_id.cached_at.is_some());
 
     // 4. 缓存键精确匹配：非 canonical 形态（裸名 /  host 前缀变体）一律不命中（ADR-0010 单键语义）
@@ -302,7 +304,7 @@ fn test_app_details_cache_crud() {
         .get_cached_app_detail("rustdesk/rustdesk", None)
         .unwrap()
         .expect("fallback hit");
-    assert_eq!(fallback.name, "RustDesk");
+    assert_eq!(fallback.core.name, "RustDesk");
 
     // 6. 测试 touch_cached_app_detail 刷新缓存时间
     let fresh_now = now_secs() + 100;
@@ -316,14 +318,14 @@ fn test_app_details_cache_crud() {
 
     // 7. 更新缓存
     let mut updated_detail = detail.clone();
-    updated_detail.latest_version = "v1.3.2".to_string();
+    updated_detail.core.latest_version = "v1.3.2".to_string();
     db.save_cached_app_detail("rustdesk/rustdesk", &updated_detail)
         .unwrap();
     let cached_updated = db
         .get_cached_app_detail("rustdesk/rustdesk", Some(1800))
         .unwrap()
         .unwrap();
-    assert_eq!(cached_updated.latest_version, "v1.3.2");
+    assert_eq!(cached_updated.core.latest_version, "v1.3.2");
 
     // 8. 清除缓存
     db.clear_app_details_cache().unwrap();

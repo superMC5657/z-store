@@ -53,6 +53,23 @@ pub struct IconFetchJob {
     pub ctx: IconFetchCtx,
 }
 
+/// 待补探/待 enrich 仓库坐标（`id` 归一小写 + `owner`/`repo`）：
+/// 搜索与趋势组装 `IconFetchJob` 前的中间形状（ctx 尚未产生，由调用方入流时附加），
+/// 替代按位解构的 `(id, owner, repo)` 裸三元组。
+#[derive(Debug, Clone)]
+pub struct RepoCoord {
+    pub id: String,
+    pub owner: String,
+    pub repo: String,
+}
+
+impl RepoCoord {
+    /// 附加补探上下文成完整任务。
+    pub fn into_job(self, ctx: IconFetchCtx) -> IconFetchJob {
+        IconFetchJob { id: self.id, owner: self.owner, repo: self.repo, ctx }
+    }
+}
+
 /// 补探上下文：搜索 `Search` 与趋势 `Trend` 共用（世代防串由调用方按 `gen` 执行）。
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]

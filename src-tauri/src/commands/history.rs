@@ -185,38 +185,40 @@ fn cached_detail_summary(db: &crate::db::Database, id: &str) -> Option<AppSummar
 
 /// AppDetail → AppSummary（字段与前端 AppSummary 对齐；`data:` 置空兜底）。
 fn detail_to_summary(detail: &crate::models::AppDetail) -> AppSummary {
-    let icon_trimmed = detail.icon.trim();
+    let icon_trimmed = detail.core.icon.trim();
     let icon = if icon_trimmed.is_empty() || icon_trimmed.starts_with("data:") {
         String::new()
     } else {
-        detail.icon.clone()
+        detail.core.icon.clone()
     };
     AppSummary {
-        id: detail.id.clone(),
-        name: detail.name.clone(),
-        description_en: detail.description_en.clone(),
-        owner: detail.owner.clone(),
-        repo: detail.repo.clone(),
-        icon,
-        icon_bg: detail.icon_bg.clone(),
-        description: detail.description.clone(),
-        stars: detail.stars,
-        forks: detail.forks,
-        license: detail.license.clone(),
-        latest_version: detail.latest_version.clone(),
-        category: detail.category.clone(),
-        category_name: detail.category_name.clone(),
-        is_verified: detail.is_verified,
+        core: crate::models::AppCore {
+            id: detail.core.id.clone(),
+            name: detail.core.name.clone(),
+            description_en: detail.core.description_en.clone(),
+            owner: detail.core.owner.clone(),
+            repo: detail.core.repo.clone(),
+            icon,
+            icon_bg: detail.core.icon_bg.clone(),
+            description: detail.core.description.clone(),
+            stars: detail.core.stars,
+            forks: detail.core.forks,
+            license: detail.core.license.clone(),
+            latest_version: detail.core.latest_version.clone(),
+            category: detail.core.category.clone(),
+            category_name: detail.core.category_name.clone(),
+            is_verified: detail.core.is_verified,
+            forge: detail.core.forge.clone(),
+            forge_host: detail.core.forge_host.clone(),
+            homepage: detail.core.homepage.clone(),
+            platforms: detail.core.platforms.clone(),
+            is_cataloged: detail.core.is_cataloged,
+            source: detail.core.source.clone(),
+            status: detail.core.status.clone(),
+        },
         is_installed: None,
         has_update: None,
         installed_version: None,
-        forge: detail.forge.clone(),
-        forge_host: detail.forge_host.clone(),
-        homepage: detail.homepage.clone(),
-        platforms: detail.platforms.clone(),
-        is_cataloged: detail.is_cataloged,
-        source: detail.source.clone(),
-        status: detail.status.clone(),
     }
 }
 
@@ -227,11 +229,11 @@ fn detail_to_summary(detail: &crate::models::AppDetail) -> AppSummary {
 fn apply_confirmed_icon(db: &crate::db::Database, summary: &mut AppSummary) {
     if let Some(ci) = crate::github::http::resolve_confirmed_icon_from_db(
         db,
-        &summary.id,
-        &summary.owner,
-        &summary.repo,
+        &summary.core.id,
+        &summary.core.owner,
+        &summary.core.repo,
     ) {
-        summary.icon = ci;
+        summary.core.icon = ci;
     }
 }
 
@@ -243,10 +245,10 @@ fn apply_confirmed_icon(db: &crate::db::Database, summary: &mut AppSummary) {
 /// - 非占位（已收录人工简介等）原样保留。
 fn heal_recent_summary(db: &crate::db::Database, summary: &mut AppSummary) {
     let need_desc = crate::github::detail_fetch::is_placeholder_description(
-        &summary.description,
+        &summary.core.description,
     );
     let need_en = summary
-        .description_en
+        .core.description_en
         .as_deref()
         .map(crate::github::detail_fetch::is_placeholder_description)
         .unwrap_or(false);
@@ -255,19 +257,19 @@ fn heal_recent_summary(db: &crate::db::Database, summary: &mut AppSummary) {
     }
     let real = crate::github::detail_fetch::repo_real_description_from_etag(
         db,
-        &summary.owner,
-        &summary.repo,
+        &summary.core.owner,
+        &summary.core.repo,
     );
     if need_desc {
         match real.clone() {
-            Some(r) => summary.description = r,
-            None => summary.description = String::new(),
+            Some(r) => summary.core.description = r,
+            None => summary.core.description = String::new(),
         }
     }
     if need_en {
         match real {
-            Some(r) => summary.description_en = Some(r),
-            None => summary.description_en = Some(String::new()),
+            Some(r) => summary.core.description_en = Some(r),
+            None => summary.core.description_en = Some(String::new()),
         }
     }
 }
@@ -468,38 +470,40 @@ mod import_restore_tests {
 #[cfg(test)]
 mod recent_uncataloged_tests {
     use crate::db::Database;
-    use crate::models::AppDetail;
+    use crate::models::{AppCore, AppDetail};
 
     fn uncataloged_detail(id: &str, icon: &str) -> AppDetail {
         AppDetail {
-            id: id.to_string(),
-            name: "Oh My Pi".to_string(),
-            description_en: Some("Raspberry Pi tool".to_string()),
-            owner: "oh-my-pi".to_string(),
-            repo: "oh-my-pi".to_string(),
-            icon: icon.to_string(),
-            icon_bg: "linear-gradient(135deg, #475569, #334155)".to_string(),
-            description: "树莓派工具".to_string(),
-            stars: 123,
-            forks: 45,
-            license: "MIT".to_string(),
-            latest_version: "v2.0.0".to_string(),
+            core: AppCore {
+                id: id.to_string(),
+                name: "Oh My Pi".to_string(),
+                description_en: Some("Raspberry Pi tool".to_string()),
+                owner: "oh-my-pi".to_string(),
+                repo: "oh-my-pi".to_string(),
+                icon: icon.to_string(),
+                icon_bg: "linear-gradient(135deg, #475569, #334155)".to_string(),
+                description: "树莓派工具".to_string(),
+                stars: 123,
+                forks: 45,
+                license: "MIT".to_string(),
+                latest_version: "v2.0.0".to_string(),
+                is_verified: false,
+                category: "external".to_string(),
+                category_name: "跨平台开源".to_string(),
+                forge: Some("github".to_string()),
+                forge_host: Some("github.com".to_string()),
+                homepage: Some("https://example.com".to_string()),
+                platforms: vec!["windows".to_string()],
+                is_cataloged: None,
+                source: None,
+                status: None,
+            },
             changelog: String::new(),
-            is_verified: false,
             readme_markdown: String::new(),
             readme_variants: None,
             releases: vec![],
-            category: "external".to_string(),
-            category_name: "跨平台开源".to_string(),
-            forge: Some("github".to_string()),
-            forge_host: Some("github.com".to_string()),
             cached_at: None,
             is_stale: None,
-            homepage: Some("https://example.com".to_string()),
-            platforms: vec!["windows".to_string()],
-            is_cataloged: None,
-            source: None,
-            status: None,
         }
     }
 
@@ -516,11 +520,11 @@ mod recent_uncataloged_tests {
         assert!(ids.contains(&"oh-my-pi/oh-my-pi".to_string()));
         let summary =
             super::cached_detail_summary(&db, "oh-my-pi/oh-my-pi").expect("未收录详情应当回退命中");
-        assert_eq!(summary.id, "oh-my-pi/oh-my-pi");
-        assert_eq!(summary.name, "Oh My Pi");
-        assert_eq!(summary.icon, "https://example.com/icon.png");
-        assert_eq!(summary.platforms, vec!["windows".to_string()]);
-        assert_eq!(summary.homepage.as_deref(), Some("https://example.com"));
+        assert_eq!(summary.core.id, "oh-my-pi/oh-my-pi");
+        assert_eq!(summary.core.name, "Oh My Pi");
+        assert_eq!(summary.core.icon, "https://example.com/icon.png");
+        assert_eq!(summary.core.platforms, vec!["windows".to_string()]);
+        assert_eq!(summary.core.homepage.as_deref(), Some("https://example.com"));
     }
 
     #[test]
@@ -538,17 +542,17 @@ mod recent_uncataloged_tests {
         let summary = super::cached_detail_summary(&db, "Oh-My-Pi/Oh-My-Pi")
             .expect("大小写变体应当回退命中");
         assert_eq!(
-            summary.icon, "https://avatars.githubusercontent.com/u/123?v=4",
+            summary.core.icon, "https://avatars.githubusercontent.com/u/123?v=4",
         );
-        assert_eq!(summary.owner, "oh-my-pi");
+        assert_eq!(summary.core.owner, "oh-my-pi");
         // 无任何缓存的 id 直接跳过（不合成占位）
         assert!(super::cached_detail_summary(&db, "ghost/nobody").is_none());
     }
 
     fn placeholder_detail(id: &str) -> AppDetail {
         let mut d = uncataloged_detail(id, "https://example.com/icon.png");
-        d.description = "GitHub 社区开源项目".to_string();
-        d.description_en = Some("GitHub 社区开源项目".to_string());
+        d.core.description = "GitHub 社区开源项目".to_string();
+        d.core.description_en = Some("GitHub 社区开源项目".to_string());
         d
     }
 
@@ -560,9 +564,9 @@ mod recent_uncataloged_tests {
             .unwrap();
         let summary = super::cached_detail_summary(&db, "demo/placeholder")
             .expect("占位详情应当回退命中");
-        assert_eq!(summary.description, "", "占位中文简介应当置空");
+        assert_eq!(summary.core.description, "", "占位中文简介应当置空");
         assert_eq!(
-            summary.description_en.as_deref(),
+            summary.core.description_en.as_deref(),
             Some(""),
             "占位英文简介应当置空为 Some(\"\")（保留前端 enrich 治愈机会）"
         );
@@ -585,9 +589,9 @@ mod recent_uncataloged_tests {
         // id 键 demo/placeholder 经 fallback 命中同一行后按 owner/repo 查 ETag。
         let summary = super::cached_detail_summary(&db, "demo/placeholder")
             .expect("占位详情应当回退命中");
-        assert_eq!(summary.description, "Real repo description");
+        assert_eq!(summary.core.description, "Real repo description");
         assert_eq!(
-            summary.description_en.as_deref(),
+            summary.core.description_en.as_deref(),
             Some("Real repo description")
         );
     }
@@ -610,9 +614,9 @@ mod recent_uncataloged_tests {
         .unwrap();
         let summary = super::cached_detail_summary(&db, "oh-my-pi/oh-my-pi")
             .expect("非占位详情应当回退命中");
-        assert_eq!(summary.description, "树莓派工具", "人工简介优先，不覆盖");
+        assert_eq!(summary.core.description, "树莓派工具", "人工简介优先，不覆盖");
         assert_eq!(
-            summary.description_en.as_deref(),
+            summary.core.description_en.as_deref(),
             Some("Raspberry Pi tool")
         );
     }

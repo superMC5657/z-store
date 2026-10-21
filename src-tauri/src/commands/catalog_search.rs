@@ -1,4 +1,4 @@
-use crate::models::AppSummary;
+use crate::models::{AppCore, AppSummary};
 use crate::AppState;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{AppHandle, Manager, State};
@@ -175,20 +175,20 @@ fn backfill_uncataloged_card(
     ttl_seconds: i64,
 ) -> Option<crate::db::AppIconCycle> {
     let staged = if let Some(ci) =
-        crate::github::http::resolve_confirmed_icon_from_db(db, &item.id, &item.owner, &item.repo)
+        crate::github::http::resolve_confirmed_icon_from_db(db, &item.core.id, &item.core.owner, &item.core.repo)
     {
-        item.icon = ci;
+        item.core.icon = ci;
         None
-    } else if !item.icon.trim().is_empty() {
+    } else if !item.core.icon.trim().is_empty() {
         // 05 首屏回填收敛到 merge（与流式 save_and_emit 同口径）：先读旧行再合并，
         // 保留流式已攒槽位与 pinned 选择；level 经 level_for_detail_icon 判定入槽。
-        let icon = item.icon.trim().to_string();
+        let icon = item.core.icon.trim().to_string();
         let level = crate::github::icon_fetch::level_for_detail_icon(&icon);
         let mut cycle = db
-            .get_icon_cycle(&item.id)
+            .get_icon_cycle(&item.core.id)
             .ok()
             .flatten()
-            .unwrap_or_else(|| crate::db::AppIconCycle::new(&item.id, &item.owner, &item.repo));
+            .unwrap_or_else(|| crate::db::AppIconCycle::new(&item.core.id, &item.core.owner, &item.core.repo));
         crate::db::icon_cycle::merge_detail_icon(&mut cycle, level, &icon, false, crate::now_secs());
         Some(cycle)
     } else {
@@ -196,9 +196,9 @@ fn backfill_uncataloged_card(
     };
     // Option A：repeat-search 平台回填——TTL 内详情缓存命中且 platforms 非空时直接 join；
     // 缺失/过期/空平台一律保持 []（不 stamp ["other"]/["windows"]），由既有 lazyBackfill 兜底。
-    if let Ok(Some(cached)) = db.get_cached_app_detail(&item.id, Some(ttl_seconds)) {
-        if !cached.platforms.is_empty() {
-            item.platforms = cached.platforms;
+    if let Ok(Some(cached)) = db.get_cached_app_detail(&item.core.id, Some(ttl_seconds)) {
+        if !cached.core.platforms.is_empty() {
+            item.core.platforms = cached.core.platforms;
         }
     }
     staged
@@ -236,7 +236,7 @@ pub async fn search_apps(
     } else {
         results
             .into_iter()
-            .filter(|a| !hidden_ids.contains(&a.id))
+            .filter(|a| !hidden_ids.contains(&a.core.id))
             .collect()
     };
     // 分页经 `catalog_feed_score::paginate_optional`（域内 SSOT）：None=全量，Some 切 slice。
@@ -326,33 +326,35 @@ pub async fn search_apps_online(
                     String::new()
                 };
                 let mut row = AppSummary {
-                    id: app_id,
-                    name: repo_info.name,
-                    description_en: repo_info.description.clone(),
-                    owner: coord.owner,
-                    repo: coord.repo,
-                    icon,
-                    icon_bg: "linear-gradient(135deg, #475569, #334155)".to_string(),
-                    description: repo_info
-                        .description
-                        .unwrap_or_else(|| "跨平台开源项目".to_string()),
-                    stars: repo_info.stars,
-                    forks: repo_info.forks,
-                    license: "OpenSource".to_string(),
-                    latest_version: latest_ver,
-                    category: "external".to_string(),
-                    category_name: "跨平台开源".to_string(),
-                    is_verified: false,
+                    core: AppCore {
+                        id: app_id,
+                        name: repo_info.name,
+                        description_en: repo_info.description.clone(),
+                        owner: coord.owner,
+                        repo: coord.repo,
+                        icon,
+                        icon_bg: "linear-gradient(135deg, #475569, #334155)".to_string(),
+                        description: repo_info
+                            .description
+                            .unwrap_or_else(|| "跨平台开源项目".to_string()),
+                        stars: repo_info.stars,
+                        forks: repo_info.forks,
+                        license: "OpenSource".to_string(),
+                        latest_version: latest_ver,
+                        category: "external".to_string(),
+                        category_name: "跨平台开源".to_string(),
+                        is_verified: false,
+                        forge: Some(coord.forge.as_str().to_string()),
+                        forge_host: Some(coord.host),
+                        homepage: repo_info.homepage.clone(),
+                        platforms,
+                        is_cataloged: None,
+                        source: None,
+                        status: None,
+                    },
                     is_installed: None,
                     has_update: None,
                     installed_version: None,
-                    forge: Some(coord.forge.as_str().to_string()),
-                    forge_host: Some(coord.host),
-                    homepage: repo_info.homepage.clone(),
-                    platforms,
-                    is_cataloged: None,
-                    source: None,
-                    status: None,
                 };
                 state.catalog.stamp_summary(&mut row);
                 return Ok(OnlineSearchResult {
@@ -388,22 +390,22 @@ pub async fn search_apps_online(
                 if let Ok(db) = state.db() {
                     if let Some(ci) = crate::github::http::resolve_confirmed_icon_from_db(
                         &db,
-                        &item.id,
-                        &item.owner,
-                        &item.repo,
+                        &item.core.id,
+                        &item.core.owner,
+                        &item.core.repo,
                     ) {
-                        item.icon = ci;
-                    } else if !item.icon.trim().is_empty() {
+                        item.core.icon = ci;
+                    } else if !item.core.icon.trim().is_empty() {
                         // 05 直查回填收敛到 merge（与 backfill_uncataloged_card 同口径）：
                         // 先读旧行再合并，保留流式已攒槽位；pinned 行仅补槽不改选中。
-                        let icon = item.icon.trim().to_string();
+                        let icon = item.core.icon.trim().to_string();
                         let level = crate::github::icon_fetch::level_for_detail_icon(&icon);
                         let mut cycle = db
-                            .get_icon_cycle(&item.id)
+                            .get_icon_cycle(&item.core.id)
                             .ok()
                             .flatten()
                             .unwrap_or_else(|| {
-                                crate::db::AppIconCycle::new(&item.id, &item.owner, &item.repo)
+                                crate::db::AppIconCycle::new(&item.core.id, &item.core.owner, &item.core.repo)
                             });
                         crate::db::icon_cycle::merge_detail_icon(
                             &mut cycle,
@@ -416,7 +418,7 @@ pub async fn search_apps_online(
                     }
                 }
                 state.catalog.stamp_summary(&mut item);
-                log::debug!("fetch repo ok id={}", item.id);
+                log::debug!("fetch repo ok id={}", item.core.id);
                 log::info!(
                     "search done sid={} query='{}' hits=1 elapsed_ms={} force={}",
                     crate::z_log::new_session_id(),
@@ -490,27 +492,31 @@ pub async fn search_apps_online(
             .map(|item| {
                 crate::github::http::resolve_confirmed_icon_from_db(
                     &db,
-                    &crate::github::icon_fetch::icon_key(&item.owner, &item.repo),
-                    &item.owner,
-                    &item.repo,
+                    &crate::github::icon_fetch::icon_key(&item.core.owner, &item.core.repo),
+                    &item.core.owner,
+                    &item.core.repo,
                 )
             })
             .collect()
     } else {
         results.iter().map(|_| None).collect()
     };
-    let candidates: Vec<(String, String, String)> = {
+    let candidates: Vec<crate::github::icon_fetch::RepoCoord> = {
         // 本地收录同样视为已收录（目录模块统一判定）：跳过图标补探。
         results
             .iter()
             .zip(pre_confirmed.iter())
             .filter(|(item, pre)| {
-                !state.catalog.is_cataloged(&item.id)
-                    && !item.icon.contains("simpleicons.org")
+                !state.catalog.is_cataloged(&item.core.id)
+                    && !item.core.icon.contains("simpleicons.org")
                     && pre.is_none()
             })
             .take(probe_cap)
-            .map(|(item, _)| (item.id.to_lowercase(), item.owner.clone(), item.repo.clone()))
+            .map(|(item, _)| crate::github::icon_fetch::RepoCoord {
+                id: item.core.id.to_lowercase(),
+                owner: item.core.owner.clone(),
+                repo: item.core.repo.clone(),
+            })
             .collect()
     };
 
@@ -529,7 +535,7 @@ pub async fn search_apps_online(
         } else {
             results
                 .into_iter()
-                .filter(|a| !hidden_ids.contains(&a.id))
+                .filter(|a| !hidden_ids.contains(&a.core.id))
                 .collect()
         };
         // 收录态盖章（未收录即 is_cataloged=false）：前端只读卡片字段，不再自行 join 目录。
@@ -550,14 +556,11 @@ pub async fn search_apps_online(
         // 整批总量按页伸缩、逐张到达 emit。
         let jobs: Vec<crate::github::icon_fetch::IconFetchJob> = candidates
             .into_iter()
-            .map(|(id, owner, repo)| crate::github::icon_fetch::IconFetchJob {
-                id,
-                owner,
-                repo,
-                ctx: crate::github::icon_fetch::IconFetchCtx::Search {
+            .map(|coord| {
+                coord.into_job(crate::github::icon_fetch::IconFetchCtx::Search {
                     search_id: sid.clone(),
                     gen: current_gen,
-                },
+                })
             })
             .collect();
         let cfg = crate::config::get_project_config().limits.icon_fetch;
@@ -582,7 +585,7 @@ pub struct TrendEnrichRequest {
 
 /// 趋势 enrich 目标整形：take(40) 兜底截断 + trim + 小写 id。
 /// FE 单次批量 40 上限，此处截断不静默吃超量。
-fn enrich_targets(repos: Vec<TrendEnrichRequest>) -> Vec<(String, String, String)> {
+fn enrich_targets(repos: Vec<TrendEnrichRequest>) -> Vec<crate::github::icon_fetch::RepoCoord> {
     repos
         .into_iter()
         .take(40)
@@ -590,7 +593,7 @@ fn enrich_targets(repos: Vec<TrendEnrichRequest>) -> Vec<(String, String, String
             let owner = r.owner.trim().to_string();
             let repo = r.repo.trim().to_string();
             let id = format!("{}/{}", owner.to_lowercase(), repo.to_lowercase());
-            (id, owner, repo)
+            crate::github::icon_fetch::RepoCoord { id, owner, repo }
         })
         .collect()
 }
@@ -599,13 +602,13 @@ fn enrich_targets(repos: Vec<TrendEnrichRequest>) -> Vec<(String, String, String
 /// fetch 内零查询零直连。`db=None`（锁失败）时全 `None`，回退兜底不 panic。
 fn enrich_pre_confirmed(
     db: Option<&crate::db::Database>,
-    targets: &[(String, String, String)],
+    targets: &[crate::github::icon_fetch::RepoCoord],
 ) -> Vec<Option<String>> {
     match db {
         Some(db) => targets
             .iter()
-            .map(|(id, owner, repo)| {
-                crate::github::http::resolve_confirmed_icon_from_db(db, id, owner, repo)
+            .map(|t| {
+                crate::github::http::resolve_confirmed_icon_from_db(db, &t.id, &t.owner, &t.repo)
             })
             .collect(),
         None => targets.iter().map(|_| None).collect(),
@@ -620,18 +623,18 @@ async fn fetch_enrich_batch(
     catalog: &crate::github::CatalogService,
     token: Option<String>,
     timeout_each: std::time::Duration,
-    jobs: Vec<((String, String, String), Option<String>)>,
+    jobs: Vec<(crate::github::icon_fetch::RepoCoord, Option<String>)>,
 ) -> Vec<Option<AppSummary>> {
     use futures_util::StreamExt;
-    futures_util::stream::iter(jobs.into_iter().map(|((id, owner, repo), pre)| {
+    futures_util::stream::iter(jobs.into_iter().map(|(coord, pre)| {
         let token = token.clone();
         async move {
-            if owner.is_empty() || repo.is_empty() {
+            if coord.owner.is_empty() || coord.repo.is_empty() {
                 return None;
             }
             match tokio::time::timeout(
                 timeout_each,
-                catalog.fetch_online_repo(&owner, &repo, token.as_deref(), pre),
+                catalog.fetch_online_repo(&coord.owner, &coord.repo, token.as_deref(), pre),
             )
             .await
             {
@@ -639,13 +642,13 @@ async fn fetch_enrich_batch(
                 Ok(Err(e)) => {
                     log::debug!(
                         "trend enrich miss id={} reason={}",
-                        id,
+                        coord.id,
                         crate::log_support::short_reason(&e)
                     );
                     None
                 }
                 Err(_) => {
-                    log::debug!("trend enrich timeout id={}", id);
+                    log::debug!("trend enrich timeout id={}", coord.id);
                     None
                 }
             }
@@ -706,7 +709,7 @@ pub async fn enrich_trend_repos(
         .iter()
         .map(|p| Some(p.clone().unwrap_or_default()))
         .collect();
-    let batch_jobs: Vec<((String, String, String), Option<String>)> =
+    let batch_jobs: Vec<(crate::github::icon_fetch::RepoCoord, Option<String>)> =
         targets.clone().into_iter().zip(pre_fast).collect();
     let mut results: Vec<Option<AppSummary>> =
         fetch_enrich_batch(catalog, token.clone(), timeout_each, batch_jobs).await;
@@ -731,14 +734,11 @@ pub async fn enrich_trend_repos(
         .into_iter()
         .zip(pre_confirmed)
         .filter(|(_, pre)| pre.is_none())
-        .map(|((id, owner, repo), _)| crate::github::icon_fetch::IconFetchJob {
-            id,
-            owner,
-            repo,
-            ctx: crate::github::icon_fetch::IconFetchCtx::Trend {
+        .map(|(coord, _)| {
+            coord.into_job(crate::github::icon_fetch::IconFetchCtx::Trend {
                 board: board_name.clone(),
                 gen: current_gen,
-            },
+            })
         })
         .collect();
     if !jobs.is_empty() {
@@ -781,31 +781,33 @@ mod tests {
 
     fn sample_summary(id: &str, owner: &str, repo: &str, icon: &str) -> AppSummary {
         AppSummary {
-            id: id.to_string(),
-            name: "Demo".to_string(),
-            description_en: None,
-            owner: owner.to_string(),
-            repo: repo.to_string(),
-            icon: icon.to_string(),
-            icon_bg: String::new(),
-            description: String::new(),
-            stars: 0,
-            forks: 0,
-            license: String::new(),
-            latest_version: "latest".to_string(),
-            category: "external".to_string(),
-            category_name: String::new(),
-            is_verified: false,
+            core: AppCore {
+                id: id.to_string(),
+                name: "Demo".to_string(),
+                description_en: None,
+                owner: owner.to_string(),
+                repo: repo.to_string(),
+                icon: icon.to_string(),
+                icon_bg: String::new(),
+                description: String::new(),
+                stars: 0,
+                forks: 0,
+                license: String::new(),
+                latest_version: "latest".to_string(),
+                category: "external".to_string(),
+                category_name: String::new(),
+                is_verified: false,
+                forge: None,
+                forge_host: None,
+                homepage: None,
+                platforms: Vec::new(),
+                is_cataloged: None,
+                source: None,
+                status: None,
+            },
             is_installed: None,
             has_update: None,
             installed_version: None,
-            forge: None,
-            forge_host: None,
-            homepage: None,
-            platforms: Vec::new(),
-            is_cataloged: None,
-            source: None,
-            status: None,
         }
     }
 
@@ -816,15 +818,15 @@ mod tests {
         let db = crate::db::Database::open_in_memory().unwrap();
         let mut empty = sample_summary("o/r", "o", "r", "");
         assert!(backfill_uncataloged_card(&db, &mut empty, 1800).is_none());
-        assert!(empty.icon.is_empty());
-        assert!(empty.platforms.is_empty());
+        assert!(empty.core.icon.is_empty());
+        assert!(empty.core.platforms.is_empty());
 
         let mut l2 = sample_summary("s/i", "s", "i", "https://cdn.simpleicons.org/i");
         let c = backfill_uncataloged_card(&db, &mut l2, 1800).expect("l2 staged");
         assert_eq!(c.level, 2);
         assert_eq!(c.l2_url, "https://cdn.simpleicons.org/i");
         assert_eq!(c.selected_url, "https://cdn.simpleicons.org/i");
-        assert_eq!(l2.icon, "https://cdn.simpleicons.org/i");
+        assert_eq!(l2.core.icon, "https://cdn.simpleicons.org/i");
 
         let mut l3 = sample_summary("t/r", "t", "r", "https://raw.githubusercontent.com/t/r/main/icon.png");
         let c3 = backfill_uncataloged_card(&db, &mut l3, 1800).expect("l3 staged");
@@ -842,7 +844,7 @@ mod tests {
         db.upsert_icon_cycle(&cycle).unwrap();
         let mut confirmed = sample_summary("c/r", "c", "r", "");
         assert!(backfill_uncataloged_card(&db, &mut confirmed, 1800).is_none());
-        assert_eq!(confirmed.icon, "https://example.com/c.png");
+        assert_eq!(confirmed.core.icon, "https://example.com/c.png");
     }
 
     #[test]

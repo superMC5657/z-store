@@ -2,7 +2,7 @@ use super::detail_assets::is_valid_installer_asset;
 use crate::github::developer_profile::EtagGetOutcome;
 use crate::github::models::{CatalogItem, GitHubAssetResponse, GitHubRepoResponse};
 use crate::github::CatalogService;
-use crate::models::{AppDetail, ReleaseAsset};
+use crate::models::{AppCore, AppDetail, ReleaseAsset};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, IF_NONE_MATCH};
 use std::collections::HashMap;
 
@@ -115,19 +115,19 @@ struct DetailIdentity {
 
 /// 身份解析 seam：endpoints + 收录项一次取出（读锁一次）。
 fn resolve_detail_identity(svc: &CatalogService, id: &str) -> Result<DetailIdentity, String> {
-    let (owner, repo, name, desc, icon, icon_bg) = svc.get_endpoints(id)?;
+    let coords = svc.get_repo_coordinates(id)?;
     let catalog_item = svc
         .items
         .read()
         .ok()
         .and_then(|items| items.iter().find(|i| i.id == id).cloned());
     Ok(DetailIdentity {
-        owner,
-        repo,
-        name,
-        desc,
-        icon,
-        icon_bg,
+        owner: coords.owner,
+        repo: coords.repo,
+        name: coords.name,
+        desc: coords.description,
+        icon: coords.icon,
+        icon_bg: coords.icon_bg,
         catalog_item,
     })
 }
@@ -200,10 +200,10 @@ fn reuse_304_cached(
     let mut detail = existing.clone();
     detail.releases.retain(|r| is_valid_installer_asset(&r.name, r.size_bytes));
     // deduce + ios 并集 + 排序经内部平台 seam（与成功路径共用）。
-    detail.platforms = unioned_detail_platforms(&detail.releases, catalog_item);
+    detail.core.platforms = unioned_detail_platforms(&detail.releases, catalog_item);
     if let Some(item) = catalog_item {
         if item.description_en.is_some() {
-            detail.description_en = item.description_en.clone();
+            detail.core.description_en = item.description_en.clone();
         }
     }
     detail.cached_at = Some(crate::github::http::now_secs());
@@ -609,7 +609,7 @@ impl CatalogService {
         // 判断版本是否变化以及是否已有缓存的 README
         let version_changed = cached_detail
             .as_ref()
-            .map(|c| c.latest_version != release_resp.tag_name)
+            .map(|c| c.core.latest_version != release_resp.tag_name)
             .unwrap_or(true);
         let has_cached_readme = cached_detail
             .as_ref()
@@ -762,23 +762,40 @@ impl CatalogService {
             resolve_effective_descriptions(catalog_item.as_ref(), desc, repo_info.as_ref());
 
         let detail = AppDetail {
-            id: id.to_string(),
-            name,
-            description_en: effective_description_en,
-            owner,
-            repo,
-            icon: final_icon,
-            icon_bg,
-            description: effective_desc,
-            stars: latest_stars,
-            forks: latest_forks,
-            license: latest_license,
-            latest_version: release_resp.tag_name,
+            core: AppCore {
+                id: id.to_string(),
+                name,
+                description_en: effective_description_en,
+                owner,
+                repo,
+                icon: final_icon,
+                icon_bg,
+                description: effective_desc,
+                stars: latest_stars,
+                forks: latest_forks,
+                license: latest_license,
+                latest_version: release_resp.tag_name,
+                is_verified: catalog_item
+                    .as_ref()
+                    .map(|i| i.is_verified)
+                    .unwrap_or(false),
+                category: catalog_item
+                    .as_ref()
+                    .map(|i| i.category.clone())
+                    .unwrap_or_else(|| "system".to_string()),
+                category_name: catalog_item
+                    .as_ref()
+                    .map(|i| i.category_name.clone())
+                    .unwrap_or_else(|| "系统实用".to_string()),
+                forge: Some("github".to_string()),
+                forge_host: Some("github.com".to_string()),
+                homepage: latest_homepage,
+                platforms: final_platforms,
+                is_cataloged: None,
+                source: None,
+                status: None,
+            },
             changelog: release_resp.body.unwrap_or_default(),
-            is_verified: catalog_item
-                .as_ref()
-                .map(|i| i.is_verified)
-                .unwrap_or(false),
             readme_markdown,
             // 变体复用：版本未变时沿用缓存详情中的 variants，避免清零已回填的多语言正文；
             // 版本变化时置空，待 get_readme_variants 按需重拉（不改 API 形状）。
@@ -791,16 +808,6 @@ impl CatalogService {
                     .filter(|v| !v.is_empty())
             },
             releases,
-            category: catalog_item
-                .as_ref()
-                .map(|i| i.category.clone())
-                .unwrap_or_else(|| "system".to_string()),
-            category_name: catalog_item
-                .as_ref()
-                .map(|i| i.category_name.clone())
-                .unwrap_or_else(|| "系统实用".to_string()),
-            forge: Some("github".to_string()),
-            forge_host: Some("github.com".to_string()),
             cached_at: Some(crate::github::http::now_secs()),
             // 合成空失败（401/限流/离线且无任何缓存）以 stale 区分于成功空。
             // 成功 deduce 路径（releases/platforms 推导、排序、ios 并集）不带 stale；
@@ -816,11 +823,6 @@ impl CatalogService {
             } else {
                 None
             },
-            homepage: latest_homepage,
-            platforms: final_platforms,
-            is_cataloged: None,
-            source: None,
-            status: None,
         };
 
         Ok((detail, new_cache))

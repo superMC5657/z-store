@@ -8,18 +8,18 @@ fn test_catalog_load_and_search() {
     let res = cat.search_apps("rustdesk");
     assert!(!res.is_empty());
     // ADR-0010：清单 id 为 canonical owner/repo
-    assert_eq!(res[0].id, "rustdesk/rustdesk");
+    assert_eq!(res[0].core.id, "rustdesk/rustdesk");
 
     let res_zh = cat.search_apps("远程桌面");
     assert!(!res_zh.is_empty());
-    assert_eq!(res_zh[0].id, "rustdesk/rustdesk");
+    assert_eq!(res_zh[0].core.id, "rustdesk/rustdesk");
 }
 
 #[test]
 fn test_category_filter() {
     let cat = CatalogService::new();
     let media_apps = cat.filter_by_category("media").unwrap();
-    assert!(media_apps.iter().any(|a| a.id == "videolan/vlc"));
+    assert!(media_apps.iter().any(|a| a.core.id == "videolan/vlc"));
 }
 
 #[tokio::test]
@@ -204,7 +204,7 @@ fn test_catalog_platforms_loading_and_mapping() {
     assert!(rustdesk.platforms.contains(&"ios".to_string()));
 
     let summary = rustdesk.to_summary();
-    assert_eq!(summary.platforms, rustdesk.platforms);
+    assert_eq!(summary.core.platforms, rustdesk.platforms);
 
     // 校验所有收录项均有有效的 platforms（至少包含一个支持端）
     for item in cat.get_catalog_items() {

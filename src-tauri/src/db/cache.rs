@@ -101,7 +101,7 @@ impl Database {
                 detail_json = excluded.detail_json,
                 cached_at = excluded.cached_at;
             "#,
-            params![clean_id, detail.name, detail.latest_version, json_str, now,],
+            params![clean_id, detail.core.name, detail.core.latest_version, json_str, now,],
         )?;
         Ok(())
     }

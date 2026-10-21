@@ -77,7 +77,7 @@ pub async fn install_app(
     let _install_note = InstallerEngine::execute_installation(
         &dest_path,
         &kind,
-        &detail.id,
+        &detail.core.id,
         effective_portable_dir.as_deref(),
     )
     .await?
@@ -88,20 +88,20 @@ pub async fn install_app(
         crate::installer::AssetKind::PortableZip
         | crate::installer::AssetKind::PortableTarball => {
             let app_dir = crate::installer::dirs_or_fallback_with_base(
-                &detail.id,
+                &detail.core.id,
                 effective_portable_dir.as_deref(),
             );
             crate::scanner::AppScanner::resolve_executable_path(
                 Some(&app_dir.to_string_lossy()),
                 None,
-                &detail.repo,
+                &detail.core.repo,
             )
             .unwrap_or_else(|| app_dir.to_string_lossy().to_string())
         }
         _ => crate::scanner::AppScanner::resolve_installed_app_path(
-            &detail.name,
-            &detail.id,
-            Some(&detail.repo),
+            &detail.core.name,
+            &detail.core.id,
+            Some(&detail.core.repo),
         )
         .unwrap_or_default(),
     };
@@ -114,9 +114,9 @@ pub async fn install_app(
         for _ in 0..5 {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             if let Some(p) = crate::scanner::AppScanner::resolve_installed_app_path(
-                &detail.name,
-                &detail.id,
-                Some(&detail.repo),
+                &detail.core.name,
+                &detail.core.id,
+                Some(&detail.core.repo),
             ) {
                 real_install_path = p;
                 break;
@@ -186,21 +186,21 @@ pub async fn install_app(
     }
 
     let resolved_uninst =
-        resolve_uninstaller_command(&detail.name, &detail.id, &real_install_path, None);
+        resolve_uninstaller_command(&detail.core.name, &detail.core.id, &real_install_path, None);
 
     // 5. 写入本地 SQLite 持久化
     let installed_app = InstalledApp {
-        app_id: detail.id.clone(),
-        app_name: detail.name.clone(),
-        version: detail.latest_version.clone(),
+        app_id: detail.core.id.clone(),
+        app_name: detail.core.name.clone(),
+        version: detail.core.latest_version.clone(),
         installed_at: crate::now_secs(),
         install_method: asset.kind.clone(),
         install_path: real_install_path,
         asset_name: asset.name.clone(),
         asset_sha256: actual_sha256,
         uninstall_command: resolved_uninst,
-        icon: Some(detail.icon.clone()),
-        icon_bg: Some(detail.icon_bg.clone()),
+        icon: Some(detail.core.icon.clone()),
+        icon_bg: Some(detail.core.icon_bg.clone()),
     };
 
     {

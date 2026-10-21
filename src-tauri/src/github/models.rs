@@ -1,4 +1,4 @@
-use crate::models::AppSummary;
+use crate::models::{AppCore, AppSummary};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -108,31 +108,33 @@ impl CatalogItem {
         let effective_platforms = self.platforms.clone();
 
         AppSummary {
-            id: self.id.clone(),
-            name: self.name.clone(),
-            description_en: self.description_en.clone(),
-            owner: self.owner.clone(),
-            repo: self.repo.clone(),
-            icon: effective_icon,
-            icon_bg: self.icon_bg.clone(),
-            description: self.description.clone(),
-            stars: self.stars,
-            forks: self.forks,
-            license: self.license.clone(),
-            latest_version: self.default_version.clone(),
-            category: self.category.clone(),
-            category_name: self.category_name.clone(),
-            is_verified: self.is_verified,
+            core: AppCore {
+                id: self.id.clone(),
+                name: self.name.clone(),
+                description_en: self.description_en.clone(),
+                owner: self.owner.clone(),
+                repo: self.repo.clone(),
+                icon: effective_icon,
+                icon_bg: self.icon_bg.clone(),
+                description: self.description.clone(),
+                stars: self.stars,
+                forks: self.forks,
+                license: self.license.clone(),
+                latest_version: self.default_version.clone(),
+                category: self.category.clone(),
+                category_name: self.category_name.clone(),
+                is_verified: self.is_verified,
+                forge: Some("github".to_string()),
+                forge_host: Some("github.com".to_string()),
+                homepage: self.homepage.clone(),
+                platforms: effective_platforms,
+                is_cataloged: None,
+                source: None,
+                status: None,
+            },
             is_installed: None,
             has_update: None,
             installed_version: None,
-            forge: Some("github".to_string()),
-            forge_host: Some("github.com".to_string()),
-            homepage: self.homepage.clone(),
-            platforms: effective_platforms,
-            is_cataloged: None,
-            source: None,
-            status: None,
         }
     }
 }
@@ -234,15 +236,15 @@ mod tests {
         // 空 platforms 直接透传 []；"other" 永不进 IPC。
         let item = dummy_item(Vec::new());
         let summary = item.to_summary();
-        assert!(summary.platforms.is_empty());
-        assert!(!summary.platforms.contains(&"windows".to_string()));
-        assert!(!summary.platforms.contains(&"other".to_string()));
+        assert!(summary.core.platforms.is_empty());
+        assert!(!summary.core.platforms.contains(&"windows".to_string()));
+        assert!(!summary.core.platforms.contains(&"other".to_string()));
     }
 
     #[test]
     fn test_to_summary_nonempty_platforms_preserved() {
         let item = dummy_item(vec!["linux".to_string()]);
         let summary = item.to_summary();
-        assert_eq!(summary.platforms, vec!["linux".to_string()]);
+        assert_eq!(summary.core.platforms, vec!["linux".to_string()]);
     }
 }

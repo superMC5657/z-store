@@ -1,4 +1,4 @@
-use crate::models::{AppDetail, AppSummary, PlatformsLiteResult, ReadmeVariantsResponse};
+use crate::models::{AppCore, AppDetail, AppSummary, PlatformsLiteResult, ReadmeVariantsResponse};
 use crate::AppState;
 use tauri::State;
 
@@ -86,7 +86,7 @@ pub async fn get_platforms_lite(
                 );
                 return Ok(PlatformsLiteResult {
                     id: clean_id,
-                    platforms: cached.platforms,
+                    platforms: cached.core.platforms,
                     from_cache: true,
                     is_stale: cached.is_stale,
                 });
@@ -136,7 +136,7 @@ pub async fn get_platforms_lite(
                     );
                     return Ok(PlatformsLiteResult {
                         id: clean_id,
-                        platforms: fallback.platforms,
+                        platforms: fallback.core.platforms,
                         from_cache: true,
                         is_stale: Some(true),
                     });
@@ -301,45 +301,47 @@ fn cached_detail_summary(
 ) -> Option<AppSummary> {
     let clean_id = crate::commands::require_app_id(raw_id).ok()?;
     let detail = db.get_cached_app_detail(&clean_id, None).ok().flatten()?;
-    let icon_trimmed = detail.icon.trim();
+    let icon_trimmed = detail.core.icon.trim();
     let mut summary = AppSummary {
-        id: detail.id.clone(),
-        name: detail.name.clone(),
-        description_en: detail.description_en.clone(),
-        owner: detail.owner.clone(),
-        repo: detail.repo.clone(),
-        icon: if icon_trimmed.is_empty() || icon_trimmed.starts_with("data:") {
-            String::new()
-        } else {
-            detail.icon.clone()
+        core: AppCore {
+            id: detail.core.id.clone(),
+            name: detail.core.name.clone(),
+            description_en: detail.core.description_en.clone(),
+            owner: detail.core.owner.clone(),
+            repo: detail.core.repo.clone(),
+            icon: if icon_trimmed.is_empty() || icon_trimmed.starts_with("data:") {
+                String::new()
+            } else {
+                detail.core.icon.clone()
+            },
+            icon_bg: detail.core.icon_bg.clone(),
+            description: detail.core.description.clone(),
+            stars: detail.core.stars,
+            forks: detail.core.forks,
+            license: detail.core.license.clone(),
+            latest_version: detail.core.latest_version.clone(),
+            category: detail.core.category.clone(),
+            category_name: detail.core.category_name.clone(),
+            is_verified: detail.core.is_verified,
+            forge: detail.core.forge.clone(),
+            forge_host: detail.core.forge_host.clone(),
+            homepage: detail.core.homepage.clone(),
+            platforms: detail.core.platforms.clone(),
+            is_cataloged: None,
+            source: None,
+            status: None,
         },
-        icon_bg: detail.icon_bg.clone(),
-        description: detail.description.clone(),
-        stars: detail.stars,
-        forks: detail.forks,
-        license: detail.license.clone(),
-        latest_version: detail.latest_version.clone(),
-        category: detail.category.clone(),
-        category_name: detail.category_name.clone(),
-        is_verified: detail.is_verified,
         is_installed: None,
         has_update: None,
         installed_version: None,
-        forge: detail.forge.clone(),
-        forge_host: detail.forge_host.clone(),
-        homepage: detail.homepage.clone(),
-        platforms: detail.platforms.clone(),
-        is_cataloged: None,
-        source: None,
-        status: None,
     };
     if let Some(ci) = crate::github::http::resolve_confirmed_icon_from_db(
         db,
-        &summary.id,
-        &summary.owner,
-        &summary.repo,
+        &summary.core.id,
+        &summary.core.owner,
+        &summary.core.repo,
     ) {
-        summary.icon = ci;
+        summary.core.icon = ci;
     }
     Some(summary)
 }
@@ -409,10 +411,10 @@ pub async fn get_app_details_impl(
             Some(detail)
         });
         if let Some(mut cached_detail) = cached {
-            cached_detail.id = clean_id.clone();
+            cached_detail.core.id = clean_id.clone();
             if let Some(cat_item) = state.catalog.get_catalog_item(&clean_id) {
                 if cat_item.description_en.is_some() {
-                    cached_detail.description_en = cat_item.description_en.clone();
+                    cached_detail.core.description_en = cat_item.description_en.clone();
                 }
             }
             log::debug!(
@@ -437,7 +439,7 @@ pub async fn get_app_details_impl(
                     if let Ok(Some(mut cached)) =
                         db.get_cached_app_detail(&clean_id, Some(ttl_seconds))
                     {
-                        cached.id = clean_id.clone();
+                        cached.core.id = clean_id.clone();
                         log::debug!(
                             "get_app_details id={} from=cache:db forge elapsed_ms={}",
                             clean_id,
@@ -467,20 +469,31 @@ pub async fn get_app_details_impl(
             let platforms =
                 crate::github::detail_assets::platforms_from_assets(&release_info.assets);
             let mut detail = AppDetail {
-                id: clean_id.clone(),
-                name: repo_info.name.clone(),
-                description_en: repo_info.description.clone(),
-                owner: coord.owner,
-                repo: coord.repo,
-                icon: String::new(),
-                icon_bg: "linear-gradient(135deg, #475569, #334155)".to_string(),
-                description: repo_info.description.clone().unwrap_or_default(),
-                stars: repo_info.stars,
-                forks: repo_info.forks,
-                license: "OpenSource".to_string(),
-                latest_version: release_info.tag_name,
+                core: AppCore {
+                    id: clean_id.clone(),
+                    name: repo_info.name.clone(),
+                    description_en: repo_info.description.clone(),
+                    owner: coord.owner,
+                    repo: coord.repo,
+                    icon: String::new(),
+                    icon_bg: "linear-gradient(135deg, #475569, #334155)".to_string(),
+                    description: repo_info.description.clone().unwrap_or_default(),
+                    stars: repo_info.stars,
+                    forks: repo_info.forks,
+                    license: "OpenSource".to_string(),
+                    latest_version: release_info.tag_name,
+                    is_verified: false,
+                    category: "external".to_string(),
+                    category_name: "跨平台开源".to_string(),
+                    forge: Some(coord.forge.as_str().to_string()),
+                    forge_host: Some(coord.host),
+                    homepage: repo_info.homepage.clone(),
+                    platforms,
+                    is_cataloged: None,
+                    source: None,
+                    status: None,
+                },
                 changelog: release_info.body.unwrap_or_default(),
-                is_verified: false,
                 readme_markdown: format!(
                     "# {}\n\n{}",
                     repo_info.name,
@@ -488,17 +501,8 @@ pub async fn get_app_details_impl(
                 ),
                 readme_variants: None,
                 releases: release_info.assets,
-                category: "external".to_string(),
-                category_name: "跨平台开源".to_string(),
-                forge: Some(coord.forge.as_str().to_string()),
-                forge_host: Some(coord.host),
                 cached_at: Some(now),
                 is_stale: None,
-                homepage: repo_info.homepage.clone(),
-                platforms,
-                is_cataloged: None,
-                source: None,
-                status: None,
             };
 
             // 存入 SQLite 本地持久化缓存，并动态更新内存中的收录库统计
@@ -506,7 +510,7 @@ pub async fn get_app_details_impl(
                 &clean_id,
                 Some(repo_info.stars),
                 Some(repo_info.forks),
-                Some(&detail.latest_version),
+                Some(&detail.core.latest_version),
             );
 
             if let Ok(db) = state.db() {
@@ -514,7 +518,7 @@ pub async fn get_app_details_impl(
                 log::debug!("db_save start id={} sid={} req={}", clean_id, sid, req_id);
                 // Top2：详情 + 图标原子落库（2 提交变 1 提交），事务边界见 `save_detail_with_cycle_row`；
                 // 失败整体回滚并回退逐条，保持 `let _ =` 吞错 + 下次重试语义，不改 TTL/ETag。
-                let icon_trimmed = detail.icon.trim();
+                let icon_trimmed = detail.core.icon.trim();
                 let staged_cycle: Option<crate::db::AppIconCycle> =
                     if !icon_trimmed.is_empty() {
                         let mut cycle = db
@@ -522,7 +526,7 @@ pub async fn get_app_details_impl(
                             .ok()
                             .flatten()
                             .unwrap_or_else(|| {
-                                crate::db::AppIconCycle::new(&clean_id, &detail.owner, &detail.repo)
+                                crate::db::AppIconCycle::new(&clean_id, &detail.core.owner, &detail.core.repo)
                             });
                         cycle.is_cataloged = false;
                         cycle.level = 4;
@@ -565,7 +569,7 @@ pub async fn get_app_details_impl(
                 // 未知坐标降级同样标 stale，Ok(stale) 形状 IPC 保留，前端 stale-empty 视为 loading。
                 if let Ok(db) = state.db() {
                     if let Ok(Some(mut fallback)) = db.get_cached_app_detail(&clean_id, None) {
-                        fallback.id = clean_id.clone();
+                        fallback.core.id = clean_id.clone();
                         fallback.is_stale = Some(true);
                         log::debug!(
                             "fetch detail fallback id={} cache=stale elapsed_ms={}",
@@ -680,8 +684,8 @@ pub async fn get_app_details_impl(
                 }
                 // 继承后重算：deduce 已在域内完成，此处仅补继承带来的缺口；
                 // 成功 deduce 路径本身不动，排序 ORDER 与过滤规则沿用 SSOT。
-                if !detail.releases.is_empty() && detail.platforms.is_empty() {
-                    detail.platforms =
+                if !detail.releases.is_empty() && detail.core.platforms.is_empty() {
+                    detail.core.platforms =
                         crate::github::detail_assets::platforms_from_assets(&detail.releases);
                 }
                 // stale 穿透（含合成空失败）：保持旧行不动（含 cached_at），直接返回。
@@ -704,17 +708,17 @@ pub async fn get_app_details_impl(
                     if state.catalog.get_catalog_item(&clean_id).is_none() {
                         let need_desc =
                             crate::github::detail_fetch::is_placeholder_description(
-                                &detail.description,
+                                &detail.core.description,
                             );
                         let need_en = detail
-                            .description_en
+                            .core.description_en
                             .as_deref()
                             .map(
                                 crate::github::detail_fetch::is_placeholder_description,
                             )
                             .unwrap_or(false);
                         let need_en_missing = detail
-                            .description_en
+                            .core.description_en
                             .as_ref()
                             .map(|s| s.trim().is_empty())
                             .unwrap_or(true);
@@ -722,15 +726,15 @@ pub async fn get_app_details_impl(
                             if let Some(real) =
                                 crate::github::detail_fetch::repo_real_description_from_etag(
                                     &db,
-                                    &detail.owner,
-                                    &detail.repo,
+                                    &detail.core.owner,
+                                    &detail.core.repo,
                                 )
                             {
                                 if need_desc {
-                                    detail.description = real.clone();
+                                    detail.core.description = real.clone();
                                 }
                                 if need_en || need_en_missing {
-                                    detail.description_en = Some(real);
+                                    detail.core.description_en = Some(real);
                                 }
                             }
                         }
@@ -741,7 +745,7 @@ pub async fn get_app_details_impl(
                     // 02 手动轮换保护：pinned 行（用户已手动选择档位）保持 level/selected_url，
                     // 仅把本次最强探测补进备选槽，并把 `detail.icon` 对齐 pinned 选择
                     // （L5 pinned 对齐 `""` 保持徽章态）；未 pinned 行仍按最强探测更新选中图。
-                    let icon_trimmed = detail.icon.trim().to_owned();
+                    let icon_trimmed = detail.core.icon.trim().to_owned();
                     let staged_cycle: Option<crate::db::AppIconCycle> =
                         if !icon_trimmed.trim().is_empty()
                             && !crate::github::icon_fetch::is_body_image_url(&icon_trimmed)
@@ -754,7 +758,7 @@ pub async fn get_app_details_impl(
                                 .ok()
                                 .flatten()
                                 .unwrap_or_else(|| {
-                                    crate::db::AppIconCycle::new(&clean_id, &detail.owner, &detail.repo)
+                                    crate::db::AppIconCycle::new(&clean_id, &detail.core.owner, &detail.core.repo)
                                 });
 
                             if crate::db::icon_cycle::merge_detail_icon(
@@ -764,14 +768,14 @@ pub async fn get_app_details_impl(
                                 state.catalog.is_cataloged(&clean_id),
                                 now,
                             ) {
-                                detail.icon = cycle.selected_url.clone();
+                                detail.core.icon = cycle.selected_url.clone();
                             }
                             Some(cycle)
                         } else {
                             // 探测无可用图标：pinned 行仍保持详情展示为用户所选档位。
                             if let Ok(Some(pinned_cycle)) = db.get_icon_cycle(&clean_id) {
                                 if pinned_cycle.pinned {
-                                    detail.icon = pinned_cycle.selected_url.clone();
+                                    detail.core.icon = pinned_cycle.selected_url.clone();
                                 }
                             }
                             None
@@ -811,7 +815,7 @@ pub async fn get_app_details_impl(
             if let Ok(db) = state.db() {
                 if let Ok(Some(mut fallback_detail)) = db.get_cached_app_detail(&clean_id, None)
                 {
-                    fallback_detail.id = clean_id.clone();
+                    fallback_detail.core.id = clean_id.clone();
                     fallback_detail.is_stale = Some(true);
                     log::debug!(
                         "fetch app detail fallback id={} from=cache:stale elapsed_ms={}",
@@ -950,77 +954,81 @@ mod catalog_platform_tests {
         db.upsert_icon_cycle(&cycle).unwrap();
 
         let mut summary = crate::models::AppSummary {
-            id: app_id.to_string(),
-            name: "testrepo".to_string(),
-            description_en: None,
-            owner: "testowner".to_string(),
-            repo: "testrepo".to_string(),
-            icon: String::new(),
-            icon_bg: "linear-gradient(135deg, #475569, #334155)".to_string(),
-            description: "A test project".to_string(),
-            stars: 10,
-            forks: 2,
-            license: "MIT".to_string(),
-            latest_version: "1.0.0".to_string(),
-            category: "dev".to_string(),
-            category_name: "开发工具".to_string(),
-            is_verified: false,
+            core: crate::models::AppCore {
+                id: app_id.to_string(),
+                name: "testrepo".to_string(),
+                description_en: None,
+                owner: "testowner".to_string(),
+                repo: "testrepo".to_string(),
+                icon: String::new(),
+                icon_bg: "linear-gradient(135deg, #475569, #334155)".to_string(),
+                description: "A test project".to_string(),
+                stars: 10,
+                forks: 2,
+                license: "MIT".to_string(),
+                latest_version: "1.0.0".to_string(),
+                category: "dev".to_string(),
+                category_name: "开发工具".to_string(),
+                is_verified: false,
+                forge: Some("github".to_string()),
+                forge_host: Some("github.com".to_string()),
+                homepage: None,
+                platforms: Vec::new(),
+                is_cataloged: None,
+                source: None,
+                status: None,
+            },
             is_installed: None,
             has_update: None,
             installed_version: None,
-            forge: Some("github".to_string()),
-            forge_host: Some("github.com".to_string()),
-            homepage: None,
-            platforms: Vec::new(),
-            is_cataloged: None,
-            source: None,
-            status: None,
         };
 
         if let Some(ci) = crate::github::http::resolve_confirmed_icon_from_db(
             &db,
-            &summary.id,
-            &summary.owner,
-            &summary.repo,
+            &summary.core.id,
+            &summary.core.owner,
+            &summary.core.repo,
         ) {
-            summary.icon = ci;
+            summary.core.icon = ci;
         }
 
-        assert!(summary.icon.starts_with("data:image/png;base64,"));
+        assert!(summary.core.icon.starts_with("data:image/png;base64,"));
 
         let _ = std::fs::remove_file(&test_file_path);
     }
 
     fn batch_detail(id: &str, icon: &str) -> crate::models::AppDetail {
         crate::models::AppDetail {
-            id: id.to_string(),
-            name: "Demo App".to_string(),
-            description_en: None,
-            owner: "demo".to_string(),
-            repo: "app".to_string(),
-            icon: icon.to_string(),
-            icon_bg: "linear-gradient(135deg, #475569, #334155)".to_string(),
-            description: "演示应用".to_string(),
-            stars: 7,
-            forks: 3,
-            license: "MIT".to_string(),
-            latest_version: "v1.2.3".to_string(),
+            core: crate::models::AppCore {
+                id: id.to_string(),
+                name: "Demo App".to_string(),
+                description_en: None,
+                owner: "demo".to_string(),
+                repo: "app".to_string(),
+                icon: icon.to_string(),
+                icon_bg: "linear-gradient(135deg, #475569, #334155)".to_string(),
+                description: "演示应用".to_string(),
+                stars: 7,
+                forks: 3,
+                license: "MIT".to_string(),
+                latest_version: "v1.2.3".to_string(),
+                is_verified: false,
+                category: "external".to_string(),
+                category_name: "跨平台开源".to_string(),
+                forge: Some("github".to_string()),
+                forge_host: Some("github.com".to_string()),
+                homepage: None,
+                platforms: vec!["windows".to_string()],
+                is_cataloged: None,
+                source: None,
+                status: None,
+            },
             changelog: String::new(),
-            is_verified: false,
             readme_markdown: String::new(),
             readme_variants: None,
             releases: vec![],
-            category: "external".to_string(),
-            category_name: "跨平台开源".to_string(),
-            forge: Some("github".to_string()),
-            forge_host: Some("github.com".to_string()),
             cached_at: None,
             is_stale: None,
-            homepage: None,
-            platforms: vec!["windows".to_string()],
-            is_cataloged: None,
-            source: None,
-            status: None,
         }
     }
 
@@ -1033,11 +1041,11 @@ mod catalog_platform_tests {
         )
         .unwrap();
         let hit = super::cached_detail_summary(&db, "demo/app").expect("缓存行应当命中");
-        assert_eq!(hit.id, "demo/app");
-        assert_eq!(hit.name, "Demo App");
-        assert_eq!(hit.icon, "https://example.com/icon.png");
-        assert_eq!(hit.platforms, vec!["windows".to_string()]);
-        assert_eq!(hit.latest_version, "v1.2.3");
+        assert_eq!(hit.core.id, "demo/app");
+        assert_eq!(hit.core.name, "Demo App");
+        assert_eq!(hit.core.icon, "https://example.com/icon.png");
+        assert_eq!(hit.core.platforms, vec!["windows".to_string()]);
+        assert_eq!(hit.core.latest_version, "v1.2.3");
     }
 
     #[test]
@@ -1057,6 +1065,6 @@ mod catalog_platform_tests {
         )
         .unwrap();
         let hit = super::cached_detail_summary(&db, "demo/app").expect("缓存行应当命中");
-        assert_eq!(hit.icon, "", "无确认图标时 data: 详情图标必须置空");
+        assert_eq!(hit.core.icon, "", "无确认图标时 data: 详情图标必须置空");
     }
 }

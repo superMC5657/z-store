@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 
+/// `AppSummary` / `AppDetail` 公共子结构（22 字段单一来源，新增公共字段只改此处）。
+/// 两结构经 `#[serde(flatten)]` 内嵌，序列化仍为平面 JSON（字段名与 serde attrs
+/// 逐字沿用拆分前），IPC 与缓存契约不变；Rust 侧访问经 `x.core.<field>`。
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AppSummary {
+pub struct AppCore {
     pub id: String,
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -18,12 +21,6 @@ pub struct AppSummary {
     pub category: String,
     pub category_name: String,
     pub is_verified: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_installed: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub has_update: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub installed_version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub forge: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -43,6 +40,18 @@ pub struct AppSummary {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppSummary {
+    #[serde(flatten)]
+    pub core: AppCore,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_installed: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub has_update: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub installed_version: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReleaseAsset {
     pub name: String,
     pub download_url: String,
@@ -55,32 +64,14 @@ pub struct ReleaseAsset {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppDetail {
-    pub id: String,
-    pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description_en: Option<String>,
-    pub owner: String,
-    pub repo: String,
-    pub icon: String,
-    pub icon_bg: String,
-    pub description: String,
-    pub stars: u64,
-    pub forks: u64,
-    pub license: String,
-    pub latest_version: String,
+    #[serde(flatten)]
+    pub core: AppCore,
     pub changelog: String,
-    pub is_verified: bool,
     pub readme_markdown: String,
     /// README 多语言变体：`get_readme_variants` 按需回填，缺失即 `None`。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub readme_variants: Option<Vec<ReadmeVariant>>,
     pub releases: Vec<ReleaseAsset>,
-    pub category: String,
-    pub category_name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub forge: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub forge_host: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cached_at: Option<i64>,
     /// stale 契约：`Some(true)` = 瞬时失败降级（401/限流/离线复用旧行，或无缓存合成空）。
@@ -89,18 +80,6 @@ pub struct AppDetail {
     /// 保持 `None`，与失败空可区分。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub is_stale: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub homepage: Option<String>,
-    pub platforms: Vec<String>,
-    /// 收录态（后端目录投影时盖章）：`Some(true)` 表示远端精选或本地收录命中。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub is_cataloged: Option<bool>,
-    /// 目录来源：`remote`（远端精选）/ `local`（本地收录补位），未收录即缺席。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source: Option<String>,
-    /// 本地收录行状态（`collected` 系），仅供徽标判定；远端行与未收录行缺席。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub status: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,6 +87,84 @@ pub struct ReadmeVariant {
     pub lang: String,
     pub path: String,
     pub markdown: String,
+}
+
+#[cfg(test)]
+mod app_core_tests {
+    use super::*;
+
+    /// 平面 JSON 契约回归：`AppCore` 经 `#[serde(flatten)]` 内嵌后，
+    /// 序列化不得出现 `core` 包装键，旧平面载荷必须原样可反序列化（IPC/缓存两用）。
+    #[test]
+    fn app_summary_detail_serialize_flat_and_deserialize_legacy_payload() {
+        let detail = AppDetail {
+            core: AppCore {
+                id: "o/r".to_string(),
+                name: "n".to_string(),
+                description_en: Some("en".to_string()),
+                owner: "o".to_string(),
+                repo: "r".to_string(),
+                icon: "i".to_string(),
+                icon_bg: "g".to_string(),
+                description: "d".to_string(),
+                stars: 1,
+                forks: 2,
+                license: "MIT".to_string(),
+                latest_version: "v1".to_string(),
+                category: "dev".to_string(),
+                category_name: "dev".to_string(),
+                is_verified: false,
+                forge: Some("github".to_string()),
+                forge_host: Some("github.com".to_string()),
+                homepage: None,
+                platforms: vec!["windows".to_string()],
+                is_cataloged: Some(true),
+                source: Some("local".to_string()),
+                status: Some("collected".to_string()),
+            },
+            changelog: "c".to_string(),
+            readme_markdown: "m".to_string(),
+            readme_variants: None,
+            releases: vec![],
+            cached_at: None,
+            is_stale: None,
+        };
+        let summary = AppSummary {
+            core: detail.core.clone(),
+            is_installed: Some(true),
+            has_update: None,
+            installed_version: None,
+        };
+
+        let sv: serde_json::Value = serde_json::to_value(&summary).unwrap();
+        let dv: serde_json::Value = serde_json::to_value(&detail).unwrap();
+        assert!(sv.get("core").is_none(), "AppSummary 序列化出现 core 包装键");
+        assert!(dv.get("core").is_none(), "AppDetail 序列化出现 core 包装键");
+        assert_eq!(sv["id"], "o/r");
+        assert_eq!(sv["status"], "collected");
+        assert_eq!(sv["is_installed"], true);
+        assert_eq!(dv["changelog"], "c");
+
+        // 拆分前落盘的平面载荷（无 core 键、缺 Option 字段）原样可读。
+        let legacy_summary: AppSummary = serde_json::from_str(
+            r#"{"id":"o/r","name":"n","owner":"o","repo":"r","icon":"i","icon_bg":"g",
+                "description":"d","stars":1,"forks":2,"license":"MIT","latest_version":"v1",
+                "category":"dev","category_name":"dev","is_verified":false,"platforms":["windows"]}"#,
+        )
+        .unwrap();
+        assert_eq!(legacy_summary.core.id, "o/r");
+        assert_eq!(legacy_summary.core.is_cataloged, None);
+        assert_eq!(legacy_summary.is_installed, None);
+        let legacy_detail: AppDetail = serde_json::from_str(
+            r#"{"id":"o/r","name":"n","owner":"o","repo":"r","icon":"i","icon_bg":"g",
+                "description":"d","stars":1,"forks":2,"license":"MIT","latest_version":"v1",
+                "category":"dev","category_name":"dev","is_verified":false,"platforms":["windows"],
+                "changelog":"c","readme_markdown":"m","releases":[]}"#,
+        )
+        .unwrap();
+        assert_eq!(legacy_detail.core.latest_version, "v1");
+        assert_eq!(legacy_detail.is_stale, None);
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

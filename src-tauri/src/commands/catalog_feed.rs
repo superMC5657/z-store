@@ -37,7 +37,7 @@ pub fn get_home_feed(
         all
     } else {
         all.into_iter()
-            .filter(|a| !hidden_ids.contains(&a.id))
+            .filter(|a| !hidden_ids.contains(&a.core.id))
             .collect()
     };
     let ranked = {
@@ -73,8 +73,8 @@ pub fn get_category_apps(
     let filtered: Vec<AppSummary> = all
         .into_iter()
         .filter(|a| {
-            (a.category.to_lowercase() == cat_clean || a.category_name.to_lowercase() == cat_clean)
-                && !hidden_ids.contains(&a.id)
+            (a.core.category.to_lowercase() == cat_clean || a.core.category_name.to_lowercase() == cat_clean)
+                && !hidden_ids.contains(&a.core.id)
         })
         .collect();
 
@@ -199,15 +199,15 @@ mod tests {
         // 空收录退化为纯远端。
         let remote_only = catalog.merged_summaries();
         assert_eq!(remote_only.len(), 1);
-        assert_eq!(remote_only[0].source.as_deref(), Some("remote"));
-        assert_eq!(remote_only[0].is_cataloged, Some(true));
+        assert_eq!(remote_only[0].core.source.as_deref(), Some("remote"));
+        assert_eq!(remote_only[0].core.is_cataloged, Some(true));
 
         catalog.set_collected_items(vec![feed_item("o/local", "o", "local")]);
         let merged = catalog.merged_summaries();
         assert_eq!(merged.len(), 2);
-        let local = merged.iter().find(|s| s.id == "o/local").expect("local row");
-        assert_eq!(local.source.as_deref(), Some("local"));
-        assert_eq!(local.status.as_deref(), Some("collected"));
-        assert_eq!(local.is_cataloged, Some(true));
+        let local = merged.iter().find(|s| s.core.id == "o/local").expect("local row");
+        assert_eq!(local.core.source.as_deref(), Some("local"));
+        assert_eq!(local.core.status.as_deref(), Some("collected"));
+        assert_eq!(local.core.is_cataloged, Some(true));
     }
 }

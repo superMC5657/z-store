@@ -163,18 +163,18 @@ impl CatalogService {
 
     /// 收录态盖章（`AppSummary` 投影唯一口）。
     pub fn stamp_summary(&self, summary: &mut AppSummary) {
-        let (cataloged, source, status) = self.resolve_catalog_stamp(&summary.id);
-        summary.is_cataloged = Some(cataloged);
-        summary.source = source;
-        summary.status = status;
+        let (cataloged, source, status) = self.resolve_catalog_stamp(&summary.core.id);
+        summary.core.is_cataloged = Some(cataloged);
+        summary.core.source = source;
+        summary.core.status = status;
     }
 
     /// 收录态盖章（`AppDetail` 投影唯一口，口径与 `stamp_summary` 一致）。
     pub fn stamp_detail(&self, detail: &mut crate::models::AppDetail) {
-        let (cataloged, source, status) = self.resolve_catalog_stamp(&detail.id);
-        detail.is_cataloged = Some(cataloged);
-        detail.source = source;
-        detail.status = status;
+        let (cataloged, source, status) = self.resolve_catalog_stamp(&detail.core.id);
+        detail.core.is_cataloged = Some(cataloged);
+        detail.core.source = source;
+        detail.core.status = status;
     }
 
     /// 目录项转已盖章摘要（列表/详情/搜索统一投影）。
@@ -463,7 +463,7 @@ impl CatalogService {
                 .iter()
                 .map(|i| self.item_to_stamped_summary(i))
                 .collect();
-            all.sort_by_key(|b| std::cmp::Reverse(b.stars));
+            all.sort_by_key(|b| std::cmp::Reverse(b.core.stars));
             return all;
         }
 
@@ -504,7 +504,7 @@ impl CatalogService {
             if b.0 != a.0 {
                 b.0.cmp(&a.0)
             } else {
-                b.1.stars.cmp(&a.1.stars)
+                b.1.core.stars.cmp(&a.1.core.stars)
             }
         });
 
@@ -531,7 +531,7 @@ impl CatalogService {
             None
         } else {
             let mut sorted = matched;
-            sorted.sort_by_key(|b| std::cmp::Reverse(b.stars));
+            sorted.sort_by_key(|b| std::cmp::Reverse(b.core.stars));
             Some(sorted)
         }
     }
@@ -582,21 +582,6 @@ impl CatalogService {
         } else {
             Err(format!("收录库中不存在该应用: {}", id))
         }
-    }
-
-    pub fn get_endpoints(
-        &self,
-        id: &str,
-    ) -> Result<(String, String, String, String, String, String), String> {
-        let coords = self.get_repo_coordinates(id)?;
-        Ok((
-            coords.owner,
-            coords.repo,
-            coords.name,
-            coords.description,
-            coords.icon,
-            coords.icon_bg,
-        ))
     }
 }
 
@@ -757,17 +742,17 @@ mod tests {
         let view = CatalogService::merge_catalog_overlay_view(&remote, &custom);
         assert_eq!(view.len(), 3);
         // 同 id 取远端行（custom 影子被丢弃）。
-        let dup = view.iter().find(|e| e.summary.id == "o/dup").unwrap();
-        assert_eq!(dup.summary.name, "Test App");
+        let dup = view.iter().find(|e| e.summary.core.id == "o/dup").unwrap();
+        assert_eq!(dup.summary.core.name, "Test App");
         assert_eq!(dup.source, "remote");
         assert!(dup.is_cataloged);
         // custom 补位行标记来源。
-        let local = view.iter().find(|e| e.summary.id == "o/local").unwrap();
+        let local = view.iter().find(|e| e.summary.core.id == "o/local").unwrap();
         assert_eq!(local.source, "custom");
         assert!(local.is_cataloged);
         // 顺序：远端在前，custom 补位在后。
-        assert_eq!(view[0].summary.id, "o/dup");
-        assert_eq!(view[2].summary.id, "o/local");
+        assert_eq!(view[0].summary.core.id, "o/dup");
+        assert_eq!(view[2].summary.core.id, "o/local");
 
         let svc = test_service(remote);
         let merged = svc.merged_items_with_overlay(custom);
@@ -796,7 +781,7 @@ mod tests {
         let mut local = item("o/local", "o", "local");
         local.name = "Local Tool".to_string();
         let hits = svc.search_apps_with_overlay("local", &[local.clone()]);
-        assert!(hits.iter().any(|s| s.id == "o/local"));
+        assert!(hits.iter().any(|s| s.core.id == "o/local"));
         // 空查询含本地（stars 降序全量）。
         let all = svc.search_apps_with_overlay("", &[local]);
         assert_eq!(all.len(), 2);
@@ -826,7 +811,7 @@ mod tests {
         assert_eq!(coords.name, "Local Tool");
         // 搜索覆盖合并目录。
         let hits = svc.search_apps("local tool");
-        assert!(hits.iter().any(|s| s.id == "o/local"));
+        assert!(hits.iter().any(|s| s.core.id == "o/local"));
         // 远端本体口径不含本地收录。
         assert_eq!(svc.get_remote_catalog_items().len(), 1);
         assert_eq!(svc.get_catalog_items().len(), 2);
@@ -917,32 +902,32 @@ mod tests {
         ]);
 
         let mut verified = svc.item_to_stamped_summary(&item("o/verified", "o", "verified"));
-        assert_eq!(verified.source.as_deref(), Some(CATALOG_SOURCE_REMOTE));
-        assert_eq!(verified.is_cataloged, Some(true));
-        assert_eq!(verified.status, None);
+        assert_eq!(verified.core.source.as_deref(), Some(CATALOG_SOURCE_REMOTE));
+        assert_eq!(verified.core.is_cataloged, Some(true));
+        assert_eq!(verified.core.status, None);
 
         // 远端未验证 + 本地收录同仓 → 本地补位（橘黄）。
         verified = svc.item_to_stamped_summary(&item("o/both", "o", "both"));
-        assert_eq!(verified.source.as_deref(), Some(CATALOG_SOURCE_LOCAL));
-        assert_eq!(verified.status.as_deref(), Some("collected"));
-        assert_eq!(verified.is_cataloged, Some(true));
+        assert_eq!(verified.core.source.as_deref(), Some(CATALOG_SOURCE_LOCAL));
+        assert_eq!(verified.core.status.as_deref(), Some("collected"));
+        assert_eq!(verified.core.is_cataloged, Some(true));
 
         // 纯远端未验证。
         let remote_only = svc.item_to_stamped_summary(&item("o/remote", "o", "remote"));
-        assert_eq!(remote_only.source.as_deref(), Some(CATALOG_SOURCE_REMOTE));
-        assert_eq!(remote_only.status, None);
+        assert_eq!(remote_only.core.source.as_deref(), Some(CATALOG_SOURCE_REMOTE));
+        assert_eq!(remote_only.core.status, None);
 
         // 纯本地收录。
         let local_only = svc.item_to_stamped_summary(&item("o/local", "o", "local"));
-        assert_eq!(local_only.source.as_deref(), Some(CATALOG_SOURCE_LOCAL));
-        assert_eq!(local_only.status.as_deref(), Some("collected"));
+        assert_eq!(local_only.core.source.as_deref(), Some(CATALOG_SOURCE_LOCAL));
+        assert_eq!(local_only.core.status.as_deref(), Some("collected"));
 
         // 未收录（在线/趋势野生仓）。
         let empty = test_service(Vec::new());
         let unknown = empty.item_to_stamped_summary(&item("o/unknown", "o", "unknown"));
-        assert_eq!(unknown.is_cataloged, Some(false));
-        assert_eq!(unknown.source, None);
-        assert_eq!(unknown.status, None);
+        assert_eq!(unknown.core.is_cataloged, Some(false));
+        assert_eq!(unknown.core.source, None);
+        assert_eq!(unknown.core.status, None);
     }
 
     /// 合并目录摘要：远端在前、本地补位，逐行盖章。
@@ -952,11 +937,11 @@ mod tests {
         svc.set_collected_items(vec![item("o/local", "o", "local")]);
         let rows = svc.merged_summaries();
         assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0].id, "o/remote");
-        assert_eq!(rows[1].id, "o/local");
+        assert_eq!(rows[0].core.id, "o/remote");
+        assert_eq!(rows[1].core.id, "o/local");
         for row in &rows {
-            assert_eq!(row.is_cataloged, Some(true));
-            assert!(row.source.is_some());
+            assert_eq!(row.core.is_cataloged, Some(true));
+            assert!(row.core.source.is_some());
         }
     }
 }

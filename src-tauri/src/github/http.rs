@@ -2,7 +2,7 @@
 //!
 //! 仅 `github` 模块内使用，行为与原样板一致。
 
-use crate::models::AppSummary;
+use crate::models::{AppCore, AppSummary};
 use reqwest::header::{HeaderMap, HeaderValue, IF_NONE_MATCH};
 
 #[derive(Debug, Clone)]
@@ -496,31 +496,33 @@ pub(crate) async fn fallback_summary(
     };
 
     AppSummary {
-        id,
-        name,
-        description_en,
-        owner,
-        repo,
-        icon,
-        icon_bg: cat.gradient.to_string(),
-        description,
-        stars,
-        forks,
-        license,
-        latest_version: "latest".to_string(),
-        category: cat.key.to_string(),
-        category_name: cat.name.to_string(),
-        is_verified: false,
+        core: AppCore {
+            id,
+            name,
+            description_en,
+            owner,
+            repo,
+            icon,
+            icon_bg: cat.gradient.to_string(),
+            description,
+            stars,
+            forks,
+            license,
+            latest_version: "latest".to_string(),
+            category: cat.key.to_string(),
+            category_name: cat.name.to_string(),
+            is_verified: false,
+            forge: Some("github".to_string()),
+            forge_host: Some("github.com".to_string()),
+            homepage,
+            platforms: Vec::new(),
+            is_cataloged: None,
+            source: None,
+            status: None,
+        },
         is_installed: None,
         has_update: None,
         installed_version: None,
-        forge: Some("github".to_string()),
-        forge_host: Some("github.com".to_string()),
-        homepage,
-        platforms: Vec::new(),
-        is_cataloged: None,
-        source: None,
-        status: None,
     }
 }
 
@@ -720,9 +722,9 @@ mod tests {
             None,
         )
         .await;
-        assert_eq!(summary_none.icon, "");
+        assert_eq!(summary_none.core.icon, "");
         // 未知仓库返回 []，由前端 virtual-Other 接管。
-        assert!(summary_none.platforms.is_empty());
+        assert!(summary_none.core.platforms.is_empty());
 
         // 当 confirmed_icon 存在时，无论是 probe=true 还是 probe=false 均优先使用 confirmed_icon
         let custom_uri = "data:image/png;base64,testdata";
@@ -744,9 +746,9 @@ mod tests {
             None,
         )
         .await;
-        assert_eq!(summary_confirmed.icon, custom_uri);
+        assert_eq!(summary_confirmed.core.icon, custom_uri);
         // platforms 未知仓库一律 []。
-        assert!(summary_confirmed.platforms.is_empty());
+        assert!(summary_confirmed.core.platforms.is_empty());
     }
 
     #[tokio::test]
@@ -770,8 +772,8 @@ mod tests {
             None,
         )
         .await;
-        assert!(summary.platforms.is_empty());
-        assert!(!summary.platforms.contains(&"windows".to_string()));
-        assert!(!summary.platforms.contains(&"other".to_string()));
+        assert!(summary.core.platforms.is_empty());
+        assert!(!summary.core.platforms.contains(&"windows".to_string()));
+        assert!(!summary.core.platforms.contains(&"other".to_string()));
     }
 }
