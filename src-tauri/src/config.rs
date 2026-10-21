@@ -672,6 +672,66 @@ mod tests {
         assert_eq!(conf.limits.search_history_limit, 20);
     }
 
+    /// 种子 catalog.json schema 校验（构建期，与外部目录仓校验同口径的可执行子集）：
+    /// - 先过运行时 serde 模型 `CatalogItem`（字段漂移在此暴露，运行时解析失败前移到测试期）；
+    /// - 再锁结构不变量：id 唯一且等于小写 `owner/repo`、展示字段非空、
+    ///   platforms/identifiers 键恒在五平台集合内、别名条内唯一且不与 id 重合。
+    #[test]
+    fn embedded_seed_catalog_matches_runtime_schema() {
+        let seed = include_str!("../../catalog.json");
+        let items: Vec<crate::github::models::CatalogItem> = serde_json::from_str(seed)
+            .expect("种子 catalog.json 必须能反序列化为运行时 CatalogItem 模型");
+        assert!(!items.is_empty(), "种子清单不得为空");
+
+        const PLATFORM_KEYS: [&str; 5] = ["windows", "macos", "linux", "ios", "android"];
+        let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for item in &items {
+            let id_lower = item.id.to_lowercase();
+            assert!(
+                seen_ids.insert(id_lower.clone()),
+                "id 重复：{id_lower}"
+            );
+            let coord = format!("{}/{}", item.owner, item.repo).to_lowercase();
+            assert_eq!(id_lower, coord, "id 必须等于小写 owner/repo：{}", item.id);
+            for (field, v) in [
+                ("name", &item.name),
+                ("description", &item.description),
+                ("category", &item.category),
+                ("category_name", &item.category_name),
+                ("license", &item.license),
+                ("default_version", &item.default_version),
+            ] {
+                assert!(!v.trim().is_empty(), "{id_lower} 的 {field} 不得为空");
+            }
+            for p in &item.platforms {
+                assert!(
+                    PLATFORM_KEYS.contains(&p.as_str()),
+                    "{id_lower} 平台键越界：{p}"
+                );
+            }
+            for (key, values) in &item.identifiers {
+                assert!(
+                    PLATFORM_KEYS.contains(&key.as_str()),
+                    "{id_lower} identifiers 键越界：{key}"
+                );
+                assert!(
+                    values.iter().all(|v| !v.trim().is_empty()),
+                    "{id_lower} identifiers[{key}] 含空串"
+                );
+            }
+            let mut aliases: std::collections::HashSet<String> = std::collections::HashSet::new();
+            for alias in &item.aliases {
+                let a = alias.trim().to_lowercase();
+                assert!(!a.is_empty(), "{id_lower} 存在空别名");
+                assert!(a != id_lower, "{id_lower} 别名与 id 重合：{alias}");
+                assert!(
+                    aliases.insert(a),
+                    "{id_lower} 别名条内重复：{alias}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn api_timeout_or_returns_configured_secs() {
         // 返回统一配置中枢 `network.api_timeout_seconds` 对应的超时。

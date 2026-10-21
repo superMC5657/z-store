@@ -1,5 +1,5 @@
 {
-  "note": "草稿校验契约样例（TS UI 镜像 ↔ Rust 权威门禁）。两侧各跑一遍，断言 ok 与首个阻断字段一致；新增规则先在此加样例。",
+  "note": "草稿校验契约样例（TS UI 镜像 ↔ Rust 权威门禁）。两侧各跑一遍，断言 ok 与首个阻断字段一致；新增规则先在此加样例。 aliases/platforms/identifiers/install_dirs 等维度不参与门禁（两侧一致），样例锁定维度存在时 ok/首错序不变。",
   "gate": {
     "enabled": true,
     "allowed": ["MIT", "Apache-2.0", "GPL-3.0", "GPL-3.0-OR-LATER"]
@@ -312,6 +312,88 @@
         "category": "dev",
         "homepage": "https://example.com",
         "license": "Proprietary"
+      },
+      "expect": { "ok": true }
+    },
+    {
+      "name": "submit accepts complete item with aliases/platforms/identifiers/install_dirs",
+      "mode": "submit",
+      "item": {
+        "id": "acme/atlas",
+        "owner": "acme",
+        "repo": "atlas",
+        "name": "Atlas",
+        "description": "tool",
+        "category": "dev",
+        "homepage": "https://atlas.dev",
+        "license": "MIT",
+        "aliases": ["atlas-cli", "Atlas"],
+        "install_dirs": ["%LOCALAPPDATA%\\Atlas"],
+        "search_subdirs": ["bin"],
+        "publishers": ["ACME"],
+        "platforms": ["windows", "linux"],
+        "identifiers": { "windows": ["atlas.exe"], "linux": ["atlas"] }
+      },
+      "expect": { "ok": true }
+    },
+    {
+      "name": "draft rejects uppercase id even with dimensions present",
+      "mode": "draft",
+      "item": {
+        "id": "Acme/Atlas",
+        "owner": "acme",
+        "repo": "atlas",
+        "name": "Atlas",
+        "description": "tool",
+        "category": "dev",
+        "license": "MIT",
+        "aliases": ["atlas-cli"],
+        "install_dirs": ["C:\\Atlas"],
+        "search_subdirs": ["bin"],
+        "publishers": ["ACME"],
+        "platforms": ["windows", "linux"],
+        "identifiers": { "windows": ["atlas.exe"], "linux": ["atlas"] }
+      },
+      "expect": { "ok": false, "field": "identity" }
+    },
+    {
+      "name": "submit rejects empty name even with dimensions present",
+      "mode": "submit",
+      "item": {
+        "id": "acme/atlas",
+        "owner": "acme",
+        "repo": "atlas",
+        "name": "",
+        "description": "tool",
+        "category": "dev",
+        "homepage": "https://atlas.dev",
+        "license": "MIT",
+        "aliases": ["atlas-cli"],
+        "install_dirs": ["C:\\Atlas"],
+        "search_subdirs": ["bin"],
+        "publishers": ["ACME"],
+        "platforms": ["windows", "linux"],
+        "identifiers": { "windows": ["atlas.exe"], "linux": ["atlas"] }
+      },
+      "expect": { "ok": false, "field": "name" }
+    },
+    {
+      "name": "draft accepts dimensions-only payload (lenient keeps empty required fields)",
+      "mode": "draft",
+      "item": {
+        "id": "acme/atlas",
+        "owner": "acme",
+        "repo": "atlas",
+        "name": "",
+        "description": "",
+        "category": "",
+        "license": "OpenSource",
+        "aliases": ["atlas-cli"],
+        "install_dirs": ["C:\\Atlas"],
+        "search_subdirs": ["bin"],
+        "publishers": ["ACME"],
+        "platforms": ["windows", "linux"],
+        "identifiers": { "windows": ["atlas.exe"], "linux": ["atlas"] }
       },
       "expect": { "ok": true }
     }

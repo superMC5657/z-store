@@ -19,6 +19,13 @@ interface CaseItem {
   category?: string;
   homepage?: string | null;
   license?: string;
+  /** 维度样例（不参与门禁，锁定维度存在时 ok/首错序不变）。 */
+  aliases?: string[];
+  install_dirs?: string[];
+  search_subdirs?: string[];
+  publishers?: string[];
+  platforms?: string[];
+  identifiers?: Record<string, string[]>;
 }
 
 interface ParityCase {
@@ -46,6 +53,12 @@ function draftFromCase(item: CaseItem): PendingDraftItem {
     category_name: item.category ?? '',
     homepage: item.homepage ?? '',
     license: item.license ?? '',
+    aliases: item.aliases ?? PENDING_EMPTY_DRAFT.aliases,
+    install_dirs: item.install_dirs ?? PENDING_EMPTY_DRAFT.install_dirs,
+    search_subdirs: item.search_subdirs ?? PENDING_EMPTY_DRAFT.search_subdirs,
+    publishers: item.publishers ?? PENDING_EMPTY_DRAFT.publishers,
+    platforms: item.platforms ?? PENDING_EMPTY_DRAFT.platforms,
+    identifiers: item.identifiers ?? PENDING_EMPTY_DRAFT.identifiers,
   };
 }
 

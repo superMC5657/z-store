@@ -56,3 +56,6 @@ publish/z-store-catalog
 # Internal design/business documents (not for the public repository)
 docs/design/
 
+
+# vitest coverage output
+coverage/

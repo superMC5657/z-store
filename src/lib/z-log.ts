@@ -10,12 +10,13 @@ function redact(msg: string): string {
       .replace(/bearer\s+[^\s"'；;,]+/g, 'bearer ***')
       .replace(/Token\s+[^\s"'；;,]+/g, 'Token ***')
       .replace(/token\s+[^\s"'；;,]+/g, 'token ***')
-      // 与后端 code/device_code/user_code/api_key 键值脱敏对齐（\b 护住 vscode 类路径）。
+      // 与后端 code/device_code/user_code/api_key 键值脱敏对齐（\b 护住 vscode 类路径；
+      // 键后 `["']?` 容纳 JSON 紧凑/宽松形态 `"code":"v"`，与后端 is_kv_post 含引号一致）。
       .replace(
-        /\b(device_code|user_code|api_key|api-key|apikey)\s*[:=]\s*"?[^"'\s,;}]+/gi,
+        /\b(device_code|user_code|api_key|api-key|apikey)["']?\s*[:=]\s*"?[^"'\s,;}]+/gi,
         (_m, k: string) => `${k}=***`,
       )
-      .replace(/\bcode\s*[:=]\s*"?[^"'\s,;}]+/gi, (_m) => 'code=***')
+      .replace(/\bcode["']?\s*[:=]\s*"?[^"'\s,;}]+/gi, (_m) => 'code=***')
       .replace(/[\w.%+-]+@[\w.-]+\.[A-Za-z]{2,}/g, '***@***')
   );
 }

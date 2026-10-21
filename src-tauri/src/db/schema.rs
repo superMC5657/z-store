@@ -328,4 +328,27 @@ mod schema_migration_tests {
         assert_eq!(entries[0].app_id, "rustdesk/rustdesk");
         assert!(!entries[0].is_cataloged, "存量行收录标记应当默认 0");
     }
+
+    #[test]
+    fn higher_version_db_stays_readonly_without_downgrade_stamp() {
+        // 高版本库被旧构建打开：不降级盖章、不跑迁移，仅幂等基底自愈（只读兼容）。
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA user_version = 99;").unwrap();
+        let db = Database { conn };
+        db.init_schema().unwrap();
+        assert_eq!(
+            db.user_version().unwrap(),
+            99,
+            "高版本库不得被降级盖章"
+        );
+        // 幂等基底照常执行：新表可建、查询可用。
+        let tables: i64 = db
+            .query_scalar_opt(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='update_results'",
+                [],
+            )
+            .unwrap()
+            .unwrap_or(0);
+        assert_eq!(tables, 1, "幂等基底在高版本库上仍应补齐表结构");
+    }
 }

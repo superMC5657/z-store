@@ -1424,6 +1424,19 @@ mod tests {
         homepage: Option<String>,
         #[serde(default)]
         license: String,
+        // 维度样例（不参与门禁）：两侧一致透传，锁定维度存在时 ok/首错序不变。
+        #[serde(default)]
+        aliases: Vec<String>,
+        #[serde(default)]
+        install_dirs: Vec<String>,
+        #[serde(default)]
+        search_subdirs: Vec<String>,
+        #[serde(default)]
+        publishers: Vec<String>,
+        #[serde(default)]
+        platforms: Vec<String>,
+        #[serde(default)]
+        identifiers: std::collections::HashMap<String, Vec<String>>,
     }
 
     #[derive(serde::Deserialize)]
@@ -1463,6 +1476,25 @@ mod tests {
         base.category = item.category.clone();
         base.homepage = item.homepage.clone();
         base.license = item.license.clone();
+        // 维度字段：样例缺席时保留 draft_item 基线（与两侧空草稿默认一致）。
+        if !item.aliases.is_empty() {
+            base.aliases = item.aliases.clone();
+        }
+        if !item.install_dirs.is_empty() {
+            base.install_dirs = item.install_dirs.clone();
+        }
+        if !item.search_subdirs.is_empty() {
+            base.search_subdirs = item.search_subdirs.clone();
+        }
+        if !item.publishers.is_empty() {
+            base.publishers = item.publishers.clone();
+        }
+        if !item.platforms.is_empty() {
+            base.platforms = item.platforms.clone();
+        }
+        if !item.identifiers.is_empty() {
+            base.identifiers = item.identifiers.clone();
+        }
         base
     }
 
