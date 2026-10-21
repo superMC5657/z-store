@@ -45,9 +45,6 @@ src-tauri/gen/schemas
 # Standalone catalog repository scaffold
 publish/z-store-catalog
 
-# Local agent issue tracker workspace (docs/agents/issue-tracker.md)
-.scratch/
-
 # BEGIN oh-my-opencode-slim worktrees
 .slim/worktrees/
 .slim/worktrees.json
