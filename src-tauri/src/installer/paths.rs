@@ -192,6 +192,7 @@ pub fn create_desktop_shortcut(app_name: &str, exe_path: &Path) {
 /// 开始菜单程序组内的卸载快捷方式：包名先经 `sanitize_shortcut_name` 剥离分隔符，
 /// 拼接结果必然落在 `base` 之下（绝对路径的盘符/根分隔符与 `..` 均随之失效）；
 /// 命中的 `.lnk` 再经 canonicalize + 前缀断言确认仍在程序组目录内才返回。
+#[cfg(target_os = "windows")]
 fn start_menu_uninstall_lnk(base: &Path, app_name: &str) -> Option<PathBuf> {
     let sdir = base.join(sanitize_shortcut_name(app_name));
     let canon_sdir = sdir.canonicalize().ok()?;

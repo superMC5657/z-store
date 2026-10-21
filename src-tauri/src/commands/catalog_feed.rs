@@ -21,7 +21,7 @@ pub struct FeedPage {
 /// - `strategy`=None/非法时回退 balanced（大小写不敏感，前端原样透传、后端归一小写）；
 /// - hero 置顶留给前端，后端不 hardcode 具体 id；
 /// - 前端按 `invoke('get_home_feed', { limit, offset, seed, strategy })` 调用
-///  （`seed`/`strategy` 可省略/传 null）。
+///   （`seed`/`strategy` 可省略/传 null）。
 #[tauri::command]
 pub fn get_home_feed(
     state: State<'_, AppState>,
