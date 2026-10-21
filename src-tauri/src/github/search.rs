@@ -320,7 +320,7 @@ impl CatalogService {
         )
         .await;
 
-        // Top2：落库收敛至调用方 `commands/catalog` 批量 enrich（单锁单事务），此处不再写，
+        // Top2：落库收敛至调用方 `commands/catalog` 批量 enrich（单锁单事务），本函数只读不写，
         // 免与调用方重复写同一 `app_id`，搜索热路径零写。
         Ok(item)
     }

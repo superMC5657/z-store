@@ -1009,8 +1009,6 @@ function deleteBufferedIcon(key: string): void {
 export function clearBufferedIcon(key: string): void {
   const k = normalizeId(key);
   if (!k) return;
-  const had = iconById.has(k) || iconLevelById.has(k);
-  void had;
   deleteBufferedIcon(k);
   try {
     invalidateIconCache(k);

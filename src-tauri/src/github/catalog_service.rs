@@ -34,7 +34,7 @@ impl CatalogService {
     pub fn new() -> Self {
         let cfg = crate::config::get_project_config();
         let items: Vec<CatalogItem> = cfg.catalog.load_catalog_items().unwrap_or_default();
-        // 清单跟随系统代理：不再把默认源 host 塞进 per-client no_proxy，
+        // 清单跟随系统代理：per-client no_proxy 不预置默认源 host，
         // 有代理走代理、无代理直连（与图标通道一致）。
         let catalog_extra: Vec<String> = Vec::new();
         let builder = reqwest::Client::builder()
