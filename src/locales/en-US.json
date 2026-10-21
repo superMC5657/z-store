@@ -41,6 +41,9 @@
   },
   "settings": {
     "title": "Settings",
+    "persist_failed": "Failed to save setting, reverted: {{error}}",
+    "mirror_replay_failed": "Failed to restore mirror setting, fell back to direct: {{error}}",
+    "mirror_replay_rejected": "mirror value failed admission checks",
     "theme_mode": "Theme Mode",
     "theme_light": "Light",
     "theme_dark": "Dark",

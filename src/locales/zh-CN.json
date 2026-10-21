@@ -41,6 +41,9 @@
   },
   "settings": {
     "title": "系统设置",
+    "persist_failed": "设置保存失败，已还原原值：{{error}}",
+    "mirror_replay_failed": "镜像设置恢复失败，已回退官方直连：{{error}}",
+    "mirror_replay_rejected": "镜像档位未通过准入校验",
     "theme_mode": "色彩主题模式",
     "theme_light": "明亮模式",
     "theme_dark": "暗黑模式",
