@@ -48,8 +48,14 @@ jobs:
       - name: Frontend Lint (if configured)
         run: pnpm run --if-present lint
 
-      - name: Frontend Test (if configured)
+      - name: Frontend Test (Windows, plain)
+        if: runner.os != 'Linux'
         run: pnpm run --if-present test
+
+      # ubuntu leg 产出覆盖率并执行 vitest.config.ts 的 thresholds 卡点。
+      - name: Frontend Test (Linux, coverage thresholds)
+        if: runner.os == 'Linux'
+        run: pnpm run --if-present test:coverage
 
       # 构建前端生成 dist/ (供 tauri::generate_context! 编译期展开)
       - name: Build frontend
