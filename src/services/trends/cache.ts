@@ -1,4 +1,5 @@
 import type { AppSummary, FetchTrendsOptions, TrendBoardId, TrendRepo } from '../../types';
+import { CMD } from '../api';
 import { isTauri, tauriInvoke } from '../api/client';
 import { normalizeId, normalizeIdSet } from '../normalizeId';
 import { zlogWarn } from '../../lib/z-log';
@@ -148,9 +149,6 @@ export function buildDoforceCacheKey(opts: FetchTrendsOptions = {}): string {
 
 export const DOFORCE_SHARED_CACHE_KEY = buildDoforceCacheKey();
 
-const CMD_GET_TREND_BOARD_CACHE = 'get_trend_board_cache';
-const CMD_SAVE_TREND_BOARD_CACHE = 'save_trend_board_cache';
-
 /**
  * 榜单持久化信封 v1：
  * 包装榜单裸仓列表与对应的坐标 enrich 派生摘要。
@@ -185,7 +183,7 @@ interface DbTrendBoardCacheRow {
 export async function getDbTrendCache(key: string, board?: string): Promise<TrendRepo[] | undefined> {
   if (!isTauri) return undefined;
   try {
-    const row = await tauriInvoke<DbTrendBoardCacheRow | null>(CMD_GET_TREND_BOARD_CACHE, {
+    const row = await tauriInvoke<DbTrendBoardCacheRow | null>(CMD.getTrendBoardCache, {
       cacheKey: key,
     });
     if (!row) return undefined;
@@ -369,7 +367,7 @@ export async function saveDbTrendCache(
       }
     }
 
-    await tauriInvoke(CMD_SAVE_TREND_BOARD_CACHE, {
+    await tauriInvoke(CMD.saveTrendBoardCache, {
       cacheKey: key,
       board,
       payloadJson,

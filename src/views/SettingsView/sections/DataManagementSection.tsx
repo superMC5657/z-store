@@ -2,6 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Download, Check } from 'lucide-react';
 import { DataBackupRow } from '../../../components/DataBackupRow';
+import { LogExportRow } from '../../../components/LogExportRow';
 
 interface DataManagementSectionProps {
   installedCount: number;
@@ -50,6 +51,7 @@ export const DataManagementSection: React.FC<DataManagementSectionProps> = ({
       </div>
 
       <DataBackupRow />
+      <LogExportRow />
     </div>
   );
 };

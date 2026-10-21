@@ -3,6 +3,7 @@ import * as catalogApi from './api/catalog';
 import * as installerApi from './api/installer';
 import * as settingsApi from './api/settings';
 import * as socialApi from './api/social';
+import * as zlogApi from './api/zlog';
 import { isTauri, tauriInvoke } from './api/client';
 
 export { isTauri, tauriInvoke };
@@ -84,6 +85,10 @@ export const CMD = {
   switchMirror: 'switch_mirror',
   testProxy: 'test_proxy',
   fetchTrendsText: 'fetch_trends_text',
+  getTrendBoardCache: 'get_trend_board_cache',
+  saveTrendBoardCache: 'save_trend_board_cache',
+  zlogGetDir: 'zlog_get_dir',
+  zlogExportBundle: 'zlog_export_bundle',
   getSettings: 'get_settings',
   saveSetting: 'save_setting',
   getFavorites: 'get_favorites',
@@ -286,4 +291,8 @@ export const tauriApi = {
   starApp: socialApi.starApp,
   unstarApp: socialApi.unstarApp,
   isStarred: socialApi.isStarred,
+
+  // Diagnostics / Logs
+  getLogDir: zlogApi.getLogDir,
+  exportLogBundle: zlogApi.exportLogBundle,
 };

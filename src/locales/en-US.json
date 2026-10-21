@@ -145,6 +145,15 @@
     "settings_unchanged": "unchanged",
     "import_failed": "Failed to import backup: {{error}}"
   },
+  "zlog": {
+    "title": "Diagnostic Logs",
+    "export": "Export Log Bundle",
+    "exporting": "Exporting...",
+    "open_folder": "Open Log Folder",
+    "export_success": "Log bundle exported: {{path}}",
+    "export_failed": "Failed to export logs: {{error}}",
+    "open_failed": "Failed to open log folder: {{error}}"
+  },
   "client_update": {
     "title": "Client Auto-Update",
     "checking": "Checking...",
