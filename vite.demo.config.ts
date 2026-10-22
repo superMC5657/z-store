@@ -15,7 +15,7 @@ process.env.VITE_DEMO ??= '1';
 export default defineConfig({
   plugins: [react()],
 
-  base: '/live-demo/',
+  base: process.env.VITE_BASE || './',
 
   // 允许访问以 TAURI_ 开头的环境变量（与主配置保持一致）
   envPrefix: ['VITE_', 'TAURI_ENV_*'],
@@ -28,7 +28,7 @@ export default defineConfig({
 
   build: {
     target: 'es2021',
-    outDir: '../../web_workplace/z-store-web/public/live-demo',
+    outDir: process.env.DEMO_OUT_DIR || 'dist-demo',
     emptyOutDir: true,
   },
 });
