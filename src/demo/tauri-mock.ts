@@ -145,13 +145,33 @@ function normalizeDemoFontSize(raw: string | null | undefined): AppSettings['fon
   return null;
 }
 
+function normalizeDemoTheme(raw: string | null | undefined): AppSettings['theme'] | null {
+  if (!raw) return null;
+  const v = raw.trim().toLowerCase();
+  if (v === 'light' || v === 'dark' || v === 'system') return v as AppSettings['theme'];
+  return null;
+}
+
+function normalizeDemoLanguage(raw: string | null | undefined): AppSettings['language'] | null {
+  if (!raw) return null;
+  const v = raw.trim().toLowerCase().replace('_', '-');
+  if (v === 'zh' || v.startsWith('zh')) return 'zh-CN';
+  if (v === 'en' || v.startsWith('en')) return 'en-US';
+  if (v === 'ja' || v.startsWith('ja')) return 'en-US';
+  return null;
+}
+
 /** 生效的 Demo 显示默认值：硬编码 90/12 < 已保存滑块值 < URL 参数。 */
 export function resolveDemoDisplayDefaults(): {
   ui_scale: AppSettings['ui_scale'];
   font_size: AppSettings['font_size'];
+  theme?: AppSettings['theme'];
+  language?: AppSettings['language'];
 } {
   let ui_scale: AppSettings['ui_scale'] = DEMO_UI_SCALE;
   let font_size: AppSettings['font_size'] = DEMO_FONT_SIZE;
+  let theme: AppSettings['theme'] | undefined;
+  let language: AppSettings['language'] | undefined;
   try {
     const saved = getDemoSettingsSaved();
     if (saved['ui_scale'] && ALLOWED_UI_SCALES.has(saved['ui_scale'])) {
@@ -159,6 +179,12 @@ export function resolveDemoDisplayDefaults(): {
     }
     if (saved['font_size'] && ALLOWED_FONT_SIZES.has(saved['font_size'])) {
       font_size = saved['font_size'] as AppSettings['font_size'];
+    }
+    if (saved['theme'] === 'light' || saved['theme'] === 'dark' || saved['theme'] === 'system') {
+      theme = saved['theme'] as AppSettings['theme'];
+    }
+    if (saved['language'] === 'zh-CN' || saved['language'] === 'en-US') {
+      language = saved['language'] as AppSettings['language'];
     }
   } catch {
     // 保持硬编码默认值
@@ -169,10 +195,16 @@ export function resolveDemoDisplayDefaults(): {
     if (urlScale) ui_scale = urlScale;
     const urlFont = normalizeDemoFontSize(params.get('font') ?? params.get('font_size') ?? params.get('fontSize'));
     if (urlFont) font_size = urlFont;
+
+    const urlTheme = normalizeDemoTheme(params.get('theme') ?? params.get('mode'));
+    if (urlTheme) theme = urlTheme;
+
+    const urlLang = normalizeDemoLanguage(params.get('lang') ?? params.get('language') ?? params.get('locale'));
+    if (urlLang) language = urlLang;
   } catch {
     // 非浏览器环境 / 畸变 URL——保持默认值
   }
-  return { ui_scale, font_size };
+  return { ui_scale, font_size, theme, language };
 }
 
 // ---------------------------------------------------------------------------

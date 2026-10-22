@@ -7,8 +7,23 @@ import { demoMirrors, demoTrendsTextForUrl } from '../fixtures';
 import { getDemoSettingsSaved, LS, lsSet } from '../demoState';
 import { argStr, type InvokeArgs } from './common';
 
-export function handleGetSettings(displayDefaults: { ui_scale: string; font_size: string }): Record<string, string> {
-  return { ui_scale: displayDefaults.ui_scale, font_size: displayDefaults.font_size };
+export function handleGetSettings(displayDefaults: {
+  ui_scale: string;
+  font_size: string;
+  theme?: string;
+  language?: string;
+}): Record<string, string> {
+  const result: Record<string, string> = {
+    ui_scale: displayDefaults.ui_scale,
+    font_size: displayDefaults.font_size,
+  };
+  if (displayDefaults.theme) {
+    result.theme = displayDefaults.theme;
+  }
+  if (displayDefaults.language) {
+    result.language = displayDefaults.language;
+  }
+  return result;
 }
 
 export function handleSaveSetting(a: InvokeArgs): boolean {

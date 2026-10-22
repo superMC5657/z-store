@@ -27,6 +27,17 @@ async function bootstrap(): Promise<void> {
       }
       document.documentElement.setAttribute('data-font-size', display.font_size);
       document.documentElement.style.setProperty('--font-scale', fontScaleFor(display.font_size));
+      if (display.theme) {
+        const effective = display.theme === 'system'
+          ? (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+          : display.theme;
+        document.documentElement.setAttribute('data-theme', effective);
+      }
+      if (display.language) {
+        document.documentElement.lang = display.language;
+        const i18n = (await import('./i18n')).default;
+        void i18n.changeLanguage(display.language);
+      }
     } catch {
       // 预先应用属于尽力而为（best-effort）；App 后续会通过 get_settings 应用相同数值
     }

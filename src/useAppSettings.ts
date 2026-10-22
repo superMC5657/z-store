@@ -38,7 +38,13 @@ function normalizeSettingLikeBackend<K extends keyof AppSettings>(
  * 持久化快照合并、系统主题跟随与通用设置更新器。
  */
 export function useAppSettings() {
-  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    if (typeof document !== 'undefined') {
+      const current = document.documentElement.getAttribute('data-theme');
+      if (current === 'light' || current === 'dark') return current;
+    }
+    return 'dark';
+  });
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   // 每个设置的写入序号：只有最后一次写入才回滚 / 回放副作用，避免在途旧写覆盖新值。
   const latestWriteSeq = useRef<Partial<Record<keyof AppSettings, number>>>({});
@@ -137,6 +143,11 @@ export function useAppSettings() {
 
   // 根据系统色彩偏好初始化主题（随后由 App 初始加载获取的持久化快照覆盖）
   useEffect(() => {
+    const existing = document.documentElement.getAttribute('data-theme');
+    if (existing === 'light' || existing === 'dark') {
+      setTheme(existing);
+      return;
+    }
     const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
     const initialTheme = isDark ? 'dark' : 'light';
     setTheme(initialTheme);
