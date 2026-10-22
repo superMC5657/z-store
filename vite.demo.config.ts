@@ -1,14 +1,19 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { existsSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const localWebPublic = resolve(__dirname, '../../web_workplace/z-store-web/public');
+const defaultOutDir = existsSync(localWebPublic)
+  ? resolve(localWebPublic, 'live-demo')
+  : 'dist-demo';
 
 // Live-demo 嵌入页：用于 `/live-demo` 嵌入场景的浏览器静态打包配置。
-// 约定：Demo 静态产物输出至仓库相对路径
-//   `../../web_workplace/z-store-web/public/live-demo/`（与下方 outDir 一致），且 base 为 `/live-demo/`。
-// 此配置仅供 `pnpm run build:demo` 使用；常规 Tauri 构建使用
-// vite.config.ts，绝不会引入 VITE_DEMO / Demo mock（以及 catalog.json）。
-//
-// 此处强制设置 VITE_DEMO（除了脚本前缀中的 `VITE_DEMO=1` 之外），
-// 可确保 `pnpm run build:demo` 在不支持 `FOO=bar` 前缀的 Windows 终端（cmd.exe / pwsh）中正常工作。
+// 约定：
+// 1. 本地开发且邻近存在 z-store-web 时，默认输出至 z-store-web/public/live-demo 供本地集成验证
+// 2. CI/独立打包时，输出至 dist-demo（可通过环境变量 DEMO_OUT_DIR 覆盖）
 process.env.VITE_DEMO ??= '1';
 
 // Vite 配置文档参考：https://vitejs.dev/config/
@@ -28,7 +33,7 @@ export default defineConfig({
 
   build: {
     target: 'es2021',
-    outDir: process.env.DEMO_OUT_DIR || 'dist-demo',
+    outDir: process.env.DEMO_OUT_DIR || defaultOutDir,
     emptyOutDir: true,
   },
 });

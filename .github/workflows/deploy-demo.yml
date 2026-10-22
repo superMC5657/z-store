@@ -2,15 +2,8 @@ name: Deploy Demo to Cloudflare Pages
 
 on:
   push:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'index.html'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - 'vite.demo.config.ts'
-      - 'catalog.json'
-      - '.github/workflows/deploy-demo.yml'
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 permissions:
@@ -42,6 +35,8 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build Demo
+        env:
+          DEMO_OUT_DIR: dist-demo
         run: pnpm run build:demo
 
       - name: Deploy to Cloudflare Pages
