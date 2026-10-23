@@ -263,7 +263,9 @@ impl Database {
     /// 调用方须先过 `validate_custom_item`（暂存走 `DraftLenient`，提交门禁后移到提交时）。
     pub fn upsert_custom_app_payload(&self, item: &CatalogItem) -> Result<CustomAppEntry> {
         let now = now_secs();
-        let payload = serde_json::to_string(item).map_err(|e| {
+        let mut clean_item = item.clone();
+        clean_item.added_at = None;
+        let payload = serde_json::to_string(&clean_item).map_err(|e| {
             rusqlite::Error::ToSqlConversionFailure(Box::new(e))
         })?;
         self.exec_write(
@@ -1380,6 +1382,27 @@ mod tests {
         let reverted = db.revert_collected_to_draft("o/l").unwrap();
         assert_eq!(reverted.status, CUSTOM_APP_STATUS_DRAFT);
         assert!(db.list_local_library_apps().unwrap().is_empty());
+    }
+
+    #[test]
+    fn upsert_custom_app_payload_strips_added_at_from_disk_payload() {
+        let db = Database::open_in_memory().unwrap();
+        let mut item = draft_item("o/clean", "o", "clean");
+        item.added_at = Some("2026-10-23".to_string());
+        let saved = db.upsert_custom_app_payload(&item).unwrap();
+        // Read-side projection still provides added_at from created_at
+        assert!(saved.item.added_at.is_some());
+
+        // But raw payload_json in SQLite must never contain added_at
+        let raw: String = db
+            .conn
+            .query_row(
+                "SELECT payload_json FROM custom_apps WHERE id = 'o/clean'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!raw.contains("added_at"));
     }
 
     /// 草稿校验契约（parity）：与前端 `PendingView.validationParity.test.ts` 共用

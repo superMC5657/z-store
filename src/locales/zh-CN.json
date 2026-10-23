@@ -214,9 +214,15 @@
     "filter_90d": "最近 90 天",
     "empty_title": "当前时间范围内暂无新收录应用",
     "empty_desc": "试试把时间范围放宽一些",
+    "empty_desc_90d": "最近 90 天暂无新收录应用，可通过「分类浏览」探索全量精选应用",
     "switch_to_30d": "切换至最近 30 天",
     "switch_to_90d": "切换至最近 90 天",
-    "added_at_badge": "收录于 {{date}}"
+    "explore_categories": "浏览全部分类",
+    "added_at_badge": "收录于 {{date}}",
+    "apps_available": "{{count}} 款可用",
+    "list_loading": "正在加载最新收录应用…",
+    "list_error": "加载失败，请检查网络后重试",
+    "retry": "重试"
   },
   "categories": {
     "title": "按主题领域浏览",

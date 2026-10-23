@@ -214,9 +214,15 @@
     "filter_90d": "Past 90 Days",
     "empty_title": "No new applications in this time window",
     "empty_desc": "Try widening the timeframe",
+    "empty_desc_90d": "No new arrivals in the past 90 days. Explore all curated applications in Categories.",
     "switch_to_30d": "Switch to Past 30 Days",
     "switch_to_90d": "Switch to Past 90 Days",
-    "added_at_badge": "Added {{date}}"
+    "explore_categories": "Explore Categories",
+    "added_at_badge": "Added {{date}}",
+    "apps_available": "{{count}} Available",
+    "list_loading": "Loading new arrivals…",
+    "list_error": "Failed to load. Please check your network and retry.",
+    "retry": "Retry"
   },
   "categories": {
     "title": "Browse by Category",

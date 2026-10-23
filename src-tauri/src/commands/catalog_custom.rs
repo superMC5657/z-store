@@ -148,6 +148,9 @@ fn normalize_pr_item(item: &CatalogItem) -> CatalogItem {
     out.install_dirs.clear();
     out.search_subdirs.clear();
     out.publishers.clear();
+    // Upstream curation date is maintained by catalog repo maintainers upon merge;
+    // strip projected local added_at so it never leaks into Issue/PR payloads.
+    out.added_at = None;
     out
 }
 
@@ -971,6 +974,16 @@ mod tests {
         let lin = ids_block.find("\"linux\"").expect("linux key");
         let mac = ids_block.find("\"macos\"").expect("macos key");
         assert!(win < lin && lin < mac);
+    }
+
+    #[test]
+    fn normalize_pr_item_strips_projected_added_at() {
+        let mut item = full_entry("o/r").item;
+        item.added_at = Some("2026-10-23".to_string());
+        let normalized = normalize_pr_item(&item);
+        assert_eq!(normalized.added_at, None);
+        let payload = pr_single_payload_json(&normalized);
+        assert!(!payload.contains("added_at"));
     }
 
     #[test]

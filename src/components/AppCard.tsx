@@ -35,6 +35,8 @@ interface AppCardProps {
    * 定宽 48px 保持布局稳定。不传则不渲染。
    */
   showCatalogBadge?: boolean;
+  /** 收录时间徽标（最新入库视图传入 true）：透出收录日期。不传则不渲染。 */
+  showAddedAtBadge?: boolean;
   onOpenDetail: (id: string) => void;
   onQuickInstall: (id: string) => void;
   onToggleFavorite?: (id: string) => void;
@@ -93,6 +95,7 @@ function isAppVisualEqual(prev: AppSummary, next: AppSummary): boolean {
     prev.forge === next.forge &&
     prev.forge_host === next.forge_host &&
     prev.homepage === next.homepage &&
+    prev.added_at === next.added_at &&
     prevSource === nextSource &&
     prevStatus === nextStatus &&
     arePlatformsEqual(prev.platforms, next.platforms)
@@ -116,6 +119,7 @@ function areAppCardPropsEqual(prev: AppCardProps, next: AppCardProps): boolean {
     prev.className === next.className &&
     (prev.eager ?? false) === (next.eager ?? false) &&
     (prev.showCatalogBadge ?? false) === (next.showCatalogBadge ?? false) &&
+    (prev.showAddedAtBadge ?? false) === (next.showAddedAtBadge ?? false) &&
     (prev.isMovingIn ?? false) === (next.isMovingIn ?? false) &&
     (prev.isCustomExisting ?? false) === (next.isCustomExisting ?? false) &&
     (prev.showLoadDetail ?? false) === (next.showLoadDetail ?? false) &&
@@ -141,6 +145,7 @@ export const AppCard: React.FC<AppCardProps> = memo(({
   className,
   eager = false,
   showCatalogBadge = false,
+  showAddedAtBadge = false,
   onOpenDetail,
   onQuickInstall,
   onToggleFavorite,
@@ -298,6 +303,18 @@ export const AppCard: React.FC<AppCardProps> = memo(({
                 <span>{t('app.uncataloged_badge')}</span>
               </span>
             ))}
+          {showAddedAtBadge && app.added_at && (
+            <span
+              className="app-tag"
+              title={t('latest.added_at_badge', { date: app.added_at })}
+              style={{
+                fontSize: '11px',
+                color: 'var(--text-tertiary)',
+              }}
+            >
+              <span>{t('latest.added_at_badge', { date: app.added_at })}</span>
+            </span>
+          )}
           {isCustomRow && (
             <span
               className="app-tag app-tag-custom"

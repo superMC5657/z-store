@@ -215,13 +215,15 @@ export function handleGetLatestCatalogApps(a: InvokeArgs): {
 
   let matched = [...summaries];
   if (sinceDays !== undefined) {
-    const now = Date.now();
-    const windowMs = sinceDays * 86400 * 1000;
+    const today = new Date();
+    const currentDays = Math.floor(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()) / 86400000);
     matched = matched.filter((s) => {
       if (!s.added_at) return false;
-      const t = Date.parse(s.added_at);
-      if (Number.isNaN(t)) return false;
-      return now - t <= windowMs;
+      const parts = s.added_at.split('-').map(Number);
+      if (parts.length !== 3 || parts.some(Number.isNaN)) return false;
+      const itemDays = Math.floor(Date.UTC(parts[0], parts[1] - 1, parts[2]) / 86400000);
+      const diff = currentDays - itemDays;
+      return diff >= -1 && diff <= sinceDays;
     });
   }
 

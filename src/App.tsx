@@ -705,6 +705,7 @@ export const App: React.FC = () => {
               onToggleFavorite={handleToggleFavorite}
               onToggleWatch={handleToggleWatch}
               onResetPlatformFilter={handleResetPlatformFilter}
+              onNavigateCategories={() => setCurrentView('categories')}
             />
           )}
 

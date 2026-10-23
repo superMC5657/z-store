@@ -186,4 +186,79 @@ describe('LatestView component', () => {
 
     expect(mockGetLatestCatalogApps).toHaveBeenLastCalledWith(90, 1, 20);
   });
+
+  it('renders 90d upper-limit guidance text and explore categories button when empty', async () => {
+    mockGetLatestCatalogApps.mockResolvedValue({
+      items: [],
+      total: 0,
+      has_more: false,
+    });
+
+    const onNavigateCategories = vi.fn();
+    const apps = [makeSummary('demo/app1', 'App One', '2026-05-01')];
+
+    render(
+      <LatestView
+        apps={apps}
+        installedIds={new Set()}
+        favoriteIds={new Set()}
+        onOpenDetail={onOpenDetail}
+        onQuickInstall={onQuickInstall}
+        onToggleFavorite={onToggleFavorite}
+        onResetPlatformFilter={onResetPlatformFilter}
+        onNavigateCategories={onNavigateCategories}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('切换至最近 90 天')).toBeDefined();
+    });
+
+    // Switch to 90d tab
+    await act(async () => {
+      fireEvent.click(screen.getByText('最近 90 天'));
+    });
+
+    // Should show 90d specific upper-limit description
+    await waitFor(() => {
+      expect(
+        screen.getByText('最近 90 天暂无新收录应用，可通过「分类浏览」探索全量精选应用'),
+      ).toBeDefined();
+    });
+
+    // Should render explore categories button and trigger navigation
+    const exploreBtn = screen.getByText('浏览全部分类');
+    expect(exploreBtn).toBeDefined();
+
+    await act(async () => {
+      fireEvent.click(exploreBtn);
+    });
+    expect(onNavigateCategories).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders added_at badge on app cards', async () => {
+    mockGetLatestCatalogApps.mockResolvedValueOnce({
+      items: [makeSummary('demo/app1', 'App One', '2026-10-16')],
+      total: 1,
+      has_more: false,
+    });
+
+    const apps = [makeSummary('demo/app1', 'App One', '2026-10-16')];
+
+    render(
+      <LatestView
+        apps={apps}
+        installedIds={new Set()}
+        favoriteIds={new Set()}
+        onOpenDetail={onOpenDetail}
+        onQuickInstall={onQuickInstall}
+        onToggleFavorite={onToggleFavorite}
+        onResetPlatformFilter={onResetPlatformFilter}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('收录于 2026-10-16')).toBeDefined();
+    });
+  });
 });

@@ -23,6 +23,7 @@ export type LatestTimeWindow = '7d' | '30d' | '90d';
 
 interface LatestViewProps extends ViewAppActions, RequiredPlatformReset {
   platformResolvedOtherIds?: ReadonlySet<string>;
+  onNavigateCategories?: () => void;
 }
 
 export const LatestView: React.FC<LatestViewProps> = ({
@@ -38,6 +39,7 @@ export const LatestView: React.FC<LatestViewProps> = ({
   onToggleFavorite,
   onToggleWatch,
   onResetPlatformFilter,
+  onNavigateCategories,
 }) => {
   const { t } = useTranslation();
   const [activeWindow, setActiveWindow] = useState<LatestTimeWindow>('30d');
@@ -190,7 +192,7 @@ export const LatestView: React.FC<LatestViewProps> = ({
         />
         {!loading && visibleApps.length > 0 && (
           <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
-            {visibleApps.length} 款应用
+            {t('latest.apps_available', { count: visibleApps.length })}
           </span>
         )}
       </div>
@@ -220,9 +222,9 @@ export const LatestView: React.FC<LatestViewProps> = ({
           <Calendar size={32} style={{ color: 'var(--text-tertiary)', marginBottom: '4px' }} />
           <h4 style={{ margin: 0, fontSize: '15px', fontWeight: 600 }}>{t('latest.empty_title')}</h4>
           <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)', maxWidth: '420px', lineHeight: 1.5 }}>
-            {t('latest.empty_desc')}
+            {activeWindow === '90d' ? t('latest.empty_desc_90d') : t('latest.empty_desc')}
           </p>
-          <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap', justifyContent: 'center' }}>
             {activeWindow === '7d' && (
               <button
                 className="btn-fluent btn-sm btn-secondary"
@@ -237,6 +239,14 @@ export const LatestView: React.FC<LatestViewProps> = ({
                 onClick={() => setActiveWindow('90d')}
               >
                 {t('latest.switch_to_90d')}
+              </button>
+            )}
+            {activeWindow === '90d' && onNavigateCategories && (
+              <button
+                className="btn-fluent btn-sm btn-secondary"
+                onClick={onNavigateCategories}
+              >
+                {t('latest.explore_categories')}
               </button>
             )}
           </div>
@@ -254,6 +264,7 @@ export const LatestView: React.FC<LatestViewProps> = ({
               isInstalling={installingIds?.has(app.id)}
               isFavorite={favoriteIds.has(app.id)}
               isWatched={watchedIds?.has(app.id)}
+              showAddedAtBadge={true}
               onOpenDetail={onOpenDetail}
               onQuickInstall={onQuickInstall}
               onToggleFavorite={onToggleFavorite}
@@ -263,15 +274,15 @@ export const LatestView: React.FC<LatestViewProps> = ({
 
           {loading && (
             <div style={{ width: '100%', padding: '16px 0', textAlign: 'center', color: 'var(--text-secondary)' }}>
-              加载最新收录应用中…
+              {t('latest.list_loading')}
             </div>
           )}
 
           {error && !loading && (
             <div style={{ width: '100%', display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'center', padding: '16px 0' }}>
-              <span>加载失败，请检查网络后重试</span>
+              <span>{t('latest.list_error')}</span>
               <button className="btn-fluent btn-sm btn-secondary" onClick={handleRetry}>
-                重试
+                {t('latest.retry')}
               </button>
             </div>
           )}
