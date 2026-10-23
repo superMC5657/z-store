@@ -258,6 +258,7 @@ fn test_app_details_cache_crud() {
             is_cataloged: None,
             source: None,
             status: None,
+            added_at: None,
         },
         changelog: "修复已知问题".to_string(),
         readme_markdown: "# RustDesk".to_string(),

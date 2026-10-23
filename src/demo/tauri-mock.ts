@@ -31,6 +31,7 @@ import {
   handleGetCachedAppDetailsBatch,
   handleGetAppIconCycle,
   handleGetCategoryApps,
+  handleGetLatestCatalogApps,
   handleGetCatalogCount,
   handleGetHomeFeed,
   handleGetOrFetchIcon,
@@ -234,6 +235,8 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleGetHomeFeed(a);
     case 'get_category_apps':
       return handleGetCategoryApps(a);
+    case 'get_latest_catalog_apps':
+      return handleGetLatestCatalogApps(a);
     case 'get_catalog_count':
       return handleGetCatalogCount();
     case 'scan_and_match_local_apps':

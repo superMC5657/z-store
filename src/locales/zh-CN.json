@@ -30,6 +30,7 @@
     "platforms_counts_hint": "按当前页面内容统计",
     "items": {
       "home": "精选发现",
+      "latest": "最新入库",
       "trends": "趋势榜单",
       "categories": "分类浏览",
       "pending": "待收录",
@@ -204,6 +205,18 @@
     "move_in_hint": "存为本地自维护草稿，编辑页可手改",
     "moved_in": "已移入收录草稿：{{id}}",
     "move_in_failed": "移入收录失败：{{error}}"
+  },
+  "latest": {
+    "title": "最新入库",
+    "subtitle": "按收录时间倒排展示开源精选与本地库应用",
+    "filter_7d": "最近 7 天",
+    "filter_30d": "最近 30 天",
+    "filter_90d": "最近 90 天",
+    "empty_title": "当前时间范围内暂无新收录应用",
+    "empty_desc": "试试把时间范围放宽一些",
+    "switch_to_30d": "切换至最近 30 天",
+    "switch_to_90d": "切换至最近 90 天",
+    "added_at_badge": "收录于 {{date}}"
   },
   "categories": {
     "title": "按主题领域浏览",

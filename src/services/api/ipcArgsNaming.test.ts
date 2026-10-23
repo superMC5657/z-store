@@ -133,6 +133,7 @@ describe('ipc args naming (camelCase)', () => {
     await swallow(catalog.getReadmeVariants('o/r'));
     await swallow(catalog.fetchOrCacheAssetUrl('https://example.com/x.png', 'o/r'));
     await swallow(catalog.getCategoryApps('dev', 1, 20));
+    await swallow(catalog.getLatestCatalogApps(30, 1, 20));
     await swallow(catalog.importMatchedApps([]));
     await swallow(catalog.recordSearchQuery('q'));
     await swallow(catalog.removeSearchQuery('q'));

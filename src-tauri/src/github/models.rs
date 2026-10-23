@@ -17,6 +17,8 @@ pub struct CatalogItem {
     pub category_name: String,
     pub aliases: Vec<String>,
     pub default_version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub added_at: Option<String>,
     pub license: String,
     pub stars: u64,
     pub forks: u64,
@@ -131,6 +133,7 @@ impl CatalogItem {
                 is_cataloged: None,
                 source: None,
                 status: None,
+                added_at: self.added_at.clone(),
             },
         }
     }
@@ -215,6 +218,7 @@ mod tests {
             category_name: "开发工具".to_string(),
             aliases: vec![],
             default_version: "v1.0.0".to_string(),
+            added_at: None,
             license: "MIT".to_string(),
             stars: 0,
             forks: 0,

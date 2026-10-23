@@ -27,6 +27,7 @@ interface CatalogRaw {
   is_verified?: boolean;
   homepage?: string | null;
   platforms?: string[];
+  added_at?: string;
 }
 
 const catalogEntries = catalogRaw as unknown as CatalogRaw[];
@@ -52,6 +53,7 @@ function toSummary(c: CatalogRaw): AppSummary {
     forge_host: 'github.com',
     homepage: c.homepage ?? null,
     platforms: c.platforms && c.platforms.length > 0 ? c.platforms : [],
+    added_at: c.added_at,
   };
 }
 

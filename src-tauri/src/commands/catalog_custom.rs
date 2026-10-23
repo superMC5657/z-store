@@ -672,6 +672,7 @@ mod tests {
                 category_name: "开发工具".to_string(),
                 aliases: vec![],
                 default_version: "v0.1.0".to_string(),
+                added_at: None,
                 license: license.to_string(),
                 stars: 0,
                 forks: 0,

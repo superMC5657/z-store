@@ -188,7 +188,7 @@ pub fn validate_pr_url(pr_url: &str) -> Result<String, String> {
 
 fn row_to_entry(row: &rusqlite::Row<'_>) -> Result<CustomAppEntry> {
     let payload: String = row.get(1)?;
-    let item: CatalogItem = serde_json::from_str(&payload).map_err(|e| {
+    let mut item: CatalogItem = serde_json::from_str(&payload).map_err(|e| {
         rusqlite::Error::FromSqlConversionFailure(
             1,
             rusqlite::types::Type::Text,
@@ -197,12 +197,16 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> Result<CustomAppEntry> {
     })?;
     let status: String = row.get(2)?;
     let archived_int: i64 = row.get(6)?;
+    let created_at: i64 = row.get(4)?;
+    if item.added_at.is_none() {
+        item.added_at = Some(crate::date_utils::format_epoch_secs_ymd(created_at));
+    }
     Ok(CustomAppEntry {
         id: row.get(0)?,
         item,
         status,
         pr_url: row.get(3)?,
-        created_at: row.get(4)?,
+        created_at,
         updated_at: row.get(5)?,
         archived: archived_int != 0,
     })
@@ -694,6 +698,7 @@ mod tests {
             category_name: "开发工具".to_string(),
             aliases: vec![],
             default_version: "v0.1.0".to_string(),
+            added_at: None,
             license: "MIT".to_string(),
             stars: 0,
             forks: 0,

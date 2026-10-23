@@ -10,6 +10,7 @@
  */
 export const VIEW_TYPES = [
   'home',
+  'latest',
   'categories',
   'trends',
   'pending',

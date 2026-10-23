@@ -9,6 +9,7 @@ import { summaries } from '../fixtures';
 import {
   handleGetAppDetails,
   handleGetCategoryApps,
+  handleGetLatestCatalogApps,
   handleGetOrFetchIcon,
   handleGetPlatformsLite,
   handleSearchAppsOnline,
@@ -159,5 +160,24 @@ describe('forceRefresh camel 生效、snake 忽略（详情/轻量）', () => {
     } as unknown as Record<string, unknown>);
     expect(camel.id).toBe(hit.id);
     expect(snake).toEqual(camel);
+  });
+});
+
+describe('handleGetLatestCatalogApps (demo mock)', () => {
+  it('defaults to page 1 with 20 items, sorted by added_at DESC', () => {
+    const res = handleGetLatestCatalogApps({});
+    expect(res.items.length).toBeLessThanOrEqual(20);
+    expect(res.total).toBe(summaries.length);
+    if (res.items.length >= 2) {
+      // 检查首项 added_at 是否大于等于次项
+      const a = res.items[0].added_at || '';
+      const b = res.items[1].added_at || '';
+      expect(a.localeCompare(b)).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('filters by sinceDays with camelCase parameter', () => {
+    const res = handleGetLatestCatalogApps({ sinceDays: 9999 });
+    expect(res.total).toBeGreaterThan(0);
   });
 });

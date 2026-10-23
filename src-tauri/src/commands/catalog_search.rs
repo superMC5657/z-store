@@ -351,6 +351,7 @@ pub async fn search_apps_online(
                         is_cataloged: None,
                         source: None,
                         status: None,
+                        added_at: None,
                     },
                 };
                 state.catalog.stamp_summary(&mut row);
@@ -801,6 +802,7 @@ mod tests {
                 is_cataloged: None,
                 source: None,
                 status: None,
+                added_at: None,
             },
         }
     }

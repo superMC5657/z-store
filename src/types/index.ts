@@ -27,6 +27,7 @@ export interface AppSummary {
   forge_host: string;
   homepage: string | null;
   platforms: string[];
+  added_at?: string;
 }
 
 export interface ReleaseAsset {
@@ -73,6 +74,7 @@ export interface AppDetail {
   source?: 'remote' | 'local' | 'custom';
   /** 本地收录行状态（`collected` 系），仅徽标判定用；远端行缺席。 */
   status?: string;
+  added_at?: string;
 }
 
 // 纯前端视图态：加载/刷新/错误状态不属于后端 AppDetail，独立存放

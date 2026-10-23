@@ -474,6 +474,7 @@ mod recent_uncataloged_tests {
                 is_cataloged: None,
                 source: None,
                 status: None,
+                added_at: None,
             },
             changelog: String::new(),
             readme_markdown: String::new(),

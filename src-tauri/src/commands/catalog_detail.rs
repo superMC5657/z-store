@@ -538,6 +538,7 @@ async fn fetch_detail_from_forge(
                     is_cataloged: None,
                     source: None,
                     status: None,
+                    added_at: None,
                 },
                 changelog: release_info.body.unwrap_or_default(),
                 readme_markdown: format!(
@@ -1032,6 +1033,7 @@ mod catalog_platform_tests {
                 is_cataloged: None,
                 source: None,
                 status: None,
+                added_at: None,
             },
         };
 
@@ -1074,6 +1076,7 @@ mod catalog_platform_tests {
                 is_cataloged: None,
                 source: None,
                 status: None,
+                added_at: None,
             },
             changelog: String::new(),
             readme_markdown: String::new(),

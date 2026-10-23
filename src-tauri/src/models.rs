@@ -37,6 +37,9 @@ pub struct AppCore {
     /// 本地收录行状态（`collected` 系），仅供徽标判定，远端行为缺席。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
+    /// 收录时间（YYYY-MM-DD 格式，来自 catalog.json added_at 或本地 custom_apps 投影）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub added_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -115,6 +118,7 @@ mod app_core_tests {
                 is_cataloged: Some(true),
                 source: Some("local".to_string()),
                 status: Some("collected".to_string()),
+                added_at: Some("2026-10-22".to_string()),
             },
             changelog: "c".to_string(),
             readme_markdown: "m".to_string(),

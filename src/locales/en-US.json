@@ -30,6 +30,7 @@
     "platforms_counts_hint": "Counts reflect the current view",
     "items": {
       "home": "Featured",
+      "latest": "New Arrivals",
       "trends": "Trending",
       "categories": "Categories",
       "pending": "Pending",
@@ -204,6 +205,18 @@
     "move_in_hint": "Save as a local self-maintained draft, editable later",
     "moved_in": "Moved to catalog drafts: {{id}}",
     "move_in_failed": "Failed to move to catalog: {{error}}"
+  },
+  "latest": {
+    "title": "New Arrivals",
+    "subtitle": "Discover recently curated and local open-source applications",
+    "filter_7d": "Past 7 Days",
+    "filter_30d": "Past 30 Days",
+    "filter_90d": "Past 90 Days",
+    "empty_title": "No new applications in this time window",
+    "empty_desc": "Try widening the timeframe",
+    "switch_to_30d": "Switch to Past 30 Days",
+    "switch_to_90d": "Switch to Past 90 Days",
+    "added_at_badge": "Added {{date}}"
   },
   "categories": {
     "title": "Browse by Category",

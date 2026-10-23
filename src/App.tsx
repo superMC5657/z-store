@@ -15,6 +15,7 @@ import { DeveloperProfileModal } from './components/DeveloperProfileModal';
 import { AppImportModal } from './components/AppImportModal';
 import { RulesManagerModal } from './components/RulesManagerModal';
 import { HomeView } from './views/HomeView';
+import { LatestView } from './views/LatestView';
 import { TrendsView } from './views/TrendsView';
 import { CategoriesView } from './views/CategoriesView';
 import { PendingView } from './views/PendingView';
@@ -687,6 +688,23 @@ export const App: React.FC = () => {
               onResetPlatformFilter={handleResetPlatformFilter}
               customIds={customIds}
               localApps={localLibrarySummaries}
+            />
+          )}
+
+          {currentView === 'latest' && (
+            <LatestView
+              apps={platformFilteredApps}
+              platformResolvedOtherIds={platformResolvedOtherIds}
+              installedIds={installedIds}
+              installingIds={installingAppIds}
+              managedIds={managedLoaded ? managedIds : null}
+              favoriteIds={favoriteIds}
+              watchedIds={watchedIds}
+              onOpenDetail={handleOpenDetail}
+              onQuickInstall={handleQuickInstall}
+              onToggleFavorite={handleToggleFavorite}
+              onToggleWatch={handleToggleWatch}
+              onResetPlatformFilter={handleResetPlatformFilter}
             />
           )}
 

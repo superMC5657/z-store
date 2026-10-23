@@ -87,6 +87,85 @@ pub fn get_category_apps(
     })
 }
 
+/// 最新入库应用分页（与发现页/类别页 `FeedPage` 同形 `{items,total,has_more}`，含本地收录合并视图）：
+/// - `since_days`: 相对天数窗口（如 Some(7), Some(30), Some(90)，None 表示全量）；
+/// - 排序规则：`added_at DESC`（无日期垫底）→ `stars DESC`（并列保质）→ `id ASC`（确定性破平）；
+/// - `page`/`per_page` 均为 None=默认（第 1 页 20 条，与发现页、分类页对齐）；
+/// - 纯内存执行，零网络秒开。
+#[tauri::command(rename_all = "camelCase")]
+pub fn get_latest_catalog_apps(
+    state: State<'_, AppState>,
+    since_days: Option<u32>,
+    page: Option<u32>,
+    per_page: Option<u32>,
+) -> crate::AppResult<FeedPage> {
+    let hidden_ids: std::collections::HashSet<String> =
+        super::catalog_search::hidden_rule_ids(&state);
+    let all = state.catalog.merged_summaries();
+    let visible: Vec<AppSummary> = if hidden_ids.is_empty() {
+        all
+    } else {
+        all.into_iter()
+            .filter(|a| !hidden_ids.contains(&a.core.id))
+            .collect()
+    };
+
+    let ranked = rank_and_filter_latest_apps(visible, since_days);
+    let (offset, limit) =
+        category_page_window(&crate::config::get_project_config().limits, page, per_page);
+    let (items, total, has_more) =
+        crate::github::catalog_feed_score::paginate_feed(&ranked, limit, offset);
+    Ok(FeedPage {
+        items,
+        total,
+        has_more,
+    })
+}
+
+/// 纯函数：最新入库应用的筛选与倒排逻辑（便于单元测试与确定性回归）：
+/// 1. 若指定 `since_days`，过滤掉不在当前天数范围内的项；
+/// 2. 主序 `added_at DESC`，缺省者排在末尾；
+/// 3. 次序 `stars DESC`；
+/// 4. 破平 `id ASC`。
+pub fn rank_and_filter_latest_apps(
+    mut apps: Vec<AppSummary>,
+    since_days: Option<u32>,
+) -> Vec<AppSummary> {
+    if let Some(days) = since_days {
+        apps.retain(|a| {
+            a.core
+                .added_at
+                .as_deref()
+                .map(|d| crate::date_utils::is_within_days(d, days))
+                .unwrap_or(false)
+        });
+    }
+
+    apps.sort_by(|a, b| {
+        // 1. added_at DESC (Some before None)
+        match (&a.core.added_at, &b.core.added_at) {
+            (Some(ad), Some(bd)) => {
+                let ord = bd.cmp(ad);
+                if ord != std::cmp::Ordering::Equal {
+                    return ord;
+                }
+            }
+            (Some(_), None) => return std::cmp::Ordering::Less,
+            (None, Some(_)) => return std::cmp::Ordering::Greater,
+            (None, None) => {}
+        }
+        // 2. stars DESC
+        let ord = b.core.stars.cmp(&a.core.stars);
+        if ord != std::cmp::Ordering::Equal {
+            return ord;
+        }
+        // 3. id ASC
+        a.core.id.cmp(&b.core.id)
+    });
+
+    apps
+}
+
 /// 类别页分页窗口归一（纯函数，可单测）：`page` 下限 1，
 /// `per_page` 复用搜索钳制；返回 `(offset, limit)`。
 fn category_page_window(
@@ -173,6 +252,7 @@ mod tests {
             category_name: "开发工具".to_string(),
             aliases: vec![],
             default_version: "v1.0.0".to_string(),
+            added_at: None,
             license: "MIT".to_string(),
             stars: 0,
             forks: 0,
@@ -208,5 +288,62 @@ mod tests {
         assert_eq!(local.core.source.as_deref(), Some("local"));
         assert_eq!(local.core.status.as_deref(), Some("collected"));
         assert_eq!(local.core.is_cataloged, Some(true));
+    }
+
+    #[test]
+    fn test_rank_and_filter_latest_apps_ordering() {
+        let mut app1 = feed_item("o/app1", "o", "app1").to_summary();
+        app1.core.added_at = Some("2026-09-10".to_string());
+        app1.core.stars = 1000;
+
+        let mut app2 = feed_item("o/app2", "o", "app2").to_summary();
+        app2.core.added_at = Some("2026-10-16".to_string());
+        app2.core.stars = 50;
+
+        let mut app3 = feed_item("o/app3", "o", "app3").to_summary();
+        app3.core.added_at = Some("2026-10-16".to_string());
+        app3.core.stars = 200; // 同一天，Star 更高
+
+        let mut app_nodate = feed_item("o/nodate", "o", "nodate").to_summary();
+        app_nodate.core.added_at = None;
+        app_nodate.core.stars = 99999;
+
+        let list = vec![app1, app2, app3, app_nodate];
+        let ranked = rank_and_filter_latest_apps(list, None);
+
+        // 预期顺序: app3 (2026-10-16, 200) -> app2 (2026-10-16, 50) -> app1 (2026-09-10, 1000) -> app_nodate (None)
+        assert_eq!(ranked[0].core.id, "o/app3");
+        assert_eq!(ranked[1].core.id, "o/app2");
+        assert_eq!(ranked[2].core.id, "o/app1");
+        assert_eq!(ranked[3].core.id, "o/nodate");
+    }
+
+    #[test]
+    fn test_rank_and_filter_latest_apps_since_days() {
+        let today_days = crate::date_utils::today_days();
+        let today_str = crate::date_utils::format_epoch_secs_ymd(today_days * 86400);
+        let five_days_ago_str = crate::date_utils::format_epoch_secs_ymd((today_days - 5) * 86400);
+        let twenty_days_ago_str = crate::date_utils::format_epoch_secs_ymd((today_days - 20) * 86400);
+
+        let mut app_today = feed_item("o/today", "o", "today").to_summary();
+        app_today.core.added_at = Some(today_str);
+
+        let mut app_5d = feed_item("o/5d", "o", "5d").to_summary();
+        app_5d.core.added_at = Some(five_days_ago_str);
+
+        let mut app_20d = feed_item("o/20d", "o", "20d").to_summary();
+        app_20d.core.added_at = Some(twenty_days_ago_str);
+
+        let list = vec![app_today, app_5d, app_20d];
+
+        // 7天窗口：包含 today 和 5d，排除 20d
+        let filtered_7d = rank_and_filter_latest_apps(list.clone(), Some(7));
+        assert_eq!(filtered_7d.len(), 2);
+        assert_eq!(filtered_7d[0].core.id, "o/today");
+        assert_eq!(filtered_7d[1].core.id, "o/5d");
+
+        // 30天窗口：包含全部 3 款
+        let filtered_30d = rank_and_filter_latest_apps(list, Some(30));
+        assert_eq!(filtered_30d.len(), 3);
     }
 }

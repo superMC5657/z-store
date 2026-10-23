@@ -12,6 +12,7 @@ import { createNavigate, isViewType, VIEW_TYPES, type ViewType } from './navigat
 // 漏掉清单项时本文件先失败，再由运行时对比兜住反向漏项。
 const unionMembers = [
   'home',
+  'latest',
   'categories',
   'trends',
   'pending',

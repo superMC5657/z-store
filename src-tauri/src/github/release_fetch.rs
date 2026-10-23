@@ -397,6 +397,7 @@ mod tests {
                 is_cataloged: None,
                 source: None,
                 status: None,
+                added_at: None,
             },
             changelog: "old notes".to_string(),
             readme_markdown: "# r".to_string(),

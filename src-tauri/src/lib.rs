@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod config;
+pub mod date_utils;
 pub mod db;
 pub mod deeplink;
 pub mod error;
@@ -568,6 +569,7 @@ pub fn run() {
             commands::search_apps_online,
             commands::enrich_trend_repos,
             commands::get_category_apps,
+            commands::get_latest_catalog_apps,
             commands::get_app_details,
             commands::get_platforms_lite,
             commands::get_cached_app_details_batch,

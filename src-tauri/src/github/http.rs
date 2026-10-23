@@ -508,6 +508,7 @@ pub(crate) async fn fallback_summary(
             is_cataloged: None,
             source: None,
             status: None,
+            added_at: None,
         },
     }
 }

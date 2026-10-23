@@ -202,6 +202,55 @@ export function handleGetCategoryApps(a: InvokeArgs): {
   return { items, total: matched.length, has_more: start + items.length < matched.length };
 }
 
+export function handleGetLatestCatalogApps(a: InvokeArgs): {
+  items: AppSummary[];
+  total: number;
+  has_more: boolean;
+} {
+  const rawSince = argNum(a, 'sinceDays');
+  const sinceDays =
+    rawSince !== undefined && Number.isFinite(rawSince) && rawSince > 0
+      ? Math.floor(rawSince)
+      : undefined;
+
+  let matched = [...summaries];
+  if (sinceDays !== undefined) {
+    const now = Date.now();
+    const windowMs = sinceDays * 86400 * 1000;
+    matched = matched.filter((s) => {
+      if (!s.added_at) return false;
+      const t = Date.parse(s.added_at);
+      if (Number.isNaN(t)) return false;
+      return now - t <= windowMs;
+    });
+  }
+
+  matched.sort((x, y) => {
+    if (x.added_at && y.added_at) {
+      const cmp = y.added_at.localeCompare(x.added_at);
+      if (cmp !== 0) return cmp;
+    } else if (x.added_at && !y.added_at) {
+      return -1;
+    } else if (!x.added_at && y.added_at) {
+      return 1;
+    }
+    const starDiff = (y.stars ?? 0) - (x.stars ?? 0);
+    if (starDiff !== 0) return starDiff;
+    return x.id.localeCompare(y.id);
+  });
+
+  const rawPer = argNum(a, 'perPage');
+  const rawPage = argNum(a, 'page');
+  const perPage = rawPer === undefined ? 20 : Math.min(50, Math.max(1, Math.floor(rawPer)));
+  const page =
+    rawPage === undefined || !Number.isFinite(rawPage) || Math.floor(rawPage) < 1
+      ? 1
+      : Math.floor(rawPage);
+  const start = (page - 1) * perPage;
+  const items = matched.slice(start, start + perPage);
+  return { items, total: matched.length, has_more: start + items.length < matched.length };
+}
+
 export function handleGetCatalogCount(): number {
   return summaries.length;
 }

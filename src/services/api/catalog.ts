@@ -234,6 +234,24 @@ export async function getCategoryApps(
   return { items, total, has_more: raw?.has_more === true };
 }
 
+/** 最新入库应用分页默认页大小：与发现页/类别页对齐（20/页）。 */
+export const LATEST_APPS_PER_PAGE = 20;
+
+export async function getLatestCatalogApps(
+  sinceDays?: number,
+  page?: number,
+  perPage?: number,
+): Promise<HomeFeedResult> {
+  const args: Record<string, unknown> = {};
+  if (sinceDays !== undefined && sinceDays !== null) args.sinceDays = sinceDays;
+  if (page !== undefined && page !== null) args.page = page;
+  if (perPage !== undefined && perPage !== null) args.perPage = perPage;
+  const raw = await tauriInvoke<HomeFeedRaw>(CMD.getLatestCatalogApps, args);
+  const items = Array.isArray(raw?.items) ? (raw as { items: AppSummary[] }).items : [];
+  const total = typeof raw?.total === 'number' && Number.isFinite(raw.total) ? raw.total : items.length;
+  return { items, total, has_more: raw?.has_more === true };
+}
+
 export async function getCatalogCount(): Promise<number> {
   return tauriInvoke<number>(CMD.getCatalogCount);
 }
