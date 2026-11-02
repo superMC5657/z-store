@@ -46,10 +46,7 @@ fn is_local_disk_path(trimmed: &str) -> bool {
     let lower = trimmed.to_ascii_lowercase();
     let b = lower.as_bytes();
     // `C:\` / `C:/`（大小写不敏感）。
-    if b.len() >= 3
-        && b[0].is_ascii_alphabetic()
-        && b[1] == b':'
-        && (b[2] == b'\\' || b[2] == b'/')
+    if b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'\\' || b[2] == b'/')
     {
         return true;
     }
@@ -61,9 +58,7 @@ fn is_local_disk_path(trimmed: &str) -> bool {
     if trimmed.starts_with(r"\\") {
         return true;
     }
-    lower.starts_with("file:")
-        || lower.starts_with("asset:")
-        || lower.contains("com.zstore.app")
+    lower.starts_with("file:") || lower.starts_with("asset:") || lower.contains("com.zstore.app")
 }
 
 impl CatalogService {

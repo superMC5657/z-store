@@ -399,7 +399,13 @@ mod developer_profile_tests {
         let mut routes = HashMap::new();
         routes.insert(
             "/users/someone".to_string(),
-            MockResp { status: 200, reason: "OK", etag: None, body: user(5), honor_inm: None },
+            MockResp {
+                status: 200,
+                reason: "OK",
+                etag: None,
+                body: user(5),
+                honor_inm: None,
+            },
         );
         routes.insert(
             "/users/someone/repos?sort=updated&per_page=30".to_string(),
@@ -414,7 +420,13 @@ mod developer_profile_tests {
         let srv = spawn_mock(routes).await;
         let svc = test_service();
         let (profile, _, _) = svc
-            .fetch_developer_profile_with_cache("someone", None, (None, None), (None, None), Some(&srv.base))
+            .fetch_developer_profile_with_cache(
+                "someone",
+                None,
+                (None, None),
+                (None, None),
+                Some(&srv.base),
+            )
             .await
             .unwrap();
         assert_eq!(profile.repos.len(), 1);
@@ -424,16 +436,34 @@ mod developer_profile_tests {
         let mut routes = HashMap::new();
         routes.insert(
             "/users/someone".to_string(),
-            MockResp { status: 200, reason: "OK", etag: None, body: user(1), honor_inm: None },
+            MockResp {
+                status: 200,
+                reason: "OK",
+                etag: None,
+                body: user(1),
+                honor_inm: None,
+            },
         );
         routes.insert(
             "/users/someone/repos?sort=updated&per_page=30".to_string(),
-            MockResp { status: 200, reason: "OK", etag: None, body: repos_body, honor_inm: None },
+            MockResp {
+                status: 200,
+                reason: "OK",
+                etag: None,
+                body: repos_body,
+                honor_inm: None,
+            },
         );
         let srv = spawn_mock(routes).await;
         let svc = test_service();
         let (profile, _, _) = svc
-            .fetch_developer_profile_with_cache("someone", None, (None, None), (None, None), Some(&srv.base))
+            .fetch_developer_profile_with_cache(
+                "someone",
+                None,
+                (None, None),
+                (None, None),
+                Some(&srv.base),
+            )
             .await
             .unwrap();
         assert!(!profile.repos_truncated, "计数一致不误标");

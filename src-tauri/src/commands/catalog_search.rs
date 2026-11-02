@@ -30,9 +30,7 @@ pub struct OnlineSearchResult {
 
 /// emit 世代通道选择（纯选择器，可单测）：`ctx` 决定查哪一个全局世代计数器 + 期望 gen。
 /// 搜索与趋势共用同一套落库/emit，仅世代计数器不同。
-fn select_gen_lane(
-    ctx: &crate::github::icon_fetch::IconFetchCtx,
-) -> (&'static AtomicU64, u64) {
+fn select_gen_lane(ctx: &crate::github::icon_fetch::IconFetchCtx) -> (&'static AtomicU64, u64) {
     match ctx {
         crate::github::icon_fetch::IconFetchCtx::Search { gen, .. } => (&SEARCH_GEN, *gen),
         crate::github::icon_fetch::IconFetchCtx::Trend { gen, .. } => (&BOARD_GEN, *gen),
@@ -174,9 +172,12 @@ fn backfill_uncataloged_card(
     item: &mut AppSummary,
     ttl_seconds: i64,
 ) -> Option<crate::db::AppIconCycle> {
-    let staged = if let Some(ci) =
-        crate::github::http::resolve_confirmed_icon_from_db(db, &item.core.id, &item.core.owner, &item.core.repo)
-    {
+    let staged = if let Some(ci) = crate::github::http::resolve_confirmed_icon_from_db(
+        db,
+        &item.core.id,
+        &item.core.owner,
+        &item.core.repo,
+    ) {
         item.core.icon = ci;
         None
     } else if !item.core.icon.trim().is_empty() {
@@ -188,8 +189,16 @@ fn backfill_uncataloged_card(
             .get_icon_cycle(&item.core.id)
             .ok()
             .flatten()
-            .unwrap_or_else(|| crate::db::AppIconCycle::new(&item.core.id, &item.core.owner, &item.core.repo));
-        crate::db::icon_cycle::merge_detail_icon(&mut cycle, level, &icon, false, crate::now_secs());
+            .unwrap_or_else(|| {
+                crate::db::AppIconCycle::new(&item.core.id, &item.core.owner, &item.core.repo)
+            });
+        crate::db::icon_cycle::merge_detail_icon(
+            &mut cycle,
+            level,
+            &icon,
+            false,
+            crate::now_secs(),
+        );
         Some(cycle)
     } else {
         None
@@ -283,7 +292,10 @@ pub async fn search_apps_online(
         if coord.forge != crate::forge::ForgeType::GitHub {
             // 直查单条：page>1 回空（mock 同语义）。
             if eff_page > 1 {
-                return Ok(OnlineSearchResult { rows: Vec::new(), sid: actual_search_id.clone() });
+                return Ok(OnlineSearchResult {
+                    rows: Vec::new(),
+                    sid: actual_search_id.clone(),
+                });
             }
             let host_token = if let Ok(db) = state.db() {
                 db.get_host_token(&coord.host).ok().flatten()
@@ -300,8 +312,7 @@ pub async fn search_apps_online(
                 .await;
                 let (latest_ver, platforms) = match release_res {
                     Ok(r) => {
-                        let plats =
-                            crate::github::detail_assets::platforms_from_assets(&r.assets);
+                        let plats = crate::github::detail_assets::platforms_from_assets(&r.assets);
                         (r.tag_name, plats)
                     }
                     Err(_) => ("latest".to_string(), Vec::new()),
@@ -367,7 +378,10 @@ pub async fn search_apps_online(
         {
             // 直查单条：page>1 回空（mock 同语义）。
             if eff_page > 1 {
-                return Ok(OnlineSearchResult { rows: Vec::new(), sid: actual_search_id.clone() });
+                return Ok(OnlineSearchResult {
+                    rows: Vec::new(),
+                    sid: actual_search_id.clone(),
+                });
             }
             let token = crate::commands::resolve_active_github_token(&state);
             // Top1（`Send` 安全）：短锁预解析 owned 确认图标（同步无 `await`，锁即取即放），
@@ -403,7 +417,11 @@ pub async fn search_apps_online(
                             .ok()
                             .flatten()
                             .unwrap_or_else(|| {
-                                crate::db::AppIconCycle::new(&item.core.id, &item.core.owner, &item.core.repo)
+                                crate::db::AppIconCycle::new(
+                                    &item.core.id,
+                                    &item.core.owner,
+                                    &item.core.repo,
+                                )
                             });
                         crate::db::icon_cycle::merge_detail_icon(
                             &mut cycle,
@@ -424,7 +442,10 @@ pub async fn search_apps_online(
                     search_start.elapsed().as_millis(),
                     is_force
                 );
-                return Ok(OnlineSearchResult { rows: vec![item], sid: actual_search_id.clone() });
+                return Ok(OnlineSearchResult {
+                    rows: vec![item],
+                    sid: actual_search_id.clone(),
+                });
             }
         }
     }
@@ -567,11 +588,19 @@ pub async fn search_apps_online(
         let should_stop: std::sync::Arc<dyn Fn() -> bool + Send + Sync> =
             std::sync::Arc::new(move || SEARCH_GEN.load(Ordering::SeqCst) != stop_gen);
         tokio::spawn(crate::github::icon_fetch::fetch_icons_stream(
-            handle, jobs, bg_token, cfg, emit_icon_job, Some(should_stop),
+            handle,
+            jobs,
+            bg_token,
+            cfg,
+            emit_icon_job,
+            Some(should_stop),
         ));
     }
 
-    Ok(OnlineSearchResult { rows: filtered_results, sid: actual_search_id.clone() })
+    Ok(OnlineSearchResult {
+        rows: filtered_results,
+        sid: actual_search_id.clone(),
+    })
 }
 
 /// 趋势未收录行 enrichment 入参：待查仓库坐标（与 TrendRepo.owner/repo 对齐）。
@@ -824,12 +853,23 @@ mod tests {
         assert_eq!(c.selected_url, "https://cdn.simpleicons.org/i");
         assert_eq!(l2.core.icon, "https://cdn.simpleicons.org/i");
 
-        let mut l3 = sample_summary("t/r", "t", "r", "https://raw.githubusercontent.com/t/r/main/icon.png");
+        let mut l3 = sample_summary(
+            "t/r",
+            "t",
+            "r",
+            "https://raw.githubusercontent.com/t/r/main/icon.png",
+        );
         let c3 = backfill_uncataloged_card(&db, &mut l3, 1800).expect("l3 staged");
         assert_eq!(c3.level, 3);
-        assert_eq!(c3.l3_url, "https://raw.githubusercontent.com/t/r/main/icon.png");
+        assert_eq!(
+            c3.l3_url,
+            "https://raw.githubusercontent.com/t/r/main/icon.png"
+        );
         assert!(c3.l4_url.is_empty());
-        assert_eq!(c3.selected_url, "https://raw.githubusercontent.com/t/r/main/icon.png");
+        assert_eq!(
+            c3.selected_url,
+            "https://raw.githubusercontent.com/t/r/main/icon.png"
+        );
 
         let mut cycle = crate::db::AppIconCycle::new("c/r", "c", "r");
         cycle.is_cataloged = false;
@@ -901,7 +941,11 @@ mod tests {
         assert_eq!(v["context"]["gen"], 3);
     }
 
-    fn stream_cycle(selected_level: i32, selected_url: &str, pinned: bool) -> crate::db::AppIconCycle {
+    fn stream_cycle(
+        selected_level: i32,
+        selected_url: &str,
+        pinned: bool,
+    ) -> crate::db::AppIconCycle {
         let mut c = crate::db::AppIconCycle::new("o/r", "o", "r");
         c.is_cataloged = false;
         c.level = selected_level;

@@ -158,8 +158,8 @@ impl CatalogService {
             .map_err(|e| format!("解析 GitHub 搜索结果失败: {}", e))?;
         // Top1：零 DB（零直连零查询，`Send` 安全），每条直接 `None`；
         // `fallback_summary`（`probe=false` + `None`）直接置空零直连，确认图标由调用方单锁批量回填。
-        let summaries: Vec<AppSummary> = futures_util::future::join_all(
-            data.items.into_iter().map(|it| {
+        let summaries: Vec<AppSummary> =
+            futures_util::future::join_all(data.items.into_iter().map(|it| {
                 let client = &client;
                 async move {
                     let owner = it.owner.login;
@@ -187,9 +187,8 @@ impl CatalogService {
                     )
                     .await
                 }
-            }),
-        )
-        .await;
+            }))
+            .await;
         log::debug!(
             "http search done sid={} req={} url='{}' hits={}",
             sid,

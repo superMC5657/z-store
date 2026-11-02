@@ -12,9 +12,7 @@
 //!   提交档全校验（`SubmitStrict`，D1 不破）保留二次校验。
 
 use crate::config::LicenseGateConfig;
-use crate::db::custom_apps::{
-    ValidateMode, CUSTOM_APP_STATUS_SUBMITTED,
-};
+use crate::db::custom_apps::{ValidateMode, CUSTOM_APP_STATUS_SUBMITTED};
 use crate::db::{CustomAppEntry, GraduationNotice};
 use crate::github::models::CatalogItem;
 use crate::github::CatalogService;
@@ -175,9 +173,7 @@ fn pr_inline_str_array(arr: &[String]) -> String {
     format!("[{}]", parts.join(", "))
 }
 
-fn pr_ordered_identifier_keys(
-    map: &std::collections::HashMap<String, Vec<String>>,
-) -> Vec<String> {
+fn pr_ordered_identifier_keys(map: &std::collections::HashMap<String, Vec<String>>) -> Vec<String> {
     let mut keys: Vec<String> = map
         .iter()
         .filter(|(_, v)| !v.is_empty())
@@ -259,7 +255,11 @@ fn pr_item_json_with_indent(item: &CatalogItem, base: &str) -> String {
             v = pr_json_string(&item.description)
         ));
     }
-    if let Some(desc_en) = item.description_en.as_deref().filter(|s| !s.trim().is_empty()) {
+    if let Some(desc_en) = item
+        .description_en
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
         fields.push(format!(
             "{field}\"description_en\": {v}",
             field = field,
@@ -294,10 +294,18 @@ fn pr_item_json_with_indent(item: &CatalogItem, base: &str) -> String {
         v = pr_json_string(&item.license)
     ));
     if item.stars != 0 {
-        fields.push(format!("{field}\"stars\": {v}", field = field, v = item.stars));
+        fields.push(format!(
+            "{field}\"stars\": {v}",
+            field = field,
+            v = item.stars
+        ));
     }
     if item.forks != 0 {
-        fields.push(format!("{field}\"forks\": {v}", field = field, v = item.forks));
+        fields.push(format!(
+            "{field}\"forks\": {v}",
+            field = field,
+            v = item.forks
+        ));
     }
     fields.push(format!(
         "{field}\"is_verified\": {v}",
@@ -418,10 +426,7 @@ pub fn save_custom_app(
 /// 草稿删除（后端直接删，二次确认由前端做）：返回是否命中。
 /// 未归档 `submitted` 可删；已归档行同样直接删（转正归档手动清理，现有语义不变）。
 #[tauri::command]
-pub fn delete_custom_app(
-    state: State<'_, AppState>,
-    id: String,
-) -> crate::AppResult<bool> {
+pub fn delete_custom_app(state: State<'_, AppState>, id: String) -> crate::AppResult<bool> {
     let key = crate::forge::canonical_lookup_id(&id);
     let db = state.db().map_err(crate::AppError::from)?;
     let hit = db.delete_custom_app(&key)?;
@@ -488,9 +493,9 @@ pub fn mark_submitted(
 ) -> crate::AppResult<CustomAppEntry> {
     let key = crate::forge::canonical_lookup_id(&id);
     let db = state.db().map_err(crate::AppError::from)?;
-    let entry = db.get_custom_app(&key)?.ok_or_else(|| {
-        crate::AppError::new(format!("草稿不存在: {}", key))
-    })?;
+    let entry = db
+        .get_custom_app(&key)?
+        .ok_or_else(|| crate::AppError::new(format!("草稿不存在: {}", key)))?;
     ensure_collected_for_pr(&entry).map_err(crate::AppError::new)?;
     let entry = db.mark_custom_app_submitted(&key, &pr_url)?;
     drop(db);
@@ -530,9 +535,7 @@ pub fn get_merged_catalog_view(
 ) -> crate::AppResult<Vec<crate::github::catalog_service::MergedCatalogEntry>> {
     let remote = state.catalog.get_remote_catalog_items();
     let custom = state.catalog.get_collected_items();
-    Ok(CatalogService::merge_catalog_overlay_view(
-        &remote, &custom,
-    ))
+    Ok(CatalogService::merge_catalog_overlay_view(&remote, &custom))
 }
 
 /// Issue 链路通用取件（单条）：canonical 归一 → 取行 → 收录门禁 → 提交档二次全校验。
@@ -572,10 +575,7 @@ fn load_pr_entries(
 /// 首行收录门禁：仅 `status==collected` 行允许取链接；取链接前保留提交档二次全校验
 ///（占位 license 草稿在此被拦，前端指到 license 字段补 SPDX）。
 #[tauri::command]
-pub fn get_custom_app_pr_url(
-    state: State<'_, AppState>,
-    id: String,
-) -> crate::AppResult<String> {
+pub fn get_custom_app_pr_url(state: State<'_, AppState>, id: String) -> crate::AppResult<String> {
     let db = state.db().map_err(crate::AppError::from)?;
     let gate = crate::db::custom_apps::resolve_license_gate();
     let entry = load_pr_entry(&db, &id, &gate)?;
@@ -620,10 +620,7 @@ pub fn get_custom_apps_batch_pr_payload(
     let db = state.db().map_err(crate::AppError::from)?;
     let gate = crate::db::custom_apps::resolve_license_gate();
     let entries = load_pr_entries(&db, &ids, &gate)?;
-    let items: Vec<CatalogItem> = entries
-        .iter()
-        .map(|e| normalize_pr_item(&e.item))
-        .collect();
+    let items: Vec<CatalogItem> = entries.iter().map(|e| normalize_pr_item(&e.item)).collect();
     Ok(pr_batch_payload_json(&items))
 }
 
@@ -784,8 +781,7 @@ mod tests {
             .nth(1)
             .and_then(|s| s.split("\n```").next())
             .expect("payload block exists");
-        let items: Vec<serde_json::Value> =
-            serde_json::from_str(payload).expect("payload parses");
+        let items: Vec<serde_json::Value> = serde_json::from_str(payload).expect("payload parses");
         assert_eq!(items.len(), 2);
         for v in &items {
             assert_eq!(v.get("is_verified"), Some(&serde_json::Value::Bool(true)));
@@ -843,11 +839,8 @@ mod tests {
         legacy.status = "local_collected".to_string();
         let mut reverted = entry("o/reverted");
         reverted.status = "draft".to_string();
-        let items = collected_overlay_items(vec![
-            legacy,
-            reverted.clone(),
-            collected_entry("o/keep"),
-        ]);
+        let items =
+            collected_overlay_items(vec![legacy, reverted.clone(), collected_entry("o/keep")]);
         assert_eq!(items.len(), 2);
         assert!(items.iter().any(|i| i.id == "o/legacy"));
         assert!(items.iter().any(|i| i.id == "o/keep"));
@@ -879,9 +872,16 @@ mod tests {
         e.item.forks = 7;
         e.item.aliases = vec!["demo".to_string(), "o/r".to_string()];
         e.item.description_en = Some("demo en".to_string());
-        e.item.platforms = vec!["windows".to_string(), "macos".to_string(), "linux".to_string()];
+        e.item.platforms = vec![
+            "windows".to_string(),
+            "macos".to_string(),
+            "linux".to_string(),
+        ];
         let mut ids = HashMap::new();
-        ids.insert("macos".to_string(), vec!["Demo.app".to_string(), "demo".to_string()]);
+        ids.insert(
+            "macos".to_string(),
+            vec!["Demo.app".to_string(), "demo".to_string()],
+        );
         ids.insert("windows".to_string(), vec!["Demo.exe".to_string()]);
         ids.insert("linux".to_string(), vec!["demo".to_string()]);
         e.item.identifiers = ids;
@@ -963,12 +963,16 @@ mod tests {
         ];
         let mut last = 0usize;
         for key in order {
-            let pos = payload.find(key).unwrap_or_else(|| panic!("{key} in payload"));
+            let pos = payload
+                .find(key)
+                .unwrap_or_else(|| panic!("{key} in payload"));
             assert!(pos >= last, "{key} keeps standard order");
             last = pos;
         }
         // identifiers 内键按标准优先级 windows→linux→macos（限定在 identifiers 块内，避免 platforms 行干扰）。
-        let ids_start = payload.find("\"identifiers\": {").expect("identifiers block");
+        let ids_start = payload
+            .find("\"identifiers\": {")
+            .expect("identifiers block");
         let ids_block = &payload[ids_start..];
         let win = ids_block.find("\"windows\"").expect("windows key");
         let lin = ids_block.find("\"linux\"").expect("linux key");

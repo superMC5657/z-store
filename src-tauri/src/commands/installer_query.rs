@@ -323,9 +323,9 @@ pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, St
             &[app_name.clone(), app_id.clone()],
         );
         // 4b-1. desktop Exec 解析（全仓唯一 walker，见 scanner）
-        if let Some(found) = crate::scanner::AppScanner::resolve_linux_via_desktop(&bare_names)
-        {
-            if spawn_and_backfill(&state, &installed_app_opt, &target_path, &found, "桌面文件")? {
+        if let Some(found) = crate::scanner::AppScanner::resolve_linux_via_desktop(&bare_names) {
+            if spawn_and_backfill(&state, &installed_app_opt, &target_path, &found, "桌面文件")?
+            {
                 return Ok(true);
             }
         }

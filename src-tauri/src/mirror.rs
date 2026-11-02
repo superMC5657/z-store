@@ -48,7 +48,9 @@ pub fn validate_custom_proxy(id_or_url: &str) -> Result<(), String> {
         return Ok(());
     }
     if !trimmed.starts_with("https://") {
-        return Err("加速镜像必须使用 https://（明文 http 镜像可篡改下载载荷，已拒绝）".to_string());
+        return Err(
+            "加速镜像必须使用 https://（明文 http 镜像可篡改下载载荷，已拒绝）".to_string(),
+        );
     }
     // userinfo（user:pass@host）显式拒绝：镜像地址不应携带凭据。
     let rest = trimmed.strip_prefix("https://").unwrap_or(trimmed);
@@ -65,9 +67,7 @@ pub fn validate_custom_proxy(id_or_url: &str) -> Result<(), String> {
         return Err(format!("镜像地址必须是合法域名（如 gh-proxy.com）：{host}"));
     }
     for label in &labels {
-        if !label
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-')
+        if !label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
             || label.starts_with('-')
             || label.ends_with('-')
         {
@@ -75,7 +75,10 @@ pub fn validate_custom_proxy(id_or_url: &str) -> Result<(), String> {
         }
     }
     // TLD 必须含字母：拒绝裸 IP 形态的“镜像”（常见钓鱼面）。
-    if !labels[labels.len() - 1].chars().any(|c| c.is_ascii_alphabetic()) {
+    if !labels[labels.len() - 1]
+        .chars()
+        .any(|c| c.is_ascii_alphabetic())
+    {
         return Err(format!("镜像地址必须是域名（不接受裸 IP）：{host}"));
     }
     Ok(())

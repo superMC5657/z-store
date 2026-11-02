@@ -7,11 +7,21 @@ pub const ONE_MB_BYTES: u64 = 1024 * 1024;
 /// 判断文件名是否为排除的校验和、签名或轻量元数据文件
 pub fn is_excluded_signature_or_text(name_lower: &str) -> bool {
     const EXCLUDED_SUFFIXES: &[&str] = &[
-        ".sha256", ".sha512", ".sha1", ".md5",
-        ".sig", ".asc",
-        ".txt", ".md",
-        ".json", ".yml", ".yaml", ".xml",
-        ".sbom", ".blockmap", ".zsync",
+        ".sha256",
+        ".sha512",
+        ".sha1",
+        ".md5",
+        ".sig",
+        ".asc",
+        ".txt",
+        ".md",
+        ".json",
+        ".yml",
+        ".yaml",
+        ".xml",
+        ".sbom",
+        ".blockmap",
+        ".zsync",
     ];
     if EXCLUDED_SUFFIXES.iter().any(|s| name_lower.ends_with(s)) {
         return true;
@@ -148,9 +158,7 @@ pub fn platforms_from_assets(assets: &[ReleaseAsset]) -> Vec<String> {
 /// 平台排序 SSOT（deduce 结果统一经此排序）。
 pub fn sort_platforms(platforms: &mut [String]) {
     const ORDER: &[&str] = &["windows", "macos", "linux", "ios", "android"];
-    platforms.sort_by_key(|p| {
-        ORDER.iter().position(|&x| x == p.as_str()).unwrap_or(99)
-    });
+    platforms.sort_by_key(|p| ORDER.iter().position(|&x| x == p.as_str()).unwrap_or(99));
 }
 
 /// ios 并集 + 排序 SSOT（detail/fetch + lite 共用唯一真相源）：
@@ -254,22 +262,40 @@ mod tests {
         assert!(!is_valid_installer_asset("app-src.zip", 25_000_000));
         assert!(!is_valid_installer_asset("src.zip", 25_000_000));
         // 3b. 二进制 tarball 放行，源码标记 tarball 继续过滤
-        assert!(is_valid_installer_asset("pi-darwin-arm64.tar.gz", 25_000_000));
+        assert!(is_valid_installer_asset(
+            "pi-darwin-arm64.tar.gz",
+            25_000_000
+        ));
         assert!(is_valid_installer_asset("pi-linux-x64.tar.gz", 25_000_000));
-        assert!(!is_valid_installer_asset("pi-1.0.2-source.tar.gz", 25_000_000));
+        assert!(!is_valid_installer_asset(
+            "pi-1.0.2-source.tar.gz",
+            25_000_000
+        ));
 
         // 4. 认可的主流二进制安装包
-        assert!(is_valid_installer_asset("RustDesk-1.2.6-Setup.exe", 20_000_000));
+        assert!(is_valid_installer_asset(
+            "RustDesk-1.2.6-Setup.exe",
+            20_000_000
+        ));
         assert!(is_valid_installer_asset("vlc-3.0.21-win64.msi", 40_000_000));
         assert!(is_valid_installer_asset("app.msix", 30_000_000));
         assert!(is_valid_installer_asset("KeePassXC-2.7.9.dmg", 50_000_000));
         assert!(is_valid_installer_asset("Wireshark-4.2.4.pkg", 60_000_000));
-        assert!(is_valid_installer_asset("LocalSend-1.15.2.AppImage", 35_000_000));
-        assert!(is_valid_installer_asset("obs-studio_30.1.2_amd64.deb", 70_000_000));
+        assert!(is_valid_installer_asset(
+            "LocalSend-1.15.2.AppImage",
+            35_000_000
+        ));
+        assert!(is_valid_installer_asset(
+            "obs-studio_30.1.2_amd64.deb",
+            70_000_000
+        ));
         assert!(is_valid_installer_asset("rustdesk-1.2.6.rpm", 30_000_000));
         assert!(is_valid_installer_asset("app-release.apk", 15_000_000));
         assert!(is_valid_installer_asset("app-windows-x64.zip", 15_000_000));
-        assert!(is_valid_installer_asset("pi-windows-x64.tar.gz", 15_000_000));
+        assert!(is_valid_installer_asset(
+            "pi-windows-x64.tar.gz",
+            15_000_000
+        ));
         assert!(is_valid_installer_asset("pi-linux-x64.tar.xz", 15_000_000));
     }
 
@@ -328,12 +354,19 @@ mod tests {
             make_asset("app_amd64.deb", 25_000_000),
             make_asset("app.dmg", 30_000_000),
             make_asset("app.tar.gz", 15_000_000), // 源码包，被过滤
-            make_asset("app.sig", 5_000),          // 签名，被过滤
-            make_asset("stub.exe", 500_000),       // <= 1MB，被过滤
+            make_asset("app.sig", 5_000),         // 签名，被过滤
+            make_asset("stub.exe", 500_000),      // <= 1MB，被过滤
         ];
 
         let plats = platforms_from_assets(&mixed);
-        assert_eq!(plats, vec!["windows".to_string(), "macos".to_string(), "linux".to_string()]);
+        assert_eq!(
+            plats,
+            vec![
+                "windows".to_string(),
+                "macos".to_string(),
+                "linux".to_string()
+            ]
+        );
     }
 
     #[test]

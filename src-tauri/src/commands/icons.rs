@@ -180,14 +180,11 @@ pub async fn download_icon_bytes(
                             );
                             return Ok(bytes.to_vec());
                         } else if bytes.is_empty() {
-                            last_err =
-                                format!("响应内容为空(content-type={})", ctype_log);
+                            last_err = format!("响应内容为空(content-type={})", ctype_log);
                         } else {
                             // sniff 失败即拒收：即使 header 声称 image/* 也不信任（真实字节为准）。
-                            last_err = format!(
-                                "响应内容不是有效图片格式(content-type={})",
-                                ctype_log
-                            );
+                            last_err =
+                                format!("响应内容不是有效图片格式(content-type={})", ctype_log);
                         }
                     } else {
                         last_err = "读取响应内容失败".to_string();
@@ -260,9 +257,9 @@ pub async fn get_or_fetch_icon(
     // 无后缀暂定 png：读侧仅作 hash 候选首位，写侧以 sniff real_ext 纠正（见 persist_*）。
     let requested_ext = infer_icon_ext_from_url(url_trimmed).unwrap_or("png");
 
-    let is_cataloged = app_id.as_deref().is_some_and(|id| {
-        state.catalog.is_cataloged(id.trim())
-    });
+    let is_cataloged = app_id
+        .as_deref()
+        .is_some_and(|id| state.catalog.is_cataloged(id.trim()));
 
     // 1. 严格优先查找本地内部缓存（两表分流读取收敛至共享 helper）
     // 收录应用查 icon_cache_meta，非收录应用查 app_icon_cycles
@@ -287,7 +284,9 @@ pub async fn get_or_fetch_icon(
 
     // 2. 本地缓存找不到或已过期，才去外部链接拉取（经单一落点）
     let client = crate::forge::http::new_icon_client(
-        crate::config::get_project_config().network.api_timeout_seconds,
+        crate::config::get_project_config()
+            .network
+            .api_timeout_seconds,
     )
     .unwrap_or_default();
 
@@ -346,8 +345,7 @@ pub async fn get_or_fetch_icon(
                 // 按真实来源入槽（05）：level 经详情口径判定（simpleicons→L2品牌库，
                 // blob/readme→L4 README，其余→L3仓库），合并保留已有槽；
                 // 02 pinned 行只补槽不改选中；槽满未收编不碰选中图（见下认领）。
-                let source_level =
-                    crate::github::icon_fetch::level_for_detail_icon(key_url);
+                let source_level = crate::github::icon_fetch::level_for_detail_icon(key_url);
                 crate::db::icon_cycle::merge_detail_icon(
                     &mut cycle,
                     source_level,
@@ -428,7 +426,9 @@ mod tests {
         assert!(is_valid_image(b"\xef\xbb\xbf<svg></svg>"));
 
         assert!(!is_valid_image(b""));
-        assert!(!is_valid_image(b"<!DOCTYPE html><html><body>404 Not Found</body></html>"));
+        assert!(!is_valid_image(
+            b"<!DOCTYPE html><html><body>404 Not Found</body></html>"
+        ));
         assert!(!is_valid_image(b"{\"message\":\"Not Found\"}"));
         assert!(!is_valid_image(b"Hello World"));
     }

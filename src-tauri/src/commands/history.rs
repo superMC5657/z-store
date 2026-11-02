@@ -11,9 +11,7 @@ pub fn get_favorites(state: State<'_, AppState>) -> crate::AppResult<Vec<String>
 /// 收藏条目（含收录标记）：与 `get_favorites` 同序，形状见 `FavoriteEntry`；
 /// `get_favorites` 历史形状（`Vec<String>`）不变。
 #[tauri::command]
-pub fn get_favorite_entries(
-    state: State<'_, AppState>,
-) -> crate::AppResult<Vec<FavoriteEntry>> {
+pub fn get_favorite_entries(state: State<'_, AppState>) -> crate::AppResult<Vec<FavoriteEntry>> {
     let db = state.db()?;
     Ok(db.get_favorite_entries()?)
 }
@@ -40,9 +38,7 @@ pub(crate) fn backfill_cataloged_flags(state: &AppState) {
     match db.get_favorites() {
         Ok(ids) => {
             for id in &ids {
-                if let Err(e) =
-                    db.set_favorite_cataloged(id, state.catalog.is_cataloged(id))
-                {
+                if let Err(e) = db.set_favorite_cataloged(id, state.catalog.is_cataloged(id)) {
                     log_backfill_warn("backfill favorite flag failed", Some(id.as_str()), &e);
                 }
             }
@@ -57,11 +53,7 @@ pub(crate) fn backfill_cataloged_flags(state: &AppState) {
                 if let Err(e) =
                     db.set_watched_cataloged(&w.app_id, state.catalog.is_cataloged(&w.app_id))
                 {
-                    log_backfill_warn(
-                        "backfill watched flag failed",
-                        Some(w.app_id.as_str()),
-                        &e,
-                    );
+                    log_backfill_warn("backfill watched flag failed", Some(w.app_id.as_str()), &e);
                 }
             }
         }
@@ -221,11 +213,11 @@ fn apply_confirmed_icon(db: &crate::db::Database, summary: &mut AppSummary) {
 ///   `""` 仍被前端 `needDesc` 视为待治愈，可由富卡 enrich 快照二次治愈；
 /// - 非占位（已收录人工简介等）原样保留。
 fn heal_recent_summary(db: &crate::db::Database, summary: &mut AppSummary) {
-    let need_desc = crate::github::detail_fetch::is_placeholder_description(
-        &summary.core.description,
-    );
+    let need_desc =
+        crate::github::detail_fetch::is_placeholder_description(&summary.core.description);
     let need_en = summary
-        .core.description_en
+        .core
+        .description_en
         .as_deref()
         .map(crate::github::detail_fetch::is_placeholder_description)
         .unwrap_or(false);
@@ -502,7 +494,10 @@ mod recent_uncataloged_tests {
         assert_eq!(summary.core.name, "Oh My Pi");
         assert_eq!(summary.core.icon, "https://example.com/icon.png");
         assert_eq!(summary.core.platforms, vec!["windows".to_string()]);
-        assert_eq!(summary.core.homepage.as_deref(), Some("https://example.com"));
+        assert_eq!(
+            summary.core.homepage.as_deref(),
+            Some("https://example.com")
+        );
     }
 
     #[test]
@@ -517,10 +512,11 @@ mod recent_uncataloged_tests {
         )
         .unwrap();
         // 大小写变体经回退键命中同一行
-        let summary = super::cached_detail_summary(&db, "Oh-My-Pi/Oh-My-Pi")
-            .expect("大小写变体应当回退命中");
+        let summary =
+            super::cached_detail_summary(&db, "Oh-My-Pi/Oh-My-Pi").expect("大小写变体应当回退命中");
         assert_eq!(
-            summary.core.icon, "https://avatars.githubusercontent.com/u/123?v=4",
+            summary.core.icon,
+            "https://avatars.githubusercontent.com/u/123?v=4",
         );
         assert_eq!(summary.core.owner, "oh-my-pi");
         // 无任何缓存的 id 直接跳过（不合成占位）
@@ -540,8 +536,8 @@ mod recent_uncataloged_tests {
         let db = Database::open_in_memory().expect("内存数据库应当可用");
         db.save_cached_app_detail("demo/placeholder", &placeholder_detail("demo/placeholder"))
             .unwrap();
-        let summary = super::cached_detail_summary(&db, "demo/placeholder")
-            .expect("占位详情应当回退命中");
+        let summary =
+            super::cached_detail_summary(&db, "demo/placeholder").expect("占位详情应当回退命中");
         assert_eq!(summary.core.description, "", "占位中文简介应当置空");
         assert_eq!(
             summary.core.description_en.as_deref(),
@@ -565,8 +561,8 @@ mod recent_uncataloged_tests {
         .unwrap();
         // detail 行 owner/repo 为 oh-my-pi/oh-my-pi（见 uncataloged_detail），
         // id 键 demo/placeholder 经 fallback 命中同一行后按 owner/repo 查 ETag。
-        let summary = super::cached_detail_summary(&db, "demo/placeholder")
-            .expect("占位详情应当回退命中");
+        let summary =
+            super::cached_detail_summary(&db, "demo/placeholder").expect("占位详情应当回退命中");
         assert_eq!(summary.core.description, "Real repo description");
         assert_eq!(
             summary.core.description_en.as_deref(),
@@ -590,9 +586,12 @@ mod recent_uncataloged_tests {
             crate::now_secs(),
         )
         .unwrap();
-        let summary = super::cached_detail_summary(&db, "oh-my-pi/oh-my-pi")
-            .expect("非占位详情应当回退命中");
-        assert_eq!(summary.core.description, "树莓派工具", "人工简介优先，不覆盖");
+        let summary =
+            super::cached_detail_summary(&db, "oh-my-pi/oh-my-pi").expect("非占位详情应当回退命中");
+        assert_eq!(
+            summary.core.description, "树莓派工具",
+            "人工简介优先，不覆盖"
+        );
         assert_eq!(
             summary.core.description_en.as_deref(),
             Some("Raspberry Pi tool")

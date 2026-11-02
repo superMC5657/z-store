@@ -47,7 +47,11 @@ fn gsettings_get(schema: &str, key: &str) -> Option<String> {
 fn gsettings_port(schema: &str) -> Option<u16> {
     let raw = gsettings_get(schema, "port")?;
     // 输出形如 `8080`（uint32），容忍首尾空白。
-    let digits: String = raw.trim().chars().take_while(|c| c.is_ascii_digit()).collect();
+    let digits: String = raw
+        .trim()
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
     if digits.is_empty() {
         return None;
     }
@@ -100,9 +104,19 @@ fn gnome_ignore_hosts() -> Vec<String> {
     };
     // 形如 `['localhost', '127.0.0.0/8', '::1']`；`gsettings_get` 已去外层逻辑，
     // 此处容忍带/不带中括号两种形态。
-    let t = raw.trim().trim_start_matches('[').trim_end_matches(']').to_string();
+    let t = raw
+        .trim()
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .to_string();
     t.split(',')
-        .map(|s| s.trim().trim_matches('\'').trim_matches('"').trim().to_string())
+        .map(|s| {
+            s.trim()
+                .trim_matches('\'')
+                .trim_matches('"')
+                .trim()
+                .to_string()
+        })
         .filter(|s| !s.is_empty())
         .collect()
 }
@@ -121,7 +135,10 @@ pub fn read_gnome_proxy() -> Option<GnomeProxy> {
     let mode = mode_raw.trim().to_ascii_lowercase();
     if mode != "manual" {
         if mode.contains("auto") || mode.contains("pac") {
-            log::warn!("proxy gnome mode={} skip (auto/pac unsupported, keep direct)", mode);
+            log::warn!(
+                "proxy gnome mode={} skip (auto/pac unsupported, keep direct)",
+                mode
+            );
         }
         return None;
     }

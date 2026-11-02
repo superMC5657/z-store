@@ -92,7 +92,8 @@ pub fn rank_feed_with_strategy(
     if strategy == FeedStrategy::StarsOnly || seed.is_none() {
         let mut items = items;
         items.sort_by(|a, b| {
-            b.core.stars
+            b.core
+                .stars
                 .cmp(&a.core.stars)
                 .then_with(|| a.core.id.cmp(&b.core.id))
         });

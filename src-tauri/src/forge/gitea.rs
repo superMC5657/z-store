@@ -2,8 +2,7 @@ use futures_util::future::BoxFuture;
 
 use super::coord::ForgeType;
 use super::http::{
-    api_headers, get_with_retry_after_once, new_api_client, AuthScheme, HttpSpan,
-    JSON_ACCEPT_VALUE,
+    api_headers, get_with_retry_after_once, new_api_client, AuthScheme, HttpSpan, JSON_ACCEPT_VALUE,
 };
 use super::provider::{parse_assets, ForgeProvider, ForgeReleaseInfo, ForgeRepoInfo};
 use serde::Deserialize;

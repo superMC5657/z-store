@@ -8,8 +8,8 @@ pub async fn scan_and_match_local_apps(
 ) -> crate::AppResult<Vec<crate::scanner::AppMatchResult>> {
     // 注册表枚举 + 逐应用文件系统探测是慢 IO（冷盘秒级）：命令体卸到 blocking
     // 线程池，避免同步命令冻结主线程（对照 settings.rs select_folder 同姿势）。
-    let unmanaged =
-        tokio::task::spawn_blocking(move || -> crate::AppResult<Vec<crate::scanner::AppMatchResult>> {
+    let unmanaged = tokio::task::spawn_blocking(
+        move || -> crate::AppResult<Vec<crate::scanner::AppMatchResult>> {
             let state = app_handle.state::<AppState>();
             // 行为链 sid 关联 + 耗时，汇总行只记数量。
             let sid = crate::z_log::new_session_id();
@@ -47,9 +47,10 @@ pub async fn scan_and_match_local_apps(
             );
 
             Ok(unmanaged)
-        })
-        .await
-        .map_err(|e| crate::AppError::new(e.to_string()))??;
+        },
+    )
+    .await
+    .map_err(|e| crate::AppError::new(e.to_string()))??;
     Ok(unmanaged)
 }
 

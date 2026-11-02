@@ -1,4 +1,4 @@
-use super::readme_parse::{ContentsEntry, GitTreeResponse, select_readme_candidates};
+use super::readme_parse::{select_readme_candidates, ContentsEntry, GitTreeResponse};
 use crate::github::developer_endpoints::GITHUB_API_BASE;
 use crate::github::models::GitHubRepoResponse;
 use crate::github::CatalogService;
@@ -33,9 +33,7 @@ fn readme_list_ttl_secs() -> i64 {
         }
         return minutes * 60;
     }
-    let d = crate::config::get_project_config()
-        .cache
-        .detail_ttl_minutes;
+    let d = crate::config::get_project_config().cache.detail_ttl_minutes;
     if d <= 0 {
         return 0;
     }
@@ -125,7 +123,10 @@ fn try_cached_readme_variants(
             repo.trim().to_lowercase()
         )
     });
-    let detail = db.get_cached_app_detail(&key, Some(ttl_secs)).ok().flatten()?;
+    let detail = db
+        .get_cached_app_detail(&key, Some(ttl_secs))
+        .ok()
+        .flatten()?;
     let variants = detail.readme_variants?;
     if variants.is_empty() {
         return None;
@@ -223,10 +224,7 @@ async fn list_root_paths(
     let contents_url = CatalogService::request_url(&canonical_contents, api_base);
     let span = crate::forge::http::HttpSpan::start(&contents_url);
     span.log_search_start("readme-contents");
-    let req = client
-        .get(&contents_url)
-        .headers(headers.clone())
-        .send();
+    let req = client.get(&contents_url).headers(headers.clone()).send();
     match tokio::time::timeout(api_timeout, req).await {
         Ok(Ok(resp)) => {
             span.notify(&resp, "github.com");
@@ -378,10 +376,7 @@ async fn fetch_readme_text(
             if !resp.status().is_success() {
                 return None;
             }
-            resp.text()
-                .await
-                .ok()
-                .filter(|t| !t.trim().is_empty())
+            resp.text().await.ok().filter(|t| !t.trim().is_empty())
         }
         Ok(Err(e)) => {
             raw_span.log_search_fail("readme-raw-direct", &e.to_string());
@@ -430,7 +425,12 @@ impl CatalogService {
                 Some(cached)
             } else {
                 let fetched = fetch_repo_default_branch(
-                    &client, &headers, &owner, &repo, api_base, api_timeout,
+                    &client,
+                    &headers,
+                    &owner,
+                    &repo,
+                    api_base,
+                    api_timeout,
                 )
                 .await;
                 if let Some(ref b) = fetched {
@@ -439,8 +439,7 @@ impl CatalogService {
                 fetched
             }
         } else {
-            fetch_repo_default_branch(&client, &headers, &owner, &repo, api_base, api_timeout)
-                .await
+            fetch_repo_default_branch(&client, &headers, &owner, &repo, api_base, api_timeout).await
         };
 
         // 探测分支：默认分支 + HEAD 符号引用（与 detail_fetch probe_branch 同口径）。
@@ -477,8 +476,16 @@ impl CatalogService {
                     fetched
                 }
             } else {
-                list_root_paths(&client, &headers, &owner, &repo, branch, api_base, api_timeout)
-                    .await
+                list_root_paths(
+                    &client,
+                    &headers,
+                    &owner,
+                    &repo,
+                    branch,
+                    api_base,
+                    api_timeout,
+                )
+                .await
             };
             if let Some(paths) = paths_opt {
                 effective_branch = Some(branch.clone());
@@ -548,8 +555,7 @@ impl CatalogService {
                 continue;
             };
             // 清洗管线与 `detail_fetch` 完全一致：先提 Logo 再重写图片。
-            let (_, stripped) =
-                Self::extract_and_strip_logo_from_readme(&raw, &owner, &repo);
+            let (_, stripped) = Self::extract_and_strip_logo_from_readme(&raw, &owner, &repo);
             let markdown = Self::rewrite_readme_images(&stripped, &owner, &repo);
             if markdown.trim().is_empty() {
                 continue;

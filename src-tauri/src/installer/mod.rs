@@ -59,10 +59,9 @@ pub(crate) fn contains_word(name_lower: &str, word: &str) -> bool {
     while let Some(pos) = name_lower[start..].find(word) {
         let s = start + pos;
         let e = s + word.len();
-        let before_ok =
-            s == 0 || matches!(name_lower.as_bytes()[s - 1], b'-' | b'_' | b'.');
-        let after_ok = e == name_lower.len()
-            || matches!(name_lower.as_bytes()[e], b'-' | b'_' | b'.');
+        let before_ok = s == 0 || matches!(name_lower.as_bytes()[s - 1], b'-' | b'_' | b'.');
+        let after_ok =
+            e == name_lower.len() || matches!(name_lower.as_bytes()[e], b'-' | b'_' | b'.');
         if before_ok && after_ok {
             return true;
         }

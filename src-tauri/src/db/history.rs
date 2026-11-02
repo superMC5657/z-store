@@ -57,10 +57,7 @@ impl Database {
         )?;
 
         if exists {
-            self.exec_write(
-                "DELETE FROM user_favorites WHERE app_id = ?1",
-                params![id],
-            )?;
+            self.exec_write("DELETE FROM user_favorites WHERE app_id = ?1", params![id])?;
             Ok(false)
         } else {
             let now = now_secs();

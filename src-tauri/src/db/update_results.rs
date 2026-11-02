@@ -148,9 +148,7 @@ impl Database {
             return Ok(0);
         }
         let placeholders = keep_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-        let sql = format!(
-            "DELETE FROM update_results WHERE app_id NOT IN ({placeholders})"
-        );
+        let sql = format!("DELETE FROM update_results WHERE app_id NOT IN ({placeholders})");
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.execute(rusqlite::params_from_iter(keep_ids.iter()))?;
         Ok(rows)

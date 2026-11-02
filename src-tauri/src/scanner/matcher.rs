@@ -121,9 +121,7 @@ impl AppScanner {
                             let exe_lower = exe.to_lowercase();
                             // 精确文件名相等或路径边界匹配（禁子串 contains，
                             // 防 `test` 误命中 `/usr/bin/test`；大小写已统一 lower）
-                            let exe_stripped = exe_lower
-                                .strip_suffix(".exe")
-                                .unwrap_or(&exe_lower);
+                            let exe_stripped = exe_lower.strip_suffix(".exe").unwrap_or(&exe_lower);
                             if [exe_lower.as_str(), exe_stripped].iter().any(|c| {
                                 path_matches_candidate(&s_loc, c)
                                     || path_matches_candidate(&s_icon, c)

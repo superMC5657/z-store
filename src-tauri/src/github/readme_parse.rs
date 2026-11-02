@@ -41,9 +41,7 @@ pub fn classify_readme_lang(file_name: &str) -> Option<&'static str> {
         return None;
     }
     let caps = README_FILE_RE.captures(base)?;
-    let token = caps
-        .get(1)
-        .map(|m| m.as_str().to_ascii_lowercase());
+    let token = caps.get(1).map(|m| m.as_str().to_ascii_lowercase());
     match token.as_deref() {
         None => Some("en-US"),
         Some("zh-cn") | Some("zh_cn") | Some("zh") | Some("cn") => Some("zh-CN"),

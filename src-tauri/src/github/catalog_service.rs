@@ -28,8 +28,7 @@ pub(crate) fn is_default_catalog_source(url: &str) -> bool {
 /// （已存在即跳过）。`get_catalog_items`（远端 + 本地库 overlay）与
 /// `merged_items_with_overlay`（远端 + 调用方 custom）共用。
 fn merge_remote_first(remote: Vec<CatalogItem>, local: Vec<CatalogItem>) -> Vec<CatalogItem> {
-    let mut seen: std::collections::HashSet<String> =
-        remote.iter().map(|i| i.id.clone()).collect();
+    let mut seen: std::collections::HashSet<String> = remote.iter().map(|i| i.id.clone()).collect();
     let mut out = remote;
     for item in local {
         if seen.insert(item.id.clone()) {
@@ -81,11 +80,7 @@ impl CatalogService {
     /// 合并目录（远端在前，本地收录按 id 补位去重）：全站收录视图唯一来源。
     pub fn get_catalog_items(&self) -> Vec<CatalogItem> {
         let remote = self.get_remote_catalog_items();
-        let collected = self
-            .collected
-            .read()
-            .map(|c| c.clone())
-            .unwrap_or_default();
+        let collected = self.collected.read().map(|c| c.clone()).unwrap_or_default();
         merge_remote_first(remote, collected)
     }
 
@@ -148,10 +143,7 @@ impl CatalogService {
     /// - 本地收录（含远端未验证同仓补位）→ `local` + `status=collected`；
     /// - 远端未验证且无本地收录 → `remote`；
     /// - 均未命中 → `is_cataloged=false`（来源缺席）。
-    fn resolve_catalog_stamp(
-        &self,
-        id: &str,
-    ) -> (bool, Option<String>, Option<String>) {
+    fn resolve_catalog_stamp(&self, id: &str) -> (bool, Option<String>, Option<String>) {
         let remote = self.get_remote_catalog_item(id);
         let is_collected = self.is_collected_id(id);
         let remote_verified = remote.as_ref().map(|i| i.is_verified).unwrap_or(false);
@@ -739,7 +731,10 @@ mod tests {
         assert_eq!(dup.source, "remote");
         assert!(dup.is_cataloged);
         // custom 补位行标记来源。
-        let local = view.iter().find(|e| e.summary.core.id == "o/local").unwrap();
+        let local = view
+            .iter()
+            .find(|e| e.summary.core.id == "o/local")
+            .unwrap();
         assert_eq!(local.source, "custom");
         assert!(local.is_cataloged);
         // 顺序：远端在前，custom 补位在后。
@@ -921,12 +916,18 @@ mod tests {
 
         // 纯远端未验证。
         let remote_only = svc.item_to_stamped_summary(&item("o/remote", "o", "remote"));
-        assert_eq!(remote_only.core.source.as_deref(), Some(CATALOG_SOURCE_REMOTE));
+        assert_eq!(
+            remote_only.core.source.as_deref(),
+            Some(CATALOG_SOURCE_REMOTE)
+        );
         assert_eq!(remote_only.core.status, None);
 
         // 纯本地收录。
         let local_only = svc.item_to_stamped_summary(&item("o/local", "o", "local"));
-        assert_eq!(local_only.core.source.as_deref(), Some(CATALOG_SOURCE_LOCAL));
+        assert_eq!(
+            local_only.core.source.as_deref(),
+            Some(CATALOG_SOURCE_LOCAL)
+        );
         assert_eq!(local_only.core.status.as_deref(), Some("collected"));
 
         // 未收录（在线/趋势野生仓）。

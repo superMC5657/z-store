@@ -198,10 +198,7 @@ mod tests {
 
     #[test]
     fn graduation_hint_appends_only_on_hits() {
-        assert_eq!(
-            super::with_graduation_hint("ok", &[]),
-            "ok".to_string()
-        );
+        assert_eq!(super::with_graduation_hint("ok", &[]), "ok".to_string());
         assert_eq!(
             super::with_graduation_hint("ok", &["o/r".to_string()]),
             "ok；1 款自维护草稿已转正并自动归档（o/r）".to_string()

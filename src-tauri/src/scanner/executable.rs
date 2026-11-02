@@ -138,9 +138,7 @@ impl AppScanner {
             if let Ok(entries) = std::fs::read_dir(&sdir) {
                 for entry in entries.flatten() {
                     let p = entry.path();
-                    if p.is_file()
-                        && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("lnk"))
-                    {
+                    if p.is_file() && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("lnk")) {
                         let fname = p
                             .file_name()
                             .unwrap_or_default()
@@ -204,8 +202,7 @@ impl AppScanner {
                                     || (t.len() >= 4 && d_lower.contains(t))
                                     || (d_lower.len() >= 4 && t.contains(&d_lower))
                                     || (!is_guid
-                                        && (k_lower == *t
-                                            || (t.len() >= 4 && k_lower.contains(t))))
+                                        && (k_lower == *t || (t.len() >= 4 && k_lower.contains(t))))
                             });
 
                         if is_match {
@@ -224,8 +221,7 @@ impl AppScanner {
                             if let Ok(loc) = app_key.get_value::<String, _>("InstallLocation") {
                                 let clean_loc = loc.trim().trim_matches('"');
                                 let p = Path::new(clean_loc);
-                                if !clean_loc.is_empty() && !Self::is_installer_or_cache_path(p)
-                                {
+                                if !clean_loc.is_empty() && !Self::is_installer_or_cache_path(p) {
                                     if p.is_file()
                                         && p.extension()
                                             .is_some_and(|e| e.eq_ignore_ascii_case("exe"))
@@ -233,9 +229,7 @@ impl AppScanner {
                                         return Some(p.to_string_lossy().to_string());
                                     }
                                     if p.is_dir() {
-                                        if let Some(exe) =
-                                            Self::find_exe_in_directory(p, config)
-                                        {
+                                        if let Some(exe) = Self::find_exe_in_directory(p, config) {
                                             return Some(exe);
                                         }
                                     }
@@ -243,9 +237,7 @@ impl AppScanner {
                             }
 
                             // C. 检查 UninstallString (若主程序同目录存在 uninstall.exe 等)
-                            if let Ok(uninst) =
-                                app_key.get_value::<String, _>("UninstallString")
-                            {
+                            if let Ok(uninst) = app_key.get_value::<String, _>("UninstallString") {
                                 let clean_un = uninst.trim().trim_matches('"');
                                 if let Some(first_arg) = clean_un
                                     .split(" -")
@@ -602,8 +594,7 @@ impl AppScanner {
                 idx += 1;
             }
         } else {
-            while idx < tokens.len() && tokens[idx].contains('=') && !tokens[idx].contains('/')
-            {
+            while idx < tokens.len() && tokens[idx].contains('=') && !tokens[idx].contains('/') {
                 // 形如 `FOO=bar` 的前导环境赋值（不含路径分隔符才跳过，避免误伤 `/opt/x`）
                 // 若首个 token 本身就是绝对路径则不跳过
                 if tokens[idx].starts_with('/') {
@@ -745,8 +736,7 @@ impl AppScanner {
         dpkg_output: &str,
         candidates: &[String],
     ) -> Option<String> {
-        let lower_cands: Vec<String> =
-            candidates.iter().map(|c| c.to_lowercase()).collect();
+        let lower_cands: Vec<String> = candidates.iter().map(|c| c.to_lowercase()).collect();
         // 先收集有效行，识别父目录项（任一其他行以 `line + "/"` 开头即为目录）。
         let lines: Vec<&str> = dpkg_output
             .lines()
@@ -755,7 +745,9 @@ impl AppScanner {
             .collect();
         let is_parent_dir = |line: &str| -> bool {
             let prefix = format!("{}/", line);
-            lines.iter().any(|other| *other != line && other.starts_with(&prefix))
+            lines
+                .iter()
+                .any(|other| *other != line && other.starts_with(&prefix))
         };
         for line in &lines {
             if is_parent_dir(line) {
@@ -913,14 +905,10 @@ impl AppScanner {
         if let Ok(home) = std::env::var("HOME") {
             let h = PathBuf::from(&home);
             dirs.push(h.join(".local/share/applications"));
-            dirs.push(
-                h.join(".local/share/flatpak/exports/share/applications"),
-            );
+            dirs.push(h.join(".local/share/flatpak/exports/share/applications"));
         }
         dirs.push(PathBuf::from("/var/lib/snapd/desktop/applications"));
-        dirs.push(PathBuf::from(
-            "/var/lib/flatpak/exports/share/applications",
-        ));
+        dirs.push(PathBuf::from("/var/lib/flatpak/exports/share/applications"));
         match std::env::var("XDG_DATA_DIRS") {
             Ok(xdg) => {
                 for part in xdg.split(':') {
@@ -1079,7 +1067,8 @@ impl AppScanner {
                     found.clone()
                 };
                 // snap 落盘（/snap/bin/*）单独标记来源。
-                let src: &'static str = if out.starts_with("/snap/") || found.starts_with("/snap/") {
+                let src: &'static str = if out.starts_with("/snap/") || found.starts_with("/snap/")
+                {
                     "snap"
                 } else {
                     "which"
@@ -1094,8 +1083,7 @@ impl AppScanner {
             }
             let cand = PathBuf::from("/usr/bin").join(name);
             if cand.is_file() {
-                let resolved =
-                    std::fs::canonicalize(&cand).unwrap_or_else(|_| cand.clone());
+                let resolved = std::fs::canonicalize(&cand).unwrap_or_else(|_| cand.clone());
                 return Some((resolved.to_string_lossy().to_string(), "which"));
             }
             let cand_local = PathBuf::from("/usr/local/bin").join(name);
@@ -1122,16 +1110,10 @@ impl AppScanner {
     /// `/opt` read_dir 枚举 + 归一化比对（解决 `/opt/Clash Verge` 带空格问题）。
     /// 仅 linux 生效。先枚举匹配目录，再 `find_exe_in_directory`；直连路径作为回退保留。
     #[cfg(target_os = "linux")]
-    pub fn resolve_linux_via_opt(
-        bare_tokens: &[String],
-        config: &ScanConfig,
-    ) -> Option<String> {
+    pub fn resolve_linux_via_opt(bare_tokens: &[String], config: &ScanConfig) -> Option<String> {
         // 归一化 token 集合：bare + install_dirs 末段。
         let mut norm_tokens: Vec<(String, String)> = Vec::new();
-        for t in bare_tokens
-            .iter()
-            .chain(config.install_dirs.iter())
-        {
+        for t in bare_tokens.iter().chain(config.install_dirs.iter()) {
             let last = t.rsplit(['/', '\\']).next().unwrap_or(t);
             if last.trim().is_empty() {
                 continue;
@@ -1248,10 +1230,7 @@ impl AppScanner {
                 if !fname.to_lowercase().ends_with(".appimage") {
                     continue;
                 }
-                let stem = fname
-                    .rsplit_once('.')
-                    .map(|(s, _)| s)
-                    .unwrap_or(&fname);
+                let stem = fname.rsplit_once('.').map(|(s, _)| s).unwrap_or(&fname);
                 let stem_lower = stem.to_lowercase();
                 let norm_stem = Self::normalize_fs_token(stem);
                 let hit = bare_tokens.iter().any(|t| {
@@ -1289,7 +1268,9 @@ impl AppScanner {
                 if !p.is_file() {
                     continue;
                 }
-                if p.extension().is_none_or(|e| !e.eq_ignore_ascii_case("desktop")) {
+                if p.extension()
+                    .is_none_or(|e| !e.eq_ignore_ascii_case("desktop"))
+                {
                     continue;
                 }
                 let fname = p
@@ -1364,10 +1345,7 @@ impl AppScanner {
     /// `pick_and_canonicalize_package_path`（与 executor deb/rpm 回填同一函数）。
     /// 候选包名试全 `identifiers.linux + repo_base`（经 `linux_candidate_names` 全量派生）。
     #[cfg(target_os = "linux")]
-    pub fn resolve_linux_via_dpkg(
-        tokens: &[String],
-        config: &ScanConfig,
-    ) -> Option<String> {
+    pub fn resolve_linux_via_dpkg(tokens: &[String], config: &ScanConfig) -> Option<String> {
         Self::resolve_linux_via_dpkg_with_source(tokens, config).map(|(p, _)| p)
     }
 
@@ -1416,7 +1394,9 @@ impl AppScanner {
                 if !p.is_file() {
                     continue;
                 }
-                if p.extension().is_none_or(|e| !e.eq_ignore_ascii_case("desktop")) {
+                if p.extension()
+                    .is_none_or(|e| !e.eq_ignore_ascii_case("desktop"))
+                {
                     continue;
                 }
                 let Ok(content) = std::fs::read_to_string(&p) else {
@@ -1695,7 +1675,12 @@ mod path_resolution_tests {
     #[test]
     fn build_tokens_filters_stop_short_digit_and_extends_config() {
         let mut config = ScanConfig::from("motrix");
-        let tokens = AppScanner::build_tokens("Motrix App", "motrix-app-999", "agalwood/motrix", &mut config);
+        let tokens = AppScanner::build_tokens(
+            "Motrix App",
+            "motrix-app-999",
+            "agalwood/motrix",
+            &mut config,
+        );
         // 独立停用词 / 纯数字 / 短 token 不得作为独立 token 出现。
         assert!(!tokens.iter().any(|t| t == "app"));
         assert!(!tokens.iter().any(|t| t == "999"));
@@ -1704,10 +1689,7 @@ mod path_resolution_tests {
         assert!(tokens.iter().any(|t| t == "motrix-app"));
         // 配置扩展与 token 同源：安装目录与可执行名按序并入。
         assert!(config.install_dirs.iter().any(|d| d == "motrix"));
-        assert!(config
-            .target_executables
-            .iter()
-            .any(|e| e == "motrix.exe"));
+        assert!(config.target_executables.iter().any(|e| e == "motrix.exe"));
         assert!(config
             .target_executables
             .iter()

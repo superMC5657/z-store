@@ -275,7 +275,8 @@ mod tests {
                 app_id: "rustdesk/rustdesk".to_string()
             }
         );
-        let url_form = DeepLinkParser::parse("zstore://app/https://github.com/RustDesk/RustDesk").unwrap();
+        let url_form =
+            DeepLinkParser::parse("zstore://app/https://github.com/RustDesk/RustDesk").unwrap();
         assert_eq!(
             url_form,
             DeepLinkAction::AppDetail {

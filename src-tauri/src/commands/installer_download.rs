@@ -122,7 +122,11 @@ pub(crate) async fn select_download_asset(
     let detail = super::catalog::get_app_details(state.clone(), app_id.to_string(), None).await?;
 
     let selected_asset = if let Some(target_name) = asset_name {
-        detail.releases.iter().find(|r| r.name == target_name).cloned()
+        detail
+            .releases
+            .iter()
+            .find(|r| r.name == target_name)
+            .cloned()
     } else {
         None
     };
@@ -220,7 +224,10 @@ pub fn show_file_in_folder(path: String) -> crate::AppResult<bool> {
     if trimmed.is_empty() {
         return Err(crate::AppError::new("文件路径为空"));
     }
-    Ok(super::system::open_desktop_path(std::path::Path::new(trimmed), true)?)
+    Ok(super::system::open_desktop_path(
+        std::path::Path::new(trimmed),
+        true,
+    )?)
 }
 
 /// 直接打开目录（若传入文件路径则打开其父目录）。
@@ -230,5 +237,8 @@ pub fn open_folder(path: String) -> crate::AppResult<bool> {
     if trimmed.is_empty() {
         return Err(crate::AppError::new("目录路径为空"));
     }
-    Ok(super::system::open_desktop_path(std::path::Path::new(trimmed), false)?)
+    Ok(super::system::open_desktop_path(
+        std::path::Path::new(trimmed),
+        false,
+    )?)
 }

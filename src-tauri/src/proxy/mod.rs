@@ -234,7 +234,12 @@ mod tests {
         let lower = merged.to_ascii_lowercase();
         assert!(lower.contains("mirror.example.com"), "merged={}", merged);
         // 去重：gh-proxy.com 只出现一次（大小写不敏感）。
-        assert_eq!(lower.matches("gh-proxy.com").count(), 1, "merged={}", merged);
+        assert_eq!(
+            lower.matches("gh-proxy.com").count(),
+            1,
+            "merged={}",
+            merged
+        );
     }
 
     #[test]

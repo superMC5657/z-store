@@ -66,7 +66,12 @@ pub struct RepoCoord {
 impl RepoCoord {
     /// 附加补探上下文成完整任务。
     pub fn into_job(self, ctx: IconFetchCtx) -> IconFetchJob {
-        IconFetchJob { id: self.id, owner: self.owner, repo: self.repo, ctx }
+        IconFetchJob {
+            id: self.id,
+            owner: self.owner,
+            repo: self.repo,
+            ctx,
+        }
     }
 }
 
@@ -267,7 +272,9 @@ pub async fn fetch_icons_stream<F, Fut>(
     );
     // L4=README需网络，详情链专属，不受本核心约束，本 core 不探 README。
     let client = crate::forge::http::new_icon_client(
-        crate::config::get_project_config().network.api_timeout_seconds,
+        crate::config::get_project_config()
+            .network
+            .api_timeout_seconds,
     )
     .unwrap_or_default();
     // 慢路径鉴权头：有 token 才跑 Trees，无 token 只走快路径。
@@ -285,9 +292,7 @@ pub async fn fetch_icons_stream<F, Fut>(
         IconFetchCtx::Search { search_id, gen } => format!("search sid={search_id} gen={gen}"),
         IconFetchCtx::Trend { board, gen } => format!("trend board={board} gen={gen}"),
     });
-    let timeout_each = crate::config::api_timeout_or(
-        std::time::Duration::from_secs(10),
-    );
+    let timeout_each = crate::config::api_timeout_or(std::time::Duration::from_secs(10));
     let batch = futures_util::stream::iter(jobs.into_iter().map(|job| {
         let handle = handle.clone();
         let client = client.clone();
@@ -360,10 +365,7 @@ mod tests {
             board: "daily".to_string(),
             gen: 1,
         };
-        assert_eq!(
-            serde_json::to_value(&t).unwrap()["kind"],
-            "trend"
-        );
+        assert_eq!(serde_json::to_value(&t).unwrap()["kind"], "trend");
     }
 
     #[test]

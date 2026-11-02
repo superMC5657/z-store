@@ -44,10 +44,7 @@ use crate::config::LicenseGateConfig;
 
 /// 协议归一（纯函数）：去空白 → 大写 → 空格/下划线折 `-` → 尾 `+` 视为或后续版本。
 fn normalize_license(raw: &str) -> String {
-    let mut s = raw
-        .trim()
-        .to_ascii_uppercase()
-        .replace([' ', '_'], "-");
+    let mut s = raw.trim().to_ascii_uppercase().replace([' ', '_'], "-");
     if s.ends_with('+') {
         s.pop();
         if !s.ends_with("-OR-LATER") {
@@ -61,9 +58,7 @@ fn normalize_license(raw: &str) -> String {
 /// config 子集大小写/空格形态同样命中。
 pub fn is_allowed_license(license: &str, allowed: &[String]) -> bool {
     let norm = normalize_license(license);
-    allowed
-        .iter()
-        .any(|a| normalize_license(a) == norm)
+    allowed.iter().any(|a| normalize_license(a) == norm)
 }
 
 /// 门禁唯一源（编译时 config）：行为只由 `config.toml [license_gate]` 在编译发行时
@@ -189,11 +184,7 @@ pub fn validate_pr_url(pr_url: &str) -> Result<String, String> {
 fn row_to_entry(row: &rusqlite::Row<'_>) -> Result<CustomAppEntry> {
     let payload: String = row.get(1)?;
     let mut item: CatalogItem = serde_json::from_str(&payload).map_err(|e| {
-        rusqlite::Error::FromSqlConversionFailure(
-            1,
-            rusqlite::types::Type::Text,
-            Box::new(e),
-        )
+        rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(e))
     })?;
     let status: String = row.get(2)?;
     let archived_int: i64 = row.get(6)?;
@@ -265,9 +256,8 @@ impl Database {
         let now = now_secs();
         let mut clean_item = item.clone();
         clean_item.added_at = None;
-        let payload = serde_json::to_string(&clean_item).map_err(|e| {
-            rusqlite::Error::ToSqlConversionFailure(Box::new(e))
-        })?;
+        let payload = serde_json::to_string(&clean_item)
+            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
         self.exec_write(
             r#"
             INSERT INTO custom_apps (id, payload_json, status, pr_url, created_at, updated_at, archived)
@@ -286,10 +276,7 @@ impl Database {
     /// 未归档 `submitted` 可删（`status`/`pr_url` 经 `list`/`get` 透出后手动清理）；
     /// 已归档行同样直接删（转正归档手动清理，现有语义不变）。
     pub fn delete_custom_app(&self, id: &str) -> Result<bool> {
-        let rows = self.exec_write(
-            "DELETE FROM custom_apps WHERE id = ?1",
-            params![clean(id)],
-        )?;
+        let rows = self.exec_write("DELETE FROM custom_apps WHERE id = ?1", params![clean(id)])?;
         Ok(rows > 0)
     }
 
@@ -310,9 +297,8 @@ impl Database {
         let existing = self
             .get_custom_app(cleaned)
             .map_err(MarkSubmittedError::Db)?;
-        let entry = existing.ok_or_else(|| {
-            MarkSubmittedError::Invalid(format!("草稿不存在: {}", cleaned))
-        })?;
+        let entry = existing
+            .ok_or_else(|| MarkSubmittedError::Invalid(format!("草稿不存在: {}", cleaned)))?;
         if entry.archived {
             return Err(MarkSubmittedError::Invalid(format!(
                 "草稿已转正归档，无需重复提交: {}",
@@ -368,9 +354,8 @@ impl Database {
         let existing = self
             .get_custom_app(cleaned)
             .map_err(MarkCollectedError::Db)?;
-        let entry = existing.ok_or_else(|| {
-            MarkCollectedError::Invalid(format!("草稿不存在: {}", cleaned))
-        })?;
+        let entry = existing
+            .ok_or_else(|| MarkCollectedError::Invalid(format!("草稿不存在: {}", cleaned)))?;
         if entry.archived {
             return Err(MarkCollectedError::Invalid(format!(
                 "草稿已转正归档，无需重复收录: {}",
@@ -418,14 +403,15 @@ impl Database {
     ) -> Result<CustomAppEntry, RevertCollectedError> {
         let cleaned = clean(id);
         if cleaned.is_empty() {
-            return Err(RevertCollectedError::Invalid("应用标识不可为空".to_string()));
+            return Err(RevertCollectedError::Invalid(
+                "应用标识不可为空".to_string(),
+            ));
         }
         let existing = self
             .get_custom_app(cleaned)
             .map_err(RevertCollectedError::Db)?;
-        let entry = existing.ok_or_else(|| {
-            RevertCollectedError::Invalid(format!("草稿不存在: {}", cleaned))
-        })?;
+        let entry = existing
+            .ok_or_else(|| RevertCollectedError::Invalid(format!("草稿不存在: {}", cleaned)))?;
         if entry.archived {
             return Err(RevertCollectedError::Invalid(format!(
                 "草稿已转正归档，不可退回草稿: {}",
@@ -550,11 +536,9 @@ impl Database {
             return Ok(Vec::new());
         }
         let staged_ids: Vec<String> = self
-            .query_vec(
-                "SELECT id FROM custom_apps WHERE archived = 0",
-                [],
-                |row| row.get(0),
-            )?
+            .query_vec("SELECT id FROM custom_apps WHERE archived = 0", [], |row| {
+                row.get(0)
+            })?
             .into_iter()
             .filter(|id: &String| remote_set.contains(id))
             .collect();
@@ -737,13 +721,9 @@ mod tests {
         // 门禁关闭：放行任意非空 license（仅本地，WARN 审计），空仍拒绝。
         let mut item = draft_item("o/r", "o", "r");
         item.license = "OpenSource".to_string();
-        assert!(
-            validate_custom_item(&item, ValidateMode::SubmitStrict, &disabled_gate()).is_ok()
-        );
+        assert!(validate_custom_item(&item, ValidateMode::SubmitStrict, &disabled_gate()).is_ok());
         item.license = "  ".to_string();
-        assert!(
-            validate_custom_item(&item, ValidateMode::SubmitStrict, &disabled_gate()).is_err()
-        );
+        assert!(validate_custom_item(&item, ValidateMode::SubmitStrict, &disabled_gate()).is_err());
     }
 
     #[test]
@@ -769,8 +749,12 @@ mod tests {
     #[test]
     fn validate_accepts_canonical_draft() {
         assert_eq!(
-            validate_custom_item(&draft_item("o/r", "o", "r"), ValidateMode::SubmitStrict, &strict_gate())
-                .as_deref(),
+            validate_custom_item(
+                &draft_item("o/r", "o", "r"),
+                ValidateMode::SubmitStrict,
+                &strict_gate()
+            )
+            .as_deref(),
             Ok("o/r")
         );
     }
@@ -780,8 +764,8 @@ mod tests {
         // 草稿箱仅支持 GitHub owner/repo，forge 前缀 id（含冒号）两档同拒。
         let item = draft_item("codeberg:o/r", "O", "R");
         for mode in [ValidateMode::DraftLenient, ValidateMode::SubmitStrict] {
-            let err =
-                validate_custom_item(&item, mode, &strict_gate()).expect_err("forge id must be rejected");
+            let err = validate_custom_item(&item, mode, &strict_gate())
+                .expect_err("forge id must be rejected");
             assert!(
                 err.contains("仅支持 GitHub owner/repo"),
                 "unexpected reason: {err}"
@@ -795,28 +779,38 @@ mod tests {
     #[test]
     fn validate_rejects_non_canonical_and_mismatched_id() {
         // 大写 id 非 canonical（两档同拒：身份不可错）。
-        assert!(
-            validate_custom_item(&draft_item("O/R", "o", "r"), ValidateMode::DraftLenient, &strict_gate())
-                .is_err()
-        );
-        assert!(
-            validate_custom_item(&draft_item("O/R", "o", "r"), ValidateMode::SubmitStrict, &strict_gate())
-                .is_err()
-        );
+        assert!(validate_custom_item(
+            &draft_item("O/R", "o", "r"),
+            ValidateMode::DraftLenient,
+            &strict_gate()
+        )
+        .is_err());
+        assert!(validate_custom_item(
+            &draft_item("O/R", "o", "r"),
+            ValidateMode::SubmitStrict,
+            &strict_gate()
+        )
+        .is_err());
         // id 与 owner/repo 脱节（两档同拒）。
-        assert!(
-            validate_custom_item(&draft_item("o/other", "o", "r"), ValidateMode::DraftLenient, &strict_gate())
-                .is_err()
-        );
-        assert!(
-            validate_custom_item(&draft_item("o/other", "o", "r"), ValidateMode::SubmitStrict, &strict_gate())
-                .is_err()
-        );
+        assert!(validate_custom_item(
+            &draft_item("o/other", "o", "r"),
+            ValidateMode::DraftLenient,
+            &strict_gate()
+        )
+        .is_err());
+        assert!(validate_custom_item(
+            &draft_item("o/other", "o", "r"),
+            ValidateMode::SubmitStrict,
+            &strict_gate()
+        )
+        .is_err());
         // 未知标识（两档同拒）。
-        assert!(
-            validate_custom_item(&draft_item("nope", "o", "r"), ValidateMode::SubmitStrict, &strict_gate())
-                .is_err()
-        );
+        assert!(validate_custom_item(
+            &draft_item("nope", "o", "r"),
+            ValidateMode::SubmitStrict,
+            &strict_gate()
+        )
+        .is_err());
     }
 
     #[test]
@@ -842,7 +836,15 @@ mod tests {
     fn validate_rejects_non_osi_license() {
         // D1：CC-BY（非 OSI）、Unknown/NOASSERTION、闭源空 license 一律拒绝。
         // `unknown`（显式未知哨兵值）与 `FLOSS` 占位同按名单外拒绝。
-        for bad in ["CC-BY-4.0", "Unknown", "unknown", "FLOSS", "NOASSERTION", "", "Proprietary"] {
+        for bad in [
+            "CC-BY-4.0",
+            "Unknown",
+            "unknown",
+            "FLOSS",
+            "NOASSERTION",
+            "",
+            "Proprietary",
+        ] {
             let mut item = draft_item("o/r", "o", "r");
             item.license = bad.to_string();
             assert!(
@@ -851,7 +853,16 @@ mod tests {
             );
         }
         // OSI 常见形态放行（含小写与 `+` 后缀归一）。
-        for good in ["MIT", "mit", "Apache-2.0", "GPL-3.0", "GPL-3.0+", "AGPL-3.0", "MPL-2.0", "Unlicense"] {
+        for good in [
+            "MIT",
+            "mit",
+            "Apache-2.0",
+            "GPL-3.0",
+            "GPL-3.0+",
+            "AGPL-3.0",
+            "MPL-2.0",
+            "Unlicense",
+        ] {
             let mut item = draft_item("o/r", "o", "r");
             item.license = good.to_string();
             assert!(
@@ -864,7 +875,14 @@ mod tests {
     #[test]
     fn draft_lenient_tolerates_placeholders_but_keeps_identity() {
         // Q8 草稿三态：占位 license / 空 homepage / 不完整字段暂存放行（D1 门禁后移到提交时）。
-        for placeholder in ["", "OpenSource", "opensource", "NOASSERTION", "Unknown", "Proprietary"] {
+        for placeholder in [
+            "",
+            "OpenSource",
+            "opensource",
+            "NOASSERTION",
+            "Unknown",
+            "Proprietary",
+        ] {
             let mut item = draft_item("o/r", "o", "r");
             item.license = placeholder.to_string();
             item.homepage = None;
@@ -886,7 +904,9 @@ mod tests {
         // 验收三元组：draft 存 OpenSource 通过、submit 同值拒绝、Submit MIT 通过。
         let mut opensource = draft_item("o/r", "o", "r");
         opensource.license = "OpenSource".to_string();
-        assert!(validate_custom_item(&opensource, ValidateMode::DraftLenient, &strict_gate()).is_ok());
+        assert!(
+            validate_custom_item(&opensource, ValidateMode::DraftLenient, &strict_gate()).is_ok()
+        );
         let err = validate_custom_item(&opensource, ValidateMode::SubmitStrict, &strict_gate())
             .expect_err("OpenSource must fail submit-strict");
         assert!(err.contains("OSI"), "unexpected reason: {err}");
@@ -900,7 +920,9 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         let mut placeholder = draft_item("o/r", "o", "r");
         placeholder.license = "OpenSource".to_string();
-        assert!(validate_custom_item(&placeholder, ValidateMode::DraftLenient, &strict_gate()).is_ok());
+        assert!(
+            validate_custom_item(&placeholder, ValidateMode::DraftLenient, &strict_gate()).is_ok()
+        );
         db.upsert_custom_app_payload(&placeholder).unwrap();
         // 草稿直交提交被门禁拦（先收录）。
         let gate_err = db
@@ -968,8 +990,7 @@ mod tests {
         db.mark_custom_app_collected("o/s").unwrap();
         db.mark_custom_app_submitted("o/s", "https://github.com/x/y/pull/1")
             .unwrap();
-        db.retire_custom_apps_on_sync(&["o/s".to_string()])
-            .unwrap();
+        db.retire_custom_apps_on_sync(&["o/s".to_string()]).unwrap();
         let archived = db.get_custom_app("o/s").unwrap().unwrap();
         assert!(archived.archived);
         assert_eq!(archived.status, CUSTOM_APP_STATUS_SUBMITTED);
@@ -1009,7 +1030,9 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         assert!(db.list_custom_apps(false).unwrap().is_empty());
 
-        let saved = db.upsert_custom_app_payload(&draft_item("o/r", "o", "r")).unwrap();
+        let saved = db
+            .upsert_custom_app_payload(&draft_item("o/r", "o", "r"))
+            .unwrap();
         assert_eq!(saved.id, "o/r");
         assert_eq!(saved.status, CUSTOM_APP_STATUS_DRAFT);
         assert!(!saved.archived);
@@ -1080,8 +1103,12 @@ mod tests {
         assert_eq!(sub_archived.status, CUSTOM_APP_STATUS_SUBMITTED);
 
         // 已归档行拒绝重复提交，不复活。
-        assert!(db.mark_custom_app_submitted("o/hit", "https://github.com/x/y/pull/2").is_err());
-        assert!(db.mark_custom_app_submitted("o/sub", "https://github.com/x/y/pull/2").is_err());
+        assert!(db
+            .mark_custom_app_submitted("o/hit", "https://github.com/x/y/pull/2")
+            .is_err());
+        assert!(db
+            .mark_custom_app_submitted("o/sub", "https://github.com/x/y/pull/2")
+            .is_err());
         // 空远端集合直接空回，不触库。
         assert!(db.retire_custom_apps_on_sync(&[]).unwrap().is_empty());
     }
@@ -1125,7 +1152,9 @@ mod tests {
         assert_eq!(db.list_local_library_items().unwrap().len(), 1);
         assert!(db.get_collected_custom_item("o/r").unwrap().is_some());
         // 二次暂存不洗状态。
-        let resaved = db.upsert_custom_app_payload(&draft_item("o/r", "o", "r")).unwrap();
+        let resaved = db
+            .upsert_custom_app_payload(&draft_item("o/r", "o", "r"))
+            .unwrap();
         assert_eq!(resaved.status, CUSTOM_APP_STATUS_COLLECTED);
     }
 
@@ -1196,8 +1225,7 @@ mod tests {
         db.upsert_custom_app_payload(&draft_item("o/h", "o", "h"))
             .unwrap();
         db.mark_custom_app_collected("o/h").unwrap();
-        db.retire_custom_apps_on_sync(&["o/h".to_string()])
-            .unwrap();
+        db.retire_custom_apps_on_sync(&["o/h".to_string()]).unwrap();
         let err = db
             .revert_collected_to_draft("o/h")
             .expect_err("archived must not revert");
@@ -1227,7 +1255,11 @@ mod tests {
         assert!(db.list_local_library_apps().unwrap().is_empty());
         assert!(db.list_local_library_items().unwrap().is_empty());
         // 未归档列表仍含该行（draft 态，可在草稿 Tab 查看），归档位不动。
-        assert!(db.list_custom_apps(false).unwrap().iter().any(|e| e.id == "o/r"));
+        assert!(db
+            .list_custom_apps(false)
+            .unwrap()
+            .iter()
+            .any(|e| e.id == "o/r"));
     }
 
     #[test]
@@ -1526,7 +1558,10 @@ mod tests {
             "/../tests/fixtures/draft-validation-cases.json"
         ));
         let fixture: ParityFixture = serde_json::from_str(raw).expect("parity fixture parses");
-        assert!(!fixture.cases.is_empty(), "parity fixture must not be empty");
+        assert!(
+            !fixture.cases.is_empty(),
+            "parity fixture must not be empty"
+        );
         for case in &fixture.cases {
             let gate_cfg = case.gate.clone().unwrap_or_else(|| fixture.gate.clone());
             let gate = LicenseGateConfig {

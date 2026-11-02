@@ -280,8 +280,8 @@ pub(crate) fn decide_detail_release(
                 return Ok(DetailReleaseDecision::ReuseStale(Box::new(reused)));
             }
             if let Some(payload) = input.cached_payload {
-                let parsed = parse_release_payload(payload)
-                    .map_err(|e| format!("解析离线缓存失败: {e}"))?;
+                let parsed =
+                    parse_release_payload(payload).map_err(|e| format!("解析离线缓存失败: {e}"))?;
                 return Ok(DetailReleaseDecision::Proceed {
                     release: parsed,
                     cache_to_save: None,
@@ -477,9 +477,8 @@ mod tests {
         // 更新检查以 payload=None 重试（tolerant），见调用方注释。
         let outcome = EtagGetOutcome::NotModified;
         let row = sample_row();
-        let err =
-            decide_shallow_release(&outcome, Some("corrupt"), Some(&row), Some("v9.9.9"))
-                .unwrap_err();
+        let err = decide_shallow_release(&outcome, Some("corrupt"), Some(&row), Some("v9.9.9"))
+            .unwrap_err();
         match err {
             ShallowError::PayloadCorrupt(msg) => {
                 assert!(msg.starts_with("解析本地 ETag 缓存失败"))
@@ -526,16 +525,14 @@ mod tests {
         let row = sample_row();
         for outcome in [EtagGetOutcome::Failed, EtagGetOutcome::Unauthorized] {
             // payload 优先（fresher-first；lite-离线归一化，见模块注释）。
-            let rel =
-                decide_shallow_release(&outcome, Some(&payload), Some(&row), Some("v9.9.9"))
-                    .unwrap();
+            let rel = decide_shallow_release(&outcome, Some(&payload), Some(&row), Some("v9.9.9"))
+                .unwrap();
             assert_eq!(rel.source, ShallowSource::Payload);
             assert!(!rel.touch);
             assert!(rel.cache_to_save.is_none());
             assert!(rel.stale.is_none());
             // 行穿透：失败时 stale 恒 Some(true)，永不 touch。
-            let rel =
-                decide_shallow_release(&outcome, None, Some(&row), Some("v9.9.9")).unwrap();
+            let rel = decide_shallow_release(&outcome, None, Some(&row), Some("v9.9.9")).unwrap();
             assert_eq!(rel.source, ShallowSource::StaleRow);
             assert!(!rel.touch);
             assert_eq!(rel.stale, Some(true));
@@ -723,7 +720,9 @@ mod tests {
             repo_ok: false,
             is_auth_unauthorized: false,
         };
-        assert!(decide_detail_release(bad).unwrap_err().starts_with("解析离线缓存失败"));
+        assert!(decide_detail_release(bad)
+            .unwrap_err()
+            .starts_with("解析离线缓存失败"));
         // repo 存活 → fresh 空行（非 stale）。
         let empty = DetailReleaseInput {
             outcome: &EtagGetOutcome::Failed,
@@ -747,10 +746,8 @@ mod tests {
             other => panic!("unexpected {other:?}"),
         }
         // 双亡 → 合成空失败（stale；401 文案独立于离线文案；无收录默认 v1.0.0）。
-        for (auth, needle) in [
-            (false, "离线模式"),
-            (true, "GitHub 登录凭据已失效 (401)"),
-        ] {
+        for (auth, needle) in [(false, "离线模式"), (true, "GitHub 登录凭据已失效 (401)")]
+        {
             let synth = DetailReleaseInput {
                 outcome: &EtagGetOutcome::Failed,
                 cached_payload: None,

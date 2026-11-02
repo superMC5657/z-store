@@ -1,6 +1,6 @@
-use std::path::PathBuf;
 #[cfg(target_os = "windows")]
 use std::path::Path;
+use std::path::PathBuf;
 
 /// 获取当前系统用户的主目录（跨平台：Windows: USERPROFILE / HOMEDRIVE+HOMEPATH；Unix: HOME）
 pub fn user_home_dir() -> Option<PathBuf> {
@@ -175,6 +175,11 @@ pub fn sanitize_shortcut_name(app_name: &str) -> String {
 
 #[cfg(target_os = "windows")]
 pub fn create_desktop_shortcut(app_name: &str, exe_path: &Path) {
+    // 单元测试期间禁止在真实桌面创建任何快捷方式
+    if cfg!(test) {
+        return;
+    }
+
     let final_name = sanitize_shortcut_name(app_name);
 
     let working_dir = exe_path.parent().unwrap_or(exe_path);
@@ -375,7 +380,10 @@ mod shortcut_name_tests {
         // `..\` 形态的穿越名随之退化为 Desktop 内的普通文件名。
         assert_eq!(sanitize_shortcut_name(r"foo\..\..\bar"), "foo....bar");
         assert_eq!(sanitize_shortcut_name("a/b:c*d?e\"f<g>h|i"), "abcdefghi");
-        assert_eq!(sanitize_shortcut_name("  Visual Studio Code  "), "Visual Studio Code");
+        assert_eq!(
+            sanitize_shortcut_name("  Visual Studio Code  "),
+            "Visual Studio Code"
+        );
     }
 
     #[test]

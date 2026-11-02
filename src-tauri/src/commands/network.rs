@@ -103,7 +103,13 @@ pub async fn fetch_trends_text(url: String) -> Result<String, String> {
     // 最小记录：host + path，不记 query（调用方当前无秘密参数，仍保持最小）。
     let host = parsed.host_str().unwrap_or("?").to_string();
     let path = parsed.path().to_string();
-    log::debug!("trends text fetch start sid={} req={} host='{}' path='{}'", sid, req, host, path);
+    log::debug!(
+        "trends text fetch start sid={} req={} host='{}' path='{}'",
+        sid,
+        req,
+        host,
+        path
+    );
     let start = std::time::Instant::now();
     // 复用共享 Client（避免每次新建连接池）；10s 语义由外层 timeout 保留。
     let client = crate::shared_http_client();
@@ -166,7 +172,10 @@ pub async fn fetch_trends_text(url: String) -> Result<String, String> {
                 .unwrap_or("")
                 .trim()
                 .to_string();
-            let retry_after_ms_opt: Option<u64> = raw_retry_after.parse::<u64>().ok().map(|s| s.saturating_mul(1000));
+            let retry_after_ms_opt: Option<u64> = raw_retry_after
+                .parse::<u64>()
+                .ok()
+                .map(|s| s.saturating_mul(1000));
             match (raw_retry_after.is_empty(), retry_after_ms_opt) {
                 (true, _) => {
                     log::warn!(
@@ -202,7 +211,10 @@ pub async fn fetch_trends_text(url: String) -> Result<String, String> {
                         raw_retry_after,
                         start.elapsed().as_millis()
                     );
-                    return Err(format!("trends: upstream status 429 retry-after: {}", raw_retry_after));
+                    return Err(format!(
+                        "trends: upstream status 429 retry-after: {}",
+                        raw_retry_after
+                    ));
                 }
             }
         }
@@ -268,7 +280,10 @@ pub async fn fetch_trends_text(url: String) -> Result<String, String> {
                 start.elapsed().as_millis(),
                 crate::log_support::short_reason(&e.to_string())
             );
-            format!("trends: read body failed: {}", crate::log_support::short_reason(&e.to_string()))
+            format!(
+                "trends: read body failed: {}",
+                crate::log_support::short_reason(&e.to_string())
+            )
         })?
     };
     log::debug!(

@@ -101,7 +101,13 @@ impl Database {
                 detail_json = excluded.detail_json,
                 cached_at = excluded.cached_at;
             "#,
-            params![clean_id, detail.core.name, detail.core.latest_version, json_str, now,],
+            params![
+                clean_id,
+                detail.core.name,
+                detail.core.latest_version,
+                json_str,
+                now,
+            ],
         )?;
         Ok(())
     }
@@ -463,11 +469,12 @@ impl Database {
                 expires_at,
             ],
         )?;
-        let saved = self.get_asset(&raw)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        let saved = self
+            .get_asset(&raw)?
+            .ok_or(rusqlite::Error::QueryReturnedNoRows)?;
         let (max_files, max_bytes) = asset_quota_limits(self);
         if let Ok(stats) = self.asset_usage_stats() {
-            if stats.total_entries as u64 > max_files || stats.total_bytes as u64 > max_bytes
-            {
+            if stats.total_entries as u64 > max_files || stats.total_bytes as u64 > max_bytes {
                 let dir = crate::get_app_data_dir().join("cache").join("assets");
                 let _ = self.enforce_asset_quota_lru(&dir);
             }
@@ -522,7 +529,12 @@ impl Database {
                 "SELECT hash, local_path, size, last_used FROM asset_cache ORDER BY last_used ASC",
             )?;
             let mapped = stmt.query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?, row.get::<_, i64>(3)?))
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
             })?;
             let mut out = Vec::new();
             for r in mapped {
@@ -565,7 +577,9 @@ impl Database {
                     }
                 }
             }
-            let _ = self.conn.execute("DELETE FROM asset_cache WHERE hash = ?1", params![hash]);
+            let _ = self
+                .conn
+                .execute("DELETE FROM asset_cache WHERE hash = ?1", params![hash]);
             let _ = self
                 .conn
                 .execute("DELETE FROM asset_refs WHERE hash = ?1", params![hash]);
@@ -624,12 +638,11 @@ impl Database {
             "SELECT COUNT(*), COALESCE(SUM(size), 0), COALESCE(SUM(hits), 0) FROM asset_cache",
         )?;
         let mut rows = stmt.query([])?;
-        let (db_entries, db_bytes, db_hits): (i64, i64, i64) =
-            if let Some(row) = rows.next()? {
-                (row.get(0)?, row.get(1)?, row.get(2)?)
-            } else {
-                (0, 0, 0)
-            };
+        let (db_entries, db_bytes, db_hits): (i64, i64, i64) = if let Some(row) = rows.next()? {
+            (row.get(0)?, row.get(1)?, row.get(2)?)
+        } else {
+            (0, 0, 0)
+        };
         let (fs_entries, fs_bytes) = fs_totals(assets_dir);
         Ok(AssetUsageStats {
             total_entries: db_entries.max(fs_entries),
@@ -655,11 +668,7 @@ impl Database {
 
     /// 清理公共落点（目录 + 表语句参数化）：删目录下全部文件后顺序执行给定 SQL。
     /// 调用方传入常量 SQL（DELETE/UPDATE），本函数不拼接表名，无注入面。
-    fn clear_dir_common(
-        &self,
-        dir: &std::path::Path,
-        statements: &[&str],
-    ) -> Result<usize> {
+    fn clear_dir_common(&self, dir: &std::path::Path, statements: &[&str]) -> Result<usize> {
         let scanned = scan_asset_files(dir);
         let mut removed: usize = 0;
         for (path, _, _) in scanned {
@@ -724,10 +733,7 @@ fn scan_asset_files(
 }
 
 /// 解析缓存行对应的磁盘候选路径。
-fn asset_abs_candidates(
-    assets_dir: &std::path::Path,
-    local_path: &str,
-) -> Vec<std::path::PathBuf> {
+fn asset_abs_candidates(assets_dir: &std::path::Path, local_path: &str) -> Vec<std::path::PathBuf> {
     let trimmed = local_path.trim();
     if trimmed.is_empty() {
         return Vec::new();
@@ -768,14 +774,24 @@ mod cache_quota_tests {
         write_sized(&assets.join("ab").join("x.png"), 10);
         write_sized(&assets.join("cd").join("y.png"), 10);
         let expires = crate::now_secs() + 3600;
-        db.save_asset("https://example.com/stale.png", "image/png", 100, None, None, expires)
-            .unwrap();
+        db.save_asset(
+            "https://example.com/stale.png",
+            "image/png",
+            100,
+            None,
+            None,
+            expires,
+        )
+        .unwrap();
         // save_asset 内 enforce 用默认目录，不影响临时目录断言。
         let stats = db.asset_usage_stats_in(&assets).unwrap();
         assert_eq!(stats.total_entries, 2);
         assert_eq!(stats.total_bytes, 100);
         // hits 取 DB 累计；touch 后 +1。
-        let rec = db.get_asset("https://example.com/stale.png").unwrap().unwrap();
+        let rec = db
+            .get_asset("https://example.com/stale.png")
+            .unwrap()
+            .unwrap();
         db.touch_asset(&rec.hash, "o/r").unwrap();
         let stats2 = db.asset_usage_stats_in(&assets).unwrap();
         assert_eq!(stats2.total_hits, stats.total_hits + 1);
@@ -788,8 +804,10 @@ mod cache_quota_tests {
         let icons = dir.path().join("icons");
         // FS 侧 1 文件 10 字节；DB 侧 2 行 → 条目取大者 2，字节取 FS 真值。
         write_sized(&icons.join("a.png"), 10);
-        db.save_icon_cache_url("a.png", "https://example.com/a.png").unwrap();
-        db.save_icon_cache_url("b.png", "https://example.com/b.png").unwrap();
+        db.save_icon_cache_url("a.png", "https://example.com/a.png")
+            .unwrap();
+        db.save_icon_cache_url("b.png", "https://example.com/b.png")
+            .unwrap();
         let stats = db.icon_usage_stats(&icons).unwrap();
         assert_eq!(stats.total_entries, 2);
         assert_eq!(stats.total_bytes, 10);
@@ -804,8 +822,15 @@ mod cache_quota_tests {
         write_sized(&assets.join("x.png"), 5);
         write_sized(&assets.join("sub").join("y.png"), 5);
         let expires = crate::now_secs() + 3600;
-        db.save_asset("https://example.com/a.png", "image/png", 5, None, None, expires)
-            .unwrap();
+        db.save_asset(
+            "https://example.com/a.png",
+            "image/png",
+            5,
+            None,
+            None,
+            expires,
+        )
+        .unwrap();
         let removed = db.clear_asset_cache(&assets).unwrap();
         assert_eq!(removed, 2);
         assert!(scan_asset_files(&assets).is_empty());
@@ -813,7 +838,8 @@ mod cache_quota_tests {
 
         let icons = dir.path().join("icons");
         write_sized(&icons.join("i.png"), 5);
-        db.save_icon_cache_url("i.png", "https://example.com/i.png").unwrap();
+        db.save_icon_cache_url("i.png", "https://example.com/i.png")
+            .unwrap();
         let removed = db.clear_icon_cache(&icons).unwrap();
         assert_eq!(removed, 1);
         assert!(scan_asset_files(&icons).is_empty());

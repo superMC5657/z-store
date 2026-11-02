@@ -44,7 +44,11 @@ impl Default for AppIconCycle {
 }
 
 impl AppIconCycle {
-    pub fn new(app_id: impl Into<String>, owner: impl Into<String>, repo: impl Into<String>) -> Self {
+    pub fn new(
+        app_id: impl Into<String>,
+        owner: impl Into<String>,
+        repo: impl Into<String>,
+    ) -> Self {
         Self {
             app_id: app_id.into(),
             owner: owner.into(),
@@ -379,7 +383,11 @@ pub fn first_available_level(cycle: &AppIconCycle) -> Option<i32> {
 /// 非收录应用绝不轮换到 Level 1（官方）。
 pub fn next_cycle_level(curr_level: i32, cycle: &AppIconCycle) -> i32 {
     let mut cand = if !(1..=5).contains(&curr_level) {
-        if cycle.is_cataloged { 1 } else { 2 }
+        if cycle.is_cataloged {
+            1
+        } else {
+            2
+        }
     } else {
         (curr_level % 5) + 1
     };
@@ -422,7 +430,11 @@ pub fn hash_icon_filename(url_trimmed: &str, ext: &str) -> String {
     let full = crate::sha256_digest_hex(u.as_bytes());
     let stem = &full[..16.min(full.len())];
     let clean_ext = ext.trim().trim_start_matches('.').to_ascii_lowercase();
-    let clean_ext = if clean_ext.is_empty() { "png".to_string() } else { clean_ext };
+    let clean_ext = if clean_ext.is_empty() {
+        "png".to_string()
+    } else {
+        clean_ext
+    };
     format!("{}.{}", stem, clean_ext)
 }
 
@@ -547,10 +559,7 @@ pub fn adopt_probe_cache_file(
 /// icon_cache_meta 读侧 TTL 感知记录（图标通道 ETag 禁用后的 DB 有效性唯一依据）：
 /// 返回 `(remote_url, cached_at)`；无行即 `None`（调用方视为未命中，后台重下1次）。
 /// 配额 LRU 只清文件不删 DB URL，故此键 bedding 永不因 LRU 消失（文件缺失可经 URL 重下恢复）。
-pub fn get_icon_cache_record(
-    db: &Database,
-    cache_key: &str,
-) -> Result<Option<(String, i64)>> {
+pub fn get_icon_cache_record(db: &Database, cache_key: &str) -> Result<Option<(String, i64)>> {
     let cleaned = clean(cache_key);
     if cleaned.is_empty() {
         return Ok(None);

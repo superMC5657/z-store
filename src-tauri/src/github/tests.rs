@@ -68,20 +68,27 @@ fn test_rewrite_readme_images() {
     let rewritten = CatalogService::rewrite_readme_images(sample, "rustdesk", "rustdesk");
 
     // 验证相对路径转为 raw 绝对地址
-    assert!(rewritten.contains("https://raw.githubusercontent.com/rustdesk/rustdesk/HEAD/assets/logo.png"));
-    assert!(rewritten.contains("https://raw.githubusercontent.com/rustdesk/rustdesk/HEAD/docs/screenshot.svg"));
+    assert!(rewritten
+        .contains("https://raw.githubusercontent.com/rustdesk/rustdesk/HEAD/assets/logo.png"));
+    assert!(rewritten
+        .contains("https://raw.githubusercontent.com/rustdesk/rustdesk/HEAD/docs/screenshot.svg"));
 
     // 验证带空格路径进行了安全 URL 编码
     assert!(rewritten.contains("https://raw.githubusercontent.com/rustdesk/rustdesk/HEAD/doc/images/icons/Command%20Palette.png"));
 
     // 验证 <source srcset="..."> 响应式标签重写
-    assert!(rewritten.contains("srcset=\"https://raw.githubusercontent.com/rustdesk/rustdesk/HEAD/docs/dark-banner.png\""));
+    assert!(rewritten.contains(
+        "srcset=\"https://raw.githubusercontent.com/rustdesk/rustdesk/HEAD/docs/dark-banner.png\""
+    ));
 
     // 验证 Markdown 引用式链接定义 [ci-badge]: ... 重写
-    assert!(rewritten.contains("[ci-badge]: https://raw.githubusercontent.com/rustdesk/rustdesk/HEAD/docs/ci-badge.svg"));
+    assert!(rewritten.contains(
+        "[ci-badge]: https://raw.githubusercontent.com/rustdesk/rustdesk/HEAD/docs/ci-badge.svg"
+    ));
 
     // 验证 GitHub Blob 网页链接转为 raw 绝对地址
-    assert!(rewritten.contains("https://raw.githubusercontent.com/rustdesk/rustdesk/master/res/demo.png"));
+    assert!(rewritten
+        .contains("https://raw.githubusercontent.com/rustdesk/rustdesk/master/res/demo.png"));
 
     // 验证外部 shields.io 保持原样
     assert!(rewritten.contains("https://img.shields.io/badge/license-MIT-blue"));

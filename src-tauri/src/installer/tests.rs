@@ -66,7 +66,12 @@ fn test_classify_tarball_binary() {
         "pi-linux-x64.tar.xz",
     ] {
         let (kind, os, _) = InstallerEngine::classify_asset(name);
-        assert_eq!(kind, AssetKind::PortableTarball, "tar ext must map: {}", name);
+        assert_eq!(
+            kind,
+            AssetKind::PortableTarball,
+            "tar ext must map: {}",
+            name
+        );
         assert_eq!(os, "linux", "tar os must be linux: {}", name);
     }
     assert_eq!(
@@ -102,12 +107,7 @@ fn test_tarball_score_bottom_and_no_cross_os_fallback() {
 
     // 同 OS/Arch 下 tarball 垫底：portable_zip(+10) > portable_tarball(+5)
     let zip = mk(target_os, target_arch, "portable_zip", "app.tar.zip");
-    let tar = mk(
-        target_os,
-        target_arch,
-        "portable_tarball",
-        "app.tar.gz",
-    );
+    let tar = mk(target_os, target_arch, "portable_tarball", "app.tar.gz");
     let zip_score = selector::score_asset(&zip);
     let tar_score = selector::score_asset(&tar);
     assert!(
@@ -121,12 +121,7 @@ fn test_tarball_score_bottom_and_no_cross_os_fallback() {
         selector::SCORE_ASSET_KIND_PORTABLE - selector::SCORE_ASSET_KIND_TARBALL
     );
     // 未知 kind 不加分，tarball 仅 `portable_tarball` 生效。
-    let tar_unknown_kind = mk(
-        target_os,
-        target_arch,
-        "compressed_tarball",
-        "app.tar.gz",
-    );
+    let tar_unknown_kind = mk(target_os, target_arch, "compressed_tarball", "app.tar.gz");
     assert!(
         selector::score_asset(&tar_unknown_kind) < tar_score,
         "removed alias compressed_tarball must not score as tarball"
@@ -141,7 +136,12 @@ fn test_tarball_score_bottom_and_no_cross_os_fallback() {
     let foreign_os = "windows";
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     let foreign_os = "never-matching-os-xyz";
-    let foreign_tar = vec![mk(foreign_os, target_arch, "portable_tarball", "pi-foreign.tar.gz")];
+    let foreign_tar = vec![mk(
+        foreign_os,
+        target_arch,
+        "portable_tarball",
+        "pi-foreign.tar.gz",
+    )];
     assert!(select_best_asset(&foreign_tar).is_none());
 }
 

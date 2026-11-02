@@ -364,7 +364,10 @@ fn test_strict_errors_strict_mode_fails_fast() {
     let db = fixtures::test_db();
     db.set_setting("strict_errors", "true").unwrap();
     assert!(db.is_strict_errors());
-    assert_eq!(crate::db::normalize_setting_value("strict_errors", "true"), "true");
+    assert_eq!(
+        crate::db::normalize_setting_value("strict_errors", "true"),
+        "true"
+    );
 }
 
 #[test]
@@ -465,7 +468,11 @@ fn test_cataloged_flags_fail_closed_default_and_backfill() {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(dflt.as_deref(), Some("0"), "{table} default must fail closed");
+        assert_eq!(
+            dflt.as_deref(),
+            Some("0"),
+            "{table} default must fail closed"
+        );
     }
     db.conn
         .execute(
@@ -537,7 +544,10 @@ fn test_icon_cycle_crud() {
 
     // 1. 初始状态：无记录
     assert!(db.get_icon_cycle(app_id).unwrap().is_none());
-    assert!(db.get_icon_cycle_by_repo("rustdesk", "rustdesk").unwrap().is_none());
+    assert!(db
+        .get_icon_cycle_by_repo("rustdesk", "rustdesk")
+        .unwrap()
+        .is_none());
 
     // 2. 插入新记录
     let cycle = AppIconCycle {
@@ -583,7 +593,9 @@ fn test_icon_cycle_crud() {
     let alias_fetched = db.get(app_id).unwrap().expect("alias get exists");
     assert_eq!(alias_fetched.app_id, app_id);
 
-    let module_fetched = icon_cycle::get(&db, app_id).unwrap().expect("module get exists");
+    let module_fetched = icon_cycle::get(&db, app_id)
+        .unwrap()
+        .expect("module get exists");
     assert_eq!(module_fetched.app_id, app_id);
 
     // 6. 删除记录
@@ -947,7 +959,10 @@ fn test_icon_cycle_pinned_roundtrip() {
 fn fresh_schema_has_pinned_default_zero() {
     // 基线 schema：新建库 `app_icon_cycles` 即含 `pinned` 列，缺省为 0。
     let db = fixtures::test_db();
-    let mut stmt = db.conn.prepare("PRAGMA table_info(app_icon_cycles)").unwrap();
+    let mut stmt = db
+        .conn
+        .prepare("PRAGMA table_info(app_icon_cycles)")
+        .unwrap();
     let cols: Vec<(String, Option<String>)> = stmt
         .query_map([], |row| {
             Ok((row.get::<_, String>(1)?, row.get::<_, Option<String>>(4)?))
@@ -995,13 +1010,15 @@ fn test_detail_refresh_keeps_pinned_selection_and_fills_slot() {
     db.upsert_icon_cycle(&before).unwrap();
 
     let mut loaded = db.get_icon_cycle(app_id).unwrap().unwrap();
-    let was_pinned =
-        icon_cycle::merge_detail_icon(&mut loaded, 4, l4, false, 2000);
+    let was_pinned = icon_cycle::merge_detail_icon(&mut loaded, 4, l4, false, 2000);
     assert!(was_pinned, "pinned row must report pinned");
     assert_eq!(loaded.level, 2);
     assert_eq!(loaded.selected_url, l2);
     assert_eq!(loaded.l4_url, l4);
-    assert_eq!(loaded.updated_at, 1000, "pinned merge must not bump updated_at");
+    assert_eq!(
+        loaded.updated_at, 1000,
+        "pinned merge must not bump updated_at"
+    );
     db.upsert_icon_cycle(&loaded).unwrap();
     let re = db.get_icon_cycle(app_id).unwrap().unwrap();
     assert!(re.pinned);
@@ -1085,7 +1102,13 @@ fn test_detail_refresh_keeps_pinned_l5_badge() {
 
     let mut loaded = db.get_icon_cycle(app_id).unwrap().unwrap();
     assert_eq!(loaded.level, 5);
-    assert!(icon_cycle::merge_detail_icon(&mut loaded, 4, l4, false, 2000));
+    assert!(icon_cycle::merge_detail_icon(
+        &mut loaded,
+        4,
+        l4,
+        false,
+        2000
+    ));
     assert_eq!(loaded.level, 5);
     assert!(loaded.selected_url.is_empty());
     assert!(loaded.cache_file.is_empty());
@@ -1232,7 +1255,13 @@ fn test_stream_merge_on_pinned_row_only_fills_slot() {
 
     let mut loaded = db.get_icon_cycle(app_id).unwrap().unwrap();
     let keep_cataloged = loaded.is_cataloged;
-    assert!(icon_cycle::merge_detail_icon(&mut loaded, 2, l2, keep_cataloged, 2000));
+    assert!(icon_cycle::merge_detail_icon(
+        &mut loaded,
+        2,
+        l2,
+        keep_cataloged,
+        2000
+    ));
     db.upsert_icon_cycle(&loaded).unwrap();
 
     let re = db.get_icon_cycle(app_id).unwrap().unwrap();
@@ -1316,4 +1345,3 @@ fn commit_failure_rolls_back_and_leaves_no_open_transaction() {
         .unwrap();
     assert_eq!(rows, 0, "失败事务的写入应随回滚丢弃");
 }
-

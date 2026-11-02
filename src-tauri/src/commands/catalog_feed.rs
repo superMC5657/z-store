@@ -72,12 +72,14 @@ pub fn get_category_apps(
     let filtered: Vec<AppSummary> = all
         .into_iter()
         .filter(|a| {
-            (a.core.category.to_lowercase() == cat_clean || a.core.category_name.to_lowercase() == cat_clean)
+            (a.core.category.to_lowercase() == cat_clean
+                || a.core.category_name.to_lowercase() == cat_clean)
                 && !hidden_ids.contains(&a.core.id)
         })
         .collect();
 
-    let (offset, limit) = category_page_window(&crate::config::get_project_config().limits, page, per_page);
+    let (offset, limit) =
+        category_page_window(&crate::config::get_project_config().limits, page, per_page);
     let (items, total, has_more) =
         crate::github::catalog_feed_score::paginate_feed(&filtered, limit, offset);
     Ok(FeedPage {
@@ -186,7 +188,11 @@ mod tests {
     use super::*;
     use crate::github::models::CatalogItem;
 
-    fn windowed(total: usize, page: Option<u32>, per_page: Option<u32>) -> (Vec<usize>, usize, bool) {
+    fn windowed(
+        total: usize,
+        page: Option<u32>,
+        per_page: Option<u32>,
+    ) -> (Vec<usize>, usize, bool) {
         let items: Vec<usize> = (0..total).collect();
         let (offset, limit) =
             category_page_window(&crate::config::LimitsConfig::default(), page, per_page);
@@ -284,7 +290,10 @@ mod tests {
         catalog.set_collected_items(vec![feed_item("o/local", "o", "local")]);
         let merged = catalog.merged_summaries();
         assert_eq!(merged.len(), 2);
-        let local = merged.iter().find(|s| s.core.id == "o/local").expect("local row");
+        let local = merged
+            .iter()
+            .find(|s| s.core.id == "o/local")
+            .expect("local row");
         assert_eq!(local.core.source.as_deref(), Some("local"));
         assert_eq!(local.core.status.as_deref(), Some("collected"));
         assert_eq!(local.core.is_cataloged, Some(true));
@@ -323,7 +332,8 @@ mod tests {
         let today_days = crate::date_utils::today_days();
         let today_str = crate::date_utils::format_epoch_secs_ymd(today_days * 86400);
         let five_days_ago_str = crate::date_utils::format_epoch_secs_ymd((today_days - 5) * 86400);
-        let twenty_days_ago_str = crate::date_utils::format_epoch_secs_ymd((today_days - 20) * 86400);
+        let twenty_days_ago_str =
+            crate::date_utils::format_epoch_secs_ymd((today_days - 20) * 86400);
 
         let mut app_today = feed_item("o/today", "o", "today").to_summary();
         app_today.core.added_at = Some(today_str);

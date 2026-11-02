@@ -172,10 +172,7 @@ impl LimitsConfig {
     pub fn clamp_online_search_per_page(&self, per_page: Option<u32>) -> usize {
         match per_page {
             None => self.online_search_page_size.max(ONLINE_SEARCH_PER_PAGE_MIN),
-            Some(n) => (n as usize).clamp(
-                ONLINE_SEARCH_PER_PAGE_MIN,
-                ONLINE_SEARCH_PER_PAGE_MAX,
-            ),
+            Some(n) => (n as usize).clamp(ONLINE_SEARCH_PER_PAGE_MIN, ONLINE_SEARCH_PER_PAGE_MAX),
         }
     }
 
@@ -431,10 +428,7 @@ const _: () = assert!(
 /// 去空白 → 大写 → 空格/下划线折 `-` → 尾 `+` 视为或后续版本。
 /// 校验侧只用它判空（有效条目即归一后非空），名单命中比对仍走校验侧。
 fn normalize_license_token(raw: &str) -> String {
-    let mut s = raw
-        .trim()
-        .to_ascii_uppercase()
-        .replace([' ', '_'], "-");
+    let mut s = raw.trim().to_ascii_uppercase().replace([' ', '_'], "-");
     if s.ends_with('+') {
         s.pop();
         if !s.ends_with("-OR-LATER") {
@@ -529,10 +523,7 @@ impl CatalogConfig {
     fn rebase_local_path(&mut self, config_dir: &std::path::Path) {
         let configured = std::path::Path::new(&self.local_path);
         if configured.is_relative() {
-            self.local_path = config_dir
-                .join(configured)
-                .to_string_lossy()
-                .into_owned();
+            self.local_path = config_dir.join(configured).to_string_lossy().into_owned();
         }
     }
 
@@ -725,10 +716,7 @@ mod tests {
         let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
         for item in &items {
             let id_lower = item.id.to_lowercase();
-            assert!(
-                seen_ids.insert(id_lower.clone()),
-                "id 重复：{id_lower}"
-            );
+            assert!(seen_ids.insert(id_lower.clone()), "id 重复：{id_lower}");
             let coord = format!("{}/{}", item.owner, item.repo).to_lowercase();
             assert_eq!(id_lower, coord, "id 必须等于小写 owner/repo：{}", item.id);
             for (field, v) in [
@@ -762,10 +750,7 @@ mod tests {
                 let a = alias.trim().to_lowercase();
                 assert!(!a.is_empty(), "{id_lower} 存在空别名");
                 assert!(a != id_lower, "{id_lower} 别名与 id 重合：{alias}");
-                assert!(
-                    aliases.insert(a),
-                    "{id_lower} 别名条内重复：{alias}"
-                );
+                assert!(aliases.insert(a), "{id_lower} 别名条内重复：{alias}");
             }
         }
     }
@@ -775,7 +760,10 @@ mod tests {
         // 返回统一配置中枢 `network.api_timeout_seconds` 对应的超时。
         let expected =
             std::time::Duration::from_secs(get_project_config().network.api_timeout_seconds);
-        assert_eq!(super::api_timeout_or(std::time::Duration::from_secs(10)), expected);
+        assert_eq!(
+            super::api_timeout_or(std::time::Duration::from_secs(10)),
+            expected
+        );
         assert_eq!(
             super::api_timeout_or(std::time::Duration::from_millis(1500)),
             expected
@@ -790,8 +778,7 @@ mod tests {
             pool = 5
             total_timeout_secs = 15
         "#;
-        let conf: ProjectConfig =
-            toml::from_str(payload).expect("icon_fetch payload must parse");
+        let conf: ProjectConfig = toml::from_str(payload).expect("icon_fetch payload must parse");
         assert_eq!(conf.limits.icon_fetch.pool, 5);
         assert_eq!(conf.limits.icon_fetch.total_timeout_secs, 15);
     }
@@ -825,12 +812,14 @@ mod tests {
 
     #[test]
     fn license_gate_parses_explicit_disable_and_subset() {
-        let conf: ProjectConfig = toml::from_str(
-            "[license_gate]\nenabled = false\nallowed = [\"MIT\", \"GPL-3.0\"]",
-        )
-        .expect("license_gate payload must parse");
+        let conf: ProjectConfig =
+            toml::from_str("[license_gate]\nenabled = false\nallowed = [\"MIT\", \"GPL-3.0\"]")
+                .expect("license_gate payload must parse");
         assert!(!conf.license_gate.enabled);
-        assert_eq!(conf.license_gate.allowed, vec!["MIT".to_string(), "GPL-3.0".to_string()]);
+        assert_eq!(
+            conf.license_gate.allowed,
+            vec!["MIT".to_string(), "GPL-3.0".to_string()]
+        );
     }
 
     #[test]
@@ -849,18 +838,12 @@ mod tests {
             enabled: true,
             allowed: vec![],
         };
-        assert_eq!(
-            validate_embedded_license_gate(&gate).unwrap_err(),
-            err_msg
-        );
+        assert_eq!(validate_embedded_license_gate(&gate).unwrap_err(), err_msg);
         let gate = LicenseGateConfig {
             enabled: true,
             allowed: vec!["  ".to_string(), String::new()],
         };
-        assert_eq!(
-            validate_embedded_license_gate(&gate).unwrap_err(),
-            err_msg
-        );
+        assert_eq!(validate_embedded_license_gate(&gate).unwrap_err(), err_msg);
         // 大小写 / 空格形态经归一仍算有效条目。
         let gate = LicenseGateConfig {
             enabled: true,
@@ -890,8 +873,12 @@ mod tests {
         assert!(embedded_gate_section_valid(
             "[license_gate]\nenabled = false\nallowed = []"
         ));
-        assert!(embedded_gate_section_valid("[cache]\ndetail_ttl_minutes = 60"));
-        assert!(embedded_gate_section_valid("[license_gate]\nenabled = true"));
+        assert!(embedded_gate_section_valid(
+            "[cache]\ndetail_ttl_minutes = 60"
+        ));
+        assert!(embedded_gate_section_valid(
+            "[license_gate]\nenabled = true"
+        ));
         assert!(embedded_gate_section_valid(
             "[license_gate]\nenabled = true\nallowed = [\"mit \"]"
         ));
@@ -977,7 +964,10 @@ mod tests {
         assert!(!candidates.is_empty());
         for path in candidates {
             assert!(path.is_absolute(), "{} 应当为绝对路径", path.display());
-            assert_eq!(path.file_name().map(|s| s.to_string_lossy()), Some("config.toml".into()));
+            assert_eq!(
+                path.file_name().map(|s| s.to_string_lossy()),
+                Some("config.toml".into())
+            );
         }
     }
 }

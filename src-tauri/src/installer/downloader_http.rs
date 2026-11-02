@@ -391,8 +391,7 @@ pub async fn download_with_progress(
     // 零信任哈希终态判定：不符已在落盘时以 Tampered 中断并删文件，
     // 能执行到此处说明已通过官方校验或上游未提供期望值，此处只做终态分支，不再重复比对。
     // 收敛：与 `SkipDone::finish` 同一 fetch→verify 契约终态（`verify_terminal_state`）。
-    let (verified_state, verified_msg) =
-        verify_terminal_state(expected_sha256, &actual_hash);
+    let (verified_state, verified_msg) = verify_terminal_state(expected_sha256, &actual_hash);
 
     DownloadProgressPayload::emit_event(
         app_handle,

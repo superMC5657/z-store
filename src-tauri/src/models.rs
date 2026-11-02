@@ -133,7 +133,10 @@ mod app_core_tests {
 
         let sv: serde_json::Value = serde_json::to_value(&summary).unwrap();
         let dv: serde_json::Value = serde_json::to_value(&detail).unwrap();
-        assert!(sv.get("core").is_none(), "AppSummary 序列化出现 core 包装键");
+        assert!(
+            sv.get("core").is_none(),
+            "AppSummary 序列化出现 core 包装键"
+        );
         assert!(dv.get("core").is_none(), "AppDetail 序列化出现 core 包装键");
         assert_eq!(sv["id"], "o/r");
         assert_eq!(sv["status"], "collected");

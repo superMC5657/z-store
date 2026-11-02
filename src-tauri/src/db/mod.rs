@@ -206,10 +206,7 @@ impl Database {
     /// 用 `&self` + `execute_batch` 实现以保持 `&self` 写 API（调用方经 `state.db()` 互斥锁已独占，
     /// 无嵌套事务），WAL/`busy_timeout` 沿用连接既有配置，不改 schema/API 形状。
     /// 调用方保持 `let _ =`/`ok()` 吞错语义：事务失败返回 Err，上层忽略并由下次搜索/详情重试。
-    pub(crate) fn with_immediate_transaction<T>(
-        &self,
-        f: impl FnOnce() -> Result<T>,
-    ) -> Result<T> {
+    pub(crate) fn with_immediate_transaction<T>(&self, f: impl FnOnce() -> Result<T>) -> Result<T> {
         self.conn.execute_batch("BEGIN IMMEDIATE")?;
         let res = f();
         match res {
@@ -235,11 +232,7 @@ impl Database {
     }
 
     /// 历史裁剪唯一落点：白名单表名防注入，limit 为整数格式化（调用方需 `as u64` 传入配置值）。
-    pub(crate) fn prune_history_table(
-        &self,
-        table: ValidatedTable,
-        limit: u64,
-    ) -> Result<()> {
+    pub(crate) fn prune_history_table(&self, table: ValidatedTable, limit: u64) -> Result<()> {
         let sql = format!(
             "DELETE FROM {} WHERE id NOT IN (SELECT id FROM {} ORDER BY {} DESC LIMIT {})",
             table.table_name(),

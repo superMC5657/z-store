@@ -67,9 +67,8 @@ pub(crate) fn cleanup_portable_path(
     if let Some(d) = dir {
         if d.exists() {
             if is_owned_portable_dir(d, owned_dir) {
-                std::fs::remove_dir_all(d).map_err(|e| {
-                    format!("清理便携目录失败 ({}): {}", d.display(), e)
-                })?;
+                std::fs::remove_dir_all(d)
+                    .map_err(|e| format!("清理便携目录失败 ({}): {}", d.display(), e))?;
             } else if install_path.is_file() && install_path.exists() {
                 std::fs::remove_file(install_path).map_err(|e| {
                     format!("删除清单记录文件失败 ({}): {}", install_path.display(), e)
@@ -85,10 +84,7 @@ pub(crate) fn cleanup_portable_path(
 /// 拼接后再做 canonicalize + Desktop 前缀断言双保险；任一环节不满足则返回 None，
 /// 宁可残留死快捷方式也绝不删除 Desktop 之外的文件。
 #[cfg(target_os = "windows")]
-fn deletable_desktop_lnk(
-    desktop: &std::path::Path,
-    app_name: &str,
-) -> Option<std::path::PathBuf> {
+fn deletable_desktop_lnk(desktop: &std::path::Path, app_name: &str) -> Option<std::path::PathBuf> {
     let name = crate::installer::sanitize_shortcut_name(app_name);
     let lnk = desktop.join(format!("{}.lnk", name));
     if !lnk.exists() {
@@ -106,11 +102,7 @@ fn cleanup_desktop_shortcut(app_name: &str) {
         .unwrap_or_else(|_| std::path::PathBuf::from("C:\\Users\\Public\\Desktop"));
     if let Some(lnk) = deletable_desktop_lnk(&desktop, app_name) {
         if let Err(e) = std::fs::remove_file(&lnk) {
-            log::warn!(
-                "删除 Desktop 快捷方式失败 path={} err={}",
-                lnk.display(),
-                e
-            );
+            log::warn!("删除 Desktop 快捷方式失败 path={} err={}", lnk.display(), e);
         }
     }
 }

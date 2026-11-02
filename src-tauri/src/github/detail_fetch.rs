@@ -202,7 +202,9 @@ fn reuse_304_cached(
         return None;
     }
     let mut detail = existing.clone();
-    detail.releases.retain(|r| is_valid_installer_asset(&r.name, r.size_bytes));
+    detail
+        .releases
+        .retain(|r| is_valid_installer_asset(&r.name, r.size_bytes));
     // deduce + ios 并集 + 排序经内部平台 seam（与成功路径共用）。
     detail.core.platforms = unioned_detail_platforms(&detail.releases, catalog_item);
     if let Some(item) = catalog_item {
@@ -458,15 +460,14 @@ fn resolve_effective_descriptions(
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .filter(|s| !is_placeholder_description(s));
-    let effective_desc: String =
-        if catalog_item.is_none() && is_placeholder_description(&desc) {
-            match repo_real_desc.clone() {
-                Some(real) => real,
-                None => desc,
-            }
-        } else {
-            desc
-        };
+    let effective_desc: String = if catalog_item.is_none() && is_placeholder_description(&desc) {
+        match repo_real_desc.clone() {
+            Some(real) => real,
+            None => desc,
+        }
+    } else {
+        desc
+    };
     let effective_description_en: Option<String> = if catalog_item.is_none() {
         match base_description_en {
             Some(ref e) if !is_placeholder_description(e) => Some(e.clone()),
@@ -561,8 +562,7 @@ impl CatalogService {
         // 且本地已有完整缓存详情，直接零网络开销复用已有 README 与 Release 资产，实现 ~50ms 闪电响应
         //（经 `reuse_304_cached` 内部 seam，deduce+ios 并集经平台 seam 单口）。
         if matches!(release_outcome, EtagGetOutcome::NotModified) {
-            if let Some(detail) = reuse_304_cached(cached_detail.as_ref(), catalog_item.as_ref())
-            {
+            if let Some(detail) = reuse_304_cached(cached_detail.as_ref(), catalog_item.as_ref()) {
                 return Ok((detail, None));
             }
         }
@@ -575,9 +575,7 @@ impl CatalogService {
                 outcome: &release_outcome,
                 cached_payload: cached_payload.as_deref(),
                 cached_detail: cached_detail.as_ref(),
-                catalog_default_version: catalog_item
-                    .as_ref()
-                    .map(|i| i.default_version.as_str()),
+                catalog_default_version: catalog_item.as_ref().map(|i| i.default_version.as_str()),
                 catalog_description_en: catalog_item
                     .as_ref()
                     .and_then(|i| i.description_en.as_deref()),
@@ -675,7 +673,14 @@ impl CatalogService {
                 default_readme: &default_readme,
                 log_id: id,
             }),
-            probe_repo_icon(client, &base_headers, &owner, &repo, &probe_branch, has_token),
+            probe_repo_icon(
+                client,
+                &base_headers,
+                &owner,
+                &repo,
+                &probe_branch,
+                has_token
+            ),
             fetch_checksum_table(
                 &release_resp.assets,
                 client,
@@ -874,8 +879,7 @@ impl CatalogService {
             if !(n.contains("checksum") || n.contains("sha256") || n.ends_with(".sha256")) {
                 continue;
             }
-            let (eligible, reason) =
-                super::detail_assets::checksum_asset_platform_eligible(&n);
+            let (eligible, reason) = super::detail_assets::checksum_asset_platform_eligible(&n);
             if eligible {
                 candidate = Some(a);
                 break;
@@ -1015,15 +1019,9 @@ mod tests {
         }];
         let client = reqwest::Client::new();
         let headers = reqwest::header::HeaderMap::new();
-        let map = CatalogService::extract_checksums_map(
-            &assets,
-            &client,
-            &headers,
-            "t/t",
-            "sid",
-            "req",
-        )
-        .await;
+        let map =
+            CatalogService::extract_checksums_map(&assets, &client, &headers, "t/t", "sid", "req")
+                .await;
         assert!(map.is_empty());
     }
 

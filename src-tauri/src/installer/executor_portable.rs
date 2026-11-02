@@ -242,16 +242,11 @@ fn unpack_tar_entries<R: io::Read>(
             // 也不保留归档中的 setuid/setgid/sticky 等特权位。
             use std::os::unix::fs::PermissionsExt;
             let perm_bits = if _mode & 0o111 != 0 { 0o755 } else { 0o644 };
-            let _ = std::fs::set_permissions(
-                &outpath,
-                std::fs::Permissions::from_mode(perm_bits),
-            );
+            let _ = std::fs::set_permissions(&outpath, std::fs::Permissions::from_mode(perm_bits));
         }
 
         // 主程序嗅探与 zip 一致：首个 .exe 即视为主程序（Windows 快捷方式用）。
-        if outpath.extension().and_then(|ext| ext.to_str()) == Some("exe")
-            && main_exe.is_none()
-        {
+        if outpath.extension().and_then(|ext| ext.to_str()) == Some("exe") && main_exe.is_none() {
             main_exe = Some(outpath.clone());
         }
     }
@@ -270,10 +265,7 @@ pub fn install_portable_tarball(
     let mut created_dirs: Vec<PathBuf> = Vec::new();
     let _ = create_dir_all_tracked(&app_dir, &mut created_dirs);
 
-    let lower = installer_path
-        .as_os_str()
-        .to_string_lossy()
-        .to_lowercase();
+    let lower = installer_path.as_os_str().to_string_lossy().to_lowercase();
 
     if lower.ends_with(".tar.bz2") {
         return Err(format!(
@@ -377,7 +369,10 @@ mod extract_guard_tests {
         create_dir_all_tracked(dir.path(), &mut created).unwrap();
         assert!(created.is_empty(), "existing dir must not be tracked");
         rollback_extracted(&[], &created);
-        assert!(dir.path().exists(), "pre-existing dir must survive rollback");
+        assert!(
+            dir.path().exists(),
+            "pre-existing dir must survive rollback"
+        );
     }
 
     #[test]
@@ -389,8 +384,11 @@ mod extract_guard_tests {
         zw.start_file("myapp/app.exe", zip::write::SimpleFileOptions::default())
             .unwrap();
         std::io::Write::write_all(&mut zw, b"fake-exe-bytes").unwrap();
-        zw.start_file("myapp/data/readme.txt", zip::write::SimpleFileOptions::default())
-            .unwrap();
+        zw.start_file(
+            "myapp/data/readme.txt",
+            zip::write::SimpleFileOptions::default(),
+        )
+        .unwrap();
         std::io::Write::write_all(&mut zw, b"hello").unwrap();
         zw.finish().unwrap();
 
@@ -406,7 +404,11 @@ mod extract_guard_tests {
             Some(base.path().to_str().unwrap()),
         );
         assert!(app_dir.join("myapp").join("app.exe").is_file());
-        assert!(app_dir.join("myapp").join("data").join("readme.txt").is_file());
+        assert!(app_dir
+            .join("myapp")
+            .join("data")
+            .join("readme.txt")
+            .is_file());
     }
 
     #[test]

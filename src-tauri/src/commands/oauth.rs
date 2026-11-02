@@ -1,4 +1,4 @@
-use super::{resolve_oauth_client_id_from_db, resolve_active_github_token};
+use super::{resolve_active_github_token, resolve_oauth_client_id_from_db};
 use crate::models::DevicePollResult;
 use crate::AppState;
 use std::sync::atomic::{AtomicU64, Ordering};

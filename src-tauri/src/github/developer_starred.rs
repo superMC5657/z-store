@@ -239,8 +239,7 @@ impl CatalogService {
                 let api_base_owned = api_base_owned.clone();
                 let key = Self::starred_release_endpoint(&staged[idx].full_name);
                 let full_name = staged[idx].full_name.clone();
-                let cached_etag =
-                    release_cache.get(&key).and_then(|(e, _)| e.clone());
+                let cached_etag = release_cache.get(&key).and_then(|(e, _)| e.clone());
                 async move {
                     let outcome = Self::get_with_etag(
                         &client,
@@ -255,23 +254,24 @@ impl CatalogService {
                 }
             });
             let outcomes: Vec<(usize, String, String, EtagGetOutcome)> =
-                futures_util::stream::iter(fetches).buffered(4).collect().await;
+                futures_util::stream::iter(fetches)
+                    .buffered(4)
+                    .collect()
+                    .await;
             for (i, key, full_name, outcome) in outcomes {
                 match outcome {
-                    EtagGetOutcome::Fresh { text, etag } => {
-                        match Self::parse_release_tag(&text) {
-                            Some(tag) => {
-                                if let Some(et) = etag {
-                                    release_cache.insert(key, (Some(et), Some(text)));
-                                }
-                                resolved[i] = Some((true, Some(tag)));
+                    EtagGetOutcome::Fresh { text, etag } => match Self::parse_release_tag(&text) {
+                        Some(tag) => {
+                            if let Some(et) = etag {
+                                release_cache.insert(key, (Some(et), Some(text)));
                             }
-                            None => {
-                                log::debug!("starred release no tag full_name='{}'", full_name);
-                                resolved[i] = Some((false, None));
-                            }
+                            resolved[i] = Some((true, Some(tag)));
                         }
-                    }
+                        None => {
+                            log::debug!("starred release no tag full_name='{}'", full_name);
+                            resolved[i] = Some((false, None));
+                        }
+                    },
                     EtagGetOutcome::NotModified => {
                         let tag = release_cache
                             .get(&key)

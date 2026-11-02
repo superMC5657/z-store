@@ -9,7 +9,8 @@ pub const GITHUB_ACCEPT_VALUE: &str = "application/vnd.github.v3+json";
 pub const JSON_ACCEPT_VALUE: &str = "application/json";
 /// 图标/CDN 专用：浏览器 UA + image/* Accept，与 API client 严格隔离（见 `new_icon_client`）。
 pub const BROWSER_UA_VALUE: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-pub const ICON_ACCEPT_VALUE: &str = "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8";
+pub const ICON_ACCEPT_VALUE: &str =
+    "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8";
 
 /// forge 内两种 Authorization 前缀：GitHub/GitLab 用 Bearer，Gitea/Forgejo 用 token。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,9 +73,7 @@ static SHARED_ICON: OnceLock<reqwest::Client> = OnceLock::new();
 /// 单例复用（API 池）：首次 `timeout_secs` 生效，后续复用同一连接池。
 pub fn new_api_client(timeout_secs: u64) -> Result<reqwest::Client, String> {
     Ok(SHARED_API
-        .get_or_init(|| {
-            build_client(timeout_secs, None).unwrap_or_else(|_| reqwest::Client::new())
-        })
+        .get_or_init(|| build_client(timeout_secs, None).unwrap_or_else(|_| reqwest::Client::new()))
         .clone())
 }
 
@@ -123,7 +122,12 @@ pub fn preset_headers(preset: ApiPreset, token: Option<&str>, scheme: AuthScheme
         ApiPreset::IconCdn => None,
         ApiPreset::GithubApi | ApiPreset::JsonApi => token,
     };
-    headers_with_ua(preset.user_agent(), preset.accept(), effective_token, scheme)
+    headers_with_ua(
+        preset.user_agent(),
+        preset.accept(),
+        effective_token,
+        scheme,
+    )
 }
 
 /// 图标请求头便捷：浏览器 UA + `image/*` Accept，无鉴权。
@@ -303,7 +307,10 @@ mod tests {
         };
         assert_eq!(retry_after_delay_ms(&h("2")), 2_000);
         assert_eq!(retry_after_delay_ms(&h("999")), 60_000);
-        assert_eq!(retry_after_delay_ms(&reqwest::header::HeaderMap::new()), 5_000);
+        assert_eq!(
+            retry_after_delay_ms(&reqwest::header::HeaderMap::new()),
+            5_000
+        );
         assert_eq!(retry_after_delay_ms(&h("abc")), 5_000);
         assert_eq!(retry_after_delay_ms(&h(" ")), 5_000);
     }

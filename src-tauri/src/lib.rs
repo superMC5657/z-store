@@ -96,9 +96,7 @@ fn build_shared_http_client() -> reqwest::Client {
         .pool_idle_timeout(std::time::Duration::from_secs(90))
         .user_agent(crate::forge::http::USER_AGENT_VALUE);
     let builder = crate::proxy::apply_proxy(builder, &[]);
-    builder
-        .build()
-        .unwrap_or_else(|_| reqwest::Client::new())
+    builder.build().unwrap_or_else(|_| reqwest::Client::new())
 }
 
 pub fn shared_http_client() -> reqwest::Client {
@@ -414,7 +412,10 @@ pub fn run() {
     let db_path = db_dir.join("z_store.db");
 
     let strict_errors = crate::config::is_strict_errors();
-    log::info!("strict_errors={} runtime error policy loaded", strict_errors);
+    log::info!(
+        "strict_errors={} runtime error policy loaded",
+        strict_errors
+    );
 
     let db = match Database::open(&db_path) {
         Ok(db) => db,

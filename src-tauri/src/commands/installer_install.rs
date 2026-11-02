@@ -57,17 +57,16 @@ pub async fn install_app(
 
     // 3. 经用户配置镜像加速下载 + SHA-256 完整性强校验（与仅下载共用通道）
     let custom_download_dir = super::installer_download::resolve_download_dir(&state);
-    let (dest_path, actual_sha256) =
-        super::installer_download::download_asset_with_fallback(
-            &app_handle,
-            &state,
-            &app_id,
-            &asset,
-            custom_download_dir.as_deref(),
-            "download init",
-            "download direct failed, retrying via fallback mirror",
-        )
-        .await?;
+    let (dest_path, actual_sha256) = super::installer_download::download_asset_with_fallback(
+        &app_handle,
+        &state,
+        &app_id,
+        &asset,
+        custom_download_dir.as_deref(),
+        "download init",
+        "download direct failed, retrying via fallback mirror",
+    )
+    .await?;
 
     // 4. 调用原生安装器或解压便携版（优先使用用户在前端主动选择的目录）
     let (kind, _, _) = InstallerEngine::classify_asset(&asset.name);
@@ -85,8 +84,7 @@ pub async fn install_app(
 
     // 智能解析真实安装路径，避免存入临时安装包路径
     let mut real_install_path = match kind {
-        crate::installer::AssetKind::PortableZip
-        | crate::installer::AssetKind::PortableTarball => {
+        crate::installer::AssetKind::PortableZip | crate::installer::AssetKind::PortableTarball => {
             let app_dir = crate::installer::dirs_or_fallback_with_base(
                 &detail.core.id,
                 effective_portable_dir.as_deref(),
@@ -142,26 +140,23 @@ pub async fn install_app(
                 .get_catalog_item(&detail.core.id)
                 .map(|cat| cat.get_native_identifiers())
                 .unwrap_or_default();
-            let (pkg_names, bin_names) =
-                crate::scanner::AppScanner::linux_candidate_names(
-                    &catalog_ids,
-                    &[
-                        detail.core.repo.clone(),
-                        detail.core.id.clone(),
-                        detail.core.name.clone(),
-                    ],
-                );
+            let (pkg_names, bin_names) = crate::scanner::AppScanner::linux_candidate_names(
+                &catalog_ids,
+                &[
+                    detail.core.repo.clone(),
+                    detail.core.id.clone(),
+                    detail.core.name.clone(),
+                ],
+            );
             // 系统包回填：先包管理器列表（deb/rpm 按 kind 分流），再 desktop Exec，最后 PATH/which。
             let sys_found = match kind {
                 crate::installer::AssetKind::Rpm => {
                     crate::installer::executor::linux::resolve_rpm_installed_path(
-                        &pkg_names,
-                        &bin_names,
+                        &pkg_names, &bin_names,
                     )
                 }
                 _ => crate::installer::executor::linux::resolve_deb_installed_path(
-                    &pkg_names,
-                    &bin_names,
+                    &pkg_names, &bin_names,
                 ),
             };
             if let Some(found) = sys_found {

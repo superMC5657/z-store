@@ -60,10 +60,7 @@ pub fn should_skip_download(local_len: u64, local_hash: &str, expected_sha256: &
 /// 期望哈希非空 → `verified`；缺失/空白 → `completed_unverified`
 ///（`extract_checksums_map` 缺失时同语义，禁止虚假声明"已通过官方校验"）。
 /// `SkipDone::finish` 与下载终态分支共用同一文案。
-pub fn verify_terminal_state(
-    expected_sha256: Option<&str>,
-    actual_hash: &str,
-) -> (String, String) {
+pub fn verify_terminal_state(expected_sha256: Option<&str>, actual_hash: &str) -> (String, String) {
     match expected_sha256 {
         Some(expected) if !expected.trim().is_empty() => (
             "verified".to_string(),
@@ -94,8 +91,7 @@ pub struct SkipDone<'a> {
 
 impl<'a> SkipDone<'a> {
     pub fn finish(self) -> Result<(PathBuf, String), String> {
-        let (verified_state, verified_msg) =
-            verify_terminal_state(self.expected, &self.hash);
+        let (verified_state, verified_msg) = verify_terminal_state(self.expected, &self.hash);
         DownloadProgressPayload::emit_event(
             self.app_handle,
             self.task_id,

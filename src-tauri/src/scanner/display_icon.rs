@@ -173,10 +173,7 @@ impl AppScanner {
     /// 且须有执行位；无命中即返回 None（禁首个文件兜底，防误启动无关二进制）。
     /// 供 `find_exe_in_directory` linux 回退调用。
     #[cfg(target_os = "linux")]
-    pub fn find_linux_executable_in_directory(
-        dir: &Path,
-        config: &ScanConfig,
-    ) -> Option<String> {
+    pub fn find_linux_executable_in_directory(dir: &Path, config: &ScanConfig) -> Option<String> {
         // 5a. 配置名（含裸名形式）精准命中（大小写不敏感，且须有执行位）
         let mut wanted: Vec<String> = Vec::new();
         for name in &config.target_executables {

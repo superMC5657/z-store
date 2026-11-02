@@ -121,9 +121,7 @@ pub async fn install_fallback_default(installer_path: &Path) -> Result<InstallOu
         .await
         .map_err(|e| format!("调起安装程序失败 ({}): {}", installer_path.display(), e))?;
     if status.success() {
-        Ok(InstallOutcome::Installed(
-            "安装程序已处理完成".to_string(),
-        ))
+        Ok(InstallOutcome::Installed("安装程序已处理完成".to_string()))
     } else {
         Err("处理未正常完成".to_string())
     }
@@ -137,7 +135,8 @@ mod fallback_tests {
     async fn fallback_surfaces_spawn_error_for_missing_installer() {
         // 直调路径下缺失资产的 spawn 失败必须如实冒泡为 Err；
         // 若回退经 cmd.exe start，cmd 自身总是被成功拉起，错误与注入面都会被掩盖。
-        let missing = std::env::temp_dir().join(format!("zstore-missing-{}.exe", std::process::id()));
+        let missing =
+            std::env::temp_dir().join(format!("zstore-missing-{}.exe", std::process::id()));
         assert!(install_fallback_default(&missing).await.is_err());
     }
 }

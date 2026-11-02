@@ -24,20 +24,12 @@ pub fn rpm_install_argv(path: &Path) -> Vec<String> {
 
 /// `dpkg -L <pkg>` 查询 argv 纯函数（deb 安装后回填落盘路径用；供单测锁定）。
 pub fn dpkg_list_argv(pkg: &str) -> Vec<String> {
-    vec![
-        "dpkg".to_string(),
-        "-L".to_string(),
-        pkg.trim().to_string(),
-    ]
+    vec!["dpkg".to_string(), "-L".to_string(), pkg.trim().to_string()]
 }
 
 /// `rpm -ql <pkg>` 查询 argv 纯函数（rpm 回填用；供单测锁定；经 `resolve_rpm_installed_path` 接线）。
 pub fn rpm_list_argv(pkg: &str) -> Vec<String> {
-    vec![
-        "rpm".to_string(),
-        "-ql".to_string(),
-        pkg.trim().to_string(),
-    ]
+    vec!["rpm".to_string(), "-ql".to_string(), pkg.trim().to_string()]
 }
 
 /// 包文件列表查询通用体（`dpkg -L` / `rpm -ql` 共用，列表 argv 构造器注入；
@@ -139,7 +131,10 @@ async fn run_pkexec_package_installer(
         .await
         .map_err(|e| format!("调起 pkexec {} 失败: {}", tool_label, e))?;
     if status.success() {
-        Ok(InstallOutcome::Installed(format!("{} 包安装已完成", pkg_kind)))
+        Ok(InstallOutcome::Installed(format!(
+            "{} 包安装已完成",
+            pkg_kind
+        )))
     } else {
         Err(format!("{} 包提权安装未完成或被取消", pkg_kind))
     }

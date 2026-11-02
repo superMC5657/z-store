@@ -106,9 +106,9 @@ pub(crate) fn is_readme_body_image(path_or_url: &str) -> bool {
     if stem.contains("logo") || stem.contains("icon") {
         return false;
     }
-    BODY_IMAGE_KEYWORDS.iter().any(|k| {
-        *k == stem || (stem.len() == k.len() + 1 && stem.strip_suffix('s') == Some(*k))
-    })
+    BODY_IMAGE_KEYWORDS
+        .iter()
+        .any(|k| *k == stem || (stem.len() == k.len() + 1 && stem.strip_suffix('s') == Some(*k)))
 }
 
 /// 启发式评分（与 catalog-shared `scoreIconCandidate` 同规则）。
@@ -153,7 +153,15 @@ pub(crate) fn score_candidate(file_path: &str, size: Option<u64>, repo: &str) ->
         .collect();
 
     // 1. 文件名核心匹配。
-    if ["icon.png", "app-icon.png", "app_icon.png", "logo.png", "applogo.png"].contains(&filename) {
+    if [
+        "icon.png",
+        "app-icon.png",
+        "app_icon.png",
+        "logo.png",
+        "applogo.png",
+    ]
+    .contains(&filename)
+    {
         score += 100;
     } else if ["icon.svg", "logo.svg", "app-icon.svg", "app_icon.svg"].contains(&filename) {
         score += 95;
@@ -274,7 +282,8 @@ fn magic_is_image(chunk: &[u8], ctype: &str) -> bool {
     if chunk.starts_with(b"BM") {
         return true;
     }
-    if chunk.len() >= 12 && chunk.starts_with(b"RIFF") && chunk[8..12.min(chunk.len())] == *b"WEBP" {
+    if chunk.len() >= 12 && chunk.starts_with(b"RIFF") && chunk[8..12.min(chunk.len())] == *b"WEBP"
+    {
         return true;
     }
     // SVG 是文本：首包内找 `<svg` / `<?xml`（大小写不敏感）。
@@ -291,7 +300,11 @@ fn magic_is_image(chunk: &[u8], ctype: &str) -> bool {
 /// 返回 `(字节数, content-type)`。
 /// 减 payload 策略：HEAD 探 content-type/content-length → Range 首 32KB 验
 /// content-type + magic；Range/HEAD 不支持时才回退全量 GET。
-async fn verify_image(client: &reqwest::Client, url: &str, timeout: std::time::Duration) -> Option<(usize, String)> {
+async fn verify_image(
+    client: &reqwest::Client,
+    url: &str,
+    timeout: std::time::Duration,
+) -> Option<(usize, String)> {
     // 1. HEAD 轻探：ctype 不对 / 太小直接剪枝，避免 GET body。
     if let Ok(head_res) = tokio::time::timeout(
         timeout,
@@ -548,18 +561,17 @@ pub(crate) async fn probe_simple_icons(
         return None;
     }
     let timeout = simple_icon_timeout();
-    let checks: Vec<(String, Option<(usize, String)>)> = futures_util::stream::iter(
-        slugs.into_iter().map(|slug| {
+    let checks: Vec<(String, Option<(usize, String)>)> =
+        futures_util::stream::iter(slugs.into_iter().map(|slug| {
             let cdn = format!("https://cdn.simpleicons.org/{slug}");
             async move {
                 let hit = verify_image(client, &cdn, timeout).await;
                 (cdn, hit)
             }
-        }),
-    )
-    .buffered(3)
-    .collect()
-    .await;
+        }))
+        .buffered(3)
+        .collect()
+        .await;
     for (cdn, hit) in checks {
         if let Some((_, ctype)) = hit {
             if ctype.contains("svg") || ctype.starts_with("image/") {
@@ -626,26 +638,37 @@ pub(crate) async fn probe_trees(
                 );
                 return None;
             }
-                let mut best: Option<(i32, u64, String)> = None;
-                for node in tree.tree.iter().filter(|n| {
-                    n.node_type.as_deref() == Some("blob") && n.path.is_some()
-                }) {
-                    let p = node.path.as_deref().unwrap_or("");
-                    let s = score_candidate(p, node.size, repo);
-                    if s > 0 && node.size.is_none_or(|z| z >= MIN_IMAGE_BYTES as u64) {
-                        let cand = (s, node.size.unwrap_or(0), p.to_string());
-                        if best.as_ref().is_none_or(|b| cand.0 > b.0 || (cand.0 == b.0 && cand.1 > b.1)) {
-                            best = Some(cand);
-                        }
+            let mut best: Option<(i32, u64, String)> = None;
+            for node in tree
+                .tree
+                .iter()
+                .filter(|n| n.node_type.as_deref() == Some("blob") && n.path.is_some())
+            {
+                let p = node.path.as_deref().unwrap_or("");
+                let s = score_candidate(p, node.size, repo);
+                if s > 0 && node.size.is_none_or(|z| z >= MIN_IMAGE_BYTES as u64) {
+                    let cand = (s, node.size.unwrap_or(0), p.to_string());
+                    if best
+                        .as_ref()
+                        .is_none_or(|b| cand.0 > b.0 || (cand.0 == b.0 && cand.1 > b.1))
+                    {
+                        best = Some(cand);
                     }
                 }
-                if let Some((_, size, path)) = best {
-                    log::debug!("icon probe trees hit {}/{} path='{}' size={}", owner, repo, path, size);
-                    return Some(ProbedIcon {
-                        url: raw_url(owner, repo, branch, &path),
-                        source: "trees",
-                    });
-                }
+            }
+            if let Some((_, size, path)) = best {
+                log::debug!(
+                    "icon probe trees hit {}/{} path='{}' size={}",
+                    owner,
+                    repo,
+                    path,
+                    size
+                );
+                return Some(ProbedIcon {
+                    url: raw_url(owner, repo, branch, &path),
+                    source: "trees",
+                });
+            }
         }
     }
     None
@@ -683,7 +706,10 @@ mod tests {
 
     #[test]
     fn test_derive_slugs() {
-        assert_eq!(derive_slugs("SeriousSamClassic-VK"), vec!["serioussamclassicvk", "serioussamclassic-vk"]);
+        assert_eq!(
+            derive_slugs("SeriousSamClassic-VK"),
+            vec!["serioussamclassicvk", "serioussamclassic-vk"]
+        );
         assert_eq!(derive_slugs("vscode"), vec!["vscode"]);
         assert!(derive_slugs("").is_empty());
         assert!(derive_slugs("###").is_empty());
@@ -694,11 +720,23 @@ mod tests {
         assert!(score_candidate("assets/icon.png", Some(5000), "demo") >= 100);
         assert!(score_candidate("logo.svg", Some(2000), "demo") >= 90);
         assert_eq!(score_candidate("a.jpg", Some(5000), "demo"), -100);
-        assert_eq!(score_candidate("node_modules/icon.png", Some(5000), "demo"), -100);
-        assert_eq!(score_candidate("docs/screenshot.png", Some(5000), "demo"), -50);
+        assert_eq!(
+            score_candidate("node_modules/icon.png", Some(5000), "demo"),
+            -100
+        );
+        assert_eq!(
+            score_candidate("docs/screenshot.png", Some(5000), "demo"),
+            -50
+        );
         assert_eq!(score_candidate("x/icon.png", Some(100), "demo"), -100);
         // 单色/行图标类小 glyph 应为低分（duckstation vidicon-line 回归项）。
-        assert!(score_candidate("src/icons/monochrome/svg/vidicon-line.svg", Some(435), "duckstation") < 50);
+        assert!(
+            score_candidate(
+                "src/icons/monochrome/svg/vidicon-line.svg",
+                Some(435),
+                "duckstation"
+            ) < 50
+        );
     }
 
     #[test]
@@ -792,7 +830,11 @@ mod tests {
         assert!(tree_body_within_cap(0, 100, MAX_TREE_BYTES));
         assert!(tree_body_within_cap(MAX_TREE_BYTES - 1, 1, MAX_TREE_BYTES));
         assert!(!tree_body_within_cap(MAX_TREE_BYTES, 1, MAX_TREE_BYTES));
-        assert!(!tree_body_within_cap(MAX_TREE_BYTES - 10, 11, MAX_TREE_BYTES));
+        assert!(!tree_body_within_cap(
+            MAX_TREE_BYTES - 10,
+            11,
+            MAX_TREE_BYTES
+        ));
         // 无长度声明的 chunked 分块同样逐块判定：模拟 3 块，前两块受理、第三块超限中断。
         let cap = 10usize;
         let mut acc = 0usize;

@@ -1,4 +1,4 @@
-use super::{InstallOutcome, is_user_cancellation};
+use super::{is_user_cancellation, InstallOutcome};
 
 /// 智能拆分 Windows 卸载命令行为 (可执行文件路径, 参数列表)
 pub fn parse_uninstaller_command(cmd: &str) -> (String, Vec<String>) {
@@ -173,9 +173,7 @@ unsafe impl Send for SendHandle {}
 /// 同一系统路由，但路径以单个宽字符串直传 shell32，不存在 cmd 元字符解析面。
 /// 等待用 250ms 轮询切片，避免卸载向导长驻时阻塞独占执行器线程。
 #[cfg(target_os = "windows")]
-async fn shell_execute_open_wait(
-    file: &str,
-) -> Result<std::process::ExitStatus, String> {
+async fn shell_execute_open_wait(file: &str) -> Result<std::process::ExitStatus, String> {
     use std::os::windows::ffi::OsStrExt;
     use std::os::windows::process::ExitStatusExt;
     use std::time::Duration;
@@ -254,8 +252,7 @@ pub async fn execute_uninstallation(
     main_install_path: &str,
     app_name: &str,
 ) -> Result<(), String> {
-    let res =
-        execute_uninstallation_inner(uninstaller_cmd, main_install_path, app_name).await;
+    let res = execute_uninstallation_inner(uninstaller_cmd, main_install_path, app_name).await;
     match &res {
         Ok(InstallOutcome::Installed(_)) => {
             log::info!("uninstall done id={}", app_name)
@@ -415,8 +412,7 @@ mod parse_uninstaller_tests {
 
     #[test]
     fn quoted_path_with_args_splits() {
-        let (exe, args) =
-            parse_uninstaller_command(r#""C:\Program Files\App\unins.exe" /S /x=1"#);
+        let (exe, args) = parse_uninstaller_command(r#""C:\Program Files\App\unins.exe" /S /x=1"#);
         assert_eq!(exe, r"C:\Program Files\App\unins.exe");
         assert_eq!(args, vec!["/S", "/x=1"]);
     }

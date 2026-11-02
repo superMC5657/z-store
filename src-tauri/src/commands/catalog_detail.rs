@@ -238,9 +238,7 @@ async fn platforms_lite_from_github(
             // 日志 from= 文案：304-行/离线-payload 穿透本无日志，仅 miss/304/stale 三臂标注。
             let from_label: Option<&str> = match (&rel.source, rel.touch) {
                 (crate::github::release_fetch::ShallowSource::Fresh, _) => Some("miss"),
-                (crate::github::release_fetch::ShallowSource::Payload, true) => {
-                    Some("cache:304")
-                }
+                (crate::github::release_fetch::ShallowSource::Payload, true) => Some("cache:304"),
                 (crate::github::release_fetch::ShallowSource::StaleRow, false) => {
                     Some("cache:stale")
                 }
@@ -321,10 +319,7 @@ pub fn get_cached_app_details_batch(
 /// 单 id 的 DB-only 投影：`AppDetail` 子集转 `AppSummary`，无网络、无写盘。
 /// changelog/readme/releases 不进卡；`is_stale` 不进卡（前端小行不黄，详情黄标另行）。
 /// `data:` 详情图标置空兜底（确认图标随后覆盖，M2 `data:` 仍可呈现）。
-fn cached_detail_summary(
-    db: &crate::db::Database,
-    raw_id: &str,
-) -> Option<AppSummary> {
+fn cached_detail_summary(db: &crate::db::Database, raw_id: &str) -> Option<AppSummary> {
     let clean_id = crate::commands::require_app_id(raw_id).ok()?;
     let detail = db.get_cached_app_detail(&clean_id, None).ok().flatten()?;
     let icon_trimmed = detail.core.icon.trim();
@@ -407,7 +402,13 @@ pub async fn get_app_details_impl(
     // 「读缓存→id回写→盖章→返回」收口于 `project_from_cache`。
     if !is_force {
         if let Some(hit) = project_from_cache(
-            state, &clean_id, true, true, "get_app_details", "cache:db", start,
+            state,
+            &clean_id,
+            true,
+            true,
+            "get_app_details",
+            "cache:db",
+            start,
         ) {
             return Ok(hit);
         }
@@ -416,10 +417,8 @@ pub async fn get_app_details_impl(
     // 2. 多源 forge lite 段（Codeberg/Gitea 等）：repo + latest release 合成。
     if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&clean_id) {
         if coord.forge != crate::forge::ForgeType::GitHub {
-            return fetch_detail_from_forge(
-                state, clean_id, coord, is_force, sid, req_id, start,
-            )
-            .await;
+            return fetch_detail_from_forge(state, clean_id, coord, is_force, sid, req_id, start)
+                .await;
         }
     }
 
@@ -491,7 +490,13 @@ async fn fetch_detail_from_forge(
 ) -> Result<AppDetail, String> {
     if !is_force {
         if let Some(hit) = project_from_cache(
-            state, &clean_id, true, false, "get_app_details", "cache:db forge", start,
+            state,
+            &clean_id,
+            true,
+            false,
+            "get_app_details",
+            "cache:db forge",
+            start,
         ) {
             return Ok(hit);
         }
@@ -502,108 +507,106 @@ async fn fetch_detail_from_forge(
         coord.host,
         coord.forge
     );
-            let host_token = if let Ok(db) = state.db() {
-                db.get_host_token(&coord.host).ok().flatten()
-            } else {
-                None
-            };
-            let (repo_info, release_info) = tokio::try_join!(
-                crate::forge::ForgeRegistry::fetch_repo(&coord, host_token.as_deref()),
-                crate::forge::ForgeRegistry::fetch_latest_release(&coord, host_token.as_deref())
-            )?;
-            let now = crate::now_secs();
-            let platforms =
-                crate::github::detail_assets::platforms_from_assets(&release_info.assets);
-            let mut detail = AppDetail {
-                core: AppCore {
-                    id: clean_id.clone(),
-                    name: repo_info.name.clone(),
-                    description_en: repo_info.description.clone(),
-                    owner: coord.owner,
-                    repo: coord.repo,
-                    icon: String::new(),
-                    icon_bg: crate::github::http::DEFAULT_ICON_BG.to_string(),
-                    description: repo_info.description.clone().unwrap_or_default(),
-                    stars: repo_info.stars,
-                    forks: repo_info.forks,
-                    license: "OpenSource".to_string(),
-                    latest_version: release_info.tag_name,
-                    is_verified: false,
-                    category: "external".to_string(),
-                    category_name: "跨平台开源".to_string(),
-                    forge: Some(coord.forge.as_str().to_string()),
-                    forge_host: Some(coord.host),
-                    homepage: repo_info.homepage.clone(),
-                    platforms,
-                    is_cataloged: None,
-                    source: None,
-                    status: None,
-                    added_at: None,
-                },
-                changelog: release_info.body.unwrap_or_default(),
-                readme_markdown: format!(
-                    "# {}\n\n{}",
-                    repo_info.name,
-                    repo_info.description.unwrap_or_default()
-                ),
-                readme_variants: None,
-                releases: release_info.assets,
-                cached_at: Some(now),
-                is_stale: None,
-            };
+    let host_token = if let Ok(db) = state.db() {
+        db.get_host_token(&coord.host).ok().flatten()
+    } else {
+        None
+    };
+    let (repo_info, release_info) = tokio::try_join!(
+        crate::forge::ForgeRegistry::fetch_repo(&coord, host_token.as_deref()),
+        crate::forge::ForgeRegistry::fetch_latest_release(&coord, host_token.as_deref())
+    )?;
+    let now = crate::now_secs();
+    let platforms = crate::github::detail_assets::platforms_from_assets(&release_info.assets);
+    let mut detail = AppDetail {
+        core: AppCore {
+            id: clean_id.clone(),
+            name: repo_info.name.clone(),
+            description_en: repo_info.description.clone(),
+            owner: coord.owner,
+            repo: coord.repo,
+            icon: String::new(),
+            icon_bg: crate::github::http::DEFAULT_ICON_BG.to_string(),
+            description: repo_info.description.clone().unwrap_or_default(),
+            stars: repo_info.stars,
+            forks: repo_info.forks,
+            license: "OpenSource".to_string(),
+            latest_version: release_info.tag_name,
+            is_verified: false,
+            category: "external".to_string(),
+            category_name: "跨平台开源".to_string(),
+            forge: Some(coord.forge.as_str().to_string()),
+            forge_host: Some(coord.host),
+            homepage: repo_info.homepage.clone(),
+            platforms,
+            is_cataloged: None,
+            source: None,
+            status: None,
+            added_at: None,
+        },
+        changelog: release_info.body.unwrap_or_default(),
+        readme_markdown: format!(
+            "# {}\n\n{}",
+            repo_info.name,
+            repo_info.description.unwrap_or_default()
+        ),
+        readme_variants: None,
+        releases: release_info.assets,
+        cached_at: Some(now),
+        is_stale: None,
+    };
 
-            // 存入 SQLite 本地持久化缓存，并动态更新内存中的收录库统计
-            state.catalog.update_catalog_item_stats(
-                &clean_id,
-                Some(repo_info.stars),
-                Some(repo_info.forks),
-                Some(&detail.core.latest_version),
-            );
+    // 存入 SQLite 本地持久化缓存，并动态更新内存中的收录库统计
+    state.catalog.update_catalog_item_stats(
+        &clean_id,
+        Some(repo_info.stars),
+        Some(repo_info.forks),
+        Some(&detail.core.latest_version),
+    );
 
-            if let Ok(db) = state.db() {
-                let start_db = std::time::Instant::now();
-                log::debug!("db_save start id={} sid={} req={}", clean_id, sid, req_id);
-                // Top2：详情 + 图标原子落库（2 提交变 1 提交），事务边界见 `save_detail_with_cycle_row`；
-                // 失败整体回滚并回退逐条，保持 `let _ =` 吞错 + 下次重试语义，不改 TTL/ETag。
-                let icon_trimmed = detail.core.icon.trim();
-                let staged_cycle: Option<crate::db::AppIconCycle> =
-                    if !icon_trimmed.is_empty() {
-                        let mut cycle = db
-                            .get_icon_cycle(&clean_id)
-                            .ok()
-                            .flatten()
-                            .unwrap_or_else(|| {
-                                crate::db::AppIconCycle::new(&clean_id, &detail.core.owner, &detail.core.repo)
-                            });
-                        cycle.is_cataloged = false;
-                        cycle.level = 4;
-                        cycle.l4_url = icon_trimmed.to_string();
-                        cycle.selected_url = icon_trimmed.to_string();
-                        cycle.updated_at = crate::now_secs();
-                        Some(cycle)
-                    } else {
-                        None
-                    };
-                if db
-                    .save_detail_with_cycle_row(&clean_id, &detail, staged_cycle.as_ref())
-                    .is_err()
-                {
-                    let _ = db.save_cached_app_detail(&clean_id, &detail);
-                    if let Some(c) = staged_cycle.as_ref() {
-                        let _ = db.upsert_icon_cycle(c);
-                    }
-                }
-                log::debug!(
-                    "db_save done id={} sid={} req={} elapsed_ms={}",
-                    clean_id,
-                    sid,
-                    req_id,
-                    start_db.elapsed().as_millis()
-                );
+    if let Ok(db) = state.db() {
+        let start_db = std::time::Instant::now();
+        log::debug!("db_save start id={} sid={} req={}", clean_id, sid, req_id);
+        // Top2：详情 + 图标原子落库（2 提交变 1 提交），事务边界见 `save_detail_with_cycle_row`；
+        // 失败整体回滚并回退逐条，保持 `let _ =` 吞错 + 下次重试语义，不改 TTL/ETag。
+        let icon_trimmed = detail.core.icon.trim();
+        let staged_cycle: Option<crate::db::AppIconCycle> = if !icon_trimmed.is_empty() {
+            let mut cycle = db
+                .get_icon_cycle(&clean_id)
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| {
+                    crate::db::AppIconCycle::new(&clean_id, &detail.core.owner, &detail.core.repo)
+                });
+            cycle.is_cataloged = false;
+            cycle.level = 4;
+            cycle.l4_url = icon_trimmed.to_string();
+            cycle.selected_url = icon_trimmed.to_string();
+            cycle.updated_at = crate::now_secs();
+            Some(cycle)
+        } else {
+            None
+        };
+        if db
+            .save_detail_with_cycle_row(&clean_id, &detail, staged_cycle.as_ref())
+            .is_err()
+        {
+            let _ = db.save_cached_app_detail(&clean_id, &detail);
+            if let Some(c) = staged_cycle.as_ref() {
+                let _ = db.upsert_icon_cycle(c);
             }
+        }
+        log::debug!(
+            "db_save done id={} sid={} req={} elapsed_ms={}",
+            clean_id,
+            sid,
+            req_id,
+            start_db.elapsed().as_millis()
+        );
+    }
 
-            state.catalog.stamp_detail(&mut detail);
-            Ok(detail)
+    state.catalog.stamp_detail(&mut detail);
+    Ok(detail)
 }
 
 /// GitHub full 段：ETag 条件请求 + repo/README/平台/Checksum 全量组装落库。
@@ -625,7 +628,13 @@ async fn fetch_detail_from_github(
             Err(e) => {
                 // 未知坐标降级同样标 stale，Ok(stale) 形状 IPC 保留，前端 stale-empty 视为 loading。
                 if let Some(fallback) = project_from_cache(
-                    state, clean_id, false, false, "fetch detail fallback", "cache:stale", start,
+                    state,
+                    clean_id,
+                    false,
+                    false,
+                    "fetch detail fallback",
+                    "cache:stale",
+                    start,
                 ) {
                     return Ok(fallback);
                 }
@@ -698,8 +707,7 @@ async fn fetch_detail_from_github(
             // 为远端 304（仅 touch 延保，零配额；fresh 真空经 304 恢复同样走此延保，
             // 经 200 则走 save 并由下方落盘分支以 fresh 空行落盘，下次 TTL 内不再变黄）。
             if let Ok(db) = state.db() {
-                let touch_on_304 =
-                    to_cache.is_none() && detail.is_stale != Some(true);
+                let touch_on_304 = to_cache.is_none() && detail.is_stale != Some(true);
                 crate::github::release_fetch::apply_release_cache_effects(
                     &db,
                     &release_endpoint,
@@ -726,7 +734,13 @@ async fn fetch_detail_from_github(
             // Ok(stale) 形状为 IPC 保留；is_stale=true 供前端视为 loading，
             // stale-empty（双空）不得确认 Other，由 backfill 重试。
             if let Some(fallback_detail) = project_from_cache(
-                state, clean_id, false, false, "fetch app detail fallback", "cache:stale", start,
+                state,
+                clean_id,
+                false,
+                false,
+                "fetch app detail fallback",
+                "cache:stale",
+                start,
             ) {
                 return Ok(fallback_detail);
             }
@@ -766,118 +780,117 @@ fn persist_github_detail(
     let start_db = std::time::Instant::now();
     log::debug!("db_save start id={} sid={} req={}", clean_id, sid, req_id);
     if let Ok(db) = state.db() {
-                if detail.releases.is_empty() {
-                    if let Ok(Some(old)) = db.get_cached_app_detail(clean_id, None) {
-                        if !old.releases.is_empty() {
-                            detail.releases = old.releases.clone();
-                        }
-                    }
+        if detail.releases.is_empty() {
+            if let Ok(Some(old)) = db.get_cached_app_detail(clean_id, None) {
+                if !old.releases.is_empty() {
+                    detail.releases = old.releases.clone();
                 }
-                // 继承后重算：deduce 已在域内完成，此处仅补继承带来的缺口；
-                // 成功 deduce 路径本身不动，排序 ORDER 与过滤规则沿用 SSOT。
-                if !detail.releases.is_empty() && detail.core.platforms.is_empty() {
-                    detail.core.platforms =
-                        crate::github::detail_assets::platforms_from_assets(&detail.releases);
-                }
-                // stale 穿透（含合成空失败）：保持旧行不动（含 cached_at），直接返回。
-                // fresh（含 200 真空双空）一律落盘，判定见 should_skip_persist。
-                if should_skip_persist(detail.is_stale) {
-                    log::debug!(
-                        "db_save skip id={} sid={} req={} reason=stale_passthrough_keep_prior",
-                        clean_id,
-                        sid,
-                        req_id
-                    );
-                } else {
-                    // 落盘前占位根治：未收录仓 detail 占位简介若能从 ETag repo 真值回填则替换，
-                    // 避免占位永久落盘导致 recents 永远吐占位；已收录仓人工精校优先直接跳过。
-                    // 已收录含本地收录行（仅 `status==collected`），与远端同行为。
-                    // （fetch 侧已用 fresh repo_info 治愈，此处补 repo 401/失败但 ETag 仍有旧真值的缺口；同步读不触网。）
-                    if state.catalog.get_catalog_item(clean_id).is_none() {
-                        let need_desc =
-                            crate::github::detail_fetch::is_placeholder_description(
-                                &detail.core.description,
-                            );
-                        let need_en = detail
-                            .core.description_en
-                            .as_deref()
-                            .map(
-                                crate::github::detail_fetch::is_placeholder_description,
-                            )
-                            .unwrap_or(false);
-                        let need_en_missing = detail
-                            .core.description_en
-                            .as_ref()
-                            .map(|s| s.trim().is_empty())
-                            .unwrap_or(true);
-                        if need_desc || need_en || need_en_missing {
-                            if let Some(real) =
-                                crate::github::detail_fetch::repo_real_description_from_etag(
-                                    &db,
-                                    &detail.core.owner,
-                                    &detail.core.repo,
-                                )
-                            {
-                                if need_desc {
-                                    detail.core.description = real.clone();
-                                }
-                                if need_en || need_en_missing {
-                                    detail.core.description_en = Some(real);
-                                }
-                            }
-                        }
-                    }
-                    // FINAL Logo 口径：`detail.icon` 必为 L1–L4 备选 Logo（官方/探测/README 头部），
-                    // README 正文图永不进 `detail.icon`（见 `detail_fetch::extract_and_strip_logo_from_readme`），此处不存正文。
-                    // 02 手动轮换保护：pinned 行（用户已手动选择档位）保持 level/selected_url，
-                    // 仅把本次最强探测补进备选槽，并把 `detail.icon` 对齐 pinned 选择
-                    // （L5 pinned 对齐 `""` 保持徽章态）；未 pinned 行仍按最强探测更新选中图。
-                    let icon_trimmed = detail.core.icon.trim().to_owned();
-                    let staged_cycle: Option<crate::db::AppIconCycle> =
-                        if !icon_trimmed.trim().is_empty()
-                            && !crate::github::icon_fetch::is_body_image_url(&icon_trimmed)
-                        {
-                            let level =
-                                crate::github::icon_fetch::level_for_detail_icon(&icon_trimmed);
-
-                            let mut cycle = db
-                                .get_icon_cycle(clean_id)
-                                .ok()
-                                .flatten()
-                                .unwrap_or_else(|| {
-                                    crate::db::AppIconCycle::new(clean_id, &detail.core.owner, &detail.core.repo)
-                                });
-
-                            if crate::db::icon_cycle::merge_detail_icon(
-                                &mut cycle,
-                                level,
-                                icon_trimmed.trim(),
-                                state.catalog.is_cataloged(clean_id),
-                                now,
-                            ) {
-                                detail.core.icon = cycle.selected_url.clone();
-                            }
-                            Some(cycle)
-                        } else {
-                            // 探测无可用图标：pinned 行仍保持详情展示为用户所选档位。
-                            if let Ok(Some(pinned_cycle)) = db.get_icon_cycle(clean_id) {
-                                if pinned_cycle.pinned {
-                                    detail.core.icon = pinned_cycle.selected_url.clone();
-                                }
-                            }
-                            None
-                        };
-                    if db
-                        .save_detail_with_cycle_row(clean_id, detail, staged_cycle.as_ref())
-                        .is_err()
-                    {
-                        let _ = db.save_cached_app_detail(clean_id, detail);
-                        if let Some(c) = staged_cycle.as_ref() {
-                            let _ = db.upsert_icon_cycle(c);
-                        }
-                    }
-                } // end non-stale non-empty save branch (stale/empty-empty skip above)
             }
+        }
+        // 继承后重算：deduce 已在域内完成，此处仅补继承带来的缺口；
+        // 成功 deduce 路径本身不动，排序 ORDER 与过滤规则沿用 SSOT。
+        if !detail.releases.is_empty() && detail.core.platforms.is_empty() {
+            detail.core.platforms =
+                crate::github::detail_assets::platforms_from_assets(&detail.releases);
+        }
+        // stale 穿透（含合成空失败）：保持旧行不动（含 cached_at），直接返回。
+        // fresh（含 200 真空双空）一律落盘，判定见 should_skip_persist。
+        if should_skip_persist(detail.is_stale) {
+            log::debug!(
+                "db_save skip id={} sid={} req={} reason=stale_passthrough_keep_prior",
+                clean_id,
+                sid,
+                req_id
+            );
+        } else {
+            // 落盘前占位根治：未收录仓 detail 占位简介若能从 ETag repo 真值回填则替换，
+            // 避免占位永久落盘导致 recents 永远吐占位；已收录仓人工精校优先直接跳过。
+            // 已收录含本地收录行（仅 `status==collected`），与远端同行为。
+            // （fetch 侧已用 fresh repo_info 治愈，此处补 repo 401/失败但 ETag 仍有旧真值的缺口；同步读不触网。）
+            if state.catalog.get_catalog_item(clean_id).is_none() {
+                let need_desc = crate::github::detail_fetch::is_placeholder_description(
+                    &detail.core.description,
+                );
+                let need_en = detail
+                    .core
+                    .description_en
+                    .as_deref()
+                    .map(crate::github::detail_fetch::is_placeholder_description)
+                    .unwrap_or(false);
+                let need_en_missing = detail
+                    .core
+                    .description_en
+                    .as_ref()
+                    .map(|s| s.trim().is_empty())
+                    .unwrap_or(true);
+                if need_desc || need_en || need_en_missing {
+                    if let Some(real) = crate::github::detail_fetch::repo_real_description_from_etag(
+                        &db,
+                        &detail.core.owner,
+                        &detail.core.repo,
+                    ) {
+                        if need_desc {
+                            detail.core.description = real.clone();
+                        }
+                        if need_en || need_en_missing {
+                            detail.core.description_en = Some(real);
+                        }
+                    }
+                }
+            }
+            // FINAL Logo 口径：`detail.icon` 必为 L1–L4 备选 Logo（官方/探测/README 头部），
+            // README 正文图永不进 `detail.icon`（见 `detail_fetch::extract_and_strip_logo_from_readme`），此处不存正文。
+            // 02 手动轮换保护：pinned 行（用户已手动选择档位）保持 level/selected_url，
+            // 仅把本次最强探测补进备选槽，并把 `detail.icon` 对齐 pinned 选择
+            // （L5 pinned 对齐 `""` 保持徽章态）；未 pinned 行仍按最强探测更新选中图。
+            let icon_trimmed = detail.core.icon.trim().to_owned();
+            let staged_cycle: Option<crate::db::AppIconCycle> = if !icon_trimmed.trim().is_empty()
+                && !crate::github::icon_fetch::is_body_image_url(&icon_trimmed)
+            {
+                let level = crate::github::icon_fetch::level_for_detail_icon(&icon_trimmed);
+
+                let mut cycle = db
+                    .get_icon_cycle(clean_id)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_else(|| {
+                        crate::db::AppIconCycle::new(
+                            clean_id,
+                            &detail.core.owner,
+                            &detail.core.repo,
+                        )
+                    });
+
+                if crate::db::icon_cycle::merge_detail_icon(
+                    &mut cycle,
+                    level,
+                    icon_trimmed.trim(),
+                    state.catalog.is_cataloged(clean_id),
+                    now,
+                ) {
+                    detail.core.icon = cycle.selected_url.clone();
+                }
+                Some(cycle)
+            } else {
+                // 探测无可用图标：pinned 行仍保持详情展示为用户所选档位。
+                if let Ok(Some(pinned_cycle)) = db.get_icon_cycle(clean_id) {
+                    if pinned_cycle.pinned {
+                        detail.core.icon = pinned_cycle.selected_url.clone();
+                    }
+                }
+                None
+            };
+            if db
+                .save_detail_with_cycle_row(clean_id, detail, staged_cycle.as_ref())
+                .is_err()
+            {
+                let _ = db.save_cached_app_detail(clean_id, detail);
+                if let Some(c) = staged_cycle.as_ref() {
+                    let _ = db.upsert_icon_cycle(c);
+                }
+            }
+        } // end non-stale non-empty save branch (stale/empty-empty skip above)
+    }
     log::debug!(
         "db_save done id={} sid={} req={} elapsed_ms={}",
         clean_id,

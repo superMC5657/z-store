@@ -116,8 +116,8 @@ fn touch_path(path: &std::path::Path) {
 }
 
 /// 同一哈希的并发下载共享单元。
-fn inflight_map(
-) -> &'static tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::OnceCell<String>>>> {
+fn inflight_map() -> &'static tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::OnceCell<String>>>>
+{
     static MAP: OnceLock<tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::OnceCell<String>>>>> =
         OnceLock::new();
     MAP.get_or_init(|| tokio::sync::Mutex::new(HashMap::new()))
@@ -216,8 +216,8 @@ pub async fn fetch_or_cache_asset_url_inner(url: &str, app_id: &str) -> String {
 async fn fetch_asset_inner(trimmed: &str, normalized: &str, stem: &str, app: &str) -> String {
     let dir = shard_dir(stem);
     let existing = find_cached_file(&dir, stem);
-    let record: Option<crate::db::AssetCacheRecord> = open_asset_db()
-        .and_then(|d| d.get_asset(normalized).ok().flatten());
+    let record: Option<crate::db::AssetCacheRecord> =
+        open_asset_db().and_then(|d| d.get_asset(normalized).ok().flatten());
     let now = crate::now_secs();
     if let (Some(path), Some(rec)) = (existing.clone(), record.clone()) {
         if rec.expires_at > now {
@@ -234,13 +234,7 @@ async fn fetch_asset_inner(trimmed: &str, normalized: &str, stem: &str, app: &st
             let etag = rec.etag.clone();
             let last_modified = rec.last_modified.clone();
             let hash = rec.hash.clone();
-            match fetch_remote_asset(
-                normalized,
-                etag.as_deref(),
-                last_modified.as_deref(),
-            )
-            .await
-            {
+            match fetch_remote_asset(normalized, etag.as_deref(), last_modified.as_deref()).await {
                 Ok(ConditionalResult::NotModified) => {
                     let new_expires = crate::now_secs() + ASSET_TTL_SECS as i64;
                     if let Some(d) = open_asset_db() {
@@ -250,7 +244,9 @@ async fn fetch_asset_inner(trimmed: &str, normalized: &str, stem: &str, app: &st
                     return path.to_string_lossy().to_string();
                 }
                 Ok(ConditionalResult::Fresh(fresh)) => {
-                    return store_fresh_asset(trimmed, normalized, stem, &dir, existing, fresh, app);
+                    return store_fresh_asset(
+                        trimmed, normalized, stem, &dir, existing, fresh, app,
+                    );
                 }
                 Err(reason) => {
                     log::debug!(
@@ -327,7 +323,9 @@ fn store_fresh_asset(
         }
     }
     let content_type = if fresh.content_type.trim().is_empty() {
-        sniff_asset_mime(&fresh.bytes).unwrap_or("image/png").to_string()
+        sniff_asset_mime(&fresh.bytes)
+            .unwrap_or("image/png")
+            .to_string()
     } else {
         fresh.content_type
     };
@@ -490,7 +488,9 @@ mod tests {
 
     #[test]
     fn dynamic_urls_are_not_candidates() {
-        assert!(!should_cache_asset("https://img.shields.io/badge/x-y-green"));
+        assert!(!should_cache_asset(
+            "https://img.shields.io/badge/x-y-green"
+        ));
         assert!(!should_cache_asset(
             "https://camo.githubusercontent.com/abc"
         ));
@@ -524,9 +524,7 @@ mod tests {
         assert!(is_valid_image(b"<svg></svg>"));
         // bmp 纳入支持（见 image_sniff::bmp_supported_everywhere）。
         assert!(is_valid_image(b"BM12345678"));
-        assert!(!is_valid_image(
-            b"<!DOCTYPE html><html>404</html>"
-        ));
+        assert!(!is_valid_image(b"<!DOCTYPE html><html>404</html>"));
         assert!(!is_valid_image(b""));
     }
 

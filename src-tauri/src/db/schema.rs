@@ -264,7 +264,8 @@ impl Database {
 
     /// 盖章 user_version（值为内部版本常量，无外部输入拼接面）。
     fn set_user_version(&self, v: i64) -> Result<()> {
-        self.conn.execute_batch(&format!("PRAGMA user_version = {v};"))
+        self.conn
+            .execute_batch(&format!("PRAGMA user_version = {v};"))
     }
 
     /// 轻量列迁移：缺列时执行 `ADD COLUMN`，列存在即跳过。
@@ -344,11 +345,7 @@ mod schema_migration_tests {
         conn.execute_batch("PRAGMA user_version = 99;").unwrap();
         let db = Database { conn };
         db.init_schema().unwrap();
-        assert_eq!(
-            db.user_version().unwrap(),
-            99,
-            "高版本库不得被降级盖章"
-        );
+        assert_eq!(db.user_version().unwrap(), 99, "高版本库不得被降级盖章");
         // 幂等基底照常执行：新表可建、查询可用。
         let tables: i64 = db
             .query_scalar_opt(

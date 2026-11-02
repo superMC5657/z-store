@@ -85,10 +85,7 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
         crate::github::http::get_with_etag(&state.http, &ep, None, &base_headers, None, "updates")
             .await;
 
-    if matches!(
-        outcome,
-        crate::github::http::EtagGetOutcome::Unauthorized
-    ) {
+    if matches!(outcome, crate::github::http::EtagGetOutcome::Unauthorized) {
         crate::check_auth_expired(401, &format!("op=check_updates app={}", clean_id));
     }
 
@@ -277,18 +274,14 @@ pub async fn check_for_updates(
                     .await
                 {
                     Ok((latest_version, changelog)) => {
-                        let has_update = should_include_update(
-                            &app.version,
-                            &latest_version,
-                            rule_opt.as_ref(),
-                        );
-                        let (icon, icon_bg) = if let Some(item) =
-                            state_ref.catalog.get_catalog_item(&app.app_id)
-                        {
-                            (Some(item.icon), Some(item.icon_bg))
-                        } else {
-                            (app.icon.clone(), app.icon_bg.clone())
-                        };
+                        let has_update =
+                            should_include_update(&app.version, &latest_version, rule_opt.as_ref());
+                        let (icon, icon_bg) =
+                            if let Some(item) = state_ref.catalog.get_catalog_item(&app.app_id) {
+                                (Some(item.icon), Some(item.icon_bg))
+                            } else {
+                                (app.icon.clone(), app.icon_bg.clone())
+                            };
                         write_row = Some(crate::db::UpdateCheckRow {
                             app_id: app.app_id.clone(),
                             app_name: app.app_name.clone(),
@@ -487,23 +480,20 @@ async fn notify_watched_updates(
                 if skip_by_rule {
                     return;
                 }
-                let (latest, _) = match fetch_app_latest_version_lightweight(
-                    state,
-                    &w.app_id,
-                    force_refresh,
-                )
-                .await
-                {
-                    Ok(res) => res,
-                    Err(e) => {
-                        log::debug!(
-                            "watch deferred id={} reason={}",
-                            w.app_id,
-                            crate::log_support::short_reason(&e)
-                        );
-                        return;
-                    }
-                };
+                let (latest, _) =
+                    match fetch_app_latest_version_lightweight(state, &w.app_id, force_refresh)
+                        .await
+                    {
+                        Ok(res) => res,
+                        Err(e) => {
+                            log::debug!(
+                                "watch deferred id={} reason={}",
+                                w.app_id,
+                                crate::log_support::short_reason(&e)
+                            );
+                            return;
+                        }
+                    };
                 let latest = latest.trim().to_string();
                 if latest.is_empty() {
                     return;

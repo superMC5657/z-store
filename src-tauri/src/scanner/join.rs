@@ -27,10 +27,7 @@ pub fn join_exact(raw_id: &str, catalog: &[CatalogItem]) -> Option<CatalogItem> 
 /// heuristic fuzzy 行为：存量应用管理启发式评分唯一入口 adapter
 /// （mechanics 在 `matcher::AppScanner::match_apps`，语义与其一致；
 /// 低分未命中属常态，调用方按 loading 处理）。
-pub fn join_fuzzy(
-    scanned: &[ScannedRawApp],
-    catalog: &[CatalogItem],
-) -> Vec<AppMatchResult> {
+pub fn join_fuzzy(scanned: &[ScannedRawApp], catalog: &[CatalogItem]) -> Vec<AppMatchResult> {
     super::AppScanner::match_apps(scanned, catalog)
 }
 
@@ -128,6 +125,10 @@ mod tests {
         ];
         let results = join_fuzzy(&scanned, &catalog);
         assert!(results.iter().any(|r| r.catalog_id == "videolan/vlc"));
-        assert_eq!(results.len(), 1, "fuzzy miss stays loading (no fabrication)");
+        assert_eq!(
+            results.len(),
+            1,
+            "fuzzy miss stays loading (no fabrication)"
+        );
     }
 }

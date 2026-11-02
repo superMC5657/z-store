@@ -199,10 +199,7 @@ pub(crate) fn load_split_cached_bytes(
 
 /// 同 hash 同 ext 的旧后缀残留清理（缝内私有）：保留 `keep_filename`，
 /// 同 hash 其余 [`KNOWN_ICON_EXTS`] 变体存在即删（sniff 纠正场景 `png→jpg` 防双文件）。
-fn cleanup_stale_cycle_variants(
-    icons_dir: &std::path::Path,
-    keep_filename: &str,
-) {
+fn cleanup_stale_cycle_variants(icons_dir: &std::path::Path, keep_filename: &str) {
     // keep 为 hash 名时：同 hash 不同 ext 变体即删。
     if let Some(dot) = keep_filename.rfind('.') {
         let keep_stem = &keep_filename[..dot];
@@ -234,8 +231,7 @@ fn persist_catalog_icon(
         return String::new();
     }
     let inferred_ext = icon.ext;
-    let final_filename =
-        crate::db::icon_cycle::hash_icon_filename(url_trimmed, real_ext);
+    let final_filename = crate::db::icon_cycle::hash_icon_filename(url_trimmed, real_ext);
     if final_filename.is_empty() {
         return String::new();
     }
@@ -295,9 +291,8 @@ pub(crate) fn write_icon_file(
     bytes: &[u8],
 ) -> String {
     let url_trimmed = icon.url;
-    let real_ext = crate::commands::icons::mime_to_ext(crate::commands::icons::detect_image_mime(
-        bytes,
-    ));
+    let real_ext =
+        crate::commands::icons::mime_to_ext(crate::commands::icons::detect_image_mime(bytes));
     if is_cataloged {
         persist_catalog_icon(icons_dir, db_opt, icon, real_ext, bytes)
     } else {
@@ -453,7 +448,12 @@ async fn probe_readme(
         );
     }
 
-    if let Ok(Ok(resp)) = tokio::time::timeout(api_timeout_or(std::time::Duration::from_secs(8)), req.send()).await {
+    if let Ok(Ok(resp)) = tokio::time::timeout(
+        api_timeout_or(std::time::Duration::from_secs(8)),
+        req.send(),
+    )
+    .await
+    {
         if resp.status().is_success() {
             if let Ok(raw_readme) = resp.text().await {
                 let (logo, _) = crate::github::CatalogService::extract_and_strip_logo_from_readme(
@@ -491,7 +491,9 @@ pub(crate) async fn ensure_cycle_levels(
     token: Option<&str>,
 ) {
     let client = crate::forge::http::new_icon_client(
-        crate::config::get_project_config().network.api_timeout_seconds,
+        crate::config::get_project_config()
+            .network
+            .api_timeout_seconds,
     )
     .unwrap_or_default();
 
@@ -508,8 +510,8 @@ pub(crate) async fn ensure_cycle_levels(
     // 图标L2=品牌库：品牌库 Simple Icons（深核）
     let need_l2 = cycle.l2_url.trim().is_empty();
     // 图标L3=仓库：翻全家 Git Trees (有 token 才跑，深核)
-    let need_l3 = token.filter(|t| !t.trim().is_empty()).is_some()
-        && cycle.l3_url.trim().is_empty();
+    let need_l3 =
+        token.filter(|t| !t.trim().is_empty()).is_some() && cycle.l3_url.trim().is_empty();
     // L4=README现场扒
     let need_l4 = cycle.l4_url.trim().is_empty();
     // L3 鉴权头与流式核同源（`token_headers`，Token 方案）。
@@ -701,7 +703,8 @@ mod tests {
             ..Default::default()
         };
         db.upsert_icon_cycle(&cat_cycle).unwrap();
-        db.save_icon_cache_url("rustdesk_rustdesk.png", "https://example.com/l1.png").unwrap();
+        db.save_icon_cache_url("rustdesk_rustdesk.png", "https://example.com/l1.png")
+            .unwrap();
 
         // 校验：收录应用在两表中均可查到
         assert_eq!(

@@ -110,9 +110,7 @@ pub struct RepositoryUrlParser;
 /// 入 URL 路径即路径/查询注入，入 canonical 键即脏键。放行 `:` 以承载自建实例
 /// 的非标端口；`/`/`://` 经上游 split 切分天然不出现，此处仍显式拒绝作纵深防御。
 fn valid_host_segment(s: &str) -> bool {
-    !s.is_empty()
-        && !s.contains(['?', '#', '/', '\\'])
-        && !s.chars().any(char::is_whitespace)
+    !s.is_empty() && !s.contains(['?', '#', '/', '\\']) && !s.chars().any(char::is_whitespace)
 }
 
 /// owner/repo 段校验：同 host 口径并拒绝 `:`——`owner:repo` 会与
@@ -152,7 +150,6 @@ fn normalize_url_host(raw: &str, is_https: bool) -> String {
 }
 
 impl RepositoryUrlParser {
-
     pub fn parse(input: &str) -> Option<UniversalRepoCoord> {
         let s = input.trim();
         if s.is_empty() {
@@ -370,7 +367,10 @@ mod tests {
     #[test]
     fn test_canonical_app_id_from_parts_is_total_and_canonical() {
         // 常规坐标：解析分支。
-        assert_eq!(canonical_app_id_from_parts("rustdesk", "rustdesk"), "rustdesk/rustdesk");
+        assert_eq!(
+            canonical_app_id_from_parts("rustdesk", "rustdesk"),
+            "rustdesk/rustdesk"
+        );
         assert_eq!(
             canonical_app_id_from_parts("SuperMC5657", "Z-Store"),
             "supermc5657/z-store"
@@ -391,7 +391,10 @@ mod tests {
             crate::forge::canonical_app_id("SuperMC5657/Z-Store").as_deref(),
             Some(joined.as_str())
         );
-        assert_eq!(crate::github::icon_fetch::icon_key("SuperMC5657", "Z-Store"), joined);
+        assert_eq!(
+            crate::github::icon_fetch::icon_key("SuperMC5657", "Z-Store"),
+            joined
+        );
         assert_eq!(
             crate::db::icon_cycle::resolve_icon_coord("SuperMC5657/Z-Store")
                 .unwrap()
@@ -402,12 +405,18 @@ mod tests {
 
     #[test]
     fn test_canonical_lookup_id_parse_or_lowercase_fallback() {
-        assert_eq!(canonical_lookup_id("RustDesk/RustDesk"), "rustdesk/rustdesk");
+        assert_eq!(
+            canonical_lookup_id("RustDesk/RustDesk"),
+            "rustdesk/rustdesk"
+        );
         assert_eq!(
             canonical_lookup_id("https://github.com/RustDesk/RustDesk"),
             "rustdesk/rustdesk"
         );
-        assert_eq!(canonical_lookup_id("codeberg:FreeTubeApp/FreeTube"), "codeberg:freetubeapp/freetube");
+        assert_eq!(
+            canonical_lookup_id("codeberg:FreeTubeApp/FreeTube"),
+            "codeberg:freetubeapp/freetube"
+        );
         // 不可解析回退小写（深链解析层不断路由；执行层 `require_app_id` 再拒绝）。
         assert_eq!(canonical_lookup_id("rustdesk"), "rustdesk");
         assert_eq!(canonical_lookup_id("  "), "");

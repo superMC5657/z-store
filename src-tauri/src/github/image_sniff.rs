@@ -189,7 +189,10 @@ mod tests {
     fn apng_normalized_to_png() {
         assert_eq!(mime_to_ext("image/apng"), "png");
         assert_eq!(mime_to_ext("image/apng; charset=utf-8"), "png");
-        assert_eq!(infer_ext_from_url("https://example.com/a.apng"), Some("png"));
+        assert_eq!(
+            infer_ext_from_url("https://example.com/a.apng"),
+            Some("png")
+        );
         assert!(url_ext_allowed("https://example.com/a.apng"));
     }
 
@@ -203,22 +206,46 @@ mod tests {
         assert_eq!(mime_to_ext("application/octet-stream"), "png");
         assert_eq!(resolve_ext(b"not-an-image", ""), "png");
         assert_eq!(mime_to_ext("image/jpeg"), "jpg");
-        assert_eq!(infer_ext_from_url("https://example.com/x.jpeg"), Some("jpg"));
+        assert_eq!(
+            infer_ext_from_url("https://example.com/x.jpeg"),
+            Some("jpg")
+        );
         assert!(!is_valid_image(b""));
         assert!(!is_valid_image(b"<!DOCTYPE html><html>404</html>"));
     }
 
     #[test]
     fn magic_branches_preserved() {
-        assert_eq!(sniff_image_mime(b"\x89PNG\r\n\x1a\n12345678"), Some("image/png"));
+        assert_eq!(
+            sniff_image_mime(b"\x89PNG\r\n\x1a\n12345678"),
+            Some("image/png")
+        );
         assert_eq!(sniff_image_mime(b"GIF89a12345"), Some("image/gif"));
         assert_eq!(sniff_image_mime(b"GIF87a12345"), Some("image/gif"));
-        assert_eq!(sniff_image_mime(&[0xff, 0xd8, 0xff, 0x00, 0x11]), Some("image/jpeg"));
-        assert_eq!(sniff_image_mime(&[0x00, 0x00, 0x01, 0x00, 0x01]), Some("image/x-icon"));
-        assert_eq!(sniff_image_mime(b"RIFF\x00\x00\x00\x00WEBPVP8 ..."), Some("image/webp"));
-        assert_eq!(sniff_image_mime(b"<svg viewBox='0 0 100 100'></svg>"), Some("image/svg+xml"));
-        assert_eq!(sniff_image_mime(b"<?xml version='1.0'?><svg></svg>"), Some("image/svg+xml"));
-        assert_eq!(sniff_image_mime(b"\xef\xbb\xbf<svg></svg>"), Some("image/svg+xml"));
+        assert_eq!(
+            sniff_image_mime(&[0xff, 0xd8, 0xff, 0x00, 0x11]),
+            Some("image/jpeg")
+        );
+        assert_eq!(
+            sniff_image_mime(&[0x00, 0x00, 0x01, 0x00, 0x01]),
+            Some("image/x-icon")
+        );
+        assert_eq!(
+            sniff_image_mime(b"RIFF\x00\x00\x00\x00WEBPVP8 ..."),
+            Some("image/webp")
+        );
+        assert_eq!(
+            sniff_image_mime(b"<svg viewBox='0 0 100 100'></svg>"),
+            Some("image/svg+xml")
+        );
+        assert_eq!(
+            sniff_image_mime(b"<?xml version='1.0'?><svg></svg>"),
+            Some("image/svg+xml")
+        );
+        assert_eq!(
+            sniff_image_mime(b"\xef\xbb\xbf<svg></svg>"),
+            Some("image/svg+xml")
+        );
         assert_eq!(sniff_image_mime(b"Hello World"), None);
         assert_eq!(detect_image_mime(b"Hello World"), "image/png");
     }

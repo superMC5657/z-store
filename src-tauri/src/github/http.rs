@@ -51,8 +51,7 @@ pub(crate) async fn get_with_etag(
             Ok(r) => {
                 crate::notify_rate_limit("github.com", r.headers());
                 let status = r.status();
-                let retryable_status =
-                    status.as_u16() == 429 || status.is_server_error();
+                let retryable_status = status.as_u16() == 429 || status.is_server_error();
                 if retryable_status && attempt < RETRY_BACKOFF_MS.len() {
                     // 429 优先服务端指示 Retry-After；5xx 保持固定退避。
                     let delay_ms = if status.as_u16() == 429 {
@@ -99,10 +98,8 @@ pub(crate) async fn get_with_etag(
                         attempt + 1,
                         RETRY_BACKOFF_MS[attempt]
                     );
-                    tokio::time::sleep(std::time::Duration::from_millis(
-                        RETRY_BACKOFF_MS[attempt],
-                    ))
-                    .await;
+                    tokio::time::sleep(std::time::Duration::from_millis(RETRY_BACKOFF_MS[attempt]))
+                        .await;
                     attempt += 1;
                     continue;
                 }
@@ -460,9 +457,8 @@ pub(crate) async fn fallback_summary(
         Some(ci) => Some(ci),
         None => {
             if probe {
-                open_db_opt().and_then(|odb| {
-                    resolve_confirmed_icon_from_db(&odb, &id, &owner, &repo)
-                })
+                open_db_opt()
+                    .and_then(|odb| resolve_confirmed_icon_from_db(&odb, &id, &owner, &repo))
             } else {
                 None
             }
@@ -519,28 +515,67 @@ mod tests {
 
     #[test]
     fn test_guess_category_all_10_kinds() {
-        assert_eq!(guess_category(Some("A remote desktop client"), None, &[]).key, "system");
-        assert_eq!(guess_category(Some("High performance proxy and vpn"), None, &[]).key, "network");
-        assert_eq!(guess_category(Some("Music and video stream player"), None, &[]).key, "media");
-        assert_eq!(guess_category(Some("Password manager and 2fa authenticator"), None, &[]).key, "security");
-        assert_eq!(guess_category(Some("Code editor and terminal"), None, &[]).key, "dev");
-        assert_eq!(guess_category(Some("3D image paint and photo screenshot"), None, &[]).key, "graphics");
-        assert_eq!(guess_category(Some("Markdown note and pdf office tool"), None, &[]).key, "office");
-        assert_eq!(guess_category(Some("RSS feed reader and book library"), None, &[]).key, "reading");
-        assert_eq!(guess_category(Some("Docker container and kubernetes server"), None, &[]).key, "ops");
-        assert_eq!(guess_category(Some("Retro arcade game emulator"), None, &[]).key, "games");
+        assert_eq!(
+            guess_category(Some("A remote desktop client"), None, &[]).key,
+            "system"
+        );
+        assert_eq!(
+            guess_category(Some("High performance proxy and vpn"), None, &[]).key,
+            "network"
+        );
+        assert_eq!(
+            guess_category(Some("Music and video stream player"), None, &[]).key,
+            "media"
+        );
+        assert_eq!(
+            guess_category(Some("Password manager and 2fa authenticator"), None, &[]).key,
+            "security"
+        );
+        assert_eq!(
+            guess_category(Some("Code editor and terminal"), None, &[]).key,
+            "dev"
+        );
+        assert_eq!(
+            guess_category(Some("3D image paint and photo screenshot"), None, &[]).key,
+            "graphics"
+        );
+        assert_eq!(
+            guess_category(Some("Markdown note and pdf office tool"), None, &[]).key,
+            "office"
+        );
+        assert_eq!(
+            guess_category(Some("RSS feed reader and book library"), None, &[]).key,
+            "reading"
+        );
+        assert_eq!(
+            guess_category(Some("Docker container and kubernetes server"), None, &[]).key,
+            "ops"
+        );
+        assert_eq!(
+            guess_category(Some("Retro arcade game emulator"), None, &[]).key,
+            "games"
+        );
     }
 
     #[test]
     fn test_guess_category_fallback_to_dev() {
-        assert_eq!(guess_category(Some("Unmatched generic project"), None, &[]).key, "dev");
+        assert_eq!(
+            guess_category(Some("Unmatched generic project"), None, &[]).key,
+            "dev"
+        );
         assert_eq!(guess_category(None, None, &[]).key, "dev");
     }
 
     #[test]
     fn test_guess_category_via_topics() {
-        assert_eq!(guess_category(None, None, &["proxy".to_string(), "vpn".to_string()]).key, "network");
-        assert_eq!(guess_category(None, None, &["emulator".to_string()]).key, "games");
+        assert_eq!(
+            guess_category(None, None, &["proxy".to_string(), "vpn".to_string()]).key,
+            "network"
+        );
+        assert_eq!(
+            guess_category(None, None, &["emulator".to_string()]).key,
+            "games"
+        );
     }
 
     #[tokio::test]
@@ -551,7 +586,10 @@ mod tests {
         let repo = "testrepo";
 
         // 1. 无记录：返回 None
-        assert_eq!(resolve_confirmed_icon_from_db(&db, app_id, owner, repo), None);
+        assert_eq!(
+            resolve_confirmed_icon_from_db(&db, app_id, owner, repo),
+            None
+        );
 
         // 2. 有记录但 selected_url 为空（Level 5）
         let empty_cycle = crate::db::AppIconCycle {
@@ -564,7 +602,10 @@ mod tests {
             ..Default::default()
         };
         db.upsert_icon_cycle(&empty_cycle).unwrap();
-        assert_eq!(resolve_confirmed_icon_from_db(&db, app_id, owner, repo), None);
+        assert_eq!(
+            resolve_confirmed_icon_from_db(&db, app_id, owner, repo),
+            None
+        );
 
         // 3. 有记录且 selected_url 非空，但 cache_file 在磁盘上不存在：
         //    L1 回退 remote_url；level 4=L4 需网络，此处返回 None。
@@ -608,7 +649,8 @@ mod tests {
         assert!(uri.starts_with("data:image/png;base64,"));
 
         // 5. 大小写容错支持（例如传入 TestOwner/TestRepo）
-        let resolved_case = resolve_confirmed_icon_from_db(&db, "TestOwner/TestRepo", "TestOwner", "TestRepo");
+        let resolved_case =
+            resolve_confirmed_icon_from_db(&db, "TestOwner/TestRepo", "TestOwner", "TestRepo");
         assert_eq!(resolved_case, Some(uri.clone()));
 
         // 6. 清理测试文件
@@ -651,7 +693,10 @@ mod tests {
             ..Default::default()
         };
         db.upsert_icon_cycle(&cycle).unwrap();
-        assert_eq!(resolve_confirmed_icon_from_db(&db, app_id, "m2owner", "m2repo"), None);
+        assert_eq!(
+            resolve_confirmed_icon_from_db(&db, app_id, "m2owner", "m2repo"),
+            None
+        );
 
         let missing = crate::db::AppIconCycle {
             app_id: app_id.to_string(),
@@ -663,7 +708,10 @@ mod tests {
             ..Default::default()
         };
         db.upsert_icon_cycle(&missing).unwrap();
-        assert_eq!(resolve_confirmed_icon_from_db(&db, app_id, "m2owner", "m2repo"), None);
+        assert_eq!(
+            resolve_confirmed_icon_from_db(&db, app_id, "m2owner", "m2repo"),
+            None
+        );
     }
 
     #[tokio::test]

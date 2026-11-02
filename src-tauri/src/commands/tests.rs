@@ -190,19 +190,55 @@ fn test_base64_encode_and_hash_icon_filename() {
     );
 
     // 扩展名推断与 mime 双向映射
-    assert_eq!(infer_icon_ext_from_url("https://github.com/rustdesk.png"), Some("png"));
-    assert_eq!(infer_icon_ext_from_url("https://example.com/logo.JPEG?raw=1#top"), Some("jpg"));
-    assert_eq!(infer_icon_ext_from_url("https://example.com/logo.jpg"), Some("jpg"));
-    assert_eq!(infer_icon_ext_from_url("https://example.com/icon.svg"), Some("svg"));
-    assert_eq!(infer_icon_ext_from_url("https://example.com/app.ICO"), Some("ico"));
-    assert_eq!(infer_icon_ext_from_url("https://example.com/app.webp"), Some("webp"));
-    assert_eq!(infer_icon_ext_from_url("https://example.com/app.gif"), Some("gif"));
-    assert_eq!(infer_icon_ext_from_url("https://example.com/app.avif"), Some("avif"));
+    assert_eq!(
+        infer_icon_ext_from_url("https://github.com/rustdesk.png"),
+        Some("png")
+    );
+    assert_eq!(
+        infer_icon_ext_from_url("https://example.com/logo.JPEG?raw=1#top"),
+        Some("jpg")
+    );
+    assert_eq!(
+        infer_icon_ext_from_url("https://example.com/logo.jpg"),
+        Some("jpg")
+    );
+    assert_eq!(
+        infer_icon_ext_from_url("https://example.com/icon.svg"),
+        Some("svg")
+    );
+    assert_eq!(
+        infer_icon_ext_from_url("https://example.com/app.ICO"),
+        Some("ico")
+    );
+    assert_eq!(
+        infer_icon_ext_from_url("https://example.com/app.webp"),
+        Some("webp")
+    );
+    assert_eq!(
+        infer_icon_ext_from_url("https://example.com/app.gif"),
+        Some("gif")
+    );
+    assert_eq!(
+        infer_icon_ext_from_url("https://example.com/app.avif"),
+        Some("avif")
+    );
     // apng 归一为 png（多数口径：仅旧 icons 保留独立 apng → 归一，见 image_sniff）。
-    assert_eq!(infer_icon_ext_from_url("https://example.com/app.apng"), Some("png"));
-    assert_eq!(infer_icon_ext_from_url("https://example.com/app.bmp"), Some("bmp"));
-    assert_eq!(infer_icon_ext_from_url("https://example.com/no-ext-logo"), None);
-    assert_eq!(infer_icon_ext_from_url("https://example.com/file.exe"), None);
+    assert_eq!(
+        infer_icon_ext_from_url("https://example.com/app.apng"),
+        Some("png")
+    );
+    assert_eq!(
+        infer_icon_ext_from_url("https://example.com/app.bmp"),
+        Some("bmp")
+    );
+    assert_eq!(
+        infer_icon_ext_from_url("https://example.com/no-ext-logo"),
+        None
+    );
+    assert_eq!(
+        infer_icon_ext_from_url("https://example.com/file.exe"),
+        None
+    );
 
     assert_eq!(mime_to_ext("image/svg+xml"), "svg");
     assert_eq!(mime_to_ext("image/x-icon"), "ico");
@@ -212,12 +248,24 @@ fn test_base64_encode_and_hash_icon_filename() {
     // hash 文件名：`sha256(url)[0:16].{ext}`，ext 按 URL 推断（无后缀暂定 png）
     let h1_url = "https://github.com/rustdesk.png";
     let h1 = crate::db::icon_cycle::hash_icon_filename(h1_url, "png");
-    assert_eq!(h1, format!("{}.png", &crate::sha256_digest_hex(h1_url.trim().as_bytes())[..16]));
+    assert_eq!(
+        h1,
+        format!(
+            "{}.png",
+            &crate::sha256_digest_hex(h1_url.trim().as_bytes())[..16]
+        )
+    );
 
     // 无后缀 URL：暂定 png，下载后按内容纠正
     let h2_url = "https://localsend.org/app-logo";
     let h2 = crate::db::icon_cycle::hash_icon_filename(h2_url, "png");
-    assert_eq!(h2, format!("{}.png", &crate::sha256_digest_hex(h2_url.trim().as_bytes())[..16]));
+    assert_eq!(
+        h2,
+        format!(
+            "{}.png",
+            &crate::sha256_digest_hex(h2_url.trim().as_bytes())[..16]
+        )
+    );
 }
 
 #[test]
