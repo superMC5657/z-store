@@ -15,7 +15,7 @@ pub struct FeedPage {
 }
 
 /// 发现页 Feed（分页 + 混排，含本地收录合并视图）：
-/// - 输入为远端目录 + 本地收录（`status==collected && !archived`）合并，可搜可装与远端同行为；
+/// - 输入为远端目录 + 本地收录（collected 系/`submitted` 且未归档）合并，可搜可装与远端同行为；
 /// - `total`=过滤后总量，`has_more`=(offset+limit)<total（saturating，边界守好）；
 /// - `seed`=None 时纯 stars 降序（确定性），Some(seed)+balanced 时轻扰动打散头部垄断；
 /// - `strategy`=None/非法时回退 balanced（大小写不敏感，前端原样透传、后端归一小写）；

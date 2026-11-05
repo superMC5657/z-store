@@ -1,28 +1,14 @@
-//! 深 join 模块：未收录 join（`(favorite∪watched)∖精选收录库`）与
-//! scanner 模糊评分收拢于此；两种行为：
-//! - exact：Canonical App Id〈规范应用标识〉精确查（[`join_exact`]）；
-//!   命中保留（exact 命中直接返回收录项，不再进 fuzzy），缺席即未收录（调用方
-//!   按 loading/占位处理，与前端未收录行 `platforms: []` 恒可见同形）；
-//! - heuristic fuzzy：存量应用管理〈External App Management〉启发式评分
-//!   （[`join_fuzzy`]，唯一入口 adapter， mechanics 在 [`super::matcher`]）。
+//! 深 join 模块：存量应用管理〈External App Management〉启发式评分与纳管状态判定。
 //!
-//! exact 侧归一律经 `forge::canonical_lookup_id`（canonical 或小写回退，后端唯一源
-//! `forge::coord`，不另立 normalizer）；存量大小写漂移行经归一化治愈（ADR-0010）。
+//! - heuristic fuzzy：启发式评分唯一入口 adapter
+//!   （[`join_fuzzy`]，mechanics 在 [`super::matcher`]）；
+//! - exact 纳管比对：已安装应用 canonical id 集合匹配（[`is_managed_id`] 与 [`canonical_id_set`]）。
+//!
+//! 键比对统一经 `forge::canonical_lookup_id`，大小写漂移行经归一化治愈（ADR-0010）。
 
 use super::{AppMatchResult, ScannedRawApp};
 use crate::github::CatalogItem;
 use std::collections::HashSet;
-
-/// exact 行为：Canonical App Id〈规范应用标识〉精确查。
-/// 入站 id 经 canonical 归一后按收录库 id 精确匹配；命中返回收录项克隆
-/// （exact 命中保留），缺席返回 `None`（未收录，调用方挂起/占位）。
-pub fn join_exact(raw_id: &str, catalog: &[CatalogItem]) -> Option<CatalogItem> {
-    let key = crate::forge::canonical_lookup_id(raw_id);
-    if key.is_empty() {
-        return None;
-    }
-    catalog.iter().find(|c| c.id == key).cloned()
-}
 
 /// heuristic fuzzy 行为：存量应用管理启发式评分唯一入口 adapter
 /// （mechanics 在 `matcher::AppScanner::match_apps`，语义与其一致；
@@ -77,17 +63,6 @@ mod tests {
             publishers: vec![],
             platforms: vec![],
         }
-    }
-
-    #[test]
-    fn test_join_exact_hit_retained_miss_loading() {
-        let catalog = vec![mock_item("videolan/vlc", "videolan", "vlc")];
-        // exact 命中保留：大小写漂移入站仍命中同一收录项。
-        let hit = join_exact("VideoLAN/VLC", &catalog).expect("exact hit retained");
-        assert_eq!(hit.id, "videolan/vlc");
-        // 缺席即未收录：调用方挂起/占位（此处为 None）。
-        assert!(join_exact("unknown/thing", &catalog).is_none());
-        assert!(join_exact("   ", &catalog).is_none());
     }
 
     #[test]

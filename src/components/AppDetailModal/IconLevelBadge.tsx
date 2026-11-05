@@ -2,7 +2,7 @@ import React from 'react';
 import { RefreshCw } from 'lucide-react';
 
 /** 图标档位名经 i18n 键翻译（Header 持 t 上下文处取值），档位超出 1-5 时回落 L{n}。 */
-export type IconLevelNameKey =
+type IconLevelNameKey =
   | 'detail.icon_level_1'
   | 'detail.icon_level_2'
   | 'detail.icon_level_3'

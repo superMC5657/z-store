@@ -13,7 +13,7 @@
 //!   emit 前查 gen，`should_stop` 开探前协作取消）负责，core 只做探测与调度，不触 DB。
 //! - 单仓深核 `probe_single_live`（L2→L3）为流式与详情 cycle 共用的唯一探核：
 //!   `fetch_icons_stream` 逐 job 调它；`commands::icons_cycle_probe::ensure_cycle_levels` 的
-//!   L2/L3 与 `fetch_anon_probe_bytes` 的匿名兜底亦经它（或其 L2/L3 拆分件）。
+//!   L2/L3 与 `fetch_anon_probe_bytes` 的匿名兜底亦经它（或其子探测函数）。
 //!   L4=README 与 L1=官方填充分居详情/cycle 适配器，不进本核。
 //! - M2=DB落盘命中零网络，由调用方在进 core 前短锁预解析，不经本 core 探测。
 //!   L4=README需网络，详情链专属，不受本核心约束，本 core 不探 README。

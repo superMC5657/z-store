@@ -291,26 +291,6 @@ impl Database {
         )?;
         Ok(rows > 0)
     }
-
-    // --- 便捷别名 (get / set_level 简洁调用) ---
-
-    pub fn get(&self, app_id: &str) -> Result<Option<AppIconCycle>> {
-        self.get_icon_cycle(app_id)
-    }
-
-    pub fn set_level(&self, app_id: &str, level: i32) -> Result<()> {
-        self.set_icon_cycle_level(app_id, level)
-    }
-}
-
-/// 模块级便捷函数：根据 app_id 读取图标轮换记录
-pub fn get(db: &Database, app_id: &str) -> Result<Option<AppIconCycle>> {
-    db.get_icon_cycle(app_id)
-}
-
-/// 模块级便捷函数：更新图标轮换级别
-pub fn set_level(db: &Database, app_id: &str, level: i32) -> Result<()> {
-    db.set_icon_cycle_level(app_id, level)
 }
 
 // --- 图标轮换决策 SSOT（Shotgun Surgery 收敛落点，C1 持久化唯一深口） ---

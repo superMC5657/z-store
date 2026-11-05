@@ -1,3 +1,5 @@
+#![cfg(any(target_os = "linux", test))]
+
 #[cfg(target_os = "linux")]
 use super::InstallOutcome;
 use std::path::Path;
@@ -103,7 +105,7 @@ pub fn appimage_launch_argv(path: &Path) -> Vec<String> {
     vec![path.to_string_lossy().to_string()]
 }
 
-/// Linux AppImage 安装体（原 executor.rs 内联 cfg(linux) 分支纯移动）。
+/// Linux AppImage 安装体。
 #[cfg(target_os = "linux")]
 pub async fn install_appimage(installer_path: &Path) -> Result<InstallOutcome, String> {
     let chmod_argv = appimage_chmod_argv(installer_path);
@@ -140,14 +142,14 @@ async fn run_pkexec_package_installer(
     }
 }
 
-/// Linux deb 安装体（原 executor.rs 内联 cfg(linux) 分支纯移动）。
+/// Linux deb 安装体。
 #[cfg(target_os = "linux")]
 pub async fn install_deb(installer_path: &Path) -> Result<InstallOutcome, String> {
     let argv = deb_install_argv(installer_path);
     run_pkexec_package_installer(&argv, "dpkg", "deb").await
 }
 
-/// Linux rpm 安装体（原 executor.rs 内联 cfg(linux) 分支纯移动）。
+/// Linux rpm 安装体。
 #[cfg(target_os = "linux")]
 pub async fn install_rpm(installer_path: &Path) -> Result<InstallOutcome, String> {
     let argv = rpm_install_argv(installer_path);

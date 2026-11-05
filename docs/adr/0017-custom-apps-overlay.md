@@ -51,14 +51,14 @@
 4. **转正闭环**：`sync_catalog` 成功路径（含本地降级）以远端 id 集合自动退役命中草稿，
    消息尾部追加转正提示（`with_graduation_hint`）；`retire_on_sync` 亦可独立调用
    （`remote_ids=None` 时以当前内存目录为准）。
-5. **预填 Issue 链路**：`build_catalog_pr_url` 由草稿 payload 生成清单仓库 Issue 预填 URL
+5. **预填 Issue 链路**：`build_single_pr_url` / `build_batch_pr_url` 由草稿 payload 生成清单仓库 Issue 预填 URL
    （标题带 canonical id，正文含关键字段 + 完整 JSON），用户在浏览器确认后提交，
    maintainer 转 PR——草稿“本地先生效、远端后收录”不断链。单条入口为
    `get_custom_app_pr_url` / `get_custom_app_pr_payload`，批量入口为
    `get_custom_apps_batch_pr_url` / `get_custom_apps_batch_pr_payload` /
    `build_batch_pr_url`（提交档校验后生成，门禁口径见 ADR-0018）；payload 命令只返回
    Rust 序列化的 JSON 文本（单对象 / 数组），供预填链接超长时原样复制，前端不拼模板。
-   （内部命令与字段仍沿用 `pr_url` 历史命名，仅界面文案称 Issue。）
+   （内部命令与字段沿用 `pr_url` 命名，界面文案呈现为 Issue。）
 6. **前端接线**：待收录页 `PendingView.tsx`
   （+ `PendingView.test.tsx` / `PendingView.pr.test.tsx`、`styles/components-pending.css`，
    Linear 去彩单色）；`App.tsx` 透传 `pendingCount`/`customIds`/`movedInIds`

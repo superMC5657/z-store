@@ -238,7 +238,7 @@ fn seal_empty_level_selection(
     cycle.pinned = true;
     if let Ok(db) = state.db() {
         let _ = db.upsert_icon_cycle(cycle);
-        // 写侧同步内联（原 sync_detail_icon_best_effort）：L5 显式清空 ""，有行才 UPDATE。
+        // 写侧同步：L5 显式清空 ""，有行才 UPDATE。
         let _ = db.sync_detail_icon(canonical_id, "");
     }
 }
@@ -291,16 +291,16 @@ fn persist_manual_selection(
     let inferred_ext =
         crate::commands::icons::infer_icon_ext_from_url(&target_url).unwrap_or("png");
     let icon = IconRef::new(&target_url, inferred_ext);
-    // is_cataloged 恒 false：收录行在命令入口已早返（保持 false 与拆分前实参一致）。
+    // is_cataloged 恒 false：收录行在命令入口已早返。
     let final_filename = write_icon_file(icons_dir, db_opt.as_deref(), &icon, false, bytes);
 
     // 手动选择持久化三件套：selected_url + level + icons 文件同 tick 落库（关掉重进还在）。
     crate::db::icon_cycle::seal_cycle_selection(cycle, next_level, &target_url, final_filename);
-    // 02 手动轮换保护：用户手动切档即 pinned，后续详情刷新只补槽不改选中。
+    // 手动轮换保护：用户手动切档即 pinned，后续详情刷新只补槽不改选中。
     cycle.pinned = true;
     if let Some(db) = db_opt.as_ref() {
         let _ = db.upsert_icon_cycle(cycle);
-        // 写侧同步内联（原 thin helper）：`data:` 永不进盘，有行才 UPDATE，cached_at 不动。
+        // 写侧同步：`data:` 永不进盘，有行才 UPDATE，cached_at 不动。
         let sel = cycle.selected_url.trim();
         if !sel.starts_with("data:") {
             let _ = db.sync_detail_icon(canonical_id, sel);

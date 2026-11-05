@@ -1,3 +1,5 @@
+#![cfg(any(target_os = "macos", test))]
+
 #[cfg(target_os = "macos")]
 use super::InstallOutcome;
 use std::path::Path;
@@ -44,14 +46,14 @@ pub fn dmg_copy_argv(src_app: &Path, dst_app: &Path) -> Vec<String> {
     ]
 }
 
-/// macOS DMG 安装体（原 executor.rs 内联 cfg(macos) 分支纯移动）。
+/// macOS DMG 安装体。
 #[cfg(target_os = "macos")]
 pub async fn install_dmg(installer_path: &Path) -> Result<InstallOutcome, String> {
     let res = install_macos_dmg(installer_path).await;
     res.map(InstallOutcome::Installed)
 }
 
-/// macOS PKG 安装体（原 executor.rs 内联 cfg(macos) 分支纯移动）。
+/// macOS PKG 安装体。
 #[cfg(target_os = "macos")]
 pub async fn install_pkg(installer_path: &Path) -> Result<InstallOutcome, String> {
     let argv = pkg_open_argv(installer_path);

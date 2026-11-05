@@ -21,13 +21,13 @@ pub mod search;
 #[cfg(test)]
 mod tests;
 
-pub use models::{AppRepoCoordinates, CatalogItem};
+pub use models::CatalogItem;
 
 use std::sync::RwLock;
 
 pub struct CatalogService {
     pub(crate) items: RwLock<Vec<CatalogItem>>,
-    /// 本地收录 overlay（`custom_apps` 中 `status` 为 collected 系且未归档行），
+    /// 本地收录 overlay（`custom_apps` 中 collected 系/`submitted` 且未归档行），
     /// 由 `sync_collected_from_db` 在启动与 `custom_apps` 变更后同步；远端优先去重。
     pub(crate) collected: RwLock<Vec<CatalogItem>>,
     pub(crate) client: reqwest::Client,

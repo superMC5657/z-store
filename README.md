@@ -39,6 +39,7 @@
 - **TTL 智能缓存与 ETag 续期**：详情缓存 TTL 基线 60 分钟（合法挡位 `[0, 10, 60, 360, 1440]`，非法值归一化回退 60），过期后触发 ETag 304 条件请求，零配额消耗延长缓存新鲜度；该 TTL 仅约束详情浏览。资产面（更新中心、收藏）只在显式手动刷新时做 ETag 轻量探查并写 `update_results`，其余时间读本地快照；非资产面（搜索/趋势/平台推导/图标/首页）默认自动拉取并经 ETag 条件请求复用。
 - **发现流分页与搜索翻页**：发现 Feed 首屏 20、触底续 20 无限滑（`has_more=(offset+limit)<total`）；在线搜索默认 `per_page=20`、钳制 1–50，满页即 `hasMore` 续拉下一页。
 - **首页排序锁定**：首页固定 `balanced + seed 7`，无排序切换工具条。
+- **最新入库时效视图**：以清单 `added_at` 收录时间为轴的「最新入库」独立视图，支持最近一周/一月/一季度时效过滤并由近及远倒排展示（详见 [ADR-0021](docs/adr/0021-latest-catalog-new-arrivals-view-and-reverse-sort.md)）。
 
 ### 2. 🦊 多托管平台与多设备平台双维筛选
 - **多托管源抽象**：`ForgeProvider` 统一抽象层原生支持 **GitHub**、**Codeberg**、**GitLab**、**Forgejo** 与自建 **Gitea** 实例（[ADR-0006](docs/adr/0006-multi-forge-ecosystem-support.md)）。canonical 仓库标识为小写 `owner/repo`（GitHub）或 `forge:owner/repo`（非 GitHub 默认主机）/ `forge:host/owner/repo`（自建实例，host 后接 `/`）；`gh:` / `cb:` / `gl:` / `gt:` 只是入站输入别名，落库前统一归一为 canonical。支持独立主机 PAT 与速率管理。
@@ -49,33 +50,39 @@
 - 深度扫描 Windows 系统已安装软件（注册表 `Uninstall` 项与系统目录），提取软件名称、版本与安装路径。
 - 基于倒排索引与启发式置信度打分算法（支持别名匹配与特征指纹），智能识别本地已装的开源软件（如 VLC、OBS、VS Code、Git 等），一键导入管理并接管自动更新。
 
-### 4. 🛡️ 细粒度版本控制与安全防御
+### 4. 📝 待收录草稿与本地自维护库 (Pending & Self-maintained Catalog)
+- **本地草稿收录**：远端清单未收录的开源应用可在应用内创建草稿，本地先生效进入「待收录」视图，与远端目录全局合并展示（`showCustom` 开关，详见 [ADR-0017](docs/adr/0017-custom-apps-overlay.md)）。
+- **本地库与归档分段**：草稿按「草稿 / 本地收录 / 已归档」分段管理，本地收录行与远端同权重可搜可装。
+- **预填 Issue 链路**：草稿一键生成清单仓库的 Issue 预填 URL（标题带 canonical id、正文含关键字段与完整 JSON），单条与批量入口共用协议门禁（`license_gate`），浏览器确认后提交、maintainer 转 PR 收录。
+- **转正闭环**：清单同步成功后按远端 id 集合自动退役命中草稿并提示转正，本地草稿与远端收录不断链。
+
+### 5. 🛡️ 细粒度版本控制与安全防御
 - **版本控制中枢**：更新列表中可针对特定应用选择“跳过此版本”或“锁定当前版本（禁止自动更新）”，避免破坏性升级；版本新旧比较遵循 semver 语义。
 - **黑名单管理**：支持从推荐与搜索列表中隐藏不感兴趣的应用仓库。
 - **SHA-256 完整性校验**：下载后强制流式计算 SHA-256 并与官方清单比对，不符立即阻断；本地已存在且哈希命中即零网络跳过（未命中/无期望哈希才重下覆盖，而非必重下）。
 - **便携卸载隔离**：`remove_dir_all` 仅允许删除 ZStore 自建的隔离目录，共享目录只做安全清理。
 
-### 5. 🌟 开发者全景生态与 GitHub Star 同步
+### 6. 🌟 开发者全景生态与 GitHub Star 同步
 - **开发者主页**：点击作者一键查看其名下所有的开源项目、开源许可协议与最新发布历史。
 - **GitHub OAuth 登录**：Device Flow 免应用密钥登录，Client ID 遵循单一配置源（`src-tauri/config.toml`），支持在设置项中自定义覆盖。采用 `classify_device_poll` 明确区分 `Expired` 与 `Denied` 状态。
 - **GitHub Star 导入**：登录后一键拉取个人 Star 列表中所有具备可用构建资产的开源项目。
 - **本地足迹追踪**：自动记录并持久化搜索历史与最近浏览应用，支持一键快捷回访。
 - **趋势榜单直取**：经共享 Client 直取（`tokio` 10s 超时，截断 2MB 防爆内存），仅允许 `github.com` / `trend.doforce.dpdns.org` / `api.github.com` 三 host 白名单；doforce 429 透传 `retry-after` + `retry_after_ms` 后按值再试一次（上限 60s，缺省等 5s）；enrich 单次批量 40 上限（整批失败即整批缺席，不抛错；详见 ADR-0014）。
 
-### 6. 🔄 检查更新流式推流与实时感知
+### 7. 🔄 检查更新流式推流与实时感知
 - **实时推流动效**：更新检查基于并发管道流式拉取（`buffer_unordered(6)`，主路径与关注通知两处），后端通过 `zstore://update-check-progress` 逐项推流，前端呈现丝滑进度条与更新项逐项跳出微动效。
 - **轻量版本嗅探**：更新检查仅拉取版本号与 Release 说明，不下载大体积 README 或非必要元数据；默认只读本地快照（零网络），显式手动刷新（`forceRefresh=true`）才走 ETag 轻量探查（304 零配额），与详情 60 分钟 TTL 解耦。
 
-### 7. 🔗 系统级协议与状态指示
-- **深层链接唤起**：注册 `zstore://` URL Scheme，支持浏览器与外部命令行直接唤起客户端直达详情、安装或搜索；安装类深链必须经过显式确认对话框，用户点确认后才开始安装。
+### 8. 🔗 系统级协议与状态指示
+- **深层链接唤起**：注册 `zstore://` URL Scheme，支持浏览器与外部命令行直接唤起客户端直达详情、安装、搜索、开发者主页或指定视图；安装类深链必须经过显式确认对话框，用户点确认后才开始安装。
 - **API 速率感知**：后端解析 GitHub 响应里的限流头并经 `zstore://quota-updated` 广播剩余配额；界面暂未消费该事件，账号卡片只展示登录态的配额说明文案。
 - **GitHub 账号胶囊**：侧栏底部常驻账号入口（`Account Capsule`），未登录状态下展示登录入口，登录后展示用户头像与用户名，点击直达设置中心账号卡片。
 
-### 8. 🌐 网络代理与下载加速架构
+### 9. 🌐 网络代理与下载加速架构
 - **下载加速代理**：针对 Release 二进制大文件下载拼接加速前缀（默认 `https://gh-proxy.com`），支持在设置中心配置与单键测速。
 - **系统代理与 TUN 截获**：客户端发出的 HTTP 请求天然受系统代理及本地代理工具（如 Clash / v2ray / TUN 模式）透明捕获，无需在应用内繁琐配置本地代理 IP/端口；Windows 启动时自探测注册表系统代理无缝衔接。
 
-### 9. ⚙️ 设置中心 5 组架构
+### 10. ⚙️ 设置中心 5 组架构
 - 设置中心规范分为 5 个业务分组：`外观与个性化`、`更新与规则`、`存储与安装`、`网络与数据`（GitHub 账号卡片位于该组，锚点 `#settings-account`）、`数据管理与备份`。
 - 全量项目超参与默认配置收敛于 `src-tauri/config.toml` 单一真相源，确保前后端与引擎默认行为严格对齐。
 - **数据备份范围**：备份覆盖 13 个设置项（`components/DataBackupRow.tsx::buildBackupSettings` 的 12 个显式字段 + `showCustom` 自维护 overlay 开关；导入侧白名单 `userdata/import.rs::IMPORT_SETTINGS_ALLOWLIST` 同时兼容历史 `showCustom` 键），`github_token`（PAT 凭据）刻意排除，永不经备份文件流转。
@@ -152,6 +159,7 @@ pnpm tauri build
 - [ADR-0018: 开源协议门禁可配（`license_gate`）与 D1 默认严格](docs/adr/0018-license-gate-configurable.md)
 - [ADR-0019: 资产面手动缓存与非资产面自动拉取](docs/adr/0019-asset-manual-cache-and-non-asset-auto-fetch.md)
 - [ADR-0020: 令牌本地明文存储的风险接受](docs/adr/0020-token-plaintext-risk-acceptance.md)
+- [ADR-0021: 最新入库独立视图与收录时间倒排](docs/adr/0021-latest-catalog-new-arrivals-view-and-reverse-sort.md)
 - [协作规范与 Agent 指南](AGENTS.md)
 
 ---

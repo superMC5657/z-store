@@ -526,6 +526,7 @@ impl AppScanner {
     ///（含 `/usr/bin/flatpak` 路径形态；`env VAR=..` 剥离后的残留 token 同样适用）。
     /// Exec 行首与 env 前缀剥离后两处调用点共用，防 which 到 `/usr/bin/flatpak` 全量误报。
     /// 纯函数，跨平台可单测。
+    #[cfg(any(target_os = "linux", test))]
     pub fn is_flatpak_shell_wrapper(exec: &str) -> bool {
         let trimmed = exec.trim();
         if trimmed.is_empty() {
@@ -544,6 +545,7 @@ impl AppScanner {
 
     /// 解析 `.desktop` Exec 值为可执行二进制（去 `%U/%F` 等字段码、引号、`env VAR=..` 前缀）。
     /// 纯函数，跨平台可单测。返回裸命令或绝对路径字符串（不校验存在性）。
+    #[cfg(any(target_os = "linux", test))]
     pub fn parse_desktop_exec_binary(exec_line: &str) -> Option<String> {
         let line = exec_line.trim();
         if line.is_empty() {
@@ -638,6 +640,7 @@ impl AppScanner {
     /// 绝对路径要求 `is_file` 且（Unix 上）有执行位；裸命令按 `PATH` 逐目录查找（含可执行位校验）。
     /// 无执行位一律返回 None（禁无条件放行，防误命中数据文件；赋权/提权由调用方显式处理）。
     /// 纯文件系统函数，Linux/Windows 均可调用（Windows 上退化为 is_file 检查）。
+    #[cfg(any(target_os = "linux", test))]
     pub fn resolve_binary_via_path(bin: &str) -> Option<String> {
         let b = bin.trim().trim_matches('"').trim_matches('\'');
         if b.is_empty() {
@@ -674,6 +677,7 @@ impl AppScanner {
     /// `/snap/bin`（snap 应用，如 vlc snap 落盘处）、`~/.local/bin`（XDG 用户级）。
     /// 注：`/opt/bin` 非标准 FHS 路径，不在此补齐（`/opt/<Name>` 由 `resolve_linux_system_binary` 专管）。
     /// Unix 上必须有执行位才放行（无执行位返回 None；符号链接经 metadata 跟随目标判定）。
+    #[cfg(any(target_os = "linux", test))]
     pub fn which_binary(name: &str) -> Option<String> {
         let n = name.trim();
         if n.is_empty() || n.contains('/') || n.contains('\\') {
@@ -732,6 +736,7 @@ impl AppScanner {
     /// 匹配不上返回 None（禁首个文件盲 fallback，防误命中无关二进制）。
     /// 目录项（如 `/opt/Motrix`，其后必有以 `该行 + "/"` 开头的内容行）一律跳过，
     /// 避免 basename 恰好等于候选名（如 Motrix 目录 vs motrix 二进制）时误命中目录。
+    #[cfg(any(target_os = "linux", test))]
     pub fn pick_executable_from_package_list(
         dpkg_output: &str,
         candidates: &[String],
@@ -788,6 +793,7 @@ impl AppScanner {
     /// bin 保留原大小写 + 小写（which/desktop 精准匹配用）。
     /// `.exe` 后缀自动退化出裸名（Linux 落盘多为无扩展名）。
     /// 纯函数，跨平台可单测。
+    #[cfg(any(target_os = "linux", test))]
     pub fn linux_candidate_names(
         native_ids: &[String],
         name_parts: &[String],
@@ -861,6 +867,7 @@ impl AppScanner {
     /// 包文件列表输出 → 精准挑选 → 落盘规范化（deb/rpm 回填与 scanner dpkg 嗅探三处复用，
     /// 收敛 `pick → is_file → canonicalize` 重复）。
     /// 挑选失败或落盘不存在返回 None（调用方继续走 which/desktop 嗅探）。
+    #[cfg(any(target_os = "linux", test))]
     pub fn pick_and_canonicalize_package_path(
         pkg_output: &str,
         candidates: &[String],
@@ -880,6 +887,7 @@ impl AppScanner {
 
     /// 文件名/目录名归一化：小写去空格/`-`/`_`后比对（与 `/opt/Clash Verge`
     /// 带空格目录共用；纯函数，跨平台可单测）。
+    #[cfg(any(target_os = "linux", test))]
     pub fn normalize_fs_token(s: &str) -> String {
         s.to_lowercase()
             .chars()
@@ -897,6 +905,7 @@ impl AppScanner {
     /// 不存在/非目录项已过滤（CI/容器缺 snap/flatpak 路径时避免无效遍历）；
     /// 调用方在单次扫描内复用同一列表（桌面文件常变，不做跨调用缓存）。
     /// 纯环境函数，跨平台可调用（Windows 上调用方不使用）。
+    #[cfg(any(target_os = "linux", test))]
     pub fn linux_desktop_dirs() -> Vec<PathBuf> {
         let mut dirs: Vec<PathBuf> = vec![
             PathBuf::from("/usr/share/applications"),

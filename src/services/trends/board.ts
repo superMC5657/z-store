@@ -81,7 +81,7 @@ import {
   resolveIconWithBuffer,
 } from '../iconStore';
 
-export { isDataIcon, isMissingIconForDisplay, isPersistableIcon };
+export { isPersistableIcon };
 
 /**
  * 单一抓取入口（board 为唯一 deep module 的对外抓取口）。
@@ -95,7 +95,6 @@ export function fetchTrendsResultSeam(
 ): ReturnType<typeof fetchTrendsResultInner> {
   return fetchTrendsResultInner(...args);
 }
-export type { LoadingLiteTarget };
 
 /* ------------------------------------------------------------------ */
 /* A. 缓存键 + 持久化 seam（View 禁止直调 saveBoardCacheMerged）        */

@@ -4,7 +4,7 @@ import { buildCustomDraftItemFromSummary, draftForgeGateError, type CustomCatalo
 import { resolveRemoteIconUrl } from './iconUrl';
 
 /** 移入收录结果：成功时带回落库草稿（含 canonical id），失败带回原因供视图本地化提示。 */
-export interface MoveInResult {
+interface MoveInResult {
   ok: boolean;
   id: string;
   item?: CustomCatalogItem;

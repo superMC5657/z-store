@@ -19,7 +19,7 @@ import type { AppSummary } from '../types';
 import { isInstalled as selectIsInstalled, selectManagedState } from '../app/selectors';
 import { queueAssembledRowIcons } from '../services/iconStore';
 
-export type LatestTimeWindow = '7d' | '30d' | '90d';
+type LatestTimeWindow = '7d' | '30d' | '90d';
 
 interface LatestViewProps extends ViewAppActions, RequiredPlatformReset {
   platformResolvedOtherIds?: ReadonlySet<string>;

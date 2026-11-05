@@ -4,4 +4,3 @@ pub mod downloader_http;
 pub mod downloader_progress;
 
 pub use downloader_http::*;
-pub use downloader_progress::*;

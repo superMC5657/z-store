@@ -28,7 +28,7 @@
 | **应用内仅下载** | `Download-Only` | 宿主不可安装的资产经应用内通道下载落盘、不调用安装器的模式，复用安装通道的镜像改写、SHA-256 校验与下载进度事件，落盘后可一键定位文件。 | 浏览器下载、直链下载 |
 | **便携版应用** | `Portable App` | 免安装 ZIP/二进制tarball，剥顶层解压至AppData、Linux/macOS chmod兜底，仅本平台可装，自动创建桌面快捷方式与提供卸载清理。 | 绿色软件、免安装版 |
 | **双模标识系统** | `Adaptive Icon System` | 包含明亮模式 (D-轻1 冰川浅蓝) 与暗黑模式 (D-轻4 晶透亚克力) 的三层图标分层架构，涵盖桌面打包与多端自适应，详见 ADR-0005。 | 软件LOGO、系统图标 |
-| **协议深层链接** | `Deep Linking` | 注册系统级 `zstore://` URL Scheme，支持浏览器与外部链接一键呼起客户端直达详情、安装或搜索路由。 | 外部协议、跳转链接 |
+| **协议深层链接** | `Deep Linking` | 注册系统级 `zstore://` URL Scheme，支持浏览器与外部链接一键呼起客户端直达详情、安装、搜索、开发者主页或指定视图路由。 | 外部协议、跳转链接 |
 | **版本控制规则** | `Update Rule` | 持久化于本地 SQLite 的应用更新策略，支持跳过指定破坏性版本、永久锁定版本与隐藏特定仓库。 | 忽略更新、锁定版本 |
 | **SHA-256 完整性校验** | `Checksum Verification` | 下载后强制 SHA-256 流式校验，与 `checksums.txt` / `SHA256SUMS` 比对（详见 ADR-0004）。 | Authenticode、证书校验、安全验签 |
 | **存量应用管理** | `External App Management` | 扫描操作系统已安装软件（Windows 注册表及程序目录），通过倒排索引与启发式打分智能匹配开源清单，一键添加至管理列表并接管更新。 | 软件扫描、外部导入、应用纳管 |
@@ -94,6 +94,6 @@
     - 搜缓存为 `src/services/search/searchListCache.ts` 纯前端内存缓存（key=`search|归一query|page|perPage`，读写入口 `readSearchListCache` / `writeSearchListCache`；TTL 30min、上限 50 条 FIFO 以 `searchListCache.ts` 常量为准），不碰榜缓存二级落盘与趋势榜缓存。
     - 图标就绪事件：只发 `zstore://icon-ready`（见 `src-tauri/src/github/icon_fetch.rs` 的 `emit_icon_ready`），前后端同一事件，载荷 `{id,icon,level,via,context}`（`id` 即小写 `owner/repo`，与 DB 主键同源）。
     - 详情仍走最强探测（动态分支 + 图标 L4=README，需网络；L3仅默认分支，详情失败用HEAD，README默认+HEAD），不受统一核心约束。
-    - level纯L(1=L1官方,2=L2品牌库,3=L3仓库,4=L4 README)；缓存只用M(M1=前端内存，M2=DB落盘)，
-      经 `via`=live|m2 正交表达（core探测一律live，DB回填走m2不占level）；level:4=L4。
+    - level纯L(1=L1官方,2=L2品牌库,3=L3仓库,4=L4 README,5=L5用户显式切空)；缓存只用M(M1=前端内存，M2=DB落盘)，
+      经 `via`=live|m2 正交表达（core探测一律live，DB回填走m2不占level）。
     - 榜就绪门控（`boardReady` / SWR 快照判定）仅门控富卡升级、不阻塞裸行直展，实现见 `src/services/trends/board.ts` 与 `useTrendBoard.ts`。

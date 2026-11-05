@@ -8,7 +8,7 @@
 
 - 后端统一核心 `github/icon_fetch.rs::fetch_icons_stream(handle, jobs, token, cfg, emit)`，其中 `jobs=[{id,owner,repo,ctx}]`，`ctx=Search{search_id,gen} | Trend{board,gen}`。
 - Core 只做探测与调度，不触 DB；世代防串由调用方 `emit` 回调（搜索与趋势共用的 `commands/catalog_search.rs::save_and_emit`）落库前 + emit 前双检查执行。
-- 搜索与趋势都只走 `zstore://icon-ready{key,id,icon,level,via,context}`（`key`=小写 `owner/repo`，`level`纯L：2=L2品牌库 / 3=L3仓库 / 4=L4 README，core只发2/3 live；`via`=live|m2，M2落盘回填走m2不占level；M1为前端内存与本载荷正交）。
+- 搜索与趋势都只走 `zstore://icon-ready{id,icon,level,via,context}`（`id`=小写 `owner/repo`，`level`纯L：2=L2品牌库 / 3=L3仓库 / 4=L4 README，core只发2/3 live；`via`=live|m2，M2落盘回填走m2不占level；M1为前端内存与本载荷正交）。
 
 ## 2. Pool 与超时默认
 

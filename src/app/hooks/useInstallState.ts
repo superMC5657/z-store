@@ -5,7 +5,7 @@ import { tauriApi, UNVERIFIED_ASSET_MARKER } from '../../services/api';
 import { zlogInfo } from '../../lib/z-log';
 
 /** 无校验资产待确认状态：D3 门禁拒绝后挂起，待用户在警示弹窗显式确认后重试。 */
-export interface UnverifiedInstallPrompt {
+interface UnverifiedInstallPrompt {
   id: string;
   assetName?: string;
   customInstallDir?: string;

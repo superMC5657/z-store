@@ -153,6 +153,7 @@ impl AppScanner {
     }
 
     /// Linux 可执行位判定（`chmod +x` 任一执行位）。非 Unix 平台恒返回 false（仅供 linux 分支调用）。
+    #[cfg(any(target_os = "linux", test))]
     pub fn has_exec_permission(p: &Path) -> bool {
         #[cfg(unix)]
         {

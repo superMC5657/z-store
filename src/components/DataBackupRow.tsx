@@ -9,7 +9,7 @@ import { useTransientFeedback } from './useTransientFeedback';
 const pad2 = (n: number) => String(n).padStart(2, '0');
 
 // 出于安全考虑，github_token（PAT 凭据）永不写入备份文件；
-// 导入侧白名单（src-tauri/src/oauth/backup.rs）同样拒绝该键。
+// 导入侧白名单（src-tauri/src/userdata/import.rs `IMPORT_SETTINGS_ALLOWLIST`）同样拒绝该键。
 export const BACKUP_EXCLUDED_KEYS = ['github_token'] as const;
 
 const toOptionalNumber = (v: unknown): number | undefined => {

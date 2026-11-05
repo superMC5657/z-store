@@ -7,7 +7,7 @@ use std::sync::RwLock;
 
 /// 目录来源标记：远端精选收录库行。
 pub const CATALOG_SOURCE_REMOTE: &str = "remote";
-/// 目录来源标记：本地收录（`custom_apps` collected 系）补位行。
+/// 目录来源标记：本地收录（`custom_apps` collected 系/`submitted`）补位行。
 pub const CATALOG_SOURCE_LOCAL: &str = "local";
 
 /// 当 `url` 为官方默认软件源时返回 true（空字符串同样由调用方视为默认源，并在发起同步前进行解析）。
@@ -492,11 +492,6 @@ impl CatalogService {
         });
 
         matches.into_iter().map(|(_, s)| s).collect()
-    }
-
-    pub fn filter_by_category(&self, category: &str) -> Option<Vec<AppSummary>> {
-        let items = self.get_catalog_items();
-        self.filter_in_slice(&items, category)
     }
 
     fn filter_in_slice(&self, items: &[CatalogItem], category: &str) -> Option<Vec<AppSummary>> {

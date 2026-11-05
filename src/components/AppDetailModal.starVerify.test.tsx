@@ -1,7 +1,7 @@
 /**
- * 标星特征化测试（用于从 AppDetailModal 拆分出 useDetailStarVerify 后的防劣化保护）。
+ * 标星特征化测试：锁定详情弹窗的 GitHub Star 切换契约。
  *
- * 在模块拆分后通过真实组件路径锁定详情弹窗的 GitHub Star 切换契约。
+ * 通过真实组件路径锁定详情弹窗的 GitHub Star 切换契约。
  * 已认证蓝标由 catalog 驱动展示（is_verified + VerifiedBadge），不在此覆盖。
  */
 import { describe, expect, it, vi, afterEach } from 'vitest';

@@ -31,7 +31,7 @@ function registeredCommands(): Set<string> {
 describe('CMD table aligns with backend invoke_handler registration', () => {
   it('parses a non-trivial registration set from lib.rs', () => {
     const registered = registeredCommands();
-    // 后端当前注册 94 条；阈值只防「正则失配 → 空集 → 误绿」，非精确锁定。
+    // 阈值只防「正则失配 → 空集 → 误绿」，非精确锁定。
     expect(registered.size).toBeGreaterThanOrEqual(50);
   });
 

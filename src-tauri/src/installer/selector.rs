@@ -110,6 +110,7 @@ pub const PENALTY_ASSET_ARCH_MISMATCH: i32 = -50;
 
 pub const SCORE_ASSET_KIND_PRIMARY: i32 = 20;
 pub const SCORE_ASSET_KIND_SECONDARY: i32 = 15;
+#[cfg(any(target_os = "linux", test))]
 pub const SCORE_ASSET_KIND_TERTIARY: i32 = 12;
 pub const SCORE_ASSET_KIND_PORTABLE: i32 = 10;
 pub const SCORE_ASSET_KIND_TARBALL: i32 = 5;

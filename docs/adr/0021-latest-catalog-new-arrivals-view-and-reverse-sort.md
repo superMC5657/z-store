@@ -7,7 +7,7 @@
 
 ## 1. 背景
 
-`catalog.json` 规范中包含每个应用收录进入精选库的日期字段 `added_at`（ISO `YYYY-MM-DD` 格式，全量 362 条存量数据均已具备），但此前未在 Rust 运行时类型 (`CatalogItem` / `AppCore`) 及前端 `AppSummary` 中显式建模；同时此前缺乏按收录时效性探索应用的能力（首页 Feed 仅做 Balanced / StarsOnly 混排，Trends 仅跟踪外部 GitHub 趋势）。
+`catalog.json` 规范中包含每个应用收录进入精选库的日期字段 `added_at`（ISO `YYYY-MM-DD` 格式），在 Rust 运行时类型 (`CatalogItem` / `AppCore`) 及前端 `AppSummary` 中显式建模，提供按收录时效性探索应用的能力。
 
 用户需要一个直观的最新入库发现通道，支持“最近一周”、“最近一个月”、“最近一季度”等时效过滤并由近及远倒排展示。
 

@@ -15,13 +15,6 @@ fn test_catalog_load_and_search() {
     assert_eq!(res_zh[0].core.id, "rustdesk/rustdesk");
 }
 
-#[test]
-fn test_category_filter() {
-    let cat = CatalogService::new();
-    let media_apps = cat.filter_by_category("media").unwrap();
-    assert!(media_apps.iter().any(|a| a.core.id == "videolan/vlc"));
-}
-
 #[tokio::test]
 async fn test_fetch_developer_profile_fallback() {
     let cat = CatalogService::new();

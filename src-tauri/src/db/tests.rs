@@ -589,16 +589,7 @@ fn test_icon_cycle_crud() {
         .expect("cycle exists by repo");
     assert_eq!(fetched_by_repo.app_id, app_id);
 
-    // 5. 模块别名方法 (get)
-    let alias_fetched = db.get(app_id).unwrap().expect("alias get exists");
-    assert_eq!(alias_fetched.app_id, app_id);
-
-    let module_fetched = icon_cycle::get(&db, app_id)
-        .unwrap()
-        .expect("module get exists");
-    assert_eq!(module_fetched.app_id, app_id);
-
-    // 6. 删除记录
+    // 5. 删除记录
     assert!(db.delete_icon_cycle(app_id).unwrap());
     assert!(!db.delete_icon_cycle(app_id).unwrap());
     assert!(db.get_icon_cycle(app_id).unwrap().is_none());
@@ -699,19 +690,13 @@ fn test_icon_cycle_set_level() {
     assert_eq!(after_l2.selected_url, "https://example.com/ls_l2.png");
     assert!(after_l2.updated_at >= 1000);
 
-    // 2. 使用别名 set_level 切换到 level 3
-    db.set_level(app_id, 3).unwrap();
+    // 2. set_icon_cycle_level 切换到 level 3
+    db.set_icon_cycle_level(app_id, 3).unwrap();
     let after_l3 = db.get_icon_cycle(app_id).unwrap().unwrap();
     assert_eq!(after_l3.level, 3);
     assert_eq!(after_l3.selected_url, "https://example.com/ls_l3.png");
 
-    // 3. 使用模块方法 icon_cycle::set_level 切换到 level 4
-    icon_cycle::set_level(&db, app_id, 4).unwrap();
-    let after_l4 = db.get_icon_cycle(app_id).unwrap().unwrap();
-    assert_eq!(after_l4.level, 4);
-    assert_eq!(after_l4.selected_url, "https://example.com/ls_l4.png");
-
-    // 4. set_icon_cycle_selected 显式覆盖 selected_url 和 cache_file
+    // 3. set_icon_cycle_selected 显式覆盖 selected_url 和 cache_file
     db.set_icon_cycle_selected(app_id, 2, "https://custom.com/icon.png", "custom.png")
         .unwrap();
     let custom = db.get_icon_cycle(app_id).unwrap().unwrap();

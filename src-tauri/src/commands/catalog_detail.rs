@@ -434,7 +434,7 @@ pub async fn get_app_details_impl(
 /// - `log_prefix`/`log_from`：保留各调用点原日志文案。
 ///
 /// 未命中返回 `None`（调用方继续后续段）；命中即已完成 id 回写与 `stamp_detail` 盖章，
-/// 缓存语义与拆分前逐行一致（只读，不写盘不 touch）。
+/// 投影只读，不写盘不 touch。
 fn project_from_cache(
     state: &AppState,
     clean_id: &str,

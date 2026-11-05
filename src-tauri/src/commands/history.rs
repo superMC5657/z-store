@@ -9,7 +9,7 @@ pub fn get_favorites(state: State<'_, AppState>) -> crate::AppResult<Vec<String>
 }
 
 /// 收藏条目（含收录标记）：与 `get_favorites` 同序，形状见 `FavoriteEntry`；
-/// `get_favorites` 历史形状（`Vec<String>`）不变。
+/// `get_favorites` 形状保持 `Vec<String>`（前端依赖此契约）。
 #[tauri::command]
 pub fn get_favorite_entries(state: State<'_, AppState>) -> crate::AppResult<Vec<FavoriteEntry>> {
     let db = state.db()?;

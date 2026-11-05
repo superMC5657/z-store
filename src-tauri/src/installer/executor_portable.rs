@@ -57,7 +57,7 @@ fn create_dir_all_tracked(dir: &Path, created: &mut Vec<PathBuf>) -> io::Result<
     Ok(())
 }
 
-/// 便携 ZIP 解压安装体（原 executor.rs PortableZip 分支纯移动，跨平台）。
+/// 便携 ZIP 解压安装体（跨平台）。
 pub fn install_portable_zip(
     installer_path: &Path,
     app_id: &str,

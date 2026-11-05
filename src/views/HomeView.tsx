@@ -34,7 +34,6 @@ import { tauriApi } from '../services/api';
 import { moveInToDraft } from '../services/custom/draft';
 import { resolveRemoteIconUrl } from '../services/custom/iconUrl';
 import { notifyToast } from '../utils/notify';
-export { HOME_FEED_PAGE };
 
 interface HomeViewProps extends ViewAppActions, PlatformResetOption {
   /**

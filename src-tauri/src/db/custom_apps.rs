@@ -13,6 +13,7 @@ use crate::github::models::CatalogItem;
 use rusqlite::{params, Result};
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
 pub const CUSTOM_APP_STATUS_DRAFT: &str = "draft";
 pub const CUSTOM_APP_STATUS_SUBMITTED: &str = "submitted";
 /// 本地收录态：已收录进本地（可搜可装，与远端精选同行为；Issue 提交前置门禁）。
@@ -215,8 +216,9 @@ pub fn is_collected_status(status: &str) -> bool {
     status == CUSTOM_APP_STATUS_COLLECTED || status == "local_collected"
 }
 
-/// 库内成员判定（纯状态）：collected 系或 `submitted`（已提交 Issue仍在本地库）。
+/// 库内成员判定（纯状态，供单测断言）：collected 系或 `submitted`（已提交 Issue 仍在本地库）。
 /// 与 `is_collected_status` 的区别：本函数答「是否在库」，后者答「能否提交 Issue/退回」。
+#[cfg(test)]
 pub fn is_local_library_status(status: &str) -> bool {
     is_collected_status(status) || status == CUSTOM_APP_STATUS_SUBMITTED
 }

@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-/// `AppSummary` / `AppDetail` 公共子结构（22 字段单一来源，新增公共字段只改此处）。
-/// 两结构经 `#[serde(flatten)]` 内嵌，序列化仍为平面 JSON（字段名与 serde attrs
-/// 逐字沿用拆分前），IPC 与缓存契约不变；Rust 侧访问经 `x.core.<field>`。
+/// `AppSummary` / `AppDetail` 公共子结构（单一来源，新增公共字段只改此处）。
+/// 两结构经 `#[serde(flatten)]` 内嵌，序列化仍为平面 JSON，IPC 与缓存契约不变；
+/// Rust 侧访问经 `x.core.<field>`。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppCore {
     pub id: String,

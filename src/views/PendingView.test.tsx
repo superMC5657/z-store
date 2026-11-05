@@ -966,7 +966,7 @@ describe('PendingView 标记为未提交（submitted → collected，二次确�
     await i18n.changeLanguage('zh-CN');
     await openSubmitted();
     expect(screen.queryByTestId('pending-withdraw-submitted')).toBeNull();
-    // 删除仍在（原 submitted 行为不回退）
+    // 删除仍在（submitted 行为保持）
     expect(screen.getByTestId('pending-delete')).toBeTruthy();
   });
 

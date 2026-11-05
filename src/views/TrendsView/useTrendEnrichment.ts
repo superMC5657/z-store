@@ -37,7 +37,7 @@ import {
 } from '../../services/iconStore';
 
 /** 趋势榜富卡镜像（React 持有 + 同步 ref），由 View 创建、编排 hook 独占读写。 */
-export interface TrendMirror {
+interface TrendMirror {
   enrichedApps: Record<string, AppSummary>;
   setEnrichedApps: React.Dispatch<React.SetStateAction<Record<string, AppSummary>>>;
   enrichedAppsRef: React.MutableRefObject<Record<string, AppSummary>>;

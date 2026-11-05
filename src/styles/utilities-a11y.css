@@ -1,4 +1,4 @@
-/* utilities-a11y.css · 由 fluent.css 拆分而来（原文行 3287-EOF），只做搬运，未改选择器/值/顺序语义。 */
+/* utilities-a11y.css · 辅助功能与无障碍样式规范 */
 /* 无障碍支持：遵循系统的减弱动态效果偏好 */
 @media (prefers-reduced-motion: reduce) {
   *, ::before, ::after {

@@ -8,13 +8,11 @@ import { itemToSummary } from '../../services/custom/mappers';
 import { isCollectedStatus, isLocalLibraryStatus } from '../../app/selectors';
 import type { LicenseAllowlistResult } from '../../services/api/catalog';
 
-export type { LicenseAllowlistResult };
-
 /** 草稿领域形状（唯一定义见 `services/custom/types.ts`）。 */
 export type PendingDraftItem = DraftItem;
 
 /** 草稿状态（`local_collected` 与 `collected` 同义）。 */
-export type PendingDraftStatus = DraftStatus;
+type PendingDraftStatus = DraftStatus;
 
 /** 视图条目 = 草稿领域形状（唯一定义见 `services/custom/types.ts`）。 */
 export type CustomDraftEntry = DraftEntry;
@@ -140,7 +138,7 @@ export type PendingDraftErrors = Partial<Record<'id' | 'name' | 'owner' | 'repo'
  * - `submit`：提交档，全量校验（必填 + `homepage` http(s) + 许可名单 D1），
  *   名单取后端 `get_license_allowlist` 快照。
  */
-export type PendingValidateMode = 'draft' | 'submit';
+type PendingValidateMode = 'draft' | 'submit';
 
 /**
  * 草稿全字段校验（与后端 `validate_custom_item` 同口径的 UI 镜像）：

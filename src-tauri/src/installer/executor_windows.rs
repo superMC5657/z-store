@@ -3,7 +3,7 @@ use super::{silent_args_for_setup_kind, sniff_setup_kind_from_file, InstallOutco
 #[cfg(target_os = "windows")]
 use std::path::Path;
 
-/// Windows MSI 安装体（原 executor.rs 内联 cfg(windows) 分支纯移动）。
+/// Windows MSI 安装体。
 #[cfg(target_os = "windows")]
 pub async fn install_msi(installer_path: &Path, app_id: &str) -> Result<InstallOutcome, String> {
     use std::time::Duration;
@@ -64,7 +64,7 @@ pub async fn install_msi(installer_path: &Path, app_id: &str) -> Result<InstallO
     }
 }
 
-/// Windows SetupExe 安装体（原 executor.rs 内联 cfg(windows) 分支纯移动）。
+/// Windows SetupExe 安装体。
 #[cfg(target_os = "windows")]
 pub async fn install_setup_exe(
     installer_path: &Path,

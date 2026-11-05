@@ -133,6 +133,7 @@ pub fn merged_no_proxy_string(extra_hosts: &[String]) -> String {
 /// 只做追加合并，不删除用户原有条目；已包含时跳过寫操作。
 /// 仅启动期系统预热调用（Linux GNOME / Windows 注册表），请求路径
 /// （`apply_proxy`/镜像切换）永不调用，无全局副作用。
+#[cfg(any(target_os = "linux", test))]
 pub fn ensure_no_proxy_env(extra_hosts: &[String]) {
     let merged = merged_no_proxy_string(extra_hosts);
     if merged.trim().is_empty() {

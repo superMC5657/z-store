@@ -1,5 +1,5 @@
 /**
- * README 特征化测试（用于从 AppDetailModal 拆分出 useDetailReadme 前的防劣化保护）。
+ * README 特征化测试：锁定详情弹窗的 README 渲染与解析契约。
  *
  * 通过真实组件路径锁定 README 渲染契约：
  * Markdown 被解析为 HTML，GitHub 风格警示块被转换为 alert 提示容器。

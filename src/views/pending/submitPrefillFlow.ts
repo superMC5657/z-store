@@ -27,7 +27,7 @@ type Notify = ShowToast;
  *   原生 opener 兜底（直接 `window.open` 会被劫持返回 null），返回 null（弹窗拦截/
  *   无原生）则抛错保留失败感知，杜绝全部打不开又不谎报成功。
  */
-export async function openPrefillPage(url: string): Promise<void> {
+async function openPrefillPage(url: string): Promise<void> {
   const trimmed = (url ?? '').trim();
   if (!trimmed) throw new Error('empty url');
   try {
@@ -51,7 +51,7 @@ export async function openPrefillPage(url: string): Promise<void> {
  * 后端载荷复制：取后端产出的载荷文本并原样写入剪贴板（不 trim、不重新格式化）。
  * provider 缺席或取载荷/复制失败一律返回 false，由调用方走链接复制退化路径。
  */
-export async function copyBackendPayload(load: () => Promise<string>): Promise<boolean> {
+async function copyBackendPayload(load: () => Promise<string>): Promise<boolean> {
   try {
     const payload = await load();
     if (typeof payload !== 'string' || !payload.trim()) return false;
@@ -91,7 +91,7 @@ async function notifyPrefillOpenFailed(
 }
 
 /** 共享尾段参数（单条/批量差异全部由此表达）。 */
-export interface SubmitPrefillFlowArgs {
+interface SubmitPrefillFlowArgs {
   /** 预填 URL 提供方（单条 getCustomAppPrUrl / 批量 getCustomAppsBatchPrUrl）；缺席即预览模式硬拦。 */
   loadUrl: (() => Promise<string>) | undefined;
   /** 后端提交载荷提供方（超长时优先复制）；缺席退化为复制链接。 */

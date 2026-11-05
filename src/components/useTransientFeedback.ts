@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-export interface TransientFeedback {
+interface TransientFeedback {
   text: string | null;
   isError: boolean;
   show: (text: string, error: boolean) => void;

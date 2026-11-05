@@ -362,8 +362,9 @@ pub fn ensure_collected_for_pr(entry: &CustomAppEntry) -> Result<(), String> {
     Ok(())
 }
 
-/// 本地库 overlay 输入过滤（纯函数，可单测）：未归档的 collected 系 + `submitted` 行进入
+/// 本地库 overlay 输入过滤（纯函数，供单测验证）：未归档的 collected 系 + `submitted` 行进入
 /// 合并视图（远端优先去重由 `merge_catalog_overlay_view` 执行，on-disk residual `local_collected` 字面）。
+#[cfg(test)]
 pub fn collected_overlay_items(entries: Vec<CustomAppEntry>) -> Vec<CatalogItem> {
     entries
         .into_iter()
