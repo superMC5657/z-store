@@ -180,4 +180,10 @@ describe('handleGetLatestCatalogApps (demo mock)', () => {
     const res = handleGetLatestCatalogApps({ sinceDays: 9999 });
     expect(res.total).toBeGreaterThan(0);
   });
+
+  it('anchors to dataset max date when current system date exceeds window (7d non-empty in demo)', () => {
+    const res = handleGetLatestCatalogApps({ sinceDays: 7 });
+    expect(res.total).toBeGreaterThan(0);
+    expect(res.items.length).toBeGreaterThan(0);
+  });
 });

@@ -211,7 +211,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     <aside
       className={`sidebar ${isCollapsed ? 'collapsed' : ''}`}
       role="navigation"
-      aria-label="主要导航"
+      aria-label={t('sidebar.main_nav_aria', { defaultValue: '主要导航' })}
     >
       {NAV_GROUPS.map((group, groupIndex) => (
         <React.Fragment key={group.id}>
@@ -310,16 +310,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
           title={
             oauthUser
               ? oauthUser.is_expired
-                ? `GitHub 授权已失效: ${oauthUser.login} (点击重新登录)`
-                : `GitHub 已登录: ${oauthUser.login} (点击管理)`
-              : '登录 GitHub（标星与高配额）'
+                ? t('sidebar.account_expired_tooltip', { user: oauthUser.login, defaultValue: 'GitHub 授权已失效 (点击重新登录)' })
+                : t('sidebar.account_logged_tooltip', { user: oauthUser.login, defaultValue: 'GitHub 已登录 (点击管理)' })
+              : t('sidebar.account_login_tooltip', { defaultValue: '登录 GitHub（标星与高配额）' })
           }
           aria-label={
             oauthUser
               ? oauthUser.is_expired
-                ? `GitHub 授权已失效: ${oauthUser.login}`
-                : `GitHub 已登录: ${oauthUser.login}`
-              : '登录 GitHub'
+                ? t('sidebar.account_expired_label', { user: oauthUser.login, defaultValue: 'GitHub 授权已失效' })
+                : t('sidebar.account_logged_label', { user: oauthUser.login, defaultValue: 'GitHub 已登录' })
+              : t('sidebar.account_login_label', { defaultValue: '登录 GitHub' })
           }
           style={oauthUser?.is_expired ? { borderColor: 'rgba(234, 179, 8, 0.4)', background: 'rgba(234, 179, 8, 0.08)' } : undefined}
         >
@@ -353,7 +353,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       backgroundColor: '#eab308',
                       border: '1.5px solid var(--bg-primary, #0f172a)',
                     }}
-                    title="登录已失效"
+                    title={t('sidebar.account_expired_tag', { defaultValue: '登录已失效' })}
                   />
                 )}
               </div>
@@ -363,7 +363,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   style={{ color: oauthUser.is_expired ? '#eab308' : undefined }}
                 >
                   {oauthUser.is_expired
-                    ? '登录已失效'
+                    ? t('sidebar.account_expired_tag', { defaultValue: '登录已失效' })
                     : oauthUser.login.length > 14
                     ? `${oauthUser.login.slice(0, 13)}…`
                     : oauthUser.login}
@@ -373,7 +373,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           ) : (
             <>
               <GitHubIcon size={14} />
-              {!isCollapsed && <span className="network-pill-text">GitHub 登录</span>}
+              {!isCollapsed && <span className="network-pill-text">{t('sidebar.account_login_btn', { defaultValue: 'GitHub 登录' })}</span>}
             </>
           )}
         </button>

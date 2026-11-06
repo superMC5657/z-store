@@ -195,7 +195,7 @@ export const DataBackupRow: React.FC = () => {
       });
       const msg =
         customs.length > 0
-          ? `${baseMsg}（草稿 ${customRestored}/${customs.length}）`
+          ? `${baseMsg}${t('backup.custom_suffix', { restored: customRestored, total: customs.length })}`
           : baseMsg;
       showFeedback(msg, false);
       notifyToast(msg, 'success');

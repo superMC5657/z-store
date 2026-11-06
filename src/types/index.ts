@@ -158,6 +158,9 @@ export interface ToastMessage {
   type?: 'info' | 'success' | 'warning' | 'error';
 }
 
+export type ToastType = NonNullable<ToastMessage['type']>;
+export type ShowToast = (message: string, type?: ToastMessage['type']) => void;
+
 export interface AppSettings {
   theme: 'light' | 'dark' | 'system';
   // 界面语言（支持中英文）

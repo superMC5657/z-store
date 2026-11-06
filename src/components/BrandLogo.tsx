@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface BrandLogoProps {
   theme?: 'light' | 'dark';
@@ -11,7 +12,9 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
   size = 22,
   className = '',
 }) => {
+  const { t } = useTranslation();
   const isDark = theme === 'dark';
+  const themeLabel = t(isDark ? 'settings.theme_dark' : 'settings.theme_light');
 
   return (
     <div
@@ -24,7 +27,7 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
         justifyContent: 'center',
         flexShrink: 0,
       }}
-      title={`ZStore (${isDark ? '暗夜模式' : '明亮模式'})`}
+      title={`ZStore (${themeLabel})`}
     >
       {isDark ? (
         // 深色模式：暗夜实底（#08090A）+ 高光描边与紫蓝极光双环

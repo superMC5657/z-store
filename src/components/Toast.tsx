@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { ToastMessage } from '../types';
 
 interface ToastContainerProps {
@@ -7,6 +8,7 @@ interface ToastContainerProps {
 }
 
 export const ToastContainer: React.FC<ToastContainerProps> = ({ toasts, onDismiss }) => {
+  const { t } = useTranslation();
   if (toasts.length === 0) return null;
 
   // 严格限制：右下角通知最多只有一个，仅取最新一条展示
@@ -114,8 +116,8 @@ export const ToastContainer: React.FC<ToastContainerProps> = ({ toasts, onDismis
             type="button"
             className="toast-close-btn"
             onClick={() => onDismiss(currentToast.id)}
-            title="关闭通知"
-            aria-label="关闭通知"
+            title={t('common.close_notice', { defaultValue: '关闭通知' })}
+            aria-label={t('common.close_notice', { defaultValue: '关闭通知' })}
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <line x1="18" y1="6" x2="6" y2="18" />

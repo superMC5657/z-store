@@ -27,6 +27,11 @@ interface RulesManagerModalProps {
   onSkipVersion?: (appId: string, version: string) => Promise<void>;
 }
 
+interface NoticeState {
+  text: string;
+  isError: boolean;
+}
+
 export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
   isOpen,
   onClose,
@@ -49,21 +54,22 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
   const [ruleType, setRuleType] = useState<'frozen' | 'hidden' | 'skip'>('frozen');
   const [skipVersion, setSkipVersion] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
+  const [notice, setNotice] = useState<NoticeState | null>(null);
 
   if (!isOpen) return null;
 
-  const showNotice = (msg: string) => {
-    setNoticeMessage(msg);
+  const showNotice = (msg: string, isError = false) => {
+    const next = { text: msg, isError };
+    setNotice(next);
     setTimeout(() => {
-      setNoticeMessage((prev) => (prev === msg ? null : prev));
+      setNotice((prev) => (prev === next ? null : prev));
     }, 3000);
   };
 
   const handleCreateRule = async () => {
     const finalAppId = (selectedAppId === '__custom__' || !selectedAppId ? customAppId : selectedAppId).trim();
     if (!finalAppId) {
-      showNotice(t('rules.notice_select_app'));
+      showNotice(t('rules.notice_select_app'), true);
       return;
     }
 
@@ -77,7 +83,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
         showNotice(t('rules.notice_hidden_success', { id: finalAppId }));
       } else if (ruleType === 'skip') {
         if (!skipVersion.trim()) {
-          showNotice(t('rules.notice_input_skip_version'));
+          showNotice(t('rules.notice_input_skip_version'), true);
           setIsSubmitting(false);
           return;
         }
@@ -91,7 +97,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
       setCustomAppId('');
       setSkipVersion('');
     } catch (err) {
-      showNotice(t('rules.notice_save_failed', { error: String(err) }));
+      showNotice(t('rules.notice_save_failed', { error: String(err) }), true);
     } finally {
       setIsSubmitting(false);
     }
@@ -184,21 +190,21 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
         </div>
 
         {/* 内联通知提示条 */}
-        {noticeMessage && (
+        {notice && (
           <div
             style={{
               padding: '8px 24px',
               fontSize: 'var(--font-sm)',
               fontWeight: 500,
-              background: noticeMessage.includes('失败') || noticeMessage.includes('failed') || noticeMessage.includes('Failed') ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)',
-              color: noticeMessage.includes('失败') || noticeMessage.includes('failed') || noticeMessage.includes('Failed') ? '#ef4444' : '#10b981',
+              background: notice.isError ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+              color: notice.isError ? '#ef4444' : '#10b981',
               borderBottom: '1px solid var(--border-subtle, rgba(255, 255, 255, 0.08))',
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
             }}
           >
-            <span>{noticeMessage}</span>
+            <span>{notice.text}</span>
           </div>
         )}
 

@@ -1,7 +1,8 @@
 {
   "common": {
     "cancel": "取消",
-    "save": "保存"
+    "save": "保存",
+    "close_notice": "关闭通知"
   },
   "titlebar": {
     "search_placeholder": "搜索开源应用、别名、GitHub 仓库 (例如: vlc, 远程桌面, rustdesk)...",
@@ -16,7 +17,9 @@
     "clear_history_tooltip": "清空所有搜索历史",
     "nav_toggle_expand": "展开侧边导航栏",
     "nav_toggle_collapse": "折叠侧边导航栏",
-    "delete_history_item": "删除此条记录"
+    "delete_history_item": "删除此条记录",
+    "search_shortcut_title": "快捷键: ⌘K / Ctrl+K 激活搜索",
+    "lang_target_zh": "中文"
   },
   "nav": {
     "groups": {
@@ -39,6 +42,17 @@
       "favorites": "我的收藏",
       "settings": "系统设置"
     }
+  },
+  "sidebar": {
+    "main_nav_aria": "主要导航",
+    "account_expired_tooltip": "GitHub 授权已失效: {{user}} (点击重新登录)",
+    "account_logged_tooltip": "GitHub 已登录: {{user}} (点击管理)",
+    "account_login_tooltip": "登录 GitHub（标星与高配额）",
+    "account_expired_label": "GitHub 授权已失效: {{user}}",
+    "account_logged_label": "GitHub 已登录: {{user}}",
+    "account_login_label": "登录 GitHub",
+    "account_expired_tag": "登录已失效",
+    "account_login_btn": "GitHub 登录"
   },
   "settings": {
     "title": "系统设置",
@@ -143,6 +157,7 @@
     "import_success": "导入完成：收藏 +{{fav}} · 关注 +{{watch}} · 设置{{settings}}",
     "settings_applied": "已应用",
     "settings_unchanged": "未变更",
+    "custom_suffix": "（草稿 {{restored}}/{{total}}）",
     "import_failed": "导入备份失败: {{error}}"
   },
   "zlog": {

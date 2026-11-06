@@ -1,6 +1,6 @@
 # 本地库状态模型重构 · 开发计划
 
-Status: Draft（待 D1–D5 拍板）
+Status: resolved
 Baseline: `077e82b`（草稿不叠黄标已修）+ 当前 HEAD
 Scope: 待收录四状态收口、提交后仍在本地库、归档由远端接手
 

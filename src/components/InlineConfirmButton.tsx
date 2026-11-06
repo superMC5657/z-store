@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
 
 interface InlineConfirmButtonProps {
@@ -18,7 +19,7 @@ interface InlineConfirmButtonProps {
 export const InlineConfirmButton: React.FC<InlineConfirmButtonProps> = ({
   onConfirm,
   confirmText,
-  cancelTitle = '取消',
+  cancelTitle,
   variant = 'secondary',
   confirmVariant = 'danger',
   children,
@@ -28,6 +29,8 @@ export const InlineConfirmButton: React.FC<InlineConfirmButtonProps> = ({
   className = '',
   style,
 }) => {
+  const { t } = useTranslation();
+  const effectiveCancelTitle = cancelTitle ?? t('common.cancel', { defaultValue: 'Cancel' });
   const [isConfirming, setIsConfirming] = useState(false);
 
   useEffect(() => {
@@ -63,7 +66,7 @@ export const InlineConfirmButton: React.FC<InlineConfirmButtonProps> = ({
             e.stopPropagation();
             setIsConfirming(false);
           }}
-          title={cancelTitle}
+          title={effectiveCancelTitle}
           disabled={disabled}
         >
           <X size={12} strokeWidth={2} />

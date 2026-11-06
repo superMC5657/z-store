@@ -1,7 +1,8 @@
 {
   "common": {
     "cancel": "Cancel",
-    "save": "Save"
+    "save": "Save",
+    "close_notice": "Dismiss notification"
   },
   "titlebar": {
     "search_placeholder": "Search open source apps, tools, CLI... (Ctrl+K)",
@@ -16,7 +17,9 @@
     "clear_history_tooltip": "Clear all search history",
     "nav_toggle_expand": "Expand sidebar",
     "nav_toggle_collapse": "Collapse sidebar",
-    "delete_history_item": "Delete this item"
+    "delete_history_item": "Delete this item",
+    "search_shortcut_title": "Shortcut: ⌘K / Ctrl+K to search",
+    "lang_target_zh": "中文"
   },
   "nav": {
     "groups": {
@@ -39,6 +42,17 @@
       "favorites": "Favorites",
       "settings": "Settings"
     }
+  },
+  "sidebar": {
+    "main_nav_aria": "Main navigation",
+    "account_expired_tooltip": "GitHub authorization expired: {{user}} (click to re-login)",
+    "account_logged_tooltip": "GitHub logged in: {{user}} (click to manage)",
+    "account_login_tooltip": "Sign in with GitHub (stars & high rate limit)",
+    "account_expired_label": "GitHub authorization expired: {{user}}",
+    "account_logged_label": "GitHub logged in: {{user}}",
+    "account_login_label": "Sign in with GitHub",
+    "account_expired_tag": "Expired",
+    "account_login_btn": "Sign in"
   },
   "settings": {
     "title": "Settings",
@@ -143,6 +157,7 @@
     "import_success": "Import complete: Favorites +{{fav}} · Watched +{{watch}} · Settings {{settings}}",
     "settings_applied": "applied",
     "settings_unchanged": "unchanged",
+    "custom_suffix": " (drafts {{restored}}/{{total}})",
     "import_failed": "Failed to import backup: {{error}}"
   },
   "zlog": {

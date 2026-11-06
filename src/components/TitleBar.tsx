@@ -252,7 +252,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
               searchInputRef.current?.focus();
               searchInputRef.current?.select();
             }}
-            title="快捷键: ⌘K / Ctrl+K 激活搜索"
+            title={t('titlebar.search_shortcut_title', { defaultValue: '快捷键: ⌘K / Ctrl+K 激活搜索' })}
           >
             ⌘K
           </kbd>
@@ -344,7 +344,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
             aria-label={t('titlebar.lang_toggle_tooltip')}
           >
             <Languages size={13} strokeWidth={1.5} />
-            <span>{currentLang.startsWith('en') ? '中文' : 'EN'}</span>
+            <span>{currentLang.startsWith('en') ? t('titlebar.lang_target_zh', { defaultValue: '中文' }) : 'EN'}</span>
           </button>
         )}
 

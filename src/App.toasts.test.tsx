@@ -79,7 +79,7 @@ describe('toast characterization (real App path)', () => {
     });
     expect(screen.getByRole('status').textContent).toContain('char-toast-alpha');
 
-    fireEvent.click(screen.getByRole('button', { name: /关闭通知/ }));
+    fireEvent.click(screen.getByRole('button', { name: /关闭通知|Dismiss notification/ }));
     await waitFor(() => {
       expect(screen.queryByRole('status')).toBeNull();
     });

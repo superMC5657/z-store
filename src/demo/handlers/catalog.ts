@@ -217,12 +217,29 @@ export function handleGetLatestCatalogApps(a: InvokeArgs): {
   if (sinceDays !== undefined) {
     const today = new Date();
     const currentDays = Math.floor(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()) / 86400000);
+
+    const parseItemDays = (dateStr?: string): number | null => {
+      if (!dateStr) return null;
+      const parts = dateStr.split('-').map(Number);
+      if (parts.length !== 3 || parts.some(Number.isNaN)) return null;
+      return Math.floor(Date.UTC(parts[0], parts[1] - 1, parts[2]) / 86400000);
+    };
+
+    let baseDays = currentDays;
+    const maxItemDays = summaries.reduce<number | null>((acc, s) => {
+      const d = parseItemDays(s.added_at);
+      if (d === null) return acc;
+      return acc === null || d > acc ? d : acc;
+    }, null);
+
+    if (maxItemDays !== null && currentDays - maxItemDays > sinceDays) {
+      baseDays = maxItemDays;
+    }
+
     matched = matched.filter((s) => {
-      if (!s.added_at) return false;
-      const parts = s.added_at.split('-').map(Number);
-      if (parts.length !== 3 || parts.some(Number.isNaN)) return false;
-      const itemDays = Math.floor(Date.UTC(parts[0], parts[1] - 1, parts[2]) / 86400000);
-      const diff = currentDays - itemDays;
+      const itemDays = parseItemDays(s.added_at);
+      if (itemDays === null) return false;
+      const diff = baseDays - itemDays;
       return diff >= -1 && diff <= sinceDays;
     });
   }
