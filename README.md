@@ -117,9 +117,9 @@
 # 1. 安装前端依赖
 pnpm install
 
-# 2. 运行自动化测试与前端类型检查（以本地实测为准）
+# 2. 运行自动化测试与前端门禁（以本地实测为准）
 cargo test
-pnpm test
+pnpm check
 pnpm build
 
 # 3. 启动前端浏览器开发预览

@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
 // Vite 配置文档参考：https://vitejs.dev/config/
-export default defineConfig(async () => ({
+export default defineConfig({
   plugins: [react()],
 
   // 专为 Tauri 开发定制的 Vite 选项，仅在 `tauri dev` 或 `tauri build` 时生效
@@ -30,4 +30,4 @@ export default defineConfig(async () => ({
     // 调试构建时生成 SourceMap
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
   },
-}));
+});
