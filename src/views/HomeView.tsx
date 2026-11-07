@@ -213,6 +213,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
     setVisibleCount,
   } = useHomeFeed({
     apps,
+    favoriteIds,
+    watchedIds,
     searchQuery,
     isOnlineResults,
     onlineHasMore,

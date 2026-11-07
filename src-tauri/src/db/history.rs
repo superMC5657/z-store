@@ -58,6 +58,7 @@ impl Database {
 
         if exists {
             self.exec_write("DELETE FROM user_favorites WHERE app_id = ?1", params![id])?;
+            crate::notify_affinity_updated();
             Ok(false)
         } else {
             let now = now_secs();
@@ -65,6 +66,7 @@ impl Database {
                 "INSERT INTO user_favorites (app_id, favorited_at, is_cataloged) VALUES (?1, ?2, ?3)",
                 params![id, now, is_cataloged as i32],
             )?;
+            crate::notify_affinity_updated();
             Ok(true)
         }
     }

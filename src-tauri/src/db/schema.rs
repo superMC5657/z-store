@@ -200,6 +200,20 @@ impl Database {
             );
 
             CREATE INDEX IF NOT EXISTS idx_update_results_has_update ON update_results(has_update);
+
+            -- 本地亲和度推荐：用户 GitHub Star / Fork / 自有仓库特征信号表
+            CREATE TABLE IF NOT EXISTS user_repo_signals (
+                full_name TEXT NOT NULL,
+                relation TEXT NOT NULL,
+                language TEXT NOT NULL DEFAULT '',
+                description TEXT NOT NULL DEFAULT '',
+                stars INTEGER NOT NULL DEFAULT 0,
+                forks INTEGER NOT NULL DEFAULT 0,
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY (full_name, relation)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_user_repo_signals_updated_at ON user_repo_signals(updated_at);
             "#,
         )?;
         // 收录标记列迁移（幂等）：存量库缺列时 `ADD COLUMN` 补齐（默认 0 fail-closed，启动回填再按目录校准）。

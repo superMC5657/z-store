@@ -3,6 +3,7 @@ import { zlogWarn } from '../../lib/z-log';
 import type { IconReadyPayload } from '../iconStore';
 import type { DraftEntryWire, DraftItemWire } from '../custom/types';
 import type {
+  AffinityProfileSummary,
   AppDetail,
   AppMatchResult,
   AppSummary,
@@ -45,6 +46,26 @@ export async function getHomeFeed(
   const items = Array.isArray(raw?.items) ? (raw as { items: AppSummary[] }).items : [];
   const total = typeof raw?.total === 'number' && Number.isFinite(raw.total) ? raw.total : items.length;
   return { items, total, has_more: raw?.has_more === true };
+}
+
+export async function getAffinityProfileSummary(): Promise<AffinityProfileSummary> {
+  const raw = await tauriInvoke<AffinityProfileSummary | null>(CMD.getAffinityProfileSummary);
+  return {
+    enabled: raw?.enabled !== false,
+    starred_repo_count: Number(raw?.starred_repo_count) || 0,
+    forked_repo_count: Number(raw?.forked_repo_count) || 0,
+    owned_repo_count: Number(raw?.owned_repo_count) || 0,
+    favorites_count: Number(raw?.favorites_count) || 0,
+    watched_count: Number(raw?.watched_count) || 0,
+    top_categories: Array.isArray(raw?.top_categories) ? raw.top_categories : [],
+    top_languages: Array.isArray(raw?.top_languages) ? raw.top_languages : [],
+    last_synced_at: typeof raw?.last_synced_at === 'number' ? raw.last_synced_at : null,
+  };
+}
+
+export async function resetAffinityProfile(): Promise<boolean> {
+  const res = await tauriInvoke<boolean>(CMD.resetAffinityProfile);
+  return res !== false;
 }
 
 export async function searchAppsOnline(

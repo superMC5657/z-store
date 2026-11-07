@@ -62,6 +62,12 @@ pub fn feed_stars_base(stars: u64) -> f64 {
     ((stars as f64) + 1.0).ln()
 }
 
+/// 纯函数：星数 + Fork 双因子质量基线 `ln(stars+1) + 0.25 * ln(forks+1)`。
+/// 当 `forks == 0` 时退化为 `feed_stars_base(stars)`。
+pub fn feed_stars_forks_base(stars: u64, forks: u64) -> f64 {
+    feed_stars_base(stars) + 0.25 * ((forks as f64) + 1.0).ln()
+}
+
 /// 纯函数：三策略统一 scorer 表（与前端 `feedScorers` 同形同量级，调用方按策略取一行）：
 /// - StarsOnly: 纯 `ln(stars+1)`，忽略 jitter/seed；
 /// - Balanced: `ln(stars+1) + (jitter01-0.5)*0.3`；
@@ -88,7 +94,19 @@ pub fn rank_feed_with_strategy(
     seed: Option<u64>,
     strategy: FeedStrategy,
 ) -> Vec<AppSummary> {
-    // 单 scorer 表收敛：先按策略选分，再走同一条 scored-sort 路径（消 Repeated Switches）。
+    rank_feed_with_profile(items, seed, strategy, None)
+}
+
+/// 纯函数：带本地用户亲和度画像的动态推荐排序。
+/// - 当 `strategy == FeedStrategy::Balanced` 时，以 `feed_stars_forks_base(stars, forks)` 为基线，
+///   叠加 `profile.affinity_boost(&app)` 与确定性轻扰动 `(jitter01 - 0.5) * 0.3`；
+/// - 当 `profile` 为 `None` 或 `has_signals == false` 时，不施加画像增益。
+pub fn rank_feed_with_profile(
+    items: Vec<AppSummary>,
+    seed: Option<u64>,
+    strategy: FeedStrategy,
+    profile: Option<&crate::github::affinity::UserAffinityProfile>,
+) -> Vec<AppSummary> {
     if strategy == FeedStrategy::StarsOnly || seed.is_none() {
         let mut items = items;
         items.sort_by(|a, b| {
@@ -104,7 +122,14 @@ pub fn rank_feed_with_strategy(
         .into_iter()
         .map(|app| {
             let jitter = feed_jitter01(&app.core.id, s);
-            let score = feed_score(strategy, app.core.stars, jitter);
+            let score = match strategy {
+                FeedStrategy::Balanced => {
+                    let base = feed_stars_forks_base(app.core.stars, app.core.forks);
+                    let boost = profile.map(|p| p.affinity_boost(&app)).unwrap_or(0.0);
+                    base + boost + (jitter - 0.5) * FEED_JITTER_HALF * 2.0
+                }
+                _ => feed_score(strategy, app.core.stars, jitter),
+            };
             (score, app)
         })
         .collect();
@@ -160,5 +185,105 @@ pub fn parse_feed_strategy(raw: Option<&str>) -> FeedStrategy {
         "fresh" => FeedStrategy::FreshFirst,
         "balanced" => FeedStrategy::Balanced,
         _ => FeedStrategy::Balanced,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{RawAffinitySignals, UserRepoSignal};
+    use crate::github::affinity::UserAffinityProfile;
+    use crate::github::models::CatalogItem;
+    use std::collections::HashMap;
+
+    fn make_item(id: &str, category: &str, stars: u64, forks: u64) -> CatalogItem {
+        let (owner, repo) = id.split_once('/').unwrap_or(("owner", id));
+        CatalogItem {
+            id: id.to_string(),
+            name: repo.to_string(),
+            owner: owner.to_string(),
+            repo: repo.to_string(),
+            icon: String::new(),
+            icon_bg: String::new(),
+            description: format!("{} application", category),
+            description_en: Some(format!("{} application", category)),
+            category: category.to_string(),
+            category_name: category.to_string(),
+            aliases: vec![],
+            default_version: "v1.0.0".to_string(),
+            added_at: None,
+            license: "MIT".to_string(),
+            stars,
+            forks,
+            is_verified: true,
+            homepage: None,
+            install_dirs: vec![],
+            search_subdirs: vec![],
+            publishers: vec![],
+            platforms: vec!["windows".to_string()],
+            identifiers: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn empty_profile_with_zero_forks_matches_rank_feed_with_strategy_identically() {
+        let catalog = vec![
+            make_item("a/one", "dev", 1000, 0),
+            make_item("b/two", "media", 5000, 0),
+            make_item("c/three", "security", 2500, 0),
+        ];
+        let summaries: Vec<AppSummary> = catalog.iter().map(|c| c.to_summary()).collect();
+        let empty_profile =
+            UserAffinityProfile::from_signals(&RawAffinitySignals::default(), &catalog, 1700000000);
+        assert!(!empty_profile.has_signals);
+
+        let by_strategy =
+            rank_feed_with_strategy(summaries.clone(), Some(7), FeedStrategy::Balanced);
+        let by_profile = rank_feed_with_profile(
+            summaries,
+            Some(7),
+            FeedStrategy::Balanced,
+            Some(&empty_profile),
+        );
+
+        let ids_strategy: Vec<&str> = by_strategy.iter().map(|s| s.core.id.as_str()).collect();
+        let ids_profile: Vec<&str> = by_profile.iter().map(|s| s.core.id.as_str()).collect();
+        assert_eq!(ids_strategy, ids_profile);
+    }
+
+    #[test]
+    fn rank_feed_with_profile_elevates_preferred_category_and_promotes_new_items() {
+        let catalog = vec![
+            make_item("sys/giant", "system", 30000, 1000),
+            make_item("sec/seed-vault", "security", 8000, 900),
+            make_item("sec/new-cipher", "security", 7500, 850),
+        ];
+        let summaries: Vec<AppSummary> = catalog.iter().map(|c| c.to_summary()).collect();
+
+        // 无信号时：30000 星的 sys/giant 排第一
+        let baseline = rank_feed_with_profile(summaries.clone(), Some(7), FeedStrategy::Balanced, None);
+        assert_eq!(baseline[0].core.id, "sys/giant");
+
+        // 用户收藏了 sec/seed-vault 并在 GitHub Star 了安全类仓库：
+        // sec/new-cipher 应获得分类+关键词增益跃升至第一，且排在已收藏种子 sec/seed-vault 之前
+        let raw = RawAffinitySignals {
+            repo_signals: vec![UserRepoSignal {
+                full_name: "ext/totp-auth".to_string(),
+                relation: "starred".to_string(),
+                language: "Rust".to_string(),
+                description: "Password security crypto vault".to_string(),
+                stars: 4000,
+                forks: 400,
+                updated_at: 1700000000,
+            }],
+            user_stars: vec![],
+            favorites: vec![("sec/seed-vault".to_string(), 1700000000)],
+            watched: vec![],
+        };
+        let profile = UserAffinityProfile::from_signals(&raw, &catalog, 1700000000);
+        let ranked =
+            rank_feed_with_profile(summaries, Some(7), FeedStrategy::Balanced, Some(&profile));
+
+        assert_eq!(ranked[0].core.id, "sec/new-cipher");
     }
 }

@@ -25,6 +25,9 @@ impl Database {
             "INSERT OR IGNORE INTO watched_apps (app_id, added_at, last_notified_version, last_notified_at, is_cataloged) VALUES (?1, ?2, NULL, NULL, ?3)",
             params![id, now, is_cataloged as i32],
         )?;
+        if rows > 0 {
+            crate::notify_affinity_updated();
+        }
         Ok(rows > 0)
     }
 
@@ -33,6 +36,9 @@ impl Database {
             "DELETE FROM watched_apps WHERE app_id = ?1",
             params![clean(app_id)],
         )?;
+        if rows > 0 {
+            crate::notify_affinity_updated();
+        }
         Ok(rows > 0)
     }
 

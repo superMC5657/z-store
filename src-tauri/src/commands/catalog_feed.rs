@@ -14,6 +14,104 @@ pub struct FeedPage {
     pub has_more: bool,
 }
 
+/// 本地亲和度画像分类权重项（供设置页「本地推荐与隐私数据看板」只读展示）。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct AffinityCategoryStat {
+    pub category: String,
+    pub weight: f64,
+}
+
+/// 本地亲和度画像审计摘要（100% 源自本地 SQLite 信号表，零云端上传）。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct AffinityProfileSummary {
+    pub enabled: bool,
+    pub starred_repo_count: usize,
+    pub forked_repo_count: usize,
+    pub owned_repo_count: usize,
+    pub favorites_count: usize,
+    pub watched_count: usize,
+    pub top_categories: Vec<AffinityCategoryStat>,
+    pub top_languages: Vec<String>,
+    pub last_synced_at: Option<i64>,
+}
+
+pub fn build_affinity_profile_summary(
+    db: &crate::db::Database,
+    catalog_items: &[crate::github::models::CatalogItem],
+    now_secs: i64,
+) -> crate::AppResult<AffinityProfileSummary> {
+    let enabled = crate::github::affinity::is_local_affinity_enabled(db);
+    let raw = db.load_raw_affinity_signals()?;
+
+    let mut starred_set: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut forked_repo_count = 0usize;
+    let mut owned_repo_count = 0usize;
+
+    for sig in &raw.repo_signals {
+        match sig.relation_kind() {
+            Some(crate::db::RepoRelation::Starred) => {
+                starred_set.insert(sig.full_name.trim().to_lowercase());
+            }
+            Some(crate::db::RepoRelation::Forked) => {
+                forked_repo_count += 1;
+            }
+            Some(crate::db::RepoRelation::Owned) => {
+                owned_repo_count += 1;
+            }
+            None => {}
+        }
+    }
+    for (id, _) in &raw.user_stars {
+        let clean = id.trim().to_lowercase();
+        if !clean.is_empty() {
+            starred_set.insert(clean);
+        }
+    }
+
+    let profile =
+        crate::github::affinity::UserAffinityProfile::from_signals(&raw, catalog_items, now_secs);
+    let top_categories = profile
+        .top_categories(3)
+        .into_iter()
+        .map(|(category, weight)| AffinityCategoryStat { category, weight })
+        .collect();
+    let top_languages = crate::github::affinity::top_signal_languages(&raw, 3);
+    let last_synced_at = db
+        .get_setting(crate::github::affinity::SETTING_AFFINITY_GITHUB_SYNCED_AT)?
+        .and_then(|v| v.trim().parse::<i64>().ok())
+        .filter(|&ts| ts > 0);
+
+    Ok(AffinityProfileSummary {
+        enabled,
+        starred_repo_count: starred_set.len(),
+        forked_repo_count,
+        owned_repo_count,
+        favorites_count: raw.favorites.len(),
+        watched_count: raw.watched.len(),
+        top_categories,
+        top_languages,
+        last_synced_at,
+    })
+}
+
+#[tauri::command]
+pub fn get_affinity_profile_summary(
+    state: State<'_, AppState>,
+) -> crate::AppResult<AffinityProfileSummary> {
+    let db = state.db()?;
+    let catalog_items = state.catalog.get_catalog_items();
+    build_affinity_profile_summary(&db, &catalog_items, crate::now_secs())
+}
+
+#[tauri::command]
+pub fn reset_affinity_profile(state: State<'_, AppState>) -> crate::AppResult<bool> {
+    let db = state.db()?;
+    db.clear_affinity_profile_signals()?;
+    Ok(true)
+}
+
 /// 发现页 Feed（分页 + 混排，含本地收录合并视图）：
 /// - 输入为远端目录 + 本地收录（collected 系/`submitted` 且未归档）合并，可搜可装与远端同行为；
 /// - `total`=过滤后总量，`has_more`=(offset+limit)<total（saturating，边界守好）；
@@ -42,7 +140,33 @@ pub fn get_home_feed(
     };
     let ranked = {
         let parsed = crate::github::catalog_feed_score::parse_feed_strategy(strategy.as_deref());
-        crate::github::catalog_feed_score::rank_feed_with_strategy(filtered, seed, parsed)
+        let profile_opt = if parsed == crate::github::catalog_feed_score::FeedStrategy::Balanced {
+            state.db().ok().and_then(|db| {
+                if !crate::github::affinity::is_local_affinity_enabled(&db) {
+                    return None;
+                }
+                let raw = db.load_raw_affinity_signals().ok()?;
+                let catalog_items = state.catalog.get_catalog_items();
+                let profile = crate::github::affinity::UserAffinityProfile::from_signals(
+                    &raw,
+                    &catalog_items,
+                    crate::now_secs(),
+                );
+                if profile.has_signals {
+                    Some(profile)
+                } else {
+                    None
+                }
+            })
+        } else {
+            None
+        };
+        crate::github::catalog_feed_score::rank_feed_with_profile(
+            filtered,
+            seed,
+            parsed,
+            profile_opt.as_ref(),
+        )
     };
     let (items, total, has_more) =
         crate::github::catalog_feed_score::paginate_feed(&ranked, limit, offset);
@@ -355,5 +479,77 @@ mod tests {
         // 30天窗口：包含全部 3 款
         let filtered_30d = rank_and_filter_latest_apps(list, Some(30));
         assert_eq!(filtered_30d.len(), 3);
+    }
+
+    #[test]
+    fn test_affinity_profile_summary_and_reset() {
+        let db = crate::db::Database::open_in_memory().expect("open in memory db");
+        let mut sec_item = feed_item("bitwarden/clients", "bitwarden", "clients");
+        sec_item.category = "security".to_string();
+        sec_item.stars = 12000;
+        sec_item.forks = 1500;
+        let catalog = vec![sec_item];
+
+        db.upsert_user_repo_signals(&[
+            crate::db::UserRepoSignal {
+                full_name: "bitwarden/clients".to_string(),
+                relation: "starred".to_string(),
+                language: "TypeScript".to_string(),
+                description: "Password manager".to_string(),
+                stars: 12000,
+                forks: 1500,
+                updated_at: 1_700_000_000,
+            },
+            crate::db::UserRepoSignal {
+                full_name: "alice/clients".to_string(),
+                relation: "forked".to_string(),
+                language: "Rust".to_string(),
+                description: "Forked client".to_string(),
+                stars: 5,
+                forks: 1,
+                updated_at: 1_700_000_100,
+            },
+            crate::db::UserRepoSignal {
+                full_name: "alice/my-tool".to_string(),
+                relation: "owned".to_string(),
+                language: "Rust".to_string(),
+                description: "CLI utility".to_string(),
+                stars: 20,
+                forks: 2,
+                updated_at: 1_700_000_200,
+            },
+        ])
+        .unwrap();
+        db.set_starred("ObsidianMD", "obsidian-releases", true)
+            .unwrap();
+        db.toggle_favorite("bitwarden/clients", true).unwrap();
+        db.watch_app("bitwarden/clients", true).unwrap();
+        db.set_setting(
+            crate::github::affinity::SETTING_AFFINITY_GITHUB_SYNCED_AT,
+            "1700000500",
+        )
+        .unwrap();
+
+        let summary = build_affinity_profile_summary(&db, &catalog, 1_700_001_000).unwrap();
+        assert!(summary.enabled);
+        assert_eq!(summary.starred_repo_count, 2);
+        assert_eq!(summary.forked_repo_count, 1);
+        assert_eq!(summary.owned_repo_count, 1);
+        assert_eq!(summary.favorites_count, 1);
+        assert_eq!(summary.watched_count, 1);
+        assert_eq!(summary.last_synced_at, Some(1_700_000_500));
+        assert!(!summary.top_categories.is_empty());
+        assert_eq!(summary.top_categories[0].category, "security");
+        assert_eq!(summary.top_languages[0], "Rust");
+
+        // 执行重置：清空 GitHub 仓库特征信号、user_stars 与同步时间戳，保留用户本地收藏与 Watch
+        db.clear_affinity_profile_signals().unwrap();
+        let after_reset = build_affinity_profile_summary(&db, &catalog, 1_700_001_000).unwrap();
+        assert_eq!(after_reset.starred_repo_count, 0);
+        assert_eq!(after_reset.forked_repo_count, 0);
+        assert_eq!(after_reset.owned_repo_count, 0);
+        assert_eq!(after_reset.last_synced_at, None);
+        assert_eq!(after_reset.favorites_count, 1);
+        assert_eq!(after_reset.watched_count, 1);
     }
 }

@@ -16,6 +16,11 @@ The five canonical triage roles use their default label strings. See `docs/agent
 
 Single-context layout: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
 
+## Ecosystem Repositories
+
+- **Catalog (`superMC5657/z-store-catalog`)**: Manifest source in `src-tauri/config.toml` (`[catalog].default_source_url`), offline fallback `catalog.json` (ADR-0009).
+- **Website (`superMC5657/z-store-web`)**: Local repo at `z:\web_workplace\z-store-web`. Live demo build in `vite.demo.config.ts`.
+
 ## Rules
 Don't use `find` on Windows; where you would use `find`, use `fd` instead.
 Docs and comments: describe what it does now, not change history; explain why only when non-obvious.

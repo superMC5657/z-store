@@ -176,6 +176,25 @@ export interface AppSettings {
   catalog_source_url: string;
   // FR-6.2: 关注更新的应用内提醒频率（每次启动检查 / 每天汇总）
   watch_notify_frequency: 'startup' | 'daily';
+  // 本地亲和度个性化推荐开关（默认开启）
+  enable_local_affinity?: boolean;
+}
+
+export interface AffinityCategoryStat {
+  category: string;
+  weight: number;
+}
+
+export interface AffinityProfileSummary {
+  enabled: boolean;
+  starred_repo_count: number;
+  forked_repo_count: number;
+  owned_repo_count: number;
+  favorites_count: number;
+  watched_count: number;
+  top_categories: AffinityCategoryStat[];
+  top_languages: string[];
+  last_synced_at?: number | null;
 }
 
 export interface SyncCatalogResult {

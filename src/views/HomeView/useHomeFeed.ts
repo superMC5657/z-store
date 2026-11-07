@@ -2,7 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AppSummary } from '../../types';
 import * as apiModule from '../../services/api';
-import { rankFeed, resolveHero, sliceFeed, type FeedStrategy } from '../../services/feed';
+import {
+  buildFrontendAffinityScorer,
+  rankFeed,
+  resolveHero,
+  sliceFeed,
+  subscribeAffinityUpdated,
+  type FeedStrategy,
+} from '../../services/feed';
 import { getAppDescription, getCategoryLabel } from '../../utils/appHelper';
 import { isPlaceholderDescription } from '../../services/trends/enrich';
 
@@ -15,6 +22,7 @@ type HomeFeedPage = {
 const apiMod = apiModule as unknown as {
   tauriApi?: {
     getHomeFeed?: (limit: number, offset: number, seed?: number, strategy?: string) => Promise<HomeFeedPage>;
+    getSettings?: () => Promise<Record<string, string>>;
   };
   isTauri?: boolean;
 };
@@ -71,6 +79,8 @@ const FIXED_FEED_SEED = 7;
 
 interface UseHomeFeedParams {
   apps: AppSummary[];
+  favoriteIds?: ReadonlySet<string> | readonly string[];
+  watchedIds?: ReadonlySet<string> | readonly string[];
   searchQuery?: string;
   isOnlineResults?: boolean;
   onlineHasMore?: boolean;
@@ -80,6 +90,8 @@ interface UseHomeFeedParams {
 
 export function useHomeFeed({
   apps,
+  favoriteIds,
+  watchedIds,
   searchQuery = '',
   isOnlineResults = false,
   onlineHasMore = false,
@@ -167,15 +179,52 @@ export function useHomeFeed({
     },
     [apps, heroApp, isSearching],
   );
+  const [affinityRefreshSeq, setAffinityRefreshSeq] = useState(0);
+  const [affinityEnabled, setAffinityEnabled] = useState(true);
+  useEffect(() => {
+    return subscribeAffinityUpdated(() => {
+      setAffinityRefreshSeq((n) => n + 1);
+    });
+  }, []);
+
+  useEffect(() => {
+    const getSettingsFn = apiMod.tauriApi?.getSettings;
+    if (typeof getSettingsFn !== 'function') return;
+    let cancelled = false;
+    getSettingsFn
+      .call(apiMod.tauriApi)
+      .then((settings) => {
+        if (cancelled || !settings) return;
+        const raw = String(settings.enable_local_affinity ?? 'true')
+          .trim()
+          .toLowerCase();
+        setAffinityEnabled(raw !== 'false' && raw !== '0');
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [affinityRefreshSeq]);
+
+  const affinityScorer = useMemo(
+    () =>
+      buildFrontendAffinityScorer({
+        catalog: apps,
+        favoriteIds,
+        watchedIds,
+        enabled: affinityEnabled,
+      }),
+    [apps, favoriteIds, watchedIds, affinityEnabled],
+  );
   const rankedRest = useMemo(
     () => {
       if (isSearching) return apps;
-      return rankFeed(nonHeroApps, seed, strategy);
+      return rankFeed(nonHeroApps, seed, strategy, affinityScorer);
     },
-    [nonHeroApps, seed, strategy, isSearching, apps],
+    [nonHeroApps, seed, strategy, affinityScorer, isSearching, apps],
   );
 
-  const featuredApps = useMemo(
+  const localFeaturedApps = useMemo(
     () => (isSearching ? [] : sliceFeed(rankedRest, 0, 4)),
     [rankedRest, isSearching],
   );
@@ -189,9 +238,35 @@ export function useHomeFeed({
 
   const visibleLocal = useMemo(() => sliceFeed(feedPool, 0, visibleCount), [feedPool, visibleCount]);
 
-  // 发现页后端分页：挂载即拉首屏（本地切片兜底，见 displayedFeed）。
+  const signalKey = useMemo(() => {
+    const favs = favoriteIds
+      ? Array.from(favoriteIds)
+          .map((x) => String(x).toLowerCase())
+          .sort()
+          .join(',')
+      : '';
+    const watched = watchedIds
+      ? Array.from(watchedIds)
+          .map((x) => String(x).toLowerCase())
+          .sort()
+          .join(',')
+      : '';
+    return `${favs}|${watched}`;
+  }, [favoriteIds, watchedIds]);
+
+  const prevSignalRef = useRef(signalKey);
+  const prevAffinitySeqRef = useRef(affinityRefreshSeq);
+
+  // 发现页后端分页：挂载即拉首屏，且在本地画像信号更新（Star/收藏/Watch 或 GitHub 静默同步）时重拉首屏。
   // 后端分页仅在显式 Load more 点击时跟进（handleLocalLoadMore/handleLoadMore）。
   useEffect(() => {
+    const signalChanged =
+      prevSignalRef.current !== signalKey || prevAffinitySeqRef.current !== affinityRefreshSeq;
+    prevSignalRef.current = signalKey;
+    prevAffinitySeqRef.current = affinityRefreshSeq;
+    if (signalChanged) {
+      setVisibleCount(HOME_FEED_PAGE);
+    }
     if (!canUseHomeFeedBackend()) return;
     let cancelled = false;
     setBackendLoading(true);
@@ -213,28 +288,42 @@ export function useHomeFeed({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [seed, strategy, signalKey, affinityRefreshSeq]);
 
   const presentAppIdSet = useMemo(
     () => new Set(apps.map((a) => a.id.toLowerCase())),
     [apps],
   );
-  const displayedIds = useMemo(() => {
-    const set = new Set<string>();
-    if (heroApp) set.add(heroApp.id.toLowerCase());
-    for (const f of featuredApps) set.add(f.id.toLowerCase());
-    return set;
-  }, [heroApp, featuredApps]);
+  const appById = useMemo(() => {
+    const m = new Map<string, AppSummary>();
+    for (const a of apps) {
+      const k = a.id.toLowerCase();
+      if (!m.has(k)) m.set(k, a);
+    }
+    return m;
+  }, [apps]);
+  const heroIdLower = heroApp ? heroApp.id.toLowerCase() : null;
 
-  const backendFeed = useMemo(
+  const backendNonHero = useMemo(
     () =>
-      backendItems.filter(
-        (s) => presentAppIdSet.has(s.id.toLowerCase()) && !displayedIds.has(s.id.toLowerCase()),
-      ),
-    [backendItems, presentAppIdSet, displayedIds],
+      backendItems
+        .filter((s) => {
+          const k = s.id.toLowerCase();
+          return presentAppIdSet.has(k) && k !== heroIdLower;
+        })
+        .map((s) => appById.get(s.id.toLowerCase()) ?? s),
+    [backendItems, presentAppIdSet, heroIdLower, appById],
   );
 
-  const isBackendListActive = !isSearching && backendActive && backendFeed.length > 0;
+  const isBackendListActive = !isSearching && backendActive && backendNonHero.length > 0;
+  const featuredApps = useMemo(
+    () => (isSearching ? [] : isBackendListActive ? sliceFeed(backendNonHero, 0, 4) : localFeaturedApps),
+    [isSearching, isBackendListActive, backendNonHero, localFeaturedApps],
+  );
+  const backendFeed = useMemo(
+    () => sliceFeed(backendNonHero, 4, Math.max(0, backendNonHero.length - 4)),
+    [backendNonHero],
+  );
   const displayedFeed = isBackendListActive ? sliceFeed(backendFeed, 0, visibleCount) : visibleLocal;
   const localHasMore = isBackendListActive ? backendHasMore : visibleLocal.length < feedPool.length;
   const onlineActive = isSearching && isOnlineResults && onlineHasMore;

@@ -167,6 +167,8 @@ pub(crate) struct GitHubRepoResponse {
     pub homepage: Option<String>,
     #[serde(default)]
     pub default_branch: Option<String>,
+    #[serde(default)]
+    pub fork: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]

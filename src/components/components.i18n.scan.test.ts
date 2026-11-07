@@ -17,6 +17,7 @@ import enUS from '../locales/en-US.json';
 const CJK = /[\u3000-\u303f\u4e00-\u9fff\uff00-\uffef]/;
 
 const MIGRATED_FILES = [
+  'AffinityPrivacyRow.tsx',
   'AppCard.tsx',
   'AppIcon.tsx',
   'BrandLogo.tsx',

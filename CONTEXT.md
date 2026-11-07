@@ -56,6 +56,9 @@
 | **确认图标** | `Confirmed Icon` | `app_icon_cycles` 表 + 本地图标文件已落定的可直显图标：M2 为 `data:` 直显，L1-L3 为远端回退，L4 无（即空）；榜重挂时经 `getConfirmedIconsBatch` 本地回填（DB-only：零网络、零写盘、只进内存呈现）。与统一图标获取（后端探测与流式事件）及 M1/M2 缓存分层正交。 | 落定图标、本地回填 |
 | **收录时间** | `added_at` | 精选收录库与自维护本地库中应用被正式收录的入库日期（ISO `YYYY-MM-DD` 格式字符串），`custom_apps` 本地库条目以其创建时间 `created_at` 投影回填；用于时效性倒排与时间分期筛选。 | 入库时间、收录日期 |
 | **最新入库** | `New Arrivals` (`latest`) | 侧栏「发现」组下的独立一级导航视图，按收录时间 `added_at` 倒序呈现精选收录与本地库应用；支持预设分段选项卡（最近 7 天、最近 30 天、最近 90 天）快速过滤，并以 `stars` 降序作为同批并列的二级保质排序。详见 ADR-0021。 | 最新收录、新增应用、新货上架 |
+| **本地亲和度画像** | `User Affinity Profile` | 纯客户端内存聚合的开源偏好画像（`src-tauri/src/github/affinity.rs::UserAffinityProfile`），消费本地 SQLite 中的仓库特征信号（`user_repo_signals`）与应用内星标/收藏/关注表（`user_stars`、`user_favorites`、`watched_apps`），按 30 天半衰期时间衰减与饱和归一化输出分类权重、开发者权重、关键词词袋权重及社区 Fork 活跃比，驱动发现页 `balanced` 策略个性化重排。 | 云端画像、用户推荐模型 |
+| **仓库特征信号** | `Repo Affinity Signal` | 持久化于本地 `user_repo_signals` 表的用户 GitHub Star（`starred`）、Fork（`forked`）与自有仓库（`owned`）元数据（含 `stars`、`forks`、`language`、`description`），在首次登录及跨周期启动（6 小时冷却 + `api_etag_cache` 条件请求）时静默同步。 | 仓库历史、远端画像 |
+| **本地隐私数据看板** | `Affinity Privacy Audit Panel` | 设置页「数据管理与备份」中的可视化隐私审计与控制组件（`AffinityPrivacyRow`），只读展示本地 SQLite 信号计数、Top 偏好分类与编程语言，并提供个性化推荐开关（`enable_local_affinity`）、立即增量同步与一键清空本地画像能力。 | 推荐设置面板、隐私开关 |
 
 ---
 
@@ -69,7 +72,7 @@
    - 后端统一目录模块 `CatalogService`（`src-tauri/src/github/catalog_service.rs`）持有远端精选目录 + 本地收录 overlay（启动与 `custom_apps` 变更后同步）；收录检索、坐标解析、搜索、首页/分类、详情投影统一经该模块，并在 `AppSummary` / `AppDetail` 上盖章 `source`（`remote`/`local`）与 `is_cataloged`；
    - 本地 SQLite (`z_store.db`) 维护 TTL 缓存（基线 60 分钟）配合 HTTP ETag 304 条件请求；分面策略与挡位归一化详见 ADR-0007。
    - 网络层自动继承操作系统代理；Release 大文件下载走下载加速代理（正交可叠加，详见 ADR-0002）。
-   - 所有已安装记录、用户设置、主机令牌（PAT）、更新规则、关注应用与本地足迹均保存在客户端本地嵌入式 SQLite 中；表清单以 `src-tauri/src/db/schema.rs::init_schema` 为准，榜缓存与图标分流语义见 ADR-0014/ADR-0015，文档不记具体数字（令牌威胁模型与风险接受见 ADR-0020）。
+   - 所有已安装记录、用户设置、主机令牌（PAT）、更新规则、关注应用、仓库特征信号（`user_repo_signals`）与本地足迹均保存在客户端本地嵌入式 SQLite 中；表清单以 `src-tauri/src/db/schema.rs::init_schema` 为准，榜缓存与图标分流语义见 ADR-0014/ADR-0015，文档不记具体数字（令牌威胁模型与风险接受见 ADR-0020）。
    - 后端 commands 注册表以 `src-tauri/src/lib.rs` 的 `tauri::generate_handler!` 为准（含 zlog 命令）；前端唯一出口为 CMD 表 + `tauriInvoke` 派发，视图层禁直调 `invoke`，请求键命名规则以 AGENTS.md 为准；前端用 `useState` 视图机（`ViewType` 见 `src/types/index.ts`）。
 3. **D3 零信任完整性防篡改 (Zero-Trust Anti-Tampering)**:
     - 所有下载的二进制安装包强制流式计算 SHA-256 哈希值并与官方校验清单比对，哈希不符立即强行阻断并销毁临时文件（详见 ADR-0004）。
@@ -87,7 +90,7 @@
 8. **D8 首包验图与跳过 (First-Bytes Verify & Skip)**:
    - 图标先 HEAD 判类型长度，再 Range 取前 32KB 验 magic，失败回退全量 GET，并以 300B 最小阈值卡掉 LFS 指针文件；下载前 SHA-256 命中即零网络跳过，ETag 收敛至统一 helper，force 模式跳过 DB 读取。
 9. **D9 趋势与首页 (Trending & Home)**:
-   - 趋势复用共享 Client（`shared_http_client`，见 `src-tauri/src/lib.rs`），经 tokio 10s 超时并截断 2MB 防爆内存；榜缓存一级内存分档（榜 L1，daily 1h/weekly-monthly-new 12h/其余 5min）+ 榜缓存二级落盘双档（榜 L2，daily 1h/其余 12h，见 `src/services/trends/cache.ts::trendDbTtlMs`；有效 TTL 扣抖动，见同文件 `trendL2EffectiveTtlMs`）；内存 200 有界（`TRENDS_CACHE_MAX_ENTRIES`）、切榜 sweep 无 timer；写盘 FE 256KB 预检、超限逐级裁剪（`TREND_DB_PAYLOAD_MAX_BYTES`）、BE 512KiB 硬拒绝（见 `src-tauri/src/db/cache.rs` 的 `TREND_BOARD_CACHE_MAX_BYTES`）；enrich 单次批量 40 上限（整批失败即整批缺席，不抛错，缺席留占位，避免第二片顶掉第一片慢尾）；429 透传 `retry_after_ms` 单次重试（上限 60s 缺省 5s，见 `src/services/trends/cache.ts` 的 `DOFORCE_RETRY_MAX_WAIT_MS` / `DOFORCE_RETRY_DEFAULT_WAIT_MS`；详见 ADR-0014）；趋势 enrich 后台流式补探（首屏快返 + `fetch_icons_stream(Trend)` 逐张 emit，见 `src-tauri/src/commands/catalog_search.rs`），enrich 批量直查侧 `buffered(5)` 保序等齐（同上）。首页固定 balanced 排序与 seed 7（见 `src/views/HomeView/useHomeFeed.ts`），不提供策略切换工具条。
+   - 趋势复用共享 Client（`shared_http_client`，见 `src-tauri/src/lib.rs`），经 tokio 10s 超时并截断 2MB 防爆内存；榜缓存一级内存分档（榜 L1，daily 1h/weekly-monthly-new 12h/其余 5min）+ 榜缓存二级落盘双档（榜 L2，daily 1h/其余 12h，见 `src/services/trends/cache.ts::trendDbTtlMs`；有效 TTL 扣抖动，见同文件 `trendL2EffectiveTtlMs`）；内存 200 有界（`TRENDS_CACHE_MAX_ENTRIES`）、切榜 sweep 无 timer；写盘 FE 256KB 预检、超限逐级裁剪（`TREND_DB_PAYLOAD_MAX_BYTES`）、BE 512KiB 硬拒绝（见 `src-tauri/src/db/cache.rs` 的 `TREND_BOARD_CACHE_MAX_BYTES`）；enrich 单次批量 40 上限（整批失败即整批缺席，不抛错，缺席留占位，避免第二片顶掉第一片慢尾）；429 透传 `retry_after_ms` 单次重试（上限 60s 缺省 5s，见 `src/services/trends/cache.ts` 的 `DOFORCE_RETRY_MAX_WAIT_MS` / `DOFORCE_RETRY_DEFAULT_WAIT_MS`；详见 ADR-0014）；趋势 enrich 后台流式补探（首屏快返 + `fetch_icons_stream(Trend)` 逐张 emit，见 `src-tauri/src/commands/catalog_search.rs`），enrich 批量直查侧 `buffered(5)` 保序等齐（同上）。首页固定 `balanced` 排序与 `seed 7`（见 `src/views/HomeView/useHomeFeed.ts`），不提供策略切换工具条；在 `enable_local_affinity` 开启且存在本地画像信号时，`balanced` 自动结合应用自身 `stars`/`forks` 双因子基线与本地亲和度画像（`UserAffinityProfile`）动态重排「经典精选开源软件」与「全部精选开源收录」，无信号或关闭开关时退化为星数+Fork 对数基线（见 ADR-0013）。
 10. **D10 统一图标获取 (Unified Icon Fetch)**:
     - 后端统一核心为 `src-tauri/src/github/icon_fetch.rs` 的 `fetch_icons_stream`，搜索与趋势后台均接入该核心逐张补齐。
     - 前端图标写入口唯一收口于 `src/services/iconStore.ts` 的 `admitIconHit`。

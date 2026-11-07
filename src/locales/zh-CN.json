@@ -759,5 +759,29 @@
     "title": "界面出错了",
     "description": "应用遇到未预期的错误，界面已停止渲染。点击下方按钮重载即可恢复。",
     "reload": "重载应用"
+  },
+  "affinity_privacy": {
+    "title": "本地推荐画像与隐私数据看板",
+    "local_badge": "本地隐私闭环 · SQLite Only",
+    "desc": "基于本地缓存的 GitHub Stars / Forks 与应用内收藏 / 关注信号在客户端重排精选推荐，零服务器上传。",
+    "toggle_on": "个性化推荐：已开启",
+    "toggle_off": "个性化推荐：已关闭",
+    "sync_btn": "立即增量同步",
+    "syncing": "正在同步…",
+    "reset_btn": "清空本地画像",
+    "enabled_toast": "已开启本地个性化推荐",
+    "disabled_toast": "已切回默认星数基线排序",
+    "sync_ok": "已完成 GitHub 画像增量同步",
+    "reset_ok": "已清空本地 GitHub 画像信号",
+    "action_failed": "操作失败：{{error}}",
+    "never_synced": "尚未同步",
+    "stat_starred": "GitHub Stars: {{count}}",
+    "stat_forked": "GitHub Forks: {{count}}",
+    "stat_owned": "自有仓库: {{count}}",
+    "stat_favorites": "应用内收藏: {{count}}",
+    "stat_watched": "版本关注: {{count}}",
+    "last_synced": "最近同步: {{time}}",
+    "top_categories": "偏好分类: {{items}}",
+    "top_languages": "偏好语言: {{items}}"
   }
 }

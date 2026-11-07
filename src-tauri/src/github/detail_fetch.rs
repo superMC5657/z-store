@@ -1053,6 +1053,7 @@ mod tests {
             license: Some(crate::github::models::GitHubLicense { spdx_id: None }),
             homepage: None,
             default_branch: None,
+            fork: None,
         };
         let stats = super::resolve_detail_stats(Some(&repo_no_license), None);
         assert_eq!(stats.license, "unknown");

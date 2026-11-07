@@ -34,6 +34,8 @@ import {
   handleGetLatestCatalogApps,
   handleGetCatalogCount,
   handleGetHomeFeed,
+  handleGetAffinityProfileSummary,
+  handleResetAffinityProfile,
   handleGetOrFetchIcon,
   handleGetPlatformsLite,
   handleGetReadmeVariants,
@@ -233,6 +235,10 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleGetPlatformsLite(a);
     case 'get_home_feed':
       return handleGetHomeFeed(a);
+    case 'get_affinity_profile_summary':
+      return handleGetAffinityProfileSummary();
+    case 'reset_affinity_profile':
+      return handleResetAffinityProfile();
     case 'get_category_apps':
       return handleGetCategoryApps(a);
     case 'get_latest_catalog_apps':

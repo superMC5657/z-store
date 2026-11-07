@@ -349,3 +349,51 @@ describe('最近浏览本地收录黄标（仅搬标记，蓝优先）', () => {
     }
   });
 });
+
+describe('本地画像动态推荐：经典精选与主列表联动刷新', () => {
+  it('收藏/关注信号变更时，同分类未收藏应用动态跃升至经典精选首位', () => {
+    const apps: AppSummary[] = [
+      RUSTDESK,
+      makeApp({ id: 'dev/top1', name: 'DevTop1', category: 'dev', stars: 50000 }),
+      makeApp({ id: 'dev/top2', name: 'DevTop2', category: 'dev', stars: 45000 }),
+      makeApp({ id: 'dev/top3', name: 'DevTop3', category: 'dev', stars: 40000 }),
+      makeApp({ id: 'dev/top4', name: 'DevTop4', category: 'dev', stars: 35000 }),
+      makeApp({
+        id: 'sec/seed',
+        name: 'SecSeed',
+        category: 'security',
+        stars: 8000,
+        description: 'encrypted vault privacy security',
+      }),
+      makeApp({
+        id: 'sec/discover',
+        name: 'SecDiscover',
+        category: 'security',
+        stars: 9500,
+        description: 'encrypted vault privacy firewall',
+      }),
+    ];
+
+    // 初始无信号：经典精选前 4 为高星 dev 应用
+    const { container, rerender } = renderHomeView(apps);
+    const gridsBefore = container.querySelectorAll('.app-grid');
+    expect(gridsBefore[0]?.textContent).toContain('DevTop1');
+    expect(gridsBefore[0]?.textContent).not.toContain('SecDiscover');
+
+    // 用户收藏并关注 SecSeed 后：同分类的 SecDiscover 跃升进入经典精选前 4
+    rerender(
+      <HomeView
+        apps={apps}
+        installedIds={new Set<string>()}
+        favoriteIds={new Set<string>(['sec/seed'])}
+        watchedIds={new Set<string>(['sec/seed'])}
+        onOpenDetail={() => {}}
+        onQuickInstall={() => {}}
+        onToggleFavorite={() => {}}
+        onNavigateTrends={() => {}}
+      />,
+    );
+    const gridsAfter = container.querySelectorAll('.app-grid');
+    expect(gridsAfter[0]?.textContent).toContain('SecDiscover');
+  });
+});

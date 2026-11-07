@@ -1,3 +1,4 @@
+pub mod affinity;
 pub mod apps;
 pub mod cache;
 pub mod custom_apps;
@@ -10,6 +11,7 @@ pub mod tokens;
 pub mod update_results;
 pub mod watch;
 
+pub use affinity::{RawAffinitySignals, RepoRelation, UserRepoSignal};
 pub use cache::{AssetCacheRecord, AssetUsageStats};
 pub use custom_apps::{CustomAppEntry, GraduationNotice};
 pub use icon_cycle::AppIconCycle;

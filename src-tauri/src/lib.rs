@@ -111,9 +111,17 @@ pub static GLOBAL_WATCH_TX: OnceLock<UnboundedSender<models::WatchUpdatedPayload
     OnceLock::new();
 /// GitHub OAuth 登录凭证失效通知通道（`zstore://oauth-expired`）。
 pub static GLOBAL_AUTH_EXPIRED_TX: OnceLock<UnboundedSender<()>> = OnceLock::new();
+/// 本地用户亲和度画像变更通知通道（`zstore://affinity-updated`）。
+pub static GLOBAL_AFFINITY_TX: OnceLock<UnboundedSender<()>> = OnceLock::new();
 
 pub fn notify_auth_expired() {
     if let Some(tx) = GLOBAL_AUTH_EXPIRED_TX.get() {
+        let _ = tx.send(());
+    }
+}
+
+pub fn notify_affinity_updated() {
+    if let Some(tx) = GLOBAL_AFFINITY_TX.get() {
         let _ = tx.send(());
     }
 }
@@ -469,6 +477,8 @@ pub fn run() {
     let _ = GLOBAL_WATCH_TX.set(watch_tx);
     let (auth_tx, mut auth_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
     let _ = GLOBAL_AUTH_EXPIRED_TX.set(auth_tx);
+    let (affinity_tx, mut affinity_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+    let _ = GLOBAL_AFFINITY_TX.set(affinity_tx);
 
     let db_arc = Arc::new(Mutex::new(db));
     let http = shared_http_client();
@@ -485,6 +495,7 @@ pub fn run() {
 
     let db_for_worker = Arc::clone(&db_arc);
     let db_for_auth = Arc::clone(&db_arc);
+    let db_for_startup_affinity = Arc::clone(&db_arc);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -557,9 +568,38 @@ pub fn run() {
                 }
             });
 
+            let affinity_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                use tauri::Emitter;
+                while affinity_rx.recv().await.is_some() {
+                    let _ = affinity_handle.emit("zstore://affinity-updated", ());
+                }
+            });
+
             let init_token = saved_token.clone();
             tauri::async_runtime::spawn(async move {
                 crate::probe_and_announce_rate_limit(init_token.as_deref()).await;
+                if let Some(ref tok) = init_token {
+                    let should_sync = db_for_startup_affinity
+                        .lock()
+                        .ok()
+                        .map(|db| {
+                            crate::github::affinity::is_local_affinity_enabled(&db)
+                                && CatalogService::should_sync_affinity(&db, crate::now_secs())
+                        })
+                        .unwrap_or(false);
+                    if should_sync
+                        && CatalogService::sync_github_affinity_signals_bg(
+                            &db_for_startup_affinity,
+                            tok,
+                            None,
+                        )
+                        .await
+                        .is_ok()
+                    {
+                        crate::notify_affinity_updated();
+                    }
+                }
             });
 
             Ok(())
@@ -567,6 +607,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::search_apps,
             commands::get_home_feed,
+            commands::get_affinity_profile_summary,
+            commands::reset_affinity_profile,
             commands::search_apps_online,
             commands::enrich_trend_repos,
             commands::get_category_apps,

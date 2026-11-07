@@ -759,5 +759,29 @@
     "title": "Something Went Wrong",
     "description": "The app hit an unexpected error and stopped rendering. Click the button below to reload and recover.",
     "reload": "Reload App"
+  },
+  "affinity_privacy": {
+    "title": "Local Recommendation & Privacy Audit",
+    "local_badge": "Local Privacy Loop · SQLite Only",
+    "desc": "Reranks featured recommendations strictly on-device using cached GitHub Stars/Forks and in-app Favorites/Watch signals with zero cloud upload.",
+    "toggle_on": "Personalized Feed: On",
+    "toggle_off": "Personalized Feed: Off",
+    "sync_btn": "Incremental Sync",
+    "syncing": "Syncing…",
+    "reset_btn": "Reset Local Profile",
+    "enabled_toast": "Enabled local personalized recommendations",
+    "disabled_toast": "Switched back to baseline star ranking",
+    "sync_ok": "GitHub affinity signals synced incrementally",
+    "reset_ok": "Cleared local GitHub affinity signals",
+    "action_failed": "Action failed: {{error}}",
+    "never_synced": "Never synced",
+    "stat_starred": "GitHub Stars: {{count}}",
+    "stat_forked": "GitHub Forks: {{count}}",
+    "stat_owned": "Owned Repos: {{count}}",
+    "stat_favorites": "Favorites: {{count}}",
+    "stat_watched": "Watched: {{count}}",
+    "last_synced": "Last Synced: {{time}}",
+    "top_categories": "Top Categories: {{items}}",
+    "top_languages": "Top Languages: {{items}}"
   }
 }

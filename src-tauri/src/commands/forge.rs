@@ -23,10 +23,25 @@ pub async fn sync_github_starred(
     username: Option<String>,
 ) -> crate::AppResult<StarredSyncResult> {
     let token = resolve_active_github_token(&state);
-    Ok(state
+    let is_self_sync = username
+        .as_deref()
+        .map(|u| u.trim().is_empty())
+        .unwrap_or(true);
+    if is_self_sync {
+        if let Some(ref tok) = token {
+            crate::github::CatalogService::sync_github_affinity_signals_bg(&state.db, tok, None)
+                .await?;
+            crate::notify_affinity_updated();
+            return Ok(state
+                .catalog
+                .build_starred_sync_result_from_cached(&state.db)?);
+        }
+    }
+    let res = state
         .catalog
         .sync_starred_repos(username.as_deref(), token.as_deref())
-        .await?)
+        .await?;
+    Ok(res)
 }
 
 #[tauri::command]
@@ -56,6 +71,14 @@ pub async fn set_host_token(
             Some(clean_tok.as_str())
         };
         crate::probe_and_announce_rate_limit(tok_opt).await;
+        if !clean_tok.is_empty() {
+            crate::github::CatalogService::spawn_github_affinity_sync(
+                std::sync::Arc::clone(&state.db),
+                clean_tok,
+            );
+        } else {
+            crate::notify_affinity_updated();
+        }
     }
     Ok(())
 }

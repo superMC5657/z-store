@@ -1,4 +1,5 @@
 import type {
+  AffinityProfileSummary,
   AppDetail,
   AppMatchResult,
   AppSummary,
@@ -52,6 +53,24 @@ export function handleGetHomeFeed(a: InvokeArgs): {
   const ranked = rankSummariesForFeed(seed, a['strategy']);
   const items = ranked.slice(offset, offset + limit);
   return { items, total: ranked.length, has_more: offset + items.length < ranked.length };
+}
+
+export function handleGetAffinityProfileSummary(): AffinityProfileSummary {
+  return {
+    enabled: true,
+    starred_repo_count: 0,
+    forked_repo_count: 0,
+    owned_repo_count: 0,
+    favorites_count: 0,
+    watched_count: 0,
+    top_categories: [],
+    top_languages: [],
+    last_synced_at: null,
+  };
+}
+
+export function handleResetAffinityProfile(): boolean {
+  return true;
 }
 
 export function handleSearchAppsOnline(a: InvokeArgs): { rows: AppSummary[]; sid: string } {

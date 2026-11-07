@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Download, Check } from 'lucide-react';
 import { DataBackupRow } from '../../../components/DataBackupRow';
 import { LogExportRow } from '../../../components/LogExportRow';
+import { AffinityPrivacyRow } from '../../../components/AffinityPrivacyRow';
 
 interface DataManagementSectionProps {
   installedCount: number;
@@ -50,6 +51,7 @@ export const DataManagementSection: React.FC<DataManagementSectionProps> = ({
         </div>
       </div>
 
+      <AffinityPrivacyRow />
       <DataBackupRow />
       <LogExportRow />
     </div>

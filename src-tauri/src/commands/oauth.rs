@@ -82,6 +82,10 @@ pub async fn oauth_device_poll(
                 *t = Some(clean_token.clone());
             }
             crate::probe_and_announce_rate_limit(Some(&clean_token)).await;
+            crate::github::CatalogService::spawn_github_affinity_sync(
+                std::sync::Arc::clone(&state.db),
+                clean_token,
+            );
             Ok(DevicePollResult {
                 status: "authorized".to_string(),
                 message: None,
@@ -192,6 +196,7 @@ pub async fn oauth_logout(state: State<'_, AppState>) -> crate::AppResult<bool> 
         let db = state.db()?;
         db.remove_setting(crate::oauth::SETTING_OAUTH_TOKEN)?;
         db.remove_setting(crate::oauth::SETTING_OAUTH_USER)?;
+        let _ = db.clear_github_account_signals();
         db.get_host_token("github.com")
             .ok()
             .flatten()
@@ -229,10 +234,23 @@ fn split_github_repo_id(app_id: &str) -> Result<(String, String), String> {
     Ok((owner.to_string(), repo.to_string()))
 }
 
-/// Star 本地缓存同步收敛（`star/unstar/fetch_starred_status` 三处共用，最佳努力）。
+/// Star 本地缓存同步收敛（`star/unstar/fetch_starred_status` 三处共用，仅在实际状态变更时通知画像刷新）。
 fn sync_star_cache(state: &AppState, owner: &str, repo: &str, starred: bool) {
+    let mut changed = false;
     if let Ok(db) = state.db() {
+        let prev = db.is_starred(owner, repo).unwrap_or(false);
         let _ = db.set_starred(owner, repo, starred);
+        if !starred {
+            let full_name = crate::forge::canonical_app_id_from_parts(owner, repo);
+            let _ = db.remove_user_repo_signal(
+                &full_name,
+                crate::db::RepoRelation::Starred.as_str(),
+            );
+        }
+        changed = prev != starred;
+    }
+    if changed {
+        crate::notify_affinity_updated();
     }
 }
 

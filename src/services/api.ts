@@ -98,6 +98,8 @@ export const CMD = {
   getLatestCatalogApps: 'get_latest_catalog_apps',
   getCatalogCount: 'get_catalog_count',
   getHomeFeed: 'get_home_feed',
+  getAffinityProfileSummary: 'get_affinity_profile_summary',
+  resetAffinityProfile: 'reset_affinity_profile',
   scanAndMatchLocalApps: 'scan_and_match_local_apps',
   importMatchedApps: 'import_matched_apps',
   getUpdateRules: 'get_update_rules',
@@ -186,6 +188,8 @@ export const tauriApi = {
   // Catalog / Discovery / Details
   searchApps: catalogApi.searchApps,
   getHomeFeed: catalogApi.getHomeFeed,
+  getAffinityProfileSummary: catalogApi.getAffinityProfileSummary,
+  resetAffinityProfile: catalogApi.resetAffinityProfile,
   searchAppsOnline: catalogApi.searchAppsOnline,
   enrichTrendRepos: catalogApi.enrichTrendRepos,
   onIconReady: catalogApi.onIconReady,
