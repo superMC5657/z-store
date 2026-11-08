@@ -6,7 +6,7 @@ import { trendingHtmlFixture, makeEnrichedApp } from '../../views/test-utils/tre
 import { makeApp } from '../../views/test-utils/filterFixture';
 import { tauriApi } from '../api';
 import { clearTrendsCache } from './cache';
-import { __resetIconStoreForTests } from '../iconStore';
+import { __resetIconStoreForTests, getBufferedIcon } from '../iconStore';
 import {
   clearTrendEnrichCache,
   putTrendEnrichMemory,
@@ -650,5 +650,90 @@ describe('重挂图标自愈：SWR 空图标经 DB-only 回填，不走网络', 
     expect(enrichSpy).not.toHaveBeenCalled();
     expect(liteSpy).not.toHaveBeenCalled();
     expect(fetchIconSpy).not.toHaveBeenCalled();
+  });
+
+  it('单仓 enrich 返回 null 时同榜不连环重入调用 enrichTrendRepos（保护后端 BOARD_GEN 与流式探测）', async () => {
+    vi.spyOn(tauriApi, 'fetchTrendsText').mockImplementation(async (url: string) => {
+      if (String(url).includes('github.com/trending')) return trendingHtmlFixture();
+      throw new Error(`unexpected url: ${url}`);
+    });
+    // 模拟同榜 3 仓中 acme/comet 在后端 fetch_online_repo 失败返回 null
+    const enrichSpy = vi
+      .spyOn(tauriApi, 'enrichTrendRepos')
+      .mockImplementation(async (rs) =>
+        rs.map((r) => {
+          const id = `${r.owner}/${r.repo}`.toLowerCase();
+          if (id === 'acme/comet') return null;
+          return makeEnrichedApp({ id, platforms: ['windows'], icon: 'https://icons.example.com/ok.png' });
+        }),
+      );
+    const { container } = renderBoard();
+
+    await screen.findByText('acme/atlas enriched desc');
+    await screen.findByText('acme/beacon enriched desc');
+    // 失败项保持裸行占位
+    expect(container.querySelectorAll('.trend-uncataloged-row')).toHaveLength(1);
+    // 等待后续渲染稳定，断言同榜周期内绝不因 acme/comet 缺失而二次触发 enrichTrendRepos
+    await new Promise((r) => setTimeout(r, 80));
+    expect(enrichSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('enrich 返回预确认 data: 图标时写入 M1 iconStore 直显，且 trendEnrichCache 与 L2 存盘保持 icon 空串', async () => {
+    const clientModule = await import('../api/client');
+    vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
+    const l2Store = new Map<string, { payload_json: string; cached_at: number }>();
+    vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
+      if (cmd === 'get_trend_board_cache') {
+        const k = (args as { cacheKey: string }).cacheKey;
+        return l2Store.get(k) ?? null;
+      }
+      if (cmd === 'save_trend_board_cache') {
+        const k = (args as { cacheKey: string }).cacheKey;
+        const payload = (args as { payloadJson: string }).payloadJson;
+        l2Store.set(k, { payload_json: payload, cached_at: Math.floor(Date.now() / 1000) });
+        return undefined;
+      }
+      return undefined;
+    });
+    vi.spyOn(tauriApi, 'fetchTrendsText').mockImplementation(async (url: string) => {
+      if (String(url).includes('github.com/trending')) return trendingHtmlFixture();
+      throw new Error(`unexpected url: ${url}`);
+    });
+    const dataUri = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    vi.spyOn(tauriApi, 'enrichTrendRepos').mockImplementation(async (rs) =>
+      rs.map((r) =>
+        makeEnrichedApp({
+          id: `${r.owner}/${r.repo}`,
+          platforms: [],
+          icon: `${r.owner}/${r.repo}` === 'acme/atlas' ? dataUri : '',
+        }),
+      ),
+    );
+    vi.spyOn(tauriApi, 'getPlatformsLite').mockImplementation(async (id: string) => ({
+      id,
+      platforms: ['windows'],
+      is_stale: false,
+    }));
+
+    const { container } = renderBoard();
+    await screen.findByText('acme/atlas enriched desc');
+
+    // M1 缓冲已注入预确认 data: 图标
+    expect(getBufferedIcon('acme/atlas')).toBe(dataUri);
+
+    // 卡片直显 data: 图标（即使后续 lite 升级写透将持久化副本剥空）
+    await waitFor(() => {
+      const imgs = [...container.querySelectorAll('.app-icon-image')] as HTMLImageElement[];
+      expect(imgs.some((img) => img.getAttribute('src') === dataUri)).toBe(true);
+    });
+
+    // 等待 lite 具平台写透完成，验证 trendEnrichCache 与 L2 存盘绝不含 data:
+    await waitFor(() => {
+      expect(snapshotTrendEnrichCache()['acme/atlas']?.platforms).toEqual(['windows']);
+    });
+    expect(snapshotTrendEnrichCache()['acme/atlas']?.icon).toBe('');
+    for (const v of l2Store.values()) {
+      expect(v.payload_json).not.toContain('data:image/');
+    }
   });
 });

@@ -296,17 +296,34 @@ fn magic_is_image(chunk: &[u8], ctype: &str) -> bool {
     !ctype.contains("octet-stream")
 }
 
+/// 确定性 HTTP 不存在状态码（`404 Not Found` / `410 Gone`）：
+/// 收到此状态码时 `verify_image` 与 `fetch_range_head` 立即短路返回未命中，
+/// 避免对同一 404 URL 继续发起 Range GET 与全量 GET 造成 3 倍串行请求放大。
+pub(crate) fn is_terminal_http_miss(status: reqwest::StatusCode) -> bool {
+    matches!(
+        status,
+        reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::GONE
+    )
+}
+
+enum RangeProbeOutcome {
+    /// 已得出确定性结论：`Some((len, ctype))` 为有效图片，`None` 为确定性失败（如 404/410、非图片头或魔数不符）。
+    Verified(Option<(usize, String)>),
+    /// Range 请求本身不被支持或网络超时/失败，需回退全量 GET（或信任已完成预检的 HEAD）。
+    NeedFallback,
+}
+
 /// 实测图片字节：200 + image/* + ≥300B（与 `verifyImageBytes` 同阈值）。
 /// 返回 `(字节数, content-type)`。
-/// 减 payload 策略：HEAD 探 content-type/content-length → Range 首 32KB 验
+/// 减 payload 策略：HEAD 探 content-type/content-length（404/410 立即短路）→ Range 首 32KB 验
 /// content-type + magic；Range/HEAD 不支持时才回退全量 GET。
 async fn verify_image(
     client: &reqwest::Client,
     url: &str,
     timeout: std::time::Duration,
 ) -> Option<(usize, String)> {
-    // 1. HEAD 轻探：ctype 不对 / 太小直接剪枝，避免 GET body。
-    if let Ok(head_res) = tokio::time::timeout(
+    // 1. HEAD 轻探：404/410 或 ctype 不对 / 太小直接剪枝，避免后续 Range GET 与全量 GET。
+    if let Ok(Ok(head_res)) = tokio::time::timeout(
         timeout,
         client
             .head(url)
@@ -314,8 +331,10 @@ async fn verify_image(
             .send(),
     )
     .await
-    .ok()?
     {
+        if is_terminal_http_miss(head_res.status()) {
+            return None;
+        }
         if head_res.status().is_success() {
             let ctype = head_res
                 .headers()
@@ -333,21 +352,29 @@ async fn verify_image(
             }
             if let Some(len) = len {
                 // HEAD 已确认类型+长度，紧接 Range 取首包验 magic 即可定案。
-                if let Some(hit) = fetch_range_head(client, url, timeout).await {
-                    return Some(hit);
+                match fetch_range_head(client, url, timeout).await {
+                    RangeProbeOutcome::Verified(hit) => return hit,
+                    RangeProbeOutcome::NeedFallback => {
+                        // Range 不支持或网络失败则信任 HEAD（已知 CDN 行为稳定），直接返回头信息。
+                        return Some((len, ctype));
+                    }
                 }
-                // Range 失败则信任 HEAD（已知 CDN 行为稳定），直接返回头信息。
-                return Some((len, ctype));
             }
-            // 无 content-length：继续走 Range 首包验证。
-            if let Some(hit) = fetch_range_head(client, url, timeout).await {
-                return Some(hit);
+            // 无 content-length：继续走 Range 首包验证；NeedFallback 时落入第 3 步全量 GET。
+            if let RangeProbeOutcome::Verified(hit) = fetch_range_head(client, url, timeout).await {
+                return hit;
+            }
+        } else {
+            // HEAD 返回非 2xx 且非 404/410（如 405 Method Not Allowed / 403）：尝试 Range 首包验证。
+            if let RangeProbeOutcome::Verified(hit) = fetch_range_head(client, url, timeout).await {
+                return hit;
             }
         }
-    }
-    // 2. 无 HEAD 信息（或 HEAD 失败）：Range 首包验证。
-    if let Some(hit) = fetch_range_head(client, url, timeout).await {
-        return Some(hit);
+    } else {
+        // 2. HEAD 请求本身超时或网络错误：尝试 Range 首包验证。
+        if let RangeProbeOutcome::Verified(hit) = fetch_range_head(client, url, timeout).await {
+            return hit;
+        }
     }
     // 3. 回退：全量 GET（不支持 HEAD/Range 的服务器走此路）。
     let req = client
@@ -379,13 +406,14 @@ async fn verify_image(
     Some((bytes.len(), ctype))
 }
 
-/// Range 首 32KB 验图：200/206 + content-type + magic + ≥300B 才算命中。
+/// Range 首 32KB 验图：200/206 + content-type + magic + ≥300B 才算命中；
+/// 404/410 或魔数/头不合法直接定案 `Verified(None)`，仅在 Range 不被支持或超时时返回 `NeedFallback`。
 /// 服务器忽略 Range 返回全量时只取流首块并截断，不全量等待。
 async fn fetch_range_head(
     client: &reqwest::Client,
     url: &str,
     timeout: std::time::Duration,
-) -> Option<(usize, String)> {
+) -> RangeProbeOutcome {
     use futures_util::StreamExt;
     let req = client
         .get(url)
@@ -395,10 +423,15 @@ async fn fetch_range_head(
             format!("bytes=0-{}", PROBE_RANGE_BYTES - 1),
         )
         .send();
-    let resp = tokio::time::timeout(timeout, req).await.ok()?.ok()?;
+    let Ok(Ok(resp)) = tokio::time::timeout(timeout, req).await else {
+        return RangeProbeOutcome::NeedFallback;
+    };
     let status = resp.status();
+    if is_terminal_http_miss(status) {
+        return RangeProbeOutcome::Verified(None);
+    }
     if !(status.is_success() || status.as_u16() == 206) {
-        return None;
+        return RangeProbeOutcome::NeedFallback;
     }
     let ctype = resp
         .headers()
@@ -421,26 +454,28 @@ async fn fetch_range_head(
                 .and_then(|s| s.parse::<usize>().ok())
         });
     if !headers_hit(&ctype, total_len) {
-        return None;
+        return RangeProbeOutcome::Verified(None);
     }
     // 只取流首块：服务器忽略 Range 回全量时不再全量等待；超窗口截断到 32KB。
     let mut fused = resp.bytes_stream().fuse();
-    let mut first = fused.next().await?.ok()?;
+    let Some(Ok(mut first)) = fused.next().await else {
+        return RangeProbeOutcome::NeedFallback;
+    };
     if first.len() > PROBE_RANGE_BYTES {
         first.truncate(PROBE_RANGE_BYTES);
     }
     if first.len() < MIN_IMAGE_BYTES && total_len.is_none_or(|n| n < MIN_IMAGE_BYTES) {
-        return None;
+        return RangeProbeOutcome::Verified(None);
     }
     let head = &first[..first.len().min(1024)];
     // `magic_is_image` 内已含 octet-stream 严格分支：明确 image/* 无已知 magic 时放行
     //（如渐进式 jpeg 变体）。
     if !magic_is_image(head, &ctype) {
-        return None;
+        return RangeProbeOutcome::Verified(None);
     }
     // 返回服务端声明的总长度（若有），否则返回已下载的首包长度，保证 ≥300。
     let reported = total_len.unwrap_or(first.len()).max(first.len());
-    Some((reported, ctype))
+    RangeProbeOutcome::Verified(Some((reported, ctype)))
 }
 
 #[derive(Debug, Deserialize)]
@@ -467,16 +502,67 @@ fn trees_timeout() -> std::time::Duration {
     crate::config::api_timeout_or(std::time::Duration::from_secs(12))
 }
 
-/// 动态分支解析共用（搜索 `icon_fetch` + 详情 cycle L3 + 匿名兜底）：
-/// GET `repos/{owner}/{repo}` 取 `default_branch`（5s 超时，
-/// 失败/超时/空值返回空，调用方跳过 L3）。
-/// 返回 0 或 1 个分支（trim 后去空）。
+/// 已从 GitHub API（`/repos/{owner}/{repo}` 或 `/search/repositories`）获取到的默认分支有界内存缓存：
+/// 避免 `fetch_online_repo` / `search_github_online` 刚拿到 `default_branch` 后，
+/// 后台 `probe_l3_trees -> resolve_probe_branches` 又对同一仓库重复发起一次 `/repos/{owner}/{repo}` 请求。
+static KNOWN_DEFAULT_BRANCHES: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, String>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+const MAX_KNOWN_DEFAULT_BRANCHES: usize = 512;
+
+pub(crate) fn remember_repo_default_branch(owner: &str, repo: &str, branch: &str) {
+    let b = branch.trim();
+    if b.is_empty() {
+        return;
+    }
+    let key = crate::forge::canonical_app_id_from_parts(owner, repo);
+    if key.is_empty() || key == "/" {
+        return;
+    }
+    if let Ok(mut map) = KNOWN_DEFAULT_BRANCHES.lock() {
+        if map.len() >= MAX_KNOWN_DEFAULT_BRANCHES && !map.contains_key(&key) {
+            if let Some(first_key) = map.keys().next().cloned() {
+                map.remove(&first_key);
+            }
+        }
+        map.insert(key, b.to_string());
+    }
+}
+
+pub(crate) fn known_repo_default_branch(owner: &str, repo: &str) -> Option<String> {
+    let key = crate::forge::canonical_app_id_from_parts(owner, repo);
+    KNOWN_DEFAULT_BRANCHES
+        .lock()
+        .ok()
+        .and_then(|map| map.get(&key).cloned())
+}
+
+/// 分支列表归一化（纯函数，可单测）：
+/// 远端返回非空 `default_branch` 时采用该分支；当请求失败、超时或字段缺失/为空时，
+/// 回退 `vec!["HEAD"]`（GitHub Git Trees API 与 `raw.githubusercontent.com` 均原生解析 `HEAD` 为默认分支，
+/// 与详情页 `detail_fetch.rs` 兜底语义对齐，避免单次元数据抖动直接跳过整仓 L3 探测）。
+pub(crate) fn normalize_probe_branches(default_branch: Option<&str>) -> Vec<String> {
+    if let Some(b) = default_branch.map(str::trim).filter(|s| !s.is_empty()) {
+        vec![b.to_string()]
+    } else {
+        vec!["HEAD".to_string()]
+    }
+}
+
+/// 动态分支解析共用（搜索/趋势 `icon_fetch` + 详情 cycle L3）：
+/// 优先复用近期 API 响应已记录的 `default_branch`（零额外请求）；
+/// 未命中时 GET `repos/{owner}/{repo}` 取 `default_branch`（5s 超时），
+/// 成功返回 `vec![default_branch]`，失败/超时/空值回退 `vec!["HEAD"]`。
 pub(crate) async fn resolve_probe_branches(
     client: &reqwest::Client,
     headers: &HeaderMap,
     owner: &str,
     repo: &str,
 ) -> Vec<String> {
+    if let Some(known) = known_repo_default_branch(owner, repo) {
+        return vec![known];
+    }
     let repo_api = format!(
         "https://api.github.com/repos/{}/{}",
         urlencoding::encode(owner),
@@ -488,16 +574,22 @@ pub(crate) async fn resolve_probe_branches(
     )
     .await
     {
-        if let Ok(v) = resp.json::<serde_json::Value>().await {
-            if let Some(b) = v.get("default_branch").and_then(|x| x.as_str()) {
-                let b = b.trim();
-                if !b.is_empty() {
-                    return vec![b.to_string()];
+        if resp.status().is_success() {
+            if let Ok(v) = resp.json::<serde_json::Value>().await {
+                let branch = v.get("default_branch").and_then(|x| x.as_str());
+                if let Some(b) = branch.map(str::trim).filter(|s| !s.is_empty()) {
+                    remember_repo_default_branch(owner, repo, b);
+                    return normalize_probe_branches(Some(b));
                 }
             }
         }
     }
-    Vec::new()
+    log::debug!(
+        "icon probe default_branch fallback to HEAD for {}/{}",
+        owner,
+        repo
+    );
+    normalize_probe_branches(None)
 }
 
 /// repo+owner 去重 slug 单循环：先 repo 后 owner，去重后逐个试探。
@@ -846,5 +938,114 @@ mod tests {
             acc += chunk;
         }
         assert_eq!(acc, usize::MAX, "third chunk must abort, not buffer");
+    }
+
+    #[test]
+    fn test_is_terminal_http_miss_status_codes() {
+        assert!(is_terminal_http_miss(reqwest::StatusCode::NOT_FOUND));
+        assert!(is_terminal_http_miss(reqwest::StatusCode::GONE));
+        assert!(!is_terminal_http_miss(reqwest::StatusCode::OK));
+        assert!(!is_terminal_http_miss(reqwest::StatusCode::FORBIDDEN));
+        assert!(!is_terminal_http_miss(
+            reqwest::StatusCode::METHOD_NOT_ALLOWED
+        ));
+        assert!(!is_terminal_http_miss(
+            reqwest::StatusCode::TOO_MANY_REQUESTS
+        ));
+        assert!(!is_terminal_http_miss(
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR
+        ));
+    }
+
+    #[test]
+    fn test_normalize_probe_branches_falls_back_to_head() {
+        assert_eq!(
+            normalize_probe_branches(Some("main")),
+            vec!["main".to_string()]
+        );
+        assert_eq!(
+            normalize_probe_branches(Some("  master  ")),
+            vec!["master".to_string()]
+        );
+        assert_eq!(
+            normalize_probe_branches(Some("")),
+            vec!["HEAD".to_string()]
+        );
+        assert_eq!(
+            normalize_probe_branches(Some("   ")),
+            vec!["HEAD".to_string()]
+        );
+        assert_eq!(normalize_probe_branches(None), vec!["HEAD".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn test_verify_image_short_circuits_on_404_and_falls_back_on_405() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        // 1. HEAD 返回 404 Not Found：verify_image 仅发送 1 次 HEAD 请求即短路返回 None。
+        let listener_404 = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr_404 = listener_404.local_addr().unwrap();
+        let hits_404 = Arc::new(AtomicUsize::new(0));
+        let hits_404_clone = hits_404.clone();
+        tokio::spawn(async move {
+            while let Ok((mut sock, _)) = listener_404.accept().await {
+                hits_404_clone.fetch_add(1, Ordering::SeqCst);
+                let mut buf = [0u8; 1024];
+                let _ = sock.read(&mut buf).await;
+                let _ = sock
+                    .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                    .await;
+            }
+        });
+
+        let client = reqwest::Client::new();
+        let url_404 = format!("http://{}/missing.svg", addr_404);
+        let res_404 = verify_image(&client, &url_404, std::time::Duration::from_secs(2)).await;
+        assert!(res_404.is_none());
+        assert_eq!(
+            hits_404.load(Ordering::SeqCst),
+            1,
+            "404 on HEAD must short-circuit without Range GET or full GET"
+        );
+
+        // 2. HEAD 返回 405 Method Not Allowed：verify_image 回退 Range GET 验魔数命中。
+        let listener_405 = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr_405 = listener_405.local_addr().unwrap();
+        let hits_405 = Arc::new(AtomicUsize::new(0));
+        let hits_405_clone = hits_405.clone();
+        tokio::spawn(async move {
+            while let Ok((mut sock, _)) = listener_405.accept().await {
+                let n = hits_405_clone.fetch_add(1, Ordering::SeqCst);
+                let mut buf = [0u8; 1024];
+                let _ = sock.read(&mut buf).await;
+                if n == 0 {
+                    let _ = sock
+                        .write_all(b"HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                        .await;
+                } else {
+                    let mut body = b"\x89PNG\r\n\x1a\n".to_vec();
+                    body.resize(400, 0u8);
+                    let header = format!(
+                        "HTTP/1.1 206 Partial Content\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = sock.write_all(header.as_bytes()).await;
+                    let _ = sock.write_all(&body).await;
+                }
+            }
+        });
+
+        let url_405 = format!("http://{}/icon.png", addr_405);
+        let res_405 = verify_image(&client, &url_405, std::time::Duration::from_secs(2)).await;
+        assert!(res_405.is_some(), "405 on HEAD must fall back to Range GET");
+        assert_eq!(
+            hits_405.load(Ordering::SeqCst),
+            2,
+            "HEAD (405) + Range GET (206) = 2 requests, no 3rd full GET"
+        );
     }
 }

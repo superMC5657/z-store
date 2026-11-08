@@ -257,19 +257,18 @@ pub async fn get_or_fetch_icon(
     // 无后缀暂定 png：读侧仅作 hash 候选首位，写侧以 sniff real_ext 纠正（见 persist_*）。
     let requested_ext = infer_icon_ext_from_url(url_trimmed).unwrap_or("png");
 
-    let is_cataloged = app_id
-        .as_deref()
-        .is_some_and(|id| state.catalog.is_cataloged(id.trim()));
+    let raw_app_id = app_id.as_deref().map(str::trim).unwrap_or("");
+    let canonical_id = crate::forge::canonical_lookup_id(raw_app_id);
+
+    let is_cataloged = !canonical_id.is_empty() && state.catalog.is_cataloged(&canonical_id);
 
     // 1. 严格优先查找本地内部缓存（两表分流读取收敛至共享 helper）
-    // 收录应用查 icon_cache_meta，非收录应用查 app_icon_cycles
+    // 收录应用查 icon_cache_meta，非收录应用查 app_icon_cycles（按 canonical_id 归一查表）
     if let Ok(db) = state.db() {
-        let noncatalog_cycle = if is_cataloged {
+        let noncatalog_cycle = if is_cataloged || canonical_id.is_empty() {
             None
         } else {
-            app_id
-                .as_deref()
-                .and_then(|id| db.get_icon_cycle(id).ok().flatten())
+            db.get_icon_cycle(&canonical_id).ok().flatten()
         };
         if let Some(bytes) = icons_cycle_probe::load_split_cached_bytes(
             &icons_dir,
@@ -336,16 +335,17 @@ pub async fn get_or_fetch_icon(
             &bytes,
         );
     } else {
-        let clean_id = app_id.as_deref().map(str::trim).unwrap_or("");
-        if !clean_id.is_empty() {
+        if !canonical_id.is_empty() {
             if let Some(ref db) = db_opt {
-                let mut cycle = icons_cycle_probe::load_or_new_cycle(db, clean_id);
+                let mut cycle = icons_cycle_probe::load_or_new_cycle(db, raw_app_id);
                 cycle.is_cataloged = false;
 
-                // 按真实来源入槽（05）：level 经详情口径判定（simpleicons→L2品牌库，
-                // blob/readme→L4 README，其余→L3仓库），合并保留已有槽；
+                // 按真实来源入槽（05）：优先保留已入槽 URL 的真实级别（如详情已写入 l4_url 的
+                // README 外部图床或 /HEAD/ Logo），仅未知 URL 回退 level_for_detail_icon 启发式；
                 // 02 pinned 行只补槽不改选中；槽满未收编不碰选中图（见下认领）。
-                let source_level = crate::github::icon_fetch::level_for_detail_icon(key_url);
+                let source_level = cycle
+                    .level_for_known_url(key_url)
+                    .unwrap_or_else(|| crate::github::icon_fetch::level_for_detail_icon(key_url));
                 crate::db::icon_cycle::merge_detail_icon(
                     &mut cycle,
                     source_level,

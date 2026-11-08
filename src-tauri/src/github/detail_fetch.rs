@@ -487,7 +487,14 @@ impl CatalogService {
         cached_payload: Option<String>,
         cached_detail: Option<AppDetail>,
         token: Option<&str>,
-    ) -> Result<(AppDetail, Option<(String, String)>), String> {
+    ) -> Result<
+        (
+            AppDetail,
+            Option<(String, String)>,
+            Option<crate::db::icon_cycle::DetailIconResolution>,
+        ),
+        String,
+    > {
         // 身份解析内部 seam：endpoints + 收录项一次取出。
         let DetailIdentity {
             owner,
@@ -563,7 +570,7 @@ impl CatalogService {
         //（经 `reuse_304_cached` 内部 seam，deduce+ios 并集经平台 seam 单口）。
         if matches!(release_outcome, EtagGetOutcome::NotModified) {
             if let Some(detail) = reuse_304_cached(cached_detail.as_ref(), catalog_item.as_ref()) {
-                return Ok((detail, None));
+                return Ok((detail, None, None));
             }
         }
 
@@ -585,7 +592,7 @@ impl CatalogService {
         )? {
             super::release_fetch::DetailReleaseDecision::ReuseStale(existing) => {
                 // 离线或网络异常回退：若有 cached_detail 直接使用（stale 穿透，不 touch 不落库）。
-                return Ok((*existing, None));
+                return Ok((*existing, None, None));
             }
             super::release_fetch::DetailReleaseDecision::Proceed {
                 release,
@@ -699,7 +706,12 @@ impl CatalogService {
                 crate::log_support::sanitize_url(&p.url)
             );
         }
-        let probed_url: Option<String> = probed_hit.map(|p| p.url);
+        let probed_with_level = probed_hit.map(|p| {
+            (
+                crate::db::icon_cycle::ProbeIconLevel::from_source(p.source),
+                p.url,
+            )
+        });
 
         // 动态回写更新内存中的 CatalogItem 统计数据，使得列表页卡片上的 Stars/Forks/Version 也同步刷新
         //（统计取值经 `resolve_detail_stats` 内部 seam：repo 真值优先，缺失回退收录库）。
@@ -759,17 +771,18 @@ impl CatalogService {
         // deduce + ios 并集 + 排序经内部平台 seam（与 304 快径共用）。
         let final_platforms = unioned_detail_platforms(&releases, catalog_item.as_ref());
 
-        // 图标层级决策经 db::icon_cycle::pick_detail_icon（收录官方 → 品牌库 → Trees → README → 空）：
+        // 图标层级决策经 db::icon_cycle::pick_detail_icon_with_level（收录官方 → 品牌库 → Trees → README → 空）：
         // 1. 已具备已知独立官方图标则保持，避免被误覆盖；
-        // 2. 否则进入探测链（Simple Icons → Git Trees 全库评分）；
-        // 3. 探测未命中则采用 README 提取并清洗出的 Logo；
-        // 4. 全未命中兜底返回空字符串（前端降级为首字母徽章）。
-        let final_icon = if icon.starts_with("http://") || icon.starts_with("https://") {
-            icon
-        } else {
-            // probe 已与 readme/checksums 三路并发完成，此处直接复用 probed_url。
-            crate::db::icon_cycle::pick_detail_icon(&icon, probed_url, extracted_logo)
-        };
+        // 2. 否则进入探测链（Simple Icons → Git Trees 全库评分，保留真实 L2/L3 级别）；
+        // 3. 探测未命中则采用 README 提取并清洗出的 Logo（显式 L4 级别）；
+        // 4. 若探测命中 L2/L3 的同时提取到了 README Logo，顺手保留在 extra_l4_url 供落库补齐 l4_url；
+        // 5. 全未命中兜底返回空字符串（前端降级为首字母徽章）。
+        let icon_resolution = crate::db::icon_cycle::pick_detail_icon_with_level(
+            &icon,
+            probed_with_level,
+            extracted_logo,
+        );
+        let final_icon = icon_resolution.icon.clone();
 
         // 趋势榜详情简介丢弃根治——未收录仓 external_synth 占位回填 GitHub 真简介。
         // 已收录仓（catalog_item.is_some()）人工精校简介优先，不覆盖 desc / description_en。
@@ -844,7 +857,7 @@ impl CatalogService {
             },
         };
 
-        Ok((detail, new_cache))
+        Ok((detail, new_cache, Some(icon_resolution)))
     }
 
     /// Checksum Manifest〈校验清单〉拉取 adapter（fetch→verify 契约的 fetch 侧；
@@ -1129,5 +1142,40 @@ mod tests {
         assert!(super::repo_real_description_from_etag(&db, "p", "q").is_none());
         // 空 owner/repo 直接 None
         assert!(super::repo_real_description_from_etag(&db, "", "r").is_none());
+    }
+
+    #[test]
+    fn test_pick_detail_icon_with_level_preserves_l4_and_dual_l3_l4() {
+        // 1. L2/L3 未命中，仅提取到 README Logo（哪怕经 clean_image_url 改写为 /HEAD/ 或外部图床），level 恒为 4。
+        let res_l4 = crate::db::icon_cycle::pick_detail_icon_with_level(
+            "",
+            None,
+            Some("https://raw.githubusercontent.com/owner/repo/HEAD/assets/logo.png".to_string()),
+        );
+        assert_eq!(
+            res_l4.icon,
+            "https://raw.githubusercontent.com/owner/repo/HEAD/assets/logo.png"
+        );
+        assert_eq!(res_l4.level, Some(4));
+        assert_eq!(res_l4.extra_l4_url, None);
+
+        // 2. L3（Git Trees）与 L4（README）同时命中：主展示为 L3（level=3），同时保留 extra_l4_url 供补齐备选槽。
+        let res_dual = crate::db::icon_cycle::pick_detail_icon_with_level(
+            "",
+            Some((
+                crate::db::icon_cycle::ProbeIconLevel::L3Trees,
+                "https://raw.githubusercontent.com/owner/repo/main/res/icon.png".to_string(),
+            )),
+            Some("https://media.example.com/readme-banner-logo.png".to_string()),
+        );
+        assert_eq!(
+            res_dual.icon,
+            "https://raw.githubusercontent.com/owner/repo/main/res/icon.png"
+        );
+        assert_eq!(res_dual.level, Some(3));
+        assert_eq!(
+            res_dual.extra_l4_url.as_deref(),
+            Some("https://media.example.com/readme-banner-logo.png")
+        );
     }
 }

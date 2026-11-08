@@ -1330,3 +1330,66 @@ fn commit_failure_rolls_back_and_leaves_no_open_transaction() {
         .unwrap();
     assert_eq!(rows, 0, "失败事务的写入应随回滚丢弃");
 }
+
+#[test]
+fn test_level_for_known_url_and_detail_icon_resolution_slots() {
+    let db = fixtures::test_db();
+    let app_id = "owner/readme-only";
+    // 1. 仅命中 README L4（外部 CDN 或 /HEAD/）：必须写入 l4_url 且 level=4，绝不误入 l3_url。
+    let l4_cdn = "https://media.example.com/brand-logo.png";
+    let res_l4 = icon_cycle::pick_detail_icon_with_level("", None, Some(l4_cdn.to_string()));
+    let mut cycle = AppIconCycle::new(app_id, "owner", "readme-only");
+    let was_pinned =
+        icon_cycle::apply_detail_icon_resolution(&mut cycle, &res_l4.icon, Some(&res_l4), 3, false, 1000);
+    assert!(!was_pinned);
+    assert_eq!(cycle.level, 4);
+    assert_eq!(cycle.l4_url, l4_cdn);
+    assert!(cycle.l3_url.is_empty(), "L4 README logo must not pollute l3_url");
+    assert_eq!(cycle.selected_url, l4_cdn);
+    assert_eq!(cycle.level_for_known_url(l4_cdn), Some(4));
+    assert_eq!(cycle.level_for_known_url("https://unknown.example.com/x.png"), None);
+
+    // 2. 后续 304 缓存复用或 get_or_fetch_icon 下载同一已知 L4 URL 时，level_for_known_url 保持 level=4。
+    let was_pinned_304 =
+        icon_cycle::apply_detail_icon_resolution(&mut cycle, l4_cdn, None, 3, false, 2000);
+    assert!(!was_pinned_304);
+    assert_eq!(cycle.level, 4);
+    assert_eq!(cycle.l4_url, l4_cdn);
+    assert!(cycle.l3_url.is_empty());
+
+    // 3. L3（Git Trees）与 L4（README）双命中：主选中为 L3（level=3，l3_url），且 l4_url 同步补齐。
+    let l3_tree = "https://raw.githubusercontent.com/owner/dual/main/assets/icon.png";
+    let l4_readme = "https://raw.githubusercontent.com/owner/dual/HEAD/docs/logo.png";
+    let res_dual = icon_cycle::pick_detail_icon_with_level(
+        "",
+        Some((icon_cycle::ProbeIconLevel::L3Trees, l3_tree.to_string())),
+        Some(l4_readme.to_string()),
+    );
+    let mut dual_cycle = AppIconCycle::new("owner/dual", "owner", "dual");
+    icon_cycle::apply_detail_icon_resolution(
+        &mut dual_cycle,
+        &res_dual.icon,
+        Some(&res_dual),
+        3,
+        false,
+        3000,
+    );
+    assert_eq!(dual_cycle.level, 3);
+    assert_eq!(dual_cycle.l3_url, l3_tree);
+    assert_eq!(dual_cycle.l4_url, l4_readme);
+    assert_eq!(dual_cycle.selected_url, l3_tree);
+    // 验证轮换完整性：3 -> 4 -> 5 -> 3
+    assert_eq!(icon_cycle::next_cycle_level(3, &dual_cycle), 4);
+    assert_eq!(icon_cycle::next_cycle_level(4, &dual_cycle), 5);
+    assert_eq!(icon_cycle::next_cycle_level(5, &dual_cycle), 3);
+
+    // 4. load_or_new_cycle 对大小写混合 app_id 统一归一为小写主键，不产生大小写重复行。
+    db.upsert_icon_cycle(&dual_cycle).unwrap();
+    let loaded_mixed = crate::commands::icons_cycle_probe::load_or_new_cycle(&db, "Owner/Dual");
+    assert_eq!(loaded_mixed.app_id, "owner/dual");
+    assert_eq!(loaded_mixed.l3_url, l3_tree);
+    let created_mixed = crate::commands::icons_cycle_probe::load_or_new_cycle(&db, "NewOwner/NewRepo");
+    assert_eq!(created_mixed.app_id, "newowner/newrepo");
+    assert_eq!(created_mixed.owner, "NewOwner");
+    assert_eq!(created_mixed.repo, "NewRepo");
+}

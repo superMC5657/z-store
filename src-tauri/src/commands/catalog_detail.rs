@@ -681,7 +681,7 @@ async fn fetch_detail_from_github(
         .await;
 
     match fetch_result {
-        Ok((mut detail, to_cache)) => {
+        Ok((mut detail, to_cache, icon_resolution)) => {
             // 日志诚实区分：真 304（to_cache=None + 非 stale）vs stale/failed 合成空或穿透
             //（to_cache=None + is_stale==Some(true)），避免 stale 误标为 304 误导下次诊断。
             let cache_type = if to_cache.is_some() {
@@ -718,7 +718,15 @@ async fn fetch_detail_from_github(
                 );
             }
 
-            persist_github_detail(state, clean_id, &mut detail, now, &sid, &req_id);
+            persist_github_detail(
+                state,
+                clean_id,
+                &mut detail,
+                icon_resolution.as_ref(),
+                now,
+                &sid,
+                &req_id,
+            );
 
             state.catalog.stamp_detail(&mut detail);
             Ok(detail)
@@ -773,6 +781,7 @@ fn persist_github_detail(
     state: &AppState,
     clean_id: &str,
     detail: &mut AppDetail,
+    icon_resolution: Option<&crate::db::icon_cycle::DetailIconResolution>,
     now: i64,
     sid: &str,
     req_id: &str,
@@ -847,8 +856,6 @@ fn persist_github_detail(
             let staged_cycle: Option<crate::db::AppIconCycle> = if !icon_trimmed.trim().is_empty()
                 && !crate::github::icon_fetch::is_body_image_url(&icon_trimmed)
             {
-                let level = crate::github::icon_fetch::level_for_detail_icon(&icon_trimmed);
-
                 let mut cycle = db
                     .get_icon_cycle(clean_id)
                     .ok()
@@ -861,10 +868,22 @@ fn persist_github_detail(
                         )
                     });
 
-                if crate::db::icon_cycle::merge_detail_icon(
+                let sanitized_res = icon_resolution.cloned().map(|mut r| {
+                    if r.extra_l4_url
+                        .as_deref()
+                        .is_some_and(crate::github::icon_fetch::is_body_image_url)
+                    {
+                        r.extra_l4_url = None;
+                    }
+                    r
+                });
+                let fallback_level =
+                    crate::github::icon_fetch::level_for_detail_icon(&icon_trimmed);
+                if crate::db::icon_cycle::apply_detail_icon_resolution(
                     &mut cycle,
-                    level,
                     icon_trimmed.trim(),
+                    sanitized_res.as_ref(),
+                    fallback_level,
                     state.catalog.is_cataloged(clean_id),
                     now,
                 ) {

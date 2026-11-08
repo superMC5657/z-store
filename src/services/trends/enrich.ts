@@ -1,6 +1,6 @@
 import type { AppDetail, AppSummary, TrendRepo } from '../../types';
 import { tauriApi } from '../api';
-import { resolveIconWithBuffer } from '../iconStore';
+import { admitIconHit, resolveIconWithBuffer } from '../iconStore';
 import { normalizeId, normalizeIdSet } from '../normalizeId';
 
 /** enrich 派生缓存 TTL：12h（坐标元数据日内几乎不变，与 DOFORCE 快照同口径）。 */
@@ -244,8 +244,13 @@ function putTrendEnrichCache(key: string, entry: { timestamp: number; data: AppS
   if (cur && hasConcretePlatforms(cur.data.platforms) && !incomingConcrete) return;
   if (!incomingConcrete && !trendConfirmedOtherCache.has(k)) return;
   // 图标回填只做升级不做准入（resolveIconWithBuffer）：已有真实图标（非空）不被空图标覆盖；
-  // 有/无图标一视同仁进富卡，首字母兜底在渲染侧生成，不影响持久化。
-  const data = resolveIconWithBuffer(cur?.data, entry.data);
+  // 有/无图标一视同仁进富卡，首字母兜底在渲染侧生成，不影响持久化；
+  // data: 只驻 M1 内存缓冲（iconById），永不落入 trendEnrichCache 与 L2 榜缓存。
+  const resolved = resolveIconWithBuffer(cur?.data, entry.data);
+  const data =
+    typeof resolved.icon === 'string' && resolved.icon.startsWith('data:')
+      ? { ...resolved, icon: '' }
+      : resolved;
   if (trendEnrichCache.has(k)) trendEnrichCache.delete(k);
   trendEnrichCache.set(k, { timestamp: entry.timestamp, data });
   // 具平台到达即覆盖升级： concrete 入库同步移除已确认 Other 标记（loading 永不覆盖具平台的另一半）。
@@ -481,6 +486,16 @@ async function enrichTrendReposCore(
     if (!Array.isArray(s.platforms)) return;
     const key = trendEnrichKey(r.owner, r.repo);
     const cur = trendEnrichCache.get(key);
+    // 确认图标（含 data: 本地缓存与远端 URL）同步注入 iconStore M1 缓冲（via=m2），
+    // 确保后续 lite/settle 将持久化副本的 data: 剥空为 '' 后，resolveIconWithBuffer 仍能从 M1 回读直显。
+    const rawIcon = typeof s.icon === 'string' ? s.icon.trim() : '';
+    if (rawIcon !== '') {
+      admitIconHit({ id: key, icon: rawIcon, via: 'm2' });
+      const idKey = typeof s.id === 'string' ? normalizeId(s.id) : '';
+      if (idKey && idKey !== key) {
+        admitIconHit({ id: idKey, icon: rawIcon, via: 'm2' });
+      }
+    }
     // 图标单口：data: 原样透出只活当次 out；其余粘性合并。
     s = mergeIconSticky(cur?.data, s);
     out.set(key, s);

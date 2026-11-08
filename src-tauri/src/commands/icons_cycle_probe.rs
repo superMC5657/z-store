@@ -365,18 +365,24 @@ pub(crate) fn enforce_icon_quota_lru(
 }
 
 /// 非收录 cycle 行加载-or-新建唯一落点（get_or_fetch 直取路径用）。
-/// `lookup_id` 保持调用方原始 trim 形态（与 `db.get_icon_cycle(clean_id)` 键一致）；
-/// 新建行 owner/repo 经 owner_repo_for_new_cycle 推导。
+/// 入站 `lookup_id` 统一经 `canonical_lookup_id` 归一为小写主键（ADR-0010），
+/// 消除大小写漂移导致的查表 Miss 与重复行；新建行 owner/repo 经 `owner_repo_for_new_cycle` 推导。
 pub(crate) fn load_or_new_cycle(
     db: &crate::db::Database,
     lookup_id: &str,
 ) -> crate::db::AppIconCycle {
-    db.get_icon_cycle(lookup_id)
+    let canon_id = crate::forge::canonical_lookup_id(lookup_id);
+    let eff_id = if canon_id.is_empty() {
+        lookup_id.trim()
+    } else {
+        canon_id.as_str()
+    };
+    db.get_icon_cycle(eff_id)
         .ok()
         .flatten()
         .unwrap_or_else(|| {
             let (owner, repo) = crate::db::icon_cycle::owner_repo_for_new_cycle(lookup_id);
-            crate::db::AppIconCycle::new(lookup_id, owner, repo)
+            crate::db::AppIconCycle::new(eff_id, owner, repo)
         })
 }
 

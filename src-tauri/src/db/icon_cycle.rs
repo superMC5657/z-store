@@ -67,6 +67,22 @@ impl AppIconCycle {
             _ => None,
         }
     }
+
+    /// 若 `url` 已存在于当前行的 `l1_url`..`l4_url` 槽位中，返回对应级别 (1..=4)。
+    pub fn level_for_known_url(&self, url: &str) -> Option<i32> {
+        let u = url.trim();
+        if u.is_empty() {
+            return None;
+        }
+        for level in 1..=4 {
+            if let Some(slot_url) = self.url_for_level(level) {
+                if slot_url.trim() == u {
+                    return Some(level);
+                }
+            }
+        }
+        None
+    }
 }
 
 impl Database {
@@ -557,6 +573,120 @@ pub fn get_icon_cache_record(db: &Database, cache_key: &str) -> Result<Option<(S
     }
 }
 
+/// 远端探测命中档位（仅 L2 品牌库 / L3 仓库文件树，L1 官方与 L5 空选不可表示）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProbeIconLevel {
+    L2SimpleIcons,
+    L3Trees,
+}
+
+impl ProbeIconLevel {
+    pub fn from_source(source: &str) -> Self {
+        if source.trim() == "simple-icons" {
+            Self::L2SimpleIcons
+        } else {
+            Self::L3Trees
+        }
+    }
+
+    pub fn as_i32(self) -> i32 {
+        match self {
+            Self::L2SimpleIcons => 2,
+            Self::L3Trees => 3,
+        }
+    }
+}
+
+/// 详情页图标来源与备选槽决策结果：
+/// - `icon`：详情页最终采用的图标 URL（空串表示降级首字母徽章）；
+/// - `level`：`icon` 对应的真实来源级别（1=官方，2=SimpleIcons，3=Git Trees，4=README）；无图标时为 `None`；
+/// - `extra_l4_url`：当主图标命中 L1/L2/L3 且同时从 README 提取到了 L4 Logo 时，携带该 L4 URL 供落库顺手补齐 `l4_url` 备选槽。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DetailIconResolution {
+    pub icon: String,
+    pub level: Option<i32>,
+    pub extra_l4_url: Option<String>,
+}
+
+/// 详情页图标带级别决策（SSOT）：
+/// 1. 官方 `http(s)` 图标保持（level = 1）；
+/// 2. 探测命中 `probed`（[`ProbeIconLevel::L2SimpleIcons`] → level = 2，[`ProbeIconLevel::L3Trees`] → level = 3）；
+/// 3. README 头部提取 Logo `readme_logo`（level = 4）；
+/// 4. 全未命中返回空串（`level = None`）。
+///
+/// 若主选中为 L1/L2/L3 且 `readme_logo` 非空，同时保留在 `extra_l4_url` 供 `fill_probe_slot(&mut cycle, 4, ...)` 写入备选槽。
+pub fn pick_detail_icon_with_level(
+    official_icon: &str,
+    probed: Option<(ProbeIconLevel, String)>,
+    readme_logo: Option<String>,
+) -> DetailIconResolution {
+    let clean_l4 = readme_logo
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let official_trimmed = official_icon.trim();
+    if official_trimmed.starts_with("http://") || official_trimmed.starts_with("https://") {
+        return DetailIconResolution {
+            icon: official_trimmed.to_string(),
+            level: Some(1),
+            extra_l4_url: clean_l4,
+        };
+    }
+    if let Some((lvl, url)) = probed {
+        let u = url.trim().to_string();
+        if !u.is_empty() {
+            return DetailIconResolution {
+                icon: u,
+                level: Some(lvl.as_i32()),
+                extra_l4_url: clean_l4,
+            };
+        }
+    }
+    if let Some(logo) = clean_l4 {
+        return DetailIconResolution {
+            icon: logo,
+            level: Some(4),
+            extra_l4_url: None,
+        };
+    }
+    DetailIconResolution {
+        icon: String::new(),
+        level: None,
+        extra_l4_url: None,
+    }
+}
+
+/// 将详情页图标决策结果（`DetailIconResolution`）合并入 `AppIconCycle`（SSOT）：
+/// - 主图标级别优先取 `resolution.level`（2..=4），缺失时（如 304 缓存复用或官方 L1）
+///   先查当前行已知槽位 `cycle.level_for_known_url`，最后回退 `fallback_level`；
+/// - 调用 `merge_detail_icon` 更新选中态（或 pinned 行仅补槽）；
+/// - 若存在 `resolution.extra_l4_url`（主命中 L1/L2/L3 的同时提取到了 README L4 Logo），
+///   顺手通过 `fill_probe_slot(cycle, 4, extra_l4)` 写入 `l4_url` 备选槽，保证详情轮换完整覆盖 L4。
+///
+/// 返回 `true` 表示当前行为 `pinned`（调用方需将 `detail.core.icon` 对齐 `cycle.selected_url`）。
+pub fn apply_detail_icon_resolution(
+    cycle: &mut AppIconCycle,
+    icon_trimmed: &str,
+    resolution: Option<&DetailIconResolution>,
+    fallback_level: i32,
+    is_cataloged: bool,
+    now: i64,
+) -> bool {
+    let level = resolution
+        .and_then(|r| r.level)
+        .filter(|&lvl| (2..=4).contains(&lvl))
+        .or_else(|| cycle.level_for_known_url(icon_trimmed))
+        .unwrap_or(fallback_level);
+    let was_pinned = merge_detail_icon(cycle, level, icon_trimmed, is_cataloged, now);
+    if let Some(extra_l4) = resolution
+        .and_then(|r| r.extra_l4_url.as_deref())
+        .map(str::trim)
+        .filter(|u| !u.is_empty())
+    {
+        fill_probe_slot(cycle, 4, extra_l4);
+    }
+    was_pinned
+}
+
 /// 详情页图标层级决策：
 /// 官方 http(s) 图标保持 → 探测命中 → README logo → 空（前端降级首字母徽章）。
 pub fn pick_detail_icon(
@@ -564,16 +694,12 @@ pub fn pick_detail_icon(
     probed_url: Option<String>,
     readme_logo: Option<String>,
 ) -> String {
-    if official_icon.starts_with("http://") || official_icon.starts_with("https://") {
-        return official_icon.to_string();
-    }
-    if let Some(p) = probed_url {
-        return p;
-    }
-    if let Some(logo) = readme_logo {
-        return logo;
-    }
-    String::new()
+    pick_detail_icon_with_level(
+        official_icon,
+        probed_url.map(|u| (ProbeIconLevel::L3Trees, u)),
+        readme_logo,
+    )
+    .icon
 }
 
 #[cfg(test)]

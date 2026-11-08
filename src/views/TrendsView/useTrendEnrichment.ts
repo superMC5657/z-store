@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import type { AppSummary, FetchTrendsOptions, TrendBoardId, TrendRepo, TrendsResult } from '../../types';
 import { tauriApi } from '../../services/api';
 import { enrichTrendRepos, type DetailPlatformsHealPayload, type DetailRichcardHealPayload } from '../../services/trends/enrich';
@@ -61,6 +61,20 @@ interface UseTrendEnrichmentParams {
   refreshEnrichForceRef: React.MutableRefObject<boolean>;
 }
 
+/** SWR 快照与当前镜像合并预演（SWR 首展与 enrich 缺席判定共用）。 */
+function computeSwrMergedPreview(
+  currentMirror: Record<string, AppSummary>,
+  repos: TrendRepo[],
+): {
+  snap: Record<string, AppSummary>;
+  l2Confirmed: string[];
+  merged: Record<string, AppSummary>;
+} {
+  const { snap, l2Confirmed } = buildSwrFill(repos);
+  const merged = mergeSwrEnrichedMirror(currentMirror, snap);
+  return { snap, l2Confirmed, merged };
+}
+
 /**
  * 趋势榜富卡编排（唯一深模块）：SWR 旧富卡直展、缺席仓 enrich、图标流式补齐、
  * 详情治愈总线、图标写扇出、L2 写透与卸载 flush 全部收口于此。
@@ -78,33 +92,20 @@ export function useTrendEnrichment({
   refreshEnrichForceRef,
 }: UseTrendEnrichmentParams): void {
   const {
-    enrichedApps,
     setEnrichedApps,
     enrichedAppsRef,
     setTrendConfirmedOtherIds,
   } = mirror;
+  const displayItemsRef = useRef(displayItems);
+  displayItemsRef.current = displayItems;
 
-  // SWR 旧富卡直展：榜缓存二级富信封命中后 boards 已 hydrate 进内存，
-  // 此处经 board seam 同步合并进镜像先展旧富卡（含 loading 的 Other 加载中语义），不闪裸行；
-  // 后台 enrich effect 再 revalidate 缺席项，找到具平台再覆盖写透；永不用空值覆盖已具平台值。
-  // 合并逻辑收口 board（buildSwrFill + merge*Mirror），View 只做 load/refresh + 镜像持有。
-  useEffect(() => {
-    if (trendResult?.status !== 'ok' || trendResult.repos.length === 0) {
-      return;
-    }
-    const { snap, l2Confirmed } = buildSwrFill(trendResult.repos);
-    if (l2Confirmed.length > 0) {
-      setTrendConfirmedOtherIds((prev) => mergeSwrConfirmedMirror(prev, l2Confirmed, snap));
-    }
-    setEnrichedApps((prev) => mergeSwrEnrichedMirror(prev, snap));
-    // 组装落盘补齐：SWR 富卡 http 远端图标入队进盘（前 30 上限，内联/`data:` 与空跳过由店内裁决）。
-    queueAssembledRowIcons(Object.values(snap));
-    // 重挂图标自愈（DB-only）：快照缺失图标经本地 cycle 表回填，
-    // 零网络/零 ETag；图标经店内唯一写口合流（`via=m2`，不占 `level`），已有实图永不覆写，上限与组装补齐同量级。
-    const preview = mergeSwrEnrichedMirror(enrichedAppsRef.current, snap);
-    const emptyKeys = collectEmptyIconKeys(preview);
+  // DB-only 确认图标批量回填（SWR 重挂与 enrich 命中无图标缓存条目共用）：
+  // 零网络/零 ETag；图标经店内唯一写口合流（via=m2，不占 level），已有实图永不覆写。
+  const backfillDbIconsForEmptyKeys = (
+    emptyKeys: string[],
+    isCancelled: () => boolean,
+  ): void => {
     if (emptyKeys.length === 0) return;
-    let cancelled = false;
     void (async () => {
       let icons: (string | null)[];
       try {
@@ -112,7 +113,7 @@ export function useTrendEnrichment({
       } catch {
         return;
       }
-      if (cancelled || !Array.isArray(icons)) return;
+      if (isCancelled() || !Array.isArray(icons)) return;
       const iconMap = new Map<string, string>();
       emptyKeys.forEach((k, i) => {
         const icon = icons[i];
@@ -123,7 +124,7 @@ export function useTrendEnrichment({
       // 返回补齐键供内存 hydrate；`data:` 只进 React 呈现，hydrate 前按可落盘过滤。
       const merged = mergeDbIconsIntoMirror(enrichedAppsRef.current, iconMap);
       if (merged.patchedKeys.length === 0) return;
-      if (cancelled) return;
+      if (isCancelled()) return;
       setEnrichedApps(merged.next);
       // 内存 hydrate 供下次快照直展：已确认/具平台门控由 `put` 侧执行，
       // 未确认 loading 不进内存；写透经统一 debounce，不直写。
@@ -144,6 +145,30 @@ export function useTrendEnrichment({
         // 内存同步失败不影响已呈现
       }
     })();
+  };
+
+  // SWR 旧富卡直展：榜缓存二级富信封命中后 boards 已 hydrate 进内存，
+  // 此处经 board seam 同步合并进镜像先展旧富卡（含 loading 的 Other 加载中语义），不闪裸行；
+  // 后台 enrich effect 再 revalidate 缺席项，找到具平台再覆盖写透；永不用空值覆盖已具平台值。
+  // 合并逻辑收口 board（buildSwrFill + merge*Mirror），View 只做 load/refresh + 镜像持有。
+  useEffect(() => {
+    if (trendResult?.status !== 'ok' || trendResult.repos.length === 0) {
+      return;
+    }
+    const { snap, l2Confirmed, merged: preview } = computeSwrMergedPreview(
+      enrichedAppsRef.current,
+      trendResult.repos,
+    );
+    if (l2Confirmed.length > 0) {
+      setTrendConfirmedOtherIds((prev) => mergeSwrConfirmedMirror(prev, l2Confirmed, snap));
+    }
+    setEnrichedApps((prev) => mergeSwrEnrichedMirror(prev, snap));
+    // 组装落盘补齐：SWR 富卡 http 远端图标入队进盘（前 30 上限，内联/`data:` 与空跳过由店内裁决）。
+    queueAssembledRowIcons(Object.values(snap));
+    const emptyKeys = collectEmptyIconKeys(preview);
+    if (emptyKeys.length === 0) return;
+    let cancelled = false;
+    backfillDbIconsForEmptyKeys(emptyKeys, () => cancelled);
     return () => {
       cancelled = true;
     };
@@ -154,21 +179,64 @@ export function useTrendEnrichment({
   // 成功合并为完整卡片；失败/无命中保持旧小行（enrichTrendRepos 缺席即不写，缺席即展裸行/旧缓存，不等齐）。
   // 合并 + 写透收口 board（collectMissing + mergeEnrichFoundMirror + maybePersistBoardNow）；
   // 裸行先展不拦榜，仅富卡升级受 boardReady 门控。
+  // 世代保护：按 (trendResult, activeBoard) 周期记录已尝试 enrich 的坐标集合，
+  // 且 effect 仅依赖 [trendResult, activeBoard, trendFetchOpts, boardReady]（不依赖随图标/平台高频变动的 displayItems），
+  // 防止同榜某仓后端返回 null 或 enrichedApps 更新触发二次 enrich_trend_repos
+  // 递增后端 BOARD_GEN 并杀死在途 fetch_icons_stream。
+  const attemptedEnrichKeysRef = useRef<Set<string>>(new Set());
+  const enrichCycleRef = useRef<{
+    trendResult: TrendsResult | null;
+    activeBoard: TrendBoardId;
+    seq: number;
+  }>({
+    trendResult: null,
+    activeBoard,
+    seq: 0,
+  });
+
+  useEffect(() => {
+    return () => {
+      enrichCycleRef.current.seq += 1;
+    };
+  }, []);
+
   useEffect(() => {
     if (trendResult?.status !== 'ok') return;
+    if (!boardReady) return;
     // 刷新链跟随强制：手动 Refresh 落定后的本轮 enrich 消费一次标记，透传后端
     // force_refresh 做网络重拉；其余进 tab/切榜场景均为缓存允许路径。
     // 标记在本轮早消费（即使本轮无缺席项），避免泄漏到后续无关轮次造成误强制。
     const enrichForce = refreshEnrichForceRef.current;
     refreshEnrichForceRef.current = false;
-    const missing = collectMissingEnrichRepos(displayItems, enrichedApps);
+    if (
+      enrichCycleRef.current.trendResult !== trendResult ||
+      enrichCycleRef.current.activeBoard !== activeBoard ||
+      enrichForce
+    ) {
+      enrichCycleRef.current = {
+        trendResult,
+        activeBoard,
+        seq: enrichCycleRef.current.seq + 1,
+      };
+      attemptedEnrichKeysRef.current.clear();
+    }
+    const { merged: effectiveEnriched } = computeSwrMergedPreview(
+      enrichedAppsRef.current,
+      trendResult.repos,
+    );
+    const missing = collectMissingEnrichRepos(displayItemsRef.current, effectiveEnriched);
     if (missing.size === 0) return;
-    let cancelled = false;
+    const toEnrich: TrendRepo[] = [];
+    for (const [key, repo] of missing) {
+      if (attemptedEnrichKeysRef.current.has(key)) continue;
+      attemptedEnrichKeysRef.current.add(key);
+      toEnrich.push(repo);
+    }
+    if (toEnrich.length === 0) return;
+    const seqAtStart = enrichCycleRef.current.seq;
     // 写透时机：enrich 完成即同步 await 写透一次（关闭前 fire-and-forget 易丢，flush 兜底见下）。
-    void enrichTrendRepos([...missing.values()], enrichForce ? { forceRefresh: true } : undefined).then(async (found) => {
-      if (cancelled || found.size === 0) return;
-      // 首绘门：裸行已直展，此处仅做升级；未就绪时延迟到 boardReady 置位后（下轮 effect 重入）。
-      if (!boardReady) return;
+    void enrichTrendRepos(toEnrich, enrichForce ? { forceRefresh: true } : undefined).then(async (found) => {
+      if (enrichCycleRef.current.seq !== seqAtStart || found.size === 0) return;
       const { next, hasNewEnrich, concreteKeys } = mergeEnrichFoundMirror(
         enrichedAppsRef.current,
         found,
@@ -176,6 +244,14 @@ export function useTrendEnrichment({
       if (next !== enrichedAppsRef.current) setEnrichedApps(next);
       // 组装落盘补齐：本批 enrich 行 http 远端图标入队进盘（前 30 上限）。
       if (found.size > 0) queueAssembledRowIcons([...found.values()]);
+      // enrich 落定合并后若仍有空图标项（如命中 L1/L2 缓存中 icon:'' 的条目），补充触发一次 DB-only 确认图标回填。
+      const remainingEmptyKeys = collectEmptyIconKeys(next);
+      if (remainingEmptyKeys.length > 0) {
+        backfillDbIconsForEmptyKeys(
+          remainingEmptyKeys,
+          () => enrichCycleRef.current.seq !== seqAtStart,
+        );
+      }
       // 具平台到达可覆盖升级：enrich 具平台即移出已确认（本地 + board 内存标记）。
       if (concreteKeys.length > 0) {
         unmarkConcreteKeys(concreteKeys);
@@ -187,11 +263,8 @@ export function useTrendEnrichment({
         await maybePersistBoardNow(cacheKey, cacheBoard, trendResult.repos);
       }
     });
-    return () => {
-      cancelled = true;
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trendResult, displayItems, activeBoard, trendFetchOpts, boardReady]);
+  }, [trendResult, activeBoard, trendFetchOpts, boardReady]);
 
   // 当前榜快照同步（供 board debounce/pagehide/confirm 链读取）。
   // 读写同源：key 与 boards 读路径同源（同 board + 同 trendFetchOpts），杜绝读写分叉。

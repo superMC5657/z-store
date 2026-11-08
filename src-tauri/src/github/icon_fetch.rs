@@ -99,16 +99,26 @@ pub struct IconReadyPayload {
 }
 
 /// FINAL Logo 口径（只做 Logo，不管正文插图）：
-/// - `level_for_detail_icon`: 详情 `icon` → cycle 级别（2=simpleicons 字典，4=README 头部备选 Logo，3=仓库树）；
-///   L4 仅 cycle 命中的头部备选 Logo（`/blob/` 或 `readme` 关键字），正文图永不经此（见下）；
+/// - `level_for_detail_icon`: 详情 `icon` → cycle 级别启发式回退（当已知槽位未命中时使用，纯 L 2..=4）：
+///   `2=simpleicons 字典`，`4=README 头部备选 Logo`（含 `/blob/`、相对路径改写的 `/HEAD/`、
+///   `readme` 关键字及 GitHub README 图床 `user-images` / `camo` / `user-attachments`），
+///   `3=仓库树`（带显式分支的 `raw.githubusercontent.com/{owner}/{repo}/{branch}/...`）；
 /// - `is_body_image_url`: 正文大图判别薄委托，唯一实现见
 ///   [`crate::github::icon_probe::is_readme_body_image`]（ADR-0015 §3 单一探源，
 ///   README-body 上下文 path-segment 精确匹配；`preview-logo.png` 等合法 Logo 不判为正文），
 ///   命中即视为正文图，调用方跳过落库（不存、不计、不预热）。
 pub(crate) fn level_for_detail_icon(icon_trimmed: &str) -> i32 {
-    if icon_trimmed.contains("simpleicons.org") {
+    let u = icon_trimmed.trim();
+    let lower = u.to_lowercase();
+    if lower.contains("simpleicons.org") {
         2
-    } else if icon_trimmed.contains("/blob/") || icon_trimmed.to_lowercase().contains("readme") {
+    } else if u.contains("/blob/")
+        || u.contains("/HEAD/")
+        || lower.contains("readme")
+        || lower.contains("user-images.githubusercontent.com")
+        || lower.contains("camo.githubusercontent.com")
+        || lower.contains("github.com/user-attachments/assets/")
+    {
         4
     } else {
         3
@@ -424,5 +434,37 @@ mod tests {
                 "single source must agree: {u}"
             );
         }
+    }
+
+    #[test]
+    fn level_for_detail_icon_classifies_l2_l3_l4_and_head_rewrites() {
+        assert_eq!(
+            level_for_detail_icon("https://cdn.simpleicons.org/rustdesk"),
+            2
+        );
+        assert_eq!(
+            level_for_detail_icon("https://raw.githubusercontent.com/owner/repo/main/assets/icon.png"),
+            3
+        );
+        assert_eq!(
+            level_for_detail_icon("https://raw.githubusercontent.com/owner/repo/HEAD/docs/banner.png"),
+            4
+        );
+        assert_eq!(
+            level_for_detail_icon("https://github.com/owner/repo/blob/main/logo.png"),
+            4
+        );
+        assert_eq!(
+            level_for_detail_icon("https://user-images.githubusercontent.com/1/2.png"),
+            4
+        );
+        assert_eq!(
+            level_for_detail_icon("https://camo.githubusercontent.com/abc/def"),
+            4
+        );
+        assert_eq!(
+            level_for_detail_icon("https://github.com/user-attachments/assets/1234-5678"),
+            4
+        );
     }
 }

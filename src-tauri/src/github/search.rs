@@ -16,6 +16,8 @@ struct OnlineSearchItem {
     stargazers_count: u64,
     forks_count: u64,
     #[serde(default)]
+    default_branch: Option<String>,
+    #[serde(default)]
     topics: Option<Vec<String>>,
 }
 
@@ -32,6 +34,8 @@ struct OnlineRepoResponse {
     forks_count: Option<u64>,
     license: Option<OnlineRepoLicense>,
     homepage: Option<String>,
+    #[serde(default)]
+    default_branch: Option<String>,
     #[serde(default)]
     topics: Option<Vec<String>>,
 }
@@ -164,6 +168,9 @@ impl CatalogService {
                 async move {
                     let owner = it.owner.login;
                     let repo = it.full_name.split('/').nth(1).unwrap_or("").to_string();
+                    if let Some(ref b) = it.default_branch {
+                        crate::github::icon_probe::remember_repo_default_branch(&owner, &repo, b);
+                    }
                     let description_en = it.description.clone();
                     let description = it.description.unwrap_or_else(|| "开源软件项目".to_string());
                     let topics = it.topics.unwrap_or_default();
@@ -287,6 +294,9 @@ impl CatalogService {
         }
 
         let repo_data: OnlineRepoResponse = resp.json().await.map_err(|e| e.to_string())?;
+        if let Some(ref b) = repo_data.default_branch {
+            crate::github::icon_probe::remember_repo_default_branch(owner, repo, b);
+        }
         let repo_desc = repo_data.description.clone();
         // 未知协议显式 `unknown`（诚实未知，不伪装已验证开源）；D1 门禁按
         // 名单外拒绝（`UNKNOWN` 不在 DEFAULT_LICENSE_ALLOWLIST），ADR-0018 默认开。
@@ -299,10 +309,11 @@ impl CatalogService {
         // Top1：复用调用方预解析 `pre_confirmed`（owned `Send`，零查询零直连）；
         // `None` 时 `fallback_summary`（`probe=true`）内回退本地直连（`ok()` 吞错不 panic，单条）。
         let confirmed_icon = pre_confirmed;
-        // 单仓直查：先快后慢，快路径免鉴权，慢路径有 token 才跑。
+        // 单仓直查：先快后慢，快路径免鉴权，慢路径有 token 才跑；
+        // ADR-0010：id 统一经 canonical_app_id_from_parts 归一为小写 owner/repo。
         let item = super::http::fallback_summary(
             &client,
-            format!("{}/{}", owner, repo),
+            crate::forge::canonical_app_id_from_parts(owner, repo),
             repo_data.name.unwrap_or_else(|| repo.to_string()),
             owner.to_string(),
             repo.to_string(),
