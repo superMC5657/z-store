@@ -152,9 +152,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   const hasNoReleases = !releases || releases.length === 0;
   const isAuthExpired = Boolean(
     oauthUser?.is_expired ||
-    app.changelog?.includes('401') ||
-    app.changelog?.includes('凭据已失效') ||
-    app.changelog?.includes('授权已失效')
+    /401|凭据已失效|授权已失效|credentials expired|unauthorized/i.test(app.changelog || '')
   );
 
   const primaryAsset: ReleaseAsset | undefined = useMemo(() => {

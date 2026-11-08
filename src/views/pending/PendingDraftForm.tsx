@@ -285,7 +285,7 @@ function CoordsSection({
       <div className="pending-section-header pending-section-header-static">
         <div className="pending-section-title-wrap">
           <ShieldCheck size={13} strokeWidth={1.5} aria-hidden="true" />
-          <span>仓库与标识（只读锁定）</span>
+          <span>{t('pending.sections.coords', { defaultValue: '仓库与标识（只读锁定）' })}</span>
         </div>
       </div>
 
@@ -327,7 +327,7 @@ function CoordsSection({
 
       {!isCreating && (
         <div className="pending-readonly-coord-hint">
-          <span>改名请复制为新草稿</span>
+          <span>{t('pending.rename_hint', { defaultValue: '改名请复制为新草稿' })}</span>
           <button
             type="button"
             className="btn-fluent btn-secondary btn-sm"
@@ -335,7 +335,7 @@ function CoordsSection({
             onClick={onDuplicate}
             style={{ padding: '2px 8px', fontSize: '11px' }}
           >
-            <span>复制为新草稿</span>
+            <span>{t('pending.duplicate_as_new_draft')}</span>
           </button>
         </div>
       )}
@@ -365,9 +365,9 @@ function CoordsSection({
               data-testid="pending-copy-id"
               onClick={() => void onCopyId()}
               style={{ padding: '2px 8px', fontSize: '11px' }}
-              title="复制应用标识 ID"
+              title={t('pending.copy_id_title', { defaultValue: '复制应用标识 ID' })}
             >
-              <span>复制</span>
+              <span>{t('pending.copy_id_btn', { defaultValue: '复制' })}</span>
             </button>
           </div>
         )}
@@ -396,7 +396,7 @@ function CoreSection({
       <div className="pending-section-header pending-section-header-static">
         <div className="pending-section-title-wrap">
           <FileText size={13} strokeWidth={1.5} aria-hidden="true" />
-          <span>核心信息（必填）</span>
+          <span>{t('pending.sections.core', { defaultValue: '核心信息（必填）' })}</span>
           <span className="pending-section-count">6</span>
         </div>
       </div>
@@ -529,7 +529,7 @@ function SupplementalSection({
       >
         <div className="pending-section-title-wrap">
           <AlignLeft size={13} strokeWidth={1.5} aria-hidden="true" />
-          <span>补充信息（可选）</span>
+          <span>{t('pending.sections.supplemental', { defaultValue: '补充信息（可选）' })}</span>
           <span className="pending-section-count">4</span>
         </div>
         {openSections.supplemental ? (
@@ -614,7 +614,7 @@ function RuntimeSection({
       >
         <div className="pending-section-title-wrap">
           <Sliders size={13} strokeWidth={1.5} aria-hidden="true" />
-          <span>运行时（高级）</span>
+          <span>{t('pending.sections.runtime', { defaultValue: '运行时（高级）' })}</span>
           <span className="pending-section-count">2</span>
         </div>
         {openSections.runtime ? (
@@ -672,7 +672,7 @@ function FormFooter({
           className="btn-fluent btn-primary btn-sm"
           onClick={onSave}
           disabled={isArchived}
-          title={isArchived ? '已归档只读，不可修改保存' : undefined}
+          title={isArchived ? t('pending.archived_save_disabled', { defaultValue: '已归档只读，不可修改保存' }) : undefined}
         >
           {t('pending.save')}
         </button>
@@ -691,7 +691,7 @@ function FormFooter({
         )}
         {isArchived && (
           <span className="pending-archived-hint">
-            已归档草稿为只读，改名或修改请使用“复制为新草稿”
+            {t('pending.archived_readonly_hint')}
           </span>
         )}
         {!isCreating && editing && !isArchived && editing.status === 'draft' && (

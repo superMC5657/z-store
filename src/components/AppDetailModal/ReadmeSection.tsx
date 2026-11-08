@@ -45,7 +45,7 @@ export const ReadmeSection: React.FC<ReadmeSectionProps> = ({
         <div style={{ padding: '36px 20px', textAlign: 'center' }}>
           <div style={{ fontSize: 'calc(15px * var(--font-scale))', color: 'var(--status-warning)', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
             <AlertTriangle size={15} />
-            <span>获取详情失败: {app.loadError}</span>
+            <span>{t('detail.readme.load_failed', { error: app.loadError })}</span>
           </div>
           {onRetry && (
             <button
@@ -54,7 +54,7 @@ export const ReadmeSection: React.FC<ReadmeSectionProps> = ({
               style={{ padding: '6px 18px', fontSize: 'var(--font-base)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
             >
               <RotateCcw size={12} />
-              <span>重试加载</span>
+              <span>{t('detail.readme.retry')}</span>
             </button>
           )}
         </div>
@@ -137,7 +137,7 @@ export const ReadmeSection: React.FC<ReadmeSectionProps> = ({
                 <div className="skeleton-box" style={{ width: '60%', height: '14px' }} />
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '14px', color: 'var(--text-tertiary)', fontSize: 'var(--font-base)' }}>
                   <span className="spinner-icon" />
-                  <span>正在通过加速通道异步获取软件完整文档与变更日志...</span>
+                  <span>{t('detail.readme.loading_doc')}</span>
                 </div>
               </div>
             ) : (

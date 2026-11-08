@@ -16,10 +16,6 @@ vi.mock('../services/api', () => {
     syncCatalog: async () => ({ updated: false, count: 0, message: 'ok' }),
     selectFolder: async () => null,
     testProxy: async () => ({ success: true, latency_ms: 10, message: 'ok' }),
-    getIconCacheStats: async () => ({ total_entries: 0, total_bytes: 0, total_hits: 0 }),
-    getAssetCacheStats: async () => ({ total_entries: 0, total_bytes: 0, total_hits: 0 }),
-    clearIconCache: async () => 0,
-    clearAssetCache: async () => 0,
   };
   return { tauriApi };
 });
@@ -43,7 +39,7 @@ function baseSettings(overrides?: Partial<AppSettings>): AppSettings {
     language: 'zh-CN',
     ui_scale: '100',
     font_size: '14',
-    portable_dir: '%LOCALAPPDATA%\Programs\z-store-apps',
+    portable_dir: '%LOCALAPPDATA%\\Programs\\z-store-apps',
     download_dir: '~/Downloads',
     active_mirror: 'direct',
     launch_on_startup: false,
@@ -149,9 +145,16 @@ describe('SettingsView custom catalog source confirm', () => {
     expect(calls[0].value).toBe('en-US');
   });
 
-  it('renders settings rows in English when en-US is active', async () => {
+  it('renders section group titles and rows in English when en-US is active', async () => {
     await i18n.changeLanguage('en-US');
     renderSettings(baseSettings({ language: 'en-US', active_mirror: 'https://gh-proxy.com' }));
+
+    // 大标题英文断言
+    expect(screen.getByText('Appearance & Personalization')).toBeTruthy();
+    expect(screen.getByText('Updates & Rules')).toBeTruthy();
+    expect(screen.getByText('Storage & Installation')).toBeTruthy();
+    expect(screen.getByText('Network & Data')).toBeTruthy();
+    expect(screen.getByText('Data Management & Backup')).toBeTruthy();
 
     // 外观设置行
     expect(screen.getByText('Theme Mode')).toBeTruthy();
@@ -166,6 +169,28 @@ describe('SettingsView custom catalog source confirm', () => {
     // 更新与通知设置行
     expect(screen.getByText('Auto Check Updates')).toBeTruthy();
     expect(screen.getByText('Version Pin & Ignore Rules')).toBeTruthy();
+
+    // 图标缓存与通用缓存展示项已删除
+    expect(screen.queryByText('Icon Cache')).toBeNull();
+    expect(screen.queryByText('Asset Cache')).toBeNull();
+    expect(screen.queryByText('图标缓存')).toBeNull();
+    expect(screen.queryByText('通用图片缓存')).toBeNull();
+  });
+
+  it('renders section group titles in Chinese when zh-CN is active and does not display cache items', async () => {
+    await i18n.changeLanguage('zh-CN');
+    renderSettings(baseSettings({ language: 'zh-CN' }));
+
+    // 大标题中文断言
+    expect(screen.getByText('外观与个性化')).toBeTruthy();
+    expect(screen.getByText('更新与规则')).toBeTruthy();
+    expect(screen.getByText('存储与安装')).toBeTruthy();
+    expect(screen.getByText('网络与数据')).toBeTruthy();
+    expect(screen.getByText('数据管理与备份')).toBeTruthy();
+
+    // 图标缓存与通用缓存展示项已删除
+    expect(screen.queryByText('图标缓存')).toBeNull();
+    expect(screen.queryByText('通用图片缓存')).toBeNull();
   });
 
   it('同步成功后同时通知 catalog-synced 与 custom-apps-changed（转正立即刷新）', async () => {

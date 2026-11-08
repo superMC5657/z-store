@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { tauriApi } from '../../services/api';
 import { notifyToast } from '../../utils/notify';
 
@@ -15,6 +16,7 @@ export function useDetailStarVerify(opts: {
   onRefresh?: (id: string) => void | Promise<unknown>;
 }) {
   const { appId, owner, repo, appName } = opts;
+  const { t } = useTranslation();
 
   // FR-7: GitHub 标星态（仅登录可见；后端未就绪时一律按未标星降级）
   const [isStarred, setIsStarred] = useState(false);
@@ -22,7 +24,7 @@ export function useDetailStarVerify(opts: {
 
   useEffect(() => {
     let cancelled = false;
-    if (!owner || owner === '加载中...' || !repo) {
+    if (!owner || /(?:^加载中\.\.\.$|^loading\.\.\.$)/i.test(owner) || !repo) {
       setIsStarred(false);
       return;
     }
@@ -37,29 +39,29 @@ export function useDetailStarVerify(opts: {
   }, [owner, repo]);
 
   const handleToggleStar = async () => {
-    if (!owner || owner === '加载中...' || !repo) return;
+    if (!owner || /(?:^加载中\.\.\.$|^loading\.\.\.$)/i.test(owner) || !repo) return;
     if (isStarring) return;
     setIsStarring(true);
     try {
       if (isStarred) {
         await tauriApi.unstarApp(appId);
         setIsStarred(false);
-        notifyToast(`已取消对 ${appName} 的 GitHub 标星`, 'info');
+        notifyToast(t('detail.star.unstarred', { name: appName }), 'info');
       } else {
         const res = await tauriApi.starApp(appId);
         setIsStarred(true);
         if (res.warning) {
           notifyToast(res.warning, 'warning');
         } else {
-          notifyToast(`已在 GitHub 上标星 ${appName}，并存入 user_stars ★`, 'success');
+          notifyToast(t('detail.star.starred', { name: appName }), 'success');
         }
       }
     } catch (e) {
       const errStr = String(e);
-      if (errStr.includes('请先完成 GitHub 登录') || errStr.includes('未配置') || errStr.includes('401')) {
-        notifyToast('请先在「设置」中登录 GitHub 账号，即可使用 GitHub 标星功能', 'info');
+      if (/(?:请先完成 GitHub 登录|未配置|401)/i.test(errStr)) {
+        notifyToast(t('detail.star.login_required'), 'info');
       } else {
-        notifyToast(`GitHub 标星失败: ${errStr}`, 'error');
+        notifyToast(t('detail.star.failed', { error: errStr }), 'error');
       }
     } finally {
       setIsStarring(false);

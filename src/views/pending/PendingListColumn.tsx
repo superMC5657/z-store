@@ -97,7 +97,7 @@ export const PendingListColumn: React.FC<PendingListColumnProps> = ({
                   onClick={(e) => e.stopPropagation()}
                   onKeyDown={(e) => e.stopPropagation()}
                   aria-label={entry.id}
-                  title={t('pending.pr.batch_selected', { count: batchSelected.size, defaultValue: `已选 ${batchSelected.size}` })}
+                  title={t('pending.pr.batch_selected', { count: batchSelected.size })}
                   style={{ flexShrink: 0 }}
                 />
               )}

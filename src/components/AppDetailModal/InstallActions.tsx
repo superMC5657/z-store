@@ -88,46 +88,28 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
   // 三态：isManaged===null（未知）+ 已安装 = 未知，中性占位。
   const isUnknown = isInstalled && isManaged === null;
 
-  const statusTitle =
+  const statusLabel =
     app.isLoading && hasNoReleases
-      ? '正在获取最新发布版本...'
+      ? t('detail.install.fetching_releases')
       : hasNoReleases && isAuthExpired
-      ? 'GitHub 登录凭据已失效 · 请重新登录'
+      ? t('detail.install.credentials_expired')
       : hasNoReleases
-      ? '暂无匹配的安装包'
+      ? t('detail.install.no_matching_asset')
       : isInstalled
       ? isExploreMode
-        ? '已安装'
+        ? t('detail.install.status_installed')
         : isUnknown
-        ? '正在确认安装状态…'
-        : '已安装就绪'
+        ? t('detail.install.confirming_status')
+        : t('detail.install.ready')
       : selectedAssetName
       ? canInstallPrimary
-        ? `已选安装包 · ${primaryAsset?.os || ''} ${primaryAsset?.arch || ''}`
-        : `已选文件 · ${primaryAsset?.os || ''} ${primaryAsset?.arch || ''}（仅下载）`
+        ? t('detail.install.selected_package', { os: primaryAsset?.os || '', arch: primaryAsset?.arch || '' })
+        : t('detail.install.selected_file_download_only', { os: primaryAsset?.os || '', arch: primaryAsset?.arch || '' })
       : canInstallPrimary
-      ? `推荐版本 · ${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch}`
-      : `下载版本 · ${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch}`;
-  const statusText =
-    app.isLoading && hasNoReleases
-      ? '正在获取最新发布版本...'
-      : hasNoReleases && isAuthExpired
-      ? 'GitHub 登录凭据已失效 · 请重新登录'
-      : hasNoReleases
-      ? '暂无匹配的安装包'
-      : isInstalled
-      ? isExploreMode
-        ? '已安装'
-        : isUnknown
-        ? '正在确认安装状态…'
-        : '已安装就绪'
-      : selectedAssetName
-      ? canInstallPrimary
-        ? `已选安装包 · ${primaryAsset?.os || ''} ${primaryAsset?.arch || ''}`
-        : `已选文件 · ${primaryAsset?.os || ''} ${primaryAsset?.arch || ''}（仅下载）`
-      : canInstallPrimary
-      ? `推荐版本 · ${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch}`
-      : `下载版本 · ${currentOs === 'windows' ? 'Windows' : currentOs} ${currentArch}`;
+      ? t('detail.install.recommended_version', { os: currentOs === 'windows' ? 'Windows' : currentOs, arch: currentArch })
+      : t('detail.install.download_version', { os: currentOs === 'windows' ? 'Windows' : currentOs, arch: currentArch });
+  const statusTitle = statusLabel;
+  const statusText = statusLabel;
   const statusBadge = isUnknown ? 'unknown' : isInstalled && isManaged ? 'managed' : 'none';
 
   return (
@@ -142,14 +124,14 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
         </div>
         <div
           className="install-asset-name"
-          title={primaryAsset ? primaryAsset.name : `${displayName} 最新发布包`}
+          title={primaryAsset ? primaryAsset.name : t('detail.install.latest_package', { name: displayName })}
         >
           {app.isLoading && (!releases || releases.length === 0) && showSkeleton ? (
             <div className="skeleton-box" style={{ width: '240px', height: '18px', margin: '4px 0' }} />
           ) : primaryAsset ? (
             primaryAsset.name
           ) : (
-            `${displayName} 最新发布包`
+            t('detail.install.latest_package', { name: displayName })
           )}
         </div>
 
@@ -160,37 +142,37 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
                 {downloadProgress.state === 'downloading' && (
                   <>
                     <RotateCcw size={12} className="icon-spin" style={{ color: 'var(--brand-primary)' }} />
-                    <span>{downloadProgress.message || '正在下载...'}</span>
+                    <span>{downloadProgress.message || t('detail.install.downloading')}</span>
                   </>
                 )}
                 {downloadProgress.state === 'verified' && (
                   <>
                     <CheckCircle2 size={12} style={{ color: '#10b981' }} />
-                    <span>哈希匹配，防篡改校验通过</span>
+                    <span>{t('detail.install.hash_verified')}</span>
                   </>
                 )}
                 {downloadProgress.state === 'completed_unverified' && (
                   <>
                     <CheckCircle2 size={12} style={{ color: '#10b981' }} />
-                    <span>{canInstallPrimary ? '下载就绪，准备调用安装' : '下载完成，文件已保存到本地'}</span>
+                    <span>{canInstallPrimary ? t('detail.install.download_ready_install') : t('detail.install.download_complete_saved')}</span>
                   </>
                 )}
                 {downloadProgress.state === 'tampered' && (
                   <>
                     <AlertTriangle size={12} style={{ color: '#ef4444' }} />
-                    <span>警告：文件篡改已拦截</span>
+                    <span>{t('detail.install.tamper_blocked')}</span>
                   </>
                 )}
                 {downloadProgress.state === 'error' && (
                   <>
                     <AlertTriangle size={12} style={{ color: '#ef4444' }} />
-                    <span>{downloadProgress.message || '下载异常中断'}</span>
+                    <span>{downloadProgress.message || t('detail.install.download_aborted')}</span>
                   </>
                 )}
               </span>
               <span>
                 {downloadProgress.state === 'error'
-                  ? '中断'
+                  ? t('detail.install.aborted')
                   : `${(downloadProgress.speed_bytes_per_sec / 1024 / 1024).toFixed(1)} MB/s`}
               </span>
             </div>
@@ -199,7 +181,7 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
                 className={`install-progress-bar ${downloadProgress.state === 'error' ? 'install-progress-bar-error' : ''}`}
                 style={{
                   width: downloadProgress.total_bytes
-                     ? `${Math.min(100, (downloadProgress.downloaded_bytes / downloadProgress.total_bytes) * 100)}%`
+                    ? `${Math.min(100, (downloadProgress.downloaded_bytes / downloadProgress.total_bytes) * 100)}%`
                     : '75%',
                   backgroundColor: downloadProgress.state === 'error' ? '#ef4444' : undefined,
                 }}
@@ -216,7 +198,7 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
         {installError && !downloadProgress && (
           <div style={{ marginTop: '8px', fontSize: 'var(--font-sm)', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <AlertTriangle size={12} />
-            <span>{canInstallPrimary ? '安装异常：' : '下载异常：'}{installError}</span>
+            <span>{canInstallPrimary ? t('detail.install.install_error_prefix') : t('detail.install.download_error_prefix')}{installError}</span>
           </div>
         )}
       </div>
@@ -228,7 +210,7 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
             className="btn-fluent btn-secondary"
             onClick={onToggleShowAllAssets}
           >
-            {showAllAssets ? '收起资产' : `全部资产 (${releases.length})`}
+            {showAllAssets ? t('detail.install.collapse_assets') : t('detail.install.all_assets', { count: releases.length })}
           </button>
         )}
 
@@ -241,19 +223,19 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
                   <InlineConfirmButton
                     variant="danger"
                     confirmVariant="danger"
-                    confirmText="确认卸载？"
-                    cancelTitle="取消操作"
+                    confirmText={t('detail.install.confirm_uninstall')}
+                    cancelTitle={t('detail.install.cancel_action')}
                     onConfirm={() => onUninstall(app.id)}
                     disabled={isUninstallingGlobal}
-                    title="彻底卸载应用"
+                    title={t('detail.install.uninstall_title')}
                     timeoutMs={4000}
                   >
                     {isUninstallingGlobal ? (
-                      '正在卸载...'
+                      t('detail.install.uninstalling')
                     ) : (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                         <Trash2 size={13} />
-                        <span>卸载应用</span>
+                        <span>{t('detail.install.uninstall_btn')}</span>
                       </span>
                     )}
                   </InlineConfirmButton>
@@ -266,8 +248,8 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
                 className="btn-fluent btn-secondary"
                 disabled
                 data-badge="unknown"
-                title="正在确认安装状态…"
-                aria-label="正在确认安装状态…"
+                title={t('detail.install.confirming_status')}
+                aria-label={t('detail.install.confirming_status')}
                 style={{ opacity: 0.65, cursor: 'default' }}
               >
                 <span
@@ -282,14 +264,14 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
                   <InlineConfirmButton
                     variant="secondary"
                     confirmVariant="danger"
-                    confirmText="确认取消管理？"
-                    cancelTitle="取消操作"
+                    confirmText={t('detail.install.confirm_unmanage')}
+                    cancelTitle={t('detail.install.cancel_action')}
                     onConfirm={() => onUnmanage(app.id)}
                     disabled={isUninstallingGlobal}
-                    title="取消管理：仅从列表中移除管理记录，保留本机应用与数据"
+                    title={t('detail.install.unmanage_title')}
                     timeoutMs={4000}
                   >
-                    <span>取消管理</span>
+                    <span>{t('detail.install.unmanage_btn')}</span>
                   </InlineConfirmButton>
                 )}
 
@@ -297,19 +279,19 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
                   <InlineConfirmButton
                     variant="danger"
                     confirmVariant="danger"
-                    confirmText="确认卸载？"
-                    cancelTitle="取消操作"
+                    confirmText={t('detail.install.confirm_uninstall')}
+                    cancelTitle={t('detail.install.cancel_action')}
                     onConfirm={() => onUninstall(app.id)}
                     disabled={isUninstallingGlobal}
-                    title="彻底卸载应用"
+                    title={t('detail.install.uninstall_title')}
                     timeoutMs={4000}
                   >
                     {isUninstallingGlobal ? (
-                      '正在卸载...'
+                      t('detail.install.uninstalling')
                     ) : (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                         <Trash2 size={13} />
-                        <span>卸载应用</span>
+                        <span>{t('detail.install.uninstall_btn')}</span>
                       </span>
                     )}
                   </InlineConfirmButton>
@@ -338,10 +320,10 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
                 onOpenAccountSettings();
               }}
               style={{ minWidth: '120px', fontWeight: 510, color: '#eab308', borderColor: 'rgba(234, 179, 8, 0.4)' }}
-              title="前往设置重新授权登录 GitHub"
+              title={t('detail.install.reauth_title')}
             >
               <KeyRound size={13} strokeWidth={1.5} style={{ marginRight: '4px' }} />
-              <span>重新登录 GitHub</span>
+              <span>{t('detail.install.reauth_btn')}</span>
             </button>
           ) : (
             <button
@@ -350,7 +332,7 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
               disabled
               style={{ minWidth: '120px', fontWeight: 510, opacity: 0.6 }}
             >
-              暂无可用安装包
+              {t('detail.install.no_assets_available')}
             </button>
           )
         ) : !canInstallPrimary && primaryAsset ? (
@@ -361,9 +343,9 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
                 className="btn-fluent btn-secondary"
                 onClick={onRevealDownload}
                 disabled={isRevealingFolder || isDownloadingOnly}
-                title="在系统文件管理器中定位已下载的文件"
+                title={t('detail.install.reveal_folder_title')}
               >
-                {isRevealingFolder ? '正在打开…' : '打开文件夹'}
+                {isRevealingFolder ? t('detail.install.opening_folder') : t('detail.install.open_folder')}
               </button>
             )}
             <button
@@ -372,17 +354,17 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
               onClick={onDownloadPrimary}
               disabled={effectiveIsBusy}
               style={{ minWidth: '120px', fontWeight: 510 }}
-              title="通过应用内下载通道保存该文件到下载目录，不调用安装"
+              title={t('detail.install.download_only_title')}
             >
               {isDownloadingOnly ? (
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                   <span className="spinner-icon" style={{ width: '13px', height: '13px', borderWidth: '2px' }} />
-                  <span>下载中...</span>
+                  <span>{t('detail.install.downloading_btn')}</span>
                 </span>
               ) : downloadedFile ? (
-                '重新下载'
+                t('detail.install.redownload')
               ) : (
-                '下载'
+                t('detail.install.download')
               )}
             </button>
           </>
@@ -397,15 +379,15 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
             {app.isLoading && hasNoReleases ? (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                 <span className="spinner-icon" />
-                <span>检索版本中...</span>
+                <span>{t('detail.install.inspecting_version')}</span>
               </span>
             ) : effectiveIsInstalling ? (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                 <span className="spinner-icon" style={{ width: '13px', height: '13px', borderWidth: '2px' }} />
-                <span>向导运行中 / 正在安装...</span>
+                <span>{t('detail.install.installing')}</span>
               </span>
             ) : (
-              '安装'
+              t('detail.install.install')
             )}
           </button>
         )}

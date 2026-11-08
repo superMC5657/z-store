@@ -1,6 +1,6 @@
 /**
- * AppDetailModal 三组件 i18n 行为级验证（views.i18n.test.tsx 同机制扩展到 components）：
- * Header / AssetList / IconLevelBadge（经 Header 的 nextLevelTitle 承载）在 zh-CN 与
+ * AppDetailModal 组件 i18n 行为级验证（views.i18n.test.tsx 同机制扩展到 components）：
+ * Header / AssetList / IconLevelBadge / InstallActions / ReadmeSection 在 zh-CN 与
  * en-US 间完整切换，aria-label/title 同属用户可见文案一并断言。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -89,13 +89,22 @@ const FIXTURE_ASSETS: ReleaseAsset[] = [
 type HeaderModule = typeof import('./Header');
 let Header: HeaderModule['Header'];
 let AssetList: typeof import('./AssetList').AssetList;
+let InstallActions: typeof import('./InstallActions').InstallActions;
+let ReadmeSection: typeof import('./ReadmeSection').ReadmeSection;
 
 beforeEach(async () => {
   (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
   vi.resetModules();
-  const [headerMod, assetMod] = await Promise.all([import('./Header'), import('./AssetList')]);
+  const [headerMod, assetMod, installMod, readmeMod] = await Promise.all([
+    import('./Header'),
+    import('./AssetList'),
+    import('./InstallActions'),
+    import('./ReadmeSection'),
+  ]);
   Header = headerMod.Header;
   AssetList = assetMod.AssetList;
+  InstallActions = installMod.InstallActions;
+  ReadmeSection = readmeMod.ReadmeSection;
 });
 
 afterEach(async () => {
@@ -289,6 +298,180 @@ describe('AppDetailModal components i18n (zh-CN <-> en-US)', () => {
     expect(screen.getByText('Use this package')).toBeTruthy();
     expect(screen.getAllByText('Direct link').length).toBe(2);
     expect(screen.getAllByTitle('Download directly in your browser').length).toBe(2);
+  });
+
+  it('switches InstallActions buttons, labels, and dialog titles between Chinese and English', async () => {
+    const baseInstallProps = {
+      app: FIXTURE_APP,
+      displayName: 'Demo App',
+      releases: FIXTURE_ASSETS,
+      primaryAsset: FIXTURE_ASSETS[0],
+      hasNoReleases: false,
+      isAuthExpired: false,
+      canInstallPrimary: true,
+      currentOs: 'windows',
+      currentArch: 'x64',
+      selectedAssetName: null,
+      showSkeleton: false,
+      downloadProgress: null,
+      installError: null,
+      showAllAssets: false,
+      onToggleShowAllAssets: () => {},
+      isInstalled: false,
+      isExploreMode: false,
+      isManaged: null,
+      isUninstallingGlobal: false,
+      downloadedFile: null,
+      isRevealingFolder: false,
+      isDownloadingOnly: false,
+      effectiveIsInstalling: false,
+      effectiveIsBusy: false,
+      onLaunch: () => {},
+      onUninstall: () => {},
+      onUnmanage: () => {},
+      onOpenAccountSettings: () => {},
+      onClose: () => {},
+      onRevealDownload: () => {},
+      onDownloadPrimary: () => {},
+      onAction: () => {},
+    };
+
+    // 1. zh-CN: not installed state
+    await i18n.changeLanguage('zh-CN');
+    const { unmount: unmount1 } = render(<InstallActions {...baseInstallProps} />);
+    expect(screen.getByText('推荐版本 · Windows x64')).toBeTruthy();
+    expect(screen.getByText('全部资产 (2)')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '安装' })).toBeTruthy();
+    unmount1();
+
+    // 2. en-US: not installed state
+    await i18n.changeLanguage('en-US');
+    const { unmount: unmount2 } = render(<InstallActions {...baseInstallProps} />);
+    expect(screen.getByText('Recommended version · Windows x64')).toBeTruthy();
+    expect(screen.getByText('All assets (2)')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Install' })).toBeTruthy();
+    unmount2();
+
+    // 3. zh-CN: installed & managed state
+    await i18n.changeLanguage('zh-CN');
+    const { unmount: unmount3 } = render(
+      <InstallActions
+        {...baseInstallProps}
+        isInstalled={true}
+        isManaged={true}
+      />,
+    );
+    expect(screen.getByText('已安装就绪')).toBeTruthy();
+    expect(screen.getByText('取消管理')).toBeTruthy();
+    expect(screen.getByText('卸载应用')).toBeTruthy();
+    expect(screen.getByText('启动')).toBeTruthy();
+    unmount3();
+
+    // 4. en-US: installed & managed state
+    await i18n.changeLanguage('en-US');
+    const { unmount: unmount4 } = render(
+      <InstallActions
+        {...baseInstallProps}
+        isInstalled={true}
+        isManaged={true}
+      />,
+    );
+    expect(screen.getByText('Installed and ready')).toBeTruthy();
+    expect(screen.getByText('Unmanage')).toBeTruthy();
+    expect(screen.getByText('Uninstall')).toBeTruthy();
+    expect(screen.getByText('Launch')).toBeTruthy();
+    unmount4();
+
+    // 5. Progress display in zh-CN and en-US
+    await i18n.changeLanguage('zh-CN');
+    const { unmount: unmount5 } = render(
+      <InstallActions
+        {...baseInstallProps}
+        downloadProgress={{
+          task_id: 'test/demo-app',
+          state: 'downloading',
+          message: '',
+          downloaded_bytes: 50,
+          total_bytes: 100,
+          speed_bytes_per_sec: 1024 * 1024 * 2.5,
+        }}
+      />,
+    );
+    expect(screen.getByText('正在下载...')).toBeTruthy();
+    expect(screen.getByText('2.5 MB/s')).toBeTruthy();
+    unmount5();
+
+    await i18n.changeLanguage('en-US');
+    render(
+      <InstallActions
+        {...baseInstallProps}
+        downloadProgress={{
+          task_id: 'test/demo-app',
+          state: 'downloading',
+          message: '',
+          downloaded_bytes: 50,
+          total_bytes: 100,
+          speed_bytes_per_sec: 1024 * 1024 * 2.5,
+        }}
+      />,
+    );
+    expect(screen.getByText('Downloading...')).toBeTruthy();
+    expect(screen.getByText('2.5 MB/s')).toBeTruthy();
+  });
+
+  it('switches ReadmeSection error and loading states between Chinese and English', async () => {
+    // 1. Error state in zh-CN
+    await i18n.changeLanguage('zh-CN');
+    const { unmount: unmount1 } = render(
+      <ReadmeSection
+        app={{ ...FIXTURE_APP, loadError: 'Network 503' }}
+        displayDesc="A test demo app"
+        showSkeleton={false}
+        onRetry={() => {}}
+      />,
+    );
+    expect(screen.getByText('获取详情失败: Network 503')).toBeTruthy();
+    expect(screen.getByText('重试加载')).toBeTruthy();
+    unmount1();
+
+    // 2. Error state in en-US
+    await i18n.changeLanguage('en-US');
+    const { unmount: unmount2 } = render(
+      <ReadmeSection
+        app={{ ...FIXTURE_APP, loadError: 'Network 503' }}
+        displayDesc="A test demo app"
+        showSkeleton={false}
+        onRetry={() => {}}
+      />,
+    );
+    expect(screen.getByText('Failed to get details: Network 503')).toBeTruthy();
+    expect(screen.getByText('Retry')).toBeTruthy();
+    unmount2();
+
+    // 3. Loading skeleton state in zh-CN
+    await i18n.changeLanguage('zh-CN');
+    const { unmount: unmount3 } = render(
+      <ReadmeSection
+        app={{ ...FIXTURE_APP, isLoading: true, readme_markdown: '' }}
+        displayDesc="A test demo app"
+        showSkeleton={true}
+      />,
+    );
+    expect(screen.getByText('正在通过加速通道异步获取软件完整文档与变更日志...')).toBeTruthy();
+    unmount3();
+
+    // 4. Loading skeleton state in en-US
+    await i18n.changeLanguage('en-US');
+    render(
+      <ReadmeSection
+        app={{ ...FIXTURE_APP, isLoading: true, readme_markdown: '' }}
+        displayDesc="A test demo app"
+        showSkeleton={true}
+      />,
+    );
+    expect(
+      screen.getByText('Asynchronously fetching full documentation and changelog via accelerated channel...'),
+    ).toBeTruthy();
   });
 
   it('resolves install-confirm dialog keys from App.tsx in both languages', async () => {

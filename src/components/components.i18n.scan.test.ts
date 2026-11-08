@@ -39,6 +39,13 @@ const MIGRATED_FILES = [
   'AppDetailModal/Header.tsx',
   'AppDetailModal/AssetList.tsx',
   'AppDetailModal/IconLevelBadge.tsx',
+  'AppDetailModal/index.tsx',
+  'AppDetailModal/InstallActions.tsx',
+  'AppDetailModal/ReadmeSection.tsx',
+  'AppDetailModal/useDetailReadme.ts',
+  'AppDetailModal/useDetailStarVerify.ts',
+  '../views/pending/PendingDraftForm.tsx',
+  '../views/pending/PendingListColumn.tsx',
   '../views/pending/PendingPreviewLane.tsx',
   '../views/pending/PendingRichCard.tsx',
 ];

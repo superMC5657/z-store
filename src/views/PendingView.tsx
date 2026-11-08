@@ -142,7 +142,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
   showBatchBar = true,
   onNotify,
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [localEntries, setLocalEntries] = useState<CustomDraftEntry[]>(initialEntries);
   const entries = controlledEntries ?? localEntries;
   const [activeGroup, setActiveGroup] = useState<PendingGroupId>('draft');
@@ -582,10 +582,9 @@ export const PendingView: React.FC<PendingViewProps> = ({
     if (!idToCopy) return;
     const copied = await copyTextToClipboard(idToCopy);
     onNotify?.(
-      t(copied ? 'pending.id_copied' : 'pending.pr.copy_failed', {
-        defaultValue: copied ? `ID 已复制：${idToCopy}` : '复制失败',
-        id: idToCopy,
-      }),
+      copied
+        ? t('pending.id_copied', { id: idToCopy, defaultValue: `ID 已复制：${idToCopy}` })
+        : t('pending.pr.copy_failed', { defaultValue: '复制失败' }),
       copied ? 'success' : 'warning',
     );
   };
@@ -622,7 +621,10 @@ export const PendingView: React.FC<PendingViewProps> = ({
     // 复制/手输撞已存在 id：warning 提示并中断，不静默建第二条（也不静默覆盖）。
     if (isCreating && entries.some((e) => e.id === item.id)) {
       onNotify?.(
-        t('pending.duplicated_hint', { defaultValue: `已存在相同 ID：${item.id}，请修改 owner/repo 后再保存` }),
+        t('pending.duplicate_conflict_hint', {
+          id: item.id,
+          defaultValue: `已存在相同 ID：${item.id}，请修改 owner/repo 后再保存`,
+        }),
         'warning',
       );
       return;
@@ -1030,7 +1032,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
         {
           loadUrl: onGetBatchPrUrl ? () => onGetBatchPrUrl(ids) : undefined,
           loadPayload: onGetBatchPrPayload ? () => onGetBatchPrPayload(ids) : undefined,
-          failLabel: ids.join('、') || 'batch',
+          failLabel: ids.join(i18n.language.startsWith('zh') ? '、' : ', ') || 'batch',
           tooLongParams: { count: ids.length },
           onOpened: () => {
             // 打开预填页后即止：不逐条 mark submitted，停留 collected 等手动确认。
@@ -1130,7 +1132,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
           style={{ ...errorStyle, margin: '0 0 12px' }}
         >
           {t('pending.pr.batch_blocked', {
-            ids: batchBlockedLive.map((e) => e.id).join('、'),
+            ids: batchBlockedLive.map((e) => e.id).join(i18n.language.startsWith('zh') ? '、' : ', '),
           })}
         </div>
       )}

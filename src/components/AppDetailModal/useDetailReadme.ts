@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { marked } from 'marked';
 import { tauriApi, type ReadmeVariant } from '../../services/api';
 import { sanitizeHtml } from '../../utils/sanitize';
 import { normalizeId } from '../../services/normalizeId';
 
 // GitHub Markdown 块级引用 Alerts 预处理器（支持 [!NOTE], [!TIP], [!IMPORTANT], [!WARNING], [!CAUTION]）
-function preprocessGitHubAlerts(markdown: string): string {
+function preprocessGitHubAlerts(markdown: string, t?: TFunction): string {
   if (!markdown || !markdown.includes('[!')) return markdown;
   const alertRegex = /^>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][^\n]*\n((?:^>[^\n]*\n?)*)/gim;
   return markdown.replace(alertRegex, (_match, type, body) => {
@@ -16,14 +17,15 @@ function preprocessGitHubAlerts(markdown: string): string {
       .map((line: string) => line.replace(/^>\s?/, ''))
       .join('\n')
       .trim();
-    const titles: Record<string, string> = {
-      note: '说明 (Note)',
-      tip: '提示 (Tip)',
-      important: '要点 (Important)',
-      warning: '警告 (Warning)',
-      caution: '注意 (Caution)',
+    const titleKey = `detail.readme.alert_${alertType}`;
+    const defaultTitles: Record<string, string> = {
+      note: 'Note',
+      tip: 'Tip',
+      important: 'Important',
+      warning: 'Warning',
+      caution: 'Caution',
     };
-    const titleText = titles[alertType] || type;
+    const titleText = t ? (t(titleKey as any, { defaultValue: defaultTitles[alertType] || type }) as string) : (defaultTitles[alertType] || type);
     return `\n<div class="markdown-alert markdown-alert-${alertType}">\n<div class="markdown-alert-title">${titleText}</div>\n\n${cleanBody}\n\n</div>\n`;
   });
 }
@@ -85,7 +87,7 @@ export function useDetailReadme(opts: {
   variantsTtlMs?: number;
 }) {
   const { readmeMarkdown, owner, repo, forgeHost, appId, readmeVariants, variantsTtlMs } = opts;
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const uiLang = i18n?.language;
 
   const [variants, setVariants] = useState<ReadmeVariant[]>([]);
@@ -208,14 +210,14 @@ export function useDetailReadme(opts: {
   // 净化后的基准 HTML（同步首屏），本地缓存命中后再升级为替换版
   const baseReadmeHtml = useMemo(() => {
     if (!activeMarkdown) return '';
-    const preprocessed = preprocessGitHubAlerts(activeMarkdown);
+    const preprocessed = preprocessGitHubAlerts(activeMarkdown, t);
     const rawParsed = marked.parse(preprocessed, {
       async: false,
       gfm: true,
       breaks: false,
     }) as string;
     return sanitizeHtml(rawParsed, { rawBaseUrl, repoBaseUrl });
-  }, [activeMarkdown, rawBaseUrl, repoBaseUrl]);
+  }, [activeMarkdown, rawBaseUrl, repoBaseUrl, t]);
 
   // 图片本地缓存替换：逐个解析 img src，命中 asset 本地路径则替换，失败或动态图保留原链
   const [resolvedReadmeHtml, setResolvedReadmeHtml] = useState(baseReadmeHtml);
@@ -315,7 +317,7 @@ export function useDetailReadme(opts: {
     img.dataset.hasFallbackAttempted = 'true';
     img.style.opacity = '0.45';
     img.style.filter = 'grayscale(100%)';
-    img.title = `图片暂无法加载: ${img.alt || currentSrc}`;
+    img.title = t('detail.readme.image_load_failed', { name: img.alt || currentSrc });
   };
 
   return {

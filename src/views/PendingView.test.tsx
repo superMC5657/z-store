@@ -1343,3 +1343,52 @@ describe('PendingView 保存类回调失败路径（Issue 05）', () => {
     expect(onNotify).not.toHaveBeenCalledWith(expect.stringContaining('已标记为已提交'), 'success');
   });
 });
+
+describe("PendingView 国际化（中英语言切换）", () => {
+  it("中英文模式下正确渲染待收录页面大标题、Tab、表单分节大标题与按钮", async () => {
+    // 1. 中文模式
+    await i18n.changeLanguage("zh-CN");
+    const { unmount } = render(
+      <PendingView
+        showBatchBar={false}
+        initialEntries={[draftEntry({ id: "o/a" })]}
+      />,
+    );
+    expect(screen.getByText("待收录")).toBeTruthy();
+    expect(screen.getByText("草稿")).toBeTruthy();
+    expect(screen.getByText("本地收录")).toBeTruthy();
+    expect(screen.getByText("已归档")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("o/a"));
+    expect(screen.getByText("核心信息（必填）")).toBeTruthy();
+    expect(screen.getByText("补充信息（可选）")).toBeTruthy();
+    expect(screen.getByText("运行时（高级）")).toBeTruthy();
+    expect(screen.getByText("仓库与标识（只读锁定）")).toBeTruthy();
+    expect(screen.getByText("改名请复制为新草稿")).toBeTruthy();
+    expect(screen.getByText("复制为新草稿")).toBeTruthy();
+    expect(screen.getByText("保存草稿")).toBeTruthy();
+    unmount();
+
+    // 2. 英文模式
+    await i18n.changeLanguage("en-US");
+    render(
+      <PendingView
+        showBatchBar={false}
+        initialEntries={[draftEntry({ id: "o/a" })]}
+      />,
+    );
+    expect(screen.getByText("Pending")).toBeTruthy();
+    expect(screen.getByText("Draft")).toBeTruthy();
+    expect(screen.getByText("Local Library")).toBeTruthy();
+    expect(screen.getByText("Archived")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("o/a"));
+    expect(screen.getByText("Core Information (Required)")).toBeTruthy();
+    expect(screen.getByText("Supplemental Information (Optional)")).toBeTruthy();
+    expect(screen.getByText("Runtime (Advanced)")).toBeTruthy();
+    expect(screen.getByText("Repository & Identifiers (Read-only)")).toBeTruthy();
+    expect(screen.getByText("To rename, duplicate as a new draft")).toBeTruthy();
+    expect(screen.getByText("Duplicate as new draft")).toBeTruthy();
+    expect(screen.getByText("Save draft")).toBeTruthy();
+  });
+});

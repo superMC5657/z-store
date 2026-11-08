@@ -234,7 +234,7 @@ export const NetworkDataSection: React.FC<NetworkDataSectionProps> = ({
         )}
 
         {syncFeedback && (
-          <span style={{ fontSize: 'var(--font-sm)', color: syncFeedback.includes('失败') ? '#ef4444' : '#10b981' }}>
+          <span style={{ fontSize: 'var(--font-sm)', color: syncFeedback.includes('失败') || syncFeedback.toLowerCase().includes('failed') ? '#ef4444' : '#10b981' }}>
             {syncFeedback}
           </span>
         )}
