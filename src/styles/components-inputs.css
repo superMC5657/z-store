@@ -127,7 +127,7 @@ textarea.input-fluent {
   box-sizing: border-box;
   height: 28px;
   padding: 0 10px;
-  background: var(--input-bg, var(--bg-input));
+  background: var(--bg-input);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
@@ -155,12 +155,12 @@ textarea.input-fluent {
   opacity: 0.5;
   cursor: not-allowed;
   border-color: var(--border-subtle);
-  background: var(--input-bg, var(--bg-input));
+  background: var(--bg-input);
   color: var(--text-secondary);
 }
 
 .select-fluent option {
-  background: var(--bg-card, var(--bg-acrylic-card, #FFFFFF));
+  background: var(--bg-acrylic-card);
   color: var(--text-primary);
 }
 

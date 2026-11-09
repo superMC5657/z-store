@@ -443,13 +443,7 @@ function CoreSection({
           className="select-fluent"
           data-testid="pending-select-category"
           value={form.category}
-          onChange={(e) => {
-            const nextCat = e.target.value;
-            onField('category', nextCat);
-            if (nextCat) {
-              onField('category_name', t(`categories.cat_${nextCat}_name`));
-            }
-          }}
+          onChange={(e) => onField('category', e.target.value)}
           onBlur={onFieldBlur}
           disabled={isArchived}
         >

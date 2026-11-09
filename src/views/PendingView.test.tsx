@@ -286,7 +286,7 @@ describe('PendingView 表单窄宽布局回归（只锁布局，不碰字段/校
     expect(css).toContain('border: 1px solid var(--border-color)');
     expect(css).toContain('color: var(--text-primary)');
     expect(css).toContain('.pending-view .select-fluent');
-    expect(css).toContain('var(--bg-card');
+    expect(css).toContain('var(--bg-acrylic-card');
   });
 
   it('renders category as a styled select-fluent dropdown with 10 official categories and auto-fills category_name', async () => {
@@ -317,15 +317,17 @@ describe('PendingView 表单窄宽布局回归（只锁布局，不碰字段/校
     // 选择某个分类，自动联动填充 category_name
     fireEvent.change(select, { target: { value: 'system' } });
     expect(select.value).toBe('system');
+    // 明确断言：category_name 被真实自动填充为本地化文本（系统实用）
+    const categoryNameInput = screen.getByPlaceholderText('例如：开发工具') as HTMLInputElement;
+    expect(categoryNameInput.value).toBe('系统实用');
   });
 
   it('components-pending.css and tokens.css provide theme-adapted styles for select-fluent', () => {
     const css = readPendingCss();
     expect(css).toContain('.pending-view .select-fluent');
     expect(css).toContain('.pending-view .select-fluent option');
-    expect(css).toContain('var(--bg-card');
-    expect(css).toContain('var(--input-bg');
-    expect(css).toContain('var(--border-subtle)');
+    expect(css).toContain('var(--bg-acrylic-card)');
+    expect(css).toContain('var(--bg-input)');
   });
 
   it('长 id 标题省略 + title 悬浮看全', async () => {
