@@ -120,7 +120,7 @@ describe('PendingView grouping and empty states', () => {
   it('renders empty state with create action when no drafts', async () => {
     await i18n.changeLanguage('zh-CN');
     const { container } = render(<PendingView />);
-    expect(screen.getByText('还没有待收录草稿')).toBeTruthy();
+    expect(screen.getByText('暂无待收录草稿')).toBeTruthy();
     // 页头不再设新建入口，新建仅走空态提示
     expect(container.querySelector('.pending-header')?.textContent).not.toContain('新建草稿');
     expect(screen.getByText('新建草稿')).toBeTruthy();
@@ -604,7 +604,7 @@ describe('PendingView 逐框内联校验（submit 档即时标错，不 toast）
     fireEvent.click(screen.getByTestId('pending-revert-to-draft'));
     fireEvent.click(screen.getByTestId('pending-revert-to-draft'));
     await waitFor(() => expect(screen.queryByTestId('pending-revert-to-draft')).toBeNull());
-    expect(screen.getByText('选择或新建一份草稿')).toBeTruthy();
+    expect(screen.getByText('选择或新建草稿')).toBeTruthy();
     fireEvent.click(screen.getByText('草稿'));
     fireEvent.click(screen.getByText('o/a'));
     await waitFor(() => expect(screen.getByDisplayValue('OpenSource')).toBeTruthy());
@@ -753,7 +753,7 @@ describe('PendingView 顶层三态切 Tab 联动（右侧详情/批量栏/操作
     );
     expect(container.querySelector('.pending-list')?.textContent ?? '').not.toContain('o/sub');
     expect(screen.queryByText('o/sub')).toBeNull();
-    expect(screen.getByText('选择或新建一份草稿')).toBeTruthy();
+    expect(screen.getByText('选择或新建草稿')).toBeTruthy();
   });
 
   it('submitted 删除受控时委托 onDelete 回调', async () => {
@@ -814,7 +814,7 @@ describe('PendingView 顶层三态切 Tab 联动（右侧详情/批量栏/操作
     fireEvent.click(screen.getByText('本地收录'));
     expect(screen.queryByTestId('pending-collect-local')).toBeNull();
     expect(screen.queryByTestId('pending-submit-pr')).toBeNull();
-    expect(screen.getByText('选择或新建一份草稿')).toBeTruthy();
+    expect(screen.getByText('选择或新建草稿')).toBeTruthy();
   });
 });
 
@@ -866,7 +866,7 @@ describe('PendingView 3 tabs + 本地收录内部分段（计数分区 / 批量�
     expect(screen.getByTestId('pending-submit-pr')).toBeTruthy();
     fireEvent.click(screen.getByTestId('pending-segment-to_submit'));
     expect(screen.queryByTestId('pending-submit-pr')).toBeNull();
-    expect(screen.getByText('选择或新建一份草稿')).toBeTruthy();
+    expect(screen.getByText('选择或新建草稿')).toBeTruthy();
     // 待提交：仅 collected 系
     expect(listText()).toContain('o/col');
     expect(listText()).toContain('o/lc');
@@ -886,8 +886,8 @@ describe('PendingView 3 tabs + 本地收录内部分段（计数分区 / 批量�
     render(<PendingView showBatchBar={false} entries={[draftEntry({ id: 'o/col', status: 'collected' })]} />);
     fireEvent.click(screen.getByText('本地收录'));
     fireEvent.click(screen.getByTestId('pending-segment-submitted'));
-    expect(screen.getByText('没有已提交的应用')).toBeTruthy();
-    expect(screen.getByText('已提交 Issue、等待收录的应用会出现在这里。')).toBeTruthy();
+    expect(screen.getByText('暂无已提交应用')).toBeTruthy();
+    expect(screen.getByText('已提交等待收录的应用显示在此。')).toBeTruthy();
     expect(screen.queryByText('该分组暂无草稿')).toBeNull();
   });
 
@@ -998,7 +998,7 @@ describe('PendingView 标记为未提交（submitted → collected，二次确�
       />,
     );
     expect(screen.queryByTestId('pending-withdraw-submitted')).toBeNull();
-    expect(screen.getByText('没有已提交的应用')).toBeTruthy();
+    expect(screen.getByText('暂无已提交应用')).toBeTruthy();
     fireEvent.click(screen.getByTestId('pending-segment-to_submit'));
     expect(screen.getByText('o/sub')).toBeTruthy();
     fireEvent.click(screen.getByText('o/sub'));
@@ -1360,11 +1360,11 @@ describe("PendingView 国际化（中英语言切换）", () => {
     expect(screen.getByText("已归档")).toBeTruthy();
 
     fireEvent.click(screen.getByText("o/a"));
-    expect(screen.getByText("核心信息（必填）")).toBeTruthy();
-    expect(screen.getByText("补充信息（可选）")).toBeTruthy();
-    expect(screen.getByText("运行时（高级）")).toBeTruthy();
-    expect(screen.getByText("仓库与标识（只读锁定）")).toBeTruthy();
-    expect(screen.getByText("改名请复制为新草稿")).toBeTruthy();
+    expect(screen.getByText("基本信息")).toBeTruthy();
+    expect(screen.getByText("补充信息")).toBeTruthy();
+    expect(screen.getByText("运行配置")).toBeTruthy();
+    expect(screen.getByText("仓库与标识")).toBeTruthy();
+    expect(screen.getByText("修改请复制新草稿")).toBeTruthy();
     expect(screen.getByText("复制为新草稿")).toBeTruthy();
     expect(screen.getByText("保存草稿")).toBeTruthy();
     unmount();
@@ -1383,11 +1383,11 @@ describe("PendingView 国际化（中英语言切换）", () => {
     expect(screen.getByText("Archived")).toBeTruthy();
 
     fireEvent.click(screen.getByText("o/a"));
-    expect(screen.getByText("Core Information (Required)")).toBeTruthy();
-    expect(screen.getByText("Supplemental Information (Optional)")).toBeTruthy();
-    expect(screen.getByText("Runtime (Advanced)")).toBeTruthy();
-    expect(screen.getByText("Repository & Identifiers (Read-only)")).toBeTruthy();
-    expect(screen.getByText("To rename, duplicate as a new draft")).toBeTruthy();
+    expect(screen.getByText("Basic Information")).toBeTruthy();
+    expect(screen.getByText("Supplemental Information")).toBeTruthy();
+    expect(screen.getByText("Runtime")).toBeTruthy();
+    expect(screen.getByText("Repository & Identifiers")).toBeTruthy();
+    expect(screen.getByText("To edit, duplicate as a new draft")).toBeTruthy();
     expect(screen.getByText("Duplicate as new draft")).toBeTruthy();
     expect(screen.getByText("Save draft")).toBeTruthy();
   });

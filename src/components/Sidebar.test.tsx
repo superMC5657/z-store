@@ -38,12 +38,12 @@ function groupTitles(container: HTMLElement): string[] {
 }
 
 describe('baseline: Sidebar nav groups (Sidebar.tsx slices)', () => {
-  it('renders 发现与探索 first, 应用资产 second, 偏好与系统 last', () => {
+  it('renders 发现 first, 管理 second, 系统 last', () => {
     const { container } = renderSidebar();
     const titles = groupTitles(container);
-    expect(titles[0]).toBe('发现与探索');
-    expect(titles[1]).toBe('应用资产');
-    expect(titles[titles.length - 1]).toBe('偏好与系统');
+    expect(titles[0]).toBe('发现');
+    expect(titles[1]).toBe('管理');
+    expect(titles[titles.length - 1]).toBe('系统');
   });
 });
 
@@ -63,7 +63,7 @@ describe('Sidebar: 设备平台 multi-select group', () => {
       onTogglePlatform: () => {},
       platformCounts: { windows: 12, android: 7, macos: 5, linux: 9, ios: 3, other: 4 },
     });
-    expect(screen.getByText('设备平台')).toBeTruthy();
+    expect(screen.getByText('平台')).toBeTruthy();
     for (const { id, label } of EXPECTED_PLATFORMS) {
       const item = screen.getByRole('checkbox', { name: new RegExp(label) });
       expect(item.getAttribute('data-platform-id')).toBe(id);
@@ -123,7 +123,7 @@ describe('Sidebar: 设备平台 multi-select group', () => {
       onTogglePlatform: () => {},
     });
     const titles = groupTitles(container);
-    expect(titles).toEqual(['发现与探索', '应用资产', '设备平台', '偏好与系统']);
+    expect(titles).toEqual(['发现', '管理', '平台', '系统']);
 
     const { container: collapsed } = renderSidebar({
       selectedPlatforms: new Set(['windows']),

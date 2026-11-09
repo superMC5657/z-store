@@ -94,7 +94,7 @@ describe('SettingsView custom catalog source confirm', () => {
 
     expect(calls).toHaveLength(0);
     expect(screen.getByText('确认切换')).toBeTruthy();
-    expect(screen.getByText(/自定义源将替换官方可信收录目录/)).toBeTruthy();
+    expect(screen.getByText(/自定义源将替换官方收录清单/)).toBeTruthy();
 
     fireEvent.click(screen.getByText('确认切换'));
     expect(calls).toHaveLength(1);
@@ -150,25 +150,25 @@ describe('SettingsView custom catalog source confirm', () => {
     renderSettings(baseSettings({ language: 'en-US', active_mirror: 'https://gh-proxy.com' }));
 
     // 大标题英文断言
-    expect(screen.getByText('Appearance & Personalization')).toBeTruthy();
+    expect(screen.getByText('Appearance')).toBeTruthy();
     expect(screen.getByText('Updates & Rules')).toBeTruthy();
     expect(screen.getByText('Storage & Installation')).toBeTruthy();
-    expect(screen.getByText('Network & Data')).toBeTruthy();
-    expect(screen.getByText('Data Management & Backup')).toBeTruthy();
+    expect(screen.getByText('Network')).toBeTruthy();
+    expect(screen.getByText('Data & Backup')).toBeTruthy();
 
     // 外观设置行
-    expect(screen.getByText('Theme Mode')).toBeTruthy();
+    expect(screen.getByText('Theme')).toBeTruthy();
 
     // 网络与代理设置行
-    expect(screen.getByText('GitHub Download Mirror')).toBeTruthy();
+    expect(screen.getByText('Download Mirror')).toBeTruthy();
 
     // 数据备份设置行
-    expect(screen.getByText('Export Managed Apps')).toBeTruthy();
-    expect(screen.getByText('Export List')).toBeTruthy();
+    expect(screen.getByText('Export Apps')).toBeTruthy();
+    expect(screen.getByText('Export')).toBeTruthy();
 
     // 更新与通知设置行
     expect(screen.getByText('Auto Check Updates')).toBeTruthy();
-    expect(screen.getByText('Version Pin & Ignore Rules')).toBeTruthy();
+    expect(screen.getByText('Version & Ignore Rules')).toBeTruthy();
 
     // 图标缓存与通用缓存展示项已删除
     expect(screen.queryByText('Icon Cache')).toBeNull();
@@ -182,11 +182,11 @@ describe('SettingsView custom catalog source confirm', () => {
     renderSettings(baseSettings({ language: 'zh-CN' }));
 
     // 大标题中文断言
-    expect(screen.getByText('外观与个性化')).toBeTruthy();
+    expect(screen.getByText('外观')).toBeTruthy();
     expect(screen.getByText('更新与规则')).toBeTruthy();
     expect(screen.getByText('存储与安装')).toBeTruthy();
-    expect(screen.getByText('网络与数据')).toBeTruthy();
-    expect(screen.getByText('数据管理与备份')).toBeTruthy();
+    expect(screen.getByText('网络')).toBeTruthy();
+    expect(screen.getByText('数据与备份')).toBeTruthy();
 
     // 图标缓存与通用缓存展示项已删除
     expect(screen.queryByText('图标缓存')).toBeNull();
@@ -224,7 +224,7 @@ describe('SettingsView proxy save failure', () => {
     });
     const { calls } = renderSettings(baseSettings(), onSelectMirror);
     fireEvent.change(
-      screen.getByPlaceholderText(/留空为 GitHub 官方直连/),
+      screen.getByPlaceholderText(/留空为直连/),
       { target: { value: 'https://bad.example.com' } },
     );
     fireEvent.click(screen.getByText('保存'));

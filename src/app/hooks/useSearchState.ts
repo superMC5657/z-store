@@ -276,7 +276,7 @@ export function useSearchState({
           onlineHasMoreRef.current = hasMore;
           // 搜索列表缓存（薄：只存行，不掺排名/平台判定）
           writeSearchListCache({ query: q, page: 1, perPage: ONLINE_SEARCH_PER_PAGE }, deduped);
-          showToast(t('search.online_success', '已找到在线应用'), 'success');
+          showToast(t('search.online_success'), 'success');
         } else {
           // 保留旧列表：已直展时不清空。
           if (hadCacheHit) return;
@@ -286,7 +286,7 @@ export function useSearchState({
           setOnlineHasMore(false);
           onlineHasMoreRef.current = false;
           // 调不到或无结果就保持本地结果+提示，不报错
-          showToast(t('search.online_no_results', '未找到相关在线应用，已保持本地结果'), 'info');
+          showToast(t('search.online_no_results'), 'info');
         }
       } catch (err) {
         if (guardFreshSearch(seq, err, 'searchAppsOnline error', () => {
@@ -298,7 +298,7 @@ export function useSearchState({
           isOnlineResultSetRef.current = false;
           setOnlineHasMore(false);
           onlineHasMoreRef.current = false;
-          showToast(t('search.online_failed', '在线搜索暂不可用，已保持本地结果'), 'info');
+          showToast(t('search.online_failed'), 'info');
         })) return;
       } finally {
         if (seq === searchSeqRef.current) {
@@ -393,7 +393,7 @@ export function useSearchState({
     } catch (err) {
       if (seq !== searchSeqRef.current) return;
       zlogWarn(`searchAppsOnline more error: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
-      showToast(t('search.online_failed', '在线搜索暂不可用，已保持本地结果'), 'info');
+      showToast(t('search.online_failed'), 'info');
     } finally {
       if (seq === searchSeqRef.current) {
         setIsLoadingOnlineMore(false);

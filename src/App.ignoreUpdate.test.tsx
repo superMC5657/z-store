@@ -105,7 +105,7 @@ describe('ignore-update persistence (real App path)', () => {
 
     // 更新中心属资产区：打开/切签不自动检查，经检查更新按钮显式刷新。
     // 导航至更新中心后手动触发检查，后端供给的测试用例项列出。
-    fireEvent.click(screen.getByRole('button', { name: '更新中心' }));
+    fireEvent.click(screen.getByRole('button', { name: '更新' }));
     fireEvent.click(screen.getByRole('button', { name: '检查更新' }));
     expect(await screen.findByText('Ignored App')).toBeTruthy();
 
@@ -135,14 +135,14 @@ describe('ignore-update persistence (real App path)', () => {
     await waitFor(() => {
       expect(screen.queryByText('Ignored App')).toBeNull();
     });
-    expect(await screen.findByText('所有应用均已是最新版本')).toBeTruthy();
+    expect(await screen.findByText('已是最新版本')).toBeTruthy();
 
     // 规则管理界面反映该持久化跳过规则：更新头部统计...
     expect(screen.getByRole('button', { name: /规则.*\(1\)/ })).toBeTruthy();
 
     // ...且规则管理器弹窗列出跳过的应用及其版本号。
     fireEvent.click(screen.getByRole('button', { name: /规则.*\(1\)/ }));
-    expect(await screen.findByText(/版本策略与屏蔽规则管理 \(1\)/)).toBeTruthy();
+    expect(await screen.findByText(/规则管理 \(1\)/)).toBeTruthy();
     expect(screen.getByText(APP_ID)).toBeTruthy();
     expect(screen.getByText(`跳过 ${LATEST}`)).toBeTruthy();
   });

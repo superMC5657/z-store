@@ -30,7 +30,7 @@ export const InlineConfirmButton: React.FC<InlineConfirmButtonProps> = ({
   style,
 }) => {
   const { t } = useTranslation();
-  const effectiveCancelTitle = cancelTitle ?? t('common.cancel', { defaultValue: 'Cancel' });
+  const effectiveCancelTitle = cancelTitle ?? t('common.cancel');
   const [isConfirming, setIsConfirming] = useState(false);
 
   useEffect(() => {

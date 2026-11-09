@@ -115,7 +115,7 @@ describe('baseline: category one-dimension behavior (survives convergence)', () 
     await screen.findByText('a-dev-win');
     expect(screen.getByText('a-dev-ios')).toBeTruthy();
     expect(screen.queryByText('a-media-ios')).toBeNull();
-    fireEvent.click(screen.getByText('返回分类大厅'));
+    fireEvent.click(screen.getByText('返回分类'));
     expect(within(container as HTMLElement).getByText('开发工具')).toBeTruthy();
   });
 });
@@ -152,7 +152,7 @@ describe('CategoriesView: converged to global filter (no local platform state)',
     const { container } = renderCategories([DEV_WIN], { onResetPlatformFilter });
     openCategory(container, '图形设计');
     // 多选连接文案：指明设备组合名称，绝不显示搜索为空提示。
-    await screen.findByText(/设备组合/);
+    await screen.findByText(/暂无应用/);
     const reset = container.querySelector('.filter-empty-reset');
     expect(reset).toBeTruthy();
     expect(reset?.tagName).toBe('BUTTON');
@@ -164,7 +164,7 @@ describe('CategoriesView: converged to global filter (no local platform state)',
     const onResetPlatformFilter = vi.fn();
     const { container } = renderCategories([DEV_WIN], { onResetPlatformFilter });
     openCategory(container, '图形设计');
-    await screen.findByText(/设备组合/);
+    await screen.findByText(/暂无应用/);
     const reset = container.querySelector('.filter-empty-reset');
     expect(reset).toBeTruthy();
     fireEvent.click(reset as HTMLElement);
@@ -191,7 +191,7 @@ describe('CategoriesView: Decision B select-nothing (empty/unknown-only match no
     const onResetPlatformFilter = vi.fn();
     const { container } = renderCategories([], { onResetPlatformFilter });
     openCategory(container, '开发工具');
-    await screen.findByText(/设备组合/);
+    await screen.findByText(/暂无应用/);
     const reset = container.querySelector('.filter-empty-reset');
     expect(reset).toBeTruthy();
     expect(reset?.tagName).toBe('BUTTON');

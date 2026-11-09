@@ -34,7 +34,9 @@ export const PendingPreviewLane: React.FC<PendingPreviewLaneProps> = ({
         <div className="pending-preview-header-title">
           <Eye size={13} strokeWidth={1.5} aria-hidden="true" style={{ color: 'var(--text-secondary)' }} />
           <strong>{t('pending.preview.title')}</strong>
-          <span className="pending-preview-header-hint">{t('pending.preview.hint')}</span>
+          {t('pending.preview.hint') ? (
+            <span className="pending-preview-header-hint">{t('pending.preview.hint')}</span>
+          ) : null}
         </div>
         <div className="pending-preview-header-actions">
           <span

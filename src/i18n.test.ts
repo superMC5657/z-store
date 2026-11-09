@@ -10,7 +10,7 @@ describe('i18n core configuration and language switching', () => {
     expect(i18n.language).toBe('zh-CN');
     expect(i18n.t('common.save')).toBe('保存');
     expect(i18n.t('settings.title')).toBe('系统设置');
-    expect(i18n.t('nav.items.home')).toBe('精选发现');
+    expect(i18n.t('nav.items.home')).toBe('精选');
   });
 
   it('switches to en-US and returns correct English text', async () => {
@@ -23,10 +23,10 @@ describe('i18n core configuration and language switching', () => {
   });
 
   it('handles interpolation parameters correctly in both languages', async () => {
-    expect(i18n.t('settings.rules_desc_active', { count: 5 })).toBe('已生效 5 条规则');
+    expect(i18n.t('settings.rules_desc_active', { count: 5 })).toBe('已生效 5 条');
 
     await i18n.changeLanguage('en-US');
-    expect(i18n.t('settings.rules_desc_active', { count: 5 })).toBe('5 rule(s) active');
+    expect(i18n.t('settings.rules_desc_active', { count: 5 })).toBe('5 active');
   });
 
   it('falls back to zh-CN when key exists in fallback', async () => {

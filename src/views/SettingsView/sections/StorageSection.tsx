@@ -27,7 +27,7 @@ export const StorageSection: React.FC<StorageSectionProps> = ({
     <div className="settings-group">
       <div className="settings-group-title">
         <FolderOpen size={15} strokeWidth={1.5} />
-        <span>{t('settings.storage_paths', { defaultValue: '存储与安装' })}</span>
+        <span>{t('settings.storage_paths')}</span>
       </div>
       <div className={`settings-row ${highlightRow === 'download_dir' ? 'row-highlight' : ''}`}>
         <div className="settings-row-info">

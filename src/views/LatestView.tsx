@@ -177,9 +177,11 @@ export const LatestView: React.FC<LatestViewProps> = ({
             <Sparkles size={18} />
             <span>{t('latest.title')}</span>
           </h3>
-          <p className="trends-subtitle" style={{ margin: '4px 0 0 0', color: 'var(--text-secondary)', fontSize: '13px' }}>
-            {t('latest.subtitle')}
-          </p>
+          {t('latest.subtitle') ? (
+            <p className="trends-subtitle" style={{ margin: '4px 0 0 0', color: 'var(--text-secondary)', fontSize: '13px' }}>
+              {t('latest.subtitle')}
+            </p>
+          ) : null}
         </div>
       </div>
 

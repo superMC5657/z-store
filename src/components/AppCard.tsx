@@ -187,23 +187,23 @@ export const AppCard: React.FC<AppCardProps> = memo(({
   const showDetailOnly = !isInstalled && !hasPlatforms;
   const detailLabel = t('app.view_details');
   const otherLabel = t('nav.platforms_other');
-  const supportedDevicesLabel = t('app.supported_devices', { defaultValue: '支持设备' });
+  const supportedDevicesLabel = t('app.supported_devices');
   // 已认证蓝标优先，本地收录橘黄次之，其余无标（verified 蓝不动）。
   const badgeVariant = resolveVerifiedBadgeVariant(app as { is_verified?: unknown; source?: unknown; status?: unknown });
   // 自维护角标：source=custom 即本地草稿行；category external 原样保留，
   // 判定仅看 source，不改 isAppCataloged 口径。
   const isCustomRow = (app as { source?: unknown }).source === 'custom';
   const isLocalRow = (app as { source?: unknown }).source === 'local';
-  const customBadgeLabel = t('app.custom_badge', { defaultValue: '自维护' });
+  const customBadgeLabel = t('app.custom_badge');
   // 移入收录入口门控：仅未收录 external 行（isAppCataloged 唯一口径）生效；
   // 已收录 / 已转正（远端行）/ custom 草稿行 / local 收录行 / custom 已存在一律不渲染，避免误点。
   const showMoveIn = Boolean(onMoveInApp) && !isAppCataloged(app) && !isCustomRow && !isLocalRow && !isCustomExisting;
   const moveInLabel = isMovingIn
-    ? t('custom.moving_in', { defaultValue: '移入中…' })
-    : t('custom.move_in', { defaultValue: '移入收录' });
+    ? t('custom.moving_in')
+    : t('custom.move_in');
   // 占位行手动加载：仅调用方显式传入 showLoadDetail 时渲染，点击拉详情升级富卡。
   const showLoadRow = showLoadDetail && typeof onLoadDetail === 'function';
-  const loadDetailLabel = t('favorites.load_detail', { defaultValue: '加载详情' });
+  const loadDetailLabel = t('favorites.load_detail');
 
   return (
     <div
@@ -376,7 +376,7 @@ export const AppCard: React.FC<AppCardProps> = memo(({
                 alignItems: 'center',
                 gap: '4px',
               }}
-              title={`${t('app.code_source', { defaultValue: '代码源' })}: ${app.forge_host || app.forge}`}
+              title={`${t('app.code_source')}: ${app.forge_host || app.forge}`}
             >
               <ForgeIcon forge={app.forge} size={12} />
               <span>{app.forge_host || app.forge}</span>
@@ -395,7 +395,7 @@ export const AppCard: React.FC<AppCardProps> = memo(({
               onMoveInApp?.(app);
             }}
             onKeyDown={(e) => e.stopPropagation()}
-            title={t('custom.move_in_hint', { defaultValue: '存为本地自维护草稿，编辑页可手改' })}
+            title={t('custom.move_in_hint')}
             aria-label={moveInLabel}
             style={{ padding: '6px 10px', fontSize: 'var(--font-xs)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
           >
@@ -438,7 +438,7 @@ export const AppCard: React.FC<AppCardProps> = memo(({
           }}
           title={
             showUnknown
-              ? t('app.loading', { defaultValue: '加载中' })
+              ? t('app.loading')
               : showDetailOnly
               ? detailLabel
               : isInstalling
@@ -449,7 +449,7 @@ export const AppCard: React.FC<AppCardProps> = memo(({
           }
           aria-label={
             showUnknown
-              ? t('app.loading', { defaultValue: '加载中' })
+              ? t('app.loading')
               : showDetailOnly
               ? detailLabel
               : isInstalling
@@ -466,7 +466,7 @@ export const AppCard: React.FC<AppCardProps> = memo(({
         >
           {/* 未知态中性占位（单色骨架，不可交互） */}
           {showUnknown ? (
-            <span role="status" aria-label={t('app.loading', { defaultValue: '加载中' })} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', opacity: 0.65, cursor: 'default' }}>
+            <span role="status" aria-label={t('app.loading')} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', opacity: 0.65, cursor: 'default' }}>
               <span
                 aria-hidden="true"
                 className="skeleton-box"

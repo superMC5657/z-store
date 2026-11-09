@@ -116,8 +116,8 @@ export const ToastContainer: React.FC<ToastContainerProps> = ({ toasts, onDismis
             type="button"
             className="toast-close-btn"
             onClick={() => onDismiss(currentToast.id)}
-            title={t('common.close_notice', { defaultValue: '关闭通知' })}
-            aria-label={t('common.close_notice', { defaultValue: '关闭通知' })}
+            title={t('common.close_notice')}
+            aria-label={t('common.close_notice')}
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <line x1="18" y1="6" x2="6" y2="18" />

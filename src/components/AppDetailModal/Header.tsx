@@ -490,7 +490,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <span
                   className="modal-tag"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                  title={`${t('app.supported_devices', { defaultValue: '支持设备' })}: ${app.platforms!.map((p) => PLATFORM_META[p.toLowerCase() as PlatformId]?.label || p).join(', ')}`}
+                  title={`${t('app.supported_devices')}: ${app.platforms!.map((p) => PLATFORM_META[p.toLowerCase() as PlatformId]?.label || p).join(', ')}`}
                 >
                   <Monitor size={12} />
                   <span>{t('detail.supported_ends')}</span>
@@ -508,8 +508,8 @@ export const Header: React.FC<HeaderProps> = ({
                 <span
                   className="modal-tag"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', opacity: 0.6 }}
-                  title={t('app.supported_devices', { defaultValue: '支持设备' })}
-                  aria-label={t('app.supported_devices', { defaultValue: '支持设备' })}
+                  title={t('app.supported_devices')}
+                  aria-label={t('app.supported_devices')}
                 >
                   <Monitor size={12} />
                   <span>{t('detail.supported_ends')}</span>
@@ -524,7 +524,7 @@ export const Header: React.FC<HeaderProps> = ({
               <span
                 className="modal-tag"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                title={`${t('app.supported_devices', { defaultValue: '支持设备' })}: ${t('nav.platforms_other')}`}
+                title={`${t('app.supported_devices')}: ${t('nav.platforms_other')}`}
               >
                 <Monitor size={12} />
                 <span>{t('detail.supported_ends')}</span>

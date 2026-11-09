@@ -101,7 +101,7 @@ describe('toggleFavorite failure (real App path)', () => {
       expect((window as unknown as Record<string, unknown>)['dispatchZStoreDeepLink']).toBeTypeOf('function');
     });
 
-    const favButton = await screen.findByRole('button', { name: '应用内收藏（保存至本机数据库）' });
+    const favButton = await screen.findByRole('button', { name: '加入收藏' });
     await act(async () => {
       fireEvent.click(favButton);
     });
@@ -111,6 +111,6 @@ describe('toggleFavorite failure (real App path)', () => {
     });
     expect(screen.getByRole('status').textContent).not.toContain('已成功添加至我的收藏夹');
     // 失败不翻转乐观态：按钮仍处于未收藏口径
-    expect(screen.getByRole('button', { name: '应用内收藏（保存至本机数据库）' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '加入收藏' })).toBeTruthy();
   });
 });

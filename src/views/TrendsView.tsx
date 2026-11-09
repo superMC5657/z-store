@@ -204,14 +204,14 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       if (!res.ok) {
         notifyToast(
           t('custom.move_in_failed', {
-            defaultValue: `移入收录失败：${res.error ?? ''}`,
+            error: res.error ?? '',
           }),
           'error',
         );
         return;
       }
       notifyToast(
-        t('custom.moved_in', { defaultValue: `已移入收录草稿：${res.id}` }),
+        t('custom.moved_in', { id: res.id }),
         'success',
       );
     } finally {
@@ -362,7 +362,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
           <TrendingUp size={18} />
           <span>{t('trends.title')}</span>
         </h3>
-        <p className="trends-subtitle">{t('trends.subtitle')}</p>
+        {t('trends.subtitle') ? <p className="trends-subtitle">{t('trends.subtitle')}</p> : null}
       </div>
 
       <div className="trends-toolbar">
@@ -393,8 +393,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
             data-testid="trends-refresh"
             onClick={handleRefresh}
             disabled={isLoading || isRefreshing}
-            aria-label={t('trends.refresh', { defaultValue: '刷新' })}
-            title={t('trends.refresh', { defaultValue: '刷新' })}
+            aria-label={t('trends.refresh')}
+            title={t('trends.refresh')}
           >
             <RefreshCw
               size={14}
@@ -503,8 +503,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
             const bareWatched = watchedIds?.has(bareKey) ?? false;
             const bareFavorite = favoriteIds?.has(bareKey) ?? false;
             const bareMoveLabel = bareMoving
-              ? t('custom.moving_in', { defaultValue: '移入中…' })
-              : t('custom.move_in', { defaultValue: '移入收录' });
+              ? t('custom.moving_in')
+              : t('custom.move_in');
             // 裸行黄标：enrich 缺席占位小行命中本地也在标题旁黄标（复用 verified-badge-local，
             // 判定唯一口径在 selectors，蓝优先；身份归一沿用 rowAliasKeys）。
             const bareLocalVariant = trendLocalLookup
@@ -622,7 +622,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                           } as AppSummary);
                         }}
                         onKeyDown={(e) => e.stopPropagation()}
-                        title={t('custom.move_in_hint', { defaultValue: '存为本地自维护草稿，编辑页可手改' })}
+                        title={t('custom.move_in_hint')}
                         aria-label={bareMoveLabel}
                         style={{ padding: '2px 8px', fontSize: 'var(--font-xs)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                       >

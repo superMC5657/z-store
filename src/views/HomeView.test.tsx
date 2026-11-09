@@ -132,7 +132,7 @@ describe('baseline: HomeView slices the incoming apps prop as-is', () => {
     const { container } = renderHomeView([verifiedApp]);
     const badge = container.querySelector('.hero-verified-badge');
     expect(badge).toBeTruthy();
-    expect(badge?.textContent).toContain('官方认证 · Verified');
+    expect(badge?.textContent).toContain('官方认证');
   });
 });
 
@@ -159,8 +159,8 @@ describe('task5: filter-empty state with .filter-empty-reset', () => {
     grids.forEach((g) => {
       expect((g.textContent ?? '').trim().length).toBeGreaterThan(0);
     });
-    expect(container.textContent).toContain('经典精选开源软件');
-    expect(container.textContent).toContain('全部精选开源收录');
+    expect(container.textContent).toContain('经典推荐');
+    expect(container.textContent).toContain('全部精选');
     // feed grid 保留，toolbar/shuffle 不渲染
     expect(container.querySelector('[data-testid="home-feed-grid"]')).toBeTruthy();
     expect(container.querySelector('.feed-toolbar')).toBeNull();

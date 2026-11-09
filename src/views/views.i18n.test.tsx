@@ -71,7 +71,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
         />,
       );
 
-      expect(screen.getByText('按主题领域浏览')).toBeTruthy();
+      expect(screen.getByText('分类浏览')).toBeTruthy();
       expect(screen.getByText('开发工具')).toBeTruthy();
       expect(screen.getByText('IDE, 编辑器, 调试台, 版本控制')).toBeTruthy();
       unmount();
@@ -89,7 +89,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
         />,
       );
 
-      expect(screen.getByText('Browse by Category')).toBeTruthy();
+      expect(screen.getByText('Categories')).toBeTruthy();
       expect(screen.getByText('Development')).toBeTruthy();
       expect(screen.getByText('IDEs, editors, terminals, and version control')).toBeTruthy();
     });
@@ -109,7 +109,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
         />,
       );
 
-      expect(screen.getByText(/已安装应用.*\(0\)/)).toBeTruthy();
+      expect(screen.getByText(/已安装.*\(0\)/)).toBeTruthy();
       expect(screen.getByText('规则')).toBeTruthy();
       expect(screen.getByText('导出清单')).toBeTruthy();
       expect(screen.getByText('扫描本地')).toBeTruthy();
@@ -128,7 +128,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
         />,
       );
 
-      expect(screen.getByText(/Installed Apps.*\(0\)/)).toBeTruthy();
+      expect(screen.getByText(/Installed.*\(0\)/)).toBeTruthy();
       expect(screen.getByText('Rules')).toBeTruthy();
       expect(screen.getByText('Export List')).toBeTruthy();
       expect(screen.getByText('Scan Local')).toBeTruthy();
@@ -200,10 +200,10 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
         />,
       );
 
-      expect(screen.getByText('本地收藏 (0)')).toBeTruthy();
-      expect(screen.getByText('关注更新 (0)')).toBeTruthy();
-      expect(screen.getByText('GitHub Star 同步')).toBeTruthy();
-      expect(screen.getByPlaceholderText('搜索名称 / 别名 / owner/repo...')).toBeTruthy();
+      expect(screen.getByText('收藏 (0)')).toBeTruthy();
+      expect(screen.getByText('关注 (0)')).toBeTruthy();
+      expect(screen.getByText('Star 同步')).toBeTruthy();
+      expect(screen.getByPlaceholderText('搜索应用或仓库...')).toBeTruthy();
       expect(screen.getByText('收藏夹还是空的')).toBeTruthy();
       unmount();
 
@@ -221,8 +221,8 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
 
       expect(screen.getByText('Favorites (0)')).toBeTruthy();
       expect(screen.getByText('Watched (0)')).toBeTruthy();
-      expect(screen.getByText('GitHub Star Sync')).toBeTruthy();
-      expect(screen.getByPlaceholderText('Search name / alias / owner/repo...')).toBeTruthy();
+      expect(screen.getByText('Star Sync')).toBeTruthy();
+      expect(screen.getByPlaceholderText('Search apps or repos...')).toBeTruthy();
       expect(screen.getByText('Favorites list is empty')).toBeTruthy();
     });
   });
@@ -243,7 +243,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
         />,
       );
 
-      expect(screen.getByText('版本策略与屏蔽规则管理 (1)')).toBeTruthy();
+      expect(screen.getByText('规则管理 (1)')).toBeTruthy();
       expect(screen.getByText('新建规则')).toBeTruthy();
       expect(screen.getByText(/全部.*\(1\)/)).toBeTruthy();
       expect(screen.getByText('跳过 1.3.0')).toBeTruthy();
@@ -267,7 +267,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
         />,
       );
 
-      expect(screen.getByText('Version Policies & Ignore Rules (1)')).toBeTruthy();
+      expect(screen.getByText('Rules (1)')).toBeTruthy();
       expect(screen.getByText('New Rule')).toBeTruthy();
       expect(screen.getByText(/All.*\(1\)/)).toBeTruthy();
       expect(screen.getByText('Skip 1.3.0')).toBeTruthy();
@@ -293,7 +293,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
 
       expect(screen.getByText(/应用更新.*\(0\)/)).toBeTruthy();
       expect(screen.getByText('检查更新')).toBeTruthy();
-      expect(screen.getByText('所有应用均已是最新版本')).toBeTruthy();
+      expect(screen.getByText('已是最新版本')).toBeTruthy();
       unmount();
 
       await i18n.changeLanguage('en-US');
@@ -307,9 +307,9 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
         />,
       );
 
-      expect(screen.getByText(/App Updates.*\(0\)/)).toBeTruthy();
+      expect(screen.getByText(/Updates.*\(0\)/)).toBeTruthy();
       expect(screen.getByText('Check Updates')).toBeTruthy();
-      expect(screen.getByText('All Applications Are Up to Date')).toBeTruthy();
+      expect(screen.getByText('Up to Date')).toBeTruthy();
     });
   });
 

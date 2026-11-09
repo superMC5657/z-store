@@ -285,7 +285,7 @@ function CoordsSection({
       <div className="pending-section-header pending-section-header-static">
         <div className="pending-section-title-wrap">
           <ShieldCheck size={13} strokeWidth={1.5} aria-hidden="true" />
-          <span>{t('pending.sections.coords', { defaultValue: '仓库与标识（只读锁定）' })}</span>
+          <span>{t('pending.sections.coords')}</span>
         </div>
       </div>
 
@@ -327,7 +327,7 @@ function CoordsSection({
 
       {!isCreating && (
         <div className="pending-readonly-coord-hint">
-          <span>{t('pending.rename_hint', { defaultValue: '改名请复制为新草稿' })}</span>
+          <span>{t('pending.rename_hint')}</span>
           <button
             type="button"
             className="btn-fluent btn-secondary btn-sm"
@@ -365,9 +365,9 @@ function CoordsSection({
               data-testid="pending-copy-id"
               onClick={() => void onCopyId()}
               style={{ padding: '2px 8px', fontSize: '11px' }}
-              title={t('pending.copy_id_title', { defaultValue: '复制应用标识 ID' })}
+              title={t('pending.copy_id_title')}
             >
-              <span>{t('pending.copy_id_btn', { defaultValue: '复制' })}</span>
+              <span>{t('pending.copy_id_btn')}</span>
             </button>
           </div>
         )}
@@ -396,7 +396,7 @@ function CoreSection({
       <div className="pending-section-header pending-section-header-static">
         <div className="pending-section-title-wrap">
           <FileText size={13} strokeWidth={1.5} aria-hidden="true" />
-          <span>{t('pending.sections.core', { defaultValue: '核心信息（必填）' })}</span>
+          <span>{t('pending.sections.core')}</span>
           <span className="pending-section-count">6</span>
         </div>
       </div>
@@ -529,7 +529,7 @@ function SupplementalSection({
       >
         <div className="pending-section-title-wrap">
           <AlignLeft size={13} strokeWidth={1.5} aria-hidden="true" />
-          <span>{t('pending.sections.supplemental', { defaultValue: '补充信息（可选）' })}</span>
+          <span>{t('pending.sections.supplemental')}</span>
           <span className="pending-section-count">4</span>
         </div>
         {openSections.supplemental ? (
@@ -614,7 +614,7 @@ function RuntimeSection({
       >
         <div className="pending-section-title-wrap">
           <Sliders size={13} strokeWidth={1.5} aria-hidden="true" />
-          <span>{t('pending.sections.runtime', { defaultValue: '运行时（高级）' })}</span>
+          <span>{t('pending.sections.runtime')}</span>
           <span className="pending-section-count">2</span>
         </div>
         {openSections.runtime ? (
@@ -672,7 +672,7 @@ function FormFooter({
           className="btn-fluent btn-primary btn-sm"
           onClick={onSave}
           disabled={isArchived}
-          title={isArchived ? t('pending.archived_save_disabled', { defaultValue: '已归档只读，不可修改保存' }) : undefined}
+          title={isArchived ? t('pending.archived_save_disabled') : undefined}
         >
           {t('pending.save')}
         </button>
@@ -713,7 +713,7 @@ function FormFooter({
             <Inbox size={13} strokeWidth={1.5} aria-hidden="true" />
             <span>
               {collectingId === editing.id
-                ? t('pending.collecting', { defaultValue: '收录中…' })
+                ? t('pending.collecting')
                 : t('pending.collect_local')}
             </span>
           </button>
@@ -726,14 +726,14 @@ function FormFooter({
               data-testid="pending-revert-to-draft"
               disabled={revertingId === editing.id}
               onClick={() => void onRevertToDraft(editing.id)}
-              title={t('pending.revert_hint', { id: editing.id, defaultValue: '将本地收录退回草稿' })}
+              title={t('pending.revert_hint', { id: editing.id })}
               style={{ marginLeft: 'auto' }}
             >
               <Archive size={13} strokeWidth={1.5} aria-hidden="true" />
               <span>
                 {confirmRevertId === editing.id
-                  ? t('pending.confirm_revert', { defaultValue: '再次点击确认退回' })
-                  : t('pending.revert_to_draft', { defaultValue: '退回草稿' })}
+                  ? t('pending.confirm_revert')
+                  : t('pending.revert_to_draft')}
               </span>
             </button>
             <button

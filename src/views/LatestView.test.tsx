@@ -87,11 +87,11 @@ describe('LatestView component', () => {
 
     // Time window options exist in 7 -> 30 -> 90 order, with no all-time tab
     const tabs = screen.getAllByRole('tab').map((el) => el.textContent?.trim());
-    expect(tabs).toEqual(['最近 7 天', '最近 30 天', '最近 90 天']);
+    expect(tabs).toEqual(['7 天', '30 天', '90 天']);
 
     // Default active is 30d
     const activeTab = screen.getByRole('tab', { selected: true });
-    expect(activeTab.textContent?.trim()).toBe('最近 30 天');
+    expect(activeTab.textContent?.trim()).toBe('30 天');
 
     await waitFor(() => {
       expect(screen.getByText('App One')).toBeDefined();
@@ -134,7 +134,7 @@ describe('LatestView component', () => {
     });
 
     await act(async () => {
-      fireEvent.click(screen.getByText('最近 7 天'));
+      fireEvent.click(screen.getByText('7 天'));
     });
 
     expect(mockGetLatestCatalogApps).toHaveBeenLastCalledWith(7, 1, 20);
@@ -166,11 +166,11 @@ describe('LatestView component', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('当前时间范围内暂无新收录应用')).toBeDefined();
+      expect(screen.getByText('暂无新收录应用')).toBeDefined();
     });
 
     // Default 30d empty state offers the wider 90d window as escape
-    const widenBtn = screen.getByText('切换至最近 90 天');
+    const widenBtn = screen.getByText('查看 90 天');
     expect(widenBtn).toBeDefined();
     expect(screen.queryByText('查看全部应用')).toBeNull();
 
@@ -211,23 +211,23 @@ describe('LatestView component', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('切换至最近 90 天')).toBeDefined();
+      expect(screen.getByText('查看 90 天')).toBeDefined();
     });
 
     // Switch to 90d tab
     await act(async () => {
-      fireEvent.click(screen.getByText('最近 90 天'));
+      fireEvent.click(screen.getByText('90 天'));
     });
 
     // Should show 90d specific upper-limit description
     await waitFor(() => {
       expect(
-        screen.getByText('最近 90 天暂无新收录应用，可通过「分类浏览」探索全量精选应用'),
+        screen.getByText('暂无新应用，可前往「分类」探索更多应用'),
       ).toBeDefined();
     });
 
     // Should render explore categories button and trigger navigation
-    const exploreBtn = screen.getByText('浏览全部分类');
+    const exploreBtn = screen.getByText('浏览分类');
     expect(exploreBtn).toBeDefined();
 
     await act(async () => {

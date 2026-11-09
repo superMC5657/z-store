@@ -78,14 +78,13 @@ async function notifyPrefillOpenFailed(
     notify(
       t('pending.pr.open_failed_copied', {
         message,
-        defaultValue: `预填页打开失败：${message}；已复制链接，请手动打开`,
       }),
       'error',
     );
     return;
   }
   notify(
-    t('pending.pr.open_failed', { message, defaultValue: `预填页打开失败：${message}` }),
+    t('pending.pr.open_failed', { message }),
     'error',
   );
 }
@@ -119,9 +118,7 @@ export async function runSubmitPrefillFlow(
   // 先取 URL：后端门禁错直接透出 toast，中止不开页；无回调即预览模式不可提交。
   if (!args.loadUrl) {
     notify(
-      t('pending.pr.preview_only', {
-        defaultValue: '预览模式仅演示，提交 Issue 请在桌面版完成',
-      }),
+      t('pending.pr.preview_only'),
       'warning',
     );
     return;
@@ -148,7 +145,6 @@ export async function runSubmitPrefillFlow(
       notify(
         t('pending.pr.payload_copied', {
           length: url.length,
-          defaultValue: `预填链接过长（${url.length} 字符），已复制提交载荷，正在打开预填页`,
         }),
         'success',
       );
@@ -157,15 +153,12 @@ export async function runSubmitPrefillFlow(
         t('pending.pr.url_too_long', {
           length: url.length,
           ...args.tooLongParams,
-          defaultValue: `预填链接过长（${url.length} 字符），建议分批提交`,
         }),
         'warning',
       );
       if (await copyTextToClipboard(url)) {
         notify(
-          t('pending.pr.url_copied_open_hint', {
-            defaultValue: '已复制预填链接，可直接粘贴到浏览器打开',
-          }),
+          t('pending.pr.url_copied_open_hint'),
           'info',
         );
       }

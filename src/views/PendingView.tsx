@@ -282,7 +282,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
   const ensureLicenseGate = useCallback(async (): Promise<LicenseAllowlistResult | null> => {
     const gate = await loadLicenseGate();
     if (!gate) {
-      onNotify?.(t('pending.pr.allowlist_load_failed', { defaultValue: '名单加载失败，请重试' }), 'warning');
+      onNotify?.(t('pending.pr.allowlist_load_failed'), 'warning');
     } else {
       setLicenseGateSnapshot(gate);
     }
@@ -587,8 +587,8 @@ export const PendingView: React.FC<PendingViewProps> = ({
     const copied = await copyTextToClipboard(idToCopy);
     onNotify?.(
       copied
-        ? t('pending.id_copied', { id: idToCopy, defaultValue: `ID 已复制：${idToCopy}` })
-        : t('pending.pr.copy_failed', { defaultValue: '复制失败' }),
+        ? t('pending.id_copied', { id: idToCopy })
+        : t('pending.pr.copy_failed'),
       copied ? 'success' : 'warning',
     );
   };
@@ -607,7 +607,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
     };
     loadIntoForm(duplicatedItem);
     onNotify?.(
-      t('pending.duplicated_hint', { defaultValue: '已复制为新草稿模板，修改 owner/repo 后保存' }),
+      t('pending.duplicated_hint'),
       'info',
     );
   };
@@ -627,7 +627,6 @@ export const PendingView: React.FC<PendingViewProps> = ({
       onNotify?.(
         t('pending.duplicate_conflict_hint', {
           id: item.id,
-          defaultValue: `已存在相同 ID：${item.id}，请修改 owner/repo 后再保存`,
         }),
         'warning',
       );
@@ -642,7 +641,6 @@ export const PendingView: React.FC<PendingViewProps> = ({
           t('pending.save_failed', {
             id: item.id,
             error: e instanceof Error ? e.message : String(e),
-            defaultValue: `保存失败：${item.id}：${e instanceof Error ? e.message : String(e)}`,
           }),
           'error',
         );
@@ -684,7 +682,6 @@ export const PendingView: React.FC<PendingViewProps> = ({
           t('pending.delete_failed', {
             id,
             error: e instanceof Error ? e.message : String(e),
-            defaultValue: `删除失败：${id}：${e instanceof Error ? e.message : String(e)}`,
           }),
           'error',
         );
@@ -717,7 +714,6 @@ export const PendingView: React.FC<PendingViewProps> = ({
           t('pending.mark_submitted_failed', {
             id,
             error: e instanceof Error ? e.message : String(e),
-            defaultValue: `标记失败：${id}：${e instanceof Error ? e.message : String(e)}`,
           }),
           'error',
         );
@@ -800,14 +796,13 @@ export const PendingView: React.FC<PendingViewProps> = ({
         nextSet.delete(id);
         return nextSet;
       });
-      onNotify?.(t('pending.reverted', { id, defaultValue: `已退回草稿：${id}` }), 'info');
+      onNotify?.(t('pending.reverted', { id }), 'info');
     } catch (e) {
       const detail = e instanceof Error ? e.message : String(e);
       onNotify?.(
         t('pending.revert_failed', {
           id,
           error: detail,
-          defaultValue: `退回草稿失败：${id}：${detail}`,
         }),
         'error',
       );
@@ -869,13 +864,13 @@ export const PendingView: React.FC<PendingViewProps> = ({
     if (target.archived) return;
     if (target.status === 'submitted') {
       onNotify?.(
-        t('pending.errors.already_submitted', { id, defaultValue: `已提交行不可重复提交：${id}` }),
+        t('pending.errors.already_submitted', { id }),
         'warning',
       );
       return;
     }
     if (isPendingCollectedStatus(target.status)) {
-      onNotify?.(t('pending.already_collected', { id, defaultValue: `已收录进本地：${id}` }), 'info');
+      onNotify?.(t('pending.already_collected', { id }), 'info');
       return;
     }
     const gate = await ensureLicenseGate();
@@ -897,7 +892,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
       // 收录后切到本地收录 · 待提交，右侧切富卡 + 批量栏可见。
       setActiveGroup('library');
       setActiveSegment('to_submit');
-      onNotify?.(t('pending.collected', { id, defaultValue: `已收录进本地：${id}` }), 'success');
+      onNotify?.(t('pending.collected', { id }), 'success');
     } catch (e) {
       onNotify?.(e instanceof Error ? e.message : String(e), 'error');
     } finally {
@@ -1082,9 +1077,11 @@ export const PendingView: React.FC<PendingViewProps> = ({
             <Inbox size={18} strokeWidth={1.5} aria-hidden="true" />
             <span>{t('pending.title')}</span>
           </h3>
-          <p className="pending-header-desc">
-            {t('pending.subtitle')}
-          </p>
+          {t('pending.subtitle') ? (
+            <p className="pending-header-desc">
+              {t('pending.subtitle')}
+            </p>
+          ) : null}
         </div>
       </div>
 

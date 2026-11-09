@@ -53,7 +53,7 @@ export const AppearanceSection: React.FC<AppearanceSectionProps> = ({
     <div className="settings-group">
       <div className="settings-group-title">
         <Sliders size={15} strokeWidth={1.5} />
-        <span>{t('settings.appearance', { defaultValue: '外观与个性化' })}</span>
+        <span>{t('settings.appearance')}</span>
       </div>
       <div className={`settings-row ${highlightRow === 'theme' ? 'row-highlight' : ''}`}>
         <div className="settings-row-info">

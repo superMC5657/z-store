@@ -121,14 +121,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
       if (!res.ok) {
         notifyToast(
           t('custom.move_in_failed', {
-            defaultValue: `移入收录失败：${res.error ?? ''}`,
+            error: res.error ?? '',
           }),
           'error',
         );
         return;
       }
       notifyToast(
-        t('custom.moved_in', { defaultValue: `已移入收录草稿：${res.id}` }),
+        t('custom.moved_in', { id: res.id }),
         'success',
       );
     } finally {
@@ -531,7 +531,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
           <div className="section-header" data-testid="search-local-section">
             <h3 className="section-title">
               <Package size={16} />
-              <span>{t('search.local_results', { count: apps.length, defaultValue: `本地结果 (${apps.length})` })}</span>
+              <span>{t('search.local_results', { count: apps.length })}</span>
             </h3>
           </div>
           {annotatedDisplayedFeed.length > 0 ? (
@@ -555,7 +555,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             </div>
           ) : (
             <div className="feed-end" data-testid="search-local-empty">
-              {t('search.local_empty', '本地没有找到匹配应用')}
+              {t('search.local_empty')}
             </div>
           )}
           {localHasMore && (
@@ -566,7 +566,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 className="btn-fluent btn-secondary"
                 onClick={() => setVisibleCount((c) => c + HOME_FEED_PAGE)}
               >
-                {t('search.local_load_more', '加载更多本地结果')}
+                {t('search.local_load_more')}
               </button>
             </div>
           )}
@@ -574,7 +574,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
           <div className="section-header" style={{ marginTop: '28px' }} data-testid="search-online-section">
             <h3 className="section-title">
               <Globe size={16} />
-              <span>{t('search.online_results', { count: onlineApps.length, defaultValue: `在线结果 (${onlineApps.length})` })}</span>
+              <span>{t('search.online_results', { count: onlineApps.length })}</span>
             </h3>
           </div>
           {annotatedOnlineApps.length > 0 ? (
@@ -602,10 +602,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
           ) : (
             <div className="feed-end" data-testid="search-online-empty">
               {isSearchingOnline
-                ? t('search.online_searching', '正在在线搜索…')
+                ? t('search.online_searching')
                 : onlineSearchPerformed
-                  ? t('search.online_empty', '没有找到相关在线应用，已保留本地结果')
-                  : t('search.online_prompt', '按回车发起在线搜索，在这里看云端结果')}
+                  ? t('search.online_empty')
+                  : t('search.online_prompt')}
             </div>
           )}
           {(isSearchingOnline || isLoadingOnlineMore) && (
@@ -634,13 +634,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <ChevronsDown size={15} aria-hidden="true" />
                 <span>
                   {isSearchingOnline || isLoadingOnlineMore
-                    ? t('search.online_loading_more', '正在加载下 20 个…')
-                    : t('search.online_armed_more', '已到底 · 继续下拉加载更多')}
+                    ? t('search.online_loading_more')
+                    : t('search.online_armed_more')}
                 </span>
                 <ChevronsDown size={15} aria-hidden="true" />
               </div>
               <div className="online-armed-sub">
-                {t('search.online_armed_hint', { count: onlineApps.length, defaultValue: `已加载 ${onlineApps.length} 个 · 每次续拉 20 个` })}
+                {t('search.online_armed_hint', { count: onlineApps.length })}
               </div>
               <div className="feed-more-row online-armed-btn">
                 <button
@@ -651,15 +651,15 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   disabled={isSearchingOnline || isLoadingOnlineMore}
                 >
                   {isSearchingOnline || isLoadingOnlineMore
-                    ? t('home.feed_loading', '正在加载…')
-                    : t('search.online_load_more', '加载更多在线结果')}
+                    ? t('home.feed_loading')
+                    : t('search.online_load_more')}
                 </button>
               </div>
             </div>
           ) : (
             onlineApps.length > 0 && !onlineHasMore && (
               <div data-testid="feed-end" className="feed-end">
-                {t('search.online_end', { count: onlineApps.length, defaultValue: `到底了 · 在线共 ${onlineApps.length} 个` })}
+                {t('search.online_end', { count: onlineApps.length })}
               </div>
             )
           )}
@@ -722,16 +722,16 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 disabled={backendLoading || isLoadingOnlineMore}
               >
                 {backendLoading || isLoadingOnlineMore
-                  ? t('home.feed_loading', '正在加载…')
-                  : t('home.feed_load_more', '加载更多')}
+                  ? t('home.feed_loading')
+                  : t('home.feed_load_more')}
               </button>
             </div>
           ) : (
             dedupedDisplayedFeed.length > 0 && (
               <div data-testid="feed-end" className="feed-end">
                 {isBackendListActive && backendTotal !== null
-                  ? t('home.feed_end_backend', { count: backendTotal, defaultValue: `到底了 · 后端共 ${backendTotal} 个` })
-                  : t('home.feed_end', { count: feedPoolLength, defaultValue: `到底了 · 共 ${feedPoolLength} 个推荐` })}
+                  ? t('home.feed_end_backend', { count: backendTotal })
+                  : t('home.feed_end', { count: feedPoolLength })}
               </div>
             )
           )}

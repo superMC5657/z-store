@@ -40,28 +40,28 @@ describe('Settings subcomponents i18n verification', () => {
     await i18n.changeLanguage('zh-CN');
     const { unmount } = render(<OAuthAccountCard />);
     expect(screen.getByText('GitHub 账号')).toBeTruthy();
-    expect(screen.getByText(/登录后享有 5,000 次\/小时 API 配额/)).toBeTruthy();
+    expect(screen.getByText(/登录后享有 5,000 次\/小时配额/)).toBeTruthy();
     expect(await screen.findByText('登录')).toBeTruthy();
     unmount();
 
     await i18n.changeLanguage('en-US');
     render(<OAuthAccountCard />);
     expect(screen.getByText('GitHub Account')).toBeTruthy();
-    expect(screen.getByText(/Sign in to enjoy 5,000 req\/h API quota/)).toBeTruthy();
+    expect(screen.getByText(/Sign in for 5,000 req\/h quota/)).toBeTruthy();
     expect(await screen.findByText('Sign In')).toBeTruthy();
   });
 
   it('renders DataBackupRow in zh-CN and en-US', async () => {
     await i18n.changeLanguage('zh-CN');
     const { unmount } = render(<DataBackupRow />);
-    expect(screen.getByText('用户数据备份')).toBeTruthy();
+    expect(screen.getByText('用户数据')).toBeTruthy();
     expect(screen.getByText('导出')).toBeTruthy();
     expect(screen.getByText('导入')).toBeTruthy();
     unmount();
 
     await i18n.changeLanguage('en-US');
     render(<DataBackupRow />);
-    expect(screen.getByText('User Data Backup')).toBeTruthy();
+    expect(screen.getByText('User Data')).toBeTruthy();
     expect(screen.getByText('Export')).toBeTruthy();
     expect(screen.getByText('Import')).toBeTruthy();
   });
@@ -69,13 +69,13 @@ describe('Settings subcomponents i18n verification', () => {
   it('renders ClientUpdateRow in zh-CN and en-US', async () => {
     await i18n.changeLanguage('zh-CN');
     const { unmount } = render(<ClientUpdateRow />);
-    expect(screen.getByText('客户端自更新')).toBeTruthy();
+    expect(screen.getByText('客户端更新')).toBeTruthy();
     expect(screen.getByText('检查更新')).toBeTruthy();
     unmount();
 
     await i18n.changeLanguage('en-US');
     render(<ClientUpdateRow />);
-    expect(screen.getByText('Client Auto-Update')).toBeTruthy();
+    expect(screen.getByText('Client Update')).toBeTruthy();
     expect(screen.getByText('Check for Updates')).toBeTruthy();
   });
 });

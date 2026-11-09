@@ -47,10 +47,10 @@ describe('batch install survives a single item failure', () => {
       />,
     );
 
-    fireEvent.click(screen.getByText('GitHub Star 同步'));
+    fireEvent.click(screen.getByText('Star 同步'));
     fireEvent.click(screen.getByText('立即同步'));
 
-    const batchBtn = await screen.findByText('一键批量装机');
+    const batchBtn = await screen.findByText('批量安装');
     fireEvent.click(batchBtn.closest('button') as HTMLButtonElement);
 
     // 尽管第一项安装失败，两项均必须被尝试执行。
@@ -60,7 +60,7 @@ describe('batch install survives a single item failure', () => {
 
     // 按钮必须重新恢复可用状态（不应停留在“批量安装中...”）。
     await waitFor(() => {
-      const btn = screen.getByText('一键批量装机').closest('button') as HTMLButtonElement;
+      const btn = screen.getByText('批量安装').closest('button') as HTMLButtonElement;
       expect(btn.disabled).toBe(false);
     });
     expect(screen.queryByText('批量安装中...')).toBeNull();
@@ -142,7 +142,7 @@ describe('rows kept and counts from full sets', () => {
     expect(container.textContent).toContain('AppA');
     expect(container.textContent).toContain('未收录');
     // 计数：全集 3（含无行的 ghost/app），不随行数缩水。
-    expect(screen.getByText('本地收藏 (3)')).not.toBeNull();
+    expect(screen.getByText('收藏 (3)')).not.toBeNull();
   });
 
   it('缓存回填的富卡行按真实信息渲染（同形 AppSummary 直显 + 未收录徽标）', () => {
@@ -167,7 +167,7 @@ describe('rows kept and counts from full sets', () => {
       <FavoritesView apps={[cataloged]} favoriteIds={new Set(['owner/app-a'])} {...baseLocal} />,
     );
     expect(container.textContent).toContain('AppA');
-    expect(screen.getByText('本地收藏 (1)')).not.toBeNull();
+    expect(screen.getByText('收藏 (1)')).not.toBeNull();
   });
 
   it('占位行渲染行内加载按钮并透传 id；富卡行无按钮', async () => {

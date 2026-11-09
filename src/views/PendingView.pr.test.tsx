@@ -306,7 +306,7 @@ describe('PendingView revert collected to draft (secondary + double-confirm)', (
     // 停留本地收录：选中清空回空态，列表不再含该行
     await waitFor(() => expect(screen.queryByTestId('pending-revert-to-draft')).toBeNull());
     expect(screen.queryByText('o/a')).toBeNull();
-    expect(screen.getByText('选择或新建一份草稿')).toBeTruthy();
+    expect(screen.getByText('选择或新建草稿')).toBeTruthy();
     // 切回草稿才可见该行
     fireEvent.click(screen.getByText('草稿'));
     expect(screen.getAllByText('o/a').length).toBeGreaterThanOrEqual(1);
@@ -336,7 +336,7 @@ describe('PendingView revert collected to draft (secondary + double-confirm)', (
     // 停留本地收录且选中落到下一条同组行：o/b 富卡仍在，o/a 已退出列表
     await waitFor(() => expect(screen.getByTestId('pending-submit-pr')).toBeTruthy());
     expect(screen.queryByText('o/a')).toBeNull();
-    expect(screen.queryByText('选择或新建一份草稿')).toBeNull();
+    expect(screen.queryByText('选择或新建草稿')).toBeNull();
     // 切回草稿可见被退回的行
     fireEvent.click(screen.getByText('草稿'));
     expect(screen.getAllByText('o/a').length).toBeGreaterThanOrEqual(1);
@@ -360,7 +360,7 @@ describe('PendingView revert collected to draft (secondary + double-confirm)', (
     await waitFor(() => expect(onRevertToDraft).toHaveBeenCalledWith('o/a'));
     // 受控退回同样不跳 Tab：停留本地收录（选中清空由父级刷新后生效，此处不断言列表，守住不自动切草稿）
     expect(screen.queryByTestId('pending-revert-to-draft')).toBeNull();
-    expect(screen.getByText('选择或新建一份草稿')).toBeTruthy();
+    expect(screen.getByText('选择或新建草稿')).toBeTruthy();
   });
 
   it('archived stays readonly with no collect/submit/revert', async () => {
@@ -688,14 +688,14 @@ describe('PendingView top tabs sync batch entry and submitted with activeGroup',
     fireEvent.click(screen.getByText('本地收录'));
     expect(screen.queryByTestId('pending-collect-local')).toBeNull();
     expect(screen.queryByTestId('pending-submit-pr')).toBeNull();
-    expect(screen.getByText('选择或新建一份草稿')).toBeTruthy();
+    expect(screen.getByText('选择或新建草稿')).toBeTruthy();
     // 选中已收录行：展富卡提交主按钮
     fireEvent.click(screen.getByText('o/col'));
     expect(screen.getByTestId('pending-submit-pr')).toBeTruthy();
     // 切回草稿：富卡按钮清空，回到空态
     fireEvent.click(screen.getByText('草稿'));
     expect(screen.queryByTestId('pending-submit-pr')).toBeNull();
-    expect(screen.getByText('选择或新建一份草稿')).toBeTruthy();
+    expect(screen.getByText('选择或新建草稿')).toBeTruthy();
   });
 
   it('submitted shows rich Issue link without duplicate submit or manual mark', async () => {

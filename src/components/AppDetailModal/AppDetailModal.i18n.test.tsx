@@ -132,15 +132,15 @@ describe('AppDetailModal components i18n (zh-CN <-> en-US)', () => {
     );
 
     expect(screen.getByTitle('强制从远端刷新 (穿透本地缓存)')).toBeTruthy();
-    expect(screen.getByTitle('应用内收藏：保存至本机数据库，离线随时可用')).toBeTruthy();
-    expect(screen.getByTitle('关注 Release 更新：该应用发布新版本时在应用内提醒')).toBeTruthy();
+    expect(screen.getByTitle('加入收藏')).toBeTruthy();
+    expect(screen.getByTitle('关注更新')).toBeTruthy();
     expect(screen.getByLabelText('GitHub 标星 (Star)')).toBeTruthy();
     expect(screen.getByLabelText('关闭详情弹窗')).toBeTruthy();
     expect(screen.getByLabelText('强制从远端刷新应用信息与最新发布')).toBeTruthy();
     expect(screen.getByText('最新发布 1.2.0')).toBeTruthy();
     expect(screen.getByText('问题反馈')).toBeTruthy();
     expect(screen.getByTitle('在浏览器中查看开源仓库')).toBeTruthy();
-    expect(screen.getByTitle('网络不可用或请求受限，当前正在呈现本地历史数据')).toBeTruthy();
+    expect(screen.getByTitle('网络受限，正在展示本地缓存')).toBeTruthy();
     expect(screen.getByText('离线缓存')).toBeTruthy();
     // IconLevelBadge 承载：iconCycle=null 时下一档 L2（品牌库）
     expect(screen.getByTitle(/下一档：L2品牌库 \(2\/5\)/)).toBeTruthy();
@@ -162,9 +162,9 @@ describe('AppDetailModal components i18n (zh-CN <-> en-US)', () => {
     );
 
     expect(screen.getByTitle('Force refresh from remote (bypasses local cache)')).toBeTruthy();
-    expect(screen.getByTitle('App favorites: saved to the local database, available offline')).toBeTruthy();
+    expect(screen.getByTitle('Add to favorites')).toBeTruthy();
     expect(
-      screen.getByTitle('Watch release updates: get an in-app notice when this app ships a new version'),
+      screen.getByTitle('Watch updates'),
     ).toBeTruthy();
     expect(screen.getByLabelText('Star on GitHub (Star)')).toBeTruthy();
     expect(screen.getByLabelText('Close detail dialog')).toBeTruthy();
@@ -172,7 +172,7 @@ describe('AppDetailModal components i18n (zh-CN <-> en-US)', () => {
     expect(screen.getByText('Latest release 1.2.0')).toBeTruthy();
     expect(screen.getByText('Report an Issue')).toBeTruthy();
     expect(screen.getByTitle('View the open-source repo in your browser')).toBeTruthy();
-    expect(screen.getByTitle('Network unavailable or request throttled; showing local historical data')).toBeTruthy();
+    expect(screen.getByTitle('Offline: showing local cached data')).toBeTruthy();
     expect(screen.getByText('Offline cache')).toBeTruthy();
     expect(screen.getByTitle(/Next level: L2Brand Asset \(2\/5\)/)).toBeTruthy();
   });
@@ -276,7 +276,7 @@ describe('AppDetailModal components i18n (zh-CN <-> en-US)', () => {
 
     await i18n.changeLanguage('zh-CN');
     const { unmount } = render(<AssetList {...commonProps} />);
-    expect(screen.getByText('GitHub Release 原生构建设施产物')).toBeTruthy();
+    expect(screen.getByText('构建产物')).toBeTruthy();
     expect(screen.getByText('宿主环境匹配: windows (x64)')).toBeTruthy();
     expect(screen.getByText('当前目标')).toBeTruthy();
     expect(screen.getByText(/目标平台: windows \(x64\) · 类型: zip · 体积: /)).toBeTruthy();
@@ -289,7 +289,7 @@ describe('AppDetailModal components i18n (zh-CN <-> en-US)', () => {
 
     await i18n.changeLanguage('en-US');
     render(<AssetList {...commonProps} />);
-    expect(screen.getByText('GitHub Release native build artifacts')).toBeTruthy();
+    expect(screen.getByText('Build Artifacts')).toBeTruthy();
     expect(screen.getByText('Host environment match: windows (x64)')).toBeTruthy();
     expect(screen.getByText('Current target')).toBeTruthy();
     expect(screen.getByText(/Target platform: windows \(x64\) · Type: zip · Size: /)).toBeTruthy();
@@ -347,7 +347,7 @@ describe('AppDetailModal components i18n (zh-CN <-> en-US)', () => {
     // 2. en-US: not installed state
     await i18n.changeLanguage('en-US');
     const { unmount: unmount2 } = render(<InstallActions {...baseInstallProps} />);
-    expect(screen.getByText('Recommended version · Windows x64')).toBeTruthy();
+    expect(screen.getByText('Recommended · Windows x64')).toBeTruthy();
     expect(screen.getByText('All assets (2)')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Install' })).toBeTruthy();
     unmount2();
@@ -457,7 +457,7 @@ describe('AppDetailModal components i18n (zh-CN <-> en-US)', () => {
         showSkeleton={true}
       />,
     );
-    expect(screen.getByText('正在通过加速通道异步获取软件完整文档与变更日志...')).toBeTruthy();
+    expect(screen.getByText('正在加载完整文档...')).toBeTruthy();
     unmount3();
 
     // 4. Loading skeleton state in en-US
@@ -470,7 +470,7 @@ describe('AppDetailModal components i18n (zh-CN <-> en-US)', () => {
       />,
     );
     expect(
-      screen.getByText('Asynchronously fetching full documentation and changelog via accelerated channel...'),
+      screen.getByText('Loading full documentation...'),
     ).toBeTruthy();
   });
 

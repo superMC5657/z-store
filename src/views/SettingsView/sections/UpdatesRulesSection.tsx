@@ -32,7 +32,7 @@ export const UpdatesRulesSection: React.FC<UpdatesRulesSectionProps> = ({
     <div className="settings-group">
       <div className="settings-group-title">
         <RefreshCw size={15} strokeWidth={1.5} />
-        <span>{t('settings.updates_rules', { defaultValue: '更新与规则' })}</span>
+        <span>{t('settings.updates_rules')}</span>
       </div>
       <div className={`settings-row ${highlightRow === 'update_frequency' ? 'row-highlight' : ''}`}>
         <div className="settings-row-info">

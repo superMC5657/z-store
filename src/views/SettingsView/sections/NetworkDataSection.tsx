@@ -74,7 +74,7 @@ export const NetworkDataSection: React.FC<NetworkDataSectionProps> = ({
     <div className="settings-group">
       <div className="settings-group-title">
         <Globe size={15} strokeWidth={1.5} />
-        <span>{t('settings.network_data', { defaultValue: '网络与数据' })}</span>
+        <span>{t('settings.network_data')}</span>
       </div>
       <div id="settings-account">
         <OAuthAccountCard />

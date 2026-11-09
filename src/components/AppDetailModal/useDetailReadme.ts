@@ -25,7 +25,7 @@ function preprocessGitHubAlerts(markdown: string, t?: TFunction): string {
       warning: 'Warning',
       caution: 'Caution',
     };
-    const titleText = t ? (t(titleKey as any, { defaultValue: defaultTitles[alertType] || type }) as string) : (defaultTitles[alertType] || type);
+    const titleText = t ? (t(titleKey as any) as string) : (defaultTitles[alertType] || type);
     return `\n<div class="markdown-alert markdown-alert-${alertType}">\n<div class="markdown-alert-title">${titleText}</div>\n\n${cleanBody}\n\n</div>\n`;
   });
 }

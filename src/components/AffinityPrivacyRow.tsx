@@ -51,13 +51,13 @@ export const AffinityPrivacyRow: React.FC = () => {
       window.dispatchEvent(new CustomEvent('zstore:affinity-updated'));
       showFeedback(
         nextEnabled
-          ? t('affinity_privacy.enabled_toast', { defaultValue: '已开启本地个性化推荐' })
-          : t('affinity_privacy.disabled_toast', { defaultValue: '已切回默认星数基线排序' }),
+          ? t('affinity_privacy.enabled_toast')
+          : t('affinity_privacy.disabled_toast'),
         false,
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      showFeedback(t('affinity_privacy.action_failed', { error: msg, defaultValue: '操作失败：{{error}}' }), true);
+      showFeedback(t('affinity_privacy.action_failed', { error: msg }), true);
     } finally {
       setBusyAction(null);
     }
@@ -70,10 +70,10 @@ export const AffinityPrivacyRow: React.FC = () => {
       await tauriApi.syncGithubStarred();
       await loadSummary();
       window.dispatchEvent(new CustomEvent('zstore:affinity-updated'));
-      showFeedback(t('affinity_privacy.sync_ok', { defaultValue: '已完成 GitHub 画像增量同步' }), false);
+      showFeedback(t('affinity_privacy.sync_ok'), false);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      showFeedback(t('affinity_privacy.action_failed', { error: msg, defaultValue: '操作失败：{{error}}' }), true);
+      showFeedback(t('affinity_privacy.action_failed', { error: msg }), true);
     } finally {
       setBusyAction(null);
     }
@@ -86,10 +86,10 @@ export const AffinityPrivacyRow: React.FC = () => {
       await tauriApi.resetAffinityProfile();
       await loadSummary();
       window.dispatchEvent(new CustomEvent('zstore:affinity-updated'));
-      showFeedback(t('affinity_privacy.reset_ok', { defaultValue: '已清空本地 GitHub 画像信号' }), false);
+      showFeedback(t('affinity_privacy.reset_ok'), false);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      showFeedback(t('affinity_privacy.action_failed', { error: msg, defaultValue: '操作失败：{{error}}' }), true);
+      showFeedback(t('affinity_privacy.action_failed', { error: msg }), true);
     } finally {
       setBusyAction(null);
     }
@@ -97,7 +97,7 @@ export const AffinityPrivacyRow: React.FC = () => {
 
   const formattedSyncTime = summary.last_synced_at
     ? new Date(summary.last_synced_at * 1000).toLocaleString()
-    : t('affinity_privacy.never_synced', { defaultValue: '尚未同步' });
+    : t('affinity_privacy.never_synced');
 
   return (
     <div
@@ -110,14 +110,14 @@ export const AffinityPrivacyRow: React.FC = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             <Sparkles size={14} strokeWidth={1.5} />
             <span style={{ fontWeight: 510 }}>
-              {t('affinity_privacy.title', { defaultValue: '本地推荐画像与隐私数据看板' })}
+              {t('affinity_privacy.title')}
             </span>
             <span
               className="setting-applied-badge"
               style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: 'var(--font-xs)' }}
             >
               <ShieldCheck size={14} strokeWidth={1.5} />
-              <span>{t('affinity_privacy.local_badge', { defaultValue: '本地隐私闭环 · SQLite Only' })}</span>
+              <span>{t('affinity_privacy.local_badge')}</span>
             </span>
             {feedbackText && (
               <span
@@ -138,10 +138,7 @@ export const AffinityPrivacyRow: React.FC = () => {
             )}
           </div>
           <div className="settings-row-desc" style={{ marginTop: '4px' }}>
-            {t('affinity_privacy.desc', {
-              defaultValue:
-                '基于本地缓存的 GitHub Stars / Forks 与应用内收藏 / 关注信号在客户端重排精选推荐，零服务器上传。',
-            })}
+            {t('affinity_privacy.desc')}
           </div>
         </div>
 
@@ -159,8 +156,8 @@ export const AffinityPrivacyRow: React.FC = () => {
             <Sparkles size={14} strokeWidth={1.5} />
             <span>
               {summary.enabled
-                ? t('affinity_privacy.toggle_on', { defaultValue: '个性化推荐：已开启' })
-                : t('affinity_privacy.toggle_off', { defaultValue: '个性化推荐：已关闭' })}
+                ? t('affinity_privacy.toggle_on')
+                : t('affinity_privacy.toggle_off')}
             </span>
           </button>
 
@@ -179,8 +176,8 @@ export const AffinityPrivacyRow: React.FC = () => {
             />
             <span>
               {busyAction === 'sync'
-                ? t('affinity_privacy.syncing', { defaultValue: '正在同步…' })
-                : t('affinity_privacy.sync_btn', { defaultValue: '立即增量同步' })}
+                ? t('affinity_privacy.syncing')
+                : t('affinity_privacy.sync_btn')}
             </span>
           </button>
 
@@ -193,7 +190,7 @@ export const AffinityPrivacyRow: React.FC = () => {
             style={{ fontSize: 'var(--font-sm)', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
           >
             <Trash2 size={14} strokeWidth={1.5} />
-            <span>{t('affinity_privacy.reset_btn', { defaultValue: '清空本地画像' })}</span>
+            <span>{t('affinity_privacy.reset_btn')}</span>
           </button>
         </div>
       </div>
@@ -211,37 +208,31 @@ export const AffinityPrivacyRow: React.FC = () => {
         <span className="app-tag">
           {t('affinity_privacy.stat_starred', {
             count: summary.starred_repo_count,
-            defaultValue: 'GitHub Stars: {{count}}',
           })}
         </span>
         <span className="app-tag">
           {t('affinity_privacy.stat_forked', {
             count: summary.forked_repo_count,
-            defaultValue: 'GitHub Forks: {{count}}',
           })}
         </span>
         <span className="app-tag">
           {t('affinity_privacy.stat_owned', {
             count: summary.owned_repo_count,
-            defaultValue: '自有仓库: {{count}}',
           })}
         </span>
         <span className="app-tag">
           {t('affinity_privacy.stat_favorites', {
             count: summary.favorites_count,
-            defaultValue: '应用内收藏: {{count}}',
           })}
         </span>
         <span className="app-tag">
           {t('affinity_privacy.stat_watched', {
             count: summary.watched_count,
-            defaultValue: '版本关注: {{count}}',
           })}
         </span>
         <span className="app-tag">
           {t('affinity_privacy.last_synced', {
             time: formattedSyncTime,
-            defaultValue: '最近同步: {{time}}',
           })}
         </span>
       </div>
@@ -263,7 +254,6 @@ export const AffinityPrivacyRow: React.FC = () => {
                 items: summary.top_categories
                   .map((c) => `${getCategoryLabel(c.category, c.category, t)} (${Math.round(c.weight * 100)}%)`)
                   .join(' · '),
-                defaultValue: '偏好分类: {{items}}',
               })}
             </span>
           )}
@@ -271,7 +261,6 @@ export const AffinityPrivacyRow: React.FC = () => {
             <span>
               {t('affinity_privacy.top_languages', {
                 items: summary.top_languages.join(' / '),
-                defaultValue: '偏好语言: {{items}}',
               })}
             </span>
           )}

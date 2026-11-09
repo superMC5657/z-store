@@ -169,14 +169,14 @@ export const PendingRichCard: React.FC<PendingRichCardProps> = ({
                 data-testid="pending-revert-to-draft"
                 disabled={revertingId === entry.id}
                 onClick={() => void onRevertToDraft(entry.id)}
-                title={t('pending.revert_hint', { id: entry.id, defaultValue: '将本地收录退回草稿' })}
+                title={t('pending.revert_hint', { id: entry.id })}
                 style={{ marginLeft: 'auto' }}
               >
                 <Archive size={13} strokeWidth={1.5} aria-hidden="true" />
                 <span>
                   {confirmRevertId === entry.id
-                    ? t('pending.confirm_revert', { defaultValue: '再次点击确认退回' })
-                    : t('pending.revert_to_draft', { defaultValue: '退回草稿' })}
+                    ? t('pending.confirm_revert')
+                    : t('pending.revert_to_draft')}
                 </span>
               </button>
               <button

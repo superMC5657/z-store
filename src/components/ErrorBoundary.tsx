@@ -63,12 +63,10 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
         >
           <RotateCcw size={32} strokeWidth={1.5} style={{ opacity: 0.7 }} aria-hidden="true" />
           <h1 style={{ fontSize: 'calc(18px * var(--font-scale, 1))', margin: 0, fontWeight: 590 }}>
-            {i18n.t('error.title', { defaultValue: '界面出错了' })}
+            {i18n.t('error.title')}
           </h1>
           <p style={{ opacity: 0.7, margin: 0, fontSize: 'calc(13px * var(--font-scale, 1))' }}>
-            {i18n.t('error.description', {
-              defaultValue: '应用遇到未预期的错误，界面已停止渲染。点击下方按钮重载即可恢复。',
-            })}
+            {i18n.t('error.description')}
           </p>
           <pre
             className="text-mono"
@@ -93,7 +91,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
             onClick={this.handleReload}
           >
             <RotateCcw size={14} strokeWidth={1.5} aria-hidden="true" />
-            <span>{i18n.t('error.reload', { defaultValue: '重载应用' })}</span>
+            <span>{i18n.t('error.reload')}</span>
           </button>
         </div>
       </div>

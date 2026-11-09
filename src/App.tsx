@@ -611,17 +611,17 @@ export const App: React.FC = () => {
                   icon={<Search size={40} strokeWidth={1.5} />}
                   title={
                     isSearchingOnline
-                      ? t('search.searching_online', '正在在线搜索...')
+                      ? t('search.searching_online')
                       : onlineSearchPerformed
-                        ? t('search.no_online_results', '未找到相关应用')
-                        : t('search.no_local_results', '本地未找到匹配应用')
+                        ? t('search.no_online_results')
+                        : t('search.no_local_results')
                   }
                   description={
                     isSearchingOnline
-                      ? t('search.searching_online_desc', '正在向云端检索应用数据，请稍候...')
+                      ? t('search.searching_online_desc')
                       : onlineSearchPerformed
-                        ? t('search.online_empty_desc', '在线搜索亦未检索到匹配结果，请尝试其他关键词或直接输入 owner/repo')
-                        : t('search.press_enter_online_hint', '未在本地索引中找到相关应用，按回车在线搜索或点击下方按钮检索 GitHub')
+                        ? t('search.online_empty_desc')
+                        : t('search.press_enter_online_hint')
                   }
                   action={
                     !isSearchingOnline && (
@@ -631,8 +631,8 @@ export const App: React.FC = () => {
                         onClick={() => handleSearchSubmit(searchQuery)}
                       >
                         {onlineSearchPerformed
-                          ? t('search.retry_online', '重新在线搜索')
-                          : t('search.search_online_btn', '在线搜索')}
+                          ? t('search.retry_online')
+                          : t('search.search_online_btn')}
                       </button>
                     )
                   }
