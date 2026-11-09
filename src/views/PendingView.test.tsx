@@ -144,15 +144,15 @@ describe('PendingView grouping and empty states', () => {
     expect(screen.queryByText('已提交')).toBeNull();
     // Tab 计数按分区：1 草稿 + 3 本地收录（collected/local_collected/submitted）+ 1 归档
     const counts = Array.from(container.querySelectorAll('.segmented-count')).map((el) => el.textContent ?? '');
-    expect(counts).toEqual(['1', '3', '1']);
+    expect(counts).toEqual(['(1)', '(3)', '(1)']);
     // tab 顺序：草稿 → 本地收录 → 已归档；分段不占顶层 Tab
     const tabs = Array.from(container.querySelectorAll('.segmented-item')).map((el) =>
       el.textContent ?? '',
     );
     expect(tabs).toHaveLength(3);
-    expect(tabs[0]).toContain('草稿');
-    expect(tabs[1]).toContain('本地收录');
-    expect(tabs[2]).toContain('已归档');
+    expect(tabs[0]).toContain('草稿 (1)');
+    expect(tabs[1]).toContain('本地收录 (3)');
+    expect(tabs[2]).toContain('已归档 (1)');
     // 默认草稿分组仅见 o/a
     const listText = () => container.querySelector('.pending-list')?.textContent ?? '';
     expect(listText()).toContain('o/a');
@@ -166,6 +166,9 @@ describe('PendingView grouping and empty states', () => {
     expect(screen.getByTestId('pending-segment-all')).toBeTruthy();
     expect(screen.getByTestId('pending-segment-to_submit')).toBeTruthy();
     expect(screen.getByTestId('pending-segment-submitted')).toBeTruthy();
+    expect(screen.getByTestId('pending-segment-all').textContent).toBe('全部 (3)');
+    expect(screen.getByTestId('pending-segment-to_submit').textContent).toBe('待提交 (2)');
+    expect(screen.getByTestId('pending-segment-submitted').textContent).toBe('已提交 (1)');
     // 选中已收录行：编辑头显已收录徽标，收录按钮隐藏（仅 draft 显示）
     fireEvent.click(screen.getByText('o/col'));
     expect(screen.getAllByText('本地收录').length).toBeGreaterThanOrEqual(2);
@@ -844,7 +847,7 @@ describe('PendingView 3 tabs + 本地收录内部分段（计数分区 / 批量�
     const entries = libraryEntries();
     const { container } = render(<PendingView entries={entries} onGetLicenseAllowlist={gateProvider} />);
     const counts = Array.from(container.querySelectorAll('.segmented-count')).map((el) =>
-      Number(el.textContent ?? '0'),
+      Number((el.textContent ?? '0').replace(/\D/g, '')),
     );
     expect(counts).toEqual([1, 3, 1]);
     expect(counts.reduce((sum, n) => sum + n, 0)).toBe(entries.length);

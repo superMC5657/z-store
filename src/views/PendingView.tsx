@@ -1096,9 +1096,13 @@ export const PendingView: React.FC<PendingViewProps> = ({
             className={`segmented-item ${activeGroup === id ? 'active' : ''}`}
             onClick={() => handleGroupChange(id)}
           >
-            <Icon size={13} strokeWidth={1.5} aria-hidden="true" />
-            <span>{t(`pending.groups.${id}`)}</span>
-            <span className="segmented-count">{counts[id]}</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <Icon size={13} strokeWidth={1.5} aria-hidden="true" />
+              <span>
+                <span>{t(`pending.groups.${id}`)}</span>{' '}
+                <span className="segmented-count">({counts[id]})</span>
+              </span>
+            </span>
           </button>
         ))}
       </div>
@@ -1119,8 +1123,8 @@ export const PendingView: React.FC<PendingViewProps> = ({
               className={`pending-segment ${activeSegment === id ? 'active' : ''}`}
               onClick={() => handleSegmentChange(id)}
             >
-              <span>{t(`pending.segments.${id}`)}</span>
-              <span className="pending-segment-count">{segmentCounts[id]}</span>
+              <span>{t(`pending.segments.${id}`)}</span>{' '}
+              <span className="pending-segment-count">({segmentCounts[id]})</span>
             </button>
           ))}
         </div>
