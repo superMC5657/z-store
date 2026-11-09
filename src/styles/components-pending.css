@@ -184,16 +184,71 @@
   }
 }
 
-/* 表单控件满宽规范 */
+/* 表单控件满宽规范与亮暗主题兼容 */
 .pending-view .input-fluent {
   width: 100%;
   min-width: 0;
   max-width: 100%;
   box-sizing: border-box;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  caret-color: var(--brand-primary);
+  font-size: var(--font-sm);
+  font-family: inherit;
+  letter-spacing: -0.011em;
+  outline: none;
+  user-select: text;
+  transition: border-color 0.1s var(--ease-smooth),
+              background 0.1s var(--ease-smooth),
+              box-shadow 0.1s var(--ease-smooth);
+}
+
+.pending-view input.input-fluent {
+  height: 28px;
+  padding: 0 10px;
 }
 
 .pending-view textarea.input-fluent {
+  padding: 6px 10px;
+  line-height: 1.5;
   resize: vertical;
+}
+
+.pending-view .input-fluent:hover:not(:read-only):not(:disabled) {
+  border-color: var(--border-highlight);
+}
+
+.pending-view .input-fluent:focus:not(:read-only):not(:disabled) {
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 1px var(--brand-primary), 0 0 0 3px var(--brand-glow);
+}
+
+.pending-view .input-fluent::placeholder {
+  color: var(--placeholder-search);
+}
+
+.pending-view .input-fluent:read-only,
+.pending-view .input-fluent[readonly] {
+  color: var(--text-secondary);
+  border-color: var(--border-subtle);
+  background: var(--bg-input);
+  cursor: default;
+}
+
+.pending-view .input-fluent:read-only:focus,
+.pending-view .input-fluent[readonly]:focus {
+  outline: none;
+  border-color: var(--border-subtle);
+  box-shadow: none;
+}
+
+.pending-view .input-fluent:disabled,
+.pending-view .input-fluent[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  border-color: var(--border-subtle);
 }
 
 /* 左侧草稿列表（横向收窄，纵向高度与可读性保持原样） */
@@ -740,6 +795,11 @@
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.pending-manual-row .input-fluent {
+  width: auto;
+  min-width: 140px;
 }
 
 .pending-editor-pr-link {

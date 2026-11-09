@@ -6,6 +6,10 @@
 :root {
   color-scheme: light dark;
 
+[data-theme="light"] {
+  color-scheme: light;
+}
+
   /* Linear 精确缓动：只用 cubic-bezier(0.16, 1, 0.3, 1)，禁用 ease-in 与弹性过冲 */
   --ease-smooth: cubic-bezier(0.16, 1, 0.3, 1);
 
@@ -156,6 +160,8 @@
 }
 
 [data-theme="dark"] {
+  color-scheme: dark;
+
   /* Linear 深黑灰骨架（Dark Mode） */
   --brand-primary: #5E6AD2;
   --brand-hover: #7170FF;

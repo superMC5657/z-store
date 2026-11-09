@@ -51,3 +51,70 @@
 .fluent-input-search:focus-within svg {
   color: var(--brand-primary);
 }
+
+/* 通用 Fluent 输入控件（单行 input 与多行 textarea 共享基线） */
+.input-fluent {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  caret-color: var(--brand-primary);
+  font-size: var(--font-sm);
+  font-family: inherit;
+  letter-spacing: -0.011em;
+  outline: none;
+  user-select: text;
+  transition: border-color 0.1s var(--ease-smooth),
+              background 0.1s var(--ease-smooth),
+              box-shadow 0.1s var(--ease-smooth);
+}
+
+input.input-fluent {
+  height: 28px;
+  padding: 0 10px;
+}
+
+textarea.input-fluent {
+  padding: 6px 10px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.input-fluent:hover:not(:read-only):not(:disabled) {
+  border-color: var(--border-highlight);
+}
+
+.input-fluent:focus:not(:read-only):not(:disabled) {
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 1px var(--brand-primary), 0 0 0 3px var(--brand-glow);
+}
+
+.input-fluent::placeholder {
+  color: var(--placeholder-search);
+}
+
+.input-fluent:read-only,
+.input-fluent[readonly] {
+  color: var(--text-secondary);
+  border-color: var(--border-subtle);
+  background: var(--bg-input);
+  cursor: default;
+}
+
+.input-fluent:read-only:focus,
+.input-fluent[readonly]:focus {
+  outline: none;
+  border-color: var(--border-subtle);
+  box-shadow: none;
+}
+
+.input-fluent:disabled,
+.input-fluent[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  border-color: var(--border-subtle);
+}

@@ -262,9 +262,12 @@ describe('PendingView 表单窄宽布局回归（只锁布局，不碰字段/校
       expect(st.flexDirection).not.toBe('row');
       expect(st.gridTemplateColumns).toBe('');
     }
-    // 控件满宽规则仍在（label 在上、输入框在下占满宽）。
+    // 控件满宽与主题兼容规则仍在（label 在上、输入框在下占满宽，背景/边框/文字走 token）。
     expect(css).toContain('.pending-view .input-fluent');
     expect(css).toContain('width: 100%');
+    expect(css).toContain('background: var(--bg-input)');
+    expect(css).toContain('border: 1px solid var(--border-color)');
+    expect(css).toContain('color: var(--text-primary)');
   });
 
   it('长 id 标题省略 + title 悬浮看全', async () => {
