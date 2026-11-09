@@ -215,8 +215,65 @@ impl Database {
 
 /// 榜缓存二级落盘单条至多 512 KiB，超限拒绝。
 pub const TREND_BOARD_CACHE_MAX_BYTES: usize = 512 * 1024;
+/// API ETag 缓存表最大保留行数（按 `last_checked_at DESC` LRU 淘汰）。
+pub const API_ETAG_CACHE_MAX_ROWS: usize = 1000;
+/// 应用详情缓存表最大保留行数（按 `cached_at DESC` LRU 淘汰，资产关联行豁免）。
+pub const APP_DETAILS_CACHE_MAX_ROWS: usize = 500;
 
 impl Database {
+    /// 按 `last_checked_at DESC` 保留最新 `max_rows` 条 ETag 缓存，清理超限陈旧行。
+    pub fn prune_api_etag_cache(&self, max_rows: usize) -> Result<usize> {
+        if max_rows == 0 {
+            return Ok(0);
+        }
+        let deleted = self.conn.execute(
+            r#"
+            DELETE FROM api_etag_cache
+            WHERE endpoint_url NOT IN (
+                SELECT endpoint_url FROM api_etag_cache
+                ORDER BY last_checked_at DESC, endpoint_url ASC
+                LIMIT ?1
+            )
+            "#,
+            params![max_rows as i64],
+        )?;
+        Ok(deleted)
+    }
+
+    /// 按 `cached_at DESC` 保留最新 `max_rows` 条应用详情缓存；
+    /// 已安装、收藏或关注的 `app_id` 永不淘汰，确保未收录资产的离线富卡可用。
+    pub fn prune_app_details_cache(&self, max_rows: usize) -> Result<usize> {
+        if max_rows == 0 {
+            return Ok(0);
+        }
+        let deleted = self.conn.execute(
+            r#"
+            DELETE FROM app_details_cache
+            WHERE app_id NOT IN (
+                SELECT app_id FROM app_details_cache
+                ORDER BY cached_at DESC, app_id ASC
+                LIMIT ?1
+            )
+            AND app_id NOT IN (SELECT app_id FROM installed_apps)
+            AND app_id NOT IN (SELECT app_id FROM user_favorites)
+            AND app_id NOT IN (SELECT app_id FROM watched_apps)
+            "#,
+            params![max_rows as i64],
+        )?;
+        Ok(deleted)
+    }
+
+    /// 统一裁剪 `api_etag_cache` 与 `app_details_cache` 容量上限，返回 `(etag_deleted, detail_deleted)`。
+    pub fn prune_bounded_caches(
+        &self,
+        max_etag_rows: usize,
+        max_detail_rows: usize,
+    ) -> Result<(usize, usize)> {
+        let etag_deleted = self.prune_api_etag_cache(max_etag_rows)?;
+        let detail_deleted = self.prune_app_details_cache(max_detail_rows)?;
+        Ok((etag_deleted, detail_deleted))
+    }
+
     /// 榜缓存二级落盘读。
     pub fn get_trend_board_cache(&self, cache_key: &str) -> Result<Option<(String, i64)>> {
         let key = clean(cache_key);
@@ -844,5 +901,84 @@ mod cache_quota_tests {
         assert_eq!(removed, 1);
         assert!(scan_asset_files(&icons).is_empty());
         assert!(db.get_icon_cache_url("i.png").unwrap().is_none());
+    }
+
+    #[test]
+    fn prune_etag_and_detail_caches_respect_lru_and_protected_assets() {
+        let db = Database::open_in_memory().unwrap();
+        db.save_etag("https://api.github.com/1", "e1", "{}", 100)
+            .unwrap();
+        db.save_etag("https://api.github.com/2", "e2", "{}", 200)
+            .unwrap();
+        db.save_etag("https://api.github.com/3", "e3", "{}", 300)
+            .unwrap();
+
+        let deleted_etags = db.prune_api_etag_cache(2).unwrap();
+        assert_eq!(deleted_etags, 1);
+        assert!(db.get_etag("https://api.github.com/1").unwrap().is_none());
+        assert!(db.get_etag("https://api.github.com/2").unwrap().is_some());
+        assert!(db.get_etag("https://api.github.com/3").unwrap().is_some());
+
+        let mk_detail = |id: &str| crate::models::AppDetail {
+            core: crate::models::AppCore {
+                id: id.to_string(),
+                name: id.to_string(),
+                owner: "o".to_string(),
+                repo: id.to_string(),
+                icon: String::new(),
+                icon_bg: String::new(),
+                description: String::new(),
+                description_en: None,
+                stars: 1,
+                forks: 0,
+                license: "MIT".to_string(),
+                latest_version: "v1.0.0".to_string(),
+                category: "dev".to_string(),
+                category_name: "开发工具".to_string(),
+                is_verified: false,
+                forge: Some("github".to_string()),
+                forge_host: Some("github.com".to_string()),
+                homepage: None,
+                platforms: vec![],
+                added_at: None,
+                is_cataloged: Some(false),
+                source: None,
+                status: None,
+            },
+            readme_markdown: String::new(),
+            readme_variants: None,
+            changelog: String::new(),
+            releases: vec![],
+            is_stale: None,
+            cached_at: None,
+        };
+
+        db.save_cached_app_detail("o/old-protected", &mk_detail("o/old-protected"))
+            .unwrap();
+        db.touch_cached_app_detail("o/old-protected", 10).unwrap();
+        db.add_favorite("o/old-protected", false).unwrap();
+
+        db.save_cached_app_detail("o/old-evict", &mk_detail("o/old-evict"))
+            .unwrap();
+        db.touch_cached_app_detail("o/old-evict", 20).unwrap();
+
+        db.save_cached_app_detail("o/newest", &mk_detail("o/newest"))
+            .unwrap();
+        db.touch_cached_app_detail("o/newest", 30).unwrap();
+
+        let deleted_details = db.prune_app_details_cache(1).unwrap();
+        assert_eq!(deleted_details, 1);
+        assert!(db
+            .get_cached_app_detail("o/old-evict", None)
+            .unwrap()
+            .is_none());
+        assert!(db
+            .get_cached_app_detail("o/old-protected", None)
+            .unwrap()
+            .is_some());
+        assert!(db
+            .get_cached_app_detail("o/newest", None)
+            .unwrap()
+            .is_some());
     }
 }

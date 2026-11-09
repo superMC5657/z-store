@@ -441,9 +441,13 @@ pub fn run() {
         }
     };
 
-    // 趋势榜缓存：启动后 best-effort 清扫过期快照（吞错，不阻塞启动）。
+    // 趋势榜与 ETag/详情缓存：启动后 best-effort 清扫过期/超量快照（吞错，不阻塞启动）。
     {
         let _ = db.prune_expired_trend_board_cache(now_secs());
+        let _ = db.prune_bounded_caches(
+            crate::db::cache::API_ETAG_CACHE_MAX_ROWS,
+            crate::db::cache::APP_DETAILS_CACHE_MAX_ROWS,
+        );
         let assets_dir = db_dir.join("cache").join("assets");
         let _ = db.enforce_asset_quota_lru(&assets_dir);
     }

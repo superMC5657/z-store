@@ -16,7 +16,9 @@ import {
   admitIconHit,
   patchAppIconList,
   preloadTop30Icons,
+  subscribeIconWrites,
 } from '../../services/iconStore';
+import { patchSearchListCacheIcon } from '../../services/search/searchListCache';
 import { matchPlatformSetWithLoading } from '../../lib/platformFilter';
 import { annotateIsCataloged, buildCatalogIdSet, restampLocalMarks } from '../selectors';
 import { type PlatformId } from '../../lib/platformFilter';
@@ -220,12 +222,36 @@ export function useAppSubscriptions({
     };
     window.addEventListener('zstore:catalog-synced', handleCatalogSynced);
 
+    const listSetters = [
+      setApps,
+      setOnlineApps,
+      setRecentlyViewedApps,
+      setUncatalogedExtraApps,
+    ];
+    const unsubIconWrites = subscribeIconWrites(({ targets, icon }) => {
+      // 05 翻页一致性：图标就绪同时写透搜索列表缓存行与四列表状态。
+      for (const t of targets) {
+        try {
+          patchSearchListCacheIcon(t, icon);
+        } catch {
+          // 缓存写透失败不阻塞列表
+        }
+        for (const setter of listSetters) {
+          try {
+            setter((prev) => patchAppIconList(prev, t, icon));
+          } catch {
+            // 单列表失败不阻塞其余
+          }
+        }
+      }
+    });
+
     let unlistenSearchIcons: (() => void) | null = null;
     tauriApi
       .onIconReady((payload) => {
         // 回调体委托 `services/iconStore.admitIconHit`（世代门控 + 写透守卫 +
-        // 别名双写 + `invalidate→queue` 时机均在店内；此处仅做载荷适配
-        // 与 React 四列表 `patch` 注入，`via`透传，`level`纯L单调）。
+        // 别名双写 + `invalidate→queue` 时机均在店内；四列表更新统一由上方
+        // `subscribeIconWrites` 单点扇出，避免重复 setState）。
         const raw = (payload ?? {}) as unknown as Record<string, unknown>;
         const asStr = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
         const ctx = (raw['context'] ?? null) as {
@@ -257,12 +283,6 @@ export function useAppSubscriptions({
               uncatalogedExtraAppsRef.current.find((a) => a.id.toLowerCase() === lk)?.icon
             );
           },
-          patch: (tid, icon) => {
-            setApps((prevApps) => patchAppIconList(prevApps, tid, icon));
-            setOnlineApps((prev) => patchAppIconList(prev, tid, icon));
-            setRecentlyViewedApps((prevRecents) => patchAppIconList(prevRecents, tid, icon));
-            setUncatalogedExtraApps((prevExtras) => patchAppIconList(prevExtras, tid, icon));
-          },
         });
       })
       .then((unlisten) => {
@@ -271,6 +291,7 @@ export function useAppSubscriptions({
 
     return () => {
       window.removeEventListener('zstore:catalog-synced', handleCatalogSynced);
+      unsubIconWrites();
       if (unlistenSearchIcons) unlistenSearchIcons();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

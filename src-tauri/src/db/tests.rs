@@ -1393,3 +1393,73 @@ fn test_level_for_known_url_and_detail_icon_resolution_slots() {
     assert_eq!(created_mixed.owner, "NewOwner");
     assert_eq!(created_mixed.repo, "NewRepo");
 }
+
+#[test]
+fn test_prune_bounded_caches_lru_and_asset_protection() {
+    let db = fixtures::test_db();
+    db.save_etag("https://api.github.com/1", "e1", "{}", 100)
+        .unwrap();
+    db.save_etag("https://api.github.com/2", "e2", "{}", 200)
+        .unwrap();
+    db.save_etag("https://api.github.com/3", "e3", "{}", 300)
+        .unwrap();
+
+    let mk_detail = |id: &str| AppDetail {
+        core: AppCore {
+            id: id.to_string(),
+            name: id.to_string(),
+            owner: "o".to_string(),
+            repo: id.to_string(),
+            icon: String::new(),
+            icon_bg: String::new(),
+            description: String::new(),
+            description_en: None,
+            stars: 1,
+            forks: 0,
+            license: "MIT".to_string(),
+            latest_version: "v1.0.0".to_string(),
+            category: "dev".to_string(),
+            category_name: "开发工具".to_string(),
+            is_verified: false,
+            forge: Some("github".to_string()),
+            forge_host: Some("github.com".to_string()),
+            homepage: None,
+            platforms: vec![],
+            added_at: None,
+            is_cataloged: Some(false),
+            source: None,
+            status: None,
+        },
+        readme_markdown: String::new(),
+        readme_variants: None,
+        changelog: String::new(),
+        releases: vec![],
+        is_stale: None,
+        cached_at: None,
+    };
+
+    db.save_cached_app_detail("o/protected", &mk_detail("o/protected"))
+        .unwrap();
+    db.touch_cached_app_detail("o/protected", 10).unwrap();
+    db.add_favorite("o/protected", false).unwrap();
+
+    db.save_cached_app_detail("o/evict", &mk_detail("o/evict"))
+        .unwrap();
+    db.touch_cached_app_detail("o/evict", 20).unwrap();
+
+    db.save_cached_app_detail("o/keep", &mk_detail("o/keep"))
+        .unwrap();
+    db.touch_cached_app_detail("o/keep", 30).unwrap();
+
+    let (etag_del, detail_del) = db.prune_bounded_caches(2, 1).unwrap();
+    assert_eq!(etag_del, 1);
+    assert_eq!(detail_del, 1);
+    assert!(db.get_etag("https://api.github.com/1").unwrap().is_none());
+    assert!(db.get_etag("https://api.github.com/2").unwrap().is_some());
+    assert!(db.get_cached_app_detail("o/evict", None).unwrap().is_none());
+    assert!(db
+        .get_cached_app_detail("o/protected", None)
+        .unwrap()
+        .is_some());
+    assert!(db.get_cached_app_detail("o/keep", None).unwrap().is_some());
+}

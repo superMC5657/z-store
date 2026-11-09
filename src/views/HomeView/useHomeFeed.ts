@@ -206,34 +206,66 @@ export function useHomeFeed({
     };
   }, [affinityRefreshSeq]);
 
+  const presentAppIdSet = useMemo(
+    () => new Set(apps.map((a) => a.id.toLowerCase())),
+    [apps],
+  );
+  const appById = useMemo(() => {
+    const m = new Map<string, AppSummary>();
+    for (const a of apps) {
+      const k = a.id.toLowerCase();
+      if (!m.has(k)) m.set(k, a);
+    }
+    return m;
+  }, [apps]);
+  const heroIdLower = heroApp ? heroApp.id.toLowerCase() : null;
+
+  const backendNonHero = useMemo(
+    () =>
+      backendItems
+        .filter((s) => {
+          const k = s.id.toLowerCase();
+          return presentAppIdSet.has(k) && k !== heroIdLower;
+        })
+        .map((s) => appById.get(s.id.toLowerCase()) ?? s),
+    [backendItems, presentAppIdSet, heroIdLower, appById],
+  );
+
+  const isBackendListActive = !isSearching && backendActive && backendNonHero.length > 0;
+  const skipLocalRanking = isSearching || isBackendListActive;
+
   const affinityScorer = useMemo(
     () =>
-      buildFrontendAffinityScorer({
-        catalog: apps,
-        favoriteIds,
-        watchedIds,
-        enabled: affinityEnabled,
-      }),
-    [apps, favoriteIds, watchedIds, affinityEnabled],
+      skipLocalRanking
+        ? undefined
+        : buildFrontendAffinityScorer({
+            catalog: apps,
+            favoriteIds,
+            watchedIds,
+            enabled: affinityEnabled,
+          }),
+    [apps, favoriteIds, watchedIds, affinityEnabled, skipLocalRanking],
   );
   const rankedRest = useMemo(
     () => {
       if (isSearching) return apps;
+      if (isBackendListActive) return [];
       return rankFeed(nonHeroApps, seed, strategy, affinityScorer);
     },
-    [nonHeroApps, seed, strategy, affinityScorer, isSearching, apps],
+    [nonHeroApps, seed, strategy, affinityScorer, isSearching, isBackendListActive, apps],
   );
 
   const localFeaturedApps = useMemo(
-    () => (isSearching ? [] : sliceFeed(rankedRest, 0, 4)),
-    [rankedRest, isSearching],
+    () => (skipLocalRanking ? [] : sliceFeed(rankedRest, 0, 4)),
+    [rankedRest, skipLocalRanking],
   );
   const feedPool = useMemo(
     () => {
       if (isSearching) return apps;
+      if (isBackendListActive) return [];
       return sliceFeed(rankedRest, 4, Math.max(0, rankedRest.length - 4));
     },
-    [rankedRest, isSearching, apps],
+    [rankedRest, isSearching, isBackendListActive, apps],
   );
 
   const visibleLocal = useMemo(() => sliceFeed(feedPool, 0, visibleCount), [feedPool, visibleCount]);
@@ -290,32 +322,6 @@ export function useHomeFeed({
     };
   }, [seed, strategy, signalKey, affinityRefreshSeq]);
 
-  const presentAppIdSet = useMemo(
-    () => new Set(apps.map((a) => a.id.toLowerCase())),
-    [apps],
-  );
-  const appById = useMemo(() => {
-    const m = new Map<string, AppSummary>();
-    for (const a of apps) {
-      const k = a.id.toLowerCase();
-      if (!m.has(k)) m.set(k, a);
-    }
-    return m;
-  }, [apps]);
-  const heroIdLower = heroApp ? heroApp.id.toLowerCase() : null;
-
-  const backendNonHero = useMemo(
-    () =>
-      backendItems
-        .filter((s) => {
-          const k = s.id.toLowerCase();
-          return presentAppIdSet.has(k) && k !== heroIdLower;
-        })
-        .map((s) => appById.get(s.id.toLowerCase()) ?? s),
-    [backendItems, presentAppIdSet, heroIdLower, appById],
-  );
-
-  const isBackendListActive = !isSearching && backendActive && backendNonHero.length > 0;
   const featuredApps = useMemo(
     () => (isSearching ? [] : isBackendListActive ? sliceFeed(backendNonHero, 0, 4) : localFeaturedApps),
     [isSearching, isBackendListActive, backendNonHero, localFeaturedApps],

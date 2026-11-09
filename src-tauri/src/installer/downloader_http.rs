@@ -4,8 +4,43 @@ use super::downloader_progress::{
 };
 use crate::log_support::{file_base, http_err_reason, sanitize_url, short_reason};
 use crate::models::DownloadProgressPayload;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
+
+const DOWNLOAD_CLIENT_POOL_CAP: usize = 8;
+static DOWNLOAD_CLIENTS: OnceLock<Mutex<HashMap<String, reqwest::Client>>> = OnceLock::new();
+
+fn build_download_client(dl_extra: &[String]) -> Result<reqwest::Client, String> {
+    let net_conf = &crate::config::get_project_config().network;
+    let dl_builder = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) ZStore/0.1.0")
+        .connect_timeout(std::time::Duration::from_secs(net_conf.connect_timeout_seconds))
+        .tcp_keepalive(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_secs(net_conf.download_timeout_seconds));
+    crate::proxy::apply_proxy(dl_builder, dl_extra)
+        .build()
+        .map_err(|e| e.to_string())
+}
+
+fn resolve_download_client(dl_extra: &[String]) -> Result<reqwest::Client, String> {
+    let key = dl_extra.join(",");
+    let pool = DOWNLOAD_CLIENTS.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Ok(guard) = pool.lock() {
+        if let Some(existing) = guard.get(&key) {
+            return Ok(existing.clone());
+        }
+    }
+    let client = build_download_client(dl_extra)?;
+    if let Ok(mut guard) = pool.lock() {
+        if guard.len() >= DOWNLOAD_CLIENT_POOL_CAP && !guard.contains_key(&key) {
+            guard.clear();
+        }
+        guard.insert(key, client.clone());
+    }
+    Ok(client)
+}
 
 pub async fn download_with_progress(
     app_handle: &tauri::AppHandle,
@@ -16,17 +51,10 @@ pub async fn download_with_progress(
     custom_download_dir: Option<&Path>,
 ) -> Result<(PathBuf, String), String> {
     let net_conf = &crate::config::get_project_config().network;
-    // 下载器独立 Client：直建，超时全部取 config；系统代理经 proxy 统一收敛，
-    // 镜像 host 靠 per-client no_proxy 直连（不另起 Client，不写全局 env）。
+    // 下载器独立 Client：无自定义 no_proxy 时复用全局下载单例池；
+    // 镜像 host 需 per-client no_proxy 直连时按需构造（不写全局 env）。
     let dl_extra: Vec<String> = crate::proxy::proxy_hosts_for(download_url);
-    let dl_builder = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) ZStore/0.1.0")
-        .connect_timeout(std::time::Duration::from_secs(net_conf.connect_timeout_seconds))
-        .tcp_keepalive(std::time::Duration::from_secs(15))
-        .timeout(std::time::Duration::from_secs(net_conf.download_timeout_seconds));
-    let client = crate::proxy::apply_proxy(dl_builder, &dl_extra)
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = resolve_download_client(&dl_extra)?;
     let chunk_timeout = std::time::Duration::from_secs(net_conf.chunk_timeout_seconds);
 
     let started = Instant::now();

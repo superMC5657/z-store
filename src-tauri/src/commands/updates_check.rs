@@ -13,8 +13,9 @@ pub const DAILY_NOTIFY_INTERVAL_SECONDS: i64 = 24 * 60 * 60;
 /// 坚决不拉取 README.md、不拉取仓库详情与 Stars、不拉取校验和文件
 /// - 默认 DB-only（`force_refresh != Some(true)`）：仅读 `get_cached_app_detail(None)` /
 ///   收录库默认版本，零网络（启动/登录不触网）；
-/// - 显式手动刷新（`Some(true)`）直探 `releases/latest`（无 `If-None-Match`，不会 304）；
-///   离线/限流时仍降级返回本地已有缓存。
+/// - 显式手动刷新（`Some(true)`）：跳过详情 Cache TTL 短路，携带本地 `api_etag_cache` 中的
+///   ETag 发送 `If-None-Match` 条件请求；命中 `304 Not Modified` 时零配额消耗从 `cached_payload`
+///   恢复最新版本，离线/限流时降级返回本地已有缓存。
 pub(crate) async fn fetch_app_latest_version_lightweight(
     state: &AppState,
     app_id: &str,
@@ -41,7 +42,7 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
         return Err("检查更新网络不可达且无本地缓存".to_string());
     }
 
-    // 显式手动刷新（force==true）：直探 `releases/latest`，不读详情 Cache TTL（更新发现不受浏览 TTL 拖累）。
+    // 显式手动刷新（force==true）：跳过详情 Cache TTL 短路，向 `releases/latest` 发起带 ETag 的条件请求。
     // 失败时再降级读本地缓存（见下方 shallow adapter 回退）。
 
     // 2. 多源支持 (Codeberg, Gitea 等)
@@ -77,13 +78,31 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
         coords.owner, coords.repo
     );
 
-    // 手动刷新直探：不带 ETag 条件头，强制取远端最新。
+    // 手动刷新条件重验：跳过详情 Cache TTL 短路，但携带本地 ETag 发送 If-None-Match，
+    // 远端 304 Not Modified 时零配额消耗从 cached_payload 恢复最新版本。
+    let (cached_etag, cached_payload) = if let Ok(db) = state.db() {
+        (
+            db.get_etag(&ep)
+                .ok()
+                .flatten()
+                .filter(|s| !s.trim().is_empty()),
+            db.get_cached_payload(&ep).ok().flatten(),
+        )
+    } else {
+        (None, None)
+    };
     let token = crate::commands::resolve_active_github_token(state);
     let base_headers = crate::github::http::token_headers(token.as_deref());
 
-    let outcome =
-        crate::github::http::get_with_etag(&state.http, &ep, None, &base_headers, None, "updates")
-            .await;
+    let outcome = crate::github::http::get_with_etag(
+        &state.http,
+        &ep,
+        None,
+        &base_headers,
+        cached_etag.as_deref(),
+        "updates",
+    )
+    .await;
 
     if matches!(outcome, crate::github::http::EtagGetOutcome::Unauthorized) {
         crate::check_auth_expired(401, &format!("op=check_updates app={}", clean_id));
@@ -92,8 +111,7 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
     // 收敛：轻量决议经 `github::release_fetch` shallow adapter（与 `get_platforms_lite`
     // 同一 interface）。
     // ADR-0007 豁免对照分支（consult_ttl = false 侧）：此处故意不读详情 Cache TTL
-    // （缓存生存时效），每次直探远端；TTL 快径仅 `get_platforms_lite` 有。语义见模块注释。
-    // 无 ETag 缓存可恢复（直探不带 If-None-Match，不会 304）。
+    // （缓存生存时效），每次向远端发起条件请求；TTL 快径仅 `get_platforms_lite` 有。
     // Fresh 无需回退源，避免无谓 DB 读。
     let (stale_row, catalog_default) = match &outcome {
         crate::github::http::EtagGetOutcome::Fresh { .. } => (None, None),
@@ -109,15 +127,37 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
             (row, cat)
         }
     };
-    let resolution = crate::github::release_fetch::decide_shallow_release(
+    let mut resolution = resolve_update_shallow_with_fallback(
         &outcome,
-        None,
+        cached_payload.as_deref(),
         stale_row.as_ref(),
         catalog_default.as_deref(),
     );
+    // 若 304 但本地 payload 损坏/缺失且无 stale_row / catalog_default 可兜底，
+    // 剥除坏 ETag 发起一次无条件请求自愈。
+    if matches!(
+        resolution,
+        Err(crate::github::release_fetch::ShallowError::PayloadCorrupt(_))
+            | Err(crate::github::release_fetch::ShallowError::Miss(
+                crate::github::release_fetch::ShallowMiss::NotModifiedWithoutCache
+            ))
+    ) {
+        let retry_outcome =
+            crate::github::http::get_with_etag(&state.http, &ep, None, &base_headers, None, "updates")
+                .await;
+        if matches!(retry_outcome, crate::github::http::EtagGetOutcome::Unauthorized) {
+            crate::check_auth_expired(401, &format!("op=check_updates app={}", clean_id));
+        }
+        resolution = crate::github::release_fetch::decide_shallow_release(
+            &retry_outcome,
+            None,
+            stale_row.as_ref(),
+            catalog_default.as_deref(),
+        );
+    }
     match resolution {
         Ok(rel) => {
-            // touch 由 decide 置位（本路径无 304，恒 false）；Fresh 不 touch。
+            // 304 命中时 touch 延长详情缓存保鲜期；Fresh 保存新 ETag。
             if rel.touch {
                 if let Ok(db) = state.db() {
                     let _ = db.touch_cached_app_detail(&clean_id, crate::now_secs());
@@ -131,18 +171,42 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
             Ok((rel.tag, rel.body))
         }
         Err(crate::github::release_fetch::ShallowError::Parse(e)) => Err(e),
-        // 防御：payload 恒 None，该臂不会命中；文案与 304 缺缓存一致。
+        Err(crate::github::release_fetch::ShallowError::PayloadCorrupt(_))
+        | Err(crate::github::release_fetch::ShallowError::Miss(
+            crate::github::release_fetch::ShallowMiss::NotModifiedWithoutCache,
+        )) => Err("304 响应但未能提取到有效版本信息".to_string()),
+        Err(crate::github::release_fetch::ShallowError::Miss(
+            crate::github::release_fetch::ShallowMiss::OfflineWithoutCache,
+        )) => Err("检查更新网络不可达且无本地缓存".to_string()),
+    }
+}
+
+/// 更新检查 shallow 决议包装：304 命中优先解析 `cached_payload`，若缓存 JSON 损坏则自动退回
+/// `stale_row` / `catalog_default_version` 兜底。
+pub(crate) fn resolve_update_shallow_with_fallback(
+    outcome: &crate::github::http::EtagGetOutcome,
+    cached_payload: Option<&str>,
+    stale_row: Option<&crate::models::AppDetail>,
+    catalog_default_version: Option<&str>,
+) -> Result<
+    crate::github::release_fetch::ShallowRelease,
+    crate::github::release_fetch::ShallowError,
+> {
+    match crate::github::release_fetch::decide_shallow_release(
+        outcome,
+        cached_payload,
+        stale_row,
+        catalog_default_version,
+    ) {
         Err(crate::github::release_fetch::ShallowError::PayloadCorrupt(_)) => {
-            Err("304 响应但未能提取到有效版本信息".to_string())
+            crate::github::release_fetch::decide_shallow_release(
+                outcome,
+                None,
+                stale_row,
+                catalog_default_version,
+            )
         }
-        Err(crate::github::release_fetch::ShallowError::Miss(miss)) => match miss {
-            crate::github::release_fetch::ShallowMiss::NotModifiedWithoutCache => {
-                Err("304 响应但未能提取到有效版本信息".to_string())
-            }
-            crate::github::release_fetch::ShallowMiss::OfflineWithoutCache => {
-                Err("检查更新网络不可达且无本地缓存".to_string())
-            }
-        },
+        other => other,
     }
 }
 
@@ -536,4 +600,51 @@ async fn notify_watched_updates(
         .buffer_unordered(6)
         .for_each(|_| async {})
         .await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_update_shallow_with_fallback;
+    use crate::github::http::EtagGetOutcome;
+    use crate::github::release_fetch::{ShallowError, ShallowMiss, ShallowSource};
+
+    #[test]
+    fn update_check_304_restores_payload_and_falls_back_on_corrupt_cache() {
+        let valid_payload = r#"{"tag_name":"v2.4.0","body":"release notes","assets":[]}"#;
+        let rel = resolve_update_shallow_with_fallback(
+            &EtagGetOutcome::NotModified,
+            Some(valid_payload),
+            None,
+            Some("v1.0.0"),
+        )
+        .expect("304 with valid cached payload should succeed");
+        assert_eq!(rel.source, ShallowSource::Payload);
+        assert_eq!(rel.tag, "v2.4.0");
+        assert_eq!(rel.body, "release notes");
+        assert!(rel.touch);
+
+        // 损坏的 cached_payload 自动降级至 catalog_default_version
+        let fallback = resolve_update_shallow_with_fallback(
+            &EtagGetOutcome::NotModified,
+            Some("{corrupt-json"),
+            None,
+            Some("v1.8.0"),
+        )
+        .expect("304 with corrupt payload should fall back to catalog default");
+        assert_eq!(fallback.source, ShallowSource::Catalog);
+        assert_eq!(fallback.tag, "v1.8.0");
+
+        // 损坏的 cached_payload 且无 stale_row / catalog_default 时返回 NotModifiedWithoutCache 供上层自愈重试
+        let err = resolve_update_shallow_with_fallback(
+            &EtagGetOutcome::NotModified,
+            Some("{corrupt-json"),
+            None,
+            None,
+        )
+        .unwrap_err();
+        assert_eq!(
+            err,
+            ShallowError::Miss(ShallowMiss::NotModifiedWithoutCache)
+        );
+    }
 }

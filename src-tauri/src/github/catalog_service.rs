@@ -122,9 +122,20 @@ impl CatalogService {
             .and_then(|items| items.iter().find(|i| i.id == key).cloned())
     }
 
-    /// 本地收录命中判定（canonical 归一，零网络）。
+    fn has_collected_key(&self, key: &str) -> bool {
+        self.collected
+            .read()
+            .ok()
+            .map(|items| items.iter().any(|i| i.id == key))
+            .unwrap_or(false)
+    }
+
+    /// 本地收录命中判定（canonical 归一，零网络，零克隆）。
     pub fn is_collected_id(&self, id: &str) -> bool {
-        self.get_collected_item(id).is_some()
+        let Some(key) = crate::forge::canonical_app_id(id) else {
+            return false;
+        };
+        self.has_collected_key(&key)
     }
 
     /// 目录项检索唯一口：远端精确命中优先，其次本地收录补位。
@@ -138,42 +149,58 @@ impl CatalogService {
         self.get_catalog_item(id).is_some()
     }
 
-    /// 收录态决议（盖章唯一口径）：返回 `(is_cataloged, source, status)`。
+    /// 根据已知远端验证状态与本地收录命中状态为 `AppCore` 盖章。
+    fn apply_stamp_flags(
+        core: &mut crate::models::AppCore,
+        remote_verified: Option<bool>,
+        is_collected: bool,
+    ) {
+        if let Some(verified) = remote_verified {
+            if verified || !is_collected {
+                core.is_cataloged = Some(true);
+                core.source = Some(CATALOG_SOURCE_REMOTE.to_string());
+                core.status = None;
+                return;
+            }
+        }
+        if is_collected {
+            core.is_cataloged = Some(true);
+            core.source = Some(CATALOG_SOURCE_LOCAL.to_string());
+            core.status = Some(crate::db::custom_apps::CUSTOM_APP_STATUS_COLLECTED.to_string());
+        } else {
+            core.is_cataloged = Some(false);
+            core.source = None;
+            core.status = None;
+        }
+    }
+
+    /// 收录态决议（盖章唯一口径）：
     /// - 远端已验证 → `remote`（蓝标优先，本地同 id 不降级）；
     /// - 本地收录（含远端未验证同仓补位）→ `local` + `status=collected`；
     /// - 远端未验证且无本地收录 → `remote`；
     /// - 均未命中 → `is_cataloged=false`（来源缺席）。
-    fn resolve_catalog_stamp(&self, id: &str) -> (bool, Option<String>, Option<String>) {
-        let remote = self.get_remote_catalog_item(id);
-        let is_collected = self.is_collected_id(id);
-        let remote_verified = remote.as_ref().map(|i| i.is_verified).unwrap_or(false);
-        if remote.is_some() && (remote_verified || !is_collected) {
-            (true, Some(CATALOG_SOURCE_REMOTE.to_string()), None)
-        } else if is_collected {
-            (
-                true,
-                Some(CATALOG_SOURCE_LOCAL.to_string()),
-                Some(crate::db::custom_apps::CUSTOM_APP_STATUS_COLLECTED.to_string()),
-            )
-        } else {
-            (false, None, None)
-        }
+    fn resolve_catalog_stamp(&self, core: &mut crate::models::AppCore) {
+        let Some(key) = crate::forge::canonical_app_id(&core.id) else {
+            Self::apply_stamp_flags(core, None, false);
+            return;
+        };
+        let remote_verified = self
+            .items
+            .read()
+            .ok()
+            .and_then(|items| items.iter().find(|i| i.id == key).map(|i| i.is_verified));
+        let is_collected = self.has_collected_key(&key);
+        Self::apply_stamp_flags(core, remote_verified, is_collected);
     }
 
     /// 收录态盖章（`AppSummary` 投影唯一口）。
     pub fn stamp_summary(&self, summary: &mut AppSummary) {
-        let (cataloged, source, status) = self.resolve_catalog_stamp(&summary.core.id);
-        summary.core.is_cataloged = Some(cataloged);
-        summary.core.source = source;
-        summary.core.status = status;
+        self.resolve_catalog_stamp(&mut summary.core);
     }
 
     /// 收录态盖章（`AppDetail` 投影唯一口，口径与 `stamp_summary` 一致）。
     pub fn stamp_detail(&self, detail: &mut crate::models::AppDetail) {
-        let (cataloged, source, status) = self.resolve_catalog_stamp(&detail.core.id);
-        detail.core.is_cataloged = Some(cataloged);
-        detail.core.source = source;
-        detail.core.status = status;
+        self.resolve_catalog_stamp(&mut detail.core);
     }
 
     /// 目录项转已盖章摘要（列表/详情/搜索统一投影）。
@@ -183,12 +210,38 @@ impl CatalogService {
         summary
     }
 
-    /// 合并目录全量已盖章摘要（首页/分类/搜索共用）。
+    /// 合并目录全量已盖章摘要（首页/分类/最新入库共用，单趟 O(N+M) 投影，零 CatalogItem 克隆与零重复归一化）。
     pub fn merged_summaries(&self) -> Vec<AppSummary> {
-        self.get_catalog_items()
-            .iter()
-            .map(|item| self.item_to_stamped_summary(item))
-            .collect()
+        let remote_guard = self.items.read().ok();
+        let collected_guard = self.collected.read().ok();
+        let remote_slice: &[CatalogItem] = remote_guard.as_deref().map_or(&[], |v| v.as_slice());
+        let collected_slice: &[CatalogItem] =
+            collected_guard.as_deref().map_or(&[], |v| v.as_slice());
+
+        let collected_ids: std::collections::HashSet<&str> =
+            collected_slice.iter().map(|i| i.id.as_str()).collect();
+        let mut seen: std::collections::HashSet<&str> =
+            std::collections::HashSet::with_capacity(remote_slice.len() + collected_slice.len());
+        let mut out = Vec::with_capacity(remote_slice.len() + collected_slice.len());
+
+        for item in remote_slice {
+            seen.insert(item.id.as_str());
+            let mut summary = item.to_summary();
+            Self::apply_stamp_flags(
+                &mut summary.core,
+                Some(item.is_verified),
+                collected_ids.contains(item.id.as_str()),
+            );
+            out.push(summary);
+        }
+        for item in collected_slice {
+            if seen.insert(item.id.as_str()) {
+                let mut summary = item.to_summary();
+                Self::apply_stamp_flags(&mut summary.core, None, true);
+                out.push(summary);
+            }
+        }
+        out
     }
 
     pub fn update_items(&self, new_items: Vec<CatalogItem>) {

@@ -126,7 +126,7 @@ impl CatalogService {
             (s_etag, s_payload, s_has, r_etag, r_payload, r_has)
         };
 
-        let client = super::http::build_api_client()?;
+        let client = crate::shared_http_client();
         let headers = super::http::bearer_headers(Some(clean_token));
 
         let (starred_outcome, repos_outcome) = tokio::join!(
@@ -207,15 +207,19 @@ impl CatalogService {
 
         let total_starred = starred_list.len();
         let catalog_list = self.get_catalog_items();
+        let catalog_by_id: HashMap<&str, &CatalogItem> =
+            catalog_list.iter().map(|c| (c.id.as_str(), c)).collect();
         let mut catalog_matches = Vec::new();
         let mut other_repos = Vec::new();
 
         for r in starred_list {
             let full_name = r.full_name.clone().unwrap_or_default();
             let repo_name = r.name.clone().unwrap_or_default();
-            if let Some(cat) = catalog_list.iter().find(|c| {
-                crate::forge::canonical_app_id(&full_name).as_deref() == Some(c.id.as_str())
-            }) {
+            let canonical = crate::forge::canonical_app_id(&full_name);
+            if let Some(cat) = canonical
+                .as_deref()
+                .and_then(|key| catalog_by_id.get(key).copied())
+            {
                 catalog_matches.push(self.item_to_stamped_summary(cat));
             } else {
                 let html_url = r

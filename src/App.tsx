@@ -30,8 +30,6 @@ import { tauriApi } from './services/api';
 import { togglePlatformSet, type PlatformId } from './lib/platformFilter';
 import { isPlatformLoading } from './lib/platformFilter';
 import { normalizeId } from './services/normalizeId';
-import { patchAppIconList, subscribeIconWrites } from './services/iconStore';
-import { patchSearchListCacheIcon } from './services/search/searchListCache';
 
 import {
   PLATFORM_FILTER_STORAGE_KEY,
@@ -275,45 +273,8 @@ export const App: React.FC = () => {
     t,
   });
 
-  // 5. 应用级订阅总线（初始拉取/catalog-synced/icon-ready +
+  // 5. 应用级订阅总线（初始拉取/catalog-synced/icon-ready/subscribeIconWrites +
   // 关注/更新流/OAuth + 更新中心切签检查 + 视图切换日志）
-  // 图标写扇出订阅：店内唯一写口受理后四列表跟进（无 patch 的本地写如详情轮转亦经此落定；
-  // patch 幂等，显式 patch 与扇出重复落定无闪烁；卸载即退订）。
-  useEffect(() => {
-    return subscribeIconWrites(({ targets, icon }) => {
-      // 05 翻页一致性：图标就绪同时写透搜索列表缓存行（翻页回访/重搜命中即新图，不续 TTL）。
-      for (const t of targets) {
-        try {
-          patchSearchListCacheIcon(t, icon);
-        } catch {
-          // 缓存写透失败不阻塞列表
-        }
-      }
-      for (const t of targets) {
-        try {
-          setApps((prev) => patchAppIconList(prev, t, icon));
-        } catch {
-          // 单列表失败不阻塞其余
-        }
-        try {
-          setOnlineApps((prev) => patchAppIconList(prev, t, icon));
-        } catch {
-          // 同上
-        }
-        try {
-          setRecentlyViewedApps((prev) => patchAppIconList(prev, t, icon));
-        } catch {
-          // 同上
-        }
-        try {
-          setUncatalogedExtraApps((prev) => patchAppIconList(prev, t, icon));
-        } catch {
-          // 同上
-        }
-      }
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
   useAppSubscriptions({
     setApps,
     setOnlineApps,
@@ -537,16 +498,6 @@ export const App: React.FC = () => {
       .catch(() => undefined);
   };
 
-  // 更新中心切签/挂载读 DB 快照（零网络；写仅手动 Refresh）。
-  const handleEnterUpdatesTab = useCallback(() => {
-    tauriApi
-      .getCachedUpdates()
-      .then((rows) => {
-        if (Array.isArray(rows)) setUpdates(rows);
-      })
-      .catch(() => undefined);
-  }, []);
-
   // 镜像切换失败向上抛，由设置页统一 toast `settings.proxy_save_failed`（单点呈现，App 侧不弹）；
   // 后端以返回 false 表示拒绝生效（不抛错，如非 https / 非法域名），同样按失败处理。
   const handleSelectMirror = async (mirrorId: string) => {
@@ -705,7 +656,7 @@ export const App: React.FC = () => {
               onToggleFavorite={handleToggleFavorite}
               onToggleWatch={handleToggleWatch}
               onResetPlatformFilter={handleResetPlatformFilter}
-              onNavigateCategories={() => setCurrentView('categories')}
+              onNavigateCategories={() => navigate('categories')}
             />
           )}
 
@@ -803,7 +754,6 @@ export const App: React.FC = () => {
               watchNotifications={watchNotifications}
               onOpenWatchedApp={handleOpenDetail}
               onDismissWatch={handleDismissWatchNotification}
-              onEnterUpdatesTab={handleEnterUpdatesTab}
             />
           )}
 
