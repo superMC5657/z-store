@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import i18n from '../i18n';
 import {
   PENDING_EMPTY_DRAFT,
+  PENDING_OFFICIAL_CATEGORIES,
   canonicalDraftId,
   isOsiApprovedLicense,
   normalizeLicense,
@@ -60,6 +61,22 @@ describe('PendingView validation (backend validate_custom_item UI mirror)', () =
   it('accepts a canonical draft in submit mode with the backend allowlist', () => {
     const item = { ...PENDING_EMPTY_DRAFT, id: 'o/r', name: 'Demo', owner: 'o', repo: 'r', description: 'd', category: 'dev', homepage: 'https://example.com', license: 'MIT' };
     expect(validatePendingDraft(item, 'submit', gate)).toEqual({});
+  });
+
+  it('category whitelist parity with backend (submit rejects unknown, allows official 10)', () => {
+    const base = { ...PENDING_EMPTY_DRAFT, id: 'o/r', name: 'Demo', owner: 'o', repo: 'r', description: 'd', homepage: 'https://example.com', license: 'MIT' };
+
+    // draft 档放行任意分类
+    expect(validatePendingDraft({ ...base, category: 'arbitrary_custom' }, 'draft').category).toBeUndefined();
+
+    // submit 档拒绝非官方分类
+    expect(validatePendingDraft({ ...base, category: 'arbitrary_custom' }, 'submit', gate).category).toBe('category_invalid');
+    expect(validatePendingDraft({ ...base, category: '' }, 'submit', gate).category).toBe('category_required');
+
+    // 10 个官方分类在 submit 档均通过
+    for (const cat of PENDING_OFFICIAL_CATEGORIES) {
+      expect(validatePendingDraft({ ...base, category: cat }, 'submit', gate).category).toBeUndefined();
+    }
   });
 
   it('draft mode only checks identity (backend DraftLenient mirror)', () => {
@@ -268,6 +285,47 @@ describe('PendingView 表单窄宽布局回归（只锁布局，不碰字段/校
     expect(css).toContain('background: var(--bg-input)');
     expect(css).toContain('border: 1px solid var(--border-color)');
     expect(css).toContain('color: var(--text-primary)');
+    expect(css).toContain('.pending-view .select-fluent');
+    expect(css).toContain('var(--bg-card');
+  });
+
+  it('renders category as a styled select-fluent dropdown with 10 official categories and auto-fills category_name', async () => {
+    await i18n.changeLanguage('zh-CN');
+    render(<PendingView showBatchBar={false} initialEntries={[draftEntry({ id: 'o/a' })]} />);
+    fireEvent.click(screen.getByText('o/a'));
+
+    const select = screen.getByTestId('pending-select-category') as HTMLSelectElement;
+    expect(select).toBeTruthy();
+    expect(select.tagName).toBe('SELECT');
+    expect(select.className).toContain('select-fluent');
+
+    // 校验选项严格限定在 10 个官方分类
+    const options = Array.from(select.querySelectorAll('option')).filter((o) => !o.disabled);
+    expect(options.map((o) => o.value)).toEqual([
+      'system',
+      'network',
+      'media',
+      'security',
+      'dev',
+      'graphics',
+      'office',
+      'reading',
+      'ops',
+      'games',
+    ]);
+
+    // 选择某个分类，自动联动填充 category_name
+    fireEvent.change(select, { target: { value: 'system' } });
+    expect(select.value).toBe('system');
+  });
+
+  it('components-pending.css and tokens.css provide theme-adapted styles for select-fluent', () => {
+    const css = readPendingCss();
+    expect(css).toContain('.pending-view .select-fluent');
+    expect(css).toContain('.pending-view .select-fluent option');
+    expect(css).toContain('var(--bg-card');
+    expect(css).toContain('var(--input-bg');
+    expect(css).toContain('var(--border-subtle)');
   });
 
   it('长 id 标题省略 + title 悬浮看全', async () => {

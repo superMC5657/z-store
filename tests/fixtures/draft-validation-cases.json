@@ -20,6 +20,20 @@
       "expect": { "ok": true }
     },
     {
+      "name": "draft accepts arbitrary category",
+      "mode": "draft",
+      "item": {
+        "id": "acme/atlas",
+        "owner": "acme",
+        "repo": "atlas",
+        "name": "Atlas",
+        "description": "tool",
+        "category": "arbitrary_custom",
+        "license": "MIT"
+      },
+      "expect": { "ok": true }
+    },
+    {
       "name": "draft rejects uppercase id",
       "mode": "draft",
       "item": {
@@ -144,6 +158,21 @@
         "name": "Atlas",
         "description": "tool",
         "category": "",
+        "homepage": "https://example.com",
+        "license": "MIT"
+      },
+      "expect": { "ok": false, "field": "category" }
+    },
+    {
+      "name": "submit rejects unsupported category",
+      "mode": "submit",
+      "item": {
+        "id": "acme/atlas",
+        "owner": "acme",
+        "repo": "atlas",
+        "name": "Atlas",
+        "description": "tool",
+        "category": "arbitrary_custom",
         "homepage": "https://example.com",
         "license": "MIT"
       },

@@ -37,6 +37,8 @@
   --bg-surface-flyout: #FFFFFF;
   --bg-acrylic-dialog: var(--bg-surface-flyout);
   --bg-input: rgba(0, 0, 0, 0.02);
+  --input-bg: var(--bg-input);
+  --bg-card: var(--bg-acrylic-card);
 
   /* 去彩单色按钮系统（Light） */
   --btn-primary-bg: #08090A;
@@ -186,6 +188,8 @@
   --bg-surface-flyout: #141516;
   --bg-acrylic-dialog: var(--bg-surface-flyout);
   --bg-input: rgba(255, 255, 255, 0.03);
+  --input-bg: var(--bg-input);
+  --bg-card: var(--bg-acrylic-card);
 
   /* 去彩单色按钮系统（Dark） */
   --btn-primary-bg: #F7F8F8;

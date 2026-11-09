@@ -383,6 +383,7 @@
       "identifiers": "Native identifiers"
     },
     "placeholders": {
+      "category": "Select a category",
       "name": "e.g. RustDesk",
       "category_name": "e.g. Development",
       "description": "What problem does this app solve, in one line",
@@ -419,6 +420,7 @@
       "name_required": "Name is required",
       "description_required": "Description is required",
       "category_required": "Category is required",
+      "category_invalid": "Category must be one of the 10 official categories",
       "homepage_required": "Homepage is required",
       "homepage_scheme": "Homepage must be an http(s) URL",
       "license_required": "License is required",

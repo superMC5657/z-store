@@ -383,6 +383,7 @@
       "identifiers": "原生标识 identifiers"
     },
     "placeholders": {
+      "category": "请选择分类",
       "name": "例如：RustDesk",
       "category_name": "例如：开发工具",
       "description": "一句话介绍这个应用解决什么问题",
@@ -419,6 +420,7 @@
       "name_required": "应用名称不可为空",
       "description_required": "应用描述不可为空",
       "category_required": "功能分类不可为空",
+      "category_invalid": "功能分类必须为官方 10 个预设分类之一",
       "homepage_required": "官方主页不可为空",
       "homepage_scheme": "官方主页必须为 http(s) 链接",
       "license_required": "开源协议不可为空",

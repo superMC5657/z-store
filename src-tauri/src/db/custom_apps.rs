@@ -68,6 +68,20 @@ pub fn resolve_license_gate() -> LicenseGateConfig {
     crate::config::get_project_config().license_gate.clone()
 }
 
+/// 官方支持的 10 个标准应用分类
+pub const OFFICIAL_CATEGORIES: &[&str] = &[
+    "system",
+    "network",
+    "media",
+    "security",
+    "dev",
+    "graphics",
+    "office",
+    "reading",
+    "ops",
+    "games",
+];
+
 /// 校验档位（Q8 三态）：草稿允许不完整（暂存即存），提交 Issue 时才强制全校验（D1 不破）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ValidateMode {
@@ -143,8 +157,16 @@ pub fn validate_custom_item(
     if item.description.trim().is_empty() {
         return Err("应用描述 description 不可为空".to_string());
     }
-    if item.category.trim().is_empty() {
+    let category = item.category.trim();
+    if category.is_empty() {
         return Err("功能分类 category 不可为空".to_string());
+    }
+    if !OFFICIAL_CATEGORIES.contains(&category) {
+        return Err(format!(
+            "功能分类 category '{}' 不在官方支持列表中，仅支持: {}",
+            category,
+            OFFICIAL_CATEGORIES.join(", ")
+        ));
     }
     let homepage = item.homepage.as_deref().unwrap_or("").trim();
     if homepage.is_empty() {
@@ -836,6 +858,36 @@ mod tests {
         let mut item = draft_item("o/r", "o", "r");
         item.homepage = Some("example.com/no-scheme".to_string());
         assert!(validate_custom_item(&item, ValidateMode::SubmitStrict, &strict_gate()).is_err());
+    }
+
+    #[test]
+    fn validate_category_whitelist() {
+        let mut item = draft_item("o/r", "o", "r");
+        item.name = "Demo".to_string();
+        item.description = "A demo tool".to_string();
+        item.homepage = Some("https://example.com".to_string());
+        item.license = "MIT".to_string();
+
+        // 任意自定义分类在 draft 档放行
+        item.category = "arbitrary_custom".to_string();
+        assert!(validate_custom_item(&item, ValidateMode::DraftLenient, &strict_gate()).is_ok());
+
+        // 非官方分类在 submit 档与 collect 档均被拒绝
+        let submit_err = validate_custom_item(&item, ValidateMode::SubmitStrict, &strict_gate())
+            .expect_err("should reject arbitrary category in submit mode");
+        assert!(submit_err.starts_with("功能分类"));
+        assert!(submit_err.contains("arbitrary_custom"));
+
+        let collect_err = validate_custom_item(&item, ValidateMode::CollectStrict, &strict_gate())
+            .expect_err("should reject arbitrary category in collect mode");
+        assert!(collect_err.starts_with("功能分类"));
+
+        // 10 个官方分类在 submit 档与 collect 档均放行
+        for cat in OFFICIAL_CATEGORIES {
+            item.category = cat.to_string();
+            assert!(validate_custom_item(&item, ValidateMode::SubmitStrict, &strict_gate()).is_ok());
+            assert!(validate_custom_item(&item, ValidateMode::CollectStrict, &strict_gate()).is_ok());
+        }
     }
 
     #[test]

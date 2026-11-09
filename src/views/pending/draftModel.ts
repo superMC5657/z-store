@@ -58,6 +58,21 @@ export function resolvePendingDraftDescription(
   return zh || en;
 }
 
+export const PENDING_OFFICIAL_CATEGORIES = [
+  'system',
+  'network',
+  'media',
+  'security',
+  'dev',
+  'graphics',
+  'office',
+  'reading',
+  'ops',
+  'games',
+] as const;
+
+export type PendingOfficialCategory = (typeof PENDING_OFFICIAL_CATEGORIES)[number];
+
 export const PENDING_EMPTY_DRAFT: PendingDraftItem = {
   id: '',
   name: '',
@@ -174,7 +189,12 @@ export function validatePendingDraft(
   if (mode === 'draft') return errors;
   if (!item.name.trim()) errors.name = 'name_required';
   if (!item.description.trim()) errors.description = 'description_required';
-  if (!item.category.trim()) errors.category = 'category_required';
+  const category = item.category.trim();
+  if (!category) {
+    errors.category = 'category_required';
+  } else if (!PENDING_OFFICIAL_CATEGORIES.includes(category as PendingOfficialCategory)) {
+    errors.category = 'category_invalid';
+  }
   const homepage = item.homepage.trim();
   if (!homepage) {
     errors.homepage = 'homepage_required';

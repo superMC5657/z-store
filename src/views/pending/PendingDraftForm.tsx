@@ -24,6 +24,7 @@ import {
 import {
   isPendingCollectedStatus,
   isSubmittedEntry,
+  PENDING_OFFICIAL_CATEGORIES,
   type CustomDraftEntry,
   type PendingDraftErrors,
   type PendingDraftItem,
@@ -438,15 +439,33 @@ function CoreSection({
 
       <label style={labelStyle}>
         <span>{t('pending.fields.category')}</span>
-        <input
-          className="input-fluent"
+        <select
+          className="select-fluent"
+          data-testid="pending-select-category"
           value={form.category}
-          onChange={(e) => onField('category', e.target.value)}
+          onChange={(e) => {
+            const nextCat = e.target.value;
+            onField('category', nextCat);
+            if (nextCat) {
+              onField('category_name', t(`categories.cat_${nextCat}_name`));
+            }
+          }}
           onBlur={onFieldBlur}
-          placeholder="dev"
-          autoComplete="off"
-          readOnly={isArchived}
-        />
+          disabled={isArchived}
+        >
+          {!PENDING_OFFICIAL_CATEGORIES.includes(
+            form.category as (typeof PENDING_OFFICIAL_CATEGORIES)[number],
+          ) && (
+            <option value={form.category} disabled>
+              {form.category || t('pending.placeholders.category')}
+            </option>
+          )}
+          {PENDING_OFFICIAL_CATEGORIES.map((cat) => (
+            <option key={cat} value={cat}>
+              {t(`categories.cat_${cat}_name`)}
+            </option>
+          ))}
+        </select>
         {formErrors.category && (
           <em data-testid="pending-error-category" style={errorStyle}>
             {errorText(t, formErrors.category)}

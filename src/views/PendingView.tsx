@@ -291,6 +291,8 @@ export const PendingView: React.FC<PendingViewProps> = ({
 
   // 表单态（新建或选中行载入；identifier/platforms 等以文本态编辑，保存时归一）。
   const [form, setForm] = useState<DraftItem>(PENDING_EMPTY_DRAFT);
+  const formRef = useRef(form);
+  formRef.current = form;
   const [aliasesText, setAliasesText] = useState('');
   const [platformsText, setPlatformsText] = useState('windows');
   const [identifiersText, setIdentifiersText] = useState('');
@@ -411,7 +413,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
   const setField = <K extends keyof DraftItem>(key: K, value: DraftItem[K]) => {
     // owner/repo 键入仅在 id 为空或仍等于上一次联动值时跟随填充；
     // 手输（偏离上次 canonical）一律保留，不逐键改写。
-    const prev = form;
+    const prev = formRef.current;
     const next = { ...prev, [key]: value };
     if (key === 'owner' || key === 'repo') {
       const owner = key === 'owner' ? String(value) : prev.owner;
@@ -424,6 +426,13 @@ export const PendingView: React.FC<PendingViewProps> = ({
         }
       }
     }
+    if (key === 'category') {
+      const cat = String(value);
+      if (cat) {
+        next.category_name = t(`categories.cat_${cat}_name`);
+      }
+    }
+    formRef.current = next;
     setForm(next);
     // 逐框即时校验：对归一后表单跑 submit 档（license 用快照，不每键 IPC）。
     const nextItem: DraftItem = {
