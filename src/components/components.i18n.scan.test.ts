@@ -20,9 +20,11 @@ const MIGRATED_FILES = [
   'AffinityPrivacyRow.tsx',
   'AppCard.tsx',
   'AppIcon.tsx',
+  'AppImportModal.tsx',
   'BrandLogo.tsx',
   'ClientUpdateRow.tsx',
   'DataBackupRow.tsx',
+  'DeveloperProfileModal.tsx',
   'EmptyState.tsx',
   'ErrorBoundary.tsx',
   'FlyoutMenu.tsx',
@@ -48,6 +50,7 @@ const MIGRATED_FILES = [
   '../views/pending/PendingListColumn.tsx',
   '../views/pending/PendingPreviewLane.tsx',
   '../views/pending/PendingRichCard.tsx',
+  '../app/InstallConfirmDialog.tsx',
 ];
 
 interface Violation {

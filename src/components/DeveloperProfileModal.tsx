@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Package, Users, Building2, MapPin, Link, FolderOpen, Star, GitFork, Code2, ExternalLink } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { DeveloperProfile } from '../types';
 import { tauriApi } from '../services/api';
 import { EmptyState } from './EmptyState';
@@ -28,6 +29,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
   installedIds,
   managedIds,
 }) => {
+  const { t } = useTranslation();
   const [profile, setProfile] = useState<DeveloperProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -96,7 +98,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
           <button
             className="modal-close-btn"
             onClick={onClose}
-            aria-label="关闭开发者详情"
+            aria-label={t('developer_profile.close')}
             style={{ position: 'absolute', top: '16px', right: '16px' }}
           >
             <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4">
@@ -123,7 +125,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
             </div>
           ) : error ? (
             <div>
-              <h3 style={{ margin: 0, fontSize: 'var(--font-xl)', color: '#f87171' }}>获取开发者全景失败</h3>
+              <h3 style={{ margin: 0, fontSize: 'var(--font-xl)', color: '#f87171' }}>{t('developer_profile.load_failed')}</h3>
               <p style={{ margin: '6px 0 0 0', fontSize: 'var(--font-base)', color: 'var(--text-tertiary)' }}>{error}</p>
             </div>
           ) : profile ? (
@@ -173,11 +175,11 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', fontSize: 'var(--font-sm)' }}>
                   <span className="modal-tag" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                     <Package size={12} />
-                    <span>{profile.public_repos} 个开源仓库</span>
+                    <span>{t('developer_profile.public_repos', { count: profile.public_repos })}</span>
                   </span>
                   <span className="modal-tag" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                     <Users size={12} />
-                    <span>{profile.followers} 关注者</span>
+                    <span>{t('developer_profile.followers', { count: profile.followers })}</span>
                   </span>
                   {profile.company && (
                     <span className="modal-tag" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
@@ -221,26 +223,26 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <h4 style={{ margin: 0, fontSize: 'calc(15px * var(--font-scale))', fontWeight: 590, display: 'flex', alignItems: 'center', gap: '6px', letterSpacing: '-0.015em' }}>
               <FolderOpen size={15} strokeWidth={1.5} />
-              <span>开源项目矩阵 ({profile?.repos.length || 0})</span>
+              <span>{t('developer_profile.projects_matrix', { count: profile?.repos.length || 0 })}</span>
               {/* 截断明示：仓库列表单次拉取无翻页，public_repos > 行数即标注，不伪装全量 */}
               {profile?.repos_truncated && (
                 <span style={{ fontSize: 'var(--font-xs)', fontWeight: 400, color: 'var(--text-tertiary)' }}>
-                  仅展示最近更新的前 {profile.repos.length} 个
+                  {t('developer_profile.truncated_hint', { count: profile.repos.length })}
                 </span>
               )}
             </h4>
             <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-tertiary)' }}>
-              标记「已收录」的项目可直接在 ZStore 中一键安装与接管更新
+              {t('developer_profile.cataloged_hint')}
             </span>
           </div>
 
           {loading ? (
             <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-tertiary)' }}>
-              正在通过 GitHub API 解析该开发者名下项目...
+              {t('developer_profile.loading_repos')}
             </div>
           ) : profile && profile.repos.length === 0 ? (
             <EmptyState
-              title="该开发者暂无公开开源仓库"
+              title={t('developer_profile.empty_repos')}
             />
           ) : profile ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -281,7 +283,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                               fontWeight: 510,
                             }}
                           >
-                            ✓ ZStore 已收录
+                            {t('developer_profile.cataloged_badge')}
                           </span>
                         )}
                         {repo.latest_release_tag && (
@@ -326,7 +328,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                               onOpenAppDetail(repo.id);
                             }}
                           >
-                            查看
+                            {t('developer_profile.view')}
                           </button>
                           {isUnknownRow ? (
                             // 未知态中性占位（单色骨架，不可交互）
@@ -335,8 +337,8 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                               data-badge="unknown"
                               style={{ fontSize: 'var(--font-sm)', padding: '6px 14px', opacity: 0.65, cursor: 'default' }}
                               disabled
-                              title="正在确认安装状态…"
-                              aria-label="正在确认安装状态…"
+                              title={t('developer_profile.checking_status')}
+                              aria-label={t('developer_profile.checking_status')}
                             >
                               <span
                                 aria-hidden="true"
@@ -353,9 +355,9 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                                 onClose();
                                 onOpenAppDetail(repo.id);
                               }}
-                              title="已就绪 · 点击查看与管理"
+                              title={t('developer_profile.ready_tooltip')}
                             >
-                              ✓ 安装
+                              {t('developer_profile.installed')}
                             </button>
                           ) : (
                             <button
@@ -364,7 +366,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                               disabled={isInstalling}
                               onClick={() => handleInstall(repo.id)}
                             >
-                              {isInstalling ? '安装中...' : '安装'}
+                              {isInstalling ? t('developer_profile.installing') : t('developer_profile.install')}
                             </button>
                           )}
                         </>
@@ -378,7 +380,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                               onOpenAppDetail(repo.id);
                             }}
                           >
-                            查看
+                            {t('developer_profile.view')}
                           </button>
                           <a
                             href={repo.html_url}
@@ -386,8 +388,8 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                             rel="noreferrer"
                             className="btn-fluent btn-secondary"
                             style={{ fontSize: 'var(--font-sm)', padding: '6px 8px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
-                            title="在 GitHub 中打开仓库"
-                            aria-label={`在 GitHub 中打开 ${repo.name}`}
+                            title={t('developer_profile.open_github')}
+                            aria-label={t('developer_profile.open_github')}
                             onClick={(e) => {
                               e.preventDefault();
                               void tauriApi.openUrl(repo.html_url);

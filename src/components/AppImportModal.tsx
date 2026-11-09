@@ -12,6 +12,7 @@ import {
 import { AppMatchResult, ImportAppRequest } from '../types';
 import { tauriApi } from '../services/api';
 import { EmptyState } from './EmptyState';
+import { useTranslation } from 'react-i18next';
 
 interface AppImportModalProps {
   isOpen: boolean;
@@ -24,6 +25,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
   onClose,
   onImportSuccess,
 }) => {
+  const { t } = useTranslation();
   const [isLoading, setIsLoading] = useState(false);
   const [matches, setMatches] = useState<AppMatchResult[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -105,7 +107,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
       onImportSuccess(importedCount);
       onClose();
     } catch (err) {
-      setError(`导入失败: ${String(err)}`);
+      setError(t('import_modal.import_failed', { error: String(err) }));
     } finally {
       setIsImporting(false);
     }
@@ -151,7 +153,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <ScanLine size={18} strokeWidth={1.5} style={{ color: 'var(--brand-primary)' }} />
               <h3 style={{ margin: 0, fontSize: 'var(--font-xl)', fontWeight: 590, color: 'var(--text-primary)', letterSpacing: '-0.018em' }}>
-                扫描并添加本地应用
+                {t('import_modal.title')}
               </h3>
             </div>
             <p
@@ -161,14 +163,14 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                 color: 'var(--text-secondary)',
               }}
             >
-              扫描本机已安装软件，匹配开源库以获取更新提醒与快捷管理。
+              {t('import_modal.description')}
             </p>
           </div>
           <button
             onClick={onClose}
             disabled={isImporting}
             className="modal-close-btn"
-            aria-label="关闭"
+            aria-label={t('import_modal.close')}
             style={{ position: 'relative', top: 'auto', right: 'auto' }}
           >
             <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4">
@@ -200,10 +202,10 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                 onChange={handleSelectAll}
                 style={{ cursor: 'pointer', accentColor: 'var(--brand-primary)', width: '16px', height: '16px' }}
               />
-              <span>全选 / 反选</span>
+              <span>{t('import_modal.select_all')}</span>
             </label>
             <span style={{ color: 'var(--text-secondary)' }}>
-              共发现 <strong style={{ color: 'var(--text-primary)' }}>{matches.length}</strong> 款开源软件 · 已选中 <strong style={{ color: 'var(--brand-primary)' }}>{selectedIds.size}</strong> 款
+              {t('import_modal.summary', { total: matches.length, selected: selectedIds.size })}
             </span>
           </div>
         )}
@@ -240,9 +242,11 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                 }}
               />
               <div style={{ textAlign: 'center' }}>
-                <div style={{ fontWeight: 590, fontSize: 'var(--font-md)', color: 'var(--text-primary)', letterSpacing: '-0.015em' }}>正在扫描系统已安装软件...</div>
+                <div style={{ fontWeight: 590, fontSize: 'var(--font-md)', color: 'var(--text-primary)', letterSpacing: '-0.015em' }}>
+                  {t('import_modal.scanning')}
+                </div>
                 <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-                  正在比对开源收录清单
+                  {t('import_modal.comparing')}
                 </div>
               </div>
             </div>
@@ -266,8 +270,8 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
           ) : matches.length === 0 ? (
             <EmptyState
               icon={<CheckCircle2 size={40} strokeWidth={1.5} style={{ color: 'var(--status-success)' }} />}
-              title="未发现可添加的本地应用"
-              description="本机开源软件均已在管理列表中，或未发现匹配的程序。"
+              title={t('import_modal.empty_title')}
+              description={t('import_modal.empty_desc')}
             />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -340,7 +344,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                           }}
                         >
                           {isHigh ? <ShieldCheck size={11} /> : <Sparkles size={11} />}
-                          <span>{Math.round(item.confidence * 100)}% 匹配</span>
+                          <span>{t('import_modal.match_rate', { rate: Math.round(item.confidence * 100) })}</span>
                         </span>
                       </div>
 
@@ -353,9 +357,9 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                           gap: '12px',
                         }}
                       >
-                        <span>本地检测: <strong style={{ color: 'var(--text-primary)' }}>v{item.local_version}</strong></span>
+                        <span>{t('import_modal.local_version', { version: item.local_version })}</span>
                         <span>·</span>
-                        <span>收录仓库: <code style={{ color: 'var(--brand-primary)', background: 'var(--brand-subtle)', padding: '1px 5px', borderRadius: '4px' }}>{item.catalog_id}</code></span>
+                        <span>{t('import_modal.catalog_repo', { repo: item.catalog_id })}</span>
                       </div>
 
                       {(item.resolved_executable_path || item.scanned.install_location) && (
@@ -371,12 +375,12 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                           {item.resolved_executable_path ? (
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                               <Terminal size={11} />
-                              <span>程序: {item.resolved_executable_path}</span>
+                              <span>{t('import_modal.executable', { path: item.resolved_executable_path })}</span>
                             </span>
                           ) : (
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                               <Folder size={11} />
-                              <span>目录: {item.scanned.install_location}</span>
+                              <span>{t('import_modal.location', { path: item.scanned.install_location })}</span>
                             </span>
                           )}
                         </div>
@@ -411,7 +415,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
             }}
           >
             <Info size={13} style={{ color: 'var(--brand-primary)', flexShrink: 0 }} />
-            <span>添加后可在「应用更新」接收新版本提醒</span>
+            <span>{t('import_modal.hint')}</span>
           </span>
           <div style={{ display: 'flex', gap: '10px', flexShrink: 0 }}>
             <button
@@ -420,7 +424,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
               disabled={isImporting}
               style={{ padding: '6px 16px', fontSize: 'var(--font-base)' }}
             >
-              取消
+              {t('import_modal.cancel')}
             </button>
             <button
               className="btn-fluent btn-primary"
@@ -441,10 +445,10 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                       animation: 'spin 1s linear infinite',
                     }}
                   />
-                  <span>正在添加...</span>
+                  <span>{t('import_modal.importing')}</span>
                 </>
               ) : (
-                <span>添加已选应用 ({selectedIds.size})</span>
+                <span>{t('import_modal.import_btn', { count: selectedIds.size })}</span>
               )}
             </button>
           </div>

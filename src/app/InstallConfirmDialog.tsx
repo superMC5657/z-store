@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface InstallConfirmDialogProps {
   intro: string;
@@ -13,7 +14,6 @@ interface InstallConfirmDialogProps {
 /**
  * 深链安装确认弹窗（显式用户授权门禁）：展示外部链接来源说明，
  * 应用名 / 仓库 / 来源 / SHA-256（若有）+ 取消 / 确认安装。
- * 文案保持既有硬编码风格。
  */
 export const InstallConfirmDialog: React.FC<InstallConfirmDialogProps> = ({
   intro,
@@ -24,6 +24,7 @@ export const InstallConfirmDialog: React.FC<InstallConfirmDialogProps> = ({
   onCancel,
   onConfirm,
 }) => {
+  const { t } = useTranslation();
   const dialogRef = useRef<HTMLDivElement | null>(null);
 
   // 置顶弹窗的焦点管理：打开即聚焦自身；Tab 限制在两个按钮内循环（简易焦点陷阱）；
@@ -63,28 +64,28 @@ export const InstallConfirmDialog: React.FC<InstallConfirmDialogProps> = ({
         onKeyDown={handleKeyDown}
         role="dialog"
         aria-modal="true"
-        aria-label="确认安装"
+        aria-label={t('install_confirm.title')}
         tabIndex={-1}
       >
         <div className="modal-header" style={{ position: 'relative', padding: 0, marginBottom: '12px' }}>
-          <h2 style={{ margin: 0, fontSize: 'var(--font-xl)' }}>确认安装</h2>
+          <h2 style={{ margin: 0, fontSize: 'var(--font-xl)' }}>{t('install_confirm.title')}</h2>
         </div>
         <p style={{ margin: '0 0 12px', lineHeight: 1.6 }}>
           {intro}
         </p>
         <div style={{ margin: '0 0 8px', lineHeight: 1.8 }}>
           <div>
-            应用：{appName}
+            {t('install_confirm.app_label')}{appName}
           </div>
           <div>
-            仓库：{repoLine}
+            {t('install_confirm.repo_label')}{repoLine}
           </div>
           <div>
-            来源：{source}
+            {t('install_confirm.source_label')}{source}
           </div>
           {sha256 && (
             <div className="text-mono" style={{ wordBreak: 'break-all' }}>
-              SHA-256：{sha256}
+              {t('install_confirm.sha256_label')}{sha256}
             </div>
           )}
         </div>
@@ -93,13 +94,13 @@ export const InstallConfirmDialog: React.FC<InstallConfirmDialogProps> = ({
             className="btn-fluent btn-secondary"
             onClick={onCancel}
           >
-            取消
+            {t('install_confirm.cancel')}
           </button>
           <button
             className="btn-fluent btn-primary"
             onClick={onConfirm}
           >
-            确认安装
+            {t('install_confirm.confirm')}
           </button>
         </div>
       </div>

@@ -7,9 +7,10 @@
  * 深度链接分支（app_detail / search / developer_profile / open_view）
  * 各自打开对应视图，均不触发安装。
  */
-import { describe, expect, it, vi, afterEach } from 'vitest';
+import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { act } from 'react';
+import i18n from './i18n';
 import type { AppDetail, DeepLinkAction, InstalledApp } from './types';
 
 const hooks = vi.hoisted(() => ({
@@ -83,7 +84,7 @@ vi.mock('./services/api', () => {
         if (prop === 'handleDeepLink') return (url: string) => hooks.handleDeepLinkImpl(url);
         if (prop === 'searchApps') return (q: string) => hooks.searchApps(q);
         if (prop === 'getAppDetails') return (id: string, forceRefresh?: boolean) => hooks.getAppDetailsImpl(id, forceRefresh);
-        if (prop === 'getSettings') return async () => ({});
+        if (prop === 'getSettings') return async () => ({ language: 'zh-CN' });
         if (prop === 'getOAuthUser' || prop === 'getCliDeepLink') return async () => null;
         if (listMethods.has(prop)) return async () => [];
         if (prop.startsWith('on')) return async () => () => {};
@@ -112,6 +113,10 @@ vi.mock('./services/api', () => {
 import { App } from './App';
 
 (globalThis as Record<string, unknown>)['IS_REACT_ACT_ENVIRONMENT'] = true;
+
+beforeEach(async () => {
+  await i18n.changeLanguage('zh-CN');
+});
 
 afterEach(() => {
   cleanup();

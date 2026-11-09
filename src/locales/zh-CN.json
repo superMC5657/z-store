@@ -217,7 +217,9 @@
     "supported_devices": "支持设备",
     "code_source": "代码源",
     "cataloged_badge": "已收录",
-    "uncataloged_badge": "未收录"
+    "uncataloged_badge": "未收录",
+    "custom_badge": "自维护",
+    "loading": "加载中"
   },
   "custom": {
     "move_in": "移入收录",
@@ -266,16 +268,17 @@
     "cat_security_desc": "密码管理器, 网络抓包, 隐私保护",
     "cat_graphics_name": "图形设计",
     "cat_graphics_desc": "3D 建模, 屏幕截图, 矢量绘图",
-    "cat_network_name": "网络工具",
+    "cat_network_name": "网络应用",
     "cat_network_desc": "局域网快传, 规则分流, P2P 下载",
     "cat_system_name": "系统实用",
     "cat_system_desc": "远程桌面, 效率启动器, 空格预览",
-    "cat_reading_name": "学习阅读",
+    "cat_reading_name": "阅读学习",
     "cat_reading_desc": "EPUB 阅读器, 书库管理, 电子书",
-    "cat_ops_name": "极客运维",
+    "cat_ops_name": "运维终端",
     "cat_ops_desc": "GPU 终端, 极客编辑器, 容器平台",
     "cat_games_name": "休闲游戏",
-    "cat_games_desc": "复古模拟器, 模拟经营, 像素沙盒"
+    "cat_games_desc": "复古模拟器, 模拟经营, 像素沙盒",
+    "cat_external_name": "跨平台开源"
   },
   "pending": {
     "title": "待收录",
@@ -505,7 +508,11 @@
     "recent_views": "最近浏览",
     "clear_recent": "清空记录",
     "classic_featured": "经典精选开源软件",
-    "all_featured": "全部精选开源收录"
+    "all_featured": "全部精选开源收录",
+    "feed_loading": "正在加载…",
+    "feed_load_more": "加载更多",
+    "feed_end_backend": "到底了 · 后端共 {{count}} 个",
+    "feed_end": "到底了 · 共 {{count}} 个推荐"
   },
   "trends": {
     "title": "趋势榜单",
@@ -834,7 +841,14 @@
     "deeplink_intro": "外部链接请求安装以下应用，请确认后再继续：",
     "unknown_source": "未知来源",
     "unverified_intro": "警告：该安装包未提供官方 SHA-256 校验清单，ZStore 无法验证文件是否被篡改。仅在您完全信任该发布者时继续安装：",
-    "unverified_source": "未校验资产（Release 未附带 checksums 清单）"
+    "unverified_source": "未校验资产（Release 未附带 checksums 清单）",
+    "title": "确认安装",
+    "app_label": "应用：",
+    "repo_label": "仓库：",
+    "source_label": "来源：",
+    "sha256_label": "SHA-256：",
+    "cancel": "取消",
+    "confirm": "确认安装"
   },
   "error": {
     "title": "界面出错了",
@@ -864,5 +878,70 @@
     "last_synced": "最近同步: {{time}}",
     "top_categories": "偏好分类: {{items}}",
     "top_languages": "偏好语言: {{items}}"
+  },
+  "developer_profile": {
+    "close": "关闭开发者详情",
+    "load_failed": "获取开发者全景失败",
+    "public_repos": "{{count}} 个开源仓库",
+    "followers": "{{count}} 关注者",
+    "projects_matrix": "开源项目 ({{count}})",
+    "truncated_hint": "仅展示最近更新的前 {{count}} 个",
+    "cataloged_hint": "标记「已收录」的项目可直接在 ZStore 中一键安装与接管更新",
+    "loading_repos": "正在通过 GitHub API 解析该开发者名下项目...",
+    "empty_repos": "该开发者暂无公开开源仓库",
+    "cataloged_badge": "✓ ZStore 已收录",
+    "view": "查看",
+    "checking_status": "正在确认安装状态…",
+    "ready_tooltip": "已就绪 · 点击查看与管理",
+    "installed": "✓ 安装",
+    "install": "安装",
+    "installing": "安装中...",
+    "open_github": "在 GitHub 中打开仓库"
+  },
+  "import_modal": {
+    "title": "导入应用",
+    "description": "扫描本机已安装软件，匹配开源库以获取更新提醒与快捷管理。",
+    "close": "关闭",
+    "select_all": "全选 / 反选",
+    "summary": "共发现 {{total}} 款开源软件 · 已选中 {{selected}} 款",
+    "scanning": "正在扫描系统已安装软件...",
+    "comparing": "正在比对开源收录清单",
+    "empty_title": "未发现可添加的本地应用",
+    "empty_desc": "本机开源软件均已在管理列表中，或未发现匹配的程序。",
+    "match_rate": "{{rate}}% 匹配",
+    "local_version": "本地检测: v{{version}}",
+    "catalog_repo": "收录仓库: {{repo}}",
+    "executable": "程序: {{path}}",
+    "location": "目录: {{path}}",
+    "hint": "添加后可在「应用更新」接收新版本提醒",
+    "cancel": "取消",
+    "import_btn": "添加 ({{count}})",
+    "importing": "正在添加...",
+    "import_failed": "导入失败: {{error}}"
+  },
+  "search": {
+    "local_results": "本地结果 ({{count}})",
+    "local_empty": "本地没有找到匹配应用",
+    "local_load_more": "加载更多本地结果",
+    "online_results": "在线结果 ({{count}})",
+    "online_searching": "正在在线搜索…",
+    "online_empty": "没有找到相关在线应用，已保留本地结果",
+    "online_prompt": "按回车发起在线搜索，在这里看云端结果",
+    "online_loading_more": "正在加载下 20 个…",
+    "online_armed_more": "已到底 · 继续下拉加载更多",
+    "online_armed_hint": "已加载 {{count}} 个 · 每次续拉 20 个",
+    "online_load_more": "加载更多在线结果",
+    "online_end": "到底了 · 在线共 {{count}} 个",
+    "searching_online": "正在在线搜索...",
+    "no_online_results": "未找到相关应用",
+    "no_local_results": "本地未找到匹配应用",
+    "searching_online_desc": "正在向云端检索应用数据，请稍候...",
+    "online_empty_desc": "在线搜索亦未检索到匹配结果，请尝试其他关键词或直接输入 owner/repo",
+    "press_enter_online_hint": "未在本地索引中找到相关应用，按回车在线搜索或点击下方按钮检索 GitHub",
+    "retry_online": "重新在线搜索",
+    "search_online_btn": "在线搜索",
+    "online_success": "已找到在线应用",
+    "online_no_results": "未找到相关在线应用，已保持本地结果",
+    "online_failed": "在线搜索暂不可用，已保持本地结果"
   }
 }

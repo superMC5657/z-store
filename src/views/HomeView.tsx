@@ -531,7 +531,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
           <div className="section-header" data-testid="search-local-section">
             <h3 className="section-title">
               <Package size={16} />
-              <span>{t('search.local_results', `本地结果 (${apps.length})`)}</span>
+              <span>{t('search.local_results', { count: apps.length, defaultValue: `本地结果 (${apps.length})` })}</span>
             </h3>
           </div>
           {annotatedDisplayedFeed.length > 0 ? (
@@ -574,7 +574,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
           <div className="section-header" style={{ marginTop: '28px' }} data-testid="search-online-section">
             <h3 className="section-title">
               <Globe size={16} />
-              <span>{t('search.online_results', `在线结果 (${onlineApps.length})`)}</span>
+              <span>{t('search.online_results', { count: onlineApps.length, defaultValue: `在线结果 (${onlineApps.length})` })}</span>
             </h3>
           </div>
           {annotatedOnlineApps.length > 0 ? (
@@ -640,7 +640,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <ChevronsDown size={15} aria-hidden="true" />
               </div>
               <div className="online-armed-sub">
-                {t('search.online_armed_hint', `已加载 ${onlineApps.length} 个 · 每次续拉 20 个`)}
+                {t('search.online_armed_hint', { count: onlineApps.length, defaultValue: `已加载 ${onlineApps.length} 个 · 每次续拉 20 个` })}
               </div>
               <div className="feed-more-row online-armed-btn">
                 <button
@@ -659,7 +659,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
           ) : (
             onlineApps.length > 0 && !onlineHasMore && (
               <div data-testid="feed-end" className="feed-end">
-                {t('search.online_end', `到底了 · 在线共 ${onlineApps.length} 个`)}
+                {t('search.online_end', { count: onlineApps.length, defaultValue: `到底了 · 在线共 ${onlineApps.length} 个` })}
               </div>
             )
           )}
@@ -730,8 +730,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
             dedupedDisplayedFeed.length > 0 && (
               <div data-testid="feed-end" className="feed-end">
                 {isBackendListActive && backendTotal !== null
-                  ? t('home.feed_end_backend', `到底了 · 后端共 ${backendTotal} 个`)
-                  : t('home.feed_end', `到底了 · 共 ${feedPoolLength} 个推荐`)}
+                  ? t('home.feed_end_backend', { count: backendTotal, defaultValue: `到底了 · 后端共 ${backendTotal} 个` })
+                  : t('home.feed_end', { count: feedPoolLength, defaultValue: `到底了 · 共 ${feedPoolLength} 个推荐` })}
               </div>
             )
           )}
