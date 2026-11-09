@@ -125,6 +125,10 @@ const SEGMENT_META: ReadonlyArray<{ id: PendingSegmentId }> = [
   { id: 'submitted' },
 ];
 
+function formatLocalizedList(items: string[], lang: string): string {
+  return items.join(lang.startsWith('zh') ? '、' : ', ');
+}
+
 export const PendingView: React.FC<PendingViewProps> = ({
   entries: controlledEntries,
   initialEntries = [],
@@ -1032,7 +1036,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
         {
           loadUrl: onGetBatchPrUrl ? () => onGetBatchPrUrl(ids) : undefined,
           loadPayload: onGetBatchPrPayload ? () => onGetBatchPrPayload(ids) : undefined,
-          failLabel: ids.join(i18n.language.startsWith('zh') ? '、' : ', ') || 'batch',
+          failLabel: formatLocalizedList(ids, i18n.language) || 'batch',
           tooLongParams: { count: ids.length },
           onOpened: () => {
             // 打开预填页后即止：不逐条 mark submitted，停留 collected 等手动确认。
@@ -1132,7 +1136,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
           style={{ ...errorStyle, margin: '0 0 12px' }}
         >
           {t('pending.pr.batch_blocked', {
-            ids: batchBlockedLive.map((e) => e.id).join(i18n.language.startsWith('zh') ? '、' : ', '),
+            ids: formatLocalizedList(batchBlockedLive.map((e) => e.id), i18n.language),
           })}
         </div>
       )}

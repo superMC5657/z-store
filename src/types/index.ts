@@ -77,11 +77,12 @@ export interface AppDetail {
   added_at?: string;
 }
 
-// 纯前端视图态：加载/刷新/错误状态不属于后端 AppDetail，独立存放
+// 纯前端视图态：加载/刷新/错误/认证状态不属于后端 AppDetail，独立存放
 export interface AppDetailViewModel extends AppDetail {
   isLoading?: boolean;
   isRefreshing?: boolean;
   loadError?: string;
+  isAuthExpired?: boolean;
 }
 
 export interface InstalledApp {

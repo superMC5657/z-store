@@ -14,17 +14,20 @@ export function useDetailStarVerify(opts: {
   appName: string;
   oauthLogin?: string | null;
   onRefresh?: (id: string) => void | Promise<unknown>;
+  isLoading?: boolean;
 }) {
-  const { appId, owner, repo, appName } = opts;
+  const { appId, owner, repo, appName, isLoading } = opts;
   const { t } = useTranslation();
 
   // FR-7: GitHub 标星态（仅登录可见；后端未就绪时一律按未标星降级）
   const [isStarred, setIsStarred] = useState(false);
   const [isStarring, setIsStarring] = useState(false);
 
+  const isTargetReady = !isLoading && Boolean(owner && repo);
+
   useEffect(() => {
     let cancelled = false;
-    if (!owner || /(?:^加载中\.\.\.$|^loading\.\.\.$)/i.test(owner) || !repo) {
+    if (!isTargetReady) {
       setIsStarred(false);
       return;
     }
@@ -36,10 +39,10 @@ export function useDetailStarVerify(opts: {
     return () => {
       cancelled = true;
     };
-  }, [owner, repo]);
+  }, [appId, owner, repo, isTargetReady]);
 
   const handleToggleStar = async () => {
-    if (!owner || /(?:^加载中\.\.\.$|^loading\.\.\.$)/i.test(owner) || !repo) return;
+    if (!isTargetReady) return;
     if (isStarring) return;
     setIsStarring(true);
     try {

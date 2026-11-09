@@ -9,7 +9,7 @@ import { AppearanceSection } from './SettingsView/sections/AppearanceSection';
 import { getPendingShowCoordsPref, setPendingShowCoordsPref } from '../lib/pendingPrefs';
 import { UpdatesRulesSection } from './SettingsView/sections/UpdatesRulesSection';
 import { StorageSection } from './SettingsView/sections/StorageSection';
-import { NetworkDataSection } from './SettingsView/sections/NetworkDataSection';
+import { CatalogSyncFeedback, NetworkDataSection } from './SettingsView/sections/NetworkDataSection';
 import { DataManagementSection } from './SettingsView/sections/DataManagementSection';
 
 interface SettingsViewProps {
@@ -92,21 +92,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   }, []);
 
   const [isSyncingCatalog, setIsSyncingCatalog] = useState(false);
-  const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
+  const [syncFeedback, setSyncFeedback] = useState<CatalogSyncFeedback | null>(null);
 
   const handleSyncCatalog = async () => {
     setIsSyncingCatalog(true);
     setSyncFeedback(null);
     try {
       const res = await tauriApi.syncCatalog(true);
-      setSyncFeedback(res.message);
+      setSyncFeedback({ message: res.message, isError: false });
       triggerChangeFeedback('catalog_sync', t('settings.catalog_sync_success'));
       setTimeout(() => setSyncFeedback(null), 5000);
       window.dispatchEvent(new CustomEvent('zstore:catalog-synced'));
       // 同步可能触发转正归档：通知 customApps 重载，待收录页/计数立即跟随（无需重启）。
       window.dispatchEvent(new CustomEvent('zstore:custom-apps-changed'));
     } catch (e) {
-      setSyncFeedback(t('settings.catalog_sync_failed', { error: String(e) }));
+      setSyncFeedback({ message: t('settings.catalog_sync_failed', { error: String(e) }), isError: true });
     } finally {
       setIsSyncingCatalog(false);
     }

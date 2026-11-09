@@ -238,6 +238,7 @@ export const Header: React.FC<HeaderProps> = ({
     appName: app.name,
     oauthLogin: oauthUser?.login,
     onRefresh,
+    isLoading: app.isLoading,
   });
 
   const [isRefreshing, setIsRefreshing] = useState(false);

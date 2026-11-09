@@ -11,6 +11,11 @@ import {
 } from 'lucide-react';
 import { OAuthAccountCard } from '../../../components/OAuthAccountCard';
 
+export interface CatalogSyncFeedback {
+  message: string;
+  isError: boolean;
+}
+
 interface NetworkDataSectionProps {
   proxyInput: string;
   setProxyInput: (val: string) => void;
@@ -30,7 +35,7 @@ interface NetworkDataSectionProps {
   setCatalogSourceUrl: (url: string) => void;
   setCatalogUrlSaved: (saved: boolean) => void;
   isSyncingCatalog: boolean;
-  syncFeedback: string | null;
+  syncFeedback: CatalogSyncFeedback | null;
   showAdvancedSource: boolean;
   setShowAdvancedSource: (show: boolean) => void;
   isCatalogSourceConfirming: boolean;
@@ -234,8 +239,8 @@ export const NetworkDataSection: React.FC<NetworkDataSectionProps> = ({
         )}
 
         {syncFeedback && (
-          <span style={{ fontSize: 'var(--font-sm)', color: syncFeedback.includes('失败') || syncFeedback.toLowerCase().includes('failed') ? '#ef4444' : '#10b981' }}>
-            {syncFeedback}
+          <span style={{ fontSize: 'var(--font-sm)', color: syncFeedback.isError ? '#ef4444' : '#10b981' }}>
+            {syncFeedback.message}
           </span>
         )}
       </div>

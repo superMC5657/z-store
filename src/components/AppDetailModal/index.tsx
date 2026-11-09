@@ -150,10 +150,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   }, [app.releases, currentOs, currentArch]);
 
   const hasNoReleases = !releases || releases.length === 0;
-  const isAuthExpired = Boolean(
-    oauthUser?.is_expired ||
-    /401|凭据已失效|授权已失效|credentials expired|unauthorized/i.test(app.changelog || '')
-  );
+  const isAuthExpired = Boolean(oauthUser?.is_expired || app.isAuthExpired);
 
   const primaryAsset: ReleaseAsset | undefined = useMemo(() => {
     if (selectedAssetName) {

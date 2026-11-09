@@ -612,8 +612,8 @@ export function useDetailCacheSync({
       : {
           id,
           name: id,
-          owner: '加载中...',
-          repo: id,
+          owner: id.includes('/') ? id.split('/')[0] : '',
+          repo: id.includes('/') ? id.split('/')[1] : id,
           icon: '📦',
           icon_bg: DEFAULT_ICON_BG,
           description: enrichInitialDesc ?? '正在获取应用元数据...',

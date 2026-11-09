@@ -63,7 +63,7 @@
 4. **设置页重组为五组**：
    - 第一组为外观与个性化（`AppearanceSection`）：主题、语言、界面缩放、全局字号。
    - 第二组为更新与规则（`UpdatesRulesSection`）：更新频率、客户端更新行、关注提醒频率、版本锁定规则入口。
-   - 第三组为存储与安装（`StorageSection`）：下载目录、便携版安装目录、图标缓存与通用图片缓存清理。
+   - 第三组为存储与安装（`StorageSection`）：下载目录、便携版安装目录；图标与通用资源缓存由系统后台自动淘汰管理，不在设置页暴露清理项。
    - 第四组为网络与数据（`NetworkDataSection`）：GitHub 账号卡片（`OAuthAccountCard`，锚点 `settings-account`）、下载加速代理与单键测速、收录清单同步。
    - 第五组为数据管理与备份（`DataManagementSection`）：软件资产清单 JSON 导出、`DataBackupRow` 备份/恢复、日志导出。
    - 状态指示保留：账号卡片内展示登录态的配额说明文案与锚点跳转。
