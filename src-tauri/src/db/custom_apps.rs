@@ -95,13 +95,20 @@ pub fn validate_custom_item(
     mode: ValidateMode,
     gate: &LicenseGateConfig,
 ) -> Result<String, String> {
-    // 草稿箱仅支持 GitHub owner/repo，forge 形态（含冒号）直接拒绝。
-    // 通用 forge 解析基础设施（ForgeType/coord）保留，此处只做入口收口。
+    // 草稿箱仅支持 GitHub owner/repo，forge 形态（含冒号或非 GitHub 托管源）直接拒绝。
     if item.id.contains(':') {
         return Err(format!(
             "仅支持 GitHub owner/repo，forge 形态 id 暂不收录：'{}'",
             item.id
         ));
+    }
+    if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&item.id) {
+        if coord.forge != crate::forge::ForgeType::GitHub {
+            return Err(format!(
+                "仅支持 GitHub owner/repo，forge 形态 id 暂不收录：'{}'",
+                item.id
+            ));
+        }
     }
     if item.owner.trim().is_empty() || item.repo.trim().is_empty() {
         return Err("仓库坐标 owner/repo 不可为空".to_string());
@@ -121,10 +128,7 @@ pub fn validate_custom_item(
         ));
     }
     let coord_suffix = crate::forge::canonical_app_id_from_parts(&item.owner, &item.repo);
-    let aligned = canonical == coord_suffix
-        || canonical.ends_with(&format!(":{}", coord_suffix))
-        || canonical.ends_with(&format!("/{}", coord_suffix));
-    if !aligned {
+    if canonical != coord_suffix {
         return Err(format!(
             "草稿 id 必须与仓库坐标一致：id='{}'，owner/repo='{}'",
             item.id, coord_suffix

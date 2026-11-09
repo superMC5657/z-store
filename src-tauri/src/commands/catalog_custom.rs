@@ -394,20 +394,13 @@ pub fn list_custom_apps(
 
 /// 草稿暂存（暂存档校验：仅 `id==canonical` 且与 `owner/repo` 对齐；
 /// `license` 占位（`OpenSource` 等）/ 空 `homepage` / 不完整字段均放行，Q8 草稿三态）。
-/// 仅支持 GitHub `owner/repo`：forge 形态 id（含冒号 `:`）直接拒绝，
-/// 通用 forge 基础设施保留，入口在此与 `validate_custom_item` 双层收口。
+/// 仅支持 GitHub `owner/repo`：由 `validate_custom_item` 统一收口校验。
 /// 新建行 `status=draft`；已存在行仅刷新 payload（`status`/`pr_url` 保持）。
 #[tauri::command]
 pub fn save_custom_app(
     state: State<'_, AppState>,
     item: CatalogItem,
 ) -> crate::AppResult<CustomAppEntry> {
-    if item.id.contains(':') {
-        return Err(crate::AppError::new(format!(
-            "仅支持 GitHub owner/repo，forge 形态 id 暂不收录：'{}'",
-            item.id
-        )));
-    }
     let canonical = crate::db::custom_apps::validate_custom_item(
         &item,
         ValidateMode::DraftLenient,
