@@ -514,6 +514,14 @@ export function useDetailCacheSync({
           appsRef.current.find((a) => a.id.toLowerCase() === idClean) ??
           onlineAppsRef.current.find((a) => a.id.toLowerCase() === idClean) ??
           recentsRef.current.find((a) => a.id.toLowerCase() === idClean);
+        if (
+          catalogHit?.description &&
+          catalogHit.description.trim() !== '' &&
+          !isPlaceholderDescription(catalogHit.description) &&
+          cachedForShow.description !== catalogHit.description
+        ) {
+          cachedForShow = { ...cachedForShow, description: catalogHit.description };
+        }
         if (catalogHit?.icon && catalogHit.icon.trim() !== '' && cachedForShow.icon !== catalogHit.icon) {
           cachedForShow = { ...cachedForShow, icon: catalogHit.icon };
         }

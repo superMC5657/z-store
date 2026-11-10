@@ -207,6 +207,9 @@ fn reuse_304_cached(
         if item.description_en.is_some() {
             detail.core.description_en = item.description_en.clone();
         }
+        if !item.description.trim().is_empty() {
+            detail.core.description = item.description.clone();
+        }
         if !item.icon.trim().is_empty() {
             detail.core.icon = item.icon.clone();
         }

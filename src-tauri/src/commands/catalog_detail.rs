@@ -462,6 +462,9 @@ fn project_from_cache(
         if enrich_catalog_desc_en && cat_item.description_en.is_some() {
             detail.core.description_en = cat_item.description_en.clone();
         }
+        if !cat_item.description.trim().is_empty() {
+            detail.core.description = cat_item.description.clone();
+        }
         if !cat_item.icon.trim().is_empty() {
             detail.core.icon = cat_item.icon.clone();
         }

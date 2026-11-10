@@ -493,6 +493,7 @@ describe('useDetailCacheSync：图标三态', () => {
     const oldDetail = makeDetail({
       id: 'pingdotgg/t3code',
       icon: '',
+      description: 'old github description',
       category: 'system',
       category_name: '系统实用',
     });
@@ -500,6 +501,7 @@ describe('useDetailCacheSync：图标三态', () => {
       id: 'pingdotgg/t3code',
       icon: 'https://cdn.example.com/t3-black.png',
       icon_bg: '#000000',
+      description: '自收录的新摘要',
       category: 'dev',
       category_name: '开发工具',
     });
@@ -521,6 +523,7 @@ describe('useDetailCacheSync：图标三态', () => {
         id: 'pingdotgg/t3code',
         icon: 'https://cdn.example.com/t3-black.png',
         icon_bg: '#000000',
+        description: '自收录的新摘要',
         category: 'dev',
         category_name: '开发工具',
       }),
