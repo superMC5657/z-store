@@ -204,24 +204,7 @@ fn reuse_304_cached(
     // deduce + ios 并集 + 排序经内部平台 seam（与成功路径共用）。
     detail.core.platforms = unioned_detail_platforms(&detail.releases, catalog_item);
     if let Some(item) = catalog_item {
-        if item.description_en.is_some() {
-            detail.core.description_en = item.description_en.clone();
-        }
-        if !item.description.trim().is_empty() {
-            detail.core.description = item.description.clone();
-        }
-        if !item.icon.trim().is_empty() {
-            detail.core.icon = item.icon.clone();
-        }
-        if !item.icon_bg.trim().is_empty() {
-            detail.core.icon_bg = item.icon_bg.clone();
-        }
-        detail.core.category = item.category.clone();
-        detail.core.category_name = item.category_name.clone();
-        detail.core.name = item.name.clone();
-        if item.added_at.is_some() {
-            detail.core.added_at = item.added_at.clone();
-        }
+        item.overlay_detail_core(&mut detail.core);
     }
     detail.cached_at = Some(crate::github::http::now_secs());
     detail.is_stale = None;

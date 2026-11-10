@@ -137,6 +137,28 @@ impl CatalogItem {
             },
         }
     }
+
+    /// 用收录项最新精校元数据覆写详情核心字段（图标、分类、名称、摘要、收录时间）。
+    pub fn overlay_detail_core(&self, core: &mut AppCore) {
+        if self.description_en.is_some() {
+            core.description_en = self.description_en.clone();
+        }
+        if !self.description.trim().is_empty() {
+            core.description = self.description.clone();
+        }
+        if !self.icon.trim().is_empty() {
+            core.icon = self.icon.clone();
+        }
+        if !self.icon_bg.trim().is_empty() {
+            core.icon_bg = self.icon_bg.clone();
+        }
+        core.category = self.category.clone();
+        core.category_name = self.category_name.clone();
+        core.name = self.name.clone();
+        if self.added_at.is_some() {
+            core.added_at = self.added_at.clone();
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -254,5 +276,55 @@ mod tests {
         let item = dummy_item(vec!["linux".to_string()]);
         let summary = item.to_summary();
         assert_eq!(summary.core.platforms, vec!["linux".to_string()]);
+    }
+
+    #[test]
+    fn test_overlay_detail_core() {
+        let mut item = dummy_item(vec![]);
+        item.name = "New Name".to_string();
+        item.icon = "https://example.com/icon.png".to_string();
+        item.icon_bg = "#ff0000".to_string();
+        item.description = "New Desc".to_string();
+        item.description_en = Some("New Desc En".to_string());
+        item.category = "tools".to_string();
+        item.category_name = "开发工具".to_string();
+        item.added_at = Some("2026-11-10".to_string());
+
+        let mut core = AppCore {
+            id: "unknown/repo".to_string(),
+            name: "repo".to_string(),
+            owner: "unknown".to_string(),
+            repo: "repo".to_string(),
+            icon: String::new(),
+            icon_bg: String::new(),
+            description: "Old Desc".to_string(),
+            description_en: None,
+            stars: 0,
+            forks: 0,
+            license: "MIT".to_string(),
+            latest_version: "v1.0.0".to_string(),
+            category: "system".to_string(),
+            category_name: "系统实用".to_string(),
+            is_verified: false,
+            forge: Some("github".to_string()),
+            forge_host: Some("github.com".to_string()),
+            homepage: None,
+            platforms: vec![],
+            added_at: None,
+            is_cataloged: None,
+            source: None,
+            status: None,
+        };
+
+        item.overlay_detail_core(&mut core);
+
+        assert_eq!(core.name, "New Name");
+        assert_eq!(core.icon, "https://example.com/icon.png");
+        assert_eq!(core.icon_bg, "#ff0000");
+        assert_eq!(core.description, "New Desc");
+        assert_eq!(core.description_en.as_deref(), Some("New Desc En"));
+        assert_eq!(core.category, "tools");
+        assert_eq!(core.category_name, "开发工具");
+        assert_eq!(core.added_at.as_deref(), Some("2026-11-10"));
     }
 }

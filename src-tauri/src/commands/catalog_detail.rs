@@ -405,7 +405,6 @@ pub async fn get_app_details_impl(
             state,
             &clean_id,
             true,
-            true,
             "get_app_details",
             "cache:db",
             start,
@@ -430,7 +429,6 @@ pub async fn get_app_details_impl(
 /// - `ttl_gated=true`：TTL 内快径（`detail_ttl_secs` 门控，命中即 fresh 复用，不标 stale）；
 /// - `ttl_gated=false`：stale 穿透臂——无 TTL 门控（过期行同样复用）且强制置
 ///   `is_stale=Some(true)`（401/离线/未知坐标回退，Ok(stale) 形状 IPC 保留）；
-/// - `enrich_catalog_desc_en`：收录项 `description_en` 回填（仅主臂 TTL 快径启用）；
 /// - `log_prefix`/`log_from`：保留各调用点原日志文案。
 ///
 /// 未命中返回 `None`（调用方继续后续段）；命中即已完成 id 回写与 `stamp_detail` 盖章，
@@ -439,7 +437,6 @@ fn project_from_cache(
     state: &AppState,
     clean_id: &str,
     ttl_gated: bool,
-    enrich_catalog_desc_en: bool,
     log_prefix: &str,
     log_from: &str,
     start: std::time::Instant,
@@ -459,24 +456,7 @@ fn project_from_cache(
         detail.is_stale = Some(true);
     }
     if let Some(cat_item) = state.catalog.get_catalog_item(clean_id) {
-        if enrich_catalog_desc_en && cat_item.description_en.is_some() {
-            detail.core.description_en = cat_item.description_en.clone();
-        }
-        if !cat_item.description.trim().is_empty() {
-            detail.core.description = cat_item.description.clone();
-        }
-        if !cat_item.icon.trim().is_empty() {
-            detail.core.icon = cat_item.icon.clone();
-        }
-        if !cat_item.icon_bg.trim().is_empty() {
-            detail.core.icon_bg = cat_item.icon_bg.clone();
-        }
-        detail.core.category = cat_item.category.clone();
-        detail.core.category_name = cat_item.category_name.clone();
-        detail.core.name = cat_item.name.clone();
-        if cat_item.added_at.is_some() {
-            detail.core.added_at = cat_item.added_at.clone();
-        }
+        cat_item.overlay_detail_core(&mut detail.core);
     }
     log::debug!(
         "{} id={} from={} elapsed_ms={}",
@@ -506,7 +486,6 @@ async fn fetch_detail_from_forge(
             state,
             &clean_id,
             true,
-            false,
             "get_app_details",
             "cache:db forge",
             start,
@@ -644,7 +623,6 @@ async fn fetch_detail_from_github(
                     state,
                     clean_id,
                     false,
-                    false,
                     "fetch detail fallback",
                     "cache:stale",
                     start,
@@ -757,7 +735,6 @@ async fn fetch_detail_from_github(
             if let Some(fallback_detail) = project_from_cache(
                 state,
                 clean_id,
-                false,
                 false,
                 "fetch app detail fallback",
                 "cache:stale",
