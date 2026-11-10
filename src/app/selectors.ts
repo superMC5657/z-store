@@ -42,6 +42,7 @@ interface UseAppSelectorsParams {
    */
   customApps?: AppSummary[];
   showCustom?: boolean;
+  searchQuery?: string;
 }
 
 /**
@@ -293,6 +294,39 @@ function customItemToSummary(item: {
 }
 
 /**
+ * 判定应用是否匹配搜索词（用于搜索态 custom 本地库叠加过滤）：
+ * 匹配 name / id / owner / repo / description / description_en / category / category_name / aliases。
+ */
+export function appMatchesQuery(app: AppSummary, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const name = (app.name || '').toLowerCase();
+  const id = (app.id || '').toLowerCase();
+  const owner = (app.owner || '').toLowerCase();
+  const repo = (app.repo || '').toLowerCase();
+  const desc = (app.description || '').toLowerCase();
+  const descEn = (app.description_en || '').toLowerCase();
+  const cat = (app.category || '').toLowerCase();
+  const catName = (app.category_name || '').toLowerCase();
+  const rawAliases = (app as { aliases?: unknown }).aliases;
+  const aliases = Array.isArray(rawAliases)
+    ? rawAliases.map((a: unknown) => (typeof a === 'string' ? a.toLowerCase() : ''))
+    : [];
+
+  return (
+    name.includes(q) ||
+    id.includes(q) ||
+    owner.includes(q) ||
+    repo.includes(q) ||
+    desc.includes(q) ||
+    descEn.includes(q) ||
+    cat === q ||
+    catName === q ||
+    aliases.some((a: string) => a.includes(q))
+  );
+}
+
+/**
  * 全局合并（远端优先去重，仅收录态补位）：
  * - remote 在前，collected 在后；同 id（归一）取远端行；
  * - showCustom=false 即返回 remote 本体（引用透传，调用方可 memo 命中）；
@@ -300,14 +334,18 @@ function customItemToSummary(item: {
  *   补位行经 markLocalSource 打标（source=local，is_cataloged 恒 true）；
  * - 支持 CustomAppEntry（{item,status,archived}）与扁平行（含 status/archived）两种形态；
  *   无 status 的旧行视为未收录直接跳过。
+ * - 搜索态（传 searchQuery 且非空）按词过滤，避免误将不相关的收录行追加到搜索结果。
  * Home/分类/搜索三处共用同一口（调用方先合并再平台过滤）。
  */
 export function selectMergedCatalogApps(
   remote: AppSummary[],
   custom: readonly unknown[],
   showCustom: boolean = SHOW_CUSTOM_DEFAULT,
+  searchQuery?: string,
 ): AppSummary[] {
   if (!showCustom || custom.length === 0) return remote;
+  const q = typeof searchQuery === 'string' ? searchQuery.trim().toLowerCase() : '';
+  const isSearching = q.length > 0;
   const seen = new Set<string>();
   for (const r of remote) {
     const k = normalizeId(r.id);
@@ -349,6 +387,9 @@ export function selectMergedCatalogApps(
   let appended = false;
   const out: AppSummary[] = [...remote];
   for (const { base, status } of collectedBases) {
+    if (isSearching && !appMatchesQuery(base, q)) {
+      continue;
+    }
     const k = normalizeId(base.id);
     if (!k || seen.has(k)) continue;
     seen.add(k);
@@ -706,12 +747,13 @@ export function useAppSelectors({
   stagedDeepLinkInstall,
   customApps = [],
   showCustom = SHOW_CUSTOM_DEFAULT,
+  searchQuery,
 }: UseAppSelectorsParams) {
   // 自维护 overlay：custom 未归档叠加到 Home/分类/搜索（远端优先去重，custom 标 source=custom）。
-  // 缺省（customApps=[]/showCustom=true）即原数组透传。
+  // 缺省（customApps=[]/showCustom=true）即原数组透传。搜索态按词过滤，避免误将不相关的收录行追加到搜索结果。
   const mergedApps = useMemo(
-    () => selectMergedCatalogApps(apps, customApps, showCustom),
-    [apps, customApps, showCustom],
+    () => selectMergedCatalogApps(apps, customApps, showCustom, searchQuery),
+    [apps, customApps, showCustom, searchQuery],
   );
   // 任务 3：以平台优先派生数据供给 精选/趋势/分类 视图（使用同名 apps 属性）。
   // 加载中行恒可见（不看 Other 勾选），落定后再走 matchPlatformSet。

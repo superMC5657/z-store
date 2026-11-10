@@ -335,6 +335,7 @@ export const App: React.FC = () => {
     currentView,
     stagedDeepLinkInstall,
     customApps: localLibrarySummaries,
+    searchQuery,
   });
 
   // 7. 更新规则动作簇（单项更新/忽略/跳过/锁定/隐藏/规则管理/批量升级/手动检查）

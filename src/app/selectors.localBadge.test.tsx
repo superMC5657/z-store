@@ -343,6 +343,39 @@ describe('库内成员（提交 Issue 不退出本地库）', () => {
     );
     expect(merged).toHaveLength(0);
   });
+
+  it('搜索态按词过滤：不相关的本地收录行不追加，匹配的行正常命中', () => {
+    const custom = [
+      {
+        item: { id: 'pingdotgg/t3code', name: 't3code', owner: 'pingdotgg', repo: 't3code', description: '一站式协同调度', platforms: ['windows'] },
+        status: 'collected',
+        archived: false,
+      } as never,
+      {
+        item: { id: 'yetone/magpie', name: 'magpie', owner: 'yetone', repo: 'magpie', description: '智能体', platforms: ['windows'] },
+        status: 'collected',
+        archived: false,
+      } as never,
+    ];
+
+    // 搜索 "xxxx"（本地远端均未命中）：不相关的 custom 行不应被盲目追加
+    const miss = selectMergedCatalogApps([], custom, true, 'xxxx');
+    expect(miss).toHaveLength(0);
+
+    // 搜索 "t3"：匹配到 t3code，magpie 被过滤
+    const hit = selectMergedCatalogApps([], custom, true, 't3');
+    expect(hit).toHaveLength(1);
+    expect(hit[0]?.id).toBe('pingdotgg/t3code');
+
+    // 搜索 "智能体"：匹配到 description
+    const hitDesc = selectMergedCatalogApps([], custom, true, '智能体');
+    expect(hitDesc).toHaveLength(1);
+    expect(hitDesc[0]?.id).toBe('yetone/magpie');
+
+    // 非搜索态（空词或 undefined）：全量本地收录行正常追加
+    const browse = selectMergedCatalogApps([], custom, true, '');
+    expect(browse).toHaveLength(2);
+  });
 });
 
 describe('历史行重标（最近浏览去黄成对）', () => {
