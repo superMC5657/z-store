@@ -9,7 +9,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import i18n from '../i18n';
 import { FavoritesView } from './FavoritesView';
-import { AppCard } from '../components/AppCard';
 import { tauriApi } from '../services/api';
 import { makeApp } from './test-utils/filterFixture';
 import { makeFavoritePlaceholderSummary } from '../app/favoritesUncataloged';
@@ -70,52 +69,47 @@ describe('batch install survives a single item failure', () => {
   });
 });
 
-describe('favorites catalog badge (display-only, data join untouched)', () => {
+describe('favorites & watched views do not display cataloged/uncataloged badges', () => {
   const baseLocal = {
     installedIds: new Set<string>(),
     installingIds: new Set<string>(),
     onOpenDetail: () => {},
     onQuickInstall: async () => {},
     onToggleFavorite: () => {},
+    onToggleWatch: () => {},
   };
+  const verifiedApp = makeApp({ id: 'owner/app-a', name: 'AppA', category: 'system', is_verified: true });
+  const external = makeApp({ id: 'owner/app-x', name: 'AppX', category: 'external', is_verified: false });
 
-  it('已收录行走收录蓝 pill，未收录（external）行走弱化描边徽标', () => {
-    const cataloged = makeApp({ id: 'owner/app-a', name: 'AppA', category: 'system' });
-    const external = makeApp({ id: 'owner/app-x', name: 'AppX', category: 'external' });
+  it('收藏列表不渲染已收录/未收录标签，收录/认证状态由应用名角标体现', () => {
     const { container } = render(
       <FavoritesView
-        apps={[cataloged, external]}
+        apps={[verifiedApp, external]}
         favoriteIds={new Set(['owner/app-a', 'owner/app-x'])}
         {...baseLocal}
       />,
     );
-    const catalogedBadge = container.querySelector('.app-tag-cataloged');
-    const uncatalogedBadge = container.querySelector('.app-tag-uncataloged');
-    expect(catalogedBadge?.textContent).toContain('已收录');
-    expect(uncatalogedBadge?.textContent).toContain('未收录');
+    expect(container.querySelector('.app-tag-cataloged')).toBeNull();
+    expect(container.querySelector('.app-tag-uncataloged')).toBeNull();
+    expect(container.textContent).not.toContain('已收录');
+    expect(container.textContent).not.toContain('未收录');
+    expect(container.querySelector('.verified-badge')).not.toBeNull();
   });
 
-  it('显式 is_cataloged 标记优先于 category（占位行口径）', () => {
-    const forcedIn = makeApp({ id: 'owner/app-y', name: 'AppY', category: 'external', is_cataloged: true });
-    const forcedOut = makeApp({ id: 'owner/app-z', name: 'AppZ', category: 'system', is_cataloged: false });
+  it('关注列表同样不渲染已收录/未收录标签', () => {
     const { container } = render(
       <FavoritesView
-        apps={[forcedIn, forcedOut]}
-        favoriteIds={new Set(['owner/app-y', 'owner/app-z'])}
+        apps={[verifiedApp, external]}
+        favoriteIds={new Set()}
+        watchedIds={new Set(['owner/app-a', 'owner/app-x'])}
         {...baseLocal}
       />,
     );
-    expect(container.querySelectorAll('.app-tag-cataloged')).toHaveLength(1);
-    expect(container.querySelectorAll('.app-tag-uncataloged')).toHaveLength(1);
-  });
-
-  it('不传 showCatalogBadge 时零徽标（其它页面外观零变化）', () => {
-    const app = makeApp({ id: 'owner/app-a', name: 'AppA', category: 'system' });
-    const { container } = render(
-      <AppCard app={app} isInstalled={false} isManaged={false} platformLoading={false} onOpenDetail={() => {}} onQuickInstall={() => {}} />,
-    );
+    fireEvent.click(screen.getByText(/关注/));
     expect(container.querySelector('.app-tag-cataloged')).toBeNull();
     expect(container.querySelector('.app-tag-uncataloged')).toBeNull();
+    expect(screen.queryByText('已收录')).toBeNull();
+    expect(screen.queryByText('未收录')).toBeNull();
   });
 });
 
@@ -130,22 +124,23 @@ describe('rows kept and counts from full sets', () => {
 
   it('未收录占位行照常渲染（行不消失），tab 计数用全集（含无行 id）', () => {
     const cataloged = makeApp({ id: 'owner/app-a', name: 'AppA', category: 'system', platforms: ['windows'] });
-    const extra = makeFavoritePlaceholderSummary('Unknown/App');
+    const extra = makeFavoritePlaceholderSummary('Unknown/PlaceholderApp');
     const { container } = render(
       <FavoritesView
         apps={[cataloged, extra]}
-        favoriteIds={new Set(['owner/app-a', 'Unknown/App', 'ghost/app'])}
+        favoriteIds={new Set(['owner/app-a', 'Unknown/PlaceholderApp', 'ghost/app'])}
         {...baseLocal}
       />,
     );
     // 行：已 join 的两行渲染（ghost/app 无行，由 join 模块在 App 层补齐，此处不断言）。
     expect(container.textContent).toContain('AppA');
-    expect(container.textContent).toContain('未收录');
+    expect(container.textContent).toContain('PlaceholderApp');
+    expect(container.textContent).not.toContain('未收录');
     // 计数：全集 3（含无行的 ghost/app），不随行数缩水。
     expect(screen.getByText('收藏 (3)')).not.toBeNull();
   });
 
-  it('缓存回填的富卡行按真实信息渲染（同形 AppSummary 直显 + 未收录徽标）', () => {
+  it('缓存回填的富卡行按真实信息直显渲染（同形 AppSummary）', () => {
     const rich = {
       ...makeApp({ id: 'owner/app-rich', name: 'RichApp', description: 'rich desc', stars: 4242 }),
       is_cataloged: false,
@@ -158,7 +153,8 @@ describe('rows kept and counts from full sets', () => {
       />,
     );
     expect(container.textContent).toContain('RichApp');
-    expect(container.querySelector('.app-tag-uncataloged')?.textContent).toContain('未收录');
+    expect(container.textContent).toContain('rich desc');
+    expect(container.textContent).not.toContain('未收录');
   });
 
   it('取消收藏即行消失（缺席 id 不成行）', () => {

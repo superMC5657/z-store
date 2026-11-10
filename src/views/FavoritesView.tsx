@@ -205,7 +205,6 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={true}
                 isWatched={watchedIdsLower.has(normalizeId(app.id))}
-                showCatalogBadge={true}
                 showLoadDetail={onLoadUncatalogedDetail !== undefined && isFavoritePlaceholderRow(app)}
                 onLoadDetail={onLoadUncatalogedDetail}
                 onOpenDetail={onOpenDetail}
@@ -246,7 +245,6 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 isInstalling={installingIds?.has(app.id)}
                 isFavorite={favoriteIdsLower.has(normalizeId(app.id))}
                 isWatched={true}
-                showCatalogBadge={true}
                 showLoadDetail={onLoadUncatalogedDetail !== undefined && isFavoritePlaceholderRow(app)}
                 onLoadDetail={onLoadUncatalogedDetail}
                 onOpenDetail={onOpenDetail}

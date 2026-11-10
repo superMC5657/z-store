@@ -30,11 +30,6 @@ interface AppCardProps {
   className?: string;
   /** 首屏卡片传入 true（图标 eager），其余默认 lazy，避免全网格抢加载。 */
   eager?: boolean;
-  /**
-   * 收录态徽标（收藏列表传入 true）：已收录走收录蓝 pill，未收录走弱化描边，
-   * 定宽 48px 保持布局稳定。不传则不渲染。
-   */
-  showCatalogBadge?: boolean;
   /** 收录时间徽标（最新入库视图传入 true）：透出收录日期。不传则不渲染。 */
   showAddedAtBadge?: boolean;
   onOpenDetail: (id: string) => void;
@@ -118,7 +113,6 @@ function areAppCardPropsEqual(prev: AppCardProps, next: AppCardProps): boolean {
     prev.trendGainText === next.trendGainText &&
     prev.className === next.className &&
     (prev.eager ?? false) === (next.eager ?? false) &&
-    (prev.showCatalogBadge ?? false) === (next.showCatalogBadge ?? false) &&
     (prev.showAddedAtBadge ?? false) === (next.showAddedAtBadge ?? false) &&
     (prev.isMovingIn ?? false) === (next.isMovingIn ?? false) &&
     (prev.isCustomExisting ?? false) === (next.isCustomExisting ?? false) &&
@@ -144,7 +138,6 @@ export const AppCard: React.FC<AppCardProps> = memo(({
   trendGainText,
   className,
   eager = false,
-  showCatalogBadge = false,
   showAddedAtBadge = false,
   onOpenDetail,
   onQuickInstall,
@@ -285,24 +278,6 @@ export const AppCard: React.FC<AppCardProps> = memo(({
             </svg>
             <span>{formatStars(app.stars)}</span>
           </span>
-          {showCatalogBadge &&
-            (isAppCataloged(app) ? (
-              <span
-                className="app-tag app-tag-cataloged"
-                title={t('app.verified_badge')}
-                aria-label={t('app.cataloged_badge')}
-              >
-                <span>{t('app.cataloged_badge')}</span>
-              </span>
-            ) : (
-              <span
-                className="app-tag app-tag-uncataloged"
-                title={t('app.uncataloged_badge')}
-                aria-label={t('app.uncataloged_badge')}
-              >
-                <span>{t('app.uncataloged_badge')}</span>
-              </span>
-            ))}
           {showAddedAtBadge && app.added_at && (
             <span
               className="app-tag"
