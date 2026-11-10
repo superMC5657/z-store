@@ -261,4 +261,73 @@ describe('LatestView component', () => {
       expect(screen.getByText('收录于 2026-10-16')).toBeDefined();
     });
   });
+
+  it('displays total available count from backend total rather than first page item count', async () => {
+    const pageItems = Array.from({ length: 20 }, (_, i) =>
+      makeSummary(`demo/app${i + 1}`, `App ${i + 1}`, '2026-10-16'),
+    );
+    mockGetLatestCatalogApps.mockResolvedValueOnce({
+      items: pageItems,
+      total: 42,
+      has_more: true,
+    });
+
+    render(
+      <LatestView
+        apps={pageItems}
+        installedIds={new Set()}
+        favoriteIds={new Set()}
+        onOpenDetail={onOpenDetail}
+        onQuickInstall={onQuickInstall}
+        onToggleFavorite={onToggleFavorite}
+        onResetPlatformFilter={onResetPlatformFilter}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('42 款可用')).toBeDefined();
+    });
+  });
+
+  it('updates available count when switching time windows without flashing page length', async () => {
+    const pageItems = Array.from({ length: 20 }, (_, i) =>
+      makeSummary(`demo/app${i + 1}`, `App ${i + 1}`, '2026-10-16'),
+    );
+    mockGetLatestCatalogApps.mockResolvedValueOnce({
+      items: pageItems,
+      total: 35,
+      has_more: true,
+    });
+
+    render(
+      <LatestView
+        apps={pageItems}
+        installedIds={new Set()}
+        favoriteIds={new Set()}
+        onOpenDetail={onOpenDetail}
+        onQuickInstall={onQuickInstall}
+        onToggleFavorite={onToggleFavorite}
+        onResetPlatformFilter={onResetPlatformFilter}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('35 款可用')).toBeDefined();
+    });
+
+    // Switch to 7d window with total 5
+    mockGetLatestCatalogApps.mockResolvedValueOnce({
+      items: [makeSummary('demo/app1', 'App 1', '2026-10-22')],
+      total: 5,
+      has_more: false,
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('7 天'));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('5 款可用')).toBeDefined();
+    });
+  });
 });

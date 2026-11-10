@@ -45,6 +45,7 @@ export const LatestView: React.FC<LatestViewProps> = ({
   const [activeWindow, setActiveWindow] = useState<LatestTimeWindow>('30d');
 
   const [fetchedApps, setFetchedApps] = useState<AppSummary[]>([]);
+  const [totalCount, setTotalCount] = useState<number | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -90,6 +91,9 @@ export const LatestView: React.FC<LatestViewProps> = ({
           return next;
         });
 
+        if (typeof res.total === 'number') {
+          setTotalCount(res.total);
+        }
         if (page >= nextPageRef.current) nextPageRef.current = page + 1;
         hasMoreRef.current = res.has_more;
         setHasMore(res.has_more);
@@ -110,6 +114,7 @@ export const LatestView: React.FC<LatestViewProps> = ({
     const gen = genRef.current + 1;
     genRef.current = gen;
     setFetchedApps([]);
+    setTotalCount(null);
     nextPageRef.current = 2;
     hasMoreRef.current = false;
     setHasMore(false);
@@ -192,9 +197,9 @@ export const LatestView: React.FC<LatestViewProps> = ({
           options={windowOptions}
           ariaLabel={t('latest.title')}
         />
-        {!loading && visibleApps.length > 0 && (
+        {!loading && visibleApps.length > 0 && totalCount !== null && totalCount > 0 && (
           <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
-            {t('latest.apps_available', { count: visibleApps.length })}
+            {t('latest.apps_available', { count: totalCount })}
           </span>
         )}
       </div>
