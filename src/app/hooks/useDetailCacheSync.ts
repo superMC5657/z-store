@@ -509,6 +509,26 @@ export function useDetailCacheSync({
             // 快照失败则直接展示缓存
           }
         }
+        const catalogHit =
+          localApps?.find((a) => a.id.toLowerCase() === idClean) ??
+          appsRef.current.find((a) => a.id.toLowerCase() === idClean) ??
+          onlineAppsRef.current.find((a) => a.id.toLowerCase() === idClean) ??
+          recentsRef.current.find((a) => a.id.toLowerCase() === idClean);
+        if (catalogHit?.icon && catalogHit.icon.trim() !== '' && cachedForShow.icon !== catalogHit.icon) {
+          cachedForShow = { ...cachedForShow, icon: catalogHit.icon };
+        }
+        if (catalogHit?.icon_bg && catalogHit.icon_bg.trim() !== '' && cachedForShow.icon_bg !== catalogHit.icon_bg) {
+          cachedForShow = { ...cachedForShow, icon_bg: catalogHit.icon_bg };
+        }
+        if (catalogHit?.category && cachedForShow.category !== catalogHit.category) {
+          cachedForShow = {
+            ...cachedForShow,
+            category: catalogHit.category,
+            category_name: catalogHit.category_name ?? cachedForShow.category_name,
+          };
+        }
+        appDetailMemoryCache.current.set(idClean, cachedForShow);
+
         // 先以 0ms 瞬间展示内存快照，避免骨架屏闪烁
         // 内存快照按当前目录重标注收录位（目录后到即纠正旧快照缺位，fail-closed）。
         setSelectedApp({
@@ -541,6 +561,7 @@ export function useDetailCacheSync({
 
     // 2. 内存未命中或主动刷新：若弹窗已打开则保持现有视图无感刷新，否则展示基础卡片信息
     const existing =
+      localApps?.find((a) => a.id.toLowerCase() === idClean) ||
       appsRef.current.find((a) => a.id.toLowerCase() === idClean) ||
       onlineAppsRef.current.find((a) => a.id.toLowerCase() === idClean) ||
       recentsRef.current.find((a) => a.id.toLowerCase() === idClean);

@@ -488,4 +488,42 @@ describe('useDetailCacheSync：图标三态', () => {
       expect(patched[0].icon).toBe('');
     });
   });
+
+  it('0ms 内存快照命中时，若本地收录已添加新图标与分类，瞬间展示优先采用新图标', async () => {
+    const oldDetail = makeDetail({
+      id: 'pingdotgg/t3code',
+      icon: '',
+      category: 'system',
+      category_name: '系统实用',
+    });
+    const localCollectedApp = makeApp({
+      id: 'pingdotgg/t3code',
+      icon: 'https://cdn.example.com/t3-black.png',
+      icon_bg: '#000000',
+      category: 'dev',
+      category_name: '开发工具',
+    });
+
+    const { result, params } = renderSync({
+      localApps: [localCollectedApp],
+    });
+    // 模拟之前浏览过，内存快照中存在旧详情（无图标）
+    result.current.appDetailMemoryCache.current.set('pingdotgg/t3code', oldDetail);
+    mocks.getAppDetails.mockResolvedValue(oldDetail);
+
+    await act(async () => {
+      await result.current.handleOpenDetail('pingdotgg/t3code');
+    });
+
+    // 0ms 快照展示时已治愈为本地收录的新图标和分类
+    expect(params.setSelectedApp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'pingdotgg/t3code',
+        icon: 'https://cdn.example.com/t3-black.png',
+        icon_bg: '#000000',
+        category: 'dev',
+        category_name: '开发工具',
+      }),
+    );
+  });
 });

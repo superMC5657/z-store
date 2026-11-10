@@ -120,11 +120,7 @@ struct DetailIdentity {
 /// 身份解析 seam：endpoints + 收录项一次取出（读锁一次）。
 fn resolve_detail_identity(svc: &CatalogService, id: &str) -> Result<DetailIdentity, String> {
     let coords = svc.get_repo_coordinates(id)?;
-    let catalog_item = svc
-        .items
-        .read()
-        .ok()
-        .and_then(|items| items.iter().find(|i| i.id == id).cloned());
+    let catalog_item = svc.get_catalog_item(id);
     Ok(DetailIdentity {
         owner: coords.owner,
         repo: coords.repo,
@@ -210,6 +206,18 @@ fn reuse_304_cached(
     if let Some(item) = catalog_item {
         if item.description_en.is_some() {
             detail.core.description_en = item.description_en.clone();
+        }
+        if !item.icon.trim().is_empty() {
+            detail.core.icon = item.icon.clone();
+        }
+        if !item.icon_bg.trim().is_empty() {
+            detail.core.icon_bg = item.icon_bg.clone();
+        }
+        detail.core.category = item.category.clone();
+        detail.core.category_name = item.category_name.clone();
+        detail.core.name = item.name.clone();
+        if item.added_at.is_some() {
+            detail.core.added_at = item.added_at.clone();
         }
     }
     detail.cached_at = Some(crate::github::http::now_secs());

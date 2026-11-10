@@ -148,6 +148,13 @@ export const Header: React.FC<HeaderProps> = ({
 
   const effectiveIconOverride = useMemo(() => {
     if (!iconCycle) return undefined;
+    // 收录应用锁定官方图标：只要 app.icon 有实图，仅放行 data: 即时展示或同源 URL，
+    // 其余情况回落 undefined 让 AppIcon 直显官方图。
+    if (isCataloged && typeof app.icon === 'string' && app.icon.trim() !== '') {
+      const rawUrl = typeof iconCycle.url === 'string' ? iconCycle.url.trim() : '';
+      if (rawUrl.startsWith('data:') || rawUrl === app.icon.trim()) return rawUrl;
+      return undefined;
+    }
     if (iconCycle.level === 5 || iconCycle.is_fallback) {
       return iconCycle.url || '';
     }
@@ -166,7 +173,7 @@ export const Header: React.FC<HeaderProps> = ({
     // persistUrl 为空同样不覆盖（回落缓冲/父 prop）。
     if (persistUrl !== '') return undefined;
     return undefined;
-  }, [iconCycle]);
+  }, [iconCycle, isCataloged, app.icon]);
 
   const handleCycleIcon = async (e: React.MouseEvent) => {
     e.preventDefault();

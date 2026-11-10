@@ -382,6 +382,41 @@ fn sync_catalog_overlay(state: &AppState) {
     crate::commands::history::backfill_cataloged_flags(state);
 }
 
+fn sync_custom_app_cache_and_cycle(db: &crate::db::Database, item: &CatalogItem) {
+    let clean_id = crate::forge::canonical_lookup_id(&item.id);
+    let icon_trimmed = item.icon.trim();
+    if !icon_trimmed.is_empty() {
+        let mut cycle = db
+            .get_icon_cycle(&clean_id)
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| {
+                crate::db::AppIconCycle::new(&clean_id, &item.owner, &item.repo)
+            });
+        cycle.is_cataloged = true;
+        if cycle.l1_url != icon_trimmed {
+            cycle.cache_file = String::new();
+        }
+        cycle.l1_url = icon_trimmed.to_string();
+        cycle.selected_url = icon_trimmed.to_string();
+        cycle.level = 1;
+        cycle.pinned = false;
+        let _ = db.upsert_icon_cycle(&cycle);
+
+        let _ = db.sync_detail_icon(&clean_id, icon_trimmed);
+    }
+}
+
+fn reset_custom_app_cycle_uncataloged(db: &crate::db::Database, id: &str) {
+    let clean_id = crate::forge::canonical_lookup_id(id);
+    if let Ok(Some(mut cycle)) = db.get_icon_cycle(&clean_id) {
+        cycle.is_cataloged = false;
+        cycle.l1_url = String::new();
+        cycle.cache_file = String::new();
+        let _ = db.upsert_icon_cycle(&cycle);
+    }
+}
+
 /// 草稿列表（默认仅未归档；`include_archived=true` 含转正归档行）。
 #[tauri::command(rename_all = "camelCase")]
 pub fn list_custom_apps(
@@ -412,6 +447,9 @@ pub fn save_custom_app(
     normalized.is_verified = false;
     let db = state.db().map_err(crate::AppError::from)?;
     let entry = db.upsert_custom_app_payload(&normalized)?;
+    if crate::db::custom_apps::is_local_library_status(&entry.status) {
+        sync_custom_app_cache_and_cycle(&db, &entry.item);
+    }
     drop(db);
     sync_catalog_overlay(&state);
     Ok(entry)
@@ -424,6 +462,9 @@ pub fn delete_custom_app(state: State<'_, AppState>, id: String) -> crate::AppRe
     let key = crate::forge::canonical_lookup_id(&id);
     let db = state.db().map_err(crate::AppError::from)?;
     let hit = db.delete_custom_app(&key)?;
+    if hit {
+        reset_custom_app_cycle_uncataloged(&db, &key);
+    }
     drop(db);
     sync_catalog_overlay(&state);
     Ok(hit)
@@ -440,6 +481,7 @@ pub fn collect_local_app(
     let key = crate::forge::canonical_lookup_id(&id);
     let db = state.db().map_err(crate::AppError::from)?;
     let entry = db.mark_custom_app_collected(&key)?;
+    sync_custom_app_cache_and_cycle(&db, &entry.item);
     drop(db);
     sync_catalog_overlay(&state);
     Ok(entry)
@@ -455,6 +497,7 @@ pub fn revert_collected_to_draft(
     let key = crate::forge::canonical_lookup_id(&id);
     let db = state.db().map_err(crate::AppError::from)?;
     let entry = db.revert_collected_to_draft(&key)?;
+    reset_custom_app_cycle_uncataloged(&db, &key);
     drop(db);
     sync_catalog_overlay(&state);
     Ok(entry)

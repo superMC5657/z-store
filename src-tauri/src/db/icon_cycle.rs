@@ -511,7 +511,23 @@ pub fn merge_detail_icon(
     now: i64,
 ) -> bool {
     cycle.is_cataloged = is_cataloged;
-    if cycle.pinned {
+    if is_cataloged {
+        cycle.pinned = false;
+        if level == 1 {
+            let u = url_trimmed.trim();
+            if !u.is_empty() {
+                cycle.level = 1;
+                cycle.l1_url = u.to_string();
+                cycle.selected_url = u.to_string();
+                cycle.updated_at = now;
+            }
+            return false;
+        } else if !cycle.l1_url.trim().is_empty() || cycle.level == 1 {
+            // 收录应用已锁定 L1 官方图：探测仅补相应槽位，绝不降级/改动 L1 选中
+            fill_probe_slot(cycle, level, url_trimmed);
+            return false;
+        }
+    } else if cycle.pinned {
         fill_probe_slot(cycle, level, url_trimmed);
         return true;
     }
@@ -522,7 +538,9 @@ pub fn merge_detail_icon(
     // 未 pinned：level/selected_url/updated_at 推进，
     // 对应槽位无条件采用本次最强探测（pinned 保持 false）。
     cycle.level = level;
-    if level == 3 {
+    if level == 1 {
+        cycle.l1_url = u.to_string();
+    } else if level == 3 {
         cycle.l3_url = u.to_string();
     } else if level == 4 {
         cycle.l4_url = u.to_string();
@@ -673,7 +691,7 @@ pub fn apply_detail_icon_resolution(
 ) -> bool {
     let level = resolution
         .and_then(|r| r.level)
-        .filter(|&lvl| (2..=4).contains(&lvl))
+        .filter(|&lvl| (1..=4).contains(&lvl))
         .or_else(|| cycle.level_for_known_url(icon_trimmed))
         .unwrap_or(fallback_level);
     let was_pinned = merge_detail_icon(cycle, level, icon_trimmed, is_cataloged, now);

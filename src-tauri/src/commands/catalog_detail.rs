@@ -458,11 +458,21 @@ fn project_from_cache(
     if !ttl_gated {
         detail.is_stale = Some(true);
     }
-    if enrich_catalog_desc_en {
-        if let Some(cat_item) = state.catalog.get_catalog_item(clean_id) {
-            if cat_item.description_en.is_some() {
-                detail.core.description_en = cat_item.description_en.clone();
-            }
+    if let Some(cat_item) = state.catalog.get_catalog_item(clean_id) {
+        if enrich_catalog_desc_en && cat_item.description_en.is_some() {
+            detail.core.description_en = cat_item.description_en.clone();
+        }
+        if !cat_item.icon.trim().is_empty() {
+            detail.core.icon = cat_item.icon.clone();
+        }
+        if !cat_item.icon_bg.trim().is_empty() {
+            detail.core.icon_bg = cat_item.icon_bg.clone();
+        }
+        detail.core.category = cat_item.category.clone();
+        detail.core.category_name = cat_item.category_name.clone();
+        detail.core.name = cat_item.name.clone();
+        if cat_item.added_at.is_some() {
+            detail.core.added_at = cat_item.added_at.clone();
         }
     }
     log::debug!(

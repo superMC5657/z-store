@@ -124,13 +124,37 @@ pub async fn restore_or_fetch_icon_cycle(
         .ok()
         .and_then(|db| db.get_icon_cycle(&canonical_id).ok().flatten());
 
+    // 收录应用：恒定走 L1 官方图标，不受未收录期的旧轮换/L5空选影响
+    if is_cataloged {
+        let default_url = catalog_item
+            .as_ref()
+            .map(|i| i.icon.trim().to_string())
+            .unwrap_or_default();
+        if let Some(mut cycle) = existing {
+            if !cycle.is_cataloged
+                || cycle.l1_url != default_url
+                || (cycle.level != 1 && !default_url.is_empty())
+            {
+                cycle.is_cataloged = true;
+                if cycle.l1_url != default_url {
+                    cycle.cache_file = String::new();
+                }
+                cycle.l1_url = default_url.clone();
+                cycle.selected_url = default_url.clone();
+                cycle.level = if default_url.is_empty() { 5 } else { 1 };
+                cycle.pinned = false;
+                if let Ok(db) = state.db() {
+                    let _ = db.upsert_icon_cycle(&cycle);
+                }
+            }
+            return restore_existing_cycle(&state, &canonical_id, cycle, true).await;
+        }
+        return restore_cataloged_default(catalog_item.as_ref()).await;
+    }
+
     // 已有轮换行：L5 空态 / 新鲜文件快径 / 过期重下 / 空图兜底。
     if let Some(cycle) = existing {
         return restore_existing_cycle(&state, &canonical_id, cycle, is_cataloged).await;
-    }
-    // 尚未记录过轮换状态：收录回默认档。
-    if is_cataloged {
-        return restore_cataloged_default(catalog_item.as_ref()).await;
     }
     // 未收录且未落库：探测后返回首个有效级别，无有效则走 L5 首字母徽章逻辑。
     probe_uncataloged_first_cycle(&state, &canonical_id, &owner, &repo).await

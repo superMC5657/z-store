@@ -1463,3 +1463,40 @@ fn test_prune_bounded_caches_lru_and_asset_protection() {
         .is_some());
     assert!(db.get_cached_app_detail("o/keep", None).unwrap().is_some());
 }
+
+#[test]
+fn test_cataloged_app_icon_cycle_pinned_reset_and_l1_priority() {
+    let mut cycle = AppIconCycle {
+        app_id: "pingdotgg/t3code".to_string(),
+        owner: "pingdotgg".to_string(),
+        repo: "t3code".to_string(),
+        is_cataloged: false,
+        level: 5,
+        l1_url: String::new(),
+        l2_url: String::new(),
+        l3_url: String::new(),
+        l4_url: String::new(),
+        selected_url: String::new(),
+        cache_file: String::new(),
+        updated_at: 1000,
+        pinned: true,
+    };
+
+    // 1. 收录且添加官方图标时：pinned 必须重置为 false，level 切换为 1，selected_url 与 l1_url 更新为官方图
+    let l1_icon = "https://example.com/t3.png";
+    let was_pinned = icon_cycle::merge_detail_icon(&mut cycle, 1, l1_icon, true, 2000);
+    assert!(!was_pinned);
+    assert!(!cycle.pinned);
+    assert!(cycle.is_cataloged);
+    assert_eq!(cycle.level, 1);
+    assert_eq!(cycle.l1_url, l1_icon);
+    assert_eq!(cycle.selected_url, l1_icon);
+
+    // 2. 收录应用后续探测命中（如 L2 SimpleIcons）：仅填充槽位，绝不覆盖 L1 选中
+    let l2_icon = "https://cdn.simpleicons.org/t3";
+    let probe_pinned = icon_cycle::merge_detail_icon(&mut cycle, 2, l2_icon, true, 3000);
+    assert!(!probe_pinned);
+    assert_eq!(cycle.level, 1);
+    assert_eq!(cycle.selected_url, l1_icon);
+    assert_eq!(cycle.l2_url, l2_icon);
+}
