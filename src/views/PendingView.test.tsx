@@ -1331,6 +1331,33 @@ describe('PendingView 富卡 stars/forks 取真值（pendingDraftToAppSummary）
     // AppCard 星标经 formatStars 渲染：12000 → 12.0k，恒 0 回归即为 '0'
     expect(document.querySelector('.pending-editor .app-tag-star')?.textContent).toContain('12.0k');
   });
+
+  it('收录富卡（AppCard）渲染关注与收藏按钮占位，点击安全无副作用（NOOP）', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const entry = draftEntry({ id: 'o/a', status: 'collected' });
+    render(
+      <PendingView
+        showBatchBar={false}
+        initialEntries={[entry]}
+        onGetLicenseAllowlist={gateProvider}
+      />,
+    );
+    fireEvent.click(screen.getByText('本地收录'));
+    fireEvent.click(screen.getByText('o/a'));
+
+    const headerButtons = document.querySelectorAll('.pending-editor .app-card-header .btn-fav-card');
+    expect(headerButtons.length).toBe(2);
+    // 渲染关注与收藏按钮占位以保持与完整富卡间距一致
+    const [watchButton, favoriteButton] = Array.from(headerButtons);
+    expect(watchButton).toBeDefined();
+    expect(favoriteButton).toBeDefined();
+
+    // 纯预览态点击安全无报错、不触发外部状态
+    expect(() => {
+      fireEvent.click(watchButton);
+      fireEvent.click(favoriteButton);
+    }).not.toThrow();
+  });
 });
 
 describe('PendingView 保存类回调失败路径（Issue 05）', () => {

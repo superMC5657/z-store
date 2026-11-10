@@ -636,6 +636,28 @@
   position: relative;
 }
 
+/* 待收录页右侧只读富卡预览：重置交互手势与悬浮高亮，保持纯展示占位 */
+.pending-view .pending-editor-card .app-card {
+  cursor: default;
+}
+
+.pending-view .pending-editor-card .app-card:hover {
+  background: var(--bg-acrylic-card);
+  border-color: var(--border-color);
+  box-shadow: var(--shadow-rest);
+}
+
+[data-theme="dark"] .pending-view .pending-editor-card .app-card:hover {
+  background: var(--bg-acrylic-card);
+  border-color: var(--border-color);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.pending-view .pending-editor-card .btn-fav-card {
+  pointer-events: none;
+  cursor: default;
+}
+
 .pending-editor-header {
   display: flex;
   align-items: center;

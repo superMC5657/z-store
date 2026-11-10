@@ -16,6 +16,8 @@ import {
 import { errorStyle } from './pendingStyles';
 import { errorText } from './pendingText';
 
+const NOOP = () => {};
+
 interface PendingRichCardProps {
   /** 当前选中条目（富卡分支保证非空）。 */
   entry: CustomDraftEntry;
@@ -99,15 +101,17 @@ export const PendingRichCard: React.FC<PendingRichCardProps> = ({
         </div>
       </div>
 
-      {/* 富卡主体：复用 AppCard（source=local 即黄标），只读预览 */}
+      {/* 富卡主体：复用 AppCard（source=local 即黄标），纯预览态保持关注与收藏占位，点击无副作用 */}
       <div style={{ marginBottom: '12px' }}>
         <AppCard
           app={cardApp}
           isInstalled={false}
           isManaged={false}
           platformLoading={false}
-          onOpenDetail={() => {}}
-          onQuickInstall={() => {}}
+          onOpenDetail={NOOP}
+          onQuickInstall={NOOP}
+          onToggleFavorite={NOOP}
+          onToggleWatch={NOOP}
         />
       </div>
 
