@@ -269,4 +269,28 @@ describe('CategoriesView: paginated detail via get_category_apps', () => {
     openCategory(container, '开发工具');
     await screen.findByText('alias-1');
   });
+
+  it('Bento 大厅渲染代表作图标坞（保留 fallback iconBg）与仅统计分类内应用的光谱条', () => {
+    const externalApp = makeApp('ext-1', 'external', ['windows']);
+    const devWithBg: AppSummary = {
+      ...DEV_WIN,
+      icon: '',
+      icon_bg: 'rgb(12, 34, 56)',
+    };
+
+    const { container } = renderCategories([devWithBg, DEV_IOS, MEDIA_IOS, externalApp]);
+    expect(container.querySelector('.categories-bento-grid')).toBeTruthy();
+    expect(container.querySelectorAll('.category-bento-card.is-featured')).toHaveLength(2);
+
+    // 光谱条：纯展示 span（无 aria-hidden 内部 button），总数仅计入 10 个预设分类（3，不含 external）。
+    const spectrum = container.querySelector('.categories-spectrum-bar');
+    expect(spectrum).toBeTruthy();
+    expect(spectrum?.querySelectorAll('button')).toHaveLength(0);
+    expect(spectrum?.querySelector('.categories-spectrum-total')?.textContent).toBe('3');
+
+    // 代表作图标坞：无图时保留 AppIcon 的 icon_bg 兜底背景，不被卡片底色覆盖。
+    const iconContainer = container.querySelector('.category-dock-item .app-icon-container') as HTMLElement | null;
+    expect(iconContainer).toBeTruthy();
+    expect(iconContainer?.style.background).toContain('rgb(12, 34, 56)');
+  });
 });

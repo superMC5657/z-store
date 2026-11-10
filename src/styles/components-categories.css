@@ -1,0 +1,396 @@
+/* components-categories.css · 分类浏览大厅（Bento 矩阵卡片 + 实时应用图标坞 + 馆藏光谱条） */
+
+/* 顶部大厅标题栏与分类光谱分布条 */
+.categories-view .categories-hall-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-block-start: 16px;
+  margin-block-end: 14px;
+}
+
+.categories-spectrum-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 10px;
+  border-radius: var(--radius-md);
+  background: var(--bg-acrylic-card);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-rest);
+  max-inline-size: 100%;
+}
+
+[data-theme="dark"] .categories-spectrum-bar {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.categories-spectrum-track {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  inline-size: clamp(120px, 18vw, 220px);
+  block-size: 6px;
+  border-radius: var(--radius-pill);
+  overflow: clip;
+  background: var(--border-subtle);
+}
+
+.categories-spectrum-segment {
+  display: block;
+  block-size: 100%;
+  min-inline-size: 4px;
+  background: var(--seg-color, var(--brand-primary));
+  opacity: 0.78;
+}
+
+.categories-spectrum-total {
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  font-weight: var(--font-weight-medium);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  letter-spacing: var(--letter-spacing-tight);
+  white-space: nowrap;
+}
+
+/* 12 列 Bento 矩阵网格：
+ * 桌面端首行 2 张旗舰大卡（各跨 6 列）+ 下方 2 行标准卡（每行 4 张，各跨 3 列），
+ * 2 + 4 + 4 = 10 张全满对齐，无孤立尾卡；利用 subgrid 对齐同行卡片内部轨道。 */
+.categories-bento-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-auto-rows: auto 1fr auto;
+  column-gap: 12px;
+  row-gap: 0;
+  inline-size: 100%;
+  margin-block-end: 24px;
+}
+
+.categories-bento-grid > .app-card.category-bento-card {
+  --cat-glow-size: 220px;
+  --cat-glow-alpha: 7%;
+  grid-column: span 3;
+  grid-row: span 3;
+  display: grid;
+  /* 级联回退：不支持 subgrid 的环境按显式三轨渲染 */
+  grid-template-rows: auto 1fr auto;
+  grid-template-rows: subgrid;
+  row-gap: 12px;
+  margin-block-end: 12px;
+  padding: 18px;
+  min-block-size: 148px;
+  align-items: start;
+  justify-content: stretch;
+  text-align: start;
+  position: relative;
+  overflow: clip;
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(
+      var(--cat-glow-size) circle at 100% 0%,
+      color-mix(in srgb, var(--cat-accent, var(--brand-primary)) var(--cat-glow-alpha), transparent),
+      transparent 72%
+    ),
+    var(--bg-acrylic-card);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-rest);
+  transition:
+    border-color 0.16s var(--ease-smooth),
+    box-shadow 0.16s var(--ease-smooth),
+    background 0.16s var(--ease-smooth);
+}
+
+.categories-bento-grid > .app-card.category-bento-card.is-featured {
+  --cat-glow-size: 320px;
+  --cat-glow-alpha: 10%;
+  grid-column: span 6;
+  padding: 20px 22px;
+  min-block-size: 156px;
+}
+
+.categories-bento-grid > .app-card.category-bento-card.is-empty {
+  opacity: 0.58;
+}
+
+[data-theme="dark"] .categories-bento-grid > .app-card.category-bento-card {
+  --cat-glow-alpha: 12%;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+[data-theme="dark"] .categories-bento-grid > .app-card.category-bento-card.is-featured {
+  --cat-glow-alpha: 15%;
+}
+
+.categories-bento-grid > .app-card.category-bento-card:hover {
+  --cat-glow-size: 260px;
+  --cat-glow-alpha: 13%;
+  border-color: color-mix(in srgb, var(--cat-accent, var(--brand-primary)) 38%, var(--border-highlight));
+  box-shadow: var(--shadow-hover);
+}
+
+[data-theme="dark"] .categories-bento-grid > .app-card.category-bento-card:hover {
+  --cat-glow-alpha: 18%;
+  border-color: color-mix(in srgb, var(--cat-accent, var(--brand-primary)) 45%, var(--border-highlight));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+/* 第一轨：图标容器 + 标题 + 右上角计数胶囊与箭头 */
+.category-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  inline-size: 100%;
+  min-inline-size: 0;
+}
+
+.category-card-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-inline-size: 0;
+  flex: 1 1 auto;
+}
+
+.category-icon-tile {
+  inline-size: 38px;
+  block-size: 38px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--cat-accent, var(--brand-primary)) 10%, var(--bg-acrylic-card));
+  border: 1px solid color-mix(in srgb, var(--cat-accent, var(--brand-primary)) 24%, var(--border-color));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--cat-accent, var(--brand-primary));
+  transition:
+    background 0.16s var(--ease-smooth),
+    border-color 0.16s var(--ease-smooth);
+}
+
+.category-bento-card.is-featured .category-icon-tile {
+  inline-size: 42px;
+  block-size: 42px;
+}
+
+.category-bento-card:hover .category-icon-tile {
+  background: color-mix(in srgb, var(--cat-accent, var(--brand-primary)) 16%, var(--bg-acrylic-card));
+  border-color: color-mix(in srgb, var(--cat-accent, var(--brand-primary)) 38%, var(--border-color));
+}
+
+.category-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-inline-size: 0;
+}
+
+.category-card-title {
+  font-size: var(--font-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+  letter-spacing: var(--letter-spacing-title);
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.category-bento-card.is-featured .category-card-title {
+  font-size: var(--font-lg);
+}
+
+.category-card-code {
+  font-family: var(--font-mono);
+  font-size: calc(10px * var(--font-scale));
+  color: var(--text-tertiary);
+  letter-spacing: 0.02em;
+  line-height: 1.1;
+}
+
+.category-card-meta-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.category-count-pill {
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  font-weight: var(--font-weight-medium);
+  font-variant-numeric: tabular-nums;
+  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+  background: var(--bg-acrylic-hover);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  transition:
+    color 0.16s var(--ease-smooth),
+    background 0.16s var(--ease-smooth),
+    border-color 0.16s var(--ease-smooth);
+}
+
+.category-bento-card:hover .category-count-pill {
+  background: color-mix(in srgb, var(--cat-accent, var(--brand-primary)) 12%, transparent);
+  border-color: color-mix(in srgb, var(--cat-accent, var(--brand-primary)) 28%, transparent);
+  color: var(--cat-accent, var(--brand-primary));
+}
+
+.category-arrow-icon {
+  color: var(--text-tertiary);
+  opacity: 0.55;
+  transition:
+    transform 0.16s var(--ease-smooth),
+    color 0.16s var(--ease-smooth),
+    opacity 0.16s var(--ease-smooth);
+}
+
+.category-bento-card:hover .category-arrow-icon {
+  transform: translate(2px, -2px);
+  color: var(--cat-accent, var(--brand-primary));
+  opacity: 1;
+}
+
+/* 第二轨：分类能力范围描述（双行截断守恒） */
+.category-card-desc {
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  letter-spacing: var(--letter-spacing-tight);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-clamp: 2;
+  overflow: clip;
+  align-self: start;
+}
+
+/* 第三轨：底部代表作图标坞 + 馆藏占比微缩条 */
+.category-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  inline-size: 100%;
+  padding-block-start: 10px;
+  border-block-start: 1px solid var(--border-subtle);
+  align-self: end;
+}
+
+.category-app-dock {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-inline-size: 0;
+  flex: 1 1 auto;
+  min-block-size: 24px;
+}
+
+.category-dock-avatars {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.category-dock-item {
+  inline-size: 22px;
+  block-size: 22px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid var(--bg-acrylic-card);
+  background: var(--bg-acrylic-card);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  flex-shrink: 0;
+  overflow: clip;
+  transition: margin 0.15s var(--ease-smooth);
+}
+
+.category-dock-item-icon {
+  inline-size: 100%;
+  block-size: 100%;
+  border-radius: inherit;
+  font-size: 18px;
+}
+
+.category-dock-item + .category-dock-item {
+  margin-inline-start: -6px;
+}
+
+.category-bento-card:hover .category-dock-item + .category-dock-item {
+  margin-inline-start: -3px;
+}
+
+.category-dock-names {
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-inline-size: 0;
+  letter-spacing: var(--letter-spacing-tight);
+}
+
+.category-dock-empty-dot {
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--border-color);
+}
+
+.category-density-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.category-density-track {
+  inline-size: 44px;
+  block-size: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--border-subtle);
+  overflow: clip;
+}
+
+.category-bento-card.is-featured .category-density-track {
+  inline-size: 64px;
+}
+
+.category-density-fill {
+  block-size: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--cat-accent, var(--brand-primary));
+  opacity: 0.78;
+  transition: inline-size 0.25s var(--ease-smooth), opacity 0.16s var(--ease-smooth);
+}
+
+.category-bento-card:hover .category-density-fill {
+  opacity: 1;
+}
+
+/* 响应式断点：中屏 2 列（5 行 × 2 张 = 10 张无孤卡），窄屏 1 列 */
+@media (max-width: 1120px) {
+  .categories-bento-grid > .app-card.category-bento-card,
+  .categories-bento-grid > .app-card.category-bento-card.is-featured {
+    grid-column: span 6;
+  }
+}
+
+@media (max-width: 640px) {
+  .categories-bento-grid > .app-card.category-bento-card,
+  .categories-bento-grid > .app-card.category-bento-card.is-featured {
+    grid-column: span 12;
+  }
+
+  .categories-spectrum-bar {
+    display: none;
+  }
+}

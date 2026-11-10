@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { queueAssembledRowIcons } from '../services/iconStore';
@@ -15,8 +15,10 @@ import {
   Gamepad2,
   Tag,
   ArrowLeft,
+  ArrowUpRight,
 } from 'lucide-react';
 import { AppCard } from '../components/AppCard';
+import { AppIcon } from '../components/AppIcon';
 import {
   FilterEmptyState,
   RequiredPlatformReset,
@@ -33,11 +35,14 @@ interface CategoriesViewProps extends ViewAppActions, RequiredPlatformReset {
 }
 
 /** 分类匹配与 BE `get_category_apps` 同口径（`category`/`category_name` 大小写不敏感）；
- * 详情行由 BE 过滤，此处仅大厅计数用，不对已取回的行做二次分类过滤。 */
+ * 详情行由 BE 过滤，此处仅大厅计数与预览用，不对已取回的行做二次分类过滤。 */
 function matchCategory(app: AppSummary, category: string): boolean {
   const c = category.toLowerCase();
   return app.category.toLowerCase() === c || (app.category_name ?? '').toLowerCase() === c;
 }
+
+/** 每分类预览代表作上限 3 款：10 个分类合计 ≤ 30，严格对齐 `ASSEMBLED_ROW_ICON_QUEUE_CAP = 30`。 */
+const PREVIEW_APPS_PER_CATEGORY = 3;
 
 const CATEGORY_DEFINITIONS = [
   { id: 'dev', Icon: Code2, nameKey: 'categories.cat_dev_name' as const, descKey: 'categories.cat_dev_desc' as const, color: '#5865f2' },
@@ -175,10 +180,38 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
       );
   }, [apps, pagedIds]);
 
-  // 组装落盘补齐：分类列表 http 远端图标入队进盘（前 30 上限，`data:`/空跳过）。
+  // 大厅各分类统计与代表作预览：计数仅来源于传入的预过滤 `apps` 属性（绝不二次平台过滤）。
+  const categoryStats = useMemo(() => {
+    let maxCount = 0;
+    let totalCount = 0;
+    const entries = CATEGORY_DEFINITIONS.map((cat, index) => {
+      const isFeatured = index < 2;
+      const matched = apps.filter((a) => matchCategory(a, cat.id));
+      const count = matched.length;
+      totalCount += count;
+      if (count > maxCount) maxCount = count;
+      const previewApps = [...matched]
+        .sort((a, b) => (b.stars ?? 0) - (a.stars ?? 0))
+        .slice(0, PREVIEW_APPS_PER_CATEGORY);
+      return {
+        cat,
+        isFeatured,
+        count,
+        previewApps,
+      };
+    });
+    return { entries, maxCount, totalCount };
+  }, [apps]);
+
+  // 组装落盘补齐：详情列表或大厅代表作预览图标（≤ 30）入队进盘。
   useEffect(() => {
-    queueAssembledRowIcons(visibleApps);
-  }, [visibleApps]);
+    if (selectedCategory) {
+      queueAssembledRowIcons(visibleApps);
+    } else {
+      const previewIcons = categoryStats.entries.flatMap((e) => e.previewApps);
+      queueAssembledRowIcons(previewIcons);
+    }
+  }, [selectedCategory, visibleApps, categoryStats]);
 
   const currentCategoryMeta = CATEGORY_DEFINITIONS.find((c) => c.id === selectedCategory);
 
@@ -190,29 +223,57 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   return (
     <ViewShell viewClass="categories-view">
       {/* 顶部标题与返回控制 */}
-      <div className="section-header">
+      <div className="section-header categories-hall-header">
         <h3 className="section-title">
           {selectedCategory && currentCategoryMeta ? (
             <>
-              <currentCategoryMeta.Icon size={18} style={{ color: currentCategoryMeta.color }} />
-              <span>{t(currentCategoryMeta.nameKey)} ({visibleApps.length})</span>
+              <currentCategoryMeta.Icon
+                size={18}
+                strokeWidth={1.5}
+                style={{ color: currentCategoryMeta.color }}
+              />
+              <span>
+                {t(currentCategoryMeta.nameKey)} ({visibleApps.length})
+              </span>
             </>
           ) : (
             <>
-              <Tag size={18} />
+              <Tag size={18} strokeWidth={1.5} />
               <span>{t('categories.title')}</span>
             </>
           )}
         </h3>
-        {selectedCategory && (
+        {selectedCategory ? (
           <button
             className="btn-fluent btn-sm btn-secondary"
             onClick={() => setSelectedCategory(null)}
             style={{ gap: '6px' }}
           >
-            <ArrowLeft size={13} />
+            <ArrowLeft size={13} strokeWidth={1.5} />
             <span>{t('categories.back_to_hall')}</span>
           </button>
+        ) : (
+          categoryStats.totalCount > 0 && (
+            <div className="categories-spectrum-bar" aria-hidden="true">
+              <div className="categories-spectrum-track">
+                {categoryStats.entries
+                  .filter((item) => item.count > 0)
+                  .map(({ cat, count }) => (
+                    <span
+                      key={cat.id}
+                      className="categories-spectrum-segment"
+                      style={
+                        {
+                          '--seg-color': cat.color,
+                          flexGrow: count,
+                        } as React.CSSProperties
+                      }
+                    />
+                  ))}
+              </div>
+              <span className="categories-spectrum-total">{categoryStats.totalCount}</span>
+            </div>
+          )
         )}
       </div>
 
@@ -227,92 +288,102 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
               onReset={handleResetFilter}
             />
           )}
-          <div className="app-grid">
-          {CATEGORY_DEFINITIONS.map((cat) => {
-            // 大厅计数仅来源于传入的预过滤 `apps` 属性（匹配口径与 BE 同源，绝不自行二次平台过滤）。
-            const count = apps.filter((a) => matchCategory(a, cat.id)).length;
-            return (
-              <div
-                key={cat.id}
-                className="app-card"
-                role="button"
-                tabIndex={0}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '44px 140px 1fr auto',
-                  columnGap: '16px',
-                  alignItems: 'center',
-                  padding: '16px',
-                  cursor: 'pointer',
-                  opacity: count === 0 ? 0.6 : 1,
-                }}
-                onClick={() => setSelectedCategory(cat.id)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    setSelectedCategory(cat.id);
-                  }
-                }}
-              >
+
+          <div className="categories-bento-grid">
+            {categoryStats.entries.map(({ cat, isFeatured, count, previewApps }) => {
+              const sharePercent =
+                categoryStats.maxCount > 0
+                  ? Math.round((count / categoryStats.maxCount) * 100)
+                  : 0;
+              const featuredNames = previewApps
+                .slice(0, isFeatured ? 3 : 2)
+                .map((a) => a.name)
+                .join(' · ');
+
+              return (
                 <div
-                  style={{
-                    width: '44px',
-                    height: '44px',
-                    borderRadius: 'var(--radius-sm)',
-                    background: `color-mix(in srgb, ${cat.color} 12%, transparent)`,
-                    border: `1px solid color-mix(in srgb, ${cat.color} 25%, transparent)`,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
+                  key={cat.id}
+                  className={`app-card category-bento-card${isFeatured ? ' is-featured' : ''}${count === 0 ? ' is-empty' : ''}`}
+                  role="button"
+                  tabIndex={0}
+                  style={{ '--cat-accent': cat.color } as React.CSSProperties}
+                  onClick={() => setSelectedCategory(cat.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setSelectedCategory(cat.id);
+                    }
                   }}
                 >
-                  <cat.Icon size={20} color={cat.color} strokeWidth={1.5} />
+                  <div className="category-card-top">
+                    <div className="category-card-identity">
+                      <div className="category-icon-tile">
+                        <cat.Icon size={isFeatured ? 20 : 18} strokeWidth={1.5} />
+                      </div>
+                      <div className="category-title-wrap">
+                        <div className="category-card-title">{t(cat.nameKey)}</div>
+                        <span className="category-card-code" aria-hidden="true">
+                          /{cat.id}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="category-card-meta-right">
+                      <span className="category-count-pill">
+                        {count > 0
+                          ? t('categories.apps_available', { count })
+                          : t('categories.no_apps_for_platform')}
+                      </span>
+                      <ArrowUpRight
+                        size={14}
+                        strokeWidth={1.5}
+                        className="category-arrow-icon"
+                        aria-hidden="true"
+                      />
+                    </div>
+                  </div>
+
+                  <p className="category-card-desc">{t(cat.descKey)}</p>
+
+                  <div className="category-card-footer" aria-hidden="true">
+                    <div className="category-app-dock">
+                      {previewApps.length > 0 ? (
+                        <>
+                          <div className="category-dock-avatars">
+                            {previewApps.map((app) => (
+                              <div key={app.id} className="category-dock-item">
+                                <AppIcon
+                                  icon={app.icon}
+                                  name={app.name}
+                                  appId={app.id}
+                                  iconBg={app.icon_bg}
+                                  loading="lazy"
+                                  className="category-dock-item-icon"
+                                />
+                              </div>
+                            ))}
+                          </div>
+                          {featuredNames && (
+                            <span className="category-dock-names">{featuredNames}</span>
+                          )}
+                        </>
+                      ) : (
+                        <span className="category-dock-empty-dot" />
+                      )}
+                    </div>
+                    <div className="category-density-meter">
+                      <div className="category-density-track">
+                        <div
+                          className="category-density-fill"
+                          style={{
+                            inlineSize: `${count > 0 ? Math.max(14, sharePercent) : 0}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div
-                  style={{
-                    fontWeight: 590,
-                    fontSize: 'calc(15px * var(--font-scale))',
-                    color: 'var(--text-primary)',
-                    letterSpacing: '-0.015em',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
-                >
-                  {t(cat.nameKey)}
-                </div>
-                <div
-                  style={{
-                    fontSize: 'var(--font-sm)',
-                    color: 'var(--text-tertiary)',
-                    lineHeight: '1.4',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    minWidth: 0,
-                  }}
-                >
-                  {t(cat.descKey)}
-                </div>
-                <div
-                  style={{
-                    fontSize: 'var(--font-xs)',
-                    padding: '2px 8px',
-                    borderRadius: 'var(--radius-xs)',
-                    background: `color-mix(in srgb, ${cat.color} 10%, transparent)`,
-                    color: cat.color,
-                    fontWeight: 510,
-                    border: `1px solid color-mix(in srgb, ${cat.color} 20%, transparent)`,
-                    whiteSpace: 'nowrap',
-                    justifySelf: 'end',
-                  }}
-                >
-                  {count > 0 ? t('categories.apps_available', { count }) : t('categories.no_apps_for_platform')}
-                </div>
-              </div>
-            );
-          })}
+              );
+            })}
           </div>
         </>
       ) : (
