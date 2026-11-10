@@ -181,23 +181,6 @@
   transform: none;
 }
 
-/* 折叠态下的微红点提示 */
-.nav-icon-badge-dot {
-  position: absolute;
-  top: 1px;
-  right: 1px;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--brand-primary);
-  opacity: 0;
-  pointer-events: none;
-}
-
-.sidebar.collapsed .nav-icon-badge-dot {
-  opacity: 1;
-}
-
 /* 折叠态彻底隐藏文字与徽标（防止隐形 DOM 撑开 flex 破坏居中） */
 .nav-label {
   white-space: nowrap;
@@ -237,19 +220,6 @@
 }
 
 .sidebar.collapsed .nav-badge {
-  display: none !important;
-}
-
-.nav-badge-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--brand-primary);
-  margin-left: auto;
-  opacity: 1;
-}
-
-.sidebar.collapsed .nav-badge-dot {
   display: none !important;
 }
 

@@ -542,7 +542,8 @@ export const App: React.FC = () => {
           currentView={currentView}
           onSelectView={navigate}
           installedCount={installedApps.length}
-          hasUpdates={updates.length > 0 || watchNotifications.length > 0}
+          updatesCount={updates.length + watchNotifications.length}
+          favoritesCount={favoriteIds.size}
           onOpenAccount={handleOpenAccountSettings}
           isCollapsed={isSidebarCollapsed}
           selectedPlatforms={selectedPlatforms}

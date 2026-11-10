@@ -196,3 +196,52 @@ describe('Sidebar: nav items follow VIEW_TYPES', () => {
     expect(onSelectView.mock.calls.map((call) => call[0])).toEqual([...VIEW_TYPES]);
   });
 });
+
+describe('Sidebar: updates and favorites numerical badges', () => {
+  it('renders numerical badge for updates and favorites, without blue dot', () => {
+    const { container } = renderSidebar({
+      updatesCount: 7,
+      favoritesCount: 15,
+      installedCount: 13,
+      pendingCount: 5,
+    });
+
+    const updatesItem = container.querySelector('[data-view-id="updates"]');
+    const favoritesItem = container.querySelector('[data-view-id="favorites"]');
+    const installedItem = container.querySelector('[data-view-id="installed"]');
+    const pendingItem = container.querySelector('[data-view-id="pending"]');
+
+    expect(updatesItem?.querySelector('.nav-badge')?.textContent).toBe('7');
+    expect(favoritesItem?.querySelector('.nav-badge')?.textContent).toBe('15');
+    expect(installedItem?.querySelector('.nav-badge')?.textContent).toBe('13');
+    expect(pendingItem?.querySelector('.nav-badge')?.textContent).toBe('5');
+
+    // 验证不渲染圆点指示器
+    expect(container.querySelector('.nav-badge-dot')).toBeNull();
+    expect(container.querySelector('.nav-icon-badge-dot')).toBeNull();
+  });
+
+  it('does not render badge when updatesCount or favoritesCount is 0', () => {
+    const { container } = renderSidebar({
+      updatesCount: 0,
+      favoritesCount: 0,
+    });
+
+    const updatesItem = container.querySelector('[data-view-id="updates"]');
+    const favoritesItem = container.querySelector('[data-view-id="favorites"]');
+
+    expect(updatesItem?.querySelector('.nav-badge')).toBeNull();
+    expect(favoritesItem?.querySelector('.nav-badge')).toBeNull();
+    expect(container.querySelector('.nav-badge-dot')).toBeNull();
+  });
+
+  it('hasUpdates=true 回退为计数值 1 且不渲染圆点指示器', () => {
+    const { container } = renderSidebar({
+      hasUpdates: true,
+    });
+
+    const updatesItem = container.querySelector('[data-view-id="updates"]');
+    expect(updatesItem?.querySelector('.nav-badge')?.textContent).toBe('1');
+    expect(container.querySelector('.nav-badge-dot')).toBeNull();
+  });
+});

@@ -6,7 +6,6 @@ import { AppSettings } from '../types';
 import { tauriApi } from '../services/api';
 import { ViewShell } from './ViewShell';
 import { AppearanceSection } from './SettingsView/sections/AppearanceSection';
-import { getPendingShowCoordsPref, setPendingShowCoordsPref } from '../lib/pendingPrefs';
 import { UpdatesRulesSection } from './SettingsView/sections/UpdatesRulesSection';
 import { StorageSection } from './SettingsView/sections/StorageSection';
 import { CatalogSyncFeedback, NetworkDataSection } from './SettingsView/sections/NetworkDataSection';
@@ -245,15 +244,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setTimeout(() => setCatalogUrlSaved(false), 2500);
   };
 
-  // 待收录草稿仓库与标识显隐（统一命名 showCoords；文案键沿用 settings.pending_coords_*）
-  const [showCoords, setShowCoords] = useState<boolean>(() => getPendingShowCoordsPref());
-
-  const handleToggleShowCoords = (show: boolean) => {
-    setPendingShowCoordsPref(show);
-    setShowCoords(show);
-    triggerChangeFeedback('pending_coords', show ? t('settings.pending_coords_shown') : t('settings.pending_coords_hidden'));
-  };
-
   return (
     <ViewShell viewClass="settings-view">
       <div className="section-header">
@@ -274,8 +264,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         onSelectLanguage={handleSelectLanguage}
         onSelectUiScale={handleSelectUiScale}
         onSelectFontSize={handleSelectFontSize}
-        showCoords={showCoords}
-        onToggleShowCoords={handleToggleShowCoords}
       />
 
       <UpdatesRulesSection

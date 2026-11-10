@@ -11,7 +11,12 @@ interface SidebarProps {
   currentView: ViewType;
   onSelectView: (view: ViewType) => void;
   installedCount: number;
-  hasUpdates: boolean;
+  /** 可用更新计数；>0 时以数字徽标渲染，缺席/0 时不渲染。 */
+  updatesCount?: number;
+  /** 收藏应用计数；>0 时以数字徽标渲染，缺席/0 时不渲染。 */
+  favoritesCount?: number;
+  /** @deprecated 使用 updatesCount 替代。 */
+  hasUpdates?: boolean;
   onOpenAccount: () => void;
   isCollapsed?: boolean;
   /** 多选设备平台过滤器。空集合为有效状态（渲染空筛选提示界面）。 */
@@ -40,7 +45,7 @@ interface NavItemConfig {
   label: string;
   groupId: 'discovery' | 'assets' | 'system';
   icon: React.ReactNode;
-  badge?: number | boolean;
+  badge?: number;
 }
 
 /** 渲染次序。「设备平台」分组位于「偏好与系统」之上。 */
@@ -150,6 +155,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   currentView,
   onSelectView,
   installedCount,
+  updatesCount: propUpdatesCount,
+  favoritesCount = 0,
   hasUpdates,
   onOpenAccount,
   isCollapsed = false,
@@ -159,6 +166,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   platformCounts,
   pendingCount = 0,
 }) => {
+  const updatesCount = propUpdatesCount !== undefined ? propUpdatesCount : (hasUpdates ? 1 : 0);
   const [oauthUser, setOauthUser] = useState<OAuthUser | null>(null);
 
   useEffect(() => {
@@ -192,9 +200,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
       if (!selectedPlatforms.has(id)) onTogglePlatform(id);
     }
   };
-  const badgeOf = (id: ViewType): number | boolean | undefined => {
+  const badgeOf = (id: ViewType): number | undefined => {
     if (id === 'installed') return installedCount;
-    if (id === 'updates') return hasUpdates;
+    if (id === 'updates') return updatesCount;
+    if (id === 'favorites') return favoritesCount;
     if (id === 'pending') return pendingCount;
     return undefined;
   };
@@ -282,17 +291,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     >
                       <span className="nav-icon">
                         {item.icon}
-                        {typeof item.badge === 'boolean' && item.badge && (
-                          <span className="nav-icon-badge-dot" />
-                        )}
                       </span>
                       <span className="nav-label">{item.label}</span>
 
                       {typeof item.badge === 'number' && item.badge > 0 && (
                         <span className="nav-badge">{item.badge}</span>
-                      )}
-                      {typeof item.badge === 'boolean' && item.badge && (
-                        <span className="nav-badge-dot" />
                       )}
                     </button>
                   );

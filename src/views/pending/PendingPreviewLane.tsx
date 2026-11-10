@@ -28,33 +28,30 @@ export const PendingPreviewLane: React.FC<PendingPreviewLaneProps> = ({
   onToggle,
 }) => {
   const { t, i18n } = useTranslation();
+  const resolvedId = form.id.trim() || expectedId;
 
   return (
     <div className="pending-preview-lane">
       <div className="pending-preview-header">
         <div className="pending-preview-header-title">
-          <Eye size={13} strokeWidth={1.5} aria-hidden="true" style={{ color: 'var(--text-secondary)' }} />
+          <Eye size={13} strokeWidth={1.5} aria-hidden="true" style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
           <strong>{t('pending.preview.title')}</strong>
+          {!expanded && resolvedId && (
+            <span className="pending-preview-collapsed-meta">
+              {resolvedId}
+            </span>
+          )}
           {t('pending.preview.hint') ? (
             <span className="pending-preview-header-hint">{t('pending.preview.hint')}</span>
           ) : null}
         </div>
         <div className="pending-preview-header-actions">
-          <span
-            className="app-tag"
-            style={{
-              border: '1px dashed var(--border-nav-active)',
-              color: 'var(--brand-primary)',
-              fontWeight: 600,
-            }}
-          >
-            {t('pending.preview.badge')}
-          </span>
           <button
             type="button"
-            className="btn-fluent btn-secondary btn-sm"
+            className="btn-fluent btn-ghost btn-sm pending-preview-toggle-btn"
             onClick={onToggle}
-            style={{ padding: '2px 8px' }}
+            aria-expanded={expanded}
+            aria-controls="pending-preview-body"
           >
             {expanded ? (
               <>
@@ -72,24 +69,24 @@ export const PendingPreviewLane: React.FC<PendingPreviewLaneProps> = ({
       </div>
 
       {expanded && (
-        <div className="pending-preview-body">
+        <div id="pending-preview-body" className="pending-preview-body">
           {/* 卡片主体：图标 + 标题 + owner/repo + 分类 + 平台 */}
           <div className="pending-preview-main">
             <AppIcon
               icon={form.icon.trim()}
-              name={form.name.trim() || form.owner.trim() || form.id.trim() || expectedId}
-              appId={form.id.trim() || expectedId}
+              name={form.name.trim() || form.owner.trim() || resolvedId}
+              appId={resolvedId}
               iconBg={form.icon_bg.trim() || undefined}
               className="pending-preview-icon-box"
-              size={28}
+              size={32}
             />
             <div className="pending-preview-meta">
               <div className="pending-preview-title-row">
                 <span className={`pending-preview-name ${!form.name.trim() ? 'pending-preview-empty' : ''}`}>
                   {form.name.trim() || t('pending.preview.empty_name')}
                 </span>
-                <span className="pending-preview-id-badge" title={form.id.trim() || expectedId}>
-                  {form.id.trim() || expectedId || t('pending.preview.empty_id')}
+                <span className="pending-preview-id-badge" title={resolvedId}>
+                  {resolvedId || t('pending.preview.empty_id')}
                 </span>
               </div>
               <div className="pending-preview-owner-row">

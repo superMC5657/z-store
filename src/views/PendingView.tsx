@@ -6,17 +6,12 @@ import { Archive, FilePlus2, Inbox, PackageCheck, PencilLine } from 'lucide-reac
 import { FilterEmptyState, ViewShell } from './ViewShell';
 import type { DraftItem } from '../services/custom/types';
 import {
-  copyTextToClipboard,
   getLicenseAllowlist,
   type LicenseAllowlistResult,
 } from '../services/api/catalog';
 import {
   getPendingSectionPrefs,
-  getPendingShowCoordsPref,
-  PENDING_SHOW_COORDS_EVENT,
-  PENDING_SHOW_COORDS_EVENT_LEGACY,
   setPendingSectionPrefs,
-  setPendingShowCoordsPref,
 } from '../lib/pendingPrefs';
 import {
   PENDING_EMPTY_DRAFT,
@@ -128,6 +123,42 @@ function formatLocalizedList(items: string[], lang: string): string {
   return items.join(lang.startsWith('zh') ? '、' : ', ');
 }
 
+/** 归一草稿表单与文本态字段（id 由非空 owner/repo 自动按小写派生，否则保留已有 id）。 */
+function buildNormalizedFormItem(
+  f: DraftItem,
+  aliasesRaw: string,
+  platformsRaw: string,
+  identifiersRaw: string,
+): DraftItem {
+  const owner = f.owner.trim();
+  const repo = f.repo.trim();
+  const id = owner && repo ? canonicalDraftId(owner, repo) : f.id.trim();
+  const category = f.category.trim();
+  return {
+    ...f,
+    id,
+    name: f.name.trim(),
+    owner,
+    repo,
+    description: f.description.trim(),
+    description_en: f.description_en.trim(),
+    category,
+    category_name: f.category_name.trim() || category,
+    license: f.license.trim(),
+    homepage: f.homepage.trim(),
+    icon: f.icon.trim(),
+    icon_bg: f.icon_bg.trim(),
+    default_version: f.default_version.trim() || 'v0.1.0',
+    aliases: splitCsv(aliasesRaw),
+    platforms: splitCsv(platformsRaw.toLowerCase()),
+    // 草稿即 catalog.json 单个应用 JSON：模板无 publishers/install_dirs/search_subdirs 时不出现，恒 []。
+    publishers: [],
+    install_dirs: [],
+    search_subdirs: [],
+    identifiers: parseIdentifiersText(identifiersRaw),
+  };
+}
+
 export const PendingView: React.FC<PendingViewProps> = ({
   entries: controlledEntries,
   initialEntries = [],
@@ -197,32 +228,6 @@ export const PendingView: React.FC<PendingViewProps> = ({
     setPrUrlInput('');
     setFormErrors({});
     setBatchSelected(new Set());
-  };
-
-  // 仓库坐标与标识只读区显隐（localStorage 持久化，默认开启；设置页与页头开关联动）
-  const [showCoords, setShowCoords] = useState<boolean>(() => getPendingShowCoordsPref());
-
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const custom = e as CustomEvent<{ show: boolean }>;
-      if (typeof custom?.detail?.show === 'boolean') {
-        setShowCoords(custom.detail.show);
-      } else {
-        setShowCoords(getPendingShowCoordsPref());
-      }
-    };
-    window.addEventListener(PENDING_SHOW_COORDS_EVENT, handler);
-    window.addEventListener(PENDING_SHOW_COORDS_EVENT_LEGACY, handler);
-    return () => {
-      window.removeEventListener(PENDING_SHOW_COORDS_EVENT, handler);
-      window.removeEventListener(PENDING_SHOW_COORDS_EVENT_LEGACY, handler);
-    };
-  }, []);
-
-  const toggleShowCoords = () => {
-    const next = !showCoords;
-    setShowCoords(next);
-    setPendingShowCoordsPref(next);
   };
 
   // 表单 B/C 分节的展开/收起偏好（localStorage 持久化，A 核心必填不许折叠隐藏；
@@ -301,32 +306,10 @@ export const PendingView: React.FC<PendingViewProps> = ({
   );
 
   // 当前表单归一后的 submit 档 live 校验（文本态字段归一后参验，不新增阻塞项）。
-  const liveSubmitItem = useMemo((): DraftItem => {
-    const f = form;
-    return {
-      ...f,
-      id: f.id.trim() ? f.id.trim() : canonicalDraftId(f.owner, f.repo),
-      name: f.name.trim(),
-      owner: f.owner.trim(),
-      repo: f.repo.trim(),
-      description: f.description.trim(),
-      description_en: f.description_en.trim(),
-      category: f.category.trim(),
-      category_name: f.category_name.trim() || f.category.trim(),
-      license: f.license.trim(),
-      homepage: f.homepage.trim(),
-      icon: f.icon.trim(),
-      icon_bg: f.icon_bg.trim(),
-      default_version: f.default_version.trim() || 'v0.1.0',
-      aliases: splitCsv(aliasesText),
-      platforms: splitCsv(platformsText.toLowerCase()),
-      // 草稿即 catalog.json 单个应用 JSON：模板无 publishers/install_dirs/search_subdirs 时不出现，恒 []（已存旧值不迁移，展示/载荷照旧）。
-      publishers: [],
-      install_dirs: [],
-      search_subdirs: [],
-      identifiers: parseIdentifiersText(identifiersText),
-    };
-  }, [form, aliasesText, platformsText, identifiersText]);
+  const liveSubmitItem = useMemo(
+    () => buildNormalizedFormItem(form, aliasesText, platformsText, identifiersText),
+    [form, aliasesText, platformsText, identifiersText],
+  );
 
   const liveSubmitErrors = useMemo(
     () => validatePendingDraft(liveSubmitItem, 'submit', effectiveGate),
@@ -407,20 +390,12 @@ export const PendingView: React.FC<PendingViewProps> = ({
   };
 
   const setField = <K extends keyof DraftItem>(key: K, value: DraftItem[K]) => {
-    // owner/repo 键入仅在 id 为空或仍等于上一次联动值时跟随填充；
-    // 手输（偏离上次 canonical）一律保留，不逐键改写。
     const prev = form;
     const next = { ...prev, [key]: value };
     if (key === 'owner' || key === 'repo') {
       const owner = key === 'owner' ? String(value) : prev.owner;
       const repo = key === 'repo' ? String(value) : prev.repo;
-      if (owner.trim() && repo.trim()) {
-        const prevCanonical =
-          prev.owner.trim() && prev.repo.trim() ? canonicalDraftId(prev.owner, prev.repo) : '';
-        if (!prev.id.trim() || prev.id.trim() === prevCanonical) {
-          next.id = canonicalDraftId(owner, repo);
-        }
-      }
+      next.id = owner.trim() && repo.trim() ? canonicalDraftId(owner, repo) : '';
     }
     if (key === 'category') {
       const cat = String(value);
@@ -430,28 +405,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
     }
     setForm(next);
     // 逐框即时校验：对归一后表单跑 submit 档（license 用快照，不每键 IPC）。
-    const nextItem: DraftItem = {
-      ...next,
-      id: next.id.trim() ? next.id.trim() : canonicalDraftId(next.owner, next.repo),
-      name: next.name.trim(),
-      owner: next.owner.trim(),
-      repo: next.repo.trim(),
-      description: next.description.trim(),
-      description_en: next.description_en.trim(),
-      category: next.category.trim(),
-      category_name: next.category_name.trim() || next.category.trim(),
-      license: next.license.trim(),
-      homepage: next.homepage.trim(),
-      icon: next.icon.trim(),
-      icon_bg: next.icon_bg.trim(),
-      default_version: next.default_version.trim() || 'v0.1.0',
-      aliases: splitCsv(aliasesText),
-      platforms: splitCsv(platformsText.toLowerCase()),
-      publishers: [],
-      install_dirs: [],
-      search_subdirs: [],
-      identifiers: parseIdentifiersText(identifiersText),
-    };
+    const nextItem = buildNormalizedFormItem(next, aliasesText, platformsText, identifiersText);
     setFormErrors(validatePendingDraft(nextItem, 'submit', effectiveGate));
   };
 
@@ -466,28 +420,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
     const nextAliases = key === 'aliases' ? value : aliasesText;
     const nextPlatforms = key === 'platforms' ? value : platformsText;
     const nextIdentifiers = key === 'identifiers' ? value : identifiersText;
-    const nextItem: DraftItem = {
-      ...form,
-      id: form.id.trim() ? form.id.trim() : canonicalDraftId(form.owner, form.repo),
-      name: form.name.trim(),
-      owner: form.owner.trim(),
-      repo: form.repo.trim(),
-      description: form.description.trim(),
-      description_en: form.description_en.trim(),
-      category: form.category.trim(),
-      category_name: form.category_name.trim() || form.category.trim(),
-      license: form.license.trim(),
-      homepage: form.homepage.trim(),
-      icon: form.icon.trim(),
-      icon_bg: form.icon_bg.trim(),
-      default_version: form.default_version.trim() || 'v0.1.0',
-      aliases: splitCsv(nextAliases),
-      platforms: splitCsv(nextPlatforms.toLowerCase()),
-      publishers: [],
-      install_dirs: [],
-      search_subdirs: [],
-      identifiers: parseIdentifiersText(nextIdentifiers),
-    };
+    const nextItem = buildNormalizedFormItem(form, nextAliases, nextPlatforms, nextIdentifiers);
     setFormErrors(validatePendingDraft(nextItem, 'submit', effectiveGate));
   };
 
@@ -496,52 +429,10 @@ export const PendingView: React.FC<PendingViewProps> = ({
     setFormErrors(validatePendingDraft(collectFormItem(), 'submit', effectiveGate));
   };
 
-  // id 失焦校验（DraftLenient 口径：id==canonical 且与 owner/repo 对齐）。
-  // 仅Inline提示期望 canonical（复用 id_preview 文案），不改写手输。
-  const handleIdBlur = () => {
-    if (!form.owner.trim() || !form.repo.trim()) return;
-    const expected = canonicalDraftId(form.owner, form.repo);
-    const actual = form.id.trim();
-    if (actual && (actual !== expected || actual !== actual.toLowerCase())) {
-      setFormErrors((prev) => ({ ...prev, id: 'id_mismatch' }));
-    } else if (actual === expected) {
-      setFormErrors((prev) => {
-        if (!prev.id) return prev;
-        const next = { ...prev };
-        delete next.id;
-        return next;
-      });
-    }
-  };
-
-  const collectFormItem = (): DraftItem => ({
-    ...form,
-    // 不静默丢弃手输 id——非空即原样保留（仅去首尾空格，大小写/内部空格留给校验），
-    // 为空才回退 canonical；非规范手输由 draft 档校验拦下（id_mismatch），不直接改写。
-    id: form.id.trim() ? form.id.trim() : canonicalDraftId(form.owner, form.repo),
-    name: form.name.trim(),
-    owner: form.owner.trim(),
-    repo: form.repo.trim(),
-    description: form.description.trim(),
-    description_en: form.description_en.trim(),
-    category: form.category.trim(),
-    category_name: form.category_name.trim() || form.category.trim(),
-    license: form.license.trim(),
-    homepage: form.homepage.trim(),
-    icon: form.icon.trim(),
-    icon_bg: form.icon_bg.trim(),
-    default_version: form.default_version.trim() || 'v0.1.0',
-    aliases: splitCsv(aliasesText),
-    platforms: splitCsv(platformsText.toLowerCase()),
-    // 草稿即 catalog.json 单个应用 JSON：三字段恒 []，已存旧值不迁移、不回填表单。
-    publishers: [],
-    install_dirs: [],
-    search_subdirs: [],
-    identifiers: parseIdentifiersText(identifiersText),
-  });
+  const collectFormItem = (): DraftItem =>
+    buildNormalizedFormItem(form, aliasesText, platformsText, identifiersText);
 
   // 首错定位：按表单顺序找首个错误 key，滚动到复用的 errorStyle 内联槽位并聚焦输入。
-  // 八个校验键均在常显区（D 坐标 + A 核心），无需展开折叠节；折叠节字段不阻塞。
   const focusFirstError = (errors: PendingDraftErrors) => {
     const order: Array<keyof PendingDraftErrors> = [
       'owner',
@@ -583,18 +474,6 @@ export const PendingView: React.FC<PendingViewProps> = ({
         /* 忽略 */
       }
     }, 0);
-  };
-
-  const handleCopyId = async () => {
-    const idToCopy = form.id.trim() || expectedId;
-    if (!idToCopy) return;
-    const copied = await copyTextToClipboard(idToCopy);
-    onNotify?.(
-      copied
-        ? t('pending.id_copied', { id: idToCopy })
-        : t('pending.pr.copy_failed'),
-      copied ? 'success' : 'warning',
-    );
   };
 
   const handleDuplicateDraft = () => {
@@ -738,9 +617,14 @@ export const PendingView: React.FC<PendingViewProps> = ({
     );
   };
 
-  const flipLocalCollected = (id: string) => {
+  const flipLocalCollected = (id: string, item?: DraftItem) => {
+    const now = Math.floor(Date.now() / 1000);
     setLocalEntries((prev) =>
-      prev.map((e) => (e.id === id ? { ...e, status: 'collected' as const } : e)),
+      prev.map((e) =>
+        e.id === id
+          ? { ...e, ...(item ? { item, updated_at: now } : {}), status: 'collected' as const }
+          : e,
+      ),
     );
   };
 
@@ -879,8 +763,9 @@ export const PendingView: React.FC<PendingViewProps> = ({
     }
     const gate = await ensureLicenseGate();
     if (!gate) return;
+    const item = collectFormItem();
     // 点击校验当前表单归一结果（可点：错即内联 + 定位首错，不 toast）
-    const strictErrors = validatePendingDraft(collectFormItem(), 'submit', gate);
+    const strictErrors = validatePendingDraft(item, 'submit', gate);
     if (Object.keys(strictErrors).length > 0) {
       setFormErrors(strictErrors);
       focusFirstError(strictErrors);
@@ -888,11 +773,17 @@ export const PendingView: React.FC<PendingViewProps> = ({
     }
     setCollectingId(id);
     try {
+      // 收录前先把当前表单最新修改落盘。
+      if (onSave) {
+        await onSave(item);
+      }
       if (onCollectLocal) {
         await onCollectLocal(id);
-      } else {
-        flipLocalCollected(id);
       }
+      if (!controlledEntries) {
+        flipLocalCollected(id, item);
+      }
+      loadIntoForm(item);
       // 收录后切到本地收录 · 待提交，右侧切富卡 + 批量栏可见。
       setActiveGroup('library');
       setActiveSegment('to_submit');
@@ -1070,7 +961,6 @@ export const PendingView: React.FC<PendingViewProps> = ({
     return { ...liveSubmitErrors, ...formErrors };
   }, [isRichCollectedView, liveSubmitErrors, formErrors, editingEntry]);
   const expectedId = form.owner.trim() && form.repo.trim() ? canonicalDraftId(form.owner, form.repo) : '';
-  const currentId = form.id.trim() || expectedId;
 
   return (
     <ViewShell viewClass="pending-view">
@@ -1225,8 +1115,6 @@ export const PendingView: React.FC<PendingViewProps> = ({
                   onField={setField}
                   onTextField={handleTextFieldChange}
                   onFieldBlur={handleFieldBlur}
-                  onIdBlur={handleIdBlur}
-                  onCopyId={() => void handleCopyId()}
                   formErrors={formErrors}
                   aliasesText={aliasesText}
                   platformsText={platformsText}
@@ -1234,12 +1122,8 @@ export const PendingView: React.FC<PendingViewProps> = ({
                   isCreating={isCreating}
                   isArchived={isArchived}
                   editing={editingEntry}
-                  showCoords={showCoords}
-                  onToggleCoords={toggleShowCoords}
                   openSections={openSections}
                   onToggleSection={toggleSection}
-                  expectedId={expectedId}
-                  currentId={currentId}
                   onSave={handleSave}
                   confirmDeleteId={confirmDeleteId}
                   onDelete={handleDelete}
@@ -1255,7 +1139,6 @@ export const PendingView: React.FC<PendingViewProps> = ({
                   prUrlInput={prUrlInput}
                   onPrUrlInput={setPrUrlInput}
                   onMarkSubmitted={handleMarkSubmitted}
-                  onDuplicate={handleDuplicateDraft}
                 />
               </>
             )}

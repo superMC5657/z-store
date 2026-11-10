@@ -7,10 +7,11 @@ import type React from 'react';
 export const labelStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: '4px',
+  gap: '5px',
   fontSize: 'var(--font-sm)',
+  fontWeight: 'var(--font-weight-medium)',
   color: 'var(--text-secondary)',
-  marginBottom: '8px',
+  marginBottom: '12px',
   minWidth: 0,
 };
 

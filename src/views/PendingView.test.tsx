@@ -19,8 +19,6 @@ import type { LicenseAllowlistResult } from '../services/api/catalog';
 import {
   PENDING_SECTION_PREFS_STORAGE_KEY,
   PENDING_SECTION_PREFS_STORAGE_KEY_LEGACY,
-  PENDING_SHOW_COORDS_STORAGE_KEY,
-  PENDING_SHOW_COORDS_STORAGE_KEY_LEGACY,
   getPendingSectionPrefs,
 } from '../lib/pendingPrefs';
 
@@ -347,16 +345,9 @@ describe('PendingView 表单窄宽布局回归（只锁布局，不碰字段/校
 });
 
 describe('PendingView 草稿字段可改性与锁定规则（Oracle 定稿落实）', () => {
-  it('编辑态 owner/repo 只读锁定，id 显示为徽标且提供 pending-copy-id', async () => {
+  it('编辑已有草稿不展示只读仓库坐标区，标题保留 id，直入基本信息编辑', async () => {
     await i18n.changeLanguage('zh-CN');
-    const writeSpy = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(window.navigator, 'clipboard', {
-      value: { writeText: writeSpy },
-      configurable: true,
-    });
-    const onNotify = vi.fn();
-
-    render(
+    const { container } = render(
       <PendingView
         showBatchBar={false}
         initialEntries={[
@@ -378,29 +369,24 @@ describe('PendingView 草稿字段可改性与锁定规则（Oracle 定稿落实
             },
           },
         ]}
-        onNotify={onNotify}
       />,
     );
     fireEvent.click(screen.getByText('owner1/repo1'));
 
-    // owner/repo 在编辑态具有 readOnly
-    const ownerInput = screen.getByDisplayValue('owner1') as HTMLInputElement;
-    const repoInput = screen.getByDisplayValue('repo1') as HTMLInputElement;
-    expect(ownerInput.readOnly).toBe(true);
-    expect(repoInput.readOnly).toBe(true);
+    // 编辑态仅在顶部标题展示坐标，表单直接从基本信息开始
+    expect(screen.queryByDisplayValue('owner1')).toBeNull();
+    expect(screen.queryByDisplayValue('repo1')).toBeNull();
+    expect(screen.queryByTestId('pending-copy-id')).toBeNull();
+    expect(screen.queryByTestId('pending-duplicate')).toBeNull();
+    expect(screen.queryByTestId('pending-toggle-coords')).toBeNull();
+    expect(screen.queryByText('仓库与标识')).toBeNull();
 
-    // id 以徽标 + 复制按钮呈现，非输入框
-    expect(screen.queryByPlaceholderText('owner/repo')).toBeNull();
-    const copyBtn = screen.getByTestId('pending-copy-id');
-    expect(copyBtn).toBeTruthy();
-    fireEvent.click(copyBtn);
-    expect(writeSpy).toHaveBeenCalledWith('owner1/repo1');
-    await waitFor(() => {
-      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('owner1/repo1'), 'success');
-    });
+    // 卡片顶部标题保留完整 owner/repo，基本信息可直接编辑
+    expect(container.querySelector('.pending-editor-title')?.textContent).toBe('owner1/repo1');
+    expect(screen.getByDisplayValue('Demo')).toBeTruthy();
   });
 
-  it('点击“复制为新草稿”切到新建态（owner/repo 可改，原草稿保留）', async () => {
+  it('archived 行点击“复制为新草稿”切到新建态（owner/repo 可改，原条目保留）', async () => {
     await i18n.changeLanguage('zh-CN');
     const onNotify = vi.fn();
 
@@ -412,7 +398,7 @@ describe('PendingView 草稿字段可改性与锁定规则（Oracle 定稿落实
             id: 'owner1/repo1',
             status: 'draft',
             pr_url: null,
-            archived: false,
+            archived: true,
             item: {
               ...PENDING_EMPTY_DRAFT,
               id: 'owner1/repo1',
@@ -429,25 +415,26 @@ describe('PendingView 草稿字段可改性与锁定规则（Oracle 定稿落实
         onNotify={onNotify}
       />,
     );
+    fireEvent.click(screen.getByText('已归档'));
     fireEvent.click(screen.getByText('owner1/repo1'));
 
     const dupBtn = screen.getByTestId('pending-duplicate');
     expect(dupBtn).toBeTruthy();
     fireEvent.click(dupBtn);
 
-    // 切到新建态：owner 与 repo 输入框不再 readOnly
+    // 切到新建态：owner 与 repo 输入框可编辑，不暴露应用标识 id 输入框
     const ownerInput = screen.getByDisplayValue('owner1') as HTMLInputElement;
     const repoInput = screen.getByDisplayValue('repo1') as HTMLInputElement;
     expect(ownerInput.readOnly).toBe(false);
     expect(repoInput.readOnly).toBe(false);
+    expect(screen.queryByTestId('pending-id-input')).toBeNull();
 
-    // 修改仓库坐标并保存新草稿
-    fireEvent.change(ownerInput, { target: { value: 'owner2' } });
-    fireEvent.change(repoInput, { target: { value: 'repo2' } });
+    // 修改仓库坐标并保存新草稿（id 自动按小写 owner/repo 生成）
+    fireEvent.change(ownerInput, { target: { value: 'Owner2' } });
+    fireEvent.change(repoInput, { target: { value: 'Repo2' } });
     fireEvent.click(screen.getByText('保存草稿'));
 
-    // 确认生成了新条目且原条目仍存
-    expect(screen.getByText('owner1/repo1')).toBeTruthy();
+    // 确认生成了新条目 owner2/repo2
     expect(screen.getAllByText('owner2/repo2').length).toBeGreaterThanOrEqual(1);
   });
 
@@ -478,11 +465,9 @@ describe('PendingView 草稿字段可改性与锁定规则（Oracle 定稿落实
     expect(dupBtn).toBeTruthy();
   });
 
-  it('仓库与标识区提供显隐开关，隐藏时不渲染该节但标题保留 id，新建态不受影响', async () => {
+  it('新建态展示 owner/repo 坐标输入，编辑态自动收起坐标区且标题保留 id', async () => {
     await i18n.changeLanguage('zh-CN');
-    window.localStorage.removeItem(PENDING_SHOW_COORDS_STORAGE_KEY);
-
-    const { container, unmount } = render(
+    const { container } = render(
       <PendingView
         showBatchBar={false}
         initialEntries={[draftEntry({ id: 'owner1/repo1' })]}
@@ -490,54 +475,33 @@ describe('PendingView 草稿字段可改性与锁定规则（Oracle 定稿落实
     );
     fireEvent.click(screen.getByText('owner1/repo1'));
 
-    // 默认显示：Section D 存在
-    expect(screen.getByTestId('pending-copy-id')).toBeTruthy();
-    expect(screen.getByTestId('pending-duplicate')).toBeTruthy();
-    const toggleBtn = screen.getByTestId('pending-toggle-coords');
-    expect(toggleBtn).toBeTruthy();
-
-    // 点击隐藏：Section D 不再渲染，但编辑器标题仍保留 owner1/repo1
-    fireEvent.click(toggleBtn);
-    expect(window.localStorage.getItem(PENDING_SHOW_COORDS_STORAGE_KEY)).toBe('false');
-    expect(screen.queryByTestId('pending-copy-id')).toBeNull();
-    expect(screen.queryByTestId('pending-duplicate')).toBeNull();
+    // 编辑态不渲染坐标节，编辑器标题保留 owner1/repo1
+    expect(screen.queryByPlaceholderText('rustdesk')).toBeNull();
     expect(container.querySelector('.pending-editor-title')?.textContent).toBe('owner1/repo1');
 
-    // 重新切到新建态：页头无新建入口，切 Tab 回草稿经右侧空态进入新建
+    // 重新切到新建态：切 Tab 回草稿经右侧空态进入新建，此时展示 owner/repo 两个输入框
     fireEvent.click(screen.getByText('本地收录'));
     fireEvent.click(screen.getByText('草稿'));
     fireEvent.click(screen.getByText('新建草稿'));
     expect(screen.getAllByPlaceholderText('rustdesk')).toHaveLength(2);
-
-    unmount();
-    window.localStorage.removeItem(PENDING_SHOW_COORDS_STORAGE_KEY);
+    expect(screen.queryByTestId('pending-id-input')).toBeNull();
   });
 });
 
-describe('PendingView 回归（id 自由输入 + duplicate 警告 + 旧 key 迁移）', () => {
-  it('新建态 id 手输大写/空格不被改写，失焦提示 canonical', async () => {
+describe('PendingView 回归（自动派生 canonical id + duplicate 警告 + 旧 key 迁移）', () => {
+  it('新建态输入大写 owner/repo 自动按小写 owner/repo 派生 id 并保存', async () => {
     await i18n.changeLanguage('zh-CN');
     render(<PendingView showBatchBar={false} />);
     fireEvent.click(screen.getByText('新建草稿'));
     const [ownerInput, repoInput] = screen.getAllByPlaceholderText('rustdesk') as HTMLInputElement[];
     fireEvent.change(ownerInput, { target: { value: 'OwnerA' } });
     fireEvent.change(repoInput, { target: { value: 'RepoB' } });
-    const idInput = screen.getByTestId('pending-id-input') as HTMLInputElement;
-    // id 为空时 owner/repo 联动填充一次
-    expect(idInput.value).toBe('ownera/repob');
-    // 手输大写/空格：onChange 不改写
-    fireEvent.change(idInput, { target: { value: ' OwnerA/RepoB ' } });
-    expect(idInput.value).toBe(' OwnerA/RepoB ');
-    // 此后改 owner 不再覆盖手输
-    fireEvent.change(ownerInput, { target: { value: 'OwnerC' } });
-    expect(idInput.value).toBe(' OwnerA/RepoB ');
-    // 失焦提示 canonical（复用 id_preview + id_mismatch，不新增键）
-    fireEvent.blur(idInput);
-    expect(screen.getByText('id 必须等于小写的 owner/repo')).toBeTruthy();
-    expect(screen.getByText('canonical 预览：ownerc/repob')).toBeTruthy();
+    expect(screen.queryByTestId('pending-id-input')).toBeNull();
+    fireEvent.click(screen.getByText('保存草稿'));
+    expect(screen.getAllByText('ownera/repob').length).toBeGreaterThanOrEqual(1);
   });
 
-  it('复制为新草稿后保存已存在 id 时出 warning 且不建第二条', async () => {
+  it('新建草稿保存已存在 id 时出 warning 且不建第二条', async () => {
     await i18n.changeLanguage('zh-CN');
     const onNotify = vi.fn();
     render(
@@ -547,20 +511,19 @@ describe('PendingView 回归（id 自由输入 + duplicate 警告 + 旧 key 迁�
         onNotify={onNotify}
       />,
     );
-    fireEvent.click(screen.getByText('o/a'));
-    fireEvent.click(screen.getByTestId('pending-duplicate'));
+    fireEvent.click(screen.getByText('新建草稿'));
+    const [ownerInput, repoInput] = screen.getAllByPlaceholderText('rustdesk') as HTMLInputElement[];
+    fireEvent.change(ownerInput, { target: { value: 'o' } });
+    fireEvent.change(repoInput, { target: { value: 'a' } });
     fireEvent.click(screen.getByText('保存草稿'));
     expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('o/a'), 'warning');
     expect(onNotify).not.toHaveBeenCalledWith(expect.stringContaining('草稿已保存'), 'success');
   });
 
-  it('旧 storage key 兼容迁移读（showCoords + sectionPrefs）', async () => {
+  it('旧 storage key 兼容迁移读（sectionPrefs）', async () => {
     await i18n.changeLanguage('zh-CN');
-    window.localStorage.removeItem(PENDING_SHOW_COORDS_STORAGE_KEY);
-    window.localStorage.removeItem(PENDING_SHOW_COORDS_STORAGE_KEY_LEGACY);
     window.localStorage.removeItem(PENDING_SECTION_PREFS_STORAGE_KEY);
     window.localStorage.removeItem(PENDING_SECTION_PREFS_STORAGE_KEY_LEGACY);
-    window.localStorage.setItem(PENDING_SHOW_COORDS_STORAGE_KEY_LEGACY, 'false');
     window.localStorage.setItem(
       PENDING_SECTION_PREFS_STORAGE_KEY_LEGACY,
       JSON.stringify({ optional: false, runtime: true }),
@@ -568,17 +531,6 @@ describe('PendingView 回归（id 自由输入 + duplicate 警告 + 旧 key 迁�
     // sectionPrefs 单元迁移：旧 optional 吸收为 supplemental，并写新 key
     expect(getPendingSectionPrefs()).toEqual({ supplemental: false, runtime: true });
     expect(window.localStorage.getItem(PENDING_SECTION_PREFS_STORAGE_KEY)).toContain('supplemental');
-    const { unmount } = render(
-      <PendingView showBatchBar={false} initialEntries={[draftEntry({ id: 'owner1/repo1' })]} />,
-    );
-    fireEvent.click(screen.getByText('owner1/repo1'));
-    // 旧值 false 生效：坐标区隐藏
-    expect(screen.queryByTestId('pending-copy-id')).toBeNull();
-    // 读到旧值即迁移写新 key
-    expect(window.localStorage.getItem(PENDING_SHOW_COORDS_STORAGE_KEY)).toBe('false');
-    unmount();
-    window.localStorage.removeItem(PENDING_SHOW_COORDS_STORAGE_KEY);
-    window.localStorage.removeItem(PENDING_SHOW_COORDS_STORAGE_KEY_LEGACY);
     window.localStorage.removeItem(PENDING_SECTION_PREFS_STORAGE_KEY);
     window.localStorage.removeItem(PENDING_SECTION_PREFS_STORAGE_KEY_LEGACY);
   });
@@ -1450,13 +1402,16 @@ describe("PendingView 国际化（中英语言切换）", () => {
     expect(screen.getByText("本地收录")).toBeTruthy();
     expect(screen.getByText("已归档")).toBeTruthy();
 
+    // 空态点击“新建草稿”：展示“仓库与标识”分节
+    fireEvent.click(screen.getByText("新建草稿"));
+    expect(screen.getByText("仓库与标识")).toBeTruthy();
+
+    // 选中已有草稿：不展示“仓库与标识”，直入“基本信息”
     fireEvent.click(screen.getByText("o/a"));
+    expect(screen.queryByText("仓库与标识")).toBeNull();
     expect(screen.getByText("基本信息")).toBeTruthy();
     expect(screen.getByText("补充信息")).toBeTruthy();
     expect(screen.getByText("运行配置")).toBeTruthy();
-    expect(screen.getByText("仓库与标识")).toBeTruthy();
-    expect(screen.getByText("修改请复制新草稿")).toBeTruthy();
-    expect(screen.getByText("复制为新草稿")).toBeTruthy();
     expect(screen.getByText("保存草稿")).toBeTruthy();
     unmount();
 
@@ -1473,13 +1428,115 @@ describe("PendingView 国际化（中英语言切换）", () => {
     expect(screen.getByText("Local Library")).toBeTruthy();
     expect(screen.getByText("Archived")).toBeTruthy();
 
+    fireEvent.click(screen.getByText("New Draft"));
+    expect(screen.getByText("Repository & Identifiers")).toBeTruthy();
+
     fireEvent.click(screen.getByText("o/a"));
+    expect(screen.queryByText("Repository & Identifiers")).toBeNull();
     expect(screen.getByText("Basic Information")).toBeTruthy();
     expect(screen.getByText("Supplemental Information")).toBeTruthy();
     expect(screen.getByText("Runtime")).toBeTruthy();
-    expect(screen.getByText("Repository & Identifiers")).toBeTruthy();
-    expect(screen.getByText("To edit, duplicate as a new draft")).toBeTruthy();
-    expect(screen.getByText("Duplicate as new draft")).toBeTruthy();
     expect(screen.getByText("Save draft")).toBeTruthy();
+  });
+});
+
+describe("PendingView 草稿编辑直点收录进本地（自动落盘最新表单与预览栏精简）", () => {
+  const gate: LicenseAllowlistResult = {
+    enabled: true,
+    allowed: ["MIT", "ISC", "Apache-2.0", "GPL-3.0", "MPL-2.0", "Unlicense"],
+  };
+  const gateProvider = () => Promise.resolve(gate);
+
+  it("预览栏仅展示标题、坐标摘要与展开/收起按钮，不含额外状态徽标", async () => {
+    await i18n.changeLanguage("zh-CN");
+    const { container } = render(
+      <PendingView
+        showBatchBar={false}
+        initialEntries={[draftEntry({ id: "o/a" })]}
+        onGetLicenseAllowlist={gateProvider}
+      />,
+    );
+    fireEvent.click(screen.getByText("o/a"));
+    const previewHeader = container.querySelector(".pending-preview-header");
+    expect(previewHeader).toBeTruthy();
+    expect(previewHeader?.textContent).not.toContain("自维护草稿");
+  });
+
+  it("修改表单参数后直接点击收录进本地：先调用 onSave 持久化最新配置再调用 onCollectLocal", async () => {
+    await i18n.changeLanguage("zh-CN");
+    const callOrder: string[] = [];
+    const onSave = vi.fn(async () => {
+      callOrder.push("save");
+    });
+    const onCollectLocal = vi.fn(async () => {
+      callOrder.push("collect");
+    });
+    const entry = draftEntry({ id: "o/a" });
+    entry.item.license = "OpenSource"; // 初始为未通过严格校验的占位协议
+
+    render(
+      <PendingView
+        showBatchBar={false}
+        initialEntries={[entry]}
+        onSave={onSave}
+        onCollectLocal={onCollectLocal}
+        onGetLicenseAllowlist={gateProvider}
+      />,
+    );
+    fireEvent.click(screen.getByText("o/a"));
+
+    // 用户直接修改名称、简介与协议，不点“保存草稿”，直接点“收录进本地”
+    fireEvent.change(screen.getByDisplayValue("Demo"), {
+      target: { value: "Impeccable Pro" },
+    });
+    fireEvent.change(screen.getByDisplayValue("demo"), {
+      target: { value: "全新修改后的中文简介" },
+    });
+    fireEvent.change(screen.getByDisplayValue("OpenSource"), {
+      target: { value: "Apache-2.0" },
+    });
+
+    fireEvent.click(screen.getByTestId("pending-collect-local"));
+
+    await waitFor(() => expect(onCollectLocal).toHaveBeenCalledWith("o/a"));
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "o/a",
+        name: "Impeccable Pro",
+        description: "全新修改后的中文简介",
+        license: "Apache-2.0",
+      }),
+    );
+    expect(callOrder).toEqual(["save", "collect"]);
+  });
+
+  it("非受控本地态下修改参数后直接点击收录进本地：收录后富卡立即展示最新配置", async () => {
+    await i18n.changeLanguage("zh-CN");
+    render(
+      <PendingView
+        showBatchBar={false}
+        initialEntries={[draftEntry({ id: "o/a" })]}
+        onGetLicenseAllowlist={gateProvider}
+      />,
+    );
+    fireEvent.click(screen.getByText("o/a"));
+
+    fireEvent.change(screen.getByDisplayValue("Demo"), {
+      target: { value: "UpdatedName" },
+    });
+    fireEvent.change(screen.getByDisplayValue("demo"), {
+      target: { value: "Updated local description" },
+    });
+
+    fireEvent.click(screen.getByTestId("pending-collect-local"));
+
+    // 自动切到本地收录并展示更新后的富卡内容
+    await waitFor(() =>
+      expect(document.querySelector(".pending-editor .app-name")?.textContent).toBe("UpdatedName"),
+    );
+    expect(document.querySelector(".pending-editor .app-desc")?.textContent).toBe(
+      "Updated local description",
+    );
   });
 });

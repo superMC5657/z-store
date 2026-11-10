@@ -10,8 +10,6 @@ import {
   ChevronDown,
   ChevronRight,
   Archive,
-  Eye,
-  EyeOff,
   FileText,
   Inbox,
   Link2,
@@ -39,8 +37,6 @@ interface PendingDraftFormProps {
   /** 文本态字段（aliases/platforms/identifiers）变更。 */
   onTextField: (key: 'aliases' | 'platforms' | 'identifiers', value: string) => void;
   onFieldBlur: () => void;
-  onIdBlur: () => void;
-  onCopyId: () => void;
   formErrors: PendingDraftErrors;
   /** 文本态字段当前值（受控编辑）。 */
   aliasesText: string;
@@ -50,12 +46,8 @@ interface PendingDraftFormProps {
   isArchived: boolean;
   /** 选中行（非新建态可空）。 */
   editing: CustomDraftEntry | null;
-  showCoords: boolean;
-  onToggleCoords: () => void;
   openSections: { supplemental: boolean; runtime: boolean };
   onToggleSection: (key: 'supplemental' | 'runtime') => void;
-  expectedId: string;
-  currentId: string;
   onSave: () => void;
   confirmDeleteId: string | null;
   onDelete: (id: string) => void;
@@ -71,27 +63,13 @@ interface PendingDraftFormProps {
   prUrlInput: string;
   onPrUrlInput: (value: string) => void;
   onMarkSubmitted: (id: string) => void;
-  onDuplicate: () => void;
 }
 
 /** 各段只取自身用到的字段，拼错的字段名/漏传在编译期暴露。 */
-type FormHeaderProps = Pick<
-  PendingDraftFormProps,
-  'isCreating' | 'editing' | 'showCoords' | 'onToggleCoords'
->;
+type FormHeaderProps = Pick<PendingDraftFormProps, 'isCreating' | 'editing' | 'formErrors'>;
 type CoordsSectionProps = Pick<
   PendingDraftFormProps,
-  | 'form'
-  | 'onField'
-  | 'onFieldBlur'
-  | 'onIdBlur'
-  | 'onCopyId'
-  | 'formErrors'
-  | 'isCreating'
-  | 'isArchived'
-  | 'expectedId'
-  | 'currentId'
-  | 'onDuplicate'
+  'form' | 'onField' | 'onFieldBlur' | 'formErrors'
 >;
 type CoreSectionProps = Pick<
   PendingDraftFormProps,
@@ -141,29 +119,21 @@ type FormFooterProps = Pick<
 >;
 
 export const PendingDraftForm: React.FC<PendingDraftFormProps> = (props) => {
-  const { isCreating, showCoords } = props;
+  const { isCreating } = props;
 
   return (
     <div className="app-card pending-editor-card">
       <FormHeader
         isCreating={props.isCreating}
         editing={props.editing}
-        showCoords={props.showCoords}
-        onToggleCoords={props.onToggleCoords}
+        formErrors={props.formErrors}
       />
-      {(isCreating || showCoords) && (
+      {isCreating && (
         <CoordsSection
           form={props.form}
           onField={props.onField}
           onFieldBlur={props.onFieldBlur}
-          onIdBlur={props.onIdBlur}
-          onCopyId={props.onCopyId}
           formErrors={props.formErrors}
-          isCreating={props.isCreating}
-          isArchived={props.isArchived}
-          expectedId={props.expectedId}
-          currentId={props.currentId}
-          onDuplicate={props.onDuplicate}
         />
       )}
       <CoreSection
@@ -216,69 +186,63 @@ export const PendingDraftForm: React.FC<PendingDraftFormProps> = (props) => {
   );
 };
 
-/** 顶部标题栏：新建/编辑标题 + 分组徽标 + 坐标显隐开关。 */
-function FormHeader({
-  isCreating, editing, showCoords, onToggleCoords,
-}: FormHeaderProps) {
+/** 顶部标题栏：新建/编辑标题 + 分组徽标（编辑态下提供坐标/ID 校验错误兜底槽位）。 */
+function FormHeader({ isCreating, editing, formErrors }: FormHeaderProps) {
   const { t } = useTranslation();
   return (
-    <div className="pending-editor-header">
-      <div className="pending-editor-title-wrap">
-        <PencilLine size={15} strokeWidth={1.5} aria-hidden="true" style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
-        <strong
-          className="pending-editor-title"
-          title={isCreating ? undefined : editing?.id}
-        >
-          {isCreating ? t('pending.new_draft') : editing?.id}
-        </strong>
-        {editing?.archived && (
-          <span className="nav-badge" title={t('pending.archived_badge')}>
-            {t('pending.archived_badge')}
-          </span>
-        )}
-        {!isCreating && editing && isSubmittedEntry(editing) && (
-          <span className="nav-badge" style={{ color: 'var(--brand-primary)', borderColor: 'var(--brand-glow)' }}>
-            {t('pending.segments.submitted')}
-          </span>
-        )}
-        {!isCreating && editing && !editing.archived && isPendingCollectedStatus(editing.status) && editing.status !== 'submitted' && (
-          <span className="nav-badge" title={t('pending.groups.library')}>
-            {t('pending.groups.library')}
-          </span>
-        )}
-      </div>
-      {!isCreating && (
-        <div className="pending-editor-header-actions">
-          <button
-            type="button"
-            className="btn-fluent btn-ghost btn-sm"
-            onClick={onToggleCoords}
-            data-testid="pending-toggle-coords"
-            title={showCoords ? t('pending.hide_coords') : t('pending.show_coords')}
-            aria-label={showCoords ? t('pending.hide_coords') : t('pending.show_coords')}
+    <>
+      <div className="pending-editor-header">
+        <div className="pending-editor-title-wrap">
+          <PencilLine size={15} strokeWidth={1.5} aria-hidden="true" style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
+          <strong
+            className="pending-editor-title"
+            title={isCreating ? undefined : editing?.id}
           >
-            {showCoords ? (
-              <>
-                <EyeOff size={13} strokeWidth={1.5} aria-hidden="true" />
-                <span>{t('pending.hide_coords_btn')}</span>
-              </>
-            ) : (
-              <>
-                <Eye size={13} strokeWidth={1.5} aria-hidden="true" />
-                <span>{t('pending.show_coords_btn')}</span>
-              </>
-            )}
-          </button>
+            {isCreating ? t('pending.new_draft') : editing?.id}
+          </strong>
+          {editing?.archived && (
+            <span className="nav-badge" title={t('pending.archived_badge')}>
+              {t('pending.archived_badge')}
+            </span>
+          )}
+          {!isCreating && editing && isSubmittedEntry(editing) && (
+            <span className="nav-badge" style={{ color: 'var(--brand-primary)', borderColor: 'var(--brand-glow)' }}>
+              {t('pending.segments.submitted')}
+            </span>
+          )}
+          {!isCreating && editing && !editing.archived && isPendingCollectedStatus(editing.status) && editing.status !== 'submitted' && (
+            <span className="nav-badge" title={t('pending.groups.library')}>
+              {t('pending.groups.library')}
+            </span>
+          )}
+        </div>
+      </div>
+      {!isCreating && (formErrors.owner || formErrors.repo || formErrors.id) && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '6px' }}>
+          {formErrors.owner && (
+            <em data-testid="pending-error-owner" style={errorStyle}>
+              {errorText(t, formErrors.owner)}
+            </em>
+          )}
+          {formErrors.repo && (
+            <em data-testid="pending-error-repo" style={errorStyle}>
+              {errorText(t, formErrors.repo)}
+            </em>
+          )}
+          {formErrors.id && (
+            <em data-testid="pending-error-id" style={errorStyle}>
+              {errorText(t, formErrors.id)}
+            </em>
+          )}
         </div>
       )}
-    </div>
+    </>
   );
 }
 
-/** 分节 D：仓库标识与坐标（只读锁定；新建态可编辑）。 */
+/** 分节 D：仓库坐标（仅新建态展示 owner/repo 输入，id 由系统按小写 owner/repo 自动生成）。 */
 function CoordsSection({
-  form, onField, onFieldBlur, onIdBlur, onCopyId, formErrors, isCreating,
-  isArchived, expectedId, currentId, onDuplicate,
+  form, onField, onFieldBlur, formErrors,
 }: CoordsSectionProps) {
   const { t } = useTranslation();
   return (
@@ -293,13 +257,16 @@ function CoordsSection({
       <label style={labelStyle}>
         <span>{t('pending.fields.owner')}</span>
         <input
-          className="input-fluent"
+          className="input-fluent input-mono"
           value={form.owner}
           onChange={(e) => onField('owner', e.target.value)}
           onBlur={onFieldBlur}
           placeholder="rustdesk"
           autoComplete="off"
-          readOnly={!isCreating || isArchived}
+          autoCorrect="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          aria-invalid={Boolean(formErrors.owner) || undefined}
         />
         {formErrors.owner && (
           <em data-testid="pending-error-owner" style={errorStyle}>
@@ -311,78 +278,28 @@ function CoordsSection({
       <label style={labelStyle}>
         <span>{t('pending.fields.repo')}</span>
         <input
-          className="input-fluent"
+          className="input-fluent input-mono"
           value={form.repo}
           onChange={(e) => onField('repo', e.target.value)}
           onBlur={onFieldBlur}
           placeholder="rustdesk"
           autoComplete="off"
-          readOnly={!isCreating || isArchived}
+          autoCorrect="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          aria-invalid={Boolean(formErrors.repo) || undefined}
         />
         {formErrors.repo && (
           <em data-testid="pending-error-repo" style={errorStyle}>
             {errorText(t, formErrors.repo)}
           </em>
         )}
-      </label>
-
-      {!isCreating && (
-        <div className="pending-readonly-coord-hint">
-          <span>{t('pending.rename_hint')}</span>
-          <button
-            type="button"
-            className="btn-fluent btn-secondary btn-sm"
-            data-testid="pending-duplicate"
-            onClick={onDuplicate}
-            style={{ padding: '2px 8px', fontSize: '11px' }}
-          >
-            <span>{t('pending.duplicate_as_new_draft')}</span>
-          </button>
-        </div>
-      )}
-
-      <div style={labelStyle} className="pending-id-display">
-        <span>{t('pending.fields.id')}</span>
-        {isCreating ? (
-          <input
-            className="input-fluent"
-            data-testid="pending-id-input"
-            value={form.id}
-            onChange={(e) => onField('id', e.target.value)}
-            onBlur={() => {
-              onIdBlur();
-              onFieldBlur();
-            }}
-            placeholder="owner/repo"
-            autoComplete="off"
-            spellCheck={false}
-          />
-        ) : (
-          <div className="pending-id-badge-wrap">
-            <code className="pending-id-code">{currentId || '—'}</code>
-            <button
-              type="button"
-              className="btn-fluent btn-secondary btn-sm"
-              data-testid="pending-copy-id"
-              onClick={() => void onCopyId()}
-              style={{ padding: '2px 8px', fontSize: '11px' }}
-              title={t('pending.copy_id_title')}
-            >
-              <span>{t('pending.copy_id_btn')}</span>
-            </button>
-          </div>
-        )}
-        {isCreating && expectedId && (
-          <span style={hintStyle}>
-            {t('pending.id_preview', { id: expectedId })}
-          </span>
-        )}
         {formErrors.id && (
           <em data-testid="pending-error-id" style={errorStyle}>
             {errorText(t, formErrors.id)}
           </em>
         )}
-      </div>
+      </label>
     </>
   );
 }
@@ -410,6 +327,7 @@ function CoreSection({
           onChange={(e) => onField('name', e.target.value)}
           onBlur={onFieldBlur}
           placeholder={t('pending.placeholders.name')}
+          aria-invalid={Boolean(formErrors.name) || undefined}
           readOnly={isArchived}
         />
         {formErrors.name && (
@@ -428,6 +346,7 @@ function CoreSection({
           onBlur={onFieldBlur}
           rows={2}
           placeholder={t('pending.placeholders.description')}
+          aria-invalid={Boolean(formErrors.description) || undefined}
           readOnly={isArchived}
         />
         {formErrors.description && (
@@ -445,6 +364,7 @@ function CoreSection({
           value={form.category}
           onChange={(e) => onField('category', e.target.value)}
           onBlur={onFieldBlur}
+          aria-invalid={Boolean(formErrors.category) || undefined}
           disabled={isArchived}
         >
           {!PENDING_OFFICIAL_CATEGORIES.includes(
@@ -470,13 +390,16 @@ function CoreSection({
       <label style={labelStyle}>
         <span>{t('pending.fields.license')}</span>
         <input
-          className="input-fluent"
+          className="input-fluent input-mono"
           value={form.license}
           onChange={(e) => onField('license', e.target.value)}
           onBlur={onFieldBlur}
           placeholder="MIT"
           autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="none"
           spellCheck={false}
+          aria-invalid={Boolean(formErrors.license) || undefined}
           readOnly={isArchived}
         />
         {formErrors.license && (
@@ -495,7 +418,10 @@ function CoreSection({
           onBlur={onFieldBlur}
           placeholder="https://example.com"
           inputMode="url"
+          autoCorrect="off"
+          autoCapitalize="none"
           spellCheck={false}
+          aria-invalid={Boolean(formErrors.homepage) || undefined}
           readOnly={isArchived}
         />
         {formErrors.homepage && (
@@ -508,12 +434,15 @@ function CoreSection({
       <label style={labelStyle}>
         <span>{t('pending.fields.default_version')}</span>
         <input
-          className="input-fluent"
+          className="input-fluent input-mono"
           value={form.default_version}
           onChange={(e) => onField('default_version', e.target.value)}
           onBlur={onFieldBlur}
           placeholder="v0.1.0"
           autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="none"
+          spellCheck={false}
           readOnly={isArchived}
         />
       </label>
@@ -531,6 +460,7 @@ function SupplementalSection({
       <div
         role="button"
         tabIndex={0}
+        aria-expanded={openSections.supplemental}
         className="pending-section-header"
         onClick={() => onToggleSection('supplemental')}
         onKeyDown={(e) => {
@@ -586,6 +516,8 @@ function SupplementalSection({
           onBlur={onFieldBlur}
           placeholder="https://…"
           inputMode="url"
+          autoCorrect="off"
+          autoCapitalize="none"
           spellCheck={false}
           readOnly={isArchived}
         />
@@ -616,6 +548,7 @@ function RuntimeSection({
       <div
         role="button"
         tabIndex={0}
+        aria-expanded={openSections.runtime}
         className="pending-section-header"
         onClick={() => onToggleSection('runtime')}
         onKeyDown={(e) => {
@@ -640,12 +573,14 @@ function RuntimeSection({
       <label style={{ ...labelStyle, display: openSections.runtime ? 'flex' : 'none' }}>
         <span>{t('pending.fields.platforms')}</span>
         <input
-          className="input-fluent"
+          className="input-fluent input-mono"
           value={platformsText}
           onChange={(e) => onTextField('platforms', e.target.value)}
           onBlur={onFieldBlur}
           placeholder="windows, linux"
           autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="none"
           spellCheck={false}
           readOnly={isArchived}
         />
@@ -654,12 +589,14 @@ function RuntimeSection({
       <label style={{ ...labelStyle, display: openSections.runtime ? 'flex' : 'none' }}>
         <span>{t('pending.fields.identifiers')}</span>
         <textarea
-          className="input-fluent"
+          className="input-fluent input-mono"
           value={identifiersText}
           onChange={(e) => onTextField('identifiers', e.target.value)}
           onBlur={onFieldBlur}
           rows={2}
           placeholder="windows=rustdesk.exe"
+          autoCorrect="off"
+          autoCapitalize="none"
           spellCheck={false}
           readOnly={isArchived}
         />
@@ -682,7 +619,7 @@ function FormFooter({
       <div className="pending-editor-footer-actions">
         <button
           type="button"
-          className="btn-fluent btn-primary btn-sm"
+          className={`btn-fluent ${isCreating ? 'btn-primary' : 'btn-secondary'} btn-sm`}
           onClick={onSave}
           disabled={isArchived}
           title={isArchived ? t('pending.archived_save_disabled') : undefined}
