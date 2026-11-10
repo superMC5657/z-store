@@ -5,6 +5,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronUp, Eye, Globe, ShieldCheck, Tag } from 'lucide-react';
+import { AppIcon } from '../../components/AppIcon';
 import { PlatformIcon } from '../../components/icons/PlatformIcons';
 import { PLATFORM_META, type PlatformId } from '../../lib/platformFilter';
 import { resolvePendingDraftDescription, type PendingDraftItem } from './draftModel';
@@ -74,27 +75,14 @@ export const PendingPreviewLane: React.FC<PendingPreviewLaneProps> = ({
         <div className="pending-preview-body">
           {/* 卡片主体：图标 + 标题 + owner/repo + 分类 + 平台 */}
           <div className="pending-preview-main">
-            <div
+            <AppIcon
+              icon={form.icon.trim()}
+              name={form.name.trim() || form.owner.trim() || form.id.trim() || expectedId}
+              appId={form.id.trim() || expectedId}
+              iconBg={form.icon_bg.trim() || undefined}
               className="pending-preview-icon-box"
-              style={{ backgroundColor: form.icon_bg.trim() || 'var(--bg-input)' }}
-            >
-              {form.icon.trim() &&
-              (form.icon.startsWith('http://') ||
-                form.icon.startsWith('https://') ||
-                form.icon.startsWith('data:')) ? (
-                <img
-                  src={form.icon.trim()}
-                  alt=""
-                  onError={(e) => {
-                    (e.currentTarget as HTMLElement).style.display = 'none';
-                  }}
-                />
-              ) : (
-                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                  {(form.name.trim() || form.owner.trim() || form.id.trim() || '?').slice(0, 1).toUpperCase()}
-                </span>
-              )}
-            </div>
+              size={28}
+            />
             <div className="pending-preview-meta">
               <div className="pending-preview-title-row">
                 <span className={`pending-preview-name ${!form.name.trim() ? 'pending-preview-empty' : ''}`}>

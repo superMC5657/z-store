@@ -11,15 +11,18 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
-import { InstalledApp, UpdateRule } from '../types';
+import { AppSummary, InstalledApp, UpdateRule } from '../types';
 import { SegmentedControl } from './SegmentedControl';
 import { EmptyState } from './EmptyState';
+import { AppIcon } from './AppIcon';
+import { resolveAppIconInfo, resolveInstalledAppName } from '../utils/appHelper';
 
 interface RulesManagerModalProps {
   isOpen: boolean;
   onClose: () => void;
   updateRules: UpdateRule[];
   installedApps?: InstalledApp[];
+  apps?: AppSummary[];
   onRemoveRule: (appId: string) => Promise<void>;
   onClearRuleSkip: (appId: string) => Promise<void>;
   onToggleRuleFrozen: (appId: string, isFrozen: boolean) => Promise<void>;
@@ -37,6 +40,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
   onClose,
   updateRules,
   installedApps = [],
+  apps = [],
   onRemoveRule,
   onClearRuleSkip,
   onToggleRuleFrozen,
@@ -441,7 +445,13 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
             />
           ) : (
             filteredRules.map((rule) => {
-              const matchedApp = installedApps.find((a) => a.app_id.toLowerCase() === rule.app_id.toLowerCase());
+              const ruleIdNorm = rule.app_id.toLowerCase();
+              const matchedApp = installedApps.find((a) => a.app_id.toLowerCase() === ruleIdNorm);
+              const catalogApp = apps.find((a) => a.id.toLowerCase() === ruleIdNorm);
+              const iconInfo = resolveAppIconInfo(catalogApp?.id || rule.app_id, apps, matchedApp?.icon, matchedApp?.icon_bg);
+              const appDisplayName = matchedApp
+                ? resolveInstalledAppName(matchedApp, apps)
+                : (catalogApp?.name || rule.app_id);
               const dateStr = rule.updated_at
                 ? new Date(
                     rule.updated_at * 1000 > 1000000000000
@@ -469,38 +479,48 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                     flexWrap: 'wrap',
                   }}
                 >
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '180px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                      <span style={{ fontWeight: 590, fontSize: 'var(--font-base)', color: 'var(--text-primary)', letterSpacing: '-0.015em' }}>
-                        {matchedApp ? matchedApp.app_name : rule.app_id}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: '180px', flex: '1 1 auto' }}>
+                    <AppIcon
+                      icon={iconInfo.icon}
+                      name={appDisplayName}
+                      appId={rule.app_id}
+                      iconBg={iconInfo.iconBg}
+                      className="app-icon"
+                      size={32}
+                    />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 590, fontSize: 'var(--font-base)', color: 'var(--text-primary)', letterSpacing: '-0.015em' }}>
+                          {appDisplayName}
+                        </span>
+                        {(matchedApp || rule.app_id !== appDisplayName) && (
+                          <span className="text-mono" style={{ fontSize: 'var(--font-xs)', color: 'var(--text-tertiary)' }}>
+                            ({rule.app_id})
+                          </span>
+                        )}
+                        {rule.skipped_version && (
+                          <span className="app-tag app-tag-skipped">
+                            <SkipForward size={10} strokeWidth={1.5} />
+                            <span>{t('rules.badge_skipped', { version: rule.skipped_version })}</span>
+                          </span>
+                        )}
+                        {rule.is_frozen && (
+                          <span className="app-tag app-tag-locked">
+                            <Lock size={10} strokeWidth={1.5} />
+                            <span>{t('rules.badge_frozen')}</span>
+                          </span>
+                        )}
+                        {rule.is_hidden && (
+                          <span className="app-tag app-tag-hidden">
+                            <EyeOff size={10} strokeWidth={1.5} />
+                            <span>{t('rules.badge_hidden')}</span>
+                          </span>
+                        )}
+                      </div>
+                      <span style={{ fontSize: 'var(--font-xs)', color: 'var(--text-tertiary)' }}>
+                        {t('rules.effective_at', { date: dateStr })}
                       </span>
-                      {matchedApp && (
-                        <span className="text-mono" style={{ fontSize: 'var(--font-xs)', color: 'var(--text-tertiary)' }}>
-                          ({rule.app_id})
-                        </span>
-                      )}
-                      {rule.skipped_version && (
-                        <span className="app-tag app-tag-skipped">
-                          <SkipForward size={10} strokeWidth={1.5} />
-                          <span>{t('rules.badge_skipped', { version: rule.skipped_version })}</span>
-                        </span>
-                      )}
-                      {rule.is_frozen && (
-                        <span className="app-tag app-tag-locked">
-                          <Lock size={10} strokeWidth={1.5} />
-                          <span>{t('rules.badge_frozen')}</span>
-                        </span>
-                      )}
-                      {rule.is_hidden && (
-                        <span className="app-tag app-tag-hidden">
-                          <EyeOff size={10} strokeWidth={1.5} />
-                          <span>{t('rules.badge_hidden')}</span>
-                        </span>
-                      )}
                     </div>
-                    <span style={{ fontSize: 'var(--font-xs)', color: 'var(--text-tertiary)' }}>
-                      {t('rules.effective_at', { date: dateStr })}
-                    </span>
                   </div>
 
                   <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>

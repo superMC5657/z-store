@@ -425,7 +425,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
     if (key === 'category') {
       const cat = String(value);
       if (cat) {
-        next.category_name = t(`categories.cat_${cat}_name`);
+        next.category_name = t(`categories.cat_${cat}_name`, { defaultValue: cat });
       }
     }
     setForm(next);

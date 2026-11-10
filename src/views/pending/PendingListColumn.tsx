@@ -4,9 +4,9 @@
  */
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Archive, FilePlus2, Inbox, Link2, PackageCheck, Send } from 'lucide-react';
+import { Inbox, Link2, Send } from 'lucide-react';
+import { AppIcon } from '../../components/AppIcon';
 import {
-  entryGroup,
   isPendingCollectedStatus,
   isSubmittedEntry,
   resolvePendingDraftDescription,
@@ -69,10 +69,8 @@ export const PendingListColumn: React.FC<PendingListColumnProps> = ({
       ) : (
         entries.map((entry) => {
           const selected = entry.id === selectedId;
-          const group = entryGroup(entry);
           const isSubmitted = isSubmittedEntry(entry);
-          const isArchived = group === 'archived';
-          const isCollected = !isArchived && !isSubmitted && isPendingCollectedStatus(entry.status);
+          const isCollected = !entry.archived && !isSubmitted && isPendingCollectedStatus(entry.status);
           const batchChecked = batchSelected.has(entry.id);
           return (
             <div
@@ -101,17 +99,14 @@ export const PendingListColumn: React.FC<PendingListColumnProps> = ({
                   style={{ flexShrink: 0 }}
                 />
               )}
-              <span className="pending-item-icon-box">
-                {isArchived ? (
-                  <Archive size={14} strokeWidth={1.5} aria-hidden="true" />
-                ) : isSubmitted ? (
-                  <Send size={14} strokeWidth={1.5} aria-hidden="true" />
-                ) : isCollected ? (
-                  <PackageCheck size={14} strokeWidth={1.5} aria-hidden="true" />
-                ) : (
-                  <FilePlus2 size={14} strokeWidth={1.5} aria-hidden="true" />
-                )}
-              </span>
+              <AppIcon
+                icon={entry.item.icon}
+                name={entry.item.name || entry.id}
+                appId={entry.id}
+                iconBg={entry.item.icon_bg || undefined}
+                className="pending-item-icon-box"
+                size={28}
+              />
               <div className="pending-item-content">
                 <div className="pending-item-name">
                   {entry.item.name || entry.id}

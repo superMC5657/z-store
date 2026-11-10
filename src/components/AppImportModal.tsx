@@ -12,6 +12,7 @@ import {
 import { AppMatchResult, ImportAppRequest } from '../types';
 import { tauriApi } from '../services/api';
 import { EmptyState } from './EmptyState';
+import { AppIcon } from './AppIcon';
 import { useTranslation } from 'react-i18next';
 
 interface AppImportModalProps {
@@ -302,26 +303,18 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                     />
 
                     {/* 图标 */}
-                    <div
+                    <AppIcon
+                      icon={item.icon}
+                      name={item.name}
+                      appId={item.catalog_id}
+                      iconBg={item.icon_bg || 'var(--brand-subtle)'}
+                      size={42}
                       style={{
-                        width: '42px',
-                        height: '42px',
                         borderRadius: 'var(--radius-sm)',
-                        background: item.icon_bg || 'var(--brand-subtle)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
                         flexShrink: 0,
-                        fontSize: 'var(--font-2xl)',
                         boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)',
                       }}
-                    >
-                      {item.icon.endsWith('.svg') || item.icon.startsWith('http') ? (
-                        '📦'
-                      ) : (
-                        item.icon
-                      )}
-                    </div>
+                    />
 
                     {/* 应用信息 */}
                     <div style={{ flex: 1, minWidth: 0 }}>

@@ -126,16 +126,14 @@ describe('moveInToDraft（移入收录唯一入口）', () => {
   it('当协议为占位符时拉取详情解析真实开源协议及平台元数据', async () => {
     vi.spyOn(tauriApi, 'restoreOrFetchIconCycle').mockResolvedValue({ remote_url: 'https://example.com/icon.png' } as never);
     const detailSpy = vi.spyOn(tauriApi, 'getAppDetails').mockResolvedValue({
-      core: {
-        id: 'yetone/magpie',
-        name: 'magpie',
-        owner: 'yetone',
-        repo: 'magpie',
-        license: 'MIT',
-        homepage: 'https://usemagpie.ai',
-        platforms: ['darwin-arm64'],
-        latest_version: 'v1.0.0',
-      },
+      id: 'yetone/magpie',
+      name: 'magpie',
+      owner: 'yetone',
+      repo: 'magpie',
+      license: 'MIT',
+      homepage: 'https://usemagpie.ai',
+      platforms: ['darwin-arm64'],
+      latest_version: 'v1.0.0',
     } as never);
     const saveSpy = vi.spyOn(tauriApi, 'saveCustomApp').mockResolvedValue({} as never);
 

@@ -872,6 +872,7 @@ export const App: React.FC = () => {
         onClose={() => setIsRulesModalOpen(false)}
         updateRules={updateRules}
         installedApps={installedApps}
+        apps={mergedAppsForJoins}
         onRemoveRule={handleRemoveRule}
         onClearRuleSkip={handleClearRuleSkip}
         onToggleRuleFrozen={handleToggleRuleFrozen}

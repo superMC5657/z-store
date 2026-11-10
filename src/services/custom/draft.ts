@@ -38,8 +38,8 @@ export async function moveInToDraft(app: AppSummary): Promise<MoveInResult> {
 
   if (isLicensePlaceholder) {
     const detail = await tauriApi.getAppDetails(app.id).catch(() => null);
-    if (detail?.core) {
-      const realLic = typeof detail.core.license === 'string' ? detail.core.license.trim() : '';
+    if (detail) {
+      const realLic = typeof detail.license === 'string' ? detail.license.trim() : '';
       const isDetailPlaceholder =
         !realLic ||
         realLic.toLowerCase() === 'opensource' ||
@@ -47,15 +47,15 @@ export async function moveInToDraft(app: AppSummary): Promise<MoveInResult> {
 
       effectiveApp = {
         ...app,
-        description: app.description || detail.core.description,
-        description_en: detail.core.description_en || app.description_en,
+        description: app.description || detail.description,
+        description_en: detail.description_en || app.description_en,
         license: !isDetailPlaceholder ? realLic : (rawLic || 'OpenSource'),
-        homepage: detail.core.homepage || app.homepage,
+        homepage: detail.homepage || app.homepage,
         platforms:
-          detail.core.platforms && detail.core.platforms.length > 0
-            ? detail.core.platforms
+          detail.platforms && detail.platforms.length > 0
+            ? detail.platforms
             : app.platforms,
-        latest_version: detail.core.latest_version || app.latest_version,
+        latest_version: detail.latest_version || app.latest_version,
       };
     }
   }
