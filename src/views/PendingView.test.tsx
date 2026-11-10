@@ -174,16 +174,15 @@ describe('PendingView grouping and empty states', () => {
     const listText = () => container.querySelector('.pending-list')?.textContent ?? '';
     expect(listText()).toContain('o/a');
     expect(listText()).not.toContain('o/col');
-    // 本地收录默认「全部」：collected 系 + submitted 同列
+    // 本地收录默认「待提交」：仅 collected 系同列
     fireEvent.click(screen.getByText('本地收录'));
     expect(listText()).toContain('o/col');
     expect(listText()).toContain('o/lc');
-    expect(listText()).toContain('o/b');
+    expect(listText()).not.toContain('o/b');
     expect(listText()).not.toContain('o/a');
-    expect(screen.getByTestId('pending-segment-all')).toBeTruthy();
+    expect(screen.queryByTestId('pending-segment-all')).toBeNull();
     expect(screen.getByTestId('pending-segment-to_submit')).toBeTruthy();
     expect(screen.getByTestId('pending-segment-submitted')).toBeTruthy();
-    expect(screen.getByTestId('pending-segment-all').textContent).toBe('全部 (3)');
     expect(screen.getByTestId('pending-segment-to_submit').textContent).toBe('待提交 (2)');
     expect(screen.getByTestId('pending-segment-submitted').textContent).toBe('已提交 (1)');
     // 选中已收录行：编辑头显已收录徽标，收录按钮隐藏（仅 draft 显示）
@@ -205,7 +204,8 @@ describe('PendingView grouping and empty states', () => {
     // 切换到已归档分组（分段控件不展）
     fireEvent.click(screen.getByText('已归档'));
     expect(listText()).toContain('o/c');
-    expect(screen.queryByTestId('pending-segment-all')).toBeNull();
+    expect(screen.queryByTestId('pending-segment-to_submit')).toBeNull();
+    expect(screen.queryByTestId('pending-segment-submitted')).toBeNull();
   });
 
   it('switches title between Chinese and English', async () => {
@@ -923,28 +923,26 @@ describe('PendingView 3 tabs + 本地收录内部分段（计数分区 / 批量�
     );
     const listText = () => container.querySelector('.pending-list')?.textContent ?? '';
     fireEvent.click(screen.getByText('本地收录'));
-    // 全部：collected 系 + submitted
-    expect(listText()).toContain('o/col');
-    expect(listText()).toContain('o/lc');
-    expect(listText()).toContain('o/sub');
-    // 选中后切分段：选中/表单重置回空态
-    fireEvent.click(screen.getByText('o/col'));
-    expect(screen.getByTestId('pending-submit-pr')).toBeTruthy();
-    fireEvent.click(screen.getByTestId('pending-segment-to_submit'));
-    expect(screen.queryByTestId('pending-submit-pr')).toBeNull();
-    expect(screen.getByText('选择或新建草稿')).toBeTruthy();
-    // 待提交：仅 collected 系
+    // 默认待提交：仅 collected 系
     expect(listText()).toContain('o/col');
     expect(listText()).toContain('o/lc');
     expect(listText()).not.toContain('o/sub');
-    // 已提交：仅 submitted
+    // 选中后切已提交分段：选中/表单重置回空态
+    fireEvent.click(screen.getByText('o/col'));
+    expect(screen.getByTestId('pending-submit-pr')).toBeTruthy();
     fireEvent.click(screen.getByTestId('pending-segment-submitted'));
+    expect(screen.queryByTestId('pending-submit-pr')).toBeNull();
+    expect(screen.getByText('选择或新建草稿')).toBeTruthy();
+    // 已提交：仅 submitted
     expect(listText()).toContain('o/sub');
     expect(listText()).not.toContain('o/col');
     expect(listText()).not.toContain('o/lc');
-    // 空分段给专用空态文案
-    fireEvent.click(screen.getByTestId('pending-segment-all'));
+    // 切回待提交：选中重置，仅 collected 系
+    fireEvent.click(screen.getByText('o/sub'));
+    fireEvent.click(screen.getByTestId('pending-segment-to_submit'));
     expect(listText()).toContain('o/col');
+    expect(listText()).toContain('o/lc');
+    expect(listText()).not.toContain('o/sub');
   });
 
   it('empty segment shows its own copy instead of the generic group empty state', async () => {
@@ -961,7 +959,7 @@ describe('PendingView 3 tabs + 本地收录内部分段（计数分区 / 批量�
     await i18n.changeLanguage('zh-CN');
     const { container } = render(<PendingView entries={libraryEntries()} onGetLicenseAllowlist={gateProvider} />);
     fireEvent.click(screen.getByText('本地收录'));
-    // 全部段：批量栏在，但只有 collected 行有 checkbox
+    // 待提交段：批量栏在，collected 行有 checkbox
     expect(screen.getByTestId('pending-batch-toolbar')).toBeTruthy();
     expect(container.querySelector('.pending-list input[type="checkbox"][aria-label="o/col"]')).toBeTruthy();
     expect(container.querySelector('.pending-list input[type="checkbox"][aria-label="o/lc"]')).toBeTruthy();

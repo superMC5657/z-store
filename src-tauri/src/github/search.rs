@@ -16,6 +16,10 @@ struct OnlineSearchItem {
     stargazers_count: u64,
     forks_count: u64,
     #[serde(default)]
+    license: Option<OnlineRepoLicense>,
+    #[serde(default)]
+    homepage: Option<String>,
+    #[serde(default)]
     default_branch: Option<String>,
     #[serde(default)]
     topics: Option<Vec<String>>,
@@ -42,7 +46,32 @@ struct OnlineRepoResponse {
 
 #[derive(Debug, Deserialize)]
 struct OnlineRepoLicense {
+    #[serde(default)]
+    key: Option<String>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    name: Option<String>,
     spdx_id: Option<String>,
+}
+
+fn resolve_online_license(lic: Option<&OnlineRepoLicense>) -> Option<String> {
+    let l = lic?;
+    if let Some(ref spdx) = l.spdx_id {
+        let trimmed = spdx.trim();
+        if !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case("NOASSERTION") {
+            return Some(trimmed.to_string());
+        }
+    }
+    if let Some(ref key) = l.key {
+        let trimmed = key.trim();
+        if let Some(&matched) = crate::config::DEFAULT_LICENSE_ALLOWLIST
+            .iter()
+            .find(|&&allowed| allowed.eq_ignore_ascii_case(trimmed))
+        {
+            return Some(matched.to_string());
+        }
+    }
+    None
 }
 
 impl CatalogService {
@@ -174,6 +203,9 @@ impl CatalogService {
                     let description_en = it.description.clone();
                     let description = it.description.unwrap_or_else(|| "开源软件项目".to_string());
                     let topics = it.topics.unwrap_or_default();
+                    let license = resolve_online_license(it.license.as_ref())
+                        .unwrap_or_else(|| "OpenSource".to_string());
+                    let homepage = it.homepage.filter(|h| !h.trim().is_empty());
                     // 首屏快返：probe=false 置空图标，等后台快慢分离补探 emit。
                     super::http::fallback_summary(
                         client,
@@ -185,9 +217,9 @@ impl CatalogService {
                         description_en,
                         it.stargazers_count,
                         it.forks_count,
-                        "OpenSource".to_string(),
+                        license,
                         &topics,
-                        None,
+                        homepage,
                         false,
                         None,
                         token,
@@ -300,10 +332,7 @@ impl CatalogService {
         let repo_desc = repo_data.description.clone();
         // 未知协议显式 `unknown`（诚实未知，不伪装已验证开源）；D1 门禁按
         // 名单外拒绝（`UNKNOWN` 不在 DEFAULT_LICENSE_ALLOWLIST），ADR-0018 默认开。
-        let license = repo_data
-            .license
-            .and_then(|l| l.spdx_id)
-            .filter(|l| !l.trim().is_empty())
+        let license = resolve_online_license(repo_data.license.as_ref())
             .unwrap_or_else(|| "unknown".to_string());
         let topics = repo_data.topics.unwrap_or_default();
         // Top1：复用调用方预解析 `pre_confirmed`（owned `Send`，零查询零直连）；

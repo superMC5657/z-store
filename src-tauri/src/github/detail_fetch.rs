@@ -419,7 +419,24 @@ fn resolve_detail_stats(
         .unwrap_or(0);
     let license = repo_info
         .and_then(|r| r.license.as_ref())
-        .and_then(|l| l.spdx_id.clone())
+        .and_then(|l| {
+            if let Some(ref spdx) = l.spdx_id {
+                let trimmed = spdx.trim();
+                if !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case("NOASSERTION") {
+                    return Some(trimmed.to_string());
+                }
+            }
+            if let Some(ref key) = l.key {
+                let trimmed = key.trim();
+                if let Some(&matched) = crate::config::DEFAULT_LICENSE_ALLOWLIST
+                    .iter()
+                    .find(|&&allowed| allowed.eq_ignore_ascii_case(trimmed))
+                {
+                    return Some(matched.to_string());
+                }
+            }
+            None
+        })
         .or_else(|| catalog_item.map(|i| i.license.clone()))
         // 空串不视作真值（与下方 homepage 同过滤模式），未知一律显式 `unknown`
         //（诚实未知，不伪装已验证开源）；D1 门禁按名单外拒绝
@@ -1063,7 +1080,11 @@ mod tests {
             stargazers_count: None,
             forks_count: None,
             language: None,
-            license: Some(crate::github::models::GitHubLicense { spdx_id: None }),
+            license: Some(crate::github::models::GitHubLicense {
+                key: None,
+                name: None,
+                spdx_id: None,
+            }),
             homepage: None,
             default_branch: None,
             fork: None,
@@ -1106,11 +1127,25 @@ mod tests {
 
         let repo_mit = super::GitHubRepoResponse {
             license: Some(crate::github::models::GitHubLicense {
+                key: Some("mit".to_string()),
+                name: Some("MIT License".to_string()),
                 spdx_id: Some("MIT".to_string()),
+            }),
+            ..repo_no_license.clone()
+        };
+        let stats = super::resolve_detail_stats(Some(&repo_mit), None);
+        assert_eq!(stats.license, "MIT");
+
+        // NOASSERTION 时回退到合法 key（如 "mit" -> "MIT"）
+        let repo_key_fallback = super::GitHubRepoResponse {
+            license: Some(crate::github::models::GitHubLicense {
+                key: Some("mit".to_string()),
+                name: Some("MIT License".to_string()),
+                spdx_id: Some("NOASSERTION".to_string()),
             }),
             ..repo_no_license
         };
-        let stats = super::resolve_detail_stats(Some(&repo_mit), None);
+        let stats = super::resolve_detail_stats(Some(&repo_key_fallback), None);
         assert_eq!(stats.license, "MIT");
     }
 

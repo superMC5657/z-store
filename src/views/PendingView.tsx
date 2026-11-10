@@ -118,9 +118,8 @@ const GROUP_META: ReadonlyArray<{ id: PendingGroupId; icon: typeof Inbox }> = [
   { id: 'archived', icon: Archive },
 ];
 
-/** 本地收录内部分段（全部 / 待提交 / 已提交）。 */
+/** 本地收录内部分段（待提交 / 已提交）。 */
 const SEGMENT_META: ReadonlyArray<{ id: PendingSegmentId }> = [
-  { id: 'all' },
   { id: 'to_submit' },
   { id: 'submitted' },
 ];
@@ -150,7 +149,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
   const [localEntries, setLocalEntries] = useState<CustomDraftEntry[]>(initialEntries);
   const entries = controlledEntries ?? localEntries;
   const [activeGroup, setActiveGroup] = useState<PendingGroupId>('draft');
-  const [activeSegment, setActiveSegment] = useState<PendingSegmentId>('all');
+  const [activeSegment, setActiveSegment] = useState<PendingSegmentId>('to_submit');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -170,12 +169,12 @@ export const PendingView: React.FC<PendingViewProps> = ({
   /**
    * 顶层三态切换（draft/library/archived）：
    * 右侧详情 + 底部批量栏 + 操作按钮随 activeGroup 联动，
-   * 切 Tab 即重置跨分组选中（含新建态与二次确认态）与分段（回默认「全部」），无选中走空态提示。
+   * 切 Tab 即重置跨分组选中（含新建态与二次确认态）与分段（回默认「待提交」），无选中走空态提示。
    */
   const handleGroupChange = (group: PendingGroupId) => {
     if (group === activeGroup) return;
     setActiveGroup(group);
-    setActiveSegment('all');
+    setActiveSegment('to_submit');
     setSelectedId(null);
     setIsCreating(false);
     setConfirmDeleteId(null);
@@ -343,12 +342,11 @@ export const PendingView: React.FC<PendingViewProps> = ({
   }, [entries]);
 
   // 内层过滤计数：与 counts.library 同源（库内每条必属 to_submit 或 submitted），
-  // 让「全部 / 待提交 / 已提交」读作数据过滤而非第二层导航。
+  // 让「待提交 / 已提交」读作数据过滤而非第二层导航。
   const segmentCounts = useMemo(() => {
-    const c: Record<PendingSegmentId, number> = { all: 0, to_submit: 0, submitted: 0 };
+    const c: Record<PendingSegmentId, number> = { to_submit: 0, submitted: 0 };
     for (const e of entries) {
       if (entryGroup(e) !== 'library') continue;
-      c.all += 1;
       const seg = entrySegment(e);
       if (seg) c[seg] += 1;
     }
@@ -359,7 +357,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
     () =>
       entries.filter((e) => {
         if (entryGroup(e) !== activeGroup) return false;
-        if (activeGroup !== 'library' || activeSegment === 'all') return true;
+        if (activeGroup !== 'library') return true;
         return entrySegment(e) === activeSegment;
       }),
     [entries, activeGroup, activeSegment],
@@ -374,7 +372,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
     // 跨 Tab/分段选中重置兜底：选中行不在当前 Tab（或不在当前分段）时视为无选中，走空态提示。
     if (found && !isCreating) {
       if (entryGroup(found) !== activeGroup) return null;
-      if (activeGroup === 'library' && activeSegment !== 'all' && entrySegment(found) !== activeSegment) {
+      if (activeGroup === 'library' && entrySegment(found) !== activeSegment) {
         return null;
       }
     }
@@ -1113,7 +1111,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
         ))}
       </div>
 
-      {/* 2b. 本地收录内部分段：全部 / 待提交 / 已提交（内层过滤，非第二层导航；其他 Tab 不展） */}
+      {/* 2b. 本地收录内部分段：待提交 / 已提交（内层过滤，非第二层导航；其他 Tab 不展） */}
       {activeGroup === 'library' && (
         <div
           className="pending-segment-row"

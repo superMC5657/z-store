@@ -154,7 +154,7 @@ pub(crate) struct GitHubUserResponse {
     pub following: Option<u64>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub(crate) struct GitHubRepoResponse {
     pub name: Option<String>,
     pub full_name: Option<String>,
@@ -171,8 +171,13 @@ pub(crate) struct GitHubRepoResponse {
     pub fork: Option<bool>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub(crate) struct GitHubLicense {
+    #[serde(default)]
+    pub key: Option<String>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub name: Option<String>,
     pub spdx_id: Option<String>,
 }
 

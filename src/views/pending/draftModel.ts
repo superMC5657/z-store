@@ -20,10 +20,10 @@ export type CustomDraftEntry = DraftEntry;
 export type PendingGroupId = 'draft' | 'library' | 'archived';
 
 /**
- * 「本地收录」内部分段（Issue 进度）：全部 = 收录系 + submitted；
+ * 「本地收录」内部分段（Issue 进度）：
  * 待提交 = 收录系（collected/local_collected）；已提交 = submitted。
  */
-export type PendingSegmentId = 'all' | 'to_submit' | 'submitted';
+export type PendingSegmentId = 'to_submit' | 'submitted';
 
 /** 收录态判定唯一口径收敛于 selectors。 */
 export const isPendingCollectedStatus = isCollectedStatus;
@@ -249,7 +249,7 @@ export function entryGroup(e: CustomDraftEntry): PendingGroupId {
 }
 
 /** 库内行的 Issue 进度分段；非库内行返回 null（不参与分段过滤）。 */
-export function entrySegment(e: CustomDraftEntry): Exclude<PendingSegmentId, 'all'> | null {
+export function entrySegment(e: CustomDraftEntry): PendingSegmentId | null {
   if (e.archived) return null;
   if (e.status === 'submitted') return 'submitted';
   if (isPendingCollectedStatus(e.status)) return 'to_submit';

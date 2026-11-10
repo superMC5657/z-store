@@ -122,4 +122,61 @@ describe('moveInToDraft（移入收录唯一入口）', () => {
 
     expect(saveSpy).not.toHaveBeenCalled();
   });
+
+  it('当协议为占位符时拉取详情解析真实开源协议及平台元数据', async () => {
+    vi.spyOn(tauriApi, 'restoreOrFetchIconCycle').mockResolvedValue({ remote_url: 'https://example.com/icon.png' } as never);
+    const detailSpy = vi.spyOn(tauriApi, 'getAppDetails').mockResolvedValue({
+      core: {
+        id: 'yetone/magpie',
+        name: 'magpie',
+        owner: 'yetone',
+        repo: 'magpie',
+        license: 'MIT',
+        homepage: 'https://usemagpie.ai',
+        platforms: ['darwin-arm64'],
+        latest_version: 'v1.0.0',
+      },
+    } as never);
+    const saveSpy = vi.spyOn(tauriApi, 'saveCustomApp').mockResolvedValue({} as never);
+
+    const res = await moveInToDraft(
+      onlineApp({
+        id: 'yetone/magpie',
+        name: 'magpie',
+        owner: 'yetone',
+        repo: 'magpie',
+        license: 'OpenSource',
+      }),
+    );
+
+    expect(res.ok).toBe(true);
+    expect(detailSpy).toHaveBeenCalledWith('yetone/magpie');
+    expect(saveSpy).toHaveBeenCalledTimes(1);
+    const payload = saveSpy.mock.calls[0]?.[0];
+    expect(payload?.license).toBe('MIT');
+    expect(payload?.homepage).toBe('https://usemagpie.ai');
+    expect(payload?.platforms).toEqual(['darwin-arm64']);
+    expect(payload?.default_version).toBe('v1.0.0');
+  });
+
+  it('当协议已有真实 SPDX 时不触发详情查询', async () => {
+    vi.spyOn(tauriApi, 'restoreOrFetchIconCycle').mockResolvedValue({ remote_url: '' } as never);
+    const detailSpy = vi.spyOn(tauriApi, 'getAppDetails');
+    const saveSpy = vi.spyOn(tauriApi, 'saveCustomApp').mockResolvedValue({} as never);
+
+    const res = await moveInToDraft(
+      onlineApp({
+        id: 'yetone/magpie',
+        name: 'magpie',
+        owner: 'yetone',
+        repo: 'magpie',
+        license: 'Apache-2.0',
+      }),
+    );
+
+    expect(res.ok).toBe(true);
+    expect(detailSpy).not.toHaveBeenCalled();
+    expect(saveSpy).toHaveBeenCalledTimes(1);
+    expect(saveSpy.mock.calls[0]?.[0]?.license).toBe('Apache-2.0');
+  });
 });
