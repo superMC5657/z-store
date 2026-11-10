@@ -9,7 +9,6 @@ import {
 import { useTranslation } from 'react-i18next';
 import { AppDetailViewModel, OAuthUser, ReleaseAsset } from '../../types';
 import { tauriApi, type AppIconCycleResult } from '../../services/api';
-import { MANUAL_ONLY_NETWORK } from '../../lib/manualOnly';
 import { AppIcon } from '../AppIcon';
 import { admitIconHit } from '../../services/iconStore';
 import { notifyToast } from '../../utils/notify';
@@ -62,9 +61,6 @@ export const Header: React.FC<HeaderProps> = ({
   // 图标轮换态（T3 刷新图标）
   const [iconCycle, setIconCycle] = useState<AppIconCycleResult | null>(null);
   const [isCyclingIcon, setIsCyclingIcon] = useState(false);
-  // 轮换口径就绪：首轮 restoreOrFetchIconCycle 落定前按钮不渲染（防 loading 期闪出）；
-  // 成功/失败均置 true；失败仅放行按钮就绪，收录位仍按显式 is_cataloged 判定。
-  const [isIconCycleReady, setIsIconCycleReady] = useState(false);
   // 初次展示同步去重：同一 id+url 只 dispatch 一次，避免重复事件刷榜
   const iconSyncDispatchedRef = useRef<Set<string>>(new Set());
 
@@ -78,53 +74,41 @@ export const Header: React.FC<HeaderProps> = ({
   useEffect(() => {
     let isMounted = true;
     setIconCycle(null);
-    setIsIconCycleReady(false);
-    // 挂载不自动回填图标轮换（URL/首字母兜底）；轮换按钮按需触发，入口始终可达。
-    // Ready immediately so manual cycle button (handleCycleIcon, explicit) stays reachable.
-    if (MANUAL_ONLY_NETWORK) {
-      setIsIconCycleReady(true);
+    if (!isTauri || !app.id) {
       return () => {
         isMounted = false;
       };
     }
-    if (!isTauri || !app.id) return;
 
     tauriApi
       .restoreOrFetchIconCycle(app.id)
       .then((data) => {
-        if (!isMounted) return;
-        if (data) {
-          setIconCycle(data);
-          // 初次展示跟随+双落盘：iconCycle.url 是 data: 即时展示（IPC临时），
-          // 落盘一律用 remote_url（后端 snake_case 规范字段）；
-          // data: 永不进盘，内存态短暂用 data: 由 AppIcon iconOverride 直显，榜单跟随用 persistUrl。
-          // isCataloged 不阻止；L5/fallback 空（persistUrl ''）不 dispatch，避免把实图标清掉。
-          const remote = resolveRemoteIconUrl(data);
-          const fallbackUrl = typeof data.url === 'string' ? data.url.trim() : '';
-          const persistUrl =
-            remote !== '' ? remote : (!fallbackUrl.startsWith('data:') ? fallbackUrl : '');
-          const curIcon = typeof app.icon === 'string' ? app.icon.trim() : '';
-          if(persistUrl!==''&&persistUrl!==curIcon) {
-            const dedupKey = `${String(app.id).trim().toLowerCase()}::${persistUrl}`;
-            if (!iconSyncDispatchedRef.current.has(dedupKey)) {
-              iconSyncDispatchedRef.current.add(dedupKey);
-              // 初次展示跟随经店内唯一写口（M1 缓冲 + 文件预热；列表写透由详情同步侧持有 setters 完成，
-              // 此处只做缓冲预热，不自发 IPC 预热、不走窗口总线）。
-              // data: 永不直送（persistUrl 已剥 data:，空即 L5/空不发）；patch 与轮换分支同体（经扇出落定）。
-              admitIconHit({
-                id: app.id,
-                icon: persistUrl,
-                level: typeof data.level === 'number' ? data.level : undefined,
-                patch: iconPatch,
-              });
-            }
+        if (!isMounted || !data) return;
+        setIconCycle(data);
+        // 初次展示跟随+双落盘：iconCycle.url 是 data: 即时展示（IPC临时），
+        // 落盘一律用 remote_url（后端 snake_case 规范字段）；
+        // data: 永不进盘，内存态短暂用 data: 由 AppIcon iconOverride 直显，榜单跟随用 persistUrl。
+        // isCataloged 不阻止；L5/fallback 空（persistUrl ''）不 dispatch，避免把实图标清掉。
+        const remote = resolveRemoteIconUrl(data);
+        const fallbackUrl = typeof data.url === 'string' ? data.url.trim() : '';
+        const persistUrl =
+          remote !== '' ? remote : (!fallbackUrl.startsWith('data:') ? fallbackUrl : '');
+        const curIcon = typeof app.icon === 'string' ? app.icon.trim() : '';
+        if (persistUrl !== '' && persistUrl !== curIcon) {
+          const dedupKey = `${String(app.id).trim().toLowerCase()}::${persistUrl}`;
+          if (!iconSyncDispatchedRef.current.has(dedupKey)) {
+            iconSyncDispatchedRef.current.add(dedupKey);
+            admitIconHit({
+              id: app.id,
+              icon: persistUrl,
+              level: typeof data.level === 'number' ? data.level : undefined,
+              patch: iconPatch,
+            });
           }
         }
-        setIsIconCycleReady(true);
       })
       .catch(() => {
-        // 降级不崩；口径仍置就绪，收录位按显式 is_cataloged 判定。
-        if (isMounted) setIsIconCycleReady(true);
+        // 降级不崩；收录位按显式 is_cataloged 判定。
       });
 
     return () => {
@@ -467,7 +451,7 @@ export const Header: React.FC<HeaderProps> = ({
             isCyclingIcon={isCyclingIcon}
             nextLevelTitle={nextLevelTitle}
             onCycleIcon={handleCycleIcon}
-            isCycleReady={isIconCycleReady}
+            isCycleReady={true}
           />
         </div>
         {displayDesc && (

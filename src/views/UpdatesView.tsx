@@ -22,7 +22,6 @@ import { EmptyState } from '../components/EmptyState';
 import { ViewShell } from './ViewShell';
 import { resolveAppIconInfo } from '../utils/appHelper';
 import { queueAssembledRowIcons } from '../services/iconStore';
-import { MANUAL_ONLY_NETWORK } from '../lib/manualOnly';
 
 interface UpdatesViewProps {
   updates: UpdateItem[];
@@ -86,10 +85,8 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 更新列表图标不自动入队落盘（就地 URL/首字母展示）。
-  // 组装落盘补齐：更新列表 + 关注动态展示图标（自身覆盖优先、收录库回退）http 远端入队进盘（前 30 上限，`data:`/空跳过）。
+  // 组装落盘补齐：更新列表 + 关注动态展示图标（自身覆盖优先、收录库回退）http 远端入队（优先命中本地磁盘缓存，未命中/过期时后台拉取落盘，前 30 上限，`data:`/空跳过）。
   useEffect(() => {
-    if (MANUAL_ONLY_NETWORK) return;
     if (updates.length === 0 && (!watchNotifications || watchNotifications.length === 0)) return;
     const catalogById = new Map(apps.map((a) => [a.id.toLowerCase(), a]));
     if (updates.length > 0) {

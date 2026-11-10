@@ -358,6 +358,7 @@ pub fn get_confirmed_icons_batch(
     ids: Vec<String>,
 ) -> crate::AppResult<Vec<Option<String>>> {
     let db = state.db()?;
+    let icons_dir = crate::get_app_data_dir().join("icons");
     Ok(ids
         .iter()
         .map(|raw| {
@@ -369,7 +370,25 @@ pub fn get_confirmed_icons_batch(
             if owner.is_empty() || repo.is_empty() {
                 return None;
             }
-            crate::github::http::resolve_confirmed_icon_from_db(&db, &clean_id, owner, repo)
+            if let Some(hit) =
+                crate::github::http::resolve_confirmed_icon_from_db(&db, &clean_id, owner, repo)
+            {
+                return Some(hit);
+            }
+            if let Some(cat_item) = state.catalog.get_catalog_item(&clean_id) {
+                let icon_url = cat_item.icon.trim();
+                if !icon_url.is_empty() {
+                    if let Some((bytes, _)) =
+                        crate::commands::icons_cycle_probe::find_cached_icon_by_url(
+                            &icons_dir, icon_url,
+                        )
+                    {
+                        return Some(crate::commands::bytes_to_data_uri(&bytes));
+                    }
+                    return Some(icon_url.to_string());
+                }
+            }
+            None
         })
         .collect())
 }
@@ -879,16 +898,33 @@ fn persist_github_detail(
                 ) {
                     detail.core.icon = cycle.selected_url.clone();
                 }
+                // 若磁盘 icons/ 已存在选中 URL 的哈希文件但 cache_file 为空，立即关联 cache_file
+                let sel = cycle.selected_url.trim().to_string();
+                if !sel.is_empty() && cycle.cache_file.trim().is_empty() {
+                    let icons_dir = crate::get_app_data_dir().join("icons");
+                    if let Some((_, fname)) =
+                        crate::commands::icons_cycle_probe::find_cached_icon_by_url(
+                            &icons_dir, &sel,
+                        )
+                    {
+                        cycle.cache_file = fname;
+                    }
+                }
                 Some(cycle)
             } else {
-                // 探测无可用图标：pinned 行仍保持详情展示为用户所选档位。
-                if let Ok(Some(pinned_cycle)) = db.get_icon_cycle(clean_id) {
-                    if pinned_cycle.pinned {
-                        detail.core.icon = pinned_cycle.selected_url.clone();
+                // 探测无可用图标：pinned 行或已有非 L5 确认图标保持不变，不将已确认图标冲空为 ""
+                if let Ok(Some(existing_cycle)) = db.get_icon_cycle(clean_id) {
+                    if existing_cycle.pinned {
+                        detail.core.icon = existing_cycle.selected_url.clone();
+                    } else if existing_cycle.level != 5
+                        && !existing_cycle.selected_url.trim().is_empty()
+                    {
+                        detail.core.icon = existing_cycle.selected_url.clone();
                     }
                 }
                 None
             };
+            state.catalog.update_catalog_item_from_detail(detail);
             if db
                 .save_detail_with_cycle_row(clean_id, detail, staged_cycle.as_ref())
                 .is_err()
@@ -896,6 +932,54 @@ fn persist_github_detail(
                 let _ = db.save_cached_app_detail(clean_id, detail);
                 if let Some(c) = staged_cycle.as_ref() {
                     let _ = db.upsert_icon_cycle(c);
+                }
+            }
+            // 若选中图标为 http(s) 且磁盘尚未缓存文件，后台异步拉取落盘到 icons/ 并补齐 cache_file
+            if let Some(ref c) = staged_cycle {
+                let sel = c.selected_url.trim().to_string();
+                if c.cache_file.trim().is_empty()
+                    && (sel.starts_with("http://") || sel.starts_with("https://"))
+                {
+                    let app_id_owned = clean_id.to_string();
+                    let lvl = c.level;
+                    let is_cat = c.is_cataloged;
+                    tokio::spawn(async move {
+                        let client = crate::forge::http::new_icon_client(
+                            crate::config::get_project_config()
+                                .network
+                                .api_timeout_seconds,
+                        )
+                        .unwrap_or_default();
+                        if let Ok(bytes) =
+                            crate::commands::icons_cycle_probe::download_icon_bytes_direct(
+                                &client, &sel,
+                            )
+                            .await
+                        {
+                            let icons_dir = crate::get_app_data_dir().join("icons");
+                            let _ = std::fs::create_dir_all(&icons_dir);
+                            let ext = crate::commands::icons::infer_icon_ext_from_url(&sel)
+                                .unwrap_or("png");
+                            let db_opt = crate::github::http::open_db_opt();
+                            let fname = crate::commands::icons_cycle_probe::write_icon_file(
+                                &icons_dir,
+                                db_opt.as_ref(),
+                                &crate::commands::icons_cycle_probe::IconRef::new(&sel, ext),
+                                is_cat,
+                                &bytes,
+                            );
+                            if !fname.is_empty() {
+                                if let Some(db) = db_opt {
+                                    let _ = db.set_icon_cycle_selected(
+                                        &app_id_owned,
+                                        lvl,
+                                        &sel,
+                                        &fname,
+                                    );
+                                }
+                            }
+                        }
+                    });
                 }
             }
         } // end non-stale non-empty save branch (stale/empty-empty skip above)

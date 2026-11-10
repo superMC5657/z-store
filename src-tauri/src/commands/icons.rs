@@ -264,6 +264,7 @@ pub async fn get_or_fetch_icon(
 
     // 1. 严格优先查找本地内部缓存（两表分流读取收敛至共享 helper）
     // 收录应用查 icon_cache_meta，非收录应用查 app_icon_cycles（按 canonical_id 归一查表）
+    let mut noncatalog_cycle_cached: Option<crate::db::AppIconCycle> = None;
     if let Ok(db) = state.db() {
         let noncatalog_cycle = if is_cataloged || canonical_id.is_empty() {
             None
@@ -279,6 +280,7 @@ pub async fn get_or_fetch_icon(
         ) {
             return Ok(bytes_to_data_uri(&bytes));
         }
+        noncatalog_cycle_cached = noncatalog_cycle;
     }
 
     // 2. 本地缓存找不到或已过期，才去外部链接拉取（经单一落点）
@@ -298,6 +300,15 @@ pub async fn get_or_fetch_icon(
     let (key_url_owned, bytes): (String, Vec<u8>) = match fetched_bytes {
         Some(b) => (url_trimmed.to_string(), b),
         _ => {
+            // 若本地磁盘已有过期但完好的图标文件（> 7 天 TTL），网络波动拉取失败时优先回退本地旧图（SWR），
+            // 绝不因断网/抖动把已缓存图标降级为错误或被匿名探测覆盖。
+            if let Some((stale_bytes, _, _)) = icons_cycle_probe::read_any_cached_icon_file(
+                &icons_dir,
+                &icons_cycle_probe::IconRef::new(url_trimmed, requested_ext),
+                noncatalog_cycle_cached.as_ref(),
+            ) {
+                return Ok(bytes_to_data_uri(&stale_bytes));
+            }
             // 缓存缺失且直取失败：匿名兜底探测（收敛至共享 helper，无 token 免鉴权级）。
             // 命中后按真地址缓存（文件存替代字节、DB 记录真地址），后续同真地址请求零网络命中。
             let raw_id = app_id.as_deref().unwrap_or("");

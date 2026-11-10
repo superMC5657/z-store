@@ -180,7 +180,11 @@ interface DbTrendBoardCacheRow {
  * - 时钟钳制 elapsed<0 按过期；
  * - 读抖动 0-30s，只扣减不延长。
  */
-export async function getDbTrendCache(key: string, board?: string): Promise<TrendRepo[] | undefined> {
+export async function getDbTrendCache(
+  key: string,
+  board?: string,
+  opts?: { allowStale?: boolean },
+): Promise<TrendRepo[] | undefined> {
   if (!isTauri) return undefined;
   try {
     const row = await tauriInvoke<DbTrendBoardCacheRow | null>(CMD.getTrendBoardCache, {
@@ -196,10 +200,12 @@ export async function getDbTrendCache(key: string, board?: string): Promise<Tren
     }
 
     const elapsedMs = Date.now() - cachedAtSec * 1000;
-    if (elapsedMs < 0) return undefined;
-    const resolvedBoard = board ?? key.split('|')[0] ?? '';
-    if (elapsedMs >= trendL2EffectiveTtlMs(trendDbTtlMs(resolvedBoard), key)) {
-      return undefined;
+    if (!opts?.allowStale) {
+      if (elapsedMs < 0) return undefined;
+      const resolvedBoard = board ?? key.split('|')[0] ?? '';
+      if (elapsedMs >= trendL2EffectiveTtlMs(trendDbTtlMs(resolvedBoard), key)) {
+        return undefined;
+      }
     }
 
     const parsed: unknown = JSON.parse(payloadStr);
@@ -313,10 +319,10 @@ export async function saveDbTrendCache(
       if (typeof s.owner !== 'string' || s.owner.trim() === '') continue;
       if (typeof s.repo !== 'string' || s.repo.trim() === '') continue;
       if (!Array.isArray(summary.platforms)) continue;
-      if (isDataIcon(summary.icon)) continue;
+      const cleanSummary = isDataIcon(summary.icon) ? { ...summary, icon: '' } : summary;
       const cleanKey = normalizeId(k);
       if (cleanKey) {
-        sanitizedEnrich[cleanKey] = stripCatalogAnnotations(summary);
+        sanitizedEnrich[cleanKey] = stripCatalogAnnotations(cleanSummary);
       }
     }
     const envelope: TrendCacheEnvelope = {

@@ -528,5 +528,34 @@ describe('trends L2 persistence cache', () => {
       expect(healthy.repos).toHaveLength(1);
       expect(networkSpy).not.toHaveBeenCalled();
     });
+
+    it('falls back to expired L2 cache (stale: true) when network fetch fails', async () => {
+      vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
+      const nowSec = Math.floor(Date.now() / 1000);
+      vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd) => {
+        if (cmd === 'get_trend_board_cache') {
+          return {
+            payload_json: JSON.stringify({
+              v: 1,
+              repos: [mockRepo],
+              enrich: {
+                'test/repo': makeEnrichedApp({ id: 'test/repo', platforms: ['windows'] }),
+              },
+            }),
+            // 20 小时前（超过 12h L2 TTL，但在 7d SQLite 保留期内）
+            cached_at: nowSec - 20 * 3600,
+          };
+        }
+        return undefined;
+      });
+      vi.spyOn(tauriApi, 'fetchTrendsText').mockRejectedValueOnce(new Error('network jitter'));
+
+      const res = await fetchTrendsResult('weekly');
+      expect(res.status).toBe('ok');
+      expect(res.stale).toBe(true);
+      expect(res.repos).toHaveLength(1);
+      expect(res.repos[0]).toEqual(mockRepo);
+      expect(snapshotTrendEnrichCache()['test/repo']?.platforms).toEqual(['windows']);
+    });
   });
 });

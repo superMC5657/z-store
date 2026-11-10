@@ -317,7 +317,9 @@ export function putTrendEnrichMemory(
     const key = normalizeId(rawKey);
     if (!key) continue;
     if (!hasConcretePlatforms(summary.platforms) && !trendConfirmedOtherCache.has(key)) continue;
-    if (typeof summary.icon === 'string' && summary.icon.startsWith('data:')) continue;
+    if (typeof summary.icon === 'string' && summary.icon.startsWith('data:')) {
+      admitIconHit({ id: key, icon: summary.icon, via: 'm2' });
+    }
     putTrendEnrichCache(key, { timestamp: now, data: summary });
     if (summary.owner && summary.repo) {
       const coordKey = trendEnrichKey(summary.owner, summary.repo);
@@ -496,13 +498,12 @@ async function enrichTrendReposCore(
         admitIconHit({ id: idKey, icon: rawIcon, via: 'm2' });
       }
     }
-    // 图标单口：data: 原样透出只活当次 out；其余粘性合并。
+    // 图标单口：data: 原样透出供当次 out 直显；putTrendEnrichCache 内部会自动剥离 data: 为 '' 存入缓存，不丢弃富卡本身。
     s = mergeIconSticky(cur?.data, s);
     out.set(key, s);
-    // data: 永不进内存；loading 当次有效永不缓存，只活当次 out。
-    if (typeof s.icon === 'string' && s.icon.startsWith('data:')) return;
+    // loading 当次有效永不缓存，只活当次 out；具平台富卡（含携带 data: 图标的富卡）写入缓存。
     if (!hasConcretePlatforms(s.platforms)) return;
-    // icon 粘性 supersede-only 已在单口内合并，具平台才 put。
+    // icon 粘性 supersede-only 已在单口内合并，具平台才 put（putTrendEnrichCache 内将 data: 剥为 ''）。
     putTrendEnrichCache(key, { timestamp: at, data: s });
   });
   return out;

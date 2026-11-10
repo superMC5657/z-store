@@ -76,7 +76,6 @@ import {
 import { zlogInfo, zlogWarn } from '../../lib/z-log';
 import { DEFAULT_ICON_BG } from '../../styles/tokens';
 import {
-  ASSEMBLED_ROW_ICON_QUEUE_CAP,
   admitIconHit,
   resolveIconWithBuffer,
 } from '../iconStore';
@@ -290,7 +289,7 @@ function isRowIconMissing(icon: unknown): boolean {
  */
 export function collectEmptyIconKeys(
   mirror: Record<string, AppSummary>,
-  cap: number = ASSEMBLED_ROW_ICON_QUEUE_CAP,
+  cap = 200,
 ): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
@@ -1134,7 +1133,9 @@ export function subscribeTrendHealBus(handlers: TrendHealBusHandlers): () => voi
     const payload = (e as CustomEvent<DetailRichcardHealPayload>).detail;
     if (!payload || !payload.summary || typeof payload.summary !== 'object') return;
     if (!Array.isArray(payload.keys) || payload.keys.length === 0) return;
-    if (!Array.isArray(payload.dirtyFields) || payload.dirtyFields.length === 0) return;
+    const hasDirty = Array.isArray(payload.dirtyFields) && payload.dirtyFields.length > 0;
+    const hasPlats = Array.isArray(payload.platforms) && payload.platforms.length > 0;
+    if (!hasDirty && !hasPlats && payload.confirmedOther !== true) return;
     const keys = normalizeHealKeys(payload.keys);
     if (keys.length === 0) return;
     handlers.onRichcardHeal?.(payload, keys);
@@ -1171,6 +1172,19 @@ export function putBoardEnrichMemory(map: Record<string, AppSummary>): void {
 /** 当前持久化榜键（供节流调度读取；快照经 noteBoardReposForPersist 同步）。 */
 export function getBoardPersistKey(): string {
   return boardPersistRef.cacheKey;
+}
+
+/**
+ * 详情更新写透榜单二级缓存（即使 `TrendsView` 当前未挂载）：
+ * 若最近加载过的榜单包含该应用，调度节流写盘将最新 `trendEnrichCache` 快照持久化至 SQLite `trend_board_cache`。
+ */
+export function persistBoardCacheFromDetailIfPresent(keys: readonly string[]): void {
+  const { cacheKey, repos } = boardPersistRef;
+  if (!cacheKey || !Array.isArray(repos) || repos.length === 0) return;
+  const repoKeys = boardRepoKeys(repos);
+  const hit = keys.some((k) => repoKeys.has(String(k ?? '').trim().toLowerCase()));
+  if (!hit) return;
+  maybeScheduleBoardPersist(cacheKey);
 }
 
 /* ------------------------------------------------------------------ */

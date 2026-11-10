@@ -105,7 +105,7 @@ impl<'a> IconRef<'a> {
 /// hash 候选文件名唯一构造（FINAL 双探：`inferred` 快路径 + `KNOWN` 全后缀兜底，sniff 纠正场景）：
 /// `read_level_cache_file` 与 `load_split_cached_bytes`（收录 hash 双探）共用此唯一构造。
 /// 空 url 返回空 Vec（调用方视为未命中）。
-fn hash_icon_candidate_filenames(icon: &IconRef<'_>) -> Vec<String> {
+pub(crate) fn hash_icon_candidate_filenames(icon: &IconRef<'_>) -> Vec<String> {
     let url = icon.url.trim();
     if url.is_empty() {
         return Vec::new();
@@ -121,6 +121,53 @@ fn hash_icon_candidate_filenames(icon: &IconRef<'_>) -> Vec<String> {
         out.push(format!("{}.{}", hash_stem, ext));
     }
     out
+}
+
+/// 按图标 URL 扫描 `icons/` 下的哈希候选文件，命中有效图片即返回 `(bytes, filename)`（供多处自愈复用）。
+pub(crate) fn find_cached_icon_by_url(
+    icons_dir: &std::path::Path,
+    url: &str,
+) -> Option<(Vec<u8>, String)> {
+    let url_trimmed = url.trim();
+    if url_trimmed.is_empty() {
+        return None;
+    }
+    let ext = crate::commands::icons::infer_icon_ext_from_url(url_trimmed).unwrap_or("png");
+    let icon_ref = IconRef::new(url_trimmed, ext);
+    for fname in hash_icon_candidate_filenames(&icon_ref) {
+        if let Some(bytes) = read_valid_image_file(&icons_dir.join(&fname)) {
+            return Some((bytes, fname));
+        }
+    }
+    None
+}
+
+/// 读取磁盘上已存在的有效图标字节（不限 7 天新鲜度，供网络波动/离线 SWR 兜底与自愈使用）：
+/// 返回 `(bytes, filename, is_file_fresh)`。
+pub(crate) fn read_any_cached_icon_file(
+    icons_dir: &std::path::Path,
+    icon: &IconRef<'_>,
+    noncatalog_cycle: Option<&crate::db::AppIconCycle>,
+) -> Option<(Vec<u8>, String, bool)> {
+    let url_trimmed = icon.url.trim();
+    if url_trimmed.is_empty() {
+        return None;
+    }
+    if let Some(cycle) = noncatalog_cycle {
+        let cf = cycle.cache_file.trim();
+        if !cf.is_empty() && cycle.selected_url.trim() == url_trimmed {
+            let p = icons_dir.join(cf);
+            if let Some(b) = read_valid_image_file(&p) {
+                let fresh = crate::commands::icons::is_icon_file_fresh(&p);
+                return Some((b, cf.to_string(), fresh));
+            }
+        }
+    }
+    if let Some((b, fname)) = find_cached_icon_by_url(icons_dir, url_trimmed) {
+        let fresh = crate::commands::icons::is_icon_file_fresh(&icons_dir.join(&fname));
+        return Some((b, fname, fresh));
+    }
+    None
 }
 
 /// 指定级别缓存文件读取（hash 双探：`inferred` 快路径 + `KNOWN` 全后缀兜底）：
@@ -143,11 +190,11 @@ pub(crate) fn read_level_cache_file(
 }
 
 /// 两表分流缓存读取唯一落点（FINAL：hash 双探 + 7 天 TTL + ETag 禁用）：
-/// - 收录查 `icon_cache_meta`（要求：文件存在 + 合法图 + 文件 7 天新鲜 + meta URL 相等 + meta 7 天有效）；
-///   `hash(url).{ext}` 候选（含全后缀兜底）；
-/// - 非收录查传入 cycle（要求：`cache_file` 非空 + `selected_url` 相等 + 文件 7 天新鲜 + 行 7 天有效
-///   `is_icon_fresh(updated_at)`；`cache_file` 本身已是最终 hash 名）；
-/// - `noncatalog_cycle=None` 或 `cache_file` 为空视为未命中；TTL 外一律视为未命中（调用方后台重下 1 次，前台不闪）。
+/// - 收录查 `icon_cache_meta`（要求：文件存在 + 合法图 + 文件 7 天新鲜 + meta URL 相等 + meta 7 天有效；
+///   若磁盘已有新鲜 hash 文件但 meta 缺失则自愈补齐 meta）；
+/// - 非收录先查传入 cycle（`cache_file` 非空 + `selected_url` 相等 + 7 天新鲜），
+///   若 `cache_file` 为空则回退扫描 `icons/` 下新鲜 hash 候选文件并自愈 `cache_file`；
+/// - TTL 外一律视为未命中（调用方尝试后台重下，若网络失败可经 `read_any_cached_icon_file` 回退旧盘文件）。
 /// - 图标通道禁用 ETag 查表：此处永不读 `api_etag_cache`，命中即 0 请求；ETag 仅详情/平台通道用。
 /// - L1–L4 备选 Logo 必落盘命中；README 正文图永不进此（调用方不传正文 URL，不计不预热）。
 pub(crate) fn load_split_cached_bytes(
@@ -166,33 +213,61 @@ pub(crate) fn load_split_cached_bytes(
             if !crate::commands::icons::is_icon_file_fresh(&cache_file) {
                 continue;
             }
-            if let Ok(Some((recorded_url, at))) =
-                crate::db::icon_cycle::get_icon_cache_record(db, &filename)
-            {
-                if recorded_url.trim() == url_trimmed
-                    && crate::db::icon_cycle::is_icon_fresh(at, now)
-                {
+            match crate::db::icon_cycle::get_icon_cache_record(db, &filename) {
+                Ok(Some((recorded_url, at))) => {
+                    if recorded_url.trim() == url_trimmed
+                        && crate::db::icon_cycle::is_icon_fresh(at, now)
+                    {
+                        if let Some(b) = read_valid_image_file(&cache_file) {
+                            return Some(b);
+                        }
+                    }
+                }
+                Ok(None) => {
                     if let Some(b) = read_valid_image_file(&cache_file) {
+                        let _ = db.save_icon_cache_url(&filename, url_trimmed);
+                        return Some(b);
+                    }
+                }
+                Err(_) => {}
+            }
+        }
+        None
+    } else {
+        if let Some(cycle) = noncatalog_cycle {
+            if !cycle.cache_file.is_empty()
+                && cycle.selected_url.trim() == url_trimmed
+                && crate::db::icon_cycle::is_icon_fresh(cycle.updated_at, now)
+            {
+                let p = icons_dir.join(&cycle.cache_file);
+                if crate::commands::icons::is_icon_file_fresh(&p) {
+                    if let Some(b) = read_valid_image_file(&p) {
                         return Some(b);
                     }
                 }
             }
         }
-        None
-    } else if let Some(cycle) = noncatalog_cycle {
-        // DB 有效：行 7 天内 + selected_url 相等；文件有效：存在 + 合法 + 7 天新鲜。
-        if cycle.cache_file.is_empty() || cycle.selected_url.trim() != url_trimmed {
-            return None;
+        for filename in hash_icon_candidate_filenames(icon) {
+            let cache_file = icons_dir.join(&filename);
+            if !crate::commands::icons::is_icon_file_fresh(&cache_file) {
+                continue;
+            }
+            if let Some(b) = read_valid_image_file(&cache_file) {
+                if let Some(cycle) = noncatalog_cycle {
+                    if cycle.selected_url.trim() == url_trimmed
+                        && cycle.cache_file.trim() != filename
+                    {
+                        let _ = db.set_icon_cycle_selected(
+                            &cycle.app_id,
+                            cycle.level,
+                            url_trimmed,
+                            &filename,
+                        );
+                    }
+                }
+                return Some(b);
+            }
         }
-        if !crate::db::icon_cycle::is_icon_fresh(cycle.updated_at, now) {
-            return None;
-        }
-        let p = icons_dir.join(&cycle.cache_file);
-        if !crate::commands::icons::is_icon_file_fresh(&p) {
-            return None;
-        }
-        read_valid_image_file(&p)
-    } else {
         None
     }
 }
@@ -810,5 +885,59 @@ mod tests {
         assert!(row.selected_url.is_empty());
         assert!(row.cache_file.is_empty());
         assert_eq!(row.l2_url, "https://example.com/2.png");
+    }
+
+    #[test]
+    fn test_load_split_cached_bytes_self_heals_empty_cache_file_and_meta() {
+        let db = crate::db::Database::open_in_memory().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let icons_dir = dir.path();
+        let png_bytes = b"\x89PNG\r\n\x1a\n12345678";
+
+        // 1. 非收录应用：cycle.cache_file 为空，但磁盘已有按 selected_url 哈希命名的文件
+        let uncat_url = "https://cdn.simpleicons.org/selfheal";
+        let uncat_fname = crate::db::icon_cycle::hash_icon_filename(uncat_url, "png");
+        std::fs::write(icons_dir.join(&uncat_fname), png_bytes).unwrap();
+        let uncat_cycle = crate::db::AppIconCycle {
+            app_id: "heal/uncat".to_string(),
+            owner: "heal".to_string(),
+            repo: "uncat".to_string(),
+            is_cataloged: false,
+            level: 2,
+            l2_url: uncat_url.to_string(),
+            selected_url: uncat_url.to_string(),
+            cache_file: String::new(),
+            updated_at: crate::now_secs(),
+            ..Default::default()
+        };
+        db.upsert_icon_cycle(&uncat_cycle).unwrap();
+
+        let hit = load_split_cached_bytes(
+            icons_dir,
+            &db,
+            &IconRef::new(uncat_url, "png"),
+            false,
+            Some(&uncat_cycle),
+        );
+        assert_eq!(hit.as_deref(), Some(&png_bytes[..]));
+        let healed_cycle = db.get_icon_cycle("heal/uncat").unwrap().unwrap();
+        assert_eq!(healed_cycle.cache_file, uncat_fname);
+
+        // 2. 收录应用：icon_cache_meta 无记录，但磁盘已有新鲜哈希文件
+        let cat_url = "https://example.com/cat_selfheal.png";
+        let cat_fname = crate::db::icon_cycle::hash_icon_filename(cat_url, "png");
+        std::fs::write(icons_dir.join(&cat_fname), png_bytes).unwrap();
+        let cat_hit = load_split_cached_bytes(
+            icons_dir,
+            &db,
+            &IconRef::new(cat_url, "png"),
+            true,
+            None,
+        );
+        assert_eq!(cat_hit.as_deref(), Some(&png_bytes[..]));
+        assert_eq!(
+            db.get_icon_cache_url(&cat_fname).unwrap().as_deref(),
+            Some(cat_url)
+        );
     }
 }

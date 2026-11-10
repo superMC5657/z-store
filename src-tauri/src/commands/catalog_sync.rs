@@ -69,6 +69,9 @@ pub async fn sync_catalog(
 
             if let Some((items, candidate)) = local_fallback {
                 let count = items.len();
+                if let Ok(db) = state.db() {
+                    state.catalog.hydrate_from_details_cache(&db);
+                }
                 let graduated = retire_graduated_drafts(&state, &items);
                 log::warn!(
                     "sync catalog remote failed url='{}' reason={}, fallback to local path='{}' count={}",
@@ -101,12 +104,13 @@ pub async fn sync_catalog(
 
     if let Some(items) = new_items {
         let count = items.len();
-        if let Some(etag) = new_etag {
-            if let Ok(db) = state.db() {
+        if let Ok(db) = state.db() {
+            if let Some(etag) = new_etag {
                 let now = crate::now_secs();
                 let json_str = serde_json::to_string(&items).unwrap_or_default();
                 let _ = db.save_etag(&url, &etag, &json_str, now);
             }
+            state.catalog.hydrate_from_details_cache(&db);
         }
         let graduated = retire_graduated_drafts(&state, &items);
         // 目录已更新：收藏/关注收录标记就地回填，新收录行无需重启即纠正（最佳努力，不阻塞同步返回）。

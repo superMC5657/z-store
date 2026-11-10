@@ -401,30 +401,49 @@ export function useTrendEnrichment({
     return subscribeTrendHealBus({
       onPlatformsHeal: (payload: DetailPlatformsHealPayload, keys: string[]) => {
         const repoKeys = boardRepoKeys(trendResult?.repos);
-        setEnrichedApps((prev) =>
-          applyPlatformsHealToMirror(prev, keys, payload.summary, payload.platforms, repoKeys),
+        const next = applyPlatformsHealToMirror(
+          enrichedAppsRef.current,
+          keys,
+          payload.summary,
+          payload.platforms,
+          repoKeys,
         );
+        enrichedAppsRef.current = next;
+        setEnrichedApps(next);
         setTrendConfirmedOtherIds((prev) => cleanupPlatformsHealConfirmed(prev, keys));
         // 具平台升级同步清 board 内存确认标记（App 侧 upsert 已清同键，此处补清别名）。
         unmarkPlatformsHealKeys(keys);
+        putBoardEnrichMemory(next);
+        const cacheKey = getBoardPersistKey();
+        if (cacheKey) maybeScheduleBoardPersist(cacheKey);
       },
       onRichcardHeal: (payload: DetailRichcardHealPayload) => {
         const repoKeys = boardRepoKeys(trendResult?.repos);
-        setEnrichedApps((prev) => applyRichcardHealToMirror(prev, payload, repoKeys));
-        maybePersistRichcardHeal(enrichedAppsRef.current, payload, repoKeys);
+        const next = applyRichcardHealToMirror(enrichedAppsRef.current, payload, repoKeys);
+        enrichedAppsRef.current = next;
+        setEnrichedApps(next);
+        maybePersistRichcardHeal(next, payload, repoKeys);
       },
     });
   }, [trendResult]);
 
   // 图标写扇出订阅（读侧）：店内唯一写口受理后镜像跟进——覆盖无 patch 的本地写
   // （如详情轮转切 L5 只调 `admitIconHit` 不带 patch，榜单行经此清徽章）。
-  // 纯内存合并（`patchIconMirror` 单 interface；`''`/`data:` 不 hydrate/写透，
-  // 与 `persistIconChanged` 同规则）；持久化源为 cycle 行/detail_json，remount 重衍生。
   // 卸载即退订。
   useEffect(() => {
     return subscribeIconWrites(({ targets, icon }) => {
+      let next = enrichedAppsRef.current;
       for (const t of targets) {
-        setEnrichedApps((prev) => patchIconMirror(prev, t, icon));
+        next = patchIconMirror(next, t, icon);
+      }
+      if (next !== enrichedAppsRef.current) {
+        enrichedAppsRef.current = next;
+        setEnrichedApps(next);
+        if (typeof icon === 'string' && !icon.startsWith('data:')) {
+          putBoardEnrichMemory(next);
+          const cacheKey = getBoardPersistKey();
+          if (cacheKey) maybeScheduleBoardPersist(cacheKey);
+        }
       }
     });
   }, []);

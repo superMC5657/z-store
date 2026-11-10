@@ -272,12 +272,13 @@ describe('mergeIconSticky 单口', () => {
     ).toBe('https://x/new.png');
   });
 
-  it('批量 data: 只活当次 out 永不进内存', async () => {
+  it('批量 data: 注入 M1 直显，且富卡剥离 data: 为空串后存入 trendEnrichCache（不丢富卡）', async () => {
     vi.spyOn(tauriApi, 'enrichTrendRepos').mockImplementation(async (rs) =>
       rs.map((r) => makeEnrichedApp({ id: `${r.owner}/${r.repo}`, icon: 'data:image/png;base64,xx' })),
     );
     const out = await enrichTrendRepos([makeTrendRepo({ id: 'acme/atlas' })]);
     expect(out.get('acme/atlas')?.icon.startsWith('data:')).toBe(true);
-    expect(snapshotTrendEnrichCache()).not.toHaveProperty('acme/atlas');
+    expect(snapshotTrendEnrichCache()['acme/atlas']).toBeTruthy();
+    expect(snapshotTrendEnrichCache()['acme/atlas']?.icon).toBe('');
   });
 });

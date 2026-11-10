@@ -1,7 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   getBufferedIcon,
   getCachedIconDataUri,
+  requestIconLocalCache,
+  retryIconFromLocalOrBackend,
+  subscribeIconDataReady,
   subscribeIconWrites,
 } from '../services/iconStore';
 import { normalizeId } from '../services/normalizeId';
@@ -115,20 +118,54 @@ export const AppIcon: React.FC<AppIconProps> = ({
 
   const bufferedFirstPaint = appIdNorm ? getBufferedIcon(appIdNorm) : undefined;
   const activeIcon = resolveActiveIcon(iconOverride, storeIcon, bufferedFirstPaint, icon);
+  const [, setDataTick] = useState(0);
+  useEffect(() => {
+    const activeTrim = typeof activeIcon === 'string' ? activeIcon.trim() : '';
+    const activeLower = activeTrim.toLowerCase();
+    return subscribeIconDataReady((keys) => {
+      if (
+        (appIdNorm && keys.includes(appIdNorm)) ||
+        (activeTrim && keys.includes(activeTrim)) ||
+        (activeLower && keys.includes(activeLower))
+      ) {
+        setDataTick((c) => c + 1);
+      }
+    });
+  }, [appIdNorm, activeIcon]);
+
   const displaySrc = resolveDisplaySrc(activeIcon, iconOverride !== undefined, appIdNorm);
+
+  // 按需触发本地磁盘缓存读取（解除前 30 项预热上限，使任意滚动位置的卡片均能优先走本地缓存）
+  useEffect(() => {
+    if (iconOverride !== undefined) return;
+    if (!activeIcon || displaySrc.startsWith('data:')) return;
+    requestIconLocalCache(appIdNorm || undefined, activeIcon);
+  }, [appIdNorm, activeIcon, displaySrc, iconOverride]);
 
   // 判断是否为网络图片 URL（复用模块级唯一谓词，禁止内联重复形状）
   const isUrl = isRemoteIcon(activeIcon);
 
-  // prop 切换即重置错误态（展示走渲染期直算，无 IPC 副作用）。
+  // prop 或落盘展示源切换即重置错误态（远端直连失败后一旦本地缓存 data: 就绪立即自愈显示）。
   const [hasError, setHasError] = useState(false);
+  const retriedUrlRef = useRef<string>('');
+  useEffect(() => {
+    retriedUrlRef.current = '';
+  }, [activeIcon]);
   useEffect(() => {
     setHasError(false);
-  }, [activeIcon]);
+  }, [activeIcon, displaySrc]);
 
   const handleError = () => {
-    // 若图片加载失败（网络不可达或链接失效），平滑降级为首字母徽章
+    // 若图片加载失败（网络波动或链接失效），暂降级为首字母徽章，并触发本地磁盘缓存/后端自愈读取
     setHasError(true);
+    if (
+      !displaySrc.startsWith('data:') &&
+      isRemoteIcon(activeIcon) &&
+      retriedUrlRef.current !== activeIcon
+    ) {
+      retriedUrlRef.current = activeIcon;
+      retryIconFromLocalOrBackend(appIdNorm || undefined, activeIcon);
+    }
   };
 
   const isImageActive = isUrl && !hasError;

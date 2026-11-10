@@ -175,6 +175,32 @@ function notifyIconWrites(targets: string[], icon: string, level?: number): void
 /** 仅供测试：清空读侧订阅（防跨文件泄漏）。 */
 export function __resetIconWriteSubscribersForTests(): void {
   iconWriteSubscribers.clear();
+  iconDataSubscribers.clear();
+}
+
+type IconDataReadySubscriber = (keys: string[]) => void;
+const iconDataSubscribers = new Set<IconDataReadySubscriber>();
+
+/**
+ * 落盘 `data:` 就绪订阅：当 `get_or_fetch_icon` 读盘/下载完成写入 `iconDataCache` 时通知 `AppIcon` 重绘，
+ * 使组件从外网 `http(s)` URL 即时切换为本地 `data:` URI（并在网络波动 `onError` 后自动恢复）。
+ */
+export function subscribeIconDataReady(fn: IconDataReadySubscriber): () => void {
+  iconDataSubscribers.add(fn);
+  return () => {
+    iconDataSubscribers.delete(fn);
+  };
+}
+
+function notifyIconDataReady(keys: string[]): void {
+  if (iconDataSubscribers.size === 0 || keys.length === 0) return;
+  for (const fn of [...iconDataSubscribers]) {
+    try {
+      fn(keys);
+    } catch {
+      // 单订阅失败不阻塞其余订阅
+    }
+  }
 }
 
 /**
@@ -232,13 +258,20 @@ export function preferNonEmptyIcon(
  * `Search List Cache` 命中行组装亦经此口，空壳不覆盖缓冲实图。
  */
 export function resolveIconWithBuffer(cur: AppSummary | undefined, incoming: AppSummary): AppSummary {
-  const merged = preferNonEmptyIcon(cur, incoming);
-  if (!isEmptyIcon(merged.icon)) return merged;
   const coordKey =
     incoming.owner && incoming.repo
       ? `${normalizeId(incoming.owner)}/${normalizeId(incoming.repo)}`
       : '';
   const idKey = typeof incoming.id === 'string' ? normalizeId(incoming.id) : '';
+  // L5 显式空徽章保护：若该应用已切至 L5 空徽章且 incoming 为空，直接保留空串，不从旧 cur 复活旧图
+  if (
+    isEmptyIcon(incoming.icon) &&
+    ((coordKey && iconLevelById.get(coordKey) === 5) || (idKey && iconLevelById.get(idKey) === 5))
+  ) {
+    return { ...incoming, icon: '' };
+  }
+  const merged = preferNonEmptyIcon(cur, incoming);
+  if (!isEmptyIcon(merged.icon)) return merged;
   const buffered =
     (coordKey ? getBufferedIcon(coordKey) : undefined) ??
     (idKey ? getBufferedIcon(idKey) : undefined);
@@ -298,7 +331,7 @@ const iconPendingPromises = new Map<string, Promise<string>>();
  * （`writeTrendsCache` 同型；图标无刷新写序需求，已存在覆盖写不重排）。
  * 预热三态另在完成时即时删除（成功/失败都清 pending 与别名），上限只兜极端突发。
  */
-export const ICON_STORE_MAX_ENTRIES = 200;
+export const ICON_STORE_MAX_ENTRIES = 600;
 
 function trimBoundedMap<T>(map: Map<string, T>): void {
   while (map.size > ICON_STORE_MAX_ENTRIES) {
@@ -516,7 +549,46 @@ export function isIconPersistedOrQueued(url: unknown): boolean {
     if (iconPendingPromises.has(nid)) return true;
     if (iconPreloadQueue.has(nid)) return true;
   }
+  const now = Date.now();
+  const backoff = iconPreloadBackoffUntil.get(url);
+  if (typeof backoff === 'number') {
+    if (backoff > now) return true;
+    iconPreloadBackoffUntil.delete(url);
+  }
+  if (nid && nid !== url) {
+    const backoffNorm = iconPreloadBackoffUntil.get(nid);
+    if (typeof backoffNorm === 'number') {
+      if (backoffNorm > now) return true;
+      iconPreloadBackoffUntil.delete(nid);
+    }
+  }
   return false;
+}
+
+/**
+ * `<AppIcon>` 挂载/切换时按需入队读取本地磁盘图标缓存（解除前 30 项限制）：
+ * 仅在真实 Tauri IPC 运行时（`__TAURI_INTERNALS__.invoke` 可用）且 `iconDataCache` 未命中时入队。
+ */
+export function requestIconLocalCache(appId: string | undefined, iconUrl: string): void {
+  if (typeof window === 'undefined') return;
+  const tauriInternals = (window as unknown as { __TAURI_INTERNALS__?: { invoke?: unknown } })
+    .__TAURI_INTERNALS__;
+  if (typeof tauriInternals?.invoke !== 'function') return;
+  if (!isRemoteHttpIconUrl(iconUrl)) return;
+  if (getCachedIconDataUri(iconUrl) || (appId && getCachedIconDataUri(appId))) return;
+  queueIconFetches([appId ? { id: appId, icon: iconUrl } : iconUrl]);
+}
+
+/**
+ * 当 `<AppIcon>` 直接渲染远端 URL 因网络波动触发 `onError` 时，清除退避并立即通过后端
+ * `get_or_fetch_icon` 尝试读取本地磁盘缓存（或兜底探测），成功后经 `subscribeIconDataReady` 恢复显示。
+ */
+export function retryIconFromLocalOrBackend(appId: string | undefined, iconUrl: string): void {
+  if (!isRemoteHttpIconUrl(iconUrl)) return;
+  iconPreloadBackoffUntil.delete(iconUrl);
+  const norm = normalizeIconKey(iconUrl);
+  if (norm) iconPreloadBackoffUntil.delete(norm);
+  queueIconFetches([appId ? { id: appId, icon: iconUrl } : iconUrl]);
 }
 
 /**
@@ -637,18 +709,24 @@ function startIconFetch(url: string, ids: Set<string>): void {
   const p = getOrFetchIcon(firstId ?? undefined, url)
     .then((dataUri) => {
       rememberIconData(url, dataUri);
+      const readyKeys: string[] = [url];
+      const normUrl = normalizeIconKey(url);
+      if (normUrl && normUrl !== url) readyKeys.push(normUrl);
       const aliases = iconPendingAliases.get(url) ?? aliasSet;
       for (const id of aliases) {
         if (!id) continue;
         rememberIconData(id, dataUri);
+        readyKeys.push(id);
         const nid = normalizeId(id);
         if (nid) {
           rememberIconData(nid, dataUri);
+          if (nid !== id) readyKeys.push(nid);
         }
       }
       iconPendingPromises.delete(url);
       iconPendingAliases.delete(url);
       iconPreloadBackoffUntil.delete(url);
+      notifyIconDataReady(readyKeys);
       return dataUri;
     })
     .catch(() => {
@@ -682,6 +760,8 @@ export function __setIconDataCacheForTests(key: string, dataUri: string): void {
   if (typeof key !== 'string' || key === '') return;
   if (typeof dataUri !== 'string' || dataUri === '') return;
   rememberIconData(key, dataUri);
+  const norm = normalizeIconKey(key);
+  notifyIconDataReady(norm && norm !== key ? [key, norm] : [key]);
 }
 
 /** 仅供测试：有界容器现存量（有界断言用）。 */
@@ -884,6 +964,7 @@ function admitMemoryOnlyHit(
   pureLevel: number | undefined,
   patch?: AdmitIconHitArgs['patch'],
 ): AdmitIconHitResult {
+  const isData = icon.startsWith('data:');
   for (const t of targets) {
     try {
       invalidateIconCache(t);
@@ -891,16 +972,22 @@ function admitMemoryOnlyHit(
       // 缓存失效失败不阻塞内存写透
     }
     rememberBufferedIcon(t, icon);
+    if (isData) {
+      rememberIconData(t, icon);
+    }
   }
   patchTargets(targets, icon, patch);
   notifyIconWrites(targets, icon, pureLevel);
+  if (isData) {
+    notifyIconDataReady(targets);
+  }
   return {
     accepted: true,
     targets,
     icon,
     level: pureLevel,
     queued: false,
-    reason: icon.startsWith('data:') ? 'data-memory-only' : 'm2-memory-only',
+    reason: isData ? 'data-memory-only' : 'm2-memory-only',
   };
 }
 

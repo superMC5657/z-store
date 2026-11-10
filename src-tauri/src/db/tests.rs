@@ -859,13 +859,12 @@ fn test_trend_board_cache_prune_two_tiers_and_idempotent_schema() {
             )
             .unwrap();
     };
-    // daily 挡：过期线 3600s
-    seed("t:daily-stale", "daily", now - 3700);
-    seed("t:daily-fresh", "daily", now - 100);
+    // 保留窗口 7 天（604800s），超 7 天清理，7 天内保留供弱网/离线回退
+    seed("t:daily-stale", "daily", now - 7 * 86400 - 100);
+    seed("t:daily-fresh", "daily", now - 3700);
     seed("t:daily-future", "daily", now + 3600);
-    // 其余挡：过期线 43200s
-    seed("t:weekly-stale", "weekly", now - 43300);
-    seed("t:weekly-fresh", "weekly", now - 100);
+    seed("t:weekly-stale", "weekly", now - 7 * 86400 - 100);
+    seed("t:weekly-fresh", "weekly", now - 43300);
     seed("t:weekly-future", "rising", now + 100_000);
 
     let deleted = db.prune_expired_trend_board_cache(now).unwrap();

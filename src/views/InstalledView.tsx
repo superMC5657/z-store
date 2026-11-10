@@ -42,7 +42,6 @@ interface InstalledViewProps {
 
 import { InstalledItemActions } from './InstalledView/InstalledItemActions';
 import { queueAssembledRowIcons } from '../services/iconStore';
-import { MANUAL_ONLY_NETWORK } from '../lib/manualOnly';
 
 export const InstalledView: React.FC<InstalledViewProps> = ({
   installedApps,
@@ -69,10 +68,8 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
 
-  // 已装列表图标不自动入队落盘（就地 URL/首字母展示）。
-  // 组装落盘补齐：已装列表展示图标（自身覆盖优先、收录库回退）http 远端入队进盘（前 30 上限，`data:`/空跳过）。
+  // 组装落盘补齐：已装列表展示图标（自身覆盖优先、收录库回退）http 远端入队（优先命中本地磁盘缓存，未命中/过期时后台拉取落盘，前 30 上限，`data:`/空跳过）。
   useEffect(() => {
-    if (MANUAL_ONLY_NETWORK) return;
     if (installedApps.length === 0) return;
     const catalogById = new Map(apps.map((a) => [a.id.toLowerCase(), a]));
     queueAssembledRowIcons(

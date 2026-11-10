@@ -248,100 +248,74 @@ impl CatalogService {
         Ok(summaries)
     }
 
-    /// Top1+`Send` 安全：`pre_confirmed` 为调用方短锁预解析的 owned 确认图标，
-    /// 传不进（`None`）时回退兜底不 panic，单条非 N+1；落库收敛至调用方批量 enrich，此处零写。
-    pub async fn fetch_online_repo(
-        &self,
+    /// 纯同步从 GitHub `/repos/{owner}/{repo}` JSON 文本构建 `AppSummary`（零网络、零 DB 直连）。
+    pub(crate) fn parse_summary_from_repo_json(
         owner: &str,
         repo: &str,
-        token: Option<&str>,
-        pre_confirmed: Option<String>,
+        payload_json: &str,
+        confirmed_icon: Option<String>,
     ) -> Result<AppSummary, String> {
-        let client = super::http::build_api_client()?;
-
-        let headers = super::http::token_headers(token);
-
-        // owner/repo 段统一 percent-encoding：直查入参来自用户 query 切分，
-        // 未校验即入 URL 可造成路径注入（`/`→`%2F`、空格→`%20`），编码后由 API 404 兜底。
-        let url = format!(
-            "https://api.github.com/repos/{}/{}",
-            urlencoding::encode(owner),
-            urlencoding::encode(repo)
-        );
-        let safe_url = crate::log_support::sanitize_url(&url);
-        let (req_id, sid) = super::http::new_log_ctx();
-        let req_host = crate::log_support::host_of(&url);
-        log::debug!(
-            "http get repo id={}/{} sid={} req={} url='{}'",
-            owner,
-            repo,
-            sid,
-            req_id,
-            safe_url
-        );
-        let start_fetch = std::time::Instant::now();
-        let resp = client
-            .get(&url)
-            .headers(headers)
-            .send()
-            .await
-            .map_err(|e| {
-                log::warn!(
-                    "http get repo failed id={}/{} sid={} req={} host={} reason={}",
-                    owner,
-                    repo,
-                    sid,
-                    req_id,
-                    req_host,
-                    crate::log_support::short_reason(&e.to_string())
-                );
-                e.to_string()
-            })?;
-        let elapsed = start_fetch.elapsed().as_millis();
-        log::debug!(
-            "http resp repo id={}/{} sid={} req={} url='{}' status={} elapsed_ms={}",
-            owner,
-            repo,
-            sid,
-            req_id,
-            safe_url,
-            resp.status().as_u16(),
-            elapsed
-        );
-        log::info!(
-            "http resp repo id={}/{} sid={} req={} host={} status={} elapsed_ms={}",
-            owner,
-            repo,
-            sid,
-            req_id,
-            req_host,
-            resp.status().as_u16(),
-            elapsed
-        );
-
-        crate::notify_rate_limit("github.com", resp.headers());
-
-        if !resp.status().is_success() {
-            return Err(format!("未找到该 GitHub 仓库: {}/{}", owner, repo));
-        }
-
-        let repo_data: OnlineRepoResponse = resp.json().await.map_err(|e| e.to_string())?;
+        let repo_data: OnlineRepoResponse =
+            serde_json::from_str(payload_json).map_err(|e| e.to_string())?;
         if let Some(ref b) = repo_data.default_branch {
             crate::github::icon_probe::remember_repo_default_branch(owner, repo, b);
         }
         let repo_desc = repo_data.description.clone();
-        // 未知协议显式 `unknown`（诚实未知，不伪装已验证开源）；D1 门禁按
-        // 名单外拒绝（`UNKNOWN` 不在 DEFAULT_LICENSE_ALLOWLIST），ADR-0018 默认开。
+        let description = repo_desc.clone().unwrap_or_default();
         let license = resolve_online_license(repo_data.license.as_ref())
             .unwrap_or_else(|| "unknown".to_string());
         let topics = repo_data.topics.unwrap_or_default();
-        // Top1：复用调用方预解析 `pre_confirmed`（owned `Send`，零查询零直连）；
-        // `None` 时 `fallback_summary`（`probe=true`）内回退本地直连（`ok()` 吞错不 panic，单条）。
-        let confirmed_icon = pre_confirmed;
-        // 单仓直查：先快后慢，快路径免鉴权，慢路径有 token 才跑；
-        // ADR-0010：id 统一经 canonical_app_id_from_parts 归一为小写 owner/repo。
+        let cat = super::http::guess_category(Some(&description), repo_desc.as_deref(), &topics);
+        Ok(AppSummary {
+            core: crate::models::AppCore {
+                id: crate::forge::canonical_app_id_from_parts(owner, repo),
+                name: repo_data.name.unwrap_or_else(|| repo.to_string()),
+                description_en: repo_desc,
+                owner: owner.to_string(),
+                repo: repo.to_string(),
+                icon: confirmed_icon.unwrap_or_default(),
+                icon_bg: cat.gradient.to_string(),
+                description,
+                stars: repo_data.stargazers_count.unwrap_or(0),
+                forks: repo_data.forks_count.unwrap_or(0),
+                license,
+                latest_version: "latest".to_string(),
+                category: cat.key.to_string(),
+                category_name: cat.name.to_string(),
+                is_verified: false,
+                forge: Some("github".to_string()),
+                forge_host: Some("github.com".to_string()),
+                homepage: repo_data.homepage.filter(|h| !h.trim().is_empty()),
+                platforms: Vec::new(),
+                is_cataloged: None,
+                source: None,
+                status: None,
+                added_at: None,
+            },
+        })
+    }
+
+    /// 从 GitHub `/repos/{owner}/{repo}` JSON 文本构建 `AppSummary`（`probe` 控制是否内联探测图标）。
+    pub(crate) async fn build_summary_from_repo_json(
+        client: &reqwest::Client,
+        owner: &str,
+        repo: &str,
+        payload_json: &str,
+        pre_confirmed: Option<String>,
+        probe: bool,
+        token: Option<&str>,
+    ) -> Result<AppSummary, String> {
+        let repo_data: OnlineRepoResponse =
+            serde_json::from_str(payload_json).map_err(|e| e.to_string())?;
+        if let Some(ref b) = repo_data.default_branch {
+            crate::github::icon_probe::remember_repo_default_branch(owner, repo, b);
+        }
+        let repo_desc = repo_data.description.clone();
+        let license = resolve_online_license(repo_data.license.as_ref())
+            .unwrap_or_else(|| "unknown".to_string());
+        let topics = repo_data.topics.unwrap_or_default();
         let item = super::http::fallback_summary(
-            &client,
+            client,
             crate::forge::canonical_app_id_from_parts(owner, repo),
             repo_data.name.unwrap_or_else(|| repo.to_string()),
             owner.to_string(),
@@ -353,14 +327,106 @@ impl CatalogService {
             license,
             &topics,
             repo_data.homepage,
-            true,
-            confirmed_icon,
+            probe,
+            pre_confirmed,
             token,
         )
         .await;
-
-        // Top2：落库收敛至调用方 `commands::catalog_search` 批量 enrich（单锁单事务），本函数只读不写，
-        // 免与调用方重复写同一 `app_id`，搜索热路径零写。
         Ok(item)
+    }
+
+    /// 带预读 ETag 与缓存载荷的单仓拉取（fetch 内零 DB 查询、零 DB 直连，遵 ADR-0015）：
+    /// 调用方在单次短锁内预读 `cached_etag` / `cached_payload` 传入，并在批量完成后统一落库返回的 `(endpoint_url, etag, payload_json)`。
+    pub async fn fetch_online_repo_with_etag(
+        &self,
+        owner: &str,
+        repo: &str,
+        token: Option<&str>,
+        pre_confirmed: Option<String>,
+        cached_etag: Option<String>,
+        cached_payload: Option<String>,
+    ) -> Result<(AppSummary, Option<(String, String, String)>), String> {
+        let client = crate::shared_http_client();
+        let headers = super::http::token_headers(token);
+
+        let url = format!(
+            "https://api.github.com/repos/{}/{}",
+            urlencoding::encode(owner),
+            urlencoding::encode(repo)
+        );
+
+        match super::http::get_with_etag(
+            &client,
+            &url,
+            None,
+            &headers,
+            cached_etag.as_deref(),
+            "online_repo",
+        )
+        .await
+        {
+            super::http::EtagGetOutcome::Fresh { text, etag } => {
+                let item = Self::build_summary_from_repo_json(
+                    &client,
+                    owner,
+                    repo,
+                    &text,
+                    pre_confirmed,
+                    true,
+                    token,
+                )
+                .await?;
+                let etag_to_save = etag.map(|e| (url, e, text));
+                Ok((item, etag_to_save))
+            }
+            super::http::EtagGetOutcome::NotModified => {
+                if let Some(ref cached_text) = cached_payload {
+                    let item = Self::build_summary_from_repo_json(
+                        &client,
+                        owner,
+                        repo,
+                        cached_text,
+                        pre_confirmed,
+                        true,
+                        token,
+                    )
+                    .await?;
+                    return Ok((item, None));
+                }
+                Err(format!("未找到该 GitHub 仓库: {}/{}", owner, repo))
+            }
+            super::http::EtagGetOutcome::Unauthorized | super::http::EtagGetOutcome::Failed => {
+                if let Some(ref cached_text) = cached_payload {
+                    if let Ok(item) = Self::build_summary_from_repo_json(
+                        &client,
+                        owner,
+                        repo,
+                        cached_text,
+                        pre_confirmed,
+                        true,
+                        token,
+                    )
+                    .await
+                    {
+                        return Ok((item, None));
+                    }
+                }
+                Err(format!("未找到该 GitHub 仓库: {}/{}", owner, repo))
+            }
+        }
+    }
+
+    /// Top1+`Send` 安全：`pre_confirmed` 为调用方短锁预解析的 owned 确认图标，
+    /// 传不进（`None`）时回退兜底不 panic，单条非 N+1；落库收敛至调用方批量 enrich，此处零写。
+    pub async fn fetch_online_repo(
+        &self,
+        owner: &str,
+        repo: &str,
+        token: Option<&str>,
+        pre_confirmed: Option<String>,
+    ) -> Result<AppSummary, String> {
+        self.fetch_online_repo_with_etag(owner, repo, token, pre_confirmed, None, None)
+            .await
+            .map(|(item, _)| item)
     }
 }

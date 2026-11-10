@@ -18,8 +18,8 @@
 ## 3. TTL / 抖动 / 清扫双档
 
 - 榜缓存一级内存分档（榜 L1，`trendsBoardTtlMs`）：daily 1h，weekly/monthly/new 12h，其余 5min（`CACHE_TTL_MS`）；doforce 共享 12h；enrich 12h；榜缓存二级落盘双档（榜 L2，由 `trendDbTtlMs` 给出）：daily 1h，其余 12h。
-- 榜缓存二级落盘有效 TTL = 基线 - min(key 稳定抖动 0-30s, 基线/4)，只扣减不延长；`elapsed<0`（时钟回拨/未来戳）一律按过期。
-- 清扫双档（`prune_expired_trend_board_cache`）：daily 挡 3600s，其余挡 43200s，与榜缓存二级落盘双档对齐（非仅扫描阈值），未来戳保留；启动时 best-effort 调一次，无 timer。前端切榜顺手 `sweepExpiredTrendsCache + sweepExpiredTrendEnrichCache`（`fetchTrendsResult` 入口），不加 `setInterval`。
+- 榜缓存二级落盘有效 TTL = 基线 - min(key 稳定抖动 0-30s, 基线/4)，只扣减不延长；`elapsed<0`（时钟回拨/未来戳）一律按过期；当 L2 超过新鲜度 TTL 后若网络重拉失败，`fetchBoardWithL2` 与 `fetchDoforceShared` 自动回退读取 SQLite 中未超 7 天保留窗口的陈旧快照（`stale: true`）。
+- 保留窗口清扫（`prune_expired_trend_board_cache`）：统一保留 7 天（`604800s`）供弱网/离线回退，未来戳保留；启动时 best-effort 调一次，无 timer。前端切榜顺手 `sweepExpiredTrendsCache + sweepExpiredTrendEnrichCache`（`fetchTrendsResult` 入口），不加 `setInterval`。
 
 ## 4. 内存有界
 
@@ -28,7 +28,7 @@
 ## 5. 两级字节上限 + dataURI 禁入
 
 - FE `TREND_DB_PAYLOAD_MAX_BYTES=256KB` 预检：信封超限逐级裁剪（丢 confirmed → 长文本截 500 字 → 丢 loading 空平台条），仍超限放弃写盘；BE `TREND_BOARD_CACHE_MAX_BYTES=512KiB` 硬拒绝（`trend_board_payload_too_large`，不落库）保持。
-- `data:`/空平台永不进 `payload_json`（写盘消毒 + hydrate/snapshot 守卫 + 读盘逐项守卫）。
+- `data:` 字符串与未确认空平台永不进 `payload_json`：当富卡携带 `data:` 图标时，写盘与 `putTrendEnrichCache` 自动将 `icon` 字段剥空为 `''` 后保留富卡本体落盘（`data:` 驻留 `iconStore` M1 内存与后端 `icons/` 磁盘，重挂时经 `getConfirmedIconsBatch` 回填）。
 
 ## 6. 批量 40
 

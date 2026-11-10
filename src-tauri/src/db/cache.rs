@@ -76,6 +76,25 @@ impl Database {
         Ok(None)
     }
 
+    /// 读取全部本地已缓存的应用详情（供启动与目录同步后水合内存目录统计、版本、平台、协议、主页与图标）。
+    pub fn get_all_cached_app_details(&self) -> Result<Vec<(String, AppDetail)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT app_id, detail_json, cached_at FROM app_details_cache")?;
+        let mut rows = stmt.query([])?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            let app_id: String = row.get(0)?;
+            let json_str: String = row.get(1)?;
+            let cached_at: i64 = row.get(2)?;
+            if let Ok(mut detail) = serde_json::from_str::<AppDetail>(&json_str) {
+                detail.cached_at = Some(cached_at);
+                out.push((app_id, detail));
+            }
+        }
+        Ok(out)
+    }
+
     /// 当远端返回 304 Not Modified 时，快速刷新 cached_at 时间戳，零开销延长保鲜期
     pub fn touch_cached_app_detail(&self, app_id: &str, new_cached_at: i64) -> Result<()> {
         self.exec_write(
@@ -329,13 +348,12 @@ impl Database {
         Ok(())
     }
 
-    /// 榜缓存二级落盘清扫。
+    /// 榜缓存二级落盘清扫（保留 7 天软过期窗口供弱网/离线回退，新鲜度由前端 TTL 控制）。
     pub fn prune_expired_trend_board_cache(&self, now: i64) -> Result<usize> {
-        let daily_cutoff = now.saturating_sub(3600);
-        let other_cutoff = now.saturating_sub(43200);
+        let cutoff = now.saturating_sub(7 * 86400);
         let deleted = self.conn.execute(
-            "DELETE FROM trend_board_cache WHERE (board = 'daily' AND cached_at <= ?1) OR (board <> 'daily' AND cached_at <= ?2)",
-            params![daily_cutoff, other_cutoff],
+            "DELETE FROM trend_board_cache WHERE cached_at <= ?1",
+            params![cutoff],
         )?;
         Ok(deleted)
     }

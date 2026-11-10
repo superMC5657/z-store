@@ -469,6 +469,8 @@ pub fn run() {
     // 本地收录 overlay 启动同步：目录模块启动即持有远端 + 本地收录合并视图，
     // 收藏/关注收录标记回填与详情/安装/更新读路径同源（零网络）。
     catalog.sync_collected_from_db(&db);
+    // 启动时从 SQLite app_details_cache 水合已刷新过的应用详情（星数、版本、平台、协议、主页、图标）
+    catalog.hydrate_from_details_cache(&db);
     let mut mirror = MirrorManager::new();
     if let Some(ref m_id) = saved_mirror {
         mirror.set_active_mirror(m_id);

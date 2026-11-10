@@ -139,7 +139,9 @@ describe('Phase1B C5（SWR）：已确认 loading 进盘直展，未确认永不
     // SWR：已确认 loading 保留进盘，首屏直展 Other 卡
     expect(snap['acme/empty']).toBeDefined();
     expect(snap['acme/empty']?.platforms).toEqual([]);
-    expect(snap['acme/img']).toBeUndefined();
+    // 携带 data: 图标的具平台富卡：剥离 data: 为空串后保留富卡本体（data: 进 M1 iconStore）
+    expect(snap['acme/img']).toBeDefined();
+    expect(snap['acme/img']?.icon).toBe('');
     // 未确认 loading 永不进内存
     clearTrendEnrichCache();
     putTrendEnrichMemory({ 'acme/empty': empty });
@@ -178,7 +180,9 @@ describe('Phase1B C5（SWR）：已确认 loading 进盘直展，未确认永不
     // SWR：loading 空平台随信封落盘，首屏直展 loading 卡
     expect(payload.enrich['acme/atlas']).toBeDefined();
     expect(payload.enrich['acme/atlas']?.platforms).toEqual([]);
-    expect(payload.enrich['acme/beacon']).toBeUndefined();
+    // 携带 data: 图标的富卡：剥离 data: 为空串后保留富卡落盘，不丢弃富卡
+    expect(payload.enrich['acme/beacon']).toBeDefined();
+    expect(payload.enrich['acme/beacon']?.icon).toBe('');
     for (const summary of Object.values(payload.enrich)) {
       expect(Array.isArray(summary.platforms)).toBe(true);
       expect(summary.icon.startsWith('data:')).toBe(false);

@@ -213,6 +213,13 @@ function l2HitLog(board: string, key: string, dbHit: TrendRepo[]): void {
   );
 }
 
+function hydrateBoardDbHit(dbHit: TrendRepo[]): void {
+  const enrich = (dbHit as { enrich?: Record<string, import('../../types').AppSummary> }).enrich;
+  if (enrich) putTrendEnrichMemory(enrich);
+  const confirmed = (dbHit as { confirmedOther?: unknown }).confirmedOther;
+  if (Array.isArray(confirmed)) markConfirmedOthersFreshNow(confirmed);
+}
+
 async function fetchBoardWithL2(
   board: TrendBoardId,
   key: string,
@@ -229,11 +236,7 @@ async function fetchBoardWithL2(
 
     const dbHit = await getDbTrendCache(key, board);
     if (dbHit && dbHit.length > 0) {
-      const enrich = (dbHit as { enrich?: Record<string, import('../../types').AppSummary> }).enrich;
-      if (enrich) putTrendEnrichMemory(enrich);
-      // 已确认 Other 同 key 回填（读时 hydrate；getDb 内已按先确认后 enrich 顺序回填，此处幂等补齐）。
-      const confirmed = (dbHit as { confirmedOther?: unknown }).confirmedOther;
-      if (Array.isArray(confirmed)) markConfirmedOthersFreshNow(confirmed);
+      hydrateBoardDbHit(dbHit);
       writeTrendsCache(key, dbHit);
       l2HitLog(board, key, dbHit);
       // hydrate 完成后才透出就绪信号（首屏门订阅）。
@@ -249,6 +252,17 @@ async function fetchBoardWithL2(
     await saveBoardCacheMerged(key, board, result.repos);
     // 网络成功亦透出就绪（与 L1/L2 同通道，hook 不依赖直接置位）。
     emitBoardHydrated(board, key);
+    return result;
+  }
+  if (result.status === 'error') {
+    const staleHit = await getDbTrendCache(key, board, { allowStale: true });
+    if (staleHit && staleHit.length > 0) {
+      hydrateBoardDbHit(staleHit);
+      writeTrendsCache(key, staleHit);
+      l2HitLog(board, key, staleHit);
+      emitBoardHydrated(board, key);
+      return { repos: staleHit, status: 'ok', stale: true };
+    }
   }
   return result;
 }
@@ -311,32 +325,35 @@ async function fetchDoforceShared(opts: FetchTrendsOptions = {}): Promise<TrendR
       if (!forceRefresh) {
         const dbHit = await getDbTrendCache(key, 'doforce');
         if (dbHit && dbHit.length > 0) {
-          const enrich = (dbHit as { enrich?: Record<string, import('../../types').AppSummary> }).enrich;
-          if (enrich) putTrendEnrichMemory(enrich);
-          const confirmed = (dbHit as { confirmedOther?: unknown }).confirmedOther;
-          if (Array.isArray(confirmed)) markConfirmedOthersFreshNow(confirmed);
+          hydrateBoardDbHit(dbHit);
           writeDoforceShared(dbHit);
-          const hasEnrich = !!enrich && typeof enrich === 'object';
-          const enrichCount = hasEnrich ? Object.keys(enrich as Record<string, unknown>).length : 0;
-          zlogInfo(
-            `[trends] board=doforce L2-cache hit key=${key} hasEnrich=${hasEnrich} ` +
-              `enrichCount=${enrichCount} reposCount=${dbHit.length}`,
-          );
+          l2HitLog('doforce', key, dbHit);
           // hydrate 完成后才透出就绪信号（首屏门订阅）。
           emitBoardHydrated('doforce', key);
           return dbHit;
         }
       }
 
-      const repos = await fetchDoforceWithRetry();
-      if (repos.length > 0) {
-        writeDoforceShared(repos);
-        // 榜缓存二级落盘
-        await saveBoardCacheMerged(key, 'doforce', repos);
-        // doforce 网络成功亦透出（rising/healthy 共享槽同信号）。
-        emitBoardHydrated('doforce', key);
+      try {
+        const repos = await fetchDoforceWithRetry();
+        if (repos.length > 0) {
+          writeDoforceShared(repos);
+          // 榜缓存二级落盘
+          await saveBoardCacheMerged(key, 'doforce', repos);
+          // doforce 网络成功亦透出（rising/healthy 共享槽同信号）。
+          emitBoardHydrated('doforce', key);
+        }
+        return repos;
+      } catch (err) {
+        const staleHit = await getDbTrendCache(key, 'doforce', { allowStale: true });
+        if (staleHit && staleHit.length > 0) {
+          hydrateBoardDbHit(staleHit);
+          writeDoforceShared(staleHit);
+          emitBoardHydrated('doforce', key);
+          return staleHit;
+        }
+        throw err;
       }
-      return repos;
     } finally {
       if (getDoforceInflight() === slot.current) setDoforceInflight(undefined);
     }

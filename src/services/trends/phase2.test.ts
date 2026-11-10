@@ -215,8 +215,11 @@ describe('Phase2治理：字节上限 + dataURI 永不进 payload', () => {
     expect(invokeSpy).toHaveBeenCalledTimes(1);
     const args = invokeSpy.mock.calls[0]?.[1] as { payloadJson: string };
     expect(args.payloadJson).not.toContain('data:');
-    const payload = JSON.parse(args.payloadJson) as { enrich: Record<string, unknown> };
-    expect(payload.enrich['acme/beacon']).toBeUndefined();
+    const payload = JSON.parse(args.payloadJson) as {
+      enrich: Record<string, { icon?: string }>;
+    };
+    expect(payload.enrich['acme/beacon']).toBeDefined();
+    expect(payload.enrich['acme/beacon']?.icon).toBe('');
     expect(payload.enrich['acme/good']).toBeDefined();
     // SWR：loading 空平台随信封落盘
     expect(payload.enrich['acme/atlas']).toBeDefined();

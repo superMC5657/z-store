@@ -50,8 +50,9 @@ afterEach(() => {
 });
 
 describe('iconStore 四容器有界', () => {
-  it('210 个远端命中后四容器存量均钳在 200', async () => {
-    for (let i = 0; i < 210; i += 1) {
+  it('超量远端命中后四容器存量均钳在 ICON_STORE_MAX_ENTRIES', async () => {
+    const total = ICON_STORE_MAX_ENTRIES + 10;
+    for (let i = 0; i < total; i += 1) {
       admitIconHit({ id: idOf(i), icon: urlOf(i), level: 2 });
     }
     await flushAsync();
@@ -62,23 +63,25 @@ describe('iconStore 四容器有界', () => {
   });
 
   it('FIFO 删最旧：最早条目被淘汰，最新条目保留', async () => {
-    for (let i = 0; i < 210; i += 1) {
+    const total = ICON_STORE_MAX_ENTRIES + 10;
+    for (let i = 0; i < total; i += 1) {
       admitIconHit({ id: idOf(i), icon: urlOf(i), level: 2 });
     }
     await flushAsync();
     expect(getBufferedIcon(idOf(0))).toBeUndefined();
-    expect(getBufferedIcon(idOf(209))).toBe(urlOf(209));
+    expect(getBufferedIcon(idOf(total - 1))).toBe(urlOf(total - 1));
     expect(getCachedIconDataUri(urlOf(0))).toBeUndefined();
-    expect(getCachedIconDataUri(urlOf(209))).toBe(DATA_URI);
+    expect(getCachedIconDataUri(urlOf(total - 1))).toBe(DATA_URI);
   });
 
-  it('iconDataCache 经测试 seam 写入同走有界口（220 条钳 200）', () => {
-    for (let i = 0; i < 220; i += 1) {
+  it('iconDataCache 经测试 seam 写入同走有界口（超量钳在 ICON_STORE_MAX_ENTRIES）', () => {
+    const total = ICON_STORE_MAX_ENTRIES + 20;
+    for (let i = 0; i < total; i += 1) {
       __setIconDataCacheForTests(`cache-key-${i}`, DATA_URI);
     }
     expect(__getIconStoreSizesForTests().dataCache).toBe(ICON_STORE_MAX_ENTRIES);
     expect(getCachedIconDataUri('cache-key-0')).toBeUndefined();
-    expect(getCachedIconDataUri('cache-key-219')).toBe(DATA_URI);
+    expect(getCachedIconDataUri(`cache-key-${total - 1}`)).toBe(DATA_URI);
   });
 
   it('同 id 覆盖写不增长（覆盖不重排，超限才裁剪）', async () => {
@@ -93,17 +96,19 @@ describe('iconStore 四容器有界', () => {
     expect(sizes.levelById).toBe(50);
   });
 
-  it('同 tick 预热入队超 200 时队列钳在 200', () => {
-    for (let i = 0; i < 210; i += 1) {
+  it('同 tick 预热入队超上限时队列钳在 ICON_STORE_MAX_ENTRIES', () => {
+    const total = ICON_STORE_MAX_ENTRIES + 10;
+    for (let i = 0; i < total; i += 1) {
       admitIconHit({ id: idOf(i), icon: urlOf(i), level: 2 });
     }
     expect(__getIconStoreSizesForTests().preloadQueue).toBe(ICON_STORE_MAX_ENTRIES);
   });
 
-  it('预热失败后：在途/别名清空，退避表钳在 200', async () => {
+  it('预热失败后：在途/别名清空，退避表钳在 ICON_STORE_MAX_ENTRIES', async () => {
     vi.mocked(getOrFetchIcon).mockRejectedValue(new Error('offline'));
     try {
-      for (let i = 0; i < 210; i += 1) {
+      const total = ICON_STORE_MAX_ENTRIES + 10;
+      for (let i = 0; i < total; i += 1) {
         admitIconHit({ id: idOf(i), icon: urlOf(i), level: 2 });
       }
       await __flushIconPreloadsForTests();

@@ -510,6 +510,7 @@ pub fn merge_detail_icon(
     is_cataloged: bool,
     now: i64,
 ) -> bool {
+    let prev_selected = cycle.selected_url.trim().to_string();
     cycle.is_cataloged = is_cataloged;
     if is_cataloged {
         cycle.pinned = false;
@@ -519,6 +520,9 @@ pub fn merge_detail_icon(
                 cycle.level = 1;
                 cycle.l1_url = u.to_string();
                 cycle.selected_url = u.to_string();
+                if prev_selected != u {
+                    cycle.cache_file.clear();
+                }
                 cycle.updated_at = now;
             }
             return false;
@@ -548,6 +552,9 @@ pub fn merge_detail_icon(
         cycle.l2_url = u.to_string();
     }
     cycle.selected_url = u.to_string();
+    if prev_selected != u {
+        cycle.cache_file.clear();
+    }
     cycle.updated_at = now;
     false
 }

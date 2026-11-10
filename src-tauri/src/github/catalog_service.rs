@@ -250,6 +250,85 @@ impl CatalogService {
         }
     }
 
+    /// 判定版本号是否为非空且非 `"latest"` 占位的真实版本号。
+    pub(crate) fn is_concrete_version(v: &str) -> bool {
+        let t = v.trim();
+        !t.is_empty() && !t.eq_ignore_ascii_case("latest")
+    }
+
+    /// 判定开源协议是否为非空且非 `"unknown"` / `"opensource"` 占位的真实协议。
+    pub(crate) fn is_concrete_license(l: &str) -> bool {
+        let t = l.trim();
+        !t.is_empty()
+            && !t.eq_ignore_ascii_case("unknown")
+            && !t.eq_ignore_ascii_case("opensource")
+    }
+
+    /// 判定图标是否为远端 `http(s)://` URL（排除空串与 `data:`）。
+    pub(crate) fn is_remote_http_icon(ic: &str) -> bool {
+        let t = ic.trim();
+        t.starts_with("http://") || t.starts_with("https://")
+    }
+
+    /// 将本地缓存详情（`AppDetail`）的非占位字段合并回填至未收录卡片摘要（`AppCore`）（SSOT）。
+    pub(crate) fn apply_detail_to_summary_core(
+        core: &mut crate::models::AppCore,
+        detail: &crate::models::AppDetail,
+    ) {
+        if !detail.core.platforms.is_empty() {
+            core.platforms = detail.core.platforms.clone();
+        }
+        if !Self::is_concrete_version(&core.latest_version)
+            && Self::is_concrete_version(&detail.core.latest_version)
+        {
+            core.latest_version = detail.core.latest_version.clone();
+        }
+        let cur_desc_placeholder = core.description.trim().is_empty()
+            || crate::github::detail_fetch::is_placeholder_description(&core.description);
+        if cur_desc_placeholder
+            && !detail.core.description.trim().is_empty()
+            && !crate::github::detail_fetch::is_placeholder_description(&detail.core.description)
+        {
+            core.description = detail.core.description.clone();
+        }
+        let cur_en_placeholder = core
+            .description_en
+            .as_deref()
+            .map(|s| {
+                s.trim().is_empty() || crate::github::detail_fetch::is_placeholder_description(s)
+            })
+            .unwrap_or(true);
+        if cur_en_placeholder {
+            if let Some(ref en) = detail.core.description_en {
+                if !en.trim().is_empty()
+                    && !crate::github::detail_fetch::is_placeholder_description(en)
+                {
+                    core.description_en = Some(en.clone());
+                }
+            }
+        }
+        if !Self::is_concrete_license(&core.license)
+            && Self::is_concrete_license(&detail.core.license)
+        {
+            core.license = detail.core.license.clone();
+        }
+        let cur_hp_empty = core
+            .homepage
+            .as_deref()
+            .map(|s| s.trim().is_empty())
+            .unwrap_or(true);
+        if cur_hp_empty {
+            if let Some(ref hp) = detail.core.homepage {
+                if !hp.trim().is_empty() {
+                    core.homepage = Some(hp.clone());
+                }
+            }
+        }
+        if core.icon.trim().is_empty() && Self::is_remote_http_icon(&detail.core.icon) {
+            core.icon = detail.core.icon.trim().to_string();
+        }
+    }
+
     /// 动态回写并保鲜单个应用的实时统计数据（Stars、Forks、最新版本等）
     pub fn update_catalog_item_stats(
         &self,
@@ -261,8 +340,8 @@ impl CatalogService {
         let Some(key) = crate::forge::canonical_app_id(id) else {
             return;
         };
-        if let Ok(mut items) = self.items.write() {
-            if let Some(item) = items.iter_mut().find(|i| i.id == key) {
+        let apply = |list: &mut Vec<CatalogItem>| {
+            if let Some(item) = list.iter_mut().find(|i| i.id == key) {
                 if let Some(s) = stars {
                     item.stars = s;
                 }
@@ -270,10 +349,71 @@ impl CatalogService {
                     item.forks = f;
                 }
                 if let Some(v) = version {
-                    if !v.trim().is_empty() {
-                        item.default_version = v.to_string();
+                    if Self::is_concrete_version(v) {
+                        item.default_version = v.trim().to_string();
                     }
                 }
+            }
+        };
+        if let Ok(mut items) = self.items.write() {
+            apply(&mut items);
+        }
+        if let Ok(mut collected) = self.collected.write() {
+            apply(&mut collected);
+        }
+    }
+
+    /// 从应用详情全量回写内存目录项（同时覆盖远端 `items` 与本地收录 `collected`）：
+    /// 同步 `stars`、`forks`、`default_version`、`platforms`、`license`、`homepage` 与缺省时的 `http(s)` 图标。
+    pub fn update_catalog_item_from_detail(&self, detail: &crate::models::AppDetail) {
+        if detail.is_stale == Some(true) {
+            return;
+        }
+        let Some(key) = crate::forge::canonical_app_id(&detail.core.id) else {
+            return;
+        };
+        let apply = |list: &mut Vec<CatalogItem>| {
+            if let Some(item) = list.iter_mut().find(|i| i.id == key) {
+                if detail.core.stars > 0 {
+                    item.stars = detail.core.stars;
+                }
+                if detail.core.forks > 0 {
+                    item.forks = detail.core.forks;
+                }
+                if Self::is_concrete_version(&detail.core.latest_version) {
+                    item.default_version = detail.core.latest_version.trim().to_string();
+                }
+                if !detail.core.platforms.is_empty() {
+                    item.platforms = detail.core.platforms.clone();
+                }
+                if Self::is_concrete_license(&detail.core.license) {
+                    item.license = detail.core.license.trim().to_string();
+                }
+                if let Some(ref hp) = detail.core.homepage {
+                    if !hp.trim().is_empty() {
+                        item.homepage = Some(hp.clone());
+                    }
+                }
+                // 目录原为空且详情探出合法 http(s) 时补齐，不覆盖目录已有官方图标
+                if item.icon.trim().is_empty() && Self::is_remote_http_icon(&detail.core.icon) {
+                    item.icon = detail.core.icon.trim().to_string();
+                }
+            }
+        };
+        if let Ok(mut items) = self.items.write() {
+            apply(&mut items);
+        }
+        if let Ok(mut collected) = self.collected.write() {
+            apply(&mut collected);
+        }
+    }
+
+    /// 启动或同步清单后从 SQLite `app_details_cache` 水合内存目录项，
+    /// 使 `get_home_feed` / `get_category_apps` / `search_apps` 跨重启立即呈现详情已刷新过的最新数据。
+    pub fn hydrate_from_details_cache(&self, db: &crate::db::Database) {
+        if let Ok(rows) = db.get_all_cached_app_details() {
+            for (_, detail) in rows {
+                self.update_catalog_item_from_detail(&detail);
             }
         }
     }

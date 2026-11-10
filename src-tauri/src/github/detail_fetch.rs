@@ -288,8 +288,8 @@ async fn fetch_readme_markdown(req: ReadmeFetch<'_>) -> String {
     }
 }
 
-/// icon 探测 seam：无 token 直接跳过不计时、不耗配额；有 token 才进 SimpleIcons+Trees
-///（命中原样回传，source 日志由调用方记）。
+/// icon 探测 seam：无 token 时仍跑免鉴权 L2 SimpleIcons（零 GitHub API 配额消耗）；
+/// 有 token 时进完整 SimpleIcons+Trees（命中原样回传，source 日志由调用方记）。
 async fn probe_repo_icon(
     client: &reqwest::Client,
     base_headers: &HeaderMap,
@@ -299,7 +299,12 @@ async fn probe_repo_icon(
     has_token: bool,
 ) -> Option<crate::github::icon_probe::ProbedIcon> {
     if !has_token {
-        return None;
+        return crate::github::icon_fetch::probe_l2_simple(client, owner, repo)
+            .await
+            .map(|url| crate::github::icon_probe::ProbedIcon {
+                url,
+                source: "simple-icons",
+            });
     }
     crate::github::icon_probe::probe_repo_logo(client, Some(base_headers), owner, repo, branch)
         .await
@@ -578,9 +583,41 @@ impl CatalogService {
 
         // 核心提速门禁：若 GitHub 返回 304 Not Modified（说明最新 Release 版本完全未变）
         // 且本地已有完整缓存详情，直接零网络开销复用已有 README 与 Release 资产，实现 ~50ms 闪电响应
-        //（经 `reuse_304_cached` 内部 seam，deduce+ios 并集经平台 seam 单口）。
+        //（经 `reuse_304_cached` 内部 seam，deduce+ios 并集经平台 seam 单口，并合并并发取回的最新 repo_info）。
         if matches!(release_outcome, EtagGetOutcome::NotModified) {
-            if let Some(detail) = reuse_304_cached(cached_detail.as_ref(), catalog_item.as_ref()) {
+            if let Some(mut detail) =
+                reuse_304_cached(cached_detail.as_ref(), catalog_item.as_ref())
+            {
+                if repo_info.is_some() {
+                    let DetailStats {
+                        stars,
+                        forks,
+                        license,
+                        homepage,
+                    } = resolve_detail_stats(repo_info.as_ref(), catalog_item.as_ref());
+                    if stars > 0 {
+                        detail.core.stars = stars;
+                    }
+                    if forks > 0 {
+                        detail.core.forks = forks;
+                    }
+                    if license != "unknown" || detail.core.license.trim().is_empty() {
+                        detail.core.license = license;
+                    }
+                    if homepage.is_some() {
+                        detail.core.homepage = homepage;
+                    }
+                    let (eff_desc, eff_en) = resolve_effective_descriptions(
+                        catalog_item.as_ref(),
+                        detail.core.description.clone(),
+                        repo_info.as_ref(),
+                    );
+                    detail.core.description = eff_desc;
+                    if eff_en.is_some() {
+                        detail.core.description_en = eff_en;
+                    }
+                }
+                self.update_catalog_item_from_detail(&detail);
                 return Ok((detail, None, None));
             }
         }

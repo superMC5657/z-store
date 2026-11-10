@@ -369,6 +369,9 @@ async fn restore_existing_cycle(
         .unwrap_or(&cycle.selected_url)
         .to_string();
 
+    let inferred_ext =
+        crate::commands::icons::infer_icon_ext_from_url(&remote_url).unwrap_or("png");
+
     if !cycle.cache_file.is_empty() {
         // 03 过期刷新：恢复路径与请求路径同口径判鲜（文件 7 天新鲜 + 行 7 天有效双检），
         // 任一过期即走下载分支，不直接返回旧图；pinned 选择由下载分支 `set_icon_cycle_selected` 保持。
@@ -389,14 +392,34 @@ async fn restore_existing_cycle(
                 });
             }
         }
+    } else if !remote_url.is_empty() {
+        // cache_file 为空但磁盘已存在新鲜 hash 文件时，直接自愈关联并返回，零网络请求。
+        for fname in hash_candidate_filenames(&remote_url, inferred_ext) {
+            let p = icons_dir.join(&fname);
+            if !crate::commands::icons::is_icon_file_fresh(&p) {
+                continue;
+            }
+            if let Some(bytes) = read_valid_image_file_async(p).await {
+                if let Ok(db) = state.db() {
+                    let _ = db.set_icon_cycle_selected(canonical_id, lvl, &remote_url, &fname);
+                }
+                return Ok(IconCycleResult {
+                    url: crate::commands::icons::bytes_to_data_uri(&bytes),
+                    remote_url,
+                    level: lvl,
+                    source: source_for_level(lvl).to_string(),
+                    is_fallback: is_fallback_for_level(lvl),
+                    total_levels: 5,
+                    is_cataloged,
+                });
+            }
+        }
     }
 
-    // 文件缺失但有 remote_url 时尝试恢复（单一写入 + 单一下载落点）
+    // 文件缺失或已过期时尝试从 remote_url 恢复（单一写入 + 单一下载落点）
     if !remote_url.is_empty() {
         if let Ok(bytes) = download_icon_bytes(&remote_url).await {
             // 真实 ext 落盘，绝不产生无扩展名文件（分流收敛在缝内）。
-            let inferred_ext =
-                crate::commands::icons::infer_icon_ext_from_url(&remote_url).unwrap_or("png");
             let icon = IconRef::new(&remote_url, inferred_ext);
             let filename = write_icon_file(
                 &icons_dir,
@@ -412,6 +435,28 @@ async fn restore_existing_cycle(
 
             return Ok(IconCycleResult {
                 url: crate::commands::icons::bytes_to_data_uri(&bytes),
+                remote_url,
+                level: lvl,
+                source: source_for_level(lvl).to_string(),
+                is_fallback: is_fallback_for_level(lvl),
+                total_levels: 5,
+                is_cataloged,
+            });
+        }
+
+        // 网络波动重下失败时：若本地磁盘仍有过期但完好的旧图标文件，兜底返回旧图标（SWR）
+        if let Some((stale_bytes, fname, _)) = super::icons_cycle_probe::read_any_cached_icon_file(
+            &icons_dir,
+            &IconRef::new(&remote_url, inferred_ext),
+            Some(&cycle),
+        ) {
+            if cycle.cache_file.trim().is_empty() {
+                if let Ok(db) = state.db() {
+                    let _ = db.set_icon_cycle_selected(canonical_id, lvl, &remote_url, &fname);
+                }
+            }
+            return Ok(IconCycleResult {
+                url: crate::commands::icons::bytes_to_data_uri(&stale_bytes),
                 remote_url,
                 level: lvl,
                 source: source_for_level(lvl).to_string(),
@@ -449,14 +494,31 @@ async fn restore_cataloged_default(
         // hash 候选（inferred 快路径 + KNOWN 全后缀兜底 + 7 天新鲜度）。
         // 最高频读其二：首屏收录图标恢复路径，同样经 spawn_blocking 卸载；其余同步读不动。
         let mut hit_bytes: Option<Vec<u8>> = None;
-        for fname in hash_candidate_filenames(&default_url, inferred_ext) {
-            let p = icons_dir.join(&fname);
+        let candidates = hash_candidate_filenames(&default_url, inferred_ext);
+        for fname in &candidates {
+            let p = icons_dir.join(fname);
             if !crate::commands::icons::is_icon_file_fresh(&p) {
                 continue;
             }
             if let Some(b) = read_valid_image_file_async(p).await {
                 hit_bytes = Some(b);
                 break;
+            }
+        }
+        if hit_bytes.is_none() {
+            // 若超过 7 天 TTL，尝试重下或回退磁盘上已有的完好图标文件
+            if let Ok(b) = download_icon_bytes(&default_url).await {
+                let icon = IconRef::new(&default_url, inferred_ext);
+                let _ = write_icon_file(&icons_dir, None, &icon, true, &b);
+                hit_bytes = Some(b);
+            } else {
+                for fname in &candidates {
+                    let p = icons_dir.join(fname);
+                    if let Some(b) = read_valid_image_file_async(p).await {
+                        hit_bytes = Some(b);
+                        break;
+                    }
+                }
             }
         }
         if let Some(bytes) = hit_bytes {

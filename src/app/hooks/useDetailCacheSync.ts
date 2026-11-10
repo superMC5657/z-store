@@ -5,6 +5,8 @@ import { admitIconHit, getBufferedIcon, patchAppIconList } from '../../services/
 import { annotateIsCataloged, buildCatalogIdSet } from '../selectors';
 import { DEFAULT_ICON_BG } from '../../styles/tokens';
 import { resolveRemoteIconUrl } from '../../services/custom/iconUrl';
+import { patchSearchListCacheRows } from '../../services/search/searchListCache';
+import { persistBoardCacheFromDetailIfPresent } from '../../services/trends/board';
 import {
   DETAIL_PLATFORMS_HEAL_EVENT,
   DETAIL_RICHCARD_HEAL_EVENT,
@@ -325,6 +327,8 @@ export function useDetailCacheSync({
     setRecentlyViewedApps(patchList);
     // 收藏占位行同步治愈：`favoriteIds ∖ apps` 合成行也在详情回填口径内（标记保持不动）
     setUncatalogedExtraApps(patchList);
+    // 搜索列表 M1 缓存全字段写透：翻页/重搜回访时立即呈现详情更新后的最新数据
+    patchSearchListCacheRows(patchList);
     // 详情已取回仍为空（非 stale）：记为已确认 other，徽标/统计/过滤一次落定
     if (detailConfirmedEmpty) {
       const keys = new Set<string>([idClean, detail.id.toLowerCase()]);
@@ -365,6 +369,7 @@ export function useDetailCacheSync({
       });
       evictTrendEnrichCachesForDetail(idClean, detail.owner, detail.repo);
       upsertTrendEnrichFromDetail(detail);
+      persistBoardCacheFromDetailIfPresent(healKeys);
       try {
         const payload: DetailPlatformsHealPayload = {
           keys: healKeys,
@@ -396,6 +401,7 @@ export function useDetailCacheSync({
           for (const k of extraKeys) {
             if (k && !richKeys.includes(k)) richKeys.push(k);
           }
+          persistBoardCacheFromDetailIfPresent(richKeys);
           const payload: DetailRichcardHealPayload = {
             keys: richKeys,
             summary: healed.summary,

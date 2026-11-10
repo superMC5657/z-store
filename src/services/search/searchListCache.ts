@@ -137,3 +137,20 @@ export function patchSearchListCacheIcon(targetIdLower: string, icon: string): v
     if (changed) entry.rows = rows;
   }
 }
+
+/**
+ * 详情更新写透搜索列表缓存行：
+ * 当用户在搜索结果或其他列表打开应用详情拿到最新星数、版本、描述、协议、平台、主页等字段时，
+ * 同步更新搜索列表缓存中的所有匹配行（不续期 `at`）。
+ */
+export function patchSearchListCacheRows(
+  patcher: (rows: AppSummary[]) => AppSummary[],
+): void {
+  if (typeof patcher !== 'function') return;
+  for (const entry of searchListCache.values()) {
+    const next = patcher(entry.rows);
+    if (next !== entry.rows && Array.isArray(next)) {
+      entry.rows = next;
+    }
+  }
+}

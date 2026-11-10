@@ -5,7 +5,7 @@
  * `isRemoteIcon` 仅认前缀 + 扩展名收尾，不做子串匹配。
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { cleanup, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import {
   AppIcon,
   getInitials,
@@ -160,5 +160,28 @@ describe('<AppIcon/> 展示分支', () => {
     const { container } = render(<AppIcon icon="📦" name="OR" appId="o/r" />);
     expect(container.querySelector('img')).toBeNull();
     expect(container.querySelector('.app-icon-emoji')?.textContent).toBe('📦');
+  });
+
+  it('网络波动导致远端 img onError 后，本地缓存 data: 就绪时自动清除 hasError 并恢复显示图标', () => {
+    const remoteUrl = 'https://cdn.simpleicons.org/flaky';
+    const cachedDataUri = 'data:image/png;base64,LOCALCACHE';
+    const { container } = render(<AppIcon icon={remoteUrl} name="FlakyApp" appId="acme/flaky" />);
+    const imgBefore = container.querySelector('img');
+    expect(imgBefore).not.toBeNull();
+
+    // 模拟网络波动导致浏览器直接加载远端 URL 失败
+    act(() => {
+      fireEvent.error(imgBefore!);
+    });
+    expect(container.querySelector('.app-icon-fallback-badge')?.textContent).toBe('FA');
+
+    // 随后本地磁盘缓存读取完成写入 iconDataCache，组件自动重绘并清除错误态
+    act(() => {
+      __setIconDataCacheForTests(remoteUrl, cachedDataUri);
+    });
+    const imgAfter = container.querySelector('img');
+    expect(imgAfter).not.toBeNull();
+    expect(imgAfter?.getAttribute('src')).toBe(cachedDataUri);
+    expect(container.querySelector('.app-icon-fallback-badge')).toBeNull();
   });
 });

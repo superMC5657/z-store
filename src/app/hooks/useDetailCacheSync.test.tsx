@@ -14,11 +14,17 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppDetail, AppDetailViewModel, AppSummary } from '../../types';
 import {
+  clearSearchListCache,
+  readSearchListCache,
+  writeSearchListCache,
+} from '../../services/search/searchListCache';
+import {
   DETAIL_PLATFORMS_HEAL_EVENT,
   DETAIL_RICHCARD_HEAL_EVENT,
   clearTrendConfirmedOtherCache,
   clearTrendEnrichCache,
   putTrendEnrichMemory,
+  snapshotTrendEnrichCache,
 } from '../../services/trends/enrich';
 import { __resetIconStoreForTests } from '../../services/iconStore';
 
@@ -528,5 +534,66 @@ describe('useDetailCacheSync：图标三态', () => {
         category_name: '开发工具',
       }),
     );
+  });
+
+  it('打开应用详情拿到更新后全字段写透 searchListCache 与 trendEnrichCache', () => {
+    clearSearchListCache();
+    writeSearchListCache(
+      { query: 'atlas', page: 1, perPage: 20 },
+      [
+        makeApp({
+          id: 'acme/atlas',
+          stars: 10,
+          latest_version: 'latest',
+          description: 'old search desc',
+          platforms: [],
+          license: 'OpenSource',
+        }),
+      ],
+    );
+    putTrendEnrichMemory({
+      'acme/atlas': makeApp({
+        id: 'acme/atlas',
+        stars: 10,
+        latest_version: 'latest',
+        description: 'old trend desc',
+        platforms: ['windows'],
+        license: 'OpenSource',
+      }),
+    });
+
+    const { result } = renderSync();
+    act(() => {
+      result.current.patchDetailMemoryAndLists(
+        'acme/atlas',
+        makeDetail({
+          id: 'acme/atlas',
+          stars: 888,
+          forks: 77,
+          latest_version: 'v3.2.1',
+          description: 'updated detail desc',
+          license: 'GPL-3.0',
+          homepage: 'https://atlas.dev',
+          platforms: ['windows', 'macos'],
+          icon: 'https://cdn.example.com/atlas-v3.png',
+        }),
+      );
+    });
+
+    const searchRows = readSearchListCache({ query: 'atlas', page: 1, perPage: 20 });
+    expect(searchRows?.[0]?.stars).toBe(888);
+    expect(searchRows?.[0]?.latest_version).toBe('v3.2.1');
+    expect(searchRows?.[0]?.description).toBe('updated detail desc');
+    expect(searchRows?.[0]?.license).toBe('GPL-3.0');
+    expect(searchRows?.[0]?.homepage).toBe('https://atlas.dev');
+    expect(searchRows?.[0]?.platforms).toEqual(['windows', 'macos']);
+    expect(searchRows?.[0]?.icon).toBe('https://cdn.example.com/atlas-v3.png');
+
+    const trendSnap = snapshotTrendEnrichCache()['acme/atlas'];
+    expect(trendSnap?.stars).toBe(888);
+    expect(trendSnap?.latest_version).toBe('v3.2.1');
+    expect(trendSnap?.description).toBe('updated detail desc');
+    expect(trendSnap?.platforms).toEqual(['windows', 'macos']);
+    clearSearchListCache();
   });
 });

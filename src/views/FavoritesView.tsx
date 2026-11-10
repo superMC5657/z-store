@@ -13,7 +13,6 @@ import { isPlatformLoading } from '../lib/platformFilter';
 import { normalizeId, normalizeIdLowerSet } from '../services/normalizeId';
 import { isFavoritePlaceholderRow } from '../app/favoritesUncataloged';
 import { queueAssembledRowIcons } from '../services/iconStore';
-import { MANUAL_ONLY_NETWORK } from '../lib/manualOnly';
 import { isInstalled as selectIsInstalled, selectManagedState } from '../app/selectors';
 
 interface FavoritesViewProps extends ViewAppActions {
@@ -67,16 +66,12 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   const favoriteApps = apps.filter((a) => favoriteIdsLower.has(normalizeId(a.id)) && matchesSearch(a));
   const watchedApps = apps.filter((a) => watchedIdsLower.has(normalizeId(a.id)) && matchesSearch(a));
 
-  // 组装行 http 远端图标不自动入队落盘（就地 URL/首字母展示）。
-  // 组装落盘补齐：收藏/关注/标星匹配列表 http 远端图标入队进盘（前 30 上限，`data:`/空跳过）。
+  // 组装落盘补齐：收藏/关注/标星匹配列表 http 远端图标入队（优先命中本地磁盘缓存，未命中/过期时后台拉取落盘，前 30 上限，`data:`/空跳过）。
   useEffect(() => {
-    if (MANUAL_ONLY_NETWORK) return;
     queueAssembledRowIcons(favoriteApps);
     queueAssembledRowIcons(watchedApps);
   }, [favoriteApps, watchedApps]);
   useEffect(() => {
-    // 同步后标星匹配列表图标同样不自动入队（就地展示）。
-    if (MANUAL_ONLY_NETWORK) return;
     if (syncResult?.catalog_matches && syncResult.catalog_matches.length > 0) {
       queueAssembledRowIcons(syncResult.catalog_matches);
     }
