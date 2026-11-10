@@ -248,6 +248,8 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
       expect(screen.getByText(/全部.*\(1\)/)).toBeTruthy();
       expect(screen.getByText('跳过 1.3.0')).toBeTruthy();
       expect(screen.getByText('已锁定版本')).toBeTruthy();
+      expect(screen.getByText(/生效于: 2023/)).toBeTruthy();
+      expect(screen.queryByText(/1970/)).toBeNull();
       expect(screen.getByText('恢复提醒')).toBeTruthy();
       expect(screen.getByText('解除版本锁定')).toBeTruthy();
       expect(screen.getByText('完成')).toBeTruthy();
@@ -272,6 +274,8 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
       expect(screen.getByText(/All.*\(1\)/)).toBeTruthy();
       expect(screen.getByText('Skip 1.3.0')).toBeTruthy();
       expect(screen.getByText('Version Pinned')).toBeTruthy();
+      expect(screen.getByText(/Effective from: .*2023/)).toBeTruthy();
+      expect(screen.queryByText(/1970/)).toBeNull();
       expect(screen.getByText('Restore Reminder')).toBeTruthy();
       expect(screen.getByText('Unpin Version')).toBeTruthy();
       expect(screen.getByText('Done')).toBeTruthy();

@@ -452,12 +452,10 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
               const appDisplayName = matchedApp
                 ? resolveInstalledAppName(matchedApp, apps)
                 : (catalogApp?.name || rule.app_id);
+              // 时间戳单位自适应：以 1e11（~1973年毫秒）区分秒级（~1.7e9）与毫秒级（~1.7e12）
+              const ms = rule.updated_at > 1e11 ? rule.updated_at : rule.updated_at * 1000;
               const dateStr = rule.updated_at
-                ? new Date(
-                    rule.updated_at * 1000 > 1000000000000
-                      ? rule.updated_at
-                      : rule.updated_at * 1000
-                  ).toLocaleDateString(i18n.language || 'zh-CN', {
+                ? new Date(ms).toLocaleString(i18n.language || 'zh-CN', {
                     year: 'numeric',
                     month: '2-digit',
                     day: '2-digit',
