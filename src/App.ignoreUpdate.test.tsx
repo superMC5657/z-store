@@ -138,10 +138,11 @@ describe('ignore-update persistence (real App path)', () => {
     expect(await screen.findByText('已是最新版本')).toBeTruthy();
 
     // 规则管理界面反映该持久化跳过规则：更新头部统计...
-    expect(screen.getByRole('button', { name: /规则.*\(1\)/ })).toBeTruthy();
+    const rulesBtn = screen.getByRole('button', { name: /规则\s*1$/ });
+    expect(rulesBtn).toBeTruthy();
 
     // ...且规则管理器弹窗列出跳过的应用及其版本号。
-    fireEvent.click(screen.getByRole('button', { name: /规则.*\(1\)/ }));
+    fireEvent.click(rulesBtn);
     expect(await screen.findByText(/规则管理 \(1\)/)).toBeTruthy();
     expect(screen.getByText(APP_ID)).toBeTruthy();
     expect(screen.getByText(`跳过 ${LATEST}`)).toBeTruthy();

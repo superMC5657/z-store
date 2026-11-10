@@ -158,7 +158,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
               <Shield size={14} strokeWidth={1.5} />
               <span>{t('updates.rules_btn')}</span>
               {typeof updateRulesCount === 'number' && updateRulesCount > 0 && (
-                <span className="badge-capsule">({updateRulesCount})</span>
+                <span className="badge-capsule">{updateRulesCount}</span>
               )}
             </button>
           )}

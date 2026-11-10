@@ -315,6 +315,22 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
       expect(screen.getByText('Check Updates')).toBeTruthy();
       expect(screen.getByText('Up to Date')).toBeTruthy();
     });
+
+    it('renders updateRulesCount in badge-capsule without parentheses consistent with InstalledView', () => {
+      const { container } = render(
+        <UpdatesView
+          updates={[]}
+          updateRulesCount={2}
+          onOpenRules={() => {}}
+          onApplyUpdate={async () => {}}
+          onBatchUpdateAll={async () => {}}
+        />,
+      );
+
+      const badge = container.querySelector('.badge-capsule');
+      expect(badge).toBeTruthy();
+      expect(badge?.textContent).toBe('2');
+    });
   });
 
   describe('App Bilingual Display (zh-CN <-> en-US)', () => {
