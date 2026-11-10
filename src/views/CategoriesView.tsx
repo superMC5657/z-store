@@ -227,7 +227,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
               onReset={handleResetFilter}
             />
           )}
-          <div className="app-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
+          <div className="app-grid">
           {CATEGORY_DEFINITIONS.map((cat) => {
             // 大厅计数仅来源于传入的预过滤 `apps` 属性（匹配口径与 BE 同源，绝不自行二次平台过滤）。
             const count = apps.filter((a) => matchCategory(a, cat.id)).length;
@@ -235,14 +235,24 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
               <div
                 key={cat.id}
                 className="app-card"
+                role="button"
+                tabIndex={0}
                 style={{
+                  display: 'grid',
+                  gridTemplateColumns: '44px 140px 1fr auto',
+                  columnGap: '16px',
                   alignItems: 'center',
-                  textAlign: 'center',
-                  padding: '20px 16px',
+                  padding: '16px',
                   cursor: 'pointer',
                   opacity: count === 0 ? 0.6 : 1,
                 }}
                 onClick={() => setSelectedCategory(cat.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setSelectedCategory(cat.id);
+                  }
+                }}
               >
                 <div
                   style={{
@@ -254,23 +264,48 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    marginBottom: '10px',
+                    flexShrink: 0,
                   }}
                 >
                   <cat.Icon size={20} color={cat.color} strokeWidth={1.5} />
                 </div>
-                <div style={{ fontWeight: 590, fontSize: 'calc(15px * var(--font-scale))', color: 'var(--text-primary)', letterSpacing: '-0.015em' }}>{t(cat.nameKey)}</div>
-                <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-tertiary)', marginTop: '4px', lineHeight: '1.4' }}>{t(cat.descKey)}</div>
+                <div
+                  style={{
+                    fontWeight: 590,
+                    fontSize: 'calc(15px * var(--font-scale))',
+                    color: 'var(--text-primary)',
+                    letterSpacing: '-0.015em',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {t(cat.nameKey)}
+                </div>
+                <div
+                  style={{
+                    fontSize: 'var(--font-sm)',
+                    color: 'var(--text-tertiary)',
+                    lineHeight: '1.4',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    minWidth: 0,
+                  }}
+                >
+                  {t(cat.descKey)}
+                </div>
                 <div
                   style={{
                     fontSize: 'var(--font-xs)',
-                    marginTop: '10px',
                     padding: '2px 8px',
                     borderRadius: 'var(--radius-xs)',
                     background: `color-mix(in srgb, ${cat.color} 10%, transparent)`,
                     color: cat.color,
                     fontWeight: 510,
                     border: `1px solid color-mix(in srgb, ${cat.color} 20%, transparent)`,
+                    whiteSpace: 'nowrap',
+                    justifySelf: 'end',
                   }}
                 >
                   {count > 0 ? t('categories.apps_available', { count }) : t('categories.no_apps_for_platform')}
