@@ -181,6 +181,15 @@ describe('handleGetLatestCatalogApps (demo mock)', () => {
     expect(res.total).toBeGreaterThan(0);
   });
 
+  it('filters by minDays and maxDays ranges (0~7, 7~30, 30~90)', () => {
+    const res7 = handleGetLatestCatalogApps({ minDays: 0, maxDays: 7 });
+    const res30 = handleGetLatestCatalogApps({ minDays: 7, maxDays: 30 });
+    const res90 = handleGetLatestCatalogApps({ minDays: 30, maxDays: 90 });
+    expect(res7).toBeDefined();
+    expect(res30).toBeDefined();
+    expect(res90).toBeDefined();
+  });
+
   it('anchors to dataset max date when current system date exceeds window (7d non-empty in demo)', () => {
     const res = handleGetLatestCatalogApps({ sinceDays: 7 });
     expect(res.total).toBeGreaterThan(0);

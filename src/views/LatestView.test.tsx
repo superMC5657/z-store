@@ -79,8 +79,8 @@ describe('LatestView component', () => {
       />,
     );
 
-    // Initial call should be 30 days (default)
-    expect(mockGetLatestCatalogApps).toHaveBeenCalledWith(30, 1, 20);
+    // Initial call should be 30 days (default: 7~30d)
+    expect(mockGetLatestCatalogApps).toHaveBeenCalledWith({ minDays: 7, maxDays: 30 }, 1, 20);
 
     // Header exists
     expect(screen.getByText('最新入库')).toBeDefined();
@@ -137,7 +137,7 @@ describe('LatestView component', () => {
       fireEvent.click(screen.getByText('7 天'));
     });
 
-    expect(mockGetLatestCatalogApps).toHaveBeenLastCalledWith(7, 1, 20);
+    expect(mockGetLatestCatalogApps).toHaveBeenLastCalledWith({ minDays: 0, maxDays: 7 }, 1, 20);
 
     await waitFor(() => {
       expect(screen.getByText('App Two')).toBeDefined();
@@ -184,7 +184,7 @@ describe('LatestView component', () => {
       fireEvent.click(widenBtn);
     });
 
-    expect(mockGetLatestCatalogApps).toHaveBeenLastCalledWith(90, 1, 20);
+    expect(mockGetLatestCatalogApps).toHaveBeenLastCalledWith({ minDays: 30, maxDays: 90 }, 1, 20);
   });
 
   it('renders 90d upper-limit guidance text and explore categories button when empty', async () => {

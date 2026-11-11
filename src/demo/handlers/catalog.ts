@@ -226,14 +226,22 @@ export function handleGetLatestCatalogApps(a: InvokeArgs): {
   total: number;
   has_more: boolean;
 } {
+  const rawMin = argNum(a, 'minDays');
+  const rawMax = argNum(a, 'maxDays');
   const rawSince = argNum(a, 'sinceDays');
-  const sinceDays =
-    rawSince !== undefined && Number.isFinite(rawSince) && rawSince > 0
-      ? Math.floor(rawSince)
-      : undefined;
+  const minDays =
+    rawMin !== undefined && Number.isFinite(rawMin) && rawMin >= 0
+      ? Math.floor(rawMin)
+      : 0;
+  const maxDays =
+    rawMax !== undefined && Number.isFinite(rawMax) && rawMax > 0
+      ? Math.floor(rawMax)
+      : (rawSince !== undefined && Number.isFinite(rawSince) && rawSince > 0
+        ? Math.floor(rawSince)
+        : undefined);
 
   let matched = [...summaries];
-  if (sinceDays !== undefined) {
+  if (maxDays !== undefined || minDays > 0) {
     const today = new Date();
     const currentDays = Math.floor(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()) / 86400000);
 
@@ -251,7 +259,7 @@ export function handleGetLatestCatalogApps(a: InvokeArgs): {
       return acc === null || d > acc ? d : acc;
     }, null);
 
-    if (maxItemDays !== null && currentDays - maxItemDays > sinceDays) {
+    if (maxItemDays !== null && currentDays > maxItemDays) {
       baseDays = maxItemDays;
     }
 
@@ -259,7 +267,9 @@ export function handleGetLatestCatalogApps(a: InvokeArgs): {
       const itemDays = parseItemDays(s.added_at);
       if (itemDays === null) return false;
       const diff = baseDays - itemDays;
-      return diff >= -1 && diff <= sinceDays;
+      const lowerOk = minDays > 0 ? diff > minDays : diff >= -1;
+      const upperOk = maxDays !== undefined ? diff <= maxDays : true;
+      return lowerOk && upperOk;
     });
   }
 

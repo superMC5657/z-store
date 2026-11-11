@@ -258,13 +258,32 @@ export async function getCategoryApps(
 /** 最新入库应用分页默认页大小：与发现页/类别页对齐（20/页）。 */
 export const LATEST_APPS_PER_PAGE = 20;
 
+export interface LatestAppsWindow {
+  minDays?: number;
+  maxDays?: number;
+  sinceDays?: number;
+}
+
 export async function getLatestCatalogApps(
-  sinceDays?: number,
+  windowOrSince?: number | LatestAppsWindow,
   page?: number,
   perPage?: number,
 ): Promise<HomeFeedResult> {
   const args: Record<string, unknown> = {};
-  if (sinceDays !== undefined && sinceDays !== null) args.sinceDays = sinceDays;
+  if (typeof windowOrSince === 'number') {
+    args.sinceDays = windowOrSince;
+    args.maxDays = windowOrSince;
+  } else if (windowOrSince && typeof windowOrSince === 'object') {
+    if (windowOrSince.minDays !== undefined && windowOrSince.minDays !== null) {
+      args.minDays = windowOrSince.minDays;
+    }
+    if (windowOrSince.maxDays !== undefined && windowOrSince.maxDays !== null) {
+      args.maxDays = windowOrSince.maxDays;
+    }
+    if (windowOrSince.sinceDays !== undefined && windowOrSince.sinceDays !== null) {
+      args.sinceDays = windowOrSince.sinceDays;
+    }
+  }
   if (page !== undefined && page !== null) args.page = page;
   if (perPage !== undefined && perPage !== null) args.perPage = perPage;
   const raw = await tauriInvoke<HomeFeedRaw>(CMD.getLatestCatalogApps, args);

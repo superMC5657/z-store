@@ -60,15 +60,25 @@ pub fn today_days() -> i64 {
     crate::now_secs().div_euclid(86400)
 }
 
-/// 判定指定 "YYYY-MM-DD" 日期是否在最近 `since_days` 天之内。
-pub fn is_within_days(date_str: &str, since_days: u32) -> bool {
+/// 判定指定 "YYYY-MM-DD" 日期是否在天数区间之内：
+/// - 当 `min_days == 0` 时为 `[-1, max_days]`（允许未来极小抖动，如时区微差 <= 1 天）；
+/// - 当 `min_days > 0` 时为 `(min_days, max_days]`（左开右闭，与更小分段严格互斥去重，避免临界应用在多个分段重复霸榜）。
+pub fn is_within_day_range(date_str: &str, min_days: u32, max_days: u32) -> bool {
     let Some(target_days) = parse_ymd_to_days(date_str) else {
         return false;
     };
     let now = today_days();
     let diff = now - target_days;
-    // 允许未来极小抖动（如时区微差 <= 1 天），并在 since_days 范围内
-    diff >= -1 && diff <= (since_days as i64)
+    if min_days == 0 {
+        diff >= -1 && diff <= (max_days as i64)
+    } else {
+        diff > (min_days as i64) && diff <= (max_days as i64)
+    }
+}
+
+/// 判定指定 "YYYY-MM-DD" 日期是否在最近 `since_days` 天之内（等价于 `is_within_day_range(date_str, 0, since_days)`）。
+pub fn is_within_days(date_str: &str, since_days: u32) -> bool {
+    is_within_day_range(date_str, 0, since_days)
 }
 
 #[cfg(test)]
@@ -102,5 +112,48 @@ mod tests {
         assert_eq!(format_epoch_secs_ymd(0), "1970-01-01");
         // 86400 * 20748 => 2026-10-22
         assert_eq!(format_epoch_secs_ymd(20748 * 86400), "2026-10-22");
+    }
+
+    #[test]
+    fn test_is_within_day_range() {
+        let today = today_days();
+        let make_date = |offset_days: i64| format_epoch_secs_ymd((today - offset_days) * 86400);
+
+        let d_future = make_date(-1);
+        let d_today = make_date(0);
+        let d_5 = make_date(5);
+        let d_7 = make_date(7);
+        let d_8 = make_date(8);
+        let d_20 = make_date(20);
+        let d_30 = make_date(30);
+        let d_31 = make_date(31);
+        let d_90 = make_date(90);
+        let d_91 = make_date(91);
+
+        // 0~7 范围：包含 -1(抖动), 0, 5, 7；排除 8
+        assert!(is_within_day_range(&d_future, 0, 7));
+        assert!(is_within_day_range(&d_today, 0, 7));
+        assert!(is_within_day_range(&d_5, 0, 7));
+        assert!(is_within_day_range(&d_7, 0, 7));
+        assert!(!is_within_day_range(&d_8, 0, 7));
+
+        // 7~30 范围 (7, 30]：排除 0, 5 以及第 7 天（已归属 0~7）；包含 8, 20, 30；排除 31
+        assert!(!is_within_day_range(&d_today, 7, 30));
+        assert!(!is_within_day_range(&d_5, 7, 30));
+        assert!(!is_within_day_range(&d_7, 7, 30));
+        assert!(is_within_day_range(&d_8, 7, 30));
+        assert!(is_within_day_range(&d_20, 7, 30));
+        assert!(is_within_day_range(&d_30, 7, 30));
+        assert!(!is_within_day_range(&d_31, 7, 30));
+
+        // 30~90 范围 (30, 90]：排除 20 以及第 30 天（已归属 7~30）；包含 31, 90；排除 91
+        assert!(!is_within_day_range(&d_20, 30, 90));
+        assert!(!is_within_day_range(&d_30, 30, 90));
+        assert!(is_within_day_range(&d_31, 30, 90));
+        assert!(is_within_day_range(&d_90, 30, 90));
+        assert!(!is_within_day_range(&d_91, 30, 90));
+
+        // 无效日期
+        assert!(!is_within_day_range("invalid", 0, 7));
     }
 }

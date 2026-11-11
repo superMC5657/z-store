@@ -13,6 +13,7 @@ import {
 import { isPlatformLoading } from '../lib/platformFilter';
 import {
   LATEST_APPS_PER_PAGE,
+  LatestAppsWindow,
   getLatestCatalogApps,
 } from '../services/api/catalog';
 import type { AppSummary } from '../types';
@@ -57,15 +58,15 @@ export const LatestView: React.FC<LatestViewProps> = ({
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const loadMoreRef = useRef(() => {});
 
-  const windowDays = (win: LatestTimeWindow): number => {
+  const windowRange = (win: LatestTimeWindow): LatestAppsWindow => {
     switch (win) {
       case '7d':
-        return 7;
+        return { minDays: 0, maxDays: 7 };
       case '30d':
-        return 30;
+        return { minDays: 7, maxDays: 30 };
       case '90d':
       default:
-        return 90;
+        return { minDays: 30, maxDays: 90 };
     }
   };
 
@@ -73,8 +74,8 @@ export const LatestView: React.FC<LatestViewProps> = ({
     loadingRef.current = true;
     setLoading(true);
     setError(false);
-    const sinceDays = windowDays(win);
-    getLatestCatalogApps(sinceDays, page, LATEST_APPS_PER_PAGE).then(
+    const range = windowRange(win);
+    getLatestCatalogApps(range, page, LATEST_APPS_PER_PAGE).then(
       (res) => {
         if (genRef.current !== gen) return;
         setFetchedApps((prev) => {
